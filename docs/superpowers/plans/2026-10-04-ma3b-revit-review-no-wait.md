@@ -18,7 +18,7 @@
 
 *Pure (add-in, promote-check §42).* `StoreyBatch.Entries(pending)` (the picker's entries: FIFO, `Of`'s storey rule), `StoreyBatch.Line(entry, now)` and `Age(createdAt, now)`; `ChangesetTrust.GroupOf(el)` (`"<op ?? create> <kind>"`, the web desk's `whatOf`) and `ChangesetTrust.LedgerOf(reply)`; `ProvenanceStamp.Holds(json, changesetId, guid)`; the new `Engine/UnreportedResults.cs` — `Record`, `Write`/`Read`/`ForKey`/`Delete` under `%AppData%\Sentinel\unreported` (path segments by `ArtefactCache.Safe`, now `internal`), and the words: `Verified(record, found)`, `Outcome(error, applied)`, `Blocked(records)`.
 
-*Revit (scans §43, §39/§41 rewritten; the drill).* `ReviewChangesetsCommand.Execute` opens `ChangesetPickerWindow` at once, checks this model's waiting results against its stamps (API thread) and sends them again (`Retry` → `ReportAll`, pool thread), then lists the entries (`Load`, pool thread); a choice goes through `App.Events.Enqueue(doc, …)` to `Open(UIApplication, …)` (the reach count needs the API thread). `Open` refuses a batch with a waiting result; the window's `DecideRequested` runs `Decide` on a pool thread; `onDone` (the API thread, inside the placement event) only reads the model, writes the records, and hands the reports to `ReportAll`; `Send` puts the outcome on the window's status line and offers Retry report. `ChangesetReviewWindow` gains groups, a status line (`Say`, `Refused`, `Applying`, `Retry` — each callable from any thread) and never closes itself.
+*Revit (scans §43, §39/§41 rewritten; the drill).* `ReviewChangesetsCommand.Execute` opens `ChangesetPickerWindow` at once, checks this model's waiting results against its stamps (API thread) and sends them again (`Retry` → `ReportAll`, pool thread), then lists the entries (`Load`, pool thread); a choice goes through `App.Events.Enqueue(doc, …)` to `Open(UIApplication, …)` (the reach count needs the API thread). `Open` refuses a batch with a waiting result; the window's `DecideRequested` runs `Decide` on a pool thread; `onDone` (the API thread, inside the placement event) only reads the model, writes the records, and hands the reports to `ReportAll`; `Send` puts the outcome on the window's status line and offers Retry report. `ChangesetReviewWindow` gains groups, a status line (`Say`, `Refused`, `Applying`, `Retry`, `Reopen`, `Lock` — each callable from any thread), `Gone` (C2) and never closes itself.
 
 *Bridge.* `changesets-store.mjs reportResult` returns `{ ...updated, ledger: ledgerRef(row) }` (the `changeset_applied` row it already writes); the stored doc is unchanged.
 
@@ -48,10 +48,11 @@
 **Dry run (planner, 2026-10-04).** A detached worktree of `feature/ma3b-revit-desk` at `fed78cb` in the session's scratchpad (`scratchpad/ma3b/dry`, `WebApp/node_modules` linked in as a junction; removed afterwards — never the repository). Every code step of **Tasks 1–3** was applied in order (the brief asked for Tasks 1–2; Task 3 was applied too, so no step of this plan is unbuilt code), each task's "see it fail" run made, then its code and its "see it pass" run. Task 4's replace was matched once. The totals in the steps are those runs':
 - Base totals, measured first: `vitest run bridge/changesets-store.test.mjs` `1 passed (1)` file, `54 passed (54)`; `promote-check` `695/695`.
 - Task 1: `1 failed | 54 passed (55)` → `55 passed (55)`; with the review and logic tests `3 passed (3)` files, `167 passed (167)`; `vitest run bridge` `91 passed (91)` files, `1854 passed | 1 skipped (1855)`; `ids-cases.json` rewritten LF-only with no other change and restored.
-- Task 2: `promote-check` fails to compile (`CS2001: Source file '…\SentinelAddin\Engine\UnreportedResults.cs' could not be found`) → `714/714 checks pass`; `session-check` `47/47`, `artefact-cache-check` `55/55`.
-- Task 3: `710/724 checks pass` (the 4 rewritten scans of §39/§41 and the 10 of §43 fail on the old code) → `724/724 checks pass`; builds 2022 `0 Error(s)` `3 Warning(s)`, 2023 `0`/`3`, 2024 `0`/`5`, 2025 `0`/`1`, 2026 `0`/`1`, 2027 `0`/`3` — no warning in a file MA-3b touches (master's own; a first draft's `CS4014` on `window.Dispatcher.BeginInvoke` is why that line starts with `_ =`).
-- Task 4 (final): the full `npx vitest run` `143 passed (143)` files, `2319 passed | 1 skipped (2320)`; the check projects that compile a changed file pass as on master — `artefact-cache-check` `55/55`, `gate-check` `219/219`, `ghost-p2-check` `107/107`, `ghost-standards-check` `177/177`, `publish-check` `124/124`, `roi-check` `50/50`, `session-check` `47/47`, `promote-check` `724/724`.
-- After the plan was written, a second detached worktree at `fed78cb` (`scratchpad/ma3b/apply`) received Tasks 1–4 **from this document's text** by a script that reads its `Create`, `Replace the whole of` and replace blocks as an implementer does (23 steps; each replace matched its text exactly once): every file it touched was identical, line endings aside, to the dry run's; there `promote-check` `724/724` and the 2024 build `0`/`5`. Both worktrees were removed afterwards.
+- Task 2: `promote-check` fails to compile (`CS2001: Source file '…\SentinelAddin\Engine\UnreportedResults.cs' could not be found`) → `716/716 checks pass`; `session-check` `47/47`, `artefact-cache-check` `55/55`.
+- Task 3: `711/730 checks pass` (the 4 rewritten scans of §39/§41, MA-1a's rewritten scan in `PlacementBlock.cs` and the 14 of §43 fail on the old code) → `730/730 checks pass`; builds 2022 `0 Error(s)` `3 Warning(s)`, 2023 `0`/`3`, 2024 `0`/`5`, 2025 `0`/`1`, 2026 `0`/`1`, 2027 `0`/`3` — no warning in a file MA-3b touches (master's own; a first draft's `CS4014` on `window.Dispatcher.BeginInvoke` is why that line starts with `_ =`).
+- Task 4 (final): the full `npx vitest run` `143 passed (143)` files, `2319 passed | 1 skipped (2320)`; the check projects that compile a changed file pass as on master — `artefact-cache-check` `55/55`, `gate-check` `219/219`, `ghost-p2-check` `107/107`, `ghost-standards-check` `177/177`, `publish-check` `124/124`, `roi-check` `50/50`, `session-check` `47/47`, `promote-check` `730/730`.
+- (Before the review amendments) after the plan was written, a second detached worktree at `fed78cb` (`scratchpad/ma3b/apply`) received Tasks 1–4 **from this document's text** by a script that reads its `Create`, `Replace the whole of` and replace blocks as an implementer does (23 steps; each replace matched its text exactly once): every file it touched was identical, line endings aside, to the dry run's; there `promote-check` `724/724` and the 2024 build `0`/`5`. Both worktrees were removed afterwards.
+- **Review amendments (amender, 2026-10-04).** The totals above are the amended plan's: a fresh detached worktree of `feature/ma3b-revit-desk` at `0308898` (`scratchpad/ma3b/dry`, `node_modules` as a junction, removed afterwards — the junction first) received Tasks 1–4 **from this document's amended text** by a script that reads its `Create`, `Replace the whole of`, `In … replace` and `and replace` blocks (26 steps, each replace matched exactly once): base `promote-check` `695/695`; Task 1 `3 passed (3)` files, `167 passed (167)`; Task 2 `CS2001` → `716/716`, `session-check` `47/47`, `artefact-cache-check` `55/55`; Task 3 `711/730` → `730/730`, builds 2022–2027 `0` errors with `3/3/5/1/1/3` warnings (none in a file MA-3b touches); Task 4 the eight check projects as listed, the full vitest `143 passed (143)` files, `2319 passed | 1 skipped (2320)`. The first amended run found two older scans that name text MA-3b changes — MA-1a's NotRun words (`PlacementBlock.cs`, now rewritten in Task 3 Step 1) and §19's `r.Box.IsChecked = ChangesetTrust.PreTick(_cs, r.El)` (kept by the code: Tick suggested skips a locked row with `.Where(x => x.Box.IsEnabled)`).
 - Not run: the drill (Revit and the founder) and the commit commands.
 
 ---
@@ -76,6 +77,21 @@ The plan builds the default of each. None needs an answer before the work starts
 - **S4 (MA-3a Next, "a reason per decline in Revit (the result's optional `reasons {guid: text}`)").** MA-3b gives Decline all its required reason (the result's `note`); a reason per declined ghost needs the bridge's validator and storage, and is MA-3b2.
 - **S5 (design `:1106`, "Rows grouped by storey and kind … accept a storey in one batch").** The storey is the picker's entry (a Promote storey's parts open as one window, StoreyBatch); the window groups by kind as the web desk does (`whatOf`: `"<op> <kind>"`); a storey is accepted in one batch with Tick group / Tick suggested and one Apply (one Undo, MA-2d).
 
+## Review amendments (BINDING — the critic's findings, 2026-10-04; each is in the task text it changes. C1–C7 were important, M1–M5 minor; none critical, none rejected)
+
+- **C1 — a result the bridge already took is landed, never "refused".** `reportResult` writes the doc (CAS) before its audit row, so a lost reply (the 120 s timeout, Revit closed mid-report, an audit that threw) leaves a record whose retry reads `409 changeset is partially_applied …`. In `ReportAll`, a `Bridge 409` on a record with applied elements re-reads the changeset with the existing `ChangesetClient.FetchOne` (the same pool thread; no new request — Ma2dWiring's counts hold); `UnreportedResults.AlreadyTaken(record, fresh)` returns the words when the changeset is no longer proposed and its stored `result.applied` names exactly the record's ghosts — then the record is deleted, remembered for the undo watcher and counted as landed: `"<name>": the bridge had already taken it (its reply did not reach Revit) — <status>; the bridge named no ledger row for it here.` Otherwise the 409 stands. `ChangesetDto` gains `Result` (`JsonElement?`, read as it comes). *Amender:* `AlreadyTaken` returns the words or null (not a bool) so §42 checks the decision and the words together. §42 +1, §43 +1 (with C6).
+- **C2 — words for a closed window are never lost, and × before Apply is a cancel.** The window sets `Gone` on `Closed`. `Decide` checks it immediately before `window.Applying("Applying in Revit…")` (and before Decline all's) — set: nothing is raised (nothing declined), the Doctor log says `Review AI Proposals: the window was closed before Apply ran — nothing was placed.` `Send` and `onDone` speak through `Tell`: the window while it is open; once it is gone, the Doctor log, and for a result (not an interim "…Reporting" line) a TaskDialog through `App.Events.Enqueue(doc, "say the review's result", …)`. *Amender:* `Enqueue` already writes its refusal to the Doctor log (`RevitEventHub.cs:33`), so `onRefused` is a no-op rather than logging the words twice. §43 +1 (with M3).
+- **C3 — "Go back" gives Apply back; a late web decline is locked; no words send the person into Busy.** `Reopen(words)` (any thread) clears `_applied` and re-enables Apply: `NotRun` uses it with `…Nothing was placed; the proposals are still pending — change the ticks or press Apply again.` `Lock(guids)` unticks and disables rows; the `DeclinedTicked` branch locks the hit rows before `Refused`, and `DeclinedTicked`'s last sentence becomes `Nothing was created. They are unticked here and cannot be ticked — press Apply again for the rest, or close this window.` (only the review uses it; §41's check follows). *Amender:* Tick suggested skips a disabled row (it would re-tick a locked one); `Verified`'s "some" words say `then close this window and run Review AI Proposals again`, and the picker's another-model words `close this list, open that model and run …` (the picker holds the guard too). `Blocked`'s words are unchanged — Promote's `Open` also shows them with no window open. MA-1a's scan of the old NotRun words (`PlacementBlock.cs`) is rewritten. §43 +1.
+- **C4 — a model's path is compared without case.** `mine`/`away` in `Execute` use `string.Equals(r.Doc, here, StringComparison.OrdinalIgnoreCase)`; §43's scan says so and refuses `r.Doc == here`.
+- **C5 — R-2 proves the 120 s wait and the report's own hold** (the drill's R-2, binding): the time from **Place anyway** to the words is recorded (pass: ≥ 115 s; under 100 s the POST failed on a pooled socket — press **Retry report** and measure that wait instead); then **Retry report** again, close the window with × while it waits, and press Review AI Proposals — Busy proves the guard is held by the report alone; the final words arrive as a TaskDialog (C2), closed by `WindowPattern.Close`. UNSURE 7 added (net48's pooled socket).
+- **C6 — one round waits at most once.** After the first report that `Outcome` keeps (no answer, a timeout, a 5xx, a 401/403), `ReportAll` sends none of the rest: each goes to `Left` with `UnreportedResults.NotSent(applied)` — `not sent: the first report of this round did not land.` plus the kept-record line — so `Busy`'s "two minutes at most" holds for a storey. *Amender:* "did not land" rather than "did not answer" — true for a 403 too. §42 +1 (with M4).
+- **C7 — the picker says what it waits on.** When this model has waiting results, `Execute` sets the picker's status right after `Show` (the API thread is the picker's): `Checking this model and sending <n> result(s) it applied that the bridge has not taken (the bridge has up to two minutes to answer)…`. *Amender:* in `Execute`, not `Load` — no new parameter, the same moment. §43 +1 (with M2).
+- **M1 — one lock on StoreyBatch's mixed set.** `Of` holds `lock (Mixed)` (its body moved to `OfLocked`); the ponytail risk line is replaced by a stated one: listing marks a mixed storey's parts, as opening one did.
+- **M2 — Decline all without a reason is refused at once.** The window refuses before `DecideRequested` (no bridge call) with `ChangesetTrust.DeclineNeedsReason`; `Decide` keeps the check as the backstop, with the same constant.
+- **M3 — a request Revit did not take gives Apply back.** The `BeginInvoke` lambda is in `try`; `evt.Raise()` answering `Denied` or `TimedOut`, or a throw, unhooks `onDone` and `Reopen`s with the words. *Amender:* not `!= Accepted` — `Pending` means an earlier raise will still run, and giving Apply back then could place twice.
+- **M4 — a timeout says what it is.** `Outcome` reads an error that is not the bridge's (`Bridge …`) and contains `canceled` as `the bridge did not answer within 120 s` (net48 `A task was canceled.`, net8 `…canceled due to the configured HttpClient.Timeout…`).
+- **M5 — the founder's e-mail never reaches a command line.** The founder writes the membership body to a scratch file; the runner posts it with `@<file>`, prints only the status and the `user_id`, and deletes the file.
+
 ## Engineering decisions (taken here; a reviewer may challenge them)
 
 | # | Decision | Why / ceiling |
@@ -86,10 +102,10 @@ The plan builds the default of each. None needs an answer before the work starts
 | E4 | A record is written only for a changeset with applied elements; a decline that did not land lives in the window's memory for Retry report | A decline changes nothing in the model; losing it (the window closed) leaves the changeset proposed, said: "Nothing in the model changed; Retry report sends it again" |
 | E5 | The model's identity is `Publisher.CentralPath(doc) ?? PathName ?? Title` | A new local of the same central is the same model; a stale local's elements that never reached the central are "not in this model" — the record removed, said (Risks) |
 | E6 | Before a retry: every applied element in the model with a stamp naming the changeset and the proposal → send; none → remove the record, said; some → keep it, said with its path | All-or-nothing placement (one group) makes "some" a person's deletion after Apply; never a guess |
-| E7 | A report that fails: 400/404/409 — the record removed with the bridge's words (it never heals with the same body); 401/403 — kept, "sign in"; anything else — kept | Same split as `Report`'s no-retry list |
+| E7 | A report that fails: 400/404/409 — the record removed with the bridge's words (it never heals with the same body), except a 409 whose stored result names exactly the record's ghosts, which is landed (C1); 401/403 — kept, "sign in"; anything else — kept; after the first kept failure the rest of the round wait (C6) | Same split as `Report`'s no-retry list |
 | E8 | `Report` (with its dialog) stays for Ghost Builder (`GhostChangesetBuild.cs:153,653`), unchanged | Ghost Builder's own waits are MA-3b4 |
 | E9 | `ArtefactCache.Safe` becomes `internal` and is reused for the record's path segments; promote-check compiles `ArtefactCache.cs` | One sanitiser |
-| E10 | Apply is pressed once per window (`_applied`); a refusal before anything ran gives Apply back | A second Apply in the same window could place the changeset twice while its report is still out |
+| E10 | Apply is pressed once per window (`_applied`); a refusal before anything ran gives Apply back, and so do a "Go back" inside the placement and a request Revit did not take (`Reopen` — C3, M3); × before the raise is a cancel (C2) | A second Apply in the same window could place the changeset twice while its report is still out |
 
 ---
 
@@ -103,8 +119,8 @@ The plan builds the default of each. None needs an answer before the work starts
 | `SentinelAddin/GhostBuilder/StoreyBatch.cs` | 2 | `Entries`, `Line`, `Age` |
 | `SentinelAddin/Coordination/ChangesetClient.cs` | 2 | `ChangesetTrust.GroupOf`, `ChangesetTrust.LedgerOf` |
 | `SentinelAddin/Engine/ProvenanceStamp.cs` | 2 | `Holds` |
-| `tools/promote-check/Ma3bDesk.cs` (new), `Check.cs`, `promote-check.csproj` | 2, 3 | Sections 42 (19 checks) and 43 (10 scans) |
-| `tools/promote-check/Ma2dWiring.cs`, `Ma3aReview.cs` | 3 | §39 and §41's scans of the review, rewritten with it |
+| `tools/promote-check/Ma3bDesk.cs` (new), `Check.cs`, `promote-check.csproj` | 2, 3 | Sections 42 (21 checks) and 43 (14 scans) |
+| `tools/promote-check/Ma2dWiring.cs`, `Ma3aReview.cs`, `PlacementBlock.cs` | 2, 3 | §39 and §41's scans of the review, rewritten with it; §41's `DeclinedTicked` words (C3, Task 2); MA-1a's scan of NotRun's words (C3) |
 | `SentinelAddin/UI/ChangesetPickerWindow.cs` (new) | 3 | The picker |
 | `SentinelAddin/UI/ChangesetReviewWindow.cs` | 3 | Groups, the status line, Retry report; never closes itself |
 | `SentinelAddin/Commands.ReviewChangesets.cs` | 3 | The picker's entry, `Load`, `Retry`, `ReportAll`, `Open(UIApplication, …)`, `Decide` off the thread, `onDone` record-first |
@@ -197,15 +213,16 @@ git commit -m "feat(bridge): MA-3b - a changeset result answers its changeset_ap
 
 **Files:**
 - Create `SentinelAddin/Engine/UnreportedResults.cs`, `tools/promote-check/Ma3bDesk.cs`
-- Modify `SentinelAddin/Engine/ArtefactCache.cs`, `SentinelAddin/GhostBuilder/StoreyBatch.cs`, `SentinelAddin/Coordination/ChangesetClient.cs`, `SentinelAddin/Engine/ProvenanceStamp.cs`, `tools/promote-check/Check.cs`, `tools/promote-check/promote-check.csproj`
+- Modify `SentinelAddin/Engine/ArtefactCache.cs`, `SentinelAddin/GhostBuilder/StoreyBatch.cs`, `SentinelAddin/Coordination/ChangesetClient.cs`, `SentinelAddin/Engine/ProvenanceStamp.cs`, `tools/promote-check/Check.cs`, `tools/promote-check/promote-check.csproj`, `tools/promote-check/Ma3aReview.cs` (C3: `DeclinedTicked`'s last sentence)
 
 **Interfaces:**
 - Consumes: `StoreyBatch.Of`/`Merge` (MA-2d), `ChangesetTrust.DeclinedOnWeb` (MA-3a), `ElementVerdictDto.Status`, `AppliedEntry`, `ProvenanceStamp.Json`, `ArtefactCache.Safe`; the bridge's `ledger` (Task 1).
 - Produces:
   - `StoreyBatch.Entries(IReadOnlyList<ChangesetDto> pending) → List<List<ChangesetDto>>`; `StoreyBatch.Line(IReadOnlyList<ChangesetDto> entry, DateTime nowUtc) → string`; `StoreyBatch.Age(string createdAt, DateTime nowUtc) → string`.
-  - `ChangesetTrust.GroupOf(ChangesetElementDto) → string`; `ChangesetTrust.LedgerOf(string reply) → string` (`"ledger #1731"` or `"the bridge named no ledger row"`).
+  - `ChangesetTrust.GroupOf(ChangesetElementDto) → string`; `ChangesetTrust.LedgerOf(string reply) → string` (`"ledger #1731"` or `"the bridge named no ledger row"`); `ChangesetTrust.DeclineNeedsReason` (const, M2); `ChangesetDto.Result` (`JsonElement?`, C1); `ChangesetTrust.DeclinedTicked`'s last sentence now `They are unticked here and cannot be ticked — press Apply again for the rest, or close this window.` (C3).
+  - `StoreyBatch.Of` holds a lock on its set of mixed parts (M1).
   - `ProvenanceStamp.Holds(string json, string changesetId, string guid) → bool`.
-  - `UnreportedResults.Record {Key, ChangesetId, Name, Doc, Applied, Rejected, Note, ReviewRev, Undo, At}`; `UnreportedResults.Root` (internal), `PathFor(key, id)`, `Write(Record) → bool`, `Read(key, id) → Record|null`, `ForKey(key) → List<Record>`, `Delete(key, id)`, `Verified(Record, int found) → (bool Report, bool Drop, string Words)`, `Outcome(string error, int applied) → (bool Drop, string Words)`, `Blocked(IEnumerable<Record>) → string`.
+  - `UnreportedResults.Record {Key, ChangesetId, Name, Doc, Applied, Rejected, Note, ReviewRev, Undo, At}`; `UnreportedResults.Root` (internal), `PathFor(key, id)`, `Write(Record) → bool`, `Read(key, id) → Record|null`, `ForKey(key) → List<Record>`, `Delete(key, id)`, `Verified(Record, int found) → (bool Report, bool Drop, string Words)`, `Outcome(string error, int applied) → (bool Drop, string Words)` (a timeout said as `the bridge did not answer within 120 s` — M4), `NotSent(int applied) → string` (C6), `AlreadyTaken(Record, ChangesetDto fresh) → string|null` (C1: the words when the bridge already holds the result, else null), `Blocked(IEnumerable<Record>) → string`.
 
 - [ ] **Step 1: The failing checks.** Create `tools/promote-check/Ma3bDesk.cs`:
 
@@ -306,7 +323,7 @@ static partial class Check
            "a result whose every element still carries its stamp is sent again (a decline, which placed nothing, too)");
         Ok(!gone.Report && gone.Drop && gone.Words == "\"Promote (DD) · GR-FFL\": not in this model as applied (undone, or the model was closed without saving) — nothing reported; the changeset stays proposed and opens for review again. This PC's record is removed.",
            "a result none of whose elements carries its stamp any more is never reported as applied — said, and its record removed");
-        Ok(!some.Report && !some.Drop && some.Words == $"\"Promote (DD) · GR-FFL\": 1 of 2 element(s) Apply placed carry its stamp in this model — nothing reported, and the record is kept ({UnreportedResults.PathFor("k", "c")}): check the model (finish the Undo, or delete what is left), then run Review AI Proposals again.",
+        Ok(!some.Report && !some.Drop && some.Words == $"\"Promote (DD) · GR-FFL\": 1 of 2 element(s) Apply placed carry its stamp in this model — nothing reported, and the record is kept ({UnreportedResults.PathFor("k", "c")}): check the model (finish the Undo, or delete what is left), then close this window and run Review AI Proposals again.",
            "a result only part of which is in the model is neither reported nor forgotten — said, with the record's path");
 
         var refused = UnreportedResults.Outcome("Bridge 409: {\"message\":\"changeset is partially_applied — a result can be reported exactly once, from proposed\"}", 2);
@@ -323,6 +340,32 @@ static partial class Check
         var waiting = new UnreportedResults.Record { Key = "k", ChangesetId = "c", Name = "Promote (DD) · GR-FFL", Doc = @"C:\models\a.rvt", At = "2026-10-04T12:00:00Z" };
         Ok(UnreportedResults.Blocked(new[] { waiting }) == "\"Promote (DD) · GR-FFL\" was applied in C:\\models\\a.rvt (2026-10-04T12:00:00Z) and the bridge has not taken its result yet — it is not opened for review again, so nothing is applied twice. Run Review AI Proposals in that model: it checks the model and reports it first.",
            "a changeset with a waiting result is not opened, and the words say where it was applied and what reports it");
+
+        // Review C1: a 409 on a result the bridge already holds (its reply was lost: the 120 s timeout, Revit closed mid-report, or the
+        // audit row threw after the doc was written) is landed — never "refused" — when the stored result applied exactly the record's ghosts.
+        var held = new UnreportedResults.Record
+        {
+            Key = "k", ChangesetId = "c", Name = "Promote (DD) · GR-FFL",
+            Applied = new List<AppliedEntry> { new AppliedEntry { ProposalGuid = "a", RevitUniqueId = "u-a" }, new AppliedEntry { ProposalGuid = "b", RevitUniqueId = "u-b" } },
+        };
+        ChangesetDto Stored(string status, string result) => System.Text.Json.JsonSerializer.Deserialize<ChangesetDto>($"{{\"id\":\"c\",\"status\":\"{status}\",\"result\":{result}}}");
+        const string ab = "{\"applied\":[{\"proposal_guid\":\"b\",\"revit_element_id\":2},{\"proposal_guid\":\"a\",\"revit_element_id\":1}],\"rejected\":[]}";
+        Ok(UnreportedResults.AlreadyTaken(held, Stored("partially_applied", ab)) == "\"Promote (DD) · GR-FFL\": the bridge had already taken it (its reply did not reach Revit) — partially_applied; the bridge named no ledger row for it here."
+           && UnreportedResults.AlreadyTaken(held, Stored("proposed", "null")) == null
+           && UnreportedResults.AlreadyTaken(held, Stored("applied", "{\"applied\":[{\"proposal_guid\":\"a\",\"revit_element_id\":1}]}")) == null
+           && UnreportedResults.AlreadyTaken(held, Stored("withdrawn", "null")) == null && UnreportedResults.AlreadyTaken(held, null) == null
+           && UnreportedResults.AlreadyTaken(new UnreportedResults.Record { Key = "k", ChangesetId = "c", Name = "x" }, Stored("declined", "{\"applied\":[]}")) == null,
+           "review C1: a result the bridge already holds with exactly the record's applied ghosts is taken (said); a proposed, withdrawn or different result, or no applied ghost, is not");
+
+        // Review M4, C6: a write that timed out says so; after the first report of a round that did not land, the rest are not sent.
+        var net48 = UnreportedResults.Outcome("A task was canceled.", 2);
+        var net8 = UnreportedResults.Outcome("The request was canceled due to the configured HttpClient.Timeout of 120 seconds elapsing.", 0);
+        Ok(!net48.Drop && net48.Words.StartsWith("not reported: the bridge did not answer within 120 s\nThe result is kept on this PC", StringComparison.Ordinal)
+           && !net8.Drop && net8.Words == "not reported: the bridge did not answer within 120 s\nNothing in the model changed; Retry report sends it again."
+           && UnreportedResults.Outcome("Bridge 409: {\"message\":\"canceled\"}", 0).Words.StartsWith("the bridge refused it", StringComparison.Ordinal)
+           && UnreportedResults.NotSent(2) == "not sent: the first report of this round did not land.\nThe result is kept on this PC and sent again by Retry report or the next Review AI Proposals; this changeset is not opened for review until the bridge takes it, so nothing is applied twice."
+           && UnreportedResults.NotSent(0) == "not sent: the first report of this round did not land.\nNothing in the model changed; Retry report sends it again.",
+           "review M4, C6: a report that timed out reads \"did not answer within 120 s\" (net48's and net8's words; a bridge's own words are kept); a result not sent after the round's first failure is kept, said");
 
         const string stamp = "{\"v\":2,\"changeset_id\":\"c2\",\"source\":\"promote\",\"proposal_guids\":[\"a\",\"x\"],\"unique_id_at_placement\":\"u-a\",\"changeset_ids\":[\"c1\",\"c2\"]}";
         Ok(ProvenanceStamp.Holds(stamp, "c2", "a") && ProvenanceStamp.Holds(stamp, "c1", "x") && !ProvenanceStamp.Holds(stamp, "c3", "a") && !ProvenanceStamp.Holds(stamp, "c2", "z")
@@ -360,6 +403,18 @@ with:
     <!-- MA-3b (AI-2): a result Revit applied and has not reported, kept on this PC; its path segments are the artefact cache's -->
     <Compile Include="..\..\SentinelAddin\Engine\UnreportedResults.cs" />
     <Compile Include="..\..\SentinelAddin\Engine\ArtefactCache.cs" />
+```
+
+In `tools/promote-check/Ma3aReview.cs` (§41 — review amendment C3: a late web decline is unticked and locked in the window that stays open, so its words no longer send the person to a second Review AI Proposals, which reads Busy), replace:
+
+```csharp
+Nothing was created. Run Review AI Proposals again: they open unticked, with the reason.",
+```
+
+with:
+
+```csharp
+Nothing was created. They are unticked here and cannot be ticked — press Apply again for the rest, or close this window.",
 ```
 
 - [ ] **Step 2: See it fail.** From the repo root: `dotnet run --project tools/promote-check`
@@ -465,7 +520,7 @@ namespace Sentinel.Engine
             if (found == total) return (true, false, null);
             if (found == 0)
                 return (false, true, $"\"{r.Name}\": not in this model as applied (undone, or the model was closed without saving) — nothing reported; the changeset stays proposed and opens for review again. This PC's record is removed.");
-            return (false, false, $"\"{r.Name}\": {found} of {total} element(s) Apply placed carry its stamp in this model — nothing reported, and the record is kept ({PathFor(r.Key, r.ChangesetId)}): check the model (finish the Undo, or delete what is left), then run Review AI Proposals again.");
+            return (false, false, $"\"{r.Name}\": {found} of {total} element(s) Apply placed carry its stamp in this model — nothing reported, and the record is kept ({PathFor(r.Key, r.ChangesetId)}): check the model (finish the Undo, or delete what is left), then close this window and run Review AI Proposals again.");
         }
 
         /// <summary>A report that did not land (<paramref name="error"/> as ChangesetClient says it): whether the record goes, and the words.
@@ -474,13 +529,36 @@ namespace Sentinel.Engine
         {
             var err = string.IsNullOrWhiteSpace(error) ? "the bridge did not answer" : error;
             bool Is(params string[] codes) => codes.Any(c => err.StartsWith("Bridge " + c, StringComparison.Ordinal));
+            // Review M4: the 120 s write timeout reads "A task was canceled." (net48) or "…canceled due to the configured HttpClient.Timeout…"
+            // (net8) — said as what it is; a bridge's own words are never rewritten.
+            if (!err.StartsWith("Bridge ", StringComparison.Ordinal) && err.IndexOf("canceled", StringComparison.OrdinalIgnoreCase) >= 0)
+                err = "the bridge did not answer within 120 s";
             if (Is("400", "404", "409"))
                 return (true, $"the bridge refused it (retrying cannot fix this): {err}" +
                               (applied > 0 ? $"\nThis PC's record is removed; the {applied} element(s) Apply placed are still in this model — check the changeset's status on the bridge before any re-review." : ""));
-            var kept = applied > 0
-                ? "\nThe result is kept on this PC and sent again by Retry report or the next Review AI Proposals; this changeset is not opened for review until the bridge takes it, so nothing is applied twice."
-                : "\nNothing in the model changed; Retry report sends it again.";
-            return (false, $"not reported: {err}" + (Is("401", "403") ? "\nSign in (Standards ▸ Sign in) as a contributor on this project, then press Retry report." : "") + kept);
+            return (false, $"not reported: {err}" + (Is("401", "403") ? "\nSign in (Standards ▸ Sign in) as a contributor on this project, then press Retry report." : "") + Kept(applied));
+        }
+
+        /// <summary>Review C6: a result not sent because the round's first report did not land (each waits up to 120 s) — kept, said.</summary>
+        public static string NotSent(int applied) => "not sent: the first report of this round did not land." + Kept(applied);
+
+        private static string Kept(int applied) => applied > 0
+            ? "\nThe result is kept on this PC and sent again by Retry report or the next Review AI Proposals; this changeset is not opened for review until the bridge takes it, so nothing is applied twice."
+            : "\nNothing in the model changed; Retry report sends it again.";
+
+        /// <summary>Review C1: the words when the bridge already holds this result — a 409 whose stored changeset (<paramref name="fresh"/>,
+        /// re-read) is no longer proposed and applied exactly the record's ghosts: its earlier report landed and the reply was lost (the 120 s
+        /// timeout, Revit closed mid-report, or the audit row threw after the doc was written). Null otherwise — then the 409 stands.</summary>
+        public static string AlreadyTaken(Record r, ChangesetDto fresh)
+        {
+            if ((r?.Applied?.Count ?? 0) == 0 || fresh?.Status == null || fresh.Status == "proposed") return null;
+            if (fresh.Result is not { ValueKind: JsonValueKind.Object } res || !res.TryGetProperty("applied", out var a) || a.ValueKind != JsonValueKind.Array) return null;
+            var took = new HashSet<string>(a.EnumerateArray()
+                .Select(x => x.ValueKind == JsonValueKind.Object && x.TryGetProperty("proposal_guid", out var g) && g.ValueKind == JsonValueKind.String ? g.GetString() : null)
+                .Where(g => g != null), StringComparer.Ordinal);
+            return took.SetEquals(r.Applied.Select(x => x.ProposalGuid))
+                ? $"\"{r.Name}\": the bridge had already taken it (its reply did not reach Revit) — {fresh.Status}; the bridge named no ledger row for it here."
+                : null;
         }
 
         /// <summary>Why a changeset is not opened for review: its result waits on this PC.</summary>
@@ -569,6 +647,28 @@ with:
     // Review C13: the ids of Promote parts that were pending when their storey had a part waiting twice or missing.
 ```
 
+and replace (review amendment M1 — the picker lists entries on a pool thread while Promote may call `Of` on Revit's: one lock on the one set):
+
+```csharp
+    public static List<ChangesetDto> Of(IEnumerable<ChangesetDto> pending, ChangesetDto first)
+    {
+        var alone = new List<ChangesetDto> { first };
+```
+
+with:
+
+```csharp
+    public static List<ChangesetDto> Of(IEnumerable<ChangesetDto> pending, ChangesetDto first)
+    {
+        // MA-3b review M1: the picker's Entries call this on a pool thread while Promote may call it on Revit's — Mixed is one set.
+        lock (Mixed) return OfLocked(pending, first);
+    }
+
+    private static List<ChangesetDto> OfLocked(IEnumerable<ChangesetDto> pending, ChangesetDto first)
+    {
+        var alone = new List<ChangesetDto> { first };
+```
+
 In `SentinelAddin/Coordination/ChangesetClient.cs`, replace:
 
 ```csharp
@@ -595,7 +695,43 @@ with:
         catch (JsonException) { return "the bridge named no ledger row"; }
     }
 
+    /// <summary>MA-3b (AI-5, review M2): Decline all without a reason — said by the window at once and by the command as the backstop.</summary>
+    public const string DeclineNeedsReason = "Nothing is ticked, so this declines every ghost — a decline needs a reason: type it in the note (it is recorded with the result), then press Decline all.";
+
     /// <summary>The changeset's source as the review shows it: a claim is said to be one.</summary>
+```
+
+and replace (review amendment C3 — the window that stays open unticks and locks a late decline; a second Review AI Proposals would read Busy):
+
+```csharp
+            "\n\nNothing was created. Run Review AI Proposals again: they open unticked, with the reason.";
+```
+
+with:
+
+```csharp
+            "\n\nNothing was created. They are unticked here and cannot be ticked — press Apply again for the rest, or close this window.";
+```
+
+and replace (review amendment C1 — the stored result, read only to tell a lost reply from a refusal):
+
+```csharp
+    [JsonPropertyName("exceptions")] public List<ExceptionRowDto> Exceptions { get; set; } = new();
+}
+
+public sealed class AppliedEntry
+```
+
+with:
+
+```csharp
+    [JsonPropertyName("exceptions")] public List<ExceptionRowDto> Exceptions { get; set; } = new();
+    /// <summary>MA-3b review C1: the stored result as the bridge holds it (null while proposed) — read as it comes, so an odd value never
+    /// breaks reading the changeset; UnreportedResults.AlreadyTaken reads its applied ghosts.</summary>
+    [JsonPropertyName("result")] public JsonElement? Result { get; set; }
+}
+
+public sealed class AppliedEntry
 ```
 
 In `SentinelAddin/Engine/ProvenanceStamp.cs`, replace:
@@ -627,13 +763,13 @@ with:
 ```
 
 - [ ] **Step 4: See it pass.** From the repo root: `dotnet run --project tools/promote-check`
-Expected: `714/714 checks pass` (19 new, under `MA-3b — the picker, the groups, and the result that waits on this PC (AI-2, AI-5)`). Then `dotnet run --project tools/session-check` → `47/47 checks pass` (it compiles `ChangesetClient.cs`) and `dotnet run --project tools/artefact-cache-check` → `55/55 checks pass` (it compiles `ArtefactCache.cs`).
+Expected: `716/716 checks pass` (21 new, under `MA-3b — the picker, the groups, and the result that waits on this PC (AI-2, AI-5)`). Then `dotnet run --project tools/session-check` → `47/47 checks pass` (it compiles `ChangesetClient.cs`) and `dotnet run --project tools/artefact-cache-check` → `55/55 checks pass` (it compiles `ArtefactCache.cs`).
 
 - [ ] **Step 5: Commit.**
 
 ```bash
-git add SentinelAddin/Engine/UnreportedResults.cs SentinelAddin/Engine/ArtefactCache.cs SentinelAddin/GhostBuilder/StoreyBatch.cs SentinelAddin/Coordination/ChangesetClient.cs SentinelAddin/Engine/ProvenanceStamp.cs tools/promote-check/Ma3bDesk.cs tools/promote-check/Check.cs tools/promote-check/promote-check.csproj
-git commit -m "feat(addin): MA-3b - pure: the picker's entries and lines (a Promote storey as one, age, source, verdict counts, web declines), the window's groups (the desk's whatOf), the ledger line, the applied-unreported record on this PC and the stamp check before a retry (promote-check 42)" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git add SentinelAddin/Engine/UnreportedResults.cs SentinelAddin/Engine/ArtefactCache.cs SentinelAddin/GhostBuilder/StoreyBatch.cs SentinelAddin/Coordination/ChangesetClient.cs SentinelAddin/Engine/ProvenanceStamp.cs tools/promote-check/Ma3bDesk.cs tools/promote-check/Check.cs tools/promote-check/promote-check.csproj tools/promote-check/Ma3aReview.cs
+git commit -m "feat(addin): MA-3b - pure: the picker's entries and lines (a Promote storey as one, age, source, verdict counts, web declines), the window's groups (the desk's whatOf), the ledger line, the applied-unreported record on this PC and the stamp check before a retry, a result the bridge already took told from a refusal, a timeout said, a lock on StoreyBatch's mixed set (promote-check 42; review C1, C3, C6, M1, M2, M4)" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ### Task 3 — Revit: the picker, the window that stays open, the review that does not wait
@@ -641,13 +777,13 @@ git commit -m "feat(addin): MA-3b - pure: the picker's entries and lines (a Prom
 **Files:**
 - Create `SentinelAddin/UI/ChangesetPickerWindow.cs`
 - Replace `SentinelAddin/UI/ChangesetReviewWindow.cs`, `SentinelAddin/Commands.ReviewChangesets.cs`
-- Modify `tools/promote-check/Ma3bDesk.cs` (§43), `tools/promote-check/Check.cs`, `tools/promote-check/Ma2dWiring.cs` (§39), `tools/promote-check/Ma3aReview.cs` (§41)
+- Modify `tools/promote-check/Ma3bDesk.cs` (§43), `tools/promote-check/Check.cs`, `tools/promote-check/Ma2dWiring.cs` (§39), `tools/promote-check/Ma3aReview.cs` (§41), `tools/promote-check/PlacementBlock.cs` (MA-1a's scan of NotRun's words — review C3)
 
 **Interfaces:**
 - Consumes: everything Task 2 produces; `App.Events.Enqueue(Document, string, Action<UIApplication, Document>, Action<string>)` (XC-1's DocPin), `DialogOwner.Attach(Window, UIApplication)`, `Publisher.CentralPath(doc)`, `ProvenanceStamp.Read(Element)`, `ProvenanceStamp.Now()`, `UndoWatcher.Remember`, `GovernedNotify.Report(…, Dispatcher ui)`, MA-3a's `ChangesetTrust.DeclinedTicked`/`LateDeclines`.
 - Produces:
   - `ChangesetPickerWindow(string key)`: `event Action<List<ChangesetDto>> Chosen`; `SetEntries(List<(string Line, string Blocked, List<ChangesetDto> Entry)>, string status)` (any thread).
-  - `ChangesetReviewWindow`: `event Action RetryRequested`; `Say(string)`, `Refused(string)`, `Applying(string)`, `Retry(bool)` (any thread); `DecideRequested` unchanged in type; the window never closes itself.
+  - `ChangesetReviewWindow`: `event Action RetryRequested`; `Say(string)`, `Refused(string)`, `Applying(string)`, `Retry(bool)`, `Reopen(string)` (C3, M3), `Lock(IEnumerable<string>)` (C3) (any thread); `bool Gone` (C2); `DecideRequested` unchanged in type (never raised for Decline all without a reason — M2); the window never closes itself.
   - `ReviewChangesetsCommand.Open(UIApplication, Document, BcfConfig, string, IReadOnlyList<ChangesetDto>)`, and `Open(ExternalCommandData, …)` kept for Promote; `Retry(Document, BcfConfig, List<UnreportedResults.Record>) → Task<Reported>`, `ReportAll(BcfConfig, List<UnreportedResults.Record>, Reported = null) → Task<Reported>`; `Report(…)` unchanged (Ghost Builder's).
 
 - [ ] **Step 1: The failing scans.** In `tools/promote-check/Ma3bDesk.cs`, replace:
@@ -677,27 +813,28 @@ with:
            && review.Contains("await Task.Run(() => PromoteContext.Fetch(key))") && review.Contains("await Task.Run(() => GhostStandards.Load(key, layers: false, catalog: false))"),
            "AI-2: Apply's re-check, the role, the DD IDS and the guideline are read on a pool thread — the review never waits on Revit's thread");
         int reportAll = At(review, "internal static Task<Reported> ReportAll("), pool = reportAll < 0 ? -1 : review.IndexOf("return Task.Run(() =>", reportAll, StringComparison.Ordinal);
-        Ok(reportAll > 0 && pool > reportAll && At(review, "if (ChangesetClient.ReportResult(cfg, r.Key, r.ChangesetId, r.Applied, r.Rejected, r.Note, r.ReviewRev, out var reply, out var err))") > pool
+        Ok(reportAll > 0 && pool > reportAll && At(review, "var landed = ChangesetClient.ReportResult(cfg, r.Key, r.ChangesetId, r.Applied, r.Rejected, r.Note, r.ReviewRev, out var reply, out var err);") > pool
            && Count(review, "ReportAll(cfg, ") == 4 && !review.Contains("if (!Report(") && !review.Contains("if (Report("),
            "AI-2: every report of the review — applied, declined, rolled back, sent again — goes through ReportAll on a pool thread; Report's retry dialog is Ghost Builder's alone");
         int write = At(review, "!UnreportedResults.Write(r)"), send = At(review, "Send(ReportAll(cfg, records), rep =>");
         Ok(write > At(review, "onDone = result =>") && send > write && review.Contains("UnreportedResults.Delete(r.Key, r.ChangesetId);")
-           && At(review, "foreach (var tx in r.Undo) UndoWatcher.Remember(tx, r.Key, r.ChangesetId, r.Applied.Select(a => a.ProposalGuid));") > At(review, "if (ChangesetClient.ReportResult(cfg, r.Key"),
+           && At(review, "foreach (var tx in r.Undo) UndoWatcher.Remember(tx, r.Key, r.ChangesetId, r.Applied.Select(a => a.ProposalGuid));") > At(review, "var landed = ChangesetClient.ReportResult(cfg, r.Key"),
            "AI-2: the result is written on this PC before its report is sent, deleted when the bridge takes it, and only then remembered for the undo watcher");
         int open = At(review, "internal static bool Open(UIApplication ui,"), refuse = At(review, "if (waiting.Count > 0) { TaskDialog.Show(Title, UnreportedResults.Blocked(waiting)); return false; }");
         Ok(open > 0 && refuse > open && refuse < At(review, "var window = new ChangesetReviewWindow(cs, reach);")
            && review.Contains("Open(c.Application, doc, cfg, key, batch)") && review.Contains("StoreyBatch.Entries(pending).Select(e => (StoreyBatch.Line(e, DateTime.UtcNow), Waiting(key, e), e))"),
            "AI-2: a changeset whose result waits on this PC is never opened for review again — by the picker (listed, not openable) or by Promote (Open refuses it)");
         Ok(review.Contains("ProvenanceStamp.Holds(ProvenanceStamp.Read(e), r.ChangesetId, a.ProposalGuid)") && review.Contains("var (report, drop, words) = UnreportedResults.Verified(r, found);")
-           && review.Contains("Load(picker, cfg, key, Retry(doc, cfg, waiting.Where(r => r.Doc == here).ToList()),")
+           && review.Contains("var mine = waiting.Where(r => string.Equals(r.Doc, here, StringComparison.OrdinalIgnoreCase)).ToList();") && review.Contains("Load(picker, cfg, key, Retry(doc, cfg, mine),") // review C4
+           && !review.Contains("r.Doc == here") && !review.Contains("r.Doc != here")
            && review.Contains("App.Events.Enqueue(doc, \"check the model before reporting\", (_, d) => Send(Retry(d, cfg, again),"),
-           "AI-2: a waiting result is sent again only after the model's stamps are read on the API thread (claimed vs verified) — at the next Review AI Proposals and by Retry report");
+           "AI-2: a waiting result is sent again only after the model's stamps are read on the API thread (claimed vs verified) — at the next Review AI Proposals and by Retry report; the model's path is compared without case (review C4)");
         Ok(!review.Contains("_reviewOpen") && Count(review, "Hold();") == 3 && Count(review, "Release();") == 3 && review.Contains("finally { Release(); }")
            && review.Contains("picker.Closed += (_, _) => Release();") && review.Contains("window.Closed += (_, _) => Release();"),
            "AI-2: the one-review guard is held while the picker or the window is open and while a report is in flight — not released when the window closes with a report still out");
         Ok(At(review, "if (string.IsNullOrWhiteSpace(note))") > 0 && At(review, "if (string.IsNullOrWhiteSpace(note))") < At(review, "window.Applying(\"Declining — reporting to the bridge…\");")
-           && review.Contains("Nothing is ticked, so this declines every ghost — a decline needs a reason")
-           && review.Contains("rep.Words.Add($\"\\\"{r.Name}\\\": reported ({ChangesetTrust.LedgerOf(reply)}).\""),
+           && review.Contains("window.Refused(ChangesetTrust.DeclineNeedsReason);")
+           && review.Contains("rep.Words.Add(taken ?? $\"\\\"{r.Name}\\\": reported ({ChangesetTrust.LedgerOf(reply)}).\""),
            "AI-5: Decline all needs a reason (the note), and every report says the ledger row the bridge named");
         Ok(!window.Contains("Close();") && window.Contains("public void Refused(string words) => Ui(() => { Say(words); _go.IsEnabled = !_applied; });")
            && window.Contains("public void Applying(string words) => Ui(() => { _applied = true; _go.IsEnabled = false; Say(words); });")
@@ -710,6 +847,24 @@ with:
         Ok(picker.Contains("Tag = blocked == null ? entry : null") && picker.Contains("if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(new Action(() => SetEntries(entries, status))); return; }")
            && !review.Contains("reviewing the oldest first"),
            "AI-5: the picker lists every entry and opens none whose result waits on this PC; the 'oldest first' modal is gone");
+        Ok(review.Contains("? UnreportedResults.AlreadyTaken(r, ChangesetClient.FetchOne(cfg, r.Key, r.ChangesetId, out _)) : null;") && review.Contains("if (landed || taken != null)")
+           && review.Contains("if (stalled) { rep.Left.Add(r); rep.Words.Add($\"\\\"{r.Name}\\\": {UnreportedResults.NotSent(r.Applied.Count)}\"); continue; }")
+           && review.Contains("else { rep.Left.Add(r); stalled = true; }"),
+           "review C1, C6: a 409 on a result the bridge already holds is landed and watched for Undo, never 'refused'; after the first report of a round that did not land, the rest wait for Retry report (one 120 s wait, not n)");
+        int gone = At(review, "if (window.Gone) { App.PanelVm?.LogDoctor(\"Review AI Proposals: the window was closed before Apply ran — nothing was placed.\"); return; }");
+        Ok(gone > At(review, "async Task Decide(") && gone < At(review, "window.Applying(\"Applying in Revit…\");") && window.Contains("Closed += (_, _) => _gone = true;")
+           && review.Contains("App.Events.Enqueue(doc, \"say the review's result\", (_, _) => TaskDialog.Show(Title, words), _ => { });") && Count(review, "window.Say(") == 3
+           && review.Contains("if (raised == ExternalEventRequest.Denied || raised == ExternalEventRequest.TimedOut)") && Count(review, "handler.Completed -= onDone;") == 3,
+           "review C2, M3: a window closed before Apply places nothing; words for a closed window go to the Doctor log and a dialog, never lost; a request Revit did not take (or one that threw) gives Apply back, said");
+        Ok(window.Contains("public void Reopen(string words) => Ui(() => { _applied = false; _go.IsEnabled = true; Say(words); });") && window.Contains("public void Lock(IEnumerable<string> guids)")
+           && At(review, "window.Lock(") > At(review, "if (ChangesetTrust.DeclinedTicked(fresh, ticked) is { } declinedTicked)") && At(review, "window.Lock(") < At(review, "window.Refused(declinedTicked);")
+           && review.Contains("else window.Reopen(result.Error + ") && !review.Contains("— run Review AI Proposals again.")
+           && window.Contains("foreach (var r in _rows.Where(x => x.Box.IsEnabled)) r.Box.IsChecked = ChangesetTrust.PreTick(_cs, r.El);"),
+           "review C3: a 'Go back' (nothing placed) gives Apply back; a decline that landed after the window opened is unticked and locked here (Tick suggested never re-ticks it); no words send the person to a second Review while this window holds the guard");
+        int early = At(window, "if (ticked.Count == 0 && string.IsNullOrWhiteSpace(_note.Text)) { Say(ChangesetTrust.DeclineNeedsReason); return; }");
+        int status = At(review, "if (mine.Count > 0) picker.SetEntries(");
+        Ok(early > 0 && early < At(window, "DecideRequested?.Invoke(") && status > 0 && status < At(review, "Load(picker, cfg, key, Retry(doc, cfg, mine),"),
+           "review M2, C7: Decline all without a reason is refused by the window at once (no bridge call); the picker says it is checking and sending this model's waiting results before it lists");
     }
 }
 ```
@@ -755,7 +910,7 @@ with:
 ```csharp
         // MA-3b (AI-2): each result is built on the API thread with the revision Apply re-checked (MA-3a) and the Undo names, and reported
         // by ReportAll on a pool thread; the undo watcher remembers it only once the bridge took it.
-        int reported = At(review, "if (ChangesetClient.ReportResult(cfg, r.Key, r.ChangesetId, r.Applied, r.Rejected, r.Note, r.ReviewRev, out var reply, out var err))");
+        int reported = At(review, "var landed = ChangesetClient.ReportResult(cfg, r.Key, r.ChangesetId, r.Applied, r.Rejected, r.Note, r.ReviewRev, out var reply, out var err);");
         Ok(review.Contains("foreach (var (one, res) in result.Each)") && reported > 0
            && At(review, "foreach (var tx in r.Undo) UndoWatcher.Remember(tx, r.Key, r.ChangesetId, r.Applied.Select(a => a.ProposalGuid));") > reported
            && review.Contains("new List<string> { undo, UndoWatcher.TxName(one.Name, one.Id) }")
@@ -803,8 +958,20 @@ with:
         Ok(review.Contains("records.Add(ResultOf(key, one, res.Applied, rejected, said, one.ReviewRev, here, new List<string> { undo, UndoWatcher.TxName(one.Name, one.Id) }));") // MA-3b: sent by ReportAll
 ```
 
+In `tools/promote-check/PlacementBlock.cs` (review amendment C3: a "Go back" now gives Apply back in the window that stays open — the words never send the person to another model or to a second Review), replace:
+
+```csharp
+        Ok(Src("Commands.ReviewChangesets.cs").Contains("The proposals are still pending — run Review AI Proposals again.\"")
+```
+
+with:
+
+```csharp
+        Ok(Src("Commands.ReviewChangesets.cs").Contains("Nothing was placed; the proposals are still pending — change the ticks or press Apply again.\"")
+```
+
 - [ ] **Step 2: See them fail.** From the repo root: `dotnet run --project tools/promote-check`
-Expected: `710/724 checks pass` — FAIL on §39's three rewritten scans ("Review AI Proposals and Promote open a Promote storey's changesets in one window …", "each changeset of the storey is reported on its own ledger row …", "a storey that fails or is unticked whole is declined whole …"), §41's ("the result carries the review_rev Apply re-checked …") and all ten of §43.
+Expected: `711/730 checks pass` — FAIL on §39's three rewritten scans ("Review AI Proposals and Promote open a Promote storey's changesets in one window …", "each changeset of the storey is reported on its own ledger row …", "a storey that fails or is unticked whole is declined whole …"), §41's ("the result carries the review_rev Apply re-checked …"), MA-1a's ("a refusal in Review AI Proposals does not send the person to another model …") and all fourteen of §43.
 
 - [ ] **Step 3: The picker.** Create `SentinelAddin/UI/ChangesetPickerWindow.cs`:
 
@@ -920,12 +1087,16 @@ public sealed class ChangesetReviewWindow : Window
     private readonly List<Action> _headers = new();
     private readonly ChangesetDto _cs;
     private bool _applied; // MA-3b: once Apply was raised, never again from this window — a second Apply could place it twice
+    private volatile bool _gone;
+    /// <summary>MA-3b review C2: the person closed the window — read from any thread; nothing is raised after it, and words go elsewhere.</summary>
+    public bool Gone => _gone;
 
     /// <param name="reach">Review amendment C3 (MA-2c): for each set_parameter's proposal_guid, the elements on its type in the model
     /// now — counted by the caller on the API thread; shown on the row, never read from the reason.</param>
     public ChangesetReviewWindow(ChangesetDto changeset, IReadOnlyDictionary<string, int> reach = null)
     {
         _cs = changeset;
+        Closed += (_, _) => _gone = true;
         Title = $"Sentinel — Review AI proposal: {_cs.Name}";
         Width = 640; Height = 560; WindowStartupLocation = WindowStartupLocation.CenterScreen;
 
@@ -992,7 +1163,8 @@ public sealed class ChangesetReviewWindow : Window
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 8, 0, 0) };
         var all = new Button { Content = "Tick suggested", Padding = new Thickness(10, 4, 10, 4), Margin = new Thickness(0, 0, 6, 0) };
         var none = new Button { Content = "Untick all", Padding = new Thickness(10, 4, 10, 4), Margin = new Thickness(0, 0, 6, 0) };
-        all.Click += (_, _) => { foreach (var r in _rows) r.Box.IsChecked = ChangesetTrust.PreTick(_cs, r.El); };
+        // Review C3: a row locked here (a late web decline) is never re-ticked.
+        all.Click += (_, _) => { foreach (var r in _rows.Where(x => x.Box.IsEnabled)) r.Box.IsChecked = ChangesetTrust.PreTick(_cs, r.El); };
         none.Click += (_, _) => { foreach (var r in _rows) r.Box.IsChecked = false; };
         // Re-entrancy guard: Decide disables Apply at once; it comes back only when nothing ran (Refused).
         _go.Click += (_, _) => Decide();
@@ -1146,6 +1318,8 @@ public sealed class ChangesetReviewWindow : Window
     {
         var ticked = _rows.Where(r => r.Box.IsChecked == true).Select(r => r.El.ProposalGuid).ToList();
         var unticked = _rows.Where(r => r.Box.IsChecked != true).Select(r => r.El.ProposalGuid).ToList();
+        // Review M2: Decline all without a reason is refused here at once — no bridge call; the command keeps the check as the backstop.
+        if (ticked.Count == 0 && string.IsNullOrWhiteSpace(_note.Text)) { Say(ChangesetTrust.DeclineNeedsReason); return; }
         _go.IsEnabled = false;
         Say("Re-checking with the bridge…");
         DecideRequested?.Invoke(ticked, unticked, _note.Text?.Trim() ?? "");
@@ -1164,6 +1338,17 @@ public sealed class ChangesetReviewWindow : Window
 
     /// <summary>MA-3b: the placement (or the decline) was started — Apply never comes back in this window. Any thread.</summary>
     public void Applying(string words) => Ui(() => { _applied = true; _go.IsEnabled = false; Say(words); });
+
+    /// <summary>Review C3, M3: nothing was placed after all (a "Go back", a refusal inside the placement, a request Revit did not take) —
+    /// Apply comes back with the ticks and the note. Any thread.</summary>
+    public void Reopen(string words) => Ui(() => { _applied = false; _go.IsEnabled = true; Say(words); });
+
+    /// <summary>Review C3: rows declined on the web after the window opened — unticked and locked, as the rows declined before it opened. Any thread.</summary>
+    public void Lock(IEnumerable<string> guids)
+    {
+        var set = new HashSet<string>(guids ?? Enumerable.Empty<string>(), StringComparer.Ordinal);
+        Ui(() => { foreach (var r in _rows.Where(x => x.El.ProposalGuid != null && set.Contains(x.El.ProposalGuid))) { r.Box.IsChecked = false; r.Box.IsEnabled = false; } });
+    }
 
     /// <summary>MA-3b: whether "Retry report" is offered. Any thread.</summary>
     public void Retry(bool offered) => Ui(() => { _retry.Visibility = offered ? Visibility.Visible : Visibility.Collapsed; _retry.IsEnabled = offered; });
@@ -1254,7 +1439,9 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
         // sent again off it; another model's are named, and their changesets stay closed.
         var here = DocOf(doc);
         var waiting = UnreportedResults.ForKey(key);
-        var away = waiting.Where(r => r.Doc != here).ToList();
+        // Review C4: a model's path is compared without case — Revit's casing depends on how the file was opened.
+        var mine = waiting.Where(r => string.Equals(r.Doc, here, StringComparison.OrdinalIgnoreCase)).ToList();
+        var away = waiting.Except(mine).ToList();
         var picker = new ChangesetPickerWindow(key);
         DialogOwner.Attach(picker, c);
         Hold();
@@ -1265,8 +1452,11 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
             App.Events.Enqueue(doc, "open the review", (ui, d) => Open(ui, d, cfg, key, entry));
         };
         picker.Show();
-        Load(picker, cfg, key, Retry(doc, cfg, waiting.Where(r => r.Doc == here).ToList()),
-             away.Count == 0 ? null : $"{away.Count} result(s) applied in another model wait on this PC for the bridge — open that model and run Review AI Proposals there: " +
+        // Review C7: said while this model's waiting results are checked and sent (one round waits up to 120 s for the bridge).
+        if (mine.Count > 0) picker.SetEntries(new List<(string Line, string Blocked, List<ChangesetDto> Entry)>(),
+            $"Checking this model and sending {mine.Count} result(s) it applied that the bridge has not taken (the bridge has up to two minutes to answer)…");
+        Load(picker, cfg, key, Retry(doc, cfg, mine),
+             away.Count == 0 ? null : $"{away.Count} result(s) applied in another model wait on this PC for the bridge — close this list, open that model and run Review AI Proposals there: " +
                                       string.Join("; ", away.Select(r => $"\"{r.Name}\" in {r.Doc}")));
         return Result.Succeeded;
     }
@@ -1345,7 +1535,9 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
     }
 
     /// <summary>MA-3b (AI-2): send each result on a pool thread — never waited for on Revit's. One the bridge takes loses its record and
-    /// is remembered for the undo watcher; one it refuses for good (400, 404, 409) loses its record, said; any other failure keeps it.</summary>
+    /// is remembered for the undo watcher; one it refuses for good (400, 404, 409) loses its record, said; any other failure keeps it.
+    /// Review C1: a 409 on a result the bridge already holds (its reply was lost) is taken, not refused. Review C6: after the first
+    /// failure that keeps its record, the rest of the round are not sent (kept, said) — one 120 s wait, never one per changeset.</summary>
     internal static Task<Reported> ReportAll(BcfConfig cfg, List<UnreportedResults.Record> records, Reported rep = null)
     {
         rep ??= new Reported();
@@ -1355,9 +1547,16 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
         {
             try
             {
+                var stalled = false;
                 foreach (var r in records)
                 {
-                    if (ChangesetClient.ReportResult(cfg, r.Key, r.ChangesetId, r.Applied, r.Rejected, r.Note, r.ReviewRev, out var reply, out var err))
+                    if (stalled) { rep.Left.Add(r); rep.Words.Add($"\"{r.Name}\": {UnreportedResults.NotSent(r.Applied.Count)}"); continue; }
+                    var landed = ChangesetClient.ReportResult(cfg, r.Key, r.ChangesetId, r.Applied, r.Rejected, r.Note, r.ReviewRev, out var reply, out var err);
+                    // Review C1: the bridge writes the doc before its audit row, and a reply can be lost — a 409 whose stored result applied
+                    // exactly these ghosts is this result, landed earlier (re-read here, on this pool thread; FetchOne is an existing request).
+                    var taken = !landed && r.Applied.Count > 0 && err != null && err.StartsWith("Bridge 409", StringComparison.Ordinal)
+                        ? UnreportedResults.AlreadyTaken(r, ChangesetClient.FetchOne(cfg, r.Key, r.ChangesetId, out _)) : null;
+                    if (landed || taken != null)
                     {
                         UnreportedResults.Delete(r.Key, r.ChangesetId);
                         // Only a result the bridge holds is watched: an Undo then posts changeset_reverted for these guids — remembered under
@@ -1365,12 +1564,12 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                         foreach (var tx in r.Undo) UndoWatcher.Remember(tx, r.Key, r.ChangesetId, r.Applied.Select(a => a.ProposalGuid));
                         rep.Landed.Add((r, reply));
                         // MA-3a (Q2): a ghost declined on the web after Apply re-checked it was applied over the decline — recorded by the bridge; said.
-                        rep.Words.Add($"\"{r.Name}\": reported ({ChangesetTrust.LedgerOf(reply)})." + (ChangesetTrust.LateDeclines(reply) is { } late ? "\n" + late : ""));
+                        rep.Words.Add(taken ?? $"\"{r.Name}\": reported ({ChangesetTrust.LedgerOf(reply)})." + (ChangesetTrust.LateDeclines(reply) is { } late ? "\n" + late : ""));
                         continue;
                     }
                     var (drop, words) = UnreportedResults.Outcome(err, r.Applied.Count);
                     if (drop) UnreportedResults.Delete(r.Key, r.ChangesetId);
-                    else rep.Left.Add(r);
+                    else { rep.Left.Add(r); stalled = true; }
                     rep.Words.Add($"\"{r.Name}\": {words}");
                 }
                 return rep;
@@ -1420,17 +1619,26 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
         var here = DocOf(doc);
         var left = new List<UnreportedResults.Record>(); // what Retry report sends again
 
+        // Review C2: the person may close the window at any time — words for a closed window go to the pane's Doctor log and, when they
+        // are a result (not an "…ing" line), to a dialog on Revit's thread: said, never lost.
+        void Tell(string words, bool interim = false)
+        {
+            if (!window.Gone) { window.Say(words); return; }
+            App.PanelVm?.LogDoctor("Review AI Proposals: " + words);
+            if (!interim) App.Events.Enqueue(doc, "say the review's result", (_, _) => TaskDialog.Show(Title, words), _ => { });
+        }
+
         // AI-2: a round of reports runs off Revit's thread; the window says what landed and offers Retry report for what did not.
         void Send(Task<Reported> sending, Func<Reported, string> words) => sending.ContinueWith(t =>
         {
             if (t.Status != TaskStatus.RanToCompletion)
             {
-                window.Say("Reporting failed — " + (t.Exception?.GetBaseException().Message ?? "it did not finish") +
-                           $"\nA result Revit applied is kept on this PC ({UnreportedResults.Root}) and sent again by the next Review AI Proposals.");
+                Tell("Reporting failed — " + (t.Exception?.GetBaseException().Message ?? "it did not finish") +
+                     $"\nA result Revit applied is kept on this PC ({UnreportedResults.Root}) and sent again by the next Review AI Proposals.");
                 return;
             }
             left = t.Result.Left;
-            window.Say(words(t.Result) + (t.Result.Words.Count > 0 ? "\n\n" + t.Result.Text : ""));
+            Tell(words(t.Result) + (t.Result.Words.Count > 0 ? "\n\n" + t.Result.Text : ""));
             window.Retry(left.Count > 0);
         }, TaskScheduler.Default);
 
@@ -1456,6 +1664,8 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                 // window opened is caught here, on the fresh copies — the whole Apply is refused and nothing is created.
                 if (ChangesetTrust.DeclinedTicked(fresh, ticked) is { } declinedTicked)
                 {
+                    // Review C3: unticked and locked here, so the next press applies the rest.
+                    window.Lock(fresh.SelectMany(f => f.Elements ?? new List<ChangesetElementDto>()).Where(e => ticked.Contains(e.ProposalGuid) && ChangesetTrust.DeclinedOnWeb(e)).Select(e => e.ProposalGuid).ToList());
                     window.Refused(declinedTicked);
                     return;
                 }
@@ -1475,9 +1685,11 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                     // AI-5: Decline all needs a reason — the note, recorded on each changeset's result (result.note) and its changeset_applied row.
                     if (string.IsNullOrWhiteSpace(note))
                     {
-                        window.Refused("Nothing is ticked, so this declines every ghost — a decline needs a reason: type it in the note (it is recorded with the result), then press Decline all.");
+                        window.Refused(ChangesetTrust.DeclineNeedsReason);
                         return;
                     }
+                    // Review C2: × pressed while the re-check ran is a cancel — nothing is declined.
+                    if (window.Gone) { App.PanelVm?.LogDoctor("Review AI Proposals: the window was closed before Decline all ran — nothing was declined."); return; }
                     window.Applying("Declining — reporting to the bridge…");
                     // declined — no transaction at all; each changeset of the storey on its own ledger row
                     Send(ReportAll(cfg, fresh.Select(f => ResultOf(key, f, new List<AppliedEntry>(), StoreyBatch.Own(f, unticked), note, null, here, null)).ToList()), rep =>
@@ -1516,20 +1728,22 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                     handler.Completed -= onDone;
                     if (result.NotRun)
                     {
-                        window.Say(result.Error + "\n\nThe proposals are still pending — run Review AI Proposals again.");
+                        // Review C3: nothing was placed (a "Go back", a DocPin refusal, a missing workset) — Apply comes back in this window.
+                        if (window.Gone) Tell(result.Error + "\n\nNothing was placed; the proposals are still pending.");
+                        else window.Reopen(result.Error + "\n\nNothing was placed; the proposals are still pending — change the ticks or press Apply again.");
                         return;
                     }
                     if (result.NotFinished != null)
                     {
                         // A6: Revit may still finish or drop the transaction — reporting either way could be a lie.
-                        window.Say(result.NotFinished +
+                        Tell(result.NotFinished +
                             $"\n\nNothing was reported: the {(fresh.Count > 1 ? $"storey's {fresh.Count} changesets stay" : "changeset stays")} proposed. Check the model before reviewing it again — a second Apply could duplicate what Revit finishes.");
                         return;
                     }
                     if (result.Error != null)
                     {
                         // Whole changeset — MA-2d: the whole storey — rolled back: each changeset reported declined with the reason, honestly.
-                        window.Say($"Transaction failed and was rolled back:\n{result.Error}\n\nReporting the declines to the bridge…");
+                        Tell($"Transaction failed and was rolled back:\n{result.Error}\n\nReporting the declines to the bridge…", interim: true);
                         Send(ReportAll(cfg, fresh.Select(f => ResultOf(key, f, new List<AppliedEntry>(), f.Elements.Select(e => e.ProposalGuid).ToList(),
                                 $"Revit transaction failed — rolled back: {result.Error}" + (string.IsNullOrEmpty(note) ? "" : $" | reviewer: {note}"), null, here, null)).ToList()), rep =>
                         {
@@ -1572,7 +1786,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                         (warnings != null ? "\n\n" + warnings : "") + (result.Block != null ? "\n\n" + result.Block : "") +
                         (result.Ids != null ? "\n\n" + result.Ids : "") + (result.Placement != null ? "\n\n" + string.Join("\n", result.Placement) : "") + // MA-1a item 6
                         (unsaved.Count > 0 ? $"\n\n⚠ The result of {string.Join(", ", unsaved)} could not be saved on this PC ({UnreportedResults.Root}): if its report fails too, nothing on this PC remembers it — check the changeset's status on the bridge before reviewing it again." : "");
-                    window.Say(head + "\n\nReporting to the bridge…");
+                    Tell(head + "\n\nReporting to the bridge…", interim: true);
                     Send(ReportAll(cfg, records), rep =>
                     {
                         // Review C15: what the bridge took — the changesets it holds as applied, and the rejected rows it recorded.
@@ -1590,13 +1804,30 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                                (after != null ? "\n\n" + after : "");
                     });
                 };
+                // Review C2: × pressed while the re-check, the role or the standards were read is a cancel — nothing is raised.
+                if (window.Gone) { App.PanelVm?.LogDoctor("Review AI Proposals: the window was closed before Apply ran — nothing was placed."); return; }
                 window.Applying("Applying in Revit…");
                 // ExternalEvent.Raise from the window's thread (Revit's), as every modeless window here raises it.
                 _ = window.Dispatcher.BeginInvoke(new Action(() =>
                 {
-                    handler.Completed += onDone;
-                    handler.SetRequest(fresh, new HashSet<string>(ticked), doc, placement, promote);
-                    evt.Raise();
+                    try
+                    {
+                        handler.Completed += onDone;
+                        handler.SetRequest(fresh, new HashSet<string>(ticked), doc, placement, promote);
+                        // Review M3: a request Revit did not take places nothing — said, and Apply comes back. (Pending: an earlier raise
+                        // still runs, so Apply stays pressed.)
+                        var raised = evt.Raise();
+                        if (raised == ExternalEventRequest.Denied || raised == ExternalEventRequest.TimedOut)
+                        {
+                            handler.Completed -= onDone;
+                            window.Reopen($"Revit did not take the request ({raised}) — nothing was placed; press Apply again.");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        handler.Completed -= onDone;
+                        window.Reopen($"Apply could not be started — {ex.GetType().Name}: {ex.Message}\n\nNothing was placed; press Apply again.");
+                    }
                 }));
             }
             catch (Exception ex) { window.Refused($"Review AI Proposals failed — {ex.GetType().Name}: {ex.Message}\n\nNothing was created."); }
@@ -1655,7 +1886,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
 ```
 
 - [ ] **Step 6: See them pass.** From the repo root: `dotnet run --project tools/promote-check`
-Expected: `724/724 checks pass`. Then the builds, each `0 Error(s)` with master's warnings (none in a file MA-3b touches):
+Expected: `730/730 checks pass`. Then the builds, each `0 Error(s)` with master's warnings (none in a file MA-3b touches):
 
 ```bash
 for v in 2022 2023 2024 2025 2026 2027; do dotnet build SentinelAddin/Sentinel.csproj -p:RevitVersion=$v -p:DeployToRevit=false 2>&1 | grep -E "Error\(s\)|Warning\(s\)"; done
@@ -1666,7 +1897,7 @@ Expected: 2022 `0`/`3`, 2023 `0`/`3`, 2024 `0`/`5`, 2025 `0`/`1`, 2026 `0`/`1`, 
 - [ ] **Step 7: Commit.**
 
 ```bash
-git add SentinelAddin/UI/ChangesetPickerWindow.cs SentinelAddin/UI/ChangesetReviewWindow.cs SentinelAddin/Commands.ReviewChangesets.cs tools/promote-check/Ma3bDesk.cs tools/promote-check/Check.cs tools/promote-check/Ma2dWiring.cs tools/promote-check/Ma3aReview.cs
+git add SentinelAddin/UI/ChangesetPickerWindow.cs SentinelAddin/UI/ChangesetReviewWindow.cs SentinelAddin/Commands.ReviewChangesets.cs tools/promote-check/Ma3bDesk.cs tools/promote-check/Check.cs tools/promote-check/Ma2dWiring.cs tools/promote-check/Ma3aReview.cs tools/promote-check/PlacementBlock.cs
 git commit -m "feat(addin): MA-3b - the review does not wait (AI-2) and lists every pending changeset (AI-5): a picker opens at once (a Promote storey as one entry); Apply's re-check, the role, the standards and every report run on a pool thread; a result Revit applied is written on this PC before its report is sent, its changeset not opened again until the bridge takes it, sent again after a stamp check; the window stays open (refusals keep the ticks and the note; Retry report; reported (ledger #n)); rows grouped by what they do with Tick group / Untick group; Decline all needs a reason; the guard is held until the report lands (promote-check 43; 39 and 41 rewritten)" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
@@ -1695,7 +1926,7 @@ with:
 for p in promote-check session-check artefact-cache-check gate-check ghost-p2-check ghost-standards-check publish-check roi-check; do printf "%s: " $p; dotnet run --project tools/$p 2>&1 | grep -E "checks? pass" | tail -1; done
 ```
 
-Expected: `promote-check: 724/724`, `session-check: 47/47`, `artefact-cache-check: 55/55`, `gate-check: 219/219`, `ghost-p2-check: 107/107`, `ghost-standards-check: 177/177`, `publish-check: 124/124`, `roi-check: 50/50` (each `checks pass`). The other 18 check projects compile no file MA-3b changes.
+Expected: `promote-check: 730/730`, `session-check: 47/47`, `artefact-cache-check: 55/55`, `gate-check: 219/219`, `ghost-p2-check: 107/107`, `ghost-standards-check: 177/177`, `publish-check: 124/124`, `roi-check: 50/50` (each `checks pass`). The other 18 check projects compile no file MA-3b changes.
 
 - [ ] **Step 3: Commit.**
 
@@ -1731,17 +1962,17 @@ git commit -m "docs: MA-3b - the design doc says what was built (the picker, the
   b4101() { node -e 'import("./bridge/load-env.mjs").then(async m => { const [method, path, body] = process.argv.slice(1); const r = await fetch("http://127.0.0.1:4101/" + path, { method, headers: { "Content-Type": "application/json", Authorization: "Bearer " + (m.loadEnv().BCF_TOKEN || process.env.BCF_TOKEN || "") }, ...(body ? { body: body.startsWith("@") ? require("fs").readFileSync(body.slice(1), "utf8") : body } : {}) }); console.log(r.status, await r.text()) })' "$@"; }
   ```
 
-- **The scratch web projects** (from `WebApp`; nothing on `demo`, `bds-office`, `ma3a` or a real office): `b4101 POST cde/projects '{"key":"ma3b-office","kind":"office"}'`, `b4101 POST cde/projects '{"key":"ma3b","office_key":"ma3b-office"}'`; on the OFFICE: `b4101 PUT "cde/ma3b-office/artefacts/guideline?actor=drill" @../demo/bds-pilot/bds-dd-elements-guideline.json`, `b4101 PUT "cde/ma3b-office/artefacts/type_catalog?actor=drill" @../demo/bds-pilot/bds-type-catalog.json`, `b4101 PUT "cde/ma3b-office/artefacts/lod_matrix?actor=drill" @../demo/bds-pilot/bds-lod-matrix-dd-ma2b.json`, `b4101 PUT "cde/ma3b-office/artefacts/ruleset?actor=drill" @../demo/bds-pilot/ruleset.json` (each 201). The founder's membership, with the e-mail the founder gives in chat (never printed, never recorded): `b4101 POST cde/ma3b/members '{"email":"<the founder account>","role":"contributor"}'` (the reply names the `user_id`; record that only).
+- **The scratch web projects** (from `WebApp`; nothing on `demo`, `bds-office`, `ma3a` or a real office): `b4101 POST cde/projects '{"key":"ma3b-office","kind":"office"}'`, `b4101 POST cde/projects '{"key":"ma3b","office_key":"ma3b-office"}'`; on the OFFICE: `b4101 PUT "cde/ma3b-office/artefacts/guideline?actor=drill" @../demo/bds-pilot/bds-dd-elements-guideline.json`, `b4101 PUT "cde/ma3b-office/artefacts/type_catalog?actor=drill" @../demo/bds-pilot/bds-type-catalog.json`, `b4101 PUT "cde/ma3b-office/artefacts/lod_matrix?actor=drill" @../demo/bds-pilot/bds-lod-matrix-dd-ma2b.json`, `b4101 PUT "cde/ma3b-office/artefacts/ruleset?actor=drill" @../demo/bds-pilot/ruleset.json` (each 201). The founder's membership (review M5 — the e-mail never reaches a command line, a log or the record): the founder writes `{"email":"<their account>","role":"contributor"}` to `<scratchpad>/ma3b/member.json`; the runner sends `b4101 POST cde/ma3b/members @<scratchpad>/ma3b/member.json | grep -oE '^[0-9]+|"user_id":"[^"]*"'` (the status and the `user_id` only; record those) and deletes the file.
 - **The silent port** (R-2): a listener that accepts a connection and never answers, so a report waits its full 120 s — `node -e "require('net').createServer(() => {}).listen(4101, '127.0.0.1', () => console.log('silent on 4101'))"`, run in the background only while `bridge-test` is stopped, stopped before `bridge-test` starts again.
 - **The scratch models**: `Documents\Sentinel drills\ma3b\ma3b-a.rvt` and `ma3b-b.rvt`, two copies of `Documents\sentinel-scratch\ma1\ma1-src_detached.rvt` (the B35 seed), opened from Revit's Open dialog, each bound with Sentinel ▸ Project Setup to `ma3b` (current-project scope), never saved. Open `ma3b-b.rvt` only at R-2b.
 
 | Row | Steps | Pass when | Record |
 |---|---|---|---|
 | R-1 | On `ma3b-a.rvt`: Sentinel ▸ Promote (DD) → **Yes**; the review window it opens (GR-FFL) — close it with ×. Sentinel ▸ Review AI Proposals | A window `Sentinel — AI proposals waiting: ma3b` opens at once reading `Loading…`, then `3 waiting for review on "ma3b", oldest first — pick one and press Review.` and three lines: `Promote (DD) · GR-FFL — promote (claimed) · just now · 48 ghost(s): …`, `Promote (DD) · 01-FFL — …`, `Promote (DD) · MA0 Roof — …` (or the names Promote filed — MA3a's D-1: 48, 40 and 1 ghosts); no "reviewing the oldest first" dialog. Choose GR-FFL ▸ **Review**: the review window shows `retype wall (28) · 28 ticked` and `attach wall (20) · 20 ticked` (signed in: pre-ticked) and the button `Apply 48 ticked in Revit`; **Untick group** on the attach group → `attach wall (20) · 0 ticked`, `Apply 28 ticked in Revit`; **Tick group** → 20 again, then **Untick group** again | The picker's text; the group headers and the button before and after |
-| R-2 | In that window (28 retypes ticked): **Apply 28 ticked in Revit**. At the DD IDS dialog (MA3a's D-4 met it on this seed: "Place anyway"), before pressing anything: stop the `bridge-test` preview; start the silent port; then **Place anyway**. While the window reads `Reporting to the bridge…`: with Revit in front, click an element in the view and read the Undo list; press Review AI Proposals on the ribbon. Wait for the window's words (about two minutes). Then list `%AppData%\Sentinel\unreported\ma3b\` (file names and sizes only). Close the window. Stop the silent port; start `bridge-test` | Revit answers the click and the Undo list shows one Sentinel entry while the report waits; the ribbon's Review answers `A review window is open, or a result is still being reported to the bridge — …`; the window then reads `Applied 28 element(s) from "Promote (DD) · GR-FFL".` … `"Promote (DD) · GR-FFL": not reported: <the timeout's words>` and `The result is kept on this PC and sent again by Retry report or the next Review AI Proposals; this changeset is not opened for review until the bridge takes it, so nothing is applied twice.`, with **Retry report** shown; one file `<GR-FFL changeset id>.json` | The window's text; the Undo list; the file name; the timeout's words (UNSURE 2) |
-| R-2b | Open `ma3b-b.rvt` (Revit's Open dialog), bind it with Project Setup to `ma3b`. Review AI Proposals | The picker's status names `1 result(s) applied in another model wait on this PC for the bridge — open that model and run Review AI Proposals there: "Promote (DD) · GR-FFL" in <ma3b-a's path>`; the GR-FFL line carries `⚠ "Promote (DD) · GR-FFL" was applied in <ma3b-a's path> (…) and the bridge has not taken its result yet — it is not opened for review again …`; selecting it leaves **Review** disabled (a double-click does nothing). Close the picker; close `ma3b-b.rvt` without saving | The picker's text; Review's state |
+| R-2 | In that window (28 retypes ticked): **Apply 28 ticked in Revit**. At the DD IDS dialog (MA3a's D-4 met it on this seed: "Place anyway"), before pressing anything: stop the `bridge-test` preview; start the silent port; then **Place anyway**, noting the time (review C5). While the window reads `Reporting to the bridge…`: with Revit in front, click an element in the view and read the Undo list. When the window's words arrive, note the time. **Under 100 s** means the POST failed at once on a pooled socket, not on the silent port (UNSURE 7): press **Retry report**, note the time, run the click and the Undo list during that wait, and measure to its words instead. Then list `%AppData%\Sentinel\unreported\ma3b\` (file names and sizes only). **The report's own hold** (C5): press **Retry report** again; while the window still reads `Checking the model, then reporting again…` (5 s after the press), close the window with ×, then press Review AI Proposals on the ribbon. When the report's words arrive as a TaskDialog (C2), read it and close it with `WindowPattern.Close`; read the pane's Doctor log. Stop the silent port; start `bridge-test` | Revit answers the click and the Undo list shows one Sentinel entry while the report waits; the words arrive **≥ 115 s** after the press they follow; the window reads `Applied 28 element(s) from "Promote (DD) · GR-FFL".` … `"Promote (DD) · GR-FFL": not reported: the bridge did not answer within 120 s` and `The result is kept on this PC and sent again by Retry report or the next Review AI Proposals; this changeset is not opened for review until the bridge takes it, so nothing is applied twice.`, with **Retry report** shown; one file `<GR-FFL changeset id>.json`; after × the ribbon's Review answers `A review window is open, or a result is still being reported to the bridge — …` (the guard held by the report alone); the TaskDialog then carries the same `not reported` words, and the Doctor log a `Review AI Proposals: …` line with them; the file is still there | The window's text; the two times and the elapsed seconds; the Undo list; the file name; the ribbon's words after ×; the TaskDialog's text; the Doctor log line; the raw timeout words if they differ (UNSURE 2) |
+| R-2b | Open `ma3b-b.rvt` (Revit's Open dialog), bind it with Project Setup to `ma3b`. Review AI Proposals | The picker's status names `1 result(s) applied in another model wait on this PC for the bridge — close this list, open that model and run Review AI Proposals there: "Promote (DD) · GR-FFL" in <ma3b-a's path>`; the GR-FFL line carries `⚠ "Promote (DD) · GR-FFL" was applied in <ma3b-a's path> (…) and the bridge has not taken its result yet — it is not opened for review again …`; selecting it leaves **Review** disabled (a double-click does nothing). Close the picker; close `ma3b-b.rvt` without saving | The picker's text; Review's state |
 | R-3 | Back in `ma3b-a.rvt` (switch to its window): Review AI Proposals. Then `b4101 GET changesets/ma3b/<GR-FFL id>`, `b4101 GET "cde/ma3b/audit?entity_type=changeset&limit=5"`; list `%AppData%\Sentinel\unreported\ma3b\` | The picker's status leads with `2 waiting for review on "ma3b" …` and says `"Promote (DD) · GR-FFL": reported (ledger #<n>).`; it lists 01-FFL and MA0 Roof only; the file is gone; GET `"status":"partially_applied"`, `result.applied` 28, `result.rejected` 20, `result.review_rev_seen` `{"value":0,"claimed":true}`; the newest audit row `changeset_applied` #`<n>` | The picker's text; the ledger id; GET's fields |
-| R-4 | Choose 01-FFL ▸ Review. **Untick all** (the button reads `Decline all (needs a reason)`); press it with the note empty. Then type `drill MA3b: wrong storey` in the note; **Decline all**. `b4101 GET changesets/ma3b/<01-FFL id>`; read the Undo list | The first press: `Nothing is ticked, so this declines every ghost — a decline needs a reason: type it in the note (it is recorded with the result), then press Decline all.`, the window open and the button enabled again; the second: `Declined 1 of 1 changeset(s) — nothing in the model changed.` … `Run Promote (DD) again …` and `"Promote (DD) · 01-FFL": reported (ledger #<m>).`; GET `"status":"declined"`, `result.note` `drill MA3b: wrong storey`; the Undo list unchanged | The window's text; the ledger id; GET's fields |
+| R-4 | Choose 01-FFL ▸ Review. **Untick all** (the button reads `Decline all (needs a reason)`); press it with the note empty. Then type `drill MA3b: wrong storey` in the note; **Decline all**. `b4101 GET changesets/ma3b/<01-FFL id>`; read the Undo list | The first press, at once (no `Re-checking with the bridge…` first — M2): `Nothing is ticked, so this declines every ghost — a decline needs a reason: type it in the note (it is recorded with the result), then press Decline all.`, the window open and the button enabled again; the second: `Declined 1 of 1 changeset(s) — nothing in the model changed.` … `Run Promote (DD) again …` and `"Promote (DD) · 01-FFL": reported (ledger #<m>).`; GET `"status":"declined"`, `result.note` `drill MA3b: wrong storey`; the Undo list unchanged | The window's text; the ledger id; GET's fields |
 | R-5 (optional) | Choose MA0 Roof ▸ Review; tick it; at **Apply**, before Revit places it, stop `bridge-test` (if no dialog comes first, stop it before pressing Apply — the re-check then refuses in words and the row is **owed**). After `not reported: …`: with Revit in front, **Ctrl+Z** once (never click the Undo list). Start `bridge-test`; **Retry report** | `"…MA0 Roof": not in this model as applied (undone, or the model was closed without saving) — nothing reported; the changeset stays proposed and opens for review again. This PC's record is removed.`; `b4101 GET` the changeset `"status":"proposed"`, `"result":null` | The window's text; GET |
 
 The rows run in the order R-1, R-2, R-2b, R-3, R-4 (R-5) on the same session.
@@ -1785,11 +2016,12 @@ Push only under the standing push rule, after a secret scan of the range.
 ## UNSURE facts this drill settles
 
 1. Whether `ExternalEvent.Raise()` through `window.Dispatcher.BeginInvoke` from a pool thread places as the old synchronous handler did (it runs on Revit's main thread either way) — R-2.
-2. The words net48's `HttpClient` gives when a 120-second write times out (expected `A task was canceled.`) — R-2 records them.
+2. The words net48's `HttpClient` gives when a 120-second write times out (expected `A task was canceled.`, which `Outcome` says as `the bridge did not answer within 120 s` — M4; other words appear raw) — R-2 records them.
 3. Whether the picker's wrapped `TextBlock` lines read whole at 720 px, and whether a `ListBoxItem` whose `Tag` is null is visibly not openable — cosmetic; R-1, R-2b.
 4. Whether the B35 seed's MA0 Roof ghost is a create (it then needs the guideline's placement block) — R-5 only.
 5. Whether one Ctrl+Z after an unreported apply removes the stamps with the elements (one TransactionGroup, one Undo entry — MA-2d) — R-5.
 6. Whether Promote on a fresh copy bound to `ma3b` files the same three changesets as MA3a's D-1 — R-1 records what it filed.
+7. Whether net48 sends the report's POST on a pooled keep-alive socket left by the re-check's GETs, so it fails at once once `bridge-test` is stopped instead of waiting on the silent port (review C5) — R-2's elapsed time says; the row measures the Retry report's wait when it does.
 
 ## Risks (each a ceiling stated in words)
 
@@ -1799,7 +2031,8 @@ Push only under the standing push rule, after a secret scan of the range.
 - **A result sent again later sends no LOD state after** (it is read at Apply): the window says so.
 - **A decline that did not land lives only in the window** (E4): closing the window loses it; nothing in the model changed and the changeset stays proposed — said.
 - **The guard is in memory** (E3): a Revit restart resets it; the records on disk still keep an applied changeset closed.
-- **`StoreyBatch.Entries` runs on a pool thread** and touches `StoreyBatch`'s session set of mixed parts (review C13), which Promote reads on Revit's thread; the picker holds the guard, Promote does not check it. ponytail: a lock on that set if a picker and a Promote ever race (two commands at once in one Revit is not normal use).
+- **Listing marks a mixed storey's parts** (review C13's session set): `StoreyBatch.Entries` calls `Of` for every pending changeset, so a storey with a part waiting twice or missing is marked mixed by the picker's listing alone, as opening one did; `Of` holds a lock on that set (M1), since the picker lists on a pool thread while Promote may call it on Revit's.
+- **A 409 read as "already taken" (C1)** compares the ghosts the stored result applied with the record's: another PC that applied the same changeset with the same ticks first would match — this PC's elements are then a duplicate the bridge does not name (the "Records are per PC" ceiling; MA-3b3's lock closes it). The words say "its reply did not reach Revit" and name the status; the record is removed.
 - **Ghost Builder still waits** (its `Report` dialog, `GhostChangesetBuild.cs:153,653`) and **Promote's own reads still wait** (`Commands.PromoteWalls.cs:49,61,191`): MA-3b4.
 
 ## Next (out of scope here)
