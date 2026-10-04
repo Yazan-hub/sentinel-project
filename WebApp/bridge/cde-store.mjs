@@ -188,8 +188,10 @@ export async function getProjectMeta(key, seed) {
   if (proj.metadata && Object.keys(proj.metadata).length > 0) return toProjectShape(proj, gates);
   const { stage: _stage, gates: _gates, ...seeded } = seed || {};
   const metadata = { ...defaultMeta(), ...(Object.keys(seeded).length ? seeded : {}) }; // complete metadata on seed
-  const row = (await sb(`projects?id=eq.${proj.id}`, { method: "PATCH", body: { metadata }, prefer: "return=representation" }))[0];
-  return toProjectShape(row, gates);
+  const row = (await sb(`projects?id=eq.${proj.id}`, { method: "PATCH", body: { metadata }, prefer: "return=representation" }))?.[0];
+  // F-MA3a-1: under a forwarded session only a lead or owner may write the project — a refused write answers no row. A read
+  // never fails on that: the reader gets the default details, and the next lead or owner read writes them.
+  return toProjectShape(row ?? { ...proj, metadata }, gates);
 }
 
 /** List every project in the web app's shape (project switcher / hub). Core fields defaulted via toProjectShape. */

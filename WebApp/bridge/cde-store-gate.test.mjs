@@ -85,6 +85,14 @@ describe("projectStage / projectGates / getProjectMeta — read from the ledger,
     expect(patch.body.metadata).not.toHaveProperty("gates");
     expect(p).toMatchObject({ stage: "tender", gates: {}, standards_pack: "seeded" });
   });
+  it("F-MA3a-1: a first read by a member who may not write the project (RLS: the PATCH answers no row) is the default shape, not a 500", async () => {
+    db.projects[0].metadata = {};
+    const fetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (url, init = {}) => (init.method === "PATCH" ? new Response("[]", { status: 200 }) : fetch(url, init)));
+    const p = await getProjectMeta("aster-tower", { standards_pack: "seeded" });
+    expect(p).toMatchObject({ project_id: "aster-tower", name: "Aster Tower", stage: "tender", gates: {}, standards_pack: "seeded", dimensions: { "3d": true } });
+    expect(db.projects[0].metadata).toEqual({}); // nothing persisted: the next lead or owner read writes it
+  });
 });
 
 describe("runStageGate — lead only, the current stage, the bridge's measurement, one stage_gate row", () => {
