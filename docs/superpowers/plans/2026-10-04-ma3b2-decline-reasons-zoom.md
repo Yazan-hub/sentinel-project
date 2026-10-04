@@ -18,7 +18,7 @@
 
 *Pure (add-in, promote-check §44).* In `ChangesetTrust`: `DeclineReason(text, out problem)` (the bridge's rule, held in the window before Apply), `ReasonsLine(reply, sent)`, `BridgeWords(err | exception, seconds)`, `PlaceBox(place)`, `NoPlace`, `GhostName` made public. `ChangesetClient.ResultBody(…, reasons)` builds the result's body; `ReportResult` gains an optional `reasons`. `UnreportedResults.Record.Reasons`; `UnreportedResults.Outcome` reads its error through `BridgeWords`. `StoreyBatch.Own(cs, reasons)` splits a storey's reasons per changeset.
 
-*Revit (scans §45; the drill).* `ChangesetReviewWindow`: a reason box in each group's bar, `DecideRequested` carries the reasons map, `ShowRequested` per row, `Shown(words)` on its own line. `ReviewChangesetsCommand`: `Decide` takes the reasons, `ResultOf` puts each changeset's own on its record, `ReportAll` sends `r.Reasons` and says `ReasonsLine`; `window.ShowRequested` runs the zoom through `App.Events`. `RevitEventHub.SelectAndShow(doc, uniqueId, said)`.
+*Revit (scans §45; the drill).* `ChangesetReviewWindow`: a reason box on its own row in each group (C4), read-only from the press (C2), refused when it has no unticked row to go with (C3); `DecideRequested` carries the reasons map, `ShowRequested` per row, `Shown(words)` on its own line. `ReviewChangesetsCommand`: `Decide` takes the reasons, `ResultOf` puts each changeset's own on its record, `ReportAll` sends `r.Reasons` and says `ReasonsLine`; `window.ShowRequested` runs the zoom through `App.Events`. `RevitEventHub.SelectAndShow(doc, uniqueId, said)`.
 
 **Tech Stack:** C# add-in (`SentinelAddin/`: net48 for Revit 2021–2024, net8 for 2025–2026, net10 for 2027; System.Text.Json 8; WPF built in code); the offline check `tools/promote-check`; the Node bridge (ESM, vitest 2).
 
@@ -28,9 +28,10 @@
 - **What must stay true** (a task that would break one of these stops and says so):
   - **No network call on Revit's API thread, and no wait for one in the review**: no `GetAwaiter().GetResult()` and no `.Wait(` in `Commands.ReviewChangesets.cs` (§43 still scans it); no new HTTP call — `Ma2dWiring` still counts 4 `() => Req(` and 3 GET sends; Show makes no bridge call.
   - **Nothing MA-3b holds is loosened**: the record before the send, one Apply per window, the guard (`Hold();` three times, `Release();` three times), `window.Say(` three times in the command — Show speaks through `window.Shown`, never the status line that holds the result.
-  - **A result Revit applied is never refused for its reasons.** The window refuses a reason the bridge would refuse *before* Apply (`ChangesetTrust.DeclineReason`, the same fixture rule as the bridge's `reasonOf`); every reason sent is for a ghost the result rejects (`StoreyBatch.Own`).
+  - **A result Revit applied is never refused for a reason the window accepted** (C8): the window holds the bridge's rule (one fixture — `ChangesetTrust.DeclineReason` against the bridge's `reasonOf`) and refuses *before* Apply what the bridge would refuse; every reason sent is for a ghost the result rejects (`StoreyBatch.Own`). A 400 on `reasons` is a bug, and it loses the record (Risks).
   - **Claimed vs verified.** The window counts the reasons the bridge's reply holds, never the ones it sent.
-  - **Words are said, never silent.** Every Show says what it did or why it could not; a bridge that kept fewer reasons than were sent is said.
+  - **Words are said, never silent.** Every Show says what it did or why it could not; a bridge that kept fewer reasons than were sent is said; a reason with no unticked row to carry it is refused in words (C3); a reason box cannot be typed in once its reasons were taken (C2).
+  - **Never a guess.** "The bridge did not answer" is said only of a request that timed out — never of a sign-in that failed before the bridge was asked (C1).
   - **The bridge holds the rule** (one line, at most 500 characters, a key the result rejects); the add-in re-checks it.
   - **Every Revit write stays inside one TransactionGroup per Sentinel action (XC-2)**: Show writes nothing (a selection and a zoom); the placement event is unchanged.
   - **No new database table, no migration, no web change.**
@@ -52,6 +53,14 @@
 - Task 4 (final): the full `npx vitest run` `143 passed (143)` files, `2325 passed | 1 skipped (2326)`; all 26 check projects: the 25 that count `2370/2370` (master 2355 + 15), `datum-check` `DATUM OK`.
 - The drill's proxy script (set-up) was run against a stand-in on 4102: a plain POST passed through, a `slow` POST `…/result` was delayed, a `slow` GET was not, `silent` answered nothing.
 - Not run: the drill (Revit and the founder) and the commit commands.
+
+**Dry run again (amender, 2026-10-04, after the review amendments C1–C13).** The same kind of detached worktree at `4580361` (`scratchpad/ma3b2/dry`, `WebApp/node_modules` as a junction; removed afterwards). A script read **this document's own code blocks** (`Create` / `In <file>, replace … with`) and applied them step by step — 56 blocks, each matched its text exactly once — with each "see it fail" run before the code and each "see it pass" run after:
+- Task 1: `2 failed | 1 passed (3)` files (the failed-test count line was not re-read; the test count is unchanged, 6 new) → `3 passed (3)`, `173 passed (173)`; `vitest run bridge` `91 passed (91)` files; `src/setups/review-desk.test.ts` `1 passed (1)` file; `ids-cases.json` restored.
+- Task 2: `promote-check` does not compile (`CS0117` on `DeclineReason`, `ReasonsLine`, `BridgeWords`, `PlaceBox`, `NoPlace`, `MaxReason`, `ReasonRule`, `ResultBody`, `Record.Reasons`; `CS0122` on `GhostName`) → `747/747 checks pass` (C1's cases sit inside §44's existing check: still 9); `session-check` `47/47`.
+- Task 3: `740/753 checks pass` (13 fail: 7 older checks whose quoted lines change — C2 adds two of §43's — and §45's 6) → `753/753 checks pass`; builds with `-p:DeployToRevit=false`: 2022 `0 Error(s)` `3 Warning(s)`, 2023 `0`/`3`, 2024 `0`/`5`, 2025 `0`/`1`, 2026 `0`/`1`, 2027 `0`/`3` (`ActiveGraphicalView`, the `DockPanel` row and `Reasons(bool)` compile on net48, net8 and net10).
+- Task 4: the full `npx vitest run` `143 passed (143)` files, `2325 passed | 1 skipped (2326)`; all 26 check projects: the 25 that count `2370/2370`, `datum-check` `DATUM OK`.
+- The amended proxy (C5), with `SLOW_MS=1500` against a stand-in on 4102: a plain POST `…/result` passed at once; with `slow`, a GET passed at once, the first POST `…/result` took 1.5 s, the second passed at once; `silent` answered nothing.
+- Not run: the drill and the tasks' commit commands.
 
 ---
 
@@ -77,6 +86,24 @@ The plan builds the default of each. None needs an answer before the work starts
 - **S5 (the entry, "the bridge did not answer within N s").** Said by the client for every caller (F5 A), N from the client's own timeouts (8 s reads, 120 s writes); a connection that failed says `the connection failed — <the cause>` instead of `An error occurred while sending the request.`
 - **S6 (the scout, "the rolled-back path sends no reasons").** Kept: when Revit rolls the storey back, every ghost is rejected by Revit, not by the reviewer; the note carries the reviewer's note as before.
 
+## Review amendments (BINDING — the critic's review of `4580361`, 2026-10-04; each is also written into the task text it changes, and where the two differ the amendment wins)
+
+No critical finding. C1–C6 important, C7–C13 minor; none rejected.
+
+- **C1 (Task 2 — never a guess).** `BridgeWords` said "the bridge did not answer" of any message holding "canceled" — also of a sign-in refresh that timed out before the bridge was asked (`UserSession.cs:152`, `:177`: `session not refreshed — retrying (Supabase not reached: A task was canceled.)`). Binding: `BridgeWords(Exception ex, int seconds)` ends `: string.IsNullOrWhiteSpace(ex?.Message) ? "the bridge did not answer" : ex.Message` — never the string overload; the string overload rewrites only a **whole-message** timeout (`"A task was canceled."`, `"The operation was canceled."`, or one that starts `The request was canceled due to the configured HttpClient.Timeout`). §44 checks the session's words pass unchanged through `BridgeWords(Exception)` and do not read "the bridge did not answer" through `UnreportedResults.Outcome` (this also narrows master's own heuristic there).
+- **C2 (Task 3 — a reason typed after Apply was silently dropped).** The reasons are taken at the press. Binding: `Applying` sets `IsReadOnly = true` on every reason box and `Reopen` sets it back (`Reasons(bool)`). The amender adds the same at the press itself (`Decide`, beside `_go.IsEnabled = false`), undone by `Refused` when nothing was applied — the re-check is the same gap, a few seconds earlier. §45 scans all four.
+- **C3 (Task 3 — a reason with no row to carry it was silent).** Binding: in the window's `Decide`, a group with a reason and no row that is unticked and may be ticked here (none unticked, or every unticked one declined on the web) is refused before anything is sent: `The reason for "<group>" has no unticked row to go with — untick the rows it is for, or clear it. Nothing was sent.` §45 scans it; Z-2 presses it; the Risk bullet is gone.
+- **C4 (Task 3 — the reason box did not fit the bar).** Binding: the reason is on its own row under the buttons — a `DockPanel` (`whyRow`), the label docked left, the `TextBox` filling, no fixed `Width` — added to `body` between `bar` and `groupRows`. §45 pins `MaxLength = ChangesetTrust.MaxReason`, not a width.
+- **C5 (drill — Z-4's 60 s was too short).** Binding: the proxy's delay is 95 s by default (`SLOW_MS`, under the 120 s write timeout) and it delays **only the first** `POST …/result` it sees while `slow` is set (`let slowed = false`), so a storey filed as several parts waits once. Z-4's report arrives 90–115 s after Place anyway.
+- **C6 (drill — Z-2 could poison Z-4).** Binding: Z-2 declines the first group after `retype wall` whose header does not start with `set_parameter` (a type edit; prefer `attach`). If only type edits follow, 3 rows of `retype wall` are unticked by hand and the reason goes in that group's box.
+- **C7 (Task 1 — a test that asserted nothing when nothing threw).** Binding: a `thrown(f)` helper and `toMatchObject({ status: 400 })`.
+- **C8 (Global Constraints — the invariant overstated).** Binding: reworded as above ("…never refused for a reason the window accepted… a 400 on `reasons` is a bug, and it loses the record"). No bridge change.
+- **C9 (Task 1 — a ghost keyed `__proto__` would lose its reason).** Binding: `resultReasons` collects into `Object.create(null)` and returns `{ ...out }`; one assertion pins it.
+- **C10 (Task 3 — the create zoom in a non-graphical view).** Binding: `uidoc.ActiveGraphicalView` for the id and the name, null-checked, with the "cannot be zoomed" words. §45 follows.
+- **C11 (drill — Z-1 rested on a screenshot).** Binding: Z-1 also records the Properties palette's type selector after Show; if it does not show one wall (`Walls (1)`), the row fails.
+- **C12 (drill — the closing list's master rebuild is a deploy).** Binding: it runs only under the founder's same explicit OK; otherwise the stated fallback.
+- **C13 (Next — MA-3b2b).** Binding: Revit's reasons are free text — rendered as text (`textContent`), never as HTML.
+
 ## Engineering decisions (taken here; a reviewer may challenge them)
 
 | # | Decision | Why / ceiling |
@@ -88,8 +115,8 @@ The plan builds the default of each. None needs an answer before the work starts
 | E5 | The reason rule is one fixture (`revit_reasons.rule`) run by vitest through `resultReasons` and by promote-check through `ChangesetTrust.DeclineReason` | The two sides cannot drift: a reason Revit sends is one the bridge keeps. Where they differ the add-in is the stricter (it calls U+0085 blank and sends nothing) |
 | E6 | Show speaks on its own line (`Shown`), above the note | The status line holds the result ("reported (ledger #n)") — a Show after Apply must not replace it; §43's `window.Say(` count stays 3 |
 | E7 | The zoom rectangle is the place's points ± 1 m in plan, in the model's internal coordinates (mm ÷ 304.8), as `ChangesetExecutor.Pt` places them (`:91`) | Pure (`PlaceBox`, §44). Ceiling: a 3D or section view zooms to the same two corners and may show little; said in the words |
-| E8 | `BridgeWords(Exception)` reads `OperationCanceledException` as the timeout and `HttpRequestException` by its innermost message | net48 and net8 both cancel on the client's timeout; the innermost message is the socket's ("…actively refused it 127.0.0.1:4101"). Ceiling: that message is Windows', in its language |
-| E9 | Six lines of older scans that quote a changed line are rewritten with it (§39 ×2, §41 ×2, §43 ×2 — one in Task 2, five in Task 3) | They pin the code they name; the new text is the old plus the reasons |
+| E8 | `BridgeWords(Exception)` reads `OperationCanceledException` as the timeout and `HttpRequestException` by its innermost message; any other exception keeps its own words (C1) | net48 and net8 both cancel on the client's timeout; the innermost message is the socket's ("…actively refused it 127.0.0.1:4101"). A sign-in failure inside the request (`SessionException`) is not the bridge's silence. Ceiling: the socket's message is Windows', in its language |
+| E9 | Nine lines of older scans that quote a changed line are rewritten with it (§39 ×2, §41 ×2, §43 ×5 — one in Task 2, eight in Task 3; three of §43's are C2's `Refused`, `Applying`, `Reopen`) | They pin the code they name; the new text is the old plus the reasons |
 
 ---
 
@@ -108,7 +135,7 @@ The plan builds the default of each. None needs an answer before the work starts
 | `SentinelAddin/UI/ChangesetReviewWindow.cs` | 3 | the reason boxes, `ShowRequested`, `Shown`, the reasons on `DecideRequested` |
 | `SentinelAddin/Commands.ReviewChangesets.cs` | 3 | `Decide(…, reasons)`, `ResultOf(…, reasons)`, `ReportAll` sends and says them, the Show handler |
 | `SentinelAddin/RevitEventHub.cs` | 3 | `SelectAndShow(doc, uniqueId, said)` |
-| `tools/promote-check/Ma3b2Wiring.cs` (new), `Check.cs`, `Ma3bDesk.cs`, `Ma2dWiring.cs`, `Ma3aReview.cs` | 3 | §45 (6 scans); five older scans follow the lines they quote |
+| `tools/promote-check/Ma3b2Wiring.cs` (new), `Check.cs`, `Ma3bDesk.cs`, `Ma2dWiring.cs`, `Ma3aReview.cs` | 3 | §45 (6 scans); eight older scan lines follow the lines they quote |
 | `docs/strategy/2026-09-30-model-automation-design.md` | 4 | what was built, drill pending |
 
 ---
@@ -219,7 +246,10 @@ describe("resultReasons — Revit's reason per declined ghost (MA-3b2)", () => {
     expect(() => resultReasons(["g-1"], JSON.parse('{"__proto__":"x"}'))).toThrow(/reasons names "__proto__"/);
     expect(() => resultReasons(["g-1"], ["g-1"])).toThrow(/reasons must be \{proposal_guid: reason\} — one line for each ghost this result rejects/);
     expect(() => resultReasons(["g-1"], "why")).toThrow(/reasons must be/);
-    try { resultReasons(["g-1"], { nope: "x" }); } catch (e) { expect(e.status).toBe(400); }
+    const thrown = (f) => { try { f(); } catch (e) { return e; } return null; }; // review C7: fails when nothing is thrown
+    expect(thrown(() => resultReasons(["g-1"], { nope: "x" }))).toMatchObject({ status: 400 });
+    // review C9: a ghost keyed __proto__ keeps its reason (an own key, never the prototype)
+    expect(Object.keys(resultReasons(["__proto__"], JSON.parse('{"__proto__":"kept"}')))).toEqual(["__proto__"]);
   });
 });
 ```
@@ -294,13 +324,13 @@ export function resultReasons(rejectedGuids, reasons) {
   if (reasons == null) return null;
   if (typeof reasons !== "object" || Array.isArray(reasons)) throw err(400, "reasons must be {proposal_guid: reason} — one line for each ghost this result rejects");
   const rejected = new Set(rejectedGuids);
-  const out = {};
+  const out = Object.create(null); // review C9: `out["__proto__"] = …` on a plain object would be swallowed
   for (const [g, r] of Object.entries(reasons)) {
     if (!rejected.has(g)) throw err(400, `reasons names "${g}", which this result does not reject — a reason is for a declined ghost`);
     const why = reasonOf(r, false, "a decline");
     if (why != null) out[g] = why;
   }
-  return Object.keys(out).length ? out : null;
+  return Object.keys(out).length ? { ...out } : null;
 }
 ```
 
@@ -498,6 +528,7 @@ static partial class Check
            "a reported result says how many decline reasons the bridge kept — read from its reply (claimed vs verified); a bridge that kept fewer than were sent is said");
 
         // The bridge's failures in plain words (drill MA3b's finding: "Couldn't reach the bridge: A task was canceled.").
+        const string notRefreshed = "session not refreshed — retrying (Supabase not reached: A task was canceled.)"; // UserSession.cs:152, :177
         var refusedConnection = new HttpRequestException("An error occurred while sending the request.",
             new InvalidOperationException("Unable to connect to the remote server", new InvalidOperationException("No connection could be made because the target machine actively refused it 127.0.0.1:4101")));
         Ok(ChangesetTrust.BridgeWords("A task was canceled.", 8) == "the bridge did not answer within 8 s"
@@ -507,8 +538,14 @@ static partial class Check
            && ChangesetTrust.BridgeWords(refusedConnection, 8) == "the connection failed — No connection could be made because the target machine actively refused it 127.0.0.1:4101"
            && ChangesetTrust.BridgeWords(new JsonException("'<' is an invalid start of a value."), 8) == "'<' is an invalid start of a value."
            && ChangesetTrust.BridgeWords("Bridge 409: {\"message\":\"the changeset was canceled\"}", 8) == "Bridge 409: {\"message\":\"the changeset was canceled\"}"
-           && ChangesetTrust.BridgeWords((string)null, 8) == "the bridge did not answer" && ChangesetTrust.BridgeWords("  ", 8) == "the bridge did not answer",
-           "a request that timed out reads \"the bridge did not answer within N s\" (net48's and net8's words, or the exception itself), a refused connection names its cause, and the bridge's own words are never rewritten");
+           && ChangesetTrust.BridgeWords((string)null, 8) == "the bridge did not answer" && ChangesetTrust.BridgeWords("  ", 8) == "the bridge did not answer"
+           // Review C1 (never a guess): a sign-in refresh that timed out before the bridge was asked keeps its own words — everywhere.
+           && ChangesetTrust.BridgeWords("The operation was canceled.", 8) == "the bridge did not answer within 8 s"
+           && ChangesetTrust.BridgeWords(new InvalidOperationException(notRefreshed), 8) == notRefreshed && ChangesetTrust.BridgeWords(notRefreshed, 120) == notRefreshed
+           && ChangesetTrust.BridgeWords(new InvalidOperationException(""), 8) == "the bridge did not answer"
+           && UnreportedResults.Outcome(notRefreshed, 1) is var kept && !kept.Drop && kept.Words.StartsWith("not reported: " + notRefreshed, StringComparison.Ordinal) && !kept.Words.Contains("the bridge did not answer")
+           && UnreportedResults.Outcome("A task was canceled.", 1).Words.StartsWith("not reported: the bridge did not answer within 120 s", StringComparison.Ordinal),
+           "a request that timed out reads \"the bridge did not answer within N s\" (net48's and net8's words, or the exception itself), a refused connection names its cause, the bridge's own words are never rewritten, and a sign-in that failed before the bridge was asked is never said as the bridge's silence");
         string client = Src("Coordination", "ChangesetClient.cs"), unreported = Src("Engine", "UnreportedResults.cs");
         int reads = 0;
         for (int i = 0; (i = client.IndexOf("error = ChangesetTrust.BridgeWords(ex, (int)ReadHttp.Timeout.TotalSeconds);", i, StringComparison.Ordinal)) >= 0; i++) reads++;
@@ -621,19 +658,23 @@ with:
 
     /// <summary>MA-3b2 (drill MA3b's finding): a request's failure in plain words. A timeout — net48's "A task was canceled.", net8's
     /// "…canceled due to the configured HttpClient.Timeout…" — reads "the bridge did not answer within N s"; the bridge's own words
-    /// ("Bridge 409: …") are never rewritten.</summary>
+    /// ("Bridge 409: …") are never rewritten. Review C1 (never a guess): only a message that IS the timeout is rewritten — one that
+    /// merely holds "canceled" (a sign-in refresh that timed out before the bridge was asked: "… (Supabase not reached: A task was
+    /// canceled.)") keeps its own words.</summary>
     public static string BridgeWords(string err, int seconds) =>
         string.IsNullOrWhiteSpace(err) ? "the bridge did not answer"
-        : !err.StartsWith("Bridge ", StringComparison.Ordinal) && err.IndexOf("canceled", StringComparison.OrdinalIgnoreCase) >= 0 ? $"the bridge did not answer within {seconds} s"
+        : err == "A task was canceled." || err == "The operation was canceled." || err.StartsWith("The request was canceled due to the configured HttpClient.Timeout", StringComparison.Ordinal)
+            ? $"the bridge did not answer within {seconds} s"
         : err;
 
     /// <summary>…and of the exception itself: a cancelled request is the timeout; a request that never connected names its cause (the
     /// innermost message: "No connection could be made because the target machine actively refused it …"), not "An error occurred
-    /// while sending the request."</summary>
+    /// while sending the request." Review C1: any other exception (the session's, a reply that is not JSON) keeps its own message —
+    /// never through the string overload.</summary>
     public static string BridgeWords(Exception ex, int seconds) =>
         ex is OperationCanceledException ? $"the bridge did not answer within {seconds} s"
         : ex is HttpRequestException ? "the connection failed — " + ex.GetBaseException().Message
-        : BridgeWords(ex?.Message, seconds);
+        : string.IsNullOrWhiteSpace(ex?.Message) ? "the bridge did not answer" : ex.Message;
 
     /// <summary>MA-3b2: a type edit's row has no Show.</summary>
     public const string NoPlace = "A type edit has no place in the model — it reaches every element on its type (the row says how many).";
@@ -765,8 +806,8 @@ In `SentinelAddin/Engine/UnreportedResults.cs`, replace:
 with:
 
 ```csharp
-            // Review M4, MA-3b2: a timeout is said as what it is (ChangesetTrust.BridgeWords — the client says it so already; a record's
-            // older words are read the same way); a bridge's own words are never rewritten.
+            // Review M4, MA-3b2: a timeout is said as what it is (ChangesetTrust.BridgeWords — the client says it so already; net48's and
+            // net8's own timeout words are read the same way); a bridge's own words are never rewritten, nor a sign-in failure's (C1).
             var err = ChangesetTrust.BridgeWords(error, 120);
             bool Is(params string[] codes) => codes.Any(c => err.StartsWith("Bridge " + c, StringComparison.Ordinal));
 ```
@@ -827,7 +868,7 @@ git commit -m "feat(addin): MA-3b2, pure - a decline reason cleaned by the bridg
 - Consumes: everything Task 2 produces (by the names above); `RevitEventHub.Enqueue(Document doc, string what, Action<UIApplication, Document> job, Action<string>? onRefused = null)` (`RevitEventHub.cs:28` — DocPin: the job runs only while `doc` is Revit's active document; a refusal is logged and handed to `onRefused`); the window's `Say`, `Ui`, `_gone`, `_rows`, `_go`.
 - Produces: `ChangesetReviewWindow.DecideRequested` is `Action<List<string>, List<string>, string, Dictionary<string, string>>`; `event Action<ChangesetElementDto> ShowRequested`; `void Shown(string words)` (any thread); `RevitEventHub.SelectAndShow(Document doc, string uniqueId, Action<string?> said)` — `said(null)` once shown, else the reason.
 
-- [ ] **Step 1: The failing scans (§45), and the five older scans that quote a line this task changes.**
+- [ ] **Step 1: The failing scans (§45), and the eight older scan lines that quote a line this task changes.**
 
 Create `tools/promote-check/Ma3b2Wiring.cs`:
 
@@ -846,12 +887,22 @@ static partial class Check
         int Count(string s, string what) { int n = 0, i = 0; while ((i = s.IndexOf(what, i, StringComparison.Ordinal)) >= 0) { n++; i += what.Length; } return n; }
 
         int refuse = At(window, "if (problem != null) { Say($\"The reason for \\\"{g.What}\\\" was not taken — {problem}. Nothing was sent.\"); return; }");
+        // Review C3: a reason with no unticked row to carry it is refused in words, before anything is sent.
+        int noRow = At(window, "if (!g.Rows.Any(x => x.Box.IsChecked != true && x.Box.IsEnabled)) { Say($\"The reason for \\\"{g.What}\\\" has no unticked row to go with — untick the rows it is for, or clear it. Nothing was sent.\"); return; }");
+        int press = At(window, "_go.IsEnabled = false; Reasons(true);");
         Ok(window.Contains("public event Action<List<string>, List<string>, string, Dictionary<string, string>> DecideRequested;")
-           && window.Contains("var why = new TextBox { Width = 220, MaxLength = ChangesetTrust.MaxReason,") && window.Contains("_groups.Add((group.Key, why, mine));")
-           && window.Contains("var reason = ChangesetTrust.DeclineReason(g.Reason.Text, out var problem);") && refuse > 0 && refuse < At(window, "_go.IsEnabled = false;")
+           // Review C4: the box is on its own row under the buttons, filling it — no fixed width to clip.
+           && window.Contains("var why = new TextBox { MaxLength = ChangesetTrust.MaxReason,") && !window.Contains("Width = 220") && window.Contains("_groups.Add((group.Key, why, mine));")
+           && window.Contains("whyRow.Children.Add(whyLabel); whyRow.Children.Add(why);") && window.Contains("body.Children.Add(bar); body.Children.Add(whyRow); body.Children.Add(groupRows);")
+           && window.Contains("var reason = ChangesetTrust.DeclineReason(g.Reason.Text, out var problem);") && refuse > 0 && refuse < noRow && noRow < press
+           // Review C2: the reasons are taken at the press — the boxes are read-only from then on, and editable again only when nothing was applied.
+           && window.Contains("private void Reasons(bool taken) { foreach (var g in _groups) g.Reason.IsReadOnly = taken; }")
+           && window.Contains("public void Refused(string words) => Ui(() => { Say(words); _go.IsEnabled = !_applied; if (!_applied) Reasons(false); });")
+           && window.Contains("public void Applying(string words) => Ui(() => { _applied = true; _go.IsEnabled = false; Reasons(true); Say(words); });")
+           && window.Contains("public void Reopen(string words) => Ui(() => { _applied = false; _go.IsEnabled = true; Reasons(false); Say(words); });")
            && window.Contains("foreach (var r in g.Rows.Where(x => x.Box.IsChecked != true && x.Box.IsEnabled && x.El.ProposalGuid != null)) reasons[r.El.ProposalGuid] = reason;")
            && window.Contains("DecideRequested?.Invoke(ticked, unticked, _note.Text?.Trim() ?? \"\", reasons);"),
-           "each group has one reason box: its reason goes to that group's unticked rows that may be ticked here (never a row the web declined), and one the bridge would refuse is refused by the window before anything is sent");
+           "each group has one reason box on its own row: its reason goes to that group's unticked rows that may be ticked here (never a row the web declined); one the bridge would refuse, or one with no such row, is refused by the window before anything is sent; the boxes are read-only once their reasons were taken");
         Ok(review.Contains("window.DecideRequested += (ticked, unticked, note, reasons) => Task.Run(() => Decide(ticked, unticked, note, reasons));")
            && review.Contains("ResultOf(key, f, new List<AppliedEntry>(), StoreyBatch.Own(f, unticked), note, null, here, null, StoreyBatch.Own(f, reasons))")
            && review.Contains("records.Add(ResultOf(key, one, res.Applied, rejected, said, one.ReviewRev, here, new List<string> { undo, UndoWatcher.TxName(one.Name, one.Id) }, StoreyBatch.Own(one, reasons)));")
@@ -872,6 +923,8 @@ static partial class Check
            && zoom.Contains("var box = ChangesetTrust.PlaceBox(el.Place);") && zoom.Contains("App.Events.Enqueue(doc, \"show the place\", (ui, _) =>")
            && zoom.Contains("view.ZoomAndCenterRectangle(new XYZ(box[0][0] * ft, box[0][1] * ft, box[0][2] * ft), new XYZ(box[1][0] * ft, box[1][1] * ft, box[1][2] * ft));")
            && zoom.Contains("}, refusal => window.Shown(refusal));") && zoom.Contains("catch (Exception ex) { window.Shown(")
+           // Review C10: the active GRAPHICAL view — a schedule or the browser has none to zoom, said in the same words.
+           && zoom.Contains("var active = uidoc.ActiveGraphicalView;") && zoom.Contains("var view = active == null ? null : uidoc.GetOpenUIViews().FirstOrDefault(v => v.ViewId == active.Id);") && !zoom.Contains("uidoc.ActiveView.")
            && !zoom.Contains("Transaction") && !zoom.Contains("ChangesetClient.") && !zoom.Contains("window.Say(") && Count(review, "window.Say(") == 3,
            "Show selects and zooms to a retype's or attach's element, or zooms the active view to where a create would be placed — on Revit's thread through the event hub, with no transaction and no bridge call; every outcome is said");
         Ok(hub.Contains("public void SelectAndShow(Document doc, string uniqueId, Action<string?> said) => Enqueue(doc, \"show the element\", (uiapp, d) =>")
@@ -919,6 +972,42 @@ with:
         Ok(reportAll > 0 && pool > reportAll && At(review, "var landed = ChangesetClient.ReportResult(cfg, r.Key, r.ChangesetId, r.Applied, r.Rejected, r.Note, r.ReviewRev, out var reply, out var err, r.Reasons);") > pool
 ```
 
+In `tools/promote-check/Ma3bDesk.cs`, replace (review C2 — §43 quotes the three lines that now lock and unlock the reason boxes):
+
+```csharp
+window.Contains("public void Refused(string words) => Ui(() => { Say(words); _go.IsEnabled = !_applied; });")
+```
+
+with:
+
+```csharp
+window.Contains("public void Refused(string words) => Ui(() => { Say(words); _go.IsEnabled = !_applied; if (!_applied) Reasons(false); });")
+```
+
+In `tools/promote-check/Ma3bDesk.cs`, replace:
+
+```csharp
+window.Contains("public void Applying(string words) => Ui(() => { _applied = true; _go.IsEnabled = false; Say(words); });")
+```
+
+with:
+
+```csharp
+window.Contains("public void Applying(string words) => Ui(() => { _applied = true; _go.IsEnabled = false; Reasons(true); Say(words); });")
+```
+
+In `tools/promote-check/Ma3bDesk.cs`, replace:
+
+```csharp
+window.Contains("public void Reopen(string words) => Ui(() => { _applied = false; _go.IsEnabled = true; Say(words); });")
+```
+
+with:
+
+```csharp
+window.Contains("public void Reopen(string words) => Ui(() => { _applied = false; _go.IsEnabled = true; Reasons(false); Say(words); });")
+```
+
 In `tools/promote-check/Ma2dWiring.cs`, replace:
 
 ```csharp
@@ -955,7 +1044,7 @@ with:
         Ok(review.Contains("records.Add(ResultOf(key, one, res.Applied, rejected, said, one.ReviewRev, here, new List<string> { undo, UndoWatcher.TxName(one.Name, one.Id) }, StoreyBatch.Own(one, reasons)));") // MA-3b: sent by ReportAll; MA-3b2: with its reasons
 ```
 
-- [ ] **Step 2: See them fail.** `dotnet run --project tools/promote-check` → `742/753 checks pass`: the five rewritten scans (two in §39, one in §41, two in §43) and §45's six fail on the old code.
+- [ ] **Step 2: See them fail.** `dotnet run --project tools/promote-check` → `740/753 checks pass`: 13 fail on the old code — the seven older checks whose quoted lines are rewritten (§39, §41, §43; two of §43's are C2's) and §45's six.
 
 - [ ] **Step 3: The code.**
 
@@ -969,8 +1058,9 @@ with:
 
 ```csharp
 // ticked is Decline all, which needs a reason (the note).
-// MA-3b2: each group has one reason box — its reason is recorded for that group's unticked rows (result.reasons, beside the note) — and
-// each row has Show: select and zoom to its element, or to where a create would be placed.
+// MA-3b2: each group has one reason box — its reason is recorded for that group's unticked rows (result.reasons, beside the note); it is
+// taken at the press (read-only from then on), and one with no unticked row to go with is refused in words — and each row has Show:
+// select and zoom to its element, or to where a create would be placed.
 ```
 
 In `SentinelAddin/UI/ChangesetReviewWindow.cs`, replace:
@@ -1071,10 +1161,12 @@ with:
                 row.Children.Add(show);
 ```
 
-In `SentinelAddin/UI/ChangesetReviewWindow.cs`, replace:
+In `SentinelAddin/UI/ChangesetReviewWindow.cs`, replace (review C4 — the reason has its own row; the bar is a horizontal StackPanel, which clips):
 
 ```csharp
             bar.Children.Add(tick); bar.Children.Add(untick);
+            var body = new StackPanel();
+            body.Children.Add(bar); body.Children.Add(groupRows);
 ```
 
 with:
@@ -1082,11 +1174,16 @@ with:
 ```csharp
             bar.Children.Add(tick); bar.Children.Add(untick);
             // MA-3b2: one reason for this group's unticked rows — recorded per ghost with the result (result.reasons) and on its ledger row.
-            var why = new TextBox { Width = 220, MaxLength = ChangesetTrust.MaxReason, Margin = new Thickness(6, 0, 0, 4), VerticalContentAlignment = VerticalAlignment.Center,
+            // Review C4: on its own row under the buttons, the box filling it (no fixed width: the bar clips, it does not wrap).
+            var why = new TextBox { MaxLength = ChangesetTrust.MaxReason, VerticalContentAlignment = VerticalAlignment.Center,
                                     ToolTip = "Optional, one line: why this group's unticked rows are declined. Recorded for each of them with the result — not for a row declined on the web (the web's reason stands)." };
-            bar.Children.Add(new TextBlock { Text = "Reason for the unticked here:", Foreground = Brushes.Gray, Margin = new Thickness(10, 0, 0, 4), VerticalAlignment = VerticalAlignment.Center });
-            bar.Children.Add(why);
+            var whyLabel = new TextBlock { Text = "Reason for the unticked here:", Foreground = Brushes.Gray, Margin = new Thickness(0, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center };
+            var whyRow = new DockPanel { Margin = new Thickness(0, 0, 0, 4) };
+            DockPanel.SetDock(whyLabel, Dock.Left);
+            whyRow.Children.Add(whyLabel); whyRow.Children.Add(why);
             _groups.Add((group.Key, why, mine));
+            var body = new StackPanel();
+            body.Children.Add(bar); body.Children.Add(whyRow); body.Children.Add(groupRows);
 ```
 
 In `SentinelAddin/UI/ChangesetReviewWindow.cs`, replace:
@@ -1095,6 +1192,7 @@ In `SentinelAddin/UI/ChangesetReviewWindow.cs`, replace:
         _go.IsEnabled = false;
         Say("Re-checking with the bridge…");
         DecideRequested?.Invoke(ticked, unticked, _note.Text?.Trim() ?? "");
+    }
 ```
 
 with:
@@ -1108,11 +1206,54 @@ with:
             var reason = ChangesetTrust.DeclineReason(g.Reason.Text, out var problem);
             if (problem != null) { Say($"The reason for \"{g.What}\" was not taken — {problem}. Nothing was sent."); return; }
             if (reason == null) continue;
+            // Review C3 (words are said, never silent): a reason with no row to carry it — none unticked, or every unticked one declined on the web.
+            if (!g.Rows.Any(x => x.Box.IsChecked != true && x.Box.IsEnabled)) { Say($"The reason for \"{g.What}\" has no unticked row to go with — untick the rows it is for, or clear it. Nothing was sent."); return; }
             foreach (var r in g.Rows.Where(x => x.Box.IsChecked != true && x.Box.IsEnabled && x.El.ProposalGuid != null)) reasons[r.El.ProposalGuid] = reason;
         }
-        _go.IsEnabled = false;
+        _go.IsEnabled = false; Reasons(true); // review C2: the reasons are taken here — a box typed in afterwards would look recorded and not be
         Say("Re-checking with the bridge…");
         DecideRequested?.Invoke(ticked, unticked, _note.Text?.Trim() ?? "", reasons);
+    }
+
+    /// <summary>Review C2: the reason boxes are read-only once their reasons were taken (the press), and editable again only when nothing
+    /// was applied (Refused, Reopen) — the next press takes them afresh.</summary>
+    private void Reasons(bool taken) { foreach (var g in _groups) g.Reason.IsReadOnly = taken; }
+```
+
+In `SentinelAddin/UI/ChangesetReviewWindow.cs`, replace (review C2):
+
+```csharp
+    public void Refused(string words) => Ui(() => { Say(words); _go.IsEnabled = !_applied; });
+```
+
+with:
+
+```csharp
+    public void Refused(string words) => Ui(() => { Say(words); _go.IsEnabled = !_applied; if (!_applied) Reasons(false); });
+```
+
+In `SentinelAddin/UI/ChangesetReviewWindow.cs`, replace (review C2):
+
+```csharp
+    public void Applying(string words) => Ui(() => { _applied = true; _go.IsEnabled = false; Say(words); });
+```
+
+with:
+
+```csharp
+    public void Applying(string words) => Ui(() => { _applied = true; _go.IsEnabled = false; Reasons(true); Say(words); });
+```
+
+In `SentinelAddin/UI/ChangesetReviewWindow.cs`, replace (review C2):
+
+```csharp
+    public void Reopen(string words) => Ui(() => { _applied = false; _go.IsEnabled = true; Say(words); });
+```
+
+with:
+
+```csharp
+    public void Reopen(string words) => Ui(() => { _applied = false; _go.IsEnabled = true; Reasons(false); Say(words); });
 ```
 
 In `SentinelAddin/UI/ChangesetReviewWindow.cs`, replace:
@@ -1273,11 +1414,12 @@ with:
                 try
                 {
                     var uidoc = ui.ActiveUIDocument;
-                    var view = uidoc.GetOpenUIViews().FirstOrDefault(v => v.ViewId == uidoc.ActiveView.Id);
+                    var active = uidoc.ActiveGraphicalView; // review C10: a schedule or the project browser is not a view to zoom
+                    var view = active == null ? null : uidoc.GetOpenUIViews().FirstOrDefault(v => v.ViewId == active.Id);
                     if (view == null) { window.Shown($"{name}: the active view cannot be zoomed — open a plan view and press Show again."); return; }
                     const double ft = 1.0 / 304.8;
                     view.ZoomAndCenterRectangle(new XYZ(box[0][0] * ft, box[0][1] * ft, box[0][2] * ft), new XYZ(box[1][0] * ft, box[1][1] * ft, box[1][2] * ft));
-                    window.Shown($"Showing where {name} would be placed, in the active view ({uidoc.ActiveView.Name}) — a plan of its level shows it best.");
+                    window.Shown($"Showing where {name} would be placed, in the active view ({active.Name}) — a plan of its level shows it best.");
                 }
                 catch (Exception ex) { window.Shown($"{name}: could not be shown — {ex.GetType().Name}: {ex.Message}"); }
             }, refusal => window.Shown(refusal));
@@ -1330,7 +1472,7 @@ Expected: `0 Error(s)` for each; warnings 2022 `3`, 2023 `3`, 2024 `5`, 2025 `1`
 
 ```bash
 git add SentinelAddin/UI/ChangesetReviewWindow.cs SentinelAddin/Commands.ReviewChangesets.cs SentinelAddin/RevitEventHub.cs tools/promote-check/Ma3b2Wiring.cs tools/promote-check/Check.cs tools/promote-check/Ma3bDesk.cs tools/promote-check/Ma2dWiring.cs tools/promote-check/Ma3aReview.cs
-git commit -m "feat(addin): MA-3b2 - the review window has one reason box per group (recorded for that group's unticked rows on the result and its kept record; refused before Apply when the bridge would refuse it; the window says how many the bridge kept) and Show on every row (select and zoom to a retype's or attach's element, zoom the active view to a create's place; a type edit says it has none) - on Revit's thread through the event hub, no transaction, no bridge call" -m "Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+git commit -m "feat(addin): MA-3b2 - the review window has one reason box per group (recorded for that group's unticked rows on the result and its kept record; refused before Apply when the bridge would refuse it or when it has no unticked row to go with; read-only once taken; the window says how many the bridge kept) and Show on every row (select and zoom to a retype's or attach's element, zoom the active view to a create's place; a type edit says it has none) - on Revit's thread through the event hub, no transaction, no bridge call" -m "Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
 
 ### Task 4 — Words: the design doc; the final checks
@@ -1384,25 +1526,29 @@ git commit -m "docs: MA-3b2 - the design doc says what was built (a reason per d
 - **Show on an element that is gone**, **Show while another model is active** (DocPin's words), **Show in a view that cannot be zoomed**: checked by scan (§45), not provoked.
 - **Show on a type edit** (disabled, with its words): a row of Z-1 only if the storey Promote files carries a type edit; otherwise owed (scan only).
 - **R-5** of MA3b (a waiting result undone, then asked of the bridge — `Gone`'s path): still owed; Z-4 is the other path (the result lands, then its Undo is posted).
-- **Z-4** needs one Ctrl+Z inside a 60-second wait: if it is not pressed in time, C8 live stays **owed** and the row records what was seen.
+- **Z-4** needs one Ctrl+Z, an Undo-list read, the window closed, a ribbon press and a TaskDialog read inside a 95-second wait (review C5): what is not done in time stays **owed** (C8 live, or the hold) and the row records what was seen.
 
 **Set-up (once):**
 - **Build.** Close Revit. Record the deployed `Sentinel.dll` under `%AppData%\Autodesk\Revit\Addins\2024` (`certutil -hashfile "<that Sentinel.dll>" SHA256`, lower case). With the founder's OK: `dotnet build SentinelAddin/Sentinel.csproj -p:RevitVersion=2024` (it deploys the branch's build); record `git rev-parse --short HEAD` and the new DLL's sha256.
 - **The add-in's bridge settings.** Copy `%AppData%\Sentinel\bcf-config.json` to `bcf-config.json.ma3b2bak` beside it (never print it, never open it in a viewer); point it at the drill's port: `node -e 'const fs = require("fs"), f = process.env.APPDATA + "/Sentinel/bcf-config.json", c = JSON.parse(fs.readFileSync(f, "utf8")); c.serviceUrl = process.argv[1]; fs.writeFileSync(f, JSON.stringify(c, null, 2)); console.log("serviceUrl set")' http://127.0.0.1:4101`.
 - **The test bridge on 127.0.0.1:4102, behind the drill proxy on 4101** (drill MA3b's R-A2: no port is handed between two processes mid-row). Two preview servers, added to `.claude/launch.json` beside `bridge-test` and removed in the closing list:
   - `ma3b2-bridge` — `node <scratchpad>/ma3b2/bridge-4102.mjs`, `cwd` `WebApp`, port 4102; the file is three lines: `process.env.BCF_PORT = "4102"; process.env.BCF_EVENT_POLL_MS = "0"; await import("file:///C:/Users/yazan/Claude/Projects/Co%20BIM%20Assistant/sentinel-project/WebApp/bridge/bcf-service.mjs");` (this checkout's bridge — the branch's, Task 1). Its banner names port 4102.
-  - `ma3b2-proxy` — `node <scratchpad>/ma3b2/proxy.mjs`, port 4101. The planner left the file there; if it is gone, write it again:
+  - `ma3b2-proxy` — `node <scratchpad>/ma3b2/proxy.mjs`, port 4101, with `SLOW_MS=95000` (the script's default; review C5 — under the client's 120 s write timeout). The amender left the file there; if it is gone, write it again:
 
     ```js
     // Drill MA3b2's door: 127.0.0.1:4101 -> the test bridge on 127.0.0.1:4102. A file beside this script sets its mood:
-    // "slow" delays the answer to POST .../result by 60 s (the bridge has taken it; Revit still waits); "silent" answers nothing.
+    // "slow" delays the answer to the FIRST POST .../result by 95 s (the bridge has taken it; Revit still waits; a storey filed as
+    // several parts waits once - review C5; restart the proxy to delay another); "silent" answers nothing.
     import http from "node:http";
     import { existsSync } from "node:fs";
     const mood = (m) => existsSync(new URL(m, import.meta.url));
-    const SLOW_MS = Number(process.env.SLOW_MS || 60000);
+    const SLOW_MS = Number(process.env.SLOW_MS || 95000);
+    let slowed = false;
     http.createServer((req, res) => {
       if (mood("silent")) return; // accepted, never answered
-      const wait = mood("slow") && req.method === "POST" && req.url.endsWith("/result") ? SLOW_MS : 0;
+      const slow = !slowed && mood("slow") && req.method === "POST" && req.url.endsWith("/result");
+      if (slow) slowed = true;
+      const wait = slow ? SLOW_MS : 0;
       const up = http.request({ host: "127.0.0.1", port: 4102, method: req.method, path: req.url, headers: req.headers }, (r) => {
         const chunks = [];
         r.on("data", (c) => chunks.push(c));
@@ -1426,10 +1572,10 @@ git commit -m "docs: MA-3b2 - the design doc says what was built (a reason per d
 
 | Row | Steps | Pass when | Record |
 |---|---|---|---|
-| Z-1 — Show | Review AI Proposals ▸ GR-FFL ▸ **Review**. With Revit in front: press **Show** on the first `retype wall` row; look at the view; read the grey line above the note. If the window has a `set_parameter` group: read its row's Show (UIA `IsEnabled`, and its tooltip by hovering). Close the window with × (nothing is declined). Review AI Proposals ▸ MA0 Roof ▸ **Review**; press **Show** on its row; look at the view; read the line; close with × | The line reads `Showing retype wall "<name>".` and Revit shows that wall selected (one element selected, the view on it). A type edit's Show is disabled and says `A type edit has no place in the model — it reaches every element on its type (the row says how many).` (owed when the storey has none). The roof's line reads `Showing where create roof "<name>" would be placed, in the active view (<view name>) — a plan of its level shows it best.` and the active view is zoomed to the building's outline. Neither window's status line changed; the Undo list is unchanged (Show writes nothing) | Each line; a screenshot of the view after each Show; the Undo list before and after |
-| Z-2 — reasons | Review AI Proposals ▸ GR-FFL ▸ **Review**. In the second group (the one after `retype wall (24)`; record its header, `<G>`): **Untick group**; put `tab<TAB>here` in its reason box (UIA `ValuePattern.SetValue` with a real tab character, or paste); press **Apply … ticked in Revit**. Then replace the box's text with `drill MA3b2: these stay as they are until the slab is set`; press Apply; at the DD IDS dialog, **Place anyway**. When the window's words arrive: `b4101 GET changesets/ma3b2/<GR-FFL id>`, `b4101 GET "cde/ma3b2/audit?entity_type=changeset&limit=3"` | The first press, at once, no bridge call: `The reason for "<G>" was not taken — a reason is one line of at most 500 characters. Nothing was sent.`, Apply still enabled. The second: `Applied <a> element(s) from "Promote (DD) · GR-FFL".` … `"Promote (DD) · GR-FFL": reported (ledger #<n>).` and, on the next line, `<k> decline reason(s) recorded with it.` — `<k>` the group's row count, `<a>` = 48 − `<k>`. GET: `"status":"partially_applied"`, `result.rejected` `<k>` guids, `result.reasons` an object of `<k>` keys — each a rejected guid, each value the typed line. The newest audit row is `changeset_applied` #`<n>` and its after-object carries the same `reasons` | The window's text both times; `<G>`, `<k>`, `<a>`; the ledger id; GET's `result.reasons` (two entries quoted, the count of the rest); the audit row's `reasons` count |
+| Z-1 — Show | Review AI Proposals ▸ GR-FFL ▸ **Review**. With Revit in front: press **Show** on the first `retype wall` row; look at the view; read the Properties palette's type selector; read the grey line above the note. If the window has a `set_parameter` group: read its row's Show (UIA `IsEnabled`, and its tooltip by hovering). Close the window with × (nothing is declined). Review AI Proposals ▸ MA0 Roof ▸ **Review**; press **Show** on its row; look at the view; read the line; close with × | The line reads `Showing retype wall "<name>".` and Revit shows that wall selected: the Properties palette's type selector reads `Walls (1)` (review C11 — the line alone is a claim; if the palette does not show one wall, the row **fails**) and the view is on it. A type edit's Show is disabled and says `A type edit has no place in the model — it reaches every element on its type (the row says how many).` (owed when the storey has none). The roof's line reads `Showing where create roof "<name>" would be placed, in the active view (<view name>) — a plan of its level shows it best.` and the active view is zoomed to the building's outline. Neither window's status line changed; the Undo list is unchanged (Show writes nothing) | Each line; the Properties palette's type selector after the wall's Show; a screenshot of the view after each Show; the Undo list before and after |
+| Z-2 — reasons | Review AI Proposals ▸ GR-FFL ▸ **Review**. Pick `<G>` (review C6): the first group after `retype wall (24)` whose header does not start with `set_parameter` (a type edit — declining one makes later storeys' retypes onto its types fail the DD IDS and muddies Z-4); prefer `attach`; record its header. If only type edits follow, `<G>` is `retype wall`: untick 3 of its rows by hand in place of **Untick group** below. **First (review C3), with `<G>` still ticked:** put `drill MA3b2: no row yet` in its reason box (on its own row under Tick group / Untick group); press **Apply … ticked in Revit**; read the status line. **Then:** **Untick group**; put `tab<TAB>here` in its reason box (UIA `ValuePattern.SetValue` with a real tab character, or paste); press **Apply … ticked in Revit**. Then replace the box's text with `drill MA3b2: these stay as they are until the slab is set`; press Apply; at the DD IDS dialog, **Place anyway**. When the window's words arrive: `b4101 GET changesets/ma3b2/<GR-FFL id>`, `b4101 GET "cde/ma3b2/audit?entity_type=changeset&limit=3"` | The press with nothing unticked in `<G>`, at once, no bridge call: `The reason for "<G>" has no unticked row to go with — untick the rows it is for, or clear it. Nothing was sent.`, Apply still enabled, the box still editable. The tab press, at once, no bridge call: `The reason for "<G>" was not taken — a reason is one line of at most 500 characters. Nothing was sent.`, Apply still enabled. The last: the reason box is read-only from the press (UIA `ValuePattern.IsReadOnly`, review C2); `Applied <a> element(s) from "Promote (DD) · GR-FFL".` … `"Promote (DD) · GR-FFL": reported (ledger #<n>).` and, on the next line, `<k> decline reason(s) recorded with it.` — `<k>` the unticked rows of `<G>` (its row count; 3 on the fallback), `<a>` = 48 − `<k>`. GET: `"status":"partially_applied"`, `result.rejected` `<k>` guids, `result.reasons` an object of `<k>` keys — each a rejected guid, each value the typed line. The newest audit row is `changeset_applied` #`<n>` and its after-object carries the same `reasons` | The window's text all three times; the box's read-only state after the last press; `<G>`, `<k>`, `<a>`; the ledger id; GET's `result.reasons` (two entries quoted, the count of the rest); the audit row's `reasons` count |
 | Z-3 — plain words | `touch <scratchpad>/ma3b2/silent`; Review AI Proposals; wait 10 s; read the picker; close it. `rm …/silent`; stop the `ma3b2-proxy` preview; Review AI Proposals; read the picker; close it. Start `ma3b2-proxy` again | The first picker: `Couldn't reach the bridge:` then `the bridge did not answer within 8 s` (never `A task was canceled.`). The second: `Couldn't reach the bridge:` then `the connection failed — <the cause, naming 127.0.0.1:4101>` (never `An error occurred while sending the request.`) | Both pickers' text, whole (UNSURE 4) |
-| Z-4 — C8 live and the report's own hold | Review AI Proposals ▸ 01-FFL ▸ **Review** (all ticked). `touch <scratchpad>/ma3b2/slow`. Press **Apply 40 ticked in Revit**; at the DD IDS dialog, **Place anyway**; note the time. As soon as the window reads `Reporting to the bridge…`, with Revit in front (click Revit's title bar): **Ctrl+Z** once (the founder's, or the runner's while Revit is in front); read the Undo list (never click an entry). Close the review window with ×; press Review AI Proposals on the ribbon; read the TaskDialog and close it (`WindowPattern.Close`). Wait for the report's own TaskDialog (about 60 s after Place anyway); read it, close it; note the time. `rm …/slow`. `b4101 GET changesets/ma3b2/<01-FFL id>`, `b4101 GET "cde/ma3b2/audit?entity_type=changeset&limit=4"`; list `%AppData%\Sentinel\unreported\ma3b2\` | Revit takes the Ctrl+Z while the report waits: the Undo list no longer holds `Sentinel AI changeset: Promote (DD) · 01-FFL […]`. **The hold:** with the window closed and the report still out, the ribbon answers `A review window is open, or a result is still being reported to the bridge — finish or close the window, or wait for its report (two minutes at most), then run Review AI Proposals again.` **C8:** the report's TaskDialog reads `Applied 40 element(s) from "Promote (DD) · 01-FFL".` … `"Promote (DD) · 01-FFL": reported (ledger #<m>).` and `"Promote (DD) · 01-FFL": undone in Revit while its report was in flight — a changeset_reverted row (undo) was posted for its 40 element(s).`; it arrives 55–75 s after Place anyway. GET: `"status":"applied"`; the two newest audit rows are `changeset_reverted` (op `undo`, 40 guids) above `changeset_applied` #`<m>`; the folder holds no file | The Undo list before and after Ctrl+Z; the ribbon's words; the TaskDialog's text; the two times; the two audit rows' ids and actions; the folder listing |
+| Z-4 — C8 live and the report's own hold | Review AI Proposals ▸ 01-FFL ▸ **Review** (all ticked). `touch <scratchpad>/ma3b2/slow`. Press **Apply 40 ticked in Revit**; at the DD IDS dialog, **Place anyway**; note the time. As soon as the window reads `Reporting to the bridge…`, with Revit in front (click Revit's title bar): **Ctrl+Z** once (the founder's, or the runner's while Revit is in front); read the Undo list (never click an entry). Close the review window with ×; press Review AI Proposals on the ribbon; read the TaskDialog and close it (`WindowPattern.Close`). Wait for the report's own TaskDialog (about 95 s after Place anyway — the proxy delays only the first `/result`, so a storey filed as several parts waits once; review C5); read it, close it; note the time. `rm …/slow`. `b4101 GET changesets/ma3b2/<01-FFL id>`, `b4101 GET "cde/ma3b2/audit?entity_type=changeset&limit=4"`; list `%AppData%\Sentinel\unreported\ma3b2\` | Revit takes the Ctrl+Z while the report waits: the Undo list no longer holds `Sentinel AI changeset: Promote (DD) · 01-FFL […]`. **The hold:** with the window closed and the report still out, the ribbon answers `A review window is open, or a result is still being reported to the bridge — finish or close the window, or wait for its report (two minutes at most), then run Review AI Proposals again.` **C8:** the report's TaskDialog reads `Applied 40 element(s) from "Promote (DD) · 01-FFL".` … `"Promote (DD) · 01-FFL": reported (ledger #<m>).` and `"Promote (DD) · 01-FFL": undone in Revit while its report was in flight — a changeset_reverted row (undo) was posted for its 40 element(s).`; it arrives 90–115 s after Place anyway (review C5). GET: `"status":"applied"`; the two newest audit rows are `changeset_reverted` (op `undo`, 40 guids) above `changeset_applied` #`<m>`; the folder holds no file | The Undo list before and after Ctrl+Z; the ribbon's words; the TaskDialog's text; the two times; the two audit rows' ids and actions; the folder listing |
 
 The rows run in the order Z-1, Z-2, Z-3, Z-4 on the same session. If Promote filed other names or counts than drill MA3b's, the rows use what it filed and the record says so.
 
@@ -1439,7 +1585,7 @@ Record the drill in `docs/testing/SIMULATION_ROOM_RUN_2026-09-22.md` as `## Sess
 - close Revit without saving the scratch copy;
 - stop `ma3b2-proxy` and `ma3b2-bridge`; delete the `slow` and `silent` files if either is left; remove the two entries from `.claude/launch.json`; the founder's 4100 bridge is not touched;
 - restore the add-in's bridge settings: copy `bcf-config.json.ma3b2bak` back over `bcf-config.json`, compare the two files' sha256 (`certutil -hashfile`, the hashes only), delete the backup;
-- put master's add-in back, with Revit closed: from a master checkout, `dotnet build SentinelAddin/Sentinel.csproj -p:RevitVersion=2024`, and record the deployed DLL's sha256 beside the hash recorded before. If the session's permission check refuses that build, say so: the branch's add-in stays until the merge's deploy — safe: with master's 4100 bridge a reason is sent, not kept, and the window says so (`⚠ … the bridge kept 0`);
+- put master's add-in back, with Revit closed — **a deploy too: only under the founder's same explicit OK (review C12)**: from a master checkout, `dotnet build SentinelAddin/Sentinel.csproj -p:RevitVersion=2024`, and record the deployed DLL's sha256 beside the hash recorded before. Without that OK, or if the session's permission check refuses that build, say so: the branch's add-in stays until the merge's deploy — safe: with master's 4100 bridge a reason is sent, not kept, and the window says so (`⚠ … the bridge kept 0`);
 - list what the drill left on the shared ledger — the scratch office `ma3b2-office` (`guideline@1`, `type_catalog@1`, `lod_matrix@1`, `ruleset@1`), the project `ma3b2`, the membership, the changesets (GR-FFL partially applied, 01-FFL applied and reverted, MA0 Roof proposed) and their rows — left in place on purpose (scratch keys);
 - list what the drill left on this PC outside the repository: `%AppData%\Sentinel\unreported\ma3b2\` (deleted with its files, if any: a scratch key), `%AppData%\Sentinel\cache\ma3b2*` (deleted: scratch keys only), the scratch copy in `Documents\Sentinel drills\ma3b2\` (kept, named, as evidence; never committed), `<scratchpad>/ma3b2/` (the proxy and the bridge script; not the repository).
 
@@ -1473,7 +1619,7 @@ Push only under the standing push rule, after a secret scan of the range.
 
 1. Whether `UIView.ZoomAndCenterRectangle` on the active floor plan shows the rectangle `PlaceBox` gives (model points in internal coordinates), and what a 3D view does with the same corners — Z-1.
 2. Whether `ShowElements` on a wall in the active plan zooms without Revit's own "no good view" dialog — Z-1.
-3. Whether the group's bar (Tick group, Untick group, the label, a 220 px box) fits the 640 px window, and whether a disabled Show's tooltip shows (`ToolTipService.SetShowOnDisabled`) — cosmetic; Z-1, Z-2.
+3. Whether the reason row (the label, the box filling the rest — review C4) reads well under the buttons in the 640 px window, and whether a disabled Show's tooltip shows (`ToolTipService.SetShowOnDisabled`) — Z-1, Z-2. A reason box that cannot be reached or read is a finding, not cosmetic.
 4. The words net48 gives for a refused connection (expected the socket's `No connection could be made because the target machine actively refused it 127.0.0.1:4101`) and for the 8-second read timeout (expected the cancelled request → `the bridge did not answer within 8 s`) — Z-3 records them whole.
 5. Whether the B35 seed's GR-FFL storey carries a `set_parameter` row (a type edit's disabled Show) — Z-1.
 6. Whether UI Automation can put text into the group's reason box (`ValuePattern`), a tab included — Z-2; if not, the founder types the reason and the refusal half of Z-2 is owed (checked offline, §44/§45).
@@ -1482,14 +1628,14 @@ Push only under the standing push rule, after a secret scan of the range.
 
 ## Risks (each a ceiling stated in words)
 
-- **A reason typed for a group with no unticked row is not sent**, and nothing says so at Apply (the box's tooltip says what it is for; the result's words count what was recorded). A line that says "the reason for <group> was not used" is not built.
-- **A result whose reasons the bridge refuses (400) loses its record** (`Outcome`: a 400 never heals), with its elements in the model — MA-3b's words say so. The window refuses such a reason before Apply by the same fixture rule (E5), and every key is a rejected ghost by construction; the ceiling is a bug in either.
+- **A result whose reasons the bridge refuses (400) loses its record** (`Outcome`: a 400 never heals), with its elements in the model — MA-3b's words say so. The window refuses such a reason before Apply by the same fixture rule (E5), and every key is a rejected ghost by construction; the ceiling is a bug in either (review C8: the bridge still refuses rather than dropping a bad reason — dropping is more scope than it is worth here).
 - **Revit's reasons are not on the web desk** (F4): a web reviewer sees them only in the ledger row's body or by `GET`. MA-3b2b.
 - **The audit panel prints a row's action, not its body** (`cde-panel.ts renderAudit`): the reasons are on the row, not on that screen.
 - **Show on a create zooms the active view only** (F6 A): in a 3D or section view, or a plan of another level, it may show little; the words name the view and say a plan of its level shows it best. A proposal whose place has no point (a level, a grid) says it has no place to show.
 - **Show is refused while another model is the active one** (DocPin) — said on the window's line, and in the Doctor log.
 - **`the connection failed — <cause>` carries Windows' own sentence** (E8), in Windows' language; a proxy or a TLS failure would read as its innermost message.
-- **The plain words reach Ghost Builder's and Promote's dialogs too** (F5 A) — the same client; their flows are unchanged (their waits are MA-3b4).
+- **The plain words reach Ghost Builder's and Promote's dialogs too** (F5 A) — the same client; their flows are unchanged (their waits are MA-3b4). A sign-in that fails inside a request keeps the session's own words there (review C1).
+- **A row ticked or unticked after the press is not locked** (MA-3b's, unchanged): only the reason boxes are read-only from the press (review C2).
 - **A bridge before MA-3b2 keeps no reason**: the window says `⚠ <n> decline reason(s) were sent and the bridge kept 0 …`; they are then only in that window (and in the kept record while the result waits).
 
 ## Not settled (for the founder or the reviewer)
@@ -1500,7 +1646,7 @@ Push only under the standing push rule, after a secret scan of the range.
 
 ## Next (out of scope here)
 
-- **MA-3b2b — Revit's reasons on the web desk** (web + a small bridge read). The desk reads `GET /changesets/:key?status=proposed` only; a "recently decided" section needs a second read (`listChangesets` takes any status), rows that show `result.reasons` and `result.note` beside `declined_on_web`, web rows in a drill and a That Open publish. Optionally the ledger panel prints a `changeset_applied` row's reasons. Why later: a web slice with web rows; the ledger row carries the reasons meanwhile. Size S.
+- **MA-3b2b — Revit's reasons on the web desk** (web + a small bridge read). The desk reads `GET /changesets/:key?status=proposed` only; a "recently decided" section needs a second read (`listChangesets` takes any status), rows that show `result.reasons` and `result.note` beside `declined_on_web`, web rows in a drill and a That Open publish. `result.reasons` is free text typed in Revit: render it as text (`textContent`), never as HTML (review C13). Optionally the ledger panel prints a `changeset_applied` row's reasons. Why later: a web slice with web rows; the ledger row carries the reasons meanwhile. Size S.
 - **A reason box per row** (F1 B): when reviewers ask; no contract change (`reasons` is already per ghost).
 - **MA-3b3 — the Revit "ticked" lock and the carried decline** (Revit + bridge + web desk): as in the MA-3b plan's Next (bridge state and a route; the desk refusing a decline on a locked ghost; C4's carry-forward with the founder's A/B). Size M–L.
 - **MA-3b4 — nothing in modelling waits**: a waiting result sent by itself on `DocumentOpened` with a line in the pane's Doctor log; Ghost Builder writes the same record before its report and stops waiting (and sends reasons, if it ever declines by reason); Promote's reads (`Commands.PromoteWalls.cs:49`, `:61`) and its filing (`:191`) off the thread.
