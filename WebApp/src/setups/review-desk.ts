@@ -123,7 +123,7 @@ export function postsFor(ticked: Map<string, { cs: PendingChangeset; el: Ghost }
 /** "ledger #1201" when the bridge named the row; else that it did not. */
 export const rowWords = (r: { ledger: LedgerRef | null } | null): string => (r?.ledger?.id != null ? `ledger #${r.ledger.id}` : "the bridge named no ledger row");
 
-/** The desk: plain DOM, re-read on a project or person change (main.ts → refreshActiveProject). */
+/** The desk: plain DOM, re-read on a project or person change (main.ts → refreshActiveProject) or by its own ↻ Refresh. */
 export function reviewDeskPanel(opts: { baseUrl?: string } = {}): HTMLElement {
   const base = (opts.baseUrl ?? SERVICE_URL).replace(/\/$/, "");
   const root = document.createElement("div");
@@ -168,7 +168,7 @@ export function reviewDeskPanel(opts: { baseUrl?: string } = {}): HTMLElement {
     body.replaceChildren(el("div", "Reading…"));
     const [role, pending] = await Promise.all([myRoleRead(base, key), readPending(base, key).catch((e: Error) => e)]);
     if (mine !== seq) return;
-    bar.replaceChildren(el("b", `Review desk · ${key}`), el("span", roleWords(role), "color:#8b93a1"));
+    bar.replaceChildren(el("b", `Review desk · ${key}`), el("span", roleWords(role), "color:#8b93a1"), btn("↻ Refresh", () => void show()));
     if (canDecide(role.role)) bar.append(reason, btn("Accept ticked", () => void decide("accept")), btn("Decline ticked", () => void decide("decline")));
     else bar.append(el("span", role.role === "service" ? "· sign in to accept or decline — the machine credential never reviews" : "· read-only: accepting or declining needs contributor", "color:#fbbf24"));
     if (pending instanceof Error) { body.replaceChildren(el("div", `Proposals ${pending.message}`, "color:#fca5a5")); return; }

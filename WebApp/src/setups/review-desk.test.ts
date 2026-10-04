@@ -100,6 +100,13 @@ describe("the bridge calls", () => {
   });
 });
 
+describe("↻ Refresh re-reads the desk without reloading the site (source scan: no DOM here)", () => {
+  it("every role gets the button, and it calls the desk's own read", () => {
+    const src = readFileSync(new URL("./review-desk.ts", import.meta.url), "utf8");
+    expect(src).toContain('el("span", roleWords(role), "color:#8b93a1"), btn("↻ Refresh", () => void show()));');
+  });
+});
+
 describe("the Modeling studio is retired; the desk takes its tab (source scan)", () => {
   it("main.ts mounts the review desk where the Model tab was, and model-panel.ts is gone", () => {
     const main = readFileSync(new URL("../main.ts", import.meta.url), "utf8");
