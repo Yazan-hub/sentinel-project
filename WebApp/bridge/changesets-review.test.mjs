@@ -3,7 +3,8 @@
 // reported. Pure: changesets-logic.mjs.
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { REVIEW_STATES, reviewState, reviewRev, reviewNext, applyDecisions, reopenDecline, resultConflicts, resultReasons } from "./changesets-logic.mjs";
+import { REVIEW_STATES, reviewState, reviewRev, reviewNext, applyDecisions, reopenDecline, resultConflicts, resultReasons,
+  carryKey, carryDeclines, declineWords } from "./changesets-logic.mjs";
 
 const fx = JSON.parse(readFileSync(new URL("./fixtures/changeset-ops/ma3a-review.json", import.meta.url), "utf8"));
 const WHO = fx.who;
@@ -179,5 +180,142 @@ describe("resultReasons — Revit's reason per declined ghost (MA-3b2)", () => {
     expect(thrown(() => resultReasons(["g-1"], { nope: "x" }))).toMatchObject({ status: 400 });
     // review C9: a ghost keyed __proto__ keeps its reason (an own key, never the prototype)
     expect(Object.keys(resultReasons(["__proto__"], JSON.parse('{"__proto__":"kept"}')))).toEqual(["__proto__"]);
+  });
+});
+
+describe("carryDeclines — a decline carried to the next filing (MA-3b3)", () => {
+  const c3 = JSON.parse(readFileSync(new URL("./fixtures/changeset-ops/ma3b3-carry.json", import.meta.url), "utf8"));
+  const bare = (cs) => cs.elements.map(({ review, ...e }) => e);
+  const counts = (o) => ({ carried: o.carried.length, no_reason: o.no_reason, creates: o.creates, unverified: o.unverified });
+  /** `cs` as a signed-in contributor's Revit reported it: these guids rejected (the rest applied), with these reasons. */
+  const reported = (cs, rejected, reasons) => ({ ...cs, status: "partially_applied", review_rev: reviewRev(cs) + 1, result: {
+    applied: cs.elements.filter((e) => !rejected.includes(e.proposal_guid)).map((e) => ({ proposal_guid: e.proposal_guid, revit_element_id: 1 })),
+    rejected, note: null, reported_at: "2026-10-04T14:00:00.000Z", reported_by: "second@example.com", reported_role: "contributor", ...(reasons ? { reasons } : {}) } });
+  const W2 = c3.changeset.elements[1];
+
+  it("the shared fixture: a web decline and a Revit decline with a reason are stamped on the same change; the rest is not, and is counted", () => {
+    const out = carryDeclines(bare(c3.changeset), c3.earlier);
+    expect(out.elements).toEqual(c3.changeset.elements);
+    expect(counts(out)).toEqual(c3.changeset.carry);
+    expect(out.carried).toEqual(c3.carried);
+    expect(out.elements.filter((e) => e.review).map((e) => [e.proposal_guid, e.review.rev, e.review.role, e.review.carried_from.origin]))
+      .toEqual([["n-1", 0, "contributor", "web"], ["n-2", 0, "contributor", "revit"]]);
+  });
+
+  it("the newest decision stands whatever order the store answers in; the input is not changed", () => {
+    const els = bare(c3.changeset), copy = JSON.parse(JSON.stringify(els));
+    expect(carryDeclines(els, [...c3.earlier].reverse()).elements).toEqual(c3.changeset.elements);
+    expect(els).toEqual(copy);
+  });
+
+  it("nothing earlier, or nothing that matches: the elements are answered as they came and nothing is counted", () => {
+    for (const earlier of [[], null, undefined, [c3.earlier[1]]]) {
+      const out = carryDeclines(bare(c3.changeset), earlier);
+      expect(out.elements).toEqual(bare(c3.changeset));
+      expect(counts(out)).toEqual({ carried: 0, no_reason: 0, creates: 0, unverified: 0 });
+    }
+  });
+
+  it("a carried decline Revit then reports as rejected is carried again from its FIRST origin (never chained)", () => {
+    const again = carryDeclines(bare(c3.changeset), [...c3.earlier, reported(c3.changeset, ["n-1", "n-2", "n-3"], null)]);
+    expect(again.elements).toEqual(c3.changeset.elements);
+    expect(again.carried).toEqual(c3.carried);
+    expect(counts(again)).toEqual({ carried: 2, no_reason: 1, creates: 1, unverified: 0 }); // n-8 was applied by that report: nothing stands
+  });
+
+  it("a re-opened decline is not carried; a Revit decline with a reason after the re-open is, as Revit's own", () => {
+    const re = reopenDecline(c3.changeset, "n-1", "W 1 is external after all", LEAD);
+    expect(re.row.carried_from).toEqual(c3.changeset.elements[0].review.carried_from);
+    const open = carryDeclines(bare(c3.changeset), [...c3.earlier, re.updated]);
+    expect(open.carried.map((x) => x.proposal_guid)).toEqual(["n-2"]);
+    expect(open.elements[0].review).toBeUndefined();
+    const later = carryDeclines(bare(c3.changeset), [...c3.earlier, reported(re.updated, ["n-1"], { "n-1": "still a party wall" })]);
+    expect(later.elements[0].review).toEqual({ state: "declined", action: "decline", reason: "still a party wall", by: "second@example.com", role: "contributor",
+      at: "2026-10-04T14:00:00.000Z", rev: 0, carried_from: { changeset: "cs-ma3b3", name: "Promote (DD) · GR-FFL", proposal_guid: "n-1", origin: "revit" } });
+    expect(later.elements[1].review).toBeUndefined(); // n-2 was applied by that report (over its decline): nothing stands
+  });
+
+  it("a rejection with no reason of its own is never a decline: a rolled-back Apply carries nothing, and never replaces a decline that stands", () => {
+    const { review, ...w2 } = W2;
+    const rolledBack = { id: "cs-old", name: "Promote (DD) · GR-FFL", status: "declined", created_at: "2026-10-04T12:30:00.000Z", elements: [{ ...w2, proposal_guid: "o-1" }],
+      result: { applied: [], rejected: ["o-1"], note: "Revit transaction failed — rolled back: a wall could not be joined", reported_at: "2026-10-04T12:31:00.000Z", reported_by: "modeller@example.com" } };
+    const alone = carryDeclines([w2], [rolledBack]);
+    expect(alone.elements).toEqual([w2]);
+    expect(counts(alone)).toEqual({ carried: 0, no_reason: 1, creates: 0, unverified: 0 });
+    expect(carryDeclines([w2], [...c3.earlier, rolledBack]).elements[0].review).toEqual(review); // cs-a's decline with a reason still stands
+  });
+
+  it("carryKey: the element, the op and what it sets — a create, or a ghost that is not whole, has none", () => {
+    const uid = "5a1c2b3d-1111-2222-3333-444455556666-0004c3f8";
+    const retype = (place, kind = "wall", id = uid) => carryKey({ kind, op: "retype", target: { unique_id: id }, place });
+    expect(retype({ TypeName: "T" })).toBe(retype({ TypeName: " T " }, "wall", uid.toUpperCase()));
+    expect(retype({ TypeName: "T" })).not.toBe(retype({ TypeName: "t" }));
+    expect(retype({ TypeName: "T", FamilyName: "F" }, "door")).not.toBe(retype({ TypeName: "T", FamilyName: "G" }, "door"));
+    expect(retype({})).toBeNull();
+    const attach = (place) => carryKey({ kind: "wall", op: "attach", target: { unique_id: uid }, place });
+    expect(attach({ BaseLevel: "GR-FFL", TopLevel: "01-FFL" })).not.toBe(attach({ BaseLevel: "GR-FFL", TopLevel: "02-FFL" }));
+    expect(attach({ BaseLevel: "GR-FFL" })).toBeNull();
+    expect(attach({ BaseLevel: "GR-FFL", TopLevel: "01-FFL" })).not.toBe(retype({ TypeName: "GR-FFL", FamilyName: "01-FFL" }));
+    const set = (parameter, to) => carryKey({ kind: "wall", op: "set_parameter", target: { unique_id: uid }, place: { TypeName: "T" }, parameter, to });
+    expect(set("FireRating", "60 min")).toBe(set("firerating", "60 min"));
+    expect(set("FireRating", "60 min")).not.toBe(set("FireRating", "90 min"));
+    expect(set("FireRating", "60 min")).not.toBe(set("AcousticRating", "60 min"));
+    expect(set("FireRating", undefined)).toBeNull();
+    expect(carryKey({ kind: "wall", op: "create", target: null, place: { TypeName: "T" } })).toBeNull();
+    expect(carryKey(null)).toBeNull();
+  });
+
+  it("a result that applies a carried decline is refused whatever review_rev it claims, and the refusal says where the decline was made", () => {
+    const hit = resultConflicts(c3.changeset, ["n-1", "n-2"], ["n-3", "n-4", "n-5", "n-6", "n-7", "n-8"], 0);
+    expect(hit.refused.map((x) => [x.proposal_guid, x.rev, x.carried_from.origin])).toEqual([["n-1", 0, "web"], ["n-2", 0, "revit"]]);
+    expect(declineWords(hit.refused[0])).toBe('declined on the web by reviewer@example.com (contributor) in "Promote (DD) · GR-FFL" and carried here by the bridge');
+    expect(declineWords(hit.refused[1])).toBe('declined in Revit by modeller@example.com (contributor) in "Promote (DD) · GR-FFL" and carried here by the bridge');
+    expect(declineWords(fx.after.elements[0].review)).toBe("declined on the web by reviewer@example.com (contributor)");
+    expect(resultConflicts(fx.after, [], ["g-1"], 1).declined_on_web[0]).not.toHaveProperty("carried_from");
+    // C6: a result with no review_rev — the carried decline was on the filing's 201 reply, so it is refused, never "unchecked".
+    const blind = resultConflicts(c3.changeset, ["n-1"], [], undefined);
+    expect([blind.refused.map((x) => x.proposal_guid), blind.unchecked]).toEqual([["n-1"], []]);
+  });
+
+  it("C1: a Revit reason is a decline only when a signed-in member reported it — the machine credential's, or a result with no role stored, carries nothing and is counted", () => {
+    const { review, ...w2 } = W2;
+    const script = (role) => ({ id: "cs-s", name: "Script", status: "declined", created_at: "2026-10-04T12:30:00.000Z", elements: [{ ...w2, proposal_guid: "s-1" }],
+      result: { applied: [], rejected: ["s-1"], note: null, reported_at: "2026-10-04T12:31:00.000Z", reported_by: "lead@example.com", ...(role ? { reported_role: role } : {}),
+        reasons: { "s-1": "claimed under a lead's name" } } });
+    for (const role of ["service", null]) {
+      const out = carryDeclines([w2], [script(role)]);
+      expect(out.elements).toEqual([w2]);
+      expect(counts(out)).toEqual({ carried: 0, no_reason: 0, creates: 0, unverified: 1 });
+    }
+    expect(carryDeclines([w2], [script("lead")]).elements[0].review).toMatchObject({ by: "lead@example.com", role: "lead", reason: "claimed under a lead's name" });
+    expect(carryDeclines([w2], [...c3.earlier, script("service")]).elements[0].review).toEqual(review); // it never replaces a decline that stands
+  });
+
+  it("C2: the newest DECISION stands, by when it was made — not by when its changeset was filed", () => {
+    const { review, ...w2 } = W2;
+    const X = { id: "cs-x", name: "X", status: "proposed", created_at: "2026-10-05T08:00:00.000Z", review_rev: 0, elements: [{ ...w2, proposal_guid: "x-1" }], result: null };
+    const declinedAt = (cs, g, at) => ({ ...cs, elements: cs.elements.map((e) => (e.proposal_guid === g
+      ? { ...e, review: { state: "declined", action: "decline", reason: "no", by: "reviewer@example.com", role: "contributor", at, rev: 1 } } : e)) });
+    // X is filed at 08:00 and waits; Y, filed at 09:00 with the same change, is declined on the web at 09:10; X is applied in Revit at 11:00.
+    const Y = declinedAt({ ...X, id: "cs-y", name: "Y", created_at: "2026-10-05T09:00:00.000Z", elements: [{ ...w2, proposal_guid: "y-1" }] }, "y-1", "2026-10-05T09:10:00.000Z");
+    const appliedAt = (at) => ({ ...X, status: "applied", result: { applied: [{ proposal_guid: "x-1", revit_element_id: 1 }], rejected: [], reported_at: at, reported_by: "modeller@example.com", reported_role: "contributor" } });
+    expect(carryDeclines([w2], [X, Y]).carried).toHaveLength(1);
+    expect(carryDeclines([w2], [appliedAt("2026-10-05T11:00:00.000Z"), Y]).carried).toEqual([]);
+    expect(carryDeclines([w2], [appliedAt("2026-10-05T09:10:00.000Z"), Y]).carried).toEqual([]); // the same moment: the clear stands
+    expect(carryDeclines([w2], [appliedAt("2026-10-05T09:05:00.000Z"), Y]).carried).toHaveLength(1); // applied first, declined after
+    // The origin X is declined at 09:00 and still proposed; B, filed at 10:00, holds the carried copy; a lead re-opens on X at 12:00.
+    const origin = declinedAt(X, "x-1", "2026-10-05T09:00:00.000Z");
+    const B = { ...X, id: "cs-b2", created_at: "2026-10-05T10:00:00.000Z", elements: carryDeclines([{ ...w2, proposal_guid: "b-9" }], [origin]).elements };
+    expect(B.elements[0].review).toMatchObject({ at: "2026-10-05T09:00:00.000Z", carried_from: { changeset: "cs-x" } });
+    const reopened = reopenDecline(origin, "x-1", "retype it after all", { ...LEAD, at: "2026-10-05T12:00:00.000Z" }).updated;
+    expect(carryDeclines([w2], [origin, B]).carried).toHaveLength(1);
+    expect(carryDeclines([w2], [reopened, B]).carried).toEqual([]);
+  });
+
+  it("C7: a create is counted only when a create of the same kind, type and level was declined before", () => {
+    const n6 = bare(c3.changeset)[5];
+    expect(carryDeclines([n6], c3.earlier).creates).toBe(1);
+    expect(carryDeclines([{ ...n6, place: { ...n6.place, TypeName: "BDS_INT_ARC_CMU_100 mm" } }, { ...n6, place: { ...n6.place, LevelName: "01-FFL" } }, { ...n6, kind: "floor" }], c3.earlier).creates).toBe(0);
+    expect(carryDeclines([n6], [c3.earlier[3]]).creates).toBe(0); // no declined create on the project: nothing is said
   });
 });
