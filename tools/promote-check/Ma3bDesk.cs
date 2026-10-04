@@ -214,7 +214,7 @@ static partial class Check
         int reportAll = At(review, "internal static Task<Reported> ReportAll("), pool = reportAll < 0 ? -1 : review.IndexOf("return Task.Run(() =>", reportAll, StringComparison.Ordinal);
         Ok(reportAll > 0 && pool > reportAll && At(review, "var landed = ChangesetClient.ReportResult(cfg, r.Key, r.ChangesetId, r.Applied, r.Rejected, r.Note, r.ReviewRev, out var reply, out var err, r.Reasons);") > pool
            && Count(review, "ReportAll(cfg, ") == 4 && !review.Contains("if (!Report(") && !review.Contains("if (Report("),
-           "AI-2: every report of the review — applied, declined, rolled back, sent again — goes through ReportAll on a pool thread; Report's retry dialog is Ghost Builder's alone");
+           "AI-2: every report of the review — applied, declined, rolled back, sent again — goes through ReportAll on a pool thread (MA-3b4: Ghost Builder's too; Report's retry dialog is gone)");
         // Review C15: the whole statement — a record is written for every result with applied elements, before the report is sent.
         int write = At(review, "var unsaved = records.Where(r => r.Applied.Count > 0 && !UnreportedResults.Write(r)).Select(r => $\"\\\"{r.Name}\\\"\").ToList();"), send = At(review, "Send(ReportAll(cfg, records), rep =>");
         Ok(write > At(review, "onDone = result =>") && send > write && review.Contains("UnreportedResults.Delete(r.Key, r.ChangesetId);")
@@ -254,7 +254,7 @@ static partial class Check
         Ok(picker.Contains("Tag = blocked == null ? entry : null") // review C15: and what Waiting returns
            && review.Contains("var w = entry.Select(c => UnreportedResults.Read(key, c.Id)).Where(r => r != null).ToList();") && review.Contains("return w.Count == 0 ? null : UnreportedResults.Blocked(w);")
            && review.Contains("$\"\\\"{r.Name}\\\" in {r.Doc}. {UnreportedResults.DeleteOnce(r)}\"") // review C14: the away line names the file too
-           && picker.Contains("if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(new Action(() => SetEntries(entries, status))); return; }")
+           && picker.Contains("if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(new Action(() => SetEntries(entries, status, gone))); return; }") // MA-3b4
            && !review.Contains("reviewing the oldest first"),
            "AI-5: the picker lists every entry and opens none whose result waits on this PC; the 'oldest first' modal is gone");
         int askGone = At(review, "var (drop, revert, words) = UnreportedResults.Gone(r, ChangesetClient.FetchOne(cfg, r.Key, r.ChangesetId, out var fetchErr), fetchErr);");
@@ -284,7 +284,7 @@ static partial class Check
         // Review C11–C13: no word is lost to a closed picker or window, × in the last gap places nothing, and a Retry job that throws is said.
         const string closedBeforeApply = "if (window.Gone) { App.PanelVm?.LogDoctor(\"Review AI Proposals: the window was closed before Apply ran — nothing was placed.\"); return; }";
         int raise = At(review, "_ = window.Dispatcher.BeginInvoke(new Action(() =>");
-        Ok(picker.Contains("Closed += (_, _) => _gone = true;") && picker.Contains("if (_gone) { if (!string.IsNullOrEmpty(status)) App.PanelVm?.LogDoctor(\"Review AI Proposals: \" + status); return; }")
+        Ok(picker.Contains("Closed += (_, _) => _gone = true;") && picker.Contains("if (_gone) { if (!string.IsNullOrEmpty(status)) App.PanelVm?.LogDoctor(\"Review AI Proposals: \" + status); gone?.Invoke(); return; }") // MA-3b4: and the caller's dialog
            && review.Contains("if (picker.Gone)") && review.Contains("App.Events.Enqueue(_ => TaskDialog.Show(Title, rep.Text));") // MA-3b2b
            && At(review, "if (picker.Gone)") > At(review, "var rep = await retried;") && At(review, "if (picker.Gone)") < At(review, "var pending = ChangesetClient.FetchProposed(cfg, key, out var fetchErr);")
            && window.Contains("if (_gone) { if (!string.IsNullOrEmpty(words)) App.PanelVm?.LogDoctor(\"Review AI Proposals: \" + words); return; }"),

@@ -1,0 +1,37 @@
+#nullable disable
+
+static partial class Check
+{
+    // ── 51. MA-3b4: Ghost Builder writes its result before its report and never waits for it; the picker's closed-window gap — source
+    //        scans (Revit-bound; drill MA3b4 R-1) ──────────────────────────────────────────────────────────────────────────────────
+    static void Ma3b4GhostChecks()
+    {
+        Console.WriteLine("\nMA-3b4 — Ghost Builder does not wait for its report and keeps what the bridge did not take (source scans)");
+        string ghost = Src("GhostBuilder", "GhostChangesetBuild.cs"), review = Src("Commands.ReviewChangesets.cs"), picker = Src("UI", "ChangesetPickerWindow.cs");
+        int At(string s, string what) => s.IndexOf(what, StringComparison.Ordinal);
+        int done = At(ghost, "done = true;");
+        int write = At(ghost, "var unsaved = records.Where(x => x.Applied.Count > 0 && !UnreportedResults.Write(x)).Select(x => Short(x.ChangesetId)).ToList();");
+        int send = At(ghost, "ReviewChangesetsCommand.Said(ReviewChangesetsCommand.ReportAll(cfg, records), UnreportedResults.GhostHead, rep => rep.Act || rep.Landed.Count < records.Count);");
+        Ok(done > 0 && write > done && send > write
+           && ghost.Contains("ReviewChangesetsCommand.DocOf(doc), new List<string> { undo, UndoWatcher.TxName(cs.Name, cs.Id) }, null);")
+           && ghost.Contains("rec.Path = doc.PathName ?? \"\";")
+           && !ghost.Contains("ReviewChangesetsCommand.Report(") && !ghost.Contains("UndoWatcher.Remember(") && !review.Contains("internal static bool Report("),
+           "AI-2: Ghost Builder writes each applied result on this PC (the model, the file, its Undo names) before its report, which goes through ReportAll on a pool thread — remembered for the undo watcher once the bridge takes it; Report and its modal Retry are gone");
+        int decline = At(ghost, "GhostPlacementEngine.PlacementReport Decline(ChangesetDto failing, string error)");
+        int declines = At(ghost, "ReviewChangesetsCommand.Said(ReviewChangesetsCommand.ReportAll(cfg, declines, after: rep =>");
+        int withdraw = At(ghost, "(ChangesetClient.Withdraw(cfg, r.Key, cs.Id, out _) ? withdrawn : kept).Add(Short(cs.Id));");
+        int asked = At(ghost, "}), UnreportedResults.GhostHead, rep => rep.Landed.Count < declines.Count);");
+        // Review C3: the withdrawals run inside ReportAll's round, before its finally releases the guard — no review can open them meanwhile.
+        int all = At(review, "internal static Task<Reported> ReportAll(BcfConfig cfg, List<UnreportedResults.Record> records, Reported rep = null, List<UnreportedResults.Record> gone = null, Func<Reported, string> after = null)");
+        int then = At(review, "if (after?.Invoke(rep) is string extra && extra.Length > 0) rep.Words.Add(extra.TrimStart('\\n')); // MA-3b4 review C3");
+        Ok(decline > 0 && declines > decline && withdraw > declines && asked > withdraw && ghost.Contains("report.Ledger = UnreportedResults.GhostDeclining(declines.Count);")
+           && ghost.Contains(": UnreportedResults.GhostReporting(r.Key, filed.Select(f => Short(f.Id)).ToList(), unsaved);")
+           && all > 0 && then > all && review.IndexOf("finally { Release(); }", all, StringComparison.Ordinal) > then,
+           "B4 kept: a build rolled back reports each changeset declined off Revit's thread, and one the bridge does not take is withdrawn instead, there — under the guard (review C3); the summary says the report is under way and where its outcome is said");
+        Ok(picker.Contains("public void SetEntries(List<(string Line, string Blocked, List<ChangesetDto> Entry)> entries, string status, Action gone = null)")
+           && review.Contains("Action lost = rep.Words.Count == 0 ? null : () => App.Events.Enqueue(_ => TaskDialog.Show(Title, UnreportedResults.Windowless(\"\", rep.Text)));")
+           && review.Contains("picker.SetEntries(rows, string.Join(\"\\n\\n\", said), lost);")
+           && review.Contains(".Concat(said)), lost);"),
+           "MA-3b2b's gap: a round's words that reach a picker closed in between go to a dialog too, not to the Doctor log alone");
+    }
+}

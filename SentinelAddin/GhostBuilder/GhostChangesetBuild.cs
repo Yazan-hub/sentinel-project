@@ -141,29 +141,28 @@ namespace Sentinel.GhostBuilder
 
             // A changeset failed in Revit: the whole build is rolled back, and every filed changeset is reported declined. B4: a
             // result the bridge does not take is withdrawn instead, and one that is neither is named — it is still proposed.
+            // MA-3b4 (AI-2): reported off Revit's thread (ReportAll; a decline is not written on this PC — E5), the withdrawals on the
+            // same pool thread inside the round, under the guard (review C3); what the bridge did is said in the pane's Doctor log, and in a
+            // dialog when one was not taken (G2).
             GhostPlacementEngine.PlacementReport Decline(ChangesetDto failing, string error)
             {
                 SentinelUndo.RollBack(group, doc);
-                int recorded = 0;
-                var withdrawn = new List<string>();
-                var kept = new List<string>();
-                if (bound)
-                    foreach (var cs in filed)
-                    {
-                        if (ReviewChangesetsCommand.Report(cfg, r.Key, cs.Id, new List<AppliedEntry>(), cs.Elements.Select(e => e.ProposalGuid).ToList(),
-                                cs == failing ? $"Revit transaction failed — rolled back: {error}"
-                                              : $"not applied — the Ghost build is all or nothing and {(failing == null ? "it" : "changeset " + Short(failing.Id))} failed: {error}"))
-                        {
-                            recorded++;
-                            continue;
-                        }
-                        (ChangesetClient.Withdraw(cfg, r.Key, cs.Id, out _) ? withdrawn : kept).Add(Short(cs.Id));
-                    }
                 report.NotBuilt = GhostFailurePolicy.NotBuiltLine(error);
-                report.Ledger = !bound ? noLedger
-                    : $"Ledger: {recorded} of {filed.Count} changeset(s) reported as declined, with the reason" +
-                      (withdrawn.Count > 0 ? $"; {string.Join(", ", withdrawn)} withdrawn instead (the result could not be reported)" : "") +
-                      (kept.Count > 0 ? $"; {string.Join(", ", kept)} still proposed — withdraw it on the web" : "") + ".";
+                if (!bound) { report.Ledger = noLedger; return report; }
+                var declines = filed.Select(cs => ReviewChangesetsCommand.ResultOf(r.Key, cs, new List<AppliedEntry>(), cs.Elements.Select(e => e.ProposalGuid).ToList(),
+                    cs == failing ? $"Revit transaction failed — rolled back: {error}"
+                                  : $"not applied — the Ghost build is all or nothing and {(failing == null ? "it" : "changeset " + Short(failing.Id))} failed: {error}",
+                    null, ReviewChangesetsCommand.DocOf(doc), null, null)).ToList();
+                ReviewChangesetsCommand.Said(ReviewChangesetsCommand.ReportAll(cfg, declines, after: rep =>
+                {
+                    var landed = new HashSet<string>(rep.Landed.Select(x => x.R.ChangesetId), StringComparer.Ordinal);
+                    var withdrawn = new List<string>();
+                    var kept = new List<string>();
+                    foreach (var cs in filed.Where(f => !landed.Contains(f.Id)))
+                        (ChangesetClient.Withdraw(cfg, r.Key, cs.Id, out _) ? withdrawn : kept).Add(Short(cs.Id));
+                    return UnreportedResults.WithdrawnInstead(withdrawn, kept);
+                }), UnreportedResults.GhostHead, rep => rep.Landed.Count < declines.Count);
+                report.Ledger = UnreportedResults.GhostDeclining(declines.Count);
                 return report;
             }
 
@@ -639,8 +638,11 @@ namespace Sentinel.GhostBuilder
                 }
                 done = true;
 
-                // ── 7. The ledger: each changeset's result, then the undo watcher (only for a result the bridge holds) ────────
-                var unrecorded = new List<string>();
+                // ── 7. The ledger (MA-3b4, AI-2): each result written on this PC first, then reported off Revit's thread ─────────────
+                //    ReportAll expects the Undo here, before the report leaves this thread (MA-3b C8), remembers it for the undo watcher
+                //    once the bridge takes it — under the Undo entry's name and the changeset's own, whichever Revit reports — and keeps
+                //    what it does not take: sent again when this model opens or by Review AI Proposals, never reviewed until then (G2).
+                var records = new List<UnreportedResults.Record>();
                 for (int c = 0; c < filed.Count; c++)
                 {
                     var cs = filed[c];
@@ -648,16 +650,15 @@ namespace Sentinel.GhostBuilder
                     foreach (var g in res.Gone) report.DeletedByRevit.Add(planOf[g.ProposalGuid].What + " — removed by Revit at commit");
                     Count(res.Warnings);
                     if (!bound) continue;
-                    var guids = res.Applied.Select(a => a.ProposalGuid).ToList();
                     // MA-3a (C2): the review_rev the filing reply carried (0) — a web decline that landed since is judged late, never unchecked.
-                    if (!ReviewChangesetsCommand.Report(cfg, r.Key, cs.Id, res.Applied, res.Gone.Select(g => g.ProposalGuid).ToList(), Note(r, level, report, blockLine), cs.ReviewRev))
-                    {
-                        unrecorded.Add(Short(cs.Id));
-                        continue;
-                    }
-                    UndoWatcher.Remember(undo, r.Key, cs.Id, guids);                         // the Undo entry's name (the group's)
-                    UndoWatcher.Remember(UndoWatcher.TxName(cs.Name, cs.Id), r.Key, cs.Id, guids); // and its own, whichever Revit reports
+                    var rec = ReviewChangesetsCommand.ResultOf(r.Key, cs, res.Applied, res.Gone.Select(g => g.ProposalGuid).ToList(), Note(r, level, report, blockLine), cs.ReviewRev,
+                                                               ReviewChangesetsCommand.DocOf(doc), new List<string> { undo, UndoWatcher.TxName(cs.Name, cs.Id) }, null);
+                    rec.Path = doc.PathName ?? ""; // MA-3b2 review C16: the file itself, beside Doc (a local's central)
+                    records.Add(rec);
                 }
+                var unsaved = records.Where(x => x.Applied.Count > 0 && !UnreportedResults.Write(x)).Select(x => Short(x.ChangesetId)).ToList();
+                if (records.Count > 0)
+                    ReviewChangesetsCommand.Said(ReviewChangesetsCommand.ReportAll(cfg, records), UnreportedResults.GhostHead, rep => rep.Act || rep.Landed.Count < records.Count); // review C2: a late decline asks too
                 report.Placed = applied.Count;
                 // MA-1a item 6: the worksets and the phase, or why nothing was set — counted from `applied`, what the
                 // executor's recount left in the model. Its own list: a result of the build, not a warning.
@@ -667,9 +668,7 @@ namespace Sentinel.GhostBuilder
                 report.Placement.AddRange(PlacementGeometry.TurnLines(results.SelectMany(x => x.Turned).ToList()));
                 report.Stamped = applied.Count(a => ProvenanceStamp.SourceOf(ProvenanceStamp.Read(doc.GetElement(a.RevitUniqueId))) == GhostFiling.Source);
                 report.Ledger = !bound ? localLedger
-                    : $"Ledger: {filed.Count - unrecorded.Count} of {filed.Count} changeset(s) recorded on {r.Key} (source dwg: {string.Join(", ", filed.Select(f => Short(f.Id)))})" +
-                      (unrecorded.Count == 0 ? " — one Ctrl+Z undoes the whole build and posts changeset_reverted."
-                                             : $" — the result of {string.Join(", ", unrecorded)} was NOT recorded (see the message before this one); do not apply it again in Review AI Proposals.");
+                    : UnreportedResults.GhostReporting(r.Key, filed.Select(f => Short(f.Id)).ToList(), unsaved);
                 if (idsRejected > 0)
                     report.Warnings.Insert(0, $"IDS: {idsRejected} element(s) did not pass the project's IDS — built as reviewed in Ghost's review (founder decision F2); each verdict is on its changeset.");
                 // MA-1a item 7: one ghost_build row for the build that was kept — the counts of the summary — sent off this
