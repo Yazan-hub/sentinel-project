@@ -508,3 +508,110 @@ export function deriveResultStatus(appliedCount, rejectedCount, total) {
   if (appliedCount === 0) return "declined";
   return "partially_applied";
 }
+
+// ── MA-3a: the review states of design §6.6, one per ghost — the web desk's half (Revit's tick, apply and revert are its result and
+//    its changeset_reverted rows). A ghost's `review` is absent while nobody decided: proposed. A web decline BINDS: Revit shows the
+//    ghost unticked with the reason and refuses the tick, and the bridge refuses a result that applies a decline Revit had seen. A web
+//    accept is advice. Only a lead re-opens a decline (founder decision D17). Nothing is decided once the changeset is not proposed.
+//    `review_rev` counts the doc's writes: every write bumps it and swaps on it (changesets-store), and Revit sends the one it re-checked.
+export const REVIEW_STATES = ["proposed", "accepted", "declined"];
+export const MAX_REVIEW_REASON = 500;
+
+/** A ghost's review state: its review's, else proposed. */
+export const reviewState = (el) => el?.review?.state ?? "proposed";
+/** The changeset's review revision; 0 on a doc from before MA-3a. */
+export const reviewRev = (cs) => (Number.isInteger(cs?.review_rev) ? cs.review_rev : 0);
+/** A ghost as the desk, the ledger and Revit's refusals name it: `retype wall "W 1"`. */
+const ghostName = (el) => `${el.op ?? "create"} ${el.kind} "${el.validate?.identity?.Name ?? el.proposal_guid}"`;
+
+/** The state `action` (accept | decline | reopen) takes a ghost in `state` to, or a 409 in words. */
+export function reviewNext(state, action) {
+  if (action === "reopen") {
+    if (state === "declined") return "proposed";
+    throw err(409, `only a declined ghost can be re-opened (this one is ${state})`);
+  }
+  const to = action === "accept" ? "accepted" : "declined";
+  if (state === to) throw err(409, `this ghost is already ${state}`);
+  if (state === "declined") throw err(409, "this ghost is declined — only a lead may re-open it, then it can be accepted");
+  return to;
+}
+
+/** A reason as the ledger keeps it: trimmed, one line, at most MAX_REVIEW_REASON characters; null when blank and not needed. */
+function reasonOf(r, need, what) {
+  if (r == null || (typeof r === "string" && r.trim() === "")) {
+    if (need) throw err(400, `${what} needs a reason — the ledger records it and Revit shows it`);
+    return null;
+  }
+  if (typeof r !== "string" || r.length > MAX_REVIEW_REASON || CONTROL_CHAR.test(r)) throw err(400, `a reason is one line of at most ${MAX_REVIEW_REASON} characters`);
+  return r.trim();
+}
+
+const proposedOnly = (cs) => {
+  if (cs.status !== "proposed") throw err(409, `changeset is ${cs.status} — the web desk decides only while it is proposed`);
+};
+
+/** The web desk's decisions on one changeset — [{proposal_guid, decision: accept | decline, reason}] — all or none. `who` is {by, role,
+ *  at}. Answers the changeset as it is to be stored (each decided ghost's review, the revision bumped) and one ledger entry per ghost. */
+export function applyDecisions(cs, decisions, who) {
+  proposedOnly(cs);
+  if (!Array.isArray(decisions) || !decisions.length || decisions.length > MAX_CHANGESET_ELEMENTS)
+    throw err(400, `decisions must be 1–${MAX_CHANGESET_ELEMENTS} entries`);
+  const byGuid = new Map(cs.elements.map((e) => [e.proposal_guid, e]));
+  const rev = reviewRev(cs) + 1;
+  const next = new Map();
+  const rows = [];
+  for (const [i, x] of decisions.entries()) {
+    const g = x?.proposal_guid;
+    if (typeof g !== "string" || !byGuid.has(g)) throw err(400, `decisions[${i}]: unknown proposal_guid "${g}"`);
+    if (next.has(g)) throw err(400, `proposal_guid "${g}" appears twice in the decisions`);
+    if (x.decision !== "accept" && x.decision !== "decline") throw err(400, `decisions[${i}].decision must be accept or decline`);
+    const el = byGuid.get(g);
+    const from = reviewState(el);
+    let to;
+    try { to = reviewNext(from, x.decision); } catch (e) { throw err(e.status, `${ghostName(el)}: ${e.message}`); }
+    const reason = reasonOf(x.reason, x.decision === "decline", "a decline");
+    next.set(g, { state: to, action: x.decision, reason, by: who.by, role: who.role, at: who.at, rev });
+    rows.push({ proposal_guid: g, name: ghostName(el), from, to, reason });
+  }
+  const elements = cs.elements.map((e) => (next.has(e.proposal_guid) ? { ...e, review: next.get(e.proposal_guid) } : e));
+  return { updated: { ...cs, updated_at: who.at, review_rev: rev, elements }, rows };
+}
+
+/** A lead re-opens one declined ghost: proposed again, with the lead's reason. Answers the changeset to store and the ledger entry
+ *  (what it re-opened: who declined it and why). The role is the store's check. */
+export function reopenDecline(cs, guid, reason, who) {
+  proposedOnly(cs);
+  const el = cs.elements.find((e) => e.proposal_guid === guid);
+  if (!el) throw err(400, `unknown proposal_guid "${guid}"`);
+  try { reviewNext(reviewState(el), "reopen"); } catch (e) { throw err(e.status, `${ghostName(el)}: ${e.message}`); }
+  const why = reasonOf(reason, true, "a re-open");
+  const rev = reviewRev(cs) + 1;
+  const review = { state: "proposed", action: "reopen", reason: why, by: who.by, role: who.role, at: who.at, rev };
+  const elements = cs.elements.map((e) => (e === el ? { ...e, review } : e));
+  return {
+    updated: { ...cs, updated_at: who.at, review_rev: rev, elements },
+    row: { proposal_guid: guid, name: ghostName(el), declined_by: el.review.by, declined_reason: el.review.reason, reason: why },
+  };
+}
+
+/** Revit's result against the web's declines (Q2). `seen` is the review_rev Revit re-checked before Apply (a claim the bridge cannot
+ *  verify). Applying a ghost declined at or before `seen` is refused — Revit showed it declined and refuses that tick, so a client
+ *  that did not is refused and said. One declined after `seen` was applied over a decline Revit could not see: recorded (late) and
+ *  said. No `seen` at all (an add-in before MA-3a, a script — review amendment C2): the bridge cannot tell whether the decline was
+ *  seen, so each applied decline is `unchecked` — recorded, never refused, never called late. Declined ghosts the result rejects are
+ *  listed with the web's reason. */
+export function resultConflicts(cs, appliedGuids, rejectedGuids, seen) {
+  const none = seen == null;
+  if (!none && (!Number.isInteger(seen) || seen < 0 || seen > reviewRev(cs)))
+    throw err(400, `review_rev must be the review revision Revit re-checked (0–${reviewRev(cs)})`);
+  const byGuid = new Map(cs.elements.map((e) => [e.proposal_guid, e]));
+  const entry = (g) => {
+    const e = byGuid.get(g);
+    if (reviewState(e) !== "declined") return null;
+    return { proposal_guid: g, name: ghostName(e), by: e.review.by, role: e.review.role, reason: e.review.reason, rev: e.review.rev };
+  };
+  const refused = [], late = [], unchecked = [], declinedOnWeb = [];
+  for (const g of appliedGuids) { const x = entry(g); if (x) (none ? unchecked : x.rev <= seen ? refused : late).push(x); }
+  for (const g of rejectedGuids) { const x = entry(g); if (x) declinedOnWeb.push(x); }
+  return { refused, late, unchecked, declined_on_web: declinedOnWeb };
+}
