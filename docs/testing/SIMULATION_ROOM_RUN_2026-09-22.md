@@ -1686,3 +1686,29 @@ own hold (R-2's last step); Revit 2025–2027; the rows the plan named owed up f
 restored (sha256 `366a193f4680…` = the backup's), the backup deleted; `%AppData%\Sentinel\cache\ma3b` and `unreported\ma3b` deleted.
 Left on the shared ledger (scratch keys): `ma3b-office`, `ma3b`, the membership, three changesets (GR-FFL applied, 01-FFL declined, MA0
 Roof proposed), rows up to #1794. Left on this PC: the scratch copies in `Documents\Sentinel drills\ma3b\` (never committed).
+
+## Session MA3b2 — a reason per declined ghost, zoom to row, plain bridge words, live (2026-10-04 ~16:38 → 16:48 local, branch feature/ma3b2-decline-reasons 143dd5f, Claude driving Revit 2024)
+
+Setup: the branch build 143dd5f deployed to Revit 2024 on the founder's explicit ask ("deploy the ma3b2 branch to 2024"; DLL
+`4b8f41e2f646…`; before it, master's `37b4413b29bb…`). The add-in's bridge settings backed up and pointed at 127.0.0.1:4101 — the drill
+proxy in front of the test bridge on 4102 (the branch's code). Scratch office `ma3b2-office` (four artefacts, each 201), project `ma3b2`,
+the founder a `contributor` (the e-mail never printed). Scratch copy `ma3b2-a.rvt` of the B35 seed, opened from Revit's Open dialog,
+bound with Project Setup, never saved; Revit signed in. Promote filed GR-FFL (48), 01-FFL (40), MA0 Roof (1).
+
+| Row | Result | Evidence |
+|---|---|---|
+| Z-1 | In the GR-FFL review, **Show** on the first `retype wall` row: with only a sheet open Revit first asked `There is no open view that shows any of the highlighted elements …` (OK); then the plan `WIP_GFA_GR_FFL` opened on the wall, the Properties palette read `Walls (1)`, and the grey line `Showing retype wall "W 1747982".` — **pass**. Show on a create (MA0 Roof) and on a type edit: **owed** (not run) | window, Properties, view |
+| Z-2 | `retype wall` all ticked, reason `drill MA3b2: no row yet`, Apply → at once `The reason for "retype wall" has no unticked row to go with — untick the rows it is for, or clear it. Nothing was sent.` **Untick group**, Apply → DD IDS → **Go back** → `You went back at the DD IDS check — nothing was placed. …` / `Nothing was placed; the proposals are still pending — change the ticks or press Apply again.` (ticks and reason kept, Apply enabled). Reason `drill MA3b2: these stay as they are until the slab is set`, Apply → Place anyway → `Applied 24 element(s) …`, `24 of 24 unticked element(s) reported as rejected.` GET: `partially_applied`, applied 24, rejected 24, `result.reasons` 24 entries with that text; ledger #1811 `changeset_applied` carries `reasons` — **pass**. The tab-character refusal: **owed** (the keystroke moved focus; checked offline) | window, GET, row |
+| Z-3 | Proxy silent: the picker reads `Couldn't reach the bridge:` / `the bridge did not answer within 8 s`. Proxy stopped: `Couldn't reach the bridge:` / `the connection failed — No connection could be made because the target machine actively refused it 127.0.0.1:4101` — **pass** | picker |
+| Z-4 | 01-FFL ▸ Review ▸ Apply 40 → Place anyway with the proxy slow (95 s): the window read `Reporting to the bridge…`; **Ctrl+Z** once was taken (Redo active); window closed with ×; the ribbon's Review AI Proposals answered `A review window is open, or a result is still being reported to the bridge — finish or close the window, or wait for its report (two minutes at most), then run Review AI Proposals again.` (**the hold — pass**). When the report landed: ledger #1813 `changeset_applied`, then #1814 `changeset_reverted` `{op: undo, count: 40}` (**C8 live — pass**); no record left in `unreported\ma3b2\` | ribbon dialog, rows |
+
+**Found in the drill:** **F-MA3b2-1** — with the window closed, the report's words did not appear as a TaskDialog (review C2 of MA-3b
+expects one); the Doctor log line is written before it, so the words are not lost. Not fixed here; first item of the next slice.
+
+**Owed:** Show on a create and on a type edit; the tab refusal live; F-MA3b2-1; MA3b's R-5; Revit 2025–2027; the rows named owed up front.
+
+**Closing list:** Revit closed without saving; the proxy and the test bridge stopped, their two launch entries removed, the `slow` and
+`silent` files gone; the add-in's bridge settings restored (sha256 `366a193f4680…`), the backup deleted;
+`%AppData%\Sentinel\cache\ma3b2` and `unreported\ma3b2` deleted. Left on the shared ledger (scratch keys): `ma3b2-office`, `ma3b2`, the
+membership, three changesets (GR-FFL partially applied, 01-FFL applied and reverted, MA0 Roof proposed), rows up to #1814. Left on this
+PC: the scratch copy in `Documents\Sentinel drills\ma3b2\` (never committed).
