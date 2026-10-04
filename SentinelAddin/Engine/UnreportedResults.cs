@@ -88,13 +88,13 @@ namespace Sentinel.Engine
 
         /// <summary>Before a waiting result is sent again: <paramref name="found"/> is how many of its applied elements this model still
         /// holds with a stamp naming the changeset and the proposal (read by the caller on the API thread). All of them: send it. None: it
-        /// is not in this model as applied — never reported as applied, the record removed. Some: neither — the record kept, said.</summary>
-        public static (bool Report, bool Drop, string Words) Verified(Record r, int found)
+        /// is not in this model as applied — never reported as applied; review C9: Ask — the bridge is asked what it holds before the
+        /// record goes (Gone, on a pool thread). Some: neither — the record kept, said.</summary>
+        public static (bool Report, bool Ask, string Words) Verified(Record r, int found)
         {
             int total = r.Applied?.Count ?? 0;
             if (found == total) return (true, false, null);
-            if (found == 0)
-                return (false, true, $"\"{r.Name}\": not in this model as applied (undone, or the model was closed without saving) — nothing reported; the changeset stays proposed and opens for review again. This PC's record is removed.");
+            if (found == 0) return (false, true, null);
             return (false, false, $"\"{r.Name}\": {found} of {total} element(s) Apply placed carry its stamp in this model — nothing reported, and the record is kept ({PathFor(r.Key, r.ChangesetId)}): check the model (finish the Undo, or delete what is left), then close this window and run Review AI Proposals again.");
         }
 
@@ -135,6 +135,31 @@ namespace Sentinel.Engine
                 ? $"\"{r.Name}\": the bridge had already taken it (its reply did not reach Revit) — {fresh.Status}; the bridge named no ledger row for it here."
                 : null;
         }
+
+        /// <summary>Review C9: a waiting result none of whose elements this model holds, and what the bridge holds (<paramref name="fresh"/>,
+        /// re-read on a pool thread; null with <paramref name="err"/> when it could not be). A record stays exactly when its reply was lost,
+        /// so the bridge may already hold it: then Revert — the caller posts the changeset_reverted row Revit's Undo would have, and drops
+        /// the record only once it is posted (RevertPosted). Still proposed: dropped, said. Unread: kept.</summary>
+        public static (bool Drop, bool Revert, string Words) Gone(Record r, ChangesetDto fresh, string err)
+        {
+            var why = $"\"{r.Name}\": not in this model as applied (undone, the model was closed without saving, or a local that was never synchronised)";
+            if (fresh?.Status == null)
+                return (false, false, $"{why}, and the bridge could not be re-read to say whether it took it ({err ?? "no answer"}) — nothing reported." + Kept(r.Applied?.Count ?? 0));
+            if (fresh.Status == "proposed")
+                return (true, false, $"{why} — nothing reported; the bridge holds the changeset as proposed, so it opens for review again. This PC's record is removed.");
+            if (AlreadyTaken(r, fresh) != null)
+                return (true, true, $"{why}, but the bridge had already taken it (its reply did not reach Revit) — {fresh.Status}; a changeset_reverted row (undo) for its {r.Applied.Count} element(s) was ");
+            return (true, false, $"{why}, and the bridge holds the changeset as {fresh.Status} with a result that is not this one — nothing reported. This PC's record is removed.");
+        }
+
+        /// <summary>Review C9: the end of Gone's words once the revert was sent (<paramref name="err"/> null: posted).</summary>
+        public static string RevertPosted(string err) => err == null
+            ? "posted. This PC's record is removed."
+            : $"NOT posted: {err}\nThe record is kept on this PC; Retry report or the next Review AI Proposals asks the bridge again.";
+
+        /// <summary>Review C10: a 409 whose changeset could not be re-read — it may be this result, landed earlier; never called refused.</summary>
+        public static string NotReRead(string err, int applied) =>
+            $"not reported: the bridge answered 409 and the changeset could not be re-read to tell whether it already holds this result ({err})." + Kept(applied);
 
         /// <summary>Review C8: the result landed, but an Undo of it came while its report was in flight — the changeset_reverted row the
         /// undo watcher would have posted; <paramref name="err"/> is null when it was posted.</summary>

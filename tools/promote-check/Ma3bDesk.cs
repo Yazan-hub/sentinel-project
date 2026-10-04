@@ -90,11 +90,11 @@ static partial class Check
         var gone = UnreportedResults.Verified(two, 0);
         var some = UnreportedResults.Verified(two, 1);
         var decline = UnreportedResults.Verified(new UnreportedResults.Record { Key = "k", ChangesetId = "d", Name = "x" }, 0);
-        Ok(all.Report && !all.Drop && all.Words == null && decline.Report && !decline.Drop,
+        Ok(all.Report && !all.Ask && all.Words == null && decline.Report && !decline.Ask,
            "a result whose every element still carries its stamp is sent again (a decline, which placed nothing, too)");
-        Ok(!gone.Report && gone.Drop && gone.Words == "\"Promote (DD) · GR-FFL\": not in this model as applied (undone, or the model was closed without saving) — nothing reported; the changeset stays proposed and opens for review again. This PC's record is removed.",
-           "a result none of whose elements carries its stamp any more is never reported as applied — said, and its record removed");
-        Ok(!some.Report && !some.Drop && some.Words == $"\"Promote (DD) · GR-FFL\": 1 of 2 element(s) Apply placed carry its stamp in this model — nothing reported, and the record is kept ({UnreportedResults.PathFor("k", "c")}): check the model (finish the Undo, or delete what is left), then close this window and run Review AI Proposals again.",
+        Ok(!gone.Report && gone.Ask && gone.Words == null,
+           "a result none of whose elements carries its stamp any more is never reported as applied — the bridge is asked first (review C9)");
+        Ok(!some.Report && !some.Ask && some.Words == $"\"Promote (DD) · GR-FFL\": 1 of 2 element(s) Apply placed carry its stamp in this model — nothing reported, and the record is kept ({UnreportedResults.PathFor("k", "c")}): check the model (finish the Undo, or delete what is left), then close this window and run Review AI Proposals again.",
            "a result only part of which is in the model is neither reported nor forgotten — said, with the record's path");
 
         var refused = UnreportedResults.Outcome("Bridge 409: {\"message\":\"changeset is partially_applied — a result can be reported exactly once, from proposed\"}", 2);
@@ -127,6 +127,23 @@ static partial class Check
            && UnreportedResults.AlreadyTaken(held, Stored("withdrawn", "null")) == null && UnreportedResults.AlreadyTaken(held, null) == null
            && UnreportedResults.AlreadyTaken(new UnreportedResults.Record { Key = "k", ChangesetId = "c", Name = "x" }, Stored("declined", "{\"applied\":[]}")) == null,
            "review C1: a result the bridge already holds with exactly the record's applied ghosts is taken (said); a proposed, withdrawn or different result, or no applied ghost, is not");
+
+        // Review C9: a result none of whose elements this model holds is removed only after the bridge says what it holds — a record stays
+        // exactly when its reply was lost, so the bridge may already hold it (then the Undo it never heard of is posted).
+        const string why = "\"Promote (DD) · GR-FFL\": not in this model as applied (undone, the model was closed without saving, or a local that was never synchronised)";
+        var stillProposed = UnreportedResults.Gone(held, Stored("proposed", "null"), null);
+        var tookIt = UnreportedResults.Gone(held, Stored("partially_applied", ab), null);
+        var other = UnreportedResults.Gone(held, Stored("applied", "{\"applied\":[{\"proposal_guid\":\"z\"}]}"), null);
+        var unread = UnreportedResults.Gone(held, null, "Bridge 502: bad gateway");
+        Ok(stillProposed.Drop && !stillProposed.Revert && stillProposed.Words == why + " — nothing reported; the bridge holds the changeset as proposed, so it opens for review again. This PC's record is removed."
+           && tookIt.Drop && tookIt.Revert && tookIt.Words == why + ", but the bridge had already taken it (its reply did not reach Revit) — partially_applied; a changeset_reverted row (undo) for its 2 element(s) was "
+           && UnreportedResults.RevertPosted(null) == "posted. This PC's record is removed."
+           && UnreportedResults.RevertPosted("Bridge 503: down") == "NOT posted: Bridge 503: down\nThe record is kept on this PC; Retry report or the next Review AI Proposals asks the bridge again."
+           && other.Drop && !other.Revert && other.Words == why + ", and the bridge holds the changeset as applied with a result that is not this one — nothing reported. This PC's record is removed."
+           && !unread.Drop && !unread.Revert && unread.Words.StartsWith(why + ", and the bridge could not be re-read to say whether it took it (Bridge 502: bad gateway) — nothing reported.\nThe result is kept on this PC", StringComparison.Ordinal),
+           "review C9: a result gone from the model is removed as 'stays proposed' only when the bridge says so; one the bridge already took gets its changeset_reverted row; one that cannot be re-read is kept");
+        Ok(UnreportedResults.NotReRead("A task was canceled.", 2) == "not reported: the bridge answered 409 and the changeset could not be re-read to tell whether it already holds this result (A task was canceled.).\nThe result is kept on this PC and sent again by Retry report or the next Review AI Proposals; this changeset is not opened for review until the bridge takes it, so nothing is applied twice.",
+           "review C10: a 409 whose changeset cannot be re-read is never called refused — the record is kept, said");
 
         // Review M4, C6: a write that timed out says so; after the first report of a round that did not land, the rest are not sent.
         var net48 = UnreportedResults.Outcome("A task was canceled.", 2);
@@ -194,7 +211,7 @@ static partial class Check
         Ok(open > 0 && refuse > open && refuse < At(review, "var window = new ChangesetReviewWindow(cs, reach);")
            && review.Contains("Open(c.Application, doc, cfg, key, batch)") && review.Contains("StoreyBatch.Entries(pending).Select(e => (StoreyBatch.Line(e, DateTime.UtcNow), Waiting(key, e), e))"),
            "AI-2: a changeset whose result waits on this PC is never opened for review again — by the picker (listed, not openable) or by Promote (Open refuses it)");
-        Ok(review.Contains("ProvenanceStamp.Holds(ProvenanceStamp.Read(e), r.ChangesetId, a.ProposalGuid)") && review.Contains("var (report, drop, words) = UnreportedResults.Verified(r, found);")
+        Ok(review.Contains("ProvenanceStamp.Holds(ProvenanceStamp.Read(e), r.ChangesetId, a.ProposalGuid)") && review.Contains("var (report, ask, words) = UnreportedResults.Verified(r, found);")
            && review.Contains("var mine = waiting.Where(r => string.Equals(r.Doc, here, StringComparison.OrdinalIgnoreCase)).ToList();") && review.Contains("Load(picker, cfg, key, Retry(doc, cfg, mine),") // review C4
            && !review.Contains("r.Doc == here") && !review.Contains("r.Doc != here")
            && review.Contains("App.Events.Enqueue(doc, \"check the model before reporting\", (_, d) => Send(Retry(d, cfg, again),"),
@@ -217,7 +234,12 @@ static partial class Check
         Ok(picker.Contains("Tag = blocked == null ? entry : null") && picker.Contains("if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(new Action(() => SetEntries(entries, status))); return; }")
            && !review.Contains("reviewing the oldest first"),
            "AI-5: the picker lists every entry and opens none whose result waits on this PC; the 'oldest first' modal is gone");
-        Ok(review.Contains("? UnreportedResults.AlreadyTaken(r, ChangesetClient.FetchOne(cfg, r.Key, r.ChangesetId, out _)) : null;") && review.Contains("if (landed || taken != null)")
+        int askGone = At(review, "var (drop, revert, words) = UnreportedResults.Gone(r, ChangesetClient.FetchOne(cfg, r.Key, r.ChangesetId, out var fetchErr), fetchErr);");
+        Ok(review.Contains("else if (ask) gone.Add(r);") && review.Contains("return ReportAll(cfg, send, rep, gone);") && askGone > pool && Count(review, "UnreportedResults.Delete(") == 3
+           && review.Contains("drop = ChangesetClient.ReportReverted(cfg, r.Key, r.ChangesetId, r.Applied.Select(a => a.ProposalGuid).ToList(), \"undo\", out var revertErr);")
+           && review.Contains("if (unread != null) { rep.Left.Add(r); stalled = true; rep.Words.Add($\"\\\"{r.Name}\\\": {UnreportedResults.NotReRead(unread, r.Applied.Count)}\"); continue; }"),
+           "review C9, C10: a waiting result gone from the model is removed only after the bridge was asked, on the pool thread (one it took gets its changeset_reverted row); a 409 that cannot be re-read keeps its record and stops the round");
+        Ok(review.Contains("else taken = UnreportedResults.AlreadyTaken(r, stored);") && review.Contains("if (landed || taken != null)")
            && review.Contains("if (stalled) { rep.Left.Add(r); rep.Words.Add($\"\\\"{r.Name}\\\": {UnreportedResults.NotSent(r.Applied.Count)}\"); continue; }")
            && review.Contains("else { rep.Left.Add(r); stalled = true; }"),
            "review C1, C6: a 409 on a result the bridge already holds is landed and watched for Undo, never 'refused'; after the first report of a round that did not land, the rest wait for Retry report (one 120 s wait, not n)");

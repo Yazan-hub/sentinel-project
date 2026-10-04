@@ -152,30 +152,32 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
     {
         var rep = new Reported();
         var send = new List<UnreportedResults.Record>();
+        var gone = new List<UnreportedResults.Record>();
         foreach (var r in records)
         {
             var found = r.Applied.Count(a => !string.IsNullOrEmpty(a.RevitUniqueId) && doc.GetElement(a.RevitUniqueId) is { } e
                                              && ProvenanceStamp.Holds(ProvenanceStamp.Read(e), r.ChangesetId, a.ProposalGuid));
-            var (report, drop, words) = UnreportedResults.Verified(r, found);
-            if (drop) UnreportedResults.Delete(r.Key, r.ChangesetId);
+            var (report, ask, words) = UnreportedResults.Verified(r, found);
             if (report) send.Add(r);
+            else if (ask) gone.Add(r); // review C9: none in the model — the bridge is asked what it holds before the record goes
             else
             {
                 rep.Words.Add(words);
-                if (!drop) rep.Left.Add(r);
+                rep.Left.Add(r);
             }
         }
-        return ReportAll(cfg, send, rep);
+        return ReportAll(cfg, send, rep, gone);
     }
 
     /// <summary>MA-3b (AI-2): send each result on a pool thread — never waited for on Revit's. One the bridge takes loses its record and
     /// is remembered for the undo watcher; one it refuses for good (400, 404, 409) loses its record, said; any other failure keeps it.
     /// Review C1: a 409 on a result the bridge already holds (its reply was lost) is taken, not refused. Review C6: after the first
     /// failure that keeps its record, the rest of the round are not sent (kept, said) — one 120 s wait, never one per changeset.</summary>
-    internal static Task<Reported> ReportAll(BcfConfig cfg, List<UnreportedResults.Record> records, Reported rep = null)
+    internal static Task<Reported> ReportAll(BcfConfig cfg, List<UnreportedResults.Record> records, Reported rep = null, List<UnreportedResults.Record> gone = null)
     {
         rep ??= new Reported();
-        if (records.Count == 0) return Task.FromResult(rep);
+        gone ??= new List<UnreportedResults.Record>();
+        if (records.Count == 0 && gone.Count == 0) return Task.FromResult(rep);
         Hold();
         // Review C8: still on the caller's thread (Revit's, right after the placement or the stamp check) — an Undo from here on is noted.
         foreach (var r in records.Where(x => x.Applied.Count > 0)) UndoWatcher.Expect(r.Undo, r.ChangesetId);
@@ -183,6 +185,20 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
         {
             try
             {
+                // Review C9: a result gone from the model — the bridge says whether it holds it (proposed: the record goes; this result:
+                // the changeset_reverted row its Undo never posted, the record going only once it is posted; unread: kept).
+                foreach (var r in gone)
+                {
+                    var (drop, revert, words) = UnreportedResults.Gone(r, ChangesetClient.FetchOne(cfg, r.Key, r.ChangesetId, out var fetchErr), fetchErr);
+                    if (revert)
+                    {
+                        drop = ChangesetClient.ReportReverted(cfg, r.Key, r.ChangesetId, r.Applied.Select(a => a.ProposalGuid).ToList(), "undo", out var revertErr);
+                        words += UnreportedResults.RevertPosted(revertErr);
+                    }
+                    if (drop) UnreportedResults.Delete(r.Key, r.ChangesetId);
+                    else rep.Left.Add(r);
+                    rep.Words.Add(words);
+                }
                 var stalled = false;
                 foreach (var r in records)
                 {
@@ -190,8 +206,13 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                     var landed = ChangesetClient.ReportResult(cfg, r.Key, r.ChangesetId, r.Applied, r.Rejected, r.Note, r.ReviewRev, out var reply, out var err);
                     // Review C1: the bridge writes the doc before its audit row, and a reply can be lost — a 409 whose stored result applied
                     // exactly these ghosts is this result, landed earlier (re-read here, on this pool thread; FetchOne is an existing request).
-                    var taken = !landed && r.Applied.Count > 0 && err != null && err.StartsWith("Bridge 409", StringComparison.Ordinal)
-                        ? UnreportedResults.AlreadyTaken(r, ChangesetClient.FetchOne(cfg, r.Key, r.ChangesetId, out _)) : null;
+                    string taken = null, unread = null;
+                    if (!landed && r.Applied.Count > 0 && err != null && err.StartsWith("Bridge 409", StringComparison.Ordinal))
+                    {
+                        var stored = ChangesetClient.FetchOne(cfg, r.Key, r.ChangesetId, out var readErr);
+                        if (stored == null) unread = readErr ?? "no answer";
+                        else taken = UnreportedResults.AlreadyTaken(r, stored);
+                    }
                     if (landed || taken != null)
                     {
                         UnreportedResults.Delete(r.Key, r.ChangesetId);
@@ -208,6 +229,8 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                         }
                         continue;
                     }
+                    // Review C10: a 409 that could not be re-read may be this result, landed earlier — kept (never "refused"), and the round stops.
+                    if (unread != null) { rep.Left.Add(r); stalled = true; rep.Words.Add($"\"{r.Name}\": {UnreportedResults.NotReRead(unread, r.Applied.Count)}"); continue; }
                     var (drop, words) = UnreportedResults.Outcome(err, r.Applied.Count);
                     if (drop) UnreportedResults.Delete(r.Key, r.ChangesetId);
                     else { rep.Left.Add(r); stalled = true; }
