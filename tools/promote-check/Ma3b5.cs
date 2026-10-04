@@ -11,8 +11,8 @@ static partial class Check
         Console.WriteLine("\nMA-3b5 — Promote's wait: its words and its stall rule");
         const string noAnswer = "the bridge did not answer within 120 s";
         var sent = new List<string>();
-        var answers = new Queue<string>(new[] { null, noAnswer });
-        var post = PropertyPlanner.Stalling((body, retry) => { sent.Add((string)body); return answers.Dequeue(); });
+        // Review C16: no queue — a Stalling that never stalls posts the third body and fails this check, never crashes the run.
+        var post = PropertyPlanner.Stalling((body, retry) => { sent.Add((string)body); return sent.Count == 1 ? null : noAnswer; });
         var got = new[] { "GR-FFL", "01-FFL", "MA0 Roof" }.Select(b => post(b, false)).ToList();
         Ok(sent.SequenceEqual(new[] { "GR-FFL", "01-FFL" }) && got[0] == null && got[1] == noAnswer
            && got[2] == "not sent: an earlier filing of this run failed without a refusal from the bridge (the bridge did not answer within 120 s) — run Promote (DD) again once it answers", // C5
@@ -29,7 +29,8 @@ static partial class Check
            "F4 through FileAll: the third storey is never sent, and Promote's not-filed dialog counts it with why");
         Ok(PropertyPlanner.PromoteFiling(3) == "Promote (DD): filing 3 changeset(s) off Revit's thread — Revit stays usable, and the review opens by itself in this model once the bridge has answered. Until then, Review AI Proposals and a second Promote say they wait."
            && PropertyPlanner.PromoteReading.StartsWith("Promote (DD): reading the bridge", StringComparison.Ordinal) && PropertyPlanner.PromoteReading.Contains("Revit stays usable")
-           && PropertyPlanner.PromoteFiled(2, 3) == "Promote (DD): 2 of 3 changeset(s) filed — the filing is done."
+           && PropertyPlanner.PromoteFiled(2, 3) == "Promote (DD): 2 of 3 changeset(s) filed (confirmed by the bridge) — the filing is done." // C14
+           && PropertyPlanner.PromoteReading.EndsWith("Until its dialog closes — or, after Yes, its filing is done — Review AI Proposals and a second Promote say they wait.", StringComparison.Ordinal) // C13
            && UnreportedResults.OpenHeld(1).Contains("a review window is open, a report is in flight, or Promote (DD) is reading or filing"),
            "the pane's Doctor log says when Promote reads, files and is done — Revit stays usable meanwhile; a model opened while Promote files says why its results wait (F3)");
         const string refusal = "Sentinel did not open the review of the changesets Promote filed: switch back to ma3b5-a — nothing was changed.";

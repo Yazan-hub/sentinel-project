@@ -34,7 +34,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
     internal static void Hold() => Interlocked.Increment(ref _holds);
     internal static void Release() => Interlocked.Decrement(ref _holds);
     private const string Title = "Sentinel — AI proposals";
-    internal const string Busy = "A review window is open, a result is still being reported to the bridge, or Promote (DD) is reading or filing — finish or close the window, or wait until the pane's Doctor log says the report or Promote's filing is done, then run the command again.";
+    internal const string Busy = "A review window is open, a result is still being reported to the bridge, or Promote (DD) is reading or filing — finish or close the window, or wait until the pane's Doctor log says the report or Promote's filing is done (a Promote that files nothing is done when its dialog closes), then run the command again.";
     // The roles POST /changesets/:key/:id/result accepts (changesets-store.mjs reportResult: contributor or above; the
     // machine credential reads as service).
     private static readonly string[] Reporters = { "service", "contributor", "lead", "owner" };

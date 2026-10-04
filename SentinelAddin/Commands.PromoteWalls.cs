@@ -235,6 +235,9 @@ public sealed class PromoteWallsCommand : IExternalCommand
         // model only (DocPin), and a refusal says what was filed and where to review it.
         var pane = System.Windows.Threading.Dispatcher.CurrentDispatcher;
         var title = doc.Title;
+        // Review C11: Revit stays usable, so Sign out can run mid-filing — ServiceToken would then fall back to the PC's machine credential
+        // under the person's name (the bodies' actor). With it cleared, the filing carries the person's token or none (refused, said).
+        var fileCfg = BcfConfig.Load(); if (UserSession.IsSignedIn) fileCfg.FileToken = ""; // review C11
         App.PanelVm?.LogDoctor(PropertyPlanner.PromoteFiling(bodies.Count));
         Task.Run(() =>
         {
@@ -253,7 +256,7 @@ public sealed class PromoteWallsCommand : IExternalCommand
                     string err = null;
                     // Review C22, MA-2d: ChangesetClient sends every request off the API thread (Send) — the first attempt and the retry
                     // alike; MA-3b5: and this filing runs on a pool thread, so nobody on Revit's thread waits for the answer.
-                    var cs = ChangesetClient.Propose(cfg, key, body, out err);
+                    var cs = ChangesetClient.Propose(fileCfg, key, body, out err);
                     if (cs == null) return err ?? "not filed";
                     first ??= cs;
                     filed.Add(cs);
@@ -265,7 +268,7 @@ public sealed class PromoteWallsCommand : IExternalCommand
                 said = failed.Count == 0 && typeEditsNotFiled == 0 ? ""
                     : (typeEditsNotFiled > 0 ? $"{typeEditsNotFiled} type edit(s) not filed — see Sent to a person (the bridge refused their source; a person fills them in Revit)\n" : "") +
                       (run.RowsNotFiled > 0 ? $"{run.RowsNotFiled} row(s) sent to a person reached no changeset — they are listed only in Promote's dialog\n" : "") +
-                      (failed.Count > 0 ? $"{failed.Count} of {bodies.Count} changeset(s) were not filed:\n" + string.Join("\n", failed.Take(5)) : "");
+                      (failed.Count > 0 ? $"{failed.Count} of {bodies.Count} changeset(s) were not confirmed filed (one the bridge did not answer may still be held — the next Promote (DD) opens it as a waiting storey if so):\n" + string.Join("\n", failed.Take(5)) : "");
             }
             catch (Exception ex) { said = PropertyPlanner.PromoteStopped($"{ex.GetType().Name}: {ex.Message}", first != null); }
             finally { release(); }
@@ -291,6 +294,8 @@ public sealed class PromoteWallsCommand : IExternalCommand
             if (first == null) { App.Events.Enqueue(_ => TaskDialog.Show(Title, said)); return; }
             App.Events.Enqueue(doc, "open the review of the changesets Promote filed", (u, d) =>
             {
+                // Review C12: Project Setup can re-bind this model while Promote files — the old project's review is never opened in it.
+                if (ProjectContext.For(d).Key != key) { TaskDialog.Show(Title, PropertyPlanner.PromoteNotOpened($"This model's project changed while Promote filed (was {key})", filed.Count, title) + (said.Length > 0 ? "\n\n" + said : "")); return; }
                 if (said.Length > 0) TaskDialog.Show(Title, said);
                 // Review C7: a picker or a report that took the guard after the filing released it (E3) — said with what was filed and where.
                 if (ReviewChangesetsCommand.Held) { TaskDialog.Show(Title, PropertyPlanner.PromoteNotOpened(ReviewChangesetsCommand.Busy, filed.Count, title)); return; }

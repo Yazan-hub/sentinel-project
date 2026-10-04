@@ -19,7 +19,7 @@ static partial class Check
            && !client.Contains("Send(ReadHttp, Req(") && !client.Contains("Send(WriteHttp, msg)")
            && !client.Contains("ReadAsStringAsync().GetAwaiter()"),
            "ChangesetClient builds (its token too), sends and reads every request on a pool thread — FetchProposed, FetchOne, MyRole and Post (Propose, ReportResult, Withdraw, ReportReverted): one place for Promote, the review, Ghost Builder and the undo watcher");
-        Ok(promote.Contains("var cs = ChangesetClient.Propose(cfg, key, body, out err);") && !promote.Contains("retry ? Task.Run("),
+        Ok(promote.Contains("var cs = ChangesetClient.Propose(fileCfg, key, body, out err);") && !promote.Contains("retry ? Task.Run("),
            "Promote's Propose — the first and the retry — goes through the client's pool thread, and since MA-3b5 Promote's filing itself runs on a pool thread: nothing on Revit's thread waits for it");
     }
 

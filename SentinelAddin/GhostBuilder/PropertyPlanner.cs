@@ -520,14 +520,14 @@ namespace Sentinel.GhostBuilder
         // ── MA-3b5: Promote reads and files off Revit's thread — the words of its wait, and its stall rule ──────────────────────────────
 
         /// <summary>MA-3b5: the pane's Doctor line when Promote starts reading (its dialog opens by itself once the reads are done).</summary>
-        public const string PromoteReading = "Promote (DD): reading the bridge (the changesets waiting for review, the standards, the LOD matrix) off Revit's thread — Revit stays usable, and Promote's dialog opens by itself. Until then, Review AI Proposals and a second Promote say they wait.";
+        public const string PromoteReading = "Promote (DD): reading the bridge (the changesets waiting for review, the standards, the LOD matrix) off Revit's thread — Revit stays usable, and Promote's dialog opens by itself. Until its dialog closes — or, after Yes, its filing is done — Review AI Proposals and a second Promote say they wait.";
 
         /// <summary>MA-3b5: …when Promote starts filing, after Yes.</summary>
         public static string PromoteFiling(int n) =>
             $"Promote (DD): filing {n} changeset(s) off Revit's thread — Revit stays usable, and the review opens by itself in this model once the bridge has answered. Until then, Review AI Proposals and a second Promote say they wait.";
 
         /// <summary>MA-3b5: …when the filing is done and the guard is released.</summary>
-        public static string PromoteFiled(int filed, int n) => $"Promote (DD): {filed} of {n} changeset(s) filed — the filing is done.";
+        public static string PromoteFiled(int filed, int n) => $"Promote (DD): {filed} of {n} changeset(s) filed (confirmed by the bridge) — the filing is done.";
 
         /// <summary>MA-3b5 (DocPin): the review of what Promote filed was not opened — the model was switched or closed meanwhile.</summary>
         public static string PromoteNotOpened(string refusal, int filed, string title) =>

@@ -30,7 +30,15 @@ static partial class Check
         int receipt = At(promote, "plans.SelectMany(p => p.Held).Select(h => h.UniqueId).Distinct().Count(), filedIds, actor), key, pane);");
         int done = At(promote, "finally { release(); }"), open = At(promote, "App.Events.Enqueue(doc, \"open the review of the changesets Promote filed\", (u, d) =>");
         int busyHop = At(promote, "if (ReviewChangesetsCommand.Held) { TaskDialog.Show(Title, PropertyPlanner.PromoteNotOpened(ReviewChangesetsCommand.Busy, filed.Count, title)); return; }");
+        int own = At(promote, "var fileCfg = BcfConfig.Load(); if (UserSession.IsSignedIn) fileCfg.FileToken = \"\"; // review C11");
+        int rebind = At(promote, "if (ProjectContext.For(d).Key != key) { TaskDialog.Show(Title, PropertyPlanner.PromoteNotOpened($\"This model's project changed while Promote filed (was {key})\", filed.Count, title) + (said.Length > 0 ? \"\\n\\n\" + said : \"\")); return; }");
+        Ok(own > pane && own < pool && promote.Contains("var cs = ChangesetClient.Propose(fileCfg, key, body, out err);") && !promote.Contains("ChangesetClient.Propose(cfg,"),
+           "C11: Promote's filing carries the person's token or none, never the PC's machine credential after a sign-out mid-run (as review C9's open-time send)");
+        Ok(rebind > open && rebind < busyHop,
+           "C12: a model re-bound to another project while Promote filed opens no review of the old project's changesets — said with what was filed");
         Ok(pane > 0 && pool > pane && filing > pool && done > filing && receipt > done && open > receipt && busyHop > open
+           && Count(promote, "release();") == 2 && Count(promote, "return true;") == 1 && At(promote, "return true;") > open // C15
+           && promote.Contains("changeset(s) were not confirmed filed") // C14
            && promote.IndexOf("ReviewChangesetsCommand.Open(u, d, cfg, key, StoreyBatch.Of(filed, first));", StringComparison.Ordinal) > busyHop
            && promote.Contains("why => TaskDialog.Show(Title, PropertyPlanner.PromoteNotOpened(why, filed.Count, title)")
            && promote.Contains("if (first == null) { App.Events.Enqueue(_ => TaskDialog.Show(Title, said)); return; }")
@@ -40,7 +48,8 @@ static partial class Check
         Ok(!promote.Contains("GetAwaiter().GetResult()") && !promote.Contains(".Wait(") && Count(promote, "Task.Run(") == 2
            && review.Contains("internal static bool Held => Volatile.Read(ref _holds) > 0;") && review.Contains("internal static void Hold() =>") && review.Contains("internal static void Release() =>")
            && !review.Contains("Open(ExternalCommandData") && !review.Contains("two minutes at most")
-           && review.Contains("internal const string Busy = \"A review window is open, a result is still being reported to the bridge, or Promote (DD) is reading or filing"),
+           && review.Contains("internal const string Busy = \"A review window is open, a result is still being reported to the bridge, or Promote (DD) is reading or filing")
+           && review.Contains("(a Promote that files nothing is done when its dialog closes)"), // C13
            "AI-2, XC-3: nothing in Promote waits for the bridge on Revit's thread; the guard is the review's (F1), and its words name Promote with no time bound a filing cannot keep (F3)");
     }
 }
