@@ -18,8 +18,11 @@ static partial class Check
         int skip = At(review, "if (doc == null || doc.IsFamilyDocument || doc.IsLinked) return;"), bound = At(review, "if (!ctx.IsBound) return;");
         int held = At(review, "if (Volatile.Read(ref _holds) > 0) { App.PanelVm?.LogDoctor(head + UnreportedResults.OpenHeld(mine.Count)); return; }");
         int signedOut = At(review, "if (!UserSession.IsSignedIn) { App.PanelVm?.LogDoctor(head + UnreportedResults.OpenSignedOut(mine.Count)); return; }");
-        int retry = At(review, "Said(Retry(doc, BcfConfig.Load(), mine), head, rep => rep.Act);");
-        Ok(on > 0 && skip > on && bound > skip && held > bound && signedOut > held && retry > signedOut
+        // Review C9: the round's every request goes with the person's token or none — a session the bridge's refresh loses mid-round
+        // never falls back to the machine credential (BcfConfig.ServiceToken's `?? FileToken`).
+        int person = At(review, "var cfg = BcfConfig.Load(); cfg.FileToken = \"\"; // review C9");
+        int retry = At(review, "Said(Retry(doc, cfg, mine), head, rep => rep.Act);");
+        Ok(on > 0 && skip > on && bound > skip && held > bound && signedOut > held && person > signedOut && retry > person && !review.Contains("Retry(doc, BcfConfig.Load(), mine)")
            && Count(review, ".Where(r => string.Equals(r.Doc, here, StringComparison.OrdinalIgnoreCase)).ToList();") == 2,
            "only this model's records (its central's or file's path, without case — review C4), never a linked or family document or an unbound model; never while a window is open or a report is in flight (the guard), said; never in the machine's name — nobody signed in, said (review C1); the stamp check first (Retry, on Revit's thread)");
         int said = At(review, "internal static void Said(Task<Reported> sending, string head, Func<Reported, bool> ask) => sending.ContinueWith(t =>");

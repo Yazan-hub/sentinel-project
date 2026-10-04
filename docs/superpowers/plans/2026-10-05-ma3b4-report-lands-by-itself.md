@@ -92,6 +92,7 @@ Second review (three reviewers of `b227f43`; fixed on the branch, each with its 
 
 - **C7 (important) — a Ghost result Revit emptied at commit is kept on this PC.** A changeset whose every element Revit removed at commit (`Applied` empty, all in `Gone`, no `Error`) was never written (`x.Applied.Count > 0 &&`), so a failed report left nothing to send again, nothing to keep it closed, and the summary's "kept on this PC" was false. Ghost Builder writes every record: `var unsaved = records.Where(x => !UnreportedResults.Write(x)).ToList();` — `Retry` sends it (`Verified`: 0 of 0 found), `Waiting` blocks it meanwhile. The review's own Apply keeps its filter (its window holds a decline). §51.
 - **C8 (minor) — a result whose save failed is never said to be kept.** `ReportAll`'s `after` adds `UnreportedResults.NotKept(...)` for each unsaved record the bridge did not take. §49 (words), §51.
+- **C9 (important) — C1 holds for the whole round, not only its start.** `IsSignedIn` was read once; a refresh Supabase refuses mid-round (`UserSession.Forget`) made every later `ServiceToken` the file's machine credential (`BcfConfig.ServiceToken`'s `?? FileToken`), so a report could still land as `service`. `SendOnOpen` sends with `var cfg = BcfConfig.Load(); cfg.FileToken = "";` — the person's token or none (a 401: kept, said). Review AI Proposals and Ghost Builder are unchanged (a person's act). §49 (the getter), §50 (the wiring).
 
 ## Engineering decisions (taken here; a reviewer may challenge them)
 

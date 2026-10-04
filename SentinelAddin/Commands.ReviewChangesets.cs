@@ -293,7 +293,10 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
         if (Volatile.Read(ref _holds) > 0) { App.PanelVm?.LogDoctor(head + UnreportedResults.OpenHeld(mine.Count)); return; }
         // Review C1: a result is reported in a person's name — the machine credential would still pass as service (changesets-store).
         if (!UserSession.IsSignedIn) { App.PanelVm?.LogDoctor(head + UnreportedResults.OpenSignedOut(mine.Count)); return; }
-        Said(Retry(doc, BcfConfig.Load(), mine), head, rep => rep.Act);
+        // Review C9: and not later either — a refresh the session loses mid-round signs it out, and ServiceToken would then fall back
+        // to the file's machine credential; with it cleared, the round's requests carry the person's token or none (a 401: kept, said).
+        var cfg = BcfConfig.Load(); cfg.FileToken = ""; // review C9
+        Said(Retry(doc, cfg, mine), head, rep => rep.Act);
     }
 
     /// <summary>MA-3b4 (AI-2): a round of reports no window shows — a model opening (F2 B), Ghost Builder. On a pool thread, once the

@@ -56,5 +56,8 @@ static partial class Check
         Ok(UnreportedResults.OpenSignedOut(2) == "2 result(s) applied in this model wait on this PC for the bridge — not sent: nobody is signed in, and a result is reported in a person's name. Sign in (Standards ▸ Sign in) as a contributor on this project, then run Review AI Proposals in this model."
            && UnreportedResults.Windowless("", UnreportedResults.OpenSignedOut(1)) == UnreportedResults.OpenSignedOut(1),
            "review C1: an open-time send never goes in the machine's name — nobody signed in, nothing sent, said, and what to do named");
+        // Review C9: what SendOnOpen's cleared FileToken relies on — with no person's token, ServiceToken is none, never the machine's.
+        Ok(new Sentinel.Commands.BcfConfig { FileToken = "machine" }.ServiceToken == "machine" && new Sentinel.Commands.BcfConfig { FileToken = "" }.ServiceToken == "",
+           "review C9: an open-time round sent with the file token cleared carries the person's token or none (a 401, kept, said) — never the machine credential when a session is lost mid-round");
     }
 }
