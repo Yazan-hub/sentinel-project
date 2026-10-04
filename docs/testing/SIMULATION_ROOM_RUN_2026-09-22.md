@@ -1619,3 +1619,38 @@ the 4002 desk server stopped (unused); the founder's 4000 server untouched; the 
 (`partially_applied`), `ece14b55` and `ae4741d5` (proposed), rows #1719–#1731. Left on this PC: the scratch copy in
 `Documents\Sentinel drills\ma3a\` (evidence; never committed). The founder's 4100 bridge runs the branch's code from 11:12 (before
 fdc739d) — restarted on master after the merge.
+
+## Session MA3a-live — the owed rows after the merge (2026-10-04 ~12:30 → 13:45 local, master f44b7fb → fed78cb, Claude driving Revit 2025, 2026 and 2027, the founder on the published app 1.0.41)
+
+Setup: master's add-in deployed to Revit 2021–2027 at 12:16; the founder's 4100 bridge restarted on master at 12:18 (with F-MA3a-1's
+fix); migration 0037 applied at 12:20; web 1.0.41 published at 12:27. No test bridge: Revit used its own settings (the Funnel address,
+the founder's 4100 bridge). Scratch projects through 4100 with the machine credential: `ma3a-f1` (no office; the founder a
+`contributor`) and `live-25`, `live-26`, `live-27` in `ma3a-office` (the founder a `contributor`; the founder's second account `lead` on
+`live-25`); the e-mails were read from where they already were and never printed. Scratch copies `live-25/26/27.rvt` of the B35 seed,
+upgraded on open (0 errors, 12 family warnings each), bound with Project Setup (UI Automation), never saved. Revit 2026 and 2027 asked
+about the unsigned add-in: **Load Once** (no standing change). Revit signed in as the founder in every version.
+
+| Row | Result | Evidence |
+|---|---|---|
+| F-MA3a-1 live | `ma3a-f1` created with empty metadata; the founder (contributor) opened it in the published app: it loaded (no `Internal error`); its metadata stayed `{}` (the read wrote nothing). `live-25`'s metadata was written at 10:40:07Z when the second account (lead) first opened it — the next lead read writes the defaults — **pass** | the founder's word, SQL |
+| D-4 two accounts (Revit 2025) | The founder (contributor) declined W 1747982, W 1747984 and attach W 2051431 (`live 2025`, #1751); the second account (lead) re-opened W 1747982 (`live 2025: re-opened by the second account`, #1752 — the ledger's actor is the second account, `declined_by` the founder, role lead). Revit 2025's review: `⚠ 2 ghost(s) declined on the web`; W 1747982 `re-opened on the web by <second account> (lead): …` ticked; the two others `declined on the web by <founder> (contributor): live 2025 …` locked; 86 boxes, 46 on, 40 disabled. Apply (after the late row below) → DD IDS → Place anyway → `Applied 44 element(s) …`, `4 of 4 unticked element(s) reported as rejected.`; GET: `partially_applied`, applied 44 (W 1747982 among them), `declined_on_web` four with each account's role and reason, `review_rev_seen` `{"value":4,"claimed":true}`, no late or unchecked decline — **pass** | desk, window (UI Automation), dialogs, GET, rows |
+| D-3 Revit 2025 | Window opened 10:57Z (`⚠ 3 ghost(s) declined`); the second account declined attach W 2051433 at 11:02:39Z (`live 2025: late 2`); Apply in that window → `1 ticked ghost(s) were declined on the web after this window opened: · attach wall "W 2051433" — declined on the web by <second account> (lead): live 2025: late 2 … Nothing was created.`; the Undo list only `Sentinel: Save project settings` — **pass** | dialog, Undo list |
+| D-2 + D-3 Revit 2026 | Promote filed 3 changesets; the window open before the founder declined W 1747982 and attach W 2051431 (`live-26`, #1775); Apply (UI Automation) → `2 ticked ghost(s) were declined on the web after this window opened: …` `Nothing was created.`; Review again: `⚠ 2 ghost(s) declined on the web`, both rows `declined on the web by <founder> (contributor): live-26 …` locked; 86 / 46 / 40; GET `proposed`, result null — **pass** | dialog, window, GET, rows |
+| D-2 + D-3 Revit 2027 | The same on `live-27` (#1776): `2 ticked ghost(s) were declined on the web after this window opened: …` `Nothing was created.`; Review again: `⚠ 2 ghost(s) declined on the web`, both rows locked; 86 / 46 / 40; GET `proposed`, result null — **pass** | dialog, window, GET, rows |
+
+**Notes:**
+- Twice the review window was closed and re-opened by the founder between steps (the founder's word); that, not the add-in, explains
+  MA3a's run 1 and this session's first window. A deactivation test (Revit losing and regaining focus) left the window open.
+- Revit 2027's quick-access toolbar sits a few pixels left of 2024's: a click meant for the Undo list's arrow pressed **Undo**, taking
+  back `Sentinel: Save project settings` (the binding fell back to the seed's `ma1-bds`; Review then read a 404 for it). Ctrl+Y redid it.
+  The refusal had come first, and one Undo emptied the list: the refused Apply had created nothing. Driving tip: read Revit 2027's Undo
+  state from the greyed arrows, or locate the arrow by zoom first.
+- UI Automation reached Revit 2026's review window while Revit 2027 was in front, and its Apply invoked through it.
+
+**Still owed:** a late decline applied over (`applied_over_late_decline`) live; Ghost Builder's build and a result with no `review_rev`
+live; the Apply path on Revit 2026 and 2027 (their rows refused or were left proposed on purpose).
+
+**Closing list:** Revit 2025, 2026 and 2027 closed without saving; `%AppData%\Sentinel\cache\live-25`, `live-26`, `live-27` deleted (no
+`ma3a-f1` cache was made); the add-in's settings untouched. Left on the shared ledger (scratch keys, on purpose): `ma3a-f1`, `live-25`
+(changeset `partially_applied`), `live-26` and `live-27` (proposed), their memberships, rows #1745–#1776. Left on this PC: the scratch
+copies in `Documents\Sentinel drills\live\` (evidence; never committed).
