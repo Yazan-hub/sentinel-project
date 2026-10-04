@@ -86,7 +86,7 @@ export const declinedBy = (r: { by: string; role: string | null; carried_from?: 
 export function reviewWords(el: Ghost): string {
   const r = el.review;
   if (!r || (r.state === "proposed" && r.action !== "reopen")) return "waiting — nobody decided on the web";
-  const who = `${r.by} (${r.role})`;
+  const who = r.role ? `${r.by} (${r.role})` : r.by; // C16: a role the desk was not given is left out (declinedBy's rule), never "(null)"
   if (r.state === "declined") return `${declinedBy(r)}: ${r.reason} — binds: Revit shows it unticked and refuses the tick`;
   if (r.state === "accepted") return `accepted by ${who}${r.reason ? ": " + r.reason : ""} — advice: Revit still asks for the tick`;
   return `re-opened by ${who}: ${r.reason}`;

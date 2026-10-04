@@ -47,6 +47,8 @@ describe("words", () => {
     expect(reviewWords(g2)).toBe("accepted by reviewer@example.com (contributor) — advice: Revit still asks for the tick");
     expect(reviewWords(g3)).toBe("waiting — nobody decided on the web");
     expect(reviewWords({ ...g1, review: fx.reopened_review })).toBe("re-opened by lead@example.com (lead): party wall confirmed external by the client");
+    // C16: a role the desk was not given is left out, never printed as "(null)" — for an accept and a re-open as for a decline (E10).
+    expect(reviewWords({ ...g2, review: { ...g2.review!, role: null } })).toBe("accepted by reviewer@example.com — advice: Revit still asks for the tick");
   });
 
   it("only a signed-in contributor or above decides, only a lead or owner re-opens; the machine credential never", () => {

@@ -255,7 +255,9 @@ export async function reportResult(key, id, { applied, rejected, note, review_re
       ...(why ? { reasons: why } : {}), // MA-3b2: Revit's reason per declined ghost, as stored
       // MA-3a: the web's declines the result rejected (counted), and any ghost applied over a decline Revit could not see (named).
       // C8: "late" rests on the revision the client claims it re-checked — the row carries that claim, as the doc does.
-      declined_on_web: conflicts.declined_on_web.length, ...(conflicts.late.length ? { applied_over_late_decline: conflicts.late, review_rev_seen: updated.result.review_rev_seen } : {}),
+      // MA-3b3 (C14): how many of those the bridge had carried from an earlier changeset (a web decline, or Revit's) — absent when none (E4).
+      declined_on_web: conflicts.declined_on_web.length, ...(conflicts.declined_on_web.some((x) => x.carried_from) ? { declined_before: conflicts.declined_on_web.filter((x) => x.carried_from).length } : {}),
+      ...(conflicts.late.length ? { applied_over_late_decline: conflicts.late, review_rev_seen: updated.result.review_rev_seen } : {}),
       ...(conflicts.unchecked.length ? { applied_over_decline_unchecked: conflicts.unchecked, unchecked_why: UNCHECKED_WHY } : {}) });
   return { ...updated, ledger: ledgerRef(row) };
 }

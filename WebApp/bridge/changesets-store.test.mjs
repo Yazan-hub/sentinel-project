@@ -849,6 +849,32 @@ describe("MA-3b3 — a decline carried to the next filing (the bridge stamps it 
     expect(B.ignored.map((x) => x.field)).toEqual(["elements[0].review", "elements[2].review"]);
   });
 
+  it("C12: a web decline Revit applied late (over a decline it could not see) and may then Undo is not erased — the next filing carries it; the Undo writes no doc field and need not", async () => {
+    const deps = baseDeps({ audit: vi.fn(async () => ({ id: 1, hash: "ab".repeat(32) })), takeWriteBudget: vi.fn() });
+    const A = await proposeChangeset("demo", STOREY(), "modeller", deps);
+    const [g1, g2, g3] = A.elements.map((e) => e.proposal_guid);
+    deps.myRole = as("contributor", "contributor");
+    await reviewChangeset("demo", A.id, { decisions: [{ proposal_guid: g1, decision: "decline", reason: "W 1 is a party wall" }] }, "reviewer@example.com", deps);
+    const out = await reportResult("demo", A.id, { applied: [{ proposal_guid: g1, revit_element_id: 7 }, { proposal_guid: g2, revit_element_id: 8 }, { proposal_guid: g3, revit_element_id: 9 }], rejected: [], review_rev: 0 }, "modeller", deps);
+    delete deps.myRole;
+    expect(out.result.applied_over_late_decline.map((x) => x.proposal_guid)).toEqual([g1]);
+    await reportReverted("demo", A.id, { op: "undo", guids: [g1] }, "modeller", deps);
+    const B = await proposeChangeset("demo", STOREY(), "modeller", deps);
+    expect(B.elements[0].review).toMatchObject({ state: "declined", reason: "W 1 is a party wall", by: "reviewer@example.com", role: "contributor", rev: 0, carried_from: { changeset: A.id, proposal_guid: g1, origin: "web" } });
+    expect(B.elements[1].review).toBeUndefined(); // applied over no decline: cleared, as before
+    expect(B.carry).toEqual({ carried: 1, no_reason: 0, creates: 0, unverified: 0 });
+  });
+
+  it("C14: the changeset_applied row says how many of the declines the result rejected were carried (declined_before) — a Revit-origin one is never the web's alone", async () => {
+    const { deps } = await declinedInRevit();
+    const B = await proposeChangeset("demo", STOREY(), "modeller", deps);
+    const [g1, g2, g3] = B.elements.map((e) => e.proposal_guid);
+    await reportResult("demo", B.id, { applied: [{ proposal_guid: g2, revit_element_id: 7 }, { proposal_guid: g3, revit_element_id: 8 }], rejected: [g1], review_rev: 0 }, "modeller", deps);
+    const applied = rows(deps, "changeset_applied");
+    expect(applied[1][6]).toMatchObject({ declined_on_web: 1, declined_before: 1 });
+    expect(applied[0][6]).not.toHaveProperty("declined_before"); // A's report: nothing carried, the row reads as before (E4)
+  });
+
   it("the earlier changesets not read: a 503 in words, and nothing is filed — no referee row, no changeset, no ledger row", async () => {
     const deps = baseDeps({ docList: vi.fn(async () => { throw new Error("timeout"); }) });
     await expect(proposeChangeset("demo", STOREY(), "modeller", deps)).rejects.toMatchObject({ status: 503,

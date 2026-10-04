@@ -249,11 +249,14 @@ describe("carryDeclines — a decline carried to the next filing (MA-3b3)", () =
     const uid = "5a1c2b3d-1111-2222-3333-444455556666-0004c3f8";
     const retype = (place, kind = "wall", id = uid) => carryKey({ kind, op: "retype", target: { unique_id: id }, place });
     expect(retype({ TypeName: "T" })).toBe(retype({ TypeName: " T " }, "wall", uid.toUpperCase()));
-    expect(retype({ TypeName: "T" })).not.toBe(retype({ TypeName: "t" }));
+    // C13: a type's and a level's name is compared as the add-in resolves it — case-insensitively (ChangesetExecutor, OrdinalIgnoreCase).
+    expect(retype({ TypeName: "T" })).toBe(retype({ TypeName: "t" }));
+    expect(retype({ TypeName: "T", FamilyName: "F" }, "door")).toBe(retype({ TypeName: "t", FamilyName: "f" }, "door"));
     expect(retype({ TypeName: "T", FamilyName: "F" }, "door")).not.toBe(retype({ TypeName: "T", FamilyName: "G" }, "door"));
     expect(retype({})).toBeNull();
     const attach = (place) => carryKey({ kind: "wall", op: "attach", target: { unique_id: uid }, place });
     expect(attach({ BaseLevel: "GR-FFL", TopLevel: "01-FFL" })).not.toBe(attach({ BaseLevel: "GR-FFL", TopLevel: "02-FFL" }));
+    expect(attach({ BaseLevel: "GR-FFL", TopLevel: "01-FFL" })).toBe(attach({ BaseLevel: "gr-ffl", TopLevel: "01-ffl" }));
     expect(attach({ BaseLevel: "GR-FFL" })).toBeNull();
     expect(attach({ BaseLevel: "GR-FFL", TopLevel: "01-FFL" })).not.toBe(retype({ TypeName: "GR-FFL", FamilyName: "01-FFL" }));
     const set = (parameter, to) => carryKey({ kind: "wall", op: "set_parameter", target: { unique_id: uid }, place: { TypeName: "T" }, parameter, to });
@@ -271,6 +274,8 @@ describe("carryDeclines — a decline carried to the next filing (MA-3b3)", () =
     expect(declineWords(hit.refused[0])).toBe('declined on the web by reviewer@example.com (contributor) in "Promote (DD) · GR-FFL" and carried here by the bridge');
     expect(declineWords(hit.refused[1])).toBe('declined in Revit by modeller@example.com (contributor) in "Promote (DD) · GR-FFL" and carried here by the bridge');
     expect(declineWords(fx.after.elements[0].review)).toBe("declined on the web by reviewer@example.com (contributor)");
+    // C15: an origin the bridge does not know is "before" (Revit's ReviewLine and the desk's declinedBy say the same), never "on the web".
+    expect(declineWords({ by: "x", role: null, carried_from: { origin: "a script", name: "N" } })).toBe('declined before by x in "N" and carried here by the bridge');
     expect(resultConflicts(fx.after, [], ["g-1"], 1).declined_on_web[0]).not.toHaveProperty("carried_from");
     // C6: a result with no review_rev — the carried decline was on the filing's 201 reply, so it is refused, never "unchecked".
     const blind = resultConflicts(c3.changeset, ["n-1"], [], undefined);
@@ -310,6 +315,22 @@ describe("carryDeclines — a decline carried to the next filing (MA-3b3)", () =
     const reopened = reopenDecline(origin, "x-1", "retype it after all", { ...LEAD, at: "2026-10-05T12:00:00.000Z" }).updated;
     expect(carryDeclines([w2], [origin, B]).carried).toHaveLength(1);
     expect(carryDeclines([w2], [reopened, B]).carried).toEqual([]);
+  });
+
+  it("C12: an apply the bridge itself recorded as made over a standing decline (late, or unchecked) is not a clear — the decline stands and is carried", () => {
+    const { review, ...w2 } = W2;
+    const decl = { state: "declined", action: "decline", reason: "no", by: "reviewer@example.com", role: "contributor", at: "2026-10-05T09:10:00.000Z", rev: 1 };
+    const over = (field, seen) => ({ id: "cs-o", name: "O", status: "applied", created_at: "2026-10-05T08:00:00.000Z", review_rev: 2, elements: [{ ...w2, proposal_guid: "o-1", review: decl }],
+      result: { applied: [{ proposal_guid: "o-1", revit_element_id: 1 }], rejected: [], reported_at: "2026-10-05T11:00:00.000Z", reported_by: "modeller@example.com", reported_role: "contributor",
+        review_rev_seen: seen, declined_on_web: [], applied_over_late_decline: [], applied_over_decline_unchecked: [],
+        [field]: [{ proposal_guid: "o-1", name: 'retype wall "W 2"', by: decl.by, role: decl.role, reason: decl.reason, rev: 1 }] } });
+    for (const [field, seen] of [["applied_over_late_decline", { value: 0, claimed: true }], ["applied_over_decline_unchecked", null]]) {
+      const out = carryDeclines([w2], [over(field, seen)]);
+      expect(out.elements[0].review, field).toEqual({ ...decl, rev: 0, carried_from: { changeset: "cs-o", name: "O", proposal_guid: "o-1", origin: "web" } });
+      expect(out.carried, field).toHaveLength(1);
+    }
+    // An apply the bridge recorded as plain (over no decline) is still a clear, as before.
+    expect(carryDeclines([w2], [{ ...over("declined_on_web", null), elements: [{ ...w2, proposal_guid: "o-1" }] }]).carried).toEqual([]);
   });
 
   it("C7: a create is counted only when a create of the same kind, type and level was declined before", () => {

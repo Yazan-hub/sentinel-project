@@ -643,16 +643,19 @@ export function resultReasons(rejectedGuids, reasons) {
 //    web desk read the stamp as any decline: unticked and locked; a lead re-opens it on the web desk.
 
 /** What a ghost changes, as one text — the element, the op and what it sets: a retype's type (and family), an attach's two levels, a
- *  set_parameter's parameter and value. The UniqueId is compared in lower case (validateChangeset's own rule). Null for a create (it
- *  names no existing element) and for anything not whole: such a ghost is never matched, so never carried. */
+ *  set_parameter's parameter and value. The UniqueId is compared in lower case (validateChangeset's own rule); a type's, a family's
+ *  and a level's name too (C13: the add-in resolves each by name case-insensitively — ChangesetExecutor's OrdinalIgnoreCase — so
+ *  "bds_ext_arc_cmu_200 MM" IS the declined type in Revit); a value as stored. Null for a create (it names no existing element) and
+ *  for anything not whole: such a ghost is never matched, so never carried. */
 export function carryKey(el) {
   const uid = el?.target?.unique_id, p = el?.place ?? {};
   if (typeof uid !== "string" || uid === "") return null;
   const one = (s) => (typeof s === "string" && s.trim() !== "" ? s.trim() : null);
+  const name = (s) => one(s)?.toLowerCase() ?? null;
   const head = [el.op, el.kind, uid.toLowerCase()];
-  if (el.op === "retype") return one(p.TypeName) ? JSON.stringify([...head, one(p.TypeName), one(p.FamilyName)]) : null;
-  if (el.op === "attach") return one(p.BaseLevel) && one(p.TopLevel) ? JSON.stringify([...head, one(p.BaseLevel), one(p.TopLevel)]) : null;
-  if (el.op === "set_parameter") return one(el.parameter) && typeof el.to === "string" ? JSON.stringify([...head, one(el.parameter).toLowerCase(), el.to]) : null;
+  if (el.op === "retype") return name(p.TypeName) ? JSON.stringify([...head, name(p.TypeName), name(p.FamilyName)]) : null;
+  if (el.op === "attach") return name(p.BaseLevel) && name(p.TopLevel) ? JSON.stringify([...head, name(p.BaseLevel), name(p.TopLevel)]) : null;
+  if (el.op === "set_parameter") return one(el.parameter) && typeof el.to === "string" ? JSON.stringify([...head, name(el.parameter), el.to]) : null;
   return null;
 }
 
@@ -670,7 +673,10 @@ const createLike = (el) => JSON.stringify([el?.kind ?? null, el?.place?.TypeName
  *  a re-open's review.at, a result's reported_at; the changeset's created_at only when that time is missing); the decisions are
  *  sorted by that time — never by when their changesets were filed — and the NEWEST decision on a change stands (the same moment: a
  *  decline before a clear, so the clear stands):
- *    · applied since (in a result's applied list) — nothing stands;
+ *    · applied since (in a result's applied list) — nothing stands; unless the bridge itself recorded that apply as made OVER a
+ *      standing decline (the result's applied_over_late_decline or applied_over_decline_unchecked — C12): then the decline, a
+ *      person's decision, stands and is carried. Revit was told of such an apply with the Undo hint, and an Undo writes no doc
+ *      field (reportReverted is a ledger row), so the apply is never the office's word that the decline is void;
  *    · declined on the web and not re-opened — carried (the web's reason, reviewer, role and time);
  *    · rejected by Revit with a reason for that ghost (result.reasons), reported by a signed-in member (C1: result.reported_role is
  *      a member's role) — carried (that reason, the reporter, that role, the report's time);
@@ -690,7 +696,8 @@ export function carryDeclines(elements, earlier) {
   const declinedCreates = new Set();
   for (const cs of earlier ?? []) {
     const r = cs?.result ?? null;
-    const applied = new Set((r?.applied ?? []).map((a) => a?.proposal_guid));
+    const over = new Set([...(r?.applied_over_late_decline ?? []), ...(r?.applied_over_decline_unchecked ?? [])].map((x) => x?.proposal_guid)); // C12
+    const applied = new Set((r?.applied ?? []).map((a) => a?.proposal_guid).filter((g) => !over.has(g)));
     const rejected = new Set(r?.rejected ?? []);
     const why = (g) => (r?.reasons && Object.prototype.hasOwnProperty.call(r.reasons, g) && typeof r.reasons[g] === "string" ? r.reasons[g] : null);
     const role = reporterRole(r);
@@ -732,7 +739,8 @@ export function carryDeclines(elements, earlier) {
   return { elements: out, carried, no_reason: noReason, creates, unverified };
 }
 
-/** A decline in words, for a refusal: where it was made and by whom — and, for a carried one, the changeset it was carried from. */
+/** A decline in words, for a refusal: where it was made and by whom — and, for a carried one, the changeset it was carried from. An
+ *  origin not known is "before" (C15: Revit's ReviewLine and the desk's declinedBy say the same), never guessed. */
 export const declineWords = (r) => (r?.carried_from
-  ? `declined ${r.carried_from.origin === "revit" ? "in Revit" : "on the web"} by ${r.by}${r.role ? ` (${r.role})` : ""} in "${r.carried_from.name}" and carried here by the bridge`
+  ? `declined ${r.carried_from.origin === "revit" ? "in Revit" : r.carried_from.origin === "web" ? "on the web" : "before"} by ${r.by}${r.role ? ` (${r.role})` : ""} in "${r.carried_from.name}" and carried here by the bridge`
   : `declined on the web by ${r?.by} (${r?.role})`);
