@@ -1929,10 +1929,18 @@ export async function listVersionVerdictRows(key) {
 const enc = encodeURIComponent;
 const DOC_CONFLICT = "on_conflict=store,project_id,doc_id";
 
-/** List a store's documents for a project (data objects, insertion order). */
+/** List a store's documents for a project (data objects, insertion order). MA-3b3 (C3): read in pages — the database caps one
+ *  reply (PostgREST max-rows), and with this order a cut read would drop the NEWEST documents without a word.
+ *  ponytail: a short page ends the read — a database whose max-rows is set below DOC_PAGE would still cut on page one; ask for the
+ *  exact count (sb's `count`) if that setting is ever lowered. */
+const DOC_PAGE = 1000;
 export async function docList(store, pid) {
-  const rows = await sb(`bridge_docs?store=eq.${enc(store)}&project_id=eq.${enc(pid)}&select=data&order=created_at.asc`);
-  return (rows || []).map((r) => r.data);
+  const out = [];
+  for (let offset = 0; ; offset += DOC_PAGE) {
+    const rows = (await sb(`bridge_docs?store=eq.${enc(store)}&project_id=eq.${enc(pid)}&select=data&order=created_at.asc,doc_id.asc&limit=${DOC_PAGE}&offset=${offset}`)) || [];
+    out.push(...rows.map((r) => r.data));
+    if (rows.length < DOC_PAGE) return out;
+  }
 }
 /** Same, but lazy-migrate the local file into Supabase the first time a store/project with no rows is read. The local
  *  file is this machine's history, so only the machine credential migrates it (rfis-2): under a signed-in caller's
