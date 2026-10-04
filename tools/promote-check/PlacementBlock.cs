@@ -221,7 +221,7 @@ static partial class Check
            && datumBuilder.IndexOf("detected.GridsCreated = made.Count(e => e.IsValidObject && e is Grid);", StringComparison.Ordinal) > datumCommit
            && !datumBuilder.Contains("LevelsCreated++") && !datumBuilder.Contains("GridsCreated++"),
            "Datum counts its levels and grids after the commit, from what is still in the model");
-        Ok(Src("Commands.ReviewChangesets.cs").Contains("The proposals are still pending — run Review AI Proposals again.\"")
+        Ok(Src("Commands.ReviewChangesets.cs").Contains("Nothing was placed; the proposals are still pending — change the ticks or press Apply again.\"")
            && !Src("Commands.ReviewChangesets.cs").Contains("again on that model"),
            "a refusal in Review AI Proposals does not send the person to another model; the wrong-model refusal names the model itself");
         string ghostCmd = Src("Commands.GhostBuilder.cs"), massingCmd = Src("Commands.Massing.cs");
