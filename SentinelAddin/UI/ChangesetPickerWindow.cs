@@ -22,9 +22,13 @@ public sealed class ChangesetPickerWindow : Window
     };
     private readonly ListBox _list = new() { Margin = new Thickness(0, 8, 0, 8) };
     private readonly Button _open = new() { Content = "Review", Padding = new Thickness(12, 4, 12, 4), FontWeight = FontWeights.Bold, IsEnabled = false };
+    private volatile bool _gone;
+    /// <summary>Review C11: the person closed the picker — read from any thread; the round's words then go to the Doctor log and a dialog.</summary>
+    public bool Gone => _gone;
 
     public ChangesetPickerWindow(string key)
     {
+        Closed += (_, _) => _gone = true;
         Title = $"Sentinel — AI proposals waiting: {key}";
         Width = 720; Height = 420; WindowStartupLocation = WindowStartupLocation.CenterScreen;
         var root = new DockPanel { Margin = new Thickness(10) };
@@ -51,6 +55,8 @@ public sealed class ChangesetPickerWindow : Window
     public void SetEntries(List<(string Line, string Blocked, List<ChangesetDto> Entry)> entries, string status)
     {
         if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(new Action(() => SetEntries(entries, status))); return; }
+        // Review C11: closed between the caller's Gone check and now — the words go to the Doctor log, never to a closed window.
+        if (_gone) { if (!string.IsNullOrEmpty(status)) App.PanelVm?.LogDoctor("Review AI Proposals: " + status); return; }
         _status.Text = status ?? "";
         _list.Items.Clear();
         foreach (var (line, blocked, entry) in entries)

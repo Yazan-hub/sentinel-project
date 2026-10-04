@@ -214,7 +214,8 @@ static partial class Check
         Ok(review.Contains("ProvenanceStamp.Holds(ProvenanceStamp.Read(e), r.ChangesetId, a.ProposalGuid)") && review.Contains("var (report, ask, words) = UnreportedResults.Verified(r, found);")
            && review.Contains("var mine = waiting.Where(r => string.Equals(r.Doc, here, StringComparison.OrdinalIgnoreCase)).ToList();") && review.Contains("Load(picker, cfg, key, Retry(doc, cfg, mine),") // review C4
            && !review.Contains("r.Doc == here") && !review.Contains("r.Doc != here")
-           && review.Contains("App.Events.Enqueue(doc, \"check the model before reporting\", (_, d) => Send(Retry(d, cfg, again),"),
+           && review.Contains("App.Events.Enqueue(doc, \"check the model before reporting\", (_, d) =>") && review.Contains("try { Send(Retry(d, cfg, again), rep =>")
+           && At(review, "try { Send(Retry(d, cfg, again), rep =>") > At(review, "App.Events.Enqueue(doc, \"check the model before reporting\", (_, d) =>"),
            "AI-2: a waiting result is sent again only after the model's stamps are read on the API thread (claimed vs verified) — at the next Review AI Proposals and by Retry report; the model's path is compared without case (review C4)");
         Ok(!review.Contains("_reviewOpen") && Count(review, "Hold();") == 3 && Count(review, "Release();") == 3 && review.Contains("finally { Release(); }")
            && review.Contains("picker.Closed += (_, _) => Release();") && review.Contains("window.Closed += (_, _) => Release();"),
@@ -257,5 +258,23 @@ static partial class Check
         int status = At(review, "if (mine.Count > 0) picker.SetEntries(");
         Ok(early > 0 && early < At(window, "DecideRequested?.Invoke(") && status > 0 && status < At(review, "Load(picker, cfg, key, Retry(doc, cfg, mine),"),
            "review M2, C7: Decline all without a reason is refused by the window at once (no bridge call); the picker says it is checking and sending this model's waiting results before it lists");
+
+        // Review C11–C13: no word is lost to a closed picker or window, × in the last gap places nothing, and a Retry job that throws is said.
+        const string closedBeforeApply = "if (window.Gone) { App.PanelVm?.LogDoctor(\"Review AI Proposals: the window was closed before Apply ran — nothing was placed.\"); return; }";
+        int raise = At(review, "_ = window.Dispatcher.BeginInvoke(new Action(() =>");
+        Ok(picker.Contains("Closed += (_, _) => _gone = true;") && picker.Contains("if (_gone) { if (!string.IsNullOrEmpty(status)) App.PanelVm?.LogDoctor(\"Review AI Proposals: \" + status); return; }")
+           && review.Contains("if (picker.Gone)") && review.Contains("App.Events.Enqueue(doc, \"say the review's result\", (_, _) => TaskDialog.Show(Title, rep.Text), _ => { });")
+           && At(review, "if (picker.Gone)") > At(review, "var rep = await retried;") && At(review, "if (picker.Gone)") < At(review, "var pending = ChangesetClient.FetchProposed(cfg, key, out var fetchErr);")
+           && window.Contains("if (_gone) { if (!string.IsNullOrEmpty(words)) App.PanelVm?.LogDoctor(\"Review AI Proposals: \" + words); return; }"),
+           "review C11: the words of a round the picker started reach the Doctor log and a dialog when the picker was closed meanwhile; words posted to a window or picker that closed in between go to the Doctor log");
+        Ok(Count(review, closedBeforeApply) == 2 && review.IndexOf(closedBeforeApply, raise, StringComparison.Ordinal) > raise
+           && review.IndexOf(closedBeforeApply, raise, StringComparison.Ordinal) < At(review, "handler.Completed += onDone;")
+           && review.Contains("catch (Exception ex) { Tell($\"Retry report could not run — {ex.GetType().Name}: {ex.Message}\"); window.Retry(true); }"),
+           "review C12: × between Decide's check and the raise places nothing (the raise checks again); a Retry report whose job throws says so and gives Retry report back");
+        Ok(review.Contains("words = words.Replace(UnreportedResults.DeclineKept, UnreportedResults.DeclineLost);")
+           && review.Contains("window.Closed += (_, _) => { if (left.Any(r => r.Applied.Count == 0)) App.PanelVm?.LogDoctor(")
+           && UnreportedResults.Outcome(null, 0).Words.EndsWith("\n" + UnreportedResults.DeclineKept, StringComparison.Ordinal)
+           && UnreportedResults.DeclineLost == "Nothing in the model changed; the changeset stays proposed — review it again to decline it.",
+           "review C13: a decline that did not land is lost with its window (E4) — said so, never 'Retry report sends it again' with no window left");
     }
 }

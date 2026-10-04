@@ -119,7 +119,12 @@ namespace Sentinel.Engine
 
         private static string Kept(int applied) => applied > 0
             ? "\nThe result is kept on this PC and sent again by Retry report or the next Review AI Proposals; this changeset is not opened for review until the bridge takes it, so nothing is applied twice."
-            : "\nNothing in the model changed; Retry report sends it again.";
+            : "\n" + DeclineKept;
+
+        /// <summary>A decline that did not land lives in its window (E4). Review C13: once the window is closed there is no Retry report —
+        /// the caller says DeclineLost instead.</summary>
+        public const string DeclineKept = "Nothing in the model changed; Retry report sends it again.";
+        public const string DeclineLost = "Nothing in the model changed; the changeset stays proposed — review it again to decline it.";
 
         /// <summary>Review C1: the words when the bridge already holds this result — a 409 whose stored changeset (<paramref name="fresh"/>,
         /// re-read) is no longer proposed and applied exactly the record's ghosts: its earlier report landed and the reply was lost (the 120 s

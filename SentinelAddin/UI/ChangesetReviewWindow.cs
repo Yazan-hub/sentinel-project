@@ -281,6 +281,8 @@ public sealed class ChangesetReviewWindow : Window
     /// <summary>MA-3b: the status line; any thread. Apply stays as it is.</summary>
     public void Say(string words) => Ui(() =>
     {
+        // Review C11: closed between the caller's Gone check and now — the words go to the Doctor log, never to a closed window.
+        if (_gone) { if (!string.IsNullOrEmpty(words)) App.PanelVm?.LogDoctor("Review AI Proposals: " + words); return; }
         _status.Text = words ?? "";
         _status.Visibility = string.IsNullOrEmpty(words) ? Visibility.Collapsed : Visibility.Visible;
         _status.ScrollToHome();

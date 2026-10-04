@@ -91,17 +91,28 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
             $"Checking this model and sending {mine.Count} result(s) it applied that the bridge has not taken (the bridge has up to two minutes to answer)…");
         Load(picker, cfg, key, Retry(doc, cfg, mine),
              away.Count == 0 ? null : $"{away.Count} result(s) applied in another model wait on this PC for the bridge — close this list, open that model and run Review AI Proposals there: " +
-                                      string.Join("; ", away.Select(r => $"\"{r.Name}\" in {r.Doc}")));
+                                      string.Join("; ", away.Select(r => $"\"{r.Name}\" in {r.Doc}")), doc);
         return Result.Succeeded;
     }
 
     // MA-3b (AI-5): the picker's list, read on a pool thread once the waiting results were sent again; the words of those first.
-    private static void Load(ChangesetPickerWindow picker, BcfConfig cfg, string key, Task<Reported> retried, string away) => Task.Run(async () =>
+    private static void Load(ChangesetPickerWindow picker, BcfConfig cfg, string key, Task<Reported> retried, string away, Document doc) => Task.Run(async () =>
     {
         var none = new List<(string Line, string Blocked, List<ChangesetDto> Entry)>();
         try
         {
             var rep = await retried;
+            // Review C11: the picker may be closed while the round ran (up to 120 s) — its words (a record removed, a result reported) go to
+            // the Doctor log and a dialog, as a closed window's do (C2); nothing is listed.
+            if (picker.Gone)
+            {
+                if (rep.Words.Count > 0)
+                {
+                    App.PanelVm?.LogDoctor("Review AI Proposals: " + rep.Text);
+                    App.Events.Enqueue(doc, "say the review's result", (_, _) => TaskDialog.Show(Title, rep.Text), _ => { });
+                }
+                return;
+            }
             var pending = ChangesetClient.FetchProposed(cfg, key, out var fetchErr);
             var said = new List<string>();
             if (rep.Words.Count > 0) said.Add(rep.Text);
@@ -282,12 +293,16 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
         window.Closed += (_, _) => Release();
         var here = DocOf(doc);
         var left = new List<UnreportedResults.Record>(); // what Retry report sends again
+        // Review C13: a decline that did not land lives only in this window (E4) — closing it loses it, said.
+        window.Closed += (_, _) => { if (left.Any(r => r.Applied.Count == 0)) App.PanelVm?.LogDoctor("Review AI Proposals: a decline was not reported and its window is closed — " + UnreportedResults.DeclineLost); };
 
         // Review C2: the person may close the window at any time — words for a closed window go to the pane's Doctor log and, when they
         // are a result (not an "…ing" line), to a dialog on Revit's thread: said, never lost.
         void Tell(string words, bool interim = false)
         {
             if (!window.Gone) { window.Say(words); return; }
+            // Review C13: no window is left to offer Retry report for a decline that did not land.
+            words = words.Replace(UnreportedResults.DeclineKept, UnreportedResults.DeclineLost);
             App.PanelVm?.LogDoctor("Review AI Proposals: " + words);
             if (!interim) App.Events.Enqueue(doc, "say the review's result", (_, _) => TaskDialog.Show(Title, words), _ => { });
         }
@@ -474,6 +489,8 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                 // ExternalEvent.Raise from the window's thread (Revit's), as every modeless window here raises it.
                 _ = window.Dispatcher.BeginInvoke(new Action(() =>
                 {
+                    // Review C12: × between the check above and this raise is a cancel too — the window's hold is already released.
+                    if (window.Gone) { App.PanelVm?.LogDoctor("Review AI Proposals: the window was closed before Apply ran — nothing was placed."); return; }
                     try
                     {
                         handler.Completed += onDone;
@@ -502,7 +519,12 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
         {
             var again = left;
             window.Say("Checking the model, then reporting again…");
-            App.Events.Enqueue(doc, "check the model before reporting", (_, d) => Send(Retry(d, cfg, again), rep => $"Sent again: {rep.Landed.Count} of {again.Count} result(s) reported."),
+            App.Events.Enqueue(doc, "check the model before reporting", (_, d) =>
+                {
+                    // Review C12: a job that throws (a stamp read) would only reach the hub's log — said here, and Retry report comes back.
+                    try { Send(Retry(d, cfg, again), rep => $"Sent again: {rep.Landed.Count} of {again.Count} result(s) reported."); }
+                    catch (Exception ex) { Tell($"Retry report could not run — {ex.GetType().Name}: {ex.Message}"); window.Retry(true); }
+                },
                 refusal => { window.Say(refusal); window.Retry(true); });
         };
         window.Show();
