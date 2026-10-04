@@ -29,6 +29,9 @@ namespace Sentinel.Engine
             [JsonPropertyName("applied")] public List<AppliedEntry> Applied { get; set; } = new List<AppliedEntry>();
             [JsonPropertyName("rejected")] public List<string> Rejected { get; set; } = new List<string>();
             [JsonPropertyName("note")] public string Note { get; set; }
+            /// <summary>MA-3b2: the reviewer's reason per rejected ghost ({proposal_guid: one line}); null when none was typed, and on a
+            /// record written before MA-3b2.</summary>
+            [JsonPropertyName("reasons")] public Dictionary<string, string> Reasons { get; set; }
             /// <summary>The review_rev Apply re-checked (MA-3a); null when none was.</summary>
             [JsonPropertyName("review_rev")] public int? ReviewRev { get; set; }
             /// <summary>The Undo entry names the undo watcher remembers it under once the bridge takes it.</summary>
@@ -102,12 +105,10 @@ namespace Sentinel.Engine
         /// 400, 404 and 409 never heal on a retry with the same body — the record goes, said; anything else keeps it for a retry.</summary>
         public static (bool Drop, string Words) Outcome(string error, int applied)
         {
-            var err = string.IsNullOrWhiteSpace(error) ? "the bridge did not answer" : error;
+            // Review M4, MA-3b2: a timeout is said as what it is (ChangesetTrust.BridgeWords — the client says it so already; net48's and
+            // net8's own timeout words are read the same way); a bridge's own words are never rewritten, nor a sign-in failure's (C1).
+            var err = ChangesetTrust.BridgeWords(error, 120);
             bool Is(params string[] codes) => codes.Any(c => err.StartsWith("Bridge " + c, StringComparison.Ordinal));
-            // Review M4: the 120 s write timeout reads "A task was canceled." (net48) or "…canceled due to the configured HttpClient.Timeout…"
-            // (net8) — said as what it is; a bridge's own words are never rewritten.
-            if (!err.StartsWith("Bridge ", StringComparison.Ordinal) && err.IndexOf("canceled", StringComparison.OrdinalIgnoreCase) >= 0)
-                err = "the bridge did not answer within 120 s";
             if (Is("400", "404", "409"))
                 return (true, $"the bridge refused it (retrying cannot fix this): {err}" +
                               (applied > 0 ? $"\nThis PC's record is removed; the {applied} element(s) Apply placed are still in this model — check the changeset's status on the bridge before any re-review." : ""));

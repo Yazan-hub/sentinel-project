@@ -245,7 +245,89 @@ public static class ChangesetTrust
     private static string Who(ReviewDto r) => (r.By ?? "someone") + (string.IsNullOrWhiteSpace(r.Role) ? "" : $" ({r.Role})");
 
     /// <summary>A ghost as the bridge's refusals name it (changesets-logic ghostName): retype wall "W 1".</summary>
-    private static string GhostName(ChangesetElementDto e) => $"{e.Op ?? "create"} {e.Kind} \"{e.Validate?.Identity?.Name ?? e.ProposalGuid}\"";
+    public static string GhostName(ChangesetElementDto e) => $"{e.Op ?? "create"} {e.Kind} \"{e.Validate?.Identity?.Name ?? e.ProposalGuid}\"";
+
+    /// <summary>MA-3b2: the bridge's rule for a reason (changesets-logic MAX_REVIEW_REASON and reasonOf's refusal).</summary>
+    public const int MaxReason = 500;
+    public const string ReasonRule = "a reason is one line of at most 500 characters";
+
+    /// <summary>MA-3b2: a decline reason as the bridge will keep it — trimmed; null when blank (none is sent). <paramref name="problem"/>
+    /// is <see cref="ReasonRule"/> when the bridge would refuse it (more than one line, a control character, over 500 characters):
+    /// refused in the window before Apply, because a result the bridge refuses after Revit placed its elements is not reported.</summary>
+    public static string DeclineReason(string text, out string problem)
+    {
+        problem = null;
+        if (text == null || text.All(c => char.IsWhiteSpace(c) || char.GetUnicodeCategory(c) == System.Globalization.UnicodeCategory.Format)) return null;
+        if (text.Length > MaxReason || text.Any(c => char.IsControl(c) || char.GetUnicodeCategory(c) == System.Globalization.UnicodeCategory.LineSeparator
+                                                     || char.GetUnicodeCategory(c) == System.Globalization.UnicodeCategory.ParagraphSeparator))
+        {
+            problem = ReasonRule;
+            return null;
+        }
+        return text.Trim();
+    }
+
+    /// <summary>MA-3b2 (claimed vs verified): what a reported result says of its decline reasons — counted from the bridge's reply (the
+    /// stored result.reasons), never from what was sent; "" when none was sent.</summary>
+    public static string ReasonsLine(string reply, int sent)
+    {
+        if (sent <= 0) return "";
+        int kept = 0;
+        try
+        {
+            using var doc = JsonDocument.Parse(reply ?? "");
+            if (doc.RootElement.ValueKind == JsonValueKind.Object && doc.RootElement.TryGetProperty("result", out var r) && r.ValueKind == JsonValueKind.Object
+                && r.TryGetProperty("reasons", out var m) && m.ValueKind == JsonValueKind.Object) kept = m.EnumerateObject().Count();
+        }
+        catch (JsonException) { /* not JSON: none can be counted */ }
+        return kept >= sent ? $"\n{kept} decline reason(s) recorded with it."
+            : $"\n⚠ {sent} decline reason(s) were sent and the bridge kept {kept} — a bridge before MA-3b2 keeps none, and a blank one is never kept; what it did not keep is not on the ledger.";
+    }
+
+    /// <summary>MA-3b2 (drill MA3b's finding): a request's failure in plain words. A timeout — net48's "A task was canceled.", net8's
+    /// "…canceled due to the configured HttpClient.Timeout…" — reads "the bridge did not answer within N s"; the bridge's own words
+    /// ("Bridge 409: …") are never rewritten. Review C1 (never a guess): only a message that IS the timeout is rewritten — one that
+    /// merely holds "canceled" (a sign-in refresh that timed out before the bridge was asked: "… (Supabase not reached: A task was
+    /// canceled.)") keeps its own words.</summary>
+    public static string BridgeWords(string err, int seconds) =>
+        string.IsNullOrWhiteSpace(err) ? "the bridge did not answer"
+        : err == "A task was canceled." || err == "The operation was canceled." || err.StartsWith("The request was canceled due to the configured HttpClient.Timeout", StringComparison.Ordinal)
+            ? $"the bridge did not answer within {seconds} s"
+        : err;
+
+    /// <summary>…and of the exception itself: a cancelled request is the timeout; a request that never connected names its cause (the
+    /// innermost message: "No connection could be made because the target machine actively refused it …"), not "An error occurred
+    /// while sending the request." Review C1: any other exception (the session's, a reply that is not JSON) keeps its own message —
+    /// never through the string overload.</summary>
+    public static string BridgeWords(Exception ex, int seconds) =>
+        ex is OperationCanceledException ? $"the bridge did not answer within {seconds} s"
+        : ex is HttpRequestException ? "the connection failed — " + ex.GetBaseException().Message
+        : string.IsNullOrWhiteSpace(ex?.Message) ? "the bridge did not answer" : ex.Message;
+
+    /// <summary>MA-3b2: a type edit's row has no Show.</summary>
+    public const string NoPlace = "A type edit has no place in the model — it reaches every element on its type (the row says how many).";
+
+    /// <summary>MA-3b2 (zoom to row): the rectangle a create's row shows — the least and greatest corner {x, y, z} in mm around every point
+    /// of its place (a wall's line and an arc's middle point, a floor's loop, a roof's or ceiling's outline, a door's point),
+    /// <paramref name="marginMm"/> wider on each side in plan; z from the points, else the place's base elevation, else 0. Null when
+    /// the place has no point (a level, a grid).</summary>
+    public static double[][] PlaceBox(PlaceDto p, double marginMm = 1000)
+    {
+        if (p == null) return null;
+        var pts = new List<double[]>();
+        void Add(double[] q) { if (q != null && q.Length >= 2) pts.Add(q); }
+        Add(p.LocationCurve?.Start); Add(p.LocationCurve?.End); Add(p.LocationCurve?.Mid);
+        foreach (var q in p.LocationLoop ?? new double[0][]) Add(q);
+        foreach (var q in p.Boundary ?? new double[0][]) Add(q);
+        Add(p.Location);
+        if (pts.Count == 0) return null;
+        double Z(double[] q) => q.Length >= 3 ? q[2] : p.BaseElevation ?? 0;
+        return new[]
+        {
+            new[] { pts.Min(q => q[0]) - marginMm, pts.Min(q => q[1]) - marginMm, pts.Min(Z) },
+            new[] { pts.Max(q => q[0]) + marginMm, pts.Max(q => q[1]) + marginMm, pts.Max(Z) },
+        };
+    }
 
     /// <summary>MA-3a: the row's words for the web desk's decision; null when nobody decided.</summary>
     public static string ReviewLine(ChangesetElementDto el)
@@ -389,7 +471,7 @@ internal static class ChangesetClient
             var list = JsonSerializer.Deserialize<List<ChangesetDto>>(body) ?? new List<ChangesetDto>();
             return list.OrderBy(c => c.CreatedAt, StringComparer.Ordinal).ToList(); // FIFO — oldest first
         }
-        catch (Exception ex) { error = ex.Message; return null; }
+        catch (Exception ex) { error = ChangesetTrust.BridgeWords(ex, (int)ReadHttp.Timeout.TotalSeconds); return null; }
     }
 
     public static ChangesetDto FetchOne(BcfConfig cfg, string projectKey, string id, out string error)
@@ -402,15 +484,21 @@ internal static class ChangesetClient
             if (!resp.IsSuccessStatusCode) { error = $"Bridge {(int)resp.StatusCode}: {body}"; return null; }
             return JsonSerializer.Deserialize<ChangesetDto>(body);
         }
-        catch (Exception ex) { error = ex.Message; return null; }
+        catch (Exception ex) { error = ChangesetTrust.BridgeWords(ex, (int)ReadHttp.Timeout.TotalSeconds); return null; }
     }
 
     /// <summary>MA-3a: <paramref name="reviewRev"/> is the review_rev Apply re-checked (null: no revision was re-checked — the bridge records any decline it applied as applied_over_decline_unchecked, C2);
-    /// <paramref name="reply"/> is the bridge's answer, the stored changeset (ChangesetTrust.LateDeclines reads it).</summary>
+    /// <paramref name="reply"/> is the bridge's answer, the stored changeset (ChangesetTrust.LateDeclines reads it). MA-3b2:
+    /// <paramref name="reasons"/> is the reviewer's reason per rejected ghost ({proposal_guid: one line}); null sends none.</summary>
     public static bool ReportResult(BcfConfig cfg, string projectKey, string id,
-        List<AppliedEntry> applied, List<string> rejected, string note, int? reviewRev, out string reply, out string error) =>
+        List<AppliedEntry> applied, List<string> rejected, string note, int? reviewRev, out string reply, out string error, Dictionary<string, string> reasons = null) =>
         Post(cfg, $"/changesets/{Uri.EscapeDataString(projectKey)}/{Uri.EscapeDataString(id)}/result",
-             JsonSerializer.Serialize(new { applied, rejected, note, actor = UserSession.Actor, review_rev = reviewRev }), 200, out reply, out error);
+             ResultBody(applied, rejected, note, reviewRev, reasons), 200, out reply, out error);
+
+    /// <summary>The result's body (tools/promote-check reads it). `reasons` is written as null when there is none: the bridge reads
+    /// null as none, and a bridge before MA-3b2 ignores the field.</summary>
+    internal static string ResultBody(List<AppliedEntry> applied, List<string> rejected, string note, int? reviewRev, Dictionary<string, string> reasons) =>
+        JsonSerializer.Serialize(new { applied, rejected, note, actor = UserSession.Actor, review_rev = reviewRev, reasons });
 
     private static bool Post(BcfConfig cfg, string path, string payload, int expect, out string body, out string error)
     {
@@ -423,7 +511,7 @@ internal static class ChangesetClient
             if ((int)resp.StatusCode != expect) { error = $"Bridge {(int)resp.StatusCode}: {body}"; return false; }
             return true;
         }
-        catch (Exception ex) { error = ex.Message; return false; }
+        catch (Exception ex) { error = ChangesetTrust.BridgeWords(ex, (int)WriteHttp.Timeout.TotalSeconds); return false; }
     }
 
     /// <summary>The caller's role on the project (GET /cde/:key/members/me): "service" for the machine credential, a
@@ -439,7 +527,7 @@ internal static class ChangesetClient
             using var doc = JsonDocument.Parse(body);
             return doc.RootElement.TryGetProperty("role", out var r) && r.ValueKind == JsonValueKind.String ? r.GetString() : "";
         }
-        catch (Exception ex) { error = ex.Message; return null; }
+        catch (Exception ex) { error = ChangesetTrust.BridgeWords(ex, (int)ReadHttp.Timeout.TotalSeconds); return null; }
     }
 
     /// <summary>XC-4: whether this person may approve or reject change requests on <paramref name="key"/> — a signed-in

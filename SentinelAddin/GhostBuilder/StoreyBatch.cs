@@ -125,6 +125,14 @@ public static class StoreyBatch
         return (guids ?? Enumerable.Empty<string>()).Where(mine.Contains).ToList();
     }
 
+    /// <summary>MA-3b2: the reasons of <paramref name="reasons"/> ({proposal_guid: text}) that are for <paramref name="cs"/>'s own
+    /// elements — a storey's decline reasons, split back as its unticks are. Null when none is (the report then sends none).</summary>
+    public static Dictionary<string, string> Own(ChangesetDto cs, IReadOnlyDictionary<string, string> reasons)
+    {
+        var mine = Own(cs, reasons?.Keys);
+        return mine.Count == 0 ? null : mine.ToDictionary(g => g, g => reasons[g]);
+    }
+
     /// <summary>The Undo entry's name: the storey's, with the first part's id, as the executor names a changeset's own transaction
     /// (UndoWatcher.TxName — the undo watcher and GhostFailurePolicy.DoctorSkips key on it). A batch of one keeps the changeset's own.</summary>
     public static string UndoName(IReadOnlyList<ChangesetDto> batch) =>
