@@ -64,7 +64,7 @@ static partial class Check
            "Review AI Proposals and Promote open a Promote storey's changesets in one window, each re-checked before anything runs; a part reviewed alone is said; a type edit's row says whose retypes it counts");
         // MA-3b (AI-2): each result is built on the API thread with the revision Apply re-checked (MA-3a) and the Undo names, and reported
         // by ReportAll on a pool thread; the undo watcher remembers it only once the bridge took it.
-        int reported = At(review, "var landed = ChangesetClient.ReportResult(cfg, r.Key, r.ChangesetId, r.Applied, r.Rejected, r.Note, r.ReviewRev, out var reply, out var err);");
+        int reported = At(review, "var landed = ChangesetClient.ReportResult(cfg, r.Key, r.ChangesetId, r.Applied, r.Rejected, r.Note, r.ReviewRev, out var reply, out var err, r.Reasons);"); // MA-3b2: and the reasons
         Ok(review.Contains("foreach (var (one, res) in result.Each)") && reported > 0
            && At(review, "if (UndoWatcher.Land(r.Undo, r.Key, r.ChangesetId, r.Applied.Select(a => a.ProposalGuid)))") > reported // review C8: Land remembers it
            && review.Contains("new List<string> { undo, UndoWatcher.TxName(one.Name, one.Id) }")
@@ -82,7 +82,7 @@ static partial class Check
            // Review C2: a declined storey's type edits — later storeys of the same run that retype onto them fail the DD IDS.
            && review.Contains("Other storeys of the same run that retype onto those types will fail the DD IDS check for that property until Promote plans again — decline them (untick all, write the reason in the note, press Decline all), then run Promote (DD).") // MA-3b review C16: Decline all needs a reason
            // Review C6: an all-unticked storey is declined in words, counted from what the bridge took.
-           && review.Contains("ResultOf(key, f, new List<AppliedEntry>(), StoreyBatch.Own(f, unticked), note, null, here, null)")
+           && review.Contains("ResultOf(key, f, new List<AppliedEntry>(), StoreyBatch.Own(f, unticked), note, null, here, null, StoreyBatch.Own(f, reasons))") // MA-3b2: each part's own reasons
            && review.Contains("$\"Declined {declined} of {fresh.Count} changeset(s) — nothing in the model changed.\""),
            "a storey that fails or is unticked whole is declined whole, each changeset with the reason, said with its type edits' consequence, and the words say Promote reopens a waiting storey before it plans again (drill MA2c D2)");
     }

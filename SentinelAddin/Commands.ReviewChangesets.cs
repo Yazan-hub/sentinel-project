@@ -139,11 +139,13 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
     // AI-2: the model a result was applied in — the workshared central's path, else the file's, else its title (a model never saved).
     private static string DocOf(Document doc) => Publisher.CentralPath(doc) ?? (string.IsNullOrEmpty(doc.PathName) ? doc.Title : doc.PathName);
 
-    private static UnreportedResults.Record ResultOf(string key, ChangesetDto cs, List<AppliedEntry> applied, List<string> rejected, string note, int? reviewRev, string doc, List<string> undo) =>
+    // MA-3b2: reasons — the reviewer's reason per rejected ghost of this changeset (StoreyBatch.Own); null when none was typed.
+    private static UnreportedResults.Record ResultOf(string key, ChangesetDto cs, List<AppliedEntry> applied, List<string> rejected, string note, int? reviewRev, string doc, List<string> undo,
+                                                     Dictionary<string, string> reasons) =>
         new UnreportedResults.Record
         {
             Key = key, ChangesetId = cs.Id, Name = cs.Name, Doc = doc, Applied = applied, Rejected = rejected, Note = note, ReviewRev = reviewRev,
-            Undo = undo ?? new List<string>(), At = ProvenanceStamp.Now(),
+            Undo = undo ?? new List<string>(), At = ProvenanceStamp.Now(), Reasons = reasons,
         };
 
     /// <summary>MA-3b (AI-2): what a round of reports did — one paragraph per result, the ones the bridge took (with its reply) and the ones
@@ -214,7 +216,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                 foreach (var r in records)
                 {
                     if (stalled) { rep.Left.Add(r); rep.Words.Add($"\"{r.Name}\": {UnreportedResults.NotSent(r.Applied.Count)}"); continue; }
-                    var landed = ChangesetClient.ReportResult(cfg, r.Key, r.ChangesetId, r.Applied, r.Rejected, r.Note, r.ReviewRev, out var reply, out var err);
+                    var landed = ChangesetClient.ReportResult(cfg, r.Key, r.ChangesetId, r.Applied, r.Rejected, r.Note, r.ReviewRev, out var reply, out var err, r.Reasons);
                     // Review C1: the bridge writes the doc before its audit row, and a reply can be lost — a 409 whose stored result applied
                     // exactly these ghosts is this result, landed earlier (re-read here, on this pool thread; FetchOne is an existing request).
                     string taken = null, unread = null;
@@ -229,7 +231,8 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                         UnreportedResults.Delete(r.Key, r.ChangesetId);
                         rep.Landed.Add((r, reply));
                         // MA-3a (Q2): a ghost declined on the web after Apply re-checked it was applied over the decline — recorded by the bridge; said.
-                        rep.Words.Add(taken ?? $"\"{r.Name}\": reported ({ChangesetTrust.LedgerOf(reply)})." + (ChangesetTrust.LateDeclines(reply) is { } late ? "\n" + late : ""));
+                        // MA-3b2: the decline reasons the bridge kept, counted from its reply (claimed vs verified).
+                        rep.Words.Add(taken ?? $"\"{r.Name}\": reported ({ChangesetTrust.LedgerOf(reply)})." + ChangesetTrust.ReasonsLine(reply, r.Reasons?.Count ?? 0) + (ChangesetTrust.LateDeclines(reply) is { } late ? "\n" + late : ""));
                         // Only a result the bridge holds is watched: an Undo then posts changeset_reverted for these guids — remembered under
                         // the Undo entry's name (the group's) and the changeset's own, whichever Revit reports (GhostChangesetBuild's rule).
                         // Review C8: an Undo that came while this report was in flight is posted here, once.
@@ -321,7 +324,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
             window.Retry(left.Count > 0);
         }, TaskScheduler.Default);
 
-        async Task Decide(List<string> ticked, List<string> unticked, string note)
+        async Task Decide(List<string> ticked, List<string> unticked, string note, Dictionary<string, string> reasons)
         {
             try
             {
@@ -371,7 +374,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                     if (window.Gone) { App.PanelVm?.LogDoctor("Review AI Proposals: the window was closed before Decline all ran — nothing was declined."); return; }
                     window.Applying("Declining — reporting to the bridge…");
                     // declined — no transaction at all; each changeset of the storey on its own ledger row
-                    Send(ReportAll(cfg, fresh.Select(f => ResultOf(key, f, new List<AppliedEntry>(), StoreyBatch.Own(f, unticked), note, null, here, null)).ToList()), rep =>
+                    Send(ReportAll(cfg, fresh.Select(f => ResultOf(key, f, new List<AppliedEntry>(), StoreyBatch.Own(f, unticked), note, null, here, null, StoreyBatch.Own(f, reasons))).ToList()), rep =>
                     {
                         // Review C6: said, never silent — counted from the declines the bridge took; nothing in the model changed.
                         int declined = rep.Landed.Count;
@@ -424,7 +427,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                         // Whole changeset — MA-2d: the whole storey — rolled back: each changeset reported declined with the reason, honestly.
                         Tell($"Transaction failed and was rolled back:\n{result.Error}\n\nReporting the declines to the bridge…", interim: true);
                         Send(ReportAll(cfg, fresh.Select(f => ResultOf(key, f, new List<AppliedEntry>(), f.Elements.Select(e => e.ProposalGuid).ToList(),
-                                $"Revit transaction failed — rolled back: {result.Error}" + (string.IsNullOrEmpty(note) ? "" : $" | reviewer: {note}"), null, here, null)).ToList()), rep =>
+                                $"Revit transaction failed — rolled back: {result.Error}" + (string.IsNullOrEmpty(note) ? "" : $" | reviewer: {note}"), null, here, null, null)).ToList()), rep =>
                         {
                             // Review C14: counted from the declines the bridge took (C6's rule), never the number sent.
                             int declined = rep.Landed.Count;
@@ -446,7 +449,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                         if (result.Block != null) said = result.Block + (string.IsNullOrEmpty(said) ? "" : " | " + said); // MA-1a item 5
                         if (result.Ids != null) said = result.Ids + (string.IsNullOrEmpty(said) ? "" : " | " + said);     // MA-2b
                         // MA-3a: the revision Apply re-checked. Remembered for the undo watcher under the Undo entry's name and the changeset's own.
-                        records.Add(ResultOf(key, one, res.Applied, rejected, said, one.ReviewRev, here, new List<string> { undo, UndoWatcher.TxName(one.Name, one.Id) }));
+                        records.Add(ResultOf(key, one, res.Applied, rejected, said, one.ReviewRev, here, new List<string> { undo, UndoWatcher.TxName(one.Name, one.Id) }, StoreyBatch.Own(one, reasons)));
                     }
                     // AI-2: the record first — on this PC before the report is sent, so a result the bridge never hears of is never forgotten
                     // and never applied twice.
@@ -514,7 +517,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
             catch (Exception ex) { window.Refused($"Review AI Proposals failed — {ex.GetType().Name}: {ex.Message}\n\nNothing was created."); }
         }
 
-        window.DecideRequested += (ticked, unticked, note) => Task.Run(() => Decide(ticked, unticked, note));
+        window.DecideRequested += (ticked, unticked, note, reasons) => Task.Run(() => Decide(ticked, unticked, note, reasons));
         window.RetryRequested += () =>
         {
             var again = left;
@@ -526,6 +529,34 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                     catch (Exception ex) { Tell($"Retry report could not run — {ex.GetType().Name}: {ex.Message}"); window.Retry(true); }
                 },
                 refusal => { window.Say(refusal); window.Retry(true); });
+        };
+        // MA-3b2 (zoom to row): a retype's or attach's element is selected and shown; a create's place is zoomed to in the active view
+        // (ChangesetTrust.PlaceBox — mm in the model's internal coordinates, as the executor places it). On Revit's thread through the event
+        // hub (DocPin: only while this model is the active one); no transaction, no bridge call; every outcome is said on the window.
+        window.ShowRequested += el =>
+        {
+            var name = ChangesetTrust.GhostName(el);
+            if (!string.IsNullOrWhiteSpace(el.Target?.UniqueId))
+            {
+                App.Events.SelectAndShow(doc, el.Target.UniqueId, gone => window.Shown(gone == null ? $"Showing {name}." : $"{name}: {gone}"));
+                return;
+            }
+            var box = ChangesetTrust.PlaceBox(el.Place);
+            if (box == null) { window.Shown($"{name}: its proposal carries no place to show."); return; }
+            App.Events.Enqueue(doc, "show the place", (ui, _) =>
+            {
+                try
+                {
+                    var uidoc = ui.ActiveUIDocument;
+                    var active = uidoc.ActiveGraphicalView; // review C10: a schedule or the project browser is not a view to zoom
+                    var view = active == null ? null : uidoc.GetOpenUIViews().FirstOrDefault(v => v.ViewId == active.Id);
+                    if (view == null) { window.Shown($"{name}: the active view cannot be zoomed — open a plan view and press Show again."); return; }
+                    const double ft = 1.0 / 304.8;
+                    view.ZoomAndCenterRectangle(new XYZ(box[0][0] * ft, box[0][1] * ft, box[0][2] * ft), new XYZ(box[1][0] * ft, box[1][1] * ft, box[1][2] * ft));
+                    window.Shown($"Showing where {name} would be placed, in the active view ({active.Name}) — a plan of its level shows it best.");
+                }
+                catch (Exception ex) { window.Shown($"{name}: could not be shown — {ex.GetType().Name}: {ex.Message}"); }
+            }, refusal => window.Shown(refusal));
         };
         window.Show();
         return true;
