@@ -71,6 +71,7 @@ static partial class Check
         Ma3b2bDeclineChecks();
         Ma3b2bWiringChecks();
         Ma3b3CarryChecks();
+        Ma3b4WordChecks();
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;
     }
