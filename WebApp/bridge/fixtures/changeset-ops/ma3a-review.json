@@ -60,5 +60,21 @@
       "applied_over_late_decline": [{ "proposal_guid": "g-3", "name": "retype wall \"W 2\"", "by": "reviewer@example.com", "role": "contributor", "reason": "W 2 is demolished", "rev": 3 }],
       "applied_over_decline_unchecked": []
     }
+  },
+  "revit_reasons": {
+    "_": "MA-3b2: Revit's reason per declined ghost, on a result against `after` (g-1 and g-4 declined on the web, g-2 accepted). `result` is the body Revit posts; `stored` is what the bridge keeps as result.reasons and on the changeset_applied row: trimmed, a blank one dropped, and one for a ghost the web also declined kept beside the web's. `rule` is the one-line rule both sides hold (changesets-logic reasonOf; ChangesetTrust.DeclineReason, read by tools/promote-check): `ok` false is refused, `clean` is what is kept (null: blank, not kept).",
+    "result": {
+      "applied": [{ "proposal_guid": "g-2", "revit_element_id": 312312, "revit_unique_id": "5a1c2b3d-1111-2222-3333-444455556666-0004c3f8" }],
+      "rejected": ["g-1", "g-3", "g-4"], "note": "GR-FFL reviewed in Revit", "review_rev": 1,
+      "reasons": { "g-3": "  W 2 is demolished in the next package  ", "g-4": "   ", "g-1": "a party wall, as the web desk said" }
+    },
+    "stored": { "g-3": "W 2 is demolished in the next package", "g-1": "a party wall, as the web desk said" },
+    "rule": [
+      { "text": "  kept as typed  ", "ok": true, "clean": "kept as typed" },
+      { "text": " \u200b ", "ok": true, "clean": null },
+      { "text": "two\nlines", "ok": false },
+      { "text": "a\ttab", "ok": false },
+      { "text": "a line\u2028separator", "ok": false }
+    ]
   }
 }

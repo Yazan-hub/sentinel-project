@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import * as cde from "./cde-store.mjs";
 import * as members from "./members-store.mjs";
 import { validateChangeset, attachVerdicts, canWithdraw, deriveResultStatus, unattributedFailures,
-  reviewRev, applyDecisions, reopenDecline, resultConflicts } from "./changesets-logic.mjs";
+  reviewRev, applyDecisions, reopenDecline, resultConflicts, resultReasons } from "./changesets-logic.mjs";
 import { makeTyper, makeCiter } from "./changesets-typing.mjs";
 import { resolveArtefact, refLabel, validateArtefact } from "./artefact-store.mjs";
 import { resolveActor } from "./bridge-auth.mjs";
@@ -168,7 +168,7 @@ export async function getChangeset(key, id, deps) {
 
 /** The add-in's report: which proposals a human ticked (with the created Revit ids) and which they
  *  didn't. Writable exactly once, only from `proposed`. Status is DERIVED from the counts. */
-export async function reportResult(key, id, { applied, rejected, note, review_rev } = {}, actor, deps) {
+export async function reportResult(key, id, { applied, rejected, note, review_rev, reasons } = {}, actor, deps) {
   const d = wire(deps);
   // A result says what a human ticked in Revit and is written once. H4: Revit signs in per user, so it is that user's
   // contributor check (the machine credential still passes as service); a viewer reports nothing, before any read.
@@ -179,7 +179,7 @@ export async function reportResult(key, id, { applied, rejected, note, review_re
 
   // CAS (MA-3a: on review_rev, rewrite): a concurrent withdraw or report can't both land — the loser reads the winner's status and
   // 409s, with no audit row — and a web decision written in between is kept, and judged.
-  const { before: cs, updated, conflicts } = await rewrite(d, proj.id, id, (cs) => {
+  const { before: cs, updated, conflicts, why } = await rewrite(d, proj.id, id, (cs) => {
     if (cs.status !== "proposed") throw err(409, `changeset is ${cs.status} — a result can be reported exactly once, from proposed`);
     for (const [i, a] of appliedArr.entries()) {
       if (!a || typeof a.proposal_guid !== "string" || !Number.isInteger(a.revit_element_id) || a.revit_element_id <= 0)
@@ -199,8 +199,10 @@ export async function reportResult(key, id, { applied, rejected, note, review_re
     if (conflicts.refused.length)
       throw err(409, conflicts.refused.map((x) => `${x.name} was declined on the web by ${x.by} (${x.role}): "${x.reason}" — review_rev ${x.rev}, which this result says Revit re-checked`).join("; ") +
         "; Revit refuses that tick, so this result is refused. Nothing was recorded; the changeset stays proposed");
+    // MA-3b2: Revit's reason per declined ghost — validated before anything is written, stored beside the web's declines.
+    const why = resultReasons(rejectedArr, reasons);
     const status = deriveResultStatus(appliedArr.length, rejectedArr.length, cs.elements.length);
-    return { conflicts, updated: {
+    return { conflicts, why, updated: {
       ...cs, status, updated_at: new Date().toISOString(), review_rev: reviewRev(cs) + 1,
       result: {
         applied: appliedArr.map((a) => ({ proposal_guid: a.proposal_guid, revit_element_id: Number(a.revit_element_id), revit_unique_id: a.revit_unique_id ?? null })),
@@ -209,6 +211,7 @@ export async function reportResult(key, id, { applied, rejected, note, review_re
         // C2: the revision is the client's claim; a result without one is unchecked, never late.
         review_rev_seen: review_rev == null ? null : { value: review_rev, claimed: true },
         declined_on_web: conflicts.declined_on_web, applied_over_late_decline: conflicts.late, applied_over_decline_unchecked: conflicts.unchecked,
+        ...(why ? { reasons: why } : {}),
       },
     } };
   });
@@ -227,6 +230,7 @@ export async function reportResult(key, id, { applied, rejected, note, review_re
   const row = await d.audit(proj.id, "changeset", id, "changeset_applied", actor || "revit",
     { status: "proposed" },
     { status, applied: updated.result.applied, rejected: rejectedArr.length, note: updated.result.note, ...(values.length ? { values } : {}),
+      ...(why ? { reasons: why } : {}), // MA-3b2: Revit's reason per declined ghost, as stored
       // MA-3a: the web's declines the result rejected (counted), and any ghost applied over a decline Revit could not see (named).
       // C8: "late" rests on the revision the client claims it re-checked — the row carries that claim, as the doc does.
       declined_on_web: conflicts.declined_on_web.length, ...(conflicts.late.length ? { applied_over_late_decline: conflicts.late, review_rev_seen: updated.result.review_rev_seen } : {}),
