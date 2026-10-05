@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 import { filterProjects, isDefaultFilter, DEFAULT_FILTER, type ProjectFilter, type FilterableProject } from "./projects-filter";
 
@@ -94,5 +95,21 @@ describe("filterProjects", () => {
     expect(isDefaultFilter({ ...DEFAULT_FILTER, q: "   " })).toBe(true);
     for (const f of [{ q: "a" }, { kind: "office" }, { office: "none" }, { status: "active" }, { sort: "name" }] as Partial<ProjectFilter>[])
       expect(isDefaultFilter({ ...DEFAULT_FILTER, ...f })).toBe(false);
+  });
+});
+
+// The panel imports the viewer (no DOM under vitest here), so its wiring is pinned by a scan of its source.
+describe("projects-hub-panel wiring", () => {
+  const src = readFileSync(new URL("./projects-hub-panel.ts", import.meta.url), "utf8");
+  it("draws the grid through filterProjects, with the search box, four selects and Clear", () => {
+    expect(src).toMatch(/import \{[^}]*\bfilterProjects\b[^}]*\} from "\.\/projects-filter"/);
+    expect(src).toContain("filterProjects(projects, f)");
+    for (const id of ["ph-q", "ph-f-kind", "ph-f-office", "ph-f-status", "ph-f-sort", "ph-clear"]) expect(src).toContain(`id="${id}"`);
+    expect(src).toContain('type="search"');
+    expect(src).toContain("No project matches");
+    expect(src).toContain('addEventListener("input"');
+  });
+  it("keeps filter state in memory only", () => {
+    expect(src).not.toMatch(/localStorage|sessionStorage|indexedDB/);
   });
 });

@@ -4,6 +4,7 @@ import { bfetch } from "./bridge-fetch";
 import { activePid, setActiveProjectKey, hasProjectOverride, platformProjectId } from "./active-project";
 import { linkedProject } from "./platform-link";
 import { escapeHtml as esc } from "./escape-html";
+import { filterProjects, isDefaultFilter, DEFAULT_FILTER, type ProjectFilter } from "./projects-filter";
 
 /**
  * Projects Hub (Phase 1) — the "which project?" landing above the per-project CDE board. Lists every
@@ -43,18 +44,31 @@ export function projectsHubPanel(
   };
 
   let projects: Project[] = [];
+  // Search + filters (in memory only: the published app cannot use browser storage).
+  let f: ProjectFilter = { ...DEFAULT_FILTER };
 
   const root = document.createElement("div");
   root.style.cssText =
     "display:flex;flex-direction:column;height:100%;background:#16161a;color:#eee;font:13px system-ui;overflow:hidden;border-radius:.5rem";
   const btn =
     "border:1px solid #2c2c34;background:#1f1f27;color:#e5e7eb;border-radius:.35rem;padding:.35rem .55rem;font:600 12px system-ui;cursor:pointer";
+  const inp =
+    "background:#101014;border:1px solid #2c2c34;border-radius:.35rem;color:#eee;padding:.4rem .5rem;font:13px system-ui;width:100%";
   root.innerHTML =
     '<div style="display:flex;align-items:center;gap:.4rem;padding:.55rem .6rem;border-bottom:1px solid #2a2a30">' +
     '<span style="font-weight:600">◫ Projects</span><span style="color:#9ca3af;font-size:11px">governed CDE dataset</span>' +
     '<span style="flex:1"></span>' +
     `<button id="ph-new" style="${btn};background:#2a1e4d;border-color:#6528d7;color:#c4b5fd">+ New project</button>` +
     `<button id="ph-refresh" style="${btn}" title="Reload">↻</button>` +
+    "</div>" +
+    // The toolbar is drawn once (re-rendering only the grid keeps the search box's focus and caret); hidden until the list is read.
+    '<div id="ph-tools" style="display:none;flex-wrap:wrap;align-items:center;gap:.4rem;padding:.45rem .6rem;border-bottom:1px solid #2a2a30">' +
+    `<input id="ph-q" type="search" placeholder="Search projects — name, key, office…" aria-label="Search projects" style="${inp};flex:1;min-width:11rem;width:auto" />` +
+    `<select id="ph-f-kind" aria-label="Type" style="${inp};width:auto"><option value="all">All types</option><option value="project">Projects</option><option value="office">Offices</option></select>` +
+    `<select id="ph-f-office" aria-label="Office" style="${inp};width:auto"><option value="all">All offices</option><option value="none">No office</option></select>` +
+    `<select id="ph-f-status" aria-label="Status" style="${inp};width:auto"><option value="all">All</option><option value="active">Active</option><option value="archived">Archived</option></select>` +
+    `<select id="ph-f-sort" aria-label="Sort" style="${inp};width:auto"><option value="newest">Newest</option><option value="oldest">Oldest</option><option value="name">Name A–Z</option><option value="containers">Most containers</option></select>` +
+    `<button id="ph-clear" style="${btn};display:none">Clear</button>` +
     "</div>" +
     '<div id="ph-form" style="display:none;padding:.55rem .6rem;border-bottom:1px solid #2a2a30;flex-direction:column;gap:.4rem"></div>' +
     '<div id="ph-grid" style="flex:1;overflow:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(13rem,1fr));gap:.6rem;padding:.7rem;align-content:start"></div>' +
@@ -69,14 +83,22 @@ export function projectsHubPanel(
   // ── card grid ────────────────────────────────────────────────────────────────
   const renderGrid = () => {
     const active = activePid();
+    el("ph-clear").style.display = isDefaultFilter(f) ? "none" : "";
     if (!projects.length) {
       el("ph-grid").innerHTML =
         '<div style="grid-column:1/-1;color:#6b7280;font-size:12px;padding:1rem .2rem">No projects yet — create one with <b>+ New project</b>.</div>';
       return;
     }
-    // Archived projects sink to the end of the grid, greyed — still clickable so unarchive
-    // (Settings → Danger zone) stays reachable.
-    const ordered = [...projects].sort((a, b) => Number(!!a.settings?.archived) - Number(!!b.settings?.archived));
+    // Archived projects sink to the end of their group, greyed — still clickable so unarchive
+    // (Settings → Danger zone) stays reachable. Grouping, search, filters and sort: projects-filter.ts.
+    const { groups } = filterProjects(projects, f);
+    if (!groups.length) {
+      el("ph-grid").innerHTML =
+        '<div style="grid-column:1/-1;color:#6b7280;font-size:12px;padding:1rem .2rem">No project matches — ' +
+        `<button id="ph-clear-empty" style="${btn}">Clear the filters</button></div>`;
+      el("ph-clear-empty").addEventListener("click", clearFilters);
+      return;
+    }
     const card = (p: Project) => {
       const on = p.key === active;
       const arch = !!p.settings?.archived;
@@ -107,14 +129,6 @@ export function projectsHubPanel(
         `</button>`
       );
     };
-    type Group = { title: string; rows: Project[] };
-    const offices = ordered.filter((p) => p.kind === "office");
-    const groups: Group[] = offices.map((o) => ({
-      title: `${o.name} · office`,
-      rows: [o, ...ordered.filter((p) => p.kind !== "office" && p.office_key === o.key)],
-    }));
-    const loose = ordered.filter((p) => p.kind !== "office" && !offices.some((o) => o.key === p.office_key));
-    if (loose.length) groups.push({ title: offices.length ? "No office" : "", rows: loose });
     el("ph-grid").innerHTML = groups
       .map(
         (g) =>
@@ -126,6 +140,44 @@ export function projectsHubPanel(
     root.querySelectorAll<HTMLElement>(".ph-card").forEach((b) =>
       b.addEventListener("click", () => open(b.dataset.key!)),
     );
+  };
+
+  // "M projects." — or "Showing N of M projects." while a filter is on.
+  const countLine = () => {
+    const { shown, total } = filterProjects(projects, f);
+    const of = `${total} project${total === 1 ? "" : "s"}`;
+    return isDefaultFilter(f) ? `${of}.` : `Showing ${shown} of ${of}.`;
+  };
+  const applyFilter = () => {
+    renderGrid();
+    status(countLine());
+  };
+  const tool = <T extends HTMLElement = HTMLSelectElement>(id: string) => el(id) as T;
+  const syncTools = () => {
+    tool<HTMLInputElement>("ph-q").value = f.q;
+    tool("ph-f-kind").value = f.kind;
+    tool("ph-f-office").value = f.office;
+    tool("ph-f-status").value = f.status;
+    tool("ph-f-sort").value = f.sort;
+  };
+  function clearFilters() {
+    f = { ...DEFAULT_FILTER };
+    syncTools();
+    applyFilter();
+  }
+  // The Office choices come from the loaded list; the chosen office is kept while it still exists.
+  const fillOffices = () => {
+    const sel = tool("ph-f-office");
+    const offices = projects.filter((p) => p.kind === "office");
+    sel.innerHTML =
+      '<option value="all">All offices</option><option value="none">No office</option>' +
+      offices.map((o) => `<option value="${esc(o.key)}">${esc(o.name)}</option>`).join("");
+    if (f.office !== "all" && f.office !== "none" && !offices.some((o) => o.key === f.office)) f.office = "all";
+    sel.value = f.office;
+  };
+  // Hidden while the list was not read (401, 503, an error): a filter over nothing would only mislead.
+  const showTools = (on: boolean) => {
+    el("ph-tools").style.display = on ? "flex" : "none";
   };
 
   const open = (key: string) => {
@@ -144,6 +196,7 @@ export function projectsHubPanel(
       reached = true;
       if (r.status === 503) {
         projects = [];
+        showTools(false);
         el("ph-grid").innerHTML =
           '<div style="grid-column:1/-1;color:#eab308;font-size:12px;line-height:1.5;padding:1rem .2rem">' +
           "The CDE isn’t configured yet. Add <b>SUPABASE_URL</b> + <b>SUPABASE_SERVICE_KEY</b> to " +
@@ -155,6 +208,7 @@ export function projectsHubPanel(
       if (r.status === 401) {
         // The bridge answered: the list is a signed-in person's (never "no projects" — it was not read).
         projects = [];
+        showTools(false);
         el("ph-grid").innerHTML =
           '<div style="grid-column:1/-1;color:#eab308;font-size:12px;line-height:1.5;padding:1rem .2rem">' +
           "Sign in (top right) to see your projects — the bridge lists them only for a signed-in account.</div>";
@@ -163,8 +217,10 @@ export function projectsHubPanel(
       }
       if (!r.ok) throw new Error((await r.json().catch(() => null))?.message || `HTTP ${r.status}`);
       projects = await r.json();
+      fillOffices();
+      showTools(true);
       renderGrid();
-      status(`${projects.length} project${projects.length === 1 ? "" : "s"}.`);
+      status(countLine());
       // Nothing chosen in-app yet (always so in the published app, which cannot remember a choice): open the project a
       // lead linked to this platform project (Settings ▸ General) — never a guess between two that claim it.
       if (!hasProjectOverride()) {
@@ -179,6 +235,7 @@ export function projectsHubPanel(
     } catch (e) {
       // Never an empty or stale grid for a list that was not read (the new-project form's office list reads it too).
       projects = [];
+      showTools(false);
       const why = reached ? (e as Error).message : `can’t reach the bridge at ${base}`;
       el("ph-grid").innerHTML =
         `<div style="grid-column:1/-1;color:#ef4444;font-size:12px;line-height:1.5;padding:1rem .2rem">Projects not read — ${esc(why)}</div>`;
@@ -187,8 +244,6 @@ export function projectsHubPanel(
   };
 
   // ── new-project form ───────────────────────────────────────────────────────────
-  const inp =
-    "background:#101014;border:1px solid #2c2c34;border-radius:.35rem;color:#eee;padding:.4rem .5rem;font:13px system-ui;width:100%";
   let formOpen = false;
   const toggleForm = () => {
     formOpen = !formOpen;
@@ -253,6 +308,28 @@ export function projectsHubPanel(
   };
 
   el("ph-new").addEventListener("click", toggleForm);
+  // Live: every keystroke and every select change filters at once; Escape in the search box clears it.
+  const q = tool<HTMLInputElement>("ph-q");
+  q.addEventListener("input", () => {
+    f.q = q.value;
+    applyFilter();
+  });
+  q.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || !q.value) return;
+    e.preventDefault();
+    q.value = f.q = "";
+    applyFilter();
+  });
+  const onPick = (id: string, set: (v: string) => void) =>
+    tool(id).addEventListener("change", () => {
+      set(tool(id).value);
+      applyFilter();
+    });
+  onPick("ph-f-kind", (v) => (f.kind = v as ProjectFilter["kind"]));
+  onPick("ph-f-office", (v) => (f.office = v));
+  onPick("ph-f-status", (v) => (f.status = v as ProjectFilter["status"]));
+  onPick("ph-f-sort", (v) => (f.sort = v as ProjectFilter["sort"]));
+  el("ph-clear").addEventListener("click", clearFilters);
   el("ph-refresh").addEventListener("click", load);
 
   // Full reload on the broadcast event — fired on every project switch, user change and bridge-back (active-project.ts),
