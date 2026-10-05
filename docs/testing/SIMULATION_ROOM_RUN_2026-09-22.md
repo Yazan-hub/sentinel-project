@@ -1841,3 +1841,49 @@ through the restarted bridge. **Decisions taken (the reviewer's, defaults):** C1
 **Closing list:** the test bridge on 4101 had already stopped; the 4100 bridge stays on the branch until master carries the same
 code; `sec1-smoke` stays for the founder to delete (Settings ▸ Danger zone) — its rows stay on the ledger by design. Left on the
 shared ledger: #1916–#1938 on `sec1-smoke`.
+
+## Session SEC2 — hardening slice 2 live (2026-10-05 ~14:30 → 15:55 local, branch feature/sec2-hardening 6e955ce, Claude driving the bridge, the database and Revit 2024)
+
+Setup: the founder's words, given ahead: "deploy the sec2 branch to 2024", "apply 0039 when ready", "publish the web app when ready
+too", "restart the bridge urself too when needed"; during the drill (~14:40) a one-time exception to the standing rule for the
+Revit MCP's code tool (the scratch model `sec2-drill.rvt` only, to store and read back its Sentinel settings) and "run npm ci". The
+4100 bridge restarted by Claude on the branch (the process on 4100 stopped, `npm run bcf:serve` started in its own window), then
+again after `npm ci` (the old `node_modules` renamed first, C5). The test bridge on 127.0.0.1:4101 runs the same checkout. The
+scratch project `sec2-smoke` (the machine credential). The add-in built for Revit 2024 from the branch and deployed (DLL
+`5cbfff1dc0c0…`); Revit 2024 opened by Claude, Load Once. The scratch model: a copy of an earlier drill's scratch model, saved as
+`Documents\Sentinel drills\sec2\sec2-drill.rvt` and opened from Revit's Open dialog (a new project could not be saved under a typed
+name from here).
+
+| Row | Result | Evidence |
+|---|---|---|
+| B-1 | `npm ci` added the locked packages; `npm ls`: `@xmldom/xmldom@0.8.15`, `engine.io@6.6.11`, `socket.io-parser@4.2.7`, `mammoth@1.12.0`; `/health` → `{"ok":true,"cde_configured":true}`; `npm run build` passes on the new packages — **pass** | the lines |
+| X-1 | a normal BEP .docx → `200` with a proposal (sections mapped) — before and after `npm ci` — **pass** | status, first words |
+| X-2 | a file past the unpacked bound → `413 {"message":"this .docx unpacks to over 100 MB — nothing was read or saved; …"}`; `/health` still answers — **pass** | status, words |
+| X-3 | a file past the part bound → `413 … holds over 2000 parts — nothing was read or saved …` — **pass** | status, words |
+| X-4 | an image sent as a .docx → `400 … not a .docx the bridge reads (no zip directory) …` — **pass** | status, words |
+| X-5 | a file past the text bound → `413 {"message":"this .docx holds over 8 MB of document text — nothing was read or saved; split the document"}`; `/health` still answers — **pass** | status, words |
+| X-6 | another writer's .docx — **owed** (none at hand) | — |
+| D-1 | part 0 (read-only): 4 of 4 true (also run earlier the same day, 4 of 4: F5's default holds) — **pass** | the rows |
+| D-2 | `0039_value_checks` applied (~14:34 local), one transaction — **pass** | the answer |
+| D-3 | part 1: 6 of 6 true; part 2: `PROBE 0039: 16 of 16 as expected.` — **pass** | the rows, the summary |
+| M-1 | on `sec2-smoke`: a snapshot with an ISO currency `200`; a lower-case currency `400 {"message":"the project's snapshot: currency is three capital letters (an ISO 4217 code) — nothing was saved"}`; an unknown field `400 … 'owner' is not a snapshot field …`; the GET's snapshot `{health: 80, currency: "SAR"}`; a rename `200` with the key unchanged; a topic `201` (a UUID guid); a document `201` and its section `200`. No 500 — **pass** | statuses, ids |
+| R-0 | the branch's add-in deployed to Revit 2024 (0 errors); the scratch model opened; READ answered its title, its path and the settings an older build had stored in it — **pass** | the lines |
+| R-1 | the scratch model holding a share folder: Datum from Drawings, Ghost Builder and Photo Massing each show `This model's Project Setup names the folder "…", a network share. Sentinel reads a share only when this PC's own Sentinel config.json names it, or through a drive letter mapped on this PC. Nothing was read or sent.` and stop; no picker opened — **pass** | each dialog's text |
+| R-2 | the scratch model holding a local folder and the six values a model no longer carries (a model address at a documentation-only network, scratch schema and library paths, the opt-in): Datum lists the drawing in the model's local folder; Ghost Builder opens its picker with no schema or library dialog and reads `Reading 1 sketch(es) with the vision model on this PC…`; Photo Massing reads `Reading the project images with the vision model on this PC…` and returns its estimate for review; Revit's connections during the runs: this PC's model (127.0.0.1:11434) only, none to the documentation address; nothing built (both cancelled) — **pass** | progress lines, the connection list |
+| R-3 | Project Setup ▸ Current project ▸ Save on that model, then READ: the stored keys are `revit_template_path, project_code, web_project_key, ghost_source_folder, doctor_axis_fix` — none of the six PC-only ones; the documentation address gone — **pass** | the key list |
+| R-4 | the share-folder model: Project Setup ▸ This machine ▸ Save leaves this PC's source folder as it was (the share never reaches this PC's config); Current project ▸ Save shows the share words in the status line and the dialog stays open; READ: the stored settings unchanged; a second new project's Project Setup shows this PC's own folder, never the share — **pass** (and F-SEC2-1) | status words, key list, the box |
+
+**F-SEC2-1 (minor, older than SEC-2):** Project Setup's machine save writes the dialog's template-path box into this PC's config;
+the box shows the open model's value, so a model that names no template clears this PC's `revit_template_path` (seen in R-4; this
+PC's config restored from its backup at once, byte for byte). The same on master. The template path is unused (SEC-3 removes it).
+**Note:** Photo Massing's review window closed from its ✕, not from its Cancel button (a click on Cancel did not close it) — to look
+at in SEC-3.
+
+**Owed:** X-6; a model host this PC opted in to, live; Revit 2021–2023 and 2025–2027 live (builds only; deployed after the merge);
+a signed-in snapshot autosave in the web after 0039 (the machine smoke and the tests only).
+
+**Closing list:** Revit closed without saving (the scratch model's stored settings were in memory only; two new projects never
+saved); the test bridge on 4101 stopped; the 4100 bridge on the branch (the same code master gets); this PC's add-in config
+restored and its backup deleted; the `node_modules` backup left only where the founder's dev server on :4000 still holds a file in it
+(goes when that server restarts); `sec2-smoke` stays for the founder to delete; the scratch model stays in
+`Documents\Sentinel drills\sec2\` (never committed). Left on the shared ledger: `sec2-smoke`'s rows.

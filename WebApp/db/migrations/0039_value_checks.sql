@@ -10,7 +10,9 @@
 --   4 · bim_documents.sections is an array of objects, each in a known state (wip, shared, published, archived) with an id
 --       that is one path segment (the bridge gives each section a UUID).
 --
--- NOT YET APPLIED. Before the apply: probes/0039_probe.sql part 0 reads true (read-only) — every row already there fits;
+-- APPLIED 2026-10-05 ~14:34 local on the founder's "apply" (migration 0039_value_checks); probes/0039_probe.sql part 0
+-- 4 of 4 true before it, part 1 6 of 6 true, part 2 "PROBE 0039: 16 of 16 as expected." Before it: probes/0039_probe.sql
+-- part 0 reads true (read-only) — every row already there fits;
 -- a false row means do not apply. The bridge that checks the same rules (the snapshot's 400, the local topic migration)
 -- runs before or after the apply alike. After it: the probe's parts 1 and 2.
 --

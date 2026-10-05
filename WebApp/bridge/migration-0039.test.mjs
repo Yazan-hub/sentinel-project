@@ -13,8 +13,10 @@ const code = SQL.split("\n").filter((l) => !l.trimStart().startsWith("--")).join
 const rule = (fn) => { const body = code.slice(code.indexOf(`function public.${fn}(`)); return body.slice(body.indexOf("case when"), body.indexOf("end;") + 3); };
 
 describe("migration 0039 — the database checks four value shapes (SEC-2)", () => {
-  it("is not applied yet, and says what must hold before and after the apply", () => {
-    expect(SQL).toContain("NOT YET APPLIED");
+  it("records its apply and the probe's pass, and says what must hold before and after the apply", () => {
+    expect(SQL).toContain("APPLIED 2026-10-05");
+    expect(SQL).not.toContain("NOT YET APPLIED");
+    expect(SQL).toContain('"PROBE 0039: 16 of 16 as expected."');
     expect(SQL).toContain("probes/0039_probe.sql part 0");
     expect(code.trim().startsWith("begin;")).toBe(true);
     expect(code.trim().endsWith("commit;")).toBe(true);
