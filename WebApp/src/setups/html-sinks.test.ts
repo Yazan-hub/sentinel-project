@@ -68,9 +68,20 @@ describe("HTML sinks — one escaper", () => {
     for (const f of ["cost-panel.ts", "tender-panel.ts"]) expect(source(f)).toContain("const money = (n: number, cur: string) => `${esc(cur)} ");
     expect(source("packs-panel.ts")).toContain("${esc(p.installs || 0)} install(s)");
     expect(source("files-panel.ts")).toContain("${esc(when(e.at))}</span></div>");
+    // a document's section state and the project key, both placed as markup in the documents panel
+    expect(source("docs-panel.ts")).toContain('">${esc(state)}</span>`;');
+    expect(source("docs-panel.ts")).toContain("Project ${esc(pid())}");
+    expect(source("docs-panel.ts")).not.toContain("${state}</span>");
     for (const f of ["issue-panel.ts", "rfi-panel.ts"]) {
       expect(source(f)).toContain('import { escapeHtml as esc, fmtDate } from "./escape-html";');
       expect(source(f)).not.toMatch(/const fmtDate\b/);
     }
+  });
+
+  it("a section id in a bridge path is one validated segment (pathSegment), never placed raw", () => {
+    const src = source("docs-panel.ts");
+    expect(src).toContain('import { escapeHtml as esc, pathSegment } from "./escape-html";');
+    expect([...src.matchAll(/\/section\/\$\{(?!pathSegment\()[^}]*\}/g)].map((m) => m[0])).toEqual([]);
+    expect(src.match(/\/section\/\$\{pathSegment\(/g)).toHaveLength(7);
   });
 });

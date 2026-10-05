@@ -10,3 +10,11 @@ export const fmtDate = (iso?: string | null): string => {
   const d = new Date(iso);
   return isNaN(+d) ? "—" : d.toISOString().slice(0, 10);
 };
+
+/** A value as one segment of a bridge path: percent-encoded, so a "/" or "?" stays inside it. "." and ".." (which a URL
+ *  resolves as a step up the path, encoded or not) and an empty value are refused, so the request always reaches its route. */
+export const pathSegment = (v: unknown): string => {
+  const s = v == null ? "" : String(v);
+  if (s === "" || s === "." || s === "..") throw new Error("not a path segment");
+  return encodeURIComponent(s);
+};
