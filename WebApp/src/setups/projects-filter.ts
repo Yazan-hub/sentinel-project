@@ -19,7 +19,7 @@ export interface FilterableProject {
 export interface ProjectFilter {
   q: string;
   kind: "all" | "project" | "office";
-  /** "all", "none" (no office), or an office's key. */
+  /** "all", "none" (no office), or "o:" + an office's key (prefixed: an office may be keyed "all" or "none"). */
   office: string;
   status: "all" | "active" | "archived";
   sort: "newest" | "oldest" | "name" | "containers";
@@ -29,6 +29,12 @@ export const DEFAULT_FILTER: ProjectFilter = { q: "", kind: "all", office: "all"
 
 export const isDefaultFilter = (f: ProjectFilter): boolean =>
   !f.q.trim() && f.kind === "all" && f.office === "all" && f.status === "all" && f.sort === "newest";
+
+/** The status line: "M projects." — or "Showing N of M projects." while a filter is on over a loaded list. */
+export const countLine = (f: ProjectFilter, shown: number, total: number): string => {
+  const of = `${total} project${total === 1 ? "" : "s"}`;
+  return isDefaultFilter(f) || !total ? `${of}.` : `Showing ${shown} of ${of}.`;
+};
 
 export interface ProjectGroup<T> {
   title: string;
@@ -54,7 +60,7 @@ export function filterProjects<T extends FilterableProject>(
     if (f.status === "active" && archived(p)) return false;
     if (f.status === "archived" && !archived(p)) return false;
     if (f.office === "none" && officeOf(p) !== null) return false;
-    if (f.office !== "all" && f.office !== "none" && officeOf(p) !== f.office) return false;
+    if (f.office.startsWith("o:") && officeOf(p) !== f.office.slice(2)) return false;
     if (!words.length) return true;
     const hay = [p.name, p.key, p.office_name, p.appointing_party].filter(Boolean).join(" ").toLowerCase();
     return words.every((w) => hay.includes(w));
@@ -62,7 +68,7 @@ export function filterProjects<T extends FilterableProject>(
   const by: Record<ProjectFilter["sort"], (a: T, b: T) => number> = {
     newest: (a, b) => time(b) - time(a),
     oldest: (a, b) => time(a) - time(b),
-    name: (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
+    name: (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true }),
     containers: (a, b) => b.container_count - a.container_count,
   };
   const order = (rows: T[]) => rows.sort((a, b) => Number(archived(a)) - Number(archived(b)) || by[f.sort](a, b));

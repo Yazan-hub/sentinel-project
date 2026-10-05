@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
-import { filterProjects, isDefaultFilter, DEFAULT_FILTER, type ProjectFilter, type FilterableProject } from "./projects-filter";
+import { filterProjects, isDefaultFilter, countLine, DEFAULT_FILTER, type ProjectFilter, type FilterableProject } from "./projects-filter";
 
 const p = (key: string, o: Partial<FilterableProject> = {}): FilterableProject => ({
   key,
@@ -67,21 +67,41 @@ describe("filterProjects", () => {
 
   it("office: none, and a named office (its card plus its projects)", () => {
     expect(keys({ office: "none" })).toEqual([["No office", ["sec2-smoke", "demo", "ghost"]]]);
-    expect(keys({ office: "north" })).toEqual([["North Office · office", ["north", "north-yard"]]]);
-    expect(flat({ office: "hq", kind: "project" })).toEqual(["aster-tower", "bay-bridge", "old-wing"]);
+    expect(keys({ office: "o:north" })).toEqual([["North Office · office", ["north", "north-yard"]]]);
+    expect(flat({ office: "o:hq", kind: "project" })).toEqual(["aster-tower", "bay-bridge", "old-wing"]);
   });
 
   it("status: active hides archived, archived shows only archived", () => {
     expect(flat({ status: "active" })).toEqual(["hq", "aster-tower", "bay-bridge", "north-yard", "sec2-smoke", "demo"]);
     expect(flat({ status: "archived" })).toEqual(["old-wing", "north", "ghost"]);
     // An archived office's active project still sits under its office title.
-    expect(keys({ status: "active", office: "north" })).toEqual([["North Office · office", ["north-yard"]]]);
+    expect(keys({ status: "active", office: "o:north" })).toEqual([["North Office · office", ["north-yard"]]]);
   });
 
   it("sort: oldest, name, most containers - inside each group, archived still last", () => {
     expect(keys({ sort: "oldest" })[0]).toEqual(["HQ Office · office", ["hq", "bay-bridge", "aster-tower", "old-wing"]]);
     expect(keys({ sort: "name" })[2]).toEqual(["No office", ["demo", "sec2-smoke", "ghost"]]);
     expect(keys({ sort: "containers" })[0]).toEqual(["HQ Office · office", ["hq", "bay-bridge", "aster-tower", "old-wing"]]);
+  });
+
+  it("office: an office keyed \"none\" or \"all\" never collides with the built-in choices", () => {
+    const l = [p("none", { name: "None", kind: "office" }), p("x", { office_key: "none", office_name: "None" }), p("all", { name: "All", kind: "office" }), p("loose")];
+    const ks = (office: string) => filterProjects(l, { ...DEFAULT_FILTER, office }).groups.flatMap((g) => g.rows.map((r) => r.key));
+    expect(ks("none")).toEqual(["loose"]);
+    expect(ks("o:none")).toEqual(["none", "x"]);
+    expect(ks("o:all")).toEqual(["all"]);
+  });
+
+  it("sort by name is numeric-aware (Tower 2 before Tower 10)", () => {
+    const l = [p("t10", { name: "Tower 10" }), p("t2", { name: "Tower 2" }), p("b11", { name: "block 11" }), p("b9", { name: "Block 9" })];
+    expect(filterProjects(l, { ...DEFAULT_FILTER, sort: "name" }).groups[0].rows.map((r) => r.key)).toEqual(["b9", "b11", "t2", "t10"]);
+  });
+
+  it("countLine: 'M projects.' by default or with nothing loaded, else 'Showing N of M projects.'", () => {
+    expect(countLine(DEFAULT_FILTER, 9, 9)).toBe("9 projects.");
+    expect(countLine(DEFAULT_FILTER, 1, 1)).toBe("1 project.");
+    expect(countLine({ ...DEFAULT_FILTER, q: "aster" }, 1, 9)).toBe("Showing 1 of 9 projects.");
+    expect(countLine({ ...DEFAULT_FILTER, q: "aster" }, 0, 0)).toBe("0 projects.");
   });
 
   it("an empty result: no groups, shown 0 of total", () => {
@@ -108,6 +128,19 @@ describe("projects-hub-panel wiring", () => {
     expect(src).toContain('type="search"');
     expect(src).toContain("No project matches");
     expect(src).toContain('addEventListener("input"');
+    expect(src).toContain('e.key !== "Escape"');
+    expect(src).toContain("countLine(f, shown, total)");
+  });
+  it("labels the Status and Sort selects visibly, prefixes office choices, keeps focus, shows a new project", () => {
+    expect(src).toContain('<option value="all">All statuses</option>');
+    expect(src).toContain('<option value="newest">Sort: Newest</option>');
+    expect(src).toContain('<option value="o:${esc(o.key)}">');
+    // Clear rebuilds the grid (and may hide the toolbar's Clear): focus goes back to the search box.
+    expect(src).toMatch(/function clearFilters\(\) \{\n(?:(?!\n  \}).)*\n\s*tool<HTMLInputElement>\("ph-q"\)\.focus\(\);\n  \}/s);
+    // A project made while a filter is on is not hidden by it.
+    expect(src).toMatch(/f = \{ \.\.\.DEFAULT_FILTER \};\s*syncTools\(\);\s*await load\(\);\s*open\(created\.key\)/);
+    // Nothing loaded: no Clear button over "No projects yet".
+    expect(src).toContain('isDefaultFilter(f) || !projects.length ? "none" : ""');
   });
   it("keeps filter state in memory only", () => {
     expect(src).not.toMatch(/localStorage|sessionStorage|indexedDB/);

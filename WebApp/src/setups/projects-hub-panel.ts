@@ -4,7 +4,7 @@ import { bfetch } from "./bridge-fetch";
 import { activePid, setActiveProjectKey, hasProjectOverride, platformProjectId } from "./active-project";
 import { linkedProject } from "./platform-link";
 import { escapeHtml as esc } from "./escape-html";
-import { filterProjects, isDefaultFilter, DEFAULT_FILTER, type ProjectFilter } from "./projects-filter";
+import { filterProjects, isDefaultFilter, countLine, DEFAULT_FILTER, type ProjectFilter } from "./projects-filter";
 
 /**
  * Projects Hub (Phase 1) — the "which project?" landing above the per-project CDE board. Lists every
@@ -66,8 +66,8 @@ export function projectsHubPanel(
     `<input id="ph-q" type="search" placeholder="Search projects — name, key, office…" aria-label="Search projects" style="${inp};flex:1;min-width:11rem;width:auto" />` +
     `<select id="ph-f-kind" aria-label="Type" style="${inp};width:auto"><option value="all">All types</option><option value="project">Projects</option><option value="office">Offices</option></select>` +
     `<select id="ph-f-office" aria-label="Office" style="${inp};width:auto"><option value="all">All offices</option><option value="none">No office</option></select>` +
-    `<select id="ph-f-status" aria-label="Status" style="${inp};width:auto"><option value="all">All</option><option value="active">Active</option><option value="archived">Archived</option></select>` +
-    `<select id="ph-f-sort" aria-label="Sort" style="${inp};width:auto"><option value="newest">Newest</option><option value="oldest">Oldest</option><option value="name">Name A–Z</option><option value="containers">Most containers</option></select>` +
+    `<select id="ph-f-status" aria-label="Status" style="${inp};width:auto"><option value="all">All statuses</option><option value="active">Active</option><option value="archived">Archived</option></select>` +
+    `<select id="ph-f-sort" aria-label="Sort" style="${inp};width:auto"><option value="newest">Sort: Newest</option><option value="oldest">Sort: Oldest</option><option value="name">Sort: Name A–Z</option><option value="containers">Sort: Most containers</option></select>` +
     `<button id="ph-clear" style="${btn};display:none">Clear</button>` +
     "</div>" +
     '<div id="ph-form" style="display:none;padding:.55rem .6rem;border-bottom:1px solid #2a2a30;flex-direction:column;gap:.4rem"></div>' +
@@ -83,7 +83,7 @@ export function projectsHubPanel(
   // ── card grid ────────────────────────────────────────────────────────────────
   const renderGrid = () => {
     const active = activePid();
-    el("ph-clear").style.display = isDefaultFilter(f) ? "none" : "";
+    el("ph-clear").style.display = isDefaultFilter(f) || !projects.length ? "none" : "";
     if (!projects.length) {
       el("ph-grid").innerHTML =
         '<div style="grid-column:1/-1;color:#6b7280;font-size:12px;padding:1rem .2rem">No projects yet — create one with <b>+ New project</b>.</div>';
@@ -142,15 +142,13 @@ export function projectsHubPanel(
     );
   };
 
-  // "M projects." — or "Showing N of M projects." while a filter is on.
-  const countLine = () => {
+  const counted = () => {
     const { shown, total } = filterProjects(projects, f);
-    const of = `${total} project${total === 1 ? "" : "s"}`;
-    return isDefaultFilter(f) ? `${of}.` : `Showing ${shown} of ${of}.`;
+    return countLine(f, shown, total);
   };
   const applyFilter = () => {
     renderGrid();
-    status(countLine());
+    status(counted());
   };
   const tool = <T extends HTMLElement = HTMLSelectElement>(id: string) => el(id) as T;
   const syncTools = () => {
@@ -164,6 +162,8 @@ export function projectsHubPanel(
     f = { ...DEFAULT_FILTER };
     syncTools();
     applyFilter();
+    // The grid (and the toolbar's Clear) was just redrawn or hidden: keep the keyboard in the toolbar.
+    tool<HTMLInputElement>("ph-q").focus();
   }
   // The Office choices come from the loaded list; the chosen office is kept while it still exists.
   const fillOffices = () => {
@@ -171,8 +171,8 @@ export function projectsHubPanel(
     const offices = projects.filter((p) => p.kind === "office");
     sel.innerHTML =
       '<option value="all">All offices</option><option value="none">No office</option>' +
-      offices.map((o) => `<option value="${esc(o.key)}">${esc(o.name)}</option>`).join("");
-    if (f.office !== "all" && f.office !== "none" && !offices.some((o) => o.key === f.office)) f.office = "all";
+      offices.map((o) => `<option value="o:${esc(o.key)}">${esc(o.name)}</option>`).join("");
+    if (f.office.startsWith("o:") && !offices.some((o) => "o:" + o.key === f.office)) f.office = "all";
     sel.value = f.office;
   };
   // Hidden while the list was not read (401, 503, an error): a filter over nothing would only mislead.
@@ -220,7 +220,7 @@ export function projectsHubPanel(
       fillOffices();
       showTools(true);
       renderGrid();
-      status(countLine());
+      status(counted());
       // Nothing chosen in-app yet (always so in the published app, which cannot remember a choice): open the project a
       // lead linked to this platform project (Settings ▸ General) — never a guess between two that claim it.
       if (!hasProjectOverride()) {
@@ -300,6 +300,9 @@ export function projectsHubPanel(
       if (!r.ok) throw new Error(((await r.json().catch(() => ({}))) as { message?: string }).message || `HTTP ${r.status}`);
       const created: Project = await r.json();
       toggleForm();
+      // A filter on before the create could hide the new card that is about to be opened.
+      f = { ...DEFAULT_FILTER };
+      syncTools();
       await load();
       open(created.key);
     } catch (e) {
