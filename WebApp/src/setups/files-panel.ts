@@ -12,6 +12,7 @@ import { uploadThroughIntake, uploadFailedLine, intakeLine, readHolding, dismiss
 import { buildBoQ, buildCarbon, defaultRates, defaultFactors } from "../sentinel-core";
 import { fetchRevisions, fetchRevisionSnapshots, quantitiesFromSnapshots } from "./snapshot-store";
 import { readDeleted, restoreDeleted, deletedItemLine, restoredLine, archivable, type DeletedItem } from "./deleted-items";
+import { escapeHtml as esc } from "./escape-html";
 
 /**
  * Sentinel Versions panel — file/blob-centric version history for uploaded model files.
@@ -52,7 +53,6 @@ interface Verdict { verdict: "accepted" | "rejected" | "recorded"; passing?: num
 export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string } = {}): HTMLElement {
   const base = (opts.baseUrl ?? SERVICE_URL).replace(/\/$/, "");
   const pid = () => activePid();
-  const esc = (s?: string) => (s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] as string));
 
   let files: FileRec[] = [];
   let showArchived = false; // files whose every version is 'archived' hide behind a toggle (Forma-style)

@@ -4,6 +4,7 @@ import { currentSession, signInWithPassword, signOut, onAuthChange, changePasswo
 import { myRoleRead } from "./my-role";
 import { activePid, hasProjectOverride } from "./active-project";
 import { initialOf, accountLine } from "./account-line";
+import { escapeHtml as esc } from "./escape-html";
 
 /**
  * The account corner (spec 2026-09-29 account-corner) — an avatar in the app's top-right corner, clear of the viewer's
@@ -90,8 +91,6 @@ export function authWidget(opts: { anchor?: string } = {}): HTMLElement {
   let role: { role: string; read: boolean } | null = null;
   let roleKey: string | null = null;
 
-  const esc = (s?: string | null) =>
-    (s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] as string));
   const q = <T extends HTMLElement = HTMLElement>(id: string) => wrap.querySelector("#" + id) as T | null;
 
   const avatar = (who: string) =>

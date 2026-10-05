@@ -6,6 +6,7 @@ import { defaultSequence, levelSequence, csvToSchedule, scheduleRange, buildBoQ,
 import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
 import { activePid } from "./active-project";
+import { escapeHtml as esc } from "./escape-html";
 
 /**
  * 4D Sequence panel — Phase 2 slice A (docs/phase2-spec.md). Makes the programme a VIEW of the model:
@@ -17,7 +18,6 @@ import { activePid } from "./active-project";
  */
 
 const DAY = 86_400_000;
-const esc = (s?: string) => (s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] as string));
 const fmtDate = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
 export function timelinePanel(components: OBC.Components): HTMLElement {

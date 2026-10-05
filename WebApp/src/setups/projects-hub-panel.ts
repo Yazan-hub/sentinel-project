@@ -3,6 +3,7 @@ import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
 import { activePid, setActiveProjectKey, hasProjectOverride, platformProjectId } from "./active-project";
 import { linkedProject } from "./platform-link";
+import { escapeHtml as esc } from "./escape-html";
 
 /**
  * Projects Hub (Phase 1) — the "which project?" landing above the per-project CDE board. Lists every
@@ -33,8 +34,6 @@ export function projectsHubPanel(
   opts: { baseUrl?: string; onOpen?: (key: string) => void } = {},
 ): HTMLElement {
   const base = (opts.baseUrl ?? SERVICE_URL).replace(/\/$/, "");
-  const esc = (s?: string | null) =>
-    (s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] as string));
   const fmtDate = (iso: string) => {
     try {
       return new Date(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });

@@ -5,6 +5,7 @@ import { activePid, onActiveProjectChange } from "./active-project";
 import { loadScope } from "./load-scope";
 import * as OBF from "@thatopen/components-front";
 import { getAppManager } from "../app";
+import { escapeHtml as esc } from "./escape-html";
 
 /**
  * RFIs / approvals panel — Phase 2 coordination objects beside BCF issues (docs/phase2-spec.md D).
@@ -15,7 +16,6 @@ import { getAppManager } from "../app";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const attr = (d: any, k: string): string | undefined => d?.[k]?.value;
-const esc = (s?: string) => (s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] as string));
 const fmtDate = (iso?: string | null) => { if (!iso) return "—"; const d = new Date(iso); return isNaN(+d) ? iso : d.toISOString().slice(0, 10); };
 const STATUS_COLOR: Record<string, string> = { Open: "#eab308", Answered: "#3b82f6", Closed: "#22c55e" };
 

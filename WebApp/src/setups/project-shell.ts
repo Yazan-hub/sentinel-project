@@ -9,6 +9,7 @@ import { scan, buildScorecard, buildBoQ, defaultRates, evaluateGate, GATE_DEFS, 
 import { activeRuleset, paramNamesOf, NO_RULESET } from "./active-ruleset";
 import { runStageGate, gateLine, ledgerLine, type GateReply } from "./stage-gate";
 import { getAppManager } from "../app";
+import { escapeHtml as esc } from "./escape-html";
 
 /**
  * Project Shell — the Lifecycle Command Center (docs/phase1-spec.md Part A). The project as one
@@ -45,7 +46,6 @@ const STAGES = [
 ];
 const DIMS = ["2d", "3d", "4d", "5d", "6d", "7d"];
 
-const esc = (s?: string) => (s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] as string));
 const money = (n: number, cur: string) => `${cur} ${Math.round(n).toLocaleString("en-US")}`;
 const healthColor = (v: number) => (v >= 90 ? "#22c55e" : v >= 80 ? "#eab308" : "#ef4444");
 

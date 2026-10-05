@@ -1,6 +1,7 @@
 import * as OBC from "@thatopen/components";
 import * as OBF from "@thatopen/components-front";
 import { extractElementProperties, type ElementProperties } from "../sentinel-core/adapter/element-properties";
+import { escapeHtml as esc } from "./escape-html";
 
 /**
  * Sentinel Properties Palette (Phase 1 — Revit-influenced element data). Click an element in a loaded
@@ -18,7 +19,6 @@ export function propertiesPanel(components: OBC.Components): HTMLElement {
   const highlighter = components.get(OBF.Highlighter);
   const hider = components.get(OBC.Hider);
 
-  const esc = (s?: string) => (s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] as string));
 
   const root = document.createElement("div");
   root.style.cssText = "display:flex;flex-direction:column;height:100%;background:#16161a;color:#eee;font:13px system-ui;overflow:hidden;border-radius:.5rem";

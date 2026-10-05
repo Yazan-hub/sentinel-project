@@ -6,6 +6,7 @@ import type { Ruleset } from "../sentinel-core";
 import { activeRuleset, installArtefact, refLabel, NO_RULESET } from "./active-ruleset";
 import { currentUser } from "./auth";
 import { getAppManager } from "../app";
+import { escapeHtml as esc } from "./escape-html";
 
 /**
  * Standards-pack marketplace — Phase 4 (the moat). Office/regional standards become forkable, versioned,
@@ -24,7 +25,6 @@ interface Pack {
   installs: number; forks: number; forked_from?: string | null;
 }
 
-const esc = (s?: string) => (s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] as string));
 
 export function packsPanel(components: OBC.Components, opts: { baseUrl?: string } = {}): HTMLElement {
   void components;

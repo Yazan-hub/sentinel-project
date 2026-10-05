@@ -9,6 +9,7 @@ import { scan, buildScorecard, buildBoQ, defaultRates, buildCarbon, defaultFacto
 import { activeRuleset, paramNamesOf, refLabel } from "./active-ruleset";
 import { getAppManager } from "../app";
 import { answer, summarize, type Grounding, type Answer, type CopilotIssue } from "./copilot/engine";
+import { escapeHtml as esc } from "./escape-html";
 
 /**
  * Grounded Copilot — Phase 1's interface layer (docs/platform-vision.md). It answers from the
@@ -23,7 +24,6 @@ import { answer, summarize, type Grounding, type Answer, type CopilotIssue } fro
 type AiTool = { name: string; description: string; input_schema: unknown };
 type AiToolCall = { id?: string; name: string; input: Record<string, unknown> };
 
-const esc = (s?: string) => (s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] as string));
 const SUGGESTIONS = ["Model health?", "What fails naming?", "Total cost?", "How many doors?", "Open clashes?"];
 
 export function copilotPanel(components: OBC.Components, opts: { baseUrl?: string; ollamaUrl?: string } = {}): HTMLElement {

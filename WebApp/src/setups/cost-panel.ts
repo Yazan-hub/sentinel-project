@@ -8,6 +8,7 @@ import { buildBoQ, defaultRates, snapshotFromQuantities, diffSnapshots, costDiff
 import { postRevision, fetchRevisionSnapshots, fetchRevisions, quantitiesFromSnapshots, type RevisionMeta } from "./snapshot-store";
 import { getAppManager } from "../app";
 import { loadScope } from "./load-scope";
+import { escapeHtml as esc } from "./escape-html";
 
 interface Baseline {
   at: string;
@@ -37,8 +38,6 @@ interface Baseline {
  * Plain-DOM panel (mirrors issue-panel); returned WITHOUT self-mounting — main.ts docks it as "Cost".
  */
 
-const esc = (s?: string) =>
-  (s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] as string));
 
 const money = (n: number, cur: string) => `${cur} ${Math.round(n).toLocaleString("en-US")}`;
 const signedMoney = (n: number, cur: string) => (n > 0 ? "+" : n < 0 ? "−" : "") + money(Math.abs(n), cur);

@@ -7,6 +7,7 @@ import { myRole, canGovernRole } from "./my-role";
 import * as OBC from "@thatopen/components";
 import * as OBF from "@thatopen/components-front";
 import { getAppManager } from "../app";
+import { escapeHtml as esc } from "./escape-html";
 
 /**
  * Issue Management panel — the single, docked home for BCF coordination in the app sidebar.
@@ -17,8 +18,6 @@ import { getAppManager } from "../app";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const attr = (d: any, k: string): string | undefined => d?.[k]?.value;
-const esc = (s?: string) =>
-  (s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] as string));
 const fmtDate = (iso?: string) => {
   if (!iso) return "—";
   const d = new Date(iso);

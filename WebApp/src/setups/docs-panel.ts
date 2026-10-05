@@ -9,6 +9,7 @@ import { activePid, onActiveProjectChange } from "./active-project";
 import { loadScope } from "./load-scope";
 import { diffNaming, findNamingCandidate } from "../sentinel-core/naming-diff";
 import type { NamingRuleset } from "../sentinel-core/naming";
+import { escapeHtml as esc } from "./escape-html";
 
 const STATE_COLOR: Record<string, string> = { wip: "#a1a1aa", shared: "#3b82f6", published: "#22c55e", archived: "#71717a" };
 type Answer = { value: "yes" | "partial" | "no"; note: string; by: string; at: string };
@@ -163,7 +164,6 @@ const STATUS_STYLE: Record<string, { color: string; icon: string }> = {
 export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string } = {}): HTMLElement {
   const base = (opts.baseUrl || SERVICE_URL).replace(/\/$/, "");
   const pid = () => activePid();
-  const esc = (s?: string) => (s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] as string));
   const api = async (path: string, init: RequestInit = {}) => {
     const r = await bfetch(`${base}/bimdocs${path}`, { headers: { "Content-Type": "application/json" }, ...init });
     if (!r.ok) throw Object.assign(new Error((await r.json().catch(() => ({}))).message || `HTTP ${r.status}`), { status: r.status });

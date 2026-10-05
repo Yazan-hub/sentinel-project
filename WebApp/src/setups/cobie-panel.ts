@@ -6,6 +6,7 @@ import * as OBF from "@thatopen/components-front";
 import { extractAssets } from "../sentinel-core/adapter/fragments-assets";
 import { assess, toCobieCsv, missingFields, type Asset, type CobieReport } from "../sentinel-core";
 import { getAppManager } from "../app";
+import { escapeHtml as esc } from "./escape-html";
 
 /**
  * 7D Handover panel — Phase 3 (docs/phase3-spec.md B). The asset register + COBie handover: extracts the
@@ -16,7 +17,6 @@ import { getAppManager } from "../app";
  * Plain-DOM panel (mirrors carbon-panel); read-only view ops only. Docked as the "7D" tab.
  */
 
-const esc = (s?: string) => (s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] as string));
 const FIELD_LABEL: Record<string, string> = { serial: "Serial", manufacturer: "Manufacturer", warranty: "Warranty", install_date: "Install date" };
 const readyColor = (v: number) => (v >= 95 ? "#4ade80" : v >= 70 ? "#eab308" : "#f87171");
 

@@ -8,6 +8,7 @@ import { buildCarbon, defaultFactors, snapshotFromQuantities, diffSnapshots, car
 import { postRevision, fetchRevisionSnapshots, fetchRevisions, quantitiesFromSnapshots, type RevisionMeta } from "./snapshot-store";
 import { getAppManager } from "../app";
 import { loadScope } from "./load-scope";
+import { escapeHtml as esc } from "./escape-html";
 
 interface CarbonBaseline {
   at: string;
@@ -34,7 +35,6 @@ interface CarbonBaseline {
  * (e.g. the EC3 free EPD API). Position 6D as an INTEGRATION MODULE off the governed spine, not a data product.
  */
 
-const esc = (s?: string) => (s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] as string));
 const kg = (n: number) => Math.round(n).toLocaleString("en-US");
 const tonnes = (n: number) => (n / 1000).toLocaleString("en-US", { maximumFractionDigits: 1 });
 const tCO2 = (n: number) => `${tonnes(n)} t`;

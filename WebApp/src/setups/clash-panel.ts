@@ -9,6 +9,7 @@ import { runClash, confirmOnSolids } from "../sentinel-core/adapter/model-clash"
 import { confirm, runSentence, type ClashMode, type ConfirmResult } from "../sentinel-core/clash-confirm";
 import type { Clash } from "../sentinel-core/clash";
 import { getAppManager } from "../app";
+import { escapeHtml as esc } from "./escape-html";
 
 /**
  * Sentinel Clash (headless, dedup'd). Runs AABB broad-phase clash across loaded models (cross-model for a
@@ -31,7 +32,6 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
   const fragments = components.get(OBC.FragmentsManager);
   const hider = components.get(OBC.Hider);
   const highlighter = components.get(OBF.Highlighter);
-  const esc = (s?: string) => (s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] as string));
   const refreshView = async () => { try { await fragments.core.update(true); } catch { /* */ } };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const val = (o: any): string | undefined => (o && !Array.isArray(o) && typeof o === "object" && "value" in o && o.value != null ? String(o.value) : undefined);

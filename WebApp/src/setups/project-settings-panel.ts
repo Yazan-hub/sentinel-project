@@ -7,6 +7,7 @@ import { myRole, myRoleRead, roleWords, canGovernRole } from "./my-role";
 import { loadScope } from "./load-scope";
 import { artefactInForce, refLabel, installArtefactFile, canInstallArtefacts, type InForce } from "./active-ruleset";
 import { currentUser } from "./auth";
+import { escapeHtml as esc } from "./escape-html";
 
 /**
  * Project Settings (Forma-style) — the admin page inside a project's space. General (name, owner,
@@ -30,7 +31,6 @@ interface ProjectRow {
 export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () => void } = {}): HTMLElement {
   const base = (opts.baseUrl ?? SERVICE_URL).replace(/\/$/, "");
   const pid = () => activePid();
-  const esc = (s?: string | null) => (s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] as string));
 
   let current: ProjectRow | null = null;
 

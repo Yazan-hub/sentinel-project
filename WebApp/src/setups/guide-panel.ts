@@ -2,6 +2,7 @@ import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
 import { activePid, onActiveProjectChange } from "./active-project";
 import { fetchJourney, standardsLine, stepDetail } from "./next-strip";
+import { escapeHtml as escHtml } from "./escape-html";
 
 /**
  * Guide — the active project's journey on top (live: GET /cde/:key/journey, the same fetcher as the Next
@@ -11,7 +12,6 @@ import { fetchJourney, standardsLine, stepDetail } from "./next-strip";
  */
 
 const MARK = { done: "✓", todo: "○", not_checkable: "?" } as const;
-const escHtml = (s?: string | null) => (s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] as string));
 
 interface Topic { id: string; stage: string; title: string; body: string; }
 

@@ -6,6 +6,7 @@ import { isolateStoreyByName } from "../sentinel-core/adapter/storey-isolate";
 import { activePid, onActiveProjectChange } from "./active-project";
 import { sheetMidpLine, type MidpStatusRow, type SheetProposal } from "./sheet-midp";
 import { openLivePlan } from "./live-plan";
+import { escapeHtml as esc } from "./escape-html";
 
 /**
  * Sentinel Sheets viewer. Revit sheets (titleblock + viewports + annotations) never survive IFC export, so
@@ -23,7 +24,6 @@ export function sheetsPanel(components: OBC.Components, opts: { baseUrl?: string
   const fragments = components.get(OBC.FragmentsManager);
   const hider = components.get(OBC.Hider);
   const highlighter = components.get(OBF.Highlighter);
-  const esc = (s?: string) => (s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] as string));
 
   const root = document.createElement("div");
   root.style.cssText = "display:flex;flex-direction:column;height:100%;background:#16161a;color:#eee;font:13px system-ui;overflow:hidden;border-radius:.5rem";

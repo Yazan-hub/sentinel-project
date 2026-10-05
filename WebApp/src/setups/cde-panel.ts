@@ -8,6 +8,7 @@ import { loadScope } from "./load-scope";
 import { unlockAndVerify, isUnlocked, lockProject } from "./crypto";
 import { putEncryptedFile, downloadDecrypted, type StoredFile } from "./secure-store";
 import { mountPlatformDeliveries, readGateLedger } from "./platform-deliveries-panel";
+import { escapeHtml as esc } from "./escape-html";
 
 /**
  * Sentinel CDE panel (C3) — the ISO 19650 information-container board: WIP → Shared → Published →
@@ -45,7 +46,6 @@ interface AuditPage { rows: Audit[]; total: number; }
 export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string } = {}): HTMLElement {
   const base = (opts.baseUrl ?? SERVICE_URL).replace(/\/$/, "");
   const pid = () => activePid();
-  const esc = (s?: string) => (s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] as string));
 
   const root = document.createElement("div");
   root.style.cssText = "display:flex;flex-direction:column;height:100%;background:#16161a;color:#eee;font:13px system-ui;overflow:hidden;border-radius:.5rem";

@@ -6,6 +6,7 @@ import * as OBF from "@thatopen/components-front";
 import { extractAssets } from "../sentinel-core/adapter/fragments-assets";
 import { missingFields, type Asset } from "../sentinel-core";
 import { getAppManager } from "../app";
+import { escapeHtml as esc } from "./escape-html";
 
 /**
  * Owner / FM portal — Phase 3 (docs/phase3-spec.md C). The read-only, stakeholder-facing view that
@@ -15,7 +16,6 @@ import { getAppManager } from "../app";
  * people who paid for it. Plain-DOM panel; docked as the "Owner" tab.
  */
 
-const esc = (s?: string) => (s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] as string));
 const STAGE_NAME: Record<string, string> = { tender: "Tender", design: "Design", coord: "Coordination", constr: "Construction", hand: "Handover", oper: "In operation" };
 const num = (v: unknown) => (typeof v === "number" ? v : undefined);
 const readyColor = (v?: number) => (v == null ? "#6b7280" : v >= 95 ? "#4ade80" : v >= 70 ? "#eab308" : "#f87171");

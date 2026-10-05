@@ -6,6 +6,7 @@ import { quantityTakeoff } from "../sentinel-core/adapter/fragments-quantities";
 import { buildBoQ, defaultRates, snapshotFromQuantities, type RateTable } from "../sentinel-core";
 import { postRevision } from "./snapshot-store";
 import { getAppManager } from "../app";
+import { escapeHtml as esc } from "./escape-html";
 
 /**
  * Tender module — Phase 4 (front of the lifecycle). A BoQ-driven tender: the model's 5D quantities
@@ -24,7 +25,6 @@ interface Tender {
   history?: { date: string; author: string; action: string }[];
 }
 
-const esc = (s?: string) => (s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] as string));
 const money = (n: number, cur: string) => `${cur} ${Math.round(n).toLocaleString("en-US")}`;
 const STATUS_COLOR: Record<string, string> = { Draft: "#9ca3af", Issued: "#eab308", Awarded: "#22c55e", Closed: "#6b7280" };
 
