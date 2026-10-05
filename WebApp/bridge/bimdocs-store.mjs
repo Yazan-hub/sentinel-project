@@ -71,7 +71,7 @@ export async function patchSection(key, docId, sectionId, { body, owner, state, 
   const i = doc.sections.findIndex((s) => s.id === sectionId);
   if (i < 0) throw err(404, "section not found");
   const old = doc.sections[i];
-  if (state && state !== old.state && !validateTransition(old.state, state)) throw err(400, `invalid section transition ${old.state} → ${state}`);
+  if (state !== undefined && state !== old.state && !validateTransition(old.state, state)) throw err(400, `invalid section transition ${old.state} → ${state}`);
   const next = { ...old, ...(body !== undefined && { body }), ...(owner !== undefined && { owner }), ...(state !== undefined && { state }) };
   const sections = doc.sections.map((s, j) => (j === i ? next : s));
   const row = await patchSections(doc, sections, updated_at);
