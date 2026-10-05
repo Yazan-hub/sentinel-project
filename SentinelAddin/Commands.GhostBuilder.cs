@@ -191,7 +191,8 @@ public sealed class GhostBuilderCommand : IExternalCommand
         // The project key is read here (Extensible Storage); layers@n, guideline@n and type_catalog@n are fetched
         // in PHASE 2, off this thread, and the mapper and orchestrator are built there once they are known.
         // Mapping tiers: ignore → the project's layers@n → the per-project cache → labelled heuristics → the LOCAL
-        // model (settings.GhostModel) for what is left. Cloud stays off — the drawing never leaves the machine.
+        // model (settings.GhostModel) for what is left. The model is this PC's, or an https host this PC's config.json opts
+        // in to (LocalOnly).
         string key = ProjectContext.For(doc).Key; // "" when unbound: every standard then reads "none — not bound"
         // P2 SENSE (slice 1): read supporting docs (PDF/specs) from the SCOPED folder → context for the model.
         var evidence = GhostEvidence.FromFolder(settings.GhostSourceFolder);

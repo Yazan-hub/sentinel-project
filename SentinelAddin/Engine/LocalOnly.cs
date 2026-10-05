@@ -25,10 +25,10 @@ namespace Sentinel.Engine
                 return $"The model address \"{u}\" is not an http or https address — set ollama_url in this PC's Sentinel config.json." + Nothing;
             if (uri.UserInfo.Length > 0)
                 return "The model address carries a user name or password — set ollama_url in this PC's Sentinel config.json without one." + Nothing;
-            if (!uri.IsLoopback && !cloudOptIn)
+            if (!OnThisPc(uri) && !cloudOptIn)
                 return $"The model at {uri.Host} is not on this PC, and this PC has not opted in to a model elsewhere "
                      + "(ghost_cloud_opt_in in this PC's Sentinel config.json)." + Nothing;
-            if (!uri.IsLoopback && uri.Scheme != Uri.UriSchemeHttps)
+            if (!OnThisPc(uri) && uri.Scheme != Uri.UriSchemeHttps)
                 return $"The model at {uri.Host} is not on this PC, and Sentinel calls a model elsewhere over https only "
                      + "— set an https ollama_url in this PC's Sentinel config.json." + Nothing;
             return null;
@@ -42,7 +42,7 @@ namespace Sentinel.Engine
 
         /// <summary>Where the model is, for the progress text: "on this PC", or "at host" for a host this PC opted in to.</summary>
         public static string Where(string? url) =>
-            Uri.TryCreate(string.IsNullOrWhiteSpace(url) ? DefaultModelUrl : url!.Trim(), UriKind.Absolute, out var u) && !u.IsLoopback
+            Uri.TryCreate(string.IsNullOrWhiteSpace(url) ? DefaultModelUrl : url!.Trim(), UriKind.Absolute, out var u) && !OnThisPc(u)
                 ? "at " + u.Host
                 : "on this PC";
 
@@ -78,6 +78,10 @@ namespace Sentinel.Engine
                       && !name.Equals("config.json", StringComparison.OrdinalIgnoreCase);
             return ok ? null : $"The mapping schema \"{path!.Trim()}\" is not a .json file in the add-in's folder or in {schemasDir}." + Nothing;
         }
+
+        /// <summary>A loopback address, or the name localhost in any case (.NET marks only some spellings loopback).</summary>
+        private static bool OnThisPc(Uri u) =>
+            u.IsLoopback || string.Equals(u.Host, "localhost", StringComparison.OrdinalIgnoreCase);
 
         private static bool Under(string full, string root) =>
             !string.IsNullOrWhiteSpace(root)

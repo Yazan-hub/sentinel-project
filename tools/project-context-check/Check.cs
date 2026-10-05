@@ -86,6 +86,9 @@ static class Check
            && none.GhostFamilyLibraryDir == "" && !none.GhostCloudOptIn, "with no PC config the defaults stand, never the model's values");
         var blank = SettingsManager.Merge(new SentinelSettings { ProjectCode = "AST" }, pc);
         Ok(blank.GhostSourceFolder == @"C:\Office\drawings" && !blank.SourceFolderFromModel, "a blank source folder is the PC's, not the model's");
+        var spaced = SettingsManager.Merge(new SentinelSettings { GhostSourceFolder = @"\\files\projects " }, pc);
+        Ok(spaced.GhostSourceFolder == @"\\files\projects" && spaced.SourceFolderFromModel,
+           "a model's folder with spaces around it is the model's, trimmed (Project Setup compares the trimmed box with it)");
         Ok(!SettingsManager.Merge(null, pc).SourceFolderFromModel && SettingsManager.Merge(null, null).OllamaUrl == LocalOnly.DefaultModelUrl,
            "no model settings: the PC's, or the defaults");
         Ok(new SentinelSettings { GhostFamilyLibraryDir = @"D:\x", OllamaUrl = "http://203.0.113.9/" }.IsEmpty,
@@ -98,7 +101,7 @@ static class Check
         Ok(ProjectContext.FromSettingsJson(SettingsManager.DocumentPayload(new SentinelSettings { WebProjectKey = "aster-tower" })).Key == "aster-tower",
            "the stored payload still binds the document");
 
-        foreach (var u in new[] { "", "http://localhost:11434/api/generate", "http://127.0.0.1:11434/api/generate", "http://[::1]:11434/api/generate", "https://localhost/api" })
+        foreach (var u in new[] { "", "http://localhost:11434/api/generate", "http://127.0.0.1:11434/api/generate", "http://[::1]:11434/api/generate", "https://localhost/api", "HTTP://LOCALHOST:11434/api/generate" })
             Ok(LocalOnly.ModelUrlRefusal(u, cloudOptIn: false) is null, "a model endpoint on this PC is called: " + (u == "" ? "(the default)" : u));
         foreach (var u in new[] { "http://203.0.113.9:11434/api/generate", "http://localhost.example.com/api", "http://192.168.1.20:11434/api/generate",
                                   "ftp://localhost/x", "file:///C:/x", "not an address", "http://user:pw@localhost:11434/api/generate" })
@@ -107,7 +110,7 @@ static class Check
         Ok(LocalOnly.ModelUrlRefusal("https://models.example.com/api", cloudOptIn: false)!.Contains("models.example.com"), "the refusal names the host");
         Ok(LocalOnly.ModelUrlRefusal("http://models.example.com/api", cloudOptIn: true) is { } plain && plain.Contains("https") && plain.Contains("Nothing was read or sent"),
            "a host elsewhere is called over https only, even when this PC opts in");
-        Ok(LocalOnly.Where("") == "on this PC" && LocalOnly.Where("https://models.example.com/api") == "at models.example.com",
+        Ok(LocalOnly.Where("") == "on this PC" && LocalOnly.Where("HTTP://LOCALHOST:11434/api/generate") == "on this PC" && LocalOnly.Where("https://models.example.com/api") == "at models.example.com",
            "the progress text says where the model is");
 
         Ok(LocalOnly.FolderRefusal(@"D:\Projects\Aster\drawings", fromModel: true) is null && LocalOnly.FolderRefusal("", fromModel: true) is null,
@@ -174,6 +177,10 @@ static class Check
         int folderAsk = dlg.IndexOf("LocalOnly.FolderRefusal(ghostFolder, fromModel: true) is { } notLocal", StringComparison.Ordinal);
         Ok(folderAsk > dlg.IndexOf("private void OnSave(", StringComparison.Ordinal) && folderAsk < projectSave,
            "Project Setup's project save refuses a folder the tools would refuse, in words, before it saves");
+        int machineSave = dlg.IndexOf("if (ScopeMachine.IsChecked == true)", StringComparison.Ordinal);
+        int pcFolder = dlg.IndexOf("if (!_current.SourceFolderFromModel && ghostFolder == (_current.GhostSourceFolder ?? \"\").Trim()) ghostFolder = \"\";", StringComparison.Ordinal);
+        Ok(pcFolder > machineSave && machineSave > 0 && pcFolder < folderAsk,
+           "Project Setup's project save never copies this PC's own folder into a model, nor refuses it as a model's");
         var news = sources.SelectMany(s => Regex.Matches(s.Text, @"new (LocalGhostBuilder|LocalVisionReader|MassingVisionReader)\(([^;]*)").Select(x => (s.Path, Call: x.Value))).ToList();
         Ok(news.Count == 3 && news.All(n => n.Call.Contains("settings.GhostCloudOptIn")),
            "every model client is built with this PC's opt-in" + string.Concat(news.Where(n => !n.Call.Contains("settings.GhostCloudOptIn")).Select(n => " | " + n.Path)));

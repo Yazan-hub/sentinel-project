@@ -92,7 +92,8 @@ public static class SettingsManager
         project.GhostMappingSchemaPath = pc.GhostMappingSchemaPath;
         project.GhostFamilyLibraryDir = pc.GhostFamilyLibraryDir;
         project.GhostCloudOptIn = pc.GhostCloudOptIn;
-        project.SourceFolderFromModel = !string.IsNullOrWhiteSpace(project.GhostSourceFolder);
+        project.GhostSourceFolder = (project.GhostSourceFolder ?? "").Trim(); // Project Setup compares its trimmed box with it
+        project.SourceFolderFromModel = project.GhostSourceFolder.Length > 0;
         if (!project.SourceFolderFromModel) project.GhostSourceFolder = pc.GhostSourceFolder;
         return project;
     }

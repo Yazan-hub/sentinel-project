@@ -179,8 +179,10 @@ public partial class SettingsDialog : Window
             return;
         }
 
-        // Project scope: ES write needs a transaction -> ExternalEvent queue. SEC-2: a folder the tools would refuse from a
-        // model (a share, not a full path) is said here and not saved.
+        // Project scope: ES write needs a transaction -> ExternalEvent queue. SEC-2: while the box still shows this PC's own
+        // folder (the model names none), the model keeps naming none — this PC's folder is never copied into a model. A folder
+        // the tools would refuse from a model (a share, not a full path) is said here and not saved.
+        if (!_current.SourceFolderFromModel && ghostFolder == (_current.GhostSourceFolder ?? "").Trim()) ghostFolder = "";
         if (LocalOnly.FolderRefusal(ghostFolder, fromModel: true) is { } notLocal) { StatusText.Text = notLocal; return; }
         StatusText.Text = "Saving to project…";
         if (_doc is null) { StatusText.Text = "No open model to save the project settings into."; return; }
