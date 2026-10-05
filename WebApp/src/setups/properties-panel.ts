@@ -51,9 +51,9 @@ export function propertiesPanel(components: OBC.Components): HTMLElement {
     const id = "g" + Math.abs(hashCode(title));
     return (
       `<div style="border:1px solid #26262e;border-radius:.4rem;margin-bottom:.5rem;overflow:hidden">` +
-      `<div class="pp-h" data-t="${id}" style="display:flex;justify-content:space-between;cursor:pointer;background:#1b1b21;padding:.4rem .55rem;font-weight:600;color:${accent}">` +
+      `<div class="pp-h" data-t="${esc(id)}" style="display:flex;justify-content:space-between;cursor:pointer;background:#1b1b21;padding:.4rem .55rem;font-weight:600;color:${accent}">` +
       `<span>${esc(title)}</span><span style="color:#6b7280">${rows.length}</span></div>` +
-      `<div id="${id}" style="display:${open ? "block" : "none"}">` +
+      `<div id="${esc(id)}" style="display:${open ? "block" : "none"}">` +
       rows.map((r) =>
         `<div style="display:flex;gap:.5rem;padding:.28rem .55rem;border-top:1px solid #202028;font-size:12px">` +
         `<span style="color:#9ca3af;flex:0 0 45%;word-break:break-word">${esc(r.name)}</span>` +

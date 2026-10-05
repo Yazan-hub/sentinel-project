@@ -101,10 +101,10 @@ export function packsPanel(components: OBC.Components, opts: { baseUrl?: string 
         `<span style="font:600 10px ui-monospace,Consolas,monospace;color:#9ca3af">${esc(p.key)}@${esc(p.version)}</span></div>` +
         `<div style="font-size:11.5px;color:#9ca3af;margin:.25rem 0">${esc(p.description)}</div>` +
         `<div style="display:flex;gap:.3rem;flex-wrap:wrap;margin-bottom:.4rem">${(p.tags || []).map((t) => `<span style="font-size:10px;color:#c4b5fd;border:1px solid #6528d755;border-radius:100px;padding:.05rem .4rem">${esc(t)}</span>`).join("")}` +
-        `<span style="font-size:10px;color:#6b7280">${rules} rule(s)${p.naming ? " · naming" : ""} · ${p.installs || 0} install(s) · ${esc(p.author)}${p.forked_from ? " · forked" : ""}</span></div>` +
+        `<span style="font-size:10px;color:#6b7280">${rules} rule(s)${p.naming ? " · naming" : ""} · ${esc(p.installs || 0)} install(s) · ${esc(p.author)}${p.forked_from ? " · forked" : ""}</span></div>` +
         '<div style="display:flex;gap:.4rem">' +
-          (installed ? `<span style="${btn};background:#16a34a22;color:#4ade80;border:1px solid #16a34a55">✓ Installed</span>` : `<button class="pk-install" data-id="${p.id}" style="${btn};background:#6528d7;color:#fff">Install</button>`) +
-          `<button class="pk-fork" data-id="${p.id}" style="${btn};background:#2a2a30;color:#eee">Fork</button>` +
+          (installed ? `<span style="${btn};background:#16a34a22;color:#4ade80;border:1px solid #16a34a55">✓ Installed</span>` : `<button class="pk-install" data-id="${esc(p.id)}" style="${btn};background:#6528d7;color:#fff">Install</button>`) +
+          `<button class="pk-fork" data-id="${esc(p.id)}" style="${btn};background:#2a2a30;color:#eee">Fork</button>` +
         "</div></div>";
     }).join("") || '<div style="color:#9ca3af;font-size:12px">No standards packs yet.</div>';
     root.querySelectorAll<HTMLElement>(".pk-install").forEach((b) => b.addEventListener("click", () => install(b.dataset.id!)));

@@ -105,7 +105,7 @@ export function cobiePanel(components: OBC.Components, opts: { baseUrl?: string 
       const miss = missingFields(a);
       const chips = miss.map((f) => `<span style="font-size:10px;color:#f87171;border:1px solid #f8717155;border-radius:100px;padding:.05rem .35rem">${esc(FIELD_LABEL[f])}</span>`).join(" ")
         || '<span style="font-size:10px;color:#4ade80">✓ complete</span>';
-      return `<div class="cb-row" data-guid="${a.guid}" title="Isolate" style="padding:.45rem;border:1px solid #2a2a30;border-radius:.3rem;margin-bottom:.3rem;cursor:pointer">` +
+      return `<div class="cb-row" data-guid="${esc(a.guid)}" title="Isolate" style="padding:.45rem;border:1px solid #2a2a30;border-radius:.3rem;margin-bottom:.3rem;cursor:pointer">` +
         `<div style="display:flex;gap:.4rem;align-items:center"><span style="flex:1;font-weight:600">${esc(a.name)}</span>` +
         `<span style="font-size:11px;color:#9ca3af">${esc(a.type_name)}</span></div>` +
         `<div style="margin-top:.25rem;display:flex;gap:.3rem;flex-wrap:wrap">${chips}</div></div>`;

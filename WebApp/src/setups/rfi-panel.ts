@@ -5,7 +5,7 @@ import { activePid, onActiveProjectChange } from "./active-project";
 import { loadScope } from "./load-scope";
 import * as OBF from "@thatopen/components-front";
 import { getAppManager } from "../app";
-import { escapeHtml as esc } from "./escape-html";
+import { escapeHtml as esc, fmtDate } from "./escape-html";
 
 /**
  * RFIs / approvals panel — Phase 2 coordination objects beside BCF issues (docs/phase2-spec.md D).
@@ -16,7 +16,6 @@ import { escapeHtml as esc } from "./escape-html";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const attr = (d: any, k: string): string | undefined => d?.[k]?.value;
-const fmtDate = (iso?: string | null) => { if (!iso) return "—"; const d = new Date(iso); return isNaN(+d) ? iso : d.toISOString().slice(0, 10); };
 const STATUS_COLOR: Record<string, string> = { Open: "#eab308", Answered: "#3b82f6", Closed: "#22c55e" };
 
 interface Rfi {
@@ -94,7 +93,7 @@ export function rfiPanel(components: OBC.Components, opts: { baseUrl?: string } 
     const list = filtered();
     el("rf-count").textContent = `(${list.length})`;
     el("rf-list").innerHTML = list.map((r) =>
-      `<div class="rf-row" data-guid="${r.guid}" style="padding:.45rem;border:1px solid #2a2a30;border-radius:.3rem;margin-bottom:.3rem;cursor:pointer">` +
+      `<div class="rf-row" data-guid="${esc(r.guid)}" style="padding:.45rem;border:1px solid #2a2a30;border-radius:.3rem;margin-bottom:.3rem;cursor:pointer">` +
         `<div style="display:flex;align-items:center;gap:.4rem"><span style="width:.6rem;height:.6rem;border-radius:50%;background:${STATUS_COLOR[r.status] || "#6528d7"};flex:none"></span>` +
         `<span style="font:600 11px ui-monospace,Consolas,monospace;color:#9ca3af">${esc(r.number)}</span>` +
         `<span style="flex:1;font-weight:600">${esc(r.subject)}</span></div>` +

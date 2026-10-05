@@ -226,7 +226,7 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
         const col = statusColor(rec.status);
         const prov = (rec.elements ?? []).map((e) => `${esc((e.category ?? "?").replace(/^IFC/i, ""))}${e.name ? ` '${esc(e.name)}'` : ""}<span style="color:#6b7280"> ${e.guid ? esc(String(e.guid).slice(0, 8)) : "no-guid"}</span>`).join(' <span style="color:#6b7280">↔</span> ');
         const vol = rec.volume != null ? (rec.volume < 0.01 ? rec.volume.toExponential(1) : rec.volume.toFixed(2)) + " m³" : "";
-        const opts = CLASH_STATUSES.map((s) => `<option value="${s}"${s === rec.status ? " selected" : ""}>${s}</option>`).join("");
+        const opts = CLASH_STATUSES.map((s) => `<option value="${esc(s)}"${s === rec.status ? " selected" : ""}>${s}</option>`).join("");
         return `<div style="border:1px solid #2a2a30;background:#1b1b20;border-radius:.35rem;margin-bottom:.3rem;padding:.4rem .5rem;font-size:12px">` +
           `<div style="display:flex;gap:.5rem;align-items:center">` +
             `<span style="width:.5rem;height:.5rem;border-radius:50%;background:${col};flex:none"></span>` +

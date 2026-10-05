@@ -102,7 +102,7 @@ export function projectsHubPanel(
         `<div style="font:11px ui-monospace,Consolas,monospace;color:#6b7280;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.key)}</div>` +
         `<span style="flex:1"></span>` +
         `<div style="display:flex;align-items:center;gap:.5rem;font-size:11px;color:#9ca3af">` +
-        `<span style="color:#e5e7eb;font-variant-numeric:tabular-nums">${p.container_count}</span> container${p.container_count === 1 ? "" : "s"}` +
+        `<span style="color:#e5e7eb;font-variant-numeric:tabular-nums">${esc(p.container_count)}</span> container${p.container_count === 1 ? "" : "s"}` +
         `<span style="flex:1"></span><span>${esc(fmtDate(p.created_at))}</span></div>` +
         `</button>`
       );

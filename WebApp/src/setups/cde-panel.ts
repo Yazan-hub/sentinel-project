@@ -317,7 +317,7 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
         // move-to-folder picker
         const mv = document.createElement("select");
         mv.style.cssText = "background:#111;color:#c9cfda;border:1px solid #2c2c34;border-radius:.25rem;padding:.15rem .2rem;font:10px system-ui;max-width:100%";
-        mv.innerHTML = `<option value="">— Unfiled —</option>` + opts.map((o) => `<option value="${o.id}"${c.folder_id === o.id ? " selected" : ""}>${esc(o.label)}</option>`).join("");
+        mv.innerHTML = `<option value="">— Unfiled —</option>` + opts.map((o) => `<option value="${esc(o.id)}"${c.folder_id === o.id ? " selected" : ""}>${esc(o.label)}</option>`).join("");
         mv.addEventListener("change", () => moveContainer(c.id, mv.value));
         card.appendChild(mv);
 
@@ -364,7 +364,7 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
         if (ref) {
           const dl = document.createElement("button");
           dl.textContent = `⤓ ${ref.name.length > 16 ? ref.name.slice(0, 14) + "…" : ref.name}`;
-          dl.title = `Download & decrypt ${esc(ref.name)}`;
+          dl.title = `Download & decrypt ${ref.name}`;
           dl.style.cssText = "border:1px solid #3a3a44;background:#1a2432;color:#93c5fd;border-radius:.3rem;padding:.2rem .45rem;font:600 10px system-ui;cursor:pointer;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
           dl.addEventListener("click", () => downloadFile(ref));
           fileRow.appendChild(dl);

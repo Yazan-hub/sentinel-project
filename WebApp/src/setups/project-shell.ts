@@ -235,7 +235,7 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
         const dot = s.id === project!.stage ? "#3b82f6" : gate === "pass" ? "#22c55e" : gate === "hold" ? "#eab308" : "#3a3a42";
         const on = s.id === viewStage;
         const title = row ? `${gate} · ${ledgerLine(row.ledger ?? null)}` : "no gate recorded";
-        return `<button class="ps-stage" data-id="${s.id}" title="${esc(title)}" style="flex:1 0 auto;min-width:58px;background:${on ? "#1f1f27" : "none"};border:1px solid ${on ? "#3a3a44" : "transparent"};border-radius:9px;padding:.5rem .35rem;cursor:pointer;color:inherit;text-align:center">` +
+        return `<button class="ps-stage" data-id="${esc(s.id)}" title="${esc(title)}" style="flex:1 0 auto;min-width:58px;background:${on ? "#1f1f27" : "none"};border:1px solid ${on ? "#3a3a44" : "transparent"};border-radius:9px;padding:.5rem .35rem;cursor:pointer;color:inherit;text-align:center">` +
           `<div style="width:20px;height:20px;margin:0 auto;border-radius:6px;border:1px solid ${dot};color:${dot};display:grid;place-items:center;font:700 10px ui-monospace,Consolas,monospace">${String(i + 1).padStart(2, "0")}</div>` +
           `<div style="font-size:9.5px;letter-spacing:.03em;color:${i <= cur ? "#e5e7eb" : "#6b7280"};margin-top:.3rem;font-family:ui-monospace,Consolas,monospace;text-transform:uppercase">${esc(s.nm.slice(0, 6))}</div></button>`;
       }).join("") + "</div>";
@@ -245,7 +245,7 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
   const tile = (label: string, value: string, sub: string, color = "#eee") =>
     `<div style="border:1px solid #23232a;border-radius:10px;background:#101014;padding:.7rem .8rem">` +
     `<div style="font:600 9.5px ui-monospace,Consolas,monospace;letter-spacing:.08em;text-transform:uppercase;color:#6b7280">${label}</div>` +
-    `<div style="font:750 1.5rem/1.1 ui-monospace,Consolas,monospace;color:${color};margin-top:.25rem;font-variant-numeric:tabular-nums">${value}</div>` +
+    `<div style="font:750 1.5rem/1.1 ui-monospace,Consolas,monospace;color:${color};margin-top:.25rem;font-variant-numeric:tabular-nums">${esc(value)}</div>` +
     `<div style="font-size:11px;color:#9ca3af;margin-top:.15rem">${esc(sub)}</div></div>`;
 
   const renderKpis = () => {

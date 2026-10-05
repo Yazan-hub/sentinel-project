@@ -39,7 +39,7 @@ interface Baseline {
  */
 
 
-const money = (n: number, cur: string) => `${cur} ${Math.round(n).toLocaleString("en-US")}`;
+const money = (n: number, cur: string) => `${esc(cur)} ${Math.round(n).toLocaleString("en-US")}`;
 const signedMoney = (n: number, cur: string) => (n > 0 ? "+" : n < 0 ? "−" : "") + money(Math.abs(n), cur);
 const qtyFmt = (n: number, unit: string) =>
   unit === "no" ? `${Math.round(n).toLocaleString("en-US")}` : n.toLocaleString("en-US", { maximumFractionDigits: 1 });
@@ -298,7 +298,7 @@ export function costPanel(components: OBC.Components, opts: { baseUrl?: string }
         `<span style="color:${color};width:1rem;text-align:center">${sym}</span>` +
         `<span style="flex:1">${label}</span>` +
         `<span style="font-variant-numeric:tabular-nums;color:${color};font-family:ui-monospace,Consolas,monospace">${signedMoney(cost, cur)}</span>` +
-        (kind ? `<button class="cp-iso" data-kind="${kind}" style="${btn};background:#2a2a30;color:#9ca3af;padding:.12rem .4rem;font-size:11px">show</button>` : '<span style="width:2.9rem"></span>') +
+        (kind ? `<button class="cp-iso" data-kind="${esc(kind)}" style="${btn};background:#2a2a30;color:#9ca3af;padding:.12rem .4rem;font-size:11px">show</button>` : '<span style="width:2.9rem"></span>') +
       "</div>";
 
     banners.innerHTML =
@@ -413,7 +413,7 @@ export function costPanel(components: OBC.Components, opts: { baseUrl?: string }
         `<td style="padding:.4rem .3rem;text-align:right;font-variant-numeric:tabular-nums" ${l.estimated ? 'title="Quantity estimated from geometry (no IFC Qto_)"' : ""}>${l.estimated ? '<span style="color:#38bdf8">~</span>' : ""}${qtyFmt(l.qty, l.unit)}</td>` +
         `<td style="padding:.4rem .3rem;color:#9ca3af">${esc(l.unit)}</td>` +
         `<td style="padding:.4rem .3rem;text-align:right">` +
-          `<input class="cp-rate" data-code="${esc(l.code)}" type="number" min="0" value="${l.rate}" ` +
+          `<input class="cp-rate" data-code="${esc(l.code)}" type="number" min="0" value="${esc(l.rate)}" ` +
           'style="width:66px;text-align:right;background:#111;color:#eee;border:1px solid #333;border-radius:.25rem;padding:.15rem .3rem;font:12px ui-monospace,Consolas,monospace"/></td>' +
         `<td style="padding:.4rem .3rem;text-align:right;font-variant-numeric:tabular-nums;font-family:ui-monospace,Consolas,monospace">${money(l.amount, cur).replace(cur + " ", "")}</td>` +
       "</tr>"
