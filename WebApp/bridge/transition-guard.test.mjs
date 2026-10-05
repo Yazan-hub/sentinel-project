@@ -138,6 +138,25 @@ describe("archive and restore go through cde_transition", () => {
     expect(rpcCalls().map((c) => c.body.p_version)).toEqual([V2]); // V4 is never tried
     expect(calls.find((c) => c.path === "audit_log" && c.body?.action === "unarchived")).toBeUndefined();
   });
+
+  it("SEC-3: a restore that needs the lead's reason answers the function's words; the reason goes to every restore of the file", async () => {
+    versions = [{ id: V2, state: "archived" }, { id: V4, state: "archived" }];
+    const ask = `version ${V2} has no accepted verdict that measured something (latest: none) — restoring it needs the lead's reason`;
+    rpc = pgError(400, "P0001", ask);
+    await expect(unarchiveFile("demo", C1, "lead@bds.jo")).rejects.toMatchObject({ status: 409, message: ask });
+    rpc = (body) => json({ id: body.p_version, state: body.p_new_state });
+    expect(await unarchiveFile("demo", C1, "lead@bds.jo", "  client sign-off 2026-10-05 ")).toEqual({ ok: true, restored: 2 });
+    expect(rpcCalls().slice(1).map((c) => c.body)).toEqual([V2, V4].map((v) =>
+      ({ p_version: v, p_new_state: "published", p_actor: "lead@bds.jo", p_note: "file restored", p_override: "client sign-off 2026-10-05" })));
+  });
+
+  it("SEC-3: a restore refused after others succeeded records what was restored and says how many, in the function's words", async () => {
+    versions = [{ id: V2, state: "archived" }, { id: V4, state: "archived" }];
+    const ask = `version ${V4} has no accepted verdict that measured something (latest: none) — restoring it needs the lead's reason`;
+    rpc = (body) => (body.p_version === V4 ? pgError(400, "P0001", ask)() : json({ id: body.p_version, state: body.p_new_state }));
+    await expect(unarchiveFile("demo", C1, "lead@bds.jo")).rejects.toMatchObject({ status: 409, message: `1 of 2 archived versions restored — ${ask}` });
+    expect(calls.find((c) => c.path === "audit_log" && c.body?.action === "unarchived").body.new_value).toEqual({ iso_name: "A.ifc", restored: 1 });
+  });
 });
 
 describe("registerFileVersion — every new version starts in wip; geometry attaches only when asked", () => {

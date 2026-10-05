@@ -156,7 +156,7 @@ export const TOOLS = [
       type: "object", required: ["project", "version_id"],
       properties: { project: { type: "string", description: "project key — the version must be on it" }, version_id: { type: "string" }, actor: { type: "string" } },
     },
-    run: ({ version_id, actor }) => cde.setLiveVersion(version_id, actor),
+    run: ({ project, version_id, actor }) => cde.setLiveVersion(project, version_id, actor),
   },
   {
     name: "create_folder",

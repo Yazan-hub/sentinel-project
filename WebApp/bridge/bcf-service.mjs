@@ -1277,7 +1277,7 @@ async function handleRequest(req, res) {
       }
       if (p2 === "files" && p3 === "set-live" && req.method === "POST") {
         const b = await readBody(req);
-        return send(res, 200, await cde.setLiveVersion(b.version_id, b.actor));
+        return send(res, 200, await cde.setLiveVersion(p1, b.version_id, b.actor));
       }
       // Per-file admin (Forma-style): rename · archive (published → 'archived', drafts to Deleted items) ·
       // delete (to Deleted items; 409 when published versions exist — immutable, archive instead) · Deleted items (0035):
@@ -1293,7 +1293,7 @@ async function handleRequest(req, res) {
       }
       if (p2 === "files" && p3 === "unarchive" && req.method === "POST") {
         const b = await readBody(req);
-        return send(res, 200, await cde.unarchiveFile(p1, b.container_id, b.actor));
+        return send(res, 200, await cde.unarchiveFile(p1, b.container_id, b.actor, b.override));
       }
       if (p2 === "files" && p3 === "delete" && req.method === "POST") {
         await (await import("./members-store.mjs")).requireMinRole(p1, "lead");

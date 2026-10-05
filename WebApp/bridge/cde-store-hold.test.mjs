@@ -66,7 +66,12 @@ function fakeRest(url, init = {}) {
   const json = (b, status = 200) => new Response(JSON.stringify(b), { status });
   if (method === "GET") {
     const select = u.searchParams.get("select") || "";
-    return json(db[table].filter(hit).map((r) => (select.includes("container_versions(") ? { ...r, container_versions: db.container_versions.filter((v) => v.container_id === r.id) } : { ...r })));
+    return json(db[table].filter(hit).map((r) => ({
+      ...r,
+      ...(select.includes("container_versions(") ? { container_versions: db.container_versions.filter((v) => v.container_id === r.id) } : {}),
+      // a version read with its file (versionOnKey, which setLiveVersion asks first since SEC-3)
+      ...(select.includes("information_containers(") ? { information_containers: db.information_containers.find((c) => c.id === r.container_id) ?? null } : {}),
+    })));
   }
   if (method === "PATCH") {
     const patched = db[table].filter(hit);
