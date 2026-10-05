@@ -5,8 +5,8 @@ import { getAppManager } from "../app";
 import { platformProjectId } from "./active-project";
 import { bfetch } from "./bridge-fetch";
 import { readDeliveries, deliveriesSummary, shortSha, ledgerLine, type DeliveriesClient, type DeliveryCard, type GateLedgerRow } from "./platform-deliveries";
+import { escapeHtml as esc } from "./escape-html";
 
-const esc = (s?: string | null) => (s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] as string));
 const TONE: Record<DeliveryCard["state"], { border: string; color: string }> = {
   passed: { border: "#14532d", color: "#4ade80" }, refused: { border: "#4a3a12", color: "#f59e0b" },
   not_checked: { border: "#2c2c34", color: "#9ca3af" }, did_not_run: { border: "#5b1a1a", color: "#fca5a5" }, running: { border: "#1e3a5f", color: "#93c5fd" },

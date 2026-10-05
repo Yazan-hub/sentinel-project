@@ -26,9 +26,9 @@ in the bridge; certs are issued and renewed by Tailscale for your tailnet's *.ts
 - **mcp-server:** `BCF_BASE=https://…` + `BCF_TOKEN` in env.
 
 ## Watch out
-- `config/.env` values **override real env vars including empty values** — an empty `BCF_TOKEN=`
-  line silently disarms the gate (the file wins over any shell/Windows env var of the same name,
-  even a blank one). Delete the line rather than blanking it.
+- `config/.env` values **override real env vars including empty values** (the file wins over any
+  shell/Windows env var of the same name, even a blank one). The bridge refuses to start while
+  `BCF_TOKEN` is empty, whatever it binds (SEC-1): set the token, never blank the line.
 
 ## Known residuals (deliberate)
 - `/events` (SSE) stays unauthenticated (EventSource cannot set headers). Tailnet membership

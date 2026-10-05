@@ -9,6 +9,7 @@ import { activePid, onActiveProjectChange } from "./active-project";
 import { loadScope } from "./load-scope";
 import { diffNaming, findNamingCandidate } from "../sentinel-core/naming-diff";
 import type { NamingRuleset } from "../sentinel-core/naming";
+import { escapeHtml as esc, pathSegment } from "./escape-html";
 
 const STATE_COLOR: Record<string, string> = { wip: "#a1a1aa", shared: "#3b82f6", published: "#22c55e", archived: "#71717a" };
 type Answer = { value: "yes" | "partial" | "no"; note: string; by: string; at: string };
@@ -163,7 +164,6 @@ const STATUS_STYLE: Record<string, { color: string; icon: string }> = {
 export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string } = {}): HTMLElement {
   const base = (opts.baseUrl || SERVICE_URL).replace(/\/$/, "");
   const pid = () => activePid();
-  const esc = (s?: string) => (s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] as string));
   const api = async (path: string, init: RequestInit = {}) => {
     const r = await bfetch(`${base}/bimdocs${path}`, { headers: { "Content-Type": "application/json" }, ...init });
     if (!r.ok) throw Object.assign(new Error((await r.json().catch(() => ({}))).message || `HTTP ${r.status}`), { status: r.status });
@@ -231,7 +231,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
   root.append(bar, body);
 
   const chip = (state: string) =>
-    `<span style="display:inline-block;padding:.1rem .45rem;border-radius:.6rem;font:600 10px system-ui;color:#0b0b0e;background:${STATE_COLOR[state] || "#a1a1aa"}">${state}</span>`;
+    `<span style="display:inline-block;padding:.1rem .45rem;border-radius:.6rem;font:600 10px system-ui;color:#0b0b0e;background:${Object.prototype.hasOwnProperty.call(STATE_COLOR, state) ? STATE_COLOR[state] : "#a1a1aa"}">${esc(state)}</span>`;
   const btn = (label: string, primary = false) => {
     const b = document.createElement("button");
     b.textContent = label;
@@ -577,7 +577,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
     save.onclick = async () => {
       save.disabled = true;
       try {
-        await api(`/${encodeURIComponent(pid())}/${doc.id}/section/${section.id}/bindings`, {
+        await api(`/${encodeURIComponent(pid())}/${doc.id}/section/${pathSegment(section.id)}/bindings`, {
           method: "PUT",
           body: JSON.stringify({
             bindings: {
@@ -658,7 +658,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
       let appliedCount = 0;
       try {
         for (const [sectionId, checks] of sections) {
-          const row: Doc = await api(`/${encodeURIComponent(pid())}/${doc.id}/section/${sectionId}/bindings`, {
+          const row: Doc = await api(`/${encodeURIComponent(pid())}/${doc.id}/section/${pathSegment(sectionId)}/bindings`, {
             method: "PUT",
             body: JSON.stringify({ bindings: { checks: checks.map((c) => (c.params ? { id: c.id, params: c.params } : { id: c.id })) }, updated_at: doc.updated_at, actor: await actor() }),
           });
@@ -762,7 +762,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
       save.onclick = async (ev) => {
         ev.preventDefault();
         const doSave = async (force = false) =>
-          api(`/${encodeURIComponent(pid())}/${doc.id}/section/${s.id}`, {
+          api(`/${encodeURIComponent(pid())}/${doc.id}/section/${pathSegment(s.id)}`, {
             method: "PATCH",
             body: JSON.stringify({ body: ta.value, owner: ownerIn.value || null, state: stateSel.value, updated_at: force ? undefined : doc.updated_at, actor: await actor() }),
           });
@@ -787,7 +787,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
           const prev = draftBtn.textContent;
           draftBtn.textContent = "Drafting…";
           try {
-            const r = await api(`/${encodeURIComponent(pid())}/${doc.id}/section/${s.id}/draft`, { method: "POST", body: aiBody() });
+            const r = await api(`/${encodeURIComponent(pid())}/${doc.id}/section/${pathSegment(s.id)}/draft`, { method: "POST", body: aiBody() });
             ta.value = r.proposal;                        // model output → .value (XSS-safe)
             ta.dispatchEvent(new Event("input"));         // fire any dirty-tracking the editor has
             msg(`AI draft (${r.provider}/${r.model}, grounded in ${r.grounding_used} fact(s)) — review before saving.`);
@@ -1030,7 +1030,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
           ev.preventDefault();
           if (!value) return msg("Pick yes, partial or no first.", true);
           try {
-            const row: Doc = await api(`/${encodeURIComponent(pid())}/${doc.id}/section/${s.id}/answer`, { method: "PUT", body: JSON.stringify({ value, note: note.value, updated_at: doc.updated_at, actor: await actor() }) });
+            const row: Doc = await api(`/${encodeURIComponent(pid())}/${doc.id}/section/${pathSegment(s.id)}/answer`, { method: "PUT", body: JSON.stringify({ value, note: note.value, updated_at: doc.updated_at, actor: await actor() }) });
             applyRow(row, s); msg("Answer saved."); void refreshScores();
             // saved: this is now the loaded value (dirty() compares against it)
             note.defaultValue = note.value;
@@ -1058,7 +1058,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
       saveP.onclick = async (ev) => {
         ev.preventDefault();
         try {
-          const row: Doc = await api(`/${encodeURIComponent(pid())}/${doc.id}/section/${s.id}/plan`, { method: "PUT", body: JSON.stringify({ owner: ownerIn.value || null, due: dueIn.value || null, updated_at: doc.updated_at, actor: await actor() }) });
+          const row: Doc = await api(`/${encodeURIComponent(pid())}/${doc.id}/section/${pathSegment(s.id)}/plan`, { method: "PUT", body: JSON.stringify({ owner: ownerIn.value || null, due: dueIn.value || null, updated_at: doc.updated_at, actor: await actor() }) });
           applyRow(row, s); msg("Plan saved."); void refreshScores();
           dueIn.defaultValue = dueIn.value; delete ownerIn.dataset.touched; // saved: the loaded values now
         } catch (e: any) { msg(e.message, true); }
@@ -1111,7 +1111,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
         if (!text) return;
         postBtn.disabled = true;
         try {
-          await api(`/${encodeURIComponent(pid())}/${doc.id}/section/${sectionId}/comments`, { method: "POST", body: JSON.stringify({ text }) });
+          await api(`/${encodeURIComponent(pid())}/${doc.id}/section/${pathSegment(sectionId)}/comments`, { method: "POST", body: JSON.stringify({ text }) });
           const fresh: Comment[] = await api(`/${encodeURIComponent(pid())}/${doc.id}/comments`);
           list.length = 0;
           list.push(...fresh.filter((c) => c.section_id === sectionId));
@@ -1315,7 +1315,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
     page.innerHTML =
       `<div style="border-bottom:2px solid #111;padding-bottom:.6rem;margin-bottom:1rem">
          <div style="font:700 20px system-ui">${esc(doc.title)}</div>
-         <div style="font:12px system-ui;color:#555">${esc(doc.doc_type)} · Project ${pid()} · ${esc(stamp)} · ${new Date().toLocaleDateString()}</div>
+         <div style="font:12px system-ui;color:#555">${esc(doc.doc_type)} · Project ${esc(pid())} · ${esc(stamp)} · ${new Date().toLocaleDateString()}</div>
        </div>` +
       doc.sections.map((s) =>
         `<section style="page-break-inside:avoid;margin-bottom:1.1rem">

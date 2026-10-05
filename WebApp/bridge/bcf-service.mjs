@@ -35,8 +35,8 @@ const PORT = Number(process.env.BCF_PORT) || 4100;
 // BCF_HOST=0.0.0.0 behind real auth + a reverse proxy. CORS defaults to * for dev; lock it to the
 // platform origin in shared/hosted deployments via BCF_CORS_ORIGIN.
 const HOST = process.env.BCF_HOST || "127.0.0.1";
-// Beyond loopback the bridge faces the network: it does not start without a gate that is armed and can verify and
-// forward a sign-in (D9). On loopback the legacy single-desktop modes still start.
+// The bridge never starts without the gate armed (BCF_TOKEN), whatever it binds (SEC-1); beyond loopback it must also
+// verify and forward a sign-in (D9).
 const refusal = startRefusal(process.env);
 if (refusal) { console.error(`[bridge] ${refusal}`); process.exit(1); }
 // CSRF hardening: the bridge holds the Supabase SERVICE key (full RLS bypass), so a malicious web page must
@@ -523,10 +523,9 @@ server.listen(PORT, HOST, () => {
   initJwks(process.env.SUPABASE_URL);
   console.log(`Sentinel BCF-API 3.0 listening on http://${HOST}:${PORT}  (store: ${STORE})`);
   console.log(`[bridge] CSRF origin-gate: ${CORS_WILDCARD ? "DISABLED (wildcard)" : "on — mutations restricted to " + CORS_ALLOW.join(", ")}`);
-  console.log(`[bridge] bind: ${HOST} · auth gate: ${TOKEN ? "ARMED (JWT or BCF_TOKEN required; GET /health exempt; POST /receipt/:key/verify answers anyone hash-only)" : "off (legacy service-key — set BCF_TOKEN to close the anonymous fall-open)"}`);
+  console.log(`[bridge] bind: ${HOST} · auth gate: ARMED (JWT or BCF_TOKEN required; GET /health exempt; POST /receipt/:key/verify answers anyone hash-only)`);
   if (CORS_WILDCARD) console.warn("[bridge] WARNING: BCF_CORS_ORIGIN=* disables CSRF protection — set it to your app origin(s) for production.");
   if (TOKEN && !JWT_SECRET) console.warn("[bridge] WARNING: BCF_TOKEN set without SUPABASE_JWT_SECRET — no sign-in is accepted, so every signed-in web user gets 401. Set SUPABASE_JWT_SECRET.");
-  if (JWT_SECRET && !TOKEN) console.warn("[bridge] WARNING: SUPABASE_JWT_SECRET set without BCF_TOKEN — a wrong secret silently downgrades signed-in users to the service key; arm BCF_TOKEN or unset the secret.");
   import("./cde-store.mjs").then((cde) => console.log(`[bridge] JWT-forwarding: ${cde.forwardingConfigured() ? "armed (forwards a caller's Supabase JWT → RLS)" : "off (service key; set SUPABASE_ANON_KEY to arm)"}`)).catch(() => {});
   // Platform API-token health-check: one cheap authenticated read at startup so a revoked/rotated
   // THATOPEN_API_KEY is caught LOUDLY here instead of as a confusing 401 "Token not found" on the first
@@ -658,7 +657,7 @@ async function handleRequest(req, res) {
   // (→ trusted desktop client, e.g. Revit). The SSE feed is no longer exempt: the web reads it as a fetch
   // stream with the Authorization header (bridge-fetch.ts bridgeEvents) and Revit already sends its bearer,
   // so the feed stays closed even when the bridge is reachable from the internet.
-  // With BCF_TOKEN unset, behaviour is unchanged (legacy service-key mode). Activation = set BCF_TOKEN.
+  // The bridge does not start without BCF_TOKEN (SEC-1: startRefusal), so this gate is always armed.
   // (POST /receipt/:key/verify from a caller with neither was already answered hash-only, above.)
   if (TOKEN) {
     const exempt = url.pathname === "/health" && req.method === "GET";
@@ -685,12 +684,12 @@ async function handleRequest(req, res) {
       return send(res, 503, { message: "this bridge does not forward sign-ins (SUPABASE_ANON_KEY) — a signed-in user cannot be served; nothing was read or saved" });
   }
 
-  // Health (no secrets, no posture): up, gate armed, CDE configured. The bind host and the CORS allowlist are in the
+  // Health (no secrets, no posture): up, CDE configured. The bind host and the CORS allowlist are in the
   // startup log, not on a route anyone on the internet can read.
   if (url.pathname === "/health" && req.method === "GET") {
     let cdeConfigured = false;
     try { cdeConfigured = (await import("./cde-store.mjs")).cdeConfigured(); } catch { /* */ }
-    return send(res, 200, { ok: true, token: !!TOKEN, cde_configured: cdeConfigured });
+    return send(res, 200, { ok: true, cde_configured: cdeConfigured });
   }
 
   // ── SSE live stream: GET /events?project=<key> (kept open; pushes topic/CDE changes) ──
@@ -962,7 +961,7 @@ async function handleRequest(req, res) {
           creation_author: resolveActor(b.creation_author, "web"), creation_date: now, modified_date: now,
           history: [{ date: now, author: resolveActor(b.creation_author, "web"), action: "Raised" }],
         };
-        if (useCde) await cde.docUpsert("rfi", rpid, rfi.guid, rfi); else { rdb.rfis.push(rfi); persistRfi(); }
+        if (useCde) await cde.docUpsert("rfi", rpid, rfi.guid, rfi, { service: true }); else { rdb.rfis.push(rfi); persistRfi(); }
         return send(res, 201, rfi);
       }
       const rfi = useCde ? await cde.docGet("rfi", rpid, rguid) : rdb.rfis.find((r) => inP(r) && r.guid === rguid);
@@ -978,7 +977,7 @@ async function handleRequest(req, res) {
           if (b[k] !== undefined && b[k] !== rfi[k]) { rfi.history.push({ date: now, author: who, action: `${label}: ${rfi[k] || "—"} → ${b[k] || "—"}` }); rfi[k] = b[k]; }
         }
         rfi.modified_date = now;
-        if (useCde) await cde.docUpsert("rfi", rpid, rfi.guid, rfi); else persistRfi();
+        if (useCde) await cde.docUpsert("rfi", rpid, rfi.guid, rfi, { service: true }); else persistRfi();
         return send(res, 200, rfi);
       }
       return send(res, 405, { message: "Method not allowed" });
@@ -2009,7 +2008,7 @@ async function handleRequest(req, res) {
       const b = await readBody(req);
       const now = new Date().toISOString();
       const c = { guid: randomUUID(), date: now, author: resolveActor(b.author, "web"),
-        comment: b.comment || "", viewpoint_guid: b.viewpoint_guid || null };
+        comment: b.comment || "", viewpoint_guid: b.viewpoint_guid ? cde.guidOrNew(b.viewpoint_guid) : null };
       topic.comments.push(c);
       topic.history.push({ date: now, author: c.author, action: "Comment added" });
       topic.modified_date = now;
@@ -2020,7 +2019,7 @@ async function handleRequest(req, res) {
     // POST viewpoint (camera + selected GlobalIds)
     if (req.method === "POST" && sub === "viewpoints") {
       const b = await readBody(req);
-      const v = { guid: b.guid || randomUUID(), perspective_camera: b.perspective_camera || null,
+      const v = { guid: cde.guidOrNew(b.guid), perspective_camera: b.perspective_camera || null,
         components: b.components || { selection: [] }, clipping_planes: b.clipping_planes || [],
         snapshot: b.snapshot || null };
       topic.viewpoints.push(v);

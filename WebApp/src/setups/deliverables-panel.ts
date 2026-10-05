@@ -7,6 +7,7 @@ import { bfetch } from "./bridge-fetch";
 import { currentUser } from "./auth";
 import { activePid, onActiveProjectChange } from "./active-project";
 import { loadScope } from "./load-scope";
+import { escapeHtml as esc } from "./escape-html";
 
 type Evidence = { revision: "met" | "mismatch" | "pending" | "not_specified"; suitability: "met" | "mismatch" | "pending" | "not_specified"; actual_revisions: string[]; actual_suitabilities: string[] };
 type Exception = { container_name: string; due_date: string | null; responsible_team: string | null; kind: string; severity: "high" | "medium" | "low"; problem: string; evidence: string };
@@ -325,7 +326,7 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
     dueI.type = "date";
     const stageI = document.createElement("select");
     stageI.style.cssText = "background:#111;color:#e5e7eb;border:1px solid #2c2c34;border-radius:.3rem;padding:.25rem .4rem;font:11px system-ui";
-    stageI.innerHTML = `<option value="">(no stage)</option>` + ["tender", "design", "coord", "constr", "hand", "oper"].map((s) => `<option value="${s}">${s}</option>`).join("");
+    stageI.innerHTML = `<option value="">(no stage)</option>` + ["tender", "design", "coord", "constr", "hand", "oper"].map((s) => `<option value="${esc(s)}">${s}</option>`).join("");
     stageI.value = existing?.stage || "";
     const revI = field("Expected revision, e.g. P03 (optional)", "100%", existing?.expected_revision || "");
     const suitI = field("Expected suitability, e.g. S4 (optional)", "100%", existing?.expected_suitability || "");

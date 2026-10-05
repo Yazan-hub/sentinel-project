@@ -1,6 +1,7 @@
 import { activePid, setActiveProjectKey, onActiveProjectChange } from "./active-project";
 import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
+import { escapeHtml as esc } from "./escape-html";
 
 /**
  * Global project switcher (Phase 1) — a small persistent pill, layout-independent, that always shows the
@@ -21,8 +22,6 @@ export function projectSwitcher(
   opts: { baseUrl?: string; onManage?: () => void; anchor?: string } = {},
 ): HTMLElement {
   const base = (opts.baseUrl ?? SERVICE_URL).replace(/\/$/, "");
-  const esc = (s?: string) =>
-    (s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] as string));
 
   let projects: ProjectLite[] = [];
   let openMenu = false;

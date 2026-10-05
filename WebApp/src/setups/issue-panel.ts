@@ -7,6 +7,7 @@ import { myRole, canGovernRole } from "./my-role";
 import * as OBC from "@thatopen/components";
 import * as OBF from "@thatopen/components-front";
 import { getAppManager } from "../app";
+import { escapeHtml as esc, fmtDate } from "./escape-html";
 
 /**
  * Issue Management panel — the single, docked home for BCF coordination in the app sidebar.
@@ -17,13 +18,6 @@ import { getAppManager } from "../app";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const attr = (d: any, k: string): string | undefined => d?.[k]?.value;
-const esc = (s?: string) =>
-  (s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] as string));
-const fmtDate = (iso?: string) => {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  return isNaN(+d) ? iso : d.toISOString().slice(0, 10);
-};
 const STATUS_COLOR: Record<string, string> = {
   Open: "#3b82f6", "In Progress": "#eab308", Resolved: "#22c55e", Closed: "#6b7280", Active: "#3b82f6",
 };
@@ -174,7 +168,7 @@ export function issuePanel(components: OBC.Components, opts: { bcfBaseUrl?: stri
 
   const rowHtml = (t: Topic) => {
     const links = (t.viewpoints || []).reduce((n, v) => n + (v.components?.selection?.length || 0), 0);
-    return `<div class="ip-row" data-guid="${t.guid}" style="padding:.4rem;border:1px solid #2a2a30;border-radius:.3rem;margin-bottom:.3rem;cursor:pointer">` +
+    return `<div class="ip-row" data-guid="${esc(t.guid)}" style="padding:.4rem;border:1px solid #2a2a30;border-radius:.3rem;margin-bottom:.3rem;cursor:pointer">` +
       `<div style="display:flex;align-items:center;gap:.4rem"><span style="width:.6rem;height:.6rem;border-radius:50%;background:${STATUS_COLOR[t.topic_status] || "#6528d7"};flex:none"></span>` +
       `<span style="flex:1;font-weight:600">${esc(t.title)}</span><span style="font-size:11px;color:#9ca3af">${esc(t.topic_type)}</span></div>` +
       `<div style="font-size:11px;color:#9ca3af;margin-top:.15rem">${esc(t.topic_status)} · ${esc(t.priority || "—")} · ${links} el · ${esc(t.assigned_to || "unassigned")}` +

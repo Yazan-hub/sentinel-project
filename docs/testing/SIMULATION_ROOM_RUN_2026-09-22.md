@@ -1814,3 +1814,30 @@ lines twice (seen before MA-3b5).
 stopped and their launch entries removed; `slowfile` deleted; the add-in's settings restored (sha256 `366a193f4680…`), the backup
 deleted; `cache\ma3b5` deleted (no `unreported\ma3b5`). Left on the shared ledger (a scratch key): on `ma3b5` the last three Promote
 changesets (proposed), the six earlier ones withdrawn, and their rows up to #1915.
+
+## Session SEC1 — hardening slice 1 live (2026-10-05 ~03:20 → 03:30 and ~11:45 → 11:58 local, branch feature/sec1-hardening a3d155a, Claude driving the bridge, the database and the founder's local app)
+
+Setup: the founder confirmed in chat that no other bridge uses this database (G3) and created the scratch project `sec1-smoke`
+(their account its owner). The 4100 bridge was restarted on the branch a3d155a by Claude on the founder's word (the process that
+listened on 4100 stopped, `npm run bcf:serve` started in its own window; the Funnel refresh left to the founder); `GET /health` →
+`{"ok":true,"cde_configured":true}` (no `token` key, F7). The test bridge on 127.0.0.1:4101 runs the same checkout. The founder's
+"apply 0038 when ready" covers D-1…D-3. The founder's own dev server on :4000 served the branch to the local app.
+
+| Row | Result | Evidence |
+|---|---|---|
+| D-1 | part 0, read-only, just before the apply: 3 of 3 true (the snapshot rows fit the new key; `container_versions`' columns and triggers are the ones 0038 was written against) — **pass** | the rows |
+| D-2 | `0038_bridge_role_rules` applied (~03:26 local), success, one transaction — **pass** | the answer |
+| D-3 | part 1: 10 of 10 true; part 2: `PROBE 0038: 28 of 28 as expected.`; afterwards no probe project left (rolled back) — **pass** | the rows, the summary |
+| D-4 | through 4101 on `sec1-smoke`, the machine credential: a BEP created (201), a section edited, commented, bound (200/201/200), shared and published (`{"version_no":1}`); a deliverable created (201) and updated (200 — the update needs `container_name` in its body, the route's own rule since before SEC-1); an issue created (201), closed, commented, given a viewpoint (200/201/201); a topic guid and a comment `viewpoint_guid` that are not UUIDs → `400 {"message":"a guid is a UUID (8-4-4-4-12 hex) — nothing was saved"}` each; an RFI raised and answered (201/200); a file with two versions (201 ×2), set live, renamed (200 ×2); a take-off (`element_count: 2`) read back as 2 rows. No 403, no 500 — **pass** | statuses, ledger #1919–#1934 |
+| L-5 | the founder's local app, signed in as the founder (the platform session already in the founder's Chrome; no password typed), `sec1-smoke`: an RFI raised (`RFI-002`, survives the list's reload); a new BEP created and its first section edited (the text survives reopening); a comment posted on the published smoke BEP (💬 2). Each landed through the bridge's role check and the service key, recorded under the founder's account (ledger #1935 created, #1936 section_updated, #1937 comment_added; the RFI's author the founder's) — **pass**. The issue part is **owed**: the web's Issues panel raises an issue only from a selected model element (`sec1-smoke` holds no model) and shows no comment box | screenshots, ledger rows, the RFI row |
+| L-6 | Project Files ▸ rename the wip file to a name holding double and single quotes, angle brackets and an ampersand: the list, the reopened rename box and the status line show the whole name as typed, as text — nothing cut, nothing added, no entity shown literally (C10); ledger #1938 `renamed` under the founder's account — **pass** | screenshot, ledger row |
+
+**Owed:** a signed-in issue and its comment (needs a model in the project); a viewer's and a contributor's refusals live (a second
+account; proven offline and by probe part 2); the office snapshot and scan signed in (Revit); a geometry attach live; a tokenless
+start live (offline only); a rename refused live on a file holding a published version (F1; offline and probe B14); Revit's writes
+through the restarted bridge. **Decisions taken (the reviewer's, defaults):** C19 — a lost race on a transition or publish answers
+409 in words; a database check on a document's section shape is left to SEC-2 (the web escapes and validates it now).
+
+**Closing list:** the test bridge on 4101 had already stopped; the 4100 bridge stays on the branch until master carries the same
+code; `sec1-smoke` stays for the founder to delete (Settings ▸ Danger zone) — its rows stay on the ledger by design. Left on the
+shared ledger: #1916–#1938 on `sec1-smoke`.

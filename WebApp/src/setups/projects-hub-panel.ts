@@ -3,6 +3,7 @@ import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
 import { activePid, setActiveProjectKey, hasProjectOverride, platformProjectId } from "./active-project";
 import { linkedProject } from "./platform-link";
+import { escapeHtml as esc } from "./escape-html";
 
 /**
  * Projects Hub (Phase 1) — the "which project?" landing above the per-project CDE board. Lists every
@@ -33,8 +34,6 @@ export function projectsHubPanel(
   opts: { baseUrl?: string; onOpen?: (key: string) => void } = {},
 ): HTMLElement {
   const base = (opts.baseUrl ?? SERVICE_URL).replace(/\/$/, "");
-  const esc = (s?: string | null) =>
-    (s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] as string));
   const fmtDate = (iso: string) => {
     try {
       return new Date(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
@@ -103,7 +102,7 @@ export function projectsHubPanel(
         `<div style="font:11px ui-monospace,Consolas,monospace;color:#6b7280;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.key)}</div>` +
         `<span style="flex:1"></span>` +
         `<div style="display:flex;align-items:center;gap:.5rem;font-size:11px;color:#9ca3af">` +
-        `<span style="color:#e5e7eb;font-variant-numeric:tabular-nums">${p.container_count}</span> container${p.container_count === 1 ? "" : "s"}` +
+        `<span style="color:#e5e7eb;font-variant-numeric:tabular-nums">${esc(p.container_count)}</span> container${p.container_count === 1 ? "" : "s"}` +
         `<span style="flex:1"></span><span>${esc(fmtDate(p.created_at))}</span></div>` +
         `</button>`
       );

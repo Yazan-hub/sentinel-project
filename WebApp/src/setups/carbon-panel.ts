@@ -8,6 +8,7 @@ import { buildCarbon, defaultFactors, snapshotFromQuantities, diffSnapshots, car
 import { postRevision, fetchRevisionSnapshots, fetchRevisions, quantitiesFromSnapshots, type RevisionMeta } from "./snapshot-store";
 import { getAppManager } from "../app";
 import { loadScope } from "./load-scope";
+import { escapeHtml as esc } from "./escape-html";
 
 interface CarbonBaseline {
   at: string;
@@ -34,7 +35,6 @@ interface CarbonBaseline {
  * (e.g. the EC3 free EPD API). Position 6D as an INTEGRATION MODULE off the governed spine, not a data product.
  */
 
-const esc = (s?: string) => (s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] as string));
 const kg = (n: number) => Math.round(n).toLocaleString("en-US");
 const tonnes = (n: number) => (n / 1000).toLocaleString("en-US", { maximumFractionDigits: 1 });
 const tCO2 = (n: number) => `${tonnes(n)} t`;
@@ -337,7 +337,7 @@ export function carbonPanel(components: OBC.Components, opts: { baseUrl?: string
         `<span style="color:${color};width:1rem;text-align:center">${sym}</span>` +
         `<span style="flex:1">${label}</span>` +
         `<span style="font-variant-numeric:tabular-nums;color:${color};font-family:ui-monospace,Consolas,monospace">${signedT(val)}</span>` +
-        (kind ? `<button class="cb-iso" data-kind="${kind}" style="${btn};background:#2a2a30;color:#9ca3af;padding:.12rem .4rem;font-size:11px">show</button>` : '<span style="width:2.9rem"></span>') +
+        (kind ? `<button class="cb-iso" data-kind="${esc(kind)}" style="${btn};background:#2a2a30;color:#9ca3af;padding:.12rem .4rem;font-size:11px">show</button>` : '<span style="width:2.9rem"></span>') +
       "</div>";
 
     banners.innerHTML =
@@ -411,7 +411,7 @@ export function carbonPanel(components: OBC.Components, opts: { baseUrl?: string
     `<tr class="cb-row" data-i="${idx}" title="Isolate ${l.count} element(s)" style="border-top:1px solid #23232a;cursor:pointer">` +
       `<td style="padding:.4rem .3rem"><div style="font-weight:600">${esc(l.description)}</div><div style="color:#6b7280;font-size:11px">${l.count.toLocaleString("en-US")} el · ${esc(l.unit)}</div></td>` +
       `<td style="padding:.4rem .3rem;text-align:right;font-variant-numeric:tabular-nums" ${l.estimated ? 'title="Quantity estimated from geometry (no IFC Qto_)"' : ""}>${l.estimated ? '<span style="color:#38bdf8">~</span>' : ""}${l.qty.toLocaleString("en-US", { maximumFractionDigits: 1 })}</td>` +
-      `<td style="padding:.4rem .3rem;text-align:right"><input class="cb-fac" data-code="${esc(l.code)}" type="number" min="0" value="${l.factor}" style="width:60px;text-align:right;background:#111;color:#eee;border:1px solid #333;border-radius:.25rem;padding:.15rem .3rem;font:12px ui-monospace,Consolas,monospace"/></td>` +
+      `<td style="padding:.4rem .3rem;text-align:right"><input class="cb-fac" data-code="${esc(l.code)}" type="number" min="0" value="${esc(l.factor)}" style="width:60px;text-align:right;background:#111;color:#eee;border:1px solid #333;border-radius:.25rem;padding:.15rem .3rem;font:12px ui-monospace,Consolas,monospace"/></td>` +
       `<td style="padding:.4rem .3rem;text-align:right;font-variant-numeric:tabular-nums;font-family:ui-monospace,Consolas,monospace">${kg(l.kg)}</td></tr>`;
 
   const banner = (color: string, text: string) =>

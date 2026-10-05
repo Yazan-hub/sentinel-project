@@ -10,6 +10,7 @@ import { DEMO_IDS, raisedIdsTitleKey, type IdsSpec } from "../sentinel-core/ids"
 import { parseIds } from "../sentinel-core/ids-parse";
 import { validateModels, type ModelValidation } from "../sentinel-core/adapter/model-validate";
 import { getAppManager } from "../app";
+import { escapeHtml as esc } from "./escape-html";
 
 /**
  * Sentinel Visibility / Graphics (Phase 3 — Revit "VG" overrides). Per-category show/hide, isolate,
@@ -25,7 +26,6 @@ export function visibilityPanel(components: OBC.Components, opts: { baseUrl?: st
   const hider = components.get(OBC.Hider);
   const highlighter = components.get(OBF.Highlighter);
 
-  const esc = (s?: string) => (s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] as string));
   const refreshView = async () => { try { await fragments.core.update(true); } catch { /* */ } };
 
   const root = document.createElement("div");

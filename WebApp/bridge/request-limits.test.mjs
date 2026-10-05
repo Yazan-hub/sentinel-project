@@ -201,8 +201,16 @@ describe("holdUpload — the slot is held until the answer is done, never by a c
 });
 
 describe("startRefusal — when the bridge must not start", () => {
-  it("starts on loopback whatever is set", () => {
-    for (const h of [undefined, "127.0.0.1", "127.0.0.2", "::1", "localhost"]) expect(startRefusal({ BCF_HOST: h })).toBeNull();
+  it("refuses to start while BCF_TOKEN is empty, whatever the bind — loopback included (SEC-1)", () => {
+    const words = "refusing to start: BCF_TOKEN is empty — set it in config/.env (every route but GET /health needs it or a sign-in)";
+    for (const h of [undefined, "127.0.0.1", "::1", "localhost", "0.0.0.0", "100.64.1.2"]) {
+      expect(startRefusal({ BCF_HOST: h })).toBe(words);
+      expect(startRefusal({ BCF_HOST: h, BCF_TOKEN: "", SUPABASE_JWT_SECRET: "s", SUPABASE_ANON_KEY: "a" })).toBe(words);
+      expect(startRefusal({ BCF_HOST: h, BCF_TOKEN: " \t ", SUPABASE_JWT_SECRET: "s", SUPABASE_ANON_KEY: "a" })).toBe(words); // blank after trim
+    }
+  });
+  it("starts on loopback with the token set", () => {
+    for (const h of [undefined, "127.0.0.1", "127.0.0.2", "::1", "localhost"]) expect(startRefusal({ BCF_HOST: h, BCF_TOKEN: "t" })).toBeNull();
   });
   it("refuses a non-loopback bind while the token, the JWT secret or the anon key is empty, naming them", () => {
     expect(startRefusal({ BCF_HOST: "0.0.0.0", BCF_TOKEN: "t" }))

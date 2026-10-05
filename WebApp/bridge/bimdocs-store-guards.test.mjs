@@ -293,7 +293,7 @@ describe("readinessReport — runs the bound checks, scores, derives the plan, n
   });
 });
 
-describe("a document write the database refused (no row back) is a 403 — never a 200, never a ledger row (ledger-1, H0 D5)", () => {
+describe("a document write that lands on no row is answered in words — never a 200, never a ledger row (ledger-1, H0 D5)", () => {
   beforeEach(() => {
     globalThis.__testRole = undefined;
     doc = readinessDoc();
@@ -304,10 +304,38 @@ describe("a document write the database refused (no row back) is a 403 — never
     ["setSectionBindings", () => setSectionBindings("k", doc.id, "m1", { bindings: { checks: [] } })],
     ["setSectionAnswer", () => setSectionAnswer("k", doc.id, "d1", { value: "yes" })],
     ["setSectionPlan", () => setSectionPlan("k", doc.id, "m1", { owner: "lead@x" })],
-    ["transitionDoc", () => transitionDoc("k", doc.id, { to: "shared" })],
-    ["publishDoc", () => { doc.status = "shared"; return publishDoc("k", doc.id, {}); }],
-  ])("%s", async (_name, call) => {
-    await expect(call()).rejects.toMatchObject({ status: 403, message: "a document is edited by a contributor or above — nothing was saved" });
+  ])("%s: a section write that lands on no row (changed or issued meanwhile — 0038) is a 409 in words, with the service key", async (_name, call) => {
+    await expect(call()).rejects.toMatchObject({ status: 409, message: "the document changed or was issued meanwhile — nothing was saved" });
+    expect(audit).not.toHaveBeenCalled();
+    const patch = sb.mock.calls.find(([, o]) => o?.method === "PATCH");
+    expect(patch[0]).toContain(`&project_id=eq.${doc.project_id}&status=in.(wip,shared)`);
+    expect(patch[1].service).toBe(true);
+  });
+  it.each([
+    ["transitionDoc", () => transitionDoc("k", doc.id, { to: "shared" }), "wip"],
+    ["publishDoc", () => { doc.status = "shared"; return publishDoc("k", doc.id, {}); }, "shared"],
+  ])("%s: a status write that lands on no row (changed meanwhile) is a 409 in words, filtered on the document as it was read, with the service key — and no version is recorded", async (_name, call, status) => {
+    await expect(call()).rejects.toMatchObject({ status: 409, message: "the document changed or was issued meanwhile — nothing was saved" });
+    expect(audit).not.toHaveBeenCalled();
+    const patch = sb.mock.calls.find(([, o]) => o?.method === "PATCH");
+    expect(patch[0]).toContain(`&project_id=eq.${doc.project_id}&status=eq.${status}&updated_at=eq.${encodeURIComponent(doc.updated_at)}`);
+    expect(patch[1].service).toBe(true);
+    expect(sb.mock.calls.some(([p, o]) => p === "bim_document_versions" && o?.method === "POST")).toBe(false);
+  });
+
+  it("publishDoc: a version that cannot be recorded puts the document back to shared, and nothing reaches the ledger", async () => {
+    doc.status = "shared";
+    const issued = { ...doc, status: "published", updated_at: "2026-02-02T00:00:00Z" };
+    sb.mockImplementation(async (path, opts) => {
+      if (opts?.method === "PATCH") return [opts.body.status === "published" ? issued : { ...doc }];
+      if (opts?.method === "POST") throw Object.assign(new Error("insert refused"), { status: 500 });
+      return [doc];
+    });
+    await expect(publishDoc("k", doc.id, {})).rejects.toMatchObject({ message: "insert refused" });
+    const patches = sb.mock.calls.filter(([, o]) => o?.method === "PATCH");
+    expect(patches.map(([, o]) => o.body.status)).toEqual(["published", "shared"]);
+    expect(patches[1][0]).toContain(`&status=eq.published&updated_at=eq.${encodeURIComponent(issued.updated_at)}`);
+    expect(patches[1][1].service).toBe(true);
     expect(audit).not.toHaveBeenCalled();
   });
 });

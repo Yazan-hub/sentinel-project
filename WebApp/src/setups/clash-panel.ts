@@ -9,6 +9,7 @@ import { runClash, confirmOnSolids } from "../sentinel-core/adapter/model-clash"
 import { confirm, runSentence, type ClashMode, type ConfirmResult } from "../sentinel-core/clash-confirm";
 import type { Clash } from "../sentinel-core/clash";
 import { getAppManager } from "../app";
+import { escapeHtml as esc } from "./escape-html";
 
 /**
  * Sentinel Clash (headless, dedup'd). Runs AABB broad-phase clash across loaded models (cross-model for a
@@ -31,7 +32,6 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
   const fragments = components.get(OBC.FragmentsManager);
   const hider = components.get(OBC.Hider);
   const highlighter = components.get(OBF.Highlighter);
-  const esc = (s?: string) => (s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] as string));
   const refreshView = async () => { try { await fragments.core.update(true); } catch { /* */ } };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const val = (o: any): string | undefined => (o && !Array.isArray(o) && typeof o === "object" && "value" in o && o.value != null ? String(o.value) : undefined);
@@ -226,7 +226,7 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
         const col = statusColor(rec.status);
         const prov = (rec.elements ?? []).map((e) => `${esc((e.category ?? "?").replace(/^IFC/i, ""))}${e.name ? ` '${esc(e.name)}'` : ""}<span style="color:#6b7280"> ${e.guid ? esc(String(e.guid).slice(0, 8)) : "no-guid"}</span>`).join(' <span style="color:#6b7280">↔</span> ');
         const vol = rec.volume != null ? (rec.volume < 0.01 ? rec.volume.toExponential(1) : rec.volume.toFixed(2)) + " m³" : "";
-        const opts = CLASH_STATUSES.map((s) => `<option value="${s}"${s === rec.status ? " selected" : ""}>${s}</option>`).join("");
+        const opts = CLASH_STATUSES.map((s) => `<option value="${esc(s)}"${s === rec.status ? " selected" : ""}>${s}</option>`).join("");
         return `<div style="border:1px solid #2a2a30;background:#1b1b20;border-radius:.35rem;margin-bottom:.3rem;padding:.4rem .5rem;font-size:12px">` +
           `<div style="display:flex;gap:.5rem;align-items:center">` +
             `<span style="width:.5rem;height:.5rem;border-radius:50%;background:${col};flex:none"></span>` +

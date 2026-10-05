@@ -6,6 +6,7 @@ import { quantityTakeoff } from "../sentinel-core/adapter/fragments-quantities";
 import { buildBoQ, defaultRates, snapshotFromQuantities, type RateTable } from "../sentinel-core";
 import { postRevision } from "./snapshot-store";
 import { getAppManager } from "../app";
+import { escapeHtml as esc } from "./escape-html";
 
 /**
  * Tender module — Phase 4 (front of the lifecycle). A BoQ-driven tender: the model's 5D quantities
@@ -24,8 +25,7 @@ interface Tender {
   history?: { date: string; author: string; action: string }[];
 }
 
-const esc = (s?: string) => (s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] as string));
-const money = (n: number, cur: string) => `${cur} ${Math.round(n).toLocaleString("en-US")}`;
+const money = (n: number, cur: string) => `${esc(cur)} ${Math.round(n).toLocaleString("en-US")}`;
 const STATUS_COLOR: Record<string, string> = { Draft: "#9ca3af", Issued: "#eab308", Awarded: "#22c55e", Closed: "#6b7280" };
 
 export function tenderPanel(components: OBC.Components, opts: { baseUrl?: string } = {}): HTMLElement {
@@ -82,7 +82,7 @@ export function tenderPanel(components: OBC.Components, opts: { baseUrl?: string
     el("tn-count").textContent = `(${tenders.length})`;
     el("tn-body").innerHTML = tenders.length ? tenders.map((t) => {
       const best = t.bids.length ? Math.min(...t.bids.map((b) => b.total)) : null;
-      return `<div class="tn-row" data-guid="${t.guid}" style="padding:.5rem;border:1px solid #2a2a30;border-radius:.35rem;margin-bottom:.35rem;cursor:pointer">` +
+      return `<div class="tn-row" data-guid="${esc(t.guid)}" style="padding:.5rem;border:1px solid #2a2a30;border-radius:.35rem;margin-bottom:.35rem;cursor:pointer">` +
         `<div style="display:flex;align-items:center;gap:.4rem"><span style="width:.55rem;height:.55rem;border-radius:50%;background:${STATUS_COLOR[t.status] || "#6528d7"};flex:none"></span>` +
         `<span style="flex:1;font-weight:600">${esc(t.title)}</span><span style="font-size:11px;color:#9ca3af">${esc(t.status)}</span></div>` +
         `<div style="font-size:11px;color:#9ca3af;margin-top:.2rem">est. ${money(t.estimate_total, t.currency)} · ${t.bids.length} bid(s)${best != null ? ` · low ${money(best, t.currency)}` : ""}${t.awarded_to ? ` · ✓ ${esc(t.awarded_to)}` : ""}</div></div>`;
@@ -180,7 +180,7 @@ export function tenderPanel(components: OBC.Components, opts: { baseUrl?: string
           `<input id="tn-bidder" placeholder="Bidder name" style="${inp};width:100%;margin-bottom:.4rem"/>` +
           '<div style="font-size:11px;color:#9ca3af;margin-bottom:.3rem">Rate per line (pre-filled with the estimate):</div>' +
           t.scope.map((l) => `<div style="display:flex;align-items:center;gap:.4rem;margin-bottom:.25rem"><span style="flex:1;font-size:11.5px">${esc(l.description)} <span style="color:#6b7280">${l.qty.toLocaleString("en-US", { maximumFractionDigits: 1 })} ${esc(l.unit)}</span></span>` +
-            `<input class="tn-rate" data-code="${esc(l.code)}" type="number" min="0" value="${l.rate}" style="width:72px;text-align:right;${inp};font-family:ui-monospace,Consolas,monospace"/></div>`).join("") +
+            `<input class="tn-rate" data-code="${esc(l.code)}" type="number" min="0" value="${esc(l.rate)}" style="width:72px;text-align:right;${inp};font-family:ui-monospace,Consolas,monospace"/></div>`).join("") +
           '<div style="display:flex;gap:.4rem;margin-top:.4rem">' +
           `<button id="tn-bidcancel" style="${btn};background:#2a2a30;color:#eee;flex:1">Cancel</button>` +
           `<button id="tn-bidsend" style="${btn};background:#2563eb;color:#fff;flex:2">Submit bid</button></div></div>`;

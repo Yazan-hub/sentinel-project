@@ -3,6 +3,7 @@ import * as OBF from "@thatopen/components-front";
 import { buildModelTree, type TreeCategory, type TreeInstance, type TreeModelNode } from "../sentinel-core/adapter/project-tree";
 import { livePlanLevels, openLivePlan } from "./live-plan";
 import { detectDrawings } from "../sentinel-core/adapter/drawings-detect";
+import { escapeHtml as esc } from "./escape-html";
 
 /**
  * Sentinel Project Browser (Phase 4 — Revit-influenced). A Category → Type → Instance tree of every
@@ -16,7 +17,6 @@ export function projectBrowserPanel(components: OBC.Components): HTMLElement {
   const highlighter = components.get(OBF.Highlighter);
   const hider = components.get(OBC.Hider);
 
-  const esc = (s?: string) => (s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] as string));
 
   const root = document.createElement("div");
   root.style.cssText = "display:flex;flex-direction:column;height:100%;background:#16161a;color:#eee;font:13px system-ui;overflow:hidden;border-radius:.5rem";

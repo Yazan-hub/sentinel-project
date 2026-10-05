@@ -98,7 +98,7 @@ describe("deliverable writes — a write the database refused is a 403 and no le
 
   it("updateDeliverable: refused → a 403 in words (it was a 500 reading the missing row), no 'updated' row", async () => {
     serve(["deliverables"]);
-    await expect(updateDeliverable("demo", D1, { container_name: "A-0101", due_date: "2026-12-01" }, "web")).rejects.toMatchObject({ status: 403, message: "a deliverable is changed by a contributor or above — nothing was saved" });
+    await expect(updateDeliverable("demo", D1, { container_name: "A-0101", due_date: "2026-12-01" }, "web")).rejects.toMatchObject({ status: 403, message: "a deliverable is changed by a lead or above — nothing was saved" });
     expect(ledger()).toHaveLength(0);
   });
 
@@ -117,7 +117,7 @@ describe("deliverable writes — a write the database refused is a 403 and no le
   it("rebaselineApply: a move the database refused is a 403 and no 'rebaselined' row", async () => {
     serve(["deliverables"]);
     await expect(rebaselineApply("demo", [{ container_name: "A-0101", due_date: "2026-12-01" }], "web"))
-      .rejects.toMatchObject({ status: 403, message: "a deliverable's due date is moved by a contributor or above — nothing was saved" });
+      .rejects.toMatchObject({ status: 403, message: "a deliverable's due date is moved by a lead or above — nothing was saved" });
     expect(ledger()).toHaveLength(0);
   });
 

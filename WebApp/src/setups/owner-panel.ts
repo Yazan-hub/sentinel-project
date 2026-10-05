@@ -6,6 +6,7 @@ import * as OBF from "@thatopen/components-front";
 import { extractAssets } from "../sentinel-core/adapter/fragments-assets";
 import { missingFields, type Asset } from "../sentinel-core";
 import { getAppManager } from "../app";
+import { escapeHtml as esc } from "./escape-html";
 
 /**
  * Owner / FM portal — Phase 3 (docs/phase3-spec.md C). The read-only, stakeholder-facing view that
@@ -15,7 +16,6 @@ import { getAppManager } from "../app";
  * people who paid for it. Plain-DOM panel; docked as the "Owner" tab.
  */
 
-const esc = (s?: string) => (s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] as string));
 const STAGE_NAME: Record<string, string> = { tender: "Tender", design: "Design", coord: "Coordination", constr: "Construction", hand: "Handover", oper: "In operation" };
 const num = (v: unknown) => (typeof v === "number" ? v : undefined);
 const readyColor = (v?: number) => (v == null ? "#6b7280" : v >= 95 ? "#4ade80" : v >= 70 ? "#eab308" : "#f87171");
@@ -60,7 +60,7 @@ export function ownerPanel(components: OBC.Components, opts: { baseUrl?: string 
   const tile = (label: string, value: string, color = "#eee", sub = "") =>
     `<div style="border:1px solid #23232a;border-radius:.5rem;background:#101014;padding:.6rem .7rem">` +
     `<div style="font:600 9.5px ui-monospace,Consolas,monospace;letter-spacing:.08em;text-transform:uppercase;color:#6b7280">${esc(label)}</div>` +
-    `<div style="font:750 1.35rem/1.1 ui-monospace,Consolas,monospace;color:${color};margin-top:.2rem;font-variant-numeric:tabular-nums">${value}</div>` +
+    `<div style="font:750 1.35rem/1.1 ui-monospace,Consolas,monospace;color:${color};margin-top:.2rem;font-variant-numeric:tabular-nums">${esc(value)}</div>` +
     (sub ? `<div style="font-size:11px;color:#9ca3af;margin-top:.1rem">${esc(sub)}</div>` : "") + "</div>";
 
   /** A bridge read in the bridge's own words: "can't reach the bridge" only when the fetch itself failed. */
@@ -142,7 +142,7 @@ export function ownerPanel(components: OBC.Components, opts: { baseUrl?: string 
     const list = (term ? assets.filter((a) => (a.name + " " + a.type_name + " " + (a.tag ?? "")).toLowerCase().includes(term)) : assets).slice(0, 200);
     el("ow-assets").innerHTML = list.map((a) => {
       const ok = missingFields(a).length === 0;
-      return `<div class="ow-a" data-guid="${a.guid}" title="Locate in model" style="display:flex;gap:.4rem;align-items:center;padding:.35rem .5rem;border:1px solid #2a2a30;border-radius:.3rem;margin-bottom:.25rem;cursor:pointer">` +
+      return `<div class="ow-a" data-guid="${esc(a.guid)}" title="Locate in model" style="display:flex;gap:.4rem;align-items:center;padding:.35rem .5rem;border:1px solid #2a2a30;border-radius:.3rem;margin-bottom:.25rem;cursor:pointer">` +
         `<span style="width:.5rem;height:.5rem;border-radius:50%;background:${ok ? "#4ade80" : "#eab308"};flex:none" title="${ok ? "data complete" : "data incomplete"}"></span>` +
         `<span style="flex:1;font-size:12.5px">${esc(a.name)}</span><span style="font-size:11px;color:#9ca3af">${esc(a.type_name)}</span></div>`;
     }).join("") || '<div style="color:#9ca3af;font-size:12px;padding:.3rem">No matching assets.</div>';

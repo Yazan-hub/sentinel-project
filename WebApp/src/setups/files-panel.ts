@@ -12,6 +12,7 @@ import { uploadThroughIntake, uploadFailedLine, intakeLine, readHolding, dismiss
 import { buildBoQ, buildCarbon, defaultRates, defaultFactors } from "../sentinel-core";
 import { fetchRevisions, fetchRevisionSnapshots, quantitiesFromSnapshots } from "./snapshot-store";
 import { readDeleted, restoreDeleted, deletedItemLine, restoredLine, archivable, type DeletedItem } from "./deleted-items";
+import { escapeHtml as esc } from "./escape-html";
 
 /**
  * Sentinel Versions panel — file/blob-centric version history for uploaded model files.
@@ -52,7 +53,6 @@ interface Verdict { verdict: "accepted" | "rejected" | "recorded"; passing?: num
 export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string } = {}): HTMLElement {
   const base = (opts.baseUrl ?? SERVICE_URL).replace(/\/$/, "");
   const pid = () => activePid();
-  const esc = (s?: string) => (s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] as string));
 
   let files: FileRec[] = [];
   let showArchived = false; // files whose every version is 'archived' hide behind a toggle (Forma-style)
@@ -317,7 +317,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     const act = "border:1px solid #2c2c34;background:#1f1f27;color:#cbd5e1;border-radius:.25rem;padding:.15rem .45rem;font:600 11px system-ui;cursor:pointer";
     const again = resubmitFor(h.source);
     const resubmit = !again.upload ? `<span style="color:#9ca3af">${esc(again.text)}</span>`
-      : canEditRole(role) ? `<button data-hresubmit="${i}" style="${act};color:#c4b5fd" title="Pick the corrected file — it is judged before anything is stored">${again.text}</button>`
+      : canEditRole(role) ? `<button data-hresubmit="${i}" style="${act};color:#c4b5fd" title="Pick the corrected file — it is judged before anything is stored">${esc(again.text)}</button>`
       : '<span style="color:#71717a">a contributor or above uploads the corrected file</span>';
     const dismiss = !canGovernRole(role) ? ""
       : dismissing === i
@@ -420,12 +420,12 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     const open = expanded.has(f.id);
     const live = f.versions.find((v) => v.is_live);
     const head =
-      `<div data-toggle="${f.id}" style="display:flex;align-items:center;gap:.5rem;padding:.5rem .55rem;background:#1b1b21;border:1px solid #2a2a30;border-radius:.4rem;cursor:pointer">` +
+      `<div data-toggle="${esc(f.id)}" style="display:flex;align-items:center;gap:.5rem;padding:.5rem .55rem;background:#1b1b21;border:1px solid #2a2a30;border-radius:.4rem;cursor:pointer">` +
       `<span style="color:#9ca3af;width:.8rem">${open ? "▾" : "▸"}</span>` +
       (isLink ? '<span title="Linked model — published with its host" style="color:#6b7280;font-size:10px;border:1px solid #2f2f38;border-radius:.25rem;padding:0 .3rem">⇄ link</span>' : "") +
       `<span style="font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(f.iso_name)}</span>` +
       (live ? `<span style="color:#22c55e;font-size:11px;font-family:ui-monospace,Consolas,monospace">● ${esc(live.revision)} live</span>` : "") +
-      `<span style="color:#6b7280;font-size:11px">${f.version_count} ver</span></div>`;
+      `<span style="color:#6b7280;font-size:11px">${esc(f.version_count)} ver</span></div>`;
     if (!open) return `<div style="margin-bottom:.45rem">${head}</div>`;
     const act = "border:1px solid #2c2c34;background:#1f1f27;color:#cbd5e1;border-radius:.25rem;padding:.15rem .45rem;font:600 11px system-ui;cursor:pointer";
     let actions: string;
@@ -433,8 +433,8 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       actions =
         `<div style="display:flex;gap:.35rem;align-items:center;padding:.35rem .55rem;border-top:1px solid #23232a;background:#141418">` +
         `<input id="fv-rename-input" value="${esc(f.iso_name)}" style="flex:1;background:#111;color:#eee;border:1px solid #6528d7;border-radius:.25rem;padding:.2rem .4rem;font:12px system-ui"/>` +
-        `<button data-frenameok="${f.id}" style="${act};background:#2a1e4d;border-color:#6528d7;color:#c4b5fd">Save</button>` +
-        `<button data-fcancel="${f.id}" style="${act}">Cancel</button>` +
+        `<button data-frenameok="${esc(f.id)}" style="${act};background:#2a1e4d;border-color:#6528d7;color:#c4b5fd">Save</button>` +
+        `<button data-fcancel="${esc(f.id)}" style="${act}">Cancel</button>` +
         `</div>`;
     } else {
       const armKind = armed?.id === f.id ? armed.kind : null;
@@ -445,9 +445,9 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       const empty = f.versions.length === 0;
       // Unarchive wherever a version is archived (a restored draft beside archived versions must not strand them).
       const unarchBtn = lead && f.versions.some((v) => v.state === "archived")
-        ? `<button data-funarchive="${f.id}" style="${act};color:#4ade80" title="Restore archived versions to published">Unarchive</button>` : "";
+        ? `<button data-funarchive="${esc(f.id)}" style="${act};color:#4ade80" title="Restore archived versions to published">Unarchive</button>` : "";
       const archBtn = unarchBtn + (!lead || !archivable(f.versions) ? ""
-        : `<button data-farchive="${f.id}" style="${act};color:#eab308;${armKind === "archive" ? "background:#453a10;border-color:#eab308" : ""}" title="Published versions move to the immutable archive; drafts move to Deleted items">${armKind === "archive" ? "Confirm archive" : "Archive"}</button>`);
+        : `<button data-farchive="${esc(f.id)}" style="${act};color:#eab308;${armKind === "archive" ? "background:#453a10;border-color:#eab308" : ""}" title="Published versions move to the immutable archive; drafts move to Deleted items">${armKind === "archive" ? "Confirm archive" : "Archive"}</button>`);
       // The empty-file hint names only what this role can do.
       const emptyHint = lead ? `No versions left — ${f.deleted_versions ? "restore one from Deleted items, " : ""}upload one, or Delete the empty file`
         : canEditRole(role) ? `No versions left — upload one; a lead restores or deletes it (${esc(roleSaid)})`
@@ -459,9 +459,9 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       actions =
         `<div style="display:flex;gap:.35rem;align-items:center;padding:.35rem .55rem;border-top:1px solid #23232a;background:#141418">` +
         `<span style="color:#71717a;font-size:10.5px;flex:1">${hint}</span>` +
-        (canEditRole(role) ? `<button data-frename="${f.id}" style="${act}">Rename</button>` : "") +
+        (canEditRole(role) ? `<button data-frename="${esc(f.id)}" style="${act}">Rename</button>` : "") +
         archBtn +
-        (lead ? `<button data-fdelete="${f.id}" style="${act};color:#fca5a5;border-color:#7f1d1d;${armKind === "delete" ? "background:#3a1f1f" : ""}" title="Moves the file and its versions to Deleted items (a lead restores it). Refused if a version is published (immutable) — archive the file first">${armKind === "delete" ? "Confirm delete" : "Delete"}</button>` : "") +
+        (lead ? `<button data-fdelete="${esc(f.id)}" style="${act};color:#fca5a5;border-color:#7f1d1d;${armKind === "delete" ? "background:#3a1f1f" : ""}" title="Moves the file and its versions to Deleted items (a lead restores it). Refused if a version is published (immutable) — archive the file first">${armKind === "delete" ? "Confirm delete" : "Delete"}</button>` : "") +
         `</div>`;
     }
     // Only the CURRENT (live, else newest) version shows by default — the full history collapses
@@ -471,7 +471,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     const allOpen = versionsOpen.has(f.id);
     let rows = current ? versionRow(f, current) : "";
     if (older.length) {
-      rows += `<button data-vers="${f.id}" style="display:block;width:100%;text-align:left;border:none;border-top:1px solid #23232a;background:#141418;color:#71717a;font:11px system-ui;cursor:pointer;padding:.3rem .55rem">${allOpen ? "▾ hide" : "▸ show"} ${older.length} older version(s)</button>`;
+      rows += `<button data-vers="${esc(f.id)}" style="display:block;width:100%;text-align:left;border:none;border-top:1px solid #23232a;background:#141418;color:#71717a;font:11px system-ui;cursor:pointer;padding:.3rem .55rem">${allOpen ? "▾ hide" : "▸ show"} ${older.length} older version(s)</button>`;
       if (allOpen) rows += older.map((v) => versionRow(f, v)).join("");
     }
     return `<div style="margin-bottom:.45rem">${head}` +
@@ -493,9 +493,9 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       `<span style="color:#71717a;font-variant-numeric:tabular-nums">${humanSize(v.size_bytes)}</span>` +
       (hasSnap ? '<span title="Element snapshot captured — comparable" style="color:#38bdf8">◆</span>' : '<span title="No take-off snapshot yet" style="color:#3f3f46">◇</span>') +
       cmpBadge +
-      (v.is_live ? "" : `<button data-live="${v.id}" style="border:1px solid #2c2c34;background:#1f1f27;color:#cbd5e1;border-radius:.25rem;padding:.1rem .35rem;font-size:11px;cursor:pointer">Set live</button>`) +
-      `<button data-cmp="${v.id}" data-file="${f.id}" style="border:1px solid #2c2c34;background:#1f1f27;color:#cbd5e1;border-radius:.25rem;padding:.1rem .35rem;font-size:11px;cursor:pointer">Compare</button>` +
-      `<button data-open="${v.id}" data-file="${f.id}"${v.platform_item_id ? "" : " disabled"} title="${v.platform_item_id ? "Load this version's geometry into the 3D viewer" : "No platform geometry — this version was registered without a platform upload"}" style="border:1px solid #2c2c34;background:${v.platform_item_id ? "#14314a" : "#191920"};color:${v.platform_item_id ? "#7dd3fc" : "#52525b"};border-radius:.25rem;padding:.1rem .35rem;font-size:11px;cursor:${v.platform_item_id ? "pointer" : "not-allowed"}">Open 3D</button>` +
+      (v.is_live ? "" : `<button data-live="${esc(v.id)}" style="border:1px solid #2c2c34;background:#1f1f27;color:#cbd5e1;border-radius:.25rem;padding:.1rem .35rem;font-size:11px;cursor:pointer">Set live</button>`) +
+      `<button data-cmp="${esc(v.id)}" data-file="${esc(f.id)}" style="border:1px solid #2c2c34;background:#1f1f27;color:#cbd5e1;border-radius:.25rem;padding:.1rem .35rem;font-size:11px;cursor:pointer">Compare</button>` +
+      `<button data-open="${esc(v.id)}" data-file="${esc(f.id)}"${v.platform_item_id ? "" : " disabled"} title="${v.platform_item_id ? "Load this version's geometry into the 3D viewer" : "No platform geometry — this version was registered without a platform upload"}" style="border:1px solid #2c2c34;background:${v.platform_item_id ? "#14314a" : "#191920"};color:${v.platform_item_id ? "#7dd3fc" : "#52525b"};border-radius:.25rem;padding:.1rem .35rem;font-size:11px;cursor:${v.platform_item_id ? "pointer" : "not-allowed"}">Open 3D</button>` +
       // The eye is ALWAYS there (Forma-style) when the version has geometry: not loaded → click loads
       // and shows; loaded+visible → hides; hidden → shows again instantly.
       (v.platform_item_id
@@ -506,10 +506,10 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
             const tip = !loaded ? "Load this model into the viewer and show it"
               : hidden ? "Show this model in the viewer" : "Hide this model in the viewer (stays loaded)";
             const col = !loaded ? "#9ca3af" : hidden ? "#71717a" : "#a5f3fc";
-            return `<button data-vis="${v.id}" data-file="${f.id}" title="${tip}" style="border:1px solid #2c2c34;background:#1f1f27;color:${col};border-radius:.25rem;padding:.1rem .35rem;font-size:11px;cursor:pointer">${label}</button>`;
+            return `<button data-vis="${esc(v.id)}" data-file="${esc(f.id)}" title="${esc(tip)}" style="border:1px solid #2c2c34;background:#1f1f27;color:${col};border-radius:.25rem;padding:.1rem .35rem;font-size:11px;cursor:pointer">${label}</button>`;
           })()
         : "") +
-      `<button data-hist="${v.id}" title="Version history — who did what, when (immutable audit)" style="border:1px solid #2c2c34;background:${historyOpen.has(v.id) ? "#2a1e4d" : "#1f1f27"};color:${historyOpen.has(v.id) ? "#c4b5fd" : "#cbd5e1"};border-radius:.25rem;padding:.1rem .35rem;font-size:11px;cursor:pointer">History</button>` +
+      `<button data-hist="${esc(v.id)}" title="Version history — who did what, when (immutable audit)" style="border:1px solid #2c2c34;background:${historyOpen.has(v.id) ? "#2a1e4d" : "#1f1f27"};color:${historyOpen.has(v.id) ? "#c4b5fd" : "#cbd5e1"};border-radius:.25rem;padding:.1rem .35rem;font-size:11px;cursor:pointer">History</button>` +
       "</div>" +
       (historyOpen.has(v.id) ? historyBlock(f, v) : "")
     );
@@ -528,7 +528,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       '<span style="color:#8b5cf6">◆</span>' +
       `<span style="color:#e5e7eb;min-width:9rem">${esc(fmtAction(e))}</span>` +
       `<span style="color:#9ca3af;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(e.actor)}">${esc(e.actor || "—")}</span>` +
-      `<span style="color:#71717a;font-variant-numeric:tabular-nums">${when(e.at)}</span></div>`).join("");
+      `<span style="color:#71717a;font-variant-numeric:tabular-nums">${esc(when(e.at))}</span></div>`).join("");
     return '<div style="padding:.35rem .6rem .5rem 2rem;border-top:1px dashed #2a2a30;background:#141418">' +
       '<div style="color:#a1a1aa;font-size:10px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:.15rem">Version history · who · when</div>' +
       rows + "</div>";
@@ -561,7 +561,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     const [col, mark, label] = map[r.verdict] ?? map.recorded;
     const scope = r.in_scope != null ? `IDS ${r.ids ?? ""} — ${r.passing}/${r.in_scope} passed${r.failing ? `, ${r.failing} failed` : ""}` : "governed verdict";
     const tip = `${scope} · click for the immutable audit entry`;
-    return `<span data-hist="${v.id}" title="${esc(tip)}" style="color:${col};font-size:10px;font-weight:700;border:1px solid ${col}66;border-radius:.25rem;padding:0 .3rem;white-space:nowrap;cursor:pointer">${mark} ${label}</span>`;
+    return `<span data-hist="${esc(v.id)}" title="${esc(tip)}" style="color:${col};font-size:10px;font-weight:700;border:1px solid ${col}66;border-radius:.25rem;padding:0 .3rem;white-space:nowrap;cursor:pointer">${mark} ${label}</span>`;
   }
 
   // ── per-file admin (Forma-style: rename / archive / delete) ──
@@ -571,7 +571,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       const r = await api(`${encodeURIComponent(pid())}/files/${path}`, "POST", { ...body, actor: await whoami() });
       await load(); // first: load() writes its own summary line, which would hide what the action did
       status(typeof okMsg === "function" ? okMsg(r) : okMsg);
-    } catch (e) { status(`${path} failed: ${esc((e as Error).message)}`); }
+    } catch (e) { status(`${path} failed: ${(e as Error).message}`); }
   }
 
   async function renameFile(fileId: string) {
@@ -604,7 +604,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     try {
       await api(`${encodeURIComponent(pid())}/files/set-live`, "POST", { version_id: versionId, actor: await whoami() });
       await load();
-    } catch (e) { status(`Set-live failed: ${esc((e as Error).message)}`); }
+    } catch (e) { status(`Set-live failed: ${(e as Error).message}`); }
   }
 
   // Load a specific past version's geometry into the 3D viewer (Forma-style "open this version"). Downloads the
@@ -617,7 +617,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     if (!v.platform_item_id) { status("This version has no platform geometry (registered without a platform upload)."); return; }
     const client = getAppManager().client as { downloadFile?: (id: string, p?: unknown) => Promise<Response> } | undefined;
     if (!client?.downloadFile) { status("Platform client unavailable — open the app inside the platform to load geometry."); return; }
-    status(`Loading ${esc(f.iso_name)} ${esc(v.revision)} into the viewer…`);
+    status(`Loading ${f.iso_name} ${v.revision} into the viewer…`);
     try {
       const resp = await client.downloadFile(v.platform_item_id);
       if (!resp.ok) throw new Error(`platform download HTTP ${resp.status}`);
@@ -628,9 +628,9 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       await core.load(buf, { modelId });
       hiddenModels.delete(modelId); // a fresh load is always visible
       render(); // surface the Hide/Show toggle on the row
-      status(`Loaded ${esc(v.revision)} into the viewer ✓ (model "${esc(modelId)}").`);
+      status(`Loaded ${v.revision} into the viewer ✓ (model "${modelId}").`);
     } catch (e) {
-      status(`Couldn't load ${esc(v.revision)}: ${esc((e as Error).message)}. The platform may store this item as IFC (needs conversion) — share the console error to refine.`);
+      status(`Couldn't load ${v.revision}: ${(e as Error).message}. The platform may store this item as IFC (needs conversion) — share the console error to refine.`);
     }
   }
 
@@ -644,13 +644,13 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       const model = modelList()?.get?.(modelId);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const obj = (model as any)?.object ?? (model as any)?.three;
-      if (!obj) { status(`Model "${esc(modelId)}" isn't loaded — press Open 3D first.`); return; }
+      if (!obj) { status(`Model "${modelId}" isn't loaded — press Open 3D first.`); return; }
       const nowHidden = !hiddenModels.has(modelId);
       obj.visible = !nowHidden;
       if (nowHidden) hiddenModels.add(modelId); else hiddenModels.delete(modelId);
       await core.update(true);
       render();
-      status(nowHidden ? `Hid ${esc(modelId)} (still loaded — Show restores it instantly).` : `Showing ${esc(modelId)}.`);
+      status(nowHidden ? `Hid ${modelId} (still loaded — Show restores it instantly).` : `Showing ${modelId}.`);
     } catch (e) { status("Visibility toggle failed: " + ((e as Error)?.message ?? String(e))); }
   }
 

@@ -6,6 +6,7 @@ import { defaultSequence, levelSequence, csvToSchedule, scheduleRange, buildBoQ,
 import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
 import { activePid } from "./active-project";
+import { escapeHtml as esc } from "./escape-html";
 
 /**
  * 4D Sequence panel — Phase 2 slice A (docs/phase2-spec.md). Makes the programme a VIEW of the model:
@@ -17,7 +18,6 @@ import { activePid } from "./active-project";
  */
 
 const DAY = 86_400_000;
-const esc = (s?: string) => (s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] as string));
 const fmtDate = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
 export function timelinePanel(components: OBC.Components): HTMLElement {
@@ -255,7 +255,7 @@ export function timelinePanel(components: OBC.Components): HTMLElement {
       const infoLines = (info.get(t.id) ?? []).map((i) =>
         `<div style="font-size:10.5px;color:${INFO_COLOR[i.state]};margin-top:.15rem">ⓘ ${esc(i.container)}: ${esc(i.words)}</div>`).join("");
       return (
-        `<div class="tl-row" data-id="${t.id}" title="Isolate ${esc(t.name)}" style="padding:.35rem .1rem;cursor:pointer">` +
+        `<div class="tl-row" data-id="${esc(t.id)}" title="Isolate ${esc(t.name)}" style="padding:.35rem .1rem;cursor:pointer">` +
           `<div style="display:flex;justify-content:space-between;font-size:11.5px;opacity:${dim}">` +
             `<span style="font-weight:600">${esc(t.name)}${none ? ' <span style="color:#eab308;font-weight:500">· matches no element</span>' : state === "active" ? ' <span style="color:#eab308">● active</span>' : state === "done" ? ' <span style="color:#22c55e">✓</span>' : ""}</span>` +
             `<span style="color:#6b7280;font-family:ui-monospace,Consolas,monospace">${t.start.slice(5)}→${t.finish.slice(5)}</span></div>` +
