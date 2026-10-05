@@ -1,10 +1,56 @@
-// Text extraction for ingested documents. The ONLY place that touches a parser library, so the
-// rest of ingestion stays pure and testable. Parsers are lazy-imported inside their branch (the
-// /ifc route's idiom) so the bridge boots even if they are missing.
+// Text extraction for ingested documents. The ONLY place that starts a parser, so the rest of ingestion stays pure and
+// testable. SEC-3: the parsers run in a worker thread (doc-parse-worker.mjs, which lazy-imports them so the bridge boots
+// even if they are missing), under a heap bound and a wall-clock bound — never on the bridge's own thread.
 
 import { inflateRawSync } from "node:zlib";
+import { Worker } from "node:worker_threads";
 
 const err = (status, message) => Object.assign(new Error(message), { status });
+
+// SEC-3: a parse ends within PARSE_TIMEOUT_MS and within PARSE_HEAP_MB of memory, or it is stopped and answered in words.
+// The worker's heap bound covers V8's heap only; the buffers a parser decodes into are bounded by the bridge's RSS, watched
+// while the parse runs (watchRss). One parse runs at a time.
+export const PARSE_TIMEOUT_MS = 30_000;
+export const PARSE_HEAP_MB = 1024;
+// ponytail: one parse at a time for the whole bridge; a queue if leads ever ingest in parallel.
+let parsing = false;
+
+export const overMemory = (what, mb) => err(413, `reading this ${what} needed over ${mb} MB of memory — nothing was read or saved; split the document`);
+
+/** Stops `worker` and calls `onOver` once this process's RSS has grown past its value now plus `limitMb`, sampled every
+ *  `everyMs`. Returns the stop function; the watch also stops when the worker exits. ponytail: the RSS is the whole
+ *  bridge's, so a large upload held in memory at the same moment counts against the parse. */
+export function watchRss(worker, limitMb, onOver, everyMs = 250) {
+  const start = process.memoryUsage.rss();
+  const t = setInterval(() => {
+    if (process.memoryUsage.rss() - start <= limitMb * 1024 * 1024) return;
+    clearInterval(t); void worker.terminate(); onOver();
+  }, everyMs);
+  const stop = () => clearInterval(t);
+  worker.once("exit", stop);
+  return stop;
+}
+
+/** The parser for `kind` ("pdf" | "docx") run in a worker: its pages, or a 413 (past the heap bound) or a 422 (past the
+ *  time bound) in words, or the parser's own words. The worker is stopped whatever the outcome. */
+export function parseInWorker(kind, bytes, { timeoutMs = PARSE_TIMEOUT_MS, heapMb = PARSE_HEAP_MB } = {}) {
+  if (parsing) return Promise.reject(err(503, "another document is being read on the bridge — try again in a minute; nothing was read or saved"));
+  const copy = new Uint8Array(bytes); // its own memory: an upload buffer may be a slice of a shared pool
+  const what = kind === "pdf" ? ".pdf" : ".docx";
+  return new Promise((resolve, reject) => {
+    const w = new Worker(new URL("./doc-parse-worker.mjs", import.meta.url), {
+      workerData: { kind, bytes: copy }, transferList: [copy.buffer], resourceLimits: { maxOldGenerationSizeMb: heapMb },
+    });
+    parsing = true; // after the worker exists: a Worker that cannot start rejects here and holds nothing
+    let done = false;
+    const end = (settle, value) => { if (done) return; done = true; parsing = false; clearTimeout(timer); unwatch(); settle(value); void w.terminate(); };
+    const timer = setTimeout(() => end(reject, err(422, `reading this ${what} took longer than ${Math.ceil(timeoutMs / 1000)} s — nothing was read or saved; split the document`)), timeoutMs);
+    const unwatch = watchRss(w, heapMb, () => end(reject, overMemory(what, heapMb)));
+    w.on("message", (m) => (m?.error ? end(reject, Object.assign(new Error(m.error.message), m.error.status ? { status: m.error.status } : {})) : end(resolve, m.pages)));
+    w.on("error", (e) => end(reject, e?.code === "ERR_WORKER_OUT_OF_MEMORY" ? overMemory(what, heapMb) : e));
+    w.on("exit", (code) => end(reject, new Error(`the ${what} reader stopped (exit ${code}) before it answered — nothing was read or saved`)));
+  });
+}
 
 // SEC-2: a .docx is a zip. The upload cap bounds the packed bytes only, so what it unpacks to is bounded here, before a
 // parser sees it: at most MAX_DOCX_ENTRIES parts, unpacking to at most MAX_DOCX_UNPACKED bytes in all, of which the text
@@ -85,20 +131,10 @@ export async function extractText(buffer, filename) {
   let out;
 
   if (ext === "pdf") {
-    const { extractText: pdfText, getDocumentProxy } = await import("unpdf");
-    const doc = await getDocumentProxy(new Uint8Array(buffer));
-    const { text } = await pdfText(doc, { mergePages: false });
-    const arr = Array.isArray(text) ? text : [String(text || "")];
-    out = { kind: "pdf", pages: arr.map((t, i) => ({ page: i + 1, text: String(t || "") })) };
+    out = { kind: "pdf", pages: await parseInWorker("pdf", buffer) };
   } else if (ext === "docx") {
-    const textParts = boundDocx(buffer); // SEC-2: bounded before the parser runs; the parser reads only these parts
-    // One import, then pick whichever shape the CJS/ESM interop gave us (verified: mammoth exposes
-    // extractRawText on BOTH .default and the namespace, so this is robust either way).
-    const mod = await import("mammoth");
-    const mammoth = typeof mod.extractRawText === "function" ? mod : mod.default;
-    const { value } = await mammoth.extractRawText({ buffer: textParts });
-    // Word has no page concept in its XML — the whole document is one logical page.
-    out = { kind: "docx", pages: [{ page: 1, text: String(value || "") }] };
+    const textParts = boundDocx(buffer); // SEC-2: bounded before the parser runs (here, so a refused file starts no worker)
+    out = { kind: "docx", pages: await parseInWorker("docx", textParts) };
   } else if (ext === "doc") {
     throw err(400, "Legacy .doc files aren't supported — open it in Word and save as .docx, then upload again.");
   } else if (ext === "txt" || ext === "md") {
