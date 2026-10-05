@@ -112,6 +112,9 @@ describe("migration 0038 — the database holds the bridge's write rules (SEC-1)
     // the take-off's header and its link (C8), and geometry on a file's live version (C1)
     expect(CDE).toContain("? (await versionOnKey(key, b.container_version_id)).version.id");
     expect(CDE).toContain("service: true, // 0038: model_revisions has no signed-in insert");
-    expect(CDE).toContain('&platform_item_id=is.null`, { method: "PATCH", body: { platform_item_id: b.platform_item_id }, prefer: "return=representation", service: true })');
+    // SEC-3: the outbox's attach, by version id, is the one geometry write; a registration refuses attach_geometry
+    expect(CDE).toContain('&platform_item_id=is.null`, { method: "PATCH", body: { platform_item_id: item }, prefer: "return=representation", service: true })');
+    expect(count(CDE, "body: { platform_item_id:")).toBe(1);
+    expect(CDE).toContain("if (b.attach_geometry === true) {");
   });
 });
