@@ -176,9 +176,11 @@ describe("group show / hide", () => {
   });
 });
 
-// The panel imports the viewer (no DOM under vitest here), so its wiring is pinned by a scan of its source.
+// The panel imports the viewer (no DOM under vitest here), so its wiring is pinned by a scan of its source — read with
+// LF line endings, so the pins hold on a Windows (CRLF) checkout as on CI's.
+const srcOf = (file: string) => readFileSync(new URL(file, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 describe("projects-hub-panel wiring", () => {
-  const src = readFileSync(new URL("./projects-hub-panel.ts", import.meta.url), "utf8");
+  const src = srcOf("./projects-hub-panel.ts");
   it("draws the grid through filterProjects, with the search box, four selects and Clear", () => {
     expect(src).toMatch(/import \{[^}]*\bfilterProjects\b[^}]*\} from "\.\/projects-filter"/);
     expect(src).toContain("filterProjects(projects, f)");
@@ -225,8 +227,8 @@ describe("projects-hub-panel wiring", () => {
 });
 
 describe("projects-hub-panel wiring — the Deleted models view", () => {
-  const src = readFileSync(new URL("./projects-hub-panel.ts", import.meta.url), "utf8");
-  const items = readFileSync(new URL("./deleted-items.ts", import.meta.url), "utf8");
+  const src = srcOf("./projects-hub-panel.ts");
+  const items = srcOf("./deleted-items.ts");
   it("a header button beside ↻ switches the body between the grid and the view, and back", () => {
     expect(src).toMatch(/<button id="ph-deleted" style="\$\{btn\}" title="Model files in Deleted items across your projects"[^>]*>🗑 Deleted models<\/button>` \+\n\s*`<button id="ph-refresh"/);
     expect(src).toContain('<div id="ph-del" style="display:none;');
