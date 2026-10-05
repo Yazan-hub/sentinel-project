@@ -133,12 +133,14 @@ export function holdUpload(req, res, sub) {
 }
 
 const LOOPBACK = /^(127\.\d{1,3}\.\d{1,3}\.\d{1,3}|::1|localhost)$/;
-/** Why the bridge must not start, or null. Bound beyond loopback it faces the network, so the gate must be armed
- *  (BCF_TOKEN) and able to verify a sign-in (SUPABASE_JWT_SECRET) and forward it (SUPABASE_ANON_KEY). */
+/** Why the bridge must not start, or null. The gate is armed whatever the bind (SEC-1): a loopback bridge can still be
+ *  published beyond this PC, so an empty (or blank) BCF_TOKEN stops it. Bound beyond loopback it must also verify a sign-in
+ *  (SUPABASE_JWT_SECRET) and forward it (SUPABASE_ANON_KEY). */
 export function startRefusal(env) {
+  if (!String(env.BCF_TOKEN ?? "").trim()) return "refusing to start: BCF_TOKEN is empty — set it in config/.env (every route but GET /health needs it or a sign-in)";
   const host = env.BCF_HOST || "127.0.0.1";
   if (LOOPBACK.test(host)) return null;
-  const empty = ["BCF_TOKEN", "SUPABASE_JWT_SECRET", "SUPABASE_ANON_KEY"].filter((k) => !env[k]);
+  const empty = ["SUPABASE_JWT_SECRET", "SUPABASE_ANON_KEY"].filter((k) => !env[k]);
   if (!empty.length) return null;
   return `refusing to listen on ${host}: ${empty.join(", ")} ${empty.length === 1 ? "is" : "are"} empty — set ${empty.length === 1 ? "it" : "them"} in config/.env, or bind 127.0.0.1`;
 }

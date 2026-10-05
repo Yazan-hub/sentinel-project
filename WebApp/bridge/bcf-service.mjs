@@ -35,8 +35,8 @@ const PORT = Number(process.env.BCF_PORT) || 4100;
 // BCF_HOST=0.0.0.0 behind real auth + a reverse proxy. CORS defaults to * for dev; lock it to the
 // platform origin in shared/hosted deployments via BCF_CORS_ORIGIN.
 const HOST = process.env.BCF_HOST || "127.0.0.1";
-// Beyond loopback the bridge faces the network: it does not start without a gate that is armed and can verify and
-// forward a sign-in (D9). On loopback the legacy single-desktop modes still start.
+// The bridge never starts without the gate armed (BCF_TOKEN), whatever it binds (SEC-1); beyond loopback it must also
+// verify and forward a sign-in (D9).
 const refusal = startRefusal(process.env);
 if (refusal) { console.error(`[bridge] ${refusal}`); process.exit(1); }
 // CSRF hardening: the bridge holds the Supabase SERVICE key (full RLS bypass), so a malicious web page must
@@ -690,7 +690,7 @@ async function handleRequest(req, res) {
   if (url.pathname === "/health" && req.method === "GET") {
     let cdeConfigured = false;
     try { cdeConfigured = (await import("./cde-store.mjs")).cdeConfigured(); } catch { /* */ }
-    return send(res, 200, { ok: true, token: !!TOKEN, cde_configured: cdeConfigured });
+    return send(res, 200, { ok: true, cde_configured: cdeConfigured });
   }
 
   // ── SSE live stream: GET /events?project=<key> (kept open; pushes topic/CDE changes) ──

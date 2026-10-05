@@ -308,11 +308,17 @@ describe("the gate — a JWT counts only when the secret is set and it verifies"
     expect(statusOf(r), r).toBe(401);
   });
 
-  it("GET /health tells anyone only ok, token and cde_configured; any other /health method needs a credential", async () => {
+  it("GET /health tells anyone only ok and cde_configured (SEC-1: the gate is always armed); any other /health method needs a credential", async () => {
     const r = await fetch(`http://127.0.0.1:${armed.port}/health`);
-    expect(Object.keys(await r.json()).sort()).toEqual(["cde_configured", "ok", "token"]);
+    expect(Object.keys(await r.json()).sort()).toEqual(["cde_configured", "ok"]);
     expect((await fetch(`http://127.0.0.1:${armed.port}/health`, { method: "POST", body: "{}" })).status).toBe(401);
   });
+
+  it("refuses to start on loopback without BCF_TOKEN: exit code 1, and stderr says why (SEC-1)", async () => {
+    const b = await startBridge({}); // the copy reaches no config/.env, so nothing sets the token
+    expect(b.child.exitCode).toBe(1);
+    expect(b.stderr).toContain("refusing to start: BCF_TOKEN is empty — set it in config/.env");
+  }, 30_000);
 
   it("refuses to start beyond loopback while the JWT secret or the anon key is empty", async () => {
     const b = await startBridge({ BCF_HOST: "192.0.2.1", BCF_TOKEN: TOKEN }); // TEST-NET-1: nothing here could bind it anyway
