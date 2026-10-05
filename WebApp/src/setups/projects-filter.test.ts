@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
-import { filterProjects, isDefaultFilter, countLine, DEFAULT_FILTER, type ProjectFilter, type FilterableProject } from "./projects-filter";
+import { filterProjects, isDefaultFilter, countLine, groupShown, toggleGroup, NO_OFFICE_GROUP, DEFAULT_FILTER, type ProjectFilter, type FilterableProject } from "./projects-filter";
 
 const p = (key: string, o: Partial<FilterableProject> = {}): FilterableProject => ({
   key,
@@ -43,7 +43,7 @@ describe("filterProjects", () => {
 
   it("no offices loaded: one untitled group", () => {
     const r = filterProjects([p("a"), p("b", { created_at: "2026-02-01T00:00:00Z" })], DEFAULT_FILTER);
-    expect(r.groups).toEqual([{ title: "", rows: [expect.objectContaining({ key: "b" }), expect.objectContaining({ key: "a" })] }]);
+    expect(r.groups).toEqual([{ id: "", title: "", rows: [expect.objectContaining({ key: "b" }), expect.objectContaining({ key: "a" })] }]);
   });
 
   it("search: case-insensitive, trimmed, every word must match name, key, office name or appointing party", () => {
@@ -118,6 +118,64 @@ describe("filterProjects", () => {
   });
 });
 
+describe("group show / hide", () => {
+  it("ids: o:<office key> per office, a fixed id for No office, none for the untitled group", () => {
+    expect(run().groups.map((g) => g.id)).toEqual(["o:hq", "o:north", NO_OFFICE_GROUP]);
+    // An office keyed like the fixed id never collides with it.
+    const l = [p("none", { name: "None", kind: "office" }), p("loose")];
+    expect(filterProjects(l, DEFAULT_FILTER).groups.map((g) => g.id)).toEqual(["o:none", NO_OFFICE_GROUP]);
+    expect(NO_OFFICE_GROUP).not.toMatch(/^o:/);
+  });
+
+  it("every group starts open; a toggle hides it, a second shows it again", () => {
+    const c = new Set<string>();
+    expect(groupShown("o:hq", c, "")).toBe(true);
+    toggleGroup(c, "o:hq");
+    expect(groupShown("o:hq", c, "")).toBe(false);
+    expect(groupShown("o:north", c, "")).toBe(true);
+    toggleGroup(c, "o:hq");
+    expect(groupShown("o:hq", c, "")).toBe(true);
+  });
+
+  it("a collapse survives a filter change (type, office, status, sort do not open it)", () => {
+    const c = toggleGroup(new Set<string>(), "o:hq");
+    for (const f of [{ kind: "project" }, { status: "active" }, { office: "o:hq" }, { sort: "name" }] as Partial<ProjectFilter>[]) {
+      const g = run(f).groups.find((x) => x.id === "o:hq")!;
+      expect(groupShown(g.id, c, { ...DEFAULT_FILTER, ...f }.q)).toBe(false);
+    }
+  });
+
+  it("a search opens a collapsed group for its matches and it closes again when the search clears", () => {
+    const c = toggleGroup(new Set<string>(), "o:hq");
+    expect(run({ q: "aster" }).groups.map((g) => g.id)).toEqual(["o:hq"]);
+    expect(groupShown("o:hq", c, "aster")).toBe(true);
+    expect(groupShown("o:hq", c, "   ")).toBe(false);
+    expect(groupShown("o:hq", c, "")).toBe(false);
+    expect(c.has("o:hq")).toBe(true);
+  });
+
+  it("a click during a search hides the group's cards, and the stored collapse is unchanged after the search clears", () => {
+    const c = new Set<string>(["o:north"]);
+    const during = new Set<string>();
+    // Open group clicked during a search: hidden now, open again after the search.
+    toggleGroup(during, "o:hq");
+    expect(groupShown("o:hq", c, "aster", during)).toBe(false);
+    // Search-opened group clicked during a search: hidden now, still collapsed after.
+    toggleGroup(during, "o:north");
+    expect(groupShown("o:north", c, "aster", during)).toBe(false);
+    during.clear(); // the search clears
+    expect([...c]).toEqual(["o:north"]);
+    expect(groupShown("o:hq", c, "", during)).toBe(true);
+    expect(groupShown("o:north", c, "", during)).toBe(false);
+  });
+
+  it("the untitled group is never collapsible", () => {
+    const c = toggleGroup(new Set<string>(), "");
+    expect(c.size).toBe(0);
+    expect(groupShown("", new Set([""]), "")).toBe(true);
+  });
+});
+
 // The panel imports the viewer (no DOM under vitest here), so its wiring is pinned by a scan of its source.
 describe("projects-hub-panel wiring", () => {
   const src = readFileSync(new URL("./projects-hub-panel.ts", import.meta.url), "utf8");
@@ -141,6 +199,25 @@ describe("projects-hub-panel wiring", () => {
     expect(src).toMatch(/f = \{ \.\.\.DEFAULT_FILTER \};\s*syncTools\(\);\s*await load\(\);\s*open\(created\.key\)/);
     // Nothing loaded: no Clear button over "No projects yet".
     expect(src).toContain('isDefaultFilter(f) || !projects.length ? "none" : ""');
+  });
+  it("each titled group header is a toggle button: chevron, aria-expanded, its count; collapses kept in memory", () => {
+    expect(src).toContain("const collapsed = new Set<string>()");
+    expect(src).toMatch(/<button class="ph-group" data-group="\$\{esc\(g\.id\)\}" aria-expanded="\$\{shown \? "true" : "false"\}"/);
+    expect(src).toContain('shown ? "▾" : "▸"');
+    expect(src).toContain("${esc(g.title)} · ${esc(g.rows.length)}");
+    expect(src).toContain("toggleGroup(f.q.trim() ? searchClosed : collapsed, id)");
+    expect(src).toContain("groupShown(g.id, collapsed, f.q, searchClosed)");
+    expect(src).toContain("if (!f.q.trim()) searchClosed.clear();");
+    // A project made into a collapsed group opens that group, so its card is not hidden.
+    expect(src).toContain('collapsed.delete(created.kind === "office" ? "o:" + created.key : created.office_key ? "o:" + created.office_key : NO_OFFICE_GROUP)');
+    // The untitled group (no offices) gets no toggle.
+    expect(src).toMatch(/g\.id\s*\?\s*`<button class="ph-group"/);
+  });
+  it("fits a narrow panel: the header wraps, the cards never pass the edge", () => {
+    expect(src).toContain("minmax(min(13rem,100%),1fr)");
+    expect(src).toMatch(/<div id="ph-head" style="display:flex;flex-wrap:wrap;/);
+    expect(src).toContain('class="ph-card"');
+    expect(src).toMatch(/class="ph-card"[^`]*min-width:0/);
   });
   it("keeps filter state in memory only", () => {
     expect(src).not.toMatch(/localStorage|sessionStorage|indexedDB/);
