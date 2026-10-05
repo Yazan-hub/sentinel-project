@@ -245,6 +245,7 @@ begin
   if outcome is distinct from 'OK published' then failed := failed || ('P4 no sha256 on either side publishes: ' || coalesce(outcome, 'null')); end if;
 
   -- P5 only the latest verdict counts: a bound accepted verdict followed by a newer refusal asks for the reason
+  --    (a regression control: the schema before 0040 answers it the same way; it keeps the rule latest-only)
   n := n + 1;
   begin
     perform public.cde_transition(p_version => v_p5, p_new_state => 'published', p_actor => 'probe', p_note => 'probe 0040');
@@ -253,6 +254,7 @@ begin
   if outcome is distinct from format(ask, v_p5, 'verdict:rejected, ledger #' || a_p5, 'publishing it') then failed := failed || ('P5 the latest verdict only: ' || coalesce(outcome, 'null')); end if;
 
   -- P6 a sibling version with the same sha256 is not judged by the other version's verdict
+  --    (a regression control: the schema before 0040 answers it the same way; it keeps the verdict keyed on the version)
   n := n + 1;
   begin
     perform public.cde_transition(p_version => v_p6b, p_new_state => 'published', p_actor => 'probe', p_note => 'probe 0040');
