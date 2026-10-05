@@ -138,9 +138,28 @@ describe("archive and restore go through cde_transition", () => {
     expect(rpcCalls().map((c) => c.body.p_version)).toEqual([V2]); // V4 is never tried
     expect(calls.find((c) => c.path === "audit_log" && c.body?.action === "unarchived")).toBeUndefined();
   });
+
+  it("SEC-3: a restore that needs the lead's reason answers the function's words; the reason goes to every restore of the file", async () => {
+    versions = [{ id: V2, state: "archived" }, { id: V4, state: "archived" }];
+    const ask = `version ${V2} has no accepted verdict that measured something (latest: none) — restoring it needs the lead's reason`;
+    rpc = pgError(400, "P0001", ask);
+    await expect(unarchiveFile("demo", C1, "lead@bds.jo")).rejects.toMatchObject({ status: 409, message: ask });
+    rpc = (body) => json({ id: body.p_version, state: body.p_new_state });
+    expect(await unarchiveFile("demo", C1, "lead@bds.jo", "  client sign-off 2026-10-05 ")).toEqual({ ok: true, restored: 2 });
+    expect(rpcCalls().slice(1).map((c) => c.body)).toEqual([V2, V4].map((v) =>
+      ({ p_version: v, p_new_state: "published", p_actor: "lead@bds.jo", p_note: "file restored", p_override: "client sign-off 2026-10-05" })));
+  });
+
+  it("SEC-3: a restore refused after others succeeded records what was restored and says how many, in the function's words", async () => {
+    versions = [{ id: V2, state: "archived" }, { id: V4, state: "archived" }];
+    const ask = `version ${V4} has no accepted verdict that measured something (latest: none) — restoring it needs the lead's reason`;
+    rpc = (body) => (body.p_version === V4 ? pgError(400, "P0001", ask)() : json({ id: body.p_version, state: body.p_new_state }));
+    await expect(unarchiveFile("demo", C1, "lead@bds.jo")).rejects.toMatchObject({ status: 409, message: `1 of 2 archived versions restored — ${ask}` });
+    expect(calls.find((c) => c.path === "audit_log" && c.body?.action === "unarchived").body.new_value).toEqual({ iso_name: "A.ifc", restored: 1 });
+  });
 });
 
-describe("registerFileVersion — every new version starts in wip; geometry attaches only when asked", () => {
+describe("registerFileVersion — every new version starts in wip; geometry is the bridge's, by version id", () => {
   it("ignores a state in the body: the version is posted in wip", async () => {
     await registerFileVersion("demo", { name: "A.ifc", state: "published", author: "web" });
     expect(calls.find((c) => c.path === "container_versions" && c.method === "POST").body.state).toBe("wip");
@@ -153,9 +172,9 @@ describe("registerFileVersion — every new version starts in wip; geometry atta
     expect(calls.filter((c) => c.method === "PATCH" && c.body?.platform_item_id)).toHaveLength(0);
   });
 
-  it("attach_geometry: true attaches the item to the live version that has none", async () => {
-    const r = await registerFileVersion("demo", { name: "A.ifc", platform_item_id: "item-9", author: "outbox", attach_geometry: true });
-    expect(r).toMatchObject({ linked: true, version: { id: V1, platform_item_id: "item-9" } });
-    expect(calls.filter((c) => c.path === "container_versions" && c.method === "POST")).toHaveLength(0);
+  it("attach_geometry: true is refused in words before anything is written", async () => {
+    await expect(registerFileVersion("demo", { name: "A.ifc", platform_item_id: "item-9", author: "outbox", attach_geometry: true }))
+      .rejects.toMatchObject({ status: 400, message: "geometry is attached by the bridge to the version an upload names — nothing was saved" });
+    expect(calls.filter((c) => c.method !== "GET")).toHaveLength(0);
   });
 });

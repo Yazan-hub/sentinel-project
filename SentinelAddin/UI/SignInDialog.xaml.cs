@@ -25,6 +25,7 @@ public partial class SignInDialog : Window
             SignInButton.IsEnabled = false;
         }
         WhereText.Text = string.IsNullOrWhiteSpace(_cfg.SupabaseUrl) ? "" : "Signs in at " + _cfg.SupabaseUrl + " · bridge " + _cfg.ServiceUrl;
+        if (_cfg.Refusal is { } refused) StatusText.Text = refused; // SEC-3: the bridge address no token is sent to
     }
 
     private void Refresh(string? status)

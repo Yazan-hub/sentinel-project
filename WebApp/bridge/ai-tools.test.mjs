@@ -92,6 +92,11 @@ describe("approved is a UX step, not a permission (H0, D10)", () => {
     for (const name of ["set_live_version", "transition_container"])
       expect(TOOLS.find((t) => t.name === name).input_schema.required).toContain("project");
   });
+
+  it("SEC-3: set_live_version moves the pointer in the project it names", async () => {
+    await runTool("set_live_version", { project: "aster-tower", version_id: V, actor: "agent" }, { allowWrites: true });
+    expect(cde.setLiveVersion).toHaveBeenCalledWith("aster-tower", V, "agent");
+  });
 });
 
 describe("what a write tool records", () => {

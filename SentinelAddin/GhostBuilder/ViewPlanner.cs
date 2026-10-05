@@ -149,8 +149,9 @@ namespace Sentinel.GhostBuilder
         // One token's value against its definition, anchored (NamingProposer's TokenSlot.Accepts).
         private static bool Accepts(string def, string org, string value)
         {
-            try { return Regex.IsMatch(value, "^(?:" + RuleRegex.DefWithOrg(def, org) + ")$", RegexOptions.CultureInvariant); }
+            try { return Regex.IsMatch(value, "^(?:" + RuleRegex.DefWithOrg(def, org) + ")$", RegexOptions.CultureInvariant, RuleRegex.MatchTimeout); }
             catch (System.ArgumentException) { return false; } // a malformed definition fails closed (BG-5)
+            catch (RegexMatchTimeoutException) { return false; } // SEC-3: so does a pattern past its bound
         }
 
         // Scan Now's own judgement (RuleEngineHost.CheckName): an excluded or whitelisted name passes; a whitelist-only rule
@@ -165,7 +166,14 @@ namespace Sentinel.GhostBuilder
 
         // An excluded or whitelisted name: Scan Now passes it whatever its tokens (RuleEngineHost.CheckName).
         private static bool Admits(Rule r, string name) =>
-            (r.Exclusions ?? new List<string>()).Any(x => Regex.IsMatch(name, x)) || (r.Whitelist != null && r.Whitelist.Contains(name));
+            (r.Exclusions ?? new List<string>()).Any(x => Excluded(name, x)) || (r.Whitelist != null && r.Whitelist.Contains(name));
+
+        // SEC-3: an exclusion past RuleRegex.MatchTimeout admits nothing — the name is then judged by the rule's pattern.
+        private static bool Excluded(string name, string pattern)
+        {
+            try { return Regex.IsMatch(name, pattern, RegexOptions.None, RuleRegex.MatchTimeout); }
+            catch (RegexMatchTimeoutException) { return false; }
+        }
 
         // The View rules Scan Now judges a name by: with tokens, or with a whitelist (review C5); lists never null below.
         private static List<Rule> ViewRules(Ruleset ruleset) =>

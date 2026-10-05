@@ -614,22 +614,21 @@ export async function listFiles(key) {
   });
 }
 
-/** Flip the live pointer: mark one version live, all its siblings not-live (partial-unique-safe: clear first). */
-export async function setLiveVersion(version_id, actor) {
-  if (!isUuid(version_id)) { const e = new Error("version not found"); e.status = 404; throw e; }
-  const rows = await sb(`container_versions?id=eq.${encodeURIComponent(version_id)}&select=id,container_id,revision,deleted_at,information_containers(deleted_at)`);
-  const v = Array.isArray(rows) ? rows[0] : null;
-  if (!v) { const e = new Error("version not found"); e.status = 404; throw e; }
+/** Flip the live pointer: mark one version live, all its siblings not-live (partial-unique-safe: clear first). SEC-3 (0040):
+ *  the pointer is the bridge's — the version is checked to be on `key`'s project and out of Deleted items, the caller to be a
+ *  contributor or above, and only then are both writes made with the service key. */
+export async function setLiveVersion(key, version_id, actor) {
   // Refused before the sibling clear below, or a refused pointer would leave the file with no live version.
-  if (v.deleted_at || v.information_containers?.deleted_at) { const e = new Error("this version is in Deleted items — restore it first"); e.status = 409; throw e; }
+  const { proj, version: v } = await versionOnKey(key, version_id); // 400 off the project, 409 in Deleted items
+  const { requireMinRole } = await import("./members-store.mjs");
+  await requireMinRole(key, "contributor");
   // Clear the container's current live row FIRST so the partial unique index never sees two live rows.
-  await sb(`container_versions?container_id=eq.${v.container_id}&is_live=eq.true`, { method: "PATCH", body: { is_live: false }, prefer: "return=minimal" });
-  // cv_update is a contributor's: a pointer the database would not move comes back as no row — a refusal, not "set live".
-  requireRows(await sb(`container_versions?id=eq.${encodeURIComponent(version_id)}`, { method: "PATCH", body: { is_live: true }, prefer: "return=representation" }), "the live version is set by a contributor or above");
-  const c = await sb(`information_containers?id=eq.${v.container_id}&select=project_id,iso_name`);
-  const meta = Array.isArray(c) ? c[0] : null;
-  if (meta) await audit(meta.project_id, "file_version", version_id, "set live", actor || "web", null, { file: meta.iso_name, revision: v.revision });
-  return { ok: true, version_id, container_id: v.container_id };
+  await sb(`container_versions?container_id=eq.${v.container_id}&is_live=eq.true`, { method: "PATCH", body: { is_live: false }, prefer: "return=minimal", service: true });
+  // No row back is a refusal, not "set live".
+  requireRows(await sb(`container_versions?id=eq.${v.id}`, { method: "PATCH", body: { is_live: true }, prefer: "return=representation", service: true }), "the live version is set by a contributor or above");
+  const c = await sb(`information_containers?id=eq.${v.container_id}&select=iso_name`);
+  await audit(proj.id, "file_version", v.id, "set live", actor || "web", null, { file: c?.[0]?.iso_name, revision: v.revision });
+  return { ok: true, version_id: v.id, container_id: v.container_id };
 }
 
 /** Resolve a container within a project (404 when absent / not this project's). */
@@ -705,17 +704,22 @@ export async function archiveFile(key, container_id, actor) {
 /** Restore an archived file: archived versions return to 'published' (the state they held before
  *  archiving — only published versions survive the archive step) through cde_transition's archived→published
  *  move (migration 0031): lead-only for a signed-in caller, one state: row per version. A refusal stops the loop
- *  in the function's words (transition). */
-export async function unarchiveFile(key, container_id, actor) {
+ *  in the function's words (transition). SEC-3 (0040): a restore reads the version's verdict as a publish does; `override`
+ *  is the lead's reason when there is none, sent with each restore of the file. */
+export async function unarchiveFile(key, container_id, actor, override) {
   const { proj, c } = await containerOf(key, container_id);
-  let restored = 0;
-  for (const v of c.container_versions || []) {
-    if (v.state !== "archived") continue;
-    await transition(key, v.id, "published", { actor: actor || "web", note: "file restored" });
+  const archived = (c.container_versions || []).filter((v) => v.state === "archived");
+  let restored = 0, refusal = null;
+  for (const v of archived) {
+    try { await transition(key, v.id, "published", { actor: actor || "web", note: "file restored", override }); }
+    catch (e) { refusal = e; break; }
     restored++;
   }
-  // Nothing restored is nothing to record: no "unarchived" row over a file that had no archived version (cde-11).
+  // Nothing restored is nothing to record: no "unarchived" row over a file that had no archived version (cde-11). A refusal
+  // after some were restored still records those, and says how many before the function's words (SEC-3).
   if (restored) await audit(proj.id, "container", c.id, "unarchived", actor || "web", null, { iso_name: c.iso_name, restored });
+  if (refusal && !restored) throw refusal;
+  if (refusal) throw Object.assign(new Error(`${restored} of ${archived.length} archived versions restored — ${refusal.message}`), { status: refusal.status });
   return { ok: true, restored };
 }
 
@@ -812,6 +816,9 @@ export async function restoreFile(key, { container_id, version_id } = {}, actor)
 /** Register an uploaded file as a new version. Create-or-append by file name; the new version becomes live and
  *  always starts in wip (a body's `state` is ignored — publishing is cde_transition's, migration 0031). */
 export async function registerFileVersion(key, b = {}) {
+  // Geometry is the bridge's: the outbox's attachGeometry puts an item on the version its sidecar names, by id. A
+  // registration never attaches onto an existing version (0040: platform_item_id is the bridge's in every state).
+  if (b.attach_geometry === true) { const e = new Error("geometry is attached by the bridge to the version an upload names — nothing was saved"); e.status = 400; throw e; }
   const proj = await ensureProject(key);
   const name = (b.name || b.iso_name || "").trim();
   if (!name) { const e = new Error("name required"); e.status = 400; throw e; }
@@ -831,23 +838,6 @@ export async function registerFileVersion(key, b = {}) {
   if (container && parentId && container.parent_id !== parentId) {
     // Existing file republished as a link (or host registered after the link) — adopt the nesting.
     await sb(`information_containers?id=eq.${container.id}`, { method: "PATCH", body: { parent_id: parentId }, prefer: "return=minimal" });
-  }
-
-  // Geometry link, opt-in: only `attach_geometry: true` (the outbox watcher's pre-5b sidecar, which carries no
-  // version_id) attaches the platform item to the file's live version that has no geometry yet, so the version
-  // Governed Publish registered gets its geometry. Every other caller lands as its own version: a web upload
-  // whose name matched a Revit-judged version once attached onto it (files-panel.ts), and an intake's verdict
-  // once landed on a stale row (phase 5 spec, Decision 6).
-  if (container && b.platform_item_id && b.attach_geometry === true) {
-    const liveNoGeom = (container.container_versions || []).find((v) => v.is_live && !v.platform_item_id && !v.deleted_at);
-    if (liveNoGeom) {
-      // 0038: geometry on an issued version is the bridge's — the contributor check here, then the service key, written once.
-      const { requireMinRole } = await import("./members-store.mjs");
-      await requireMinRole(key, "contributor");
-      requireRows(await sb(`container_versions?id=eq.${liveNoGeom.id}&platform_item_id=is.null`, { method: "PATCH", body: { platform_item_id: b.platform_item_id }, prefer: "return=representation", service: true }), "geometry is linked to a version by a contributor or above");
-      await audit(proj.id, "file_version", liveNoGeom.id, "geometry linked", b.author || "web", null, { file: name, platform_item_id: b.platform_item_id });
-      return { container_id: container.id, iso_name: name, linked: true, version: { id: liveNoGeom.id, revision: liveNoGeom.revision, platform_item_id: b.platform_item_id, is_live: true } };
-    }
   }
 
   if (!container) {
@@ -876,7 +866,7 @@ export async function registerFileVersion(key, b = {}) {
     prefer: "return=representation",
   }))[0];
 
-  await setLiveVersion(version.id, b.author || "web");
+  await setLiveVersion(key, version.id, b.author || "web");
   await audit(proj.id, "file_version", version.id, "uploaded", b.author || "web", null,
     { file: name, revision, size_bytes: version.size_bytes, platform_item_id: version.platform_item_id });
   return { container_id: container.id, iso_name: name, version: { ...version, is_live: true } };
@@ -897,7 +887,8 @@ export async function attachGeometry(key, versionId, platformItemId) {
   const c = v && (await sb(`information_containers?id=eq.${v.container_id}&project_id=eq.${proj.id}&select=iso_name,deleted_at`))?.[0];
   if (!c) throw notOnKey();
   if (v.deleted_at || c.deleted_at) { const e = new Error(`version ${v.id} is in Deleted items — restore it first`); e.status = 409; throw e; }
-  const done = v.platform_item_id ? [] : await sb(`container_versions?id=eq.${v.id}&platform_item_id=is.null`, { method: "PATCH", body: { platform_item_id: item }, prefer: "return=representation" });
+  // 0040: a version's geometry is the bridge's — written with the service key (the outbox runs with no caller).
+  const done = v.platform_item_id ? [] : await sb(`container_versions?id=eq.${v.id}&platform_item_id=is.null`, { method: "PATCH", body: { platform_item_id: item }, prefer: "return=representation", service: true });
   if (!done?.length) {
     const e = new Error(`version ${v.id} already has geometry${v.platform_item_id ? ` (platform item ${v.platform_item_id})` : ""} — a version's geometry is attached once`);
     e.status = 409;

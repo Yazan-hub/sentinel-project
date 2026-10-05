@@ -51,9 +51,12 @@ public sealed class TokenSlot
     public string Pattern = "";           // the token's own anchored regex (org expanded); "" = anything goes
 
     /// <summary>Does <paramref name="value"/> satisfy this token alone?</summary>
-    public bool Accepts(string value) =>
-        Pattern.Length == 0 ? Regex.IsMatch(value ?? "", @"^[A-Za-z0-9\-]+$")
-                            : Regex.IsMatch(value ?? "", "^(?:" + Pattern + ")$", RegexOptions.CultureInvariant);
+    public bool Accepts(string value)
+    {
+        if (Pattern.Length == 0) return Regex.IsMatch(value ?? "", @"^[A-Za-z0-9\-]+$");
+        try { return Regex.IsMatch(value ?? "", "^(?:" + Pattern + ")$", RegexOptions.CultureInvariant, RuleRegex.MatchTimeout); }
+        catch (RegexMatchTimeoutException) { return false; } // SEC-3: a pattern past its bound accepts nothing
+    }
 
     /// <summary>What a person should type, in plain words: an example for a size, else the pattern.</summary>
     public string Expects => Token.Equals("SIZE", StringComparison.OrdinalIgnoreCase)

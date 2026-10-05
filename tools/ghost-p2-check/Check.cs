@@ -34,6 +34,15 @@ static partial class Check
         }
     };
 
+    static IEnumerable<System.Windows.DependencyObject> Descendants(System.Windows.DependencyObject root)
+    {
+        foreach (var child in System.Windows.LogicalTreeHelper.GetChildren(root).OfType<System.Windows.DependencyObject>())
+        {
+            yield return child;
+            foreach (var d in Descendants(child)) yield return d;
+        }
+    }
+
     [STAThread] // WPF: the review gate is a Window, so the check must run on an STA thread.
     static int Main()
     {
@@ -200,6 +209,13 @@ static partial class Check
         try { failing.Emit(); } catch (InvalidOperationException) { threw = true; }
         Ok(threw && failing.CanBuild && failing.StatusText == MassingPlanner.NotStarted("no plan"),
            "MAS-4: a build that could not start reopens the review with the reason — Build works again");
+        // SEC-3: the review is shown modeless (Commands.Massing) — its Cancel closes it on a click (IsCancel alone closes only a dialog).
+        var shown = new MassingReviewWindow(MassingPlanner.Validate(new MassingEstimate()));
+        shown.Show();
+        var cancelButton = Descendants(shown).OfType<System.Windows.Controls.Button>().First(b => (b.Content as string) == "Cancel");
+        cancelButton.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+        Ok(!shown.IsVisible, "SEC-3: Photo Massing's Cancel closes the review it shows modeless");
+        if (shown.IsVisible) shown.Close();
 
         // SEC-2: every model client checks its endpoint in its constructor — a host off this PC only when this PC opted in.
         static bool Refused(Action make) { try { make(); return false; } catch (ArgumentException e) { return e.Message.Contains("Nothing was read or sent"); } }

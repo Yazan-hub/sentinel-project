@@ -1,7 +1,22 @@
 import { bfetch } from "./bridge-fetch";
 
-/** The words cde_transition ends with when shared → published needs the lead's reason (migration 0031). */
+/** The words cde_transition ends with when a share, a publish or a restore needs the lead's reason (migrations 0031, 0040). */
 export const NEEDS_REASON = "needs the lead's reason";
+
+/** POST `body` (plus the trimmed reason as `override`, never a blank one). A 409 whose words ask for the lead's reason comes
+ *  back as { needsReason } so the panel can ask the lead; nothing is retried here. Any other refusal throws its words. */
+async function postAsking(url: string, body: Record<string, unknown>, override?: string): Promise<{ ok: true; j: unknown } | { needsReason: string }> {
+  const reason = override?.trim();
+  const r = await bfetch(url, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...body, ...(reason ? { override: reason } : {}) }),
+  });
+  const j = (await r.json().catch(() => null)) as { message?: string } | null;
+  const message = j?.message || `HTTP ${r.status}`;
+  if (r.status === 409 && !reason && message.includes(NEEDS_REASON)) return { needsReason: message };
+  if (!r.ok) throw new Error(message);
+  return { ok: true, j };
+}
 
 /**
  * POST /cde/versions/:vid/transition { state, actor, note, override? }. A 409 whose message says the version needs
@@ -13,14 +28,17 @@ export const NEEDS_REASON = "needs the lead's reason";
 export async function transitionVersion(
   baseUrl: string, versionId: string, state: string, opts: { actor: string; note: string; override?: string },
 ): Promise<{ ok: true } | { needsReason: string }> {
-  const override = opts.override?.trim();
-  const r = await bfetch(`${baseUrl.replace(/\/$/, "")}/cde/versions/${encodeURIComponent(versionId)}/transition`, {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ state, actor: opts.actor, note: opts.note, ...(override ? { override } : {}) }),
-  });
-  const j = (await r.json().catch(() => null)) as { message?: string } | null;
-  const message = j?.message || `HTTP ${r.status}`;
-  if (r.status === 409 && !override && message.includes(NEEDS_REASON)) return { needsReason: message };
-  if (!r.ok) throw new Error(message);
-  return { ok: true };
+  const r = await postAsking(`${baseUrl.replace(/\/$/, "")}/cde/versions/${encodeURIComponent(versionId)}/transition`,
+    { state, actor: opts.actor, note: opts.note }, opts.override);
+  return "needsReason" in r ? r : { ok: true };
+}
+
+/** POST /cde/:key/files/unarchive { container_id, actor, override? } — SEC-3: a restore reads the verdict as a publish does,
+ *  so it asks the lead's reason the same way. Answers how many archived versions were restored. */
+export async function unarchiveFile(
+  baseUrl: string, key: string, containerId: string, opts: { actor: string; override?: string },
+): Promise<{ ok: true; restored: number } | { needsReason: string }> {
+  const r = await postAsking(`${baseUrl.replace(/\/$/, "")}/cde/${encodeURIComponent(key)}/files/unarchive`,
+    { container_id: containerId, actor: opts.actor }, opts.override);
+  return "needsReason" in r ? r : { ok: true, restored: Number((r.j as { restored?: number } | null)?.restored ?? 0) };
 }

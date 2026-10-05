@@ -104,21 +104,19 @@ describe("files — a rename, the live pointer and a geometry link are refusals 
 
   it("setLiveVersion: a pointer the database would not move is a 403 and no 'set live' row", async () => {
     serve(["container_versions"]);
-    await expect(setLiveVersion(V1, "web")).rejects.toMatchObject({ status: 403, message: "the live version is set by a contributor or above — nothing was saved" });
+    await expect(setLiveVersion("demo", V1, "web")).rejects.toMatchObject({ status: 403, message: "the live version is set by a contributor or above — nothing was saved" });
     expect(ledger()).toHaveLength(0);
   });
 
-  it("registerFileVersion attach_geometry: a link the database refused is a 403 and no 'geometry linked' row", async () => {
-    serve(["container_versions"]);
+  it("registerFileVersion attach_geometry: refused in words before anything is sent, and no 'geometry linked' row", async () => {
     await expect(registerFileVersion("demo", { name: "A.ifc", platform_item_id: "item-9", attach_geometry: true, author: "outbox" }))
-      .rejects.toMatchObject({ status: 403, message: "geometry is linked to a version by a contributor or above — nothing was saved" });
+      .rejects.toMatchObject({ status: 400, message: "geometry is attached by the bridge to the version an upload names — nothing was saved" });
     expect(ledger()).toHaveLength(0);
   });
 
-  it("a stored link and a stored pointer are written as before", async () => {
-    expect(await registerFileVersion("demo", { name: "A.ifc", platform_item_id: "item-9", attach_geometry: true, author: "outbox" })).toMatchObject({ linked: true, version: { id: V1 } });
-    expect(await setLiveVersion(V1, "web")).toEqual({ ok: true, version_id: V1, container_id: C });
-    expect(ledger().map((c) => c.body.action)).toEqual(["geometry linked", "set live"]);
+  it("a stored pointer is written as before", async () => {
+    expect(await setLiveVersion("demo", V1, "web")).toEqual({ ok: true, version_id: V1, container_id: C });
+    expect(ledger().map((c) => c.body.action)).toEqual(["set live"]);
   });
 });
 
@@ -262,8 +260,8 @@ describe("Deleted items (0035) — listed, restored, and kept out of every other
   });
 
   it("setLiveVersion and attachGeometry refuse a version in Deleted items before any write (409)", async () => {
-    await expect(setLiveVersion(V2, "web")).rejects.toMatchObject({ status: 409, message: "this version is in Deleted items — restore it first" });
-    await expect(setLiveVersion(V3, "web")).rejects.toMatchObject({ status: 409 });
+    await expect(setLiveVersion("demo", V2, "web")).rejects.toMatchObject({ status: 409, message: `version ${V2} is in Deleted items — restore it first` });
+    await expect(setLiveVersion("demo", V3, "web")).rejects.toMatchObject({ status: 409 });
     expect(rest.calls.filter((c) => c.method !== "GET")).toHaveLength(0);
     await expect(attachGeometry("demo", V2, "item-1")).rejects.toMatchObject({ status: 409, message: `version ${V2} is in Deleted items — restore it first` });
     await expect(attachGeometry("demo", V3, "item-1")).rejects.toMatchObject({ status: 409 });

@@ -1,7 +1,12 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { deflateRawSync, crc32 } from "node:zlib";
 import { readFileSync } from "node:fs";
-import { extractText, MAX_DOCX_ENTRIES, MAX_DOCX_UNPACKED, MAX_DOCX_XML } from "./doc-text.mjs";
+import { Worker } from "node:worker_threads";
+import { extractText, parseInWorker, watchRss, overMemory, PARSE_TIMEOUT_MS, PARSE_HEAP_MB, MAX_DOCX_ENTRIES, MAX_DOCX_UNPACKED, MAX_DOCX_XML } from "./doc-text.mjs";
+
+// SEC-3: every .pdf and .docx parse runs in a worker, one at a time for the bridge: a parse the runner abandoned at its 5 s
+// default on a busy machine would still hold that one place, and the next rows would read the 503. The parses get 30 s.
+vi.setConfig({ testTimeout: 30_000 });
 
 const buf = (s) => Buffer.from(s, "utf8");
 
@@ -143,5 +148,54 @@ describe("extractText", () => {
 
   it("rejects a file with no extractable text with 400 naming OCR", async () => {
     await expect(extractText(buf("   "), "blank.txt")).rejects.toMatchObject({ status: 400, message: expect.stringContaining("OCR") });
+  });
+});
+
+describe("extractText — the parsers run in a worker, bounded in time and in memory (SEC-3)", () => {
+  it("reads a .pdf, a page per page", async () => {
+    const out = await extractText(readFileSync(new URL("../../demo/aster/naming-standard.pdf", import.meta.url)), "naming-standard.pdf");
+    expect(out.kind).toBe("pdf");
+    expect(out.pages[0].page).toBe(1);
+    expect(out.pages.map((p) => p.text).join(" ").length).toBeGreaterThan(100);
+  });
+
+  it("a parse past the time bound is stopped and answered in words — 422", async () => {
+    await expect(parseInWorker("docx", docx("slow"), { timeoutMs: 1 }))
+      .rejects.toMatchObject({ status: 422, message: "reading this .docx took longer than 1 s — nothing was read or saved; split the document" });
+  });
+
+  it("a parse past the memory bound is stopped and answered in words — 413", async () => {
+    await expect(parseInWorker("pdf", readFileSync(new URL("../../demo/aster/naming-standard.pdf", import.meta.url)), { heapMb: 8 }))
+      .rejects.toMatchObject({ status: 413, message: "reading this .pdf needed over 8 MB of memory — nothing was read or saved; split the document" });
+  });
+
+  it("one parse at a time: a second while one runs is a 503 in words; the next, once it ends, runs", async () => {
+    const pdf = readFileSync(new URL("../../demo/aster/naming-standard.pdf", import.meta.url));
+    const first = parseInWorker("pdf", pdf);
+    await expect(parseInWorker("pdf", pdf))
+      .rejects.toMatchObject({ status: 503, message: "another document is being read on the bridge — try again in a minute; nothing was read or saved" });
+    expect((await first).length).toBeGreaterThan(0);
+    expect((await parseInWorker("pdf", pdf)).length).toBeGreaterThan(0);
+  });
+
+  it("memory outside V8's heap (buffers) past the bound: the RSS watch stops the worker, the answer is the 413, the bridge lives", async () => {
+    const w = new Worker("const a = []; setInterval(() => a.push(Buffer.alloc(8 << 20, 1)), 10);", { eval: true });
+    const e = await new Promise((res) => watchRss(w, 64, () => res(overMemory(".docx", 64))));
+    expect(e).toMatchObject({ status: 413, message: "reading this .docx needed over 64 MB of memory — nothing was read or saved; split the document" });
+    await w.terminate();
+    expect(w.threadId).toBe(-1);
+  });
+
+  it("a file the parser cannot read is the parser's words, from the worker", async () => {
+    await expect(extractText(buf("%PDF-1.4 not really"), "broken.pdf")).rejects.toThrow();
+  });
+
+  it("the bridge's own thread never loads a parser; the bounds are the module's", () => {
+    const src = readFileSync(new URL("./doc-text.mjs", import.meta.url), "utf8");
+    expect(src).not.toMatch(/import\(["'](mammoth|unpdf)["']\)/);
+    expect(src).toContain('new Worker(new URL("./doc-parse-worker.mjs", import.meta.url)');
+    expect(src).toContain("resourceLimits: { maxOldGenerationSizeMb: heapMb }");
+    expect(src).toContain("const unwatch = watchRss(w, heapMb, () => end(reject, overMemory(what, heapMb)));");
+    expect([PARSE_TIMEOUT_MS, PARSE_HEAP_MB]).toEqual([30_000, 1024]);
   });
 });
