@@ -236,7 +236,8 @@ describe("projects-hub-panel wiring — the Deleted models view", () => {
   it("reads GET /cde/deleted, groups and filters with the pure helper, says empty, not read and 401 in words", () => {
     expect(src).toContain("bfetch(`${base}/cde/deleted`)");
     expect(src).toContain("groupDeletedModels(del.rows, f.q)");
-    expect(src).toContain("No model files in Deleted items across your ${esc(n)} project");
+    expect(src).toContain("No model files in Deleted items across your ${esc(across)}.");
+    expect(src).toContain("const across = deletedAcross(del.projects, del.not_read.length);");
     expect(src).toContain("— Deleted items not read: ${esc(p.reason)}");
     expect(src).toMatch(/r\.status === 401\) \{\n\s*el\("ph-del"\)\.innerHTML = SIGN_IN;/);
     expect(src).toContain("Loading…");
@@ -248,6 +249,15 @@ describe("projects-hub-panel wiring — the Deleted models view", () => {
     expect(src).toContain("Not restored — ${(e as Error).message}");
     expect(src).toContain("Restored ${r.iso_name} to ${r.project_name}.");
     expect(src).toContain("if (r.project_key === activePid()) refreshActiveProject();");
+  });
+  it("a restore in flight survives a ↻ and a re-render: the row is found by id, its button stays disabled", () => {
+    expect(src).toContain("const restoring = new Set<string>();");
+    expect(src).toMatch(/restoring\.has\(deletedModelId\(r\)\) \? " disabled" : ""/);
+    expect(src).toMatch(/const done = await restoreDeleted\(base, r\.project_key, r, "web"\);\n\s*restoring\.delete\(id\);\n\s*if \(del\) \{\n\s*del\.rows = del\.rows\.filter\(\(x\) => deletedModelId\(x\) !== id\);/);
+    expect(src).toContain("restoring.delete(id);");
+  });
+  it("opening the view closes the new-project form", () => {
+    expect(src).toContain("if (delOpen && formOpen) toggleForm();");
   });
   it("escapes every value it places", () => {
     for (const v of ["esc(r.iso_name)", "esc(g.name)", "esc(g.key)", "esc(g.office)", 'data-key="${esc(r.project_key)}"', "esc(r.deleted_by || \"—\")", "esc(why)"])

@@ -85,3 +85,12 @@ export function groupDeletedModels(rows: DeletedModel[], q: string): { key: stri
 /** What a Deleted models row is: the whole file and its versions, or one version and its state. */
 export const deletedModelWhat = (i: DeletedItem): string =>
   i.kind === "file" ? `whole file (${i.versions ?? 0} version${i.versions === 1 ? "" : "s"})` : `version ${i.revision ?? ""} (${i.state ?? "draft"})`;
+
+/** A Deleted models row's identity across two reads of the list (a restore in flight, a ↻): project, file, version. */
+export const deletedModelId = (r: DeletedModel): string => `${r.project_key}|${r.container_id}|${r.kind === "version" ? r.version_id ?? "" : ""}`;
+
+/** "N projects" for the bins that were read, and "(k not read)" when some were not — an unread bin is never counted as checked. */
+export function deletedAcross(projects: number, notRead: number): string {
+  const n = Math.max(0, projects - notRead);
+  return `${n} project${n === 1 ? "" : "s"}${notRead ? ` (${notRead} not read)` : ""}`;
+}

@@ -4,7 +4,7 @@ import { bfetch } from "./bridge-fetch";
 import { activePid, setActiveProjectKey, hasProjectOverride, platformProjectId, refreshActiveProject } from "./active-project";
 import { linkedProject } from "./platform-link";
 import { escapeHtml as esc } from "./escape-html";
-import { groupDeletedModels, deletedModelWhat, restoreDeleted, type DeletedModel } from "./deleted-items";
+import { groupDeletedModels, deletedModelWhat, deletedModelId, deletedAcross, restoreDeleted, type DeletedModel } from "./deleted-items";
 import { filterProjects, isDefaultFilter, countLine, groupShown, toggleGroup, DEFAULT_FILTER, NO_OFFICE_GROUP, type ProjectFilter } from "./projects-filter";
 
 /**
@@ -55,6 +55,7 @@ export function projectsHubPanel(
   let delOpen = false;
   type DeletedAcross = { rows: DeletedModel[]; not_read: { project_key: string; project_name: string; reason: string }[]; projects: number };
   let del: DeletedAcross | null = null;
+  const restoring = new Set<string>(); // rows whose Restore is in flight (deletedModelId) — their button stays disabled across re-renders
   let delSeq = 0;
 
   const root = document.createElement("div");
@@ -242,9 +243,9 @@ export function projectsHubPanel(
     const notRead = del.not_read
       .map((p) => line(`${esc(p.project_name || p.project_key)} — Deleted items not read: ${esc(p.reason)}`, "#eab308"))
       .join("");
-    const n = del.projects;
+    const across = deletedAcross(del.projects, del.not_read.length);
     const body = !del.rows.length
-      ? line(`No model files in Deleted items across your ${esc(n)} project${n === 1 ? "" : "s"}.`)
+      ? line(`No model files in Deleted items across your ${esc(across)}.`)
       : !groups.length
         ? line("No deleted model file matches the search.")
         : groups
@@ -263,7 +264,7 @@ export function projectsHubPanel(
                       `<div style="font-weight:600;color:#f3f4f6;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.iso_name)}</div>` +
                       `<div style="font-size:11px;color:#9ca3af">${esc(deletedModelWhat(r))} · deleted by ${esc(r.deleted_by || "—")} · ${esc(fmtDate(r.deleted_at))}</div></div>` +
                       `<button class="ph-del-open" data-key="${esc(r.project_key)}" style="${btn}">Open project</button>` +
-                      `<button class="ph-del-restore" data-i="${esc(del!.rows.indexOf(r))}" style="${btn}">Restore</button></div>`,
+                      `<button class="ph-del-restore" data-i="${esc(del!.rows.indexOf(r))}" style="${btn}"${restoring.has(deletedModelId(r)) ? " disabled" : ""}>Restore</button></div>`,
                   )
                   .join(""),
             )
@@ -282,7 +283,7 @@ export function projectsHubPanel(
     status(
       f.q.trim() && total
         ? `Showing ${shown} of ${total} model file${total === 1 ? "" : "s"} in Deleted items.`
-        : `${total} model file${total === 1 ? "" : "s"} in Deleted items across ${n} project${n === 1 ? "" : "s"}.`,
+        : `${total} model file${total === 1 ? "" : "s"} in Deleted items across ${across}.`,
       "#9ca3af",
       "del",
     );
@@ -291,12 +292,18 @@ export function projectsHubPanel(
   // Restore is a lead's: the bridge refuses anyone else in words, and those words are the status line.
   const restore = async (r: DeletedModel | undefined, b: HTMLButtonElement) => {
     if (!r || !del) return;
+    const id = deletedModelId(r);
+    if (restoring.has(id)) return;
+    restoring.add(id);
     b.disabled = true;
     status(`Restoring ${r.iso_name}…`, "#9ca3af", "del");
     try {
       const done = await restoreDeleted(base, r.project_key, r, "web");
-      del.rows = del.rows.filter((x) => x !== r);
-      renderDeleted();
+      restoring.delete(id);
+      if (del) {
+        del.rows = del.rows.filter((x) => deletedModelId(x) !== id); // by id: a ↻ during the restore may have re-read the list
+        renderDeleted();
+      } // else a ↻ is reading the list again — it draws the list without the restored file
       status(
         `Restored ${r.iso_name} to ${r.project_name}.` +
           (done.deleted_versions ? ` ${done.deleted_versions} version(s) deleted before it stay in Deleted items — ↻ lists them.` : ""),
@@ -305,7 +312,8 @@ export function projectsHubPanel(
       );
       if (r.project_key === activePid()) refreshActiveProject(); // the open project's panels re-read their files
     } catch (e) {
-      b.disabled = false;
+      restoring.delete(id);
+      if (del) renderDeleted(); // the row's button, maybe redrawn since the click, is enabled again
       status(`Not restored — ${(e as Error).message}`, "#ef4444", "del");
     }
   };
@@ -345,6 +353,7 @@ export function projectsHubPanel(
   const GRID_ONLY = ["ph-f-kind", "ph-f-office", "ph-f-status", "ph-f-sort"];
   const toggleDeleted = () => {
     delOpen = !delOpen;
+    if (delOpen && formOpen) toggleForm(); // the new-project form is the grid's
     const b = el("ph-deleted");
     b.textContent = delOpen ? "← Projects" : "🗑 Deleted models";
     b.setAttribute("aria-pressed", String(delOpen));

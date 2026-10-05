@@ -5,7 +5,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const { bfetch } = vi.hoisted(() => ({ bfetch: vi.fn() }));
 vi.mock("./bridge-fetch", () => ({ bfetch }));
 
-import { readDeleted, restoreDeleted, deletedItemLine, restoredLine, archivable, groupDeletedModels, deletedModelWhat, type DeletedItem, type DeletedModel } from "./deleted-items";
+import { readDeleted, restoreDeleted, deletedItemLine, restoredLine, archivable, groupDeletedModels, deletedModelWhat, deletedModelId, deletedAcross, type DeletedItem, type DeletedModel } from "./deleted-items";
 
 const res = (status: number, body: unknown) => ({ ok: status < 400, status, json: async () => body }) as unknown as Response;
 const FILE: DeletedItem = { kind: "file", container_id: "c1", iso_name: "AST-ARC.ifc", deleted_at: "2026-09-28T09:41:12Z", deleted_by: "lead@example.test", versions: 4 };
@@ -96,4 +96,18 @@ describe("groupDeletedModels — the Deleted models view", () => {
     expect(deletedModelWhat({ ...FILE, versions: 1 })).toBe("whole file (1 version)");
     expect(deletedModelWhat(VER)).toBe("version v3 (wip)");
   });
+});
+
+// The view keeps a row's identity across re-reads (a restore in flight, a ↻) and never counts an unread bin as checked.
+describe("deletedModelId / deletedAcross — the Deleted models view", () => {
+  const m = (o: Partial<DeletedModel>): DeletedModel => ({ ...FILE, project_key: "alpha", project_name: "Alpha", ...o });
+  it("a row's id is its project, file and version — equal across two reads, distinct for a file and its version", () => {
+    expect(deletedModelId(m({}))).toBe(deletedModelId({ ...m({}) }));
+    expect(deletedModelId(m({}))).not.toBe(deletedModelId(m({ kind: "version", version_id: "v9" })));
+    expect(deletedModelId(m({}))).not.toBe(deletedModelId(m({ project_key: "beta" })));
+  });
+  it.each([[3, 0, "3 projects"], [1, 0, "1 project"], [3, 1, "2 projects (1 not read)"], [2, 2, "0 projects (2 not read)"]])(
+    "%i projects, %i not read → %j", (n, k, line) => {
+      expect(deletedAcross(n, k)).toBe(line);
+    });
 });
