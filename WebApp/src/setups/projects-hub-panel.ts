@@ -4,7 +4,7 @@ import { bfetch } from "./bridge-fetch";
 import { activePid, setActiveProjectKey, hasProjectOverride, platformProjectId } from "./active-project";
 import { linkedProject } from "./platform-link";
 import { escapeHtml as esc } from "./escape-html";
-import { filterProjects, isDefaultFilter, countLine, DEFAULT_FILTER, type ProjectFilter } from "./projects-filter";
+import { filterProjects, isDefaultFilter, countLine, groupShown, toggleGroup, DEFAULT_FILTER, type ProjectFilter } from "./projects-filter";
 
 /**
  * Projects Hub (Phase 1) — the "which project?" landing above the per-project CDE board. Lists every
@@ -46,16 +46,19 @@ export function projectsHubPanel(
   let projects: Project[] = [];
   // Search + filters (in memory only: the published app cannot use browser storage).
   let f: ProjectFilter = { ...DEFAULT_FILTER };
+  // Collapsed office groups (ids from projects-filter.ts) - kept across re-renders, reloads and filter changes, never stored.
+  const collapsed = new Set<string>();
 
   const root = document.createElement("div");
   root.style.cssText =
-    "display:flex;flex-direction:column;height:100%;background:#16161a;color:#eee;font:13px system-ui;overflow:hidden;border-radius:.5rem";
+    "display:flex;flex-direction:column;height:100%;min-width:0;background:#16161a;color:#eee;font:13px system-ui;overflow:hidden;border-radius:.5rem";
   const btn =
     "border:1px solid #2c2c34;background:#1f1f27;color:#e5e7eb;border-radius:.35rem;padding:.35rem .55rem;font:600 12px system-ui;cursor:pointer";
   const inp =
     "background:#101014;border:1px solid #2c2c34;border-radius:.35rem;color:#eee;padding:.4rem .5rem;font:13px system-ui;width:100%";
   root.innerHTML =
-    '<div style="display:flex;align-items:center;gap:.4rem;padding:.55rem .6rem;border-bottom:1px solid #2a2a30">' +
+    // The header and the toolbar wrap in a narrow panel (nothing runs past its edge).
+    '<div id="ph-head" style="display:flex;flex-wrap:wrap;align-items:center;gap:.4rem;padding:.55rem .6rem;border-bottom:1px solid #2a2a30">' +
     '<span style="font-weight:600">◫ Projects</span><span style="color:#9ca3af;font-size:11px">governed CDE dataset</span>' +
     '<span style="flex:1"></span>' +
     `<button id="ph-new" style="${btn};background:#2a1e4d;border-color:#6528d7;color:#c4b5fd">+ New project</button>` +
@@ -63,15 +66,15 @@ export function projectsHubPanel(
     "</div>" +
     // The toolbar is drawn once (re-rendering only the grid keeps the search box's focus and caret); hidden until the list is read.
     '<div id="ph-tools" style="display:none;flex-wrap:wrap;align-items:center;gap:.4rem;padding:.45rem .6rem;border-bottom:1px solid #2a2a30">' +
-    `<input id="ph-q" type="search" placeholder="Search projects — name, key, office…" aria-label="Search projects" style="${inp};flex:1;min-width:11rem;width:auto" />` +
-    `<select id="ph-f-kind" aria-label="Type" style="${inp};width:auto"><option value="all">All types</option><option value="project">Projects</option><option value="office">Offices</option></select>` +
-    `<select id="ph-f-office" aria-label="Office" style="${inp};width:auto"><option value="all">All offices</option><option value="none">No office</option></select>` +
-    `<select id="ph-f-status" aria-label="Status" style="${inp};width:auto"><option value="all">All statuses</option><option value="active">Active</option><option value="archived">Archived</option></select>` +
-    `<select id="ph-f-sort" aria-label="Sort" style="${inp};width:auto"><option value="newest">Sort: Newest</option><option value="oldest">Sort: Oldest</option><option value="name">Sort: Name A–Z</option><option value="containers">Sort: Most containers</option></select>` +
+    `<input id="ph-q" type="search" placeholder="Search projects — name, key, office…" aria-label="Search projects" style="${inp};flex:1 1 14rem;min-width:0;width:auto" />` +
+    `<select id="ph-f-kind" aria-label="Type" style="${inp};width:auto;flex:0 1 auto;min-width:0;max-width:100%"><option value="all">All types</option><option value="project">Projects</option><option value="office">Offices</option></select>` +
+    `<select id="ph-f-office" aria-label="Office" style="${inp};width:auto;flex:0 1 auto;min-width:0;max-width:100%"><option value="all">All offices</option><option value="none">No office</option></select>` +
+    `<select id="ph-f-status" aria-label="Status" style="${inp};width:auto;flex:0 1 auto;min-width:0;max-width:100%"><option value="all">All statuses</option><option value="active">Active</option><option value="archived">Archived</option></select>` +
+    `<select id="ph-f-sort" aria-label="Sort" style="${inp};width:auto;flex:0 1 auto;min-width:0;max-width:100%"><option value="newest">Sort: Newest</option><option value="oldest">Sort: Oldest</option><option value="name">Sort: Name A–Z</option><option value="containers">Sort: Most containers</option></select>` +
     `<button id="ph-clear" style="${btn};display:none">Clear</button>` +
     "</div>" +
     '<div id="ph-form" style="display:none;padding:.55rem .6rem;border-bottom:1px solid #2a2a30;flex-direction:column;gap:.4rem"></div>' +
-    '<div id="ph-grid" style="flex:1;overflow:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(13rem,1fr));gap:.6rem;padding:.7rem;align-content:start"></div>' +
+    '<div id="ph-grid" style="flex:1;overflow:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(min(13rem,100%),1fr));gap:.6rem;padding:.7rem;align-content:start"></div>' +
     '<div id="ph-status" style="padding:.4rem .6rem;border-top:1px solid #2a2a30;color:#9ca3af;font-size:11px">…</div>';
 
   const el = (id: string) => root.querySelector("#" + id) as HTMLElement;
@@ -103,11 +106,11 @@ export function projectsHubPanel(
       const on = p.key === active;
       const arch = !!p.settings?.archived;
       return (
-        `<button class="ph-card" data-key="${esc(p.key)}" style="text-align:left;cursor:pointer;color:inherit;${arch ? "opacity:.45;" : ""}` +
+        `<button class="ph-card" data-key="${esc(p.key)}" style="min-width:0;text-align:left;cursor:pointer;color:inherit;${arch ? "opacity:.45;" : ""}` +
         `border:1px solid ${on ? "#6528d7" : "#23232a"};background:${on ? "#6528d714" : "#101014"};` +
         `border-radius:12px;padding:.75rem .8rem;display:flex;flex-direction:column;gap:.35rem;min-height:6.5rem">` +
         `<div style="display:flex;align-items:center;gap:.4rem">` +
-        `<span style="font:650 14px system-ui;color:#f3f4f6;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.name)}` +
+        `<span style="font:650 14px system-ui;color:#f3f4f6;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.name)}` +
         (p.kind === "office"
           ? '<span style="font:700 8.5px ui-monospace,Consolas,monospace;letter-spacing:.08em;color:#93c5fd;border:1px solid #1d4ed8;border-radius:100px;padding:.1rem .4rem;margin-left:.4rem">office</span>'
           : p.office_name
@@ -129,16 +132,33 @@ export function projectsHubPanel(
         `</button>`
       );
     };
+    // Each titled group's header toggles its cards (▾ open, ▸ collapsed) and counts the cards the filters left in it;
+    // a search opens a collapsed group for its matches ("search" hint) and it closes again when the search clears.
     el("ph-grid").innerHTML = groups
-      .map(
-        (g) =>
-          (g.title
-            ? `<div style="grid-column:1/-1;color:#9ca3af;font:600 11px system-ui;letter-spacing:.04em;text-transform:uppercase;padding:.6rem .2rem .1rem">${esc(g.title)}</div>`
-            : "") + g.rows.map((p) => card(p)).join(""),
-      )
+      .map((g) => {
+        const shown = groupShown(g.id, collapsed, f.q);
+        return (
+          (g.id
+            ? `<button class="ph-group" data-group="${esc(g.id)}" aria-expanded="${shown ? "true" : "false"}" style="grid-column:1/-1;display:flex;align-items:center;gap:.4rem;min-width:0;width:100%;background:none;border:0;cursor:pointer;text-align:left;color:#9ca3af;font:600 11px system-ui;letter-spacing:.04em;text-transform:uppercase;padding:.6rem .2rem .1rem">` +
+              `<span aria-hidden="true" style="width:.8rem">${shown ? "▾" : "▸"}</span>` +
+              `<span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(g.title)} · ${esc(g.rows.length)}</span>` +
+              (collapsed.has(g.id) && shown ? '<span style="color:#6b7280;text-transform:none;font-weight:400">(search)</span>' : "") +
+              `</button>`
+            : "") + (shown ? g.rows.map((p) => card(p)).join("") : "")
+        );
+      })
       .join("");
     root.querySelectorAll<HTMLElement>(".ph-card").forEach((b) =>
       b.addEventListener("click", () => open(b.dataset.key!)),
+    );
+    root.querySelectorAll<HTMLElement>(".ph-group").forEach((b) =>
+      b.addEventListener("click", () => {
+        const id = b.dataset.group!;
+        toggleGroup(collapsed, id);
+        renderGrid();
+        // The grid was redrawn: keep the keyboard on the header just toggled.
+        [...root.querySelectorAll<HTMLElement>(".ph-group")].find((x) => x.dataset.group === id)?.focus();
+      }),
     );
   };
 

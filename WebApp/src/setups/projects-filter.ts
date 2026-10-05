@@ -37,9 +37,22 @@ export const countLine = (f: ProjectFilter, shown: number, total: number): strin
 };
 
 export interface ProjectGroup<T> {
+  /** "o:" + the office's key, NO_OFFICE_GROUP, or "" for the untitled group (no offices at all: never collapsible). */
+  id: string;
   title: string;
   rows: T[];
 }
+
+export const NO_OFFICE_GROUP = "none";
+
+/** Flips a group in the collapsed set (in memory only); the untitled group is never collapsed. */
+export const toggleGroup = (collapsed: Set<string>, id: string): Set<string> => {
+  if (id) collapsed.has(id) ? collapsed.delete(id) : collapsed.add(id);
+  return collapsed;
+};
+
+/** A group's cards show unless it is collapsed - a search opens it for its matches, so a search never hides its own results. */
+export const groupShown = (id: string, collapsed: Set<string>, q: string): boolean => !id || !collapsed.has(id) || !!q.trim();
 
 const archived = (p: FilterableProject) => !!p.settings?.archived;
 const time = (p: FilterableProject) => Date.parse(p.created_at) || 0;
@@ -74,11 +87,12 @@ export function filterProjects<T extends FilterableProject>(
   const order = (rows: T[]) => rows.sort((a, b) => Number(archived(a)) - Number(archived(b)) || by[f.sort](a, b));
 
   const groups: ProjectGroup<T>[] = offices.map((o) => ({
+    id: "o:" + o.key,
     title: `${o.name} · office`,
     // The office's own card leads its group, as it always has.
     rows: [...(pass(o) ? [o] : []), ...order(projects.filter((p) => p.kind !== "office" && officeOf(p) === o.key && pass(p)))],
   }));
-  groups.push({ title: offices.length ? "No office" : "", rows: order(projects.filter((p) => officeOf(p) === null && pass(p))) });
+  groups.push({ id: offices.length ? NO_OFFICE_GROUP : "", title: offices.length ? "No office" : "", rows: order(projects.filter((p) => officeOf(p) === null && pass(p))) });
   const shown = groups.filter((g) => g.rows.length);
   return { groups: shown, shown: shown.reduce((n, g) => n + g.rows.length, 0), total: projects.length };
 }
