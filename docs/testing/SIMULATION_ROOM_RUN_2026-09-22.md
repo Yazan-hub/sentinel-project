@@ -1791,3 +1791,26 @@ the picker's closed-window gap live; Revit 2025–2027; MA-3b5 (Promote's own wa
 launch entries removed; the `fail` file deleted; the add-in's settings restored (sha256 `366a193f4680…`), the backup deleted;
 `unreported\ma2a-ghost` (empty) and `cache\ma2a-ghost` deleted. Left on the shared ledger (a scratch key): on `ma2a-ghost` the Ghost
 changeset (applied) and rows #1877–#1880. Left on this PC: the scratch copy in `Documents\Sentinel drills\ma3b4\` (saved; never committed).
+
+## Session MA3b5 — Promote reads and files off Revit's thread, live (2026-10-05 ~02:15 → 02:36 local, branch feature/ma3b5-promote-no-wait b6a019f, Claude driving Revit 2024)
+
+Setup: the branch build b6a019f deployed to Revit 2024 on the founder's OK given ahead ("MA-3b5 go, deploy the ma3b5 branch to 2024";
+DLL `abfa3fe8cf46…`). The add-in's settings backed up and pointed at the drill's door on 127.0.0.1:4101, in front of the test bridge on
+4102 (this checkout's bridge code); with `slowfile` beside it the door held the answer to the first `POST /changesets/<key>` 90 s (C2).
+The project `ma3b5` (scratch). Two scratch copies of the B35 seed, `ma3b5-a.rvt` (bound to `ma3b5`, view `WIP_FP_GR_FFL`) and
+`ma3b5-b.rvt`, open in one Revit; Revit signed in.
+
+| Row | Result | Evidence |
+|---|---|---|
+| P-1 | Promote (DD) in `ma3b5-a` ▸ Yes (3 storeys). While the door held the filing: (a) Revit answered (selection, views) — before the door's `answered` line (C1); (b) Review AI Proposals → the Busy dialog naming Promote, no picker; (c) a second Promote → Busy at 02:30:23, before the door's `answered … 00:31:32Z` (02:31:32 local); (d) the review window opened by itself ≥ 90 s after Yes, with no click; (e) the Doctor log `Promote (DD): 3 of 3 changeset(s) filed (confirmed by the bridge)` and the receipt line through Revit's dispatcher (C1e, C8) — ledger #1891 (run 1), #1901 (run 2); GET exactly 3 `proposed` (`GR-FFL`, `01-FFL`, `MA0 Roof`). Run twice (the first three withdrawn between runs) — **pass** | dialogs, Doctor log, door log, GET |
+| P-2 (first half: the plan hop's refusal, C9) | **not run — owed**: the door was restarted without `slowread`, so the read was not held and the 8 s switch did not happen. Per C9 it is recorded owed, not re-run. | — |
+| P-2 (second half: the open hop's refusal and the release) | Promote (DD) in `ma3b5-a` ▸ Yes, then — in the same batch, mid-filing — a switch to `ma3b5-b`. When the filing landed (02:34:42): `Promote (DD): 3 of 3 changeset(s) filed (confirmed by the bridge) – the filing is done.`, the receipt `ledger #1915`, and a dialog in `ma3b5-b`: `Sentinel did not open the review of the changesets Promote filed: switch back to ma3b5-a — nothing was changed.` / `3 changeset(s) Promote filed wait for review — in "ma3b5-a", run Review AI Proposals (or Promote (DD): it opens a Promote storey waiting for review before it plans again).` (the same words in the Doctor log); nothing changed in `ma3b5-b`. Back in `ma3b5-a`, Promote (DD) → **no** Busy (the guard released), the Doctor log's reading line (`02:35:23 Promote (DD): reading the bridge …`), and the review window of the waiting storey `Promote (DD) · GR-FFL` opened (C10: the bridge's first) — **pass** | dialog, Doctor log, review window |
+
+**Owed:** P-2's first half (the plan hop's refusal live, C9); Revit 2025–2027; the stall rule live (pure check §52); a filing that throws
+(§52, §52b); MA-3b4's owed rows (R-3, the open-time guard live, Ghost Builder's decline path live). Noted: the Doctor log shows some
+lines twice (seen before MA-3b5).
+
+**Closing list:** both review windows closed without Apply; Revit closed without saving either copy; the door and the test bridge
+stopped and their launch entries removed; `slowfile` deleted; the add-in's settings restored (sha256 `366a193f4680…`), the backup
+deleted; `cache\ma3b5` deleted (no `unreported\ma3b5`). Left on the shared ledger (a scratch key): on `ma3b5` the last three Promote
+changesets (proposed), the six earlier ones withdrawn, and their rows up to #1915.

@@ -756,7 +756,7 @@ Promote's own waits (its reads and its filing) are MA-3b5.
 with:
 
 ```markdown
-Promote's own waits (its reads and its filing): BUILT on `feature/ma3b5-promote-no-wait` (MA-3b5), drill MA3b5 pending — Promote reads on a pool thread, plans and asks back on Revit's thread in the model it started from (DocPin), files on a pool thread (after the first filing the bridge did not answer, the rest are not sent) and opens the review by itself through a second DocPin hop; it shares the review's guard, so a second Promote or Review AI Proposals during its wait is refused in words that name it. Its dialog counting carried declines is MA-3b6.
+Promote's own waits (its reads and its filing): LANDED in MA-3b5 (merge 2026-10-05), drill MA3b5: P-1 and P-2 (the open hop) passed; owed: P-2 (the plan hop live), Revit 2025–2027 — Promote reads on a pool thread, plans and asks back on Revit's thread in the model it started from (DocPin), files on a pool thread (after the first filing the bridge did not answer, the rest are not sent) and opens the review by itself through a second DocPin hop; it shares the review's guard, so a second Promote or Review AI Proposals during its wait is refused in words that name it. Its dialog counting carried declines is MA-3b6.
 ```
 
 - [ ] **Step 2: The final checks.** From the repo root, every check project:
