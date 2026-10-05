@@ -25,6 +25,13 @@ export const cdeConfigured = () => !!(URL && KEY);
  *  error that surfaces as a 500. Guard at every entry point that takes a caller's id: a malformed id
  *  can never match a row, so it is a plain 404 — decided before any network call. */
 export const isUuid = (v) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v || ""));
+/** SEC-1 (A): a topic's or a viewpoint's guid — the UUID a caller sent, or a new one when none was sent (the web and Revit send
+ *  none); anything else is a 400 before anything is saved. */
+export function guidOrNew(v) {
+  if (v == null || v === "") return randomUUID();
+  if (!isUuid(v)) throw Object.assign(new Error("a guid is a UUID (8-4-4-4-12 hex) — nothing was saved"), { status: 400 });
+  return String(v);
+}
 /** True once JWT-forwarding is armed (anon key present). Forwarding still only kicks in per-request when a
  *  caller actually presents a Supabase JWT; otherwise sb() uses the service key. */
 export const forwardingConfigured = () => !!ANON;
@@ -2033,7 +2040,7 @@ export function newTopicObject(pid, b = {}, now = new Date().toISOString()) {
   // Publish) keep their self-label.
   const author = resolveActor(b.creation_author, "web");
   return {
-    guid: b.guid || randomUUID(), project_id: pid, model: b.model || "",
+    guid: guidOrNew(b.guid), project_id: pid, model: b.model || "",
     title: b.title || "Untitled", topic_type: b.topic_type || "Issue",
     topic_status: b.topic_status || "Open", priority: b.priority || "Normal",
     assigned_to: b.assigned_to || "", due_date: b.due_date || null,

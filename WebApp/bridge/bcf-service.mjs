@@ -2009,7 +2009,7 @@ async function handleRequest(req, res) {
       const b = await readBody(req);
       const now = new Date().toISOString();
       const c = { guid: randomUUID(), date: now, author: resolveActor(b.author, "web"),
-        comment: b.comment || "", viewpoint_guid: b.viewpoint_guid || null };
+        comment: b.comment || "", viewpoint_guid: b.viewpoint_guid ? cde.guidOrNew(b.viewpoint_guid) : null };
       topic.comments.push(c);
       topic.history.push({ date: now, author: c.author, action: "Comment added" });
       topic.modified_date = now;
@@ -2020,7 +2020,7 @@ async function handleRequest(req, res) {
     // POST viewpoint (camera + selected GlobalIds)
     if (req.method === "POST" && sub === "viewpoints") {
       const b = await readBody(req);
-      const v = { guid: b.guid || randomUUID(), perspective_camera: b.perspective_camera || null,
+      const v = { guid: cde.guidOrNew(b.guid), perspective_camera: b.perspective_camera || null,
         components: b.components || { selection: [] }, clipping_planes: b.clipping_planes || [],
         snapshot: b.snapshot || null };
       topic.viewpoints.push(v);
