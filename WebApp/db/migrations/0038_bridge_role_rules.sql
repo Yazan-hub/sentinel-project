@@ -19,8 +19,11 @@
 --   6 · element_snapshots: written by the bridge alone and removed only by a cascade; a row's project is its revision's
 --       project (a composite key). model_revisions: no signed-in INSERT or UPDATE (the bridge writes the header).
 --
--- NOT YET APPLIED. Before the apply: probes/0038_probe.sql part 0 reads true (read-only), and the 4100 bridge runs the branch
--- that writes these tables with the service key (safe on either side of the apply). After it: the probe's parts 1 and 2.
+-- APPLIED 2026-10-05 ~03:26 local on the founder's "apply" (migration 0038_bridge_role_rules), AFTER the 4100 bridge was
+-- restarted on the branch a3d155a (by Claude, on the founder's word); probes/0038_probe.sql part 0 3 of 3 true before it,
+-- part 1 10 of 10 true, part 2 "PROBE 0038: 28 of 28 as expected." Before it: probes/0038_probe.sql part 0 reads true
+-- (read-only), and the 4100 bridge runs the branch that writes these tables with the service key (safe on either side of
+-- the apply). After it: the probe's parts 1 and 2.
 --
 -- ROLLBACK (if needed): 0037's bridge_docs_floor; 0024's bim_documents_insert and bim_documents_update; 0022's
 -- deliverables_update; 0033's bcf_topics_insert and bcf_topics_update; 0002's cde_protect_published (0012's search_path);

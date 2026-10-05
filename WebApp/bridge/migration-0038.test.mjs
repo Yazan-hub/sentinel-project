@@ -10,8 +10,10 @@ const PROBE = read("../db/migrations/probes/0038_probe.sql");
 const code = SQL.split("\n").filter((l) => !l.trimStart().startsWith("--")).join("\n");
 
 describe("migration 0038 — the database holds the bridge's write rules (SEC-1)", () => {
-  it("is not applied yet, and says what must hold before and after the apply", () => {
-    expect(SQL).toContain("NOT YET APPLIED");
+  it("records its apply and the probe's pass, and says what must hold before and after the apply", () => {
+    expect(SQL).toContain("APPLIED 2026-10-05");
+    expect(SQL).not.toContain("NOT YET APPLIED");
+    expect(SQL).toContain('"PROBE 0038: 28 of 28 as expected."');
     expect(SQL).toContain("probes/0038_probe.sql part 0");
     expect(code.trim().startsWith("begin;")).toBe(true);
     expect(code.trim().endsWith("commit;")).toBe(true);
