@@ -78,11 +78,17 @@ describe("migration 0038 — the database holds the bridge's write rules (SEC-1)
   it("the bridge writes every table 0038 closes with the service key, after its own role check — safe on either side of the apply", () => {
     const count = (text, s) => text.split(s).length - 1;
     const DOCS = read("./bimdocs-store.mjs"), OFFICE = read("./office-store.mjs"), ROUTES = read("./bcf-service.mjs"), CDE = read("./cde-store.mjs");
-    expect(count(DOCS, 'prefer: "return=representation", service: true }), EDITED)')).toBe(2); // the transition and the publish
-    expect(count(DOCS, 'prefer: "return=representation" }), EDITED)')).toBe(0);
+    // every document write lands only on the document as it was read, with the service key; no row back is a 409 in words
+    expect(DOCS).toContain("const rows = await sb(`bim_documents?id=eq.${enc(doc.id)}&project_id=eq.${enc(doc.project_id)}${where}`,");
+    expect(count(DOCS, "bim_documents?id=eq.")).toBe(2); // writeDoc, and getDoc's read
+    // the transition and the publish: the status and the updated_at it was read with (the publish's version after it)
+    expect(DOCS).toContain("const writeStatus = (doc, status) => writeDoc(doc, { status }, `&status=eq.${enc(doc.status)}&updated_at=eq.${enc(doc.updated_at)}`);");
+    expect(DOCS).toContain("const row = await writeStatus(doc, to);");
+    expect(DOCS).toContain('const issued = await writeStatus(doc, "published");');
+    expect(DOCS.indexOf('const issued = await writeStatus(doc, "published");')).toBeLessThan(DOCS.indexOf('await sb("bim_document_versions", { method: "POST"'));
     // the four section writers land only on the document as it was read (C7)
     expect(count(DOCS, "const row = await patchSections(doc, sections, updated_at);")).toBe(4);
-    expect(DOCS).toContain("&status=in.(wip,shared)${same}");
+    expect(DOCS).toContain("writeDoc(doc, { sections }, `&status=in.(wip,shared)${updated_at ? `&updated_at=eq.${enc(doc.updated_at)}` : \"\"}`);");
     expect(DOCS).toContain('prefer: "return=representation", service: true });\n  if (!Array.isArray(rows) || !rows.length) throw err(409, "the document changed or was issued meanwhile — nothing was saved");');
     expect(DOCS).toContain('await requireMinRole(key, "viewer"); // 0038');
     expect(DOCS).toContain("{ comments: [comment], rev: 1 }, { service: true });");

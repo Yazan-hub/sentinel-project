@@ -2,7 +2,7 @@
 // Thin PostgREST wrapper in the exact idiom of cde-store.mjs: state machine + append-only versions
 // enforced here + in the DB (0020); every write audited into the project's hash-chained trail.
 import { createHash, randomUUID } from "node:crypto";
-import { sb, ensureProject, audit, isUuid, docGet, docInsert, docReplaceIfField, requireRows } from "./cde-store.mjs";
+import { sb, ensureProject, audit, isUuid, docGet, docInsert, docReplaceIfField } from "./cde-store.mjs";
 import { loadTemplates, instantiateTemplate, validateTransition, buildSnapshot } from "./bimdocs-logic.mjs";
 import { CHECKS, getCheck, runCheck, PLANNED_CHECKS } from "./check-registry.mjs";
 import { requireMinRole } from "./members-store.mjs";
@@ -16,19 +16,22 @@ const err = (status, message) => Object.assign(new Error(message), { status });
 const enc = encodeURIComponent;
 const h8 = (text) => createHash("sha256").update(text).digest("hex").slice(0, 8);
 // bim_documents has no signed-in UPDATE (0038): every document write below runs after this file's own role check and goes with
-// the service key. A transition or a publish that came back with no row is answered by requireRows in these words, a section
-// write by patchSections' 409 — each BEFORE its ledger row (H0 D5).
-const EDITED = "a document is edited by a contributor or above";
-/** 0038: a section write — after the caller's role check, with the service key — lands only on the document as it was read:
- *  its own project, still wip or shared, and (when the caller sent the updated_at it loaded) unchanged since. An edit or a
- *  publish that landed between the read and this write leaves no row: a 409 in words, before any ledger row. */
-async function patchSections(doc, sections, updated_at) {
-  const same = updated_at ? `&updated_at=eq.${enc(doc.updated_at)}` : "";
-  const rows = await sb(`bim_documents?id=eq.${enc(doc.id)}&project_id=eq.${enc(doc.project_id)}&status=in.(wip,shared)${same}`,
-    { method: "PATCH", body: { sections, updated_at: new Date().toISOString() }, prefer: "return=representation", service: true });
+// the service key, filtered on the document as it was read. A write that came back with no row is a 409 in words, BEFORE its
+// ledger row (H0 D5).
+/** 0038: a document write — after the caller's role check, with the service key — lands only on the document as it was read:
+ *  its own project plus `where` (its status, its updated_at). An edit, a transition or a publish that landed between the read
+ *  and this write leaves no row: a 409 in words. */
+async function writeDoc(doc, body, where) {
+  const rows = await sb(`bim_documents?id=eq.${enc(doc.id)}&project_id=eq.${enc(doc.project_id)}${where}`,
+    { method: "PATCH", body: { ...body, updated_at: new Date().toISOString() }, prefer: "return=representation", service: true });
   if (!Array.isArray(rows) || !rows.length) throw err(409, "the document changed or was issued meanwhile — nothing was saved");
   return rows[0];
 }
+/** A section write: the document still wip or shared, and (when the caller sent the updated_at it loaded) unchanged since. */
+const patchSections = (doc, sections, updated_at) =>
+  writeDoc(doc, { sections }, `&status=in.(wip,shared)${updated_at ? `&updated_at=eq.${enc(doc.updated_at)}` : ""}`);
+/** A status write: the document in the status and at the updated_at it was read with. */
+const writeStatus = (doc, status) => writeDoc(doc, { status }, `&status=eq.${enc(doc.status)}&updated_at=eq.${enc(doc.updated_at)}`);
 
 export const listTemplates = () =>
   loadTemplates().map((t) => ({ doc_type: t.doc_type, title: t.title, sections: t.sections.length }));
@@ -82,7 +85,7 @@ export async function transitionDoc(key, docId, { to, actor } = {}) {
   await requireMinRole(key, "lead"); // publish/transition/bindings govern the record — lead and above
   const doc = await getDoc(key, docId);
   if (!validateTransition(doc.status, to)) throw err(400, `invalid transition ${doc.status} → ${to}`);
-  const row = one(requireRows(await sb(`bim_documents?id=eq.${enc(docId)}`, { method: "PATCH", body: { status: to, updated_at: new Date().toISOString() }, prefer: "return=representation", service: true }), EDITED));
+  const row = await writeStatus(doc, to);
   await audit(doc.project_id, "bim_document", docId, "transitioned", actor || "web", { status: doc.status }, { status: to });
   return row;
 }
@@ -93,10 +96,18 @@ export async function publishDoc(key, docId, { label, actor } = {}) {
   if (doc.status !== "shared") throw err(400, `only shared documents can be published (current: ${doc.status})`);
   const versions = await sb(`bim_document_versions?document_id=eq.${enc(docId)}&select=version_no&order=version_no.desc&limit=1`);
   const version_no = (one(versions)?.version_no || 0) + 1;
+  // The status first, on the document as it was read: a write that landed meanwhile leaves no row (a 409) and no version
+  // is recorded. The append-only version is then the snapshot of exactly what was published; if it cannot be recorded,
+  // the document goes back to shared and the error stands.
+  const issued = await writeStatus(doc, "published");
   // published_by is the append-only, contractual record of who issued this version: the signed-in lead's verified
   // identity, never the body's name (bimdocs-3). The machine credential keeps its label.
-  await sb("bim_document_versions", { method: "POST", body: buildSnapshot(doc, label || `v${version_no}`, resolveActor(actor, "web"), version_no) });
-  requireRows(await sb(`bim_documents?id=eq.${enc(docId)}`, { method: "PATCH", body: { status: "published", updated_at: new Date().toISOString() }, prefer: "return=representation", service: true }), EDITED);
+  try {
+    await sb("bim_document_versions", { method: "POST", body: buildSnapshot(doc, label || `v${version_no}`, resolveActor(actor, "web"), version_no) });
+  } catch (e) {
+    await writeStatus(issued, "shared").catch(() => {});
+    throw e;
+  }
   await audit(doc.project_id, "bim_document", docId, "published", actor || "web", null, { version_no, label: label || `v${version_no}` });
   return { version_no };
 }
