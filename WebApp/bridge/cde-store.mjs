@@ -153,9 +153,29 @@ function mergeMeta(meta, patch) {
   // (PUT /cde/:key/artefacts/:kind). A value already in the column is left in place and read by nothing.
   for (const k of ["standards_pack", "rate_pack", "boq_baseline", "carbon_baseline"]) if (patch[k] !== undefined) out[k] = patch[k];
   if (patch.dimensions) out.dimensions = { ...(meta.dimensions || {}), ...patch.dimensions };
-  if (patch.snapshot) out.snapshot = { ...(meta.snapshot || {}), ...patch.snapshot };
+  if (patch.snapshot) {
+    const merged = { ...(meta.snapshot || {}), ...patch.snapshot };
+    const why = snapshotWhy(patch.snapshot) ?? snapshotWhy(merged); // the patch, then what is stored with it
+    if (why) throw Object.assign(new Error(`the project's snapshot: ${why} — nothing was saved`), { status: 400 });
+    out.snapshot = merged;
+  }
   out.updated_at = new Date().toISOString();
   return out;
+}
+// What a project's snapshot holds (SEC-2): the fields the web writes. Migration 0039's project_snapshot_ok holds the same rule.
+export const SNAPSHOT_NUMBERS = ["open_issues", "hard_clashes", "health", "compliance", "cost_total", "carbon_tco2e",
+  "handover_readiness", "handover_complete", "handover_total"];
+export const SNAPSHOT_TEXT = ["carbon_basis", "handover_at"];
+/** Why a snapshot does not fit, or null. */
+export function snapshotWhy(s) {
+  if (typeof s !== "object" || s === null || Array.isArray(s)) return "a snapshot is an object";
+  for (const [k, v] of Object.entries(s)) {
+    if (k === "currency") { if (typeof v !== "string" || !/^[A-Z]{3}$/.test(v)) return "currency is three capital letters (an ISO 4217 code)"; }
+    else if (SNAPSHOT_NUMBERS.includes(k)) { if (typeof v !== "number" || !Number.isFinite(v)) return `${k} is a number`; }
+    else if (SNAPSHOT_TEXT.includes(k)) { if (typeof v !== "string" || v.length > 300 || /[<>]/.test(v)) return `${k} is text of at most 300 characters, without < or >`; }
+    else return `'${k.slice(0, 40)}' is not a snapshot field`;
+  }
+  return null;
 }
 /** Test seam: mergeMeta is module-private by design; this exposes it for unit tests only. */
 export const mergeMetaForTest = mergeMeta;
@@ -194,6 +214,16 @@ export async function getProjectMeta(key, seed) {
   const gates = await gateRows(proj.id);
   if (proj.metadata && Object.keys(proj.metadata).length > 0) return toProjectShape(proj, gates);
   const { stage: _stage, gates: _gates, ...seeded } = seed || {};
+  // 0039: the local seed's snapshot keeps only the fields that fit; each one dropped is said, once, in the bridge's log.
+  if (seeded.snapshot !== undefined) {
+    const kept = {};
+    for (const [k, v] of Object.entries(seeded.snapshot ?? {})) {
+      const why = snapshotWhy({ [k]: v });
+      if (why) console.warn(`[projects] '${key}': the local snapshot field '${k}' is not migrated (${why})`);
+      else kept[k] = v;
+    }
+    seeded.snapshot = kept;
+  }
   const metadata = { ...defaultMeta(), ...(Object.keys(seeded).length ? seeded : {}) }; // complete metadata on seed
   const row = (await sb(`projects?id=eq.${proj.id}`, { method: "PATCH", body: { metadata }, prefer: "return=representation" }))?.[0];
   // F-MA3a-1: under a forwarded session only a lead or owner may write the project — a refused write answers no row. A read
@@ -2019,7 +2049,10 @@ export async function bcfListTopics(pid, { status, model } = {}, localTopics) {
   // Under a signed-in caller's session no insert is attempted: bcf_topics has no signed-in writer (0038), and every topic
   // write goes through bcfCreateTopic's own contributor check.
   if ((!rows || !rows.length) && !currentUserToken() && Array.isArray(localTopics) && localTopics.length) {
-    await sb(`bcf_topics`, { method: "POST", body: localTopics.map(bcfRow), prefer: "return=minimal" });
+    // 0039: a topic's guid is a UUID — a local topic with another guid is not migrated, and the log says which.
+    const fit = localTopics.filter((t) => isUuid(t?.guid));
+    for (const t of localTopics) if (!fit.includes(t)) console.warn(`[topics] '${pid}': the local topic '${t?.guid}' is not migrated (its guid is not a UUID)`);
+    if (fit.length) await sb(`bcf_topics`, { method: "POST", body: fit.map(bcfRow), prefer: "return=minimal" });
     rows = await sb(q);
   }
   return (rows || [])

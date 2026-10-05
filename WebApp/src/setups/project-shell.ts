@@ -183,15 +183,14 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
   };
 
   const persistSnapshot = (key: string) => {
-    const snap: Record<string, number | string> = { currency: kpis.currency };
-    if (kpis.open != null) snap.open_issues = kpis.open;
-    if (kpis.hard != null) snap.hard_clashes = kpis.hard;
-    if (kpis.health != null) snap.health = Math.round(kpis.health);
-    if (kpis.compliance != null) snap.compliance = Math.round(kpis.compliance);
-    if (kpis.cost != null) snap.cost_total = Math.round(kpis.cost);
+    // 0039: a project's snapshot keeps a currency of three capitals (ISO 4217); another is shown on the tile, not stored.
+    const snap: Record<string, number | string> = /^[A-Z]{3}$/.test(kpis.currency) ? { currency: kpis.currency } : {};
+    const num = (k: string, v: number | null) => { if (v != null && Number.isFinite(v)) snap[k] = Math.round(v); };
+    num("open_issues", kpis.open); num("hard_clashes", kpis.hard); num("health", kpis.health); num("compliance", kpis.compliance); num("cost_total", kpis.cost);
     bfetch(`${base}/projects/${encodeURIComponent(key)}`, {
       method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ snapshot: snap }),
-    }).catch(() => {});
+    }).then(async (r) => { if (!r.ok) console.warn("[snapshot] not saved — " + ((await r.json().catch(() => null))?.message ?? `HTTP ${r.status}`)); })
+      .catch((e) => console.warn("[snapshot] not saved — " + (e?.message ?? String(e))));
   };
 
   // ── the stage gate (standards-as-code at EVERY boundary — see sentinel-core/gates.ts) ──
