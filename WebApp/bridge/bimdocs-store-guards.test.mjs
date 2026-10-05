@@ -426,3 +426,15 @@ describe("ingest commit — the original must belong to this project (H0, bimdoc
     expect(await getSourceRef("k", doc.id)).toEqual({ file_id: "f.txt", name: "a.txt", project_id: "proj1" });
   });
 });
+
+describe("a section's state is a known one before the write (0039's sections check, said in words)", () => {
+  it.each([[""], [null], [0]])("state %j is a 400 in words, and nothing is written", async (state) => {
+    globalThis.__testRole = undefined;
+    doc = readinessDoc();
+    sb.mockClear(); audit.mockClear();
+    sb.mockImplementation(async () => [doc]);
+    await expect(patchSection("k", doc.id, "d1", { state })).rejects.toMatchObject({ status: 400, message: expect.stringContaining("invalid section transition") });
+    expect(sb.mock.calls.some(([, o]) => o?.method === "PATCH")).toBe(false);
+    expect(audit).not.toHaveBeenCalled();
+  });
+});

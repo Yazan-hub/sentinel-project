@@ -1,8 +1,11 @@
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+#if !SENTINEL_CHECK
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.ExtensibleStorage;
+#endif
 
 namespace Sentinel.Engine;
 
@@ -12,7 +15,9 @@ namespace Sentinel.Engine;
 ///             travels with the central file to every team member).
 ///   Layer 2 — %AppData%\Sentinel\config.json (machine-level default; works
 ///             for offices on plain file servers or ACC Desktop Connector).
-/// Resolution order: document ES first, JSON fallback second.
+/// Resolution order: document ES first, JSON fallback second — but the model endpoint, the model names, the mapping
+/// schema, the family library and the cloud opt-in are this PC's alone (SEC-2, <see cref="SettingsManager.Merge"/>):
+/// a model never carries them.
 /// </summary>
 public sealed class SentinelSettings
 {
@@ -37,11 +42,13 @@ public sealed class SentinelSettings
     // (cohesion 4b-2). An old payload's ghost_layer_ruleset_path, ghost_guideline_path and ghost_type_catalog_path
     // are ignored on read and dropped by the next save.
     [JsonPropertyName("ghost_model")] public string GhostModel { get; set; } = "qwen2.5:7b-instruct";          // local Ollama model for the unknown-layer gaps
-    [JsonPropertyName("ollama_url")] public string OllamaUrl { get; set; } = "http://localhost:11434/api/generate";
+    [JsonPropertyName("ollama_url")] public string OllamaUrl { get; set; } = LocalOnly.DefaultModelUrl;
     [JsonPropertyName("ghost_cloud_opt_in")] public bool GhostCloudOptIn { get; set; } = false;                 // OFF: no drawing leaves the machine
     // P2 SENSE: a SCOPED folder of supporting docs (PDF/specs/sketches) the agent may read — and ONLY this
     // folder. Empty -> no document context (P1 behaviour). Read locally; nothing leaves the machine.
     [JsonPropertyName("ghost_source_folder")] public string GhostSourceFolder { get; set; } = string.Empty;
+    // SEC-2: set by Merge — the source folder is the model's own (checked as one: no share path), not this PC's.
+    [JsonIgnore] public bool SourceFolderFromModel { get; set; }
 
     // F-S2-3 / BG-3: the Revit Doctor may apply Revit's own fix to a slightly-off-axis line in this project — a DOCUMENT fact
     // (Project Setup, project scope), honoured only when the document is bound to a web project. OFF: the Doctor only logs.
@@ -50,24 +57,72 @@ public sealed class SentinelSettings
     [JsonPropertyName("ghost_vision_model")] public string GhostVisionModel { get; set; } = "llava"; // local VLM for sketches/renders (llava = widely-supported arch)
 
     // An old payload's "master_ruleset_path" is ignored on read (the ruleset comes from the web project), so an
-    // ES that held only that path reads as empty. ProjectCode counts: an ES holding only a project code is real.
+    // ES that held only that path reads as empty. ProjectCode counts: an ES holding only a project code is real. The PC-only
+    // fields (SEC-2) do not count: a model holding only those reads as empty.
     [JsonIgnore] public bool IsEmpty =>
         string.IsNullOrWhiteSpace(RevitTemplatePath) && string.IsNullOrWhiteSpace(ProjectCode)
-        && string.IsNullOrWhiteSpace(GhostSourceFolder) && string.IsNullOrWhiteSpace(GhostFamilyLibraryDir)
+        && string.IsNullOrWhiteSpace(GhostSourceFolder)
         && string.IsNullOrWhiteSpace(WebProjectKey) && !DoctorAxisFix;
 }
 
 public static class SettingsManager
 {
-    private static readonly Guid SchemaGuid = new("A3F81C2D-6E4B-4D9A-B7C0-2E5F8A1D3B66");
-    private const string FieldName = "ConfigJson";
-    private const string StorageName = "Sentinel.Config";
-
     private static readonly JsonSerializerOptions JsonOpts = new() { WriteIndented = true };
 
     public static string ConfigJsonPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "Sentinel", "config.json");
+
+    // ---------------- SEC-2: what a model may carry (pure; tools/project-context-check) ----------------
+
+    /// <summary>The fields a model never carries: the model endpoint, the model names, the mapping schema, the family library
+    /// and the cloud opt-in are this PC's config.json (or the defaults) alone.</summary>
+    public static readonly string[] PcOnlyKeys =
+        { "ollama_url", "ghost_model", "ghost_vision_model", "ghost_mapping_schema_path", "ghost_family_library_dir", "ghost_cloud_opt_in" };
+
+    /// <summary>Effective settings: the model's own fields (template, project code, web project, source folder, Doctor) and the
+    /// PC-only fields from this PC alone. A blank source folder is the PC's; a set one is marked as the model's.</summary>
+    public static SentinelSettings Merge(SentinelSettings? project, SentinelSettings? machine)
+    {
+        var pc = machine ?? new SentinelSettings();
+        if (project is null) return pc;
+        project.OllamaUrl = pc.OllamaUrl;
+        project.GhostModel = pc.GhostModel;
+        project.GhostVisionModel = pc.GhostVisionModel;
+        project.GhostMappingSchemaPath = pc.GhostMappingSchemaPath;
+        project.GhostFamilyLibraryDir = pc.GhostFamilyLibraryDir;
+        project.GhostCloudOptIn = pc.GhostCloudOptIn;
+        project.GhostSourceFolder = (project.GhostSourceFolder ?? "").Trim(); // Project Setup compares its trimmed box with it
+        project.SourceFolderFromModel = project.GhostSourceFolder.Length > 0;
+        if (!project.SourceFolderFromModel) project.GhostSourceFolder = pc.GhostSourceFolder;
+        return project;
+    }
+
+    /// <summary>The JSON a model stores: every field but the PC-only ones, indented.</summary>
+    public static string DocumentPayload(SentinelSettings settings)
+    {
+        var o = JsonSerializer.SerializeToNode(settings, JsonOpts)!.AsObject();
+        foreach (var k in PcOnlyKeys) o.Remove(k);
+        return o.ToJsonString(JsonOpts);
+    }
+
+    /// <summary>The one check Ghost Builder, Photo Massing and Datum make after Resolve, before they read or send anything:
+    /// null, or the words to show. <paramref name="callsModel"/>: the tool calls the model (Datum does not);
+    /// <paramref name="addinDirForSchema"/>: the tool reads the mapping schema (Ghost Builder), from that folder or Sentinel\schemas.</summary>
+    public static string? ToolRefusal(SentinelSettings s, bool callsModel, string? addinDirForSchema = null) =>
+        LocalOnly.FolderRefusal(s.GhostSourceFolder, s.SourceFolderFromModel)
+        ?? LocalOnly.FolderRefusal(s.GhostFamilyLibraryDir, fromModel: false)
+        ?? (callsModel ? LocalOnly.ModelUrlRefusal(s.OllamaUrl, s.GhostCloudOptIn) : null)
+        ?? (callsModel && s.SourceFolderFromModel && LocalOnly.Where(s.OllamaUrl) is var at && at != "on this PC"
+            ? $"This model names the folder \"{s.GhostSourceFolder.Trim()}\" and the model is {at}: Sentinel sends files to a model off this PC "
+              + "only from a folder this PC's config.json names. Nothing was read or sent."
+            : null)
+        ?? (addinDirForSchema is null ? null : LocalOnly.SchemaRefusal(s.GhostMappingSchemaPath, addinDirForSchema, LocalOnly.SchemasDir));
+
+#if !SENTINEL_CHECK
+    private static readonly Guid SchemaGuid = new("A3F81C2D-6E4B-4D9A-B7C0-2E5F8A1D3B66");
+    private const string FieldName = "ConfigJson";
+    private const string StorageName = "Sentinel.Config";
 
     // ---------------- Extensible Storage (project level) ----------------
     private static Schema GetSchema()
@@ -113,25 +168,33 @@ public static class SettingsManager
         catch (Exception) { return null; }  // corrupt ES payload: fall through to JSON
     }
 
-    /// <summary>Write project-level settings. CALLER must hold an open transaction
+    /// <summary>Write project-level settings — never the PC-only fields (SEC-2). CALLER must hold an open transaction
     /// (route through App.Events — see SettingsDialog).</summary>
     public static void SaveToDocument(Document doc, SentinelSettings settings)
     {
         var ds = FindStorage(doc) ?? DataStorage.Create(doc);
         if (ds.Name != StorageName) ds.Name = StorageName;
         var entity = new Entity(GetSchema());
-        entity.Set(FieldName, JsonSerializer.Serialize(settings, JsonOpts));
+        entity.Set(FieldName, DocumentPayload(settings));
         ds.SetEntity(entity);
     }
 
+    // ---------------- Resolution ----------------
+
+    /// <summary>Effective settings: the document's own fields, this PC's for the rest (<see cref="Merge"/>); the PC's alone,
+    /// or the defaults, when the document holds none.</summary>
+    public static SentinelSettings Resolve(Document? doc) => Merge(doc is not null ? LoadFromDocument(doc) : null, LoadFromMachine());
+#endif
+
     // ---------------- Local JSON (machine level) ----------------
+    /// <summary>This PC's config.json, or null (none, unreadable). A file holding only PC-only fields counts (SEC-2: the
+    /// cloud opt-in and the endpoint may be all it sets).</summary>
     public static SentinelSettings? LoadFromMachine()
     {
         try
         {
             if (!File.Exists(ConfigJsonPath)) return null;
-            var s = JsonSerializer.Deserialize<SentinelSettings>(File.ReadAllText(ConfigJsonPath));
-            return s is { IsEmpty: false } ? s : null;
+            return JsonSerializer.Deserialize<SentinelSettings>(File.ReadAllText(ConfigJsonPath));
         }
         catch (Exception) { return null; }
     }
@@ -140,27 +203,5 @@ public static class SettingsManager
     {
         Directory.CreateDirectory(Path.GetDirectoryName(ConfigJsonPath)!);
         File.WriteAllText(ConfigJsonPath, JsonSerializer.Serialize(settings, JsonOpts));
-    }
-
-    // ---------------- Resolution ----------------
-
-    /// <summary>Effective settings: document ES first, machine JSON fallback,
-    /// empty settings when neither exists.</summary>
-    public static SentinelSettings Resolve(Document? doc)
-    {
-        var machine = LoadFromMachine();
-        var project = doc is not null ? LoadFromDocument(doc) : null;
-        if (project is null) return machine ?? new SentinelSettings();
-
-        // A project's document ES wins for its own fields, but the machine config still supplies the GHOST
-        // operational defaults (source folder / family library) so they apply even in a project that carries its
-        // own Sentinel ES — otherwise a per-project setup silently disables P2's doc folder. No office standard is
-        // merged from the machine: layers, guideline and type catalogue come from the web project.
-        if (machine is not null)
-        {
-            if (string.IsNullOrWhiteSpace(project.GhostSourceFolder)) project.GhostSourceFolder = machine.GhostSourceFolder;
-            if (string.IsNullOrWhiteSpace(project.GhostFamilyLibraryDir)) project.GhostFamilyLibraryDir = machine.GhostFamilyLibraryDir;
-        }
-        return project;
     }
 }

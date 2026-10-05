@@ -41,8 +41,15 @@ public sealed class GhostBuilderCommand : IExternalCommand
         var uidoc = c.Application.ActiveUIDocument;
         if (uidoc?.Document is not { } doc) return Result.Cancelled;
 
-        // 1. Resolve config (project ES -> machine JSON). Ghost paths are optional.
+        // 1. Resolve config (project ES -> machine JSON). Ghost paths are optional. SEC-2: the model endpoint, the schema and the
+        // family library are this PC's; the source folder a model names is a full local path — asked before anything is read.
         var settings = SettingsManager.Resolve(doc);
+        if (SettingsManager.ToolRefusal(settings, callsModel: true,
+                addinDirForSchema: Path.GetDirectoryName(typeof(GhostBuilderCommand).Assembly.Location)) is { } notLocal)
+        {
+            TaskDialog.Show("Sentinel — Ghost Builder", notLocal);
+            return Result.Cancelled;
+        }
         string? libraryDir = string.IsNullOrWhiteSpace(settings.GhostFamilyLibraryDir)
             ? null
             : settings.GhostFamilyLibraryDir;
@@ -54,7 +61,7 @@ public sealed class GhostBuilderCommand : IExternalCommand
             {
                 TaskDialog.Show("Sentinel — Ghost Builder",
                     $"Mapping schema not found:\n{settings.GhostMappingSchemaPath}\n\n" +
-                    "Fix the path in Project Setup, or clear it to run without a schema.");
+                    "Fix ghost_mapping_schema_path in this PC's Sentinel config.json, or clear it to run without a schema.");
                 return Result.Cancelled;
             }
             schemaJson = File.ReadAllText(settings.GhostMappingSchemaPath);
@@ -64,7 +71,7 @@ public sealed class GhostBuilderCommand : IExternalCommand
         {
             TaskDialog.Show("Sentinel — Ghost Builder",
                 $"Family library folder not found:\n{libraryDir}\n\n" +
-                "Fix the path in Project Setup, or clear it to run without family preload.");
+                "Fix ghost_family_library_dir in this PC's Sentinel config.json, or clear it to run without family preload.");
             return Result.Cancelled;
         }
 
@@ -184,11 +191,12 @@ public sealed class GhostBuilderCommand : IExternalCommand
         // The project key is read here (Extensible Storage); layers@n, guideline@n and type_catalog@n are fetched
         // in PHASE 2, off this thread, and the mapper and orchestrator are built there once they are known.
         // Mapping tiers: ignore → the project's layers@n → the per-project cache → labelled heuristics → the LOCAL
-        // model (settings.GhostModel) for what is left. Cloud stays off — the drawing never leaves the machine.
+        // model (settings.GhostModel) for what is left. The model is this PC's, or an https host this PC's config.json opts
+        // in to (LocalOnly).
         string key = ProjectContext.For(doc).Key; // "" when unbound: every standard then reads "none — not bound"
         // P2 SENSE (slice 1): read supporting docs (PDF/specs) from the SCOPED folder → context for the model.
         var evidence = GhostEvidence.FromFolder(settings.GhostSourceFolder);
-        var llm = new LocalGhostBuilder(schemaJson, settings.GhostModel, settings.OllamaUrl, evidence.Context);
+        var llm = new LocalGhostBuilder(schemaJson, settings.GhostModel, settings.OllamaUrl, evidence.Context, settings.GhostCloudOptIn);
         GhostBuilderOrchestrator.Inputs inputs;
         try
         {
@@ -367,16 +375,16 @@ public sealed class GhostBuilderCommand : IExternalCommand
                 int imgCount = LocalVisionReader.CountImages(settings.GhostSourceFolder);
                 if (imgCount > 0)
                 {
-                    progress.SetStatus($"Reading {imgCount} sketch(es) with the local vision model…");
-                    using var vision = new LocalVisionReader(settings.GhostVisionModel, settings.OllamaUrl);
+                    progress.SetStatus($"Reading {imgCount} sketch(es) with the vision model {LocalOnly.Where(settings.OllamaUrl)}…");
+                    using var vision = new LocalVisionReader(settings.GhostVisionModel, settings.OllamaUrl, settings.GhostCloudOptIn);
                     string hints = await vision.ReadFolderAsync(settings.GhostSourceFolder, ct: progress.Token).ConfigureAwait(false);
                     if (!string.IsNullOrWhiteSpace(hints)) llm.AppendEvidence(hints);
                     visionUsage = vision.Usage;
                 }
 
                 progress.SetStatus(evidence.IsEmpty
-                    ? "Mapping CAD layers with the local model…"
-                    : $"Mapping CAD layers with the local model ({evidence.Sources.Count} doc(s) for context)…");
+                    ? $"Mapping CAD layers with the model {LocalOnly.Where(settings.OllamaUrl)}…"
+                    : $"Mapping CAD layers with the model {LocalOnly.Where(settings.OllamaUrl)} ({evidence.Sources.Count} doc(s) for context)…");
                 MappingResult mapping = await orchestrator.MapAsync(inputs, progress.Token).ConfigureAwait(false);
 
                 if (progress.Token.IsCancellationRequested) return; // user aborted; window already closing
@@ -413,7 +421,7 @@ public sealed class GhostBuilderCommand : IExternalCommand
             catch (System.Net.Http.HttpRequestException)
             {
                 FailOnUi(progress, Release,
-                    $"Could not reach the local model at {settings.OllamaUrl}.\n\n" +
+                    $"Could not reach the model {LocalOnly.Where(settings.OllamaUrl)} at {settings.OllamaUrl}.\n\n" +
                     $"Start Ollama and pull the model (\"ollama pull {settings.GhostModel}\"), then try again.");
             }
             catch (System.Exception ex)

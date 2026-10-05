@@ -35,5 +35,9 @@
     <!-- MAS-4: Photo Massing's review (WPF, no Revit API) and the planner types it shows -->
     <Compile Include="..\..\SentinelAddin\GhostBuilder\MassingPlanner.cs" />
     <Compile Include="..\..\SentinelAddin\UI\MassingReviewWindow.cs" />
+    <!-- SEC-2: the two vision readers and the endpoint check every model client makes in its constructor -->
+    <Compile Include="..\..\SentinelAddin\GhostBuilder\LocalVisionReader.cs" />
+    <Compile Include="..\..\SentinelAddin\GhostBuilder\MassingVisionReader.cs" />
+    <Compile Include="..\..\SentinelAddin\Engine\LocalOnly.cs" />
   </ItemGroup>
 </Project>

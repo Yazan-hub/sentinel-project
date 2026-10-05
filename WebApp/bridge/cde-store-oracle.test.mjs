@@ -83,7 +83,7 @@ describe("docListLazy — only the machine credential migrates this machine's lo
 
 // The same path for BCF topics (bcfListTopics): after 0033 a viewer's insert is refused (bcf_topics_insert, contributor).
 describe("bcfListTopics — only the machine credential migrates this machine's local topics", () => {
-  const local = [{ guid: "t1", project_id: "beta", title: "Local topic", topic_status: "Open" }];
+  const local = [{ guid: "6f9619ff-8b86-4011-b42d-00c04fc964ff", project_id: "beta", title: "Local topic", topic_status: "Open" }];
   const inserts = () => calls.filter((c) => c.table === "bcf_topics" && c.method === "POST");
   it("a signed-in caller reads what the database holds and writes nothing", async () => {
     await expect(runWithAuth(jwt("u-member"), () => bcfListTopics("beta", {}, local))).resolves.toEqual([]);
@@ -92,6 +92,14 @@ describe("bcfListTopics — only the machine credential migrates this machine's 
   it("the machine credential still migrates them", async () => {
     await bcfListTopics("beta", {}, local);
     expect(inserts()).toEqual([{ table: "bcf_topics", method: "POST", sub: null }]);
+  });
+  it("0039: a local topic whose guid is not a UUID is not migrated, and the log says so", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await bcfListTopics("beta", {}, [...local, { guid: "t1", project_id: "beta", title: "Old local topic", topic_status: "Open" }]);
+    const post = globalThis.fetch.mock.calls.find(([url, init]) => String(url).includes("/bcf_topics") && init?.method === "POST");
+    expect(JSON.parse(post[1].body).map((r) => r.guid)).toEqual([local[0].guid]);
+    expect(String(warn.mock.calls[0]?.[0])).toContain("'t1'");
+    warn.mockRestore();
   });
 });
 

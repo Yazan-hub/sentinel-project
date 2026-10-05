@@ -85,6 +85,15 @@ describe("projectStage / projectGates / getProjectMeta — read from the ledger,
     expect(patch.body.metadata).not.toHaveProperty("gates");
     expect(p).toMatchObject({ stage: "tender", gates: {}, standards_pack: "seeded" });
   });
+  it("0039: a local seed's snapshot keeps the fields that fit; each one dropped is said in the bridge's log", async () => {
+    db.projects[0].metadata = {};
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await getProjectMeta("aster-tower", { snapshot: { currency: "SAR", health: 80, carbon_t: 12, owner: "x" } });
+    const patch = calls.find((c) => c.table === "projects" && c.method === "PATCH");
+    expect(patch.body.metadata.snapshot).toEqual({ currency: "SAR", health: 80 });
+    expect(warn.mock.calls.map((c) => String(c[0])).join("\n")).toMatch(/'carbon_t'[\s\S]*not migrated[\s\S]*'owner'[\s\S]*not migrated/);
+    warn.mockRestore();
+  });
   it("F-MA3a-1: a first read by a member who may not write the project (RLS: the PATCH answers no row) is the default shape, not a 500", async () => {
     db.projects[0].metadata = {};
     const fetch = globalThis.fetch;

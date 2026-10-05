@@ -168,7 +168,9 @@ public partial class SettingsDialog : Window
             // dialog doesn't show.
             var settings = SettingsManager.LoadFromMachine() ?? new SentinelSettings();
             settings.RevitTemplatePath = template;
-            settings.GhostSourceFolder = ghostFolder; // no WebProjectKey or ProjectCode: both are document facts
+            // No WebProjectKey or ProjectCode: both are document facts. SEC-2: while the box still shows the folder the model
+            // names, this PC keeps its own — a machine save never turns a model's folder into this PC's.
+            if (!(_current.SourceFolderFromModel && ghostFolder == _current.GhostSourceFolder)) settings.GhostSourceFolder = ghostFolder;
             SettingsManager.SaveToMachine(settings);
             StatusText.Text = "✓ Saved as machine default (" + SettingsManager.ConfigJsonPath + ")";
             App.Events?.Enqueue(uiapp => App.RefreshJourney(uiapp.ActiveUIDocument?.Document)); // machine settings never pick the ruleset
@@ -177,7 +179,11 @@ public partial class SettingsDialog : Window
             return;
         }
 
-        // Project scope: ES write needs a transaction -> ExternalEvent queue.
+        // Project scope: ES write needs a transaction -> ExternalEvent queue. SEC-2: while the box still shows this PC's own
+        // folder (the model names none), the model keeps naming none — this PC's folder is never copied into a model. A folder
+        // the tools would refuse from a model (a share, not a full path) is said here and not saved.
+        if (!_current.SourceFolderFromModel && ghostFolder == (_current.GhostSourceFolder ?? "").Trim()) ghostFolder = "";
+        if (LocalOnly.FolderRefusal(ghostFolder, fromModel: true) is { } notLocal) { StatusText.Text = notLocal; return; }
         StatusText.Text = "Saving to project…";
         if (_doc is null) { StatusText.Text = "No open model to save the project settings into."; return; }
         App.Events?.Enqueue(_doc, "save the project settings", (uiapp, doc) =>

@@ -35,13 +35,13 @@ afterEach(() => { globalThis.fetch = realFetch; });
 
 describe("patchProjectMeta — a project's details are a lead's or owner's to change", () => {
   it("answers a write the database refused (no row back) with a 403 in words, never a 500", async () => {
-    await expect(runWithAuth(jwt, () => patchProjectMeta("b13-review", { snapshot: { carbon_t: 12 } })))
+    await expect(runWithAuth(jwt, () => patchProjectMeta("b13-review", { snapshot: { carbon_tco2e: 12 } })))
       .rejects.toMatchObject({ status: 403, message: "the project's details are changed by a lead or owner — nothing was saved" });
   });
 
   it("returns the stored project's shape when the write came back", async () => {
-    patchRows = [{ ...project, metadata: { snapshot: { carbon_t: 12 } } }];
-    const shape = await runWithAuth(jwt, () => patchProjectMeta("b13-review", { snapshot: { carbon_t: 12 } }));
+    patchRows = [{ ...project, metadata: { snapshot: { carbon_tco2e: 12 } } }];
+    const shape = await runWithAuth(jwt, () => patchProjectMeta("b13-review", { snapshot: { carbon_tco2e: 12 } }));
     expect(shape).toMatchObject({ project_id: "b13-review" });
   });
 });

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import { readFileSync } from "node:fs";
 import { mergeMetaForTest, selectFailures, projectNamingRuleset, NO_NAMING_REASON, judgeContainerName } from "./cde-store.mjs";
 
 describe("judgeContainerName — a missing enforce is reject", () => {
@@ -83,5 +84,37 @@ describe("mergeMeta", () => {
     const out = mergeMetaForTest({ ...base, snapshot: { health: 90 } }, { dimensions: { "4d": true }, snapshot: { compliance: 70 } });
     expect(out.dimensions).toEqual({ "2d": true, "4d": true });
     expect(out.snapshot).toEqual({ health: 90, compliance: 70 });
+  });
+
+  it("0039: a snapshot holds the fields the web writes — a currency of three capitals, numbers, short text; anything else is a 400 in words", () => {
+    const web = { currency: "SAR", open_issues: 3, hard_clashes: 1, health: 90, compliance: 70, cost_total: 125000, carbon_tco2e: 12,
+      carbon_basis: "indicative reference factors — no factor pack installed", handover_readiness: 94, handover_complete: 189,
+      handover_total: 199, handover_at: "2026-10-05T10:00:00.000Z" };
+    expect(mergeMetaForTest(base, { snapshot: web }).snapshot).toEqual(web);
+    const refusal = (snapshot) => { try { mergeMetaForTest(base, { snapshot }); return null; } catch (e) { return e; } };
+    for (const [snapshot, words] of [[{ currency: "sar" }, "currency is three capital letters"], [{ currency: "SARS" }, "currency is three capital letters"],
+      [{ health: "90" }, "health is a number"], [{ carbon_basis: "a < b" }, "without < or >"], [{ carbon_basis: "x".repeat(301) }, "at most 300 characters"],
+      [{ owner: "x" }, "'owner' is not a snapshot field"], [["SAR"], "a snapshot is an object"], ["SAR", "a snapshot is an object"]])
+      expect(refusal(snapshot)).toMatchObject({ status: 400, message: expect.stringMatching(new RegExp(`${words}.* — nothing was saved$`)) });
+    // the merged snapshot is checked too: a field stored before this rule is said, not left for the database to refuse
+    expect(() => mergeMetaForTest({ ...base, snapshot: { carbon_t: 12 } }, { snapshot: { health: 80 } }))
+      .toThrow(/'carbon_t' is not a snapshot field — nothing was saved$/);
+  });
+
+  it("0039: the web's autosave stores only what fits — a currency of three capitals, finite numbers — and says when a save fails", () => {
+    const shell = readFileSync(new URL("../src/setups/project-shell.ts", import.meta.url), "utf8").replace(/\r/g, "");
+    expect(shell).toContain("/^[A-Z]{3}$/.test(kpis.currency) ? { currency: kpis.currency } : {};");
+    expect(shell).toContain("const num = (k: string, v: number | null) => { if (v != null && Number.isFinite(v)) snap[k] = Math.round(v); };");
+    expect(shell).not.toContain("}).catch(() => {});\n  };");
+    expect(shell.match(/console\.warn\("\[snapshot\] not saved — " \+/g)).toHaveLength(2);
+  });
+
+  it("0039: the carbon panel sends a basis that fits the snapshot's text rule, whatever label an installed pack has", () => {
+    const panel = readFileSync(new URL("../src/setups/carbon-panel.ts", import.meta.url), "utf8");
+    const fit = 'carbon_basis: factorsBasis.replace(/[<>]/g, "").slice(0, 300)';
+    expect(panel).toContain(fit);
+    // the longest label the artefact store accepts (300 characters), with < and >, as the panel builds the basis
+    const basis = `<${"x".repeat(298)}> — carbon_factors@12 · office`.replace(/[<>]/g, "").slice(0, 300);
+    expect(mergeMetaForTest(base, { snapshot: { carbon_tco2e: 12, carbon_basis: basis } }).snapshot.carbon_basis).toBe(basis);
   });
 });

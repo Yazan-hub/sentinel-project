@@ -51,12 +51,12 @@ namespace Sentinel.GhostBuilder
         private readonly string _model, _url;
         private readonly HttpClient _http;
 
-        public MassingVisionReader(string model = "llava", string ollamaUrl = "http://localhost:11434/api/generate")
+        public MassingVisionReader(string model = "llava", string ollamaUrl = "http://localhost:11434/api/generate", bool cloudOptIn = false)
         {
             _model = string.IsNullOrWhiteSpace(model) ? "llava" : model;
             Usage = new ModelUsage(_model);
-            _url = string.IsNullOrWhiteSpace(ollamaUrl) ? "http://localhost:11434/api/generate" : ollamaUrl;
-            _http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
+            _url = Sentinel.Engine.LocalOnly.ModelUrl(ollamaUrl, cloudOptIn); // SEC-2: this PC's model, or a host this PC opted in to
+            _http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromMinutes(5) };
         }
 
         /// <summary>MA-1a item 8: this model's calls, answers and token counts in this run, for the build:run receipt.</summary>
