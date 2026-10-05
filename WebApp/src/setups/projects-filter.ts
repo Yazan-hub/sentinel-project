@@ -51,8 +51,12 @@ export const toggleGroup = (collapsed: Set<string>, id: string): Set<string> => 
   return collapsed;
 };
 
-/** A group's cards show unless it is collapsed - a search opens it for its matches, so a search never hides its own results. */
-export const groupShown = (id: string, collapsed: Set<string>, q: string): boolean => !id || !collapsed.has(id) || !!q.trim();
+/**
+ * A group's cards show unless it is collapsed. During a search every group opens for its matches (a search never hides its
+ * own results) and only the header clicks made during that search (searchClosed, emptied when the search clears) hide one.
+ */
+export const groupShown = (id: string, collapsed: Set<string>, q: string, searchClosed: Set<string> = new Set()): boolean =>
+  !id || (q.trim() ? !searchClosed.has(id) : !collapsed.has(id));
 
 const archived = (p: FilterableProject) => !!p.settings?.archived;
 const time = (p: FilterableProject) => Date.parse(p.created_at) || 0;

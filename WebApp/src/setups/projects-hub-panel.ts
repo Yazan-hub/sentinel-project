@@ -4,7 +4,7 @@ import { bfetch } from "./bridge-fetch";
 import { activePid, setActiveProjectKey, hasProjectOverride, platformProjectId } from "./active-project";
 import { linkedProject } from "./platform-link";
 import { escapeHtml as esc } from "./escape-html";
-import { filterProjects, isDefaultFilter, countLine, groupShown, toggleGroup, DEFAULT_FILTER, type ProjectFilter } from "./projects-filter";
+import { filterProjects, isDefaultFilter, countLine, groupShown, toggleGroup, DEFAULT_FILTER, NO_OFFICE_GROUP, type ProjectFilter } from "./projects-filter";
 
 /**
  * Projects Hub (Phase 1) — the "which project?" landing above the per-project CDE board. Lists every
@@ -48,6 +48,8 @@ export function projectsHubPanel(
   let f: ProjectFilter = { ...DEFAULT_FILTER };
   // Collapsed office groups (ids from projects-filter.ts) - kept across re-renders, reloads and filter changes, never stored.
   const collapsed = new Set<string>();
+  // Header clicks made during a search: they hide a group for that search only, never touching `collapsed`.
+  const searchClosed = new Set<string>();
 
   const root = document.createElement("div");
   root.style.cssText =
@@ -86,6 +88,7 @@ export function projectsHubPanel(
   // ── card grid ────────────────────────────────────────────────────────────────
   const renderGrid = () => {
     const active = activePid();
+    if (!f.q.trim()) searchClosed.clear();
     el("ph-clear").style.display = isDefaultFilter(f) || !projects.length ? "none" : "";
     if (!projects.length) {
       el("ph-grid").innerHTML =
@@ -136,7 +139,7 @@ export function projectsHubPanel(
     // a search opens a collapsed group for its matches ("search" hint) and it closes again when the search clears.
     el("ph-grid").innerHTML = groups
       .map((g) => {
-        const shown = groupShown(g.id, collapsed, f.q);
+        const shown = groupShown(g.id, collapsed, f.q, searchClosed);
         return (
           (g.id
             ? `<button class="ph-group" data-group="${esc(g.id)}" aria-expanded="${shown ? "true" : "false"}" style="grid-column:1/-1;display:flex;align-items:center;gap:.4rem;min-width:0;width:100%;background:none;border:0;cursor:pointer;text-align:left;color:#9ca3af;font:600 11px system-ui;letter-spacing:.04em;text-transform:uppercase;padding:.6rem .2rem .1rem">` +
@@ -154,7 +157,7 @@ export function projectsHubPanel(
     root.querySelectorAll<HTMLElement>(".ph-group").forEach((b) =>
       b.addEventListener("click", () => {
         const id = b.dataset.group!;
-        toggleGroup(collapsed, id);
+        toggleGroup(f.q.trim() ? searchClosed : collapsed, id);
         renderGrid();
         // The grid was redrawn: keep the keyboard on the header just toggled.
         [...root.querySelectorAll<HTMLElement>(".ph-group")].find((x) => x.dataset.group === id)?.focus();
@@ -320,7 +323,8 @@ export function projectsHubPanel(
       if (!r.ok) throw new Error(((await r.json().catch(() => ({}))) as { message?: string }).message || `HTTP ${r.status}`);
       const created: Project = await r.json();
       toggleForm();
-      // A filter on before the create could hide the new card that is about to be opened.
+      // A filter or a collapse on before the create could hide the new card that is about to be opened.
+      collapsed.delete(created.kind === "office" ? "o:" + created.key : created.office_key ? "o:" + created.office_key : NO_OFFICE_GROUP);
       f = { ...DEFAULT_FILTER };
       syncTools();
       await load();

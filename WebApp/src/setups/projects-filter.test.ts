@@ -154,6 +154,21 @@ describe("group show / hide", () => {
     expect(c.has("o:hq")).toBe(true);
   });
 
+  it("a click during a search hides the group's cards, and the stored collapse is unchanged after the search clears", () => {
+    const c = new Set<string>(["o:north"]);
+    const during = new Set<string>();
+    // Open group clicked during a search: hidden now, open again after the search.
+    toggleGroup(during, "o:hq");
+    expect(groupShown("o:hq", c, "aster", during)).toBe(false);
+    // Search-opened group clicked during a search: hidden now, still collapsed after.
+    toggleGroup(during, "o:north");
+    expect(groupShown("o:north", c, "aster", during)).toBe(false);
+    during.clear(); // the search clears
+    expect([...c]).toEqual(["o:north"]);
+    expect(groupShown("o:hq", c, "", during)).toBe(true);
+    expect(groupShown("o:north", c, "", during)).toBe(false);
+  });
+
   it("the untitled group is never collapsible", () => {
     const c = toggleGroup(new Set<string>(), "");
     expect(c.size).toBe(0);
@@ -189,9 +204,12 @@ describe("projects-hub-panel wiring", () => {
     expect(src).toContain("const collapsed = new Set<string>()");
     expect(src).toMatch(/<button class="ph-group" data-group="\$\{esc\(g\.id\)\}" aria-expanded="\$\{shown \? "true" : "false"\}"/);
     expect(src).toContain('shown ? "▾" : "▸"');
-    expect(src).toContain("groupShown(g.id, collapsed, f.q)");
     expect(src).toContain("${esc(g.title)} · ${esc(g.rows.length)}");
-    expect(src).toContain("toggleGroup(collapsed, ");
+    expect(src).toContain("toggleGroup(f.q.trim() ? searchClosed : collapsed, id)");
+    expect(src).toContain("groupShown(g.id, collapsed, f.q, searchClosed)");
+    expect(src).toContain("if (!f.q.trim()) searchClosed.clear();");
+    // A project made into a collapsed group opens that group, so its card is not hidden.
+    expect(src).toContain('collapsed.delete(created.kind === "office" ? "o:" + created.key : created.office_key ? "o:" + created.office_key : NO_OFFICE_GROUP)');
     // The untitled group (no offices) gets no toggle.
     expect(src).toMatch(/g\.id\s*\?\s*`<button class="ph-group"/);
   });
