@@ -620,6 +620,9 @@ export async function renameFile(key, container_id, name, actor) {
   const clean = String(name || "").trim();
   if (!clean) { const e = new Error("a file name is required"); e.status = 400; throw e; }
   const { proj, c } = await containerOf(key, container_id);
+  // 0038 (founder decision F1): the database keeps the name of a file that holds an issued version — said here first, in words.
+  if (c.container_versions.some((v) => v.state === "published" || v.state === "archived"))
+    throw Object.assign(new Error(`${c.iso_name} holds a published or archived version, so it keeps its name — nothing was saved`), { status: 409 });
   requireRows(await sb(`information_containers?id=eq.${c.id}`, { method: "PATCH", body: { iso_name: clean, title: clean }, prefer: "return=representation" }), "a file is renamed by a contributor or above");
   await audit(proj.id, "container", c.id, "renamed", actor || "web", { iso_name: c.iso_name }, { iso_name: clean });
   return { ok: true, iso_name: clean };
@@ -785,7 +788,10 @@ export async function registerFileVersion(key, b = {}) {
   if (container && b.platform_item_id && b.attach_geometry === true) {
     const liveNoGeom = (container.container_versions || []).find((v) => v.is_live && !v.platform_item_id && !v.deleted_at);
     if (liveNoGeom) {
-      requireRows(await sb(`container_versions?id=eq.${liveNoGeom.id}`, { method: "PATCH", body: { platform_item_id: b.platform_item_id }, prefer: "return=representation" }), "geometry is linked to a version by a contributor or above");
+      // 0038: geometry on an issued version is the bridge's — the contributor check here, then the service key, written once.
+      const { requireMinRole } = await import("./members-store.mjs");
+      await requireMinRole(key, "contributor");
+      requireRows(await sb(`container_versions?id=eq.${liveNoGeom.id}&platform_item_id=is.null`, { method: "PATCH", body: { platform_item_id: b.platform_item_id }, prefer: "return=representation", service: true }), "geometry is linked to a version by a contributor or above");
       await audit(proj.id, "file_version", liveNoGeom.id, "geometry linked", b.author || "web", null, { file: name, platform_item_id: b.platform_item_id });
       return { container_id: container.id, iso_name: name, linked: true, version: { id: liveNoGeom.id, revision: liveNoGeom.revision, platform_item_id: b.platform_item_id, is_live: true } };
     }
@@ -1445,10 +1451,15 @@ async function soleLiveVersionId(projectId) {
 }
 
 export async function createRevision(key, b = {}) {
+  const { requireMinRole } = await import("./members-store.mjs");
+  await requireMinRole(key, "contributor"); // 0038: element_snapshots is the bridge's alone — a take-off is a contributor's, checked here
   const proj = await ensureProject(key);
-  // Link this take-off to a file version so the Versions panel can diff versions (migration 0011). Honour an
-  // explicit id; else auto-link to the sole live version — a captured baseline belongs to the live file.
-  const containerVersionId = b.container_version_id || (await soleLiveVersionId(proj.id));
+  // Link this take-off to a file version so the Versions panel can diff versions (migration 0011). Honour an explicit
+  // id — a version of this project only (versionOnKey: a 400 in words otherwise); else auto-link to the sole live
+  // version — a captured baseline belongs to the live file.
+  const containerVersionId = b.container_version_id
+    ? (await versionOnKey(key, b.container_version_id)).version.id
+    : await soleLiveVersionId(proj.id);
   const snaps = Array.isArray(b.snapshots) ? b.snapshots : [];
   if (snaps.length > MAX_SNAPSHOTS) throw new Error(`too many snapshots (${snaps.length} > ${MAX_SNAPSHOTS})`);
   // Normalize + drop guid-less rows (guid is NOT NULL and the join key), then de-dupe on guid within the batch
@@ -1478,10 +1489,11 @@ export async function createRevision(key, b = {}) {
       uploaded_by: resolveActor(b.uploaded_by),
     },
     prefer: "return=representation",
+    service: true, // 0038: model_revisions has no signed-in insert — after the contributor check above
   }))[0];
   for (let i = 0; i < deduped.length; i += SNAP_INSERT_CHUNK) {
     const chunk = deduped.slice(i, i + SNAP_INSERT_CHUNK).map((r) => ({ ...r, revision_id: rev.id, project_id: proj.id }));
-    await sb(`element_snapshots`, { method: "POST", body: chunk, prefer: "return=minimal" });
+    await sb(`element_snapshots`, { method: "POST", body: chunk, prefer: "return=minimal", service: true });
   }
   await audit(proj.id, "revision", rev.id, "snapshot ingested", b.uploaded_by || "web", null,
     { rev_code: rev.rev_code, model_id: rev.model_id, element_count: deduped.length });
@@ -2052,7 +2064,9 @@ export function newTopicObject(pid, b = {}, now = new Date().toISOString()) {
 }
 
 export async function bcfCreateTopic(topic) {
-  await sb(`bcf_topics`, { method: "POST", body: bcfRow(topic), prefer: "return=minimal" });
+  const { requireMinRole } = await import("./members-store.mjs");
+  await requireMinRole(topic.project_id, "contributor"); // 0038: bcf_topics has no signed-in writer — every topic write is checked here
+  await sb(`bcf_topics`, { method: "POST", body: bcfRow(topic), prefer: "return=minimal", service: true });
   return topic;
 }
 
@@ -2061,10 +2075,13 @@ export async function bcfCreateTopic(topic) {
 export async function bcfSaveTopic(topic) {
   // requireRows only needs to know a row came back — &select=guid (H0 minor N27) keeps PostgREST from also
   // returning the full jsonb `data` column (comments, viewpoints, snapshots) on every save.
-  requireRows(await sb(`bcf_topics?guid=eq.${encodeURIComponent(topic.guid)}&select=guid`, {
+  const { requireMinRole } = await import("./members-store.mjs");
+  await requireMinRole(topic.project_id, "contributor"); // 0038: bcf_topics has no signed-in writer — every topic write is checked here
+  requireRows(await sb(`bcf_topics?guid=eq.${encodeURIComponent(topic.guid)}&project_id=eq.${encodeURIComponent(topic.project_id)}&select=guid`, {
     method: "PATCH",
     body: { data: topic, topic_status: topic.topic_status, model: topic.model || "", modified_at: new Date().toISOString() },
     prefer: "return=representation",
+    service: true,
   }), "a topic is changed by a contributor or above");
   return topic;
 }

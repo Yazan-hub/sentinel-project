@@ -962,7 +962,7 @@ async function handleRequest(req, res) {
           creation_author: resolveActor(b.creation_author, "web"), creation_date: now, modified_date: now,
           history: [{ date: now, author: resolveActor(b.creation_author, "web"), action: "Raised" }],
         };
-        if (useCde) await cde.docUpsert("rfi", rpid, rfi.guid, rfi); else { rdb.rfis.push(rfi); persistRfi(); }
+        if (useCde) await cde.docUpsert("rfi", rpid, rfi.guid, rfi, { service: true }); else { rdb.rfis.push(rfi); persistRfi(); }
         return send(res, 201, rfi);
       }
       const rfi = useCde ? await cde.docGet("rfi", rpid, rguid) : rdb.rfis.find((r) => inP(r) && r.guid === rguid);
@@ -978,7 +978,7 @@ async function handleRequest(req, res) {
           if (b[k] !== undefined && b[k] !== rfi[k]) { rfi.history.push({ date: now, author: who, action: `${label}: ${rfi[k] || "—"} → ${b[k] || "—"}` }); rfi[k] = b[k]; }
         }
         rfi.modified_date = now;
-        if (useCde) await cde.docUpsert("rfi", rpid, rfi.guid, rfi); else persistRfi();
+        if (useCde) await cde.docUpsert("rfi", rpid, rfi.guid, rfi, { service: true }); else persistRfi();
         return send(res, 200, rfi);
       }
       return send(res, 405, { message: "Method not allowed" });

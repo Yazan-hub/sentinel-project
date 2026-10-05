@@ -74,4 +74,29 @@ describe("migration 0038 — the database holds the bridge's write rules (SEC-1)
     expect(PROBE).not.toMatch(/a signed-in caller may/i);
     expect(PROBE).toContain("set local role authenticated;");
   });
+
+  it("the bridge writes every table 0038 closes with the service key, after its own role check — safe on either side of the apply", () => {
+    const count = (text, s) => text.split(s).length - 1;
+    const DOCS = read("./bimdocs-store.mjs"), OFFICE = read("./office-store.mjs"), ROUTES = read("./bcf-service.mjs"), CDE = read("./cde-store.mjs");
+    expect(count(DOCS, 'prefer: "return=representation", service: true }), EDITED)')).toBe(2); // the transition and the publish
+    expect(count(DOCS, 'prefer: "return=representation" }), EDITED)')).toBe(0);
+    // the four section writers land only on the document as it was read (C7)
+    expect(count(DOCS, "const row = await patchSections(doc, sections, updated_at);")).toBe(4);
+    expect(DOCS).toContain("&status=in.(wip,shared)${same}");
+    expect(DOCS).toContain('prefer: "return=representation", service: true });\n  if (!Array.isArray(rows) || !rows.length) throw err(409, "the document changed or was issued meanwhile — nothing was saved");');
+    expect(DOCS).toContain('await requireMinRole(key, "viewer"); // 0038');
+    expect(DOCS).toContain("{ comments: [comment], rev: 1 }, { service: true });");
+    expect(DOCS).toContain("bag.rev === undefined ? null : String(bag.rev), { service: true });");
+    expect(OFFICE).toContain("await docUpsert(SNAPSHOT_STORE, proj.id, LATEST, stored, { service: true });");
+    expect(OFFICE).toContain("await docUpsert(SCAN_STORE, proj.id, LATEST, stored, { service: true });");
+    expect(count(ROUTES, 'cde.docUpsert("rfi", rpid, rfi.guid, rfi, { service: true })')).toBe(2);
+    expect(count(ROUTES, 'cde.docUpsert("rfi", rpid, rfi.guid, rfi)')).toBe(0);
+    expect(CDE).toContain('await sb(`bcf_topics`, { method: "POST", body: bcfRow(topic), prefer: "return=minimal", service: true });');
+    expect(CDE).toContain('await sb(`element_snapshots`, { method: "POST", body: chunk, prefer: "return=minimal", service: true });');
+    expect(count(CDE, 'await requireMinRole(topic.project_id, "contributor"); // 0038')).toBe(2);
+    // the take-off's header and its link (C8), and geometry on a file's live version (C1)
+    expect(CDE).toContain("? (await versionOnKey(key, b.container_version_id)).version.id");
+    expect(CDE).toContain("service: true, // 0038: model_revisions has no signed-in insert");
+    expect(CDE).toContain('&platform_item_id=is.null`, { method: "PATCH", body: { platform_item_id: b.platform_item_id }, prefer: "return=representation", service: true })');
+  });
 });

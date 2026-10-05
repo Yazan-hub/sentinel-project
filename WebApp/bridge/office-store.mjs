@@ -115,7 +115,7 @@ export async function saveSnapshot(key, body, actor) {
   await requireMinRole(key, "contributor");
   const proj = await ensureProject(key);
   const stored = { ...snap, received_at: new Date().toISOString(), received_by: resolveActor(actor, "revit") };
-  await docUpsert(SNAPSHOT_STORE, proj.id, LATEST, stored);
+  await docUpsert(SNAPSHOT_STORE, proj.id, LATEST, stored, { service: true }); // 0038: after the contributor check above
   // audit_log.entity_id is a uuid: the office IS the project, so the project id is the entity (doc_id "latest" is not a uuid).
   await audit(proj.id, "office", proj.id, "office_snapshot_received", actor || "revit", null,
     { source: stored.source, worksets: stored.pack.worksets.length, shared_parameters: stored.pack.shared_parameters.length, types: stored.catalog.count, org: stored.ruleset?.org ?? null, ruleset_ref: stored.ruleset?.ref ?? null, at: stored.at });
@@ -127,7 +127,7 @@ export async function saveScan(key, body, actor) {
   await requireMinRole(key, "contributor");
   const proj = await ensureProject(key);
   const stored = { ...scan, received_at: new Date().toISOString(), received_by: resolveActor(actor, "revit") };
-  await docUpsert(SCAN_STORE, proj.id, LATEST, stored);
+  await docUpsert(SCAN_STORE, proj.id, LATEST, stored, { service: true }); // 0038: after the contributor check above
   const byMode = stored.violations.reduce((m, v) => ((m[v.mode] = (m[v.mode] || 0) + 1), m), {});
   await audit(proj.id, "office", proj.id, "office_scan_received", actor || "revit", null,
     { doc_title: stored.doc_title, elements_checked: stored.elements_checked, violations: stored.violations_total, by_mode: byMode, ruleset_ref: stored.ruleset_ref, at: stored.at });

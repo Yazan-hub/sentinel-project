@@ -304,6 +304,14 @@ describe("a document write the database refused (no row back) is a 403 — never
     ["setSectionBindings", () => setSectionBindings("k", doc.id, "m1", { bindings: { checks: [] } })],
     ["setSectionAnswer", () => setSectionAnswer("k", doc.id, "d1", { value: "yes" })],
     ["setSectionPlan", () => setSectionPlan("k", doc.id, "m1", { owner: "lead@x" })],
+  ])("%s: a section write that lands on no row (changed or issued meanwhile — 0038) is a 409 in words, with the service key", async (_name, call) => {
+    await expect(call()).rejects.toMatchObject({ status: 409, message: "the document changed or was issued meanwhile — nothing was saved" });
+    expect(audit).not.toHaveBeenCalled();
+    const patch = sb.mock.calls.find(([, o]) => o?.method === "PATCH");
+    expect(patch[0]).toContain(`&project_id=eq.${doc.project_id}&status=in.(wip,shared)`);
+    expect(patch[1].service).toBe(true);
+  });
+  it.each([
     ["transitionDoc", () => transitionDoc("k", doc.id, { to: "shared" })],
     ["publishDoc", () => { doc.status = "shared"; return publishDoc("k", doc.id, {}); }],
   ])("%s", async (_name, call) => {
