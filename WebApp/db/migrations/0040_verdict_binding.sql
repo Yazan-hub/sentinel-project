@@ -14,7 +14,10 @@
 --       or archived version are written by the bridge (the service key, after the bridge's role check), never by a
 --       signed-in write; a signed-in INSERT still carries its own geometry.
 --
--- NOT YET APPLIED. Before the apply: the 4100 bridge runs the branch (its setLiveVersion writes with the service key; a
+-- APPLIED 2026-10-06 ~01:30 local on the founder's "apply" (migration 0040_verdict_binding), AFTER the 4100 bridge was
+-- restarted on the branch 9ec46be; probes/0040_probe.sql part 0 read before it (3 shared versions, 1 of them on a verdict
+-- that records no sha256, 9 wip on such a verdict, 2 archived; all in scratch or office projects), part 1 5 of 5 true,
+-- part 2 "PROBE 0040: 22 of 22 as expected." Before it: the 4100 bridge runs the branch (its setLiveVersion writes with the service key; a
 -- bridge from before it would be refused by rule 3 whenever a file's live version is issued), and probes/0040_probe.sql
 -- part 0 is read (read-only) and its counts are the founder's (G-a). After it: the probe's parts 1 and 2.
 --

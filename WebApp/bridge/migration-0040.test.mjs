@@ -18,8 +18,10 @@ const P38 = fn(strip(read("../db/migrations/0038_bridge_role_rules.sql")), "cde_
 const P40 = fn(code, "cde_protect_published");
 
 describe("migration 0040 — a verdict is bound to its content; a restore reads it; the live pointer is the bridge's (SEC-3)", () => {
-  it("is not applied yet, and says what must hold before and after the apply", () => {
-    expect(SQL).toContain("NOT YET APPLIED");
+  it("records its apply and the probe's pass, and says what must hold before and after the apply", () => {
+    expect(SQL).toContain("APPLIED 2026-10-06");
+    expect(SQL).not.toContain("NOT YET APPLIED");
+    expect(SQL).toContain('"PROBE 0040: 22 of 22 as expected."');
     expect(SQL).toContain("the 4100 bridge runs the branch");
     expect(SQL).toContain("probes/0040_probe.sql\n-- part 0");
     expect(code.trim().startsWith("begin;")).toBe(true);

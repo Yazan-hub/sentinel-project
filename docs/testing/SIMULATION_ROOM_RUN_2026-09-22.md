@@ -1887,3 +1887,54 @@ saved); the test bridge on 4101 stopped; the 4100 bridge on the branch (the same
 restored and its backup deleted; the `node_modules` backup left only where the founder's dev server on :4000 still holds a file in it
 (goes when that server restarts); `sec2-smoke` stays for the founder to delete; the scratch model stays in
 `Documents\Sentinel drills\sec2\` (never committed). Left on the shared ledger: `sec2-smoke`'s rows.
+
+## Session SEC3 — hardening slice 3 live (2026-10-06 ~01:25 → 01:55 local, branch feature/sec3-hardening 9ec46be, Claude driving the bridge, the database, the founder's local app and Revit 2024)
+
+Setup: the founder's words, given ahead: "apply 0040 when ready, deploy the sec3 branch to 2024", "publish the web app when ready too",
+"restart the bridge urself too when needed". The 4100 bridge restarted by Claude on the branch before the apply (B-1); the test
+bridge on 127.0.0.1:4101 on the same checkout. Part 0 read twice (the evening before and just before the apply): 3 shared
+versions, 1 of them on a verdict that records no sha256, 9 wip versions on such a verdict, 2 archived — all in scratch or office
+projects (none in the pilot); the live bodies, the one cde_transition and the ledger's triggers as 0040 was written against. The
+scratch project `sec3-smoke` made in the founder's local app, signed in as the founder (no office). The add-in built for Revit
+2024 from the branch and deployed (DLL `70610dd27d37…`); Revit 2024 started by Claude with a documentation-only model address in
+`SENTINEL_OLLAMA_URL`, Load Once; the scratch model a shell copy (`Documents\Sentinel drills\sec3\sec3-drill.rvt`) opened from
+Revit's Open dialog.
+
+| Row | Result | Evidence |
+|---|---|---|
+| B-1 | 4100 restarted on 9ec46be, `/health` `{"ok":true,"cde_configured":true}`; 4101 up — **pass** | the lines |
+| D-1 | part 0: twelve rows as above; verdict rows with a sha256 0; one cde_transition; the three ledger triggers; the bodies true — **pass** | the rows (counts only) |
+| D-2 | `0040_verdict_binding` applied (~01:30 local), one transaction — **pass** | the answer |
+| D-3 | part 1: 5 of 5 true; part 2: `PROBE 0040: 22 of 22 as expected.` — **pass** | the rows, the summary |
+| W-0 | `sec3-smoke` created in the founder's local app, signed in, no office; it opens — **pass** | the key |
+| M-1 | a registration on `sec3-smoke` (4101): `201`, `v1` — **pass** | ids |
+| M-2 | share `200`; publish without a verdict `409 … has no accepted verdict that measured something (latest: none) — publishing it needs the lead's reason` — **pass** | statuses, the words |
+| W-1 | the founder's Publish on the CDE board shows the database's words and a reason box; published with a reason; the ledger's `state:shared->published` under the founder's account (#1968) — **pass** | board, ledger |
+| M-3 | a second registration over the published live version: `201`, `v2`, live (the bridge moved the issued version's pointer with its own key) — **pass** | ids |
+| W-3 | the founder's Set live on the published v1 in the Files window: `● v1 live`, no failure line — **pass** | the list |
+| M-5 | archive `200 {"ok":true,"archived":1,"discarded":1}` — **pass** | the reply |
+| M-6 | a restore without a reason `409 … restoring it needs the lead's reason` — **pass** | status, words |
+| W-2 | the Files window's Unarchive shows the database's words and a reason box; restored with a reason: `✓ Restored SEC3-SMOKE.ifc from the archive.` (#1975) — **pass** | status line, ledger |
+| M-7 | `ids@1` installed; a proposal judged `verdict: accepted`, `ids_ref: ids@1`, in scope 1, a wip version, `verdict_audit_id` 1982 — **pass** | the verdict |
+| W-4 | the founder shared and published that version with no reason box at either step (#1983, #1984, no reason recorded) — **pass** | board, ledger |
+| D-4 | v1's moves: `wip->shared` (no reason), `shared->published` (the publish reason), `published->archived`, `archived->published` (the restore reason) — **pass** | the four rows |
+| D-5 | every verdict on `sec3-smoke` records its version's sha256: 0 unbound of 1 (again after R-6) — **pass** | the counts |
+| X-1 | a BEP .docx read in the parse worker: `200` with a proposal — **pass** | status |
+| X-2 | a .pdf read in the parse worker: `200` with a proposal — **pass** | status |
+| X-3 | a dense .docx at the text bound: `/health` answered in 134 ms while it was read, the read ended in ~2 s; the reply was the importer's existing chunk limit in words (`413 … 679 chunks, over the 60 limit …`) — **pass** (the worker's point: the bridge stays free) | times, status |
+| R-0 | the branch's add-in on Revit 2024 (0 errors); the scratch model open — **pass** | the lines |
+| R-0b | Sign in: signed in, both addresses https, no refusal; Project Setup: no refusal, 42 projects listed; bound to `sec3-smoke`, the pane loaded it — **pass** | the dialogs, the pane |
+| R-1 | Project Setup has no template-path row — **pass** | the dialog's rows |
+| R-2 | Standards ▸ Ingest documents ▸ a PDF: `The model at 192.0.2.10 is not on this PC, and this PC has not opted in to a model elsewhere (ghost_cloud_opt_in in this PC's Sentinel config.json). Nothing was read or sent.`; no review window — **pass** | the dialog |
+| R-4 | a scratch ruleset whose exclusion runs past the match bound, installed; after Project Setup reloaded it, a scan of 334 ms listed `SL-01 · MONITOR · (the rule's pattern took too long …)`; Revit answered throughout — **pass** | the pane |
+| R-5 | Photo Massing's review closes on one click of Cancel — **pass** | the window |
+| R-6 | Governed Publish from Revit through the restarted bridge ends in words (rejected by `ids@1`'s door check, held on the web, nothing registered); its gate, proposal and hold rows (#1986–#1988) each record the export's sha256; D-5 still 0 unbound — **pass** | the dialog, the rows |
+
+**Owed:** R-3 (an http bridge address to another PC, live — this PC's config holds its token and is not opened; offline rows);
+a second account's refusals live (probe L1); Revit 2021–2023 and 2025–2027 live (builds; deployed after the merge); a legacy open
+review chain's last approval (the probe's C1). **Ceiling (SEC-4):** a contributor can still change a judged wip or shared
+version's stored file reference until it is published (`cv_update`); recorded, not fixed here.
+
+**Closing list:** the test bridge on 4101 stopped; the 4100 bridge on the branch (the same code master gets); Revit closed
+without saving the scratch model (its binding, rename and IFC export in memory or the scratch copy only); `sec3-smoke` is the
+founder's scratch project — its rows stay on the ledger by design (#1964–#1988 and the ingest rows).
