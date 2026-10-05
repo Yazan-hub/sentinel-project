@@ -13,6 +13,7 @@ import { buildBoQ, buildCarbon, defaultRates, defaultFactors } from "../sentinel
 import { fetchRevisions, fetchRevisionSnapshots, quantitiesFromSnapshots } from "./snapshot-store";
 import { readDeleted, restoreDeleted, deletedItemLine, restoredLine, archivable, type DeletedItem } from "./deleted-items";
 import { escapeHtml as esc } from "./escape-html";
+import { unarchiveFile } from "./cde-transition";
 
 /**
  * Sentinel Versions panel — file/blob-centric version history for uploaded model files.
@@ -76,6 +77,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   // iframe (Chrome removed them), so rename uses an inline input and archive/delete a two-click confirm.
   let renaming: string | null = null;
   let armed: { id: string; kind: "archive" | "delete" } | null = null;
+  let unarchiveAsk: { id: string; message: string } | null = null; // SEC-3: a restore the database asks the lead's reason for
   // Viewer visibility per loaded model (Forma's eye toggle): hide keeps the model loaded, just invisible.
   const hiddenModels = new Set<string>();
   const versionsOpen = new Set<string>(); // file ids whose FULL version history is expanded (default: live only)
@@ -136,7 +138,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   async function load() {
     const mine = ++seq, key = pid();
     // A project or person switch drops the old scope's inline rename / armed confirm (dismissing is reset below).
-    if (loadScope(key) !== loadedScope) { renaming = null; armed = null; }
+    if (loadScope(key) !== loadedScope) { renaming = null; armed = null; unarchiveAsk = null; }
     loadedScope = loadScope(key);
     if (cmp.a || cmp.b) { cmp.a = cmp.b = cmp.fileId = undefined; el("fv-compare").style.display = "none"; }
     el("fv-proj").textContent = key;
@@ -195,7 +197,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     } catch (e) {
       if (mine !== seq) return;
       files = [];
-      dismissing = null; renaming = null; armed = null; // their inputs are gone with the list
+      dismissing = null; renaming = null; armed = null; unarchiveAsk = null; // their inputs are gone with the list
       // A sign-in (401) or membership/role (403) refusal is the bridge's answer, not a missing CDE config.
       const refused = [401, 403].includes((e as { status?: number }).status ?? 0);
       el("fv-body").innerHTML = `<div style="color:#a1a1aa;padding:1rem 0">Files not read — ${esc((e as Error).message)}.` +
@@ -274,7 +276,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     root.querySelectorAll<HTMLElement>("[data-frenameok]").forEach((n) =>
       n.addEventListener("click", (e) => { e.stopPropagation(); void renameFile(n.dataset.frenameok!); }));
     root.querySelectorAll<HTMLElement>("[data-fcancel]").forEach((n) =>
-      n.addEventListener("click", (e) => { e.stopPropagation(); renaming = null; armed = null; render(); }));
+      n.addEventListener("click", (e) => { e.stopPropagation(); renaming = null; armed = null; unarchiveAsk = null; render(); }));
     (root.querySelector("#fv-rename-input") as HTMLInputElement | null)?.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && renaming) void renameFile(renaming);
       if (e.key === "Escape") { renaming = null; render(); }
@@ -283,7 +285,14 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       n.addEventListener("click", (e) => {
         e.stopPropagation();
         const f = files.find((x) => x.id === n.dataset.funarchive);
-        if (f) void fileAction("unarchive", { container_id: f.id }, `✓ Restored ${f.iso_name} from the archive.`);
+        if (f) void unarchive(f);
+      }));
+    root.querySelectorAll<HTMLElement>("[data-funarchiveok]").forEach((n) =>
+      n.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const f = files.find((x) => x.id === n.dataset.funarchiveok);
+        const reason = (root.querySelector("#fv-unarchive-reason") as HTMLInputElement | null)?.value ?? "";
+        if (f && reason.trim()) void unarchive(f, reason);
       }));
     root.querySelectorAll<HTMLElement>("[data-farchive]").forEach((n) =>
       n.addEventListener("click", (e) => {
@@ -429,7 +438,17 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     if (!open) return `<div style="margin-bottom:.45rem">${head}</div>`;
     const act = "border:1px solid #2c2c34;background:#1f1f27;color:#cbd5e1;border-radius:.25rem;padding:.15rem .45rem;font:600 11px system-ui;cursor:pointer";
     let actions: string;
-    if (renaming === f.id) {
+    if (unarchiveAsk?.id === f.id) {
+      // SEC-3: the database's words, a box, and a retry that sends the reason as `override` (the state: rows record it).
+      actions =
+        `<div style="display:flex;flex-direction:column;gap:.3rem;padding:.35rem .55rem;border-top:1px solid #23232a;background:#141418">` +
+        `<span style="color:#fca5a5;font-size:10.5px">${esc(unarchiveAsk.message)}</span>` +
+        `<div style="display:flex;gap:.35rem;align-items:center">` +
+        `<input id="fv-unarchive-reason" placeholder="Your reason — recorded on the ledger" style="flex:1;background:#111;color:#eee;border:1px solid #6528d7;border-radius:.25rem;padding:.2rem .4rem;font:12px system-ui"/>` +
+        `<button data-funarchiveok="${esc(f.id)}" style="${act};background:#2a1e4d;border-color:#6528d7;color:#c4b5fd">Restore with this reason</button>` +
+        `<button data-fcancel="${esc(f.id)}" style="${act}">Cancel</button>` +
+        `</div></div>`;
+    } else if (renaming === f.id) {
       actions =
         `<div style="display:flex;gap:.35rem;align-items:center;padding:.35rem .55rem;border-top:1px solid #23232a;background:#141418">` +
         `<input id="fv-rename-input" value="${esc(f.iso_name)}" style="flex:1;background:#111;color:#eee;border:1px solid #6528d7;border-radius:.25rem;padding:.2rem .4rem;font:12px system-ui"/>` +
@@ -591,6 +610,19 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       const kept = Number(r?.archived ?? 0), gone = Number(r?.discarded ?? 0);
       return `✓ Archived ${f.iso_name}: ${kept} published version(s) kept in the archive, ${gone} draft version(s) moved to Deleted items.`;
     });
+  }
+
+  // SEC-3 (0040): a restore reads the version's verdict as a publish does; without one the database asks for the lead's
+  // reason, asked here inline (the platform's iframe blocks window.prompt) and recorded on each state: row.
+  async function unarchive(f: FileRec, reason?: string) {
+    unarchiveAsk = null;
+    try {
+      const r = await unarchiveFile(base, pid(), f.id, { actor: await whoami(), override: reason });
+      // load() first, in both answers below: a refusal after some versions were restored changed the list (the bridge says how many).
+      if ("needsReason" in r) { unarchiveAsk = { id: f.id, message: r.needsReason }; await load(); status("Not restored — a lead can restore it with a reason, which the ledger records."); return; }
+      await load(); // first: load() writes its own summary line, which would hide what the action did
+      status(`✓ Restored ${f.iso_name} from the archive.`);
+    } catch (e) { await load(); status(`unarchive failed: ${(e as Error).message}`); }
   }
 
   async function deleteFile(fileId: string) {
