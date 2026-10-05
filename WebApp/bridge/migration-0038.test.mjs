@@ -44,6 +44,13 @@ describe("migration 0038 — the database holds the bridge's write rules (SEC-1)
     expect(code).toContain("if old.state in ('published', 'archived')");
     expect(code).toContain("if old.platform_item_id is not null and new.platform_item_id is distinct from old.platform_item_id then");
     expect(code).toContain("if old.sha256 is not null and new.sha256 is distinct from old.sha256 then");
+    // each rule whole, condition and words together, so a switched-off condition fails here (not only in the live probe)
+    expect(code).toContain("if old.state = 'published' and new.state not in ('published', 'archived') then\n    raise exception 'a published version can only move to archived';");
+    expect(code).toContain("if old.state in ('published', 'archived')\n     and (to_jsonb(new) - '{state,is_live,deleted_at,deleted_by,platform_item_id}'::text[])\n         is distinct from (to_jsonb(old) - '{state,is_live,deleted_at,deleted_by,platform_item_id}'::text[]) then\n    raise exception 'a version that is % changes only its state, its live pointer and its geometry link', old.state;");
+    expect(code).toContain("if new.project_id is distinct from old.project_id then\n    raise exception 'a file stays in its project';");
+    expect(code).toContain("if new.iso_name is distinct from old.iso_name\n     and exists (select 1 from public.container_versions v where v.container_id = old.id and v.state in ('published', 'archived')) then\n    raise exception 'a file that holds a published or archived version keeps its name';");
+    expect(code).toContain("if old.platform_item_id is not null and new.platform_item_id is distinct from old.platform_item_id then\n    raise exception 'a version''s geometry is attached once — its platform item is already set';");
+    expect(code).toContain("if old.sha256 is not null and new.sha256 is distinct from old.sha256 then\n    raise exception 'a version''s sha256 is written once';");
     // the bridge's deleteProject reads this refusal's words (a 409 "archive it instead")
     expect(code).toContain("if old.state = 'published' then raise exception 'published versions are immutable (cannot delete)'; end if;");
     expect(code).toContain("create trigger trg_container_frozen before update of project_id, iso_name on public.information_containers");
