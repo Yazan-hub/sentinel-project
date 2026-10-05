@@ -159,7 +159,7 @@ describe("archive and restore go through cde_transition", () => {
   });
 });
 
-describe("registerFileVersion — every new version starts in wip; geometry attaches only when asked", () => {
+describe("registerFileVersion — every new version starts in wip; geometry is the bridge's, by version id", () => {
   it("ignores a state in the body: the version is posted in wip", async () => {
     await registerFileVersion("demo", { name: "A.ifc", state: "published", author: "web" });
     expect(calls.find((c) => c.path === "container_versions" && c.method === "POST").body.state).toBe("wip");
@@ -172,9 +172,9 @@ describe("registerFileVersion — every new version starts in wip; geometry atta
     expect(calls.filter((c) => c.method === "PATCH" && c.body?.platform_item_id)).toHaveLength(0);
   });
 
-  it("attach_geometry: true attaches the item to the live version that has none", async () => {
-    const r = await registerFileVersion("demo", { name: "A.ifc", platform_item_id: "item-9", author: "outbox", attach_geometry: true });
-    expect(r).toMatchObject({ linked: true, version: { id: V1, platform_item_id: "item-9" } });
-    expect(calls.filter((c) => c.path === "container_versions" && c.method === "POST")).toHaveLength(0);
+  it("attach_geometry: true is refused in words before anything is written", async () => {
+    await expect(registerFileVersion("demo", { name: "A.ifc", platform_item_id: "item-9", author: "outbox", attach_geometry: true }))
+      .rejects.toMatchObject({ status: 400, message: "geometry is attached by the bridge to the version an upload names — nothing was saved" });
+    expect(calls.filter((c) => c.method !== "GET")).toHaveLength(0);
   });
 });

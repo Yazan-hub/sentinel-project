@@ -73,24 +73,18 @@ describe("element snapshots — a take-off is a contributor's, checked by the br
   });
 });
 
-describe("geometry on a file's live version — a contributor's, checked by the bridge, written once (0038)", () => {
-  beforeEach(() => {
-    db.information_containers = [{ id: C, project_id: P, iso_name: "A.ifc", parent_id: null, deleted_at: null }];
-    db.container_versions = [{ id: V1, container_id: C, revision: "v1", state: "published", is_live: true, platform_item_id: null, deleted_at: null }];
-  });
-
-  it("a viewer's attach is refused before anything is written", async () => {
-    await expect(as("viewer", () => registerFileVersion("demo", { name: "A.ifc", platform_item_id: "item-1", attach_geometry: true }))).rejects.toMatchObject({ status: 403 });
-    expect(writes("container_versions")).toEqual([]);
-  });
-
-  it("a contributor's attach lands once: the write is filtered on a version with no geometry yet", async () => {
-    const r = await as("contributor", () => registerFileVersion("demo", { name: "A.ifc", platform_item_id: "item-1", attach_geometry: true }));
-    expect(r.linked).toBe(true);
-    expect(writes("container_versions").at(-1)).toMatchObject({ method: "PATCH" });
-    expect(writes("container_versions").at(-1).search).toContain("platform_item_id=is.null");
-    expect(db.container_versions[0].platform_item_id).toBe("item-1");
-  });
+describe("geometry on a file's live version — the bridge's, onto the version an upload names (SEC-3)", () => {
+  for (const state of ["wip", "shared", "published"]) {
+    it(`a signed-in caller's attach onto a ${state} live version is refused in words, and nothing is written`, async () => {
+      db.information_containers = [{ id: C, project_id: P, iso_name: "A.ifc", parent_id: null, deleted_at: null }];
+      db.container_versions = [{ id: V1, container_id: C, revision: "v1", state, is_live: true, platform_item_id: null, deleted_at: null }];
+      for (const role of ["viewer", "contributor", "lead"])
+        await expect(as(role, () => registerFileVersion("demo", { name: "A.ifc", platform_item_id: "item-1", attach_geometry: true })))
+          .rejects.toMatchObject({ status: 400, message: "geometry is attached by the bridge to the version an upload names — nothing was saved" });
+      expect([...writes("container_versions"), ...writes("information_containers"), ...writes("audit_log")]).toEqual([]);
+      expect(db.container_versions[0].platform_item_id).toBeNull();
+    });
+  }
 });
 
 describe("a section write lands only on the document as it was read (0038: the bridge holds the freeze)", () => {

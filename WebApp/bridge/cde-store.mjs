@@ -816,6 +816,9 @@ export async function restoreFile(key, { container_id, version_id } = {}, actor)
 /** Register an uploaded file as a new version. Create-or-append by file name; the new version becomes live and
  *  always starts in wip (a body's `state` is ignored — publishing is cde_transition's, migration 0031). */
 export async function registerFileVersion(key, b = {}) {
+  // Geometry is the bridge's: the outbox's attachGeometry puts an item on the version its sidecar names, by id. A
+  // registration never attaches onto an existing version (0040: platform_item_id is the bridge's in every state).
+  if (b.attach_geometry === true) { const e = new Error("geometry is attached by the bridge to the version an upload names — nothing was saved"); e.status = 400; throw e; }
   const proj = await ensureProject(key);
   const name = (b.name || b.iso_name || "").trim();
   if (!name) { const e = new Error("name required"); e.status = 400; throw e; }
@@ -835,23 +838,6 @@ export async function registerFileVersion(key, b = {}) {
   if (container && parentId && container.parent_id !== parentId) {
     // Existing file republished as a link (or host registered after the link) — adopt the nesting.
     await sb(`information_containers?id=eq.${container.id}`, { method: "PATCH", body: { parent_id: parentId }, prefer: "return=minimal" });
-  }
-
-  // Geometry link, opt-in: only `attach_geometry: true` (the outbox watcher's pre-5b sidecar, which carries no
-  // version_id) attaches the platform item to the file's live version that has no geometry yet, so the version
-  // Governed Publish registered gets its geometry. Every other caller lands as its own version: a web upload
-  // whose name matched a Revit-judged version once attached onto it (files-panel.ts), and an intake's verdict
-  // once landed on a stale row (phase 5 spec, Decision 6).
-  if (container && b.platform_item_id && b.attach_geometry === true) {
-    const liveNoGeom = (container.container_versions || []).find((v) => v.is_live && !v.platform_item_id && !v.deleted_at);
-    if (liveNoGeom) {
-      // 0038: geometry on an issued version is the bridge's — the contributor check here, then the service key, written once.
-      const { requireMinRole } = await import("./members-store.mjs");
-      await requireMinRole(key, "contributor");
-      requireRows(await sb(`container_versions?id=eq.${liveNoGeom.id}&platform_item_id=is.null`, { method: "PATCH", body: { platform_item_id: b.platform_item_id }, prefer: "return=representation", service: true }), "geometry is linked to a version by a contributor or above");
-      await audit(proj.id, "file_version", liveNoGeom.id, "geometry linked", b.author || "web", null, { file: name, platform_item_id: b.platform_item_id });
-      return { container_id: container.id, iso_name: name, linked: true, version: { id: liveNoGeom.id, revision: liveNoGeom.revision, platform_item_id: b.platform_item_id, is_live: true } };
-    }
   }
 
   if (!container) {

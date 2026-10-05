@@ -108,17 +108,15 @@ describe("files — a rename, the live pointer and a geometry link are refusals 
     expect(ledger()).toHaveLength(0);
   });
 
-  it("registerFileVersion attach_geometry: a link the database refused is a 403 and no 'geometry linked' row", async () => {
-    serve(["container_versions"]);
+  it("registerFileVersion attach_geometry: refused in words before anything is sent, and no 'geometry linked' row", async () => {
     await expect(registerFileVersion("demo", { name: "A.ifc", platform_item_id: "item-9", attach_geometry: true, author: "outbox" }))
-      .rejects.toMatchObject({ status: 403, message: "geometry is linked to a version by a contributor or above — nothing was saved" });
+      .rejects.toMatchObject({ status: 400, message: "geometry is attached by the bridge to the version an upload names — nothing was saved" });
     expect(ledger()).toHaveLength(0);
   });
 
-  it("a stored link and a stored pointer are written as before", async () => {
-    expect(await registerFileVersion("demo", { name: "A.ifc", platform_item_id: "item-9", attach_geometry: true, author: "outbox" })).toMatchObject({ linked: true, version: { id: V1 } });
+  it("a stored pointer is written as before", async () => {
     expect(await setLiveVersion("demo", V1, "web")).toEqual({ ok: true, version_id: V1, container_id: C });
-    expect(ledger().map((c) => c.body.action)).toEqual(["geometry linked", "set live"]);
+    expect(ledger().map((c) => c.body.action)).toEqual(["set live"]);
   });
 });
 
