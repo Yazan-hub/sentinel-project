@@ -108,4 +108,13 @@ describe("mergeMeta", () => {
     expect(shell).not.toContain("}).catch(() => {});\n  };");
     expect(shell.match(/console\.warn\("\[snapshot\] not saved — " \+/g)).toHaveLength(2);
   });
+
+  it("0039: the carbon panel sends a basis that fits the snapshot's text rule, whatever label an installed pack has", () => {
+    const panel = readFileSync(new URL("../src/setups/carbon-panel.ts", import.meta.url), "utf8");
+    const fit = 'carbon_basis: factorsBasis.replace(/[<>]/g, "").slice(0, 300)';
+    expect(panel).toContain(fit);
+    // the longest label the artefact store accepts (300 characters), with < and >, as the panel builds the basis
+    const basis = `<${"x".repeat(298)}> — carbon_factors@12 · office`.replace(/[<>]/g, "").slice(0, 300);
+    expect(mergeMetaForTest(base, { snapshot: { carbon_tco2e: 12, carbon_basis: basis } }).snapshot.carbon_basis).toBe(basis);
+  });
 });

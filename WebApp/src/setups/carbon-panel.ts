@@ -115,9 +115,10 @@ export function carbonPanel(components: OBC.Components, opts: { baseUrl?: string
     draw();
     // Publish the LIVE model's carbon to the project snapshot (Owner/FM portal). Skip when there's no live
     // model (e.g. diffing two historical revisions) so we don't clobber the snapshot with 0.
-    // Only a figure at factors that were read goes to the Owner view, with its basis — never an unsaved edit's.
+    // Only a figure at factors that were read goes to the Owner view, with its basis — never an unsaved edit's. The basis
+    // is sent as the snapshot's text rule holds it (at most 300 characters, without < or >), whatever the pack's label.
     if (quantities.length && packRead && !factorsEdited)
-      bwrite(`${base}/projects/${encodeURIComponent(pid())}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ snapshot: { carbon_tco2e: Math.round(report.total_kg / 1000), carbon_basis: factorsBasis } }) })
+      bwrite(`${base}/projects/${encodeURIComponent(pid())}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ snapshot: { carbon_tco2e: Math.round(report.total_kg / 1000), carbon_basis: factorsBasis.replace(/[<>]/g, "").slice(0, 300) } }) })
         .catch((e) => msg(`The Owner view's carbon figure was not updated — ${(e as Error).message}`, "#eab308"));
   };
 
