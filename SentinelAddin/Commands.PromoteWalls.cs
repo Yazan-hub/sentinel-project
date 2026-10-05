@@ -43,27 +43,79 @@ public sealed class PromoteWallsCommand : IExternalCommand
             TaskDialog.Show(Title, ProjectContext.NotBound);
             return Result.Cancelled;
         }
+        // MA-3b5 (F1): one guard with the review — while Promote reads or files, a second Promote and Review AI Proposals are refused in
+        // words (the frozen thread used to be the guard); while a review window is open or a report is in flight, Promote is.
+        if (ReviewChangesetsCommand.Held)
+        {
+            TaskDialog.Show(Title, ReviewChangesetsCommand.Busy);
+            return Result.Cancelled;
+        }
         var cfg = BcfConfig.Load();
         var key = ctx.Key;
+        ReviewChangesetsCommand.Hold(); // released by Plan (E4), or by the filing it hands the guard to (E3)
+        App.PanelVm?.LogDoctor(PropertyPlanner.PromoteReading);
+        // MA-3b5 (XC-3): the reads off Revit's thread; the plan and its dialog back on it, in the model Promote started from (DocPin): a
+        // model switched or closed meanwhile is said, nothing is planned or filed, and the guard is released.
+        Task.Run(() => Read(cfg, key)).ContinueWith(read => App.Events.Enqueue(doc, "plan Promote (DD)", (ui, d) => Plan(ui, d, cfg, key, read),
+            why => { ReviewChangesetsCommand.Release(); TaskDialog.Show(Title, why); }), TaskScheduler.Default);
+        return Result.Succeeded;
+    }
 
-        var pending = ChangesetClient.FetchProposed(cfg, key, out var fetchErr);
+    // MA-3b5 (E1): Promote's reads, on a pool thread — the changesets waiting for review, then, only when no Promote storey waits (that one
+    // is opened instead), the standards, the LOD matrix and (MA-2b) its DD stage IDS: PromoteContext, which the review's check before commit
+    // reads too.
+    private static (List<ChangesetDto> Pending, string Err, PromoteContext Pc) Read(BcfConfig cfg, string key)
+    {
+        var pending = ChangesetClient.FetchProposed(cfg, key, out var err);
+        return (pending, err, pending == null || pending.Any(p => p.Source == "promote") ? null : PromoteContext.Fetch(key));
+    }
+
+    // MA-3b5 (E4): the event hub's job, on Revit's thread in the pinned model. The guard Execute took is released exactly once (Once): here
+    // when the plan ends — a refusal, No, a throw (the hub swallows it into a Doctor line) — or before a waiting storey opens; or by the
+    // filing it was handed to.
+    private static void Plan(UIApplication ui, Document doc, BcfConfig cfg, string key, Task<(List<ChangesetDto> Pending, string Err, PromoteContext Pc)> read)
+    {
+        var held = 1;
+        void Once() { if (System.Threading.Interlocked.Exchange(ref held, 0) == 1) ReviewChangesetsCommand.Release(); }
+        var handed = false;
+        try { handed = PlanAndFile(ui, doc, cfg, key, read, Once); }
+        finally { if (!handed) Once(); }
+    }
+
+    // Execute's body before MA-3b5, its reads handed in: plans on Revit's thread, asks, and hands the guard to the filing (true) or not.
+    private static bool PlanAndFile(UIApplication ui, Document doc, BcfConfig cfg, string key, Task<(List<ChangesetDto> Pending, string Err, PromoteContext Pc)> read, Action release)
+    {
+        // Review C4: DocPin checks which model is in front, not its project — a model re-bound (Project Setup) during the reads would plan
+        // with the old key's standards and file into the old key.
+        if (ProjectContext.For(doc).Key != key)
+        {
+            TaskDialog.Show(Title, $"This model's project changed while Promote read the bridge (was {key}) — nothing was planned or filed. Run Promote (DD) again.");
+            return false;
+        }
+        if (read.Status != TaskStatus.RanToCompletion)
+        {
+            TaskDialog.Show(Title, "Promote could not read the bridge — " + (read.Exception?.GetBaseException().Message ?? "the read did not finish") + "\nNothing was planned or filed.");
+            return false;
+        }
+        var (pending, fetchErr, pc) = read.Result;
         if (pending == null)
         {
             TaskDialog.Show(Title, $"Couldn't reach the bridge:\n{fetchErr}");
-            return Result.Failed;
+            return false;
         }
         var unreviewed = pending.FirstOrDefault(p => p.Source == "promote");
         if (unreviewed != null) // MA-2d: with the rest of its storey (StoreyBatch)
-            return ReviewChangesetsCommand.Open(c, doc, cfg, key, StoreyBatch.Of(pending, unreviewed)) ? Result.Succeeded : Result.Cancelled;
+        {
+            release(); // Open checks the guard
+            ReviewChangesetsCommand.Open(ui, doc, cfg, key, StoreyBatch.Of(pending, unreviewed));
+            return false;
+        }
 
-        // The standards, the LOD matrix and (MA-2b) its DD stage IDS, off the API thread (the Annotate pattern) — PromoteContext, which
-        // the review's check before commit reads too — then the facts (on it).
-        var pc = Task.Run(() => PromoteContext.Fetch(key)).GetAwaiter().GetResult();
         var standards = pc.Standards;
         if (!standards.Guideline.HasGuideline)
         {
             TaskDialog.Show(Title, $"Guideline: {standards.GuidelineSource.Label}\n\nNo DD rule file is installed for \"{key}\" or its office — nothing to plan. Install one as guideline@n.");
-            return Result.Cancelled;
+            return false;
         }
         // MA-1a item 6, the office-template check: Promote retypes onto office types, so a model that holds none of them
         // was not made from the office template — said before anything is planned.
@@ -71,7 +123,7 @@ public sealed class PromoteWallsCommand : IExternalCommand
         if (PlacementPolicy.TemplateRefuses(officeHave, officeAll))
         {
             TaskDialog.Show(Title, PlacementPolicy.TemplateRefusal(officeAll, standards.CatalogSource.Label));
-            return Result.Cancelled;
+            return false;
         }
         LodMatrix mx = pc.Mx;
         var notRun = pc.NotRun.ToList();
@@ -85,7 +137,7 @@ public sealed class PromoteWallsCommand : IExternalCommand
         if ((classes.Contains("Walls") ? walls.Count : 0) + others.Count == 0)
         {
             TaskDialog.Show(Title, "Nothing to promote in this model." + (notRun.Count > 0 ? "\n\n" + string.Join("\n", notRun) : ""));
-            return Result.Cancelled;
+            return false;
         }
 
         var plannerClock = System.Diagnostics.Stopwatch.StartNew(); // MA-1a item 8: the planner's own time, for the receipt
@@ -175,45 +227,82 @@ public sealed class PromoteWallsCommand : IExternalCommand
         };
         if (held.Count > 0)
             dlg.ExpandedContent = "Sent to a person:\n" + string.Join("\n", held.Take(40)) + (held.Count > 40 ? $"\n… and {held.Count - 40} more" : "");
-        if (dlg.Show() != TaskDialogResult.Yes) return Result.Succeeded; // read-only run
+        if (dlg.Show() != TaskDialogResult.Yes) return false; // read-only run
 
-        ChangesetDto first = null;
-        var filedIds = new List<string>(); // MA-1a item 8: the changesets this run filed, for its receipt
-        var filed = new List<ChangesetDto>(); // MA-2d: the first storey's changesets are opened together
-        // Review amendments C4 and C24: a set_parameter the bridge refuses (its source not confirmed now, or a bridge older than the op)
-        // never costs the storey its retypes and attaches — the body is filed again without its type edits, each one an exception that
-        // says why — and the held rows of a body not filed ride on the next one filed (FileAll).
-        var run = PropertyPlanner.FileAll(bodies, (body, retry) =>
+        // MA-3b5 (XC-3): the filing runs off Revit's thread — Revit stays usable, and the guard stays held until the bridge has answered the
+        // last filing: the filing's finally releases it before the review is queued (E3: Open checks it). The receipt's Doctor line goes
+        // through Revit's own dispatcher (S3, MA-3b2b C1e: a pool thread's never pumps); the review opens back on Revit's thread in this
+        // model only (DocPin), and a refusal says what was filed and where to review it.
+        var pane = System.Windows.Threading.Dispatcher.CurrentDispatcher;
+        var title = doc.Title;
+        // Review C11: Revit stays usable, so Sign out can run mid-filing — ServiceToken would then fall back to the PC's machine credential
+        // under the person's name (the bodies' actor). With it cleared, the filing carries the person's token or none (refused, said).
+        var fileCfg = BcfConfig.Load(); if (UserSession.IsSignedIn) fileCfg.FileToken = ""; // review C11
+        App.PanelVm?.LogDoctor(PropertyPlanner.PromoteFiling(bodies.Count));
+        Task.Run(() =>
         {
-            string err = null;
-            // Review C22, MA-2d: ChangesetClient sends every request off the API thread (Send) — the first attempt and the retry alike;
-            // Revit still waits for the answer, as for PromoteContext.Fetch.
-            var cs = ChangesetClient.Propose(cfg, key, body, out err);
-            if (cs == null) return err ?? "not filed";
-            first ??= cs;
-            filed.Add(cs);
-            filedIds.Add(cs.Id);
-            return null;
+            ChangesetDto first = null;
+            var filedIds = new List<string>(); // MA-1a item 8: the changesets this run filed, for its receipt
+            var filed = new List<ChangesetDto>(); // MA-2d: the first storey's changesets are opened together
+            string said;
+            try
+            {
+                // Review amendments C4 and C24: a set_parameter the bridge refuses (its source not confirmed now, or a bridge older than the
+                // op) never costs the storey its retypes and attaches — the body is filed again without its type edits, each one an exception
+                // that says why — and the held rows of a body not filed ride on the next one filed (FileAll). MA-3b5 (F4): after the first
+                // filing the bridge did not answer, the rest are not sent (Stalling).
+                var run = PropertyPlanner.FileAll(bodies, PropertyPlanner.Stalling((body, retry) =>
+                {
+                    string err = null;
+                    // Review C22, MA-2d: ChangesetClient sends every request off the API thread (Send) — the first attempt and the retry
+                    // alike; MA-3b5: and this filing runs on a pool thread, so nobody on Revit's thread waits for the answer.
+                    var cs = ChangesetClient.Propose(fileCfg, key, body, out err);
+                    if (cs == null) return err ?? "not filed";
+                    first ??= cs;
+                    filed.Add(cs);
+                    filedIds.Add(cs.Id);
+                    return null;
+                }));
+                var failed = run.Failed;
+                var typeEditsNotFiled = run.TypeEditsNotFiled;
+                said = failed.Count == 0 && typeEditsNotFiled == 0 ? ""
+                    : (typeEditsNotFiled > 0 ? $"{typeEditsNotFiled} type edit(s) not filed — see Sent to a person (the bridge refused their source; a person fills them in Revit)\n" : "") +
+                      (run.RowsNotFiled > 0 ? $"{run.RowsNotFiled} row(s) sent to a person reached no changeset — they are listed only in Promote's dialog\n" : "") +
+                      (failed.Count > 0 ? $"{failed.Count} of {bodies.Count} changeset(s) were not confirmed filed (one the bridge did not answer may still be held — the next Promote (DD) opens it as a waiting storey if so):\n" + string.Join("\n", failed.Take(5)) : "");
+            }
+            catch (Exception ex) { said = PropertyPlanner.PromoteStopped($"{ex.GetType().Name}: {ex.Message}", first != null); }
+            finally { release(); }
+            // Review C6: the receipt on every path that filed something — a filing that threw after some storeys too; a throw here is said,
+            // never left to end this pool thread before the open hop.
+            if (filedIds.Count > 0)
+            {
+                try
+                {
+                    // MA-1a item 8: the planner's build:run receipt for the run that filed these changesets — deterministic, so no
+                    // model and no tokens; its gaps are the elements it sent to a person.
+                    var receipt = new BuildReceipt.Facts { Seconds = plannerClock.Elapsed.TotalSeconds, Candidates = (classes.Contains("Walls") ? walls.Count : 0) + others.Count };
+                    receipt.Parameters["classes"] = classes.ToArray();
+                    receipt.Parameters["guideline"] = standards.GuidelineSource.Label;
+                    receipt.Parameters["lod_matrix"] = pc.MxLabel;
+                    GovernedNotify.Report("Promote receipt", BuildReceipt.Run("promote", BuildReceipt.AddinSha256, receipt,
+                        plans.SelectMany(p => p.Held).Select(h => h.UniqueId).Distinct().Count(), filedIds, actor), key, pane);
+                }
+                catch (Exception ex) { said += (said.Length > 0 ? "\n" : "") + $"Promote's receipt was not sent — {ex.GetType().Name}: {ex.Message}"; }
+            }
+            App.PanelVm?.LogDoctor(PropertyPlanner.PromoteFiled(filed.Count, bodies.Count));
+            // Nothing filed: the words alone, in whichever model is in front — a dialog changes nothing (S4).
+            if (first == null) { App.Events.Enqueue(_ => TaskDialog.Show(Title, said)); return; }
+            App.Events.Enqueue(doc, "open the review of the changesets Promote filed", (u, d) =>
+            {
+                // Review C12: Project Setup can re-bind this model while Promote files — the old project's review is never opened in it.
+                if (ProjectContext.For(d).Key != key) { TaskDialog.Show(Title, PropertyPlanner.PromoteNotOpened($"This model's project changed while Promote filed (was {key})", filed.Count, title) + (said.Length > 0 ? "\n\n" + said : "")); return; }
+                if (said.Length > 0) TaskDialog.Show(Title, said);
+                // Review C7: a picker or a report that took the guard after the filing released it (E3) — said with what was filed and where.
+                if (ReviewChangesetsCommand.Held) { TaskDialog.Show(Title, PropertyPlanner.PromoteNotOpened(ReviewChangesetsCommand.Busy, filed.Count, title)); return; }
+                ReviewChangesetsCommand.Open(u, d, cfg, key, StoreyBatch.Of(filed, first));
+            }, why => TaskDialog.Show(Title, PropertyPlanner.PromoteNotOpened(why, filed.Count, title) + (said.Length > 0 ? "\n\n" + said : "")));
         });
-        var failed = run.Failed;
-        var typeEditsNotFiled = run.TypeEditsNotFiled;
-        if (filedIds.Count > 0)
-        {
-            // MA-1a item 8: the planner's build:run receipt for the run that filed these changesets — deterministic, so no
-            // model and no tokens; its gaps are the elements it sent to a person.
-            var receipt = new BuildReceipt.Facts { Seconds = plannerClock.Elapsed.TotalSeconds, Candidates = (classes.Contains("Walls") ? walls.Count : 0) + others.Count };
-            receipt.Parameters["classes"] = classes.ToArray();
-            receipt.Parameters["guideline"] = standards.GuidelineSource.Label;
-            receipt.Parameters["lod_matrix"] = pc.MxLabel;
-            GovernedNotify.Report("Promote receipt", BuildReceipt.Run("promote", BuildReceipt.AddinSha256, receipt,
-                plans.SelectMany(p => p.Held).Select(h => h.UniqueId).Distinct().Count(), filedIds, actor), key);
-        }
-        if (failed.Count > 0 || typeEditsNotFiled > 0)
-            TaskDialog.Show(Title, (typeEditsNotFiled > 0 ? $"{typeEditsNotFiled} type edit(s) not filed — see Sent to a person (the bridge refused their source; a person fills them in Revit)\n" : "") +
-                                   (run.RowsNotFiled > 0 ? $"{run.RowsNotFiled} row(s) sent to a person reached no changeset — they are listed only in Promote's dialog\n" : "") +
-                                   (failed.Count > 0 ? $"{failed.Count} of {bodies.Count} changeset(s) were not filed:\n" + string.Join("\n", failed.Take(5)) : ""));
-        if (first == null) return Result.Failed;
-        return ReviewChangesetsCommand.Open(c, doc, cfg, key, StoreyBatch.Of(filed, first)) ? Result.Succeeded : Result.Cancelled;
+        return true;
     }
 
     /// <summary>The facts Promote plans from, read on the API thread for the classes that run: the walls (read for doors too: a door's

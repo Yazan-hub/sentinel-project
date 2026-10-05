@@ -41,12 +41,12 @@ static partial class Check
            && review.Contains("reach[sp.ProposalGuid] = new FilteredElementCollector(doc).WhereElementIsNotElementType().Count(x => x.GetTypeId() == spType.Id);")
            && review.Contains("new ChangesetReviewWindow(cs, reach)"),
            "the review window shows a set_parameter as a type edit: its reach counted by the add-in in the model now (C3), the parameter, from, to and the source");
-        Ok(promote.Contains("var run = PropertyPlanner.FileAll(bodies, (body, retry) =>")
+        Ok(promote.Contains("var run = PropertyPlanner.FileAll(bodies, PropertyPlanner.Stalling((body, retry) =>") // MA-3b5 (F4): under the stall rule
            && promote.Contains("type edit(s) not filed — see Sent to a person")
            && promote.Contains("row(s) sent to a person reached no changeset") // C24
            // Review C22: the retry is a network call the plan adds, so it runs off the API thread — MA-2d: ChangesetClient.Send, for every
            // request (section 38).
-           && promote.Contains("var cs = ChangesetClient.Propose(cfg, key, body, out err);"),
+           && promote.Contains("var cs = ChangesetClient.Propose(fileCfg, key, body, out err);"),
            "Promote files through FileAll: a body the bridge refuses for a set_parameter is filed again without its type edits (C4), the held rows of a body not filed ride on the next (C24), and the result says how many");
     }
 }

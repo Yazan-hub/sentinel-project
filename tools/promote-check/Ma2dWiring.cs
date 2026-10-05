@@ -19,8 +19,8 @@ static partial class Check
            && !client.Contains("Send(ReadHttp, Req(") && !client.Contains("Send(WriteHttp, msg)")
            && !client.Contains("ReadAsStringAsync().GetAwaiter()"),
            "ChangesetClient builds (its token too), sends and reads every request on a pool thread — FetchProposed, FetchOne, MyRole and Post (Propose, ReportResult, Withdraw, ReportReverted): one place for Promote, the review, Ghost Builder and the undo watcher");
-        Ok(promote.Contains("var cs = ChangesetClient.Propose(cfg, key, body, out err);") && !promote.Contains("retry ? Task.Run("),
-           "Promote's first Propose is off the API thread too: C22's wrap of the retry is now the client's, for both");
+        Ok(promote.Contains("var cs = ChangesetClient.Propose(fileCfg, key, body, out err);") && !promote.Contains("retry ? Task.Run("),
+           "Promote's Propose — the first and the retry — goes through the client's pool thread, and since MA-3b5 Promote's filing itself runs on a pool thread: nothing on Revit's thread waits for it");
     }
 
     // ── 39. MA-2d: one Undo per storey — the placement event, the review and Promote, by source scan (they compile in no check project;
@@ -52,8 +52,8 @@ static partial class Check
            "any changeset that fails rolls the whole storey back and the error names it; each changeset's own result is kept for its report");
         // MA-3b (AI-5): the picker lists every entry (StoreyBatch.Entries — a storey as one) instead of opening the oldest.
         Ok(review.Contains("var cs = StoreyBatch.Merge(batch);") && review.Contains("foreach (var one in batch)") && review.Contains("StoreyBatch.Entries(pending)")
-           && promote.Contains("ReviewChangesetsCommand.Open(c, doc, cfg, key, StoreyBatch.Of(pending, unreviewed))")
-           && promote.Contains("ReviewChangesetsCommand.Open(c, doc, cfg, key, StoreyBatch.Of(filed, first))")
+           && promote.Contains("ReviewChangesetsCommand.Open(ui, doc, cfg, key, StoreyBatch.Of(pending, unreviewed))") // MA-3b5: the plan hop's UIApplication
+           && promote.Contains("ReviewChangesetsCommand.Open(u, d, cfg, key, StoreyBatch.Of(filed, first))") // MA-3b5: the open hop, DocPin
            // Review C7: a Promote part reviewed alone (a part waits twice, or one is missing) is said.
            && review.Contains("is reviewed alone: another part of its storey is missing (not filed, or reviewed already) or waits twice (two Promote runs) — applying it is its own Undo entry, not the storey's.")
            // Review C17: a storey's dialogs speak of the storey.

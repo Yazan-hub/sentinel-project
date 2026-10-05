@@ -10,7 +10,7 @@ static partial class Check
         string promote = Src("Commands.PromoteWalls.cs"), review = Src("Commands.ReviewChangesets.cs"), place = Src("GhostBuilder", "ChangesetPlacementEvent.cs");
         string ctx = Src("GhostBuilder", "PromoteContext.cs");
         int Count(string s, string what) { int n = 0, i = 0; while ((i = s.IndexOf(what, i, StringComparison.Ordinal)) >= 0) { n++; i += what.Length; } return n; }
-        Ok(Count(promote, "PromoteContext.Fetch(") == 1 && promote.Contains("Task.Run(() => PromoteContext.Fetch(key))")
+        Ok(Count(promote, "PromoteContext.Fetch(") == 1 && promote.Contains("? null : PromoteContext.Fetch(key));") && promote.Contains("Task.Run(() => Read(cfg, key))") // MA-3b5: in Read, on a pool thread
            && Count(review, "PromoteContext.Fetch(") == 1 && review.Contains("Task.Run(() => PromoteContext.Fetch(key))")
            && ctx.Contains("ArtefactClient.StageIds(key, out var why)") && Src("Coordination", "ArtefactClient.cs").Contains("\"/artefacts/lod_matrix/ids\""),
            "no network call on Revit's API thread: the matrix and the DD IDS (GET …/artefacts/lod_matrix/ids) are read inside Task.Run, in Promote and in the review");
