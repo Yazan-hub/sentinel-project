@@ -24,7 +24,6 @@ public partial class SettingsDialog : Window
             ? "Signed in as " + who + " (Sentinel ▸ Sign in to sign out)."
             : "Signed out — Sentinel ▸ Sign in to act under your own name; until then this PC's shared token (if any) is used.";
         _current = SettingsManager.Resolve(doc);
-        TemplatePathBox.Text = _current.RevitTemplatePath;
         // The DOCUMENT's code (never the merged machine value): a project-scope save must not turn a machine default
         // into a document fact — CDE-01 reads ProjectCode from the document only, so a machine has none to show.
         ProjectCodeBox.Text = doc is null ? "" : SettingsManager.LoadFromDocument(doc)?.ProjectCode ?? "";
@@ -67,6 +66,7 @@ public partial class SettingsDialog : Window
         try
         {
             var cfg = Sentinel.Commands.BcfConfig.Load();
+            if (cfg.Refusal is { } refused) { WebProjectHint.Text = refused; return; } // SEC-3: no token is sent to that address
             using var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(4) };
             var msg = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.Get,
                 cfg.ServiceUrl.TrimEnd('/') + "/cde/projects");
@@ -123,17 +123,6 @@ public partial class SettingsDialog : Window
         return text;
     }
 
-    private void OnBrowseTemplate(object sender, RoutedEventArgs e)
-    {
-        var dlg = new OpenFileDialog
-        {
-            Title = "Select Revit template",
-            Filter = "Revit template (*.rte)|*.rte|Revit files (*.rvt;*.rte)|*.rvt;*.rte|All files (*.*)|*.*",
-            CheckFileExists = true,
-        };
-        if (dlg.ShowDialog(this) == true) TemplatePathBox.Text = dlg.FileName;
-    }
-
     private void OnBrowseGhostFolder(object sender, RoutedEventArgs e)
     {
 #if NET48
@@ -155,7 +144,6 @@ public partial class SettingsDialog : Window
 
     private void OnSave(object sender, RoutedEventArgs e)
     {
-        var template = TemplatePathBox.Text.Trim();
         var code = ProjectCodeBox.Text.Trim().ToUpperInvariant();
         var ghostFolder = GhostFolderBox.Text.Trim();
         var webProject = WebProjectKey();
@@ -167,7 +155,6 @@ public partial class SettingsDialog : Window
             // saving to machine can't bake in project-only values, or blow away machine fields this
             // dialog doesn't show.
             var settings = SettingsManager.LoadFromMachine() ?? new SentinelSettings();
-            settings.RevitTemplatePath = template;
             // No WebProjectKey or ProjectCode: both are document facts. SEC-2: while the box still shows the folder the model
             // names, this PC keeps its own — a machine save never turns a model's folder into this PC's.
             if (!(_current.SourceFolderFromModel && ghostFolder == _current.GhostSourceFolder)) settings.GhostSourceFolder = ghostFolder;
@@ -192,7 +179,6 @@ public partial class SettingsDialog : Window
             // saving to project can't bake in machine-local paths, or blow away project fields this
             // dialog doesn't show.
             var settings = SettingsManager.LoadFromDocument(doc) ?? new SentinelSettings();
-            settings.RevitTemplatePath = template;
             settings.ProjectCode = code;
             settings.GhostSourceFolder = ghostFolder;
             settings.WebProjectKey = webProject;

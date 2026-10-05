@@ -246,6 +246,29 @@ static class Check
             Ok(generic.Verdict == NameVerdict.NeedsHuman && generic.Notes.Last() == "MATERIAL not found in the name, the family, the layers or the parameters the rule names", "no material word anywhere → said plainly, the leftover words are not taken as the material: " + generic.Notes.Last());
         }
 
+        // ── SEC-3: a ruleset's pattern is matched under a bound — past it the name is not evaluated, in words, never a pass ──
+        var slow = new Rule { Id = "SL-01", Tokens = ["A"], TokenDefs = new() { ["A"] = "(a+)+b" }, MessageEn = "x" };
+        var slowName = new string('a', 27) + "!";
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        Ok(!RuleRegex.Matches(slow, null, slowName, out var slowWhy) && slowWhy == RuleRegex.TimedOut && clock.ElapsedMilliseconds < 2000,
+           $"SEC-3: a pattern past its bound is not evaluated, in words, within its bound ({clock.ElapsedMilliseconds} ms)");
+        clock.Restart();
+        Ok(!new TokenSlot { Token = "A", Pattern = "(a+)+b" }.Accepts(slowName) && clock.ElapsedMilliseconds < 2000,
+           $"SEC-3: a slot's pattern past its bound accepts nothing ({clock.ElapsedMilliseconds} ms)");
+        Ok(RuleRegex.Judge(() => RuleRegex.For(slow, null).IsMatch(slowName)) == RuleRegex.TimedOut,
+           "SEC-3: the scanner's bound turns a match past its bound into the one note's words");
+        // C4: the bound is per scan too — a rule under the match bound on every name still stops once its matches in one
+        // scan add up past ScanBudget, with one note (a match here costs 100 ms; 40 of them would take 4 s).
+        var steady = new Rule { Id = "SL-02", Tokens = ["A"], MessageEn = "x" };
+        var scan = new RuleRegex.ScanClock();
+        clock.Restart();
+        var scanWhy = RuleRegex.Judge(() => { for (int i = 0; i < 40; i++) scan.Time(steady, () => { System.Threading.Thread.Sleep(100); return true; }); });
+        Ok(scanWhy == RuleRegex.TookTooLongAcrossScan && clock.ElapsedMilliseconds < 3000,
+           $"SEC-3: a rule under the match bound on each of 40 names stops at the scan bound, one note ({clock.ElapsedMilliseconds} ms)");
+        var quick = new RuleRegex.ScanClock();
+        Ok(RuleRegex.Judge(() => { for (int i = 0; i < 40; i++) quick.Time(steady, () => true); }) is null,
+           "SEC-3: a quick rule over 40 names runs to the end with no note");
+
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;
     }

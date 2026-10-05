@@ -127,8 +127,11 @@ public sealed class IngestDocumentsCommand : IExternalCommand
         if (DialogOwner.ShowFileDialog(dlg, uiapp) != true) return Result.Cancelled;
         var files = dlg.FileNames.ToList();
 
+        // SEC-3: the endpoint is checked before the window opens; a refusal is said, and nothing is read or sent.
+        DocumentExtractor extractor;
+        try { extractor = new DocumentExtractor(Sentinel.Engine.SettingsManager.MachineCloudOptIn()); }
+        catch (ArgumentException ex) { TaskDialog.Show("Sentinel — Standards", ex.Message); return Result.Cancelled; }
         var window = StandardsReview.Create(uiapp);
-        var extractor = new DocumentExtractor();
         window.Closed += (_, __) => extractor.Dispose();
         window.Show();
         window.SetStatus($"Reading {files.Count} document(s) and querying the local LLM… " +

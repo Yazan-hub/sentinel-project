@@ -21,7 +21,6 @@ namespace Sentinel.Engine;
 /// </summary>
 public sealed class SentinelSettings
 {
-    [JsonPropertyName("revit_template_path")] public string RevitTemplatePath { get; set; } = string.Empty;
     [JsonPropertyName("project_code")] public string ProjectCode { get; set; } = string.Empty; // optional, tightens CDE-01
 
     // The web-app project (Sentinel `projects.key`) this document publishes into — the ACC-style
@@ -56,11 +55,12 @@ public sealed class SentinelSettings
 
     [JsonPropertyName("ghost_vision_model")] public string GhostVisionModel { get; set; } = "llava"; // local VLM for sketches/renders (llava = widely-supported arch)
 
-    // An old payload's "master_ruleset_path" is ignored on read (the ruleset comes from the web project), so an
+    // An old payload's "master_ruleset_path" (the ruleset comes from the web project) and its template path (SEC-3: read by no
+    // code) are ignored on read, so an
     // ES that held only that path reads as empty. ProjectCode counts: an ES holding only a project code is real. The PC-only
     // fields (SEC-2) do not count: a model holding only those reads as empty.
     [JsonIgnore] public bool IsEmpty =>
-        string.IsNullOrWhiteSpace(RevitTemplatePath) && string.IsNullOrWhiteSpace(ProjectCode)
+        string.IsNullOrWhiteSpace(ProjectCode)
         && string.IsNullOrWhiteSpace(GhostSourceFolder)
         && string.IsNullOrWhiteSpace(WebProjectKey) && !DoctorAxisFix;
 }
@@ -198,6 +198,9 @@ public static class SettingsManager
         }
         catch (Exception) { return null; }
     }
+
+    /// <summary>SEC-3: this PC's cloud opt-in (its config.json), for a model client with no model settings to merge.</summary>
+    public static bool MachineCloudOptIn() => LoadFromMachine()?.GhostCloudOptIn == true;
 
     public static void SaveToMachine(SentinelSettings settings)
     {

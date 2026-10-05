@@ -14,14 +14,6 @@
         </Border>
 
         <StackPanel Margin="20,16">
-            <TextBlock Text="Revit template path (.rte)" FontSize="11" Foreground="#667"/>
-            <DockPanel Margin="0,4,0,12">
-                <Button DockPanel.Dock="Right" Content="Browse…" Width="80" Height="28"
-                        Margin="6,0,0,0" Click="OnBrowseTemplate"/>
-                <TextBox x:Name="TemplatePathBox" Height="28" FontSize="12" Padding="6,4"
-                         VerticalContentAlignment="Center"/>
-            </DockPanel>
-
             <TextBlock Text="Project code (optional — tightens the CDE file-name check, e.g. BDS20268)"
                        FontSize="11" Foreground="#667"/>
             <TextBox x:Name="ProjectCodeBox" Height="28" FontSize="12" Padding="6,4"

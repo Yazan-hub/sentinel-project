@@ -82,6 +82,7 @@ public sealed class MassingReviewWindow : Window
         _build = new Button { Content = "Build massing ▶", Padding = new Thickness(12, 6, 12, 6), Margin = new Thickness(0, 6, 8, 0) };
         _build.Click += (_, __) => Emit();
         var cancel = new Button { Content = "Cancel", Padding = new Thickness(12, 6, 12, 6), Margin = new Thickness(0, 6, 0, 0), IsCancel = true };
+        cancel.Click += (_, __) => Close(); // shown modeless (Commands.Massing): IsCancel alone closes only a dialog
         var buttons = new StackPanel { Orientation = Orientation.Horizontal };
         buttons.Children.Add(_build); buttons.Children.Add(cancel);
         panel.Children.Add(buttons);

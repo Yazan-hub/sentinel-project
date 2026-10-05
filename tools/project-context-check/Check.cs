@@ -192,6 +192,47 @@ static class Check
                f + ": the constructor checks its endpoint and calls only that address (no unchecked fallback, no redirect followed)");
         }
 
+        // ── 6. SEC-3: the add-in's lows ──────────────────────────────────────────────────────────────────────────────────
+        Console.WriteLine("\nSEC-3 — the unused template path is gone; the Standards extractor asks the guard; a token goes over https or to this PC; rule patterns are bounded");
+        var tpl = Hits(@"RevitTemplatePath|revit_template_path|TemplatePathBox|OnBrowseTemplate");
+        var xaml = File.ReadAllText(Path.Combine(addin, "UI", "SettingsDialog.xaml"));
+        Ok(tpl.Length == 0 && !Regex.IsMatch(xaml, "TemplatePathBox|OnBrowseTemplate"),
+           "no add-in source names the template path (read by no code; Project Setup's machine save no longer clears it)" + (tpl.Length > 0 ? ": " + string.Join(", ", tpl) : ""));
+        var onlyTpl = System.Text.Json.JsonSerializer.Deserialize<SentinelSettings>("{\"revit_template_path\":\"C:\\\\Templates\\\\a.rte\"}")!;
+        Ok(onlyTpl.IsEmpty && !SettingsManager.DocumentPayload(onlyTpl).Contains("revit_template_path"), "a stored template path is ignored on read and never saved again");
+        var dex = Src(Path.Combine("Standards", "DocumentExtractor.cs"));
+        Ok(dex.Contains("LocalOnly.ModelUrl(Env(\"SENTINEL_OLLAMA_URL\", DefaultUrl), cloudOptIn)") && dex.Contains("new HttpClient(new HttpClientHandler { AllowAutoRedirect = false })"),
+           "the Standards extractor calls only an endpoint the guard allows, and follows no redirect");
+        var std = Src("Commands.Standards.cs");
+        int dexNew = std.IndexOf("try { extractor = new DocumentExtractor(Sentinel.Engine.SettingsManager.MachineCloudOptIn()); }", StringComparison.Ordinal);
+        int dexSaid = dexNew < 0 ? -1 : std.IndexOf("catch (ArgumentException ex) { TaskDialog.Show(\"Sentinel — Standards\", ex.Message); return Result.Cancelled; }", dexNew, StringComparison.Ordinal);
+        Ok(dexNew > 0 && dexSaid > dexNew && std.IndexOf("var window = StandardsReview.Create(uiapp);", dexNew, StringComparison.Ordinal) > dexSaid,
+           "the Standards ingest says a refused endpoint before its window opens");
+        foreach (var (url, kept) in new[] { ("http://localhost:4100", true), ("http://127.0.0.1:4101", true), ("HTTP://LOCALHOST:4100", true),
+                                           ("https://pc.tail0000.ts.net", true), ("http://192.0.2.10:4100", false), ("http://pc.tail0000.ts.net", false) })
+        {
+            var bc = BcfConfig.Checked(BcfConfig.Parse("{\"serviceUrl\":\"" + url + "\"}"));
+            Ok(kept ? bc.ServiceUrl == url && bc.Refusal is null : bc.ServiceUrl == BcfConfig.RefusedServiceUrl && (bc.Refusal ?? "").Contains("not https"),
+               (kept ? "a bridge address is kept: " : "a bridge address that is not https and not on this PC is refused, in words: ") + url);
+        }
+        Ok(Src(Path.Combine("Coordination", "BcfConfig.cs")).Contains("return Checked(cfg);"), "every config the add-in loads is checked");
+        Environment.SetEnvironmentVariable("SENTINEL_SESSION_FILE", Path.Combine(Path.GetTempPath(), "sentinel-pcc-" + Guid.NewGuid().ToString("N") + ".bin"));
+        var (signedIn, said) = Sentinel.Coordination.UserSession.SignIn("http://192.0.2.10:54321", "anon", "someone@example.test", "not-a-password");
+        Ok(!signedIn && said.Contains("not https"), "a sign-in to a Supabase address that is not https and not on this PC is refused before anything is sent");
+        var unbounded = Hits(@"Regex\.IsMatch\(name, x\)");
+        Ok(unbounded.Length == 0, "no ruleset exclusion is matched without a bound" + (unbounded.Length > 0 ? ": " + string.Join(", ", unbounded) : ""));
+        foreach (var (file, must) in new[] {
+            (Path.Combine("Engine", "RuleRegex.cs"), "RegexOptions.CultureInvariant, MatchTimeout);"),
+            (Path.Combine("Engine", "RuleRegex.cs"), "catch (RegexMatchTimeoutException) { error = TimedOut; return false; }"),
+            (Path.Combine("Engine", "RuleEngineHost.cs"), "Regex.IsMatch(name, x, RegexOptions.None, RuleRegex.MatchTimeout)"),
+            (Path.Combine("Engine", "RuleEngineHost.cs"), "Bounded(rule, violations, () => EvaluateSingle(e, rule, rs.Org, violations));"),
+            (Path.Combine("Engine", "RuleEngineHost.cs"), "_timedOut.Clear();"),
+            (Path.Combine("GhostBuilder", "ViewPlanner.cs"), "RegexOptions.CultureInvariant, RuleRegex.MatchTimeout)"),
+            (Path.Combine("GhostBuilder", "ViewPlanner.cs"), "Regex.IsMatch(name, pattern, RegexOptions.None, RuleRegex.MatchTimeout)"),
+            (Path.Combine("Standards", "NamingProposer.cs"), "RegexOptions.CultureInvariant, RuleRegex.MatchTimeout)"),
+            (Path.Combine("GhostBuilder", "LayerRulesetMatcher.cs"), "RegexOptions.CultureInvariant, GlobTimeout)") })
+            Ok(Src(file).Contains(must), file + ": a ruleset's pattern is matched under a bound — " + must);
+
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;
     }

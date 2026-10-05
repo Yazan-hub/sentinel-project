@@ -154,6 +154,8 @@ public static class UserSession
     // ── the Supabase auth call ────────────────────────────────────────────────────────────────────────────────
     private static (Stored? Session, string Error, bool Refused) Token(string supabaseUrl, string anonKey, string grant, string body)
     {
+        // SEC-3: a password or a refresh token goes to Supabase over https only (or to this PC) — refused before anything is sent.
+        if (global::Sentinel.Commands.BcfConfig.UrlRefusal(supabaseUrl, "sign-in") is { } notHttps) return (null, notHttps, false);
         try
         {
             using var msg = new HttpRequestMessage(HttpMethod.Post, supabaseUrl.TrimEnd('/') + "/auth/v1/token?grant_type=" + grant)

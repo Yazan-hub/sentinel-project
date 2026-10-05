@@ -104,7 +104,11 @@ namespace Sentinel.GhostBuilder
         {
             if (string.IsNullOrWhiteSpace(layer)) return true;
             string n = Norm(layer);
-            foreach (var rx in _ignoreGlobs) if (rx.IsMatch(n)) return true;
+            foreach (var rx in _ignoreGlobs)
+            {
+                try { if (rx.IsMatch(n)) return true; }
+                catch (RegexMatchTimeoutException) { } // SEC-3: a glob past its bound ignores nothing — the layer is mapped
+            }
             if (n == "0" || n == "DEFPOINTS") return true;
             foreach (var t in BuiltInIgnoreTokens) if (n.Contains(t)) return true;
             return false;
@@ -161,12 +165,15 @@ namespace Sentinel.GhostBuilder
         private static bool Filled(JsonElement v) =>
             v.ValueKind == JsonValueKind.String && v.GetString()!.Any(ch => !char.IsWhiteSpace(ch) && ch != '\uFEFF');
 
+        // SEC-3: a layers@n ignore glob is matched under a bound.
+        private static readonly TimeSpan GlobTimeout = TimeSpan.FromMilliseconds(250);
+
         private static Regex? GlobToRegex(string glob)
         {
             try
             {
                 var rx = string.Join(".*", glob.ToUpperInvariant().Split('*').Select(Regex.Escape));
-                return new Regex("^" + rx + "$", RegexOptions.CultureInvariant);
+                return new Regex("^" + rx + "$", RegexOptions.CultureInvariant, GlobTimeout);
             }
             catch { return null; }
         }

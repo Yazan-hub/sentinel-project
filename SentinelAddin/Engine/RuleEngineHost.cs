@@ -28,6 +28,7 @@ public sealed class RuleEngineHost
     {
         _byDoc[doc] = entry;
         _compiled.Clear();   // token regexes may have changed
+        _timedOut.Clear();
     }
 
     // ponytail: dropped on DocumentClosing; a close another add-in cancels leaves the document on none until
@@ -43,13 +44,31 @@ public sealed class RuleEngineHost
         return _compiled[r] = RuleRegex.For(r, org);
     }
 
-    private static bool IsExcluded(Rule r, string name) =>
-        r.Exclusions.Any(x => Regex.IsMatch(name, x));
+    private bool IsExcluded(Rule r, string name) =>
+        r.Exclusions.Any(x => _clock.Time(r, () => Regex.IsMatch(name, x, RegexOptions.None, RuleRegex.MatchTimeout)));
+
+    // SEC-3: a rule whose pattern or exclusion ran past RuleRegex.MatchTimeout on one name, or whose matches in one scan added
+    // up past RuleRegex.ScanBudget, is not evaluated again until the next full scan; the scan that met it says so once, as a
+    // Monitor note (never a pass, never a BLOCK — nothing in the model can fix it). Each scan has its own clock.
+    private readonly HashSet<Rule> _timedOut = new();
+    private RuleRegex.ScanClock _clock = new RuleRegex.ScanClock();
+
+    private void Bounded(Rule rule, List<Violation> sink, Action judge)
+    {
+        if (_timedOut.Contains(rule)) return;
+        var why = RuleRegex.Judge(judge);
+        if (why is null) return;
+        _timedOut.Add(rule);
+        sink.Add(new Violation(rule.Id, EnforcementMode.Monitor, -1, "(the rule's pattern took too long — rule not evaluated)",
+            $"Rule {rule.Id}: {why}", null, rule.DocRef));
+    }
 
     // ---------------- Full scan ----------------
     public ScanReport ScanFull(Document doc)
     {
         var (rs, src) = Entry(doc);
+        _timedOut.Clear(); // each full scan tries every rule again
+        _clock = new RuleRegex.ScanClock();
         var sw = Stopwatch.StartNew();
         var violations = new List<Violation>();
         int checkedCount = 0;
@@ -68,6 +87,8 @@ public sealed class RuleEngineHost
                     $"Rule {rule.Id} needs an office code — ruleset.org is empty; not evaluated", null, rule.DocRef));
                 continue;
             }
+            Bounded(rule, violations, () =>
+            {
             switch (rule.Target)
             {
                 case RuleTarget.Workset:  checkedCount += ScanWorksets(doc, rule, rs.Org, violations); break;
@@ -79,6 +100,7 @@ public sealed class RuleEngineHost
                 case RuleTarget.Grid:     checkedCount += ScanElements<Grid>(doc, rule, rs.Org, violations, _ => true); break;
                 case RuleTarget.Parameter: checkedCount += ScanParameter(doc, rule, rs.Org, violations); break;
             }
+            });
         }
         sw.Stop();
         var report = new ScanReport(doc.Title, DateTimeOffset.Now, sw.ElapsedMilliseconds, checkedCount, violations) { Ruleset = rs };
@@ -98,11 +120,12 @@ public sealed class RuleEngineHost
     {
         var rs = RulesetFor(doc);
         var violations = new List<Violation>();
+        _clock = new RuleRegex.ScanClock(); // a delta is its own scan
         foreach (var id in ids)
         {
             if (doc.GetElement(id) is not Element e) continue;
             foreach (var rule in rs.Rules)
-                EvaluateSingle(e, rule, rs.Org, violations);
+                Bounded(rule, violations, () => EvaluateSingle(e, rule, rs.Org, violations));
         }
         return violations;
     }
@@ -192,7 +215,7 @@ public sealed class RuleEngineHost
         return n;
     }
 
-    private static int ScanParameter(Document doc, Rule rule, string org, List<Violation> sink)
+    private int ScanParameter(Document doc, Rule rule, string org, List<Violation> sink)
     {
         if (rule.ParameterName is null) return 0;
         int n = 0;
@@ -234,7 +257,7 @@ public sealed class RuleEngineHost
     {
         if (IsExcluded(rule, name)) return;
         if (rule.Whitelist.Contains(name)) return;
-        if (rule.Tokens.Count > 0 && CompiledPattern(rule, org).IsMatch(name)) return;
+        if (rule.Tokens.Count > 0 && _clock.Time(rule, () => CompiledPattern(rule, org).IsMatch(name))) return;
         if (rule.Tokens.Count == 0 && rule.Whitelist.Count == 0) return; // nothing to check
         sink.Add(Make(rule, org, e.Id.IdValue(), name));
     }

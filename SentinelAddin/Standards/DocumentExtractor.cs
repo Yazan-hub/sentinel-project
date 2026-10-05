@@ -8,6 +8,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
+using Sentinel.Engine;
 
 namespace Sentinel.Standards;
 
@@ -29,13 +30,15 @@ public sealed class DocumentExtractor : IDisposable
     private const int ChunkBudgetChars = 6000;      // ~a couple of pages per request; fits an 8B context
     private const double MaxDocConfidence = 0.85;   // keep document items below the golden-model tier
 
-    private readonly HttpClient _http = new() { Timeout = TimeSpan.FromMinutes(5) };
+    private readonly HttpClient _http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromMinutes(5) };
     private readonly string _url;
     private readonly string _model;
 
-    public DocumentExtractor()
+    /// SEC-3: the endpoint (this PC's SENTINEL_OLLAMA_URL, else this PC's Ollama) goes through the add-in's one guard: a model
+    /// on this PC unless this PC's config.json opts in to an https host elsewhere — else an ArgumentException in words.
+    public DocumentExtractor(bool cloudOptIn)
     {
-        _url = Env("SENTINEL_OLLAMA_URL", DefaultUrl);
+        _url = LocalOnly.ModelUrl(Env("SENTINEL_OLLAMA_URL", DefaultUrl), cloudOptIn);
         _model = Env("SENTINEL_LLM_MODEL", DefaultModel);
     }
 
