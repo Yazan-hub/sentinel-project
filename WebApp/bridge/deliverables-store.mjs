@@ -70,7 +70,7 @@ export async function updateDeliverable(key, id, patch, actor) {
   if (!before) throw err(404, "deliverable not found");
   // project_id in the WRITE filter too, not just the preceding ownership SELECT: sb() runs under the
   // service role for non-JWT callers, which bypasses RLS, so the tenant scope must be in the query.
-  // deliverables_update is a contributor's (0022): a refused PATCH comes back as no row — a 403 in words (it was a 500
+  // deliverables_update is a lead's (0038): a refused PATCH comes back as no row — a 403 in words (it was a 500
   // reading the missing row), never an "updated" row.
   const updated = one(requireRows(await sb(`deliverables?id=eq.${enc(id)}&project_id=eq.${proj.id}`, { method: "PATCH", body: { ...row, updated_at: new Date().toISOString() }, prefer: "return=representation" }), "a deliverable is changed by a lead or above"));
   // Audit every planned field, not just name+date: a changed owner or stage is exactly the kind of

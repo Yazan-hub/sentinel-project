@@ -2016,7 +2016,8 @@ export async function bcfListTopics(pid, { status, model } = {}, localTopics) {
   const q = `bcf_topics?project_id=eq.${encodeURIComponent(pid)}&select=data&order=created_at.asc`;
   let rows = await sb(q);
   // As docListLazy (rfis-2): the local file is this machine's history, so only the machine credential migrates it.
-  // Under a signed-in caller's session the insert is refused below contributor once 0033 splits bcf_topics' writes.
+  // Under a signed-in caller's session no insert is attempted: bcf_topics has no signed-in writer (0038), and every topic
+  // write goes through bcfCreateTopic's own contributor check.
   if ((!rows || !rows.length) && !currentUserToken() && Array.isArray(localTopics) && localTopics.length) {
     await sb(`bcf_topics`, { method: "POST", body: localTopics.map(bcfRow), prefer: "return=minimal" });
     rows = await sb(q);

@@ -4,7 +4,7 @@ The security audit's second-most-serious finding (**F2**) was that the bridge fa
 
 ## What's built (and safe today)
 
-The bridge now supports a proper auth gate that is **inert until you set `BCF_TOKEN`** — so nothing changes in the current loopback pilot until you choose to activate it.
+The bridge's auth gate is **always armed**: the bridge refuses to start while `BCF_TOKEN` is empty or blank, on loopback too (SEC-1).
 
 - **Bridge** (`WebApp/bridge/bcf-service.mjs`): when `BCF_TOKEN` is set, every route except `/health` and the public receipt check (`POST` and `OPTIONS` on `/receipt/:key/verify`, cohesion phase 4c: a hash-only reply, 8 KB, 60 a minute — `docs/verdict-contract.md` §5) must present **either** a forwarded Supabase JWT (→ per-user RLS) **or** the shared `BCF_TOKEN` (→ trusted desktop client). Anonymous callers get `401`. Forwarding and the token now **coexist** (previously mutually exclusive). With `BCF_TOKEN` unset or empty the bridge refuses to start, on loopback too (SEC-1). `bcf-service.mjs` now merges `config/.env` into `process.env` on startup — **previously this step silently failed open**: `BCF_TOKEN` in `config/.env` was never actually read, so "arming the gate" per this doc's old checklist did nothing and every caller stayed anonymous. That's fixed; setting `BCF_TOKEN` in `config/.env` now genuinely arms the gate.
 - **Revit add-in** (`BcfConfig.ServiceToken`, wired through `GovernedNotify`, `GovernedQuery`, `BcfSyncManager`): sends the token as `Authorization: Bearer <token>` on every governed call when configured; sends nothing when empty (legacy).

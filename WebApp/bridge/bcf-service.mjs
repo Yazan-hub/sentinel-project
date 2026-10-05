@@ -523,10 +523,9 @@ server.listen(PORT, HOST, () => {
   initJwks(process.env.SUPABASE_URL);
   console.log(`Sentinel BCF-API 3.0 listening on http://${HOST}:${PORT}  (store: ${STORE})`);
   console.log(`[bridge] CSRF origin-gate: ${CORS_WILDCARD ? "DISABLED (wildcard)" : "on — mutations restricted to " + CORS_ALLOW.join(", ")}`);
-  console.log(`[bridge] bind: ${HOST} · auth gate: ${TOKEN ? "ARMED (JWT or BCF_TOKEN required; GET /health exempt; POST /receipt/:key/verify answers anyone hash-only)" : "off (legacy service-key — set BCF_TOKEN to close the anonymous fall-open)"}`);
+  console.log(`[bridge] bind: ${HOST} · auth gate: ARMED (JWT or BCF_TOKEN required; GET /health exempt; POST /receipt/:key/verify answers anyone hash-only)`);
   if (CORS_WILDCARD) console.warn("[bridge] WARNING: BCF_CORS_ORIGIN=* disables CSRF protection — set it to your app origin(s) for production.");
   if (TOKEN && !JWT_SECRET) console.warn("[bridge] WARNING: BCF_TOKEN set without SUPABASE_JWT_SECRET — no sign-in is accepted, so every signed-in web user gets 401. Set SUPABASE_JWT_SECRET.");
-  if (JWT_SECRET && !TOKEN) console.warn("[bridge] WARNING: SUPABASE_JWT_SECRET set without BCF_TOKEN — a wrong secret silently downgrades signed-in users to the service key; arm BCF_TOKEN or unset the secret.");
   import("./cde-store.mjs").then((cde) => console.log(`[bridge] JWT-forwarding: ${cde.forwardingConfigured() ? "armed (forwards a caller's Supabase JWT → RLS)" : "off (service key; set SUPABASE_ANON_KEY to arm)"}`)).catch(() => {});
   // Platform API-token health-check: one cheap authenticated read at startup so a revoked/rotated
   // THATOPEN_API_KEY is caught LOUDLY here instead of as a confusing 401 "Token not found" on the first
@@ -658,7 +657,7 @@ async function handleRequest(req, res) {
   // (→ trusted desktop client, e.g. Revit). The SSE feed is no longer exempt: the web reads it as a fetch
   // stream with the Authorization header (bridge-fetch.ts bridgeEvents) and Revit already sends its bearer,
   // so the feed stays closed even when the bridge is reachable from the internet.
-  // With BCF_TOKEN unset, behaviour is unchanged (legacy service-key mode). Activation = set BCF_TOKEN.
+  // The bridge does not start without BCF_TOKEN (SEC-1: startRefusal), so this gate is always armed.
   // (POST /receipt/:key/verify from a caller with neither was already answered hash-only, above.)
   if (TOKEN) {
     const exempt = url.pathname === "/health" && req.method === "GET";
@@ -685,7 +684,7 @@ async function handleRequest(req, res) {
       return send(res, 503, { message: "this bridge does not forward sign-ins (SUPABASE_ANON_KEY) — a signed-in user cannot be served; nothing was read or saved" });
   }
 
-  // Health (no secrets, no posture): up, gate armed, CDE configured. The bind host and the CORS allowlist are in the
+  // Health (no secrets, no posture): up, CDE configured. The bind host and the CORS allowlist are in the
   // startup log, not on a route anyone on the internet can read.
   if (url.pathname === "/health" && req.method === "GET") {
     let cdeConfigured = false;
