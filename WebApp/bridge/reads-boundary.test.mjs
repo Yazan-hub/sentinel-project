@@ -45,6 +45,10 @@ const MEMBERS = [
   { project_id: "p-beta", user_id: "u-beta", role: "owner" },
 ];
 const ADMINS = ["u-admin"];
+const BINS = [
+  { id: "c-a", project_id: "p-alpha", iso_name: "ALPHA-ARC.rvt", deleted_at: "2026-09-28T09:00:00Z", deleted_by: "lead@example.test", container_versions: [{ id: "v-a", revision: "v1", state: "wip", deleted_at: null }] },
+  { id: "c-b", project_id: "p-beta", iso_name: "BETA-STR.ifc", deleted_at: "2026-09-29T09:00:00Z", deleted_by: "u-beta", container_versions: [] },
+];
 const seen = [];
 
 // PostgREST as the bridge uses it: the service key sees every row, a forwarded session only its memberships' projects.
@@ -63,6 +67,8 @@ function fakePostgrest(req, res) {
     if (q("id").startsWith("eq.")) rows = rows.filter((p) => p.id === q("id").slice(3));
     return json(rows);
   }
+  if (u.pathname === "/rest/v1/information_containers") // the bins: a forwarded session reads its memberships' only
+    return json(BINS.filter((c) => c.project_id === q("project_id").slice(3) && (sub === null || MEMBERS.some((m) => m.project_id === c.project_id && m.user_id === sub))));
   if (u.pathname === "/rest/v1/memberships") return json(MEMBERS.filter((m) => m.project_id === q("project_id").slice(3)));
   if (u.pathname === "/rest/v1/rpc/is_platform_admin") return json(ADMINS.includes(sub));
   return json([]);
@@ -257,5 +263,25 @@ describe("GET /sheets and /views — the machine credential and platform admins 
     const img = await get("/views/img/Tower/FloorPlan_L1.png", as.admin);
     expect(img.status).toBe(200);
     expect(img.headers.get("content-type")).toBe("image/png");
+  });
+});
+
+describe("GET /cde/deleted — the Deleted items of the caller's own projects only", () => {
+  it("no credential is the gate's 401, as /cde/projects", async () => {
+    expect((await fetch(`${base}/cde/deleted`)).status).toBe(401);
+    expect((await fetch(`${base}/cde/projects`)).status).toBe(401);
+  });
+
+  it("a signed-in member gets the bins of their projects only, with the project on each row", async () => {
+    const r = await get("/cde/deleted", as.member);
+    expect(r.status).toBe(200);
+    const body = await r.json();
+    expect(body.rows).toEqual([{ project_key: "alpha", project_name: "Alpha", office_name: null, kind: "file", container_id: "c-a", iso_name: "ALPHA-ARC.rvt", deleted_at: "2026-09-28T09:00:00Z", deleted_by: "lead@example.test", versions: 1, deleted_versions: 0 }]);
+    expect(body).toMatchObject({ not_read: [], projects: 1 });
+  });
+
+  it("the machine credential sees every project's bin, newest first", async () => {
+    const body = await (await get("/cde/deleted", as.token)).json();
+    expect(body.rows.map((x) => x.iso_name)).toEqual(["BETA-STR.ifc", "ALPHA-ARC.rvt"]);
   });
 });

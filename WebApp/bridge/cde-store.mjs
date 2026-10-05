@@ -755,6 +755,29 @@ export async function listDeleted(key) {
   return out.sort((a, b) => String(b.deleted_at).localeCompare(String(a.deleted_at)));
 }
 
+/** Deleted items of every project the caller can see (the Projects window's Deleted models, GET /cde/deleted): the
+ *  projects are listProjects' (a signed-in caller's own, archived ones too), each bin is listDeleted's under the same
+ *  caller (RLS as for /cde/:key/files/deleted), 6 read at a time; rows flattened with their project, newest first. A bin
+ *  that could not be read is in not_read with the reason in words, never dropped. → { rows, not_read, projects }. */
+export async function listDeletedAcross({ projects = listProjects, deleted = listDeleted } = {}) {
+  const ps = await projects();
+  const rows = [], not_read = [];
+  let next = 0;
+  const worker = async () => {
+    while (next < ps.length) {
+      const p = ps[next++];
+      try {
+        for (const d of await deleted(p.key)) rows.push({ project_key: p.key, project_name: p.name, office_name: p.office_name ?? null, ...d });
+      } catch (e) {
+        not_read.push({ project_key: p.key, project_name: p.name, reason: String(e?.message || e) });
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(6, ps.length) }, worker));
+  rows.sort((a, b) => String(b.deleted_at).localeCompare(String(a.deleted_at)));
+  return { rows, not_read, projects: ps.length };
+}
+
 /** Restore from Deleted items (0035): a whole file with all its versions, or one version of a file that is in the project
  *  (it comes back not live, in the state it had). A lead's. A file whose name was taken meanwhile is refused in ACC's
  *  words (409); a file whose folder was deleted meanwhile lands at the project root (its folder link is already null). */

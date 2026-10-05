@@ -12,7 +12,7 @@ vi.hoisted(() => {
 
 import { fakePostgrest } from "./fixtures/fake-postgrest.mjs";
 import { requireRows, deleteFolder, renameFolder, moveContainer, renameFile, setLiveVersion, registerFileVersion,
-  deleteFile, archiveFile, unarchiveFile, listDeleted, restoreFile, listFiles, versionOnKey, attachGeometry, addVersion, bcfSaveTopic, createTransmittal } from "./cde-store.mjs";
+  deleteFile, archiveFile, unarchiveFile, listDeleted, listDeletedAcross, restoreFile, listFiles, versionOnKey, attachGeometry, addVersion, bcfSaveTopic, createTransmittal } from "./cde-store.mjs";
 import { runWithAuth } from "./bridge-auth.mjs";
 
 const P = "11111111-1111-4111-8111-111111111111";
@@ -355,5 +355,39 @@ describe("createTransmittal — the sender is the sign-in, the versions are the 
   it("the machine credential keeps its sender label", async () => {
     expect(await createTransmittal("demo", { reference: "TR-003", sender: "Revit", version_ids: [] })).toMatchObject({ sender: "Revit", version_ids: [] });
     expect(ledger()[0].body.actor).toBe("Revit");
+  });
+});
+
+describe("listDeletedAcross — the Deleted items of every project the caller can see (GET /cde/deleted)", () => {
+  const P1 = { key: "alpha", name: "Alpha", office_name: "Office A" }, P2 = { key: "beta", name: "Beta", office_name: null };
+  const bins = {
+    alpha: [{ kind: "file", container_id: "c1", iso_name: "A.rvt", deleted_at: "2026-09-28T09:00:00Z", deleted_by: "lead@example.test", versions: 2, deleted_versions: 0 }],
+    beta: [{ kind: "version", container_id: "c2", iso_name: "B.ifc", version_id: "v2", revision: "v2", state: "wip", deleted_at: "2026-09-29T09:00:00Z", deleted_by: "web" },
+      { kind: "file", container_id: "c3", iso_name: "C.ifc", deleted_at: "2026-09-27T09:00:00Z", deleted_by: null, versions: 1, deleted_versions: 0 }],
+  };
+  const deleted = async (key) => bins[key];
+
+  it("merges two projects' rows, newest first, each with its project", async () => {
+    const r = await listDeletedAcross({ projects: async () => [P1, P2], deleted });
+    expect(r.rows.map((x) => [x.project_key, x.iso_name])).toEqual([["beta", "B.ifc"], ["alpha", "A.rvt"], ["beta", "C.ifc"]]);
+    expect(r.rows[1]).toEqual({ project_key: "alpha", project_name: "Alpha", office_name: "Office A", ...bins.alpha[0] });
+    expect(r).toMatchObject({ not_read: [], projects: 2 });
+  });
+
+  it("a project whose bin cannot be read is in not_read with the reason in words, never dropped", async () => {
+    const r = await listDeletedAcross({ projects: async () => [P1, P2], deleted: async (k) => { if (k === "alpha") throw new Error("Supabase 500: boom"); return bins[k]; } });
+    expect(r.not_read).toEqual([{ project_key: "alpha", project_name: "Alpha", reason: "Supabase 500: boom" }]);
+    expect(r.rows.map((x) => x.project_key)).toEqual(["beta", "beta"]);
+  });
+
+  it("no projects is an empty answer", async () => {
+    expect(await listDeletedAcross({ projects: async () => [], deleted })).toEqual({ rows: [], not_read: [], projects: 0 });
+  });
+
+  it("reads at most 6 bins at a time", async () => {
+    let now = 0, peak = 0;
+    const many = Array.from({ length: 20 }, (_, i) => ({ key: `p${i}`, name: `P${i}` }));
+    await listDeletedAcross({ projects: async () => many, deleted: async () => { peak = Math.max(peak, ++now); await new Promise((r) => setTimeout(r, 2)); now--; return []; } });
+    expect(peak).toBe(6);
   });
 });

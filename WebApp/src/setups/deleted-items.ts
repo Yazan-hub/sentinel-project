@@ -60,3 +60,37 @@ export function restoredLine(r: { kind: string; iso_name: string; versions?: num
 /** Archive is offered only for a file holding a published version (the founder's default, 2026-09-28): a file of drafts
  *  only has nothing for the archive — Delete moves it to Deleted items. */
 export const archivable = (versions: { state: string }[]) => versions.some((v) => v.state === "published");
+
+/** A row of GET /cde/deleted: a Deleted item with the project it is in (the Projects window's Deleted models view). */
+export interface DeletedModel extends DeletedItem {
+  project_key: string;
+  project_name: string;
+  office_name?: string | null;
+}
+
+/** The Deleted models view's groups: one per project, in the order of its newest row (the rows come newest first); the
+ *  search matches the file name, the project name or its key. */
+export function groupDeletedModels(rows: DeletedModel[], q: string): { key: string; name: string; office: string | null; rows: DeletedModel[] }[] {
+  const s = q.trim().toLowerCase();
+  const groups = new Map<string, { key: string; name: string; office: string | null; rows: DeletedModel[] }>();
+  for (const r of rows) {
+    if (s && ![r.iso_name, r.project_name, r.project_key].some((v) => String(v ?? "").toLowerCase().includes(s))) continue;
+    let g = groups.get(r.project_key);
+    if (!g) groups.set(r.project_key, (g = { key: r.project_key, name: r.project_name, office: r.office_name ?? null, rows: [] }));
+    g.rows.push(r);
+  }
+  return [...groups.values()];
+}
+
+/** What a Deleted models row is: the whole file and its versions, or one version and its state. */
+export const deletedModelWhat = (i: DeletedItem): string =>
+  i.kind === "file" ? `whole file (${i.versions ?? 0} version${i.versions === 1 ? "" : "s"})` : `version ${i.revision ?? ""} (${i.state ?? "draft"})`;
+
+/** A Deleted models row's identity across two reads of the list (a restore in flight, a ↻): project, file, version. */
+export const deletedModelId = (r: DeletedModel): string => `${r.project_key}|${r.container_id}|${r.kind === "version" ? r.version_id ?? "" : ""}`;
+
+/** "N projects" for the bins that were read, and "(k not read)" when some were not — an unread bin is never counted as checked. */
+export function deletedAcross(projects: number, notRead: number): string {
+  const n = Math.max(0, projects - notRead);
+  return `${n} project${n === 1 ? "" : "s"}${notRead ? ` (${notRead} not read)` : ""}`;
+}

@@ -1,9 +1,10 @@
 import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
-import { activePid, setActiveProjectKey, hasProjectOverride, platformProjectId } from "./active-project";
+import { activePid, setActiveProjectKey, hasProjectOverride, platformProjectId, refreshActiveProject } from "./active-project";
 import { linkedProject } from "./platform-link";
 import { escapeHtml as esc } from "./escape-html";
+import { groupDeletedModels, deletedModelWhat, deletedModelId, deletedAcross, restoreDeleted, type DeletedModel } from "./deleted-items";
 import { filterProjects, isDefaultFilter, countLine, groupShown, toggleGroup, DEFAULT_FILTER, NO_OFFICE_GROUP, type ProjectFilter } from "./projects-filter";
 
 /**
@@ -50,6 +51,12 @@ export function projectsHubPanel(
   const collapsed = new Set<string>();
   // Header clicks made during a search: they hide a group for that search only, never touching `collapsed`.
   const searchClosed = new Set<string>();
+  // The Deleted models view (GET /cde/deleted): open or not, and the list it read (null while loading or not read).
+  let delOpen = false;
+  type DeletedAcross = { rows: DeletedModel[]; not_read: { project_key: string; project_name: string; reason: string }[]; projects: number };
+  let del: DeletedAcross | null = null;
+  const restoring = new Set<string>(); // rows whose Restore is in flight (deletedModelId) — their button stays disabled across re-renders
+  let delSeq = 0;
 
   const root = document.createElement("div");
   root.style.cssText =
@@ -64,6 +71,7 @@ export function projectsHubPanel(
     '<span style="font-weight:600">◫ Projects</span><span style="color:#9ca3af;font-size:11px">governed CDE dataset</span>' +
     '<span style="flex:1"></span>' +
     `<button id="ph-new" style="${btn};background:#2a1e4d;border-color:#6528d7;color:#c4b5fd">+ New project</button>` +
+    `<button id="ph-deleted" style="${btn}" title="Model files in Deleted items across your projects" aria-pressed="false">🗑 Deleted models</button>` +
     `<button id="ph-refresh" style="${btn}" title="Reload">↻</button>` +
     "</div>" +
     // The toolbar is drawn once (re-rendering only the grid keeps the search box's focus and caret); hidden until the list is read.
@@ -77,10 +85,15 @@ export function projectsHubPanel(
     "</div>" +
     '<div id="ph-form" style="display:none;padding:.55rem .6rem;border-bottom:1px solid #2a2a30;flex-direction:column;gap:.4rem"></div>' +
     '<div id="ph-grid" style="flex:1;overflow:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(min(13rem,100%),1fr));gap:.6rem;padding:.7rem;align-content:start"></div>' +
+    // The Deleted models view takes the grid's place while it is open (the header button switches between them).
+    '<div id="ph-del" style="display:none;flex:1;overflow:auto;flex-direction:column;gap:.35rem;padding:.7rem;min-width:0"></div>' +
     '<div id="ph-status" style="padding:.4rem .6rem;border-top:1px solid #2a2a30;color:#9ca3af;font-size:11px">…</div>';
 
   const el = (id: string) => root.querySelector("#" + id) as HTMLElement;
-  const status = (t: string, c = "#9ca3af") => {
+  // One status line, two views: a line is written only while its own view is shown (a background reload of the grid
+  // never overwrites what the Deleted models view said).
+  const status = (t: string, c = "#9ca3af", view: "grid" | "del" = "grid") => {
+    if ((view === "del") !== delOpen) return;
     el("ph-status").textContent = t;
     el("ph-status").style.color = c;
   };
@@ -89,7 +102,7 @@ export function projectsHubPanel(
   const renderGrid = () => {
     const active = activePid();
     if (!f.q.trim()) searchClosed.clear();
-    el("ph-clear").style.display = isDefaultFilter(f) || !projects.length ? "none" : "";
+    el("ph-clear").style.display = delOpen || isDefaultFilter(f) || !projects.length ? "none" : "";
     if (!projects.length) {
       el("ph-grid").innerHTML =
         '<div style="grid-column:1/-1;color:#6b7280;font-size:12px;padding:1rem .2rem">No projects yet — create one with <b>+ New project</b>.</div>';
@@ -170,6 +183,7 @@ export function projectsHubPanel(
     return countLine(f, shown, total);
   };
   const applyFilter = () => {
+    if (delOpen) return renderDeleted();
     renderGrid();
     status(counted());
   };
@@ -199,15 +213,157 @@ export function projectsHubPanel(
     sel.value = f.office;
   };
   // Hidden while the list was not read (401, 503, an error): a filter over nothing would only mislead.
-  const showTools = (on: boolean) => {
-    el("ph-tools").style.display = on ? "flex" : "none";
+  let gridTools = false, delTools = false;
+  const paintTools = () => {
+    el("ph-tools").style.display = (delOpen ? delTools : gridTools) ? "flex" : "none";
   };
+  const showTools = (on: boolean) => {
+    gridTools = on;
+    paintTools();
+  };
+  const SIGN_IN =
+    '<div style="grid-column:1/-1;color:#eab308;font-size:12px;line-height:1.5;padding:1rem .2rem">' +
+    "Sign in (top right) to see your projects — the bridge lists them only for a signed-in account.</div>";
 
   const open = (key: string) => {
     setActiveProjectKey(key);
     renderGrid();
     status(`Opened “${key}”.`, "#22c55e");
     opts.onOpen?.(key);
+  };
+
+  // ── Deleted models view ────────────────────────────────────────────────────────
+  // Every project's model files in Deleted items (0035), grouped by project. The toolbar's search filters it (file name,
+  // project name or key); Type, Office, Status, Sort and Clear are the grid's and are hidden while it is open.
+  const renderDeleted = () => {
+    if (!del) return; // "Loading…" or "not read" is drawn by loadDeleted
+    const groups = groupDeletedModels(del.rows, f.q);
+    const shown = groups.reduce((n, g) => n + g.rows.length, 0);
+    const line = (t: string, c = "#6b7280") => `<div style="color:${c};font-size:12px;line-height:1.5;padding:.3rem .2rem">${t}</div>`;
+    const notRead = del.not_read
+      .map((p) => line(`${esc(p.project_name || p.project_key)} — Deleted items not read: ${esc(p.reason)}`, "#eab308"))
+      .join("");
+    const across = deletedAcross(del.projects, del.not_read.length);
+    const body = !del.rows.length
+      ? line(`No model files in Deleted items across your ${esc(across)}.`)
+      : !groups.length
+        ? line("No deleted model file matches the search.")
+        : groups
+            .map(
+              (g) =>
+                `<div style="display:flex;flex-wrap:wrap;align-items:baseline;gap:.4rem;min-width:0;color:#9ca3af;font:600 11px system-ui;letter-spacing:.04em;padding:.6rem .2rem .1rem">` +
+                `<span style="text-transform:uppercase">${esc(g.name)}</span>` +
+                `<span style="font:11px ui-monospace,Consolas,monospace;color:#6b7280">${esc(g.key)}</span>` +
+                (g.office ? `<span style="font-weight:400">· ${esc(g.office)}</span>` : "") +
+                `<span style="font-weight:400">· ${esc(g.rows.length)}</span></div>` +
+                g.rows
+                  .map(
+                    (r) =>
+                      `<div style="display:flex;flex-wrap:wrap;align-items:center;gap:.4rem;min-width:0;border:1px solid #23232a;background:#101014;border-radius:8px;padding:.45rem .6rem">` +
+                      `<div style="flex:1 1 12rem;min-width:0">` +
+                      `<div style="font-weight:600;color:#f3f4f6;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.iso_name)}</div>` +
+                      `<div style="font-size:11px;color:#9ca3af">${esc(deletedModelWhat(r))} · deleted by ${esc(r.deleted_by || "—")} · ${esc(fmtDate(r.deleted_at))}</div></div>` +
+                      `<button class="ph-del-open" data-key="${esc(r.project_key)}" style="${btn}">Open project</button>` +
+                      `<button class="ph-del-restore" data-i="${esc(del!.rows.indexOf(r))}" style="${btn}"${restoring.has(deletedModelId(r)) ? " disabled" : ""}>Restore</button></div>`,
+                  )
+                  .join(""),
+            )
+            .join("");
+    el("ph-del").innerHTML = notRead + body;
+    root.querySelectorAll<HTMLElement>(".ph-del-open").forEach((b) =>
+      b.addEventListener("click", () => {
+        open(b.dataset.key!);
+        status(`Opened “${b.dataset.key}” — the file is under Project Files ▸ Deleted items.`, "#22c55e", "del");
+      }),
+    );
+    root.querySelectorAll<HTMLButtonElement>(".ph-del-restore").forEach((b) =>
+      b.addEventListener("click", () => void restore(del!.rows[Number(b.dataset.i)], b)),
+    );
+    const total = del.rows.length;
+    status(
+      f.q.trim() && total
+        ? `Showing ${shown} of ${total} model file${total === 1 ? "" : "s"} in Deleted items.`
+        : `${total} model file${total === 1 ? "" : "s"} in Deleted items across ${across}.`,
+      "#9ca3af",
+      "del",
+    );
+  };
+
+  // Restore is a lead's: the bridge refuses anyone else in words, and those words are the status line.
+  const restore = async (r: DeletedModel | undefined, b: HTMLButtonElement) => {
+    if (!r || !del) return;
+    const id = deletedModelId(r);
+    if (restoring.has(id)) return;
+    restoring.add(id);
+    b.disabled = true;
+    status(`Restoring ${r.iso_name}…`, "#9ca3af", "del");
+    try {
+      const done = await restoreDeleted(base, r.project_key, r, "web");
+      restoring.delete(id);
+      if (del) {
+        del.rows = del.rows.filter((x) => deletedModelId(x) !== id); // by id: a ↻ during the restore may have re-read the list
+        renderDeleted();
+      } // else a ↻ is reading the list again — it draws the list without the restored file
+      status(
+        `Restored ${r.iso_name} to ${r.project_name}.` +
+          (done.deleted_versions ? ` ${done.deleted_versions} version(s) deleted before it stay in Deleted items — ↻ lists them.` : ""),
+        "#22c55e",
+        "del",
+      );
+      if (r.project_key === activePid()) refreshActiveProject(); // the open project's panels re-read their files
+    } catch (e) {
+      restoring.delete(id);
+      if (del) renderDeleted(); // the row's button, maybe redrawn since the click, is enabled again
+      status(`Not restored — ${(e as Error).message}`, "#ef4444", "del");
+    }
+  };
+
+  const loadDeleted = async () => {
+    const seq = ++delSeq;
+    del = null;
+    delTools = false;
+    paintTools();
+    el("ph-del").innerHTML = '<div style="color:#6b7280;font-size:12px;padding:1rem .2rem">Loading…</div>';
+    status("Loading deleted models…", "#9ca3af", "del");
+    let reached = false;
+    try {
+      const r = await bfetch(`${base}/cde/deleted`);
+      reached = true;
+      if (seq !== delSeq) return;
+      if (r.status === 401) {
+        el("ph-del").innerHTML = SIGN_IN;
+        status("Not signed in — the bridge answered 401.", "#eab308", "del");
+        return;
+      }
+      const j = (await r.json().catch(() => null)) as (DeletedAcross & { message?: string }) | null;
+      if (seq !== delSeq) return;
+      if (!r.ok || !Array.isArray(j?.rows)) throw new Error(j?.message || `HTTP ${r.status}`);
+      del = { rows: j!.rows, not_read: Array.isArray(j!.not_read) ? j!.not_read : [], projects: Number(j!.projects) || 0 };
+      delTools = true;
+      paintTools();
+      renderDeleted();
+    } catch (e) {
+      if (seq !== delSeq) return;
+      const why = reached ? (e as Error).message : `can’t reach the bridge at ${base}`;
+      el("ph-del").innerHTML = `<div style="color:#ef4444;font-size:12px;line-height:1.5;padding:1rem .2rem">Deleted models not read — ${esc(why)}</div>`;
+      status(`Deleted models not read — ${why}`, "#ef4444", "del");
+    }
+  };
+
+  const GRID_ONLY = ["ph-f-kind", "ph-f-office", "ph-f-status", "ph-f-sort"];
+  const toggleDeleted = () => {
+    delOpen = !delOpen;
+    if (delOpen && formOpen) toggleForm(); // the new-project form is the grid's
+    const b = el("ph-deleted");
+    b.textContent = delOpen ? "← Projects" : "🗑 Deleted models";
+    b.setAttribute("aria-pressed", String(delOpen));
+    el("ph-grid").style.display = delOpen ? "none" : "grid";
+    el("ph-del").style.display = delOpen ? "flex" : "none";
+    for (const id of GRID_ONLY) el(id).style.display = delOpen ? "none" : "";
+    if (delOpen) el("ph-clear").style.display = "none";
+    tool<HTMLInputElement>("ph-q").placeholder = delOpen ? "Search deleted models — file, project, key…" : "Search projects — name, key, office…";
+    paintTools();
+    void (delOpen ? loadDeleted() : load()); // back on the grid: re-read it (a restore changes its counts)
   };
 
   // ── load ─────────────────────────────────────────────────────────────────────
@@ -232,9 +388,7 @@ export function projectsHubPanel(
         // The bridge answered: the list is a signed-in person's (never "no projects" — it was not read).
         projects = [];
         showTools(false);
-        el("ph-grid").innerHTML =
-          '<div style="grid-column:1/-1;color:#eab308;font-size:12px;line-height:1.5;padding:1rem .2rem">' +
-          "Sign in (top right) to see your projects — the bridge lists them only for a signed-in account.</div>";
+        el("ph-grid").innerHTML = SIGN_IN;
         status("Not signed in — the bridge answered 401.", "#eab308");
         return;
       }
@@ -357,7 +511,8 @@ export function projectsHubPanel(
   onPick("ph-f-status", (v) => (f.status = v as ProjectFilter["status"]));
   onPick("ph-f-sort", (v) => (f.sort = v as ProjectFilter["sort"]));
   el("ph-clear").addEventListener("click", clearFilters);
-  el("ph-refresh").addEventListener("click", load);
+  el("ph-refresh").addEventListener("click", () => void (delOpen ? loadDeleted() : load()));
+  el("ph-deleted").addEventListener("click", toggleDeleted);
 
   // Full reload on the broadcast event — fired on every project switch, user change and bridge-back (active-project.ts),
   // and by Settings after a rename/archive/delete — so the active card, names and archived badges refresh without ↻.

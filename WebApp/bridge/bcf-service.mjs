@@ -1185,6 +1185,9 @@ async function handleRequest(req, res) {
         if (req.method === "GET") return send(res, 200, await cde.listProjects());
         if (req.method === "POST") return send(res, 201, await cde.createProject(await readBody(req)));
       }
+      // GET /cde/deleted — the Deleted items of every project the caller can see (the Projects window's Deleted models):
+      // { rows, not_read, projects }. Reserved like /cde/projects (no p2). Restore stays per project (/cde/:key/files/restore).
+      if (p1 === "deleted" && !p2 && req.method === "GET") return send(res, 200, await cde.listDeletedAcross());
       // Project administration (Forma-style): PATCH = rename / settings (metadata.settings), DELETE = hard
       // delete (cascades; 409 when published versions exist — those are immutable, archive instead).
       if (p1 === "projects" && p2 && !p3) {

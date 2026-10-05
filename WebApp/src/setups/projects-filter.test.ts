@@ -223,3 +223,44 @@ describe("projects-hub-panel wiring", () => {
     expect(src).not.toMatch(/localStorage|sessionStorage|indexedDB/);
   });
 });
+
+describe("projects-hub-panel wiring — the Deleted models view", () => {
+  const src = readFileSync(new URL("./projects-hub-panel.ts", import.meta.url), "utf8");
+  const items = readFileSync(new URL("./deleted-items.ts", import.meta.url), "utf8");
+  it("a header button beside ↻ switches the body between the grid and the view, and back", () => {
+    expect(src).toMatch(/<button id="ph-deleted" style="\$\{btn\}" title="Model files in Deleted items across your projects"[^>]*>🗑 Deleted models<\/button>` \+\n\s*`<button id="ph-refresh"/);
+    expect(src).toContain('<div id="ph-del" style="display:none;');
+    expect(src).toContain('b.textContent = delOpen ? "← Projects" : "🗑 Deleted models"');
+    expect(src).toContain('el("ph-deleted").addEventListener("click", toggleDeleted)');
+  });
+  it("reads GET /cde/deleted, groups and filters with the pure helper, says empty, not read and 401 in words", () => {
+    expect(src).toContain("bfetch(`${base}/cde/deleted`)");
+    expect(src).toContain("groupDeletedModels(del.rows, f.q)");
+    expect(src).toContain("No model files in Deleted items across your ${esc(across)}.");
+    expect(src).toContain("const across = deletedAcross(del.projects, del.not_read.length);");
+    expect(src).toContain("— Deleted items not read: ${esc(p.reason)}");
+    expect(src).toMatch(/r\.status === 401\) \{\n\s*el\("ph-del"\)\.innerHTML = SIGN_IN;/);
+    expect(src).toContain("Loading…");
+  });
+  it("Open project opens it and says where the file is; Restore posts to the project's own route with an encoded key", () => {
+    expect(src).toMatch(/open\(b\.dataset\.key!\);\n\s*status\(`Opened “\$\{b\.dataset\.key\}” — the file is under Project Files ▸ Deleted items\.`/);
+    expect(src).toContain('restoreDeleted(base, r.project_key, r, "web")');
+    expect(items).toContain("/cde/${encodeURIComponent(key)}/files/${path}");
+    expect(src).toContain("Not restored — ${(e as Error).message}");
+    expect(src).toContain("Restored ${r.iso_name} to ${r.project_name}.");
+    expect(src).toContain("if (r.project_key === activePid()) refreshActiveProject();");
+  });
+  it("a restore in flight survives a ↻ and a re-render: the row is found by id, its button stays disabled", () => {
+    expect(src).toContain("const restoring = new Set<string>();");
+    expect(src).toMatch(/restoring\.has\(deletedModelId\(r\)\) \? " disabled" : ""/);
+    expect(src).toMatch(/const done = await restoreDeleted\(base, r\.project_key, r, "web"\);\n\s*restoring\.delete\(id\);\n\s*if \(del\) \{\n\s*del\.rows = del\.rows\.filter\(\(x\) => deletedModelId\(x\) !== id\);/);
+    expect(src).toContain("restoring.delete(id);");
+  });
+  it("opening the view closes the new-project form", () => {
+    expect(src).toContain("if (delOpen && formOpen) toggleForm();");
+  });
+  it("escapes every value it places", () => {
+    for (const v of ["esc(r.iso_name)", "esc(g.name)", "esc(g.key)", "esc(g.office)", 'data-key="${esc(r.project_key)}"', "esc(r.deleted_by || \"—\")", "esc(why)"])
+      expect(src).toContain(v);
+  });
+});

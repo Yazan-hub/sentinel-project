@@ -5,7 +5,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const { bfetch } = vi.hoisted(() => ({ bfetch: vi.fn() }));
 vi.mock("./bridge-fetch", () => ({ bfetch }));
 
-import { readDeleted, restoreDeleted, deletedItemLine, restoredLine, archivable, type DeletedItem } from "./deleted-items";
+import { readDeleted, restoreDeleted, deletedItemLine, restoredLine, archivable, groupDeletedModels, deletedModelWhat, deletedModelId, deletedAcross, type DeletedItem, type DeletedModel } from "./deleted-items";
 
 const res = (status: number, body: unknown) => ({ ok: status < 400, status, json: async () => body }) as unknown as Response;
 const FILE: DeletedItem = { kind: "file", container_id: "c1", iso_name: "AST-ARC.ifc", deleted_at: "2026-09-28T09:41:12Z", deleted_by: "lead@example.test", versions: 4 };
@@ -71,4 +71,43 @@ describe("the words", () => {
     expect(archivable([{ state: "archived" }])).toBe(false);
     expect(archivable([{ state: "wip" }, { state: "published" }])).toBe(true);
   });
+});
+
+// The Projects window's Deleted models view (GET /cde/deleted): one group per project, in the order of its newest row;
+// the search matches the file name, the project name or its key.
+describe("groupDeletedModels — the Deleted models view", () => {
+  const at = (p: string, n: string, k: string, t: string, o: string | null = null): DeletedModel => ({ ...FILE, project_key: k, project_name: p, office_name: o, iso_name: n, deleted_at: t });
+  const rows = [at("Beta", "B2.ifc", "beta", "2026-09-30"), at("Alpha", "A1.rvt", "alpha", "2026-09-29", "Office A"), at("Beta", "B1.ifc", "beta", "2026-09-28")];
+
+  it("groups by project, newest group first, rows kept newest first", () => {
+    expect(groupDeletedModels(rows, "").map((g) => [g.key, g.name, g.office, g.rows.map((r) => r.iso_name)])).toEqual([
+      ["beta", "Beta", null, ["B2.ifc", "B1.ifc"]],
+      ["alpha", "Alpha", "Office A", ["A1.rvt"]],
+    ]);
+  });
+
+  it.each([["b1", ["B1.ifc"]], ["ALPHA", ["A1.rvt"]], ["beta", ["B2.ifc", "B1.ifc"]], ["  ", ["B2.ifc", "B1.ifc", "A1.rvt"]], ["zzz", []]])(
+    "the search %j matches file name, project name or key", (q, names) => {
+      expect(groupDeletedModels(rows, q).flatMap((g) => g.rows.map((r) => r.iso_name))).toEqual(names);
+    });
+
+  it("a row says whole file or version", () => {
+    expect(deletedModelWhat(FILE)).toBe("whole file (4 versions)");
+    expect(deletedModelWhat({ ...FILE, versions: 1 })).toBe("whole file (1 version)");
+    expect(deletedModelWhat(VER)).toBe("version v3 (wip)");
+  });
+});
+
+// The view keeps a row's identity across re-reads (a restore in flight, a ↻) and never counts an unread bin as checked.
+describe("deletedModelId / deletedAcross — the Deleted models view", () => {
+  const m = (o: Partial<DeletedModel>): DeletedModel => ({ ...FILE, project_key: "alpha", project_name: "Alpha", ...o });
+  it("a row's id is its project, file and version — equal across two reads, distinct for a file and its version", () => {
+    expect(deletedModelId(m({}))).toBe(deletedModelId({ ...m({}) }));
+    expect(deletedModelId(m({}))).not.toBe(deletedModelId(m({ kind: "version", version_id: "v9" })));
+    expect(deletedModelId(m({}))).not.toBe(deletedModelId(m({ project_key: "beta" })));
+  });
+  it.each([[3, 0, "3 projects"], [1, 0, "1 project"], [3, 1, "2 projects (1 not read)"], [2, 2, "0 projects (2 not read)"]])(
+    "%i projects, %i not read → %j", (n, k, line) => {
+      expect(deletedAcross(n, k)).toBe(line);
+    });
 });
