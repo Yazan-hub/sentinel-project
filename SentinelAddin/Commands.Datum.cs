@@ -38,6 +38,11 @@ public sealed class DatumFromDrawingsCommand : IExternalCommand
         // Match the real workflow: read the datum straight from the project drawings folder — no hand
         // importing. Fall back to any DWG already imported into the model if no folder is set.
         var settings = SettingsManager.Resolve(doc);
+        if (SettingsManager.ToolRefusal(settings, callsModel: false) is { } notLocal) // SEC-2: asked before a drawing is read
+        {
+            TaskDialog.Show("Sentinel — Datum", notLocal);
+            return Result.Cancelled;
+        }
         string folder = settings.GhostSourceFolder;
         bool haveFolder = !string.IsNullOrWhiteSpace(folder) && System.IO.Directory.Exists(folder);
         bool haveImports = new FilteredElementCollector(doc).OfClass(typeof(ImportInstance)).Any();

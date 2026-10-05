@@ -39,6 +39,11 @@ public sealed class MassingFromImagesCommand : IExternalCommand
         }
 
         var settings = SettingsManager.Resolve(doc);
+        if (SettingsManager.ToolRefusal(settings, callsModel: true) is { } notLocal) // SEC-2: asked before an image is read or sent
+        {
+            TaskDialog.Show("Sentinel — Massing", notLocal);
+            return Result.Cancelled;
+        }
         string folder = settings.GhostSourceFolder;
         if (string.IsNullOrWhiteSpace(folder) || MassingVisionReader.CountImages(folder) == 0)
         {
@@ -99,8 +104,8 @@ public sealed class MassingFromImagesCommand : IExternalCommand
             try
             {
                 var fetch = Task.Run(() => GhostStandards.Load(key, layers: false)); // guideline@n + type_catalog@n
-                progress.SetStatus($"Reading the project images with the local vision model…");
-                using var reader = new MassingVisionReader(settings.GhostVisionModel, settings.OllamaUrl);
+                progress.SetStatus($"Reading the project images with the vision model {LocalOnly.Where(settings.OllamaUrl)}…");
+                using var reader = new MassingVisionReader(settings.GhostVisionModel, settings.OllamaUrl, settings.GhostCloudOptIn);
                 readerClock.Start();
                 MassingEstimate estimate = await reader.EstimateAsync(folder, ct: progress.Token).ConfigureAwait(false);
                 readerClock.Stop();

@@ -201,6 +201,16 @@ static partial class Check
         Ok(threw && failing.CanBuild && failing.StatusText == MassingPlanner.NotStarted("no plan"),
            "MAS-4: a build that could not start reopens the review with the reason — Build works again");
 
+        // SEC-2: every model client checks its endpoint in its constructor — a host off this PC only when this PC opted in.
+        static bool Refused(Action make) { try { make(); return false; } catch (ArgumentException e) { return e.Message.Contains("Nothing was read or sent"); } }
+        const string elsewhere = "http://203.0.113.9:11434/api/generate";
+        Ok(Refused(() => new LocalGhostBuilder("", ollamaUrl: elsewhere).Dispose()), "SEC-2: LocalGhostBuilder refuses a model off this PC, in words");
+        Ok(Refused(() => new LocalVisionReader("llava", elsewhere).Dispose()), "SEC-2: LocalVisionReader refuses it");
+        Ok(Refused(() => new MassingVisionReader("llava", elsewhere).Dispose()), "SEC-2: MassingVisionReader refuses it");
+        Ok(!Refused(() => { new LocalGhostBuilder("").Dispose(); new LocalVisionReader().Dispose(); new MassingVisionReader().Dispose(); })
+           && !Refused(() => new MassingVisionReader("llava", "https://models.example.com/api", cloudOptIn: true).Dispose()),
+           "SEC-2: this PC's model is called, and a host elsewhere when this PC opted in");
+
         Honest(); // MA-1a step 1: failure rule, family-type pick, review drop-down (Honest.cs)
 
         if (Environment.GetCommandLineArgs().Contains("--live")) LiveDryRun().GetAwaiter().GetResult();

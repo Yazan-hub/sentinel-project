@@ -29,12 +29,13 @@ namespace Sentinel.GhostBuilder
         private readonly HttpClient _http;
 
         public LocalVisionReader(string model = "llava",
-                                 string ollamaUrl = "http://localhost:11434/api/generate")
+                                 string ollamaUrl = "http://localhost:11434/api/generate",
+                                 bool cloudOptIn = false)
         {
             _model = string.IsNullOrWhiteSpace(model) ? "llava" : model;
             Usage = new ModelUsage(_model);
-            _url = string.IsNullOrWhiteSpace(ollamaUrl) ? "http://localhost:11434/api/generate" : ollamaUrl;
-            _http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) }; // local vision inference is slow
+            _url = Sentinel.Engine.LocalOnly.ModelUrl(ollamaUrl, cloudOptIn); // SEC-2: this PC's model, or a host this PC opted in to
+            _http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromMinutes(5) }; // local vision inference is slow
         }
 
         /// <summary>Count image files in the scoped folder (so the caller can show a status only when there

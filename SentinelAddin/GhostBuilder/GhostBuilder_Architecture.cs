@@ -124,14 +124,15 @@ namespace Sentinel.GhostBuilder
         public LocalGhostBuilder(string schemaJson,
                                  string model = "qwen2.5:7b-instruct",
                                  string ollamaUrl = "http://localhost:11434/api/generate",
-                                 string evidence = null)
+                                 string evidence = null,
+                                 bool cloudOptIn = false)
         {
             _schema = schemaJson; // null/empty is fine — MapLayersAsync falls back to DefaultSchema
             _model = string.IsNullOrWhiteSpace(model) ? "qwen2.5:7b-instruct" : model;
             Usage = new ModelUsage(_model);
-            _ollamaUrl = string.IsNullOrWhiteSpace(ollamaUrl) ? "http://localhost:11434/api/generate" : ollamaUrl;
+            _ollamaUrl = Sentinel.Engine.LocalOnly.ModelUrl(ollamaUrl, cloudOptIn); // SEC-2: this PC's model, or a host this PC opted in to
             _evidence = evidence ?? string.Empty; // P2: document context the model uses to disambiguate layers
-            _http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) }; // local inference is slow
+            _http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromMinutes(5) }; // local inference is slow
         }
 
         /// <summary>P2 slice 2: add vision-model hints (from LocalVisionReader) to the document context on the
