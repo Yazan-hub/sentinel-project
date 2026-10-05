@@ -232,6 +232,10 @@ static class Check
             (Path.Combine("Standards", "NamingProposer.cs"), "RegexOptions.CultureInvariant, RuleRegex.MatchTimeout)"),
             (Path.Combine("GhostBuilder", "LayerRulesetMatcher.cs"), "RegexOptions.CultureInvariant, GlobTimeout)") })
             Ok(Src(file).Contains(must), file + ": a ruleset's pattern is matched under a bound — " + must);
+        var synthSrc = Src(Path.Combine("Workflow", "NameSynth.cs"));
+        Ok(Regex.Matches(synthSrc, Regex.Escape("new Regex(\"^(?:\" + def + \")$\", RegexOptions.CultureInvariant, RuleRegex.MatchTimeout)")).Count == 2
+           && Regex.Matches(synthSrc, @"new Regex\(").Count == 2,
+           "Workflow/NameSynth.cs: both token patterns of the fix's name synthesis are matched under a bound");
 
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;

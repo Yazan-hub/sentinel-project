@@ -28,9 +28,9 @@ public static class NameSynth
         {
             rule.TokenDefs.TryGetValue(token, out var rawDef);
             var def = rawDef is null ? null : RuleRegex.DefWithOrg(rawDef, org);
-            var rx = def is null ? null : new Regex("^(?:" + def + ")$", RegexOptions.CultureInvariant);
+            var rx = def is null ? null : new Regex("^(?:" + def + ")$", RegexOptions.CultureInvariant, RuleRegex.MatchTimeout);
 
-            if (consumed < segments.Length && rx is not null && rx.IsMatch(segments[consumed]))
+            if (consumed < segments.Length && rx is not null && Fits(rx, segments[consumed]))
             {
                 output.Add(segments[consumed]);                   // keep valid segment
                 consumed++;
@@ -82,9 +82,17 @@ public static class NameSynth
         var cleaned = Regex.Replace(text, @"[^\w /&\+\-]", " ");
         cleaned = Regex.Replace(cleaned, @"\s+", " ").Trim();
         if (def is null) return cleaned;
-        var rx = new Regex("^(?:" + def + ")$", RegexOptions.CultureInvariant);
-        if (rx.IsMatch(cleaned)) return cleaned;
+        var rx = new Regex("^(?:" + def + ")$", RegexOptions.CultureInvariant, RuleRegex.MatchTimeout);
+        if (Fits(rx, cleaned)) return cleaned;
         var upper = cleaned.ToUpperInvariant();
-        return rx.IsMatch(upper) ? upper : cleaned;
+        return Fits(rx, upper) ? upper : cleaned;
+    }
+
+    /// SEC-3: a token pattern is matched under RuleRegex.MatchTimeout; past it the text does not fit (never a pass —
+    /// the caller's RuleRegex.Matches still judges the name it builds).
+    private static bool Fits(Regex rx, string text)
+    {
+        try { return rx.IsMatch(text); }
+        catch (RegexMatchTimeoutException) { return false; }
     }
 }

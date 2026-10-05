@@ -268,6 +268,16 @@ static class Check
         var quick = new RuleRegex.ScanClock();
         Ok(RuleRegex.Judge(() => { for (int i = 0; i < 40; i++) quick.Time(steady, () => true); }) is null,
            "SEC-3: a quick rule over 40 names runs to the end with no note");
+        // The fix's name synthesis matches the same token patterns under the same bound: a segment past it is not kept.
+        var slowTail = new Rule { Id = "SL-03", Tokens = ["A", "B"], TokenDefs = new() { ["A"] = "X", ["B"] = "(a+)+b" }, Separator = "_", MessageEn = "x" };
+        clock.Restart();
+        var synth = Sentinel.Workflow.NameSynth.BuildCompliantName(new string('a', 27), slowTail, null);
+        Ok(clock.ElapsedMilliseconds < 2000 && synth.StartsWith("X_"),
+           $"SEC-3: the fix's name synthesis keeps no segment past the bound and returns within it ({clock.ElapsedMilliseconds} ms): {synth}");
+        clock.Restart();
+        var clean = Sentinel.Workflow.NameSynth.Sanitize(new string('a', 27), "(a+)+b");
+        Ok(clock.ElapsedMilliseconds < 2000 && clean == new string('a', 27),
+           $"SEC-3: sanitising against a pattern past its bound returns the cleaned text ({clock.ElapsedMilliseconds} ms)");
 
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;
