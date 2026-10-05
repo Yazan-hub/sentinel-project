@@ -62,7 +62,21 @@ describe("extractText — a .docx is bounded before it is parsed (SEC-2)", () =>
 
   it("refuses a .docx whose text parts unpack to over the text bound — 413 in words", async () => {
     const dense = docx("x", [{ name: "word/extra.xml", data: "<w:p/>".repeat(Math.ceil((MAX_DOCX_XML + 1) / 6)) }]);
-    await expect(extractText(dense, "dense.docx")).rejects.toMatchObject({ status: 413, message: expect.stringContaining(`over ${MAX_DOCX_XML / 1024 / 1024} MB of document text`) });
+    const stored = docx("x", [{ name: "word/extra.xml", method: 0, data: "a".repeat(MAX_DOCX_XML + 1) }]);
+    for (const b of [dense, stored])
+      await expect(extractText(b, "dense.docx")).rejects.toMatchObject({ status: 413, message: expect.stringContaining(`over ${MAX_DOCX_XML / 1024 / 1024} MB of document text`) });
+  });
+
+  it("refuses a .docx whose parts share their data, or whose data runs into the directory — 400 in words", async () => {
+    const plain = docx("x"), end = plain.length - 22, dirAt = plain.readUInt32LE(end + 16);
+    const last = plain.lastIndexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02]), end), entry = plain.subarray(last, end);
+    const shared = Buffer.concat([plain.subarray(0, end), entry, entry, plain.subarray(end)]);
+    shared.writeUInt16LE(5, end + 2 * entry.length + 8); shared.writeUInt16LE(5, end + 2 * entry.length + 10);
+    shared.writeUInt32LE(end + 2 * entry.length - dirAt, end + 2 * entry.length + 12);
+    const into = Buffer.from(plain), from = into.readUInt32LE(last + 42);
+    into.writeUInt32LE(dirAt + 1 - (from + 30 + into.readUInt16LE(from + 26)), last + 20);
+    for (const b of [shared, into])
+      await expect(extractText(b, "odd.docx")).rejects.toMatchObject({ status: 400, message: expect.stringContaining("not a .docx the bridge reads") });
   });
 
   it("hands the parser only the text parts the bound measured", async () => {
@@ -83,6 +97,9 @@ describe("extractText — a .docx is bounded before it is parsed (SEC-2)", () =>
       await expect(extractText(b, "odd.docx")).rejects.toMatchObject({ status: 400, message: expect.stringContaining("(a ZIP64 zip)") });
     }
     await expect(extractText(docx("x", [{ name: "s.bin", data: "s", size: 0xffffffff }]), "odd.docx"))
+      .rejects.toMatchObject({ status: 400, message: expect.stringContaining("(a ZIP64 zip)") });
+    const locator = Buffer.alloc(20); locator.writeUInt32LE(0x07064b50, 0);
+    await expect(extractText(Buffer.concat([plain.subarray(0, end), locator, plain.subarray(end)]), "odd.docx"))
       .rejects.toMatchObject({ status: 400, message: expect.stringContaining("(a ZIP64 zip)") });
   });
 

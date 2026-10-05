@@ -33,7 +33,7 @@ export function boundDocx(buffer) {
   if (b.readUInt16LE(end + 8) !== total) throw unreadable("a damaged zip directory");
   if (dirAt + dirSize !== end) throw unreadable("a damaged zip directory, or bytes before the zip");
   let left = MAX_DOCX_UNPACKED, textLeft = MAX_DOCX_XML, parts = 0, p = dirAt, kept = 0;
-  const local = [], dir = [];
+  const entries = [], local = [], dir = [];
   while (p + 46 <= end && b.readUInt32LE(p) === 0x02014b50) {
     if (++parts > MAX_DOCX_ENTRIES) throw over(`holds over ${MAX_DOCX_ENTRIES} parts`);
     const q = p, flags = b.readUInt16LE(p + 8), method = b.readUInt16LE(p + 10), packed = b.readUInt32LE(p + 20), at = b.readUInt32LE(p + 42);
@@ -42,9 +42,19 @@ export function boundDocx(buffer) {
     p += 46 + nameLen + b.readUInt16LE(p + 30) + b.readUInt16LE(p + 32);
     if (flags & 1) throw unreadable("an encrypted part");
     if (method !== 0 && method !== 8) throw unreadable(`a part packed with method ${method}`);
-    if (at + 30 > end || b.readUInt32LE(at) !== 0x04034b50) throw unreadable("a damaged part");
+    if (at + 30 > dirAt || b.readUInt32LE(at) !== 0x04034b50) throw unreadable("a damaged part");
     const from = at + 30 + b.readUInt16LE(at + 26) + b.readUInt16LE(at + 28);
-    if (from + packed > end) throw unreadable("a damaged part");
+    if (from + packed > dirAt) throw unreadable("a damaged part");
+    entries.push({ q, p, method, packed, at, from, text });
+  }
+  if (!parts) throw unreadable("an empty zip");
+  if (p !== end || parts !== total) throw unreadable("a damaged zip directory");
+  // Each part's record and data lie before the directory, apart from every other part's: what is inflated and what the
+  // parser is given are then at most the upload's own bytes.
+  const byAt = [...entries].sort((x, y) => x.at - y.at);
+  for (let i = 1; i < byAt.length; i++)
+    if (byAt[i].at < byAt[i - 1].from + byAt[i - 1].packed) throw unreadable("a damaged zip directory");
+  for (const { q, p, method, packed, at, from, text } of entries) {
     const cap = text ? Math.min(left, textLeft) : left;
     let size = packed;
     if (method === 8) {
@@ -60,8 +70,6 @@ export function boundDocx(buffer) {
     entry.writeUInt32LE(kept, 42);
     local.push(b.subarray(at, from + packed)); dir.push(entry); kept += from + packed - at;
   }
-  if (!parts) throw unreadable("an empty zip");
-  if (p !== end || parts !== total) throw unreadable("a damaged zip directory");
   const cd = Buffer.concat(dir), eocd = Buffer.alloc(22);
   eocd.writeUInt32LE(0x06054b50, 0); eocd.writeUInt16LE(dir.length, 8); eocd.writeUInt16LE(dir.length, 10);
   eocd.writeUInt32LE(cd.length, 12); eocd.writeUInt32LE(kept, 16);
