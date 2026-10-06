@@ -28,6 +28,14 @@ static class Check
                 try { ctx = await _bridge.GetContextAsync(); } catch { break; }
                 var req = ctx.Request; string body; using (var r = new StreamReader(req.InputStream)) body = r.ReadToEnd();
                 lock (_seen) _seen.Add((req.HttpMethod, req.Url!.AbsolutePath, req.Headers["Authorization"] ?? "", body));
+                if (req.Url!.AbsolutePath == "/events") // SEC-6: one event for the live bearer, a 401 for any other
+                {
+                    var live = req.Headers["Authorization"] == "Bearer tok-live";
+                    var said = Encoding.UTF8.GetBytes(live ? "data: {\"type\":\"topic\"}\n\n" : "{\"message\":\"missing bearer\"}");
+                    ctx.Response.StatusCode = live ? 200 : 401; ctx.Response.ContentType = live ? "text/event-stream" : "application/json";
+                    ctx.Response.OutputStream.Write(said, 0, said.Length); ctx.Response.Close();
+                    continue;
+                }
                 var isVp = req.Url!.AbsolutePath.EndsWith("/viewpoints");
                 var status = isVp ? _vpStatus : _topicStatus;
                 var answer = status == 201
@@ -54,7 +62,7 @@ static class Check
     {
         Console.WriteLine("Issues raised from Revit — IssueDraft + BcfSyncManager.CreateIssueAsync\n");
         StartBridge();
-        try { Refusals(); Bodies(); Created(); PerCall(); Refused(); Lost(); Silent(); }
+        try { Refusals(); Bodies(); Created(); PerCall(); Refused(); Lost(); Silent(); Live(); }
         finally { try { _bridge.Stop(); } catch { } }
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;
@@ -153,5 +161,64 @@ static class Check
         using var sync = new BcfSyncManager("http://127.0.0.1:9", null);
         var r = sync.CreateIssueAsync("aster-tower", d, "m").GetAwaiter().GetResult();
         Ok(r.TopicStatus == 0 && r.Sentence(d, "http://127.0.0.1:9") == "Not created — the bridge did not answer at http://127.0.0.1:9 — nothing was saved.", "no answer → said as such, never a throw");
+    }
+
+    // SEC-6 (S20): the live stream reads its bearer at every connect — never the token the window opened with — and an answer
+    // that is not a stream is said once (a 401 in the sign-in's words) and retried every 30 s, never swallowed.
+    static void Live()
+    {
+        using var sync = new BcfSyncManager(_url, "stale-token-from-window-open");
+        var said = new List<string>();
+        lock (_seen) _seen.Clear();
+        using (var cts = new CancellationTokenSource())
+        {
+            var changed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var loop = Task.Run(() => sync.StartLiveSyncAsync("aster-tower", () => changed.TrySetResult(true), () => "tok-live", w => { lock (said) said.Add(w); }, cts.Token));
+            Ok(changed.Task.Wait(TimeSpan.FromSeconds(5)), "an event on the stream → the window refreshes");
+            cts.Cancel();
+            try { loop.Wait(TimeSpan.FromSeconds(5)); } catch { /* cancelled */ }
+        }
+        lock (_seen) Ok(_seen.Count >= 1 && _seen.All(s => s.Path == "/events" && s.Auth == "Bearer tok-live"),
+            "the stream carries the bearer read at connect — not the token the window opened with");
+        lock (_seen) _seen.Clear();
+        using (var cts = new CancellationTokenSource())
+        {
+            var loop = Task.Run(() => sync.StartLiveSyncAsync("aster-tower", () => { }, () => null, w => { lock (said) said.Add(w); }, cts.Token));
+            Thread.Sleep(3500); // a reconnect after 3 s would be a second request; a refused one waits 30 s
+            cts.Cancel();
+            try { loop.Wait(TimeSpan.FromSeconds(5)); } catch { /* cancelled */ }
+        }
+        lock (said) Ok(said.SequenceEqual(new[] { BcfSyncManager.LiveSignedOut }), "a 401 is said once, in the sign-in's words");
+        lock (_seen) Ok(_seen.Count == 1 && _seen[0].Auth == "", "… with no bearer sent (none to read), and not asked again within 3 s");
+        // review C13: signed in again → the next connect carries the bearer and the window says the sync resumed.
+        said.Clear();
+        BcfSyncManager.RefusedRetryMs = 300; // the check's own pace; 30 s in Revit
+        try
+        {
+            using var cts = new CancellationTokenSource();
+            var changed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            int asked = 0;
+            var loop = Task.Run(() => sync.StartLiveSyncAsync("aster-tower", () => changed.TrySetResult(true),
+                () => Interlocked.Increment(ref asked) == 1 ? null : "tok-live", w => { lock (said) said.Add(w); }, cts.Token));
+            Ok(changed.Task.Wait(TimeSpan.FromSeconds(5)), "signed in again → the stream carries the new bearer at its next connect");
+            cts.Cancel();
+            try { loop.Wait(TimeSpan.FromSeconds(5)); } catch { /* cancelled */ }
+        }
+        finally { BcfSyncManager.RefusedRetryMs = 30000; }
+        lock (said) Ok(said.SequenceEqual(new[] { BcfSyncManager.LiveSignedOut, BcfSyncManager.LiveResumed }),
+            "a pause said, then the resumed line once the stream is back — never a stale paused line");
+        string cmd = File.ReadAllText(Path.Combine(Root(), "SentinelAddin", "Commands.BcfIssues.cs"));
+        Ok(cmd.Contains("_ = Task.Run(() => sync.StartLiveSyncAsync(bcfKey, () =>")
+           && cmd.Contains("() => { try { return BcfConfig.Load().ServiceToken; } catch (SessionException) { return null; } }, // SEC-6: read at every connect")
+           && cmd.Contains("words => { try { window.SetStatus(words); } catch { /* window closed */ } },"),
+           "BCF Issues runs live sync off Revit's thread, hands it the bearer to read at every connect, and shows its words in the window");
+    }
+
+    /// <summary>The repository root: the first folder up from this check that holds SentinelAddin.</summary>
+    static string Root()
+    {
+        var d = new DirectoryInfo(AppContext.BaseDirectory);
+        while (d is not null && !Directory.Exists(Path.Combine(d.FullName, "SentinelAddin"))) d = d.Parent;
+        return d?.FullName ?? throw new DirectoryNotFoundException("no SentinelAddin folder above " + AppContext.BaseDirectory);
     }
 }

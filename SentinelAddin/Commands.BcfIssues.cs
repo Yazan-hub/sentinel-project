@@ -139,13 +139,18 @@ public sealed class BcfIssuesCommand : IExternalCommand
         // issue raised on the web appears in this active Revit session within seconds — no manual refresh.
         var liveCts = new System.Threading.CancellationTokenSource();
         var lastLive = DateTime.MinValue;
-        _ = sync.StartLiveSyncAsync(bcfKey, () =>
+        // SEC-6 (S20): off Revit's thread (reading the bearer may refresh a session), with the bearer read at every connect — the
+        // bridge ends a stream when its sign-in expires — and the stream's own words in the window when it is paused.
+        _ = Task.Run(() => sync.StartLiveSyncAsync(bcfKey, () =>
         {
             var now = DateTime.UtcNow;
             if ((now - lastLive).TotalMilliseconds < 500) return; // debounce bursts
             lastLive = now;
             try { window.Dispatcher.BeginInvoke(new Action(Refresh)); } catch { /* window closed */ }
-        }, liveCts.Token);
+        },
+            () => { try { return BcfConfig.Load().ServiceToken; } catch (SessionException) { return null; } }, // SEC-6: read at every connect
+            words => { try { window.SetStatus(words); } catch { /* window closed */ } },
+            liveCts.Token));
 
         // One fix window per topic (value null between the click and the window opening). Touched only on
         // the UI thread — the click handler, the hub jobs (Revit's API thread IS the UI thread) and Closed.
