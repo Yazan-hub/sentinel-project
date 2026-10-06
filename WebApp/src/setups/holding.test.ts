@@ -90,6 +90,11 @@ describe("intakeLine — what the upload did", () => {
     expect(intakeLine("B12-W.ifc", reply({ stage: "upload_failed", version: null, error: "platform upload HTTP 503" })))
       .toBe("B12-W.ifc accepted (ids@1: 3/3 passed) — not uploaded: platform upload HTTP 503. Nothing was registered · ledger #812 · receipt 6e7f8091a2b3c4d5…");
   });
+
+  it("SEC-4 (review C14): an upload that failed after the bridge registered the version says it is registered without geometry", () => {
+    expect(intakeLine("B12-W.ifc", reply({ stage: "upload_failed", version: { revision: "P02" }, error: "platform upload HTTP 503" })))
+      .toBe("B12-W.ifc accepted (ids@1: 3/3 passed) — not uploaded: platform upload HTTP 503. Registered as P02 without geometry · ledger #812 · receipt 6e7f8091a2b3c4d5…");
+  });
 });
 
 describe("readHolding — GET /cde/:key/holding", () => {

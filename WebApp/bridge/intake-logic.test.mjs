@@ -5,7 +5,7 @@ import { runIntake, validateIntakeInput } from "./intake-logic.mjs";
 const bytes = Buffer.from("ISO-10303-21;");
 const contractSha = "cd".repeat(32);
 const noneLabel = "none — not installed for aster-tower or its office";
-function stubs({ gatePass = true, contract = "office", verdict = "accepted", uploadFails = false, warned = false, inScope = 1, namingRefused = false, failuresTotal, held = { id: 701, hash: "71".repeat(32) }, linkFails = false } = {}) {
+function stubs({ gatePass = true, contract = "office", verdict = "accepted", uploadFails = false, warned = false, inScope = 1, namingRefused = false, failuresTotal, held = { id: 701, hash: "71".repeat(32) }, linkFails = false, regFails = false, repeat = null } = {}) {
   const calls = [];
   const rec = (name, ret) => async (...a) => { calls.push([name, ...a]); return typeof ret === "function" ? ret(...a) : ret; };
   const failures = (verdict === "rejected" || warned) ? [{ element: "g1", requirement: "FireRating" }] : [];
@@ -25,7 +25,9 @@ function stubs({ gatePass = true, contract = "office", verdict = "accepted", upl
     adjudicate: rec("adjudicate", { verdict: downgraded ? "recorded" : verdict, downgraded, summary: { ids: verdict === "recorded" ? null : "Aster IDS", elements: 1, in_scope: verdict === "recorded" ? 0 : inScope }, failures, failures_total: failuresTotal ?? failures.length, naming: namingRefused ? { ok: false, enforce: "reject", failures: [{ field: "*", reason: "expected 11 fields, got 1" }] } : { ok: true }, warned, ids_source: verdict === "recorded" ? "none" : "project", ids_ref: verdict === "recorded" ? null : "ids@1", ids_enforce: idsEnforce, audit_id: 901, receipt: { ledger_hash: "h" }, hold: verdict === "rejected" ? { id: 902, hash: "92".repeat(32) } : null }),
     raiseBcf: rec("raiseBcf", { raised: 1 }),
     uploadIfc: uploadFails ? rec("uploadIfc", () => { throw new Error("platform 401"); }) : rec("uploadIfc", { format: "frag", name: "x.frag", itemId: "item-1", bytes: 9 }),
-    registerFileVersion: rec("registerFileVersion", { container_id: "c-1", iso_name: "ASTR26-AST-ZZ-XX-M3-A-0001.ifc", version: { id: "v-1", revision: "P01", platform_item_id: null, is_live: true } }),
+    registerFileVersion: regFails
+      ? rec("registerFileVersion", () => { throw Object.assign(new Error("a revision is registered once per file — a new upload takes a new revision; nothing was saved"), { status: 409 }); })
+      : rec("registerFileVersion", { container_id: "c-1", iso_name: "ASTR26-AST-ZZ-XX-M3-A-0001.ifc", version: { id: "v-1", revision: "P01", platform_item_id: repeat === "linked" ? "item-0" : null, is_live: true }, ...(repeat ? { repeat: true } : {}) }),
     recordVersionVerdict: rec("recordVersionVerdict", undefined),
     attachGeometry: linkFails ? rec("attachGeometry", () => { throw Object.assign(new Error("version v-1 already has geometry — a version's geometry is attached once"), { status: 409 }); }) : rec("attachGeometry", { linked: true }),
     // The wiring's audit adapter returns the stored row (phase 6a); writeHold the hold row, or null when nothing was held.
@@ -86,7 +88,7 @@ describe("runIntake", () => {
     const r = await runIntake(d, input);
     expect(r).toMatchObject({ verdict: "accepted", stage: "published", published: true, hold: null });
     expect(r.version).toMatchObject({ container_id: "c-1", version_id: "v-1", revision: "P01", platform_item_id: "item-1", format: "frag" });
-    expect(names(d)).toEqual(["loadContract", "checkDelivery", "audit", "extractElements", "adjudicate", "uploadIfc", "registerFileVersion", "recordVersionVerdict", "attachGeometry"]);
+    expect(names(d)).toEqual(["loadContract", "checkDelivery", "audit", "extractElements", "adjudicate", "registerFileVersion", "recordVersionVerdict", "uploadIfc", "attachGeometry"]);
     const reg = d.calls.find((c) => c[0] === "registerFileVersion")[2];
     expect(reg).toMatchObject({ name: input.name, revision: "P01", sha256: "ab".repeat(32), size_bytes: 13, author: "agent:astra", attach_geometry: false });
     expect(reg).not.toHaveProperty("platform_item_id");
@@ -105,7 +107,7 @@ describe("runIntake", () => {
     const r = await runIntake(d, input);
     expect(r).toMatchObject({ verdict: "accepted", stage: "published", published: true, warned: true, ids_enforce: "warn" });
     expect(r.bcf).toEqual({ raised: 1 });
-    expect(names(d)).toEqual(["loadContract", "checkDelivery", "audit", "extractElements", "adjudicate", "raiseBcf", "uploadIfc", "registerFileVersion", "recordVersionVerdict", "attachGeometry"]);
+    expect(names(d)).toEqual(["loadContract", "checkDelivery", "audit", "extractElements", "adjudicate", "raiseBcf", "registerFileVersion", "recordVersionVerdict", "uploadIfc", "attachGeometry"]);
   });
   it("recorded (no IDS anywhere) publishes on the gate pass alone and says so", async () => {
     const d = stubs({ verdict: "recorded" });
@@ -121,12 +123,29 @@ describe("runIntake", () => {
     expect(names(d)).not.toContain("raiseBcf");
     expect(d.calls.find((c) => c[0] === "recordVersionVerdict")[3]).toMatchObject({ verdict: "recorded", downgraded: "nothing in scope" });
   });
-  it("an upload failure after acceptance keeps the verdict and reports the failure honestly", async () => {
+  it("an upload failure after acceptance keeps the verdict and the registered version, without geometry, and says so", async () => {
     const d = stubs({ uploadFails: true });
     const r = await runIntake(d, input);
     expect(r).toMatchObject({ verdict: "accepted", stage: "upload_failed", published: false });
     expect(r.error).toMatch(/platform 401/);
-    expect(names(d)).not.toContain("registerFileVersion");
+    expect(r.version).toMatchObject({ version_id: "v-1", revision: "P01", platform_item_id: null, geometry: "not uploaded — platform 401" });
+    expect(names(d)).toEqual(["loadContract", "checkDelivery", "audit", "extractElements", "adjudicate", "registerFileVersion", "recordVersionVerdict", "uploadIfc"]);
+  });
+  it("SEC-4 (review C14): a registration the bridge refuses (a held revision, other bytes) uploads nothing to the platform", async () => {
+    const d = stubs({ regFails: true });
+    await expect(runIntake(d, input)).rejects.toMatchObject({ status: 409 });
+    expect(names(d)).not.toContain("uploadIfc");
+    expect(names(d)).not.toContain("attachGeometry");
+  });
+  it("SEC-4 (review C14): the same bytes again are answered with the version that holds them — uploaded only when it has no geometry yet", async () => {
+    const linked = stubs({ repeat: "linked" });
+    const r = await runIntake(linked, input);
+    expect(r).toMatchObject({ verdict: "accepted", stage: "published", published: true });
+    expect(r.version).toMatchObject({ version_id: "v-1", revision: "P01", platform_item_id: "item-0" });
+    expect(names(linked)).not.toContain("uploadIfc");
+    const bare = stubs({ repeat: "bare" });
+    expect((await runIntake(bare, input)).version).toMatchObject({ version_id: "v-1", platform_item_id: "item-1" });
+    expect(bare.calls.find((c) => c[0] === "uploadIfc").slice(2)).toEqual([input.name, "P01"]);
   });
   it("an office contract judges: the gate, its audit row and the result name contract@1 · office · sha", async () => {
     const d = stubs();
@@ -141,7 +160,7 @@ describe("runIntake", () => {
   it("no contract for the project or its office: NOT CHECKED, never a pass — the IDS still judges and the note names the gate", async () => {
     const d = stubs({ contract: "none" });
     const r = await runIntake(d, input);
-    expect(names(d)).toEqual(["loadContract", "gateNotChecked", "audit", "extractElements", "adjudicate", "uploadIfc", "registerFileVersion", "recordVersionVerdict", "attachGeometry"]);
+    expect(names(d)).toEqual(["loadContract", "gateNotChecked", "audit", "extractElements", "adjudicate", "registerFileVersion", "recordVersionVerdict", "uploadIfc", "attachGeometry"]);
     const [, , message, , row] = d.calls.find((c) => c[0] === "audit");
     expect(message).toBe("IFC delivery gate NOT CHECKED: ASTR26-AST-ZZ-XX-M3-A-0001.ifc");
     expect(row).toMatchObject({ result: "not_checked", passed: null, contract: null, contract_ref: null, contract_source: null, contract_sha256: null, entities: null, failures: 0, sha256: "ab".repeat(32) });
