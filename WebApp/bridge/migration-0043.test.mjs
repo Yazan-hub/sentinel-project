@@ -17,8 +17,10 @@ const fn = (text, name) => {
 };
 
 describe("migration 0043 — one project's answers, linked rows in one project, a deleted project's side rows (SEC-6)", () => {
-  it("is not applied yet, and says what must hold before and after the apply", () => {
-    expect(SQL).toContain("NOT YET APPLIED");
+  it("records its apply and the probe's pass, and says what must hold before and after the apply", () => {
+    expect(SQL).toContain("APPLIED 2026-10-07");
+    expect(SQL).not.toContain("NOT YET APPLIED");
+    expect(SQL).toContain('"PROBE 0043: 18 of 18 as expected."');
     expect(SQL).toContain("probes/0043_probe.sql\n-- part 0");
     expect(code.trim().startsWith("begin;")).toBe(true);
     expect(code.trim().endsWith("commit;")).toBe(true);

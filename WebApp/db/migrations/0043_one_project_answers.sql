@@ -16,7 +16,10 @@
 --       an id never is. Documents filed under its id (the standards history, changesets, comments) are kept as evidence. A
 --       key is a slug (0039), so the global '' namespace is never a project's.
 --
--- NOT YET APPLIED. Before the apply: probes/0043_probe.sql
+-- APPLIED 2026-10-07 ~01:30 local on the founder's "apply" (migration 0043_one_project_answers), AFTER the 4100 bridge was
+-- restarted on the branch c1959d6; probes/0043_probe.sql part 0 read before it (0 cross-project folders, files, linked
+-- models and model revisions; 16 BCF topics and 2 bridge documents left by earlier deletes, counted only — N-b; the live
+-- bodies true; no 0043 trigger yet), part 1 4 of 4 true, part 2 "PROBE 0043: 18 of 18 as expected." Before the apply: probes/0043_probe.sql
 -- part 0 is read (read-only): its first four rows must read 0 (rule 4 checks a link when it is written; a row that already
 -- points into another project is named by the diagnostics and the founder decides), rows 5 and 6 count side rows that
 -- earlier deletes left behind (rule 5 does not touch them — founder decision N-b), and row 7 must read true (the live

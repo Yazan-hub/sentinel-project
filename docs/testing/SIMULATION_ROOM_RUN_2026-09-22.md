@@ -2033,3 +2033,37 @@ CI run (after the push); Revit 2021–2023 and 2025–2027 live (builds; deploye
 Revit closed without saving the scratch model; `sec5-smoke` is the founder's scratch project — its rows stay on the ledger by
 design (#2016–#2029 and the artefact installs); on the platform the scratch round-trip item is archived and W-2's two items
 (`SEC5-SMOKE.frag` with its `sec5-v2`, and the IFC) stay as the founder's scratch.
+
+## Session SEC6 — hardening slice 6 live (2026-10-07 ~01:15 → 01:50 local, branch feature/sec6-hardening c1959d6, Claude driving the bridge, the database, the founder's local app and Revit 2024; the founder's hand on Sign in)
+
+Setup: the founder's words, given ahead: "apply 0043 when ready, deploy the sec6 branch to 2024", "OK for the uploads, publish the
+web app when ready too" (no web file changed, so no publish), the restart under the standing OK. D-1 read first (read-only), then
+the 4100 bridge restarted by Claude on the branch (the outbox watcher untouched: nothing it runs changed), then the apply. The
+test bridge on 127.0.0.1:4101. The scratch project `sec6-smoke` made in the founder's local app, signed in as the founder (no
+office). The add-in built for Revit 2024 from the branch and deployed; Revit 2024 started by Claude (one instance, checked
+first); the scratch model a shell copy of SEC5's (`Documents\Sentinel drills\sec6\sec6-drill.rvt`) opened from Revit's Open dialog.
+
+| Row | Result | Evidence |
+|---|---|---|
+| D-1 | part 0: 0 cross-project folders, files, linked models and model revisions; 16 BCF topics and bridge documents `doc_comments 1, tender 1` left by earlier deletes (counted only — N-b); the live bodies `true`; no 0043 trigger — **pass** | the rows (counts only) |
+| B-1 | 4100 restarted on the branch, `/health` ok; 4101 up; the watcher left running — **pass** | the lines |
+| D-2 | `0043_one_project_answers` applied (~01:30 local), one transaction — **pass** | the answer |
+| D-3 | part 1: 4 of 4 true; part 2: `PROBE 0043: 18 of 18 as expected.` — **pass** | the rows, the summary |
+| W-0 | `sec6-smoke` created in the founder's local app, signed in, no office — **pass** | the key |
+| M-1 | one intake upload of the test IFC through 4101 (`source=web` — the plan's command omitted it): `200`, judged by no IDS; the bridge log `[upload] 0.0 MB in 0.0 s (2398 KB/s)` — **pass** | status, the line |
+| M-2 | a trickled upload: `after 140 s (8 KB sent): 408 {"message":"the upload arrived slower than 16 KB/s on average after its first 120 s — nothing was saved; try again on a faster connection"}`; no `[upload]` line for it; no `SEC6-TRICKLE.ifc` registered. While it held the machine slot, M-1's first try answered `429 you already have an upload running on the bridge …` (the machine credential's own slot, I-b) — **pass** | the lines |
+| M-3 | a folder under aster-tower's root: `400 a folder and its parent folder are in one project — nothing was saved`, not listed; under its own root: `201` — **pass** | statuses, words |
+| R-0 | the branch's add-in on Revit 2024 (0 errors); the scratch model open — **pass** | the lines |
+| R-F | publish@1 on; Project Setup ▸ `sec6-smoke` ▸ Save → the pane `Auto-publish: on · publish@1`; Governed Publish (published, not judged — no IDS; #2049–#2056); publish@2 (off); a coordinate click on ↻ with Chrome brought in front: the pane stayed `publish@1`, **no Doctor line** — then a true press of the button (UI Automation `Invoke` on the button named "↻") → `01:40:25 ↻ sec6-smoke: Auto-publish: off — publish@2 · project · bb43640b83a0…` within a second and the pane followed — **pass, and F-SEC5-1 is explained: the drill's mouse clicks landed beside the small ↻ button (UIA places it at physical 2500,308); the event hub never stalled.** The ↻ line is what made it visible | the lines |
+| R-F0 | Governed Publish with File ▸ Options held 40 s by the founder: the publish's rows landed in 7 s (#2060–#2066, 01:44:52–01:44:59) before Options was held, so nothing was queued during the hold; no wait line, no drain line, no duplicate dialog — **inconclusive (not exercised), not repeated** — the hub rows in event-check (56/56), promote-check (815/815) and project-context-check (136/136) hold the watchdog and the drain | the ledger rows, the Doctor log |
+| R-F2 | the founder's Sign in; Project Setup ▸ Save; publish@3 (on) installed; ↻ (UIA Invoke) → the pane `Auto-publish: on · publish@3 · project · ed4b894a2ea3…`, a new ↻ line, the add-in's cache rewritten at 01:49:24 — **pass** | the lines, the cache time |
+| R-BCF | BCF Issues on the scratch model (machine credential); a topic posted through 4101 did not appear (the stream is in-process: 4101's writes never reach 4100's clients — by design, not a defect); one posted through 4100 appeared within seconds with no ↻ pressed; both listed `[Open]`; no `Live sync paused` line — **pass** | the window |
+
+**Owed:** U-1 (the founder's real IFC through the Funnel — the speed measurement; the 16 KB/s floor stays the default until he
+reads one); W-2 (a removed member's stream — needs a second account); a stream ending at token expiry (an hour; offline rows);
+Revit 2021–2023 and 2025–2027 live (builds; deployed after the merge); the CI run (after the push). **Lesson recorded:** drive the
+pane's small WPF buttons by UI Automation name, never by coordinates.
+
+**Closing list:** the test bridge on 4101 stopped; the 4100 bridge on the branch (the same code master gets), the watcher
+untouched; Revit closed without saving the scratch model; `sec6-smoke` is the founder's scratch project — its rows stay on the
+ledger by design (#2036–#2066 and two BCF topics).
