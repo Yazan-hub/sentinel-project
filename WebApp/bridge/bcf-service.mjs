@@ -163,6 +163,11 @@ const PACK_STORE = process.env.SENTINEL_PACK_STORE
 /** @type {{packs: any[]}} */
 let pkdb = loadJson(PACK_STORE, { packs: [] });
 const persistPack = () => writeJsonAtomic(PACK_STORE, pkdb);
+/** SEC-4 (S36): a pack id is `<key>@<version>` — a key is a slug, a version short and plain; null, or the words. */
+const packIdRefusal = (key, version) =>
+  !/^[a-z0-9][a-z0-9-]{0,63}$/.test(String(key ?? "")) ? "a pack key is lower-case letters, digits and hyphens (up to 64) — nothing was published"
+  : !/^[0-9A-Za-z.-]{1,32}$/.test(String(version ?? "")) ? "a pack version is letters, digits, dots and hyphens (up to 32) — nothing was published" : null;
+const packTaken = (id) => `pack ${id} is already published — publish a new version; nothing was published`;
 /** A registry record from a publish body (or a seed file). `naming` rides along so an install can put it on the project. */
 const packRecord = (b, existing, author) => ({
   id: `${b.key}@${b.version}`, key: b.key, version: b.version, name: b.name || b.key, description: b.description || "",
@@ -916,7 +921,8 @@ async function handleRequest(req, res) {
         }
         return send(res, 200, migrated ? await cde.listProjectMeta() : remote);
       }
-      if (req.method === "GET" && ppid) return send(res, 200, useCde ? await cde.getProjectMeta(ppid, localSeed(ppid)) : getProject(ppid));
+      // SEC-4 (S19): this PC's local metadata seeds a project only for the machine credential, as the list route does.
+      if (req.method === "GET" && ppid) return send(res, 200, useCde ? await cde.getProjectMeta(ppid, currentUserToken() ? undefined : localSeed(ppid)) : getProject(ppid));
       if (req.method === "PUT" && ppid) {
         const b = await readBody(req);
         if (useCde) return send(res, 200, await cde.patchProjectMeta(ppid, b));
@@ -1004,12 +1010,14 @@ async function handleRequest(req, res) {
         }
         return send(res, 200, packs);
       }
-      if (req.method === "POST" && !kid) { // publish (create or update)
+      if (req.method === "POST" && !kid) { // publish — a new id only: a published key@version is never overwritten
         const b = await readBody(req);
+        const why = packIdRefusal(b.key, b.version);
+        if (why) return send(res, 400, { message: why });
         const id = `${b.key}@${b.version}`;
-        const existing = packs.find((p) => p.id === id);
-        const pack = packRecord(b, existing, resolveActor(b.author, "anon"));
-        if (useCde) await cde.docUpsert("pack", "", id, pack); else { if (existing) Object.assign(existing, pack); else pkdb.packs.push(pack); persistPack(); }
+        if (packs.some((p) => p.id === id)) return send(res, 409, { message: packTaken(id) });
+        const pack = packRecord(b, null, resolveActor(b.author, "anon"));
+        if (useCde) await cde.docUpsert("pack", "", id, pack); else { pkdb.packs.push(pack); persistPack(); }
         return send(res, 201, pack);
       }
       if (kid && !ksub && req.method === "GET") return send(res, 200, packs.find((p) => p.id === kid) || null);
@@ -1018,7 +1026,10 @@ async function handleRequest(req, res) {
       if (req.method === "POST" && ksub === "install") { pack.installs = (pack.installs || 0) + 1; await savePack(pack); return send(res, 200, pack); }
       if (req.method === "POST" && ksub === "fork") {
         const b = await readBody(req); const now = new Date().toISOString();
+        const why = packIdRefusal(b.key || pack.key, b.version || "fork");
+        if (why) return send(res, 400, { message: why });
         const nid = `${b.key || pack.key}@${b.version || "fork"}`;
+        if (packs.some((p) => p.id === nid)) return send(res, 409, { message: packTaken(nid) });
         const fork = { ...pack, id: nid, key: b.key || pack.key, version: b.version || "fork", name: b.name || pack.name + " (fork)", author: resolveActor(b.author, "anon"), installs: 0, forks: 0, forked_from: pack.id, created_at: now };
         pack.forks = (pack.forks || 0) + 1;
         if (useCde) { await cde.docUpsert("pack", "", pack.id, pack); await cde.docUpsert("pack", "", fork.id, fork); } else { pkdb.packs.push(fork); persistPack(); }
@@ -1268,7 +1279,7 @@ async function handleRequest(req, res) {
       }
       // File versioning (migration 0011): a file = a container, each upload = a version, one `is_live` pointer.
       //   GET  /cde/:key/files                          → files + version history (newest first, live flagged)
-      //   POST /cde/:key/files  { name, revision?, author?, size_bytes?, sha256?, platform_item_id?, notes? }
+      //   POST /cde/:key/files  { name, revision?, author?, size_bytes?, sha256?, notes? } (no platform_item_id: the bridge links its own uploads)
       //        → create-or-append a version (becomes live). Same rows the CDE panel shows (one source of truth).
       //   POST /cde/:key/files/set-live  { version_id, actor? }  → flip the live pointer to another version.
       if (p2 === "files" && !p3) {
@@ -1480,6 +1491,7 @@ async function handleRequest(req, res) {
           uploadIfc: uploadIfcAsFrag,
           registerFileVersion: (key, body) => cde.registerFileVersion(key, body),
           recordVersionVerdict: (key, vid, result, actor) => cde.recordVersionVerdict(key, vid, result, actor),
+          attachGeometry: (key, vid, item, opts) => cde.attachGeometry(key, vid, item, opts),
           audit: async (key, action, actor, value) => { const proj = await cde.ensureProject(key); return cde.audit(proj.id, "delivery_gate", null, action, actor, null, value); },
           // A gate FAIL is held only when the caller could register the file (spec 2026-09-27 Decision 4).
           writeHold: (key, h) => cde.holdIfCouldRegister(key, h),

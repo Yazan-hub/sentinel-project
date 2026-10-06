@@ -1,7 +1,7 @@
 import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
-import { transitionVersion } from "./cde-transition";
+import { transitionVersion, nextAttachRevision } from "./cde-transition";
 import { readReviews, decideReview, decideFailedLine, decisionLine, reviewLine, approvalLine, reviewMoves, reviewsInView, type ReviewItem } from "./review-chain";
 import { activePid, onActiveProjectChange } from "./active-project";
 import { loadScope } from "./load-scope";
@@ -552,8 +552,6 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
     (bar.querySelector("#cde-pass-go") as HTMLButtonElement).addEventListener("click", go);
     input.addEventListener("keydown", (e) => { if (e.key === "Enter") void go(); });
   };
-  // Versions in Deleted items count too, so a label is never reused.
-  const nextRevision = (c: Container) => `P${String((c.container_versions?.length ?? 0) + (c.deleted_versions ?? 0) + 1).padStart(2, "0")}`;
   const attachFile = (c: Container) => {
     if (!unlocked()) { status("Unlock the project first (🔒) to attach encrypted files."); toggleUnlock(); return; }
     const input = document.createElement("input");
@@ -567,7 +565,7 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
         status(`Encrypting ${file.name}…`);
         const stored = await putEncryptedFile(base, pid(), file);
         await api(`containers/${c.id}/versions`, "POST", {
-          revision: nextRevision(c), author: "web", file_ref: JSON.stringify(stored), notes: `attached ${file.name} (encrypted)`,
+          revision: nextAttachRevision(c), // versions in Deleted items count too; a held label is stepped past author: "web", file_ref: JSON.stringify(stored), notes: `attached ${file.name} (encrypted)`,
         });
         status(`Attached ${file.name} — encrypted client-side.`);
         await loadAll();

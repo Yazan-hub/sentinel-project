@@ -9,6 +9,7 @@ import { postRevision, fetchRevisionSnapshots, fetchRevisions, quantitiesFromSna
 import { getAppManager } from "../app";
 import { loadScope } from "./load-scope";
 import { escapeHtml as esc } from "./escape-html";
+import { csvCell } from "../sentinel-core/csv";
 
 interface CarbonBaseline {
   at: string;
@@ -428,7 +429,8 @@ export function carbonPanel(components: OBC.Components, opts: { baseUrl?: string
   const exportCsv = () => {
     if (!report) { msg("Take off first.", "#eab308"); return; }
     const head = ["Code", "Description", "Unit", "Qty", "Factor_kgCO2e_per_unit", "kgCO2e", "Elements"];
-    const lines = report.lines.map((l) => [l.code, l.description, l.unit, l.qty.toFixed(2), l.factor, l.kg.toFixed(1), l.count].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","));
+    const num = (v: unknown) => `"${String(v)}"`;
+    const lines = report.lines.map((l) => [csvCell(l.code), csvCell(l.description), csvCell(l.unit), num(l.qty.toFixed(2)), num(l.factor), num(l.kg.toFixed(1)), num(l.count)].join(","));
     const csv = [head.join(","), ...lines, `"","TOTAL kgCO2e","","","","${report.total_kg.toFixed(1)}",""`].join("\r\n");
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
     const a = document.createElement("a"); a.href = url; a.download = "sentinel-carbon.csv"; a.click(); URL.revokeObjectURL(url);

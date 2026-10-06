@@ -5,7 +5,7 @@
 //
 // Deps are injected (the changesets-store idiom) so the sequencing is unit-tested without Supabase;
 // the defaults are loaded lazily to keep cde-store → artefact-store → cde-store from being a cycle.
-import { createHash } from "node:crypto";
+import { canonical, canonicalSha256 as sha256 } from "./canonical.mjs";
 import { resolveActor } from "./bridge-auth.mjs";
 import { parseLodMatrix } from "./sentinel-core.mjs"; // MA-2b: the one lod_matrix reader (src/sentinel-core/lod-matrix.ts)
 
@@ -14,12 +14,8 @@ export const KINDS = ["ids", "ruleset", "naming", "contract", "guideline", "laye
 const CARBON_MEASURES = ["count", "length", "area", "volume", "weight"];
 
 const err = (status, message) => Object.assign(new Error(message), { status });
-/** Canonical JSON: keys sorted recursively. bridge_docs.data is jsonb and Postgres reorders object keys, so a
- *  hash over the raw stringify never matched the pointer after a round-trip (final review, phase 3). */
-export const canonical = (o) => Array.isArray(o) ? `[${o.map(canonical).join(",")}]`
-  : (o && typeof o === "object") ? `{${Object.keys(o).sort().map((k) => `${JSON.stringify(k)}:${canonical(o[k])}`).join(",")}}`
-  : JSON.stringify(o);
-const sha256 = (o) => createHash("sha256").update(canonical(o)).digest("hex");
+/** Canonical JSON (keys sorted recursively) and its sha256 live in canonical.mjs, shared with the delivery-gate component. */
+export { canonical };
 
 async function wire(deps = {}) {
   const cde = (deps.ensureProject && deps.docGet && deps.docInsert && deps.docUpsert && deps.audit) ? null : await import("./cde-store.mjs");
@@ -59,6 +55,15 @@ const ENFORCE = ["reject", "warn", "off"];
 // adds U+FEFF, which JS has and .NET does not. One set on both sides: the bridge never installs a key Revit reads as blank.
 const filled = (v) => typeof v === "string" && /[^\s\u0085]/.test(v);
 const bad = (kind, path, want) => err(400, `${kind}: ${path} ${want}`);
+// SEC-4 (S29): a ruleset's token_defs and exclusions are patterns the add-in and the web compile and match. Bounded here, in
+// length and count, and compiled in JS ({org} stands in for the office code) — so one that would not compile never installs.
+const MAX_PATTERN = 512, MAX_PATTERNS = 64;
+function rulePattern(kind, path, p) {
+  if (typeof p !== "string") throw bad(kind, path, "must be a string");
+  if (p.length > MAX_PATTERN) throw bad(kind, path, `is longer than ${MAX_PATTERN} characters`);
+  try { new RegExp(p.split("{org}").join("ORG")); }
+  catch (e) { throw bad(kind, path, `does not compile as a pattern (${e.message}) — write it without .NET-only syntax such as a leading (?i)`); }
+}
 
 // Contract, layers, guideline, type catalogue (spec 2026-09-25 4b decision 4): what their judges read, nothing
 // more. Every contract field is required — neither delivery gate fills a default, so Revit and intake read one
@@ -108,6 +113,17 @@ export function validateArtefact(kind, body) {
       if (!filled(r.id)) throw bad(kind, `${at}.id`, "must be a non-empty string");
       if (!RULE_TARGETS.includes(r.target)) throw bad(kind, `${at}.target`, `must be ${RULE_TARGETS.join(" | ")}`);
       if (!RULE_MODES.includes(r.mode)) throw bad(kind, `${at}.mode`, `must be ${RULE_MODES.join(" | ")}`);
+      if (r.token_defs !== undefined) {
+        if (!r.token_defs || typeof r.token_defs !== "object" || Array.isArray(r.token_defs)) throw bad(kind, `${at}.token_defs`, "must be an object of patterns");
+        const defs = Object.entries(r.token_defs);
+        if (defs.length > MAX_PATTERNS) throw bad(kind, `${at}.token_defs`, `holds more than ${MAX_PATTERNS} patterns`);
+        for (const [t, p] of defs) rulePattern(kind, `${at}.token_defs.${t}`, p);
+      }
+      if (r.exclusions !== undefined) {
+        if (!Array.isArray(r.exclusions)) throw bad(kind, `${at}.exclusions`, "must be a list of patterns");
+        if (r.exclusions.length > MAX_PATTERNS) throw bad(kind, `${at}.exclusions`, `holds more than ${MAX_PATTERNS} patterns`);
+        r.exclusions.forEach((p, j) => rulePattern(kind, `${at}.exclusions[${j}]`, p));
+      }
     });
   }
   if (kind === "naming") {
@@ -297,8 +313,15 @@ export function validateArtefact(kind, body) {
   return true;
 }
 
+// SEC-4: a contract installs under a plain name — the rule the delivery-gate component (1.0.7) reads a mirrored contract by,
+// so a contract Sentinel installs is never "Not checked" on the platform for its name. Install only: a contract installed
+// before this rule still judges intake and Revit (resolveContract reads it through validateArtefact).
+const PLAIN_NAME = /^[A-Za-z0-9._@-]{1,100}$/;
+
 export async function putArtefact(key, kind, body, { actor, source } = {}, deps) {
   validateArtefact(kind, body);
+  if (kind === "contract" && !PLAIN_NAME.test(body.contract_key))
+    throw bad(kind, "contract_key", "must be a plain name (letters, digits, . _ @ -), up to 100 characters");
   const d = await wire(deps);
   await d.requireMinRole(key, "lead");
   const proj = await d.ensureProject(key);

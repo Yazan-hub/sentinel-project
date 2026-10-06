@@ -1,6 +1,45 @@
 // The "Platform deliveries" lane: five card states and the "not read" rule (spec 2026-09-27 platform-delivery-gate, Decision 8).
 import { describe, it, expect, vi } from "vitest";
-import { deliveryCard, readDeliveries, deliveriesSummary, reportName, latestTag, ledgerLine, REPORT_KIND, type GateReport, type PlatformItem } from "./platform-deliveries";
+import { deliveryCard, readDeliveries, deliveriesSummary, reportName, latestTag, ledgerLine, verifiedPass, REPORT_KIND, type GateReport, type PlatformItem, type GateLedgerRow } from "./platform-deliveries";
+import { readFileSync } from "node:fs";
+
+describe("verifiedPass — SEC-4: a card is Passed only when this project's ledger holds the run's verified pass", () => {
+  const card = () => deliveryCard(item(), "v2", null, report());
+  const row = (result: string, verified: unknown): GateLedgerRow => ({ id: 41, new_value: { execution_id: "exec9", result, file: { name: "tower.ifc", version_tag: "v2" }, contract: { verified } } });
+  it("a verified pass row keeps Passed", () => {
+    expect(verifiedPass(card(), [row("pass", true)]).headline).toBe("Passed — contract@1");
+  });
+  it("an unverified row, an older row without the field, no row and an unread ledger are Passed (unverified), with the reason", () => {
+    for (const [rows, why] of [
+      [[row("pass_unverified", false)], "the ledger's row for this run does not show the contract installed in Sentinel judged it"],
+      [[{ id: 7, new_value: { execution_id: "exec9", result: "pass", file: { name: "tower.ifc", version_tag: "v2" } } }], "the ledger's row for this run does not show the contract installed in Sentinel judged it"],
+      [[], "no ledger row shows this run judged by the contract installed in Sentinel"],
+      [null, "no ledger row shows this run judged by the contract installed in Sentinel"],
+    ] as Array<[GateLedgerRow[] | null, string]>) {
+      const c = verifiedPass(card(), rows);
+      expect(c.headline).toBe("Passed (unverified) — contract@1");
+      expect(c.unverified).toBe(true);
+      expect(c.lines).toContain(why);
+    }
+  });
+  it("other states are untouched; a refusal stays Refused, with a line when its row is FAIL (UNVERIFIED CONTRACT)", () => {
+    const refused = deliveryCard(item(), "v2", null, report({ result: "fail", failures: ["x"] }));
+    expect(verifiedPass(refused, [])).toBe(refused);
+    const c = verifiedPass(refused, [row("fail_unverified", false)]);
+    expect(c.headline).toBe(refused.headline);
+    expect(c.unverified).toBeUndefined();
+    expect(c.lines).toEqual([...refused.lines, "the ledger does not show that the contract installed in Sentinel judged it"]);
+  });
+  it("the summary counts an unverified pass apart from the passes", () => {
+    const cards = [verifiedPass(card(), [row("pass", true)]), verifiedPass(card(), [row("pass", true)]), verifiedPass(card(), [row("pass_unverified", false)])];
+    expect(deliveriesSummary(cards)).toBe("3 IFC · 2 passed · 1 passed (unverified)");
+  });
+  it("the board maps every card through it before it draws, and an unverified pass is drawn amber", () => {
+    const src = readFileSync(new URL("./platform-deliveries-panel.ts", import.meta.url), "utf8").replace(/\r/g, "");
+    expect(src).toContain("const shown = list.map((c) => verifiedPass(c, ledger.rows));");
+    expect(src).toContain("const t = c.unverified ? TONE.not_read : TONE[c.state];");
+  });
+});
 
 const sha = "a".repeat(64);
 const item = (name = "tower.ifc", tags = ["v2", "v1"]): PlatformItem => ({ _id: `id-${name}`, name, versions: tags.map((tag) => ({ tag })) });

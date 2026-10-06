@@ -11,7 +11,7 @@ vi.hoisted(() => {
 });
 
 import { runWithAuth } from "./bridge-auth.mjs";
-import { patchProjectMeta, updateProject } from "./cde-store.mjs";
+import { patchProjectMeta, updateProject, createProject } from "./cde-store.mjs";
 
 const P = "11111111-1111-4111-8111-111111111111";
 const jwt = "eyJhbGciOiJIUzI1NiJ9." + Buffer.from(JSON.stringify({ sub: "22222222-0000-4000-8000-00000000000b", email: "c@example.test", role: "authenticated" })).toString("base64url") + ".sig";
@@ -46,6 +46,14 @@ describe("patchProjectMeta — a project's details are a lead's or owner's to ch
   });
 });
 
+describe("createProject — a project key is a slug of words, never a uuid (SEC-4, 0041's projects_key_not_uuid)", () => {
+  it("refuses a uuid-shaped key or name in words, before anything is sent", async () => {
+    for (const b of [{ name: "0f8fad5b-d9cb-469f-a165-70867728950e" }, { key: "0F8FAD5B-D9CB-469F-A165-70867728950E", name: "x" }])
+      await expect(runWithAuth(jwt, () => createProject(b))).rejects.toMatchObject({ status: 400, message: "a project key is not a uuid — choose a name with words in it (nothing was created)" });
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+});
+
 describe("updateProject — settings (PATCH /cde/projects/:key)", () => {
   it("answers a settings save the database refused with a 403, never a silent 200 with nothing in it", async () => {
     await expect(runWithAuth(jwt, () => updateProject("b13-review", { archived: true }, "web")))
@@ -57,6 +65,54 @@ describe("updateProject — settings (PATCH /cde/projects/:key)", () => {
     await updateProject("b13-review", { platform_project_id: "6a4c4df825f9ecf5f416d4c2" }, "web");
     await updateProject("b13-review", { platform_project_id: null }, "web");
     expect(patchBodies.map((b) => b.metadata.settings.platform_project_id)).toEqual(["6a4c4df825f9ecf5f416d4c2", null]);
+  });
+
+  it("SEC-4 (S16): refuses a platform project another live Sentinel project already links, before any write (a service read)", async () => {
+    const other = { id: "33333333-3333-4333-8333-333333333333", key: "elsewhere", archived: false };
+    globalThis.fetch = vi.fn(async (url, init = {}) => {
+      const u = new URL(String(url));
+      if (u.searchParams.has("metadata->settings->>platform_project_id")) { expect(init.headers.Authorization).not.toBe(`Bearer ${jwt}`); return new Response(JSON.stringify([other])); }
+      if ((init.method || "GET") === "PATCH") { patchBodies.push(JSON.parse(init.body)); return new Response(JSON.stringify([project])); }
+      return new Response(JSON.stringify([project]));
+    });
+    await expect(runWithAuth(jwt, () => updateProject("b13-review", { platform_project_id: "6a4c4df825f9ecf5f416d4c2" }, "web")))
+      .rejects.toMatchObject({ status: 409, message: "another Sentinel project already links platform project 6a4c4df825f9ecf5f416d4c2 — unlink it there first; nothing was saved" });
+    expect(patchBodies).toEqual([]);
+    other.archived = true; // an archived project's old link is no conflict
+    await runWithAuth(jwt, () => updateProject("b13-review", { platform_project_id: "6a4c4df825f9ecf5f416d4c2" }, "web"));
+    expect(patchBodies).toHaveLength(1);
+  });
+
+  it("SEC-4 (S16): a second live link the database refuses (0041's projects_one_live_platform_link) is the same 409 in words", async () => {
+    globalThis.fetch = vi.fn(async (url, init = {}) => {
+      const u = new URL(String(url));
+      if (u.searchParams.has("metadata->settings->>platform_project_id")) return new Response(JSON.stringify([]));
+      if ((init.method || "GET") === "PATCH")
+        return new Response(JSON.stringify({ code: "23505", message: 'duplicate key value violates unique constraint "projects_one_live_platform_link"' }), { status: 409 });
+      return new Response(JSON.stringify([project]));
+    });
+    await expect(runWithAuth(jwt, () => updateProject("b13-review", { platform_project_id: "6a4c4df825f9ecf5f416d4c2" }, "web")))
+      .rejects.toMatchObject({ status: 409, message: "another Sentinel project already links platform project 6a4c4df825f9ecf5f416d4c2 — unlink it there first; nothing was saved" });
+  });
+
+  it("SEC-4 (review C16): restoring an archived project whose platform link another live project holds names that link, before any write", async () => {
+    const archived = { ...project, metadata: { settings: { platform_project_id: "6a4c4df825f9ecf5f416d4c2", archived: true } } };
+    const other = { id: "33333333-3333-4333-8333-333333333333", archived: null };
+    let dbRefuses = false;
+    globalThis.fetch = vi.fn(async (url, init = {}) => {
+      const u = new URL(String(url));
+      if (u.searchParams.has("metadata->settings->>platform_project_id")) return new Response(JSON.stringify(dbRefuses ? [] : [other]));
+      if ((init.method || "GET") === "PATCH") {
+        patchBodies.push(JSON.parse(init.body));
+        return new Response(JSON.stringify({ code: "23505", message: 'duplicate key value violates unique constraint "projects_one_live_platform_link"' }), { status: 409 });
+      }
+      return new Response(JSON.stringify([archived]));
+    });
+    const words = { status: 409, message: "another Sentinel project already links platform project 6a4c4df825f9ecf5f416d4c2 — unlink it there first; nothing was saved" };
+    await expect(runWithAuth(jwt, () => updateProject("b13-review", { archived: false }, "web"))).rejects.toMatchObject(words);
+    expect(patchBodies).toEqual([]);
+    dbRefuses = true; // the other link landed between the read and the write: the database's refusal, in the same words
+    await expect(runWithAuth(jwt, () => updateProject("b13-review", { archived: false }, "web"))).rejects.toMatchObject(words);
   });
 
   it("refuses a platform project id that is not one, before any write", async () => {

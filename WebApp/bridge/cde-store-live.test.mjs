@@ -34,7 +34,7 @@ beforeEach(() => {
     information_containers: [{ id: C, project_id: P, iso_name: "A.ifc", parent_id: null }, { id: CX, project_id: OTHER, iso_name: "X.ifc" }],
     container_versions: [
       { id: V1, container_id: C, revision: "v1", state: "published", is_live: true },
-      { id: V2, container_id: C, revision: "v2", state: "wip", is_live: false },
+      { id: V2, container_id: C, revision: "v2", state: "wip", is_live: false, sha256: "b".repeat(64) },
       { id: VX, container_id: CX, revision: "v1", state: "wip", is_live: false },
     ],
   };
@@ -80,7 +80,7 @@ describe("setLiveVersion — the live pointer is the bridge's (SEC-3, 0040)", ()
   });
 
   it("the outbox's geometry attach writes with the service key, never a caller's token (0040: a version's geometry is the bridge's)", async () => {
-    const r = await runWithAuth(jwt, () => attachGeometry("demo", V2, "item-7"));
+    const r = await runWithAuth(jwt, () => attachGeometry("demo", V2, "item-7", { sha256: "b".repeat(64) }));
     expect(r.version.platform_item_id).toBe("item-7");
     expect(patches().map((c) => c.body)).toEqual([{ platform_item_id: "item-7" }]);
     expect(bearers).toHaveLength(1);

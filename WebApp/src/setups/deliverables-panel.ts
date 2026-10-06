@@ -8,6 +8,7 @@ import { currentUser } from "./auth";
 import { activePid, onActiveProjectChange } from "./active-project";
 import { loadScope } from "./load-scope";
 import { escapeHtml as esc } from "./escape-html";
+import { csvCell } from "../sentinel-core/csv";
 
 type Evidence = { revision: "met" | "mismatch" | "pending" | "not_specified"; suitability: "met" | "mismatch" | "pending" | "not_specified"; actual_revisions: string[]; actual_suitabilities: string[] };
 type Exception = { container_name: string; due_date: string | null; responsible_team: string | null; kind: string; severity: "high" | "medium" | "low"; problem: string; evidence: string };
@@ -178,9 +179,8 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
       if (report.exceptions.length) {
         const dl = btn("Download CSV");
         dl.onclick = () => {
-          const q = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
           const csv = ["container,due_date,severity,kind,problem,responsible_team,evidence",
-            ...report.exceptions.map((e) => [e.container_name, e.due_date, e.severity, e.kind, e.problem, e.responsible_team, e.evidence].map(q).join(","))].join("\r\n");
+            ...report.exceptions.map((e) => [e.container_name, e.due_date, e.severity, e.kind, e.problem, e.responsible_team, e.evidence].map(csvCell).join(","))].join("\r\n");
           const a = document.createElement("a");
           a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
           a.download = `exceptions-${pid()}-${report.today}.csv`;

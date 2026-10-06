@@ -98,7 +98,11 @@ export function intakeLine(name: string, r: IntakeReply): string {
   }
   const row = ledgerLine({ id: r.audit_id ?? null, hash: r.receipt?.ledger_hash ?? null });
   const judged = r.verdict === "accepted" ? `accepted (${r.ids_ref ?? "IDS"}: ${r.summary?.passing ?? 0}/${r.summary?.in_scope ?? 0} passed)` : "recorded (the IDS did not judge it)";
-  if (r.stage === "upload_failed") return `${name} ${judged} — not uploaded: ${r.error ?? "the platform upload failed"}. Nothing was registered · ${row}`;
+  // SEC-4: the bridge registers before it uploads; a bridge from before it registered nothing (no version in the reply).
+  if (r.stage === "upload_failed") {
+    const kept = r.version?.revision ? `Registered as ${r.version.revision} without geometry` : "Nothing was registered";
+    return `${name} ${judged} — not uploaded: ${r.error ?? "the platform upload failed"}. ${kept} · ${row}`;
+  }
   return `Uploaded ${name}${r.version?.revision ? " " + r.version.revision : ""} — ${judged}${r.note ? " · " + r.note : ""} · ${row}`;
 }
 

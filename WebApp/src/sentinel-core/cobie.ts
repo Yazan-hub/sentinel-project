@@ -1,3 +1,5 @@
+import { csvCell } from "./csv";
+
 // sentinel-core/cobie — the 7D core. PURE TS (no OBC/DOM). Asset-register completeness assessment +
 // a COBie-structured export. The host adapter (adapter/fragments-assets.ts) pulls the maintainable
 // components + their FM attributes from the model; this file scores handover-readiness and serializes
@@ -97,7 +99,7 @@ export function assess(assets: Asset[], floors: string[], spaces: string[]): Cob
 /** Serialize a COBie-structured CSV (Facility / Floor / Type / Component sections). Pragmatic single
  *  file rather than an xlsx workbook; the essential FM sheets an FM system can ingest. */
 export function toCobieCsv(r: CobieReport, facility: string): string {
-  const q = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const q = csvCell;
   const line = (...cells: unknown[]) => cells.map(q).join(",");
   const out: string[] = [];
 

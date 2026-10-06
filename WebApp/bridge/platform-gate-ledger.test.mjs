@@ -70,10 +70,11 @@ describe("rowOf", () => {
     expect(json).not.toContain("creatingUser");
     expect(row).toEqual({
       entity_type: "platform_gate",
-      action: "platform gate PASS: gate-automation-test.ifc v2",
+      action: "platform gate PASS (UNVERIFIED CONTRACT): gate-automation-test.ifc v2",
       new_value: {
         execution_id: "6ab9827413cf4cfc31e03d07", platform_project_id: "6a4c4df825f9ecf5f416d4c2",
-        component: { id: "6ab97f7213cf4cfc31e03c60", version: "1.0.0" }, result: "pass", platform_result: "WARNING",
+        component: { id: "6ab97f7213cf4cfc31e03c60", version: "1.0.0" }, result: "pass_unverified", platform_result: "WARNING",
+        contract: { named_sha256: null, installed_sha256: null, verified: false },
         message: V100.replace("SECRET123", "[scrubbed]"), file: { name: "gate-automation-test.ifc", version_tag: "v2" },
         ran_at: "2026-09-27T10:00:00.000Z", finished_at: "2026-09-27T10:00:09.000Z",
       },
@@ -86,6 +87,37 @@ describe("rowOf", () => {
     expect(row.new_value.message).toHaveLength(2000);
     expect(row.new_value.finished_at).toBeNull();
   });
+  it("SEC-4: a pass is PASS only when its message names the contract Sentinel installed; else PASS (UNVERIFIED CONTRACT)", () => {
+    const named = (sha) => ({ _id: "r1", result: "SUCCESS", resultMessage: `Passed — contract sha256:${sha} · contract@1 — report written` });
+    const ok = rowOf(named(INSTALLED), { messages: [] }, "p", INSTALLED);
+    expect(ok.action).toBe("platform gate PASS: run r1");
+    expect(ok.new_value).toMatchObject({ result: "pass", contract: { named_sha256: INSTALLED, installed_sha256: INSTALLED, verified: true } });
+    const other = rowOf(named("e".repeat(64)), { messages: [] }, "p", INSTALLED);
+    expect(other.action).toBe("platform gate PASS (UNVERIFIED CONTRACT): run r1");
+    expect(other.new_value).toMatchObject({ result: "pass_unverified", contract: { named_sha256: "e".repeat(64), installed_sha256: INSTALLED, verified: false } });
+    const none = rowOf(named(INSTALLED), { messages: [] }, "p", null); // nothing installed in Sentinel: nothing to verify against
+    expect(none.new_value).toMatchObject({ result: "pass_unverified", contract: { verified: false, installed_sha256: null } });
+    const refused = rowOf({ _id: "r2", result: "WARNING", resultMessage: `Refused — contract sha256:${INSTALLED} · contract@1 — 1 failure: x` }, null, "p", INSTALLED);
+    expect(refused.new_value).toMatchObject({ result: "fail", contract: { verified: true } });
+  });
+  it("SEC-4 (C1): the hash is read where the component writes it, once, from a message read whole — else unverified", () => {
+    const pass = (m) => rowOf({ _id: "r3", result: "SUCCESS", resultMessage: m }, null, "p", INSTALLED);
+    // another hash at the head, the installed one after it
+    expect(pass(`Passed — contract sha256:${"e".repeat(64)} · k${INSTALLED} contract sha256:${INSTALLED}`).new_value).toMatchObject({ result: "pass_unverified", contract: { named_sha256: "e".repeat(64), verified: false } });
+    // the installed hash at the head and a second one later
+    expect(pass(`Passed — contract sha256:${INSTALLED} · k — contract sha256:${"e".repeat(64)}`).new_value).toMatchObject({ result: "pass_unverified", contract: { named_sha256: INSTALLED, verified: false } });
+    // the hash anywhere but the head (the 1.0.7 draft's order) is not read
+    expect(pass(`Passed — contract@1 · contract sha256:${INSTALLED}`).new_value).toMatchObject({ result: "pass_unverified", contract: { named_sha256: null, verified: false } });
+    // a message longer than the cap is not read whole
+    const long = pass(`Passed — contract sha256:${INSTALLED} · contract@1 — ${"w".repeat(2100)}`);
+    expect(long.new_value).toMatchObject({ result: "pass_unverified", contract: { named_sha256: INSTALLED, verified: false } });
+    expect(long.new_value.message.length).toBe(2000);
+  });
+  it("SEC-4 (C8): a refusal judged by a contract it could not verify is FAIL (UNVERIFIED CONTRACT)", () => {
+    const r = rowOf({ _id: "r4", result: "WARNING", resultMessage: `Refused — contract sha256:${"e".repeat(64)} · contract@1 — 1 failure: x` }, null, "p", INSTALLED);
+    expect(r.action).toBe("platform gate FAIL (UNVERIFIED CONTRACT): run r4");
+    expect(r.new_value).toMatchObject({ result: "fail_unverified", contract: { verified: false } });
+  });
   it("refuses a run without an execution id", () => {
     expect(() => rowOf({ result: "SUCCESS", resultMessage: "Passed — c" }, {}, "p")).toThrow(/execution id/);
   });
@@ -94,13 +126,16 @@ describe("rowOf", () => {
 // ── one tick ─────────────────────────────────────────────────────────────────────────────────────────────────────
 const PID = "6a4c4df825f9ecf5f416d4c2";
 const ASTER = { id: "11111111-1111-4111-8111-111111111111", key: "aster-tower", archived: false };
+const INSTALLED = "c".repeat(64); // the canonical sha256 of the contract installed for ASTER
 const run = (id, minute, result = "SUCCESS") =>
-  ({ _id: id, createdAt: `2026-09-27T10:${String(minute).padStart(2, "0")}:00.000Z`, result, resultMessage: result ? "Passed — contract@1" : undefined, toolId: "c", toolVersion: "1.0.3" });
+  ({ _id: id, createdAt: `2026-09-27T10:${String(minute).padStart(2, "0")}:00.000Z`, result, resultMessage: result ? `Passed — contract sha256:${INSTALLED} · contract@1` : undefined, toolId: "c", toolVersion: "1.0.3" });
 
 function fakes({ runs, links = [ASTER], ledger = new Set(), overrides = {} } = {}) {
   const calls = [];
   const rows = [];
+  const contractReads = [];
   const deps = {
+    contractSha: async (key) => { contractReads.push(key); return INSTALLED; },
     listExecutions: async (c, p) => { calls.push(["list", c, p]); return runs; },
     getExecution: async (id) => { calls.push(["get", id]); return { _id: id, messages: [{ content: `Reading ${id}.ifc v1…` }] }; },
     findLinkedProjects: async (p) => { calls.push(["links", p]); return links; },
@@ -113,7 +148,7 @@ function fakes({ runs, links = [ASTER], ledger = new Set(), overrides = {} } = {
     },
     ...overrides,
   };
-  return { deps, calls, rows, ledger };
+  return { deps, calls, rows, ledger, contractReads };
 }
 const opts = (seen = new Set()) => ({ componentId: "c", platformProjectId: PID, seen });
 const names = (calls, n) => calls.filter((c) => c[0] === n);
@@ -140,6 +175,22 @@ describe("syncPlatformGate", () => {
     f.calls.length = 0;
     expect(await syncPlatformGate(f.deps, opts(seen))).toEqual({ written: 0, skipped: 3 });
     expect(f.calls.map((c) => c[0])).toEqual(["list"]);
+  });
+
+  it("SEC-4: reads the linked project's installed contract once per tick that writes, and never on a tick with nothing new", async () => {
+    const f = fakes({ runs: [run("r2", 20), run("r1", 10)] });
+    const seen = new Set();
+    await syncPlatformGate(f.deps, opts(seen));
+    expect(f.contractReads).toEqual(["aster-tower"]);
+    expect(f.rows.map((r) => r[6].result)).toEqual(["pass", "pass"]);
+    await syncPlatformGate(f.deps, opts(seen));
+    expect(f.contractReads).toEqual(["aster-tower"]);
+  });
+
+  it("SEC-4: a contract read that fails writes nothing, and the next tick retries", async () => {
+    const f = fakes({ runs: [run("r1", 10)], overrides: { contractSha: async () => { throw new Error("Supabase 503"); } } });
+    expect(await syncPlatformGate(f.deps, opts())).toEqual({ written: 0, skipped: 0, reason: "the contract installed for aster-tower was not read — Supabase 503" });
+    expect(f.rows).toEqual([]);
   });
 
   it("a fresh process with the rows already on the ledger writes nothing", async () => {

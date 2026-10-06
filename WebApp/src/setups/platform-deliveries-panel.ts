@@ -4,7 +4,7 @@
 import { getAppManager } from "../app";
 import { platformProjectId } from "./active-project";
 import { bfetch } from "./bridge-fetch";
-import { readDeliveries, deliveriesSummary, shortSha, ledgerLine, type DeliveriesClient, type DeliveryCard, type GateLedgerRow } from "./platform-deliveries";
+import { readDeliveries, deliveriesSummary, shortSha, ledgerLine, verifiedPass, type DeliveriesClient, type DeliveryCard, type GateLedgerRow } from "./platform-deliveries";
 import { escapeHtml as esc } from "./escape-html";
 
 const TONE: Record<DeliveryCard["state"], { border: string; color: string }> = {
@@ -14,7 +14,7 @@ const TONE: Record<DeliveryCard["state"], { border: string; color: string }> = {
 };
 
 export function cardHtml(c: DeliveryCard, ledger: string): string {
-  const t = TONE[c.state];
+  const t = c.unverified ? TONE.not_read : TONE[c.state];
   return `<div style="min-width:16rem;max-width:22rem;padding:.45rem .55rem;background:#1b1b21;border:1px solid ${t.border};border-radius:.4rem;font-size:12px">` +
     `<div style="display:flex;gap:.5rem;align-items:baseline"><span style="font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(c.name)}">${esc(c.name)}</span>` +
     `<span style="color:#71717a;font-size:10.5px">${esc(c.versionTag)}</span></div>` +
@@ -52,8 +52,10 @@ export function mountPlatformDeliveries(host: HTMLElement, readLedger: () => Pro
         readDeliveries(getAppManager().client as unknown as DeliveriesClient | undefined, platformProjectId()),
         readLedger().then((rows) => ({ rows, err: null }), (e) => ({ rows: null, err: e instanceof TypeError ? `can't reach the bridge (${e.message})` : (e as Error)?.message || String(e) })),
       ]);
-      sum.textContent = deliveriesSummary(list);
-      cards.innerHTML = list.map((c) => cardHtml(c, ledgerLine(c.run, ledger.rows, ledger.err, c))).join("");
+      // SEC-4: "Passed" only with this project's verified ledger row; else "Passed (unverified)".
+      const shown = list.map((c) => verifiedPass(c, ledger.rows));
+      sum.textContent = deliveriesSummary(shown);
+      cards.innerHTML = shown.map((c) => cardHtml(c, ledgerLine(c.run, ledger.rows, ledger.err, c))).join("");
     } catch (e) {
       sum.textContent = (e as Error).message; // "not read — …": never an empty lane pretending there is nothing
       sum.style.color = "#fbbf24";

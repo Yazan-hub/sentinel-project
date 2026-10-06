@@ -151,7 +151,7 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
     /// project's publish@n, up to 4 s each, side by side) run on background tasks; the result is set back on the
     /// pane's thread. A newer refresh wins over a slower older one; a failure clears the strip and says so — never
     /// stale data.
-    public void RefreshJourney(string projectKey, ResolvedArtefact local)
+    public void RefreshJourney(string projectKey, ResolvedArtefact local, bool confirmed = true)
     {
         var seq = ++_journeySeq;
         OnUi(() =>
@@ -172,7 +172,9 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
             StandardsLine = j?.StandardsLine ?? "";
             LodLine = j?.LodLine ?? "";
             NextLine = j?.NextLine ?? $"Journey unavailable — {why ?? "the bridge did not answer for this project"}";
-            PublishLine = PublishLines.Policy(policy.Status == TaskStatus.RanToCompletion ? policy.Result
+            // SEC-4 (S28): while this PC has not confirmed the model's key, the publish line says it is paused, and where to confirm.
+            PublishLine = !confirmed ? Sentinel.Engine.ModelBindings.PausedLine(projectKey)
+                : PublishLines.Policy(policy.Status == TaskStatus.RanToCompletion ? policy.Result
                 : ArtefactClient.None("publish", "the policy read did not finish (" + (policy.Exception?.GetBaseException().Message ?? "unknown") + ")"));
             ScanRulesetLine = GovernedQuery.ScanRulesetLine(local, j);
         })));

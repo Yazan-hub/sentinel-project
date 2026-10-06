@@ -1,3 +1,5 @@
+-- After 0041 (SEC-4): part 2's G2 control (a signed-in INSERT that carries geometry) reads refused by design — 0041's
+-- probe case I1 restates it, inverted; "PROBE 0040: 21 of 22 … FAILED: G2 …" is then this probe's expected answer.
 -- probes/0040_probe.sql — the drill for 0040_verdict_binding.sql. Part 0 runs BEFORE the apply (read-only): it counts the
 -- versions 0040 changes the answer for — a shared or wip version whose accepted verdict records no sha256 then shares,
 -- publishes or restores only with a signed-in lead's reason (founder decision G-a), and so does every archived version —

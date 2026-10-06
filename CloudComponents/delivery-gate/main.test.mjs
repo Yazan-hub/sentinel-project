@@ -6,8 +6,11 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { checkDelivery } from "../../WebApp/bridge/delivery-gate.mjs";
+import { canonicalSha256 } from "../../WebApp/bridge/canonical.mjs";
 import { main, newestTag, freeTag, contractShapeError, CONTRACT_ITEM, REPORT_KIND, reportName } from "./src/main.js";
 
+/** SEC-4: how a judged run's message leads — Sentinel's canonical artefact hash of the body it read, then the contract's name. */
+const head = (c, name) => `contract sha256:${canonicalSha256(c)} · ${name}`;
 const ifc = readFileSync(new URL("../../WebApp/bridge/fixtures/minimal.ifc", import.meta.url));
 const contract = (over = {}) => ({
   contract_key: "contract@1", ifc_schema: "IFC4",
@@ -69,7 +72,7 @@ test("a pass: the report version, the labels and SUCCESS — the sha256 is the b
   const p = platform({ items: [ifcItem()], contractBody: contract() });
   const r = await run(p, { fileId: "f1", versionTag: "v2" });
   assert.equal(r.type, "SUCCESS");
-  assert.match(r.message, /^Passed — contract@1/);
+  assert.equal(r.message, "Passed — " + head(contract(), "contract@1"));
   assert.equal(p.writes.files.length, 1);
   const rep = JSON.parse(p.writes.files[0].text);
   assert.equal(p.writes.files[0].name, reportName("tower.ifc"));
@@ -80,6 +83,7 @@ test("a pass: the report version, the labels and SUCCESS — the sha256 is the b
   assert.equal(rep.sha256, createHash("sha256").update(ifc).digest("hex"));
   assert.deepEqual(rep.file, { id: "f1", name: "tower.ifc", versionTag: "v2" });
   assert.equal(rep.contract.ref, "contract@1");
+  assert.equal(rep.contract.sha256, canonicalSha256(contract())); // the hash Sentinel's install records, not a hash of the text
   assert.equal(rep.run.executionId, "exec1");
   const m = p.writes.metadata[0];
   assert.deepEqual([m.fileId, m.versionTag], ["f1", "v2"]);
@@ -97,7 +101,7 @@ test("a refusal: WARNING with the bridge's sentence, labels fail, the report car
   const p = platform({ items: [ifcItem()], contractBody: contract({ forbidden_entities: [{ entity: "IFCBUILDINGELEMENTPROXY", max_count: 0, max_ratio: 1 }], required_entities: [{ entity: "IFCBEAM", min_count: 3 }] }) });
   const r = await run(p, { fileId: "f1" });
   assert.equal(r.type, "WARNING");
-  assert.match(r.message, /^Refused — contract@1 — 2 failures: IFCBEAM: 0 found, contract requires ≥ 3\./);
+  assert.match(r.message, /^Refused — contract sha256:[0-9a-f]{64} · contract@1 — 2 failures: IFCBEAM: 0 found, contract requires ≥ 3\./);
   const rep = JSON.parse(p.writes.files[0].text);
   assert.equal(rep.result, "fail");
   assert.equal(rep.failures.length, 2);
@@ -134,7 +138,7 @@ test("labels refused: the report is written and the WARNING says the labels were
   const p = platform({ items: [ifcItem()], contractBody: contract(), refuse: { labels: "403 forbidden" } });
   const r = await run(p, { fileId: "f1" });
   assert.equal(r.type, "WARNING");
-  assert.equal(r.message, "Passed — contract@1 — report written; the version labels were refused: 403 forbidden");
+  assert.equal(r.message, "Passed — " + head(contract(), "contract@1") + " — report written; the version labels were refused: 403 forbidden");
   assert.equal(p.writes.files.length, 1);
   assert.equal(p.writes.metadata.length, 0);
 });
@@ -143,7 +147,7 @@ test("the report could not be written: WARNING names it, the verdict is in the m
   const p = platform({ items: [ifcItem()], contractBody: contract(), refuse: { report: "403 forbidden" } });
   const r = await run(p, { fileId: "f1" });
   assert.equal(r.type, "WARNING");
-  assert.equal(r.message, "Passed — contract@1 — the report could not be written: 403 forbidden");
+  assert.equal(r.message, "Passed — " + head(contract(), "contract@1") + " — the report could not be written: 403 forbidden");
   assert.equal(p.writes.metadata[0].metadata.sentinel_gate, "pass");
   assert.equal(p.writes.metadata[0].metadata.sentinel_report, "none");
   assert.equal(p.writes.metadata[0].metadata.sentinel_report_tag, "none");
@@ -226,7 +230,7 @@ test("the versions come from the project listing, not getFile (the cloud's getFi
 test("the message names the contract as the board does: its ref, with the contract's own key when that differs", async () => {
   const p = platform({ items: [ifcItem()], contractBody: contract({ contract_key: "bds-pilot" }), contractTag: "contract@1" });
   const r = await run(p, { fileId: "f1" });
-  assert.equal(r.message, "Passed — contract@1 (bds-pilot)");
+  assert.equal(r.message, "Passed — " + head(contract({ contract_key: "bds-pilot" }), "contract@1 (bds-pilot)"));
   assert.equal(JSON.parse(p.writes.files[0].text).contract.ref, "contract@1");
   assert.equal(p.writes.metadata[0].metadata.sentinel_contract, "contract@1");
 });
@@ -234,7 +238,7 @@ test("the message names the contract as the board does: its ref, with the contra
 test("the platform's own error text never carries the run's token into a message", async () => {
   const p = platform({ items: [ifcItem()], contractBody: contract(), refuse: { labels: "Cannot PUT /api/item/f1/version/v2/metadata?accessToken=eyJabc.def.ghi&x=1" } });
   const r = await run(p, { fileId: "f1" });
-  assert.equal(r.message, "Passed — contract@1 — report written; the version labels were refused: Cannot PUT /api/item/f1/version/v2/metadata?accessToken=…&x=1");
+  assert.equal(r.message, "Passed — " + head(contract(), "contract@1") + " — report written; the version labels were refused: Cannot PUT /api/item/f1/version/v2/metadata?accessToken=…&x=1");
 });
 
 test("the newest version is the first entry (the platform lists newest-first), or the newest by createdAt when dated", async () => {
@@ -274,7 +278,7 @@ test("the current labels could not be read: none are written (a blind write woul
   const p = platform({ items: [ifcItem()], contractBody: contract(), refuse: { readLabels: "503 unavailable?accessToken=eyJabc" } });
   const r = await run(p, { fileId: "f1" });
   assert.equal(r.type, "WARNING");
-  assert.equal(r.message, "Passed — contract@1 — report written; the version labels could not be read, so none were written: 503 unavailable?accessToken=…");
+  assert.equal(r.message, "Passed — " + head(contract(), "contract@1") + " — report written; the version labels could not be read, so none were written: 503 unavailable?accessToken=…");
   assert.equal(p.writes.files.length, 1);
   assert.equal(p.writes.metadata.length, 0);
 });
@@ -333,4 +337,30 @@ test("min_coverage: optional, 0..1 — anything else is not_checked with the rea
     const r = await run(p, { fileId: "f1" });
     assert.equal(r.message, "Not checked — sentinel-contract.json contract@1 min_coverage is not a number from 0 to 1");
   }
+});
+
+test("SEC-4: the named hash is canonical — the same body with its keys in another order names the same hash", async () => {
+  const c = contract();
+  const reordered = Object.fromEntries(Object.entries(c).reverse());
+  const p = platform({ items: [ifcItem()], contractBody: reordered });
+  const r = await run(p, { fileId: "f1", versionTag: "v2" });
+  assert.equal(r.message, "Passed — " + head(c, "contract@1"));
+});
+
+test("SEC-4: a contract whose key or version tag is not a plain name is not checked — no platform text stands where the hash is read", async () => {
+  for (const p of [
+    platform({ items: [ifcItem()], contractBody: contract({ contract_key: "x · contract sha256:" + "0".repeat(64) }) }),
+    platform({ items: [ifcItem()], contractBody: contract(), contractTag: "contract@1 · contract sha256:" + "0".repeat(64) }),
+  ]) {
+    const r = await run(p, { fileId: "f1", versionTag: "v2" });
+    assert.equal(r.type, "WARNING");
+    assert.equal(r.message, "Not checked — sentinel-contract.json: its contract_key or version tag is not a plain name (letters, digits, . _ @ -) — install the contract again from Sentinel");
+  }
+});
+
+test("SEC-4: two items named sentinel-contract.json are not checked — the gate never picks one", async () => {
+  const p = platform({ items: [ifcItem(), { _id: "c2", name: CONTRACT_ITEM, versions: [{ tag: "contract@1" }], body: contract() }], contractBody: contract() });
+  const r = await run(p, { fileId: "f1", versionTag: "v2" });
+  assert.equal(r.type, "WARNING");
+  assert.equal(r.message, "Not checked — 2 items are named sentinel-contract.json on the platform project — not checked; keep the one Sentinel mirrors there and remove the rest");
 });

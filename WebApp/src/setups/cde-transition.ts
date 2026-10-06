@@ -42,3 +42,13 @@ export async function unarchiveFile(
     { container_id: containerId, actor: opts.actor }, opts.override);
   return "needsReason" in r ? r : { ok: true, restored: Number((r.j as { restored?: number } | null)?.restored ?? 0) };
 }
+
+/** The CDE panel's label for an encrypted attach: P{n}, n past the file's versions and its Deleted items, stepped past a
+ *  label the file already holds (trimmed, in any case — as the bridge and 0041 compare them; a revision is registered
+ *  once per file). A label held only in Deleted items is not listed here: the bridge's 409 says so. */
+export function nextAttachRevision(c: { container_versions?: { revision?: string | null }[]; deleted_versions?: number }): string {
+  const held = new Set((c.container_versions ?? []).map((v) => String(v.revision ?? "").trim().toUpperCase()));
+  let n = (c.container_versions?.length ?? 0) + (c.deleted_versions ?? 0) + 1;
+  while (held.has(`P${String(n).padStart(2, "0")}`)) n++;
+  return `P${String(n).padStart(2, "0")}`;
+}

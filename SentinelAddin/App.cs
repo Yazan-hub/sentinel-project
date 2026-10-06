@@ -377,7 +377,12 @@ public sealed class App : IExternalApplication
         // source and the strip's follow token are read here, on the API thread: if the strip has moved on meanwhile
         // (another project's view activated), the re-read is skipped rather than show this project's journey there.
         // An unbound document posts nothing (silently: a sync is not the place for a dialog) and its strip says not bound.
-        if (ctx.IsBound)
+        // SEC-4 (S28): the scan report is posted only for a key this PC confirmed for this model (Project Setup ▸ Save).
+        var confirmed = ctx.IsBound && Sentinel.Engine.ModelBindings.ConfirmedFor(e.Document, ctx.Key);
+        var unconfirmed = Sentinel.Engine.ModelBindings.NotConfirmed("Scan report", ctx.Key);
+        if (ctx.IsBound && !confirmed && Sentinel.Engine.ModelBindings.FirstTime(e.Document.PathName.Length > 0 ? e.Document.PathName : e.Document.Title, unconfirmed))
+            PanelVm!.LogDoctor(unconfirmed);
+        if (confirmed)
         {
             var key = ctx.Key;
             var local = Engine.SourceFor(e.Document);
@@ -403,7 +408,7 @@ public sealed class App : IExternalApplication
         if (doc is null || doc.IsFamilyDocument || PanelVm is null || Engine is null) return;
         var ctx = ProjectContext.For(doc);
         if (!ctx.IsBound) { PanelVm.ShowUnbound(); return; }
-        PanelVm.RefreshJourney(ctx.Key, Engine.SourceFor(doc));
+        PanelVm.RefreshJourney(ctx.Key, Engine.SourceFor(doc), Sentinel.Engine.ModelBindings.ConfirmedFor(doc, ctx.Key)); // SEC-4: the paused line
     }
 
     // Local save (non-workshared, or a local save before sync) → auto-publish, when the project's publish@n says so.

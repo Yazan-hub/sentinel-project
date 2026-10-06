@@ -19,6 +19,8 @@
     <!-- SEC-2: the settings' pure half (SENTINEL_CHECK hides the Revit-typed storage) and the one place the tools ask -->
     <Compile Include="..\..\SentinelAddin\Engine\SettingsManager.cs" />
     <Compile Include="..\..\SentinelAddin\Engine\LocalOnly.cs" />
+    <!-- SEC-4: this PC's confirmed model bindings (the pure half; SENTINEL_CHECK hides the Revit-typed identity) -->
+    <Compile Include="..\..\SentinelAddin\Engine\ModelBindings.cs" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.*" />

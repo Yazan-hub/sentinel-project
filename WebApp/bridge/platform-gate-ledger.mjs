@@ -26,7 +26,9 @@ const RESULTS = [
   ["Passed —", "pass"], ["Refused —", "fail"], ["Not checked —", "not_checked"],
   ["Gate did not run —", "did_not_run"], ["Skipped —", "skipped"],
 ];
-const LABEL = { pass: "PASS", fail: "FAIL", not_checked: "NOT CHECKED", did_not_run: "DID NOT RUN", skipped: "SKIPPED" };
+const LABEL = { pass: "PASS", pass_unverified: "PASS (UNVERIFIED CONTRACT)", fail: "FAIL", fail_unverified: "FAIL (UNVERIFIED CONTRACT)", not_checked: "NOT CHECKED", did_not_run: "DID NOT RUN", skipped: "SKIPPED" };
+// SEC-4: the component (≥ 1.0.7) leads its verdict with the contract it read, by Sentinel's canonical sha256.
+const NAMED_SHA = /^(?:Passed|Refused) — contract sha256:([0-9a-f]{64}) · /;
 
 /** The verdict from the component's first words; anything else (a platform timeout, an empty message) did not run —
  *  never a pass. "Passed — … — report written; the version labels were refused: …" is still a pass. */
@@ -68,13 +70,21 @@ export function readingOf(messages) {
 
 const str = (v) => (v == null || v === "" ? null : String(v));
 
-/** The ledger row for one run. NAMED fields only, never the record: some records carry a creatingToken. */
-export function rowOf(exec, detail, platformProjectId) {
+/** The ledger row for one run. NAMED fields only, never the record: some records carry a creatingToken. SEC-4: the
+ *  contract the run names is compared with `installedSha` (the canonical sha256 of the contract installed in Sentinel for the
+ *  linked project); a verdict is verified only when its message leads with that hash, names one hash and was read whole. A
+ *  pass or a refusal that is not is `pass_unverified` / `fail_unverified` — never PASS or FAIL. */
+export function rowOf(exec, detail, platformProjectId, installedSha = null) {
   const id = str(exec?._id);
   if (!id) throw new Error("a platform gate row needs the run's execution id — refused");
   const pick = (k) => exec?.[k] ?? detail?.[k];
-  const message = scrub(pick("resultMessage") ?? "").slice(0, MESSAGE_CAP);
-  const result = resultOf(message);
+  const whole = scrub(pick("resultMessage") ?? "");
+  const message = whole.slice(0, MESSAGE_CAP);
+  const named = NAMED_SHA.exec(message.trimStart())?.[1] ?? null;
+  const verified = !!named && named === installedSha && whole.length <= MESSAGE_CAP && (whole.match(/contract sha256:/g) || []).length === 1;
+  const contract = { named_sha256: named, installed_sha256: installedSha ?? null, verified };
+  const judged = resultOf(message);
+  const result = (judged === "pass" || judged === "fail") && !verified ? `${judged}_unverified` : judged;
   const file = readingOf(detail?.messages ?? exec?.messages);
   return {
     entity_type: ENTITY_TYPE,
@@ -84,6 +94,7 @@ export function rowOf(exec, detail, platformProjectId) {
       platform_project_id: str(platformProjectId),
       component: { id: str(pick("toolId")), version: str(pick("toolVersion")) },
       result,
+      contract,
       platform_result: str(pick("result")),
       message,
       file,
@@ -100,6 +111,7 @@ const createdAt = (r) => Date.parse(r.createdAt) || 0;
 /**
  * One tick. deps: {listExecutions, getExecution, findLinkedProjects(platformProjectId) → [{id, key, archived}],
  * existingExecutionIds(projectId, ids) → Set, audit(projectId, entity_type, entity_id, action, actor, old, new)}.
+ * deps.contractSha(projectKey) → the installed contract's canonical sha256, or null (SEC-4).
  * Finished runs only (a `result` set — a run in progress waits); exactly one non-archived linked Sentinel project
  * (none or two: nothing is written and the reason says why); runs already recorded are dropped (this process's seen
  * set, then one ledger read per 100 ids); the rest are written oldest first. A 23505 counts as recorded; any other
@@ -135,6 +147,12 @@ export async function syncPlatformGate(deps, { componentId, platformProjectId, s
   const todo = fresh.filter((r) => !seen.has(String(r._id)))
     .sort((a, b) => createdAt(a) - createdAt(b) || String(a._id).localeCompare(String(b._id)));
   skipped += fresh.length - todo.length;
+  if (!todo.length) return { written, skipped };
+
+  // SEC-4: the contract Sentinel installed for the linked project (project → office), read once per tick that writes.
+  let installed;
+  try { installed = (await deps.contractSha(proj.key)) ?? null; }
+  catch (e) { return { written, skipped, reason: `the contract installed for ${proj.key} was not read — ${why(e)}` }; }
 
   let detailGap = null;
   for (const run of todo) {
@@ -150,7 +168,7 @@ export async function syncPlatformGate(deps, { componentId, platformProjectId, s
       detail = null; DETAIL_FAILS.delete(id);
     }
     try {
-      const row = rowOf(run, detail, platformProjectId);
+      const row = rowOf(run, detail, platformProjectId, installed);
       await deps.audit(proj.id, row.entity_type, null, row.action, ACTOR, null, row.new_value);
       written++;
     } catch (e) {
@@ -185,6 +203,9 @@ export async function wire() {
         return new Set((rows ?? []).map((r) => r.x));
       },
       audit: cde.audit,
+      // The canonical sha256 of the contract that judges the project in Sentinel (artefact-store resolveContract); the poller
+      // runs with no caller, so this reads with the service key.
+      contractSha: async (key) => (await (await import("./artefact-store.mjs")).resolveContract(key)).sha256,
     },
   };
 }

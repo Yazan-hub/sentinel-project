@@ -2,7 +2,7 @@
 //   G2 delivery gate → G1+G3 naming + IDS adjudication (one referee call) → G4 publish on pass.
 // Pure sequencing; every side effect is a dep so the order is unit-tested. Honesty rules: a gate-only
 // pass is "recorded", never "accepted"; the three failure lists stay separate; an upload failure after
-// an accepted verdict does not undo the verdict — it is reported as unpublished.
+// an accepted verdict does not undo the verdict — it is reported as unpublished, its version registered without geometry.
 const err = (status, message) => Object.assign(new Error(message), { status });
 
 export function validateIntakeInput(input = {}) {
@@ -79,7 +79,7 @@ export async function runIntake(deps, rawInput) {
     return out;
   }
 
-  // G4 — publish on pass: fragments + platform upload, then the CDE version with the verdict badge.
+  // G4 — publish on pass: the CDE version with the verdict badge, then fragments + platform upload and the geometry link.
   // An installed IDS that found NO element in its scope has checked nothing: the referee (adjudicateProposal) already
   // answered "recorded" with downgraded "nothing in scope" (spec 2026-09-26 Decision 4). Intake only words it, and the
   // stamp below carries the referee's own verdict.
@@ -94,18 +94,34 @@ export async function runIntake(deps, rawInput) {
       ? (notChecked ? `No contract and no IDS installed for ${key} or its office — nothing was judged.` : "No project IDS installed — published on the delivery-gate pass alone.")
       : notChecked ? `The IDS judged alone — ${unchecked}.` : undefined;
   const bcf = shouldRaiseBcf ? await deps.raiseBcf(key, result, { author: actor }) : undefined;
-  let upload;
-  try { upload = await deps.uploadIfc(bytes, name, revision || "v1"); }
-  catch (e) { return { ...judged, verdict, stage: "upload_failed", note: noteLine, bcf, error: String(e?.message || e) }; }
+  // SEC-4: registered before anything is uploaded, so a registration the bridge refuses (a revision the file holds with
+  // other bytes) leaves no item on the platform; the same bytes again are answered with the version that holds them.
   const reg = await deps.registerFileVersion(key, {
-    name, revision, sha256: gate.sha256, size_bytes: gate.size, platform_item_id: upload.itemId ?? null,
+    name, revision, sha256: gate.sha256, size_bytes: gate.size,
     author: actor, notes: note ?? null, title: name,
     attach_geometry: false, // never silently attach to a stale liveNoGeom version — this is a fresh intake revision
   });
   const versionId = reg?.version?.id ?? null;
   if (versionId) await deps.recordVersionVerdict(key, versionId, result, actor);
+  const rev = reg?.version?.revision ?? revision ?? null;
+  const version = { container_id: reg?.container_id ?? null, version_id: versionId, revision: rev, platform_item_id: reg?.version?.platform_item_id ?? null };
+  // A repeat whose version already has geometry: nothing is uploaded again.
+  if (version.platform_item_id) return { ...judged, verdict, stage: "published", published: true, note: noteLine, bcf, version };
+  let upload;
+  try { upload = await deps.uploadIfc(bytes, name, rev || "v1"); }
+  catch (e) {
+    const error = String(e?.message || e);
+    return { ...judged, verdict, stage: "upload_failed", note: noteLine, bcf, error, ...(versionId ? { version: { ...version, geometry: `not uploaded — ${error}` } } : {}) };
+  }
+  // The bridge's own upload of these same bytes, linked by the gate's sha256 (attachGeometry). A link that could not be
+  // made leaves the version registered without geometry, and the answer says so.
+  let geometry;
+  if (versionId && upload.itemId) {
+    try { await deps.attachGeometry(key, versionId, upload.itemId, { sha256: gate.sha256, actor }); version.platform_item_id = upload.itemId; }
+    catch (e) { geometry = `not linked — ${e?.message || e}`; }
+  }
   return {
     ...judged, verdict, stage: "published", published: true, note: noteLine, bcf,
-    version: { container_id: reg?.container_id ?? null, version_id: versionId, revision: reg?.version?.revision ?? revision ?? null, platform_item_id: upload.itemId ?? null, format: upload.format },
+    version: { ...version, format: upload.format, ...(geometry ? { geometry } : {}) },
   };
 }
