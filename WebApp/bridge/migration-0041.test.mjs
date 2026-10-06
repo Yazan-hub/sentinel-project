@@ -19,8 +19,10 @@ const F38 = fn(strip(read("../db/migrations/0038_bridge_role_rules.sql")), "cde_
 const F41 = fn(code, "cde_container_frozen");
 
 describe("migration 0041 — a version's record is the registration's; geometry is the bridge's; a judged file keeps its name (SEC-4)", () => {
-  it("is not applied yet, and says what must hold before and after the apply", () => {
-    expect(SQL).toContain("NOT YET APPLIED");
+  it("records its apply and the probe's pass, and says what must hold before and after the apply", () => {
+    expect(SQL).toContain("APPLIED 2026-10-06");
+    expect(SQL).not.toContain("NOT YET APPLIED");
+    expect(SQL).toContain('"PROBE 0041: 24 of 24 as expected."');
     expect(SQL).toContain("the 4100 bridge runs the branch");
     expect(SQL).toContain("probes/0041_probe.sql\n-- part 0");
     expect(code.trim().startsWith("begin;")).toBe(true);

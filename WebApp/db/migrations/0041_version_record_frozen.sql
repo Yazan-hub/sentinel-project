@@ -15,7 +15,11 @@
 --   5 · projects.key is never uuid-shaped (projects_key_not_uuid).
 --   6 · one live (not archived) project links a platform project (projects_one_live_platform_link) — for every writer.
 --
--- NOT YET APPLIED. Before the apply: the 4100 bridge runs the branch (its intake links geometry with the service key after
+-- APPLIED 2026-10-06 ~12:00 local on the founder's "apply" (migration 0041_version_record_frozen), AFTER the 4100 bridge was
+-- restarted on the branch 6fa6636; probes/0041_probe.sql part 0 read before it (14 wip and 3 shared versions on a verdict,
+-- 37 wip or shared with no sha256, 15 files whose name freezes — all in office or drill projects, 0 revisions held twice,
+-- 0 uuid-shaped keys, 0 platform links held twice), part 1 6 of 6 true, part 2 "PROBE 0041: 24 of 24 as expected."
+-- Before the apply: the 4100 bridge runs the branch (its intake links geometry with the service key after
 -- registering; a bridge from before it would be refused by rule 2 on every signed-in intake), and probes/0041_probe.sql
 -- part 0 is read (read-only) and its counts are the founder's; its "linked by more than one" row must read 0 (rule 6).
 -- After it: the probe's parts 1 and 2.
