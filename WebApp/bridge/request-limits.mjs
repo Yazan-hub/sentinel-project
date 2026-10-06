@@ -28,6 +28,12 @@ const jsonBySub = new Map(); // sub -> bytes currently in flight
 const STALL_MS = 30_000; // any body: this long without a byte is a 408
 const JSON_MS = 2 * 60_000; // a JSON body arrives whole within 2 min (16 MB needs ~1.1 Mbps). ponytail: one deadline;
 // a minimum-rate rule if a real 16 MB body over a slow link ever needs longer.
+// SEC-6 (S21): a raw upload has no overall deadline (a large IFC over the Funnel may need most of the server's 30 min), so it
+// keeps an average rate instead: once its first BCF_UPLOAD_GRACE_S (120 s) are over, an upload whose average falls below
+// BCF_MIN_UPLOAD_KBPS (16 KB/s) is a 408. ponytail: one floor for every raw route — the founder raises it from the measured
+// "[upload]" lines (founder decision I-a).
+const uploadGraceMs = () => (Number(process.env.BCF_UPLOAD_GRACE_S) || 120) * 1000;
+const minUploadKbps = () => Number(process.env.BCF_MIN_UPLOAD_KBPS) || 16;
 
 /** The body's bytes, or a refusal in words: a declared length over `max` is a 413 before a byte is read, a streamed
  *  body (chunked, or a length that lied) a 413 the moment it passes `max`. The rest is never kept — send() closes the
@@ -41,6 +47,7 @@ function readBytes(req, max, lease, sub) {
     // would ever settle this read.
     if (req.destroyed || req.readableAborted) return reject(err(400, "the request ended before its body did — nothing was saved"));
     let chunks = [], total = 0, settled = false;
+    const started = Date.now(), grace = lease ? 0 : uploadGraceMs(), floor = minUploadKbps();
     const slow = (why) => () => fail(err(408, `the request body ${why} — nothing was saved`));
     const stall = setTimeout(slow(`stopped arriving (nothing for ${STALL_MS / 1000} s)`), STALL_MS); // restarted by each chunk
     const deadline = lease ? setTimeout(slow(`took over ${JSON_MS / 60_000} min to arrive`), JSON_MS) : null;
@@ -51,6 +58,9 @@ function readBytes(req, max, lease, sub) {
       stall.refresh();
       total += c.length;
       if (total > max) return fail(over());
+      const ms = Date.now() - started;
+      if (grace && ms > grace && total / 1024 / (ms / 1000) < floor)
+        return fail(err(408, `the upload arrived slower than ${floor} KB/s on average after its first ${grace / 1000} s — nothing was saved; try again on a faster connection`));
       if (lease) {
         if (json.used + c.length > 4 * jsonCap()) return fail(err(503, "the bridge is reading too many large requests at once — nothing was saved; try again in a moment"));
         if (sub) {
@@ -64,7 +74,15 @@ function readBytes(req, max, lease, sub) {
       }
       chunks.push(c);
     });
-    req.on("end", () => { if (settled) return; stop(); resolve(Buffer.concat(chunks, total)); });
+    req.on("end", () => {
+      if (settled) return;
+      stop();
+      if (!lease) { // SEC-6: the measurement the founder's upload floor is set from — no name, no project, no caller
+        const s = (Date.now() - started) / 1000;
+        console.log(`[upload] ${(total / MB).toFixed(1)} MB in ${s.toFixed(1)} s (${Math.round(total / 1024 / Math.max(s, 0.001))} KB/s)`);
+      }
+      resolve(Buffer.concat(chunks, total));
+    });
     const cut = () => fail(err(400, "the request ended before its body did — nothing was saved"));
     req.on("error", cut);
     req.on("close", cut); // after "end" this is a no-op
@@ -113,11 +131,13 @@ const MAX_UPLOADS = 2;
 const uploading = new Set();
 
 /** Take an upload slot for `sub` (the verified sign-in's user id; every machine caller shares "service") or throw a
- *  429 in words. Returns the release, which is safe to call more than once. */
+ *  429 in words. Returns the release, which is safe to call more than once. SEC-6 (S21): the machine credential's slot is
+ *  its own, beside the two — signed-in uploads never lock Revit or the outbox out. */
 export function uploadSlot(sub) {
   const who = sub || "service";
   if (uploading.has(who)) throw err(429, "you already have an upload running on the bridge — wait for it to finish, then send this one; nothing was saved");
-  if (uploading.size >= MAX_UPLOADS) throw err(429, `the bridge is already taking ${MAX_UPLOADS} uploads — try again in a minute; nothing was saved`);
+  if (who !== "service" && [...uploading].filter((w) => w !== "service").length >= MAX_UPLOADS)
+    throw err(429, `the bridge is already taking ${MAX_UPLOADS} uploads — try again in a minute; nothing was saved`);
   uploading.add(who);
   let held = true;
   return () => { if (held) { held = false; uploading.delete(who); } };
