@@ -5,7 +5,7 @@
 //
 // Deps are injected (the changesets-store idiom) so the sequencing is unit-tested without Supabase;
 // the defaults are loaded lazily to keep cde-store → artefact-store → cde-store from being a cycle.
-import { createHash } from "node:crypto";
+import { canonical, canonicalSha256 as sha256 } from "./canonical.mjs";
 import { resolveActor } from "./bridge-auth.mjs";
 import { parseLodMatrix } from "./sentinel-core.mjs"; // MA-2b: the one lod_matrix reader (src/sentinel-core/lod-matrix.ts)
 
@@ -14,12 +14,8 @@ export const KINDS = ["ids", "ruleset", "naming", "contract", "guideline", "laye
 const CARBON_MEASURES = ["count", "length", "area", "volume", "weight"];
 
 const err = (status, message) => Object.assign(new Error(message), { status });
-/** Canonical JSON: keys sorted recursively. bridge_docs.data is jsonb and Postgres reorders object keys, so a
- *  hash over the raw stringify never matched the pointer after a round-trip (final review, phase 3). */
-export const canonical = (o) => Array.isArray(o) ? `[${o.map(canonical).join(",")}]`
-  : (o && typeof o === "object") ? `{${Object.keys(o).sort().map((k) => `${JSON.stringify(k)}:${canonical(o[k])}`).join(",")}}`
-  : JSON.stringify(o);
-const sha256 = (o) => createHash("sha256").update(canonical(o)).digest("hex");
+/** Canonical JSON (keys sorted recursively) and its sha256 live in canonical.mjs, shared with the delivery-gate component. */
+export { canonical };
 
 async function wire(deps = {}) {
   const cde = (deps.ensureProject && deps.docGet && deps.docInsert && deps.docUpsert && deps.audit) ? null : await import("./cde-store.mjs");

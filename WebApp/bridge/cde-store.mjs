@@ -406,6 +406,13 @@ export async function updateProject(key, patch = {}, actor) {
     throw Object.assign(new Error("platform_project_id must be a platform project id (letters, digits, - or _) or null to unlink"), { status: 400 });
   }
   const proj = await ensureProject(key);
+  // SEC-4 (S16): one live project links a platform project (0041's index) — said in words before the write (a service
+  // read: the other project need not be the caller's); an archived project's old link is no conflict.
+  const linkHeld = () => Object.assign(new Error(`another Sentinel project already links platform project ${patch.platform_project_id} — unlink it there first; nothing was saved`), { status: 409 });
+  if (patch.platform_project_id) {
+    const held = await sb(`projects?metadata->settings->>platform_project_id=eq.${encodeURIComponent(patch.platform_project_id)}&id=neq.${proj.id}&select=id,archived:metadata->settings->archived`, { service: true });
+    if ((held || []).some((p) => p.id !== proj.id && String(p.archived) !== "true")) throw linkHeld();
+  }
   const body = {};
   if (patch.name !== undefined && String(patch.name).trim()) body.name = String(patch.name).trim();
   if (patch.appointing_party !== undefined) body.appointing_party = patch.appointing_party || null;
@@ -433,6 +440,8 @@ export async function updateProject(key, patch = {}, actor) {
   try {
     rows = await sb(`projects?id=eq.${proj.id}`, { method: "PATCH", body, prefer: "return=representation" });
   } catch (e) {
+    // 0041's projects_one_live_platform_link: a link another live project took meanwhile — the same words as the read above.
+    if (e?.body?.code === "23505" && /projects_one_live_platform_link/.test(String(e.body.message || ""))) throw linkHeld();
     // 0029/0033's projects_office_guard (H0 minor N17): office_key must name a row of kind office. requireOfficeLead
     // checks lead/admin, not kind, so an admin or the machine credential naming a plain project's key as office_key
     // reaches the database guard, which raises P0001 with no SQLSTATE the client would use — say so in words (400).

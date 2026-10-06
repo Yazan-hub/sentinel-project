@@ -67,6 +67,34 @@ describe("updateProject — settings (PATCH /cde/projects/:key)", () => {
     expect(patchBodies.map((b) => b.metadata.settings.platform_project_id)).toEqual(["6a4c4df825f9ecf5f416d4c2", null]);
   });
 
+  it("SEC-4 (S16): refuses a platform project another live Sentinel project already links, before any write (a service read)", async () => {
+    const other = { id: "33333333-3333-4333-8333-333333333333", key: "elsewhere", archived: false };
+    globalThis.fetch = vi.fn(async (url, init = {}) => {
+      const u = new URL(String(url));
+      if (u.searchParams.has("metadata->settings->>platform_project_id")) { expect(init.headers.Authorization).not.toBe(`Bearer ${jwt}`); return new Response(JSON.stringify([other])); }
+      if ((init.method || "GET") === "PATCH") { patchBodies.push(JSON.parse(init.body)); return new Response(JSON.stringify([project])); }
+      return new Response(JSON.stringify([project]));
+    });
+    await expect(runWithAuth(jwt, () => updateProject("b13-review", { platform_project_id: "6a4c4df825f9ecf5f416d4c2" }, "web")))
+      .rejects.toMatchObject({ status: 409, message: "another Sentinel project already links platform project 6a4c4df825f9ecf5f416d4c2 — unlink it there first; nothing was saved" });
+    expect(patchBodies).toEqual([]);
+    other.archived = true; // an archived project's old link is no conflict
+    await runWithAuth(jwt, () => updateProject("b13-review", { platform_project_id: "6a4c4df825f9ecf5f416d4c2" }, "web"));
+    expect(patchBodies).toHaveLength(1);
+  });
+
+  it("SEC-4 (S16): a second live link the database refuses (0041's projects_one_live_platform_link) is the same 409 in words", async () => {
+    globalThis.fetch = vi.fn(async (url, init = {}) => {
+      const u = new URL(String(url));
+      if (u.searchParams.has("metadata->settings->>platform_project_id")) return new Response(JSON.stringify([]));
+      if ((init.method || "GET") === "PATCH")
+        return new Response(JSON.stringify({ code: "23505", message: 'duplicate key value violates unique constraint "projects_one_live_platform_link"' }), { status: 409 });
+      return new Response(JSON.stringify([project]));
+    });
+    await expect(runWithAuth(jwt, () => updateProject("b13-review", { platform_project_id: "6a4c4df825f9ecf5f416d4c2" }, "web")))
+      .rejects.toMatchObject({ status: 409, message: "another Sentinel project already links platform project 6a4c4df825f9ecf5f416d4c2 — unlink it there first; nothing was saved" });
+  });
+
   it("refuses a platform project id that is not one, before any write", async () => {
     for (const bad of ["", "a b", "x".repeat(101), 42]) {
       await expect(updateProject("b13-review", { platform_project_id: bad }, "web"))

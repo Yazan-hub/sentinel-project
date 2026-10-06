@@ -9,8 +9,8 @@
 // Globals the execution engine injects (never import them): thatOpenServices, executionParams, executionContext,
 // executionReporter.
 /* global thatOpenServices, executionParams, executionContext, executionReporter */
-import { createHash } from "node:crypto";
 import { checkDelivery, gateNotChecked } from "../../../WebApp/bridge/delivery-gate.mjs";
+import { canonicalSha256 } from "../../../WebApp/bridge/canonical.mjs";
 
 export const CONTRACT_ITEM = "sentinel-contract.json";
 export const REPORT_KIND = "sentinel.gate-report";
@@ -39,8 +39,6 @@ async function reportItemOf(items, fileId, versions, versionTag, current) {
   try { return named(await thatOpenServices.getFileVersionMetadata(fileId, earlier)); }
   catch { return null; } // unread: a new report item, never a guess by name
 }
-// The contract's own fingerprint on the report, so a report says which contract text judged it.
-const sha = (text) => createHash("sha256").update(text).digest("hex");
 const NO_CONTRACT = "no contract on the platform project — install one in Sentinel";
 
 const str = (v) => (typeof v === "string" ? v.trim() : "");
@@ -81,9 +79,16 @@ async function bytesOf(fileId, versionTag) {
   return Buffer.from(res);
 }
 
-/** The latest sentinel-contract.json of the project: {body, ref} · {reason} when absent or unreadable. */
+// A contract key and a version tag the run message may carry: a plain name (SEC-4).
+const PLAIN_NAME = /^[A-Za-z0-9._@-]{1,100}$/;
+
+/** The latest sentinel-contract.json of the project: {body, ref, sha256} · {reason} when absent, unreadable or not one item.
+ *  sha256 is Sentinel's canonical artefact hash of the body (canonical.mjs), so the bridge can compare it with the contract
+ *  installed in Sentinel (SEC-4); the run names it in its message. */
 async function contractOf(projectId, items) {
-  const item = items.find((i) => i.name === CONTRACT_ITEM);
+  const named = items.filter((i) => i.name === CONTRACT_ITEM);
+  if (named.length > 1) return { reason: `${named.length} items are named ${CONTRACT_ITEM} on the platform project — not checked; keep the one Sentinel mirrors there and remove the rest` };
+  const item = named[0];
   if (!item) return { reason: NO_CONTRACT };
   const tag = newestTag(item.versions) || undefined;
   const label = `${CONTRACT_ITEM} ${tag || "(no version)"}`;
@@ -94,14 +99,20 @@ async function contractOf(projectId, items) {
   catch (e) { return { reason: `${label} did not parse: ${words(e)}` }; }
   const bad = contractShapeError(body);
   if (bad) return { reason: `${label} ${bad}` };
-  return { body, ref: tag || body.contract_key };
+  // C1: the run's message leads with the hash, then the contract's name — a plain name only, so no platform text can stand
+  // where the hash is read.
+  if (!PLAIN_NAME.test(body.contract_key) || (tag && !PLAIN_NAME.test(tag)))
+    return { reason: `${CONTRACT_ITEM}: its contract_key or version tag is not a plain name (letters, digits, . _ @ -) — install the contract again from Sentinel` };
+  return { body, ref: tag || body.contract_key, sha256: canonicalSha256(body) };
 }
 
 // The contract is named as the board names it — its ref (the mirrored version, "contract@1") — with the contract's
 // own key in brackets when it differs, so the execution log and the card agree.
 const contractName = (r, ref) => (!ref || ref === r.contract_key ? r.contract_key : `${ref} (${r.contract_key})`);
-const verdictLine = (r, ref) => r.result === "pass" ? `Passed — ${contractName(r, ref)}`
-  : r.result === "fail" ? `Refused — ${contractName(r, ref)} — ${r.failures.length} failure${r.failures.length === 1 ? "" : "s"}: ${r.failures.join(" ")}`
+// The contract's canonical sha256 rides in the run's own message (the platform's run record, which the bridge's ledger reads),
+// first, before any text read from the platform; then the contract's name.
+const verdictLine = (r, ref, sha) => r.result === "pass" ? `Passed — contract sha256:${sha} · ${contractName(r, ref)}`
+  : r.result === "fail" ? `Refused — contract sha256:${sha} · ${contractName(r, ref)} — ${r.failures.length} failure${r.failures.length === 1 ? "" : "s"}: ${r.failures.join(" ")}`
   : `Not checked — ${r.reason}`;
 
 export async function main() {
@@ -141,12 +152,12 @@ export async function main() {
   try { r = contract.body ? checkDelivery(bytes, contract.body) : gateNotChecked(bytes, contract.reason); }
   catch (e) { return fail(`the gate threw on ${name} ${versionTag}: ${words(e)}`); }
   if (r.result !== "not_checked") report(`${r.total_entities} entities · ${r.contract_key}: ${r.failures.length} failure(s)`);
-  const line = verdictLine(r, contract.ref);
+  const line = verdictLine(r, contract.ref, contract.sha256);
 
   // The report: one item per IFC, a version per judged IFC version (Decision 4).
   const rep = {
     kind: REPORT_KIND, file: { id: fileId, name, versionTag }, result: r.result, passed: r.passed, reason: r.reason ?? null,
-    contract: contract.body ? { ref: contract.ref, sha256: sha(JSON.stringify(contract.body)) } : null,
+    contract: contract.body ? { ref: contract.ref, sha256: contract.sha256 } : null,
     detected_schema: r.detected_schema, total_entities: r.total_entities, failures: r.failures, warnings: r.warnings,
     coverage: r.coverage ?? [], // per class, per required pset and property (GATE-E2); none when not checked
     sha256: r.sha256, size: r.size,

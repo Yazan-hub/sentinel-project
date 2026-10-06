@@ -19,6 +19,8 @@ export interface GateReport {
 export type CardState = "passed" | "refused" | "not_checked" | "did_not_run" | "running" | "not_read";
 export interface DeliveryCard {
   name: string; versionTag: string; state: CardState; headline: string; lines: string[]; sha256: string | null; run: string | null;
+  /** SEC-4: a pass the ledger does not show judged by the contract installed in Sentinel (verifiedPass). */
+  unverified?: boolean;
 }
 
 /** The platform calls the lane needs (a subset of @thatopen/services' EngineServicesClient). */
@@ -120,9 +122,10 @@ export async function readDeliveries(client: DeliveriesClient | undefined, platf
 
 /** The lane's one-line summary. */
 export function deliveriesSummary(cards: DeliveryCard[]): string {
-  const n = (s: CardState) => cards.filter((c) => c.state === s).length;
+  const n = (s: CardState) => cards.filter((c) => c.state === s && !c.unverified).length;
+  const unverified = cards.filter((c) => c.state === "passed" && c.unverified).length;
   if (!cards.length) return "no IFC on the platform project yet";
-  return [`${cards.length} IFC`, n("passed") ? `${n("passed")} passed` : "", n("refused") ? `${n("refused")} refused` : "", n("not_checked") ? `${n("not_checked")} not checked` : "", n("did_not_run") ? `${n("did_not_run")} did not run` : "", n("running") ? `${n("running")} running` : "", n("not_read") ? `${n("not_read")} not read` : ""].filter(Boolean).join(" · ");
+  return [`${cards.length} IFC`, n("passed") ? `${n("passed")} passed` : "", unverified ? `${unverified} passed (unverified)` : "", n("refused") ? `${n("refused")} refused` : "", n("not_checked") ? `${n("not_checked")} not checked` : "", n("did_not_run") ? `${n("did_not_run")} did not run` : "", n("running") ? `${n("running")} running` : "", n("not_read") ? `${n("not_read")} not read` : ""].filter(Boolean).join(" · ");
 }
 
 export const shortSha = short;
@@ -130,7 +133,7 @@ export const shortSha = short;
 /** A platform_gate row as GET /cde/<pid>/audit returns it — only what the card cites. */
 export interface GateLedgerRow {
   id: number;
-  new_value?: { execution_id?: unknown; result?: unknown; file?: { name?: unknown; version_tag?: unknown } | null } | null;
+  new_value?: { execution_id?: unknown; result?: unknown; file?: { name?: unknown; version_tag?: unknown } | null; contract?: { verified?: unknown } | null } | null;
 }
 /** What a card says about itself when a row is cited for it. */
 export interface CardIdentity { name: string; versionTag: string }
@@ -146,6 +149,20 @@ export const citedRow = (run: string | null, rows: GateLedgerRow[] | null, card?
   const row = runRow(run, rows);
   return row && (!card || sameFile(row, card)) ? row : undefined;
 };
+
+/** SEC-4: a pass card says "Passed" only when this project's ledger holds this version's run row as a pass with the contract
+ *  installed in Sentinel (result "pass", contract.verified true — the bridge's comparison of the hash the run named); else
+ *  "Passed (unverified)" with the reason. A row written before SEC-4 has no contract field: unverified, which is honest. */
+export function verifiedPass(c: DeliveryCard, rows: GateLedgerRow[] | null): DeliveryCard {
+  const row = citedRow(c.run, rows, c);
+  // C8: a refusal stays "Refused"; when its row says the contract was not verified, the card says so in a line.
+  if (c.state === "refused")
+    return row?.new_value?.result === "fail_unverified" ? { ...c, lines: [...c.lines, "the ledger does not show that the contract installed in Sentinel judged it"] } : c;
+  if (c.state !== "passed") return c;
+  if (row?.new_value?.result === "pass" && row.new_value.contract?.verified === true) return c;
+  const why = row ? "the ledger's row for this run does not show the contract installed in Sentinel judged it" : "no ledger row shows this run judged by the contract installed in Sentinel";
+  return { ...c, unverified: true, headline: c.headline.replace(/^Passed/, "Passed (unverified)"), lines: [...c.lines, why] };
+}
 
 /** The card's ledger line: "ledger #N" for the row this version's run wrote; a row of that run for another file or
  *  version, or one that names no file, is said as such and never cited as this version's; none is "not on this
