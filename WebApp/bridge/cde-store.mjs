@@ -521,13 +521,21 @@ export async function listFolders(key) {
   return sb(`folders?project_id=eq.${proj.id}&select=*&order=sort.asc,name.asc`);
 }
 
+/** SEC-6 (0043): a folder's parent and a file's folder are in the row's own project — the database refuses any other
+ *  (P0001); the bridge answers that as a 400 in its words, nothing written. */
+const sameProject = (e) => {
+  if (e?.body?.code === "P0001" && / in one project$/.test(String(e.body.message || "")))
+    throw Object.assign(new Error(`${e.body.message} — nothing was saved`), { status: 400 });
+  throw e;
+};
+
 export async function createFolder(key, b) {
   const proj = await ensureProject(key);
   const row = (await sb(`folders`, {
     method: "POST",
     body: { project_id: proj.id, parent_id: b.parent_id || null, name: (b.name || "New folder").trim(), kind: "folder", sort: b.sort || 0 },
     prefer: "return=representation",
-  }))[0];
+  }).catch(sameProject))[0];
   await audit(proj.id, "folder", row.id, "created", b.actor || "web", null, { name: row.name, parent_id: b.parent_id || null });
   return row;
 }
@@ -559,7 +567,7 @@ export async function moveContainer(containerId, b) {
   if (found?.deleted_at) throw Object.assign(new Error("this file is in Deleted items — restore it first; nothing was saved"), { status: 409 });
   const [row] = requireRows(await sb(`information_containers?id=eq.${encodeURIComponent(containerId)}&deleted_at=is.null`, {
     method: "PATCH", body: { folder_id: b.folder_id || null }, prefer: "return=representation",
-  }), "a file is filed into a folder by a contributor or above");
+  }).catch(sameProject), "a file is filed into a folder by a contributor or above");
   await audit(row.project_id, "container", row.id, "moved", b.actor || "web", null, { folder_id: b.folder_id || null });
   return row;
 }
