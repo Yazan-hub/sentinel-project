@@ -378,6 +378,30 @@ describe("the local stores — the single desktop's only, never a signed-in call
     }
   });
 
+  it("SEC-4 (S36): a pack's key and version are plain, a published id is never overwritten, and a fork takes a new id", async () => {
+    const post = (path, body) => as(TOKEN, path, { method: "POST", body: JSON.stringify(body) });
+    for (const [body, words] of [
+      [{ key: 'k" x', version: "1.0.0" }, "a pack key is lower-case letters, digits and hyphens (up to 64) — nothing was published"],
+      [{ key: "K", version: "1.0.0" }, "a pack key is lower-case letters, digits and hyphens (up to 64) — nothing was published"],
+      [{ key: "k", version: "1 0" }, "a pack version is letters, digits, dots and hyphens (up to 32) — nothing was published"],
+      [{ key: "k" }, "a pack version is letters, digits, dots and hyphens (up to 32) — nothing was published"],
+    ]) {
+      const r = await post("/packs", body);
+      expect(r.status, JSON.stringify(body)).toBe(400);
+      expect((await r.json()).message).toBe(words);
+    }
+    expect((await post("/packs", { key: "sec4-pack", version: "1.0.0", name: "SEC-4 pack" })).status).toBe(201);
+    const again = await post("/packs", { key: "sec4-pack", version: "1.0.0", name: "changed" });
+    expect(again.status).toBe(409);
+    expect((await again.json()).message).toBe("pack sec4-pack@1.0.0 is already published — publish a new version; nothing was published");
+    expect((await post("/packs/sec4-pack@1.0.0/fork", { key: 'f" x' })).status).toBe(400);
+    expect((await post("/packs/sec4-pack@1.0.0/fork", {})).status).toBe(201); // sec4-pack@fork
+    const twice = await post("/packs/sec4-pack@1.0.0/fork", {});
+    expect(twice.status).toBe(409);
+    expect((await twice.json()).message).toBe("pack sec4-pack@fork is already published — publish a new version; nothing was published");
+    expect((await (await as(TOKEN, "/packs/sec4-pack@1.0.0")).json()).name).toBe("SEC-4 pack");
+  });
+
   it("the machine credential keeps the local stores, and a signed-in caller keeps the routes that have none", async () => {
     const r = await as(TOKEN, "/rfis/gl");
     expect(r.status).toBe(200);

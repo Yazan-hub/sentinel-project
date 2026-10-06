@@ -747,6 +747,12 @@ function toElementGraph(snapshots, layer = "base") {
   return { schema: "sentinel.element-graph/1", layer, count: elements.length, elements };
 }
 
+// src/sentinel-core/csv.ts
+function csvCell(v) {
+  const s = String(v ?? "");
+  return `"${(/^[=+\-@\t\r]/.test(s) ? "'" + s : s).replace(/"/g, '""')}"`;
+}
+
 // src/sentinel-core/cobie.ts
 var REQUIRED_FIELDS = ["serial", "manufacturer", "warranty", "install_date"];
 var MAINTAINABLE_CLASSES = [
@@ -807,7 +813,7 @@ function assess(assets, floors, spaces) {
   return { assets, total, complete, readiness, coverage, floors, spaces };
 }
 function toCobieCsv(r, facility) {
-  const q = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const q = csvCell;
   const line = (...cells) => cells.map(q).join(",");
   const out = [];
   out.push("Facility", line("Name", "Category", "Project"), line(facility, "Facility", facility), "");

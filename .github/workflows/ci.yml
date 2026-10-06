@@ -4,6 +4,10 @@ on:
   push:
   pull_request:
 
+# The job token reads the repository only; no checkout keeps it in .git/config (SEC-4).
+permissions:
+  contents: read
+
 jobs:
   web:
     name: WebApp — test + build
@@ -13,6 +17,8 @@ jobs:
         working-directory: WebApp
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v7
         with:
           node-version: 22 # @supabase/*, camera-controls and unpdf require node >= 22
@@ -46,6 +52,8 @@ jobs:
         revit: [2025, 2026]
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "8.0.x"

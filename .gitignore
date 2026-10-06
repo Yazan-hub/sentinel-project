@@ -22,6 +22,12 @@ config/appsettings.local.json
 # thatopen CLI state — non-secret today (appId/itemType), but the CLI could write a token here
 .thatopen
 **/.thatopen
+# keys, certificates and the add-in's bridge config (its token) — never in the repository
+*.pem
+*.key
+*.pfx
+*.p12
+bcf-config*.json
 
 # OS
 .DS_Store

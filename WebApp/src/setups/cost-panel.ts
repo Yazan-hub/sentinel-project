@@ -9,6 +9,7 @@ import { postRevision, fetchRevisionSnapshots, fetchRevisions, quantitiesFromSna
 import { getAppManager } from "../app";
 import { loadScope } from "./load-scope";
 import { escapeHtml as esc } from "./escape-html";
+import { csvCell } from "../sentinel-core/csv";
 
 interface Baseline {
   at: string;
@@ -439,9 +440,9 @@ export function costPanel(components: OBC.Components, opts: { baseUrl?: string }
   const exportCsv = () => {
     if (!boq) { msg("Take off quantities first.", "#eab308"); return; }
     const head = ["Code", "Description", "Unit", "Qty", "Rate", "Amount", "Elements"];
+    const num = (v: unknown) => `"${String(v)}"`;
     const lines = boq.lines.map((l) =>
-      [l.code, l.description, l.unit, l.qty.toFixed(2), l.rate, l.amount.toFixed(2), l.count]
-        .map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","));
+      [csvCell(l.code), csvCell(l.description), csvCell(l.unit), num(l.qty.toFixed(2)), num(l.rate), num(l.amount.toFixed(2)), num(l.count)].join(","));
     const totalRow = `"","TOTAL (${boq.currency})","","","","${boq.total.toFixed(2)}",""`;
     const csv = [head.join(","), ...lines, totalRow].join("\r\n");
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
