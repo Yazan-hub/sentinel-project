@@ -565,7 +565,8 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
         status(`Encrypting ${file.name}…`);
         const stored = await putEncryptedFile(base, pid(), file);
         await api(`containers/${c.id}/versions`, "POST", {
-          revision: nextAttachRevision(c), // versions in Deleted items count too; a held label is stepped past author: "web", file_ref: JSON.stringify(stored), notes: `attached ${file.name} (encrypted)`,
+          // versions in Deleted items count too; a held label is stepped past
+          revision: nextAttachRevision(c), author: "web", file_ref: JSON.stringify(stored), notes: `attached ${file.name} (encrypted)`,
         });
         status(`Attached ${file.name} — encrypted client-side.`);
         await loadAll();

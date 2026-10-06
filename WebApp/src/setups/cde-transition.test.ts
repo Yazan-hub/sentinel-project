@@ -115,4 +115,13 @@ describe("nextAttachRevision — the CDE panel's label for an encrypted attach (
     expect(nextAttachRevision({ container_versions: [], deleted_versions: 1 })).toBe("P02");
     expect(nextAttachRevision({})).toBe("P01");
   });
+
+  it("the encrypted attach sends the stored file's reference, its author and its notes in the body, outside any comment (review, SEC-5)", () => {
+    const src = readFileSync(new URL("./cde-panel.ts", import.meta.url), "utf8").replace(/\r\n/g, "\n");
+    const code = src.split("\n").map((l) => l.replace(/\s\/\/.*$/, "")).join("\n");
+    expect(code).toContain("revision: nextAttachRevision(c),");
+    expect(code).toContain('author: "web",');
+    expect(code).toContain("file_ref: JSON.stringify(stored),");
+    expect(code).toContain("notes: `attached ${file.name} (encrypted)`,");
+  });
 });
