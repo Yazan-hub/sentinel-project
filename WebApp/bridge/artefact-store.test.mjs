@@ -136,6 +136,10 @@ const withRule = (over) => ({ ...ruleset, rules: [ruleset.rules[0], { ...ruleset
 const withField = (over) => ({ ...naming, fields: [naming.fields[0], { ...naming.fields[1], ...over }] });
 
 describe("validateArtefact — ruleset and naming", () => {
+  it("SEC-4: accepts patterns at the bound, {org} in a pattern, and the seed packs' and demos' exclusions", () => {
+    expect(validateArtefact("ruleset", withRule({ token_defs: { ORG: "{org}", SIZE: "a".repeat(512) }, exclusions: ["^<.*>", "^\\{3D"] }))).toBe(true);
+    expect(fails("ruleset", withRule({ exclusions: ["(?i)^draft"] })).message).toBe("ruleset: rules[1].exclusions[0] does not compile as a pattern (Invalid regular expression: /(?i)^draft/: Invalid group) — write it without .NET-only syntax such as a leading (?i)");
+  });
   it("accepts a well-formed scan ruleset and naming pack, extra fields included", () => {
     expect(validateArtefact("ruleset", { ...ruleset, doc_refs: { rtg: "{org}-STD-001" }, schema_version: 1 })).toBe(true);
     expect(validateArtefact("naming", naming)).toBe(true);
@@ -151,6 +155,16 @@ describe("validateArtefact — ruleset and naming", () => {
     ["rules[1].id", withRule({ id: "" })],
     ["rules[1].target", withRule({ target: "room" })],
     ["rules[1].mode", withRule({ mode: "reject" })],
+    // SEC-4 (S29): the patterns the add-in and the web compile are checked here first.
+    ["rules[1].token_defs", withRule({ token_defs: ["\\d+"] })],
+    ["rules[1].token_defs", withRule({ token_defs: null })],
+    ["rules[1].token_defs.SIZE", withRule({ token_defs: { ORG: "{org}", SIZE: 5 } })],
+    ["rules[1].token_defs.SIZE", withRule({ token_defs: { ORG: "{org}", SIZE: "(\\d+" } })],
+    ["rules[1].token_defs.SIZE", withRule({ token_defs: { ORG: "{org}", SIZE: "a".repeat(513) } })],
+    ["rules[1].token_defs", withRule({ token_defs: Object.fromEntries(Array.from({ length: 65 }, (_, i) => [`T${i}`, "x"])) })],
+    ["rules[1].exclusions", withRule({ exclusions: "^<.*>$" })],
+    ["rules[1].exclusions[1]", withRule({ exclusions: ["^<.*>$", "(?i)^draft"] })],
+    ["rules[1].exclusions", withRule({ exclusions: Array.from({ length: 65 }, () => "x") })],
   ])("ruleset: a bad %s is a 400 naming that path", (path, body) => {
     expect(fails("ruleset", body)).toMatchObject({ status: 400, message: expect.stringContaining(`ruleset: ${path} `) });
   });
