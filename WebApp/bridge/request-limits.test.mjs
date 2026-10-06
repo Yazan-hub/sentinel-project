@@ -135,16 +135,80 @@ describe("slow bodies — 30 s without a byte is a 408; a JSON body arrives whol
     await refused;
   });
 
-  it("a JSON body dripped a byte every 20 s is a 408 at 2 min; a raw upload may take longer (the server's 30 min)", async () => {
+  it("a JSON body dripped a byte every 20 s is a 408 at 2 min; a raw upload at a steady rate may take longer (the server's 30 min)", async () => {
     vi.useFakeTimers();
     const json = open(), raw = open();
     const wj = watch(readBody(json)), wr = watch(readRaw(raw));
-    for (let t = 0; t < 9; t++) { json.write(" "); raw.write("x"); await vi.advanceTimersByTimeAsync(20_000); } // 3 min
+    const chunk = Buffer.alloc(400 * 1024, 120); // 400 KB every 20 s: 20 KB/s, over SEC-6's 16 KB/s floor
+    for (let t = 0; t < 9; t++) { json.write(" "); raw.write(chunk); await vi.advanceTimersByTimeAsync(20_000); } // 3 min
     expect(wj.v).toBe(408);
     expect(wr.v).toBe("pending");
     raw.end("y");
     await vi.advanceTimersByTimeAsync(0);
     expect(wr.v).toBe("resolved");
+  });
+});
+
+describe("raw uploads keep an average rate after a grace period, and each is measured (SEC-6, S21)", () => {
+  afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); delete process.env.BCF_MIN_UPLOAD_KBPS; delete process.env.BCF_UPLOAD_GRACE_S; });
+  const watch = (p) => { const w = { v: "pending", e: null }; p.then(() => { w.v = "resolved"; }, (e) => { w.v = e.status; w.e = e; }); return w; };
+
+  it("a raw upload slower than 16 KB/s on average is a 408 once its first 120 s are over, in words; nothing is kept", async () => {
+    vi.useFakeTimers();
+    const r = open();
+    const w = watch(readRaw(r));
+    for (let t = 0; t < 6; t++) { r.write(Buffer.alloc(1024)); await vi.advanceTimersByTimeAsync(20_000); } // 6 KB in 120 s
+    expect(w.v).toBe("pending"); // the grace period
+    await vi.advanceTimersByTimeAsync(1_000);
+    r.write(Buffer.alloc(1024)); // 7 KB in 121 s
+    await vi.advanceTimersByTimeAsync(0);
+    expect(w.v).toBe(408);
+    expect(w.e.message).toBe("the upload arrived slower than 16 KB/s on average after its first 120 s — nothing was saved; try again on a faster connection");
+  });
+
+  it("BCF_MIN_UPLOAD_KBPS and BCF_UPLOAD_GRACE_S set the floor and the grace, read when the upload is read", async () => {
+    process.env.BCF_MIN_UPLOAD_KBPS = "64";
+    process.env.BCF_UPLOAD_GRACE_S = "10";
+    vi.useFakeTimers();
+    const r = open();
+    const w = watch(readRaw(r));
+    for (let t = 0; t < 4; t++) { r.write(Buffer.alloc(32 * 1024)); await vi.advanceTimersByTimeAsync(5_000); } // 32 KB every 5 s
+    expect(w.v).toBe(408);
+    expect(w.e.message).toContain("slower than 64 KB/s on average after its first 10 s");
+  });
+
+  it("review C16: an empty or 0 value keeps the default floor and grace — the floor is never off", async () => {
+    process.env.BCF_MIN_UPLOAD_KBPS = "0";
+    process.env.BCF_UPLOAD_GRACE_S = "";
+    vi.useFakeTimers();
+    const r = open();
+    const w = watch(readRaw(r));
+    for (let t = 0; t < 6; t++) { r.write(Buffer.alloc(1024)); await vi.advanceTimersByTimeAsync(20_000); } // 6 KB in 120 s
+    expect(w.v).toBe("pending");
+    await vi.advanceTimersByTimeAsync(1_000);
+    r.write(Buffer.alloc(1024));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(w.v).toBe(408);
+    expect(w.e.message).toContain("slower than 16 KB/s on average after its first 120 s");
+  });
+
+  it("JSON bodies keep their own 2-minute deadline, not the upload floor", async () => {
+    vi.useFakeTimers();
+    const r = open();
+    const w = watch(readBody(r));
+    for (let t = 0; t < 5; t++) { r.write(" "); await vi.advanceTimersByTimeAsync(20_000); } // 100 s, a byte every 20 s
+    r.end("{}");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(w.v).toBe("resolved");
+  });
+
+  it("every raw upload that lands is measured in the bridge log — its size, its time and its rate, nothing else", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    expect((await readRaw(req(["abc"]))).toString()).toBe("abc");
+    expect(log).toHaveBeenCalledTimes(1);
+    expect(log.mock.calls[0][0]).toMatch(/^\[upload\] 0\.0 MB in \d+\.\d s \(\d+ KB\/s\)$/);
+    await readBody(req(['{"a":1}']));
+    expect(log).toHaveBeenCalledTimes(1); // a JSON body is not an upload
   });
 });
 
@@ -181,6 +245,14 @@ describe("uploadSlot — two uploads at once, one per caller", () => {
     const m = uploadSlot(null);
     expect(() => uploadSlot(undefined)).toThrow(expect.objectContaining({ status: 429 }));
     m();
+  });
+  it("SEC-6 (S21): the machine credential has its own slot — it uploads while two signed-in uploads run; a third account still waits", () => {
+    const a = uploadSlot("user-a"), b = uploadSlot("user-b");
+    const m = uploadSlot(null);
+    expect(() => uploadSlot("user-c")).toThrow(expect.objectContaining({ status: 429, message: expect.stringContaining("already taking 2 uploads") }));
+    a();
+    const c = uploadSlot("user-c"); // the machine's slot is not one of the two
+    b(); c(); m();
   });
 });
 

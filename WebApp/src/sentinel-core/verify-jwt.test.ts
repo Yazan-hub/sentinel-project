@@ -41,8 +41,8 @@ describe("verifyJwt", () => {
     expect(verifyJwt(token, SECRET)).toBe(false);
   });
 
-  it("accepts a valid sig+role with no exp claim (documented deliberate)", () => {
+  it("SEC-6 (H-b): refuses a valid sig+role with no exp claim — a live stream ends at its token's exp", () => {
     const token = sign(HEADER, { role: "authenticated" });
-    expect(verifyJwt(token, SECRET)).toBe(true);
+    expect(verifyJwt(token, SECRET)).toBe(false);
   });
 });

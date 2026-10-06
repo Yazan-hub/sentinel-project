@@ -23,16 +23,22 @@ public sealed class BcfSyncManager : IDisposable
     private readonly HttpClient _http;
     private readonly HttpClient _sse; // long-lived SSE stream — no per-request timeout
     private readonly string _base;
-    private readonly string? _token; // the token at construction: the SSE stream, and a call given no bearer
+    private readonly string? _token; // the token at construction: a call given no bearer (the stream reads its own — SEC-6)
+
+    /// <summary>SEC-6 (S20): what the live stream says when the bridge refuses it for a sign-in (HTTP 401).</summary>
+    internal const string LiveSignedOut = "Live sync paused — sign-in needed (signed out, or it expired): Sentinel ▸ Sign in; it resumes by itself.";
+    /// <summary>SEC-6 (review C13): said once a paused live stream is back.</summary>
+    internal const string LiveResumed = "Live sync resumed.";
+    /// <summary>Review C17: the sign-in could not be read at all (not a signed-out session — that is <see cref="LiveSignedOut"/>).</summary>
+    internal static string LiveSignInUnreadable(Exception ex) => $"Live sync paused — the sign-in could not be read ({ex.GetType().Name}); retrying every 30 s.";
+    /// <summary>SEC-6: the wait after a refused connect (30 s; the check shortens it).</summary>
+    internal static int RefusedRetryMs = 30000;
 
     public BcfSyncManager(string baseUrl, string? bearerToken = null)
     {
         _http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
         _sse = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
         _token = bearerToken;
-        // Only the stream carries it by default: a call's own bearer must never fall back to it (SI-1).
-        if (!string.IsNullOrWhiteSpace(bearerToken))
-            _sse.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", bearerToken);
         _base = baseUrl.TrimEnd('/');
     }
 
@@ -42,17 +48,47 @@ public sealed class BcfSyncManager : IDisposable
     /// network — call from a background thread; the callback must marshal any Revit work to the API thread
     /// (e.g. raise <see cref="BcfApplyEvent"/> or re-run FetchActiveAsync). Auto-reconnects on drop until
     /// the token is cancelled. Debouncing is the caller's concern (many pushes can arrive in a burst).
+    /// SEC-6 (S20): <paramref name="bearer"/> is read at every connect (a signed-in session refreshes; the bridge ends a stream
+    /// when its sign-in expires, and the next connect carries the fresh one); an answer that is not a stream is said once
+    /// through <paramref name="said"/> — a 401 as <see cref="LiveSignedOut"/>, anything else as the bridge's words — and
+    /// retried every 30 s. A dropped connection (a bridge restart) reconnects after 3 s, unsaid, as before.
     /// </summary>
-    public async Task StartLiveSyncAsync(string projectId, Action onChange, CancellationToken ct = default)
+    public async Task StartLiveSyncAsync(string projectId, Action onChange, Func<string?> bearer, Action<string> said, CancellationToken ct = default)
     {
         string url = $"{_base}/events?project={Uri.EscapeDataString(projectId)}";
+        string? lastSaid = null;
         while (!ct.IsCancellationRequested)
         {
+            var wait = 3000;
             try
             {
-                using HttpResponseMessage resp = await _sse
-                    .GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
-                resp.EnsureSuccessStatusCode();
+                using var msg = new HttpRequestMessage(HttpMethod.Get, url);
+                string? token;
+                try { token = bearer(); }
+                catch (Exception ex)
+                {
+                    // review C17: a sign-in that cannot be read is said, never a silent 3 s retry.
+                    wait = RefusedRetryMs;
+                    string w = LiveSignInUnreadable(ex);
+                    if (w != lastSaid) { lastSaid = w; try { said(w); } catch { /* the window is gone */ } }
+                    await Task.Delay(wait, ct).ConfigureAwait(false);
+                    continue;
+                }
+                if (!string.IsNullOrWhiteSpace(token)) msg.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                using HttpResponseMessage resp = await _sse.SendAsync(msg, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+                if (!resp.IsSuccessStatusCode)
+                {
+                    wait = RefusedRetryMs;
+                    int code = (int)resp.StatusCode;
+                    string m = MessageOf(await resp.Content.ReadAsStringAsync().ConfigureAwait(false));
+                    string words = code == 401 ? LiveSignedOut
+                        : $"Live sync paused — the bridge answered HTTP {code}{(m.Length > 0 ? ": " + m : "")}; retrying every 30 s.";
+                    if (words != lastSaid) { lastSaid = words; try { said(words); } catch { /* the window is gone */ } }
+                    await Task.Delay(wait, ct).ConfigureAwait(false);
+                    continue;
+                }
+                if (lastSaid is not null) { try { said(LiveResumed); } catch { /* the window is gone */ } } // review C13
+                lastSaid = null;
                 using var stream = await resp.Content.ReadAsStreamAsync().ConfigureAwait(false);
                 using var reader = new System.IO.StreamReader(stream);
                 while (!ct.IsCancellationRequested)
@@ -68,7 +104,7 @@ public sealed class BcfSyncManager : IDisposable
             }
             catch (OperationCanceledException) { break; }
             catch { /* bridge restart / transient network → back off + reconnect */ }
-            try { await Task.Delay(3000, ct).ConfigureAwait(false); } catch { break; }
+            try { await Task.Delay(wait, ct).ConfigureAwait(false); } catch { break; }
         }
     }
 

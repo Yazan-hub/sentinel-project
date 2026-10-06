@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { runWithAuth, currentUserToken, currentActor, resolveActor, currentSub } from "./bridge-auth.mjs";
+import { runWithAuth, currentUserToken, currentActor, resolveActor, currentSub, currentExp } from "./bridge-auth.mjs";
 
 // A syntactically valid JWT with the given payload (signature irrelevant — currentActor only decodes;
 // verification happens at the gate / at PostgREST).
@@ -62,5 +62,15 @@ describe("currentSub", () => {
       expect(currentSub()).toBe("user-uuid-1");
     });
     expect(currentSub()).toBeNull();
+  });
+});
+
+describe("currentExp (SEC-6, S20)", () => {
+  it("returns the JWT exp inside a context; null outside, without one, or for a malformed payload", () => {
+    runWithAuth(jwt({ sub: "u-1", exp: 1893456000 }), () => expect(currentExp()).toBe(1893456000));
+    runWithAuth(jwt({ sub: "u-1" }), () => expect(currentExp()).toBeNull());
+    runWithAuth(jwt({ sub: "u-1", exp: "1893456000" }), () => expect(currentExp()).toBeNull());
+    runWithAuth("aaa.%%%not-base64%%%.sig", () => expect(currentExp()).toBeNull());
+    expect(currentExp()).toBeNull();
   });
 });

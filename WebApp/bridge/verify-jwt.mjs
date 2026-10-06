@@ -63,7 +63,8 @@ function claimsOk(payloadB64) {
     const payload = b64json(payloadB64);
     if (payload.role !== "authenticated") return false;
     if (payload.is_anonymous === true) return false; // a Supabase anonymous sign-in is nobody's account (D1)
-    return !payload.exp || payload.exp * 1000 > Date.now();
+    // SEC-6 (H-b): a token without a numeric exp is refused — Supabase always sets one, and a live stream ends at it.
+    return typeof payload.exp === "number" && payload.exp * 1000 > Date.now();
   } catch { return false; }
 }
 

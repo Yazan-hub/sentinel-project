@@ -25,10 +25,10 @@ const freePort = () => new Promise((resolve, reject) => {
   s.on("error", reject);
 });
 
-const jwt = (sub) => {
+const jwt = (sub, ttl = 3600) => {
   const part = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
   const head = part({ alg: "HS256", typ: "JWT" });
-  const body = part({ sub, email: `${sub}@example.test`, role: "authenticated", exp: Math.floor(Date.now() / 1000) + 3600 });
+  const body = part({ sub, email: `${sub}@example.test`, role: "authenticated", exp: Math.floor(Date.now() / 1000) + ttl });
   return `${head}.${body}.${createHmac("sha256", SECRET).update(`${head}.${body}`).digest("base64url")}`;
 };
 const as = { token: TOKEN, member: jwt("u-member"), other: jwt("u-other"), office: jwt("u-office"), admin: jwt("u-admin") };
@@ -42,6 +42,8 @@ const MEMBERS = [
   { project_id: "p-office", user_id: "u-office", role: "lead" },
   { project_id: "p-alpha", user_id: "u-member", role: "viewer" },
   { project_id: "p-alpha", user_id: "u-other", role: "viewer" },
+  { project_id: "p-alpha", user_id: "u-leaver", role: "viewer" }, // SEC-6: removed through the bridge
+  { project_id: "p-alpha", user_id: "u-gone", role: "viewer" },   // SEC-6: removed in the database
   { project_id: "p-beta", user_id: "u-beta", role: "owner" },
 ];
 const ADMINS = ["u-admin"];
@@ -69,6 +71,11 @@ function fakePostgrest(req, res) {
   }
   if (u.pathname === "/rest/v1/information_containers") // the bins: a forwarded session reads its memberships' only
     return json(BINS.filter((c) => c.project_id === q("project_id").slice(3) && (sub === null || MEMBERS.some((m) => m.project_id === c.project_id && m.user_id === sub))));
+  if (u.pathname === "/rest/v1/memberships" && req.method === "DELETE") { // SEC-6: the removal route's write
+    const gone = MEMBERS.filter((m) => m.project_id === q("project_id").slice(3) && m.user_id === q("user_id").slice(3));
+    for (const m of gone) MEMBERS.splice(MEMBERS.indexOf(m), 1);
+    return json(gone);
+  }
   if (u.pathname === "/rest/v1/memberships") return json(MEMBERS.filter((m) => m.project_id === q("project_id").slice(3)));
   if (u.pathname === "/rest/v1/rpc/is_platform_admin") return json(ADMINS.includes(sub));
   return json([]);
@@ -107,6 +114,7 @@ beforeAll(async () => {
     SUPABASE_URL: `http://127.0.0.1:${fake.address().port}`, SUPABASE_SERVICE_KEY: SERVICE, SUPABASE_ANON_KEY: "fake-anon-key",
     BCF_EVENT_POLL_MS: "0", // no cross-machine poll against the fake
     BCF_MAX_SSE: "9",       // reachable in a test: 8 streams for one account + 1 for another
+    BCF_SSE_RECHECK_MS: "1500", // SEC-6: a stream's role is read again every 1.5 s here (5 min by default)
   };
   child = spawn(process.execPath, [join(copy, "bcf-service.mjs")], { cwd: copy, env, stdio: ["ignore", "ignore", "pipe"], windowsHide: true });
   child.stderr.setEncoding("utf8");
@@ -138,12 +146,19 @@ async function openEvents(who, project) {
   const q = project === undefined ? "" : `?project=${encodeURIComponent(project)}`;
   const r = await fetch(`${base}/events${q}`, { headers: { Authorization: `Bearer ${who}` }, signal: ctrl.signal });
   if (r.status !== 200) return { status: r.status, body: await r.json() };
-  const first = new TextDecoder().decode((await r.body.getReader().read()).value);
-  const s = { status: 200, first, close: () => ctrl.abort() };
+  const reader = r.body.getReader();
+  const first = new TextDecoder().decode((await reader.read()).value);
+  const s = { status: 200, first, reader, close: () => ctrl.abort() };
   streams.push(s);
   return s;
 }
 const closeAll = () => { while (streams.length) streams.pop().close(); };
+/** SEC-6: true when the bridge ends the stream within `ms`, false when it is still open then. */
+async function ended(s, ms) {
+  const late = new Promise((r) => setTimeout(() => r(false), ms));
+  const done = (async () => { for (;;) { try { if ((await s.reader.read()).done) return true; } catch { return true; } } })();
+  return Promise.race([done, late]);
+}
 /** The bridge sees an aborted stream a moment later: retry until the open is admitted. */
 async function openWhenFree(who, project) {
   for (let i = 0; i < 40; i++) {
@@ -194,6 +209,34 @@ describe("GET /events — viewers of the project only, 8 streams per account (D7
     expect((await openEvents(as.token, "beta")).status).toBe(200); // service: no membership check, not held to MAX_SSE
     closeAll();
   }, 15_000);
+});
+
+describe("GET /events — a stream ends with the authority it was opened with (SEC-6, S20)", () => {
+  afterAll(closeAll);
+
+  it("a member removed through the bridge stops receiving at once, and cannot open the stream again", async () => {
+    const s = await openWhenFree(jwt("u-leaver"), "alpha");
+    const r = await fetch(`${base}/cde/alpha/members/u-leaver`, { method: "DELETE", headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" }, body: "{}" });
+    expect(r.status).toBe(200);
+    expect(await ended(s, 700)).toBe(true); // before the first role check (1.5 s): the removal route ended it
+    expect((await openEvents(jwt("u-leaver"), "alpha")).status).toBe(404);
+  }, 10_000);
+
+  it("a member removed elsewhere (in the database, or on another bridge) stops receiving at the next role check", async () => {
+    const s = await openWhenFree(jwt("u-gone"), "alpha");
+    expect(await ended(s, 1800)).toBe(false); // still a member: a check passed
+    MEMBERS.splice(MEMBERS.findIndex((m) => m.user_id === "u-gone"), 1);
+    expect(await ended(s, 4000)).toBe(true);
+  }, 10_000);
+
+  it("a signed-in stream ends when its token expires; the machine credential's stream does not", async () => {
+    const short = await openWhenFree(jwt("u-member", 2), "alpha");
+    const machine = await openEvents(as.token, "beta");
+    expect(machine.status).toBe(200);
+    expect(await ended(short, 4000)).toBe(true);
+    expect(await ended(machine, 1800)).toBe(false);
+    closeAll();
+  }, 10_000);
 });
 
 describe("GET /cde/projects/:key/scope — members of the project or of its office (D7; cde-9, cde-rem-8)", () => {

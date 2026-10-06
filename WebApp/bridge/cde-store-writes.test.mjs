@@ -11,7 +11,7 @@ vi.hoisted(() => {
 });
 
 import { fakePostgrest } from "./fixtures/fake-postgrest.mjs";
-import { requireRows, deleteFolder, renameFolder, moveContainer, renameFile, setLiveVersion, registerFileVersion,
+import { requireRows, deleteFolder, renameFolder, createFolder, moveContainer, renameFile, setLiveVersion, registerFileVersion,
   deleteFile, archiveFile, unarchiveFile, listDeleted, listDeletedAcross, restoreFile, listFiles, versionOnKey, attachGeometry, addVersion, bcfSaveTopic, createTransmittal } from "./cde-store.mjs";
 import { runWithAuth } from "./bridge-auth.mjs";
 
@@ -82,6 +82,17 @@ describe("folders — a write the database refused is a 403 and leaves no ledger
     expect(await renameFolder(F, { name: "Mech" })).toMatchObject({ id: F, name: "Mech" });
     expect(await moveContainer(C, { folder_id: F })).toMatchObject({ id: C, folder_id: F });
     expect(ledger().map((c) => c.body.action)).toEqual(["renamed", "moved"]);
+  });
+
+  it.each([
+    ["createFolder", () => createFolder("demo", { name: "X", parent_id: F, actor: "web" }), "POST", "a folder and its parent folder are in one project"],
+    ["moveContainer", () => moveContainer(C, { folder_id: F, actor: "web" }), "PATCH", "a file and its folder are in one project"],
+  ])("SEC-6: %s — a link the database refuses into another project (0043) is a 400 in its words, and no row", async (_name, call, method, words) => {
+    globalThis.fetch = vi.fn(async (url, init = {}) => ((init.method || "GET") === method && !String(url).includes("audit_log")
+      ? new Response(JSON.stringify({ code: "P0001", message: words }), { status: 400 })
+      : rest.fetch(url, init)));
+    await expect(call()).rejects.toMatchObject({ status: 400, message: `${words} — nothing was saved` });
+    expect(ledger()).toHaveLength(0);
   });
 });
 

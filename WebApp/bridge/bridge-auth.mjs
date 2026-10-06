@@ -38,6 +38,16 @@ export const currentActor = () => {
  */
 export const resolveActor = (claimed, fallback = null) => currentActor() || claimed || fallback;
 
+/** SEC-6 (S20): the authenticated caller's JWT expiry (seconds since the epoch), or null. A live stream ends at it. */
+export const currentExp = () => {
+  const t = currentUserToken();
+  if (!t) return null;
+  try {
+    const c = JSON.parse(Buffer.from(t.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8"));
+    return Number.isFinite(c?.exp) ? c.exp : null;
+  } catch { return null; }
+};
+
 /** The authenticated caller's user id (JWT sub), or null. Memberships key on this. */
 export const currentSub = () => {
   const t = currentUserToken();

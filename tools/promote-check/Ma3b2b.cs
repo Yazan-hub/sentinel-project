@@ -106,4 +106,56 @@ static partial class Check
            && review.Contains("catch (Exception ex) { App.Events.Enqueue(_ => TaskDialog.Show(Title, $\"The report's result could not be shown — {ex.GetType().Name}: {ex.Message}\\nRun Review AI Proposals to see what the bridge holds.\")); }"),
            "review C1: the pane's own dispatcher is Revit's, kept from its making (never the caller's); a closed window's dialog is queued before its Doctor line, each on its own; a continuation that throws anywhere still says so in a dialog");
     }
+
+    // ── 48. F-SEC5-1: a queued Sentinel action never waits silently — the watchdog, Revit's Idling, Execute's record and ↻'s own
+    //        words (source scans: Revit-bound; drill SEC6's row R-F runs them; HubWatch's words are event-check's rows) ──────────
+    static void FSec51WiringChecks()
+    {
+        Console.WriteLine("\nF-SEC5-1 — a queued Sentinel action that waits is said, raised again and run from Idling (source scans)");
+        string hub = Src("RevitEventHub.cs"), app = Src("App.cs"), panel = Src("UI", "SentinelPanel.xaml.cs"), vm = Src("UI", "SentinelPanelViewModel.cs");
+        int Count(string s, string what) { int n = 0, i = 0; while ((i = s.IndexOf(what, i, StringComparison.Ordinal)) >= 0) { n++; i += what.Length; } return n; }
+        Ok(hub.Contains("public void Enqueue(Action<UIApplication> action, [CallerMemberName] string what = \"\")")
+           && hub.Contains("var owner = (action.Method.DeclaringType?.FullName ?? \"\").Split('+')[0].Split('.').Last();")
+           && hub.Contains("if (owner != nameof(RevitEventHub)) what = $\"{owner}.{what}\";")
+           && hub.Contains("lock (_lock) _work.Enqueue((what, DateTime.UtcNow, action));") && hub.Contains("        }, what);"),
+           "every queued action carries a label — its caller's class and member (review C7), or the DocPin overload's own words — and the moment it was queued");
+        Ok(hub.Contains("_timer = new DispatcherTimer(TimeSpan.FromSeconds(5), DispatcherPriority.Background, (_, _) => Watch(), _ui);")
+           && hub.Contains("var words = _watch.Tick(DateTime.UtcNow, oldest, queued, running, _lastIdling, out var again);")
+           && hub.Contains("if (again) { _quiet = true; try { Raise(); } finally { _quiet = false; } }")
+           && hub.Contains("Say(again ? $\"{words}; Revit answered {_lastRaise}.\" : words);")
+           && hub.IndexOf("_lastRaise = raised;", StringComparison.Ordinal) is var lr and > 0
+           && hub.IndexOf("if (_quiet) return; // F-SEC5-1 (review C2)", StringComparison.Ordinal) is var q and > 0 && lr < q
+           && q < hub.IndexOf("if (raised != ExternalEventRequest.Denied && raised != ExternalEventRequest.TimedOut) return;", StringComparison.Ordinal),
+           "a watchdog on Revit's thread raises a stalled queue again and says it once, with Revit's answer (Pending included) — its own raises never write Raise's line (review C2) — and names a long-running action");
+        Ok(hub.Contains("if (_running is not null) return;") && hub.Contains("finally { lock (_lock) _running = null; }")
+           && hub.Contains("_running = (next.What, DateTime.UtcNow);"),
+           "Execute records what runs and since when; a re-entrant call (Idling during a job's dialog) leaves the queue to the outer run");
+        Ok(hub.Contains("public void OnIdling(object? sender, Autodesk.Revit.UI.Events.IdlingEventArgs e)")
+           && hub.Contains("if (!HubWatch.ShouldDrain(now, oldestAt, _running is not null)) return;")
+           && hub.Contains("Say(HubWatch.Drained(now - oldestAt.Value, what, n));") && hub.Contains("        Execute(app);")
+           && hub.IndexOf("if (sender is not UIApplication app)", StringComparison.Ordinal) is var s and > 0
+           && s < hub.IndexOf("e.SetRaiseWithoutDelay();", StringComparison.Ordinal)
+           && hub.Contains("if (_running is null && now - oldestAt.Value > HubWatch.ReRaiseAfter) e.SetRaiseWithoutDelay();")
+           && hub.Contains("if (!_saidSender) { _saidSender = true; Say(\"Revit's Idling event did not name the application — a waiting Sentinel action cannot be run from it.\"); }"),
+           "Revit's Idling runs a queue the external event left waiting past 15 s, and says so; an Idling without the application is said once and never asked to come again at once (review C8); Idling is asked to come again at once only while nothing runs (review C15)");
+        Ok(hub.Contains("private ExternalEvent _event;") && Count(hub, "ExternalEvent.Create(this)") == 2
+           && hub.Contains("if (_lastRaise == ExternalEventRequest.Pending)") && hub.Contains("var fresh = ExternalEvent.Create(this);")
+           && hub.IndexOf("var fresh = ExternalEvent.Create(this);", StringComparison.Ordinal) < hub.IndexOf("_event.Dispose();", StringComparison.Ordinal)
+           && hub.Contains("_event = fresh;") && hub.Contains("_lastRaise = ExternalEventRequest.Accepted;")
+           && hub.Contains("and could not be made again ({ex.GetType().Name}: {ex.Message})")
+           && hub.Contains("Say(\"Sentinel's link to Revit was stuck (Revit kept answering Pending while idle) — it was made again.\");")
+           && hub.IndexOf("        Execute(app);", StringComparison.Ordinal) < hub.IndexOf("if (_lastRaise == ExternalEventRequest.Pending)", StringComparison.Ordinal),
+           "review C3: after Idling ran a queue Revit kept Pending, the external event is made again (Idling is an API context), and said");
+        int made = app.IndexOf("Events = new RevitEventHub();", StringComparison.Ordinal);
+        Ok(made > 0 && app.IndexOf("app.Idling += Events.OnIdling;", StringComparison.Ordinal) > made
+           && app.Contains("if (Events is not null) { app.Idling -= Events.OnIdling; Events.Stop(); }"),
+           "App: Idling is subscribed once the hub is made, and unsubscribed (the watchdog stopped) on shutdown");
+        Ok(panel.Contains("=> App.Events?.Enqueue(uiapp => App.RefreshJourney(uiapp.ActiveUIDocument?.Document, pressed: true));")
+           && app.Contains("if (pressed) PanelVm?.LogDoctor(doc is null ? \"↻: no document is active in Revit — nothing refreshed.\"")
+           && vm.Contains("_pressedPending |= pressed;") && vm.Contains("if (_pressedPending)") && vm.Contains("_pressedPending = false;")
+           && vm.Contains("policy.Status == TaskStatus.RanToCompletion && policy.Result.Origin == \"cache\" && !string.IsNullOrEmpty(policy.Result.Reason)")
+           && vm.Contains("? $\" — why: {policy.Result.Reason}\" : \"\";") && vm.Contains("LogDoctor($\"↻ {projectKey}: {PublishLine}{cachedWhy}\");")
+           && !vm.Contains("a newer refresh replaced this one"),
+           "↻ says what it did in the Doctor log — the publish line it read (a cached policy with why, review C4; a missing one included), or why it refreshed nothing; a press a newer refresh replaced is said by the refresh that completes (review C10)");
+    }
 }

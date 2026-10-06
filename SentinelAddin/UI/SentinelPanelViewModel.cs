@@ -142,6 +142,7 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
     /// MA-2b: "LOD state: …" from the newest lod_state ledger row, as the journey words it (the web's Next strip prints the same).
     public string LodLine { get => _lodLine; private set { _lodLine = value; OnChanged(); } }
     private int _journeySeq;
+    private bool _pressedPending; // F-SEC5-1 (review C10): a ↻ press not yet said — the refresh that completes says it
     /// Bumped (on the Revit API thread) by every refresh, ShowUnbound and ShowLoading: a caller that captured it can
     /// tell whether the strip has moved on since.
     internal int JourneySeq => _journeySeq;
@@ -150,10 +151,11 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
     /// document's web key and where the ruleset that judged the rows came from. The two GETs (the journey and the
     /// project's publish@n, up to 4 s each, side by side) run on background tasks; the result is set back on the
     /// pane's thread. A newer refresh wins over a slower older one; a failure clears the strip and says so — never
-    /// stale data.
-    public void RefreshJourney(string projectKey, ResolvedArtefact local, bool confirmed = true)
+    /// stale data. F-SEC5-1: a refresh the ↻ button asked for (<paramref name="pressed"/>) says in the Doctor log what it read.
+    public void RefreshJourney(string projectKey, ResolvedArtefact local, bool confirmed = true, bool pressed = false)
     {
         var seq = ++_journeySeq;
+        _pressedPending |= pressed;
         OnUi(() =>
         {
             // Like the web strip: while loading, no line from the previous document or ruleset stays up.
@@ -177,6 +179,15 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
                 : PublishLines.Policy(policy.Status == TaskStatus.RanToCompletion ? policy.Result
                 : ArtefactClient.None("publish", "the policy read did not finish (" + (policy.Exception?.GetBaseException().Message ?? "unknown") + ")"));
             ScanRulesetLine = GovernedQuery.ScanRulesetLine(local, j);
+            if (_pressedPending)
+            {
+                // F-SEC5-1: what ↻ read — a cached or a missing policy says so, and a cached one says why (review C4); a press a
+                // newer refresh replaced is said by the refresh that completes (review C10).
+                _pressedPending = false;
+                var cachedWhy = policy.Status == TaskStatus.RanToCompletion && policy.Result.Origin == "cache" && !string.IsNullOrEmpty(policy.Result.Reason)
+                    ? $" — why: {policy.Result.Reason}" : "";
+                LogDoctor($"↻ {projectKey}: {PublishLine}{cachedWhy}");
+            }
         })));
     }
 
