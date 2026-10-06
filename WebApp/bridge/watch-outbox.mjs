@@ -132,7 +132,11 @@ async function handle(name) {
       if (!cde.cdeConfigured()) throw new Error("CDE not configured (SUPABASE_URL / SUPABASE_SERVICE_KEY)");
       await cde.geometryTarget(d.project, d.version_id, ifcSha);
     } catch (e) {
-      await park(`not linked to ${target} — ${e?.message || e}`, "Run Governed Publish again.");
+      // Its refusals (a version not on the key, a hash it was not registered with, geometry already there, Deleted items)
+      // are final: the IFC is parked. Anything else (the database or the network, no CDE configured) may pass on the next
+      // sweep, so the IFC and its sidecar stay where they are — a rerun of Governed Publish would cost a revision.
+      if ([400, 404, 409].includes(e?.status)) await park(`not linked to ${target} — ${e?.message || e}`, "Run Governed Publish again.");
+      else console.error(`  ⚠ ${name}: could not check ${target} — ${e?.message || e}; kept in the outbox for the next sweep`);
       return;
     }
 

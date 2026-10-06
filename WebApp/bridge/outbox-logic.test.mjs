@@ -161,4 +161,13 @@ describe("SEC-4: the item is linked only to the version its bytes were registere
     expect(src).not.toContain("ifcToFrag(p)");
     expect(src).not.toContain("uploadFile(");
   });
+
+  it("SEC-4 (review C17): only geometryTarget's refusals (400, 404, 409) park the IFC; any other failure leaves it in the outbox for the next sweep", () => {
+    const src = readFileSync(new URL("./watch-outbox.mjs", import.meta.url), "utf8").replace(/\r/g, "");
+    const ask = src.indexOf("await cde.geometryTarget(d.project, d.version_id, ifcSha);");
+    const handler = src.slice(ask, src.indexOf("console.log(`[${ts()}] uploading", ask));
+    expect(handler).toContain("if ([400, 404, 409].includes(e?.status)) await park(");
+    expect(handler).toContain("kept in the outbox for the next sweep");
+    expect(handler.match(/await park\(/g)).toHaveLength(1);
+  });
 });
