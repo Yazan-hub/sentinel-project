@@ -36,7 +36,7 @@ describe("validateTeam", () => {
   });
 
   it("rejects a malformed lead_email — an unreachable address is worse than none", () => {
-    for (const bad of ["ana", "ana@", "@example.test", "ana lead@x.com"]) {
+    for (const bad of ["ana", "ana@", "@example.test", "ana lead@example.test"]) {
       try { validateTeam({ code: "ARC", lead_email: bad }); throw new Error("should have thrown"); }
       catch (e) { expect(e.status).toBe(400); expect(e.message).toMatch(/email address/); }
     }
