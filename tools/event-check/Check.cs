@@ -214,8 +214,13 @@ static class Check
         Is(LedgerLine.Sentence(down), "Not recorded — the bridge did not answer", "bridge stopped → Not recorded — the bridge did not answer");
         Ok(sw.Elapsed < TimeSpan.FromSeconds(8), "a refused connection answers before the cap runs out");
 
-        var unknown = LedgerResult.Post("http://sentinel-event-check.invalid", "", "demo", "/audit", payload, TimeSpan.FromSeconds(10));
+        var unknown = LedgerResult.Post("https://sentinel-event-check.invalid", "", "demo", "/audit", payload, TimeSpan.FromSeconds(10));
         Is(LedgerLine.For(unknown), "not recorded — the bridge did not answer", "an unresolvable bridge host → not recorded");
+
+        // SEC-5: the ledger POST carries the bearer — https, or http to this PC, as the bridge address itself (UrlRule).
+        var plain = LedgerResult.Post("http://bridge.example.test", "tok", "demo", "/audit", payload, TimeSpan.FromSeconds(5));
+        Is(LedgerLine.Sentence(plain), "Not recorded — The bridge address \"http://bridge.example.test\" is not https and not on this PC — Sentinel sends a token or a sign-in to another PC over https only; set an https address in %AppData%\\Sentinel\\bcf-config.json. Nothing was sent.",
+           "SEC-5: a plain-http bridge on another PC → not recorded, in the URL rule's words, nothing sent");
 
         var silent = new TcpListener(IPAddress.Loopback, 0);
         silent.Start();

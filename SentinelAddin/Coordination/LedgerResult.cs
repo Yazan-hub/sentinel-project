@@ -115,6 +115,8 @@ public sealed class LedgerResult
         var url = (serviceUrl ?? "").TrimEnd('/') + "/cde/" + Uri.EscapeDataString(key) + path;
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
             return NotRecorded("the bridge address is not an http(s) URL (" + serviceUrl + ")");
+        // SEC-5: the POST carries the bearer — https, or http to this PC, as the bridge address itself.
+        if (UrlRule.Refusal(serviceUrl, "bridge") is { } refused) return NotRecorded(refused);
         string json;
         try { json = JsonSerializer.Serialize(payload); }
         catch (Exception e) { return NotRecorded("the event could not be written as JSON (" + e.Message + ")"); }
