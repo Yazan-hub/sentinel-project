@@ -9,7 +9,10 @@
 --       version's geometry (founder decision B-a). Since 0041 the bridge links only an item it has just uploaded, so
 --       this holds by construction; the index makes it hold for every writer.
 --
--- NOT YET APPLIED. Before the apply: the 4100 bridge runs the branch (it answers either index's refusal in words), and
+-- APPLIED 2026-10-06 ~21:12 local on the founder's "apply" (migration 0042_one_revision_per_file), AFTER the 4100 bridge was
+-- restarted on the branch 8d0e399; probes/0042_probe.sql part 0 read before it (0 pairs held twice, 0 items named twice,
+-- 0 versions with a checked link, 48 without, 0 versions with more than one link row), part 1 2 of 2 true, part 2
+-- "PROBE 0042: 8 of 8 as expected." Before the apply: the 4100 bridge runs the branch (it answers either index's refusal in words), and
 -- probes/0042_probe.sql
 -- part 0 is read (read-only); its first two rows must read 0 (each index would refuse the apply otherwise).
 -- After it: the probe's parts 1 and 2.

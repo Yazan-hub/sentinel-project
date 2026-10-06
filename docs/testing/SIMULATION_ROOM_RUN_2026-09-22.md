@@ -1988,3 +1988,48 @@ on the next Project Setup ▸ Save or reopen.
 **Closing list:** the test bridge on 4101 stopped; the 4100 bridge and the watcher on the branch (the same code master gets); Revit
 closed after both scratch models were saved (scratch copies only); `sec4-smoke` is the founder's scratch project — its rows stay on
 the ledger by design (#1997–#2011).
+
+## Session SEC5 — hardening slice 5 live (2026-10-06 ~20:55 → 23:12 local, branch feature/sec5-hardening 8d0e399, Claude driving the bridge, the database, the platform, the founder's local app and Revit 2024)
+
+Setup: the founder's words, given ahead: "apply 0042 when ready, deploy the sec5 branch to 2024", "OK for the uploads, publish the
+web app when ready too"; the restart under the standing "restart the bridge urself too when needed". D-1 and D-4 read first
+(read-only, review C4), then the 4100 bridge and the outbox watcher restarted by Claude on the branch (B-1), then the platform
+round trip, then the apply. The test bridge on 127.0.0.1:4101 and the local app's dev server on 4000 on the same checkout. The
+scratch project `sec5-smoke` made in the founder's local app, signed in as the founder (no office). The add-in built for Revit
+2024 from the branch and deployed; Revit 2024 started by Claude, Load Once; the scratch model a shell copy of SEC4's
+(`Documents\Sentinel drills\sec5\sec5-drill.rvt`) opened from Revit's Open dialog. A Windows antivirus notice covered the screen
+mid-drill; the founder closed it (and restarted the bridge from his own script, same checkout); Revit was started again for R-2.
+
+| Row | Result | Evidence |
+|---|---|---|
+| D-1 | part 0: 0 revision pairs held twice, 0 platform items named twice, 0 indexes of 0042's names, 0 versions with more than one link row; 48 versions with geometry and no checked hash (A-a: "not hash-checked"), 0 checked — **pass** | the rows (counts only) |
+| D-4 | `23 of 23 installed naming, layers and ids artefacts pass SEC-5's validator` (no ids@n refused — B-1 not held); packs: `1 of 3` — the two July seed packs' rulesets carry rules without a `target`, refused by the ruleset check that predates SEC-5 (on master since phase 3): an install of those two packs was already refused; the founder is told — **pass** | the summary lines |
+| B-1 | 4100 restarted on the branch, `/health` `{"ok":true,"cde_configured":true}`; one outbox watcher on the branch; 4101 and 4000 up — **pass** | the lines |
+| U-1 | a scratch `.frag` uploaded to the bridge's platform project and downloaded without a tag: `byte-for-byte: true` — **pass** | hash prefixes |
+| U-2 | after a v2: no tag → v2; tag v1 → v1; `listVersions` `v2,v1`, createdAt on every one, `first is v1: true`; the scratch item archived — **pass** (A-a's option C stands) | the lines |
+| D-2 | `0042_one_revision_per_file` applied (~21:12 local), one transaction — **pass** | the answer |
+| D-3 | part 1: 2 of 2 true; part 2: `PROBE 0042: 8 of 8 as expected.` — **pass** | the rows, the summary |
+| W-0 | `sec5-smoke` created in the founder's local app, signed in, no office — **pass** | the key |
+| M-1 | a revision `P01` registered (`201`); other bytes under `P01`: `409 a revision is registered once per file — a new upload takes a new revision; nothing was saved`; the same bytes again: `201`, the first version id, `repeat: true` — **pass** | statuses, ids |
+| M-2 | a "geometry linked" row through the audit route: `400 geometry linked rows are written by Sentinel, not through this route` — **pass** | status, words |
+| M-3 | a scratch IDS whose facet pattern does not compile: `400 … properties[0].pattern does not compile as a pattern …`; the compiling one `201`, `ids@1`; a scratch layers standard with a four-wildcard glob: `400 layers: ignore[0] holds more than 3 * wildcards` — **pass** | statuses, words |
+| W-1 | aster-tower ▸ Files ▸ v3 ▸ Open 3D: the model loads; `Loaded v3 into the viewer ✓ … — geometry not hash-checked — the ledger holds no geometry link for this version.` (its geometry predates link rows) — **pass** | the line |
+| W-2 | one intake upload of a test IFC on `sec5-smoke` (through 4101's intake, the route the Files window's upload calls — the platform's file picker is not drivable here): `200`, judged by `ids@1` (nothing in scope), ledger #2019; Open 3D: `Loaded P01 into the viewer ✓ (model "SEC5-SMOKE.ifc@P01") — geometry checked against the ledger's link.` — **pass** | the version id, the line |
+| D-5 | the link row #2024 for that version: `frag_sha256` true, `ifc_item_id` true, `ifc_sha256` = the version's sha256 — **pass** | the answer |
+| W-3 | a later platform version (`sec5-v2`) of W-2's linked item; Open 3D again: `SEC5-SMOKE.ifc P01: the downloaded bytes are not the ones linked to this version (the item changed on the platform, or the download was cut) — not shown.` — **pass** | the line |
+| W-4 | Standards ▸ Publish ▸ `sec5-pack` (aster-tower's ruleset): `Publish failed: the standards-pack registry is written by the bridge's machine credential — a signed-in publish, fork or install count is not open yet; nothing was published`; the registry lists no `sec5-pack` — **pass** | the line |
+| W-6 | the local app reloaded: still signed in, 44 projects listed — **pass** | yes |
+| R-0 | the branch's add-in on Revit 2024 (0 errors); the scratch model open (its pane: the paused line for its old key) — **pass** | the lines |
+| R-1 | Project Setup ▸ `sec5-smoke` ▸ Save; Governed Publish: no address refusal; rejected by `ids@1`'s door check (the scratch model's doors carry no rating), nothing uploaded; `Gate row: ledger #2027 · receipt …`, verdict #2028, hold #2029 — **pass** | the dialog, the ledger ids |
+| R-2 | after Project Setup ▸ Save the pane read `Auto-publish: on · publish@1`; `publish@2` (off) installed → ↻ → `Auto-publish: off — publish@2 · project · bb43640b83a0…`; `publish@3` (on) → ↻ → `Auto-publish: on · publish@3`; the add-in's cache file rewritten each time — **pass** | the lines |
+
+**Seen, not reproduced (L):** in drill SEC4 and once tonight (right after a result dialog, and with another window in front) ↻ left
+the publish line stale; on a clean Revit session every ↻ followed the change and refreshed the cache. No code change; watch it
+in SEC-6. **Owed:** W-5 (the founder's own passphrase unlock); G-1 (`THATOPEN_GATE_PROJECT_KEY` — the founder's line in
+config/.env, J-a stays "unset" until then); a raw-IFC link made since SEC-5 and the live mid-unlock failure (offline rows); the
+CI run (after the push); Revit 2021–2023 and 2025–2027 live (builds; deployed after the merge).
+
+**Closing list:** the test bridge on 4101 stopped; the 4100 bridge and the watcher on the branch (the same code master gets);
+Revit closed without saving the scratch model; `sec5-smoke` is the founder's scratch project — its rows stay on the ledger by
+design (#2016–#2029 and the artefact installs); on the platform the scratch round-trip item is archived and W-2's two items
+(`SEC5-SMOKE.frag` with its `sec5-v2`, and the IFC) stay as the founder's scratch.
