@@ -28,7 +28,8 @@ let _sb: SupabaseClient | null = null;
 export function supabase(): SupabaseClient {
   if (_sb) return _sb;
   _sb = createClient(SUPABASE_URL, SUPABASE_ANON, {
-    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
+    // SEC-5 (S38): the sign-in is a code or a password; a session is never read out of the page's URL.
+    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
   });
   return _sb;
 }

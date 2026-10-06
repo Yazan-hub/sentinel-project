@@ -58,7 +58,8 @@ async function deriveKek(passphrase: string, salt: Uint8Array, iters: number): P
   );
 }
 
-/** New project keystore: random salt + random DEK, wrapped under the passphrase. Returns the keystore + DEK. */
+/** New project keystore: random salt + random DEK, wrapped under the passphrase. Returns the keystore + the DEK as a
+ *  key that cannot be exported (SEC-5): the extractable one exists only for the wrap. */
 export async function createKeystore(passphrase: string): Promise<{ keystore: Keystore; dek: CryptoKey }> {
   const salt = crypto.getRandomValues(new Uint8Array(16));
   // extractable so wrapKey can read the key material INTO the wrap (JS never sees the raw bytes — we never call exportKey).
@@ -66,24 +67,26 @@ export async function createKeystore(passphrase: string): Promise<{ keystore: Ke
   const kek = await deriveKek(passphrase, salt, PBKDF2_ITERS);
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const wrapped = new Uint8Array(await crypto.subtle.wrapKey("raw", dek, kek, { name: "AES-GCM", iv }));
+  const kept = await crypto.subtle.unwrapKey("raw", wrapped, kek, { name: "AES-GCM", iv }, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
   return {
     keystore: { v: 1, alg: "AES-GCM-256", salt: b64(salt), iters: PBKDF2_ITERS, wrap_iv: b64(iv), wrapped_dek: b64(wrapped) },
-    dek,
+    dek: kept,
   };
 }
 
-/** Open an existing keystore. THROWS on a wrong passphrase (the GCM tag fails to unwrap) — the verifier. */
-export async function openKeystore(ks: Keystore, passphrase: string): Promise<CryptoKey> {
+/** Open an existing keystore. THROWS on a wrong passphrase (the GCM tag fails to unwrap) — the verifier. The DEK cannot
+ *  be exported unless `extractable` (a re-key's own short-lived copy, SEC-5). */
+export async function openKeystore(ks: Keystore, passphrase: string, extractable = false): Promise<CryptoKey> {
   const kek = await deriveKek(passphrase, unb64(ks.salt), ks.iters);
   return crypto.subtle.unwrapKey(
     "raw", unb64(ks.wrapped_dek), kek, { name: "AES-GCM", iv: unb64(ks.wrap_iv) },
-    { name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"],
+    { name: "AES-GCM", length: 256 }, extractable, ["encrypt", "decrypt"],
   );
 }
 
 /** Change passphrase: verify the old one, then re-wrap the SAME DEK under the new one (files unchanged). */
 export async function rewrapKeystore(ks: Keystore, oldPass: string, newPass: string): Promise<Keystore> {
-  const dek = await openKeystore(ks, oldPass); // throws if oldPass is wrong
+  const dek = await openKeystore(ks, oldPass, true); // throws if oldPass is wrong; extractable for the wrap below only
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const kek = await deriveKek(newPass, salt, PBKDF2_ITERS);
   const iv = crypto.getRandomValues(new Uint8Array(12));
@@ -123,15 +126,23 @@ export async function decryptBytes(projectKey: string, blob: ArrayBuffer): Promi
 const keystoreUrl = (base: string, projectKey: string) =>
   `${base.replace(/\/$/, "")}/cde/${encodeURIComponent(projectKey)}/keystore`;
 
-async function getKeystore(base: string, projectKey: string): Promise<Keystore | null> {
-  try {
-    const r = await bfetch(keystoreUrl(base, projectKey));
-    if (!r.ok) return null;
-    const d = await r.json();
-    return d && d.wrapped_dek ? (d as Keystore) : null;
-  } catch {
-    return null;
+// SEC-5 (S39): "absent" is only the bridge's 200 null; anything else that is not a keystore is a failed read — never a
+// first use, which would create a second key for the project.
+// A read the bridge refused (401, 403, 404) or a keystore with no wrapped key does not get better by trying again.
+type KeystoreRead = { state: "absent" } | { state: "present"; ks: Keystore } | { state: "error"; why: string; retry: boolean };
+async function getKeystore(base: string, projectKey: string): Promise<KeystoreRead> {
+  let r: Response;
+  try { r = await bfetch(keystoreUrl(base, projectKey)); }
+  catch (e) { return { state: "error", why: (e as Error)?.message || String(e), retry: true }; }
+  if (!r.ok) {
+    const m = ((await r.json().catch(() => null)) as { message?: string } | null)?.message;
+    return { state: "error", why: `the bridge answered HTTP ${r.status}${m ? `: ${m}` : ""}`, retry: ![401, 403, 404].includes(r.status) };
   }
+  let d: unknown;
+  try { d = await r.json(); }
+  catch { return { state: "error", why: "the bridge's answer was not JSON", retry: true }; }
+  if (d === null) return { state: "absent" };
+  return d && typeof d === "object" && (d as Keystore).wrapped_dek ? { state: "present", ks: d as Keystore } : { state: "error", why: "the stored keystore holds no wrapped key", retry: false };
 }
 
 /**
@@ -161,9 +172,10 @@ export async function unlockAndVerify(
   passphrase: string,
 ): Promise<{ ok: boolean; firstUse: boolean; reason?: string }> {
   const existing = await getKeystore(base, projectKey);
-  if (existing) {
+  if (existing.state === "error") return { ok: false, firstUse: false, reason: `Could not read the project keystore (${existing.why}) — nothing was unlocked${existing.retry ? "; try again" : ""}` };
+  if (existing.state === "present") {
     try {
-      deks.set(projectKey, await openKeystore(existing, passphrase));
+      deks.set(projectKey, await openKeystore(existing.ks, passphrase));
       return { ok: true, firstUse: false };
     } catch {
       return { ok: false, firstUse: false }; // wrong passphrase — GCM auth failed, no fail-open
@@ -183,9 +195,9 @@ export async function unlockAndVerify(
     if (r.status === 409) {
       // Someone set it up first — open THEIR keystore with the entered passphrase.
       const other = await getKeystore(base, projectKey);
-      if (other) {
+      if (other.state === "present") {
         try {
-          deks.set(projectKey, await openKeystore(other, passphrase));
+          deks.set(projectKey, await openKeystore(other.ks, passphrase));
           return { ok: true, firstUse: false };
         } catch {
           return { ok: false, firstUse: false };
@@ -201,7 +213,9 @@ export async function unlockAndVerify(
       return { ok: false, firstUse: true, reason: `Not set up — ${j?.message || `the bridge answered HTTP ${r.status}`}` };
     }
   } catch {
-    /* offline — hold the DEK for this session; it'll persist on the next successful setup */
+    // SEC-5 (S39): the keystore may not have been stored — a key held now could seal this session's files under a key no
+    // one keeps. The next unlock reads what the bridge holds.
+    return { ok: false, firstUse: true, reason: "Could not reach the bridge — the passphrase may not have been stored; unlock again with the same passphrase" };
   }
   deks.set(projectKey, dek);
   return { ok: true, firstUse: true };
