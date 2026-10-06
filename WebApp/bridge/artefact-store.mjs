@@ -58,6 +58,9 @@ const bad = (kind, path, want) => err(400, `${kind}: ${path} ${want}`);
 // SEC-4 (S29): a ruleset's token_defs and exclusions are patterns the add-in and the web compile and match. Bounded here, in
 // length and count, and compiled in JS ({org} stands in for the office code) — so one that would not compile never installs.
 const MAX_PATTERN = 512, MAX_PATTERNS = 64;
+// SEC-5: a layer ignore glob becomes ".*" per "*" (sentinel-core layers.ts globToRegex) — its stars are bounded
+// too: at most 3 (the repository's globs hold 2 at most).
+const MAX_STARS = 3;
 function rulePattern(kind, path, p) {
   if (typeof p !== "string") throw bad(kind, path, "must be a string");
   if (p.length > MAX_PATTERN) throw bad(kind, path, `is longer than ${MAX_PATTERN} characters`);
@@ -102,6 +105,18 @@ export function validateArtefact(kind, body) {
     // rule). Reject it here so an empty compile can never become an artefact.
     if (!Array.isArray(body.specifications) || body.specifications.length === 0) throw err(400, "an IDS artefact needs at least one specification in `specifications: [...]` (the JSON spec shape; raw .ids XML is not accepted server-side)");
     if (body.enforce !== undefined && !ENFORCE.includes(body.enforce)) throw err(400, "ids.enforce must be reject | warn | off");
+    // SEC-5 (S29): the class each specification applies to and each facet's pattern are compiled by the IDS validator.
+    body.specifications.forEach((s, i) => {
+      const at = `specifications[${i}]`;
+      if (!isObj(s)) throw bad(kind, at, "must be an object");
+      // An entity pattern JS cannot compile applies to nothing, in the web and in Revit alike (MA-2c review C23): bounded, not compiled.
+      const ent = s.applicability?.entity;
+      if (ent != null && (typeof ent !== "string" || ent.length > MAX_PATTERN)) throw bad(kind, `${at}.applicability.entity`, `must be a string of at most ${MAX_PATTERN} characters`);
+      for (const f of ["properties", "attributes"]) {
+        const list = s.requirements?.[f];
+        if (Array.isArray(list)) list.forEach((x, j) => { if (x?.pattern != null) rulePattern(kind, `${at}.requirements.${f}[${j}].pattern`, x.pattern); });
+      }
+    });
   }
   if (kind === "ruleset") {
     standardHead(kind, body);
@@ -131,12 +146,14 @@ export function validateArtefact(kind, body) {
     if (!filled(body.title)) throw bad(kind, "title", "must be a non-empty string");
     if (typeof body.separator !== "string" || body.separator.length !== 1) throw bad(kind, "separator", "must be one character");
     if (!Array.isArray(body.fields) || !body.fields.length) throw bad(kind, "fields", "must be a non-empty array");
+    if (body.fields.length > MAX_PATTERNS) throw bad(kind, "fields", `holds more than ${MAX_PATTERNS} fields`);
     body.fields.forEach((f, i) => {
       const at = `fields[${i}]`;
       if (!f || typeof f !== "object") throw bad(kind, at, "must be an object");
       if (!filled(f.key)) throw bad(kind, `${at}.key`, "must be a non-empty string");
       if (!filled(f.label)) throw bad(kind, `${at}.label`, "must be a non-empty string");
       if (!filled(f.pattern) && !(Array.isArray(f.enum) && f.enum.length)) throw bad(kind, at, "needs a pattern or a non-empty enum[]");
+      if (f.pattern != null) rulePattern(kind, `${at}.pattern`, f.pattern); // SEC-5: the naming judges compile it
     });
     if (body.enforce !== undefined && !ENFORCE.includes(body.enforce)) throw bad(kind, "enforce", "must be reject | warn | off");
     if (body.strip_extensions !== undefined && !(Array.isArray(body.strip_extensions) && body.strip_extensions.every((e) => typeof e === "string")))
@@ -174,7 +191,14 @@ export function validateArtefact(kind, body) {
       if (l.family != null && typeof l.family !== "string") throw bad(kind, `${at}.family`, "must be a string");
       if (l.aliases != null && !texts(l.aliases)) throw bad(kind, `${at}.aliases`, "must be an array of strings");
     });
-    if (body.ignore != null && !texts(body.ignore)) throw bad(kind, "ignore", "must be an array of strings");
+    if (body.ignore != null) {
+      if (!texts(body.ignore)) throw bad(kind, "ignore", "must be an array of strings");
+      if (body.ignore.length > MAX_PATTERNS) throw bad(kind, "ignore", `holds more than ${MAX_PATTERNS} globs`);
+      body.ignore.forEach((g, i) => {
+        if (g.length > MAX_PATTERN) throw bad(kind, `ignore[${i}]`, `is longer than ${MAX_PATTERN} characters`);
+        if (g.split("*").length - 1 > MAX_STARS) throw bad(kind, `ignore[${i}]`, `holds more than ${MAX_STARS} * wildcards`);
+      });
+    }
   }
   if (kind === "guideline") {
     // What GuidelineMatcher.Resolve dereferences (elements[].rules[].use.family): a gap there is a crash, not a standard.

@@ -17,6 +17,16 @@ const CATALOG = read("../../demo/bds-pilot/bds-type-catalog.json").types;
 const pick = (r) => ({ family: r.family || null, type: r.type ?? null, source: r.source, confidence: r.confidence, available: r.available ?? null, matched: r.matched ?? null });
 
 describe("bridge/sentinel-core.mjs is the build of src/sentinel-core (MA-2a)", () => {
+  // SEC-5 (E-b): a requirement whose pattern does not compile is never a pass — in the bundle the bridge judges with, as in
+  // the source the web judges with.
+  it("an IDS pattern that does not compile fails its requirement, with words that say so", async () => {
+    const ids = await import("../src/sentinel-core/ids");
+    const spec = { title: "t", specifications: [{ name: "s", applicability: { entity: "IFCDOOR" }, requirements: { attributes: [], properties: [{ pset: "P", name: "FireRating", pattern: "EI(60", cardinality: "required" }] } }] };
+    const el = { modelId: "m", localId: 1, identity: { Class: "IFCDOOR", GlobalId: "g" }, psets: [{ name: "P", rows: [{ name: "FireRating", value: "EI60" }] }], quantities: [] };
+    for (const validate of [ids.validateElement, bundle.validateElement])
+      expect(validate(spec, el)).toEqual({ inScope: true, pass: false, failures: [{ specification: "s", requirement: "P.FireRating", reason: "the requirement's pattern /EI(60/ does not compile — not a pass" }] });
+  });
+
   it("exports the resolver and the BOS-5 category ids the bridge types with", () => {
     for (const name of ["resolveWithCatalog", "resolveType", "validateGuideline", "validateAgainstCatalog", "sameCategory", "CATEGORY_BIC"])
       expect(typeof bundle[name], name).toBe(typeof source[name]);

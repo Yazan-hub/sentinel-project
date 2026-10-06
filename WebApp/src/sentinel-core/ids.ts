@@ -107,9 +107,10 @@ function checkFacet(
     out.push({ specification: specName, requirement: label, reason: `is "${actual}", required "${wantValue}"` });
   }
   if (wantPattern != null) {
-    let ok = false;
-    try { ok = new RegExp(wantPattern).test(String(actual)); } catch { ok = true; /* bad pattern → skip */ }
-    if (!ok) out.push({ specification: specName, requirement: label, reason: `is "${actual}", must match /${wantPattern}/` });
+    // SEC-5: a pattern that does not compile is never a pass (the bridge refuses one on install since SEC-5).
+    let ok = false, broken = false;
+    try { ok = new RegExp(wantPattern).test(String(actual)); } catch { broken = true; }
+    if (!ok) out.push({ specification: specName, requirement: label, reason: broken ? `the requirement's pattern /${wantPattern}/ does not compile — not a pass` : `is "${actual}", must match /${wantPattern}/` });
   }
 }
 
