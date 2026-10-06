@@ -31,6 +31,9 @@ describe("migration 0042 — one revision per file, one version per platform ite
     expect(part0).not.toMatch(/\b(insert|update|delete|create|drop|alter)\b(?![^\n]*--)/i);
     expect(part0.indexOf("(file, revision) pairs held by more than one version")).toBeLessThan(part0.indexOf("platform items named by more than one version"));
     expect(part0).toContain('versions with more than one "geometry linked" row (expect 0 — the web reads the newest)'); // review C7
+    // the link rows are counted as Open 3D reads them (action_prefix → like 'geometry linked%'), never by the exact action
+    expect(part0).not.toContain("action = 'geometry linked'");
+    expect(part0.match(/action like 'geometry linked%'/g)).toHaveLength(5);
     expect(PROBE).toContain("indexdef like 'CREATE UNIQUE INDEX%(container_id, upper(btrim(revision)))' and indexdef not like '%WHERE%'");
     for (const k of ["U1", "U2", "U3", "U4", "S1", "I1", "I2", "I3"]) expect(PROBE).toContain(`  -- ${k} `);
     expect(PROBE).toContain("raise exception 'PROBE 0042: % of % as expected%.");

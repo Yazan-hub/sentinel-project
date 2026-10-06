@@ -14,14 +14,14 @@ union all select 'platform items named by more than one version (expect 0 — ru
   (select count(*) from (select platform_item_id from public.container_versions where platform_item_id is not null group by 1 having count(*) > 1) d)::text
 union all select 'versions with geometry whose "geometry linked" row records a checked hash (Open 3D checks them)',
   (select count(*) from public.container_versions v where v.platform_item_id is not null and exists (select 1 from public.audit_log a
-     where a.entity_type = 'file_version' and a.entity_id = v.id and a.action = 'geometry linked' and (a.new_value ? 'frag_sha256' or a.new_value ? 'ifc_item_id')))::text
+     where a.entity_type = 'file_version' and a.entity_id = v.id and a.action like 'geometry linked%' and (a.new_value ? 'frag_sha256' or a.new_value ? 'ifc_item_id')))::text
 union all select 'versions with geometry and no checked hash on a "geometry linked" row (Open 3D: "not hash-checked")',
   (select count(*) from public.container_versions v where v.platform_item_id is not null and not exists (select 1 from public.audit_log a
-     where a.entity_type = 'file_version' and a.entity_id = v.id and a.action = 'geometry linked' and (a.new_value ? 'frag_sha256' or a.new_value ? 'ifc_item_id')))::text
+     where a.entity_type = 'file_version' and a.entity_id = v.id and a.action like 'geometry linked%' and (a.new_value ? 'frag_sha256' or a.new_value ? 'ifc_item_id')))::text
 union all select 'indexes named as 0042''s already (expect 0)',
   (select count(*) from pg_indexes where schemaname = 'public' and indexname in ('container_versions_one_revision', 'container_versions_one_item'))::text
 union all select 'versions with more than one "geometry linked" row (expect 0 — the web reads the newest)',
-  (select count(*) from (select entity_id from public.audit_log where entity_type = 'file_version' and action = 'geometry linked'
+  (select count(*) from (select entity_id from public.audit_log where entity_type = 'file_version' and action like 'geometry linked%'
      group by 1 having count(*) > 1) d)::text;
 
 -- Part 0 diagnostics — read-only; each names what part 0 counted (keys, file names, revisions and item ids only):
@@ -35,8 +35,8 @@ union all select 'versions with more than one "geometry linked" row (expect 0 �
 --   the versions with more than one link row: select p.key, ic.iso_name, cv.revision, a.id, a.actor, a.at,
 --     a.new_value->>'platform_item_id' from public.audit_log a join public.container_versions cv on cv.id = a.entity_id
 --     join public.information_containers ic on ic.id = cv.container_id join public.projects p on p.id = ic.project_id
---     where a.entity_type = 'file_version' and a.action = 'geometry linked' and a.entity_id in (select entity_id from
---     public.audit_log where entity_type = 'file_version' and action = 'geometry linked' group by 1 having count(*) > 1)
+--     where a.entity_type = 'file_version' and a.action like 'geometry linked%' and a.entity_id in (select entity_id from
+--     public.audit_log where entity_type = 'file_version' and action like 'geometry linked%' group by 1 having count(*) > 1)
 --     order by 1, 2, 3, 4;
 
 -- Part 1 (after the apply)
