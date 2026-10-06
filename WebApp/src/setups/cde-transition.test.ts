@@ -6,7 +6,7 @@ const { bfetch } = vi.hoisted(() => ({ bfetch: vi.fn() }));
 vi.mock("./bridge-fetch", () => ({ bfetch }));
 
 import { readFileSync } from "node:fs";
-import { transitionVersion, unarchiveFile, NEEDS_REASON } from "./cde-transition";
+import { transitionVersion, unarchiveFile, NEEDS_REASON, nextAttachRevision } from "./cde-transition";
 
 const res = (status: number, body: unknown) => ({ ok: status < 400, status, json: async () => body }) as unknown as Response;
 const V = "aaaaaaaa-0000-4000-8000-000000000001";
@@ -104,5 +104,15 @@ describe("unarchiveFile — POST /cde/:key/files/unarchive", () => {
     expect(src).toContain("} catch (e) { await load(); status(`unarchive failed: ");
     expect(src).toContain("data-funarchiveok=");
     expect(src).not.toContain('fileAction("unarchive"');
+  });
+});
+
+describe("nextAttachRevision — the CDE panel's label for an encrypted attach (SEC-4 K-c, review C13)", () => {
+  it("counts the file's versions and Deleted items, and steps past a label the file already holds (trimmed, any case)", () => {
+    expect(nextAttachRevision({ container_versions: [{ revision: "P01" }], deleted_versions: 0 })).toBe("P02");
+    expect(nextAttachRevision({ container_versions: [{ revision: "P01" }, { revision: "P03" }], deleted_versions: 0 })).toBe("P04");
+    expect(nextAttachRevision({ container_versions: [{ revision: "p02 " }], deleted_versions: 0 })).toBe("P03");
+    expect(nextAttachRevision({ container_versions: [], deleted_versions: 1 })).toBe("P02");
+    expect(nextAttachRevision({})).toBe("P01");
   });
 });

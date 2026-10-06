@@ -592,6 +592,8 @@ export async function createContainer(key, b) {
 // SEC-4 (0041 cde_version_on_insert, founder decision K-c): a revision is registered once per file, Deleted items included —
 // the bridge says so in the database's words before it writes, and answers the database's own refusal the same way.
 const REVISION_ONCE = "a revision is registered once per file — a new upload takes a new revision; nothing was saved";
+// A label is compared trimmed and in any case, as 0041 compares it ("P01 " and "p01" are P01); a new one is stored trimmed.
+const sameRevision = (a, b) => String(a ?? "").trim().toUpperCase() === String(b ?? "").trim().toUpperCase();
 const revisionRefused = (e) => {
   if (e?.body?.code === "P0001" && /registered once per file/.test(String(e.body.message || ""))) throw Object.assign(new Error(REVISION_ONCE), { status: 409 });
   throw e;
@@ -601,12 +603,12 @@ export async function addVersion(container_id, b) {
   // A file in Deleted items takes no new version (0035): a 409 in words before the insert, not the guard's raw refusal.
   const found = isUuid(container_id) ? (await sb(`information_containers?id=eq.${container_id}&select=deleted_at`))?.[0] : null;
   if (found?.deleted_at) throw Object.assign(new Error("this file is in Deleted items — restore it first; nothing was saved"), { status: 409 });
-  const held = isUuid(container_id) && b.revision
-    ? await sb(`container_versions?container_id=eq.${container_id}&revision=eq.${encodeURIComponent(b.revision)}&select=id`) : [];
-  if (held?.length) throw Object.assign(new Error(REVISION_ONCE), { status: 409 });
+  const revision = typeof b.revision === "string" ? b.revision.trim() || undefined : b.revision;
+  const held = isUuid(container_id) && revision ? await sb(`container_versions?container_id=eq.${container_id}&select=revision`) : [];
+  if ((held || []).some((v) => sameRevision(v.revision, revision))) throw Object.assign(new Error(REVISION_ONCE), { status: 409 });
   return (await sb(`container_versions`, {
     method: "POST",
-    body: { container_id, revision: b.revision, state: "wip", suitability: b.suitability || "S0", author: resolveActor(b.author), notes: b.notes, file_ref: b.file_ref },
+    body: { container_id, revision, state: "wip", suitability: b.suitability || "S0", author: resolveActor(b.author), notes: b.notes, file_ref: b.file_ref },
     prefer: "return=representation",
   }).catch(revisionRefused))[0];
 }
@@ -888,9 +890,10 @@ export async function registerFileVersion(key, b = {}) {
   // same bytes is answered with the version that holds it, and nothing is written (a repeated publish run).
   const prior = container.container_versions || [];
   let next = prior.length + 1;
-  while (!b.revision && prior.some((v) => v.revision === `v${next}`)) next++;
-  const revision = b.revision || `v${next}`;
-  const same = prior.find((v) => v.revision === revision);
+  const asked = String(b.revision ?? "").trim();
+  while (!asked && prior.some((v) => sameRevision(v.revision, `v${next}`))) next++;
+  const revision = asked || `v${next}`;
+  const same = prior.find((v) => sameRevision(v.revision, revision));
   if (same) {
     if (!same.deleted_at && b.sha256 && same.sha256 && String(same.sha256).toLowerCase() === String(b.sha256).toLowerCase())
       return { container_id: container.id, iso_name: name, version: same, repeat: true };

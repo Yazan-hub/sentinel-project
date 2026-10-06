@@ -309,6 +309,24 @@ describe("Deleted items (0035) — listed, restored, and kept out of every other
     expect(rest.calls.filter((c) => c.method !== "GET")).toEqual([]);
   });
 
+  it("SEC-4 (K-c, review C13): a look-alike of a held revision (spaces, another case) is the same revision; a new one is stored trimmed", async () => {
+    const REV = "a revision is registered once per file — a new upload takes a new revision; nothing was saved";
+    db.information_containers = [{ id: C, project_id: P, iso_name: "A.ifc", deleted_at: null }];
+    db.container_versions = [
+      { id: V1, container_id: C, revision: "P01", state: "wip", sha256: "a".repeat(64), is_live: true, deleted_at: null },
+      { id: "aaaaaaaa-0000-4000-8000-000000000002", container_id: C, revision: "P02", state: "wip", sha256: "b".repeat(64), is_live: false, deleted_at: "2026-10-01T00:00:00Z" },
+    ];
+    serve();
+    for (const revision of ["P01 ", "p01", " p01"])
+      await expect(registerFileVersion("demo", { name: "A.ifc", revision, sha256: "c".repeat(64), author: "web" })).rejects.toMatchObject({ status: 409, message: REV });
+    for (const revision of ["p02", "P02 "]) await expect(addVersion(C, { revision })).rejects.toMatchObject({ status: 409, message: REV });
+    expect(rest.calls.filter((c) => c.method !== "GET")).toEqual([]);
+    expect(await registerFileVersion("demo", { name: "A.ifc", revision: " p01 ", sha256: "a".repeat(64), author: "web" })).toMatchObject({ repeat: true, version: { id: V1 } });
+    const r = await registerFileVersion("demo", { name: "A.ifc", revision: " P03 ", sha256: "d".repeat(64), author: "web" });
+    expect(r.version.revision).toBe("P03");
+    expect((await addVersion(C, { revision: " P04 " })).revision).toBe("P04");
+  });
+
   it("SEC-4 (K-c): the same revision with the same bytes is answered with the version that holds it, and nothing is written", async () => {
     db.information_containers = [{ id: C, project_id: P, iso_name: "A.ifc", deleted_at: null }];
     db.container_versions = [{ id: V1, container_id: C, revision: "P01", state: "wip", sha256: "a".repeat(64), is_live: true, deleted_at: null }];
