@@ -338,6 +338,8 @@ const OFFICE_BY_ADMIN = "an office is created by a platform admin — nothing wa
 export async function createProject(b = {}) {
   const key = slugKey(b.key || b.name);
   if (!key) throw new Error("A project name or key is required");
+  // SEC-4: a key is a slug of words, never uuid-shaped (0041).
+  if (isUuid(key)) throw Object.assign(new Error("a project key is not a uuid — choose a name with words in it (nothing was created)"), { status: 400 });
   // The system fallback is the machine's (ensureProject self-heals it): a signed-in creator would become its owner.
   if (key === "default" && currentUserToken())
     throw Object.assign(new Error("'default' is the system fallback project — choose another key; nothing was created"), { status: 403 });
@@ -578,15 +580,26 @@ export async function createContainer(key, b) {
   return { ...c, container_versions: [v] };
 }
 
+// SEC-4 (0041 cde_version_on_insert, founder decision K-c): a revision is registered once per file, Deleted items included —
+// the bridge says so in the database's words before it writes, and answers the database's own refusal the same way.
+const REVISION_ONCE = "a revision is registered once per file — a new upload takes a new revision; nothing was saved";
+const revisionRefused = (e) => {
+  if (e?.body?.code === "P0001" && /registered once per file/.test(String(e.body.message || ""))) throw Object.assign(new Error(REVISION_ONCE), { status: 409 });
+  throw e;
+};
+
 export async function addVersion(container_id, b) {
   // A file in Deleted items takes no new version (0035): a 409 in words before the insert, not the guard's raw refusal.
   const found = isUuid(container_id) ? (await sb(`information_containers?id=eq.${container_id}&select=deleted_at`))?.[0] : null;
   if (found?.deleted_at) throw Object.assign(new Error("this file is in Deleted items — restore it first; nothing was saved"), { status: 409 });
+  const held = isUuid(container_id) && b.revision
+    ? await sb(`container_versions?container_id=eq.${container_id}&revision=eq.${encodeURIComponent(b.revision)}&select=id`) : [];
+  if (held?.length) throw Object.assign(new Error(REVISION_ONCE), { status: 409 });
   return (await sb(`container_versions`, {
     method: "POST",
     body: { container_id, revision: b.revision, state: "wip", suitability: b.suitability || "S0", author: resolveActor(b.author), notes: b.notes, file_ref: b.file_ref },
     prefer: "return=representation",
-  }))[0];
+  }).catch(revisionRefused))[0];
 }
 
 // ── File versioning (migration 0011) ───────────────────────────────────────────────────────────────────
@@ -652,7 +665,16 @@ export async function renameFile(key, container_id, name, actor) {
   // 0038 (founder decision F1): the database keeps the name of a file that holds an issued version — said here first, in words.
   if (c.container_versions.some((v) => v.state === "published" || v.state === "archived"))
     throw Object.assign(new Error(`${c.iso_name} holds a published or archived version, so it keeps its name — nothing was saved`), { status: 409 });
-  requireRows(await sb(`information_containers?id=eq.${c.id}`, { method: "PATCH", body: { iso_name: clean, title: clean }, prefer: "return=representation" }), "a file is renamed by a contributor or above");
+  // 0041 (founder decision K-b): a file a verdict judged keeps its name too — the database decides it over every version,
+  // Deleted items included, and its words are the answer.
+  let rows;
+  try {
+    rows = await sb(`information_containers?id=eq.${c.id}`, { method: "PATCH", body: { iso_name: clean, title: clean }, prefer: "return=representation" });
+  } catch (e) {
+    if (e?.body?.code === "P0001" && e.body.message) throw Object.assign(new Error(`${e.body.message} — nothing was saved`), { status: 409 });
+    throw e;
+  }
+  requireRows(rows, "a file is renamed by a contributor or above");
   await audit(proj.id, "container", c.id, "renamed", actor || "web", { iso_name: c.iso_name }, { iso_name: clean });
   return { ok: true, iso_name: clean };
 }
@@ -819,12 +841,15 @@ export async function registerFileVersion(key, b = {}) {
   // Geometry is the bridge's: the outbox's attachGeometry puts an item on the version its sidecar names, by id. A
   // registration never attaches onto an existing version (0040: platform_item_id is the bridge's in every state).
   if (b.attach_geometry === true) { const e = new Error("geometry is attached by the bridge to the version an upload names — nothing was saved"); e.status = 400; throw e; }
+  // SEC-4 (founder decision L-b; 0041 refuses a signed-in INSERT that carries one): the bridge links an item it uploaded,
+  // after its hash check (attachGeometry) — never an item a caller names.
+  if (b.platform_item_id != null) { const e = new Error("a version's geometry is linked by the bridge after its upload — send no platform_item_id; nothing was saved"); e.status = 400; throw e; }
   const proj = await ensureProject(key);
   const name = (b.name || b.iso_name || "").trim();
   if (!name) { const e = new Error("name required"); e.status = 400; throw e; }
 
   // A file in Deleted items does not own its name any more (0035): a new upload of that name is a new file.
-  const existing = await sb(`information_containers?project_id=eq.${proj.id}&iso_name=eq.${encodeURIComponent(name)}&deleted_at=is.null&select=id,parent_id,container_versions(id,revision,is_live,platform_item_id,deleted_at)`);
+  const existing = await sb(`information_containers?project_id=eq.${proj.id}&iso_name=eq.${encodeURIComponent(name)}&deleted_at=is.null&select=id,parent_id,container_versions(id,revision,state,is_live,platform_item_id,sha256,deleted_at)`);
   let container = Array.isArray(existing) ? existing[0] : null;
 
   // Host→link nesting (0019): a linked model names its host file; resolve it in the same project and
@@ -849,22 +874,30 @@ export async function registerFileVersion(key, b = {}) {
     await audit(proj.id, "container", container.id, "created", b.author || "web", null, { iso_name: name, ...(parentId ? { link_of: b.parent_name } : {}) });
   }
 
-  // Next revision label: honour a supplied one, else v{N+1} across the file's existing versions — Deleted items included,
-  // so a label is never reused.
-  const priorCount = (container.container_versions || []).length;
-  const revision = b.revision || `v${priorCount + 1}`;
+  // Next revision label: honour a supplied one, else the first v{N} past the file's existing versions — Deleted items
+  // included, so a label is never reused. SEC-4 (K-c): a revision is registered once per file; the same revision with the
+  // same bytes is answered with the version that holds it, and nothing is written (a repeated publish run).
+  const prior = container.container_versions || [];
+  let next = prior.length + 1;
+  while (!b.revision && prior.some((v) => v.revision === `v${next}`)) next++;
+  const revision = b.revision || `v${next}`;
+  const same = prior.find((v) => v.revision === revision);
+  if (same) {
+    if (!same.deleted_at && b.sha256 && same.sha256 && String(same.sha256).toLowerCase() === String(b.sha256).toLowerCase())
+      return { container_id: container.id, iso_name: name, version: same, repeat: true };
+    throw Object.assign(new Error(REVISION_ONCE), { status: 409 });
+  }
 
   const version = (await sb(`container_versions`, {
     method: "POST",
     body: {
       container_id: container.id, revision, state: "wip", suitability: b.suitability || "S0",
       author: resolveActor(b.author, "web"), notes: b.notes || null, file_ref: b.file_ref || null,
-      platform_item_id: b.platform_item_id || null,
       size_bytes: b.size_bytes != null ? Number(b.size_bytes) : null,
       sha256: b.sha256 || null, is_live: false,
     },
     prefer: "return=representation",
-  }))[0];
+  }).catch(revisionRefused))[0];
 
   await setLiveVersion(key, version.id, b.author || "web");
   await audit(proj.id, "file_version", version.id, "uploaded", b.author || "web", null,
@@ -872,29 +905,46 @@ export async function registerFileVersion(key, b = {}) {
   return { container_id: container.id, iso_name: name, version: { ...version, is_live: true } };
 }
 
-/** The outbox watcher's attach (spec Decision 6): put an uploaded platform item on the version a sidecar names, by
- *  id — only a version of `key`'s project, and only while it has no geometry (platform_item_id is written once; the
- *  PATCH is filtered on is.null, so a concurrent attach cannot overwrite). Audited "geometry linked" (actor outbox);
- *  returns the version and the ledger row's id. 400 for a blank item or a version not on `key`, 409 when the version
- *  already has geometry — each decided before any write. */
-export async function attachGeometry(key, versionId, platformItemId) {
-  const item = String(platformItemId ?? "").trim();
+/** SEC-4: the version an uploaded item may go on — a version of `key`'s project, out of Deleted items, without geometry,
+ *  and registered with `sha256`, the hash of the bytes the bridge uploads (founder decision L-a: a version registered
+ *  without one takes no geometry). → { proj, v, c }. 400 for a hash that is not 64 hex characters (before any read) or a
+ *  version not on `key`; 409 otherwise — never a write. The outbox watcher asks it before it uploads anything. */
+export async function geometryTarget(key, versionId, sha256) {
+  const hash = String(sha256 ?? "").toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(hash)) { const e = new Error("the uploaded file's sha256 is required (64 hex characters) — nothing was linked"); e.status = 400; throw e; }
   const notOnKey = () => Object.assign(new Error(`version ${versionId} is not on ${key}`), { status: 400 });
-  if (!item) { const e = new Error("platform_item_id required"); e.status = 400; throw e; }
   if (!isUuid(versionId)) throw notOnKey();
   const proj = await ensureProject(key);
-  const v = (await sb(`container_versions?id=eq.${versionId}&select=id,container_id,revision,is_live,platform_item_id,deleted_at`))?.[0];
+  const v = (await sb(`container_versions?id=eq.${versionId}&select=id,container_id,revision,is_live,platform_item_id,sha256,deleted_at`))?.[0];
   const c = v && (await sb(`information_containers?id=eq.${v.container_id}&project_id=eq.${proj.id}&select=iso_name,deleted_at`))?.[0];
   if (!c) throw notOnKey();
-  if (v.deleted_at || c.deleted_at) { const e = new Error(`version ${v.id} is in Deleted items — restore it first`); e.status = 409; throw e; }
+  const refuse = (m) => Object.assign(new Error(m), { status: 409 });
+  if (v.deleted_at || c.deleted_at) throw refuse(`version ${v.id} is in Deleted items — restore it first`);
+  if (v.platform_item_id) throw refuse(`version ${v.id} already has geometry (platform item ${v.platform_item_id}) — a version's geometry is attached once`);
+  if (!v.sha256) throw refuse(`version ${v.id} was registered without a sha256, so no geometry is linked to it — nothing was linked`);
+  if (String(v.sha256).toLowerCase() !== hash) throw refuse(`the file's sha256 is not the one version ${v.id} was registered with — nothing was linked`);
+  return { proj, v, c };
+}
+
+/** Put an uploaded platform item on a version, by id (the outbox watcher, spec Decision 6; intake, for its own upload):
+ *  only the version geometryTarget answers for `opts.sha256`, and only while it has no geometry (platform_item_id is
+ *  written once; the PATCH is filtered on is.null, so a concurrent attach cannot overwrite). Audited "geometry linked"
+ *  (actor `opts.actor`, else outbox) with the IFC's sha256 and, when given, the .frag's; returns the version and the
+ *  ledger row's id. 400 for a blank item, a missing hash or a version not on `key`, 409 for the rest — each decided
+ *  before any write. */
+export async function attachGeometry(key, versionId, platformItemId, { sha256, frag_sha256, actor = "outbox" } = {}) {
+  const item = String(platformItemId ?? "").trim();
+  if (!item) { const e = new Error("platform_item_id required"); e.status = 400; throw e; }
+  const { proj, v, c } = await geometryTarget(key, versionId, sha256);
   // 0040: a version's geometry is the bridge's — written with the service key (the outbox runs with no caller).
-  const done = v.platform_item_id ? [] : await sb(`container_versions?id=eq.${v.id}&platform_item_id=is.null`, { method: "PATCH", body: { platform_item_id: item }, prefer: "return=representation", service: true });
+  const done = await sb(`container_versions?id=eq.${v.id}&platform_item_id=is.null`, { method: "PATCH", body: { platform_item_id: item }, prefer: "return=representation", service: true });
   if (!done?.length) {
-    const e = new Error(`version ${v.id} already has geometry${v.platform_item_id ? ` (platform item ${v.platform_item_id})` : ""} — a version's geometry is attached once`);
+    const e = new Error(`version ${v.id} already has geometry — a version's geometry is attached once`);
     e.status = 409;
     throw e;
   }
-  const row = await audit(proj.id, "file_version", v.id, "geometry linked", "outbox", null, { file: c.iso_name, platform_item_id: item, by: "version_id" });
+  const row = await audit(proj.id, "file_version", v.id, "geometry linked", actor, null,
+    { file: c.iso_name, platform_item_id: item, by: "version_id", ifc_sha256: String(v.sha256).toLowerCase(), ...(frag_sha256 ? { frag_sha256 } : {}) });
   return { container_id: v.container_id, iso_name: c.iso_name, linked: true, version: { id: v.id, revision: v.revision, platform_item_id: item, is_live: v.is_live }, audit_id: row?.id ?? null };
 }
 

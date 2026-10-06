@@ -1268,7 +1268,7 @@ async function handleRequest(req, res) {
       }
       // File versioning (migration 0011): a file = a container, each upload = a version, one `is_live` pointer.
       //   GET  /cde/:key/files                          → files + version history (newest first, live flagged)
-      //   POST /cde/:key/files  { name, revision?, author?, size_bytes?, sha256?, platform_item_id?, notes? }
+      //   POST /cde/:key/files  { name, revision?, author?, size_bytes?, sha256?, notes? } (no platform_item_id: the bridge links its own uploads)
       //        → create-or-append a version (becomes live). Same rows the CDE panel shows (one source of truth).
       //   POST /cde/:key/files/set-live  { version_id, actor? }  → flip the live pointer to another version.
       if (p2 === "files" && !p3) {
@@ -1480,6 +1480,7 @@ async function handleRequest(req, res) {
           uploadIfc: uploadIfcAsFrag,
           registerFileVersion: (key, body) => cde.registerFileVersion(key, body),
           recordVersionVerdict: (key, vid, result, actor) => cde.recordVersionVerdict(key, vid, result, actor),
+          attachGeometry: (key, vid, item, opts) => cde.attachGeometry(key, vid, item, opts),
           audit: async (key, action, actor, value) => { const proj = await cde.ensureProject(key); return cde.audit(proj.id, "delivery_gate", null, action, actor, null, value); },
           // A gate FAIL is held only when the caller could register the file (spec 2026-09-27 Decision 4).
           writeHold: (key, h) => cde.holdIfCouldRegister(key, h),

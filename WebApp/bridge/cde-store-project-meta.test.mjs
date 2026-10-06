@@ -11,7 +11,7 @@ vi.hoisted(() => {
 });
 
 import { runWithAuth } from "./bridge-auth.mjs";
-import { patchProjectMeta, updateProject } from "./cde-store.mjs";
+import { patchProjectMeta, updateProject, createProject } from "./cde-store.mjs";
 
 const P = "11111111-1111-4111-8111-111111111111";
 const jwt = "eyJhbGciOiJIUzI1NiJ9." + Buffer.from(JSON.stringify({ sub: "22222222-0000-4000-8000-00000000000b", email: "c@example.test", role: "authenticated" })).toString("base64url") + ".sig";
@@ -43,6 +43,14 @@ describe("patchProjectMeta — a project's details are a lead's or owner's to ch
     patchRows = [{ ...project, metadata: { snapshot: { carbon_tco2e: 12 } } }];
     const shape = await runWithAuth(jwt, () => patchProjectMeta("b13-review", { snapshot: { carbon_tco2e: 12 } }));
     expect(shape).toMatchObject({ project_id: "b13-review" });
+  });
+});
+
+describe("createProject — a project key is a slug of words, never a uuid (SEC-4, 0041's projects_key_not_uuid)", () => {
+  it("refuses a uuid-shaped key or name in words, before anything is sent", async () => {
+    for (const b of [{ name: "0f8fad5b-d9cb-469f-a165-70867728950e" }, { key: "0F8FAD5B-D9CB-469F-A165-70867728950E", name: "x" }])
+      await expect(runWithAuth(jwt, () => createProject(b))).rejects.toMatchObject({ status: 400, message: "a project key is not a uuid — choose a name with words in it (nothing was created)" });
+    expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 });
 

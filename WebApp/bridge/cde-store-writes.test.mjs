@@ -97,6 +97,14 @@ describe("files — a rename, the live pointer and a geometry link are refusals 
     expect(ledger()).toHaveLength(0);
   });
 
+  it("renameFile: a rename the database refuses (0041: a file a verdict judged keeps its name) is a 409 in its words, no row", async () => {
+    globalThis.fetch = vi.fn(async (url, init = {}) => (init.method === "PATCH"
+      ? new Response(JSON.stringify({ code: "P0001", message: "a file whose version a verdict judged keeps its name — a new name is a new file: upload it under the new name" }), { status: 400 })
+      : rest.fetch(url, init)));
+    await expect(renameFile("demo", C, "B.ifc", "web")).rejects.toMatchObject({ status: 409, message: "a file whose version a verdict judged keeps its name — a new name is a new file: upload it under the new name — nothing was saved" });
+    expect(ledger()).toHaveLength(0);
+  });
+
   it("renameFile: a stored rename is written", async () => {
     expect(await renameFile("demo", C, "B.ifc", "web")).toEqual({ ok: true, iso_name: "B.ifc" });
     expect(ledger()[0].body).toMatchObject({ entity_type: "container", entity_id: C, action: "renamed", new_value: { iso_name: "B.ifc" } });
@@ -263,8 +271,8 @@ describe("Deleted items (0035) — listed, restored, and kept out of every other
     await expect(setLiveVersion("demo", V2, "web")).rejects.toMatchObject({ status: 409, message: `version ${V2} is in Deleted items — restore it first` });
     await expect(setLiveVersion("demo", V3, "web")).rejects.toMatchObject({ status: 409 });
     expect(rest.calls.filter((c) => c.method !== "GET")).toHaveLength(0);
-    await expect(attachGeometry("demo", V2, "item-1")).rejects.toMatchObject({ status: 409, message: `version ${V2} is in Deleted items — restore it first` });
-    await expect(attachGeometry("demo", V3, "item-1")).rejects.toMatchObject({ status: 409 });
+    await expect(attachGeometry("demo", V2, "item-1", { sha256: "a".repeat(64) })).rejects.toMatchObject({ status: 409, message: `version ${V2} is in Deleted items — restore it first` });
+    await expect(attachGeometry("demo", V3, "item-1", { sha256: "a".repeat(64) })).rejects.toMatchObject({ status: 409 });
     expect(rest.calls.filter((c) => c.method !== "GET")).toHaveLength(0);
     expect(db.container_versions[0].is_live).toBe(true); // the live pointer was never cleared
   });
@@ -285,6 +293,44 @@ describe("Deleted items (0035) — listed, restored, and kept out of every other
       : rest.fetch(url, init)));
     await expect(restoreFile("demo", { container_id: C2 }, "web")).rejects.toMatchObject({ status: 403, message: "a file is moved to or restored from Deleted items by a lead or owner" });
     expect(ledger()).toHaveLength(0);
+  });
+
+  it("SEC-4 (K-c): a revision is registered once per file — registerFileVersion and addVersion refuse a held one in words, Deleted items included, and write nothing", async () => {
+    const REV = "a revision is registered once per file — a new upload takes a new revision; nothing was saved";
+    db.information_containers = [{ id: C, project_id: P, iso_name: "A.ifc", deleted_at: null }];
+    db.container_versions = [
+      { id: V1, container_id: C, revision: "P01", state: "wip", sha256: "a".repeat(64), is_live: true, deleted_at: null },
+      { id: "aaaaaaaa-0000-4000-8000-000000000002", container_id: C, revision: "P02", state: "wip", sha256: "b".repeat(64), is_live: false, deleted_at: "2026-10-01T00:00:00Z" },
+    ];
+    serve();
+    await expect(registerFileVersion("demo", { name: "A.ifc", revision: "P01", sha256: "c".repeat(64), author: "web" })).rejects.toMatchObject({ status: 409, message: REV });
+    await expect(registerFileVersion("demo", { name: "A.ifc", revision: "P02", sha256: "b".repeat(64), author: "web" })).rejects.toMatchObject({ status: 409, message: REV });
+    await expect(addVersion(C, { revision: "P02" })).rejects.toMatchObject({ status: 409, message: REV });
+    expect(rest.calls.filter((c) => c.method !== "GET")).toEqual([]);
+  });
+
+  it("SEC-4 (K-c): the same revision with the same bytes is answered with the version that holds it, and nothing is written", async () => {
+    db.information_containers = [{ id: C, project_id: P, iso_name: "A.ifc", deleted_at: null }];
+    db.container_versions = [{ id: V1, container_id: C, revision: "P01", state: "wip", sha256: "a".repeat(64), is_live: true, deleted_at: null }];
+    serve();
+    const r = await registerFileVersion("demo", { name: "A.ifc", revision: "P01", sha256: "A".repeat(64), author: "web" });
+    expect(r).toMatchObject({ container_id: C, iso_name: "A.ifc", repeat: true, version: { id: V1, revision: "P01", state: "wip" } });
+    expect(rest.calls.filter((c) => c.method !== "GET")).toEqual([]);
+  });
+
+  it("SEC-4 (K-c): a computed revision skips a label already held, and the database's own refusal is a 409 in the same words", async () => {
+    db.information_containers = [{ id: C, project_id: P, iso_name: "A.ifc", deleted_at: null }];
+    db.container_versions = [
+      { id: V1, container_id: C, revision: "v1", state: "wip", sha256: "a".repeat(64), is_live: true, deleted_at: null },
+      { id: "aaaaaaaa-0000-4000-8000-000000000003", container_id: C, revision: "v3", state: "wip", sha256: "b".repeat(64), is_live: false, deleted_at: null },
+    ];
+    serve();
+    const r = await registerFileVersion("demo", { name: "A.ifc", sha256: "c".repeat(64), author: "web" });
+    expect(r.version.revision).toBe("v4");
+    globalThis.fetch = vi.fn(async (url, init = {}) => (init.method === "POST" && String(url).includes("/container_versions")
+      ? new Response(JSON.stringify({ code: "P0001", message: "a revision is registered once per file — a new upload takes a new revision" }), { status: 400 })
+      : rest.fetch(url, init)));
+    await expect(addVersion(C, { revision: "P09" })).rejects.toMatchObject({ status: 409, message: "a revision is registered once per file — a new upload takes a new revision; nothing was saved" });
   });
 
   it("moveContainer and addVersion refuse a file in Deleted items in words, and write nothing", async () => {

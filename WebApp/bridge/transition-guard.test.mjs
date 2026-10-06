@@ -165,11 +165,15 @@ describe("registerFileVersion — every new version starts in wip; geometry is t
     expect(calls.find((c) => c.path === "container_versions" && c.method === "POST").body.state).toBe("wip");
   });
 
-  it("a platform item without attach_geometry is a new version, never attached to the live one", async () => {
-    const r = await registerFileVersion("demo", { name: "A.ifc", platform_item_id: "item-9", author: "web" });
-    expect(r.linked).toBeUndefined();
-    expect(calls.find((c) => c.path === "container_versions" && c.method === "POST").body).toMatchObject({ platform_item_id: "item-9", state: "wip" });
-    expect(calls.filter((c) => c.method === "PATCH" && c.body?.platform_item_id)).toHaveLength(0);
+  it("a caller's platform item is refused in words before anything is sent (SEC-4: the bridge links what it uploaded)", async () => {
+    await expect(registerFileVersion("demo", { name: "A.ifc", platform_item_id: "item-9", author: "web" }))
+      .rejects.toMatchObject({ status: 400, message: "a version's geometry is linked by the bridge after its upload — send no platform_item_id; nothing was saved" });
+    expect(calls).toHaveLength(0);
+  });
+
+  it("a registration's INSERT carries no geometry", async () => {
+    await registerFileVersion("demo", { name: "A.ifc", sha256: "a".repeat(64), author: "web" });
+    expect(calls.find((c) => c.path === "container_versions" && c.method === "POST").body).not.toHaveProperty("platform_item_id");
   });
 
   it("attach_geometry: true is refused in words before anything is written", async () => {

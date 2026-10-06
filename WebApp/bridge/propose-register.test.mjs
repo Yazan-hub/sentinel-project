@@ -189,7 +189,8 @@ describe("register — one adjudication registers the version and stamps it", ()
   it("accepted: one proposal row, one wip version with the file's size and sha256, one verdict row, and the reply names them", async () => {
     const r = await adjudicateProposal("aster-tower", { source: "revit", actor: "revit:yazan", elements: GOOD, container_name: NAME, register });
     const v = db.container_versions.find((x) => x.id === r.version.id);
-    expect(v).toMatchObject({ state: "wip", size_bytes: 1234, sha256: SHA, platform_item_id: null, is_live: true });
+    expect(v).toMatchObject({ state: "wip", size_bytes: 1234, sha256: SHA, is_live: true });
+    expect(v.platform_item_id ?? null).toBeNull(); // no geometry: the outbox links it after its hash check (SEC-4)
     expect(r.version).toEqual({ id: v.id, container_id: v.container_id, revision: "v1", state: "wip" });
     expect(db.information_containers.find((c) => c.id === v.container_id)).toMatchObject({ project_id: P1, iso_name: NAME });
     expect(actions()).toEqual(["Proposal accepted from revit", "created", "set live", "uploaded", "verdict:accepted"]);

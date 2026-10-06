@@ -17,10 +17,11 @@
 
 import { watch } from "node:fs";
 import { readdir, stat, mkdir, rename, readFile, unlink } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { join, basename, extname } from "node:path";
 import { homedir } from "node:os";
-import { getConfig, createClient, uploadFile, uploadBytes } from "./thatopen-client.mjs";
-import { ifcToFrag } from "./ifc-to-frag.mjs";
+import { getConfig, createClient, uploadBytes } from "./thatopen-client.mjs";
+import { ifcBytesToFrag } from "./ifc-to-frag.mjs";
 import { outboxDecision } from "./outbox-logic.mjs";
 
 const ONCE = process.argv.includes("--once");
@@ -47,12 +48,12 @@ const ts = () => new Date().toISOString();
  * id (cde.attachGeometry — that version of that project, once). Never throws: the upload has already happened, so a
  * failure logs one line naming the platform item that is on no version, and returns null.
  */
-async function recordVersion(d, name, itemId) {
+async function recordVersion(d, name, itemId, hashes) {
   const orphan = `platform item ${itemId || "(none returned)"} is on no version`;
   try {
     const cde = await import("./cde-store.mjs");
     if (!cde.cdeConfigured()) { console.error(`  ⚠ CDE not configured (SUPABASE_URL / SUPABASE_SERVICE_KEY) — ${name}: ${orphan}`); return null; }
-    const r = await cde.attachGeometry(d.project, d.version_id, itemId);
+    const r = await cde.attachGeometry(d.project, d.version_id, itemId, hashes);
     console.log(`  📎 geometry attached to ${r.iso_name} ${r.version.revision} (version ${r.version.id}, project ${d.project})${r.audit_id ? ` · ledger #${r.audit_id}` : " · ledger row not returned"}`);
     return { key: d.project, ...r };
   } catch (e) {
@@ -66,11 +67,11 @@ async function recordVersion(d, name, itemId) {
  * and swallows any failure so a manifest problem never breaks the outbox upload itself. Shared by
  * both handle() call sites (frag success + .ifc fallback) so the capture/logging logic lives once.
  */
-async function captureAfterRegister(reg, name, filePath) {
+async function captureAfterRegister(reg, name, bytes) {
   if (!reg?.version?.id) return;
   try {
     const { captureManifest } = await import("./manifest-store.mjs");
-    const mf = await captureManifest(reg.key, reg.version.id, await readFile(filePath), { actor: "outbox", source: "outbox", rev_code: reg.version.revision });
+    const mf = await captureManifest(reg.key, reg.version.id, bytes, { actor: "outbox", source: "outbox", rev_code: reg.version.revision });
     console.log(`  🧭 manifest: ${mf.elements} element(s), ${mf.levels} level(s), ${mf.grids} grid(s)${mf.has_site ? ", georeferenced" : ""}`);
   } catch (e) {
     console.error(`  ⚠ manifest capture failed for ${name} (version ${reg.version.id}): ${e?.message || e}`);
@@ -108,16 +109,32 @@ async function handle(name) {
     // sidecar still being written.
     let d = outboxDecision(await readSidecar(p));
     if (d.action === "unbound") { await new Promise((r) => setTimeout(r, 2000)); d = outboxDecision(await readSidecar(p)); }
-    if (d.action === "unbound") {
-      if (DRY) { console.log(`[${ts()}] would move ${name} to ${UNBOUND} — ${d.reason}`); return; }
+    const park = async (reason, advice) => {
       const parked = join(UNBOUND, `${Date.now()}_${name}`);
       await rename(p, parked);
-      await rename(p + ".meta.json", parked + ".meta.json").catch(() => {}); // a sidecar naming no project, or a pre-5b one, goes with it
-      console.log(`[${ts()}] ⛔ ${name} → ${parked} — ${d.reason}: not uploaded, not registered. ${d.advice}`);
+      await rename(p + ".meta.json", parked + ".meta.json").catch(() => {}); // the sidecar goes with its IFC
+      console.log(`[${ts()}] ⛔ ${name} → ${parked} — ${reason}: not uploaded, not registered. ${advice}`);
+    };
+    if (d.action === "unbound") {
+      if (DRY) { console.log(`[${ts()}] would move ${name} to ${UNBOUND} — ${d.reason}`); return; }
+      await park(d.reason, d.advice);
       return;
     }
     const target = `version ${d.version_id} on ${d.project}`;
     if (DRY) { console.log(`[${ts()}] would upload ${name} → ${target}`); return; }
+
+    // SEC-4: the bytes are hashed once and must be the ones the version was registered with — asked before anything is
+    // uploaded, so a refused file leaves no item on the platform; the .frag and the IFC beside it are made from them.
+    const ifcBytes = await readFile(p);
+    const ifcSha = createHash("sha256").update(ifcBytes).digest("hex");
+    try {
+      const cde = await import("./cde-store.mjs");
+      if (!cde.cdeConfigured()) throw new Error("CDE not configured (SUPABASE_URL / SUPABASE_SERVICE_KEY)");
+      await cde.geometryTarget(d.project, d.version_id, ifcSha);
+    } catch (e) {
+      await park(`not linked to ${target} — ${e?.message || e}`, "Run Governed Publish again.");
+      return;
+    }
 
     console.log(`[${ts()}] uploading ${name} → ${target} …`);
     // Keep the FULL filename (with .ifc) as the item name — the platform derives fileExtension from
@@ -128,20 +145,21 @@ async function handle(name) {
     const fragName = name.replace(/\.ifc$/i, ".frag");
     try {
       console.log(`[${ts()}] converting ${name} → fragments …`);
-      const fragBytes = await ifcToFrag(p);
+      const fragBytes = await ifcBytesToFrag(new Uint8Array(ifcBytes));
       const { result, size } = await uploadBytes(client, cfg.projectId, fragBytes, fragName);
       console.log(`  ✅ ${fragName} (${size.toLocaleString()} bytes) → item ${result?.item?._id}`);
       const { uploadIfcBeside } = await import("./platform-publish.mjs");
-      const beside = await uploadIfcBeside(client, cfg.projectId, await readFile(p), name, "v1");
+      const beside = await uploadIfcBeside(client, cfg.projectId, ifcBytes, name, "v1");
       console.log(beside.ifcItemId ? `  ✅ ${name} → item ${beside.ifcItemId}  (the delivered IFC, judged by the platform's Sentinel gate)` : `  ⚠ ${beside.note}`);
-      const reg = await recordVersion(d, name, result?.item?._id);
-      await captureAfterRegister(reg, name, p);
+      const hashes = { sha256: ifcSha, frag_sha256: createHash("sha256").update(fragBytes).digest("hex") };
+      const reg = await recordVersion(d, name, result?.item?._id, hashes);
+      await captureAfterRegister(reg, name, ifcBytes);
     } catch (e) {
       console.error(`  ⚠ frag conversion failed for ${name}: ${e?.message || e} — uploading .ifc instead`);
-      const { result, size } = await uploadFile(client, cfg.projectId, p, { name });
+      const { result, size } = await uploadBytes(client, cfg.projectId, ifcBytes, name);
       console.log(`  ✅ ${name} (${size.toLocaleString()} bytes) → item ${result?.item?._id}  (fallback)`);
-      const reg = await recordVersion(d, name, result?.item?._id);
-      await captureAfterRegister(reg, name, p);
+      const reg = await recordVersion(d, name, result?.item?._id, { sha256: ifcSha });
+      await captureAfterRegister(reg, name, ifcBytes);
     }
 
     await rename(p, join(SENT, `${Date.now()}_${name}`)); // out of the outbox so it isn't re-sent

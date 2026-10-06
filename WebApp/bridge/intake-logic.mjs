@@ -98,14 +98,21 @@ export async function runIntake(deps, rawInput) {
   try { upload = await deps.uploadIfc(bytes, name, revision || "v1"); }
   catch (e) { return { ...judged, verdict, stage: "upload_failed", note: noteLine, bcf, error: String(e?.message || e) }; }
   const reg = await deps.registerFileVersion(key, {
-    name, revision, sha256: gate.sha256, size_bytes: gate.size, platform_item_id: upload.itemId ?? null,
+    name, revision, sha256: gate.sha256, size_bytes: gate.size,
     author: actor, notes: note ?? null, title: name,
     attach_geometry: false, // never silently attach to a stale liveNoGeom version — this is a fresh intake revision
   });
   const versionId = reg?.version?.id ?? null;
   if (versionId) await deps.recordVersionVerdict(key, versionId, result, actor);
+  // SEC-4: the bridge's own upload of these same bytes, linked by the gate's sha256 (attachGeometry). A link that could not
+  // be made leaves the version registered without geometry, and the answer says so.
+  let linked = null, geometry;
+  if (versionId && upload.itemId) {
+    try { await deps.attachGeometry(key, versionId, upload.itemId, { sha256: gate.sha256, actor }); linked = upload.itemId; }
+    catch (e) { geometry = `not linked — ${e?.message || e}`; }
+  }
   return {
     ...judged, verdict, stage: "published", published: true, note: noteLine, bcf,
-    version: { container_id: reg?.container_id ?? null, version_id: versionId, revision: reg?.version?.revision ?? revision ?? null, platform_item_id: upload.itemId ?? null, format: upload.format },
+    version: { container_id: reg?.container_id ?? null, version_id: versionId, revision: reg?.version?.revision ?? revision ?? null, platform_item_id: linked, format: upload.format, ...(geometry ? { geometry } : {}) },
   };
 }
