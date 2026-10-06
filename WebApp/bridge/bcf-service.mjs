@@ -46,7 +46,6 @@ if (refusal) { console.error(`[bridge] ${refusal}`); process.exit(1); }
 // "*" DISABLES the gate (dev only — insecure, logged loudly at startup).
 const DEFAULT_CORS = [
   "https://platform.thatopen.com",
-  "http://localhost:5173", "http://127.0.0.1:5173", // vite dev
   "http://localhost:3000", "http://127.0.0.1:3000",
 ];
 const CORS_RAW = process.env.BCF_CORS_ORIGIN || "";
