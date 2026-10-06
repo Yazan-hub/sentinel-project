@@ -18,7 +18,7 @@ import { join, dirname, basename, extname, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { pipeline } from "node:stream";
 import { randomUUID, timingSafeEqual } from "node:crypto";
-import { runWithAuth, resolveActor, currentSub, currentUserToken } from "./bridge-auth.mjs";
+import { runWithAuth, resolveActor, currentSub, currentExp, currentUserToken } from "./bridge-auth.mjs";
 import { loadEnv } from "./load-env.mjs";
 import { verifyJwt, initJwks } from "./verify-jwt.mjs";
 import { corsOrigin } from "./cors-origin.mjs";
@@ -301,6 +301,15 @@ const MAX_SSE = Number(process.env.BCF_MAX_SSE) || 64;
 const SSE_PER_USER = 8;
 const sseByUser = new Map(); // JWT sub -> open streams
 const sseCount = () => { let n = 0; for (const s of sseClients.values()) n += s.size; return n; };
+// SEC-6 (S20): a signed-in stream is bound by the authority it was opened with — it ends at its token's exp (the client
+// reconnects with a fresh one and the role is checked again), a member removed through this bridge has their streams
+// ended at once, and every SSE_RECHECK_MS the role is read again (a removal made in the database or on another bridge).
+// The machine credential's streams (no sub) are not touched.
+const SSE_RECHECK_MS = Number(process.env.BCF_SSE_RECHECK_MS) || 5 * 60_000;
+/** End every stream `sub` holds on `project` on this bridge. */
+function closeStreamsFor(project, sub) {
+  for (const r of sseClients.get(project) || []) if (r._sseSub === sub) { try { r.end(); } catch { /* already gone */ } }
+}
 const INSTANCE_ID = randomUUID();                              // this bridge's id (skips its own events on poll)
 const EVENT_POLL_MS = Number(process.env.BCF_EVENT_POLL_MS ?? 3000); // 0 disables the cross-machine feed
 
@@ -720,10 +729,19 @@ async function handleRequest(req, res) {
     let set = sseClients.get(project);
     if (!set) { set = new Set(); sseClients.set(project, set); }
     set.add(res);
+    res._sseSub = sub;
     if (sub !== null) sseByUser.set(sub, (sseByUser.get(sub) || 0) + 1);
     const ka = setInterval(() => { try { res.write(": ka\n\n"); } catch { /* */ } }, 25000);
+    const exp = sub !== null ? currentExp() : null; // SEC-6: verifyJwt refuses a sign-in without one
+    const expires = exp ? setTimeout(() => res.end(), Math.min(Math.max(0, exp * 1000 - Date.now()), 2 ** 31 - 1)) : null;
+    const recheck = sub !== null ? setInterval(() => {
+      import("./members-store.mjs").then((m) => m.requireMinRole(project, "viewer"))
+        .catch((e) => { if (e?.status === 403 || e?.status === 404) res.end(); }); // a bridge or database blip keeps the stream
+    }, SSE_RECHECK_MS) : null;
     req.on("close", () => {
       clearInterval(ka);
+      clearTimeout(expires);
+      clearInterval(recheck);
       set.delete(res);
       if (!set.size) sseClients.delete(project); // events-2: an emptied project leaves no entry behind
       if (sub !== null) { const n = sseByUser.get(sub) - 1; if (n > 0) sseByUser.set(sub, n); else sseByUser.delete(sub); }
@@ -1274,7 +1292,9 @@ async function handleRequest(req, res) {
       if (p2 === "members" && p3 && p3 !== "me" && req.method === "DELETE") {
         const members = await import("./members-store.mjs");
         const b = await readBody(req);
-        return send(res, 200, await members.removeMember(p1, p3, b.actor || "web"));
+        const removed = await members.removeMember(p1, p3, b.actor || "web");
+        closeStreamsFor(p1, p3); // SEC-6 (S20): the removed member's live streams on this bridge end now
+        return send(res, 200, removed);
       }
       if (p2 === "containers" && !p3) {
         if (req.method === "GET") return send(res, 200, await cde.listContainers(p1));
