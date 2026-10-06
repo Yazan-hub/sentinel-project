@@ -597,17 +597,19 @@ export async function createContainer(key, b) {
 const REVISION_ONCE = "a revision is registered once per file — a new upload takes a new revision; nothing was saved";
 // A label is compared trimmed and in any case, as 0041 compares it ("P01 " and "p01" are P01); a new one is stored trimmed.
 const sameRevision = (a, b) => String(a ?? "").trim().toUpperCase() === String(b ?? "").trim().toUpperCase();
+// The database's refusal of a held revision: 0041's trigger (a signed-in INSERT, in its words) or, SEC-5, 0042's unique index
+// (the same rule for every writer).
+const revisionClash = (e) => (e?.body?.code === "P0001" && /registered once per file/.test(String(e.body.message || "")))
+  || (e?.body?.code === "23505" && /container_versions_one_revision/.test(String(e.body.message || "")));
 const revisionRefused = (e) => {
-  if (e?.body?.code === "P0001" && /registered once per file/.test(String(e.body.message || ""))) throw Object.assign(new Error(REVISION_ONCE), { status: 409 });
-  // SEC-5 (0042): the same rule for every writer, as a unique index.
-  if (e?.body?.code === "23505" && /container_versions_one_revision/.test(String(e.body.message || ""))) throw Object.assign(new Error(REVISION_ONCE), { status: 409 });
+  if (revisionClash(e)) throw Object.assign(new Error(REVISION_ONCE), { status: 409 });
   throw e;
 };
 
-/** SEC-5: when 0042's revision index refused an INSERT, the version that holds the revision, read once — answered as a
+/** SEC-5: when the database refused an INSERT's revision (0041's trigger or 0042's index), the version that holds the revision, read once — answered as a
  *  repeat only when it holds the same bytes and is not in Deleted items; else null (the 409 stands). */
 async function heldRepeat(e, containerId, revision, sha256) {
-  if (!(e?.body?.code === "23505" && /container_versions_one_revision/.test(String(e.body.message || ""))) || !sha256) return null;
+  if (!revisionClash(e) || !sha256) return null;
   const held = await sb(`container_versions?container_id=eq.${containerId}&select=id,revision,state,is_live,platform_item_id,sha256,deleted_at`).catch(() => null);
   const v = (Array.isArray(held) ? held : []).find((x) => sameRevision(x.revision, revision));
   return v && !v.deleted_at && v.sha256 && String(v.sha256).toLowerCase() === String(sha256).toLowerCase() ? v : null;
@@ -906,7 +908,7 @@ export async function registerFileVersion(key, b = {}) {
   let next = prior.length + 1;
   const asked = String(b.revision ?? "").trim();
   while (!asked && prior.some((v) => sameRevision(v.revision, `v${next}`))) next++;
-  const revision = asked || `v${next}`;
+  let revision = asked || `v${next}`;
   const same = prior.find((v) => sameRevision(v.revision, revision));
   if (same) {
     if (!same.deleted_at && b.sha256 && same.sha256 && String(same.sha256).toLowerCase() === String(b.sha256).toLowerCase())
@@ -914,23 +916,29 @@ export async function registerFileVersion(key, b = {}) {
     throw Object.assign(new Error(REVISION_ONCE), { status: 409 });
   }
 
+  const insert = async () => (await sb(`container_versions`, {
+    method: "POST",
+    body: {
+      container_id: container.id, revision, state: "wip", suitability: b.suitability || "S0",
+      author: resolveActor(b.author, "web"), notes: b.notes || null, file_ref: b.file_ref || null,
+      size_bytes: b.size_bytes != null ? Number(b.size_bytes) : null,
+      sha256: b.sha256 || null, is_live: false,
+    },
+    prefer: "return=representation",
+  }))[0];
   let version;
   try {
-    version = (await sb(`container_versions`, {
-      method: "POST",
-      body: {
-        container_id: container.id, revision, state: "wip", suitability: b.suitability || "S0",
-        author: resolveActor(b.author, "web"), notes: b.notes || null, file_ref: b.file_ref || null,
-        size_bytes: b.size_bytes != null ? Number(b.size_bytes) : null,
-        sha256: b.sha256 || null, is_live: false,
-      },
-      prefer: "return=representation",
-    }))[0];
+    version = await insert();
   } catch (e) {
     // SEC-5 (0042): a registration of this revision landed at the same moment — the same bytes are its repeat (SEC-4 C4).
     const held = await heldRepeat(e, container.id, revision, b.sha256);
     if (held) return { container_id: container.id, iso_name: name, version: held, repeat: true };
-    revisionRefused(e);
+    // No revision was asked: the label is the bridge's own, so it takes the next free one once (a second refusal stands).
+    if (asked || !revisionClash(e)) revisionRefused(e);
+    const held2 = await sb(`container_versions?container_id=eq.${container.id}&select=revision`);
+    while ((Array.isArray(held2) ? held2 : []).some((v) => sameRevision(v.revision, `v${next}`))) next++;
+    revision = `v${next}`;
+    try { version = await insert(); } catch (e2) { revisionRefused(e2); }
   }
 
   await setLiveVersion(key, version.id, b.author || "web");

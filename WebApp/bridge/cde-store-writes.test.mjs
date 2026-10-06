@@ -369,11 +369,16 @@ describe("Deleted items (0035) — listed, restored, and kept out of every other
   });
 
   // SEC-5 (review C5): two registrations of one new revision at once — the one the index refuses reads the version once.
-  const race = (winner) => {
+  const INDEX_REFUSAL = { code: "23505", message: 'duplicate key value violates unique constraint "container_versions_one_revision"' };
+  // A signed-in INSERT meets 0041's trigger first, in its words.
+  const TRIGGER_REFUSAL = { code: "P0001", message: "a revision is registered once per file — a new upload takes a new revision" };
+  const race = (winner, refusal = INDEX_REFUSAL, times = Infinity) => {
+    let refused = 0;
     globalThis.fetch = vi.fn(async (url, init = {}) => {
-      if (init.method === "POST" && String(url).includes("/container_versions")) {
+      if (init.method === "POST" && String(url).includes("/container_versions") && refused < times) {
+        refused++;
         db.container_versions.push(winner); // the other registration landed first
-        return new Response(JSON.stringify({ code: "23505", message: 'duplicate key value violates unique constraint "container_versions_one_revision"' }), { status: 409 });
+        return new Response(JSON.stringify(refusal), { status: refusal.code === "P0001" ? 400 : 409 });
       }
       return rest.fetch(url, init);
     });
@@ -399,6 +404,37 @@ describe("Deleted items (0035) — listed, restored, and kept out of every other
       race({ id: W, container_id: C, revision: "P09", state: "wip", is_live: false, ...held });
       await expect(registerFileVersion("demo", { name: "A.ifc", revision: "P09", sha256: "c".repeat(64), author: "web" })).rejects.toMatchObject({ status: 409, message: REV });
       expect(ledger()).toHaveLength(0);
+    }
+  });
+
+  it("SEC-5 (review): a signed-in registration that meets 0041's refusal at the same moment gets the same answers — the repeat for the same bytes, the 409 for others", async () => {
+    const REV = "a revision is registered once per file — a new upload takes a new revision; nothing was saved";
+    for (const [sha256, repeat] of [["c".repeat(64), true], ["d".repeat(64), false]]) {
+      db.information_containers = [{ id: C, project_id: P, iso_name: "A.ifc", deleted_at: null }];
+      db.container_versions = [];
+      serve();
+      race({ id: W, container_id: C, revision: "P09", state: "wip", sha256, is_live: true, deleted_at: null }, TRIGGER_REFUSAL);
+      const reg = registerFileVersion("demo", { name: "A.ifc", revision: "P09", sha256: "c".repeat(64), author: "web" });
+      if (repeat) expect(await reg).toMatchObject({ container_id: C, version: { id: W }, repeat: true });
+      else await expect(reg).rejects.toMatchObject({ status: 409, message: REV });
+      expect(ledger()).toHaveLength(0);
+    }
+  });
+
+  it("SEC-5 (review): no revision asked, and another upload took the same label at the same moment — this one lands as the next label", async () => {
+    for (const refusal of [INDEX_REFUSAL, TRIGGER_REFUSAL]) {
+      db.information_containers = [{ id: C, project_id: P, iso_name: "A.ifc", deleted_at: null }];
+      db.container_versions = [];
+      serve();
+      race({ id: W, container_id: C, revision: "v1", state: "wip", sha256: "d".repeat(64), is_live: true, deleted_at: null }, refusal, 1);
+      const r = await registerFileVersion("demo", { name: "A.ifc", sha256: "c".repeat(64), author: "web" });
+      expect(r.repeat).toBeUndefined();
+      expect(r.version).toMatchObject({ revision: "v2", sha256: "c".repeat(64) });
+      // a second refusal is not retried again: the 409 in words
+      db.container_versions = [];
+      serve();
+      race({ id: W, container_id: C, revision: "v1", state: "wip", sha256: "d".repeat(64), is_live: true, deleted_at: null }, refusal);
+      await expect(registerFileVersion("demo", { name: "A.ifc", sha256: "c".repeat(64), author: "web" })).rejects.toMatchObject({ status: 409 });
     }
   });
 
