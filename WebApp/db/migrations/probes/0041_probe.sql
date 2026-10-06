@@ -7,7 +7,7 @@
 -- versions, verdict rows and a transmittal the cases need (with the service role), then tries each case — signed in through
 -- the transaction-local request.jwt.claims setting that auth.uid() reads ('' is the service key), under
 -- `set local role authenticated` where row-level security matters. It ALWAYS raises its summary, so everything it wrote
--- rolls back (the ledger rows' identity values are consumed). "PROBE 0041: 21 of 21 as expected." is the pass.
+-- rolls back (the ledger rows' identity values are consumed). "PROBE 0041: 24 of 24 as expected." is the pass.
 
 -- Part 0 (before the apply)
 with v as (select cv.id, cv.state, cv.sha256, cv.platform_item_id, cv.container_id, ic.project_id
@@ -31,7 +31,7 @@ union all select 'files whose name freezes after 0041 (no issued version) — a 
 union all select 'files whose name freezes after 0041 (no issued version) — only rejected verdict rows',
   (select count(*) from fz where not accepted and not recorded)::text
 union all select '(file, revision) pairs held by more than one version, Deleted items included (expect 0)',
-  (select count(*) from (select container_id, revision from public.container_versions where revision is not null
+  (select count(*) from (select container_id, upper(btrim(revision)) from public.container_versions where revision is not null
      group by 1, 2 having count(*) > 1) d)::text
 union all select 'platform items named by versions on more than one project (expect 0)',
   (select count(*) from (select cv.platform_item_id from public.container_versions cv join public.information_containers ic on ic.id = cv.container_id
@@ -63,7 +63,8 @@ union all select 'the live bodies are 0040''s and 0038''s (expect true)',
 --     join public.projects p on p.id = ic.project_id where ic.id in (select v.container_id from v join vr on vr.entity_id = v.id)
 --     and not exists (select 1 from public.container_versions x where x.container_id = ic.id and x.state in ('published', 'archived'))
 --     order by 1, 2;
---   the revisions held twice: select p.key, ic.iso_name, cv.revision, count(*) from public.container_versions cv
+--   the revisions held twice (a label trimmed and in any case, as 0041 compares them): select p.key, ic.iso_name,
+--     upper(btrim(cv.revision)), count(*) from public.container_versions cv
 --     join public.information_containers ic on ic.id = cv.container_id join public.projects p on p.id = ic.project_id
 --     group by 1, 2, 3 having count(*) > 1 order by 1, 2, 3;
 
@@ -93,8 +94,8 @@ declare
   sfx text := substr(md5(random()::text), 1, 8);
   p uuid; c uuid; c2 uuid; c3 uuid; t uuid;
   u_con uuid := gen_random_uuid(); u_lead uuid := gen_random_uuid();
-  j_con text := json_build_object('sub', u_con, 'email', 'contributor@probe.invalid', 'role', 'authenticated')::text;
-  j_lead text := json_build_object('sub', u_lead, 'email', 'lead@probe.invalid', 'role', 'authenticated')::text;
+  j_con text := json_build_object('sub', u_con, 'email', 'contributor@example.test', 'role', 'authenticated')::text;
+  j_lead text := json_build_object('sub', u_lead, 'email', 'lead@example.test', 'role', 'authenticated')::text;
   v_wip uuid; v_shared uuid; v_nosha uuid; v_draft uuid; v_bin uuid; v_move uuid;
   rec text := 'P0001 a version''s record is written when it is registered — a new upload is a new version';
   geom text := 'P0001 a version''s geometry is attached by the bridge';
@@ -236,6 +237,29 @@ begin
   exception when others then outcome := sqlstate || ' ' || sqlerrm; end;
   if outcome is distinct from 'OK 1' then failed := failed || ('R2 a fresh revision: ' || coalesce(outcome, 'null')); end if;
 
+  -- R3 a look-alike of a held revision (a trailing space, another case) is refused too
+  n := n + 1;
+  begin set local role authenticated;
+    insert into public.container_versions(container_id, revision, sha256) values (c, 'v1 ', repeat('4', 64));
+    get diagnostics rc = row_count; outcome := 'OK ' || rc; reset role;
+  exception when others then outcome := sqlstate || ' ' || sqlerrm; end;
+  begin set local role authenticated;
+    insert into public.container_versions(container_id, revision, sha256) values (c, 'V1', repeat('5', 64));
+    get diagnostics rc = row_count; outcome := outcome || ' / OK ' || rc; reset role;
+  exception when others then outcome := outcome || ' / ' || sqlstate || ' ' || sqlerrm; end;
+  if outcome is distinct from rev || ' / ' || rev then failed := failed || ('R3 a look-alike revision: ' || coalesce(outcome, 'null')); end if;
+
+  -- R4 a revision held only by a version in Deleted items is refused too
+  perform set_config('request.jwt.claims', '', true);
+  update public.container_versions set deleted_at = now(), deleted_by = 'probe' where id = v_bin;
+  perform set_config('request.jwt.claims', j_con, true);
+  n := n + 1;
+  begin set local role authenticated;
+    insert into public.container_versions(container_id, revision, sha256) values (c2, 'v2', repeat('6', 64));
+    get diagnostics rc = row_count; outcome := 'OK ' || rc; reset role;
+  exception when others then outcome := sqlstate || ' ' || sqlerrm; end;
+  if outcome is distinct from rev then failed := failed || ('R4 a revision held in Deleted items: ' || coalesce(outcome, 'null')); end if;
+
   -- N1 a contributor's rename of a file a verdict judged is refused
   perform set_config('request.jwt.claims', j_con, true);
   n := n + 1;
@@ -322,10 +346,22 @@ begin
      or (select sha256 from public.container_versions where id = v_nosha) is not null
      or (select iso_name from public.information_containers where id = c) is distinct from 'PROBE-0041.ifc'
      or (select recipients from public.transmittals where id = t) is distinct from '["x"]'::jsonb
-     or (select count(*) from public.container_versions where container_id = c and revision = 'v1') <> 1
+     or (select count(*) from public.container_versions where container_id = c and upper(btrim(revision)) = 'V1') <> 1
+     or (select count(*) from public.container_versions where container_id = c2 and revision = 'v2') <> 1
      or (select metadata->'settings'->>'platform_project_id' from public.projects where id = p) is not null then
     failed := failed || 'a refused write changed a row'::text;
   end if;
+
+  -- L2 the control: a lead links a platform project that only an archived project still names
+  update public.projects set metadata = jsonb_set(metadata, '{settings,archived}', 'true'::jsonb) where key = 'probe-0041-l-' || sfx;
+  perform set_config('request.jwt.claims', j_lead, true);
+  n := n + 1;
+  begin set local role authenticated;
+    update public.projects set metadata = jsonb_set(coalesce(metadata, '{}'::jsonb), '{settings}', jsonb_build_object('platform_project_id', 'probe-plat-' || sfx))
+     where id = p;
+    get diagnostics rc = row_count; outcome := 'OK ' || rc; reset role;
+  exception when others then outcome := sqlstate || ' ' || sqlerrm; end;
+  if outcome is distinct from 'OK 1' then failed := failed || ('L2 a link only an archived project names: ' || coalesce(outcome, 'null')); end if;
 
   raise exception 'PROBE 0041: % of % as expected%. Everything above is rolled back (the project, the memberships, the files, every version and transmittal built for the cases and the ledger rows they wrote).',
     n - coalesce(array_length(failed, 1), 0), n,

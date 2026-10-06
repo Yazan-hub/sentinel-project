@@ -38,7 +38,7 @@ describe("migration 0041 — a version's record is the registration's; geometry 
   });
 
   it("a signed-in INSERT carries no geometry (0040's update words) and takes a revision its file does not hold yet", () => {
-    expect(code).toContain("create or replace function public.cde_version_on_insert() returns trigger\n  language plpgsql set search_path = public as $$\nbegin\n  if new.platform_item_id is not null and auth.uid() is not null then\n    raise exception 'a version''s geometry is attached by the bridge';\n  end if;\n  if auth.uid() is not null\n     and exists (select 1 from public.container_versions x where x.container_id = new.container_id and x.revision = new.revision) then\n    raise exception 'a revision is registered once per file — a new upload takes a new revision';\n  end if;\n  return new;\nend $$;");
+    expect(code).toContain("create or replace function public.cde_version_on_insert() returns trigger\n  language plpgsql set search_path = public as $$\nbegin\n  if new.platform_item_id is not null and auth.uid() is not null then\n    raise exception 'a version''s geometry is attached by the bridge';\n  end if;\n  if auth.uid() is not null\n     and exists (select 1 from public.container_versions x where x.container_id = new.container_id\n                   and upper(btrim(x.revision)) = upper(btrim(new.revision))) then\n    raise exception 'a revision is registered once per file — a new upload takes a new revision';\n  end if;\n  return new;\nend $$;");
     // Deleted items included: the rule reads every version of the file.
     expect(fn(code, "cde_version_on_insert")).not.toContain("deleted_at");
     expect(code).toContain("revoke execute on function public.cde_version_on_insert() from public, anon, authenticated;");
@@ -78,10 +78,17 @@ describe("migration 0041 — a version's record is the registration's; geometry 
       "U1 a uuid-shaped project key is refused", "R1 a contributor's INSERT under a revision its file already holds is refused (K-c)",
       "R2 the control: a contributor's INSERT under a revision the file does not hold yet",
       "L1 a lead's direct settings write that links a platform project another live project links is refused (23505)",
+      // Review C13: a look-alike label (spaces, case) is the same revision; Deleted items count; an archived project's link is no conflict.
+      "R3 a look-alike of a held revision (a trailing space, another case) is refused too",
+      "R4 a revision held only by a version in Deleted items is refused too",
+      "L2 the control: a lead links a platform project that only an archived project still names",
       "one live project links a platform project (projects_one_live_platform_link)",
-      '"PROBE 0041: 21 of 21 as expected."', "PROBE 0041: % of %"])
+      '"PROBE 0041: 24 of 24 as expected."', "PROBE 0041: % of %"])
       expect(PROBE).toContain(w);
-    expect(PROBE.match(/^ {2}n := n \+ 1;$/gm)).toHaveLength(21);
+    expect(PROBE.match(/^ {2}n := n \+ 1;$/gm)).toHaveLength(24);
+    // Its made-up users are on the reserved example.test domain.
+    expect(PROBE).toContain("contributor@example.test");
+    expect(PROBE).not.toContain("probe.invalid");
     // 0040's probe tells the next reader that its G2 control reads refused after 0041, by design (I1 above).
     expect(read("../db/migrations/probes/0040_probe.sql")).toContain("-- After 0041 (SEC-4): part 2's G2 control");
   });

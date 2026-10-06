@@ -7,7 +7,7 @@
 --       every state. Its file reference, size, sha256, revision, suitability, author and notes are the registration's
 --       (founder decision K-a); the bridge's service path is unchanged.
 --   2 · a signed-in INSERT of a version carries no geometry, and takes a revision its file does not hold yet, Deleted items
---       included (trg_version_on_insert): the bridge links an item it uploaded, after the hash check, with the service key
+--       included, a label compared trimmed and in any case (trg_version_on_insert): the bridge links an item it uploaded, after the hash check, with the service key
 --       (founder decision L-b; 0040 left the INSERT to the caller); a new upload takes a new revision (K-c).
 --   3 · cde_container_frozen (0038's body): a file whose version a verdict row names keeps its name, for every writer
 --       (founder decision K-b: a new name is a new file).
@@ -74,7 +74,8 @@ begin
     raise exception 'a version''s geometry is attached by the bridge';
   end if;
   if auth.uid() is not null
-     and exists (select 1 from public.container_versions x where x.container_id = new.container_id and x.revision = new.revision) then
+     and exists (select 1 from public.container_versions x where x.container_id = new.container_id
+                   and upper(btrim(x.revision)) = upper(btrim(new.revision))) then
     raise exception 'a revision is registered once per file — a new upload takes a new revision';
   end if;
   return new;
