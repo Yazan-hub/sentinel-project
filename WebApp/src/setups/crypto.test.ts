@@ -109,3 +109,69 @@ describe("unlockAndVerify — a refused first-time setup", () => {
     expect(isUnlocked("demo-unreadable")).toBe(false);
   });
 });
+
+// SEC-5 (S39): only a keystore the bridge says is not there is a first use, and only a keystore the bridge stored unlocks.
+describe("unlockAndVerify — a read or a write that did not happen never unlocks", () => {
+  const reply = (status: number, body: unknown) => ({ ok: status < 400, status, json: async () => body }) as unknown as Response;
+  const PASS = "correct horse battery staple";
+
+  it("a keystore read that throws, answers 500 or is not JSON: not ok, no first-use POST, the project stays locked", async () => {
+    const reads: Array<() => Promise<Response>> = [
+      () => Promise.reject(new TypeError("Failed to fetch")),
+      () => Promise.resolve(reply(500, { message: "Internal error" })),
+      () => Promise.resolve({ ok: true, status: 200, json: async () => { throw new SyntaxError("Unexpected token <"); } } as unknown as Response),
+    ];
+    for (const [i, read] of reads.entries()) {
+      bfetch.mockReset();
+      bfetch.mockImplementationOnce(read);
+      const r = await unlockAndVerify("http://bridge", `s39-read-${i}`, PASS);
+      expect(r.ok).toBe(false);
+      expect(r.reason).toMatch(/^Could not read the project keystore \(.+\) — nothing was unlocked; try again$/);
+      expect(bfetch).toHaveBeenCalledTimes(1);
+      expect(isUnlocked(`s39-read-${i}`)).toBe(false);
+    }
+  });
+
+  it("no keystore yet, then a first-use POST that throws: not ok, the passphrase may not have been stored, the project stays locked", async () => {
+    bfetch.mockReset();
+    bfetch.mockResolvedValueOnce(reply(200, null)).mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    const r = await unlockAndVerify("http://bridge", "s39-post", PASS);
+    expect(r).toEqual({ ok: false, firstUse: true, reason: "Could not reach the bridge — the passphrase may not have been stored; unlock again with the same passphrase" });
+    expect(isUnlocked("s39-post")).toBe(false);
+  });
+
+  it("a keystore read the bridge refused (401, 403, 404), or one with no wrapped key: not ok, the bridge's words, no 'try again' (review C6)", async () => {
+    const cases: Array<[Response, string]> = [
+      [reply(403, { message: "a member of this project reads its keystore" }), "Could not read the project keystore (the bridge answered HTTP 403: a member of this project reads its keystore) — nothing was unlocked"],
+      [reply(401, {}), "Could not read the project keystore (the bridge answered HTTP 401) — nothing was unlocked"],
+      [reply(404, { message: "Project not found" }), "Could not read the project keystore (the bridge answered HTTP 404: Project not found) — nothing was unlocked"],
+      [reply(200, { v: 1, salt: "c2FsdA==" }), "Could not read the project keystore (the stored keystore holds no wrapped key) — nothing was unlocked"],
+    ];
+    for (const [i, [res, reason]] of cases.entries()) {
+      bfetch.mockReset();
+      bfetch.mockResolvedValueOnce(res);
+      expect(await unlockAndVerify("http://bridge", `s39-final-${i}`, PASS)).toEqual({ ok: false, firstUse: false, reason });
+      expect(bfetch).toHaveBeenCalledTimes(1);
+      expect(isUnlocked(`s39-final-${i}`)).toBe(false);
+    }
+  });
+
+  it("the control: no keystore yet and a POST the bridge stored is a first use, unlocked", async () => {
+    bfetch.mockReset();
+    bfetch.mockResolvedValueOnce(reply(200, null)).mockResolvedValueOnce(reply(201, { ok: true }));
+    expect(await unlockAndVerify("http://bridge", "s39-ok", PASS)).toEqual({ ok: true, firstUse: true });
+    expect(isUnlocked("s39-ok")).toBe(true);
+  });
+});
+
+// SEC-5 (S38): the DEK a session holds cannot be exported; a re-key unwraps its own short-lived copy.
+describe("the session's DEK is not extractable", () => {
+  it("createKeystore and openKeystore answer a key exportKey refuses", async () => {
+    const { keystore, dek } = await createKeystore("old-pass");
+    expect(dek.extractable).toBe(false);
+    await expect(crypto.subtle.exportKey("raw", dek)).rejects.toBeDefined();
+    const opened = await openKeystore(keystore, "old-pass");
+    expect(opened.extractable).toBe(false);
+    await expect(crypto.subtle.exportKey("raw", opened)).rejects.toBeDefined();
+  });
+});

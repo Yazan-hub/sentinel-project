@@ -2,6 +2,7 @@
 // (Governed Intake relies on that), so POST /ifc refuses anything that is not a STEP file before it gets there.
 import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { isIfcStep } from "./platform-publish.mjs";
 
 describe("isIfcStep", () => {
@@ -33,6 +34,8 @@ describe("uploadIfcAsFrag — the .frag first, then the raw IFC beside it", () =
     const out = await uploadIfcAsFrag(Buffer.from("ISO-10303-21;"), "tower.ifc", "v3");
     expect(uploadBytes.mock.calls.map((c) => [c[3], c[4]])).toEqual([["tower.frag", "v3"], ["tower.ifc", "v3"]]);
     expect(out).toMatchObject({ ok: true, format: "frag", name: "tower.frag", itemId: "item-tower.frag", ifcItemId: "item-tower.ifc" });
+    // SEC-5: the sha256 of the .frag bytes uploaded — what the web's Open 3D checks a download against.
+    expect(out.frag_sha256).toBe(createHash("sha256").update(new Uint8Array([1, 2, 3])).digest("hex"));
   });
 
   it("a failed conversion uploads the IFC once, as before, and says so", async () => {
@@ -44,6 +47,7 @@ describe("uploadIfcAsFrag — the .frag first, then the raw IFC beside it", () =
     const out = await uploadIfcAsFrag(Buffer.from("ISO-10303-21;"), "tower.ifc", "v1");
     expect(uploadBytes.mock.calls.map((c) => c[3])).toEqual(["tower.ifc"]);
     expect(out).toMatchObject({ format: "ifc", itemId: "item-tower.ifc", ifcItemId: "item-tower.ifc" });
+    expect(out).not.toHaveProperty("frag_sha256");
     expect(out.note).toMatch(/frag conversion failed \(boom\)/);
   });
 

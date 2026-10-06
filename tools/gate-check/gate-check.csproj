@@ -18,6 +18,7 @@
     <!-- DeliveryContract.Load resolves contract@n through the phase-4a artefact client. -->
     <Compile Include="..\..\SentinelAddin\Coordination\ArtefactClient.cs" />
     <Compile Include="..\..\SentinelAddin\Coordination\BcfConfig.cs" />
+    <Compile Include="..\..\SentinelAddin\Coordination\UrlRule.cs" />
     <Compile Include="..\..\SentinelAddin\Coordination\UserSession.cs" />
     <Compile Include="..\..\SentinelAddin\Engine\ArtefactCache.cs" />
   </ItemGroup>

@@ -16,10 +16,10 @@ jobs:
       run:
         working-directory: WebApp
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 22 # @supabase/*, camera-controls and unpdf require node >= 22
       # The viewer runs on That Open's private beta engine (@thatopen-platform/*, since 2026-09-24): npm needs the
@@ -35,9 +35,13 @@ jobs:
           fi
           echo '@thatopen-platform:registry=https://registry.npmjs.org/' > .npmrc
           echo '//registry.npmjs.org/:_authToken=${NPM_TOKEN}' >> .npmrc # npm expands NPM_TOKEN itself; the value is never written or echoed
-      - run: npm install
+      # SEC-5 (S33): no dependency's install script runs while the token is in the environment, and its .npmrc is gone before
+      # anything else runs; the one build step the web app needs at install (the fragments worker) runs after, without it.
+      - run: npm install --ignore-scripts
         env:
           NPM_TOKEN: ${{ secrets.THATOPEN_NPM_TOKEN }}
+      - run: rm -f .npmrc
+      - run: npm run prepare
       - run: npm run test
       - run: npm run build
 
@@ -51,10 +55,10 @@ jobs:
         # need extra SDK/reference setup — add them here once the runner is provisioned.
         revit: [2025, 2026]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: actions/setup-dotnet@v6
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
         with:
           dotnet-version: "8.0.x"
       - run: dotnet build SentinelAddin -c Release -p:RevitVersion=${{ matrix.revit }} -p:DeployToRevit=false

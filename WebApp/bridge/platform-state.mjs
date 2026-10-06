@@ -50,6 +50,11 @@ export async function mirrorState(versionId, deps = {}) {
     // the state it recorded, so the label's state and row always belong together.
     const [row] = (await sb(`audit_log?entity_type=eq.container_version&entity_id=eq.${versionId}&action=like.state:*&order=id.desc&limit=1&select=id,new_value`, { service: true })) || [];
     if (!row?.id) return skip("the version has no state: row on the ledger");
+    // SEC-5 (S17): the label speaks for one project's version. An item that versions on two projects name is not mirrored.
+    const named = (await sb(`container_versions?platform_item_id=eq.${encodeURIComponent(item)}&select=id,information_containers(project_id)`, { service: true })) || [];
+    const projects = new Set(named.map((x) => x?.information_containers?.project_id ?? null));
+    if (projects.size > 1) return skip("the platform item is named on more than one project — not mirrored");
+    if (!named.length || projects.has(null)) return skip("the platform item's project could not be read — not mirrored");
     const state = row.new_value?.state ?? v.state;
     const client = await (deps.platform || platformClient)();
     const versions = await client.listVersions(item);

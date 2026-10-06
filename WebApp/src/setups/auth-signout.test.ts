@@ -3,12 +3,19 @@
 import { describe, it, expect, vi } from "vitest";
 
 const signOut = vi.fn(async () => ({ error: null }));
-vi.mock("@supabase/supabase-js", () => ({ createClient: () => ({ auth: { signOut } }) }));
+const clientOptions: unknown[] = [];
+vi.mock("@supabase/supabase-js", () => ({ createClient: (_u: string, _k: string, o: unknown) => { clientOptions.push(o); return { auth: { signOut } }; } }));
 
 describe("signOut", () => {
   it("passes scope 'local' so other devices — a Revit session — stay signed in", async () => {
     const { signOut: webSignOut } = await import("./auth");
     await webSignOut();
     expect(signOut).toHaveBeenCalledWith({ scope: "local" });
+  });
+
+  it("SEC-5 (S38): the client reads no session out of the page's URL — the sign-in is a code or a password", async () => {
+    const { supabase } = await import("./auth");
+    supabase();
+    expect(clientOptions[0]).toMatchObject({ auth: { detectSessionInUrl: false } });
   });
 });

@@ -78,6 +78,8 @@ describe("POST /cde/:key/audit (recordAudit) — Sentinel's own rows are refused
     // The platform gate's runs (spec 2026-09-29): one row per execution id, written by platform-gate-ledger.mjs only.
     [{ entity_type: "platform_gate", action: "platform gate PASS: tower.ifc v1", new_value: { execution_id: "6ab9827413cf4cfc31e03d07" } }, "platform_gate rows are written by Sentinel, not through this route"],
     [{ entity_type: " Platform_Gate ", action: "recorded" }, "platform_gate rows are written by Sentinel, not through this route"],
+    // SEC-5: the web's Open 3D trusts the link row's hashes — only attachGeometry writes one.
+    [{ entity_type: "file_version", entity_id: V, action: " Geometry Linked", new_value: { frag_sha256: "f".repeat(64) } }, "geometry linked rows are written by Sentinel, not through this route"],
     // MA-3a (review amendment C5): the web desk's decisions and a lead's re-open are the bridge's rows — the record of a binding decline.
     [{ entity_type: "changeset", action: "changeset_reviewed" }, "changeset_reviewed rows are written by Sentinel, not through this route"],
     [{ entity_type: "changeset", action: " Changeset_Reopened" }, "changeset_reopened rows are written by Sentinel, not through this route"],

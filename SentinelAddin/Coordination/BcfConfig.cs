@@ -29,19 +29,9 @@ internal sealed class BcfConfig
     /// <summary>SEC-3: an address no call reaches (a reserved name): a refused bridge address is replaced by it.</summary>
     internal const string RefusedServiceUrl = "https://bridge-address-refused.invalid";
 
-    /// <summary>SEC-3: null when a token or a sign-in may go to <paramref name="url"/> — https, or http to this PC (blank:
-    /// nothing is sent); else the words.</summary>
-    internal static string? UrlRefusal(string? url, string what)
-    {
-        if (string.IsNullOrWhiteSpace(url)) return null;
-        var u = url!.Trim();
-        bool ok = Uri.TryCreate(u, UriKind.Absolute, out var uri)
-                  && (uri.Scheme == Uri.UriSchemeHttps
-                      || (uri.Scheme == Uri.UriSchemeHttp && (uri.IsLoopback || uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase))));
-        return ok ? null
-            : $"The {what} address \"{u}\" is not https and not on this PC — Sentinel sends a token or a sign-in to another PC over https only; "
-              + "set an https address in %AppData%\\Sentinel\\bcf-config.json. Nothing was sent.";
-    }
+    /// <summary>SEC-3: null when a token or a sign-in may go to <paramref name="url"/>; else the words — the one rule in
+    /// <see cref="Coordination.UrlRule"/> (SEC-5: the ledger POST uses it too).</summary>
+    internal static string? UrlRefusal(string? url, string what) => global::Sentinel.Coordination.UrlRule.Refusal(url, what);
 
     /// <summary>SEC-3: the config with a bridge address a token may go to; else that address replaced by <see cref="RefusedServiceUrl"/>
     /// and the words in <see cref="Refusal"/>.</summary>

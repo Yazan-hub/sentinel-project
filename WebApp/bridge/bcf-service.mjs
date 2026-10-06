@@ -489,7 +489,7 @@ async function startEventPoll() {
 async function startPlatformGatePoll() {
   const componentId = (process.env.THATOPEN_GATE_COMPONENT_ID || "").trim();
   if (!componentId) return;
-  try { await (await import("./platform-gate-ledger.mjs")).watchPlatformGate({ componentId, log: (l) => console.log(`[bridge] ${l}`) }); }
+  try { await (await import("./platform-gate-ledger.mjs")).watchPlatformGate({ componentId, targetKey: (process.env.THATOPEN_GATE_PROJECT_KEY || "").trim() || null, log: (l) => console.log(`[bridge] ${l}`) }); }
   catch (e) { console.warn(`[bridge] platform gate ledger: off — ${String(e?.message || e).slice(0, 200)}`); }
 }
 
@@ -994,6 +994,9 @@ async function handleRequest(req, res) {
   const km = url.pathname.match(/^\/packs(?:\/([^/]+))?(?:\/(install|fork))?$/);
   if (km) {
     const [, kid, ksub] = km;
+    // SEC-5 (F-a): the registry is global, and since 0038 only the machine credential writes it — a signed-in publish, fork
+    // or install count is refused in words here, before the database refuses it.
+    if (req.method === "POST" && currentUserToken()) return send(res, 403, { message: "the standards-pack registry is written by the bridge's machine credential — a signed-in publish, fork or install count is not open yet; nothing was published" });
     try {
       const cde = await import("./cde-store.mjs");
       const useCde = cde.cdeConfigured();
@@ -1321,7 +1324,7 @@ async function handleRequest(req, res) {
       //   → { rows, total, limit, offset }, newest first; total is exact; a bad filter is a 400 (cde-store.mjs auditQuery).
       if (p2 === "audit" && req.method === "GET") return send(res, 200, await cde.listAudit(p1, Object.fromEntries(url.searchParams)));
       // POST /cde/:key/audit {entity_type, action, actor?, entity_id?, old_value?, new_value?} → 201 the stored row.
-      //   verdict:, gate:, roi:, state:, hold: and review: actions and stage_gate, hold, delivery_gate, review and platform_gate rows are
+      //   verdict:, gate:, roi:, state:, hold:, review:, changeset_reviewed, changeset_reopened and geometry linked actions and stage_gate, hold, delivery_gate, review and platform_gate rows are
       //   Sentinel's own → 400 (cde-store.mjs recordAudit). The machine credential writes any other row; a signed-in
       //   contributor a Revit report (REVIT_REPORT_TYPES: naming, family_heal, the modelling commands' reports of MA-1a
       //   item 7, item 8's build receipt, which the bridge words build:run and marks claimed for every caller, and MA-2b's

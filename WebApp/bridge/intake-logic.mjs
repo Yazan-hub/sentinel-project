@@ -117,7 +117,9 @@ export async function runIntake(deps, rawInput) {
   // made leaves the version registered without geometry, and the answer says so.
   let geometry;
   if (versionId && upload.itemId) {
-    try { await deps.attachGeometry(key, versionId, upload.itemId, { sha256: gate.sha256, actor }); version.platform_item_id = upload.itemId; }
+    // SEC-5: the .frag's hash (Open 3D checks a download against it) and the delivered IFC's item go on the link row.
+    const link = { sha256: gate.sha256, actor, ...(upload.frag_sha256 ? { frag_sha256: upload.frag_sha256 } : {}), ...(upload.ifcItemId ? { ifc_item_id: upload.ifcItemId } : {}) };
+    try { await deps.attachGeometry(key, versionId, upload.itemId, link); version.platform_item_id = upload.itemId; }
     catch (e) { geometry = `not linked — ${e?.message || e}`; }
   }
   return {

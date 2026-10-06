@@ -14,6 +14,7 @@ import { fetchRevisions, fetchRevisionSnapshots, quantitiesFromSnapshots } from 
 import { readDeleted, restoreDeleted, deletedItemLine, restoredLine, archivable, type DeletedItem } from "./deleted-items";
 import { escapeHtml as esc } from "./escape-html";
 import { unarchiveFile } from "./cde-transition";
+import { firstTag, geometryCheck, linkedHash, sha256Hex, type GeometryLinkRow } from "./geometry-check";
 
 /**
  * Sentinel Versions panel — file/blob-centric version history for uploaded model files.
@@ -647,20 +648,33 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   // still surfaces any load failure as a status message rather than crashing the viewer.
   async function openInViewer(f: FileRec, v: Version) {
     if (!v.platform_item_id) { status("This version has no platform geometry (registered without a platform upload)."); return; }
-    const client = getAppManager().client as { downloadFile?: (id: string, p?: unknown) => Promise<Response> } | undefined;
+    const client = getAppManager().client as {
+      downloadFile?: (id: string, p?: { versionTag?: string }) => Promise<Response>;
+      listVersions?: (id: string) => Promise<Array<{ tag?: string; createdAt?: string }>>;
+    } | undefined;
     if (!client?.downloadFile) { status("Platform client unavailable — open the app inside the platform to load geometry."); return; }
     status(`Loading ${f.iso_name} ${v.revision} into the viewer…`);
+    // SEC-5: the version's "geometry linked" row (the bridge's) — the downloaded bytes are checked against it.
+    let link: GeometryLinkRow | null;
     try {
-      const resp = await client.downloadFile(v.platform_item_id);
+      link = ((await api(`${encodeURIComponent(pid())}/audit?entity_type=file_version&entity_id=${v.id}&action_prefix=geometry%20linked&limit=1`)) as { rows?: GeometryLinkRow[] }).rows?.[0] ?? null;
+    } catch (e) { status(`${f.iso_name} ${v.revision}: the ledger's geometry link could not be read (${(e as Error).message}) — nothing was loaded.`); return; }
+    // A link that recorded no hash (made before SEC-5): the item's first platform version, when it has more than one.
+    let first: string | null = null;
+    if (linkedHash(link) === null && client.listVersions) first = firstTag(await client.listVersions(v.platform_item_id).catch(() => null));
+    try {
+      const resp = await client.downloadFile(v.platform_item_id, first ? { versionTag: first } : undefined);
       if (!resp.ok) throw new Error(`platform download HTTP ${resp.status}`);
       const buf = await resp.arrayBuffer();
+      const check = geometryCheck(await sha256Hex(buf), v.platform_item_id, link, first);
+      if (!check.load) { status(`${f.iso_name} ${v.revision}: ${check.line}.`); return; }
       const core = coreOf();
       const modelId = modelIdOf(f, v);
       if (modelList()?.has?.(modelId)) await core.disposeModel(modelId); // reloading the same version → replace
       await core.load(buf, { modelId });
       hiddenModels.delete(modelId); // a fresh load is always visible
       render(); // surface the Hide/Show toggle on the row
-      status(`Loaded ${v.revision} into the viewer ✓ (model "${modelId}").`);
+      status(`Loaded ${v.revision} into the viewer ✓ (model "${modelId}") — ${check.line}.`);
     } catch (e) {
       status(`Couldn't load ${v.revision}: ${(e as Error).message}. The platform may store this item as IFC (needs conversion) — share the console error to refine.`);
     }

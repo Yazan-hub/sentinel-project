@@ -155,14 +155,14 @@ async function handle(name) {
       const { uploadIfcBeside } = await import("./platform-publish.mjs");
       const beside = await uploadIfcBeside(client, cfg.projectId, ifcBytes, name, "v1");
       console.log(beside.ifcItemId ? `  ✅ ${name} → item ${beside.ifcItemId}  (the delivered IFC, judged by the platform's Sentinel gate)` : `  ⚠ ${beside.note}`);
-      const hashes = { sha256: ifcSha, frag_sha256: createHash("sha256").update(fragBytes).digest("hex") };
+      const hashes = { sha256: ifcSha, frag_sha256: createHash("sha256").update(fragBytes).digest("hex"), ...(beside.ifcItemId ? { ifc_item_id: beside.ifcItemId } : {}) };
       const reg = await recordVersion(d, name, result?.item?._id, hashes);
       await captureAfterRegister(reg, name, ifcBytes);
     } catch (e) {
       console.error(`  ⚠ frag conversion failed for ${name}: ${e?.message || e} — uploading .ifc instead`);
       const { result, size } = await uploadBytes(client, cfg.projectId, ifcBytes, name);
       console.log(`  ✅ ${name} (${size.toLocaleString()} bytes) → item ${result?.item?._id}  (fallback)`);
-      const reg = await recordVersion(d, name, result?.item?._id, { sha256: ifcSha });
+      const reg = await recordVersion(d, name, result?.item?._id, { sha256: ifcSha, ifc_item_id: result?.item?._id });
       await captureAfterRegister(reg, name, ifcBytes);
     }
 

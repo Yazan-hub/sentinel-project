@@ -1,5 +1,6 @@
 // IFC bytes → fragments → That Open Platform item. Shared by the /ifc upload route and Governed Intake
 // so a file published by either path lands the same way (viewable .frag first, raw .ifc as fallback).
+import { createHash } from "node:crypto";
 
 /** True when the bytes open as an IFC: a STEP physical file, "ISO-10303-21;" first (after a UTF-8 BOM or whitespace).
  *  POST /ifc checks it before uploadIfcAsFrag, whose raw-bytes fallback would otherwise upload anything (H0, ifc-1). */
@@ -35,5 +36,6 @@ export async function uploadIfcAsFrag(bytes, name, versionTag = "v1") {
   const fragName = name.replace(/\.ifc$/i, ".frag");
   const { result, size } = await uploadBytes(client, projectId, frag, fragName, versionTag);
   const beside = await uploadIfcBeside(client, projectId, bytes, name, versionTag);
-  return { ok: true, format: "frag", name: fragName, itemId: result?.item?._id, bytes: size, ...beside };
+  // SEC-5: the .frag's sha256 goes on the "geometry linked" row — the web's Open 3D checks a download against it.
+  return { ok: true, format: "frag", name: fragName, itemId: result?.item?._id, bytes: size, frag_sha256: createHash("sha256").update(frag).digest("hex"), ...beside };
 }

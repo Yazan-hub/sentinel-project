@@ -1420,13 +1420,13 @@ function checkFacet(card, wantValue, wantPattern, actual, specName, label, out) 
     out.push({ specification: specName, requirement: label, reason: `is "${actual}", required "${wantValue}"` });
   }
   if (wantPattern != null) {
-    let ok = false;
+    let ok = false, broken = false;
     try {
       ok = new RegExp(wantPattern).test(String(actual));
     } catch {
-      ok = true;
+      broken = true;
     }
-    if (!ok) out.push({ specification: specName, requirement: label, reason: `is "${actual}", must match /${wantPattern}/` });
+    if (!ok) out.push({ specification: specName, requirement: label, reason: broken ? `the requirement's pattern /${wantPattern}/ does not compile \u2014 not a pass` : `is "${actual}", must match /${wantPattern}/` });
   }
 }
 function attrValue(el, name) {

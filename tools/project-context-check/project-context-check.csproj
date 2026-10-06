@@ -15,6 +15,7 @@
   <ItemGroup>
     <Compile Include="..\..\SentinelAddin\Engine\ProjectContext.cs" />
     <Compile Include="..\..\SentinelAddin\Coordination\BcfConfig.cs" />
+    <Compile Include="..\..\SentinelAddin\Coordination\UrlRule.cs" />
     <Compile Include="..\..\SentinelAddin\Coordination\UserSession.cs" />
     <!-- SEC-2: the settings' pure half (SENTINEL_CHECK hides the Revit-typed storage) and the one place the tools ask -->
     <Compile Include="..\..\SentinelAddin\Engine\SettingsManager.cs" />

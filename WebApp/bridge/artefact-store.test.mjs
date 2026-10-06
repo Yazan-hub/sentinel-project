@@ -190,6 +190,61 @@ describe("validateArtefact — ruleset and naming", () => {
   });
 });
 
+// SEC-5 (S29's remainder): what the naming judge, the layer mapper and the IDS validator compile is bounded and compiled
+// in JS on install, as SEC-4 did for a ruleset's patterns.
+describe("validateArtefact — SEC-5: naming, layer and IDS patterns", () => {
+  const ids = { title: "T", specifications: [{ name: "Doors", applicability: { entity: "IFCDOOR" }, requirements: {
+    properties: [{ pset: "Pset_DoorCommon", name: "FireRating", pattern: "EI\\d+", cardinality: "required" }],
+    attributes: [{ name: "Name", pattern: "D-.*", cardinality: "required" }] } }] };
+  const spec0 = ids.specifications[0];
+  const withSpec = (over) => ({ ...ids, specifications: [{ ...spec0, ...over }] });
+  const layersBody = { standard: "S", ignore: ["*-ANNO-*", "G-*"], layers: [{ layer: "A-WALL", category: "Walls" }] };
+
+  it("accepts the repository's naming, layer and IDS bodies, and patterns at the bound", () => {
+    for (const f of ["config/base-standard/naming-ruleset.json", "demo/aster/aster-naming-ruleset.json", "demo/bds-pilot/bds-naming-ruleset.json"])
+      expect(validateArtefact("naming", readRepoJson(f)), f).toBe(true);
+    expect(validateArtefact("naming", readRepoJson("WebApp/packs/bds-house.json").naming)).toBe(true);
+    for (const f of ["config/base-standard/ids.json", "demo/aster/aster-ids.json", "demo/bds-pilot/bds-ids.json", "demo/bds-pilot/ids.json"])
+      expect(validateArtefact("ids", readRepoJson(f)), f).toBe(true);
+    expect(validateArtefact("naming", withField({ enum: undefined, pattern: "a".repeat(512) }))).toBe(true);
+    expect(validateArtefact("layers", { ...layersBody, ignore: ["*a*b*"] })).toBe(true);
+    expect(validateArtefact("ids", ids)).toBe(true);
+    // An entity pattern JS and .NET read differently installs, and applies to nothing on both sides (MA-2c review C23).
+    expect(validateArtefact("ids", withSpec({ applicability: { entity: "(?i)ifcdoor" } }))).toBe(true);
+    expect(validateArtefact("ids", JSON.parse(readFileSync(new URL("./fixtures/changeset-ops/value-sources.json", import.meta.url), "utf8")).ids)).toBe(true);
+  });
+
+  it.each([
+    ["naming", "fields[1].pattern", withField({ pattern: "(\\d+" })],
+    ["naming", "fields[1].pattern", withField({ pattern: 5 })],
+    ["naming", "fields[1].pattern", withField({ enum: undefined, pattern: "a".repeat(513) })],
+    ["naming", "fields", { ...naming, fields: Array.from({ length: 65 }, (_, i) => ({ key: `k${i}`, label: "L", enum: ["A"] })) }],
+    ["layers", "ignore", { ...layersBody, ignore: Array.from({ length: 65 }, () => "X-*") }],
+    ["layers", "ignore[1]", { ...layersBody, ignore: ["G-*", "*a*b*c*"] }],
+    ["layers", "ignore[0]", { ...layersBody, ignore: ["A".repeat(513)] }],
+    ["ids", "specifications[0]", { ...ids, specifications: ["Doors"] }],
+    ["ids", "specifications[0].applicability.entity", withSpec({ applicability: { entity: "a".repeat(513) } })],
+    ["ids", "specifications[0].applicability.entity", withSpec({ applicability: { entity: 7 } })],
+    ["ids", "specifications[0].requirements.properties[0].pattern", withSpec({ requirements: { ...spec0.requirements, properties: [{ ...spec0.requirements.properties[0], pattern: "(?i)ei\\d+" }] } })],
+    ["ids", "specifications[0].requirements.attributes[0].pattern", withSpec({ requirements: { ...spec0.requirements, attributes: [{ name: "Name", pattern: "a".repeat(513), cardinality: "required" }] } })],
+  ])("%s: a bad %s is a 400 naming that path", (kind, path, body) => {
+    expect(fails(kind, body)).toMatchObject({ status: 400, message: expect.stringContaining(`${kind}: ${path} `) });
+  });
+
+  it("the words say what to change", () => {
+    expect(fails("naming", withField({ pattern: "(\\d+" })).message).toBe("naming: fields[1].pattern does not compile as a pattern (Invalid regular expression: /(\\d+/: Unterminated group) — write it without .NET-only syntax such as a leading (?i)");
+    expect(fails("layers", { ...layersBody, ignore: ["*a*b*c*"] }).message).toBe("layers: ignore[0] holds more than 3 * wildcards");
+  });
+
+  it("an IDS whose pattern does not compile is refused at install, before anything is written", async () => {
+    const d = memDeps();
+    const bad = { title: "T", specifications: [{ name: "s", applicability: { entity: "IFCDOOR" }, requirements: { attributes: [], properties: [{ pset: "P", name: "N", pattern: "(", cardinality: "required" }] } }] };
+    await expect(putArtefact("p", "ids", bad, { actor: "x" }, d)).rejects.toMatchObject({ status: 400 });
+    expect(d.docs.size).toBe(0);
+    expect(d.audits).toHaveLength(0);
+  });
+});
+
 describe("resolveArtefact", () => {
   const shaOf = (o) => createHash("sha256").update(canonical(o)).digest("hex");
   it("resolves none → office → project, naming which judged and the sha of the body", async () => {

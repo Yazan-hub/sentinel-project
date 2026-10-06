@@ -55,6 +55,11 @@ export function packsPanel(components: OBC.Components, opts: { baseUrl?: string 
   // ── data ──────────────────────────────────────────────────────────────────────
   const publishPack = (p: Partial<Pack> & { ruleset: Ruleset }) =>
     bfetch(`${base}/packs`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(p) });
+  // SEC-5: a refused publish or fork says the bridge's words — never "Published".
+  const okOr = async (r: Response) => {
+    if (!r.ok) throw new Error(((await r.json().catch(() => null)) as { message?: string } | null)?.message || `the bridge answered HTTP ${r.status}`);
+    return r;
+  };
 
   let seq = 0;        // a slower answer for the previous project never overwrites the current one
   let loadedKey = ""; // the project last loaded — an open Publish/Fork form is kept while it stays the same
@@ -157,17 +162,17 @@ export function packsPanel(components: OBC.Components, opts: { baseUrl?: string 
     try {
       if (src) {
         // Fork = server copies the source (+ bumps its fork count) with the new identity.
-        await bfetch(`${base}/packs/${encodeURIComponent(src.id)}/fork`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key, version, name: val("pk-name").trim() || key }) });
+        await okOr(await bfetch(`${base}/packs/${encodeURIComponent(src.id)}/fork`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key, version, name: val("pk-name").trim() || key }) }));
       } else {
         // Publish = the ruleset in force on this project, packaged. Nothing installed → nothing to publish.
         const active = await activeRuleset(base);
         if (!active) { msg(NO_RULESET, "#eab308"); return; }
-        await publishPack({
+        await okOr(await publishPack({
           key, version, name: val("pk-name").trim() || key, description: val("pk-desc").trim(),
           author: getAppManager().projectData?.name ?? "you",
           tags: val("pk-tags").split(",").map((s) => s.trim()).filter(Boolean),
           ruleset: active.raw, forked_from: null,   // the installed body, placeholders intact — never the {org}-expanded copy
-        });
+        }));
       }
       msg(`${src ? "Forked" : "Published"} ${key}. It's in the marketplace.`, "#22c55e");
       await load();

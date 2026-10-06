@@ -597,10 +597,23 @@ export async function createContainer(key, b) {
 const REVISION_ONCE = "a revision is registered once per file — a new upload takes a new revision; nothing was saved";
 // A label is compared trimmed and in any case, as 0041 compares it ("P01 " and "p01" are P01); a new one is stored trimmed.
 const sameRevision = (a, b) => String(a ?? "").trim().toUpperCase() === String(b ?? "").trim().toUpperCase();
+// The database's refusal of a held revision: 0041's trigger (a signed-in INSERT, in its words) or, SEC-5, 0042's unique index
+// (the same rule for every writer).
+const revisionClash = (e) => (e?.body?.code === "P0001" && /registered once per file/.test(String(e.body.message || "")))
+  || (e?.body?.code === "23505" && /container_versions_one_revision/.test(String(e.body.message || "")));
 const revisionRefused = (e) => {
-  if (e?.body?.code === "P0001" && /registered once per file/.test(String(e.body.message || ""))) throw Object.assign(new Error(REVISION_ONCE), { status: 409 });
+  if (revisionClash(e)) throw Object.assign(new Error(REVISION_ONCE), { status: 409 });
   throw e;
 };
+
+/** SEC-5: when the database refused an INSERT's revision (0041's trigger or 0042's index), the version that holds the revision, read once — answered as a
+ *  repeat only when it holds the same bytes and is not in Deleted items; else null (the 409 stands). */
+async function heldRepeat(e, containerId, revision, sha256) {
+  if (!revisionClash(e) || !sha256) return null;
+  const held = await sb(`container_versions?container_id=eq.${containerId}&select=id,revision,state,is_live,platform_item_id,sha256,deleted_at`).catch(() => null);
+  const v = (Array.isArray(held) ? held : []).find((x) => sameRevision(x.revision, revision));
+  return v && !v.deleted_at && v.sha256 && String(v.sha256).toLowerCase() === String(sha256).toLowerCase() ? v : null;
+}
 
 export async function addVersion(container_id, b) {
   // A file in Deleted items takes no new version (0035): a 409 in words before the insert, not the guard's raw refusal.
@@ -895,7 +908,7 @@ export async function registerFileVersion(key, b = {}) {
   let next = prior.length + 1;
   const asked = String(b.revision ?? "").trim();
   while (!asked && prior.some((v) => sameRevision(v.revision, `v${next}`))) next++;
-  const revision = asked || `v${next}`;
+  let revision = asked || `v${next}`;
   const same = prior.find((v) => sameRevision(v.revision, revision));
   if (same) {
     if (!same.deleted_at && b.sha256 && same.sha256 && String(same.sha256).toLowerCase() === String(b.sha256).toLowerCase())
@@ -903,7 +916,7 @@ export async function registerFileVersion(key, b = {}) {
     throw Object.assign(new Error(REVISION_ONCE), { status: 409 });
   }
 
-  const version = (await sb(`container_versions`, {
+  const insert = async () => (await sb(`container_versions`, {
     method: "POST",
     body: {
       container_id: container.id, revision, state: "wip", suitability: b.suitability || "S0",
@@ -912,7 +925,21 @@ export async function registerFileVersion(key, b = {}) {
       sha256: b.sha256 || null, is_live: false,
     },
     prefer: "return=representation",
-  }).catch(revisionRefused))[0];
+  }))[0];
+  let version;
+  try {
+    version = await insert();
+  } catch (e) {
+    // SEC-5 (0042): a registration of this revision landed at the same moment — the same bytes are its repeat (SEC-4 C4).
+    const held = await heldRepeat(e, container.id, revision, b.sha256);
+    if (held) return { container_id: container.id, iso_name: name, version: held, repeat: true };
+    // No revision was asked: the label is the bridge's own, so it takes the next free one once (a second refusal stands).
+    if (asked || !revisionClash(e)) revisionRefused(e);
+    const held2 = await sb(`container_versions?container_id=eq.${container.id}&select=revision`);
+    while ((Array.isArray(held2) ? held2 : []).some((v) => sameRevision(v.revision, `v${next}`))) next++;
+    revision = `v${next}`;
+    try { version = await insert(); } catch (e2) { revisionRefused(e2); }
+  }
 
   await setLiveVersion(key, version.id, b.author || "web");
   await audit(proj.id, "file_version", version.id, "uploaded", b.author || "web", null,
@@ -944,22 +971,28 @@ export async function geometryTarget(key, versionId, sha256) {
 /** Put an uploaded platform item on a version, by id (the outbox watcher, spec Decision 6; intake, for its own upload):
  *  only the version geometryTarget answers for `opts.sha256`, and only while it has no geometry (platform_item_id is
  *  written once; the PATCH is filtered on is.null, so a concurrent attach cannot overwrite). Audited "geometry linked"
- *  (actor `opts.actor`, else outbox) with the IFC's sha256 and, when given, the .frag's; returns the version and the
- *  ledger row's id. 400 for a blank item, a missing hash or a version not on `key`, 409 for the rest — each decided
- *  before any write. */
-export async function attachGeometry(key, versionId, platformItemId, { sha256, frag_sha256, actor = "outbox" } = {}) {
+ *  (actor `opts.actor`, else outbox) with the IFC's sha256 and, when given, the .frag's and the delivered IFC's platform
+ *  item (SEC-5); returns the version and the ledger row's id. 400 for a blank item, a missing hash or a version not on
+ *  `key`, 409 for the rest — each decided before any write; an item another version names is 0042's 409, in words. */
+export async function attachGeometry(key, versionId, platformItemId, { sha256, frag_sha256, ifc_item_id, actor = "outbox" } = {}) {
   const item = String(platformItemId ?? "").trim();
   if (!item) { const e = new Error("platform_item_id required"); e.status = 400; throw e; }
   const { proj, v, c } = await geometryTarget(key, versionId, sha256);
   // 0040: a version's geometry is the bridge's — written with the service key (the outbox runs with no caller).
-  const done = await sb(`container_versions?id=eq.${v.id}&platform_item_id=is.null`, { method: "PATCH", body: { platform_item_id: item }, prefer: "return=representation", service: true });
+  const done = await sb(`container_versions?id=eq.${v.id}&platform_item_id=is.null`, { method: "PATCH", body: { platform_item_id: item }, prefer: "return=representation", service: true })
+    .catch((e) => {
+      if (e?.body?.code === "23505" && /container_versions_one_item/.test(String(e.body.message || "")))
+        throw Object.assign(new Error(`platform item ${item} is already another version's geometry — nothing was linked`), { status: 409 });
+      throw e;
+    });
   if (!done?.length) {
     const e = new Error(`version ${v.id} already has geometry — a version's geometry is attached once`);
     e.status = 409;
     throw e;
   }
   const row = await audit(proj.id, "file_version", v.id, "geometry linked", actor, null,
-    { file: c.iso_name, platform_item_id: item, by: "version_id", ifc_sha256: String(v.sha256).toLowerCase(), ...(frag_sha256 ? { frag_sha256 } : {}) });
+    { file: c.iso_name, platform_item_id: item, by: "version_id", ifc_sha256: String(v.sha256).toLowerCase(), ...(frag_sha256 ? { frag_sha256 } : {}),
+      ...(ifc_item_id ? { ifc_item_id: String(ifc_item_id) } : {}) });
   return { container_id: v.container_id, iso_name: c.iso_name, linked: true, version: { id: v.id, revision: v.revision, platform_item_id: item, is_live: v.is_live }, audit_id: row?.id ?? null };
 }
 
@@ -1124,7 +1157,7 @@ export async function audit(project_id, entity_type, entity_id, action, actor, o
  *  The open audit route may not write any of them. */
 // MA-3a (review amendment C5): changeset_reviewed and changeset_reopened are the record of the web desk's decisions and a lead's
 // re-open (changesets-store reviewChangeset / reopenGhost) — never written through the open route.
-const RESERVED_ACTIONS = ["verdict:", "gate:", "roi:", "state:", "hold:", "review:", "changeset_reviewed", "changeset_reopened"];
+const RESERVED_ACTIONS = ["verdict:", "gate:", "roi:", "state:", "hold:", "review:", "changeset_reviewed", "changeset_reopened", "geometry linked"];
 const RESERVED_TYPES = ["stage_gate", "hold", "delivery_gate", "review", "platform_gate"];
 
 /** Record an audit event by project KEY (golden thread) — the DB trigger hash-chains it (tamper-evident). A reserved
