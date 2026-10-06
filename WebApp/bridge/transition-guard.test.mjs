@@ -120,13 +120,13 @@ describe("transition — the lead's reason, and cde_transition's refusals in its
 
 describe("archive and restore go through cde_transition", () => {
   it("archiveFile archives the published version with the note 'file archived'", async () => {
-    expect(await archiveFile("demo", C1, "lead@bds.jo")).toEqual({ ok: true, archived: 1, discarded: 0 });
-    expect(rpcCalls().map((c) => c.body)).toEqual([{ p_version: V1, p_new_state: "archived", p_actor: "lead@bds.jo", p_note: "file archived" }]);
+    expect(await archiveFile("demo", C1, "lead@example.test")).toEqual({ ok: true, archived: 1, discarded: 0 });
+    expect(rpcCalls().map((c) => c.body)).toEqual([{ p_version: V1, p_new_state: "archived", p_actor: "lead@example.test", p_note: "file archived" }]);
   });
 
   it("unarchiveFile restores each archived version through the function — never a state PATCH", async () => {
-    expect(await unarchiveFile("demo", C1, "lead@bds.jo")).toEqual({ ok: true, restored: 1 });
-    expect(rpcCalls().map((c) => c.body)).toEqual([{ p_version: V2, p_new_state: "published", p_actor: "lead@bds.jo", p_note: "file restored" }]);
+    expect(await unarchiveFile("demo", C1, "lead@example.test")).toEqual({ ok: true, restored: 1 });
+    expect(rpcCalls().map((c) => c.body)).toEqual([{ p_version: V2, p_new_state: "published", p_actor: "lead@example.test", p_note: "file restored" }]);
     expect(calls.filter((c) => c.method === "PATCH" && c.body && "state" in c.body)).toHaveLength(0);
     expect(calls.find((c) => c.path === "audit_log" && c.body?.action === "unarchived").body.new_value).toEqual({ iso_name: "A.ifc", restored: 1 });
   });
@@ -134,7 +134,7 @@ describe("archive and restore go through cde_transition", () => {
   it("a refused restore stops the loop with the function's words", async () => {
     versions = [{ id: V2, state: "archived" }, { id: V4, state: "archived" }];
     rpc = pgError(403, "42501", "insufficient role to transition (needs lead or owner)");
-    await expect(unarchiveFile("demo", C1, "viewer@bds.jo")).rejects.toMatchObject({ status: 403, message: "insufficient role to transition (needs lead or owner)" });
+    await expect(unarchiveFile("demo", C1, "viewer@example.test")).rejects.toMatchObject({ status: 403, message: "insufficient role to transition (needs lead or owner)" });
     expect(rpcCalls().map((c) => c.body.p_version)).toEqual([V2]); // V4 is never tried
     expect(calls.find((c) => c.path === "audit_log" && c.body?.action === "unarchived")).toBeUndefined();
   });
@@ -143,18 +143,18 @@ describe("archive and restore go through cde_transition", () => {
     versions = [{ id: V2, state: "archived" }, { id: V4, state: "archived" }];
     const ask = `version ${V2} has no accepted verdict that measured something (latest: none) — restoring it needs the lead's reason`;
     rpc = pgError(400, "P0001", ask);
-    await expect(unarchiveFile("demo", C1, "lead@bds.jo")).rejects.toMatchObject({ status: 409, message: ask });
+    await expect(unarchiveFile("demo", C1, "lead@example.test")).rejects.toMatchObject({ status: 409, message: ask });
     rpc = (body) => json({ id: body.p_version, state: body.p_new_state });
-    expect(await unarchiveFile("demo", C1, "lead@bds.jo", "  client sign-off 2026-10-05 ")).toEqual({ ok: true, restored: 2 });
+    expect(await unarchiveFile("demo", C1, "lead@example.test", "  client sign-off 2026-10-05 ")).toEqual({ ok: true, restored: 2 });
     expect(rpcCalls().slice(1).map((c) => c.body)).toEqual([V2, V4].map((v) =>
-      ({ p_version: v, p_new_state: "published", p_actor: "lead@bds.jo", p_note: "file restored", p_override: "client sign-off 2026-10-05" })));
+      ({ p_version: v, p_new_state: "published", p_actor: "lead@example.test", p_note: "file restored", p_override: "client sign-off 2026-10-05" })));
   });
 
   it("SEC-3: a restore refused after others succeeded records what was restored and says how many, in the function's words", async () => {
     versions = [{ id: V2, state: "archived" }, { id: V4, state: "archived" }];
     const ask = `version ${V4} has no accepted verdict that measured something (latest: none) — restoring it needs the lead's reason`;
     rpc = (body) => (body.p_version === V4 ? pgError(400, "P0001", ask)() : json({ id: body.p_version, state: body.p_new_state }));
-    await expect(unarchiveFile("demo", C1, "lead@bds.jo")).rejects.toMatchObject({ status: 409, message: `1 of 2 archived versions restored — ${ask}` });
+    await expect(unarchiveFile("demo", C1, "lead@example.test")).rejects.toMatchObject({ status: 409, message: `1 of 2 archived versions restored — ${ask}` });
     expect(calls.find((c) => c.path === "audit_log" && c.body?.action === "unarchived").body.new_value).toEqual({ iso_name: "A.ifc", restored: 1 });
   });
 });

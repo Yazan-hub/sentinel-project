@@ -300,7 +300,7 @@ describe("a document write that lands on no row is answered in words — never a
     sb.mockImplementation(async (path, opts) => (opts?.method === "PATCH" ? [] : [doc]));
   });
   it.each([
-    ["patchSection", () => patchSection("k", doc.id, "d1", { body: "named: Yara" })],
+    ["patchSection", () => patchSection("k", doc.id, "d1", { body: "named: Ana" })],
     ["setSectionBindings", () => setSectionBindings("k", doc.id, "m1", { bindings: { checks: [] } })],
     ["setSectionAnswer", () => setSectionAnswer("k", doc.id, "d1", { value: "yes" })],
     ["setSectionPlan", () => setSectionPlan("k", doc.id, "m1", { owner: "lead@x" })],
