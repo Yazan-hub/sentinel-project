@@ -29,6 +29,8 @@ public sealed class BcfSyncManager : IDisposable
     internal const string LiveSignedOut = "Live sync paused — sign-in needed (signed out, or it expired): Sentinel ▸ Sign in; it resumes by itself.";
     /// <summary>SEC-6 (review C13): said once a paused live stream is back.</summary>
     internal const string LiveResumed = "Live sync resumed.";
+    /// <summary>Review C17: the sign-in could not be read at all (not a signed-out session — that is <see cref="LiveSignedOut"/>).</summary>
+    internal static string LiveSignInUnreadable(Exception ex) => $"Live sync paused — the sign-in could not be read ({ex.GetType().Name}); retrying every 30 s.";
     /// <summary>SEC-6: the wait after a refused connect (30 s; the check shortens it).</summary>
     internal static int RefusedRetryMs = 30000;
 
@@ -61,7 +63,17 @@ public sealed class BcfSyncManager : IDisposable
             try
             {
                 using var msg = new HttpRequestMessage(HttpMethod.Get, url);
-                var token = bearer();
+                string? token;
+                try { token = bearer(); }
+                catch (Exception ex)
+                {
+                    // review C17: a sign-in that cannot be read is said, never a silent 3 s retry.
+                    wait = RefusedRetryMs;
+                    string w = LiveSignInUnreadable(ex);
+                    if (w != lastSaid) { lastSaid = w; try { said(w); } catch { /* the window is gone */ } }
+                    await Task.Delay(wait, ct).ConfigureAwait(false);
+                    continue;
+                }
                 if (!string.IsNullOrWhiteSpace(token)) msg.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
                 using HttpResponseMessage resp = await _sse.SendAsync(msg, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
                 if (!resp.IsSuccessStatusCode)

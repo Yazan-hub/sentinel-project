@@ -207,6 +207,23 @@ static class Check
         finally { BcfSyncManager.RefusedRetryMs = 30000; }
         lock (said) Ok(said.SequenceEqual(new[] { BcfSyncManager.LiveSignedOut, BcfSyncManager.LiveResumed }),
             "a pause said, then the resumed line once the stream is back — never a stale paused line");
+        // review C17: a sign-in that cannot be read at all (the config file unreadable) is said in words, never a silent 3 s retry.
+        said.Clear();
+        BcfSyncManager.RefusedRetryMs = 300;
+        try
+        {
+            using var cts = new CancellationTokenSource();
+            var changed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            int asked = 0;
+            var loop = Task.Run(() => sync.StartLiveSyncAsync("aster-tower", () => changed.TrySetResult(true),
+                () => Interlocked.Increment(ref asked) == 1 ? throw new InvalidOperationException("config") : "tok-live", w => { lock (said) said.Add(w); }, cts.Token));
+            Ok(changed.Task.Wait(TimeSpan.FromSeconds(5)), "the sign-in readable again → the stream connects at its next try");
+            cts.Cancel();
+            try { loop.Wait(TimeSpan.FromSeconds(5)); } catch { /* cancelled */ }
+        }
+        finally { BcfSyncManager.RefusedRetryMs = 30000; }
+        lock (said) Ok(said.SequenceEqual(new[] { BcfSyncManager.LiveSignInUnreadable(new InvalidOperationException("config")), BcfSyncManager.LiveResumed }),
+            "a sign-in that could not be read is said once, naming the error's kind, then the resumed line");
         string cmd = File.ReadAllText(Path.Combine(Root(), "SentinelAddin", "Commands.BcfIssues.cs"));
         Ok(cmd.Contains("_ = Task.Run(() => sync.StartLiveSyncAsync(bcfKey, () =>")
            && cmd.Contains("() => { try { return BcfConfig.Load().ServiceToken; } catch (SessionException) { return null; } }, // SEC-6: read at every connect")
