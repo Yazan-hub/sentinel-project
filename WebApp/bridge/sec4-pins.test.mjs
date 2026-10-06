@@ -19,7 +19,7 @@ describe("SEC-4 one-liners", () => {
   it("S33: CI's token reads only, and no checkout keeps it in .git/config", () => {
     const ci = read("../../.github/workflows/ci.yml");
     expect(ci).toMatch(/^permissions:\n {2}contents: read$/m);
-    const checkouts = ci.match(/- uses: actions\/checkout@v7\n {8}with:\n {10}persist-credentials: false/g) ?? [];
+    const checkouts = ci.match(/- uses: actions\/checkout@[0-9a-f]{40} # v7\n {8}with:\n {10}persist-credentials: false/g) ?? []; // SEC-5: pinned by SHA
     expect(checkouts).toHaveLength((ci.match(/actions\/checkout@/g) ?? []).length);
     expect(checkouts).toHaveLength(2);
   });

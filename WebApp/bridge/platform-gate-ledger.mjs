@@ -121,7 +121,7 @@ const createdAt = (r) => Date.parse(r.createdAt) || 0;
 const DETAIL_TRIES = 3;
 const DETAIL_FAILS = new Map(); // run id → ticks whose detail read failed (process memory; a restart starts again)
 
-export async function syncPlatformGate(deps, { componentId, platformProjectId, seen = SEEN }) {
+export async function syncPlatformGate(deps, { componentId, platformProjectId, targetKey = null, seen = SEEN }) {
   let written = 0, skipped = 0;
   let runs;
   try { runs = await deps.listExecutions(componentId, platformProjectId); }
@@ -135,6 +135,11 @@ export async function syncPlatformGate(deps, { componentId, platformProjectId, s
   let links;
   try { links = ((await deps.findLinkedProjects(platformProjectId)) ?? []).filter((p) => !p.archived); }
   catch (e) { return { written, skipped, reason: `the linked Sentinel project was not read — ${why(e)}` }; }
+  // SEC-5 (S16): with THATOPEN_GATE_PROJECT_KEY set, its project is the only one the gate's rows go to.
+  if (targetKey) {
+    links = links.filter((p) => p.key === targetKey);
+    if (!links.length) return { written, skipped, reason: `THATOPEN_GATE_PROJECT_KEY is ${targetKey}, and that project does not link platform project ${platformProjectId} (or is archived) — link it in Settings ▸ General; nothing was written` };
+  }
   if (!links.length) return { written, skipped, reason: `no Sentinel project links platform project ${platformProjectId} — link one in Settings ▸ General; nothing was written` };
   if (links.length > 1) return { written, skipped, reason: `platform project ${platformProjectId} is linked by ${links.map((p) => p.key).join(" and ")} — unlink all but one in Settings ▸ General; nothing was written` };
   const proj = links[0];
@@ -212,16 +217,16 @@ export async function wire() {
 
 /** A tick every `everyMs`, never overlapping (the next is scheduled when one ends); one log line per change of reason,
  *  one per tick that wrote. Off (false) without a component id or when wire() throws. */
-export async function watchPlatformGate({ componentId, everyMs = 60_000, log = console.log, connect = wire } = {}) {
+export async function watchPlatformGate({ componentId, targetKey = null, everyMs = 60_000, log = console.log, connect = wire } = {}) {
   if (!componentId) return false;
   let w;
   try { w = await connect(); }
   catch (e) { log(`[platform-gate] off — ${why(e)}`); return false; }
-  log(`[platform-gate] on — component ${componentId}, platform project ${w.platformProjectId}, every ${everyMs / 1000} s`);
+  log(`[platform-gate] on — component ${componentId}, platform project ${w.platformProjectId}${targetKey ? `, project ${targetKey} only` : ""}, every ${everyMs / 1000} s`);
   let last = "up to date";
   const tick = async () => {
     let r;
-    try { r = await syncPlatformGate(w.deps, { componentId, platformProjectId: w.platformProjectId }); }
+    try { r = await syncPlatformGate(w.deps, { componentId, platformProjectId: w.platformProjectId, targetKey }); }
     catch (e) { r = { written: 0, skipped: 0, reason: why(e) }; }
     if (r.written) log(`[platform-gate] ${r.written} run(s) recorded on the ledger`);
     const now = r.reason ?? "up to date";
@@ -236,13 +241,14 @@ export async function watchPlatformGate({ componentId, everyMs = 60_000, log = c
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const env = { ...process.env, ...loadEnv() };
   const componentId = (env.THATOPEN_GATE_COMPONENT_ID || "").trim() || DEFAULT_COMPONENT_ID;
+  const targetKey = (env.THATOPEN_GATE_PROJECT_KEY || "").trim() || null;
   if (process.argv.includes("--watch")) {
-    if (!(await watchPlatformGate({ componentId }))) process.exit(1);
+    if (!(await watchPlatformGate({ componentId, targetKey }))) process.exit(1);
   } else if (process.argv.includes("--once")) {
     let r;
     try {
       const w = await wire();
-      r = await syncPlatformGate(w.deps, { componentId, platformProjectId: w.platformProjectId });
+      r = await syncPlatformGate(w.deps, { componentId, platformProjectId: w.platformProjectId, targetKey });
     } catch (e) { r = { written: 0, skipped: 0, reason: `not started — ${why(e)}` }; }
     console.log(JSON.stringify(r));
     process.exit(r.reason ? 1 : 0);

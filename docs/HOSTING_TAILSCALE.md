@@ -20,8 +20,9 @@ in the bridge; certs are issued and renewed by Tailscale for your tailnet's *.ts
 ## Per client
 - **Web app build:** `VITE_SENTINEL_SERVICE=https://<machine>.<tailnet>.ts.net` in `WebApp/.env`,
   rebuild. All panels follow (post Task-3).
-- **Revit workstation:** `%AppData%\Sentinel\bcf-config.json`:
-  `"serviceUrl": "https://<machine>.<tailnet>.ts.net"`, `"serviceToken": "<the BCF_TOKEN>"`.
+- **Revit workstation:** `%AppData%\Sentinel\bcf-config.json`: `"serviceUrl": "https://<machine>.<tailnet>.ts.net"`, and the
+  person signs in (Sentinel ▸ Sign in), so every write carries their own name. `"serviceToken"` (the BCF_TOKEN — the machine
+  credential) stays on the bridge's own PC only, never on a workstation (SEC-5).
   The machine must be on the tailnet. Certs are publicly trusted (Let's Encrypt) — no add-in change.
 - **mcp-server:** `BCF_BASE=https://…` + `BCF_TOKEN` in env.
 

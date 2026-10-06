@@ -489,7 +489,7 @@ async function startEventPoll() {
 async function startPlatformGatePoll() {
   const componentId = (process.env.THATOPEN_GATE_COMPONENT_ID || "").trim();
   if (!componentId) return;
-  try { await (await import("./platform-gate-ledger.mjs")).watchPlatformGate({ componentId, log: (l) => console.log(`[bridge] ${l}`) }); }
+  try { await (await import("./platform-gate-ledger.mjs")).watchPlatformGate({ componentId, targetKey: (process.env.THATOPEN_GATE_PROJECT_KEY || "").trim() || null, log: (l) => console.log(`[bridge] ${l}`) }); }
   catch (e) { console.warn(`[bridge] platform gate ledger: off — ${String(e?.message || e).slice(0, 200)}`); }
 }
 
@@ -994,6 +994,9 @@ async function handleRequest(req, res) {
   const km = url.pathname.match(/^\/packs(?:\/([^/]+))?(?:\/(install|fork))?$/);
   if (km) {
     const [, kid, ksub] = km;
+    // SEC-5 (F-a): the registry is global, and since 0038 only the machine credential writes it — a signed-in publish, fork
+    // or install count is refused in words here, before the database refuses it.
+    if (req.method === "POST" && currentUserToken()) return send(res, 403, { message: "the standards-pack registry is written by the bridge's machine credential — a signed-in publish, fork or install count is not open yet; nothing was published" });
     try {
       const cde = await import("./cde-store.mjs");
       const useCde = cde.cdeConfigured();

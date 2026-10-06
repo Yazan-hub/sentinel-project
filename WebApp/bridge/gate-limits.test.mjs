@@ -248,6 +248,32 @@ describe("raw uploads — the role is decided before a byte of the body is read"
   }
 });
 
+describe("SEC-5 (F-a): the pack registry is the machine credential's — a signed-in write is refused in words before the database", () => {
+  let b, supa;
+  const sent = [];
+  beforeAll(async () => {
+    // A stand-in PostgREST that records every write it is sent.
+    supa = createServer((q, s) => { if (q.method !== "GET") sent.push(`${q.method} ${q.url}`); s.writeHead(200, { "Content-Type": "application/json" }); s.end("[]"); });
+    const supaPort = await freePort();
+    await new Promise((r) => supa.listen(supaPort, "127.0.0.1", r));
+    b = await startBridge({
+      BCF_TOKEN: TOKEN, SUPABASE_JWT_SECRET: SECRET, SUPABASE_URL: `http://127.0.0.1:${supaPort}`,
+      SUPABASE_SERVICE_KEY: "stand-in-service-key", SUPABASE_ANON_KEY: "stand-in-anon-key",
+    });
+  }, 30_000);
+  afterAll(() => new Promise((r) => supa.close(r)));
+
+  it("a publish, a fork and an install count from a signed-in caller: 403 in words, nothing sent to the database", async () => {
+    const jwt = userJwt();
+    for (const path of ["/packs", "/packs/bds-house@1.4.1/fork", "/packs/bds-house@1.4.1/install"]) {
+      const r = await fetch(`http://127.0.0.1:${b.port}${path}`, { method: "POST", headers: { Authorization: `Bearer ${jwt}`, "Content-Type": "application/json" }, body: JSON.stringify({ key: "sec5-pack", version: "1.0.0" }) });
+      expect(r.status, path).toBe(403);
+      expect((await r.json()).message, path).toBe("the standards-pack registry is written by the bridge's machine credential — a signed-in publish, fork or install count is not open yet; nothing was published");
+    }
+    expect(sent).toEqual([]);
+  });
+});
+
 describe("the manifests backfill — a project anyone can make by signing up is not enough (cde-rem-3)", () => {
   let b, supa;
   const sub = randomUUID();

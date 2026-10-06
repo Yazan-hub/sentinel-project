@@ -231,6 +231,18 @@ describe("syncPlatformGate", () => {
     expect(names(f.calls, "get")).toEqual([]);
   });
 
+  it("SEC-5 (S16): THATOPEN_GATE_PROJECT_KEY names the only project the rows go to; a key that does not link this platform project writes nothing", async () => {
+    let f = fakes({ runs: [run("r1", 10)] });
+    expect(await syncPlatformGate(f.deps, { ...opts(), targetKey: "aster-tower" })).toEqual({ written: 1, skipped: 0 });
+    expect(f.rows[0][0]).toBe(ASTER.id);
+    for (const links of [[ASTER], [{ ...ASTER, key: "sec5-smoke", archived: true }], []]) {
+      f = fakes({ runs: [run("r1", 10)], links });
+      const r = await syncPlatformGate(f.deps, { ...opts(), targetKey: "sec5-smoke" });
+      expect(r).toEqual({ written: 0, skipped: 0, reason: `THATOPEN_GATE_PROJECT_KEY is sec5-smoke, and that project does not link platform project ${PID} (or is archived) — link it in Settings ▸ General; nothing was written` });
+      expect(names(f.calls, "audit")).toEqual([]);
+    }
+  });
+
   it("an archived link beside a live one is not a conflict", async () => {
     const f = fakes({ runs: [run("r1", 10)], links: [ASTER, { id: "u2", key: "old", archived: true }] });
     expect(await syncPlatformGate(f.deps, opts())).toEqual({ written: 1, skipped: 0 });
