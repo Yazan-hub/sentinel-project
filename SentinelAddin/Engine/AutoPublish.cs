@@ -54,6 +54,14 @@ public static class AutoPublish
         LastRun[id] = now;
         var key = ProjectContext.For(doc).Key;
         if (key.Length == 0) return; // unbound: nothing to publish into
+        // SEC-4 (S28, founder decisions Q-a/Q-b): the key the model names publishes nothing until this PC confirms it for this
+        // model (Project Setup ▸ Save) — signed in or out. Said once per document and line, as the "off" line is.
+        if (!ModelBindings.ConfirmedFor(doc, key))
+        {
+            var refused = ModelBindings.NotConfirmed("Auto-publish", key);
+            if (!(SaidOff.TryGetValue(id, out var said) && said == refused)) { SaidOff[id] = refused; vm.LogDoctor(refused); }
+            return;
+        }
 
         var ui = System.Windows.Application.Current?.Dispatcher ?? System.Windows.Threading.Dispatcher.CurrentDispatcher;
         Task.Run(() => ArtefactClient.Resolve(key, "publish")).ContinueWith(t =>

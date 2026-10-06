@@ -237,6 +237,54 @@ static class Check
            && Regex.Matches(synthSrc, @"new Regex\(").Count == 2,
            "Workflow/NameSynth.cs: both token patterns of the fix's name synthesis are matched under a bound");
 
+        // ── SEC-4 (S28): a key a model names publishes automatically only once this PC confirmed it for that model ─────
+        var bound = new List<ModelBindings.Entry> { new() { Model = "c:\\central\\tower.rvt", Key = "aster-tower" } };
+        Ok(ModelBindings.IsConfirmed(bound, "  C:\\Central\\Tower.rvt ", "aster-tower"), "a confirmed model and key: the path is compared trimmed and in lower case");
+        Ok(!ModelBindings.IsConfirmed(bound, "c:\\central\\tower.rvt", "other-project"), "another key named by the same model is not confirmed");
+        Ok(!ModelBindings.IsConfirmed(bound, "d:\\mail\\tower.rvt", "aster-tower"), "the same key named by another model (a copy, a Save As) is not confirmed");
+        Ok(!ModelBindings.IsConfirmed(bound, "", "aster-tower") && !ModelBindings.IsConfirmed(bound, "c:\\central\\tower.rvt", " "), "a model with no path, or a blank key, is never confirmed");
+        var rebound = ModelBindings.With(bound, "C:\\Central\\Tower.rvt", "tower-2");
+        Ok(rebound.Count == 1 && ModelBindings.IsConfirmed(rebound, "c:\\central\\tower.rvt", "tower-2") && !ModelBindings.IsConfirmed(rebound, "c:\\central\\tower.rvt", "aster-tower"),
+           "a new confirmation replaces the model's old key");
+        Ok(ModelBindings.With(bound, "c:\\central\\tower.rvt", "").Count == 0, "saving the model with no web project removes its confirmation");
+        var bindFile = Path.Combine(Path.GetTempPath(), "sentinel-pcc-bind-" + Guid.NewGuid().ToString("N") + ".json");
+        ModelBindings.Write(bindFile, rebound);
+        Ok(ModelBindings.IsConfirmed(ModelBindings.Read(bindFile), "c:\\central\\tower.rvt", "tower-2"), "the confirmations round-trip through their file");
+        File.WriteAllText(bindFile, "{not json");
+        Ok(ModelBindings.Read(bindFile).Count == 0, "an unreadable file confirms nothing (fails closed)");
+        File.Delete(bindFile);
+        Ok(ModelBindings.Read(bindFile).Count == 0, "no file confirms nothing");
+        Ok(ModelBindings.FilePath.EndsWith(Path.Combine("Sentinel", "bound-models.json")) && !SettingsManager.PcOnlyKeys.Contains("bound_models"),
+           "the confirmations are their own file, never config.json (a machine save of Project Setup cannot drop them)");
+        Ok(ModelBindings.NotConfirmed("Auto-publish", "aster-tower").Contains("Project Setup") && ModelBindings.NotConfirmed("Auto-publish", "aster-tower").Contains("nothing sent"),
+           "the Doctor line says nothing was sent and where to confirm");
+        var auto = Src(Path.Combine("Engine", "AutoPublish.cs"));
+        Ok(auto.IndexOf("if (!ModelBindings.ConfirmedFor(doc, key))", StringComparison.Ordinal) is var gate && gate > 0
+           && gate < auto.IndexOf("ArtefactClient.Resolve(key, \"publish\")", StringComparison.Ordinal),
+           "Engine/AutoPublish.cs: an unconfirmed key is refused before the policy is even read");
+        var app = Src("App.cs");
+        Ok(app.Contains("var confirmed = ctx.IsBound && Sentinel.Engine.ModelBindings.ConfirmedFor(e.Document, ctx.Key);")
+           && app.IndexOf("if (confirmed)", StringComparison.Ordinal) is var branch && branch > 0
+           && branch < app.IndexOf("GovernedNotify.OfficeScan(report, key)", StringComparison.Ordinal),
+           "App.cs: the sync's scan post goes only for a confirmed key");
+        Ok(Src(Path.Combine("UI", "SettingsDialog.xaml.cs")).Contains("ModelBindings.Confirm(model, webProject);"),
+           "UI/SettingsDialog.xaml.cs: Project Setup's project save confirms the model's key on this PC");
+        Ok(ModelBindings.PausedLine(" aster-tower ") == "Auto-publish and scan posts paused on this PC — Project Setup ▸ Save confirms web project aster-tower",
+           "the pane's paused line names the key and where to confirm it");
+        Ok(ModelBindings.SaveNote("aster-tower") == "Saving confirms that this model, on this PC, publishes into aster-tower."
+           && ModelBindings.SaveNote(" ") == "Saving confirms that this model, on this PC, publishes into the web project above.",
+           "Project Setup's note says what Save confirms");
+        var sayDoc = "c:\\pcc\\" + Guid.NewGuid().ToString("N") + ".rvt";
+        Ok(ModelBindings.FirstTime(sayDoc, "a") && !ModelBindings.FirstTime(sayDoc, "a") && ModelBindings.FirstTime(sayDoc, "b") && !ModelBindings.FirstTime(sayDoc.ToUpperInvariant(), "b"),
+           "an unconfirmed key's Doctor line is said once per document and line, not on every sync");
+        Ok(app.Contains("Sentinel.Engine.ModelBindings.FirstTime(") && app.IndexOf("ModelBindings.FirstTime(", StringComparison.Ordinal) < app.IndexOf("PanelVm!.LogDoctor(unconfirmed);", StringComparison.Ordinal),
+           "App.cs: the sync's scan line for an unconfirmed key goes through FirstTime");
+        Ok(app.Contains("PanelVm.RefreshJourney(ctx.Key, Engine.SourceFor(doc), Sentinel.Engine.ModelBindings.ConfirmedFor(doc, ctx.Key));")
+           && Src(Path.Combine("UI", "SentinelPanelViewModel.cs")).Contains("PublishLine = !confirmed ? Sentinel.Engine.ModelBindings.PausedLine(projectKey)"),
+           "the pane shows the paused line while the open model is unconfirmed");
+        Ok(Src(Path.Combine("UI", "SettingsDialog.xaml.cs")).Contains(": ModelBindings.SaveNote(WebProjectKey());"),
+           "UI/SettingsDialog.xaml.cs: the note above Save names what a project-scope save confirms");
+
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;
     }

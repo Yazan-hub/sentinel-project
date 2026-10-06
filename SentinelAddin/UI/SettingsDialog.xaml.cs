@@ -39,6 +39,10 @@ public partial class SettingsDialog : Window
         }
         ScopeProject.Checked += (_, _) => SyncWebProjectScope();
         ScopeMachine.Checked += (_, _) => SyncWebProjectScope();
+        // SEC-4 (S28): the note above Save names the web project a project-scope save confirms on this PC.
+        WebProjectBox.AddHandler(System.Windows.Controls.Primitives.TextBoxBase.TextChangedEvent,
+            new System.Windows.Controls.TextChangedEventHandler((_, _) => SyncWebProjectScope()));
+        WebProjectBox.SelectionChanged += (_, _) => SyncWebProjectScope();
         SyncWebProjectScope();
         LoadWebProjects();
     }
@@ -53,7 +57,7 @@ public partial class SettingsDialog : Window
         DoctorAxisFixBox.IsEnabled = !machine;
         WebProjectScopeNote.Text = machine
             ? "Machine scope does not bind a model, set its project code or its Doctor — pick \"Current project\" to set them."
-            : "";
+            : ModelBindings.SaveNote(WebProjectKey());
     }
 
     /// <summary>
@@ -187,6 +191,12 @@ public partial class SettingsDialog : Window
             t.Start();
             SettingsManager.SaveToDocument(doc, settings);
             t.Commit();
+            // SEC-4 (S28): saving the model's web project here is this PC's confirmation of it for this model (a blank one
+            // removes it). A model with no file yet is confirmed by the next Save here after it has one.
+            var model = ModelBindings.IdentityOf(doc);
+            ModelBindings.Confirm(model, webProject);
+            if (model.Length == 0 && webProject.Length > 0)
+                App.PanelVm?.LogDoctor("Project Setup: this model has no file yet — save it, then Project Setup ▸ Save again so this PC confirms its web project.");
             App.ReloadRuleset(doc); // the web project key may have changed: its ruleset@n, rescan and strip follow
         });
         DialogResult = true;
