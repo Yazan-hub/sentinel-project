@@ -17,5 +17,6 @@
     <Compile Include="..\..\SentinelAddin\Coordination\LedgerResult.cs" />
     <Compile Include="..\..\SentinelAddin\Coordination\UrlRule.cs" />
     <Compile Include="..\..\SentinelAddin\Engine\ProjectContext.cs" />
+    <Compile Include="..\..\SentinelAddin\HubWatch.cs" />
   </ItemGroup>
 </Project>

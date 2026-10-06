@@ -60,6 +60,7 @@ public sealed class App : IExternalApplication
             try
             {
                 Events = new RevitEventHub();
+                app.Idling += Events.OnIdling; // F-SEC5-1: a queue the external event leaves waiting is run from Idling, said
             }
             catch (Exception ex)
             {
@@ -126,6 +127,7 @@ public sealed class App : IExternalApplication
         app.ControlledApplication.DocumentChanged -= UndoWatcher.OnChanged;
         app.ControlledApplication.DocumentChanged -= SentinelUpdater.OnDocumentChanged;
         app.ViewActivated -= OnViewActivated;
+        if (Events is not null) { app.Idling -= Events.OnIdling; Events.Stop(); }
         Updaters.FailureInterceptor.Unregister(app.ControlledApplication);
         SentinelUpdater.UnregisterAll();
         return Result.Succeeded;
@@ -403,12 +405,19 @@ public sealed class App : IExternalApplication
     /// <summary>Next strip: read the document's web key and where its ruleset came from on the Revit API thread,
     /// then hand them to the pane (its GET runs off-thread). Read-only; family documents skipped. An unbound
     /// document shows "not bound — Sentinel ▸ Project Setup" and asks the bridge nothing.</summary>
-    internal static void RefreshJourney(Document? doc)
+    internal static void RefreshJourney(Document? doc, bool pressed = false)
     {
-        if (doc is null || doc.IsFamilyDocument || PanelVm is null || Engine is null) return;
+        if (doc is null || doc.IsFamilyDocument || PanelVm is null || Engine is null)
+        {
+            // F-SEC5-1: the ↻ button says why it refreshed nothing — never a silent no-op.
+            if (pressed) PanelVm?.LogDoctor(doc is null ? "↻: no document is active in Revit — nothing refreshed."
+                : doc.IsFamilyDocument ? "↻: a family is active in Revit — nothing refreshed."
+                : "↻: Sentinel's rule engine is not loaded — nothing refreshed.");
+            return;
+        }
         var ctx = ProjectContext.For(doc);
-        if (!ctx.IsBound) { PanelVm.ShowUnbound(); return; }
-        PanelVm.RefreshJourney(ctx.Key, Engine.SourceFor(doc), Sentinel.Engine.ModelBindings.ConfirmedFor(doc, ctx.Key)); // SEC-4: the paused line
+        if (!ctx.IsBound) { PanelVm.ShowUnbound(); if (pressed) PanelVm.LogDoctor("↻: this model is not bound to a web project — Sentinel ▸ Project Setup."); return; }
+        PanelVm.RefreshJourney(ctx.Key, Engine.SourceFor(doc), Sentinel.Engine.ModelBindings.ConfirmedFor(doc, ctx.Key), pressed); // SEC-4: the paused line
     }
 
     // Local save (non-workshared, or a local save before sync) → auto-publish, when the project's publish@n says so.

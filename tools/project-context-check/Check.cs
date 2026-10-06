@@ -279,7 +279,7 @@ static class Check
            "an unconfirmed key's Doctor line is said once per document and line, not on every sync");
         Ok(app.Contains("Sentinel.Engine.ModelBindings.FirstTime(") && app.IndexOf("ModelBindings.FirstTime(", StringComparison.Ordinal) < app.IndexOf("PanelVm!.LogDoctor(unconfirmed);", StringComparison.Ordinal),
            "App.cs: the sync's scan line for an unconfirmed key goes through FirstTime");
-        Ok(app.Contains("PanelVm.RefreshJourney(ctx.Key, Engine.SourceFor(doc), Sentinel.Engine.ModelBindings.ConfirmedFor(doc, ctx.Key));")
+        Ok(app.Contains("PanelVm.RefreshJourney(ctx.Key, Engine.SourceFor(doc), Sentinel.Engine.ModelBindings.ConfirmedFor(doc, ctx.Key), pressed);")
            && Src(Path.Combine("UI", "SentinelPanelViewModel.cs")).Contains("PublishLine = !confirmed ? Sentinel.Engine.ModelBindings.PausedLine(projectKey)"),
            "the pane shows the paused line while the open model is unconfirmed");
         Ok(Src(Path.Combine("UI", "SettingsDialog.xaml.cs")).Contains(": ModelBindings.SaveNote(WebProjectKey());"),

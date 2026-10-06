@@ -38,7 +38,7 @@ public partial class SentinelPanel : UserControl, IDockablePaneProvider
     /// ↻ on the Next strip: the key and the ruleset are read on the Revit API thread through the same
     /// ExternalEvent hub Select uses; the GET itself runs off-thread inside RefreshJourney.
     private void OnJourneyRefreshClick(object sender, RoutedEventArgs e)
-        => App.Events?.Enqueue(uiapp => App.RefreshJourney(uiapp.ActiveUIDocument?.Document));
+        => App.Events?.Enqueue(uiapp => App.RefreshJourney(uiapp.ActiveUIDocument?.Document, pressed: true));
 
     private void OnFixClick(object sender, RoutedEventArgs e)
     {

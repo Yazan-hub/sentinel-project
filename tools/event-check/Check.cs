@@ -32,6 +32,7 @@ static class Check
         Exceptions();
         Lines();
         Posts();
+        HubWatchRows();
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;
     }
@@ -241,5 +242,37 @@ static class Check
 
         Is(LedgerLine.For(LedgerResult.Post("localhost:4100", "", "demo", "/audit", payload, TimeSpan.FromSeconds(5))),
            "not recorded — the bridge address is not an http(s) URL (localhost:4100)", "a bridge address that is not a URL → not recorded, nothing sent");
+    }
+
+    // ── 6. F-SEC5-1: the event hub's watch — a queued action that waits, or a running one that takes long, is said once ──────
+    static void HubWatchRows()
+    {
+        Console.WriteLine("\nF-SEC5-1 — the event hub says a stalled queue, once per episode (HubWatch)");
+        var t0 = new DateTime(2026, 10, 7, 10, 0, 0, DateTimeKind.Utc);
+        var w = new Sentinel.HubWatch();
+        Ok(w.Tick(t0, null, 0, null, null, out var again) is null && !again, "nothing queued, nothing running → nothing said, nothing raised");
+        Ok(w.Tick(t0.AddSeconds(9), ("OnJourneyRefreshClick", t0), 1, null, t0, out again) is null && !again,
+           "an action queued 9 s ago → nothing yet (Revit runs a raised event when it is idle)");
+        Is(w.Tick(t0.AddSeconds(11), ("OnJourneyRefreshClick", t0), 2, null, t0.AddSeconds(8), out again) ?? "null",
+           "A Sentinel action has waited 11 s for Revit: OnJourneyRefreshClick (2 queued; Revit was last idle 3 s ago) — raised again",
+           "an action queued 11 s ago with nothing running → said, with the queue and when Revit was last idle");
+        Ok(again, "… and raised again");
+        Ok(w.Tick(t0.AddSeconds(16), ("OnJourneyRefreshClick", t0), 2, null, t0.AddSeconds(8), out again) is null && again,
+           "the same wait at the next tick → raised again, not said twice (the Doctor log keeps 200 lines)");
+        Is(w.Tick(t0.AddSeconds(31), ("ReloadRuleset", t0.AddSeconds(20)), 1, null, null, out again) ?? "null",
+           "A Sentinel action has waited 11 s for Revit: ReloadRuleset (1 queued; Revit has not been idle this session) — raised again",
+           "a new oldest action is a new episode, said again; no Idling seen yet is said in words");
+        Ok(w.Tick(t0.AddSeconds(100), ("X", t0.AddSeconds(50)), 1, ("Governed Publish", t0.AddSeconds(50)), t0, out again) is null && !again,
+           "an action running under 60 s → nothing said, nothing raised (Revit runs the queue after it)");
+        Is(w.Tick(t0.AddSeconds(111), ("X", t0.AddSeconds(50)), 1, ("Governed Publish", t0.AddSeconds(50)), t0, out again) ?? "null",
+           "A Sentinel action has been running for 61 s: Governed Publish — 1 more wait for it.", "an action running past 60 s → named, with what waits");
+        Ok(!again && w.Tick(t0.AddSeconds(116), ("X", t0.AddSeconds(50)), 1, ("Governed Publish", t0.AddSeconds(50)), t0, out again) is null && !again,
+           "… once, and never raised again while it runs");
+        Ok(Sentinel.HubWatch.ShouldDrain(t0.AddSeconds(16), t0, false) && !Sentinel.HubWatch.ShouldDrain(t0.AddSeconds(14), t0, false)
+           && !Sentinel.HubWatch.ShouldDrain(t0.AddSeconds(16), t0, true) && !Sentinel.HubWatch.ShouldDrain(t0.AddSeconds(16), null, false),
+           "Revit's Idling runs the queue only past 15 s, with nothing running and something queued");
+        Is(Sentinel.HubWatch.Drained(TimeSpan.FromSeconds(16.4), "OnJourneyRefreshClick", 2),
+           "Revit's Idling ran 2 queued Sentinel action(s) — Revit had not run its external event for 16 s (first: OnJourneyRefreshClick).",
+           "a drain by Idling is said");
     }
 }
