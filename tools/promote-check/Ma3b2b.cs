@@ -135,8 +135,9 @@ static partial class Check
            && hub.Contains("Say(HubWatch.Drained(now - oldestAt.Value, what, n));") && hub.Contains("        Execute(app);")
            && hub.IndexOf("if (sender is not UIApplication app)", StringComparison.Ordinal) is var s and > 0
            && s < hub.IndexOf("e.SetRaiseWithoutDelay();", StringComparison.Ordinal)
+           && hub.Contains("if (_running is null && now - oldestAt.Value > HubWatch.ReRaiseAfter) e.SetRaiseWithoutDelay();")
            && hub.Contains("if (!_saidSender) { _saidSender = true; Say(\"Revit's Idling event did not name the application — a waiting Sentinel action cannot be run from it.\"); }"),
-           "Revit's Idling runs a queue the external event left waiting past 15 s, and says so; an Idling without the application is said once and never asked to come again at once (review C8)");
+           "Revit's Idling runs a queue the external event left waiting past 15 s, and says so; an Idling without the application is said once and never asked to come again at once (review C8); Idling is asked to come again at once only while nothing runs (review C15)");
         Ok(hub.Contains("private ExternalEvent _event;") && Count(hub, "ExternalEvent.Create(this)") == 2
            && hub.Contains("if (_lastRaise == ExternalEventRequest.Pending)") && hub.Contains("var fresh = ExternalEvent.Create(this);")
            && hub.IndexOf("var fresh = ExternalEvent.Create(this);", StringComparison.Ordinal) < hub.IndexOf("_event.Dispose();", StringComparison.Ordinal)

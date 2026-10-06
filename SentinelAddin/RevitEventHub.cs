@@ -146,7 +146,8 @@ public sealed class RevitEventHub : IExternalEventHandler
 
     /// <summary>F-SEC5-1 (founder decision F-a): Revit's Idling event, a second way onto the API thread. It notes that Revit is
     /// idle; when the queue's oldest action has waited past HubWatch.DrainAfter with nothing running, it runs the queue here and
-    /// says so. Idling is asked to come again at once only while an action has waited past HubWatch.ReRaiseAfter.</summary>
+    /// says so. Idling is asked to come again at once only while an action has waited past HubWatch.ReRaiseAfter with nothing
+    /// running.</summary>
     public void OnIdling(object? sender, Autodesk.Revit.UI.Events.IdlingEventArgs e)
     {
         var now = DateTime.UtcNow;
@@ -167,7 +168,8 @@ public sealed class RevitEventHub : IExternalEventHandler
             if (!_saidSender) { _saidSender = true; Say("Revit's Idling event did not name the application — a waiting Sentinel action cannot be run from it."); }
             return;
         }
-        if (now - oldestAt.Value > HubWatch.ReRaiseAfter) e.SetRaiseWithoutDelay();
+        // review C15: never at full speed while a job runs (Idling during a job's own dialog) — nothing could be drained then.
+        if (_running is null && now - oldestAt.Value > HubWatch.ReRaiseAfter) e.SetRaiseWithoutDelay();
         if (!HubWatch.ShouldDrain(now, oldestAt, _running is not null)) return;
         Say(HubWatch.Drained(now - oldestAt.Value, what, n));
         Execute(app);
