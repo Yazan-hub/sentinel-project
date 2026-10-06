@@ -214,7 +214,7 @@ static class Check
         Is(LedgerLine.Sentence(down), "Not recorded — the bridge did not answer", "bridge stopped → Not recorded — the bridge did not answer");
         Ok(sw.Elapsed < TimeSpan.FromSeconds(8), "a refused connection answers before the cap runs out");
 
-        var unknown = LedgerResult.Post("https://sentinel-event-check.invalid", "", "demo", "/audit", payload, TimeSpan.FromSeconds(10));
+        var unknown = LedgerResult.Post("https://sentinel-event-check.example.test", "", "demo", "/audit", payload, TimeSpan.FromSeconds(10));
         Is(LedgerLine.For(unknown), "not recorded — the bridge did not answer", "an unresolvable bridge host → not recorded");
 
         // SEC-5: the ledger POST carries the bearer — https, or http to this PC, as the bridge address itself (UrlRule).
