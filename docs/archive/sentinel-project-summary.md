@@ -83,5 +83,5 @@ All rules carry the document reference in their violation message; key rules hav
 
 1. Install the extension, scan the BDS template — expect ~100%; any violation is a template defect to fix pre-pilot
 2. Scan a live project → record baseline violation counts (case-study metric)
-3. Confirm level/grid naming proposals with Yara → first contributions to office master V1.5
+3. Confirm level/grid naming proposals with the office BIM lead → first contributions to office master V1.5
 4. Time the scan on the largest model (<15 s target) → green-light Phase 1 (C# DMU add-in)

@@ -116,8 +116,8 @@ function ledger() {
   const rows = [];
   for (let id = 1; id <= 286; id++) {
     const row = { id, project_id: DEMO, entity_type: "event", entity_id: null, action: `Model published from Revit #${id}`, actor: "revit:yazan", at: at(id), new_value: null };
-    if (id === 3) Object.assign(row, { entity_type: "container_version", entity_id: V1, action: "state:wip->shared", actor: "modeller@bds.jo" });
-    if (id === 5) Object.assign(row, { entity_type: "container_version", entity_id: V1, action: "state:shared->published", actor: "yara@bds.jo" });
+    if (id === 3) Object.assign(row, { entity_type: "container_version", entity_id: V1, action: "state:wip->shared", actor: "modeller@example.test" });
+    if (id === 5) Object.assign(row, { entity_type: "container_version", entity_id: V1, action: "state:shared->published", actor: "ana@example.test" });
     if (id === 44) Object.assign(row, { entity_type: "file_version", entity_id: V1, action: "verdict:accepted", actor: "revit:yazan", new_value: { summary: { failing: 0 } } });
     rows.push(row);
   }

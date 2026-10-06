@@ -518,7 +518,7 @@ import { classifyResponsibility } from "./check-registry.mjs";
 
 describe("classifyResponsibility (roles.responsibility)", () => {
   const st = (rows) => ({ rows, summary: {}, exceptions: [] });
-  const team = (code, over = {}) => ({ id: `t-${code}`, code, lead_email: "lead@bds.jo", ...over });
+  const team = (code, over = {}) => ({ id: `t-${code}`, code, lead_email: "lead@example.test", ...over });
 
   it("is a REAL check now, not a planned gap (the promotion trap)", () => {
     expect(CHECKS.some((c) => c.id === "roles.responsibility")).toBe(true);
@@ -600,19 +600,19 @@ describe("classifyReview (midp.review)", () => {
   });
 
   it("met when submitter and authorizer are different people", () => {
-    const r = classifyReview([file("A", [v("v1")])], [auth("v1", "yara@bds.jo"), sub("v1", "modeller@bds.jo")]);
+    const r = classifyReview([file("A", [v("v1")])], [auth("v1", "ana@example.test"), sub("v1", "modeller@example.test")]);
     expect(r.status).toBe("met");
   });
 
   it("violation when the same person submitted and authorized — self-issue", () => {
-    const r = classifyReview([file("A", [v("v1", "published", "P02")])], [auth("v1", "yara@bds.jo"), sub("v1", "Yara@bds.jo")]);
+    const r = classifyReview([file("A", [v("v1", "published", "P02")])], [auth("v1", "ana@example.test"), sub("v1", "Ana@example.test")]);
     expect(r.status).toBe("violations");
     expect(r.evidence[0].label).toBe("A P02");
-    expect(r.evidence[0].detail).toMatch(/same person \(yara@bds\.jo\)/);
+    expect(r.evidence[0].detail).toMatch(/same person \(ana@example\.test\)/);
   });
 
   it("a generic actor is UNMEASURED, never an independent reviewer", () => {
-    const r = classifyReview([file("A", [v("v1")])], [auth("v1", "yara@bds.jo"), sub("v1", "web")]);
+    const r = classifyReview([file("A", [v("v1")])], [auth("v1", "ana@example.test"), sub("v1", "web")]);
     expect(r.status).toBe("not_checkable");
     expect(r.reason).toMatch(/cannot be judged/i);
     expect(r.evidence[0].detail).toMatch(/unresolved identity/);

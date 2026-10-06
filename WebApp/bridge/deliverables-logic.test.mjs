@@ -574,7 +574,7 @@ describe("weeklyReport", () => {
   };
   const tidp = {
     tidps: [
-      { code: "ARC", lead_email: "yara@bds.jo", declared: true, at_risk: 2, next_due: "2026-09-20", summary: { total: 3 } },
+      { code: "ARC", lead_email: "ana@example.test", declared: true, at_risk: 2, next_due: "2026-09-20", summary: { total: 3 } },
       { code: "MEP", lead_email: null, declared: false, at_risk: 0, next_due: null, summary: { total: 1 } },
     ],
     midp: { empty_tidps: ["STR"], task_teams_undeclared: 1, unassigned: 2 },

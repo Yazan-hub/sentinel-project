@@ -581,20 +581,20 @@ describe("transition — the lead's reason, and cde_transition's refusals in its
 
 describe("archive and restore go through cde_transition", () => {
   it("archiveFile archives the published version with the note 'file archived'", async () => {
-    expect(await archiveFile("demo", C1, "lead@bds.jo")).toEqual({ ok: true, archived: 1, discarded: 0 });
-    expect(rpcCalls().map((c) => c.body)).toEqual([{ p_version: V1, p_new_state: "archived", p_actor: "lead@bds.jo", p_note: "file archived" }]);
+    expect(await archiveFile("demo", C1, "lead@example.test")).toEqual({ ok: true, archived: 1, discarded: 0 });
+    expect(rpcCalls().map((c) => c.body)).toEqual([{ p_version: V1, p_new_state: "archived", p_actor: "lead@example.test", p_note: "file archived" }]);
   });
 
   it("unarchiveFile restores each archived version through the function — never a state PATCH", async () => {
-    expect(await unarchiveFile("demo", C1, "lead@bds.jo")).toEqual({ ok: true, restored: 1 });
-    expect(rpcCalls().map((c) => c.body)).toEqual([{ p_version: V2, p_new_state: "published", p_actor: "lead@bds.jo", p_note: "file restored" }]);
+    expect(await unarchiveFile("demo", C1, "lead@example.test")).toEqual({ ok: true, restored: 1 });
+    expect(rpcCalls().map((c) => c.body)).toEqual([{ p_version: V2, p_new_state: "published", p_actor: "lead@example.test", p_note: "file restored" }]);
     expect(calls.filter((c) => c.method === "PATCH" && c.body && "state" in c.body)).toHaveLength(0);
     expect(calls.find((c) => c.path === "audit_log" && c.body?.action === "unarchived").body.new_value).toEqual({ iso_name: "A.ifc", restored: 1 });
   });
 
   it("a refused restore stops the loop with the function's words", async () => {
     rpc = pgError(403, "42501", "insufficient role to transition (needs lead or owner)");
-    await expect(unarchiveFile("demo", C1, "viewer@bds.jo")).rejects.toMatchObject({ status: 403 });
+    await expect(unarchiveFile("demo", C1, "viewer@example.test")).rejects.toMatchObject({ status: 403 });
     expect(calls.find((c) => c.path === "audit_log" && c.body?.action === "unarchived")).toBeUndefined();
   });
 });

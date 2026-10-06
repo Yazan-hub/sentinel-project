@@ -13,8 +13,8 @@ import { fakePostgrest } from "./fixtures/fake-postgrest.mjs";
 
 describe("validateTeam", () => {
   it("accepts a full row and trims every field", () => {
-    const r = validateTeam({ code: "  ARC ", name: " Architecture ", lead_email: " yara@bds.jo ", discipline: " A ", appointment: " delivery ", notes: " n " });
-    expect(r).toEqual({ code: "ARC", name: "Architecture", lead_email: "yara@bds.jo", discipline: "A", appointment: "delivery", notes: "n" });
+    const r = validateTeam({ code: "  ARC ", name: " Architecture ", lead_email: " ana@example.test ", discipline: " A ", appointment: " delivery ", notes: " n " });
+    expect(r).toEqual({ code: "ARC", name: "Architecture", lead_email: "ana@example.test", discipline: "A", appointment: "delivery", notes: "n" });
   });
 
   it("accepts a row with only a code — the rest is reported, not rejected", () => {
@@ -36,7 +36,7 @@ describe("validateTeam", () => {
   });
 
   it("rejects a malformed lead_email — an unreachable address is worse than none", () => {
-    for (const bad of ["yara", "yara@", "@bds.jo", "yara bds@x.com"]) {
+    for (const bad of ["ana", "ana@", "@example.test", "ana lead@x.com"]) {
       try { validateTeam({ code: "ARC", lead_email: bad }); throw new Error("should have thrown"); }
       catch (e) { expect(e.status).toBe(400); expect(e.message).toMatch(/email address/); }
     }
