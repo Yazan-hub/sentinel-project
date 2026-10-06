@@ -408,9 +408,12 @@ export async function updateProject(key, patch = {}, actor) {
   const proj = await ensureProject(key);
   // SEC-4 (S16): one live project links a platform project (0041's index) — said in words before the write (a service
   // read: the other project need not be the caller's); an archived project's old link is no conflict.
-  const linkHeld = () => Object.assign(new Error(`another Sentinel project already links platform project ${patch.platform_project_id} — unlink it there first; nothing was saved`), { status: 409 });
-  if (patch.platform_project_id) {
-    const held = await sb(`projects?metadata->settings->>platform_project_id=eq.${encodeURIComponent(patch.platform_project_id)}&id=neq.${proj.id}&select=id,archived:metadata->settings->archived`, { service: true });
+  // The link the write makes live: a new one, or (a restore from archived) the one the project already names.
+  const link = patch.platform_project_id !== undefined ? patch.platform_project_id : proj.metadata?.settings?.platform_project_id ?? null;
+  const restoring = patch.platform_project_id === undefined && patch.archived !== undefined && String(patch.archived) !== "true";
+  const linkHeld = () => Object.assign(new Error(`another Sentinel project already links platform project ${link} — unlink it there first; nothing was saved`), { status: 409 });
+  if (link && (patch.platform_project_id || restoring)) {
+    const held = await sb(`projects?metadata->settings->>platform_project_id=eq.${encodeURIComponent(link)}&id=neq.${proj.id}&select=id,archived:metadata->settings->archived`, { service: true });
     if ((held || []).some((p) => p.id !== proj.id && String(p.archived) !== "true")) throw linkHeld();
   }
   const body = {};
