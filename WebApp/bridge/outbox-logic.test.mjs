@@ -90,6 +90,20 @@ describe("attachGeometry — the uploaded item goes on the sidecar's version, by
     expect(row.body).toMatchObject({ project_id: P, entity_type: "file_version", entity_id: V, action: "geometry linked", actor: "outbox", new_value: { file: "AST-ARC-M3-ZZ-0001.ifc", platform_item_id: "item-42", by: "version_id", ifc_sha256: H, frag_sha256: F } });
   });
 
+  it("SEC-5: records the IFC's platform item beside the hashes when it is given", async () => {
+    await attachGeometry("aster-tower", V, "item-42", { sha256: H, frag_sha256: F, ifc_item_id: "item-43" });
+    expect(writes()[1].body.new_value).toMatchObject({ platform_item_id: "item-42", ifc_sha256: H, frag_sha256: F, ifc_item_id: "item-43" });
+  });
+
+  it("SEC-5 (0042): an item another version already names is a 409 in words, and no 'geometry linked' row", async () => {
+    const real = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (url, init = {}) => (init.method === "PATCH"
+      ? new Response(JSON.stringify({ code: "23505", message: 'duplicate key value violates unique constraint "container_versions_one_item"' }), { status: 409 })
+      : real(url, init)));
+    await expect(attachGeometry("aster-tower", V, "item-42", { sha256: H })).rejects.toMatchObject({ status: 409, message: "platform item item-42 is already another version's geometry — nothing was linked" });
+    expect(calls.filter((c) => c.path === "audit_log")).toHaveLength(0);
+  });
+
   it("a version of another project is a 400 and nothing is written", async () => {
     owner = Q;
     await expect(attachGeometry("aster-tower", V, "item-42", { sha256: H })).rejects.toMatchObject({ status: 400, message: `version ${V} is not on aster-tower` });
@@ -158,6 +172,10 @@ describe("SEC-4: the item is linked only to the version its bytes were registere
       expect(src.indexOf(upload), upload).toBeGreaterThan(ask);
     expect(src).toContain("const fragBytes = await ifcBytesToFrag(new Uint8Array(ifcBytes));");
     expect(src).toContain("await cde.attachGeometry(d.project, d.version_id, itemId, hashes);");
+    // SEC-5: the delivered IFC's item is recorded on the link (a lead's judge-again reads the version's own bytes there).
+    // Review C1: the raw-IFC fallback links the IFC itself — its item is recorded too, so Open 3D checks it.
+    expect(src).toContain("const reg = await recordVersion(d, name, result?.item?._id, { sha256: ifcSha, ifc_item_id: result?.item?._id });");
+    expect(src).toContain("const hashes = { sha256: ifcSha, frag_sha256: createHash(\"sha256\").update(fragBytes).digest(\"hex\"), ...(beside.ifcItemId ? { ifc_item_id: beside.ifcItemId } : {}) };");
     expect(src).not.toContain("ifcToFrag(p)");
     expect(src).not.toContain("uploadFile(");
   });

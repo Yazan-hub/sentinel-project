@@ -56,7 +56,7 @@ describe("mirrorState — the state onto the .frag's only version", () => {
   const deps = () => ({ sb, platform: vi.fn(async () => client), log });
   beforeEach(() => {
     process.env.SENTINEL_PLATFORM_STATE = "on";
-    version = { id: V, state: "shared", platform_item_id: ITEM };
+    version = { id: V, state: "shared", platform_item_id: ITEM, information_containers: { project_id: P } };
     stateRow = { id: 812, new_value: { state: "shared", note: null } };
     sb = vi.fn(async (path) => (path.startsWith("container_versions") ? [version].filter(Boolean) : path.startsWith("audit_log") ? [stateRow].filter(Boolean) : []));
     client = {
@@ -74,6 +74,7 @@ describe("mirrorState — the state onto the .frag's only version", () => {
     expect(sb.mock.calls).toEqual([
       [`container_versions?id=eq.${V}&select=id,state,platform_item_id`, { service: true }],
       [`audit_log?entity_type=eq.container_version&entity_id=eq.${V}&action=like.state:*&order=id.desc&limit=1&select=id,new_value`, { service: true }],
+      [`container_versions?platform_item_id=eq.${ITEM}&select=id,information_containers(project_id)`, { service: true }],
     ]);
     expect(client.getFileVersionMetadata).toHaveBeenCalledWith(ITEM, "v1");
     expect(client.updateFileVersionMetadata).toHaveBeenCalledWith(ITEM, "v1", { sourceIfcId: "6ab9a0bf13cf4cfc31e04e0f", sentinel_state: "shared", sentinel_state_row: "812" });
@@ -112,6 +113,23 @@ describe("mirrorState — the state onto the .frag's only version", () => {
     d = deps();
     expect(await mirrorState(V, d)).toEqual({ mirrored: false, reason: "the version has no state: row on the ledger" });
     expect(d.platform).not.toHaveBeenCalled();
+  });
+
+  it("SEC-5 (S17): an item that versions on more than one project name, or whose project is not read, is not mirrored — no platform call", async () => {
+    const other = { id: "bbbbbbbb-0000-4000-8000-000000000002", information_containers: { project_id: "22222222-2222-4222-8222-222222222222" } };
+    for (const [named, reason] of [
+      [[version, other], "the platform item is named on more than one project — not mirrored"],
+      [[], "the platform item's project could not be read — not mirrored"],
+      [[{ id: V }], "the platform item's project could not be read — not mirrored"],
+    ]) {
+      sb = vi.fn(async (path) => (path.startsWith("container_versions?platform_item_id") ? named : path.startsWith("container_versions") ? [version] : [stateRow]));
+      const d = deps();
+      expect(await mirrorState(V, d)).toEqual({ mirrored: false, reason });
+      expect(d.platform).not.toHaveBeenCalled();
+    }
+    // two versions of one project naming the item (before 0042) are one project: mirrored
+    sb = vi.fn(async (path) => (path.startsWith("container_versions?platform_item_id") ? [version, { ...other, information_containers: { project_id: P } }] : path.startsWith("container_versions") ? [version] : [stateRow]));
+    expect(await mirrorState(V, deps())).toMatchObject({ mirrored: true });
   });
 
   it("an .ifc item (the raw-IFC fallback) is never written — the gate's labels live there", async () => {

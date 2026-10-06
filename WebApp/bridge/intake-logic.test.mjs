@@ -95,6 +95,18 @@ describe("runIntake", () => {
     // SEC-4: the bridge's own upload, linked by the gate's sha256 of the same bytes, after the verdict is stamped.
     expect(d.calls.find((c) => c[0] === "attachGeometry").slice(1)).toEqual(["aster-tower", "v-1", "item-1", { sha256: "ab".repeat(32), actor: "agent:astra" }]);
   });
+  it("SEC-5: the link records the .frag's sha256 and the IFC's item that the upload answered", async () => {
+    const d = stubs();
+    d.uploadIfc = async (...a) => { d.calls.push(["uploadIfc", ...a]); return { format: "frag", name: "x.frag", itemId: "item-1", bytes: 9, frag_sha256: "f".repeat(64), ifcItemId: "item-2" }; };
+    await runIntake(d, input);
+    expect(d.calls.find((c) => c[0] === "attachGeometry").slice(1)).toEqual(["aster-tower", "v-1", "item-1", { sha256: "ab".repeat(32), actor: "agent:astra", frag_sha256: "f".repeat(64), ifc_item_id: "item-2" }]);
+  });
+  it("SEC-5 (review C1): a raw-IFC upload links the IFC as its own item — ifc_item_id is the item", async () => {
+    const d = stubs();
+    d.uploadIfc = async (...a) => { d.calls.push(["uploadIfc", ...a]); return { format: "ifc", name: "x.ifc", itemId: "item-1", ifcItemId: "item-1", bytes: 9 }; };
+    await runIntake(d, input);
+    expect(d.calls.find((c) => c[0] === "attachGeometry").slice(1)).toEqual(["aster-tower", "v-1", "item-1", { sha256: "ab".repeat(32), actor: "agent:astra", ifc_item_id: "item-1" }]);
+  });
   it("a link the bridge could not make leaves the version registered and says so", async () => {
     const d = stubs({ linkFails: true });
     const r = await runIntake(d, input);

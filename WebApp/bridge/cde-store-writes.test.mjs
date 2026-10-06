@@ -351,6 +351,57 @@ describe("Deleted items (0035) — listed, restored, and kept out of every other
     await expect(addVersion(C, { revision: "P09" })).rejects.toMatchObject({ status: 409, message: "a revision is registered once per file — a new upload takes a new revision; nothing was saved" });
   });
 
+  it("SEC-5 (0042): the database's own one-revision index is the same 409 in words, for both registrations", async () => {
+    db.information_containers = [{ id: C, project_id: P, iso_name: "A.ifc", deleted_at: null }];
+    db.container_versions = [{ id: V1, container_id: C, revision: "P01", state: "wip", sha256: "a".repeat(64), is_live: true, deleted_at: null }];
+    serve();
+    globalThis.fetch = vi.fn(async (url, init = {}) => (init.method === "POST" && String(url).includes("/container_versions")
+      ? new Response(JSON.stringify({ code: "23505", message: 'duplicate key value violates unique constraint "container_versions_one_revision"' }), { status: 409 })
+      : rest.fetch(url, init)));
+    const REV = "a revision is registered once per file — a new upload takes a new revision; nothing was saved";
+    await expect(registerFileVersion("demo", { name: "A.ifc", revision: "P09", sha256: "c".repeat(64), author: "web" })).rejects.toMatchObject({ status: 409, message: REV });
+    await expect(addVersion(C, { revision: "P09" })).rejects.toMatchObject({ status: 409, message: REV });
+    // another unique refusal keeps its own error
+    globalThis.fetch = vi.fn(async (url, init = {}) => (init.method === "POST" && String(url).includes("/container_versions")
+      ? new Response(JSON.stringify({ code: "23505", message: 'duplicate key value violates unique constraint "some_other_index"' }), { status: 409 })
+      : rest.fetch(url, init)));
+    await expect(addVersion(C, { revision: "P10" })).rejects.not.toMatchObject({ status: 409, message: REV });
+  });
+
+  // SEC-5 (review C5): two registrations of one new revision at once — the one the index refuses reads the version once.
+  const race = (winner) => {
+    globalThis.fetch = vi.fn(async (url, init = {}) => {
+      if (init.method === "POST" && String(url).includes("/container_versions")) {
+        db.container_versions.push(winner); // the other registration landed first
+        return new Response(JSON.stringify({ code: "23505", message: 'duplicate key value violates unique constraint "container_versions_one_revision"' }), { status: 409 });
+      }
+      return rest.fetch(url, init);
+    });
+  };
+  const W = "aaaaaaaa-0000-4000-8000-000000000009";
+
+  it("SEC-5 (0042): the same revision with the same bytes landed at the same moment is answered as its repeat", async () => {
+    db.information_containers = [{ id: C, project_id: P, iso_name: "A.ifc", deleted_at: null }];
+    db.container_versions = [];
+    serve();
+    race({ id: W, container_id: C, revision: "P09", state: "wip", sha256: "c".repeat(64), is_live: true, deleted_at: null });
+    const r = await registerFileVersion("demo", { name: "A.ifc", revision: " p09", sha256: "C".repeat(64), author: "web" });
+    expect(r).toMatchObject({ container_id: C, version: { id: W }, repeat: true });
+    expect(ledger()).toHaveLength(0);
+  });
+
+  it("SEC-5 (0042): other bytes, or the held one in Deleted items, at the same moment is the 409 in words", async () => {
+    const REV = "a revision is registered once per file — a new upload takes a new revision; nothing was saved";
+    for (const held of [{ sha256: "d".repeat(64), deleted_at: null }, { sha256: "c".repeat(64), deleted_at: "2026-10-06T00:00:00Z" }]) {
+      db.information_containers = [{ id: C, project_id: P, iso_name: "A.ifc", deleted_at: null }];
+      db.container_versions = [];
+      serve();
+      race({ id: W, container_id: C, revision: "P09", state: "wip", is_live: false, ...held });
+      await expect(registerFileVersion("demo", { name: "A.ifc", revision: "P09", sha256: "c".repeat(64), author: "web" })).rejects.toMatchObject({ status: 409, message: REV });
+      expect(ledger()).toHaveLength(0);
+    }
+  });
+
   it("moveContainer and addVersion refuse a file in Deleted items in words, and write nothing", async () => {
     await expect(moveContainer(C2, { folder_id: F })).rejects.toMatchObject({ status: 409, message: "this file is in Deleted items — restore it first; nothing was saved" });
     await expect(addVersion(C2, { revision: "P02" })).rejects.toMatchObject({ status: 409 });
