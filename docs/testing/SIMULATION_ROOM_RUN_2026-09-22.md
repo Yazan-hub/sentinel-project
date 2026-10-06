@@ -1938,3 +1938,50 @@ version's stored file reference until it is published (`cv_update`); recorded, n
 **Closing list:** the test bridge on 4101 stopped; the 4100 bridge on the branch (the same code master gets); Revit closed
 without saving the scratch model (its binding, rename and IFC export in memory or the scratch copy only); `sec3-smoke` is the
 founder's scratch project — its rows stay on the ledger by design (#1964–#1988 and the ingest rows).
+
+## Session SEC4 — hardening slice 4 live (2026-10-06 ~11:40 → 12:25 local, branch feature/sec4-hardening 6fa6636 → d20208f, Claude driving the bridge, the database, the founder's local app and Revit 2024)
+
+Setup: the founder's words, given ahead: "apply 0041 when ready, deploy the sec4 branch to 2024", "publish the web app when ready
+too", "restart the bridge urself too when needed"; S28 answered "Only confirmed models". The 4100 bridge restarted by Claude on the
+branch before the apply (B-1); two outbox watchers found running were stopped and one started on the branch. The test bridge on
+127.0.0.1:4101 on the same checkout. The scratch project `sec4-smoke` made in the founder's local app, signed in as the founder (no
+office). The add-in built for Revit 2024 from the branch and deployed (DLL `2960efb6f704…`); Revit 2024 started by Claude, Load
+Once; the scratch model a shell copy of SEC3's (`Documents\Sentinel drills\sec4\sec4-drill.rvt`) opened from Revit's Open dialog.
+
+| Row | Result | Evidence |
+|---|---|---|
+| B-1 | 4100 restarted on the branch; one outbox watcher on the branch (two older ones stopped) — **pass** | the lines |
+| D-1 | part 0: 14 wip and 3 shared versions a verdict names, 37 wip or shared with no sha256, 15 files whose name freezes (10 accepted, 5 recorded; all in office or drill projects, none in aster-tower), 0 revisions held twice, 0 platform items on more than one project, 0 uuid-shaped keys, 0 platform links held twice; policies `transmittals_select, transmittals_write`; the triggers and bodies as 0041 was written against — **pass** | the rows (counts only) |
+| D-2 | `0041_version_record_frozen` applied (~12:00 local), one transaction — **pass** | the answer |
+| D-3 | part 1: 6 of 6 true; part 2: `PROBE 0041: 24 of 24 as expected.` (the plan's 21 grew to 24 with the review's cases) — **pass** | the rows, the summary |
+| D-4 | `24 of 24 installed rulesets pass SEC-4's validator` — no REFUSED line — **pass** | the summary line |
+| W-0 | `sec4-smoke` created in the founder's local app, signed in, no office; it opens, no review in force — **pass** | the key |
+| M-1 | a uuid-shaped project name: `400 a project key is not a uuid — choose a name with words in it (nothing was created)` — **pass** | status, words |
+| M-2 | a registration naming `platform_item_id`: `400 a version's geometry is linked by the bridge after its upload — send no platform_item_id; nothing was saved`; without it `201`, `v1`, live, no item — **pass** | statuses, the version id |
+| M-2b | the same bytes under `v1` again: `201`, the same version id, `repeat: true`; other bytes under `v1`: `409 a revision is registered once per file — a new upload takes a new revision; nothing was saved` — **pass** | statuses |
+| M-3 | `ids@1` installed (`201`, a first install); a proposal `verdict: accepted`, `ids_ref: ids@1`, a wip version of SEC4-BOUND.ifc, `verdict_audit_id` 2001 — **pass** | the verdict |
+| W-1 | the Files window: SEC4-BOUND.ifc ▸ Rename refused in the window's words `rename failed: a file whose version a verdict judged keeps its name — a new name is a new file: upload it under the new name — nothing was saved`; SEC4-SMOKE.ifc renamed (`✓ Renamed to SEC4-SMOKE-B.ifc.`) — **pass** | the status lines |
+| M-4 | a ruleset with a `(?i)` exclusion: `400 ruleset: rules[0].exclusions[0] does not compile as a pattern (…) — write it without .NET-only syntax such as a leading (?i)`; the plain one `201`, `ruleset@1` — **pass** | statuses, words |
+| M-5 | `GET packs` lists `bds-house@1.4.1`; `Bad Key` `400` in the key's words; `bds-house@1.4.1` again `409 … is already published — publish a new version; nothing was published` — **pass** | statuses |
+| W-2 | `sec4-smoke` ▸ Settings ▸ Link to this platform project (the one aster-tower links): `Save failed: another Sentinel project already links platform project <id> — unlink it there first; nothing was saved`; the database reads `sec4-smoke` unlinked, aster-tower unchanged — **pass** | the line, the rows |
+| R-0 | the branch's add-in on Revit 2024 (0 errors); the scratch model open; its pane named the model's earlier key with `Auto-publish and scan posts paused on this PC — Project Setup ▸ Save confirms web project …` — **pass** | the lines |
+| R-0b | Sign in: signed in, no address refusal; Project Setup: no refusal — **pass** | the dialogs |
+| R-1 | Project Setup's note followed the key box: `Saving confirms that this model, on this PC, publishes into sec4-smoke.`; after Save `bound-models.json` lists `…\sentinel drills\sec4\sec4-drill.rvt` with `sec4-smoke`; the pane's publish line is the policy's (no paused line) — **pass** | the entry, the pane |
+| M-6 | `publish@1` `{auto: true}` on `sec4-smoke`: `201` — **pass** | the ref |
+| R-2 | a small change ▸ Save: `Auto-publish: exporting sec4-drill.ifc…`, then `Auto-publish rejected — nothing uploaded — 38 of 38 element check(s) failed · ids@1 … ledger #2006 … Held on the web … ledger #2007` — **pass** (held with its reasons) | the Doctor lines |
+| R-3 | a shell copy (the Save As dialog takes no typed name here; the same case: a path this PC has not confirmed), opened by double-clicks: the pane's paused line for `sec4-smoke`; a change ▸ Save: `Auto-publish: nothing sent — this model names web project "sec4-smoke", which this PC has not confirmed for it. Sentinel ▸ Project Setup ▸ Save confirms it (a copy or a Save As of a model asks again).`; a second change ▸ Save (12:17:39) said it no second time — **pass** | the lines |
+| R-4 | Project Setup ▸ Save on the copy: `bound-models.json` lists both paths; the pane `Auto-publish: on · publish@1 · project · ed4b894a2ea3…`; a change ▸ Save auto-published as R-2 did (rejected · #2010, held · #2011) — **pass** | the Doctor lines |
+| D-6 | proposal rows on `sec4-smoke`: 1 (M-3) → 2 after R-2 → 2 after R-3 → 3 after R-4 — **pass** | the counts |
+| D-5 | before G-2: the three newest gate rows (#1194–#1197, 2026-09-29) carry no `contract` field, as written before the restart — **pass (pre-G-2 half)** | the rows |
+| W-3 | aster-tower ▸ CDE ▸ Platform deliveries: `3 IFC · 3 passed (unverified)`; each card `Passed (unverified) — contract@1` (amber) with `the ledger's row for this run does not show the contract installed in Sentinel judged it` — **pass (pre-1.0.7 half)** | the cards |
+
+**Owed:** G-1 (the founder: delivery-gate component 1.0.7 published and both automations re-pointed), then G-2 (a delivery judged by
+1.0.7 lands `contract.verified: true`), D-5's newest row and W-3's green card; R-5 (the watcher's hash-bound geometry link, live —
+both publishes were held, so nothing reached the outbox, and `sec4-smoke` links no platform project by design (W-2);
+`outbox-logic.test.mjs` holds it); Revit 2021–2023 and 2025–2027 live (builds; deployed after the merge). **Seen, not a SEC-4
+row:** the pane's ↻ re-reads the journey card's scan but not the publish policy — a policy installed after the model opened shows
+on the next Project Setup ▸ Save or reopen.
+
+**Closing list:** the test bridge on 4101 stopped; the 4100 bridge and the watcher on the branch (the same code master gets); Revit
+closed after both scratch models were saved (scratch copies only); `sec4-smoke` is the founder's scratch project — its rows stay on
+the ledger by design (#1997–#2011).
