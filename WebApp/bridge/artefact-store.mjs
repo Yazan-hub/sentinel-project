@@ -313,8 +313,15 @@ export function validateArtefact(kind, body) {
   return true;
 }
 
+// SEC-4: a contract installs under a plain name — the rule the delivery-gate component (1.0.7) reads a mirrored contract by,
+// so a contract Sentinel installs is never "Not checked" on the platform for its name. Install only: a contract installed
+// before this rule still judges intake and Revit (resolveContract reads it through validateArtefact).
+const PLAIN_NAME = /^[A-Za-z0-9._@-]{1,100}$/;
+
 export async function putArtefact(key, kind, body, { actor, source } = {}, deps) {
   validateArtefact(kind, body);
+  if (kind === "contract" && !PLAIN_NAME.test(body.contract_key))
+    throw bad(kind, "contract_key", "must be a plain name (letters, digits, . _ @ -), up to 100 characters");
   const d = await wire(deps);
   await d.requireMinRole(key, "lead");
   const proj = await d.ensureProject(key);

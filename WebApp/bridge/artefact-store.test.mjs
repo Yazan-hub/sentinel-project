@@ -452,6 +452,19 @@ describe("validateArtefact — contract, layers, guideline, type catalogue", () 
 
 describe("resolveContract — what judges Governed Intake: project → office → none, re-checked", () => {
   const shaOf = (o) => createHash("sha256").update(canonical(o)).digest("hex");
+  it("SEC-4 (review C15): a contract installs only under a plain contract_key — the name the platform gate checks it by", async () => {
+    const d = memDeps();
+    for (const contract_key of ["BDS Pilot 2026", "x · contract sha256:", "a".repeat(101), "ü"])
+      await expect(putArtefact("p", "contract", { ...contract, contract_key }, { actor: "x" }, d))
+        .rejects.toMatchObject({ status: 400, message: "contract: contract_key must be a plain name (letters, digits, . _ @ -), up to 100 characters" });
+    expect(d.docs.size).toBe(0);
+    for (const contract_key of ["bds-pilot", "base-default", "office.ifc4_v2@1", "a".repeat(100)])
+      await expect(putArtefact("p", "contract", { ...contract, contract_key }, { actor: "x" }, d)).resolves.toBeTruthy();
+    // The same rule the delivery-gate component reads a mirrored contract by.
+    const gate = readFileSync(new URL("../../CloudComponents/delivery-gate/src/main.js", import.meta.url), "utf8");
+    const store = readFileSync(new URL("./artefact-store.mjs", import.meta.url), "utf8");
+    for (const src of [gate, store]) expect(src).toContain("const PLAIN_NAME = /^[A-Za-z0-9._@-]{1,100}$/;");
+  });
   it("none names the key and its office and carries no body", async () => {
     expect(await resolveContract("aster-villa", memDeps({ parentKey: "aster-office" }))).toEqual({
       body: null, ref: null, source: null, sha256: null,
