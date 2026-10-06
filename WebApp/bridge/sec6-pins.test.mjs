@@ -17,5 +17,6 @@ describe("SEC-6 one-liners", () => {
     const t = read("../../config/.env.template");
     expect(t).toMatch(/^# BCF_MIN_UPLOAD_KBPS=16$/m);
     expect(t).toMatch(/^# BCF_UPLOAD_GRACE_S=120$/m);
+    expect(t).toMatch(/^# An empty or 0 value keeps the default: the floor is never off, 1 is its lowest\.$/m); // review C16
   });
 });

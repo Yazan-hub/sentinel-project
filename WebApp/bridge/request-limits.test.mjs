@@ -177,6 +177,21 @@ describe("raw uploads keep an average rate after a grace period, and each is mea
     expect(w.e.message).toContain("slower than 64 KB/s on average after its first 10 s");
   });
 
+  it("review C16: an empty or 0 value keeps the default floor and grace — the floor is never off", async () => {
+    process.env.BCF_MIN_UPLOAD_KBPS = "0";
+    process.env.BCF_UPLOAD_GRACE_S = "";
+    vi.useFakeTimers();
+    const r = open();
+    const w = watch(readRaw(r));
+    for (let t = 0; t < 6; t++) { r.write(Buffer.alloc(1024)); await vi.advanceTimersByTimeAsync(20_000); } // 6 KB in 120 s
+    expect(w.v).toBe("pending");
+    await vi.advanceTimersByTimeAsync(1_000);
+    r.write(Buffer.alloc(1024));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(w.v).toBe(408);
+    expect(w.e.message).toContain("slower than 16 KB/s on average after its first 120 s");
+  });
+
   it("JSON bodies keep their own 2-minute deadline, not the upload floor", async () => {
     vi.useFakeTimers();
     const r = open();
