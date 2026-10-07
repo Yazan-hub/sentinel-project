@@ -10,8 +10,8 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { spawn } from "node:child_process";
 import { createServer, request } from "node:http";
-import { createHmac, randomUUID } from "node:crypto";
-import { cpSync, existsSync, mkdtempSync, mkdirSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { createHash, createHmac, randomUUID } from "node:crypto";
+import { cpSync, existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -276,6 +276,40 @@ describe("/cde/files — encrypted blobs belong to a project (D2, cdefiles-1/2, 
     expect(machine.status).toBe(200);
     expect(machine.text).toBe("old-cipher");
     expect((await call("GET", `/cde/files/${old}?project=p-office`, { as: "u-contrib" })).status).toBe(404);
+  });
+});
+
+describe("SEC-8 (S38): PUT /cde/files/:id re-seals an encrypted file in place — a lead's, whole or not at all", () => {
+  const folder = () => join(tmp, "appdata", "Sentinel", "cde-files", P_OFF);
+  const sha = (s) => createHash("sha256").update(s).digest("hex");
+  const put = (id, body, as, digest = sha(body)) =>
+    call("PUT", `/cde/files/${id}?project=p-office&sha256=${digest}`, { as, body, headers: { "Content-Type": "application/octet-stream" } });
+  const stored = async () => (await call("POST", "/cde/files?project=p-office", { as: "u-contrib", body: "sealed-under-key-1", headers: { "Content-Type": "application/octet-stream" } })).json.id;
+
+  it("a contributor is refused (the rotation is a lead's), and the stored file is unchanged", async () => {
+    const id = await stored();
+    expect(await put(id, "sealed-under-key-2", "u-contrib")).toMatchObject({ status: 403, json: { message: "this action requires the lead role (you are contributor)" } });
+    expect(readFileSync(join(folder(), `${id}.bin`), "utf8")).toBe("sealed-under-key-1");
+  });
+
+  it("a body whose sha256 is not the one named is a 400 in words, and the stored file is unchanged", async () => {
+    const id = await stored();
+    expect(await put(id, "sealed-under-key-2", "service", sha("something else")))
+      .toMatchObject({ status: 400, json: { message: "the re-sealed file did not arrive whole (its sha256 is not the one named) — the stored file is unchanged" } });
+    expect(readFileSync(join(folder(), `${id}.bin`), "utf8")).toBe("sealed-under-key-1");
+  });
+
+  it("a whole body replaces the blob under the same id, and nothing is left beside it", async () => {
+    const id = await stored();
+    expect(await put(id, "sealed-under-key-2", "service")).toMatchObject({ status: 200, json: { id, size: 18 } });
+    expect(readFileSync(join(folder(), `${id}.bin`), "utf8")).toBe("sealed-under-key-2");
+    expect(readdirSync(folder()).filter((f) => f.startsWith(id))).toEqual([`${id}.bin`]);
+  });
+
+  it("a blob that is not in the project's folder is a 404 — a re-seal never creates one", async () => {
+    const id = randomUUID();
+    expect((await put(id, "x", "service")).status).toBe(404);
+    expect(existsSync(join(folder(), `${id}.bin`))).toBe(false);
   });
 });
 

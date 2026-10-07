@@ -580,6 +580,18 @@ export async function listContainers(key) {
   });
 }
 
+/** SEC-8 (S38): the blob ids of every encrypted file a version of `key` references (its file_ref: secure-store's StoredFile),
+ *  Deleted items included — what a key rotation re-seals. A file_ref that is not an encrypted file's reference is passed over. */
+export async function listBlobRefs(key) {
+  const proj = await ensureProject(key);
+  const rows = await sb(`information_containers?project_id=eq.${proj.id}&select=container_versions(file_ref)`);
+  const ids = new Set();
+  for (const c of Array.isArray(rows) ? rows : []) for (const v of c.container_versions || []) {
+    try { const id = JSON.parse(v.file_ref)?.id; if (typeof id === "string" && /^[A-Za-z0-9-]+$/.test(id)) ids.add(id); } catch { /* not an encrypted file's reference */ }
+  }
+  return [...ids];
+}
+
 export async function createContainer(key, b) {
   const proj = await ensureProject(key);
   const c = (await sb(`information_containers`, {

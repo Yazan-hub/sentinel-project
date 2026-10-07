@@ -422,7 +422,8 @@ describe("The E2E keystore (cde-4, cde-rem-5): set up and replaced by a lead", (
     expect(await call("POST", "/cde/demo/keystore", "lead", KS)).toEqual({ status: 201, body: { ok: true } });
     expect(writes("bridge_docs").map((c) => c.service)).toEqual([true]);
     expect((await call("POST", "/cde/demo/keystore", "lead", KS)).status).toBe(409);
-    expect(await call("PUT", "/cde/demo/keystore", "lead", { ...KS, salt: "bmV3" })).toEqual({ status: 200, body: { ok: true } });
+    // SEC-8: a replace names the wrapped key it replaces (the keystore the caller read).
+    expect(await call("PUT", "/cde/demo/keystore", "lead", { ...KS, salt: "bmV3", replaces: KS.wrapped_dek })).toEqual({ status: 200, body: { ok: true } });
     expect(db.bridge_docs[0].data.salt).toBe("bmV3");
   });
 
@@ -433,6 +434,36 @@ describe("The E2E keystore (cde-4, cde-rem-5): set up and replaced by a lead", (
 
   it("reading it needs membership: a stranger is refused, not answered 200 null", async () => {
     expect([403, 404]).toContain((await call("GET", "/cde/demo/keystore", "stranger")).status);
+  });
+
+  // SEC-8 (S38): a key rotation — a replace names the key it replaces and never takes the key id back.
+  it("a replace that does not name the stored key (a stale tab, another lead's rotation) is a 409 in words, and nothing is saved", async () => {
+    seedDoc("keystore", "keystore", { ...KS });
+    for (const replaces of [undefined, "c3RhbGU"])
+      expect(await call("PUT", "/cde/demo/keystore", "lead", { ...KS, wrapped_dek: "bmV3", ...(replaces ? { replaces } : {}) }))
+        .toEqual({ status: 409, body: { message: "the project keystore changed since it was read (another lead may have rotated the key or changed the passphrase) — read it again; nothing was saved" } });
+    expect(writes("bridge_docs")).toEqual([]);
+  });
+
+  it("a key id that goes back is a 409 in words; the next key id (a rotation) is saved, without the replaces field", async () => {
+    seedDoc("keystore", "keystore", { ...KS, v: 2, kid: 3 });
+    expect(await call("PUT", "/cde/demo/keystore", "lead", { ...KS, v: 2, kid: 2, replaces: KS.wrapped_dek }))
+      .toEqual({ status: 409, body: { message: "the keystore's key id would go back from 3 to 2 — a file sealed under key 3 would be unreadable; nothing was saved" } });
+    expect(await call("PUT", "/cde/demo/keystore", "lead", { ...KS, kid: 0, replaces: KS.wrapped_dek }))
+      .toEqual({ status: 400, body: { message: "a keystore's kid is a whole number from 1 — nothing was saved" } });
+    expect(writes("bridge_docs")).toEqual([]);
+    const next = { ...KS, v: 2, kid: 4, wrapped_dek: "a2V5LTQ", retired: { kid: 3, wrap_iv: "aXY", wrapped_dek: "a2V5LTM" }, rotating: { from: 3, to: 4, done: 0, total: 0 } };
+    expect(await call("PUT", "/cde/demo/keystore", "lead", { ...next, replaces: KS.wrapped_dek })).toEqual({ status: 200, body: { ok: true } });
+    expect(db.bridge_docs[0].data).toEqual(next);
+  });
+
+  it("the blob ids of every encrypted file, Deleted items included, are a lead's read (the rotation's walk)", async () => {
+    db.information_containers = [
+      { id: "c1", project_id: PID, deleted_at: null, container_versions: [{ file_ref: JSON.stringify({ id: "blob-a", name: "a.pdf" }) }, { file_ref: null }, { file_ref: "not json" }] },
+      { id: "c2", project_id: PID, deleted_at: "2026-10-01T00:00:00Z", container_versions: [{ file_ref: JSON.stringify({ id: "blob-b" }) }, { file_ref: JSON.stringify({ id: "blob-a" }) }] },
+    ];
+    expect(await call("GET", "/cde/demo/keystore/refs", "contributor")).toEqual(refused("lead", "contributor"));
+    expect(await call("GET", "/cde/demo/keystore/refs", "lead")).toEqual({ status: 200, body: { ids: ["blob-a", "blob-b"] } });
   });
 });
 
