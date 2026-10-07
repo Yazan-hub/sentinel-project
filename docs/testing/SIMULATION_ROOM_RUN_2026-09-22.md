@@ -2460,3 +2460,35 @@ with it off only.
 
 **Closing list:** each Revit closed without saving; the three scratch copies stay in `Documents\Sentinel drills\ma3c\`; changesets A
 and B stay proposed on `ma2a-ghost`.
+
+## Session W2 — a second account at team scale, live (2026-10-08 ~00:35 → 01:10 local, master 23ab04e, Claude driving the second account's session in the published app through the Funnel)
+
+Setup: the founder signed a second, existing account (a Gmail account, not the founder's) into the published Sentinel app in a tab
+of Claude's tab group (the published app keeps its sign-in per tab; Claude entered no password). The account's memberships, read by
+the bridge beforehand: viewer on `aster-office` and `sentinel-first-test`, contributor on `b13-review`, lead on `aster-tower` and
+`live-25`. Expected outcomes were pinned first from the code by a two-stage read (one mapper per surface, one skeptic per mapper:
+hub, issues, standards, CDE, desk). Every call went through the Funnel with the person's own session.
+
+| Row | Role | Result | Evidence |
+|---|---|---|---|
+| H-1 | — | the Projects hub lists exactly the 5 member projects (aster-office, aster-tower, live-25, Sentinel First test, B13 review) of 62; the account menu reads "lead on aster-tower" — **pass** | the screenshot |
+| V-1 | viewer (aster-office) | the dashboard reads "your role: viewer — a lead or owner runs the gate" (no Run gate); Settings: no "Install JSON…", no evidence-pack row, no Members section, "your role: viewer — project settings are read-only (a lead or owner can edit them)" — **pass** | the screenshots |
+| V-2 | viewer | RFIs ▸ Raise: `❌ this action requires the contributor role (you are viewer)`; nothing written — **pass**. (Issues ▸ New stops earlier in the web: "Select an element in the model first.") | the screenshot |
+| C-1 | contributor (b13-review) | Settings: "your role: contributor — project settings are read-only"; Project Files: "archive and delete are a lead's (your role: contributor)", no delete control — **pass** | the screenshots |
+| C-2 | contributor | the open review chain on B13-B.ifc (review@5, step 2 of 2, role contributor): the card shows step 1 approved by this account and "you already approved step 1 of this chain", no approve control; "My reviews (0)" — **pass: one approval per person per chain** | the zoom |
+| C-3 | contributor | CDE ▸ + Container `B13-W2-ZZ-XX-M3-A-0001` created (WIP, P01); ledger **#2153** `container created`, actor = the second account (checked by the bridge against the member list, not the founder), hash set — **pass: attribution** | the bridge read |
+| C-4 | contributor | the board draws "Archive" (Published) and "Share →" (WIP) for a contributor; pressing them: `Transition rejected: insufficient role to transition (needs lead or owner)`, nothing moved — **the database holds; the UI offers what the role cannot do (gap G3)** | the screenshots |
+| L-1 | lead (live-25) | Settings: "Install JSON…" on every kind, the "Download evidence pack" row, Members with role selects, Remove and Add, Save changes, Archive; "Delete project" is also offered though the bridge needs the owner (gap G4) — **pass, with G4** | the zoom |
+
+**Gaps found and fixed in this slice** (feature/w2-gaps, merged e6a556d, web 1.0.61; fixed by one implementer, reviewed from three lenses — correctness, role regressions, wording — fixed again, then a final two-skeptic review whose one real finding (Deliverables, below) was fixed too): G2 members role change/remove by a non-lead answered "membership changed
+concurrently" (RLS zero rows) instead of the role words; G3 CDE board transition buttons and "Rotate key…" drawn below lead; G4
+"Delete project" offered to a lead; G5 a contributor could rename a plain topic into a governed "IDS:"/"Federation:" title or create
+one already Closed (a leading space no longer slips past); G6 the hub called every 503 "CDE not configured"; G7 a non-member was told "your role: viewer"; and the final review's find: the Deliverables panel drew a lead's controls (row edit/delete, Rebaseline Apply, Declare team, team edit/delete) for a contributor, and its team delete dropped the bridge's words. 2777 tests.
+
+**After the merge (local app, the founder's own session, a contributor on `live-25`):** the CDE board reads "your role: contributor — sharing, publishing, archiving, deleting folders and key rotation are a lead's", Rotate key… is gone, + Container stays; Deliverables keeps + Add, Paste schedule and the Rebaseline preview, and Teams offers no "+ Declare team" — **pass**. The bridge-side fixes (members role words, owner-only owner changes, governed titles) are pinned in `write-roles.test.mjs`; the 4100 bridge runs them since ~01:40.
+
+**Decision (the founder's, 2026-10-08): keep G1** — any member, a viewer included, can read the members list (e-mails) through the
+bridge and the BCF extensions, as the ledger already names every actor to every member; written into the procedure (5.5).
+
+**Closing list:** the drill container `B13-W2-ZZ-XX-M3-A-0001` stays on `b13-review` (scratch, WIP); no membership was changed; the
+second account stays signed in in Claude's tab until the founder signs it out.
