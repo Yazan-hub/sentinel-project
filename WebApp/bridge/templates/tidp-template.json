@@ -1,0 +1,34 @@
+{
+  "doc_type": "TIDP",
+  "title": "Task Information Delivery Plan",
+  "sections": [
+    {
+      "heading": "1. Task team and appointment",
+      "guidance": "The task team this plan belongs to, its lead, the appointment it answers (BEP section 2), and the information manager it reports to."
+    },
+    {
+      "heading": "2. Deliverables",
+      "guidance": "One line per information container the task team will deliver: the container name as the naming standard writes it (Settings ▸ Standards in force ▸ naming), its purpose, the level of information need it is produced to (LOIN, BEP section 7), the author and the checker."
+    },
+    {
+      "heading": "3. Milestones and dates",
+      "guidance": "For each deliverable: the information exchange it serves, the delivery milestone from the MIDP (the project's programme against the MIDP shows each container ready, late or at risk), and the planned date."
+    },
+    {
+      "heading": "4. Dependencies and predecessors",
+      "guidance": "What each deliverable needs from other task teams first (references, federated models, decisions), and when."
+    },
+    {
+      "heading": "5. Review and authorisation",
+      "guidance": "Who checks, reviews and authorises each container before it is shared or published — the project's review chain (review@n) names the steps; a container passes the delivery gate (naming, IDS, contract) before any human review."
+    },
+    {
+      "heading": "6. Resources and capability",
+      "guidance": "People, software (BEP section 9) and time the task team commits; any capability gap and how it is closed."
+    },
+    {
+      "heading": "7. Change",
+      "guidance": "How the plan changes when the MIDP or the appointment changes; who approves a change to a deliverable or a date."
+    }
+  ]
+}

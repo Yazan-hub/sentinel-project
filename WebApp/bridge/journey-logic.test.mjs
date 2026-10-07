@@ -24,7 +24,7 @@ const emptyProject = () => ({
 const fullProject = () => ({
   ...emptyProject(),
   members: ok(TEAM), standards: ok(std("office")),
-  docs: ok([{ id: "d-bep", doc_type: "BEP", title: "Aster BEP", status: "draft", version_count: 0 }]),
+  docs: ok([{ id: "d-bep", doc_type: "BEP", title: "Aster BEP", status: "draft", version_count: 0 }, { id: "d-tidp", doc_type: "TIDP", title: "ARC TIDP", status: "draft", version_count: 0 }]),
   scan: ok({ doc_title: "Aster Villa", at: "2026-09-22T09:00:00Z" }),
   verdicts: ok([{ id: 42, version_id: "v-1", verdict: "accepted" }, { id: 17, version_id: "v-0", verdict: "rejected" }]),
   files: ok([file("v-1", "published")]),
@@ -40,7 +40,7 @@ const byId = (j) => Object.fromEntries(j.steps.map((s) => [s.id, s]));
 describe("the step lists", () => {
   it("office has five steps and project eight, in spec order, each with a how naming a real project tab or none", () => {
     expect(OFFICE_STEPS.map((s) => s.id)).toEqual(["team", "standards", "snapshot", "readiness", "projects"]);
-    expect(PROJECT_STEPS.map((s) => s.id)).toEqual(["team", "standards", "bep", "model", "verdict", "published", "federated", "issued"]);
+    expect(PROJECT_STEPS.map((s) => s.id)).toEqual(["team", "standards", "bep", "tidp", "model", "verdict", "published", "federated", "issued"]);
     // A3: read real tab labels from main.ts itself rather than a hand-copied list.
     // Task 3 named the literal `spaceTabs` (reused for tabIndex()); anchor on that instead of the
     // `tabbed([...])` call it used to be inlined into.
@@ -60,20 +60,20 @@ describe("project journey", () => {
   it("empty facts: all todo except federated (no live model), next is team, counts not percentages", () => {
     const j = buildJourney(emptyProject());
     expect(j.kind).toBe("project");
-    expect(j.steps.map((s) => s.status)).toEqual(["todo", "todo", "todo", "todo", "todo", "todo", "not_checkable", "todo"]);
+    expect(j.steps.map((s) => s.status)).toEqual(["todo", "todo", "todo", "todo", "todo", "todo", "todo", "not_checkable", "todo"]);
     expect(byId(j).federated.reason).toBe("no live model — nothing to federate");
-    expect(j).toMatchObject({ next: "team", done: 0, total: 8 });
+    expect(j).toMatchObject({ next: "team", done: 0, total: 9 });
     expect(JSON.stringify(j)).not.toMatch(/%|percent/);
   });
   it("full facts: every step done with an evidence ref, next null", () => {
     const j = buildJourney(fullProject());
-    expect(j).toMatchObject({ next: null, done: 8, total: 8 });
+    expect(j).toMatchObject({ next: null, done: 9, total: 9 });
     for (const s of j.steps) { expect(s.status).toBe("done"); expect(s.evidence.ref).toBeTruthy(); expect(s.reason).toBeNull(); }
     const s = byId(j);
     expect(s.team.evidence).toEqual({ ref: "u-owner,u-lead", label: "owner u-owner, lead u-lead" });
     expect(s.standards.evidence.ref).toBe("ids@4,ruleset@1,naming@1");
     expect(s.standards.evidence.label).toContain("ids@4 · office · 23bb57937fb0…");
-    expect(s.bep.evidence.ref).toBe("d-bep");
+    expect(s.bep.evidence.ref).toBe("d-bep"); expect(s.tidp.evidence.ref).toBe("d-tidp");
     expect(s.model.evidence.label).toBe("scan · Aster Villa · 2026-09-22T09:00:00Z · judged by nothing");
     expect(s.verdict.evidence.ref).toBe("audit#17");                         // the first verdict, oldest row
     expect(s.published.evidence.ref).toBe("version v-1 · audit#42");
@@ -128,7 +128,7 @@ describe("project journey", () => {
     expect(s.verdict).toMatchObject({ status: "not_checkable", reason: "audit read failed" });
     expect(s.published).toMatchObject({ status: "not_checkable", reason: "audit read failed" });   // reads files AND verdicts
     expect(s.standards.status).toBe("done");
-    expect(j).toMatchObject({ done: 5, total: 8, next: null });
+    expect(j).toMatchObject({ done: 6, total: 9, next: null });
     const k = buildJourney({ ...emptyProject(), members: bad("down") });
     expect(k.next).toBe("standards");
   });
