@@ -2142,7 +2142,7 @@ async function handleRequest(req, res) {
       const status = url.searchParams.get("status");
       const model = url.searchParams.get("model");
       // openCDE slice 1: `$filter`/`$skip`/`$top` page the list (a `$filter` starts from every status — the BCF default — unless status= says otherwise).
-      const paged = (list) => open.page(list, url.searchParams);
+      const paged = (list) => open.page(list, url.searchParams).map(open.bcfTopic);   // slice 3: topic_GET's server_assigned_id, additive
       const status2 = status ?? (url.searchParams.has("$filter") ? "all" : null);
       if (useCde) return send(res, 200, paged(await cde.bcfListTopics(pid, { status: status2, model }, db.topics.filter(inProject))));
       // no status → non-Closed (the working set); status=all → everything; else exact match.

@@ -121,8 +121,20 @@ export function parseOpen(pathname, method = "GET") {
   return null;
 }
 
-/** A topic's history as BCF topic events (one event per history line, the line's words as the value). Pure. */
-export const topicEvents = (topic) => (topic.history ?? []).map((h) => ({ topic_guid: topic.guid, date: h.date, author: h.author, events: [{ type: "history", value: h.action }] }));
+/** A topic's history as BCF topic events (topic_event_GET: one `actions` entry per history line, its words as the value). Pure. */
+export const topicEvents = (topic) => (topic.history ?? []).map((h) => ({ topic_guid: topic.guid, date: h.date, author: h.author, actions: [{ type: "history", value: h.action }] }));
+
+// openCDE slice 3: the spec's shapes on the way out — additive on a topic and a comment (the web and Revit keep every field they read).
+/** topic_GET wants `server_assigned_id` (a string a person can quote): the guid, which Sentinel assigns. */
+export const bcfTopic = (t) => (t ? { ...t, server_assigned_id: t.server_assigned_id ?? t.guid } : t);
+/** comment_GET wants the comment's `topic_guid`. */
+export const bcfComment = (c, topic) => (c ? { ...c, topic_guid: c.topic_guid ?? topic?.guid ?? null } : c);
+/** viewpoint_GET's `snapshot` is `{ snapshot_type }` (the bytes come from `…/snapshot`); Sentinel stores the image itself. */
+export const bcfViewpoint = (v) => {
+  if (!v) return v;
+  const snap = snapshotBytes(v.snapshot);
+  return { ...v, snapshot: snap ? { snapshot_type: snap.mime === "image/jpeg" ? "jpg" : "png" } : null };
+};
 
 /** The methods each open kind takes; anything else is a 405 in words. */
 const METHODS = {
@@ -160,15 +172,19 @@ export function snapshotBytes(snapshot) {
   return bytes.length ? { mime, bytes } : null;
 }
 
-/** BCF files: each live container's version in force (the live one, else the newest not deleted), named as ISO 19650 names it. */
+/** BCF files (project_files_information_GET): each live container's version in force (the live one, else the newest not deleted),
+ *  named as ISO 19650 names it, with the display information a client lists. */
 export function fileEntries(containers, pid) {
   const out = [];
   for (const c of containers ?? []) {
     const vs = (c.container_versions ?? []).filter((v) => !v.deleted_at);
     const v = vs.find((x) => x.is_live) ?? vs.sort((a, b) => String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")))[0];
     if (!v) continue;
-    out.push({ ifc_project: null, ifc_spatial_structure_element: null, file_name: c.iso_name ?? c.title ?? String(c.id), date: v.created_at ?? null,
-      reference: `/cde/${encodeURIComponent(pid)}/containers/${encodeURIComponent(c.id)}/versions/${encodeURIComponent(v.id)}` });
+    const filename = c.iso_name ?? c.title ?? String(c.id);
+    out.push({
+      display_information: [{ field_display_name: "File", field_value: filename }, ...(v.revision ? [{ field_display_name: "Revision", field_value: String(v.revision) }] : [])],
+      file: { ifc_project: null, ifc_spatial_structure_element: null, filename, date: v.created_at ?? null, reference: `/cde/${encodeURIComponent(pid)}/containers/${encodeURIComponent(c.id)}/versions/${encodeURIComponent(v.id)}` },
+    });
   }
   return out;
 }
@@ -274,14 +290,14 @@ export async function answerOpen(route, ctx) {
       const actor = () => ctx.resolveActor(null, "web");
       const mine = (author) => { const me = ctx.currentActor(); return !me || me === author; }; // the machine credential edits any; a person their own
       if (route.kind === "topic") {
-        if (method === "GET") return send(res, 200, topic);
+        if (method === "GET") return send(res, 200, bcfTopic(topic));
         // DELETE = the governed close: a governed topic (IDS:, Federation:) closes by a lead's hand only, as the PUT does; the ledger keeps it.
         if (ctx.governedEditNeedsLead(topic, { topic_status: "Closed" })) await ctx.requireMinRole(route.pid, "lead");
         if (!ctx.isClosed(topic.topic_status)) { topic.history.push({ date: now(), author: actor(), action: `Status: ${topic.topic_status || "—"} → Closed (BCF delete)` }); topic.topic_status = "Closed"; topic.modified_date = now(); await saveTopic(topic); ctx.broadcast(route.pid, { type: "topic", action: "updated", guid: topic.guid, status: "Closed" }); }
         return send(res, 200, { message: "closed, not erased — a Sentinel topic stays on the ledger", guid: topic.guid, topic_status: topic.topic_status });
       }
-      if (route.kind === "comments") return send(res, 200, page(topic.comments ?? [], url.searchParams));
-      if (route.kind === "viewpoints") return send(res, 200, page(topic.viewpoints ?? [], url.searchParams));
+      if (route.kind === "comments") return send(res, 200, page((topic.comments ?? []).map((c) => bcfComment(c, topic)), url.searchParams));
+      if (route.kind === "viewpoints") return send(res, 200, page((topic.viewpoints ?? []).map(bcfViewpoint), url.searchParams));
       if (route.kind === "topic_events") return send(res, 200, page(topicEvents(topic), url.searchParams));
       if (route.kind === "topic_related_topics") {
         if (method === "GET") return send(res, 200, (topic.related_topics ?? []).map((g) => ({ related_topic_guid: g })));
@@ -305,14 +321,14 @@ export async function answerOpen(route, ctx) {
       if (route.kind === "comment") {
         const c = (topic.comments ?? []).find((x) => x.guid === route.sub);
         if (!c) return notFound("comment");
-        if (method === "GET") return send(res, 200, c);
+        if (method === "GET") return send(res, 200, bcfComment(c, topic));
         if (!mine(c.author)) await ctx.requireMinRole(route.pid, "lead");   // another's comment is a lead's to edit or remove
         if (method === "PUT") {
           const b = await ctx.readBody(req);
           if (typeof b?.comment !== "string" || b.comment.length > 5000) return send(res, 400, { message: "comment must be text of at most 5000 characters — nothing changed" });
           c.comment = b.comment; c.modified_date = now(); c.modified_author = actor();
           topic.history.push({ date: now(), author: actor(), action: "Comment edited" }); topic.modified_date = now(); await saveTopic(topic);
-          return send(res, 200, c);
+          return send(res, 200, bcfComment(c, topic));
         }
         topic.comments = topic.comments.filter((x) => x.guid !== c.guid);
         topic.history.push({ date: now(), author: actor(), action: "Comment removed" }); topic.modified_date = now(); await saveTopic(topic);
@@ -322,7 +338,7 @@ export async function answerOpen(route, ctx) {
       const v = (topic.viewpoints ?? []).find((x) => x.guid === route.sub);
       if (!v) return notFound("viewpoint");
       if (route.kind === "viewpoint") {
-        if (method === "GET") return send(res, 200, v);
+        if (method === "GET") return send(res, 200, bcfViewpoint(v));
         topic.viewpoints = topic.viewpoints.filter((x) => x.guid !== v.guid);
         for (const c of topic.comments ?? []) if (c.viewpoint_guid === v.guid) c.viewpoint_guid = null;
         topic.history.push({ date: now(), author: actor(), action: "Viewpoint removed" }); topic.modified_date = now(); await saveTopic(topic);

@@ -1,0 +1,5 @@
+BCF-API 3.0 JSON schemas — (c) buildingSMART International Ltd.
+Copied unchanged from https://github.com/buildingSMART/BCF-API (folder Schemas/), 2026-10-08.
+Licensed under the Creative Commons Attribution-NoDerivatives 4.0 International License (CC BY-ND 4.0):
+http://creativecommons.org/licenses/by-nd/4.0/ — these files are redistributed verbatim; Sentinel's conformance run
+(bridge/bcf-conformance.mjs) reads them and changes nothing in them.

@@ -801,14 +801,14 @@ describe("openCDE slice 1: the BCF-API 3.0 reads", () => {
     expect(ext.topic_status).toEqual(["Open", "In Progress", "Resolved", "Closed"]);
     expect(ext.users).toEqual(expect.arrayContaining([USERS.owner, USERS.viewer]));   // the member's email when the store has it, else their id
     db.information_containers = [{ id: "c1", project_id: PID, iso_name: "PRJ-A.ifc", deleted_at: null, container_versions: [{ id: "v1", created_at: "2026-01-01", is_live: true, file_ref: null }] }];
-    expect((await get("/bcf/3.0/projects/demo/files")).body).toEqual([{ ifc_project: null, ifc_spatial_structure_element: null, file_name: "PRJ-A.ifc", date: "2026-01-01", reference: "/cde/demo/containers/c1/versions/v1" }]);
+    expect((await get("/bcf/3.0/projects/demo/files")).body).toEqual([{ display_information: [{ field_display_name: "File", field_value: "PRJ-A.ifc" }], file: { ifc_project: null, ifc_spatial_structure_element: null, filename: "PRJ-A.ifc", date: "2026-01-01", reference: "/cde/demo/containers/c1/versions/v1" } }]);
   });
   it("one topic, its comments and viewpoints (list, one, selection, coloring, visibility, snapshot bytes); unknown ones are 404s", async () => {
     seedTopic(topic("G1"));
-    expect((await get(`${T}/G1`)).body.title).toBe("T G1");
+    expect((await get(`${T}/G1`)).body).toMatchObject({ title: "T G1", server_assigned_id: "G1" });
     expect((await get(`${T}/G1/comments`)).body).toHaveLength(1);
-    expect((await get(`${T}/G1/comments/C1`)).body.comment).toBe("hello");
-    expect((await get(`${T}/G1/viewpoints`)).body[0].guid).toBe("V1");
+    expect((await get(`${T}/G1/comments/C1`)).body).toMatchObject({ comment: "hello", topic_guid: "G1" });
+    expect((await get(`${T}/G1/viewpoints`)).body[0]).toMatchObject({ guid: "V1", snapshot: { snapshot_type: "png" } });
     expect((await get(`${T}/G1/viewpoints/V1/selection`)).body).toEqual({ selection: [{ ifc_guid: "2O2Fr$t4X7Zf8NOew3FLKI" }] });
     expect((await get(`${T}/G1/viewpoints/V1/coloring`)).body).toEqual({ coloring: [] });
     expect((await get(`${T}/G1/viewpoints/V1/visibility`)).body.visibility.default_visibility).toBe(true);
