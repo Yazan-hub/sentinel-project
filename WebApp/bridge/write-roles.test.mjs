@@ -889,6 +889,21 @@ describe("openCDE slice 1: the BCF-API 3.0 reads", () => {
   });
 });
 
+describe("evidence pack (paperwork slice 5)", () => {
+  const get = async (as) => { const r = await fetch(`http://127.0.0.1:${port}/cde/demo/evidence-pack`, { headers: { Authorization: `Bearer ${as === "machine" ? TOKEN : jwtFor(as)}` } }); return { status: r.status, disposition: r.headers.get("content-disposition"), body: await r.json() }; };
+  it("a lead gets the sealed pack with a filename; a viewer and a contributor are refused; the parts the fake cannot serve say so", async () => {
+    db.audit_log.push({ id: 1, project_id: PID, at: "2026-10-01T00:00:00Z", entity_type: "file_version", entity_id: "v1", action: "verdict: accepted", actor: "a", hash: "h1", prev_hash: null });
+    for (const who of ["viewer", "contributor"]) expect((await get(who)).status).toBe(403);
+    const r = await get("lead");
+    expect(r.status).toBe(200); expect(r.disposition).toMatch(/^attachment; filename="demo-evidence-pack-\d{4}-\d{2}-\d{2}\.json"$/);
+    expect(r.body).toMatchObject({ pack: "sentinel-evidence-pack", project: { key: "demo", name: "Demo" }, generated_by: "lead@example.test" });
+    expect(r.body.bundle_sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(r.body.standards).toHaveProperty("ids");
+    if (Array.isArray(r.body.ledger?.rows)) expect(r.body.ledger.rows.map((x) => x.id)).toEqual([1]); else { console.log("ledger part:", JSON.stringify(r.body.ledger)); expect(typeof r.body.ledger?.not_read).toBe("string"); }
+    for (const k of ["documents", "reviews", "containers"]) expect(Array.isArray(r.body[k]) || typeof r.body[k]?.not_read === "string", k).toBe(true);   // the fake serves what it serves; nothing is dropped in silence
+  });
+});
+
 describe("changesets (MA-3d2): the proposal model", () => {
   const ID = "0c0c0c0c-0000-4000-8000-000000000002";
   const csOf = (elements) => ({ id: ID, name: "Level 1 walls", status: "proposed", elements });

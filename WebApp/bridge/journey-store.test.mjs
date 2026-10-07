@@ -19,7 +19,7 @@ function memDeps(over = {}) {
     resolveArtefact: vi.fn(async (key, kind) => art(kind, key === "aster-office" ? "project" : "office", kind === "ids" ? { title: "Aster IDS" } : STD)),
     getSnapshot: vi.fn(async () => ({ source: { title: "Aster template" }, at: "2026-09-20T08:00:00.000Z" })),
     getScan: vi.fn(async () => ({ doc_title: "Aster Villa", at: "2026-09-22T09:00:00.000Z" })),
-    listDocs: vi.fn(async () => [{ id: "d-bep", doc_type: "BEP", title: "Aster BEP", status: "draft", version_count: 0 }, { id: "d-r", doc_type: "READINESS", title: "Readiness", status: "draft", version_count: 1 }]),
+    listDocs: vi.fn(async () => [{ id: "d-bep", doc_type: "BEP", title: "Aster BEP", status: "draft", version_count: 0 }, { id: "d-tidp", doc_type: "TIDP", title: "ARC TIDP", status: "draft", version_count: 0 }, { id: "d-r", doc_type: "READINESS", title: "Readiness", status: "draft", version_count: 1 }]),
     listVersionVerdictRows: vi.fn(async () => [{ id: 42, version_id: "v-1", verdict: "accepted" }]),
     listFiles: vi.fn(async () => [{ iso_name: "A.ifc", container_type: "model", versions: [{ id: "v-1", revision: "P01", state: "published", is_live: true }] }]),
     getFederation: vi.fn(async () => ({ latest: null, stale: false, live_set: [{ version_id: "v-1" }] })),
@@ -33,7 +33,7 @@ describe("getJourney", () => {
   it("gathers a project's facts and returns the standards line, the steps and the counts", async () => {
     const d = memDeps();
     const j = await getJourney("aster-villa", d);
-    expect(j).toMatchObject({ key: "aster-villa", kind: "project", office_key: "aster-office", total: 8, done: 6, next: "federated" }); // one live model, gate not run: a to-do (option B)
+    expect(j).toMatchObject({ key: "aster-villa", kind: "project", office_key: "aster-office", total: 9, done: 7, next: "federated" }); // one live model, gate not run: a to-do (option B)
     expect(j.standards.ids).toEqual({ ref: "ids@4", source: "office", sha256: SHA, label: refLabel(art("ids", "office")), standard_key: null, semver: null });
     expect(j.standards.ids.label).toBe("ids@4 · office · 23bb57937fb0…");
     expect(j.standards.ruleset).toMatchObject({ ref: "ruleset@1", source: "office", standard_key: "ast-std-001", semver: "1.0.0" });
@@ -49,7 +49,7 @@ describe("getJourney", () => {
     expect(s.issued).toMatchObject({ status: "not_checkable", reason: "Supabase 500: transmittals down", evidence: null });
     expect(s.team.status).toBe("done");
     expect(s.published.status).toBe("done");
-    expect(j.done).toBe(6);
+    expect(j.done).toBe(7);
     expect(j.next).toBe("federated"); // the one live model still waits on the gate
   });
   it("a synchronous throw in a reader is a rejected fact too, not a failed request", async () => {
@@ -100,7 +100,7 @@ describe("getJourney", () => {
     expect((await getJourney("aster-villa", undone("undo", 4200))).lod_state.share).toBe(14); // an undo before the row was measured
     const down = await getJourney("aster-villa", memDeps({ listAudit: async () => { throw new Error("ledger down"); } }));
     expect(down.lod_state.line).toBe("LOD state: unavailable — ledger down");
-    expect(down.done).toBe(6); // the ledger read costs no step
+    expect(down.done).toBe(7); // the ledger read costs no step
     expect((await getJourney("aster-office", memDeps())).lod_state).toBeNull(); // an office has no model
   });
   it("a non-member is refused before any fact is read", async () => {
