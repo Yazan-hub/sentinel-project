@@ -5,8 +5,8 @@ import { transitionVersion, nextAttachRevision } from "./cde-transition";
 import { readReviews, decideReview, decideFailedLine, decisionLine, reviewLine, approvalLine, reviewMoves, reviewsInView, type ReviewItem } from "./review-chain";
 import { activePid, onActiveProjectChange } from "./active-project";
 import { loadScope } from "./load-scope";
-import { unlockAndVerify, isUnlocked, lockProject } from "./crypto";
-import { putEncryptedFile, downloadDecrypted, type StoredFile } from "./secure-store";
+import { unlockAndVerify, isUnlocked, lockProject, passphraseIssue, rotateProjectKey, rotationUnderWay } from "./crypto";
+import { putEncryptedFile, downloadDecrypted, resealFiles, type StoredFile } from "./secure-store";
 import { mountPlatformDeliveries, readGateLedger } from "./platform-deliveries-panel";
 import { escapeHtml as esc } from "./escape-html";
 
@@ -55,6 +55,7 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
     '<span style="font-weight:600">▤ CDE</span><span style="color:#9ca3af;font-size:11px">ISO 19650 · folders</span>' +
     '<span style="flex:1"></span>' +
     `<button id="cde-lock" style="${btn}" title="Unlock encrypted files (project passphrase)">🔒</button>` +
+    `<button id="cde-rotate" style="${btn}" title="Rotate the project's encryption key: every encrypted file is re-sealed under a new key">Rotate key…</button>` +
     `<button id="cde-new" style="${btn};background:#2a1e4d;border-color:#6528d7;color:#c4b5fd">+ Container</button>` +
     `<button id="cde-refresh" style="${btn}" title="Reload">↻</button>` +
     "</div>" +
@@ -526,6 +527,7 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
     b.textContent = on ? "🔓" : "🔒";
     b.title = on ? "Encrypted files unlocked — click to lock" : "Unlock encrypted files (project passphrase)";
     b.style.borderColor = on ? "#22c55e" : "#2c2c34";
+    el("cde-rotate").textContent = rotationUnderWay(pid()) ? "Resume key rotation…" : "Rotate key…";
   };
   const toggleUnlock = () => {
     if (unlocked()) { lockProject(pid()); syncLock(); refreshView(); status("Locked. Encrypted files are sealed."); return; }
@@ -584,7 +586,38 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
     } catch (e) { status(`Download failed: ${(e as Error).message}`); }
   };
 
+  // SEC-8 (S38): Rotate key… asks the old and the new passphrase (used for this rotation and kept nowhere), stores the new key
+  // beside the old one, then re-seals every encrypted file; Resume key rotation… finishes one a closed tab left.
+  const reseal = async () => { await resealFiles(base, pid(), status); syncLock(); };
+  const rotateKey = () => {
+    if (rotationUnderWay(pid())) { void reseal(); return; }
+    const bar = el("cde-unlock");
+    if (bar.style.display === "flex") { bar.style.display = "none"; return; }
+    bar.style.display = "flex";
+    const inp = "flex:1;background:#111;color:#eee;border:1px solid #333;border-radius:.3rem;padding:.35rem .5rem;font:12px system-ui";
+    bar.innerHTML =
+      '<span style="font-size:11px;color:#9ca3af">Rotate key</span>' +
+      `<input id="cde-pass-old" type="password" placeholder="old passphrase" style="${inp}"/>` +
+      `<input id="cde-pass-new" type="password" placeholder="new passphrase (may be the same)" style="${inp}"/>` +
+      `<button id="cde-rotate-go" style="${btn};background:#3a2a12;border-color:#f59e0b;color:#fcd34d">Rotate</button>`;
+    const oldIn = bar.querySelector("#cde-pass-old") as HTMLInputElement, newIn = bar.querySelector("#cde-pass-new") as HTMLInputElement;
+    oldIn.focus();
+    (bar.querySelector("#cde-rotate-go") as HTMLButtonElement).addEventListener("click", async () => {
+      if (!oldIn.value || !newIn.value) { status("Enter the old and the new passphrase."); return; }
+      const weak = passphraseIssue(newIn.value);
+      if (weak) { status(weak); return; }
+      status("Rotating the project's key…");
+      const r = await rotateProjectKey(base, pid(), oldIn.value, newIn.value);
+      oldIn.value = newIn.value = "";
+      status(r.line);
+      if (!r.ok) return;
+      bar.style.display = "none";
+      syncLock();
+      await reseal();
+    });
+  };
   el("cde-lock").addEventListener("click", toggleUnlock);
+  el("cde-rotate").addEventListener("click", rotateKey);
   syncLock();
   // Re-lock indicator when the active project changes (keys are per-project).
   el("cde-refresh").addEventListener("click", loadAll);

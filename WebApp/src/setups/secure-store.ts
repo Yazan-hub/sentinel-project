@@ -1,5 +1,6 @@
-import { encryptBytes, decryptBytes } from "./crypto";
+import { encryptBytes, decryptBytes, assertCurrentKey, blobKid, getKeystore, putKeystore, retireKey } from "./crypto";
 import { bfetch } from "./bridge-fetch";
+import { sha256Hex } from "./geometry-check";
 
 /**
  * Encrypted file storage + local cache (Phase 2). Files are encrypted client-side (crypto.ts); only the
@@ -71,20 +72,78 @@ export async function putEncryptedFile(base: string, projectKey: string, file: F
   });
   if (!r.ok) throw new Error(await failure(r, "Upload"));
   const { id } = await r.json();
+  // SEC-8: a session that unlocked before a key rotation sealed this under a key the project is retiring — said, and nothing
+  // is attached (the blob stays unreferenced). Asked here, after the upload, so the reference is registered right after it.
+  await assertCurrentKey(base, projectKey);
   await cachePut(id, cipher.buffer);
   return { id, name: file.name, size: file.size, mime: file.type || "application/octet-stream" };
 }
 
-/** Fetch the ciphertext for a ref (cache-first) and decrypt it to plaintext bytes. */
+/** Fetch the ciphertext for a ref (cache-first) and decrypt it to plaintext bytes. A cached copy that no longer opens (sealed
+ *  under a key a rotation has since retired, SEC-8) gives way to the bridge's copy. */
 export async function getDecryptedFile(base: string, projectKey: string, id: string): Promise<ArrayBuffer> {
-  let cipher = await cacheGet(id);
-  if (!cipher) {
-    const r = await bfetch(`${base.replace(/\/$/, "")}/cde/files/${encodeURIComponent(id)}?project=${encodeURIComponent(projectKey)}`);
-    if (!r.ok) throw new Error(await failure(r, "Download"));
-    cipher = await r.arrayBuffer();
-    await cachePut(id, cipher);
-  }
+  const cached = await cacheGet(id);
+  if (cached) { try { return await decryptBytes(projectKey, cached); } catch { /* re-sealed since: read the bridge's copy */ } }
+  const r = await bfetch(`${base.replace(/\/$/, "")}/cde/files/${encodeURIComponent(id)}?project=${encodeURIComponent(projectKey)}`);
+  if (!r.ok) throw new Error(await failure(r, "Download"));
+  const cipher = await r.arrayBuffer();
+  await cachePut(id, cipher);
   return decryptBytes(projectKey, cipher);
+}
+
+/** SEC-8 (S38): after rotateProjectKey, re-seal every encrypted file of the project under its current key (`say` gets each
+ *  step in words). Resumable: a file already under the current key is passed over, so a closed tab — unlocked again with the
+ *  new passphrase — picks up where it stopped (the keystore's `rotating` marker counts the progress). Each file is read from
+ *  the bridge, opened with the key its header names, sealed again, checked to open to the same bytes, and sent with its
+ *  sha256; the bridge swaps it in whole or not at all, so a failed step leaves the old blob readable under the retired key.
+ *  The list is read again until it holds no file the walk has not seen (one attached meanwhile). The retired key leaves the
+ *  keystore only when every file is re-sealed. Answers true when the rotation is complete. */
+export async function resealFiles(base: string, projectKey: string, say: (line: string) => void): Promise<boolean> {
+  const root = base.replace(/\/$/, ""), p = encodeURIComponent(projectKey);
+  const read = await getKeystore(base, projectKey);
+  if (read.state !== "present") { say(`Could not read the project keystore (${read.state === "error" ? read.why : "none is set up"}) — nothing was re-sealed`); return false; }
+  const ks = read.ks;
+  if (!ks.retired) { say("No key rotation is under way for this project."); return true; }
+  const from = ks.retired.kid, to = ks.kid ?? 1;
+  const seen = new Set<string>(), failed: string[] = [];
+  let done = 0;
+  for (;;) {
+    const r = await bfetch(`${root}/cde/${p}/keystore/refs`);
+    if (!r.ok) { say(`${await failure(r, "Listing the encrypted files")} — key ${from} stays; press Resume key rotation`); return false; }
+    const fresh = ((await r.json()) as { ids: string[] }).ids.filter((id) => !seen.has(id));
+    if (!fresh.length) break;
+    for (const id of fresh) seen.add(id);
+    for (const id of fresh) {
+      try { await reseal(`${root}/cde/files/${encodeURIComponent(id)}?project=${p}`, projectKey, id, to); done++; }
+      catch (e) { failed.push(`${id}: ${(e as Error)?.message || e}`); }
+      say(`Re-sealing the encrypted files under key ${to}: ${done} of ${seen.size}${failed.length ? ` (${failed.length} not yet)` : ""}…`);
+      await putKeystore(base, projectKey, { ...ks, rotating: { from, to, done, total: seen.size } }, ks.wrapped_dek); // the marker; best effort
+    }
+  }
+  if (failed.length) {
+    say(`${done} of ${seen.size} encrypted files re-sealed under key ${to}; ${failed.length} could not be (${failed[0]}${failed.length > 1 ? "; …" : ""}) — key ${from} stays until they are: press Resume key rotation`);
+    return false;
+  }
+  const { retired: _retired, rotating: _rotating, ...finished } = ks;
+  const refused = await putKeystore(base, projectKey, finished, ks.wrapped_dek);
+  if (refused) { say(`Every encrypted file is re-sealed under key ${to}, but key ${from} was not retired (${refused}) — press Resume key rotation`); return false; }
+  retireKey(projectKey, from);
+  say(`Key rotated: ${done} encrypted file${done === 1 ? "" : "s"} re-sealed under key ${to}; key ${from} is retired.`);
+  return true;
+}
+
+async function reseal(url: string, projectKey: string, id: string, to: number): Promise<void> {
+  const g = await bfetch(url);
+  if (!g.ok) throw new Error(await failure(g, "Download"));
+  const old = await g.arrayBuffer();
+  if (blobKid(new Uint8Array(old)).kid === to) return; // re-sealed before (a resumed walk)
+  const plain = await decryptBytes(projectKey, old);
+  const next = await encryptBytes(projectKey, plain);
+  const back = new Uint8Array(await decryptBytes(projectKey, next.buffer as ArrayBuffer)), want = new Uint8Array(plain);
+  if (back.length !== want.length || !back.every((b, i) => b === want[i])) throw new Error("the re-sealed copy did not open to the same bytes — the stored file is unchanged");
+  const put = await bfetch(`${url}&sha256=${await sha256Hex(next.buffer as ArrayBuffer)}`, { method: "PUT", headers: { "Content-Type": "application/octet-stream" }, body: next.buffer as ArrayBuffer });
+  if (!put.ok) throw new Error(await failure(put, "Re-seal"));
+  await cachePut(id, next.buffer as ArrayBuffer);
 }
 
 /** Decrypt a stored file and trigger a browser download of the plaintext. */
