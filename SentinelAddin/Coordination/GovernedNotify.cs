@@ -91,24 +91,20 @@ namespace Sentinel.Coordination
         /// one line goes to the pane's Doctor log — "&lt;what&gt; — Recorded: ledger #812 · receipt …", "… — Not recorded — …",
         /// "… — Not confirmed — …". An unbound model sends nothing and says so in the same log. Never throws, never
         /// waits, never shows a dialog: no command is blocked or delayed by the ledger, and no network call is made on
-        /// Revit's API thread. Callers report only what Revit committed. <paramref name="ui"/> is the pane's dispatcher
-        /// when the caller is not on Revit's API thread.
+        /// Revit's API thread. Callers report only what Revit committed. MA-3b8 (the C1e audit): the pane's LogDoctor marshals to
+        /// the pane's own dispatcher itself (SentinelPanelViewModel.OnUi), so the line lands from any thread; <paramref name="ui"/>
+        /// is kept for its callers and not used — a pool thread's CurrentDispatcher never pumps, and a line sent through it was lost.
         /// </summary>
         public static void Report(string what, object payload, string projectKey, System.Windows.Threading.Dispatcher? ui = null)
         {
-            // The pane's thread: the caller's own when it is Revit's API thread (every command), else the one it hands over
-            // (the Doctor's flush runs on a pool thread, where there is no pane dispatcher to find).
-            ui = ui ?? System.Windows.Application.Current?.Dispatcher ?? System.Windows.Threading.Dispatcher.CurrentDispatcher;
             // Review amendment C22: the report route answers 413 and 429 before it writes (cde-store.mjs recordRevitReport),
             // so for this poster they are "not recorded". LedgerResult's own wording — "the entry may have landed" — stays
             // for the routes nobody has checked. A refused report is lost, not retried.
             LedgerResult Refused(LedgerResult r) =>
                 r.State == LedgerState.NotConfirmed && (r.Reason.StartsWith("HTTP 413", StringComparison.Ordinal) || r.Reason.StartsWith("HTTP 429", StringComparison.Ordinal))
                     ? LedgerResult.NotRecorded(r.Reason.Replace(" (the entry may have landed)", "")) : r;
-            void Say(LedgerResult ledger) => ui.BeginInvoke(new Action(() =>
-            {
-                try { Sentinel.App.PanelVm?.LogDoctor(what + " — " + LedgerLine.Sentence(Refused(ledger))); } catch { /* the pane is gone */ }
-            }));
+            // MA-3b8: straight to the pane — LogDoctor marshals to the pane's dispatcher (OnUi); no dispatcher of the caller's thread.
+            void Say(LedgerResult ledger) { try { Sentinel.App.PanelVm?.LogDoctor(what + " — " + LedgerLine.Sentence(Refused(ledger))); } catch { /* the pane is gone */ } }
             string key = KeyOf(projectKey);
             if (key.Length == 0) { Say(LedgerResult.NotBound()); return; }
             Task.Run(() => Event("/audit", payload, key)).ContinueWith(t => Say(t.Status == TaskStatus.RanToCompletion
