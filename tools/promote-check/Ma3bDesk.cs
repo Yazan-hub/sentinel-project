@@ -270,8 +270,8 @@ static partial class Check
         int gone = At(review, "if (window.Gone) { App.PanelVm?.LogDoctor(\"Review AI Proposals: the window was closed before Apply ran — nothing was placed.\"); return; }");
         Ok(gone > At(review, "async Task Decide(") && gone < At(review, "window.Applying(\"Applying in Revit…\");") && window.Contains("Closed += (_, _) => _gone = true;")
            && review.Contains("if (!interim) App.Events.Enqueue(_ => TaskDialog.Show(Title, words));") && Count(review, "window.Say(") == 3 // MA-3b2b: no DocPin, no swallowed refusal
-           && review.Contains("if (raised == ExternalEventRequest.Denied || raised == ExternalEventRequest.TimedOut)") && Count(review, "handler.Completed -= onDone;") == 3,
-           "review C2, M3: a window closed before Apply places nothing; words for a closed window go to the Doctor log and a dialog, never lost; a request Revit did not take (or one that threw) gives Apply back, said");
+           && review.Contains("App.Events.Enqueue(ua => handler.Execute(ua), \"apply the proposals\");") && Count(review, "handler.Completed -= onDone;") == 2,
+           "review C2, M3 (SEC-7): a window closed before Apply places nothing; words for a closed window go to the Doctor log and a dialog, never lost; an Apply that threw before it was queued gives Apply back, said — a raise Revit does not take is the hub's to hold and say");
         Ok(window.Contains("public void Reopen(string words) => Ui(() => { _applied = false; _go.IsEnabled = true; Reasons(false); Say(words); });") && window.Contains("public void Lock(IEnumerable<string> guids)")
            && At(review, "window.Lock(") > At(review, "if (ChangesetTrust.DeclinedTicked(fresh, ticked) is { } declinedTicked)") && At(review, "window.Lock(") < At(review, "window.Refused(declinedTicked);")
            && review.Contains("else window.Reopen(result.Error + ") && !review.Contains("— run Review AI Proposals again.")

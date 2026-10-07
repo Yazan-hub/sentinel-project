@@ -62,7 +62,7 @@ static class Check
     {
         Console.WriteLine("Issues raised from Revit — IssueDraft + BcfSyncManager.CreateIssueAsync\n");
         StartBridge();
-        try { Refusals(); Bodies(); Created(); PerCall(); Refused(); Lost(); Silent(); Live(); }
+        try { Refusals(); Bodies(); Created(); PerCall(); Refused(); Lost(); Silent(); Live(); Hub(); }
         finally { try { _bridge.Stop(); } catch { } }
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;
@@ -229,6 +229,19 @@ static class Check
            && cmd.Contains("() => { try { return BcfConfig.Load().ServiceToken; } catch (SessionException) { return null; } }, // SEC-6: read at every connect")
            && cmd.Contains("words => { try { window.SetStatus(words); } catch { /* window closed */ } },"),
            "BCF Issues runs live sync off Revit's thread, hands it the bearer to read at every connect, and shows its words in the window");
+    }
+
+    // ── SEC-7: the Issues window's three Revit actions go through the event hub (one ExternalEvent, one watch — SEC-6 review C9) ──
+    static void Hub()
+    {
+        string cmd = File.ReadAllText(Path.Combine(Root(), "SentinelAddin", "Commands.BcfIssues.cs"));
+        Ok(!cmd.Contains("ExternalEvent.Create(") && !cmd.Contains("externalEvent")
+           && cmd.Contains("if (App.Events == null) { window.SetStatus(\"Sentinel's event hub is not running — restart Revit.\"); return; }")
+           && cmd.Contains("App.Events.Enqueue(job, what);")
+           && cmd.Contains("Apply(\"open the issue\", ua => { apply.RequestApply(vp); apply.Execute(ua); });")
+           && cmd.Contains("window.IsolateAllRequested += () => Apply(\"isolate the issue elements\", ua => { apply.RequestIsolateAll(window.Topics); apply.Execute(ua); });")
+           && cmd.Contains("window.IssuesForSelectionRequested += () => Apply(\"match the selection to issues\", ua => { apply.RequestIssuesForSelection(window.Topics); apply.Execute(ua); });"),
+           "jump-to-issue, Isolate ALL and Issues-for-selection go through the event hub: each request is staged and run on Revit's thread as one labelled job, a raise Revit does not take is said and raised again, a missing hub is said in the window");
     }
 
     /// <summary>The repository root: the first folder up from this check that holds SentinelAddin.</summary>

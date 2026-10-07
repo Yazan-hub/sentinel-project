@@ -61,6 +61,12 @@ static class InstallChecks
             "the command reads the key on the API thread (the event hub), then the scope read and the PUT run in Task.Run — no network call on Revit's thread");
         _ok(cmd.Contains("TypeCatalogExport.OfficeKeyFrom(scope.Json!, key, out var why)") && cmd.Contains("TypeCatalogExport.InstallLine(office, put.Version, put.Sha256, types.Count, title)"),
             "the office comes from the scope answer, and the window prints the install line or the refusal");
+        // SEC-7: the window owns no ExternalEvent — Build goes through the event hub (SEC-6 review C9).
+        _ok(!cmd.Contains("ExternalEvent.Create(") && !cmd.Contains("externalEvent")
+            && cmd.Contains("if (App.Events is null) { window.SetStatus(\"Sentinel's event hub is not running — restart Revit.\"); return; }")
+            && cmd.Contains("if (building) { window.SetStatus(\"A build is already queued or running.\"); return; }")
+            && cmd.Contains("App.Events.Enqueue(ua => { try { build.Request(ticked); build.Execute(ua); } finally { building = false; } }, \"build the standards pack\");"),
+            "SEC-7: the Build button's request goes through the event hub — staged and run on Revit's thread as one labelled job, said and raised again when Revit does not take it, a missing hub said in the window; one build at a time — a second press while one is queued or running is said, never a second job (review C3)");
         string notify = Src("Coordination", "GovernedNotify.cs");
         _ok(notify.Contains("public static (string? Json, string? Error) ProjectScope(string projectKey)") && notify.Contains("\"/cde/projects/\" + Uri.EscapeDataString(projectKey.Trim()) + \"/scope\""),
             "GovernedNotify reads GET /cde/projects/:key/scope with the bridge's bearer, blocking, off the API thread");

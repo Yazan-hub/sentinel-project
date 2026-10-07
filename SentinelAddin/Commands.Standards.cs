@@ -179,11 +179,21 @@ internal static class StandardsReview
         new WindowInteropHelper(window) { Owner = uiapp.MainWindowHandle };
 
         var doc = uiapp.ActiveUIDocument?.Document;   // the model this window builds into (XC-1)
-        var build = new StandardsBuildEvent(doc);
-        var externalEvent = ExternalEvent.Create(build);
+        var build = new StandardsBuildEvent(doc); // run on the API thread through the event hub (SEC-7)
         build.Built += report => window.ShowReport(report);
         build.RulesetInstalled += lines => window.AppendReport(lines);
-        window.BuildRequested += ticked => { build.Request(ticked); externalEvent.Raise(); };
+        // SEC-7: the window owns no ExternalEvent — Build goes through the event hub (labelled, watched, said and raised again
+        // when Revit does not take it). The pack is staged inside the job, on Revit's thread. One build at a time (review C3):
+        // a second press while one is queued or running is said in the window, never a second job — the window's button has no
+        // disable of its own, and two queued jobs would be two Undo entries and two reports.
+        bool building = false;
+        window.BuildRequested += ticked =>
+        {
+            if (App.Events is null) { window.SetStatus("Sentinel's event hub is not running — restart Revit."); return; }
+            if (building) { window.SetStatus("A build is already queued or running."); return; }
+            building = true;
+            App.Events.Enqueue(ua => { try { build.Request(ticked); build.Execute(ua); } finally { building = false; } }, "build the standards pack");
+        };
         window.SaveRequested += ticked => SavePack(ticked, window);
 
         // The document is captured here (API thread); its project and ruleset are read when the button is
@@ -300,7 +310,7 @@ internal static class StandardsReview
 
 /// <summary>
 /// Funnels the model-mutating build onto the API thread. Mirrors BcfApplyEvent: the window stages a
-/// pack via <see cref="Request"/> then raises the event; Execute runs the builder and reports back.
+/// pack via <see cref="Request"/> and the event hub runs <see cref="Execute"/> (SEC-7); it runs the builder and reports back.
 /// </summary>
 public sealed class StandardsBuildEvent : IExternalEventHandler
 {

@@ -66,8 +66,7 @@ public sealed class MassingFromImagesCommand : IExternalCommand
         ModelUsage visionUsage = null;
         BuildReceipt.Facts receipt = null;
 
-        var placementEvent = new MassingPlacementEvent();
-        var externalEvent = ExternalEvent.Create(placementEvent);
+        var placementEvent = new MassingPlacementEvent(); // run on the API thread through the event hub (SEC-7)
 
         var progress = new GhostBuilderProgressWindow();
         new System.Windows.Interop.WindowInteropHelper(progress) { Owner = c.Application.MainWindowHandle };
@@ -154,10 +153,11 @@ public sealed class MassingFromImagesCommand : IExternalCommand
                         receipt.Parameters["guideline"] = standards.GuidelineSource.Label;
                         receipt.Parameters["type_catalogue"] = standards.CatalogSource.Label;
                         placementEvent.SetRequest(orchestrator, elements, mapping, stampSha, standards.Guideline.Placement); // MA-1a item 6
-                        // MAS-4 (review amendment C12): a request Revit does not accept never reaches Completed — Build must not
-                        // stay disabled for good.
-                        if (externalEvent.Raise() != ExternalEventRequest.Accepted)
-                            review.Reopen(MassingPlanner.NotStarted("Revit did not accept the build request"));
+                        // SEC-7: through the event hub — a request Revit does not take at once is held, said in the Doctor log and
+                        // raised again (never lost), so Build stays disabled until Completed; only a missing hub reopens the review
+                        // (MAS-4 review C12's words).
+                        if (App.Events is null) { review.Reopen(MassingPlanner.NotStarted("Sentinel's event hub is not running — restart Revit")); return; }
+                        App.Events.Enqueue(ua => placementEvent.Execute(ua), "place the massing build");
                     };
                     review.Show();
                 });
