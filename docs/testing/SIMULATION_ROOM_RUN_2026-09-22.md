@@ -2390,3 +2390,22 @@ own sign-in in the page, the client receiving the code and opening the issues; t
 
 **Closing list:** one scratch topic "OPEN2 drill topic" on `sec8-smoke`, Closed; the 4100 bridge on master since ~01:15 — the Funnel
 refresh is the founder's.
+
+## Session OPEN3 — openCDE slice 3, BCF-API 3.0 conformance on the official schemas, live (2026-10-08 ~02:00 → 02:20 local, merged 736ce7a, Claude driving the live bridge alone)
+
+Setup: buildingSMART publishes no runnable BCF-API test suite (its repository: the specification, an OpenAPI reference, the JSON
+schemas); the schemas vendored unchanged (CC BY-ND 4.0, a notice) and a draft-03 subset validator + a runner built inline (size S);
+the 4100 bridge restarted on master; the walk with the machine credential from loopback on the real `aster-tower`.
+
+| Row | Result | Evidence |
+|---|---|---|
+| C-1 | offline: the raw store's topic fails `topic_GET` (`server_assigned_id` missing), a comment fails `comment_GET` (`topic_guid`), a viewpoint fails on `snapshot` (a string); with the outgoing shapes (bcfTopic / bcfComment / bcfViewpoint, the files list as `project_files_information`, events with `actions`) every shape conforms — **pass** (the run found four gaps and fixed them first) | `bcf-conformance.test.mjs` |
+| C-2 | live: `node bridge/bcf-conformance.mjs http://127.0.0.1:4100 aster-tower` → **20 conform, 0 do not, 0 skipped** (versions, auth, current-user, projects, project, extensions, files, documents, topics, events, one topic, its events, comments, viewpoints, related topics, document references, a viewpoint's selection/coloring/visibility, the 404 error shape) — **pass** | `docs/compliance/BCF_API_CONFORMANCE_2026-10.md` |
+| C-3 | through the Funnel with no bearer: `/bcf/versions` `200`, `/bcf/3.0/auth` `200` (https URLs on the Funnel host), `/bcf/3.0/projects` `401` — the public surface is the specification's §3 set, nothing more — **pass** | the replies |
+
+2755 tests.
+
+**Owed (the founder's):** a buildingSMART conformance listing (an implementer's registration + the Implementers Group's review —
+this report is the evidence); the stock-client check of Session OPEN2.
+
+**Closing list:** nothing written to any project; the 4100 bridge on master since ~02:05 — the Funnel refresh is the founder's.
