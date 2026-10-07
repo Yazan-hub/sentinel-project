@@ -2,7 +2,9 @@
 // MA-1a step 2 (design §2.4 step 2, §7.2 MA-1 (1a) item 2): Ghost Builder places through ChangesetExecutor — one placement
 // path, one ledger row format, one provenance stamp, one undo watcher. Build plans the reviewed rows into changeset elements
 // with exact names (GhostFiling), files them as changesets with source "dwg" (a model not bound to a web project runs the
-// same executor on a local changeset, with no ledger), and runs them. Everything happens inside ONE TransactionGroup,
+// same executor on a local changeset, with no ledger), and runs them. MA-3b7 (XC-3): a dry run first on Revit's thread (the types
+// proved and the plan made inside a group rolled back), the filing on a pool thread, then the build in a second event in the
+// model it started from (DocPin). The build itself happens inside ONE TransactionGroup,
 // assimilated into one Undo entry named as the first changeset's transaction, so the undo watcher posts changeset_reverted:
 //   1. "Ghost Builder - types": the families and types the rows need — the preloader, the wall and floor provisioners and
 //      the guideline's sizes cloned at the measured thickness (Ghost's own type stage; the executor creates none);
@@ -23,6 +25,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using Sentinel.Commands;
@@ -62,8 +65,9 @@ namespace Sentinel.GhostBuilder
 
         private const double FtToMm = 304.8;
 
-        // One planned element: its changeset element, the reviewed row it came from, and what it is in words.
-        private sealed class Planned
+        // One planned element: its changeset element, the reviewed row it came from, and what it is in words. MA-3b7: public —
+        // event A's plan rides to event B in Prepared.
+        public sealed class Planned
         {
             public ChangesetElementDto Dto;
             public LayerMapping Map;
@@ -73,18 +77,44 @@ namespace Sentinel.GhostBuilder
         // FAMILY_HOSTING_BEHAVIOR's values, as words (B5).
         private static readonly string[] HostedBy = { "unhosted", "wall-hosted", "floor-hosted", "ceiling-hosted", "roof-hosted", "face-hosted" };
 
-        public static GhostPlacementEngine.PlacementReport Run(UIApplication app, Request r)
+        /// <summary>MA-3b7: what event A (the dry run) learned — the plan in filing order, its chunks, names and bodies, and the report
+        /// so far (A's warnings, gaps and CreatedTypes, which describe what event B creates again).</summary>
+        public sealed class Prepared
+        {
+            public Request R; public Document Doc; public Level Level; public double LevelMm;
+            public MappingResult Mapping; public List<GhostElement> Elements; public Dictionary<string, LayerMapping> ByLayer;
+            public List<Planned> Plan; public List<List<ChangesetElementDto>> Chunks;
+            /// <summary>GhostFiling.Body per chunk, or null when the model is not bound.</summary>
+            public List<object> Bodies;
+            public List<string> Names;
+            public bool Bound; internal BcfConfig Cfg; public GhostPlacementEngine.PlacementReport Report; // Cfg internal: BcfConfig is internal
+            /// <summary>A refused: event B never runs.</summary>
+            public bool Refused => Report.NotBuilt != null;
+        }
+
+        /// <summary>MA-3b7: what the pool thread filed. NotFiled null = every chunk filed; else its words, and Ledger says what was withdrawn.</summary>
+        public sealed class Filed { public List<ChangesetDto> Changesets; public string NotFiled; public string Ledger; }
+
+        private const string localLedger = "Ledger: none — this model is not bound to a web project (Project Setup binds it); the build ran " +
+                                           "through the changeset executor as a local changeset (source dwg, stamped), as one Undo step.";
+        private const string noLedger = "Ledger: none — this model is not bound to a web project; nothing was filed.";
+
+        /// <summary>MA-3b7 event A (Revit's thread): the checks, the types proved and the build planned — inside a group that is ALWAYS
+        /// rolled back before this returns (a dry run: nothing is left in the model). A refusal fills Report.NotBuilt.</summary>
+        public static Prepared Prepare(UIApplication app, Request r)
         {
             var report = new GhostPlacementEngine.PlacementReport();
+            var prep = new Prepared { R = r, Report = report };
             var doc = r.Doc;
-            if (DocPin.Check(app, doc, "build from the drawing") is { } refusal) { report.NotBuilt = refusal; return report; }
+            prep.Doc = doc;
+            if (DocPin.Check(app, doc, "build from the drawing") is { } refusal) { report.NotBuilt = refusal; return prep; }
             // MA-1a item 6: never into a design option — said before anything is read, typed or filed.
-            if (PlacementApply.DesignOptionRefusal(doc, "build") is { } inOption) { report.NotBuilt = inOption; return report; }
+            if (PlacementApply.DesignOptionRefusal(doc, "build") is { } inOption) { report.NotBuilt = inOption; return prep; }
             var rows = (r.Mapping?.Mappings ?? new List<LayerMapping>())
                 .Where(m => m != null && !m.Ignore && !string.IsNullOrWhiteSpace(m.CadLayer)).ToList();
-            if (rows.Count == 0) { report.NotBuilt = "Nothing was built — no layer was ticked."; return report; }
+            if (rows.Count == 0) { report.NotBuilt = "Nothing was built — no layer was ticked."; return prep; }
             var levels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().OrderBy(l => l.Elevation).ToList();
-            if (levels.Count == 0) { report.NotBuilt = "Nothing was built — the model has no level."; return report; }
+            if (levels.Count == 0) { report.NotBuilt = "Nothing was built — the model has no level."; return prep; }
             var level = r.LevelId >= 0 ? doc.GetElement(r.LevelId.ToElementId()) as Level : null;
             if (level == null)
             {
@@ -99,22 +129,11 @@ namespace Sentinel.GhostBuilder
             var elements = GhostWallPairer.PairWalls(r.Elements, mapping);
             bool bound = !string.IsNullOrEmpty(r.Key);
             var cfg = bound ? BcfConfig.Load() : null;
-            var filed = new List<ChangesetDto>();
-            bool executing = false, done = false;
             double tolFt = doc.Application.ShortCurveTolerance, levelMm = level.Elevation * FtToMm;
-            const string localLedger = "Ledger: none — this model is not bound to a web project (Project Setup binds it); the build ran " +
-                                       "through the changeset executor as a local changeset (source dwg, stamped), as one Undo step.";
-            const string noLedger = "Ledger: none — this model is not bound to a web project; nothing was filed.";
+            prep.Level = level; prep.LevelMm = levelMm; prep.Mapping = mapping; prep.ByLayer = byLayer; prep.Elements = elements;
+            prep.Bound = bound; prep.Cfg = cfg;
 
-            // B1: Revit's warnings from every transaction of the build, counted by text — left in the model, never erased.
-            void Count(Dictionary<string, int> warnings)
-            {
-                foreach (var kv in warnings) report.RevitWarnings[kv.Key] = (report.RevitWarnings.TryGetValue(kv.Key, out int w) ? w : 0) + kv.Value;
-            }
-            string Unreported() => bound
-                ? $"Ledger: {filed.Count} changeset(s) left proposed and unreported — check the model, then withdraw them on the web."
-                : noLedger;
-
+            // MA-3b7: a dry run — the types proved and the build planned inside a group that is rolled back before the filing (a group cannot wait for the bridge); event B creates the types again, inside the build's own Undo.
             using var group = new TransactionGroup(doc, "Ghost Builder");
             group.Start();
             // F-S2-1: a TransactionGroup can force modal failure handling on every transaction finished inside it, whatever that
@@ -125,65 +144,17 @@ namespace Sentinel.GhostBuilder
             // Pending inside the group.
             group.IsFailureHandlingForcedModal = false;
 
-            // Nothing ran yet: roll the group back (the types too) and withdraw what was filed — no changeset is left for a
-            // later review to apply.
-            GhostPlacementEngine.PlacementReport Abandon(string line)
+            // Nothing was filed yet (MA-3b7: the filing follows the dry run): roll the group back, the types too — nothing to withdraw.
+            Prepared Abandon(string line)
             {
                 SentinelUndo.RollBack(group, doc);
-                var kept = new List<string>();
-                if (bound) foreach (var cs in filed) if (!ChangesetClient.Withdraw(cfg, r.Key, cs.Id, out _)) kept.Add(Short(cs.Id));
                 report.NotBuilt = line;
-                report.Ledger = kept.Count > 0
-                    ? $"Ledger: changeset(s) {string.Join(", ", kept)} were filed and could not be withdrawn — withdraw them on the web before anyone reviews them."
-                    : bound && filed.Count > 0 ? $"Ledger: the {filed.Count} changeset(s) already filed were withdrawn." : null;
-                return report;
+                return prep;
             }
 
-            // A changeset failed in Revit: the whole build is rolled back, and every filed changeset is reported declined. B4: a
-            // result the bridge does not take is withdrawn instead, and one that is neither is named — it is still proposed.
-            // MA-3b4 (AI-2): reported off Revit's thread (ReportAll; a decline is not written on this PC — E5), the withdrawals on the
-            // same pool thread inside the round, under the guard (review C3); what the bridge did is said in the pane's Doctor log, and in a
-            // dialog when one was not taken (G2).
-            GhostPlacementEngine.PlacementReport Decline(ChangesetDto failing, string error)
-            {
-                SentinelUndo.RollBack(group, doc);
-                report.NotBuilt = GhostFailurePolicy.NotBuiltLine(error);
-                if (!bound) { report.Ledger = noLedger; return report; }
-                var declines = filed.Select(cs => ReviewChangesetsCommand.ResultOf(r.Key, cs, new List<AppliedEntry>(), cs.Elements.Select(e => e.ProposalGuid).ToList(),
-                    cs == failing ? $"Revit transaction failed — rolled back: {error}"
-                                  : $"not applied — the Ghost build is all or nothing and {(failing == null ? "it" : "changeset " + Short(failing.Id))} failed: {error}",
-                    null, ReviewChangesetsCommand.DocOf(doc), null, null)).ToList();
-                ReviewChangesetsCommand.Said(ReviewChangesetsCommand.ReportAll(cfg, declines, after: rep =>
-                {
-                    var landed = new HashSet<string>(rep.Landed.Select(x => x.R.ChangesetId), StringComparer.Ordinal);
-                    // Review C10: one 120 s wait at most — WithdrawEach stops after the first the bridge did not answer.
-                    return UnreportedResults.WithdrawEach(filed.Where(f => !landed.Contains(f.Id)).Select(f => (f.Id, Short(f.Id))),
-                        id => ChangesetClient.Withdraw(cfg, r.Key, id, out var why) ? null : why ?? "no answer");
-                }), UnreportedResults.GhostHead, rep => rep.Landed.Count < declines.Count);
-                report.Ledger = UnreportedResults.GhostDeclining(declines.Count);
-                return report;
-            }
-
-            ScanReport blockBefore = null; // MA-1a item 5: the BLOCK rows before the build; null = nothing can block it
-            string blockNote = null, blockLine = null;
             try
             {
-                blockBefore = BlockCheck.Before(doc, out blockNote);
                 // ── 1. The families and types the reviewed rows need, before anything is filed (founder decision F4) ──────────
-                var typesBefore = new HashSet<long>(new FilteredElementCollector(doc).WhereElementIsElementType().ToElementIds().Select(i => i.IdValue()));
-                // F-S2-2: the walls already in the model — a wall of this build never joins one; its own walls join each other,
-                // across its changesets too.
-                var wallsBefore = new HashSet<long>(new FilteredElementCollector(doc).OfClass(typeof(Wall)).ToElementIds().Select(i => i.IdValue()));
-                var walls = new List<(GhostElement El, LayerMapping Map, string Type, string TypedBy)>();
-                // B7: the executor's own type rules, its refusal text the gap — a type it resolves stays resolvable (no type is
-                // removed during a build), so each is asked once.
-                var resolvable = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                string Refusal(string key, Action check)
-                {
-                    if (resolvable.Contains(key)) return null;
-                    try { check(); resolvable.Add(key); return null; }
-                    catch (InvalidOperationException ex) { return ex.Message; }
-                }
                 // MA-1b (E17, review amendment C2): block inserts on a row that is not Doors or Windows, per layer — not placed.
                 // Declared before the walls are typed: a block on a Walls row is set aside there too (review 2026-10-03), never
                 // a silent SkippedNoGeometry.
@@ -198,99 +169,17 @@ namespace Sentinel.GhostBuilder
                     if (el.Block?.Nested > 0)
                         report.Warnings.Add($"{what}: {DrawnAs(el)}it holds {el.Block.Nested} block(s) inside it — read as ONE block, not as {el.Block.Nested} doors or windows.");
                 }
-                ElementPlacementFactory typer;
-                using (var t = new Transaction(doc, GhostFailurePolicy.TypesTxName))
+                var types = TypesStep(doc, r, mapping, elements, byLayer, level, report, NoteNested, SetAside);
+                if (types.RolledBack != null) return Abandon(types.RolledBack);
+                var typer = types.Typer;
+                var walls = types.Walls;
+                // B7: the executor's own type rules for the floors and ceilings below (TypesStep asks them for the walls).
+                var resolvable = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                string Refusal(string key, Action check)
                 {
-                    t.Start();
-                    var fails = GhostFailureHandler.AllOrNothingOn(t); // B1
-                    if (r.LibraryDir != null)
-                    {
-                        var pre = new GhostFamilyPreloader(doc, r.LibraryDir).Preload(mapping);
-                        if (pre.Loaded > 0) doc.Regenerate();
-                        report.Warnings.AddRange(pre.Warnings);
-                        report.CreatedTypes.AddRange(pre.LoadedNames.Select(n => $"family {n} (loaded from the Ghost family library)"));
-                    }
-                    var wallProv = new GhostWallTypeProvisioner(doc, r.Guideline).Provision(mapping);
-                    if (wallProv.Created > 0) doc.Regenerate();
-                    var floorProv = new GhostFloorTypeProvisioner(doc, r.Guideline).Provision(mapping);
-                    if (floorProv.Created > 0) doc.Regenerate();
-                    report.TypeGaps = wallProv.Gaps + floorProv.Gaps;
-                    report.Warnings.AddRange(wallProv.Warnings);
-                    report.Warnings.AddRange(floorProv.Warnings);
-                    report.CreatedTypes.AddRange(wallProv.CreatedNames.Select(n => $"{n} (wall type the layer mapping names)"));
-                    report.CreatedTypes.AddRange(floorProv.CreatedNames.Select(n => $"{n} (floor type the layer mapping names)"));
-
-                    // MA-2a: the outer boundary of this build (mm), so a layer-free Location rule can type a wall no layer rule names —
-                    // the drawn walls first (a drawn wall's index is its index here; its width is its measured thickness, 0 for one
-                    // drawn as a single line: the sample points then sit 100 mm off its line; only straight single runs on Walls rows
-                    // are read), then, as barriers only, the model's own walls that cross the build level (review C1: a fit-out
-                    // drawing added to a model that already has its shell reads its partitions as inside).
-                    var drawn = new List<WallLocation.Segment>();
-                    var drawnAt = new Dictionary<GhostElement, int>();
-                    foreach (var el in elements)
-                    {
-                        if (!byLayer.TryGetValue(el.CadLayer ?? "", out var wm) || !string.Equals(wm.Category, "Walls", StringComparison.OrdinalIgnoreCase) || el.Block != null) continue;
-                        var c = el.LocationCurve;
-                        if (c == null || !c.IsBound) continue;
-                        XYZ a = c.GetEndPoint(0), b = c.GetEndPoint(1);
-                        drawnAt[el] = drawn.Count;
-                        drawn.Add(new WallLocation.Segment { X0 = a.X * FtToMm, Y0 = a.Y * FtToMm, X1 = b.X * FtToMm, Y1 = b.Y * FtToMm, WidthMm = el.ThicknessMm, Curved = !(c is Line) });
-                    }
-                    double planeFt = level.Elevation, planeTolFt = WallLocation.TolMm / FtToMm;
-                    foreach (var mw in new FilteredElementCollector(doc).OfClass(typeof(Wall)).Cast<Wall>())
-                    {
-                        var mc = (mw.Location as LocationCurve)?.Curve;
-                        var bb = mw.get_BoundingBox(null);
-                        if (mc == null || !mc.IsBound || bb == null || bb.Min.Z > planeFt + planeTolFt || bb.Max.Z <= planeFt + planeTolFt) continue;
-                        XYZ ma = mc.GetEndPoint(0), mb = mc.GetEndPoint(1);
-                        drawn.Add(new WallLocation.Segment
-                        {
-                            X0 = ma.X * FtToMm, Y0 = ma.Y * FtToMm, X1 = mb.X * FtToMm, Y1 = mb.Y * FtToMm,
-                            WidthMm = mw.WallType?.Kind == WallKind.Basic ? mw.Width * FtToMm : 0, Curved = !(mc is Line),
-                        });
-                    }
-                    int outside = 0, inside = 0, unknown = 0;
-                    // The one fact a drawn wall's rule may see: its Location when the boundary reads one. The mapping's parameter values
-                    // are the local model's reading of the documents (EnrichParamsAsync, best-effort): they are written to the wall as
-                    // before (ApplyParams) and never pick its type (review C4). An unknown location is left out: a rule that needs it
-                    // cannot fire.
-                    Dictionary<string, string> GhostFacts(GhostElement el)
-                    {
-                        var facts = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                        string loc = drawnAt.TryGetValue(el, out int at) ? WallLocation.Locate(drawn, at, out _) : null;
-                        if (loc != null) facts["Location"] = loc;
-                        if (loc == WallLocation.Exterior) outside++; else if (loc == WallLocation.Interior) inside++; else unknown++;
-                        return facts;
-                    }
-
-                    // Each wall's type: the reviewer's pick, else the guideline at the measured thickness (a size the model lacks
-                    // is cloned here from its catalogue sibling), else the mapping — ElementPlacementFactory's rule, unchanged.
-                    typer = new ElementPlacementFactory(doc, level, WallTypes(doc), guideline: r.Guideline);
-                    foreach (var el in elements)
-                    {
-                        if (!byLayer.TryGetValue(el.CadLayer ?? "", out var map) || !string.Equals(map.Category, "Walls", StringComparison.OrdinalIgnoreCase)) continue;
-                        // E17: a block on a Walls row is no wall — it has no run to file, so it would have been a bare SkippedNoGeometry.
-                        if (el.Block != null) { NoteNested($"Walls on '{el.CadLayer}'", el); SetAside(el); continue; }
-                        string type = typer.ResolveWallType(el, map, out string gap, out string typedBy, GhostFacts(el));
-                        if (gap == null && Refusal("wall|" + type, () => ChangesetExecutor.ResolveWallType(doc, type)) is string no)
-                            gap = no + GhostFiling.SyntheticHint(type);
-                        if (gap != null)
-                        {
-                            report.WallGaps++;
-                            report.SkippedUnknownFamily++;
-                            report.Warnings.Add($"Wall on '{el.CadLayer}': {gap.TrimEnd('.')}; skipped.");
-                            continue;
-                        }
-                        walls.Add((el, map, type, typedBy));
-                    }
-                    report.CreatedTypes.AddRange(typer.CreatedTypes);
-                    report.Warnings.AddRange(typer.Notes);
-                    // MA-2a: what the outer boundary read of this build's walls — a count, so a drawing whose walls do not close is seen.
-                    if (drawn.Count > 0) report.Warnings.Add(WallLocation.Summary(outside, inside, unknown) + " (this build's drawn walls; an unknown location types by its layer rule or the mapping, never by a guess).");
-                    if (t.Commit() != TransactionStatus.Committed)
-                        return Abandon(GhostFailurePolicy.NotBuiltLine("Revit did not commit the types and families this build needs" +
-                                                                       (fails.RolledBack != null ? ": " + fails.RolledBack : "")));
-                    Count(GhostFailurePolicy.CountWarnings(fails.SeenWarnings, null));
+                    if (resolvable.Contains(key)) return null;
+                    try { check(); resolvable.Add(key); return null; }
+                    catch (InvalidOperationException ex) { return ex.Message; }
                 }
 
                 // ── 2. What each reviewed element becomes — reads only; a refusal by rule is a named gap, never a filing ──────
@@ -522,14 +411,160 @@ namespace Sentinel.GhostBuilder
                 var placing = PlacementApply.Resolve(doc, r.Guideline?.Placement, app.ActiveUIDocument?.ActiveView, plan.Select(p => p.Dto.Kind), out string noWorkset);
                 if (placing == null) return Abandon(noWorkset + " The types step was rolled back too.");
 
-                // ── 3. File: changesets of at most 200, hosts first (unbound: local changesets, no ledger) ───────────────────
-                var chunks = GhostFiling.Chunks(plan.Select(p => p.Dto).ToList());
-                var byDto = plan.ToDictionary(p => p.Dto); // reference identity: the bridge answers element by element, in order
+                // ── 3. What the pool thread files (MA-3b7: File): changesets of at most 200, hosts first ─────────────────────────────
+                var chunks = GhostFiling.Chunks(plan.Select(x => x.Dto).ToList());
+                var names = new List<string>();
+                for (int c = 0; c < chunks.Count; c++) names.Add(GhostFiling.Name(r.Drawing, level.Name, c, chunks.Count));
+                prep.Plan = plan; prep.Chunks = chunks; prep.Names = names;
+                prep.Bodies = bound ? names.Select((name, c) => GhostFiling.Body(name, UserSession.Actor, chunks[c])).ToList() : null;
+                // The dry run leaves nothing: the types step is rolled back with the group; event B makes it again and counts its own
+                // warnings (A's would be counted twice).
+                SentinelUndo.RollBack(group, doc);
+                report.RevitWarnings.Clear();
+                return prep;
+            }
+            catch (Exception ex)
+            {
+                return Abandon(GhostFailurePolicy.NotBuiltLine($"{ex.GetType().Name}: {ex.Message}"));
+            }
+        }
+
+        // MA-3b7: step 1 — the families and types the reviewed rows need (founder decision F4), and each wall's type. Run twice: by the
+        // dry run (Prepare, its report the build's) and by the build itself (Place, a throwaway report — nothing said twice).
+        // RolledBack: the words when Revit did not commit the types transaction.
+        private static (ElementPlacementFactory Typer, List<(GhostElement El, LayerMapping Map, string Type, string TypedBy)> Walls, string RolledBack) TypesStep(
+            Document doc, Request r, MappingResult mapping, List<GhostElement> elements, Dictionary<string, LayerMapping> byLayer, Level level,
+            GhostPlacementEngine.PlacementReport report, Action<string, GhostElement> NoteNested, Action<GhostElement> SetAside)
+        {
+        // B1: Revit's warnings from every transaction of the build, counted by text — left in the model, never erased.
+        void Count(Dictionary<string, int> warnings)
+        {
+            foreach (var kv in warnings) report.RevitWarnings[kv.Key] = (report.RevitWarnings.TryGetValue(kv.Key, out int w) ? w : 0) + kv.Value;
+        }
+            var walls = new List<(GhostElement El, LayerMapping Map, string Type, string TypedBy)>();
+            // B7: the executor's own type rules, its refusal text the gap — a type it resolves stays resolvable (no type is
+            // removed during a build), so each is asked once.
+            var resolvable = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            string Refusal(string key, Action check)
+            {
+                if (resolvable.Contains(key)) return null;
+                try { check(); resolvable.Add(key); return null; }
+                catch (InvalidOperationException ex) { return ex.Message; }
+            }
+            ElementPlacementFactory typer;
+            using (var t = new Transaction(doc, GhostFailurePolicy.TypesTxName))
+            {
+                t.Start();
+                var fails = GhostFailureHandler.AllOrNothingOn(t); // B1
+                if (r.LibraryDir != null)
+                {
+                    var pre = new GhostFamilyPreloader(doc, r.LibraryDir).Preload(mapping);
+                    if (pre.Loaded > 0) doc.Regenerate();
+                    report.Warnings.AddRange(pre.Warnings);
+                    report.CreatedTypes.AddRange(pre.LoadedNames.Select(n => $"family {n} (loaded from the Ghost family library)"));
+                }
+                var wallProv = new GhostWallTypeProvisioner(doc, r.Guideline).Provision(mapping);
+                if (wallProv.Created > 0) doc.Regenerate();
+                var floorProv = new GhostFloorTypeProvisioner(doc, r.Guideline).Provision(mapping);
+                if (floorProv.Created > 0) doc.Regenerate();
+                report.TypeGaps = wallProv.Gaps + floorProv.Gaps;
+                report.Warnings.AddRange(wallProv.Warnings);
+                report.Warnings.AddRange(floorProv.Warnings);
+                report.CreatedTypes.AddRange(wallProv.CreatedNames.Select(n => $"{n} (wall type the layer mapping names)"));
+                report.CreatedTypes.AddRange(floorProv.CreatedNames.Select(n => $"{n} (floor type the layer mapping names)"));
+
+                // MA-2a: the outer boundary of this build (mm), so a layer-free Location rule can type a wall no layer rule names —
+                // the drawn walls first (a drawn wall's index is its index here; its width is its measured thickness, 0 for one
+                // drawn as a single line: the sample points then sit 100 mm off its line; only straight single runs on Walls rows
+                // are read), then, as barriers only, the model's own walls that cross the build level (review C1: a fit-out
+                // drawing added to a model that already has its shell reads its partitions as inside).
+                var drawn = new List<WallLocation.Segment>();
+                var drawnAt = new Dictionary<GhostElement, int>();
+                foreach (var el in elements)
+                {
+                    if (!byLayer.TryGetValue(el.CadLayer ?? "", out var wm) || !string.Equals(wm.Category, "Walls", StringComparison.OrdinalIgnoreCase) || el.Block != null) continue;
+                    var c = el.LocationCurve;
+                    if (c == null || !c.IsBound) continue;
+                    XYZ a = c.GetEndPoint(0), b = c.GetEndPoint(1);
+                    drawnAt[el] = drawn.Count;
+                    drawn.Add(new WallLocation.Segment { X0 = a.X * FtToMm, Y0 = a.Y * FtToMm, X1 = b.X * FtToMm, Y1 = b.Y * FtToMm, WidthMm = el.ThicknessMm, Curved = !(c is Line) });
+                }
+                double planeFt = level.Elevation, planeTolFt = WallLocation.TolMm / FtToMm;
+                foreach (var mw in new FilteredElementCollector(doc).OfClass(typeof(Wall)).Cast<Wall>())
+                {
+                    var mc = (mw.Location as LocationCurve)?.Curve;
+                    var bb = mw.get_BoundingBox(null);
+                    if (mc == null || !mc.IsBound || bb == null || bb.Min.Z > planeFt + planeTolFt || bb.Max.Z <= planeFt + planeTolFt) continue;
+                    XYZ ma = mc.GetEndPoint(0), mb = mc.GetEndPoint(1);
+                    drawn.Add(new WallLocation.Segment
+                    {
+                        X0 = ma.X * FtToMm, Y0 = ma.Y * FtToMm, X1 = mb.X * FtToMm, Y1 = mb.Y * FtToMm,
+                        WidthMm = mw.WallType?.Kind == WallKind.Basic ? mw.Width * FtToMm : 0, Curved = !(mc is Line),
+                    });
+                }
+                int outside = 0, inside = 0, unknown = 0;
+                // The one fact a drawn wall's rule may see: its Location when the boundary reads one. The mapping's parameter values
+                // are the local model's reading of the documents (EnrichParamsAsync, best-effort): they are written to the wall as
+                // before (ApplyParams) and never pick its type (review C4). An unknown location is left out: a rule that needs it
+                // cannot fire.
+                Dictionary<string, string> GhostFacts(GhostElement el)
+                {
+                    var facts = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    string loc = drawnAt.TryGetValue(el, out int at) ? WallLocation.Locate(drawn, at, out _) : null;
+                    if (loc != null) facts["Location"] = loc;
+                    if (loc == WallLocation.Exterior) outside++; else if (loc == WallLocation.Interior) inside++; else unknown++;
+                    return facts;
+                }
+
+                // Each wall's type: the reviewer's pick, else the guideline at the measured thickness (a size the model lacks
+                // is cloned here from its catalogue sibling), else the mapping — ElementPlacementFactory's rule, unchanged.
+                typer = new ElementPlacementFactory(doc, level, WallTypes(doc), guideline: r.Guideline);
+                foreach (var el in elements)
+                {
+                    if (!byLayer.TryGetValue(el.CadLayer ?? "", out var map) || !string.Equals(map.Category, "Walls", StringComparison.OrdinalIgnoreCase)) continue;
+                    // E17: a block on a Walls row is no wall — it has no run to file, so it would have been a bare SkippedNoGeometry.
+                    if (el.Block != null) { NoteNested($"Walls on '{el.CadLayer}'", el); SetAside(el); continue; }
+                    string type = typer.ResolveWallType(el, map, out string gap, out string typedBy, GhostFacts(el));
+                    if (gap == null && Refusal("wall|" + type, () => ChangesetExecutor.ResolveWallType(doc, type)) is string no)
+                        gap = no + GhostFiling.SyntheticHint(type);
+                    if (gap != null)
+                    {
+                        report.WallGaps++;
+                        report.SkippedUnknownFamily++;
+                        report.Warnings.Add($"Wall on '{el.CadLayer}': {gap.TrimEnd('.')}; skipped.");
+                        continue;
+                    }
+                    walls.Add((el, map, type, typedBy));
+                }
+                report.CreatedTypes.AddRange(typer.CreatedTypes);
+                report.Warnings.AddRange(typer.Notes);
+                // MA-2a: what the outer boundary read of this build's walls — a count, so a drawing whose walls do not close is seen.
+                if (drawn.Count > 0) report.Warnings.Add(WallLocation.Summary(outside, inside, unknown) + " (this build's drawn walls; an unknown location types by its layer rule or the mapping, never by a guess).");
+                if (t.Commit() != TransactionStatus.Committed)
+                    return (typer, walls, GhostFailurePolicy.NotBuiltLine("Revit did not commit the types and families this build needs" +
+                                                                   (fails.RolledBack != null ? ": " + fails.RolledBack : "")));
+                Count(GhostFailurePolicy.CountWarnings(fails.SeenWarnings, null));
+            }
+            return (typer, walls, null);
+        }
+
+        /// <summary>MA-3b7 (XC-3): the filing, on a pool thread — Revit answers meanwhile. A failure withdraws what was filed, on this
+        /// thread, and returns the words; never throws.</summary>
+        public static Filed File(Prepared p)
+        {
+            var r = p.R;
+            var cfg = p.Cfg;
+            bool bound = p.Bound;
+            var chunks = p.Chunks;
+            var filed = new List<ChangesetDto>();
+            Filed Abandon(string line) => new Filed { Changesets = filed, NotFiled = line, Ledger = p.Bound && filed.Count > 0 ? WithdrawAll(p, filed) : null };
+            try
+            {
                 for (int c = 0; c < chunks.Count; c++)
                 {
-                    string name = GhostFiling.Name(r.Drawing, level.Name, c, chunks.Count);
+                    string name = p.Names[c];
                     if (!bound) { filed.Add(GhostFiling.Local(name, chunks[c])); continue; }
-                    var cs = ChangesetClient.Propose(cfg, r.Key, GhostFiling.Body(name, UserSession.Actor, chunks[c]), out string err);
+                    var cs = ChangesetClient.Propose(cfg, r.Key, p.Bodies[c], out string err);
                     if (cs == null || cs.Elements.Count != chunks[c].Count)
                     {
                         if (cs != null) filed.Add(cs); // filed, but not as sent: withdraw it with the rest
@@ -546,6 +581,129 @@ namespace Sentinel.GhostBuilder
                         return Abandon(GhostFailurePolicy.NotFiledLine("the bridge did not keep the door and window blocks' angle (place.Rotation) — it runs a build " +
                                                                         "older than this add-in. Restart the bridge on the current build, then build again"));
                 }
+                return new Filed { Changesets = filed };
+            }
+            catch (Exception ex)
+            {
+                return Abandon(GhostFailurePolicy.NotFiledLine($"{ex.GetType().Name}: {ex.Message}"));
+            }
+        }
+
+        // MA-3b7: every filed changeset withdrawn, on the calling thread (never Revit's) — WithdrawEach stops after the first the
+        // bridge did not answer (one 120 s wait at most, review C10) and names those still proposed.
+        private static string WithdrawAll(Prepared p, List<ChangesetDto> filed)
+        {
+            int gone = 0;
+            string words = UnreportedResults.WithdrawEach(filed.Select(f => (f.Id, Short(f.Id))),
+                id => { if (ChangesetClient.Withdraw(p.Cfg, p.R.Key, id, out var why)) { gone++; return null; } return why ?? "no answer"; });
+            return gone == filed.Count ? $"Ledger: the {filed.Count} changeset(s) already filed were withdrawn." : "Ledger: " + words.Trim();
+        }
+
+        /// <summary>MA-3b7 event B (Revit's thread, DocPin's model): the types step again and the build, inside ONE TransactionGroup
+        /// assimilated as one Undo entry, as before.</summary>
+        public static GhostPlacementEngine.PlacementReport Place(UIApplication app, Document doc, Prepared p, Filed filed) => Build(app, doc, p, filed.Changesets);
+
+        /// <summary>MA-3b7 (DocPin): the model was switched or closed while Ghost Builder filed — nothing placed; what was filed is
+        /// withdrawn off Revit's thread (the hub calls onRefused on it).</summary>
+        public static GhostPlacementEngine.PlacementReport NotPlaced(Prepared p, Filed filed, string why)
+        {
+            p.Report.NotBuilt = GhostFailurePolicy.NotPlacedLine(why);
+            if (p.Bound && filed.Changesets.Count > 0)
+            {
+                p.Report.Ledger = GhostFailurePolicy.WithdrawingLine(filed.Changesets.Count);
+                Task.Run(() => App.PanelVm?.LogDoctor(UnreportedResults.GhostHead + "withdrawn, nothing was placed — " + WithdrawAll(p, filed.Changesets)));
+            }
+            return p.Report;
+        }
+
+        private static GhostPlacementEngine.PlacementReport Build(UIApplication app, Document doc, Prepared prep, List<ChangesetDto> filed)
+        {
+            var r = prep.R;
+            var report = prep.Report;
+            var level = prep.Level;
+            var cfg = prep.Cfg;
+            bool bound = prep.Bound;
+            bool executing = false, done = false;
+
+            // B1: Revit's warnings from every transaction of the build, counted by text — left in the model, never erased.
+            void Count(Dictionary<string, int> warnings)
+            {
+                foreach (var kv in warnings) report.RevitWarnings[kv.Key] = (report.RevitWarnings.TryGetValue(kv.Key, out int w) ? w : 0) + kv.Value;
+            }
+            string Unreported() => bound
+                ? $"Ledger: {filed.Count} changeset(s) left proposed and unreported — check the model, then withdraw them on the web."
+                : noLedger;
+
+            using var group = new TransactionGroup(doc, "Ghost Builder");
+
+            // Nothing ran yet: roll the group back (the types too). MA-3b7: what was filed is withdrawn off Revit's thread — the pane's
+            // Doctor log says what the bridge answered; no changeset is left for a later review to apply.
+            GhostPlacementEngine.PlacementReport Abandon(string line)
+            {
+                SentinelUndo.RollBack(group, doc);
+                report.NotBuilt = line;
+                report.Ledger = null;
+                if (bound && filed.Count > 0)
+                {
+                    report.Ledger = GhostFailurePolicy.WithdrawingLine(filed.Count);
+                    Task.Run(() => App.PanelVm?.LogDoctor(UnreportedResults.GhostHead + "withdrawn after the build rolled back — " + WithdrawAll(prep, filed)));
+                }
+                return report;
+            }
+
+            // A changeset failed in Revit: the whole build is rolled back, and every filed changeset is reported declined. B4: a
+            // result the bridge does not take is withdrawn instead, and one that is neither is named — it is still proposed.
+            // MA-3b4 (AI-2): reported off Revit's thread (ReportAll; a decline is not written on this PC — E5), the withdrawals on the
+            // same pool thread inside the round, under the guard (review C3); what the bridge did is said in the pane's Doctor log, and in a
+            // dialog when one was not taken (G2).
+            GhostPlacementEngine.PlacementReport Decline(ChangesetDto failing, string error)
+            {
+                SentinelUndo.RollBack(group, doc);
+                report.NotBuilt = GhostFailurePolicy.NotBuiltLine(error);
+                if (!bound) { report.Ledger = noLedger; return report; }
+                var declines = filed.Select(cs => ReviewChangesetsCommand.ResultOf(r.Key, cs, new List<AppliedEntry>(), cs.Elements.Select(e => e.ProposalGuid).ToList(),
+                    cs == failing ? $"Revit transaction failed — rolled back: {error}"
+                                  : $"not applied — the Ghost build is all or nothing and {(failing == null ? "it" : "changeset " + Short(failing.Id))} failed: {error}",
+                    null, ReviewChangesetsCommand.DocOf(doc), null, null)).ToList();
+                ReviewChangesetsCommand.Said(ReviewChangesetsCommand.ReportAll(cfg, declines, after: rep =>
+                {
+                    var landed = new HashSet<string>(rep.Landed.Select(x => x.R.ChangesetId), StringComparer.Ordinal);
+                    // Review C10: one 120 s wait at most — WithdrawEach stops after the first the bridge did not answer.
+                    return UnreportedResults.WithdrawEach(filed.Where(f => !landed.Contains(f.Id)).Select(f => (f.Id, Short(f.Id))),
+                        id => ChangesetClient.Withdraw(cfg, r.Key, id, out var why) ? null : why ?? "no answer");
+                }), UnreportedResults.GhostHead, rep => rep.Landed.Count < declines.Count);
+                report.Ledger = UnreportedResults.GhostDeclining(declines.Count);
+                return report;
+            }
+
+            group.Start();
+            // F-S2-1: a TransactionGroup can force modal failure handling on every transaction finished inside it, whatever that
+            // transaction's own options say (TransactionGroup.IsFailureHandlingForcedModal; its default is undocumented — drill
+            // MA1a-S2's blocking "N Warnings" OK/Cancel dialog says it was on). Off, each inner transaction's
+            // SetForcedModalHandling(false) holds: the warnings Revit keeps show in its non-blocking box, as step 1's did (S1-8).
+            // No error reaches a dialog — the all-or-nothing preprocessor rolls each one back first, so no inner commit is left
+            // Pending inside the group.
+            group.IsFailureHandlingForcedModal = false;
+
+            ScanReport blockBefore = null; // MA-1a item 5: the BLOCK rows before the build; null = nothing can block it
+            string blockNote = null, blockLine = null;
+            try
+            {
+                blockBefore = BlockCheck.Before(doc, out blockNote);
+                // ── 1. The types again (MA-3b7): the dry run proved them and rolled them back; made here inside the build's Undo —
+                //    a throwaway report: A's warnings, gaps and created types are not said twice; only Revit's warnings are counted.
+                var typesBefore = new HashSet<long>(new FilteredElementCollector(doc).WhereElementIsElementType().ToElementIds().Select(i => i.IdValue()));
+                // F-S2-2: the walls already in the model — a wall of this build never joins one; its own walls join each other,
+                // across its changesets too.
+                var wallsBefore = new HashSet<long>(new FilteredElementCollector(doc).OfClass(typeof(Wall)).ToElementIds().Select(i => i.IdValue()));
+                var again = new GhostPlacementEngine.PlacementReport();
+                var types = TypesStep(doc, r, prep.Mapping, prep.Elements, prep.ByLayer, level, again, (_, __) => { }, _ => { });
+                if (types.RolledBack != null) return Abandon(types.RolledBack);
+                Count(again.RevitWarnings);
+                var placing = PlacementApply.Resolve(doc, r.Guideline?.Placement, app.ActiveUIDocument?.ActiveView, prep.Plan.Select(x => x.Dto.Kind), out string noWorkset);
+                if (placing == null) return Abandon(noWorkset + " The types step was rolled back too.");
+                var chunks = prep.Chunks;
+                var byDto = prep.Plan.ToDictionary(x => x.Dto); // reference identity: the bridge answers element by element, in order
                 var planOf = new Dictionary<string, Planned>(StringComparer.Ordinal);
                 for (int c = 0; c < filed.Count; c++)
                     for (int j = 0; j < chunks[c].Count; j++) planOf[filed[c].Elements[j].ProposalGuid] = byDto[chunks[c][j]];

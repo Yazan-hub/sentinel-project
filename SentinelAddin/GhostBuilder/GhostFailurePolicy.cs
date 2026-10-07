@@ -145,6 +145,15 @@ namespace Sentinel.GhostBuilder
         public static string NotFiledLine(string reason) =>
             "Nothing was built — the build could not be filed as a changeset, so Sentinel rolled it back (no element, type or family was added): " + reason;
 
+        /// <summary>MA-3b7: the pane's Doctor line when the dry run is done and the filing starts off Revit's thread.</summary>
+        public static string FilingLine(int n, bool bound) => bound
+            ? $"Ghost Builder: the types proved and the build planned; filing {n} changeset(s) off Revit's thread — Revit stays usable, and the build places by itself in this model once the bridge has answered."
+            : "Ghost Builder: the types proved and the build planned; this model is not bound to a web project, so nothing is filed — the build places by itself.";
+        /// <summary>MA-3b7 (DocPin): the model was switched or closed while Ghost Builder filed — nothing was placed.</summary>
+        public static string NotPlacedLine(string why) => $"Nothing was built — {why}. The build was planned for the model it started from and places only there; run Build again in that model.";
+        /// <summary>MA-3b7: the withdrawals after a build rolled back run off Revit's thread — the Doctor log says what the bridge answered.</summary>
+        public static string WithdrawingLine(int n) => $"Ledger: withdrawing the {n} changeset(s) already filed, off Revit's thread — the pane's Doctor log says what the bridge answered (one it did not answer is named there: withdraw it on the web before anyone reviews it).";
+
         /// <summary>A7: a parameter is written onto a TYPE only when this build added that type (provisioned, cloned or loaded
         /// this run); on any other type the write would change the user's own instances, so it is not applied. Null = write;
         /// otherwise the reason for the Note.</summary>
