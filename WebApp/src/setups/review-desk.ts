@@ -247,11 +247,11 @@ export function highlightPlan(ghosts: Ghost[], found: Map<string, (number | null
 }
 
 /** MA-3d2: the words after a storey's proposal models loaded (or not). `shown`: per changeset, the header's counts; `failed`: changesets whose model did not load, each with why. */
-export function proposalWords(shown: { creates: number; drawn: number; skipped: string[] }[], failed: string[], noneToShow: boolean): string {
+export function proposalWords(shown: { creates: number; drawn: number; skipped: string[]; skipped_total?: number }[], failed: string[], noneToShow: boolean): string {
   if (noneToShow && !shown.length && !failed.length) return "Nothing to show: this storey proposes no create (a retype or attach changes an element that exists — Highlight in 3D selects it).";
-  const creates = shown.reduce((n, s) => n + s.creates, 0), drawn = shown.reduce((n, s) => n + s.drawn, 0), skipped = shown.flatMap((s) => s.skipped);
+  const creates = shown.reduce((n, s) => n + s.creates, 0), drawn = shown.reduce((n, s) => n + s.drawn, 0), skipped = shown.flatMap((s) => s.skipped), skippedTotal = shown.reduce((n, s) => n + (s.skipped_total ?? s.skipped.length), 0);
   const head = shown.length ? `Showing ${drawn} of ${creates} proposed create(s) as a proposal model in orange — boxes from the proposal's lines and boundaries (a wall or slab whose thickness was not sent is sketched at 200 mm; a create that named only its level sits at elevation 0 here); the executor places the real shapes at Apply. Not part of any published version — Hide creates removes it.` : "";
-  const skip = skipped.length ? ` Not drawn: ${skipped.slice(0, 3).join("; ")}${skipped.length > 3 ? ` (+${skipped.length - 3} more)` : ""}.` : "";
+  const skip = skipped.length ? ` Not drawn: ${skipped.slice(0, 3).join("; ")}${skippedTotal > 3 ? ` (+${skippedTotal - 3} more)` : ""}.` : "";
   const fail = failed.length ? ` Not loaded: ${failed.join("; ")}.` : "";
   return (head + skip + fail).trim();
 }
@@ -318,12 +318,12 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
     const fragments = comps.get(OBCm.FragmentsManager) as unknown as { core: { load(buf: ArrayBuffer, o: { modelId: string }): Promise<unknown>; disposeModel(id: string): Promise<void>; models: { list: Map<string, unknown> } } };
     const highlighter = comps.get(OBF.Highlighter) as unknown as { styles: Map<string, unknown>; highlightByID(n: string, m: Record<string, Set<number>>, a: boolean, b: boolean): Promise<void> };
     const withCreates = storey.changesets.filter((cs) => cs.elements.some((e) => (e.op ?? "create") === "create"));
-    const shown: { creates: number; drawn: number; skipped: string[] }[] = [], failed: string[] = [];
+    const shown: { creates: number; drawn: number; skipped: string[]; skipped_total?: number }[] = [], failed: string[] = [];
     for (const cs of withCreates) {
       try {
         const r = await bfetch(at(base, activePid(), `/${encodeURIComponent(cs.id)}/proposal.frag`));
         if (!r.ok) { failed.push(`${cs.name}: ${((await r.json().catch(() => ({ message: `HTTP ${r.status}` }))) as { message: string }).message}`); continue; }
-        const counts = JSON.parse(r.headers.get("X-Sentinel-Proposal") || '{"creates":0,"drawn":0,"skipped":[]}') as { creates: number; drawn: number; skipped: string[] };
+        const counts = JSON.parse(r.headers.get("X-Sentinel-Proposal") || '{"creates":0,"drawn":0,"skipped":[]}') as { creates: number; drawn: number; skipped: string[]; skipped_total?: number };
         const buf = await r.arrayBuffer();
         const id = proposalId(cs.id);
         if (fragments.core.models.list.has(id)) await fragments.core.disposeModel(id);

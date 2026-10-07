@@ -790,8 +790,15 @@ describe("changesets (MA-3d2): the proposal model", () => {
     const r = await get("viewer");
     expect(r.status).toBe(200);
     expect(r.type).toBe("application/octet-stream");
-    expect(JSON.parse(r.header)).toEqual({ creates: 1, drawn: 1, skipped: [] });
+    expect(JSON.parse(r.header)).toEqual({ creates: 1, drawn: 1, skipped: [], skipped_total: 0 });
     expect(r.bytes.length).toBeGreaterThan(500);
+  }, 60_000);
+  it("a wall and a door: 200, the door's skipped words (an em dash) ride the header as ASCII escapes", async () => {
+    db.bridge_docs.push({ store: "changeset", project_id: PID, doc_id: ID, data: csOf([wallEl, { op: "create", kind: "door", proposal_guid: "d1", place: {} }]) });
+    const r = await get("viewer");
+    expect(r.status).toBe(200);
+    expect(r.header).toMatch(/^[ -~]*$/);
+    expect(JSON.parse(r.header).skipped[0]).toContain("a door — not drawn");
   }, 60_000);
   it("a changeset with no create that has a shape is a 409 in words", async () => {
     db.bridge_docs.push({ store: "changeset", project_id: PID, doc_id: ID, data: csOf([{ op: "retype", kind: "wall", proposal_guid: "g2" }]) });

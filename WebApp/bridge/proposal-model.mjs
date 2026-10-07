@@ -9,16 +9,16 @@ export const SKETCH_THICKNESS_MM = 200; // a wall or slab whose thickness the pr
 export function proposalElements(cs, levelMmOf = () => null) {
   const out = { elements: [], creates: 0, drawn: 0, skipped: [] };
   for (const el of cs?.elements ?? []) {
-    if (el?.op !== "create" || !el.place) continue;
+    if ((el?.op ?? "create") !== "create" || !el.place) continue;
     out.creates++;
     const p = el.place, name = el.validate?.identity?.Name ?? el.proposal_guid ?? el.kind;
     const base = p.BaseElevation ?? levelMmOf(p) ?? 0;
     const thickMm = p.Thickness > 0 ? p.Thickness : SKETCH_THICKNESS_MM;
     if (el.kind === "wall") {
       const c = p.LocationCurve;
-      if (!c?.start || !c.end || c.start.length < 2 || c.end.length < 2) { out.skipped.push(`${name}: a wall with no line`); continue; }
+      if (!Array.isArray(c?.start) || !Array.isArray(c?.end) || c.start.length < 2 || c.end.length < 2) { out.skipped.push(`${name}: a wall with no line`); continue; }
       const dx = c.end[0] - c.start[0], dy = c.end[1] - c.start[1], len = Math.hypot(dx, dy);
-      if (len < 1) { out.skipped.push(`${name}: a wall shorter than 1 mm`); continue; }
+      if (!Number.isFinite(len) || len < 1) { out.skipped.push(`${name}: a wall shorter than 1 mm`); continue; }
       const top = p.TopElevation ?? base + SKETCH_HEIGHT_MM;
       if (top <= base) { out.skipped.push(`${name}: a wall whose top is not above its base`); continue; }
       const mx = (c.start[0] + c.end[0]) / 2, my = (c.start[1] + c.end[1]) / 2, mz = base + (top - base) / 2;

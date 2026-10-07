@@ -319,6 +319,9 @@ describe("MA-3d2 — the proposal model's words", () => {
     expect(proposalWords([{ creates: 1, drawn: 1, skipped: [] }], ["Level 2 (1/2): the bridge is down"], false)).toBe(`${head(1, 1)} Not loaded: Level 2 (1/2): the bridge is down.`);
     expect(proposalWords([], ["X: why"], false)).toBe("Not loaded: X: why.");
   });
+  it("the (+N more) counts the bridge's skipped_total, not its cut list", () => {
+    expect(proposalWords([{ creates: 15, drawn: 0, skipped: ["a", "b", "c", "d"], skipped_total: 15 }], [], false)).toBe(`${head(0, 15)} Not drawn: a; b; c (+12 more).`);
+  });
   it("four skipped: three and (+1 more)", () => {
     expect(proposalWords([{ creates: 4, drawn: 0, skipped: ["a", "b", "c", "d"] }], [], false)).toBe(`${head(0, 4)} Not drawn: a; b; c (+1 more).`);
   });
