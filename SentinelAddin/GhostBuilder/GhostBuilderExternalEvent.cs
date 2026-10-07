@@ -2,8 +2,10 @@
 // ponytail: nullable off for the ported GhostBuilder module; annotate + remove when hardening.
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using Autodesk.Revit.UI;
+using Sentinel.Commands;
 using Sentinel.Coordination;
 
 namespace Sentinel.GhostBuilder
@@ -38,23 +40,33 @@ namespace Sentinel.GhostBuilder
                 if (request == null) throw new InvalidOperationException("No request staged. Call SetRequest() before Raise().");
                 // MA-3b7 (XC-3): the dry run on Revit's thread; the filing on a pool thread (Revit answers meanwhile); the build back on
                 // Revit's thread in the model it started from (DocPin) — a model switched or closed is said, what was filed is withdrawn.
+                // MA-3b7 review: one guard with Review AI Proposals and Promote (DD) — Ghost's changesets are proposed on the bridge from the
+                // first chunk until the build places them, so no review applies one meanwhile (the frozen thread used to be the guard).
+                if (ReviewChangesetsCommand.Held) { Completed?.Invoke(new GhostPlacementEngine.PlacementReport { NotBuilt = ReviewChangesetsCommand.Busy }, null); return; }
                 var prep = GhostChangesetBuild.Prepare(app, request);
                 if (prep.Refused) { Completed?.Invoke(prep.Report, null); return; }
                 var doc = prep.Doc;
                 App.PanelVm?.LogDoctor(GhostFailurePolicy.FilingLine(prep.Bound ? prep.Bodies.Count : 0, prep.Bound));
+                ReviewChangesetsCommand.Hold(); // released exactly once (Once): after the not-filed words, after Place returns, or in NotPlaced
+                int held = 1;
+                void Once() { if (Interlocked.Exchange(ref held, 0) == 1) ReviewChangesetsCommand.Release(); }
                 Task.Run(() => GhostChangesetBuild.File(prep)).ContinueWith(t =>
                 {
+                  try
+                  {
                     var filed = t.Status == TaskStatus.RanToCompletion ? t.Result
                         : new GhostChangesetBuild.Filed { Changesets = new List<ChangesetDto>(), NotFiled = GhostFailurePolicy.NotFiledLine(t.Exception?.GetBaseException().Message ?? "the filing did not finish") };
                     if (filed.NotFiled != null)
                     {
                         prep.Report.NotBuilt = filed.NotFiled; prep.Report.Ledger = filed.Ledger;
                         // Back on Revit's thread through the hub, as Completed promises: the command's handler shows a TaskDialog.
-                        App.Events.Enqueue(_ => Say(() => prep.Report), "say the Ghost Builder build was not filed");
+                        App.Events.Enqueue(_ => { try { Say(() => prep.Report); } finally { Once(); } }, "say the Ghost Builder build was not filed");
                         return;
                     }
-                    App.Events.Enqueue(doc, "place the Ghost Builder build", (u, d) => Say(() => GhostChangesetBuild.Place(u, d, prep, filed)),
-                        why => Say(() => GhostChangesetBuild.NotPlaced(prep, filed, why)));
+                    App.Events.Enqueue(doc, "place the Ghost Builder build", (u, d) => Say(() => { try { return GhostChangesetBuild.Place(u, d, prep, filed); } finally { Once(); } }),
+                        why => Say(() => { try { return GhostChangesetBuild.NotPlaced(prep, filed, why); } finally { Once(); } }));
+                  }
+                  catch (Exception ex) { Once(); App.PanelVm?.LogDoctor("Ghost Builder: the build was not handed back to Revit — " + ex.Message); }
                 }, TaskScheduler.Default);
             }
             catch (Exception ex)

@@ -129,6 +129,7 @@ namespace Sentinel.GhostBuilder
             var elements = GhostWallPairer.PairWalls(r.Elements, mapping);
             bool bound = !string.IsNullOrEmpty(r.Key);
             var cfg = bound ? BcfConfig.Load() : null;
+            if (cfg != null && UserSession.IsSignedIn) cfg.FileToken = ""; // review C11 (MA-3b7): a sign-out during the filing leaves no token, never the machine's
             double tolFt = doc.Application.ShortCurveTolerance, levelMm = level.Elevation * FtToMm;
             prep.Level = level; prep.LevelMm = levelMm; prep.Mapping = mapping; prep.ByLayer = byLayer; prep.Elements = elements;
             prep.Bound = bound; prep.Cfg = cfg;
@@ -557,7 +558,7 @@ namespace Sentinel.GhostBuilder
             bool bound = p.Bound;
             var chunks = p.Chunks;
             var filed = new List<ChangesetDto>();
-            Filed Abandon(string line) => new Filed { Changesets = filed, NotFiled = line, Ledger = p.Bound && filed.Count > 0 ? WithdrawAll(p, filed) : null };
+            Filed Abandon(string line) => new Filed { Changesets = filed, NotFiled = line, Ledger = p.Bound && filed.Count > 0 ? "Ledger: " + WithdrawAll(p, filed) : null };
             try
             {
                 for (int c = 0; c < chunks.Count; c++)
@@ -591,12 +592,16 @@ namespace Sentinel.GhostBuilder
 
         // MA-3b7: every filed changeset withdrawn, on the calling thread (never Revit's) — WithdrawEach stops after the first the
         // bridge did not answer (one 120 s wait at most, review C10) and names those still proposed.
-        private static string WithdrawAll(Prepared p, List<ChangesetDto> filed)
+        private static string WithdrawAll(Prepared p, List<ChangesetDto> filed) =>
+            UnreportedResults.WithdrawEach(filed.Select(f => (f.Id, Short(f.Id))),
+                id => ChangesetClient.Withdraw(p.Cfg, p.R.Key, id, out var why) ? null : why ?? "no answer", GhostFailurePolicy.FiledWithdrawn);
+
+        // MA-3b7 review: the withdrawals after a build that did not place, off Revit's thread and under the review's guard (its own hold,
+        // as ReportAll takes one) — no review applies a changeset while it is being withdrawn.
+        private static void WithdrawOff(Prepared p, List<ChangesetDto> filed, string what)
         {
-            int gone = 0;
-            string words = UnreportedResults.WithdrawEach(filed.Select(f => (f.Id, Short(f.Id))),
-                id => { if (ChangesetClient.Withdraw(p.Cfg, p.R.Key, id, out var why)) { gone++; return null; } return why ?? "no answer"; });
-            return gone == filed.Count ? $"Ledger: the {filed.Count} changeset(s) already filed were withdrawn." : "Ledger: " + words.Trim();
+            ReviewChangesetsCommand.Hold();
+            Task.Run(() => { try { App.PanelVm?.LogDoctor(UnreportedResults.GhostHead + what + WithdrawAll(p, filed)); } finally { ReviewChangesetsCommand.Release(); } });
         }
 
         /// <summary>MA-3b7 event B (Revit's thread, DocPin's model): the types step again and the build, inside ONE TransactionGroup
@@ -611,7 +616,7 @@ namespace Sentinel.GhostBuilder
             if (p.Bound && filed.Changesets.Count > 0)
             {
                 p.Report.Ledger = GhostFailurePolicy.WithdrawingLine(filed.Changesets.Count);
-                Task.Run(() => App.PanelVm?.LogDoctor(UnreportedResults.GhostHead + "withdrawn, nothing was placed — " + WithdrawAll(p, filed.Changesets)));
+                WithdrawOff(p, filed.Changesets, "withdrawn, nothing was placed — ");
             }
             return p.Report;
         }
@@ -646,7 +651,7 @@ namespace Sentinel.GhostBuilder
                 if (bound && filed.Count > 0)
                 {
                     report.Ledger = GhostFailurePolicy.WithdrawingLine(filed.Count);
-                    Task.Run(() => App.PanelVm?.LogDoctor(UnreportedResults.GhostHead + "withdrawn after the build rolled back — " + WithdrawAll(prep, filed)));
+                    WithdrawOff(prep, filed, "withdrawn after the build rolled back — ");
                 }
                 return report;
             }
@@ -676,19 +681,19 @@ namespace Sentinel.GhostBuilder
                 return report;
             }
 
-            group.Start();
-            // F-S2-1: a TransactionGroup can force modal failure handling on every transaction finished inside it, whatever that
-            // transaction's own options say (TransactionGroup.IsFailureHandlingForcedModal; its default is undocumented — drill
-            // MA1a-S2's blocking "N Warnings" OK/Cancel dialog says it was on). Off, each inner transaction's
-            // SetForcedModalHandling(false) holds: the warnings Revit keeps show in its non-blocking box, as step 1's did (S1-8).
-            // No error reaches a dialog — the all-or-nothing preprocessor rolls each one back first, so no inner commit is left
-            // Pending inside the group.
-            group.IsFailureHandlingForcedModal = false;
-
             ScanReport blockBefore = null; // MA-1a item 5: the BLOCK rows before the build; null = nothing can block it
             string blockNote = null, blockLine = null;
             try
             {
+                // MA-3b7 review: inside the try — B runs after the filing, so a group Revit refuses still withdraws what was filed (Abandon).
+                group.Start();
+                // F-S2-1: a TransactionGroup can force modal failure handling on every transaction finished inside it, whatever that
+                // transaction's own options say (TransactionGroup.IsFailureHandlingForcedModal; its default is undocumented — drill
+                // MA1a-S2's blocking "N Warnings" OK/Cancel dialog says it was on). Off, each inner transaction's
+                // SetForcedModalHandling(false) holds: the warnings Revit keeps show in its non-blocking box, as step 1's did (S1-8).
+                // No error reaches a dialog — the all-or-nothing preprocessor rolls each one back first, so no inner commit is left
+                // Pending inside the group.
+                group.IsFailureHandlingForcedModal = false;
                 blockBefore = BlockCheck.Before(doc, out blockNote);
                 // ── 1. The types again (MA-3b7): the dry run proved them and rolled them back; made here inside the build's Undo —
                 //    a throwaway report: A's warnings, gaps and created types are not said twice; only Revit's warnings are counted.

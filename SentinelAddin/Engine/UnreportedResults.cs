@@ -284,7 +284,7 @@ namespace Sentinel.Engine
         /// <summary>MA-3b4 review C10: B4's withdrawals under MA-3b C6's rule — after the first the bridge did not answer (anything but a
         /// "Bridge 4xx" refusal: unreachable, a timeout, a 5xx), the rest are not sent and are named still proposed, so the guard waits
         /// one 120 s, never one per changeset. <paramref name="withdraw"/> returns null when withdrawn, else its error.</summary>
-        public static string WithdrawEach(IEnumerable<(string Id, string Shown)> changesets, Func<string, string> withdraw)
+        public static string WithdrawEach(IEnumerable<(string Id, string Shown)> changesets, Func<string, string> withdraw, Func<IList<string>, IList<string>, string> words = null)
         {
             var withdrawn = new List<string>();
             var kept = new List<string>();
@@ -295,7 +295,7 @@ namespace Sentinel.Engine
                 if (err == null) withdrawn.Add(shown);
                 else { kept.Add(shown); stalled |= !err.StartsWith("Bridge 4", StringComparison.Ordinal); }
             }
-            return WithdrawnInstead(withdrawn, kept);
+            return (words ?? WithdrawnInstead)(withdrawn, kept); // MA-3b7 review: Ghost Builder's own withdrawals name no decline
         }
 
         /// <summary>MA-3b4 review C8: Ghost Builder's results whose save on this PC failed and whose report did not land — the round's
