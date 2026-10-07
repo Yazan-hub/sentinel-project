@@ -41,7 +41,7 @@ account that already holds memberships — memberships point at the user id, and
 (found live on 2026-09-21).
 
 ## Bridge / add-in wiring
-- `%AppData%\Sentinel\bcf-config.json`: `serviceUrl` = the bridge, `projectId` = `aster-office`; each person signs in (Sentinel ▸ Sign in). `serviceToken` (the bridge token) only on the bridge's own PC (SEC-5).
+- `%AppData%\Sentinel\bcf-config.json`: `serviceUrl` = the bridge, `projectId` = `aster-office`; each person signs in (Sentinel ▸ Sign in). No `serviceToken` in any Revit config — not a workstation (SEC-5), and since H6 (2026-10-07) not the bridge's own PC either.
 - In Revit: Project Setup → Web project = `aster-office` on the **template** (acts 1–2) and `aster-tower` on the **tower** from act 3 on. `aster-office` is an office (kind office) and `aster-tower` belongs to it, so the office readiness view rolls the tower's scans and containers up with the tower's key on every evidence line (F23 closed by cohesion phase 2).
 - The office's scan ruleset and container naming are **artefacts** on `aster-office` (`ruleset@n`, `naming@n`), inherited by `aster-tower` and `aster-villa` unless a project installs its own; nothing is read from a bridge file or a bundled web ruleset. After cohesion phase 3, run `node bridge/artefact-import.mjs --from-metadata --key aster-office` once to move the hand-merged `active_ruleset` into them; `GET /cde/aster-office/artefacts` shows what is in force.
 - Check the bridge is the current one before starting: `netstat -ano | findstr :4100` should show one process, and `GET /bimdocs/templates` should list `READINESS`.
