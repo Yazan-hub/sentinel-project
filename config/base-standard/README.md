@@ -22,6 +22,14 @@ that the pack is swappable.
   `contract` artefact; the IFC Delivery Gate, Governed Publish and Governed
   Intake read it from there and name it `contract@n · source · sha`.
 
+## In Packs
+
+The same files are offered in the marketplace as **`base-standard@1.0.0`** (`WebApp/packs/base-standard.json`, pinned equal to
+this folder by `bridge/seed-packs.test.mjs`), with a generic 7-field sheet-number rule as its QA ruleset. An office lead installs it
+from **Settings ▸ Packs ▸ Install on office <key>**: the office's projects inherit every kind (`ruleset`, `naming`, `ids`, `layers`,
+`contract`, each `@n · office · sha`). A project **overlays** the Base by installing its own artefact of any one kind — the resolver
+is project → office, so the project's `naming@1` wins over the office's Base naming while the office's IDS still judges it.
+
 ## Swap procedure for a new office
 
 1. Copy this folder to e.g. `config/<office>-standard/`.

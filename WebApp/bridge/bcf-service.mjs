@@ -173,6 +173,8 @@ const packTaken = (id) => `pack ${id} is already published — publish a new ver
 const packRecord = (b, existing, author) => ({
   id: `${b.key}@${b.version}`, key: b.key, version: b.version, name: b.name || b.key, description: b.description || "",
   author, tags: b.tags || [], ruleset: b.ruleset || { rules: [] }, naming: b.naming || null,
+  // Base ruleset lane: a pack may carry the office's other standards too — installed as artefacts of their kind, like the naming.
+  ids: b.ids || null, layers: b.layers || null, contract: b.contract || null,
   installs: existing?.installs || 0, forks: existing?.forks || 0,
   forked_from: b.forked_from || existing?.forked_from || null, created_at: existing?.created_at || new Date().toISOString(),
 });

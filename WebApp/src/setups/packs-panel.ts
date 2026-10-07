@@ -22,6 +22,7 @@ import { escapeHtml as esc } from "./escape-html";
 interface Pack {
   id: string; key: string; version: string; name: string; description: string;
   author: string; tags: string[]; ruleset: Ruleset; naming?: Record<string, unknown> | null;
+  ids?: Record<string, unknown> | null; layers?: Record<string, unknown> | null; contract?: Record<string, unknown> | null;
   installs: number; forks: number; forked_from?: string | null;
 }
 
@@ -32,6 +33,7 @@ export function packsPanel(components: OBC.Components, opts: { baseUrl?: string 
   const pid = () => activePid();
   let packs: Pack[] = [];
   let installedId = "";
+  let officeKey: string | null = null;   // the active project's office — a pack installs there too (its projects inherit)
   let inForce = "";   // `in force: ruleset@n · source · sha`, or NO_RULESET
   let forkFrom: Pack | null = null;
 
@@ -77,7 +79,7 @@ export function packsPanel(components: OBC.Components, opts: { baseUrl?: string 
       try {
         const pr = await bfetch(`${base}/projects/${encodeURIComponent(pid())}`);
         if (!pr.ok) throw new Error((await pr.json().catch(() => null))?.message || `HTTP ${pr.status}`);
-        inst = (await pr.json()).standards_pack ?? "";
+        const pj = await pr.json(); inst = pj.standards_pack ?? ""; officeKey = pj.kind === "office" ? null : (pj.office_key ?? null);
       } catch (e) { instErr = `installed pack not read — ${(e as Error).message}`; }
       try { const a = await activeRuleset(base); force = a ? `in force: ${refLabel(a)}` : NO_RULESET; } catch (e) { force = `ruleset in force unknown: ${(e as Error).message}`; }
       if (instErr) force = `${force} · ${instErr}`;
@@ -106,30 +108,35 @@ export function packsPanel(components: OBC.Components, opts: { baseUrl?: string 
         `<span style="font:600 10px ui-monospace,Consolas,monospace;color:#9ca3af">${esc(p.key)}@${esc(p.version)}</span></div>` +
         `<div style="font-size:11.5px;color:#9ca3af;margin:.25rem 0">${esc(p.description)}</div>` +
         `<div style="display:flex;gap:.3rem;flex-wrap:wrap;margin-bottom:.4rem">${(p.tags || []).map((t) => `<span style="font-size:10px;color:#c4b5fd;border:1px solid #6528d755;border-radius:100px;padding:.05rem .4rem">${esc(t)}</span>`).join("")}` +
-        `<span style="font-size:10px;color:#6b7280">${rules} rule(s)${p.naming ? " · naming" : ""} · ${esc(p.installs || 0)} install(s) · ${esc(p.author)}${p.forked_from ? " · forked" : ""}</span></div>` +
+        `<span style="font-size:10px;color:#6b7280">${rules} rule(s)${p.naming ? " · naming" : ""}${p.ids ? " · ids" : ""}${p.layers ? " · layers" : ""}${p.contract ? " · contract" : ""} · ${esc(p.installs || 0)} install(s) · ${esc(p.author)}${p.forked_from ? " · forked" : ""}</span></div>` +
         '<div style="display:flex;gap:.4rem">' +
           (installed ? `<span style="${btn};background:#16a34a22;color:#4ade80;border:1px solid #16a34a55">✓ Installed</span>` : `<button class="pk-install" data-id="${esc(p.id)}" style="${btn};background:#6528d7;color:#fff">Install</button>`) +
+          (officeKey ? `<button class="pk-install-office" data-id="${esc(p.id)}" title="The office's projects inherit it; a project overlays it by installing its own" style="${btn};background:#2a2a30;color:#c4b5fd;border:1px solid #6528d755">Install on office ${esc(officeKey)}</button>` : "") +
           `<button class="pk-fork" data-id="${esc(p.id)}" style="${btn};background:#2a2a30;color:#eee">Fork</button>` +
         "</div></div>";
     }).join("") || '<div style="color:#9ca3af;font-size:12px">No standards packs yet.</div>';
     root.querySelectorAll<HTMLElement>(".pk-install").forEach((b) => b.addEventListener("click", () => install(b.dataset.id!)));
+    root.querySelectorAll<HTMLElement>(".pk-install-office").forEach((b) => b.addEventListener("click", () => officeKey && install(b.dataset.id!, officeKey)));
     root.querySelectorAll<HTMLElement>(".pk-fork").forEach((b) => b.addEventListener("click", () => startFork(b.dataset.id!)));
   };
 
-  // ── install → the pack's ruleset (and naming) become the project's artefacts ───
-  const install = async (id: string) => {
+  // ── install → every standard the pack carries becomes an artefact of its kind on the target: this project, or its office
+  //    (Base ruleset lane: an office adopts the Base pack; a project overlays it by installing its own artefact — project → office) ──
+  const install = async (id: string, target: string = pid()) => {
     const pack = packs.find((p) => p.id === id); if (!pack) return;
-    msg(`Installing ${pack.name}…`);
+    msg(`Installing ${pack.name} on ${target}…`);
     const refs: string[] = [];
     try {
       const who = await currentUser().then((u) => u?.email || "web", () => "web");
       // The artefacts are the install: the bridge validates each body and refuses below lead.
-      refs.push(`ruleset@${(await installArtefact(base, pid(), "ruleset", pack.ruleset, who)).version}`);
-      if (pack.naming) refs.push(`naming@${(await installArtefact(base, pid(), "naming", pack.naming, who)).version}`);
+      refs.push(`ruleset@${(await installArtefact(base, target, "ruleset", pack.ruleset, who)).version}`);
+      for (const kind of ["naming", "ids", "layers", "contract"] as const) {
+        const body = pack[kind]; if (body) refs.push(`${kind}@${(await installArtefact(base, target, kind, body, who)).version}`);
+      }
       await bfetch(`${base}/packs/${encodeURIComponent(id)}/install`, { method: "POST" });   // marketplace counter
-      await bfetch(`${base}/projects/${encodeURIComponent(pid())}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ standards_pack: id }) }); // display name only
-      installedId = id;
-      msg(`Installed ${pack.name} as ${refs.join(" + ")} on ${pid()}. QA, the Copilot and the stage gates now enforce it — re-run a Scan to see it apply.`, "#22c55e");
+      await bfetch(`${base}/projects/${encodeURIComponent(target)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ standards_pack: id }) }); // display name only
+      if (target === pid()) installedId = id;
+      msg(`Installed ${pack.name} as ${refs.join(" + ")} on ${target}${target !== pid() ? ` — ${pid()} and the office's other projects inherit it unless they install their own` : ""}. QA, the Copilot and the stage gates now enforce it — re-run a Scan to see it apply.`, "#22c55e");
       await load();
     } catch (e) { msg("Install failed: " + ((e as Error)?.message ?? String(e)) + (refs.length ? ` — ${refs.join(" + ")} did install` : ""), "#ef4444"); }
   };

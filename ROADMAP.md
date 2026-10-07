@@ -28,7 +28,7 @@ Legend: ✅ shipped & verified · 🟠 in progress · ⬜ next · 🔭 later
 - Real BDS **LOD-300 element checks** (named + `Pset_BDS.Discipline` + wall/door `FireRating` + window `ThermalTransmittance`) live as `enforce: warn`; the Revit extractor emits those parameters. Deploying to the pilot workstations.
 
 ### ⬜ Office-agnostic Base template & certification *(next)*
-- A **Base ruleset** (naming + element IDS) that any office adopts and overlays — the BDS docs are the pilot's reference, not the product standard.
+- ~~A **Base ruleset** (naming + element IDS) that any office adopts and overlays~~ — built 2026-10-07: `base-standard@1.0.0` in Packs carries naming, a sheet rule, IDS, layers and the delivery contract (`config/base-standard/`, pinned equal); **Install on office** makes its projects inherit, and a project overlays by installing its own artefact of a kind (project → office). The BDS docs are the pilot's reference, not the product standard.
 - **BSI Kitemark / ISO 19650 attestation** and a public **BCF-API 3.0 / openCDE** endpoint (the loop runs internally already — this is the paperwork gap vs. certified CDEs).
 
 ### 🟠 Production readiness *(in progress)*
