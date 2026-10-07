@@ -2095,3 +2095,33 @@ to Next with the measured answer; Task 1's record (the tag on the link row) stay
 **Closing list:** the capped 4101 stopped; the 4100 bridge and the watcher on the branch (the same code master gets); Revit
 closed without saving the scratch model; the two SEC-7 versions on `sec6-smoke` (`SEC7-SMOKE.ifc P07`, `SEC7-CAP.ifc P08`) and
 the topics `SEC7 hub` stay as the founder's scratch.
+
+## Session SEC8 — hardening slice 8 live (2026-10-07 ~14:40 → 15:35 local, branch feature/sec8-hardening 732e2d6, Claude driving the bridge, the test bridge, the database and the founder's local app; the founder's hand on Sign in)
+
+Setup: the founder's words, given ahead: "do everything urself" and, for the rotation rows, "do these urself". The 4100 bridge
+restarted on the branch; the test bridge 4101 and web-dev up. A scratch project `sec8-smoke` made under the founder's office
+through the signed-in local app (W-0). Claude types no passphrase into the founder's app and drives no native file picker, so the
+rotation rows ran through the web's own code (`crypto.ts` + `secure-store.ts`) under vitest against 4101 with the machine
+credential — scratch passphrases lived only in that process and were never printed.
+
+| Row | Result | Evidence |
+|---|---|---|
+| B-1 | 4100 restarted on the branch; `/health` ok; 4101 + web-dev up — **pass** | the lines |
+| J-1 | judge again on a platform-linked version: `200`, the new judgement row `from: "platform"` (#2096) — **pass** | the row |
+| J-2 | judge again with a raw re-upload whose sha256 matches: `200`, `from: "upload"` (newest #2099); a mismatching body `409` with the exact words — **pass** | statuses, words |
+| J-3 | a version with no sha256 (7070b267…): `409` with the exact no-sha256 words; a binned version first answers "in Deleted items — restore it first" — **pass** | the words |
+| S-3 | Open 3D by tag: status ok; the request shape (`…/download?versionTag=`) proven from the SDK's `#downloadItem` source — the sandboxed iframe hides the network log, so the live request itself is not read — **pass with that caveat** | the source |
+| S-4 | a legacy version (no tag) opens the item's current version — **pass** | the line |
+| W-0 | `sec8-smoke` created under the founder's office in the signed-in app — **pass** | the project |
+| K-1 | a keystore made (first use), two files sealed (`K-A.txt`, `K-B.txt`) and registered as encrypted versions (P02 of two scratch containers); `refs` lists 2; `rotateProjectKey` ok; `resealFiles` true; the stored keystore afterwards `v:2, kid:2`, keys `alg,iters,kid,salt,v,wrap_iv,wrapped_dek` — no `retired`, no `rotating` — **pass** | the keystore row |
+| K-2 | a fresh session: the old passphrase refused (`{"ok":false,"firstUse":false}`), the new one opens; both files read back as written under key 2 — **pass** | the bytes |
+
+Lessons from the harness, not the product: `POST /cde/:key/containers` makes P01 itself (an attach is P02), the version route
+is `/cde/containers/:id/versions`, and a first run that sealed blobs without registering versions re-sealed 0 files — the
+rotation walks versions' `file_ref`, exactly as designed, so an unregistered blob is not a file.
+
+**Owed:** K-3 (a rotation interrupted mid-walk and resumed — offline-pinned in the bridge tests, not run live), the Rotate key
+button in the founder's own hand (the passphrase prompts), the 2021–2027 live rows.
+
+**Closing list:** 4101 and web-dev stay up for the founder; `sec8-smoke` and its scratch containers/versions stay as the
+founder's scratch; the scratch keystore holds a passphrase no one knows (the project is scratch — delete or re-make it).
