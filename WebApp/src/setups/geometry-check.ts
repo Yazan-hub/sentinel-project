@@ -2,9 +2,10 @@
 // ledger row (cde-store attachGeometry, Sentinel's own row) records the sha256 of the bytes it uploaded as that item; a
 // download is checked against it before it is loaded, and a mismatch is said in words, never shown.
 
-/** A version's "geometry linked" ledger row, as GET /cde/:key/audit answers it (new_value only). */
+/** A version's "geometry linked" ledger row, as GET /cde/:key/audit answers it (new_value only). `version_tag` (SEC-7) is the
+ *  platform version tag the bridge uploaded the bytes under. */
 export interface GeometryLinkRow {
-  new_value?: { platform_item_id?: string; frag_sha256?: string; ifc_sha256?: string; ifc_item_id?: string } | null;
+  new_value?: { platform_item_id?: string; frag_sha256?: string; ifc_sha256?: string; ifc_item_id?: string; version_tag?: string } | null;
 }
 
 export type GeometryCheck = { load: true; checked: boolean; line: string } | { load: false; line: string };
@@ -23,6 +24,11 @@ export function linkedHash(row: GeometryLinkRow | null): string | null {
   if (nv?.frag_sha256) return nv.frag_sha256.toLowerCase();
   if (nv?.ifc_item_id) return (nv.ifc_sha256 ?? "").toLowerCase();
   return null;
+}
+
+/** The platform version tag the link recorded (SEC-7: Open 3D downloads that tag), or null for a link made before it. */
+export function linkedTag(row: GeometryLinkRow | null): string | null {
+  return row?.new_value?.version_tag || null;
 }
 
 /** The tag of an item's first platform version when it has more than one, else null. The platform lists versions
