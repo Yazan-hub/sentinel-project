@@ -2254,3 +2254,21 @@ Also seen: Promote's MA-3b6 question read `File 3 changeset(s)?` (nothing declin
 **Closing list:** Revit closed without saving (the re-binding to `ma3b3` lived in the unsaved model only; the copy on disk is MA3b3's); the
 three new storeys stay proposed on `ma3b3` (the founder's scratch — decline or withdraw them); the add-in's config restored
 (`bcf-config.json.bak-ma3d`).
+
+## Session MA3d2 — the proposal model, live (2026-10-07 ~20:45 → 21:15 local, merged 73d692c / web 1.0.55, Claude driving the test bridge and the local app alone)
+
+Setup: the test bridge 4101 on the branch; a changeset of 2 walls + 1 door typed onto `sec8-smoke` (storey "MA3d2 drill · proposal model ·
+Level 1"); after the merge the 4100 bridge restarted on master and the web 1.0.55 published; the web row driven in a fresh Chrome tab on the
+local app (the founder's tab was left alone — its iframe still ran the pre-merge code).
+
+| Row | Result | Evidence |
+|---|---|---|
+| P-1 | `GET /changesets/sec8-smoke/<id>/proposal.frag`: `200 application/octet-stream`, 2,349 bytes, header `X-Sentinel-Proposal: {"creates":3,"drawn":2,"skipped":[…door…],"skipped_total":1}` (ASCII-escaped; an em dash in the first build made Node throw ERR_INVALID_CHAR → 500, fixed in review) — **pass** | the reply |
+| P-2 | a retype-only changeset: `409` "this changeset proposes no wall, floor, roof or ceiling to draw…" — **pass** | the reply |
+| W-1 | the desk ▸ Refresh ▸ "Show creates in 3D" on the Level 1 storey: two orange boxes in the viewer beside the empty scene; the words `Showing 2 of 3 proposed create(s) as a proposal model in orange — boxes from the proposal's lines and boundaries … Not drawn: MA3d2 door: a door — not drawn (the proposal model draws walls, floors, roofs and ceilings as boxes)`; "Hide creates" removed them — **pass** | the screenshot |
+
+**Owed:** the frame check beside a *published* wall (needs a project with published geometry and a create at a known place) — the founder's
+session; slab polygons, door boxes and levels from the model are MA-3d2's Next.
+
+**Closing list:** the drill changeset stays proposed on `sec8-smoke` (decline or withdraw it on the desk); my Chrome tab closed; 4100 on
+master since ~20:58 — the Funnel refresh is the founder's.
