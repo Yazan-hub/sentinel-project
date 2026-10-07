@@ -65,7 +65,7 @@ const warnNullOrigin = (referer) => {
 // EIR/BEP documents are text, not IFC models — cap far below the 2 GB upload cap so one huge upload can't hold
 // an ingest request open indefinitely feeding sequential local-model calls (see MAX_INGEST_CHUNKS in bimdocs-ingest.mjs).
 const MAX_DOC_UPLOAD = (Number(process.env.SENTINEL_MAX_DOC_MB) || 32) * 1024 * 1024;
-// Encrypted CDE attachments (POST /cde/files): drawings and documents, not models — far below the 2 GB upload cap (request-limits uploadCap). H0 (cde-8).
+// Encrypted CDE attachments (POST /cde/files): drawings and documents, not models — far below the model upload cap (request-limits uploadCap). H0 (cde-8).
 const MAX_BLOB = (Number(process.env.SENTINEL_MAX_BLOB_MB) || 100) * 1024 * 1024;
 
 // Crash-safe JSON persistence: write a temp file then atomically rename, so a crash mid-write can never

@@ -8,8 +8,10 @@ const MB = 1024 * 1024;
 
 /** A JSON body is parsed whole in memory: 16 MB by default, BCF_MAX_JSON_MB overrides. */
 export const jsonCap = () => (Number(process.env.BCF_MAX_JSON_MB) || 16) * MB;
-/** A raw upload (an IFC, an encrypted blob) is held whole in memory: 2 GB by default, BCF_MAX_UPLOAD_MB overrides. */
-export const uploadCap = () => (Number(process.env.BCF_MAX_UPLOAD_MB) || 2048) * MB;
+/** A model upload (an IFC) is held whole in memory: 1 GB by default (SEC-7, founder decision C-a — a reading and its copy
+ *  are twice the body), BCF_MAX_UPLOAD_MB overrides (config/.env.template names it). Attachments and documents have their
+ *  own lower caps (bcf-service.mjs MAX_BLOB, MAX_DOC_UPLOAD). */
+export const uploadCap = () => (Number(process.env.BCF_MAX_UPLOAD_MB) || 1024) * MB;
 /** Bodies that are a prompt or a few fields (/ai/*, compile-ids): nothing real comes near 1 MB. */
 export const SMALL_JSON = 1 * MB;
 
@@ -126,7 +128,7 @@ export async function readBody(req, { max = jsonCap() } = {}) {
 export const readRaw = (req, { max = uploadCap() } = {}) => readBytes(req, max, null);
 
 // At most two large uploads at once across the bridge, one per caller. ponytail: every upload is held whole in memory
-// (2 × 2 GB worst case); stream to a temp file if uploads ever need to run wider.
+// (three bodies at the cap worst case — two signed-in and the machine's); stream to a temp file if uploads ever need to run wider.
 const MAX_UPLOADS = 2;
 const uploading = new Set();
 
