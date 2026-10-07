@@ -304,7 +304,7 @@ describe("MA-3d — Highlight in 3D: the plan and its words", () => {
 });
 
 describe("MA-3d2 — the proposal model's words", () => {
-  const head = (d: number, c: number) => `Showing ${d} of ${c} proposed create(s) as a proposal model in orange — boxes from the proposal's lines and boundaries (a wall or slab whose thickness was not sent is sketched at 200 mm; a create that named only its level sits at elevation 0 here); the executor places the real shapes at Apply. Not part of any published version — Hide creates removes it.`;
+  const head = (d: number, c: number) => `Showing ${d} of ${c} proposed create(s) as a proposal model in orange — walls as boxes on their lines, floors, roofs and ceilings as their outlines, doors and windows as their openings' boxes turned to the wall under them (a thickness not sent is sketched at 200 mm, a door with no size in its type name at 915 x 2134, a window at 1000 x 1000 on a 900 sill; a level no element of this changeset stands on sits at elevation 0 here); the executor places the real shapes at Apply. Not part of any published version — Hide creates removes it.`;
   const door = "D1: a door — not drawn (the proposal model draws walls, floors, roofs and ceilings as boxes)";
   it("one changeset with a skipped create", () => {
     expect(proposalWords([{ creates: 3, drawn: 2, skipped: [door] }], [], false)).toBe(`${head(2, 3)} Not drawn: ${door}.`);
