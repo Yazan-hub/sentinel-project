@@ -34,6 +34,13 @@ public sealed class ChangesetReviewWindow : Window
     public event Action<ChangesetElementDto> ShowRequested;
     /// <summary>MA-3b: "Retry report" — the results the bridge has not taken yet.</summary>
     public event Action RetryRequested;
+    /// <summary>MA-3c: every row's state after a tick, a group tick, a Lock or Apply — the ghost overlay recolours from it.</summary>
+    public event Action<List<(ChangesetElementDto El, bool Ticked, bool Locked)>> TicksChanged;
+    /// <summary>MA-3c: every row's state, for the ghost overlay — locked = a declined row (its box disabled).</summary>
+    public List<(ChangesetElementDto El, bool Ticked, bool Locked)> RowStates() => _rows.Select(r => (r.El, r.Box.IsChecked == true, !r.Box.IsEnabled)).ToList();
+    /// <summary>MA-3c: Apply was pressed — the overlay goes; a Reopen draws it again.</summary>
+    public bool Applied => _applied;
+    private void Ticks() => TicksChanged?.Invoke(RowStates());
 
     private readonly List<(CheckBox Box, ChangesetElementDto El)> _rows = new();
     private readonly TextBox _note = new() { MinHeight = 40, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap };
@@ -246,6 +253,7 @@ public sealed class ChangesetReviewWindow : Window
         foreach (var h in _headers) h();
         int n = _rows.Count(r => r.Box.IsChecked == true);
         _go.Content = n == 0 ? "Decline all (needs a reason)" : $"Apply {n} ticked in Revit";
+        Ticks(); // MA-3c: the ghost overlay recolours
     }
 
     /// <summary>A create row (MA-1): kind and name, then family : type, level, and the numbers a reviewer checks. Rows of the
@@ -349,17 +357,17 @@ public sealed class ChangesetReviewWindow : Window
     public void Refused(string words) => Ui(() => { Say(words); _go.IsEnabled = !_applied; if (!_applied) Reasons(false); });
 
     /// <summary>MA-3b: the placement (or the decline) was started — Apply never comes back in this window. Any thread.</summary>
-    public void Applying(string words) => Ui(() => { _applied = true; _go.IsEnabled = false; Reasons(true); Say(words); });
+    public void Applying(string words) => Ui(() => { _applied = true; Ticks(); _go.IsEnabled = false; Reasons(true); Say(words); });
 
     /// <summary>Review C3, M3: nothing was placed after all (a "Go back", a refusal inside the placement, a request Revit did not take) —
     /// Apply comes back with the ticks and the note. Any thread.</summary>
-    public void Reopen(string words) => Ui(() => { _applied = false; _go.IsEnabled = true; Reasons(false); Say(words); });
+    public void Reopen(string words) => Ui(() => { _applied = false; _go.IsEnabled = true; Reasons(false); Say(words); Ticks(); }); // MA-3c review: the overlay comes back
 
     /// <summary>Review C3: rows declined on the web after the window opened — unticked and locked, as the rows declined before it opened. Any thread.</summary>
     public void Lock(IEnumerable<string> guids)
     {
         var set = new HashSet<string>(guids ?? Enumerable.Empty<string>(), StringComparer.Ordinal);
-        Ui(() => { foreach (var r in _rows.Where(x => x.El.ProposalGuid != null && set.Contains(x.El.ProposalGuid))) { r.Box.IsChecked = false; r.Box.IsEnabled = false; } });
+        Ui(() => { foreach (var r in _rows.Where(x => x.El.ProposalGuid != null && set.Contains(x.El.ProposalGuid))) { r.Box.IsChecked = false; r.Box.IsEnabled = false; } Ticks(); });
     }
 
     /// <summary>MA-3b: whether "Retry report" is offered. Any thread.</summary>

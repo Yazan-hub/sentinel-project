@@ -78,6 +78,7 @@ static partial class Check
         Ma3b5WiringChecks();
         Ma3b6WordChecks();
         Ma3b7Checks();
+        Ma3cChecks();
         FSec51WiringChecks();
         Sec7HubChecks();
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");

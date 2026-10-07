@@ -2214,3 +2214,23 @@ The outbox watcher, intake, federation and the MCP server default to loopback (`
 
 **Owed:** the real Funnel path with the token (not driven — the proof is the header the Funnel appends, as `clientAddress` and the
 receipt log already rely on); H6 and one rotation of the token (the founder's).
+
+## Session MA3c — the ghost overlay, live (2026-10-07 ~19:35 → 19:57 local, branch feature/ma3c-ghost-overlay, Claude driving Revit 2024 alone)
+
+Setup: the branch build deployed to Revit 2024 (Revit closed first); scratch copy `ma3c-a.rvt` of MA3b4's model (bound to `ma2a-ghost`),
+opened in Revit 2024 by its path; the add-in's bridge config points at the loopback bridge (PR-1). Two changesets filed through the test
+bridge: A — two wall creates 3 m outside the Ghost build's rectangle; B — one wall create inside its courtyard (`62000,63500 → 68000,63500`,
+GR-FFL, 0 → 3000 mm). The default 3D view `{3D}` open.
+
+| Row | Result | Evidence |
+|---|---|---|
+| O-4 | the review window's Show line: `2 of 2 proposed create(s) outlined in this model's 3D views — ticked green, unticked grey, declined red; nothing is written. Open a 3D view to see them; they go when this window closes or Apply places them.` (A), `1 of 1 …` (B) — **pass** | the words |
+| O-1 | B's wall: after Show zoomed `{3D}` onto it, a faint grey frame (base, top, two verticals) stands in the courtyard; the Doctor log: `Ghost overlay: asked for the 3D view "{3D}" — this model: True; 4 line(s)` and `Ghost overlay: drawn in "{3D}" — 4 line(s)` — **pass**. A's outlines were not spotted at the site zoom (1-px grey lines 3 m from the walls; the first build also lacked the Doctor lines) — the instrumentation was added for exactly this: a registered server is now told apart from lines out of sight | the zoom, the log |
+| O-2 | the row ticked (UIA): the frame turned green at once — **pass** | the zoom |
+| O-3 | the window closed: the removal ran through the hub with no `was not removed` line in the Doctor log; the Undo list was not read and the courtyard not re-inspected — the founder's Chrome came to the front and Revit was left alone — **pass on the log; the visual check owed** | the log |
+
+**Owed:** O-3's visual check and the Undo list; the two 1-px grey lines are faint at a site zoom — a thicker or dashed line, or a plan-view
+marker (TemporaryGraphicsManager, 2022+), is MA-3c's Next; Revit 2025–2027.
+
+**Closing list:** Revit 2024 left open on the scratch copy (the founder was at the PC); changesets A and B stay proposed on `ma2a-ghost`
+(the founder's scratch — decline or withdraw them on the web desk).

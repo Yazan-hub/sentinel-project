@@ -360,6 +360,62 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
         DialogOwner.Attach(window, ui); // house helper: owned by Revit's main window
         Hold();
         window.Closed += (_, _) => Release();
+        // MA-3c: the ghost overlay — the review's proposed creates drawn in this model's 3D views while the window is open; a tick
+        // recolours; closing the window or Apply removes it. Registered, updated and removed on Revit's thread through the hub (DocPin for
+        // the registration and the recolour: the model in front; the removal plain — the model may be gone). Nothing is written; every
+        // outcome is said on the window's Show line. A late recolour after the removal draws nothing: a removed server is not asked.
+        // Review: each create's level elevation (mm), resolved here on the API thread as the executor resolves it (LevelName, else
+        // BaseLevel, else the level nearest BaseElevation) — this model's levels, then the levels this changeset creates.
+        var levelMm = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        foreach (var lv in new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()) levelMm[lv.Name] = lv.Elevation * 304.8;
+        foreach (var lc in (cs.Elements ?? new List<ChangesetElementDto>()).Where(e => e.Op == "create" && e.Kind == "level" && e.Place?.Name != null && e.Place.BaseElevation != null))
+            if (!levelMm.ContainsKey(lc.Place.Name)) levelMm[lc.Place.Name] = lc.Place.BaseElevation.Value;
+        double? LevelOf(ChangesetElementDto e)
+        {
+            var name = !string.IsNullOrWhiteSpace(e.Place?.LevelName) ? e.Place.LevelName : e.Place?.BaseLevel;
+            if (!string.IsNullOrWhiteSpace(name)) return levelMm.TryGetValue(name, out var mm) ? mm : (double?)null;
+            if (e.Place?.BaseElevation is double be && levelMm.Count > 0) return levelMm.Values.OrderBy(v => Math.Abs(v - be)).First();
+            return null;
+        }
+        var drawable = (cs.Elements ?? new List<ChangesetElementDto>()).Where(GhostOverlayGeometry.Drawable).ToList();
+        int creates = drawable.Count, outlined = drawable.Count(e => GhostOverlayGeometry.Segments(e, true, false, LevelOf(e)).Count > 0);
+        var overlay = new GhostOverlayServer(doc, cs.Name, GhostOverlayGeometry.All(window.RowStates(), LevelOf));
+        var overlayOn = new[] { false };
+        var overlayFailed = false;
+        void OverlayOff(string why)
+        {
+            if (!overlayOn[0]) return;
+            overlayOn[0] = false;
+            App.Events.Enqueue(ua => { try { GhostOverlayServer.Remove(ua, overlay); } catch (Exception ex) { App.PanelVm?.LogDoctor($"Review AI Proposals: the ghost overlay was not removed ({why}) — {ex.GetType().Name}: {ex.Message}"); } }, "remove the ghost overlay");
+        }
+        // Review: the draw job checks the window first — closed or applied before Revit ran it, nothing is registered (nothing would
+        // remove it). overlayOn is set before Register, so a part-way registration is removed (here, and again when the window closes).
+        void OverlayDraw(List<GhostOverlayGeometry.Segment> segs) =>
+            App.Events.Enqueue(doc, "draw the ghost overlay", (ua, _) =>
+            {
+                if (window.Gone || window.Applied || overlayOn[0] || overlayFailed) return;
+                overlayOn[0] = true;
+                try { overlay.Update(segs); GhostOverlayServer.Register(ua, overlay); window.Shown(GhostOverlayGeometry.Line(creates, outlined)); }
+                catch (Exception ex)
+                {
+                    overlayFailed = true;
+                    OverlayOff("the registration failed");
+                    window.Shown($"The ghost overlay could not be drawn — {ex.GetType().Name}: {ex.Message}. The review works as before; Show still zooms to a row.");
+                }
+            }, refusal => window.Shown($"The ghost overlay was not drawn — {refusal}"));
+        if (outlined > 0) OverlayDraw(GhostOverlayGeometry.All(window.RowStates(), LevelOf));
+        else window.Shown(GhostOverlayGeometry.Line(creates, 0));
+        window.TicksChanged += states =>
+        {
+            if (outlined == 0) return;
+            if (window.Applied) { OverlayOff("Apply"); return; }
+            var segs = GhostOverlayGeometry.All(states, LevelOf);
+            // Review: not drawn yet (a refusal, or removed at Apply and the window reopened) — drawn now; else recoloured. The recolour
+            // touches no Document, so it needs no DocPin: it runs whichever model is in front.
+            if (!overlayOn[0]) { OverlayDraw(segs); return; }
+            App.Events.Enqueue(ua => { overlay.Update(segs); ua.ActiveUIDocument?.RefreshActiveView(); }, "recolour the ghost overlay");
+        };
+        window.Closed += (_, _) => OverlayOff("the window closed");
         var here = DocOf(doc);
         var left = new List<UnreportedResults.Record>(); // what Retry report sends again
         // Review C13: a decline that did not land lives only in this window (E4) — closing it loses it, said.
