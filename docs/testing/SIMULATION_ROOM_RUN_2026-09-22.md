@@ -2192,3 +2192,25 @@ pinned offline (promote-check 54, 838/838). The door's log: `held POST /changese
 **Closing list:** Revit closed without saving (the scratch copy keeps the 4 walls only in memory — discarded); the door and the 4102 bridge
 stopped; the add-in's bridge config restored from `bcf-config.json.bak-ma3b7`. Left on the shared ledger (a scratch key): on `ma2a-ghost`
 one Ghost changeset (applied, 4 elements) and its rows. Left on this PC: `Documents\Sentinel drills\ma3b7\ma3b7-a.rvt` (unchanged on disk).
+
+## Session PR1 — the machine credential is this PC's alone, live (2026-10-07 ~19:10 → 19:20 local, branch feature/pr1-machine-credential-this-pc d211839, Claude driving the test bridge alone)
+
+Setup: the founder's words "go, production readiness". The test bridge 4101 on the branch; the rows sent with the machine credential
+through a helper that adds `X-Forwarded-For` the way the Funnel appends it (a proxy in front). The 4100 bridge is restarted on master
+after the merge (the rule is the same code).
+
+| Row | Result | Evidence |
+|---|---|---|
+| M-1 | the token from a loopback socket with no proxy header: `GET /projects` `200` — Revit on this PC, the outbox watcher, the MCP server and scripts as before — **pass** | the reply |
+| M-2 | the token behind a proxy header (`X-Forwarded-For: 203.0.113.9`): `403` "the machine credential is accepted only from this PC — from the internet or another PC, sign in (a person's session); nothing was read or saved" — **pass** | the words |
+| M-3 | a write behind the header (`POST /cde/sec8-smoke/audit`, two hops in the header): the same `403`, nothing written — **pass** | the words |
+| M-4 | `GET /health` behind the header: `200` (exempt, as before) — **pass** | the reply |
+
+Offline: gate-limits.test.mjs pins M-1…M-4 and that a signed-in session behind the proxy is not refused by this rule; 2689 tests.
+
+**Said to the founder:** this PC's add-in config points at the Funnel hostname with the machine token in it, so a signed-out Revit on this
+PC now meets the 403 until that config points at `http://127.0.0.1:4100` (a signed-in Revit is unchanged: it sends the person's JWT).
+The outbox watcher, intake, federation and the MCP server default to loopback (`BCF_BASE`).
+
+**Owed:** the real Funnel path with the token (not driven — the proof is the header the Funnel appends, as `clientAddress` and the
+receipt log already rely on); H6 and one rotation of the token (the founder's).

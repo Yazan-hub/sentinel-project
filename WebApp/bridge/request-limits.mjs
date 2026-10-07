@@ -154,7 +154,13 @@ export function holdUpload(req, res, sub) {
   res.once("close", release);
 }
 
-const LOOPBACK = /^(127\.\d{1,3}\.\d{1,3}\.\d{1,3}|::1|localhost)$/;
+export const LOOPBACK = /^(127\.\d{1,3}\.\d{1,3}\.\d{1,3}|::1|localhost)$/;
+/** PR-1 (production readiness, S18): did this request come from this PC — a loopback socket with no proxy in front? The Funnel
+ *  (and any proxy) appends X-Forwarded-For; a direct loopback caller (Revit on this PC, the outbox watcher, the MCP server, a
+ *  script) sends none. The machine credential is accepted only here. Fail-safe: a caller that writes the header itself only
+ *  refuses itself. */
+export const fromThisPc = (req) =>
+  !req.headers?.["x-forwarded-for"] && LOOPBACK.test(String(req.socket?.remoteAddress || "").replace(/^::ffff:/, ""));
 /** Why the bridge must not start, or null. The gate is armed whatever the bind (SEC-1): a loopback bridge can still be
  *  published beyond this PC, so an empty (or blank) BCF_TOKEN stops it. Bound beyond loopback it must also verify a sign-in
  *  (SUPABASE_JWT_SECRET) and forward it (SUPABASE_ANON_KEY). */
