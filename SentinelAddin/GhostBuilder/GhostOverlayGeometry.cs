@@ -17,12 +17,20 @@ namespace Sentinel.GhostBuilder
         {
             public double[] A; public double[] B; public byte R, G, Bl;
         }
+        /// <summary>MA-3c Next: one translucent triangle of the overlay (mm) — a wall's sheet, a slab's fan, a point family's small panels.
+        /// DirectContext3D draws every line one pixel wide, so a face is what reads at a site zoom.</summary>
+        public sealed class Tri
+        {
+            public double[] A; public double[] B; public double[] C; public byte R, G, Bl;
+        }
         /// <summary>The colour of a row's state: ticked green, unticked grey, declined (locked) red.</summary>
         public static (byte R, byte G, byte B) Colour(bool ticked, bool locked) => locked ? ((byte)200, (byte)60, (byte)60) : ticked ? ((byte)0, (byte)170, (byte)90) : ((byte)140, (byte)140, (byte)140);
         /// <summary>A wall whose top the proposal did not send is sketched this high (mm) — the executor decides the real top at Apply.</summary>
         public const double SketchHeightMm = 3000;
         public const int ArcChords = 16;
         public const double PointCrossMm = 600;
+        /// <summary>A face's transparency for Revit (0 opaque … 255 invisible): the model shows through.</summary>
+        public const byte FaceTransparency = 150;
 
         public static bool IsCreate(ChangesetElementDto el) => el != null && el.Op == "create" && el.Place != null;
 
@@ -79,6 +87,59 @@ namespace Sentinel.GhostBuilder
             }
         }
 
+        /// <summary>MA-3c Next: the faces of a create — a wall's sheet between base and top along each chord; a floor's, roof's or
+        /// ceiling's outline as a fan from its first point (ponytail: a fan over-covers a concave outline; ear-clipping if it matters);
+        /// a door's or window's two small upright panels at its point. Both windings, so the face shows from either side.</summary>
+        public static List<Tri> Tris(ChangesetElementDto el, bool ticked, bool locked, double? levelMm = null)
+        {
+            var tris = new List<Tri>();
+            if (!IsCreate(el)) return tris;
+            var (r, g, b) = Colour(ticked, locked);
+            var p = el.Place;
+            bool Ok(double[] q) => q != null && q.Length >= 2;
+            void Quad(double[] a, double[] c, double[] d, double[] e) // a→c→d→e around the face
+            {
+                tris.Add(new Tri { A = a, B = c, C = d, R = r, G = g, Bl = b }); tris.Add(new Tri { A = a, B = d, C = e, R = r, G = g, Bl = b });
+                tris.Add(new Tri { A = a, B = d, C = c, R = r, G = g, Bl = b }); tris.Add(new Tri { A = a, B = e, C = d, R = r, G = g, Bl = b });
+            }
+            switch (el.Kind)
+            {
+                case "wall":
+                {
+                    var c = p.LocationCurve; if (c == null || !Ok(c.Start) || !Ok(c.End)) return tris;
+                    double z0 = p.BaseElevation ?? levelMm ?? Z(c.Start, p), z1 = p.TopElevation ?? z0 + SketchHeightMm;
+                    var pts = Ok(c.Mid) ? Arc(c.Start, c.Mid, c.End) : new List<double[]> { c.Start, c.End };
+                    for (int i = 0; i + 1 < pts.Count; i++) Quad(At(pts[i], z0), At(pts[i + 1], z0), At(pts[i + 1], z1), At(pts[i], z1));
+                    return tris;
+                }
+                case "floor": case "ceiling": case "roof":
+                {
+                    var loop = (el.Kind == "floor" ? p.LocationLoop : p.Boundary)?.Where(Ok).ToList();
+                    if (loop == null || loop.Count < 3) return tris;
+                    double z = (levelMm ?? p.BaseElevation ?? Z(loop[0], p)) + (el.Kind == "roof" ? p.BaseOffset ?? 0 : el.Kind == "ceiling" ? p.Offset ?? 0 : 0);
+                    for (int i = 1; i + 1 < loop.Count; i++)
+                    {
+                        tris.Add(new Tri { A = At(loop[0], z), B = At(loop[i], z), C = At(loop[i + 1], z), R = r, G = g, Bl = b });
+                        tris.Add(new Tri { A = At(loop[0], z), B = At(loop[i + 1], z), C = At(loop[i], z), R = r, G = g, Bl = b });
+                    }
+                    return tris;
+                }
+                case "door": case "window":
+                {
+                    var q = p.Location; if (!Ok(q)) return tris;
+                    double z = Z(q, p), h = PointCrossMm / 2;
+                    Quad(new[] { q[0] - h, q[1], z }, new[] { q[0] + h, q[1], z }, new[] { q[0] + h, q[1], z + PointCrossMm }, new[] { q[0] - h, q[1], z + PointCrossMm });
+                    Quad(new[] { q[0], q[1] - h, z }, new[] { q[0], q[1] + h, z }, new[] { q[0], q[1] + h, z + PointCrossMm }, new[] { q[0], q[1] - h, z + PointCrossMm });
+                    return tris;
+                }
+                default: return tris; // a grid is a line; a level has no shape
+            }
+        }
+
+        /// <summary>Every face of a review, from its rows' states.</summary>
+        public static List<Tri> AllTris(IEnumerable<(ChangesetElementDto El, bool Ticked, bool Locked)> rows, Func<ChangesetElementDto, double?> levelMm = null) =>
+            (rows ?? Array.Empty<(ChangesetElementDto, bool, bool)>()).SelectMany(x => Tris(x.El, x.Ticked, x.Locked, levelMm?.Invoke(x.El))).ToList();
+
         /// <summary>Every segment of a review, from its rows' states.</summary>
         public static List<Segment> All(IEnumerable<(ChangesetElementDto El, bool Ticked, bool Locked)> rows, Func<ChangesetElementDto, double?> levelMm = null) =>
             (rows ?? Array.Empty<(ChangesetElementDto, bool, bool)>()).SelectMany(x => Segments(x.El, x.Ticked, x.Locked, levelMm?.Invoke(x.El))).ToList();
@@ -95,7 +156,7 @@ namespace Sentinel.GhostBuilder
         public static string Line(int creates, int drawn) => creates == 0
             ? "No ghost to draw: this review proposes no create (a retype or attach changes an element that exists — Show selects it)."
             : drawn == 0 ? $"No ghost to draw: the {creates} proposed create(s) carry no points to draw from."
-            : $"{drawn} of {creates} proposed create(s) outlined in this model's 3D views — ticked green, unticked grey, declined red; nothing is written. Open a 3D view to see them; they go when this window closes or Apply places them.";
+            : $"{drawn} of {creates} proposed create(s) outlined in this model's 3D views, plans and sections — a see-through face and its edges, ticked green, unticked grey, declined red; nothing is written. Open one to see them; they go when this window closes or Apply places them.";
 
         static double Z(double[] q, PlaceDto p) => q.Length >= 3 ? q[2] : p.BaseElevation ?? 0;
         static double[] At(double[] q, double z) => new[] { q[0], q[1], z };

@@ -21,13 +21,16 @@ namespace Sentinel.GhostBuilder
         private VertexBuffer _vb; private IndexBuffer _ib; private int _vertices, _lines;
         private VertexFormat _format; private EffectInstance _effect;
 
-        public GhostOverlayServer(Document doc, string title, List<GhostOverlayGeometry.Segment> segments)
+        private List<GhostOverlayGeometry.Tri> _tris = new List<GhostOverlayGeometry.Tri>();
+        private VertexBuffer _tvb; private IndexBuffer _tib; private int _triCount, _triVertices; private EffectInstance _teffect;
+        private readonly HashSet<ViewType> _askedIn = new HashSet<ViewType>(), _drawnIn = new HashSet<ViewType>();
+        public GhostOverlayServer(Document doc, string title, List<GhostOverlayGeometry.Segment> segments, List<GhostOverlayGeometry.Tri> tris = null)
         { _doc = doc; _title = title ?? ""; _segments = segments ?? new List<GhostOverlayGeometry.Segment>(); }
 
         /// <summary>New segments (a tick, a lock): the buffers are rebuilt on the next frame.</summary>
-        public void Update(List<GhostOverlayGeometry.Segment> segments) { _segments = segments ?? new List<GhostOverlayGeometry.Segment>(); Drop(); }
+        public void Update(List<GhostOverlayGeometry.Segment> segments, List<GhostOverlayGeometry.Tri> tris = null) { _segments = segments ?? new List<GhostOverlayGeometry.Segment>(); _tris = tris ?? new List<GhostOverlayGeometry.Tri>(); Drop(); }
         public int Count => _segments.Count;
-        private void Drop() { _vb?.Dispose(); _ib?.Dispose(); _format?.Dispose(); _effect?.Dispose(); _vb = null; _ib = null; _format = null; _effect = null; }
+        private void Drop() { _vb?.Dispose(); _ib?.Dispose(); _tvb?.Dispose(); _tib?.Dispose(); _teffect?.Dispose(); _format?.Dispose(); _effect?.Dispose(); _teffect = null; _vb = null; _ib = null; _tvb = null; _tib = null; _triCount = 0; _format = null; _effect = null; }
 
         public Guid GetServerId() => _id;
         public ExternalServiceId GetServiceId() => ExternalServices.BuiltInExternalServices.DirectContext3DService;
@@ -37,16 +40,16 @@ namespace Sentinel.GhostBuilder
         public string GetApplicationId() => "";
         public string GetSourceId() => "";
         public bool UsesHandles() => false;
-        private bool _asked, _drawn;
         // MA-3c: the overlay says once that Revit asked it and once that it drew — a person (and a drill) can tell a registered server that is
         // never asked from one whose lines sit out of sight. The pane's LogDoctor marshals itself (MA-3b8), so the render thread may call it.
         public bool CanExecute(View view)
         {
-            bool is3d = view is View3D, same = _doc.IsValidObject && view.Document != null && view.Document.Equals(_doc);
-            if (!_asked && is3d) { _asked = true; try { Sentinel.App.PanelVm?.LogDoctor($"Ghost overlay: asked for the 3D view \"{view.Name}\" — this model: {same}; {_segments.Count} line(s)"); } catch { /* no pane */ } }
-            return is3d && same && _segments.Count > 0;
+            // MA-3c Next: a plan or section is asked too — whether Revit draws DirectContext3D there is Revit's to say; the Doctor line names the view's type.
+            bool fits = view is View3D || view is ViewPlan || view is ViewSection, same = _doc.IsValidObject && view.Document != null && view.Document.Equals(_doc);
+            if (fits && _askedIn.Add(view.ViewType)) { try { Sentinel.App.PanelVm?.LogDoctor($"Ghost overlay: asked for the {view.ViewType} view \"{view.Name}\" — this model: {same}; {_segments.Count} line(s), {_tris.Count} face(s)"); } catch { /* no pane */ } }
+            return fits && same && _segments.Count > 0;
         }
-        public bool UseInTransparentPass(View view) => false;
+        public bool UseInTransparentPass(View view) => _tris.Count > 0;
         public Outline GetBoundingBox(View view)
         {
             var b = GhostOverlayGeometry.Bounds(_segments);
@@ -54,10 +57,15 @@ namespace Sentinel.GhostBuilder
         }
         public void RenderScene(View view, DisplayStyle displayStyle)
         {
-            if (DrawContext.IsTransparentPass() || _segments.Count == 0) return;
+            if (_segments.Count == 0) return;
             if (_vb == null || !_vb.IsValid() || _ib == null || !_ib.IsValid()) Build();
+            if (DrawContext.IsTransparentPass())
+            {
+                if (_triCount > 0) DrawContext.FlushBuffer(_tvb, _triVertices, _tib, 3 * _triCount, _format, _teffect, PrimitiveType.TriangleList, 0, _triCount);
+                return;
+            }
             DrawContext.FlushBuffer(_vb, _vertices, _ib, 2 * _lines, _format, _effect, PrimitiveType.LineList, 0, _lines);
-            if (!_drawn) { _drawn = true; try { Sentinel.App.PanelVm?.LogDoctor($"Ghost overlay: drawn in \"{view.Name}\" — {_lines} line(s)"); } catch { /* no pane */ } }
+            if (_drawnIn.Add(view.ViewType)) { try { Sentinel.App.PanelVm?.LogDoctor($"Ghost overlay: drawn in the {view.ViewType} view \"{view.Name}\" — {_lines} line(s), {_triCount} face(s)"); } catch { /* no pane */ } }
         }
         private void Build()
         {
@@ -80,6 +88,24 @@ namespace Sentinel.GhostBuilder
             var ls = _ib.GetIndexStreamLine();
             for (int i = 0; i < _lines; i++) ls.AddLine(new IndexLine(2 * i, 2 * i + 1));
             _ib.Unmap();
+            _triCount = _tris.Count; _triVertices = 3 * _triCount;
+            if (_triCount == 0) return;
+            // Review (drill MA3cN): the vertex alpha alone drew the sheet solid — Revit blends by the effect's transparency.
+            _teffect = new EffectInstance(VertexFormatBits.PositionColored); _teffect.SetTransparency(GhostOverlayGeometry.FaceTransparency / 255.0);
+            _tvb = new VertexBuffer(VertexPositionColored.GetSizeInFloats() * _triVertices);
+            _tvb.Map(VertexPositionColored.GetSizeInFloats() * _triVertices);
+            var ts = _tvb.GetVertexStreamPositionColored();
+            foreach (var t in _tris)
+            {
+                var c = new ColorWithTransparency(t.R, t.G, t.Bl, GhostOverlayGeometry.FaceTransparency);
+                ts.AddVertex(new VertexPositionColored(Ft(t.A), c)); ts.AddVertex(new VertexPositionColored(Ft(t.B), c)); ts.AddVertex(new VertexPositionColored(Ft(t.C), c));
+            }
+            _tvb.Unmap();
+            _tib = new IndexBuffer(IndexTriangle.GetSizeInShortInts() * _triCount);
+            _tib.Map(IndexTriangle.GetSizeInShortInts() * _triCount);
+            var tst = _tib.GetIndexStreamTriangle();
+            for (int i = 0; i < _triCount; i++) tst.AddTriangle(new IndexTriangle(3 * i, 3 * i + 1, 3 * i + 2));
+            _tib.Unmap();
         }
         private static XYZ Ft(double[] mm) => new XYZ(mm[0] * MmToFeet, mm[1] * MmToFeet, mm[2] * MmToFeet);
 

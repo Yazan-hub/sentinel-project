@@ -379,7 +379,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
         }
         var drawable = (cs.Elements ?? new List<ChangesetElementDto>()).Where(GhostOverlayGeometry.Drawable).ToList();
         int creates = drawable.Count, outlined = drawable.Count(e => GhostOverlayGeometry.Segments(e, true, false, LevelOf(e)).Count > 0);
-        var overlay = new GhostOverlayServer(doc, cs.Name, GhostOverlayGeometry.All(window.RowStates(), LevelOf));
+        var overlay = new GhostOverlayServer(doc, cs.Name, GhostOverlayGeometry.All(window.RowStates(), LevelOf), GhostOverlayGeometry.AllTris(window.RowStates(), LevelOf));
         var overlayOn = new[] { false };
         var overlayFailed = false;
         void OverlayOff(string why)
@@ -390,12 +390,12 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
         }
         // Review: the draw job checks the window first — closed or applied before Revit ran it, nothing is registered (nothing would
         // remove it). overlayOn is set before Register, so a part-way registration is removed (here, and again when the window closes).
-        void OverlayDraw(List<GhostOverlayGeometry.Segment> segs) =>
+        void OverlayDraw(List<GhostOverlayGeometry.Segment> segs, List<GhostOverlayGeometry.Tri> tris) =>
             App.Events.Enqueue(doc, "draw the ghost overlay", (ua, _) =>
             {
                 if (window.Gone || window.Applied || overlayOn[0] || overlayFailed) return;
                 overlayOn[0] = true;
-                try { overlay.Update(segs); GhostOverlayServer.Register(ua, overlay); window.Shown(GhostOverlayGeometry.Line(creates, outlined)); }
+                try { overlay.Update(segs, tris); GhostOverlayServer.Register(ua, overlay); window.Shown(GhostOverlayGeometry.Line(creates, outlined)); }
                 catch (Exception ex)
                 {
                     overlayFailed = true;
@@ -403,17 +403,17 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                     window.Shown($"The ghost overlay could not be drawn — {ex.GetType().Name}: {ex.Message}. The review works as before; Show still zooms to a row.");
                 }
             }, refusal => window.Shown($"The ghost overlay was not drawn — {refusal}"));
-        if (outlined > 0) OverlayDraw(GhostOverlayGeometry.All(window.RowStates(), LevelOf));
+        if (outlined > 0) OverlayDraw(GhostOverlayGeometry.All(window.RowStates(), LevelOf), GhostOverlayGeometry.AllTris(window.RowStates(), LevelOf));
         else window.Shown(GhostOverlayGeometry.Line(creates, 0));
         window.TicksChanged += states =>
         {
             if (outlined == 0) return;
             if (window.Applied) { OverlayOff("Apply"); return; }
-            var segs = GhostOverlayGeometry.All(states, LevelOf);
+            var segs = GhostOverlayGeometry.All(states, LevelOf); var tris = GhostOverlayGeometry.AllTris(states, LevelOf);
             // Review: not drawn yet (a refusal, or removed at Apply and the window reopened) — drawn now; else recoloured. The recolour
             // touches no Document, so it needs no DocPin: it runs whichever model is in front.
-            if (!overlayOn[0]) { OverlayDraw(segs); return; }
-            App.Events.Enqueue(ua => { overlay.Update(segs); ua.ActiveUIDocument?.RefreshActiveView(); }, "recolour the ghost overlay");
+            if (!overlayOn[0]) { OverlayDraw(segs, tris); return; }
+            App.Events.Enqueue(ua => { overlay.Update(segs, tris); ua.ActiveUIDocument?.RefreshActiveView(); }, "recolour the ghost overlay");
         };
         window.Closed += (_, _) => OverlayOff("the window closed");
         var here = DocOf(doc);
