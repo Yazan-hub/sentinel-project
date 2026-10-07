@@ -61,5 +61,10 @@ static partial class Check
         Ok(win.Contains("_build.IsEnabled = !_building && ticked.Count > 0;") && At(win, "_building = true;") > At(win, "public void Build()")
            && At(win, "_building = false;") > At(win, "public void Reopen("),
            "review: a tick during the filing does not turn Build back on — one build at a time");
+        // ── MA-3b8 — the C1e audit of GovernedNotify.Report: the Doctor line goes straight to the pane, which marshals itself ──
+        string gn = Src("Coordination", "GovernedNotify.cs"), vm = Src("UI", "SentinelPanelViewModel.cs");
+        Ok(!gn.Contains("Dispatcher.CurrentDispatcher") && !gn.Contains("ui.BeginInvoke(") && gn.Contains("void Say(LedgerResult ledger) { try { Sentinel.App.PanelVm?.LogDoctor(")
+           && vm.Contains("if (_ui.CheckAccess()) a();") && vm.Contains("else _ui.BeginInvoke(a);") && vm.Contains("public void LogDoctor(string line, int resolved = 0) => OnUi(() =>"),
+           "MA-3b8 (C1e audit): Report's Doctor line is given to the pane directly — LogDoctor marshals to the pane's own dispatcher, so a report from any thread lands; no CurrentDispatcher of the caller's thread");
     }
 }

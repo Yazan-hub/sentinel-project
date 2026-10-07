@@ -110,8 +110,9 @@ static partial class Check
         string notify = Src("Coordination", "GovernedNotify.cs");
         int at = notify.IndexOf("public static void Report(string what, object payload, string projectKey, System.Windows.Threading.Dispatcher? ui = null)", StringComparison.Ordinal);
         string body = at < 0 ? "" : notify.Substring(at, notify.IndexOf("\n        }", at, StringComparison.Ordinal) - at);
-        Ok(at > 0 && body.Contains("Task.Run(() => Event(\"/audit\", payload, key))") && body.Contains(".BeginInvoke("),
-           "GovernedNotify.Report posts on a pool thread and logs to the pane through BeginInvoke");
+        // MA-3b8 (C1e audit): the pane marshals itself (LogDoctor → OnUi), so Report hands the line over directly — no BeginInvoke of its own.
+        Ok(at > 0 && body.Contains("Task.Run(() => Event(\"/audit\", payload, key))") && !body.Contains(".BeginInvoke(") && body.Contains("PanelVm?.LogDoctor("),
+           "GovernedNotify.Report posts on a pool thread and hands the Doctor line to the pane, which marshals to its own dispatcher (MA-3b8)");
         Ok(at > 0 && !body.Contains("GetAwaiter") && !body.Contains(".Wait(") && !body.Contains(".Result;") && !body.Contains("TaskDialog"),
            "…and never waits for the bridge or shows a dialog: no command is blocked or delayed by the ledger");
         Ok(body.Contains("LedgerResult.NotBound()"), "an unbound model sends nothing and says so in the pane log");
