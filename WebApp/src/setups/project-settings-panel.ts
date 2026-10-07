@@ -3,7 +3,7 @@ import { bfetch } from "./bridge-fetch";
 import { activePid, setActiveProjectKey, onActiveProjectChange, platformProjectId } from "./active-project";
 import { getAppManager } from "../app";
 import { publishContractToPlatform, mirrorLine, type ContractClient } from "./platform-contract";
-import { myRole, myRoleRead, roleWords, canGovernRole } from "./my-role";
+import { myRole, myRoleRead, roleWords, canGovernRole, canDeleteProjectRole, grantableRoles } from "./my-role";
 import { loadScope } from "./load-scope";
 import { artefactInForce, refLabel, installArtefactFile, canInstallArtefacts, type InForce } from "./active-ruleset";
 import { currentUser } from "./auth";
@@ -76,8 +76,9 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
     "</div>" +
     '<div style="display:flex;align-items:center;gap:.6rem;margin-top:.7rem;border-top:1px dashed #7f1d1d55;padding-top:.7rem">' +
     '<div style="flex:1;color:#9ca3af;font-size:11.5px">Delete removes the project and its files/versions permanently. The immutable audit trail survives. Projects with <b>published</b> versions cannot be deleted — archive them.<br>' +
-    '<span style="color:#71717a">Type the project key to confirm:</span></div>' +
+    '<span id="ps-confirm-words" style="color:#71717a">Type the project key to confirm:</span></div>' +
     `<input id="ps-confirm" style="${inp};width:9rem" placeholder="project key"/>` +
+    '<span id="ps-delete-owner" style="display:none;color:#fca5a5;font-size:11.5px"></span>' +
     `<button id="ps-delete" disabled style="${btn};background:#3a1f1f;border-color:#7f1d1d;color:#fca5a5;opacity:.5;cursor:not-allowed">Delete project</button>` +
     "</div></div>" +
     "</div>" +
@@ -91,10 +92,13 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
   // Read-only below lead, and locked until the role is read (fail closed). Two-way: a later load for a lead unlocks.
   const FIELD_IDS = ["ps-name", "ps-owner", "ps-office", "ps-address", "ps-location", "ps-number", "ps-type", "ps-start", "ps-end", "ps-value", "ps-confirm"];
   let locked = true;
-  function lockControls(ro: boolean) {
+  // W-2 (G4): Delete is the owner's — a lead sees the danger zone's words without the control, and why.
+  function lockControls(ro: boolean, mayDelete = !ro) {
     locked = ro;
     for (const id of FIELD_IDS) (el(id) as HTMLInputElement).disabled = ro || (id === "ps-office" && current?.kind === "office");
-    for (const id of ["pset-save", "ps-archive", "ps-delete"]) el(id).style.display = ro ? "none" : "";
+    for (const id of ["pset-save", "ps-archive"]) el(id).style.display = ro ? "none" : "";
+    for (const id of ["ps-confirm-words", "ps-confirm", "ps-delete"]) el(id).style.display = mayDelete ? "" : "none";
+    el("ps-delete-owner").style.display = !ro && !mayDelete ? "" : "none";
     const linkBtn = root.querySelector("#ps-link-btn") as HTMLElement | null;
     if (linkBtn) linkBtn.style.display = ro ? "none" : "";
   }
@@ -137,7 +141,6 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
   }
 
   // ── Members section (management is lead+; the DB 403s regardless of what renders here) ────────
-  const ROLES = ["owner", "lead", "contributor", "viewer"];
   type Member = { user_id: string; role: string; email: string };
   let membersErrDiv: HTMLElement | null = null;
 
@@ -181,7 +184,10 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
         emailEl.style.cssText = "flex:1;color:#e5e7eb;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
         const sel = document.createElement("select");
         sel.style.cssText = "background:#111;color:#e5e7eb;border:1px solid #2c2c34;border-radius:.3rem;padding:.25rem .4rem;font:11px system-ui";
-        for (const r of ROLES) { const o = new Option(r, r); o.selected = r === m.role; sel.append(o); }
+        // W-2 (G2): a lead is not offered the owner role, nor an owner's row — the bridge refuses both.
+        const ownerRow = m.role === "owner" && !canDeleteProjectRole(role);
+        for (const r of ownerRow ? ["owner"] : grantableRoles(role)) { const o = new Option(r, r); o.selected = r === m.role; sel.append(o); }
+        if (ownerRow) { sel.disabled = true; sel.title = "only an owner changes or removes an owner"; }
         sel.addEventListener("change", async () => {
           try {
             const r = await bfetch(`${base}/cde/${encodeURIComponent(pid())}/members/${encodeURIComponent(m.user_id)}`, {
@@ -207,7 +213,7 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
             await loadMembers();
           } catch (e) { memberErr((e as Error)?.message ?? String(e)); armed = false; rm.textContent = "Remove"; }
         });
-        row.append(emailEl, sel, rm);
+        row.append(emailEl, sel, ...(ownerRow ? [] : [rm]));
         host.append(row);
       }
 
@@ -220,7 +226,7 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
       emailIn.style.cssText = inp + ";flex:1";
       const roleSel = document.createElement("select");
       roleSel.style.cssText = "background:#111;color:#e5e7eb;border:1px solid #2c2c34;border-radius:.3rem;padding:.25rem .4rem;font:11px system-ui";
-      for (const r of ROLES) roleSel.append(new Option(r, r));
+      for (const r of grantableRoles(role)) roleSel.append(new Option(r, r));
       roleSel.value = "viewer";
       const addBtn = document.createElement("button");
       addBtn.textContent = "Add";
@@ -404,7 +410,8 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
       // needs owner) — the panel must not offer controls the server will reject.
       const me = await myRoleRead(base, key);
       if (mine !== seq) return;
-      lockControls(!canGovernRole(me.role));
+      lockControls(!canGovernRole(me.role), canDeleteProjectRole(me.role));
+      el("ps-delete-owner").textContent = `${roleWords(me)} — deleting the project is an owner's.`;
       updateDeleteEnabled();
       if (!canGovernRole(me.role)) status(`${roleWords(me)} — project settings are read-only (a lead or owner can edit them).`);
     } catch (e) {
