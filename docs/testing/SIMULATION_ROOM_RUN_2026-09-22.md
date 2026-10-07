@@ -2149,3 +2149,23 @@ ships in 1.0.53), the 2021–2027 live rows.
 
 **Closing list:** 4101 stays up; `SEC9-A2` and its P02 stay as the founder's scratch on `sec8-smoke`; the key-1 blob stays
 unreferenced in the project's folder.
+
+## Session MA3b6 — the declines made before, previewed (2026-10-07 ~18:55 → 19:05 local, branch feature/ma3b6-preview-carried-declines e4cfe15, Claude driving the bridge and the test bridge alone)
+
+Setup: the founder's standing words ("continue the roadmap"). The 4100 bridge and the test bridge 4101 restarted on the branch. The rows ran
+on the scratch project `ma3b3` (MA3b3's artefacts still installed) through 4101 with the machine credential — a storey of two retypes.
+
+| Row | Result | Evidence |
+|---|---|---|
+| B-1 | 4100 restarted on the branch, `/health` ok; 4101 up — **pass** | the lines |
+| D-0 | the preview of a storey nothing was filed for: `200`, `carried 0 · no_reason 0 · creates 0 · unverified 0 · all_carried false` — **pass** | the reply |
+| D-2 | a preview of `{}`: `400` "a preview is { bodies: [1 to 50 changeset bodies] } — nothing was read" — **pass** | the words |
+| D-1 | storey A filed (`201`, #2106 its adjudication row), reported with both ghosts rejected and a reason each by the machine credential; the same storey previewed again: `unverified 2 · carried 0 · all_carried false` — C1 holds (a reason no signed-in member reported is not carried) and the preview read the earlier result; a third preview changed nothing (no new changeset, no ledger row) — **pass** | the replies |
+
+The carried path (a signed-in member's decline → `carried n`, `all_carried`) is pinned offline (changesets-store.test.mjs reuses MA3b3's
+`declinedInRevit("contributor")`); promote-check 827/827 pins the dialog's words and the hop's guard releases.
+
+**Owed:** R-1 — Promote on Revit 2024 against a project holding a member's declined storey (the dialog's "Declined before" line and a storey
+not filed), the founder's session; Revit 2025–2027 live rows.
+
+**Closing list:** 4101 stays up; changeset A (`MA3b6 drill · GR-FFL`, declined) stays on `ma3b3` as the founder's scratch.
