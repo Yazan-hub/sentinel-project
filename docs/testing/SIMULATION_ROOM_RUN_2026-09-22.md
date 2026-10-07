@@ -2234,3 +2234,23 @@ marker (TemporaryGraphicsManager, 2022+), is MA-3c's Next; Revit 2025–2027.
 
 **Closing list:** Revit 2024 left open on the scratch copy (the founder was at the PC); changesets A and B stay proposed on `ma2a-ghost`
 (the founder's scratch — decline or withdraw them on the web desk).
+
+## Session MA3d — IFC GlobalIds on Promote's ghosts, live (2026-10-07 ~20:20 → 20:40 local, branch feature/ma3d-web-highlights dda91c1, Claude driving the test bridge and Revit 2024 alone)
+
+Setup: the branch build deployed to Revit 2024 (Revit closed first); the test bridge 4101 on the branch; scratch copy `ma3d-a.rvt` of MA3b3's
+model, re-bound through Project Setup to `ma3b3` (Promote's standards installed; its old `ma1-bds` key is gone); the three Promote storeys
+waiting on `ma3b3` from MA3b3/MA3b5 withdrawn through 4101 first (Promote reopens a waiting storey instead of planning). The add-in's bridge
+config pointed at 4101 for the filing rows and restored to the loopback 4100 afterwards.
+
+| Row | Result | Evidence |
+|---|---|---|
+| D-1 | a retype with `target.ifc_guid: "2O2Fr$t4X7Zf8NOew3FLKI"`: `201`, the field kept on the stored target; `"abc"`: `400` "elements[0]: target.ifc_guid must be an IFC GlobalId — 22 characters of its alphabet — when it is sent" — **pass** | the replies |
+| R-1 | Promote (DD) on `ma3d-a` ▸ `File 3 changeset(s)?` ▸ Yes: the three storeys filed (GR-FFL 48 elements, 01-FFL 40, MA0 Roof 1); **89 of 89** carry a well-formed `target.ifc_guid` (28 + 20 + 20 + 20 + 1 — retypes and attaches alike; e.g. `3YA3o11Xb52hro634JnWZr`) — **pass**. A first run through the live 4100 bridge (master's validator) filed the same storeys with **0** GUIDs: master strips the field it does not know — the merge and the 4100 restart close that; recorded so nobody reads it as the add-in's fault | the bodies |
+| W-1 | the desk's Highlight in 3D on a loaded published version — **owed to the founder's session** (pinned offline: review-desk.test.ts, 7 rows) | — |
+
+Also seen: Promote's MA-3b6 question read `File 3 changeset(s)?` (nothing declined before); the MA-3c line on a Promote review read
+"No ghost to draw: this review proposes no create…"; the second filing's GR-FFL header carried one decline from the first (MA-3b3's carry).
+
+**Closing list:** Revit closed without saving (the re-binding to `ma3b3` lived in the unsaved model only; the copy on disk is MA3b3's); the
+three new storeys stay proposed on `ma3b3` (the founder's scratch — decline or withdraw them); the add-in's config restored
+(`bcf-config.json.bak-ma3d`).
