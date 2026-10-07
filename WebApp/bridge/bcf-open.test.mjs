@@ -56,7 +56,7 @@ describe("slice 2: auth document, redirects, codes, the consent page, events, me
     expect(html).toContain("/auth/v1/token?grant_type=password"); expect(html).toContain('fetch("/oauth/code"'); expect(html).toContain("never sends it to the bridge");
   });
   it("events come from the history; the methods table says what each route takes", () => {
-    expect(topicEvents({ guid: "g", history: [{ date: "d", author: "a", action: "Created" }] })).toEqual([{ topic_guid: "g", date: "d", author: "a", events: [{ type: "history", value: "Created" }] }]);
+    expect(topicEvents({ guid: "g", history: [{ date: "d", author: "a", action: "Created" }] })).toEqual([{ topic_guid: "g", date: "d", author: "a", actions: [{ type: "history", value: "Created" }] }]);
     expect(methodAllowed("topic", "DELETE")).toBe(true); expect(methodAllowed("comment", "PUT")).toBe(true); expect(methodAllowed("snapshot", "DELETE")).toBe(false); expect(methodAllowed("nope", "GET")).toBe(false);
   });
 });
@@ -91,7 +91,7 @@ describe("snapshotBytes / fileEntries / extensionsFor", () => {
       { id: "c3", iso_name: "empty", container_versions: [] },
     ];
     const f = fileEntries(cs, "demo");
-    expect(f.map((x) => [x.file_name, x.reference])).toEqual([["PRJ-A.ifc", "/cde/demo/containers/c1/versions/v2"], ["untitled", "/cde/demo/containers/c2/versions/v9"]]);
+    expect(f.map((x) => [x.file.filename, x.file.reference])).toEqual([["PRJ-A.ifc", "/cde/demo/containers/c1/versions/v2"], ["untitled", "/cde/demo/containers/c2/versions/v9"]]);
   });
   it("the extensions carry the members as users; versions name 3.0", () => {
     expect(extensionsFor([{ email: "a@example.test" }, { user_id: "u2" }]).users).toEqual(["a@example.test", "u2"]);
