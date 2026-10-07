@@ -13,3 +13,5 @@ export type { LayerRuleset, LayerDef, LayerExtension, LayerMapping, LayerValidat
 export { checkFederation, nameShape, raisedFederationTitleKey } from "./federation";
 export { parseLodMatrix, STAGES, MATRIX_STAGES, DEFAULT_STAGE_MAP } from "./lod-matrix"; // MA-2b: the one lod_matrix reader
 export type { LodMatrix, LodRow } from "./lod-matrix";
+export { buildIfc } from "./ifc-writer"; // MA-3d2: the proposal model is written with the same IFC writer
+export type { BakeElement, BakeKind } from "./ifc-writer";
