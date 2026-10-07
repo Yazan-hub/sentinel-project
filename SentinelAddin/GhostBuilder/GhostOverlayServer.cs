@@ -37,7 +37,15 @@ namespace Sentinel.GhostBuilder
         public string GetApplicationId() => "";
         public string GetSourceId() => "";
         public bool UsesHandles() => false;
-        public bool CanExecute(View view) => view is View3D && _doc.IsValidObject && view.Document != null && view.Document.Equals(_doc) && _segments.Count > 0;
+        private bool _asked, _drawn;
+        // MA-3c: the overlay says once that Revit asked it and once that it drew — a person (and a drill) can tell a registered server that is
+        // never asked from one whose lines sit out of sight. The pane's LogDoctor marshals itself (MA-3b8), so the render thread may call it.
+        public bool CanExecute(View view)
+        {
+            bool is3d = view is View3D, same = _doc.IsValidObject && view.Document != null && view.Document.Equals(_doc);
+            if (!_asked && is3d) { _asked = true; try { Sentinel.App.PanelVm?.LogDoctor($"Ghost overlay: asked for the 3D view \"{view.Name}\" — this model: {same}; {_segments.Count} line(s)"); } catch { /* no pane */ } }
+            return is3d && same && _segments.Count > 0;
+        }
         public bool UseInTransparentPass(View view) => false;
         public Outline GetBoundingBox(View view)
         {
@@ -49,6 +57,7 @@ namespace Sentinel.GhostBuilder
             if (DrawContext.IsTransparentPass() || _segments.Count == 0) return;
             if (_vb == null || !_vb.IsValid() || _ib == null || !_ib.IsValid()) Build();
             DrawContext.FlushBuffer(_vb, _vertices, _ib, 2 * _lines, _format, _effect, PrimitiveType.LineList, 0, _lines);
+            if (!_drawn) { _drawn = true; try { Sentinel.App.PanelVm?.LogDoctor($"Ghost overlay: drawn in \"{view.Name}\" — {_lines} line(s)"); } catch { /* no pane */ } }
         }
         private void Build()
         {

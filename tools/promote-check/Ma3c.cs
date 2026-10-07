@@ -50,7 +50,7 @@ static partial class Check
         Ok(!geo.Contains("Autodesk.Revit") && !geo.Contains("Transaction"), "MA-3c: the geometry is pure - no Revit type, no Transaction");
         int Count(string s, string what) { int n = 0, i = 0; while ((i = s.IndexOf(what, i, StringComparison.Ordinal)) >= 0) { n++; i += what.Length; } return n; }
         string srv = Src("GhostBuilder", "GhostOverlayServer.cs"), rev = Src("Commands.ReviewChangesets.cs"), win = Src("UI", "ChangesetReviewWindow.cs");
-        Ok(srv.Contains("public bool CanExecute(View view) => view is View3D && _doc.IsValidObject && view.Document != null && view.Document.Equals(_doc) && _segments.Count > 0;")
+        Ok(srv.Contains("bool is3d = view is View3D, same = _doc.IsValidObject && view.Document != null && view.Document.Equals(_doc);") && srv.Contains("return is3d && same && _segments.Count > 0;") && srv.Contains("Ghost overlay: drawn in")
            && srv.Contains("_format?.Dispose(); _effect?.Dispose();") && srv.Contains("PrimitiveType.LineList") && srv.Contains("if (DrawContext.IsTransparentPass()") && !srv.Contains("Transaction"),
            "MA-3c: the server draws lines in this document's 3D views only, skips the transparent pass, and writes nothing (no Transaction)");
         Ok(rev.Contains("App.Events.Enqueue(doc, \"draw the ghost overlay\"") && rev.Contains("App.Events.Enqueue(ua => { overlay.Update(segs); ua.ActiveUIDocument?.RefreshActiveView(); }, \"recolour the ghost overlay\");")
