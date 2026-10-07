@@ -2309,3 +2309,22 @@ MA3c changesets A (two walls outside the build) and B still proposed; Review AI 
 
 **Closing list:** Revit closed without saving (nothing changed); A and B stay proposed on `ma2a-ghost` (the founder's scratch — decline or
 withdraw them); the add-in deployed 2021–2027 from master.
+
+## Session BASE — the Base ruleset in Packs, live (2026-10-07 ~22:10 → 22:20 local, merged 52864b5 + 14752cc / web 1.0.58, Claude driving the live bridge and the local app alone)
+
+Setup: built inline (size S); `base-standard@1.0.0` published to the live registry by the machine credential from this PC (the
+registry was already seeded, so the new seed file alone would not have appeared); the 4100 bridge on master; the drill in a fresh
+Chrome tab on `sec8-smoke`, whose office is the scratch `ma2e-office` (holding `ruleset@1` only).
+
+| Row | Result | Evidence |
+|---|---|---|
+| B-1 | Marketplace: the Base card reads `1 rule(s) · naming · ids · layers · contract · Sentinel` with `Install`, `Install on office ma2e-office`, `Fork` — **pass**. First build read the office from the local project record (no `office_key` there → no button); fixed to the projects hub (14752cc) | the screenshot |
+| B-2 | Install on office: `Installed Base standard (office-agnostic) as ruleset@2 + naming@1 + ids@1 + layers@1 + contract@1 on ma2e-office — sec8-smoke and the office's other projects inherit it unless they install their own…`; the header: `in force: ruleset@2 · office · cc9443…` — **pass** | the words |
+| B-3 | the bridge for `sec8-smoke`: `ruleset@2·office  naming@1·office  ids@1·office  layers@1·office  contract@1·office` — **pass** (inheritance) | the replies |
+| B-4 | overlay: the pilot's naming PUT on `sec8-smoke` (201) → `naming@1·project` while `ids`, `layers`, `contract`, `ruleset` stay `·office` — **pass** (project → office, one kind at a time) | the replies |
+
+Also: `seed-packs.test.mjs` pins the pack's bodies equal to `config/base-standard/*` and free of the pilot's names; a QA scan under the
+Base sheet rule was not run (no sheets on `sec8-smoke`).
+
+**Closing list:** `ma2e-office` now holds the Base standards (scratch office — leave or withdraw); `sec8-smoke` carries the pilot's
+naming as its overlay; my Chrome tab closed; the 4100 bridge on master since ~22:05 — the Funnel refresh is the founder's.
