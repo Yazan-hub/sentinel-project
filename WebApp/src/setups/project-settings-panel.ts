@@ -8,6 +8,7 @@ import { loadScope } from "./load-scope";
 import { artefactInForce, refLabel, installArtefactFile, canInstallArtefacts, type InForce } from "./active-ruleset";
 import { currentUser } from "./auth";
 import { escapeHtml as esc } from "./escape-html";
+import { packFilename, packWords, saveAs } from "./evidence-pack";
 
 /**
  * Project Settings (Forma-style) — the admin page inside a project's space. General (name, owner,
@@ -286,6 +287,27 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
         (canInstall ? `<button class="ps-install" data-kind="${esc(kind)}" style="${btn};padding:.2rem .5rem;font-size:11px">Install JSON…</button>` : "") +
         "</div>").join("");
       host.querySelectorAll<HTMLButtonElement>(".ps-install").forEach((b) => b.addEventListener("click", () => pickAndInstall(b.dataset.kind!)));
+      // Paperwork slice 5: the evidence pack — the Kitemark audit's day-one file — a lead's or an owner's to download.
+      if (canGovernRole(role)) {
+        host.insertAdjacentHTML("beforeend",
+          `<div style="display:flex;align-items:center;gap:.6rem;padding:.35rem 0;font-size:12px">` +
+          `<span style="width:6.5rem;color:#9ca3af">evidence pack</span>` +
+          `<span style="flex:1;color:#71717a;font-size:11px">the standards in force, the documents, the containers and versions, the review chains and every ledger row with its hash — one JSON, sealed by sha256</span>` +
+          `<button id="ps-evidence" style="${btn};padding:.2rem .5rem;font-size:11px">Download evidence pack</button></div>`);
+        const b = host.querySelector<HTMLButtonElement>("#ps-evidence")!;
+        b.addEventListener("click", async () => {
+          b.disabled = true; b.textContent = "Reading…";
+          try {
+            const r = await bfetch(`${base}/cde/${encodeURIComponent(key)}/evidence-pack`);
+            if (!r.ok) throw new Error(((await r.json().catch(() => null)) as { message?: string } | null)?.message || `the bridge answered HTTP ${r.status}`);
+            const text = await r.text();
+            const filename = packFilename(r.headers.get("content-disposition"), key);
+            saveAs(new Blob([text], { type: "application/json" }), filename);
+            const w = packWords(JSON.parse(text), filename);
+            await loadStandards({ text: w.text, bad: w.bad });
+          } catch (e) { await loadStandards({ text: `Evidence pack not read — ${(e as Error)?.message ?? String(e)}`, bad: true }); }
+        });
+      }
     } catch (e) {
       if (mine !== stdSeq) return;
       host.innerHTML += `<div style="color:#fca5a5;font-size:11px">Standards in force not read — ${esc((e as Error)?.message ?? String(e))}</div>`;
