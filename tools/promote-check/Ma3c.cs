@@ -44,19 +44,29 @@ static partial class Check
         Ok(b != null && b[0].SequenceEqual(new double[] { 0, 0, 0 }) && b[1].SequenceEqual(new double[] { 4000, 0, 3000 }) && GhostOverlayGeometry.Bounds(new List<GhostOverlayGeometry.Segment>()) == null, "MA-3c: Bounds is the least and greatest corner, null when empty");
         Ok(GhostOverlayGeometry.Line(0, 0) == "No ghost to draw: this review proposes no create (a retype or attach changes an element that exists — Show selects it)."
            && GhostOverlayGeometry.Line(2, 0) == "No ghost to draw: the 2 proposed create(s) carry no points to draw from."
-           && GhostOverlayGeometry.Line(3, 2) == "2 of 3 proposed create(s) outlined in this model's 3D views — ticked green, unticked grey, declined red; nothing is written. Open a 3D view to see them; they go when this window closes or Apply places them.",
+           && GhostOverlayGeometry.Line(3, 2) == "2 of 3 proposed create(s) outlined in this model's 3D views, plans and sections — a see-through face and its edges, ticked green, unticked grey, declined red; nothing is written. Open one to see them; they go when this window closes or Apply places them.",
            "MA-3c: the window's line says how many outlines, in which colours, and when they go");
         string geo = Src("GhostBuilder", "GhostOverlayGeometry.cs");
         Ok(!geo.Contains("Autodesk.Revit") && !geo.Contains("Transaction"), "MA-3c: the geometry is pure - no Revit type, no Transaction");
         int Count(string s, string what) { int n = 0, i = 0; while ((i = s.IndexOf(what, i, StringComparison.Ordinal)) >= 0) { n++; i += what.Length; } return n; }
         string srv = Src("GhostBuilder", "GhostOverlayServer.cs"), rev = Src("Commands.ReviewChangesets.cs"), win = Src("UI", "ChangesetReviewWindow.cs");
-        Ok(srv.Contains("bool is3d = view is View3D, same = _doc.IsValidObject && view.Document != null && view.Document.Equals(_doc);") && srv.Contains("return is3d && same && _segments.Count > 0;") && srv.Contains("Ghost overlay: drawn in")
-           && srv.Contains("_format?.Dispose(); _effect?.Dispose();") && srv.Contains("PrimitiveType.LineList") && srv.Contains("if (DrawContext.IsTransparentPass()") && !srv.Contains("Transaction"),
-           "MA-3c: the server draws lines in this document's 3D views only, skips the transparent pass, and writes nothing (no Transaction)");
-        Ok(rev.Contains("App.Events.Enqueue(doc, \"draw the ghost overlay\"") && rev.Contains("App.Events.Enqueue(ua => { overlay.Update(segs); ua.ActiveUIDocument?.RefreshActiveView(); }, \"recolour the ghost overlay\");")
+        Ok(srv.Contains("bool fits = view is View3D || view is ViewPlan || view is ViewSection, same = _doc.IsValidObject && view.Document != null && view.Document.Equals(_doc);") && srv.Contains("return fits && same && _segments.Count > 0;") && srv.Contains("Ghost overlay: drawn in")
+           && srv.Contains("_format?.Dispose(); _effect?.Dispose();") && srv.Contains("PrimitiveType.LineList") && srv.Contains("PrimitiveType.TriangleList") && srv.Contains("if (DrawContext.IsTransparentPass())")
+           && srv.Contains("public bool UseInTransparentPass(View view) => _tris.Count > 0;") && srv.Contains("_teffect.SetTransparency(GhostOverlayGeometry.FaceTransparency / 255.0);") && srv.Contains("_askedIn.Add(view.ViewType)") && srv.Contains("_drawnIn.Add(view.ViewType)") && !srv.Contains("Transaction"),
+           "MA-3c Next: the server draws lines in the opaque pass and see-through faces in the transparent pass, in this document's 3D, plan and section views, and writes nothing (no Transaction)");
+        // MA-3c Next: the faces — a wall's sheet (2 triangles, both windings), a square slab's fan, a door's two panels, a grid none.
+        var wt = GhostOverlayGeometry.Tris(wall, true, false);
+        Ok(wt.Count == 4 && wt.All(t => t.R == 0 && t.G == 170 && t.Bl == 90) && wt.SelectMany(t => new[] { t.A, t.B, t.C }).All(q => (q[2] == 0 || q[2] == 3000) && q[1] == 0 && (q[0] == 0 || q[0] == 4000)),
+           "MA-3c Next: a wall's face is its sheet from base to top along its line, in the row's colour, both windings");
+        Ok(GhostOverlayGeometry.Tris(El("floor", new PlaceDto { LocationLoop = sq, BaseElevation = 2900 }), true, false, 3000) is var ft && ft.Count == 4 && ft.All(t => t.A[2] == 3000 && t.B[2] == 3000 && t.C[2] == 3000)
+           && GhostOverlayGeometry.Tris(El("door", new PlaceDto { Location = new double[] { 1000, 2000 } }), true, false).Count == 8
+           && GhostOverlayGeometry.Tris(El("grid", new PlaceDto { LocationCurve = new CurveDto { Start = new double[] { 0, 0 }, End = new double[] { 0, 9000 } } }), true, false).Count == 0
+           && GhostOverlayGeometry.AllTris(new[] { (wall, false, true) }).All(t => t.R == 200) && GhostOverlayGeometry.FaceTransparency == 150,
+           "MA-3c Next: a square slab fans into 4 triangles on its level, a door stands two panels, a grid has no face; AllTris colours by state");
+        Ok(rev.Contains("App.Events.Enqueue(doc, \"draw the ghost overlay\"") && rev.Contains("App.Events.Enqueue(ua => { overlay.Update(segs, tris); ua.ActiveUIDocument?.RefreshActiveView(); }, \"recolour the ghost overlay\");")
            && rev.Contains("if (window.Gone || window.Applied || overlayOn[0] || overlayFailed) return;") && rev.IndexOf("overlayOn[0] = true;", StringComparison.Ordinal) is var onAt && onAt > 0 && onAt < rev.IndexOf("GhostOverlayServer.Register(ua, overlay);", StringComparison.Ordinal)
            && rev.Contains("overlayFailed = true;") && rev.Contains("OverlayOff(\"the registration failed\");")
-           && rev.Contains("if (!overlayOn[0]) { OverlayDraw(segs); return; }")
+           && rev.Contains("if (!overlayOn[0]) { OverlayDraw(segs, tris); return; }")
            && rev.Contains("GhostOverlayGeometry.Drawable") && rev.Contains("GhostOverlayGeometry.Line(creates, outlined)")
            && rev.Contains("\"remove the ghost overlay\"") && rev.Contains("window.Closed += (_, _) => OverlayOff(\"the window closed\");")
            && rev.Contains("if (window.Applied) { OverlayOff(\"Apply\"); return; }"),
