@@ -10,6 +10,7 @@ import { bfetch, bwrite } from "./bridge-fetch";
 import { myRoleRead, roleWords } from "./my-role";
 import { activePid, onActiveProjectChange } from "./active-project";
 import { SERVICE_URL } from "../config";
+import type * as OBC from "@thatopen/components";
 
 /** MA-3b3: where a carried decline was made — the earlier changeset, the ghost there, and "web" or "revit". */
 export interface CarriedFrom { changeset: string; name: string; proposal_guid: string; origin: string; }
@@ -18,7 +19,7 @@ export interface CarriedFrom { changeset: string; name: string; proposal_guid: s
 export interface GhostReview { state: "proposed" | "accepted" | "declined"; action: "accept" | "decline" | "reopen"; reason: string | null; by: string; role: string | null; at: string; rev: number; carried_from?: CarriedFrom | null; }
 export interface Ghost {
   proposal_guid: string; kind: string; op?: string | null;
-  target?: { unique_id?: string; type_before?: string } | null;
+  target?: { unique_id?: string; type_before?: string; ifc_guid?: string | null } | null;
   place?: { TypeName?: string; FamilyName?: string; LevelName?: string; BaseLevel?: string; TopLevel?: string } | null;
   validate?: { identity?: { Name?: string } } | null;
   parameter?: string; from?: string; to?: string;
@@ -217,8 +218,36 @@ export function postsFor(ticked: Map<string, { cs: PendingChangeset; el: Ghost }
 /** "ledger #1201" when the bridge named the row; else that it did not. */
 export const rowWords = (r: { ledger: LedgerRef | null } | null): string => (r?.ledger?.id != null ? `ledger #${r.ledger.id}` : "the bridge named no ledger row");
 
+/** MA-3d: what Highlight in 3D does with a storey's ghosts and what each loaded model answered for their GlobalIds (null = not in it):
+ *  the highlighter's map (modelId → the local ids found) and the words. Pure. */
+/** MA-3d: the distinct GlobalIds a storey's ghosts highlight: a retype's or an attach's element. A type edit (set_parameter) is left
+ *  out: its GlobalId names an IfcTypeObject, which has no geometry in the loaded model. */
+export const guidsOf = (ghosts: Ghost[]): string[] =>
+  [...new Set(ghosts.filter((g) => g.op !== "set_parameter").map((g) => g.target?.ifc_guid).filter((g): g is string => typeof g === "string" && g.length > 0))];
+
+export function highlightPlan(ghosts: Ghost[], found: Map<string, (number | null)[]>): { map: Record<string, Set<number>>; guids: string[]; words: string } {
+  const guids = guidsOf(ghosts);
+  const changes = ghosts.filter((g) => g.op && g.op !== "create" && g.op !== "set_parameter");
+  const typeEdits = ghosts.filter((g) => g.op === "set_parameter").length;
+  const typeWords = typeEdits ? `; ${typeEdits} type edit(s) are not highlighted (a type has no geometry)` : "";
+  const withoutGuid = changes.length - changes.filter((g) => g.target?.ifc_guid).length;
+  if (!guids.length) return { map: {}, guids, words: withoutGuid > 0
+    ? "Nothing to highlight: these ghosts were filed before the add-in sent IFC GlobalIds — a new Promote run sends them."
+    : typeEdits ? "Nothing to highlight: this storey proposes only creates and type edits (a create has no element yet; a type has no geometry)."
+    : "Nothing to highlight: this storey proposes only creates (they have no element in the model yet)." };
+  if (!found.size) return { map: {}, guids, words: "Load a model first (Files ▸ Open 3D) — nothing is loaded to highlight in." };
+  const map: Record<string, Set<number>> = {};
+  const hit = new Set<string>();
+  for (const [modelId, ids] of found) ids.forEach((id, i) => { if (id != null) { (map[modelId] ??= new Set()).add(id); hit.add(guids[i]); } });
+  const models = [...found.keys()].join(", ");
+  const missing = guids.length - hit.size;
+  return { map, guids, words: hit.size === 0
+    ? `None of the ${guids.length} element(s) is in the loaded model(s) (${models}) — the loaded version may be older than Revit's model; load the newest published version, or Revit may be newer.`
+    : `Highlighted ${hit.size} of ${guids.length} element(s) in ${models}` + (missing ? ` — ${missing} not in them: the loaded version may be older than Revit's model (Revit may be newer)` : "") + (withoutGuid > 0 ? `; ${withoutGuid} ghost(s) filed before the add-in sent GlobalIds cannot be highlighted` : "") + typeWords + "." };
+}
+
 /** The desk: plain DOM, re-read on a project or person change (main.ts → refreshActiveProject) or by its own ↻ Refresh. */
-export function reviewDeskPanel(opts: { baseUrl?: string } = {}): HTMLElement {
+export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Components } = {}): HTMLElement {
   const base = (opts.baseUrl ?? SERVICE_URL).replace(/\/$/, "");
   const root = document.createElement("div");
   root.style.cssText = "display:flex;flex-direction:column;height:100%;min-height:0;background:#16161a;color:#c9cfda;font:12px system-ui";
@@ -240,6 +269,34 @@ export function reviewDeskPanel(opts: { baseUrl?: string } = {}): HTMLElement {
   reason.placeholder = "Reason (a decline needs one; one line)";
   const ticked = new Map<string, { cs: PendingChangeset; el: Ghost }>();
   const say = (text: string, bad = false) => { status.textContent = text; status.style.color = bad ? "#fca5a5" : "#93c5fd"; };
+  // MA-3d: Highlight in 3D — a storey's ghosts in the viewer's loaded models, by each element's IFC GlobalId. No model is loaded here:
+  // the Files panel's Open 3D loads a version (its model id names the version), and the words say which versions answered.
+  const highlight = async (ghosts: Ghost[]) => {
+    const comps = opts.components;
+    if (!comps) { say("Highlighting needs the viewer — not available on this page.", true); return; }
+    const [OBCm, OBF] = await Promise.all([import("@thatopen/components"), import("@thatopen/components-front")]);
+    const fragments = comps.get(OBCm.FragmentsManager);
+    const highlighter = comps.get(OBF.Highlighter);
+    const guids = guidsOf(ghosts);
+    const found = new Map<string, (number | null)[]>();
+    if (guids.length) for (const model of fragments.list.values()) {
+      const m = model as unknown as { modelId: string; getLocalIdsByGuids(g: string[]): Promise<(number | null)[]> };
+      try { found.set(m.modelId, await m.getLocalIdsByGuids(guids)); }
+      catch (e) { say(`The model "${m.modelId}" could not answer for the GlobalIds — ${(e as Error).message}`, true); return; }
+    }
+    const plan = highlightPlan(ghosts, found);
+    try { if (Object.keys(plan.map).length) await (highlighter as unknown as { highlightByID(n: string, m: Record<string, Set<number>>, a: boolean, b: boolean): Promise<void> }).highlightByID("select", plan.map, true, true); }
+    catch (e) { say(`Highlighting failed — ${(e as Error).message}`, true); return; }
+    say(plan.words, !Object.keys(plan.map).length);
+  };
+  const clearHighlight = async () => {
+    if (!opts.components) { say("Highlighting needs the viewer — not available on this page.", true); return; }
+    try {
+      const OBF = await import("@thatopen/components-front");
+      await (opts.components?.get(OBF.Highlighter) as unknown as { clear(n: string): Promise<void> } | undefined)?.clear("select");
+      say("Highlight cleared.");
+    } catch (e) { say(`Clearing failed — ${(e as Error).message}`, true); }
+  };
   let seq = 0;
 
   // MA-3b2b: what Revit reported, under the proposed list. Every node is made by el() — textContent, never markup (C13).
@@ -301,6 +358,9 @@ export function reviewDeskPanel(opts: { baseUrl?: string } = {}): HTMLElement {
       const box = el("details", "", "margin:.4rem 0;border:1px solid #2a2a30;border-radius:.35rem;padding:.3rem .5rem");
       box.open = true;
       box.append(el("summary", `${s.storey} — ${s.groups.reduce((n, g) => n + g.ghosts.length, 0)} ghost(s) in ${s.changesets.length} changeset(s)`, "cursor:pointer;font-weight:600"));
+      const hrow = el("div", "", "display:flex;gap:.4rem;margin:.2rem 0");
+      hrow.append(btn("Highlight in 3D", () => void highlight(s.groups.flatMap((g) => g.ghosts.map((x) => x.el)))), btn("Clear", () => void clearHighlight()));
+      box.append(hrow);
       for (const g of s.groups) {
         box.append(el("div", `${g.what} (${g.ghosts.length})`, "margin:.4rem 0 .2rem;color:#8b93a1"));
         for (const x of g.ghosts) {

@@ -12,6 +12,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
+using Autodesk.Revit.DB.IFC;
 using Autodesk.Revit.UI;
 using Sentinel.Coordination;
 using Sentinel.Engine;
@@ -426,12 +427,23 @@ public sealed class PromoteWallsCommand : IExternalCommand
                 if (p == null) continue;
                 list.Add(new TypeValue
                 {
-                    Category = cat, Family = family, Type = type, UniqueId = hits[0].UniqueId, Key = key, Current = current,
+                    Category = cat, Family = family, Type = type, UniqueId = hits[0].UniqueId, IfcGuid = IfcGuidOf(doc, hits[0]), Key = key, Current = current,
                     Param = p.Definition.Name, NoWriter = noWriter, Instances = onType.TryGetValue(hits[0].Id.IdValue(), out var n) ? n : 0,
                 });
             }
         }
         return list;
+    }
+
+    /// <summary>MA-3d: the element's IFC GlobalId as the IFC export writes it (and as a published .frag carries it), or null — the web
+    /// desk highlights a ghost's element in the loaded model by it. The same rule as the BCF code and the IFC exporter: the stored
+    /// IFC_GUID parameter first (copied elements, IFC round-trips, "store IFC GUID"), else the id computed from the export id.
+    /// On the API thread (both read the model).</summary>
+    private static string IfcGuidOf(Document doc, Element e)
+    {
+        var g = e.get_Parameter(BuiltInParameter.IFC_GUID)?.AsString();
+        if (!string.IsNullOrWhiteSpace(g)) return g;
+        try { return BcfApplyEvent.ToIfcGuid(ExportUtils.GetExportId(doc, e.Id)); } catch (Exception) { return null; }
     }
 
     /// <summary>One wall's facts, read on the API thread. A stacked-wall member reads as not basic: Revit types it
@@ -448,7 +460,7 @@ public sealed class PromoteWallsCommand : IExternalCommand
         bool basic = wt?.Kind == WallKind.Basic && !w.IsStackedWallMember;
         return new WallFact
         {
-            UniqueId = w.UniqueId,
+            UniqueId = w.UniqueId, IfcGuid = IfcGuidOf(doc, w),
             Label = "W " + w.Id.IdValue(),
             TypeName = wt?.Name,
             Function = basic ? wt.Function.ToString() : null,
@@ -496,7 +508,7 @@ public sealed class PromoteWallsCommand : IExternalCommand
         var mark = e.get_Parameter(BuiltInParameter.ALL_MODEL_MARK)?.AsString();
         var f = new ElementFact
         {
-            Kind = kind, UniqueId = e.UniqueId,
+            Kind = kind, UniqueId = e.UniqueId, IfcGuid = IfcGuidOf(doc, e),
             Label = PromoteWallsPlanner.Classes[kind].Word + " " + e.Id.IdValue() + (string.IsNullOrWhiteSpace(mark) ? "" : " (" + mark + ")"),
             Family = type?.FamilyName, TypeName = type?.Name,
             // An extrusion roof has no LevelId: its reference level (verify live, B35-10).

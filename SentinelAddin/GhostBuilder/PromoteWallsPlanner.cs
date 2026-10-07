@@ -24,6 +24,8 @@ namespace Sentinel.GhostBuilder
 {
     public sealed class WallFact
     {
+        /// <summary>MA-3d: the element's IFC GlobalId (ExportUtils.GetExportId, as the IFC export and the BCF viewpoints name it); null when Revit gave none.</summary>
+        public string IfcGuid;
         public string UniqueId, Label, TypeName, Function, BaseLevel;
         /// <summary>Null = unconnected height.</summary>
         public string TopLevel;
@@ -52,6 +54,8 @@ namespace Sentinel.GhostBuilder
 
     public sealed class PromoteGhost
     {
+        /// <summary>MA-3d: the target element's IFC GlobalId, from its fact; null when none.</summary>
+        public string IfcGuid;
         /// <summary>"retype" or "attach".</summary>
         public string Op, UniqueId, Label, TypeBefore, TypeName, BaseLevel, TopLevel, Reason;
         /// <summary>A key of PromoteWallsPlanner.Classes; null = wall. FamilyName: a door or window retype's target family.</summary>
@@ -264,7 +268,7 @@ namespace Sentinel.GhostBuilder
                                         ? null : $"{res.Type} is Function {fn} in this model";
                                     retypes.Add(new PromoteGhost
                                     {
-                                        Op = "retype", UniqueId = w.UniqueId, Label = w.Label, TypeBefore = w.TypeName, TypeName = res.Type,
+                                        Op = "retype", IfcGuid = w.IfcGuid, UniqueId = w.UniqueId, Label = w.Label, TypeBefore = w.TypeName, TypeName = res.Type,
                                         Reason = $"DD walls v0: {used}, {Mm(w.WidthMm, "0")} mm → {res.Type}" + (note == null ? "" : " — note: " + note),
                                         Note = note,
                                     });
@@ -293,7 +297,7 @@ namespace Sentinel.GhostBuilder
                     else
                         p.Ghosts.Add(new PromoteGhost
                         {
-                            Op = "attach", UniqueId = w.UniqueId, Label = w.Label, BaseLevel = w.BaseLevel, TopLevel = next.Name,
+                            Op = "attach", IfcGuid = w.IfcGuid, UniqueId = w.UniqueId, Label = w.Label, BaseLevel = w.BaseLevel, TopLevel = next.Name,
                             Reason = $"DD: top to next story {next.Name} +0 (was {(w.TopLevel == null ? "unconnected" : w.TopLevel + " " + Mm(w.TopOffsetMm, "+0;-0;+0"))})",
                         });
 
@@ -382,7 +386,7 @@ namespace Sentinel.GhostBuilder
         {
             op = g.Op,
             kind = g.Kind ?? "wall",
-            target = new { unique_id = g.UniqueId, type_before = g.TypeBefore },
+            target = new { unique_id = g.UniqueId, type_before = g.TypeBefore, ifc_guid = g.IfcGuid },
             place = g.Op == "retype" ? (object)new { g.TypeName, g.FamilyName } : new { g.BaseLevel, g.TopLevel },
             reason = Clip(g.Reason, 500),
             validate = new { identity = new { Class = Classes[g.Kind ?? "wall"].Ifc, Name = g.Label } },
@@ -395,7 +399,7 @@ namespace Sentinel.GhostBuilder
         {
             op = g.Op,
             kind = g.Kind ?? "wall",
-            target = new { unique_id = g.UniqueId },
+            target = new { unique_id = g.UniqueId, ifc_guid = g.IfcGuid },
             place = new { g.TypeName, g.FamilyName },
             parameter = g.Parameter,
             revit_parameter = g.RevitParameter,
