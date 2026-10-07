@@ -21,6 +21,8 @@ namespace Sentinel.GhostBuilder
     /// <summary>One DD type's matrix property as Revit holds it on the TYPE (Commands.PromoteWalls.TypeValues, API thread).</summary>
     public sealed class TypeValue
     {
+        /// <summary>MA-3d: the type's IFC GlobalId (ExportUtils.GetExportId, as the IFC export and the BCF viewpoints name it); null when Revit gave none.</summary>
+        public string IfcGuid;
         /// <summary>Family: a door's or window's family; null for a system type (walls, floors, roofs, ceilings).</summary>
         public string Category, Family, Type, UniqueId, Key;
         /// <summary>The value as the IDS reads it on the type, "" when empty.</summary>
@@ -417,7 +419,7 @@ namespace Sentinel.GhostBuilder
                         int at = inserted.TryGetValue(p, out var k) ? k : 0; // C8: first in the storey's ghosts, in the order the types are met
                         p.Ghosts.Insert(at, new PromoteGhost
                         {
-                            Op = "set_parameter", Kind = PromoteWallsPlanner.Classes.First(kv => kv.Value.Category == cat).Key, UniqueId = v.UniqueId,
+                            Op = "set_parameter", IfcGuid = v.IfcGuid, Kind = PromoteWallsPlanner.Classes.First(kv => kv.Value.Category == cat).Key, UniqueId = v.UniqueId,
                             Label = "type " + v.Label, TypeName = type, FamilyName = family, Parameter = key, RevitParameter = v.Param,
                             From = v.Current, To = distinct[0], SourceKind = found[0].Kind,
                             Reason = $"DD {cat.ToLowerInvariant()}: {key} \"{distinct[0]}\" from {found[0].Ref} — a type edit: every element on {v.Label} " +

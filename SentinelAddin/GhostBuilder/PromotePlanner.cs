@@ -21,6 +21,8 @@ namespace Sentinel.GhostBuilder
 {
     public sealed class ElementFact
     {
+        /// <summary>MA-3d: the element's IFC GlobalId (ExportUtils.GetExportId, as the IFC export and the BCF viewpoints name it); null when Revit gave none.</summary>
+        public string IfcGuid;
         /// <summary>"floor" | "roof" | "ceiling" | "door" | "window" (a key of PromoteWallsPlanner.Classes).</summary>
         public string Kind, UniqueId, Label, Family, TypeName, Level, Stamp;
         /// <summary>Floors, roofs, ceilings: the type's build-up (mm); null = none (a Basic Ceiling, sloped glazing).</summary>
@@ -335,7 +337,7 @@ namespace Sentinel.GhostBuilder
                        $"the {word} is {Mm(t.Value, "0")} mm — a retype would move a face; a person decides";
             g = new PromoteGhost
             {
-                Op = "retype", Kind = e.Kind, UniqueId = e.UniqueId, Label = e.Label, TypeBefore = e.TypeName, TypeName = res.Type,
+                Op = "retype", IfcGuid = e.IfcGuid, Kind = e.Kind, UniqueId = e.UniqueId, Label = e.Label, TypeBefore = e.TypeName, TypeName = res.Type,
                 Reason = $"DD {cat.ToLowerInvariant()}: {what}{size} → {res.Type}",
             };
             return null;
@@ -414,7 +416,7 @@ namespace Sentinel.GhostBuilder
                 return $"\"{target}\" is in the catalogue but not loaded in this model — Sentinel creates no types";
             g = new PromoteGhost
             {
-                Op = "retype", Kind = e.Kind, UniqueId = e.UniqueId, Label = e.Label, TypeBefore = e.Family + " : " + e.TypeName,
+                Op = "retype", IfcGuid = e.IfcGuid, Kind = e.Kind, UniqueId = e.UniqueId, Label = e.Label, TypeBefore = e.Family + " : " + e.TypeName,
                 TypeName = res.Type, FamilyName = res.Family, Reason = $"DD {cat.ToLowerInvariant()}: {what} → {target}{tail}" + (e.Kind == "door" ? DoorSize : ""),
             };
             return null;
