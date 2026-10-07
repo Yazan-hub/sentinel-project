@@ -23,7 +23,7 @@ import { loadEnv } from "./load-env.mjs";
 import { verifyJwt, initJwks } from "./verify-jwt.mjs";
 import { corsOrigin } from "./cors-origin.mjs";
 import { isPublicRoute, parsePublicVerify, comparePublic, createLimiter, createKeyedLimiter, clientAddress, callerKey, readCapped } from "./public-verify.mjs";
-import { readBody, readRaw, holdUpload, SMALL_JSON, startRefusal, SERVER_LIMITS } from "./request-limits.mjs";
+import { readBody, readRaw, holdUpload, SMALL_JSON, startRefusal, SERVER_LIMITS, uploadCap } from "./request-limits.mjs";
 
 // config/.env is NOT loaded into process.env by Node — merge it here (before any process.env
 // read below) so the documented activation procedure (set BCF_TOKEN in config/.env) actually
@@ -1401,6 +1401,31 @@ async function handleRequest(req, res) {
           } catch (e) { bcf = { error: String(e?.message || e) }; }
         }
         return send(res, 200, { ...r, bcf });
+      }
+      // SEC-8 judge-again: POST /cde/:key/versions/:vid/judge — a lead asks the bridge to judge a version's own bytes again (the
+      //   contract or the IDS changed since it was judged, or it was judged before SEC-4 bound a verdict to a sha256). No body:
+      //   the IFC the version's geometry link names on the platform, at the tag the link recorded; a body: the IFC, re-uploaded
+      //   by the lead. Its sha256 must be the version's (a 409 in words otherwise); a version registered without one cannot be
+      //   judged again (409). → runJudgeAgain's answer: the verdict, the gate, the verdict row's id. The lead role and a trusted
+      //   caller (as the manifests backfill) are asked before a byte of the body is read.
+      if (p2 === "versions" && p3 && p4 === "judge" && !seg[5] && req.method === "POST") {
+        const { requireMinRole, requireSpend } = await import("./members-store.mjs");
+        await requireMinRole(p1, "lead");
+        await requireSpend(p1);
+        holdUpload(req, res, currentSub()); // held until this answer is done
+        const bytes = await readRaw(req, { max: uploadCap() }); // the model cap (BCF_MAX_UPLOAD_MB), named in the template
+        const { runJudgeAgain } = await import("./intake-logic.mjs");
+        const { checkDelivery, gateNotChecked } = await import("./delivery-gate.mjs");
+        const { extractElements } = await import("./ifc-extract.mjs");
+        const { downloadIfc } = await import("./platform-publish.mjs");
+        const art = await import("./artefact-store.mjs");
+        return send(res, 200, await runJudgeAgain({
+          loadVersion: (key, vid) => cde.judgeTarget(key, vid), download: downloadIfc,
+          loadContract: (key) => art.resolveContract(key), checkDelivery, gateNotChecked, extractElements,
+          adjudicate: (key, body) => cde.adjudicateProposal(key, body),
+          recordVersionVerdict: (key, vid, result, actor) => cde.recordVersionVerdict(key, vid, result, actor),
+          audit: async (key, action, actor, value) => { const proj = await cde.ensureProject(key); return cde.audit(proj.id, "delivery_gate", null, action, actor, null, value); },
+        }, { key: p1, versionId: p3, bytes, actor: resolveActor(url.searchParams.get("actor"), "web") }));
       }
       // The propose API (referee): POST /cde/:key/propose { source, actor?, ids?, elements[], note?, container_name?,
       //   version_id? | register?: {name, size_bytes, sha256}, gate_row_id?, raise_bcf? }

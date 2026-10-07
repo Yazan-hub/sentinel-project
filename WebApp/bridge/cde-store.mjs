@@ -1018,6 +1018,15 @@ export async function versionOnKey(key, version_id) {
   return { proj, version: { id: v.id, container_id: v.container_id, revision: v.revision, state: v.state } };
 }
 
+/** SEC-8 judge-again: a version of `key` (versionOnKey: this project's, out of Deleted items) with the sha256 it was
+ *  registered with, its file's name and its latest "geometry linked" row's new_value (null when it has none). */
+export async function judgeTarget(key, versionId) {
+  const { proj, version } = await versionOnKey(key, versionId);
+  const v = (await sb(`container_versions?id=eq.${version.id}&select=sha256,information_containers(iso_name)`))?.[0];
+  const link = (await sb(`audit_log?project_id=eq.${proj.id}&entity_type=eq.file_version&entity_id=eq.${version.id}&action=eq.${encodeURIComponent("geometry linked")}&select=new_value&order=id.desc&limit=1`))?.[0];
+  return { ...version, sha256: v?.sha256 ? String(v.sha256).toLowerCase() : null, iso_name: v?.information_containers?.iso_name ?? null, link: link?.new_value ?? null };
+}
+
 // cde_transition's raises (migration 0031) → the caller's status, in the function's own words: a refusal (P0001:
 // the state machine, the verdict guard, the state trigger) is a 409; an unknown version (no_data_found) a 404; a
 // role refusal (insufficient_privilege) a 403. Anything else stays the bridge's error (a 500 at the route, scrubbed).

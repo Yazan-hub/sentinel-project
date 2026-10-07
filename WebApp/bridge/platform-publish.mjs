@@ -41,3 +41,15 @@ export async function uploadIfcAsFrag(bytes, name, versionTag = "v1") {
   // may normalise the one asked), else the one asked. Open 3D downloads that tag, not the item's newest version.
   return { ok: true, format: "frag", name: fragName, itemId: result?.item?._id, bytes: size, frag_sha256: createHash("sha256").update(frag).digest("hex"), version_tag: result?.version?.tag || versionTag, ...beside };
 }
+
+/** SEC-8 judge-again: a platform item's bytes at a version tag (the one the geometry link recorded, SEC-7), else the item's
+ *  own version (every bridge upload is a fresh item with one). A download the platform refuses is a 502 in words. */
+export async function downloadIfc(itemId, versionTag) {
+  const { getConfig, createClient } = await import("./thatopen-client.mjs");
+  let cfg;
+  try { cfg = getConfig(); }
+  catch (e) { throw Object.assign(new Error(String(e?.message || e)), { status: 503 }); }
+  const resp = await createClient(cfg).downloadFile(itemId, versionTag ? { versionTag } : undefined);
+  if (!resp.ok) throw Object.assign(new Error(`the platform did not serve ${versionTag ? `version tag "${versionTag}" of ` : ""}item ${itemId} (HTTP ${resp.status}) — nothing was judged`), { status: 502 });
+  return Buffer.from(await resp.arrayBuffer());
+}

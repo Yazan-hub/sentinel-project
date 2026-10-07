@@ -1,6 +1,7 @@
 // The G1–G4 sequence with every side effect stubbed: what runs, what does not, and in which order.
 import { describe, it, expect } from "vitest";
-import { runIntake, validateIntakeInput } from "./intake-logic.mjs";
+import { createHash } from "node:crypto";
+import { runIntake, runJudgeAgain, validateIntakeInput } from "./intake-logic.mjs";
 
 const bytes = Buffer.from("ISO-10303-21;");
 const contractSha = "cd".repeat(32);
@@ -195,6 +196,82 @@ describe("runIntake", () => {
     const r = await runIntake(stubs({ contract: "none", inScope: 0 }), input);
     expect(r.verdict).toBe("recorded");
     expect(r.note).toBe(`IDS ids@1 is installed but no element was in its scope (1 read, 0 skipped) and the delivery gate was not checked (contract: ${noneLabel}) — nothing was judged.`);
+  });
+});
+
+// SEC-8: judge-again — the judging half of intake on a version's own bytes, nothing registered, uploaded or linked.
+describe("runJudgeAgain", () => {
+  const SHA = createHash("sha256").update(bytes).digest("hex");
+  const V = "aaaaaaaa-0000-4000-8000-0000000000a1";
+  const judging = (version, opts) => {
+    const d = stubs(opts);
+    d.loadVersion = async (...a) => { d.calls.push(["loadVersion", ...a]); return { id: V, revision: "P07", state: "wip", iso_name: input.name, sha256: SHA, link: null, ...version }; };
+    d.download = async (...a) => { d.calls.push(["download", ...a]); return bytes; };
+    d.recordVersionVerdict = async (...a) => { d.calls.push(["recordVersionVerdict", ...a]); return { id: 950 }; };
+    return d;
+  };
+  const ask = { key: "aster-tower", versionId: V, actor: "lead@example.test" };
+
+  it("no body: the IFC the link names, downloaded at the tag the link recorded, hashed, judged and stamped on the version with the lead as actor", async () => {
+    const d = judging({ link: { platform_item_id: "item-frag", ifc_item_id: "item-ifc", version_tag: "P07" } });
+    const r = await runJudgeAgain(d, { ...ask, bytes: Buffer.alloc(0) });
+    expect(names(d)).toEqual(["loadVersion", "download", "loadContract", "checkDelivery", "audit", "extractElements", "adjudicate", "recordVersionVerdict"]);
+    expect(d.calls.find((c) => c[0] === "download").slice(1)).toEqual(["item-ifc", "P07"]);
+    expect(d.calls.find((c) => c[0] === "audit")[2]).toBe(`IFC delivery gate PASS: ${input.name} (judged again)`);
+    expect(d.calls.find((c) => c[0] === "audit")[4]).toMatchObject({ file: input.name, source: "judge-again", version_id: V, result: "pass" });
+    const asked = d.calls.find((c) => c[0] === "adjudicate");
+    expect(asked[2]).toMatchObject({ source: "judge-again", actor: "lead@example.test", container_name: input.name });
+    expect(asked[2]).not.toHaveProperty("version_id"); // the stamp is this module's, below — one verdict row
+    expect(asked).toHaveLength(3); // no intake opts: an existing version is never held
+    const stamp = d.calls.find((c) => c[0] === "recordVersionVerdict");
+    expect(stamp.slice(1, 3)).toEqual(["aster-tower", V]);
+    expect(stamp[3]).toMatchObject({ verdict: "accepted" });
+    expect(stamp[4]).toBe("lead@example.test");
+    expect(r).toMatchObject({ verdict: "accepted", stage: "judged", from: "platform", version: { id: V, revision: "P07" }, audit_id: 901, verdict_audit_id: 950, gate_audit_id: 700 });
+  });
+
+  it("a link made before SEC-7 records no tag: the IFC item's own version is downloaded (the item holds one)", async () => {
+    const d = judging({ link: { ifc_item_id: "item-ifc" } });
+    await runJudgeAgain(d, { ...ask, bytes: null });
+    expect(d.calls.find((c) => c[0] === "download").slice(1)).toEqual(["item-ifc", null]);
+  });
+
+  it("a body is the lead's re-upload: judged when its sha256 is the version's, nothing downloaded", async () => {
+    const d = judging({ link: null });
+    const r = await runJudgeAgain(d, { ...ask, bytes });
+    expect(names(d)).not.toContain("download");
+    expect(r).toMatchObject({ from: "upload", verdict: "accepted" });
+  });
+
+  it("a re-upload with other bytes is a 409 in words — nothing is judged", async () => {
+    const d = judging({ sha256: "ab".repeat(32) });
+    await expect(runJudgeAgain(d, { ...ask, bytes })).rejects.toMatchObject({ status: 409, message: `the uploaded file's sha256 is not the one version ${V} was registered with — nothing was judged` });
+    expect(names(d)).toEqual(["loadVersion"]);
+  });
+
+  it("platform bytes that are not the version's are a 409 in words — nothing is judged", async () => {
+    const d = judging({ sha256: "ab".repeat(32), link: { ifc_item_id: "item-ifc", version_tag: "P07" } });
+    await expect(runJudgeAgain(d, { ...ask, bytes: null })).rejects.toMatchObject({ status: 409, message: `the IFC the platform served's sha256 is not the one version ${V} was registered with — nothing was judged` });
+    expect(names(d)).toEqual(["loadVersion", "download"]);
+  });
+
+  it("a version registered without a sha256 cannot be judged again — said in words, before any byte is fetched", async () => {
+    const d = judging({ sha256: null, link: { ifc_item_id: "item-ifc" } });
+    await expect(runJudgeAgain(d, { ...ask, bytes })).rejects.toMatchObject({ status: 409, message: `version ${V} was registered without a sha256, so no bytes are bound to it and it cannot be judged again — a lead's reason moves it, as before; nothing was judged` });
+    expect(names(d)).toEqual(["loadVersion"]);
+  });
+
+  it("no body and a link that names no IFC (a legacy version): the answer names the re-upload", async () => {
+    const d = judging({ link: { platform_item_id: "item-frag" } });
+    await expect(runJudgeAgain(d, { ...ask, bytes: null })).rejects.toMatchObject({ status: 409, message: `version ${V}'s geometry link names no IFC on the platform — POST the IFC as the request body (its sha256 must be the version's); nothing was judged` });
+  });
+
+  it("bytes that fail the contract in force: the stamp says rejected with the gate's failures, and no IDS runs", async () => {
+    const d = judging({ link: null }, { gatePass: false });
+    const r = await runJudgeAgain(d, { ...ask, bytes });
+    expect(names(d)).toEqual(["loadVersion", "loadContract", "checkDelivery", "audit", "recordVersionVerdict"]);
+    expect(d.calls.find((c) => c[0] === "recordVersionVerdict").slice(1)).toEqual(["aster-tower", V, { verdict: "rejected", summary: null, failures: ["IFCPROJECT: 0 found, contract requires ≥ 1."] }, "lead@example.test"]);
+    expect(r).toMatchObject({ verdict: "rejected", stage: "gate", verdict_audit_id: 950 });
   });
 });
 
