@@ -28,8 +28,8 @@ const err = (status, message) => Object.assign(new Error(message), { status });
 const finite = (n) => typeof n === "number" && Number.isFinite(n);
 const point = (p) => Array.isArray(p) && p.length === 3 && p.every(finite);
 const text = (s, max) => typeof s === "string" && s.trim() !== "" && s.length <= max;
-// Revit's UniqueId: the episode GUID, then "-", then the element id as 8 hex digits.
 const IFC_GUID = /^[0-9A-Za-z_$]{22}$/; // MA-3d: an IFC GlobalId as the export writes it (22 characters of its base64 alphabet)
+// Revit's UniqueId: the episode GUID, then "-", then the element id as 8 hex digits.
 const UNIQUE_ID = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}-[0-9a-f]{8}$/i;
 const inRange = (n, lo, hi) => finite(n) && n >= lo && n <= hi;
 // MA-1a item 4: an element's provenance as its placer knows it (checkProvenance).

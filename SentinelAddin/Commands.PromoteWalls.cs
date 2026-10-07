@@ -436,9 +436,13 @@ public sealed class PromoteWallsCommand : IExternalCommand
     }
 
     /// <summary>MA-3d: the element's IFC GlobalId as the IFC export writes it (and as a published .frag carries it), or null — the web
-    /// desk highlights a ghost's element in the loaded model by it. On the API thread (ExportUtils reads the model).</summary>
+    /// desk highlights a ghost's element in the loaded model by it. The same rule as the BCF code and the IFC exporter: the stored
+    /// IFC_GUID parameter first (copied elements, IFC round-trips, "store IFC GUID"), else the id computed from the export id.
+    /// On the API thread (both read the model).</summary>
     private static string IfcGuidOf(Document doc, Element e)
     {
+        var g = e.get_Parameter(BuiltInParameter.IFC_GUID)?.AsString();
+        if (!string.IsNullOrWhiteSpace(g)) return g;
         try { return BcfApplyEvent.ToIfcGuid(ExportUtils.GetExportId(doc, e.Id)); } catch (Exception) { return null; }
     }
 

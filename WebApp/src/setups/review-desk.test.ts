@@ -260,11 +260,11 @@ describe("MA-3d — Highlight in 3D: the plan and its words", () => {
   it("one found, one not: the Revit-may-be-newer words", () => {
     const r = highlightPlan(three, new Map([["Tower@P03", [7, null]]]));
     expect(r.map).toEqual({ "Tower@P03": new Set([7]) });
-    expect(r.words).toBe("Highlighted 1 of 2 ghost(s) in Tower@P03 — 1 not in them: the loaded version may be older than Revit's model (Revit may be newer).");
+    expect(r.words).toBe("Highlighted 1 of 2 element(s) in Tower@P03 — 1 not in them: the loaded version may be older than Revit's model (Revit may be newer).");
   });
   it("two models, the second holding B", () => {
     const r = highlightPlan(three, new Map<string, (number | null)[]>([["Tower@P03", [7, null]], ["Tower@P04", [null, 9]]]));
-    expect(r.words).toBe("Highlighted 2 of 2 ghost(s) in Tower@P03, Tower@P04.");
+    expect(r.words).toBe("Highlighted 2 of 2 element(s) in Tower@P03, Tower@P04.");
   });
   it("nothing loaded", () => {
     expect(highlightPlan(three, new Map()).words).toBe("Load a model first (Files ▸ Open 3D) — nothing is loaded to highlight in.");
@@ -277,10 +277,28 @@ describe("MA-3d — Highlight in 3D: the plan and its words", () => {
   });
   it("no hit", () => {
     expect(highlightPlan([g("A"), g("B")], new Map([["Tower@P03", [null, null]]])).words)
-      .toBe("None of the 2 ghost(s) is in the loaded model(s) (Tower@P03) — the loaded version may be older than Revit's model; load the newest published version, or Revit may be newer.");
+      .toBe("None of the 2 element(s) is in the loaded model(s) (Tower@P03) — the loaded version may be older than Revit's model; load the newest published version, or Revit may be newer.");
   });
   it("a retype without a GUID beside two with", () => {
     expect(highlightPlan([g("A"), g("B"), g(null)], new Map([["T@1", [1, 2]]])).words)
-      .toBe("Highlighted 2 of 2 ghost(s) in T@1; 1 ghost(s) filed before the add-in sent GlobalIds cannot be highlighted.");
+      .toBe("Highlighted 2 of 2 element(s) in T@1; 1 ghost(s) filed before the add-in sent GlobalIds cannot be highlighted.");
+  });
+  it("a type edit beside a retype: its type GlobalId is never looked up, and the words say why", () => {
+    const r = highlightPlan([g("A"), g("TYPE", "set_parameter")], new Map([["T@1", [1]]]));
+    expect(r.guids).toEqual(["A"]);
+    expect(r.words).toBe("Highlighted 1 of 1 element(s) in T@1; 1 type edit(s) are not highlighted (a type has no geometry).");
+    expect(highlightPlan([g("TYPE", "set_parameter"), g(null, "create")], new Map()).words)
+      .toBe("Nothing to highlight: this storey proposes only creates and type edits (a create has no element yet; a type has no geometry).");
+  });
+  it("a wall retyped and attached is one element", () => {
+    expect(highlightPlan([g("A"), g("A", "attach")], new Map([["T@1", [1]]])).words).toBe("Highlighted 1 of 1 element(s) in T@1.");
+  });
+  it("the desk's row: Highlight in 3D and Clear, one GUID list, the select highlighter", () => {
+    const src = readFileSync(new URL("./review-desk.ts", import.meta.url), "utf8");
+    expect(src).toContain('btn("Highlight in 3D", ');
+    expect(src).toContain('btn("Clear", () => void clearHighlight())');
+    expect(src).toContain('highlightByID("select", plan.map, true, true)');
+    expect(src).toContain('clear("select")');
+    expect(src.split("const guids = guidsOf(ghosts);").length - 1).toBe(2);
   });
 });

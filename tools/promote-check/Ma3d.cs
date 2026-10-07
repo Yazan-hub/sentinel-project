@@ -30,5 +30,10 @@ static partial class Check
         Ok(promote.Contains("private static string IfcGuidOf(Document doc, Element e)") && promote.Contains("IfcGuid = IfcGuidOf(doc, w)") && promote.Contains("IfcGuid = IfcGuidOf(doc, e)")
            && Count(pp, "IfcGuid = e.IfcGuid") == 2 && pw.Contains("IfcGuid = w.IfcGuid") && Count(pw, "ifc_guid = g.IfcGuid") == 2,
            "MA-3d wiring: the facts read the GlobalId on the API thread, every ghost copies it, both bodies send it");
+        Ok(promote.Contains("IfcGuid = IfcGuidOf(doc, hits[0])") && Src("GhostBuilder", "PropertyPlanner.cs").Contains("IfcGuid = v.IfcGuid"),
+           "MA-3d wiring: a type edit (set_parameter) carries its type's GlobalId too (the desk does not highlight it — a type has no geometry)");
+        var body = promote[promote.IndexOf("private static string IfcGuidOf(Document doc, Element e)")..];
+        Ok(body.IndexOf("BuiltInParameter.IFC_GUID") is var i && i > 0 && i < body.IndexOf("ExportUtils.GetExportId"),
+           "MA-3d: IfcGuidOf reads the stored IFC_GUID parameter first, as the BCF code and the IFC exporter do, then the export id");
     }
 }
