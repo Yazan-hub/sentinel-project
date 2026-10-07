@@ -217,7 +217,8 @@ public sealed class PromoteWallsCommand : IExternalCommand
             // MA-3b6 (F8 B): the storeys to file - a storey whose every ghost was declined before is not filed; a preview not read files all.
             var toFile = PropertyPlanner.WithoutCarried(bodies, pv);
             var skipped = bodies.Count - toFile.Count;
-            var declinedBefore = bodies.Count == 0 ? null : pv == null ? PropertyPlanner.PreviewNotRead(pvErr) : PropertyPlanner.CarriedLine(pv);
+            var declinedBefore = bodies.Count == 0 ? null : pv == null ? PropertyPlanner.PreviewNotRead(pvErr)
+                : pv.Count != bodies.Count ? PropertyPlanner.PreviewNotRead("the bridge's preview did not match the storeys") : PropertyPlanner.CarriedLine(pv); // review: as WithoutCarried
             var dlg = new TaskDialog(Title)
             {
                 MainInstruction = bodies.Count == 0 ? "Nothing to file: no element needs a change Sentinel can propose."
@@ -234,7 +235,7 @@ public sealed class PromoteWallsCommand : IExternalCommand
             };
             if (held.Count > 0)
                 dlg.ExpandedContent = "Sent to a person:\n" + string.Join("\n", held.Take(40)) + (held.Count > 40 ? $"\n… and {held.Count - 40} more" : "");
-            if (toFile.Count == 0 || dlg.Show() != TaskDialogResult.Yes) return false; // read-only run
+            if (dlg.Show() != TaskDialogResult.Yes) return false; // read-only run (with nothing to file the button is Ok)
 
             // MA-3b5 (XC-3): the filing runs off Revit's thread — Revit stays usable, and the guard stays held until the bridge has answered the
             // last filing: the filing's finally releases it before the review is queued (E3: Open checks it). The receipt's Doctor line goes

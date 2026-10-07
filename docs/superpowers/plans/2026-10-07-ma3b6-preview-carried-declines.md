@@ -176,7 +176,7 @@ public sealed class ChangesetPreviewDto
             var skipped = bodies.Count - toFile.Count;
             var declinedBefore = bodies.Count == 0 ? null : pv == null ? PropertyPlanner.PreviewNotRead(pvErr) : PropertyPlanner.CarriedLine(pv);
 ```
-and change: `MainInstruction = bodies.Count == 0 ? "Nothing to file: …" : PropertyPlanner.FileQuestion(toFile.Count, skipped)`; append to `MainContent` right after `gapText`: `+ (declinedBefore != null ? "\n\n" + declinedBefore : "")`; `CommonButtons = toFile.Count == 0 ? Ok : Yes | No`; the No-text condition `bodies.Count > 0` becomes `toFile.Count > 0`; `if (toFile.Count == 0 || dlg.Show() != TaskDialogResult.Yes) return false;`. In the filing: `PromoteFiling(toFile.Count)`, `FileAll(toFile, …)`, `{failed.Count} of {toFile.Count} changeset(s)`, `PromoteFiled(filed.Count, toFile.Count)`. Everything else in the function unchanged.
+and change: `MainInstruction = bodies.Count == 0 ? "Nothing to file: …" : PropertyPlanner.FileQuestion(toFile.Count, skipped)`; append to `MainContent` right after `gapText`: `+ (declinedBefore != null ? "\n\n" + declinedBefore : "")`; `CommonButtons = toFile.Count == 0 ? Ok : Yes | No`; the No-text condition `bodies.Count > 0` becomes `toFile.Count > 0`; `if (dlg.Show() != TaskDialogResult.Yes) return false;` (with nothing to file the dialog still opens, button Ok, and returns false). In the filing: `PromoteFiling(toFile.Count)`, `FileAll(toFile, …)`, `{failed.Count} of {toFile.Count} changeset(s)`, `PromoteFiled(filed.Count, toFile.Count)`. Everything else in the function unchanged.
   Then, where the dialog used to start, after the local function:
 
 ```csharp

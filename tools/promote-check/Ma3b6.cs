@@ -32,5 +32,13 @@ static partial class Check
         Ok(hop > 0 && promote.Contains("App.Events.Enqueue(doc, \"ask Promote (DD)\"") && promote.Contains("PropertyPlanner.FileAll(toFile")
            && promote.Contains("PropertyPlanner.FileQuestion(toFile.Count, skipped)") && !promote.Contains("$\"File {bodies.Count} changeset(s)?\""),
            "MA-3b6: Promote reads the preview on a pool thread, asks back on Revit's thread in this model only (DocPin), files only the storeys not wholly declined before, and no longer asks 'File {bodies.Count}'");
+        int fin = promote.IndexOf("finally { if (!handed) release(); }", StringComparison.Ordinal);
+        int refuse = promote.IndexOf("why => { release(); TaskDialog.Show(Title, why); }), TaskScheduler.Default);", StringComparison.Ordinal);
+        Ok(hop > 0 && fin > hop && refuse > fin,
+           "MA-3b6: the preview hop releases the guard when the dialog is not handed on, and when Revit refuses the hop");
+        Ok(!promote.Contains("toFile.Count == 0 || dlg.Show()") && promote.Contains("if (dlg.Show() != TaskDialogResult.Yes) return false;"),
+           "MA-3b6 review: with nothing to file the dialog still opens (Ok) - it says why nothing is filed and lists the rows sent to a person");
+        Ok(promote.Contains("pv.Count != bodies.Count ? PropertyPlanner.PreviewNotRead(\"the bridge's preview did not match the storeys\")"),
+           "MA-3b6 review: a preview that does not match the storeys one to one is said as not read - the dialog never names a storey it files as not filed");
     }
 }
