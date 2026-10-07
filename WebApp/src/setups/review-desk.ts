@@ -246,6 +246,16 @@ export function highlightPlan(ghosts: Ghost[], found: Map<string, (number | null
     : `Highlighted ${hit.size} of ${guids.length} element(s) in ${models}` + (missing ? ` — ${missing} not in them: the loaded version may be older than Revit's model (Revit may be newer)` : "") + (withoutGuid > 0 ? `; ${withoutGuid} ghost(s) filed before the add-in sent GlobalIds cannot be highlighted` : "") + typeWords + "." };
 }
 
+/** MA-3d2: the words after a storey's proposal models loaded (or not). `shown`: per changeset, the header's counts; `failed`: changesets whose model did not load, each with why. */
+export function proposalWords(shown: { creates: number; drawn: number; skipped: string[] }[], failed: string[], noneToShow: boolean): string {
+  if (noneToShow && !shown.length && !failed.length) return "Nothing to show: this storey proposes no create (a retype or attach changes an element that exists — Highlight in 3D selects it).";
+  const creates = shown.reduce((n, s) => n + s.creates, 0), drawn = shown.reduce((n, s) => n + s.drawn, 0), skipped = shown.flatMap((s) => s.skipped);
+  const head = shown.length ? `Showing ${drawn} of ${creates} proposed create(s) as a proposal model in orange — boxes from the proposal's lines and boundaries (a wall or slab whose thickness was not sent is sketched at 200 mm; a create that named only its level sits at elevation 0 here); the executor places the real shapes at Apply. Not part of any published version — Hide creates removes it.` : "";
+  const skip = skipped.length ? ` Not drawn: ${skipped.slice(0, 3).join("; ")}${skipped.length > 3 ? ` (+${skipped.length - 3} more)` : ""}.` : "";
+  const fail = failed.length ? ` Not loaded: ${failed.join("; ")}.` : "";
+  return (head + skip + fail).trim();
+}
+
 /** The desk: plain DOM, re-read on a project or person change (main.ts → refreshActiveProject) or by its own ↻ Refresh. */
 export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Components } = {}): HTMLElement {
   const base = (opts.baseUrl ?? SERVICE_URL).replace(/\/$/, "");
@@ -296,6 +306,44 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
       await (opts.components?.get(OBF.Highlighter) as unknown as { clear(n: string): Promise<void> } | undefined)?.clear("select");
       say("Highlight cleared.");
     } catch (e) { say(`Clearing failed — ${(e as Error).message}`, true); }
+  };
+  // MA-3d2: Show creates in 3D — each changeset's proposal model (the bridge's .frag of its creates) loaded beside what is loaded,
+  // every item orange; Hide creates disposes them. Model ids "proposal:<changeset id>" — never a version's.
+  const proposalId = (csId: string) => `proposal:${csId}`;
+  const showCreates = async (storey: DeskStorey) => {
+    const comps = opts.components;
+    if (!comps) { say("Showing creates needs the viewer — not available on this page.", true); return; }
+    // the same dynamic imports as highlight() — the viewer libraries never load under vitest
+    const [OBCm, OBF, FRAGS, THREE] = await Promise.all([import("@thatopen/components"), import("@thatopen/components-front"), import("@thatopen/fragments"), import("three")]);
+    const fragments = comps.get(OBCm.FragmentsManager) as unknown as { core: { load(buf: ArrayBuffer, o: { modelId: string }): Promise<unknown>; disposeModel(id: string): Promise<void>; models: { list: Map<string, unknown> } } };
+    const highlighter = comps.get(OBF.Highlighter) as unknown as { styles: Map<string, unknown>; highlightByID(n: string, m: Record<string, Set<number>>, a: boolean, b: boolean): Promise<void> };
+    const withCreates = storey.changesets.filter((cs) => cs.elements.some((e) => (e.op ?? "create") === "create"));
+    const shown: { creates: number; drawn: number; skipped: string[] }[] = [], failed: string[] = [];
+    for (const cs of withCreates) {
+      try {
+        const r = await bfetch(at(base, activePid(), `/${encodeURIComponent(cs.id)}/proposal.frag`));
+        if (!r.ok) { failed.push(`${cs.name}: ${((await r.json().catch(() => ({ message: `HTTP ${r.status}` }))) as { message: string }).message}`); continue; }
+        const counts = JSON.parse(r.headers.get("X-Sentinel-Proposal") || '{"creates":0,"drawn":0,"skipped":[]}') as { creates: number; drawn: number; skipped: string[] };
+        const buf = await r.arrayBuffer();
+        const id = proposalId(cs.id);
+        if (fragments.core.models.list.has(id)) await fragments.core.disposeModel(id);
+        await fragments.core.load(buf, { modelId: id });
+        const model = fragments.core.models.list.get(id) as { getItemsIdsWithGeometry(): Promise<number[]> } | undefined;
+        const ids = model ? await model.getItemsIdsWithGeometry() : [];
+        if (!highlighter.styles.has("proposal")) highlighter.styles.set("proposal", { color: new THREE.Color(0xf59e0b), renderedFaces: FRAGS.RenderedFaces.TWO, opacity: 1, transparent: false });
+        if (ids.length) await highlighter.highlightByID("proposal", { [id]: new Set(ids) }, false, false);
+        shown.push(counts);
+      } catch (e) { failed.push(`${cs.name}: ${(e as Error).message}`); }
+    }
+    say(proposalWords(shown, failed, withCreates.length === 0), failed.length > 0);
+  };
+  const hideCreates = async (storey: DeskStorey) => {
+    const comps = opts.components; if (!comps) return;
+    const OBCm = await import("@thatopen/components");
+    const fragments = comps.get(OBCm.FragmentsManager) as unknown as { core: { disposeModel(id: string): Promise<void>; models: { list: Map<string, unknown> } } };
+    let n = 0;
+    for (const cs of storey.changesets) { const id = proposalId(cs.id); if (fragments.core.models.list.has(id)) { await fragments.core.disposeModel(id); n++; } }
+    say(n ? `Hid ${n} proposal model(s).` : "No proposal model is shown for this storey.");
   };
   let seq = 0;
 
@@ -359,7 +407,7 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
       box.open = true;
       box.append(el("summary", `${s.storey} — ${s.groups.reduce((n, g) => n + g.ghosts.length, 0)} ghost(s) in ${s.changesets.length} changeset(s)`, "cursor:pointer;font-weight:600"));
       const hrow = el("div", "", "display:flex;gap:.4rem;margin:.2rem 0");
-      hrow.append(btn("Highlight in 3D", () => void highlight(s.groups.flatMap((g) => g.ghosts.map((x) => x.el)))), btn("Clear", () => void clearHighlight()));
+      hrow.append(btn("Highlight in 3D", () => void highlight(s.groups.flatMap((g) => g.ghosts.map((x) => x.el)))), btn("Clear", () => void clearHighlight()), btn("Show creates in 3D", () => void showCreates(s)), btn("Hide creates", () => void hideCreates(s)));
       box.append(hrow);
       for (const g of s.groups) {
         box.append(el("div", `${g.what} (${g.ghosts.length})`, "margin:.4rem 0 .2rem;color:#8b93a1"));
