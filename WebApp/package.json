@@ -1,6 +1,6 @@
 {
   "name": "Sentinel",
-  "version": "1.0.52",
+  "version": "1.0.53",
   "private": true,
   "scripts": {
     "dev": "node scripts/build-fragments-worker.mjs && thatopen serve",
