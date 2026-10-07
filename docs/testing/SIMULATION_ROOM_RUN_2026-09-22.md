@@ -2345,3 +2345,25 @@ parts (a level create, a loop's, a line's or a point's z).
 
 **Closing list:** the drill changesets stay proposed (`sec8-smoke` 2a4effc3; `ma2a-ghost` A and B — the founder's scratch); my
 Chrome tab closed; the 4100 bridge on master since ~23:20 — the Funnel refresh is the founder's.
+
+## Session OPEN1 — openCDE slice 1, the BCF-API 3.0 reads, live (2026-10-08 ~00:20 → 00:35 local, merged 3eac54e, Claude driving the live bridge alone)
+
+Setup: built inline (size M); the 4100 bridge restarted on master; the drill with the machine credential from loopback against the
+real `aster-tower` (62 projects visible to the machine, 2 live containers, topics with one viewpoint).
+
+| Row | Result | Evidence |
+|---|---|---|
+| O-1 | `GET /bcf/versions` → `{"versions":[{"version_id":"3.0",…}]}`; `GET /bcf/3.0/current-user` → `{"id":"machine","name":"the bridge (machine credential)"}` — **pass** | the replies |
+| O-2 | `GET /bcf/3.0/projects` → 62 `{project_id, name, authorization}`; `/projects/aster-tower` → one; `/extensions` → Sentinel's types, statuses, priorities and the members as users — **pass** | the replies |
+| O-3 | `GET …/files` → 2 BCF files, the live versions named ISO-style (`ASTR26-AST-ZZ-XX-M3-A-0001.ifc`), each `reference` the version's route — **pass** | the reply |
+| O-4 | one topic `200`; its comments `[]`; its viewpoints 1; `…/selection` → the viewpoint's `ifc_guid` list; `…/snapshot` → `404 snapshot not found` (none stored — right) — **pass** | the replies |
+| O-5 | `?status=all&$top=2` → 2; `?$filter=topic_status eq 'Closed'&$top=1` → one Closed (the filter starts from every status); `?$filter=x gt 1` → `400` in words — **pass** | the replies |
+| O-6 | `DELETE …/comments/y` → `405 this openCDE route is read-only on this bridge — the writes come with the next slice; nothing changed` — **pass** | the reply |
+
+Offline: `bcf-open.test.mjs` (the parser, the paging, snapshots, files, extensions) and five write-roles rows (a person's identity, a
+stranger refused as before). 2741 tests.
+
+**Owed:** a stock BCF client (BIMcollab Zoom / Solibri) opening the Funnel URL — needs the auth discovery document (slice 2) first,
+since those clients start at `/bcf/3.0/auth`; the buildingSMART test-suite run (slice 3).
+
+**Closing list:** nothing written; the 4100 bridge on master since ~00:25 — the Funnel refresh is the founder's.
