@@ -95,6 +95,12 @@ describe("attachGeometry — the uploaded item goes on the sidecar's version, by
     expect(writes()[1].body.new_value).toMatchObject({ platform_item_id: "item-42", ifc_sha256: H, frag_sha256: F, ifc_item_id: "item-43" });
   });
 
+  it("SEC-7: records the platform version tag the bytes were uploaded under, when it is given", async () => {
+    await attachGeometry("aster-tower", V, "item-42", { sha256: H, frag_sha256: F, version_tag: "P01" });
+    expect(writes()[1].body.new_value).toMatchObject({ platform_item_id: "item-42", ifc_sha256: H, frag_sha256: F, version_tag: "P01" });
+    expect(writes()[1].body.new_value).not.toHaveProperty("ifc_item_id");
+  });
+
   it("SEC-5 (0042): an item another version already names is a 409 in words, and no 'geometry linked' row", async () => {
     const real = globalThis.fetch;
     globalThis.fetch = vi.fn(async (url, init = {}) => (init.method === "PATCH"
@@ -174,8 +180,10 @@ describe("SEC-4: the item is linked only to the version its bytes were registere
     expect(src).toContain("await cde.attachGeometry(d.project, d.version_id, itemId, hashes);");
     // SEC-5: the delivered IFC's item is recorded on the link (a lead's judge-again reads the version's own bytes there).
     // Review C1: the raw-IFC fallback links the IFC itself — its item is recorded too, so Open 3D checks it.
-    expect(src).toContain("const reg = await recordVersion(d, name, result?.item?._id, { sha256: ifcSha, ifc_item_id: result?.item?._id });");
-    expect(src).toContain("const hashes = { sha256: ifcSha, frag_sha256: createHash(\"sha256\").update(fragBytes).digest(\"hex\"), ...(beside.ifcItemId ? { ifc_item_id: beside.ifcItemId } : {}) };");
+    // SEC-7: the watcher records the version tag the platform answered for the upload (else uploadBytes' default, "v1") on the
+    // link — Open 3D downloads that tag (review C1: the answer, not the ask).
+    expect(src).toContain("const reg = await recordVersion(d, name, result?.item?._id, { sha256: ifcSha, ifc_item_id: result?.item?._id, version_tag: result?.version?.tag || \"v1\" });");
+    expect(src).toContain("const hashes = { sha256: ifcSha, frag_sha256: createHash(\"sha256\").update(fragBytes).digest(\"hex\"), ...(beside.ifcItemId ? { ifc_item_id: beside.ifcItemId } : {}), version_tag: result?.version?.tag || \"v1\" };");
     expect(src).not.toContain("ifcToFrag(p)");
     expect(src).not.toContain("uploadFile(");
   });

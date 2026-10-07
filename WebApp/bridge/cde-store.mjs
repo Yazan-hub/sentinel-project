@@ -980,9 +980,10 @@ export async function geometryTarget(key, versionId, sha256) {
  *  only the version geometryTarget answers for `opts.sha256`, and only while it has no geometry (platform_item_id is
  *  written once; the PATCH is filtered on is.null, so a concurrent attach cannot overwrite). Audited "geometry linked"
  *  (actor `opts.actor`, else outbox) with the IFC's sha256 and, when given, the .frag's and the delivered IFC's platform
- *  item (SEC-5); returns the version and the ledger row's id. 400 for a blank item, a missing hash or a version not on
- *  `key`, 409 for the rest — each decided before any write; an item another version names is 0042's 409, in words. */
-export async function attachGeometry(key, versionId, platformItemId, { sha256, frag_sha256, ifc_item_id, actor = "outbox" } = {}) {
+ *  item (SEC-5) and the platform version tag the bytes went under (SEC-7: Open 3D downloads that tag); returns the version
+ *  and the ledger row's id. 400 for a blank item, a missing hash or a version not on `key`, 409 for the rest — each decided
+ *  before any write; an item another version names is 0042's 409, in words. */
+export async function attachGeometry(key, versionId, platformItemId, { sha256, frag_sha256, ifc_item_id, version_tag, actor = "outbox" } = {}) {
   const item = String(platformItemId ?? "").trim();
   if (!item) { const e = new Error("platform_item_id required"); e.status = 400; throw e; }
   const { proj, v, c } = await geometryTarget(key, versionId, sha256);
@@ -1000,7 +1001,7 @@ export async function attachGeometry(key, versionId, platformItemId, { sha256, f
   }
   const row = await audit(proj.id, "file_version", v.id, "geometry linked", actor, null,
     { file: c.iso_name, platform_item_id: item, by: "version_id", ifc_sha256: String(v.sha256).toLowerCase(), ...(frag_sha256 ? { frag_sha256 } : {}),
-      ...(ifc_item_id ? { ifc_item_id: String(ifc_item_id) } : {}) });
+      ...(ifc_item_id ? { ifc_item_id: String(ifc_item_id) } : {}), ...(version_tag ? { version_tag: String(version_tag) } : {}) });
   return { container_id: v.container_id, iso_name: c.iso_name, linked: true, version: { id: v.id, revision: v.revision, platform_item_id: item, is_live: v.is_live }, audit_id: row?.id ?? null };
 }
 

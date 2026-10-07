@@ -118,7 +118,8 @@ export async function runIntake(deps, rawInput) {
   let geometry;
   if (versionId && upload.itemId) {
     // SEC-5: the .frag's hash (Open 3D checks a download against it) and the delivered IFC's item go on the link row.
-    const link = { sha256: gate.sha256, actor, ...(upload.frag_sha256 ? { frag_sha256: upload.frag_sha256 } : {}), ...(upload.ifcItemId ? { ifc_item_id: upload.ifcItemId } : {}) };
+    // SEC-7: and the platform version tag the upload went under (Open 3D downloads that tag).
+    const link = { sha256: gate.sha256, actor, ...(upload.frag_sha256 ? { frag_sha256: upload.frag_sha256 } : {}), ...(upload.ifcItemId ? { ifc_item_id: upload.ifcItemId } : {}), ...(upload.version_tag ? { version_tag: upload.version_tag } : {}) };
     try { await deps.attachGeometry(key, versionId, upload.itemId, link); version.platform_item_id = upload.itemId; }
     catch (e) { geometry = `not linked — ${e?.message || e}`; }
   }

@@ -33,9 +33,22 @@ describe("uploadIfcAsFrag — the .frag first, then the raw IFC beside it", () =
     const { uploadIfcAsFrag } = await import("./platform-publish.mjs");
     const out = await uploadIfcAsFrag(Buffer.from("ISO-10303-21;"), "tower.ifc", "v3");
     expect(uploadBytes.mock.calls.map((c) => [c[3], c[4]])).toEqual([["tower.frag", "v3"], ["tower.ifc", "v3"]]);
-    expect(out).toMatchObject({ ok: true, format: "frag", name: "tower.frag", itemId: "item-tower.frag", ifcItemId: "item-tower.ifc" });
+    // SEC-7: the version tag is answered too — the one the platform answered for the .frag upload (createFile's version.tag), else
+    // the one asked (this stub answers no version) — the link row records it and Open 3D downloads that tag.
+    expect(out).toMatchObject({ ok: true, format: "frag", name: "tower.frag", itemId: "item-tower.frag", ifcItemId: "item-tower.ifc", version_tag: "v3" });
     // SEC-5: the sha256 of the .frag bytes uploaded — what the web's Open 3D checks a download against.
     expect(out.frag_sha256).toBe(createHash("sha256").update(new Uint8Array([1, 2, 3])).digest("hex"));
+  });
+
+  it("SEC-7 (review C1): the version tag the platform answers wins over the one asked — the link records what the platform serves", async () => {
+    const { uploadBytes } = await import("./thatopen-client.mjs");
+    uploadBytes.mockClear();
+    // The .frag's upload (the item the link names) answers a normalised tag; the IFC beside it answers none.
+    uploadBytes.mockImplementationOnce(async (_c, _p, bytes, name) => ({ result: { item: { _id: `item-${name}` }, version: { tag: "v1.0.0" } }, size: bytes.length }));
+    const { uploadIfcAsFrag } = await import("./platform-publish.mjs");
+    const out = await uploadIfcAsFrag(Buffer.from("ISO-10303-21;"), "tower.ifc", "P01");
+    expect(uploadBytes.mock.calls.map((c) => c[4])).toEqual(["P01", "P01"]);
+    expect(out).toMatchObject({ format: "frag", itemId: "item-tower.frag", version_tag: "v1.0.0" });
   });
 
   it("a failed conversion uploads the IFC once, as before, and says so", async () => {
@@ -46,7 +59,7 @@ describe("uploadIfcAsFrag — the .frag first, then the raw IFC beside it", () =
     const { uploadIfcAsFrag } = await import("./platform-publish.mjs");
     const out = await uploadIfcAsFrag(Buffer.from("ISO-10303-21;"), "tower.ifc", "v1");
     expect(uploadBytes.mock.calls.map((c) => c[3])).toEqual(["tower.ifc"]);
-    expect(out).toMatchObject({ format: "ifc", itemId: "item-tower.ifc", ifcItemId: "item-tower.ifc" });
+    expect(out).toMatchObject({ format: "ifc", itemId: "item-tower.ifc", ifcItemId: "item-tower.ifc", version_tag: "v1" });
     expect(out).not.toHaveProperty("frag_sha256");
     expect(out.note).toMatch(/frag conversion failed \(boom\)/);
   });

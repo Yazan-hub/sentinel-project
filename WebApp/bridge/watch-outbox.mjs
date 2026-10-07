@@ -155,14 +155,16 @@ async function handle(name) {
       const { uploadIfcBeside } = await import("./platform-publish.mjs");
       const beside = await uploadIfcBeside(client, cfg.projectId, ifcBytes, name, "v1");
       console.log(beside.ifcItemId ? `  ✅ ${name} → item ${beside.ifcItemId}  (the delivered IFC, judged by the platform's Sentinel gate)` : `  ⚠ ${beside.note}`);
-      const hashes = { sha256: ifcSha, frag_sha256: createHash("sha256").update(fragBytes).digest("hex"), ...(beside.ifcItemId ? { ifc_item_id: beside.ifcItemId } : {}) };
+      // SEC-7: the version tag the platform answered for the .frag (else uploadBytes' default, "v1") is recorded on the link —
+      // Open 3D downloads that tag.
+      const hashes = { sha256: ifcSha, frag_sha256: createHash("sha256").update(fragBytes).digest("hex"), ...(beside.ifcItemId ? { ifc_item_id: beside.ifcItemId } : {}), version_tag: result?.version?.tag || "v1" };
       const reg = await recordVersion(d, name, result?.item?._id, hashes);
       await captureAfterRegister(reg, name, ifcBytes);
     } catch (e) {
       console.error(`  ⚠ frag conversion failed for ${name}: ${e?.message || e} — uploading .ifc instead`);
       const { result, size } = await uploadBytes(client, cfg.projectId, ifcBytes, name);
       console.log(`  ✅ ${name} (${size.toLocaleString()} bytes) → item ${result?.item?._id}  (fallback)`);
-      const reg = await recordVersion(d, name, result?.item?._id, { sha256: ifcSha, ifc_item_id: result?.item?._id });
+      const reg = await recordVersion(d, name, result?.item?._id, { sha256: ifcSha, ifc_item_id: result?.item?._id, version_tag: result?.version?.tag || "v1" });
       await captureAfterRegister(reg, name, ifcBytes);
     }
 

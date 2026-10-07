@@ -31,11 +31,13 @@ export async function uploadIfcAsFrag(bytes, name, versionTag = "v1") {
     frag = await ifcBytesToFrag(new Uint8Array(bytes));
   } catch (convErr) {
     const { result, size } = await uploadBytes(client, projectId, new Uint8Array(bytes), name, versionTag);
-    return { ok: true, format: "ifc", name, itemId: result?.item?._id, ifcItemId: result?.item?._id ?? null, bytes: size, note: `frag conversion failed (${convErr?.message || convErr}); uploaded raw IFC` };
+    return { ok: true, format: "ifc", name, itemId: result?.item?._id, ifcItemId: result?.item?._id ?? null, bytes: size, version_tag: result?.version?.tag || versionTag, note: `frag conversion failed (${convErr?.message || convErr}); uploaded raw IFC` };
   }
   const fragName = name.replace(/\.ifc$/i, ".frag");
   const { result, size } = await uploadBytes(client, projectId, frag, fragName, versionTag);
   const beside = await uploadIfcBeside(client, projectId, bytes, name, versionTag);
   // SEC-5: the .frag's sha256 goes on the "geometry linked" row — the web's Open 3D checks a download against it.
-  return { ok: true, format: "frag", name: fragName, itemId: result?.item?._id, bytes: size, frag_sha256: createHash("sha256").update(frag).digest("hex"), ...beside };
+  // SEC-7: so does the platform version tag the .frag went under — the tag the platform answered (createFile's version.tag; it
+  // may normalise the one asked), else the one asked. Open 3D downloads that tag, not the item's newest version.
+  return { ok: true, format: "frag", name: fragName, itemId: result?.item?._id, bytes: size, frag_sha256: createHash("sha256").update(frag).digest("hex"), version_tag: result?.version?.tag || versionTag, ...beside };
 }
