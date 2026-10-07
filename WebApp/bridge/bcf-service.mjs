@@ -1777,6 +1777,8 @@ async function handleRequest(req, res) {
 
       if (!p2 && req.method === "GET") return send(res, 200, await ch.listChangesets(key, { status: url.searchParams.get("status") || undefined }));
       if (!p2 && req.method === "POST") return send(res, 201, await ch.proposeChangeset(key, body, actor));
+      // MA-3b6: what filing these bodies would carry (MA-3b3's rule in its one place) — a read: nothing stored, no ledger row.
+      if (p2 === "preview" && !p3 && req.method === "POST") return send(res, 200, await ch.previewChangesets(key, body));
       if (p2 && !p3 && req.method === "GET") return send(res, 200, await ch.getChangeset(key, p2));
       if (p2 && p3 === "result" && req.method === "POST") return send(res, 200, await ch.reportResult(key, p2, body, actor));
       if (p2 && p3 === "withdraw" && req.method === "POST") return send(res, 200, await ch.withdrawChangeset(key, p2, actor));
