@@ -776,3 +776,38 @@ describe("POST /cde/:key/audit — the modelling commands' reports and the build
     expect(writes("audit_log")).toHaveLength(20);
   });
 });
+
+describe("changesets (MA-3d2): the proposal model", () => {
+  const ID = "0c0c0c0c-0000-4000-8000-000000000002";
+  const csOf = (elements) => ({ id: ID, name: "Level 1 walls", status: "proposed", elements });
+  const wallEl = { op: "create", kind: "wall", proposal_guid: "g1", place: { LocationCurve: { start: [0, 0], end: [5000, 0] }, BaseElevation: 0, TopElevation: 3000 } };
+  const get = async (as) => {
+    const r = await fetch(`http://127.0.0.1:${port}/changesets/demo/${ID}/proposal.frag`, { headers: { Authorization: `Bearer ${as === "machine" ? TOKEN : jwtFor(as)}` } });
+    return { status: r.status, type: r.headers.get("content-type"), header: r.headers.get("x-sentinel-proposal"), bytes: Buffer.from(await r.arrayBuffer()) };
+  };
+  it("a viewer gets the creates as a .frag with the counts in one header", async () => {
+    db.bridge_docs.push({ store: "changeset", project_id: PID, doc_id: ID, data: csOf([wallEl]) });
+    const r = await get("viewer");
+    expect(r.status).toBe(200);
+    expect(r.type).toBe("application/octet-stream");
+    expect(JSON.parse(r.header)).toEqual({ creates: 1, drawn: 1, skipped: [], skipped_total: 0 });
+    expect(r.bytes.length).toBeGreaterThan(500);
+  }, 60_000);
+  it("a wall and a door: 200, the door's skipped words (an em dash) ride the header as ASCII escapes", async () => {
+    db.bridge_docs.push({ store: "changeset", project_id: PID, doc_id: ID, data: csOf([wallEl, { op: "create", kind: "door", proposal_guid: "d1", place: {} }]) });
+    const r = await get("viewer");
+    expect(r.status).toBe(200);
+    expect(r.header).toMatch(/^[ -~]*$/);
+    expect(JSON.parse(r.header).skipped[0]).toContain("a door — not drawn");
+  }, 60_000);
+  it("a changeset with no create that has a shape is a 409 in words", async () => {
+    db.bridge_docs.push({ store: "changeset", project_id: PID, doc_id: ID, data: csOf([{ op: "retype", kind: "wall", proposal_guid: "g2" }]) });
+    const r = await get("viewer");
+    expect(r.status).toBe(409);
+    expect(JSON.parse(r.bytes.toString()).message).toContain(`changeset ${ID} has no create with a shape to show`);
+  });
+  it("a stranger is refused", async () => {
+    db.bridge_docs.push({ store: "changeset", project_id: PID, doc_id: ID, data: csOf([wallEl]) });
+    expect([403, 404]).toContain((await get("stranger")).status);
+  });
+});

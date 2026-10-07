@@ -1789,6 +1789,16 @@ async function handleRequest(req, res) {
       if (!p2 && req.method === "POST") return send(res, 201, await ch.proposeChangeset(key, body, actor));
       // MA-3b6: what filing these bodies would carry (MA-3b3's rule in its one place) — a read: nothing stored, no ledger row.
       if (p2 === "preview" && !p3 && req.method === "POST") return send(res, 200, await ch.previewChangesets(key, body));
+      // MA-3d2: the changeset's creates as a proposal model (.frag) — a member's read; nothing stored. A changeset with no create that
+      // has a shape is a 409 in words. The counts ride in one header so the web says what it shows and what it skipped.
+      if (p2 && p3 === "proposal.frag" && req.method === "GET") {
+        const cs = await ch.getChangeset(key, p2);
+        const pm = await import("./proposal-model.mjs");
+        const r = await pm.proposalFrag(cs, () => null);
+        if (!r.bytes) return send(res, 409, { message: `changeset ${p2} has no create with a shape to show — ${r.creates} create(s), ${r.skipped.length} skipped${r.skipped.length ? ": " + r.skipped.slice(0, 3).join("; ") : ""}` });
+        res.writeHead(200, { "Content-Type": "application/octet-stream", "Cache-Control": "no-cache", "X-Sentinel-Proposal": JSON.stringify({ creates: r.creates, drawn: r.drawn, skipped: r.skipped.slice(0, 10), skipped_total: r.skipped.length }).replace(/[\u007f-\uffff]/g, (c) => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0")), "Access-Control-Expose-Headers": "X-Sentinel-Proposal", ...corsHeaders(res) });
+        return res.end(Buffer.from(r.bytes));
+      }
       if (p2 && !p3 && req.method === "GET") return send(res, 200, await ch.getChangeset(key, p2));
       if (p2 && p3 === "result" && req.method === "POST") return send(res, 200, await ch.reportResult(key, p2, body, actor));
       if (p2 && p3 === "withdraw" && req.method === "POST") return send(res, 200, await ch.withdrawChangeset(key, p2, actor));

@@ -8,7 +8,7 @@ const { bfetch, bwrite } = vi.hoisted(() => ({ bfetch: vi.fn(), bwrite: vi.fn() 
 vi.mock("./bridge-fetch", () => ({ bfetch, bwrite }));
 vi.mock("./active-project", () => ({ activePid: () => "demo", onActiveProjectChange: () => () => {} }));
 
-import { storeyOf, groupDesk, ghostLine, reviewWords, declinedBy, canDecide, canReopen, readPending, postReview, postReopen, rowWords, postsFor, type PendingChangeset,
+import { proposalWords, storeyOf, groupDesk, ghostLine, reviewWords, declinedBy, canDecide, canReopen, readPending, postReview, postReopen, rowWords, postsFor, type PendingChangeset,
   readDecided, readLedger, highlightPlan, type Ghost, decidedView, decidedCount, DECIDED_MAX, type LedgerRows } from "./review-desk";
 
 const fx = JSON.parse(readFileSync(new URL("../../bridge/fixtures/changeset-ops/ma3a-review.json", import.meta.url), "utf8"));
@@ -300,5 +300,35 @@ describe("MA-3d — Highlight in 3D: the plan and its words", () => {
     expect(src).toContain('highlightByID("select", plan.map, true, true)');
     expect(src).toContain('clear("select")');
     expect(src.split("const guids = guidsOf(ghosts);").length - 1).toBe(2);
+  });
+});
+
+describe("MA-3d2 — the proposal model's words", () => {
+  const head = (d: number, c: number) => `Showing ${d} of ${c} proposed create(s) as a proposal model in orange — boxes from the proposal's lines and boundaries (a wall or slab whose thickness was not sent is sketched at 200 mm; a create that named only its level sits at elevation 0 here); the executor places the real shapes at Apply. Not part of any published version — Hide creates removes it.`;
+  const door = "D1: a door — not drawn (the proposal model draws walls, floors, roofs and ceilings as boxes)";
+  it("one changeset with a skipped create", () => {
+    expect(proposalWords([{ creates: 3, drawn: 2, skipped: [door] }], [], false)).toBe(`${head(2, 3)} Not drawn: ${door}.`);
+  });
+  it("two changesets add up", () => {
+    expect(proposalWords([{ creates: 2, drawn: 2, skipped: [] }, { creates: 3, drawn: 1, skipped: [] }], [], false)).toBe(head(3, 5));
+  });
+  it("nothing to show", () => {
+    expect(proposalWords([], [], true)).toBe("Nothing to show: this storey proposes no create (a retype or attach changes an element that exists — Highlight in 3D selects it).");
+  });
+  it("a failed one", () => {
+    expect(proposalWords([{ creates: 1, drawn: 1, skipped: [] }], ["Level 2 (1/2): the bridge is down"], false)).toBe(`${head(1, 1)} Not loaded: Level 2 (1/2): the bridge is down.`);
+    expect(proposalWords([], ["X: why"], false)).toBe("Not loaded: X: why.");
+  });
+  it("the (+N more) counts the bridge's skipped_total, not its cut list", () => {
+    expect(proposalWords([{ creates: 15, drawn: 0, skipped: ["a", "b", "c", "d"], skipped_total: 15 }], [], false)).toBe(`${head(0, 15)} Not drawn: a; b; c (+12 more).`);
+  });
+  it("four skipped: three and (+1 more)", () => {
+    expect(proposalWords([{ creates: 4, drawn: 0, skipped: ["a", "b", "c", "d"] }], [], false)).toBe(`${head(0, 4)} Not drawn: a; b; c (+1 more).`);
+  });
+  it("the desk's row: Show creates in 3D and Hide creates, the orange proposal style", () => {
+    const src = readFileSync(new URL("./review-desk.ts", import.meta.url), "utf8");
+    expect(src).toContain('btn("Show creates in 3D", () => void showCreates(s))');
+    expect(src).toContain('btn("Hide creates", () => void hideCreates(s))');
+    expect(src).toContain('highlighter.styles.set("proposal"');
   });
 });
