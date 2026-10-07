@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import {
   VOCABULARY, OPS, OP_KINDS, MAX_CHANGESET_ELEMENTS, TRUST_FIELDS, ADDIN_SOURCES,
-  validateChangeset, outlineProblem, attachVerdicts, canWithdraw, deriveResultStatus, unattributedFailures,
+  validateChangeset, carryKey, outlineProblem, attachVerdicts, canWithdraw, deriveResultStatus, unattributedFailures,
 } from "./changesets-logic.mjs";
 import * as core from "./sentinel-core.mjs";
 import { makeTyper, makeCiter } from "./changesets-typing.mjs";
@@ -214,6 +214,16 @@ describe("validateChangeset — ops, TypeName and exceptions (MA-0)", () => {
     place: { BaseLevel: "Level 1", TopLevel: "Level 2" },
     validate: { identity: { Class: "IfcWall", Name: "W 312312" } },
     ...over,
+  });
+
+  it("MA-3d: target.ifc_guid is kept on a retype, absent when not sent, refused in words when malformed; carryKey ignores it", () => {
+    const G = "2O2Fr$t4X7Zf8NOew3FLKI", one = (el) => validateChangeset(CS([el])).elements[0];
+    expect(one(retype({ target: { unique_id: UID, type_before: "Generic - 200mm", ifc_guid: G } })).target).toEqual({ unique_id: UID, type_before: "Generic - 200mm", ifc_guid: G });
+    expect("ifc_guid" in one(retype()).target).toBe(false);
+    for (const bad of ["abc", 123]) {
+      status400(() => one(retype({ target: { unique_id: UID, ifc_guid: bad } })), /^elements\[0\]: target\.ifc_guid must be an IFC GlobalId — 22 characters of its alphabet — when it is sent$/);
+    }
+    expect(carryKey(retype({ target: { unique_id: UID, ifc_guid: G } }))).toBe(carryKey(retype()));
   });
 
   it("OPS is create, retype, attach, set_parameter (MA-2c); VOCABULARY is the MA-1 list", () => {
@@ -939,6 +949,11 @@ describe("validateChangeset — set_parameter (MA-2c)", () => {
       value_source: { kind: "catalogue", ref: "type_catalog@1 · office · fedcba987654… · BDS_EXT_ARC_CMU_200 mm · Fire Rating", sha256: "cd".repeat(32) },
     });
     expect(v.ignored).toEqual([]);
+  });
+
+  it("MA-3d: a set_parameter keeps target.ifc_guid", () => {
+    const G = "2O2Fr$t4X7Zf8NOew3FLKI";
+    expect(validateChangeset(CS([write({ target: { unique_id: TYPE_UID, ifc_guid: G } })]), { cite }).elements[0].target).toEqual({ unique_id: TYPE_UID, type_before: null, ifc_guid: G });
   });
 
   it("a posted value_source.ref is not kept (the bridge writes the record) and is listed; a door's clause source cites its sentence", () => {

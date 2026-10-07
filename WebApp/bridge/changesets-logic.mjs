@@ -29,6 +29,7 @@ const finite = (n) => typeof n === "number" && Number.isFinite(n);
 const point = (p) => Array.isArray(p) && p.length === 3 && p.every(finite);
 const text = (s, max) => typeof s === "string" && s.trim() !== "" && s.length <= max;
 // Revit's UniqueId: the episode GUID, then "-", then the element id as 8 hex digits.
+const IFC_GUID = /^[0-9A-Za-z_$]{22}$/; // MA-3d: an IFC GlobalId as the export writes it (22 characters of its base64 alphabet)
 const UNIQUE_ID = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}-[0-9a-f]{8}$/i;
 const inRange = (n, lo, hi) => finite(n) && n >= lo && n <= hi;
 // MA-1a item 4: an element's provenance as its placer knows it (checkProvenance).
@@ -370,7 +371,11 @@ export function validateChangeset(body, { member = false, type = null, cite = nu
       const k = `${op}:${uid.toLowerCase()}` + (written ? `:${written.parameter.toLowerCase()}` : "");
       if (seen.has(k)) throw err(400, `${at}: a second ${op} for the same element` + (written ? ` and ${written.parameter}` : ""));
       seen.add(k);
-      target = { unique_id: uid, type_before: before };
+      // MA-3d: the element's IFC GlobalId, when the add-in sends it — the web desk highlights the ghost's element in the loaded model by it.
+      // Optional (a changeset filed by an older add-in has none); a malformed one is a 400 in words; it is kept as sent, never derived.
+      const guid = el.target.ifc_guid ?? null;
+      if (guid !== null && (typeof guid !== "string" || !IFC_GUID.test(guid))) throw err(400, `${at}: target.ifc_guid must be an IFC GlobalId — 22 characters of its alphabet — when it is sent`);
+      target = { unique_id: uid, type_before: before, ...(guid ? { ifc_guid: guid } : {}) };
     }
     if (el.reason != null && !text(el.reason, 500)) throw err(400, `${at}: reason must be text of at most 500 characters`);
     if (validate.psets !== undefined && !Array.isArray(validate.psets)) throw err(400, `${at}: validate.psets must be an array`);
