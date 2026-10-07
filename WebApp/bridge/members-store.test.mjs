@@ -107,7 +107,7 @@ describe("last-owner guard", () => {
 describe("myRole / requireMinRole", () => {
   it("machine caller (no JWT) is 'service'; requireMinRole passes it", async () => {
     expect(await myRole("demo", baseDeps())).toBe("service");
-    await expect(requireMinRole("demo", "lead", baseDeps())).resolves.toBeUndefined();
+    await expect(requireMinRole("demo", "lead", baseDeps())).resolves.toBe("service");
   });
 
   it("a signed-in member gets their row's role; a non-member gets null", async () => {
@@ -119,7 +119,7 @@ describe("myRole / requireMinRole", () => {
   it("requireMinRole 403s below the bar, naming the requirement", async () => {
     await expect(requireMinRole("demo", "lead", baseDeps({ sub: "u-view" })))
       .rejects.toMatchObject({ status: 403, message: expect.stringMatching(/lead/) });
-    await expect(requireMinRole("demo", "contributor", baseDeps({ sub: "u-owner" }))).resolves.toBeUndefined();
+    await expect(requireMinRole("demo", "contributor", baseDeps({ sub: "u-owner" }))).resolves.toBe("owner"); // answers the role (W-2 review)
   });
 });
 

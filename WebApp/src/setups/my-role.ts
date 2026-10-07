@@ -14,7 +14,8 @@ export const SIGNED_OUT = "signed-out";
 
 /** The role and whether it was read. Unread (the bridge down, or a 5xx) still fails closed to `viewer`, but a panel
  *  must not tell a lead "your role: viewer" — it says "role not read" (roleWords). A 4xx is an answer: a 404 is not a
- *  member (NOT_MEMBER), a 401 signed out (SIGNED_OUT), any other read-only as viewer. */
+ *  member (NOT_MEMBER) — as is a 200 { role: null }, members-store's answer for a signed-in non-member — a 401 a session the
+ *  bridge did not accept (SIGNED_OUT), any other read-only as viewer. */
 export async function myRoleRead(base: string, key: string): Promise<{ role: string; read: boolean }> {
   try {
     const r = await bfetch(`${base}/cde/${encodeURIComponent(key)}/members/me`);
@@ -22,7 +23,7 @@ export async function myRoleRead(base: string, key: string): Promise<{ role: str
     if (r.status === 401) return { role: SIGNED_OUT, read: true };
     if (!r.ok) return { role: "viewer", read: r.status < 500 };
     const j = (await r.json().catch(() => ({}))) as { role?: string | null };
-    return { role: j.role ?? "viewer", read: true };
+    return { role: j.role === null ? NOT_MEMBER : (j.role ?? "viewer"), read: true };
   } catch {
     return { role: "viewer", read: false };
   }
@@ -32,8 +33,8 @@ export async function myRoleRead(base: string, key: string): Promise<{ role: str
  *  caller in their own words. */
 export const roleWords = (r: { role: string; read: boolean }): string =>
   !r.read ? "role not read — read-only"
-    : r.role === NOT_MEMBER ? "not a member of this project — read-only"
-      : r.role === SIGNED_OUT ? "signed out — read-only"
+    : r.role === NOT_MEMBER ? "not a member of this project (or it was not found) — read-only"
+      : r.role === SIGNED_OUT ? "sign-in not accepted by the bridge — sign in again; read-only"
         : `your role: ${r.role}`;
 
 /** contributor and up may change content. */
@@ -42,3 +43,6 @@ export const canEditRole = (role: string): boolean => role === "service" || ["ow
 export const canGovernRole = (role: string): boolean => role === "service" || ["owner", "lead"].includes(role);
 /** Deleting a project is the owner's (W-2 G4) — the bridge and the database refuse a lead. */
 export const canDeleteProjectRole = (role: string): boolean => role === "service" || role === "owner";
+/** The roles a manager may grant (W-2 G2): the owner role is an owner's — the bridge refuses a lead's grant of it. */
+export const grantableRoles = (role: string): string[] =>
+  ["owner", "lead", "contributor", "viewer"].filter((r) => r !== "owner" || canDeleteProjectRole(role));

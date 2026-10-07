@@ -1,10 +1,13 @@
 import { bfetch } from "./bridge-fetch";
-import { canGovernRole, roleWords } from "./my-role";
+import { canEditRole, canGovernRole, roleWords } from "./my-role";
 
-/** W-2 (G3): a board's state moves and Rotate key… are a lead's — cde_transition refuses every move below lead (0043).
- *  null: draw them; else the one line the board says where they would be. */
+/** W-2 (G3): a board's state moves, folder Delete and Rotate key… are a lead's (cde_transition 0043, folders_delete 0004);
+ *  + Container, + Folder, Rename, a folder move and Attach a contributor's. null: draw everything; else the one line the
+ *  board says where the missing controls would be — for a read-only caller its role words alone. */
 export const boardLockedWords = (r: { role: string; read: boolean }): string | null =>
-  canGovernRole(r.role) ? null : `${roleWords(r)} — sharing, publishing, archiving and key rotation are a lead's`;
+  canGovernRole(r.role) ? null
+    : canEditRole(r.role) ? `${roleWords(r)} — sharing, publishing, archiving, deleting folders and key rotation are a lead's`
+      : r.role === "viewer" && r.read ? `${roleWords(r)} — read-only` : roleWords(r);
 
 /** The words cde_transition ends with when a share, a publish or a restore needs the lead's reason (migrations 0031, 0040). */
 export const NEEDS_REASON = "needs the lead's reason";

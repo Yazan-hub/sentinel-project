@@ -7,6 +7,7 @@ import { refLabel, installArtefact } from "./active-ruleset";
 import { currentUser } from "./auth";
 import { activePid, onActiveProjectChange } from "./active-project";
 import { loadScope } from "./load-scope";
+import { myRoleRead, roleWords } from "./my-role";
 import { diffNaming, findNamingCandidate } from "../sentinel-core/naming-diff";
 import type { NamingRuleset } from "../sentinel-core/naming";
 import { escapeHtml as esc, pathSegment } from "./escape-html";
@@ -400,25 +401,19 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
   async function showList() {
     const mine = ++seq, key = pid();
     loadedScope = loadScope(key);
-    let roleRead = true;
-    try {
-      const r = await bfetch(`${base}/cde/${encodeURIComponent(key)}/members/me`);
-      const j = await r.json().catch(() => ({}));
-      if (mine !== seq) return;
-      // Fail CLOSED: an unanswered role question renders read-only. A signed-in non-member gets
-      // `role: null` (viewer here); only the bridge's own machine path answers "service".
-      myRole = r.ok ? ((j as { role?: string | null }).role ?? "viewer") : "viewer";
-      roleRead = r.ok;
-    } catch { if (mine !== seq) return; myRole = "viewer"; roleRead = false; }
+    // Fail CLOSED (my-role.ts): an unanswered role question renders read-only; a non-member is said as one (W-2 G7).
+    const me = await myRoleRead(base, key);
+    if (mine !== seq) return;
+    myRole = me.role;
 
     bar.replaceChildren();
     const title = document.createElement("span");
     title.textContent = "Project Documents";
     title.style.cssText = "font:600 13px system-ui;color:#eee;flex:1";
     bar.append(title);
-    if (myRole === "viewer") {
+    if (!canEdit()) {
       const chipEl = document.createElement("span");
-      chipEl.textContent = roleRead ? "your role: viewer" : "role not read — read-only";
+      chipEl.textContent = roleWords(me);
       chipEl.style.cssText = "color:#a1a1aa;font:600 10.5px system-ui;border:1px solid #2c2c34;border-radius:.3rem;padding:.1rem .4rem";
       bar.append(chipEl);
     }
@@ -1080,7 +1075,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
     const wrap = document.createElement("div");
     const list = allComments.filter((c) => c.section_id === sectionId);
     const toggle = btn(`💬 ${list.length}`);
-    toggle.style.display = myRole === "viewer" || list.length > 0 ? "" : "none";
+    toggle.style.display = !canEdit() || list.length > 0 ? "" : "none";
     const thread = document.createElement("div");
     thread.style.cssText = "display:none;flex-direction:column;gap:.35rem;margin-top:.4rem;padding:.4rem .5rem;border:1px solid #2a2a30;border-radius:.35rem;background:#141418";
 

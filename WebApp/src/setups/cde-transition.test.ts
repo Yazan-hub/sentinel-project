@@ -126,14 +126,14 @@ describe("nextAttachRevision — the CDE panel's label for an encrypted attach (
   });
 });
 
-describe("boardLockedWords (W-2 G3): the board draws moves and Rotate key… for a lead, words for anyone else", () => {
+describe("boardLockedWords (W-2 G3): the board draws every control for a lead, words for anyone else", () => {
   it("a lead, an owner and the machine get the controls", () => {
     for (const role of ["lead", "owner", "service"]) expect(boardLockedWords({ role, read: true })).toBeNull();
   });
-  it("a contributor, a viewer, a non-member and an unread role get one line instead", () => {
-    expect(boardLockedWords({ role: "contributor", read: true })).toBe("your role: contributor — sharing, publishing, archiving and key rotation are a lead's");
-    expect(boardLockedWords({ role: "viewer", read: true })).toMatch(/^your role: viewer — /);
-    expect(boardLockedWords({ role: "not-member", read: true })).toMatch(/^not a member of this project — read-only — /);
-    expect(boardLockedWords({ role: "viewer", read: false })).toMatch(/^role not read — read-only — /);
+  it("a contributor is told what is a lead's; a read-only caller gets its role words alone, one dash", () => {
+    expect(boardLockedWords({ role: "contributor", read: true })).toBe("your role: contributor — sharing, publishing, archiving, deleting folders and key rotation are a lead's");
+    expect(boardLockedWords({ role: "viewer", read: true })).toBe("your role: viewer — read-only");
+    expect(boardLockedWords({ role: "not-member", read: true })).toBe("not a member of this project (or it was not found) — read-only");
+    expect(boardLockedWords({ role: "viewer", read: false })).toBe("role not read — read-only");
   });
 });

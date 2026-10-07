@@ -7,6 +7,7 @@ import { bfetch } from "./bridge-fetch";
 import { currentUser } from "./auth";
 import { activePid, onActiveProjectChange } from "./active-project";
 import { loadScope } from "./load-scope";
+import { myRoleRead } from "./my-role";
 import { escapeHtml as esc } from "./escape-html";
 import { csvCell } from "../sentinel-core/csv";
 
@@ -84,13 +85,10 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
   async function showList() {
     const mine = ++seq, key = pid();
     loadedScope = loadScope(key);
-    try {
-      const r = await bfetch(`${base}/cde/${encodeURIComponent(key)}/members/me`);
-      const j = await r.json().catch(() => ({}));
-      if (mine !== seq) return;
-      // Fail CLOSED (same rule as docs-panel): no answer → read-only; only the machine path is "service".
-      myRole = r.ok ? ((j as { role?: string | null }).role ?? "viewer") : "viewer";
-    } catch { if (mine !== seq) return; myRole = "viewer"; }
+    // Fail CLOSED (my-role.ts): no answer → read-only; only the machine path is "service".
+    const me = await myRoleRead(base, key);
+    if (mine !== seq) return;
+    myRole = me.role;
 
     bar.replaceChildren();
     const title = document.createElement("span");

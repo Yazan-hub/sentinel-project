@@ -100,3 +100,8 @@ export function filterProjects<T extends FilterableProject>(
   const shown = groups.filter((g) => g.rows.length);
   return { groups: shown, shown: shown.reduce((n, g) => n + g.rows.length, 0), total: projects.length };
 }
+
+/** W-2 (G6): what the hub says for a 503 — the bridge's own words when it sent some (e.g. it does not forward sign-ins);
+ *  null when they are the CDE-not-configured answer (bcf-service.mjs GET /cde/projects) or absent, for the setup hint. */
+export const hub503Words = (said: string | null | undefined): string | null =>
+  said && !said.startsWith("CDE not configured") ? said : null;

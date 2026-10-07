@@ -79,11 +79,10 @@ export async function addMember(key, { email, role } = {}, actor, deps) {
   // of an office or of a project attached to one (offices are made by platform admins and attached to by their leads —
   // migration 0033, D3). A lead of a project outside any office is not enough: any account owns the projects it
   // creates. Everyone else gets the same 403 before the lookup; the machine credential passes as service.
-  const mine = await myRole(key, { ...deps, ensureProject: async () => proj }); // proj is already fetched — no second read (H0 minor N39)
-  if (mine !== "service") {
-    if ((ROLE_RANK[mine] || 0) < ROLE_RANK.lead) throw err(403, `this action requires the lead role (you are ${mine || "not a member"})`);
-    if (proj.kind !== "office" && !proj.office_key) throw err(403, "adding people by e-mail needs a project that belongs to an office — a lead of the office attaches it in Project settings, then add them");
-  }
+  const mine = await requireManager(key, proj, deps); // proj is already fetched — no second read (H0 minor N39)
+  if (mine !== "service" && proj.kind !== "office" && !proj.office_key) throw err(403, "adding people by e-mail needs a project that belongs to an office — a lead of the office attaches it in Project settings, then add them");
+  // W-2 (G2, review): before the lookup — 0016's memberships_insert refuses it anyway, as a raw Supabase 403.
+  ownerOnly(mine, role === "owner", `only an owner grants the owner role (you are ${mine}) — nothing was saved`);
   const user = await findUserByEmail(email.trim(), d);
   if (!user) throw err(404, `No Sentinel account with this email — they need to sign up first (email + password in the web app), then you can add them.`);
   const rows = await memberRows(d, proj.id);
@@ -95,19 +94,15 @@ export async function addMember(key, { email, role } = {}, actor, deps) {
   return { user_id: user.id, role, email: user.email };
 }
 
+// W-2 (G2): changing a role, removing or adding a member is a lead's — asked before the write, so a viewer or contributor
+// gets the role words rather than RLS's zero rows read as a concurrency clash; an owner's row and the owner role are an owner's.
+const requireManager = (key, proj, deps) => requireMinRole(key, "lead", { ...deps, ensureProject: async () => proj }); // proj is already fetched
+const ownerOnly = (mine, touchesOwner, words) => { if (touchesOwner && mine !== "owner" && mine !== "service") throw err(403, words); };
+
 async function ownerCountExcluding(d, projId, userId) {
   const rows = await memberRows(d, projId);
   return rows.filter((m) => m.role === "owner" && m.user_id !== userId).length;
 }
-
-// W-2 (G2): changing a role or removing a member is a lead's — asked before the write, so a viewer or contributor gets
-// the role words rather than RLS's zero rows read as a concurrency clash; an owner's row and the owner role are an owner's.
-async function requireManager(key, proj, deps) {
-  const mine = await myRole(key, { ...deps, ensureProject: async () => proj }); // proj is already fetched
-  if (mine !== "service" && (ROLE_RANK[mine] || 0) < ROLE_RANK.lead) throw err(403, `this action requires the lead role (you are ${mine || "not a member"})`);
-  return mine;
-}
-const ownerOnly = (mine, touchesOwner, words) => { if (touchesOwner && mine !== "owner" && mine !== "service") throw err(403, words); };
 
 export async function changeRole(key, userId, role, actor, deps) {
   const d = wire(deps);
@@ -117,8 +112,8 @@ export async function changeRole(key, userId, role, actor, deps) {
   const rows = await memberRows(d, proj.id);
   const before = rows.find((m) => m.user_id === userId);
   if (!before) throw err(404, "not a member of this project");
-  ownerOnly(mine, before.role === "owner", "only an owner changes or removes an owner — nothing was changed");
-  ownerOnly(mine, role === "owner" && before.role !== "owner", "only an owner grants the owner role — nothing was changed");
+  ownerOnly(mine, before.role === "owner", `only an owner changes or removes an owner (you are ${mine}) — nothing was changed`);
+  ownerOnly(mine, role === "owner" && before.role !== "owner", `only an owner grants the owner role (you are ${mine}) — nothing was changed`);
   if (before.role === "owner" && role !== "owner" && (await ownerCountExcluding(d, proj.id, userId)) === 0)
     throw err(409, "a project must keep at least one owner");
   // CAS: the WHERE re-checks the role the last-owner guard was computed from — two admins
@@ -136,7 +131,7 @@ export async function removeMember(key, userId, actor, deps) {
   const rows = await memberRows(d, proj.id);
   const before = rows.find((m) => m.user_id === userId);
   if (!before) throw err(404, "not a member of this project");
-  ownerOnly(mine, before.role === "owner", "only an owner changes or removes an owner — nothing was changed");
+  ownerOnly(mine, before.role === "owner", `only an owner changes or removes an owner (you are ${mine}) — nothing was changed`);
   if (before.role === "owner" && (await ownerCountExcluding(d, proj.id, userId)) === 0)
     throw err(409, "a project must keep at least one owner");
   const deleted = await d.sb(`memberships?project_id=eq.${enc(proj.id)}&user_id=eq.${enc(userId)}&role=eq.${enc(before.role)}`, { method: "DELETE", prefer: "return=representation" });
@@ -157,12 +152,13 @@ export async function myRole(key, deps) {
   return rows.find((m) => m.user_id === sub)?.role ?? null;
 }
 
-/** 403 unless the caller's role rank meets `min`. Machine callers pass (service trust). */
+/** 403 unless the caller's role rank meets `min`; answers the role. Machine callers pass (service trust). */
 export async function requireMinRole(key, min, deps) {
   const role = await myRole(key, deps);
-  if (role === "service") return;
+  if (role === "service") return role;
   if (!role || (ROLE_RANK[role] || 0) < (ROLE_RANK[min] || 99))
     throw err(403, `this action requires the ${min} role (you are ${role || "not a member"})`);
+  return role;
 }
 
 /** H0 (D2): spending the founder's money or disk for a project — a platform upload (POST /ifc, intake), an encrypted

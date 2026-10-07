@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const { bfetch } = vi.hoisted(() => ({ bfetch: vi.fn() }));
 vi.mock("./bridge-fetch", () => ({ bfetch }));
-import { myRoleRead, roleWords, canEditRole, canGovernRole, canDeleteProjectRole, NOT_MEMBER, SIGNED_OUT } from "./my-role";
+import { myRoleRead, roleWords, canEditRole, canGovernRole, canDeleteProjectRole, grantableRoles, NOT_MEMBER, SIGNED_OUT } from "./my-role";
 
 const res = (status: number, body: unknown = {}) => ({ ok: status < 300, status, json: async () => body }) as Response;
 
@@ -21,13 +21,16 @@ describe("myRoleRead (W-2 G7): a non-member is not told 'your role: viewer'", ()
   it("a 404 is not a member — read-only, in its own words", async () => {
     const r = await read(res(404, { message: "not found" }));
     expect(r).toEqual({ role: NOT_MEMBER, read: true });
-    expect(roleWords(r)).toBe("not a member of this project — read-only");
+    expect(roleWords(r)).toBe("not a member of this project (or it was not found) — read-only");
     expect(canEditRole(r.role) || canGovernRole(r.role)).toBe(false);
   });
-  it("a 401 is signed out — read-only", async () => {
+  it("a 200 { role: null } (a signed-in non-member) is not a member, never viewer", async () => {
+    expect(await read(res(200, { role: null }))).toEqual({ role: NOT_MEMBER, read: true });
+  });
+  it("a 401 is a session the bridge did not accept — read-only", async () => {
     const r = await read(res(401));
     expect(r).toEqual({ role: SIGNED_OUT, read: true });
-    expect(roleWords(r)).toBe("signed out — read-only");
+    expect(roleWords(r)).toBe("sign-in not accepted by the bridge — sign in again; read-only");
     expect(canEditRole(r.role)).toBe(false);
   });
   it("a 5xx or no bridge is 'role not read'; another 4xx is a viewer", async () => {
@@ -41,5 +44,13 @@ describe("canDeleteProjectRole (W-2 G4): deleting a project is the owner's", () 
   it("an owner and the machine may; a lead and below may not", () => {
     expect(["owner", "service"].map(canDeleteProjectRole)).toEqual([true, true]);
     expect(["lead", "contributor", "viewer", NOT_MEMBER].map(canDeleteProjectRole)).toEqual([false, false, false, false]);
+  });
+});
+
+describe("grantableRoles (W-2 G2): the owner role is offered only to an owner", () => {
+  it("an owner and the machine see all four; a lead sees no owner", () => {
+    expect(grantableRoles("owner")).toEqual(["owner", "lead", "contributor", "viewer"]);
+    expect(grantableRoles("service")).toEqual(["owner", "lead", "contributor", "viewer"]);
+    expect(grantableRoles("lead")).toEqual(["lead", "contributor", "viewer"]);
   });
 });

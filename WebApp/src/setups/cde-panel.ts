@@ -2,7 +2,7 @@ import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
 import { transitionVersion, nextAttachRevision, boardLockedWords } from "./cde-transition";
-import { myRoleRead } from "./my-role";
+import { myRoleRead, canEditRole, canGovernRole } from "./my-role";
 import { readReviews, decideReview, decideFailedLine, decisionLine, reviewLine, approvalLine, reviewMoves, reviewsInView, type ReviewItem } from "./review-chain";
 import { activePid, onActiveProjectChange } from "./active-project";
 import { loadScope } from "./load-scope";
@@ -58,7 +58,7 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
     `<button id="cde-lock" style="${btn}" title="Unlock encrypted files (project passphrase)">🔒</button>` +
     '<span id="cde-role" style="display:none;color:#9ca3af;font-size:11px"></span>' +
     `<button id="cde-rotate" style="${btn};display:none" title="Rotate the project's encryption key: every encrypted file is re-sealed under a new key">Rotate key…</button>` +
-    `<button id="cde-new" style="${btn};background:#2a1e4d;border-color:#6528d7;color:#c4b5fd">+ Container</button>` +
+    `<button id="cde-new" style="${btn};display:none;background:#2a1e4d;border-color:#6528d7;color:#c4b5fd">+ Container</button>` +
     `<button id="cde-refresh" style="${btn}" title="Reload">↻</button>` +
     "</div>" +
     '<div id="cde-unlock" style="display:none;padding:.5rem .6rem;border-bottom:1px solid #2a2a30;gap:.4rem;align-items:center"></div>' +
@@ -104,15 +104,20 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
   let reviews = new Map<string, ReviewItem>();
   let reviewsError: string | null = null;
   let myReviews = false;
-  // W-2 (G3): the caller's role, read with the board — null draws the state moves and Rotate key…, a string is the one
-  // line said instead; "" (not read yet) draws neither.
-  let locked: string | null = "";
+  // W-2 (G3): the caller's role, read with the board (null until read: no control is drawn — fail closed). Editing
+  // controls are a contributor's, state moves, folder Delete and Rotate key… a lead's; the rest is said in one line.
+  let me: { role: string; read: boolean } | null = null;
+  const canEdit = () => !!me && canEditRole(me.role);
+  const canGovern = () => !!me && canGovernRole(me.role);
   const syncRole = () => {
-    el("cde-rotate").style.display = locked === null ? "" : "none";
-    el("cde-role").style.display = locked ? "" : "none";
-    el("cde-role").textContent = locked ?? "";
+    const words = me ? boardLockedWords(me) : null;
+    el("cde-rotate").style.display = canGovern() ? "" : "none";
+    el("cde-new").style.display = canEdit() ? "" : "none";
+    if (!canEdit()) el("cde-form").style.display = "none";
+    el("cde-role").style.display = words ? "" : "none";
+    el("cde-role").textContent = words ?? "";
   };
-  async function loadRole(mine = seq) { const r = await myRoleRead(base, pid()); if (mine === seq) { locked = boardLockedWords(r); syncRole(); } }
+  async function loadRole(mine = seq) { const r = await myRoleRead(base, pid()); if (mine === seq) { me = r; syncRole(); } }
 
   // ── folder-tree helpers ──
   const childrenOf = (parent: string | null) =>
@@ -144,10 +149,10 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
     const host = el("cde-tools");
     const sel = folderById(selected);
     const small = "border:1px solid #2c2c34;background:#1f1f27;color:#d4d4d8;border-radius:.3rem;padding:.25rem .45rem;font:600 10px system-ui;cursor:pointer";
-    host.innerHTML =
+    host.innerHTML = !canEdit() ? "" :
       `<button id="cde-addf" style="${small}" title="New subfolder under the selected folder">+ Folder</button>` +
       (sel && sel.kind !== "root" ? `<button id="cde-renf" style="${small}">Rename</button>` : "") +
-      (sel && sel.kind !== "root" ? `<button id="cde-delf" style="${small};color:${confirmDel ? "#fca5a5" : "#d4d4d8"};border-color:${confirmDel ? "#7f1d1d" : "#2c2c34"}">${confirmDel ? "Confirm?" : "Delete"}</button>` : "");
+      (sel && sel.kind !== "root" && canGovern() ? `<button id="cde-delf" style="${small};color:${confirmDel ? "#fca5a5" : "#d4d4d8"};border-color:${confirmDel ? "#7f1d1d" : "#2c2c34"}">${confirmDel ? "Confirm?" : "Delete"}</button>` : "");
     (host.querySelector("#cde-addf") as HTMLButtonElement)?.addEventListener("click", addFolder);
     (host.querySelector("#cde-renf") as HTMLButtonElement)?.addEventListener("click", () => { renaming = selected; renderTree(); });
     (host.querySelector("#cde-delf") as HTMLButtonElement)?.addEventListener("click", delFolder);
@@ -263,6 +268,7 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
   let loadedScope = ""; // the project and person the board was last loaded for (load-scope.ts)
   async function loadAll() {
     const mine = ++seq;
+    me = null; syncRole(); // a new project or person: the last role is not theirs
     loadedScope = loadScope(pid());
     void refreshPlatformDeliveries();
     try {
@@ -330,12 +336,13 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
         const mv = document.createElement("select");
         mv.style.cssText = "background:#111;color:#c9cfda;border:1px solid #2c2c34;border-radius:.25rem;padding:.15rem .2rem;font:10px system-ui;max-width:100%";
         mv.innerHTML = `<option value="">— Unfiled —</option>` + opts.map((o) => `<option value="${esc(o.id)}"${c.folder_id === o.id ? " selected" : ""}>${esc(o.label)}</option>`).join("");
+        mv.disabled = !canEdit();
         mv.addEventListener("change", () => moveContainer(c.id, mv.value));
         card.appendChild(mv);
 
         // A version under review (phase 6b) is published only by its chain's last approval: its card has no Publish.
         const chain = s === "shared" ? reviews.get(v.id) : undefined;
-        const moves = locked === null ? reviewMoves(NEXT[s], !!chain) : [];
+        const moves = canGovern() ? reviewMoves(NEXT[s], !!chain) : [];
         const actions = document.createElement("div");
         actions.style.cssText = "display:flex;flex-wrap:wrap;gap:.25rem";
         for (const t of moves) {
@@ -381,7 +388,7 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
           dl.addEventListener("click", () => downloadFile(ref));
           fileRow.appendChild(dl);
         }
-        if (s === "wip") {
+        if (s === "wip" && canEdit()) {
           const at = document.createElement("button");
           at.textContent = ref ? "⎘ Replace" : "🔒 Attach";
           at.title = ref ? "Encrypt & attach a new revision" : "Encrypt a file client-side & attach it";

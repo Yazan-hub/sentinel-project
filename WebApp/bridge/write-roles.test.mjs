@@ -413,6 +413,9 @@ describe("BCF topics (topics-1): a contributor's work; closing or renaming a gov
     expect(await call("PUT", `${T}/G1`, "contributor", { title: "Federation: FG-01 Levels (2)" })).toEqual(refused("lead", "contributor"));
     for (const s of ["Closed", " resolved"])
       expect(await call("POST", T, "contributor", { title: "IDS: Doors — FireRating (3 failing)", topic_status: s })).toEqual(refused("lead", "contributor"));
+    // a leading space is still governed (Revit's IdsIssueRef.TryParse trims) — review
+    expect(await call("POST", T, "contributor", { title: " IDS: Doors — FireRating (3 failing)", topic_status: "Closed" })).toEqual(refused("lead", "contributor"));
+    expect(await call("PUT", `${T}/G1`, "contributor", { title: "  Federation: FG-01 Levels (2)" })).toEqual(refused("lead", "contributor"));
     expect(writes("bcf_topics")).toEqual([]);
     expect(writes("audit_log")).toEqual([]);
     expect((await call("PUT", `${T}/G1`, "contributor", { title: "Door clash at grid B" })).status).toBe(200);
@@ -437,13 +440,22 @@ describe("Members (W-2 G2): changing a role or removing a member is a lead's; an
   });
 
   it("a lead may not change or remove an owner, nor grant the owner role — words, not a 409 or a raw Supabase 403", async () => {
-    const owner = { status: 403, body: { message: "only an owner changes or removes an owner — nothing was changed" } };
+    const owner = { status: 403, body: { message: "only an owner changes or removes an owner (you are lead) — nothing was changed" } };
     expect(await call("PATCH", M("owner"), "lead", { role: "lead" })).toEqual(owner);
     expect(await call("DELETE", M("owner"), "lead", {})).toEqual(owner);
-    expect(await call("PATCH", M("viewer"), "lead", { role: "owner" })).toEqual({ status: 403, body: { message: "only an owner grants the owner role — nothing was changed" } });
+    expect(await call("PATCH", M("viewer"), "lead", { role: "owner" })).toEqual({ status: 403, body: { message: "only an owner grants the owner role (you are lead) — nothing was changed" } });
     expect(writes("memberships")).toEqual([]);
     expect((await call("PATCH", M("viewer"), "lead", { role: "contributor" })).status).toBe(200); // a lead's own work still goes through
     expect(roleOf("viewer")).toBe("contributor");
+  });
+
+  it("a lead's add with the owner role is a 403 in words before the e-mail lookup — not a raw Supabase 403 (review)", async () => {
+    db.projects[0].office_key = "office-x"; // past the office rule, so the owner rule is what refuses
+    expect(await call("POST", "/cde/demo/members", "lead", { email: "new@example.test", role: "owner" }))
+      .toEqual({ status: 403, body: { message: "only an owner grants the owner role (you are lead) — nothing was saved" } });
+    expect(log.filter((c) => c.table === "gotrue")).toEqual([]);
+    expect(writes("memberships")).toEqual([]);
+    expect(await call("POST", "/cde/demo/members", "contributor", { email: "new@example.test", role: "viewer" })).toEqual(refused("lead", "contributor"));
   });
 
   it("an owner still grants the owner role and removes members; the last owner is still kept", async () => {
