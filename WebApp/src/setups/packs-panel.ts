@@ -79,7 +79,13 @@ export function packsPanel(components: OBC.Components, opts: { baseUrl?: string 
       try {
         const pr = await bfetch(`${base}/projects/${encodeURIComponent(pid())}`);
         if (!pr.ok) throw new Error((await pr.json().catch(() => null))?.message || `HTTP ${pr.status}`);
-        const pj = await pr.json(); inst = pj.standards_pack ?? ""; officeKey = pj.kind === "office" ? null : (pj.office_key ?? null);
+        inst = (await pr.json()).standards_pack ?? "";
+        // The office comes from the projects hub (kind + office_key live there, not on the local project record).
+        officeKey = null;
+        try {
+          const hub = await bfetch(`${base}/cde/projects`);
+          if (hub.ok) { const row = ((await hub.json()) as { key: string; kind?: string; office_key?: string | null }[]).find((x) => x.key === pid()); officeKey = row && row.kind !== "office" ? (row.office_key ?? null) : null; }
+        } catch { /* no office button when the hub is not read */ }
       } catch (e) { instErr = `installed pack not read — ${(e as Error).message}`; }
       try { const a = await activeRuleset(base); force = a ? `in force: ${refLabel(a)}` : NO_RULESET; } catch (e) { force = `ruleset in force unknown: ${(e as Error).message}`; }
       if (instErr) force = `${force} · ${instErr}`;
