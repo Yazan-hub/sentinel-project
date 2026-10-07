@@ -2427,3 +2427,14 @@ real `aster-tower`.
 download button on the web (today: the route, a lead's bearer).
 
 **Closing list:** nothing written to any project; the 4100 bridge on master since ~02:50 — the Funnel refresh is the founder's.
+
+## Session PACKBTN — the evidence pack's button, live (2026-10-08 ~03:20 → 03:35 local, merged 2fd7d34 / web 1.0.60, Claude driving the local app alone)
+
+Setup: built inline (size S, web only); the local app in a fresh Chrome tab on `sec8-smoke` (the founder's account, owner).
+
+| Row | Result | Evidence |
+|---|---|---|
+| B-1 | Project Settings ▸ Standards in force: after the artefact rows, the `evidence pack` line — "the standards in force, the documents, the containers and versions, the review chains and every ledger row with its hash — one JSON, sealed by sha256" — and the **Download evidence pack** button, shown to an owner — **pass** | the screenshot |
+| B-2 | the click itself saves a file into the browser's Downloads: **the founder's** (a download is theirs to start); the helper's file name and words are pinned offline (`evidence-pack.test.ts`): the bridge's name from `Content-Disposition`, the counts of every part, any part not read named, "(cut at the cap)" when the ledger was | the test |
+
+**Closing list:** nothing written; the web 1.0.60 published; no bridge change — no Funnel refresh owed.
