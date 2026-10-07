@@ -2291,3 +2291,21 @@ rather than per changeset; levels from the *published* model's storeys (today: o
 
 **Closing list:** the drill changeset stays proposed on `sec8-smoke` (decline or withdraw it on the desk); my Chrome tab closed; 4100 on
 master since ~21:20 — the Funnel refresh is the founder's.
+
+## Session MA3cN — the ghost overlay's Next: see-through faces, plans (2026-10-07 ~21:35 → 22:00 local, branch feature/ma3c-next-faces, Claude driving Revit 2024 alone)
+
+Setup: built inline (size S, no workflow); deployed to Revit 2024 (closed first); scratch copy `ma3c-a.rvt` (bound `ma2a-ghost`), the
+MA3c changesets A (two walls outside the build) and B still proposed; Review AI Proposals ▸ A ▸ Show ▸ tick by UIA.
+
+| Row | Result | Evidence |
+|---|---|---|
+| F-1 | first build: the window's line `2 of 2 proposed create(s) outlined in this model's views — a see-through face and its edges …`; `{3D}`: ghost 1 stood as a 3 m sheet readable at the site zoom (a solid grey panel beside the brick walls — not see-through: the vertex alpha alone is ignored by Revit); the row ticked → the sheet turned green at once — **pass on draw and recolour, see-through failed** | the screenshot |
+| F-2 | fix (`_teffect.SetTransparency(150/255)` for the triangle pass) redeployed, Revit reopened: the green sheet is translucent — ghost 2's grey sheet shows through it — **pass** | the screenshot |
+| P-1 | the floor plan `WIP_BUA_GR_FFL` opened, Show zoomed onto ghost 1: a green line above the real wall (the sheet edge-on); the Doctor: `Ghost overlay: asked for the FloorPlan view "WIP_BUA_GR_FFL" — this model: True; 8 line(s), 8 face(s)` and `drawn in the FloorPlan view …` — **pass: Revit draws DirectContext3D in plans**; the words now say "3D views, plans and sections" | the log, the screenshot |
+| O-3 | the window closed by UIA: no `was not removed` line (4 Doctor lines in all) — **pass** | the log |
+
+**Owed:** a section view (not opened; the server answers it the same way), Revit 2025–2027 (deployed, not run), a concave slab's fan
+(over-covers — ear-clipping if it matters), a door's panels live.
+
+**Closing list:** Revit closed without saving (nothing changed); A and B stay proposed on `ma2a-ghost` (the founder's scratch — decline or
+withdraw them); the add-in deployed 2021–2027 from master.
