@@ -25,6 +25,7 @@ public sealed class GhostReviewWindow : Window
     private readonly TreeView _tree;
     private readonly TextBlock _status;
     private readonly Button _build;
+    private bool _building; // MA-3b7 review: Revit answers during the filing — no tick turns Build back on while a build runs
     private readonly ComboBox _levelBox = new()
     {
         MinWidth = 160, Margin = new Thickness(6, 0, 12, 0), VerticalAlignment = VerticalAlignment.Center,
@@ -425,7 +426,7 @@ public sealed class GhostReviewWindow : Window
     private void UpdateStatus()
     {
         var ticked = Ticked();
-        _build.IsEnabled = ticked.Count > 0;
+        _build.IsEnabled = !_building && ticked.Count > 0;
         _build.Content = ticked.Count > 0 ? $"Build {ticked.Count} ticked layer(s) ▶" : "Build ticked layers ▶";
         var lines = TypesToCreate(ticked, _types, _guided, _hasLibrary);
         _forecast.Text = (lines.Any(a => a.StartsWith("+", StringComparison.Ordinal))
@@ -441,6 +442,7 @@ public sealed class GhostReviewWindow : Window
         var ticked = Ticked();
         if (ticked.Count == 0) { _status.Text = "Nothing ticked — tick at least one layer first."; return; }
 
+        _building = true;
         _build.IsEnabled = false;              // one build at a time; the window closes when it completes, or Reopen (MA-1a item 5)
         _status.Text = $"Building {ticked.Count} layer(s)…";
         long levelId = (_levelBox.SelectedItem as LevelChoice)?.Id ?? -1;
@@ -453,6 +455,7 @@ public sealed class GhostReviewWindow : Window
     /// UI thread.</summary>
     public void Reopen(string status)
     {
+        _building = false;
         UpdateStatus(); // the Build button again, for the rows still ticked
         _status.Text = status;
     }

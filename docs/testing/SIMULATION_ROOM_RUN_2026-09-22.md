@@ -2169,3 +2169,26 @@ The carried path (a signed-in member's decline → `carried n`, `all_carried`) i
 not filed), the founder's session; Revit 2025–2027 live rows.
 
 **Closing list:** 4101 stays up; changeset A (`MA3b6 drill · GR-FFL`, declined) stays on `ma3b3` as the founder's scratch.
+
+## Session MA3b7 — Ghost Builder files off Revit's thread, live (2026-10-07 ~18:40 → 18:57 local, branch feature/ma3b7-ghost-filing-off-thread 1bc65ce, Claude driving Revit 2024 alone)
+
+Setup: the branch build deployed to Revit 2024 (Revit closed first); the add-in's bridge config backed up and pointed at the drill's door
+on 127.0.0.1:4101 (MA3b5's door: the FIRST `POST /changesets/<key>` held 45 s after the bridge answered), in front of the test bridge on
+4102 (this checkout's bridge code); restored afterwards. Scratch copy `ma3b7-a.rvt` of MA3b4's `ma3b4-a.rvt` (bound to `ma2a-ghost`, the
+drawing `sample-walls-ma2a.dxf` already imported), opened in Revit 2024 by its path (the file association opens 2027 — its upgrade dialog
+cancelled, nothing upgraded). Revit signed in (the filing's actor is the founder's account; never printed).
+
+| Row | Result | Evidence |
+|---|---|---|
+| R-1 | Ghost Builder ▸ `sample-walls-ma2a.dxf` ▸ review `Walls — 2 layer(s), 14 element(s)` ▸ A-WALL-EXT ticked, GR-FFL ▸ Build at 18:51:44. The bridge filed the changeset at 18:51:45.9 (`created_at`); the door then held the answer 45 s. **During the hold Revit answered**: the review window read `Building 1 layer(s)…` with no summary at +5 s, and the ribbon switched to the View tab at +7 s (screenshots); the summary dialog was up by +60 s: `Placed: 4 · Walls: 4 typed by the guideline · Provenance: 4 of 4 … stamped as source dwg · Ledger: reporting 1 changeset(s) to ma2a-ghost (source dwg: 696e71f4) off Revit's thread … One Ctrl+Z undoes the whole build`; the bridge's changeset read `applied`, 4 of 4, a signed-in actor — **pass** | the dialog, the screenshots, the changeset |
+| R-2 | the 4102 bridge stopped (the door answers 502); the same build again: the dialog `Nothing was built — the build could not be filed as a changeset, so Sentinel rolled it back (no element, type or family was added): Bridge 502: drill door: the test bridge on 4102 did not answer … — changeset "Ghost Builder · sample-walls-ma2a · GR-FFL" may exist on the bridge anyway: check ma2a-ghost on the web and withdraw it`; the standards read from the cache (`cached 18:50`) — **pass** | the words |
+
+Not read live: the pane's Doctor log lines (the UIA read of the pane's list was not driven this session) and the Undo entry's name — both
+pinned offline (promote-check 54, 838/838). The door's log: `held POST /changesets/ma2a-ghost (201) for 45000 ms - the bridge answered at
+16:51:46.045Z` · `answered … at 16:52:31.056Z` — the 45 s Revit kept answering through.
+
+**Owed:** a withdrawal path live (a filing that fails after one chunk was filed: needs a two-chunk drawing), Revit 2025–2027.
+
+**Closing list:** Revit closed without saving (the scratch copy keeps the 4 walls only in memory — discarded); the door and the 4102 bridge
+stopped; the add-in's bridge config restored from `bcf-config.json.bak-ma3b7`. Left on the shared ledger (a scratch key): on `ma2a-ghost`
+one Ghost changeset (applied, 4 elements) and its rows. Left on this PC: `Documents\Sentinel drills\ma3b7\ma3b7-a.rvt` (unchanged on disk).

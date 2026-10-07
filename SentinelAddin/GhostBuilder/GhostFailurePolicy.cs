@@ -145,6 +145,21 @@ namespace Sentinel.GhostBuilder
         public static string NotFiledLine(string reason) =>
             "Nothing was built — the build could not be filed as a changeset, so Sentinel rolled it back (no element, type or family was added): " + reason;
 
+        /// <summary>MA-3b7: the pane's Doctor line when the dry run is done and the filing starts off Revit's thread.</summary>
+        public static string FilingLine(int n, bool bound) => bound
+            ? $"Ghost Builder: the types proved and the build planned; filing {n} changeset(s) off Revit's thread — Revit stays usable, and the build places by itself in this model once the bridge has answered."
+            : "Ghost Builder: the types proved and the build planned; this model is not bound to a web project, so nothing is filed — the build places by itself.";
+        /// <summary>MA-3b7 (DocPin): the model was switched or closed while Ghost Builder filed — nothing was placed.</summary>
+        /// MA-3b7 review: <paramref name="why"/> is DocPin's refusal — its "nothing was changed" is not said (what was filed is withdrawn).
+        public static string NotPlacedLine(string why) => $"Nothing was built — {why.Replace(" — nothing was changed", "").TrimEnd('.')}. The build was planned for the model it started from and places only there; run Build again in that model.";
+        /// <summary>MA-3b7 review: what Ghost Builder's own withdrawals did — no decline was tried, so none is named (WithdrawEach's words).</summary>
+        public static string FiledWithdrawn(IList<string> withdrawn, IList<string> kept) => kept.Count == 0
+            ? $"the {withdrawn.Count} changeset(s) already filed were withdrawn."
+            : (withdrawn.Count == 0 ? "" : $"withdrawn: {string.Join(", ", withdrawn)}; ") +
+              $"changeset(s) {string.Join(", ", kept)} were filed and could not be withdrawn — withdraw them on the web before anyone reviews them.";
+        /// <summary>MA-3b7: the withdrawals after a build rolled back run off Revit's thread — the Doctor log says what the bridge answered.</summary>
+        public static string WithdrawingLine(int n) => $"Ledger: withdrawing the {n} changeset(s) already filed, off Revit's thread — the pane's Doctor log says what the bridge answered (one it did not answer is named there: withdraw it on the web before anyone reviews it).";
+
         /// <summary>A7: a parameter is written onto a TYPE only when this build added that type (provisioned, cloned or loaded
         /// this run); on any other type the write would change the user's own instances, so it is not applied. Null = write;
         /// otherwise the reason for the Note.</summary>

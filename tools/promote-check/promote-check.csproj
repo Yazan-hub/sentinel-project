@@ -31,6 +31,7 @@
     <Compile Include="..\..\SentinelAddin\GhostBuilder\StoreyBatch.cs" />
     <!-- MA-3b (AI-2): a result Revit applied and has not reported, kept on this PC; its path segments are the artefact cache's -->
     <Compile Include="..\..\SentinelAddin\Engine\UnreportedResults.cs" />
+    <Compile Include="..\..\SentinelAddin\Engine\DocPin.cs" />
     <Compile Include="..\..\SentinelAddin\Engine\ArtefactCache.cs" />
     <Compile Include="..\..\SentinelAddin\Engine\GovElement.cs" />
     <Compile Include="..\..\SentinelAddin\Engine\PsetMap.cs" />
