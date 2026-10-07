@@ -2409,3 +2409,21 @@ the 4100 bridge restarted on master; the walk with the machine credential from l
 this report is the evidence); the stock-client check of Session OPEN2.
 
 **Closing list:** nothing written to any project; the 4100 bridge on master since ~02:05 — the Funnel refresh is the founder's.
+
+## Session PAPER — paperwork slices 4–6: the TIDP document, the evidence pack, the written procedure, live (2026-10-08 ~02:40 → 03:00 local, merged 0710b25, Claude driving the live bridge alone)
+
+Setup: built inline (size S); the 4100 bridge restarted on master; the reads with the machine credential from loopback on the
+real `aster-tower`.
+
+| Row | Result | Evidence |
+|---|---|---|
+| T-1 | `GET /bimdocs/templates` → `BEP, EIR, READINESS, TIDP` — the TIDP offered beside the BEP; `GET /cde/aster-tower/journey` → `6/9`, next `tidp` (status `todo`): the Next strip asks for the TIDP after the BEP — **pass** | the replies |
+| E-1 | `GET /cde/aster-tower/evidence-pack` → `200`, `Content-Disposition: attachment; filename="aster-tower-evidence-pack-2026-10-07.json"`; the project (`aster-office`'s), 12 standards in force named `kind@n · source` (ids@3·project, ruleset@5·office, naming@1·office, contract@1·project, type_catalog@1·office, publish@2·project, roi@1·project, review@1·project; guideline, layers, carbon_factors, lod_matrix none), 3 documents (EIR archived, EIR wip, BEP wip), 2 containers with 4 versions, 0 review chains, **187 ledger rows of 187** each with its `hash` and `prev_hash`, `bundle_sha256` re-checked offline with `sealed()` → true; 65,843 bytes — **pass** | the reply |
+| E-2 | offline: a viewer's and a contributor's pack is a `403`; a part the store cannot serve is `{ not_read: … }` in its place (the test fake's ledger has no count header → said so), the rest sealed — **pass** | `write-roles.test.mjs`, `evidence-pack.test.mjs` |
+
+2759 tests. The procedure (`docs/compliance/INFORMATION_MANAGEMENT_PROCEDURE.md`) is a document; its check is the reader's.
+
+**Owed:** a TIDP created on the web from the new template (the founder's session: Documents ▸ + New document ▸ TIDP); the pack's
+download button on the web (today: the route, a lead's bearer).
+
+**Closing list:** nothing written to any project; the 4100 bridge on master since ~02:50 — the Funnel refresh is the founder's.
