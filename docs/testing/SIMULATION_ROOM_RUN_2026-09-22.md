@@ -2067,3 +2067,31 @@ pane's small WPF buttons by UI Automation name, never by coordinates.
 **Closing list:** the test bridge on 4101 stopped; the 4100 bridge on the branch (the same code master gets), the watcher
 untouched; Revit closed without saving the scratch model; `sec6-smoke` is the founder's scratch project — its rows stay on the
 ledger by design (#2036–#2066 and two BCF topics).
+
+## Session SEC7 — hardening slice 7 live (2026-10-07 ~03:20 → 03:40 local, branch feature/sec7-hardening d7dadbd, Claude driving the bridge, the test bridge and Revit 2024 alone — the founder asleep, his platform session expired)
+
+Setup: the founder's words, given ahead: "do everything urself" and "continue all SEC parts and all tasks needed" (the restart,
+the Revit 2024 deploy, the publish, the post-merge deploys). The 4100 bridge and the outbox watcher restarted by Claude on the
+branch after reading how both ran (plain `npm run` in command windows, no redirection). The founder's platform session had
+expired, so no signed-in web row ran and no `sec7-smoke` was made: the 4101 and Revit rows used `sec6-smoke`, the founder's own
+scratch project from SEC6. The add-in built for Revit 2024 from the branch and deployed; Revit 2024 started by Claude (one
+instance, checked first); the scratch model a shell copy of SEC6's (`Documents\Sentinel drills\sec7\sec7-drill.rvt`).
+
+| Row | Result | Evidence |
+|---|---|---|
+| B-1 | both processes read, then restarted the same way; `/health` ok on 4100; 4101 up — **pass** | the lines |
+| S-1 | one intake upload through 4101 (`source=web`, `revision=P07`): `200`; the version's "geometry linked" row records `version_tag: "P07"` beside `frag_sha256` and `ifc_item_id` — the platform echoed the asked tag — **pass** | the row |
+| S-5 | the test bridge started again with `BCF_MAX_UPLOAD_MB=1` through the 4101 helper (never a bare bridge — review C2); a 2 KB upload `200`; a 1.5 MB upload `413 {"message":"the request body is over the 1 MB limit for this route — nothing was read or saved"}` — **pass** | statuses, words |
+| R-0 | the branch's add-in on Revit 2024 (0 errors); the scratch model open; bound to `sec6-smoke` — **pass** | the lines |
+| R-A1 | a topic with a viewpoint posted through 4100; BCF Issues listed it live; the row selected and `Zoom to issue` invoked (UI Automation): the view `Sentinel Coordination` opened with the camera applied, status `No matching element in this model.`, no Doctor wait line (the hub ran it at once) — **pass** | the view, the status |
+| R-A2 | Build Office System on the scratch model, Build pressed twice within ~100 ms: one report (`Done — 0 created, 109 skipped, 0 failed` — the template's parameters are already bound), no second report — **pass** (whether the second press met the guard or a finished build is not told apart by the one status line; the guard's words are pinned in ghost-standards 178/178) | the status line |
+
+**Owed (the founder's session or hand):** W-0 (`sec7-smoke`), S-3 (**the merge gate for Task 2** — Open 3D downloading the
+linked tag, read in the network log), S-4 (a legacy version), S-6 (the delete trigger live), S-2 (the watcher's `v1` from a Revit
+Governed Publish), R-A3 (the watchdog naming a window's job under sketch mode — best effort, offline-pinned), the
+2021–2027 live rows. **S-3 unmet means Task 2 and the 1.0.52 bump are reverted before the merge** (review C1), (B)'s web half
+to Next with the measured answer; Task 1's record (the tag on the link row) stays.
+
+**Closing list:** the capped 4101 stopped; the 4100 bridge and the watcher on the branch (the same code master gets); Revit
+closed without saving the scratch model; the two SEC-7 versions on `sec6-smoke` (`SEC7-SMOKE.ifc P07`, `SEC7-CAP.ifc P08`) and
+the topics `SEC7 hub` stay as the founder's scratch.

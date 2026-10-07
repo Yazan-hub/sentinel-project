@@ -469,8 +469,9 @@ export async function updateProject(key, patch = {}, actor) {
  *  touched — and the database's delete comes FIRST: a delete projects_delete refused (no row back) is a 403
  *  and nothing else is touched; a project with PUBLISHED versions is a 409 with an archive-instead message
  *  (trg_protect_published). Only then the ledger row (audit_log has no FK, so it outlives the project — the
- *  golden thread) and the text-keyed side stores (no FK — they would orphan silently), cleared with the
- *  service key: the caller's membership went with the project, so a forwarded delete would match no row. */
+ *  golden thread). The text-keyed side rows (BCF topics, the bridge documents filed under the key) go with the
+ *  project in the database itself: migration 0043's cde_project_side_rows (AFTER DELETE on projects) deletes them
+ *  for every writer, so the bridge's own best-effort cleanup is retired (SEC-7). */
 export async function deleteProject(key, actor) {
   const { requireMinRole } = await import("./members-store.mjs");
   await requireMinRole(key, "owner");
@@ -488,11 +489,6 @@ export async function deleteProject(key, actor) {
   }
   requireRows(gone, "the database refused to delete the project (a project is deleted by its owner)");
   await audit(proj.id, "project", proj.id, "deleted", actor || "web", { key, name: proj.name }, null);
-  for (const store of ["clash", "rfi", "tender", "keystore"]) {
-    try { await docDeleteProject(store, key, { service: true }); } catch { /* best-effort: the project is already gone */ }
-  }
-  try { await sb(`bcf_topics?project_id=eq.${encodeURIComponent(key)}`, { method: "DELETE", prefer: "return=minimal", service: true }); }
-  catch { /* best-effort */ }
   return { deleted: true, key };
 }
 
@@ -980,9 +976,10 @@ export async function geometryTarget(key, versionId, sha256) {
  *  only the version geometryTarget answers for `opts.sha256`, and only while it has no geometry (platform_item_id is
  *  written once; the PATCH is filtered on is.null, so a concurrent attach cannot overwrite). Audited "geometry linked"
  *  (actor `opts.actor`, else outbox) with the IFC's sha256 and, when given, the .frag's and the delivered IFC's platform
- *  item (SEC-5); returns the version and the ledger row's id. 400 for a blank item, a missing hash or a version not on
- *  `key`, 409 for the rest — each decided before any write; an item another version names is 0042's 409, in words. */
-export async function attachGeometry(key, versionId, platformItemId, { sha256, frag_sha256, ifc_item_id, actor = "outbox" } = {}) {
+ *  item (SEC-5) and the platform version tag the bytes went under (SEC-7: Open 3D downloads that tag); returns the version
+ *  and the ledger row's id. 400 for a blank item, a missing hash or a version not on `key`, 409 for the rest — each decided
+ *  before any write; an item another version names is 0042's 409, in words. */
+export async function attachGeometry(key, versionId, platformItemId, { sha256, frag_sha256, ifc_item_id, version_tag, actor = "outbox" } = {}) {
   const item = String(platformItemId ?? "").trim();
   if (!item) { const e = new Error("platform_item_id required"); e.status = 400; throw e; }
   const { proj, v, c } = await geometryTarget(key, versionId, sha256);
@@ -1000,7 +997,7 @@ export async function attachGeometry(key, versionId, platformItemId, { sha256, f
   }
   const row = await audit(proj.id, "file_version", v.id, "geometry linked", actor, null,
     { file: c.iso_name, platform_item_id: item, by: "version_id", ifc_sha256: String(v.sha256).toLowerCase(), ...(frag_sha256 ? { frag_sha256 } : {}),
-      ...(ifc_item_id ? { ifc_item_id: String(ifc_item_id) } : {}) });
+      ...(ifc_item_id ? { ifc_item_id: String(ifc_item_id) } : {}), ...(version_tag ? { version_tag: String(version_tag) } : {}) });
   return { container_id: v.container_id, iso_name: c.iso_name, linked: true, version: { id: v.id, revision: v.revision, platform_item_id: item, is_live: v.is_live }, audit_id: row?.id ?? null };
 }
 

@@ -12,10 +12,10 @@ const open = (headers = {}) => Object.assign(new PassThrough(), { headers });
 
 afterEach(() => { delete process.env.BCF_MAX_JSON_MB; delete process.env.BCF_MAX_UPLOAD_MB; });
 
-describe("the caps — 16 MB JSON, 2 GB uploads, 1 MB for prompts; env overrides", () => {
+describe("the caps — 16 MB JSON, 1 GB uploads (SEC-7, founder decision C-a), 1 MB for prompts; env overrides", () => {
   it("defaults", () => {
     expect(jsonCap()).toBe(16 * MB);
-    expect(uploadCap()).toBe(2048 * MB);
+    expect(uploadCap()).toBe(1024 * MB);
     expect(SMALL_JSON).toBe(1 * MB);
   });
   it("BCF_MAX_JSON_MB and BCF_MAX_UPLOAD_MB still override, read when a body is read", () => {
@@ -99,7 +99,7 @@ describe("readRaw — the bytes, capped on what actually arrives", () => {
     await expect(readRaw(req(["x".repeat(700), "x".repeat(400)]), { max: 1024 })).rejects.toMatchObject({ status: 413 });
   });
   it("refuses a declared length over the cap unread", async () => {
-    await expect(readRaw(req(["x"], { "content-length": String(2048 * MB + 1) }))).rejects.toMatchObject({ status: 413, message: expect.stringContaining("2048 MB limit") });
+    await expect(readRaw(req(["x"], { "content-length": String(1024 * MB + 1) }))).rejects.toMatchObject({ status: 413, message: expect.stringContaining("1024 MB limit") });
   });
   it("refuses at once a request whose caller already went away (its events have fired: nothing would end the read)", async () => {
     const r = open();

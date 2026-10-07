@@ -224,9 +224,8 @@ public sealed class GhostBuilderCommand : IExternalCommand
         // Frees the local model's HttpClient (LayerMapper.Dispose forwards to the same LocalGhostBuilder).
         void Release() => ((System.IDisposable?)mapper ?? llm).Dispose();
 
-        // 4. Wire the PHASE 3 placement handoff (runs on the API thread when raised).
+        // 4. Wire the PHASE 3 placement handoff (runs on the API thread through the event hub — SEC-7).
         var placementEvent = new GhostBuilderPlacementEvent { Org = App.OrgFor(doc) };
-        var externalEvent = ExternalEvent.Create(placementEvent);
 
         // 5. Modeless progress window owns the CancellationTokenSource (ESC / Cancel -> cancel).
         var progress = new GhostBuilderProgressWindow();
@@ -284,7 +283,8 @@ public sealed class GhostBuilderCommand : IExternalCommand
                 ImportZFt = importZFt, SourceSha256 = sourceSha, GuidelineLabel = standards!.GuidelineSource.Label, LayersLabel = standards!.LayersSource.Label,
                 Reader = reader,
             });
-            externalEvent.Raise();
+            // SEC-7: through the event hub — a request Revit does not take at once is said and raised again, never dropped unsaid.
+            App.Events!.Enqueue(ua => placementEvent.Execute(ua), "place the Ghost Builder build");
         };
 
         // Closing the review without building ends the run — nothing was written, so there is nothing

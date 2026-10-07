@@ -89,7 +89,6 @@ public sealed class BcfIssuesCommand : IExternalCommand
         var mainHandle = uiapp.MainWindowHandle;   // captured here: the UIApplication is only valid inside Execute
         BcfConfig cfg = BcfConfig.Load();
         var apply = new BcfApplyEvent(uiapp.ActiveUIDocument.Document);
-        var externalEvent = ExternalEvent.Create(apply);
         string token;
         try { token = cfg.ServiceToken; }
         catch (SessionException e) { TaskDialog.Show("Sentinel — BCF Issues", e.Message); return Result.Cancelled; }
@@ -98,18 +97,25 @@ public sealed class BcfIssuesCommand : IExternalCommand
         var window = new BcfIssuesWindow();
         new WindowInteropHelper(window) { Owner = uiapp.MainWindowHandle };
 
-        // Jump to an issue: stage its first viewpoint and raise the ExternalEvent (API-thread apply).
+        // SEC-7: the window owns no ExternalEvent — each Revit action goes through the event hub (labelled, watched, said and
+        // raised again when Revit does not take it). The request is staged inside the job, on Revit's thread, so two clicks
+        // never share one staging.
+        void Apply(string what, System.Action<UIApplication> job)
+        {
+            if (App.Events == null) { window.SetStatus("Sentinel's event hub is not running — restart Revit."); return; }
+            App.Events.Enqueue(job, what);
+        }
+        // Jump to an issue: its first viewpoint, applied on the API thread.
         window.TopicActivated += topic =>
         {
             BcfViewpoint? vp = topic.Viewpoints.FirstOrDefault();
             if (vp is null) { window.SetStatus("This issue has no viewpoint."); return; }
-            apply.RequestApply(vp);
-            externalEvent.Raise();
+            Apply("open the issue", ua => { apply.RequestApply(vp); apply.Execute(ua); });
         };
         // Isolate every element linked to any open issue.
-        window.IsolateAllRequested += () => { apply.RequestIsolateAll(window.Topics); externalEvent.Raise(); };
+        window.IsolateAllRequested += () => Apply("isolate the issue elements", ua => { apply.RequestIsolateAll(window.Topics); apply.Execute(ua); });
         // Which issue(s) is the current Revit selection linked to?
-        window.IssuesForSelectionRequested += () => { apply.RequestIssuesForSelection(window.Topics); externalEvent.Raise(); };
+        window.IssuesForSelectionRequested += () => Apply("match the selection to issues", ua => { apply.RequestIssuesForSelection(window.Topics); apply.Execute(ua); });
 
         apply.Applied += summary => window.SetStatus(summary);
         apply.SelectionMatched += (matched, msg) => { window.HighlightTopics(matched); window.SetStatus(msg); };

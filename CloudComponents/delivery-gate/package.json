@@ -10,5 +10,5 @@
     "publish": "thatopen publish"
   },
   "dependencies": { "@thatopen/services": "^0.3.11" },
-  "devDependencies": { "vite": "^5.2.0" }
+  "devDependencies": { "vite": "^7.3.7" }
 }

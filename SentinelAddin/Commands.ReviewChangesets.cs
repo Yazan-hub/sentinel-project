@@ -345,11 +345,10 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
         if (batch.Count == 1 && cs.Source == "promote" && StoreyBatch.StoreyOf(cs.Name) != cs.Name)
             TaskDialog.Show(Title, $"\"{cs.Name}\" is reviewed alone: another part of its storey is missing (not filed, or reviewed already) or waits twice (two Promote runs) — applying it is its own Undo entry, not the storey's.");
 
-        // Per-invocation handler/event (every sibling command does the same): a static pair would
-        // let a second open review window clobber the staged request and double-fire callbacks.
-        // The closure below keeps both alive for the window's lifetime.
+        // Per-invocation handler (every sibling command does the same): a static one would let a second open review
+        // window clobber the staged request and double-fire callbacks. The closure below keeps it alive for the window's
+        // lifetime. It runs on the API thread through the event hub (SEC-7) — the window owns no ExternalEvent.
         var handler = new ChangesetPlacementEvent();
-        var evt = ExternalEvent.Create(handler);
 
         // Review amendment C3 (MA-2c): a type edit's reach is the add-in's own count, read here on the API thread — the elements on the
         // type in the model now — never the poster's words in its reason.
@@ -578,7 +577,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                 // Review C2: × pressed while the re-check, the role or the standards were read is a cancel — nothing is raised.
                 if (window.Gone) { App.PanelVm?.LogDoctor("Review AI Proposals: the window was closed before Apply ran — nothing was placed."); return; }
                 window.Applying("Applying in Revit…");
-                // ExternalEvent.Raise from the window's thread (Revit's), as every modeless window here raises it.
+                // Enqueued from the window's thread (Revit's) — the hub raises on it, as every modeless window here does.
                 _ = window.Dispatcher.BeginInvoke(new Action(() =>
                 {
                     // Review C12: × between the check above and this raise is a cancel too — the window's hold is already released.
@@ -587,14 +586,10 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                     {
                         handler.Completed += onDone;
                         handler.SetRequest(fresh, new HashSet<string>(ticked), doc, placement, promote);
-                        // Review M3: a request Revit did not take places nothing — said, and Apply comes back. (Pending: an earlier raise
-                        // still runs, so Apply stays pressed.)
-                        var raised = evt.Raise();
-                        if (raised == ExternalEventRequest.Denied || raised == ExternalEventRequest.TimedOut)
-                        {
-                            handler.Completed -= onDone;
-                            window.Reopen($"Revit did not take the request ({raised}) — nothing was placed; press Apply again.");
-                        }
+                        // SEC-7: through the event hub — a request Revit does not take at once is held, said in the Doctor log and
+                        // raised again (never lost), so Apply stays pressed until Completed (review M3's Reopen on a refused raise is
+                        // no longer a case).
+                        App.Events.Enqueue(ua => handler.Execute(ua), "apply the proposals");
                     }
                     catch (Exception ex)
                     {

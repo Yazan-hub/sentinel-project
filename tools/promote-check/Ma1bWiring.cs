@@ -95,7 +95,7 @@ static partial class Check
            && massing.Contains("uidoc.Selection.SetElementIds(ids);") && massing.Contains("uidoc.ShowElements(ids);")
            && massing.Contains("MassingPlanner.SelectedLine(uidoc.Selection.GetElementIds().Count, ids.Count)"),
            "MAS-4: what was placed and is still in the model is selected and zoomed to, and the line prints what Revit holds selected, read back");
-        Ok(massing.Contains("if (externalEvent.Raise() != ExternalEventRequest.Accepted)") && massingReview.Contains("Reopen(MassingPlanner.NotStarted(ex.Message));"),
-           "MAS-4: a build request Revit did not accept, or one that threw before it was raised, reopens the review");
+        Ok(massing.Contains("App.Events.Enqueue(ua => placementEvent.Execute(ua), \"place the massing build\");") && massingReview.Contains("Reopen(MassingPlanner.NotStarted(ex.Message));"),
+           "MAS-4 (SEC-7): a build request goes through the event hub — one Revit does not take at once is held, said and raised again, never lost; one that threw before it was queued reopens the review");
     }
 }
