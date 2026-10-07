@@ -2272,3 +2272,22 @@ session; slab polygons, door boxes and levels from the model are MA-3d2's Next.
 
 **Closing list:** the drill changeset stays proposed on `sec8-smoke` (decline or withdraw it on the desk); my Chrome tab closed; 4100 on
 master since ~20:58 — the Funnel refresh is the founder's.
+
+## Session MA3d2N — the proposal model's Next: outlines, openings, levels (2026-10-07 ~21:10 → 21:30 local, merged 20211f2 / web 1.0.56, Claude driving the live bridge and the local app alone)
+
+Setup: built inline on `feature/ma3d2-next-shapes` (no workflow — size S); 2727 tests, the web builds; merged `--no-ff`, the 4100 bridge
+restarted on master, web 1.0.56 published. The drill changeset of Session MA3d2 (2 walls + 1 door on `sec8-smoke`) reused as it stands.
+
+| Row | Result | Evidence |
+|---|---|---|
+| U-1 | the real pipeline test: a wall, an L-shaped floor (6-point `LocationLoop`) and a door named `0915 x 2134` through the core bundle's IFC and web-ifc to fragments — `{creates 3, drawn 3, skipped []}`; each shape adds bytes (wall 1,889 → +floor 2,426 → +door 2,955) — **pass** | vitest; node |
+| P-1 | `GET /changesets/sec8-smoke/2a4effc3…/proposal.frag` on the LIVE 4100: `200`, 2,843 bytes, header `{"creates":3,"drawn":3,"skipped":[],"skipped_total":0}` — the door at (3000, 0) found wall 1 under it (was `drawn 2`, the door skipped) — **pass** | the reply |
+| W-1 | the desk ▸ Show creates in 3D in a fresh Chrome tab: `Showing 3 of 3 proposed create(s) as a proposal model in orange — walls as boxes on their lines, floors, roofs and ceilings as their outlines, doors and windows as their openings' boxes turned to the wall under them …`; the door's box visible in the first wall's face; Hide creates cleared the scene — **pass** | the screenshot |
+
+Also: the header pin in write-roles.test.mjs that used a door for the em-dash words now uses a grid (a door is drawn).
+
+**Owed:** a floor or window live (no changeset on a scratch key carries one yet — U-1 covers them offline); a proposal model per storey
+rather than per changeset; levels from the *published* model's storeys (today: only what the changeset itself tells).
+
+**Closing list:** the drill changeset stays proposed on `sec8-smoke` (decline or withdraw it on the desk); my Chrome tab closed; 4100 on
+master since ~21:20 — the Funnel refresh is the founder's.
