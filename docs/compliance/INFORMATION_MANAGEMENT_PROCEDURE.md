@@ -37,6 +37,10 @@ functions are the ones in `docs/handbook/04-core-workflows.md` and `05-capabilit
 2. **Revit reads every standard from the project** (Sentinel ▸ Project Setup binds the model to its project key): the
    ruleset, the IDS, the naming, the contract, the layers, the type catalogue — nothing is copied to a workstation.
 3. **The Next strip** (web and the Revit pane) says the next step for the project or the office, from stored facts.
+4. **Members see each other.** Every member of a project, a viewer included, can read the project's member list with each
+   person's e-mail and role (the bridge's members route and the BCF extensions' users), as the ledger already names every
+   actor to every member; only a lead or owner changes it (Settings ▸ Members), and only an owner grants or removes an owner.
+   Decided by the founder on 2026-10-08 after the two-account drill (W-2).
 
 ## 5.6 Collaborative production of information
 
