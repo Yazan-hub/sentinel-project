@@ -1225,20 +1225,29 @@ async function assertSealedUnderCurrentKey(cde, proj, file_ref) {
   // reference (its version's file_ref) is frozen with the version (0041), so the blob keeps its id and only its bytes change.
   // A lead's (the rotation is), on a blob already in the project's folder, asked before the body is read; the body must hash to
   // the sha256 named, or nothing is replaced. The new bytes are written whole (flushed) beside the old blob, then renamed over
-  // it: a failed step leaves the old blob as it was.
+  // it: a failed step leaves the old blob as it was. SEC-9: only during a rotation, and only over the bytes named by `replaces`.
   if (fm && req.method === "PUT") {
     try {
       const key = url.searchParams.get("project");
-      if (!key) return send(res, 400, { message: "name the project: PUT /cde/files/<id>?project=<project key>&sha256=<hex>" });
+      if (!key) return send(res, 400, { message: "name the project: PUT /cde/files/<id>?project=<project key>&sha256=<hex>&replaces=<hex>" });
       const cde = await import("./cde-store.mjs");
       if (!cde.cdeConfigured()) return send(res, 503, { message: "CDE not configured — encrypted files are stored per project, so the bridge needs SUPABASE_URL + SUPABASE_SERVICE_KEY." });
       await (await import("./members-store.mjs")).requireMinRole(key, "lead");
       const file = join(CDE_FILES_ROOT, (await cde.ensureProject(key)).id, `${basename(fm[1])}.bin`);
       if (!existsSync(file)) return send(res, 404, { message: "Blob not found in this project's folder — nothing was replaced" });
+      // SEC-9: a re-seal happens only during a key rotation (the keystore keeps a retired key), and only over the bytes the
+      // walker read (`replaces`: their sha256) — a slow walker's PUT never lands over a newer rotation's re-seal of the file,
+      // and outside a rotation a frozen version's bytes are nobody's to replace.
+      const ks = await cde.docGet("keystore", key, "keystore");
+      if (!ks?.retired) return send(res, 409, { message: "no key rotation is under way for this project (the keystore keeps no retired key) — an encrypted file is re-sealed only during one; the stored file is unchanged" });
+      const replaces = String(url.searchParams.get("replaces") || "").toLowerCase();
+      if (!/^[0-9a-f]{64}$/.test(replaces)) return send(res, 400, { message: "name the sha256 of the stored bytes this re-seal replaces: PUT /cde/files/<id>?project=<project key>&sha256=<hex of the new bytes>&replaces=<hex of the old>; the stored file is unchanged" });
       holdUpload(req, res, currentSub()); // held until this answer is done
       const bytes = await readRaw(req, { max: MAX_BLOB });
       if (!bytes.length || createHash("sha256").update(bytes).digest("hex") !== String(url.searchParams.get("sha256") || "").toLowerCase())
         return send(res, 400, { message: "the re-sealed file did not arrive whole (its sha256 is not the one named) — the stored file is unchanged" });
+      if (createHash("sha256").update(readFileSync(file)).digest("hex") !== replaces)
+        return send(res, 409, { message: "the stored file changed since it was read (another walk re-sealed it) — read it again; the stored file is unchanged" });
       const next = `${file}.${randomUUID()}.next`;
       try { writeFileSync(next, bytes, { flush: true }); renameSync(next, file); }
       finally { rmSync(next, { force: true }); }

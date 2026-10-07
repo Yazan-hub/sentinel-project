@@ -7,7 +7,7 @@
 // self-made project with no office — what anyone who signs up can have).
 // ponytail: the spawn harness is copied from request-boundary.test.mjs (reads-boundary.test.mjs has another); extract a
 // shared helper when a fourth spawn test needs one.
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { spawn } from "node:child_process";
 import { createServer, request } from "node:http";
 import { createHash, createHmac, randomUUID } from "node:crypto";
@@ -63,7 +63,7 @@ function fakePostgrest(req, res) {
   if (path === "projects" && u.searchParams.has("id")) // forwarded: RLS shows a member their project, nobody else
     return json(200, MEMBERS.some((m) => m.project_id === eq("id") && m.user_id === subOf(req.headers.authorization)) ? [{ id: eq("id") }] : []);
   if (path === "bridge_docs" && eq("store") === "keystore" && eq("project_id") === "p-office")
-    return json(200, sec9.kid === undefined ? [] : [{ data: { kid: sec9.kid } }]);
+    return json(200, sec9.kid === undefined ? [] : [{ data: { kid: sec9.kid, ...(sec9.retired ? { retired: { kid: 1, wrap_iv: "aXY", wrapped_dek: "a2V5LTE" } } : {}) } }]);
   if (path === "information_containers" && u.searchParams.has("id")) return json(200, sec9.containers.filter((c) => c.id === eq("id")));
   if (path === "memberships" && u.searchParams.has("project_id"))
     return json(200, MEMBERS.filter((m) => m.project_id === eq("project_id")).map(({ user_id, role }) => ({ user_id, role })));
@@ -292,9 +292,11 @@ describe("/cde/files — encrypted blobs belong to a project (D2, cdefiles-1/2, 
 describe("SEC-8 (S38): PUT /cde/files/:id re-seals an encrypted file in place — a lead's, whole or not at all", () => {
   const folder = () => join(tmp, "appdata", "Sentinel", "cde-files", P_OFF);
   const sha = (s) => createHash("sha256").update(s).digest("hex");
-  const put = (id, body, as, digest = sha(body)) =>
-    call("PUT", `/cde/files/${id}?project=p-office&sha256=${digest}`, { as, body, headers: { "Content-Type": "application/octet-stream" } });
+  const put = (id, body, as, digest = sha(body), replaces = sha("sealed-under-key-1")) =>
+    call("PUT", `/cde/files/${id}?project=p-office&sha256=${digest}${replaces ? `&replaces=${replaces}` : ""}`, { as, body, headers: { "Content-Type": "application/octet-stream" } });
   const stored = async () => (await call("POST", "/cde/files?project=p-office", { as: "u-contrib", body: "sealed-under-key-1", headers: { "Content-Type": "application/octet-stream" } })).json.id;
+  beforeEach(() => { sec9.kid = 2; sec9.retired = true; }); // SEC-9: a rotation is under way (key 1 retired)
+  afterAll(() => { sec9.kid = undefined; sec9.retired = false; });
 
   it("a contributor is refused (the rotation is a lead's), and the stored file is unchanged", async () => {
     const id = await stored();
@@ -320,6 +322,35 @@ describe("SEC-8 (S38): PUT /cde/files/:id re-seals an encrypted file in place �
     const id = randomUUID();
     expect((await put(id, "x", "service")).status).toBe(404);
     expect(existsSync(join(folder(), `${id}.bin`))).toBe(false);
+  });
+
+  it("SEC-9: with no retired key (or no keystore) no re-seal is accepted - a 409 in words, the stored file unchanged", async () => {
+    const id = await stored();
+    for (const set of [() => { sec9.retired = false; }, () => { sec9.kid = undefined; }]) {
+      set();
+      expect(await put(id, "sealed-under-key-2", "service")).toMatchObject({ status: 409, json: { message: "no key rotation is under way for this project (the keystore keeps no retired key) — an encrypted file is re-sealed only during one; the stored file is unchanged" } });
+      expect(readFileSync(join(folder(), `${id}.bin`), "utf8")).toBe("sealed-under-key-1");
+    }
+  });
+
+  it("SEC-9: a re-seal that does not name the bytes it replaces is a 400 in words", async () => {
+    const id = await stored();
+    expect(await put(id, "sealed-under-key-2", "service", undefined, ""))
+      .toMatchObject({ status: 400, json: { message: "name the sha256 of the stored bytes this re-seal replaces: PUT /cde/files/<id>?project=<project key>&sha256=<hex of the new bytes>&replaces=<hex of the old>; the stored file is unchanged" } });
+    expect(readFileSync(join(folder(), `${id}.bin`), "utf8")).toBe("sealed-under-key-1");
+  });
+
+  it("SEC-9: bytes other than those named are a 409 in words, the stored file unchanged", async () => {
+    const id = await stored();
+    expect(await put(id, "sealed-under-key-2", "service", undefined, sha("something else")))
+      .toMatchObject({ status: 409, json: { message: "the stored file changed since it was read (another walk re-sealed it) — read it again; the stored file is unchanged" } });
+    expect(readFileSync(join(folder(), `${id}.bin`), "utf8")).toBe("sealed-under-key-1");
+  });
+
+  it("SEC-9: a contributor is still a 403 before any of these", async () => {
+    sec9.retired = false;
+    const id = await stored();
+    expect((await put(id, "x", "u-contrib", undefined, "")).status).toBe(403);
   });
 });
 

@@ -3,6 +3,7 @@
 // blobs. No browser storage: the IndexedDB cache is absent here, as in the platform's sandboxed iframe.
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 
 const { bfetch } = vi.hoisted(() => ({ bfetch: vi.fn() }));
 vi.mock("./bridge-fetch", () => ({ bfetch }));
@@ -34,6 +35,12 @@ beforeEach(() => {
     }
     const id = decodeURIComponent(u.pathname.split("/").pop()!);
     if (method === "POST") { const nid = `b${blobs.size + 1}`; blobs.set(nid, new Uint8Array(init.body as Uint8Array)); return json(201, { id: nid }); }
+    if (method === "PUT") {
+      const replaces = u.searchParams.get("replaces");
+      if (!replaces) return json(400, { message: "name the sha256 of the stored bytes this re-seal replaces" });
+      const have = blobs.get(id);
+      if (have && replaces !== createHash("sha256").update(have).digest("hex")) return json(409, { message: "the stored file changed since it was read (another walk re-sealed it) — read it again; the stored file is unchanged" });
+    }
     if (method === "PUT") { if (refuse.has(id)) return json(503, { message: "the disk said no" }); blobs.set(id, new Uint8Array(init.body as Uint8Array)); return json(200, { id }); }
     const b = blobs.get(id);
     return b ? new Response(b.buffer as ArrayBuffer) : json(404, { message: "Blob not found" });
@@ -121,6 +128,25 @@ describe("SEC-8 (S38): a key rotation re-seals every file under a new key and re
     expect([...held.keys.keys()].sort()).toEqual([1, 2]);
     setUnlocked("rot-5", held.keys.get(1)!, 1);
     expect(text(await decryptBytes("rot-5", sealed1.buffer as ArrayBuffer))).toBe("one");
+  });
+});
+
+describe("SEC-9: a re-seal names the bytes it read", () => {
+  it("a re-seal names the bytes it read; a file another walker re-sealed meanwhile is said and left as it was", async () => {
+    await twoFiles("rot-9");
+    const b = "b2";
+    await rotateProjectKey(B, "rot-9", OLD, NEW);
+    const real = bfetch.getMockImplementation()!;
+    const other = new Uint8Array([1, 2, 3]);
+    bfetch.mockImplementation(async (url: string, init?: RequestInit) => {
+      if ((init?.method || "GET") === "PUT" && decodeURIComponent(new URL(url).pathname.split("/").pop()!) === b) blobs.set(b, other); // another walker, between the GET and the PUT
+      return real(url, init);
+    });
+    const lines: string[] = [];
+    expect(await resealFiles(B, "rot-9", (l) => lines.push(l))).toBe(false);
+    expect(lines[lines.length - 1]).toMatch(/^1 of 2 encrypted files re-sealed under key 2; 1 could not be \(b2: Re-seal failed \(HTTP 409\): the stored file changed since it was read/);
+    expect(blobs.get(b)).toBe(other);
+    expect(ks).toMatchObject({ retired: { kid: 1 } });
   });
 });
 
