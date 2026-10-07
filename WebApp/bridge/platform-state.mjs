@@ -58,10 +58,16 @@ export async function mirrorState(versionId, deps = {}) {
     const state = row.new_value?.state ?? v.state;
     const client = await (deps.platform || platformClient)();
     const versions = await client.listVersions(item);
-    // ponytail: the platform tag is not stored in Sentinel; one version is the only unambiguous one. Store the tag at
-    // upload when an item ever carries a second version.
-    if (!Array.isArray(versions) || versions.length !== 1) return skip(`the platform item has ${Array.isArray(versions) ? versions.length : "no list of"} versions, not one — the tag is not known`);
-    const tag = versions[0]?.tag;
+    const count = Array.isArray(versions) ? versions.length : null;
+    let tag = count === 1 ? versions[0]?.tag : null;
+    if (count !== 1) {
+      // SEC-9 (SEC-7 E9): an item carrying more than one version takes the tag the ledger's "geometry linked" row recorded
+      // for this version (SEC-7 stores it at upload); an item whose link recorded none is not mirrored.
+      const [link] = (await sb(`audit_log?entity_type=eq.file_version&entity_id=eq.${versionId}&action=eq.${encodeURIComponent("geometry linked")}&order=id.desc&limit=1&select=new_value`, { service: true })) || [];
+      tag = typeof link?.new_value?.version_tag === "string" && link.new_value.version_tag ? link.new_value.version_tag : null;
+      if (!tag) return skip(`the platform item has ${count === null ? "no list of" : count} versions, not one, and the ledger's link recorded no tag — the tag is not known`);
+      if (count !== null && !versions.some((x) => x?.tag === tag)) return skip(`the platform no longer serves version tag "${tag}" of the item — not mirrored`);
+    }
     if (!tag) return skip("the platform version has no tag");
     const file = await client.getFile(item);
     if (/\.ifc$/i.test(file?.name || "") || /^\.?ifc$/i.test(file?.fileExtension || "")) return skip(`${file?.name || "the item"} is an IFC — the gate's labels live there, only a .frag carries the state`);
