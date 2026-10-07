@@ -37,7 +37,7 @@ beforeEach(() => {
     if (method === "POST") { const nid = `b${blobs.size + 1}`; blobs.set(nid, new Uint8Array(init.body as Uint8Array)); return json(201, { id: nid }); }
     if (method === "PUT") {
       const replaces = u.searchParams.get("replaces");
-      if (!replaces) return json(400, { message: "name the sha256 of the stored bytes this re-seal replaces" });
+      if (!replaces) return json(400, { message: "name the sha256 of the stored bytes this re-seal replaces: PUT /cde/files/<id>?project=<project key>&sha256=<hex of the new bytes>&replaces=<hex of the old>; the stored file is unchanged" });
       const have = blobs.get(id);
       if (have && replaces !== createHash("sha256").update(have).digest("hex")) return json(409, { message: "the stored file changed since it was read (another walk re-sealed it) — read it again; the stored file is unchanged" });
     }

@@ -380,10 +380,29 @@ describe("SEC-9: a version's encrypted file must be sealed under the project's c
     expect((await version(ref(b))).status).toBe(201);
   });
 
-  it("a blob that is not in the project's folder is a 409 in words", async () => {
+  it("a blob that is not in the project's folder is a 409 in words, through both routes, and nothing is written", async () => {
     sec9.kid = 2;
-    expect(await create(JSON.stringify({ id: randomUUID() })))
-      .toMatchObject({ status: 409, json: { message: "the encrypted file this version names is not in the project's folder — upload it again; nothing was saved" } });
+    const NOT_IN = { status: 409, json: { message: "the encrypted file this version names is not in the project's folder — upload it again; nothing was saved" } };
+    const before = wrote();
+    expect(await create(JSON.stringify({ id: randomUUID() }))).toMatchObject(NOT_IN);
+    expect(await version(JSON.stringify({ id: randomUUID() }))).toMatchObject(NOT_IN);
+    expect(wrote()).toBe(before);
+  });
+
+  it("POST /cde/:key/files asks the same: a file sealed under key 1 is the same 409, and nothing is written", async () => {
+    sec9.kid = 2;
+    const a = await upload(key1), before = wrote();
+    expect(await call("POST", "/cde/p-office/files", { as: "u-contrib", json: { name: "a.txt", file_ref: ref(a) } }))
+      .toMatchObject({ status: 409, json: { message: KEY1_NOW2 } });
+    expect(wrote()).toBe(before);
+  });
+
+  it("a file_ref sent as a JSON object is asked the same: key 1 is the 409, and nothing is written", async () => {
+    sec9.kid = 2;
+    const a = await upload(key1), before = wrote();
+    expect(await create({ id: a })).toMatchObject({ status: 409, json: { message: KEY1_NOW2 } });
+    expect(await version({ id: a })).toMatchObject({ status: 409, json: { message: KEY1_NOW2 } });
+    expect(wrote()).toBe(before);
   });
 
   it("a file_ref that is not an encrypted file's reference is registered as before", async () => {
@@ -391,6 +410,8 @@ describe("SEC-9: a version's encrypted file must be sealed under the project's c
     expect((await create("not json")).status).toBe(201);
     expect((await version("not json")).status).toBe(201);
     expect((await create(undefined)).status).toBe(201);
+    expect((await create(null)).status).toBe(201);
+    expect((await version(null)).status).toBe(201);
   });
 
   it("with no keystore, a file with no header (key 1) is registered", async () => {
