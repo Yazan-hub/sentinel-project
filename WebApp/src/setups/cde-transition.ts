@@ -1,4 +1,10 @@
 import { bfetch } from "./bridge-fetch";
+import { canGovernRole, roleWords } from "./my-role";
+
+/** W-2 (G3): a board's state moves and Rotate key… are a lead's — cde_transition refuses every move below lead (0043).
+ *  null: draw them; else the one line the board says where they would be. */
+export const boardLockedWords = (r: { role: string; read: boolean }): string | null =>
+  canGovernRole(r.role) ? null : `${roleWords(r)} — sharing, publishing, archiving and key rotation are a lead's`;
 
 /** The words cde_transition ends with when a share, a publish or a restore needs the lead's reason (migrations 0031, 0040). */
 export const NEEDS_REASON = "needs the lead's reason";

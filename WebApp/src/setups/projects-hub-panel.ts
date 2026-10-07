@@ -376,6 +376,14 @@ export function projectsHubPanel(
       if (r.status === 503) {
         projects = [];
         showTools(false);
+        // W-2 (G6): the bridge's own words when it sent some (e.g. it does not forward sign-ins); the configuration hint
+        // only for the CDE-not-configured answer or none.
+        const said = ((await r.json().catch(() => null)) as { message?: string } | null)?.message;
+        if (said && !said.startsWith("CDE not configured")) {
+          el("ph-grid").innerHTML = `<div style="grid-column:1/-1;color:#eab308;font-size:12px;line-height:1.5;padding:1rem .2rem">${esc(said)}</div>`;
+          status(`Projects not read (503) — ${said}`, "#eab308");
+          return;
+        }
         el("ph-grid").innerHTML =
           '<div style="grid-column:1/-1;color:#eab308;font-size:12px;line-height:1.5;padding:1rem .2rem">' +
           "The CDE isn’t configured yet. Add <b>SUPABASE_URL</b> + <b>SUPABASE_SERVICE_KEY</b> to " +

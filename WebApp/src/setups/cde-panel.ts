@@ -1,7 +1,8 @@
 import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
-import { transitionVersion, nextAttachRevision } from "./cde-transition";
+import { transitionVersion, nextAttachRevision, boardLockedWords } from "./cde-transition";
+import { myRoleRead } from "./my-role";
 import { readReviews, decideReview, decideFailedLine, decisionLine, reviewLine, approvalLine, reviewMoves, reviewsInView, type ReviewItem } from "./review-chain";
 import { activePid, onActiveProjectChange } from "./active-project";
 import { loadScope } from "./load-scope";
@@ -55,7 +56,8 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
     '<span style="font-weight:600">▤ CDE</span><span style="color:#9ca3af;font-size:11px">ISO 19650 · folders</span>' +
     '<span style="flex:1"></span>' +
     `<button id="cde-lock" style="${btn}" title="Unlock encrypted files (project passphrase)">🔒</button>` +
-    `<button id="cde-rotate" style="${btn}" title="Rotate the project's encryption key: every encrypted file is re-sealed under a new key">Rotate key…</button>` +
+    '<span id="cde-role" style="display:none;color:#9ca3af;font-size:11px"></span>' +
+    `<button id="cde-rotate" style="${btn};display:none" title="Rotate the project's encryption key: every encrypted file is re-sealed under a new key">Rotate key…</button>` +
     `<button id="cde-new" style="${btn};background:#2a1e4d;border-color:#6528d7;color:#c4b5fd">+ Container</button>` +
     `<button id="cde-refresh" style="${btn}" title="Reload">↻</button>` +
     "</div>" +
@@ -102,6 +104,15 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
   let reviews = new Map<string, ReviewItem>();
   let reviewsError: string | null = null;
   let myReviews = false;
+  // W-2 (G3): the caller's role, read with the board — null draws the state moves and Rotate key…, a string is the one
+  // line said instead; "" (not read yet) draws neither.
+  let locked: string | null = "";
+  const syncRole = () => {
+    el("cde-rotate").style.display = locked === null ? "" : "none";
+    el("cde-role").style.display = locked ? "" : "none";
+    el("cde-role").textContent = locked ?? "";
+  };
+  async function loadRole(mine = seq) { const r = await myRoleRead(base, pid()); if (mine === seq) { locked = boardLockedWords(r); syncRole(); } }
 
   // ── folder-tree helpers ──
   const childrenOf = (parent: string | null) =>
@@ -256,7 +267,7 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
     void refreshPlatformDeliveries();
     try {
       status("Loading…");
-      await Promise.all([loadFolders(mine), loadContainers(mine), loadReviews(mine)]);
+      await Promise.all([loadFolders(mine), loadContainers(mine), loadReviews(mine), loadRole(mine)]);
       if (mine !== seq) return;
       refreshView();
     } catch (e) {
@@ -324,7 +335,7 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
 
         // A version under review (phase 6b) is published only by its chain's last approval: its card has no Publish.
         const chain = s === "shared" ? reviews.get(v.id) : undefined;
-        const moves = reviewMoves(NEXT[s], !!chain);
+        const moves = locked === null ? reviewMoves(NEXT[s], !!chain) : [];
         const actions = document.createElement("div");
         actions.style.cssText = "display:flex;flex-wrap:wrap;gap:.25rem";
         for (const t of moves) {

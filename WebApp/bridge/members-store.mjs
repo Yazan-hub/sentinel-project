@@ -100,13 +100,25 @@ async function ownerCountExcluding(d, projId, userId) {
   return rows.filter((m) => m.role === "owner" && m.user_id !== userId).length;
 }
 
+// W-2 (G2): changing a role or removing a member is a lead's — asked before the write, so a viewer or contributor gets
+// the role words rather than RLS's zero rows read as a concurrency clash; an owner's row and the owner role are an owner's.
+async function requireManager(key, proj, deps) {
+  const mine = await myRole(key, { ...deps, ensureProject: async () => proj }); // proj is already fetched
+  if (mine !== "service" && (ROLE_RANK[mine] || 0) < ROLE_RANK.lead) throw err(403, `this action requires the lead role (you are ${mine || "not a member"})`);
+  return mine;
+}
+const ownerOnly = (mine, touchesOwner, words) => { if (touchesOwner && mine !== "owner" && mine !== "service") throw err(403, words); };
+
 export async function changeRole(key, userId, role, actor, deps) {
   const d = wire(deps);
   if (!ROLES.includes(role)) throw err(400, `role must be one of: ${ROLES.join(", ")}`);
   const proj = await d.ensureProject(key);
+  const mine = await requireManager(key, proj, deps);
   const rows = await memberRows(d, proj.id);
   const before = rows.find((m) => m.user_id === userId);
   if (!before) throw err(404, "not a member of this project");
+  ownerOnly(mine, before.role === "owner", "only an owner changes or removes an owner — nothing was changed");
+  ownerOnly(mine, role === "owner" && before.role !== "owner", "only an owner grants the owner role — nothing was changed");
   if (before.role === "owner" && role !== "owner" && (await ownerCountExcluding(d, proj.id, userId)) === 0)
     throw err(409, "a project must keep at least one owner");
   // CAS: the WHERE re-checks the role the last-owner guard was computed from — two admins
@@ -120,9 +132,11 @@ export async function changeRole(key, userId, role, actor, deps) {
 export async function removeMember(key, userId, actor, deps) {
   const d = wire(deps);
   const proj = await d.ensureProject(key);
+  const mine = await requireManager(key, proj, deps);
   const rows = await memberRows(d, proj.id);
   const before = rows.find((m) => m.user_id === userId);
   if (!before) throw err(404, "not a member of this project");
+  ownerOnly(mine, before.role === "owner", "only an owner changes or removes an owner — nothing was changed");
   if (before.role === "owner" && (await ownerCountExcluding(d, proj.id, userId)) === 0)
     throw err(409, "a project must keep at least one owner");
   const deleted = await d.sb(`memberships?project_id=eq.${enc(proj.id)}&user_id=eq.${enc(userId)}&role=eq.${enc(before.role)}`, { method: "DELETE", prefer: "return=representation" });

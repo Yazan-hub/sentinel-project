@@ -6,7 +6,7 @@ const { bfetch } = vi.hoisted(() => ({ bfetch: vi.fn() }));
 vi.mock("./bridge-fetch", () => ({ bfetch }));
 
 import { readFileSync } from "node:fs";
-import { transitionVersion, unarchiveFile, NEEDS_REASON, nextAttachRevision } from "./cde-transition";
+import { transitionVersion, unarchiveFile, NEEDS_REASON, nextAttachRevision, boardLockedWords } from "./cde-transition";
 
 const res = (status: number, body: unknown) => ({ ok: status < 400, status, json: async () => body }) as unknown as Response;
 const V = "aaaaaaaa-0000-4000-8000-000000000001";
@@ -123,5 +123,17 @@ describe("nextAttachRevision — the CDE panel's label for an encrypted attach (
     expect(code).toContain('author: "web",');
     expect(code).toContain("file_ref: JSON.stringify(stored),");
     expect(code).toContain("notes: `attached ${file.name} (encrypted)`,");
+  });
+});
+
+describe("boardLockedWords (W-2 G3): the board draws moves and Rotate key… for a lead, words for anyone else", () => {
+  it("a lead, an owner and the machine get the controls", () => {
+    for (const role of ["lead", "owner", "service"]) expect(boardLockedWords({ role, read: true })).toBeNull();
+  });
+  it("a contributor, a viewer, a non-member and an unread role get one line instead", () => {
+    expect(boardLockedWords({ role: "contributor", read: true })).toBe("your role: contributor — sharing, publishing, archiving and key rotation are a lead's");
+    expect(boardLockedWords({ role: "viewer", read: true })).toMatch(/^your role: viewer — /);
+    expect(boardLockedWords({ role: "not-member", read: true })).toMatch(/^not a member of this project — read-only — /);
+    expect(boardLockedWords({ role: "viewer", read: false })).toMatch(/^role not read — read-only — /);
   });
 });

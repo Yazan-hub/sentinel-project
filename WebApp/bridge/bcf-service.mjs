@@ -340,9 +340,11 @@ const loadCore = async () => (_core ??= await import("./sentinel-core.mjs"));
 const GOVERNED_TOPIC = /^(IDS|Federation):/;
 const CLOSED_TOPIC = /^(closed|resolved)$/i; // stage-gate.mjs readGateInputs' own rule for "not open" — trimmed, as it trims
 const isClosed = (s) => CLOSED_TOPIC.test(String(s ?? "").trim());
-const governedEditNeedsLead = (topic, b) => GOVERNED_TOPIC.test(String(topic.title || ""))
+// W-2 (G5): renaming a plain topic INTO a governed title would forge a governed issue — a lead's too.
+const governedEditNeedsLead = (topic, b) => (GOVERNED_TOPIC.test(String(topic.title || ""))
   && ((b.topic_status !== undefined && isClosed(b.topic_status) && !isClosed(topic.topic_status))
-    || (b.title !== undefined && b.title !== topic.title));
+    || (b.title !== undefined && b.title !== topic.title)))
+  || (typeof b.title === "string" && GOVERNED_TOPIC.test(b.title) && !GOVERNED_TOPIC.test(String(topic.title || "")));
 
 /** The canonical BCF-3.0 topic object — one shape shared by the POST /topics route and the governed
  *  fail→BCF hook, so a machine-raised issue is byte-identical to a hand-raised one (same fields the web
@@ -2174,6 +2176,8 @@ async function handleRequest(req, res) {
     if (req.method === "POST" && !guid) {
       const b = await readBody(req);
       cde.checkTopicTitle(b?.title);
+      // W-2 (G5): a governed raise arrives Open (the web's IDS raise is a contributor's); one born Closed or Resolved skips the lead's close.
+      if (typeof b?.title === "string" && GOVERNED_TOPIC.test(b.title) && isClosed(b.topic_status)) await requireMinRole(pid, "lead");
       // A Clash Issue is raised only when its clash may be recorded (the register's lock, 3D spec Decision 4): asked
       // here too, so a gate that goes stale in the middle of a 100-clash raise stops it at the first Issue instead of
       // leaving Issues the register then refuses.
