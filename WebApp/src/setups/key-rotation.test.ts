@@ -124,6 +124,40 @@ describe("SEC-8 (S38): a key rotation re-seals every file under a new key and re
   });
 });
 
+describe("SEC-8 review: a walk never re-seals under a key the rotation is retiring, and never stops without a word", () => {
+  it("a session whose current key is not the rotation's new key re-seals nothing and retires nothing", async () => {
+    const [a, b] = await twoFiles("rot-6");
+    await rotateProjectKey(B, "rot-6", OLD, NEW);
+    expect(await resealFiles(B, "rot-6", () => {})).toBe(true); // key 2 current, key 1 retired; this session holds key 2
+    ks = (await rotateKeystore(ks!, NEW, "a third passphrase for the team")).keystore; // another lead: key 3, key 2 retired
+    const before = [blobs.get(a), blobs.get(b)];
+    const lines: string[] = [];
+    expect(await resealFiles(B, "rot-6", (l) => lines.push(l))).toBe(false);
+    expect([blobs.get(a), blobs.get(b)]).toEqual(before);
+    expect(ks).toMatchObject({ kid: 3, retired: { kid: 2 } });
+    expect(lines[lines.length - 1]).toMatch(/this session seals under key 2, not key 3 — lock \(🔓\) and unlock again/);
+  });
+
+  it("a file an older web sealed under the current key without a header still opens", async () => {
+    const { dek } = await createKeystore(OLD);
+    setUnlocked("rot-7", dek, 1);
+    const plain = await encryptBytes("rot-7", new TextEncoder().encode("old web").buffer as ArrayBuffer); // no header
+    setUnlocked("rot-7", dek, 2);
+    expect(text(await decryptBytes("rot-7", plain.buffer as ArrayBuffer))).toBe("old web");
+  });
+
+  it("a list of the encrypted files that cannot be read is said, and key 1 stays", async () => {
+    await twoFiles("rot-8");
+    await rotateProjectKey(B, "rot-8", OLD, NEW);
+    const real = bfetch.getMockImplementation()!;
+    bfetch.mockImplementation(async (url: string, init?: RequestInit) => { if (String(url).endsWith("/keystore/refs")) throw new Error("Failed to fetch"); return real(url, init); });
+    const lines: string[] = [];
+    expect(await resealFiles(B, "rot-8", (l) => lines.push(l))).toBe(false);
+    expect(lines[lines.length - 1]).toBe("Listing the encrypted files failed (Failed to fetch) — key 1 stays; press Resume key rotation");
+    expect(ks).toMatchObject({ retired: { kid: 1 } });
+  });
+});
+
 describe("SEC-8: a file sealed after a rotation names its key", () => {
   it("key 2 on writes an 8-byte header (SNK 0x01, the key id); key 1 writes none, as before", async () => {
     setUnlocked("h3", (await createKeystore("pw")).dek, 3);

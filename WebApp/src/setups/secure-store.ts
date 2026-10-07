@@ -108,9 +108,13 @@ export async function resealFiles(base: string, projectKey: string, say: (line: 
   const seen = new Set<string>(), failed: string[] = [];
   let done = 0;
   for (;;) {
-    const r = await bfetch(`${root}/cde/${p}/keystore/refs`);
-    if (!r.ok) { say(`${await failure(r, "Listing the encrypted files")} — key ${from} stays; press Resume key rotation`); return false; }
-    const fresh = ((await r.json()) as { ids: string[] }).ids.filter((id) => !seen.has(id));
+    let ids: string[];
+    try {
+      const r = await bfetch(`${root}/cde/${p}/keystore/refs`);
+      if (!r.ok) { say(`${await failure(r, "Listing the encrypted files")} — key ${from} stays; press Resume key rotation`); return false; }
+      ids = ((await r.json()) as { ids: string[] }).ids;
+    } catch (e) { say(`Listing the encrypted files failed (${(e as Error)?.message || e}) — key ${from} stays; press Resume key rotation`); return false; }
+    const fresh = ids.filter((id) => !seen.has(id));
     if (!fresh.length) break;
     for (const id of fresh) seen.add(id);
     for (const id of fresh) {
@@ -139,6 +143,9 @@ async function reseal(url: string, projectKey: string, id: string, to: number): 
   if (blobKid(new Uint8Array(old)).kid === to) return; // re-sealed before (a resumed walk)
   const plain = await decryptBytes(projectKey, old);
   const next = await encryptBytes(projectKey, plain);
+  // A session unlocked before a later rotation seals under the key that rotation retires: never sent, never counted.
+  const sealed = blobKid(next).kid;
+  if (sealed !== to) throw new Error(`this session seals under key ${sealed}, not key ${to} — lock (🔓) and unlock again; the stored file is unchanged`);
   const back = new Uint8Array(await decryptBytes(projectKey, next.buffer as ArrayBuffer)), want = new Uint8Array(plain);
   if (back.length !== want.length || !back.every((b, i) => b === want[i])) throw new Error("the re-sealed copy did not open to the same bytes — the stored file is unchanged");
   const put = await bfetch(`${url}&sha256=${await sha256Hex(next.buffer as ArrayBuffer)}`, { method: "PUT", headers: { "Content-Type": "application/octet-stream" }, body: next.buffer as ArrayBuffer });

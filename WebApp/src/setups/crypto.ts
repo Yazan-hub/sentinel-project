@@ -177,10 +177,12 @@ export async function decryptBytes(projectKey: string, blob: ArrayBuffer): Promi
   const buf = new Uint8Array(blob);
   const { kid, body, header } = blobKid(buf);
   const open = (key: CryptoKey, b: Uint8Array) => crypto.subtle.decrypt({ name: "AES-GCM", iv: b.slice(0, 12) }, key, b.slice(12));
-  const key = held.keys.get(kid), one = held.keys.get(1);
-  if (key) { try { return await open(key, body); } catch (e) { if (!header || !one) throw e; } }
-  // A file from before the first rotation whose random IV happened to begin with the header's bytes: read whole, as key 1.
-  if (header && one) { try { return await open(one, buf); } catch (e) { if (key) throw e; } }
+  const key = held.keys.get(kid);
+  if (key) { try { return await open(key, body); } catch { /* the keys held, below */ } }
+  // A file with no header that an older web sealed under the current key, or one from before the first rotation whose
+  // random IV happened to begin with the header's bytes: read whole with each key held (GCM refuses every wrong one).
+  for (const k of [...held.keys.values()]) if (k !== key || header) { try { return await open(k, buf); } catch { /* next */ } }
+  if (key) throw new Error("This file did not open with the project's key (it was changed or cut) — nothing was read");
   throw new Error(`This file is sealed under key ${kid}, which this session does not hold — the project's key was rotated: lock (🔓) and unlock again`);
 }
 
