@@ -2184,8 +2184,8 @@ cancelled, nothing upgraded). Revit signed in (the filing's actor is the founder
 | R-2 | the 4102 bridge stopped (the door answers 502); the same build again: the dialog `Nothing was built — the build could not be filed as a changeset, so Sentinel rolled it back (no element, type or family was added): Bridge 502: drill door: the test bridge on 4102 did not answer … — changeset "Ghost Builder · sample-walls-ma2a · GR-FFL" may exist on the bridge anyway: check ma2a-ghost on the web and withdraw it`; the standards read from the cache (`cached 18:50`) — **pass** | the words |
 
 Not read live: the pane's Doctor log lines (the UIA read of the pane's list was not driven this session) and the Undo entry's name — both
-pinned offline (promote-check 54, 838/838). The door's own log did not flush (its output ran through a pipe) — the hold is evidenced by the
-timing above.
+pinned offline (promote-check 54, 838/838). The door's log: `held POST /changesets/ma2a-ghost (201) for 45000 ms - the bridge answered at
+16:51:46.045Z` · `answered … at 16:52:31.056Z` — the 45 s Revit kept answering through.
 
 **Owed:** a withdrawal path live (a filing that fails after one chunk was filed: needs a two-chunk drawing), Revit 2025–2027.
 
