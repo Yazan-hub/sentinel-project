@@ -2328,3 +2328,20 @@ Base sheet rule was not run (no sheets on `sec8-smoke`).
 
 **Closing list:** `ma2e-office` now holds the Base standards (scratch office — leave or withdraw); `sec8-smoke` carries the pilot's
 naming as its overlay; my Chrome tab closed; the 4100 bridge on master since ~22:05 — the Funnel refresh is the founder's.
+
+## Session MA3d3 — one proposal model per storey, live (2026-10-07 ~23:20 → 23:35 local, merged 9f4e75d / web 1.0.59, Claude driving the live bridge and the local app alone)
+
+Setup: built inline (size S); the 4100 bridge restarted on master; the drill against the live bridge with the machine credential from
+loopback, and the desk in a fresh Chrome tab on `sec8-smoke`.
+
+| Row | Result | Evidence |
+|---|---|---|
+| P-1 | `GET /changesets/ma2a-ghost/proposal.frag?ids=<A>,<B>` (the two MA3c changesets): `200`, 2,725 bytes, header `{"creates":3,"drawn":3,"skipped":[],"skipped_total":0,"changesets":2}` — one model from two changesets; `sec8-smoke` one part: `200`, 2,844 bytes, `changesets 1`; an unknown part: `404 changeset not found`, nothing served; no `ids`: `400` in words — **pass** | the replies |
+| W-1 | the desk ▸ Show creates in 3D on the Level 1 storey: one request, the orange model, `Showing 3 of 3 proposed create(s)…`; Hide creates: `Hid the storey's proposal model.` — **pass** | the screenshots |
+
+Also: `storeyModel` pinned offline (a level create in part 1 places part 2's wall at that elevation; the name loses " (i/n)").
+Levels from the *published* model are not read — the bridge has no fragments reader; the storey learns its levels from its own
+parts (a level create, a loop's, a line's or a point's z).
+
+**Closing list:** the drill changesets stay proposed (`sec8-smoke` 2a4effc3; `ma2a-ghost` A and B — the founder's scratch); my
+Chrome tab closed; the 4100 bridge on master since ~23:20 — the Funnel refresh is the founder's.
