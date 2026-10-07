@@ -691,7 +691,9 @@ async function handleRequest(req, res) {
 
   // CSRF gate: refuse state-changing requests from a browser origin that isn't allowlisted. A request with no
   // Origin (Revit plugin, curl, server-to-server) is a non-browser caller and is allowed through.
-  if ((req.method === "POST" || req.method === "PUT" || req.method === "PATCH" || req.method === "DELETE") && origin && !res._cors) {
+  // openCDE slice 2: the consent page is this bridge's own; its posts (/oauth/code, /oauth/token) come from this origin.
+  const sameOrigin = (() => { try { return !!origin && new URL(origin).host === (req.headers["x-forwarded-host"] || req.headers.host); } catch { return false; } })();
+  if ((req.method === "POST" || req.method === "PUT" || req.method === "PATCH" || req.method === "DELETE") && origin && !res._cors && !(sameOrigin && url.pathname.startsWith("/oauth/"))) {
     return send(res, 403, { message: "Origin not allowed" });
   }
 
@@ -703,7 +705,9 @@ async function handleRequest(req, res) {
   // The bridge does not start without BCF_TOKEN (SEC-1: startRefusal), so this gate is always armed.
   // (POST /receipt/:key/verify from a caller with neither was already answered hash-only, above.)
   if (TOKEN) {
-    const exempt = url.pathname === "/health" && req.method === "GET";
+    // openCDE slice 2: a BCF client reaches the versions, the auth document, the consent page and the token endpoint before it holds
+    // a bearer (BCF-API 3.0 §3) — those four are public, like /health; everything else keeps the gate.
+    const exempt = (url.pathname === "/health" && req.method === "GET") || (await import("./bcf-open.mjs")).isPublicOpenRoute(req.method, url.pathname);
     if (!exempt && !credentialOk) {
       // Why-log for rejected calls: no secrets, just the credential's shape.
       const why = !bearer ? "no-bearer"
@@ -2108,9 +2112,10 @@ async function handleRequest(req, res) {
   const open = await import("./bcf-open.mjs");
   const openRoute = open.parseOpen(url.pathname, req.method);
   if (openRoute) {
-    if (req.method !== "GET") return send(res, 405, { message: "this openCDE route is read-only on this bridge — the writes come with the next slice; nothing changed" });
     try {
-      return await open.answerOpen(openRoute, { url, res, send, db, corsHeaders, currentActor, currentUserToken, cde: await import("./cde-store.mjs"), members: await import("./members-store.mjs") });
+      const members = await import("./members-store.mjs");
+      return await open.answerOpen(openRoute, { req, url, res, send, db, corsHeaders, currentActor, currentUserToken, readBody, readRaw, SMALL_JSON, resolveActor, persist, broadcast, governedEditNeedsLead, isClosed,
+        requireMinRole: members.requireMinRole, newGuid: randomUUID, env: process.env, cde: await import("./cde-store.mjs"), members });
     } catch (e) { return send(res, e?.status || 500, { message: String(e?.message || e) }); }
   }
   // /bcf/3.0/projects/:pid/topics[/:guid[/comments|/viewpoints]]
