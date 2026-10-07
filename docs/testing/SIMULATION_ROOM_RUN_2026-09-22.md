@@ -2125,3 +2125,27 @@ button in the founder's own hand (the passphrase prompts), the 2021–2027 live 
 
 **Closing list:** 4101 and web-dev stay up for the founder; `sec8-smoke` and its scratch containers/versions stay as the
 founder's scratch; the scratch keystore holds a passphrase no one knows (the project is scratch — delete or re-make it).
+
+## Session SEC9 — hardening slice 9 live (2026-10-07 ~16:15 → 16:30 local, branch feature/sec9-hardening bc0b5a9, Claude driving the bridge, the test bridge and the database alone)
+
+Setup: the founder's standing words ("do everything on ur own, fix the small gaps, and continue the roadmap"). The 4100 bridge
+and the test bridge 4101 restarted on the branch. The rows ran on `sec8-smoke` (its keystore at key 2 after SEC8's rotation)
+through 4101 with the machine credential; two scratch blobs: one with no header (key 1), one whose 8-byte header names key 2.
+
+| Row | Result | Evidence |
+|---|---|---|
+| B-1 | 4100 restarted on the branch, `/health` ok; 4101 up — **pass** | the lines |
+| A-1 | the key-1 blob registered as a new container's file on a key-2 project: `409` with the exact words ("sealed under key 1, but the project's key is 2 — lock (🔓) and unlock again … nothing was saved") — **pass** | the words |
+| A-2 | the key-2 blob: `201`, container `SEC9-A2` — **pass** | the row |
+| A-3 | a reference to a blob not in the project's folder: `409` with the exact words — **pass** | the words |
+| A-4 | the versions route on `SEC9-A2` with the key-1 blob: the same `409` — **pass** | the words |
+| A-5 | the versions route with the key-2 blob: `201` (P02) — **pass** | the row |
+| R-1 | a re-seal `PUT` of the key-2 blob outside a rotation (`sha256` and `replaces` both named): `409` "no key rotation is under way … the stored file is unchanged" — **pass** | the words |
+| R-2 | the same without `replaces`: the rotation check answers first, the same `409` — **pass** (the 400 for a missing `replaces` is pinned offline) | the words |
+
+**Owed:** P-1 (the state mirror on a platform item carrying two versions — needs `SENTINEL_PLATFORM_STATE=on` and such an item;
+offline-pinned), a re-seal during a live rotation with `replaces` (K-1's walk ran before SEC-9; pinned offline, and the web half
+ships in 1.0.53), the 2021–2027 live rows.
+
+**Closing list:** 4101 stays up; `SEC9-A2` and its P02 stay as the founder's scratch on `sec8-smoke`; the key-1 blob stays
+unreferenced in the project's folder.
