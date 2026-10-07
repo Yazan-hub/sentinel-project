@@ -2367,3 +2367,26 @@ stranger refused as before). 2741 tests.
 since those clients start at `/bcf/3.0/auth`; the buildingSMART test-suite run (slice 3).
 
 **Closing list:** nothing written; the 4100 bridge on master since ~00:25 — the Funnel refresh is the founder's.
+
+## Session OPEN2 — openCDE slice 2, the writes and the auth front, live (2026-10-08 ~01:10 → 01:30 local, merged dbde90b, Claude driving the live bridge alone)
+
+Setup: built inline (size M); the 4100 bridge restarted on master; the public routes probed with no bearer on loopback and through
+the Funnel; the writes with the machine credential from loopback on a scratch topic of `sec8-smoke`.
+
+| Row | Result | Evidence |
+|---|---|---|
+| A-1 | `GET /bcf/3.0/auth` with no bearer: `200`, `oauth2_auth_url` = this bridge's `/oauth/authorize`, `oauth2_token_url` = `/oauth/token`, `authorization_code_grant`; **through the Funnel** with no bearer: `200`, both URLs `https://…` on the Funnel host — the gate's exemption holds behind the proxy — **pass** | the replies |
+| A-2 | `GET /oauth/authorize?response_type=code&client_id=probe&redirect_uri=http://localhost:9999/cb` with no bearer: `200 text/html`, the sign-in form; `POST /oauth/token {grant_type: password}`: `400 unsupported_grant_type` in words — **pass** | the replies |
+| W-1 | a topic created (the existing POST) → comment `PUT` `200`; `PUT related_topics` with the spec's bare array → `[{related_topic_guid}]`; `POST document_references {url}` `201`; comment `DELETE` → "comment removed — the topic's history keeps the fact" — **pass** | the replies |
+| W-2 | `GET …/events` → `Created | Comment added | Comment edited | Related topics: 1 | Document reference added: … | Comment removed`; `GET …/documents` → the project's containers by name — **pass** | the replies |
+| W-3 | `DELETE …/topics/:guid` → "closed, not erased — a Sentinel topic stays on the ledger"; the topic reads `Closed` after — **pass** | the replies |
+
+Offline: the pure tests (auth document, redirect rule, the 60-second single-use code store, the escaped consent page, events,
+the methods table) and five write-roles rows (a viewer refused, a governed topic a lead's, a comment the author's or a lead's,
+documents refused in words, the full code-for-JWT swap with a signed-in page). 2750 tests.
+
+**Owed (the founder's):** the consent page end to end — a stock BCF client (BIMcollab Zoom, Solibri) on the Funnel URL, a person's
+own sign-in in the page, the client receiving the code and opening the issues; the buildingSMART test suite (slice 3).
+
+**Closing list:** one scratch topic "OPEN2 drill topic" on `sec8-smoke`, Closed; the 4100 bridge on master since ~01:15 — the Funnel
+refresh is the founder's.
