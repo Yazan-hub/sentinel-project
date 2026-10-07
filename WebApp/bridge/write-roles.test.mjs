@@ -777,6 +777,62 @@ describe("POST /cde/:key/audit — the modelling commands' reports and the build
   });
 });
 
+describe("openCDE slice 1: the BCF-API 3.0 reads", () => {
+  const T = "/bcf/3.0/projects/demo/topics";
+  const topic = (guid) => ({ guid, project_id: "demo", title: "T " + guid, topic_type: "Issue", topic_status: guid === "G2" ? "Closed" : "Open", creation_author: "x", history: [],
+    comments: [{ guid: "C1", date: "2026-10-07T00:00:00Z", author: "a@example.test", comment: "hello", viewpoint_guid: null }],
+    viewpoints: [{ guid: "V1", perspective_camera: null, components: { selection: [{ ifc_guid: "2O2Fr$t4X7Zf8NOew3FLKI" }] }, clipping_planes: [], snapshot: `data:image/png;base64,${Buffer.from([137, 80, 78, 71]).toString("base64")}` }] });
+  const seedTopic = (t) => db.bcf_topics.push({ guid: t.guid, project_id: "demo", topic_status: t.topic_status, model: "", data: t });
+  const get = async (path, as = "viewer") => {
+    const r = await fetch(`http://127.0.0.1:${port}${path}`, { headers: { Authorization: `Bearer ${as === "machine" ? TOKEN : jwtFor(as)}` } });
+    const type = r.headers.get("content-type") || "";
+    return { status: r.status, type, body: type.startsWith("image/") ? Buffer.from(await r.arrayBuffer()) : await r.json().catch(() => null) };
+  };
+  it("versions, current-user (a person, the machine), projects and one project", async () => {
+    expect((await get("/bcf/versions")).body).toEqual({ versions: [{ version_id: "3.0", detailed_version: "https://github.com/buildingSMART/BCF-API" }] });
+    expect((await get("/bcf/3.0/current-user")).body).toEqual({ id: "viewer@example.test", name: "viewer@example.test" });
+    expect((await get("/bcf/3.0/current-user", "machine")).body).toEqual({ id: "machine", name: "the bridge (machine credential)" });
+    expect((await get("/bcf/3.0/projects")).body).toEqual([{ project_id: "demo", name: "Demo", authorization: { project_actions: ["createTopic"] } }]);
+    expect((await get("/bcf/3.0/projects/demo")).body.project_id).toBe("demo");
+    expect((await get("/bcf/3.0/projects/nope")).status).toBe(404);
+  });
+  it("extensions carry Sentinel's vocabulary and the members; files are the live versions", async () => {
+    const ext = (await get("/bcf/3.0/projects/demo/extensions")).body;
+    expect(ext.topic_status).toEqual(["Open", "In Progress", "Resolved", "Closed"]);
+    expect(ext.users).toEqual(expect.arrayContaining([USERS.owner, USERS.viewer]));   // the member's email when the store has it, else their id
+    db.information_containers = [{ id: "c1", project_id: PID, iso_name: "PRJ-A.ifc", deleted_at: null, container_versions: [{ id: "v1", created_at: "2026-01-01", is_live: true, file_ref: null }] }];
+    expect((await get("/bcf/3.0/projects/demo/files")).body).toEqual([{ ifc_project: null, ifc_spatial_structure_element: null, file_name: "PRJ-A.ifc", date: "2026-01-01", reference: "/cde/demo/containers/c1/versions/v1" }]);
+  });
+  it("one topic, its comments and viewpoints (list, one, selection, coloring, visibility, snapshot bytes); unknown ones are 404s", async () => {
+    seedTopic(topic("G1"));
+    expect((await get(`${T}/G1`)).body.title).toBe("T G1");
+    expect((await get(`${T}/G1/comments`)).body).toHaveLength(1);
+    expect((await get(`${T}/G1/comments/C1`)).body.comment).toBe("hello");
+    expect((await get(`${T}/G1/viewpoints`)).body[0].guid).toBe("V1");
+    expect((await get(`${T}/G1/viewpoints/V1/selection`)).body).toEqual({ selection: [{ ifc_guid: "2O2Fr$t4X7Zf8NOew3FLKI" }] });
+    expect((await get(`${T}/G1/viewpoints/V1/coloring`)).body).toEqual({ coloring: [] });
+    expect((await get(`${T}/G1/viewpoints/V1/visibility`)).body.visibility.default_visibility).toBe(true);
+    const snap = await get(`${T}/G1/viewpoints/V1/snapshot`);
+    expect(snap.type).toBe("image/png"); expect([...snap.body]).toEqual([137, 80, 78, 71]);
+    expect((await get(`${T}/G1/comments/nope`)).status).toBe(404);
+    expect((await get(`${T}/G1/viewpoints/nope/snapshot`)).status).toBe(404);
+    expect((await get(`${T}/nope`)).status).toBe(404);
+  });
+  it("the topic list pages: $filter starts from every status, $skip/$top cut, a bad $filter is a 400 and lists nothing", async () => {
+    seedTopic(topic("G1")); seedTopic(topic("G2")); seedTopic(topic("G3"));
+    expect((await get(`${T}`)).body.map((t) => t.guid)).toEqual(["G1", "G3"]);                                   // Sentinel's default: not Closed
+    expect((await get(`${T}?$filter=${encodeURIComponent("topic_status eq 'Closed'")}`)).body.map((t) => t.guid)).toEqual(["G2"]);
+    expect((await get(`${T}?status=all&$skip=1&$top=1`)).body.map((t) => t.guid)).toEqual(["G2"]);
+    const bad = await get(`${T}?$filter=${encodeURIComponent("title gt 'x'")}`);
+    expect(bad.status).toBe(400); expect(bad.body.message).toMatch(/only `field eq 'value'`/);
+  });
+  it("a write on an open route is a 405 in words; a stranger's read is refused as before", async () => {
+    const r = await fetch(`http://127.0.0.1:${port}/bcf/3.0/projects/demo/topics/G1/comments/C1`, { method: "DELETE", headers: { Authorization: `Bearer ${jwtFor("owner")}` } });
+    expect(r.status).toBe(405);
+    expect([403, 404]).toContain((await get("/bcf/3.0/projects/demo/extensions", "stranger")).status);
+  });
+});
+
 describe("changesets (MA-3d2): the proposal model", () => {
   const ID = "0c0c0c0c-0000-4000-8000-000000000002";
   const csOf = (elements) => ({ id: ID, name: "Level 1 walls", status: "proposed", elements });

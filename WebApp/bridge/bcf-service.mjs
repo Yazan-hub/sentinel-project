@@ -18,7 +18,7 @@ import { join, dirname, basename, extname, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { pipeline } from "node:stream";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
-import { runWithAuth, resolveActor, currentSub, currentExp, currentUserToken } from "./bridge-auth.mjs";
+import { runWithAuth, resolveActor, currentSub, currentExp, currentUserToken, currentActor } from "./bridge-auth.mjs";
 import { loadEnv } from "./load-env.mjs";
 import { verifyJwt, initJwks } from "./verify-jwt.mjs";
 import { corsOrigin } from "./cors-origin.mjs";
@@ -2104,6 +2104,15 @@ async function handleRequest(req, res) {
     } catch (e) { return send(res, e?.status || 500, { message: String(e?.message || e) }); }
   }
 
+  // openCDE slice 1: the BCF-API 3.0 reads a stock client expects (bcf-open.mjs) — asked before the topic block, GET only.
+  const open = await import("./bcf-open.mjs");
+  const openRoute = open.parseOpen(url.pathname, req.method);
+  if (openRoute) {
+    if (req.method !== "GET") return send(res, 405, { message: "this openCDE route is read-only on this bridge — the writes come with the next slice; nothing changed" });
+    try {
+      return await open.answerOpen(openRoute, { url, res, send, db, corsHeaders, currentActor, currentUserToken, cde: await import("./cde-store.mjs"), members: await import("./members-store.mjs") });
+    } catch (e) { return send(res, e?.status || 500, { message: String(e?.message || e) }); }
+  }
   // /bcf/3.0/projects/:pid/topics[/:guid[/comments|/viewpoints]]
   const m = url.pathname.match(/^\/bcf\/3\.0\/projects\/([^/]+)\/topics(?:\/([^/]+))?(?:\/(comments|viewpoints))?$/);
   if (!m) return send(res, 404, { message: "Not found" });
@@ -2127,12 +2136,15 @@ async function handleRequest(req, res) {
     if (req.method === "GET" && !guid) {
       const status = url.searchParams.get("status");
       const model = url.searchParams.get("model");
-      if (useCde) return send(res, 200, await cde.bcfListTopics(pid, { status, model }, db.topics.filter(inProject)));
+      // openCDE slice 1: `$filter`/`$skip`/`$top` page the list (a `$filter` starts from every status — the BCF default — unless status= says otherwise).
+      const paged = (list) => open.page(list, url.searchParams);
+      const status2 = status ?? (url.searchParams.has("$filter") ? "all" : null);
+      if (useCde) return send(res, 200, paged(await cde.bcfListTopics(pid, { status: status2, model }, db.topics.filter(inProject))));
       // no status → non-Closed (the working set); status=all → everything; else exact match.
       const list = db.topics.filter(inProject)
-        .filter((t) => (!status ? t.topic_status !== "Closed" : status === "all" ? true : t.topic_status === status))
+        .filter((t) => (!status2 ? t.topic_status !== "Closed" : status2 === "all" ? true : t.topic_status === status2))
         .filter((t) => !model || t.model === model);
-      return send(res, 200, list);
+      return send(res, 200, paged(list));
     }
     // POST new topic
     if (req.method === "POST" && !guid) {
