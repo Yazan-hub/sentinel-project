@@ -558,17 +558,14 @@ describe("DELETE /cde/projects/:key (cde-3, D12): the owner's, the database's de
     expect(db.bridge_docs).toHaveLength(4);
   });
 
-  it("the owner's delete removes the project first, then writes the ledger row, then clears the side stores with the service key", async () => {
+  it("the owner's delete removes the project first, then writes the ledger row — and nothing else: the side rows are the database's (0043's cde_project_side_rows, SEC-7)", async () => {
     sides();
     expect(await call("DELETE", "/cde/projects/demo", "owner")).toEqual({ status: 200, body: { deleted: true, key: "demo" } });
-    expect(touched()).toEqual([
-      "DELETE projects", "POST audit_log (service)",
-      "DELETE bridge_docs (service)", "DELETE bridge_docs (service)", "DELETE bridge_docs (service)", "DELETE bridge_docs (service)",
-      "DELETE bcf_topics (service)",
-    ]);
+    expect(touched()).toEqual(["DELETE projects", "POST audit_log (service)"]);
     expect(db.audit_log[0]).toMatchObject({ entity_type: "project", action: "deleted", actor: "owner@example.test" });
-    expect(db.bridge_docs).toEqual([]);
-    expect(db.bcf_topics).toEqual([]);
+    // The fake store has no trigger, so the side rows stay here untouched by the bridge; live, 0043 deletes them with the project.
+    expect(db.bridge_docs).toHaveLength(4);
+    expect(db.bcf_topics).toHaveLength(1);
   });
 });
 

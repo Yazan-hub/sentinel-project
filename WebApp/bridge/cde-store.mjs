@@ -469,8 +469,9 @@ export async function updateProject(key, patch = {}, actor) {
  *  touched — and the database's delete comes FIRST: a delete projects_delete refused (no row back) is a 403
  *  and nothing else is touched; a project with PUBLISHED versions is a 409 with an archive-instead message
  *  (trg_protect_published). Only then the ledger row (audit_log has no FK, so it outlives the project — the
- *  golden thread) and the text-keyed side stores (no FK — they would orphan silently), cleared with the
- *  service key: the caller's membership went with the project, so a forwarded delete would match no row. */
+ *  golden thread). The text-keyed side rows (BCF topics, the bridge documents filed under the key) go with the
+ *  project in the database itself: migration 0043's cde_project_side_rows (AFTER DELETE on projects) deletes them
+ *  for every writer, so the bridge's own best-effort cleanup is retired (SEC-7). */
 export async function deleteProject(key, actor) {
   const { requireMinRole } = await import("./members-store.mjs");
   await requireMinRole(key, "owner");
@@ -488,11 +489,6 @@ export async function deleteProject(key, actor) {
   }
   requireRows(gone, "the database refused to delete the project (a project is deleted by its owner)");
   await audit(proj.id, "project", proj.id, "deleted", actor || "web", { key, name: proj.name }, null);
-  for (const store of ["clash", "rfi", "tender", "keystore"]) {
-    try { await docDeleteProject(store, key, { service: true }); } catch { /* best-effort: the project is already gone */ }
-  }
-  try { await sb(`bcf_topics?project_id=eq.${encodeURIComponent(key)}`, { method: "DELETE", prefer: "return=minimal", service: true }); }
-  catch { /* best-effort */ }
   return { deleted: true, key };
 }
 

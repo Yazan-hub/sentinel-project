@@ -25,3 +25,40 @@ describe("SEC-7 (S21): the body caps are named where the bridge is configured", 
     expect(svc).toContain("const raw = await readRaw(req, { max: MAX_DOC_UPLOAD });");
   });
 });
+
+describe("SEC-7 (S23): a deleted project's side rows are the database's (0043's cde_project_side_rows), not the bridge's", () => {
+  it("deleteProject no longer clears bridge documents or BCF topics itself — the trigger does, for every writer", () => {
+    const src = read("./cde-store.mjs");
+    const fn = src.slice(src.indexOf("/** Delete a project and everything the schema cascades"), src.indexOf("// ── Folders (ACC/Forma-style"));
+    expect(fn.length).toBeGreaterThan(0);
+    expect(fn).not.toContain("docDeleteProject(");
+    expect(fn).not.toContain("bcf_topics");
+    expect(fn).toContain("0043");
+  });
+
+  it("…and makes exactly one DELETE (the project) and one ledger row, nothing else", async () => {
+    // cde-store reads its config at import; without a config/.env (CI) these make the store "configured". fetch is faked.
+    process.env.SUPABASE_URL ||= "https://fixture.supabase.co";
+    process.env.SUPABASE_SERVICE_KEY ||= "fixture-service-key";
+    const { deleteProject } = await import("./cde-store.mjs");
+    const P = "11111111-1111-4111-8111-111111111111";
+    const calls = [];
+    const real = globalThis.fetch;
+    globalThis.fetch = async (url, init = {}) => {
+      const u = new URL(String(url)), path = u.pathname.replace(/^\/rest\/v1\//, ""), method = init.method || "GET";
+      calls.push({ path, method, search: decodeURIComponent(u.search) });
+      const json = (b, status = 200) => new Response(JSON.stringify(b), { status });
+      if (path === "projects" && method === "GET") return json([{ id: P, key: "sec7-gone", name: "sec7-gone" }]);
+      if (path === "projects" && method === "DELETE") return json([{ id: P }]);
+      if (path === "audit_log" && method === "POST") return json([{ id: 7 }], 201);
+      return json([]);
+    };
+    try {
+      expect(await deleteProject("sec7-gone", "web")).toEqual({ deleted: true, key: "sec7-gone" });
+      expect(calls.filter((c) => c.method !== "GET")).toEqual([
+        { path: "projects", method: "DELETE", search: `?id=eq.${P}` },
+        { path: "audit_log", method: "POST", search: "" },
+      ]);
+    } finally { globalThis.fetch = real; }
+  });
+});
