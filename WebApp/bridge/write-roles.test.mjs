@@ -8,8 +8,8 @@
 // caller gets, and that nothing reached the table.
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { spawn } from "node:child_process";
-import { createHmac, randomUUID } from "node:crypto";
-import { cpSync, mkdtempSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
+import { createHash, createHmac, randomUUID } from "node:crypto";
+import { cpSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { createServer } from "node:http";
 import net from "node:net";
 import { tmpdir } from "node:os";
@@ -422,7 +422,8 @@ describe("The E2E keystore (cde-4, cde-rem-5): set up and replaced by a lead", (
     expect(await call("POST", "/cde/demo/keystore", "lead", KS)).toEqual({ status: 201, body: { ok: true } });
     expect(writes("bridge_docs").map((c) => c.service)).toEqual([true]);
     expect((await call("POST", "/cde/demo/keystore", "lead", KS)).status).toBe(409);
-    expect(await call("PUT", "/cde/demo/keystore", "lead", { ...KS, salt: "bmV3" })).toEqual({ status: 200, body: { ok: true } });
+    // SEC-8: a replace names the wrapped key it replaces (the keystore the caller read).
+    expect(await call("PUT", "/cde/demo/keystore", "lead", { ...KS, salt: "bmV3", replaces: KS.wrapped_dek })).toEqual({ status: 200, body: { ok: true } });
     expect(db.bridge_docs[0].data.salt).toBe("bmV3");
   });
 
@@ -433,6 +434,88 @@ describe("The E2E keystore (cde-4, cde-rem-5): set up and replaced by a lead", (
 
   it("reading it needs membership: a stranger is refused, not answered 200 null", async () => {
     expect([403, 404]).toContain((await call("GET", "/cde/demo/keystore", "stranger")).status);
+  });
+
+  // SEC-8 (S38): a key rotation — a replace names the key it replaces and never takes the key id back.
+  it("a replace that does not name the stored key (a stale tab, another lead's rotation) is a 409 in words, and nothing is saved", async () => {
+    seedDoc("keystore", "keystore", { ...KS });
+    for (const replaces of [undefined, "c3RhbGU"])
+      expect(await call("PUT", "/cde/demo/keystore", "lead", { ...KS, wrapped_dek: "bmV3", ...(replaces ? { replaces } : {}) }))
+        .toEqual({ status: 409, body: { message: "the project keystore changed since it was read (another lead may have rotated the key or changed the passphrase) — read it again; nothing was saved" } });
+    expect(writes("bridge_docs")).toEqual([]);
+  });
+
+  it("a key id that goes back is a 409 in words; the next key id (a rotation) is saved, without the replaces field", async () => {
+    seedDoc("keystore", "keystore", { ...KS, v: 2, kid: 3 });
+    expect(await call("PUT", "/cde/demo/keystore", "lead", { ...KS, v: 2, kid: 2, replaces: KS.wrapped_dek }))
+      .toEqual({ status: 409, body: { message: "the keystore's key id would go back from 3 to 2 — a file sealed under key 3 would be unreadable; nothing was saved" } });
+    for (const kid of [0, "5", true])
+      expect(await call("PUT", "/cde/demo/keystore", "lead", { ...KS, kid, replaces: KS.wrapped_dek }))
+        .toEqual({ status: 400, body: { message: "a keystore's kid is a whole number from 1 — nothing was saved" } });
+    expect(writes("bridge_docs")).toEqual([]);
+    const next = { ...KS, v: 2, kid: 4, wrapped_dek: "a2V5LTQ", retired: { kid: 3, wrap_iv: "aXY", wrapped_dek: "a2V5LTM" }, rotating: { from: 3, to: 4, done: 0, total: 0 } };
+    expect(await call("PUT", "/cde/demo/keystore", "lead", { ...next, replaces: KS.wrapped_dek })).toEqual({ status: 200, body: { ok: true } });
+    expect(db.bridge_docs[0].data).toEqual(next);
+  });
+
+  it("the blob ids of every encrypted file, Deleted items included, are a lead's read (the rotation's walk)", async () => {
+    db.information_containers = [
+      { id: "c1", project_id: PID, deleted_at: null, container_versions: [{ file_ref: JSON.stringify({ id: "blob-a", name: "a.pdf" }) }, { file_ref: null }, { file_ref: "not json" }] },
+      { id: "c2", project_id: PID, deleted_at: "2026-10-01T00:00:00Z", container_versions: [{ file_ref: JSON.stringify({ id: "blob-b" }) }, { file_ref: JSON.stringify({ id: "blob-a" }) }] },
+    ];
+    expect(await call("GET", "/cde/demo/keystore/refs", "contributor")).toEqual(refused("lead", "contributor"));
+    expect(await call("GET", "/cde/demo/keystore/refs", "lead")).toEqual({ status: 200, body: { ids: ["blob-a", "blob-b"] } });
+  });
+});
+
+describe("SEC-8 judge-again: POST /cde/:key/versions/:vid/judge — a lead judges a version's own bytes again", () => {
+  const VID = "aaaaaaaa-0000-4000-8000-0000000000a1";
+  const IFC = readFileSync(new URL("./fixtures/minimal.ifc", import.meta.url));
+  const SHA = createHash("sha256").update(IFC).digest("hex");
+  const seedVersion = (sha256) => {
+    db.projects[0].office_key = "office-x"; // a trusted caller's project (requireSpend, as the manifests backfill)
+    db.container_versions = [{ id: VID, container_id: "cccccccc-0000-4000-8000-0000000000c1", revision: "P01", state: "shared", sha256, deleted_at: null,
+      information_containers: { project_id: PID, deleted_at: null, iso_name: "DEMO-ARC-ZZ-XX-M3-A-0001.ifc" } }];
+  };
+  const judge = async (as, body) => {
+    const r = await fetch(`http://127.0.0.1:${port}/cde/demo/versions/${VID}/judge`, { method: "POST", headers: { Authorization: `Bearer ${jwtFor(as)}`, "Content-Type": "application/octet-stream" }, body });
+    const text = await r.text();
+    return { status: r.status, body: text ? JSON.parse(text) : null };
+  };
+
+  it("a contributor is refused, and nothing reaches the ledger", async () => {
+    seedVersion(SHA);
+    expect(await judge("contributor", IFC)).toEqual(refused("lead", "contributor"));
+    expect(writes("audit_log")).toEqual([]);
+  });
+
+  it("a version registered without a sha256 cannot be judged again — said in words, nothing judged", async () => {
+    seedVersion(null);
+    expect(await judge("lead", IFC)).toEqual({ status: 409, body: { message: `version ${VID} was registered without a sha256, so no bytes are bound to it and it cannot be judged again — a lead's reason moves it, as before; nothing was judged` } });
+    expect(writes("audit_log")).toEqual([]);
+  });
+
+  it("a re-upload whose sha256 is not the version's is a 409 in words, nothing judged", async () => {
+    seedVersion("ab".repeat(32));
+    expect(await judge("lead", IFC)).toEqual({ status: 409, body: { message: `the uploaded file's sha256 is not the one version ${VID} was registered with — nothing was judged` } });
+    expect(writes("audit_log")).toEqual([]);
+  });
+
+  it("no body, and no link naming an IFC: the answer names the re-upload", async () => {
+    seedVersion(SHA);
+    expect((await judge("lead")).body.message).toBe(`version ${VID}'s geometry link names no IFC on the platform — POST the IFC as the request body (its sha256 must be the version's); nothing was judged`);
+    expect(writes("audit_log")).toEqual([]);
+  });
+
+  it("the version's own bytes are judged: the verdict is stamped on the version under the lead's verified identity; nothing is registered or linked", async () => {
+    seedVersion(SHA);
+    const r = await judge("lead", IFC);
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ from: "upload", stage: "judged", version: { id: VID, revision: "P01" }, gate: { result: "not_checked" } });
+    const stamp = db.audit_log.find((a) => a.entity_id === VID && String(a.action).startsWith("verdict:"));
+    expect(stamp).toMatchObject({ entity_type: "file_version", action: `verdict:${r.body.verdict}`, actor: "lead@example.test" });
+    expect(r.body.verdict_audit_id).toBe(stamp.id);
+    expect(writes("container_versions")).toEqual([]);
   });
 });
 

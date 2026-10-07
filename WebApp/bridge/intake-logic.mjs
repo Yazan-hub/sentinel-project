@@ -3,7 +3,20 @@
 // Pure sequencing; every side effect is a dep so the order is unit-tested. Honesty rules: a gate-only
 // pass is "recorded", never "accepted"; the three failure lists stay separate; an upload failure after
 // an accepted verdict does not undo the verdict — it is reported as unpublished, its version registered without geometry.
+import { createHash } from "node:crypto";
+
 const err = (status, message) => Object.assign(new Error(message), { status });
+const GATE_WORD = { pass: "PASS", fail: "FAIL", not_checked: "NOT CHECKED" };
+
+// G2 — delivery gate: the project's contract@n, else its office's (deps.loadContract = resolveContract). None
+// judges nothing: the gate is NOT CHECKED, never a pass (spec 2026-09-25 4b decisions 2 and 6). `passed` is
+// true | false | null — null is not checked, never read as a pass or a fail.
+async function judgeGate(deps, key, bytes) {
+  const contract = await deps.loadContract(key);
+  const checked = contract.body ? await deps.checkDelivery(bytes, contract.body) : await deps.gateNotChecked(bytes, contract.label);
+  return { ...checked, contract_ref: contract.ref, contract_source: contract.source, contract_sha256: contract.sha256, contract_label: contract.label };
+}
+const gateRowOf = (gate, file, source) => ({ file, result: gate.result, passed: gate.passed, contract: gate.contract_key, contract_ref: gate.contract_ref, contract_source: gate.contract_source, contract_sha256: gate.contract_sha256, schema: gate.detected_schema, entities: gate.total_entities, failures: gate.failures.length, sha256: gate.sha256, source });
 
 export function validateIntakeInput(input = {}) {
   const key = String(input.key || "").trim();
@@ -27,18 +40,14 @@ export async function runIntake(deps, rawInput) {
   const input = validateIntakeInput(rawInput);
   const { key, name, bytes, source, actor, revision, note, agent } = input;
 
-  // G2 — delivery gate: the project's contract@n, else its office's (deps.loadContract = resolveContract). None
-  // judges nothing: the gate is NOT CHECKED, never a pass, and the flow goes on to the IDS (spec 2026-09-25 4b
-  // decisions 2 and 6). `passed` is true | false | null — null is not checked, never read as a pass or a fail.
-  const contract = await deps.loadContract(key);
-  const checked = contract.body ? await deps.checkDelivery(bytes, contract.body) : await deps.gateNotChecked(bytes, contract.label);
-  const gate = { ...checked, contract_ref: contract.ref, contract_source: contract.source, contract_sha256: contract.sha256, contract_label: contract.label };
+  // G2 — the delivery gate (judgeGate); a NOT CHECKED gate goes on to the IDS.
+  const gate = await judgeGate(deps, key, bytes);
   const notChecked = gate.result === "not_checked";
-  const gateRow = { file: name, result: gate.result, passed: gate.passed, contract: gate.contract_key, contract_ref: gate.contract_ref, contract_source: gate.contract_source, contract_sha256: gate.contract_sha256, schema: gate.detected_schema, entities: gate.total_entities, failures: gate.failures.length, sha256: gate.sha256, source };
+  const gateRow = gateRowOf(gate, name, source);
   // deps.audit is 4-arg here: (key, message, actor, value) — entity_type/entity_id are the wiring
   // adapter's job (see task-5-brief.md), not this module's; the real cde.audit takes 7 args. It returns the row the
   // ledger stored (null when none came back): its id links the proposal row and the hold to this gate row (phase 6a).
-  const gateRec = await deps.audit(key, `IFC delivery gate ${{ pass: "PASS", fail: "FAIL", not_checked: "NOT CHECKED" }[gate.result]}: ${name}`, actor, gateRow);
+  const gateRec = await deps.audit(key, `IFC delivery gate ${GATE_WORD[gate.result]}: ${name}`, actor, gateRow);
   const gateRowId = gateRec?.id ?? null;
   const base = { gate, sha256: gate.sha256, size: gate.size, naming: null, summary: null, failures: [], ids_source: null, ids_ref: null, ids_enforce: null, warned: false, audit_id: null, receipt: null, published: false, hold: null };
   if (gate.result === "fail") {
@@ -126,5 +135,39 @@ export async function runIntake(deps, rawInput) {
   return {
     ...judged, verdict, stage: "published", published: true, note: noteLine, bcf,
     version: { ...version, format: upload.format, ...(geometry ? { geometry } : {}) },
+  };
+}
+
+/** Judge-again (SEC-8): the judging half of runIntake on a version's own bytes, asked by a lead — the delivery gate, the
+ *  referee (IDS and naming) and the verdict stamped on the version (deps.recordVersionVerdict, the lead its actor); no
+ *  registration, no upload, no link. The bytes: the caller's body (the lead's re-upload of the IFC), else the IFC the
+ *  version's geometry link names on the platform (a link made since SEC-5), at the version tag the link recorded (SEC-7).
+ *  Either way their sha256 must be the one the version was registered with — anything else is a 409 in words and nothing
+ *  is judged; a version registered without a sha256 binds no bytes and cannot be judged again. */
+export async function runJudgeAgain(deps, { key, versionId, bytes, actor }) {
+  const v = await deps.loadVersion(key, versionId);
+  if (!v.sha256) throw err(409, `version ${v.id} was registered without a sha256, so no bytes are bound to it and it cannot be judged again — a lead's reason moves it, as before; nothing was judged`);
+  let from = "upload";
+  if (!bytes?.length) {
+    if (!v.link?.ifc_item_id) throw err(409, `version ${v.id}'s geometry link names no IFC on the platform — POST the IFC as the request body (its sha256 must be the version's); nothing was judged`);
+    bytes = await deps.download(v.link.ifc_item_id, v.link.version_tag || null);
+    from = "platform";
+  }
+  if (createHash("sha256").update(bytes).digest("hex") !== v.sha256)
+    throw err(409, `the ${from === "platform" ? "IFC the platform served" : "uploaded file"}'s sha256 is not the one version ${v.id} was registered with — nothing was judged`);
+  const gate = await judgeGate(deps, key, bytes);
+  const gateRec = await deps.audit(key, `IFC delivery gate ${GATE_WORD[gate.result]}: ${v.iso_name} (judged again)`, actor, { ...gateRowOf(gate, v.iso_name, "judge-again"), version_id: v.id });
+  const base = { from, gate, gate_audit_id: gateRec?.id ?? null, version: { id: v.id, revision: v.revision, state: v.state } };
+  if (gate.result === "fail") {
+    // The bytes fail the contract in force: the stamp says so with the gate's failures (no IDS ran).
+    const stamp = await deps.recordVersionVerdict(key, v.id, { verdict: "rejected", summary: null, failures: gate.failures }, actor);
+    return { ...base, verdict: "rejected", stage: "gate", verdict_audit_id: stamp?.id ?? null };
+  }
+  const extracted = await deps.extractElements(bytes);
+  const result = await deps.adjudicate(key, { source: "judge-again", actor, elements: extracted.elements, container_name: v.iso_name, note: `${v.iso_name} ${v.revision} judged again` });
+  const stamp = await deps.recordVersionVerdict(key, v.id, result, actor);
+  return {
+    ...base, verdict: result.verdict, stage: "judged", downgraded: result.downgraded ?? null, summary: result.summary ?? null, failures: result.failures || [],
+    naming: result.naming ?? null, ids_ref: result.ids_ref ?? null, extracted: extracted.counts, audit_id: result.audit_id ?? null, verdict_audit_id: stamp?.id ?? null,
   };
 }

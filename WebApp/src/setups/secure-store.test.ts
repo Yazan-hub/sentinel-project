@@ -7,6 +7,7 @@ vi.mock("./bridge-fetch", () => ({ bfetch }));
 vi.mock("./crypto", () => ({
   encryptBytes: vi.fn(async () => new Uint8Array([1, 2, 3])),
   decryptBytes: vi.fn(async (_key: string, cipher: ArrayBuffer) => cipher),
+  assertCurrentKey: vi.fn(async () => {}), // SEC-8: the key-rotation check after an upload (key-rotation.test.ts)
 }));
 
 import { putEncryptedFile, getDecryptedFile } from "./secure-store";

@@ -13,17 +13,17 @@
 //   POST   /bcf/3.0/projects/:pid/topics/:guid/viewpoints     add viewpoint { perspective_camera, components, ... }
 
 import { createServer } from "node:http";
-import { readFileSync, writeFileSync, renameSync, mkdirSync, readdirSync, statSync, existsSync, createReadStream } from "node:fs";
+import { readFileSync, writeFileSync, renameSync, mkdirSync, readdirSync, statSync, existsSync, createReadStream, rmSync } from "node:fs";
 import { join, dirname, basename, extname, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { pipeline } from "node:stream";
-import { randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { runWithAuth, resolveActor, currentSub, currentExp, currentUserToken } from "./bridge-auth.mjs";
 import { loadEnv } from "./load-env.mjs";
 import { verifyJwt, initJwks } from "./verify-jwt.mjs";
 import { corsOrigin } from "./cors-origin.mjs";
 import { isPublicRoute, parsePublicVerify, comparePublic, createLimiter, createKeyedLimiter, clientAddress, callerKey, readCapped } from "./public-verify.mjs";
-import { readBody, readRaw, holdUpload, SMALL_JSON, startRefusal, SERVER_LIMITS } from "./request-limits.mjs";
+import { readBody, readRaw, holdUpload, SMALL_JSON, startRefusal, SERVER_LIMITS, uploadCap } from "./request-limits.mjs";
 
 // config/.env is NOT loaded into process.env by Node — merge it here (before any process.env
 // read below) so the documented activation procedure (set BCF_TOKEN in config/.env) actually
@@ -1198,6 +1198,33 @@ async function handleRequest(req, res) {
       return send(res, e?.status || 500, { message: String(e?.message || e) });
     }
   }
+  // SEC-8 (S38): PUT /cde/files/:id?project=<key>&sha256=<hex> — a key rotation re-seals an encrypted file in place. A file's
+  // reference (its version's file_ref) is frozen with the version (0041), so the blob keeps its id and only its bytes change.
+  // A lead's (the rotation is), on a blob already in the project's folder, asked before the body is read; the body must hash to
+  // the sha256 named, or nothing is replaced. The new bytes are written whole (flushed) beside the old blob, then renamed over
+  // it: a failed step leaves the old blob as it was.
+  if (fm && req.method === "PUT") {
+    try {
+      const key = url.searchParams.get("project");
+      if (!key) return send(res, 400, { message: "name the project: PUT /cde/files/<id>?project=<project key>&sha256=<hex>" });
+      const cde = await import("./cde-store.mjs");
+      if (!cde.cdeConfigured()) return send(res, 503, { message: "CDE not configured — encrypted files are stored per project, so the bridge needs SUPABASE_URL + SUPABASE_SERVICE_KEY." });
+      await (await import("./members-store.mjs")).requireMinRole(key, "lead");
+      const file = join(CDE_FILES_ROOT, (await cde.ensureProject(key)).id, `${basename(fm[1])}.bin`);
+      if (!existsSync(file)) return send(res, 404, { message: "Blob not found in this project's folder — nothing was replaced" });
+      holdUpload(req, res, currentSub()); // held until this answer is done
+      const bytes = await readRaw(req, { max: MAX_BLOB });
+      if (!bytes.length || createHash("sha256").update(bytes).digest("hex") !== String(url.searchParams.get("sha256") || "").toLowerCase())
+        return send(res, 400, { message: "the re-sealed file did not arrive whole (its sha256 is not the one named) — the stored file is unchanged" });
+      const next = `${file}.${randomUUID()}.next`;
+      try { writeFileSync(next, bytes, { flush: true }); renameSync(next, file); }
+      finally { rmSync(next, { force: true }); }
+      return send(res, 200, { id: fm[1], size: bytes.length });
+    } catch (e) {
+      if (!(e?.status === 401 || e?.status === 403)) console.error(`[cde] ${req.method} ${url.pathname} → ${e?.status || 500}:`, e?.message || e);
+      return send(res, e?.status || 500, { message: String(e?.message || e) });
+    }
+  }
 
   // ── CDE (ISO 19650) — Supabase-backed information containers, states, audit, transmittals (C3) ──
   //   GET/POST /cde/:key/containers · GET /cde/:key/audit · GET/POST /cde/:key/transmittals · POST /cde/:key/gate
@@ -1402,6 +1429,31 @@ async function handleRequest(req, res) {
         }
         return send(res, 200, { ...r, bcf });
       }
+      // SEC-8 judge-again: POST /cde/:key/versions/:vid/judge — a lead asks the bridge to judge a version's own bytes again (the
+      //   contract or the IDS changed since it was judged, or it was judged before SEC-4 bound a verdict to a sha256). No body:
+      //   the IFC the version's geometry link names on the platform, at the tag the link recorded; a body: the IFC, re-uploaded
+      //   by the lead. Its sha256 must be the version's (a 409 in words otherwise); a version registered without one cannot be
+      //   judged again (409). → runJudgeAgain's answer: the verdict, the gate, the verdict row's id. The lead role and a trusted
+      //   caller (as the manifests backfill) are asked before a byte of the body is read.
+      if (p2 === "versions" && p3 && p4 === "judge" && !seg[5] && req.method === "POST") {
+        const { requireMinRole, requireSpend } = await import("./members-store.mjs");
+        await requireMinRole(p1, "lead");
+        await requireSpend(p1);
+        holdUpload(req, res, currentSub()); // held until this answer is done
+        const bytes = await readRaw(req, { max: uploadCap() }); // the model cap (BCF_MAX_UPLOAD_MB), named in the template
+        const { runJudgeAgain } = await import("./intake-logic.mjs");
+        const { checkDelivery, gateNotChecked } = await import("./delivery-gate.mjs");
+        const { extractElements } = await import("./ifc-extract.mjs");
+        const { downloadIfc } = await import("./platform-publish.mjs");
+        const art = await import("./artefact-store.mjs");
+        return send(res, 200, await runJudgeAgain({
+          loadVersion: (key, vid) => cde.judgeTarget(key, vid), download: downloadIfc,
+          loadContract: (key) => art.resolveContract(key), checkDelivery, gateNotChecked, extractElements,
+          adjudicate: (key, body) => cde.adjudicateProposal(key, body),
+          recordVersionVerdict: (key, vid, result, actor) => cde.recordVersionVerdict(key, vid, result, actor),
+          audit: async (key, action, actor, value) => { const proj = await cde.ensureProject(key); return cde.audit(proj.id, "delivery_gate", null, action, actor, null, value); },
+        }, { key: p1, versionId: p3, bytes, actor: resolveActor(url.searchParams.get("actor"), "web") }));
+      }
       // The propose API (referee): POST /cde/:key/propose { source, actor?, ids?, elements[], note?, container_name?,
       //   version_id? | register?: {name, size_bytes, sha256}, gate_row_id?, raise_bcf? }
       //   → { verdict: accepted|rejected|recorded, downgraded, summary, failures[], audit_id, version, verdict_audit_id, hold, bcf? }.
@@ -1592,6 +1644,12 @@ async function handleRequest(req, res) {
       //   replacing it is a lead's — a replace leaves every file encrypted under the old key unreadable — asked before
       //   the body is read, then written with the service key (the bridge made the check; the store can be closed to
       //   direct writes, migration 0033). A body that is not a keystore is a 400: a PUT of {} was enough to lose them all.
+      // SEC-8 (S38): GET /cde/:key/keystore/refs → {ids}: the blob id of every encrypted file a version of the project references,
+      //   Deleted items included (a restored file must still open) — what a key rotation re-seals. A lead's, as the rotation is.
+      if (p2 === "keystore" && p3 === "refs" && !p4 && req.method === "GET") {
+        await (await import("./members-store.mjs")).requireMinRole(p1, "lead");
+        return send(res, 200, { ids: await cde.listBlobRefs(p1) });
+      }
       if (p2 === "keystore" && !p3) {
         if (req.method === "GET") { await cde.ensureProject(p1); return send(res, 200, (await cde.docGet("keystore", p1, "keystore")) ?? null); }
         if (req.method !== "POST" && req.method !== "PUT") return send(res, 405, { message: "Method not allowed" });
@@ -1603,7 +1661,18 @@ async function handleRequest(req, res) {
           try { await cde.docInsert("keystore", p1, "keystore", ks, { service: true }); return send(res, 201, { ok: true }); }
           catch (e) { const m = String(e?.message || e); return send(res, /409|duplicate|conflict/i.test(m) ? 409 : 500, { message: m }); }
         }
-        await cde.docUpsert("keystore", p1, "keystore", ks, { service: true });
+        // SEC-8 (S38): a replace names the wrapped key it replaces (`replaces`: the keystore the caller read) and never takes the
+        // key id back — a stale tab or a second lead's rotation would otherwise leave the files sealed under the lost key
+        // unreadable. Both are 409s in words; nothing is saved.
+        const { replaces, ...next } = ks;
+        const kidOf = (k) => k?.kid ?? 1; // a number as stored: "5" would read back as a string the web adds 1 to
+        if (!Number.isSafeInteger(kidOf(next)) || kidOf(next) < 1) return send(res, 400, { message: "a keystore's kid is a whole number from 1 — nothing was saved" });
+        const cur = await cde.docGet("keystore", p1, "keystore");
+        if (cur && replaces !== cur.wrapped_dek)
+          return send(res, 409, { message: "the project keystore changed since it was read (another lead may have rotated the key or changed the passphrase) — read it again; nothing was saved" });
+        if (cur && kidOf(next) < kidOf(cur))
+          return send(res, 409, { message: `the keystore's key id would go back from ${kidOf(cur)} to ${kidOf(next)} — a file sealed under key ${kidOf(cur)} would be unreadable; nothing was saved` });
+        await cde.docUpsert("keystore", p1, "keystore", next, { service: true });
         return send(res, 200, { ok: true });
       }
       // Folders (per-project tree): GET/POST /cde/:key/folders · PUT/DELETE /cde/folders/:fid · PUT /cde/containers/:cid/folder

@@ -1,7 +1,7 @@
 // SEC-5: Open 3D checks the bytes it downloads against the bridge's "geometry linked" row before it loads them.
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { firstTag, geometryCheck, linkedHash, sha256Hex } from "./geometry-check";
+import { firstTag, geometryCheck, linkedHash, linkedTag, sha256Hex } from "./geometry-check";
 
 const F = "f".repeat(64), I = "a".repeat(64), OTHER = "0".repeat(64);
 const row = (nv: Record<string, string>) => ({ new_value: { platform_item_id: "item-1", ...nv } });
@@ -46,20 +46,30 @@ describe("geometryCheck — never other bytes as the version's geometry", () => 
     expect(firstTag([{ tag: "v3" }, { tag: "v2" }, { tag: "v1" }])).toBe("v1");
     expect(firstTag([{ tag: "b", createdAt: "2026-10-02" }, { tag: "a", createdAt: "2026-10-01" }, { tag: "c", createdAt: "2026-10-03" }])).toBe("a");
   });
-  it("the Files window reads the link row first, lists the versions only for an unchecked link, then checks the bytes before it loads them", () => {
+  it("SEC-7: linkedTag is the platform version tag the link recorded, else null", () => {
+    expect(linkedTag(row({ frag_sha256: F, version_tag: "P01" }))).toBe("P01");
+    expect(linkedTag(row({ frag_sha256: F }))).toBeNull();
+    expect(linkedTag({ new_value: null })).toBeNull();
+    expect(linkedTag(null)).toBeNull();
+  });
+  it("the Files window reads the link row first, lists the versions only for an unchecked link, downloads the linked tag (else the first, else the newest), then checks the bytes before it loads them", () => {
     const src = readFileSync(new URL("./files-panel.ts", import.meta.url), "utf8").replace(/\r/g, "");
     const read = src.indexOf("/audit?entity_type=file_version&entity_id=${v.id}&action_prefix=geometry%20linked&limit=1");
     const list = src.indexOf("if (linkedHash(link) === null && client.listVersions) first = firstTag(await client.listVersions(v.platform_item_id).catch(() => null));");
-    const dl = src.indexOf("await client.downloadFile(v.platform_item_id, first ? { versionTag: first } : undefined)");
+    const tag = src.indexOf("const tag = linkedTag(link) ?? first;");
+    const dl = src.indexOf("await client.downloadFile(v.platform_item_id, tag ? { versionTag: tag } : undefined)");
     const check = src.indexOf("const check = geometryCheck(await sha256Hex(buf), v.platform_item_id, link, first);");
     const refuse = src.indexOf("if (!check.load) { status(`${f.iso_name} ${v.revision}: ${check.line}.`); return; }");
     const load = src.indexOf("await core.load(buf, { modelId });");
     expect(read).toBeGreaterThan(0);
     expect(read).toBeLessThan(list);
-    expect(list).toBeLessThan(dl);
+    expect(list).toBeLessThan(tag);
+    expect(tag).toBeLessThan(dl);
     expect(dl).toBeLessThan(check);
     expect(check).toBeLessThan(refuse);
     expect(refuse).toBeLessThan(load);
     expect(src).toContain("the ledger's geometry link could not be read");
+    // SEC-7 (founder decision B-a): a recorded tag the platform does not serve is said — never the item's newest version instead.
+    expect(src).toContain('the platform did not serve version tag "${tag}" of this item (HTTP ${resp.status})');
   });
 });
