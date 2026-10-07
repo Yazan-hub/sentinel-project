@@ -42,5 +42,17 @@ static partial class Check
            "MA-3c: the window's line says how many outlines, in which colours, and when they go");
         string geo = Src("GhostBuilder", "GhostOverlayGeometry.cs");
         Ok(!geo.Contains("Autodesk.Revit") && !geo.Contains("Transaction"), "MA-3c: the geometry is pure - no Revit type, no Transaction");
+        int Count(string s, string what) { int n = 0, i = 0; while ((i = s.IndexOf(what, i, StringComparison.Ordinal)) >= 0) { n++; i += what.Length; } return n; }
+        string srv = Src("GhostBuilder", "GhostOverlayServer.cs"), rev = Src("Commands.ReviewChangesets.cs"), win = Src("UI", "ChangesetReviewWindow.cs");
+        Ok(srv.Contains("public bool CanExecute(View view) => view is View3D && view.Document != null && view.Document.Equals(_doc) && _segments.Count > 0;")
+           && srv.Contains("PrimitiveType.LineList") && srv.Contains("if (DrawContext.IsTransparentPass()") && !srv.Contains("Transaction"),
+           "MA-3c: the server draws lines in this document's 3D views only, skips the transparent pass, and writes nothing (no Transaction)");
+        Ok(rev.Contains("App.Events.Enqueue(doc, \"draw the ghost overlay\"") && rev.Contains("App.Events.Enqueue(doc, \"recolour the ghost overlay\"")
+           && rev.Contains("\"remove the ghost overlay\"") && rev.Contains("window.Closed += (_, _) => OverlayOff(\"the window closed\");")
+           && rev.Contains("if (window.Applied) { OverlayOff(\"Apply\"); return; }"),
+           "MA-3c: the overlay is drawn and recoloured on the model in front through the hub, and removed when the window closes or Apply is pressed");
+        Ok(win.Contains("public event Action<List<(ChangesetElementDto El, bool Ticked, bool Locked)>> TicksChanged;") && win.Contains("public bool Applied => _applied;"),
+           "MA-3c: the window says every row's state after a tick, a Lock or Apply");
+        Ok(Count(rev, "GhostOverlayServer.Register(") == 1 && Count(rev, "GhostOverlayServer.Remove(") == 1, "MA-3c: the overlay is registered once and removed in one place");
     }
 }

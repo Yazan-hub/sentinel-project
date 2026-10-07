@@ -360,6 +360,34 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
         DialogOwner.Attach(window, ui); // house helper: owned by Revit's main window
         Hold();
         window.Closed += (_, _) => Release();
+        // MA-3c: the ghost overlay — the review's proposed creates drawn in this model's 3D views while the window is open; a tick
+        // recolours; closing the window or Apply removes it. Registered, updated and removed on Revit's thread through the hub (DocPin for
+        // the registration and the recolour: the model in front; the removal plain — the model may be gone). Nothing is written; every
+        // outcome is said on the window's Show line. A late recolour after the removal draws nothing: a removed server is not asked.
+        var creates = (cs.Elements ?? new List<ChangesetElementDto>()).Count(GhostOverlayGeometry.IsCreate);
+        var overlay = new GhostOverlayServer(doc, cs.Name, GhostOverlayGeometry.All(window.RowStates()));
+        var overlayOn = new[] { false };
+        void OverlayOff(string why)
+        {
+            if (!overlayOn[0]) return;
+            overlayOn[0] = false;
+            App.Events.Enqueue(ua => { try { GhostOverlayServer.Remove(ua, overlay); } catch (Exception ex) { App.PanelVm?.LogDoctor($"Review AI Proposals: the ghost overlay was not removed ({why}) — {ex.GetType().Name}: {ex.Message}"); } }, "remove the ghost overlay");
+        }
+        if (creates > 0)
+            App.Events.Enqueue(doc, "draw the ghost overlay", (ua, _) =>
+            {
+                try { GhostOverlayServer.Register(ua, overlay); overlayOn[0] = true; window.Shown(GhostOverlayGeometry.Line(creates, overlay.Count)); }
+                catch (Exception ex) { window.Shown($"The ghost overlay could not be drawn — {ex.GetType().Name}: {ex.Message}. The review works as before; Show still zooms to a row."); }
+            }, refusal => window.Shown($"The ghost overlay was not drawn — {refusal}"));
+        else window.Shown(GhostOverlayGeometry.Line(0, 0));
+        window.TicksChanged += states =>
+        {
+            if (!overlayOn[0]) return;
+            if (window.Applied) { OverlayOff("Apply"); return; }
+            var segs = GhostOverlayGeometry.All(states);
+            App.Events.Enqueue(doc, "recolour the ghost overlay", (ua, _) => { overlay.Update(segs); ua.ActiveUIDocument?.RefreshActiveView(); }, _ => { /* the model is not in front: its next frame repaints */ });
+        };
+        window.Closed += (_, _) => OverlayOff("the window closed");
         var here = DocOf(doc);
         var left = new List<UnreportedResults.Record>(); // what Retry report sends again
         // Review C13: a decline that did not land lives only in this window (E4) — closing it loses it, said.

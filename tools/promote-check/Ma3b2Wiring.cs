@@ -24,7 +24,7 @@ static partial class Check
            // Review C2: the reasons are taken at the press — the boxes are read-only from then on, and editable again only when nothing was applied.
            && window.Contains("private void Reasons(bool taken) { foreach (var g in _groups) g.Reason.IsReadOnly = taken; }")
            && window.Contains("public void Refused(string words) => Ui(() => { Say(words); _go.IsEnabled = !_applied; if (!_applied) Reasons(false); });")
-           && window.Contains("public void Applying(string words) => Ui(() => { _applied = true; _go.IsEnabled = false; Reasons(true); Say(words); });")
+           && window.Contains("public void Applying(string words) => Ui(() => { _applied = true; Ticks(); _go.IsEnabled = false; Reasons(true); Say(words); });")
            && window.Contains("public void Reopen(string words) => Ui(() => { _applied = false; _go.IsEnabled = true; Reasons(false); Say(words); });")
            && window.Contains("foreach (var r in g.Rows.Where(x => x.Box.IsChecked != true && x.Box.IsEnabled && x.El.ProposalGuid != null)) reasons[r.El.ProposalGuid] = reason;")
            && window.Contains("DecideRequested?.Invoke(ticked, unticked, _note.Text?.Trim() ?? \"\", reasons);"),
