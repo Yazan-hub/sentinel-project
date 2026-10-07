@@ -14,7 +14,7 @@ import { fetchRevisions, fetchRevisionSnapshots, quantitiesFromSnapshots } from 
 import { readDeleted, restoreDeleted, deletedItemLine, restoredLine, archivable, type DeletedItem } from "./deleted-items";
 import { escapeHtml as esc } from "./escape-html";
 import { unarchiveFile } from "./cde-transition";
-import { firstTag, geometryCheck, linkedHash, sha256Hex, type GeometryLinkRow } from "./geometry-check";
+import { firstTag, geometryCheck, linkedHash, linkedTag, sha256Hex, type GeometryLinkRow } from "./geometry-check";
 
 /**
  * Sentinel Versions panel — file/blob-centric version history for uploaded model files.
@@ -662,9 +662,12 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     // A link that recorded no hash (made before SEC-5): the item's first platform version, when it has more than one.
     let first: string | null = null;
     if (linkedHash(link) === null && client.listVersions) first = firstTag(await client.listVersions(v.platform_item_id).catch(() => null));
+    // SEC-7: a link made since SEC-7 records the platform version tag the bridge uploaded under — that tag is downloaded
+    // (founder decision B-a: a tag the platform does not serve is said, never the item's newest version instead).
+    const tag = linkedTag(link) ?? first;
     try {
-      const resp = await client.downloadFile(v.platform_item_id, first ? { versionTag: first } : undefined);
-      if (!resp.ok) throw new Error(`platform download HTTP ${resp.status}`);
+      const resp = await client.downloadFile(v.platform_item_id, tag ? { versionTag: tag } : undefined);
+      if (!resp.ok) throw new Error(tag ? `the platform did not serve version tag "${tag}" of this item (HTTP ${resp.status})` : `platform download HTTP ${resp.status}`);
       const buf = await resp.arrayBuffer();
       const check = geometryCheck(await sha256Hex(buf), v.platform_item_id, link, first);
       if (!check.load) { status(`${f.iso_name} ${v.revision}: ${check.line}.`); return; }
