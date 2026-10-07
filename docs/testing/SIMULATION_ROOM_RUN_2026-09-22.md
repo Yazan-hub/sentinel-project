@@ -2438,3 +2438,25 @@ Setup: built inline (size S, web only); the local app in a fresh Chrome tab on `
 | B-2 | the click itself saves a file into the browser's Downloads: **the founder's** (a download is theirs to start); the helper's file name and words are pinned offline (`evidence-pack.test.ts`): the bridge's name from `Content-Disposition`, the counts of every part, any part not read named, "(cut at the cap)" when the ledger was | the test |
 
 **Closing list:** nothing written; the web 1.0.60 published; no bridge change — no Funnel refresh owed.
+
+## Session MA3cR — the ghost overlay on Revit 2025, 2026 and 2027, live (2026-10-08 ~00:05 → 00:30 local, master 23ab04e, the add-in deployed 2021–2027 on 2026-10-07, Claude driving each Revit alone)
+
+Setup: one scratch copy of `ma3c-a.rvt` per version (`ma3c-a-2025.rvt`, `-2026.rvt`, `-2027.rvt`), each opened by its version's
+path, upgraded in memory (12 family warnings, 0 errors, accepted) and closed without saving; changeset A on `ma2a-ghost` (two walls)
+reviewed in each: Review AI Proposals ▸ double-click A ▸ Show ▸ tick the first row (UIA) ▸ the floor plan `WIP_BUA_GR_FFL` ▸ Show ▸
+close the window. The Sentinel tab is reached by one wheel tick per tab (17 tabs past Architecture on 2025, 15 on 2026, 14 on 2027).
+
+| Version | Add-in + pane | Window words | 3D: asked / drawn | Tick → green, see-through | Plan: asked / drawn | Removal |
+|---|---|---|---|---|---|---|
+| 2025.4 | loaded, journey shown | "2 of 2 … 3D views, plans and sections" | ThreeD "{3D}", 8 lines, 8 faces | ✅ pale green sheet over the model | FloorPlan "WIP_BUA_GR_FFL", 8 / 8 | no `was not removed` line |
+| 2026.4 | loaded | same | same | ✅ | same | clean |
+| 2027.0 | loaded (beside the Autodesk Assistant panel) | same | same | ✅ blended with the dark canvas (a dark green, not the solid colour) | same | clean |
+
+**Pass on all three.** With MA3cN (2024) the overlay — lines, see-through faces, recolour, plan views, removal — is proven on
+2024–2027. Revit 2021–2023 are deployed and compile; not run.
+
+**Note:** 2026 and 2027 show an "Accelerated Graphics" toggle in the 3D view (off by default, left off); the overlay was checked
+with it off only.
+
+**Closing list:** each Revit closed without saving; the three scratch copies stay in `Documents\Sentinel drills\ma3c\`; changesets A
+and B stay proposed on `ma2a-ghost`.
