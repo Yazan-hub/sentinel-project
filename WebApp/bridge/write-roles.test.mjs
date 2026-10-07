@@ -826,10 +826,66 @@ describe("openCDE slice 1: the BCF-API 3.0 reads", () => {
     const bad = await get(`${T}?$filter=${encodeURIComponent("title gt 'x'")}`);
     expect(bad.status).toBe(400); expect(bad.body.message).toMatch(/only `field eq 'value'`/);
   });
-  it("a write on an open route is a 405 in words; a stranger's read is refused as before", async () => {
-    const r = await fetch(`http://127.0.0.1:${port}/bcf/3.0/projects/demo/topics/G1/comments/C1`, { method: "DELETE", headers: { Authorization: `Bearer ${jwtFor("owner")}` } });
+  it("a method a route does not take is a 405 in words; a stranger's read is refused as before", async () => {
+    const r = await fetch(`http://127.0.0.1:${port}/bcf/3.0/projects/demo/topics/G1/viewpoints/V1/snapshot`, { method: "DELETE", headers: { Authorization: `Bearer ${jwtFor("owner")}` } });
     expect(r.status).toBe(405);
     expect([403, 404]).toContain((await get("/bcf/3.0/projects/demo/extensions", "stranger")).status);
+  });
+
+  // ── slice 2: the writes and the auth front ──
+  const call2 = async (method, path, as, body) => {
+    const r = await fetch(`http://127.0.0.1:${port}${path}`, { method, headers: { ...(as ? { Authorization: `Bearer ${as === "machine" ? TOKEN : jwtFor(as)}` } : {}), "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
+    return { status: r.status, type: r.headers.get("content-type") || "", body: (r.headers.get("content-type") || "").includes("json") ? await r.json() : await r.text() };
+  };
+  it("DELETE topic is the governed close: a contributor closes a plain topic (history kept), a governed one needs a lead; a viewer is refused", async () => {
+    seedTopic(topic("G1")); seedTopic({ ...topic("G5"), title: "IDS: FireRating (3 failing)" });
+    expect((await call2("DELETE", `${T}/G1`, "viewer")).status).toBe(403);
+    const r = await call2("DELETE", `${T}/G1`, "contributor");
+    expect(r.status).toBe(200); expect(r.body).toMatchObject({ topic_status: "Closed" }); expect(r.body.message).toMatch(/not erased/);
+    expect(db.bcf_topics.find((t) => t.guid === "G1").data.history.at(-1).action).toMatch(/→ Closed \(BCF delete\)/);
+    expect((await call2("DELETE", `${T}/G5`, "contributor")).status).toBe(403);
+    expect((await call2("DELETE", `${T}/G5`, "lead")).status).toBe(200);
+  });
+  it("a comment is edited or removed by its author or a lead; a viewpoint removed by a contributor; related topics and document references round-trip", async () => {
+    const t = topic("G1"); t.comments[0].author = "contributor@example.test"; seedTopic(t);
+    expect((await call2("PUT", `${T}/G1/comments/C1`, "viewer", { comment: "x" })).status).toBe(403);
+    expect((await call2("PUT", `${T}/G1/comments/C1`, "contributor", { comment: "edited" })).body.comment).toBe("edited");
+    expect((await call2("PUT", `${T}/G1/comments/C1`, "lead", { comment: "by a lead" })).status).toBe(200);
+    expect((await call2("DELETE", `${T}/G1/comments/C1`, "contributor")).body.message).toMatch(/comment removed/);
+    expect((await call2("GET", `${T}/G1/comments`, "viewer")).body).toEqual([]);
+    expect((await call2("DELETE", `${T}/G1/viewpoints/V1`, "contributor")).status).toBe(200);
+    expect((await call2("GET", `${T}/G1/viewpoints`, "viewer")).body).toEqual([]);
+    expect((await call2("PUT", `${T}/G1/related_topics`, "contributor", [{ related_topic_guid: "G9" }, { related_topic_guid: "G1" }])).body).toEqual([{ related_topic_guid: "G9" }]);
+    expect((await call2("GET", `${T}/G1/related_topics`, "viewer")).body).toEqual([{ related_topic_guid: "G9" }]);
+    expect((await call2("POST", `${T}/G1/document_references`, "contributor", { url: "https://docs.example.test/a.pdf", document_guid: "x" })).status).toBe(400);
+    const ref = await call2("POST", `${T}/G1/document_references`, "contributor", { url: "https://docs.example.test/a.pdf", description: "the spec" });
+    expect(ref.status).toBe(201); expect(ref.body).toMatchObject({ url: "https://docs.example.test/a.pdf", description: "the spec" });
+    expect((await call2("GET", `${T}/G1/document_references`, "viewer")).body).toHaveLength(1);
+    expect((await call2("GET", `${T}/G1/events`, "viewer")).body.length).toBeGreaterThan(3);
+    expect((await call2("GET", `${T}/events`, "viewer")).body[0]).toMatchObject({ topic_guid: "G1" });
+  });
+  it("documents are the containers; a document's bytes are refused in words (end-to-end encrypted)", async () => {
+    db.information_containers = [{ id: "c1", project_id: PID, iso_name: "PRJ-A.ifc", deleted_at: null, container_versions: [{ id: "v1", created_at: "2026-01-01", is_live: true, file_ref: null }] }];
+    expect((await call2("GET", "/bcf/3.0/projects/demo/documents", "viewer")).body).toEqual([{ guid: "c1", filename: "PRJ-A.ifc" }]);
+    const d = await call2("GET", "/bcf/3.0/projects/demo/documents/c1", "viewer");
+    expect(d.status).toBe(409); expect(d.body.message).toMatch(/end-to-end encrypted/);
+  });
+  it("the auth front: the document and the consent page need no bearer; a signed-in page mints a code; the token endpoint swaps it once for that session's JWT", async () => {
+    const doc = await call2("GET", "/bcf/3.0/auth", null);
+    expect(doc.status).toBe(200); expect(doc.body.oauth2_auth_url).toBe(`http://127.0.0.1:${port}/oauth/authorize`); expect(doc.body.supported_oauth2_flows).toEqual(["authorization_code_grant"]);
+    const page = await fetch(`http://127.0.0.1:${port}/oauth/authorize?response_type=code&client_id=zoom&redirect_uri=${encodeURIComponent("http://localhost:9999/cb")}&state=s1`);
+    expect(page.status).toBe(200); expect(page.headers.get("content-type")).toMatch(/text\/html/); expect(await page.text()).toContain("Sign in to Sentinel");
+    expect((await fetch(`http://127.0.0.1:${port}/oauth/authorize?response_type=code&client_id=zoom&redirect_uri=${encodeURIComponent("http://evil.example.test/cb")}`)).status).toBe(400);
+    expect((await call2("POST", "/oauth/code", null, { client_id: "zoom", redirect_uri: "http://localhost:9999/cb" })).status).toBe(401);
+    const minted = await call2("POST", "/oauth/code", "viewer", { client_id: "zoom", redirect_uri: "http://localhost:9999/cb", refresh_token: "r1", expires_in: 3600 });
+    expect(minted.status).toBe(201); expect(minted.body.code).toMatch(/^[A-Za-z0-9_-]{20,}$/);
+    expect((await call2("POST", "/oauth/token", null, { grant_type: "authorization_code", code: minted.body.code, client_id: "other", redirect_uri: "http://localhost:9999/cb" })).body.error).toBe("invalid_grant");
+    const minted2 = await call2("POST", "/oauth/code", "viewer", { client_id: "zoom", redirect_uri: "http://localhost:9999/cb", refresh_token: "r1" });
+    const tok = await call2("POST", "/oauth/token", null, { grant_type: "authorization_code", code: minted2.body.code, client_id: "zoom", redirect_uri: "http://localhost:9999/cb" });
+    expect(tok.status).toBe(200); expect(tok.body).toMatchObject({ access_token: jwtFor("viewer"), token_type: "Bearer", refresh_token: "r1" });
+    expect((await call2("GET", "/bcf/3.0/current-user", "viewer")).body.id).toBe("viewer@example.test");   // the swapped JWT is the bearer the bridge takes
+    expect((await call2("POST", "/oauth/token", null, { grant_type: "authorization_code", code: minted2.body.code, client_id: "zoom", redirect_uri: "http://localhost:9999/cb" })).status).toBe(400); // spent
+    expect((await call2("POST", "/oauth/token", null, { grant_type: "password" })).body.error).toBe("unsupported_grant_type");
   });
 });
 

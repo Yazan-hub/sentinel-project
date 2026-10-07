@@ -1,6 +1,6 @@
 // openCDE slice 1 — the pure parts of the BCF-API 3.0 reads.
 import { describe, it, expect } from "vitest";
-import { parseOpen, page, snapshotBytes, fileEntries, extensionsFor, BCF_VERSIONS, EXTENSIONS } from "./bcf-open.mjs";
+import { parseOpen, page, snapshotBytes, fileEntries, extensionsFor, BCF_VERSIONS, EXTENSIONS, authDocument, publicBase, redirectAllowed, codeStore, authorizePage, topicEvents, methodAllowed, isPublicOpenRoute } from "./bcf-open.mjs";
 
 describe("parseOpen", () => {
   it("knows every open read and leaves the topic block its routes", () => {
@@ -12,6 +12,12 @@ describe("parseOpen", () => {
     expect(parseOpen("/bcf/3.0/projects/p1/files")).toEqual({ kind: "files", pid: "p1" });
     expect(parseOpen("/bcf/3.0/projects/p1/topics/g")).toEqual({ kind: "topic", pid: "p1", guid: "g" });
     expect(parseOpen("/bcf/3.0/projects/p1/topics/g", "PUT")).toBeNull();           // the block's edit
+    expect(parseOpen("/bcf/3.0/projects/p1/topics/g", "DELETE")).toEqual({ kind: "topic", pid: "p1", guid: "g" }); // slice 2: the governed close
+    expect(parseOpen("/bcf/3.0/auth")).toEqual({ kind: "auth" }); expect(parseOpen("/oauth/token")).toEqual({ kind: "token" });
+    expect(parseOpen("/bcf/3.0/projects/p1/documents/d1")).toEqual({ kind: "document", pid: "p1", sub: "d1" });
+    expect(parseOpen("/bcf/3.0/projects/p1/topics/events")).toEqual({ kind: "events", pid: "p1" });
+    expect(parseOpen("/bcf/3.0/projects/p1/topics/g/related_topics")).toEqual({ kind: "topic_related_topics", pid: "p1", guid: "g" });
+    expect(parseOpen("/bcf/3.0/projects/p1/topics/g/document_references")).toEqual({ kind: "topic_document_references", pid: "p1", guid: "g" });
     expect(parseOpen("/bcf/3.0/projects/p1/topics")).toBeNull();                    // the block's list (paged there)
     expect(parseOpen("/bcf/3.0/projects/p1/topics/g/comments")).toEqual({ kind: "comments", pid: "p1", guid: "g" });
     expect(parseOpen("/bcf/3.0/projects/p1/topics/g/comments", "POST")).toBeNull(); // the block's add
@@ -19,6 +25,39 @@ describe("parseOpen", () => {
     expect(parseOpen("/bcf/3.0/projects/p1/topics/g/viewpoints/v1")).toEqual({ kind: "viewpoint", pid: "p1", guid: "g", sub: "v1" });
     for (const k of ["snapshot", "selection", "coloring", "visibility"]) expect(parseOpen(`/bcf/3.0/projects/p1/topics/g/viewpoints/v1/${k}`)).toEqual({ kind: k, pid: "p1", guid: "g", sub: "v1" });
     expect(parseOpen("/bcf/3.0/projects/p1/nothing")).toBeNull();
+  });
+});
+
+describe("slice 2: auth document, redirects, codes, the consent page, events, methods", () => {
+  it("the auth document points at this bridge as the caller reached it (the Funnel's forwarded host)", () => {
+    expect(publicBase({ host: "127.0.0.1:4100" })).toBe("http://127.0.0.1:4100");
+    expect(publicBase({ host: "127.0.0.1:4100", "x-forwarded-proto": "https", "x-forwarded-host": "bridge.example.test" })).toBe("https://bridge.example.test");
+    expect(authDocument("https://bridge.example.test")).toEqual({ oauth2_auth_url: "https://bridge.example.test/oauth/authorize", oauth2_token_url: "https://bridge.example.test/oauth/token", http_basic_supported: false, supported_oauth2_flows: ["authorization_code_grant"] });
+    expect(isPublicOpenRoute("GET", "/bcf/3.0/auth")).toBe(true); expect(isPublicOpenRoute("POST", "/oauth/token")).toBe(true);
+    expect(isPublicOpenRoute("POST", "/oauth/code")).toBe(false); expect(isPublicOpenRoute("GET", "/bcf/3.0/projects")).toBe(false);
+  });
+  it("a redirect is https, or http on the client's own machine", () => {
+    expect(redirectAllowed("https://app.example.test/cb")).toBe(true); expect(redirectAllowed("http://localhost:8080/cb")).toBe(true); expect(redirectAllowed("http://127.0.0.1/cb")).toBe(true);
+    expect(redirectAllowed("http://evil.example.test/cb")).toBe(false); expect(redirectAllowed("javascript:alert(1)")).toBe(false); expect(redirectAllowed("")).toBe(false);
+  });
+  it("a code is single use, 60 s, and bound to its client and redirect", () => {
+    let t = 1000; const cs = codeStore(() => t);
+    const code = cs.mint("c1", "http://localhost/cb", { access_token: "jwt", refresh_token: "r", expires_in: 3600 });
+    expect(cs.take(code, "c2", "http://localhost/cb").error).toBe("invalid_grant");         // another client — and the code is spent
+    expect(cs.take(code, "c1", "http://localhost/cb").error).toBe("invalid_grant");
+    const c2 = cs.mint("c1", "http://localhost/cb", { access_token: "jwt" }); t += 61_000;
+    expect(cs.take(c2, "c1", "http://localhost/cb").error_description).toMatch(/older than 60 seconds/);
+    const c3 = cs.mint("c1", "http://localhost/cb", { access_token: "jwt2" });
+    expect(cs.take(c3, "c1", "http://localhost/cb").session.access_token).toBe("jwt2"); expect(cs.size()).toBe(0);
+  });
+  it("the consent page signs in against Supabase in the browser, escapes the client's name, and posts to /oauth/code", () => {
+    const html = authorizePage({ supabaseUrl: "https://x.supabase.co", anonKey: "anon", client_id: "<b>Zoom</b>", redirect_uri: "http://localhost/cb", state: "s1" });
+    expect(html).toContain("&lt;b&gt;Zoom&lt;/b&gt;"); expect(html).not.toContain("<b>Zoom</b>");
+    expect(html).toContain("/auth/v1/token?grant_type=password"); expect(html).toContain('fetch("/oauth/code"'); expect(html).toContain("never sends it to the bridge");
+  });
+  it("events come from the history; the methods table says what each route takes", () => {
+    expect(topicEvents({ guid: "g", history: [{ date: "d", author: "a", action: "Created" }] })).toEqual([{ topic_guid: "g", date: "d", author: "a", events: [{ type: "history", value: "Created" }] }]);
+    expect(methodAllowed("topic", "DELETE")).toBe(true); expect(methodAllowed("comment", "PUT")).toBe(true); expect(methodAllowed("snapshot", "DELETE")).toBe(false); expect(methodAllowed("nope", "GET")).toBe(false);
   });
 });
 
