@@ -9,7 +9,7 @@ vi.mock("./bridge-fetch", () => ({ bfetch, bwrite }));
 vi.mock("./active-project", () => ({ activePid: () => "demo", onActiveProjectChange: () => () => {} }));
 
 import { storeyOf, groupDesk, ghostLine, reviewWords, declinedBy, canDecide, canReopen, readPending, postReview, postReopen, rowWords, postsFor, type PendingChangeset,
-  readDecided, readLedger, decidedView, decidedCount, DECIDED_MAX, type LedgerRows } from "./review-desk";
+  readDecided, readLedger, highlightPlan, type Ghost, decidedView, decidedCount, DECIDED_MAX, type LedgerRows } from "./review-desk";
 
 const fx = JSON.parse(readFileSync(new URL("../../bridge/fixtures/changeset-ops/ma3a-review.json", import.meta.url), "utf8"));
 const after = fx.after as PendingChangeset;
@@ -220,7 +220,7 @@ describe("the Modeling studio is retired; the desk takes its tab (source scan)",
   it("main.ts mounts the review desk where the Model tab was, and model-panel.ts is gone", () => {
     const main = readFileSync(new URL("../main.ts", import.meta.url), "utf8");
     expect(main).toContain('import { reviewDeskPanel } from "./setups/review-desk";');
-    expect(main).toContain("const reviewEl = reviewDeskPanel({ baseUrl: SERVICE_URL });");
+    expect(main).toContain("const reviewEl = reviewDeskPanel({ baseUrl: SERVICE_URL, components });");
     expect(main).toContain('{ label: "Review", el: reviewEl },');
     expect(main).not.toContain("model-panel");
     expect(main).not.toContain('label: "Model"');
@@ -251,5 +251,36 @@ describe("MA-3b3 — a carried decline on the desk", () => {
     const src = readFileSync(new URL("./review-desk.ts", import.meta.url), "utf8");
     expect(src).toContain("a decline is carried: the next changeset that proposes the same change files the ghost already declined (a web decline, or a Revit decline with a reason); a lead re-opens it here while its changeset is still proposed.");
     expect(src).not.toContain("a new Promote run proposes a declined ghost again, undecided");
+  });
+});
+
+describe("MA-3d — Highlight in 3D: the plan and its words", () => {
+  const g = (guid: string | null, op = "retype"): Ghost => ({ proposal_guid: "p" + guid + op, kind: "wall", op, target: guid ? { ifc_guid: guid } : null });
+  const three = [g("A"), g("B"), g(null, "create")];
+  it("one found, one not: the Revit-may-be-newer words", () => {
+    const r = highlightPlan(three, new Map([["Tower@P03", [7, null]]]));
+    expect(r.map).toEqual({ "Tower@P03": new Set([7]) });
+    expect(r.words).toBe("Highlighted 1 of 2 ghost(s) in Tower@P03 — 1 not in them: the loaded version may be older than Revit's model (Revit may be newer).");
+  });
+  it("two models, the second holding B", () => {
+    const r = highlightPlan(three, new Map<string, (number | null)[]>([["Tower@P03", [7, null]], ["Tower@P04", [null, 9]]]));
+    expect(r.words).toBe("Highlighted 2 of 2 ghost(s) in Tower@P03, Tower@P04.");
+  });
+  it("nothing loaded", () => {
+    expect(highlightPlan(three, new Map()).words).toBe("Load a model first (Files ▸ Open 3D) — nothing is loaded to highlight in.");
+  });
+  it("retypes from an older add-in carry no GUID", () => {
+    expect(highlightPlan([g(null), g(null)], new Map()).words).toBe("Nothing to highlight: these ghosts were filed before the add-in sent IFC GlobalIds — a new Promote run sends them.");
+  });
+  it("creates only", () => {
+    expect(highlightPlan([g(null, "create")], new Map()).words).toBe("Nothing to highlight: this storey proposes only creates (they have no element in the model yet).");
+  });
+  it("no hit", () => {
+    expect(highlightPlan([g("A"), g("B")], new Map([["Tower@P03", [null, null]]])).words)
+      .toBe("None of the 2 ghost(s) is in the loaded model(s) (Tower@P03) — the loaded version may be older than Revit's model; load the newest published version, or Revit may be newer.");
+  });
+  it("a retype without a GUID beside two with", () => {
+    expect(highlightPlan([g("A"), g("B"), g(null)], new Map([["T@1", [1, 2]]])).words)
+      .toBe("Highlighted 2 of 2 ghost(s) in T@1; 1 ghost(s) filed before the add-in sent GlobalIds cannot be highlighted.");
   });
 });

@@ -247,7 +247,7 @@ async function main() {
   // MA-3a: the review desk — what waits in Revit's review, by storey; a signed-in contributor accepts or declines (a decline binds
   // the Revit tick), a lead re-opens. It replaces the Modeling studio (retired: it skipped Governed Intake; its local sketches are
   // no longer shown).
-  const reviewEl = reviewDeskPanel({ baseUrl: SERVICE_URL });
+  const reviewEl = reviewDeskPanel({ baseUrl: SERVICE_URL, components });
   // One stable Sentinel QA panel, built now that the world + components exist.
   // Reused by reference so switching layouts doesn't reset its scan results.
   const qaEl = qaPanel(components, { baseUrl: SERVICE_URL });
