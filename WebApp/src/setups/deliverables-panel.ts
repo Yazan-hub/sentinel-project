@@ -7,7 +7,7 @@ import { bfetch } from "./bridge-fetch";
 import { currentUser } from "./auth";
 import { activePid, onActiveProjectChange } from "./active-project";
 import { loadScope } from "./load-scope";
-import { myRoleRead } from "./my-role";
+import { myRoleRead, canGovernRole } from "./my-role";
 import { escapeHtml as esc } from "./escape-html";
 import { csvCell } from "../sentinel-core/csv";
 
@@ -46,6 +46,9 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
   };
   let myRole: string | null = "service";
   const canEdit = () => myRole === "service" || ["owner", "lead", "contributor"].includes(myRole ?? "");
+  // W-2 final review: editing or deleting a deliverable, applying a rebaseline and declaring or changing a task team are a lead's on the
+  // bridge (deliverables-store, task-teams-store requireMinRole lead) — not drawn below lead, so no control only refuses.
+  const canGovern = () => canGovernRole(myRole ?? "");
 
   const root = document.createElement("div");
   root.style.cssText = "display:flex;flex-direction:column;height:100%;min-height:0;background:#16161a;color:#c9cfda;font:12px system-ui";
@@ -286,7 +289,7 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
       dates.textContent = `${dueTxt} · ${gotTxt}${r.days_late ? ` · ${r.days_late}d late` : ""}`;
 
       card.append(chip, main, dates);
-      if (canEdit()) {
+      if (canGovern()) {
         const edit = btn("Edit");
         edit.style.padding = ".1rem .35rem";
         edit.onclick = () => showAdd(r);
@@ -577,7 +580,7 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
     const back = btn("← All deliverables");
     back.onclick = () => showList();
     bar.append(title, back);
-    if (canEdit() && !editing) {
+    if (canGovern() && !editing) {
       const add = btn("+ Declare team", true);
       add.onclick = () => showTeams({ id: "", code: "", name: null, lead_email: null, discipline: null, appointment: null, notes: null });
       bar.append(add);
@@ -693,7 +696,7 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
       lead.textContent = t.lead_email || "no accountable lead";
       lead.style.cssText = `font:10.5px system-ui;color:${t.lead_email ? "#9ca3af" : "#f87171"};white-space:nowrap`;
       card.append(code, main, lead);
-      if (canEdit()) {
+      if (canGovern()) {
         const edit = btn("Edit");
         edit.style.padding = ".1rem .35rem";
         edit.onclick = () => showTeams(t);
@@ -704,7 +707,7 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
           if (!armed) { armed = true; del.textContent = "Confirm?"; return; }
           try {
             const r = await bfetch(`${SERVICE_URL.replace(/\/$/, "")}/teams/${encodeURIComponent(pid())}/${t.id}`, { method: "DELETE" });
-            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            if (!r.ok) throw new Error(((await r.json().catch(() => ({}))) as { message?: string }).message || `HTTP ${r.status}`);
             await showTeams();
           } catch (e) { msg(`Delete failed: ${(e as Error).message}`, true); }
         };
@@ -805,6 +808,7 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
       section("In the plan but not mentioned by this programme", r.untouched.map((u) => `${u.container_name} · ${u.due_date || "no date"}`), "#9ca3af");
 
       if (!r.updates.length) return;
+      if (!canGovern()) { const note = document.createElement("div"); note.style.cssText = "margin-top:.6rem;font-size:11px;color:#9ca3af"; note.textContent = `Applying these ${r.updates.length} date change(s) is a lead's — your role: ${myRole ?? "unknown"}; nothing was changed.`; out.append(note); return; }
       const confirm = btn(`Apply ${r.updates.length} date change(s)`, true);
       confirm.style.marginTop = ".6rem";
       confirm.onclick = async () => {
