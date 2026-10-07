@@ -38,6 +38,7 @@
     <!-- MA-1a step 2: Ghost Builder's changeset bodies, and the Doctor's skip rule they must agree with -->
     <Compile Include="..\..\SentinelAddin\GhostBuilder\GhostFiling.cs" />
     <Compile Include="..\..\SentinelAddin\GhostBuilder\GhostFailurePolicy.cs" />
+    <Compile Include="..\..\SentinelAddin\GhostBuilder\GhostOverlayGeometry.cs" />
     <Compile Include="..\..\SentinelAddin\Engine\ProvenanceStamp.cs" />
     <Compile Include="..\..\SentinelAddin\Engine\UndoWatcher.cs" />
     <!-- MA-1a item 5: the BLOCK check's diff and words, over the rule engine's Violation -->
