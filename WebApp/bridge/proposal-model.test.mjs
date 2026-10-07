@@ -1,6 +1,6 @@
 // MA-3d2 — the proposal model: the creates as the IFC writer's boxes, in the executor's frame (Revit mm Z-up -> three.js m Y-up).
 import { describe, it, expect } from "vitest";
-import { proposalElements, proposalFrag } from "./proposal-model.mjs";
+import { proposalElements, proposalFrag, levelsOf } from "./proposal-model.mjs";
 
 const create = (kind, place, extra = {}) => ({ op: "create", kind, proposal_guid: `g-${kind}`, place, ...extra });
 const near = (a, b) => expect(a).toHaveLength(b.length) && a.forEach((v, i) => expect(v).toBeCloseTo(b[i], 9));
@@ -55,8 +55,59 @@ describe("proposalFrag", () => {
     expect([...r.bytes]).toEqual([1, 2, 3]); expect(r.drawn).toBe(1);
     expect((await proposalFrag({ elements: [create("grid", {})] }, () => null, deps)).bytes).toBeNull();
   });
-  it("the real pipeline once: the core bundle's IFC through web-ifc to fragments", async () => {
-    const r = await proposalFrag({ elements: [wall()] }, () => null);
+  it("the real pipeline once: the core bundle's IFC through web-ifc to fragments — a wall, an L-shaped floor and a door", async () => {
+    const L = [[0, 0, 0], [8000, 0, 0], [8000, 3000, 0], [3000, 3000, 0], [3000, 6000, 0], [0, 6000, 0]];
+    const cs = { elements: [wall(), create("floor", { LocationLoop: L, LevelName: "L1" }), create("door", { Location: [65000, 70000, 0], LevelName: "L1", TypeName: "0915 x 2134" })] };
+    const r = await proposalFrag(cs, levelsOf(cs));
+    expect(r).toMatchObject({ creates: 3, drawn: 3, skipped: [] });
     expect(r.bytes.length).toBeGreaterThan(500);
   }, 60_000);
+});
+
+// MA-3d2 Next: levels from the changeset, slab outlines, doors and windows on their host.
+describe("levelsOf", () => {
+  it("a level create names its elevation; a floor's loop, a wall's line and a door's point tell their level's z; an unknown level is null", () => {
+    const lv = levelsOf({ elements: [
+      create("level", { BaseElevation: 3200 }, { validate: { identity: { Name: "L2" } } }),
+      create("floor", { LocationLoop: [[0, 0, 0], [1, 0, 0], [1, 1, 0]], LevelName: "L1" }),
+      create("wall", { LocationCurve: { start: [0, 0, 6400], end: [1, 0, 6400] }, BaseLevel: "L3" }),
+      create("door", { Location: [0, 0, 9600], LevelName: "L4" }),
+      { op: "retype", kind: "wall", place: { LocationCurve: { start: [0, 0, 1] }, LevelName: "L9" } },
+    ] });
+    expect(lv({ LevelName: "L2" })).toBe(3200); expect(lv({ LevelName: "L1" })).toBe(0); expect(lv({ BaseLevel: "L3" })).toBe(6400);
+    expect(lv({ LevelName: "L4" })).toBe(9600); expect(lv({ LevelName: "L9" })).toBeNull(); expect(lv({})).toBeNull();
+  });
+  it("a wall naming only its level stands at that level's elevation", () => {
+    const cs = { elements: [create("level", { BaseElevation: 3000 }, { validate: { identity: { Name: "L2" } } }), create("wall", { LocationCurve: { start: [0, 0], end: [4000, 0] }, LevelName: "L2" })] };
+    const e = proposalElements(cs, levelsOf(cs)).elements[0];
+    expect(e.position[1]).toBeCloseTo(4.5, 9); // 3000 + 3000/2
+  });
+});
+
+describe("proposalElements — Next", () => {
+  it("a floor's outline is its own polygon about the box centre, its base the loop's z", () => {
+    const L = [[0, 0, 3000], [8000, 0, 3000], [8000, 3000, 3000], [3000, 3000, 3000], [3000, 6000, 3000], [0, 6000, 3000], [0, 0, 3000]];
+    const e = proposalElements({ elements: [create("floor", { LocationLoop: L })] }).elements[0];
+    expect(e.footprint).toHaveLength(6); // the closing point dropped
+    near(e.footprint[2], [4, 0]); near(e.footprint[4], [-1, 3]);
+    expect(e.position[1]).toBeCloseTo(2.9, 9); // 3000 − 200/2
+  });
+  it("a door turns to the wall under it and takes its thickness; its size is read from the type name", () => {
+    const cs = { elements: [create("wall", { LocationCurve: { start: [0, 0, 0], end: [0, 5000, 0] }, Thickness: 300 }), create("door", { Location: [0, 2000, 0], TypeName: "Single-Flush : 1000 x 2100" })] };
+    const d = proposalElements(cs).elements[1];
+    expect(d.kind).toBe("door");
+    expect(d.rotationY).toBeCloseTo(Math.PI / 2, 9); expect(d.size.z).toBeCloseTo(0.3, 9);
+    expect(d.size.x).toBeCloseTo(1, 9); expect(d.size.y).toBeCloseTo(2.1, 9);
+    near(d.position, [0, 1.05, -2]);
+  });
+  it("a door off every wall is sketched unturned at 915 x 2134 x 200; a window sits on its sill", () => {
+    const r = proposalElements({ elements: [create("door", { Location: [9000, 9000, 0] }), create("window", { Location: [1000, 0, 3000], SillHeight: 800 })] });
+    const [d, w] = r.elements;
+    expect(d.rotationY).toBe(0); expect(d.size.x).toBeCloseTo(0.915, 9); expect(d.size.y).toBeCloseTo(2.134, 9); expect(d.size.z).toBeCloseTo(0.2, 9);
+    expect(w.kind).toBe("window"); expect(w.position[1]).toBeCloseTo(3 + 0.8 + 0.5, 9);
+    expect(r.drawn).toBe(2);
+  });
+  it("a door with no point is skipped in words", () => {
+    expect(proposalElements({ elements: [create("door", {})] }).skipped[0]).toContain("a door with no point");
+  });
 });

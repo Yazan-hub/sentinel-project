@@ -1739,6 +1739,15 @@ function parseLodMatrix(body) {
 }
 
 // src/sentinel-core/ifc-writer.ts
+function polygonMeasures(fp) {
+  let a2 = 0, per = 0;
+  for (let i = 0; i < fp.length; i++) {
+    const [x0, y0] = fp[i], [x1, y1] = fp[(i + 1) % fp.length];
+    a2 += x0 * y1 - x1 * y0;
+    per += Math.hypot(x1 - x0, y1 - y0);
+  }
+  return { area: Math.abs(a2) / 2, perimeter: per };
+}
 var R = (x) => {
   if (!Number.isFinite(x)) return "0.";
   const s = String(x);
@@ -1775,13 +1784,42 @@ var KINDS = {
     predef: ".FLOOR.",
     pset: "Pset_SlabCommon",
     qto: "Qto_SlabBaseQuantities",
+    quantities: (s, fp) => {
+      const m = fp ? polygonMeasures(fp) : { area: s.x * s.z, perimeter: 2 * (s.x + s.z) };
+      return [
+        `IFCQUANTITYLENGTH('Width',$,$,${R(s.x)},$)`,
+        `IFCQUANTITYLENGTH('Depth',$,$,${R(s.z)},$)`,
+        `IFCQUANTITYLENGTH('Perimeter',$,$,${R(m.perimeter)},$)`,
+        `IFCQUANTITYAREA('NetArea',$,$,${R(m.area)},$)`,
+        `IFCQUANTITYVOLUME('NetVolume',$,$,${R(m.area * s.y)},$)`
+      ];
+    }
+  },
+  // MA-3d2 Next: a door or window as its opening's box (width × height × the host's thickness), unhosted here — a proposal
+  // model's view, not a wall opening. IFC4 IFCDOOR/IFCWINDOW take OverallHeight, OverallWidth before PredefinedType.
+  door: {
+    entity: "IFCDOOR",
+    predef: ".DOOR.,.NOTDEFINED.,$",
+    pset: "Pset_DoorCommon",
+    qto: "Qto_DoorBaseQuantities",
     quantities: (s) => [
       `IFCQUANTITYLENGTH('Width',$,$,${R(s.x)},$)`,
-      `IFCQUANTITYLENGTH('Depth',$,$,${R(s.z)},$)`,
-      `IFCQUANTITYLENGTH('Perimeter',$,$,${R(2 * (s.x + s.z))},$)`,
-      `IFCQUANTITYAREA('NetArea',$,$,${R(s.x * s.z)},$)`,
-      `IFCQUANTITYVOLUME('NetVolume',$,$,${R(s.x * s.y * s.z)},$)`
-    ]
+      `IFCQUANTITYLENGTH('Height',$,$,${R(s.y)},$)`,
+      `IFCQUANTITYAREA('Area',$,$,${R(s.x * s.y)},$)`
+    ],
+    tail: (s) => `${R(s.y)},${R(s.x)},`
+  },
+  window: {
+    entity: "IFCWINDOW",
+    predef: ".WINDOW.,.NOTDEFINED.,$",
+    pset: "Pset_WindowCommon",
+    qto: "Qto_WindowBaseQuantities",
+    quantities: (s) => [
+      `IFCQUANTITYLENGTH('Width',$,$,${R(s.x)},$)`,
+      `IFCQUANTITYLENGTH('Height',$,$,${R(s.y)},$)`,
+      `IFCQUANTITYAREA('Area',$,$,${R(s.x * s.y)},$)`
+    ],
+    tail: (s) => `${R(s.y)},${R(s.x)},`
   }
 };
 var B64 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_$";
@@ -1847,10 +1885,18 @@ function buildIfc(elements, opts = {}) {
     const refDir = add(`IFCDIRECTION((${R(cosT)},${R(sinT)},0.))`);
     const axis = add(`IFCAXIS2PLACEMENT3D(${loc},${zdir},${refDir})`);
     const placement = add(`IFCLOCALPLACEMENT(${storeyPl},${axis})`);
-    const p2d = add(`IFCCARTESIANPOINT((0.,0.))`);
-    const x2d = add(`IFCDIRECTION((1.,0.))`);
-    const profPos = add(`IFCAXIS2PLACEMENT2D(${p2d},${x2d})`);
-    const profile = add(`IFCRECTANGLEPROFILEDEF(.AREA.,${S(el.kind)},${profPos},${R(s.x)},${R(s.z)})`);
+    const fp = el.footprint && el.footprint.length >= 3 ? el.footprint : void 0;
+    let profile;
+    if (fp) {
+      const pts = fp.map(([x, y]) => add(`IFCCARTESIANPOINT((${R(x)},${R(y)}))`));
+      const poly = add(`IFCPOLYLINE((${[...pts, pts[0]].join(",")}))`);
+      profile = add(`IFCARBITRARYCLOSEDPROFILEDEF(.AREA.,${S(el.kind)},${poly})`);
+    } else {
+      const p2d = add(`IFCCARTESIANPOINT((0.,0.))`);
+      const x2d = add(`IFCDIRECTION((1.,0.))`);
+      const profPos = add(`IFCAXIS2PLACEMENT2D(${p2d},${x2d})`);
+      profile = add(`IFCRECTANGLEPROFILEDEF(.AREA.,${S(el.kind)},${profPos},${R(s.x)},${R(s.z)})`);
+    }
     const extrudePos = add(`IFCAXIS2PLACEMENT3D(${origin},${zdir},${xdir})`);
     const solid = add(`IFCEXTRUDEDAREASOLID(${profile},${extrudePos},${zdir},${R(s.y)})`);
     const shapeRep = add(`IFCSHAPEREPRESENTATION(${ctx},'Body','SweptSolid',(${solid}))`);
@@ -1858,9 +1904,9 @@ function buildIfc(elements, opts = {}) {
     const name = S(el.name ?? `${cap(el.kind)} ${seq}`);
     const objType = S(el.typeName ?? `Sentinel ${cap(el.kind)}`);
     const tag = S(el.tag ?? `${el.kind.toUpperCase().slice(0, 2)}-${String(seq).padStart(2, "0")}`);
-    const elem = add(`${def.entity}('${g()}',${owner},${name},$,${objType},${placement},${prodShape},${tag},${def.predef})`);
+    const elem = add(`${def.entity}('${g()}',${owner},${name},$,${objType},${placement},${prodShape},${tag},${def.tail?.(s) ?? ""}${def.predef})`);
     elementIds.push(elem);
-    const qIds = def.quantities(s).map((q) => add(q));
+    const qIds = def.quantities(s, fp).map((q) => add(q));
     const qset = add(`IFCELEMENTQUANTITY('${g()}',${owner},${S(def.qto)},$,$,(${qIds.join(",")}))`);
     add(`IFCRELDEFINESBYPROPERTIES('${g()}',${owner},$,$,(${elem}),${qset})`);
     const pExt = add(`IFCPROPERTYSINGLEVALUE('IsExternal',$,IFCBOOLEAN(.T.),$)`);
