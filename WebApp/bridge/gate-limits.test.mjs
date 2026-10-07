@@ -514,3 +514,27 @@ describe("the public receipt check — 60 a minute per caller address, not 60 fo
     expect((await check("203.0.113.7, 203.0.113.8")).status).not.toBe(429); // the proxy appended .8: that is the caller
   });
 });
+
+describe("PR-1 (production readiness, S18) — the machine credential is this PC's alone", () => {
+  let b;
+  const REMOTE = "the machine credential is accepted only from this PC — from the internet or another PC, sign in (a person's session); nothing was read or saved";
+  beforeAll(async () => { b = await startBridge({ BCF_TOKEN: TOKEN, SUPABASE_JWT_SECRET: SECRET }); }, 30_000);
+  it("from a loopback socket with no proxy in front, the token is accepted as before", async () => {
+    const r = await fetch(`http://127.0.0.1:${b.port}/projects`, { headers: machine });
+    expect(r.status).toBe(200);
+  });
+  it("through a proxy (the Funnel appends X-Forwarded-For), the token is a 403 in words and the route is not reached", async () => {
+    const r = await fetch(`http://127.0.0.1:${b.port}/projects`, { headers: { ...machine, "X-Forwarded-For": "203.0.113.9" } });
+    expect(r.status).toBe(403);
+    expect(await r.json()).toEqual({ message: REMOTE });
+    const w = await fetch(`http://127.0.0.1:${b.port}/bcf/3.0/projects/gl/topics`, { method: "POST", headers: { ...machine, "X-Forwarded-For": "203.0.113.9, 10.0.0.2", "Content-Type": "application/json" }, body: JSON.stringify({ title: "from afar" }) });
+    expect(w.status).toBe(403);
+    expect(await w.json()).toEqual({ message: REMOTE });
+  });
+  it("GET /health stays exempt, and a signed-in session through the proxy is not refused by this rule", async () => {
+    expect((await fetch(`http://127.0.0.1:${b.port}/health`, { headers: { ...machine, "X-Forwarded-For": "203.0.113.9" } })).status).toBe(200);
+    const r = await fetch(`http://127.0.0.1:${b.port}/projects`, { headers: { Authorization: `Bearer ${userJwt()}`, "X-Forwarded-For": "203.0.113.9" } });
+    expect(r.status).not.toBe(403);
+    expect(JSON.stringify(await r.json().catch(() => ({})))).not.toContain("accepted only from this PC");
+  });
+});

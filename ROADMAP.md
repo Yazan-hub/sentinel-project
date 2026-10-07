@@ -31,9 +31,10 @@ Legend: ✅ shipped & verified · 🟠 in progress · ⬜ next · 🔭 later
 - A **Base ruleset** (naming + element IDS) that any office adopts and overlays — the BDS docs are the pilot's reference, not the product standard.
 - **BSI Kitemark / ISO 19650 attestation** and a public **BCF-API 3.0 / openCDE** endpoint (the loop runs internally already — this is the paperwork gap vs. certified CDEs).
 
-### ⬜ Production readiness *(next)*
-- Retire the **service-key fallback** (a few audit writes still use it by design) in favour of full forwarded-JWT writes.
-- **Multi-user rollout** (memberships + roles are built; verify at team scale), **CI running on the remote**, and a **hosted deployment** of the bridge.
+### 🟠 Production readiness *(in progress)*
+- ~~Retire the service-key fallback in favour of forwarded-JWT writes~~ — superseded: since 0034/0037/0038 (SEC-1) the **database refuses signed-in direct writes** to the governed stores and the bridge is their only writer, after its own role check; the service key is the bridge's write path by design, and a person's JWT is forwarded for every read and for the stores a person may write.
+- **The machine credential is this PC's alone** (PR-1, S18): the bridge accepts `BCF_TOKEN` only from a loopback socket with no proxy in front — through the Funnel it is refused in words, a person signs in. Owed to the founder: H6 (ship `bcf-config.json` without `serviceToken`), one rotation of `BCF_TOKEN`, the machine actor label (S18 B).
+- **Multi-user rollout** (memberships + roles are built; verify at team scale — a second account's rows, W-2), and a **hosted deployment** of the bridge (That Open cannot host it — components are run-once; the PC + Funnel stays until a host is chosen). CI runs on GitHub Actions since 2026-10-05.
 
 ### 🔭 Later — the platform bets
 - **Auto-4D** and **5D revision-diff** from the shared element-snapshot spine; **6D carbon** via the EC3 EPD API by reference.

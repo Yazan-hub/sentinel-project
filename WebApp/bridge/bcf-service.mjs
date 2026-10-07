@@ -23,7 +23,7 @@ import { loadEnv } from "./load-env.mjs";
 import { verifyJwt, initJwks } from "./verify-jwt.mjs";
 import { corsOrigin } from "./cors-origin.mjs";
 import { isPublicRoute, parsePublicVerify, comparePublic, createLimiter, createKeyedLimiter, clientAddress, callerKey, readCapped } from "./public-verify.mjs";
-import { readBody, readRaw, holdUpload, SMALL_JSON, startRefusal, SERVER_LIMITS, uploadCap } from "./request-limits.mjs";
+import { readBody, readRaw, holdUpload, SMALL_JSON, startRefusal, SERVER_LIMITS, uploadCap, fromThisPc } from "./request-limits.mjs";
 
 // config/.env is NOT loaded into process.env by Node — merge it here (before any process.env
 // read below) so the documented activation procedure (set BCF_TOKEN in config/.env) actually
@@ -99,6 +99,8 @@ const SHEETS_ROOT = process.env.SENTINEL_SHEETS
 const VIEWS_ROOT = process.env.SENTINEL_VIEWS
   || join(process.env.APPDATA || join(homedir(), "AppData", "Roaming"), "Sentinel", "views");
 const TOKEN = process.env.BCF_TOKEN || ""; // if set, require "Authorization: Bearer <TOKEN>"
+// PR-1 (production readiness, S18): the machine credential is this PC's alone — a copy of it is useless from the internet.
+const MACHINE_REMOTE = "the machine credential is accepted only from this PC — from the internet or another PC, sign in (a person's session); nothing was read or saved";
 const JWT_SECRET = process.env.SUPABASE_JWT_SECRET || "";
 /** The shared machine credential, compared in constant time (byte lengths first: timingSafeEqual throws on a
  *  mismatch); never matches while BCF_TOKEN is unset. */
@@ -536,7 +538,7 @@ server.listen(PORT, HOST, () => {
   initJwks(process.env.SUPABASE_URL);
   console.log(`Sentinel BCF-API 3.0 listening on http://${HOST}:${PORT}  (store: ${STORE})`);
   console.log(`[bridge] CSRF origin-gate: ${CORS_WILDCARD ? "DISABLED (wildcard)" : "on — mutations restricted to " + CORS_ALLOW.join(", ")}`);
-  console.log(`[bridge] bind: ${HOST} · auth gate: ARMED (JWT or BCF_TOKEN required; GET /health exempt; POST /receipt/:key/verify answers anyone hash-only)`);
+  console.log(`[bridge] bind: ${HOST} · auth gate: ARMED (JWT or BCF_TOKEN required; BCF_TOKEN from this PC only; GET /health exempt; POST /receipt/:key/verify answers anyone hash-only)`);
   if (CORS_WILDCARD) console.warn("[bridge] WARNING: BCF_CORS_ORIGIN=* disables CSRF protection — set it to your app origin(s) for production.");
   if (TOKEN && !JWT_SECRET) console.warn("[bridge] WARNING: BCF_TOKEN set without SUPABASE_JWT_SECRET — no sign-in is accepted, so every signed-in web user gets 401. Set SUPABASE_JWT_SECRET.");
   import("./cde-store.mjs").then((cde) => console.log(`[bridge] JWT-forwarding: ${cde.forwardingConfigured() ? "armed (forwards a caller's Supabase JWT → RLS)" : "off (service key; set SUPABASE_ANON_KEY to arm)"}`)).catch(() => {});
@@ -706,6 +708,14 @@ async function handleRequest(req, res) {
         : bearer.split(".").length === 3 ? "jwt-rejected" : "token-mismatch";
       console.warn(`[bridge] 401 ${req.method} ${url.pathname} (${why}, origin: ${req.headers.origin || "none"})`);
       return send(res, 401, { message: "Unauthorized" });
+    }
+    // PR-1 (production readiness, S18): the machine credential is accepted only from this PC — a loopback socket with no proxy
+    // in front (the Funnel appends X-Forwarded-For). From anywhere else it is a 403 in words: a person signs in. Revit on this
+    // PC, the outbox watcher, the MCP server and scripts are unchanged; a leaked copy of the token no longer opens the bridge
+    // from the internet. GET /health stays exempt.
+    if (!exempt && isToken(bearer) && !fromThisPc(req)) {
+      console.warn(`[bridge] 403 ${req.method} ${url.pathname} (machine credential from ${clientAddress(req)}, not this PC)`);
+      return send(res, 403, { message: MACHINE_REMOTE });
     }
   }
 
