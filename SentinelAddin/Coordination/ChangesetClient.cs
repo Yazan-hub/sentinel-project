@@ -457,6 +457,18 @@ public sealed class AdjudicationDto
     [JsonIgnore] public string LedgerRow => AuditId is { ValueKind: JsonValueKind.Number or JsonValueKind.String } a ? a.ToString() : null;
 }
 
+/// <summary>MA-3b6: one body's preview - what filing it would carry (POST /changesets/:key/preview).</summary>
+public sealed class ChangesetPreviewDto
+{
+    [JsonPropertyName("name")] public string Name { get; set; }
+    [JsonPropertyName("elements")] public int Elements { get; set; }
+    [JsonPropertyName("carried")] public int Carried { get; set; }
+    [JsonPropertyName("no_reason")] public int NoReason { get; set; }
+    [JsonPropertyName("creates")] public int Creates { get; set; }
+    [JsonPropertyName("unverified")] public int Unverified { get; set; }
+    [JsonPropertyName("all_carried")] public bool AllCarried { get; set; }
+}
+
 public sealed class ChangesetDto
 {
     [JsonPropertyName("id")] public string Id { get; set; }
@@ -561,18 +573,18 @@ internal static class ChangesetClient
     internal static string ResultBody(List<AppliedEntry> applied, List<string> rejected, string note, int? reviewRev, Dictionary<string, string> reasons) =>
         JsonSerializer.Serialize(new { applied, rejected, note, actor = UserSession.Actor, review_rev = reviewRev, reasons });
 
-    private static bool Post(BcfConfig cfg, string path, string payload, int expect, out string body, out string error)
+    private static bool Post(BcfConfig cfg, string path, string payload, int expect, out string body, out string error, HttpClient http = null)
     {
         body = null; error = null;
         try
         {
             // Review C1: the request — its token and its body — is built inside Send's pool thread; payload was serialized here.
             HttpResponseMessage resp;
-            (resp, body) = Send(WriteHttp, () => Req(HttpMethod.Post, $"{cfg.ServiceUrl.TrimEnd('/')}{path}", cfg.ServiceToken, payload));
+            (resp, body) = Send(http ?? WriteHttp, () => Req(HttpMethod.Post, $"{cfg.ServiceUrl.TrimEnd('/')}{path}", cfg.ServiceToken, payload));
             if ((int)resp.StatusCode != expect) { error = $"Bridge {(int)resp.StatusCode}: {body}"; return false; }
             return true;
         }
-        catch (Exception ex) { error = ChangesetTrust.BridgeWords(ex, (int)WriteHttp.Timeout.TotalSeconds); return false; }
+        catch (Exception ex) { error = ChangesetTrust.BridgeWords(ex, (int)(http ?? WriteHttp).Timeout.TotalSeconds); return false; }
     }
 
     /// <summary>The caller's role on the project (GET /cde/:key/members/me): "service" for the machine credential, a
@@ -612,6 +624,16 @@ internal static class ChangesetClient
         try { return JsonSerializer.Deserialize<ChangesetDto>(resp); }
         catch (Exception ex) { error = ex.Message; return null; }
     }
+
+    /// <summary>MA-3b6: what filing these bodies would carry (POST /changesets/:key/preview -> 200 { previews }), in their order - a read
+    /// through the 8 s client, off Revit's thread (Promote's preview hop). Null with the error (a bridge before MA-3b6 answers 404).</summary>
+    public static List<ChangesetPreviewDto> Preview(BcfConfig cfg, string projectKey, IReadOnlyList<object> bodies, out string error)
+    {
+        if (!Post(cfg, $"/changesets/{Uri.EscapeDataString(projectKey)}/preview", JsonSerializer.Serialize(new { bodies }, WriteJson), 200, out var resp, out error, ReadHttp)) return null;
+        try { return JsonSerializer.Deserialize<PreviewReply>(resp)?.Previews ?? new List<ChangesetPreviewDto>(); }
+        catch (Exception ex) { error = ex.Message; return null; }
+    }
+    private sealed class PreviewReply { [JsonPropertyName("previews")] public List<ChangesetPreviewDto> Previews { get; set; } }
 
     /// <summary>Withdraw a proposed changeset (POST /changesets/:key/:id/withdraw → 200): a Ghost build that filed some of its
     /// changesets and then could not file the rest takes them back, so none is left for a later review to apply.</summary>

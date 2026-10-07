@@ -555,6 +555,44 @@ namespace Sentinel.GhostBuilder
             };
         }
 
+        // -- MA-3b6: the declines made before, read before Promote's dialog - its words (pure) ----------------------------------------
+
+        /// <summary>MA-3b6: the pane's Doctor line when Promote asks the bridge which ghosts were declined before.</summary>
+        public const string PromotePreviewing = "Promote (DD): asking the bridge which ghosts were declined before (off Revit's thread) — the dialog opens by itself.";
+
+        /// <summary>MA-3b6: the dialog's question - the storeys to file, and those not filed because every ghost in them was declined before.</summary>
+        public static string FileQuestion(int file, int skipped) =>
+            skipped == 0 ? $"File {file} changeset(s)?"
+            : file == 0 ? "Nothing to file: every ghost Promote would propose was declined before."
+            : $"File {file} of {file + skipped} changeset(s)? ({skipped} not filed — every ghost in them was declined before)";
+
+        /// <summary>MA-3b6: the dialog's line on the declines made before - null when none and nothing is skipped.</summary>
+        public static string CarriedLine(IReadOnlyList<Sentinel.Coordination.ChangesetPreviewDto> pv)
+        {
+            if (pv == null || pv.Count == 0) return null;
+            int carried = pv.Sum(p => p.Carried), noReason = pv.Sum(p => p.NoReason), unverified = pv.Sum(p => p.Unverified), creates = pv.Sum(p => p.Creates);
+            var skipped = pv.Where(p => p.AllCarried).Select(p => p.Name).ToList();
+            if (carried + noReason + unverified + creates == 0) return null;
+            var s = $"Declined before (the bridge carries each decline onto its ghost, already declined, for the reviewer): {carried} ghost(s) in {pv.Count(p => p.Carried > 0)} storey(s)";
+            if (noReason + unverified + creates > 0)
+                s += $"; not carried: {noReason} declined in Revit with no reason, {unverified} with a reason no signed-in member reported, {creates} create(s) like one declined before";
+            if (skipped.Count > 0)
+                s += $"\n{skipped.Count} storey(s) not filed — every ghost in them was declined before: {string.Join("; ", skipped)}. Their rows sent to a person are listed only in this dialog; a lead re-opens a decline on the web desk to file them again.";
+            return s;
+        }
+
+        /// <summary>MA-3b6: the preview the bridge did not answer - said, and every storey is filed as before (a ghost declined before is still filed already declined by the bridge).</summary>
+        public static string PreviewNotRead(string why) =>
+            $"Declined before: not read — {why}. Every storey is filed; a ghost declined before is still filed already declined by the bridge.";
+
+        /// <summary>MA-3b6 (F8 B): the bodies to file - those whose preview does not say every ghost was declined before. A preview that does not
+        /// match the bodies one to one (none, or another count) files every body.</summary>
+        public static List<object> WithoutCarried(IReadOnlyList<object> bodies, IReadOnlyList<Sentinel.Coordination.ChangesetPreviewDto> pv)
+        {
+            if (pv == null || pv.Count != bodies.Count) return bodies.ToList();
+            return bodies.Where((b, i) => !pv[i].AllCarried).ToList();
+        }
+
         // Review C24: a body with the rows of a body not filed before its own, folded to the bridge's cap.
         private static object Carry(object body, JsonArray rows)
         {

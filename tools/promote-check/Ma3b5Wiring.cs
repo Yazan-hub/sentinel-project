@@ -26,7 +26,7 @@ static partial class Check
            "E4: the plan releases the guard exactly once on every way out but the filing — a refusal, No, a throw the hub swallows — and before a waiting storey opens (Open checks it); C4: a model re-bound during the reads plans and files nothing");
         int pane = At(promote, "var pane = System.Windows.Threading.Dispatcher.CurrentDispatcher;");
         int pool = pane < 0 ? -1 : promote.IndexOf("Task.Run(() =>", pane, StringComparison.Ordinal);
-        int filing = At(promote, "var run = PropertyPlanner.FileAll(bodies, PropertyPlanner.Stalling((body, retry) =>");
+        int filing = At(promote, "var run = PropertyPlanner.FileAll(toFile, PropertyPlanner.Stalling((body, retry) =>");
         int receipt = At(promote, "plans.SelectMany(p => p.Held).Select(h => h.UniqueId).Distinct().Count(), filedIds, actor), key, pane);");
         int done = At(promote, "finally { release(); }"), open = At(promote, "App.Events.Enqueue(doc, \"open the review of the changesets Promote filed\", (u, d) =>");
         int busyHop = At(promote, "if (ReviewChangesetsCommand.Held) { TaskDialog.Show(Title, PropertyPlanner.PromoteNotOpened(ReviewChangesetsCommand.Busy, filed.Count, title)); return; }");
@@ -37,7 +37,7 @@ static partial class Check
         Ok(rebind > open && rebind < busyHop,
            "C12: a model re-bound to another project while Promote filed opens no review of the old project's changesets — said with what was filed");
         Ok(pane > 0 && pool > pane && filing > pool && done > filing && receipt > done && open > receipt && busyHop > open
-           && Count(promote, "release();") == 2 && Count(promote, "return true;") == 1 && At(promote, "return true;") > open // C15
+           && Count(promote, "release();") == 4 && Count(promote, "return true;") == 2 && At(promote, "return true;") > open // C15
            && promote.Contains("changeset(s) were not confirmed filed") // C14
            && promote.IndexOf("ReviewChangesetsCommand.Open(u, d, cfg, key, StoreyBatch.Of(filed, first));", StringComparison.Ordinal) > busyHop
            && promote.Contains("why => TaskDialog.Show(Title, PropertyPlanner.PromoteNotOpened(why, filed.Count, title)")
@@ -45,7 +45,7 @@ static partial class Check
            && promote.Contains("catch (Exception ex) { said = PropertyPlanner.PromoteStopped($\"{ex.GetType().Name}: {ex.Message}\", first != null); }")
            && promote.Contains("catch (Exception ex) { said += (said.Length > 0 ? \"\\n\" : \"\") + $\"Promote's receipt was not sent — {ex.GetType().Name}: {ex.Message}\"; }"),
            "the filing runs on a pool thread under the stall rule (F4); the guard is released before the receipt and the review are queued (E3); the receipt goes out on every path that filed something, its Doctor line through Revit's dispatcher (S3, MA-3b2b C1e, C6); the review opens in this model only, a guard taken in the gap is said with what was filed (C7) — a refusal says what was filed and where; a filing that throws is said");
-        Ok(!promote.Contains("GetAwaiter().GetResult()") && !promote.Contains(".Wait(") && Count(promote, "Task.Run(") == 2
+        Ok(!promote.Contains("GetAwaiter().GetResult()") && !promote.Contains(".Wait(") && Count(promote, "Task.Run(") == 3
            && review.Contains("internal static bool Held => Volatile.Read(ref _holds) > 0;") && review.Contains("internal static void Hold() =>") && review.Contains("internal static void Release() =>")
            && !review.Contains("Open(ExternalCommandData") && !review.Contains("two minutes at most")
            && review.Contains("internal const string Busy = \"A review window is open, a result is still being reported to the bridge, or Promote (DD) is reading or filing")
