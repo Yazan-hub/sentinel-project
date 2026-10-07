@@ -1793,6 +1793,20 @@ async function handleRequest(req, res) {
       if (p2 === "preview" && !p3 && req.method === "POST") return send(res, 200, await ch.previewChangesets(key, body));
       // MA-3d2: the changeset's creates as a proposal model (.frag) — a member's read; nothing stored. A changeset with no create that
       // has a shape is a 409 in words. The counts ride in one header so the web says what it shows and what it skipped.
+      // MA-3d3: one proposal model for a storey — ?ids= names its parts (each a changeset of this key; an unknown one is a 404 and
+      // nothing is served). The creates of every part in one .frag, the levels learnt across them, the counts summed in one header.
+      if (p2 === "proposal.frag" && !p3 && req.method === "GET") {
+        const ids = String(url.searchParams.get("ids") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+        if (!ids.length || ids.length > 50) return send(res, 400, { message: "a storey's proposal model needs ?ids= — 1 to 50 changeset ids of this project, comma-separated" });
+        const parts = [];
+        for (const id of ids) parts.push(await ch.getChangeset(key, id));
+        const pm = await import("./proposal-model.mjs");
+        const cs = pm.storeyModel(parts);
+        const r = await pm.proposalFrag(cs, pm.levelsOf(cs));
+        if (!r.bytes) return send(res, 409, { message: `storey "${cs.name}" has no create with a shape to show — ${r.creates} create(s) in ${parts.length} changeset(s), ${r.skipped.length} skipped${r.skipped.length ? ": " + r.skipped.slice(0, 3).join("; ") : ""}` });
+        res.writeHead(200, { "Content-Type": "application/octet-stream", "Cache-Control": "no-cache", "X-Sentinel-Proposal": JSON.stringify({ creates: r.creates, drawn: r.drawn, skipped: r.skipped.slice(0, 10), skipped_total: r.skipped.length, changesets: parts.length }).replace(/[\u007f-\uffff]/g, (c) => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0")), "Access-Control-Expose-Headers": "X-Sentinel-Proposal", ...corsHeaders(res) });
+        return res.end(Buffer.from(r.bytes));
+      }
       if (p2 && p3 === "proposal.frag" && req.method === "GET") {
         const cs = await ch.getChangeset(key, p2);
         const pm = await import("./proposal-model.mjs");

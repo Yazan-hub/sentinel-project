@@ -800,6 +800,22 @@ describe("changesets (MA-3d2): the proposal model", () => {
     expect(r.header).toMatch(/^[ -~]*$/);
     expect(JSON.parse(r.header).skipped[0]).toContain("a grid — not drawn");
   }, 60_000);
+  // MA-3d3: one model per storey — ?ids= names the parts.
+  const ID2 = "0c0c0c0c-0000-4000-8000-000000000003";
+  const getStorey = async (as, ids) => {
+    const r = await fetch(`http://127.0.0.1:${port}/changesets/demo/proposal.frag?ids=${ids.join(",")}`, { headers: { Authorization: `Bearer ${as === "machine" ? TOKEN : jwtFor(as)}` } });
+    return { status: r.status, header: r.headers.get("x-sentinel-proposal"), body: Buffer.from(await r.arrayBuffer()) };
+  };
+  it("a storey's parts come as ONE .frag: the counts summed, the parts counted; an unknown part is a 404 and nothing is served; no ids is a 400", async () => {
+    db.bridge_docs.push({ store: "changeset", project_id: PID, doc_id: ID, data: { ...csOf([wallEl]), name: "Level 1 (1/2)" } });
+    db.bridge_docs.push({ store: "changeset", project_id: PID, doc_id: ID2, data: { id: ID2, name: "Level 1 (2/2)", status: "proposed", elements: [{ ...wallEl, proposal_guid: "g2", place: { ...wallEl.place, LocationCurve: { start: [0, 0], end: [0, 4000] } } }, { op: "create", kind: "grid", proposal_guid: "g3", place: {} }] } });
+    const r = await getStorey("viewer", [ID, ID2]);
+    expect(r.status).toBe(200);
+    expect(JSON.parse(r.header)).toMatchObject({ creates: 3, drawn: 2, skipped_total: 1, changesets: 2 });
+    expect(r.body.length).toBeGreaterThan(500);
+    expect((await getStorey("viewer", [ID, "0c0c0c0c-0000-4000-8000-00000000dead"])).status).toBe(404);
+    expect((await getStorey("viewer", [])).status).toBe(400);
+  }, 60_000);
   it("a changeset with no create that has a shape is a 409 in words", async () => {
     db.bridge_docs.push({ store: "changeset", project_id: PID, doc_id: ID, data: csOf([{ op: "retype", kind: "wall", proposal_guid: "g2" }]) });
     const r = await get("viewer");
