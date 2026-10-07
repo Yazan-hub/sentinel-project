@@ -150,6 +150,12 @@ async function call(method, path, as, body) {
 
 const refused = (min, you) => ({ status: 403, body: { message: `this action requires the ${min} role (you are ${you})` } });
 
+describe("changesets (MA-3b6): a viewer previews nothing", () => {
+  it("POST /changesets/demo/preview as a viewer is a 403 in the bridge's words", async () => {
+    expect(await call("POST", "/changesets/demo/preview", "viewer", { bodies: [{ name: "x", elements: [] }] })).toEqual(refused("contributor", "viewer"));
+  });
+});
+
 describe("RFIs (rfis-1): a viewer writes nothing; a contributor raises and answers", () => {
   it("a viewer's raise and a viewer's answer are 403s in the bridge's words, and nothing reaches the table", async () => {
     seedDoc("rfi", "R1", { guid: "R1", project_id: "demo", number: "RFI-001", subject: "S", status: "Open", answer: "", history: [] });

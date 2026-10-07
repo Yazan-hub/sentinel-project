@@ -168,6 +168,35 @@ export async function proposeChangeset(key, body, actor, deps) {
   return changeset;
 }
 
+/** MA-3b6 (MA-3b3 F8 B, MA-3b5 S2): what filing each body WOULD carry — MA-3b3's rule (carryDeclines) asked in its one place, nothing
+ *  stored, no ledger row, no adjudication. Promote asks before its dialog: a storey whose every ghost was declined before is not filed.
+ *  body: { bodies: [changeset body, …] } (Promote's storeys). A contributor's read (what filing needs); the earlier changesets read once;
+ *  each body validated as a filing would be (its 400/413 are a filing's). Answers the previews in the bodies' order. */
+export async function previewChangesets(key, body, deps) {
+  const d = wire(deps);
+  await d.requireMinRole(key, "contributor");
+  const bodies = Array.isArray(body?.bodies) ? body.bodies : null;
+  if (!bodies || bodies.length === 0 || bodies.length > 50) throw err(400, "a preview is { bodies: [1 to 50 changeset bodies] } — nothing was read");
+  const role = await d.myRole(key);
+  const member = role != null && role !== "service";
+  const proj = await d.ensureProject(key);
+  let earlier;
+  try { earlier = await d.docList(STORE, proj.id); }
+  catch (e) { throw err(503, `the project's earlier changesets could not be read (${e.message}) — nothing was previewed`); }
+  // The standards are read once, only when a body needs them (as a filing reads them).
+  const type = bodies.some((b) => needsTyping(b)) ? await typerFor(key, d) : null;
+  const cite = bodies.some((b) => needsCiting(b)) ? await citerFor(key, d) : null;
+  return {
+    previews: bodies.map((b) => {
+      const v = validateChangeset(b, { member, type, cite });
+      const carry = carryDeclines(v.elements, earlier);
+      const ghosts = v.elements.length;
+      return { name: v.name, elements: ghosts, carried: carry.carried.length, no_reason: carry.no_reason, creates: carry.creates, unverified: carry.unverified,
+        all_carried: ghosts > 0 && carry.carried.length === ghosts };
+    }),
+  };
+}
+
 export async function listChangesets(key, { status } = {}, deps) {
   const d = wire(deps);
   const proj = await d.ensureProject(key);

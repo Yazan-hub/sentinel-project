@@ -13,7 +13,7 @@ static partial class Check
         int make = client.IndexOf("var msg = make();", StringComparison.Ordinal);
         Ok(Count(client, ".SendAsync(") == 1 && send > 0 && make > send && client.IndexOf("await http.SendAsync(msg).ConfigureAwait(false);", StringComparison.Ordinal) > make
            && Count(client, "Send(ReadHttp, () => Req(HttpMethod.Get, url, cfg.ServiceToken))") == 3
-           && client.Contains("(resp, body) = Send(WriteHttp, () => Req(HttpMethod.Post, $\"{cfg.ServiceUrl.TrimEnd('/')}{path}\", cfg.ServiceToken, payload));")
+           && client.Contains("(resp, body) = Send(http ?? WriteHttp, () => Req(HttpMethod.Post, $\"{cfg.ServiceUrl.TrimEnd('/')}{path}\", cfg.ServiceToken, payload));")
            // Review C1: the token (a sign-in refresh is a network call) is read where the request is built — inside Send's pool thread.
            && Count(client, "cfg.ServiceToken") == Count(client, "() => Req(") && Count(client, "() => Req(") == 4
            && !client.Contains("Send(ReadHttp, Req(") && !client.Contains("Send(WriteHttp, msg)")

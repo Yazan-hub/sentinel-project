@@ -117,7 +117,7 @@ static partial class Check
         string client = Src("Coordination", "ChangesetClient.cs"), unreported = Src("Engine", "UnreportedResults.cs");
         int reads = 0;
         for (int i = 0; (i = client.IndexOf("error = ChangesetTrust.BridgeWords(ex, (int)ReadHttp.Timeout.TotalSeconds);", i, StringComparison.Ordinal)) >= 0; i++) reads++;
-        Ok(reads == 3 && client.Contains("catch (Exception ex) { error = ChangesetTrust.BridgeWords(ex, (int)WriteHttp.Timeout.TotalSeconds); return false; }")
+        Ok(reads == 3 && client.Contains("catch (Exception ex) { error = ChangesetTrust.BridgeWords(ex, (int)(http ?? WriteHttp).Timeout.TotalSeconds); return false; }")
            && unreported.Contains("var err = ChangesetTrust.BridgeWords(error, 120);")
            && client.Contains("ResultBody(applied, rejected, note, reviewRev, reasons), 200, out reply, out error);"),
            "every read (the pending list, the re-check, the role) and every write of the changeset client says its failure in those words, with its own timeout; the result is posted with ResultBody");

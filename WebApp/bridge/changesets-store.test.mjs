@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { proposeChangeset, getChangeset, reportResult, withdrawChangeset, listChangesets, reportReverted, needsTyping, needsCiting,
-  reviewChangeset, reopenGhost } from "./changesets-store.mjs";
+  reviewChangeset, reopenGhost, previewChangesets } from "./changesets-store.mjs";
 
 const wall = () => ({
   kind: "wall",
@@ -882,5 +882,56 @@ describe("MA-3b3 — a decline carried to the next filing (the bridge stamps it 
     expect(deps.adjudicateProposal).not.toHaveBeenCalled();
     expect(deps.docInsert).not.toHaveBeenCalled();
     expect(deps.audit).not.toHaveBeenCalled();
+  });
+});
+
+describe("MA-3b6 — a preview of what a filing would carry (nothing stored)", () => {
+  const retype = (n, type = "BDS_EXT_ARC_CMU_200 mm") => ({ kind: "wall", op: "retype",
+    target: { unique_id: `5a1c2b3d-1111-2222-3333-444455556666-0004c40${n}`, type_before: "Generic - 200mm" },
+    place: { TypeName: type }, validate: { identity: { Class: "IFCWALL", Name: `W ${n}` } } });
+  const STOREY = () => ({ name: "Promote (DD) · GR-FFL", source: "promote", elements: [retype(1), retype(2), retype(3)] });
+  const declinedInRevit = async (role = "contributor") => {
+    const deps = baseDeps({ audit: vi.fn(async () => ({ id: 1, hash: "ab".repeat(32) })) });
+    const A = await proposeChangeset("demo", STOREY(), "modeller", deps);
+    const [g1, g2, g3] = A.elements.map((e) => e.proposal_guid);
+    if (role) deps.myRole = as(role);
+    await reportResult("demo", A.id, { applied: [{ proposal_guid: g3, revit_element_id: 5 }], rejected: [g1, g2], review_rev: 0, reasons: { [g1]: "W 1 stays as modelled" } }, "modeller", deps);
+    delete deps.myRole;
+    return { deps, A };
+  };
+
+  it("says what filing would carry and stores, audits and adjudicates nothing", async () => {
+    const { deps } = await declinedInRevit();
+    const saved = deps.saved.size, audits = deps.audit.mock.calls.length, adjs = deps.adjudicateProposal.mock.calls.length;
+    deps.myRole = as("contributor");
+    expect(await previewChangesets("demo", { bodies: [STOREY()] }, deps)).toEqual({ previews: [
+      { name: "Promote (DD) · GR-FFL", elements: 3, carried: 1, no_reason: 1, creates: 0, unverified: 0, all_carried: false }] });
+    expect(deps.saved.size).toBe(saved);
+    expect(deps.audit.mock.calls.length).toBe(audits);
+    expect(deps.adjudicateProposal.mock.calls.length).toBe(adjs);
+  });
+
+  it("a body of only the declined ghost is all_carried; two bodies answer two previews in order", async () => {
+    const { deps } = await declinedInRevit();
+    deps.myRole = as("contributor");
+    const r = await previewChangesets("demo", { bodies: [{ ...STOREY(), elements: [retype(1)] }, STOREY()] }, deps);
+    expect(r.previews.map((p) => p.all_carried)).toEqual([true, false]);
+    expect(r.previews.map((p) => p.elements)).toEqual([1, 3]);
+  });
+
+  it("C1: a reason the machine credential reported is not carried, it is unverified", async () => {
+    const { deps } = await declinedInRevit(null);
+    deps.myRole = as("contributor");
+    const r = await previewChangesets("demo", { bodies: [STOREY()] }, deps);
+    expect(r.previews[0]).toMatchObject({ carried: 0, unverified: 1 });
+  });
+
+  it("refuses a body that is not bodies, a store it cannot read, and a body a filing would refuse", async () => {
+    const msg = "a preview is { bodies: [1 to 50 changeset bodies] } — nothing was read";
+    await expect(previewChangesets("demo", {}, baseDeps())).rejects.toMatchObject({ status: 400, message: msg });
+    await expect(previewChangesets("demo", { bodies: [] }, baseDeps())).rejects.toMatchObject({ status: 400, message: msg });
+    await expect(previewChangesets("demo", { bodies: [STOREY()] }, baseDeps({ docList: vi.fn(async () => { throw new Error("Supabase 500"); }) })))
+      .rejects.toMatchObject({ status: 503, message: "the project's earlier changesets could not be read (Supabase 500) — nothing was previewed" });
+    await expect(previewChangesets("demo", { bodies: [{ ...STOREY(), name: "" }] }, baseDeps())).rejects.toMatchObject({ status: 400 });
   });
 });
