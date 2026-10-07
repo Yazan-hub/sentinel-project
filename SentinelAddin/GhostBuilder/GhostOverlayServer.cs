@@ -27,7 +27,7 @@ namespace Sentinel.GhostBuilder
         /// <summary>New segments (a tick, a lock): the buffers are rebuilt on the next frame.</summary>
         public void Update(List<GhostOverlayGeometry.Segment> segments) { _segments = segments ?? new List<GhostOverlayGeometry.Segment>(); Drop(); }
         public int Count => _segments.Count;
-        private void Drop() { _vb?.Dispose(); _ib?.Dispose(); _vb = null; _ib = null; }
+        private void Drop() { _vb?.Dispose(); _ib?.Dispose(); _format?.Dispose(); _effect?.Dispose(); _vb = null; _ib = null; _format = null; _effect = null; }
 
         public Guid GetServerId() => _id;
         public ExternalServiceId GetServiceId() => ExternalServices.BuiltInExternalServices.DirectContext3DService;
@@ -37,7 +37,7 @@ namespace Sentinel.GhostBuilder
         public string GetApplicationId() => "";
         public string GetSourceId() => "";
         public bool UsesHandles() => false;
-        public bool CanExecute(View view) => view is View3D && view.Document != null && view.Document.Equals(_doc) && _segments.Count > 0;
+        public bool CanExecute(View view) => view is View3D && _doc.IsValidObject && view.Document != null && view.Document.Equals(_doc) && _segments.Count > 0;
         public bool UseInTransparentPass(View view) => false;
         public Outline GetBoundingBox(View view)
         {

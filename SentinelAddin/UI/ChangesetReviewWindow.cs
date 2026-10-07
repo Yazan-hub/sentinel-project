@@ -38,7 +38,7 @@ public sealed class ChangesetReviewWindow : Window
     public event Action<List<(ChangesetElementDto El, bool Ticked, bool Locked)>> TicksChanged;
     /// <summary>MA-3c: every row's state, for the ghost overlay — locked = a declined row (its box disabled).</summary>
     public List<(ChangesetElementDto El, bool Ticked, bool Locked)> RowStates() => _rows.Select(r => (r.El, r.Box.IsChecked == true, !r.Box.IsEnabled)).ToList();
-    /// <summary>MA-3c: Apply was pressed — the overlay goes (the elements exist from here).</summary>
+    /// <summary>MA-3c: Apply was pressed — the overlay goes; a Reopen draws it again.</summary>
     public bool Applied => _applied;
     private void Ticks() => TicksChanged?.Invoke(RowStates());
 
@@ -361,7 +361,7 @@ public sealed class ChangesetReviewWindow : Window
 
     /// <summary>Review C3, M3: nothing was placed after all (a "Go back", a refusal inside the placement, a request Revit did not take) —
     /// Apply comes back with the ticks and the note. Any thread.</summary>
-    public void Reopen(string words) => Ui(() => { _applied = false; _go.IsEnabled = true; Reasons(false); Say(words); });
+    public void Reopen(string words) => Ui(() => { _applied = false; _go.IsEnabled = true; Reasons(false); Say(words); Ticks(); }); // MA-3c review: the overlay comes back
 
     /// <summary>Review C3: rows declined on the web after the window opened — unticked and locked, as the rows declined before it opened. Any thread.</summary>
     public void Lock(IEnumerable<string> guids)

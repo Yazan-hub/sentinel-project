@@ -1,7 +1,7 @@
 #nullable disable
 // MA-3c — the ghost overlay's geometry: what a review's proposed CREATE would be, as line segments in millimetres in the model's
 // internal frame — the same points the executor places from (ChangesetExecutor: a wall's LocationCurve and its base/top, a floor's
-// Boundary, a grid's line, a door's Location), so what is drawn is what Apply would make. Pure: no Revit types, pinned by
+// LocationLoop on its level, a roof's Boundary at level + BaseOffset, a ceiling's at level + Offset, a grid's line, a door's Location), so what is drawn is what Apply would make. Pure: no Revit types, pinned by
 // tools/promote-check. A retype, an attach, a type edit or a level draws nothing — its element exists (Show selects it) or has no shape.
 using System;
 using System.Collections.Generic;
@@ -26,7 +26,11 @@ namespace Sentinel.GhostBuilder
 
         public static bool IsCreate(ChangesetElementDto el) => el != null && el.Op == "create" && el.Place != null;
 
-        public static List<Segment> Segments(ChangesetElementDto el, bool ticked, bool locked)
+        /// <summary>Review: a create the overlay can draw — a level is a create with no shape.</summary>
+        public static bool Drawable(ChangesetElementDto el) => IsCreate(el) && el.Kind != "level";
+
+        /// <summary><paramref name="levelMm"/>: the elevation (mm) of the level the executor resolves for this create, read on the API thread.</summary>
+        public static List<Segment> Segments(ChangesetElementDto el, bool ticked, bool locked, double? levelMm = null)
         {
             var segs = new List<Segment>();
             if (!IsCreate(el)) return segs;
@@ -39,7 +43,7 @@ namespace Sentinel.GhostBuilder
                 case "wall":
                 {
                     var c = p.LocationCurve; if (c == null || !Ok(c.Start) || !Ok(c.End)) return segs;
-                    double z0 = p.BaseElevation ?? Z(c.Start, p), z1 = p.TopElevation ?? z0 + SketchHeightMm;
+                    double z0 = p.BaseElevation ?? levelMm ?? Z(c.Start, p), z1 = p.TopElevation ?? z0 + SketchHeightMm;
                     var pts = Ok(c.Mid) ? Arc(c.Start, c.Mid, c.End) : new List<double[]> { c.Start, c.End };
                     for (int i = 0; i + 1 < pts.Count; i++) { segs.Add(Seg(pts[i], z0, pts[i + 1], z0)); segs.Add(Seg(pts[i], z1, pts[i + 1], z1)); }
                     segs.Add(Seg(c.Start, z0, c.Start, z1));
@@ -48,9 +52,11 @@ namespace Sentinel.GhostBuilder
                 }
                 case "floor": case "ceiling": case "roof":
                 {
-                    var loop = (p.Boundary ?? p.LocationLoop)?.Where(Ok).ToList();
+                    // Review: the executor's sources — a floor's LocationLoop on its level; a roof's Boundary at level + BaseOffset; a
+                    // ceiling's Boundary at level + Offset (its height above the level).
+                    var loop = (el.Kind == "floor" ? p.LocationLoop : p.Boundary)?.Where(Ok).ToList();
                     if (loop == null || loop.Count < 2) return segs;
-                    double z = p.BaseElevation ?? Z(loop[0], p);
+                    double z = (levelMm ?? p.BaseElevation ?? Z(loop[0], p)) + (el.Kind == "roof" ? p.BaseOffset ?? 0 : el.Kind == "ceiling" ? p.Offset ?? 0 : 0);
                     for (int i = 0; i < loop.Count; i++) segs.Add(Seg(loop[i], z, loop[(i + 1) % loop.Count], z));
                     return segs;
                 }
@@ -74,8 +80,8 @@ namespace Sentinel.GhostBuilder
         }
 
         /// <summary>Every segment of a review, from its rows' states.</summary>
-        public static List<Segment> All(IEnumerable<(ChangesetElementDto El, bool Ticked, bool Locked)> rows) =>
-            (rows ?? Array.Empty<(ChangesetElementDto, bool, bool)>()).SelectMany(x => Segments(x.El, x.Ticked, x.Locked)).ToList();
+        public static List<Segment> All(IEnumerable<(ChangesetElementDto El, bool Ticked, bool Locked)> rows, Func<ChangesetElementDto, double?> levelMm = null) =>
+            (rows ?? Array.Empty<(ChangesetElementDto, bool, bool)>()).SelectMany(x => Segments(x.El, x.Ticked, x.Locked, levelMm?.Invoke(x.El))).ToList();
 
         /// <summary>The least and greatest corner (mm) of the segments, or null when there are none.</summary>
         public static double[][] Bounds(IReadOnlyList<Segment> segs)
@@ -85,10 +91,11 @@ namespace Sentinel.GhostBuilder
             return new[] { new[] { pts.Min(q => q[0]), pts.Min(q => q[1]), pts.Min(q => q[2]) }, new[] { pts.Max(q => q[0]), pts.Max(q => q[1]), pts.Max(q => q[2]) } };
         }
 
-        /// <summary>The overlay's line for the window: how many outlines, in which colours.</summary>
+        /// <summary>The overlay's line for the window: <paramref name="drawn"/> of the <paramref name="creates"/> drawable creates outlined.</summary>
         public static string Line(int creates, int drawn) => creates == 0
             ? "No ghost to draw: this review proposes no create (a retype or attach changes an element that exists — Show selects it)."
-            : $"{drawn} outline(s) of {creates} proposed create(s) drawn in this model's 3D views — ticked green, unticked grey, declined red; nothing is written. Open a 3D view to see them; they go when this window closes or Apply places them.";
+            : drawn == 0 ? $"No ghost to draw: the {creates} proposed create(s) carry no points to draw from."
+            : $"{drawn} of {creates} proposed create(s) outlined in this model's 3D views — ticked green, unticked grey, declined red; nothing is written. Open a 3D view to see them; they go when this window closes or Apply places them.";
 
         static double Z(double[] q, PlaceDto p) => q.Length >= 3 ? q[2] : p.BaseElevation ?? 0;
         static double[] At(double[] q, double z) => new[] { q[0], q[1], z };

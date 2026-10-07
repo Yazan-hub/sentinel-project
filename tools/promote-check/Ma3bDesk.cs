@@ -272,7 +272,7 @@ static partial class Check
            && review.Contains("if (!interim) App.Events.Enqueue(_ => TaskDialog.Show(Title, words));") && Count(review, "window.Say(") == 3 // MA-3b2b: no DocPin, no swallowed refusal
            && review.Contains("App.Events.Enqueue(ua => handler.Execute(ua), \"apply the proposals\");") && Count(review, "handler.Completed -= onDone;") == 2,
            "review C2, M3 (SEC-7): a window closed before Apply places nothing; words for a closed window go to the Doctor log and a dialog, never lost; an Apply that threw before it was queued gives Apply back, said — a raise Revit does not take is the hub's to hold and say");
-        Ok(window.Contains("public void Reopen(string words) => Ui(() => { _applied = false; _go.IsEnabled = true; Reasons(false); Say(words); });") && window.Contains("public void Lock(IEnumerable<string> guids)")
+        Ok(window.Contains("public void Reopen(string words) => Ui(() => { _applied = false; _go.IsEnabled = true; Reasons(false); Say(words); Ticks(); });") && window.Contains("public void Lock(IEnumerable<string> guids)")
            && At(review, "window.Lock(") > At(review, "if (ChangesetTrust.DeclinedTicked(fresh, ticked) is { } declinedTicked)") && At(review, "window.Lock(") < At(review, "window.Refused(declinedTicked);")
            && review.Contains("else window.Reopen(result.Error + ") && !review.Contains("— run Review AI Proposals again.")
            && window.Contains("foreach (var r in _rows.Where(x => x.Box.IsEnabled)) r.Box.IsChecked = ChangesetTrust.PreTick(_cs, r.El);"),
