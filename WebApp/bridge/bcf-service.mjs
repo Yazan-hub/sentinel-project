@@ -62,7 +62,7 @@ const warnNullOrigin = (referer) => {
   nullOriginSeen.add(from);
   console.warn(`[bridge] refused Origin: null from Referer ${from} — if that is the platform's app frame, add it to BCF_CORS_ORIGIN`);
 };
-// EIR/BEP documents are text, not IFC models — cap far below the 2 GB upload cap so one huge upload can't hold
+// EIR/BEP documents are text, not IFC models — cap far below the model upload cap (request-limits uploadCap) so one huge upload can't hold
 // an ingest request open indefinitely feeding sequential local-model calls (see MAX_INGEST_CHUNKS in bimdocs-ingest.mjs).
 const MAX_DOC_UPLOAD = (Number(process.env.SENTINEL_MAX_DOC_MB) || 32) * 1024 * 1024;
 // Encrypted CDE attachments (POST /cde/files): drawings and documents, not models — far below the model upload cap (request-limits uploadCap). H0 (cde-8).
