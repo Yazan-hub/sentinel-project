@@ -29,7 +29,7 @@ Legend: ✅ shipped & verified · 🟠 in progress · ⬜ next · 🔭 later
 
 ### ⬜ Office-agnostic Base template & certification *(next)*
 - ~~A **Base ruleset** (naming + element IDS) that any office adopts and overlays~~ — built 2026-10-07: `base-standard@1.0.0` in Packs carries naming, a sheet rule, IDS, layers and the delivery contract (`config/base-standard/`, pinned equal); **Install on office** makes its projects inherit, and a project overlays by installing its own artefact of a kind (project → office). The BDS docs are the pilot's reference, not the product standard.
-- **BSI Kitemark / ISO 19650 attestation** and a public **BCF-API 3.0 / openCDE** endpoint (the loop runs internally already — this is the paperwork gap vs. certified CDEs).
+- **BSI Kitemark / ISO 19650 attestation** and a public **BCF-API 3.0 / openCDE** endpoint (the loop runs internally already — this is the paperwork gap vs. certified CDEs). Assessed 2026-10-07 — `docs/compliance/CERTIFICATION_READINESS_2026-10.md`: a Kitemark is the customer organisation's, with Sentinel as its CDE (every 19650-2 clause has its function; three paperwork gaps — BEP/TIDP artefacts, a written procedure, an evidence-pack export); openCDE is a product conformance, 5 of ~30 BCF-API 3.0 operations served today — seven ordered slices in the document, openCDE reads first.
 
 ### 🟠 Production readiness *(in progress)*
 - ~~Retire the service-key fallback in favour of forwarded-JWT writes~~ — superseded: since 0034/0037/0038 (SEC-1) the **database refuses signed-in direct writes** to the governed stores and the bridge is their only writer, after its own role check; the service key is the bridge's write path by design, and a person's JWT is forwarded for every read and for the stores a person may write.
