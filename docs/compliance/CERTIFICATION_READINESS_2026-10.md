@@ -65,7 +65,7 @@ Conformance is then provable with buildingSMART's public BCF-API test suite, run
 
 | # | Slice | Size | Why this order |
 |---|---|---|---|
-| 1 | **openCDE reads** — C1, C3, C4, C5 (`GET`), C6 (`GET`), C7 (`GET` + snapshot), C8, C10 | M | reads only; no new store; makes an off-the-shelf BCF client (BIMcollab Zoom, Solibri, Revizto) open Sentinel's issues |
+| 1 | **openCDE reads** — C1, C3, C4, C5 (`GET`), C6 (`GET`), C7 (`GET` + snapshot), C8, C10 — **built 2026-10-08** (`WebApp/bridge/bcf-open.mjs`: versions, current-user, projects, extensions, one topic, comments, viewpoints with snapshot/selection/coloring/visibility, files; `$filter`/`$skip`/`$top` on the lists; GET only, a write is a 405 in words) | M | reads only; no new store; makes an off-the-shelf BCF client (BIMcollab Zoom, Solibri, Revizto) open Sentinel's issues |
 | 2 | **openCDE writes + auth** — C2, C5 (`DELETE` = close), C6 (`PUT`/`DELETE`), C7 (`DELETE`), C9 | M | the ledger already records each; the auth document decides the OAuth2 shape |
 | 3 | **Conformance run** — the buildingSMART BCF-API test suite against the Funnel; the report filed under `docs/compliance/` | S | the proof, and the openCDE listing's prerequisite |
 | 4 | **BEP / TIDP artefacts** (G1) — `bep@n`, `tidp@n` kinds, project → office, read by the Next strip and the MIDP checks | S | closes 5.2–5.4 for the assessor |
