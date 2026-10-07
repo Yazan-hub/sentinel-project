@@ -449,8 +449,9 @@ describe("The E2E keystore (cde-4, cde-rem-5): set up and replaced by a lead", (
     seedDoc("keystore", "keystore", { ...KS, v: 2, kid: 3 });
     expect(await call("PUT", "/cde/demo/keystore", "lead", { ...KS, v: 2, kid: 2, replaces: KS.wrapped_dek }))
       .toEqual({ status: 409, body: { message: "the keystore's key id would go back from 3 to 2 — a file sealed under key 3 would be unreadable; nothing was saved" } });
-    expect(await call("PUT", "/cde/demo/keystore", "lead", { ...KS, kid: 0, replaces: KS.wrapped_dek }))
-      .toEqual({ status: 400, body: { message: "a keystore's kid is a whole number from 1 — nothing was saved" } });
+    for (const kid of [0, "5", true])
+      expect(await call("PUT", "/cde/demo/keystore", "lead", { ...KS, kid, replaces: KS.wrapped_dek }))
+        .toEqual({ status: 400, body: { message: "a keystore's kid is a whole number from 1 — nothing was saved" } });
     expect(writes("bridge_docs")).toEqual([]);
     const next = { ...KS, v: 2, kid: 4, wrapped_dek: "a2V5LTQ", retired: { kid: 3, wrap_iv: "aXY", wrapped_dek: "a2V5LTM" }, rotating: { from: 3, to: 4, done: 0, total: 0 } };
     expect(await call("PUT", "/cde/demo/keystore", "lead", { ...next, replaces: KS.wrapped_dek })).toEqual({ status: 200, body: { ok: true } });

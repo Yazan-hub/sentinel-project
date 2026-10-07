@@ -584,12 +584,16 @@ export async function listContainers(key) {
  *  Deleted items included — what a key rotation re-seals. A file_ref that is not an encrypted file's reference is passed over. */
 export async function listBlobRefs(key) {
   const proj = await ensureProject(key);
-  const rows = await sb(`information_containers?project_id=eq.${proj.id}&select=container_versions(file_ref)`);
+  // Paged past db-max-rows: a list cut short would let the walk retire a key a file left off it is still sealed under.
   const ids = new Set();
-  for (const c of Array.isArray(rows) ? rows : []) for (const v of c.container_versions || []) {
-    try { const id = JSON.parse(v.file_ref)?.id; if (typeof id === "string" && /^[A-Za-z0-9-]+$/.test(id)) ids.add(id); } catch { /* not an encrypted file's reference */ }
+  for (let offset = 0; ; offset += SNAP_PAGE) {
+    const rows = await sb(`information_containers?project_id=eq.${proj.id}&select=id,container_versions(file_ref)&order=id.asc&limit=${SNAP_PAGE}&offset=${offset}`);
+    const page = Array.isArray(rows) ? rows : [];
+    for (const c of page) for (const v of c.container_versions || []) {
+      try { const id = JSON.parse(v.file_ref)?.id; if (typeof id === "string" && /^[A-Za-z0-9-]+$/.test(id)) ids.add(id); } catch { /* not an encrypted file's reference */ }
+    }
+    if (page.length < SNAP_PAGE) return [...ids];
   }
-  return [...ids];
 }
 
 export async function createContainer(key, b) {

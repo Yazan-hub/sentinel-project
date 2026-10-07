@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
 
 const { downloadFile } = vi.hoisted(() => ({ downloadFile: vi.fn() }));
-vi.mock("./thatopen-client.mjs", () => ({ getConfig: () => ({ token: "t", projectId: "P", apiUrl: "u" }), createClient: () => ({ downloadFile }) }));
+vi.mock("./thatopen-client.mjs", () => ({ getConfig: () => ({ token: "t", projectId: "P", apiUrl: "u" }), createClient: () => ({ downloadFile }), loadEnv: () => ({}) }));
 const read = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8").replace(/\r/g, "");
 
 describe("SEC-8 judge-again: the platform's bytes at the tag the link recorded (downloadIfc, the SDK mocked)", () => {
@@ -40,5 +40,26 @@ describe("SEC-8 judge-again's route", () => {
     expect(lead).toBeLessThan(spend);
     expect(spend).toBeLessThan(body);
     expect(read("../../config/.env.template")).toMatch(/^# A model upload \(POST \/ifc, Governed Intake, the manifests backfill, judge-again\)/m);
+  });
+});
+
+describe("SEC-8 review: the rotation's list of encrypted files is read whole, page by page", () => {
+  it("a project with more containers than one database page holds (max-rows 1000) lists every blob id", async () => {
+    vi.resetModules();
+    process.env.SUPABASE_URL ||= "https://fixture.supabase.co";
+    process.env.SUPABASE_SERVICE_KEY ||= "fixture-service-key";
+    const P = "11111111-1111-4111-8111-111111111111";
+    const rows = Array.from({ length: 1001 }, (_, i) => ({ container_versions: [{ file_ref: JSON.stringify({ id: `blob-${i}` }) }] }));
+    const real = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      const u = new URL(String(url));
+      if (u.pathname.endsWith("/projects")) return new Response(JSON.stringify([{ id: P, key: "p" }]));
+      const offset = Number(u.searchParams.get("offset") || 0), limit = Math.min(Number(u.searchParams.get("limit") || 1e9), 1000);
+      return new Response(JSON.stringify(rows.slice(offset, offset + limit)));
+    };
+    try {
+      const { listBlobRefs } = await import("./cde-store.mjs");
+      expect((await listBlobRefs("p")).length).toBe(1001);
+    } finally { globalThis.fetch = real; }
   });
 });

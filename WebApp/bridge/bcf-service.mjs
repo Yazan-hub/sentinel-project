@@ -1665,7 +1665,7 @@ async function handleRequest(req, res) {
         // key id back — a stale tab or a second lead's rotation would otherwise leave the files sealed under the lost key
         // unreadable. Both are 409s in words; nothing is saved.
         const { replaces, ...next } = ks;
-        const kidOf = (k) => Number(k?.kid ?? 1);
+        const kidOf = (k) => k?.kid ?? 1; // a number as stored: "5" would read back as a string the web adds 1 to
         if (!Number.isSafeInteger(kidOf(next)) || kidOf(next) < 1) return send(res, 400, { message: "a keystore's kid is a whole number from 1 — nothing was saved" });
         const cur = await cde.docGet("keystore", p1, "keystore");
         if (cur && replaces !== cur.wrapped_dek)
