@@ -32,6 +32,7 @@ const MEMBERS = [
   { project_id: P_OFF, user_id: "u-view", role: "viewer" },
   { project_id: P_LONE, user_id: "u-owner", role: "owner" },
 ];
+const sec9 = { kid: undefined, containers: [{ id: "00000000-0000-4000-8000-0000000000c1", project_id: P_OFF }], wrote: [] }; // SEC-9: the keystore's kid, containers, rows written
 const seen = []; // "METHOD /rest/v1/…" for every call the fake PostgREST answered
 
 const part = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
@@ -49,12 +50,21 @@ function fakePostgrest(req, res) {
   const json = (code, b) => { res.writeHead(code, { "Content-Type": "application/json" }); res.end(JSON.stringify(b)); };
   if (!u.pathname.startsWith("/rest/v1/")) return json(404, {}); // the JWKS fetch at start-up: none here
   seen.push(decodeURIComponent(`${req.method} ${u.pathname}${u.search}`));
+  if (req.method === "POST" && /^(information_containers|container_versions)$/.test(u.pathname.slice("/rest/v1/".length))) {
+    let raw = ""; // SEC-9: a created row is answered back (and noted), as return=representation does
+    req.on("data", (d) => { raw += d; });
+    return req.on("end", () => { sec9.wrote.push(u.pathname.slice("/rest/v1/".length)); json(201, [{ id: randomUUID(), ...JSON.parse(raw || "{}") }]); });
+  }
   if (req.method !== "GET") return json(200, []);
   const eq = (k) => (u.searchParams.get(k) || "").replace(/^eq\./, "");
   const path = u.pathname.slice("/rest/v1/".length);
   if (path === "projects" && u.searchParams.has("key")) return json(200, PROJECTS.filter((p) => p.key === eq("key")));
+  if (path === "projects" && u.searchParams.has("id") && /fake-service-key/.test(req.headers.authorization || "")) return json(200, PROJECTS.filter((p) => p.id === eq("id"))); // SEC-9: the service read containerProject makes
   if (path === "projects" && u.searchParams.has("id")) // forwarded: RLS shows a member their project, nobody else
     return json(200, MEMBERS.some((m) => m.project_id === eq("id") && m.user_id === subOf(req.headers.authorization)) ? [{ id: eq("id") }] : []);
+  if (path === "bridge_docs" && eq("store") === "keystore" && eq("project_id") === "p-office")
+    return json(200, sec9.kid === undefined ? [] : [{ data: { kid: sec9.kid } }]);
+  if (path === "information_containers" && u.searchParams.has("id")) return json(200, sec9.containers.filter((c) => c.id === eq("id")));
   if (path === "memberships" && u.searchParams.has("project_id"))
     return json(200, MEMBERS.filter((m) => m.project_id === eq("project_id")).map(({ user_id, role }) => ({ user_id, role })));
   if (path === "memberships" && u.searchParams.has("user_id"))
@@ -310,6 +320,51 @@ describe("SEC-8 (S38): PUT /cde/files/:id re-seals an encrypted file in place �
     const id = randomUUID();
     expect((await put(id, "x", "service")).status).toBe(404);
     expect(existsSync(join(folder(), `${id}.bin`))).toBe(false);
+  });
+});
+
+describe("SEC-9: a version's encrypted file must be sealed under the project's current key", () => {
+  const CID = "00000000-0000-4000-8000-0000000000c1";
+  const upload = async (bytes) => (await call("POST", "/cde/files?project=p-office", { as: "u-contrib", body: bytes, headers: { "Content-Type": "application/octet-stream" } })).json.id;
+  const ref = (id) => JSON.stringify({ id, name: "a.txt", size: 11, mime: "text/plain" });
+  const create = (file_ref) => call("POST", "/cde/p-office/containers", { as: "u-contrib", json: { iso_name: "SEC9-A", file_ref } });
+  const version = (file_ref) => call("POST", `/cde/containers/${CID}/versions`, { as: "u-contrib", json: { revision: "P0" + Math.floor(Math.random() * 1e9), file_ref } });
+  const wrote = () => sec9.wrote.length;
+  const key1 = "plain-key-1", key2 = Buffer.concat([Buffer.from([0x53, 0x4e, 0x4b, 0x01, 0, 0, 0, 2]), Buffer.from("iv+ct")]);
+  const KEY1_NOW2 = "this file is sealed under key 1, but the project's key is 2 — lock (🔓) and unlock again, then attach it again; nothing was saved";
+  afterAll(() => { sec9.kid = undefined; });
+
+  it("with the project on key 2, a file sealed under key 1 is a 409 in words for a new file and a new version, and nothing is written", async () => {
+    sec9.kid = 2;
+    const a = await upload(key1), before = wrote();
+    expect(await create(ref(a))).toMatchObject({ status: 409, json: { message: KEY1_NOW2 } });
+    expect(await version(ref(a))).toMatchObject({ status: 409, json: { message: KEY1_NOW2 } });
+    expect(wrote()).toBe(before);
+  });
+
+  it("a file sealed under key 2 is registered (201), as a new file and as a version", async () => {
+    sec9.kid = 2;
+    const b = await upload(key2);
+    expect((await create(ref(b))).status).toBe(201);
+    expect((await version(ref(b))).status).toBe(201);
+  });
+
+  it("a blob that is not in the project's folder is a 409 in words", async () => {
+    sec9.kid = 2;
+    expect(await create(JSON.stringify({ id: randomUUID() })))
+      .toMatchObject({ status: 409, json: { message: "the encrypted file this version names is not in the project's folder — upload it again; nothing was saved" } });
+  });
+
+  it("a file_ref that is not an encrypted file's reference is registered as before", async () => {
+    sec9.kid = 2;
+    expect((await create("not json")).status).toBe(201);
+    expect((await version("not json")).status).toBe(201);
+    expect((await create(undefined)).status).toBe(201);
+  });
+
+  it("with no keystore, a file with no header (key 1) is registered", async () => {
+    sec9.kid = undefined;
+    expect((await create(ref(await upload(key1)))).status).toBe(201);
   });
 });
 

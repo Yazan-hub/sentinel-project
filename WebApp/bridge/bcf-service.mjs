@@ -13,7 +13,7 @@
 //   POST   /bcf/3.0/projects/:pid/topics/:guid/viewpoints     add viewpoint { perspective_camera, components, ... }
 
 import { createServer } from "node:http";
-import { readFileSync, writeFileSync, renameSync, mkdirSync, readdirSync, statSync, existsSync, createReadStream, rmSync } from "node:fs";
+import { readFileSync, writeFileSync, renameSync, mkdirSync, readdirSync, statSync, existsSync, createReadStream, rmSync, openSync, readSync, closeSync } from "node:fs";
 import { join, dirname, basename, extname, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { pipeline } from "node:stream";
@@ -1154,6 +1154,29 @@ async function handleRequest(req, res) {
     }
   }
 
+// SEC-9: a version that names an encrypted file is registered only when that file is sealed under the project's current
+// key — the key id in the blob's 8-byte header (none: key 1) against the keystore's kid (none: 1). A session that unlocked
+// before a rotation would otherwise register a file the retiring key sealed; the web asks the same after its upload
+// (secure-store's assertCurrentKey), the bridge now asks for every caller. A file_ref that is not an encrypted file's
+// reference is passed over. A 409 in words; nothing is saved.
+const HEADER = Buffer.from([0x53, 0x4e, 0x4b, 0x01]);
+async function assertSealedUnderCurrentKey(cde, proj, file_ref) {
+  let id = null;
+  try { id = JSON.parse(file_ref)?.id; } catch { return; }
+  if (typeof id !== "string" || !/^[A-Za-z0-9-]+$/.test(id)) return;
+  const file = join(CDE_FILES_ROOT, proj.id, `${basename(id)}.bin`);
+  if (!existsSync(file)) throw Object.assign(new Error("the encrypted file this version names is not in the project's folder — upload it again; nothing was saved"), { status: 409 });
+  const head = Buffer.alloc(8);
+  const fd = openSync(file, "r");
+  let n = 0;
+  try { n = readSync(fd, head, 0, 8, 0); } finally { closeSync(fd); }
+  const sealed = n === 8 && head.subarray(0, 4).equals(HEADER) ? head.readUInt32BE(4) : 1;
+  const ks = await cde.docGet("keystore", proj.key, "keystore");
+  const current = Number.isSafeInteger(ks?.kid) ? ks.kid : 1;
+  if (sealed !== current)
+    throw Object.assign(new Error(`this file is sealed under key ${sealed}, but the project's key is ${current} — lock (🔓) and unlock again, then attach it again; nothing was saved`), { status: 409 });
+}
+
   // ── Encrypted file blobs (Phase 2, private CDE): POST /cde/files?project=<key> · GET /cde/files/:id?project=<key> ──
   // The body is already AES-GCM ciphertext (IV‖ct) from the browser; we store/serve opaque bytes only. Each blob lives
   // in its project's folder (CDE_FILES_ROOT/<project id>/<id>.bin): storing one spends the founder's disk, so the
@@ -1324,7 +1347,11 @@ async function handleRequest(req, res) {
       }
       if (p2 === "containers" && !p3) {
         if (req.method === "GET") return send(res, 200, await cde.listContainers(p1));
-        if (req.method === "POST") return send(res, 201, await cde.createContainer(p1, await readBody(req)));
+        if (req.method === "POST") {
+          const body = await readBody(req);
+          if (body?.file_ref) await assertSealedUnderCurrentKey(cde, await cde.ensureProject(p1), body.file_ref);
+          return send(res, 201, await cde.createContainer(p1, body));
+        }
       }
       // File versioning (migration 0011): a file = a container, each upload = a version, one `is_live` pointer.
       //   GET  /cde/:key/files                          → files + version history (newest first, live flagged)
@@ -1692,7 +1719,12 @@ async function handleRequest(req, res) {
         if (req.method === "POST") return send(res, 201, await cde.createTransmittal(p1, await readBody(req)));
       }
       if (p1 === "containers" && p3 === "versions" && req.method === "POST") {
-        return send(res, 201, await cde.addVersion(p2, await readBody(req)));
+        const body = await readBody(req);
+        if (body?.file_ref) {
+          const proj = await cde.containerProject(p2);
+          if (proj) await assertSealedUnderCurrentKey(cde, proj, body.file_ref);
+        }
+        return send(res, 201, await cde.addVersion(p2, body));
       }
       // override: the lead's reason to publish a version with no accepted verdict that measured something, passed
       // through as given (a non-string is a 400); cde_transition (0031) takes it only from a signed-in lead. A refusal
