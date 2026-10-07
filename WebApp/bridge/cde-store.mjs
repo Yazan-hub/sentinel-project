@@ -596,6 +596,16 @@ export async function listBlobRefs(key) {
   }
 }
 
+/** SEC-9: the project a container belongs to ({ id, key }) — what the versions route needs to read the project's keystore
+ *  and its blob folder. Null when the container is unknown (the route's own 404 follows). */
+export async function containerProject(container_id) {
+  if (!isUuid(container_id)) return null;
+  const [c] = (await sb(`information_containers?id=eq.${container_id}&select=project_id`)) || [];
+  if (!c?.project_id) return null;
+  const [p] = (await sb(`projects?id=eq.${c.project_id}&select=id,key`, { service: true })) || [];
+  return p ? { id: p.id, key: p.key } : null;
+}
+
 export async function createContainer(key, b) {
   const proj = await ensureProject(key);
   const c = (await sb(`information_containers`, {

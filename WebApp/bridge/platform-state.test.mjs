@@ -52,13 +52,14 @@ describe("stateLabels — read, merge, write; never backwards", () => {
 });
 
 describe("mirrorState — the state onto the .frag's only version", () => {
-  let version, stateRow, client, log, sb;
+  let version, stateRow, client, log, sb, linkRow;
   const deps = () => ({ sb, platform: vi.fn(async () => client), log });
   beforeEach(() => {
     process.env.SENTINEL_PLATFORM_STATE = "on";
     version = { id: V, state: "shared", platform_item_id: ITEM, information_containers: { project_id: P } };
+    linkRow = null;
     stateRow = { id: 812, new_value: { state: "shared", note: null } };
-    sb = vi.fn(async (path) => (path.startsWith("container_versions") ? [version].filter(Boolean) : path.startsWith("audit_log") ? [stateRow].filter(Boolean) : []));
+    sb = vi.fn(async (path) => (path.startsWith("container_versions") ? [version].filter(Boolean) : path.startsWith("audit_log") && path.includes("geometry") ? [linkRow].filter(Boolean) : path.startsWith("audit_log") ? [stateRow].filter(Boolean) : []));
     client = {
       listVersions: vi.fn(async () => [{ itemId: ITEM, tag: "v1", createdAt: "2026-09-29T10:00:00Z" }]),
       getFile: vi.fn(async () => ({ _id: ITEM, name: "Tower.frag", fileExtension: "frag" })),
@@ -143,13 +144,31 @@ describe("mirrorState — the state onto the .frag's only version", () => {
     expect(client.updateFileVersionMetadata).not.toHaveBeenCalled();
   });
 
-  it("two versions (or none) on the item: the tag is not known, nothing is written", async () => {
-    for (const list of [[{ tag: "v2" }, { tag: "v1" }], [], null]) {
+  it("two versions and a link row that recorded a tag: the item is labelled at that tag", async () => {
+    client.listVersions = vi.fn(async () => [{ tag: "v2" }, { tag: "v1" }]);
+    linkRow = { new_value: { version_tag: "v2" } };
+    expect(await mirrorState(V, deps())).toMatchObject({ mirrored: true, tag: "v2" });
+    expect(client.getFileVersionMetadata).toHaveBeenCalledWith(ITEM, "v2");
+  });
+
+  it("two versions (or none) and no recorded tag: the tag is not known, nothing is written", async () => {
+    const re = (n) => new RegExp(`${n} versions, not one, and the ledger's link recorded no tag — the tag is not known$`);
+    for (const [list, link, n] of [[[{ tag: "v2" }, { tag: "v1" }], null, "2"], [[{ tag: "v2" }, { tag: "v1" }], { new_value: {} }, "2"], [[], null, "0"], [null, null, "no list of"]]) {
       client.listVersions = vi.fn(async () => list);
+      linkRow = link;
       const r = await mirrorState(V, deps());
       expect(r).toMatchObject({ mirrored: false });
-      expect(r.reason).toMatch(/not one — the tag is not known$/);
+      expect(r.reason).toMatch(re(n));
     }
+    expect(client.updateFileVersionMetadata).not.toHaveBeenCalled();
+  });
+
+  it("a recorded tag the platform no longer serves is said, nothing is written", async () => {
+    client.listVersions = vi.fn(async () => [{ tag: "v2" }, { tag: "v1" }]);
+    linkRow = { new_value: { version_tag: "v9" } };
+    const r = await mirrorState(V, deps());
+    expect(r).toMatchObject({ mirrored: false });
+    expect(r.reason).toMatch(/the platform no longer serves version tag "v9" of the item — not mirrored$/);
     expect(client.updateFileVersionMetadata).not.toHaveBeenCalled();
   });
 

@@ -148,7 +148,8 @@ async function reseal(url: string, projectKey: string, id: string, to: number): 
   if (sealed !== to) throw new Error(`this session seals under key ${sealed}, not key ${to} — lock (🔓) and unlock again; the stored file is unchanged`);
   const back = new Uint8Array(await decryptBytes(projectKey, next.buffer as ArrayBuffer)), want = new Uint8Array(plain);
   if (back.length !== want.length || !back.every((b, i) => b === want[i])) throw new Error("the re-sealed copy did not open to the same bytes — the stored file is unchanged");
-  const put = await bfetch(`${url}&sha256=${await sha256Hex(next.buffer as ArrayBuffer)}`, { method: "PUT", headers: { "Content-Type": "application/octet-stream" }, body: next.buffer as ArrayBuffer });
+  // SEC-9: the bridge replaces only the bytes this walker read.
+  const put = await bfetch(`${url}&sha256=${await sha256Hex(next.buffer as ArrayBuffer)}&replaces=${await sha256Hex(old)}`, { method: "PUT", headers: { "Content-Type": "application/octet-stream" }, body: next.buffer as ArrayBuffer });
   if (!put.ok) throw new Error(await failure(put, "Re-seal"));
   await cachePut(id, next.buffer as ArrayBuffer);
 }

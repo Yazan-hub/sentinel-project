@@ -13,7 +13,7 @@
 //   POST   /bcf/3.0/projects/:pid/topics/:guid/viewpoints     add viewpoint { perspective_camera, components, ... }
 
 import { createServer } from "node:http";
-import { readFileSync, writeFileSync, renameSync, mkdirSync, readdirSync, statSync, existsSync, createReadStream, rmSync } from "node:fs";
+import { readFileSync, writeFileSync, renameSync, mkdirSync, readdirSync, statSync, existsSync, createReadStream, rmSync, openSync, readSync, closeSync } from "node:fs";
 import { join, dirname, basename, extname, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { pipeline } from "node:stream";
@@ -625,6 +625,32 @@ async function publicReceiptVerify(req, res, url) {
 
 /** H0 (D2): an upload that spends the founder's platform storage or disk names its project in the query, and the caller
  *  is checked against that project (members-store requireSpend) before one byte of the body is read. */
+// SEC-9: a version that names an encrypted file is registered only when that file is sealed under the project's current
+// key — the key id in the blob's 8-byte header (none: key 1) against the keystore's kid (none: 1). A session that unlocked
+// before a rotation would otherwise register a file the retiring key sealed; the web asks the same after its upload
+// (secure-store's assertCurrentKey), the bridge now asks for every caller. A file_ref that is not an encrypted file's
+// reference is passed over. A 409 in words; nothing is saved.
+const HEADER = Buffer.from([0x53, 0x4e, 0x4b, 0x01]);
+async function assertSealedUnderCurrentKey(cde, proj, file_ref) {
+  let id = null;
+  // a file_ref sent as a JSON object is stored as its JSON text (text column), so it is asked the same
+  const text = typeof file_ref === "string" ? file_ref : JSON.stringify(file_ref);
+  try { id = JSON.parse(text)?.id; } catch { return; }
+  if (typeof id !== "string" || !/^[A-Za-z0-9-]+$/.test(id)) return;
+  const file = join(CDE_FILES_ROOT, proj.id, `${basename(id)}.bin`);
+  if (!existsSync(file)) throw Object.assign(new Error("the encrypted file this version names is not in the project's folder — upload it again; nothing was saved"), { status: 409 });
+  const head = Buffer.alloc(8);
+  const fd = openSync(file, "r");
+  let n = 0;
+  try { n = readSync(fd, head, 0, 8, 0); } finally { closeSync(fd); }
+  const sealed = n === 8 && head.subarray(0, 4).equals(HEADER) ? head.readUInt32BE(4) : 1;
+  const ks = await cde.docGet("keystore", proj.key, "keystore");
+  const current = Number.isSafeInteger(ks?.kid) ? ks.kid : 1;
+  if (sealed !== current)
+    throw Object.assign(new Error(`this file is sealed under key ${sealed}, but the project's key is ${current} — lock (🔓) and unlock again, then attach it again; nothing was saved`), { status: 409 });
+}
+
+
 async function requireSpendFor(key, param) {
   if (!key) throw Object.assign(new Error(`name the project: ?${param}=<project key> — nothing was uploaded`), { status: 400 });
   if (!(await import("./cde-store.mjs")).cdeConfigured())
@@ -1202,20 +1228,29 @@ async function handleRequest(req, res) {
   // reference (its version's file_ref) is frozen with the version (0041), so the blob keeps its id and only its bytes change.
   // A lead's (the rotation is), on a blob already in the project's folder, asked before the body is read; the body must hash to
   // the sha256 named, or nothing is replaced. The new bytes are written whole (flushed) beside the old blob, then renamed over
-  // it: a failed step leaves the old blob as it was.
+  // it: a failed step leaves the old blob as it was. SEC-9: only during a rotation, and only over the bytes named by `replaces`.
   if (fm && req.method === "PUT") {
     try {
       const key = url.searchParams.get("project");
-      if (!key) return send(res, 400, { message: "name the project: PUT /cde/files/<id>?project=<project key>&sha256=<hex>" });
+      if (!key) return send(res, 400, { message: "name the project: PUT /cde/files/<id>?project=<project key>&sha256=<hex>&replaces=<hex>" });
       const cde = await import("./cde-store.mjs");
       if (!cde.cdeConfigured()) return send(res, 503, { message: "CDE not configured — encrypted files are stored per project, so the bridge needs SUPABASE_URL + SUPABASE_SERVICE_KEY." });
       await (await import("./members-store.mjs")).requireMinRole(key, "lead");
       const file = join(CDE_FILES_ROOT, (await cde.ensureProject(key)).id, `${basename(fm[1])}.bin`);
       if (!existsSync(file)) return send(res, 404, { message: "Blob not found in this project's folder — nothing was replaced" });
+      // SEC-9: a re-seal happens only during a key rotation (the keystore keeps a retired key), and only over the bytes the
+      // walker read (`replaces`: their sha256) — a slow walker's PUT never lands over a newer rotation's re-seal of the file,
+      // and outside a rotation a frozen version's bytes are nobody's to replace.
+      const ks = await cde.docGet("keystore", key, "keystore");
+      if (!ks?.retired) return send(res, 409, { message: "no key rotation is under way for this project (the keystore keeps no retired key) — an encrypted file is re-sealed only during one; the stored file is unchanged" });
+      const replaces = String(url.searchParams.get("replaces") || "").toLowerCase();
+      if (!/^[0-9a-f]{64}$/.test(replaces)) return send(res, 400, { message: "name the sha256 of the stored bytes this re-seal replaces: PUT /cde/files/<id>?project=<project key>&sha256=<hex of the new bytes>&replaces=<hex of the old>; the stored file is unchanged" });
       holdUpload(req, res, currentSub()); // held until this answer is done
       const bytes = await readRaw(req, { max: MAX_BLOB });
       if (!bytes.length || createHash("sha256").update(bytes).digest("hex") !== String(url.searchParams.get("sha256") || "").toLowerCase())
         return send(res, 400, { message: "the re-sealed file did not arrive whole (its sha256 is not the one named) — the stored file is unchanged" });
+      if (createHash("sha256").update(readFileSync(file)).digest("hex") !== replaces)
+        return send(res, 409, { message: "the stored file changed since it was read (another walk re-sealed it) — read it again; the stored file is unchanged" });
       const next = `${file}.${randomUUID()}.next`;
       try { writeFileSync(next, bytes, { flush: true }); renameSync(next, file); }
       finally { rmSync(next, { force: true }); }
@@ -1324,7 +1359,11 @@ async function handleRequest(req, res) {
       }
       if (p2 === "containers" && !p3) {
         if (req.method === "GET") return send(res, 200, await cde.listContainers(p1));
-        if (req.method === "POST") return send(res, 201, await cde.createContainer(p1, await readBody(req)));
+        if (req.method === "POST") {
+          const body = await readBody(req);
+          if (body?.file_ref) await assertSealedUnderCurrentKey(cde, await cde.ensureProject(p1), body.file_ref);
+          return send(res, 201, await cde.createContainer(p1, body));
+        }
       }
       // File versioning (migration 0011): a file = a container, each upload = a version, one `is_live` pointer.
       //   GET  /cde/:key/files                          → files + version history (newest first, live flagged)
@@ -1333,7 +1372,11 @@ async function handleRequest(req, res) {
       //   POST /cde/:key/files/set-live  { version_id, actor? }  → flip the live pointer to another version.
       if (p2 === "files" && !p3) {
         if (req.method === "GET") return send(res, 200, await cde.listFiles(p1));
-        if (req.method === "POST") return send(res, 201, await cde.registerFileVersion(p1, await readBody(req)));
+        if (req.method === "POST") {
+          const body = await readBody(req);
+          if (body?.file_ref) await assertSealedUnderCurrentKey(cde, await cde.ensureProject(p1), body.file_ref);
+          return send(res, 201, await cde.registerFileVersion(p1, body));
+        }
       }
       if (p2 === "files" && p3 === "set-live" && req.method === "POST") {
         const b = await readBody(req);
@@ -1692,7 +1735,12 @@ async function handleRequest(req, res) {
         if (req.method === "POST") return send(res, 201, await cde.createTransmittal(p1, await readBody(req)));
       }
       if (p1 === "containers" && p3 === "versions" && req.method === "POST") {
-        return send(res, 201, await cde.addVersion(p2, await readBody(req)));
+        const body = await readBody(req);
+        if (body?.file_ref) {
+          const proj = await cde.containerProject(p2);
+          if (proj) await assertSealedUnderCurrentKey(cde, proj, body.file_ref);
+        }
+        return send(res, 201, await cde.addVersion(p2, body));
       }
       // override: the lead's reason to publish a version with no accepted verdict that measured something, passed
       // through as given (a non-string is a 400); cde_transition (0031) takes it only from a signed-in lead. A refusal

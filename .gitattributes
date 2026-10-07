@@ -18,3 +18,5 @@
 # Fixtures `npm test` rewrites with LF (JSON.stringify): pinned to LF so a rewrite on a CRLF checkout is no change.
 WebApp/src/sentinel-core/fixtures/*.json text eol=lf
 WebApp/bridge/fixtures/*.json            text eol=lf
+# `npm run build:bridge-core` writes the bundle with LF; pinned so a rebuild on a CRLF checkout is no change.
+WebApp/bridge/sentinel-core.mjs text eol=lf
