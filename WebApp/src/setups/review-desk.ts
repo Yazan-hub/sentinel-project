@@ -307,9 +307,9 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
       say("Highlight cleared.");
     } catch (e) { say(`Clearing failed — ${(e as Error).message}`, true); }
   };
-  // MA-3d2: Show creates in 3D — each changeset's proposal model (the bridge's .frag of its creates) loaded beside what is loaded,
-  // every item orange; Hide creates disposes them. Model ids "proposal:<changeset id>" — never a version's.
-  const proposalId = (csId: string) => `proposal:${csId}`;
+  // MA-3d2: Show creates in 3D — the storey's proposal model (the bridge's .frag of its parts' creates, MA-3d3: one per storey)
+  // loaded beside what is loaded, every item orange; Hide creates disposes it. Model ids "proposal:storey:<storey>" — never a version's.
+  const proposalId = (storey: string) => `proposal:storey:${storey}`;
   const showCreates = async (storey: DeskStorey) => {
     const comps = opts.components;
     if (!comps) { say("Showing creates needs the viewer — not available on this page.", true); return; }
@@ -319,21 +319,23 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
     const highlighter = comps.get(OBF.Highlighter) as unknown as { styles: Map<string, unknown>; highlightByID(n: string, m: Record<string, Set<number>>, a: boolean, b: boolean): Promise<void> };
     const withCreates = storey.changesets.filter((cs) => cs.elements.some((e) => (e.op ?? "create") === "create"));
     const shown: { creates: number; drawn: number; skipped: string[]; skipped_total?: number }[] = [], failed: string[] = [];
-    for (const cs of withCreates) {
+    if (withCreates.length) {
       try {
-        const r = await bfetch(at(base, activePid(), `/${encodeURIComponent(cs.id)}/proposal.frag`));
-        if (!r.ok) { failed.push(`${cs.name}: ${((await r.json().catch(() => ({ message: `HTTP ${r.status}` }))) as { message: string }).message}`); continue; }
-        const counts = JSON.parse(r.headers.get("X-Sentinel-Proposal") || '{"creates":0,"drawn":0,"skipped":[]}') as { creates: number; drawn: number; skipped: string[]; skipped_total?: number };
-        const buf = await r.arrayBuffer();
-        const id = proposalId(cs.id);
-        if (fragments.core.models.list.has(id)) await fragments.core.disposeModel(id);
-        await fragments.core.load(buf, { modelId: id });
-        const model = fragments.core.models.list.get(id) as { getItemsIdsWithGeometry(): Promise<number[]> } | undefined;
-        const ids = model ? await model.getItemsIdsWithGeometry() : [];
-        if (!highlighter.styles.has("proposal")) highlighter.styles.set("proposal", { color: new THREE.Color(0xf59e0b), renderedFaces: FRAGS.RenderedFaces.TWO, opacity: 1, transparent: false });
-        if (ids.length) await highlighter.highlightByID("proposal", { [id]: new Set(ids) }, false, false);
-        shown.push(counts);
-      } catch (e) { failed.push(`${cs.name}: ${(e as Error).message}`); }
+        const r = await bfetch(at(base, activePid(), `/proposal.frag?ids=${withCreates.map((cs) => encodeURIComponent(cs.id)).join(",")}`));
+        if (!r.ok) failed.push(`${storey.storey}: ${((await r.json().catch(() => ({ message: `HTTP ${r.status}` }))) as { message: string }).message}`);
+        else {
+          const counts = JSON.parse(r.headers.get("X-Sentinel-Proposal") || '{"creates":0,"drawn":0,"skipped":[]}') as { creates: number; drawn: number; skipped: string[]; skipped_total?: number };
+          const buf = await r.arrayBuffer();
+          const id = proposalId(storey.storey);
+          if (fragments.core.models.list.has(id)) await fragments.core.disposeModel(id);
+          await fragments.core.load(buf, { modelId: id });
+          const model = fragments.core.models.list.get(id) as { getItemsIdsWithGeometry(): Promise<number[]> } | undefined;
+          const ids = model ? await model.getItemsIdsWithGeometry() : [];
+          if (!highlighter.styles.has("proposal")) highlighter.styles.set("proposal", { color: new THREE.Color(0xf59e0b), renderedFaces: FRAGS.RenderedFaces.TWO, opacity: 1, transparent: false });
+          if (ids.length) await highlighter.highlightByID("proposal", { [id]: new Set(ids) }, false, false);
+          shown.push(counts);
+        }
+      } catch (e) { failed.push(`${storey.storey}: ${(e as Error).message}`); }
     }
     say(proposalWords(shown, failed, withCreates.length === 0), failed.length > 0);
   };
@@ -342,8 +344,9 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
     const OBCm = await import("@thatopen/components");
     const fragments = comps.get(OBCm.FragmentsManager) as unknown as { core: { disposeModel(id: string): Promise<void>; models: { list: Map<string, unknown> } } };
     let n = 0;
-    for (const cs of storey.changesets) { const id = proposalId(cs.id); if (fragments.core.models.list.has(id)) { await fragments.core.disposeModel(id); n++; } }
-    say(n ? `Hid ${n} proposal model(s).` : "No proposal model is shown for this storey.");
+    const id = proposalId(storey.storey);
+    if (fragments.core.models.list.has(id)) { await fragments.core.disposeModel(id); n++; }
+    say(n ? `Hid the storey's proposal model.` : "No proposal model is shown for this storey.");
   };
   let seq = 0;
 

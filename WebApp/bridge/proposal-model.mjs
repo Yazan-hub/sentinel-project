@@ -102,6 +102,15 @@ export function proposalElements(cs, levelMmOf = () => null) {
   return out;
 }
 
+/** MA-3d3: a storey's parts (Revit's StoreyBatch files " (i/n)" changesets) as ONE changeset for the proposal model — the creates
+ *  in filing order, the name without its part, so a level create in one part tells the others' elevations (levelsOf) and the desk
+ *  loads one model per storey. Pure. */
+export function storeyModel(changesets) {
+  const list = (changesets ?? []).filter(Boolean);
+  const name = (list[0]?.name ?? "").replace(/ \((\d+)\/(\d+)\)$/, "");
+  return { id: "storey", name, elements: list.flatMap((cs) => cs.elements ?? []), parts: list.map((cs) => cs.id) };
+}
+
 /** The proposal model's bytes (.frag) and counts. deps: { buildIfc, ifcBytesToFrag } (tests inject; the defaults are the core bundle and ifc-to-frag). */
 export async function proposalFrag(cs, levelMmOf, deps = {}) {
   const buildIfc = deps.buildIfc ?? (await import("./sentinel-core.mjs")).buildIfc;

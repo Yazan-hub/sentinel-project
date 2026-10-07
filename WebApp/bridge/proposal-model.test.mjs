@@ -1,6 +1,6 @@
 // MA-3d2 — the proposal model: the creates as the IFC writer's boxes, in the executor's frame (Revit mm Z-up -> three.js m Y-up).
 import { describe, it, expect } from "vitest";
-import { proposalElements, proposalFrag, levelsOf } from "./proposal-model.mjs";
+import { proposalElements, proposalFrag, levelsOf, storeyModel } from "./proposal-model.mjs";
 
 const create = (kind, place, extra = {}) => ({ op: "create", kind, proposal_guid: `g-${kind}`, place, ...extra });
 const near = (a, b) => expect(a).toHaveLength(b.length) && a.forEach((v, i) => expect(v).toBeCloseTo(b[i], 9));
@@ -65,6 +65,19 @@ describe("proposalFrag", () => {
 });
 
 // MA-3d2 Next: levels from the changeset, slab outlines, doors and windows on their host.
+describe("storeyModel (MA-3d3)", () => {
+  it("a storey's parts become one changeset: the creates in filing order, the name without its part, the ids kept", () => {
+    const a = { id: "a", name: "Level 2 (1/2)", elements: [create("level", { BaseElevation: 3000 }, { validate: { identity: { Name: "L2" } } })] };
+    const b = { id: "b", name: "Level 2 (2/2)", elements: [create("wall", { LocationCurve: { start: [0, 0], end: [4000, 0] }, LevelName: "L2" })] };
+    const s = storeyModel([a, b]);
+    expect(s).toMatchObject({ id: "storey", name: "Level 2", parts: ["a", "b"] });
+    expect(s.elements).toHaveLength(2);
+    // a level filed in part 1 places part 2's wall
+    expect(proposalElements(s, levelsOf(s)).elements[0].position[1]).toBeCloseTo(4.5, 9);
+    expect(storeyModel([]).name).toBe(""); expect(storeyModel([{ id: "x", name: "Roof" }]).elements).toEqual([]);
+  });
+});
+
 describe("levelsOf", () => {
   it("a level create names its elevation; a floor's loop, a wall's line and a door's point tell their level's z; an unknown level is null", () => {
     const lv = levelsOf({ elements: [
