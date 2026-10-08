@@ -668,7 +668,7 @@ It is not the audit pack (`GET /cde/:key/audit-pack`), which is the Kitemark exp
 **Rules for the manifest**
 - The pack refuses an item whose sha256 has changed.
 - `texture_embed` and `redistribute` are always false, by policy [R2M §6.3].
-- `request_id` links a drawing to its "ask the owner" request.
+- `request_id` links a drawing to its "ask the owner" request (BUILT in MA-4b: a drawing names (a) and (b) in `attestation_ids`; no registration until a measured one, MA-4c).
 - MA-4a items carry `attestation_ids` (the codes their kind needs: a scan (a) and (c), a photo (a), (c) and (d)) in place of one `attestation_id`; `licence` is stamped `owner-supplied` for own items (a body's is not read); `rmse_mm` waits for a measured registration (MA-4c).
 
 ### 6.3 Ghost (proposal) contract v2 (TARGET)
@@ -827,7 +827,7 @@ Agent ghosts and drawing-only ghosts are never pre-ticked.
 | `hold:gate`, `hold:naming`, `hold:ids`, `hold:dismissed` | Container refusals | Container name, reason | BUILT |
 | `evidence:admitted`, `evidence:refused`, `evidence:expired` | For each item | sha256, kind, provider, licence, allowed uses, attestation, reason | BUILT in MA-4a (evidence:admitted, evidence:refused; evidence:expired waits for MA-7) |
 | `attestation:signed` | For each attestation | Code a–e, text sha, actor, role | BUILT in MA-4a ({pack_id, id, code, text_sha256, actor, role}; (a) is R:248's wording) |
-| `evidence:requested` | An "ask the owner" letter is drafted | Recipient kind, request id, actor | TARGET |
+| `evidence:requested` | An "ask the owner" letter is drafted | Recipient kind, request id, actor | BUILT in MA-4b ({pack_id, request_id, recipient_kind, documents: n, letter_sha256, actor}; the recipient's name stays in the pack, off the ledger) |
 | `build:run` | For each reader or planner run | Reader and version, tool and weight licences, parameters, minutes, model calls, tokens, candidates, gaps | TARGET (C12) |
 | `hold:type_gap` | One row per **gap group** per run | Category, measured size band, key params, element count, nearest catalogue types, evidence ids | BUILT (MA-2c) as one row per Promote **run** holding all its groups: entity_type `type_gap`, action `type_gap:run · N group(s), M element(s)` (`hold:` actions are Sentinel's own rows and never come through the Revit report route), claimed; each group {category, the type wanted or the size, key params, count, labels, nearest} named by the bridge; a lead's dismissal is `hold:type_gap_dismissed <group>`. No size band (the snap is 0, D16); no evidence ids yet (MA-4) |
 | `changeset_reviewed` | Web desk decisions | For each ghost: accepted or declined, reason, reviewer, role | LANDED in MA-3a (merge 2026-10-04), drill MA3a: D-1, D-5, D-2, D-3, D-4 passed; D-4's two-account half and Revit 2025-2027 passed live 2026-10-04 (session MA3a-live); migration 0037 applied 2026-10-04 (probe 3 of 3): ONE row per desk post (one changeset, all or none — spec amendment S3), entity_type `changeset`, new value {review_rev, reviewer, role, decisions: [{proposal_guid, name, from, to, reason}]}; the decisions are also on the changeset doc (S1) |
@@ -873,7 +873,7 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
 - `POST /cde/:key/evidence/:pack/items` `{path | upload, kind, provider, licence, …}` → writes `evidence:admitted`, or `evidence:refused` with reasons.
 - `POST /cde/:key/evidence/:pack/attest` `{code}`.
 - MA-4a spec amendment S1: one pack per project (`evp-0001`, a lead makes it), on a project that belongs to an office — an office row is a 400 (§6.7: project scope); items {path, kind, provider?, registration?} name a file already in the project's evidence folder (no upload: D11), admitted by a signed-in contributor (the machine credential is a 403); `:pack` must be the pack in force. MA-4a spec amendment S2: a refused item is held in the Holding Area at stage `evidence` (named `evidence:<path>`, a name no CDE file may take), read from its own `evidence:refused` row, until the same path is admitted or a lead dismisses it.
-- `POST /cde/:key/evidence/requests` → drafts an "ask the owner" letter. It sends nothing.
+- `POST /cde/:key/evidence/requests` → drafts an "ask the owner" letter. It sends nothing. MA-4b spec amendment S3: `POST /cde/:key/evidence/:pack/requests` {recipient_kind: owner | architect | municipality, recipient?, documents[1-20], purpose?} — per pack like every evidence route (the requests and their letters live in the pack, at most 50), a signed-in lead (the machine credential is a 403); a drawing (pdf, dwg, dxf, png, jpg) is admitted on `…/items` {path, kind: "drawing", request_id} after (a) and (b), its `provider` the request's recipient and its `licence` `holder-permission`, stamped by the bridge.
 - `POST /cde/:key/build/jobs` `{pack, readers[], params}` → job id. `GET /cde/:key/build/jobs/:id` → status, progress, candidates, gaps.
 - `POST /cde/:key/promote/plan` `{stage, scope}` → a changeset id. The add-in makes the plan and posts it here.
 - `POST /cde/:key/lod-state` (the add-in's snapshot). `GET /cde/:key/lod-state`.

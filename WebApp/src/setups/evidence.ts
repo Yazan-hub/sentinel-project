@@ -16,26 +16,35 @@ export const ATTESTATION_TEXTS: Record<string, string> = {
   e: "Our commercial licence covers this use and this deliverable.",
 };
 export interface Attestation { id: string; code: string; text_sha256: string; by: string; role: string; at: string; }
+export type EvidenceKind = "scan" | "photo" | "drawing";
 export interface EvidenceItem {
-  id: string; kind: "scan" | "photo"; format: string; sha256: string; size_bytes: number; path: string; surveyable: boolean;
+  id: string; kind: EvidenceKind; format: string; sha256: string; size_bytes: number; path: string; surveyable: boolean;
   admitted_by: string; admitted_at: string; state?: "changed"; changed_at?: string; registration?: { method: string; report_path?: string };
+  provider?: string; request_id?: string;
 }
-export interface EvidencePack { pack_id: string; storage_root: string; attestations: Attestation[]; items: EvidenceItem[]; }
+/** MA-4b: an "ask the owner" request as the pack keeps it — the letter is what was drafted (Sentinel sends nothing). */
+export interface EvidenceRequest {
+  id: string; recipient_kind: "owner" | "architect" | "municipality"; recipient: string | null; documents: string[]; purpose: string | null;
+  letter: string; letter_sha256: string; drafted_by: string; drafted_at: string;
+}
+export interface EvidencePack { pack_id: string; storage_root: string; attestations: Attestation[]; items: EvidenceItem[]; requests?: EvidenceRequest[]; }
 export interface EvidenceRead { pack: EvidencePack; ref: string; folder: { path: string; exists: boolean; files_not_admitted: { path: string; size_bytes: number }[]; truncated: boolean }; }
 type Ledger = { id: number | null; hash: string | null };
 export interface AdmitReply { verdict: "admitted" | "refused"; item?: EvidenceItem; path?: string; reasons?: string[]; ledger: Ledger; }
 export interface RecheckReply { checked: number; changed: { item_id: string; path: string; reason: string }[]; still_changed: number; pack_version: number; }
 
-const SCAN = /\.(e57|las|laz|rcp)$/i, PHOTO = /\.(jpe?g|png)$/i;
-/** A folder file's kind by its extension (the bridge's format table), or null when it is not admitted. Pure. */
-export const kindOf = (path: string): "scan" | "photo" | null => (SCAN.test(path) ? "scan" : PHOTO.test(path) ? "photo" : null);
+const SCAN = /\.(e57|las|laz|rcp)$/i, PHOTO = /\.(jpe?g|png)$/i, DRAWING = /\.(pdf|dwg|dxf)$/i;
+/** A folder file's kind by its extension (the bridge's format tables), or null when it is not admitted. An image is a photo here; it is
+ *  admitted as a drawing when it answers a request (isImage). Pure. */
+export const kindOf = (path: string): EvidenceKind | null => (SCAN.test(path) ? "scan" : PHOTO.test(path) ? "photo" : DRAWING.test(path) ? "drawing" : null);
+export const isImage = (path: string): boolean => PHOTO.test(path);
 export const needsReport = (path: string): boolean => /\.rcp$/i.test(path);
 const size = (b: number) => (b < 1048576 ? `${Math.max(1, Math.round(b / 1024))} KB` : `${(b / 1048576).toFixed(1)} MB`);
 
 /** One admitted item in one line. Pure. */
 export function itemLine(i: EvidenceItem): string {
   return `${i.id} · ${i.path} · ${i.format} · ${size(i.size_bytes)} · sha ${i.sha256.slice(0, 12)}…` +
-    (i.surveyable ? "" : " · not surveyable (no ReCap here)") +
+    (i.kind === "drawing" ? ` · drawing from the ${i.provider} under ${i.request_id}` : i.surveyable ? "" : " · not surveyable (no ReCap here)") +
     (i.state === "changed" ? " · CHANGED since admitted — on hold; restore the file and Admit it again, or put the new file in under a new name" : "");
 }
 /** An attestation's state in one line. Pure. */
@@ -57,10 +66,16 @@ export function recheckLine(r: RecheckReply): string {
       ? `Re-checked ${r.checked} item(s): none newly changed; ${r.still_changed} still changed — on hold until admitted again under Evidence.`
       : `Re-checked ${r.checked} item(s): every file matches its admitted sha.`;
 }
-/** Which Evidence controls a role gets: Make the pack and Sign are a lead's (Sign never the machine session's — an attestation is a
- *  person's); Admit and Re-check a contributor's. Pure. */
+/** MA-4b: one request in one line. Pure. */
+export function requestLine(r: EvidenceRequest): string {
+  return `${r.id} · to the ${r.recipient_kind}${r.recipient ? ` (${r.recipient})` : ""} · ${r.documents.length} document(s) · drafted by ${r.drafted_by} · ${r.drafted_at.replace("T", " ").slice(0, 16)}`;
+}
+
+/** Which Evidence controls a role gets: Make the pack, Sign and Ask the owner are a lead's (Sign and Ask never the machine session's —
+ *  an attestation, and a letter, name a person); Admit and Re-check a contributor's. Pure. */
 export const evidenceControls = (role: string) => ({
   make: canGovernRole(role), sign: canGovernRole(role) && role !== "service", admit: canEditRole(role), recheck: canEditRole(role),
+  ask: canGovernRole(role) && role !== "service",
 });
 
 const at = (base: string, key: string, path: string) => `${base.replace(/\/$/, "")}/cde/${encodeURIComponent(key)}/${path}`;
@@ -79,5 +94,8 @@ export async function readEvidence(base: string, key: string): Promise<EvidenceR
 }
 export const makePack = (base: string, key: string) => post<{ pack: EvidencePack }>(base, key, "evidence", {});
 export const signAttestation = (base: string, key: string, code: string) => post<{ attestation: Attestation; ledger: Ledger }>(base, key, `evidence/${PACK_ID}/attest`, { code });
-export const admitEvidence = (base: string, key: string, b: { path: string; kind: "scan" | "photo"; registration?: { method: string; report_path?: string } }) => post<AdmitReply>(base, key, `evidence/${PACK_ID}/items`, b);
+export const admitEvidence = (base: string, key: string, b: { path: string; kind: EvidenceKind; registration?: { method: string; report_path?: string }; request_id?: string }) => post<AdmitReply>(base, key, `evidence/${PACK_ID}/items`, b);
+/** MA-4b: draft an "ask the owner" letter (a lead's; the bridge sends nothing). */
+export const draftRequest = (base: string, key: string, b: { recipient_kind: EvidenceRequest["recipient_kind"]; recipient?: string; documents: string[]; purpose?: string }) =>
+  post<{ request: EvidenceRequest; letter: string; ledger: Ledger }>(base, key, `evidence/${PACK_ID}/requests`, b);
 export const recheckEvidence = (base: string, key: string) => post<RecheckReply>(base, key, `evidence/${PACK_ID}/recheck`, {});

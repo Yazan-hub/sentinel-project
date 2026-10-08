@@ -1684,6 +1684,9 @@ async function handleRequest(req, res) {
           return send(res, r.verdict === "admitted" ? 201 : 200, r);
         }
         if (p3 && p4 === "recheck" && !seg[5] && req.method === "POST") return send(res, 200, await ev.recheckPack(p1, p3));
+        // MA-4b: POST …/:pack/requests {recipient_kind, recipient?, documents[], purpose?} → 201 the drafted letter (a signed-in lead;
+        //   Sentinel sends nothing).
+        if (p3 && p4 === "requests" && !seg[5] && req.method === "POST") return send(res, 201, await ev.draftRequest(p1, p3, await body()));
       }
       // Manifests (Federation Gate inputs): GET /cde/:key/manifests · POST /cde/:key/manifests/:versionId (body = IFC bytes, backfill)
       if (p2 === "manifests") {

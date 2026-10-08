@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { makePack, readPack, signAttestation, runEvidenceIntake, recheckPack } from "./evidence-store.mjs";
+import { makePack, readPack, signAttestation, runEvidenceIntake, recheckPack, draftRequest } from "./evidence-store.mjs";
 import { ATTESTATIONS, USES } from "./evidence-logic.mjs";
 
 let root, docs, audits, budgets, role;
@@ -104,7 +104,11 @@ describe("evidence intake (MA-4a)", () => {
     put("scans/fake.las", zip);
     expect(await admit({ path: "scans/fake.las", kind: "scan", registration: REG })).toMatchObject({ verdict: "refused", sha256: null, reasons: ["the file does not begin as a .las does — renamed or damaged"] }); // refused before any byte is hashed
     put("drawings/A-101.pdf", "%PDF-1.7");
-    expect((await admit({ path: "drawings/A-101.pdf", kind: "drawing" })).reasons).toEqual(["drawings come through Ask the owner (MA-4b)"]);
+    const m = audits.length; // a drawing waits for (b), then names its request (MA-4b) — no row either way
+    await expect(admit({ path: "drawings/A-101.pdf", kind: "drawing" })).rejects.toMatchObject({ status: 409, message: "a lead must sign (b) first; nothing was saved" });
+    await sign(["b"]);
+    await expect(admit({ path: "drawings/A-101.pdf", kind: "drawing" })).rejects.toMatchObject({ status: 400, message: "a drawing names the Ask the owner request it answers: request_id, as req-0001 — nothing was saved" });
+    expect(audits.length).toBe(m + 1); // the (b) signature only
   });
 
   it("(d) a changed file: a 409 until Re-check flags it, refused as changed bytes, admitted again only as the same bytes", async () => {
@@ -245,5 +249,67 @@ describe("evidence intake (MA-4a)", () => {
     expect(both.map((s) => s.status).sort()).toEqual(["fulfilled", "rejected"]);
     expect(both.find((s) => s.status === "rejected").reason).toMatchObject({ status: 409, message: "an admission to demo is already running — try again when it ends; nothing was saved" });
     expect((await admit({ path: "photos/b.jpg", kind: "photo" })).verdict).toBe("admitted"); // released
+  });
+
+  it("(m) Ask the owner: a lead drafts the letter (a person; Sentinel sends nothing), and a drawing is admitted under it", async () => {
+    await ready();
+    const ask = (b) => draftRequest("demo", "evp-0001", b, deps());
+    const body = { recipient_kind: "owner", recipient: "Ms Owner", documents: ["floor plans, every level", "sections"] };
+    role = "service";
+    await expect(ask(body)).rejects.toMatchObject({ status: 403, message: "a request needs a person — the letter names who asks: sign in. Nothing was saved." });
+    role = "contributor";
+    await expect(ask(body)).rejects.toMatchObject({ status: 403, message: "this action requires the lead role (you are contributor)" });
+    role = "lead";
+    await expect(ask({ ...body, recipient_kind: "google" })).rejects.toMatchObject({ status: 400 });
+    expect(rows("evidence:requested")).toEqual([]);
+    const r = await ask(body);
+    expect(r.request).toMatchObject({ id: "req-0001", recipient_kind: "owner", recipient: "Ms Owner", drafted_by: "machine", drafted_at: "2026-10-08T10:00:00.000Z" });
+    expect(r.letter).toBe(r.request.letter);
+    expect(r.letter).toContain("Subject: Request for the drawings of Demo (our reference demo req-0001)");
+    expect(r.pack_version).toBe(5); // make 1, sign 2-4, request 5
+    const req = rows("evidence:requested");
+    expect(req.map((x) => [x.et, x.action])).toEqual([["evidence", "evidence:requested req-0001 owner"]]);
+    expect(req[0].newv).toEqual({ pack_id: "evp-0001", request_id: "req-0001", recipient_kind: "owner", documents: 2, letter_sha256: r.request.letter_sha256, actor: "machine" });
+    expect(budgets).toContainEqual(["evidence requests", { perUser: 10, all: 30 }]);
+    expect((await ask({ recipient_kind: "municipality", documents: ["approved drawings"] })).request.id).toBe("req-0002");
+    await expect(draftRequest("office", "evp-0001", body, deps())).rejects.toMatchObject({ status: 400 });
+
+    await sign(["b"]);
+    role = "contributor";
+    put("drawings/A-101.pdf", "%PDF-1.7 a plan");
+    await expect(admit({ path: "drawings/A-101.pdf", kind: "drawing", request_id: "req-0009" })).rejects.toMatchObject({ status: 404, message: "no request req-0009 in evp-0001 — a lead drafts it under Ask the owner first; nothing was saved" });
+    const a = await admit({ path: "drawings/A-101.pdf", kind: "drawing", request_id: "req-0002", provider: "wikimedia" });
+    expect(a.verdict).toBe("admitted");
+    expect(a.item).toMatchObject({ kind: "drawing", format: "pdf", provider: "municipality", licence: "holder-permission", request_id: "req-0002", attestation_ids: ["att-0001", "att-0004"], surveyable: false });
+    expect(rows("evidence:admitted").at(-1).newv).toMatchObject({ request_id: "req-0002", provider: "municipality" });
+    put("drawings/scan.jpg", JPG);
+    expect((await admit({ path: "drawings/scan.jpg", kind: "drawing", request_id: "req-0001" })).item).toMatchObject({ kind: "drawing", format: "jpg", provider: "owner" });
+    put("drawings/fake.pdf", "PK not a pdf");
+    expect(await admit({ path: "drawings/fake.pdf", kind: "drawing", request_id: "req-0001" })).toMatchObject({ verdict: "refused", reasons: ["the file does not begin as a .pdf does — renamed or damaged"] });
+    put("drawings/notes.txt", "x");
+    expect((await admit({ path: "drawings/notes.txt", kind: "drawing", request_id: "req-0001" })).reasons).toEqual(["a .txt is not admitted as a drawing — drawings are pdf, dwg, dxf, png or jpg"]);
+
+    // Changed, flagged, restored: it comes back as first admitted — its request kept, whatever the body says.
+    put("drawings/A-101.pdf", "%PDF-1.7 a changed plan");
+    expect((await recheck()).changed.map((c) => c.path)).toEqual(["drawings/A-101.pdf"]);
+    put("drawings/A-101.pdf", "%PDF-1.7 a plan");
+    const back = await admit({ path: "drawings/A-101.pdf", kind: "photo" });
+    expect(back.item).toMatchObject({ id: "ev-0001", kind: "drawing", request_id: "req-0002", provider: "municipality" });
+    expect((await pack()).requests.map((x) => x.id)).toEqual(["req-0001", "req-0002"]);
+  });
+
+  it("(n) review: a flagged drawing comes back on (a) and (b) alone, whatever kind the body names", async () => {
+    await makePack("demo", {}, deps());
+    await sign(["a", "b"]);
+    role = "lead";
+    await draftRequest("demo", "evp-0001", { recipient_kind: "architect", documents: ["plans"] }, deps());
+    role = "contributor";
+    put("d/A.pdf", "%PDF-1.7 plan");
+    await admit({ path: "d/A.pdf", kind: "drawing", request_id: "req-0001" });
+    put("d/A.pdf", "%PDF-1.7 changed");
+    await recheck();
+    put("d/A.pdf", "%PDF-1.7 plan");
+    const back = await admit({ path: "d/A.pdf", kind: "photo" }); // no (c) or (d) is asked for
+    expect(back).toMatchObject({ verdict: "admitted", item: { kind: "drawing", request_id: "req-0001", provider: "architect" } });
   });
 });
