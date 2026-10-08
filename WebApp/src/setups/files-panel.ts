@@ -456,7 +456,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     const atts = ATTESTATION_CODES.map((c) => {
       const done = pack.attestations.some((a) => a.code === c);
       return line(`<span style="color:${done ? "#4ade80" : "#9ca3af"}">${esc(attestationLine(c, pack))}</span> “${esc(ATTESTATION_TEXTS[c])}”` +
-        (!done && signer ? ` <button data-evsign="${c}" style="${act}">Sign (${c})</button>` : ""));
+        (!done && signer ? ` <button data-evsign="${esc(c)}" style="${act}">Sign (${c})</button>` : ""));
     }).join("");
     const items = pack.items.map((i) => line(esc(itemLine(i)), i.state === "changed" ? "#fca5a5" : "#cbd5e1")).join("") || line("none yet");
     const files = folder.files_not_admitted.map((f) => {
