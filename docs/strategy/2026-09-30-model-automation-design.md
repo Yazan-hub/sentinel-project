@@ -443,12 +443,13 @@ Example: the Level 3 line above has 264 walls. That is two changesets (200 + 64)
 - **ReCap is not installed on the founder PC.**
 
 **Target: sentinel-survey (section 6.9)**
-- **v0.1 uses only packages that install with pip on Windows:** laspy, pye57, Open3D and numpy. PDAL, COPC, TEASER++, COLMAP and the detection models wait for a packaging spike in MA-7.
+- **v0.1 (MA-4c) is numpy and the Python standard library only, reading plain LAS 1.2–1.4** (nothing downloaded; Open3D dropped, MA-4a decision 5). laspy and pye57 (E57, LAZ, the CRS) come with MA-4g's download OK; PDAL, COPC, TEASER++, COLMAP and the detection models wait for a packaging spike in MA-7.
 - Storeys come from a height histogram.
 - Walls come from density slices. The face segments use the shape `WallPairing` already takes.
 - Floors and ceilings.
 - Openings from wall-plane occupancy (MA-5).
-- Deviation per element at 5, 10 and 20 cm [R2M §6.4].
+- BUILT in MA-4c: storeys, walls (faces in a mid-storey slice, paired by WallPairing's rule ported to Python — a wall candidate is the paired centreline and thickness, its faces in `geometry.faces`; MA-4c spec amendment S3 settles :448 against :458, Cloud2BIM's start, end and thickness), floors and ceilings (oriented rectangles), as untyped candidates in the contract's keys, the scan's own frame.
+- Deviation per element at 5, 10 and 20 cm [R2M §6.4] — MA-4e (`POST /measure`), not v0.1.
 - **In Revit:** a decimated overlay drawn with DirectContext3D. An RCP is linked only when the user has ReCap [R2M §5.1, §8.6].
 - **On the web: one tiling path.** The bridge builds Potree tiles with `realityCapture` (behind an adapter) and uploads them to hidden files in batches. The viewer is `PointCloudLoader` [TO §7.1].
   - We do **not** use the `PointCloudConverter` automation, although [TO §7 #1] suggests it. A project can have at most 3 automations, and the Delivery Gate already uses 2 [TO §6]. The last slot stays free.
@@ -668,8 +669,8 @@ It is not the audit pack (`GET /cde/:key/audit-pack`), which is the Kitemark exp
 **Rules for the manifest**
 - The pack refuses an item whose sha256 has changed.
 - `texture_embed` and `redistribute` are always false, by policy [R2M §6.3].
-- `request_id` links a drawing to its "ask the owner" request (BUILT in MA-4b: a drawing names (a) and (b) in `attestation_ids`; no registration until a measured one, MA-4c).
-- MA-4a items carry `attestation_ids` (the codes their kind needs: a scan (a) and (c), a photo (a), (c) and (d)) in place of one `attestation_id`; `licence` is stamped `owner-supplied` for own items (a body's is not read); `rmse_mm` waits for a measured registration (MA-4c).
+- `request_id` links a drawing to its "ask the owner" request (BUILT in MA-4b: a drawing names (a) and (b) in `attestation_ids`; no registration — drawing alignment by 2 points is MA-5).
+- MA-4a items carry `attestation_ids` (the codes their kind needs: a scan (a) and (c), a photo (a), (c) and (d)) in place of one `attestation_id`; `licence` is stamped `owner-supplied` for own items (a body's is not read); `rmse_mm` comes from a registered scan's report (MA-4g reads E57 and its report; sentinel-survey does not register — §4.3 "Do not build registration").
 
 ### 6.3 Ghost (proposal) contract v2 (TARGET)
 
@@ -828,7 +829,7 @@ Agent ghosts and drawing-only ghosts are never pre-ticked.
 | `evidence:admitted`, `evidence:refused`, `evidence:expired` | For each item | sha256, kind, provider, licence, allowed uses, attestation, reason | LANDED 2026-10-08 (drill MA4a/MA4b on ma4a-drill: admitted #2165, #2167, #2169, #2175, #2181 (a drawing), #2184, readmitted #2173; refused #2171 (changed since admitted, Re-check), #2182 (not a PDF); evidence:expired waits for MA-7) |
 | `attestation:signed` | For each attestation | Code a–e, text sha, actor, role | LANDED 2026-10-08 (#2159 (a), #2161 (c), #2163 (d), #2177 (b) on ma4a-drill; {pack_id, id, code, text_sha256, actor, role}; (a) is R:248's wording) |
 | `evidence:requested` | An "ask the owner" letter is drafted | Recipient kind, request id, actor | LANDED 2026-10-08 (#2179 on ma4a-drill; {pack_id, request_id, recipient_kind, documents: n, letter_sha256, actor}; the recipient's name stays in the pack, off the ledger) |
-| `build:run` | For each reader or planner run | Reader and version, tool and weight licences, parameters, minutes, model calls, tokens, candidates, gaps | TARGET (C12) |
+| `build:run` | For each reader or planner run | Reader and version, tool and weight licences, parameters, minutes, model calls, tokens, candidates, gaps | BUILT in MA-4c for sentinel-survey jobs: written by the bridge only — entity_type `build`, action `build:run <job-id> · sentinel-survey <version> · <status>` (the open route can write only exactly `build:run`, claimed), new_value {job_id, reader, version, status, pack_id, pack_version, items [{id, sha256}] (sent), read [id] (what the result was measured from), refused, tools [{name, version, licence}], params, seed, started, finished, minutes, cpu_s, points_in, points_used, model_calls 0, tokens 0, candidates {level, wall, floor, ceiling}, gaps null (typing is MA-4d), result_sha256, claimed false}; one per run that starts (done, failed, refused). A job's row is accepted (MA-4d) only by its id on the job record, its action prefix `build:run <job-id> · sentinel-survey `, claimed false and a matching result_sha256 — never an open-route `build:run` row. The add-in's receipts (MA-1a item 8) stay claimed. The controller turns BUILT into LANDED with the drill's rows. |
 | `hold:type_gap` | One row per **gap group** per run | Category, measured size band, key params, element count, nearest catalogue types, evidence ids | BUILT (MA-2c) as one row per Promote **run** holding all its groups: entity_type `type_gap`, action `type_gap:run · N group(s), M element(s)` (`hold:` actions are Sentinel's own rows and never come through the Revit report route), claimed; each group {category, the type wanted or the size, key params, count, labels, nearest} named by the bridge; a lead's dismissal is `hold:type_gap_dismissed <group>`. No size band (the snap is 0, D16); no evidence ids yet (MA-4) |
 | `changeset_reviewed` | Web desk decisions | For each ghost: accepted or declined, reason, reviewer, role | LANDED in MA-3a (merge 2026-10-04), drill MA3a: D-1, D-5, D-2, D-3, D-4 passed; D-4's two-account half and Revit 2025-2027 passed live 2026-10-04 (session MA3a-live); migration 0037 applied 2026-10-04 (probe 3 of 3): ONE row per desk post (one changeset, all or none — spec amendment S3), entity_type `changeset`, new value {review_rev, reviewer, role, decisions: [{proposal_guid, name, from, to, reason}]}; the decisions are also on the changeset doc (S1) |
 | `changeset_reopened` | A lead re-opens a web decline | guid, reason, lead | LANDED in MA-3a (merge 2026-10-04), drill MA3a: D-1, D-5, D-2, D-3, D-4 passed; D-4's two-account half and Revit 2025-2027 passed live 2026-10-04 (session MA3a-live); migration 0037 applied 2026-10-04 (probe 3 of 3): new value {review_rev, lead, role, proposal_guid, name, declined_by, declined_reason, reason} |
@@ -875,6 +876,7 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
 - MA-4a spec amendment S1: one pack per project (`evp-0001`, a lead makes it), on a project that belongs to an office — an office row is a 400 (§6.7: project scope); items {path, kind, provider?, registration?} name a file already in the project's evidence folder (no upload: D11), admitted by a signed-in contributor (the machine credential is a 403); `:pack` must be the pack in force. MA-4a spec amendment S2: a refused item is held in the Holding Area at stage `evidence` (named `evidence:<path>`, a name no CDE file may take), read from its own `evidence:refused` row, until the same path is admitted or a lead dismisses it.
 - `POST /cde/:key/evidence/requests` → drafts an "ask the owner" letter. It sends nothing. MA-4b spec amendment S3: `POST /cde/:key/evidence/:pack/requests` {recipient_kind: owner | architect | municipality, recipient?, documents[1-20], purpose?} — per pack like every evidence route (the requests and their letters live in the pack, at most 50), a signed-in lead (the machine credential is a 403); a drawing (pdf, dwg, dxf, png, jpg) is admitted on `…/items` {path, kind: "drawing", request_id} after (a) and (b), its `provider` the request's recipient and its `licence` `holder-permission`, stamped by the bridge.
 - `POST /cde/:key/build/jobs` `{pack, readers[], params}` → job id. `GET /cde/:key/build/jobs/:id` → status, progress, candidates, gaps.
+- MA-4c spec amendment S1: `POST /cde/:key/build/jobs` {pack, readers?: ["sentinel-survey"], params?: {voxel_mm, storey_min_mm}} → 202 {job} — a signed-in contributor of an office project (the machine credential is a 403: the run names a person, and no agent may start one), one job at a time per bridge (409), budgeted (6 per user, 12 in all, a minute); the bridge picks every admitted scan of the pack in force and lists in `refused` what v0.1 cannot read (flagged, not surveyable, no geometry_extraction, not .las); `voxel_mm` is 5–50 (a wall face needs a point at least every 50 mm); `snap_mm` is not a survey parameter (catalogue snapping is the bridge's D16 policy) and any other body key (`seed`, `items`, `started_by`) is refused in words; `GET /cde/:key/build/jobs` → the newest 20 (any member); `GET …/:id` → {job, candidates, derived, receipt}; `gaps` come with typing (MA-4d).
 - `POST /cde/:key/promote/plan` `{stage, scope}` → a changeset id. The add-in makes the plan and posts it here.
 - `POST /cde/:key/lod-state` (the add-in's snapshot). `GET /cde/:key/lod-state`.
 - `POST /changesets/:key/:id/review` `{decisions[]}` (the web desk; follows the review states). BUILT (MA-3a): `{decisions: [{proposal_guid, decision: accept | decline, reason}]}`, a signed-in contributor or above; the machine credential is a 403 ("sign in").
@@ -892,7 +894,7 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
 
 **MCP**
 - `sentinel_propose_changeset` takes contract 2, with the same trust rules.
-- New read tools: `sentinel_lod_state` and `sentinel_build_status`.
+- New read tools: `sentinel_lod_state` and `sentinel_build_status` — `sentinel_build_status` BUILT in MA-4c (read-only).
 - No write tool beyond proposing.
 
 ### 6.9 The Python service contract: `sentinel-survey` (TARGET)
@@ -919,14 +921,15 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
 - It writes nothing to the ledger: the bridge writes.
 - It never talks to Revit.
 - The bridge keeps each job's result. That stored result is what makes a ghost's `measured` values count (section 6.3).
+- MA-4c spec amendment S2: the bridge starts one service process per job and stops it after (`survey-service.mjs`, `SENTINEL_PYTHON`, spawned `-E -B` without a shell and with an allow-listed environment); the service binds 127.0.0.1 on a port it picks (one JSON line on stdout), answers only that start's token, exits when its stdin closes (the bridge gone, a hard kill too), and writes no file: its result comes back over HTTP and the bridge keeps it as `<SENTINEL_JOBS_ROOT or %APPDATA%/Sentinel/jobs>/<key>/<job-id>/result.json`, its sha256 on the build:run row. Params are {voxel_mm, storey_min_mm, tolerances_mm} (no `snap_mm`); the seed is the bridge's. MA-4c spec amendment S3: a candidate's geometry uses the contract's keys and millimetres in the scan's own frame (no CRS, no transform; the service measures in a local frame and gives the scan's back) — a wall {LocationCurve (z = base), BaseElevation, TopElevation, storey, faces}, a level {BaseElevation}, a floor {LocationLoop, storey}, a ceiling {Boundary, Offset (its height above its level), storey}. The service re-hashes every input before and after the read, refuses a file over 300 million points, and fails a job whose scans span more than 300 m in plan (one building).
 
 **Building blocks** [R2M §5.2]
-- **v0.1 (MA-4), pip wheels only:** laspy (BSD-style), pye57 (MIT), Open3D (MIT), numpy.
+- **v0.1 (MA-4c): numpy only** (BSD-3-Clause, with 0BSD, MIT, Zlib and CC0-1.0 parts) on CPython (PSF-2.0). From MA-4g, pip wheels: laspy (BSD-style), pye57 (MIT). Open3D dropped (MA-4a decision 5).
 - **Later, behind a packaging spike (MA-7):** PDAL (BSD) and COPC, OpenCV (Apache-2.0), COLMAP (BSD), TEASER++ (MIT; Windows support to verify), Grounding DINO and SAM 2 (Apache-2.0; they need PyTorch and a GPU), gsplat (Apache-2.0).
 - ezdxf (MIT) for DXF, when needed.
 
 ### 6.10 Licence policy
-- **Allowed in shipped code:** MIT, BSD, Apache-2.0, BSL-1.0, MPL-2.0 (web-ifc is already used).
+- **Allowed in shipped code:** MIT, BSD, Apache-2.0, BSL-1.0, MPL-2.0 (web-ifc is already used). MA-4c adds 0BSD, Zlib and CC0-1.0 (parts of numpy) and PSF-2.0 (CPython) — all permissive; the founder confirms.
 - **LGPL:** only as a separate process (IfcOpenShell).
 - **Not allowed** [R2M §5.3; TO §3]:
   - **GPL and AGPL:** CloudCompare, LibreDWG, OpenMVS, OpenDroneMap, PyMuPDF, Ultralytics YOLO, Bonsai.
@@ -942,7 +945,7 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
 **Where the new data lives**
 - **Evidence binaries:** the office disk or NAS (`storage_root`). Never Supabase. Only tiles and crops that may be viewed go to platform hidden files.
 - **Evidence pack manifests:** the artefact store (versioned, hashed), like the other artefacts.
-- **Build jobs:** the bridge's job folder while they run. Their receipts go on the ledger (`build:run`).
+- **Build jobs:** the bridge's job folder (`SENTINEL_JOBS_ROOT`, default `%APPDATA%/Sentinel/jobs/<key>/<job-id>/`: job.json, result.json), kept after the run — MA-4d checks a changeset's `measured` against it. Their receipts go on the ledger (`build:run`, with the result's sha256).
 - **LOD state, type gaps and review decisions:** ledger rows. The views are derived from the ledger, as the Holding Area is today. MA-3a (spec amendment S1): a web review decision is also kept on the changeset doc (each ghost's `review`, the doc's `review_rev`), as `status` is — the add-in reads the doc, and the bridge judges a result against it in the same swap; the `changeset_reviewed` and `changeset_reopened` rows are the record (reserved on the open audit route). Migration 0037 (written; applied on the founder's "apply") leaves the `changeset` store no signed-in writer — the bridge writes it with the service key after its own role check, so a member cannot re-open a decline by writing the doc outside Sentinel.
 - **So MA-0 to MA-4 need no new database table.** If one is needed later, it is migration 0038 or higher (0037 is MA-3a's changeset floor, no table), with the same row-level security pattern as the existing tables.
 
@@ -951,6 +954,7 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
 | Action | Least role |
 |---|---|
 | Add an evidence item from your own sources | contributor |
+| Start a survey job | contributor, signed in (by name); the machine credential is a 403 (MA-4c) |
 | Sign attestations (a)–(e); (a) is "I am the owner, or authorised by the owner, of this asset." (R:248) | lead, signed in (by name); the machine credential never signs (MA-4a) |
 | Admit an AMBER web photo | lead |
 | Accept or decline a ghost on the web | contributor |
@@ -1130,6 +1134,7 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
   - "Ask the owner": a drafted request letter and `evidence:requested` rows (S).
   - Bridge typing: LANDED EARLY in MA-2a (full contract 2) — an element posted without `place.TypeName` carries `facts {thickness_mm?, params?}` and the bridge calls `resolveWithCatalog` on the project's guideline@n and type_catalog@n, fills the type and records `typing`, or answers 400 naming what is missing; `measured` stays ignored until a survey job backs it (item 8); the shared fixture is `WebApp/bridge/fixtures/changeset-ops/contract2-typed-body.json`. The body at :681-705 is answered 201 with `facts` in place of `measured` and 200 mm (its 203 mm is a gap under the exact rule, :728).
   - sentinel-survey v0.1, pip wheels only: storeys, wall slices in the `WallPairing` shape, floors and ceilings, and deviation per element at 5, 10 and 20 cm.
+    - Met in MA-4c for storeys, walls, floors and ceilings (numpy, plain LAS); deviation moved to MA-4e (`POST /measure`); E57 and LAZ to MA-4g.
   - Gaps go to the Holding Area as groups.
   - A decimated scan overlay in Revit.
   - The scan in the web desk (tiles built on the bridge, if MA-W did not already do it).
