@@ -1633,10 +1633,13 @@ Machine rows (P-) on a drill copy of the bridge at **4101 on the branch** and th
 - **"409 nothing new to propose only when no typed candidate is left"** — taken, narrowed: the 409 fires when nothing new is left AND this job filed before. A job that types nothing at all (every wall a gap on its first proposal) still files its gaps alone to the Holding Area, as before; refusing it would leave its gaps with no way in.
 - **Replacing `changeset_reviewed` / `changeset_reopened` with the prefix** — the prefix is appended instead (same protection, no change to two pinned test words); see T2 above.
 
-## Open questions (the founder's to decide; the defaults above are built unless overruled)
+## Open questions (ANSWERED by the founder, 2026-10-09 — all three defaults stand, built as written)
 
 Decided defaults, not questions: a lead proposes (decision 1); the bridge alone builds job-backed changesets (2); levels named, matched within 20 mm or created (6); walls trimmed (10) and read inside or outside by the office's own rule (11); exact typing, gaps grouped by exact size (12, 13); per candidate, never one candidate twice, a scan another job placed named not refused (19); every `changeset_` row reserved (18); NOTICE is MA-7's (22); the drill standards installed on the project (25).
 
 1. **D7's 20 mm before MA-4e.** The default judges `within_tolerance` on `max(fit rmse, face_dev_mm)` — the fit is each face's inliers against its own line, `face_dev_mm` how far the scanned faces' ends sit from the ghost's faces (`basis: "fit"`) — and pre-ticks on it; deviation of the placed element (p95, coverage) waits for MA-4e. Accept this reading of D7, or keep every scan ghost `not_measured` and unticked until MA-4e?
+   - **Answered: accepted** — the 20 mm judged before placement on the larger of the fit rmse and `face_dev_mm`; MA-4e adds `verify:measured`.
 2. **Revit's pre-tick of scan walls.** Default: none in MA-4d (no add-in change; the web desk shows it; a person ticks every create in Revit). Should Revit open measured, within-tolerance creates ticked — a one-line add-in change and a deploy to 2021–2027 (proposed for MA-4f, beside the scan overlay)?
+   - **Answered: no add-in change in MA-4d** — Revit keeps opening scan walls unticked; a pre-tick in Revit waits for MA-4f.
 3. **The design's external path.** §6.3 (:739) lets a body naming `source.job_id` earn trust when its values match the job; MA-4d builds only the bridge-built path and refuses the other (S1). Accept the amendment?
+   - **Answered: accepted** — only the bridge builds changesets from a job; an outside body naming a job is trusted for nothing.
