@@ -2492,3 +2492,23 @@ bridge and the BCF extensions, as the ledger already names every actor to every 
 
 **Closing list:** the drill container `B13-W2-ZZ-XX-M3-A-0001` stays on `b13-review` (scratch, WIP); no membership was changed; the
 second account stays signed in in Claude's tab until the founder signs it out.
+
+## Session MA4a — evidence intake and the audit pack, the machine rows (2026-10-08 local, the branch on the 4101 test bridge, merged 2a23208, web 1.0.62 published; Claude driving the bridge alone)
+
+Setup: a new drill project `ma4a-drill` ("MA-4a drill (evidence intake, scratch)"), attached to `ma2e-office`, the founder added
+as its owner (201); its evidence folder `%APPDATA%\Sentinel\evidence\ma4a-drill\` holds `scans\tiny.las` (from
+`WebApp/scripts/make-tiny-las.mjs`), `photos\own.jpg`, `photos\street.jpg`, a stand-in `scans\site.rcp` and
+`scans\site-registration.txt`. Every call below used the machine credential from loopback (no person).
+
+| Row | Result | Evidence |
+|---|---|---|
+| E-0 | `GET /cde/ma4a-drill/audit-pack` and the old `/evidence-pack` both 200, `"pack":"sentinel-audit-pack"`, `filename=ma4a-drill-audit-pack-2026-10-08.json`; a pack sealed by master's `evidence-pack.mjs` (no 2026-10-07 download was on disk) verifies with the branch's `sealed()` — true, a tampered copy false — **pass** | the script output |
+| E-1 | `PUT /cde/ma4a-drill/artefacts/evidence_pack` → 400 `evidence packs change only through the evidence routes; nothing was saved`; `POST /cde/ma2e-office/evidence` → 400 `an evidence pack belongs to a project, not an office — make it on the project; nothing was saved` — **pass** | the script output |
+| E-2 | the machine credential: `…/attest {code:"a"}` → 403 `an attestation needs a person: sign in. Nothing was saved.`; `…/items` → 403 `an admission needs a person — it names who admitted the file and confirmed its registration: sign in. Nothing was saved.` — **pass** | the script output |
+| E-5 (part) | `{path:"../x"}` by the machine credential → the same 403 (the person check comes before the path check; the 400 is pinned offline) — **pass** | the script output |
+| E-6 | `POST /cde/ma4a-drill/audit` with `evidence:admitted …` → 400 `evidence: rows are written by Sentinel, not through this route`; `attestation:signed …` → 400 `attestation: rows …`; `entity_type:"evidence"` → 400 `evidence rows …` — **pass** | the script output |
+
+**Owed — the person rows** (a signed-in lead in the local app; Claude in Chrome was not connected after the merge): E-0's
+Download click, E-1 Make the evidence pack, E-2's signatures (a), (c), (d) and the admit-before-signing refusals, E-3 the three
+admissions with the E-7 connection watch on the 4100 bridge, E-4 Re-check and re-admit, E-5's google refusal and the 409, E-8
+the viewer's read-only section. The bridge on master answers every route (4100 restarted on 2a23208).
