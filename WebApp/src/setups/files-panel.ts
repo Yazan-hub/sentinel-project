@@ -15,7 +15,8 @@ import { readDeleted, restoreDeleted, deletedItemLine, restoredLine, archivable,
 import { escapeHtml as esc } from "./escape-html";
 import { unarchiveFile } from "./cde-transition";
 import { firstTag, geometryCheck, linkedHash, linkedTag, sha256Hex, type GeometryLinkRow } from "./geometry-check";
-import { readEvidence, makePack, signAttestation, admitEvidence, recheckEvidence, draftRequest, kindOf, isImage, needsReport, itemLine, attestationLine, admitLine, recheckLine, requestLine, evidenceControls, ATTESTATION_CODES, ATTESTATION_TEXTS, type EvidenceRead, type EvidenceRequest } from "./evidence";
+import { readEvidence, makePack, signAttestation, admitEvidence, recheckEvidence, draftRequest, kindOf, isImage, needsReport, itemLine, attestationLine, admitLine, recheckLine, requestLine, evidenceControls, ATTESTATION_CODES, ATTESTATION_TEXTS, type EvidenceRead, type EvidenceRequest,
+  startSurvey, readJobs, readJob, jobLine, candidateLine, surveyStartLine, surveyableScans, type SurveyJob, type Candidate } from "./evidence";
 
 /**
  * Sentinel Versions panel — file/blob-centric version history for uploaded model files.
@@ -79,6 +80,12 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   let evidenceError: string | null = null;
   let showEvidence = false;
   let admitting: string | null = null;
+  // MA-4c: the project's survey jobs (read after the pack; a failure says "Survey: not read — …" and leaves the pack shown) and the done
+  // job whose candidates are open (read on demand).
+  let jobs: SurveyJob[] | null = null;
+  let jobsError: string | null = null;
+  let jobOpen: string | null = null;
+  let jobCands: Candidate[] | null = null;
   // MA-4b: `drawingFor` = the folder file whose request picker is open (a drawing names the request it answers); `askDraft` = the
   // Ask the owner form while open (kept across a refused draft, so nothing typed is lost); `lettersOpen` = the requests showing a letter.
   let drawingFor: string | null = null;
@@ -204,6 +211,9 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       admitting = null; drawingFor = null;
       try { const ev = await readEvidence(base, key); if (mine !== seq) return; evidence = ev; evidenceError = null; }
       catch (e) { if (mine !== seq) return; evidence = null; evidenceError = (e as Error).message; }
+      jobOpen = null; jobCands = null;
+      try { const js = evidence ? await readJobs(base, key) : null; if (mine !== seq) return; jobs = js; jobsError = null; }
+      catch (e) { if (mine !== seq) return; jobs = null; jobsError = (e as Error).message; }
       try { const d = await readDeleted(base, key); if (mine !== seq) return; deleted = d; deletedError = null; }
       catch (e) { if (mine !== seq) return; deleted = []; deletedError = (e as Error).message; }
       await asked;
@@ -277,6 +287,18 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     root.querySelector("#fv-ev-toggle")?.addEventListener("click", () => { showEvidence = !showEvidence; render(); });
     root.querySelector("#fv-ev-make")?.addEventListener("click", () => void evAct(async () => { await makePack(base, pid()); return "✓ Made the evidence pack evp-0001 — a lead signs (a) and (c); then put files in the folder it names and Admit them."; }));
     root.querySelector("#fv-ev-recheck")?.addEventListener("click", () => void evAct(async () => recheckLine(await recheckEvidence(base, pid()))));
+    root.querySelector("#fv-ev-survey")?.addEventListener("click", () => void evAct(async () => surveyStartLine((await startSurvey(base, pid())).job)));
+    root.querySelectorAll<HTMLElement>("[data-evjob]").forEach((n) => n.addEventListener("click", async () => {
+      const id = n.dataset.evjob!;
+      if (jobOpen === id) { jobOpen = null; jobCands = null; render(); return; }
+      const mine = seq;
+      try {
+        const r = await readJob(base, pid(), id);
+        if (mine !== seq) return;
+        if (r.result_error) { status(`Candidates not shown — ${r.result_error}`); return; }
+        jobOpen = id; jobCands = r.candidates ?? []; render();
+      } catch (e) { if (mine === seq) status(`Candidates not read — ${(e as Error).message}`); }
+    }));
     root.querySelectorAll<HTMLElement>("[data-evsign]").forEach((n) => n.addEventListener("click", () => void evAct(async () => {
       const r = await signAttestation(base, pid(), n.dataset.evsign!);
       return `✓ Signed (${r.attestation.code}) as ${r.attestation.by} · ${ledgerLine(r.ledger)}`;
@@ -532,6 +554,17 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
           (isImage(f.path) && requests.length ? ` <button data-evdrawing="${esc(f.path)}" style="${act}" title="a scanned drawing that answers a request">as drawing…</button>` : "") : "";
       return `<div style="display:flex;gap:.4rem;align-items:center;flex-wrap:wrap;font-size:11px;padding:.15rem .2rem"><span style="flex:1;min-width:8rem;overflow-wrap:anywhere">${esc(f.path)} · ${esc(humanSize(f.size_bytes))}</span>${form}</div>`;
     }).join("") || line("none");
+    // MA-4c "Survey": every job the bridge returned (newest first) and, for a contributor signed in, Run survey when none runs; a done job's
+    // candidates on demand. No poll: ↻ shows a running job's progress.
+    const busy = (jobs ?? []).some((j) => j.status === "queued" || j.status === "running");
+    const jobColor = (s: string) => (s === "done" ? "#cbd5e1" : s === "failed" ? "#fca5a5" : "#9ca3af");
+    const survey = line("Survey — sentinel-survey reads the admitted LAS scans on this PC: levels, walls, floors and ceilings, LOD 200 as found (never survey grade). Candidates carry no type until MA-4d.", "#9ca3af") +
+      (jobsError ? line(`Survey: ${esc(jobsError)}`, "#fbbf24")
+        : (jobs ?? []).map((j) => line(esc(jobLine(j)), jobColor(j.status)) +
+            (j.status === "done" && j.candidates_total ? `<div style="padding:.1rem .2rem"><button data-evjob="${esc(j.id)}" style="${act}">${jobOpen === j.id ? "Hide candidates" : "Candidates"}</button></div>` : "") +
+            (jobOpen === j.id ? (jobCands ?? []).map((c) => line(esc(candidateLine(c)), "#cbd5e1")).join("") : "")).join("") || line("no survey yet")) +
+      (can.survey && !busy && surveyableScans(pack).length ? `<div style="margin-top:.35rem"><button id="fv-ev-survey" style="${act}">Run survey</button></div>`
+        : can.survey && busy ? line("A survey is running — ↻ for its progress.") : "");
     return toggle + `<div style="margin-bottom:.45rem;padding:.45rem .55rem;background:#1b1b21;border:1px solid #2c2c34;border-radius:.4rem">` +
       `<div style="color:#71717a;font-size:10.5px;font-family:ui-monospace,Consolas,monospace;overflow-wrap:anywhere">${esc(pack.pack_id)} · ${esc(ref)} · folder ${esc(folder.path)}${folder.exists ? "" : " (not there yet)"}</div>` +
       line("Attestations — a lead signs (a) and (c) before a scan, also (d) before a photo, and (a) and (b) before a drawing", "#9ca3af") + atts +
@@ -539,7 +572,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       line(`Admitted (${pack.items.length})`, "#9ca3af") + items +
       line(`In the folder, not yet admitted (${folder.files_not_admitted.length}${folder.truncated ? ", the list stops at 1000" : ""}) — put files there on the office PC`, "#9ca3af") + files +
       (edit ? `<div style="margin-top:.35rem"><button id="fv-ev-recheck" style="${act}" title="Re-hash every admitted file; a changed one goes on hold">Re-check</button></div>`
-        : line(`A contributor or above admits and re-checks — ${esc(roleSaid)}.`)) + "</div>";
+        : line(`A contributor or above admits and re-checks — ${esc(roleSaid)}.`)) + survey + "</div>";
   }
 
   // "Deleted items (n)" — built like "On hold (n)": every member sees what is there, who deleted it and when; Restore is

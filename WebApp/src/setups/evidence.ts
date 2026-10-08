@@ -72,10 +72,12 @@ export function requestLine(r: EvidenceRequest): string {
 }
 
 /** Which Evidence controls a role gets: Make the pack, Sign and Ask the owner are a lead's (Sign and Ask never the machine session's —
- *  an attestation, and a letter, name a person); Admit and Re-check a contributor's. Pure. */
+ *  an attestation, and a letter, name a person); Admit and Re-check a contributor's; MA-4c: Run survey a contributor's, never the machine
+ *  session's (a job names a person). Pure. */
 export const evidenceControls = (role: string) => ({
   make: canGovernRole(role), sign: canGovernRole(role) && role !== "service", admit: canEditRole(role), recheck: canEditRole(role),
   ask: canGovernRole(role) && role !== "service",
+  survey: canEditRole(role) && role !== "service",
 });
 
 const at = (base: string, key: string, path: string) => `${base.replace(/\/$/, "")}/cde/${encodeURIComponent(key)}/${path}`;
@@ -99,3 +101,56 @@ export const admitEvidence = (base: string, key: string, b: { path: string; kind
 export const draftRequest = (base: string, key: string, b: { recipient_kind: EvidenceRequest["recipient_kind"]; recipient?: string; documents: string[]; purpose?: string }) =>
   post<{ request: EvidenceRequest; letter: string; ledger: Ledger }>(base, key, `evidence/${PACK_ID}/requests`, b);
 export const recheckEvidence = (base: string, key: string) => post<RecheckReply>(base, key, `evidence/${PACK_ID}/recheck`, {});
+
+/** MA-4c: a survey job as the bridge keeps it (GET /cde/:key/build/jobs); its candidates are read on demand (readJob). */
+export interface SurveyJob {
+  id: string; status: "queued" | "running" | "done" | "failed" | "refused"; stage: string; pct: number;
+  items: { id: string; path: string; sha256: string }[]; read?: string[]; refused: { id: string; reason: string }[];
+  started_by: string; started_at: string; finished_at?: string; error?: string;
+  counts?: Record<string, number>; candidates_total?: number; ledger?: Ledger;
+}
+/** An untyped candidate (design §6.9): whatever the reader measured, in mm (an area in m²). */
+export interface Candidate {
+  cid: string; kind: string; geometry: Record<string, unknown>; measured: Record<string, number>; evidence: string[];
+  fit?: { inliers: number; rmse_mm: number; coverage: number };
+}
+export interface JobRead { job: SurveyJob; candidates?: Candidate[]; result_error?: string; }
+/** The pack's scans a survey may read: admitted, surveyable, not changed. Which formats v0.1 reads is the bridge's to say, per item. Pure. */
+export const surveyableScans = (pack: EvidencePack) => pack.items.filter((i) => i.kind === "scan" && i.surveyable && i.state !== "changed");
+const FOUND: [string, string][] = [["level", "level(s)"], ["wall", "wall(s)"], ["floor", "floor(s)"], ["ceiling", "ceiling(s)"]];
+/** A job in one line: its state, what it read (a done job: only what its result was measured from; one running: what it is reading;
+ *  else what it was given) and refused, what it found, who and when, its ledger row. Pure. */
+export function jobLine(j: SurveyJob): string {
+  const live = j.status === "queued" || j.status === "running";
+  const state = live ? `${j.status} · ${j.stage} ${j.pct}%` : j.status;
+  const given = j.items.map((i) => i.id).join(", ") || "nothing";
+  const what = j.status === "done" ? `read ${(j.read ?? []).join(", ") || "nothing"}` : live ? `reading ${given}` : `given ${given}`;
+  const refused = j.refused.length ? ` · refused ${j.refused.map((r) => `${r.id} (${r.reason})`).join("; ")}` : "";
+  const found = j.counts ? ` · ${FOUND.map(([k, w]) => `${j.counts![k] ?? 0} ${w}`).join(", ")}` : "";
+  return `${j.id} · ${state} · ${what}${refused}${found}${j.error ? ` · ${j.error}` : ""}` +
+    ` · by ${j.started_by} · ${j.started_at.replace("T", " ").slice(0, 16)}${j.ledger ? ` · ${ledgerLine(j.ledger)}` : ""}`;
+}
+/** One untyped candidate in one line — generic over what it measured, its fit, the evidence it came from. Pure. */
+export function candidateLine(c: Candidate): string {
+  const m = Object.entries(c.measured).map(([k, v]) => `${k.replace(/_/g, " ")} ${v}`).join(", ");
+  const fit = c.fit ? ` · fit ${c.fit.rmse_mm} mm rms, ${Math.round(c.fit.coverage * 100)}% covered` : "";
+  const one = Array.isArray(c.geometry.faces) && c.geometry.faces.length === 1 ? " · one face seen: its thickness is unknown" : "";
+  return `${c.cid} · ${c.kind} · ${m}${fit}${one} · from ${c.evidence.join(", ")}`;
+}
+/** The status line after Run survey. Pure. */
+export function surveyStartLine(j: SurveyJob): string {
+  return `✓ Started ${j.id} — sentinel-survey reads ${j.items.map((i) => `${i.id} (${i.path})`).join(", ")}` +
+    `${j.refused.length ? `; refused ${j.refused.map((r) => `${r.id} (${r.reason})`).join("; ")}` : ""} — ↻ for its progress.`;
+}
+/** Run survey: the bridge picks every admitted, surveyable scan of the pack in force (no item list, readers or params from here). */
+export const startSurvey = (base: string, key: string) => post<{ job: SurveyJob }>(base, key, "build/jobs", { pack: PACK_ID });
+/** The project's survey jobs, newest first; any failure throws "not read — …" (the section says it; the pack still shows). */
+export async function readJobs(base: string, key: string): Promise<SurveyJob[]> {
+  let r: Response;
+  try { r = await bfetch(at(base, key, "build/jobs")); } catch (e) { throw new Error(`not read — ${(e as Error).message}`); }
+  const j = (await r.json().catch(() => null)) as { jobs?: SurveyJob[]; message?: string } | null;
+  if (!r.ok || !Array.isArray(j?.jobs)) throw new Error(`not read — ${j?.message || `HTTP ${r.status}`}`);
+  return j.jobs;
+}
+/** One job, with its candidates once done (bwrite: a GET whose refusal words are thrown). */
+export const readJob = (base: string, key: string, id: string) => bwrite<JobRead>(at(base, key, `build/jobs/${encodeURIComponent(id)}`));
