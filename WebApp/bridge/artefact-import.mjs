@@ -1,5 +1,5 @@
 // Install standards as project artefacts.
-//   node bridge/artefact-import.mjs <file.json> --project <key> --kind <one of KINDS in artefact-store.mjs: ids, ruleset, naming, contract, guideline, layers, type_catalog, publish, roi, review, carbon_factors, lod_matrix> [--actor <who>]
+//   node bridge/artefact-import.mjs <file.json> --project <key> --kind <one of KINDS in artefact-store.mjs: ids, ruleset, naming, contract, guideline, layers, type_catalog, publish, roi, review, carbon_factors, lod_matrix; evidence_pack is refused here — the evidence routes write it (MA-4a)> [--actor <who>]
 //     one file → one artefact of that kind (default ids). The bridge validates the body per kind and refuses one
 //     its judge could not use; the refusal names the field ("contract: ifc_schema must be IFC2X3 | IFC4").
 //   node bridge/artefact-import.mjs --from-metadata [--key <key>] [--dry-run]
@@ -57,7 +57,7 @@ async function fromMetadata() {
 async function fromFile() {
   const project = flag("project"), kind = flag("kind", "ids");
   if (!file || !project) {
-    console.error(`Usage: node bridge/artefact-import.mjs <file.json> --project <key> --kind <${KINDS.join("|")}> [--actor <who>]`);
+    console.error(`Usage: node bridge/artefact-import.mjs <file.json> --project <key> --kind <${KINDS.filter((k) => k !== "evidence_pack").join("|")}> [--actor <who>]`);
     console.error("       node bridge/artefact-import.mjs --from-metadata [--key <key>] [--dry-run]");
     return 1;
   }

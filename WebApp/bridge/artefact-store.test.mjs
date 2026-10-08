@@ -4,7 +4,7 @@ import { describe, it, expect, vi } from "vitest";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { canonical } from "./artefact-store.mjs";
-import { putArtefact, getArtefact, getArtefactVersion, listArtefacts, resolveIdsSpec, resolveArtefact, refLabel, validateArtefact, KINDS, artefactReply, resolveContract } from "./artefact-store.mjs";
+import { putArtefact, foldArtefact, getArtefact, getArtefactVersion, listArtefacts, resolveIdsSpec, resolveArtefact, refLabel, validateArtefact, KINDS, artefactReply, resolveContract } from "./artefact-store.mjs";
 import { runWithAuth } from "./bridge-auth.mjs";
 
 // Only the default wiring (a test that omits docInsert/docUpsert) reaches this mock; memDeps tests never import cde-store.
@@ -750,5 +750,35 @@ describe("validateArtefact — a guideline's placement block (MA-1a item 6)", ()
   it("a guideline with no placement block installs as before", () => {
     expect(validateArtefact("guideline", guideline)).toBe(true);
     expect(guideline).not.toHaveProperty("placement");
+  });
+});
+
+describe("evidence_pack (MA-4a): project only, never a hand PUT, folded by the bridge", () => {
+  const pack = (over = {}) => ({ kind: "evidence_pack", pack_id: "evp-0001", project: "p", asset: { name: "P", type: null, jurisdiction: null, crs: null }, storage_root: "C:/evidence/p", attestations: [], items: [], ...over });
+  const RACE = "another change to evidence_pack landed at the same moment — read it again and retry; nothing was saved";
+  it("a hand PUT is refused, a lead's included, and nothing is written", async () => {
+    const d = memDeps();
+    await expect(putArtefact("p", "evidence_pack", pack(), { actor: "x" }, d))
+      .rejects.toMatchObject({ status: 400, message: "evidence packs change only through the evidence routes; nothing was saved" });
+    expect(d.docs.size).toBe(0);
+  });
+  it("foldArtefact writes with no role check, checks the version read, and words the create-only race", async () => {
+    const d = memDeps({ role: "viewer" });
+    expect((await foldArtefact("p", "evidence_pack", pack(), { actor: "x", expectVersion: 0 }, d)).version).toBe(1);
+    await expect(foldArtefact("p", "evidence_pack", pack(), { actor: "x", expectVersion: 0 }, d)).rejects.toMatchObject({ status: 409, message: RACE });
+    d.docs.set("artefact|uuid-p|evidence_pack@2", {});
+    await expect(foldArtefact("p", "evidence_pack", pack(), { actor: "x", expectVersion: 1 }, d)).rejects.toMatchObject({ status: 409, message: RACE });
+    expect(d.audits.map((a) => a.action)).toEqual(["artefact_installed evidence_pack@1"]);
+  });
+  it("a project never inherits its office's pack", async () => {
+    const d = memDeps({ parentKey: "office" });
+    await foldArtefact("office", "evidence_pack", pack({ project: "office" }), { actor: "x", expectVersion: 0 }, d);
+    expect((await resolveArtefact("p", "evidence_pack", d)).source).toBe("none");
+    expect((await resolveArtefact("office", "evidence_pack", d)).source).toBe("project");
+    expect(await artefactReply("p", "evidence_pack", undefined, d)).toMatchObject({ status: 404, body: { reason: "not_installed" } });
+  });
+  it("validates through validatePack", () => {
+    expect(() => validateArtefact("evidence_pack", pack({ asset: { name: "" } })))
+      .toThrow(expect.objectContaining({ status: 400, message: "evidence_pack: asset.name must be a non-empty string of at most 200 characters" }));
   });
 });
