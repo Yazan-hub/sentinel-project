@@ -2512,3 +2512,21 @@ as its owner (201); its evidence folder `%APPDATA%\Sentinel\evidence\ma4a-drill\
 Download click, E-1 Make the evidence pack, E-2's signatures (a), (c), (d) and the admit-before-signing refusals, E-3 the three
 admissions with the E-7 connection watch on the 4100 bridge, E-4 Re-check and re-admit, E-5's google refusal and the 409, E-8
 the viewer's read-only section. The bridge on master answers every route (4100 restarted on 2a23208).
+
+## Session MA4b — Ask the owner and drawings, the machine rows (2026-10-08 local, the branch on the 4101 test bridge; Claude driving the bridge alone)
+
+Built on `feature/ma4b-ask-the-owner` (e8d99b7), reviewed from three lenses (correctness, security and privacy, the web and its words)
+with a skeptic per finding: 5 confirmed and fixed in 6a0f0fb (a flagged item's signatures checked for its own kind, not the body's;
+the Ask the owner form kept across a re-render and a same-scope refresh; the request picker keeps its pick; a project or person
+switch drops the draft, the picker and the open letters; one draft at a time), 4 refuted. 2840 tests.
+
+| Row | Result | Evidence |
+|---|---|---|
+| R-1 | the machine credential `POST /cde/ma4a-drill/evidence/evp-0001/requests {recipient_kind:"owner", documents:["floor plans"]}` → 403 `a request needs a person — the letter names who asks: sign in. Nothing was saved.` — **pass** | the script output |
+| R-2 | the machine credential `POST …/items {path:"drawings/A-101.pdf", kind:"drawing", request_id:"req-0001"}` → 403 `an admission needs a person — …` — **pass** | the script output |
+| R-3 | `GET …/requests` → 404 `CDE route not found` (a request is read with the pack, `GET …/evidence/evp-0001`) — **pass** | the script output |
+
+**Owed — the person rows** with MA4a's (a signed-in lead in the local app): draft a request to the owner (the letter shown, one
+`evidence:requested` row, the recipient's name not on it); put `drawings/A-101.pdf` in the folder; admit it before (b) → `a lead must
+sign (b) first`; sign (b); admit it under req-0001 → `provider: "owner"`, `licence: "holder-permission"`; a `.pdf` that is not a PDF
+→ refused in words.
