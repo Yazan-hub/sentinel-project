@@ -16,7 +16,7 @@
 
 **Tech Stack:** Python 3.14.2 (`C:\Python314\python.exe`, PSF-2.0) with numpy 2.4.6 (user site; BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0) and the standard library (`http.server`, `json`, `hashlib`, `hmac`, `struct`, `threading`); Python's `unittest`. Node bridge (vitest; `node:child_process` spawn — the bridge's first runtime child process, the founder's OK). TypeScript web (plain DOM). No new npm or pip dependency, no download, no migration, no new table (design :947), no add-in change.
 
-**Base:** `feature/ma4c-sentinel-survey` at master `271ea24`. Repo root `C:/Users/yazan/Claude/Projects/Co BIM Assistant/sentinel-project`. Every file:line below was read at `271ea24`. Every Python number in this plan (storeys, thicknesses, determinism, the cap) and the drill file's sha256 were checked by running the code below in memory against Python 3.14.2 / numpy 2.4.6 on this PC.
+**Base:** `feature/ma4c-sentinel-survey` at master `271ea24`. Repo root: the checkout. Every file:line below was read at `271ea24`. Every Python number in this plan (storeys, thicknesses, determinism, the cap) and the drill file's sha256 were checked by running the code below in memory against Python 3.14.2 / numpy 2.4.6 on this PC.
 
 ## Global Constraints
 
