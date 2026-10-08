@@ -39,3 +39,6 @@ graphify-out/
 # Auto-start service logs (scheduled tasks write these next to the launchers)
 WebApp/*.log
 WebApp/bridge/logs-*.out
+
+# MA-4c: sentinel-survey runs with -B (no bytecode); a run without it must not dirty the tree
+__pycache__/
