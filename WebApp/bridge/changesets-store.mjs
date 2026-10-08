@@ -9,6 +9,7 @@ import { validateChangeset, attachVerdicts, canWithdraw, deriveResultStatus, una
 import { makeTyper, makeCiter } from "./changesets-typing.mjs";
 import { resolveArtefact, refLabel, validateArtefact } from "./artefact-store.mjs";
 import { resolveActor } from "./bridge-auth.mjs";
+import { readProposeBody, planSurvey, PLANNER, PLANNER_VERSION } from "./survey-plan.mjs";
 
 const STORE = "changeset";
 const err = (status, message) => Object.assign(new Error(message), { status });
@@ -118,6 +119,12 @@ export async function proposeChangeset(key, body, actor, deps) {
   // MA-2c: a set_parameter's value is written only as an installed catalogue or clause holds it — the bridge checks the source.
   const cite = needsCiting(body) ? await citerFor(key, d) : null;
   const v = validateChangeset(body, { member: role != null && role !== "service", type, cite }); // 400/413 before any changeset is stored
+  return fileValidated(d, key, v, body, actor);
+}
+
+/** MA-4d: the filing of a validated changeset — the earlier changesets read, the referee, the carried declines, the doc, ONE
+ *  changeset_proposed row. proposeChangeset's second half, shared with proposeFromJob (whose body the bridge built). */
+async function fileValidated(d, key, v, body, actor) {
   const proj = await d.ensureProject(key);
   // MA-3b3: every changeset the project holds, read before anything is written — a ghost declined before is filed already declined
   // (carryDeclines). A read that fails refuses the filing: filing it undecided would be a guess that nothing was declined.
@@ -157,6 +164,7 @@ export async function proposeChangeset(key, body, actor, deps) {
     // MA-1a item 8: the bridge's trust decisions — the source is a claim, and what was posted and not kept is listed with
     // its reason ("ignored: set by the bridge"), so the 201 reply and every later read say it.
     claimed: v.claimed, ignored: v.ignored, ...(v.contract != null ? { contract: v.contract } : {}),
+    ...(v.job ? { job: v.job } : {}), // MA-4d: the survey job the bridge built it from — never a body's
     result: null,
   };
   await d.docInsert(STORE, proj.id, changeset.id, changeset, { service: true }); // C1 (migration 0037): the bridge's write, after the role check above
@@ -164,7 +172,11 @@ export async function proposeChangeset(key, body, actor, deps) {
     { name: v.name, source: v.source, elements: changeset.elements.length, exceptions: v.exceptions.length, verdict: adj.verdict, ids_source: adj.ids_source,
       claimed: v.claimed, ignored: v.ignored.length, typed: v.elements.filter((e) => e.typing?.typed_by === "bridge").length,
       // MA-3b3: the ONE row of the filing says how many declines were carried, each with where it came from, and what was not.
-      ...(carrySaid ? { carried: carry.carried.length, carried_from: carry.carried, not_carried: { no_reason: carry.no_reason, creates: carry.creates, unverified: carry.unverified } } : {}) });
+      ...(carrySaid ? { carried: carry.carried.length, carried_from: carry.carried, not_carried: { no_reason: carry.no_reason, creates: carry.creates, unverified: carry.unverified } } : {}),
+      // MA-4d (drill MA4: "each wall's ledger row lists its evidence sha and its job id"): the job, its evidence shas, and each element's reader
+      // id and evidence refs — the bridge's, from the job it trusted.
+      ...(v.job ? { job: { id: v.job.id, ledger_id: v.job.ledger_id, result_sha256: v.job.result_sha256 }, evidence: v.job.evidence,
+        from_job: changeset.elements.map((e) => ({ proposal_guid: e.proposal_guid, cid: e.cid ?? null, evidence: e.evidence ?? [] })) } : {}) });
   return changeset;
 }
 
@@ -195,6 +207,157 @@ export async function previewChangesets(key, body, deps) {
         all_carried: ghosts > 0 && carry.carried.length === ghosts };
     }),
   };
+}
+
+const storeyRecord = (s) => ({ cid: s.cid, level: s.level, how: s.how, elevation_mm: s.elevation_mm, delta_mm: s.delta_mm, checked: s.checked, from: s.from });
+const FILED = ["proposed", "applied", "partially_applied"]; // decision 19: a cid on one of these (less what Revit rejected) is filed
+const FRAME_KEYS = ["dx_mm", "dy_mm", "dz_mm", "rotation_deg"];
+// MA-4d (review): the projects a survey proposal is being filed on — decision 19's read of the changesets and the filing are one step per
+// project, so a double-click or two leads at once cannot file one job twice (the evidence-store admitting / rechecking, build-jobs running
+// precedent). ponytail: one bridge process — a second bridge on this PC (4101) can still race; a per-job unique doc key when two bridges serve one project.
+const proposing = new Set();
+/** The house rule: a refusal before the first write ends "nothing was saved" — a callee's own words (readPack, validateChangeset, the
+ *  typer, a store read) get it appended. */
+const unsaved = (e) => (/nothing was saved/i.test(e.message) ? e : err(e.status ?? 503, `${e.message} — nothing was saved`));
+
+/** MA-4d: the levels of every live IFC model's manifest, [{name, elevation_mm, from}] — what an unnamed storey is matched to. A project with
+ *  no published IFC has none (every unnamed storey is then created). One manifest doc read per live model. */
+async function manifestLevels(key, d) {
+  const ms = await import("./manifest-store.mjs");
+  const proj = await d.ensureProject(key);
+  const out = [];
+  for (const m of await ms.liveModelVersions(key)) {
+    const doc = await d.docGet(ms.STORE, proj.id, m.version_id);
+    for (const l of doc?.levels ?? []) out.push({ name: l.name, elevation_mm: l.elevation_mm, from: `${m.container}${m.revision ? ` ${m.revision}` : ""}` });
+  }
+  return out;
+}
+
+/** MA-4d: POST /cde/:key/build/jobs/:id/propose {frame, levels?} → 201. A signed-in lead turns a done survey job into one changeset per storey
+ *  that the bridge builds from the job's own result (survey-plan planSurvey) — measured, accuracy, pre-tick and claimed: false stamped by the
+ *  bridge, the job in its own field (`job`; the source stays a string for deployed add-ins) — and its gaps into ONE type_gap row for the
+ *  Holding Area; then ONE planner build:run row. Per candidate (decision 19): what this job's row already filed is not proposed again.
+ *  Refusals before anything is written, each ending "nothing was saved" (unsaved), in this order: 403 (the machine credential; below lead),
+ *  429, 409 (a proposal being filed on this project), 400/404/409 (the job: trustedJob, MA-4c decision 11), 400 (the body), 409 (an item it
+ *  read changed), 503 (the changesets not read), 409 (another frame; another job's proposed), 409 (no guideline or catalogue), 503 (the
+ *  published levels not read), 400/413 (the plan; a storey's validation), 409 (nothing new). Every storey is validated before the first is
+ *  filed: only the store or the ledger can stop a filing half way — a 502 naming what WAS filed (the store listed again), logged. */
+export async function proposeFromJob(key, id, b, actor, deps = {}) {
+  const d = wire(deps);
+  const trustedJob = deps.trustedJob ?? (await import("./build-jobs.mjs")).trustedJob;
+  const readPack = deps.readPack ?? (await import("./evidence-store.mjs")).readPack;
+  const levelsOf = deps.manifestLevels ?? ((k) => manifestLevels(k, d));
+  if ((await d.myRole(key)) === "service")
+    throw err(403, "proposing from a survey job needs a person — the frame and levels it states are a lead's, and its pre-ticks rest on them: sign in. Nothing was saved.");
+  try { await d.requireMinRole(key, "lead"); }
+  catch (e) { throw e.status === 403 ? err(403, `${e.message} — proposing from a survey job is a lead's: the frame and levels it states decide where every ghost lands; nothing was saved`) : unsaved(e); }
+  d.takeWriteBudget("survey proposals", { perUser: 6, all: 12 }); // its 429 says "nothing was saved"
+  if (proposing.has(key)) throw err(409, `a survey proposal is being filed on ${key} — try again when it ends; nothing was saved`);
+  proposing.add(key); // taken and checked with no await between: two calls cannot both pass
+  try {
+    let x;
+    try { x = await prepare(); } catch (e) { throw unsaved(e); } // nothing is written before prepare returns
+    return await file(x);
+  } finally { proposing.delete(key); }
+
+  /** Everything before the first write: the job, the body, the scans, decision 19, the standards, the plan, each storey validated. */
+  async function prepare() {
+    const { row, result } = await trustedJob(key, id);
+    const { frame, levels } = readProposeBody(b, result.candidates.filter((c) => c.kind === "level").map((c) => c.cid));
+    // Every item the job read must still be the bytes it read: in the pack the ROW names (job.json is never the anchor), not flagged, with
+    // the sha on its row.
+    const { pack } = await readPack(key, row.pack_id);
+    const evidence = row.read.map((rid) => {
+      const sent = row.items.find((i) => i.id === rid), now = pack.items.find((i) => i.id === rid);
+      const why = !sent ? "its row lists it as read but not as sent" : !now ? "it is no longer in the pack" : now.state === "changed" ? "Re-check flagged it changed"
+        : now.sha256 !== sent.sha256 ? "its sha256 in the pack is not the one the job read" : null;
+      if (why) throw err(409, `${rid} is not the bytes ${id} read (${why}) — survey the admitted scan again; nothing was saved`);
+      return { id: rid, sha256: sent.sha256 };
+    });
+    const proj = await d.ensureProject(key);
+    let earlier;
+    try { earlier = await d.docList(STORE, proj.id); }
+    catch (e) { throw err(503, `the project's changesets could not be read (${e.message}) — nothing was saved; send it again`); }
+    // Decision 19, per candidate, keyed on this job's ROW (job.ledger_id: hash-chained, unique — a job id repeats across jobs folders): a cid
+    // on a proposed or placed changeset of it, less what Revit rejected, is filed — not proposed again; its storey keeps the level it was filed on.
+    const mine = earlier.filter((c) => c.job?.ledger_id === row.ledger.id && FILED.includes(c.status));
+    const filed = { cids: new Set(), storeys: new Map() };
+    for (const c of mine) {
+      const rejected = new Set(c.result?.rejected ?? []);
+      for (const e of c.elements ?? []) if (e.cid && !rejected.has(e.proposal_guid)) filed.cids.add(e.cid);
+      if (c.job.storey?.cid) filed.storeys.set(c.job.storey.cid, c.job.storey);
+    }
+    const moved = mine.find((c) => FRAME_KEYS.some((k) => c.job.frame?.[k] !== frame[k])); // one job is one frame
+    if (moved) {
+      const f = moved.job.frame;
+      throw err(409, `${moved.name} (${moved.status.replace("_", " ")}) was filed from ${id} with the scan moved ${f.dx_mm}, ${f.dy_mm}, ${f.dz_mm} mm, turned ${f.rotation_deg}° — send that frame (one job is one frame), or run the survey again to propose it afresh; nothing was saved`);
+    }
+    const other = earlier.find((c) => c.job?.ledger_id != null && c.job.ledger_id !== row.ledger.id && c.status === "proposed");
+    if (other) throw err(409, `${other.name} (from ${other.job.id}) is still proposed — decide or withdraw it before proposing another survey job: both would propose the same walls; nothing was saved`);
+    // Another job's placed changesets on the same scan bytes are named, never refused: an Undo in Revit leaves a changeset applied here.
+    // ponytail: creates only — a scan already placed by another job is proposed again and only named; MA-5 matches scan walls to model
+    // walls; status from the newest changeset_reverted when Undo must reopen a job.
+    const onScan = (e) => evidence.some((x) => x.id === e.id && x.sha256 === e.sha256);
+    const overlaps = earlier.filter((c) => c.job?.ledger_id != null && c.job.ledger_id !== row.ledger.id && ["applied", "partially_applied"].includes(c.status)
+      && (c.job.evidence ?? []).some(onScan)).slice(0, 20).map((c) => ({ changeset: c.name, job_id: c.job.id, evidence: c.job.evidence.filter(onScan).map((e) => e.id) }));
+    const [guideline, catalog] = await Promise.all([standardOf(key, "guideline", d), standardOf(key, "type_catalog", d)]);
+    if (!guideline.body || !catalog.body)
+      throw err(409, `a survey's candidates are typed from the project's guideline and type catalogue, exactly (D16) — guideline: ${guideline.label}; type catalogue: ${catalog.label}; install both on the project or its office first. Nothing was saved`);
+    const type = makeTyper({ guideline, catalog }, await import("./sentinel-core.mjs"));
+    let manifest;
+    try { manifest = await levelsOf(key); }
+    catch (e) { throw err(503, `the published models' levels could not be read (${e.message}) — nothing was saved; send it again`); }
+    const plan = planSurvey({ job: { id, ledger: row.ledger, reader: row.reader, version: row.version }, candidates: result.candidates, frame, levels, manifest, type, filed });
+    const by = resolveActor(actor, "web");
+    const record = (s) => ({ id, ledger_id: row.ledger.id, ledger_hash: row.ledger.hash, result_sha256: row.result_sha256, reader: `${row.reader} ${row.version}`,
+      planner: `${PLANNER} ${PLANNER_VERSION}`, frame: { ...frame, stated_by: by }, storey: storeyRecord(s), evidence, overlaps });
+    const ready = plan.storeys.filter((p) => p.body).map((p) => {
+      try { return { p, v: validateChangeset(p.body, { member: true, type, job: { record: record(p.storey), byCid: p.byCid } }) }; }
+      catch (e) { throw err(e.status ?? 400, `${p.body.name}: ${e.message}`); } // unsaved() then ends it "nothing was saved"
+    });
+    if (!ready.length && mine.length) // a job that types nothing and filed nothing files its gaps alone
+      throw err(409, `nothing new to propose from ${id} — every candidate that types is filed already (${mine.map((c) => `${c.name}: ${c.status.replace("_", " ")}`).join("; ")}): withdraw a proposed one on the Review desk to propose it again; an applied one stays applied here after an Undo in Revit — run the survey again to propose it afresh; nothing was saved`);
+    return { proj, row, frame, before: new Set(earlier.map((c) => c.id)), overlaps, guideline, catalog, plan, ready, by };
+  }
+
+  /** The writes: each storey's changeset (fileValidated), the type_gap row, the planner row — a stop half way says what WAS filed. */
+  async function file({ proj, row, frame, before, overlaps, guideline, catalog, plan, ready, by }) {
+    const filed = [];
+    // The house rule for a filing stopped half way: name what WAS filed — the store listed again, so a doc stored before its row failed is
+    // named too — and log why (the bridge log).
+    const halfWay = async (what, e) => {
+      console.warn(`[MA-4d] propose ${key} ${id}: ${what} (${e.message})`);
+      let names;
+      try { names = (await d.docList(STORE, proj.id)).filter((c) => !before.has(c.id) && c.job?.ledger_id === row.ledger.id).map((c) => c.name); }
+      catch { names = filed.map((c) => c.name); } // the list failed too: what this call saw filed
+      return err(502, names.length
+        ? `${names.join(", ")} ${names.length === 1 ? "was" : "were"} filed; ${what} (${e.message}) — withdraw ${names.length === 1 ? "it" : "them"} on the Review desk, then propose ${id} again`
+        : `no changeset of ${id} was stored: ${what} (${e.message}) — propose it again`);
+    };
+    for (const { p, v } of ready) {
+      try { filed.push(await fileValidated(d, key, v, p.body, actor)); }
+      catch (e) { throw await halfWay(`the filing stopped at ${p.body.name}`, e); }
+    }
+    const jobRef = { id, ledger_id: row.ledger.id, result_sha256: row.result_sha256 };
+    const n = plan.groups.reduce((s, g) => s + g.elements, 0);
+    // The type_gap row is the bridge's (claimed false): the open route's are claimed and worded `type_gap:run · …` (cde-store typeGapRow).
+    let gapRow = null, done;
+    try {
+      if (plan.groups.length) gapRow = await d.audit(proj.id, "type_gap", null, `type_gap:run ${id} · ${PLANNER} · ${plan.groups.length} group(s), ${n} element(s)`, actor || "web", null,
+        { groups: plan.groups, source: row.reader, job: jobRef, guideline: guideline.label, catalog: catalog.label, claimed: false });
+    } catch (e) { throw await halfWay("the type-gap row was not written", e); }
+    const changesets = filed.map((c) => ({ id: c.id, name: c.name, elements: c.elements.length, preticked: c.elements.filter((e) => e.pretick).length }));
+    const storeys = plan.storeys.map((p) => ({ ...storeyRecord(p.storey), changeset: filed.find((c) => c.job.storey.cid === p.storey.cid)?.id ?? null }));
+    const gaps = { groups: plan.groups.length, elements: n, ledger: ledgerRef(gapRow) };
+    // The planner run's own build:run row (design :832) — never mistaken for the job's (decision 11's prefix is `· sentinel-survey `).
+    try {
+      done = await d.audit(proj.id, "build", null, `build:run ${id} · ${PLANNER} ${PLANNER_VERSION} · proposed`, actor || "web", null, {
+        job_id: id, planner: PLANNER, version: PLANNER_VERSION, survey_row: row.ledger, result_sha256: row.result_sha256, frame: { ...frame, stated_by: by },
+        storeys, changesets, gaps, already_filed: plan.already_filed, overlaps, guideline: guideline.label, guideline_sha256: guideline.sha256,
+        catalog: catalog.label, catalog_sha256: catalog.sha256, model_calls: 0, tokens: 0, claimed: false });
+    } catch (e) { throw await halfWay("the planner's build:run row was not written", e); }
+    return { job: id, survey_row: row.ledger, frame, storeys, changesets, gaps, already_filed: plan.already_filed, overlaps, ledger: ledgerRef(done) };
+  }
 }
 
 export async function listChangesets(key, { status } = {}, deps) {
@@ -281,6 +444,10 @@ export async function reportResult(key, id, { applied, rejected, note, review_re
   const row = await d.audit(proj.id, "changeset", id, "changeset_applied", actor || "revit",
     { status: "proposed" },
     { status, applied: updated.result.applied, rejected: rejectedArr.length, note: updated.result.note, ...(values.length ? { values } : {}),
+      // MA-4d: a survey changeset's row names its job and, per ghost placed, its Revit id, reader id and evidence (from the stored changeset).
+      ...(cs.job ? { job: { id: cs.job.id, ledger_id: cs.job.ledger_id, result_sha256: cs.job.result_sha256 }, evidence: cs.job.evidence,
+        from_job: updated.result.applied.map((a) => { const e = cs.elements.find((x) => x.proposal_guid === a.proposal_guid);
+          return { proposal_guid: a.proposal_guid, revit_unique_id: a.revit_unique_id, cid: e?.cid ?? null, evidence: e?.evidence ?? [] }; }) } : {}),
       ...(why ? { reasons: why } : {}), // MA-3b2: Revit's reason per declined ghost, as stored
       // MA-3a: the web's declines the result rejected (counted), and any ghost applied over a decline Revit could not see (named).
       // C8: "late" rests on the revision the client claims it re-checked — the row carries that claim, as the doc does.

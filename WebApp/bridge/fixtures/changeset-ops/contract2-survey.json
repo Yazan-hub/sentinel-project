@@ -1,0 +1,33 @@
+{
+  "_comment": "MA-4d: the first storey changeset proposeFromJob stores from the drill's job-0002 (fixtures/survey/job-0002-result.json), frame dx 40000, GR-FFL published at 0 mm. vitest holds the stored doc to `stored` (toMatchObject, changesets-store.test.mjs); tools/promote-check (Trust.cs) reads it into the deployed ChangesetDto.",
+  "stored": {
+    "name": "Survey job-0002 · GR-FFL", "source": "sentinel-survey 0.1.0", "status": "proposed", "claimed": false, "contract": 2,
+    "job": { "id": "job-0002", "ledger_id": 2201, "result_sha256": "70c9845a19417feb6c483674f0e1359911a46d630adb3135491d95618c0397d0",
+      "reader": "sentinel-survey 0.1.0", "planner": "survey-planner 0.1.0", "frame": { "dx_mm": 40000, "dy_mm": 0, "dz_mm": 0, "rotation_deg": 0 },
+      "storey": { "cid": "scan-L00-level", "level": "GR-FFL", "how": "matched", "elevation_mm": 0, "delta_mm": 0, "checked": true, "from": "ARC.ifc P01" },
+      "evidence": [{ "id": "ev-0001", "sha256": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1" }], "overlaps": [] },
+    "exceptions": [
+      { "unique_id": "scan-L00-wall-4", "name": "wall scan-L00-wall-4", "reason": "type gap — BDS_EXT_ARC_CMU_250 mm is not in the type catalogue; it waits in the Holding Area" },
+      { "unique_id": "scan-L00-floor", "name": "floor scan-L00-floor", "reason": "type gap — no office rule types it (no facts); it waits in the Holding Area" },
+      { "unique_id": "scan-L00-ceiling", "name": "ceiling scan-L00-ceiling", "reason": "type gap — no office rule types it (no facts); it waits in the Holding Area" }
+    ],
+    "elements": [
+      { "kind": "wall", "op": "create", "cid": "scan-L00-wall-1", "evidence": ["ev-0001#slice-L00"], "pretick": true, "trim_mm": [-140, -136],
+        "measured": { "length_mm": 8001, "height_mm": 2800, "thickness_mm": 300 },
+        "accuracy": { "status": "within_tolerance", "basis": "fit", "from_job": "job-0002", "fit_rmse_mm": 2, "face_dev_mm": 0, "coverage": 1, "target_mm": 20 },
+        "facts": { "thickness_mm": 300, "params": { "Location": "Exterior" } }, "typing": { "typed_by": "bridge", "type": "BDS_EXT_ARC_CMU_300 mm", "family": "Basic Wall" },
+        "validate": { "identity": { "Class": "IFCWALL", "Name": "scan-L00-wall-1" } },
+        "place": { "TypeName": "BDS_EXT_ARC_CMU_300 mm", "LevelName": "GR-FFL", "LocationCurve": { "start": [40125, 150, 0], "end": [47850, 150, 0] }, "TopElevation": 2800 } },
+      { "kind": "wall", "op": "create", "cid": "scan-L00-wall-2", "evidence": ["ev-0001#slice-L00"], "pretick": true, "trim_mm": [-139, -137],
+        "measured": { "length_mm": 8001, "height_mm": 2800, "thickness_mm": 200 },
+        "accuracy": { "status": "within_tolerance", "basis": "fit", "from_job": "job-0002", "fit_rmse_mm": 1.9, "face_dev_mm": 0, "coverage": 1, "target_mm": 20 },
+        "typing": { "typed_by": "bridge", "type": "BDS_EXT_ARC_CMU_200 mm", "family": "Basic Wall" },
+        "place": { "TypeName": "BDS_EXT_ARC_CMU_200 mm", "LevelName": "GR-FFL", "LocationCurve": { "start": [40125, 5900, 0], "end": [47850, 5900, 0] }, "TopElevation": 2800 } },
+      { "kind": "wall", "op": "create", "cid": "scan-L00-wall-3", "evidence": ["ev-0001#slice-L00"], "pretick": true, "trim_mm": [-99, -97],
+        "measured": { "length_mm": 5946, "height_mm": 2800, "thickness_mm": 300 },
+        "accuracy": { "status": "within_tolerance", "basis": "fit", "from_job": "job-0002", "fit_rmse_mm": 1.8, "face_dev_mm": 0, "coverage": 1, "target_mm": 20 },
+        "typing": { "typed_by": "bridge", "type": "BDS_EXT_ARC_CMU_300 mm", "family": "Basic Wall" },
+        "place": { "TypeName": "BDS_EXT_ARC_CMU_300 mm", "LevelName": "GR-FFL", "LocationCurve": { "start": [47850, 150, 0], "end": [47850, 5900, 0] }, "TopElevation": 2800 } }
+    ]
+  }
+}

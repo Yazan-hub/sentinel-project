@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { proposeChangeset, getChangeset, reportResult, withdrawChangeset, listChangesets, reportReverted, needsTyping, needsCiting,
-  reviewChangeset, reopenGhost, previewChangesets } from "./changesets-store.mjs";
+  reviewChangeset, reopenGhost, previewChangesets, proposeFromJob } from "./changesets-store.mjs";
 
 const wall = () => ({
   kind: "wall",
@@ -933,5 +933,133 @@ describe("MA-3b6 — a preview of what a filing would carry (nothing stored)", (
     await expect(previewChangesets("demo", { bodies: [STOREY()] }, baseDeps({ docList: vi.fn(async () => { throw new Error("Supabase 500"); }) })))
       .rejects.toMatchObject({ status: 503, message: "the project's earlier changesets could not be read (Supabase 500) — nothing was previewed" });
     await expect(previewChangesets("demo", { bodies: [{ ...STOREY(), name: "" }] }, baseDeps())).rejects.toMatchObject({ status: 400 });
+  });
+});
+
+describe("proposeFromJob (MA-4d): a lead turns a trusted survey job into changesets per storey; the bridge builds and stamps them", () => {
+  const RESULT = readRepo("WebApp/bridge/fixtures/survey/job-0002-result.json");
+  const EV = "e1".repeat(32);
+  const TRUSTED = { job: { id: "job-0002", pack_id: "evp-9999", status: "done" }, result: RESULT, // job.json's pack id is never read: the row's is
+    row: { ledger: { id: 2201, hash: "13".repeat(32) }, reader: "sentinel-survey", version: "0.1.0", pack_id: "evp-0001", items: [{ id: "ev-0001", sha256: EV }, { id: "ev-0002", sha256: "e2".repeat(32) }],
+      read: ["ev-0001"], result_sha256: "70c9845a19417feb6c483674f0e1359911a46d630adb3135491d95618c0397d0" } };
+  const STD = { guideline: readRepo("demo/bds-pilot/bds-dd-layerfree-guideline.json"), type_catalog: readRepo("demo/bds-pilot/bds-type-catalog.json") };
+  const resolving = (have) => vi.fn(async (key, kind) => (have[kind] ? installed(kind, have[kind]) : NONE));
+  const belowMin = (you) => vi.fn(async (_key, min) => { throw Object.assign(new Error(`this action requires the ${min} role (you are ${you})`), { status: 403 }); });
+  const FRAME = { dx_mm: 40000, dy_mm: 0, dz_mm: 0, rotation_deg: 0 };
+  const sdeps = (over = {}) => { let n = 3000; return baseDeps({
+    myRole: vi.fn(async () => "lead"), requireMinRole: vi.fn(async () => "lead"), takeWriteBudget: vi.fn(), resolveArtefact: resolving(STD),
+    trustedJob: vi.fn(async () => TRUSTED), readPack: vi.fn(async () => ({ pack: { items: [{ id: "ev-0001", sha256: EV, state: "admitted" }] } })),
+    manifestLevels: vi.fn(async () => [{ name: "GR-FFL", elevation_mm: 0, from: "ARC.ifc P01" }]),
+    audit: vi.fn(async () => ({ id: ++n, hash: "ab".repeat(32) })), ...over }); };
+  const propose = (deps, body = { frame: FRAME }) => proposeFromJob("ma4c-drill", "job-0002", body, "web", deps);
+  /** job-0002's two storey changesets as a first proposal stores them — the earlier changesets of the decision-19 cases. */
+  const firstDocs = async () => { const d0 = sdeps(); await propose(d0); return [...d0.saved.values()]; };
+
+  it("(a) one changeset per storey, built and stamped by the bridge; the gaps in one type_gap row; then the planner's build:run row", async () => {
+    const deps = sdeps();
+    const r = await propose(deps);
+    expect(r.changesets.map((c) => [c.name, c.elements, c.preticked])).toEqual([["Survey job-0002 · GR-FFL", 3, 3], ["Survey job-0002 · Scan L01 job-0002", 4, 4]]);
+    expect(r.storeys.map((s) => [s.cid, s.level, s.how, s.checked, s.changeset != null])).toEqual([["scan-L00-level", "GR-FFL", "matched", true, true], ["scan-L01-level", "Scan L01 job-0002", "created", true, true]]);
+    expect(r).toMatchObject({ job: "job-0002", survey_row: { id: 2201 }, gaps: { groups: 3, elements: 6, ledger: { id: 3003 } }, already_filed: 0, overlaps: [], ledger: { id: 3004 } });
+    expect([...deps.saved.values()][0]).toMatchObject(readRepo("WebApp/bridge/fixtures/changeset-ops/contract2-survey.json").stored); // Trust.cs reads the same
+    expect(deps.audit.mock.calls.map((c) => [c[1], c[3]])).toEqual([["changeset", "changeset_proposed"], ["changeset", "changeset_proposed"],
+      ["type_gap", "type_gap:run job-0002 · survey-planner · 3 group(s), 6 element(s)"], ["build", "build:run job-0002 · survey-planner 0.1.0 · proposed"]]);
+    expect(deps.audit.mock.calls[0][6]).toMatchObject({ claimed: false, job: { id: "job-0002", ledger_id: 2201 }, evidence: [{ id: "ev-0001", sha256: EV }],
+      from_job: [{ cid: "scan-L00-wall-1", evidence: ["ev-0001#slice-L00"] }, { cid: "scan-L00-wall-2" }, { cid: "scan-L00-wall-3" }] });
+    expect(deps.audit.mock.calls[2][6]).toMatchObject({ claimed: false, source: "sentinel-survey", job: { id: "job-0002", ledger_id: 2201 },
+      groups: [{ want: "BDS_EXT_ARC_CMU_250 mm", evidence: ["ev-0001#slice-L00", "ev-0001#slice-L01"] }, { category: "Floors" }, { category: "Ceilings" }] });
+    expect(deps.audit.mock.calls[3][6]).toMatchObject({ job_id: "job-0002", survey_row: { id: 2201 }, frame: FRAME, claimed: false, model_calls: 0, tokens: 0, gaps: { groups: 3, elements: 6 } });
+  });
+  it("(b) refused before anything is written, each in words", async () => {
+    const quiet = async (over, message, status = 409, body = { frame: FRAME }) => {
+      const deps = sdeps(over);
+      await expect(propose(deps, body)).rejects.toMatchObject({ status, message });
+      expect([deps.docInsert.mock.calls.length, deps.audit.mock.calls.length, deps.adjudicateProposal.mock.calls.length]).toEqual([0, 0, 0]);
+    };
+    await quiet({ myRole: vi.fn(async () => "service") }, "proposing from a survey job needs a person — the frame and levels it states are a lead's, and its pre-ticks rest on them: sign in. Nothing was saved.", 403);
+    await quiet({ requireMinRole: belowMin("contributor") }, "this action requires the lead role (you are contributor) — proposing from a survey job is a lead's: the frame and levels it states decide where every ghost lands; nothing was saved", 403);
+    await quiet({ trustedJob: vi.fn(async () => { throw Object.assign(new Error("job-0002's result is not trusted: … — run the survey again; nothing was saved"), { status: 409 }); }) },
+      "job-0002's result is not trusted: … — run the survey again; nothing was saved");
+    await quiet({}, "pretick is not a proposal field — the bridge builds every changeset from the job's own result; send {frame, levels?} — nothing was saved", 400, { frame: FRAME, pretick: true });
+    const pack = (items) => ({ readPack: vi.fn(async (_k, id) => (id === "evp-0001" ? { pack: { items } } : null)) }); // the ROW's pack id
+    await quiet(pack([{ id: "ev-0001", sha256: EV, state: "changed" }]), "ev-0001 is not the bytes job-0002 read (Re-check flagged it changed) — survey the admitted scan again; nothing was saved");
+    await quiet(pack([{ id: "ev-0001", sha256: "f".repeat(64), state: "admitted" }]), "ev-0001 is not the bytes job-0002 read (its sha256 in the pack is not the one the job read) — survey the admitted scan again; nothing was saved");
+    await quiet(pack([]), "ev-0001 is not the bytes job-0002 read (it is no longer in the pack) — survey the admitted scan again; nothing was saved");
+    await quiet({ readPack: vi.fn(async () => { throw Object.assign(new Error("ma4c-drill has no evidence pack — an office row holds none"), { status: 409 }); }) },
+      "ma4c-drill has no evidence pack — an office row holds none — nothing was saved"); // a callee's words get the house ending
+    const docs = await firstDocs();
+    await quiet({ docList: vi.fn(async () => docs) }, "nothing new to propose from job-0002 — every candidate that types is filed already (Survey job-0002 · GR-FFL: proposed; Survey job-0002 · Scan L01 job-0002: proposed): withdraw a proposed one on the Review desk to propose it again; an applied one stays applied here after an Undo in Revit — run the survey again to propose it afresh; nothing was saved");
+    await quiet({ docList: vi.fn(async () => docs.map((c) => ({ ...c, status: "applied" }))) }, expect.stringContaining("(Survey job-0002 · GR-FFL: applied; Survey job-0002 · Scan L01 job-0002: applied)"));
+    await quiet({ docList: vi.fn(async () => docs) }, "Survey job-0002 · GR-FFL (proposed) was filed from job-0002 with the scan moved 40000, 0, 0 mm, turned 0° — send that frame (one job is one frame), or run the survey again to propose it afresh; nothing was saved", 409, { frame: { ...FRAME, dx_mm: 0 } });
+    const other = docs.map((c) => ({ ...c, name: c.name.replace("job-0002", "job-0001"), job: { ...c.job, id: "job-0001", ledger_id: 2200 } }));
+    await quiet({ docList: vi.fn(async () => other) }, "Survey job-0001 · GR-FFL (from job-0001) is still proposed — decide or withdraw it before proposing another survey job: both would propose the same walls; nothing was saved");
+    await quiet({ resolveArtefact: resolving({ guideline: STD.guideline }) }, expect.stringMatching(/^a survey's candidates are typed from the project's guideline and type catalogue, exactly \(D16\) — guideline: guideline@1 · office · .+; type catalogue: none — .+; install both on the project or its office first\. Nothing was saved$/));
+    await quiet({ manifestLevels: vi.fn(async () => { throw new Error("the manifest store is down"); }) },
+      "the published models' levels could not be read (the manifest store is down) — nothing was saved; send it again", 503);
+  });
+  it("(c) a job whose changesets were withdrawn or declined is proposed again (a wrong frame is fixed that way)", async () => {
+    const deps = sdeps({ docList: vi.fn(async () => [{ id: "c0", name: "Survey job-0002 · GR-FFL", status: "withdrawn", job: { id: "job-0002", ledger_id: 2201 } }]) });
+    expect((await propose(deps)).changesets).toHaveLength(2);
+  });
+  it("(d) a level the lead names that no published model holds: its height is not checked, so nothing on that storey is pre-ticked", async () => {
+    const deps = sdeps({ manifestLevels: vi.fn(async () => []) });
+    const r = await propose(deps, { frame: FRAME, levels: { "scan-L00-level": "GR-FFL" } });
+    expect(r.changesets.map((c) => c.preticked)).toEqual([0, 4]);
+    expect([...deps.saved.values()][0].job.storey).toMatchObject({ level: "GR-FFL", how: "named", checked: false });
+  });
+  it("(e) Revit's result on a survey changeset: changeset_applied names the job, the evidence shas and each placed wall's reader id and evidence", async () => {
+    const deps = sdeps();
+    await propose(deps);
+    const cs = [...deps.saved.values()][0];
+    await reportResult("ma4c-drill", cs.id, { applied: cs.elements.map((e, i) => ({ proposal_guid: e.proposal_guid, revit_element_id: 900 + i, revit_unique_id: `u-${i}` })), rejected: [], review_rev: 0 }, "revit", deps);
+    expect(deps.audit.mock.calls.at(-1)[6]).toMatchObject({ status: "applied", job: { id: "job-0002", ledger_id: 2201 }, evidence: [{ id: "ev-0001", sha256: EV }],
+      from_job: [{ cid: "scan-L00-wall-1", evidence: ["ev-0001#slice-L00"], revit_unique_id: "u-0" }, { cid: "scan-L00-wall-2" }, { cid: "scan-L00-wall-3" }] });
+  });
+  it("(f) a filing the store stops half way says what WAS filed (the store listed again) and what to do", async () => {
+    const deps = sdeps(); let n = 0; const insert = deps.docInsert;
+    deps.docInsert = vi.fn(async (...a) => { if (++n === 2) throw new Error("the store is down"); return insert(...a); });
+    await expect(propose(deps)).rejects.toMatchObject({ status: 502,
+      message: "Survey job-0002 · GR-FFL was filed; the filing stopped at Survey job-0002 · Scan L01 job-0002 (the store is down) — withdraw it on the Review desk, then propose job-0002 again" });
+  });
+  it("(g) the type-gap row failing after the filing says what was filed — never a raw 5xx (decision 19 would refuse the retry)", async () => {
+    const deps = sdeps(); let n = 0; const write = deps.audit;
+    deps.audit = vi.fn(async (...a) => { if (++n === 3) throw new Error("the ledger is down"); return write(...a); });
+    await expect(propose(deps)).rejects.toMatchObject({ status: 502,
+      message: "Survey job-0002 · GR-FFL, Survey job-0002 · Scan L01 job-0002 were filed; the type-gap row was not written (the ledger is down) — withdraw them on the Review desk, then propose job-0002 again" });
+  });
+  it("(h) a doc stored before its changeset_proposed row failed is named as filed (the first storey too)", async () => {
+    const deps = sdeps(); deps.audit = vi.fn(async () => { throw new Error("the ledger is down"); });
+    await expect(propose(deps)).rejects.toMatchObject({ status: 502,
+      message: "Survey job-0002 · GR-FFL was filed; the filing stopped at Survey job-0002 · GR-FFL (the ledger is down) — withdraw it on the Review desk, then propose job-0002 again" });
+  });
+  it("(i) two at once (a double-click, two leads): one files, the other is a 409 before anything is written — one job never filed twice", async () => {
+    const deps = sdeps();
+    const [a, b] = await Promise.allSettled([propose(deps), propose(deps)]);
+    expect([a.status, b.status]).toEqual(["fulfilled", "rejected"]);
+    expect(b.reason).toMatchObject({ status: 409, message: "a survey proposal is being filed on ma4c-drill — try again when it ends; nothing was saved" });
+    expect(deps.saved.size).toBe(2);
+    expect((await propose(sdeps())).changesets).toHaveLength(2); // released when it ends
+  });
+  it("(j) decision 19 per candidate: GR-FFL placed in Revit, the office then adds the 250 mm type — only the walls not filed are proposed, on the levels they were filed on", async () => {
+    const [gr, l1] = await firstDocs();
+    const placed = { ...gr, status: "applied", result: { applied: gr.elements.map((e) => ({ proposal_guid: e.proposal_guid })), rejected: [] } };
+    const W250 = { category: "Walls", family: "Basic Wall", type: "BDS_EXT_ARC_CMU_250 mm", system: true, width_mm: 250, height_mm: null, params: { "Assembly Code": "B2010" } };
+    const deps = sdeps({ docList: vi.fn(async () => [placed, l1]),
+      resolveArtefact: resolving({ ...STD, type_catalog: { ...STD.type_catalog, types: [...STD.type_catalog.types, W250] } }) });
+    const r = await propose(deps);
+    expect(r.changesets.map((c) => [c.name, c.elements, c.preticked])).toEqual([["Survey job-0002 · GR-FFL", 1, 1], ["Survey job-0002 · Scan L01 job-0002", 1, 1]]);
+    expect([...deps.saved.values()].map((c) => c.elements.map((e) => [e.cid, e.place.TypeName]))).toEqual([[["scan-L00-wall-4", "BDS_EXT_ARC_CMU_250 mm"]], [["scan-L01-wall-3", "BDS_EXT_ARC_CMU_250 mm"]]]);
+    expect(r.storeys.map((s) => [s.level, s.how])).toEqual([["GR-FFL", "filed"], ["Scan L01 job-0002", "filed"]]); // L01's level is not created twice
+    expect(r).toMatchObject({ already_filed: 6, gaps: { groups: 2, elements: 4 } });
+  });
+  it("(k) the same job id from another jobs folder is another job (keyed on its row); a scan it placed is named, never refused", async () => {
+    const elsewhere = (await firstDocs()).map((c) => ({ ...c, status: "applied", job: { ...c.job, ledger_id: 1999 } }));
+    const deps = sdeps({ docList: vi.fn(async () => elsewhere) });
+    const r = await propose(deps);
+    const overlaps = [{ changeset: "Survey job-0002 · GR-FFL", job_id: "job-0002", evidence: ["ev-0001"] }, { changeset: "Survey job-0002 · Scan L01 job-0002", job_id: "job-0002", evidence: ["ev-0001"] }];
+    expect(r).toMatchObject({ already_filed: 0, overlaps });
+    expect(r.changesets).toHaveLength(2);
+    expect([...deps.saved.values()][0].job.overlaps).toEqual(overlaps);
+    expect(deps.audit.mock.calls.at(-1)[6]).toMatchObject({ overlaps });
   });
 });
