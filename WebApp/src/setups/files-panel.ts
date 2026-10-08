@@ -15,7 +15,7 @@ import { readDeleted, restoreDeleted, deletedItemLine, restoredLine, archivable,
 import { escapeHtml as esc } from "./escape-html";
 import { unarchiveFile } from "./cde-transition";
 import { firstTag, geometryCheck, linkedHash, linkedTag, sha256Hex, type GeometryLinkRow } from "./geometry-check";
-import { readEvidence, makePack, signAttestation, admitEvidence, recheckEvidence, kindOf, needsReport, itemLine, attestationLine, admitLine, recheckLine, evidenceControls, ATTESTATION_CODES, ATTESTATION_TEXTS, type EvidenceRead } from "./evidence";
+import { readEvidence, makePack, signAttestation, admitEvidence, recheckEvidence, draftRequest, kindOf, isImage, needsReport, itemLine, attestationLine, admitLine, recheckLine, requestLine, evidenceControls, ATTESTATION_CODES, ATTESTATION_TEXTS, type EvidenceRead, type EvidenceRequest } from "./evidence";
 
 /**
  * Sentinel Versions panel — file/blob-centric version history for uploaded model files.
@@ -79,6 +79,11 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   let evidenceError: string | null = null;
   let showEvidence = false;
   let admitting: string | null = null;
+  // MA-4b: `drawingFor` = the folder file whose request picker is open (a drawing names the request it answers); `askDraft` = the
+  // Ask the owner form while open (kept across a refused draft, so nothing typed is lost); `lettersOpen` = the requests showing a letter.
+  let drawingFor: string | null = null;
+  let askDraft: { to: EvidenceRequest["recipient_kind"]; name: string; docs: string; purpose: string } | null = null;
+  const lettersOpen = new Set<string>();
   let role = "viewer";
   let roleSaid = "your role: viewer"; // roleWords() of the last role read: "role not read — read-only" when it failed
   // Inline action states — window.prompt/confirm are silently blocked in the platform's cross-origin
@@ -276,12 +281,41 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     })));
     root.querySelectorAll<HTMLElement>("[data-evadmit]").forEach((n) => n.addEventListener("click", () => {
       const path = n.dataset.evadmit!;
-      // A photo, or a flagged item coming back (the bridge keeps its first registration and report), is admitted with no form.
+      // A photo, or a flagged item coming back (the bridge keeps its first registration, report and request), is admitted with no form.
       const back = evidence?.pack.items.find((i) => i.path === path && i.state === "changed");
-      if (back || kindOf(path) === "photo") void evAct(async () => admitLine(await admitEvidence(base, pid(), { path, kind: back?.kind ?? "photo" })));
-      else { admitting = path; render(); (root.querySelector("#fv-ev-method") as HTMLInputElement | null)?.focus(); }
+      if (back || kindOf(path) === "photo") void evAct(async () => admitLine(await admitEvidence(base, pid(), { path, kind: back?.kind ?? "photo", ...(back?.request_id ? { request_id: back.request_id } : {}) })));
+      else if (kindOf(path) === "drawing") { drawingFor = path; admitting = null; render(); }
+      else { admitting = path; drawingFor = null; render(); (root.querySelector("#fv-ev-method") as HTMLInputElement | null)?.focus(); }
     }));
-    root.querySelector("#fv-ev-cancel")?.addEventListener("click", () => { admitting = null; render(); });
+    root.querySelectorAll<HTMLElement>("[data-evdrawing]").forEach((n) => n.addEventListener("click", () => { drawingFor = n.dataset.evdrawing!; admitting = null; render(); }));
+    root.querySelector("#fv-ev-dok")?.addEventListener("click", () => {
+      const path = drawingFor, request_id = (root.querySelector("#fv-ev-req") as HTMLSelectElement | null)?.value || "";
+      if (!path || !request_id) return;
+      drawingFor = null;
+      void evAct(async () => admitLine(await admitEvidence(base, pid(), { path, kind: "drawing", request_id })));
+    });
+    root.querySelector("#fv-ev-ask")?.addEventListener("click", () => { askDraft = { to: "owner", name: "", docs: "", purpose: "" }; render(); (root.querySelector("#fv-ev-docs") as HTMLTextAreaElement | null)?.focus(); });
+    root.querySelector("#fv-ev-askcancel")?.addEventListener("click", () => { askDraft = null; render(); });
+    root.querySelector("#fv-ev-draft")?.addEventListener("click", () => {
+      const val = (id: string) => (root.querySelector(id) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null)?.value ?? "";
+      const d = { to: val("#fv-ev-to") as EvidenceRequest["recipient_kind"], name: val("#fv-ev-name"), docs: val("#fv-ev-docs"), purpose: val("#fv-ev-purpose") };
+      askDraft = d; // shown again if the bridge refuses it
+      void evAct(async () => {
+        const r = await draftRequest(base, pid(), { recipient_kind: d.to, documents: d.docs.split(/\r?\n/), ...(d.name.trim() ? { recipient: d.name } : {}), ...(d.purpose.trim() ? { purpose: d.purpose } : {}) });
+        askDraft = null; lettersOpen.add(r.request.id);
+        return `✓ Drafted ${r.request.id} — Sentinel sends nothing: copy the letter and send it yourself · ${ledgerLine(r.ledger)}`;
+      });
+    });
+    root.querySelectorAll<HTMLElement>("[data-evletter]").forEach((n) => n.addEventListener("click", () => {
+      const id = n.dataset.evletter!; lettersOpen.has(id) ? lettersOpen.delete(id) : lettersOpen.add(id); render();
+    }));
+    root.querySelectorAll<HTMLElement>("[data-evcopy]").forEach((n) => n.addEventListener("click", async () => {
+      const r = evidence?.pack.requests?.find((x) => x.id === n.dataset.evcopy);
+      if (!r) return;
+      try { await navigator.clipboard.writeText(r.letter); status(`✓ Copied the letter of ${r.id} — sign it and send it yourself`); }
+      catch { status("Copy is blocked here — select the letter's text and copy it (Ctrl+C)"); }
+    }));
+    root.querySelector("#fv-ev-cancel")?.addEventListener("click", () => { admitting = null; drawingFor = null; render(); });
     root.querySelector("#fv-ev-ok")?.addEventListener("click", () => {
       const path = admitting;
       if (!path) return;
@@ -461,18 +495,39 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
         (!done && signer ? ` <button data-evsign="${esc(c)}" style="${act}">Sign (${c})</button>` : ""));
     }).join("");
     const items = pack.items.map((i) => line(esc(itemLine(i)), i.state === "changed" ? "#fca5a5" : "#cbd5e1")).join("") || line("none yet");
+    const requests = pack.requests ?? [];
+    const inp = "background:#111;color:#eee;border:1px solid #2c2c34;border-radius:.25rem;padding:.2rem .4rem;font:12px system-ui";
+    // MA-4b: Ask the owner — the requests (each letter shown on demand, to copy) and, for a lead, the form that drafts one.
+    const asks = requests.map((r) => line(`${esc(requestLine(r))} <button data-evletter="${esc(r.id)}" style="${act}">${lettersOpen.has(r.id) ? "Hide letter" : "Letter"}</button>`, "#cbd5e1") +
+      (lettersOpen.has(r.id) ? `<div style="padding:.1rem .2rem"><textarea readonly rows="12" style="${inp};width:100%;box-sizing:border-box;font:11px ui-monospace,Consolas,monospace">${esc(r.letter)}</textarea>` +
+        `<button data-evcopy="${esc(r.id)}" style="${act}">Copy</button></div>` : "")).join("") || line("none yet");
+    const askForm = !can.ask ? "" : !askDraft ? `<div style="padding:.1rem .2rem"><button id="fv-ev-ask" style="${act}">+ Ask the owner…</button></div>`
+      : `<div style="display:flex;flex-direction:column;gap:.3rem;padding:.3rem .2rem">` +
+        `<div style="display:flex;gap:.4rem;flex-wrap:wrap"><select id="fv-ev-to" style="${inp}">${(["owner", "architect", "municipality"] as const).map((k) => `<option value="${esc(k)}"${askDraft!.to === k ? " selected" : ""}>to the ${esc(k)}</option>`).join("")}</select>` +
+        `<input id="fv-ev-name" maxlength="200" value="${esc(askDraft.name)}" placeholder="their name (optional)" style="${inp};flex:1;min-width:10rem"/></div>` +
+        `<textarea id="fv-ev-docs" rows="3" placeholder="the documents asked for, one per line — e.g. floor plans, every level" style="${inp}">${esc(askDraft.docs)}</textarea>` +
+        `<input id="fv-ev-purpose" maxlength="500" value="${esc(askDraft.purpose)}" placeholder="what they are for (optional)" style="${inp}"/>` +
+        `<div><button id="fv-ev-draft" style="${act};color:#c4b5fd">Draft the letter</button> <button id="fv-ev-askcancel" style="${act}">Cancel</button></div></div>`;
     const files = folder.files_not_admitted.map((f) => {
       const form = admitting === f.path
         ? `<input id="fv-ev-method" maxlength="300" placeholder="How was it registered? e.g. registered in source" style="flex:1;min-width:10rem;background:#111;color:#eee;border:1px solid #6528d7;border-radius:.25rem;padding:.2rem .4rem;font:12px system-ui"/>` +
           (needsReport(f.path) ? `<select id="fv-ev-report" style="background:#111;color:#eee;border:1px solid #2c2c34;border-radius:.25rem;font:11px system-ui"><option value="">its registration report…</option>${folder.files_not_admitted.filter((x) => x.path !== f.path).map((x) => `<option value="${esc(x.path)}">${esc(x.path)}</option>`).join("")}</select>` : "") +
           `<button id="fv-ev-ok" style="${act};color:#c4b5fd">Admit</button><button id="fv-ev-cancel" style="${act}">Cancel</button>`
-        : !kindOf(f.path) ? '<span style="color:#71717a">not admitted here — scans e57, las, laz, rcp; photos jpg, png</span>'
-        : edit ? `<button data-evadmit="${esc(f.path)}" style="${act}">Admit</button>` : "";
+        : drawingFor === f.path
+          ? (requests.length
+            ? `<select id="fv-ev-req" style="${inp}">${requests.map((r) => `<option value="${esc(r.id)}">answers ${esc(r.id)} · to the ${esc(r.recipient_kind)}</option>`).join("")}</select>` +
+              `<button id="fv-ev-dok" style="${act};color:#c4b5fd">Admit drawing</button>`
+            : '<span style="color:#fbbf24">a drawing answers a request — a lead drafts one under Ask the owner first</span>') +
+            `<button id="fv-ev-cancel" style="${act}">Cancel</button>`
+        : !kindOf(f.path) ? '<span style="color:#71717a">not admitted here — scans e57, las, laz, rcp; photos jpg, png; drawings pdf, dwg, dxf</span>'
+        : edit ? `<button data-evadmit="${esc(f.path)}" style="${act}">Admit</button>` +
+          (isImage(f.path) && requests.length ? ` <button data-evdrawing="${esc(f.path)}" style="${act}" title="a scanned drawing that answers a request">as drawing…</button>` : "") : "";
       return `<div style="display:flex;gap:.4rem;align-items:center;flex-wrap:wrap;font-size:11px;padding:.15rem .2rem"><span style="flex:1;min-width:8rem;overflow-wrap:anywhere">${esc(f.path)} · ${esc(humanSize(f.size_bytes))}</span>${form}</div>`;
     }).join("") || line("none");
     return toggle + `<div style="margin-bottom:.45rem;padding:.45rem .55rem;background:#1b1b21;border:1px solid #2c2c34;border-radius:.4rem">` +
       `<div style="color:#71717a;font-size:10.5px;font-family:ui-monospace,Consolas,monospace;overflow-wrap:anywhere">${esc(pack.pack_id)} · ${esc(ref)} · folder ${esc(folder.path)}${folder.exists ? "" : " (not there yet)"}</div>` +
-      line("Attestations — a lead signs (a) and (c) before any file is admitted, and (d) before a photo", "#9ca3af") + atts +
+      line("Attestations — a lead signs (a) and (c) before a scan, also (d) before a photo, and (a) and (b) before a drawing", "#9ca3af") + atts +
+      line(`Ask the owner (${requests.length}) — Sentinel drafts the letter and sends nothing: you send it; the drawings that come back are admitted under it`, "#9ca3af") + asks + askForm +
       line(`Admitted (${pack.items.length})`, "#9ca3af") + items +
       line(`In the folder, not yet admitted (${folder.files_not_admitted.length}${folder.truncated ? ", the list stops at 1000" : ""}) — put files there on the office PC`, "#9ca3af") + files +
       (edit ? `<div style="margin-top:.35rem"><button id="fv-ev-recheck" style="${act}" title="Re-hash every admitted file; a changed one goes on hold">Re-check</button></div>`

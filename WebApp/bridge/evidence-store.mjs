@@ -190,7 +190,7 @@ export async function signAttestation(key, packId, b = {}, deps) {
  *  contributor of an office project (the machine credential is a 403: an admission names who admitted and confirmed it). Refusals before
  *  any store, no row, in this order: 403, 429, 400 (body, path), 404 (no pack), 409 (the signatures its kind needs), 404 (no file), 409
  *  (already admitted and not flagged — before any policy check, so an admitted file is never put On hold by a bad body), 400 (a new
- *  item's method or report), 409 (the cap). Then a policy or content refusal is 200 {verdict: "refused", reasons, ledger} with one
+ *  item's method or report, a new drawing's request_id), 409 (the cap), 404 (a new drawing's request, MA-4b). Then a policy or content refusal is 200 {verdict: "refused", reasons, ledger} with one
  *  evidence:refused row (it then shows On hold until the path is admitted or dismissed); an admission is 201 {verdict: "admitted", item,
  *  pack_version, ledger} with one evidence:admitted row. The pack never changes an item's sha: a changed file is flagged by Re-check,
  *  and admitted again only as the same bytes. */
@@ -213,20 +213,26 @@ async function admitRun(d, proj, key, packId, b) {
   input = { ...input, path: onDisk(dir, full) }; // the disk's spelling: "Photos/OWN.jpg" is photos/own.jpg, admitted or not
   const prev = pack.items.find((i) => i.path === input.path);
   if (prev && prev.state !== "changed") throw err(409, `${input.path} is already admitted as ${prev.id} (Re-check finds a changed file) — nothing was saved`);
+  if (prev) input = { ...input, kind: prev.kind }; // it comes back as first admitted: a flagged photo is not re-read as a drawing
+  let request = null;
   if (!prev) {
     const missingField = L.newItemRefusal(input);
     if (missingField) throw err(400, missingField);
     if (pack.items.length >= L.MAX_ITEMS) throw err(409, `the evidence pack holds ${L.MAX_ITEMS} items, its cap — nothing was saved`);
+    if (input.kind === "drawing") { // MA-4b: under the request it answers
+      request = (pack.requests ?? []).find((r) => r.id === input.request_id) ?? null;
+      if (!request) throw err(404, `no request ${input.request_id} in ${packId} — a lead drafts it under Ask the owner first; nothing was saved`);
+    }
   }
   const refuse = async (reasons, sha256 = null) => ({ verdict: "refused", path: input.path, sha256, reasons,
     ledger: await row(d, proj, "evidence", `evidence:refused ${input.path}`, who, { pack_id: packId, path: input.path, sha256, reasons }) });
   const policy = L.policyRefusals(input);
   if (policy.length) return refuse(policy);
-  const format = L.formatOf(input.path);
-  const bad0 = L.magicRefusal(format, await readHead(full));
+  const format = L.formatOf(input.path, input.kind);
+  const bad0 = L.magicRefusal(format, await readHead(full), input.kind);
   if (bad0) return refuse([bad0]); // before any byte is hashed
   const f = await hashFile(full);
-  const bad = L.magicRefusal(format, f.head); // the hashed bytes' own head (the file may have been swapped in between)
+  const bad = L.magicRefusal(format, f.head, input.kind); // the hashed bytes' own head (the file may have been swapped in between)
   if (bad) return refuse([bad], f.sha256);
   if (prev && prev.sha256 !== f.sha256) return refuse(["changed since admitted"], f.sha256); // flagged already (Re-check)
   let item;
@@ -244,12 +250,32 @@ async function admitRun(d, proj, key, packId, b) {
       input = { ...input, registration: { ...input.registration, report_path: onDisk(dir, rf) } };
       report = await hashFile(rf);
     }
-    item = L.newItem({ id: L.nextId("ev", pack.items), input, format, sha256: f.sha256, size_bytes: f.size_bytes, report, pack, who, at: d.now() });
+    item = L.newItem({ id: L.nextId("ev", pack.items), input, format, sha256: f.sha256, size_bytes: f.size_bytes, report, pack, who, at: d.now(), request });
   }
   const items = prev ? pack.items.map((i) => (i === prev ? item : i)) : [...pack.items, item];
   const pointer = await fold(d, key, { ...pack, items }, version, who);
   const ledger = await row(d, proj, "evidence", `evidence:admitted ${item.id} ${item.path}`, who, L.admittedValue(packId, item, pointer.version, !!prev));
   return { verdict: "admitted", item, pack_version: pointer.version, ledger };
+}
+
+/** POST /cde/:key/evidence/:pack/requests {recipient_kind, recipient?, documents[], purpose?} → 201 (MA-4b; design §4.1): a signed-in
+ *  lead or owner of an office project drafts an "ask the owner" letter — Sentinel sends nothing; the person signs it and sends it. The
+ *  machine credential is a 403 (the letter names who asks). One evidence:requested row; the request and its letter stay in the pack. */
+export async function draftRequest(key, packId, b = {}, deps) {
+  const d = await wire(deps);
+  if ((await d.myRole(key)) === "service") throw err(403, "a request needs a person — the letter names who asks: sign in. Nothing was saved.");
+  const proj = await officeProject(d, key, "lead");
+  d.takeWriteBudget("evidence requests", { perUser: 10, all: 30 });
+  const input = L.readRequestBody(b);
+  const { pack, version } = await packOf(d, key, packId);
+  const requests = pack.requests ?? [];
+  if (requests.length >= L.MAX_REQUESTS) throw err(409, `the evidence pack holds ${L.MAX_REQUESTS} requests, its cap — nothing was saved`);
+  const who = actor(), id = L.nextId("req", requests);
+  const letter = L.letterText({ asset: pack.asset.name, project: key, request: { id, ...input }, by: who });
+  const request = L.newRequest({ id, input, letter, who, at: d.now() });
+  const pointer = await fold(d, key, { ...pack, requests: [...requests, request] }, version, who);
+  const ledger = await row(d, proj, "evidence", `evidence:requested ${id} ${input.recipient_kind}`, who, L.requestedValue(packId, request));
+  return { request, letter, pack_version: pointer.version, ledger };
 }
 
 /** POST /cde/:key/evidence/:pack/recheck → 200: re-hashes every admitted item (and its registration report). A changed or missing

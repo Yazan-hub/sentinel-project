@@ -19,7 +19,7 @@ const TEXTS = {
 export const ATTESTATIONS = Object.fromEntries(Object.entries(TEXTS).map(([code, text]) => [code, { text, sha256: createHash("sha256").update(text, "utf8").digest("hex") }]));
 /** Signed before an item of that kind is admitted: the owner's authority (a) and own capture (c); a photo also (d), that it is no
  *  Google/Apple/Azure capture — the RED rule (D:486) rests on the attestation, since a body may leave `provider` out. */
-export const ADMIT_NEEDS = { scan: ["a", "c"], photo: ["a", "c", "d"] };
+export const ADMIT_NEEDS = { scan: ["a", "c"], photo: ["a", "c", "d"], drawing: ["a", "b"] }; // MA-4b: a drawing, the owner's authority and the holder's permission
 /** "(a)", "(a) and (c)", "(a), (c) and (d)". */
 export const codesSaid = (codes) => codes.map((c) => `(${c})`).join(", ").replace(/, ([^,]*)$/, " and $1");
 /** RED sources (R:207, D:486): never admitted, whoever attests. Matched inside the provider's name, case ignored. */
@@ -41,17 +41,34 @@ export const FORMATS = {
   jpg: { kind: "photo", magic: "ffd8ff", surveyable: true },
   png: { kind: "photo", magic: "89504e470d0a1a0a", surveyable: true },
 };
+/** MA-4b: a drawing's formats — an image may be a photo or a drawing, so the kind picks the table. Read by the DWG/PDF readers, not
+ *  sentinel-survey: never surveyable. */
+const DRAWINGS = {
+  pdf: { kind: "drawing", magic: "25504446", surveyable: false },           // "%PDF"
+  dwg: { kind: "drawing", magic: "41433130", surveyable: false },           // "AC10" (AC1012 R13 … AC1032 2018+)
+  // ponytail: DXF is checked by extension only (ASCII DXF opens with free whitespace and a group code, binary with a banner) — a
+  // wrong file fails in the reader, not here.
+  dxf: { kind: "drawing", magic: null, surveyable: false },
+  png: { kind: "drawing", magic: "89504e470d0a1a0a", surveyable: false },
+  jpg: { kind: "drawing", magic: "ffd8ff", surveyable: false },
+};
+export const tableOf = (kind) => (kind === "drawing" ? DRAWINGS : FORMATS);
 /** The uses an own item allows. texture_embed and redistribute are always false, by policy (D:668). */
 export const USES = { view_reference: true, geometry_extraction: true, texture_embed: false, redistribute: false, ml_training: false };
-const PACK_FIELDS = ["kind", "pack_id", "project", "asset", "storage_root", "attestations", "items"];
+const PACK_FIELDS = ["kind", "pack_id", "project", "asset", "storage_root", "attestations", "items", "requests"];
+/** MA-4b: who an "ask the owner" letter goes to; a drawing admitted under it carries this as its provider. */
+export const RECIPIENTS = ["owner", "architect", "municipality"];
+export const MAX_REQUESTS = 50;
+const shaOf = (s) => createHash("sha256").update(s, "utf8").digest("hex");
+const oneLine = (s) => s.replace(/\s+/g, " ").trim();
 
 /** A path relative to the evidence folder, written with "/": no ":" anywhere (a drive, or an NTFS alternate stream "a.jpg:x.las" the
  *  folder list never shows), no leading slash, no "", "." or ".." segment. */
 export const safeRel = (p) => typeof p === "string" && p.length >= 1 && p.length <= 400 && !p.includes("\0") && !p.includes(":")
   && !p.split("/").some((s) => s === "" || s === "." || s === "..");
 export const extOf = (p) => (/\.([A-Za-z0-9]+)$/.exec(String(p))?.[1] ?? "").toLowerCase();
-/** The table's format for a path (".jpeg" is jpg), or null. */
-export const formatOf = (p) => { const e = extOf(p) === "jpeg" ? "jpg" : extOf(p); return FORMATS[e] ? e : null; };
+/** The format of a path in its kind's table (".jpeg" is jpg), or null. */
+export const formatOf = (p, kind) => { const e = extOf(p) === "jpeg" ? "jpg" : extOf(p); return tableOf(kind)[e] ? e : null; };
 
 /** POST …/items' body → {path, kind, provider, registration}, or a 400 in words before anything is read or written. Shape only: what a
  *  NEW item must carry (a scan's method, an RCP's report) is newItemRefusal's — a flagged item is admitted again as first admitted. */
@@ -59,7 +76,7 @@ export function readAdmitBody(b = {}) {
   const bad = (m) => err(400, `${m} — nothing was saved`);
   const path = typeof b.path === "string" ? b.path.trim().replace(/\\/g, "/") : "";
   if (!safeRel(path)) throw bad("path must name a file inside the project's evidence folder, relative to it (no drive, no leading slash, no ..)");
-  if (!["scan", "photo", "drawing"].includes(b.kind)) throw bad("kind must be scan or photo");
+  if (!["scan", "photo", "drawing"].includes(b.kind)) throw bad("kind must be scan, photo or drawing");
   const provider = b.provider == null ? "own" : String(b.provider).trim().toLowerCase();
   if (!provider || provider.length > 100) throw bad("provider must be a name of at most 100 characters (own when left out)");
   if (b.registration != null && !isObj(b.registration)) throw bad("registration must be an object {method, report_path?}");
@@ -71,11 +88,14 @@ export function readAdmitBody(b = {}) {
     if (rp !== null && !safeRel(rp)) throw bad("registration.report_path must name a file inside the project's evidence folder, relative to it");
     registration = { method, report_path: rp };
   }
-  return { path, kind: b.kind, provider, registration };
+  const request_id = b.request_id == null ? null : String(b.request_id).trim();
+  if (request_id !== null && !/^req-\d{4}$/.test(request_id)) throw bad("request_id must name a request of the pack, as req-0001");
+  return { path, kind: b.kind, provider, registration, request_id };
 }
 
 /** What a new item (not a flagged one coming back) must carry, as a 400's words, or null. */
-export function newItemRefusal({ path, kind, registration }) {
+export function newItemRefusal({ path, kind, registration, request_id }) {
+  if (kind === "drawing") return request_id ? null : "a drawing names the Ask the owner request it answers: request_id, as req-0001 — nothing was saved";
   if (kind !== "scan") return null;
   if (!registration?.method) return 'a scan names how it was registered: registration.method, for example "registered in source" (at most 300 characters) — nothing was saved';
   if (formatOf(path) === "rcp" && !registration.report_path) return "an RCP is admitted with its registration report: registration.report_path, a file in the evidence folder — nothing was saved";
@@ -86,8 +106,12 @@ export function newItemRefusal({ path, kind, registration }) {
 export function policyRefusals({ kind, provider, path }) {
   const out = [];
   if (RED.some((r) => provider.includes(r))) out.push(`${provider} is a RED source — imagery and data from Google, Apple and Azure/Bing map services are never admitted (attestation d says so for every photo)`);
-  else if (provider !== "own") out.push("web and third-party items wait for a later stage — only your own scans and photos (provider own) are admitted now");
-  if (kind === "drawing") { out.push("drawings come through Ask the owner (MA-4b)"); return out; }
+  // A drawing's provider is its request's recipient, stamped by the bridge — the body's is read for the RED rule only.
+  else if (provider !== "own" && kind !== "drawing") out.push("web and third-party items wait for a later stage — only your own scans and photos (provider own) are admitted now");
+  if (kind === "drawing") {
+    if (!formatOf(path, kind)) out.push(`${extOf(path) ? `a .${extOf(path)}` : "a file with no extension"} is not admitted as a drawing — drawings are pdf, dwg, dxf, png or jpg`);
+    return out;
+  }
   const f = formatOf(path);
   if (!f) out.push(`${extOf(path) ? `a .${extOf(path)}` : "a file with no extension"} is not admitted — scans are e57, las, laz or rcp; photos are jpg or png`);
   else if (FORMATS[f].kind !== kind) out.push(`a .${f} is a ${FORMATS[f].kind}, not a ${kind}`);
@@ -95,8 +119,8 @@ export function policyRefusals({ kind, provider, path }) {
 }
 
 /** null when the file's first bytes are the format's; else the refusal's words. `head`: a Buffer of the first 8 bytes. */
-export function magicRefusal(format, head) {
-  const m = FORMATS[format]?.magic;
+export function magicRefusal(format, head, kind) {
+  const m = tableOf(kind)[format]?.magic;
   return !m || head.toString("hex").startsWith(m) ? null : `the file does not begin as a .${format} does — renamed or damaged`;
 }
 
@@ -108,18 +132,69 @@ export const nextId = (prefix, list) => `${prefix}-${String(list.reduce((n, x) =
 export function newPack(key, projectName, asset, storageRoot) {
   const a = isObj(asset) ? asset : {};
   const s = (v) => (typeof v === "string" && v.trim() ? v.trim() : null);
-  return { kind: "evidence_pack", pack_id: PACK_ID, project: key, asset: { name: s(a.name) ?? projectName ?? key, type: s(a.type), jurisdiction: s(a.jurisdiction), crs: s(a.crs) }, storage_root: storageRoot, attestations: [], items: [] };
+  return { kind: "evidence_pack", pack_id: PACK_ID, project: key, asset: { name: s(a.name) ?? projectName ?? key, type: s(a.type), jurisdiction: s(a.jurisdiction), crs: s(a.crs) }, storage_root: storageRoot, attestations: [], items: [], requests: [] };
 }
 
-/** An admitted own item; every field from the bridge (the trust rule). `report`: {sha256} of the registration report, or null. */
-export function newItem({ id, input, format, sha256, size_bytes, report, pack, who, at }) {
+/** MA-4b: POST …/requests' body → {recipient_kind, recipient, documents, purpose}, each text on one line, or a 400 in words. */
+export function readRequestBody(b = {}) {
+  const bad = (m) => err(400, `${m} — nothing was saved`);
+  if (!RECIPIENTS.includes(b.recipient_kind)) throw bad("recipient_kind must be owner, architect or municipality — who the letter asks");
+  const opt = (v, max, name) => {
+    if (v == null || (typeof v === "string" && !v.trim())) return null;
+    if (typeof v !== "string" || oneLine(v).length > max) throw bad(`${name} must be text of at most ${max} characters`);
+    return oneLine(v);
+  };
+  const recipient = opt(b.recipient, 200, "recipient"), purpose = opt(b.purpose, 500, "purpose");
+  if (!Array.isArray(b.documents) || b.documents.some((x) => typeof x !== "string")) throw bad('documents must list what is asked for, as ["floor plans, every level", "sections"]');
+  const documents = b.documents.map(oneLine).filter(Boolean);
+  if (documents.length < 1 || documents.length > 20 || documents.some((x) => x.length > 200)) throw bad("documents must list 1 to 20 documents, each at most 200 characters");
+  return { recipient_kind: b.recipient_kind, recipient, documents, purpose };
+}
+
+const RECIPIENT_SAID = { owner: "the owner", architect: "the architect", municipality: "the municipality" };
+/** The letter, exactly as drafted: Sentinel sends nothing — the person signs it and sends it. Pure; its sha256 goes on the ledger. */
+export function letterText({ asset, project, request, by }) {
+  return [
+    `Subject: Request for the drawings of ${asset} (our reference ${project} ${request.id})`,
+    "",
+    `Dear ${request.recipient ?? "Sir or Madam"},`,
+    "",
+    `We are preparing a building information model of ${asset}. To build it from the record rather than from estimates, we ask you, as ${RECIPIENT_SAID[request.recipient_kind]}, for copies of:`,
+    "",
+    ...request.documents.map((x) => `- ${x}`),
+    "",
+    ...(request.purpose ? [`What they are for: ${request.purpose}`, ""] : []),
+    "We also ask for your written permission to use these documents on these terms only:",
+    "- they are used to model and check this asset: viewed as a reference, and its geometry taken from them;",
+    "- they are not published, not passed to anyone else and not used to train software;",
+    "- they are kept in our office, each file recorded with a fingerprint (sha256) and the date we received it.",
+    "",
+    "If you hold the copyright, a reply to this letter granting that permission is enough. If someone else holds it (for example the original architect), please tell us who, so that we can ask them.",
+    "",
+    "Yours faithfully,",
+    "",
+    "[your name and title]",
+    `Contact: ${by}`,
+  ].join("\n");
+}
+/** A drafted request as the pack keeps it; every stamp from the bridge. */
+export const newRequest = ({ id, input, letter, who, at }) => ({ id, ...input, letter, letter_sha256: shaOf(letter), drafted_by: who, drafted_at: at });
+/** The evidence:requested row's new_value — the recipient's name is not put on the append-only ledger (it stays in the pack). */
+export const requestedValue = (packId, r) => ({ pack_id: packId, request_id: r.id, recipient_kind: r.recipient_kind, documents: r.documents.length, letter_sha256: r.letter_sha256, actor: r.drafted_by });
+
+/** An admitted item; every field from the bridge (the trust rule). `report`: {sha256} of the registration report, or null. A drawing
+ *  (MA-4b) comes from its `request`'s recipient, with the holder's permission (b); every other item is own. */
+export function newItem({ id, input, format, sha256, size_bytes, report, pack, who, at, request = null }) {
   const reg = input.registration;
+  const from = input.kind === "drawing"
+    ? { provider: request.recipient_kind, licence: "holder-permission", request_id: request.id }
+    : { provider: "own", licence: "owner-supplied" };
   return {
-    id, kind: input.kind, format, sha256, size_bytes, path: input.path, provider: "own", licence: "owner-supplied",
+    id, kind: input.kind, format, sha256, size_bytes, path: input.path, ...from,
     attestation_ids: ADMIT_NEEDS[input.kind].map((c) => pack.attestations.find((a) => a.code === c).id), // a photo's names (d) too
     allowed_uses: { ...USES },
     ...(reg ? { registration: { method: reg.method, ...(reg.report_path ? { report_path: reg.report_path, report_sha256: report.sha256 } : {}), confirmed_by: who } } : {}),
-    surveyable: FORMATS[format].surveyable, admitted_by: who, admitted_at: at,
+    surveyable: tableOf(input.kind)[format].surveyable, admitted_by: who, admitted_at: at,
   };
 }
 /** An item whose file no longer matches: refused and flagged until the same file is admitted again. A re-scan goes in under a new
@@ -130,14 +205,14 @@ export function readmitted(i) { const { state: _s, changed_sha256: _c, changed_a
 export const admittedValue = (packId, i, packVersion, again) => ({
   pack_id: packId, item_id: i.id, path: i.path, sha256: i.sha256, size_bytes: i.size_bytes, kind: i.kind, format: i.format,
   provider: i.provider, licence: i.licence, allowed_uses: i.allowed_uses, attestation_ids: i.attestation_ids, surveyable: i.surveyable,
-  pack_version: packVersion, ...(again ? { readmitted: true } : {}),
+  ...(i.request_id ? { request_id: i.request_id } : {}), pack_version: packVersion, ...(again ? { readmitted: true } : {}),
 });
 
 /** validateArtefact's branch for evidence_pack: a 400 naming the path, so the bridge never writes a pack it could not trust. */
 export function validatePack(p) {
   const bad = (path, want) => err(400, `evidence_pack: ${path} ${want}`);
   const stray = Object.keys(p).find((k) => !PACK_FIELDS.includes(k));
-  if (stray !== undefined) throw bad(stray, "is not a pack field — {kind, pack_id, project, asset, storage_root, attestations, items}");
+  if (stray !== undefined) throw bad(stray, "is not a pack field — {kind, pack_id, project, asset, storage_root, attestations, items, requests}");
   if (p.kind !== "evidence_pack") throw bad("kind", 'must be "evidence_pack"');
   if (p.pack_id !== PACK_ID) throw bad("pack_id", `must be ${PACK_ID} (one pack per project)`);
   if (!str(p.project, 128)) throw bad("project", "must be the project key");
@@ -155,6 +230,21 @@ export function validatePack(p) {
     if (!str(a.by, 320) || !["lead", "owner"].includes(a.role) || !str(a.at, 40)) throw bad(at, "needs by, role (lead or owner) and at — stamped by the bridge");
     attIds.set(a.id, a.code); codes.add(a.code);
   });
+  // MA-4b: the drafted requests (absent on an MA-4a pack). id → recipient_kind, for the drawings admitted under them.
+  if (p.requests !== undefined && (!Array.isArray(p.requests) || p.requests.length > MAX_REQUESTS)) throw bad("requests", `must be an array of at most ${MAX_REQUESTS}`);
+  const reqs = new Map();
+  (p.requests ?? []).forEach((r, i) => {
+    const at = `requests[${i}]`;
+    if (!isObj(r)) throw bad(at, "must be an object");
+    if (!/^req-\d{4}$/.test(r.id) || reqs.has(r.id)) throw bad(`${at}.id`, "must be a unique req-NNNN");
+    if (!RECIPIENTS.includes(r.recipient_kind)) throw bad(`${at}.recipient_kind`, "must be owner, architect or municipality");
+    if (r.recipient !== null && !str(r.recipient, 200)) throw bad(`${at}.recipient`, "must be a name of at most 200 characters, or null");
+    if (!Array.isArray(r.documents) || r.documents.length < 1 || r.documents.length > 20 || !r.documents.every((x) => str(x, 200))) throw bad(`${at}.documents`, "must list 1 to 20 documents, each at most 200 characters");
+    if (r.purpose !== null && !str(r.purpose, 500)) throw bad(`${at}.purpose`, "must be text of at most 500 characters, or null");
+    if (!str(r.letter, 8000) || r.letter_sha256 !== shaOf(r.letter)) throw bad(`${at}.letter`, "must be the drafted letter, with its sha256");
+    if (!str(r.drafted_by, 320) || !str(r.drafted_at, 40)) throw bad(at, "needs drafted_by and drafted_at — stamped by the bridge");
+    reqs.set(r.id, r.recipient_kind);
+  });
   if (!Array.isArray(p.items) || p.items.length > MAX_ITEMS) throw bad("items", `must be an array of at most ${MAX_ITEMS}`);
   const ids = new Set(), paths = new Set();
   p.items.forEach((x, i) => {
@@ -162,11 +252,14 @@ export function validatePack(p) {
     if (!isObj(x)) throw bad(at, "must be an object");
     if (!/^ev-\d{4}$/.test(x.id) || ids.has(x.id)) throw bad(`${at}.id`, "must be a unique ev-NNNN");
     if (!safeRel(x.path) || paths.has(x.path)) throw bad(`${at}.path`, "must be a unique path inside the evidence folder");
-    const f = FORMATS[x.format];
-    if (!f || f.kind !== x.kind) throw bad(`${at}.format`, "must be in the format table for its kind (scan: e57, las, laz, rcp; photo: jpg, png)");
+    const f = tableOf(x.kind)[x.format];
+    if (!f || f.kind !== x.kind) throw bad(`${at}.format`, "must be in the format table for its kind (scan: e57, las, laz, rcp; photo: jpg, png; drawing: pdf, dwg, dxf, png, jpg)");
     if (!/^[0-9a-f]{64}$/.test(x.sha256)) throw bad(`${at}.sha256`, "must be 64 hex");
     if (!Number.isSafeInteger(x.size_bytes) || x.size_bytes < 0) throw bad(`${at}.size_bytes`, "must be a whole number of bytes");
-    if (x.provider !== "own" || x.licence !== "owner-supplied") throw bad(at, "is own (licence owner-supplied) — MA-4a admits nothing else");
+    if (x.kind === "drawing") {
+      if (x.licence !== "holder-permission" || !reqs.has(x.request_id) || x.provider !== reqs.get(x.request_id))
+        throw bad(at, "is a drawing: licence holder-permission, request_id naming a request of this pack, provider its recipient_kind");
+    } else if (x.provider !== "own" || x.licence !== "owner-supplied" || x.request_id !== undefined) throw bad(at, "is own (licence owner-supplied) — only a drawing comes from someone else, under a request");
     if (!Array.isArray(x.attestation_ids) || !x.attestation_ids.every((a) => attIds.has(a))
       || !ADMIT_NEEDS[x.kind].every((c) => x.attestation_ids.some((a) => attIds.get(a) === c)))
       throw bad(`${at}.attestation_ids`, `must name attestations of this pack, ${codesSaid(ADMIT_NEEDS[x.kind])} at least for a ${x.kind}`);

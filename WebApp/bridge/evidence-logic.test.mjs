@@ -2,7 +2,7 @@
 import { describe, it, expect } from "vitest";
 import {
   ATTESTATIONS, ADMIT_NEEDS, MAX_ITEMS, codesSaid, readAdmitBody, newItemRefusal, policyRefusals, magicRefusal,
-  nextId, newPack, newItem, flagged, readmitted, validatePack,
+  nextId, newPack, newItem, flagged, readmitted, validatePack, readRequestBody, letterText, newRequest, requestedValue,
 } from "./evidence-logic.mjs";
 
 const PATH_WORDS = "path must name a file inside the project's evidence folder, relative to it (no drive, no leading slash, no ..) — nothing was saved";
@@ -40,7 +40,7 @@ describe("readAdmitBody and newItemRefusal", () => {
     expect(readAdmitBody({ path: "scans/a.las", kind: "scan" }).registration).toBe(null);
     expect(readAdmitBody({ path: "a.jpg", kind: "photo" }).provider).toBe("own");
     expect(readAdmitBody({ path: "a.jpg", kind: "photo", provider: "Google Maps" }).provider).toBe("google maps");
-    expect(() => readAdmitBody({ path: "a.jpg", kind: "dataset" })).toThrow(expect.objectContaining({ status: 400, message: "kind must be scan or photo — nothing was saved" }));
+    expect(() => readAdmitBody({ path: "a.jpg", kind: "dataset" })).toThrow(expect.objectContaining({ status: 400, message: "kind must be scan, photo or drawing — nothing was saved" }));
   });
   it("a new item's own needs", () => {
     expect(newItemRefusal({ path: "a.las", kind: "scan", registration: null })).toMatch(/registration\.method/);
@@ -51,7 +51,7 @@ describe("readAdmitBody and newItemRefusal", () => {
   it("names the codes and what each kind needs", () => {
     expect(codesSaid(["a", "c", "d"])).toBe("(a), (c) and (d)");
     expect(codesSaid(["d"])).toBe("(d)");
-    expect(ADMIT_NEEDS).toEqual({ scan: ["a", "c"], photo: ["a", "c", "d"] });
+    expect(ADMIT_NEEDS).toEqual({ scan: ["a", "c"], photo: ["a", "c", "d"], drawing: ["a", "b"] });
   });
 });
 
@@ -60,7 +60,10 @@ describe("policyRefusals", () => {
     expect(policyRefusals({ kind: "photo", provider: "google maps", path: "a.jpg" })).toEqual(["google maps is a RED source — imagery and data from Google, Apple and Azure/Bing map services are never admitted (attestation d says so for every photo)"]);
     expect(policyRefusals({ kind: "photo", provider: "azure", path: "a.jpg" })).toEqual(["azure is a RED source — imagery and data from Google, Apple and Azure/Bing map services are never admitted (attestation d says so for every photo)"]);
     expect(policyRefusals({ kind: "photo", provider: "wikimedia-commons", path: "a.jpg" })).toEqual(["web and third-party items wait for a later stage — only your own scans and photos (provider own) are admitted now"]);
-    expect(policyRefusals({ kind: "drawing", provider: "own", path: "A-101.pdf" })).toEqual(["drawings come through Ask the owner (MA-4b)"]);
+    expect(policyRefusals({ kind: "drawing", provider: "own", path: "A-101.pdf" })).toEqual([]); // MA-4b: under a request
+    expect(policyRefusals({ kind: "drawing", provider: "owner", path: "scan.JPEG" })).toEqual([]);
+    expect(policyRefusals({ kind: "drawing", provider: "own", path: "A-101.txt" })).toEqual(["a .txt is not admitted as a drawing — drawings are pdf, dwg, dxf, png or jpg"]);
+    expect(policyRefusals({ kind: "drawing", provider: "apple", path: "A-101.pdf" })[0]).toMatch(/^apple is a RED source/);
     expect(policyRefusals({ kind: "photo", provider: "own", path: "a.txt" })).toEqual(["a .txt is not admitted — scans are e57, las, laz or rcp; photos are jpg or png"]);
     expect(policyRefusals({ kind: "scan", provider: "own", path: "a.jpg" })).toEqual(["a .jpg is a photo, not a scan"]);
     expect(policyRefusals({ kind: "photo", provider: "own", path: "a.JPEG" })).toEqual([]);
@@ -118,5 +121,60 @@ describe("validatePack", () => {
   it("a flagged item admitted again is the item it was", () => {
     const item = scanItem(packWith(["a", "c"]));
     expect(readmitted(flagged(item, null, "t"))).toEqual(item);
+  });
+});
+
+describe("Ask the owner (MA-4b)", () => {
+  const body = { recipient_kind: "owner", recipient: "  Ms  Owner ", documents: ["floor plans, every level", " ", "sections\nand elevations"], purpose: "a record model" };
+  it("reads the request body, one line each", () => {
+    expect(readRequestBody(body)).toEqual({ recipient_kind: "owner", recipient: "Ms Owner", documents: ["floor plans, every level", "sections and elevations"], purpose: "a record model" });
+    expect(readRequestBody({ recipient_kind: "municipality", documents: ["approved drawings"] })).toMatchObject({ recipient: null, purpose: null });
+    const no = (b, message) => expect(() => readRequestBody(b)).toThrow(expect.objectContaining({ status: 400, message }));
+    no({ ...body, recipient_kind: "google" }, "recipient_kind must be owner, architect or municipality — who the letter asks — nothing was saved");
+    no({ ...body, documents: "plans" }, 'documents must list what is asked for, as ["floor plans, every level", "sections"] — nothing was saved');
+    no({ ...body, documents: [" "] }, "documents must list 1 to 20 documents, each at most 200 characters — nothing was saved");
+    no({ ...body, documents: Array.from({ length: 21 }, (_, i) => `d${i}`) }, "documents must list 1 to 20 documents, each at most 200 characters — nothing was saved");
+    no({ ...body, recipient: "x".repeat(201) }, "recipient must be text of at most 200 characters — nothing was saved");
+    no({ ...body, purpose: 7 }, "purpose must be text of at most 500 characters — nothing was saved");
+  });
+  it("drafts the letter, pure, and keeps the recipient's name off the ledger value", () => {
+    const input = readRequestBody(body);
+    const letter = letterText({ asset: "Aster Tower", project: "aster-tower", request: { id: "req-0001", ...input }, by: "lead@example.test" });
+    expect(letter.split("\n")[0]).toBe("Subject: Request for the drawings of Aster Tower (our reference aster-tower req-0001)");
+    expect(letter).toContain("Dear Ms Owner,");
+    expect(letter).toContain("we ask you, as the owner, for copies of:\n\n- floor plans, every level\n- sections and elevations\n\nWhat they are for: a record model\n");
+    expect(letter).toContain("- they are not published, not passed to anyone else and not used to train software;");
+    expect(letter.endsWith("[your name and title]\nContact: lead@example.test")).toBe(true);
+    expect(letterText({ asset: "A", project: "a", request: { id: "req-0002", recipient_kind: "architect", recipient: null, documents: ["x"], purpose: null }, by: "b" }))
+      .toContain("Dear Sir or Madam,\n\nWe are preparing a building information model of A. To build it from the record rather than from estimates, we ask you, as the architect, for copies of:\n\n- x\n\nWe also ask");
+    const r = newRequest({ id: "req-0001", input, letter, who: "lead@example.test", at: "2026-10-08T12:00:00.000Z" });
+    expect(r.letter_sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(requestedValue("evp-0001", r)).toEqual({ pack_id: "evp-0001", request_id: "req-0001", recipient_kind: "owner", documents: 2, letter_sha256: r.letter_sha256, actor: "lead@example.test" });
+  });
+  it("a drawing: its kind's format table, its request's recipient as provider, (a) and (b), not surveyable", () => {
+    expect(magicRefusal("pdf", Buffer.from("%PDF-1.7"), "drawing")).toBe(null);
+    expect(magicRefusal("dwg", Buffer.from("AC1032\0\0"), "drawing")).toBe(null);
+    expect(magicRefusal("dxf", Buffer.from("  0\nSECT"), "drawing")).toBe(null);
+    expect(magicRefusal("pdf", Buffer.from("PK\x03\x04"), "drawing")).toBe("the file does not begin as a .pdf does — renamed or damaged");
+    expect(readAdmitBody({ path: "d/A.pdf", kind: "drawing", request_id: " req-0001 " }).request_id).toBe("req-0001");
+    expect(() => readAdmitBody({ path: "d/A.pdf", kind: "drawing", request_id: "1" })).toThrow(expect.objectContaining({ status: 400, message: "request_id must name a request of the pack, as req-0001 — nothing was saved" }));
+    expect(newItemRefusal({ path: "d/A.pdf", kind: "drawing", registration: null, request_id: null })).toBe("a drawing names the Ask the owner request it answers: request_id, as req-0001 — nothing was saved");
+    const input = readRequestBody(body);
+    const letter = letterText({ asset: "P", project: "p", request: { id: "req-0001", ...input }, by: "lead@example.test" });
+    const req = newRequest({ id: "req-0001", input, letter, who: "lead@example.test", at: "t" });
+    const pack = { ...packWith(["a", "b"]), requests: [req] };
+    const d = newItem({ id: "ev-0001", input: { path: "drawings/A-101.pdf", kind: "drawing", provider: "own", registration: null, request_id: "req-0001" },
+      format: "pdf", sha256: SHA, size_bytes: 9, report: null, pack, who: "c@example.test", at: "t", request: req });
+    expect(d).toMatchObject({ provider: "owner", licence: "holder-permission", request_id: "req-0001", attestation_ids: ["att-0001", "att-0002"], surveyable: false });
+    expect(validatePack({ ...pack, items: [d] })).toBe(true);
+    const fails = (p, message) => expect(() => validatePack(p)).toThrow(expect.objectContaining({ status: 400, message }));
+    const drawingWords = "evidence_pack: items[0] is a drawing: licence holder-permission, request_id naming a request of this pack, provider its recipient_kind";
+    fails({ ...pack, items: [{ ...d, provider: "architect" }] }, drawingWords);
+    fails({ ...pack, items: [{ ...d, request_id: "req-0009" }] }, drawingWords);
+    fails({ ...pack, requests: [{ ...req, letter: req.letter + "!" }], items: [] }, "evidence_pack: requests[0].letter must be the drafted letter, with its sha256");
+    fails({ ...pack, requests: [req, req] }, "evidence_pack: requests[1].id must be a unique req-NNNN");
+    fails({ ...pack, items: [{ ...photoItem(packWith(["a", "c", "d"])), request_id: "req-0001" }] }, "evidence_pack: items[0] is own (licence owner-supplied) — only a drawing comes from someone else, under a request");
+    const { requests: _r, ...ma4a } = newPack("p", "P", {}, "C:/ev/p");
+    expect(validatePack(ma4a)).toBe(true); // an MA-4a pack has no requests
   });
 });
