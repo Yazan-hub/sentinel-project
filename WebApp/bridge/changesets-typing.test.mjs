@@ -244,3 +244,22 @@ describe("changesets-typing — where a set_parameter's value comes from (MA-2c)
     expect(cite("wall", WALL, "Pset_WallCommon.FireRating", "60 min", { kind: "catalogue" }, "e").kind).toBe("catalogue");
   });
 });
+
+describe("changesets-typing — every refusal a candidate can earn carries its gap (MA-4d)", () => {
+  const gapOf = (t, kind, facts) => { try { t(kind, facts, "x"); return "typed"; } catch (e) { return e.gap; } };
+  it("a size the catalogue lacks: the type the rule wants, the size, the facts, the sizes the catalogue has — the words unchanged", () => {
+    expect(gapOf(type, "wall", { thickness_mm: 250, params: { Location: "Exterior" } })).toEqual({ category: "Walls", want: "BDS_EXT_ARC_CMU_250 mm", size: "250 mm",
+      key: "Location Exterior, 250 mm", nearest: ["BDS_EXT_ARC_CMU_100 mm", "BDS_EXT_ARC_CMU_200 mm", "BDS_EXT_ARC_CMU_300 mm", "BDS_EXT_ARC_CMU_400 mm"] });
+    refused(() => type("wall", { thickness_mm: 250, params: { Location: "Exterior" } }, "x"), /"BDS_EXT_ARC_CMU_250 mm" .* is not in type_catalog@1/);
+  });
+  it("no rule, or a {thickness} rule with no thickness: no type wanted — the size when sent, and the facts", () => {
+    expect(gapOf(type, "wall", { thickness_mm: 250 })).toEqual({ category: "Walls", want: null, size: "250 mm", key: "250 mm", nearest: [] });
+    expect(gapOf(type, "floor", null)).toEqual({ category: "Floors", want: null, size: null, key: "no facts", nearest: [] });
+    expect(gapOf(type, "wall", { params: { Location: "Exterior" } })).toEqual({ category: "Walls", want: null, size: null, key: "Location Exterior", nearest: [] });
+  });
+  it("no guideline or no catalogue is no gap — the standards are missing, not a type", () => {
+    expect(gapOf(makeTyper({ ...STANDARDS, guideline: NONE("guideline") }, core), "wall", { thickness_mm: 300 })).toBeUndefined();
+    expect(gapOf(makeTyper({ ...STANDARDS, catalog: NONE("type_catalog") }, core), "wall", { thickness_mm: 300 })).toBeUndefined();
+  });
+  it("a typed candidate is typed (gapOf says so)", () => expect(gapOf(type, "wall", { thickness_mm: 300, params: { Location: "Exterior" } })).toBe("typed"));
+});

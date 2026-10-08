@@ -73,19 +73,24 @@ export function makeTyper({ guideline: g, catalog: c }, core) {
     const input = { category, params: facts?.params ?? {}, ...(facts?.thickness_mm !== undefined ? { thicknessMm: facts.thickness_mm } : {}) };
     const r = core.resolveWithCatalog(g.body, input, c.body.types);
     const said = saidOf(facts);
-    if (r.source === "none") throw err(400, `${lead}no rule of ${g.label} matches a ${kind} with ${said}${send}add a layer-free rule for it`);
-    if (r.source === "default") throw err(400, `${lead}only the ${category} default of ${g.label} would apply (confidence 0.6) — Sentinel types by an office rule only${send}write a rule for ${said}`);
-    if (!r.type) throw err(400, `${lead}the rule of ${g.label} for ${said} names its type with {thickness} and no thickness was sent${send}send facts.thickness_mm`);
+    // MA-4d: each refusal a candidate can earn says what is missing as data too — the Holding Area groups it (survey-plan groupGaps); the
+    // words stay the 400's. No guideline or no catalogue (above) carries none: the standards are missing, not a type.
+    const gap = (want, nearest = []) => ({ category, want, size: facts?.thickness_mm !== undefined ? `${Math.round(facts.thickness_mm)} mm` : null, key: said, nearest });
+    const no = (message, g) => Object.assign(err(400, message), { gap: g });
+    if (r.source === "none") throw no(`${lead}no rule of ${g.label} matches a ${kind} with ${said}${send}add a layer-free rule for it`, gap(null));
+    if (r.source === "default") throw no(`${lead}only the ${category} default of ${g.label} would apply (confidence 0.6) — Sentinel types by an office rule only${send}write a rule for ${said}`, gap(null));
+    if (!r.type) throw no(`${lead}the rule of ${g.label} for ${said} names its type with {thickness} and no thickness was sent${send}send facts.thickness_mm`, gap(null));
     if (r.confidence < 1)
-      throw err(400, `${lead}"${r.type}" (the rule of ${g.label} for ${said}) is not in ${c.label}` +
-        (r.available?.length ? ` — the catalogue has ${r.available.join(", ")}` : " and the catalogue has no other size of it") + `${send}pick one of those`);
+      throw no(`${lead}"${r.type}" (the rule of ${g.label} for ${said}) is not in ${c.label}` +
+        (r.available?.length ? ` — the catalogue has ${r.available.join(", ")}` : " and the catalogue has no other size of it") + `${send}pick one of those`, gap(r.type, r.available ?? []));
     // The resolver checks the TYPE name in the category; a door's or window's type name repeats across families (the add-in has
     // CatalogHas(category, family, type) for this). The pair must be one catalogue row, or Apply fails on a family:type the model
     // does not hold — or places the wrong pair (review of MA-2a, C20).
     const norm = (s) => (s ?? "").trim().toLowerCase();
     const rows = c.body.types.filter((t) => core.sameCategory(t, category) && norm(t.type) === norm(r.type));
     if (!rows.some((t) => norm(t.family) === norm(r.family)))
-      throw err(400, `${lead}"${r.family} : ${r.type}" (the rule of ${g.label} for ${said}) is not one type in ${c.label} — the catalogue holds ${r.type} under ${[...new Set(rows.map((t) => t.family))].join(", ")}${send}name that family in the rule`);
+      throw no(`${lead}"${r.family} : ${r.type}" (the rule of ${g.label} for ${said}) is not one type in ${c.label} — the catalogue holds ${r.type} under ${[...new Set(rows.map((t) => t.family))].join(", ")}${send}name that family in the rule`,
+        gap(`${r.family} : ${r.type}`, [...new Set(rows.map((t) => `${t.family} : ${r.type}`))])); // a "Family : Type" want never closes by catalogue name, as it must not
     return {
       TypeName: r.type, FamilyName: r.family,
       typing: {
