@@ -131,6 +131,14 @@ export const TOOLS = [
       properties: { project: { type: "string" }, changeset: { type: "string" }, status: { type: "string" } },
     },
   },
+  {
+    name: "sentinel_build_status",
+    description: "Read a project's survey jobs (MA-4c: sentinel-survey, run by the bridge on this PC over the evidence pack's admitted LAS scans). Pass `job` (e.g. job-0001) for one job with its candidates — untyped geometry {cid, kind: level|wall|floor|ceiling, geometry, measured, evidence[], fit} in millimetres in the scan's own frame — and its receipt; omit it for the newest jobs first: status (queued, running, done, failed, refused), stage, pct, the scans read (ids, sha256), the scans refused with why, and once ended the build:run ledger row. Candidates carry no type and propose nothing (typing and changesets are MA-4d); LOD 200 as found, never survey grade. Read-only: no tool starts a survey — a contributor starts it on the web (Files ▸ Evidence ▸ Run survey).",
+    inputSchema: {
+      type: "object", required: ["project"],
+      properties: { project: { type: "string", description: "the project key" }, job: { type: "string", description: "optional: a job id (job-NNNN) — that job with its candidates" } },
+    },
+  },
 
   // ── Ask the open Sentinel app over the platform's channel (roadmap item 4; bridge/ask-sentinel.mjs) ──
   {
@@ -245,6 +253,10 @@ export async function callTool(name, args = {}, deps = {}) {
     const project = need(args, "project");
     if (args.changeset) return await getJson(`/changesets/${enc(project)}/${enc(need(args, "changeset"))}`);
     return await getJson(`/changesets/${enc(project)}${args.status ? `?status=${enc(args.status)}` : ""}`);
+  }
+  if (name === "sentinel_build_status") {
+    const project = need(args, "project");
+    return await getJson(`/cde/${enc(project)}/build/jobs${args.job ? `/${enc(need(args, "job"))}` : ""}`);
   }
 
   if (name === "sentinel_ask_app") {

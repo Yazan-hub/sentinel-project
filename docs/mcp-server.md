@@ -20,6 +20,7 @@ onto the document-governance layer (BEP/EIR documents, compliance, deliverables,
 | `sentinel_doc_integrity` | AI analysis of a document against the project's configured reality. Findings are **AI suggestions gated to cited facts** — never compliance facts; uncited findings are dropped and counted. Slow (minutes on a local model); needs the AI provider running. Read-only. |
 | `sentinel_propose_changeset` | Stage model elements (kinds: wall, floor, level, grid, roof, ceiling, door, window) for human review in Revit — nothing is created by this call; a person ticks each element in Revit before anything enters the model. |
 | `sentinel_changeset_status` | Check a staged changeset by `changeset` (id) or list by `status`. Read-only. |
+| `sentinel_build_status` | A project's survey jobs (sentinel-survey, run by the bridge on the evidence pack's admitted LAS scans), newest first, or one by `job` with its untyped candidates and receipt. Read-only — a contributor starts a survey on the web; no MCP tool starts one. |
 | `sentinel_verify_receipt` | Re-check a verdict receipt against the immutable ledger, or fetch the authoritative receipt for an `audit_id`. Every mismatch is named individually. Read-only. |
 
 ### Claimed provenance and the receipt

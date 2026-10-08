@@ -9,7 +9,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { spawn } from "node:child_process";
 import { createHash, createHmac, randomUUID } from "node:crypto";
-import { cpSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import net from "node:net";
 import { tmpdir } from "node:os";
@@ -116,6 +116,7 @@ beforeAll(async () => {
     SUPABASE_URL: `http://127.0.0.1:${server.address().port}`, SUPABASE_SERVICE_KEY: SERVICE,
     SUPABASE_ANON_KEY: "fake-anon-key", // forwarding armed: a signed-in caller's JWT reaches the fake as theirs
     SUPABASE_JWT_SECRET: SECRET,
+    SENTINEL_PYTHON: join(tmp, "no-python.exe"), // MA-4c: no sentinel-survey here — a start is refused before any spawn
   };
   child = spawn(process.execPath, [join(copy, "bcf-service.mjs")], { cwd: copy, env, stdio: ["ignore", "ignore", "pipe"], windowsHide: true });
   child.stderr.setEncoding("utf8");
@@ -1078,5 +1079,49 @@ describe("evidence intake (MA-4a): who makes, signs, admits and reads", () => {
     expect(await call("POST", `${E}/evp-0001/recheck`, "viewer")).toEqual(refused("contributor", "viewer"));
     expect((await call("GET", `${E}/evp-0002`, "viewer")).status).toBe(404);
     expect(await call("POST", "/cde/demo/audit", "lead", { action: "evidence:admitted ev-0002 scans/forged.las" })).toEqual({ status: 400, body: { message: "evidence: rows are written by Sentinel, not through this route" } });
+  });
+});
+
+describe("survey jobs (MA-4c): who starts and reads; every refusal before anything is written", () => {
+  const DIR = () => join(tmp, "appdata", "Sentinel", "evidence", "demo");
+  const JOBS = () => join(tmp, "appdata", "Sentinel", "jobs", "demo");
+  const J = "/cde/demo/build/jobs";
+  const LAS = Buffer.concat([Buffer.from("LASF"), Buffer.alloc(400, 7)]);
+  beforeEach(() => { db.projects[0].office_key = "office"; rmSync(DIR(), { recursive: true, force: true }); rmSync(JOBS(), { recursive: true, force: true }); });
+  const admit = async (f) => {
+    writeFileSync(join(DIR(), "scans", f), LAS);
+    expect((await call("POST", "/cde/demo/evidence/evp-0001/items", "contributor", { path: `scans/${f}`, kind: "scan", registration: { method: "registered in source" } })).status).toBe(201);
+  };
+
+  it("the machine credential and a viewer may not start one; a .laz alone is a 409 naming why; with a .las, a PC without Python is a 503 — no row, no job folder", async () => {
+    await call("POST", "/cde/demo/evidence", "lead", {});
+    for (const code of ["a", "c"]) await call("POST", "/cde/demo/evidence/evp-0001/attest", "lead", { code });
+    mkdirSync(join(DIR(), "scans"), { recursive: true });
+    await admit("site.laz");
+    const rows = db.audit_log.length;
+    expect(await call("POST", J, "machine", { pack: "evp-0001" })).toEqual({ status: 403, body: { message: "a survey job needs a person — its build:run row names who started it: sign in. Nothing was saved." } });
+    expect(await call("POST", J, "viewer", { pack: "evp-0001" })).toEqual(refused("contributor", "viewer"));
+    expect(await call("POST", J, "contributor", { pack: "evp-0001" })).toEqual({ status: 409, body: { message: "no admitted LAS scan in evp-0001 that sentinel-survey 0.1 reads — ev-0001: a .laz is read from MA-4g — sentinel-survey 0.1 reads plain LAS; nothing was saved" } });
+    expect(db.audit_log.length).toBe(rows);
+    await admit("tiny.las");
+    const rows2 = db.audit_log.length;
+    expect(await call("POST", J, "contributor", { pack: "evp-0001" })).toEqual({ status: 503, body: { message: "sentinel-survey is not set up on this PC: no Python where SENTINEL_PYTHON in config/.env points (C:\\Python314\\python.exe by default) — nothing was saved" } });
+    expect((await call("POST", J, "contributor", { pack: "evp-0002" })).status).toBe(404);
+    expect(await call("POST", J, "contributor", { pack: "evp-0001", params: { snap_mm: 5 } })).toEqual({ status: 400, body: { message: "snap_mm is not a survey parameter: snapping to a catalogue size is the bridge's typing policy (D16, type_snap_mm), MA-4d — nothing was saved" } });
+    expect(await call("POST", J, "contributor", { pack: "evp-0001", items: [{ id: "ev-0001" }] })).toEqual({ status: 400, body: { message: "items is not a survey job field — the bridge picks the items, the seed and who started it; send {pack, readers?, params?} — nothing was saved" } });
+    expect(db.audit_log.length).toBe(rows2);
+    expect(existsSync(JOBS())).toBe(false);
+  });
+
+  it("reads: any member lists (none yet) and reads by id; a stranger may not; a job row cannot be forged through the open route", async () => {
+    expect(await call("GET", J, "viewer")).toEqual({ status: 200, body: { jobs: [] } });
+    expect(await call("GET", `${J}/job-0001`, "viewer")).toEqual({ status: 404, body: { message: "no survey job job-0001 on demo — nothing was saved" } });
+    expect(await call("GET", `${J}/nope`, "viewer")).toEqual({ status: 400, body: { message: "a survey job is named job-NNNN — nothing was saved" } });
+    expect([403, 404]).toContain((await call("GET", J, "stranger")).status); // the project is invisible to a stranger (RLS): 404, as elsewhere here
+    expect((await call("GET", J, "machine")).status).toBe(200);
+    const forged = await call("POST", "/cde/demo/audit", "machine", { entity_type: "build", action: "build:run job-0001 · sentinel-survey 0.1.0 · done", new_value: { job_id: "job-0001", claimed: false, result_sha256: "ab".repeat(32) } });
+    expect(forged.status).toBe(201);
+    expect([db.audit_log.at(-1).action, db.audit_log.at(-1).new_value.claimed]).toEqual(["build:run", true]); // a claimed receipt, never a job row
+    expect(await call("POST", "/cde/demo/audit", "machine", { entity_type: "event", action: "build:run job-0001" })).toEqual({ status: 400, body: { message: 'build: rows are receipts (entity_type "build") — nothing was saved' } });
   });
 });

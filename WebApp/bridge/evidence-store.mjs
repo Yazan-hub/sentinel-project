@@ -309,3 +309,15 @@ async function recheckRun(d, proj, key, packId) {
   const still = pack.items.filter((i) => i.state === "changed").length;
   return { checked: pack.items.length - still, changed, still_changed: still, pack_version, ledger };
 }
+
+/** MA-4c: the checks before a survey job starts (build-jobs.mjs), in this order: a person (the machine credential is a 403 — the job's
+ *  build:run row names who started it, and its result is what a changeset's `measured` will be checked against, MA-4d), a contributor
+ *  or above of a project that belongs to an office, the budget, the pack in force. → {proj, pack, version, dir}; no file is read here. */
+export async function surveyStart(key, packId, deps) {
+  const d = await wire(deps);
+  if ((await d.myRole(key)) === "service") throw err(403, "a survey job needs a person — its build:run row names who started it: sign in. Nothing was saved.");
+  const proj = await officeProject(d, key, "contributor");
+  d.takeWriteBudget("survey jobs", { perUser: 6, all: 12 });
+  const { pack, version } = await packOf(d, key, packId);
+  return { proj, pack, version, dir: evidenceDir(key, d.root) };
+}

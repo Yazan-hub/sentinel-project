@@ -1688,6 +1688,16 @@ async function handleRequest(req, res) {
         //   Sentinel sends nothing).
         if (p3 && p4 === "requests" && !seg[5] && req.method === "POST") return send(res, 201, await ev.draftRequest(p1, p3, await body()));
       }
+      // MA-4c: survey jobs (design §6.8, §6.9). POST /cde/:key/build/jobs {pack, readers?, params?} → 202 {job} (a signed-in contributor of an
+      //   office project; the machine credential is a 403; one job at a time on this bridge). GET /cde/:key/build/jobs → the newest 20 (any
+      //   member); GET …/build/jobs/:id → one, with its candidates once done. Small JSON only: the bridge names evidence files on this PC to
+      //   sentinel-survey on this PC (build-jobs.mjs, survey-service.mjs); no evidence byte crosses this route.
+      if (p2 === "build" && p3 === "jobs" && !seg[5]) {
+        const bj = await import("./build-jobs.mjs");
+        if (!p4 && req.method === "POST") return send(res, 202, await bj.startJob(p1, (await readBody(req, { max: SMALL_JSON })) || {}));
+        if (!p4 && req.method === "GET") return send(res, 200, await bj.listJobs(p1));
+        if (p4 && req.method === "GET") return send(res, 200, await bj.readJob(p1, p4));
+      }
       // Manifests (Federation Gate inputs): GET /cde/:key/manifests · POST /cde/:key/manifests/:versionId (body = IFC bytes, backfill)
       if (p2 === "manifests") {
         const ms = await import("./manifest-store.mjs");

@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { makePack, readPack, signAttestation, runEvidenceIntake, recheckPack, draftRequest } from "./evidence-store.mjs";
+import { makePack, readPack, signAttestation, runEvidenceIntake, recheckPack, draftRequest, surveyStart } from "./evidence-store.mjs";
 import { ATTESTATIONS, USES } from "./evidence-logic.mjs";
 
 let root, docs, audits, budgets, role;
@@ -311,5 +311,21 @@ describe("evidence intake (MA-4a)", () => {
     put("d/A.pdf", "%PDF-1.7 plan");
     const back = await admit({ path: "d/A.pdf", kind: "photo" }); // no (c) or (d) is asked for
     expect(back).toMatchObject({ verdict: "admitted", item: { kind: "drawing", request_id: "req-0001", provider: "architect" } });
+  });
+});
+
+describe("surveyStart (MA-4c): the checks before a survey job", () => {
+  it("a person, a contributor of an office project, the budget, the pack in force — in that order; no file read", async () => {
+    await ready();
+    role = "service";
+    await expect(surveyStart("demo", "evp-0001", deps())).rejects.toMatchObject({ status: 403, message: "a survey job needs a person — its build:run row names who started it: sign in. Nothing was saved." });
+    role = "viewer";
+    await expect(surveyStart("demo", "evp-0001", deps())).rejects.toMatchObject({ status: 403, message: "this action requires the contributor role (you are viewer)" });
+    role = "contributor";
+    await expect(surveyStart("office", "evp-0001", deps())).rejects.toMatchObject({ status: 400, message: "an evidence pack belongs to a project, not an office — make it on the project; nothing was saved" });
+    await expect(surveyStart("demo", "evp-0002", deps())).rejects.toMatchObject({ status: 404, message: "demo's evidence pack is evp-0001, not evp-0002 — nothing was saved" });
+    const s = await surveyStart("demo", "evp-0001", deps());
+    expect(s).toMatchObject({ proj: { id: "uuid-demo" }, pack: { pack_id: "evp-0001" }, version: 4, dir: join(root, "demo") });
+    expect(budgets).toContainEqual(["survey jobs", { perUser: 6, all: 12 }]);
   });
 });
