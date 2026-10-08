@@ -929,7 +929,7 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
 - ezdxf (MIT) for DXF, when needed.
 
 ### 6.10 Licence policy
-- **Allowed in shipped code:** MIT, BSD, Apache-2.0, BSL-1.0, MPL-2.0 (web-ifc is already used). MA-4c adds 0BSD, Zlib and CC0-1.0 (parts of numpy) and PSF-2.0 (CPython) — all permissive; the founder confirms.
+- **Allowed in shipped code:** MIT, BSD, Apache-2.0, BSL-1.0, MPL-2.0 (web-ifc is already used). MA-4c adds 0BSD, Zlib and CC0-1.0 (parts of numpy) and PSF-2.0 (CPython) — all permissive; accepted by the founder on 2026-10-08.
 - **LGPL:** only as a separate process (IfcOpenShell).
 - **Not allowed** [R2M §5.3; TO §3]:
   - **GPL and AGPL:** CloudCompare, LibreDWG, OpenMVS, OpenDroneMap, PyMuPDF, Ultralytics YOLO, Bonsai.

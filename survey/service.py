@@ -197,7 +197,13 @@ def main():
         sys.exit("sentinel-survey: no SENTINEL_SURVEY_TOKEN — the bridge starts this service; it never runs open")
     # The bridge holds our stdin and never writes to it: when the bridge ends by any route (taskkill /f, a closed console too), the pipe
     # closes and this exits — no orphan keeps its port, its CPU or its memory.
-    threading.Thread(target=lambda: (sys.stdin.buffer.read(), os._exit(3)), daemon=True).start()
+    # Final review: exit whatever the read does (no stdin handle, an error, EOF) — a service that cannot watch its parent does not run on.
+    def watch():
+        try:
+            sys.stdin.buffer.read()
+        finally:
+            os._exit(3)
+    threading.Thread(target=watch, daemon=True).start()
     server = Server(("127.0.0.1", 0), Handler)  # loopback only, a port the OS picks (no firewall prompt)
     print(json.dumps({"port": server.server_address[1], "version": VERSION}), flush=True)
     server.serve_forever()

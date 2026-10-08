@@ -172,4 +172,18 @@ describe("survey jobs (MA-4c)", () => {
     await expect(readJob("demo", "nope", deps())).rejects.toMatchObject({ status: 400, message: "a survey job is named job-NNNN — nothing was saved" });
     await expect(readJob("demo", "job-0042", deps())).rejects.toMatchObject({ status: 404, message: "no survey job job-0042 on demo — nothing was saved" });
   });
+
+  it("(h) final review: a result that cannot be kept fails the run in words naming no path, and the run still writes its build:run row", async () => {
+    await start();
+    mkdirSync(join(root, "demo", "job-0001", "result.json")); // a folder where result.json goes: the rename onto it fails (EPERM, EISDIR)
+    await finish({ status: "done", stage: "done", pct: 100, refused: [], result: RESULT, tools: TOOLS, version: "0.1.0" });
+    const r = rec();
+    expect(r.status).toBe("failed");
+    expect(r.error).toMatch(/^the result could not be kept on this PC \((EPERM|EISDIR|EEXIST|ENOTEMPTY|EACCES)\) — nothing it found was kept$/);
+    expect(r.error).not.toContain(root);
+    expect(r).toMatchObject({ read: [], ledger: { id: 101 } });
+    expect(r.result_sha256).toBeUndefined();
+    expect(audits.map((a) => a.action)).toEqual(["build:run job-0001 · sentinel-survey 0.1.0 · failed"]);
+    expect(audits[0].v).toMatchObject({ status: "failed", result_sha256: null, candidates: null, error: r.error });
+  });
 });

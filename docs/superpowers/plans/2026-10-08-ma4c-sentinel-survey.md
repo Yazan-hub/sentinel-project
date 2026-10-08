@@ -56,7 +56,7 @@
 | 14 | `snap_mm` | Dropped from the contract's params: the service does no typing, and catalogue snapping is the bridge's D16 policy (`type_snap_mm: 0`). In a body it is a 400 naming D16 |
 | 15 | Seed | The bridge's constant `1`, on the job, the row and the receipt; used only by the seeded point cap. A body's `seed` (top level or in `params`) is a 400 |
 | 16 | Registration | Not built (design :465, "Do not build registration"). The design's two "MA-4c" registration pointers (:671-672) are re-pointed (Task 10) |
-| 17 | Licences | Every receipt and row lists each tool with the licence its package declares (numpy's `License-Expression`, read at run time). The §6.10 allow-list gains 0BSD, Zlib, CC0-1.0 (numpy's bundled parts) and PSF-2.0 (CPython) — all permissive; the founder confirms (Open questions). `tools/licence-check` stays unassigned (TARGET, no slice) |
+| 17 | Licences | Every receipt and row lists each tool with the licence its package declares (numpy's `License-Expression`, read at run time). The §6.10 allow-list gains 0BSD, Zlib, CC0-1.0 (numpy's bundled parts) and PSF-2.0 (CPython) — all permissive; accepted by the founder on 2026-10-08. `tools/licence-check` stays unassigned (TARGET, no slice) |
 | 18 | MCP | `sentinel_build_status` (read-only; list, or one job with its candidates) in 4c. No tool starts a job |
 | 19 | Web | The smallest surface: inside Evidence, a Survey block — every returned job in one line, Candidates on demand for a done job, **Run survey** for a contributor signed in when no job runs. No poll, no SSE (↻ shows progress); no Holding Area, journey or Next-strip change |
 | 20 | Gaps | Absent: `build:run.gaps` is `null` and the job has none — gaps exist only after typing (MA-4d) |
@@ -2283,7 +2283,7 @@ describe("the survey (MA-4c)", () => {
 
 - [ ] **Step 1:** —
   - `:446` → `- **v0.1 (MA-4c) is numpy and the Python standard library only, reading plain LAS 1.2–1.4** (nothing downloaded; Open3D dropped, MA-4a decision 5). laspy and pye57 (E57, LAZ, the CRS) come with MA-4g's download OK; PDAL, COPC, TEASER++, COLMAP and the detection models wait for a packaging spike in MA-7.`
-  - after `:450` add `- BUILT in MA-4c: storeys, walls (faces in a mid-storey slice, paired by WallPairing's rule ported to Python — a wall candidate is the paired centreline and thickness, its faces in \`geometry.faces\`; MA-4c spec amendment S3 settles :448 against :457), floors and ceilings (oriented rectangles), as untyped candidates in the contract's keys, the scan's own frame.`
+  - after `:450` add `- BUILT in MA-4c: storeys, walls (faces in a mid-storey slice, paired by WallPairing's rule ported to Python — a wall candidate is the paired centreline and thickness, its faces in \`geometry.faces\`; MA-4c spec amendment S3 settles :448 against :458), floors and ceilings (oriented rectangles), as untyped candidates in the contract's keys, the scan's own frame.`
   - `:451` append ` — MA-4e (\`POST /measure\`), not v0.1.`
   - `:671` "no registration until a measured one, MA-4c" → "no registration — drawing alignment by 2 points is MA-5".
   - `:672` "`rmse_mm` waits for a measured registration (MA-4c)" → "`rmse_mm` comes from a registered scan's report (MA-4g reads E57 and its report; sentinel-survey does not register — §4.3 \"Do not build registration\")".
@@ -2292,7 +2292,7 @@ describe("the survey (MA-4c)", () => {
   - `:895` append ` — \`sentinel_build_status\` BUILT in MA-4c (read-only).`
   - after `:921` add `- MA-4c spec amendment S2: the bridge starts one service process per job and stops it after (\`survey-service.mjs\`, \`SENTINEL_PYTHON\`, spawned \`-E -B\` without a shell and with an allow-listed environment); the service binds 127.0.0.1 on a port it picks (one JSON line on stdout), answers only that start's token, exits when its stdin closes (the bridge gone, a hard kill too), and writes no file: its result comes back over HTTP and the bridge keeps it as \`<SENTINEL_JOBS_ROOT or %APPDATA%/Sentinel/jobs>/<key>/<job-id>/result.json\`, its sha256 on the build:run row. Params are {voxel_mm, storey_min_mm, tolerances_mm} (no \`snap_mm\`); the seed is the bridge's. MA-4c spec amendment S3: a candidate's geometry uses the contract's keys and millimetres in the scan's own frame (no CRS, no transform; the service measures in a local frame and gives the scan's back) — a wall {LocationCurve (z = base), BaseElevation, TopElevation, storey, faces}, a level {BaseElevation}, a floor {LocationLoop, storey}, a ceiling {Boundary, Offset (its height above its level), storey}. The service re-hashes every input before and after the read, refuses a file over 300 million points, and fails a job whose scans span more than 300 m in plan (one building).`
   - `:924` → `- **v0.1 (MA-4c): numpy only** (BSD-3-Clause, with 0BSD, MIT, Zlib and CC0-1.0 parts) on CPython (PSF-2.0). From MA-4g, pip wheels: laspy (BSD-style), pye57 (MIT). Open3D dropped (MA-4a decision 5).`
-  - `:929` append ` MA-4c adds 0BSD, Zlib and CC0-1.0 (parts of numpy) and PSF-2.0 (CPython) — all permissive; the founder confirms.`
+  - `:929` append ` MA-4c adds 0BSD, Zlib and CC0-1.0 (parts of numpy) and PSF-2.0 (CPython) — all permissive; accepted by the founder on 2026-10-08.`
   - `:945` → `- **Build jobs:** the bridge's job folder (\`SENTINEL_JOBS_ROOT\`, default \`%APPDATA%/Sentinel/jobs/<key>/<job-id>/\`: job.json, result.json), kept after the run — MA-4d checks a changeset's \`measured\` against it. Their receipts go on the ledger (\`build:run\`, with the result's sha256).`
   - after `:953` add the row `| Start a survey job | contributor, signed in (by name); the machine credential is a 403 (MA-4c) |`.
   - under `:1132` add `    - Met in MA-4c for storeys, walls, floors and ceilings (numpy, plain LAS); deviation moved to MA-4e (\`POST /measure\`); E57 and LAZ to MA-4g.`
@@ -2340,6 +2340,8 @@ On a drill copy of the bridge at 4101 on the branch, then the local web app (the
 - Later: `tools/licence-check` (unassigned); a job queue; a retention rule for job folders; the office worker that pulls jobs from a hosted bridge after P2-0 (D11) — the trust anchor is the result's sha on a ledger row, which a pull worker can write too.
 
 ## Open questions (the founder's to decide; the defaults above are built unless overruled)
+
+**Answered 2026-10-08:** 1 — the allow-list default accepted by the founder; 2 — no firewall or system setting is changed (the founder's to make, if ever); 3 — the drill project `ma4c-drill` is made by the controller, the person rows run in the founder's session.
 
 Who starts a survey (decision 6: a signed-in contributor; the machine credential reads only) and keeping job folders (kept; a retention rule waits for MA-4h's Kladno sizes, Next) are decided defaults, not questions.
 

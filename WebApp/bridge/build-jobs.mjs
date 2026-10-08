@@ -193,18 +193,26 @@ async function runJob(d, proj, key, job, take) {
   const notRead = new Set((r.refused ?? []).map((x) => x.id));
   if (status === "done") {
     const bytes = Buffer.from(JSON.stringify(result));
-    writeAtomic(join(d.root, key, job.id, "result.json"), bytes);
-    Object.assign(job, { result_sha256: sha(bytes), candidates_total: result.candidates.length,
-      counts: Object.fromEntries(KINDS.map((k) => [k, result.candidates.filter((c) => c.kind === k).length])) });
+    // Final review: a result that cannot be kept (EPERM from an indexer, ENOSPC) fails the run in words that name no path — and the
+    // run still gets its build:run row below, so a started job always leaves one.
+    try {
+      writeAtomic(join(d.root, key, job.id, "result.json"), bytes);
+      Object.assign(job, { result_sha256: sha(bytes), candidates_total: result.candidates.length,
+        counts: Object.fromEntries(KINDS.map((k) => [k, result.candidates.filter((c) => c.kind === k).length])) });
+    } catch (e) {
+      status = "failed";
+      error = `the result could not be kept on this PC (${e?.code || "the write failed"}) — nothing it found was kept`;
+    }
   }
   Object.assign(job, { status, stage: "done", pct: status === "done" ? 100 : job.pct, refused: [...job.refused, ...(r.refused ?? [])],
     read: status === "done" ? job.items.map((i) => i.id).filter((id) => !notRead.has(id)) : [], // what the result was measured from
     reader: { name: READER, version: r.version ?? null }, tools: r.tools ?? [], finished_at: d.now(), ...(error ? { error } : {}) });
-  save(d, key, job);
+  const keep = () => { try { save(d, key, job); } catch (e) { console.warn(`[survey] ${key} ${job.id}: record not saved — ${e?.code || e?.message}`); } };
+  keep(); // a record that cannot be saved is logged; the row is still written
   const row = await d.audit(proj.id, "build", null, `build:run ${job.id} · ${READER} ${job.reader.version ?? "(no version)"} · ${status}`,
     job.started_by, null, buildRunValue(job, (status === "done" && result.receipt) || {}));
   job.ledger = { id: row?.id ?? null, hash: row?.hash ?? null };
-  save(d, key, job);
+  keep();
   console.log(`[survey] ${key} ${job.id}: ${status}${job.counts ? ` — ${job.candidates_total} candidate(s)` : ""} · ledger #${job.ledger.id}`);
 }
 
