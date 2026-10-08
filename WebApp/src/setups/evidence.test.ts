@@ -8,7 +8,7 @@ vi.mock("./bridge-fetch", () => ({ bfetch, bwrite }));
 
 import { ATTESTATION_CODES, ATTESTATION_TEXTS, kindOf, needsReport, itemLine, attestationLine, admitLine, recheckLine, readEvidence,
   signAttestation, evidenceControls, requestLine, isImage, jobLine, candidateLine, surveyStartLine, surveyableScans, startSurvey, readJobs,
-  type EvidenceItem, type EvidencePack, type EvidenceRequest, type SurveyJob } from "./evidence";
+  proposeBody, proposeFromJob, proposeLine, type ProposeReply, type EvidenceItem, type EvidencePack, type EvidenceRequest, type SurveyJob } from "./evidence";
 
 const res = (status: number, body: unknown) => ({ ok: status < 400, status, json: async () => body }) as unknown as Response;
 const HASH = "ab".repeat(32);
@@ -72,12 +72,12 @@ describe("the lines", () => {
       .toBe("Re-checked 2 item(s): none newly changed; 1 still changed — on hold until admitted again under Evidence.");
   });
   it("evidenceControls: Make and Sign a lead's (Sign never the machine session's), Admit and Re-check a contributor's, Run survey a contributor's, never the machine session's", () => {
-    const all = { make: true, sign: true, admit: true, recheck: true, ask: true, survey: true };
+    const all = { make: true, sign: true, admit: true, recheck: true, ask: true, survey: true, propose: true };
     expect(evidenceControls("owner")).toEqual(all);
     expect(evidenceControls("lead")).toEqual(all);
-    expect(evidenceControls("contributor")).toEqual({ make: false, sign: false, admit: true, recheck: true, ask: false, survey: true });
-    expect(evidenceControls("viewer")).toEqual({ make: false, sign: false, admit: false, recheck: false, ask: false, survey: false });
-    expect(evidenceControls("service")).toEqual({ ...all, sign: false, ask: false, survey: false });
+    expect(evidenceControls("contributor")).toEqual({ make: false, sign: false, admit: true, recheck: true, ask: false, survey: true, propose: false });
+    expect(evidenceControls("viewer")).toEqual({ make: false, sign: false, admit: false, recheck: false, ask: false, survey: false, propose: false });
+    expect(evidenceControls("service")).toEqual({ ...all, sign: false, ask: false, survey: false, propose: false });
   });
 });
 
@@ -166,5 +166,32 @@ describe("the survey (MA-4c)", () => {
     await expect(readJobs("http://b", "demo")).rejects.toThrow("not read — this action requires the viewer role (you are not a member)");
     bfetch.mockRejectedValue(new Error("bridge offline"));
     await expect(readJobs("http://b", "demo")).rejects.toThrow("not read — bridge offline");
+  });
+});
+
+describe("survey proposals (MA-4d)", () => {
+  const FRAME = { dx_mm: 40000, dy_mm: 0, dz_mm: 0, rotation_deg: 0 };
+  const REPLY: ProposeReply = { job: "job-0002", survey_row: { id: 2201, hash: HASH }, frame: FRAME,
+    storeys: [{ cid: "scan-L00-level", level: "GR-FFL", how: "named", elevation_mm: 0, delta_mm: null, checked: false, from: null, changeset: "c1" },
+      { cid: "scan-L01-level", level: "Scan L01 job-0002", how: "created", elevation_mm: 3000, delta_mm: 0, checked: true, from: null, changeset: "c2" }],
+    changesets: [{ id: "c1", name: "Survey job-0002 · GR-FFL", elements: 3, preticked: 0 }, { id: "c2", name: "Survey job-0002 · Scan L01 job-0002", elements: 4, preticked: 4 }],
+    gaps: { groups: 3, elements: 6, ledger: { id: 2209, hash: HASH } }, already_filed: 0, overlaps: [], ledger: { id: 2210, hash: HASH } };
+  it("proposeBody: numbers as typed (a blank is 0; anything else the bridge refuses in words), a level only where one is named", () => {
+    expect(proposeBody({ dx: "40000", dy: "", dz: " 0 ", rot: "0", levels: [["scan-L00-level", " GR-FFL "], ["scan-L01-level", "  "]] }))
+      .toEqual({ frame: FRAME, levels: { "scan-L00-level": "GR-FFL" } });
+    expect(proposeBody({ dx: "4 m", dy: "0", dz: "0", rot: "0", levels: [] })).toEqual({ frame: { ...FRAME, dx_mm: NaN } });
+  });
+  it("Propose posts to …/build/jobs/:id/propose; the line counts what was filed, pre-ticked and held, and how each storey met its level", async () => {
+    bwrite.mockResolvedValue(REPLY);
+    const r = await proposeFromJob("http://b", "demo", "job-0002", { frame: FRAME });
+    expect(bwrite).toHaveBeenCalledWith("http://b/cde/demo/build/jobs/job-0002/propose", expect.objectContaining({ method: "POST", body: JSON.stringify({ frame: FRAME }) }));
+    expect(proposeLine(r)).toBe("✓ Proposed job-0002 — 2 changeset(s), 7 ghost(s), 4 pre-ticked on the Review desk (Revit leaves every create for a person to tick) · " +
+      "3 type-gap group(s), 6 element(s) in the Holding Area · scan-L00-level → GR-FFL (named, its height not checked); scan-L01-level → Scan L01 job-0002 (created) · " +
+      "ledger #2210 · receipt abababababababab… — Review ▸ ↻");
+    expect(proposeLine({ ...REPLY, already_filed: 6, overlaps: [{ changeset: "Survey job-0001 · GR-FFL", job_id: "job-0001", evidence: ["ev-0001"] }] }))
+      .toContain(" · 6 already filed (not proposed again) · the same scan was placed before by Survey job-0001 · GR-FFL · ledger #2210");
+  });
+  it("evidenceControls: Propose is a lead's, never the machine session's", () => {
+    expect(["viewer", "contributor", "lead", "owner", "service"].map((r) => evidenceControls(r).propose)).toEqual([false, false, true, true, false]);
   });
 });

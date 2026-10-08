@@ -78,6 +78,8 @@ export const evidenceControls = (role: string) => ({
   make: canGovernRole(role), sign: canGovernRole(role) && role !== "service", admit: canEditRole(role), recheck: canEditRole(role),
   ask: canGovernRole(role) && role !== "service",
   survey: canEditRole(role) && role !== "service",
+  // MA-4d: Propose a lead's, never the machine session's — the frame and levels it states are a person's.
+  propose: canGovernRole(role) && role !== "service",
 });
 
 const at = (base: string, key: string, path: string) => `${base.replace(/\/$/, "")}/cde/${encodeURIComponent(key)}/${path}`;
@@ -154,3 +156,31 @@ export async function readJobs(base: string, key: string): Promise<SurveyJob[]> 
 }
 /** One job, with its candidates once done (bwrite: a GET whose refusal words are thrown). */
 export const readJob = (base: string, key: string, id: string) => bwrite<JobRead>(at(base, key, `build/jobs/${encodeURIComponent(id)}`));
+
+/** MA-4d: what POST …/build/jobs/:id/propose answers. */
+export interface ProposeReply {
+  job: string; survey_row: Ledger; frame: { dx_mm: number; dy_mm: number; dz_mm: number; rotation_deg: number };
+  storeys: { cid: string; level: string; how: "named" | "matched" | "created" | "filed"; elevation_mm: number; delta_mm: number | null; checked: boolean; from: string | null; changeset: string | null }[];
+  changesets: { id: string; name: string; elements: number; preticked: number }[];
+  gaps: { groups: number; elements: number; ledger: Ledger | null }; ledger: Ledger;
+  /** Decision 19: candidates this job filed before (not proposed again); another job's placed changesets on the same scan bytes. */
+  already_filed: number; overlaps: { changeset: string; job_id: string; evidence: string[] }[];
+}
+/** The lead's form → the body: numbers as typed (a blank is 0; anything else the bridge refuses in words), a level only where one is named. Pure. */
+export function proposeBody(v: { dx: string; dy: string; dz: string; rot: string; levels: [string, string][] }) {
+  const n = (s: string) => (s.trim() === "" ? 0 : Number(s));
+  const levels = Object.fromEntries(v.levels.filter(([, name]) => name.trim()).map(([cid, name]) => [cid, name.trim()]));
+  return { frame: { dx_mm: n(v.dx), dy_mm: n(v.dy), dz_mm: n(v.dz), rotation_deg: n(v.rot) }, ...(Object.keys(levels).length ? { levels } : {}) };
+}
+/** Propose: the bridge builds the changesets from the job's own result — only the frame and the levels go from here. */
+export const proposeFromJob = (base: string, key: string, id: string, body: ReturnType<typeof proposeBody>) =>
+  post<ProposeReply>(base, key, `build/jobs/${encodeURIComponent(id)}/propose`, body);
+/** The status line after Propose. Pure. */
+export function proposeLine(r: ProposeReply): string {
+  const ghosts = r.changesets.reduce((s, c) => s + c.elements, 0), pre = r.changesets.reduce((s, c) => s + c.preticked, 0);
+  const levels = r.storeys.map((s) => `${s.cid} → ${s.level} (${s.how}${s.checked ? "" : ", its height not checked"})`).join("; ");
+  const again = r.already_filed ? ` · ${r.already_filed} already filed (not proposed again)` : "";
+  const placed = r.overlaps.length ? ` · the same scan was placed before by ${r.overlaps.map((o) => o.changeset).join(", ")}` : "";
+  return `✓ Proposed ${r.job} — ${r.changesets.length} changeset(s), ${ghosts} ghost(s), ${pre} pre-ticked on the Review desk (Revit leaves every create for a person to tick) · ` +
+    `${r.gaps.groups} type-gap group(s), ${r.gaps.elements} element(s) in the Holding Area · ${levels}${again}${placed} · ${ledgerLine(r.ledger)} — Review ▸ ↻`;
+}

@@ -9,6 +9,7 @@ vi.mock("./bridge-fetch", () => ({ bfetch, bwrite }));
 vi.mock("./active-project", () => ({ activePid: () => "demo", onActiveProjectChange: () => () => {} }));
 
 import { proposalWords, storeyOf, groupDesk, ghostLine, reviewWords, declinedBy, canDecide, canReopen, readPending, postReview, postReopen, rowWords, postsFor, type PendingChangeset,
+  trustWords, sourceWords,
   readDecided, readLedger, highlightPlan, type Ghost, decidedView, decidedCount, DECIDED_MAX, type LedgerRows } from "./review-desk";
 
 const fx = JSON.parse(readFileSync(new URL("../../bridge/fixtures/changeset-ops/ma3a-review.json", import.meta.url), "utf8"));
@@ -330,5 +331,26 @@ describe("MA-3d2 — the proposal model's words", () => {
     expect(src).toContain('btn("Show creates in 3D", () => void showCreates(s))');
     expect(src).toContain('btn("Hide creates", () => void hideCreates(s))');
     expect(src).toContain('highlighter.styles.set("proposal"');
+  });
+});
+
+describe("survey ghosts (MA-4d)", () => {
+  const G: Ghost = { proposal_guid: "g1", kind: "wall", op: "create", cid: "scan-L00-wall-1", evidence: ["ev-0001#slice-L00"], pretick: true, trim_mm: [-140, -136],
+    measured: { thickness_mm: 300, height_mm: 2800 }, accuracy: { status: "within_tolerance", basis: "fit", from_job: "job-0002", fit_rmse_mm: 2, face_dev_mm: 0, target_mm: 20 },
+    place: { TypeName: "BDS_EXT_ARC_CMU_300 mm", LevelName: "GR-FFL" }, validate: { identity: { Name: "scan-L00-wall-1" } } };
+  it("trustWords: what was measured, from which job, the fit and the faces against D7's 20 mm, the pre-tick, the trims, the evidence — nothing for an unmeasured ghost", () => {
+    expect(trustWords(G)).toBe("measured from job-0002 · 300 mm thick · fit 2 mm rms · faces 0 mm off · within tolerance (20 mm) · pre-ticked · ends -140 / -136 mm to the corners · evidence ev-0001#slice-L00");
+    expect(trustWords({ ...G, pretick: false })).toContain(" · not pre-ticked · ");
+    expect(trustWords({ proposal_guid: "g2", kind: "wall", accuracy: { status: "not_measured" } })).toBe("");
+  });
+  it("sourceWords: the job, its row, the frame and who stated it, the storey's level and whether its height was checked", () => {
+    const cs = { id: "c", name: "Survey job-0002 · GR-FFL", source: "sentinel-survey 0.1.0", claimed: false, status: "proposed", created_at: "", elements: [G],
+      job: { id: "job-0002", ledger_id: 2201, frame: { dx_mm: 40000, dy_mm: 0, dz_mm: 0, rotation_deg: 0, stated_by: "lead@example.test" }, storey: { level: "GR-FFL", how: "named", checked: false } } } as PendingChangeset;
+    expect(sourceWords(cs)).toBe("from survey job-0002 (ledger #2201) · the scan moved 40000, 0, 0 mm, turned 0°, stated by lead@example.test · storey GR-FFL (named — its height not checked: nothing here is pre-ticked)");
+    expect(sourceWords({ ...cs, job: { id: "job-0002", ledger_id: 2201, frame: { dx_mm: 0, dy_mm: 0, dz_mm: 0, rotation_deg: 0 }, storey: { level: "Scan L01 job-0002", how: "created", checked: true } } }))
+      .toBe("from survey job-0002 (ledger #2201) · the scan at the model's internal origin · storey Scan L01 job-0002 (created)");
+    expect(sourceWords({ ...cs, job: { ...cs.job!, overlaps: [{ changeset: "Survey job-0001 · GR-FFL", job_id: "job-0001", evidence: ["ev-0001"] }] } }))
+      .toMatch(/ · the same scan ev-0001 was placed before by Survey job-0001 · GR-FFL$/);
+    expect(sourceWords({ ...cs, job: null })).toBe("");
   });
 });

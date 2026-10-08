@@ -17,6 +17,14 @@ export interface CarriedFrom { changeset: string; name: string; proposal_guid: s
 /** `carried_from` is set when the bridge filed the ghost already declined; a decline carried from Revit holds the reporter's role as
  *  the bridge read it (review C1). `role` may be null on a review whose role the desk was not given — it is then left out, never printed. */
 export interface GhostReview { state: "proposed" | "accepted" | "declined"; action: "accept" | "decline" | "reopen"; reason: string | null; by: string; role: string | null; at: string; rev: number; carried_from?: CarriedFrom | null; }
+/** MA-4d: the survey job a changeset was built from by the bridge (its `job` field; the source stays a string). */
+export interface DeskJob {
+  id: string; ledger_id: number | null;
+  frame?: { dx_mm: number; dy_mm: number; dz_mm: number; rotation_deg: number; stated_by?: string };
+  storey?: { level: string; how: string; checked: boolean };
+  /** Decision 19: another job's placed changesets on the same scan bytes — named, never refused. */
+  overlaps?: { changeset: string; job_id: string; evidence: string[] }[];
+}
 export interface Ghost {
   proposal_guid: string; kind: string; op?: string | null;
   target?: { unique_id?: string; type_before?: string; ifc_guid?: string | null } | null;
@@ -24,6 +32,9 @@ export interface Ghost {
   validate?: { identity?: { Name?: string } } | null;
   parameter?: string; from?: string; to?: string;
   review?: GhostReview | null;
+  // MA-4d: a survey ghost's trust record, stamped by the bridge (never the caller's).
+  cid?: string; evidence?: string[]; pretick?: boolean; trim_mm?: number[]; measured?: Record<string, number>;
+  accuracy?: { status: string; basis?: string; from_job?: string; fit_rmse_mm?: number | null; face_dev_mm?: number | null; target_mm?: number } | null;
 }
 /** What Revit reported on a changeset (bridge reportResult). `reasons` — Revit's reason per ghost — is there only when one was sent. */
 export interface DeskResult {
@@ -31,7 +42,7 @@ export interface DeskResult {
   declined_on_web?: { proposal_guid: string; by: string; role: string | null; reason: string; carried_from?: CarriedFrom | null }[];
   reasons?: Record<string, string>;
 }
-export interface PendingChangeset { id: string; name: string; source: string; claimed?: boolean; status: string; created_at: string; review_rev?: number; elements: Ghost[]; result?: DeskResult | null; }
+export interface PendingChangeset { id: string; name: string; source: string; claimed?: boolean; status: string; created_at: string; review_rev?: number; elements: Ghost[]; result?: DeskResult | null; job?: DeskJob | null; }
 export interface DecidedView { head: string; note: string | null; declined: { line: string; why: string[] }[]; }
 /** A report's ledger rows: its changeset_applied row, and the newest changeset_reverted row after it (an Undo or a Redo in Revit). */
 export interface LedgerRows { row: number | null; reverted: { id: number; op: string } | null; }
@@ -91,6 +102,29 @@ export function reviewWords(el: Ghost): string {
   if (r.state === "declined") return `${declinedBy(r)}: ${r.reason} — binds: Revit shows it unticked and refuses the tick`;
   if (r.state === "accepted") return `accepted by ${who}${r.reason ? ": " + r.reason : ""} — advice: Revit still asks for the tick`;
   return `re-opened by ${who}: ${r.reason}`;
+}
+
+/** MA-4d: a ghost the bridge built from a survey job, in words — what was measured, from which job, the fit and the faces against D7's 20 mm, whether the
+ *  bridge pre-ticked it, its trimmed ends and its evidence; "" for a ghost nothing measured. Pure. */
+export function trustWords(el: Ghost): string {
+  const a = el.accuracy;
+  if (!a?.from_job) return "";
+  const t = el.measured?.thickness_mm, trim = el.trim_mm ?? [];
+  return [`measured from ${a.from_job}`, ...(t != null ? [`${t} mm thick`] : []), ...(a.fit_rmse_mm != null ? [`fit ${a.fit_rmse_mm} mm rms`] : []),
+    ...(a.face_dev_mm != null ? [`faces ${a.face_dev_mm} mm off`] : []), `${a.status.replace(/_/g, " ")}${a.target_mm != null ? ` (${a.target_mm} mm)` : ""}`, el.pretick ? "pre-ticked" : "not pre-ticked",
+    ...(trim.some((v) => v !== 0) ? [`ends ${trim.join(" / ")} mm to the corners`] : []),
+    ...(el.evidence?.length ? [`evidence ${el.evidence.slice(0, 3).join(", ")}`] : [])].join(" · ");
+}
+/** MA-4d: a survey changeset's origin in words — its job and row, the lead's frame and who stated it, how its storey met its level, and
+ *  another job's placed changesets on the same scan (decision 19: named, never refused). "" else. Pure. */
+export function sourceWords(cs: PendingChangeset): string {
+  const j = cs.job;
+  if (!j) return "";
+  const f = j.frame, s = j.storey;
+  const frame = f ? ` · the scan ${f.dx_mm || f.dy_mm || f.dz_mm || f.rotation_deg ? `moved ${f.dx_mm}, ${f.dy_mm}, ${f.dz_mm} mm, turned ${f.rotation_deg}°` : "at the model's internal origin"}${f.stated_by ? `, stated by ${f.stated_by}` : ""}` : "";
+  const o = j.overlaps ?? [];
+  const again = o.length ? ` · the same scan ${[...new Set(o.flatMap((x) => x.evidence))].join(", ")} was placed before by ${o.map((x) => x.changeset).join(", ")}` : "";
+  return `from survey ${j.id} (ledger #${j.ledger_id ?? "?"})${frame}${s ? ` · storey ${s.level} (${s.how}${s.checked ? "" : " — its height not checked: nothing here is pre-ticked"})` : ""}${again}`;
 }
 
 /** Who may accept or decline on the desk: a signed-in contributor or above. The machine credential ("service") never reviews (Q1). */
@@ -412,6 +446,8 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
       const hrow = el("div", "", "display:flex;gap:.4rem;margin:.2rem 0");
       hrow.append(btn("Highlight in 3D", () => void highlight(s.groups.flatMap((g) => g.ghosts.map((x) => x.el)))), btn("Clear", () => void clearHighlight()), btn("Show creates in 3D", () => void showCreates(s)), btn("Hide creates", () => void hideCreates(s)));
       box.append(hrow);
+      // MA-4d: a survey changeset's job, frame and storey level (textContent: nothing here is HTML).
+      for (const cs of s.changesets) { const w = sourceWords(cs); if (w) box.append(el("div", w, "color:#8b93a1;font-size:11px")); }
       for (const g of s.groups) {
         box.append(el("div", `${g.what} (${g.ghosts.length})`, "margin:.4rem 0 .2rem;color:#8b93a1"));
         for (const x of g.ghosts) {
@@ -422,6 +458,7 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
           tick.onchange = () => { if (tick.checked) ticked.set(x.el.proposal_guid, x); else ticked.delete(x.el.proposal_guid); };
           const words = el("div", "");
           words.append(el("div", ghostLine(x.el)), el("div", reviewWords(x.el), `color:${x.el.review?.state === "declined" ? "#fca5a5" : x.el.review?.state === "accepted" ? "#86efac" : "#8b93a1"}`));
+          const tw = trustWords(x.el); if (tw) words.append(el("div", tw, "color:#8b93a1;font-size:11px"));
           row.append(tick, words);
           if (x.el.review?.state === "declined" && canReopen(role.role))
             row.append(btn("Re-open", async () => {
