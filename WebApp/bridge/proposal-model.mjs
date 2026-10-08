@@ -6,6 +6,9 @@ export const SKETCH_HEIGHT_MM = 3000;   // a wall whose top the proposal did not
 export const SKETCH_THICKNESS_MM = 200; // a wall or slab whose thickness the proposal did not send
 export const SKETCH_DOOR_MM = { w: 915, h: 2134 };          // a door whose type name carries no "W x H"
 export const SKETCH_WINDOW_MM = { w: 1000, h: 1000, sill: 900 }; // a window likewise; its sill when none was sent
+/** MA-4d: a wall's or slab's thickness — the facts the bridge typed it from (a survey's measurement, or a poster's fact); the place holds
+ *  none (PLACE_KEPT has no Thickness). */
+const thicknessOf = (el) => (el.facts?.thickness_mm > 0 ? el.facts.thickness_mm : SKETCH_THICKNESS_MM);
 const SIZE_IN_NAME = /(\d{3,4})\s*[x\u00d7]\s*(\d{3,4})/i;  // DR-1: a concept door's type is named "0915 x 2134"
 
 /** MA-3d2 Next: the level elevations the changeset itself tells — a level create's BaseElevation under its name; a floor's loop,
@@ -38,7 +41,7 @@ function hostOf(cs, loc) {
     const t = ((loc[0] - c.start[0]) * dx + (loc[1] - c.start[1]) * dy) / (len * len);
     if (t < 0 || t > 1) continue;
     const dist = Math.abs((loc[0] - c.start[0]) * dy - (loc[1] - c.start[1]) * dx) / len;
-    const thick = el.place.Thickness > 0 ? el.place.Thickness : SKETCH_THICKNESS_MM;
+    const thick = thicknessOf(el);
     if (dist <= thick / 2 + 50) return { angle: Math.atan2(dy, dx), thick };
   }
   return null;
@@ -52,7 +55,7 @@ export function proposalElements(cs, levelMmOf = () => null) {
     out.creates++;
     const p = el.place, name = el.validate?.identity?.Name ?? el.proposal_guid ?? el.kind;
     const base = p.BaseElevation ?? levelMmOf(p) ?? 0;
-    const thickMm = p.Thickness > 0 ? p.Thickness : SKETCH_THICKNESS_MM;
+    const thickMm = thicknessOf(el);
     if (el.kind === "wall") {
       const c = p.LocationCurve;
       if (!Array.isArray(c?.start) || !Array.isArray(c?.end) || c.start.length < 2 || c.end.length < 2) { out.skipped.push(`${name}: a wall with no line`); continue; }

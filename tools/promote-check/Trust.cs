@@ -25,6 +25,18 @@ static partial class Check
         var older = JsonSerializer.Deserialize<ChangesetDto>("{\"id\":\"c0\",\"source\":\"promote\",\"elements\":[{\"proposal_guid\":\"g\",\"kind\":\"wall\",\"op\":\"attach\"}]}");
         Ok(older.Claimed == null && older.Elements[0].Pretick == null && older.Elements[0].Accuracy == null, "a changeset from a bridge before item 8 reads with none of them");
 
+        // MA-4d: a survey changeset as proposeFromJob stores it on the drill's numbers — the shared fixture contract2-survey.json, whose `stored`
+        // vitest holds the stored doc to. The DEPLOYED ChangesetDto reads it (its job, measured and trim_mm are fields it does not know: ignored);
+        // the source is not a claim; the bridge's pre-tick is read — and Revit still opens every create unticked (no add-in change in MA-4d).
+        string survey;
+        using (var fx = JsonDocument.Parse(File.ReadAllText(Repo("WebApp", "bridge", "fixtures", "changeset-ops", "contract2-survey.json"))))
+            survey = fx.RootElement.GetProperty("stored").GetRawText();
+        var sv = JsonSerializer.Deserialize<ChangesetDto>(survey);
+        Ok(sv.Claimed == false && ChangesetTrust.SourceLabel(sv) == "sentinel-survey 0.1.0" && sv.Elements.Count == 3 && sv.Exceptions.Count == 3,
+           "MA-4d: a survey changeset reads — its job, measured and trims ignored; its source is no claim; its gaps are sent to a person");
+        Ok(sv.Elements.All(e => e.Pretick == true && ChangesetTrust.Accuracy(e) == "within tolerance" && ChangesetTrust.Typing(e) != null && e.Cid != null && !ChangesetTrust.PreTick(sv, e)),
+           "…each wall pre-ticked by the bridge, within tolerance, typed by the bridge — and opened unticked: a person ticks a create");
+
         ChangesetElementDto El(string op, bool? pretick, string typeBefore = null, string verdict = "accepted") => new ChangesetElementDto
         {
             Op = op, Kind = "wall", Pretick = pretick, Verdict = new ElementVerdictDto { Status = verdict },

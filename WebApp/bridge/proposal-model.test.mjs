@@ -26,7 +26,7 @@ describe("proposalElements", () => {
     expect(e.size.y).toBeCloseTo(3, 9);
   });
   it("a floor is a slab whose top sits at its level", () => {
-    const e = proposalElements({ elements: [create("floor", { Boundary: [[0, 0], [6000, 0], [6000, 4000], [0, 4000]], BaseElevation: 3000, Thickness: 300 })] }).elements[0];
+    const e = proposalElements({ elements: [create("floor", { Boundary: [[0, 0], [6000, 0], [6000, 4000], [0, 4000]], BaseElevation: 3000 }, { facts: { thickness_mm: 300 } })] }).elements[0];
     expect(e.kind).toBe("slab");
     expect(e.size.x).toBeCloseTo(6, 9); expect(e.size.y).toBeCloseTo(0.3, 9); expect(e.size.z).toBeCloseTo(4, 9);
     near(e.position, [3, 2.85, -2]);
@@ -106,7 +106,7 @@ describe("proposalElements — Next", () => {
     expect(e.position[1]).toBeCloseTo(2.9, 9); // 3000 − 200/2
   });
   it("a door turns to the wall under it and takes its thickness; its size is read from the type name", () => {
-    const cs = { elements: [create("wall", { LocationCurve: { start: [0, 0, 0], end: [0, 5000, 0] }, Thickness: 300 }), create("door", { Location: [0, 2000, 0], TypeName: "Single-Flush : 1000 x 2100" })] };
+    const cs = { elements: [create("wall", { LocationCurve: { start: [0, 0, 0], end: [0, 5000, 0] } }, { facts: { thickness_mm: 300 } }), create("door", { Location: [0, 2000, 0], TypeName: "Single-Flush : 1000 x 2100" })] };
     const d = proposalElements(cs).elements[1];
     expect(d.kind).toBe("door");
     expect(d.rotationY).toBeCloseTo(Math.PI / 2, 9); expect(d.size.z).toBeCloseTo(0.3, 9);
@@ -122,5 +122,10 @@ describe("proposalElements — Next", () => {
   });
   it("a door with no point is skipped in words", () => {
     expect(proposalElements({ elements: [create("door", {})] }).skipped[0]).toContain("a door with no point");
+  });
+  it("MA-4d: a wall's thickness is its facts.thickness_mm (a survey's measurement); a place.Thickness is never stored (PLACE_KEPT), so not read", () => {
+    const at300 = proposalElements({ elements: [create("wall", { LocationCurve: { start: [0, 0, 0], end: [8000, 0, 0] }, BaseElevation: 0, TopElevation: 2800 }, { facts: { thickness_mm: 300 } })] });
+    expect(at300.elements[0].size.z).toBeCloseTo(0.3, 9);
+    expect(proposalElements({ elements: [wall({ Thickness: 300 })] }).elements[0].size.z).toBeCloseTo(0.2, 9);
   });
 });

@@ -1125,3 +1125,23 @@ describe("survey jobs (MA-4c): who starts and reads; every refusal before anythi
     expect(await call("POST", "/cde/demo/audit", "machine", { entity_type: "event", action: "build:run job-0001" })).toEqual({ status: 400, body: { message: 'build: rows are receipts (entity_type "build") — nothing was saved' } });
   });
 });
+
+describe("survey proposals (MA-4d): a signed-in lead only; every refusal before anything is written", () => {
+  const P = "/cde/demo/build/jobs/job-0001/propose", B = { frame: { dx_mm: 0, dy_mm: 0, dz_mm: 0, rotation_deg: 0 } };
+  it("the machine credential, a viewer and a contributor may not; a lead meets the job's own refusal — no row, no changeset", async () => {
+    const rows = db.audit_log.length;
+    expect(await call("POST", P, "machine", B)).toEqual({ status: 403, body: { message: "proposing from a survey job needs a person — the frame and levels it states are a lead's, and its pre-ticks rest on them: sign in. Nothing was saved." } });
+    expect(await call("POST", P, "contributor", B)).toEqual({ status: 403, body: { message: "this action requires the lead role (you are contributor) — proposing from a survey job is a lead's: the frame and levels it states decide where every ghost lands; nothing was saved" } });
+    expect((await call("POST", P, "viewer", B)).status).toBe(403);
+    expect(await call("POST", P, "lead", B)).toEqual({ status: 404, body: { message: "no survey job job-0001 on demo — nothing was saved" } });
+    expect(await call("POST", "/cde/demo/build/jobs/nope/propose", "lead", B)).toEqual({ status: 400, body: { message: "a survey job is named job-NNNN — nothing was saved" } });
+    expect(db.audit_log.length).toBe(rows);
+  });
+  it("a changeset_ row is the bridge's: the machine credential cannot post a changeset_applied naming a job through the open route", async () => {
+    const rows = db.audit_log.length;
+    expect(await call("POST", "/cde/demo/audit", "machine", { entity_type: "changeset", entity_id: "c1", action: "changeset_applied", new_value: { job: { id: "job-0002" }, evidence: [{ id: "ev-0001", sha256: "e1".repeat(32) }] } }))
+      .toEqual({ status: 400, body: { message: "changeset_ rows are written by Sentinel, not through this route" } });
+    expect((await call("POST", "/cde/demo/audit", "lead", { action: " Changeset_Reverted c1" })).body.message).toBe("changeset_ rows are written by Sentinel, not through this route"); // a lead's note
+    expect(db.audit_log.length).toBe(rows);
+  });
+});

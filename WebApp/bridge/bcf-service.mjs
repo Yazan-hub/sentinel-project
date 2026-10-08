@@ -1688,6 +1688,13 @@ async function handleRequest(req, res) {
         //   Sentinel sends nothing).
         if (p3 && p4 === "requests" && !seg[5] && req.method === "POST") return send(res, 201, await ev.draftRequest(p1, p3, await body()));
       }
+      // MA-4d: POST /cde/:key/build/jobs/:id/propose {frame, levels?} → 201 — a signed-in lead turns a done survey job into one changeset per
+      //   storey that the bridge builds from the job's result (changesets-store proposeFromJob); the machine credential is a 403. Its own branch:
+      //   the jobs block below ends at :id (`!seg[5]`).
+      if (p2 === "build" && p3 === "jobs" && p4 && seg[5] === "propose" && !seg[6] && req.method === "POST") {
+        const cs = await import("./changesets-store.mjs");
+        return send(res, 201, await cs.proposeFromJob(p1, p4, (await readBody(req, { max: SMALL_JSON })) || {}, "web"));
+      }
       // MA-4c: survey jobs (design §6.8, §6.9). POST /cde/:key/build/jobs {pack, readers?, params?} → 202 {job} (a signed-in contributor of an
       //   office project; the machine credential is a 403; one job at a time on this bridge). GET /cde/:key/build/jobs → the newest 20 (any
       //   member); GET …/build/jobs/:id → one, with its candidates once done. Small JSON only: the bridge names evidence files on this PC to

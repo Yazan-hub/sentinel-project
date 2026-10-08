@@ -109,7 +109,8 @@ export function catalogMatch(types, g, sameCategory) {
 /** The type-gap groups, derived: `reportRows` the type_gap rows, `dismissRows` the hold rows (others are ignored), `catalog` the type
  *  catalogue in force {types, label} — types null when none is installed or it was not read (the label says which; nothing is
  *  then closed by it). → {open, closed (the newest 20), catalog}: each group {id, category, want, size, key, elements, labels,
- *  nearest, at, actor, ledger, runs, source, claimed} (source and claimed: the newest run's — C10); a closed one adds closed_by
+ *  nearest, at, actor, ledger, runs, source, claimed, job_id, evidence} (source, claimed, job_id and evidence: the newest run's — C10,
+ *  MA-4d; job_id and evidence only from a row the bridge wrote, claimed false); a closed one adds closed_by
  *  "dismissed" (reason, closed_at, closed_by_actor, closed_ledger) or "catalogue" (type: the row that closes it, catalog: its
  *  label); one open again after a dismissal adds reopened {since: the dismissal's time, more: the elements beyond it} (C5). Newest first. */
 export function typeGapGroups(reportRows, dismissRows, catalog, sameCategory) {
@@ -123,6 +124,11 @@ export function typeGapGroups(reportRows, dismissRows, catalog, sameCategory) {
         labels: g.labels ?? [], nearest: g.nearest ?? [], at: r.at, actor: r.actor ?? null, ledger: { id: r.id ?? null, hash: r.hash ?? null },
         runs: (seen.get(id)?.runs ?? 0) + 1,
         source: r.new_value?.source ?? null, claimed: r.new_value?.claimed === true, // C10: counted in Revit, not by the bridge
+        // MA-4d: a survey run's job and the group's evidence ids (design §6.6) — the newest run's, as its source and claim are — read only from
+        // a row the bridge wrote (claimed false): the open route's typeGapRow keeps a poster's other keys, and a job id is a trust field.
+        // ponytail: one group per missing type across survey and Promote runs, showing the newest run's job and evidence; per-run evidence lists when a lead needs both.
+        job_id: r.new_value?.claimed === false ? r.new_value?.job?.id ?? null : null,
+        evidence: r.new_value?.claimed === false && Array.isArray(g.evidence) ? g.evidence : [],
       });
     }
   const dismissed = new Map(); // id → its newest dismissal

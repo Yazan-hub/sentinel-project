@@ -16,7 +16,7 @@ import { escapeHtml as esc } from "./escape-html";
 import { unarchiveFile } from "./cde-transition";
 import { firstTag, geometryCheck, linkedHash, linkedTag, sha256Hex, type GeometryLinkRow } from "./geometry-check";
 import { readEvidence, makePack, signAttestation, admitEvidence, recheckEvidence, draftRequest, kindOf, isImage, needsReport, itemLine, attestationLine, admitLine, recheckLine, requestLine, evidenceControls, ATTESTATION_CODES, ATTESTATION_TEXTS, type EvidenceRead, type EvidenceRequest,
-  startSurvey, readJobs, readJob, jobLine, candidateLine, surveyStartLine, surveyableScans, type SurveyJob, type Candidate } from "./evidence";
+  startSurvey, readJobs, readJob, jobLine, candidateLine, surveyStartLine, surveyableScans, proposeBody, proposeFromJob, proposeLine, type SurveyJob, type Candidate } from "./evidence";
 
 /**
  * Sentinel Versions panel — file/blob-centric version history for uploaded model files.
@@ -86,6 +86,11 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   let jobsError: string | null = null;
   let jobOpen: string | null = null;
   let jobCands: Candidate[] | null = null;
+  // MA-4d: the done job a lead is proposing (its form open) and its storeys (read with the job).
+  let proposing: string | null = null;
+  let proposeLevels: Candidate[] | null = null;
+  // MA-4d (final review): what the lead typed in the Propose form, kept across a refusal or a refresh (askDraft's precedent); cleared on a 201.
+  let proposeDraft: { dx: string; dy: string; dz: string; rot: string; levels: Record<string, string> } | null = null;
   // MA-4b: `drawingFor` = the folder file whose request picker is open (a drawing names the request it answers); `askDraft` = the
   // Ask the owner form while open (kept across a refused draft, so nothing typed is lost); `lettersOpen` = the requests showing a letter.
   let drawingFor: string | null = null;
@@ -160,7 +165,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   async function load() {
     const mine = ++seq, key = pid();
     // A project or person switch drops the old scope's inline rename / armed confirm (dismissing is reset below).
-    if (loadScope(key) !== loadedScope) { renaming = null; armed = null; unarchiveAsk = null; askDraft = null; drawingFor = null; lettersOpen.clear(); }
+    if (loadScope(key) !== loadedScope) { renaming = null; armed = null; unarchiveAsk = null; askDraft = null; drawingFor = null; lettersOpen.clear(); proposing = null; proposeLevels = null; proposeDraft = null; }
     loadedScope = loadScope(key);
     if (cmp.a || cmp.b) { cmp.a = cmp.b = cmp.fileId = undefined; el("fv-compare").style.display = "none"; }
     el("fv-proj").textContent = key;
@@ -211,7 +216,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       admitting = null; drawingFor = null;
       try { const ev = await readEvidence(base, key); if (mine !== seq) return; evidence = ev; evidenceError = null; }
       catch (e) { if (mine !== seq) return; evidence = null; evidenceError = (e as Error).message; }
-      jobOpen = null; jobCands = null;
+      jobOpen = null; jobCands = null; // the Propose form stays open with its draft: a refusal never loses what the lead typed
       try { const js = evidence ? await readJobs(base, key) : null; if (mine !== seq) return; jobs = js; jobsError = null; }
       catch (e) { if (mine !== seq) return; jobs = null; jobsError = (e as Error).message; }
       try { const d = await readDeleted(base, key); if (mine !== seq) return; deleted = d; deletedError = null; }
@@ -299,6 +304,40 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
         jobOpen = id; jobCands = r.candidates ?? []; render();
       } catch (e) { if (mine === seq) status(`Candidates not read — ${(e as Error).message}`); }
     }));
+    root.querySelectorAll<HTMLElement>("[data-evpropose]").forEach((n) => n.addEventListener("click", async () => {
+      const id = n.dataset.evpropose!;
+      if (proposing === id) { proposing = null; proposeLevels = null; proposeDraft = null; render(); return; }
+      const mine = seq;
+      try {
+        const r = await readJob(base, pid(), id);
+        if (mine !== seq) return;
+        if (r.result_error) { status(`Not proposed — ${r.result_error}`); return; }
+        proposing = id; proposeLevels = (r.candidates ?? []).filter((c) => c.kind === "level"); proposeDraft = { dx: "0", dy: "0", dz: "0", rot: "0", levels: {} }; render();
+      } catch (e) { if (mine === seq) status(`Not proposed — ${(e as Error).message}`); }
+    }));
+    root.querySelector<HTMLButtonElement>("#fv-pr-ok")?.addEventListener("click", (ev) => {
+      // MA-4d (review): one press, one proposal — the bridge's per-project lock is the guard; this is the courtesy (evAct's load() re-renders it).
+      const btn = ev.currentTarget as HTMLButtonElement;
+      if (btn.disabled) return;
+      btn.disabled = true; btn.textContent = "Proposing…";
+      const v = (s: string) => (root.querySelector(s) as HTMLInputElement | null)?.value ?? "";
+      const levels = [...root.querySelectorAll<HTMLInputElement>("[data-prlevel]")].map((i) => [i.dataset.prlevel!, i.value] as [string, string]);
+      const body = proposeBody({ dx: v("#fv-pr-dx"), dy: v("#fv-pr-dy"), dz: v("#fv-pr-dz"), rot: v("#fv-pr-rot"), levels });
+      const id = proposing!;
+      void evAct(async () => {
+        const r = await proposeFromJob(base, pid(), id, body);
+        proposing = null; proposeLevels = null; proposeDraft = null; // only a 201 closes the form
+        return proposeLine(r);
+      });
+    });
+    // The form's fields write proposeDraft as they change, so a re-render keeps the frame and the levels typed.
+    const syncPropose = () => {
+      if (!proposeDraft) return;
+      const v = (s: string) => (root.querySelector(s) as HTMLInputElement | null)?.value ?? "";
+      proposeDraft = { dx: v("#fv-pr-dx"), dy: v("#fv-pr-dy"), dz: v("#fv-pr-dz"), rot: v("#fv-pr-rot"),
+        levels: Object.fromEntries([...root.querySelectorAll<HTMLInputElement>("[data-prlevel]")].map((i) => [i.dataset.prlevel!, i.value])) };
+    };
+    root.querySelectorAll("#fv-pr-dx, #fv-pr-dy, #fv-pr-dz, #fv-pr-rot, [data-prlevel]").forEach((n) => n.addEventListener("input", syncPropose));
     root.querySelectorAll<HTMLElement>("[data-evsign]").forEach((n) => n.addEventListener("click", () => void evAct(async () => {
       const r = await signAttestation(base, pid(), n.dataset.evsign!);
       return `✓ Signed (${r.attestation.code}) as ${r.attestation.by} · ${ledgerLine(r.ledger)}`;
@@ -474,7 +513,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
         `<div style="font-weight:600">${esc(typeGapLine(x))}</div>` +
         // C10: who reported it and that its counts are claimed; C5: a group open again after a dismissal says since when.
         `<div style="color:#9ca3af;font-size:11px">${esc(x.labels.slice(0, 5).join(", "))}${x.elements > 5 ? ` … (${x.elements})` : ""} · reported by ${esc(x.actor || "—")} · ${esc(x.source ?? "unknown")}` +
-        `${x.claimed ? " (claimed — counted in Revit, not by the bridge)" : ""} · ${esc(when(x.at))}${x.runs > 1 ? ` · reported by ${x.runs} runs` : ""}` +
+        `${x.claimed ? " (claimed — counted in Revit, not by the bridge)" : ""}${x.job_id ? ` · from survey ${esc(x.job_id)}` : ""}${x.evidence?.length ? ` · evidence ${esc(x.evidence.slice(0, 3).join(", "))}` : ""} · ${esc(when(x.at))}${x.runs > 1 ? ` · reported by ${x.runs} runs` : ""}` +
         `${x.reopened ? ` · reopened — ${x.reopened.more} element(s) since the dismissal of ${esc(when(x.reopened.since))}` : ""}</div>` +
         `<div style="color:#71717a;font-size:10.5px;font-family:ui-monospace,Consolas,monospace">${ledgerLine(x.ledger)}</div>` +
         `<div style="display:flex;gap:.35rem;align-items:center;flex-wrap:wrap;margin-top:.3rem"><span style="color:#9ca3af">Install a catalogue with the type, or dismiss it with a reason.</span><span style="flex:1"></span>${dismiss}</div></div>`;
@@ -527,6 +566,14 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     const items = pack.items.map((i) => line(esc(itemLine(i)), i.state === "changed" ? "#fca5a5" : "#cbd5e1")).join("") || line("none yet");
     const requests = pack.requests ?? [];
     const inp = "background:#111;color:#eee;border:1px solid #2c2c34;border-radius:.25rem;padding:.2rem .4rem;font:12px system-ui";
+    // MA-4d: the lead's two statements — where the scan sits in the model, and which existing level each scanned storey is (blank: matched from
+    // a published IFC within 20 mm, or created). Everything else the bridge builds from the job.
+    const pd = proposeDraft ?? { dx: "0", dy: "0", dz: "0", rot: "0", levels: {} };
+    const proposeForm = (levels: Candidate[]) =>
+      line("Where the scan sits in the model: the move and turn from the model's internal origin to the scan's origin (all 0 when the scan is registered to it). You state it; every ghost lands by it.", "#9ca3af") +
+      `<div style="display:flex;gap:.3rem;flex-wrap:wrap;align-items:center;font-size:11px;padding:.15rem .2rem">x <input id="fv-pr-dx" value="${esc(pd.dx)}" style="${inp};width:6rem"/> y <input id="fv-pr-dy" value="${esc(pd.dy)}" style="${inp};width:6rem"/> z <input id="fv-pr-dz" value="${esc(pd.dz)}" style="${inp};width:5rem"/> mm, turned <input id="fv-pr-rot" value="${esc(pd.rot)}" style="${inp};width:4rem"/> °</div>` +
+      levels.map((c) => `<div style="display:flex;gap:.3rem;align-items:center;font-size:11px;padding:.1rem .2rem"><span>${esc(c.cid)} at ${esc(String(c.geometry.BaseElevation))} mm (scan) → existing level</span><input data-prlevel="${esc(c.cid)}" value="${esc(pd.levels[c.cid] ?? "")}" placeholder="blank: a published level within 20 mm, or a new one" style="${inp};flex:1"/></div>`).join("") +
+      `<div style="padding:.15rem .2rem"><button id="fv-pr-ok" style="${act};color:#c4b5fd">Propose</button></div>`;
     // MA-4b: Ask the owner — the requests (each letter shown on demand, to copy) and, for a lead, the form that drafts one.
     const asks = requests.map((r) => line(`${esc(requestLine(r))} <button data-evletter="${esc(r.id)}" style="${act}">${lettersOpen.has(r.id) ? "Hide letter" : "Letter"}</button>`, "#cbd5e1") +
       (lettersOpen.has(r.id) ? `<div style="padding:.1rem .2rem"><textarea readonly rows="12" style="${inp};width:100%;box-sizing:border-box;font:11px ui-monospace,Consolas,monospace">${esc(r.letter)}</textarea>` +
@@ -558,10 +605,12 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     // candidates on demand. No poll: ↻ shows a running job's progress.
     const busy = (jobs ?? []).some((j) => j.status === "queued" || j.status === "running");
     const jobColor = (s: string) => (s === "done" ? "#cbd5e1" : s === "failed" ? "#fca5a5" : "#9ca3af");
-    const survey = line("Survey — sentinel-survey reads the admitted LAS scans on this PC: levels, walls, floors and ceilings, LOD 200 as found (never survey grade). Candidates carry no type until MA-4d.", "#9ca3af") +
+    const survey = line("Survey — sentinel-survey reads the admitted LAS scans on this PC: levels, walls, floors and ceilings, LOD 200 as found (never survey grade). A lead proposes a done job: the bridge types its candidates exactly (the office's catalogue) into one changeset per storey for review, and holds the rest as type gaps.", "#9ca3af") +
       (jobsError ? line(`Survey: ${esc(jobsError)}`, "#fbbf24")
         : (jobs ?? []).map((j) => line(esc(jobLine(j)), jobColor(j.status)) +
             (j.status === "done" && j.candidates_total ? `<div style="padding:.1rem .2rem"><button data-evjob="${esc(j.id)}" style="${act}">${jobOpen === j.id ? "Hide candidates" : "Candidates"}</button></div>` : "") +
+            (j.status === "done" && j.candidates_total && can.propose ? `<div style="padding:.1rem .2rem"><button data-evpropose="${esc(j.id)}" style="${act}">${proposing === j.id ? "Cancel proposal" : "Propose…"}</button></div>` : "") +
+            (proposing === j.id ? proposeForm(proposeLevels ?? []) : "") +
             (jobOpen === j.id ? (jobCands ?? []).map((c) => line(esc(candidateLine(c)), "#cbd5e1")).join("") : "")).join("") || line("no survey yet")) +
       (can.survey && !busy && surveyableScans(pack).length ? `<div style="margin-top:.35rem"><button id="fv-ev-survey" style="${act}">Run survey</button></div>`
         : can.survey && busy ? line("A survey is running — ↻ for its progress.") : "");

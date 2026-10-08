@@ -53,6 +53,7 @@ async function wire(deps = {}) {
     surveyStart: deps.surveyStart || surveyStart,
     requireMinRole: deps.requireMinRole || members.requireMinRole,
     audit: deps.audit || cde.audit,
+    getAuditEntry: deps.getAuditEntry || (async (k, n) => (await import("./cde-store.mjs")).getAuditEntry(k, n)),
     runSurvey: deps.runSurvey || svc.runSurvey,
     notSetUp: deps.notSetUp || svc.notSetUp,
     root: deps.jobsRoot ?? jobsRoot(),
@@ -239,7 +240,7 @@ export async function listJobs(key, deps = {}) {
 
 /** GET /cde/:key/build/jobs/:id → {job}, or once done {job, candidates, derived, receipt}: result.json re-hashed against the sha256 on
  *  its record — a file changed since is `result_error`, its candidates not given. The record is editable on the PC, so this is a
- *  courtesy check only; MA-4d's trust check is against the build:run row by decision 11's predicate. Any member. */
+ *  courtesy check only; MA-4d's trust check is `trustedJob`, against the build:run row. Any member. */
 export async function readJob(key, id, deps = {}) {
   const d = await wire(deps);
   await d.requireMinRole(key, "viewer");
@@ -253,4 +254,41 @@ export async function readJob(key, id, deps = {}) {
   if (sha(bytes) !== job.result_sha256) return { job, result_error: "its result.json does not match the sha256 on its record — it changed after the job; its candidates are not shown" };
   const { candidates, derived, receipt } = JSON.parse(bytes);
   return { job, candidates, derived, receipt };
+}
+
+/** MA-4d (MA-4c decision 11): a done survey job whose result the bridge may build changesets from — anchored on the hash-chained row, never on
+ *  job.json alone (editable on the PC). The row is the one job.ledger.id names, read for THIS project (getAuditEntry is scoped to the key), and
+ *  must be the job's own: entity_type build, an action that starts `build:run <the id in the path> · sentinel-survey ` and ends `· done`,
+ *  new_value.status done and new_value.claimed === false (an open-route receipt is action exactly build:run, claimed true: never), and its
+ *  result_sha256 the sha256 of result.json read now. A row is never found by new_value.job_id. The result is held to the contract's shape over
+ *  what the row says was read (every evidence ref names a read item), its cids unique. → {job, row: {ledger, reader, version, pack_id, items, read, result_sha256}, result},
+ *  or a 400/404/409 in words. The caller checks the role (proposeFromJob: a signed-in lead). */
+export async function trustedJob(key, id, deps = {}) {
+  const d = await wire(deps);
+  if (!JOB_ID.test(String(id))) throw err(400, "a survey job is named job-NNNN — nothing was saved");
+  const dir = join(projectDir(d.root, key), id);
+  const job = readRecord(dir, key, id);
+  if (!job) throw err(404, `no survey job ${id} on ${key} — nothing was saved`);
+  if (job.status !== "done") throw err(409, `${id} is ${job.status} — only a done survey job is proposed; nothing was saved`);
+  const untrusted = (why) => err(409, `${id}'s result is not trusted: ${why} — run the survey again; nothing was saved`);
+  const rowId = job.ledger?.id;
+  if (!Number.isInteger(rowId)) throw untrusted("its build:run row was never written (the ledger write failed when it ran)");
+  const row = await d.getAuditEntry(key, rowId);
+  const v = row?.new_value ?? {};
+  if (!row || row.entity_type !== "build" || !String(row.action).startsWith(`build:run ${id} · ${READER} `) || !String(row.action).endsWith(" · done")
+    || v.status !== "done" || v.claimed !== false || typeof v.result_sha256 !== "string")
+    throw untrusted(`ledger #${rowId} is not ${id}'s own build:run row (the bridge's: build:run ${id} · ${READER} … · done, claimed false)`);
+  let bytes;
+  try { bytes = readFileSync(join(dir, "result.json")); } catch { throw untrusted("its result.json is missing"); }
+  if (sha(bytes) !== v.result_sha256) throw untrusted(`its result.json does not hash to the sha256 on ledger #${rowId} — it changed after the job`);
+  const result = JSON.parse(bytes);
+  const items = Array.isArray(v.items) ? v.items : [], read = Array.isArray(v.read) ? v.read : [];
+  const bad = resultRefusal(result, read);
+  if (bad) throw untrusted(`its result is not the contract's shape over what ledger #${rowId} says was read (${bad})`);
+  // Each element's trust record is bound to it by cid (survey-plan byCid): one cid twice would carry a measurement onto other geometry.
+  const cids = result.candidates.map((c) => c.cid);
+  if (new Set(cids).size !== cids.length) throw untrusted("its result names one cid twice");
+  // The pack is the ROW's (buildRunValue writes pack_id), never job.json's: the hash-chained row is the anchor.
+  return { job, row: { ledger: { id: row.id, hash: row.hash ?? null }, reader: v.reader ?? READER, version: v.version ?? null, pack_id: v.pack_id ?? null,
+    items, read, result_sha256: v.result_sha256 }, result };
 }

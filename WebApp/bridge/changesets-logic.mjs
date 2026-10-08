@@ -61,7 +61,7 @@ const SET_BY_BRIDGE = "ignored: set by the bridge";
 const NOT_KEPT = "ignored: not a field this bridge keeps";
 const CURVE_KEPT = ["start", "end", "mid"]; // a LocationCurve as the add-in reads it
 const NOT_MEASURED = "ignored: no survey job the bridge ran backs it — accuracy.status is not_measured";
-const NO_JOB = "ignored: no survey job the bridge ran is named by it — the source is marked claimed";
+const NO_JOB = "ignored: a job named in a body backs nothing — the bridge files a survey job's changesets itself (POST /cde/:key/build/jobs/:id/propose); the source is marked claimed";
 const MAX_IGNORED = 200;
 // How far (mm, in plan) an arc's mid point sits off the chord start→end; < 1 mm is no arc.
 const arcSag = (s, e, m) => {
@@ -170,8 +170,8 @@ function checkPlace(kind, place, at) {
 }
 
 /** MA-1a item 8: the stored source, always a string (deployed add-ins read it into one). A string is kept as filed;
- *  contract 2's object {reader, job_id} gives its reader — the job_id is ignored and listed, because no survey job the
- *  bridge ran exists to name; anything else is "agent", as before. */
+ *  contract 2's object {reader, job_id} gives its reader — the job_id is ignored and listed, because a job named in a body
+ *  backs nothing (MA-4d: the bridge files a survey job's changesets itself, proposeFromJob); anything else is "agent", as before. */
 function sourceOf(s, note) {
   if (typeof s === "string" && s.trim()) return s.trim();
   if (s && typeof s === "object" && !Array.isArray(s)) {
@@ -240,8 +240,11 @@ function checkWrite(el, place, at, cite) {
  *  filled; `typing` says the bridge did it and from what), or refused in the typer's words; without one it is the 400 it was.
  *  Every element carries `typing` ({typed_by: "caller"} for one that named its type); a bridge-typed one is never pre-ticked.
  *  MA-2c: with `cite` — changesets-typing.makeCiter over the project's type catalogue and ids@n — a set_parameter's value_source is
- *  checked and replaced by the bridge's own record; without one a set_parameter is a 400. */
-export function validateChangeset(body, { member = false, type = null, cite = null } = {}) {
+ *  checked and replaced by the bridge's own record; without one a set_parameter is a 400.
+ *  MA-4d: with `job` — {record, byCid}, built by changesets-store proposeFromJob from a job trustedJob accepted, never from a body (the
+ *  route calls proposeChangeset, which passes none) — each element takes the job's measured block, its trims, accuracy and pre-tick from the
+ *  bridge's record by cid, and the changeset is not claimed and carries the job as `job`. */
+export function validateChangeset(body, { member = false, type = null, cite = null, job = null } = {}) {
   if (!body || typeof body !== "object" || Array.isArray(body)) throw err(400, "a changeset must be an object");
   const name = typeof body.name === "string" ? body.name.trim() : "";
   if (!name) throw err(400, "name is required — a changeset is reviewed by humans and needs a human-readable name");
@@ -384,6 +387,9 @@ export function validateChangeset(body, { member = false, type = null, cite = nu
       throw err(400, `${at}: cid must be one line of text of at most 256 characters`);
     if (el.evidence != null && (!Array.isArray(el.evidence) || el.evidence.length > MAX_EVIDENCE || el.evidence.some((x) => !text(x, 256) || CONTROL_CHAR.test(x))))
       throw err(400, `${at}: evidence must be a list of at most ${MAX_EVIDENCE} one-line texts of at most 256 characters each`);
+    // MA-4d: an element the bridge built from a survey job it trusts (proposeFromJob) — its trust record, by cid; the body was the bridge's.
+    const fromJob = job ? job.byCid.get(el.cid?.trim()) : null;
+    if (job && !fromJob) throw err(400, `${at}: ${el.cid ?? "an element"} is not a candidate of ${job.record.id} — nothing was saved`);
     const provenance = checkProvenance(el.provenance, op, at);
     const proposal_guid = randomUUID();
     // The IFC attributes adjudication reads, kept whole — but never a trust field or a measurement (listed by `nested`).
@@ -416,10 +422,12 @@ export function validateChangeset(body, { member = false, type = null, cite = nu
       // Review amendment C4: contract 2's reader id and evidence ids, as sent — the caller's claim, like the source.
       ...(el.cid != null ? { cid: el.cid.trim() } : {}),
       ...(el.evidence != null ? { evidence: el.evidence.map((x) => x.trim()) } : {}),
-      // MA-1a item 8: the bridge's own trust decisions. No survey job exists yet, so nothing is measured. MA-2a: an element the
-      // bridge typed from posted facts is never pre-ticked for that — the facts are the poster's claim.
-      pretick: typed ? false : pretickOf(op, source, target, member),
-      accuracy: { status: "not_measured" },
+      ...(fromJob ? { measured: fromJob.measured, ...(fromJob.trim_mm ? { trim_mm: fromJob.trim_mm } : {}) } : {}),
+      // MA-1a item 8: the bridge's own trust decisions; a body's element is never measured. MA-2a: an element the bridge typed from
+      // POSTED facts is never pre-ticked for that (the poster's claim). MA-4d: one it built from a job carries the job's decision — its
+      // facts are the measurement the bridge re-hashed (survey-plan's trust record).
+      pretick: fromJob ? fromJob.pretick : typed ? false : pretickOf(op, source, target, member),
+      accuracy: fromJob ? fromJob.accuracy : { status: "not_measured" },
     };
   });
 
@@ -428,9 +436,10 @@ export function validateChangeset(body, { member = false, type = null, cite = nu
   return {
     name, source,
     elements, exceptions,
-    // The source is the caller's claim until a bridge-run job backs a changeset (MA-4).
-    claimed: true,
+    // The source is the caller's claim, unless the bridge built the changeset from a survey job it ran (MA-4d).
+    claimed: !job,
     ignored: more > 0 ? [...ignored.slice(0, MAX_IGNORED), { field: "…", why: `${more} more field(s) ignored the same way` }] : ignored,
+    ...(job ? { job: job.record } : {}),
     ...(body.contract != null ? { contract: body.contract } : {}),
   };
 }

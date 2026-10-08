@@ -24,6 +24,8 @@ export interface TypeGap {
   labels: string[]; nearest: string[]; at: string; actor: string | null; ledger: LedgerRef; runs: number;
   /** Review amendment C10: the newest run's source and claim — counted in Revit, not by the bridge. */
   source: string | null; claimed: boolean;
+  /** MA-4d: a survey run's job and the group's evidence ids. */
+  job_id?: string | null; evidence?: string[];
   /** Review amendment C5: open again after a dismissal — a run reported more than it saw. */
   reopened?: { since: string; more: number };
   closed_by?: "dismissed" | "catalogue"; reason?: string | null; closed_at?: string; type?: string; catalog?: string;
