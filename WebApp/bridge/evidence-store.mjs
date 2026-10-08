@@ -37,25 +37,37 @@ export function insideFolder(dir, rel) {
   return full;
 }
 
-/** sha256 and size of a file, streamed (never held whole), and its first 8 bytes for the magic check.
+/** A file's first 8 bytes: the magic check, before any byte is hashed (a renamed 6 GB file is refused without reading it). */
+async function readHead(full) {
+  const fh = await open(full, "r");
+  try { const b = Buffer.alloc(8); const { bytesRead } = await fh.read(b, 0, 8, 0); return b.subarray(0, bytesRead); }
+  finally { await fh.close(); }
+}
+
+/** sha256 and size of a file, streamed (never held whole), and its first 8 bytes from the same stream — the bytes checked are the
+ *  bytes hashed.
  *  ponytail: hashed inline in the request — fine for the MA-4a files (KB to a few GB on the local disk); MA-4h moves a 6.5 GB hash to a
  *  background job with a pending state if the inline hash is too slow over the Funnel. Re-check re-hashes the whole pack the same way,
  *  so it is budgeted (6 per user, 12 in all, a minute) and runs once at a time per project; the job moves it off the request too. */
 export async function hashFile(full) {
-  const fh = await open(full, "r");
-  let head;
-  try { const b = Buffer.alloc(8); const { bytesRead } = await fh.read(b, 0, 8, 0); head = b.subarray(0, bytesRead); }
-  finally { await fh.close(); }
   const h = createHash("sha256");
-  let size = 0;
-  await new Promise((ok, no) => createReadStream(full).on("data", (c) => { h.update(c); size += c.length; }).on("end", ok).on("error", no));
+  let size = 0, head = Buffer.alloc(0);
+  await new Promise((ok, no) => createReadStream(full).on("data", (c) => {
+    if (head.length < 8) head = Buffer.concat([head, c.subarray(0, 8 - head.length)]);
+    h.update(c); size += c.length;
+  }).on("end", ok).on("error", no));
   return { sha256: h.digest("hex"), size_bytes: size, head };
 }
 
 const isFile = (full) => existsSync(full) && statSync(full).isFile();
-/** The sha256 of `rel` in `dir`, or null when no file is there. */
+/** `full` relative to `dir` as the disk spells it, "/"-separated: NTFS answers to any case of a name (and to an 8.3 short name), so an
+ *  item is matched by this, never by the string a caller sent — one file is one path. */
+const onDisk = (dir, full) => relative(realpathSync.native(dir), realpathSync.native(full)).split(sep).join("/");
+/** The sha256 of `rel` in `dir`, or null when no file is there — nor inside the folder any more (a link or junction put in its place:
+ *  Re-check flags it as missing rather than failing the whole run). */
 async function hashIfThere(dir, rel) {
-  const full = insideFolder(dir, rel);
+  let full;
+  try { full = insideFolder(dir, rel); } catch (e) { if (e.status === 400) return null; throw e; }
   return isFile(full) ? (await hashFile(full)).sha256 : null;
 }
 
@@ -79,16 +91,26 @@ async function wire(deps = {}) {
 async function officeProject(d, key, min) {
   await d.requireMinRole(key, min);
   const proj = await d.ensureProject(key);
-  if (proj.kind === "office") throw err(400, "an evidence pack belongs to a project, not an office — make it on the project; nothing was saved");
-  if (!proj.office_key) throw err(403, `${key} belongs to no office — evidence is kept for office projects (a lead of the office attaches it in Project settings ▸ Office); nothing was saved`);
+  const out = outOfScope(key, proj);
+  if (out) throw err(out.status, `${out.words}; nothing was saved`);
   return proj;
 }
+/** Why `proj` can hold no evidence pack (an office row, or a project of no office), else null. */
+function outOfScope(key, proj) {
+  if (proj.kind === "office") return { status: 400, words: "an evidence pack belongs to a project, not an office — make it on the project" };
+  if (!proj.office_key) return { status: 403, words: `${key} belongs to no office — evidence is kept for office projects (a lead of the office attaches it in Project settings ▸ Office)` };
+  return null;
+}
 const rechecking = new Set(); // MA-4a: the projects whose Re-check is running — one at a time per project
+// MA-4a: the projects with an admission running — one at a time per project, so a refusal row never lands after a concurrent admission
+// of its path (it would put an admitted file On hold) and a burst of admits never streams many big files at once.
+// ponytail: a per-project lock in this one bridge process; a second contributor waits out a long hash (MA-4h's background job).
+const admitting = new Set();
 
 /** The pack in force (the project's own — no office fallback) or a 404 in words; `packId` must be its id (one pack per project, MA-4a S1). */
 async function packOf(d, key, packId) {
   const doc = await d.art.getArtefact(key, KIND, d.artDeps);
-  if (!doc) throw err(404, `${key} has no evidence pack yet — a lead makes it (POST /cde/${key}/evidence) — nothing was saved`);
+  if (!doc) throw Object.assign(err(404, `${key} has no evidence pack yet — a lead makes it (POST /cde/${key}/evidence) — nothing was saved`), { noPack: true });
   if (doc.body.pack_id !== packId) throw err(404, `${key}'s evidence pack is ${doc.body.pack_id}, not ${packId} — nothing was saved`);
   return { pack: doc.body, version: doc.version, sha256: doc.sha256 };
 }
@@ -103,6 +125,7 @@ const actor = () => resolveActor(null, "machine");
 
 /** The folder's files not yet admitted — names and sizes only, never contents. A flagged (changed) item's file is listed again, so it
  *  can be admitted once restored; a registration report of an item is not listed. Links and junctions are skipped (not files). */
+// ponytail: walks the whole folder on each GET (the list stops at MAX_LISTED); cache it per project if a NAS folder of 10k+ files is slow.
 function folderFiles(dir, pack) {
   if (!existsSync(dir)) return { files_not_admitted: [], truncated: false };
   const taken = new Set(pack.items.flatMap((i) => [i.state === "changed" ? null : i.path, i.registration?.report_path].filter(Boolean)));
@@ -110,7 +133,8 @@ function folderFiles(dir, pack) {
   for (const e of readdirSync(dir, { recursive: true, withFileTypes: true })) {
     if (!e.isFile()) continue;
     const rel = relative(dir, join(e.parentPath, e.name)).split(sep).join("/");
-    if (!taken.has(rel)) files.push({ path: rel, size_bytes: statSync(join(dir, rel)).size });
+    if (taken.has(rel)) continue;
+    try { files.push({ path: rel, size_bytes: statSync(join(dir, rel)).size }); } catch { /* gone since the listing (a tool's temp file) */ }
   }
   files.sort((a, b) => a.path.localeCompare(b.path));
   return { files_not_admitted: files.slice(0, MAX_LISTED), truncated: files.length > MAX_LISTED };
@@ -128,10 +152,17 @@ export async function makePack(key, b = {}, deps) {
   return { pack: (await packOf(d, key, L.PACK_ID)).pack, ref: `${KIND}@${pointer.version}`, sha256: pointer.sha256, folder: dir };
 }
 
-/** GET /cde/:key/evidence/:pack → the pack, its ref, and the folder: {path, exists, files_not_admitted, truncated}. Any member. */
+/** GET /cde/:key/evidence/:pack → the pack, its ref, and the folder: {path, exists, files_not_admitted, truncated}. Any member. No pack
+ *  on an office row or a project of no office is a 409 that says why (none can be made there). */
 export async function readPack(key, packId, deps) {
   const d = await wire(deps);
-  const { pack, version, sha256 } = await packOf(d, key, packId);
+  let got;
+  try { got = await packOf(d, key, packId); } catch (e) {
+    // No pack, and none can be made here: say why (the web shows it in place of a Make button that would always be refused).
+    const out = e.noPack ? outOfScope(key, await d.ensureProject(key)) : null;
+    throw out ? err(409, out.words) : e;
+  }
+  const { pack, version, sha256 } = got;
   const dir = evidenceDir(key, d.root);
   return { pack, ref: `${KIND}@${version}`, sha256, folder: { path: dir, exists: existsSync(dir), ...folderFiles(dir, pack) } };
 }
@@ -168,12 +199,18 @@ export async function runEvidenceIntake(key, packId, b = {}, deps) {
   if ((await d.myRole(key)) === "service") throw err(403, "an admission needs a person — it names who admitted the file and confirmed its registration: sign in. Nothing was saved.");
   const proj = await officeProject(d, key, "contributor");
   d.takeWriteBudget("evidence admissions", { perUser: 30, all: 90 });
-  const input = L.readAdmitBody(b);
+  if (admitting.has(key)) throw err(409, `an admission to ${key} is already running — try again when it ends; nothing was saved`);
+  admitting.add(key);
+  try { return await admitRun(d, proj, key, packId, b); } finally { admitting.delete(key); }
+}
+async function admitRun(d, proj, key, packId, b) {
+  let input = L.readAdmitBody(b);
   const { pack, version } = await packOf(d, key, packId);
   const missing = L.missingAttestations(pack, L.ADMIT_NEEDS[input.kind] ?? L.ADMIT_NEEDS.scan);
   if (missing.length) throw err(409, `a lead must sign ${L.codesSaid(missing)} first; nothing was saved`);
   const dir = evidenceDir(key, d.root), full = insideFolder(dir, input.path), who = actor();
   if (!isFile(full)) throw err(404, `no file ${input.path} in the project's evidence folder (${dir}) — put it there first; nothing was saved`);
+  input = { ...input, path: onDisk(dir, full) }; // the disk's spelling: "Photos/OWN.jpg" is photos/own.jpg, admitted or not
   const prev = pack.items.find((i) => i.path === input.path);
   if (prev && prev.state !== "changed") throw err(409, `${input.path} is already admitted as ${prev.id} (Re-check finds a changed file) — nothing was saved`);
   if (!prev) {
@@ -186,8 +223,10 @@ export async function runEvidenceIntake(key, packId, b = {}, deps) {
   const policy = L.policyRefusals(input);
   if (policy.length) return refuse(policy);
   const format = L.formatOf(input.path);
+  const bad0 = L.magicRefusal(format, await readHead(full));
+  if (bad0) return refuse([bad0]); // before any byte is hashed
   const f = await hashFile(full);
-  const bad = L.magicRefusal(format, f.head);
+  const bad = L.magicRefusal(format, f.head); // the hashed bytes' own head (the file may have been swapped in between)
   if (bad) return refuse([bad], f.sha256);
   if (prev && prev.sha256 !== f.sha256) return refuse(["changed since admitted"], f.sha256); // flagged already (Re-check)
   let item;
@@ -202,6 +241,7 @@ export async function runEvidenceIntake(key, packId, b = {}, deps) {
     if (input.registration?.report_path) {
       const rf = insideFolder(dir, input.registration.report_path);
       if (!isFile(rf)) throw err(404, `no registration report ${input.registration.report_path} in the project's evidence folder — put it there first; nothing was saved`);
+      input = { ...input, registration: { ...input.registration, report_path: onDisk(dir, rf) } };
       report = await hashFile(rf);
     }
     item = L.newItem({ id: L.nextId("ev", pack.items), input, format, sha256: f.sha256, size_bytes: f.size_bytes, report, pack, who, at: d.now() });

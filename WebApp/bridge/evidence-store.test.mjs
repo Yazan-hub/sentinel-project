@@ -1,7 +1,7 @@
 // MA-4a — evidence intake end to end on a temp evidence folder: the pack, the signatures, admission (streamed sha, magic, policy), a changed file refused and flagged, Re-check, re-admission — deps injected, no Supabase.
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { makePack, readPack, signAttestation, runEvidenceIntake, recheckPack } from "./evidence-store.mjs";
@@ -102,7 +102,7 @@ describe("evidence intake (MA-4a)", () => {
     expect(await admit({ path: "notes/a.txt", kind: "photo" })).toMatchObject({ verdict: "refused", reasons: ["a .txt is not admitted — scans are e57, las, laz or rcp; photos are jpg or png"] });
     const zip = Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), Buffer.alloc(20, 1)]);
     put("scans/fake.las", zip);
-    expect(await admit({ path: "scans/fake.las", kind: "scan", registration: REG })).toMatchObject({ verdict: "refused", sha256: sha(zip), reasons: ["the file does not begin as a .las does — renamed or damaged"] });
+    expect(await admit({ path: "scans/fake.las", kind: "scan", registration: REG })).toMatchObject({ verdict: "refused", sha256: null, reasons: ["the file does not begin as a .las does — renamed or damaged"] }); // refused before any byte is hashed
     put("drawings/A-101.pdf", "%PDF-1.7");
     expect((await admit({ path: "drawings/A-101.pdf", kind: "drawing" })).reasons).toEqual(["drawings come through Ask the owner (MA-4b)"]);
   });
@@ -175,6 +175,9 @@ describe("evidence intake (MA-4a)", () => {
     await expect(makePack("office", {}, deps())).rejects.toMatchObject({ status: 400, message: "an evidence pack belongs to a project, not an office — make it on the project; nothing was saved" });
     expect(docs.size).toBe(size);
     await expect(makePack("loose", {}, deps())).rejects.toMatchObject({ status: 403, message: "loose belongs to no office — evidence is kept for office projects (a lead of the office attaches it in Project settings ▸ Office); nothing was saved" });
+    // The read says so too, so the web offers no Make button that would always be refused (final review).
+    await expect(readPack("loose", "evp-0001", deps())).rejects.toMatchObject({ status: 409, message: "loose belongs to no office — evidence is kept for office projects (a lead of the office attaches it in Project settings ▸ Office)" });
+    await expect(readPack("office", "evp-0001", deps())).rejects.toMatchObject({ status: 409, message: "an evidence pack belongs to a project, not an office — make it on the project" });
   });
 
   it("(g) the cap: a pack of 100 items admits no more", async () => {
@@ -207,5 +210,40 @@ describe("evidence intake (MA-4a)", () => {
     expect((await recheck()).checked).toBe(1); // the guard is released, also after a throw
     role = "viewer";
     await expect(recheck()).rejects.toMatchObject({ status: 403, message: "this action requires the contributor role (you are viewer)" });
+  });
+
+  // Final review: NTFS answers to any case of a name — one file is one path, so a case variant of an admitted file is the 409, no row.
+  it("(j) a path is matched as the disk spells it: a case variant of an admitted file is the 409, before any policy check", async () => {
+    await ready();
+    put("photos/own.jpg", JPG);
+    await admit({ path: "photos/own.jpg", kind: "photo" });
+    const n = audits.length;
+    if (existsSync(join(root, "demo", "PHOTOS", "OWN.jpg"))) { // a case-insensitive disk (the office PC)
+      const again = { status: 409, message: "photos/own.jpg is already admitted as ev-0001 (Re-check finds a changed file) — nothing was saved" };
+      await expect(admit({ path: "Photos/OWN.jpg", kind: "photo" })).rejects.toMatchObject(again);
+      await expect(admit({ path: "PHOTOS/own.jpg", kind: "photo", provider: "google" })).rejects.toMatchObject(again);
+    } else await expect(admit({ path: "Photos/OWN.jpg", kind: "photo" })).rejects.toMatchObject({ status: 404 });
+    expect(audits.length).toBe(n);
+    expect((await pack()).items).toHaveLength(1);
+  });
+
+  it("(k) a folder swapped for a junction out of the evidence folder: admit is a 400, Re-check flags the item missing", async () => {
+    await ready();
+    put("scans/tiny.las", LAS);
+    await admit({ path: "scans/tiny.las", kind: "scan", registration: REG });
+    renameSync(join(root, "demo", "scans"), join(root, "elsewhere"));
+    symlinkSync(join(root, "elsewhere"), join(root, "demo", "scans"), "junction");
+    await expect(admit({ path: "scans/tiny.las", kind: "scan" })).rejects.toMatchObject({ status: 400 });
+    expect((await recheck()).changed).toEqual([{ item_id: "ev-0001", path: "scans/tiny.las", sha256: null, reason: "missing from the evidence folder" }]);
+    expect(rows("evidence:refused").map((r) => r.action)).toEqual(["evidence:refused scans/tiny.las"]);
+  });
+
+  it("(l) admissions run one at a time per project", async () => {
+    await ready();
+    put("photos/a.jpg", JPG); put("photos/b.jpg", JPG);
+    const both = await Promise.allSettled([admit({ path: "photos/a.jpg", kind: "photo" }), admit({ path: "photos/b.jpg", kind: "photo" })]);
+    expect(both.map((s) => s.status).sort()).toEqual(["fulfilled", "rejected"]);
+    expect(both.find((s) => s.status === "rejected").reason).toMatchObject({ status: 409, message: "an admission to demo is already running — try again when it ends; nothing was saved" });
+    expect((await admit({ path: "photos/b.jpg", kind: "photo" })).verdict).toBe("admitted"); // released
   });
 });

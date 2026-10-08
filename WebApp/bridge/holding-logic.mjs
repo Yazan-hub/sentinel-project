@@ -65,12 +65,15 @@ export const clearedRecent = (holdRows, dismissRows, versionsByName) => walk(hol
 
 /** MA-4a: refused evidence on hold, read from the evidence rows themselves (no second hold row): each evidence:refused row is a refusal
  *  of its path (stage evidence), each evidence:admitted row a registration of that path, accepted — so the item clears when the same
- *  path is admitted later, or when a lead dismisses it (hold:dismissed <path>, the existing dismissal). A path and a container name
- *  never meet: no evidence format is an .ifc. Pure. → {rows, versions} for heldItems' holdRows and versionsByName. */
+ *  path is admitted later, or when a lead dismisses it (hold:dismissed evidence:<path>, the existing dismissal). Its name is
+ *  "evidence:<path>" — a namespace of its own: a CDE name may be any file name (a .jpg drawing too), and a CDE version, hold or
+ *  dismissal of the bare path must never clear an evidence hold, nor an admission a CDE hold (the CDE refuses a name with this prefix:
+ *  cde-store's registerFileVersion and readRegister). Pure. → {rows, versions} for heldItems' holdRows and versionsByName. */
+export const EVIDENCE_HOLD = "evidence:";
 export function evidenceHolds(evidenceRows) {
   const rows = [], versions = {};
   for (const r of evidenceRows || []) {
-    const v = r.new_value || {}, path = String(v.path ?? ""), reasons = Array.isArray(v.reasons) ? v.reasons : [];
+    const v = r.new_value || {}, path = EVIDENCE_HOLD + String(v.path ?? ""), reasons = Array.isArray(v.reasons) ? v.reasons : [];
     if (String(r.action).startsWith("evidence:refused ")) rows.push({ ...r, action: `hold:evidence ${path}`, new_value: {
       container_name: path, stage: "evidence", verdict: "refused", failures: reasons.map((x) => ({ requirement: "evidence intake", detail: String(x) })),
       failures_total: reasons.length, source: "evidence" } });

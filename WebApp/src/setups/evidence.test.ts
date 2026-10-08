@@ -7,7 +7,7 @@ const { bfetch, bwrite } = vi.hoisted(() => ({ bfetch: vi.fn(), bwrite: vi.fn() 
 vi.mock("./bridge-fetch", () => ({ bfetch, bwrite }));
 
 import { ATTESTATION_CODES, ATTESTATION_TEXTS, kindOf, needsReport, itemLine, attestationLine, admitLine, recheckLine, readEvidence,
-  signAttestation, type EvidenceItem, type EvidencePack } from "./evidence";
+  signAttestation, evidenceControls, type EvidenceItem, type EvidencePack } from "./evidence";
 
 const res = (status: number, body: unknown) => ({ ok: status < 400, status, json: async () => body }) as unknown as Response;
 const HASH = "ab".repeat(32);
@@ -67,6 +67,16 @@ describe("the lines", () => {
     expect(recheckLine({ checked: 2, changed: [{ item_id: "ev-0001", path: "scans/tiny.las", reason: "changed since admitted" }], still_changed: 0, pack_version: 4 }))
       .toBe("Re-checked 2 item(s): 1 changed — scans/tiny.las (changed since admitted). On hold until the file is restored and admitted again.");
     expect(recheckLine({ checked: 2, changed: [], still_changed: 0, pack_version: 3 })).toBe("Re-checked 2 item(s): every file matches its admitted sha.");
+    expect(recheckLine({ checked: 2, changed: [], still_changed: 1, pack_version: 3 }))
+      .toBe("Re-checked 2 item(s): none newly changed; 1 still changed — on hold until admitted again under Evidence.");
+  });
+  it("evidenceControls: Make and Sign a lead's (Sign never the machine session's), Admit and Re-check a contributor's", () => {
+    const all = { make: true, sign: true, admit: true, recheck: true };
+    expect(evidenceControls("owner")).toEqual(all);
+    expect(evidenceControls("lead")).toEqual(all);
+    expect(evidenceControls("contributor")).toEqual({ make: false, sign: false, admit: true, recheck: true });
+    expect(evidenceControls("viewer")).toEqual({ make: false, sign: false, admit: false, recheck: false });
+    expect(evidenceControls("service")).toEqual({ ...all, sign: false });
   });
 });
 
@@ -88,6 +98,8 @@ describe("the calls", () => {
     const body = { pack: PACK, ref: "evidence_pack@2", folder: { path: "evidence/demo", exists: true, files_not_admitted: [], truncated: false } };
     bfetch.mockResolvedValue(res(200, body));
     await expect(readEvidence("http://b", "demo")).resolves.toEqual(body);
+    bfetch.mockResolvedValue(res(409, { message: "loose belongs to no office — evidence is kept for office projects (a lead of the office attaches it in Project settings ▸ Office)" }));
+    await expect(readEvidence("http://b", "loose")).rejects.toThrow(/^loose belongs to no office — evidence is kept for office projects/);
     bfetch.mockRejectedValue(new Error("Failed to fetch"));
     await expect(readEvidence("http://b", "demo")).rejects.toThrow("not read — Failed to fetch");
   });

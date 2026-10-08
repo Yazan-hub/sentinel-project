@@ -3,6 +3,7 @@
 // contributor's), and Re-check. Files are put in the folder by hand: no evidence byte passes through the browser (D11).
 import { bfetch, bwrite } from "./bridge-fetch";
 import { ledgerLine } from "./stage-gate";
+import { canEditRole, canGovernRole } from "./my-role";
 
 export const PACK_ID = "evp-0001";
 export const ATTESTATION_CODES = ["a", "b", "c", "d", "e"] as const;
@@ -52,18 +53,27 @@ export function admitLine(r: AdmitReply): string {
 export function recheckLine(r: RecheckReply): string {
   return r.changed.length
     ? `Re-checked ${r.checked} item(s): ${r.changed.length} changed — ${r.changed.map((c) => `${c.path} (${c.reason})`).join("; ")}. On hold until the file is restored and admitted again.`
-    : `Re-checked ${r.checked} item(s): every file matches its admitted sha.`;
+    : r.still_changed > 0
+      ? `Re-checked ${r.checked} item(s): none newly changed; ${r.still_changed} still changed — on hold until admitted again under Evidence.`
+      : `Re-checked ${r.checked} item(s): every file matches its admitted sha.`;
 }
+/** Which Evidence controls a role gets: Make the pack and Sign are a lead's (Sign never the machine session's — an attestation is a
+ *  person's); Admit and Re-check a contributor's. Pure. */
+export const evidenceControls = (role: string) => ({
+  make: canGovernRole(role), sign: canGovernRole(role) && role !== "service", admit: canEditRole(role), recheck: canEditRole(role),
+});
 
 const at = (base: string, key: string, path: string) => `${base.replace(/\/$/, "")}/cde/${encodeURIComponent(key)}/${path}`;
 const post = <T>(base: string, key: string, path: string, body: unknown) =>
   bwrite<T>(at(base, key, path), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-/** The pack and its folder; null when the project has none yet (the bridge's 404 says so); any other failure throws "not read — …". */
+/** The pack and its folder; null when the project has none yet (the bridge's 404 says so); a project where none can be made (an office
+ *  row, a project of no office: the bridge's 409) throws its words; any other failure throws "not read — …". */
 export async function readEvidence(base: string, key: string): Promise<EvidenceRead | null> {
   let r: Response;
   try { r = await bfetch(at(base, key, `evidence/${PACK_ID}`)); } catch (e) { throw new Error(`not read — ${(e as Error).message}`); }
   const j = (await r.json().catch(() => null)) as (EvidenceRead & { message?: string }) | null;
   if (r.status === 404 && /no evidence pack yet/.test(j?.message ?? "")) return null;
+  if (r.status === 409 && j?.message) throw new Error(j.message);
   if (!r.ok || !j?.pack) throw new Error(`not read — ${j?.message || `HTTP ${r.status}`}`);
   return j;
 }

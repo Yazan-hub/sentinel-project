@@ -15,7 +15,7 @@ import { readDeleted, restoreDeleted, deletedItemLine, restoredLine, archivable,
 import { escapeHtml as esc } from "./escape-html";
 import { unarchiveFile } from "./cde-transition";
 import { firstTag, geometryCheck, linkedHash, linkedTag, sha256Hex, type GeometryLinkRow } from "./geometry-check";
-import { readEvidence, makePack, signAttestation, admitEvidence, recheckEvidence, kindOf, needsReport, itemLine, attestationLine, admitLine, recheckLine, ATTESTATION_CODES, ATTESTATION_TEXTS, type EvidenceRead } from "./evidence";
+import { readEvidence, makePack, signAttestation, admitEvidence, recheckEvidence, kindOf, needsReport, itemLine, attestationLine, admitLine, recheckLine, evidenceControls, ATTESTATION_CODES, ATTESTATION_TEXTS, type EvidenceRead } from "./evidence";
 
 /**
  * Sentinel Versions panel — file/blob-centric version history for uploaded model files.
@@ -443,16 +443,18 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   // admitted items, and the files in its evidence folder on the office PC not yet admitted (Admit, a contributor's; a scan names how it
   // was registered). Files are put in the folder by hand — no bytes pass through the browser (D11). Re-check re-hashes every item.
   function evidenceSection(): string {
-    if (evidenceError) return `<div style="color:#fbbf24;font-size:11px;padding:.4rem .2rem">Evidence: ${esc(evidenceError)}</div>`;
+    // A failed read is amber; the bridge's words why no pack can be made on this project (an office row, no office) are grey.
+    if (evidenceError) return `<div style="color:${evidenceError.startsWith("not read") ? "#fbbf24" : "#71717a"};font-size:11px;padding:.4rem .2rem">Evidence: ${esc(evidenceError)}</div>`;
+    const can = evidenceControls(role);
     const act = "border:1px solid #2c2c34;background:#1f1f27;color:#cbd5e1;border-radius:.25rem;padding:.15rem .45rem;font:600 11px system-ui;cursor:pointer";
     const line = (t: string, c = "#71717a") => `<div style="color:${c};font-size:11px;padding:.1rem .2rem">${t}</div>`;
     const toggle = `<button id="fv-ev-toggle" style="border:none;background:transparent;color:#a78bfa;font:11px system-ui;cursor:pointer;padding:.4rem .2rem">${showEvidence ? "▾" : "▸"} Evidence (${evidence ? evidence.pack.items.length : 0})</button>`;
     if (!showEvidence) return toggle;
-    if (!evidence) return toggle + (canGovernRole(role)
+    if (!evidence) return toggle + (can.make
       ? line(`No evidence pack yet. <button id="fv-ev-make" style="${act}">Make the evidence pack</button>`)
       : line(`No evidence pack yet — a lead or owner makes it (${esc(roleSaid)}).`));
     const { pack, folder, ref } = evidence;
-    const signer = canGovernRole(role) && role !== "service", edit = canEditRole(role);
+    const signer = can.sign, edit = can.admit;
     const atts = ATTESTATION_CODES.map((c) => {
       const done = pack.attestations.some((a) => a.code === c);
       return line(`<span style="color:${done ? "#4ade80" : "#9ca3af"}">${esc(attestationLine(c, pack))}</span> “${esc(ATTESTATION_TEXTS[c])}”` +
