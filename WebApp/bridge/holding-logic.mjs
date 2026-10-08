@@ -7,7 +7,7 @@
 import { createHash } from "node:crypto";
 
 export const NAMING_NOTE = "the corrected file carries a new name — a lead dismisses this entry once it is registered";
-const REFUSAL = /^hold:(gate|naming|ids) /;
+const REFUSAL = /^hold:(gate|naming|ids|evidence) /; // MA-4a: evidence, from evidenceHolds (no hold row of its own)
 const DISMISSAL = "hold:dismissed ";
 const LAST = Number.MAX_SAFE_INTEGER;   // a version sorts after a ledger row of the same instant: it clears what came before
 
@@ -62,6 +62,22 @@ export const heldItems = (holdRows, dismissRows, versionsByName) => walk(holdRow
  *  "unjudged" | <the verdict>, version_id, at, label}. A clearance by an accepted registration or a dismissal is not
  *  listed: the version's verdict and the dismissal row say it. */
 export const clearedRecent = (holdRows, dismissRows, versionsByName) => walk(holdRows, dismissRows, versionsByName).cleared.slice(0, 20);
+
+/** MA-4a: refused evidence on hold, read from the evidence rows themselves (no second hold row): each evidence:refused row is a refusal
+ *  of its path (stage evidence), each evidence:admitted row a registration of that path, accepted — so the item clears when the same
+ *  path is admitted later, or when a lead dismisses it (hold:dismissed <path>, the existing dismissal). A path and a container name
+ *  never meet: no evidence format is an .ifc. Pure. → {rows, versions} for heldItems' holdRows and versionsByName. */
+export function evidenceHolds(evidenceRows) {
+  const rows = [], versions = {};
+  for (const r of evidenceRows || []) {
+    const v = r.new_value || {}, path = String(v.path ?? ""), reasons = Array.isArray(v.reasons) ? v.reasons : [];
+    if (String(r.action).startsWith("evidence:refused ")) rows.push({ ...r, action: `hold:evidence ${path}`, new_value: {
+      container_name: path, stage: "evidence", verdict: "refused", failures: reasons.map((x) => ({ requirement: "evidence intake", detail: String(x) })),
+      failures_total: reasons.length, source: "evidence" } });
+    else if (String(r.action).startsWith("evidence:admitted ")) (versions[path] ||= []).push({ id: `ledger-${r.id}`, created_at: r.at, verdict: "accepted" });
+  }
+  return { rows, versions };
+}
 
 // ── MA-2c: type-gap groups (design §6.4). A Promote run posts its gap groups as one type_gap row (cde-store typeGapRow names each
 // group); a group is open from the newest run that reported it until a lead dismisses it (a hold:type_gap_dismissed row) or the

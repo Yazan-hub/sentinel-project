@@ -1481,11 +1481,12 @@ export async function recordDeliveryGate(key, b = {}) {
  *  project's files and their versions (listFiles) and each version's newest verdict (listVersionVerdictRows). A read
  *  that fails is a 502 "not read — …", never an empty list; a non-member's 403 and an unknown key's 404 stay theirs. */
 export async function readHolding(key) {
-  const { heldItems, clearedRecent, typeGapGroups } = await import("./holding-logic.mjs");
-  let rows, gapRows, files, verdicts;
+  const { heldItems, clearedRecent, typeGapGroups, evidenceHolds } = await import("./holding-logic.mjs");
+  let rows, gapRows, evRows, files, verdicts;
   try {
     rows = await auditAll(key, { entity_type: "hold" });
     gapRows = await auditAll(key, { entity_type: "type_gap" }); // MA-2c: Promote's type gaps, run by run
+    evRows = await auditAll(key, { entity_type: "evidence" }); // MA-4a: refused evidence is held from its own rows
     [files, verdicts] = await Promise.all([listFiles(key), listVersionVerdictRows(key)]);
   } catch (e) {
     if (e?.status) throw e;
@@ -1496,9 +1497,13 @@ export async function readHolding(key) {
   for (const r of verdicts) if (!verdictOf.has(r.version_id)) verdictOf.set(r.version_id, r.verdict); // newest first
   const versionsByName = {};
   for (const f of files) (versionsByName[f.iso_name] ||= []).push(...f.versions.map((v) => ({ id: v.id, created_at: v.created_at, verdict: verdictOf.get(v.id) ?? null })));
+  // MA-4a: the evidence rows as hold timelines — an admission of the same path clears a refusal, as a registration clears a name.
+  const ev = evidenceHolds(evRows);
+  for (const [path, list] of Object.entries(ev.versions)) (versionsByName[path] ||= []).push(...list);
+  const held = [...rows, ...ev.rows];
   const core = await import("./sentinel-core.mjs");
   return {
-    items: heldItems(rows, rows, versionsByName), cleared_recent: clearedRecent(rows, rows, versionsByName),
+    items: heldItems(held, rows, versionsByName), cleared_recent: clearedRecent(held, rows, versionsByName),
     type_gaps: typeGapGroups(gapRows, rows, await catalogInForce(key), core.sameCategory),
   };
 }

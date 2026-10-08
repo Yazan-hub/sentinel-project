@@ -168,3 +168,21 @@ describe("readHolding and dismissTypeGap — type-gap groups (MA-2c)", () => {
     expect(src).toContain("return send(res, 201, await cde.dismissTypeGap(p1, decodeURIComponent(p4), (await readBody(req)) || {}));");
   });
 });
+
+// MA-4a spec amendment S2: refused evidence is held from its own evidence:refused rows (stage evidence); an evidence:admitted row of
+// the same path clears it, and a lead's dismissal of the path clears it.
+describe("readHolding — refused evidence (MA-4a)", () => {
+  const evRow = (id, min, action, new_value) => ({ id, at: at(min), hash: hash(id), project_id: P, entity_type: "evidence", entity_id: null, action, actor: "c@example.test", new_value });
+
+  it("an admission of the same path clears a refusal; the other is held until a lead dismisses it; one read of the evidence rows", async () => {
+    db.audit_log.push(
+      evRow(960, 1, "evidence:refused scans/a.las", { path: "scans/a.las", reasons: ["changed since admitted"] }),
+      evRow(961, 1, "evidence:refused photos/b.jpg", { path: "photos/b.jpg", reasons: ["changed since admitted"] }),
+      evRow(962, 2, "evidence:admitted ev-0001 scans/a.las", { path: "scans/a.las" }));
+    expect((await readHolding("aster-tower")).items).toMatchObject([{ container_name: "photos/b.jpg", stage: "evidence", source: "evidence", ledger: { id: 961 } }]);
+    expect(calls.filter((c) => c.table === "audit_log" && c.method === "GET" && /entity_type=eq\.evidence/.test(c.query))).toHaveLength(1);
+    const r = await dismissHold("aster-tower", { container_name: "photos/b.jpg", reason: "the photo was replaced", actor: "lead@example.test" });
+    expect(r.id).toEqual(expect.any(Number));
+    expect((await readHolding("aster-tower")).items).toEqual([]);
+  });
+});
