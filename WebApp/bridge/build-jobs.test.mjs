@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startJob, listJobs, readJob, readStartBody, resultRefusal, current } from "./build-jobs.mjs";
+import { startJob, listJobs, readJob, readStartBody, resultRefusal, current, trustedJob } from "./build-jobs.mjs";
 import { USES } from "./evidence-logic.mjs";
 
 const sha = (b) => createHash("sha256").update(b).digest("hex");
@@ -185,5 +185,54 @@ describe("survey jobs (MA-4c)", () => {
     expect(r.result_sha256).toBeUndefined();
     expect(audits.map((a) => a.action)).toEqual(["build:run job-0001 · sentinel-survey 0.1.0 · failed"]);
     expect(audits[0].v).toMatchObject({ status: "failed", result_sha256: null, candidates: null, error: r.error });
+  });
+});
+
+describe("trustedJob (MA-4d) — decision 11: the row job.ledger.id names, the job's own, re-hashed now; never by new_value.job_id", () => {
+  const BYTES = Buffer.from(JSON.stringify(RESULT)), SHA = sha(BYTES), H = "13".repeat(32);
+  const ROW = (over = {}, v = {}) => ({ id: 2201, hash: H, entity_type: "build", action: "build:run job-0001 · sentinel-survey 0.1.0 · done", ...over,
+    new_value: { job_id: "job-0001", reader: "sentinel-survey", version: "0.1.0", status: "done", pack_id: "evp-0001", items: [{ id: "ev-0001", sha256: "1".repeat(64) }], read: ["ev-0001"], result_sha256: SHA, claimed: false, ...v } });
+  const lay = (rec = {}, bytes = BYTES) => {
+    const dir = join(root, "demo", "job-0001");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "result.json"), bytes);
+    writeFileSync(join(dir, "job.json"), JSON.stringify({ id: "job-0001", project: "demo", status: "done", pack_id: "evp-0001", result_sha256: SHA, ledger: { id: 2201, hash: H }, ...rec }));
+  };
+  // deps() per call (review): the file's root is set in beforeEach, after this describe is collected. The caller (proposeFromJob) checks the role.
+  const trust = (row) => trustedJob("demo", "job-0001", deps({ getAuditEntry: async (key, id) => (key === "demo" && id === 2201 ? row : null) }));
+  const untrusted = (why) => ({ status: 409, message: `job-0001's result is not trusted: ${why} — run the survey again; nothing was saved` });
+  const NOT_OWN = "ledger #2201 is not job-0001's own build:run row (the bridge's: build:run job-0001 · sentinel-survey … · done, claimed false)";
+  const CHANGED = "its result.json does not hash to the sha256 on ledger #2201 — it changed after the job";
+
+  it("(a) the job's own row: the result, the row's pack, items and read, its id and hash — the pack id is the ROW's, not job.json's", async () => {
+    lay({ pack_id: "evp-9999" });
+    const t = await trust(ROW());
+    expect(t.row).toEqual({ ledger: { id: 2201, hash: H }, reader: "sentinel-survey", version: "0.1.0", pack_id: "evp-0001", items: [{ id: "ev-0001", sha256: "1".repeat(64) }], read: ["ev-0001"], result_sha256: SHA });
+    expect(t.result.candidates).toHaveLength(2);
+  });
+  it("(b) never trusted: an open-route receipt, another job's row that names this job in new_value.job_id, a failed action, a failed status, a claimed row, another type, no row", async () => {
+    lay();
+    for (const row of [ROW({ action: "build:run" }, { claimed: true }), ROW({ action: "build:run job-0002 · sentinel-survey 0.1.0 · done" }),
+      ROW({ action: "build:run job-0001 · sentinel-survey 0.1.0 · failed" }), ROW({}, { status: "failed" }), // each check alone (review)
+      ROW({}, { claimed: true }), ROW({ entity_type: "event" }), null])
+      await expect(trust(row)).rejects.toMatchObject(untrusted(NOT_OWN));
+    await expect(trust(ROW({}, { result_sha256: "f".repeat(64) }))).rejects.toMatchObject(untrusted(CHANGED));
+  });
+  it("(c) a result.json edited after the job — with job.json's own sha edited to match — is not trusted; nor a run whose row was never written; nor one cid twice", async () => {
+    const edited = Buffer.from(JSON.stringify({ ...RESULT, candidates: RESULT.candidates.map((c) => ({ ...c, measured: { ...c.measured, thickness_mm: 250 } })) }));
+    lay({ result_sha256: sha(edited) }, edited);
+    await expect(trust(ROW())).rejects.toMatchObject(untrusted(CHANGED));
+    lay({ ledger: { id: null, hash: null } });
+    await expect(trust(ROW())).rejects.toMatchObject(untrusted("its build:run row was never written (the ledger write failed when it ran)"));
+    // each element's trust record is bound to it by cid: a cid twice would stamp one candidate's measurement on another's geometry
+    const twice = Buffer.from(JSON.stringify({ ...RESULT, candidates: [...RESULT.candidates, RESULT.candidates[1]] }));
+    lay({ result_sha256: sha(twice) }, twice);
+    await expect(trust(ROW({}, { result_sha256: sha(twice) }))).rejects.toMatchObject(untrusted("its result names one cid twice"));
+  });
+  it("(d) a job that is not there, not done, or not named job-NNNN", async () => {
+    await expect(trust(ROW())).rejects.toMatchObject({ status: 404, message: "no survey job job-0001 on demo — nothing was saved" });
+    lay({ status: "failed" });
+    await expect(trust(ROW())).rejects.toMatchObject({ status: 409, message: "job-0001 is failed — only a done survey job is proposed; nothing was saved" });
+    await expect(trustedJob("demo", "nope", deps())).rejects.toMatchObject({ status: 400, message: "a survey job is named job-NNNN — nothing was saved" });
   });
 });
