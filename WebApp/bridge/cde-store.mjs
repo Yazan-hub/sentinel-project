@@ -1204,7 +1204,11 @@ export async function audit(project_id, entity_type, entity_id, action, actor, o
 // re-open (changesets-store reviewChangeset / reopenGhost) — never written through the open route.
 // MA-4a: evidence:admitted / evidence:refused and attestation:signed (entity_types evidence, attestation) are the evidence routes'
 // own (evidence-store.mjs) — the Holding Area reads them as fact, and a note may not pass for one.
-const RESERVED_ACTIONS = ["verdict:", "gate:", "roi:", "state:", "hold:", "review:", "changeset_reviewed", "changeset_reopened", "geometry linked", "evidence:", "attestation:"];
+// MA-4d (review): every changeset_ row is the bridge's (changesets-store audit(), never this route) — drill MA4 reads changeset_proposed and
+// changeset_applied as the record of a survey's evidence and job, and the desk reads changeset_applied / _reverted by entity_id. No client
+// posts one here: the add-in posts build, naming, family_heal and the XC-5 report types; its Undo goes to POST /changesets/:key/:id/reverted.
+// The prefix comes after the two above, so `find` keeps their own words.
+const RESERVED_ACTIONS = ["verdict:", "gate:", "roi:", "state:", "hold:", "review:", "changeset_reviewed", "changeset_reopened", "changeset_", "geometry linked", "evidence:", "attestation:"];
 const RESERVED_TYPES = ["stage_gate", "hold", "delivery_gate", "review", "platform_gate", "evidence", "attestation"];
 
 /** Record an audit event by project KEY (golden thread) — the DB trigger hash-chains it (tamper-evident). A reserved
