@@ -691,7 +691,7 @@ describe("validateChangeset — contract 2's trust rules (MA-1a item 8)", () => 
     expect(v.source).toBe("sentinel-survey 0.1");
     expect(v.claimed).toBe(true);
     expect(v.ignored).toEqual([
-      { field: "source.job_id", why: "ignored: no survey job the bridge ran is named by it — the source is marked claimed" },
+      { field: "source.job_id", why: "ignored: a job named in a body backs nothing — the bridge files a survey job's changesets itself (POST /cde/:key/build/jobs/:id/propose); the source is marked claimed" },
       { field: "source.host", why: "ignored: not a field this bridge keeps" },
     ]);
     expect(validateChangeset(CS([wall()], { source: { job_id: "job-1" } })).source).toBe("agent");
@@ -1020,5 +1020,30 @@ describe("validateChangeset — set_parameter (MA-2c)", () => {
     expect(body.elements.map((e) => e.op)).toEqual(["retype", "retype", "set_parameter", "set_parameter"]);
     expect(v.ignored).toEqual([]); // the add-in sends nothing the bridge sets itself
     expect(v.exceptions).toEqual(body.exceptions);
+  });
+});
+
+describe("validateChangeset — a changeset the bridge built from a survey job (MA-4d)", () => {
+  const W = { op: "create", kind: "wall", cid: "scan-L00-wall-1", evidence: ["ev-0001#slice-L00"], validate: { identity: { Class: "IFCWALL", Name: "scan-L00-wall-1" } },
+    place: { TypeName: "BDS_EXT_ARC_CMU_300 mm", LevelName: "GR-FFL", LocationCurve: { start: [40125, 150, 0], end: [47850, 150, 0] }, TopElevation: 2800 } };
+  const TRUST = { measured: { length_mm: 8001, height_mm: 2800, thickness_mm: 300 }, pretick: true, trim_mm: [-140, -136],
+    accuracy: { status: "within_tolerance", basis: "fit", from_job: "job-0002", fit_rmse_mm: 2, coverage: 1, target_mm: 20 } };
+  const JOB = { record: { id: "job-0002", ledger_id: 2201 }, byCid: new Map([["scan-L00-wall-1", TRUST]]) };
+  it("takes measured, the trims, the accuracy and the pre-tick from the bridge's record; the changeset is not claimed and names its job", () => {
+    const v = validateChangeset({ name: "Survey job-0002 · GR-FFL", source: "sentinel-survey 0.1.0", contract: 2, elements: [W] }, { member: true, job: JOB });
+    expect(v).toMatchObject({ claimed: false, job: JOB.record, ignored: [] });
+    expect(v.elements[0]).toMatchObject({ measured: TRUST.measured, trim_mm: [-140, -136], accuracy: TRUST.accuracy, pretick: true });
+  });
+  it("an element that is no candidate of the job is refused (the bridge's own guard)", () => {
+    status400(() => validateChangeset({ name: "x", elements: [{ ...W, cid: "scan-L09-wall-1" }] }, { job: JOB }), /scan-L09-wall-1 is not a candidate of job-0002/);
+  });
+  it("a body cannot reach it: a posted job, source.job_id, measured or pretick is listed; the changeset stays claimed; nothing is measured", () => {
+    const v = validateChangeset({ name: "x", source: { reader: "sentinel-survey 0.1", job_id: "job-0002" }, job: JOB.record,
+      elements: [{ ...W, measured: TRUST.measured, pretick: true }] }, { member: true });
+    expect(v).toMatchObject({ claimed: true, source: "sentinel-survey 0.1" });
+    expect(v).not.toHaveProperty("job");
+    expect(v.elements[0]).toMatchObject({ pretick: false, accuracy: { status: "not_measured" } });
+    expect(v.elements[0]).not.toHaveProperty("measured");
+    expect(v.ignored.map((i) => i.field)).toEqual(["job", "source.job_id", "elements[0].measured", "elements[0].pretick"]);
   });
 });

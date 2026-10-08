@@ -28,7 +28,7 @@
     "claimed": true,
     "contract": 2,
     "ignored": [
-      { "field": "source.job_id", "why": "ignored: no survey job the bridge ran is named by it — the source is marked claimed" }
+      { "field": "source.job_id", "why": "ignored: a job named in a body backs nothing — the bridge files a survey job's changesets itself (POST /cde/:key/build/jobs/:id/propose); the source is marked claimed" }
     ],
     "elements": [
       {
