@@ -1197,8 +1197,10 @@ export async function audit(project_id, entity_type, entity_id, action, actor, o
  *  The open audit route may not write any of them. */
 // MA-3a (review amendment C5): changeset_reviewed and changeset_reopened are the record of the web desk's decisions and a lead's
 // re-open (changesets-store reviewChangeset / reopenGhost) — never written through the open route.
-const RESERVED_ACTIONS = ["verdict:", "gate:", "roi:", "state:", "hold:", "review:", "changeset_reviewed", "changeset_reopened", "geometry linked"];
-const RESERVED_TYPES = ["stage_gate", "hold", "delivery_gate", "review", "platform_gate"];
+// MA-4a: evidence:admitted / evidence:refused and attestation:signed (entity_types evidence, attestation) are the evidence routes'
+// own (evidence-store.mjs) — the Holding Area reads them as fact, and a note may not pass for one.
+const RESERVED_ACTIONS = ["verdict:", "gate:", "roi:", "state:", "hold:", "review:", "changeset_reviewed", "changeset_reopened", "geometry linked", "evidence:", "attestation:"];
+const RESERVED_TYPES = ["stage_gate", "hold", "delivery_gate", "review", "platform_gate", "evidence", "attestation"];
 
 /** Record an audit event by project KEY (golden thread) — the DB trigger hash-chains it (tamper-evident). A reserved
  *  row (an action starting with one of RESERVED_ACTIONS, or an entity_type in RESERVED_TYPES; case and surrounding

@@ -1568,6 +1568,7 @@ async function handleRequest(req, res) {
       //   ruleset: {standard_key, semver, rules}; naming: {standard_key, semver, title, separator, fields};
       //   contract, layers, guideline, type_catalog, lod_matrix: the shapes artefact-store validateArtefact checks — 400 names the field;
       //   publish: exactly {auto: true} or {auto: false}, the lead's auto-publish policy, read by the add-in from phase 5b)
+      //   evidence_pack: refused (400) — the evidence routes write it (MA-4a spec amendment S1)
       if (p2 === "artefacts") {
         const art = await import("./artefact-store.mjs");
         // POST /cde/:key/artefacts/ids/close-superseded — lead only, audited (F51). Before the GET routes so
@@ -1666,6 +1667,23 @@ async function handleRequest(req, res) {
           }
         }
         return send(res, 200, result);
+      }
+      // MA-4a: evidence intake (design §6.2, §6.8). POST /cde/:key/evidence {asset?} → 201 the pack (a lead; one per project, evp-0001).
+      //   GET /cde/:key/evidence/:pack → the pack and the folder's files not yet admitted (any member). POST …/:pack/attest {code} → 201
+      //   (a signed-in lead; the machine credential is a 403). POST …/:pack/items {path, kind, provider?, registration?} → 201 admitted |
+      //   200 refused, with its ledger row (a contributor of an office project). POST …/:pack/recheck → 200. Small JSON only: the files are
+      //   in the project's evidence folder on this PC and are hashed there (evidence-store.mjs); no evidence byte crosses this route.
+      if (p2 === "evidence") {
+        const ev = await import("./evidence-store.mjs");
+        const body = async () => (await readBody(req, { max: SMALL_JSON })) || {};
+        if (!p3 && req.method === "POST") return send(res, 201, await ev.makePack(p1, await body()));
+        if (p3 && !p4 && req.method === "GET") return send(res, 200, await ev.readPack(p1, p3));
+        if (p3 && p4 === "attest" && !seg[5] && req.method === "POST") return send(res, 201, await ev.signAttestation(p1, p3, await body()));
+        if (p3 && p4 === "items" && !seg[5] && req.method === "POST") {
+          const r = await ev.runEvidenceIntake(p1, p3, await body());
+          return send(res, r.verdict === "admitted" ? 201 : 200, r);
+        }
+        if (p3 && p4 === "recheck" && !seg[5] && req.method === "POST") return send(res, 200, await ev.recheckPack(p1, p3));
       }
       // Manifests (Federation Gate inputs): GET /cde/:key/manifests · POST /cde/:key/manifests/:versionId (body = IFC bytes, backfill)
       if (p2 === "manifests") {
