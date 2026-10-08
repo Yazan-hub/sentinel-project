@@ -1,10 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { packFilename, packWords } from "./evidence-pack";
+import { packFilename, packWords } from "./audit-pack";
 
-describe("evidence pack (web)", () => {
+describe("audit pack (web)", () => {
   it("the file name is the bridge's, else key and day", () => {
-    expect(packFilename('attachment; filename="aster-tower-evidence-pack-2026-10-08.json"', "x")).toBe("aster-tower-evidence-pack-2026-10-08.json");
-    expect(packFilename(null, "a b/c", "2026-10-08")).toBe("a_b_c-evidence-pack-2026-10-08.json");
+    expect(packFilename('attachment; filename="aster-tower-audit-pack-2026-10-08.json"', "x")).toBe("aster-tower-audit-pack-2026-10-08.json");
+    expect(packFilename(null, "a b/c", "2026-10-08")).toBe("a_b_c-audit-pack-2026-10-08.json");
   });
   it("the words count every part and name the parts not read", () => {
     const pack = { standards: { ids: { ref: "ids@3" }, roi: null }, documents: [{}, {}], containers: [{ versions: [{}] }], reviews: [], ledger: { total: 187, rows: new Array(187), truncated: false }, bundle_sha256: "1f028f686ca3eaac00" };

@@ -1,4 +1,4 @@
-// Paperwork slice 5, the web half: a lead downloads the project's evidence pack (GET /cde/:key/evidence-pack, the bridge's sealed
+// Paperwork slice 5, the web half (renamed the audit pack in MA-4a): a lead downloads the project's audit pack (GET /cde/:key/audit-pack, the bridge's sealed
 // JSON) from Project Settings ▸ Standards in force. Pure helpers here; the panel wires the button and the browser's save.
 
 export interface PackSummary { standards?: Record<string, { ref: string } | null> | { not_read: string }; documents?: unknown[] | { not_read: string }; containers?: { versions?: unknown[] }[] | { not_read: string }; reviews?: unknown[] | { not_read: string }; ledger?: { total?: number; rows?: unknown[]; truncated?: boolean } | { not_read: string }; bundle_sha256?: string; generated_at?: string }
@@ -6,7 +6,7 @@ export interface PackSummary { standards?: Record<string, { ref: string } | null
 /** The file name the bridge sent (Content-Disposition), else one from the key and the day. Pure. */
 export function packFilename(disposition: string | null, key: string, day = new Date().toISOString().slice(0, 10)): string {
   const m = /filename="([^"]+)"/.exec(disposition ?? "");
-  return m ? m[1] : `${key.replace(/[^A-Za-z0-9_-]/g, "_")}-evidence-pack-${day}.json`;
+  return m ? m[1] : `${key.replace(/[^A-Za-z0-9_-]/g, "_")}-audit-pack-${day}.json`;
 }
 
 const notRead = (p: unknown): string | null => (p && typeof p === "object" && !Array.isArray(p) && typeof (p as { not_read?: unknown }).not_read === "string") ? (p as { not_read: string }).not_read : null;
