@@ -686,7 +686,7 @@ describe("validateChangeset — contract 2's trust rules (MA-1a item 8)", () => 
     expect(validateChangeset(CS([change("retype", { TypeName: "T2" })], { source: "promote" }), MEMBER).elements[0].pretick).toBe(false);
   });
 
-  it("contract 2's source object: the reader is the stored source, a job_id is ignored and listed — no survey job exists", () => {
+  it("contract 2's source object: the reader is the stored source, a job_id is ignored and listed — a job named in a body backs nothing (MA-4d)", () => {
     const v = validateChangeset(CS([wall()], { source: { reader: "sentinel-survey 0.1", job_id: "job-0042", host: "x" } }));
     expect(v.source).toBe("sentinel-survey 0.1");
     expect(v.claimed).toBe(true);

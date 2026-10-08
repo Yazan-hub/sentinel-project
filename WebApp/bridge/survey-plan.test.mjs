@@ -123,7 +123,20 @@ describe("planSurvey — the drill's job-0002, frame 40 m east, L00 named GR-FFL
     expect(b.get("scan-L01-level").pretick).toBe(true);
   });
   it("every body is a changeset the bridge stores as it is (validateChangeset, the same typer)", () => {
-    for (const s of plan().storeys) expect(validateChangeset(s.body, { member: true, type }).elements).toHaveLength(s.body.elements.length);
+    for (const s of plan().storeys) {
+      const v = validateChangeset(s.body, { member: true, type });
+      expect([v.elements.length, v.ignored]).toEqual([s.body.elements.length, []]); // no place key the bridge built is dropped (final review)
+    }
+  });
+  it("floors and ceilings, when the office types them: the loop at the level, the ceiling's Offset its measured height above its level", () => {
+    const all = () => ({}); // a typer that types every candidate (the BDS standards leave floors and ceilings as gaps)
+    const at = (p, i, cid) => p.storeys[i].body.elements.find((e) => e.cid === cid).place;
+    const up = planSurvey({ job: JOB, candidates: RESULT.candidates, frame: { ...ZERO, dx_mm: 1000, dz_mm: 100 }, levels: {}, manifest: [], type: all });
+    expect(at(up, 0, "scan-L00-floor").LocationLoop[0]).toEqual([8658, 342, 100]);
+    expect(at(up, 0, "scan-L00-ceiling")).toMatchObject({ LevelName: "Scan L00 job-0002", Offset: 2800 });
+    const pub = planSurvey({ job: JOB, candidates: RESULT.candidates, frame: { ...ZERO, dx_mm: 1000 }, levels: {},
+      manifest: [{ name: "01-FFL", elevation_mm: 3012, from: "ARC.ifc P01" }], type: all });
+    expect(at(pub, 1, "scan-L01-ceiling")).toMatchObject({ LevelName: "01-FFL", Offset: 2788 });
   });
   it("the gaps: the 250 mm walls want a type the catalogue lacks; scan floors and ceilings have no office rule — one group each, with the evidence", () => {
     const want = { category: "Walls", want: "BDS_EXT_ARC_CMU_250 mm", size: "250 mm" };
@@ -147,6 +160,8 @@ describe("planSurvey — the drill's job-0002, frame 40 m east, L00 named GR-FFL
     const one = RESULT.candidates.map((c) => (c.cid === "scan-L00-wall-1" ? { ...c, measured: { length_mm: 8001, height_mm: 2800 } } : c));
     const p = planSurvey({ job: JOB, candidates: one, frame: ZERO, levels: {}, manifest: [], type });
     expect(p.groups.find((g) => g.labels.includes("Scan L00 job-0002 · scan-L00-wall-1"))).toMatchObject({ category: "Walls", want: null, size: "thickness not measured", key: "one face seen" });
+    // the typer was never asked: the words name the missing thickness, not a missing rule (final review)
+    expect(p.storeys[0].exceptions.find((x) => x.unique_id === "scan-L00-wall-1").reason).toBe("type gap — its thickness was not measured (one face seen); it waits in the Holding Area");
     const bare = RESULT.candidates.filter((c) => c.kind === "level" || c.kind === "floor");
     expect(planSurvey({ job: JOB, candidates: bare, frame: ZERO, levels: {}, manifest: [], type }).storeys.map((s) => s.body)).toEqual([null, null]);
   });

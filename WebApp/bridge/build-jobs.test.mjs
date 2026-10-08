@@ -218,7 +218,7 @@ describe("trustedJob (MA-4d) — decision 11: the row job.ledger.id names, the j
       await expect(trust(row)).rejects.toMatchObject(untrusted(NOT_OWN));
     await expect(trust(ROW({}, { result_sha256: "f".repeat(64) }))).rejects.toMatchObject(untrusted(CHANGED));
   });
-  it("(c) a result.json edited after the job — with job.json's own sha edited to match — is not trusted; nor a run whose row was never written; nor one cid twice", async () => {
+  it("(c) a result.json edited after the job — with job.json's own sha edited to match — is not trusted; nor a run whose row was never written; nor one cid twice; nor a result citing an item the row says was not read", async () => {
     const edited = Buffer.from(JSON.stringify({ ...RESULT, candidates: RESULT.candidates.map((c) => ({ ...c, measured: { ...c.measured, thickness_mm: 250 } })) }));
     lay({ result_sha256: sha(edited) }, edited);
     await expect(trust(ROW())).rejects.toMatchObject(untrusted(CHANGED));
@@ -228,6 +228,11 @@ describe("trustedJob (MA-4d) — decision 11: the row job.ledger.id names, the j
     const twice = Buffer.from(JSON.stringify({ ...RESULT, candidates: [...RESULT.candidates, RESULT.candidates[1]] }));
     lay({ result_sha256: sha(twice) }, twice);
     await expect(trust(ROW({}, { result_sha256: sha(twice) }))).rejects.toMatchObject(untrusted("its result names one cid twice"));
+    // the result is held to what the ROW says was read, never to the items sent (decision 3; final review)
+    lay();
+    const OFF_READ = untrusted("its result is not the contract's shape over what ledger #2201 says was read (candidates[0].evidence)");
+    await expect(trust(ROW({}, { read: ["ev-0002"] }))).rejects.toMatchObject(OFF_READ);
+    await expect(trust(ROW({}, { items: [{ id: "ev-0001", sha256: "1".repeat(64) }, { id: "ev-0002", sha256: "2".repeat(64) }], read: ["ev-0002"] }))).rejects.toMatchObject(OFF_READ);
   });
   it("(d) a job that is not there, not done, or not named job-NNNN", async () => {
     await expect(trust(ROW())).rejects.toMatchObject({ status: 404, message: "no survey job job-0001 on demo — nothing was saved" });

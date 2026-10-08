@@ -352,5 +352,15 @@ describe("survey ghosts (MA-4d)", () => {
     expect(sourceWords({ ...cs, job: { ...cs.job!, overlaps: [{ changeset: "Survey job-0001 · GR-FFL", job_id: "job-0001", evidence: ["ev-0001"] }] } }))
       .toMatch(/ · the same scan ev-0001 was placed before by Survey job-0001 · GR-FFL$/);
     expect(sourceWords({ ...cs, job: null })).toBe("");
+    // two overlaps on one scan name it once (final review)
+    expect(sourceWords({ ...cs, job: { ...cs.job!, overlaps: [{ changeset: "Survey job-0001 · GR-FFL", job_id: "job-0001", evidence: ["ev-0001"] },
+      { changeset: "Survey job-0001 · L01", job_id: "job-0001", evidence: ["ev-0001"] }] } })).toContain(" · the same scan ev-0001 was placed before by Survey job-0001 · GR-FFL, Survey job-0001 · L01");
+  });
+  it("final review: no ends clause for untrimmed ends; the desk shows both lines and the gap card its job", () => {
+    expect(trustWords({ ...G, trim_mm: [0, 0] })).not.toContain("ends");
+    const src = readFileSync(new URL("./review-desk.ts", import.meta.url), "utf8");
+    expect(src).toContain("const tw = trustWords(x.el); if (tw) words.append(");
+    expect(src).toContain("const w = sourceWords(cs); if (w) box.append(");
+    expect(readFileSync(new URL("./files-panel.ts", import.meta.url), "utf8")).toContain("` · from survey ${esc(x.job_id)}`");
   });
 });

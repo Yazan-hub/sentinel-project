@@ -1061,5 +1061,10 @@ describe("proposeFromJob (MA-4d): a lead turns a trusted survey job into changes
     expect(r.changesets).toHaveLength(2);
     expect([...deps.saved.values()][0].job.overlaps).toEqual(overlaps);
     expect(deps.audit.mock.calls.at(-1)[6]).toMatchObject({ overlaps });
+    // the same evidence id with another sha is another scan: no overlap (matched on id AND sha, final review)
+    const other = elsewhere.map((c) => ({ ...c, job: { ...c.job, evidence: [{ id: "ev-0001", sha256: "f".repeat(64) }] } }));
+    const r2 = await propose(sdeps({ docList: vi.fn(async () => other) }));
+    expect(r2.overlaps).toEqual([]);
+    expect(r2.changesets).toHaveLength(2);
   });
 });

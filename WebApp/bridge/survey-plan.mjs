@@ -69,7 +69,10 @@ export function toModel(f) {
  *  storey keeps its level (`how: "filed"`, checked as recorded), so a created level is never created twice.
  *  ponytail: a published storey Elevation is taken in Revit's internal frame (an IFC exported from another base is off by its height: `from`
  *  names the model, and the lead's names win); MA-4g reads the shared coordinates.
- *  ponytail: a created level whose changeset is still proposed is not created again — apply that storey's first changeset first. */
+ *  ponytail: a created level whose changeset is still proposed is not created again — apply that storey's first changeset first.
+ *  ponytail: a created level's name is unique per job id, not per row — a jobs folder deleted reuses job ids (decision 19), and a name already
+ *  in the Revit model makes the executor's lvl.Name throw, rolling the storey's changeset back in Revit's words (fails safe); the upgrade is to
+ *  name it from the row (`Scan L01 job-0002 #2201`) — the controller's call, the name is pinned in Tasks 5, 7 and 11 and the drill rows. */
 export function matchStoreys(levelCands, frame, named, manifest, jobId, filedStoreys = new Map()) {
   const M = toModel(frame);
   const same = (a, b) => a.trim().toLowerCase() === b.trim().toLowerCase();
@@ -207,7 +210,9 @@ export function planSurvey({ job, candidates, frame, levels: named = {}, manifes
     const gap = (c, g) => {
       gaps.push({ ...g, size: g.size ?? (g.want ? null : NOT_MEASURED), label: `${s.level} · ${c.cid}`.slice(0, 256), evidence: c.evidence });
       exceptions.push({ unique_id: c.cid.slice(0, 64), name: `${c.kind} ${c.cid}`.slice(0, 256),
-        reason: `type gap — ${g.want ? `${g.want} is not in the type catalogue` : `no office rule types it (${g.key})`}; it waits in the Holding Area`.slice(0, 300) });
+        // a wall of one face seen was never typed: its thickness is missing, not the rule (final review)
+        reason: `type gap — ${g.want ? `${g.want} is not in the type catalogue` : c.kind === "wall" && g.size === NOT_MEASURED ? `its thickness was not measured (${g.key})`
+          : `no office rule types it (${g.key})`}; it waits in the Holding Area`.slice(0, 300) });
     };
     const walls = mine.filter((c) => c.kind === "wall");
     const trimmed = trimEnds(walls.map((c) => ({ start: c.geometry.LocationCurve.start, end: c.geometry.LocationCurve.end, width: c.measured.thickness_mm ?? 0 })));

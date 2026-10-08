@@ -449,7 +449,7 @@ Example: the Level 3 line above has 264 walls. That is two changesets (200 + 64)
 - Walls come from density slices. The face segments use the shape `WallPairing` already takes.
 - Floors and ceilings.
 - Openings from wall-plane occupancy (MA-5).
-- BUILT in MA-4c: storeys, walls (faces in a mid-storey slice, paired by WallPairing's rule ported to Python — a wall candidate is the paired centreline and thickness, its faces in `geometry.faces`; MA-4c spec amendment S3 settles :448 against :458, Cloud2BIM's start, end and thickness), floors and ceilings (oriented rectangles), as untyped candidates in the contract's keys, the scan's own frame.
+- BUILT in MA-4c: storeys, walls (faces in a mid-storey slice, paired by WallPairing's rule ported to Python — a wall candidate is the paired centreline and thickness, its faces in `geometry.faces`; MA-4c spec amendment S3 settles :449 against :459, Cloud2BIM's start, end and thickness), floors and ceilings (oriented rectangles), as untyped candidates in the contract's keys, the scan's own frame.
 - Deviation per element at 5, 10 and 20 cm [R2M §6.4] — MA-4e (`POST /measure`), not v0.1.
 - **In Revit:** a decimated overlay drawn with DirectContext3D. An RCP is linked only when the user has ReCap [R2M §5.1, §8.6].
 - **On the web: one tiling path.** The bridge builds Potree tiles with `realityCapture` (behind an adapter) and uploads them to hidden files in batches. The viewer is `PointCloudLoader` [TO §7.1].
@@ -839,10 +839,11 @@ MA-4d (BUILT): the bridge's half for scan creates — within D7's 20 mm on the f
 | `changeset_reopened` | A lead re-opens a web decline | guid, reason, lead | LANDED in MA-3a (merge 2026-10-04), drill MA3a: D-1, D-5, D-2, D-3, D-4 passed; D-4's two-account half and Revit 2025-2027 passed live 2026-10-04 (session MA3a-live); migration 0037 applied 2026-10-04 (probe 3 of 3): new value {review_rev, lead, role, proposal_guid, name, declined_by, declined_reason, reason} |
 | `changeset_applied` (extended) | After placement | For each ghost: guid → UniqueId, approver; surviving count; Revit warnings; BLOCK result | PARTLY BUILT (MA-4d): a survey changeset's row names its job, the evidence shas and, per ghost placed, its Revit UniqueId, reader id and evidence; the approver, warnings and BLOCK result stay TARGET. |
 | `changeset_reverted` | An Undo or Redo of a Sentinel transaction is seen | guids | TARGET (AI-3) |
-- MA-4d: every `changeset_` row (proposed, applied, withdrawn, reverted, reviewed, reopened) is the bridge's — the open audit route refuses the prefix, since drill MA4 and the desk read these rows as fact (the MA-3a C5 precedent, widened).
 | `verify:measured` | After placement | Status, p95, coverage for each element | TARGET |
 | `lod:state` | After Promote and on sync | Counts per level × class × LOD; matrix sha | BUILT (MA-2b): entity_type `lod_state`, action `lod:state now · …` (every Promote run with a matrix, the read-only one too) or `lod:state after · …` (an applied Promote changeset); the bridge marks it claimed; counts per level × class (at DD, below, blocked, not measured, with reasons), the matrix label and its sha256 (`matrix_sha256`): the journey line and the gate read the newest row only while that matrix is in force. Not on sync |
 | Datum, Ghost, Massing, Annotate, Apply Standard, auto-fix, fix-in-place and Doctor reports | Each command | Counts, actor | TARGET (XC-5 subset + P1-9) |
+
+- MA-4d: every `changeset_` row (proposed, applied, withdrawn, reverted, reviewed, reopened) is the bridge's — the open audit route refuses the prefix, since drill MA4 and the desk read these rows as fact (the MA-3a C5 precedent, widened).
 
 **Type gaps in the Holding Area.** Today the Holding Area follows container names. Element gaps have no container name, and one Promote run could open hundreds. So:
 - Gaps are grouped per run by category, measured size band and key parameters (for example "Walls, external, 212–215 mm, 38 elements"). BUILT (MA-2c): grouped by category and the type the DD rule wants (else, with no rule to name one, the size no catalogue type is named at) — the snap is 0, so the size is exact and the type name carries it ("Walls: "BDS_EXT_ARC_CMU_125 mm" is not in the catalogue — 2 element(s) (Function Exterior)").
