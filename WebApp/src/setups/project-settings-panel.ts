@@ -311,7 +311,7 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
             saveAs(new Blob([text], { type: "application/json" }), filename);
             const w = packWords(JSON.parse(text), filename);
             await loadStandards({ text: w.text, bad: w.bad });
-          } catch (e) { await loadStandards({ text: `Audit pack not read —${(e as Error)?.message ?? String(e)}`, bad: true }); }
+          } catch (e) { await loadStandards({ text: `Audit pack not read — ${(e as Error)?.message ?? String(e)}`, bad: true }); }
         });
       }
     } catch (e) {

@@ -16,8 +16,8 @@ export function seal(body) {
   return { ...rest, bundle_sha256: createHash("sha256").update(canonical(rest)).digest("hex") };
 }
 
-/** MA-4a: name-blind on purpose — a pack saved under its pre-MA-4a name (the 2026-10-07 drill file) still verifies. */
-/** True when a sealed pack's sha256 matches its body (a reader's re-check, offline). Pure. */
+/** True when a sealed pack's sha256 matches its body (a reader's re-check, offline). Pure.
+ *  MA-4a: name-blind on purpose — a pack saved under its pre-MA-4a name (the 2026-10-07 drill file) still verifies. */
 export const sealed = (pack) => !!pack?.bundle_sha256 && seal(pack).bundle_sha256 === pack.bundle_sha256;
 
 const part = async (fn) => { try { return await fn(); } catch (e) { return { not_read: String(e?.message || e) }; } };
