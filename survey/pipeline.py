@@ -1,0 +1,354 @@
+# MA-4c — sentinel-survey 0.1's measuring code (design §2.1 rule 2: geometry from measuring code, never a language or vision model;
+# §6.9): storeys from a height histogram, walls from a density slice per storey (faces found by a Hough transform and fitted by total
+# least squares, then paired by WallPairing's rule — ported below), floors and ceilings as oriented rectangles. numpy only; the same
+# points, params and seed give the same candidates (no randomness but the seeded point cap). Millimetres in the scan's own frame (no CRS,
+# no transform). Candidates carry no type: the bridge types them (MA-4d). LOD 200 as found — never survey or permit grade (D7): a closed
+# door reads as wall, openings are not proposed (MA-5), stairs are not read.
+import math
+
+import numpy as np
+
+import las
+
+# v0.1's fixed choices (a job sets voxel_mm and storey_min_mm). Each is a ceiling MA-4h measures on a real scan (Kladno).
+Z_BIN = 10.0            # mm: the height histogram's bin
+PLANE_BAND = 25.0       # mm: a horizontal surface's points lie within this of its height
+PEAK = 8.0              # a surface's bin holds at least PEAK x the median non-empty bin (walls put a few points in every bin)
+MIN_PLANE_POINTS = 200
+# ponytail: a horizontal surface under 2 m2, or under a quarter of the largest, is furniture and is not proposed — a small mezzanine is
+# lost with it. MA-4h tunes it on a real scan.
+MIN_PLANE_M2 = 2.0
+SLAB_MAX = 600.0        # mm: a surface this close above a ceiling is the slab's top — the next storey's floor
+SLICE_HALF = 300.0      # mm: the wall slice is mid-storey +-300 mm (ponytail: furniture taller than mid-storey reads as a wall face)
+CELL = 20.0             # mm: the slice's grid; a face is its points within CELL of a line (why voxel_mm stops at 50: at 200 mm,
+                        # 4 of the drill's 8 walls lost their thickness, measured; the bridge and read_job both bound it)
+MIN_FACE = 500.0        # mm: a shorter face is not proposed
+MAX_GAP = 300.0         # mm: a face breaks where its line is empty for longer (a doorway; a closed door reads as wall)
+END_GAP = 100.0         # mm: a piece shorter than this at a face's end, past an empty stretch, is another face crossing the line
+MAX_WALL = 600.0        # mm: faces further apart are two walls (a corridor), not one — WallPairing allows 1000 on drawings
+NEAR_FACE = 40.0        # mm: a floor or ceiling point this close to a wall face of its storey is the wall's
+# ponytail: at most 10 million points are held in memory (a seeded sample beyond, read in chunks — las.CHUNK; no memory bound on
+# Windows without a Job Object); MA-4h measures the cap on the 6.5 GB Kladno run.
+MAX_POINTS = 10_000_000
+# ponytail: one building per job — the Hough accumulator is 360 x (2 x span / CELL) votes, ~170 MB at 300 m (twice, with bincount's);
+# a site, a campus or a long infrastructure scan waits for MA-4h's tiled slices.
+MAX_SPAN = 300_000.0    # mm in plan
+
+
+def survey(items, params, seed, progress=lambda stage, pct: None):
+    """items: [{id, path, head}], hashed and headed by the service. → (candidates, {points_in, points_used}); las.Refused in words when
+    the scans span more than one building."""
+    points_in = sum(i["head"]["count"] for i in items)
+    share, rng = min(1.0, MAX_POINTS / points_in), np.random.default_rng(seed)
+    progress("reading", 10)
+    clouds = [las.read_points_mm(i["path"], i["head"], share, rng) for i in items]
+    P = np.concatenate(clouds)
+    span = float(np.ptp(P[:, :2], axis=0).max())
+    if span > MAX_SPAN:
+        raise las.Refused(f"the scans span {span / 1000:.0f} m in plan — sentinel-survey 0.1 reads one building (at most "
+                          f"{MAX_SPAN / 1000:.0f} m across); a larger site waits for MA-4h")
+    src = np.concatenate([np.full(len(c), k) for k, c in enumerate(clouds)])
+    P, src = voxel(P, src, float(params["voxel_mm"]))
+    progress("storeys", 30)
+    out = measure(P, src, [i["id"] for i in items], float(params["storey_min_mm"]), progress)
+    return out, {"points_in": int(points_in), "points_used": int(len(P))}
+
+
+def voxel(P, src, mm):
+    """One point per mm-sided cube, the first in reading order — the same points every run. The cubes are keyed by one int64, counted
+    from the cloud's lowest corner: numpy sorts a 1-D int64 without holding Python's lock (the service still answers the bridge's polls),
+    where np.unique over rows held it 12 s at the 10 M cap (measured on this PC)."""
+    k = np.floor(P / mm).astype(np.int64)
+    k -= k.min(axis=0)
+    n = k.max(axis=0) + 1
+    if int(n[0]) * int(n[1]) * int(n[2]) < 2**62:
+        _, first = np.unique((k[:, 0] * n[1] + k[:, 1]) * n[2] + k[:, 2], return_index=True)
+    else:  # ponytail: a cloud too tall to key in 62 bits (only a stray point km away in z, the plan span is capped) takes the row sort,
+        _, first = np.unique(k, axis=0, return_index=True)  # which holds the lock; the bridge's poll grace (BUSY_MS) covers it
+    first.sort()
+    return P[first], src[first]
+
+
+def surfaces(P):
+    """Horizontal surfaces from the height histogram: [{z, band (mask), area_m2}], furniture-sized ones dropped."""
+    z = P[:, 2]
+    lo = math.floor(z.min() / Z_BIN) * Z_BIN
+    h = np.bincount(((z - lo) // Z_BIN).astype(np.int64))
+    hot = np.flatnonzero(h >= max(MIN_PLANE_POINTS, PEAK * np.median(h[h > 0])))
+    out = []
+    for g in np.split(hot, np.flatnonzero(np.diff(hot) > 2) + 1) if hot.size else []:
+        z0 = lo + (g[np.argmax(h[g])] + 0.5) * Z_BIN
+        zp = float(np.median(z[np.abs(z - z0) <= PLANE_BAND]))
+        band = np.abs(z - zp) <= PLANE_BAND
+        area = len(np.unique(np.floor(P[band, :2] / 100).astype(np.int64), axis=0)) * 0.01
+        out.append({"z": zp, "band": band, "area_m2": area})
+    big = max((s["area_m2"] for s in out), default=0.0)
+    return [s for s in out if s["area_m2"] >= max(MIN_PLANE_M2, big / 4)]
+
+
+def classify(found, storey_min):
+    """Floors and ceilings, walking up: the lowest surface is a floor; one within SLAB_MAX above a ceiling is the next floor; one at least
+    storey_min above the last floor is a ceiling; any other is not proposed.
+    ponytail: by the gaps alone — a split level, a mezzanine, or terrain scanned outside the building is mislabelled; the scanner's
+    positions (E57, MA-4g) settle which side a surface was seen from."""
+    floors, ceilings, prev = [], [], None
+    for s in sorted(found, key=lambda s: s["z"]):
+        if prev is None or (prev["kind"] == "ceiling" and s["z"] - prev["z"] <= SLAB_MAX):
+            s["kind"] = "floor"
+            floors.append(s)
+        elif s["z"] - floors[-1]["z"] >= storey_min:
+            s["kind"] = "ceiling"
+            ceilings.append(s)
+        else:
+            continue
+        prev = s
+    return floors, ceilings
+
+
+def fit_line(Q):
+    """Total least squares: centre, unit direction (pointing +x), unit normal."""
+    c = Q.mean(axis=0)
+    d = np.linalg.eigh(np.cov((Q - c).T))[1][:, 1]
+    if d[0] < -1e-12 or (abs(d[0]) <= 1e-12 and d[1] < 0):
+        d = -d
+    return c, d, np.array([-d[1], d[0]])
+
+
+def trim(tt):
+    """The indices of sorted positions tt, less the short pieces at either end past an END_GAP (another face crossing the line)."""
+    pieces = np.split(np.arange(len(tt)), np.flatnonzero(np.diff(tt) > END_GAP) + 1)
+    while len(pieces) > 1 and tt[pieces[0][-1]] - tt[pieces[0][0]] < END_GAP:
+        pieces.pop(0)
+    while len(pieces) > 1 and tt[pieces[-1][-1]] - tt[pieces[-1][0]] < END_GAP:
+        pieces.pop()
+    return np.concatenate(pieces)
+
+
+def faces(XY):
+    """Wall faces in a slice's plan points (mm), longest first: {seg (x1, y1, x2, y2), len, points, rmse, coverage}. The Hough runs in
+    the slice's local frame (its lowest corner at 0), so the accumulator follows the slice's size, never its distance from the scan's
+    origin (a UTM easting asked for 1.56 TiB); each seg is given back in the scan's own frame.
+    ponytail: the Hough transform runs again after each face over the cells left (faces x cells x 360 votes) — fine for a house; MA-4h
+    measures a real building."""
+    if len(XY) == 0:
+        return []
+    org = XY.min(axis=0)
+    XY = XY - org
+    C = (np.unique(np.floor(XY / CELL).astype(np.int64), axis=0) + 0.5) * CELL
+    alive, used = np.ones(len(C), bool), np.zeros(len(XY), bool)
+    th = np.radians(np.arange(0, 180, 0.5))
+    cs, sn = np.cos(th), np.sin(th)
+    R = float(np.abs(C).sum(axis=1).max()) + CELL
+    nr = int(2 * R / CELL) + 2
+    out = []
+    while alive.sum() >= MIN_FACE / CELL:
+        A = C[alive]
+        acc = np.zeros(len(th) * nr, np.int64)
+        for t0 in range(0, len(th), 30):  # 30 angles at a time: memory stays cells x 30
+            rho = np.rint((A[:, :1] * cs[t0:t0 + 30] + A[:, 1:] * sn[t0:t0 + 30] + R) / CELL).astype(np.int64)
+            acc += np.bincount((np.arange(t0, t0 + rho.shape[1]) * nr + rho).ravel(), minlength=len(acc))
+        k = int(acc.argmax())
+        if acc[k] < MIN_FACE / CELL:
+            break
+        t, r = divmod(k, nr)
+        n0, rho0 = np.array([cs[t], sn[t]]), r * CELL - R
+        alive &= ~(np.abs(C @ n0 - rho0) <= CELL)  # the peak's own cells always go: the loop ends
+        sel = ~used & (np.abs(XY @ n0 - rho0) <= CELL)
+        for _ in range(3):  # the 0.5° peak, refitted on its points until the whole face is in
+            if sel.sum() < 3:
+                break
+            c, d, n = fit_line(XY[sel])
+            sel = ~used & (np.abs((XY - c) @ n) <= CELL)
+        if sel.sum() < 3:
+            continue
+        alive &= ~(np.abs((C - c) @ n) <= 1.5 * CELL)
+        idx = np.flatnonzero(sel)
+        tt = (XY[idx] - c) @ d
+        o = np.argsort(tt, kind="stable")
+        idx, tt = idx[o], tt[o]
+        for run in np.split(np.arange(len(idx)), np.flatnonzero(np.diff(tt) > MAX_GAP) + 1):
+            run = run[trim(tt[run])]
+            if tt[run[-1]] - tt[run[0]] < MIN_FACE:
+                continue
+            pts = idx[run]
+            cr, dr, nm = fit_line(XY[pts])
+            tr, res = (XY[pts] - cr) @ dr, (XY[pts] - cr) @ nm
+            a, b = cr + dr * tr.min(), cr + dr * tr.max()
+            ln = float(tr.max() - tr.min())
+            cover = np.unique(np.floor((tr - tr.min()) / 100)).size / max(1, math.ceil(ln / 100))
+            out.append({"seg": (float(a[0] + org[0]), float(a[1] + org[1]), float(b[0] + org[0]), float(b[1] + org[1])), "len": ln, "points": pts,
+                        "rmse": rms(res), "coverage": min(1.0, cover)})
+            used[pts] = True
+    return sorted(out, key=lambda f: -f["len"])
+
+
+def seg_dist(XY, s):
+    a, b = np.array(s[:2]), np.array(s[2:])
+    d = b - a
+    t = np.clip(((XY - a) @ d) / (d @ d), 0.0, 1.0)
+    return np.linalg.norm(XY - (a + t[:, None] * d), axis=1)
+
+
+def extent(w, other):
+    """w's range over the 50 mm columns holding at least a fifth as many filled cells as the fullest — a stray point does not stretch it."""
+    b = np.floor((w - w.min()) / 50).astype(np.int64)
+    cells = np.unique(np.stack([b, np.floor((other - other.min()) / 50).astype(np.int64)], 1), axis=0)
+    n = np.bincount(cells[:, 0])
+    ok = np.flatnonzero(n >= 0.2 * n.max())
+    m = (b >= ok[0]) & (b <= ok[-1])
+    return float(w[m].min()), float(w[m].max())
+
+
+def outline(P, band, fs):
+    """A floor's or ceiling's outline: an oriented rectangle around its points less those within NEAR_FACE of a wall face of its storey,
+    turned to the storey's longest face (else the smallest over 0.5° steps). None when fewer than 3 points are left.
+    ponytail: a rectangle — an L-shaped floor reads as its bounding rectangle, said by its coverage; the outline of the filled cells
+    (Douglas-Peucker) waits for MA-4h. It sits up to ~NEAR_FACE inside its walls."""
+    idx = np.flatnonzero(band)
+    for f in fs:
+        idx = idx[seg_dist(P[idx, :2], f["seg"]) > NEAR_FACE]
+    if len(idx) < 3:
+        return None
+    XY = P[idx, :2]
+    if fs:
+        s = fs[0]["seg"]
+        ang = math.atan2(s[3] - s[1], s[2] - s[0]) % (math.pi / 2)
+    else:
+        def size(a):
+            return np.ptp(XY @ np.array([math.cos(a), math.sin(a)])) * np.ptp(XY @ np.array([-math.sin(a), math.cos(a)]))
+        ang = min((math.radians(k / 2) for k in range(180)), key=size)
+    c, s_ = math.cos(ang), math.sin(ang)
+    u, v = XY @ np.array([c, s_]), XY @ np.array([-s_, c])
+    (u0, u1), (v0, v1) = extent(u, v), extent(v, u)
+    m = (u >= u0) & (u <= u1) & (v >= v0) & (v <= v1)
+    filled = len(np.unique(np.stack([np.floor((u[m] - u0) / 200), np.floor((v[m] - v0) / 200)], 1), axis=0))
+    cover = min(1.0, filled / max(1, math.ceil((u1 - u0) / 200) * math.ceil((v1 - v0) / 200)))
+    corners = [(uu * c - vv * s_, uu * s_ + vv * c) for uu, vv in ((u0, v0), (u1, v0), (u1, v1), (u0, v1))]
+    return {"corners": corners, "area": (u1 - u0) * (v1 - v0), "cover": cover, "points": idx[m]}
+
+
+# ── WallPairing.Pair (SentinelAddin/GhostBuilder/WallPairing.cs), rule for rule — tools/wallpair-check/Check.cs's cases are Pair's tests ──
+def _len(s):
+    return math.hypot(s[2] - s[0], s[3] - s[1])
+
+
+def _parallel(a, b, cos_tol):  # |cos| — same or opposite direction both count
+    return abs(((a[2] - a[0]) * (b[2] - b[0]) + (a[3] - a[1]) * (b[3] - b[1])) / (_len(a) * _len(b))) >= cos_tol
+
+
+def _perp(a, b):  # b's midpoint to a's infinite line: the thickness, once parallel and overlapping
+    mx, my = (b[0] + b[2]) * 0.5, (b[1] + b[3]) * 0.5
+    return abs((a[2] - a[0]) * (my - a[1]) - (a[3] - a[1]) * (mx - a[0])) / _len(a)
+
+
+def _overlap(a, b):  # the share of the shorter segment covered, measured along a
+    la = _len(a)
+    ux, uy = (a[2] - a[0]) / la, (a[3] - a[1]) / la
+    b0, b1 = sorted(((b[0] - a[0]) * ux + (b[1] - a[1]) * uy, (b[2] - a[0]) * ux + (b[3] - a[1]) * uy))
+    return max(0.0, min(la, b1) - max(0.0, b0)) / min(la, _len(b))
+
+
+def _centreline(a, b, gap, i, j):  # through the mean of the four ends, along a, a's full length
+    mx, my = (a[0] + b[0] + a[2] + b[2]) * 0.25, (a[1] + b[1] + a[3] + b[3]) * 0.25
+    la = _len(a)
+    ux, uy, half = (a[2] - a[0]) / la, (a[3] - a[1]) / la, la * 0.5
+    return (mx - ux * half, my - uy * half, mx + ux * half, my + uy * half, gap, i, j)
+
+
+def pair(segs, max_thickness=1000.0, angle_tol_deg=5.0, min_overlap=0.5):
+    """Greedy but deterministic in input order: each face takes its closest valid later partner. → [(cx1, cy1, cx2, cy2, thickness, i, j)];
+    a face left over comes back as itself, thickness 0, j = -1 (never dropped)."""
+    walls, used = [], [False] * len(segs)
+    cos_tol = math.cos(math.radians(angle_tol_deg))
+    for i, a in enumerate(segs):
+        if used[i]:
+            continue
+        if _len(a) < 1e-6:
+            used[i] = True
+            continue
+        best, best_gap = -1, math.inf
+        for j in range(i + 1, len(segs)):
+            b = segs[j]
+            if used[j] or _len(b) < 1e-6:
+                continue
+            if not _parallel(a, b, cos_tol) or _overlap(a, b) < min_overlap:
+                continue
+            gap = _perp(a, b)
+            if gap < 1e-6 or gap > max_thickness:
+                continue
+            if gap < best_gap:
+                best, best_gap = j, gap
+        if best >= 0:
+            used[i] = used[best] = True
+            walls.append(_centreline(a, segs[best], best_gap, i, best))
+    for i, a in enumerate(segs):
+        if not used[i] and _len(a) >= 1e-6:
+            walls.append((*a, 0.0, i, -1))
+    return walls
+
+
+def r(v):
+    return int(round(float(v)))
+
+
+def rms(x):
+    return float(np.sqrt(np.mean(np.square(x)))) if len(x) else 0.0
+
+
+def fit(n, rmse, cover):
+    return {"inliers": int(n), "rmse_mm": round(float(rmse), 1), "coverage": round(float(cover), 3)}
+
+
+def measure(P, src, ids, storey_min, progress=lambda stage, pct: None):
+    """The candidates of one registered cloud P (mm); src[i] is point i's item, an index into ids. Per storey, bottom up: its level, its
+    floor, its ceilings, its walls. A wall's top is its storey's first ceiling, else the next floor, else the highest point.
+    ponytail: a wall's ends follow WallPairing's centreline (face a's full length) — at a corner up to half a thickness long or short;
+    MA-4d decides whether to trim walls to their intersections."""
+    floors, ceilings = classify(surfaces(P), storey_min)
+
+    def refs(pts, frag):
+        return [f"{ids[k]}#{frag}" for k in sorted(set(src[pts].tolist()))]
+
+    out = []
+    for k, f in enumerate(floors):
+        name, zf = f"L{k:02d}", f["z"]
+        lv = f"scan-{name}-level"
+        nxt = floors[k + 1]["z"] if k + 1 < len(floors) else None
+        cs = [c for c in ceilings if c["z"] > zf and (nxt is None or c["z"] < nxt)]
+        top = cs[0]["z"] if cs else nxt if nxt is not None else float(P[:, 2].max())
+        sl = np.flatnonzero(np.abs(P[:, 2] - (zf + top) / 2) <= SLICE_HALF)
+        fs = faces(P[sl, :2])
+        for x in fs:
+            x["points"] = sl[x["points"]]
+        band = np.flatnonzero(f["band"])
+        o = outline(P, f["band"], fs)
+        out.append({"cid": lv, "kind": "level", "geometry": {"BaseElevation": r(zf)}, "measured": {"elevation_mm": r(zf)},
+                    "evidence": refs(band, f"floor-{name}"), "fit": fit(len(band), rms(P[band, 2] - zf), o["cover"] if o else 0.0)})
+        if o:
+            out.append({"cid": f"scan-{name}-floor", "kind": "floor",
+                        "geometry": {"LocationLoop": [[r(x), r(y), r(zf)] for x, y in o["corners"]], "storey": lv},
+                        "measured": {"elevation_mm": r(zf), "area_m2": round(o["area"] / 1e6, 2)},
+                        "evidence": refs(o["points"], f"floor-{name}"),
+                        "fit": fit(len(o["points"]), rms(P[o["points"], 2] - zf), o["cover"])})
+        for n, c in enumerate(cs, 1):
+            oc = outline(P, c["band"], fs)
+            if oc:
+                out.append({"cid": f"scan-{name}-ceiling" + (f"-{n}" if n > 1 else ""), "kind": "ceiling",
+                            "geometry": {"Boundary": [[r(x), r(y)] for x, y in oc["corners"]], "Offset": r(c["z"] - zf), "storey": lv},
+                            "measured": {"elevation_mm": r(c["z"]), "height_mm": r(c["z"] - zf), "area_m2": round(oc["area"] / 1e6, 2)},
+                            "evidence": refs(oc["points"], f"ceiling-{name}"),
+                            "fit": fit(len(oc["points"]), rms(P[oc["points"], 2] - c["z"]), oc["cover"])})
+        for n, (x1, y1, x2, y2, t, i, j) in enumerate(pair([x["seg"] for x in fs], max_thickness=MAX_WALL), 1):
+            two = [fs[i]] + ([fs[j]] if j >= 0 else [])
+            pts = np.concatenate([x["points"] for x in two])
+            out.append({"cid": f"scan-{name}-wall-{n}", "kind": "wall",
+                        "geometry": {"LocationCurve": {"start": [r(x1), r(y1), r(zf)], "end": [r(x2), r(y2), r(zf)]},
+                                     "BaseElevation": r(zf), "TopElevation": r(top), "storey": lv,
+                                     "faces": [[r(v) for v in x["seg"]] for x in two]},
+                        "measured": {"length_mm": r(math.hypot(x2 - x1, y2 - y1)), "height_mm": r(top - zf),
+                                     **({"thickness_mm": r(t)} if j >= 0 else {})},
+                        "evidence": refs(pts, f"slice-{name}"),
+                        "fit": fit(len(pts), math.sqrt(sum(len(x["points"]) * x["rmse"] ** 2 for x in two) / len(pts)),
+                                   min(x["coverage"] for x in two))})
+        progress("walls", 30 + 60 * (k + 1) // len(floors))
+    return out

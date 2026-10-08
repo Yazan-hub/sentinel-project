@@ -22,6 +22,7 @@ from unittest import mock
 import numpy as np
 
 import las
+import pipeline
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -119,3 +120,137 @@ class Las(unittest.TestCase):
         write_las(self.path("none.las"), np.zeros((0, 3)))
         with self.assertRaisesRegex(las.Refused, "holds no points"):
             las.read_header(self.path("none.las"))
+
+
+class Pair(unittest.TestCase):
+    """tools/wallpair-check/Check.cs's cases, rule for rule: the port gives what WallPairing.cs gives."""
+
+    def test_two_faces_are_one_wall_with_its_thickness_and_centreline(self):
+        w = pipeline.pair([(0, 0, 5000, 0), (0, 200, 5000, 200)])
+        self.assertEqual(len(w), 1)
+        self.assertAlmostEqual(w[0][4], 200, places=2)
+        self.assertAlmostEqual(w[0][1], 100)
+        self.assertAlmostEqual(w[0][3], 100)
+
+    def test_a_rooms_opposite_walls_stay_two_unpaired_lines(self):
+        self.assertEqual([x[4] for x in pipeline.pair([(0, 0, 5000, 0), (0, 4000, 5000, 4000)], max_thickness=1000)], [0.0, 0.0])
+
+    def test_a_reversed_face_pairs(self):
+        w = pipeline.pair([(0, 0, 3000, 0), (3000, 300, 0, 300)])
+        self.assertEqual(len(w), 1)
+        self.assertAlmostEqual(w[0][4], 300, places=2)
+
+    def test_collinear_end_to_end_faces_do_not_pair(self):
+        self.assertTrue(all(x[4] == 0 for x in pipeline.pair([(0, 0, 2000, 0), (2000, 0, 4000, 0)])))
+
+    def test_each_face_takes_its_closest_partner(self):
+        w = pipeline.pair([(0, 0, 6000, 0), (0, 100, 6000, 100), (0, 500, 6000, 500), (0, 800, 6000, 800)])
+        self.assertEqual(sorted(round(x[4]) for x in w), [100, 300])
+
+    def test_a_lone_face_is_kept_with_no_thickness(self):
+        self.assertEqual(pipeline.pair([(0, 0, 1000, 0)]), [(0, 0, 1000, 0, 0.0, 0, -1)])
+
+    def test_two_degrees_of_drift_still_pairs(self):
+        self.assertEqual(len(pipeline.pair([(0, 0, 5000, 0), (0, 200, 5000, 375)])), 1)
+
+
+class Survey(unittest.TestCase):
+    PARAMS = {"voxel_mm": 20, "storey_min_mm": 2000}
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        path = os.path.join(cls.tmp.name, "two-storey.las")
+        write_las(path, building())
+        cls.items = [{"id": "ev-0001", "path": path, "head": las.read_header(path)}]
+        cls.found, cls.stats = pipeline.survey(cls.items, cls.PARAMS, 1)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def of(self, kind):
+        return [c for c in self.found if c["kind"] == kind]
+
+    def near(self, got, want, delta):
+        self.assertEqual(len(got), len(want), got)
+        for g, w in zip(got, want):
+            self.assertAlmostEqual(g, w, delta=delta)
+
+    def test_two_storeys_with_their_floors_and_ceilings(self):
+        self.assertEqual([c["cid"] for c in self.of("level")], ["scan-L00-level", "scan-L01-level"])
+        self.near([c["measured"]["elevation_mm"] for c in self.of("level")], [0, 3000], 5)
+        self.near([c["measured"]["elevation_mm"] for c in self.of("ceiling")], [2800, 5800], 5)
+        self.near([c["measured"]["height_mm"] for c in self.of("ceiling")], [2800, 2800], 5)
+        self.near([c["geometry"]["Offset"] for c in self.of("ceiling")], [2800, 2800], 5)  # the contract's key: height above its level
+        self.assertEqual([c["geometry"]["storey"] for c in self.of("floor")], ["scan-L00-level", "scan-L01-level"])
+        for f in self.of("floor") + self.of("ceiling"):
+            corners = f["geometry"].get("LocationLoop") or f["geometry"]["Boundary"]
+            xs, ys = sorted(p[0] for p in corners), sorted(p[1] for p in corners)
+            self.near([xs[0], xs[-1], ys[0], ys[-1]], [250, 7700, 300, 5800], 100)  # the inner faces; ~40 mm inside them (NEAR_FACE)
+            self.assertGreater(f["fit"]["coverage"], 0.9)
+
+    def test_eight_walls_with_their_thickness_and_place(self):
+        walls = self.of("wall")
+        self.assertEqual(len(walls), 8)
+        want = {("y", 150): 300, ("y", 5900): 200, ("x", 125): 250, ("x", 7850): 300}  # the centreline's axis and place → thickness
+        for w in walls:
+            s, e = w["geometry"]["LocationCurve"]["start"], w["geometry"]["LocationCurve"]["end"]
+            key = ("y", round((s[1] + e[1]) / 50) * 25) if abs(e[1] - s[1]) < abs(e[0] - s[0]) else ("x", round((s[0] + e[0]) / 50) * 25)
+            self.assertIn(key, want, w["cid"])
+            self.assertAlmostEqual(w["measured"]["thickness_mm"], want[key], delta=10)
+            self.assertAlmostEqual(w["measured"]["height_mm"], 2800, delta=5)
+            self.assertEqual(s[2], w["geometry"]["BaseElevation"])
+            self.assertEqual(len(w["geometry"]["faces"]), 2)
+            self.assertTrue(w["evidence"] and all(x.startswith("ev-0001#slice-L0") for x in w["evidence"]))
+
+    def test_no_candidate_carries_a_type_and_each_names_its_evidence(self):
+        for c in self.found:
+            self.assertEqual(set(c), {"cid", "kind", "geometry", "measured", "evidence", "fit"})
+            self.assertNotIn("TypeName", c["geometry"])
+            self.assertTrue(c["evidence"] and all(x.startswith("ev-0001#") for x in c["evidence"]))
+            self.assertEqual(set(c["fit"]), {"inliers", "rmse_mm", "coverage"})
+
+    def test_the_same_points_params_and_seed_give_the_same_candidates(self):
+        again, stats = pipeline.survey(self.items, self.PARAMS, 1)
+        self.assertEqual(json.dumps(again), json.dumps(self.found))
+        self.assertEqual(stats, self.stats)
+
+    def test_past_the_point_cap_a_seeded_sample_the_same_every_run(self):
+        cap = pipeline.MAX_POINTS
+        pipeline.MAX_POINTS = 20_000
+        try:
+            a, sa = pipeline.survey(self.items, self.PARAMS, 5)
+            b, _ = pipeline.survey(self.items, self.PARAMS, 5)
+        finally:
+            pipeline.MAX_POINTS = cap
+        self.assertEqual(json.dumps(a), json.dumps(b))
+        self.assertLess(sa["points_used"], 21_000)
+        self.near(sorted(w["measured"]["thickness_mm"] for w in a if w["kind"] == "wall"), [200, 200, 250, 250, 300, 300, 300, 300], 10)
+
+    def test_a_scan_in_national_grid_coordinates_gives_the_same_building_in_its_own_frame(self):
+        off = np.array([450_000_000.0, 5_500_000_000.0, 250_000.0])  # mm: E 450 km, N 5500 km, 250 m up — a UTM-like registered scan
+        path = os.path.join(self.tmp.name, "utm.las")
+        write_las(path, building() + off, origin=tuple(off / 1000))
+        found, _ = pipeline.survey([{"id": "ev-0001", "path": path, "head": las.read_header(path)}], self.PARAMS, 1)
+        self.near([c["measured"]["elevation_mm"] for c in found if c["kind"] == "level"], [250_000, 253_000], 5)
+        self.near(sorted(c["measured"].get("thickness_mm", 0) for c in found if c["kind"] == "wall"), [200, 200, 250, 250, 300, 300, 300, 300], 10)
+        s = next(c for c in found if c["kind"] == "wall")["geometry"]["LocationCurve"]["start"]
+        self.assertGreater(min(s[0] - off[0], s[1] - off[1]), -500)  # the output stays in the scan's own (absolute) frame
+        self.assertLess(max(s[0] - off[0], s[1] - off[1]), 8500)
+
+    def test_scans_wider_than_one_building_are_refused_in_words(self):
+        path = os.path.join(self.tmp.name, "site.las")
+        write_las(path, np.array([[0.0, 0.0, 0.0], [400_000.0, 0.0, 0.0]]))
+        with self.assertRaises(las.Refused) as e:
+            pipeline.survey([{"id": "ev-0001", "path": path, "head": las.read_header(path)}], self.PARAMS, 1)
+        self.assertEqual(str(e.exception), "the scans span 400 m in plan — sentinel-survey 0.1 reads one building (at most 300 m across); "
+                                           "a larger site waits for MA-4h")
+
+
+class Voxel(unittest.TestCase):
+    def test_one_point_per_cube_the_first_in_reading_order_as_the_row_sort_gives(self):
+        P = np.random.default_rng(3).uniform(-5000, 5000, (20000, 3))
+        got, _ = pipeline.voxel(P, np.zeros(len(P), np.int64), 50.0)
+        _, first = np.unique(np.floor(P / 50).astype(np.int64), axis=0, return_index=True)
+        np.testing.assert_array_equal(got, P[np.sort(first)])
