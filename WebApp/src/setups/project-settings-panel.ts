@@ -284,13 +284,14 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
                  : await artefactInForce(base, key, kind)]));
       if (mine !== stdSeq) return;
       const canInstall = canInstallArtefacts(role, key);
+      // MA-4a: no Install JSON… for evidence_pack — the evidence routes write it (the bridge refuses a PUT: MA-4a spec amendment S1).
       host.innerHTML += rows.map(([kind, a]) =>
         `<div style="display:flex;align-items:center;gap:.6rem;padding:.25rem 0;font-size:12px;border-bottom:1px solid #2a2a30">` +
         `<span style="width:6.5rem;color:#9ca3af">${esc(kind)}</span>` +
         (a ? `<span style="flex:1;color:#e5e7eb;font-family:ui-monospace,Consolas,monospace;font-size:11px">${esc(refLabel(a))}</span>` +
              `<span style="color:#71717a;font-size:11px">${esc(a.installed_by ?? "—")} · ${esc((a.installed_at ?? "").slice(0, 10) || "—")}</span>`
            : `<span style="flex:1;color:#71717a">none installed</span>`) +
-        (canInstall ? `<button class="ps-install" data-kind="${esc(kind)}" style="${btn};padding:.2rem .5rem;font-size:11px">Install JSON…</button>` : "") +
+        (canInstall && kind !== "evidence_pack" ? `<button class="ps-install" data-kind="${esc(kind)}" style="${btn};padding:.2rem .5rem;font-size:11px">Install JSON…</button>` : "") +
         "</div>").join("");
       host.querySelectorAll<HTMLButtonElement>(".ps-install").forEach((b) => b.addEventListener("click", () => pickAndInstall(b.dataset.kind!)));
       // Paperwork slice 5 (the audit pack since MA-4a): the Kitemark audit's day-one file — a lead's or an owner's to download.
