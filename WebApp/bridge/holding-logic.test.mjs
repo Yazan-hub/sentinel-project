@@ -138,4 +138,16 @@ describe("typeGapGroups — the Holding Area's type gaps", () => {
     expect(catalogMatch(catalog.types, { ...DOOR, category: "Windows" }, same)).toBeNull();
     expect(catalogMatch(null, WALL, same)).toBeNull();
   });
+
+  it("MA-4d: a survey run's group carries its job and evidence ids; a Promote run's carries none", () => {
+    const SCAN = { category: "Walls", want: "BDS_EXT_ARC_CMU_250 mm", size: "250 mm", key: "Location Exterior, 250 mm", elements: 2,
+      labels: ["GR-FFL · scan-L00-wall-4", "Scan L01 job-0002 · scan-L01-wall-3"], nearest: [], evidence: ["ev-0001#slice-L00", "ev-0001#slice-L01"] };
+    const survey = { id: 950, at: at(9), hash: hash(950), actor: "lead@example.test", action: "type_gap:run job-0002 · survey-planner · 1 group(s), 2 element(s)",
+      new_value: { groups: [{ id: typeGapId(SCAN), ...SCAN }], source: "sentinel-survey", job: { id: "job-0002", ledger_id: 2201 }, claimed: false } };
+    expect(typeGapGroups([survey], [], NO_CATALOG, same).open[0]).toMatchObject({ job_id: "job-0002", evidence: SCAN.evidence, source: "sentinel-survey", claimed: false, elements: 2 });
+    expect(typeGapGroups([run(901, 1, [WALL])], [], NO_CATALOG, same).open[0]).toMatchObject({ job_id: null, evidence: [] });
+    // the open route's typeGapRow keeps a poster's other keys ({...v, groups, claimed: true}): a claimed row naming a job shows none
+    const forged = { ...survey, id: 951, new_value: { ...survey.new_value, claimed: true } };
+    expect(typeGapGroups([forged], [], NO_CATALOG, same).open[0]).toMatchObject({ job_id: null, evidence: [], claimed: true });
+  });
 });
