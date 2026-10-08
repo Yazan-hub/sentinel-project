@@ -23,6 +23,7 @@ import numpy as np
 
 import las
 import pipeline
+import service
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -254,3 +255,144 @@ class Voxel(unittest.TestCase):
         got, _ = pipeline.voxel(P, np.zeros(len(P), np.int64), 50.0)
         _, first = np.unique(np.floor(P / 50).astype(np.int64), axis=0, return_index=True)
         np.testing.assert_array_equal(got, P[np.sort(first)])
+
+
+class Service(unittest.TestCase):
+    """service.py as the bridge runs it: -E -B, an allow-listed environment, a token, its stdin held."""
+    TOKEN = "t" * 64
+
+    def setUp(self):
+        self.cwd = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.data = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.addCleanup(self.cwd.cleanup)
+        self.addCleanup(self.data.cleanup)
+
+    def start(self):
+        env = {"SYSTEMROOT": os.environ.get("SYSTEMROOT", ""), "APPDATA": os.environ.get("APPDATA", ""), "SENTINEL_SURVEY_TOKEN": self.TOKEN}
+        p = subprocess.Popen([sys.executable, "-E", "-B", os.path.join(HERE, "service.py")], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             stderr=subprocess.DEVNULL, env={k: v for k, v in env.items() if v}, cwd=self.cwd.name)
+
+        def stop():
+            if p.poll() is None:
+                p.kill()
+            p.wait(10)
+            p.stdout.close()
+            if not p.stdin.closed:
+                p.stdin.close()
+        self.addCleanup(stop)
+        line = json.loads(p.stdout.readline())
+        return p, line["port"], line["version"]
+
+    def call(self, port, method, path, body=None, token=None):
+        req = urllib.request.Request(f"http://127.0.0.1:{port}{path}", method=method, data=None if body is None else json.dumps(body).encode(),
+                                     headers={"Authorization": f"Bearer {token or self.TOKEN}", "Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=10) as res:
+                return res.status, json.loads(res.read())
+        except urllib.error.HTTPError as e:
+            with e:  # closed here, not left to the garbage collector (a ResourceWarning in the run)
+                return e.code, json.loads(e.read())
+
+    def test_health_answers_only_its_token_and_names_each_tool_with_its_licence(self):
+        _, port, version = self.start()
+        self.assertEqual(version, "0.1.0")
+        self.assertEqual(self.call(port, "GET", "/health", token="nope")[0], 401)
+        code, health = self.call(port, "GET", "/health")
+        self.assertEqual([t["name"] for t in health["tools"]], ["sentinel-survey", "python", "numpy"])
+        self.assertTrue(all(t["licence"] for t in health["tools"]))
+
+    def test_a_job_on_the_las_a_changed_file_refused_in_words_and_no_file_written(self):
+        path = os.path.join(self.data.name, "two-storey.las")
+        write_las(path, building())
+        with open(path, "rb") as f:
+            sha = hashlib.sha256(f.read()).hexdigest()
+        _, port, _ = self.start()
+        body = {"job_id": "job-0001", "items": [{"id": "ev-0001", "kind": "scan", "path": path, "sha256": sha},
+                                                {"id": "ev-0002", "kind": "scan", "path": path, "sha256": "0" * 64}],
+                "params": {"voxel_mm": 20, "storey_min_mm": 2000, "tolerances_mm": [50, 100, 200]}, "seed": 1}
+        self.assertEqual(self.call(port, "POST", "/jobs", body)[0], 202)
+        self.assertEqual(self.call(port, "POST", "/jobs", body)[0], 409)  # one job per process
+        for _ in range(200):
+            status = self.call(port, "GET", "/jobs/job-0001")[1]
+            if status["status"] in ("done", "failed", "refused"):
+                break
+            time.sleep(0.1)
+        self.assertEqual(status["status"], "done", status)
+        self.assertEqual(status["refused"], [{"id": "ev-0002", "reason": "changed since admitted (its sha256 is not the pack's) — Re-check flags it"}])
+        result = self.call(port, "GET", "/jobs/job-0001/result")[1]
+        self.assertEqual(len([c for c in result["candidates"] if c["kind"] == "wall"]), 8)
+        self.assertEqual((result["receipt"]["seed"], result["receipt"]["units"]), (1, "metres assumed (no CRS read)"))
+        self.assertEqual(os.listdir(self.cwd.name), [])  # it writes nothing — not even in its own folder
+
+    def test_it_exits_when_the_bridge_goes(self):
+        p, _, _ = self.start()
+        p.stdin.close()  # what a bridge ended by any route (taskkill /f too) does to the pipe
+        self.assertEqual(p.wait(10), 3)
+
+
+class InProcess(unittest.TestCase):
+    """service.py's parts in this process: its listener, a file gone or changed around the read, the point limit."""
+
+    def setUp(self):
+        self.data = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.addCleanup(self.data.cleanup)
+        self.addCleanup(service.JOB.clear)
+
+    def item(self, P):
+        path = os.path.join(self.data.name, "a.las")
+        write_las(path, P)
+        with open(path, "rb") as f:
+            return {"id": "ev-0001", "kind": "scan", "path": path, "sha256": hashlib.sha256(f.read()).hexdigest()}
+
+    def run_job(self, item):
+        service.JOB.clear()
+        service.JOB.update(id="job-0001", status="queued", stage="queued", pct=0, refused=[])
+        with contextlib.redirect_stderr(io.StringIO()):  # a traceback is the bridge log's
+            service.run({"job_id": "job-0001", "items": [item], "params": {"voxel_mm": 20, "storey_min_mm": 2000}, "seed": 1})
+        return service.JOB
+
+    def test_the_listener_shares_its_port_with_no_one_and_drops_an_idle_connection(self):
+        server = service.Server(("127.0.0.1", 0), service.Handler)
+        self.addCleanup(server.server_close)
+        self.assertEqual(server.socket.getsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR), 0)
+        self.assertEqual((server.daemon_threads, service.Handler.timeout), (True, 10))
+
+    def test_a_file_gone_after_its_hash_fails_in_words_that_name_no_path(self):
+        item = self.item(np.zeros((5, 3)))
+        head = las.read_header(item["path"])
+        os.remove(item["path"])
+        with mock.patch.object(service, "check", return_value=(head, None)):
+            job = self.run_job(item)
+        self.assertEqual(job["status"], "failed")
+        self.assertTrue(job["error"].startswith("a scan was not read ("), job["error"])
+        self.assertNotIn(os.sep, job["error"])
+        self.assertNotIn("a.las", job["error"])
+
+    def test_a_file_changed_while_it_was_read_keeps_nothing(self):
+        item = self.item(np.zeros((5, 3)))
+
+        def rewrite(*_):
+            with open(item["path"], "ab") as f:
+                f.write(b"\0")
+            return [], {"points_in": 5, "points_used": 5}
+        with mock.patch.object(service.pipeline, "survey", side_effect=rewrite):
+            job = self.run_job(item)
+        self.assertEqual((job["status"], job["error"]), ("failed", "ev-0001 changed while it was read — nothing it found was kept"))
+        self.assertNotIn("result", job)
+
+    def test_a_file_over_the_point_limit_is_refused_in_words(self):
+        item = self.item(np.zeros((5, 3)))
+        with mock.patch.object(service, "MAX_POINTS_IN", 4):
+            self.assertEqual(service.check(item), (None, "5 points — sentinel-survey 0.1 reads at most 4 in one file; a larger scan waits for MA-4h"))
+
+
+class NoNetwork(unittest.TestCase):
+    def test_the_service_imports_numpy_and_the_standard_library_only_and_no_client(self):
+        allowed = {"numpy", "las", "pipeline", "hashlib", "hmac", "json", "os", "sys", "threading", "time", "datetime", "http.server",
+                   "struct", "math", "importlib.metadata", "platform", "traceback"}
+        for name in ("las.py", "pipeline.py", "service.py"):
+            with open(os.path.join(HERE, name), encoding="utf-8") as f:
+                tree = ast.parse(f.read())
+            used = {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
+            used |= {n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
+            self.assertLessEqual(used, allowed, name)  # no socket, urllib, http.client: it listens, it never calls out
