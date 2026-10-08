@@ -78,7 +78,7 @@ export function readStartBody(b = {}) {
   const params = { ...DEFAULT_PARAMS };
   for (const [k, v] of Object.entries(p)) {
     if (k === "snap_mm") throw bad(D16);
-    if (!BOUNDS[k]) throw bad(`${k} is not a survey parameter — voxel_mm and storey_min_mm are`);
+    if (!Object.hasOwn(BOUNDS, k)) throw bad(`${k} is not a survey parameter — voxel_mm and storey_min_mm are`);
     const [lo, hi, why] = BOUNDS[k];
     if (!Number.isInteger(v) || v < lo || v > hi) throw bad(`params.${k} must be a whole number of millimetres from ${lo} to ${hi}${why}`);
     params[k] = v;
@@ -175,8 +175,15 @@ async function runJob(d, proj, key, job, take) {
   const r = await d.runSurvey(
     { job_id: job.id, items: take.map(({ id, kind, path, sha256 }) => ({ id, kind, path, sha256 })), params: { ...job.params, tolerances_mm: TOLERANCES_MM }, seed: job.seed },
     { cwd: join(d.root, key, job.id), onProgress: (p) => {
-      const now = `${p.status}|${p.stage}|${p.pct}`;
-      if (now !== last) { last = now; save(d, key, Object.assign(job, { status: p.status, stage: p.stage, pct: p.pct })); }
+      // A finished status is written once, below, with its result.json, sha256 and row: saved from here, a bridge stopped in between
+      // would leave a "done" with no result for ever (readRecord reads only queued and running as failed).
+      const status = ["done", "failed", "refused"].includes(p.status) ? "running" : p.status;
+      const now = `${status}|${p.stage}|${p.pct}`;
+      if (now === last) return;
+      last = now;
+      // Best effort: a progress save that fails (EPERM from an indexer, ENOSPC) is logged, never the job's error — its words name the path.
+      try { save(d, key, Object.assign(job, { status, stage: p.stage, pct: p.pct })); }
+      catch (e) { console.warn(`[survey] ${key} ${job.id}: progress not saved — ${e?.code || e?.message}`); }
     } });
   let status = r.status, error = r.error ?? null;
   const result = status === "done" ? r.result : null;

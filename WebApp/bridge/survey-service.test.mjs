@@ -60,6 +60,13 @@ describe("runSurvey (MA-4c) — the supervisor, with a Node stand-in for sentine
     }
   });
 
+  it("a service that dies before its port: a failed job in words; the bridge log gets its whole stderr tail (settled on close)", async () => {
+    const lines = [], r = await run("crash", [], { log: (l) => lines.push(l) });
+    expect(r).toMatchObject({ status: "failed", error: "sentinel-survey did not start (exit 1) — see the bridge log; numpy must import under SENTINEL_PYTHON" });
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("No module named 'numpy'");
+  });
+
   it("no python.exe at that path: a failed job in words, not a crash", async () => {
     const r = await runSurvey(JOB, { python: join(tmpdir(), "no-such-python.exe"), pollMs: 20, log: () => {} });
     expect(r.status).toBe("failed");

@@ -1,6 +1,6 @@
 // MA-4c — survey jobs on temp folders, deps injected: which scans a job reads and why the rest are refused, the job folder and its record,
 // one job at a time, the build:run row (done, failed, refused) with the result's sha256, the result read back and re-hashed.
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -72,6 +72,13 @@ describe("survey jobs (MA-4c)", () => {
     await start();
     runs[0].opts.onProgress({ status: "running", stage: "walls", pct: 60 });
     expect(rec()).toMatchObject({ status: "running", stage: "walls", pct: 60 });
+    const tmp = join(root, "demo", "job-0001", `job.json.${process.pid}.tmp`), warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mkdirSync(tmp); // a progress save that fails (EISDIR here; EPERM from an indexer): logged, never the job's error
+    expect(() => runs[0].opts.onProgress({ status: "running", stage: "floors", pct: 80 })).not.toThrow();
+    expect(warn).toHaveBeenCalledWith("[survey] demo job-0001: progress not saved — EISDIR");
+    warn.mockRestore(); rmSync(tmp, { recursive: true });
+    runs[0].opts.onProgress({ status: "done", stage: "done", pct: 100 }); // the service's end is written with its result, below — never from here
+    expect(rec()).toMatchObject({ status: "running", stage: "done", pct: 100 });
     await finish({ status: "done", stage: "done", pct: 100, refused: [], result: RESULT, tools: TOOLS, version: "0.1.0" });
     const bytes = readFileSync(join(root, "demo", "job-0001", "result.json"));
     expect(rec()).toMatchObject({ status: "done", pct: 100, result_sha256: sha(bytes), candidates_total: 2, counts: { level: 1, wall: 1, floor: 0, ceiling: 0 },
@@ -139,6 +146,7 @@ describe("survey jobs (MA-4c)", () => {
     expect(no({ pack: "evp-0001", snap_mm: 15 })).toEqual([400, D16]);
     for (const v of [1, 200]) expect(no({ pack: "evp-0001", params: { voxel_mm: v } })).toEqual([400, "params.voxel_mm must be a whole number of millimetres from 5 to 50 (a wall face needs a point at least every 50 mm) — nothing was saved"]);
     expect(no({ pack: "evp-0001", params: { seed: 7 } })).toEqual([400, "seed is not a survey parameter — voxel_mm and storey_min_mm are — nothing was saved"]);
+    expect(no({ pack: "evp-0001", params: { constructor: 5 } })).toEqual([400, "constructor is not a survey parameter — voxel_mm and storey_min_mm are — nothing was saved"]);
     expect(no({ pack: "evp-0001", seed: 7 })).toEqual([400, field("seed")]);
     expect(no({ pack: "evp-0001", items: [] })).toEqual([400, field("items")]);
     expect(no({ pack: "evp-0001", started_by: "someone@example.test" })).toEqual([400, field("started_by")]);

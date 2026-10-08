@@ -61,7 +61,7 @@ export function runSurvey(job, { cwd, onProgress = () => {}, python = pythonPath
       const out = { refused: [], ...r };
       if (!alive()) return resolve(out);
       const t = setTimeout(() => resolve(out), EXIT_MS);
-      child.once("exit", () => { clearTimeout(t); resolve(out); });
+      child.once("close", () => { clearTimeout(t); resolve(out); });
     };
     const failed = (error) => end({ status: "failed", stage: "stopped", pct: 0, error });
     const call = async (method, path, body) => {
@@ -105,7 +105,8 @@ export function runSurvey(job, { cwd, onProgress = () => {}, python = pythonPath
     } catch (e) { return failed(`sentinel-survey could not start (${e?.code || e?.message})`); }
     process.once("exit", kill);
     child.on("error", (e) => failed(`sentinel-survey could not start (${e?.code || e?.message}) — SENTINEL_PYTHON must name a python.exe`));
-    child.on("exit", (code) => failed(port === null
+    // "close", not "exit": its pipes are drained by then, so the stderr tail end() logs holds the traceback that says why.
+    child.on("close", (code) => failed(port === null
       ? `sentinel-survey did not start (exit ${code}) — see the bridge log; numpy must import under SENTINEL_PYTHON`
       : `sentinel-survey stopped (exit ${code}) before the job ended — see the bridge log`));
     child.stdin?.on("error", () => {}); // the watchdog's pipe is never written; an EPIPE once Python is gone is no error here

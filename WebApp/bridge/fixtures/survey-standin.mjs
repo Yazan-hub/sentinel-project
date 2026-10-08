@@ -1,5 +1,5 @@
 // MA-4c — a stand-in for sentinel-survey (survey-service.test.mjs): the §6.9 contract over HTTP on 127.0.0.1, in Node, so every way a
-// job ends is driven without Python. STANDIN = ok | silent | badline | exit | slow | refuse | denied | stall (its first poll answered
+// job ends is driven without Python. STANDIN = ok | crash (a traceback on stderr, exit 1 before its port) | silent | badline | exit | slow | refuse | denied | stall (its first poll answered
 // 400 ms late, as numpy holding Python's lock does) | frozen (no poll answered). Like service.py it says its port on
 // one stdout line, answers only SENTINEL_SURVEY_TOKEN and exits when its stdin closes. Its result's receipt lists its environment's
 // NAMES (never values), so a test sees that no bridge secret reached it.
@@ -9,7 +9,8 @@ const mode = process.env.STANDIN || "ok";
 const token = process.env.SENTINEL_SURVEY_TOKEN;
 process.stdin.resume();
 process.stdin.on("end", () => process.exit(3));
-if (mode === "silent") setInterval(() => {}, 1000);
+if (mode === "crash") process.stderr.write("Traceback (most recent call last):\nModuleNotFoundError: No module named 'numpy'\n", () => process.exit(1));
+else if (mode === "silent") setInterval(() => {}, 1000);
 else if (mode === "badline") { console.log("starting…"); setInterval(() => {}, 1000); }
 else {
   let job = null, polls = 0;
