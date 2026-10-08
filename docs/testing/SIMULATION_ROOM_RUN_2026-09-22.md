@@ -2549,3 +2549,32 @@ switch drops the draft, the picker and the open letters; one draft at a time), 4
 | R-8 | An image in the folder (`photos/extra.jpg`) offers **Admit** and **as drawing…** once the pack has a request — **pass** | the screenshot |
 
 **Closing list:** `ma4a-drill` keeps its pack (`evidence_pack@14`: 6 items, 4 signatures, 1 request) and one hold (`evidence:drawings/fake.pdf`); the drill's synthetic files stay in its evidence folder; the letter was copied to the founder's clipboard by the Copy row.
+
+## Session MA4c — sentinel-survey v0.1 and the survey jobs (2026-10-08 local: the machine rows on the branch on the 4101 test bridge, a harness for the kill path, the person rows live on master f7a31f2 through the Funnel; Claude driving)
+
+Built on `feature/ma4c-sentinel-survey` from the plan `docs/superpowers/plans/2026-10-08-ma4c-sentinel-survey.md` (four readers, a
+planner, two critics — one found the Hough sized by absolute coordinates: 1.56 TiB at national-grid origins, fixed by local frames — and a
+revision), built in three reviewed groups (one important finding fixed: a job's record said done before its result existed), a
+whole-branch review with a real end-to-end run (14 candidates, deterministic, the child's environment five allow-listed keys, no
+python.exe left), four minors fixed by the controller. The file cap is 300 million points (the Kladno scan has 250.5 million; MA-4h
+measures the time). 26 Python tests, 2865 vitest. Project `ma4c-drill` ("MA-4c drill (sentinel-survey, scratch)"), attached to
+`ma2e-office`, the founder its owner; its scans `two-storey.las` (sha `244cba9d…c8bc0d`, as the plan), `compressed.las` (the LAZ bit
+set) and `site.laz`.
+
+| Row | Result | Evidence |
+|---|---|---|
+| S-0 | `C:\Python314\python.exe -E -B -c "import sys, numpy; …"` → `3.14.2 2.4.6` in 0.2 s; nothing installed or downloaded for 4c; the survey's 26 tests pass in 3.3 s — **pass** | the output |
+| S-1 | A pack made, (a) and (c) signed (#2193 for (c)), the three scans admitted (ev-0001 #2195, ev-0002 #2197, ev-0003 #2199); **Run survey** → `✓ Started job-0001 — sentinel-survey reads ev-0001 (scans/two-storey.las), ev-0002 (scans/compressed.las); refused ev-0003 (a .laz is read from MA-4g — sentinel-survey 0.1 reads plain LAS) — ↻ for its progress.`; done at once: `job-0001 · done · read ev-0001 · refused ev-0003 (…); ev-0002 (its points are compressed (LAZ) — …) · 2 level(s), 8 wall(s), 2 floor(s), 2 ceiling(s) · by <the founder> · … · ledger #2200`. A watch on the bridge's python.exe children (every 100 ms): each job's child held one socket, a listener on 127.0.0.1 — no remote address — **pass** | the status lines, the watch log |
+| S-2 | **Candidates**: levels 0 and 3000; floors 39.68 and 39.77 m²; ceilings 2800 and 5800, height 2800; 8 walls, height 2800, thicknesses 300, 200, 300, 250 (L00) and 300, 200, 250, 300 (L01); fits 1.7-3.4 mm rms; every evidence ref `ev-0001#…`; `result.json`'s sha256 (a9ca930c…) equals the record's and the row's — **pass** | the read-back |
+| S-3 | #2200 `build:run job-0001 · sentinel-survey 0.1.0 · done`, actor the founder, `claimed: false`, items ev-0001 and ev-0002, `read: ["ev-0001"]`, tools `sentinel-survey 0.1.0 LicenseRef-Sentinel; python 3.14.2 PSF-2.0; numpy 2.4.6 BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0`, seed 1, `points_in` 47699, `gaps: null` — **pass** | #2200 |
+| S-4 | **Run survey** again → job-0002 (#2201): its 14 candidates equal job-0001's as JSON; the result shas differ only through the receipt's times — **pass** | the read-back |
+| S-5 | On 4101, the machine credential: `params.snap_mm` → 400 (D16 words), `seed` and `items` → 400 `… is not a survey job field — …`, a start → 403 `a survey job needs a person — its build:run row names who started it: sign in. Nothing was saved.`, the list → 200, `job-0099` → 404 `no survey job job-0099 on ma4c-drill — nothing was saved` — **pass** | the script output |
+| S-6 | Not run on a bridge: it needs the drill copy's `config/.env` edited (the founder's secret file, which Claude does not write). The words through the real `notSetUp`: a missing python → `… no Python where SENTINEL_PYTHON in config/.env points …`; a bare `python.exe` → `… SENTINEL_PYTHON must be the absolute path of a python.exe — nothing was saved`; `C:/Python314/python.exe` → none — **pass (by the function)** | the harness output |
+| S-7 | A harness (the real build-jobs, survey-service and python.exe, deps injected) started a job on the Kladno file with a wrong sha, so the child was hashing 6.5 GB (3.1 s of CPU) when `taskkill /f` took the harness: the child was gone 0.39 s later (the stdin watchdog); a fresh process read the job `failed · the bridge stopped while it ran — nothing it found was kept; run it again`; no python.exe left — **pass** | the harness output |
+| S-8 | On 4101, the open audit route: `{entity_type:"build", action:"build:run job-0001 · sentinel-survey 0.1.0 · done", new_value:{claimed:false}}` → stored as `build:run`, `claimed: true` (#2188); `{entity_type:"event", action:"build:run job-0001"}` → 400 `build: rows are receipts (entity_type "build") — nothing was saved` — **pass** | #2188 |
+| S-9 | The owner's session: **Run survey** shown with no job running, **Candidates** on a done job; the viewer's view (no Run survey) rests on the web tests (no viewer on the project) — **pass (owner half live)** | the screenshots |
+| S-10 | The real MCP server over stdio: `sentinel_build_status` listed; `{project:"ma4c-drill"}` → job-0002 done, job-0001 done; `{…, job:"job-0001"}` → 14 candidates (level, floor, ceiling, wall) — **pass** | the script output |
+
+**Closing list:** `ma4c-drill` keeps its pack (3 items, (a) and (c)), two survey jobs in `%APPDATA%\Sentinel\jobs\ma4c-drill`, and one
+forged open-route row (#2188, `claimed: true`, as designed); the harness's jobs are in Claude's scratchpad.
+
