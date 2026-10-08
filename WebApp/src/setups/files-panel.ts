@@ -15,6 +15,7 @@ import { readDeleted, restoreDeleted, deletedItemLine, restoredLine, archivable,
 import { escapeHtml as esc } from "./escape-html";
 import { unarchiveFile } from "./cde-transition";
 import { firstTag, geometryCheck, linkedHash, linkedTag, sha256Hex, type GeometryLinkRow } from "./geometry-check";
+import { readEvidence, makePack, signAttestation, admitEvidence, recheckEvidence, kindOf, needsReport, itemLine, attestationLine, admitLine, recheckLine, evidenceControls, ATTESTATION_CODES, ATTESTATION_TEXTS, type EvidenceRead } from "./evidence";
 
 /**
  * Sentinel Versions panel — file/blob-centric version history for uploaded model files.
@@ -72,6 +73,12 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   let deleted: DeletedItem[] = [];
   let deletedError: string | null = null;
   let showDeleted = false;
+  // MA-4a: the evidence pack, read with the holds; `evidenceError` makes the section say "not read — …"; `admitting` = the folder file
+  // whose registration input is open (a scan names how it was registered; an RCP also names its report).
+  let evidence: EvidenceRead | null = null;
+  let evidenceError: string | null = null;
+  let showEvidence = false;
+  let admitting: string | null = null;
   let role = "viewer";
   let roleSaid = "your role: viewer"; // roleWords() of the last role read: "role not read — read-only" when it failed
   // Inline action states — window.prompt/confirm are silently blocked in the platform's cross-origin
@@ -187,6 +194,9 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       dismissing = null; gapDismissing = null;
       try { const h = await readHolding(base, key); if (mine !== seq) return; holding = h; holdError = null; }
       catch (e) { if (mine !== seq) return; holding = { items: [], cleared_recent: [], type_gaps: null }; holdError = (e as Error).message; }
+      admitting = null;
+      try { const ev = await readEvidence(base, key); if (mine !== seq) return; evidence = ev; evidenceError = null; }
+      catch (e) { if (mine !== seq) return; evidence = null; evidenceError = (e as Error).message; }
       try { const d = await readDeleted(base, key); if (mine !== seq) return; deleted = d; deletedError = null; }
       catch (e) { if (mine !== seq) return; deleted = []; deletedError = (e as Error).message; }
       await asked;
@@ -198,7 +208,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     } catch (e) {
       if (mine !== seq) return;
       files = [];
-      dismissing = null; renaming = null; armed = null; unarchiveAsk = null; // their inputs are gone with the list
+      dismissing = null; renaming = null; armed = null; unarchiveAsk = null; admitting = null; // their inputs are gone with the list
       // A sign-in (401) or membership/role (403) refusal is the bridge's answer, not a missing CDE config.
       const refused = [401, 403].includes((e as { status?: number }).status ?? 0);
       el("fv-body").innerHTML = `<div style="color:#a1a1aa;padding:1rem 0">Files not read — ${esc((e as Error).message)}.` +
@@ -235,7 +245,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       html += `<button id="fv-arch-toggle" style="border:none;background:transparent;color:#71717a;font:11px system-ui;cursor:pointer;padding:.4rem .2rem">${showArchived ? "▾" : "▸"} Archived (${archived.length})</button>`;
       if (showArchived) html += `<div style="opacity:.55">${archived.map((f) => fileCard(f)).join("")}</div>`;
     }
-    html += heldSection() + gapSection() + deletedSection();
+    html += heldSection() + gapSection() + evidenceSection() + deletedSection();
     el("fv-body").innerHTML = html;
     root.querySelector("#fv-arch-toggle")?.addEventListener("click", () => { showArchived = !showArchived; render(); });
     root.querySelector("#fv-del-toggle")?.addEventListener("click", () => { showDeleted = !showDeleted; render(); });
@@ -257,6 +267,29 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       n.addEventListener("click", () => { gapDismissing = null; render(); }));
     root.querySelectorAll<HTMLElement>("[data-gdismissok]").forEach((n) =>
       n.addEventListener("click", () => void dismissGap(n.dataset.gdismissok!)));
+    root.querySelector("#fv-ev-toggle")?.addEventListener("click", () => { showEvidence = !showEvidence; render(); });
+    root.querySelector("#fv-ev-make")?.addEventListener("click", () => void evAct(async () => { await makePack(base, pid()); return "✓ Made the evidence pack evp-0001 — a lead signs (a) and (c); then put files in the folder it names and Admit them."; }));
+    root.querySelector("#fv-ev-recheck")?.addEventListener("click", () => void evAct(async () => recheckLine(await recheckEvidence(base, pid()))));
+    root.querySelectorAll<HTMLElement>("[data-evsign]").forEach((n) => n.addEventListener("click", () => void evAct(async () => {
+      const r = await signAttestation(base, pid(), n.dataset.evsign!);
+      return `✓ Signed (${r.attestation.code}) as ${r.attestation.by} · ${ledgerLine(r.ledger)}`;
+    })));
+    root.querySelectorAll<HTMLElement>("[data-evadmit]").forEach((n) => n.addEventListener("click", () => {
+      const path = n.dataset.evadmit!;
+      // A photo, or a flagged item coming back (the bridge keeps its first registration and report), is admitted with no form.
+      const back = evidence?.pack.items.find((i) => i.path === path && i.state === "changed");
+      if (back || kindOf(path) === "photo") void evAct(async () => admitLine(await admitEvidence(base, pid(), { path, kind: back?.kind ?? "photo" })));
+      else { admitting = path; render(); (root.querySelector("#fv-ev-method") as HTMLInputElement | null)?.focus(); }
+    }));
+    root.querySelector("#fv-ev-cancel")?.addEventListener("click", () => { admitting = null; render(); });
+    root.querySelector("#fv-ev-ok")?.addEventListener("click", () => {
+      const path = admitting;
+      if (!path) return;
+      const method = (root.querySelector("#fv-ev-method") as HTMLInputElement | null)?.value.trim() ?? "";
+      const report = (root.querySelector("#fv-ev-report") as HTMLSelectElement | null)?.value || "";
+      admitting = null;
+      void evAct(async () => admitLine(await admitEvidence(base, pid(), { path, kind: "scan", registration: { method, ...(report ? { report_path: report } : {}) } })));
+    });
     root.querySelectorAll<HTMLElement>("[data-vers]").forEach((n) =>
       n.addEventListener("click", (e) => { e.stopPropagation(); const id = n.dataset.vers!; versionsOpen.has(id) ? versionsOpen.delete(id) : versionsOpen.add(id); render(); }));
     // wire per-file / per-version buttons
@@ -396,6 +429,54 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       await load();
       status(`✓ Dismissed the type gap ${typeGapLine(x)} · ${ledgerLine(row)}`);
     } catch (e) { status(`Not dismissed — ${(e as Error).message}`); }
+  }
+
+  /** MA-4a: one Evidence action, then a reload; the line is the bridge's answer (a refusal before any store ends "nothing was saved"). */
+  async function evAct(run: () => Promise<string>) {
+    let line: string;
+    try { line = await run(); } catch (e) { line = `Not done — ${(e as Error).message}`; }
+    await load();
+    status(line);
+  }
+
+  // MA-4a "Evidence (n)" — built like "Type gaps (n)": the project's evidence pack — its attestations (a lead signs each once), its
+  // admitted items, and the files in its evidence folder on the office PC not yet admitted (Admit, a contributor's; a scan names how it
+  // was registered). Files are put in the folder by hand — no bytes pass through the browser (D11). Re-check re-hashes every item.
+  function evidenceSection(): string {
+    // A failed read is amber; the bridge's words why no pack can be made on this project (an office row, no office) are grey.
+    if (evidenceError) return `<div style="color:${evidenceError.startsWith("not read") ? "#fbbf24" : "#71717a"};font-size:11px;padding:.4rem .2rem">Evidence: ${esc(evidenceError)}</div>`;
+    const can = evidenceControls(role);
+    const act = "border:1px solid #2c2c34;background:#1f1f27;color:#cbd5e1;border-radius:.25rem;padding:.15rem .45rem;font:600 11px system-ui;cursor:pointer";
+    const line = (t: string, c = "#71717a") => `<div style="color:${c};font-size:11px;padding:.1rem .2rem">${t}</div>`;
+    const toggle = `<button id="fv-ev-toggle" style="border:none;background:transparent;color:#a78bfa;font:11px system-ui;cursor:pointer;padding:.4rem .2rem">${showEvidence ? "▾" : "▸"} Evidence (${evidence ? evidence.pack.items.length : 0})</button>`;
+    if (!showEvidence) return toggle;
+    if (!evidence) return toggle + (can.make
+      ? line(`No evidence pack yet. <button id="fv-ev-make" style="${act}">Make the evidence pack</button>`)
+      : line(`No evidence pack yet — a lead or owner makes it (${esc(roleSaid)}).`));
+    const { pack, folder, ref } = evidence;
+    const signer = can.sign, edit = can.admit;
+    const atts = ATTESTATION_CODES.map((c) => {
+      const done = pack.attestations.some((a) => a.code === c);
+      return line(`<span style="color:${done ? "#4ade80" : "#9ca3af"}">${esc(attestationLine(c, pack))}</span> “${esc(ATTESTATION_TEXTS[c])}”` +
+        (!done && signer ? ` <button data-evsign="${esc(c)}" style="${act}">Sign (${c})</button>` : ""));
+    }).join("");
+    const items = pack.items.map((i) => line(esc(itemLine(i)), i.state === "changed" ? "#fca5a5" : "#cbd5e1")).join("") || line("none yet");
+    const files = folder.files_not_admitted.map((f) => {
+      const form = admitting === f.path
+        ? `<input id="fv-ev-method" maxlength="300" placeholder="How was it registered? e.g. registered in source" style="flex:1;min-width:10rem;background:#111;color:#eee;border:1px solid #6528d7;border-radius:.25rem;padding:.2rem .4rem;font:12px system-ui"/>` +
+          (needsReport(f.path) ? `<select id="fv-ev-report" style="background:#111;color:#eee;border:1px solid #2c2c34;border-radius:.25rem;font:11px system-ui"><option value="">its registration report…</option>${folder.files_not_admitted.filter((x) => x.path !== f.path).map((x) => `<option value="${esc(x.path)}">${esc(x.path)}</option>`).join("")}</select>` : "") +
+          `<button id="fv-ev-ok" style="${act};color:#c4b5fd">Admit</button><button id="fv-ev-cancel" style="${act}">Cancel</button>`
+        : !kindOf(f.path) ? '<span style="color:#71717a">not admitted here — scans e57, las, laz, rcp; photos jpg, png</span>'
+        : edit ? `<button data-evadmit="${esc(f.path)}" style="${act}">Admit</button>` : "";
+      return `<div style="display:flex;gap:.4rem;align-items:center;flex-wrap:wrap;font-size:11px;padding:.15rem .2rem"><span style="flex:1;min-width:8rem;overflow-wrap:anywhere">${esc(f.path)} · ${esc(humanSize(f.size_bytes))}</span>${form}</div>`;
+    }).join("") || line("none");
+    return toggle + `<div style="margin-bottom:.45rem;padding:.45rem .55rem;background:#1b1b21;border:1px solid #2c2c34;border-radius:.4rem">` +
+      `<div style="color:#71717a;font-size:10.5px;font-family:ui-monospace,Consolas,monospace;overflow-wrap:anywhere">${esc(pack.pack_id)} · ${esc(ref)} · folder ${esc(folder.path)}${folder.exists ? "" : " (not there yet)"}</div>` +
+      line("Attestations — a lead signs (a) and (c) before any file is admitted, and (d) before a photo", "#9ca3af") + atts +
+      line(`Admitted (${pack.items.length})`, "#9ca3af") + items +
+      line(`In the folder, not yet admitted (${folder.files_not_admitted.length}${folder.truncated ? ", the list stops at 1000" : ""}) — put files there on the office PC`, "#9ca3af") + files +
+      (edit ? `<div style="margin-top:.35rem"><button id="fv-ev-recheck" style="${act}" title="Re-hash every admitted file; a changed one goes on hold">Re-check</button></div>`
+        : line(`A contributor or above admits and re-checks — ${esc(roleSaid)}.`)) + "</div>";
   }
 
   // "Deleted items (n)" — built like "On hold (n)": every member sees what is there, who deleted it and when; Restore is
@@ -801,7 +882,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   // A plain refresh (same project and person, e.g. the bridge came back) must not wipe an open dismiss reason, rename
   // input or armed confirm; a project or person switch always reloads (load() drops them).
   onActiveProjectChange(() => {
-    if (loadScope(pid()) === loadedScope && (dismissing != null || gapDismissing != null || renaming || armed)) return;
+    if (loadScope(pid()) === loadedScope && (dismissing != null || gapDismissing != null || renaming || armed || admitting)) return;
     void load();
   });
   void load();

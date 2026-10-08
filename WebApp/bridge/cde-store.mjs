@@ -892,6 +892,10 @@ export async function restoreFile(key, { container_id, version_id } = {}, actor)
   return { restored: true, kind: "file", iso_name: c.iso_name, versions, deleted_versions };
 }
 
+// MA-4a: "evidence:<path>" names an evidence hold (holding-logic EVIDENCE_HOLD) — no CDE file takes such a name, so the two never meet.
+const EVIDENCE_PREFIX = "evidence:";
+const EVIDENCE_NAME_WORDS = 'a file name may not begin with "evidence:" — that names refused evidence in the Holding Area; nothing was saved';
+
 /** Register an uploaded file as a new version. Create-or-append by file name; the new version becomes live and
  *  always starts in wip (a body's `state` is ignored — publishing is cde_transition's, migration 0031). */
 export async function registerFileVersion(key, b = {}) {
@@ -904,6 +908,7 @@ export async function registerFileVersion(key, b = {}) {
   const proj = await ensureProject(key);
   const name = (b.name || b.iso_name || "").trim();
   if (!name) { const e = new Error("name required"); e.status = 400; throw e; }
+  if (name.startsWith(EVIDENCE_PREFIX)) { const e = new Error(EVIDENCE_NAME_WORDS); e.status = 400; throw e; }
 
   // A file in Deleted items does not own its name any more (0035): a new upload of that name is a new file.
   const existing = await sb(`information_containers?project_id=eq.${proj.id}&iso_name=eq.${encodeURIComponent(name)}&deleted_at=is.null&select=id,parent_id,container_versions(id,revision,state,is_live,platform_item_id,sha256,deleted_at)`);
@@ -1197,8 +1202,10 @@ export async function audit(project_id, entity_type, entity_id, action, actor, o
  *  The open audit route may not write any of them. */
 // MA-3a (review amendment C5): changeset_reviewed and changeset_reopened are the record of the web desk's decisions and a lead's
 // re-open (changesets-store reviewChangeset / reopenGhost) — never written through the open route.
-const RESERVED_ACTIONS = ["verdict:", "gate:", "roi:", "state:", "hold:", "review:", "changeset_reviewed", "changeset_reopened", "geometry linked"];
-const RESERVED_TYPES = ["stage_gate", "hold", "delivery_gate", "review", "platform_gate"];
+// MA-4a: evidence:admitted / evidence:refused and attestation:signed (entity_types evidence, attestation) are the evidence routes'
+// own (evidence-store.mjs) — the Holding Area reads them as fact, and a note may not pass for one.
+const RESERVED_ACTIONS = ["verdict:", "gate:", "roi:", "state:", "hold:", "review:", "changeset_reviewed", "changeset_reopened", "geometry linked", "evidence:", "attestation:"];
+const RESERVED_TYPES = ["stage_gate", "hold", "delivery_gate", "review", "platform_gate", "evidence", "attestation"];
 
 /** Record an audit event by project KEY (golden thread) — the DB trigger hash-chains it (tamper-evident). A reserved
  *  row (an action starting with one of RESERVED_ACTIONS, or an entity_type in RESERVED_TYPES; case and surrounding
@@ -1479,11 +1486,12 @@ export async function recordDeliveryGate(key, b = {}) {
  *  project's files and their versions (listFiles) and each version's newest verdict (listVersionVerdictRows). A read
  *  that fails is a 502 "not read — …", never an empty list; a non-member's 403 and an unknown key's 404 stay theirs. */
 export async function readHolding(key) {
-  const { heldItems, clearedRecent, typeGapGroups } = await import("./holding-logic.mjs");
-  let rows, gapRows, files, verdicts;
+  const { heldItems, clearedRecent, typeGapGroups, evidenceHolds } = await import("./holding-logic.mjs");
+  let rows, gapRows, evRows, files, verdicts;
   try {
     rows = await auditAll(key, { entity_type: "hold" });
     gapRows = await auditAll(key, { entity_type: "type_gap" }); // MA-2c: Promote's type gaps, run by run
+    evRows = await auditAll(key, { entity_type: "evidence" }); // MA-4a: refused evidence is held from its own rows
     [files, verdicts] = await Promise.all([listFiles(key), listVersionVerdictRows(key)]);
   } catch (e) {
     if (e?.status) throw e;
@@ -1494,9 +1502,14 @@ export async function readHolding(key) {
   for (const r of verdicts) if (!verdictOf.has(r.version_id)) verdictOf.set(r.version_id, r.verdict); // newest first
   const versionsByName = {};
   for (const f of files) (versionsByName[f.iso_name] ||= []).push(...f.versions.map((v) => ({ id: v.id, created_at: v.created_at, verdict: verdictOf.get(v.id) ?? null })));
+  // MA-4a: the evidence rows as hold timelines, named "evidence:<path>" — an admission of the same path clears a refusal, as a
+  // registration clears a name; a CDE file never shares the name (EVIDENCE_PREFIX).
+  const ev = evidenceHolds(evRows);
+  for (const [path, list] of Object.entries(ev.versions)) (versionsByName[path] ||= []).push(...list);
+  const held = [...rows, ...ev.rows];
   const core = await import("./sentinel-core.mjs");
   return {
-    items: heldItems(rows, rows, versionsByName), cleared_recent: clearedRecent(rows, rows, versionsByName),
+    items: heldItems(held, rows, versionsByName), cleared_recent: clearedRecent(held, rows, versionsByName),
     type_gaps: typeGapGroups(gapRows, rows, await catalogInForce(key), core.sameCategory),
   };
 }
@@ -1907,6 +1920,7 @@ function readRegister(b) {
   if (b.version_id) throw bad("pass version_id (stamp an existing version) or register (register a new one), not both");
   const name = typeof r.name === "string" ? r.name.trim() : "";
   if (!name) throw bad("register.name is required");
+  if (name.startsWith(EVIDENCE_PREFIX)) throw bad(EVIDENCE_NAME_WORDS);
   if (name !== b.container_name) throw bad("register.name must equal container_name — the name the naming standard judges is the name registered");
   if (!Number.isSafeInteger(r.size_bytes) || r.size_bytes < 0) throw bad("register.size_bytes must be a whole number of bytes");
   if (typeof r.sha256 !== "string" || !/^[0-9a-f]{64}$/i.test(r.sha256)) throw bad("register.sha256 must be 64 hex characters");

@@ -74,7 +74,7 @@ functions are the ones in `docs/handbook/04-core-workflows.md` and `05-capabilit
 
 1. **Archive:** the Archived state; published versions are immutable at the database.
 2. **The record:** the ledger is append-only and hash-chained at the database (migrations 0002, 0015); the project's
-   **evidence pack** (`GET /cde/:key/evidence-pack`, a lead's) gathers the standards in force, the documents, the
+   **audit pack** (`GET /cde/:key/audit-pack`, a lead's; named the evidence pack until MA-4a) gathers the standards in force, the documents, the
    containers and versions, the review chains and every ledger row with its hashes into one JSON sealed by sha256 — the
    file to hand an assessor.
 

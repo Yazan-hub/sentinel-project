@@ -2,7 +2,7 @@
 // registered versions — open, repeats collapsed, cleared by a later registration (one not accepted is listed with its
 // label), cleared by a dismissal, a naming hold that says why the corrected file does not clear it.
 import { describe, it, expect } from "vitest";
-import { heldItems, clearedRecent, clearedLabel, NAMING_NOTE, typeGapId, typeGapGroups, catalogMatch } from "./holding-logic.mjs";
+import { heldItems, clearedRecent, clearedLabel, NAMING_NOTE, typeGapId, typeGapGroups, catalogMatch, evidenceHolds } from "./holding-logic.mjs";
 
 const at = (min) => `2026-09-27T10:${String(min).padStart(2, "0")}:00+00:00`;
 const hash = (id) => String(id).padStart(64, "0");
@@ -70,6 +70,18 @@ describe("clearedRecent — a clearance by a registration that was not accepted 
     const list = clearedRecent(rows, [], versions);
     expect(list).toHaveLength(20);
     expect(list[0]).toMatchObject({ container_name: "F24.ifc" });
+  });
+});
+
+describe("evidenceHolds — refused evidence on hold from its own rows (MA-4a)", () => {
+  const ev = (id, min, verb, path, reasons = ["changed since admitted"]) => ({ id, at: at(min), hash: hash(id), actor: "c@example.test", action: `evidence:${verb} ${path}`, new_value: { path, reasons } });
+  it("a refusal is held at stage evidence; the same path admitted later clears it; a lead's hold:dismissed of the path clears it", () => {
+    const e = evidenceHolds([ev(1, 1, "refused", "scans/a.las"), ev(2, 2, "admitted", "scans/a.las"), ev(3, 1, "refused", "p/b.jpg", ["the file does not begin as a .jpg does — renamed or damaged"]), ev(4, 1, "refused", "p/c.png")]);
+    const dismissed = [{ id: 5, at: at(3), action: "hold:dismissed evidence:p/c.png", new_value: { container_name: "evidence:p/c.png", reason: "replaced" } }];
+    const items = heldItems(e.rows, dismissed, e.versions);
+    expect(items.map((i) => [i.container_name, i.stage, i.verdict, i.source])).toEqual([["evidence:p/b.jpg", "evidence", "refused", "evidence"]]);
+    expect(items[0]).toMatchObject({ failures: [{ requirement: "evidence intake", detail: "the file does not begin as a .jpg does — renamed or damaged" }], failures_total: 1, ledger: { id: 3, hash: hash(3) } });
+    expect(clearedRecent(e.rows, dismissed, e.versions)).toEqual([]); // an admission clears as an accepted registration: not listed
   });
 });
 

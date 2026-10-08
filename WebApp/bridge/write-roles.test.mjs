@@ -9,7 +9,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { spawn } from "node:child_process";
 import { createHash, createHmac, randomUUID } from "node:crypto";
-import { cpSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync } from "node:fs";
+import { cpSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import net from "node:net";
 import { tmpdir } from "node:os";
@@ -949,18 +949,24 @@ describe("openCDE slice 1: the BCF-API 3.0 reads", () => {
   });
 });
 
-describe("evidence pack (paperwork slice 5)", () => {
-  const get = async (as) => { const r = await fetch(`http://127.0.0.1:${port}/cde/demo/evidence-pack`, { headers: { Authorization: `Bearer ${as === "machine" ? TOKEN : jwtFor(as)}` } }); return { status: r.status, disposition: r.headers.get("content-disposition"), body: await r.json() }; };
+describe("audit pack (paperwork slice 5; renamed in MA-4a)", () => {
+  const get = async (as, path = "audit-pack") => { const r = await fetch(`http://127.0.0.1:${port}/cde/demo/${path}`, { headers: { Authorization: `Bearer ${as === "machine" ? TOKEN : jwtFor(as)}` } }); return { status: r.status, disposition: r.headers.get("content-disposition"), body: await r.json() }; };
   it("a lead gets the sealed pack with a filename; a viewer and a contributor are refused; the parts the fake cannot serve say so", async () => {
     db.audit_log.push({ id: 1, project_id: PID, at: "2026-10-01T00:00:00Z", entity_type: "file_version", entity_id: "v1", action: "verdict: accepted", actor: "a", hash: "h1", prev_hash: null });
     for (const who of ["viewer", "contributor"]) expect((await get(who)).status).toBe(403);
     const r = await get("lead");
-    expect(r.status).toBe(200); expect(r.disposition).toMatch(/^attachment; filename="demo-evidence-pack-\d{4}-\d{2}-\d{2}\.json"$/);
-    expect(r.body).toMatchObject({ pack: "sentinel-evidence-pack", project: { key: "demo", name: "Demo" }, generated_by: "lead@example.test" });
+    expect(r.status).toBe(200); expect(r.disposition).toMatch(/^attachment; filename="demo-audit-pack-\d{4}-\d{2}-\d{2}\.json"$/);
+    expect(r.body).toMatchObject({ pack: "sentinel-audit-pack", project: { key: "demo", name: "Demo" }, generated_by: "lead@example.test" });
     expect(r.body.bundle_sha256).toMatch(/^[0-9a-f]{64}$/);
     expect(r.body.standards).toHaveProperty("ids");
     if (Array.isArray(r.body.ledger?.rows)) expect(r.body.ledger.rows.map((x) => x.id)).toEqual([1]); else { console.log("ledger part:", JSON.stringify(r.body.ledger)); expect(typeof r.body.ledger?.not_read).toBe("string"); }
     for (const k of ["documents", "reviews", "containers"]) expect(Array.isArray(r.body[k]) || typeof r.body[k]?.not_read === "string", k).toBe(true);   // the fake serves what it serves; nothing is dropped in silence
+  });
+  it("the old path answers for one release (web 1.0.61's button) with the same export", async () => {
+    const r = await get("lead", "evidence-pack");
+    expect(r.status).toBe(200); expect(r.body.pack).toBe("sentinel-audit-pack");
+    expect(r.disposition).toMatch(/filename="demo-audit-pack-/);
+    expect((await get("viewer", "evidence-pack")).status).toBe(403);
   });
 });
 
@@ -1012,5 +1018,65 @@ describe("changesets (MA-3d2): the proposal model", () => {
   it("a stranger is refused", async () => {
     db.bridge_docs.push({ store: "changeset", project_id: PID, doc_id: ID, data: csOf([wallEl]) });
     expect([403, 404]).toContain((await get("stranger")).status);
+  });
+});
+
+describe("evidence intake (MA-4a): who makes, signs, admits and reads", () => {
+  const DIR = () => join(tmp, "appdata", "Sentinel", "evidence", "demo");   // the bridge copy's APPDATA (beforeAll)
+  const E = "/cde/demo/evidence";
+  const rows = (prefix) => db.audit_log.filter((r) => String(r.action).startsWith(prefix));
+  const LAS = Buffer.concat([Buffer.from("LASF"), Buffer.alloc(400, 7)]);
+  beforeEach(() => { db.projects[0].office_key = "office"; rmSync(DIR(), { recursive: true, force: true }); });
+  it("a lead makes the one pack in the bridge's own folder; a viewer and a contributor may not; a second is a 409; a PUT of it is refused in words", async () => {
+    expect(await call("POST", E, "viewer", {})).toEqual(refused("lead", "viewer"));
+    expect(await call("POST", E, "contributor", {})).toEqual(refused("lead", "contributor"));
+    db.projects[0].kind = "office"; db.projects[0].office_key = null;
+    expect(await call("POST", E, "lead", {})).toEqual({ status: 400, body: { message: "an evidence pack belongs to a project, not an office — make it on the project; nothing was saved" } });
+    db.projects[0].kind = "project"; db.projects[0].office_key = "office";
+    const made = await call("POST", E, "lead", { asset: { name: "Demo tower", storage_root: "C:/elsewhere" } });
+    expect(made.status).toBe(201);
+    expect(made.body.pack).toMatchObject({ kind: "evidence_pack", pack_id: "evp-0001", project: "demo", asset: { name: "Demo tower" }, attestations: [], items: [], storage_root: DIR() });
+    expect((await call("POST", E, "lead", {})).status).toBe(409);
+    expect(await call("PUT", "/cde/demo/artefacts/evidence_pack", "lead", made.body.pack)).toEqual({ status: 400, body: { message: "evidence packs change only through the evidence routes; nothing was saved" } });
+  });
+  it("signing: the machine credential and a contributor are refused; a lead signs (a) once, its text's sha on the ledger", async () => {
+    await call("POST", E, "lead", {});
+    expect(await call("POST", `${E}/evp-0001/attest`, "machine", { code: "a" })).toEqual({ status: 403, body: { message: "an attestation needs a person: sign in. Nothing was saved." } });
+    expect(await call("POST", `${E}/evp-0001/attest`, "contributor", { code: "a" })).toEqual(refused("lead", "contributor"));
+    const s = await call("POST", `${E}/evp-0001/attest`, "lead", { code: "a", by: "someone@example.test" });
+    expect(s.status).toBe(201);
+    expect(s.body.attestation).toMatchObject({ id: "att-0001", code: "a", by: "lead@example.test", role: "lead", text_sha256: "e5fdcf84d2436de3076c8153c4c1cf5748dfab29cbea6f76cdbdb36202782546" });
+    expect(rows("attestation:signed").map((r) => [r.entity_type, r.new_value.code, r.new_value.text_sha256])).toEqual([["attestation", "a", "e5fdcf84d2436de3076c8153c4c1cf5748dfab29cbea6f76cdbdb36202782546"]]);
+    const again = await call("POST", `${E}/evp-0001/attest`, "lead", { code: "a" });
+    expect(again.status).toBe(409); expect(again.body.message).toContain("was signed by lead@example.test");
+  });
+  it("admitting: a 409 before (a) and (c), a photo also (d); a contributor admits with the streamed sha; the machine credential, a viewer and ../x are refused with no row; google on a file not admitted is refused with a row; a viewer reads; a forged row is a 400", async () => {
+    await call("POST", E, "lead", {});
+    mkdirSync(join(DIR(), "scans"), { recursive: true }); writeFileSync(join(DIR(), "scans", "tiny.las"), LAS);
+    mkdirSync(join(DIR(), "photos"), { recursive: true }); writeFileSync(join(DIR(), "photos", "street.jpg"), Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2]));
+    const body = { path: "scans/tiny.las", kind: "scan", registration: { method: "registered in source" }, admitted_by: "someone@example.test" };
+    expect(await call("POST", `${E}/evp-0001/items`, "contributor", body)).toEqual({ status: 409, body: { message: "a lead must sign (a) and (c) first; nothing was saved" } });
+    for (const code of ["a", "c"]) await call("POST", `${E}/evp-0001/attest`, "lead", { code });
+    const photo = { path: "photos/street.jpg", kind: "photo", provider: "google" };
+    expect(await call("POST", `${E}/evp-0001/items`, "contributor", photo)).toEqual({ status: 409, body: { message: "a lead must sign (d) first; nothing was saved" } });
+    expect(await call("POST", `${E}/evp-0001/items`, "viewer", body)).toEqual(refused("contributor", "viewer"));
+    expect(await call("POST", `${E}/evp-0001/items`, "machine", body)).toEqual({ status: 403, body: { message: "an admission needs a person — it names who admitted the file and confirmed its registration: sign in. Nothing was saved." } });
+    const ok = await call("POST", `${E}/evp-0001/items`, "contributor", body);
+    expect(ok.status).toBe(201);
+    expect(ok.body.item).toMatchObject({ id: "ev-0001", format: "las", sha256: createHash("sha256").update(LAS).digest("hex"), size_bytes: LAS.length, admitted_by: "contributor@example.test", attestation_ids: ["att-0001", "att-0002"], allowed_uses: { texture_embed: false, redistribute: false }, registration: { method: "registered in source", confirmed_by: "contributor@example.test" } });
+    expect(rows("evidence:admitted")).toHaveLength(1);
+    const before = db.audit_log.length;
+    expect((await call("POST", `${E}/evp-0001/items`, "contributor", { ...body, path: "../x" })).status).toBe(400);
+    expect(db.audit_log.length).toBe(before);
+    expect((await call("POST", `${E}/evp-0001/items`, "contributor", { ...body, provider: "google" })).status).toBe(409); // admitted: no row
+    expect(db.audit_log.length).toBe(before);
+    await call("POST", `${E}/evp-0001/attest`, "lead", { code: "d" });
+    const red = await call("POST", `${E}/evp-0001/items`, "contributor", photo);
+    expect(red.status).toBe(200); expect(red.body.verdict).toBe("refused"); expect(rows("evidence:refused").map((r) => r.action)).toEqual(["evidence:refused photos/street.jpg"]);
+    const read = await call("GET", `${E}/evp-0001`, "viewer");
+    expect(read.status).toBe(200); expect(read.body.pack.items.map((i) => i.path)).toEqual(["scans/tiny.las"]);
+    expect(await call("POST", `${E}/evp-0001/recheck`, "viewer")).toEqual(refused("contributor", "viewer"));
+    expect((await call("GET", `${E}/evp-0002`, "viewer")).status).toBe(404);
+    expect(await call("POST", "/cde/demo/audit", "lead", { action: "evidence:admitted ev-0002 scans/forged.las" })).toEqual({ status: 400, body: { message: "evidence: rows are written by Sentinel, not through this route" } });
   });
 });

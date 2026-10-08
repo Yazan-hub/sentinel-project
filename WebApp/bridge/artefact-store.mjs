@@ -8,9 +8,10 @@
 import { canonical, canonicalSha256 as sha256 } from "./canonical.mjs";
 import { resolveActor } from "./bridge-auth.mjs";
 import { parseLodMatrix } from "./sentinel-core.mjs"; // MA-2b: the one lod_matrix reader (src/sentinel-core/lod-matrix.ts)
+import { validatePack } from "./evidence-logic.mjs"; // MA-4a: the evidence_pack validator (pure, no cycle)
 
 export const STORE = "artefact";
-export const KINDS = ["ids", "ruleset", "naming", "contract", "guideline", "layers", "type_catalog", "publish", "roi", "review", "carbon_factors", "lod_matrix"];
+export const KINDS = ["ids", "ruleset", "naming", "contract", "guideline", "layers", "type_catalog", "publish", "roi", "review", "carbon_factors", "lod_matrix", "evidence_pack"];
 const CARBON_MEASURES = ["count", "length", "area", "volume", "weight"];
 
 const err = (status, message) => Object.assign(new Error(message), { status });
@@ -334,6 +335,10 @@ export function validateArtefact(kind, body) {
     // sentinel-core's parseLodMatrix (bundled); the add-in's LodMatrix.FromBody is its twin (fixtures/lod-matrix/cases.json).
     try { parseLodMatrix(body); } catch (e) { throw err(400, `lod_matrix: ${e.message}`); }
   }
+  if (kind === "evidence_pack") {
+    // MA-4a (design §6.2): the manifest only — the files stay in the project's evidence folder. Every write is the bridge's own fold.
+    validatePack(body);
+  }
   return true;
 }
 
@@ -342,14 +347,12 @@ export function validateArtefact(kind, body) {
 // before this rule still judges intake and Revit (resolveContract reads it through validateArtefact).
 const PLAIN_NAME = /^[A-Za-z0-9._@-]{1,100}$/;
 
-export async function putArtefact(key, kind, body, { actor, source } = {}, deps) {
-  validateArtefact(kind, body);
-  if (kind === "contract" && !PLAIN_NAME.test(body.contract_key))
-    throw bad(kind, "contract_key", "must be a plain name (letters, digits, . _ @ -), up to 100 characters");
-  const d = await wire(deps);
-  await d.requireMinRole(key, "lead");
-  const proj = await d.ensureProject(key);
-  const prev = await d.docGet(STORE, proj.id, kind);
+// MA-4a: two writes of one kind at once meet docInsert's create-only kind@n (the database's 409, or a test double's).
+const RACE = (kind) => `another change to ${kind} landed at the same moment — read it again and retry; nothing was saved`;
+const PROJECT_ONLY = ["evidence_pack"]; // MA-4a: a project never inherits its office's evidence
+
+/** kind@n+1, the pointer and the artefact_installed row — putArtefact's and foldArtefact's one writer. */
+async function installVersion(d, proj, kind, body, prev, { actor, source }) {
   const version = (prev?.version || 0) + 1;
   const pointer = {
     kind, version, sha256: sha256(body),
@@ -358,10 +361,37 @@ export async function putArtefact(key, kind, body, { actor, source } = {}, deps)
     installed_by: resolveActor(actor, "web"), installed_at: new Date().toISOString(),
     source: source && typeof source === "object" ? source : null,
   };
-  await d.docInsert(STORE, proj.id, `${kind}@${version}`, { ...pointer, body });
+  try { await d.docInsert(STORE, proj.id, `${kind}@${version}`, { ...pointer, body }); }
+  catch (e) { if (e?.status === 409 || e?.body?.code === "23505") throw err(409, RACE(kind)); throw e; }
   await d.docUpsert(STORE, proj.id, kind, pointer);
   await d.audit(proj.id, "artefact", null, `artefact_installed ${kind}@${version}`, pointer.installed_by, prev, pointer);
   return pointer;
+}
+
+export async function putArtefact(key, kind, body, { actor, source } = {}, deps) {
+  // MA-4a spec amendment S1: an evidence pack's items carry the bridge's hashes and attestations, so it changes only through the
+  // evidence routes (evidence-store.mjs → foldArtefact) — never a hand PUT, a lead's included.
+  if (kind === "evidence_pack") throw err(400, "evidence packs change only through the evidence routes; nothing was saved");
+  validateArtefact(kind, body);
+  if (kind === "contract" && !PLAIN_NAME.test(body.contract_key))
+    throw bad(kind, "contract_key", "must be a plain name (letters, digits, . _ @ -), up to 100 characters");
+  const d = await wire(deps);
+  await d.requireMinRole(key, "lead");
+  const proj = await d.ensureProject(key);
+  const prev = await d.docGet(STORE, proj.id, kind);
+  return installVersion(d, proj, kind, body, prev, { actor, source });
+}
+
+/** MA-4a: the bridge's own write of a kind whose route checked the caller itself (evidence_pack: a contributor's admission, a lead's
+ *  signature — evidence-store.mjs). Validated as every install; no role check here. `expectVersion` is the version the caller read (0
+ *  for none): another write since is a 409 in words, and two at once meet the create-only kind@n. → the pointer. */
+export async function foldArtefact(key, kind, body, { actor, expectVersion }, deps) {
+  validateArtefact(kind, body);
+  const d = await wire(deps);
+  const proj = await d.ensureProject(key);
+  const prev = await d.docGet(STORE, proj.id, kind);
+  if ((prev?.version || 0) !== expectVersion) throw err(409, RACE(kind));
+  return installVersion(d, proj, kind, body, prev, { actor, source: null });
 }
 
 export async function getArtefact(key, kind, deps) {
@@ -403,7 +433,8 @@ export async function resolveArtefact(key, kind, deps) {
   const own = await getArtefact(key, kind, deps);
   if (own) return stamp(own, "project");
   const officeKey = await d.officeKeyOf(key);
-  if (officeKey) {
+  // MA-4a: evidence is the project's own — never its office's (PROJECT_ONLY).
+  if (officeKey && !PROJECT_ONLY.includes(kind)) {
     const office = await d.officeArtefact(officeKey, kind);
     if (office) return stamp(office, "office");
   }

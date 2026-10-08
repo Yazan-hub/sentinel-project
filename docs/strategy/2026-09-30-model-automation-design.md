@@ -635,6 +635,8 @@ Example: the Level 3 line above has 264 walls. That is two changesets (200 + 64)
 
 An immutable, versioned manifest, stored as an `evidence_pack` artefact. The binaries stay at `storage_root`. The full field list for each item is in [R2M §4.5, §6.3].
 
+It is not the audit pack (`GET /cde/:key/audit-pack`), which is the Kitemark export.
+
 ```json
 {
   "kind": "evidence_pack",
@@ -667,6 +669,7 @@ An immutable, versioned manifest, stored as an `evidence_pack` artefact. The bin
 - The pack refuses an item whose sha256 has changed.
 - `texture_embed` and `redistribute` are always false, by policy [R2M §6.3].
 - `request_id` links a drawing to its "ask the owner" request.
+- MA-4a items carry `attestation_ids` (the codes their kind needs: a scan (a) and (c), a photo (a), (c) and (d)) in place of one `attestation_id`; `licence` is stamped `owner-supplied` for own items (a body's is not read); `rmse_mm` waits for a measured registration (MA-4c).
 
 ### 6.3 Ghost (proposal) contract v2 (TARGET)
 
@@ -822,8 +825,8 @@ Agent ghosts and drawing-only ghosts are never pre-ticked.
 | `changeset_proposed`, `changeset_applied`, `changeset_withdrawn` | Ghosts filed; placed; withdrawn | Name, counts, actor (claimed for agents) | BUILT |
 | IDS adjudication verdicts | Before review | Verdict per element | BUILT |
 | `hold:gate`, `hold:naming`, `hold:ids`, `hold:dismissed` | Container refusals | Container name, reason | BUILT |
-| `evidence:admitted`, `evidence:refused`, `evidence:expired` | For each item | sha256, kind, provider, licence, allowed uses, attestation, reason | TARGET (named `evidence.admitted` in [R2M §4.5]; renamed to the ledger's prefix style) |
-| `attestation:signed` | For each attestation | Code a–e, text sha, actor, role | TARGET |
+| `evidence:admitted`, `evidence:refused`, `evidence:expired` | For each item | sha256, kind, provider, licence, allowed uses, attestation, reason | BUILT in MA-4a (evidence:admitted, evidence:refused; evidence:expired waits for MA-7) |
+| `attestation:signed` | For each attestation | Code a–e, text sha, actor, role | BUILT in MA-4a ({pack_id, id, code, text_sha256, actor, role}; (a) is R:248's wording) |
 | `evidence:requested` | An "ask the owner" letter is drafted | Recipient kind, request id, actor | TARGET |
 | `build:run` | For each reader or planner run | Reader and version, tool and weight licences, parameters, minutes, model calls, tokens, candidates, gaps | TARGET (C12) |
 | `hold:type_gap` | One row per **gap group** per run | Category, measured size band, key params, element count, nearest catalogue types, evidence ids | BUILT (MA-2c) as one row per Promote **run** holding all its groups: entity_type `type_gap`, action `type_gap:run · N group(s), M element(s)` (`hold:` actions are Sentinel's own rows and never come through the Revit report route), claimed; each group {category, the type wanted or the size, key params, count, labels, nearest} named by the bridge; a lead's dismissal is `hold:type_gap_dismissed <group>`. No size band (the snap is 0, D16); no evidence ids yet (MA-4) |
@@ -869,6 +872,7 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
 - `POST /cde/:key/evidence` → a new pack. `GET /cde/:key/evidence/:pack`.
 - `POST /cde/:key/evidence/:pack/items` `{path | upload, kind, provider, licence, …}` → writes `evidence:admitted`, or `evidence:refused` with reasons.
 - `POST /cde/:key/evidence/:pack/attest` `{code}`.
+- MA-4a spec amendment S1: one pack per project (`evp-0001`, a lead makes it), on a project that belongs to an office — an office row is a 400 (§6.7: project scope); items {path, kind, provider?, registration?} name a file already in the project's evidence folder (no upload: D11), admitted by a signed-in contributor (the machine credential is a 403); `:pack` must be the pack in force. MA-4a spec amendment S2: a refused item is held in the Holding Area at stage `evidence` (named `evidence:<path>`, a name no CDE file may take), read from its own `evidence:refused` row, until the same path is admitted or a lead dismisses it.
 - `POST /cde/:key/evidence/requests` → drafts an "ask the owner" letter. It sends nothing.
 - `POST /cde/:key/build/jobs` `{pack, readers[], params}` → job id. `GET /cde/:key/build/jobs/:id` → status, progress, candidates, gaps.
 - `POST /cde/:key/promote/plan` `{stage, scope}` → a changeset id. The add-in makes the plan and posts it here.
@@ -883,7 +887,7 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
 - `POST /changesets/:key` accepts contract 2, with the trust rules of section 6.3.
 - `POST /changesets/:key/:id/result` gains `placed[]`, `warnings` and the BLOCK result.
 - `GET /cde/:key/holding` returns the type-gap groups next to the container holds. BUILT (MA-2c): `type_gaps {open, closed, catalog}`.
-- `PUT /cde/:key/artefacts/:kind` takes the new kinds.
+- `PUT /cde/:key/artefacts/:kind` takes the new kinds — except `evidence_pack`, refused (400): only the evidence routes write it (MA-4a spec amendment S1).
 - The Revit report route allows the XC-5 report types.
 
 **MCP**
@@ -947,7 +951,7 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
 | Action | Least role |
 |---|---|
 | Add an evidence item from your own sources | contributor |
-| Sign attestation (a), "I own the asset or have the owner's written permission" | lead (by name) |
+| Sign attestations (a)–(e); (a) is "I am the owner, or authorised by the owner, of this asset." (R:248) | lead, signed in (by name); the machine credential never signs (MA-4a) |
 | Admit an AMBER web photo | lead |
 | Accept or decline a ghost on the web | contributor |
 | Re-open a web decline | lead |
@@ -1122,6 +1126,7 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
 - **Size:** L (4–5 weeks). **Depends on:** MA-1 and MA-2 (MA-3 for the web rows).
 - **Delivers:**
   - `evidence_pack` with attestations and `evidence:*` rows. Intake accepts evidence kinds.
+    - Met in MA-4a by `POST /cde/:key/evidence/:pack/items` (the IFC intake route, `POST /cde/:key/intake`, stays IFC-only; evidence is never uploaded, D11).
   - "Ask the owner": a drafted request letter and `evidence:requested` rows (S).
   - Bridge typing: LANDED EARLY in MA-2a (full contract 2) — an element posted without `place.TypeName` carries `facts {thickness_mm?, params?}` and the bridge calls `resolveWithCatalog` on the project's guideline@n and type_catalog@n, fills the type and records `typing`, or answers 400 naming what is missing; `measured` stays ignored until a survey job backs it (item 8); the shared fixture is `WebApp/bridge/fixtures/changeset-ops/contract2-typed-body.json`. The body at :681-705 is answered 201 with `facts` in place of `measured` and 200 mm (its 203 mm is a gap under the exact rule, :728).
   - sentinel-survey v0.1, pip wheels only: storeys, wall slices in the `WallPairing` shape, floors and ceilings, and deviation per element at 5, 10 and 20 cm.

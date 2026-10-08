@@ -83,6 +83,11 @@ describe("POST /cde/:key/audit (recordAudit) — Sentinel's own rows are refused
     // MA-3a (review amendment C5): the web desk's decisions and a lead's re-open are the bridge's rows — the record of a binding decline.
     [{ entity_type: "changeset", action: "changeset_reviewed" }, "changeset_reviewed rows are written by Sentinel, not through this route"],
     [{ entity_type: "changeset", action: " Changeset_Reopened" }, "changeset_reopened rows are written by Sentinel, not through this route"],
+    // MA-4a: evidence intake's rows are the evidence routes' own (evidence-store.mjs); the Holding Area reads them as fact.
+    [{ entity_type: "event", action: "evidence:admitted ev-0001 scans/a.las" }, "evidence: rows are written by Sentinel, not through this route"],
+    [{ entity_type: "note", action: " Attestation:signed a evp-0001" }, "attestation: rows are written by Sentinel, not through this route"],
+    [{ entity_type: "evidence", action: "recorded" }, "evidence rows are written by Sentinel, not through this route"],
+    [{ entity_type: " Attestation ", action: "recorded" }, "attestation rows are written by Sentinel, not through this route"],
   ])("%j → 400", async (body, message) => {
     await expect(recordAudit("aster-tower", body)).rejects.toMatchObject({ status: 400, message });
     expect(calls).toHaveLength(0);

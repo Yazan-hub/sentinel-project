@@ -19,7 +19,7 @@ vi.mock("./members-store.mjs", async (orig) => ({
 }));
 
 import { readFileSync } from "node:fs";
-import { readHolding, dismissHold, dismissTypeGap } from "./cde-store.mjs";
+import { readHolding, dismissHold, dismissTypeGap, registerFileVersion } from "./cde-store.mjs";
 import { NAMING_NOTE, typeGapId } from "./holding-logic.mjs";
 
 const P = "11111111-1111-4111-8111-111111111111";
@@ -166,5 +166,44 @@ describe("readHolding and dismissTypeGap — type-gap groups (MA-2c)", () => {
     const src = readFileSync(new URL("./bcf-service.mjs", import.meta.url), "utf8");
     expect(src).toContain('if (p2 === "holding" && p3 === "type-gaps" && p4 && seg[5] === "dismiss" && !seg[6] && req.method === "POST")');
     expect(src).toContain("return send(res, 201, await cde.dismissTypeGap(p1, decodeURIComponent(p4), (await readBody(req)) || {}));");
+  });
+});
+
+// MA-4a spec amendment S2: refused evidence is held from its own evidence:refused rows (stage evidence); an evidence:admitted row of
+// the same path clears it, and a lead's dismissal of it clears it. Its name is "evidence:<path>": a CDE file of the same name never
+// clears it, nor an admission a CDE hold (final review).
+describe("readHolding — refused evidence (MA-4a)", () => {
+  const evRow = (id, min, action, new_value) => ({ id, at: at(min), hash: hash(id), project_id: P, entity_type: "evidence", entity_id: null, action, actor: "c@example.test", new_value });
+
+  it("an admission of the same path clears a refusal; the other is held until a lead dismisses it; one read of the evidence rows", async () => {
+    db.audit_log.push(
+      evRow(960, 1, "evidence:refused scans/a.las", { path: "scans/a.las", reasons: ["changed since admitted"] }),
+      evRow(961, 1, "evidence:refused photos/b.jpg", { path: "photos/b.jpg", reasons: ["changed since admitted"] }),
+      evRow(962, 2, "evidence:admitted ev-0001 scans/a.las", { path: "scans/a.las" }));
+    expect((await readHolding("aster-tower")).items).toMatchObject([{ container_name: "evidence:photos/b.jpg", stage: "evidence", source: "evidence", ledger: { id: 961 } }]);
+    expect(calls.filter((c) => c.table === "audit_log" && c.method === "GET" && /entity_type=eq\.evidence/.test(c.query))).toHaveLength(1);
+    const r = await dismissHold("aster-tower", { container_name: "evidence:photos/b.jpg", reason: "the photo was replaced", actor: "lead@example.test" });
+    expect(r.id).toEqual(expect.any(Number));
+    expect((await readHolding("aster-tower")).items).toEqual([]);
+  });
+
+  it("a CDE file and an evidence path of the same name are two items: neither's registration, admission or dismissal clears the other", async () => {
+    db.audit_log.push(
+      evRow(960, 1, "evidence:refused IMG_0001.jpg", { path: "IMG_0001.jpg", reasons: ["google is a RED source"] }),
+      hold(961, 1, "naming", "A-101.png"),
+      evRow(962, 2, "evidence:admitted ev-0001 A-101.png", { path: "A-101.png" }));
+    db.information_containers.push({ id: C, iso_name: "IMG_0001.jpg" });
+    db.container_versions.push({ id: "v-img", container_id: C, created_at: at(3) });
+    const h = await readHolding("aster-tower");
+    expect(h.items.map((i) => [i.container_name, i.stage]).sort()).toEqual([["A-101.png", "naming"], ["evidence:IMG_0001.jpg", "evidence"]]);
+    expect(h.cleared_recent).toEqual([]);
+    await dismissHold("aster-tower", { container_name: "A-101.png", reason: "renamed", actor: "lead@example.test" });
+    expect((await readHolding("aster-tower")).items.map((i) => i.container_name)).toEqual(["evidence:IMG_0001.jpg"]);
+  });
+
+  it("no CDE file takes an evidence hold's name", async () => {
+    await expect(registerFileVersion("aster-tower", { name: "evidence:IMG_0001.jpg" })).rejects.toMatchObject({ status: 400,
+      message: 'a file name may not begin with "evidence:" — that names refused evidence in the Holding Area; nothing was saved' });
+    expect(calls.filter((c) => c.method !== "GET")).toEqual([]);
   });
 });

@@ -7,8 +7,8 @@
 import { bfetch } from "./bridge-fetch";
 import { ledgerLine } from "./stage-gate";
 
-export type HoldStage = "gate" | "naming" | "ids";
-export type HoldSource = "revit" | "auto-publish" | "web" | "intake";
+export type HoldStage = "gate" | "naming" | "ids" | "evidence";
+export type HoldSource = "revit" | "auto-publish" | "web" | "intake" | "evidence";
 export interface LedgerRef { id: number | null; hash: string | null; }
 export interface HeldItem {
   container_name: string; stage: HoldStage; verdict: string;
@@ -50,8 +50,8 @@ export interface IntakeReply {
   hold?: LedgerRef | null;
 }
 
-export const STAGE_WORDS: Record<HoldStage, string> = { gate: "delivery gate", naming: "naming standard", ids: "IDS" };
-export const SOURCE_WORDS: Record<HoldSource, string> = { revit: "Governed Publish", "auto-publish": "auto-publish", web: "web upload", intake: "intake" };
+export const STAGE_WORDS: Record<HoldStage, string> = { gate: "delivery gate", naming: "naming standard", ids: "IDS", evidence: "evidence intake" };
+export const SOURCE_WORDS: Record<HoldSource, string> = { revit: "Governed Publish", "auto-publish": "auto-publish", web: "web upload", intake: "intake", evidence: "evidence folder" };
 export const CLEARED_BY_RECORDED = "cleared by a registration that was not judged (recorded)";
 
 const at = (baseUrl: string, key: string, path: string) => `${baseUrl.replace(/\/$/, "")}/cde/${encodeURIComponent(key)}/${path}`;
@@ -167,5 +167,6 @@ export async function dismissHold(baseUrl: string, key: string, containerName: s
 export function resubmitFor(source: HoldSource): { upload: boolean; text: string } {
   if (source === "revit") return { upload: false, text: "Fix the model in Revit, then Sentinel ▸ Publish ▸ Governed Publish again." };
   if (source === "auto-publish") return { upload: false, text: "Fix the model in Revit and save — auto-publish judges it again (or run Governed Publish)." };
+  if (source === "evidence") return { upload: false, text: "Put the right file in the project's evidence folder, then Admit it again under Evidence." }; // MA-4a
   return { upload: true, text: "Upload the corrected file" };
 }
