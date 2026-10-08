@@ -1429,15 +1429,17 @@ async function handleRequest(req, res) {
         const b = await readBody(req);
         return send(res, 200, await cde.restoreFile(p1, { container_id: b.container_id, version_id: b.version_id }, b.actor));
       }
-      // Paperwork slice 5: GET /cde/:key/evidence-pack → the project's evidence pack (a lead's or an owner's; the machine credential as
-      // service): standards in force, documents, containers and versions, review chains, the ledger with its hashes, sealed by sha256.
-      if (p2 === "evidence-pack" && !p3 && req.method === "GET") {
+      // Paperwork slice 5, renamed in MA-4a: GET /cde/:key/audit-pack → the project's audit pack (a lead's or an owner's; the machine
+      // credential as service): standards in force, documents, containers and versions, review chains, the ledger with its hashes,
+      // sealed by sha256. "evidence-pack" is the same export under its old name.
+      // ponytail: the old path answers for one release, so web 1.0.61's button does not 404 — drop it after 1.0.62 is published.
+      if ((p2 === "audit-pack" || p2 === "evidence-pack") && !p3 && req.method === "GET") {
         const members = await import("./members-store.mjs");
         await members.requireMinRole(p1, "lead");
         const art = await import("./artefact-store.mjs");
         const bimdocs = await import("./bimdocs-store.mjs");
-        const ep = await import("./evidence-pack.mjs");
-        const pack = await ep.buildEvidencePack(p1, {
+        const ap = await import("./audit-pack.mjs");
+        const pack = await ap.buildAuditPack(p1, {
           kinds: art.KINDS, actor: resolveActor(null, "machine"),
           project: async (key) => { const rows = await cde.listProjects(); const p = rows.find((x) => x.key === key); if (!p) throw new Error("project not listed"); return { key: p.key, name: p.name, kind: p.kind ?? "project", office_key: p.office_key ?? null }; },
           standards: (key, kind) => art.resolveArtefact(key, kind),
@@ -1446,7 +1448,7 @@ async function handleRequest(req, res) {
           reviews: (key) => cde.readReviews(key),
           ledgerPage: (key, q) => cde.listAudit(key, q),
         });
-        return send(res, 200, pack, { "Content-Disposition": `attachment; filename="${p1.replace(/[^A-Za-z0-9_-]/g, "_")}-evidence-pack-${pack.generated_at.slice(0, 10)}.json"` });
+        return send(res, 200, pack, { "Content-Disposition": `attachment; filename="${p1.replace(/[^A-Za-z0-9_-]/g, "_")}-audit-pack-${pack.generated_at.slice(0, 10)}.json"` });
       }
       // GET /cde/:key/audit?entity_type=&action_prefix=&entity_id=&actor=&since=&until=&limit=&offset=
       //   → { rows, total, limit, offset }, newest first; total is exact; a bad filter is a 400 (cde-store.mjs auditQuery).

@@ -1,4 +1,4 @@
-// Paperwork slice 5 (docs/compliance/CERTIFICATION_READINESS_2026-10.md §3): one export per project — the Kitemark audit's day-one
+// Paperwork slice 5 (docs/compliance/CERTIFICATION_READINESS_2026-10.md §3), renamed the audit pack in MA-4a (the evidence pack is now MA-4's evidence_pack artefact): one export per project — the Kitemark audit's day-one
 // file. Everything the ledger and the stores already hold, read as the caller may read it (a lead's or an owner's), gathered into one
 // JSON bundle with its own sha256 over the canonical body: the project, its standards in force (each `kind@n · source · sha`), its
 // governed documents, its containers and versions (states, revisions, hashes), its review chains, and the ledger rows (each with
@@ -16,6 +16,7 @@ export function seal(body) {
   return { ...rest, bundle_sha256: createHash("sha256").update(canonical(rest)).digest("hex") };
 }
 
+/** MA-4a: name-blind on purpose — a pack saved under its pre-MA-4a name (the 2026-10-07 drill file) still verifies. */
 /** True when a sealed pack's sha256 matches its body (a reader's re-check, offline). Pure. */
 export const sealed = (pack) => !!pack?.bundle_sha256 && seal(pack).bundle_sha256 === pack.bundle_sha256;
 
@@ -24,7 +25,7 @@ const part = async (fn) => { try { return await fn(); } catch (e) { return { not
 export const LEDGER_MAX = 5000;
 
 /** Builds the pack for `key`. deps: { project, standards, documents, containers, reviews, ledgerPage, kinds, now, actor }. */
-export async function buildEvidencePack(key, deps) {
+export async function buildAuditPack(key, deps) {
   const generated_at = deps.now ? deps.now() : new Date().toISOString();
   const standards = await part(async () => {
     const out = {};
@@ -53,5 +54,5 @@ export async function buildEvidencePack(key, deps) {
     const rows = [...byId.values()].sort((a, b) => a.id - b.id);
     return { total, rows, truncated: rows.length < total, chain: "each row's hash and prev_hash as the database chained them (migration 0002, global chain, verified at the write); a row's receipt: GET /receipt/:key/:id" };
   });
-  return seal({ pack: "sentinel-evidence-pack", version: 1, generated_at, generated_by: deps.actor ?? null, project: await part(() => deps.project(key)), standards, documents, containers, reviews, ledger });
+  return seal({ pack: "sentinel-audit-pack", version: 1, generated_at, generated_by: deps.actor ?? null, project: await part(() => deps.project(key)), standards, documents, containers, reviews, ledger });
 }
