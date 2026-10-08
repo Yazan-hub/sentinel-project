@@ -2493,7 +2493,7 @@ bridge and the BCF extensions, as the ledger already names every actor to every 
 **Closing list:** the drill container `B13-W2-ZZ-XX-M3-A-0001` stays on `b13-review` (scratch, WIP); no membership was changed; the
 second account stays signed in in Claude's tab until the founder signs it out.
 
-## Session MA4a — evidence intake and the audit pack, the machine rows (2026-10-08 local, the branch on the 4101 test bridge, merged 2a23208, web 1.0.62 published; Claude driving the bridge alone)
+## Session MA4a — evidence intake and the audit pack (2026-10-08 local: the machine rows on the branch on the 4101 test bridge, the person rows live on master; merged 2a23208, web 1.0.62 published; Claude driving the bridge alone)
 
 Setup: a new drill project `ma4a-drill` ("MA-4a drill (evidence intake, scratch)"), attached to `ma2e-office`, the founder added
 as its owner (201); its evidence folder `%APPDATA%\Sentinel\evidence\ma4a-drill\` holds `scans\tiny.las` (from
@@ -2508,12 +2508,24 @@ as its owner (201); its evidence folder `%APPDATA%\Sentinel\evidence\ma4a-drill\
 | E-5 (part) | `{path:"../x"}` by the machine credential → the same 403 (the person check comes before the path check; the 400 is pinned offline) — **pass** | the script output |
 | E-6 | `POST /cde/ma4a-drill/audit` with `evidence:admitted …` → 400 `evidence: rows are written by Sentinel, not through this route`; `attestation:signed …` → 400 `attestation: rows …`; `entity_type:"evidence"` → 400 `evidence rows …` — **pass** | the script output |
 
-**Owed — the person rows** (a signed-in lead in the local app; Claude in Chrome was not connected after the merge): E-0's
-Download click, E-1 Make the evidence pack, E-2's signatures (a), (c), (d) and the admit-before-signing refusals, E-3 the three
-admissions with the E-7 connection watch on the 4100 bridge, E-4 Re-check and re-admit, E-5's google refusal and the 409, E-8
-the viewer's read-only section. The bridge on master answers every route (4100 restarted on 2a23208).
+**The person rows — run 2026-10-08 ~19:10 → 19:25 local** (the founder's own session, the owner of `ma4a-drill`, in the local
+app through the Funnel; the 4100 bridge on master 096f2dd; Claude driving the founder's session in Claude's own tab). The pack went
+`evidence_pack@1` (#2157) to `@14`, each change an `artefact_installed` row before its own evidence or attestation row.
 
-## Session MA4b — Ask the owner and drawings, the machine rows (2026-10-08 local, the branch on the 4101 test bridge; Claude driving the bridge alone)
+| Row | Result | Evidence |
+|---|---|---|
+| E-0 | Settings shows the "audit pack" row with **Download audit pack** (the download is the founder's to start) and `evidence_pack` with no Install JSON… — **pass** | the screenshot |
+| E-1 | Files ▸ Evidence ▸ **Make the evidence pack** → `✓ Made the evidence pack evp-0001 — …`; its folder `%APPDATA%\Sentinel\evidence\ma4a-drill` is the bridge's own (`storage_root` read back equal) — **pass** | #2157 |
+| E-2 | Admit `photos/own.jpg` before any signature → `Not done — a lead must sign (a), (c) and (d) first; nothing was saved`, no row; sign (a) → #2159 (`text_sha256` e5fdcf84…2546), (c) → #2161 (f6103bd8…1bbc); the photo again → `a lead must sign (d) first`, no row; (d) → #2163 (6b4631ae…0f4a) — **pass** | the status lines, the rows |
+| E-3 | `photos/own.jpg` → ev-0001 #2165; `scans/tiny.las` ("registered in source") → ev-0002 #2167, sha `76c6b5e9…3c44` = `certutil`; `scans/site.rcp` with `scans/site-registration.txt` → ev-0003 #2169, "not surveyable (no ReCap here)", the report no longer listed; `evidence_pack@7` (make 1, sign 2-4, admit 5-7); every item's sha equals the file's on disk — **pass** | the rows, the read-back |
+| E-4 | One byte of `tiny.las` flipped, **Re-check** → `Re-checked 3 item(s): 1 changed — scans/tiny.las (changed since admitted). On hold until …`; #2171 `evidence:refused` (sha 45c66876…); On hold shows `evidence:scans/tiny.las` "refused by the evidence intake — changed since admitted"; the byte restored, **Admit** → `✓ Admitted scans/tiny.las as ev-0002`, #2173 `readmitted: true`, the hold cleared; `evidence_pack@9` is byte-identical to `@7` (same sha 29808e47…) — **pass** | the screenshots, the rows |
+| E-5 | `photos/street.jpg` admitted from the web → ev-0004 #2175. The google-provider refusal, the 409 on an admitted file, `photos/none.jpg` and `../x` cannot be sent from the web as a person: pinned in `evidence-store.test.mjs` (b), (c) — **pass (web half live)** | #2175 |
+| E-6 | (machine rows, above) — **pass** | |
+| E-7 | A watch on the 4100 bridge's sockets (every 0.3 s) while `photos/extra.jpg` was admitted (ev-0006 #2184): remotes were loopback (the Funnel's local hops), the Supabase REST host (Cloudflare 104.18.x) and That Open's API (`platform.thatopen.com`, AWS 35.156.x) — the latter is the bridge's platform gate poller (`startPlatformGatePoll`), present in the idle watch too, before any evidence activity; `evidence-store.mjs` makes no outbound call (test (h): no fetch, imports from an allow-list) — **pass with a note** (the literal "no connection to That Open" does not hold for the bridge process while the gate poller is on; no evidence byte goes to it) | the watch logs |
+| E-8 | The viewer's read-only Evidence section: not run live (the founder is the project's only owner; the second account's tab was gone) — pinned by `evidenceControls` in `evidence.test.ts` | |
+
+
+## Session MA4b — Ask the owner and drawings (2026-10-08 local: the machine rows on the branch on the 4101 test bridge, the person rows live on master; Claude driving the bridge alone)
 
 Built on `feature/ma4b-ask-the-owner` (e8d99b7), reviewed from three lenses (correctness, security and privacy, the web and its words)
 with a skeptic per finding: 5 confirmed and fixed in 6a0f0fb (a flagged item's signatures checked for its own kind, not the body's;
@@ -2526,7 +2538,14 @@ switch drops the draft, the picker and the open letters; one draft at a time), 4
 | R-2 | the machine credential `POST …/items {path:"drawings/A-101.pdf", kind:"drawing", request_id:"req-0001"}` → 403 `an admission needs a person — …` — **pass** | the script output |
 | R-3 | `GET …/requests` → 404 `CDE route not found` (a request is read with the pack, `GET …/evidence/evp-0001`) — **pass** | the script output |
 
-**Owed — the person rows** with MA4a's (a signed-in lead in the local app): draft a request to the owner (the letter shown, one
-`evidence:requested` row, the recipient's name not on it); put `drawings/A-101.pdf` in the folder; admit it before (b) → `a lead must
-sign (b) first`; sign (b); admit it under req-0001 → `provider: "owner"`, `licence: "holder-permission"`; a `.pdf` that is not a PDF
-→ refused in words.
+**The person rows — run 2026-10-08 ~19:17 → 19:22 local** (the same session):
+
+| Row | Result | Evidence |
+|---|---|---|
+| R-4 | **+ Ask the owner…**, the fields filled (to the owner, "Drill Owner (example)", two documents, a purpose), then **Sign (b)** before drafting (#2177, `text_sha256` a66c8e12…8c92): the reload kept every field as typed (the review's fix, live) — **pass** | the screenshot |
+| R-5 | **Draft the letter** → `✓ Drafted req-0001 — Sentinel sends nothing: copy the letter and send it yourself`, #2179 `evidence:requested req-0001 owner` with `{pack_id, request_id, recipient_kind, documents: 2, letter_sha256, actor}` — the recipient's name is not on the row (read back); the letter shown (subject with `ma4a-drill req-0001`, "Dear Drill Owner (example)", the two documents, the terms, "[your name and title]"); its sha256 matches the stored letter; **Copy** → `✓ Copied the letter of req-0001 — sign it and send it yourself` (the clipboard works in the platform's sandbox) — **pass** | #2179, the screenshot |
+| R-6 | `drawings/A-101.pdf` → **Admit** opens the request picker (`answers req-0001 · to the owner`) → **Admit drawing** → ev-0005 #2181: `provider: "owner"`, `licence: "holder-permission"`, `request_id: "req-0001"`, `attestation_ids` (a) and (b), not surveyable; the line reads "drawing from the owner under req-0001" — **pass** | #2181, the read-back |
+| R-7 | `drawings/fake.pdf` (begins `PK..`) under req-0001 → `Refused drawings/fake.pdf — the file does not begin as a .pdf does — renamed or damaged · on hold`, #2182, no pack version — **pass** | #2182 |
+| R-8 | An image in the folder (`photos/extra.jpg`) offers **Admit** and **as drawing…** once the pack has a request — **pass** | the screenshot |
+
+**Closing list:** `ma4a-drill` keeps its pack (`evidence_pack@14`: 6 items, 4 signatures, 1 request) and one hold (`evidence:drawings/fake.pdf`); the drill's synthetic files stay in its evidence folder; the letter was copied to the founder's clipboard by the Copy row.
