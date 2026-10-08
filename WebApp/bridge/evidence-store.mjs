@@ -188,10 +188,10 @@ export async function signAttestation(key, packId, b = {}, deps) {
 
 /** POST /cde/:key/evidence/:pack/items {path, kind, provider?, registration?} — Governed Intake's evidence branch. A signed-in
  *  contributor of an office project (the machine credential is a 403: an admission names who admitted and confirmed it). Refusals before
- *  any store, no row, in this order: 403, 429, 400 (body, path), 404 (no pack), 409 (the signatures its kind needs), 404 (no file), 409
- *  (already admitted and not flagged — before any policy check, so an admitted file is never put On hold by a bad body), 400 (a new
- *  item's method or report, a new drawing's request_id), 409 (the cap), 404 (a new drawing's request, MA-4b). Then a policy or content refusal is 200 {verdict: "refused", reasons, ledger} with one
- *  evidence:refused row (it then shows On hold until the path is admitted or dismissed); an admission is 201 {verdict: "admitted", item,
+ *  any store, no row, in this order: 403, 429, 400 (body, path), 404 (no pack), 404 (no file), 409 (already admitted and not flagged —
+ *  before any policy check, so an admitted file is never put On hold by a bad body), 409 (the signatures its kind needs — a flagged
+ *  item's own kind), 400 (a new item's method or report, a new drawing's request_id), 409 (the cap), 404 (a new drawing's request,
+ *  MA-4b). Then a policy or content refusal is 200 {verdict: "refused", reasons, ledger} with one evidence:refused row (it then shows On hold until the path is admitted or dismissed); an admission is 201 {verdict: "admitted", item,
  *  pack_version, ledger} with one evidence:admitted row. The pack never changes an item's sha: a changed file is flagged by Re-check,
  *  and admitted again only as the same bytes. */
 export async function runEvidenceIntake(key, packId, b = {}, deps) {
@@ -206,14 +206,15 @@ export async function runEvidenceIntake(key, packId, b = {}, deps) {
 async function admitRun(d, proj, key, packId, b) {
   let input = L.readAdmitBody(b);
   const { pack, version } = await packOf(d, key, packId);
-  const missing = L.missingAttestations(pack, L.ADMIT_NEEDS[input.kind] ?? L.ADMIT_NEEDS.scan);
-  if (missing.length) throw err(409, `a lead must sign ${L.codesSaid(missing)} first; nothing was saved`);
   const dir = evidenceDir(key, d.root), full = insideFolder(dir, input.path), who = actor();
   if (!isFile(full)) throw err(404, `no file ${input.path} in the project's evidence folder (${dir}) — put it there first; nothing was saved`);
   input = { ...input, path: onDisk(dir, full) }; // the disk's spelling: "Photos/OWN.jpg" is photos/own.jpg, admitted or not
   const prev = pack.items.find((i) => i.path === input.path);
   if (prev && prev.state !== "changed") throw err(409, `${input.path} is already admitted as ${prev.id} (Re-check finds a changed file) — nothing was saved`);
   if (prev) input = { ...input, kind: prev.kind }; // it comes back as first admitted: a flagged photo is not re-read as a drawing
+  // The signatures its kind needs — the flagged item's own kind when it comes back (review: a body's kind asked for the wrong ones).
+  const missing = L.missingAttestations(pack, L.ADMIT_NEEDS[input.kind]);
+  if (missing.length) throw err(409, `a lead must sign ${L.codesSaid(missing)} first; nothing was saved`);
   let request = null;
   if (!prev) {
     const missingField = L.newItemRefusal(input);

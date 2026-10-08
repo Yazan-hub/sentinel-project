@@ -297,4 +297,19 @@ describe("evidence intake (MA-4a)", () => {
     expect(back.item).toMatchObject({ id: "ev-0001", kind: "drawing", request_id: "req-0002", provider: "municipality" });
     expect((await pack()).requests.map((x) => x.id)).toEqual(["req-0001", "req-0002"]);
   });
+
+  it("(n) review: a flagged drawing comes back on (a) and (b) alone, whatever kind the body names", async () => {
+    await makePack("demo", {}, deps());
+    await sign(["a", "b"]);
+    role = "lead";
+    await draftRequest("demo", "evp-0001", { recipient_kind: "architect", documents: ["plans"] }, deps());
+    role = "contributor";
+    put("d/A.pdf", "%PDF-1.7 plan");
+    await admit({ path: "d/A.pdf", kind: "drawing", request_id: "req-0001" });
+    put("d/A.pdf", "%PDF-1.7 changed");
+    await recheck();
+    put("d/A.pdf", "%PDF-1.7 plan");
+    const back = await admit({ path: "d/A.pdf", kind: "photo" }); // no (c) or (d) is asked for
+    expect(back).toMatchObject({ verdict: "admitted", item: { kind: "drawing", request_id: "req-0001", provider: "architect" } });
+  });
 });

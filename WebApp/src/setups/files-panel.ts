@@ -82,6 +82,8 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   // MA-4b: `drawingFor` = the folder file whose request picker is open (a drawing names the request it answers); `askDraft` = the
   // Ask the owner form while open (kept across a refused draft, so nothing typed is lost); `lettersOpen` = the requests showing a letter.
   let drawingFor: string | null = null;
+  let drawingReq = ""; // the request picked for `drawingFor`, kept across a re-render
+  let drafting = false; // a draft in flight: a second click drafts nothing
   let askDraft: { to: EvidenceRequest["recipient_kind"]; name: string; docs: string; purpose: string } | null = null;
   const lettersOpen = new Set<string>();
   let role = "viewer";
@@ -151,7 +153,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   async function load() {
     const mine = ++seq, key = pid();
     // A project or person switch drops the old scope's inline rename / armed confirm (dismissing is reset below).
-    if (loadScope(key) !== loadedScope) { renaming = null; armed = null; unarchiveAsk = null; }
+    if (loadScope(key) !== loadedScope) { renaming = null; armed = null; unarchiveAsk = null; askDraft = null; drawingFor = null; lettersOpen.clear(); }
     loadedScope = loadScope(key);
     if (cmp.a || cmp.b) { cmp.a = cmp.b = cmp.fileId = undefined; el("fv-compare").style.display = "none"; }
     el("fv-proj").textContent = key;
@@ -199,7 +201,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       dismissing = null; gapDismissing = null;
       try { const h = await readHolding(base, key); if (mine !== seq) return; holding = h; holdError = null; }
       catch (e) { if (mine !== seq) return; holding = { items: [], cleared_recent: [], type_gaps: null }; holdError = (e as Error).message; }
-      admitting = null;
+      admitting = null; drawingFor = null;
       try { const ev = await readEvidence(base, key); if (mine !== seq) return; evidence = ev; evidenceError = null; }
       catch (e) { if (mine !== seq) return; evidence = null; evidenceError = (e as Error).message; }
       try { const d = await readDeleted(base, key); if (mine !== seq) return; deleted = d; deletedError = null; }
@@ -284,10 +286,11 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       // A photo, or a flagged item coming back (the bridge keeps its first registration, report and request), is admitted with no form.
       const back = evidence?.pack.items.find((i) => i.path === path && i.state === "changed");
       if (back || kindOf(path) === "photo") void evAct(async () => admitLine(await admitEvidence(base, pid(), { path, kind: back?.kind ?? "photo", ...(back?.request_id ? { request_id: back.request_id } : {}) })));
-      else if (kindOf(path) === "drawing") { drawingFor = path; admitting = null; render(); }
+      else if (kindOf(path) === "drawing") { drawingFor = path; drawingReq = ""; admitting = null; render(); }
       else { admitting = path; drawingFor = null; render(); (root.querySelector("#fv-ev-method") as HTMLInputElement | null)?.focus(); }
     }));
-    root.querySelectorAll<HTMLElement>("[data-evdrawing]").forEach((n) => n.addEventListener("click", () => { drawingFor = n.dataset.evdrawing!; admitting = null; render(); }));
+    root.querySelectorAll<HTMLElement>("[data-evdrawing]").forEach((n) => n.addEventListener("click", () => { drawingFor = n.dataset.evdrawing!; drawingReq = ""; admitting = null; render(); }));
+    root.querySelector("#fv-ev-req")?.addEventListener("change", (e) => { drawingReq = (e.target as HTMLSelectElement).value; });
     root.querySelector("#fv-ev-dok")?.addEventListener("click", () => {
       const path = drawingFor, request_id = (root.querySelector("#fv-ev-req") as HTMLSelectElement | null)?.value || "";
       if (!path || !request_id) return;
@@ -296,15 +299,20 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     });
     root.querySelector("#fv-ev-ask")?.addEventListener("click", () => { askDraft = { to: "owner", name: "", docs: "", purpose: "" }; render(); (root.querySelector("#fv-ev-docs") as HTMLTextAreaElement | null)?.focus(); });
     root.querySelector("#fv-ev-askcancel")?.addEventListener("click", () => { askDraft = null; render(); });
+    // The form's fields write askDraft as they change, so a re-render (a letter opened, a signature, a refresh) keeps what was typed.
+    const askVal = (id: string) => (root.querySelector(id) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null)?.value ?? "";
+    const syncAsk = () => { if (askDraft) askDraft = { to: askVal("#fv-ev-to") as EvidenceRequest["recipient_kind"], name: askVal("#fv-ev-name"), docs: askVal("#fv-ev-docs"), purpose: askVal("#fv-ev-purpose") }; };
+    for (const id of ["#fv-ev-to", "#fv-ev-name", "#fv-ev-docs", "#fv-ev-purpose"]) root.querySelector(id)?.addEventListener("input", syncAsk);
     root.querySelector("#fv-ev-draft")?.addEventListener("click", () => {
-      const val = (id: string) => (root.querySelector(id) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null)?.value ?? "";
-      const d = { to: val("#fv-ev-to") as EvidenceRequest["recipient_kind"], name: val("#fv-ev-name"), docs: val("#fv-ev-docs"), purpose: val("#fv-ev-purpose") };
-      askDraft = d; // shown again if the bridge refuses it
+      if (drafting || !askDraft) return;
+      syncAsk();
+      const d = askDraft; // shown again if the bridge refuses it
+      drafting = true;
       void evAct(async () => {
         const r = await draftRequest(base, pid(), { recipient_kind: d.to, documents: d.docs.split(/\r?\n/), ...(d.name.trim() ? { recipient: d.name } : {}), ...(d.purpose.trim() ? { purpose: d.purpose } : {}) });
         askDraft = null; lettersOpen.add(r.request.id);
         return `✓ Drafted ${r.request.id} — Sentinel sends nothing: copy the letter and send it yourself · ${ledgerLine(r.ledger)}`;
-      });
+      }).finally(() => { drafting = false; });
     });
     root.querySelectorAll<HTMLElement>("[data-evletter]").forEach((n) => n.addEventListener("click", () => {
       const id = n.dataset.evletter!; lettersOpen.has(id) ? lettersOpen.delete(id) : lettersOpen.add(id); render();
@@ -515,7 +523,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
           `<button id="fv-ev-ok" style="${act};color:#c4b5fd">Admit</button><button id="fv-ev-cancel" style="${act}">Cancel</button>`
         : drawingFor === f.path
           ? (requests.length
-            ? `<select id="fv-ev-req" style="${inp}">${requests.map((r) => `<option value="${esc(r.id)}">answers ${esc(r.id)} · to the ${esc(r.recipient_kind)}</option>`).join("")}</select>` +
+            ? `<select id="fv-ev-req" style="${inp}">${requests.map((r) => `<option value="${esc(r.id)}"${r.id === drawingReq ? " selected" : ""}>answers ${esc(r.id)} · to the ${esc(r.recipient_kind)}</option>`).join("")}</select>` +
               `<button id="fv-ev-dok" style="${act};color:#c4b5fd">Admit drawing</button>`
             : '<span style="color:#fbbf24">a drawing answers a request — a lead drafts one under Ask the owner first</span>') +
             `<button id="fv-ev-cancel" style="${act}">Cancel</button>`
@@ -937,7 +945,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   // A plain refresh (same project and person, e.g. the bridge came back) must not wipe an open dismiss reason, rename
   // input or armed confirm; a project or person switch always reloads (load() drops them).
   onActiveProjectChange(() => {
-    if (loadScope(pid()) === loadedScope && (dismissing != null || gapDismissing != null || renaming || armed || admitting)) return;
+    if (loadScope(pid()) === loadedScope && (dismissing != null || gapDismissing != null || renaming || armed || admitting || askDraft || drawingFor)) return;
     void load();
   });
   void load();
