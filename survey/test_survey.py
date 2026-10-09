@@ -1,11 +1,13 @@
 # MA-4c — sentinel-survey 0.1's self-checks, run from the repo root: C:\Python314\python.exe -B -m unittest discover -s survey -v.
 # The LAS reader, the WallPairing port (tools/wallpair-check/Check.cs's cases), the measuring code on a synthetic two-storey building
 # written as a LAS here, determinism, and the service as the bridge runs it (its token, a changed file refused, the stdin watchdog, no
-# file written, no network import). numpy and the standard library only.
+# file written, no network import). numpy and the standard library; MA-4g's LAZ and E57 tests need its wheels
+# (survey/requirements-ma4g.txt) and are skipped, with why, where they are not installed.
 import ast
 import contextlib
 import hashlib
 import io
+import importlib.util
 import json
 import math
 import os
@@ -29,12 +31,14 @@ import service
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
-def write_las(path, P, minor=2, fmt=0, rec_len=20, laz=False, scale=(0.001, 0.001, 0.001), origin=(0.0, 0.0, 0.0)):
-    """P (mm) as a plain LAS in metres — records (P/1000 - origin)/scale, per axis as real files do: a header and the records, no VLR."""
+def write_las(path, P, minor=2, fmt=0, rec_len=20, laz=False, scale=(0.001, 0.001, 0.001), origin=(0.0, 0.0, 0.0), vlrs=(), evlrs=()):
+    """P (mm) as a plain LAS in metres — records (P/1000 - origin)/scale, per axis as real files do. MA-4g: vlrs and evlrs (LAS 1.4),
+    each [(user_id, record_id, data)], after the header and after the points; laz sets the compression bit only (no LASzip record)."""
     size = {2: 227, 3: 235, 4: 375}[minor]
+    v = b"".join(struct.pack("<H16sHH32s", 0, u, r, len(d), b"") + d for u, r, d in vlrs)
     h = bytearray(size)
     h[0:4], h[24], h[25] = b"LASF", 1, minor
-    struct.pack_into("<HII", h, 94, size, size, 0)
+    struct.pack_into("<HII", h, 94, size, size + len(v), len(vlrs))
     struct.pack_into("<BHI", h, 104, fmt | (0x80 if laz else 0), rec_len, len(P) if minor < 4 else 0)
     struct.pack_into("<3d", h, 131, *scale)
     struct.pack_into("<3d", h, 155, *origin)
@@ -43,8 +47,27 @@ def write_las(path, P, minor=2, fmt=0, rec_len=20, laz=False, scale=(0.001, 0.00
     rec = np.zeros(len(P), np.dtype({"names": ["x", "y", "z"], "formats": ["<i4"] * 3, "offsets": [0, 4, 8], "itemsize": rec_len}))
     for k, a in enumerate("xyz"):
         rec[a] = np.rint((P[:, k] / 1000.0 - origin[k]) / scale[k]).astype(np.int32)
+    e = b"".join(struct.pack("<H16sHQ32s", 0, u, r, len(d), b"") + d for u, r, d in evlrs)
+    if evlrs:
+        struct.pack_into("<QI", h, 235, size + len(v) + rec.nbytes, len(evlrs))
     with open(path, "wb") as f:
-        f.write(bytes(h) + rec.tobytes())
+        f.write(bytes(h) + v + rec.tobytes() + e)
+
+
+las.add_lib()  # MA-4g: the pinned wheels' private folder (las.LIB) first on sys.path, so find_spec sees what las.lib imports
+HAS = lambda *names: all(importlib.util.find_spec(n) is not None for n in names)
+WHY = "{} not installed under this Python — MA-4g's wheels (survey/requirements-ma4g.txt)"
+# MA-4g: a projected CRS in metres, as a LAS writer puts it in its WKT VLR (EPSG codes nested in the datum, the units and the CRS itself).
+UTM33 = ('PROJCS["ETRS89 / UTM zone 33N",GEOGCS["ETRS89",DATUM["European_Terrestrial_Reference_System_1989",SPHEROID["GRS 1980",6378137,'
+         '298.257222101,AUTHORITY["EPSG","7019"]],AUTHORITY["EPSG","6258"]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433],'
+         'AUTHORITY["EPSG","4258"]],PROJECTION["Transverse_Mercator"],PARAMETER["latitude_of_origin",0],PARAMETER["central_meridian",15],'
+         'PARAMETER["scale_factor",0.9996],PARAMETER["false_easting",500000],PARAMETER["false_northing",0],UNIT["metre",1,'
+         'AUTHORITY["EPSG","9001"]],AUTHORITY["EPSG","25833"]]')
+
+
+def geokeys(keys):
+    """MA-4g: a GeoTIFF key directory (LASF_Projection 34735) from {key: value}, every value in its own entry."""
+    return struct.pack(f"<{4 + 4 * len(keys)}H", 1, 1, 0, len(keys), *[x for k, v in sorted(keys.items()) for x in (k, 0, 1, v)])
 
 
 def building(seed=7, spacing=100.0):
@@ -116,21 +139,158 @@ class Las(unittest.TestCase):
         with mock.patch.object(las, "CHUNK", 7):
             np.testing.assert_array_equal(las.read_points_mm(p, head, 0.3, np.random.default_rng(1)), whole)
 
-    def test_refuses_what_0_1_does_not_read_in_words(self):
+    def test_refuses_what_it_does_not_read_in_words(self):
         write_las(self.path("ok.las"), np.zeros((3, 3)))
         with open(self.path("ok.las"), "rb") as f:
             good = f.read()
-        laz, old = bytearray(good), bytearray(good)
-        laz[104] |= 0x80
+        old, bit6, laz = bytearray(good), bytearray(good), bytearray(good)
         old[25] = 1
-        for head, size, words in ((bytes(laz), len(good), "compressed (LAZ)"), (b"ASTM-E57" + good[8:], len(good), "not a LAS file"),
-                                  (bytes(old), len(good), "LAS 1.1 is not read"), (good, len(good) - 1, "truncated")):
+        bit6[104] |= 0x40
+        laz[104] |= 0x80
+        for head, size, words in ((b"ASTM-E58" + good[8:], len(good), "not a LAS, LAZ or E57 file (it begins neither LASF nor ASTM-E57)"),
+                                  (bytes(old), len(good), "LAS 1.1 is not read — sentinel-survey reads LAS 1.2 to 1.4"),
+                                  (bytes(bit6), len(good), "point format 64 with 20-byte records is not a LAS point record"),
+                                  (good, len(good) - 1, "truncated")):
             with self.assertRaises(las.Refused) as e:
                 las.parse_header(head[:375], size)
             self.assertIn(words, str(e.exception))
+        self.assertTrue(las.parse_header(bytes(laz)[:375], 10)["laz"])  # MA-4g: a LAZ's records are compressed — no length check
+        write_las(self.path("bit.las"), np.zeros((3, 3)), laz=True)  # the drill's compressed.las: the bit, no LASzip record
+        with self.assertRaises(las.Refused) as e:
+            las.read_header(self.path("bit.las"))
+        self.assertEqual(str(e.exception), "its points are marked compressed (LAZ) but no LASzip record was found — it is not read as a LAZ; export it again")
         write_las(self.path("none.las"), np.zeros((0, 3)))
         with self.assertRaisesRegex(las.Refused, "holds no points"):
             las.read_header(self.path("none.las"))
+
+    def test_the_crs_from_its_wkt_or_geotiff_keys_a_1_4_evlr_too_none_is_metres_assumed(self):
+        P = np.zeros((3, 3))
+        wkt = (b"LASF_Projection", 2112, UTM33.encode() + b"\0")
+        for n, (kw, want, units) in enumerate((
+                ({"vlrs": [wkt]}, ("wkt", 25833, "metre"), "metres (its CRS)"),
+                ({"vlrs": [(b"other", 1, b"x" * 10), wkt]}, ("wkt", 25833, "metre"), "metres (its CRS)"),
+                ({"vlrs": [(b"LASF_Projection", 34735, geokeys({1024: 1, 3072: 32633, 3076: 9001}))]}, ("geokeys", 32633, "metre"), "metres (its CRS)"),
+                # a US-feet code with no unit key: no pyproj looks the code's unit up, so the receipt says the metre is assumed
+                ({"vlrs": [(b"LASF_Projection", 34735, geokeys({1024: 1, 3072: 2263}))]}, ("geokeys", 2263, None), "metres assumed (its CRS's unit not stated)"),
+                ({"minor": 4, "fmt": 6, "rec_len": 30, "evlrs": [wkt]}, ("wkt", 25833, "metre"), "metres (its CRS)"))):
+            p = self.path(f"crs{n}.las")
+            write_las(p, P, **kw)
+            head = las.read_header(p)
+            c = head["crs"]
+            self.assertEqual((c["source"], c["epsg"], c["unit"]), want)
+            self.assertEqual(set(c), {"source", "epsg", "unit", "sha256"})  # no name: the file's free text never reaches a caller
+            self.assertRegex(c["sha256"], "^[0-9a-f]{64}$")
+            self.assertEqual(service.input_of({"id": "ev-0001", "head": head})["units"], units)
+        write_las(self.path("plain.las"), P)
+        head = las.read_header(self.path("plain.las"))
+        self.assertEqual((head["format"], head["laz"], head["crs"]), ("las", False, None))
+        self.assertEqual(las.wkt_crs("EPSG:25833", "e57", check=False)["epsg"], 25833)  # an E57's coordinateMetadata, as writers put it
+
+    def test_a_crs_in_degrees_or_not_in_metres_is_refused_in_words(self):
+        geog = UTM33[UTM33.index("GEOGCS"):UTM33.index(",PROJECTION")]
+        feet = UTM33.replace('UNIT["metre",1,AUTHORITY["EPSG","9001"]]', 'UNIT["US survey foot",0.304800609601219]')
+        degrees = ("its CRS is geographic or geocentric (degrees, or x, y, z from the Earth's centre) — sentinel-survey reads a projected CRS "
+                   "or a local frame in metres; reproject the scan first")
+        for n, (rid, data, words) in enumerate((
+                (2112, geog.encode(), degrees),
+                (2112, feet.encode(), "its CRS's unit is 0.304801 m — sentinel-survey reads metres; convert the scan to metres first"),
+                (34735, geokeys({1024: 2, 2048: 4258}), degrees),
+                (34735, geokeys({1024: 1, 3072: 2263, 3076: 9003}), "its CRS's unit is US survey foot — sentinel-survey reads metres; convert the scan to metres first"),
+                (34735, geokeys({1024: 1, 3072: 32633, 4099: 9002}), "its CRS's vertical unit is foot — sentinel-survey reads metres; convert the scan to metres first"))):
+            p = self.path(f"bad{n}.las")
+            write_las(p, np.zeros((3, 3)), vlrs=[(b"LASF_Projection", rid, data)])
+            with self.assertRaises(las.Refused) as e:
+                las.read_header(p)
+            self.assertEqual(str(e.exception), words)
+
+    def test_one_job_reads_one_declared_crs_named_by_code_or_sha_never_its_text(self):
+        P = building()[:2000]
+        a, b, c, d = self.path("a.las"), self.path("b.las"), self.path("c.las"), self.path("d.las")
+        nocode = UTM33[:UTM33.rindex(',AUTHORITY["EPSG","25833"]')] + "]"  # the same CRS with no code of its own
+        write_las(a, P, vlrs=[(b"LASF_Projection", 2112, UTM33.encode())])
+        write_las(b, P, vlrs=[(b"LASF_Projection", 34735, geokeys({1024: 1, 3072: 32633}))])
+        write_las(c, P)
+        write_las(d, P, vlrs=[(b"LASF_Projection", 2112, nocode.encode())])
+        item = lambda i, p: {"id": i, "path": p, "head": las.read_header(p)}
+        pipeline.load([item("ev-0001", a), item("ev-0003", c)], {"voxel_mm": 20}, 1)  # one declared, one not: read ("assumed")
+        for other, said in ((b, "EPSG:32633"), (d, f"a CRS with no EPSG code (sha256 {hashlib.sha256(nocode.encode()).hexdigest()[:12]})")):
+            with self.assertRaises(las.Refused) as e:
+                pipeline.load([item("ev-0001", a), item("ev-0002", other)], {"voxel_mm": 20}, 1)
+            self.assertEqual(str(e.exception), f"the scans declare different CRSs (ev-0001: EPSG:25833; ev-0002: {said}) — "
+                                               "one job reads one frame; survey scans in one CRS")
+            self.assertNotIn("UTM", str(e.exception))
+
+    def test_a_librarys_failure_is_words_that_name_no_path(self):
+        with self.assertRaises(las.Refused) as e:
+            with las.damaged("E57"):
+                raise OSError(f"cannot read {self.path('site.e57')}")
+        self.assertEqual(str(e.exception), "the E57 could not be read (OSError) — the file may be damaged")
+        with self.assertRaises(las.Refused) as e:
+            with las.damaged("LAZ"):
+                raise las.Refused("its own words")
+        self.assertEqual(str(e.exception), "its own words")
+        with self.assertRaises(MemoryError):  # not damage: service.run says MemoryError, with no path
+            with las.damaged("LAZ"):
+                raise MemoryError()
+
+    def test_a_wheel_at_another_version_is_refused_in_words(self):
+        with mock.patch("importlib.metadata.version", return_value="2.8.0"), self.assertRaises(las.Refused) as e:
+            las.lib("laspy")
+        self.assertEqual(str(e.exception), "laspy 2.8.0 is installed — sentinel-survey reads with laspy 2.7.0; install the pinned wheels "
+                                           "offline, as survey/requirements-ma4g.txt says")
+
+@unittest.skipUnless(HAS("laspy", "lazrs"), WHY.format("laspy and lazrs are"))
+class Laz(unittest.TestCase):
+    """MA-4g: a LAZ written by laspy itself from a LAS written here — the same points, read in chunks, capped or not."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.addCleanup(self.tmp.cleanup)
+
+    def path(self, name):
+        return os.path.join(self.tmp.name, name)
+
+    def laz(self, p, q, wkt=None):
+        laspy = las.lib("laspy")  # never a plain import here: it would import requests for real (NoNetwork pins the block in a child)
+        d = laspy.read(p)
+        if wkt:
+            d.header.vlrs.append(laspy.vlrs.known.WktCoordinateSystemVlr(wkt))
+        d.write(q, do_compress=True)
+
+    def test_a_laz_reads_the_points_of_its_las_capped_or_not_whatever_the_chunk(self):
+        off = (450000.0, 5500000.0, 250.0)
+        P = np.array(off) * 1000 + np.random.default_rng(4).uniform(0, 9000, (5000, 3))
+        for minor, fmt, rec_len in ((2, 0, 20), (4, 6, 30)):
+            p, q = self.path(f"a{minor}.las"), self.path(f"a{minor}.laz")
+            write_las(p, P, minor, fmt, rec_len, origin=off)
+            self.laz(p, q, UTM33 if minor == 4 else None)  # the WKT VLR is LAS 1.4's
+            hp, hq = las.read_header(p), las.read_header(q)
+            self.assertEqual((hq["format"], hq["laz"], hq["count"]), ("laz", True, 5000))
+            self.assertEqual(hq["crs"] and hq["crs"]["epsg"], 25833 if minor == 4 else None)
+            np.testing.assert_array_equal(las.read_points_mm(q, hq), las.read_points_mm(p, hp))
+            capped = las.read_points_mm(p, hp, 0.3, np.random.default_rng(1))
+            with mock.patch.object(las, "CHUNK", 7):
+                np.testing.assert_array_equal(las.read_points_mm(q, hq, 0.3, np.random.default_rng(1)), capped)
+
+    def test_a_laz_survey_gives_the_candidates_of_its_las(self):
+        p, q = self.path("b.las"), self.path("b.laz")
+        write_las(p, building())
+        self.laz(p, q)
+        found = lambda path: pipeline.survey([{"id": "ev-0001", "path": path, "head": las.read_header(path)}], Survey.PARAMS, 1)
+        a, b = found(p), found(q)
+        self.assertEqual(json.dumps(b), json.dumps(a))
+        self.assertEqual(len([c for c in b[0] if c["kind"] == "wall"]), 8)
+
+    def test_a_damaged_laz_fails_in_words_that_name_no_path(self):
+        p, q = self.path("c.las"), self.path("c.laz")
+        write_las(p, building())
+        self.laz(p, q)
+        with open(q, "r+b") as f:
+            f.truncate(os.path.getsize(q) // 2)
+        with self.assertRaises(las.Refused) as e:
+            las.read_points_mm(q, las.read_header(q))
+        self.assertNotIn(os.sep, str(e.exception))
+        self.assertNotIn("c.laz", str(e.exception))
 
 
 class Pair(unittest.TestCase):
@@ -255,7 +415,7 @@ class Survey(unittest.TestCase):
         write_las(path, np.array([[0.0, 0.0, 0.0], [400_000.0, 0.0, 0.0]]))
         with self.assertRaises(las.Refused) as e:
             pipeline.survey([{"id": "ev-0001", "path": path, "head": las.read_header(path)}], self.PARAMS, 1)
-        self.assertEqual(str(e.exception), "the scans span 400 m in plan — sentinel-survey 0.1 reads one building (at most 300 m across); "
+        self.assertEqual(str(e.exception), "the scans span 400 m in plan — sentinel-survey reads one building (at most 300 m across); "
                                            "a larger site waits for MA-4h")
 
 
@@ -606,7 +766,7 @@ class InProcess(unittest.TestCase):
 class NoNetwork(unittest.TestCase):
     def test_the_service_imports_numpy_and_the_standard_library_only_and_no_client(self):
         allowed = {"numpy", "las", "pipeline", "hashlib", "hmac", "json", "os", "sys", "threading", "time", "datetime", "http.server",
-                   "struct", "math", "importlib.metadata", "platform", "traceback"}
+                   "struct", "math", "re", "contextlib", "e57", "laspy", "pye57", "importlib.metadata", "platform", "traceback"}
         for name in ("las.py", "pipeline.py", "service.py"):
             with open(os.path.join(HERE, name), encoding="utf-8") as f:
                 tree = ast.parse(f.read())

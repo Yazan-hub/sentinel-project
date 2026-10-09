@@ -1,8 +1,9 @@
 # MA-4c — sentinel-survey 0.1's measuring code (design §2.1 rule 2: geometry from measuring code, never a language or vision model;
 # §6.9): storeys from a height histogram, walls from a density slice per storey (faces found by a Hough transform and fitted by total
-# least squares, then paired by WallPairing's rule — ported below), floors and ceilings as oriented rectangles. numpy only; the same
-# points, params and seed give the same candidates (no randomness but the seeded point cap). Millimetres in the scan's own frame (no CRS,
-# no transform). Candidates carry no type: the bridge types them (MA-4d). LOD 200 as found — never survey or permit grade (D7): a closed
+# least squares, then paired by WallPairing's rule — ported below), floors and ceilings as oriented rectangles. numpy only (the files are
+# read by las.py and e57.py); the same points, params and seed give the same candidates (no randomness but the seeded point cap).
+# Millimetres in the scan's own frame (no CRS applied — MA-4g: an E57's scans are posed into its file's frame, and one job reads one
+# declared CRS). Candidates carry no type: the bridge types them (MA-4d). LOD 200 as found — never survey or permit grade (D7): a closed
 # door reads as wall, openings are not proposed (MA-5), stairs are not read.
 import math
 
@@ -41,12 +42,20 @@ def load(items, params, seed, progress=lambda stage, pct: None):
     came from. items: [{id, path, head}], hashed and headed by the service. → (P mm, src, points_in); las.Refused in words past MAX_SPAN."""
     points_in = sum(i["head"]["count"] for i in items)
     share, rng = min(1.0, MAX_POINTS / points_in), np.random.default_rng(seed)
+    # MA-4g: two declared frames would be read as one. ponytail: compared by EPSG code, else by the record's sha256 — one CRS written two
+    # ways (a WKT with no code beside GeoTIFF keys) is refused too, its words naming both; a scan with no CRS beside one is read ("assumed").
+    # Named by code or sha256, never by the file's own text: these words reach the ledger.
+    named = {i["id"]: i["head"]["crs"] for i in items if i["head"].get("crs")}
+    if len({c["epsg"] or c["sha256"] for c in named.values()}) > 1:
+        said = "; ".join(f"{k}: " + (f"EPSG:{c['epsg']}" if c["epsg"] else f"a CRS with no EPSG code (sha256 {c['sha256'][:12]})")
+                         for k, c in named.items())
+        raise las.Refused(f"the scans declare different CRSs ({said}) — one job reads one frame; survey scans in one CRS")
     progress("reading", 10)
     clouds = [las.read_points_mm(i["path"], i["head"], share, rng) for i in items]
     P = np.concatenate(clouds)
     span = float(np.ptp(P[:, :2], axis=0).max())
     if span > MAX_SPAN:
-        raise las.Refused(f"the scans span {span / 1000:.0f} m in plan — sentinel-survey 0.1 reads one building (at most "
+        raise las.Refused(f"the scans span {span / 1000:.0f} m in plan — sentinel-survey reads one building (at most "
                           f"{MAX_SPAN / 1000:.0f} m across); a larger site waits for MA-4h")
     src = np.concatenate([np.full(len(c), k) for k, c in enumerate(clouds)])
     P, src = voxel(P, src, float(params["voxel_mm"]))
@@ -114,7 +123,7 @@ def classify(found, storey_min):
     """Floors and ceilings, walking up: the lowest surface is a floor; one within SLAB_MAX above a ceiling is the next floor; one at least
     storey_min above the last floor is a ceiling; any other is not proposed.
     ponytail: by the gaps alone — a split level, a mezzanine, or terrain scanned outside the building is mislabelled; the scanner's
-    positions (E57, MA-4g) settle which side a surface was seen from."""
+    positions (an E57's poses, read since MA-4g, not used here yet) settle which side a surface was seen from."""
     floors, ceilings, prev = [], [], None
     for s in sorted(found, key=lambda s: s["z"]):
         if prev is None or (prev["kind"] == "ceiling" and s["z"] - prev["z"] <= SLAB_MAX):
