@@ -9,7 +9,8 @@ import { validateChangeset, attachVerdicts, canWithdraw, deriveResultStatus, una
 import { makeTyper, makeCiter } from "./changesets-typing.mjs";
 import { resolveArtefact, refLabel, validateArtefact } from "./artefact-store.mjs";
 import { resolveActor } from "./bridge-auth.mjs";
-import { readProposeBody, planSurvey, PLANNER, PLANNER_VERSION, measurePlan, judge, measureRefusal, countWords, STATUSES, MIN_COVERAGE, TOLERANCE_MM, MEASURE_KNOBS } from "./survey-plan.mjs";
+import { readProposeBody, planSurvey, PLANNER, PLANNER_VERSION, measurePlan, judge, measureRefusal, countWords, STATUSES, MIN_COVERAGE, TOLERANCE_MM, MEASURE_KNOBS,
+  readMesh, meshFaces, REVIT, FILED as AS_FILED } from "./survey-plan.mjs";
 import { stillAdmitted, pickItems, trustedJob as jobOf, measureJob as measureOf, TOLERANCES_MM, READER } from "./build-jobs.mjs";
 
 const STORE = "changeset";
@@ -366,9 +367,10 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
  *  it was built from; no params or seed), 409 (a scan changed or unreadable), 503 (its ledger rows: not read, or more than one read returns),
  *  409 (nothing to measure), 409 (a replay: measured on these same inputs), 503/409 (the service not set up; busy). After the run: refused
  *  409, failed 502 (the run's words; another sentinel-survey version than the job's; a result not the contract's shape), each naming its row.
- *  "As filed" is the founder's answer for MA-4e (2026-10-09, open question 1); Revit's re-read is MA-4f's.
- *  ponytail: as filed, not re-read — a wall moved in Revit after Apply, a model closed unsaved and a wrong frame are not seen; Revit's re-read
- *  is MA-4f's (its results[] would be the add-in's claim). Synchronous, bounded by the survey's JOB_MS — a 202 and a record when Kladno's
+ *  MA-4f: each wall Revit re-read at Apply (AppliedEntry.mesh → reread) is measured by that re-read, the add-in's claim, said on the row and
+ *  each element ("revit (claimed)"); the rest as filed (MA-4e, the founder's answer).
+ *  ponytail: the re-read is Revit's at Apply — a wall moved after it, a model closed unsaved and a wrong frame are not seen; a re-read on
+ *  demand is Next. Synchronous, bounded by the survey's JOB_MS — a 202 and a record when Kladno's
  *  measure outlasts a request (MA-4h). */
 export async function verifyChangeset(key, b, actor, deps = {}) {
   const d = wire(deps);
@@ -387,7 +389,7 @@ export async function verifyChangeset(key, b, actor, deps = {}) {
   d.takeWriteBudget("survey jobs", { perUser: 6, all: 12 }); // a measure is a survey run: one budget for the PC's CPU (its 429 says "nothing was saved")
   let x;
   try { x = await prepare(b.changeset); } catch (e) { throw unsaved(e); } // nothing is written before the run
-  const { proj, cs, row, evidence, items, applied, reverted, faces, plan } = x;
+  const { proj, cs, row, evidence, items, applied, reverted, faces, plan, reference } = x;
   let r;
   try { r = await measureJob(key, cs.job.id, { job_id: `measure-${cs.id}`, items, params: { ...row.params, tolerances_mm: TOLERANCES_MM }, seed: row.seed, elements: plan.send }); }
   catch (e) { throw unsaved(e); } // not set up (503), busy (409): before the run
@@ -425,20 +427,23 @@ export async function verifyChangeset(key, b, actor, deps = {}) {
     status, job: { id: cs.job.id, ledger_id: row.ledger.id, result_sha256: row.result_sha256, version: row.version ?? null },
     evidence, reader: READER, version: r.version ?? null, tools: r.tools ?? [], params: row.params, seed: row.seed,
     tolerances_mm: TOLERANCES_MM, target_mm: TOLERANCE_MM, min_coverage: MIN_COVERAGE, measure: knobs,
-    // As filed: the changeset's own geometry, which the executor places exactly — not re-read from Revit (MA-4f); the frame is the lead's statement.
-    reference: "as filed", frame: cs.job.frame, storey: { level: s.level ?? null, how: s.how ?? null, checked: s.checked ?? null, delta_mm: s.delta_mm ?? null },
+    // MA-4f: Revit's re-read where the add-in sent one the bridge could reduce ("revit (claimed)"), else as filed, or "mixed"; the frame is the lead's statement.
+    reference, frame: cs.job.frame, storey: { level: s.level ?? null, how: s.how ?? null, checked: s.checked ?? null, delta_mm: s.delta_mm ?? null },
     sign: "+ = the scan outside the element's face", started: when(rc.started), finished: when(rc.finished), cpu_s: num(rc.cpu_s),
-    points_in: num(rc.points_in), points_used: num(rc.points_used), counts, elements, model_calls: 0, tokens: 0, claimed: false, ...(error ? { error } : {}),
+    points_in: num(rc.points_in), points_used: num(rc.points_used), counts, elements, model_calls: 0, tokens: 0,
+    claimed: reference !== AS_FILED, // MA-4f: a measure that rests on Revit's re-read rests on the add-in's word
+    ...(error ? { error } : {}),
   };
   let written;
   try {
-    written = await d.audit(proj.id, "changeset", cs.id, `verify:measured ${cs.job.id} · ${READER} ${r.version ?? "(no version)"} · ${status}${status === "done" ? ` · ${countWords(counts)}` : ""}`,
+    written = await d.audit(proj.id, "changeset", cs.id, `verify:measured ${cs.job.id} · ${READER} ${r.version ?? "(no version)"} · ${status}` +
+      `${reference === AS_FILED ? "" : reference === REVIT ? ` · ${REVIT}` : ` · mixed: ${REVIT} and ${AS_FILED}`}${status === "done" ? ` · ${countWords(counts)}` : ""}`,
       actor || "web", null, value);
   } catch (e) { throw err(502, `${cs.name} was measured, but the ledger did not take its row (${e.message}) — nothing was saved; measure it again`); }
   const ledger = ledgerRef(written);
   if (status === "refused") throw err(409, `${cs.name} was not measured: ${error} — ledger #${ledger?.id ?? "?"} records the run; nothing else was saved`);
   if (status !== "done") throw err(502, `the measure of ${cs.name} did not finish: ${error} — ledger #${ledger?.id ?? "?"} records the run; nothing else was saved`);
-  return { changeset: { id: cs.id, name: cs.name }, status, counts, elements, ledger };
+  return { changeset: { id: cs.id, name: cs.name }, status, reference, counts, elements, ledger };
 
   /** Everything before the run: the changeset, its job's row, the bytes, its Undo rows, what is measured, and whether it is a replay. */
   async function prepare(id) {
@@ -477,14 +482,15 @@ export async function verifyChangeset(key, b, actor, deps = {}) {
     if (!plan.send.length) throw err(409, `nothing of ${cs.name} can be measured: ${[...new Set(plan.skip.map((y) => y.reason))].join("; ")}`);
     const applied = rows.find((y) => y.action === "changeset_applied")?.id ?? null, reverted = rows.find((y) => y.action === "changeset_reverted")?.id ?? null;
     const faces = createHash("sha256").update(JSON.stringify(plan.send)).digest("hex");
+    const refs = [...new Set(plan.placed.map((y) => y.reference).filter(Boolean))], reference = refs.length === 1 ? refs[0] : "mixed";
     // A replay (decision 11): the measure is deterministic, so a done row on these same inputs is not written twice.
     // ponytail: a new sentinel-survey version (or a changed target here) is re-measured only once an input changes; a "measure anyway" when asked.
     const [prev] = (await read("verify:measured", 1)).rows ?? [];
     const pv = prev?.new_value;
     if (pv?.status === "done" && pv.job?.ledger_id === row.ledger.id && JSON.stringify(pv.evidence) === JSON.stringify(evidence)
-      && pv.applied_row === applied && pv.reverted_row === reverted && pv.faces_sha256 === faces)
+      && pv.applied_row === applied && pv.reverted_row === reverted && pv.faces_sha256 === faces && (pv.reference ?? AS_FILED) === reference)
       throw err(409, `${cs.name} was measured on these same inputs as ledger #${prev.id} — the same bytes, seed and geometry give the same numbers; nothing was saved`);
-    return { proj, cs, row, evidence, items, applied, reverted, faces, plan };
+    return { proj, cs, row, evidence, items, applied, reverted, faces, plan, reference };
   }
 }
 
@@ -502,6 +508,17 @@ export async function getChangeset(key, id, deps) {
   if (!cs) throw err(404, "changeset not found");
   return cs;
 }
+
+/** MA-4f: what the bridge keeps of Revit's re-read of a placed survey wall — the add-in's claim: the sha256 of the bridge's serialization of
+ *  it and the two faces meshFaces reduces it to (model frame, bounded by the filed wall); or why not — the machine credential's report (MA-4e
+ *  refuses it a measure, so its geometry is not used for a person's either), not a mesh, or not reducible. Never the mesh itself (the doc is
+ *  listed to every desk), never a refusal (a result is Revit's write-once record of what it placed: verify measures that wall as filed). */
+const reread = (m, el, role) => {
+  const mesh_sha256 = createHash("sha256").update(JSON.stringify(m)).digest("hex");
+  if (role === "service") return { mesh_sha256, why: "reported with the machine credential — sign in in Revit to have it measured" };
+  const bad = readMesh(m);
+  return bad ? { mesh_sha256, why: bad } : { mesh_sha256, ...meshFaces(el, m) };
+};
 
 /** The add-in's report: which proposals a human ticked (with the created Revit ids) and which they
  *  didn't. Writable exactly once, only from `proposed`. Status is DERIVED from the counts. */
@@ -546,7 +563,13 @@ export async function reportResult(key, id, { applied, rejected, note, review_re
     return { conflicts, why, updated: {
       ...cs, status, updated_at: new Date().toISOString(), review_rev: reviewRev(cs) + 1,
       result: {
-        applied: appliedArr.map((a) => ({ proposal_guid: a.proposal_guid, revit_element_id: Number(a.revit_element_id), revit_unique_id: a.revit_unique_id ?? null })),
+        applied: appliedArr.map((a) => {
+          const el = cs.elements.find((e) => e.proposal_guid === a.proposal_guid);
+          // Built field by field: a posted reread is never kept. MA-4f: Revit's re-read of a wall a survey changeset placed (a claimed
+          // changeset's mesh is ignored, as before MA-4f).
+          return { proposal_guid: a.proposal_guid, revit_element_id: Number(a.revit_element_id), revit_unique_id: a.revit_unique_id ?? null,
+            ...(cs.job && el?.kind === "wall" && a.mesh != null ? { reread: reread(a.mesh, el, role) } : {}) };
+        }),
         rejected: rejectedArr, note: typeof note === "string" && note.trim() ? note.trim() : null,
         reported_at: new Date().toISOString(), reported_by: resolveActor(actor, "revit"),
         reported_role: role ?? null, // MA-3b3 (C1): the bridge's own reading — never a posted field
