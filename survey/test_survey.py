@@ -25,6 +25,7 @@ from unittest import mock
 import numpy as np
 
 import las
+import e57
 import pipeline
 import service
 
@@ -68,6 +69,25 @@ UTM33 = ('PROJCS["ETRS89 / UTM zone 33N",GEOGCS["ETRS89",DATUM["European_Terrest
 def geokeys(keys):
     """MA-4g: a GeoTIFF key directory (LASF_Projection 34735) from {key: value}, every value in its own entry."""
     return struct.pack(f"<{4 + 4 * len(keys)}H", 1, 1, 0, len(keys), *[x for k, v in sorted(keys.items()) for x in (k, 0, 1, v)])
+
+
+def write_e57(path, P, poses):
+    """MA-4g: P (mm) as an E57 written by pye57 itself — scan k holds its share of P in its own frame, posed by poses[k] = (an angle about
+    z, a translation in m). Local coordinates stay small (pye57 stores them as float32); the pose is double."""
+    pye57 = las.lib("pye57")
+    with pye57.E57(path, mode="w") as e:
+        for part, (theta, t) in zip(np.array_split(P / 1000.0, len(poses)), poses):
+            c, s = math.cos(theta), math.sin(theta)
+            local = (part - np.array(t)) @ np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])  # global = R·local + t
+            e.write_scan_raw({k: local[:, n] for n, k in enumerate(("cartesianX", "cartesianY", "cartesianZ"))},
+                             rotation=np.array([math.cos(theta / 2), 0, 0, math.sin(theta / 2)]), translation=np.array(t, float))
+
+
+def write_e57_shell(path, xml):
+    """MA-4g: an E57's header and XML section only (one page, no data, no checksums) — what the struct check reads before any library."""
+    page0 = struct.pack("<8sIIQQQQ", b"ASTM-E57", 1, 0, 2048, 1024, len(xml), 1024).ljust(1024, b"\0")
+    with open(path, "wb") as f:
+        f.write(page0 + xml.ljust(1020, b" ") + b"\0" * 4)
 
 
 def building(seed=7, spacing=100.0):
@@ -246,6 +266,38 @@ class Las(unittest.TestCase):
         self.assertEqual(str(e.exception), "laspy 2.8.0 is installed — sentinel-survey reads with laspy 2.7.0; install the pinned wheels "
                                            "offline, as survey/requirements-ma4g.txt says")
 
+    def test_an_e57_whose_parser_could_fetch_a_file_is_refused_before_any_library(self):
+        xsi = b'<?xml version="1.0"?><e57Root xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
+        for n, xml in enumerate((b'<?xml version="1.0"?><!DOCTYPE e57Root SYSTEM "http://example.test/x.dtd"><e57Root/>',
+                                 xsi + b'xsi:schemaLocation="http://example.test/e57.xsd"/>',
+                                 xsi + b'xsi:noNamespaceSchemaLocation="http://example.test/e57.xsd"/>',  # a capital S: any case is refused
+                                 xsi + b'xsi:noNamespaceSchemaLocation="file://example.test/s/x.xsd"/>',  # a share: an SMB connection
+                                 b'<?xml version="1.0" encoding="UTF-16"?><e57Root/>',
+                                 "\ufeff<e57Root/>".encode("utf-16-le"))):
+            p = self.path(f"x{n}.e57")
+            write_e57_shell(p, xml)
+            with mock.patch.object(las, "lib", side_effect=AssertionError("a library before the check")), self.assertRaises(las.Refused) as e:
+                las.read_header(p)
+            self.assertEqual(str(e.exception), "its XML is not plain UTF-8, or it declares a DTD, an entity or a schema location — an E57 whose "
+                                               "parser could fetch a file is not read")
+
+    def test_without_the_wheels_a_plain_las_reads_and_a_laz_or_an_e57_is_refused_in_words(self):
+        write_las(self.path("plain.las"), np.zeros((3, 3)))
+        write_las(self.path("fake.laz"), np.zeros((3, 3)), laz=True, vlrs=[(b"laszip encoded", 22204, b"\0" * 34)])
+        write_e57_shell(self.path("shell.e57"), b'<?xml version="1.0" encoding="UTF-8"?><e57Root/>')
+        with mock.patch.dict(sys.modules, {"laspy": None, "pye57": None}):
+            self.assertEqual(len(las.read_points_mm(self.path("plain.las"), las.read_header(self.path("plain.las")))), 3)
+            for name, words in (("fake.laz", "a LAZ is read with laspy and lazrs — "), ("shell.e57", "an E57 is read with pye57 — ")):
+                with self.assertRaises(las.Refused) as e:
+                    las.read_header(self.path(name))
+                self.assertEqual(str(e.exception), f"{words}not importable under this Python (not installed, or a DLL it needs is missing); "
+                                                   "install the four pinned wheels offline, as survey/requirements-ma4g.txt says")
+
+    def test_an_e57_scan_is_read_when_cartesian(self):
+        self.assertIsNone(e57.fields_refusal(["cartesianX", "cartesianY", "cartesianZ", "intensity"]))
+        self.assertEqual(e57.fields_refusal(["sphericalRange", "sphericalAzimuth", "sphericalElevation"]),
+                         "its points are spherical (range, azimuth, elevation) — sentinel-survey reads cartesian E57 points; export the scan as cartesian")
+
 
 @unittest.skipUnless(HAS("laspy", "lazrs"), WHY.format("laspy and lazrs are"))
 class Laz(unittest.TestCase):
@@ -299,6 +351,49 @@ class Laz(unittest.TestCase):
             las.read_points_mm(q, las.read_header(q))
         self.assertNotIn(os.sep, str(e.exception))
         self.assertNotIn("c.laz", str(e.exception))
+
+
+@unittest.skipUnless(HAS("pye57"), WHY.format("pye57 is"))
+class E57(unittest.TestCase):
+    """MA-4g: an E57 written by pye57 itself — two scans, each in its own frame, posed into a national grid."""
+    OFF = np.array([450_000_000.0, 5_500_000_000.0, 250_000.0])  # mm
+    POSES = [(0.5, (450_001.0, 5_500_002.0, 250.0)), (2.0, (450_004.0, 5_500_003.0, 250.1))]
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.addCleanup(self.tmp.cleanup)
+
+    def path(self, name):
+        return os.path.join(self.tmp.name, name)
+
+    def test_two_posed_scans_read_in_the_files_frame_capped_or_not_whatever_the_buffer(self):
+        P = building() + self.OFF
+        p = self.path("two.e57")
+        write_e57(p, P, self.POSES)
+        head = las.read_header(p)  # the XML check passes on what libE57Format writes
+        self.assertEqual((head["format"], head["count"], head["crs"]), ("e57", len(P), None))
+        self.assertEqual([(s["points"], s["posed"]) for s in head["scans"]], [(len(a), True) for a in np.array_split(P, 2)])
+        np.testing.assert_allclose(las.read_points_mm(p, head), P, rtol=0, atol=0.01)
+        capped = las.read_points_mm(p, head, 0.3, np.random.default_rng(1))
+        with mock.patch.object(las, "CHUNK", 7):  # also pins that libE57's read() returns each buffer's count
+            np.testing.assert_array_equal(las.read_points_mm(p, head, 0.3, np.random.default_rng(1)), capped)
+        found, _ = pipeline.survey([{"id": "ev-0005", "path": p, "head": head}], Survey.PARAMS, 1)
+        self.assertEqual(len([c for c in found if c["kind"] == "wall"]), 8)
+        self.assertTrue(all(x.startswith("ev-0005#") for c in found for x in c["evidence"]))
+
+    def test_a_damaged_e57_is_refused_in_words_that_name_no_path(self):
+        p = self.path("bad.e57")
+        write_e57(p, building(), [(0.0, (0.0, 0.0, 0.0))])
+        with open(p, "r+b") as f:  # one byte flipped in a data page (libE57 writes its XML last, so a cut would only fail the XML check)
+            at = struct.unpack_from("<Q", f.read(48), 24)[0] // 2
+            f.seek(at)
+            b = f.read(1)
+            f.seek(at)
+            f.write(bytes([b[0] ^ 0xFF]))
+        with self.assertRaises(las.Refused) as e:
+            las.read_points_mm(p, las.read_header(p))
+        self.assertRegex(str(e.exception), r"^the E57 could not be read \(\w+\) — the file may be damaged$")  # pye57 reached: damaged
+        self.assertNotIn("bad.e57", str(e.exception))
 
 
 class Pair(unittest.TestCase):
