@@ -117,7 +117,7 @@ describe.skipIf(!real)("sentinel-survey for real (Python with numpy on this PC)"
     near(of("ceiling").map((c) => c.measured.elevation_mm), [2800, 5800], 5);
     expect(of("floor")).toHaveLength(2);
     near(of("wall").map((c) => c.measured.thickness_mm).sort((x, y) => x - y), [200, 200, 250, 250, 300, 300, 300, 300], 10);
-    expect(a.tools.map((t) => t.name)).toEqual(["sentinel-survey", "python", "numpy"]);
+    expect(a.tools.map((t) => t.name).slice(0, 3)).toEqual(["sentinel-survey", "python", "numpy"]); // MA-4g: the wheels follow when installed
     expect(JSON.stringify(b.result.candidates)).toBe(JSON.stringify(a.result.candidates));
   }, 60_000);
 

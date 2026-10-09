@@ -2,7 +2,8 @@
 # (WebApp/bridge/survey-service.mjs). It listens on 127.0.0.1 only, on a port it picks (one JSON line on stdout), answers only the
 # bridge's per-start token, makes no network call, writes no file (its result goes back over HTTP and the bridge keeps it), re-hashes
 # every input before the read (a changed one is refused) and after it (a change during the read fails the job), does no typing, never writes the ledger, never talks to Revit — and exits when the bridge does
-# (its stdin closes, a hard kill too). numpy and the standard library only. Run: python -E -B service.py (never -I: numpy is in the
+# (its stdin closes, a hard kill too). numpy and the standard library at start; MA-4g: laspy (with lazrs) and pye57 only inside the read
+# of a LAZ or an E57 (las.lib, at las.PINS, from their private folder las.LIB). Run: python -E -B service.py (never -I: numpy is in the
 # user site).
 # MA-4e: POST /measure — a job's own cloud read again and measured against a placed changeset's faces (numbers only; the bridge judges).
 # MA-4f: POST /cloud — a job's own cloud read again, cut to a band and thinned for Revit's overlay (numbers only; the bridge moves them into the model's frame).
@@ -21,7 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import las
 import pipeline
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"  # MA-4g: LAZ, E57 and the CRS. A job read by 0.1.0 is proposed and overlaid as before; a measure of one fails in words (changesets-store verify)
 TOKEN = os.environ.get("SENTINEL_SURVEY_TOKEN", "")
 MAX_BODY = 1 << 20
 # ponytail: one file is at most 300 million points: it is hashed twice and read in chunks, which must fit the bridge's 10 min job limit.
@@ -35,15 +36,32 @@ JOB = {}  # this process's one job: {id, status, stage, pct, refused, error?, re
 LOCK = threading.Lock()
 
 
+# MA-4g: what a pinned wheel (las.PINS) carries that its metadata does not declare — listed only when the wheel is at its pin
+# (ponytail: read by hand from these wheel versions; a new wheel is a new download OK, and a re-read).
+INSIDE = {"lazrs": [("laz (in lazrs)", "0.12.2", "Apache-2.0")],  # its SBOM; the other crates are MIT or Apache-2.0
+          "pye57": [("libE57Format (in pye57)", "bundled", "BSL-1.0"), ("Xerces-C++ (in pye57)", "3.2.3", "Apache-2.0")]}
+
+
 def tools():
-    """Each tool with the licence its package declares (the build:run receipt lists them, design §6.10)."""
+    """Each tool with the licence its package declares (the build:run receipt lists them, design §6.10); MA-4g's wheels when INSTALLED —
+    not a statement that this job used them (a LAS-only job lists them too). Read from metadata, never imported here."""
     import importlib.metadata
     import platform
     import numpy
-    md = importlib.metadata.metadata("numpy")
-    return [{"name": "sentinel-survey", "version": VERSION, "licence": "LicenseRef-Sentinel"},
-            {"name": "python", "version": platform.python_version(), "licence": "PSF-2.0"},
-            {"name": "numpy", "version": numpy.__version__, "licence": md.get("License-Expression") or md.get("License") or "not declared"}]
+    las.add_lib()  # MA-4g: the wheels' private folder (las.LIB) on sys.path, so their metadata is found where las.lib imports them
+    declared = lambda md: md.get("License-Expression") or md.get("License") or "not declared"
+    out = [{"name": "sentinel-survey", "version": VERSION, "licence": "LicenseRef-Sentinel"},
+           {"name": "python", "version": platform.python_version(), "licence": "PSF-2.0"},
+           {"name": "numpy", "version": numpy.__version__, "licence": declared(importlib.metadata.metadata("numpy"))}]
+    for name, pin in las.PINS.items():
+        try:
+            md = importlib.metadata.metadata(name)
+        except importlib.metadata.PackageNotFoundError:
+            continue
+        out.append({"name": name, "version": md["Version"], "licence": declared(md)})
+        if md["Version"] == pin:  # at another version las.lib refuses it, and what it carries is not known
+            out += [{"name": n, "version": v, "licence": lic} for n, v, lic in INSIDE.get(name, [])]
+    return out
 
 
 def sha256(path):
@@ -59,13 +77,13 @@ def check(item):
     ponytail: hashed before the read and again after it (run) — a change made and undone inside the read is not caught; a read lock
     on the file (MA-4h) closes that if it ever matters."""
     if item["kind"] != "scan":
-        return None, f"a {item['kind']} is not surveyed by sentinel-survey 0.1 (scans only)"
+        return None, f"a {item['kind']} is not surveyed by sentinel-survey (scans only)"
     try:
         if sha256(item["path"]) != item["sha256"]:
             return None, "changed since admitted (its sha256 is not the pack's) — Re-check flags it"
         head = las.read_header(item["path"])
         if head["count"] > MAX_POINTS_IN:
-            return None, f"{head['count']:,} points — sentinel-survey 0.1 reads at most {MAX_POINTS_IN:,} in one file; a larger scan waits for MA-4h"
+            return None, f"{head['count']:,} points — sentinel-survey reads at most {MAX_POINTS_IN:,} in one file; a larger scan waits for MA-4h"
         return head, None
     except las.Refused as e:
         return None, str(e)
@@ -130,7 +148,7 @@ def run(job):
             return
         JOB["result"] = {**out, "receipt": {
             "tools": tools(), "params": job["params"], "seed": job["seed"], "started": started, "finished": now(),
-            "cpu_s": round(time.process_time() - cpu0, 2), **stats, "units": "metres assumed (no CRS read)"}}
+            "cpu_s": round(time.process_time() - cpu0, 2), **stats, "inputs": [input_of(i) for i in ok]}}
         JOB.update(status="done", stage="done", pct=100)
     # The job fails in words; the service stays up for the bridge to read it. The error goes into job.json, every viewer's read over
     # the Funnel and the build:run row in the hosted ledger, so it names no path (a Windows path carries the user's name): the

@@ -669,10 +669,12 @@ class Service(unittest.TestCase):
 
     def test_health_answers_only_its_token_and_names_each_tool_with_its_licence(self):
         _, port, version = self.start()
-        self.assertEqual(version, "0.1.0")
+        self.assertEqual(version, "0.2.0")
         self.assertEqual(self.call(port, "GET", "/health", token="nope")[0], 401)
         code, health = self.call(port, "GET", "/health")
-        self.assertEqual([t["name"] for t in health["tools"]], ["sentinel-survey", "python", "numpy"])
+        names = [t["name"] for t in health["tools"]]
+        self.assertEqual(names[:3], ["sentinel-survey", "python", "numpy"])
+        self.assertLessEqual(set(names[3:]), {"laspy", "lazrs", "laz (in lazrs)", "pye57", "libE57Format (in pye57)", "Xerces-C++ (in pye57)", "pyquaternion"})
         self.assertTrue(all(t["licence"] for t in health["tools"]))
 
     def test_a_job_on_the_las_a_changed_file_refused_in_words_and_no_file_written(self):
@@ -695,7 +697,7 @@ class Service(unittest.TestCase):
         self.assertEqual(status["refused"], [{"id": "ev-0002", "reason": "changed since admitted (its sha256 is not the pack's) — Re-check flags it"}])
         result = self.call(port, "GET", "/jobs/job-0001/result")[1]
         self.assertEqual(len([c for c in result["candidates"] if c["kind"] == "wall"]), 8)
-        self.assertEqual((result["receipt"]["seed"], result["receipt"]["units"]), (1, "metres assumed (no CRS read)"))
+        self.assertEqual((result["receipt"]["seed"], result["receipt"]["inputs"]), (1, [{"id": "ev-0001", "format": "las", "points": len(building()), "crs": None, "units": "metres assumed (no CRS read)"}]))
         self.assertEqual(os.listdir(self.cwd.name), [])  # it writes nothing — not even in its own folder
 
     def test_a_measure_over_http_is_this_processs_one_run_polled_as_a_job(self):
@@ -759,6 +761,37 @@ class InProcess(unittest.TestCase):
             service.run({"job_id": "job-0001", "items": [item], "params": {"voxel_mm": 20, "storey_min_mm": 2000}, "seed": 1})
         return service.JOB
 
+    @unittest.skipUnless(HAS("laspy", "lazrs", "pye57"), WHY.format("laspy, lazrs and pye57 are"))
+    def test_a_job_on_a_las_its_laz_and_an_e57_names_each_input_and_every_wheel(self):
+        laspy = las.lib("laspy")  # never a plain import: it would import requests for real
+        p, q, r = (os.path.join(self.data.name, n) for n in ("b.las", "b.laz", "b.e57"))
+        write_las(p, building())
+        d = laspy.read(p)
+        d.header.vlrs.append(laspy.vlrs.known.WktCoordinateSystemVlr(UTM33))
+        d.write(q, do_compress=True)
+        write_e57(r, building(), [(0.5, (1.0, 2.0, 0.0)), (2.0, (4.0, 3.0, 0.1))])
+        items = [{"id": f"ev-000{n + 1}", "kind": "scan", "path": x, "sha256": service.sha256(x)} for n, x in enumerate((p, q, r))]
+        job = self.run_job_items(items)
+        self.assertEqual(job["status"], "done", job)
+        n = len(building())
+        crs = {"source": "wkt", "epsg": 25833, "unit": "metre", "sha256": hashlib.sha256(UTM33.encode()).hexdigest()}
+        self.assertEqual(job["result"]["receipt"]["inputs"], [
+            {"id": "ev-0001", "format": "las", "points": n, "crs": None, "units": "metres assumed (no CRS read)"},
+            {"id": "ev-0002", "format": "laz", "points": n, "crs": crs, "units": "metres (its CRS)"},
+            {"id": "ev-0003", "format": "e57", "points": n, "crs": None, "units": "metres (E57)",
+             "scans": [{"points": n - n // 2, "posed": True}, {"points": n // 2, "posed": True}]}])
+        self.assertEqual(len([c for c in job["result"]["candidates"] if c["kind"] == "wall"]), 8)
+        self.assertEqual([t["name"] for t in job["result"]["receipt"]["tools"]],
+                         ["sentinel-survey", "python", "numpy", "laspy", "lazrs", "laz (in lazrs)", "pye57", "libE57Format (in pye57)",
+                          "Xerces-C++ (in pye57)", "pyquaternion"])
+
+    def run_job_items(self, items):
+        service.JOB.clear()
+        service.JOB.update(id="job-0001", status="queued", stage="queued", pct=0, refused=[])
+        with contextlib.redirect_stderr(io.StringIO()):
+            service.run({"job_id": "job-0001", "items": items, "params": {"voxel_mm": 20, "storey_min_mm": 2000}, "seed": 1})
+        return service.JOB
+
     def test_the_listener_shares_its_port_with_no_one_and_drops_an_idle_connection(self):
         server = service.Server(("127.0.0.1", 0), service.Handler)
         self.addCleanup(server.server_close)
@@ -791,7 +824,7 @@ class InProcess(unittest.TestCase):
     def test_a_file_over_the_point_limit_is_refused_in_words(self):
         item = self.item(np.zeros((5, 3)))
         with mock.patch.object(service, "MAX_POINTS_IN", 4):
-            self.assertEqual(service.check(item), (None, "5 points — sentinel-survey 0.1 reads at most 4 in one file; a larger scan waits for MA-4h"))
+            self.assertEqual(service.check(item), (None, "5 points — sentinel-survey reads at most 4 in one file; a larger scan waits for MA-4h"))
 
     MEASURE = {"voxel_mm": 20, "storey_min_mm": 2000, "tolerances_mm": [50, 100, 200]}
 
@@ -867,12 +900,24 @@ class InProcess(unittest.TestCase):
 
 
 class NoNetwork(unittest.TestCase):
-    def test_the_service_imports_numpy_and_the_standard_library_only_and_no_client(self):
-        allowed = {"numpy", "las", "pipeline", "hashlib", "hmac", "json", "os", "sys", "threading", "time", "datetime", "http.server",
-                   "struct", "math", "re", "contextlib", "e57", "laspy", "pye57", "importlib.metadata", "platform", "traceback"}
-        for name in ("las.py", "pipeline.py", "service.py"):
+    def test_numpy_and_the_standard_library_at_start_laspy_and_pye57_only_inside_a_read_and_no_client(self):
+        wheels = {"laspy", "pye57", "pyquaternion"}
+        allowed = {"numpy", "las", "e57", "pipeline", "hashlib", "hmac", "json", "os", "sys", "threading", "time", "datetime", "http.server",
+                   "struct", "math", "re", "contextlib", "importlib.metadata", "platform", "traceback"} | wheels
+        for name in ("las.py", "e57.py", "pipeline.py", "service.py"):
             with open(os.path.join(HERE, name), encoding="utf-8") as f:
                 tree = ast.parse(f.read())
             used = {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
             used |= {n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
-            self.assertLessEqual(used, allowed, name)  # no socket, urllib, http.client: it listens, it never calls out
+            self.assertLessEqual(used, allowed, name)  # no socket, urllib, http.client, requests: it listens, it never calls out
+            top = {a.name for n in tree.body if isinstance(n, ast.Import) for a in n.names}
+            top |= {n.module for n in tree.body if isinstance(n, ast.ImportFrom)}
+            self.assertFalse(top & wheels, name)  # MA-4g: imported only inside a LAZ's or an E57's read, after las.lib
+
+    @unittest.skipUnless(HAS("laspy", "lazrs"), WHY.format("laspy and lazrs are"))
+    def test_laspy_finds_no_http_client(self):
+        # MA-4g: laspy's COPC reader imports requests when it can, and requests is in the user site. A child process, started as the
+        # bridge starts the service, so nothing this test process imported first can hide a missing block.
+        out = subprocess.run([sys.executable, "-E", "-B", "-c", "import las, sys; las.lib('laspy'); print(sys.modules['requests'] is None)"],
+                             cwd=HERE, capture_output=True, text=True, timeout=120)
+        self.assertEqual(out.stdout.strip(), "True", out.stderr[-500:])
