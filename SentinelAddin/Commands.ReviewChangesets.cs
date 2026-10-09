@@ -416,6 +416,43 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
             App.Events.Enqueue(ua => { overlay.Update(segs, tris); ua.ActiveUIDocument?.RefreshActiveView(); }, "recolour the ghost overlay");
         };
         window.Closed += (_, _) => OverlayOff("the window closed");
+        // MA-4f: the scan overlay — "Show the scan" on a survey changeset: the bridge reads the job's scan again (GET …/:id/scan, off Revit's
+        // thread) and a second overlay draws it as cyan crosses in this model's 3D views, plans and sections. It stays after Apply (the placed
+        // walls against the scan) and goes when unticked or the window closes; the newest tick wins. Nothing is written.
+        // Review (critique M1): scanOn is read and written on Revit's thread only — the removal is a hub job too, and the hub runs its jobs one at
+        // a time in order, so an untick that lands while the draw job runs removes what it drew. scanAsk is bumped on the window's thread.
+        GhostOverlayServer scanOn = null;
+        var scanAsk = 0;
+        void ScanOff(string why) => App.Events.Enqueue(ua =>
+        {
+            var s = scanOn; scanOn = null;
+            if (s == null) return;
+            try { GhostOverlayServer.Remove(ua, s); } catch (Exception ex) { App.PanelVm?.LogDoctor($"Review AI Proposals: the scan overlay was not removed ({why}) — {ex.GetType().Name}: {ex.Message}"); }
+        }, "remove the scan overlay");
+        window.ScanRequested += on =>
+        {
+            var ask = ++scanAsk;
+            ScanOff("unticked");
+            // MA-3c's ghost line and the scan's share the window's line: unticking puts the ghost's back (none after Apply: its overlay is gone).
+            if (!on) { window.Shown(window.Applied ? "" : GhostOverlayGeometry.Line(creates, outlined)); return; }
+            window.Shown("Reading the scan on the bridge…");
+            Task.Run(() =>
+            {
+                var got = ChangesetClient.FetchScan(cfg, key, cs.Id, out var err);
+                if (ask != scanAsk) return; // a newer tick or untick since: this answer is not shown
+                if (got == null) { window.Shown("The scan was not drawn — " + err); return; }
+                var segs = GhostOverlayGeometry.ScanCrosses(got.Points, GhostOverlayGeometry.ScanBudget);
+                App.Events.Enqueue(doc, "draw the scan overlay", (ua, _) =>
+                {
+                    if (window.Gone || ask != scanAsk || scanOn != null) return;
+                    var s = new GhostOverlayServer(doc, cs.Name, segs, null, "Scan overlay");
+                    scanOn = s;
+                    try { GhostOverlayServer.Register(ua, s); window.Shown(GhostOverlayGeometry.ScanLine(got, segs.Count / 3)); }
+                    catch (Exception ex) { ScanOff("the registration failed"); window.Shown($"The scan could not be drawn — {ex.GetType().Name}: {ex.Message}"); }
+                }, refusal => window.Shown($"The scan was not drawn — {refusal}"));
+            });
+        };
+        window.Closed += (_, _) => { scanAsk++; ScanOff("the window closed"); };
         var here = DocOf(doc);
         var left = new List<UnreportedResults.Record>(); // what Retry report sends again
         // Review C13: a decline that did not land lives only in this window (E4) — closing it loses it, said.

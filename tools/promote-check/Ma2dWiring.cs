@@ -15,10 +15,10 @@ static partial class Check
            && Count(client, "Send(ReadHttp, () => Req(HttpMethod.Get, url, cfg.ServiceToken))") == 3
            && client.Contains("(resp, body) = Send(http ?? WriteHttp, () => Req(HttpMethod.Post, $\"{cfg.ServiceUrl.TrimEnd('/')}{path}\", cfg.ServiceToken, payload));")
            // Review C1: the token (a sign-in refresh is a network call) is read where the request is built — inside Send's pool thread.
-           && Count(client, "cfg.ServiceToken") == Count(client, "() => Req(") && Count(client, "() => Req(") == 4
+           && Count(client, "cfg.ServiceToken") == Count(client, "() => Req(") && Count(client, "() => Req(") == 5
            && !client.Contains("Send(ReadHttp, Req(") && !client.Contains("Send(WriteHttp, msg)")
            && !client.Contains("ReadAsStringAsync().GetAwaiter()"),
-           "ChangesetClient builds (its token too), sends and reads every request on a pool thread — FetchProposed, FetchOne, MyRole and Post (Propose, ReportResult, Withdraw, ReportReverted): one place for Promote, the review, Ghost Builder and the undo watcher");
+           "ChangesetClient builds (its token too), sends and reads every request on a pool thread — FetchProposed, FetchOne, MyRole, FetchScan (MA-4f) and Post (Propose, ReportResult, Withdraw, ReportReverted): one place for Promote, the review, Ghost Builder and the undo watcher");
         Ok(promote.Contains("var cs = ChangesetClient.Propose(fileCfg, key, body, out err);") && !promote.Contains("retry ? Task.Run("),
            "Promote's Propose — the first and the retry — goes through the client's pool thread, and since MA-3b5 Promote's filing itself runs on a pool thread: nothing on Revit's thread waits for it");
     }

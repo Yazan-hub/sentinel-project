@@ -2,6 +2,7 @@
 // MA-3c — the ghost overlay's DirectContext3D server: draws GhostOverlayGeometry's segments (feet, PositionColored lines) in the 3D views of
 // ONE document while a review window is open. No transaction: nothing in the model changes and Undo is untouched. Registered, updated
 // and removed on Revit's thread through the event hub (Commands.ReviewChangesets); CanExecute refuses every other document's views.
+// MA-4f: a second instance, named "Scan overlay", draws a survey changeset's scan as crosses.
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -17,6 +18,7 @@ namespace Sentinel.GhostBuilder
         private readonly Guid _id = Guid.NewGuid();
         private readonly Document _doc;
         private readonly string _title;
+        private readonly string _name; private double[][] _bounds;
         private List<GhostOverlayGeometry.Segment> _segments;
         private VertexBuffer _vb; private IndexBuffer _ib; private int _vertices, _lines;
         private VertexFormat _format; private EffectInstance _effect;
@@ -24,18 +26,18 @@ namespace Sentinel.GhostBuilder
         private List<GhostOverlayGeometry.Tri> _tris = new List<GhostOverlayGeometry.Tri>();
         private VertexBuffer _tvb; private IndexBuffer _tib; private int _triCount, _triVertices; private EffectInstance _teffect;
         private readonly HashSet<ViewType> _askedIn = new HashSet<ViewType>(), _drawnIn = new HashSet<ViewType>();
-        public GhostOverlayServer(Document doc, string title, List<GhostOverlayGeometry.Segment> segments, List<GhostOverlayGeometry.Tri> tris = null)
-        { _doc = doc; _title = title ?? ""; _segments = segments ?? new List<GhostOverlayGeometry.Segment>(); }
+        public GhostOverlayServer(Document doc, string title, List<GhostOverlayGeometry.Segment> segments, List<GhostOverlayGeometry.Tri> tris = null, string name = "Ghost overlay")
+        { _doc = doc; _title = title ?? ""; _name = name ?? "Ghost overlay"; _segments = segments ?? new List<GhostOverlayGeometry.Segment>(); _bounds = GhostOverlayGeometry.Bounds(_segments); }
 
-        /// <summary>New segments (a tick, a lock): the buffers are rebuilt on the next frame.</summary>
-        public void Update(List<GhostOverlayGeometry.Segment> segments, List<GhostOverlayGeometry.Tri> tris = null) { _segments = segments ?? new List<GhostOverlayGeometry.Segment>(); _tris = tris ?? new List<GhostOverlayGeometry.Tri>(); Drop(); }
+        /// <summary>New segments (a tick, a lock): the buffers are rebuilt on the next frame; the bounds now (MA-4f: once a geometry, not each frame).</summary>
+        public void Update(List<GhostOverlayGeometry.Segment> segments, List<GhostOverlayGeometry.Tri> tris = null) { _segments = segments ?? new List<GhostOverlayGeometry.Segment>(); _tris = tris ?? new List<GhostOverlayGeometry.Tri>(); _bounds = GhostOverlayGeometry.Bounds(_segments); Drop(); }
         public int Count => _segments.Count;
         private void Drop() { _vb?.Dispose(); _ib?.Dispose(); _tvb?.Dispose(); _tib?.Dispose(); _teffect?.Dispose(); _format?.Dispose(); _effect?.Dispose(); _teffect = null; _vb = null; _ib = null; _tvb = null; _tib = null; _triCount = 0; _format = null; _effect = null; }
 
         public Guid GetServerId() => _id;
         public ExternalServiceId GetServiceId() => ExternalServices.BuiltInExternalServices.DirectContext3DService;
-        public string GetName() => "Sentinel ghost overlay";
-        public string GetDescription() => "The proposed creates of an open Review AI Proposals window, as outlines: " + _title;
+        public string GetName() => "Sentinel " + _name.ToLowerInvariant();
+        public string GetDescription() => _name + " of an open Review AI Proposals window: " + _title;
         public string GetVendorId() => "SNTL";
         public string GetApplicationId() => "";
         public string GetSourceId() => "";
@@ -46,13 +48,13 @@ namespace Sentinel.GhostBuilder
         {
             // MA-3c Next: a plan or section is asked too — whether Revit draws DirectContext3D there is Revit's to say; the Doctor line names the view's type.
             bool fits = view is View3D || view is ViewPlan || view is ViewSection, same = _doc.IsValidObject && view.Document != null && view.Document.Equals(_doc);
-            if (fits && _askedIn.Add(view.ViewType)) { try { Sentinel.App.PanelVm?.LogDoctor($"Ghost overlay: asked for the {view.ViewType} view \"{view.Name}\" — this model: {same}; {_segments.Count} line(s), {_tris.Count} face(s)"); } catch { /* no pane */ } }
+            if (fits && _askedIn.Add(view.ViewType)) { try { Sentinel.App.PanelVm?.LogDoctor($"{_name}: asked for the {view.ViewType} view \"{view.Name}\" — this model: {same}; {_segments.Count} line(s), {_tris.Count} face(s)"); } catch { /* no pane */ } }
             return fits && same && _segments.Count > 0;
         }
         public bool UseInTransparentPass(View view) => _tris.Count > 0;
         public Outline GetBoundingBox(View view)
         {
-            var b = GhostOverlayGeometry.Bounds(_segments);
+            var b = _bounds;
             return b == null ? null : new Outline(Ft(b[0]), Ft(b[1]));
         }
         public void RenderScene(View view, DisplayStyle displayStyle)
@@ -65,7 +67,7 @@ namespace Sentinel.GhostBuilder
                 return;
             }
             DrawContext.FlushBuffer(_vb, _vertices, _ib, 2 * _lines, _format, _effect, PrimitiveType.LineList, 0, _lines);
-            if (_drawnIn.Add(view.ViewType)) { try { Sentinel.App.PanelVm?.LogDoctor($"Ghost overlay: drawn in the {view.ViewType} view \"{view.Name}\" — {_lines} line(s), {_triCount} face(s)"); } catch { /* no pane */ } }
+            if (_drawnIn.Add(view.ViewType)) { try { Sentinel.App.PanelVm?.LogDoctor($"{_name}: drawn in the {view.ViewType} view \"{view.Name}\" — {_lines} line(s), {_triCount} face(s)"); } catch { /* no pane */ } }
         }
         private void Build()
         {

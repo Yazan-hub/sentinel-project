@@ -50,7 +50,7 @@ static partial class Check
         Ok(!geo.Contains("Autodesk.Revit") && !geo.Contains("Transaction"), "MA-3c: the geometry is pure - no Revit type, no Transaction");
         int Count(string s, string what) { int n = 0, i = 0; while ((i = s.IndexOf(what, i, StringComparison.Ordinal)) >= 0) { n++; i += what.Length; } return n; }
         string srv = Src("GhostBuilder", "GhostOverlayServer.cs"), rev = Src("Commands.ReviewChangesets.cs"), win = Src("UI", "ChangesetReviewWindow.cs");
-        Ok(srv.Contains("bool fits = view is View3D || view is ViewPlan || view is ViewSection, same = _doc.IsValidObject && view.Document != null && view.Document.Equals(_doc);") && srv.Contains("return fits && same && _segments.Count > 0;") && srv.Contains("Ghost overlay: drawn in")
+        Ok(srv.Contains("bool fits = view is View3D || view is ViewPlan || view is ViewSection, same = _doc.IsValidObject && view.Document != null && view.Document.Equals(_doc);") && srv.Contains("return fits && same && _segments.Count > 0;") && srv.Contains("{_name}: drawn in")
            && srv.Contains("_format?.Dispose(); _effect?.Dispose();") && srv.Contains("PrimitiveType.LineList") && srv.Contains("PrimitiveType.TriangleList") && srv.Contains("if (DrawContext.IsTransparentPass())")
            && srv.Contains("public bool UseInTransparentPass(View view) => _tris.Count > 0;") && srv.Contains("_teffect.SetTransparency(GhostOverlayGeometry.FaceTransparency / 255.0);") && srv.Contains("_askedIn.Add(view.ViewType)") && srv.Contains("_drawnIn.Add(view.ViewType)") && !srv.Contains("Transaction"),
            "MA-3c Next: the server draws lines in the opaque pass and see-through faces in the transparent pass, in this document's 3D, plan and section views, and writes nothing (no Transaction)");
@@ -75,6 +75,6 @@ static partial class Check
            && win.Contains("Ticks(); // MA-3c: the ghost overlay recolours") && win.Contains("r.Box.IsEnabled = false; } Ticks(); });")
            && win.Contains("_applied = true; Ticks();") && win.Contains("Say(words); Ticks(); }); // MA-3c review: the overlay comes back"),
            "MA-3c: the window says every row's state after a tick, a Lock or Apply");
-        Ok(Count(rev, "GhostOverlayServer.Register(") == 1 && Count(rev, "GhostOverlayServer.Remove(") == 1, "MA-3c: the overlay is registered once and removed in one place");
+        Ok(Count(rev, "GhostOverlayServer.Register(") == 2 && Count(rev, "GhostOverlayServer.Remove(") == 2, "MA-3c: the overlay is registered once and removed in one place — MA-4f: and the scan overlay likewise");
     }
 }
