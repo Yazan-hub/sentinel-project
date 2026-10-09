@@ -114,7 +114,8 @@ public sealed class ChangesetElementDto
     /// the stamp is written from (C1).</summary>
     [JsonPropertyName("provenance")] public ProvenanceDto Provenance { get; set; }
     /// <summary>MA-1a item 8: the bridge's pre-tick decision; null from a bridge before item 8, and on an element the
-    /// add-in files (nulls are left out of a request body). Trusted for a create only on a survey changeset (Claimed false) within tolerance and not rejected by the IDS (MA-4f: ChangesetTrust.PreTick).</summary>
+    /// add-in files (nulls are left out of a request body). Trusted for a create only on a survey changeset (Claimed false)
+    /// within tolerance and not rejected by the IDS (MA-4f: ChangesetTrust.PreTick).</summary>
     [JsonPropertyName("pretick")] public bool? Pretick { get; set; }
     /// <summary>MA-1a item 8: the bridge's accuracy status — "not_measured" until a survey job backs a measurement (MA-4).</summary>
     [JsonPropertyName("accuracy")] public AccuracyDto Accuracy { get; set; }
@@ -481,7 +482,8 @@ public sealed class ChangesetDto
     [JsonPropertyName("name")] public string Name { get; set; }
     [JsonPropertyName("source")] public string Source { get; set; }
     /// <summary>MA-1a item 8: the bridge marks the source a claim (true on every changeset until a bridge-run job backs
-    /// one, MA-4); null from a bridge before item 8. MA-4f: false (a bridge-run survey job) is what lets Revit pre-tick a measured create (ChangesetTrust.PreTick) and re-read the walls it places.</summary>
+    /// one, MA-4); null from a bridge before item 8. MA-4f: false (a bridge-run survey job) is what lets Revit pre-tick a
+    /// measured create (ChangesetTrust.PreTick) and re-read the walls it places.</summary>
     [JsonPropertyName("claimed")] public bool? Claimed { get; set; }
     [JsonPropertyName("status")] public string Status { get; set; }
     [JsonPropertyName("created_at")] public string CreatedAt { get; set; }
