@@ -2628,3 +2628,24 @@ the merge, no migration, no add-in change. Merged ce4c86e, web 1.0.66 published,
 
 **Closing list:** `ma4c-drill` now also holds the L01 changeset 1dc57c2f… `applied` (#2223, undone #2226, redone #2227) and three
 `verify:measured` rows (#2224, #2225, #2228); `Documents\Sentinel drills\ma4d.rvt` was closed without saving. Drill MA4e passed in full.
+
+## Session MA4f-1 — Revit's pre-tick and Revit's re-read, live (2026-10-09 local: merged c4f5ddc, web 1.0.67, the add-in deployed 2021–2027 at 20:11; the founder's session and a scratch Revit 2024 copy; Claude driving)
+
+Built on `feature/ma4f-revit-scan` from the plan `docs/superpowers/plans/2026-10-09-ma4f-revit-scan.md` (four readers, a planner, two
+critics, a revision), in three reviewed groups and a whole-branch review (two important findings fixed in 71791ab: `meshFaces` holds a
+re-read to the filed wall both ways, and refuses a side under 1 mm across). 2367 bridge and desk tests, 878/878 add-in pins, every Revit
+version compiled; no migration. Project `ma4c-drill`, job-0003.
+
+| Row | Result | Evidence |
+|---|---|---|
+| D-0 | Revit closed; the ledger 2106 rows (top #2228, 3 `verify:` rows); no proposed changeset on `ma4c-drill` — **pass** | SQL, the bridge |
+| D-1 | Merged c4f5ddc; 4100 restarted on master; `build.ps1` built and deployed 2021–2027 (each `Sentinel.dll` 20:11); web 1.0.67 published; the range scanned and pushed — **pass** | the build log, the file times |
+| R-1 | The founder's session: **Run survey** → `job-0003 · done · … 2 level(s), 8 wall(s), 2 floor(s), 2 ceiling(s) · ledger #2229`; **Propose…** x 40000, L00 → `GR-FFL` → `✓ Proposed job-0003 — 2 changeset(s), 7 ghost(s), 4 pre-ticked … scan-L00-level → GR-FFL (named, its height not checked); scan-L01-level → Scan L01 job-0003 (created) · the same scan was placed before by Survey job-0002 · GR-FFL, Survey job-0002 · Scan L01 job-0002 · ledger #2235`; changesets b43c1fc8… (GR-FFL) and e5f2b4ae… (L01) — **pass** | the status lines |
+| R-2 | Revit 2024 (Load Once — clicked by the founder: Windows' text-input host held the foreground), `ma4d.rvt` bound to `ma4c-drill` in Project Setup ("Signed in as <the founder>"); Review AI Proposals: **GR-FFL's three walls open unticked** (the level not checked); **L01: the created level opens ticked** (`within tolerance`, `✓ accepted`), **its three walls unticked** (`✗ rejected (1)`, the office IDS), "Apply 1 ticked in Revit"; Untick all → **Tick suggested** → the level alone; the walls ticked by hand — **pass** | the screenshots |
+| R-3 | **Apply 4 ticked in Revit** → `… reported (ledger #2236)`; the bridge's doc: `reported_role` owner, the level no `reread`, each wall `reread {mesh_sha256 (64 hex), faces}`: wall-1 (300) ±150 mm from its filed line, u 0..7875; wall-2 (200) ±100, u 0..7875; wall-4 (300) ±150, u 150..5650; all z 3000..5800 — Wall Centerline, the type's width and Revit's joins (wall-1 and wall-2 run through to the outer corner at x 48 000, wall-4 butts between them); #2236 carries the same shas and faces, no mesh — **pass** | the read-back, SQL |
+| R-4 | Review desk → `Survey job-0003 · Scan L01 job-0003` → **Measure against the scan** → `✓ Measured … against the scan as Revit re-read it (the add-in's claim) — 3 within tolerance, 0 out of tolerance, 0 missing, 0 insufficient data, 1 not measured · ledger #2237`; the head `Measured against the scan as Revit placed it (Revit's re-read at Apply, the add-in's claim: its joins, its location line and the type's width in Revit are measured — a wall moved since Apply and the lead's frame are not seen) · placed as Revit reported (by <the founder>) …`; walls p95 3 mm, 3559 / 3565 / 2447 points (as filed they were 3512 / 3513 / 2567: the joins seen), 99 / 99 / 100% seen. #2237: action `verify:measured job-0003 · sentinel-survey 0.1.0 · done · revit (claimed) · 3 within tolerance, …`, `claimed: true`, `reference: "revit (claimed)"`, each wall's `mesh_sha256` equal to #2236's. **Measure again** at once → `Not measured — … was measured on these same inputs as ledger #2237 — …; nothing was saved`, no row — **pass** | the screenshots, SQL |
+| R-5 | `ma4d.rvt` closed without saving; Revit closed; `Survey job-0003 · GR-FFL` stays proposed for drill MA4f-2 — **pass** | — |
+
+**Follow-up fixed on the 4f-2 branch (698250f):** the Propose line's "(Revit leaves every create for a person to tick)" was stale after
+MA-4f-1; it now says Revit opens them ticked too, less what the office IDS rejects.
+
