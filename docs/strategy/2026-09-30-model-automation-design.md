@@ -760,7 +760,7 @@ The type names above are examples only. **Read the typing example carefully:**
 
 Agent ghosts and drawing-only ghosts are never pre-ticked.
 
-MA-4d (BUILT): the bridge's half for scan creates — within D7's 20 mm on the fit and the faces (`face_dev_mm`), the storey's level height checked (matched to a published level, or created), every size the type decides measured (a wall's thickness; never a floor's or ceiling's). Conflicts and BLOCK stay Revit's at Apply. Deployed add-ins open every create unticked whatever the bridge says (`ChangesetTrust.PreTick`); the web desk shows the pre-tick.
+MA-4d (LANDED 2026-10-09, drill MA4d on ma4c-drill: proposed #2205/#2207, type gaps #2208, planner #2209, applied in Revit 2024 #2210, Undo/Redo #2211/#2212, refiled per candidate #2217): the bridge's half for scan creates — within D7's 20 mm on the fit and the faces (`face_dev_mm`), the storey's level height checked (matched to a published level, or created), every size the type decides measured (a wall's thickness; never a floor's or ceiling's). Conflicts and BLOCK stay Revit's at Apply. Deployed add-ins open every create unticked whatever the bridge says (`ChangesetTrust.PreTick`); the web desk shows the pre-tick.
 
 ### 6.4 Provenance for each element
 
@@ -837,7 +837,7 @@ MA-4d (BUILT): the bridge's half for scan creates — within D7's 20 mm on the f
 | `hold:type_gap` | One row per **gap group** per run | Category, measured size band, key params, element count, nearest catalogue types, evidence ids | BUILT (MA-2c) as one row per Promote **run** holding all its groups: entity_type `type_gap`, action `type_gap:run · N group(s), M element(s)` (`hold:` actions are Sentinel's own rows and never come through the Revit report route), claimed; each group {category, the type wanted or the size, key params, count, labels, nearest} named by the bridge; a lead's dismissal is `hold:type_gap_dismissed <group>`. No size band (the snap is 0, D16); no evidence ids yet (MA-4). MA-4d BUILT for survey jobs: a bridge-written row per proposal, action `type_gap:run <job-id> · survey-planner · N group(s), M element(s)`, claimed false, with the job {id, ledger_id, result_sha256} and each group's evidence ids; groups are exact sizes (no band while the snap is 0); a survey gap and a Promote gap that want the same type are one group. |
 | `changeset_reviewed` | Web desk decisions | For each ghost: accepted or declined, reason, reviewer, role | LANDED in MA-3a (merge 2026-10-04), drill MA3a: D-1, D-5, D-2, D-3, D-4 passed; D-4's two-account half and Revit 2025-2027 passed live 2026-10-04 (session MA3a-live); migration 0037 applied 2026-10-04 (probe 3 of 3): ONE row per desk post (one changeset, all or none — spec amendment S3), entity_type `changeset`, new value {review_rev, reviewer, role, decisions: [{proposal_guid, name, from, to, reason}]}; the decisions are also on the changeset doc (S1) |
 | `changeset_reopened` | A lead re-opens a web decline | guid, reason, lead | LANDED in MA-3a (merge 2026-10-04), drill MA3a: D-1, D-5, D-2, D-3, D-4 passed; D-4's two-account half and Revit 2025-2027 passed live 2026-10-04 (session MA3a-live); migration 0037 applied 2026-10-04 (probe 3 of 3): new value {review_rev, lead, role, proposal_guid, name, declined_by, declined_reason, reason} |
-| `changeset_applied` (extended) | After placement | For each ghost: guid → UniqueId, approver; surviving count; Revit warnings; BLOCK result | PARTLY BUILT (MA-4d): a survey changeset's row names its job, the evidence shas and, per ghost placed, its Revit UniqueId, reader id and evidence; the approver, warnings and BLOCK result stay TARGET. |
+| `changeset_applied` (extended) | After placement | For each ghost: guid → UniqueId, approver; surviving count; Revit warnings; BLOCK result | PARTLY BUILT (MA-4d; LANDED 2026-10-09 as #2210 on ma4c-drill): a survey changeset's row names its job, the evidence shas and, per ghost placed, its Revit UniqueId, reader id and evidence; the approver, warnings and BLOCK result stay TARGET. |
 | `changeset_reverted` | An Undo or Redo of a Sentinel transaction is seen | guids | TARGET (AI-3) |
 | `verify:measured` | After placement | Status, p95, coverage for each element | TARGET |
 | `lod:state` | After Promote and on sync | Counts per level × class × LOD; matrix sha | BUILT (MA-2b): entity_type `lod_state`, action `lod:state now · …` (every Promote run with a matrix, the read-only one too) or `lod:state after · …` (an applied Promote changeset); the bridge marks it claimed; counts per level × class (at DD, below, blocked, not measured, with reasons), the matrix label and its sha256 (`matrix_sha256`): the journey line and the gate read the newest row only while that matrix is in force. Not on sync |
@@ -1144,7 +1144,7 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
   - sentinel-survey v0.1, pip wheels only: storeys, wall slices in the `WallPairing` shape, floors and ceilings, and deviation per element at 5, 10 and 20 cm.
     - Met in MA-4c for storeys, walls, floors and ceilings (numpy, plain LAS); deviation moved to MA-4e (`POST /measure`); E57 and LAZ to MA-4g.
   - Gaps go to the Holding Area as groups.
-    - Met in MA-4d: one bridge-written `type_gap` row per proposal, with the job id and evidence ids; each gap also rides on its storey's changeset as "sent to a person".
+    - Met in MA-4d (LANDED 2026-10-09: #2208 on ma4c-drill): one bridge-written `type_gap` row per proposal, with the job id and evidence ids; each gap also rides on its storey's changeset as "sent to a person".
   - A decimated scan overlay in Revit.
   - The scan in the web desk (tiles built on the bridge, if MA-W did not already do it).
 - **Overlaps:** [R2M §7] P1–P2.
@@ -1154,7 +1154,7 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
   - Measure wall F1 at 5, 10 and 20 cm against a hand-built reference, and the level error in mm.
   - Every wall has a catalogue type or is in a gap group. Zero types are created.
   - Each wall's ledger row lists its evidence sha and its job id.
-    - Met in MA-4d by `changeset_proposed` (job, evidence shas, each element's reader id and evidence) and `changeset_applied` (the same per ghost placed).
+    - Met in MA-4d (LANDED 2026-10-09: #2205, #2207, #2210 on ma4c-drill) by `changeset_proposed` (job, evidence shas, each element's reader id and evidence) and `changeset_applied` (the same per ghost placed).
   - The run time on the founder PC is recorded.
   - In Revit 2024: storey L0 is placed as one Undo, and Ctrl+Z writes the reverted rows.
 
