@@ -6,7 +6,7 @@ import * as core from "./sentinel-core.mjs";
 import { makeTyper } from "./changesets-typing.mjs";
 import { validateChangeset } from "./changesets-logic.mjs";
 import { typeGapId } from "./holding-logic.mjs";
-import { readProposeBody, toModel, matchStoreys, trimEnds, planSurvey } from "./survey-plan.mjs";
+import { readProposeBody, toModel, matchStoreys, trimEnds, planSurvey, toScan, facesOf, measurePlan, judge, measureRefusal, countWords } from "./survey-plan.mjs";
 
 const read = (p) => JSON.parse(readFileSync(new URL(p, import.meta.url), "utf8"));
 const RESULT = read("./fixtures/survey/job-0002-result.json");
@@ -164,5 +164,57 @@ describe("planSurvey — the drill's job-0002, frame 40 m east, L00 named GR-FFL
     expect(p.storeys[0].exceptions.find((x) => x.unique_id === "scan-L00-wall-1").reason).toBe("type gap — its thickness was not measured (one face seen); it waits in the Holding Area");
     const bare = RESULT.candidates.filter((c) => c.kind === "level" || c.kind === "floor");
     expect(planSurvey({ job: JOB, candidates: bare, frame: ZERO, levels: {}, manifest: [], type }).storeys.map((s) => s.body)).toEqual([null, null]);
+  });
+});
+
+describe("MA-4e — a placed wall as filed, back in the scan's frame; the bridge's verdict", () => {
+  const ZERO = { dx_mm: 40000, dy_mm: 0, dz_mm: 0, rotation_deg: 0 }, F = { dx_mm: 40000, dy_mm: -2500, dz_mm: 150, rotation_deg: 30 };
+  const W1 = { kind: "wall", facts: { thickness_mm: 300 }, place: { LocationCurve: { start: [40125, 150, 0], end: [47850, 150, 0] }, TopElevation: 2800 } };
+  it("toScan undoes toModel (0.1 mm each way)", () => {
+    const M = toModel(F), S = toScan(F);
+    for (const p of [[0, 0], [8000, 6000], [-1234.5, 777]]) S.xy(M.xy(p)).forEach((v, k) => expect(Math.abs(v - p[k])).toBeLessThanOrEqual(0.2));
+    expect(S.z(M.z(2800))).toBe(2800);
+  });
+  it("facesOf: GR-FFL's wall-1 as filed — two faces 150 mm each side of its line, base to top, out of the wall; why not, in words", () => {
+    expect(facesOf(W1, toScan(ZERO))).toEqual({ faces: [[[125, 300, 0], [125, 300, 2800], [7850, 300, 0]], [[125, 0, 0], [7850, 0, 0], [125, 0, 2800]]] });
+    expect(facesOf({ ...W1, facts: {} }, toScan(ZERO))).toEqual({ why: "its line, measured thickness or top is not on the changeset" });
+    expect(facesOf({ ...W1, place: { ...W1.place, TopElevation: 0 } }, toScan(ZERO))).toEqual({ why: "its line is shorter than 1 mm, or its top not above its base" });
+  });
+  it("measurePlan: the walls Revit placed are sent; an Undo in Revit, a level and a floor are not, each with why; placed lists every applied ghost", () => {
+    const wall = (g, end) => ({ proposal_guid: g, kind: "wall", cid: `c-${g}`, facts: { thickness_mm: 200 }, place: { LocationCurve: { start: [0, 0, 0], end }, TopElevation: 2800 } });
+    const cs = { job: { frame: { dx_mm: 0, dy_mm: 0, dz_mm: 0, rotation_deg: 0 } },
+      elements: [wall("w", [5000, 0, 0]), wall("u", [0, 5000, 0]), { proposal_guid: "l", kind: "level", cid: "c-l" }, { proposal_guid: "f", kind: "floor", cid: "c-f" }, wall("r", [0, -5000, 0])],
+      result: { applied: ["w", "u", "l", "f"].map((g) => ({ proposal_guid: g, revit_unique_id: `U-${g}` })), rejected: ["r"] } };
+    const p = measurePlan(cs, (g) => (g === "u" ? 2211 : null));
+    expect(p.send.map((s) => s.guid)).toEqual(["w"]);
+    expect(p.skip).toEqual([
+      { proposal_guid: "u", reason: "undone in Revit (ledger #2211) — nothing placed to measure" },
+      { proposal_guid: "l", reason: "a level has no face to measure — its height against the scan is MA-4h's level error" },
+      { proposal_guid: "f", reason: "one face of a floor is seen; its other is its type's, which no scan measured, and the slab beyond would count against it — MA-4h" }]);
+    expect(p.placed.map((x) => [x.proposal_guid, x.revit_unique_id, x.cid, x.kind])).toEqual([["w", "U-w", "c-w", "wall"], ["u", "U-u", "c-u", "wall"], ["l", "U-l", "c-l", "level"], ["f", "U-f", "c-f", "floor"]]);
+  });
+  it("judge: p95 against D7's 20 mm; missing, insufficient data and not measured in words — never a pass without points", () => {
+    const K = { band_mm: 400, edge_mm: 200, cell_mm: 200 }, M = { points: 3512, p95_mm: 20, coverage: 0.999 };
+    expect(judge(M, K)).toEqual({ status: "within_tolerance" });
+    expect(judge({ ...M, p95_mm: 20.1 }, K)).toEqual({ status: "out_of_tolerance" });
+    expect(judge({ ...M, coverage: 0.2 }, K)).toEqual({ status: "insufficient_data", reason: "20% of its faces seen — under the 25% a verdict needs" });
+    expect(judge({ points: 1759, p95_mm: 253.2, coverage: 0.5 }, K)).toEqual({ status: "out_of_tolerance" }); // one face seen, 250 mm off (Base)
+    expect(judge({ points: 0, p95_mm: null, coverage: 0 }, K)).toEqual({ status: "missing", reason: "no scan point within 400 mm of its faces — not built where it stands, or not scanned there" });
+    expect(judge({ points: 0, p95_mm: null, coverage: null }, K)).toEqual({ status: "not_measured", reason: "no face interior to measure — each face is read 200 mm in from every edge" });
+    expect(countWords({ within_tolerance: 3 })).toBe("3 within tolerance, 0 out of tolerance, 0 missing, 0 insufficient data, 0 not measured");
+  });
+  it("measureRefusal: one result per element sent, in order, the five numbers only and in range, its knobs on the receipt", () => {
+    const send = [{ guid: "a" }], T = [50, 100, 200];
+    const ok = { elements: [{ guid: "a", points: 3, p95_mm: 1, mean_signed_mm: 0, coverage: 1, share_within: { 50: 1, 100: 1, 200: 1 } }], receipt: { measure: { band_mm: 400, edge_mm: 200, cell_mm: 200 } } };
+    const el = (o) => ({ ...ok, elements: [{ ...ok.elements[0], ...o }] });
+    expect(measureRefusal(ok, send, T)).toBeNull();
+    expect(measureRefusal(null, send, T)).toBe("receipt.measure");
+    expect(measureRefusal({ ...ok, elements: [] }, send, T)).toBe("not one result per element sent");
+    expect([measureRefusal(el({ guid: "b" }), send, T), measureRefusal(el({ points: -1 }), send, T), measureRefusal(el({ p95_mm: "3" }), send, T), measureRefusal(el({ share_within: { 50: 1 } }), send, T)])
+      .toEqual(["elements[0].guid", "elements[0].points", "elements[0]'s numbers", "elements[0].share_within"]);
+    // Rule 3: a service that sends its own verdict is refused, never merged — p95 63 is never within tolerance.
+    expect([measureRefusal(el({ status: "within_tolerance", p95_mm: 63 }), send, T), measureRefusal(el({ coverage: 5 }), send, T),
+      measureRefusal(el({ p95_mm: -1 }), send, T), measureRefusal(el({ share_within: { 50: -1, 100: 1, 200: 1 } }), send, T)])
+      .toEqual(["elements[0] carries status (the verdict is the bridge's)", "elements[0]'s numbers", "elements[0]'s numbers", "elements[0].share_within"]);
   });
 });

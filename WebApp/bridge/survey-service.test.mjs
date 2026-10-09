@@ -3,12 +3,13 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { spawn as nodeSpawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runSurvey, notSetUp, childEnv, SCRIPT, DEFAULT_PYTHON } from "./survey-service.mjs";
 import { twoStoreyLas } from "../scripts/make-two-storey-las.mjs";
+import { measurePlan, judge } from "./survey-plan.mjs";
 
 const STANDIN = fileURLToPath(new URL("./fixtures/survey-standin.mjs", import.meta.url));
 const JOB = { job_id: "job-0001", items: [{ id: "ev-0001", kind: "scan", path: join(tmpdir(), "a.las"), sha256: "ab".repeat(32) }],
@@ -123,5 +124,23 @@ describe.skipIf(!real)("sentinel-survey for real (Python with numpy on this PC)"
   it("a changed file is refused by the service in words, and the job is refused", async () => {
     const r = await runSurvey(job("0".repeat(64)), { python: PY, cwd: dir });
     expect(r).toMatchObject({ status: "refused", refused: [{ id: "ev-0001", reason: "changed since admitted (its sha256 is not the pack's) — Re-check flags it" }] });
+  }, 60_000);
+
+  it("MA-4e: GR-FFL's walls as filed against the drill's own bytes — each within a few mm; wall-1 moved 60 mm reads 60, shares 0 / 1 / 1", async () => {
+    const stored = JSON.parse(readFileSync(new URL("./fixtures/changeset-ops/contract2-survey.json", import.meta.url), "utf8")).stored;
+    const cs = { ...stored, status: "applied", elements: stored.elements.map((e, i) => ({ ...e, proposal_guid: `g${i + 1}`, facts: { thickness_mm: [300, 200, 300][i] } })),
+      result: { applied: [1, 2, 3].map((n) => ({ proposal_guid: `g${n}`, revit_unique_id: `u${n}` })) } };
+    const moved = { ...cs, elements: cs.elements.map((e, i) => (i ? e : { ...e, place: { ...e.place, LocationCurve: { start: [40125, 210, 0], end: [47850, 210, 0] } } })) };
+    const measure = async (c) => {
+      const r = await runSurvey({ ...job(SHA), job_id: "measure-1", elements: measurePlan(c).send }, { python: PY, cwd: dir, path: "/measure" });
+      expect(r.status).toBe("done");
+      return r.result;
+    };
+    const a = await measure(cs);
+    expect(a.elements.map((m) => judge(m, a.receipt.measure).status)).toEqual(["within_tolerance", "within_tolerance", "within_tolerance"]);
+    expect(a.elements.map((m) => [m.p95_mm, m.mean_signed_mm, m.share_within, m.points])).toEqual([
+      [3, 0, { 50: 1, 100: 1, 200: 1 }, 3512], [3, 0, { 50: 1, 100: 1, 200: 1 }, 3523], [3, 0, { 50: 1, 100: 1, 200: 1 }, 2569]]);
+    const b = await measure(moved);
+    expect([b.elements[0].p95_mm, b.elements[0].share_within, judge(b.elements[0], b.receipt.measure).status]).toEqual([63, { 50: 0, 100: 1, 200: 1 }, "out_of_tolerance"]);
   }, 60_000);
 });
