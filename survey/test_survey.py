@@ -323,6 +323,19 @@ class Deviation(unittest.TestCase):
         self.assertEqual([a["guid"], b["guid"]], ["wall-1", "wall-3"])
         self.assertLess(max(a["p95_mm"], b["p95_mm"]), 5.0)
 
+    def test_partitions_abutting_a_wall_take_their_own_points_at_the_join(self):
+        # Three 100 mm partitions filed from the south wall's inner face (y 300), all sent: their points within 200 mm of the join are
+        # nearer their own faces than the wall's, so they never count against it (63.3 mm p95 before the fix, a false out_of_tolerance).
+        rng = np.random.default_rng(3)
+        parts = [self.P]
+        for x in (2000, 4000, 6000):
+            for fx in (x - 50, x + 50):
+                y, z = rng.uniform(300, 3000, 800), rng.uniform(0, 2800, 800)
+                parts.append(np.stack([fx + rng.normal(0, 2, y.size), y, z], 1))
+        els = [self.wall()] + [{"guid": f"part-{x}", "faces": wall_faces((x, 300), (x, 3000), 100, 0, 2800)} for x in (2000, 4000, 6000)]
+        out = pipeline.deviation(np.concatenate(parts), els, self.TOLS)
+        self.assertLess(max(m["p95_mm"] for m in out), 5.0, out)
+
     def test_load_gives_the_cloud_survey_measured_the_same_twice(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
             path = os.path.join(d, "b.las")

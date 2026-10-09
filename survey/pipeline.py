@@ -370,9 +370,10 @@ DEV_CELL = 200.0  # mm: coverage cells on a face, filled by any point the face o
 
 def deviation(P, elements, tols, progress=lambda stage, pct: None):
     """P: the job's cloud (mm, the scan's frame). elements: [{guid, faces: [[p0, p1, p3], …]}] — rectangles in the scan's frame, p1 and p3 the
-    corners next to p0, (p1 − p0) × (p3 − p0) pointing out of the element. A point counts for a face when it lies over the face's interior
-    (EDGE in from every edge) within BAND = 2 × the largest tolerance of its plane, and goes to the nearest such face of every element sent
-    (a wall's other face and a neighbour's face take their own points). d is its signed distance: + when the scan lies outside the element.
+    corners next to p0, (p1 − p0) × (p3 − p0) pointing out of the element. A point within BAND = 2 × the largest tolerance of a face's plane,
+    over the face, goes to the nearest such face of every element sent (a wall's other face and a neighbour's face — a partition abutting
+    it — take their own points), and counts only when it lies over that face's interior (EDGE in from every edge). d is its signed
+    distance: + when the scan lies outside the element.
     → per element, in the order sent: {guid, points, p95_mm (of |d|), mean_signed_mm, share_within {tol: share of its points with |d| ≤ tol},
     coverage (its faces' interior cells holding a point it owns — within BAND, so a face seen but placed far off still counts as seen and
     p95 judges it)} — 0.1 mm and 3 decimals; the numbers null with no
@@ -393,16 +394,18 @@ def deviation(P, elements, tols, progress=lambda stage, pct: None):
         return np.array([o, o + u * la, o + v * lb, o + u * la + v * lb])
     corners = np.concatenate([box(o, u, la, v, lb) for (_, o, u, la, v, lb, _) in F])
     Q = P[np.all((P >= corners.min(axis=0) - band) & (P <= corners.max(axis=0) + band), axis=1)]
-    best, owner, sd = np.full(len(Q), np.inf), np.full(len(Q), -1, np.int64), np.zeros(len(Q))
+    best, owner, sd, inner = np.full(len(Q), np.inf), np.full(len(Q), -1, np.int64), np.zeros(len(Q)), np.zeros(len(Q), bool)
     for i, (_, o, u, la, v, lb, n) in enumerate(F):
         c = box(o, u, la, v, lb)
         idx = np.flatnonzero(np.all((Q >= c.min(axis=0) - band) & (Q <= c.max(axis=0) + band), axis=1))
         R = Q[idx] - o
         s, t, d = R @ u, R @ v, R @ n
-        ok = (s >= EDGE) & (s <= la - EDGE) & (t >= EDGE) & (t <= lb - EDGE) & (np.abs(d) <= band) & (np.abs(d) < best[idx])
+        ok = (s >= 0) & (s <= la) & (t >= 0) & (t <= lb) & (np.abs(d) <= band) & (np.abs(d) < best[idx])  # owners over the full face
         j = idx[ok]
         best[j], owner[j], sd[j] = np.abs(d[ok]), i, d[ok]
+        inner[j] = ((s >= EDGE) & (s <= la - EDGE) & (t >= EDGE) & (t <= lb - EDGE))[ok]
         progress("measuring", 40 + 50 * (i + 1) // len(F))
+    owner[~inner] = -1  # counted only over the owner's interior: a join's points are the abutting face's, and neither judges them
     out = []
     for k, e in enumerate(elements):
         ds, filled, cells = [], 0, 0
