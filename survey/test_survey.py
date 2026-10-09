@@ -533,6 +533,10 @@ class InProcess(unittest.TestCase):
                            ({**good, "elements": [{"guid": "w", "faces": [[[0, 0, 0], [1000, 0, 0], [500, 0, 2800]]]}]},
                             "elements[0].faces must be 1 to 12 rectangles [p0, p1, p3] of [x, y, z] mm — both sides at least 1 mm, square at p0"),
                            ({**good, "elements": [{"guid": "w", "faces": [[[0, 0, 0], [1000, 0, 0], [0, 0, float("nan")]]]}]},
+                            "elements[0].faces must be 1 to 12 rectangles [p0, p1, p3] of [x, y, z] mm — both sides at least 1 mm, square at p0"),
+                           ({**good, "elements": [{"guid": "w", "faces": [[[0, 0, 0], [1e200, 0, 0], [0, 0, 2800]]]}]},  # finite, overflows
+                            "elements[0].faces must be 1 to 12 rectangles [p0, p1, p3] of [x, y, z] mm — both sides at least 1 mm, square at p0"),
+                           ({**good, "elements": [{"guid": "w", "faces": [[[0, 0, 0], [10 ** 400, 0, 0], [0, 0, 2800]]]}]},  # past float range
                             "elements[0].faces must be 1 to 12 rectangles [p0, p1, p3] of [x, y, z] mm — both sides at least 1 mm, square at p0")):
             with self.assertRaises(ValueError) as e:
                 service.read_measure(bad)
