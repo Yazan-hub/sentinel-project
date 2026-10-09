@@ -1,0 +1,10 @@
+# MA-4g: sentinel-survey's four wheels (the founder's download OK; each sha256 checked against PyPI; survey/las.py PINS names the same
+# versions). Installed offline from the downloaded folder, never from an index (plan docs/superpowers/plans/2026-10-09-ma4g-e57-laz.md,
+# Task 1), from a folder outside the repo:
+#   "C:/Python314/python.exe" -m pip install --isolated --no-index --find-links "%USERPROFILE%\SentinelData\wheels-ma4g" --only-binary :all: --no-deps --require-hashes --target "%APPDATA%\Sentinel\survey-lib" -r <this file>
+# A private folder: the shared user site is untouched (las.add_lib puts the folder first on sys.path, inside las.lib only).
+# Rollback: rename or delete %APPDATA%\Sentinel\survey-lib (a plain LAS still reads; a LAZ or an E57 is refused in words).
+laspy==2.7.0 --hash=sha256:15f5344c62a1023461996bdf5d1ba5fdd813e96694a524fee712931134f3792f
+lazrs==0.8.2 --hash=sha256:dd5a462888178d5cbaa2dd30b1b2d99f164c0254791c987d2f47081229e92fb3
+pye57==0.4.19 --hash=sha256:9f9d54c89ee9a3c835d6e04640a069cb22321d4d8d54e5d7e0055fed134eb8f3
+pyquaternion==0.9.9 --hash=sha256:e65f6e3f7b1fdf1a9e23f82434334a1ae84f14223eee835190cd2e841f8172ec
