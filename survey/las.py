@@ -33,7 +33,7 @@ METRES = "sentinel-survey reads metres; convert the scan to metres first"
 UNITS = {9001: "metre", 9002: "foot", 9003: "US survey foot"}  # EPSG unit codes, as GeoTIFF keys carry them: a closed table, never file text
 UNIT = re.compile(r'\b(?:LENGTH)?UNIT\[\s*"([^"]*)"\s*,\s*(\d*\.?\d+(?:[eE][-+]?\d+)?)')
 ANGULAR = re.compile(r"degree|radian|grad|arc", re.I)
-EPSG = re.compile(r'\b(?:AUTHORITY|ID)\[\s*"EPSG"\s*,\s*"?(\d+)')
+EPSG = re.compile(r'\b(?:AUTHORITY|ID)\[\s*"EPSG"\s*,\s*"?(\d{1,9})(?!\d)')  # a longer "code" is none: int() refuses 4 300 digits
 
 
 class Refused(Exception):
@@ -119,8 +119,11 @@ def read_header(path):
     with open(path, "rb") as f:
         found = records(f, h)
     if head["laz"]:
-        if struct.unpack_from("<I", h, 100)[0] > MAX_VLRS:
+        h_size, offset, n = struct.unpack_from("<HII", h, 94)
+        if n > MAX_VLRS:
             raise Refused(f"its header declares more than {MAX_VLRS:,} VLRs — not read as a LAZ")
+        if offset > (most := h_size + MAX_VLRS * (54 + 65535)):  # laspy reads the header and VLRs whole, up to the points
+            raise Refused(f"its header and VLRs declare {offset:,} bytes — over {most:,}; not read as a LAZ")
         if LASZIP not in found:
             raise Refused("its points are marked compressed (LAZ) but no LASzip record was found — it is not read as a LAZ; export it again")
         lib("laspy")  # refused here, per item, when laspy or lazrs does not import — never a failed job
@@ -161,31 +164,32 @@ def crs_of(found):
     """MA-4g: the scan's CRS — {source, epsg, unit, sha256}, or None (none declared: metres assumed). The WKT wins over the GeoTIFF keys.
     No name: it is the file's free text, and a refusal's words reach the ledger.
     ponytail: a CRS in feet is refused, not converted — a factor per axis when an owner's scan in feet arrives."""
-    if WKT in found:
-        return wkt_crs(found[WKT].split(b"\0")[0].decode("utf-8", "replace"), "wkt")
+    if WKT in found and (c := wkt_crs(found[WKT].split(b"\0")[0].decode("utf-8", "replace"), "wkt")):
+        return c
     return geokeys_crs(found[GEOKEYS]) if GEOKEYS in found else None
 
 
 def wkt_crs(w, source, check=True):
-    """A CRS's text (WKT 1 or 2, or an E57's bare "EPSG:25833") → {source, epsg, unit, sha256}, or None when empty. With `check`, Refused
-    when it is geographic or a length unit is not the metre (said by its factor, never its name), and `unit` is "metre" when a length unit
-    says so (else None: not stated). The EPSG code is the outermost node's (bracket depth 1: never a datum's or a unit's).
+    """A CRS's text (WKT 1 or 2, or an E57's bare "EPSG:25833") → {source, epsg, unit, sha256}, or None when empty. Refused when it is
+    geographic or geocentric (an E57's too). With `check` (a LAS's: an E57 is metres by the standard), Refused when a length unit is not
+    the metre (said by its factor, never its name), and `unit` is "metre" when a length unit says so (else None: not stated). The EPSG code
+    is the outermost node's (bracket depth 1: never a datum's or a unit's).
     ponytail: square brackets only — WKT's round-bracket form reads as no unit and no code."""
     w = w.strip()
     if not w:
         return None
+    if (not re.search(r"\bPROJ(?:CS|CRS|ECTEDCRS)\[", w, re.I)
+            and re.search(r"\b(?:GEOGCS|GEOCCS|GEOGCRS|GEODCRS|GEOGRAPHICCRS|GEODETICCRS)\[", w, re.I)):
+        raise Refused(GEOGRAPHIC)
     unit = None
     if check:
-        if (not re.search(r"\bPROJ(?:CS|CRS|ECTEDCRS)\[", w, re.I)
-                and re.search(r"\b(?:GEOGCS|GEOCCS|GEOGCRS|GEODCRS|GEOGRAPHICCRS|GEODETICCRS)\[", w, re.I)):
-            raise Refused(GEOGRAPHIC)
         for name, f in UNIT.findall(w):
             if ANGULAR.search(name):
                 continue
             if abs(float(f) - 1) > 1e-9:
                 raise Refused(f"its CRS's unit is {float(f):g} m — {METRES}")
             unit = "metre"
-    bare = re.fullmatch(r"EPSG:(\d+)", w, re.I)
+    bare = re.fullmatch(r"EPSG:(\d{1,9})", w, re.I)
     epsg = int(bare[1]) if bare else next((int(m[1]) for m in EPSG.finditer(w) if w.count("[", 0, m.start()) - w.count("]", 0, m.start()) == 1), None)
     return {"source": source, "epsg": epsg, "unit": unit, "sha256": hashlib.sha256(w.encode()).hexdigest()}
 

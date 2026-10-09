@@ -53,6 +53,8 @@ def load(items, params, seed, progress=lambda stage, pct: None):
     progress("reading", 10)
     clouds = [las.read_points_mm(i["path"], i["head"], share, rng) for i in items]
     P = np.concatenate(clouds)
+    if not len(P):  # an E57 whose every point is marked invalid or not finite
+        raise las.Refused("no valid point was read")
     span = float(np.ptp(P[:, :2], axis=0).max())
     if span > MAX_SPAN:
         raise las.Refused(f"the scans span {span / 1000:.0f} m in plan — sentinel-survey reads one building (at most "

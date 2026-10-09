@@ -186,6 +186,13 @@ class Las(unittest.TestCase):
         with mock.patch.object(las, "lib", side_effect=AssertionError("laspy imported")), self.assertRaises(las.Refused) as e:
             las.read_header(self.path("many.laz"))
         self.assertEqual(str(e.exception), "its header declares more than 1,000 VLRs — not read as a LAZ")
+        write_las(self.path("far.laz"), np.zeros((3, 3)), laz=True, vlrs=[(b"laszip encoded", 22204, bytes(34))])
+        with open(self.path("far.laz"), "r+b") as f:  # its point offset: laspy reads the header and VLRs whole, up to 4 GB
+            f.seek(96)
+            f.write(struct.pack("<I", 0xFFFFFFFF))
+        with mock.patch.object(las, "lib", side_effect=AssertionError("laspy imported")), self.assertRaises(las.Refused) as e:
+            las.read_header(self.path("far.laz"))
+        self.assertEqual(str(e.exception), "its header and VLRs declare 4,294,967,295 bytes — over 65,589,227; not read as a LAZ")
         write_las(self.path("none.las"), np.zeros((0, 3)))
         with self.assertRaisesRegex(las.Refused, "holds no points"):
             las.read_header(self.path("none.las"))
@@ -212,6 +219,8 @@ class Las(unittest.TestCase):
         head = las.read_header(self.path("plain.las"))
         self.assertEqual((head["format"], head["laz"], head["crs"]), ("las", False, None))
         self.assertEqual(las.wkt_crs("EPSG:25833", "e57", check=False)["epsg"], 25833)  # an E57's coordinateMetadata, as writers put it
+        with self.assertRaisesRegex(las.Refused, "^its CRS is geographic or geocentric"):  # x, y, z from the Earth's centre: refused, as a LAS's
+            las.wkt_crs('GEOCCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],UNIT["metre",1]]', "e57", check=False)
 
     def test_a_crs_in_degrees_or_not_in_metres_is_refused_in_words(self):
         geog = UTM33[UTM33.index("GEOGCS"):UTM33.index(",PROJECTION")]
@@ -229,6 +238,18 @@ class Las(unittest.TestCase):
             with self.assertRaises(las.Refused) as e:
                 las.read_header(p)
             self.assertEqual(str(e.exception), words)
+        write_las(self.path("empty.las"), np.zeros((3, 3)), vlrs=[(b"LASF_Projection", 2112, b"\0"),
+                                                                   (b"LASF_Projection", 34735, geokeys({1024: 1, 3072: 2263, 3076: 9003}))])
+        with self.assertRaises(las.Refused) as e:  # an empty WKT record: the GeoTIFF keys decide
+            las.read_header(self.path("empty.las"))
+        self.assertEqual(str(e.exception), "its CRS's unit is US survey foot — sentinel-survey reads metres; convert the scan to metres first")
+
+    def test_an_epsg_code_of_any_length_is_read_or_none_never_a_failed_job(self):
+        p = self.path("long.las")  # Python's int() refuses a string of over 4 300 digits
+        write_las(p, np.zeros((3, 3)), vlrs=[(b"LASF_Projection", 2112, UTM33.replace('"25833"', '"' + "1" * 5000 + '"').encode())])
+        head, why = service.check({"kind": "scan", "path": p, "sha256": service.sha256(p)})
+        self.assertEqual((why, head["crs"]["epsg"], head["crs"]["unit"]), (None, None, "metre"))
+        self.assertIsNone(las.wkt_crs("EPSG:" + "1" * 5000, "e57", check=False)["epsg"])  # an E57's coordinateMetadata
 
     def test_one_job_reads_one_declared_crs_named_by_code_or_sha_never_its_text(self):
         P = building()[:2000]
@@ -407,6 +428,18 @@ class E57(unittest.TestCase):
             las.read_points_mm(p, las.read_header(p))
         self.assertRegex(str(e.exception), r"^the E57 could not be read \(\w+\) — the file may be damaged$")  # pye57 reached: damaged
         self.assertNotIn("bad.e57", str(e.exception))
+
+    def test_a_pose_that_is_no_rotation_is_refused_and_no_valid_point_is_the_jobs_words(self):
+        p = self.path("zero.e57")
+        with las.lib("pye57").E57(p, mode="w") as w:  # a zero quaternion: every point would collapse onto the translation
+            w.write_scan_raw({c: np.array([1.0, 4.0]) for c in e57.XYZ}, rotation=np.zeros(4), translation=np.zeros(3))
+        with self.assertRaises(las.Refused) as e:
+            las.read_header(p)
+        self.assertEqual(str(e.exception), "scan 1 of 1: its pose is not a rotation and a translation (zero or not finite) — not read")
+        # an E57 whose every point is marked invalid (pye57 cannot write one): the job's words, never numpy's
+        with mock.patch.object(las, "read_points_mm", return_value=np.zeros((0, 3))), self.assertRaises(las.Refused) as e:
+            pipeline.load([{"id": "ev-0005", "path": p, "head": {"count": 2}}], {"voxel_mm": 20}, 1)
+        self.assertEqual(str(e.exception), "no valid point was read")
 
 
 class Pair(unittest.TestCase):

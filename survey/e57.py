@@ -61,8 +61,8 @@ def fields_refusal(fields):
 
 def read_header(path):
     """An E57's header: {format: "e57", count, scans: [{points, posed, R, t, state}], crs} — the CRS its coordinateMetadata names, recorded
-    only (an E57's points are metres by the standard). Refused in words: an unsafe XML, no pye57, a scan not cartesian, no point, a
-    damaged file (las.damaged: the library's type only)."""
+    only (an E57's points are metres by the standard), a geographic or geocentric one refused. Refused in words: an unsafe XML, no pye57,
+    a scan not cartesian, a pose zero or not finite, no point, a damaged file (las.damaged: the library's type only)."""
     xml_refusal(path)
     pye57 = las.lib("pye57")
     from pyquaternion import Quaternion  # pye57's own dependency, at its pin (las.lib checked it)
@@ -78,6 +78,8 @@ def read_header(path):
             has = lambda c: pose is not None and pose.isDefined(c)
             q = [pose["rotation"][c].value() for c in "wxyz"] if has("rotation") else [1.0, 0.0, 0.0, 0.0]
             t = [pose["translation"][c].value() for c in "xyz"] if has("translation") else [0.0, 0.0, 0.0]
+            if not (np.isfinite(q).all() and np.isfinite(t).all() and np.linalg.norm(q)):
+                raise las.Refused(f"scan {k + 1} of {e.scan_count}: its pose is not a rotation and a translation (zero or not finite) — not read")
             scans.append({"points": int(s.point_count), "posed": pose is not None, "R": Quaternion(q).rotation_matrix,
                           "t": np.asarray(t, float), "state": STATE in s.point_fields})
         meta = e.root["coordinateMetadata"].value() if e.root.isDefined("coordinateMetadata") else ""
@@ -111,6 +113,8 @@ def read_points_mm(path, head, share=1.0, rng=None):
                     keep = rng.random(n) < share if share < 1.0 else np.ones(n, bool)
                     if s["state"]:
                         keep &= data[STATE][:n] == 0
+                    for c in XYZ:  # a NaN or an infinity is no point (pye57 cannot write one: reasoned, not pinned)
+                        keep &= np.isfinite(data[c][:n])
                     x, y, z = (data[c][:n][keep] for c in XYZ)
                     parts.append(np.stack([R[i, 0] * x + R[i, 1] * y + R[i, 2] * z + t[i] for i in range(3)], axis=1) * 1000.0)
                     got += n
