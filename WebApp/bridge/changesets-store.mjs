@@ -10,7 +10,7 @@ import { makeTyper, makeCiter } from "./changesets-typing.mjs";
 import { resolveArtefact, refLabel, validateArtefact } from "./artefact-store.mjs";
 import { resolveActor } from "./bridge-auth.mjs";
 import { readProposeBody, planSurvey, PLANNER, PLANNER_VERSION, measurePlan, judge, measureRefusal, countWords, STATUSES, MIN_COVERAGE, TOLERANCE_MM, MEASURE_KNOBS,
-  readMesh, meshFaces, REVIT, FILED as AS_FILED } from "./survey-plan.mjs";
+  readMesh, meshFaces, REVIT, FILED as AS_FILED, toScan, toModel, scanBand, cloudRefusal, SCAN_CELL_MM, SCAN_MAX } from "./survey-plan.mjs";
 import { stillAdmitted, pickItems, trustedJob as jobOf, measureJob as measureOf, TOLERANCES_MM, READER } from "./build-jobs.mjs";
 
 const STORE = "changeset";
@@ -356,6 +356,29 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
   }
 }
 
+/** MA-4e's chain, shared with MA-4f's overlay: a survey changeset's job read again from its anchored row — trustedJob, the row the changeset was
+ *  built from, its params and seed, every scan it read still the admitted bytes (stillAdmitted) and readable (pickItems), in the order it sent
+ *  them. → {row, evidence, items, pack}, or a 400/404/409 in words. */
+async function jobScan(key, cs, { trustedJob, readPack }) {
+  const { row } = await trustedJob(key, cs.job.id);
+  // A job id repeats across jobs folders (MA-4d decision 19): the row must be the one this changeset was built from.
+  if (row.ledger.id !== cs.job.ledger_id || row.result_sha256 !== cs.job.result_sha256)
+    throw err(409, `${cs.job.id} on this PC is ledger #${row.ledger.id}, not the job ${cs.name} was built from (ledger #${cs.job.ledger_id}) — its scan cannot be read again here`);
+  if (!row.params || !Number.isInteger(row.seed))
+    throw err(409, `ledger #${row.ledger.id} holds no params or seed — the cloud ${cs.job.id} measured cannot be read again; run the survey again`);
+  const { pack, folder } = await readPack(key, row.pack_id);
+  const evidence = stillAdmitted(row, pack, cs.job.id);
+  // The job's cloud again: what its row says it read, in the order it sent them (the seeded sample follows the order), at the row's sha —
+  // sentinel-survey re-hashes each file before and after the read.
+  const { take, refused } = pickItems(pack, folder.path);
+  const items = row.items.filter((i) => row.read.includes(i.id)).map((i) => {
+    const t = take.find((y) => y.id === i.id);
+    if (!t) throw err(409, `${i.id} cannot be read again (${refused.find((y) => y.id === i.id)?.reason ?? "not a scan sentinel-survey reads"}) — survey the admitted scan again`);
+    return { id: i.id, kind: "scan", path: t.path, sha256: i.sha256 };
+  });
+  return { row, evidence, items, pack };
+}
+
 /** MA-4e: POST /cde/:key/verify {changeset} → 200. A signed-in contributor measures a placed survey changeset against the scan its job read
  *  (design §6.6 verify:measured, §6.8 S1, §6.9 S2/S3): the bridge picks everything — the walls Revit placed (result.applied, less an Undo in
  *  Revit: each guid's newest changeset_reverted row), each by Revit's re-read where it sent one, else AS FILED (the changeset's own geometry,
@@ -453,22 +476,7 @@ export async function verifyChangeset(key, b, actor, deps = {}) {
     if (!cs) throw err(404, `no changeset ${id} on ${key}`);
     if (!cs.job || cs.claimed !== false) throw err(409, `${cs.name} was not built from a survey job — there is no scan to measure it against`);
     if (cs.status !== "applied" && cs.status !== "partially_applied") throw err(409, `${cs.name} is ${String(cs.status).replace("_", " ")} — only what Revit placed is measured`);
-    const { row } = await trustedJob(key, cs.job.id);
-    // A job id repeats across jobs folders (MA-4d decision 19): the row must be the one this changeset was built from.
-    if (row.ledger.id !== cs.job.ledger_id || row.result_sha256 !== cs.job.result_sha256)
-      throw err(409, `${cs.job.id} on this PC is ledger #${row.ledger.id}, not the job ${cs.name} was built from (ledger #${cs.job.ledger_id}) — its scan cannot be read again here`);
-    if (!row.params || !Number.isInteger(row.seed))
-      throw err(409, `ledger #${row.ledger.id} holds no params or seed — the cloud ${cs.job.id} measured cannot be read again; run the survey again`);
-    const { pack, folder } = await readPack(key, row.pack_id);
-    const evidence = stillAdmitted(row, pack, cs.job.id);
-    // The job's cloud again: what its row says it read, in the order it sent them (the seeded sample follows the order), at the row's sha —
-    // sentinel-survey re-hashes each file before and after the read.
-    const { take, refused } = pickItems(pack, folder.path);
-    const items = row.items.filter((i) => row.read.includes(i.id)).map((i) => {
-      const t = take.find((y) => y.id === i.id);
-      if (!t) throw err(409, `${i.id} cannot be read again (${refused.find((y) => y.id === i.id)?.reason ?? "not a scan sentinel-survey reads"}) — survey the admitted scan again`);
-      return { id: i.id, kind: "scan", path: t.path, sha256: i.sha256 };
-    });
+    const { row, evidence, items } = await jobScan(key, cs, { trustedJob, readPack });
     const read = async (action_prefix, limit) => {
       try { return await listAudit(key, { entity_type: "changeset", action_prefix, entity_id: cs.id, limit }); }
       catch (e) { throw err(503, `${cs.name}'s ledger rows could not be read (${e.message}) — an Undo in Revit or an earlier measure would be missed`); }
@@ -493,6 +501,54 @@ export async function verifyChangeset(key, b, actor, deps = {}) {
       throw err(409, `${cs.name} was measured on these same inputs as ledger #${prev.id} — the same bytes, seed and geometry give the same numbers; nothing was saved`);
     return { proj, cs, row, evidence, items, applied, reverted, faces, plan, reference };
   }
+}
+
+/** MA-4f: GET /changesets/:key/:id/scan → the scan around a survey changeset's storey, for Revit's overlay (design §4): the job's own cloud read
+ *  again from its anchored row (jobScan — MA-4e's chain, plus each scan's view_reference use, failing closed), cut to the changeset's walls'
+ *  height less SCAN_MARGIN_MM at the floor and the ceiling, one point per SCAN_CELL_MM cube (sentinel-survey doubles it until at most SCAN_MAX
+ *  are left), moved into the model's frame by the lead's frame (toModel; one job is one frame) — whole mm. A signed-in contributor, like every
+ *  sentinel-survey run (the machine credential is a 403); any status (most useful while reviewing). A view: no row, no doc, no file; the points
+ *  are held in memory and answered, never logged. The run takes the bridge's one survey slot and the survey jobs' budget. Its refusals say what
+ *  is not shown (one from the shared chain, the budget or the slot ends "nothing was saved": re-worded).
+ *  ponytail: cold, no cache — each tick of "Show the scan" reads the scan again (seconds on the drill; Revit waits up to 120 s); a cache keyed on
+ *  (the row, the evidence shas, the frame, the cut) and a 202 when Kladno's read is slow (MA-4h). */
+export async function scanOverlay(key, id, deps = {}) {
+  const d = wire(deps);
+  const trustedJob = deps.trustedJob ?? jobOf, measureJob = deps.measureJob ?? measureOf;
+  const readPack = deps.readPack ?? (await import("./evidence-store.mjs")).readPack;
+  // "nothing was saved" at the end, or mid-sentence before a "; …" (the budget's 429): a view saves nothing, so it says what is not shown.
+  const shown = (e) => (e?.status ? err(e.status, `${String(e.message).replace(/(;| —) nothing was saved\.?(?=;|$)/i, "")} — its scan is not shown`) : e);
+  if ((await d.myRole(key)) === "service")
+    throw err(403, "showing a changeset's scan needs a person — it reads the whole scan on this PC's one survey slot: sign in (in Revit: Standards ▸ Sign in) — its scan is not shown");
+  try { await d.requireMinRole(key, "contributor"); }
+  catch (e) { throw e.status === 403 ? err(403, `${e.message} — showing a survey changeset's scan runs sentinel-survey: a contributor's — its scan is not shown`) : e; }
+  const proj = await d.ensureProject(key);
+  const cs = await d.docGet(STORE, proj.id, id);
+  if (!cs) throw err(404, `no changeset ${id} on ${key}`);
+  if (!cs.job || cs.claimed !== false) throw err(409, `${cs.name} was not built from a survey job — it has no scan to show`);
+  const band = scanBand(cs);
+  if (!band) throw err(409, `${cs.name} has no wall to show the scan against`);
+  let chain;
+  try { chain = await jobScan(key, cs, { trustedJob, readPack }); } catch (e) { throw shown(e); }
+  const { row, evidence, items, pack } = chain;
+  // The owner's allowed uses (evidence-logic USES): an overlay is viewing a scan as a reference. Fails closed, like pickItems — and this is
+  // the first route whose answer (derived points) leaves the PC, over the Funnel to a member's Revit.
+  const hidden = pack.items.find((i) => evidence.some((e) => e.id === i.id) && i.allowed_uses?.view_reference !== true);
+  if (hidden) throw err(409, `${hidden.id}'s allowed uses do not include viewing it as a reference — its scan is not shown`);
+  try { d.takeWriteBudget("survey jobs", { perUser: 6, all: 12 }); } catch (e) { throw shown(e); } // a run on the PC's CPU (MA-4e decision 13)
+  const S = toScan(cs.job.frame);
+  let r;
+  try {
+    r = await measureJob(key, cs.job.id, { job_id: `scan-${cs.id}`, items, params: row.params, seed: row.seed,
+      cloud: { cell_mm: SCAN_CELL_MM, z_mm: band.map(S.z), max_points: SCAN_MAX } }, {}, { path: "/cloud", what: "a scan overlay" });
+  } catch (e) { throw shown(e); } // not set up (503), busy (409)
+  if (r.status === "refused") throw err(409, `the scan of ${cs.name} was not read again — ${(r.refused ?? []).map((i) => `${i.id}: ${i.reason}`).join("; ")} — its scan is not shown`);
+  if (r.status !== "done") throw err(502, `the scan of ${cs.name} was not read: ${r.error ?? "sentinel-survey did not finish"} — its scan is not shown`);
+  const bad = cloudRefusal(r.result, SCAN_MAX);
+  if (bad) throw err(502, `sentinel-survey's scan overlay is not the contract's shape (${bad}) — its scan is not shown`);
+  const M = toModel(cs.job.frame), c = r.result.receipt.cloud;
+  return { changeset: { id: cs.id, name: cs.name }, job: cs.job.id, ledger_id: row.ledger.id, version: r.version ?? null, cell_mm: c.cell_mm, z_mm: band, of: c.of,
+    points: r.result.points.map(([x, y, z]) => [...M.xy([x, y]), M.z(z)].map(Math.round)) };
 }
 
 export async function listChangesets(key, { status } = {}, deps) {

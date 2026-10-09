@@ -270,4 +270,12 @@ describe("stillAdmitted and measureJob (MA-4e)", () => {
       .rejects.toMatchObject({ status: 503, message: "sentinel-survey is not set up on this PC: … — nothing was saved" });
     expect(runs).toHaveLength(0);
   });
+  it("MA-4f: the scan overlay takes the same slot — /cloud in the job's folder, and its own words to a job started meanwhile", async () => {
+    const r = measureJob("demo", "job-0001", { job_id: "scan-c1", items: [], params: {}, seed: 1, cloud: {} }, deps(), { path: "/cloud", what: "a scan overlay" });
+    await vi.waitFor(() => expect(runs).toHaveLength(1));
+    expect(runs[0].opts).toEqual({ cwd: join(root, "demo", "job-0001"), path: "/cloud" });
+    await expect(start()).rejects.toMatchObject({ status: 409, message: "a scan overlay is already running on this bridge (one at a time) — try again when it ends; nothing was saved" });
+    runs[0].ok({ status: "done", result: { points: [] } }); runs.pop();
+    expect(await r).toMatchObject({ status: "done" });
+  });
 });

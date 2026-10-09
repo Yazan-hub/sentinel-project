@@ -6,7 +6,7 @@ import * as core from "./sentinel-core.mjs";
 import { makeTyper } from "./changesets-typing.mjs";
 import { validateChangeset } from "./changesets-logic.mjs";
 import { typeGapId } from "./holding-logic.mjs";
-import { readProposeBody, toModel, matchStoreys, trimEnds, planSurvey, toScan, facesOf, measurePlan, judge, measureRefusal, countWords, readMesh, meshFaces, REVIT, FILED } from "./survey-plan.mjs";
+import { readProposeBody, toModel, matchStoreys, trimEnds, planSurvey, toScan, facesOf, measurePlan, judge, measureRefusal, countWords, readMesh, meshFaces, REVIT, FILED, scanBand, cloudRefusal } from "./survey-plan.mjs";
 import { boxMesh } from "./fixtures/box-mesh.mjs";
 
 const read = (p) => JSON.parse(readFileSync(new URL(p, import.meta.url), "utf8"));
@@ -286,5 +286,19 @@ describe("MA-4f — Revit's re-read of a placed wall: read, then the two faces s
     expect(p.send).toEqual([{ guid: "a", faces: [[[125, 325, 0], [125, 325, 2800], [7850, 325, 0]], [[125, -25, 0], [7850, -25, 0], [125, -25, 2800]]] },
       { guid: "b", faces: facesOf(W, S).faces }, { guid: "c", faces: facesOf(W, S).faces }]);
     expect(p.placed.map((x) => [x.reference, x.mesh_sha256 ?? null])).toEqual([[REVIT, "a".repeat(64)], [FILED, null], [FILED, null]]);
+  });
+});
+
+describe("MA-4f — the scan overlay's cut and its answer", () => {
+  const w = (z0, top) => ({ kind: "wall", place: { LocationCurve: { start: [0, 0, z0], end: [1000, 0, z0] }, TopElevation: top } });
+  it("scanBand: the walls' height less 300 mm at the floor and the ceiling; none without a wall", () => {
+    expect(scanBand({ elements: [w(0, 2800), w(0, 3000), { kind: "level", place: { BaseElevation: 0 } }] })).toEqual([300, 2700]);
+    expect([scanBand({ elements: [] }), scanBand({ elements: [w(0, 500)] })]).toEqual([null, null]);
+  });
+  it("cloudRefusal: at most the cap, three whole mm each, its receipt", () => {
+    const ok = { points: [[1, 2, 3]], receipt: { cloud: { cell_mm: 100, of: 1 } } };
+    expect(cloudRefusal(ok, 5000)).toBeNull();
+    expect([cloudRefusal({ ...ok, receipt: {} }, 5000), cloudRefusal({ ...ok, points: [[1, 2, 3], [4, 5, 6]] }, 1), cloudRefusal({ ...ok, points: [[1, 2]] }, 5000), cloudRefusal({ ...ok, points: [[1, 2, 3.5]] }, 5000)])
+      .toEqual(["receipt.cloud", "not at most 1 points", "a point is not three whole numbers of mm", "a point is not three whole numbers of mm"]);
   });
 });

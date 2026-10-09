@@ -312,14 +312,15 @@ export async function trustedJob(key, id, deps = {}) {
  *  a 409 (a job or a measure running), each ending "nothing was saved". The caller (changesets-store verifyChangeset) checks the person, the
  *  changeset and the bytes, and writes the row.
  *  ponytail: a cold process per measure (start-up 1-2 s beside two hashes and a read of the scan; MA-4c decision 3 kept); a warm service with
- *  a cloud cache keyed on (the items' shas, voxel, seed), an idle timeout and a memory bound when verify runs per Apply in bulk (MA-4h). */
-export async function measureJob(key, jobId, payload, deps = {}) {
+ *  a cloud cache keyed on (the items' shas, voxel, seed), an idle timeout and a memory bound when verify runs per Apply in bulk (MA-4h).
+ *  MA-4f: the scan overlay runs here too ({path: "/cloud", what: "a scan overlay"}). */
+export async function measureJob(key, jobId, payload, deps = {}, { path = "/measure", what = "a measure" } = {}) {
   const d = await wire(deps);
   const notSet = d.notSetUp();
   if (notSet) throw err(503, notSet);
   if (running) throw err(409, `${running.what ?? "a survey job"} is already running on this bridge (one at a time) — try again when it ends; nothing was saved`);
   let release;
-  running = { key, id: null, what: "a measure", done: new Promise((r) => { release = r; }) }; // checked and taken with no await between
-  try { return await d.runSurvey(payload, { cwd: join(projectDir(d.root, key), jobId), path: "/measure" }); }
+  running = { key, id: null, what, done: new Promise((r) => { release = r; }) }; // checked and taken with no await between
+  try { return await d.runSurvey(payload, { cwd: join(projectDir(d.root, key), jobId), path }); }
   finally { running = null; release(); }
 }

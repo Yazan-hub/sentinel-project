@@ -1890,6 +1890,9 @@ async function handleRequest(req, res) {
         res.writeHead(200, { "Content-Type": "application/octet-stream", "Cache-Control": "no-cache", "X-Sentinel-Proposal": JSON.stringify({ creates: r.creates, drawn: r.drawn, skipped: r.skipped.slice(0, 10), skipped_total: r.skipped.length }).replace(/[\u007f-\uffff]/g, (c) => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0")), "Access-Control-Expose-Headers": "X-Sentinel-Proposal", ...corsHeaders(res) });
         return res.end(Buffer.from(r.bytes));
       }
+      // MA-4f: the scan around a survey changeset's storey, decimated, in the model's frame — Revit's overlay (changesets-store scanOverlay). A view:
+      //   a signed-in contributor (the machine credential is a 403); no row; the run takes the bridge's one survey slot.
+      if (p2 && p3 === "scan" && req.method === "GET") return send(res, 200, await ch.scanOverlay(key, p2));
       if (p2 && !p3 && req.method === "GET") return send(res, 200, await ch.getChangeset(key, p2));
       if (p2 && p3 === "result" && req.method === "POST") return send(res, 200, await ch.reportResult(key, p2, body, actor));
       if (p2 && p3 === "withdraw" && req.method === "POST") return send(res, 200, await ch.withdrawChangeset(key, p2, actor));

@@ -428,3 +428,30 @@ export function measureRefusal(res, send, tols) {
   }
   return null;
 }
+
+// ── MA-4f: the scan overlay (design §4 "In Revit: a decimated overlay drawn with DirectContext3D"). sentinel-survey thins; the bridge cuts and
+//    places. ──
+
+/** The overlay's first cube, its most points (6 vertices each as Revit's crosses: 30 000, inside any 16-bit index — GhostOverlayGeometry
+ *  ScanBudget) and how much of a storey's height is left out at the floor and at the ceiling. */
+export const SCAN_CELL_MM = 100, SCAN_MAX = 5000, SCAN_MARGIN_MM = 300;
+
+/** MA-4f: the heights the overlay shows, in the model's frame — the changeset's walls, from their lowest base to their highest top, less
+ *  SCAN_MARGIN_MM at each end (no floor or ceiling carpet over a plan; the survey's own wall slice is mid-storey ±300 mm). null with no wall to
+ *  show it against. Pure. */
+export function scanBand(cs) {
+  const w = (cs.elements ?? []).filter((e) => e.kind === "wall" && Number.isFinite(e.place?.LocationCurve?.start?.[2]) && Number.isFinite(e.place?.TopElevation));
+  if (!w.length) return null;
+  const lo = Math.min(...w.map((e) => e.place.LocationCurve.start[2])) + SCAN_MARGIN_MM, hi = Math.max(...w.map((e) => e.place.TopElevation)) - SCAN_MARGIN_MM;
+  return hi > lo ? [lo, hi] : null;
+}
+
+/** MA-4f: null when sentinel-survey's overlay answer has the contract's shape — at most `cap` points of three whole mm (within 1e9), its
+ *  receipt.cloud naming the cube used and how many the first cube kept — else what is wrong. Pure. */
+export function cloudRefusal(res, cap) {
+  const c = res?.receipt?.cloud;
+  if (!c || !Number.isInteger(c.cell_mm) || !Number.isInteger(c.of)) return "receipt.cloud";
+  if (!Array.isArray(res.points) || res.points.length > cap || res.points.length > c.of) return `not at most ${cap} points`;
+  if (!res.points.every((p) => Array.isArray(p) && p.length === 3 && p.every((v) => Number.isInteger(v) && Math.abs(v) <= 1e9))) return "a point is not three whole numbers of mm";
+  return null;
+}

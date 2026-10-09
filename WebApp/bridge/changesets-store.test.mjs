@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { proposeChangeset, getChangeset, reportResult, withdrawChangeset, listChangesets, reportReverted, needsTyping, needsCiting,
-  reviewChangeset, reopenGhost, previewChangesets, proposeFromJob, verifyChangeset } from "./changesets-store.mjs";
+  reviewChangeset, reopenGhost, previewChangesets, proposeFromJob, verifyChangeset, scanOverlay } from "./changesets-store.mjs";
 import { meshFaces } from "./survey-plan.mjs";
 import { boxMesh } from "./fixtures/box-mesh.mjs";
 
@@ -1280,5 +1280,44 @@ describe("verifyChangeset (MA-4e): a signed-in contributor measures a placed sur
     await verify(same);
     expect([same.measureJob.mock.calls[0][2].elements, same.audit.mock.calls[0][6].faces_sha256, same.audit.mock.calls[0][6].reference])
       .toEqual([FILED_SENT, done.new_value.faces_sha256, "revit (claimed)"]);
+  });
+  const CLOUD = () => vi.fn(async () => ({ status: "done", version: "0.1.0", refused: [], result: { points: [[125, 150, 1400], [7850, 5900, 2500]], derived: [],
+    receipt: { cloud: { cell_mm: 100, z_mm: [300, 2500], of: 2, points: 2 } } } }));
+  // The scan as MA-4a stores it: every USES key set (evidence-logic :266-268), viewing allowed. vdeps' SCAN (MA-4e) names geometry_extraction only.
+  const SEEN = { ...SCAN, allowed_uses: { view_reference: true, geometry_extraction: true, texture_embed: false, redistribute: false, ml_training: false } };
+  const sdeps = (over = {}, cs = CS) => vdeps({ readPack: vi.fn(async () => ({ pack: { items: [SEEN] }, folder: { path: DIR } })), measureJob: CLOUD(), ...over }, cs);
+  it("(h) MA-4f: the scan around a survey changeset's storey for Revit's overlay — a signed-in contributor; the job's own cloud on the survey slot, the walls' height less 300 mm, in the model's frame; no row, no write", async () => {
+    const deps = sdeps();
+    const r = await scanOverlay("ma4c-drill", ID, deps);
+    expect(deps.requireMinRole).toHaveBeenCalledWith("ma4c-drill", "contributor");
+    expect(deps.measureJob.mock.calls[0]).toEqual(["ma4c-drill", "job-0002", { job_id: `scan-${ID}`, items: [{ id: "ev-0001", kind: "scan", path: resolve(DIR, "scans/two-storey.las"), sha256: EV }],
+      params: { voxel_mm: 20, storey_min_mm: 2000 }, seed: 1, cloud: { cell_mm: 100, z_mm: [300, 2500], max_points: 5000 } }, {}, { path: "/cloud", what: "a scan overlay" }]);
+    expect(r).toEqual(readRepo("WebApp/bridge/fixtures/changeset-ops/scan-reply.json"));
+    expect([deps.audit.mock.calls.length, deps.docInsert.mock.calls.length, deps.docReplaceIfField.mock.calls.length, deps.takeWriteBudget.mock.calls[0]])
+      .toEqual([0, 0, 0, ["survey jobs", { perUser: 6, all: 12 }]]);
+  });
+  it("(i) MA-4f: the overlay's refusals say what is not shown — the machine credential, a viewer, not a survey changeset, no wall, the job's chain, viewing not allowed (fails closed), the scan not read again, the slot busy, an answer not the contract's", async () => {
+    const no = async (over, cs, status, message) => { const deps = sdeps(over, cs); await expect(scanOverlay("ma4c-drill", ID, deps)).rejects.toMatchObject({ status, message }); return deps; };
+    const machine = await no({ myRole: vi.fn(async () => "service") }, CS, 403,
+      "showing a changeset's scan needs a person — it reads the whole scan on this PC's one survey slot: sign in (in Revit: Standards ▸ Sign in) — its scan is not shown");
+    expect([machine.measureJob.mock.calls.length, machine.takeWriteBudget.mock.calls.length]).toEqual([0, 0]);
+    await no({ requireMinRole: vi.fn(async () => { throw Object.assign(new Error("this action requires the contributor role (you are viewer)"), { status: 403 }); }) }, CS, 403,
+      "this action requires the contributor role (you are viewer) — showing a survey changeset's scan runs sentinel-survey: a contributor's — its scan is not shown");
+    await no({}, { ...CS, job: null, claimed: true }, 409, "Survey job-0002 · GR-FFL was not built from a survey job — it has no scan to show");
+    await no({}, { ...CS, elements: [] }, 409, "Survey job-0002 · GR-FFL has no wall to show the scan against");
+    await no({ readPack: vi.fn(async () => ({ pack: { items: [{ ...SEEN, state: "changed" }] }, folder: { path: DIR } })) }, CS, 409,
+      "ev-0001 is not the bytes job-0002 read (Re-check flagged it changed) — survey the admitted scan again — its scan is not shown");
+    for (const uses of [{ ...SEEN.allowed_uses, view_reference: false }, { geometry_extraction: true }]) // false, and absent: fails closed, like pickItems
+      await no({ readPack: vi.fn(async () => ({ pack: { items: [{ ...SEEN, allowed_uses: uses }] }, folder: { path: DIR } })) }, CS, 409,
+        "ev-0001's allowed uses do not include viewing it as a reference — its scan is not shown");
+    // The budget's 429 says "nothing was saved" mid-sentence: dropped there too (a view saves nothing).
+    await no({ takeWriteBudget: vi.fn(() => { throw Object.assign(new Error("too many survey jobs in a minute — nothing was saved; try again shortly"), { status: 429 }); }) }, CS, 429,
+      "too many survey jobs in a minute; try again shortly — its scan is not shown");
+    await no({ measureJob: vi.fn(async () => ({ status: "refused", refused: [{ id: "ev-0001", reason: "changed since admitted (its sha256 is not the pack's) — Re-check flags it" }] })) }, CS, 409,
+      "the scan of Survey job-0002 · GR-FFL was not read again — ev-0001: changed since admitted (its sha256 is not the pack's) — Re-check flags it — its scan is not shown");
+    await no({ measureJob: vi.fn(async () => { throw Object.assign(new Error("a survey job is already running on this bridge (one at a time) — try again when it ends; nothing was saved"), { status: 409 }); }) }, CS, 409,
+      "a survey job is already running on this bridge (one at a time) — try again when it ends — its scan is not shown");
+    await no({ measureJob: vi.fn(async () => ({ status: "done", result: { points: [[1.5, 0, 0]], receipt: { cloud: { cell_mm: 100, of: 1 } } } })) }, CS, 502,
+      "sentinel-survey's scan overlay is not the contract's shape (a point is not three whole numbers of mm) — its scan is not shown");
   });
 });
