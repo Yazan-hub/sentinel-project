@@ -10,7 +10,8 @@ vi.mock("./active-project", () => ({ activePid: () => "demo", onActiveProjectCha
 
 import { proposalWords, storeyOf, groupDesk, ghostLine, reviewWords, declinedBy, canDecide, canReopen, readPending, postReview, postReopen, rowWords, postsFor, type PendingChangeset,
   trustWords, sourceWords,
-  readDecided, readLedger, highlightPlan, type Ghost, decidedView, decidedCount, DECIDED_MAX, type LedgerRows } from "./review-desk";
+  readDecided, readLedger, highlightPlan, type Ghost, decidedView, decidedCount, DECIDED_MAX, type LedgerRows,
+  measureWords, verifiedView, readVerified, postMeasure, measureLine, canMeasure, countWords, type VerifyRecord, type Measured } from "./review-desk";
 
 const fx = JSON.parse(readFileSync(new URL("../../bridge/fixtures/changeset-ops/ma3a-review.json", import.meta.url), "utf8"));
 const after = fx.after as PendingChangeset;
@@ -201,11 +202,11 @@ describe("recently decided in Revit (MA-3b2b)", () => {
     const src = readFileSync(new URL("./review-desk.ts", import.meta.url), "utf8");
     expect(src).toContain("const [role, pending, decided] = await Promise.all([myRoleRead(base, key), readPending(base, key).catch((e: Error) => e), readDecided(base, key).catch((e: Error) => e)]);");
     // Review C4: the section is built once, and a throw in it is said — it never takes the proposed list with it.
-    expect(src).toContain('try { tail = recent(decided, ledger); } catch (e) { tail = el("div", `Reports not shown — ${(e as Error).message}`, "color:#fca5a5"); }');
+    expect(src).toContain('try { tail = recent(decided, ledger, role.role, verified); } catch (e) { tail = el("div", `Reports not shown — ${(e as Error).message}`, "color:#fca5a5"); }');
     expect(src).toContain('if (pending instanceof Error) { body.replaceChildren(el("div", `Proposals ${pending.message}`, "color:#fca5a5"), tail); return; }');
     expect(src).toContain('if (!pending.length) { body.replaceChildren(el("div", "Nothing waits for review in Revit on this project."), tail); return; }');
     expect(src).toContain("    body.append(tail);");
-    expect(src.split("recent(decided, ledger)").length - 1).toBe(1);
+    expect(src.split("recent(decided, ledger, role.role, verified)").length - 1).toBe(1);
     expect(src.split(/\btail\b/).length - 1).toBe(6); // declared, set twice, shown in each of the desk's three endings
   });
 });
@@ -362,5 +363,68 @@ describe("survey ghosts (MA-4d)", () => {
     expect(src).toContain("const tw = trustWords(x.el); if (tw) words.append(");
     expect(src).toContain("const w = sourceWords(cs); if (w) box.append(");
     expect(readFileSync(new URL("./files-panel.ts", import.meta.url), "utf8")).toContain("` · from survey ${esc(x.job_id)}`");
+  });
+});
+
+describe("measured against the scan (MA-4e)", () => {
+  beforeEach(() => { bfetch.mockReset(); bwrite.mockReset(); });
+  const A = "11111111-1111-4111-8111-111111111111", B = "22222222-2222-4222-8222-222222222222", C = "33333333-3333-4333-8333-333333333333";
+  const W: Ghost = { proposal_guid: "g1", kind: "wall", op: "create", cid: "scan-L00-wall-1", place: { TypeName: "BDS_EXT_ARC_CMU_300 mm", LevelName: "GR-FFL" }, validate: { identity: { Name: "scan-L00-wall-1" } } };
+  const IN: Measured = { proposal_guid: "g1", kind: "wall", status: "within_tolerance", points: 3512, p95_mm: 3, mean_signed_mm: 0, coverage: 0.999, share_within: { 50: 1, 100: 1, 200: 1 } };
+  it("measureWords: the verdict against 20 mm on p95, the numbers, the sign said; a reason — never a made-up zero", () => {
+    expect(measureWords(IN)).toBe("within tolerance (20 mm, p95) · p95 3 mm · mean 0 mm (+ = the scan outside it) · 100% of its faces seen · within 50 / 100 / 200 mm: 100% / 100% / 100% · 3512 points");
+    expect(measureWords({ ...IN, status: "out_of_tolerance", p95_mm: 63, mean_signed_mm: 0.2, share_within: { 50: 0, 100: 1, 200: 1 } }))
+      .toBe("out of tolerance (20 mm, p95) · p95 63 mm · mean +0.2 mm (+ = the scan outside it) · 100% of its faces seen · within 50 / 100 / 200 mm: 0% / 100% / 100% · 3512 points");
+    expect(measureWords({ proposal_guid: "g2", status: "missing", points: 0, p95_mm: null, mean_signed_mm: null, coverage: 0, share_within: null, reason: "no scan point within 400 mm of its faces — not built where it stands, or not scanned there" }))
+      .toBe("missing · 0% of its faces seen · no scan point within 400 mm of its faces — not built where it stands, or not scanned there");
+    expect(measureWords({ proposal_guid: "g3", status: "not_measured", reason: "undone in Revit (ledger #2211) — nothing placed to measure" })).toBe("not measured · undone in Revit (ledger #2211) — nothing placed to measure");
+  });
+  it("verifiedView: the head — as filed, who reported the placement, the counts or why it did not finish, its row, when, who — and a line per placed element; null never measured; a failed read said", () => {
+    const cs = { id: A, name: "Survey job-0002 · GR-FFL", source: "sentinel-survey 0.1.0", status: "applied", created_at: "", elements: [W] } as PendingChangeset;
+    const rec: VerifyRecord = { id: 2300, at: "2026-10-09T10:00:02.000Z", actor: "lead@example.test", status: "done", reference: "as filed", target_mm: 20,
+      placed_by: { reported_by: "lead@example.test", reported_role: "lead" },
+      counts: { within_tolerance: 1, not_measured: 1 }, elements: [IN, { proposal_guid: "g9", status: "not_measured", reason: "a level has no face to measure — its height against the scan is MA-4h's level error" }] };
+    const AS_FILED = "Measured against the scan as filed (the changeset's geometry, which Revit placed exactly — not re-read from Revit: a wall moved since, Revit's joins, the type's width in Revit and the lead's frame are not seen) · placed as Revit reported (by lead@example.test)";
+    expect(verifiedView(cs, rec)).toEqual({ head: `${AS_FILED} · 1 within tolerance, 0 out of tolerance, 0 missing, 0 insufficient data, 1 not measured · ledger #2300 · 2026-10-09 10:00 UTC · by lead@example.test`,
+      lines: [{ line: ghostLine(W), words: measureWords(IN) }, { line: "g9", words: "not measured · a level has no face to measure — its height against the scan is MA-4h's level error" }] });
+    expect(verifiedView(cs, { ...rec, placed_by: { reported_by: "revit", reported_role: "service" } })!.head)
+      .toContain(" · placed as Revit reported (by revit) — the machine credential's report · ");
+    expect(verifiedView(cs, null)).toBeNull();
+    expect(verifiedView(cs, { ...rec, status: "failed", error: "the survey took longer than 10 min — it was stopped; nothing it found was kept", elements: [] })!.head)
+      .toBe(`${AS_FILED} · did not finish — the survey took longer than 10 min — it was stopped; nothing it found was kept · ledger #2300 · 2026-10-09 10:00 UTC · by lead@example.test`);
+    expect(verifiedView(cs, new Error("not read — HTTP 500"))).toEqual({ head: "Measure not read — HTTP 500", lines: [] });
+  });
+  it("readVerified reads each changeset's newest verify:measured row on its own (limit 1, in parallel): a busy report never cuts a quiet one's; a failed read is that report's 'not read — …'; none asked is no read", async () => {
+    expect((await readVerified("http://b", "demo", [])).size).toBe(0);
+    expect(bfetch).not.toHaveBeenCalled();
+    bfetch.mockResolvedValueOnce(res(200, { rows: [
+      { id: 2302, entity_id: A, at: "2026-10-09T11:00:00Z", actor: "x@example.test", new_value: { status: "done", reference: "as filed", target_mm: 20, counts: { within_tolerance: 3 }, elements: [IN] } }], total: 300 }))
+      .mockRejectedValueOnce(new Error("timeout"))
+      .mockResolvedValueOnce(res(200, { rows: [], total: 0 }));
+    const m = await readVerified("http://b/", "demo key", [A, B, C]);
+    expect(m.get(A)).toEqual({ id: 2302, at: "2026-10-09T11:00:00Z", actor: "x@example.test", status: "done", reference: "as filed", target_mm: 20, counts: { within_tolerance: 3 }, elements: [IN] });
+    expect([m.get(B), m.get(C)]).toEqual([new Error("not read — timeout"), null]);
+    expect(bfetch.mock.calls.map((c) => c[0])).toEqual([A, B, C].map((id) => `http://b/cde/demo%20key/audit?entity_type=changeset&action_prefix=verify:measured&limit=1&entity_id=${id}`));
+  });
+  it("postMeasure sends the changeset id only to /cde/:key/verify; measureLine says what was judged and its row", async () => {
+    bwrite.mockResolvedValueOnce({ changeset: { id: A, name: "Survey job-0002 · GR-FFL" }, status: "done", counts: { within_tolerance: 3 }, elements: [], ledger: { id: 2300, hash: "h" } });
+    const r = await postMeasure("http://b/", "demo", A);
+    expect(bwrite).toHaveBeenCalledWith("http://b/cde/demo/verify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ changeset: A }) });
+    expect(measureLine(r)).toBe("✓ Measured Survey job-0002 · GR-FFL against the scan as filed — 3 within tolerance, 0 out of tolerance, 0 missing, 0 insufficient data, 0 not measured · ledger #2300");
+    expect(countWords({})).toBe("0 within tolerance, 0 out of tolerance, 0 missing, 0 insufficient data, 0 not measured");
+  });
+  it("canMeasure: a placed survey changeset, a signed-in contributor or above, not undone in Revit — the bridge holds the same rules", () => {
+    const cs = { id: A, name: "n", source: "s", status: "applied", created_at: "", elements: [], job: { id: "job-0002", ledger_id: 2201 } } as PendingChangeset;
+    expect(["viewer", "contributor", "lead", "owner", "service"].map((r) => canMeasure(cs, r, null))).toEqual([false, true, true, true, false]);
+    expect(canMeasure({ ...cs, status: "partially_applied" }, "contributor", { row: 1, reverted: { id: 2, op: "redo" } })).toBe(true);
+    expect(canMeasure(cs, "contributor", { row: 1, reverted: { id: 2, op: "undo" } })).toBe(false);
+    expect(canMeasure(cs, "contributor", new Error("not read"))).toBe(true); // the bridge reads the Undo rows itself
+    expect([canMeasure({ ...cs, job: null }, "lead", null), canMeasure({ ...cs, status: "declined" }, "lead", null)]).toEqual([false, false]);
+  });
+  it("the desk reads the newest measure after the ledger rows, and Measure sits behind canMeasure with one press, one run (source scan)", () => {
+    const src = readFileSync(new URL("./review-desk.ts", import.meta.url), "utf8");
+    expect(src).toContain("const verified = decided instanceof Error ? new Map<string, VerifyRecord | Error | null>() : await readVerified(base, key, decided.slice(0, DECIDED_MAX).filter((c) => c.job).map((c) => c.id));");
+    expect(src).toContain("if (canMeasure(cs, role, ledger instanceof Error ? ledger : ledger.get(cs.id) ?? null)) {");
+    expect(src).toContain('go.disabled = true; go.textContent = "Measuring…";');
   });
 });

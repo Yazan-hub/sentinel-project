@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startJob, listJobs, readJob, readStartBody, resultRefusal, current, trustedJob } from "./build-jobs.mjs";
+import { startJob, listJobs, readJob, readStartBody, resultRefusal, current, trustedJob, measureJob, stillAdmitted } from "./build-jobs.mjs";
 import { USES } from "./evidence-logic.mjs";
 
 const sha = (b) => createHash("sha256").update(b).digest("hex");
@@ -207,8 +207,12 @@ describe("trustedJob (MA-4d) — decision 11: the row job.ledger.id names, the j
   it("(a) the job's own row: the result, the row's pack, items and read, its id and hash — the pack id is the ROW's, not job.json's", async () => {
     lay({ pack_id: "evp-9999" });
     const t = await trust(ROW());
-    expect(t.row).toEqual({ ledger: { id: 2201, hash: H }, reader: "sentinel-survey", version: "0.1.0", pack_id: "evp-0001", items: [{ id: "ev-0001", sha256: "1".repeat(64) }], read: ["ev-0001"], result_sha256: SHA });
+    expect(t.row).toEqual({ ledger: { id: 2201, hash: H }, reader: "sentinel-survey", version: "0.1.0", pack_id: "evp-0001", items: [{ id: "ev-0001", sha256: "1".repeat(64) }], read: ["ev-0001"], result_sha256: SHA, params: null, seed: null });
     expect(t.result.candidates).toHaveLength(2);
+  });
+  it("(a2) MA-4e: the row's params and seed, never job.json's — the cloud the job measured is read again from the anchored row", async () => {
+    lay({ params: { voxel_mm: 50 }, seed: 9 });
+    expect((await trust(ROW({}, { params: { voxel_mm: 20, storey_min_mm: 2000 }, seed: 1 }))).row).toMatchObject({ params: { voxel_mm: 20, storey_min_mm: 2000 }, seed: 1 });
   });
   it("(b) never trusted: an open-route receipt, another job's row that names this job in new_value.job_id, a failed action, a failed status, a claimed row, another type, no row", async () => {
     lay();
@@ -239,5 +243,31 @@ describe("trustedJob (MA-4d) — decision 11: the row job.ledger.id names, the j
     lay({ status: "failed" });
     await expect(trust(ROW())).rejects.toMatchObject({ status: 409, message: "job-0001 is failed — only a done survey job is proposed; nothing was saved" });
     await expect(trustedJob("demo", "nope", deps())).rejects.toMatchObject({ status: 400, message: "a survey job is named job-NNNN — nothing was saved" });
+  });
+});
+
+describe("stillAdmitted and measureJob (MA-4e)", () => {
+  const ROW = { items: [{ id: "ev-0001", sha256: "1".repeat(64) }], read: ["ev-0001"] };
+  it("stillAdmitted: the read items, still the bytes the job read, or MA-4d's words", () => {
+    expect(stillAdmitted(ROW, { items: [{ id: "ev-0001", sha256: "1".repeat(64), state: "admitted" }] }, "job-0001")).toEqual([{ id: "ev-0001", sha256: "1".repeat(64) }]);
+    expect(() => stillAdmitted(ROW, { items: [] }, "job-0001")).toThrow("ev-0001 is not the bytes job-0001 read (it is no longer in the pack) — survey the admitted scan again; nothing was saved");
+  });
+  const P = { job_id: "measure-c1", items: [], params: {}, seed: 1, elements: [] };
+  it("one measure on the bridge's one survey slot: /measure in the job's folder; a job meanwhile is a 409; the slot free after", async () => {
+    const r = measureJob("demo", "job-0001", P, deps());
+    await vi.waitFor(() => expect(runs).toHaveLength(1));
+    expect([runs[0].job, runs[0].opts]).toEqual([P, { cwd: join(root, "demo", "job-0001"), path: "/measure" }]);
+    await expect(start()).rejects.toMatchObject({ status: 409, message: "a measure is already running on this bridge (one at a time) — try again when it ends; nothing was saved" });
+    runs[0].ok({ status: "done", result: { elements: [] } }); runs.pop();
+    expect(await r).toMatchObject({ status: "done" });
+    await expect(start()).resolves.toMatchObject({ job: { id: "job-0001" } });
+  });
+  it("a job running is a 409 for a measure; sentinel-survey not set up is a 503 — neither starts anything", async () => {
+    await start();
+    await expect(measureJob("demo", "job-0001", P, deps())).rejects.toMatchObject({ status: 409, message: "a survey job is already running on this bridge (one at a time) — try again when it ends; nothing was saved" });
+    await finish({ status: "failed", stage: "stopped", pct: 0, error: "the test" });
+    await expect(measureJob("demo", "job-0001", P, deps({ notSetUp: () => "sentinel-survey is not set up on this PC: … — nothing was saved" })))
+      .rejects.toMatchObject({ status: 503, message: "sentinel-survey is not set up on this PC: … — nothing was saved" });
+    expect(runs).toHaveLength(0);
   });
 });

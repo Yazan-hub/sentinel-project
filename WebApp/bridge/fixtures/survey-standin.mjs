@@ -19,10 +19,10 @@ else {
     const send = (code, body) => { if (!res.destroyed) { res.writeHead(code, { "Content-Type": "application/json" }); res.end(JSON.stringify(body)); } };
     if (mode === "denied" || req.headers.authorization !== `Bearer ${token}`) return send(401, { message: "not the bridge's token" });
     if (req.method === "GET" && req.url === "/health") return send(200, { version: "0.1.0-standin", tools: [{ name: "standin", version: "1", licence: "MIT" }] });
-    if (req.method === "POST" && req.url === "/jobs") {
+    if (req.method === "POST" && (req.url === "/jobs" || req.url === "/measure")) { // MA-4e: a measure is posted to /measure
       let b = "";
       req.on("data", (c) => { b += c; });
-      req.on("end", () => { job = JSON.parse(b); send(202, { job_id: job.job_id, status: "queued" }); });
+      req.on("end", () => { job = { ...JSON.parse(b), posted: req.url }; send(202, { job_id: job.job_id, status: "queued" }); });
       return;
     }
     if (job && req.url === `/jobs/${job.job_id}`) {
@@ -35,6 +35,8 @@ else {
       return send(200, { status: "done", stage: "done", pct: 100, refused: [] });
     }
     if (job && req.url === `/jobs/${job.job_id}/result`) {
+      if (job.elements) return send(200, { elements: job.elements.map((e) => ({ guid: e.guid, points: 12, p95_mm: 2.9, mean_signed_mm: 0.1, share_within: { 50: 1, 100: 1, 200: 1 }, coverage: 1 })),
+        derived: [], receipt: { seed: job.seed, posted: job.posted, measure: { band_mm: 400, edge_mm: 200, cell_mm: 200 } } });
       return send(200, {
         candidates: [{ cid: "scan-L00-level", kind: "level", geometry: { BaseElevation: 0 }, measured: { elevation_mm: 0 }, evidence: [`${job.items[0].id}#floor-L00`], fit: { inliers: 1, rmse_mm: 0, coverage: 1 } }],
         derived: [], receipt: { seed: job.seed, params: job.params, points_in: 1, points_used: 1, cpu_s: 0, env: Object.keys(process.env).sort() },

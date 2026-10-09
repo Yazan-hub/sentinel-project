@@ -15,7 +15,7 @@ const bad = (m) => err(400, `${m} — nothing was saved`);
 export const PLANNER = "survey-planner";
 export const PLANNER_VERSION = "0.1.0";
 /** D7: the pre-tick tolerance (on the fit) and the level match's.
- *  ponytail: one constant for both; a lod_matrix field per class when the founder wants one — MA-4e then judges p95 deviation against it. */
+ *  ponytail: one constant for both, and MA-4e's p95 verdict (judge); a per-class tolerance (lod_matrix or the contract's) is MA-8's. */
 export const TOLERANCE_MM = 20;
 export const NOT_MEASURED = "thickness not measured";
 const MAX_XY_MM = 10_000_000; // 10 km: a scan farther from the internal origin is in a national grid — its CRS is read from MA-4g
@@ -60,6 +60,14 @@ export function readProposeBody(b, levelCids) {
 export function toModel(f) {
   const a = (f.rotation_deg * Math.PI) / 180, c = Math.cos(a), s = Math.sin(a);
   return { xy: ([x, y]) => [r1(c * x - s * y + f.dx_mm), r1(s * x + c * y + f.dy_mm)], z: (z) => r1(z + f.dz_mm) };
+}
+
+/** MA-4e: the lead's frame backwards — model (Revit internal) mm → the scan's mm: moved back, then turned back (toModel's inverse). Only the
+ *  four frame keys are read (the stored frame also carries stated_by).
+ *  ponytail: one statement both ways — a measure as filed cannot see a wrong frame; MA-4g computes it. */
+export function toScan(f) {
+  const a = (f.rotation_deg * Math.PI) / 180, c = Math.cos(a), s = Math.sin(a);
+  return { xy: ([x, y]) => { const X = x - f.dx_mm, Y = y - f.dy_mm; return [r1(c * X + s * Y), r1(c * Y - s * X)]; }, z: (z) => r1(z - f.dz_mm) };
 }
 
 /** Each storey's level in the model, lowest first: the one the lead named (its height checked when a published IFC holds the name); else the
@@ -261,4 +269,95 @@ export function planSurvey({ job, candidates, frame, levels: named = {}, manifes
     return { storey: s, byCid, exceptions, body: { name: `Survey ${job.id} · ${s.level}`, contract: 2, source: `${job.reader} ${job.version}`, elements, exceptions } };
   });
   return { storeys, groups: groupGaps(gaps), already_filed: already };
+}
+
+// ── MA-4e: deviation after placement (design §6.6 verify:measured, §6.9 POST /measure). The service measures; the bridge picks what is measured
+//    and judges it (rule 3). ──
+
+/** Rule 6's statuses a measure gives, in the order the words count them. */
+export const STATUSES = ["within_tolerance", "out_of_tolerance", "missing", "insufficient_data", "not_measured"];
+/** "3 within tolerance, 0 out of tolerance, 0 missing, 0 insufficient data, 0 not measured". Pure. */
+export const countWords = (n) => STATUSES.map((s) => `${n[s] ?? 0} ${s.replace(/_/g, " ")}`).join(", ");
+/** A measured wall below this share of its faces' interior seen is insufficient_data, never judged.
+ *  ponytail: one share for every class (D7 sets none) — a wall seen from one side reads about 0.5 and is judged on that face; the founder
+ *  set it for v0.1 (2026-10-09, MA-4e open question 2), MA-4h tunes it on Kladno. */
+export const MIN_COVERAGE = 0.25;
+
+/** The faces sentinel-survey measures a placed wall by, as filed: its line, its measured thickness (exact typing, D16: the placed type's width),
+ *  its base (the line's z) and its top — the box the executor places (Wall.Create's default location line, Wall Centerline, and the type's
+ *  Width equal to facts.thickness_mm: drill MA4e R-1 reads both before this merges — a gate), back in the scan's frame. Each face [p0, p1, p3]
+ *  (p1 and p3 the corners next to p0), (p1 − p0) × (p3 − p0) out of the wall: + is the scan outside it. → {faces} or {why}. Pure.
+ *  ponytail: the line's box — Revit's joins and a free end are not drawn; the service reads 200 mm in from every edge, so neither is judged. */
+export function facesOf(el, S) {
+  const p = el.place ?? {}, c = p.LocationCurve, t = el.facts?.thickness_mm;
+  if (!Array.isArray(c?.start) || !Array.isArray(c?.end) || !Number.isFinite(c.start[2]) || !(t > 0) || !Number.isFinite(p.TopElevation))
+    return { why: "its line, measured thickness or top is not on the changeset" };
+  const [ax, ay] = S.xy(c.start), [bx, by] = S.xy(c.end), zb = S.z(c.start[2]), zt = S.z(p.TopElevation);
+  const L = Math.hypot(bx - ax, by - ay);
+  if (!(L >= 1) || !(zt > zb)) return { why: "its line is shorter than 1 mm, or its top not above its base" };
+  const nx = (-(by - ay) / L) * (t / 2), ny = ((bx - ax) / L) * (t / 2);
+  const at = (x, y, z) => [r1(x), r1(y), z];
+  return { faces: [
+    [at(ax + nx, ay + ny, zb), at(ax + nx, ay + ny, zt), at(bx + nx, by + ny, zb)],    // the face on the line's left, out to the left
+    [at(ax - nx, ay - ny, zb), at(bx - nx, by - ny, zb), at(ax - nx, ay - ny, zt)]] }; // the face on its right, out to the right
+}
+
+/** What a measure sends for a placed survey changeset: per element Revit placed (result.applied, in its order) its faces in the scan's frame,
+ *  or why not — an Undo in Revit (`undone(guid)`: the ledger id when the guid's newest changeset_reverted row is an undo, else null), a level,
+ *  a floor or ceiling, a wall whose geometry is not on the changeset. Pure. → {send: [{guid, faces}], skip: [{proposal_guid, reason}],
+ *  placed: [{proposal_guid, revit_unique_id, cid, kind}]}
+ *  ponytail: walls only — a floor's or ceiling's other face is its type's, which no scan measured, and the slab beyond counts against its one
+ *  face (measured: ~200 mm on the drill); a depth from its type is MA-4h's. */
+export function measurePlan(cs, undone = () => null) {
+  const S = toScan(cs.job.frame), send = [], skip = [], placed = [];
+  for (const a of cs.result?.applied ?? []) {
+    const el = (cs.elements ?? []).find((e) => e.proposal_guid === a.proposal_guid), u = undone(a.proposal_guid);
+    placed.push({ proposal_guid: a.proposal_guid, revit_unique_id: a.revit_unique_id ?? null, cid: el?.cid ?? null, kind: el?.kind ?? null });
+    const f = u != null ? { why: `undone in Revit (ledger #${u}) — nothing placed to measure` }
+      : el?.kind === "wall" ? facesOf(el, S)
+      : el?.kind === "level" ? { why: "a level has no face to measure — its height against the scan is MA-4h's level error" }
+      : el?.kind === "floor" || el?.kind === "ceiling" ? { why: `one face of a ${el.kind} is seen; its other is its type's, which no scan measured, and the slab beyond would count against it — MA-4h` }
+      : { why: el ? `a ${el.kind} is not measured by sentinel-survey 0.1` : "not on the changeset" };
+    if (f.faces) send.push({ guid: a.proposal_guid, faces: f.faces }); else skip.push({ proposal_guid: a.proposal_guid, reason: f.why });
+  }
+  return { send, skip, placed };
+}
+
+/** The bridge's verdict on one element sentinel-survey measured (rule 3: the service measures, the bridge judges) — p95 against D7's
+ *  TOLERANCE_MM. `k`: the service's receipt.measure {band_mm, edge_mm}. → {status, reason?}. Pure. */
+export function judge(m, k) {
+  if (m.coverage == null) return { status: "not_measured", reason: `no face interior to measure — each face is read ${k.edge_mm} mm in from every edge` };
+  if (!m.points) return { status: "missing", reason: `no scan point within ${k.band_mm} mm of its faces — not built where it stands, or not scanned there` };
+  if (m.coverage < MIN_COVERAGE) return { status: "insufficient_data", reason: `${Math.round(m.coverage * 1000) / 10}% of its faces seen — under the ${MIN_COVERAGE * 100}% a verdict needs` };
+  return { status: m.p95_mm <= TOLERANCE_MM ? "within_tolerance" : "out_of_tolerance" };
+}
+
+/** The keys a measured element may carry (spec amendment S3: numbers only) — anything else, a status above all, is the bridge's. */
+const MEASURE_KEYS = new Set(["guid", "points", "p95_mm", "mean_signed_mm", "share_within", "coverage"]);
+export const MEASURE_KNOBS = ["band_mm", "edge_mm", "cell_mm"];
+const share = (v) => Number.isFinite(v) && v >= 0 && v <= 1;
+
+/** null when a measure's result has the contract's shape — one entry per element sent, in order, the five numbers only (or null), each in
+ *  range, its knobs on the receipt — else what is wrong (the bridge keeps nothing it could not judge; a verdict sent by the service is refused,
+ *  never merged: rule 3). Pure. */
+export function measureRefusal(res, send, tols) {
+  const k = res?.receipt?.measure;
+  // Final review: the knobs are the three the service has, all numbers — nothing else rides onto the bridge's row.
+  if (!k || typeof k !== "object" || Object.keys(k).some((x) => !MEASURE_KNOBS.includes(x)) || !MEASURE_KNOBS.every((x) => Number.isFinite(k[x]))) return "receipt.measure";
+  if (!Array.isArray(res.elements) || res.elements.length !== send.length) return "not one result per element sent";
+  for (const [i, m] of res.elements.entries()) {
+    const at = `elements[${i}]`;
+    const extra = Object.keys(m ?? {}).find((x) => !MEASURE_KEYS.has(x));
+    if (extra) return `${at} carries ${extra.slice(0, 64)} (the verdict is the bridge's)`;
+    if (m?.guid !== send[i].guid) return `${at}.guid`;
+    if (!Number.isInteger(m.points) || m.points < 0) return `${at}.points`;
+    if (![m.p95_mm, m.mean_signed_mm, m.coverage].every((v) => v === null || Number.isFinite(v)) || m.p95_mm < 0 || (m.coverage !== null && !share(m.coverage)))
+      return `${at}'s numbers`;
+    if (m.points > 0 && (!Number.isFinite(m.p95_mm) || !tols.every((t) => share(m.share_within?.[t])))) return `${at}.share_within`;
+    // Final review: the numbers agree with each other — no point means no p95, mean or shares (and nothing covered); points mean a
+    // coverage and a mean (the service sends exactly that; anything else is not its contract, and judge would read it wrong).
+    if (m.points === 0 && (m.p95_mm !== null || m.mean_signed_mm !== null || m.share_within != null || (m.coverage !== null && m.coverage !== 0))) return `${at}'s numbers`;
+    if (m.points > 0 && (!Number.isFinite(m.mean_signed_mm) || m.coverage === null)) return `${at}'s numbers`;
+  }
+  return null;
 }

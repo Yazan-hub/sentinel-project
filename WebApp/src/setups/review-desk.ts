@@ -6,6 +6,7 @@
 // not read says "not read — …", never that nothing waits. No 3D here: ghosts in the viewer are MA-3d.
 // MA-3b2b: under it, "Recently decided in Revit" — the changesets Revit reported (a second read beside the proposed one), each with
 // who, when, the note, its ledger row (and the row of an Undo in Revit after it) and every ghost it did not apply with Revit's reason (result.reasons) and the web's.
+// MA-4e: under a placed survey report, its newest measure against the scan (the bridge's verify:measured row) and Measure — a signed-in contributor's.
 import { bfetch, bwrite } from "./bridge-fetch";
 import { myRoleRead, roleWords } from "./my-role";
 import { activePid, onActiveProjectChange } from "./active-project";
@@ -49,6 +50,18 @@ export interface LedgerRows { row: number | null; reverted: { id: number; op: st
 export interface DeskGroup { what: string; ghosts: { cs: PendingChangeset; el: Ghost }[]; }
 export interface DeskStorey { storey: string; changesets: PendingChangeset[]; groups: DeskGroup[]; }
 export interface LedgerRef { id: number | null; hash: string | null; }
+/** MA-4e: one placed element as the bridge judged it against the scan (a verify:measured row's element). */
+export interface Measured {
+  proposal_guid: string; kind?: string | null; status: string; points?: number; p95_mm?: number | null; mean_signed_mm?: number | null;
+  coverage?: number | null; share_within?: Record<string, number> | null; reason?: string;
+}
+/** MA-4e: the newest verify:measured row of a changeset. */
+export interface VerifyRecord {
+  id: number; at: string; actor: string; status: string; reference?: string; target_mm?: number; counts?: Record<string, number>; error?: string;
+  placed_by?: { reported_by?: string | null; reported_role?: string | null } | null; elements: Measured[];
+}
+/** MA-4e: what POST /cde/:key/verify answers. */
+export interface MeasureReply { changeset: { id: string; name: string }; status: string; counts: Record<string, number>; elements: Measured[]; ledger: LedgerRef | null; }
 
 // Revit's StoreyBatch.Part: " (i/n)" at the end of a Promote storey's part (ASCII digits).
 const PART = / \(([0-9]{1,4})\/([0-9]{1,4})\)$/;
@@ -162,18 +175,24 @@ export async function readDecided(base: string, key: string): Promise<PendingCha
     .sort((a, b) => { const x = a.result!.reported_at ?? "", y = b.result!.reported_at ?? ""; return x < y ? 1 : x > y ? -1 : 0; });
 }
 
+/** GET …/audit → its rows and total; any failure throws "not read — <why>", never an empty list. */
+async function auditRows<T>(url: string): Promise<{ rows: T[]; total: number }> {
+  let r: Response;
+  try { r = await bfetch(url); }
+  catch (e) { throw new Error(`not read — ${(e as Error).message}`); }
+  const j = (await r.json().catch(() => null)) as { rows?: T[]; total?: number; message?: string } | null;
+  if (!r.ok || !Array.isArray(j?.rows)) throw new Error(`not read — ${j?.message || (r.ok ? "the bridge answered without rows" : `HTTP ${r.status}`)}`);
+  return { rows: j.rows, total: j.total ?? 0 };
+}
+
 /** The ledger rows of the reports (the stored changeset holds no row id): GET /cde/:key/audit by changeset id → per changeset, its
  *  changeset_applied row and (review C3) the newest changeset_reverted row — rows come newest first, so the first one seen. No id
  *  asked is no read. Any failure throws "not read — <why>" — the desk then says the row was not read, never a made-up id; so does a
  *  ledger holding more changeset_* rows for these reports than one read returns (1000): a cut read could miss a report's row. */
 export async function readLedger(base: string, key: string, ids: string[]): Promise<Map<string, LedgerRows>> {
   if (!ids.length) return new Map();
-  let r: Response;
-  try { r = await bfetch(`${base.replace(/\/$/, "")}/cde/${encodeURIComponent(key)}/audit?entity_type=changeset&action_prefix=changeset_&entity_id=${ids.map(encodeURIComponent).join(",")}&limit=1000`); }
-  catch (e) { throw new Error(`not read — ${(e as Error).message}`); }
-  const j = (await r.json().catch(() => null)) as { rows?: { id: number; entity_id: string; action: string; new_value?: { op?: unknown } | null }[]; total?: number; message?: string } | null;
-  if (!r.ok || !Array.isArray(j?.rows)) throw new Error(`not read — ${j?.message || (r.ok ? "the bridge answered without rows" : `HTTP ${r.status}`)}`);
-  if ((j.total ?? 0) > j.rows.length) throw new Error(`not read — the ledger holds more rows for these reports (${j.total}) than one read returns`);
+  const j = await auditRows<{ id: number; entity_id: string; action: string; new_value?: { op?: unknown } | null }>(`${base.replace(/\/$/, "")}/cde/${encodeURIComponent(key)}/audit?entity_type=changeset&action_prefix=changeset_&entity_id=${ids.map(encodeURIComponent).join(",")}&limit=1000`);
+  if (j.total > j.rows.length) throw new Error(`not read — the ledger holds more rows for these reports (${j.total}) than one read returns`);
   const out = new Map<string, LedgerRows>();
   for (const x of j.rows) {
     if (x.action !== "changeset_applied" && x.action !== "changeset_reverted") continue;
@@ -251,6 +270,74 @@ export function postsFor(ticked: Map<string, { cs: PendingChangeset; el: Ghost }
 
 /** "ledger #1201" when the bridge named the row; else that it did not. */
 export const rowWords = (r: { ledger: LedgerRef | null } | null): string => (r?.ledger?.id != null ? `ledger #${r.ledger.id}` : "the bridge named no ledger row");
+
+// ── MA-4e: measured against the scan — the bridge's verify:measured rows ("verify:" is reserved on the open audit route). Every string here
+//    is rendered with textContent. ──
+
+/** The newest verify:measured row of each changeset asked — one read per changeset, newest first, limit 1, in parallel (journey-store's
+ *  newest-row read; readLedger's is pinned to changeset_ rows): a report measured often never cuts a quiet one's. → per id its record, null
+ *  (never measured) or that one read's "not read — …" Error, never a guess. None asked is no read.
+ *  ponytail: one read per survey report shown (at most DECIDED_MAX); a ledger view of the newest row per entity if the desk shows more. */
+export async function readVerified(base: string, key: string, ids: string[]): Promise<Map<string, VerifyRecord | Error | null>> {
+  const at = `${base.replace(/\/$/, "")}/cde/${encodeURIComponent(key)}/audit?entity_type=changeset&action_prefix=verify:measured&limit=1&entity_id=`;
+  return new Map(await Promise.all(ids.map(async (id): Promise<[string, VerifyRecord | Error | null]> => {
+    try {
+      const [x] = (await auditRows<{ id: number; at: string; actor: string; new_value?: Partial<VerifyRecord> | null }>(at + encodeURIComponent(id))).rows;
+      if (!x) return [id, null];
+      const v = x.new_value ?? {};
+      return [id, { id: x.id, at: x.at, actor: x.actor, status: String(v.status ?? ""), reference: v.reference, target_mm: v.target_mm, counts: v.counts, error: v.error,
+        placed_by: v.placed_by, elements: Array.isArray(v.elements) ? v.elements : [] }];
+    } catch (e) { return [id, e as Error]; }
+  })));
+}
+
+const MEASURED = ["within_tolerance", "out_of_tolerance", "missing", "insufficient_data", "not_measured"];
+/** "3 within tolerance, 0 out of tolerance, 0 missing, 0 insufficient data, 0 not measured" — the bridge's count words (survey-plan countWords). Pure. */
+export const countWords = (n: Record<string, number>): string => MEASURED.map((s) => `${n[s] ?? 0} ${s.replace(/_/g, " ")}`).join(", ");
+
+/** One measured element in words: the verdict against the target on p95, the numbers sentinel-survey gave, the bridge's reason — a number it
+ *  did not give is left out, never a zero. Pure. */
+export function measureWords(m: Measured, target = 20): string {
+  const pct = (v: number) => `${Math.round(v * 100)}%`, sw = m.share_within;
+  const judged = m.status === "within_tolerance" || m.status === "out_of_tolerance";
+  return [`${m.status.replace(/_/g, " ")}${judged ? ` (${target} mm, p95)` : ""}`,
+    ...(m.p95_mm != null ? [`p95 ${m.p95_mm} mm`] : []),
+    ...(m.mean_signed_mm != null ? [`mean ${m.mean_signed_mm > 0 ? "+" : ""}${m.mean_signed_mm} mm (+ = the scan outside it)`] : []),
+    ...(m.coverage != null ? [`${pct(m.coverage)} of its faces seen`] : []),
+    ...(sw ? [`within ${Object.keys(sw).join(" / ")} mm: ${Object.values(sw).map(pct).join(" / ")}`] : []),
+    ...(m.points ? [`${m.points} points`] : []),
+    ...(m.reason ? [m.reason] : [])].join(" · ");
+}
+
+/** A changeset's newest measure in words: the head (as filed, who reported the placement, the counts or why it did not finish, its row, when,
+ *  who) and a line per placed element (ghostLine, then measureWords); null when it was never measured; the read's own failure as the head. Pure. */
+export function verifiedView(cs: PendingChangeset, rec: VerifyRecord | null | Error): { head: string; lines: { line: string; words: string }[] } | null {
+  if (rec instanceof Error) return { head: `Measure ${rec.message}`, lines: [] };
+  if (!rec) return null;
+  const when = /^\d{4}-\d\d-\d\dT\d\d:\d\d/.test(rec.at ?? "") ? `${rec.at.slice(0, 10)} ${rec.at.slice(11, 16)} UTC` : "an unknown time";
+  const what = rec.status === "done" ? countWords(rec.counts ?? {}) : `did not finish — ${rec.error ?? "no reason on its row"}`;
+  const filed = rec.reference === "as filed" ? " as filed (the changeset's geometry, which Revit placed exactly — not re-read from Revit: a wall moved since, Revit's joins, the type's width in Revit and the lead's frame are not seen)" : "";
+  // Which walls count as placed is Revit's report, not the bridge's measure: who filed it, and the machine credential's said so.
+  const pb = rec.placed_by, placed = `placed as Revit reported${pb?.reported_by ? ` (by ${pb.reported_by})` : ""}${pb?.reported_role === "service" ? " — the machine credential's report" : ""}`;
+  const byGuid = new Map((cs.elements ?? []).map((e) => [e.proposal_guid, e]));
+  return {
+    head: `Measured against the scan${filed} · ${placed} · ${what} · ledger #${rec.id} · ${when} · by ${rec.actor || "an unknown account"}`,
+    lines: rec.elements.map((m) => { const el = byGuid.get(m.proposal_guid); return { line: el ? ghostLine(el) : m.proposal_guid, words: measureWords(m, rec.target_mm) }; }),
+  };
+}
+
+/** Who sees Measure on a report: a placed survey changeset (its job; applied or partially), a signed-in contributor or above (never the
+ *  machine credential), not undone in Revit since (its newest changeset_reverted row). The bridge holds the same rules. Pure. */
+export const canMeasure = (cs: PendingChangeset, role: string, rows: LedgerRows | null | Error): boolean =>
+  !!cs.job && (cs.status === "applied" || cs.status === "partially_applied") && canDecide(role) && !(rows && !(rows instanceof Error) && rows.reverted?.op === "undo");
+
+/** POST /cde/:key/verify {changeset} — the id only: the bridge picks the elements, their geometry, the scan and the seed. A refusal throws the
+ *  bridge's words. */
+export const postMeasure = (base: string, key: string, id: string): Promise<MeasureReply> =>
+  bwrite(`${base.replace(/\/$/, "")}/cde/${encodeURIComponent(key)}/verify`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ changeset: id }) });
+
+/** The status line after Measure. Pure. */
+export const measureLine = (r: MeasureReply): string => `✓ Measured ${r.changeset.name} against the scan as filed — ${countWords(r.counts)} · ${rowWords(r)}`;
 
 /** MA-3d: what Highlight in 3D does with a storey's ghosts and what each loaded model answered for their GlobalIds (null = not in it):
  *  the highlighter's map (modelId → the local ids found) and the words. Pure. */
@@ -385,7 +472,7 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
   let seq = 0;
 
   // MA-3b2b: what Revit reported, under the proposed list. Every node is made by el() — textContent, never markup (C13).
-  const recent = (decided: PendingChangeset[] | Error, ledger: Map<string, LedgerRows> | Error): HTMLElement => {
+  const recent = (decided: PendingChangeset[] | Error, ledger: Map<string, LedgerRows> | Error, role: string, verified: Map<string, VerifyRecord | Error | null>): HTMLElement => {
     const box = el("div", "", "margin-top:.9rem;border-top:1px solid #2a2a30;padding-top:.5rem");
     box.append(el("div", "Recently decided in Revit", "font-weight:600"));
     if (decided instanceof Error) { box.append(el("div", `Reports ${decided.message}`, "color:#fca5a5")); return box; }
@@ -401,6 +488,24 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
         const row = el("div", "", "padding:.15rem 0");
         row.append(el("div", g.line), ...g.why.map((w) => el("div", w, "color:#fca5a5")));
         one.append(row);
+      }
+      // MA-4e: a placed survey changeset's newest measure, and Measure — one press, one run (the service may start cold).
+      if (cs.job) {
+        const mv = verifiedView(cs, verified.get(cs.id) ?? null);
+        if (mv) {
+          one.append(el("div", mv.head, "margin:.3rem 0 .1rem;color:#8b93a1"));
+          for (const m of mv.lines) one.append(el("div", m.line), el("div", m.words, "color:#8b93a1;font-size:11px"));
+        }
+        if (canMeasure(cs, role, ledger instanceof Error ? ledger : ledger.get(cs.id) ?? null)) {
+          const go = btn(mv?.lines.length ? "Measure again" : "Measure against the scan", async () => {
+            if (go.disabled) return;
+            go.disabled = true; go.textContent = "Measuring…";
+            try { say(measureLine(await postMeasure(base, activePid(), cs.id))); }
+            catch (e) { say(`Not measured — ${(e as Error).message}`, true); }
+            void show();
+          });
+          one.append(go);
+        }
       }
       box.append(one);
     }
@@ -430,9 +535,12 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
     // MA-3b2b: the ledger rows of the reports shown — a read of its own, so a ledger that cannot be read is said on each report.
     const ledger = decided instanceof Error ? new Map<string, LedgerRows>() : await readLedger(base, key, decided.slice(0, DECIDED_MAX).map((c) => c.id)).catch((e: Error) => e);
     if (mine !== seq) return;
+    // MA-4e: the newest measure of each placed survey changeset shown — one read each; a failed one is said under its own report, never a guess.
+    const verified = decided instanceof Error ? new Map<string, VerifyRecord | Error | null>() : await readVerified(base, key, decided.slice(0, DECIDED_MAX).filter((c) => c.job).map((c) => c.id));
+    if (mine !== seq) return;
     // Review C4: built once, and a throw in it is said — it never leaves the desk at "Reading…" or takes the proposed list with it.
     let tail: HTMLElement;
-    try { tail = recent(decided, ledger); } catch (e) { tail = el("div", `Reports not shown — ${(e as Error).message}`, "color:#fca5a5"); }
+    try { tail = recent(decided, ledger, role.role, verified); } catch (e) { tail = el("div", `Reports not shown — ${(e as Error).message}`, "color:#fca5a5"); }
     bar.replaceChildren(el("b", `Review desk · ${key}`), el("span", roleWords(role), "color:#8b93a1"), btn("↻ Refresh", () => void show()));
     if (canDecide(role.role)) bar.append(reason, btn("Accept ticked", () => void decide("accept")), btn("Decline ticked", () => void decide("decline")));
     else bar.append(el("span", role.role === "service" ? "· sign in to accept or decline — the machine credential never reviews" : "· read-only: accepting or declining needs contributor", "color:#fbbf24"));

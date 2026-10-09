@@ -39,9 +39,10 @@ export const childEnv = (env, token) => Object.fromEntries(Object.entries({
   SYSTEMROOT: env.SYSTEMROOT ?? env.SystemRoot, APPDATA: env.APPDATA, TEMP: env.TEMP, TMP: env.TMP, SENTINEL_SURVEY_TOKEN: token,
 }).filter(([, v]) => v));
 
-/** One job, start to end: → {status: done | failed | refused, stage, pct, refused, error?, result?, tools?, version?}. Never rejects: a
- *  service that cannot start, stops, overruns or answers wrongly is a failed job in words (its stderr goes to the bridge log). */
-export function runSurvey(job, { cwd, onProgress = () => {}, python = pythonPath(), script = SCRIPT, spawn = nodeSpawn, fetch = globalThis.fetch,
+/** One job — or (MA-4e) one measure, `path: "/measure"`, polled and read as a job — start to end: → {status: done | failed | refused,
+ *  stage, pct, refused, error?, result?, tools?, version?}. Never rejects: a service that cannot start, stops, overruns or answers wrongly
+ *  is a failed job in words (its stderr goes to the bridge log). */
+export function runSurvey(job, { cwd, path = "/jobs", onProgress = () => {}, python = pythonPath(), script = SCRIPT, spawn = nodeSpawn, fetch = globalThis.fetch,
   env = process.env, readyMs = READY_MS, jobMs = JOB_MS, pollMs = POLL_MS, callMs = CALL_MS, busyMs = BUSY_MS,
   log = (l) => console.warn(`[survey] ${l}`) } = {}) {
   return new Promise((resolve) => {
@@ -78,7 +79,7 @@ export function runSurvey(job, { cwd, onProgress = () => {}, python = pythonPath
       try {
         const health = await call("GET", "/health");
         const meta = { version: health.version, tools: health.tools };
-        await call("POST", "/jobs", job);
+        await call("POST", path, job);
         const at = `/jobs/${encodeURIComponent(job.job_id)}`;
         let quiet = 0;
         while (!done) {

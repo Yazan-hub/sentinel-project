@@ -35,9 +35,10 @@ MAX_POINTS = 10_000_000
 MAX_SPAN = 300_000.0    # mm in plan
 
 
-def survey(items, params, seed, progress=lambda stage, pct: None):
-    """items: [{id, path, head}], hashed and headed by the service. → (candidates, {points_in, points_used}); las.Refused in words when
-    the scans span more than one building."""
+def load(items, params, seed, progress=lambda stage, pct: None):
+    """The cloud survey() measures: every item read (a seeded sample past MAX_POINTS), one building at most, one point per voxel_mm cube.
+    MA-4e: the same items in the same order, voxel_mm and seed give the same points — deviation reads exactly the cloud a job's candidates
+    came from. items: [{id, path, head}], hashed and headed by the service. → (P mm, src, points_in); las.Refused in words past MAX_SPAN."""
     points_in = sum(i["head"]["count"] for i in items)
     share, rng = min(1.0, MAX_POINTS / points_in), np.random.default_rng(seed)
     progress("reading", 10)
@@ -49,6 +50,13 @@ def survey(items, params, seed, progress=lambda stage, pct: None):
                           f"{MAX_SPAN / 1000:.0f} m across); a larger site waits for MA-4h")
     src = np.concatenate([np.full(len(c), k) for k, c in enumerate(clouds)])
     P, src = voxel(P, src, float(params["voxel_mm"]))
+    return P, src, points_in
+
+
+def survey(items, params, seed, progress=lambda stage, pct: None):
+    """items: [{id, path, head}], hashed and headed by the service. → (candidates, {points_in, points_used}); las.Refused in words when
+    the scans span more than one building."""
+    P, src, points_in = load(items, params, seed, progress)
     progress("storeys", 30)
     out = measure(P, src, [i["id"] for i in items], float(params["storey_min_mm"]), progress)
     return out, {"points_in": int(points_in), "points_used": int(len(P))}
@@ -351,4 +359,72 @@ def measure(P, src, ids, storey_min, progress=lambda stage, pct: None):
                         "fit": fit(len(pts), math.sqrt(sum(len(x["points"]) * x["rmse"] ** 2 for x in two) / len(pts)),
                                    min(x["coverage"] for x in two))})
         progress("walls", 30 + 60 * (k + 1) // len(floors))
+    return out
+
+
+# ── MA-4e: deviation (design §6.9 POST /measure) — how far the job's own cloud sits from each placed element's faces. Numbers only: the
+#    bridge judges (rule 3). v0.1's fixed knobs, named on the receipt (receipt.measure); each one MA-4h tunes on Kladno. ──
+EDGE = 200.0      # mm: a face is read this far in from every edge — the floor, the ceiling, the slab above, a join and a free end are not judged
+DEV_CELL = 200.0  # mm: coverage cells on a face, filled by any point the face owns (100 mm cells on the drill's 100 mm grid leave a quarter empty by chance)
+
+
+def deviation(P, elements, tols, progress=lambda stage, pct: None):
+    """P: the job's cloud (mm, the scan's frame). elements: [{guid, faces: [[p0, p1, p3], …]}] — rectangles in the scan's frame, p1 and p3 the
+    corners next to p0, (p1 − p0) × (p3 − p0) pointing out of the element. A point within BAND = 2 × the largest tolerance of a face's plane,
+    over the face, goes to the nearest such face of every element sent (a wall's other face and a neighbour's face — a partition abutting
+    it — take their own points), and counts only when it lies over that face's interior (EDGE in from every edge). d is its signed
+    distance: + when the scan lies outside the element.
+    → per element, in the order sent: {guid, points, p95_mm (of |d|), mean_signed_mm, share_within {tol: share of its points with |d| ≤ tol},
+    coverage (its faces' interior cells holding a point it owns — within BAND, so a face seen but placed far off still counts as seen and
+    p95 judges it)} — 0.1 mm and 3 decimals; the numbers null with no
+    point, coverage null when no face has an interior.
+    ponytail: each face is a pass over the cloud cropped to the elements' box (faces x points) — fine for a storey of 200 walls; a plan-grid
+    index when MA-4h measures Kladno. Clutter, or an element not placed, within BAND of a face's interior counts against it (the honest
+    reading: the scan is not the model). ~1 GB at the 10 M point cap (the crop and three per-point arrays) — MA-4h measures it."""
+    band = 2.0 * float(max(tols))
+    F = []  # (element, origin, u, |u|, v, |v|, outward normal)
+    for k, e in enumerate(elements):
+        for p0, p1, p3 in e["faces"]:
+            o = np.asarray(p0, float)
+            a, b = np.asarray(p1, float) - o, np.asarray(p3, float) - o
+            la, lb = float(np.linalg.norm(a)), float(np.linalg.norm(b))
+            F.append((k, o, a / la, la, b / lb, lb, np.cross(a, b) / (la * lb)))
+
+    def box(o, u, la, v, lb):
+        return np.array([o, o + u * la, o + v * lb, o + u * la + v * lb])
+    corners = np.concatenate([box(o, u, la, v, lb) for (_, o, u, la, v, lb, _) in F])
+    Q = P[np.all((P >= corners.min(axis=0) - band) & (P <= corners.max(axis=0) + band), axis=1)]
+    best, owner, sd, inner = np.full(len(Q), np.inf), np.full(len(Q), -1, np.int64), np.zeros(len(Q)), np.zeros(len(Q), bool)
+    for i, (_, o, u, la, v, lb, n) in enumerate(F):
+        c = box(o, u, la, v, lb)
+        idx = np.flatnonzero(np.all((Q >= c.min(axis=0) - band) & (Q <= c.max(axis=0) + band), axis=1))
+        R = Q[idx] - o
+        s, t, d = R @ u, R @ v, R @ n
+        ok = (s >= 0) & (s <= la) & (t >= 0) & (t <= lb) & (np.abs(d) <= band) & (np.abs(d) < best[idx])  # owners over the full face
+        j = idx[ok]
+        best[j], owner[j], sd[j] = np.abs(d[ok]), i, d[ok]
+        inner[j] = ((s >= EDGE) & (s <= la - EDGE) & (t >= EDGE) & (t <= lb - EDGE))[ok]
+        progress("measuring", 40 + 50 * (i + 1) // len(F))
+    owner[~inner] = -1  # counted only over the owner's interior: a join's points are the abutting face's, and neither judges them
+    out = []
+    for k, e in enumerate(elements):
+        ds, filled, cells = [], 0, 0
+        for i, (kk, o, u, la, v, lb, _) in enumerate(F):
+            nu, nv = math.ceil((la - 2 * EDGE) / DEV_CELL), math.ceil((lb - 2 * EDGE) / DEV_CELL)
+            if kk != k or nu <= 0 or nv <= 0:
+                continue
+            j = np.flatnonzero(owner == i)
+            ds.append(sd[j])
+            cells += nu * nv
+            R = Q[j] - o  # every point the face owns (already within BAND): a face seen but far off is seen, and p95 judges it
+            cu = np.minimum(np.floor((R @ u - EDGE) / DEV_CELL), nu - 1).astype(np.int64)
+            cv = np.minimum(np.floor((R @ v - EDGE) / DEV_CELL), nv - 1).astype(np.int64)
+            filled += np.unique(cu * nv + cv).size
+        d = np.concatenate(ds) if ds else np.zeros(0)
+        a = np.abs(d)
+        out.append({"guid": e["guid"], "points": int(d.size),
+                    "p95_mm": round(float(np.percentile(a, 95)), 1) + 0.0 if d.size else None,  # + 0.0: never -0.0
+                    "mean_signed_mm": round(float(d.mean()), 1) + 0.0 if d.size else None,
+                    "share_within": {str(t): round(float((a <= t).mean()), 3) for t in tols} if d.size else None,
+                    "coverage": round(filled / cells, 3) if cells else None})
     return out

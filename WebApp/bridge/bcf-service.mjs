@@ -1688,6 +1688,13 @@ async function handleRequest(req, res) {
         //   Sentinel sends nothing).
         if (p3 && p4 === "requests" && !seg[5] && req.method === "POST") return send(res, 201, await ev.draftRequest(p1, p3, await body()));
       }
+      // MA-4e: POST /cde/:key/verify {changeset} → 200 — a signed-in contributor measures a placed survey changeset, as filed, against its job's
+      //   own scan (changesets-store verifyChangeset); design §6.8's route with spec amendment S1 (no results[]: the bridge measures; a Revit
+      //   re-read is MA-4f's). Not public: isPublicRoute matches only /receipt/<key>/verify.
+      if (p2 === "verify" && !p3 && req.method === "POST") {
+        const cs = await import("./changesets-store.mjs");
+        return send(res, 200, await cs.verifyChangeset(p1, (await readBody(req, { max: SMALL_JSON })) || {}, "web"));
+      }
       // MA-4d: POST /cde/:key/build/jobs/:id/propose {frame, levels?} → 201 — a signed-in lead turns a done survey job into one changeset per
       //   storey that the bridge builds from the job's result (changesets-store proposeFromJob); the machine credential is a 403. Its own branch:
       //   the jobs block below ends at :id (`!seg[5]`).
