@@ -451,7 +451,7 @@ Example: the Level 3 line above has 264 walls. That is two changesets (200 + 64)
 - Openings from wall-plane occupancy (MA-5).
 - BUILT in MA-4c: storeys, walls (faces in a mid-storey slice, paired by WallPairing's rule ported to Python — a wall candidate is the paired centreline and thickness, its faces in `geometry.faces`; MA-4c spec amendment S3 settles :449 against :459, Cloud2BIM's start, end and thickness), floors and ceilings (oriented rectangles), as untyped candidates in the contract's keys, the scan's own frame.
 - Deviation per element at 5, 10 and 20 cm [R2M §6.4] — MA-4e (`POST /measure`), not v0.1. BUILT in MA-4e for walls: p95, the signed mean, coverage and the shares within 50 / 100 / 200 mm of the job's own cloud (numpy).
-- **In Revit:** a decimated overlay drawn with DirectContext3D. An RCP is linked only when the user has ReCap [R2M §5.1, §8.6].
+- **In Revit:** a decimated overlay drawn with DirectContext3D. An RCP is linked only when the user has ReCap [R2M §5.1, §8.6]. MA-4f BUILT: sentinel-survey `POST /cloud` re-reads the job's own cloud from its row, cut to a changeset's walls' height less 300 mm at the floor and ceiling, one point per 100 mm cube (doubled until at most 5 000); the bridge moves it into the model's frame (`GET /changesets/:key/:id/scan`, a signed-in contributor, no row); **Show the scan** in Review AI Proposals draws it as cyan crosses (DirectContext3D: 3D, plans, sections) until unticked or closed. Nothing enters the model.
 - **On the web: one tiling path.** The bridge builds Potree tiles with `realityCapture` (behind an adapter) and uploads them to hidden files in batches. The viewer is `PointCloudLoader` [TO §7.1].
   - We do **not** use the `PointCloudConverter` automation, although [TO §7 #1] suggests it. A project can have at most 3 automations, and the Delivery Gate already uses 2 [TO §6]. The last slot stays free.
 
@@ -891,6 +891,7 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
 - `POST /changesets/:key/:id/reopen` `{guid, reason}` (lead only). BUILT (MA-3a) as `{proposal_guid, reason}` (spec amendment S2), a signed-in lead or owner.
 - `POST /changesets/:key/:id/reverted` `{guids}`.
 - `POST /cde/:key/verify` `{changeset, results[]}`. MA-4e spec amendment S1: BUILT as `{changeset}` only → 200 — a signed-in contributor (the machine credential is a 403); the bridge picks the elements Revit placed (less an Undo in Revit), their geometry as filed, the job's own scan, params and seed; any other key is a 400 in words. `results[]` (Revit's re-read of what it placed) is MA-4f's — posted by the add-in, it would be the client's claim. Synchronous, bounded by the survey's 10 min; a 202 and a record when Kladno's measure outlasts a request (MA-4h). MA-4f: still `{changeset}` only — Revit's re-read rides on Revit's result (`AppliedEntry.mesh`), not on this body; verify measures by it when present.
+- `GET /changesets/:key/:id/scan` → `{changeset, job, ledger_id, version, cell_mm, z_mm, of, points}` (MA-4f; a view: a signed-in contributor, the machine credential a 403 — a run on the one survey slot; each scan's `view_reference` must be true; no row).
 - `POST /cde/:key/holding/type-gaps/:group/dismiss` `{reason}` (lead only). BUILT (MA-2c; the machine credential passes, as on the existing dismissal).
 
 **Existing routes, extended**
@@ -918,6 +919,7 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
 - `GET /jobs/:id` → `{status: queued | running | done | failed | refused, stage, pct, refused: [{id, reason}]}`
 - `GET /jobs/:id/result` → `{candidates, derived: [{id, path, sha256}], receipt: {tools, params, seed, started, finished, cpu_s, points_in, points_used}}`
 - `POST /measure` `{points, elements: [{guid, mesh}]}` → for each element `{status, p95_mm, mean_signed_mm, coverage, share_within: {"50", "100", "200"}}` MA-4e spec amendment S2: BUILT as `{job_id, items: [{id, kind, path, sha256}], params: {voxel_mm, storey_min_mm, tolerances_mm}, seed, elements: [{guid, faces: [[p0, p1, p3], …]}]}` → 202, polled and read as a job: the items, params and seed are the job's own (its row's), so the cloud is the one its candidates came from — no point crosses a route (the body is capped at 1 MB); each face a rectangle in the scan's frame, (p1 − p0) × (p3 − p0) out of the element (a mesh waits for openings, MA-5, and roofs, MA-6). A point counts for the nearest face of any element sent, over the face's interior (200 mm in from every edge) and within 400 mm (twice the largest tolerance); share_within is over those points; coverage the share of 200 mm interior cells holding a point it owns (within 400 mm); + is the scan outside the element. Spec amendment S3: the result is numbers only, `{guid, points, p95_mm, mean_signed_mm, share_within, coverage}` — the status is the bridge's (rule 3): a result carrying any other key is refused as not the contract's shape, never merged. One process per measure, on the bridge's one survey slot.
+- MA-4f: `POST /cloud` `{job_id, items, params, seed, cloud: {cell_mm, z_mm: [low, high], max_points}}` → 202, polled and read as a job → `{points: [[x, y, z] whole mm, the scan's frame], derived: [], receipt: {…, cloud: {cell_mm, z_mm, of, points}}}` — the job's own items, params and seed; numbers only, no file; the version stays 0.1.0 (a new route; the read is unchanged).
 
 **Candidate shape (no type):** `{cid, kind, geometry, measured, evidence[], fit: {inliers, rmse_mm, coverage}}`.
 
@@ -965,6 +967,7 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
 | Start a survey job | contributor, signed in (by name); the machine credential is a 403 (MA-4c) |
 | Turn a survey job into proposals (state its frame and levels) | lead, signed in (by name); the machine credential is a 403 (MA-4d) |
 | Measure a placed survey changeset against its scan | contributor, signed in (by name); the machine credential is a 403 (MA-4e) |
+| See a survey changeset's scan in Revit (a sentinel-survey run) | contributor, signed in (by name); the machine credential is a 403 (MA-4f) |
 | Sign attestations (a)–(e); (a) is "I am the owner, or authorised by the owner, of this asset." (R:248) | lead, signed in (by name); the machine credential never signs (MA-4a) |
 | Admit an AMBER web photo | lead |
 | Accept or decline a ghost on the web | contributor |
@@ -1148,7 +1151,7 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
     - MA-4e: deviation per placed wall (p95, the signed mean, coverage, the shares within 5, 10 and 20 cm) — `verify:measured`; floors, ceilings and levels wait for MA-4h.
   - Gaps go to the Holding Area as groups.
     - Met in MA-4d (LANDED 2026-10-09: #2208 on ma4c-drill): one bridge-written `type_gap` row per proposal, with the job id and evidence ids; each gap also rides on its storey's changeset as "sent to a person".
-  - A decimated scan overlay in Revit.
+  - A decimated scan overlay in Revit — BUILT in MA-4f (Show the scan).
   - The scan in the web desk (tiles built on the bridge, if MA-W did not already do it).
 - **Overlaps:** [R2M §7] P1–P2.
 - **Drill MA4:**
