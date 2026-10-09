@@ -1,6 +1,6 @@
 // MA-4c — survey jobs (design §6.8, §6.9, §6.11; plan docs/superpowers/plans/2026-10-08-ma4c-sentinel-survey.md): the work of
-// POST/GET /cde/:key/build/jobs. A signed-in contributor of an office project starts sentinel-survey on the admitted LAS scans of the pack
-// in force (every other scan is listed in `refused`, with why); one job runs at a time on this bridge. A job is a folder,
+// POST/GET /cde/:key/build/jobs. A signed-in contributor of an office project starts sentinel-survey on the admitted scans of the pack in
+// force (LAS, LAZ, E57 — MA-4g; every other scan is listed in `refused`, with why); one job runs at a time on this bridge. A job is a folder,
 // <SENTINEL_JOBS_ROOT or %APPDATA%/Sentinel/jobs>/<key>/<job-id>/: job.json (the bridge's record) and, once done, result.json (the
 // service's result as it came). Every run that starts writes ONE build:run row — done, failed or refused — carrying the result's sha256:
 // what MA-4d checks a changeset's `measured` against (readJob re-hashes it; the hash-chained row, not the editable job.json, is the anchor).
@@ -87,15 +87,15 @@ export function readStartBody(b = {}) {
   return { pack: b.pack.trim(), params };
 }
 
-/** The pack's scans: what v0.1 reads (absolute paths, checked inside the evidence folder) and every other scan with why. Photos and
- *  drawings are not scans and are not listed. */
+/** The pack's scans: every surveyable one, sent to sentinel-survey (absolute paths, checked inside the evidence folder; MA-4g: LAS, LAZ and
+ *  E57 alike — the service picks the reader from the bytes and refuses what it cannot, in words), and every other scan with why. Photos
+ *  and drawings are not scans and are not listed. */
 export function pickItems(pack, dir) {
   const take = [], refused = [];
   for (const i of pack.items.filter((x) => x.kind === "scan")) {
     const why = i.state === "changed" ? "changed since admitted (Re-check flagged it) — admit the same bytes again"
       : !i.surveyable ? `not surveyable (a .${i.format})`
       : i.allowed_uses?.geometry_extraction !== true ? "its allowed uses exclude geometry extraction"
-      : i.format !== "las" ? `a .${i.format} is read from MA-4g — sentinel-survey 0.1 reads plain LAS`
       : null;
     if (why) { refused.push({ id: i.id, reason: why }); continue; }
     try { take.push({ id: i.id, kind: "scan", path: insideFolder(dir, i.path), sha256: i.sha256, rel: i.path }); }
@@ -153,14 +153,14 @@ export function buildRunValue(job, receipt) {
 
 /** POST /cde/:key/build/jobs {pack, readers?, params?} → 202 {job}. Refusals before anything is written, in this order: 400 (the body),
  *  403 (the machine credential; below contributor; a project of no office), 400 (an office row), 429, 404 (not the pack in force), 409
- *  (no scan v0.1 reads — each with why), 503 (sentinel-survey not set up here), 409 (a job running on this bridge). Then the job's
+ *  (no scan sentinel-survey is sent — each with why), 503 (sentinel-survey not set up here), 409 (a job running on this bridge). Then the job's
  *  folder and record; the run goes on after the answer (GET shows it). */
 export async function startJob(key, b = {}, deps = {}) {
   const d = await wire(deps);
   const body = readStartBody(b);
   const { proj, pack, version, dir } = await d.surveyStart(key, body.pack);
   const { take, refused } = pickItems(pack, dir);
-  if (!take.length) throw err(409, `no admitted LAS scan in ${body.pack} that sentinel-survey 0.1 reads${refused.length ? ` — ${refused.map((x) => `${x.id}: ${x.reason}`).join("; ")}` : " — admit a .las under Evidence first"}; nothing was saved`);
+  if (!take.length) throw err(409, `no admitted scan in ${body.pack} that sentinel-survey reads${refused.length ? ` — ${refused.map((x) => `${x.id}: ${x.reason}`).join("; ")}` : " — admit a .las, .laz or .e57 under Evidence first"}; nothing was saved`);
   const notSet = d.notSetUp();
   if (notSet) throw err(503, notSet);
   if (running) throw err(409, `${running.what ?? "a survey job"} is already running on this bridge (one at a time) — try again when it ends; nothing was saved`);

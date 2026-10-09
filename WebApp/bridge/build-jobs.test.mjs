@@ -25,7 +25,7 @@ beforeEach(() => {
   mkdirSync(join(ev, "scans"));
   for (const f of ["a.las", "b.laz", "c.rcp", "d.las", "e.las"]) writeFileSync(join(ev, "scans", f), "x");
   PACK = { pack_id: "evp-0001", items: [
-    item("ev-0001", "scans/a.las"), item("ev-0002", "scans/b.laz"), item("ev-0003", "scans/c.rcp", { surveyable: false }),
+    item("ev-0001", "scans/a.las"), item("ev-0003", "scans/c.rcp", { surveyable: false }),
     item("ev-0004", "scans/d.las", { state: "changed" }), item("ev-0005", "scans/e.las", { allowed_uses: { ...USES, geometry_extraction: false } }),
     { id: "ev-0006", kind: "photo", format: "jpg", path: "photos/p.jpg", sha256: "6".repeat(64), surveyable: true, allowed_uses: { ...USES } }] };
   audits = []; runs = []; role = "contributor";
@@ -53,12 +53,11 @@ const finish = async (r) => { runs.at(-1).ok(r); runs.pop(); await current(); };
 const rec = (id = "job-0001") => JSON.parse(readFileSync(join(root, "demo", id, "job.json"), "utf8"));
 
 describe("survey jobs (MA-4c)", () => {
-  it("(a) a job reads the admitted LAS scans of the pack in force; every other scan is refused with why; the folder and its record", async () => {
+  it("(a) a job reads the admitted scans of the pack in force; every other scan is refused with why; the folder and its record", async () => {
     const { job } = await start();
     expect(job).toMatchObject({ id: "job-0001", project: "demo", pack_id: "evp-0001", pack_version: 9, status: "queued", seed: 1, started_by: "machine",
       params: { voxel_mm: 20, storey_min_mm: 2000 }, items: [{ id: "ev-0001", path: "scans/a.las", sha256: "1".repeat(64) }] });
     expect(job.refused).toEqual([
-      { id: "ev-0002", reason: "a .laz is read from MA-4g — sentinel-survey 0.1 reads plain LAS" },
       { id: "ev-0003", reason: "not surveyable (a .rcp)" },
       { id: "ev-0004", reason: "changed since admitted (Re-check flagged it) — admit the same bytes again" },
       { id: "ev-0005", reason: "its allowed uses exclude geometry extraction" }]);
@@ -66,6 +65,17 @@ describe("survey jobs (MA-4c)", () => {
     expect(runs[0].job).toEqual({ job_id: "job-0001", items: [{ id: "ev-0001", kind: "scan", path: join(ev, "scans", "a.las"), sha256: "1".repeat(64) }],
       params: { voxel_mm: 20, storey_min_mm: 2000, tolerances_mm: [50, 100, 200] }, seed: 1 });
     expect(runs[0].opts.cwd).toBe(join(root, "demo", "job-0001"));
+  });
+
+  it("(a2) MA-4g: a .laz and an .e57 are sent like a .las — sentinel-survey reads each by its bytes and refuses what it cannot, in words", async () => {
+    PACK.items.push(item("ev-0002", "scans/b.laz"), item("ev-0007", "scans/f.e57"));
+    const { job } = await start();
+    expect(job.items.map((i) => i.id)).toEqual(["ev-0001", "ev-0002", "ev-0007"]);
+    expect(job.refused.map((r) => r.id)).toEqual(["ev-0003", "ev-0004", "ev-0005"]);
+    expect(runs[0].job.items).toEqual([
+      { id: "ev-0001", kind: "scan", path: join(ev, "scans", "a.las"), sha256: "1".repeat(64) },
+      { id: "ev-0002", kind: "scan", path: join(ev, "scans", "b.laz"), sha256: "2".repeat(64) },
+      { id: "ev-0007", kind: "scan", path: join(ev, "scans", "f.e57"), sha256: "7".repeat(64) }]);
   });
 
   it("(b) the run's end: result.json, its sha256 on the record and on ONE build:run row — the bridge's (claimed false), never the candidates", async () => {
@@ -121,12 +131,12 @@ describe("survey jobs (MA-4c)", () => {
     expect(resultRefusal(RESULT, ["ev-0001"])).toBeNull();
   });
 
-  it("(e) refused before anything is written: no scan v0.1 reads (each with why), sentinel-survey not set up, the machine credential", async () => {
+  it("(e) refused before anything is written: no scan sentinel-survey is sent (each with why), sentinel-survey not set up, the machine credential", async () => {
     const nothing = () => { expect(existsSync(join(root, "demo"))).toBe(false); expect(runs).toHaveLength(0); expect(audits).toHaveLength(0); };
     PACK.items = PACK.items.filter((i) => i.id !== "ev-0001");
-    await expect(start()).rejects.toMatchObject({ status: 409, message: "no admitted LAS scan in evp-0001 that sentinel-survey 0.1 reads — ev-0002: a .laz is read from MA-4g — sentinel-survey 0.1 reads plain LAS; ev-0003: not surveyable (a .rcp); ev-0004: changed since admitted (Re-check flagged it) — admit the same bytes again; ev-0005: its allowed uses exclude geometry extraction; nothing was saved" });
+    await expect(start()).rejects.toMatchObject({ status: 409, message: "no admitted scan in evp-0001 that sentinel-survey reads — ev-0003: not surveyable (a .rcp); ev-0004: changed since admitted (Re-check flagged it) — admit the same bytes again; ev-0005: its allowed uses exclude geometry extraction; nothing was saved" });
     PACK.items = [];
-    await expect(start()).rejects.toMatchObject({ status: 409, message: "no admitted LAS scan in evp-0001 that sentinel-survey 0.1 reads — admit a .las under Evidence first; nothing was saved" });
+    await expect(start()).rejects.toMatchObject({ status: 409, message: "no admitted scan in evp-0001 that sentinel-survey reads — admit a .las, .laz or .e57 under Evidence first; nothing was saved" });
     PACK.items = [item("ev-0001", "scans/a.las")];
     await expect(start(undefined, { notSetUp: () => "sentinel-survey is not set up on this PC: no Python … — nothing was saved" })).rejects.toMatchObject({ status: 503 });
     role = "service";

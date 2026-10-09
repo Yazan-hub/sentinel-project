@@ -18,7 +18,7 @@ export const PLANNER_VERSION = "0.1.0";
  *  ponytail: one constant for both, and MA-4e's p95 verdict (judge); a per-class tolerance (lod_matrix or the contract's) is MA-8's. */
 export const TOLERANCE_MM = 20;
 export const NOT_MEASURED = "thickness not measured";
-const MAX_XY_MM = 10_000_000; // 10 km: a scan farther from the internal origin is in a national grid — its CRS is read from MA-4g
+const MAX_XY_MM = 10_000_000; // 10 km: a scan farther from the internal origin is in a national grid — a computed frame (MA-4g-3) lifts it for a scan with a projected CRS
 const MAX_Z_MM = 100_000;
 const FRAME = ["dx_mm", "dy_mm", "dz_mm", "rotation_deg"];
 const REVIT_BAD = /[\\:{}[\]|;<>?`~\u0000-\u001f]/; // what Revit refuses in a name
@@ -35,7 +35,7 @@ export function readProposeBody(b, levelCids) {
     throw bad("frame is required — where the scan sits in the model: {dx_mm, dy_mm, dz_mm, rotation_deg}, the move and turn from the model's internal origin to the scan's origin ({0, 0, 0, 0} when the scan is registered to the internal origin)");
   for (const k of Object.keys(f)) if (!FRAME.includes(k)) throw bad(`frame.${k.slice(0, 64)} is not read — a frame is {dx_mm, dy_mm, dz_mm, rotation_deg}`);
   for (const [k, max] of [["dx_mm", MAX_XY_MM], ["dy_mm", MAX_XY_MM], ["dz_mm", MAX_Z_MM]])
-    if (!Number.isFinite(f[k]) || Math.abs(f[k]) > max) throw bad(`frame.${k} must be a number of mm within ±${max} (a scan in a national grid is read with its CRS from MA-4g)`);
+    if (!Number.isFinite(f[k]) || Math.abs(f[k]) > max) throw bad(`frame.${k} must be a number of mm within ±${max} (a scan in a national grid waits for a computed frame — MA-4g-3)`);
   if (!Number.isFinite(f.rotation_deg) || f.rotation_deg < 0 || f.rotation_deg >= 360)
     throw bad("frame.rotation_deg must be degrees from 0 up to (not including) 360, anticlockwise in plan");
   const levels = {}, used = new Map();
@@ -55,7 +55,7 @@ export function readProposeBody(b, levelCids) {
 }
 
 /** The lead's frame as a point map, scan mm → model (Revit internal) mm: turned anticlockwise about the scan's origin, then moved.
- *  ponytail: the lead's stated frame, unmeasured and outside D7's 20 mm; MA-4g computes it (scan CRS + IfcMapConversion or a registration
+ *  ponytail: the lead's stated frame, unmeasured and outside D7's 20 mm; MA-4g-3 computes it (scan CRS + IfcMapConversion or a registration
  *  report's rmse, then counted in the tolerance); a project frame artefact when jobs share one. */
 export function toModel(f) {
   const a = (f.rotation_deg * Math.PI) / 180, c = Math.cos(a), s = Math.sin(a);
@@ -64,7 +64,7 @@ export function toModel(f) {
 
 /** MA-4e: the lead's frame backwards — model (Revit internal) mm → the scan's mm: moved back, then turned back (toModel's inverse). Only the
  *  four frame keys are read (the stored frame also carries stated_by).
- *  ponytail: one statement both ways — a measure as filed cannot see a wrong frame; MA-4g computes it. */
+ *  ponytail: one statement both ways — a measure as filed cannot see a wrong frame; MA-4g-3 computes it. */
 export function toScan(f) {
   const a = (f.rotation_deg * Math.PI) / 180, c = Math.cos(a), s = Math.sin(a);
   return { xy: ([x, y]) => { const X = x - f.dx_mm, Y = y - f.dy_mm; return [r1(c * X + s * Y), r1(c * Y - s * X)]; }, z: (z) => r1(z - f.dz_mm) };
@@ -76,7 +76,7 @@ export function toScan(f) {
  *  checked, from}] or a 400 in words. `filedStoreys` (decision 19): cid → the storey record of a changeset this job already filed — that
  *  storey keeps its level (`how: "filed"`, checked as recorded), so a created level is never created twice.
  *  ponytail: a published storey Elevation is taken in Revit's internal frame (an IFC exported from another base is off by its height: `from`
- *  names the model, and the lead's names win); MA-4g reads the shared coordinates.
+ *  names the model, and the lead's names win); MA-4g-3 reads the shared coordinates.
  *  ponytail: a created level whose changeset is still proposed is not created again — apply that storey's first changeset first.
  *  ponytail: a created level's name is unique per job id, not per row — a jobs folder deleted reuses job ids (decision 19), and a name already
  *  in the Revit model makes the executor's lvl.Name throw, rolling the storey's changeset back in Revit's words (fails safe); the upgrade is to
@@ -382,7 +382,7 @@ export function measurePlan(cs, undone = () => null) {
       : el?.kind === "wall" ? { ...facesOf(el, S), reference: FILED }
       : el?.kind === "level" ? { why: "a level has no face to measure — its height against the scan is MA-4h's level error" }
       : el?.kind === "floor" || el?.kind === "ceiling" ? { why: `one face of a ${el.kind} is seen; its other is its type's, which no scan measured, and the slab beyond would count against it — MA-4h` }
-      : { why: el ? `a ${el.kind} is not measured by sentinel-survey 0.1` : "not on the changeset" };
+      : { why: el ? `a ${el.kind} is not measured by sentinel-survey` : "not on the changeset" };
     placed.push({ proposal_guid: a.proposal_guid, revit_unique_id: a.revit_unique_id ?? null, cid: el?.cid ?? null, kind: el?.kind ?? null,
       ...(f.faces ? { reference: f.reference, ...(f.mesh_sha256 ? { mesh_sha256: f.mesh_sha256 } : {}) } : {}) });
     if (f.faces) send.push({ guid: a.proposal_guid, faces: f.faces }); else skip.push({ proposal_guid: a.proposal_guid, reason: f.why });
