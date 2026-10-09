@@ -159,6 +159,13 @@ class Las(unittest.TestCase):
         with self.assertRaises(las.Refused) as e:
             las.read_header(self.path("bit.las"))
         self.assertEqual(str(e.exception), "its points are marked compressed (LAZ) but no LASzip record was found — it is not read as a LAZ; export it again")
+        write_las(self.path("many.laz"), np.zeros((3, 3)), laz=True, vlrs=[(b"laszip encoded", 22204, bytes(34))])
+        with open(self.path("many.laz"), "r+b") as f:  # its VLR count: laspy would walk 4e9 of them
+            f.seek(100)
+            f.write(struct.pack("<I", 0xFFFFFFFF))
+        with mock.patch.object(las, "lib", side_effect=AssertionError("laspy imported")), self.assertRaises(las.Refused) as e:
+            las.read_header(self.path("many.laz"))
+        self.assertEqual(str(e.exception), "its header declares more than 1,000 VLRs — not read as a LAZ")
         write_las(self.path("none.las"), np.zeros((0, 3)))
         with self.assertRaisesRegex(las.Refused, "holds no points"):
             las.read_header(self.path("none.las"))
@@ -238,6 +245,7 @@ class Las(unittest.TestCase):
             las.lib("laspy")
         self.assertEqual(str(e.exception), "laspy 2.8.0 is installed — sentinel-survey reads with laspy 2.7.0; install the pinned wheels "
                                            "offline, as survey/requirements-ma4g.txt says")
+
 
 @unittest.skipUnless(HAS("laspy", "lazrs"), WHY.format("laspy and lazrs are"))
 class Laz(unittest.TestCase):

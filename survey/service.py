@@ -73,7 +73,6 @@ def check(item):
         return None, f"not read ({e.strerror or type(e).__name__})"  # strerror names no path
 
 
-
 def input_of(item):
     """MA-4g: what was read of one item, for the receipt — its format by its bytes (a .laz holding a plain LAS reads "las"), its points, its
     CRS and units, and an E57's scans (each its points and whether it is posed). Numbers and fixed words: no path, no name."""
@@ -84,6 +83,7 @@ def input_of(item):
              else "metres assumed (its CRS's unit not stated)")
     return {"id": item["id"], "format": h.get("format", "las"), "points": int(h["count"]), "crs": crs, "units": units,
             **({"scans": [{"points": s["points"], "posed": s["posed"]} for s in h["scans"]]} if e57 else {})}
+
 
 def now():
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")

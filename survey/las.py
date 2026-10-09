@@ -18,14 +18,15 @@ import numpy as np
 # E57's near 0.8 GB (its buffers and temporaries) — MA-4h measures both on Kladno.
 CHUNK = 8_000_000
 # ponytail: at most 1 000 VLRs (and 1 000 EVLRs) are walked — a file with more reads as if it had none past them (no CRS: metres
-# assumed; no LASzip record: refused, in words); raise it when a real file needs more.
+# assumed; no LASzip record: refused, in words); a LAZ declaring more VLRs is refused before laspy opens it (laspy walks every VLR it is
+# told of; its EVLRs it is told not to read); raise it when a real file needs more.
 MAX_VLRS = 1000
 MAX_RECORD = 1 << 16  # bytes: a CRS record (a WKT is a few KB), an E57's coordinateMetadata or a LASzip record longer than this is refused
 LASZIP, WKT, GEOKEYS = (b"laszip encoded", 22204), (b"LASF_Projection", 2112), (b"LASF_Projection", 34735)
 # MA-4g: the wheels this reader was pinned and tested with (survey/requirements-ma4g.txt), in a private folder (pip --target), never the
 # shared user site; any other version found is refused in words, so the reader never changes under the same VERSION.
 PINS = {"laspy": "2.7.0", "lazrs": "0.8.2", "pye57": "0.4.19", "pyquaternion": "0.9.9"}
-LIB = os.path.join(os.environ.get("APPDATA", ""), "Sentinel", "survey-lib")
+LIB = os.path.join(os.environ["APPDATA"], "Sentinel", "survey-lib") if os.environ.get("APPDATA") else ""  # never a relative path
 GEOGRAPHIC = ("its CRS is geographic or geocentric (degrees, or x, y, z from the Earth's centre) — sentinel-survey reads a projected CRS "
               "or a local frame in metres; reproject the scan first")
 METRES = "sentinel-survey reads metres; convert the scan to metres first"
@@ -41,7 +42,7 @@ class Refused(Exception):
 
 def add_lib():
     """MA-4g: the pinned wheels' private folder first on sys.path, once — so the shared user site never decides the reader."""
-    if os.path.isdir(LIB) and LIB not in sys.path:
+    if LIB and os.path.isdir(LIB) and LIB not in sys.path:
         sys.path.insert(0, LIB)
 
 
@@ -58,7 +59,7 @@ def lib(name):
         if name == "laspy":
             sys.modules.setdefault("requests", None)  # laspy's COPC reader imports requests when it can: this service holds no HTTP client
             import laspy
-            if not laspy.LazBackend.detect_available():
+            if laspy.LazBackend.Lazrs not in laspy.LazBackend.detect_available():  # lazrs itself, never another backend
                 raise ImportError("lazrs")
             return laspy
         import pye57
@@ -118,6 +119,8 @@ def read_header(path):
     with open(path, "rb") as f:
         found = records(f, h)
     if head["laz"]:
+        if struct.unpack_from("<I", h, 100)[0] > MAX_VLRS:
+            raise Refused(f"its header declares more than {MAX_VLRS:,} VLRs — not read as a LAZ")
         if LASZIP not in found:
             raise Refused("its points are marked compressed (LAZ) but no LASzip record was found — it is not read as a LAZ; export it again")
         lib("laspy")  # refused here, per item, when laspy or lazrs does not import — never a failed job
@@ -236,7 +239,8 @@ def read_points_mm(path, head, share=1.0, rng=None):
 
 def _laz_mm(path, head, share, rng):
     laspy, parts, got = lib("laspy"), [], 0
-    with damaged("LAZ"), laspy.open(path) as r:
+    # the CRS is this module's (records): laspy reads no EVLR, and decompresses with lazrs only
+    with damaged("LAZ"), laspy.open(path, read_evlrs=False, laz_backend=(laspy.LazBackend.LazrsParallel, laspy.LazBackend.Lazrs)) as r:
         for part in r.chunk_iterator(CHUNK):
             cols = [np.asarray(part.X), np.asarray(part.Y), np.asarray(part.Z)]
             got += len(cols[0])
@@ -244,6 +248,7 @@ def _laz_mm(path, head, share, rng):
                 keep = rng.random(len(cols[0])) < share
                 cols = [c[keep] for c in cols]
             parts.append(_mm(cols, head))
+            del part, cols  # laspy's record bytes freed before the next chunk is allocated: one chunk alive at a time
     if got != head["count"]:  # laspy logs a short read and goes on: the count is checked here
         raise Refused("the file is shorter than its header says (truncated)")
     return np.concatenate(parts)
