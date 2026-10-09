@@ -61,6 +61,24 @@ public static class PlacementGeometry
     /// extra reach only disallows a few more new-wall ends, never a join that should have been stopped.</summary>
     public static double BodyReach(double width, int? locationLine) => locationLine == 0 ? width / 2 : width;
 
+    /// <summary>MA-4f: the most triangles a wall's re-read holds (the bridge's MAX_MESH_TRIANGLES) — a straight wall after its joins is about 12;
+    /// past about 50 it is curved or swept and the bridge would not reduce it (MA-5).</summary>
+    public const int MaxMeshTriangles = 64;
+
+    /// <summary>MA-4f: a wall's triangles (9 numbers each, mm) as Revit's result sends them: each rounded to 0.1 mm, never -0; null for none, a
+    /// part triangle, a number not finite, or more than MaxMeshTriangles — the bridge then measures the wall as filed.</summary>
+    public static double[] PackMesh(IReadOnlyList<double> mm)
+    {
+        if (mm == null || mm.Count == 0 || mm.Count % 9 != 0 || mm.Count / 9 > MaxMeshTriangles) return null;
+        var o = new double[mm.Count];
+        for (var i = 0; i < o.Length; i++)
+        {
+            if (double.IsNaN(mm[i]) || double.IsInfinity(mm[i])) return null;
+            o[i] = Math.Round(mm[i] * 10) / 10 + 0.0; // + 0.0: a -0 becomes 0 (System.Text.Json writes "-0")
+        }
+        return o;
+    }
+
     // ── MA-1b (GHB-1): a DWG door or window block — its frame, the wall it belongs to, the way it turns ───────────────
 
     /// <summary>GHB-1: how far a block's X axis may turn from a wall's line and still be that wall's opening (degrees).</summary>

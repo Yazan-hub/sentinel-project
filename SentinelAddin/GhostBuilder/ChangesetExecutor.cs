@@ -382,6 +382,26 @@ public sealed class ChangesetExecutor
 
     private static bool IsCreate(ChangesetElementDto e) => e.Op is null or "create";
 
+    /// <summary>MA-4f: a wall as Revit holds it — every face of its main solid (ClashManager.GetMainSolid: coarse, the largest; a wall carries no
+    /// transform) as triangles, 9 numbers each in mm in Revit's internal frame (the frame Pt places in); PlacementGeometry.PackMesh rounds and caps
+    /// it. Null with no element or no solid.</summary>
+    private static double[] WallMesh(Element e)
+    {
+        var s = e == null ? null : ClashManager.GetMainSolid(e);
+        if (s == null) return null;
+        var mm = new List<double>();
+        foreach (Face f in s.Faces)
+        {
+            var m = f.Triangulate();
+            for (var i = 0; i < m.NumTriangles; i++)
+            {
+                var t = m.get_Triangle(i);
+                for (var k = 0; k < 3; k++) { var p = t.get_Vertex(k); mm.Add(p.X / MmToFeet); mm.Add(p.Y / MmToFeet); mm.Add(p.Z / MmToFeet); }
+            }
+        }
+        return PlacementGeometry.PackMesh(mm);
+    }
+
     public ExecutionResult Execute(Document doc, ChangesetDto cs, HashSet<string> tickedGuids)
     {
         var result = new ExecutionResult();
@@ -722,6 +742,14 @@ public sealed class ChangesetExecutor
                 gone.Add(a.RevitElementId);
             }
             foreach (var kv in GhostFailurePolicy.CountWarnings(handler.SeenWarnings, gone)) result.Warnings[kv.Key] = kv.Value;
+            // MA-4f: Revit's re-read for verify — each wall a survey changeset created (Claimed false: built by a bridge-run job), as Revit holds
+            // it after the commit and the recount: its joins, its location line, its type's real width. The add-in's claim, said so by the bridge
+            // ("revit (claimed)"). Read only — the transaction is over; a read that throws, or a solid past the cap, leaves Mesh null and the
+            // bridge measures that wall as filed.
+            if (cs.Claimed == false)
+                foreach (var a in result.Applied)
+                    if (toPlace.First(e => e.ProposalGuid == a.ProposalGuid) is { Kind: "wall" } w && IsCreate(w))
+                        try { a.Mesh = WallMesh(doc.GetElement(a.RevitUniqueId)); } catch (Exception) { a.Mesh = null; }
             TurnToBlocks(doc, cs, toPlace, result);
             // MA-1b (GHB-1): each door or window placed from a block, as Revit holds it now — the angle between it and its
             // block, its hinge side and swing side against the drawing's. Read after the commit and the recount (an element

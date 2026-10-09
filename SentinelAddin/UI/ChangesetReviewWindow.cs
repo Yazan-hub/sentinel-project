@@ -161,7 +161,7 @@ public sealed class ChangesetReviewWindow : Window
                 var box = new CheckBox
                 {
                     VerticalAlignment = VerticalAlignment.Center,
-                    IsChecked = ChangesetTrust.PreTick(_cs, el), // MA-1a item 8: the bridge's pre-tick — never a create
+                    IsChecked = ChangesetTrust.PreTick(_cs, el), // MA-1a item 8, MA-4f: the bridge's pre-tick — a create only when a survey job measured it and the IDS did not reject it
                 };
                 // MA-3a (design §6.6, D17): a web decline binds — the row opens unticked (PreTick) and cannot be ticked here; a lead re-opens it
                 // on the web desk. Apply re-checks the fresh copy (ReviewChangesetsCommand).
@@ -275,7 +275,7 @@ public sealed class ChangesetReviewWindow : Window
     private static string Mm(double v) => v.ToString("0.#", CultureInfo.InvariantCulture);
 
     // What is ticked when the window opens (and by "Tick suggested") is the bridge's decision since MA-1a item 8:
-    // ChangesetTrust.PreTick (Coordination/ChangesetClient.cs). A create is never pre-ticked; a person still clicks Apply.
+    // ChangesetTrust.PreTick (Coordination/ChangesetClient.cs). A create is pre-ticked only when a survey job measured it (MA-4f); a person still clicks Apply.
 
     private static UIElement MakeBadge(ElementVerdictDto v)
     {
