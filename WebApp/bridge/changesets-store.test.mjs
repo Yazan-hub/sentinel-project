@@ -1,7 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { createHash } from "node:crypto";
 import { proposeChangeset, getChangeset, reportResult, withdrawChangeset, listChangesets, reportReverted, needsTyping, needsCiting,
-  reviewChangeset, reopenGhost, previewChangesets, proposeFromJob } from "./changesets-store.mjs";
+  reviewChangeset, reopenGhost, previewChangesets, proposeFromJob, verifyChangeset } from "./changesets-store.mjs";
 
 const wall = () => ({
   kind: "wall",
@@ -1066,5 +1069,143 @@ describe("proposeFromJob (MA-4d): a lead turns a trusted survey job into changes
     const r2 = await propose(sdeps({ docList: vi.fn(async () => other) }));
     expect(r2.overlaps).toEqual([]);
     expect(r2.changesets).toHaveLength(2);
+  });
+});
+
+describe("verifyChangeset (MA-4e): a signed-in contributor measures a placed survey changeset, as filed, against its job's own scan", () => {
+  const STORED = readRepo("WebApp/bridge/fixtures/changeset-ops/contract2-survey.json").stored;
+  const EV = "e1".repeat(32), ID = "5b1c6f3e-2a4d-4e8f-9c1a-7d2e3f4a5b6c", DIR = resolve(tmpdir(), "sentinel-ev-ma4e");
+  // GR-FFL as the drill holds it: applied (#2210, reported by a signed-in lead), its level named and not checked, three walls placed.
+  const CS = { ...STORED, id: ID, status: "applied", job: { ...STORED.job, storey: { ...STORED.job.storey, how: "named", checked: false, from: null, delta_mm: null } },
+    elements: STORED.elements.map((e, i) => ({ ...e, proposal_guid: `g${i + 1}`, facts: { thickness_mm: [300, 200, 300][i] } })),
+    result: { applied: [1, 2, 3].map((n) => ({ proposal_guid: `g${n}`, revit_element_id: 900 + n, revit_unique_id: `u${n}` })), rejected: [],
+      reported_by: "lead@example.test", reported_role: "lead" } };
+  const ROW = { ledger: { id: 2201, hash: "13".repeat(32) }, reader: "sentinel-survey", version: "0.1.0", pack_id: "evp-0001",
+    items: [{ id: "ev-0001", sha256: EV }, { id: "ev-0002", sha256: "e2".repeat(32) }], read: ["ev-0001"], result_sha256: CS.job.result_sha256,
+    params: { voxel_mm: 20, storey_min_mm: 2000 }, seed: 1 };
+  const SCAN = { id: "ev-0001", kind: "scan", format: "las", path: "scans/two-storey.las", sha256: EV, state: "admitted", surveyable: true, allowed_uses: { geometry_extraction: true } };
+  const NUMS = (o = {}) => ({ points: 3512, p95_mm: 3, mean_signed_mm: 0, share_within: { 50: 1, 100: 1, 200: 1 }, coverage: 0.999, ...o });
+  const KNOBS = { band_mm: 400, edge_mm: 200, cell_mm: 200 };
+  const DONE = (each = () => ({})) => vi.fn(async (_k, _j, p) => ({ status: "done", version: "0.1.0", refused: [], tools: [{ name: "sentinel-survey", version: "0.1.0", licence: "LicenseRef-Sentinel" }],
+    result: { elements: p.elements.map((e, i) => ({ guid: e.guid, ...NUMS(each(i)) })), derived: [],
+      receipt: { started: "2026-10-09T10:00:00Z", finished: "2026-10-09T10:00:02Z", cpu_s: 0.6, points_in: 47699, points_used: 47672, measure: KNOBS } } }));
+  // The drill's rows: an Undo (#2211), then a Redo (#2212) — the newest decides; #2210 the report.
+  const ROWS = [{ id: 2212, action: "changeset_reverted", new_value: { op: "redo", guids: ["g1", "g2", "g3"] } }, { id: 2211, action: "changeset_reverted", new_value: { op: "undo", guids: ["g1", "g2", "g3"] } },
+    { id: 2210, action: "changeset_applied" }, { id: 2205, action: "changeset_proposed" }];
+  // listAudit by prefix: the changeset_ rows (whole), and the newest verify:measured row (none: never measured).
+  const audits = (rows = ROWS, verify = []) => vi.fn(async (_k, q) => (q.action_prefix === "verify:measured" ? { rows: verify.slice(0, 1), total: verify.length } : { rows, total: rows.length }));
+  const vdeps = (over = {}, cs = CS) => { const deps = baseDeps({ myRole: vi.fn(async () => "contributor"), requireMinRole: vi.fn(async () => "contributor"), takeWriteBudget: vi.fn(),
+    trustedJob: vi.fn(async () => ({ row: ROW })), readPack: vi.fn(async () => ({ pack: { items: [SCAN] }, folder: { path: DIR } })),
+    listAudit: audits(), measureJob: DONE(), audit: vi.fn(async () => ({ id: 2300, hash: "ab".repeat(32) })), ...over }); deps.saved.set(ID, cs); return deps; };
+  const firstRow = async () => { const deps = vdeps(); await verify(deps); return { id: 2300, new_value: deps.audit.mock.calls[0][6] }; }; // (a)'s row, as the ledger holds it
+  const verify = (deps, body = { changeset: ID }) => verifyChangeset("ma4c-drill", body, "web", deps);
+
+  it("(a) the walls Revit placed, as filed, back in the scan's frame; the job's own items, params and seed; ONE verify:measured row; no doc write", async () => {
+    const deps = vdeps();
+    const r = await verify(deps);
+    expect(deps.measureJob.mock.calls[0]).toEqual(["ma4c-drill", "job-0002", { job_id: `measure-${ID}`,
+      items: [{ id: "ev-0001", kind: "scan", path: resolve(DIR, "scans/two-storey.las"), sha256: EV }],
+      params: { voxel_mm: 20, storey_min_mm: 2000, tolerances_mm: [50, 100, 200] }, seed: 1, elements: [
+        { guid: "g1", faces: [[[125, 300, 0], [125, 300, 2800], [7850, 300, 0]], [[125, 0, 0], [7850, 0, 0], [125, 0, 2800]]] },
+        { guid: "g2", faces: [[[125, 6000, 0], [125, 6000, 2800], [7850, 6000, 0]], [[125, 5800, 0], [7850, 5800, 0], [125, 5800, 2800]]] },
+        { guid: "g3", faces: [[[7700, 150, 0], [7700, 150, 2800], [7700, 5900, 0]], [[8000, 150, 0], [8000, 5900, 0], [8000, 150, 2800]]] }] }]);
+    expect(deps.listAudit.mock.calls.map((c) => c[1])).toEqual([{ entity_type: "changeset", action_prefix: "changeset_", entity_id: ID, limit: 1000 },
+      { entity_type: "changeset", action_prefix: "verify:measured", entity_id: ID, limit: 1 }]);
+    expect(deps.audit).toHaveBeenCalledTimes(1);
+    const [pid, et, eid, action, actor, old, v] = deps.audit.mock.calls[0];
+    expect([pid, et, eid, action, actor, old]).toEqual(["p1", "changeset", ID,
+      "verify:measured job-0002 · sentinel-survey 0.1.0 · done · 3 within tolerance, 0 out of tolerance, 0 missing, 0 insufficient data, 0 not measured", "web", null]);
+    expect(v).toMatchObject({ changeset: { id: ID, name: "Survey job-0002 · GR-FFL" }, applied_row: 2210, reverted_row: 2212,
+      placed_by: { reported_by: "lead@example.test", reported_role: "lead" }, // Revit's report's provenance: the placed list is the add-in's, said so
+      faces_sha256: createHash("sha256").update(JSON.stringify(deps.measureJob.mock.calls[0][2].elements)).digest("hex"),
+      status: "done", job: { id: "job-0002", ledger_id: 2201, result_sha256: CS.job.result_sha256, version: "0.1.0" },
+      evidence: [{ id: "ev-0001", sha256: EV }], reader: "sentinel-survey", version: "0.1.0", params: ROW.params, seed: 1, tolerances_mm: [50, 100, 200], target_mm: 20, min_coverage: 0.25,
+      measure: KNOBS, reference: "as filed", frame: CS.job.frame, storey: { level: "GR-FFL", how: "named", checked: false, delta_mm: null }, sign: "+ = the scan outside the element's face",
+      points_in: 47699, points_used: 47672, counts: { within_tolerance: 3, out_of_tolerance: 0, missing: 0, insufficient_data: 0, not_measured: 0 }, model_calls: 0, tokens: 0, claimed: false });
+    expect(v.elements[0]).toEqual({ proposal_guid: "g1", revit_unique_id: "u1", cid: "scan-L00-wall-1", kind: "wall", status: "within_tolerance", basis: "deviation", ...NUMS() });
+    expect(r).toEqual({ changeset: { id: ID, name: "Survey job-0002 · GR-FFL" }, status: "done", counts: v.counts, elements: v.elements, ledger: { id: 2300, hash: "ab".repeat(32) } });
+    expect([deps.docInsert.mock.calls.length, deps.docReplaceIfField.mock.calls.length]).toEqual([0, 0]);
+  });
+  it("(b) the bridge's verdicts: out of tolerance, missing, and an element undone in Revit not measured — counted on the row", async () => {
+    const deps = vdeps({ listAudit: audits([{ id: 2215, action: "changeset_reverted", new_value: { op: "undo", guids: ["g3"] } }, ...ROWS]),
+      measureJob: DONE((i) => (i ? { points: 0, p95_mm: null, mean_signed_mm: null, share_within: null, coverage: 0 } : { p95_mm: 63, share_within: { 50: 0, 100: 1, 200: 1 } })) });
+    const r = await verify(deps);
+    expect(deps.measureJob.mock.calls[0][2].elements.map((e) => e.guid)).toEqual(["g1", "g2"]);
+    expect(r.elements.map((e) => [e.status, e.reason ?? null])).toEqual([["out_of_tolerance", null],
+      ["missing", "no scan point within 400 mm of its faces — not built where it stands, or not scanned there"], ["not_measured", "undone in Revit (ledger #2215) — nothing placed to measure"]]);
+    expect(deps.audit.mock.calls[0][3]).toBe("verify:measured job-0002 · sentinel-survey 0.1.0 · done · 0 within tolerance, 1 out of tolerance, 1 missing, 0 insufficient data, 1 not measured");
+  });
+  it("(c) refused before the run, each in words ending 'nothing was saved' — nothing measured, no row", async () => {
+    const quiet = async (over, message, status = 409, body = { changeset: ID }, cs = CS) => {
+      const deps = vdeps(over, cs);
+      await expect(verify(deps, body)).rejects.toMatchObject({ status, message });
+      expect([deps.measureJob.mock.calls.length, deps.audit.mock.calls.length]).toEqual([0, 0]);
+    };
+    await quiet({ myRole: vi.fn(async () => "service") }, "measuring a changeset against its scan needs a person — it reads the whole scan, and its row names who asked: sign in. Nothing was saved.", 403);
+    await quiet({ requireMinRole: vi.fn(async () => { throw Object.assign(new Error("this action requires the contributor role (you are viewer)"), { status: 403 }); }) },
+      "this action requires the contributor role (you are viewer) — measuring a placed changeset against its scan is a contributor's; nothing was saved", 403);
+    await quiet({}, "results is not a measure field — the bridge measures what Revit placed, as filed, against its job's own scan; send {changeset} — nothing was saved", 400, { changeset: ID, results: [] });
+    await quiet({}, "changeset must be a changeset's id (a uuid) — nothing was saved", 400, { changeset: "x" });
+    await quiet({}, "no changeset 00000000-0000-4000-8000-000000000000 on ma4c-drill — nothing was saved", 404, { changeset: "00000000-0000-4000-8000-000000000000" });
+    await quiet({}, "Survey job-0002 · GR-FFL was not built from a survey job — there is no scan to measure it against — nothing was saved", 409, undefined, { ...CS, job: null, claimed: true });
+    await quiet({}, "Survey job-0002 · GR-FFL is proposed — only what Revit placed is measured — nothing was saved", 409, undefined, { ...CS, status: "proposed" });
+    await quiet({ trustedJob: vi.fn(async () => { throw Object.assign(new Error("job-0002's result is not trusted: … — run the survey again; nothing was saved"), { status: 409 }); }) },
+      "job-0002's result is not trusted: … — run the survey again; nothing was saved");
+    await quiet({ trustedJob: vi.fn(async () => ({ row: { ...ROW, ledger: { id: 2299, hash: "x" } } })) },
+      "job-0002 on this PC is ledger #2299, not the job Survey job-0002 · GR-FFL was built from (ledger #2201) — its scan cannot be read again here — nothing was saved");
+    await quiet({ trustedJob: vi.fn(async () => ({ row: { ...ROW, seed: null } })) },
+      "ledger #2201 holds no params or seed — the cloud job-0002 measured cannot be read again; run the survey again — nothing was saved");
+    await quiet({ readPack: vi.fn(async () => ({ pack: { items: [{ ...SCAN, state: "changed" }] }, folder: { path: DIR } })) },
+      "ev-0001 is not the bytes job-0002 read (Re-check flagged it changed) — survey the admitted scan again; nothing was saved");
+    await quiet({ readPack: vi.fn(async () => ({ pack: { items: [{ ...SCAN, allowed_uses: { geometry_extraction: false } }] }, folder: { path: DIR } })) },
+      "ev-0001 cannot be read again (its allowed uses exclude geometry extraction) — survey the admitted scan again — nothing was saved");
+    await quiet({ listAudit: vi.fn(async () => { throw new Error("timeout"); }) },
+      "Survey job-0002 · GR-FFL's ledger rows could not be read (timeout) — an Undo in Revit or an earlier measure would be missed — nothing was saved", 503);
+    await quiet({ listAudit: vi.fn(async () => ({ rows: ROWS, total: 1500 })) }, // a cut read could miss the newest Undo
+      "Survey job-0002 · GR-FFL has more ledger rows (1500) than one read returns — an Undo in Revit could be missed — nothing was saved", 503);
+    await quiet({ listAudit: audits([{ id: 2213, action: "changeset_reverted", new_value: { op: "undo", guids: ["g1", "g2", "g3"] } }, ...ROWS]) },
+      "nothing of Survey job-0002 · GR-FFL can be measured: undone in Revit (ledger #2213) — nothing placed to measure — nothing was saved");
+    // A replay: the newest done row was measured on these same inputs — the numbers would repeat, so no second row.
+    const done = await firstRow();
+    await quiet({ listAudit: audits(ROWS, [done]) },
+      "Survey job-0002 · GR-FFL was measured on these same inputs as ledger #2300 — the same bytes, seed and geometry give the same numbers; nothing was saved");
+    // Any changed input measures again: a Redo in Revit since (a new reverted_row), or a newest row that did not finish.
+    for (const over of [{ listAudit: audits([{ id: 2216, action: "changeset_reverted", new_value: { op: "redo", guids: ["g1", "g2", "g3"] } }, ...ROWS], [done]) },
+      { listAudit: audits(ROWS, [{ id: 2301, new_value: { ...done.new_value, status: "failed" } }]) }]) {
+      const deps = vdeps(over);
+      await verify(deps);
+      expect(deps.audit).toHaveBeenCalledTimes(1);
+    }
+  });
+  it("(d) busy: a job or a measure running is the slot's 409 — no row", async () => {
+    const deps = vdeps({ measureJob: vi.fn(async () => { throw Object.assign(new Error("a survey job is already running on this bridge (one at a time) — try again when it ends; nothing was saved"), { status: 409 }); }) });
+    await expect(verify(deps)).rejects.toMatchObject({ status: 409, message: "a survey job is already running on this bridge (one at a time) — try again when it ends; nothing was saved" });
+    expect(deps.audit).not.toHaveBeenCalled();
+  });
+  it("(e) a run that starts always leaves its row: refused (409) and failed (502) name it; a result not the contract's shape, a verdict from the service and another version than the job's fail; a row the ledger refuses is a 502, nothing saved", async () => {
+    const run = async (r, message, status) => {
+      const deps = vdeps({ measureJob: vi.fn(async () => r) });
+      await expect(verify(deps)).rejects.toMatchObject({ status, message });
+      return deps.audit.mock.calls;
+    };
+    let rows = await run({ status: "refused", version: "0.1.0", refused: [{ id: "ev-0001", reason: "changed since admitted (its sha256 is not the pack's) — Re-check flags it" }] },
+      "Survey job-0002 · GR-FFL was not measured: the scan was not read again — ev-0001: changed since admitted (its sha256 is not the pack's) — Re-check flags it — ledger #2300 records the run; nothing else was saved", 409);
+    expect([rows.length, rows[0][3], rows[0][6].status, rows[0][6].elements]).toEqual([1, "verify:measured job-0002 · sentinel-survey 0.1.0 · refused", "refused", []]);
+    rows = await run({ status: "failed", version: "0.1.0", error: "the survey took longer than 10 min — it was stopped; nothing it found was kept" },
+      "the measure of Survey job-0002 · GR-FFL did not finish: the survey took longer than 10 min — it was stopped; nothing it found was kept — ledger #2300 records the run; nothing else was saved", 502);
+    expect(rows[0][3]).toBe("verify:measured job-0002 · sentinel-survey 0.1.0 · failed");
+    await run({ status: "done", version: "0.1.0", result: { elements: [{ guid: "g9" }], receipt: { measure: KNOBS } } },
+      "the measure of Survey job-0002 · GR-FFL did not finish: sentinel-survey's measure is not the contract's shape (not one result per element sent) — nothing it measured was kept — ledger #2300 records the run; nothing else was saved", 502);
+    // Rule 3: a verdict sent by the service is refused, never merged — p95 63 never reads within tolerance.
+    const three = (o) => ["g1", "g2", "g3"].map((guid) => ({ guid, ...NUMS(), ...o }));
+    rows = await run({ status: "done", version: "0.1.0", result: { elements: three({ p95_mm: 63, status: "within_tolerance" }), receipt: { measure: KNOBS } } },
+      "the measure of Survey job-0002 · GR-FFL did not finish: sentinel-survey's measure is not the contract's shape (elements[0] carries status (the verdict is the bridge's)) — nothing it measured was kept — ledger #2300 records the run; nothing else was saved", 502);
+    expect([rows[0][6].status, rows[0][6].elements]).toEqual(["failed", []]);
+    // The job's own cloud only from the version that read it: another version may read, sample or voxel differently.
+    rows = await run({ status: "done", version: "0.2.0", result: { elements: three(), receipt: { measure: KNOBS } } },
+      "the measure of Survey job-0002 · GR-FFL did not finish: the job was read by sentinel-survey 0.1.0 and this measure ran 0.2.0 — its cloud is not known to be the job's; run the survey again — nothing it measured was kept — ledger #2300 records the run; nothing else was saved", 502);
+    expect([rows[0][3], rows[0][6].job.version, rows[0][6].elements]).toEqual(["verify:measured job-0002 · sentinel-survey 0.2.0 · failed", "0.1.0", []]);
+    await expect(verify(vdeps({ audit: vi.fn(async () => { throw new Error("ledger down"); }) }))).rejects.toMatchObject({ status: 502,
+      message: "Survey job-0002 · GR-FFL was measured, but the ledger did not take its row (ledger down) — nothing was saved; measure it again" });
   });
 });

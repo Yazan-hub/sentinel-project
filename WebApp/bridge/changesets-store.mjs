@@ -1,7 +1,7 @@
 // Governed AI modeling — staged changesets (the bridge half). Composes the EXISTING adjudication
 // path with the EXISTING bridge_docs store. Writes: the changeset document + audit rows. Nothing
 // here touches model data — the Revit add-in executes only what a human ticks (A2).
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 import * as cde from "./cde-store.mjs";
 import * as members from "./members-store.mjs";
 import { validateChangeset, attachVerdicts, canWithdraw, deriveResultStatus, unattributedFailures,
@@ -9,7 +9,8 @@ import { validateChangeset, attachVerdicts, canWithdraw, deriveResultStatus, una
 import { makeTyper, makeCiter } from "./changesets-typing.mjs";
 import { resolveArtefact, refLabel, validateArtefact } from "./artefact-store.mjs";
 import { resolveActor } from "./bridge-auth.mjs";
-import { readProposeBody, planSurvey, PLANNER, PLANNER_VERSION } from "./survey-plan.mjs";
+import { readProposeBody, planSurvey, PLANNER, PLANNER_VERSION, measurePlan, judge, measureRefusal, countWords, STATUSES, MIN_COVERAGE, TOLERANCE_MM } from "./survey-plan.mjs";
+import { stillAdmitted, pickItems, trustedJob as jobOf, measureJob as measureOf, TOLERANCES_MM, READER } from "./build-jobs.mjs";
 
 const STORE = "changeset";
 const err = (status, message) => Object.assign(new Error(message), { status });
@@ -265,15 +266,9 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
     const { row, result } = await trustedJob(key, id);
     const { frame, levels } = readProposeBody(b, result.candidates.filter((c) => c.kind === "level").map((c) => c.cid));
     // Every item the job read must still be the bytes it read: in the pack the ROW names (job.json is never the anchor), not flagged, with
-    // the sha on its row.
+    // the sha on its row (build-jobs stillAdmitted, shared with MA-4e's measure).
     const { pack } = await readPack(key, row.pack_id);
-    const evidence = row.read.map((rid) => {
-      const sent = row.items.find((i) => i.id === rid), now = pack.items.find((i) => i.id === rid);
-      const why = !sent ? "its row lists it as read but not as sent" : !now ? "it is no longer in the pack" : now.state === "changed" ? "Re-check flagged it changed"
-        : now.sha256 !== sent.sha256 ? "its sha256 in the pack is not the one the job read" : null;
-      if (why) throw err(409, `${rid} is not the bytes ${id} read (${why}) — survey the admitted scan again; nothing was saved`);
-      return { id: rid, sha256: sent.sha256 };
-    });
+    const evidence = stillAdmitted(row, pack, id);
     const proj = await d.ensureProject(key);
     let earlier;
     try { earlier = await d.docList(STORE, proj.id); }
@@ -357,6 +352,136 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
         catalog: catalog.label, catalog_sha256: catalog.sha256, model_calls: 0, tokens: 0, claimed: false });
     } catch (e) { throw await halfWay("the planner's build:run row was not written", e); }
     return { job: id, survey_row: row.ledger, frame, storeys, changesets, gaps, already_filed: plan.already_filed, overlaps, ledger: ledgerRef(done) };
+  }
+}
+
+/** MA-4e: POST /cde/:key/verify {changeset} → 200. A signed-in contributor measures a placed survey changeset against the scan its job read
+ *  (design §6.6 verify:measured, §6.8 S1, §6.9 S2/S3): the bridge picks everything — the walls Revit placed (result.applied, less an Undo in
+ *  Revit: each guid's newest changeset_reverted row), each AS FILED (the changeset's own geometry, which the executor places exactly), back
+ *  in the scan's frame (the inverse of the lead's frame); the job's own row (trustedJob, MA-4c decision 11) and its params and seed; the scans
+ *  it read, still the admitted bytes. sentinel-survey measures (measureJob: one run on the bridge's one survey slot), the bridge judges each
+ *  element (rule 3) and writes ONE verify:measured row per run that starts (done, failed or refused — the build:run precedent). Nothing else
+ *  is written: no doc, no table. Refusals before the run, each ending "nothing was saved", in this order: 403 (the machine credential; below
+ *  contributor), 400 (the body), 429, 404 (the changeset), 409 (not a survey changeset; not placed), 400/404/409 (the job), 409 (not the job
+ *  it was built from; no params or seed), 409 (a scan changed or unreadable), 503 (its ledger rows: not read, or more than one read returns),
+ *  409 (nothing to measure), 409 (a replay: measured on these same inputs), 503/409 (the service not set up; busy). After the run: refused
+ *  409, failed 502 (the run's words; another sentinel-survey version than the job's; a result not the contract's shape), each naming its row.
+ *  "As filed" is the founder's answer for MA-4e (2026-10-09, open question 1); Revit's re-read is MA-4f's.
+ *  ponytail: as filed, not re-read — a wall moved in Revit after Apply, a model closed unsaved and a wrong frame are not seen; Revit's re-read
+ *  is MA-4f's (its results[] would be the add-in's claim). Synchronous, bounded by the survey's JOB_MS — a 202 and a record when Kladno's
+ *  measure outlasts a request (MA-4h). */
+export async function verifyChangeset(key, b, actor, deps = {}) {
+  const d = wire(deps);
+  const trustedJob = deps.trustedJob ?? jobOf, measureJob = deps.measureJob ?? measureOf;
+  const readPack = deps.readPack ?? (await import("./evidence-store.mjs")).readPack;
+  const listAudit = deps.listAudit ?? cde.listAudit;
+  if ((await d.myRole(key)) === "service")
+    throw err(403, "measuring a changeset against its scan needs a person — it reads the whole scan, and its row names who asked: sign in. Nothing was saved.");
+  try { await d.requireMinRole(key, "contributor"); }
+  catch (e) { throw e.status === 403 ? err(403, `${e.message} — measuring a placed changeset against its scan is a contributor's; nothing was saved`) : unsaved(e); }
+  const bad = (m) => err(400, `${m} — nothing was saved`);
+  if (!b || typeof b !== "object" || Array.isArray(b)) throw bad("the body is {changeset}");
+  for (const k of Object.keys(b))
+    if (k !== "changeset") throw bad(`${k.slice(0, 64)} is not a measure field — the bridge measures what Revit placed, as filed, against its job's own scan; send {changeset}`);
+  if (!cde.isUuid(b.changeset)) throw bad("changeset must be a changeset's id (a uuid)");
+  d.takeWriteBudget("survey jobs", { perUser: 6, all: 12 }); // a measure is a survey run: one budget for the PC's CPU (its 429 says "nothing was saved")
+  let x;
+  try { x = await prepare(b.changeset); } catch (e) { throw unsaved(e); } // nothing is written before the run
+  const { proj, cs, row, evidence, items, applied, reverted, faces, plan } = x;
+  let r;
+  try { r = await measureJob(key, cs.job.id, { job_id: `measure-${cs.id}`, items, params: { ...row.params, tolerances_mm: TOLERANCES_MM }, seed: row.seed, elements: plan.send }); }
+  catch (e) { throw unsaved(e); } // not set up (503), busy (409): before the run
+
+  let status = r.status, error = r.error ?? null;
+  // The job's own cloud only from the version that read it: another may read, sample or voxel differently (MA-4h tunes them).
+  if (status === "done" && r.version !== row.version) {
+    status = "failed";
+    error = `the job was read by sentinel-survey ${row.version ?? "(no version)"} and this measure ran ${r.version ?? "(no version)"} — its cloud is not known to be the job's; run the survey again — nothing it measured was kept`;
+  }
+  const shape = status === "done" ? measureRefusal(r.result, plan.send, TOLERANCES_MM) : null;
+  if (shape) { status = "failed"; error = `sentinel-survey's measure is not the contract's shape (${shape}) — nothing it measured was kept`; }
+  if (status === "refused") error = `the scan was not read again — ${(r.refused ?? []).map((i) => `${i.id}: ${i.reason}`).join("; ")}`;
+  const rc = (status === "done" && r.result.receipt) || {};
+  const got = new Map(status === "done" ? r.result.elements.map((m) => [m.guid, m]) : []);
+  const why = new Map(plan.skip.map((s) => [s.proposal_guid, s.reason]));
+  // Rule 3: the service gave numbers; the verdict on each placed element is the bridge's.
+  const elements = status !== "done" ? [] : plan.placed.map((p) => {
+    const m = got.get(p.proposal_guid);
+    if (!m) return { ...p, status: "not_measured", basis: "deviation", reason: why.get(p.proposal_guid) };
+    // Only the five numbers (measureRefusal let no other key through), shares at the bridge's own tolerances; the verdict last, the bridge's.
+    const nums = { points: m.points, p95_mm: m.p95_mm, mean_signed_mm: m.mean_signed_mm, coverage: m.coverage,
+      share_within: m.points ? Object.fromEntries(TOLERANCES_MM.map((t) => [String(t), m.share_within[t]])) : null };
+    return { ...p, ...nums, ...judge(m, rc.measure), basis: "deviation" };
+  });
+  const counts = Object.fromEntries(STATUSES.map((s) => [s, elements.filter((e) => e.status === s).length]));
+  const s = cs.job.storey ?? {};
+  const value = {
+    changeset: { id: cs.id, name: cs.name }, applied_row: applied, reverted_row: reverted,
+    // Which ghosts count as placed is Revit's report: who filed it, as the bridge read it at reportResult (the machine credential's is "service").
+    placed_by: { reported_by: cs.result?.reported_by ?? null, reported_role: cs.result?.reported_role ?? null }, faces_sha256: faces,
+    status, job: { id: cs.job.id, ledger_id: row.ledger.id, result_sha256: row.result_sha256, version: row.version ?? null },
+    evidence, reader: READER, version: r.version ?? null, tools: r.tools ?? [], params: row.params, seed: row.seed,
+    tolerances_mm: TOLERANCES_MM, target_mm: TOLERANCE_MM, min_coverage: MIN_COVERAGE, measure: rc.measure ?? null,
+    // As filed: the changeset's own geometry, which the executor places exactly — not re-read from Revit (MA-4f); the frame is the lead's statement.
+    reference: "as filed", frame: cs.job.frame, storey: { level: s.level ?? null, how: s.how ?? null, checked: s.checked ?? null, delta_mm: s.delta_mm ?? null },
+    sign: "+ = the scan outside the element's face", started: rc.started ?? null, finished: rc.finished ?? null, cpu_s: rc.cpu_s ?? null,
+    points_in: rc.points_in ?? null, points_used: rc.points_used ?? null, counts, elements, model_calls: 0, tokens: 0, claimed: false, ...(error ? { error } : {}),
+  };
+  let written;
+  try {
+    written = await d.audit(proj.id, "changeset", cs.id, `verify:measured ${cs.job.id} · ${READER} ${r.version ?? "(no version)"} · ${status}${status === "done" ? ` · ${countWords(counts)}` : ""}`,
+      actor || "web", null, value);
+  } catch (e) { throw err(502, `${cs.name} was measured, but the ledger did not take its row (${e.message}) — nothing was saved; measure it again`); }
+  const ledger = ledgerRef(written);
+  if (status === "refused") throw err(409, `${cs.name} was not measured: ${error} — ledger #${ledger?.id ?? "?"} records the run; nothing else was saved`);
+  if (status !== "done") throw err(502, `the measure of ${cs.name} did not finish: ${error} — ledger #${ledger?.id ?? "?"} records the run; nothing else was saved`);
+  return { changeset: { id: cs.id, name: cs.name }, status, counts, elements, ledger };
+
+  /** Everything before the run: the changeset, its job's row, the bytes, its Undo rows, what is measured, and whether it is a replay. */
+  async function prepare(id) {
+    const proj = await d.ensureProject(key);
+    const cs = await d.docGet(STORE, proj.id, id);
+    if (!cs) throw err(404, `no changeset ${id} on ${key}`);
+    if (!cs.job || cs.claimed !== false) throw err(409, `${cs.name} was not built from a survey job — there is no scan to measure it against`);
+    if (cs.status !== "applied" && cs.status !== "partially_applied") throw err(409, `${cs.name} is ${String(cs.status).replace("_", " ")} — only what Revit placed is measured`);
+    const { row } = await trustedJob(key, cs.job.id);
+    // A job id repeats across jobs folders (MA-4d decision 19): the row must be the one this changeset was built from.
+    if (row.ledger.id !== cs.job.ledger_id || row.result_sha256 !== cs.job.result_sha256)
+      throw err(409, `${cs.job.id} on this PC is ledger #${row.ledger.id}, not the job ${cs.name} was built from (ledger #${cs.job.ledger_id}) — its scan cannot be read again here`);
+    if (!row.params || !Number.isInteger(row.seed))
+      throw err(409, `ledger #${row.ledger.id} holds no params or seed — the cloud ${cs.job.id} measured cannot be read again; run the survey again`);
+    const { pack, folder } = await readPack(key, row.pack_id);
+    const evidence = stillAdmitted(row, pack, cs.job.id);
+    // The job's cloud again: what its row says it read, in the order it sent them (the seeded sample follows the order), at the row's sha —
+    // sentinel-survey re-hashes each file before and after the read.
+    const { take, refused } = pickItems(pack, folder.path);
+    const items = row.items.filter((i) => row.read.includes(i.id)).map((i) => {
+      const t = take.find((y) => y.id === i.id);
+      if (!t) throw err(409, `${i.id} cannot be read again (${refused.find((y) => y.id === i.id)?.reason ?? "not a scan sentinel-survey reads"}) — survey the admitted scan again`);
+      return { id: i.id, kind: "scan", path: t.path, sha256: i.sha256 };
+    });
+    const read = async (action_prefix, limit) => {
+      try { return await listAudit(key, { entity_type: "changeset", action_prefix, entity_id: cs.id, limit }); }
+      catch (e) { throw err(503, `${cs.name}'s ledger rows could not be read (${e.message}) — an Undo in Revit or an earlier measure would be missed`); }
+    };
+    // Its changeset_ rows, whole or not at all (rows come newest first; a cut read could miss the newest Undo — readLedger on the desk refuses it too).
+    const page = await read("changeset_", 1000), rows = page.rows ?? [];
+    if ((page.total ?? 0) > rows.length) throw err(503, `${cs.name} has more ledger rows (${page.total}) than one read returns — an Undo in Revit could be missed`);
+    // An Undo in Revit leaves the doc applied (reportReverted writes a row only): each placed guid's newest changeset_reverted row decides.
+    const last = new Map();
+    for (const y of rows) if (y.action === "changeset_reverted") for (const g of y.new_value?.guids ?? []) if (!last.has(g)) last.set(g, y);
+    const plan = measurePlan(cs, (g) => (last.get(g)?.new_value?.op === "undo" ? last.get(g).id : null));
+    if (!plan.send.length) throw err(409, `nothing of ${cs.name} can be measured: ${[...new Set(plan.skip.map((y) => y.reason))].join("; ")}`);
+    const applied = rows.find((y) => y.action === "changeset_applied")?.id ?? null, reverted = rows.find((y) => y.action === "changeset_reverted")?.id ?? null;
+    const faces = createHash("sha256").update(JSON.stringify(plan.send)).digest("hex");
+    // A replay (decision 11): the measure is deterministic, so a done row on these same inputs is not written twice.
+    // ponytail: a new sentinel-survey version (or a changed target here) is re-measured only once an input changes; a "measure anyway" when asked.
+    const [prev] = (await read("verify:measured", 1)).rows ?? [];
+    const pv = prev?.new_value;
+    if (pv?.status === "done" && pv.job?.ledger_id === row.ledger.id && JSON.stringify(pv.evidence) === JSON.stringify(evidence)
+      && pv.applied_row === applied && pv.reverted_row === reverted && pv.faces_sha256 === faces)
+      throw err(409, `${cs.name} was measured on these same inputs as ledger #${prev.id} — the same bytes, seed and geometry give the same numbers; nothing was saved`);
+    return { proj, cs, row, evidence, items, applied, reverted, faces, plan };
   }
 }
 
