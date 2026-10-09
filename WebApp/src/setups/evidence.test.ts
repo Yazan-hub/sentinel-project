@@ -185,7 +185,7 @@ describe("survey proposals (MA-4d)", () => {
     bwrite.mockResolvedValue(REPLY);
     const r = await proposeFromJob("http://b", "demo", "job-0002", { frame: FRAME });
     expect(bwrite).toHaveBeenCalledWith("http://b/cde/demo/build/jobs/job-0002/propose", expect.objectContaining({ method: "POST", body: JSON.stringify({ frame: FRAME }) }));
-    expect(proposeLine(r)).toBe("✓ Proposed job-0002 — 2 changeset(s), 7 ghost(s), 4 pre-ticked on the Review desk (Revit leaves every create for a person to tick) · " +
+    expect(proposeLine(r)).toBe("✓ Proposed job-0002 — 2 changeset(s), 7 ghost(s), 4 pre-ticked on the Review desk (Revit opens them ticked too, less what the office IDS rejects; a person clicks Apply) · " +
       "3 type-gap group(s), 6 element(s) in the Holding Area · scan-L00-level → GR-FFL (named, its height not checked); scan-L01-level → Scan L01 job-0002 (created) · " +
       "ledger #2210 · receipt abababababababab… — Review ▸ ↻");
     expect(proposeLine({ ...REPLY, already_filed: 6, overlaps: [{ changeset: "Survey job-0001 · GR-FFL", job_id: "job-0001", evidence: ["ev-0001"] }] }))
