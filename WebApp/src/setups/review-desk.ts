@@ -53,7 +53,7 @@ export interface LedgerRef { id: number | null; hash: string | null; }
 /** MA-4e: one placed element as the bridge judged it against the scan (a verify:measured row's element). */
 export interface Measured {
   proposal_guid: string; kind?: string | null; status: string; points?: number; p95_mm?: number | null; mean_signed_mm?: number | null;
-  coverage?: number | null; share_within?: Record<string, number> | null; reason?: string;
+  coverage?: number | null; share_within?: Record<string, number> | null; reason?: string; reference?: string;
 }
 /** MA-4e: the newest verify:measured row of a changeset. */
 export interface VerifyRecord {
@@ -61,7 +61,7 @@ export interface VerifyRecord {
   placed_by?: { reported_by?: string | null; reported_role?: string | null } | null; elements: Measured[];
 }
 /** MA-4e: what POST /cde/:key/verify answers. */
-export interface MeasureReply { changeset: { id: string; name: string }; status: string; counts: Record<string, number>; elements: Measured[]; ledger: LedgerRef | null; }
+export interface MeasureReply { changeset: { id: string; name: string }; status: string; reference?: string; counts: Record<string, number>; elements: Measured[]; ledger: LedgerRef | null; }
 
 // Revit's StoreyBatch.Part: " (i/n)" at the end of a Promote storey's part (ASCII digits).
 const PART = / \(([0-9]{1,4})\/([0-9]{1,4})\)$/;
@@ -309,6 +309,14 @@ export function measureWords(m: Measured, target = 20): string {
     ...(m.reason ? [m.reason] : [])].join(" · ");
 }
 
+/** MA-4f: what the head says each reference measured — as filed (the changeset's geometry), Revit's re-read at Apply (the add-in's claim), or a
+ *  mix. Never "a wall moved since Apply": Revit re-reads at Apply. */
+const MEASURED_AS: Record<string, string> = {
+  "as filed": " as filed (the changeset's geometry, which Revit placed exactly — not re-read from Revit: a wall moved since, Revit's joins, the type's width in Revit and the lead's frame are not seen)",
+  "revit (claimed)": " as Revit placed it (Revit's re-read at Apply, the add-in's claim: its joins, its location line and the type's width in Revit are measured — a wall moved since Apply and the lead's frame are not seen)",
+  mixed: " as Revit placed it where Revit re-read it at Apply (the add-in's claim), else as filed — a wall moved since Apply and the lead's frame are not seen",
+};
+
 /** A changeset's newest measure in words: the head (as filed, who reported the placement, the counts or why it did not finish, its row, when,
  *  who) and a line per placed element (ghostLine, then measureWords); null when it was never measured; the read's own failure as the head. Pure. */
 export function verifiedView(cs: PendingChangeset, rec: VerifyRecord | null | Error): { head: string; lines: { line: string; words: string }[] } | null {
@@ -316,13 +324,14 @@ export function verifiedView(cs: PendingChangeset, rec: VerifyRecord | null | Er
   if (!rec) return null;
   const when = /^\d{4}-\d\d-\d\dT\d\d:\d\d/.test(rec.at ?? "") ? `${rec.at.slice(0, 10)} ${rec.at.slice(11, 16)} UTC` : "an unknown time";
   const what = rec.status === "done" ? countWords(rec.counts ?? {}) : `did not finish — ${rec.error ?? "no reason on its row"}`;
-  const filed = rec.reference === "as filed" ? " as filed (the changeset's geometry, which Revit placed exactly — not re-read from Revit: a wall moved since, Revit's joins, the type's width in Revit and the lead's frame are not seen)" : "";
+  const filed = MEASURED_AS[rec.reference ?? ""] ?? "";
   // Which walls count as placed is Revit's report, not the bridge's measure: who filed it, and the machine credential's said so.
   const pb = rec.placed_by, placed = `placed as Revit reported${pb?.reported_by ? ` (by ${pb.reported_by})` : ""}${pb?.reported_role === "service" ? " — the machine credential's report" : ""}`;
   const byGuid = new Map((cs.elements ?? []).map((e) => [e.proposal_guid, e]));
   return {
     head: `Measured against the scan${filed} · ${placed} · ${what} · ledger #${rec.id} · ${when} · by ${rec.actor || "an unknown account"}`,
-    lines: rec.elements.map((m) => { const el = byGuid.get(m.proposal_guid); return { line: el ? ghostLine(el) : m.proposal_guid, words: measureWords(m, rec.target_mm) }; }),
+    lines: rec.elements.map((m) => { const el = byGuid.get(m.proposal_guid); return { line: el ? ghostLine(el) : m.proposal_guid,
+      words: measureWords(m, rec.target_mm) + (rec.reference === "mixed" && m.reference === "as filed" ? " · as filed" : "") }; }),
   };
 }
 
@@ -337,7 +346,8 @@ export const postMeasure = (base: string, key: string, id: string): Promise<Meas
   bwrite(`${base.replace(/\/$/, "")}/cde/${encodeURIComponent(key)}/verify`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ changeset: id }) });
 
 /** The status line after Measure. Pure. */
-export const measureLine = (r: MeasureReply): string => `✓ Measured ${r.changeset.name} against the scan as filed — ${countWords(r.counts)} · ${rowWords(r)}`;
+export const measureLine = (r: MeasureReply): string =>
+  `✓ Measured ${r.changeset.name} against the scan ${r.reference === "revit (claimed)" ? "as Revit re-read it (the add-in's claim)" : r.reference === "mixed" ? "as Revit re-read it (the add-in's claim), else as filed" : "as filed"} — ${countWords(r.counts)} · ${rowWords(r)}`;
 
 /** MA-3d: what Highlight in 3D does with a storey's ghosts and what each loaded model answered for their GlobalIds (null = not in it):
  *  the highlighter's map (modelId → the local ids found) and the words. Pure. */
