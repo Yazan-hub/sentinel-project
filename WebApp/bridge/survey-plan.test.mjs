@@ -259,15 +259,22 @@ describe("MA-4f — Revit's re-read of a placed wall: read, then the two faces s
       .toEqual({ why: "its left side is not one plane (50 mm deep: a sweep, a reveal or a turn)" });
     expect(meshFaces({ ...W, place: {} }, box)).toEqual({ why: "its line, measured thickness or top is not on the changeset" });
     expect(meshFaces({ ...W, facts: {} }, box)).toEqual({ why: "its line, measured thickness or top is not on the changeset" });
+    expect(meshFaces({ ...W, place: { ...W.place, TopElevation: 0 } }, box)).toEqual({ why: "its line is shorter than 1 mm, or its top not above its base" });
+    // Final review: a side under 1 mm along — sentinel-survey would refuse its face (both sides at least 1 mm) and fail every measure
+    expect(meshFaces({ ...W, place: { ...W.place, LocationCurve: { start: [43000, 150, 0], end: [43300, 150, 0] } } }, boxMesh([43125, 150], [43125.4, 150], 300, 0, 2800)))
+      .toEqual({ why: "its left side is under 1 mm across" });
   });
   it("meshFaces: the claim is held to the filed wall — a solid off its line, past its ends or off its height is measured as filed", () => {
     // 2 000 mm off the line: both side planes are parallel to it and one plane each, so only the bound refuses them (offsets 2 150 and 1 850, the bound 450)
     expect(meshFaces(W, boxMesh([40125, 2150], [47850, 2150], 300, 0, 2800))).toEqual({ why: "Revit's re-read is 1700 mm off its filed wall — measured as filed" });
     expect(meshFaces(W, boxMesh([40125, 150], [97850, 150], 300, 0, 2800))).toEqual({ why: "Revit's re-read is 49600 mm off its filed wall — measured as filed" }); // 50 m on
     expect(meshFaces(W, boxMesh([40125, 150], [47850, 150], 300, 3000, 5800))).toEqual({ why: "Revit's re-read is 2900 mm off its filed wall — measured as filed" }); // a storey up
+    // Final review: short of them too — a 1 m × 1 m patch the claim chose is not the wall (its ends 2 875 and 3 850 mm in, the bound 400)
+    expect(meshFaces(W, boxMesh([43000, 150], [44000, 150], 300, 1000, 2000))).toEqual({ why: "Revit's re-read is 3450 mm off its filed wall — measured as filed" });
     // the bounds' own edges are kept: the location line at a finish face (each side 0 and 300 off) and joins a thickness and 100 mm past each end
     expect(meshFaces(W, boxMesh([40125, 300], [47850, 300], 300, 0, 2800)).faces).toBeDefined();
     expect(meshFaces(W, boxMesh([39725, 150], [48250, 150], 300, -100, 2900)).faces).toBeDefined();
+    expect(meshFaces(W, boxMesh([40525, 150], [47450, 150], 300, 100, 2700)).faces).toBeDefined(); // a thickness and 100 mm in, 100 mm under the top
   });
   it("measurePlan: a wall Revit re-read is sent by its re-read, in the scan's frame, and says so; one without — or one the bridge could not reduce — as filed", () => {
     const S = toScan(EAST);

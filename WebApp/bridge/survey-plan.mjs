@@ -329,7 +329,7 @@ export function meshFaces(el, m) {
   if (!Array.isArray(c?.start) || !Array.isArray(c?.end) || !Number.isFinite(c.start[2]) || !(t > 0) || !Number.isFinite(zt))
     return { why: "its line, measured thickness or top is not on the changeset" }; // facesOf's words
   const [ax, ay, zb] = c.start, L = Math.hypot(c.end[0] - ax, c.end[1] - ay);
-  if (!(L >= 1)) return { why: "its filed line is shorter than 1 mm" };
+  if (!(L >= 1) || !(zt > zb)) return { why: "its line is shorter than 1 mm, or its top not above its base" }; // facesOf's words
   const ux = (c.end[0] - ax) / L, uy = (c.end[1] - ay) / L, px = -uy, py = ux; // p: the line's left, facesOf's n
   const at = [];
   for (let i = 0; i < m.length; i += 9) {
@@ -346,6 +346,8 @@ export function meshFaces(el, m) {
     const o = qs.map((q) => q.o), deep = Math.max(...o) - Math.min(...o);
     if (deep > 1) return { why: `its ${side} side is not one plane (${Math.round(deep)} mm deep: a sweep, a reveal or a turn)` };
     const us = qs.map((q) => q.u), zs = qs.map((q) => q.z);
+    // Final review: under 1 mm along or up, sentinel-survey refuses the face (rectangle(): both sides at least 1 mm) and every measure fails.
+    if (Math.max(...us) - Math.min(...us) < 1 || Math.max(...zs) - Math.min(...zs) < 1) return { why: `its ${side} side is under 1 mm across` };
     return { off: o.reduce((s, v) => s + v, 0) / o.length, u0: Math.min(...us), u1: Math.max(...us), z0: Math.min(...zs), z1: Math.max(...zs) };
   };
   const l = box(at.filter((q) => q.o > mid), "left"), r = box(at.filter((q) => q.o <= mid), "right");
@@ -353,7 +355,9 @@ export function meshFaces(el, m) {
   if (r.why) return r;
   // MA-4f (critique): the bounds — each side within half the thickness and one more thickness of the filed line (the location line, the type's
   // real width), its ends within a thickness and 100 mm of the filed ends (Revit's joins), its height within 100 mm of the filed base and top.
-  const past = Math.max(...[l, r].flatMap((b) => [Math.abs(b.off) - 1.5 * t, -(t + 100) - b.u0, b.u1 - (L + t + 100), zb - 100 - b.z0, b.z1 - (zt + 100)]));
+  // Final review: both ways — a side short of its filed ends or height (a patch the claim chose) is as far off as one past them.
+  const past = Math.max(...[l, r].flatMap((b) => [Math.abs(b.off) - 1.5 * t, -(t + 100) - b.u0, b.u1 - (L + t + 100), zb - 100 - b.z0, b.z1 - (zt + 100),
+    b.u0 - (t + 100), (L - t - 100) - b.u1, b.z0 - (zb + 100), (zt - 100) - b.z1]));
   if (past > 0) return { why: `Revit's re-read is ${Math.round(past)} mm off its filed wall — measured as filed` };
   const pt = (b, u, z) => [r1(ax + ux * u + px * b.off), r1(ay + uy * u + py * b.off), r1(z)];
   return { faces: [
