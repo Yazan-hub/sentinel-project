@@ -671,7 +671,7 @@ It is not the audit pack (`GET /cde/:key/audit-pack`), which is the Kitemark exp
 - The pack refuses an item whose sha256 has changed.
 - `texture_embed` and `redistribute` are always false, by policy [R2M §6.3].
 - `request_id` links a drawing to its "ask the owner" request (BUILT in MA-4b: a drawing names (a) and (b) in `attestation_ids`; no registration — drawing alignment by 2 points is MA-5).
-- MA-4a items carry `attestation_ids` (the codes their kind needs: a scan (a) and (c), a photo (a), (c) and (d)) in place of one `attestation_id`; `licence` is stamped `owner-supplied` for own items (a body's is not read); `rmse_mm` comes from a registered scan's report (MA-4g reads E57 and its report; sentinel-survey does not register — §4.3 "Do not build registration"). MA-4g reads E57 and the CRS; the report's rmse is typed and shown with the computed frame (MA-4g-3).
+- MA-4a items carry `attestation_ids` (the codes their kind needs: a scan (a) and (c), a photo (a), (c) and (d)) in place of one `attestation_id`; `licence` is stamped `owner-supplied` for own items (a body's is not read); `rmse_mm` comes from a registered scan's report (MA-4g reads E57; its report's rmse is MA-4g-3's; sentinel-survey does not register — §4.3 "Do not build registration"). MA-4g reads E57 and the CRS; the report's rmse is typed and shown with the computed frame (MA-4g-3).
 
 ### 6.3 Ghost (proposal) contract v2 (TARGET)
 
@@ -1147,7 +1147,7 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
   - "Ask the owner": a drafted request letter and `evidence:requested` rows (S).
   - Bridge typing: LANDED EARLY in MA-2a (full contract 2) — an element posted without `place.TypeName` carries `facts {thickness_mm?, params?}` and the bridge calls `resolveWithCatalog` on the project's guideline@n and type_catalog@n, fills the type and records `typing`, or answers 400 naming what is missing; `measured` stays ignored until a survey job backs it (item 8); the shared fixture is `WebApp/bridge/fixtures/changeset-ops/contract2-typed-body.json`. The body at :687-712 is answered 201 with `facts` in place of `measured` and 200 mm (its 203 mm is a gap under the exact rule, :734).
   - sentinel-survey v0.1, pip wheels only: storeys, wall slices in the `WallPairing` shape, floors and ceilings, and deviation per element at 5, 10 and 20 cm.
-    - Met in MA-4c for storeys, walls, floors and ceilings (numpy, plain LAS); deviation moved to MA-4e (`POST /measure`); E57 and LAZ to MA-4g. — BUILT in MA-4g (sentinel-survey 0.2.0).
+    - Met in MA-4c for storeys, walls, floors and ceilings (numpy, plain LAS); deviation moved to MA-4e (`POST /measure`); E57 and LAZ to MA-4g — BUILT in MA-4g (sentinel-survey 0.2.0).
     - MA-4e: deviation per placed wall (p95, the signed mean, coverage, the shares within 5, 10 and 20 cm) — `verify:measured`; floors, ceilings and levels wait for MA-4h.
   - Gaps go to the Holding Area as groups.
     - Met in MA-4d (LANDED 2026-10-09: #2208 on ma4c-drill): one bridge-written `type_gap` row per proposal, with the job id and evidence ids; each gap also rides on its storey's changeset as "sent to a person".

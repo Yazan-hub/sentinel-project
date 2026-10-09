@@ -247,6 +247,19 @@ class Las(unittest.TestCase):
                                                "one job reads one frame; survey scans in one CRS")
             self.assertNotIn("UTM", str(e.exception))
 
+    def test_a_header_offset_past_the_file_is_never_sought(self):
+        p, q = self.path("far.las"), self.path("far.e57")
+        write_las(p, np.zeros((3, 3)), minor=4, fmt=6, rec_len=30)
+        write_e57_shell(q, b'<?xml version="1.0" encoding="UTF-8"?><e57Root/>')
+        for path, at in ((p, 235), (q, 24)):  # a LAS 1.4's EVLR offset, an E57's xmlPhysicalOffset: 2^63 (Python cannot seek it)
+            with open(path, "r+b") as f:
+                f.seek(at)
+                f.write(struct.pack("<Q", 1 << 63))
+        item = lambda path: {"kind": "scan", "path": path, "sha256": service.sha256(path)}
+        head, why = service.check(item(p))  # its EVLRs past the end are not read, as a short read is: the points still are
+        self.assertEqual((why, head["count"], head["crs"]), (None, 3, None))
+        self.assertEqual(service.check(item(q)), (None, "the file is shorter than its header says (truncated)"))
+
     def test_a_librarys_failure_is_words_that_name_no_path(self):
         with self.assertRaises(las.Refused) as e:
             with las.damaged("E57"):
@@ -675,6 +688,8 @@ class Service(unittest.TestCase):
         names = [t["name"] for t in health["tools"]]
         self.assertEqual(names[:3], ["sentinel-survey", "python", "numpy"])
         self.assertLessEqual(set(names[3:]), {"laspy", "lazrs", "laz (in lazrs)", "pye57", "libE57Format (in pye57)", "Xerces-C++ (in pye57)", "pyquaternion"})
+        if HAS("laspy", "lazrs", "pye57", "pyquaternion"):  # a fresh child, as the bridge starts it: service.tools adds las.LIB itself
+            self.assertEqual(names[3:], ["laspy", "lazrs", "laz (in lazrs)", "pye57", "libE57Format (in pye57)", "Xerces-C++ (in pye57)", "pyquaternion"])
         self.assertTrue(all(t["licence"] for t in health["tools"]))
 
     def test_a_job_on_the_las_a_changed_file_refused_in_words_and_no_file_written(self):

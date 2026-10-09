@@ -5,6 +5,7 @@
 # a WinSock net accessor, so it could fetch one, and this service makes no network call.
 # ponytail: cartesian points only — pye57 cannot write a spherical E57 to pin a reader against (pye57.utils.convert_spherical_to_cartesian
 # reads one when a real spherical scan arrives, MA-4h); a scan's name, images and grouping are not read.
+import os
 import re
 import struct
 
@@ -32,6 +33,8 @@ def xml_refusal(path):
             raise las.Refused(f"its header is not the standard's ({page}-byte pages, the XML at byte {at:,}) — not read")
         if length > MAX_XML:
             raise las.Refused(f"its XML section is {length:,} bytes — over {MAX_XML:,}; not read")
+        if at + length > os.fstat(f.fileno()).st_size:  # before the seek: an offset of 2^63 is never sought
+            raise las.Refused("the file is shorter than its header says (truncated)")
         f.seek(at - at % PAGE)
         skip, parts, got = at % PAGE, [], 0
         while got < length:

@@ -153,7 +153,7 @@ def records(f, h):
     if h[25] == 4 and len(h) >= 247:
         at, n = struct.unpack_from("<QI", h, 235)
         if at:
-            walk(at, n, 60, 1 << 64)
+            walk(at, n, 60, os.fstat(f.fileno()).st_size)  # bounded by the file: an offset of 2^63 is never sought
     return found
 
 
