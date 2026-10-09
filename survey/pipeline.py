@@ -77,6 +77,22 @@ def voxel(P, src, mm):
     return P[first], src[first]
 
 
+def thin(P, z, mm, cap):
+    """MA-4f: the scan overlay's points — the cloud between heights z[0] and z[1] (mm, the scan's frame), one point per mm cube, the cube doubled
+    until at most cap are left (even over the walls, never a cut list; the same points every run). → (whole-mm int64 rows, the cube used, how many
+    the first cube kept). cap >= 8 (read_cloud): a cube larger than the band's extent keys at most 2 cells an axis, 8 in all, so the doubling ends."""
+    Q = P[(P[:, 2] >= z[0]) & (P[:, 2] <= z[1])]
+    if not len(Q):
+        return np.zeros((0, 3), np.int64), mm, 0
+    none = np.zeros(len(Q), np.int8)
+    T, _ = voxel(Q, none, float(mm))
+    of = len(T)
+    while len(T) > cap:
+        mm *= 2
+        T, _ = voxel(Q, none, float(mm))
+    return np.round(T).astype(np.int64), mm, of
+
+
 def surfaces(P):
     """Horizontal surfaces from the height histogram: [{z, band (mask), area_m2}], furniture-sized ones dropped."""
     z = P[:, 2]

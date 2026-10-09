@@ -34,6 +34,8 @@ public sealed class ChangesetReviewWindow : Window
     public event Action<ChangesetElementDto> ShowRequested;
     /// <summary>MA-3b: "Retry report" — the results the bridge has not taken yet.</summary>
     public event Action RetryRequested;
+    /// <summary>MA-4f: "Show the scan" ticked (true) or unticked (false) — a survey changeset only.</summary>
+    public event Action<bool> ScanRequested;
     /// <summary>MA-3c: every row's state after a tick, a group tick, a Lock or Apply — the ghost overlay recolours from it.</summary>
     public event Action<List<(ChangesetElementDto El, bool Ticked, bool Locked)>> TicksChanged;
     /// <summary>MA-3c: every row's state, for the ghost overlay — locked = a declined row (its box disabled).</summary>
@@ -143,6 +145,13 @@ public sealed class ChangesetReviewWindow : Window
         // Re-entrancy guard: Decide disables Apply at once; it comes back only when nothing ran (Refused).
         _go.Click += (_, _) => Decide();
         _retry.Click += (_, _) => { _retry.IsEnabled = false; RetryRequested?.Invoke(); };
+        // MA-4f: a survey changeset's scan, drawn as crosses beside the ghosts — off until ticked (each tick reads the scan again on the bridge's
+        // one survey slot); a changeset that is a claim has no scan.
+        var scan = new CheckBox { Content = "Show the scan", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0),
+                                  Visibility = _cs.Claimed == false ? Visibility.Visible : Visibility.Collapsed };
+        scan.Checked += (_, _) => ScanRequested?.Invoke(true);
+        scan.Unchecked += (_, _) => ScanRequested?.Invoke(false);
+        buttons.Children.Add(scan);
         buttons.Children.Add(_retry); buttons.Children.Add(all); buttons.Children.Add(none); buttons.Children.Add(_go);
         foot.Children.Add(buttons);
         DockPanel.SetDock(foot, Dock.Bottom);

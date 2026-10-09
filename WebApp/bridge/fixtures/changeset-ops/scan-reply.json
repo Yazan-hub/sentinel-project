@@ -1,0 +1,5 @@
+{
+  "changeset": { "id": "5b1c6f3e-2a4d-4e8f-9c1a-7d2e3f4a5b6c", "name": "Survey job-0002 · GR-FFL" },
+  "job": "job-0002", "ledger_id": 2201, "version": "0.1.0", "cell_mm": 100, "z_mm": [300, 2500], "of": 2,
+  "points": [[40125, 150, 1400], [47850, 5900, 2500]]
+}

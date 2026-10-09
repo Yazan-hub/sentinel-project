@@ -513,6 +513,18 @@ public sealed class AppliedEntry
     [JsonPropertyName("mesh")] [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public double[] Mesh { get; set; }
 }
 
+/// <summary>MA-4f: GET /changesets/:key/:id/scan — the scan around a survey changeset's storey, thinned by sentinel-survey and moved into the
+/// model's frame by the bridge (whole mm, Revit's internal frame).</summary>
+public sealed class ScanDto
+{
+    [JsonPropertyName("job")] public string Job { get; set; }
+    [JsonPropertyName("ledger_id")] public long? LedgerId { get; set; }
+    [JsonPropertyName("cell_mm")] public int CellMm { get; set; }
+    [JsonPropertyName("z_mm")] public double[] ZMm { get; set; }
+    [JsonPropertyName("of")] public int Of { get; set; }
+    [JsonPropertyName("points")] public List<double[]> Points { get; set; } = new();
+}
+
 internal static class ChangesetClient
 {
     // Reads: short timeout, errors surfaced (the review flow must tell the human, unlike the
@@ -571,6 +583,21 @@ internal static class ChangesetClient
             return JsonSerializer.Deserialize<ChangesetDto>(body);
         }
         catch (Exception ex) { error = ChangesetTrust.BridgeWords(ex, (int)ReadHttp.Timeout.TotalSeconds); return null; }
+    }
+
+    /// <summary>MA-4f: the scan overlay's points. The bridge reads the job's scan again on its one survey slot (seconds on the drill), so this read
+    /// waits as long as a write (120 s) — off Revit's thread, like every call here.</summary>
+    public static ScanDto FetchScan(BcfConfig cfg, string projectKey, string id, out string error)
+    {
+        error = null;
+        try
+        {
+            var url = $"{cfg.ServiceUrl.TrimEnd('/')}/changesets/{Uri.EscapeDataString(projectKey)}/{Uri.EscapeDataString(id)}/scan";
+            var (resp, body) = Send(WriteHttp, () => Req(HttpMethod.Get, url, cfg.ServiceToken));
+            if (!resp.IsSuccessStatusCode) { error = $"Bridge {(int)resp.StatusCode}: {body}"; return null; }
+            return JsonSerializer.Deserialize<ScanDto>(body);
+        }
+        catch (Exception ex) { error = ChangesetTrust.BridgeWords(ex, (int)WriteHttp.Timeout.TotalSeconds); return null; }
     }
 
     /// <summary>MA-3a: <paramref name="reviewRev"/> is the review_rev Apply re-checked (null: no revision was re-checked — the bridge records any decline it applied as applied_over_decline_unchecked, C2);

@@ -1163,3 +1163,11 @@ describe("measuring a placed changeset (MA-4e): a signed-in contributor; a verif
     expect(db.audit_log.length).toBe(rows);
   });
 });
+
+describe("showing a changeset's scan (MA-4f): a signed-in contributor; a view, no row", () => {
+  it("the machine credential may not: sign in — its scan is not shown", async () => {
+    const rows = db.audit_log.length;
+    expect(await call("GET", "/changesets/demo/x/scan", "machine")).toEqual({ status: 403, body: { message: "showing a changeset's scan needs a person — it reads the whole scan on this PC's one survey slot: sign in (in Revit: Standards ▸ Sign in) — its scan is not shown" } });
+    expect(db.audit_log.length).toBe(rows);
+  });
+});

@@ -181,6 +181,6 @@ export function proposeLine(r: ProposeReply): string {
   const levels = r.storeys.map((s) => `${s.cid} → ${s.level} (${s.how}${s.checked ? "" : ", its height not checked"})`).join("; ");
   const again = r.already_filed ? ` · ${r.already_filed} already filed (not proposed again)` : "";
   const placed = r.overlaps.length ? ` · the same scan was placed before by ${r.overlaps.map((o) => o.changeset).join(", ")}` : "";
-  return `✓ Proposed ${r.job} — ${r.changesets.length} changeset(s), ${ghosts} ghost(s), ${pre} pre-ticked on the Review desk (Revit leaves every create for a person to tick) · ` +
+  return `✓ Proposed ${r.job} — ${r.changesets.length} changeset(s), ${ghosts} ghost(s), ${pre} pre-ticked on the Review desk (Revit opens them ticked too, less what the office IDS rejects; a person clicks Apply) · ` +
     `${r.gaps.groups} type-gap group(s), ${r.gaps.elements} element(s) in the Holding Area · ${levels}${again}${placed} · ${ledgerLine(r.ledger)} — Review ▸ ↻`;
 }

@@ -63,4 +63,43 @@ static partial class Check
         Ok(win.Contains("IsChecked = ChangesetTrust.PreTick(_cs, el), // MA-1a item 8, MA-4f:") && !win.Contains("A create is never pre-ticked"),
            "the window still ticks by ChangesetTrust alone, and no comment there says a create is never pre-ticked");
     }
+
+    // ── MA-4f-2: the scan overlay — the bridge's answer, the crosses (pure) and the wiring ──
+    static void Ma4f2Checks()
+    {
+        Console.WriteLine("\nMA-4f — the scan overlay: the bridge's answer, the crosses (pure) and the wiring");
+        var fx = JsonSerializer.Deserialize<ScanDto>(File.ReadAllText(Repo("WebApp", "bridge", "fixtures", "changeset-ops", "scan-reply.json")));
+        Ok(fx.Job == "job-0002" && fx.LedgerId == 2201 && fx.CellMm == 100 && fx.ZMm.SequenceEqual(new double[] { 300, 2500 }) && fx.Of == 2
+           && fx.Points.Count == 2 && fx.Points[0].SequenceEqual(new double[] { 40125, 150, 1400 }),
+           "the bridge's scan reply (the fixture vitest holds scanOverlay to) reads: its job, row, cube, heights, count and points in the model's mm");
+        var segs = GhostOverlayGeometry.ScanCrosses(fx.Points, GhostOverlayGeometry.ScanBudget);
+        Ok(segs.Count == 6 && segs.All(s => s.R == 0 && s.G == 160 && s.Bl == 220)
+           && segs.Take(3).All(s => Enumerable.Range(0, 3).Sum(k => Math.Abs(s.B[k] - s.A[k])) == GhostOverlayGeometry.ScanCrossMm)
+           && segs[0].A.SequenceEqual(new double[] { 40095, 150, 1400 }) && segs[2].B.SequenceEqual(new double[] { 40125, 150, 1430 }),
+           "each point is a cyan cross of three 60 mm arms about it");
+        var many = Enumerable.Range(0, 6000).Select(i => new double[] { i, 0, 0 }).ToList();
+        Ok(GhostOverlayGeometry.ScanCrosses(many, GhostOverlayGeometry.ScanBudget).Count == 3 * 5000 && GhostOverlayGeometry.ScanBudget * 6 <= 32767
+           && GhostOverlayGeometry.ScanCrosses(new List<double[]> { null, new double[] { 1, 2 }, new double[] { 1, double.NaN, 3 } }, 10).Count == 0
+           && GhostOverlayGeometry.ScanCrosses(null, 10).Count == 0,
+           "at most 5 000 points are drawn (30 000 vertices: inside any 16-bit index); a point short of three finite numbers, and none, draw nothing");
+        Ok(GhostOverlayGeometry.ScanLine(fx, 2) == "Scan: 2 of 2 point(s) drawn as cyan crosses — job-0002 (ledger #2201), one point per 100 mm, 300–2500 mm high (the walls less 300 mm at the floor and ceiling), placed by the lead's frame; nothing is written. Untick to hide.",
+           "the window's line says how many, from which job, how thinned and how placed");
+        string cli = Src("Coordination", "ChangesetClient.cs"), rev = Src("Commands.ReviewChangesets.cs"), win = Src("UI", "ChangesetReviewWindow.cs"), srv = Src("GhostBuilder", "GhostOverlayServer.cs");
+        Ok(cli.Contains("/{Uri.EscapeDataString(id)}/scan\";") && cli.Contains("var (resp, body) = Send(WriteHttp, () => Req(HttpMethod.Get, url, cfg.ServiceToken));"),
+           "the scan is read with the person's token (a signed-out Revit sends the file's, which the bridge refuses in words), waiting as long as a write: the bridge runs sentinel-survey");
+        Ok(win.Contains("public event Action<bool> ScanRequested;") && win.Contains("Visibility = _cs.Claimed == false ? Visibility.Visible : Visibility.Collapsed"),
+           "\"Show the scan\" is offered on a survey changeset only, unticked");
+        int ask = rev.IndexOf("window.ScanRequested +=", StringComparison.Ordinal);
+        Ok(ask > 0 && rev.IndexOf("Task.Run(() =>", ask, StringComparison.Ordinal) < rev.IndexOf("var got = ChangesetClient.FetchScan(cfg, key, cs.Id, out var err);", StringComparison.Ordinal)
+           && rev.Contains("App.Events.Enqueue(doc, \"draw the scan overlay\"") && rev.Contains("if (window.Gone || ask != scanAsk || scanOn != null) return;")
+           && rev.Contains("window.Closed += (_, _) => { scanAsk++; ScanOff(\"the window closed\"); };") && !rev.Contains("ScanOff(\"Apply\")"),
+           "the scan is read off Revit's thread, drawn through the hub on the model in front (the newest tick wins), removed when unticked or the window closes — not at Apply");
+        Ok(rev.Contains("void ScanOff(string why) => App.Events.Enqueue(ua =>") && rev.Contains("var s = scanOn; scanOn = null;")
+           && rev.Contains("if (!on) { window.Shown(window.Applied ? \"\" : GhostOverlayGeometry.Line(creates, outlined)); return; }"),
+           "scanOn is read and written on Revit's thread only (the removal is a hub job: an untick during the draw removes what it drew); unticking puts the ghost line back");
+        Ok(rev.IndexOf("got.Points", StringComparison.Ordinal) == rev.LastIndexOf("got.Points", StringComparison.Ordinal) && rev.Contains("ScanCrosses(got.Points,"),
+           "the scan's points go into the crosses only — never into a line, the Doctor or a file (the lines carry counts)");
+        Ok(srv.Contains("_bounds = GhostOverlayGeometry.Bounds(_segments); Drop();") && srv.Contains("var b = _bounds;") && srv.Contains("{_name}: drawn in"),
+           "one server class draws both overlays: its name in the Doctor's lines, its bounds once a geometry (not each frame)");
+    }
 }

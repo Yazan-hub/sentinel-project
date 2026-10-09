@@ -5,6 +5,7 @@
 // tools/promote-check. A retype, an attach, a type edit or a level draws nothing — its element exists (Show selects it) or has no shape.
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using Sentinel.Coordination;
 
@@ -157,6 +158,37 @@ namespace Sentinel.GhostBuilder
             ? "No ghost to draw: this review proposes no create (a retype or attach changes an element that exists — Show selects it)."
             : drawn == 0 ? $"No ghost to draw: the {creates} proposed create(s) carry no points to draw from."
             : $"{drawn} of {creates} proposed create(s) outlined in this model's 3D views, plans and sections — a see-through face and its edges, ticked green, unticked grey, declined red; nothing is written. Open one to see them; they go when this window closes or Apply places them.";
+
+        // ── MA-4f: the scan overlay — each point a small 3-arm cross (DirectContext3D draws 1-pixel lines and has no point size) ──
+        /// <summary>At most this many points are drawn: 6 vertices each, 30 000 in one buffer — inside any 16-bit index width (Revit sizes its index
+        /// buffers in short ints); the bridge sends no more (survey-plan SCAN_MAX). ponytail: one buffer; chunked buffers if a denser overlay is wanted.</summary>
+        public const int ScanBudget = 5000;
+        public const double ScanCrossMm = 60;
+        /// <summary>Cyan: none of the ghosts' green, grey or red.</summary>
+        public static readonly (byte R, byte G, byte B) ScanColour = (0, 160, 220);
+
+        /// <summary>Three segments a point (±ScanCrossMm/2 along x, y and z), for the first <paramref name="budget"/> points with three finite
+        /// numbers; none for none.</summary>
+        public static List<Segment> ScanCrosses(IReadOnlyList<double[]> pts, int budget)
+        {
+            const double h = ScanCrossMm / 2;
+            var segs = new List<Segment>();
+            var c = ScanColour;
+            foreach (var p in (pts ?? Array.Empty<double[]>()).Where(q => q != null && q.Length >= 3 && q.Take(3).All(v => !double.IsNaN(v) && !double.IsInfinity(v))).Take(budget))
+            {
+                segs.Add(new Segment { A = new[] { p[0] - h, p[1], p[2] }, B = new[] { p[0] + h, p[1], p[2] }, R = c.R, G = c.G, Bl = c.B });
+                segs.Add(new Segment { A = new[] { p[0], p[1] - h, p[2] }, B = new[] { p[0], p[1] + h, p[2] }, R = c.R, G = c.G, Bl = c.B });
+                segs.Add(new Segment { A = new[] { p[0], p[1], p[2] - h }, B = new[] { p[0], p[1], p[2] + h }, R = c.R, G = c.G, Bl = c.B });
+            }
+            return segs;
+        }
+
+        /// <summary>The window's line once the scan is drawn: <paramref name="drawn"/> points of the scan's.</summary>
+        public static string ScanLine(ScanDto s, int drawn)
+        {
+            string F(double v) => v.ToString("0", CultureInfo.InvariantCulture);
+            return $"Scan: {drawn} of {s.Of} point(s) drawn as cyan crosses — {s.Job} (ledger #{s.LedgerId}), one point per {s.CellMm} mm, {F(s.ZMm[0])}–{F(s.ZMm[1])} mm high (the walls less 300 mm at the floor and ceiling), placed by the lead's frame; nothing is written. Untick to hide.";
+        }
 
         static double Z(double[] q, PlaceDto p) => q.Length >= 3 ? q[2] : p.BaseElevation ?? 0;
         static double[] At(double[] q, double z) => new[] { q[0], q[1], z };
