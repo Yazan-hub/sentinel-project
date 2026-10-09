@@ -317,14 +317,15 @@ const MEASURED_AS: Record<string, string> = {
   mixed: " as Revit placed it where Revit re-read it at Apply (the add-in's claim), else as filed — a wall moved since Apply and the lead's frame are not seen",
 };
 
-/** A changeset's newest measure in words: the head (as filed, who reported the placement, the counts or why it did not finish, its row, when,
- *  who) and a line per placed element (ghostLine, then measureWords); null when it was never measured; the read's own failure as the head. Pure. */
+/** A changeset's newest measure in words: the head (by Revit's re-read where it sent one, else as filed; who reported the placement, the counts
+ *  or why it did not finish, its row, when, who) and a line per placed element (ghostLine, then measureWords); null when it was never measured;
+ *  the read's own failure as the head. Pure. */
 export function verifiedView(cs: PendingChangeset, rec: VerifyRecord | null | Error): { head: string; lines: { line: string; words: string }[] } | null {
   if (rec instanceof Error) return { head: `Measure ${rec.message}`, lines: [] };
   if (!rec) return null;
   const when = /^\d{4}-\d\d-\d\dT\d\d:\d\d/.test(rec.at ?? "") ? `${rec.at.slice(0, 10)} ${rec.at.slice(11, 16)} UTC` : "an unknown time";
   const what = rec.status === "done" ? countWords(rec.counts ?? {}) : `did not finish — ${rec.error ?? "no reason on its row"}`;
-  const filed = MEASURED_AS[rec.reference ?? ""] ?? "";
+  const filed = rec.reference && Object.prototype.hasOwnProperty.call(MEASURED_AS, rec.reference) ? MEASURED_AS[rec.reference] : "";
   // Which walls count as placed is Revit's report, not the bridge's measure: who filed it, and the machine credential's said so.
   const pb = rec.placed_by, placed = `placed as Revit reported${pb?.reported_by ? ` (by ${pb.reported_by})` : ""}${pb?.reported_role === "service" ? " — the machine credential's report" : ""}`;
   const byGuid = new Map((cs.elements ?? []).map((e) => [e.proposal_guid, e]));

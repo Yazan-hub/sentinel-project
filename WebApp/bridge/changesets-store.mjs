@@ -358,7 +358,8 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
 
 /** MA-4e: POST /cde/:key/verify {changeset} → 200. A signed-in contributor measures a placed survey changeset against the scan its job read
  *  (design §6.6 verify:measured, §6.8 S1, §6.9 S2/S3): the bridge picks everything — the walls Revit placed (result.applied, less an Undo in
- *  Revit: each guid's newest changeset_reverted row), each AS FILED (the changeset's own geometry, which the executor places exactly), back
+ *  Revit: each guid's newest changeset_reverted row), each by Revit's re-read where it sent one, else AS FILED (the changeset's own geometry,
+ *  which the executor places exactly), back
  *  in the scan's frame (the inverse of the lead's frame); the job's own row (trustedJob, MA-4c decision 11) and its params and seed; the scans
  *  it read, still the admitted bytes. sentinel-survey measures (measureJob: one run on the bridge's one survey slot), the bridge judges each
  *  element (rule 3) and writes ONE verify:measured row per run that starts (done, failed or refused — the build:run precedent). Nothing else
@@ -384,7 +385,7 @@ export async function verifyChangeset(key, b, actor, deps = {}) {
   const bad = (m) => err(400, `${m} — nothing was saved`);
   if (!b || typeof b !== "object" || Array.isArray(b)) throw bad("the body is {changeset}");
   for (const k of Object.keys(b))
-    if (k !== "changeset") throw bad(`${k.slice(0, 64)} is not a measure field — the bridge measures what Revit placed, as filed, against its job's own scan; send {changeset}`);
+    if (k !== "changeset") throw bad(`${k.slice(0, 64)} is not a measure field — the bridge measures what Revit placed, by Revit's re-read where it sent one, else as filed, against its job's own scan; send {changeset}`);
   if (!cde.isUuid(b.changeset)) throw bad("changeset must be a changeset's id (a uuid)");
   d.takeWriteBudget("survey jobs", { perUser: 6, all: 12 }); // a measure is a survey run: one budget for the PC's CPU (its 429 says "nothing was saved")
   let x;

@@ -1152,7 +1152,7 @@ describe("measuring a placed changeset (MA-4e): a signed-in contributor; a verif
     const rows = db.audit_log.length;
     expect(await call("POST", V, "machine", { changeset: "x" })).toEqual({ status: 403, body: { message: "measuring a changeset against its scan needs a person — it reads the whole scan, and its row names who asked: sign in. Nothing was saved." } });
     expect((await call("POST", V, "viewer", { changeset: "x" })).status).toBe(403);
-    expect(await call("POST", V, "contributor", { changeset: "x", results: [] })).toEqual({ status: 400, body: { message: "results is not a measure field — the bridge measures what Revit placed, as filed, against its job's own scan; send {changeset} — nothing was saved" } });
+    expect(await call("POST", V, "contributor", { changeset: "x", results: [] })).toEqual({ status: 400, body: { message: "results is not a measure field — the bridge measures what Revit placed, by Revit's re-read where it sent one, else as filed, against its job's own scan; send {changeset} — nothing was saved" } });
     expect(db.audit_log.length).toBe(rows);
   });
   it("verify: rows are the bridge's: the machine credential cannot post a verify:measured through the open route, nor a lead a note that passes for one", async () => {

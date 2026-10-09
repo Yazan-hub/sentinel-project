@@ -1688,9 +1688,10 @@ async function handleRequest(req, res) {
         //   Sentinel sends nothing).
         if (p3 && p4 === "requests" && !seg[5] && req.method === "POST") return send(res, 201, await ev.draftRequest(p1, p3, await body()));
       }
-      // MA-4e: POST /cde/:key/verify {changeset} → 200 — a signed-in contributor measures a placed survey changeset, as filed, against its job's
-      //   own scan (changesets-store verifyChangeset); design §6.8's route with spec amendment S1 (no results[]: the bridge measures; Revit's
-      //   re-read rides on Revit's result since MA-4f). Not public: isPublicRoute matches only /receipt/<key>/verify.
+      // MA-4e: POST /cde/:key/verify {changeset} → 200 — a signed-in contributor measures a placed survey changeset (by Revit's re-read where it
+      //   sent one, else as filed) against its job's own scan (changesets-store verifyChangeset); design §6.8's route with spec amendment S1 (no
+      //   results[]: the bridge measures; Revit's re-read rides on Revit's result since MA-4f). Not public: isPublicRoute matches only
+      //   /receipt/<key>/verify.
       if (p2 === "verify" && !p3 && req.method === "POST") {
         const cs = await import("./changesets-store.mjs");
         return send(res, 200, await cs.verifyChangeset(p1, (await readBody(req, { max: SMALL_JSON })) || {}, "web"));
