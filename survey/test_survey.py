@@ -267,6 +267,26 @@ class Voxel(unittest.TestCase):
         np.testing.assert_array_equal(got, P[np.sort(first)])
 
 
+class Thin(unittest.TestCase):
+    """MA-4f: pipeline.thin — the scan overlay's points from the job's cloud."""
+
+    def test_the_band_only_one_point_per_cube_the_cube_doubled_under_the_cap_the_same_twice(self):
+        P = building()
+        Q, cell, of = pipeline.thin(P, (300, 2500), 100, 10 ** 6)
+        self.assertEqual(Q.dtype, np.int64)
+        self.assertTrue(((Q[:, 2] >= 300) & (Q[:, 2] <= 2500)).all())
+        self.assertEqual((cell, len(Q)), (100, of))
+        Q2, cell2, of2 = pipeline.thin(P, (300, 2500), 100, of // 3)
+        self.assertEqual(of2, of)
+        self.assertGreater(cell2, 100)
+        self.assertLessEqual(len(Q2), of // 3)
+        np.testing.assert_array_equal(Q2, pipeline.thin(P, (300, 2500), 100, of // 3)[0])
+
+    def test_nothing_in_the_band_is_no_point(self):
+        Q, cell, of = pipeline.thin(building(), (90000, 91000), 100, 5000)
+        self.assertEqual((Q.shape, cell, of), ((0, 3), 100, 0))
+
+
 class Deviation(unittest.TestCase):
     """MA-4e: pipeline.deviation on the drill building (2 mm of noise across each face) — numbers only, the bridge judges (survey-plan judge).
     Pinned from the in-memory run of the plan (Base)."""
@@ -541,6 +561,33 @@ class InProcess(unittest.TestCase):
             with self.assertRaises(ValueError) as e:
                 service.read_measure(bad)
             self.assertEqual(str(e.exception), words)
+
+    def test_a_cloud_reads_the_jobs_cloud_again_and_gives_whole_mm_points_in_the_band(self):
+        item = self.item(building())
+        service.JOB.clear()
+        service.JOB.update(id="scan-1", status="queued", stage="queued", pct=0, refused=[])
+        with contextlib.redirect_stderr(io.StringIO()):
+            service.run({"job_id": "scan-1", "items": [item], "params": {"voxel_mm": 20, "storey_min_mm": 2000}, "seed": 1,
+                         "cloud": {"cell_mm": 100, "z_mm": [300, 2500], "max_points": 5000}})
+        job = service.JOB
+        self.assertEqual(job["status"], "done", job)
+        pts, rc = job["result"]["points"], job["result"]["receipt"]
+        self.assertTrue(0 < len(pts) <= 5000 and all(len(p) == 3 and all(isinstance(v, int) for v in p) and 300 <= p[2] <= 2500 for p in pts))
+        self.assertEqual((rc["cloud"]["points"], rc["cloud"]["z_mm"], rc["seed"]), (len(pts), [300, 2500], 1))
+        self.assertGreaterEqual(rc["cloud"]["of"], len(pts))
+        self.assertNotIn("candidates", job["result"])
+        self.assertEqual(job["result"]["derived"], [])
+
+    def test_read_cloud_refuses_in_words(self):
+        good = {"job_id": "scan-1", "items": [{"id": "ev-0001", "kind": "scan", "path": "x", "sha256": "a" * 64}], "params": {"voxel_mm": 20, "storey_min_mm": 2000},
+                "seed": 1, "cloud": {"cell_mm": 100, "z_mm": [300, 2500], "max_points": 5000}}
+        self.assertEqual(service.read_cloud(good)["cloud"], good["cloud"])
+        for bad in ({**good, "cloud": None}, {**good, "cloud": {**good["cloud"], "cell_mm": 10}}, {**good, "cloud": {**good["cloud"], "z_mm": [2500, 300]}},
+                    {**good, "cloud": {**good["cloud"], "z_mm": [0, float("nan")]}}, {**good, "cloud": {**good["cloud"], "max_points": 7}},
+                    {**good, "cloud": {**good["cloud"], "max_points": True}}):
+            with self.assertRaises(ValueError) as e:
+                service.read_cloud(bad)
+            self.assertEqual(str(e.exception), "cloud must be {cell_mm: 20 to 1000, z_mm: [low, high] mm, max_points: 8 to 100000}")
 
 
 class NoNetwork(unittest.TestCase):

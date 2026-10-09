@@ -5,6 +5,7 @@
 # (its stdin closes, a hard kill too). numpy and the standard library only. Run: python -E -B service.py (never -I: numpy is in the
 # user site).
 # MA-4e: POST /measure — a job's own cloud read again and measured against a placed changeset's faces (numbers only; the bridge judges).
+# MA-4f: POST /cloud — a job's own cloud read again, cut to a band and thinned for Revit's overlay (numbers only; the bridge moves them into the model's frame).
 import hashlib
 import hmac
 import json
@@ -29,6 +30,7 @@ MAX_BODY = 1 << 20
 MAX_POINTS_IN = 300_000_000
 MAX_ELEMENTS = 200  # MA-4e: a changeset holds at most 200 elements (changesets-logic MAX_CHANGESET_ELEMENTS)
 MAX_FACES = 12      # per element: a wall sends two
+MAX_CLOUD = 100_000  # MA-4f: the most overlay points a body may ask (the bridge asks 5 000)
 JOB = {}  # this process's one job: {id, status, stage, pct, refused, error?, result?}
 LOCK = threading.Lock()
 
@@ -77,7 +79,7 @@ def now():
 
 def run(job):
     started, cpu0 = now(), time.process_time()
-    measuring = "elements" in job  # MA-4e: a measure re-reads a job's cloud — every item it read must be read again, or nothing is measured
+    measuring = "elements" in job or "cloud" in job  # MA-4e, MA-4f: a job's cloud read again — every item it read must be read again, or nothing is read
     try:
         JOB.update(status="running", stage="hashing", pct=5)
         ok = []
@@ -92,7 +94,14 @@ def run(job):
             return
         def progress(stage, pct):
             JOB.update(stage=stage, pct=pct)
-        if measuring:
+        if "cloud" in job:  # MA-4f: the overlay's points (the bridge cuts the band and moves them into the model's frame)
+            P, _, points_in = pipeline.load(ok, job["params"], job["seed"], progress)
+            c = job["cloud"]
+            Q, cell, of = pipeline.thin(P, c["z_mm"], c["cell_mm"], c["max_points"])
+            out = {"points": Q.tolist(), "derived": []}
+            stats = {"points_in": int(points_in), "points_used": int(len(P)),
+                     "cloud": {"cell_mm": int(cell), "z_mm": c["z_mm"], "of": int(of), "points": int(len(Q))}}
+        elif measuring:
             P, _, points_in = pipeline.load(ok, job["params"], job["seed"], progress)
             tol = job["params"]["tolerances_mm"]
             out = {"elements": pipeline.deviation(P, job["elements"], tol, progress), "derived": []}
@@ -176,6 +185,19 @@ def read_measure(b):
     return {**m, "elements": els}
 
 
+def read_cloud(b):
+    """MA-4f: POST /cloud's body — a job's (read_job: its own items, params and seed, so the cloud is the one its candidates came from) plus
+    cloud {cell_mm, z_mm: [low, high], max_points}; or ValueError in words."""
+    m = read_job(b)
+    c = b.get("cloud")
+    num = lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and abs(v) <= 1e9  # a NaN fails the bound
+    whole = lambda v, lo, hi: isinstance(v, int) and not isinstance(v, bool) and lo <= v <= hi
+    if not (isinstance(c, dict) and whole(c.get("cell_mm"), 20, 1000) and whole(c.get("max_points"), 8, MAX_CLOUD)  # 8: thin's doubling ends
+            and isinstance(c.get("z_mm"), list) and len(c["z_mm"]) == 2 and all(num(z) for z in c["z_mm"]) and c["z_mm"][0] < c["z_mm"][1]):
+        raise ValueError(f"cloud must be {{cell_mm: 20 to 1000, z_mm: [low, high] mm, max_points: 8 to {MAX_CLOUD}}}")
+    return {**m, "cloud": {"cell_mm": c["cell_mm"], "z_mm": c["z_mm"], "max_points": c["max_points"]}}
+
+
 class Server(ThreadingHTTPServer):
     """Port 0 never needs reuse: HTTPServer's SO_REUSEADDR is turned off, so this listener asks for no shared port.
     ponytail: SO_EXCLUSIVEADDRUSE is not set (it needs `socket`, which the no-client test keeps out): a process of the same Windows
@@ -223,13 +245,13 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self.allowed():
             return
-        if self.path not in ("/jobs", "/measure"):  # MA-4e: a measure is this process's one run too, polled at /jobs/:id
+        if self.path not in ("/jobs", "/measure", "/cloud"):  # MA-4e, MA-4f: a measure and a cloud are this process's one run too, polled at /jobs/:id
             return self.reply(404, {"message": "not found"})
         n = int(self.headers.get("Content-Length") or 0)
         if n > MAX_BODY:
             return self.reply(413, {"message": "a job is at most 1 MB of JSON"})
         try:
-            job = (read_measure if self.path == "/measure" else read_job)(json.loads(self.rfile.read(n) or b"null"))
+            job = {"/measure": read_measure, "/cloud": read_cloud}.get(self.path, read_job)(json.loads(self.rfile.read(n) or b"null"))
         except ValueError as e:  # a JSONDecodeError is a ValueError
             return self.reply(400, {"message": str(e)})
         with LOCK:
