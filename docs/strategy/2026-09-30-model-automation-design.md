@@ -1155,7 +1155,7 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
   - **Data:** the public Cloud2BIM Kladno scan (after its licence check and your OK to download), or one scan used with the owner's permission.
   - Install sentinel-survey on the office PC. Record the steps and the time.
   - Measure wall F1 at 5, 10 and 20 cm against a hand-built reference, and the level error in mm.
-    - MA-4h (Kladno), as the MA-4c and MA-4d plans assign it: F1 is detection against a hand-built reference — not MA-4e's per-element shares within 5, 10 and 20 cm; the computed level error likewise. Drill MA4e read the level error by hand (R-1): level error GR-FFL: <N> mm; Scan L01: 0 mm (created at the scan's height).
+    - MA-4h (Kladno), as the MA-4c and MA-4d plans assign it: F1 is detection against a hand-built reference — not MA-4e's per-element shares within 5, 10 and 20 cm; the computed level error likewise. Drill MA4e read the level error by hand (R-1): level error GR-FFL: 0 mm; Scan L01: 0 mm (created at the scan's height) — #2223, the walls' Location Line Wall Centerline and type Width = `measured.thickness_mm` (300 / 200 / 300).
   - Every wall has a catalogue type or is in a gap group. Zero types are created.
   - Each wall's ledger row lists its evidence sha and its job id.
     - Met in MA-4d (LANDED 2026-10-09: #2205, #2207, #2210 on ma4c-drill) by `changeset_proposed` (job, evidence shas, each element's reader id and evidence) and `changeset_applied` (the same per ghost placed).
