@@ -7,6 +7,7 @@ import contextlib
 import hashlib
 import io
 import json
+import math
 import os
 import socket
 import struct
@@ -76,6 +77,15 @@ def building(seed=7, spacing=100.0):
                   wall_y(S, W, X - E, zf, zc), wall_y(Y - N, W, X - E, zf, zc)]
     parts += [wall_x(0, 0, Y, 0, 6000), wall_x(X, 0, Y, 0, 6000), wall_y(0, 0, X, 0, 6000), wall_y(Y, 0, X, 0, 6000)]
     return np.concatenate(parts)
+
+
+def wall_faces(start, end, t, z0, z1):
+    """MA-4e: a wall's two long faces as survey-plan.mjs facesOf builds them — [p0, p1, p3], (p1 − p0) × (p3 − p0) out of the wall."""
+    (ax, ay), (bx, by) = start, end
+    L = math.hypot(bx - ax, by - ay)
+    nx, ny = -(by - ay) / L * t / 2, (bx - ax) / L * t / 2
+    return [[[ax + nx, ay + ny, z0], [ax + nx, ay + ny, z1], [bx + nx, by + ny, z0]],
+            [[ax - nx, ay - ny, z0], [bx - nx, by - ny, z0], [ax - nx, ay - ny, z1]]]
 
 
 class Las(unittest.TestCase):
@@ -255,6 +265,74 @@ class Voxel(unittest.TestCase):
         got, _ = pipeline.voxel(P, np.zeros(len(P), np.int64), 50.0)
         _, first = np.unique(np.floor(P / 50).astype(np.int64), axis=0, return_index=True)
         np.testing.assert_array_equal(got, P[np.sort(first)])
+
+
+class Deviation(unittest.TestCase):
+    """MA-4e: pipeline.deviation on the drill building (2 mm of noise across each face) — numbers only, the bridge judges (survey-plan judge).
+    Pinned from the in-memory run of the plan (Base)."""
+    TOLS = [50, 100, 200]
+
+    @classmethod
+    def setUpClass(cls):
+        cls.P = building()
+
+    def wall(self, dy=0, t=300, guid="wall-1"):  # the south wall as filed (trimmed to x 125..7850, y 150), moved dy in y
+        return {"guid": guid, "faces": wall_faces((125, 150 + dy), (7850, 150 + dy), t, 0, 2800)}
+
+    def test_a_wall_where_it_was_scanned_is_a_few_mm_off_both_faces_seen_numbers_only(self):
+        (m,) = pipeline.deviation(self.P, [self.wall()], self.TOLS)
+        self.assertEqual(set(m), {"guid", "points", "p95_mm", "mean_signed_mm", "share_within", "coverage"})  # no status: the bridge's
+        self.assertLess(m["p95_mm"], 5.0)  # |N(0, 2)|'s p95 is 3.9 mm
+        self.assertLess(abs(m["mean_signed_mm"]), 0.5)
+        self.assertEqual(m["share_within"], {"50": 1.0, "100": 1.0, "200": 1.0})
+        self.assertGreaterEqual(m["coverage"], 0.98)
+        self.assertGreater(m["points"], 3000)  # both faces, 200 mm in from every edge — the floor, the ceiling and the corners left out
+
+    def test_a_wall_moved_60_mm_is_60_off_plus_on_one_face_minus_on_the_other(self):
+        (m,) = pipeline.deviation(self.P, [self.wall(dy=60)], self.TOLS)
+        self.assertTrue(58 < m["p95_mm"] < 66, m)
+        self.assertLess(abs(m["mean_signed_mm"]), 2.0)
+        self.assertEqual(m["share_within"], {"50": 0.0, "100": 1.0, "200": 1.0})
+
+    def test_a_wall_modelled_100_mm_too_thick_reads_minus_50_the_scan_inside_it(self):
+        (m,) = pipeline.deviation(self.P, [self.wall(t=400)], self.TOLS)
+        self.assertTrue(-52 < m["mean_signed_mm"] < -48, m)
+        self.assertTrue(50 < m["p95_mm"] < 57, m)
+
+    def test_a_wall_where_nothing_was_scanned_has_no_point_and_its_cells_counted_empty(self):
+        (m,) = pipeline.deviation(self.P, [self.wall(dy=1000)], self.TOLS)  # faces at y 1 000 and 1 300: the nearest scan face is 700 mm off
+        self.assertEqual((m["points"], m["p95_mm"], m["mean_signed_mm"], m["share_within"], m["coverage"]), (0, None, None, None, 0.0))
+
+    def test_a_wall_seen_from_one_side_250_mm_off_is_judged_on_that_face_not_unseen(self):
+        # The south wall's outer face (y 0) not scanned — an exterior wall in an interior scan; the wall placed 250 mm off. Every point the
+        # face owns (within 400 mm) counts for coverage, so p95 decides (out of tolerance), never insufficient data. Base, review round 2.
+        P = self.P[np.abs(self.P[:, 1]) >= 10]
+        (m,) = pipeline.deviation(P, [self.wall(dy=-250)], self.TOLS)
+        self.assertAlmostEqual(m["coverage"], 0.5, delta=0.02)
+        self.assertTrue(250 < m["p95_mm"] < 257, m)
+        self.assertTrue(248 < m["mean_signed_mm"] < 252, m)
+        self.assertEqual(m["share_within"], {"50": 0.0, "100": 0.0, "200": 0.0})
+
+    def test_a_face_under_400_mm_has_no_interior(self):
+        (m,) = pipeline.deviation(self.P, [{"guid": "stub", "faces": wall_faces((125, 150), (450, 150), 300, 0, 2800)}], self.TOLS)
+        self.assertEqual((m["points"], m["coverage"]), (0, None))
+
+    def test_each_point_goes_to_the_nearest_face_of_every_element_sent(self):
+        east = {"guid": "wall-3", "faces": wall_faces((7850, 150), (7850, 5900), 300, 0, 2800)}
+        a, b = pipeline.deviation(self.P, [self.wall(), east], self.TOLS)
+        self.assertEqual([a["guid"], b["guid"]], ["wall-1", "wall-3"])
+        self.assertLess(max(a["p95_mm"], b["p95_mm"]), 5.0)
+
+    def test_load_gives_the_cloud_survey_measured_the_same_twice(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
+            path = os.path.join(d, "b.las")
+            write_las(path, building())
+            items = [{"id": "ev-0001", "path": path, "head": las.read_header(path)}]
+            P1, _, n = pipeline.load(items, {"voxel_mm": 20}, 1)
+            P2, _, _ = pipeline.load(items, {"voxel_mm": 20}, 1)
+            _, stats = pipeline.survey(items, {"voxel_mm": 20, "storey_min_mm": 2000}, 1)
+        np.testing.assert_array_equal(P1, P2)
+        self.assertEqual((n, len(P1)), (stats["points_in"], stats["points_used"]))
 
 
 class Service(unittest.TestCase):
