@@ -42,6 +42,14 @@ describe("runSurvey (MA-4c) — the supervisor, with a Node stand-in for sentine
     expect(process.listenerCount("exit")).toBe(before);
   });
 
+  it("MA-4e: a measure is posted to /measure and polled and read as a job — the same start, token, bounds and stop", async () => {
+    const calls = [];
+    const r = await runSurvey({ ...JOB, job_id: "measure-c1", elements: [{ guid: "g1", faces: [] }] },
+      { spawn: standin("ok", calls), python: "C:/py/python.exe", env: process.env, pollMs: 20, log: () => {}, path: "/measure" });
+    expect(r).toMatchObject({ status: "done", result: { elements: [{ guid: "g1", p95_mm: 2.9 }], receipt: { posted: "/measure" } } });
+    await gone(calls[0].child);
+  });
+
   it("every other ending is a failed or refused job in words, the child stopped — never a throw", async () => {
     const cases = [
       ["silent", { readyMs: 300 }, { status: "failed", error: "sentinel-survey did not start within 1 s" }],
