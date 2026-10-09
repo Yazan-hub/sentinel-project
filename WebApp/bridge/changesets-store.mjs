@@ -9,7 +9,7 @@ import { validateChangeset, attachVerdicts, canWithdraw, deriveResultStatus, una
 import { makeTyper, makeCiter } from "./changesets-typing.mjs";
 import { resolveArtefact, refLabel, validateArtefact } from "./artefact-store.mjs";
 import { resolveActor } from "./bridge-auth.mjs";
-import { readProposeBody, planSurvey, PLANNER, PLANNER_VERSION, measurePlan, judge, measureRefusal, countWords, STATUSES, MIN_COVERAGE, TOLERANCE_MM } from "./survey-plan.mjs";
+import { readProposeBody, planSurvey, PLANNER, PLANNER_VERSION, measurePlan, judge, measureRefusal, countWords, STATUSES, MIN_COVERAGE, TOLERANCE_MM, MEASURE_KNOBS } from "./survey-plan.mjs";
 import { stillAdmitted, pickItems, trustedJob as jobOf, measureJob as measureOf, TOLERANCES_MM, READER } from "./build-jobs.mjs";
 
 const STORE = "changeset";
@@ -402,6 +402,9 @@ export async function verifyChangeset(key, b, actor, deps = {}) {
   if (shape) { status = "failed"; error = `sentinel-survey's measure is not the contract's shape (${shape}) — nothing it measured was kept`; }
   if (status === "refused") error = `the scan was not read again — ${(r.refused ?? []).map((i) => `${i.id}: ${i.reason}`).join("; ")}`;
   const rc = (status === "done" && r.result.receipt) || {};
+  // Final review: the receipt rides onto the row field by field, typed — the service's numbers, never its keys or its strings at will.
+  const num = (v) => (Number.isFinite(v) ? v : null), when = (v) => (typeof v === "string" && v.length <= 40 ? v : null);
+  const knobs = status === "done" ? Object.fromEntries(MEASURE_KNOBS.map((x) => [x, rc.measure[x]])) : null; // measureRefusal checked all three
   const got = new Map(status === "done" ? r.result.elements.map((m) => [m.guid, m]) : []);
   const why = new Map(plan.skip.map((s) => [s.proposal_guid, s.reason]));
   // Rule 3: the service gave numbers; the verdict on each placed element is the bridge's.
@@ -411,7 +414,7 @@ export async function verifyChangeset(key, b, actor, deps = {}) {
     // Only the five numbers (measureRefusal let no other key through), shares at the bridge's own tolerances; the verdict last, the bridge's.
     const nums = { points: m.points, p95_mm: m.p95_mm, mean_signed_mm: m.mean_signed_mm, coverage: m.coverage,
       share_within: m.points ? Object.fromEntries(TOLERANCES_MM.map((t) => [String(t), m.share_within[t]])) : null };
-    return { ...p, ...nums, ...judge(m, rc.measure), basis: "deviation" };
+    return { ...p, ...nums, ...judge(m, knobs), basis: "deviation" };
   });
   const counts = Object.fromEntries(STATUSES.map((s) => [s, elements.filter((e) => e.status === s).length]));
   const s = cs.job.storey ?? {};
@@ -421,11 +424,11 @@ export async function verifyChangeset(key, b, actor, deps = {}) {
     placed_by: { reported_by: cs.result?.reported_by ?? null, reported_role: cs.result?.reported_role ?? null }, faces_sha256: faces,
     status, job: { id: cs.job.id, ledger_id: row.ledger.id, result_sha256: row.result_sha256, version: row.version ?? null },
     evidence, reader: READER, version: r.version ?? null, tools: r.tools ?? [], params: row.params, seed: row.seed,
-    tolerances_mm: TOLERANCES_MM, target_mm: TOLERANCE_MM, min_coverage: MIN_COVERAGE, measure: rc.measure ?? null,
+    tolerances_mm: TOLERANCES_MM, target_mm: TOLERANCE_MM, min_coverage: MIN_COVERAGE, measure: knobs,
     // As filed: the changeset's own geometry, which the executor places exactly — not re-read from Revit (MA-4f); the frame is the lead's statement.
     reference: "as filed", frame: cs.job.frame, storey: { level: s.level ?? null, how: s.how ?? null, checked: s.checked ?? null, delta_mm: s.delta_mm ?? null },
-    sign: "+ = the scan outside the element's face", started: rc.started ?? null, finished: rc.finished ?? null, cpu_s: rc.cpu_s ?? null,
-    points_in: rc.points_in ?? null, points_used: rc.points_used ?? null, counts, elements, model_calls: 0, tokens: 0, claimed: false, ...(error ? { error } : {}),
+    sign: "+ = the scan outside the element's face", started: when(rc.started), finished: when(rc.finished), cpu_s: num(rc.cpu_s),
+    points_in: num(rc.points_in), points_used: num(rc.points_used), counts, elements, model_calls: 0, tokens: 0, claimed: false, ...(error ? { error } : {}),
   };
   let written;
   try {

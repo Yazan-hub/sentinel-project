@@ -1208,4 +1208,20 @@ describe("verifyChangeset (MA-4e): a signed-in contributor measures a placed sur
     await expect(verify(vdeps({ audit: vi.fn(async () => { throw new Error("ledger down"); }) }))).rejects.toMatchObject({ status: 502,
       message: "Survey job-0002 · GR-FFL was measured, but the ledger did not take its row (ledger down) — nothing was saved; measure it again" });
   });
+  it("(final review) the receipt rides on the row typed, the knobs by name; shares only at the bridge's tolerances; a stray knob fails the run", async () => {
+    const odd = vi.fn(async (_k, _j, p) => ({ status: "done", version: "0.1.0", refused: [], tools: [],
+      result: { elements: p.elements.map((e) => ({ guid: e.guid, ...NUMS({ share_within: { 50: 1, 75: 0.5, 100: 1, 200: 1 } }) })), derived: [],
+        receipt: { started: 7, finished: "x".repeat(41), cpu_s: "fast", points_in: 47699, points_used: null, measure: KNOBS, note: "kept nowhere" } } }));
+    let deps = vdeps({ measureJob: odd });
+    await verify(deps);
+    let v = deps.audit.mock.calls[0][6];
+    expect([v.status, v.started, v.finished, v.cpu_s, v.points_in, v.points_used, v.measure]).toEqual(["done", null, null, null, 47699, null, KNOBS]);
+    expect(v.elements[0].share_within).toEqual({ 50: 1, 100: 1, 200: 1 }); // the 75 mm share the service sent is not the bridge's tolerance
+    expect(JSON.stringify(v)).not.toContain("kept nowhere");
+    deps = vdeps({ measureJob: vi.fn(async (_k, _j, p) => ({ status: "done", version: "0.1.0", refused: [], tools: [],
+      result: { elements: p.elements.map((e) => ({ guid: e.guid, ...NUMS() })), derived: [], receipt: { measure: { ...KNOBS, verdict: "fine" } } } })) });
+    await expect(verify(deps)).rejects.toThrow("(receipt.measure) — nothing it measured was kept — ledger #2300 records the run");
+    v = deps.audit.mock.calls[0][6];
+    expect([v.status, v.elements, v.measure, v.error]).toEqual(["failed", [], null, "sentinel-survey's measure is not the contract's shape (receipt.measure) — nothing it measured was kept"]);
+  });
 });

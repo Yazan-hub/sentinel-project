@@ -175,10 +175,6 @@ export async function readDecided(base: string, key: string): Promise<PendingCha
     .sort((a, b) => { const x = a.result!.reported_at ?? "", y = b.result!.reported_at ?? ""; return x < y ? 1 : x > y ? -1 : 0; });
 }
 
-/** The ledger rows of the reports (the stored changeset holds no row id): GET /cde/:key/audit by changeset id → per changeset, its
- *  changeset_applied row and (review C3) the newest changeset_reverted row — rows come newest first, so the first one seen. No id
- *  asked is no read. Any failure throws "not read — <why>" — the desk then says the row was not read, never a made-up id; so does a
- *  ledger holding more changeset_* rows for these reports than one read returns (1000): a cut read could miss a report's row. */
 /** GET …/audit → its rows and total; any failure throws "not read — <why>", never an empty list. */
 async function auditRows<T>(url: string): Promise<{ rows: T[]; total: number }> {
   let r: Response;
@@ -189,6 +185,10 @@ async function auditRows<T>(url: string): Promise<{ rows: T[]; total: number }> 
   return { rows: j.rows, total: j.total ?? 0 };
 }
 
+/** The ledger rows of the reports (the stored changeset holds no row id): GET /cde/:key/audit by changeset id → per changeset, its
+ *  changeset_applied row and (review C3) the newest changeset_reverted row — rows come newest first, so the first one seen. No id
+ *  asked is no read. Any failure throws "not read — <why>" — the desk then says the row was not read, never a made-up id; so does a
+ *  ledger holding more changeset_* rows for these reports than one read returns (1000): a cut read could miss a report's row. */
 export async function readLedger(base: string, key: string, ids: string[]): Promise<Map<string, LedgerRows>> {
   if (!ids.length) return new Map();
   const j = await auditRows<{ id: number; entity_id: string; action: string; new_value?: { op?: unknown } | null }>(`${base.replace(/\/$/, "")}/cde/${encodeURIComponent(key)}/audit?entity_type=changeset&action_prefix=changeset_&entity_id=${ids.map(encodeURIComponent).join(",")}&limit=1000`);

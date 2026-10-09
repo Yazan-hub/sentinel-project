@@ -334,6 +334,7 @@ export function judge(m, k) {
 
 /** The keys a measured element may carry (spec amendment S3: numbers only) — anything else, a status above all, is the bridge's. */
 const MEASURE_KEYS = new Set(["guid", "points", "p95_mm", "mean_signed_mm", "share_within", "coverage"]);
+export const MEASURE_KNOBS = ["band_mm", "edge_mm", "cell_mm"];
 const share = (v) => Number.isFinite(v) && v >= 0 && v <= 1;
 
 /** null when a measure's result has the contract's shape — one entry per element sent, in order, the five numbers only (or null), each in
@@ -341,7 +342,8 @@ const share = (v) => Number.isFinite(v) && v >= 0 && v <= 1;
  *  never merged: rule 3). Pure. */
 export function measureRefusal(res, send, tols) {
   const k = res?.receipt?.measure;
-  if (!Number.isFinite(k?.band_mm) || !Number.isFinite(k?.edge_mm)) return "receipt.measure";
+  // Final review: the knobs are the three the service has, all numbers — nothing else rides onto the bridge's row.
+  if (!k || typeof k !== "object" || Object.keys(k).some((x) => !MEASURE_KNOBS.includes(x)) || !MEASURE_KNOBS.every((x) => Number.isFinite(k[x]))) return "receipt.measure";
   if (!Array.isArray(res.elements) || res.elements.length !== send.length) return "not one result per element sent";
   for (const [i, m] of res.elements.entries()) {
     const at = `elements[${i}]`;
@@ -352,6 +354,10 @@ export function measureRefusal(res, send, tols) {
     if (![m.p95_mm, m.mean_signed_mm, m.coverage].every((v) => v === null || Number.isFinite(v)) || m.p95_mm < 0 || (m.coverage !== null && !share(m.coverage)))
       return `${at}'s numbers`;
     if (m.points > 0 && (!Number.isFinite(m.p95_mm) || !tols.every((t) => share(m.share_within?.[t])))) return `${at}.share_within`;
+    // Final review: the numbers agree with each other — no point means no p95, mean or shares (and nothing covered); points mean a
+    // coverage and a mean (the service sends exactly that; anything else is not its contract, and judge would read it wrong).
+    if (m.points === 0 && (m.p95_mm !== null || m.mean_signed_mm !== null || m.share_within != null || (m.coverage !== null && m.coverage !== 0))) return `${at}'s numbers`;
+    if (m.points > 0 && (!Number.isFinite(m.mean_signed_mm) || m.coverage === null)) return `${at}'s numbers`;
   }
   return null;
 }

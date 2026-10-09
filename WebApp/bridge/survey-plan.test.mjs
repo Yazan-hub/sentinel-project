@@ -216,5 +216,15 @@ describe("MA-4e — a placed wall as filed, back in the scan's frame; the bridge
     expect([measureRefusal(el({ status: "within_tolerance", p95_mm: 63 }), send, T), measureRefusal(el({ coverage: 5 }), send, T),
       measureRefusal(el({ p95_mm: -1 }), send, T), measureRefusal(el({ share_within: { 50: -1, 100: 1, 200: 1 } }), send, T)])
       .toEqual(["elements[0] carries status (the verdict is the bridge's)", "elements[0]'s numbers", "elements[0]'s numbers", "elements[0].share_within"]);
+    // Final review: the knobs are exactly three numbers; the numbers agree with each other.
+    const rc = (measure) => ({ ...ok, receipt: { measure } });
+    expect([measureRefusal(rc({ band_mm: 400, edge_mm: 200 }), send, T), measureRefusal(rc({ band_mm: 400, edge_mm: 200, cell_mm: 200, verdict: "ok" }), send, T),
+      measureRefusal(rc({ band_mm: 400, edge_mm: 200, cell_mm: "200" }), send, T)]).toEqual(["receipt.measure", "receipt.measure", "receipt.measure"]);
+    const none = { points: 0, p95_mm: null, mean_signed_mm: null, share_within: null, coverage: 0 };
+    expect(measureRefusal(el(none), send, T)).toBeNull();
+    expect(measureRefusal(el({ ...none, coverage: null }), send, T)).toBeNull();
+    expect([measureRefusal(el({ ...none, p95_mm: 3 }), send, T), measureRefusal(el({ ...none, coverage: 0.5 }), send, T),
+      measureRefusal(el({ ...none, share_within: { 50: 1, 100: 1, 200: 1 } }), send, T), measureRefusal(el({ coverage: null }), send, T),
+      measureRefusal(el({ mean_signed_mm: null }), send, T)]).toEqual(Array(5).fill("elements[0]'s numbers"));
   });
 });
