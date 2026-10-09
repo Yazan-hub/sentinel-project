@@ -605,7 +605,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     // candidates on demand. No poll: ↻ shows a running job's progress.
     const busy = (jobs ?? []).some((j) => j.status === "queued" || j.status === "running");
     const jobColor = (s: string) => (s === "done" ? "#cbd5e1" : s === "failed" ? "#fca5a5" : "#9ca3af");
-    const survey = line("Survey — sentinel-survey reads the admitted LAS scans on this PC: levels, walls, floors and ceilings, LOD 200 as found (never survey grade). A lead proposes a done job: the bridge types its candidates exactly (the office's catalogue) into one changeset per storey for review, and holds the rest as type gaps.", "#9ca3af") +
+    const survey = line("Survey — sentinel-survey reads the admitted LAS, LAZ and E57 scans on this PC: levels, walls, floors and ceilings, LOD 200 as found (never survey grade). A lead proposes a done job: the bridge types its candidates exactly (the office's catalogue) into one changeset per storey for review, and holds the rest as type gaps.", "#9ca3af") +
       (jobsError ? line(`Survey: ${esc(jobsError)}`, "#fbbf24")
         : (jobs ?? []).map((j) => line(esc(jobLine(j)), jobColor(j.status)) +
             (j.status === "done" && j.candidates_total ? `<div style="padding:.1rem .2rem"><button data-evjob="${esc(j.id)}" style="${act}">${jobOpen === j.id ? "Hide candidates" : "Candidates"}</button></div>` : "") +

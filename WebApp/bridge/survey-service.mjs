@@ -34,7 +34,7 @@ export function notSetUp({ python = pythonPath(), script = SCRIPT } = {}) {
   return null;
 }
 
-/** The child's whole environment: what Windows needs, APPDATA (numpy is in the user site, %APPDATA%\Python), the temp folders, the token. */
+/** The child's whole environment: what Windows needs, APPDATA (numpy is in the user site, %APPDATA%\Python; MA-4g's wheels in %APPDATA%\Sentinel\survey-lib, las.LIB), the temp folders, the token. */
 export const childEnv = (env, token) => Object.fromEntries(Object.entries({
   SYSTEMROOT: env.SYSTEMROOT ?? env.SystemRoot, APPDATA: env.APPDATA, TEMP: env.TEMP, TMP: env.TMP, SENTINEL_SURVEY_TOKEN: token,
 }).filter(([, v]) => v));

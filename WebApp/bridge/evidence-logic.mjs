@@ -34,7 +34,7 @@ export const MAX_ITEMS = 100;
 export const FORMATS = {
   e57: { kind: "scan", magic: "4153544d2d453537", surveyable: true },        // "ASTM-E57"
   las: { kind: "scan", magic: "4c415346", surveyable: true },                // "LASF"
-  laz: { kind: "scan", magic: "4c415346", surveyable: true },                // "LASF" (compressed points; read from MA-4g)
+  laz: { kind: "scan", magic: "4c415346", surveyable: true },                // "LASF" (compressed points, read with laspy and lazrs since MA-4g; the bytes pick the reader, so a plain LAS named .laz reads as LAS)
   // ponytail: RCP is checked by extension only (a ReCap project is a folder index with no fixed magic here); a real one waits for an
   // owner's scan — until then any bytes named .rcp are admitted with their report.
   rcp: { kind: "scan", magic: null, surveyable: false },

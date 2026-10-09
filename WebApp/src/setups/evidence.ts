@@ -117,7 +117,7 @@ export interface Candidate {
   fit?: { inliers: number; rmse_mm: number; coverage: number };
 }
 export interface JobRead { job: SurveyJob; candidates?: Candidate[]; result_error?: string; }
-/** The pack's scans a survey may read: admitted, surveyable, not changed. Which formats v0.1 reads is the bridge's to say, per item. Pure. */
+/** The pack's scans a survey may read: admitted, surveyable, not changed. Which it can read is sentinel-survey's to say, per item, by the bytes (MA-4g). Pure. */
 export const surveyableScans = (pack: EvidencePack) => pack.items.filter((i) => i.kind === "scan" && i.surveyable && i.state !== "changed");
 const FOUND: [string, string][] = [["level", "level(s)"], ["wall", "wall(s)"], ["floor", "floor(s)"], ["ceiling", "ceiling(s)"]];
 /** A job in one line: its state, what it read (a done job: only what its result was measured from; one running: what it is reading;

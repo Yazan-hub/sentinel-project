@@ -1093,7 +1093,7 @@ describe("survey jobs (MA-4c): who starts and reads; every refusal before anythi
     expect((await call("POST", "/cde/demo/evidence/evp-0001/items", "contributor", { path: `scans/${f}`, kind: "scan", registration: { method: "registered in source" } })).status).toBe(201);
   };
 
-  it("the machine credential and a viewer may not start one; a .laz alone is a 409 naming why; with a .las, a PC without Python is a 503 — no row, no job folder", async () => {
+  it("the machine credential and a viewer may not start one; MA-4g: a .laz alone reaches the PC's set-up check (a 503 here, no Python), as a .las does — no row, no job folder", async () => {
     await call("POST", "/cde/demo/evidence", "lead", {});
     for (const code of ["a", "c"]) await call("POST", "/cde/demo/evidence/evp-0001/attest", "lead", { code });
     mkdirSync(join(DIR(), "scans"), { recursive: true });
@@ -1101,7 +1101,7 @@ describe("survey jobs (MA-4c): who starts and reads; every refusal before anythi
     const rows = db.audit_log.length;
     expect(await call("POST", J, "machine", { pack: "evp-0001" })).toEqual({ status: 403, body: { message: "a survey job needs a person — its build:run row names who started it: sign in. Nothing was saved." } });
     expect(await call("POST", J, "viewer", { pack: "evp-0001" })).toEqual(refused("contributor", "viewer"));
-    expect(await call("POST", J, "contributor", { pack: "evp-0001" })).toEqual({ status: 409, body: { message: "no admitted LAS scan in evp-0001 that sentinel-survey 0.1 reads — ev-0001: a .laz is read from MA-4g — sentinel-survey 0.1 reads plain LAS; nothing was saved" } });
+    expect(await call("POST", J, "contributor", { pack: "evp-0001" })).toEqual({ status: 503, body: { message: "sentinel-survey is not set up on this PC: no Python where SENTINEL_PYTHON in config/.env points (C:\\Python314\\python.exe by default) — nothing was saved" } });
     expect(db.audit_log.length).toBe(rows);
     await admit("tiny.las");
     const rows2 = db.audit_log.length;
