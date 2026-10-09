@@ -456,6 +456,19 @@ class Service(unittest.TestCase):
         self.assertLess(self.call(port, "GET", "/jobs/measure-1/result")[1]["elements"][0]["p95_mm"], 5.0)
         self.assertEqual(os.listdir(self.cwd.name), [])
 
+    def test_a_cloud_over_http_refuses_a_bad_cloud_in_words_and_queues_a_good_one(self):
+        """MA-4f: POST /cloud as the bridge sends it — a cloud outside its bounds is a 400 before any read; a good one is this process's run."""
+        path = os.path.join(self.data.name, "two-storey.las")
+        write_las(path, building())
+        with open(path, "rb") as f:
+            sha = hashlib.sha256(f.read()).hexdigest()
+        _, port, _ = self.start()
+        body = {"job_id": "scan-1", "items": [{"id": "ev-0001", "kind": "scan", "path": path, "sha256": sha}],
+                "params": {"voxel_mm": 20, "storey_min_mm": 2000}, "seed": 1, "cloud": {"cell_mm": 100, "z_mm": [300, 2500], "max_points": 5000}}
+        code, bad = self.call(port, "POST", "/cloud", {**body, "cloud": {**body["cloud"], "z_mm": [2500, 300]}})
+        self.assertEqual((code, bad["message"].startswith("cloud must be {cell_mm: 20 to 1000")), (400, True))
+        self.assertEqual(self.call(port, "POST", "/cloud", body)[0], 202)
+
     def test_it_exits_when_the_bridge_goes(self):
         p, _, _ = self.start()
         p.stdin.close()  # what a bridge ended by any route (taskkill /f too) does to the pipe

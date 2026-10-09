@@ -1295,6 +1295,11 @@ describe("verifyChangeset (MA-4e): a signed-in contributor measures a placed sur
     expect(r).toEqual(readRepo("WebApp/bridge/fixtures/changeset-ops/scan-reply.json"));
     expect([deps.audit.mock.calls.length, deps.docInsert.mock.calls.length, deps.docReplaceIfField.mock.calls.length, deps.takeWriteBudget.mock.calls[0]])
       .toEqual([0, 0, 0, ["survey jobs", { perUser: 6, all: 12 }]]);
+    // MA-4f: a frame raised and turned — the band goes to the service in the scan's frame (toScan: less dz), the points come back through
+    // toModel (turned 90° anticlockwise, then moved), whole mm; the answer's band stays the model's.
+    const turned = sdeps({}, { ...CS, job: { ...CS.job, frame: { dx_mm: 40000, dy_mm: 0, dz_mm: 1000, rotation_deg: 90 } } });
+    const t = await scanOverlay("ma4c-drill", ID, turned);
+    expect([turned.measureJob.mock.calls[0][2].cloud.z_mm, t.z_mm, t.points]).toEqual([[-700, 1500], [300, 2500], [[39850, 125, 2400], [34100, 7850, 3500]]]);
   });
   it("(i) MA-4f: the overlay's refusals say what is not shown — the machine credential, a viewer, not a survey changeset, no wall, the job's chain, viewing not allowed (fails closed), the scan not read again, the slot busy, an answer not the contract's", async () => {
     const no = async (over, cs, status, message) => { const deps = sdeps(over, cs); await expect(scanOverlay("ma4c-drill", ID, deps)).rejects.toMatchObject({ status, message }); return deps; };

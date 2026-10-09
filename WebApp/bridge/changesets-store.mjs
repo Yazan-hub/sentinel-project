@@ -509,7 +509,7 @@ export async function verifyChangeset(key, b, actor, deps = {}) {
  *  are left), moved into the model's frame by the lead's frame (toModel; one job is one frame) — whole mm. A signed-in contributor, like every
  *  sentinel-survey run (the machine credential is a 403); any status (most useful while reviewing). A view: no row, no doc, no file; the points
  *  are held in memory and answered, never logged. The run takes the bridge's one survey slot and the survey jobs' budget. Its refusals say what
- *  is not shown (one from the shared chain, the budget or the slot ends "nothing was saved": re-worded).
+ *  is not shown (one from the shared chain, the budget or the slot says "nothing was saved": re-worded).
  *  ponytail: cold, no cache — each tick of "Show the scan" reads the scan again (seconds on the drill; Revit waits up to 120 s); a cache keyed on
  *  (the row, the evidence shas, the frame, the cut) and a 202 when Kladno's read is slow (MA-4h). */
 export async function scanOverlay(key, id, deps = {}) {
@@ -517,7 +517,7 @@ export async function scanOverlay(key, id, deps = {}) {
   const trustedJob = deps.trustedJob ?? jobOf, measureJob = deps.measureJob ?? measureOf;
   const readPack = deps.readPack ?? (await import("./evidence-store.mjs")).readPack;
   // "nothing was saved" at the end, or mid-sentence before a "; …" (the budget's 429): a view saves nothing, so it says what is not shown.
-  const shown = (e) => (e?.status ? err(e.status, `${String(e.message).replace(/(;| —) nothing was saved\.?(?=;|$)/i, "")} — its scan is not shown`) : e);
+  const shown = (e) => (e?.status ? err(e.status, `${String(e.message).replace(/(;| —) nothing was saved\.?(?=;|$)/, "")} — its scan is not shown`) : e);
   if ((await d.myRole(key)) === "service")
     throw err(403, "showing a changeset's scan needs a person — it reads the whole scan on this PC's one survey slot: sign in (in Revit: Standards ▸ Sign in) — its scan is not shown");
   try { await d.requireMinRole(key, "contributor"); }

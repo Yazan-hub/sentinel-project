@@ -432,7 +432,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
         window.ScanRequested += on =>
         {
             var ask = ++scanAsk;
-            ScanOff("unticked");
+            ScanOff(on ? "ticked again" : "unticked");
             // MA-3c's ghost line and the scan's share the window's line: unticking puts the ghost's back (none after Apply: its overlay is gone).
             if (!on) { window.Shown(window.Applied ? "" : GhostOverlayGeometry.Line(creates, outlined)); return; }
             window.Shown("Reading the scan on the bridge…");
@@ -449,7 +449,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                     scanOn = s;
                     try { GhostOverlayServer.Register(ua, s); window.Shown(GhostOverlayGeometry.ScanLine(got, segs.Count / 3)); }
                     catch (Exception ex) { ScanOff("the registration failed"); window.Shown($"The scan could not be drawn — {ex.GetType().Name}: {ex.Message}"); }
-                }, refusal => window.Shown($"The scan was not drawn — {refusal}"));
+                }, refusal => { if (ask == scanAsk) window.Shown($"The scan was not drawn — {refusal}"); }); // MA-4f: the newest tick wins here too
             });
         };
         window.Closed += (_, _) => { scanAsk++; ScanOff("the window closed"); };
