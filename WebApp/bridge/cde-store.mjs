@@ -1208,7 +1208,8 @@ export async function audit(project_id, entity_type, entity_id, action, actor, o
 // changeset_applied as the record of a survey's evidence and job, and the desk reads changeset_applied / _reverted by entity_id. No client
 // posts one here: the add-in posts build, naming, family_heal and the XC-5 report types; its Undo goes to POST /changesets/:key/:id/reverted.
 // The prefix comes after the two above, so `find` keeps their own words.
-const RESERVED_ACTIONS = ["verdict:", "gate:", "roi:", "state:", "hold:", "review:", "changeset_reviewed", "changeset_reopened", "changeset_", "geometry linked", "evidence:", "attestation:"];
+// MA-4e: verify:measured is the bridge's measure of a placed changeset (changesets-store verifyChangeset) — the desk reads the newest one by entity_id as fact; no client posts a verify: row.
+const RESERVED_ACTIONS = ["verdict:", "gate:", "roi:", "state:", "hold:", "review:", "changeset_reviewed", "changeset_reopened", "changeset_", "geometry linked", "evidence:", "attestation:", "verify:"];
 const RESERVED_TYPES = ["stage_gate", "hold", "delivery_gate", "review", "platform_gate", "evidence", "attestation"];
 
 /** Record an audit event by project KEY (golden thread) — the DB trigger hash-chains it (tamper-evident). A reserved

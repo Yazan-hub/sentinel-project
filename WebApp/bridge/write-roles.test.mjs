@@ -1145,3 +1145,21 @@ describe("survey proposals (MA-4d): a signed-in lead only; every refusal before 
     expect(db.audit_log.length).toBe(rows);
   });
 });
+
+describe("measuring a placed changeset (MA-4e): a signed-in contributor; a verify: row is the bridge's", () => {
+  const V = "/cde/demo/verify";
+  it("the machine credential and a viewer may not; a contributor meets the body's own refusal — no row", async () => {
+    const rows = db.audit_log.length;
+    expect(await call("POST", V, "machine", { changeset: "x" })).toEqual({ status: 403, body: { message: "measuring a changeset against its scan needs a person — it reads the whole scan, and its row names who asked: sign in. Nothing was saved." } });
+    expect((await call("POST", V, "viewer", { changeset: "x" })).status).toBe(403);
+    expect(await call("POST", V, "contributor", { changeset: "x", results: [] })).toEqual({ status: 400, body: { message: "results is not a measure field — the bridge measures what Revit placed, as filed, against its job's own scan; send {changeset} — nothing was saved" } });
+    expect(db.audit_log.length).toBe(rows);
+  });
+  it("verify: rows are the bridge's: the machine credential cannot post a verify:measured through the open route, nor a lead a note that passes for one", async () => {
+    const rows = db.audit_log.length;
+    expect(await call("POST", "/cde/demo/audit", "machine", { entity_type: "changeset", entity_id: "c1", action: "verify:measured job-0002 · sentinel-survey 0.1.0 · done", new_value: { claimed: false, elements: [] } }))
+      .toEqual({ status: 400, body: { message: "verify: rows are written by Sentinel, not through this route" } });
+    expect((await call("POST", "/cde/demo/audit", "lead", { action: " Verify:measured c1" })).body.message).toBe("verify: rows are written by Sentinel, not through this route");
+    expect(db.audit_log.length).toBe(rows);
+  });
+});
