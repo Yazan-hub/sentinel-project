@@ -451,7 +451,7 @@ Example: the Level 3 line above has 264 walls. That is two changesets (200 + 64)
 - Openings from wall-plane occupancy (MA-5).
 - BUILT in MA-4c: storeys, walls (faces in a mid-storey slice, paired by WallPairing's rule ported to Python — a wall candidate is the paired centreline and thickness, its faces in `geometry.faces`; MA-4c spec amendment S3 settles :449 against :459, Cloud2BIM's start, end and thickness), floors and ceilings (oriented rectangles), as untyped candidates in the contract's keys, the scan's own frame.
 - Deviation per element at 5, 10 and 20 cm [R2M §6.4] — MA-4e (`POST /measure`), not v0.1. BUILT in MA-4e for walls: p95, the signed mean, coverage and the shares within 50 / 100 / 200 mm of the job's own cloud (numpy).
-- **In Revit:** a decimated overlay drawn with DirectContext3D. An RCP is linked only when the user has ReCap [R2M §5.1, §8.6]. MA-4f BUILT: sentinel-survey `POST /cloud` re-reads the job's own cloud from its row, cut to a changeset's walls' height less 300 mm at the floor and ceiling, one point per 100 mm cube (doubled until at most 5 000); the bridge moves it into the model's frame (`GET /changesets/:key/:id/scan`, a signed-in contributor, no row); **Show the scan** in Review AI Proposals draws it as cyan crosses (DirectContext3D: 3D, plans, sections) until unticked or closed. Nothing enters the model.
+- **In Revit:** a decimated overlay drawn with DirectContext3D. An RCP is linked only when the user has ReCap [R2M §5.1, §8.6]. MA-4f LANDED 2026-10-09 (drill MA4f-2 on ma4c-drill: 4502 of 11 362 points as cyan crosses on job-0003's GR-FFL ghosts, in 3D and in the plan, staying over the walls after Apply #2238): sentinel-survey `POST /cloud` re-reads the job's own cloud from its row, cut to a changeset's walls' height less 300 mm at the floor and ceiling, one point per 100 mm cube (doubled until at most 5 000); the bridge moves it into the model's frame (`GET /changesets/:key/:id/scan`, a signed-in contributor, no row); **Show the scan** in Review AI Proposals draws it as cyan crosses (DirectContext3D: 3D, plans, sections) until unticked or closed. Nothing enters the model.
 - **On the web: one tiling path.** The bridge builds Potree tiles with `realityCapture` (behind an adapter) and uploads them to hidden files in batches. The viewer is `PointCloudLoader` [TO §7.1].
   - We do **not** use the `PointCloudConverter` automation, although [TO §7 #1] suggests it. A project can have at most 3 automations, and the Delivery Gate already uses 2 [TO §6]. The last slot stays free.
 
@@ -1151,7 +1151,7 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
     - MA-4e: deviation per placed wall (p95, the signed mean, coverage, the shares within 5, 10 and 20 cm) — `verify:measured`; floors, ceilings and levels wait for MA-4h.
   - Gaps go to the Holding Area as groups.
     - Met in MA-4d (LANDED 2026-10-09: #2208 on ma4c-drill): one bridge-written `type_gap` row per proposal, with the job id and evidence ids; each gap also rides on its storey's changeset as "sent to a person".
-  - A decimated scan overlay in Revit — BUILT in MA-4f (Show the scan).
+  - A decimated scan overlay in Revit — LANDED in MA-4f (Show the scan; drill MA4f-2).
   - The scan in the web desk (tiles built on the bridge, if MA-W did not already do it).
 - **Overlaps:** [R2M §7] P1–P2.
 - **Drill MA4:**

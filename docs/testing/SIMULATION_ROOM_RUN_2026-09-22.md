@@ -2649,3 +2649,23 @@ version compiled; no migration. Project `ma4c-drill`, job-0003.
 **Follow-up fixed on the 4f-2 branch (698250f):** the Propose line's "(Revit leaves every create for a person to tick)" was stale after
 MA-4f-1; it now says Revit opens them ticked too, less what the office IDS rejects.
 
+## Session MA4f-2 — the scan overlay in Revit, live (2026-10-09 local: merged 1e9b83c, web 1.0.68, the add-in deployed 2021–2027 at 22:12; Claude driving Revit 2024 on the scratch copy, signed in as the founder)
+
+Built on `feature/ma4f2-scan-overlay` in a worktree (so the live bridge ran only merged code during drill MA4f-1), from the plan's
+MA-4f-2 half: three reviewed groups and a whole-branch review (no critical or important finding; five minors fixed in eecbfbc). 2955 web
+and bridge tests, 44 survey tests, 888/888 add-in pins, every Revit version compiled; no migration, sentinel-survey still 0.1.0.
+
+| Row | Result | Evidence |
+|---|---|---|
+| V-0 | The machine credential, `GET /changesets/ma4c-drill/e9130eec…/scan` on 4100 → 403 `showing a changeset's scan needs a person — it reads the whole scan on this PC's one survey slot: sign in (in Revit: Standards ▸ Sign in) — its scan is not shown`; no python.exe started; no row — **pass** | the status line, tasklist |
+| V-1 | In memory on the drill's bytes (sha 244cba9d…, the worktree's sentinel-survey): band 300–2500 → 4502 points of 11 362 at the 100 mm cube, the cube doubled to 200 mm, z 300..2500, moved by dx 40 000: x 39 997..48 003, y −3..6003, 0.06 s; band 3300–5500 → 4506 of 11 379, z 3301..5500 — **pass** | the script's output |
+| D-1 | Merged 1e9b83c (4f-2 and drill MA4f-1's record); 4100 restarted on master; `build.ps1` 7 builds, 0 errors, each `Sentinel.dll` 22:12; web 1.0.68 published (the Propose line's pre-tick words); scanned and pushed — **pass** | the build log |
+| R-1 | Revit 2024 (Load Once by the founder: Windows' text-input host held the foreground), `ma4d.rvt` bound to `ma4c-drill`, signed in as the founder; Review AI Proposals → `Survey job-0003 · GR-FFL` → **Show the scan** → `Reading the scan on the bridge…` → `Scan: 4502 of 11362 point(s) drawn as cyan crosses — job-0003 (ledger #2229), one point per 200 mm, 300–2500 mm high (the walls less 300 mm at the floor and ceiling), placed by the lead's frame; nothing is written. Untick to hide.`; the crosses sit on the ghost walls' faces and trace wall-4 (the type gap, no ghost); the Doctor: `Scan overlay: asked for the ThreeD view "{3D}" — this model: True; 13506 line(s), 0 face(s)` and `… drawn in … 13506 line(s), 0 face(s)` — counts only — **pass** | the screenshots |
+| R-2 | The plan `WIP_FP_GR_FFL`: `Scan overlay: drawn in the FloorPlan view … 13506 line(s)`; the crosses trace both faces of all four walls — the view range does not cut them (DirectContext3D draws over it). The section box was **not observed**: after Apply no proposed survey changeset was left to reopen with the overlay — **pass (plan); section box owed** | the screenshots |
+| R-3 | Untick → the crosses go, the line is MA-3c's ghost line again; tick → one python.exe during the read, none after, the Scan line back; four quick untick/tick clicks end on the scan drawn (each read under a second: no 409 met); tick the three walls → **Apply 3 ticked in Revit** → `reported (ledger #2238)` — the ghosts go, **the crosses stay** on the placed CMU walls; close the window → the crosses go. A misclick on the Undo button (meant for its drop-down) undid the Apply → #2239 `changeset_reverted {op: undo}` — one Undo took all three walls (Apply's entry was the top one; nothing of the overlay is on the Undo list); Ctrl+Y → the redo row. Bonus for MA4f-1: GR-FFL's walls re-read on the bridge — ±150 / ±100 / ±150 mm from their filed lines, u 0..7875, 0..7875, 150..5650, z 0..2800, `reported_role` owner — **pass** | the screenshots, SQL, the read-back |
+| R-4 | Zoomed in and out and orbited with 13 506 lines drawn: no stall — **pass** | — |
+| R-5 | `ma4d.rvt` closed without saving; Revit closed — **pass** | — |
+
+**Closing list:** `ma4c-drill` holds job-0003 (#2229), its two changesets applied (L01 #2236, GR-FFL #2238, undone #2239 and redone),
+#2237 (`revit (claimed)`); the scratch copy is unsaved. Owed: the section-box observation (open question 4) on the next survey changeset.
+
