@@ -402,6 +402,27 @@ class Service(unittest.TestCase):
         self.assertEqual((result["receipt"]["seed"], result["receipt"]["units"]), (1, "metres assumed (no CRS read)"))
         self.assertEqual(os.listdir(self.cwd.name), [])  # it writes nothing — not even in its own folder
 
+    def test_a_measure_over_http_is_this_processs_one_run_polled_as_a_job(self):
+        path = os.path.join(self.data.name, "two-storey.las")
+        write_las(path, building())
+        with open(path, "rb") as f:
+            sha = hashlib.sha256(f.read()).hexdigest()
+        _, port, _ = self.start()
+        body = {"job_id": "measure-1", "items": [{"id": "ev-0001", "kind": "scan", "path": path, "sha256": sha}],
+                "params": {"voxel_mm": 20, "storey_min_mm": 2000, "tolerances_mm": [50, 100, 200]}, "seed": 1,
+                "elements": [{"guid": "wall-1", "faces": wall_faces((125, 150), (7850, 150), 300, 0, 2800)}]}
+        self.assertEqual(self.call(port, "POST", "/measure", {**body, "elements": []})[0], 400)
+        self.assertEqual(self.call(port, "POST", "/measure", body)[0], 202)
+        self.assertEqual(self.call(port, "POST", "/jobs", body)[0], 409)  # one run per process, a job or a measure
+        for _ in range(200):
+            status = self.call(port, "GET", "/jobs/measure-1")[1]
+            if status["status"] in ("done", "failed", "refused"):
+                break
+            time.sleep(0.1)
+        self.assertEqual(status["status"], "done", status)
+        self.assertLess(self.call(port, "GET", "/jobs/measure-1/result")[1]["elements"][0]["p95_mm"], 5.0)
+        self.assertEqual(os.listdir(self.cwd.name), [])
+
     def test_it_exits_when_the_bridge_goes(self):
         p, _, _ = self.start()
         p.stdin.close()  # what a bridge ended by any route (taskkill /f too) does to the pipe
@@ -462,6 +483,47 @@ class InProcess(unittest.TestCase):
         item = self.item(np.zeros((5, 3)))
         with mock.patch.object(service, "MAX_POINTS_IN", 4):
             self.assertEqual(service.check(item), (None, "5 points — sentinel-survey 0.1 reads at most 4 in one file; a larger scan waits for MA-4h"))
+
+    MEASURE = {"voxel_mm": 20, "storey_min_mm": 2000, "tolerances_mm": [50, 100, 200]}
+
+    def run_measure(self, items, elements):
+        service.JOB.clear()
+        service.JOB.update(id="measure-1", status="queued", stage="queued", pct=0, refused=[])
+        with contextlib.redirect_stderr(io.StringIO()):
+            service.run({"job_id": "measure-1", "items": items, "params": self.MEASURE, "seed": 1, "elements": elements})
+        return service.JOB
+
+    def test_a_measure_reads_the_jobs_cloud_again_and_gives_numbers_and_its_knobs(self):
+        item = self.item(building())
+        job = self.run_measure([item], [{"guid": "wall-1", "faces": wall_faces((125, 150), (7850, 150), 300, 0, 2800)}])
+        self.assertEqual(job["status"], "done", job)
+        (m,) = job["result"]["elements"]
+        self.assertLess(m["p95_mm"], 5.0)
+        self.assertNotIn("candidates", job["result"])
+        self.assertEqual(job["result"]["receipt"]["measure"], {"band_mm": 400, "edge_mm": 200.0, "cell_mm": 200.0})
+        self.assertEqual(job["result"]["receipt"]["seed"], 1)
+
+    def test_a_measure_with_one_item_not_read_measures_nothing(self):
+        item = self.item(building())
+        job = self.run_measure([item, {**item, "id": "ev-0002", "sha256": "0" * 64}], [{"guid": "w", "faces": wall_faces((125, 150), (7850, 150), 300, 0, 2800)}])
+        self.assertEqual((job["status"], [r["id"] for r in job["refused"]]), ("refused", ["ev-0002"]))
+        self.assertNotIn("result", job)
+
+    def test_read_measure_refuses_in_words(self):
+        good = {"job_id": "measure-1", "items": [{"id": "ev-0001", "kind": "scan", "path": "x", "sha256": "a" * 64}], "params": dict(self.MEASURE), "seed": 1,
+                "elements": [{"guid": "w", "faces": wall_faces((0, 0), (5000, 0), 200, 0, 2800)}]}
+        self.assertEqual(service.read_measure(good)["elements"][0]["guid"], "w")
+        for bad, words in (({**good, "params": {"voxel_mm": 20, "storey_min_mm": 2000}}, "params.tolerances_mm must be 1 to 5 whole numbers of mm from 1 to 1000, rising"),
+                           ({**good, "params": {**self.MEASURE, "tolerances_mm": [200, 50]}}, "params.tolerances_mm must be 1 to 5 whole numbers of mm from 1 to 1000, rising"),
+                           ({**good, "elements": []}, "elements must be 1 to 200 [{guid, faces}]"),
+                           ({**good, "elements": [good["elements"][0]] * 2}, "elements[1].guid must be a text of 1 to 128 characters, each once"),
+                           ({**good, "elements": [{"guid": "w", "faces": [[[0, 0, 0], [1000, 0, 0], [500, 0, 2800]]]}]},
+                            "elements[0].faces must be 1 to 12 rectangles [p0, p1, p3] of [x, y, z] mm — both sides at least 1 mm, square at p0"),
+                           ({**good, "elements": [{"guid": "w", "faces": [[[0, 0, 0], [1000, 0, 0], [0, 0, float("nan")]]]}]},
+                            "elements[0].faces must be 1 to 12 rectangles [p0, p1, p3] of [x, y, z] mm — both sides at least 1 mm, square at p0")):
+            with self.assertRaises(ValueError) as e:
+                service.read_measure(bad)
+            self.assertEqual(str(e.exception), words)
 
 
 class NoNetwork(unittest.TestCase):

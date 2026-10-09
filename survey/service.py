@@ -4,9 +4,11 @@
 # every input before the read (a changed one is refused) and after it (a change during the read fails the job), does no typing, never writes the ledger, never talks to Revit — and exits when the bridge does
 # (its stdin closes, a hard kill too). numpy and the standard library only. Run: python -E -B service.py (never -I: numpy is in the
 # user site).
+# MA-4e: POST /measure — a job's own cloud read again and measured against a placed changeset's faces (numbers only; the bridge judges).
 import hashlib
 import hmac
 import json
+import math
 import os
 import sys
 import threading
@@ -25,6 +27,8 @@ MAX_BODY = 1 << 20
 # The Kladno scan (MA-4h) has 250.5 million points (LAS 1.2, format 2, 6.5 GB); MA-4h measures its run time against that limit and
 # sets this cap.
 MAX_POINTS_IN = 300_000_000
+MAX_ELEMENTS = 200  # MA-4e: a changeset holds at most 200 elements (changesets-logic MAX_CHANGESET_ELEMENTS)
+MAX_FACES = 12      # per element: a wall sends two
 JOB = {}  # this process's one job: {id, status, stage, pct, refused, error?, result?}
 LOCK = threading.Lock()
 
@@ -73,6 +77,7 @@ def now():
 
 def run(job):
     started, cpu0 = now(), time.process_time()
+    measuring = "elements" in job  # MA-4e: a measure re-reads a job's cloud — every item it read must be read again, or nothing is measured
     try:
         JOB.update(status="running", stage="hashing", pct=5)
         ok = []
@@ -82,17 +87,27 @@ def run(job):
                 JOB["refused"].append({"id": item["id"], "reason": why})
             else:
                 ok.append({**item, "head": head})
-        if not ok:
+        if not ok or (measuring and JOB["refused"]):
             JOB.update(status="refused", stage="done", pct=100)
             return
-        candidates, stats = pipeline.survey(ok, job["params"], job["seed"], lambda stage, pct: JOB.update(stage=stage, pct=pct))
+        def progress(stage, pct):
+            JOB.update(stage=stage, pct=pct)
+        if measuring:
+            P, _, points_in = pipeline.load(ok, job["params"], job["seed"], progress)
+            tol = job["params"]["tolerances_mm"]
+            out = {"elements": pipeline.deviation(P, job["elements"], tol, progress), "derived": []}
+            stats = {"points_in": int(points_in), "points_used": int(len(P)),
+                     "measure": {"band_mm": 2 * max(tol), "edge_mm": pipeline.EDGE, "cell_mm": pipeline.DEV_CELL}}
+        else:
+            candidates, stats = pipeline.survey(ok, job["params"], job["seed"], progress)
+            out = {"candidates": candidates, "derived": []}
         JOB.update(stage="re-hashing", pct=95)  # a file changed during the read: what was measured is not what was admitted
         moved = [i["id"] for i in ok if sha256(i["path"]) != i["sha256"]]
         if moved:
             JOB.update(status="failed", error=f"{', '.join(moved)} changed while {'it was' if len(moved) == 1 else 'they were'} read"
                                               " — nothing it found was kept")
             return
-        JOB["result"] = {"candidates": candidates, "derived": [], "receipt": {
+        JOB["result"] = {**out, "receipt": {
             "tools": tools(), "params": job["params"], "seed": job["seed"], "started": started, "finished": now(),
             "cpu_s": round(time.process_time() - cpu0, 2), **stats, "units": "metres assumed (no CRS read)"}}
         JOB.update(status="done", stage="done", pct=100)
@@ -126,6 +141,38 @@ def read_job(b):
     if not isinstance(b.get("seed"), int):
         raise ValueError("seed must be a whole number")
     return {"job_id": b["job_id"], "items": items, "params": p, "seed": b["seed"]}
+
+
+def rectangle(f):
+    """MA-4e: a face [p0, p1, p3] — three points of three finite numbers (mm), both sides at least 1 mm, square at p0."""
+    if not (isinstance(f, list) and len(f) == 3 and all(isinstance(p, list) and len(p) == 3 and all(
+            isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x) for x in p) for p in f)):
+        return False
+    a, b = [f[1][k] - f[0][k] for k in range(3)], [f[2][k] - f[0][k] for k in range(3)]
+    la, lb = math.hypot(*a), math.hypot(*b)
+    return la >= 1 and lb >= 1 and abs(sum(x * y for x, y in zip(a, b))) <= 1e-3 * la * lb
+
+
+def read_measure(b):
+    """MA-4e: POST /measure's body — a job's (read_job: the job's own items, params and seed, so the cloud is the one its candidates came
+    from) plus params.tolerances_mm and the elements, each its faces in the scan's frame; or ValueError in words."""
+    m = read_job(b)
+    t = m["params"].get("tolerances_mm")
+    if not (isinstance(t, list) and 1 <= len(t) <= 5 and all(isinstance(x, int) and not isinstance(x, bool) and 1 <= x <= 1000 for x in t)
+            and t == sorted(set(t))):
+        raise ValueError("params.tolerances_mm must be 1 to 5 whole numbers of mm from 1 to 1000, rising")
+    els = b.get("elements")
+    if not isinstance(els, list) or not 1 <= len(els) <= MAX_ELEMENTS:
+        raise ValueError(f"elements must be 1 to {MAX_ELEMENTS} [{{guid, faces}}]")
+    seen = set()
+    for n, e in enumerate(els):
+        if not isinstance(e, dict) or not isinstance(e.get("guid"), str) or not 0 < len(e["guid"]) <= 128 or e["guid"] in seen:
+            raise ValueError(f"elements[{n}].guid must be a text of 1 to 128 characters, each once")
+        seen.add(e["guid"])
+        fs = e.get("faces")
+        if not isinstance(fs, list) or not 1 <= len(fs) <= MAX_FACES or not all(rectangle(f) for f in fs):
+            raise ValueError(f"elements[{n}].faces must be 1 to {MAX_FACES} rectangles [p0, p1, p3] of [x, y, z] mm — both sides at least 1 mm, square at p0")
+    return {**m, "elements": els}
 
 
 class Server(ThreadingHTTPServer):
@@ -175,13 +222,13 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self.allowed():
             return
-        if self.path != "/jobs":
+        if self.path not in ("/jobs", "/measure"):  # MA-4e: a measure is this process's one run too, polled at /jobs/:id
             return self.reply(404, {"message": "not found"})
         n = int(self.headers.get("Content-Length") or 0)
         if n > MAX_BODY:
             return self.reply(413, {"message": "a job is at most 1 MB of JSON"})
         try:
-            job = read_job(json.loads(self.rfile.read(n) or b"null"))
+            job = (read_measure if self.path == "/measure" else read_job)(json.loads(self.rfile.read(n) or b"null"))
         except ValueError as e:  # a JSONDecodeError is a ValueError
             return self.reply(400, {"message": str(e)})
         with LOCK:
