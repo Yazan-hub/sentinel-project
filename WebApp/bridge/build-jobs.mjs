@@ -30,7 +30,7 @@ const JOB_ID = /^job-\d{4,}$/; // job-10000 follows job-9999 (nextId pads to 4, 
 const byNewest = (a, b) => Number(b.slice(4)) - Number(a.slice(4));
 // ponytail: one survey at a time for the whole bridge (the office PC's CPU is the scarce thing); a queue when one PC serves two offices.
 // One bridge per jobs folder: a second bridge on this PC (a drill copy) reads the other's running job as stopped.
-let running = null; // {key, id, done}
+let running = null; // {key, id, done, what?} — MA-4e: a measure holds it too (id null, what "a measure")
 /** Settles when the running job's record is finished (tests). */
 export const current = () => running?.done ?? Promise.resolve();
 
@@ -123,6 +123,18 @@ export function resultRefusal(r, ids) {
   return null;
 }
 
+/** MA-4d decision 4, shared with MA-4e's measure: every item the job read is still the bytes it read — in the pack the ROW names (never
+ *  job.json's), not flagged changed, with the sha on its row. → [{id, sha256}], or a 409 in words. Pure. */
+export function stillAdmitted(row, pack, id) {
+  return row.read.map((rid) => {
+    const sent = row.items.find((i) => i.id === rid), now = pack.items.find((i) => i.id === rid);
+    const why = !sent ? "its row lists it as read but not as sent" : !now ? "it is no longer in the pack" : now.state === "changed" ? "Re-check flagged it changed"
+      : now.sha256 !== sent.sha256 ? "its sha256 in the pack is not the one the job read" : null;
+    if (why) throw err(409, `${rid} is not the bytes ${id} read (${why}) — survey the admitted scan again; nothing was saved`);
+    return { id: rid, sha256: sent.sha256 };
+  });
+}
+
 /** The build:run row's new_value (design §6.6): what ran, on which bytes, with which tools and licences, what it found — never the
  *  candidates themselves (they stay in result.json; its sha256 is here). claimed: false — the bridge ran it (the add-in's receipts are
  *  claimed: true, and the open route can write no other build: row). */
@@ -151,7 +163,7 @@ export async function startJob(key, b = {}, deps = {}) {
   if (!take.length) throw err(409, `no admitted LAS scan in ${body.pack} that sentinel-survey 0.1 reads${refused.length ? ` — ${refused.map((x) => `${x.id}: ${x.reason}`).join("; ")}` : " — admit a .las under Evidence first"}; nothing was saved`);
   const notSet = d.notSetUp();
   if (notSet) throw err(503, notSet);
-  if (running) throw err(409, "a survey job is already running on this bridge (one at a time) — try again when it ends; nothing was saved");
+  if (running) throw err(409, `${running.what ?? "a survey job"} is already running on this bridge (one at a time) — try again when it ends; nothing was saved`);
   const root = projectDir(d.root, key);
   mkdirSync(root, { recursive: true });
   const id = nextId("job", readdirSync(root).filter((n) => JOB_ID.test(n)).map((n) => ({ id: n })));
@@ -261,8 +273,9 @@ export async function readJob(key, id, deps = {}) {
  *  must be the job's own: entity_type build, an action that starts `build:run <the id in the path> · sentinel-survey ` and ends `· done`,
  *  new_value.status done and new_value.claimed === false (an open-route receipt is action exactly build:run, claimed true: never), and its
  *  result_sha256 the sha256 of result.json read now. A row is never found by new_value.job_id. The result is held to the contract's shape over
- *  what the row says was read (every evidence ref names a read item), its cids unique. → {job, row: {ledger, reader, version, pack_id, items, read, result_sha256}, result},
- *  or a 400/404/409 in words. The caller checks the role (proposeFromJob: a signed-in lead). */
+ *  what the row says was read (every evidence ref names a read item), its cids unique. → {job, row: {ledger, reader, version, pack_id, items, read, result_sha256,
+ *  params, seed}, result}, or a 400/404/409 in words. The caller checks the role (proposeFromJob: a signed-in lead). MA-4e: and the row's params
+ *  and seed (null when absent) — a measure reads the job's cloud again from the anchored row. */
 export async function trustedJob(key, id, deps = {}) {
   const d = await wire(deps);
   if (!JOB_ID.test(String(id))) throw err(400, "a survey job is named job-NNNN — nothing was saved");
@@ -290,5 +303,23 @@ export async function trustedJob(key, id, deps = {}) {
   if (new Set(cids).size !== cids.length) throw untrusted("its result names one cid twice");
   // The pack is the ROW's (buildRunValue writes pack_id), never job.json's: the hash-chained row is the anchor.
   return { job, row: { ledger: { id: row.id, hash: row.hash ?? null }, reader: v.reader ?? READER, version: v.version ?? null, pack_id: v.pack_id ?? null,
-    items, read, result_sha256: v.result_sha256 }, result };
+    items, read, result_sha256: v.result_sha256, params: v.params ?? null, seed: Number.isInteger(v.seed) ? v.seed : null }, result };
+}
+
+/** MA-4e: one measure (sentinel-survey's POST /measure, polled and read as a job) on the bridge's one survey slot — the `running` lock, so a
+ *  measure and a survey job never share the PC's CPU; the service started for it and stopped after (runSurvey). `jobId`: the job whose folder
+ *  is its cwd (the service writes nothing there). → runSurvey's record (it never rejects once started); before the start a 503 (not set up) or
+ *  a 409 (a job or a measure running), each ending "nothing was saved". The caller (changesets-store verifyChangeset) checks the person, the
+ *  changeset and the bytes, and writes the row.
+ *  ponytail: a cold process per measure (start-up 1-2 s beside two hashes and a read of the scan; MA-4c decision 3 kept); a warm service with
+ *  a cloud cache keyed on (the items' shas, voxel, seed), an idle timeout and a memory bound when verify runs per Apply in bulk (MA-4h). */
+export async function measureJob(key, jobId, payload, deps = {}) {
+  const d = await wire(deps);
+  const notSet = d.notSetUp();
+  if (notSet) throw err(503, notSet);
+  if (running) throw err(409, `${running.what ?? "a survey job"} is already running on this bridge (one at a time) — try again when it ends; nothing was saved`);
+  let release;
+  running = { key, id: null, what: "a measure", done: new Promise((r) => { release = r; }) }; // checked and taken with no await between
+  try { return await d.runSurvey(payload, { cwd: join(projectDir(d.root, key), jobId), path: "/measure" }); }
+  finally { running = null; release(); }
 }
