@@ -114,7 +114,8 @@ public sealed class ChangesetElementDto
     /// the stamp is written from (C1).</summary>
     [JsonPropertyName("provenance")] public ProvenanceDto Provenance { get; set; }
     /// <summary>MA-1a item 8: the bridge's pre-tick decision; null from a bridge before item 8, and on an element the
-    /// add-in files (nulls are left out of a request body). Never trusted for a create (ChangesetTrust.PreTick).</summary>
+    /// add-in files (nulls are left out of a request body). Trusted for a create only on a survey changeset (Claimed false)
+    /// within tolerance and not rejected by the IDS (MA-4f: ChangesetTrust.PreTick).</summary>
     [JsonPropertyName("pretick")] public bool? Pretick { get; set; }
     /// <summary>MA-1a item 8: the bridge's accuracy status — "not_measured" until a survey job backs a measurement (MA-4).</summary>
     [JsonPropertyName("accuracy")] public AccuracyDto Accuracy { get; set; }
@@ -207,16 +208,22 @@ public sealed class AccuracyDto
 /// <summary>MA-1a item 8: how the review reads the bridge's trust fields. Pure (tools/promote-check).</summary>
 public static class ChangesetTrust
 {
-    /// <summary>What is ticked when the review opens (and by "Tick suggested"). A create is never pre-ticked: an agent
-    /// ghost and a drawing-only ghost never are, and nothing is measured before MA-4 — held here too, whatever a bridge
-    /// answers. A retype or attach takes the bridge's decision; from a bridge before item 8 (no pretick) the window's own
-    /// rule holds: a Promote attach, and a Promote retype with the type the plan saw (DR-1). A person still clicks Apply.</summary>
+    /// <summary>What is ticked when the review opens (and by "Tick suggested"). MA-4f: a create is pre-ticked only when a bridge-run survey job
+    /// measured it — the changeset is no claim (Claimed false) — the bridge pre-ticked it within tolerance (its pretick also needs the storey's
+    /// level checked and every size measured: survey-plan's trust), and the office IDS did not reject it — so Revit ticks what the web desk calls
+    /// pre-ticked, less what its IDS badge marks rejected. An agent's, Promote's or a drawing's create — any claimed source, or a bridge before
+    /// item 8 — still opens unticked, whatever a bridge answers. A retype or attach takes the bridge's decision; from a bridge before item 8 (no
+    /// pretick) the window's own rule holds: a Promote attach, and a Promote retype with the type the plan saw (DR-1). A person still clicks Apply.</summary>
     public static bool PreTick(ChangesetDto cs, ChangesetElementDto el)
     {
         // MA-3a (design §6.6, D17): a web decline binds — never ticked, whatever else holds. A web accept changes nothing here (advice).
         if (DeclinedOnWeb(el)) return false;
+        // MA-4f: a measured survey create, as the bridge pre-ticked it — never one the office IDS rejected (a suggestion Apply's IDS stage would
+        // ask to override straight after; GhostChangesetBuild's idiom).
+        if (el.Op is null or "create")
+            return cs.Claimed == false && el.Pretick == true && el.Accuracy?.Status == "within_tolerance" && el.Verdict?.Status != "rejected";
         // MA-2c: a set_parameter is a TYPE edit — it reaches every element on the type — so it is never pre-ticked (founder decision F1).
-        if (el.Op is null or "create" or "set_parameter") return false;
+        if (el.Op == "set_parameter") return false;
         return el.Pretick ?? (cs.Source == "promote" && (el.Op == "attach" || (el.Op == "retype" && el.Target?.TypeBefore != null)));
     }
 
@@ -475,7 +482,8 @@ public sealed class ChangesetDto
     [JsonPropertyName("name")] public string Name { get; set; }
     [JsonPropertyName("source")] public string Source { get; set; }
     /// <summary>MA-1a item 8: the bridge marks the source a claim (true on every changeset until a bridge-run job backs
-    /// one, MA-4); null from a bridge before item 8.</summary>
+    /// one, MA-4); null from a bridge before item 8. MA-4f: false (a bridge-run survey job) is what lets Revit pre-tick a
+    /// measured create (ChangesetTrust.PreTick) and re-read the walls it places.</summary>
     [JsonPropertyName("claimed")] public bool? Claimed { get; set; }
     [JsonPropertyName("status")] public string Status { get; set; }
     [JsonPropertyName("created_at")] public string CreatedAt { get; set; }
@@ -498,6 +506,11 @@ public sealed class AppliedEntry
     [JsonPropertyName("proposal_guid")] public string ProposalGuid { get; set; }
     [JsonPropertyName("revit_element_id")] public long RevitElementId { get; set; }
     [JsonPropertyName("revit_unique_id")] public string RevitUniqueId { get; set; }
+    /// <summary>MA-4f: Revit's re-read of a wall a survey changeset created (Claimed false) — its main solid's triangles, 9 numbers each (x, y, z
+    /// of three corners, mm, Revit's internal frame), read after the commit (ChangesetExecutor). The add-in's claim: the bridge keeps its sha and
+    /// two side faces and verify measures by them ("revit (claimed)"). Null — and then left out of every body and record, which stay
+    /// byte-identical — for every other entry, and when the read threw or passed PlacementGeometry.MaxMeshTriangles.</summary>
+    [JsonPropertyName("mesh")] [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public double[] Mesh { get; set; }
 }
 
 internal static class ChangesetClient

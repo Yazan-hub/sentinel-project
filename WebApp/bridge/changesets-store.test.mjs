@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { proposeChangeset, getChangeset, reportResult, withdrawChangeset, listChangesets, reportReverted, needsTyping, needsCiting,
   reviewChangeset, reopenGhost, previewChangesets, proposeFromJob, verifyChangeset } from "./changesets-store.mjs";
+import { meshFaces } from "./survey-plan.mjs";
+import { boxMesh } from "./fixtures/box-mesh.mjs";
 
 const wall = () => ({
   kind: "wall",
@@ -1122,8 +1124,8 @@ describe("verifyChangeset (MA-4e): a signed-in contributor measures a placed sur
       evidence: [{ id: "ev-0001", sha256: EV }], reader: "sentinel-survey", version: "0.1.0", params: ROW.params, seed: 1, tolerances_mm: [50, 100, 200], target_mm: 20, min_coverage: 0.25,
       measure: KNOBS, reference: "as filed", frame: CS.job.frame, storey: { level: "GR-FFL", how: "named", checked: false, delta_mm: null }, sign: "+ = the scan outside the element's face",
       points_in: 47699, points_used: 47672, counts: { within_tolerance: 3, out_of_tolerance: 0, missing: 0, insufficient_data: 0, not_measured: 0 }, model_calls: 0, tokens: 0, claimed: false });
-    expect(v.elements[0]).toEqual({ proposal_guid: "g1", revit_unique_id: "u1", cid: "scan-L00-wall-1", kind: "wall", status: "within_tolerance", basis: "deviation", ...NUMS() });
-    expect(r).toEqual({ changeset: { id: ID, name: "Survey job-0002 · GR-FFL" }, status: "done", counts: v.counts, elements: v.elements, ledger: { id: 2300, hash: "ab".repeat(32) } });
+    expect(v.elements[0]).toEqual({ proposal_guid: "g1", revit_unique_id: "u1", cid: "scan-L00-wall-1", kind: "wall", reference: "as filed", status: "within_tolerance", basis: "deviation", ...NUMS() });
+    expect(r).toEqual({ changeset: { id: ID, name: "Survey job-0002 · GR-FFL" }, status: "done", reference: "as filed", counts: v.counts, elements: v.elements, ledger: { id: 2300, hash: "ab".repeat(32) } });
     expect([deps.docInsert.mock.calls.length, deps.docReplaceIfField.mock.calls.length]).toEqual([0, 0]);
   });
   it("(b) the bridge's verdicts: out of tolerance, missing, and an element undone in Revit not measured — counted on the row", async () => {
@@ -1144,7 +1146,7 @@ describe("verifyChangeset (MA-4e): a signed-in contributor measures a placed sur
     await quiet({ myRole: vi.fn(async () => "service") }, "measuring a changeset against its scan needs a person — it reads the whole scan, and its row names who asked: sign in. Nothing was saved.", 403);
     await quiet({ requireMinRole: vi.fn(async () => { throw Object.assign(new Error("this action requires the contributor role (you are viewer)"), { status: 403 }); }) },
       "this action requires the contributor role (you are viewer) — measuring a placed changeset against its scan is a contributor's; nothing was saved", 403);
-    await quiet({}, "results is not a measure field — the bridge measures what Revit placed, as filed, against its job's own scan; send {changeset} — nothing was saved", 400, { changeset: ID, results: [] });
+    await quiet({}, "results is not a measure field — the bridge measures what Revit placed, by Revit's re-read where it sent one, else as filed, against its job's own scan; send {changeset} — nothing was saved", 400, { changeset: ID, results: [] });
     await quiet({}, "changeset must be a changeset's id (a uuid) — nothing was saved", 400, { changeset: "x" });
     await quiet({}, "no changeset 00000000-0000-4000-8000-000000000000 on ma4c-drill — nothing was saved", 404, { changeset: "00000000-0000-4000-8000-000000000000" });
     await quiet({}, "Survey job-0002 · GR-FFL was not built from a survey job — there is no scan to measure it against — nothing was saved", 409, undefined, { ...CS, job: null, claimed: true });
@@ -1223,5 +1225,60 @@ describe("verifyChangeset (MA-4e): a signed-in contributor measures a placed sur
     await expect(verify(deps)).rejects.toThrow("(receipt.measure) — nothing it measured was kept — ledger #2300 records the run");
     v = deps.audit.mock.calls[0][6];
     expect([v.status, v.elements, v.measure, v.error]).toEqual(["failed", [], null, "sentinel-survey's measure is not the contract's shape (receipt.measure) — nothing it measured was kept"]);
+  });
+  // MA-4f: the drill's three walls as Revit's re-read sends them — a box around each filed line (the model's frame).
+  const LINES = [[[40125, 150], [47850, 150]], [[40125, 5900], [47850, 5900]], [[47850, 150], [47850, 5900]]];
+  const sha = (m) => createHash("sha256").update(JSON.stringify(m)).digest("hex");
+  const kept = (i, t) => { const m = boxMesh(...LINES[i], t, 0, 2800); return { mesh_sha256: sha(m), ...meshFaces(CS.elements[i], m) }; };
+  const withReread = (ts) => ({ ...CS, result: { ...CS.result, applied: CS.result.applied.map((a, i) => (ts[i] ? { ...a, reread: kept(i, ts[i]) } : a)) } });
+  const COUNTS3 = "3 within tolerance, 0 out of tolerance, 0 missing, 0 insufficient data, 0 not measured";
+
+  it("(f) MA-4f: Revit's result keeps each placed survey wall's re-read — its sha and two side faces, never the mesh; a mesh it cannot read is said and the result lands; a posted reread is dropped; the machine credential's mesh and a claimed changeset's are not used", async () => {
+    const person = { myRole: vi.fn(async () => "contributor"), requireMinRole: vi.fn(async () => "contributor") }; // Revit signed in (H4)
+    const deps = baseDeps(person);
+    deps.saved.set(ID, { ...CS, status: "proposed", result: undefined });
+    const W1 = boxMesh(...LINES[0], 300, 0, 2800);
+    const out = await reportResult("ma4c-drill", ID, { applied: [
+      { proposal_guid: "g1", revit_element_id: 901, revit_unique_id: "u1", mesh: W1 },
+      { proposal_guid: "g2", revit_element_id: 902, revit_unique_id: "u2", mesh: [1, 2, 3] },
+      { proposal_guid: "g3", revit_element_id: 903, revit_unique_id: "u3", reread: { mesh_sha256: "f".repeat(64), faces: [] } }], rejected: [] }, "r", deps);
+    expect(out.status).toBe("applied");
+    expect(out.result.applied).toEqual([
+      { proposal_guid: "g1", revit_element_id: 901, revit_unique_id: "u1", reread: { mesh_sha256: sha(W1),
+        faces: [[[40125, 300, 0], [40125, 300, 2800], [47850, 300, 0]], [[40125, 0, 0], [47850, 0, 0], [40125, 0, 2800]]] } },
+      { proposal_guid: "g2", revit_element_id: 902, revit_unique_id: "u2", reread: { mesh_sha256: sha([1, 2, 3]), why: "not a list of triangles (9 numbers each)" } },
+      { proposal_guid: "g3", revit_element_id: 903, revit_unique_id: "u3" }]); // the bridge rebuilds each entry: a posted reread is never kept
+    expect(deps.audit.mock.calls.find((c) => c[3] === "changeset_applied")[6].applied).toEqual(out.result.applied);
+    const machine = baseDeps({ myRole: vi.fn(async () => "service"), requireMinRole: vi.fn(async () => "service") });
+    machine.saved.set(ID, { ...CS, status: "proposed", result: undefined });
+    const o1 = await reportResult("ma4c-drill", ID, { applied: [{ proposal_guid: "g1", revit_element_id: 901, revit_unique_id: "u1", mesh: W1 }], rejected: ["g2", "g3"] }, "r", machine);
+    expect(o1.result.applied).toEqual([{ proposal_guid: "g1", revit_element_id: 901, revit_unique_id: "u1",
+      reread: { mesh_sha256: sha(W1), why: "reported with the machine credential — sign in in Revit to have it measured" } }]);
+    const own = baseDeps(person);
+    own.saved.set(ID, { ...CS, job: undefined, claimed: true, status: "proposed", result: undefined });
+    const o2 = await reportResult("ma4c-drill", ID, { applied: [{ proposal_guid: "g1", revit_element_id: 901, revit_unique_id: "u1", mesh: W1 }], rejected: ["g2", "g3"] }, "r", own);
+    expect(o2.result.applied).toEqual([{ proposal_guid: "g1", revit_element_id: 901, revit_unique_id: "u1" }]);
+  });
+  it("(g) MA-4f: walls Revit re-read are measured by the re-read — the row (claimed), its action line, the reply and each element say revit (claimed) and name the mesh's sha; a mix says mixed; the same faces under an as-filed row are measured again (the reference changed)", async () => {
+    const filed = vdeps();
+    await verify(filed);
+    const FILED_SENT = filed.measureJob.mock.calls[0][2].elements;
+    const RR = withReread([350, 200, 300]); // the first wall's type is 50 mm wider in Revit than its measured thickness
+    const deps = vdeps({}, RR);
+    const r = await verify(deps);
+    const v = deps.audit.mock.calls[0][6];
+    expect(deps.measureJob.mock.calls[0][2].elements).toEqual([{ guid: "g1", faces: [[[125, 325, 0], [125, 325, 2800], [7850, 325, 0]], [[125, -25, 0], [7850, -25, 0], [125, -25, 2800]]] }, ...FILED_SENT.slice(1)]);
+    expect([v.reference, v.claimed, r.reference, v.elements.map((e) => [e.reference, e.mesh_sha256])])
+      .toEqual(["revit (claimed)", true, "revit (claimed)", RR.result.applied.map((a) => ["revit (claimed)", a.reread.mesh_sha256])]);
+    expect(deps.audit.mock.calls[0][3]).toBe(`verify:measured job-0002 · sentinel-survey 0.1.0 · done · revit (claimed) · ${COUNTS3}`);
+    const mix = vdeps({}, withReread([300, 200, null]));
+    await verify(mix);
+    expect([mix.audit.mock.calls[0][6].reference, mix.audit.mock.calls[0][6].claimed, mix.audit.mock.calls[0][6].elements.map((e) => e.reference), mix.audit.mock.calls[0][3]])
+      .toEqual(["mixed", true, ["revit (claimed)", "revit (claimed)", "as filed"], `verify:measured job-0002 · sentinel-survey 0.1.0 · done · mixed: revit (claimed) and as filed · ${COUNTS3}`]);
+    const done = await firstRow(); // a done row measured as filed
+    const same = vdeps({ listAudit: audits(ROWS, [done]) }, withReread([300, 200, 300]));
+    await verify(same);
+    expect([same.measureJob.mock.calls[0][2].elements, same.audit.mock.calls[0][6].faces_sha256, same.audit.mock.calls[0][6].reference])
+      .toEqual([FILED_SENT, done.new_value.faces_sha256, "revit (claimed)"]);
   });
 });

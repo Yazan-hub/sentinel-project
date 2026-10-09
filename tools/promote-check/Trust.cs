@@ -27,15 +27,15 @@ static partial class Check
 
         // MA-4d: a survey changeset as proposeFromJob stores it on the drill's numbers — the shared fixture contract2-survey.json, whose `stored`
         // vitest holds the stored doc to. The DEPLOYED ChangesetDto reads it (its job, measured and trim_mm are fields it does not know: ignored);
-        // the source is not a claim; the bridge's pre-tick is read — and Revit still opens every create unticked (no add-in change in MA-4d).
+        // the source is not a claim; the bridge's pre-tick is read — and (MA-4f) Revit opens each such create ticked (one the IDS rejected stays unticked).
         string survey;
         using (var fx = JsonDocument.Parse(File.ReadAllText(Repo("WebApp", "bridge", "fixtures", "changeset-ops", "contract2-survey.json"))))
             survey = fx.RootElement.GetProperty("stored").GetRawText();
         var sv = JsonSerializer.Deserialize<ChangesetDto>(survey);
         Ok(sv.Claimed == false && ChangesetTrust.SourceLabel(sv) == "sentinel-survey 0.1.0" && sv.Elements.Count == 3 && sv.Exceptions.Count == 3,
            "MA-4d: a survey changeset reads — its job, measured and trims ignored; its source is no claim; its gaps are sent to a person");
-        Ok(sv.Elements.All(e => e.Pretick == true && ChangesetTrust.Accuracy(e) == "within tolerance" && ChangesetTrust.Typing(e) != null && e.Cid != null && !ChangesetTrust.PreTick(sv, e)),
-           "…each wall pre-ticked by the bridge, within tolerance, typed by the bridge — and opened unticked: a person ticks a create");
+        Ok(sv.Elements.All(e => e.Pretick == true && ChangesetTrust.Accuracy(e) == "within tolerance" && ChangesetTrust.Typing(e) != null && e.Cid != null && ChangesetTrust.PreTick(sv, e)),
+           "…each wall pre-ticked by the bridge, within tolerance, typed by the bridge — and (MA-4f) opened ticked in Revit: a measured survey create");
 
         ChangesetElementDto El(string op, bool? pretick, string typeBefore = null, string verdict = "accepted") => new ChangesetElementDto
         {
@@ -46,7 +46,7 @@ static partial class Check
         var promote = new ChangesetDto { Source = "promote" };
         Ok(!ChangesetTrust.PreTick(agent, cs.Elements[0]), "the design's test: an agent's IDS-accepted create opens unticked");
         Ok(!ChangesetTrust.PreTick(agent, El("create", true)) && !ChangesetTrust.PreTick(agent, El(null, null)) && !ChangesetTrust.PreTick(promote, El("create", null)),
-           "a create is never pre-ticked — not when a bridge says pretick true, not from an older bridge, not from any source");
+           "a create from a claimed source is never pre-ticked — not when a bridge says pretick true, not from an older bridge (MA-4f: only a survey job's)");
         Ok(ChangesetTrust.PreTick(promote, El("retype", true, "T1")) && ChangesetTrust.PreTick(promote, El("attach", true)),
            "a retype or attach the bridge pre-ticked opens ticked");
         Ok(!ChangesetTrust.PreTick(promote, El("retype", false, "T1")) && !ChangesetTrust.PreTick(promote, El("attach", false)),

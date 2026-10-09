@@ -302,22 +302,89 @@ export function facesOf(el, S) {
     [at(ax - nx, ay - ny, zb), at(bx - nx, by - ny, zb), at(ax - nx, ay - ny, zt)]] }; // the face on its right, out to the right
 }
 
+/** MA-4f: what a placed wall was measured by — Revit's re-read at Apply (the add-in's claim, said so) or the changeset's own geometry. */
+export const REVIT = "revit (claimed)", FILED = "as filed";
+/** MA-4f: the most triangles a wall's re-read may hold — a straight wall after its joins is about 12; past about 50 a solid is curved or swept
+ *  and fails "one plane" anyway (MA-5). The add-in sends none past it (PlacementGeometry.MaxMeshTriangles); 200 walls of 64 are ~1.2 MB of body. */
+export const MAX_MESH_TRIANGLES = 64;
+
+/** MA-4f: null when `m` is a re-read the bridge can read — 1 to MAX_MESH_TRIANGLES triangles, 9 finite numbers each (x, y, z of three corners,
+ *  mm, Revit's internal frame), each within 1e9 mm — else what is wrong, in words. Pure. */
+export function readMesh(m) {
+  if (!Array.isArray(m) || !m.length || m.length % 9) return "not a list of triangles (9 numbers each)";
+  if (m.length / 9 > MAX_MESH_TRIANGLES) return `${m.length / 9} triangles — over the ${MAX_MESH_TRIANGLES} a wall's re-read holds`;
+  for (let i = 0; i < m.length; i++) if (!Number.isFinite(m[i]) || Math.abs(m[i]) > 1e9) return `number ${i} is not a coordinate in mm`;
+  return null;
+}
+
+/** MA-4f: Revit's re-read of a placed wall (readMesh's triangles) as the two faces sentinel-survey measures — facesOf's shape and order, in the
+ *  MODEL's frame (verify moves them into the scan's): of the triangles whose unit normal is square to the filed line's left normal (|n̂·p| ≥ 0.99;
+ *  the winding is not trusted; an end, the top and the base are left out), split at the middle of their offsets from the line, each side's
+ *  bounding rectangle along the line and up — when it is one plane (its offsets within 1 mm). It sees the type's real width, the location line
+ *  and each side's own ends (Revit's joins). The claim is held to the bridge's own facts of the filed wall (its line, measured thickness, base
+ *  and top): past them it is not this wall as filed, and the wall is measured as filed. → {faces} or {why}. Pure.
+ *  ponytail: a bounding rectangle per side — an opening is drawn over; no survey wall has one before MA-5. */
+export function meshFaces(el, m) {
+  const c = el.place?.LocationCurve, t = el.facts?.thickness_mm, zt = el.place?.TopElevation;
+  if (!Array.isArray(c?.start) || !Array.isArray(c?.end) || !Number.isFinite(c.start[2]) || !(t > 0) || !Number.isFinite(zt))
+    return { why: "its line, measured thickness or top is not on the changeset" }; // facesOf's words
+  const [ax, ay, zb] = c.start, L = Math.hypot(c.end[0] - ax, c.end[1] - ay);
+  if (!(L >= 1) || !(zt > zb)) return { why: "its line is shorter than 1 mm, or its top not above its base" }; // facesOf's words
+  const ux = (c.end[0] - ax) / L, uy = (c.end[1] - ay) / L, px = -uy, py = ux; // p: the line's left, facesOf's n
+  const at = [];
+  for (let i = 0; i < m.length; i += 9) {
+    const [x0, y0, z0, x1, y1, z1, x2, y2, z2] = m.slice(i, i + 9);
+    const e = [x1 - x0, y1 - y0, z1 - z0], f = [x2 - x0, y2 - y0, z2 - z0];
+    const n = [e[1] * f[2] - e[2] * f[1], e[2] * f[0] - e[0] * f[2], e[0] * f[1] - e[1] * f[0]], len = Math.hypot(...n);
+    if (!(len > 0) || Math.abs(n[0] * px + n[1] * py) / len < 0.99) continue;
+    for (const [x, y, z] of [[x0, y0, z0], [x1, y1, z1], [x2, y2, z2]]) at.push({ o: (x - ax) * px + (y - ay) * py, u: (x - ax) * ux + (y - ay) * uy, z });
+  }
+  if (!at.length) return { why: "Revit's solid has no face along its filed line" };
+  const lo = Math.min(...at.map((q) => q.o)), hi = Math.max(...at.map((q) => q.o)), mid = (lo + hi) / 2;
+  if (hi - lo < 1) return { why: "Revit's solid has one side along its filed line" };
+  const box = (qs, side) => {
+    const o = qs.map((q) => q.o), deep = Math.max(...o) - Math.min(...o);
+    if (deep > 1) return { why: `its ${side} side is not one plane (${Math.round(deep)} mm deep: a sweep, a reveal or a turn)` };
+    const us = qs.map((q) => q.u), zs = qs.map((q) => q.z);
+    // Final review: under 1 mm along or up, sentinel-survey refuses the face (rectangle(): both sides at least 1 mm) and every measure fails.
+    if (Math.max(...us) - Math.min(...us) < 1 || Math.max(...zs) - Math.min(...zs) < 1) return { why: `its ${side} side is under 1 mm across` };
+    return { off: o.reduce((s, v) => s + v, 0) / o.length, u0: Math.min(...us), u1: Math.max(...us), z0: Math.min(...zs), z1: Math.max(...zs) };
+  };
+  const l = box(at.filter((q) => q.o > mid), "left"), r = box(at.filter((q) => q.o <= mid), "right");
+  if (l.why) return l;
+  if (r.why) return r;
+  // MA-4f (critique): the bounds — each side within half the thickness and one more thickness of the filed line (the location line, the type's
+  // real width), its ends within a thickness and 100 mm of the filed ends (Revit's joins), its height within 100 mm of the filed base and top.
+  // Final review: both ways — a side short of its filed ends or height (a patch the claim chose) is as far off as one past them.
+  const past = Math.max(...[l, r].flatMap((b) => [Math.abs(b.off) - 1.5 * t, -(t + 100) - b.u0, b.u1 - (L + t + 100), zb - 100 - b.z0, b.z1 - (zt + 100),
+    b.u0 - (t + 100), (L - t - 100) - b.u1, b.z0 - (zb + 100), (zt - 100) - b.z1]));
+  if (past > 0) return { why: `Revit's re-read is ${Math.round(past)} mm off its filed wall — measured as filed` };
+  const pt = (b, u, z) => [r1(ax + ux * u + px * b.off), r1(ay + uy * u + py * b.off), r1(z)];
+  return { faces: [
+    [pt(l, l.u0, l.z0), pt(l, l.u0, l.z1), pt(l, l.u1, l.z0)],    // facesOf's left face, out to the left
+    [pt(r, r.u0, r.z0), pt(r, r.u1, r.z0), pt(r, r.u0, r.z1)]] }; // its right face, out to the right
+}
+
 /** What a measure sends for a placed survey changeset: per element Revit placed (result.applied, in its order) its faces in the scan's frame,
  *  or why not — an Undo in Revit (`undone(guid)`: the ledger id when the guid's newest changeset_reverted row is an undo, else null), a level,
  *  a floor or ceiling, a wall whose geometry is not on the changeset. Pure. → {send: [{guid, faces}], skip: [{proposal_guid, reason}],
  *  placed: [{proposal_guid, revit_unique_id, cid, kind}]}
  *  ponytail: walls only — a floor's or ceiling's other face is its type's, which no scan measured, and the slab beyond counts against its one
- *  face (measured: ~200 mm on the drill); a depth from its type is MA-4h's. */
+ *  face (measured: ~200 mm on the drill); a depth from its type is MA-4h's.
+ *  MA-4f: a wall Revit re-read at Apply is sent by its re-read's faces (reference REVIT, its mesh's sha), else as filed (FILED); placed[i].reference is set only when its faces are sent. */
 export function measurePlan(cs, undone = () => null) {
   const S = toScan(cs.job.frame), send = [], skip = [], placed = [];
   for (const a of cs.result?.applied ?? []) {
     const el = (cs.elements ?? []).find((e) => e.proposal_guid === a.proposal_guid), u = undone(a.proposal_guid);
-    placed.push({ proposal_guid: a.proposal_guid, revit_unique_id: a.revit_unique_id ?? null, cid: el?.cid ?? null, kind: el?.kind ?? null });
+    const rr = el?.kind === "wall" ? a.reread : null;
     const f = u != null ? { why: `undone in Revit (ledger #${u}) — nothing placed to measure` }
-      : el?.kind === "wall" ? facesOf(el, S)
+      : rr?.faces ? { faces: rr.faces.map((q) => q.map(([x, y, z]) => [...S.xy([x, y]), S.z(z)])), reference: REVIT, mesh_sha256: rr.mesh_sha256 }
+      : el?.kind === "wall" ? { ...facesOf(el, S), reference: FILED }
       : el?.kind === "level" ? { why: "a level has no face to measure — its height against the scan is MA-4h's level error" }
       : el?.kind === "floor" || el?.kind === "ceiling" ? { why: `one face of a ${el.kind} is seen; its other is its type's, which no scan measured, and the slab beyond would count against it — MA-4h` }
       : { why: el ? `a ${el.kind} is not measured by sentinel-survey 0.1` : "not on the changeset" };
+    placed.push({ proposal_guid: a.proposal_guid, revit_unique_id: a.revit_unique_id ?? null, cid: el?.cid ?? null, kind: el?.kind ?? null,
+      ...(f.faces ? { reference: f.reference, ...(f.mesh_sha256 ? { mesh_sha256: f.mesh_sha256 } : {}) } : {}) });
     if (f.faces) send.push({ guid: a.proposal_guid, faces: f.faces }); else skip.push({ proposal_guid: a.proposal_guid, reason: f.why });
   }
   return { send, skip, placed };

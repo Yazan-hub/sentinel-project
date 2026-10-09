@@ -413,6 +413,19 @@ describe("measured against the scan (MA-4e)", () => {
     expect(measureLine(r)).toBe("✓ Measured Survey job-0002 · GR-FFL against the scan as filed — 3 within tolerance, 0 out of tolerance, 0 missing, 0 insufficient data, 0 not measured · ledger #2300");
     expect(countWords({})).toBe("0 within tolerance, 0 out of tolerance, 0 missing, 0 insufficient data, 0 not measured");
   });
+  it("MA-4f: a measure of Revit's re-read says so — the head, a mixed row's as-filed lines, the status line", () => {
+    const cs = { id: A, name: "Survey job-0003 · Scan L01 job-0003", source: "sentinel-survey 0.1.0", status: "applied", created_at: "", elements: [W] } as PendingChangeset;
+    const rec: VerifyRecord = { id: 2400, at: "2026-10-10T10:00:00Z", actor: "lead@example.test", status: "done", reference: "revit (claimed)", target_mm: 20,
+      placed_by: { reported_by: "lead@example.test", reported_role: "lead" }, counts: { within_tolerance: 1 }, elements: [{ ...IN, reference: "revit (claimed)" }] };
+    expect(verifiedView(cs, rec)!.head).toBe("Measured against the scan as Revit placed it (Revit's re-read at Apply, the add-in's claim: its joins, its location line and the type's width in Revit are measured — a wall moved since Apply and the lead's frame are not seen) · placed as Revit reported (by lead@example.test) · 1 within tolerance, 0 out of tolerance, 0 missing, 0 insufficient data, 0 not measured · ledger #2400 · 2026-10-10 10:00 UTC · by lead@example.test");
+    const mix = verifiedView(cs, { ...rec, reference: "mixed", elements: [{ ...IN, reference: "revit (claimed)" }, { ...IN, proposal_guid: "g9", reference: "as filed" }] })!;
+    expect(mix.head).toContain("Measured against the scan as Revit placed it where Revit re-read it at Apply (the add-in's claim), else as filed — a wall moved since Apply and the lead's frame are not seen · ");
+    expect(mix.lines.map((l) => l.words.endsWith(" · as filed"))).toEqual([false, true]);
+    const reply = { changeset: { id: A, name: cs.name }, status: "done", counts: { within_tolerance: 3 }, elements: [], ledger: { id: 2400, hash: "h" } };
+    expect([measureLine({ ...reply, reference: "revit (claimed)" }), measureLine({ ...reply, reference: "mixed" })]).toEqual([
+      "✓ Measured Survey job-0003 · Scan L01 job-0003 against the scan as Revit re-read it (the add-in's claim) — 3 within tolerance, 0 out of tolerance, 0 missing, 0 insufficient data, 0 not measured · ledger #2400",
+      "✓ Measured Survey job-0003 · Scan L01 job-0003 against the scan as Revit re-read it (the add-in's claim), else as filed — 3 within tolerance, 0 out of tolerance, 0 missing, 0 insufficient data, 0 not measured · ledger #2400"]);
+  });
   it("canMeasure: a placed survey changeset, a signed-in contributor or above, not undone in Revit — the bridge holds the same rules", () => {
     const cs = { id: A, name: "n", source: "s", status: "applied", created_at: "", elements: [], job: { id: "job-0002", ledger_id: 2201 } } as PendingChangeset;
     expect(["viewer", "contributor", "lead", "owner", "service"].map((r) => canMeasure(cs, r, null))).toEqual([false, true, true, true, false]);

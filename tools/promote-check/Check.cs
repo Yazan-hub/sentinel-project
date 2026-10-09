@@ -82,6 +82,7 @@ static partial class Check
         Ma3dChecks();
         FSec51WiringChecks();
         Sec7HubChecks();
+        Ma4fChecks();
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;
     }

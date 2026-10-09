@@ -6,7 +6,8 @@ import * as core from "./sentinel-core.mjs";
 import { makeTyper } from "./changesets-typing.mjs";
 import { validateChangeset } from "./changesets-logic.mjs";
 import { typeGapId } from "./holding-logic.mjs";
-import { readProposeBody, toModel, matchStoreys, trimEnds, planSurvey, toScan, facesOf, measurePlan, judge, measureRefusal, countWords } from "./survey-plan.mjs";
+import { readProposeBody, toModel, matchStoreys, trimEnds, planSurvey, toScan, facesOf, measurePlan, judge, measureRefusal, countWords, readMesh, meshFaces, REVIT, FILED } from "./survey-plan.mjs";
+import { boxMesh } from "./fixtures/box-mesh.mjs";
 
 const read = (p) => JSON.parse(readFileSync(new URL(p, import.meta.url), "utf8"));
 const RESULT = read("./fixtures/survey/job-0002-result.json");
@@ -226,5 +227,64 @@ describe("MA-4e — a placed wall as filed, back in the scan's frame; the bridge
     expect([measureRefusal(el({ ...none, p95_mm: 3 }), send, T), measureRefusal(el({ ...none, coverage: 0.5 }), send, T),
       measureRefusal(el({ ...none, share_within: { 50: 1, 100: 1, 200: 1 } }), send, T), measureRefusal(el({ coverage: null }), send, T),
       measureRefusal(el({ mean_signed_mm: null }), send, T)]).toEqual(Array(5).fill("elements[0]'s numbers"));
+  });
+});
+
+describe("MA-4f — Revit's re-read of a placed wall: read, then the two faces sentinel-survey measures", () => {
+  const W = { kind: "wall", place: { LocationCurve: { start: [40125, 150, 0], end: [47850, 150, 0] }, TopElevation: 2800 }, facts: { thickness_mm: 300 } };
+  const T = { ...W, place: { ...W.place, LocationCurve: { start: [47850, 150, 0], end: [47850, 5900, 0] } } };
+  const I = toScan(ZERO); // facesOf in the model's own frame
+  const box = boxMesh([40125, 150], [47850, 150], 300, 0, 2800);
+  const flip = (m) => Array.from({ length: m.length / 9 }, (_, i) => [...m.slice(9 * i, 9 * i + 3), ...m.slice(9 * i + 6, 9 * i + 9), ...m.slice(9 * i + 3, 9 * i + 6)]).flat();
+
+  it("readMesh: 1 to 64 triangles of 9 finite numbers within 1e9 mm — else what is wrong, in words", () => {
+    expect(readMesh(box)).toBeNull();
+    expect([readMesh([]), readMesh([1, 2, 3]), readMesh("x"), readMesh(Array(9 * 65).fill(1)), readMesh([1, 2, 3, NaN, 5, 6, 7, 8, 9]), readMesh([0, 0, 2e9, 0, 0, 0, 0, 0, 0])])
+      .toEqual(["not a list of triangles (9 numbers each)", "not a list of triangles (9 numbers each)", "not a list of triangles (9 numbers each)",
+        "65 triangles — over the 64 a wall's re-read holds", "number 3 is not a coordinate in mm", "number 2 is not a coordinate in mm"]);
+  });
+  it("meshFaces: a box on the filed line is facesOf's two faces, whatever its winding and its line's direction; a wider type moves each face out by half the difference", () => {
+    expect(meshFaces(W, box)).toEqual(facesOf(W, I));
+    expect(meshFaces(W, flip(box))).toEqual(facesOf(W, I));
+    expect(meshFaces(T, boxMesh([47850, 150], [47850, 5900], 300, 0, 2800))).toEqual(facesOf(T, I));
+    expect(meshFaces(W, boxMesh([40125, 150], [47850, 150], 350, 0, 2800)).faces.map((f) => f[0][1])).toEqual([325, -25]);
+  });
+  it("meshFaces: each side keeps its own ends (Revit's joins); a solid it cannot reduce says why", () => {
+    // the left face runs 150 mm past each end (an outside corner), the right one stops 150 mm short (an inside corner)
+    const joined = [...boxMesh([39975, 150], [48000, 150], 300, 0, 2800).slice(0, 18), ...boxMesh([40275, 150], [47700, 150], 300, 0, 2800).slice(36, 54)];
+    expect(meshFaces(W, joined)).toEqual({ faces: [[[39975, 300, 0], [39975, 300, 2800], [48000, 300, 0]], [[40275, 0, 0], [47700, 0, 0], [40275, 0, 2800]]] });
+    expect(meshFaces(W, box.slice(90))).toEqual({ why: "Revit's solid has no face along its filed line" });   // the top only
+    expect(meshFaces(W, box.slice(0, 18))).toEqual({ why: "Revit's solid has one side along its filed line" }); // the left side only
+    expect(meshFaces(W, [...boxMesh([40125, 150], [47850, 150], 300, 0, 1400), ...boxMesh([40125, 150], [47850, 150], 400, 1400, 2800)]))
+      .toEqual({ why: "its left side is not one plane (50 mm deep: a sweep, a reveal or a turn)" });
+    expect(meshFaces({ ...W, place: {} }, box)).toEqual({ why: "its line, measured thickness or top is not on the changeset" });
+    expect(meshFaces({ ...W, facts: {} }, box)).toEqual({ why: "its line, measured thickness or top is not on the changeset" });
+    expect(meshFaces({ ...W, place: { ...W.place, TopElevation: 0 } }, box)).toEqual({ why: "its line is shorter than 1 mm, or its top not above its base" });
+    // Final review: a side under 1 mm along — sentinel-survey would refuse its face (both sides at least 1 mm) and fail every measure
+    expect(meshFaces({ ...W, place: { ...W.place, LocationCurve: { start: [43000, 150, 0], end: [43300, 150, 0] } } }, boxMesh([43125, 150], [43125.4, 150], 300, 0, 2800)))
+      .toEqual({ why: "its left side is under 1 mm across" });
+  });
+  it("meshFaces: the claim is held to the filed wall — a solid off its line, past its ends or off its height is measured as filed", () => {
+    // 2 000 mm off the line: both side planes are parallel to it and one plane each, so only the bound refuses them (offsets 2 150 and 1 850, the bound 450)
+    expect(meshFaces(W, boxMesh([40125, 2150], [47850, 2150], 300, 0, 2800))).toEqual({ why: "Revit's re-read is 1700 mm off its filed wall — measured as filed" });
+    expect(meshFaces(W, boxMesh([40125, 150], [97850, 150], 300, 0, 2800))).toEqual({ why: "Revit's re-read is 49600 mm off its filed wall — measured as filed" }); // 50 m on
+    expect(meshFaces(W, boxMesh([40125, 150], [47850, 150], 300, 3000, 5800))).toEqual({ why: "Revit's re-read is 2900 mm off its filed wall — measured as filed" }); // a storey up
+    // Final review: short of them too — a 1 m × 1 m patch the claim chose is not the wall (its ends 2 875 and 3 850 mm in, the bound 400)
+    expect(meshFaces(W, boxMesh([43000, 150], [44000, 150], 300, 1000, 2000))).toEqual({ why: "Revit's re-read is 3450 mm off its filed wall — measured as filed" });
+    // the bounds' own edges are kept: the location line at a finish face (each side 0 and 300 off) and joins a thickness and 100 mm past each end
+    expect(meshFaces(W, boxMesh([40125, 300], [47850, 300], 300, 0, 2800)).faces).toBeDefined();
+    expect(meshFaces(W, boxMesh([39725, 150], [48250, 150], 300, -100, 2900)).faces).toBeDefined();
+    expect(meshFaces(W, boxMesh([40525, 150], [47450, 150], 300, 100, 2700)).faces).toBeDefined(); // a thickness and 100 mm in, 100 mm under the top
+  });
+  it("measurePlan: a wall Revit re-read is sent by its re-read, in the scan's frame, and says so; one without — or one the bridge could not reduce — as filed", () => {
+    const S = toScan(EAST);
+    const rr = { mesh_sha256: "a".repeat(64), ...meshFaces(W, boxMesh([40125, 150], [47850, 150], 350, 0, 2800)) };
+    const cs = { job: { frame: EAST }, elements: ["a", "b", "c"].map((g) => ({ ...W, proposal_guid: g })),
+      result: { applied: [{ proposal_guid: "a", revit_unique_id: "U-a", reread: rr }, { proposal_guid: "b", revit_unique_id: "U-b" },
+        { proposal_guid: "c", revit_unique_id: "U-c", reread: { mesh_sha256: "b".repeat(64), why: "Revit's solid has one side along its filed line" } }] } };
+    const p = measurePlan(cs);
+    expect(p.send).toEqual([{ guid: "a", faces: [[[125, 325, 0], [125, 325, 2800], [7850, 325, 0]], [[125, -25, 0], [7850, -25, 0], [125, -25, 2800]]] },
+      { guid: "b", faces: facesOf(W, S).faces }, { guid: "c", faces: facesOf(W, S).faces }]);
+    expect(p.placed.map((x) => [x.reference, x.mesh_sha256 ?? null])).toEqual([[REVIT, "a".repeat(64)], [FILED, null], [FILED, null]]);
   });
 });
