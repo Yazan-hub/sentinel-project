@@ -418,7 +418,8 @@ export function validateChangeset(body, { member = false, type = null, cite = nu
       // MA-2a: the poster's facts as a record, and the bridge's own account of who typed the element — its rule, its input,
       // and which guideline and catalogue decided — or "caller" for an element that named its type.
       ...(facts ? { facts } : {}),
-      typing: typed ? typed.typing : { typed_by: "caller" },
+      // MA-5a: an element the planner typed by size records that, never "caller" (a survey door or window: survey-plan typeBySize).
+      typing: fromJob?.typing ?? (typed ? typed.typing : { typed_by: "caller" }),
       // Review amendment C4: contract 2's reader id and evidence ids, as sent — the caller's claim, like the source.
       ...(el.cid != null ? { cid: el.cid.trim() } : {}),
       ...(el.evidence != null ? { evidence: el.evidence.map((x) => x.trim()) } : {}),

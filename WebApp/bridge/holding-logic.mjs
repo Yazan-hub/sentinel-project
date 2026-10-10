@@ -94,8 +94,8 @@ const norm = (s) => String(s ?? "").trim().toLowerCase();
 /** A group's id: the same gap on every run is one id — its category and the type it wants, else its size. */
 export const typeGapId = (g) => createHash("sha256").update(`${norm(g.category)}|${g.want ? `type ${norm(g.want)}` : `size ${norm(g.size)}`}`).digest("hex").slice(0, 12);
 
-/** "915 x 2134 mm" → [915, 2134]; the add-in's TypeNameParse.TrySection. */
-const sectionOf = (s) => { const m = /(\d+(?:\.\d+)?)\s*[xX]\s*(\d+(?:\.\d+)?)\s*mm/i.exec(String(s ?? "")); return m ? [Number(m[1]), Number(m[2])] : null; };
+/** "915 x 2134 mm" → [915, 2134]; the add-in's TypeNameParse.TrySection. MA-5a: exported — survey-plan types a scan door or window by it. */
+export const sectionOf = (s) => { const m = /(\d+(?:\.\d+)?)\s*[xX]\s*(\d+(?:\.\d+)?)\s*mm/i.exec(String(s ?? "")); return m ? [Number(m[1]), Number(m[2])] : null; };
 
 /** The catalogue row that closes a group, or null: of its category (`sameCategory`, the bundle's — by name or BuiltInCategory), the
  *  type it wants by name; a group that wants no named type, a type named at its size. */

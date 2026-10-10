@@ -299,11 +299,14 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
     const [guideline, catalog] = await Promise.all([standardOf(key, "guideline", d), standardOf(key, "type_catalog", d)]);
     if (!guideline.body || !catalog.body)
       throw err(409, `a survey's candidates are typed from the project's guideline and type catalogue, exactly (D16) — guideline: ${guideline.label}; type catalogue: ${catalog.label}; install both on the project or its office first. Nothing was saved`);
-    const type = makeTyper({ guideline, catalog }, await import("./sentinel-core.mjs"));
+    const core = await import("./sentinel-core.mjs");
+    const type = makeTyper({ guideline, catalog }, core);
     let manifest;
     try { manifest = await levelsOf(key); }
     catch (e) { throw err(503, `the published models' levels could not be read (${e.message}) — nothing was saved; send it again`); }
-    const plan = planSurvey({ job: { id, ledger: row.ledger, reader: row.reader, version: row.version }, candidates: result.candidates, frame, levels, manifest, type, filed });
+    // MA-5a: the same catalogue the typer reads types a scan door or window by its size when no office rule does (survey-plan typeBySize).
+    const plan = planSurvey({ job: { id, ledger: row.ledger, reader: row.reader, version: row.version }, candidates: result.candidates, frame, levels, manifest, type, filed,
+      catalog: { types: catalog.body.types, label: catalog.label, sha256: catalog.sha256 }, sameCategory: core.sameCategory });
     const by = resolveActor(actor, "web");
     const record = (s) => ({ id, ledger_id: row.ledger.id, ledger_hash: row.ledger.hash, result_sha256: row.result_sha256, reader: `${row.reader} ${row.version}`,
       planner: `${PLANNER} ${PLANNER_VERSION}`, frame: { ...frame, stated_by: by }, storey: storeyRecord(s), evidence, overlaps });

@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import * as core from "./sentinel-core.mjs";
 import { makeTyper } from "./changesets-typing.mjs";
 import { validateChangeset } from "./changesets-logic.mjs";
-import { typeGapId } from "./holding-logic.mjs";
+import { typeGapId, typeGapGroups } from "./holding-logic.mjs";
 import { readProposeBody, toModel, matchStoreys, trimEnds, planSurvey, toScan, facesOf, measurePlan, judge, measureRefusal, countWords, readMesh, meshFaces, REVIT, FILED, scanBand, cloudRefusal, placeRefusal } from "./survey-plan.mjs";
 import { boxMesh } from "./fixtures/box-mesh.mjs";
 
@@ -165,6 +165,94 @@ describe("planSurvey — the drill's job-0002, frame 40 m east, L00 named GR-FFL
     expect(p.storeys[0].exceptions.find((x) => x.unique_id === "scan-L00-wall-1").reason).toBe("type gap — its thickness was not measured (one face seen); it waits in the Holding Area");
     const bare = RESULT.candidates.filter((c) => c.kind === "level" || c.kind === "floor");
     expect(planSurvey({ job: JOB, candidates: bare, frame: ZERO, levels: {}, manifest: [], type }).storeys.map((s) => s.body)).toEqual([null, null]);
+  });
+});
+
+describe("MA-5a — a scan door or window: after its storey's walls, on its host's trimmed line, typed by size from the catalogue or a gap", () => {
+  // sentinel-survey 0.5.0's candidates on the drill's building: a 900 x 2100 door in the south wall (x 3000..3900), a 1200 x 1200 window
+  // with a 900 mm sill in the east wall (y 2000..3200); along_mm from each host's UNTRIMMED LocationCurve.start.
+  const DOOR = { cid: "scan-L00-wall-1-door-1", kind: "door", geometry: { host: "scan-L00-wall-1", storey: "scan-L00-level", direction: [1, 0], Location: [3450, 150, 0], along_mm: 3465 },
+    measured: { width_mm: 900, height_mm: 2100, sill_mm: 0, head_mm: 2100 }, evidence: ["ev-0001#slice-L00"], fit: { inliers: 56, rmse_mm: 0, coverage: 0.875, faces_seen: 2 } };
+  const WINDOW = { cid: "scan-L00-wall-3-window-1", kind: "window", geometry: { host: "scan-L00-wall-3", storey: "scan-L00-level", direction: [0, 1], Location: [7850, 2600, 0], along_mm: 2549 },
+    measured: { width_mm: 1200, height_mm: 1200, sill_mm: 900, head_mm: 2100 }, evidence: ["ev-0001#slice-L00"], fit: { inliers: 48, rmse_mm: 0, coverage: 1, faces_seen: 2 } };
+  // The size fixture: one door and one window at the building's sizes. The walls are still typed by the BDS standards (`type`).
+  const SIZE = { types: [{ category: "Doors", family: "BDS_INT_1 PNL", type: "BDS_INT_1 PNL_WOOD_900 x 2100 mm" }, { category: "Windows", family: "BDS_Window_1 Panel+FX", type: "1200x1200 mm" }],
+    label: "type_catalog@2 · project · 5a5a5a5a5a5a…", sha256: "5a".repeat(32) };
+  const BDS = { types: read("../../demo/bds-pilot/bds-type-catalog.json").types, label: "type_catalog@1 · project · fedcba987654…", sha256: "cd".repeat(32) };
+  const plan = (openings, catalog = SIZE, over = {}) => planSurvey({ job: JOB, candidates: [...RESULT.candidates, ...openings], frame: EAST, levels: { "scan-L00-level": "GR-FFL" },
+    manifest: [], type, catalog, sameCategory: core.sameCategory, ...over });
+  const off = (p, { start, end }) => Math.abs((end[0] - start[0]) * (p[1] - start[1]) - (end[1] - start[1]) * (p[0] - start[0])) / Math.hypot(end[0] - start[0], end[1] - start[1]);
+
+  it("typed by size: after the walls, on the host's trimmed line at the level, a window's sill; the trust record says bridge-size, framing, never pre-ticked", () => {
+    const a = plan([DOOR, WINDOW]).storeys[0];
+    const els = a.body.elements, at = (cid) => els.find((e) => e.cid === cid);
+    expect(els.map((e) => e.cid)).toEqual(["scan-L00-wall-1", "scan-L00-wall-2", "scan-L00-wall-3", "scan-L00-wall-1-door-1", "scan-L00-wall-3-window-1"]);
+    // the south wall's start was trimmed 140 mm (trim_mm[0] = -140): along 3465 from the untrimmed start is 3325 from the trimmed one
+    expect(off(at(DOOR.cid).place.Location, at("scan-L00-wall-1").place.LocationCurve)).toBeLessThanOrEqual(0.1);
+    expect(off(at(WINDOW.cid).place.Location, at("scan-L00-wall-3").place.LocationCurve)).toBeLessThanOrEqual(0.1);
+    expect(at(DOOR.cid)).toEqual({ op: "create", kind: "door", cid: DOOR.cid, evidence: ["ev-0001#slice-L00"], facts: { params: { HostFunction: "Exterior", Size: "W900 x H2100 mm" } },
+      validate: { identity: { Class: "IFCDOOR", Name: DOOR.cid } },
+      place: { LevelName: "GR-FFL", Location: [43450, 150, 0], FamilyName: "BDS_INT_1 PNL", TypeName: "BDS_INT_1 PNL_WOOD_900 x 2100 mm" },
+      reason: "scan door scan-L00-wall-1-door-1 in scan-L00-wall-1: 900 wide, 2100 high mm as measured · hole border 0.875 (2 face(s) seen; a hole is an opening or an occluder) · typed by size from the catalogue: BDS_INT_1 PNL : BDS_INT_1 PNL_WOOD_900 x 2100 mm · sill and head not scored against a reference (MA-5a) · job-0002 (ledger #2201)" });
+    expect(at(WINDOW.cid).place).toEqual({ LevelName: "GR-FFL", Location: [47850, 2600, 0], FamilyName: "BDS_Window_1 Panel+FX", TypeName: "1200x1200 mm", SillHeight: 900 });
+    expect(at(WINDOW.cid).reason).toContain("scan window scan-L00-wall-3-window-1 in scan-L00-wall-3: 1200 wide, 1200 high, sill 900 mm as measured · ");
+    const typing = (t, family, size) => ({ typed_by: "bridge-size", type: t, family, size, band_mm: 100, catalog: SIZE.label, catalog_sha256: SIZE.sha256 });
+    expect(a.byCid.get(DOOR.cid)).toEqual({ measured: DOOR.measured, pretick: false, typing: typing("BDS_INT_1 PNL_WOOD_900 x 2100 mm", "BDS_INT_1 PNL", "900 x 2100 mm"),
+      accuracy: { status: "insufficient_data", basis: "framing", from_job: "job-0002", fit_rmse_mm: 0, face_dev_mm: null, coverage: 0.875, target_mm: 20 } });
+    // 2.4: the stored element keeps the planner's typing — never "caller" — and its trust record
+    const v = validateChangeset(a.body, { member: true, type, job: { record: { id: "job-0002" }, byCid: a.byCid } });
+    expect(v.ignored).toEqual([]);
+    expect(v.elements.slice(3).map((e) => [e.cid, e.typing, e.pretick, e.accuracy.basis, e.measured])).toEqual([
+      [DOOR.cid, typing("BDS_INT_1 PNL_WOOD_900 x 2100 mm", "BDS_INT_1 PNL", "900 x 2100 mm"), false, "framing", DOOR.measured],
+      [WINDOW.cid, typing("1200x1200 mm", "BDS_Window_1 Panel+FX", "1200 x 1200 mm"), false, "framing", WINDOW.measured]]);
+  });
+  it("an office rule that types it wins over the size; the size is rounded to 10 mm", () => {
+    const all = () => ({});
+    const el = plan([{ ...DOOR, measured: { ...DOOR.measured, width_mm: 903 } }], SIZE, { type: all }).storeys[0].body.elements.find((e) => e.cid === DOOR.cid);
+    expect([el.place.TypeName, el.facts.params.Size]).toEqual([undefined, "W900 x H2100 mm"]);
+    expect(el.reason).toContain(" · typed by an office rule · ");
+  });
+  it("several rows at the size: a gap naming them, cut at 500 characters; none: a gap whose measured size the catalogue closes in the Holding Area", () => {
+    const p = plan([{ ...DOOR, measured: { ...DOOR.measured, width_mm: 1000 } }, WINDOW], BDS);
+    const door = p.groups.find((g) => g.category === "Doors"), win = p.groups.find((g) => g.category === "Windows");
+    expect(door).toMatchObject({ want: null, size: "1000 x 2100 mm", labels: ["GR-FFL · scan-L00-wall-1-door-1"], evidence: ["ev-0001#slice-L00"] });
+    expect(door.key).toBe("13 Doors types are named within 100 mm of 1000 x 2100 mm: BDS_EXT_1 PNL : BDS_EXT_1 PNL_GLASS_1000 x 2100 mm, BDS_EXT_1 PNL : BDS_EXT_1 PNL_GLASS_SWING_1000 x 2100 mm, " +
+      "BDS_EXT_1 PNL : BDS_EXT_1 PNL_STEEL_1000 x 2100 mm, BDS_EXT_1 PNL : BDS_EXT_1 PNL_STEEL_SWING_1000 x 2100 mm, BDS_EXT_1 PNL : BDS_EXT_1 PNL_WOOD_1000 x 2100 mm, " +
+      "BDS_EXT_1 PNL : BDS_EXT_1 PNL_WOOD_SWING_1000 x 2100 mm, BDS_INT_1 PNL : BDS_INT_1 PNL_GLASS_1000 x 2100 mm, BDS_INT_1 PNL : BDS_INT_1 PNL_GLASS_SWING_1000 x 2100 mm, BDS_");
+    expect(door.key).toHaveLength(500);
+    expect(win).toMatchObject({ want: null, size: "1200 x 1200 mm", key: "no Windows type is named within 100 mm of 1200 x 1200 mm" });
+    expect(p.storeys[0].exceptions.find((x) => x.unique_id === WINDOW.cid).reason).toBe("type gap — no office rule types it (no Windows type is named within 100 mm of 1200 x 1200 mm); it waits in the Holding Area");
+    expect(p.storeys[0].body.elements.map((e) => e.kind)).toEqual(["wall", "wall", "wall"]); // nothing placed for either
+    // the office installs a type at the size: the Holding Area closes the group by catalogue (holding-logic catalogMatch reads both spellings)
+    const row = { id: 3003, at: "2026-10-10T10:00:00.000Z", actor: "web", action: "type_gap:run job-0002 · survey-planner · 1 group(s), 1 element(s)", new_value: { groups: [win], claimed: false } };
+    expect(typeGapGroups([row], [], SIZE, core.sameCategory).closed.map((g) => [g.category, g.closed_by, g.type])).toEqual([["Windows", "catalogue", "1200x1200 mm"]]);
+  });
+  it("a host that is a type gap holds its opening, in words, grouped by its size; a host not on the job is said too", () => {
+    const onGap = { ...WINDOW, cid: "scan-L00-wall-4-window-1", geometry: { ...WINDOW.geometry, host: "scan-L00-wall-4", Location: [125, 2600, 0], along_mm: 2535 } };
+    const lost = { ...DOOR, cid: "scan-L00-wall-9-door-1", geometry: { ...DOOR.geometry, host: "scan-L00-wall-9" } };
+    const p = plan([onGap, lost]);
+    const why = (cid) => p.storeys[0].exceptions.find((x) => x.unique_id === cid).reason;
+    expect(why(onGap.cid)).toBe("type gap — its host wall scan-L00-wall-4 is a type gap; it is placed once the wall is; it waits in the Holding Area");
+    expect(why(lost.cid)).toBe("type gap — its host wall scan-L00-wall-9 is not a wall of scan-L00-level in job-0002; it waits in the Holding Area");
+    expect(p.groups.find((g) => g.category === "Windows")).toMatchObject({ want: null, size: "1200 x 1200 mm", key: "host scan-L00-wall-4 is a type gap" });
+    expect(p.groups.find((g) => g.category === "Doors")).toMatchObject({ want: null, size: "900 x 2100 mm", key: "host wall not on the job" });
+  });
+  it("decision 19: a host this job filed is not proposed again; its opening, not filed, is — the executor finds the host in the model", () => {
+    const p = plan([DOOR], SIZE, { filed: { cids: new Set(["scan-L00-wall-1"]), storeys: new Map() } });
+    expect(p.storeys[0].body.elements.map((e) => e.cid)).toEqual(["scan-L00-wall-2", "scan-L00-wall-3", "scan-L00-wall-1-door-1"]);
+    expect(p.storeys[0].body.elements[2].place.Location).toEqual([43450, 150, 0]);
+    expect(p.already_filed).toBe(1);
+    expect(plan([DOOR], SIZE, { filed: { cids: new Set([DOOR.cid]), storeys: new Map() } }).already_filed).toBe(1); // the opening filed: not again
+  });
+  it("an opening's point is range-checked with the rest; the plan is deterministic", () => {
+    expect(placeRefusal([{ kind: "door", geometry: { Location: [40_000_000, 0, 0] } }], ZERO)).toBe("the frame puts the scan 40 km from the model's internal origin — Revit draws a model within 32 km of it; state where the scan sits in the model (with no turn, dx_mm -40000000 and dy_mm 0 bring its middle to the origin)");
+    const json = (p) => JSON.stringify(p, (k, v) => (v instanceof Map ? [...v] : v));
+    expect(json(plan([DOOR, WINDOW]))).toBe(json(plan([DOOR, WINDOW])));
+  });
+  it("measurePlan: a placed door or window is not measured — its host wall is", () => {
+    const cs = { job: { frame: ZERO }, elements: [{ proposal_guid: "d", kind: "door", cid: DOOR.cid }, { proposal_guid: "w", kind: "window", cid: WINDOW.cid }],
+      result: { applied: [{ proposal_guid: "d", revit_unique_id: "U-d" }, { proposal_guid: "w", revit_unique_id: "U-w" }] } };
+    expect(measurePlan(cs).skip).toEqual([{ proposal_guid: "d", reason: "a door is not measured by sentinel-survey" }, { proposal_guid: "w", reason: "a window is not measured by sentinel-survey" }]);
   });
 });
 

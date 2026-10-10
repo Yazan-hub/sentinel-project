@@ -23,7 +23,7 @@ const FIELDS = ["pack", "readers", "params"]; // a body's whole vocabulary: the 
 export const TOLERANCES_MM = [50, 100, 200]; // the contract's (§6.9); deviation reads them from MA-4e
 /** The bridge's seed, never a body's: the same evidence and parameters give the same candidates (§6.9). */
 export const SEED = 1;
-const KINDS = ["level", "wall", "floor", "ceiling"];
+const KINDS = ["level", "wall", "floor", "ceiling", "door", "window"]; // MA-5a: sentinel-survey 0.5.0 proposes doors and windows on its walls
 const MAX_CANDIDATES = 5000;
 const LISTED = 20;
 const JOB_ID = /^job-\d{4,}$/; // job-10000 follows job-9999 (nextId pads to 4, never cuts)
