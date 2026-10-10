@@ -312,6 +312,32 @@ describe("evidence intake (MA-4a)", () => {
     const back = await admit({ path: "d/A.pdf", kind: "photo" }); // no (c) or (d) is asked for
     expect(back).toMatchObject({ verdict: "admitted", item: { kind: "drawing", request_id: "req-0001", provider: "architect" } });
   });
+
+  it("(o) MA-4h: a published dataset's pack — made by the machine credential with its record, signed (f) alone, its scans admitted by a lead under its licence", async () => {
+    const DS = { provider: "example-repository", source_url: "https://example.test/records/1", licence: "CC-BY-4.0", attribution: "Example scan by A. Surveyor, example.test, CC BY 4.0" };
+    role = "lead";
+    await expect(makePack("demo", { dataset: DS }, deps())).rejects.toMatchObject({ status: 403, message: "a published dataset's pack is made by the machine credential, on a drill project of its own — a pack is never deleted and admits only the dataset's scans; nothing was saved" });
+    role = "service";
+    await expect(makePack("demo", { dataset: { ...DS, licence: "CC-BY-NC-4.0" } }, deps())).rejects.toMatchObject({ status: 400 });
+    expect(docs.size).toBe(0);
+    expect((await makePack("demo", { dataset: DS }, deps())).pack.dataset).toEqual(DS);
+    role = "lead";
+    await expect(signAttestation("demo", "evp-0001", { code: "a" }, deps())).rejects.toMatchObject({ status: 409, message: "a published dataset's pack is signed (f) only — (a) speaks for the asset's owner or your own capture; nothing was saved" });
+    put("scans/site.las", LAS);
+    role = "contributor";
+    await expect(admit({ path: "scans/site.las", kind: "scan", registration: REG })).rejects.toMatchObject({ status: 403, message: "this action requires the lead role (you are contributor)" });
+    role = "lead";
+    await expect(admit({ path: "scans/site.las", kind: "scan", registration: REG })).rejects.toMatchObject({ status: 409, message: "a lead must sign (f) first; nothing was saved" });
+    await signAttestation("demo", "evp-0001", { code: "f" }, deps());
+    expect(rows("attestation:signed")[0].newv.text_sha256).toBe(ATTESTATIONS.f.sha256);
+    await expect(admit({ path: "photos/own.jpg", kind: "photo" })).rejects.toMatchObject({ status: 400, message: "a published dataset's pack admits its scans only — nothing was saved" });
+    const r = await admit({ path: "scans/site.las", kind: "scan", registration: { method: "as published" } });
+    expect([r.verdict, r.item.provider, r.item.licence, r.item.attestation_ids]).toEqual(["admitted", "example-repository", "CC-BY-4.0", ["att-0001"]]);
+    expect(rows("evidence:admitted")[0].newv).toMatchObject({ provider: "example-repository", licence: "CC-BY-4.0", sha256: sha(LAS) });
+    // an own pack never signs (f)
+    await makePack("other", {}, deps());
+    await expect(signAttestation("other", "evp-0001", { code: "f" }, deps())).rejects.toMatchObject({ status: 409, message: "(f) is signed on a published dataset's pack only — this pack holds your own evidence; nothing was saved" });
+  });
 });
 
 describe("surveyStart (MA-4c): the checks before a survey job", () => {

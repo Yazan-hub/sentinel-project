@@ -141,13 +141,18 @@ function folderFiles(dir, pack) {
 }
 
 /** POST /cde/:key/evidence {asset?} → 201 the new pack: a lead of a project that belongs to an office (or the machine credential); one
- *  per project; an office row is a 400 (packs cannot be deleted, so one made on the office would stay there for good). */
+ *  per project; an office row is a 400 (packs cannot be deleted, so one made on the office would stay there for good). MA-4h: {dataset}
+ *  (the machine credential only, else a 403) makes it a published dataset's pack (readDataset: a 400 before anything is written). */
 export async function makePack(key, b = {}, deps) {
   const d = await wire(deps);
   const proj = await officeProject(d, key, "lead");
+  // MA-4h: a dataset's pack is the machine credential's, on a drill project, until MA-7 — one pack per project, never deleted, and it
+  // admits only the dataset's scans, so a lead's on a real project would lock its own evidence out for good
+  if (b.dataset != null && (await d.myRole(key)) !== "service")
+    throw err(403, "a published dataset's pack is made by the machine credential, on a drill project of its own — a pack is never deleted and admits only the dataset's scans; nothing was saved");
   if (await d.art.getArtefact(key, KIND, d.artDeps)) throw err(409, `${key} already has its evidence pack ${L.PACK_ID} (one pack per project) — nothing was saved`);
   const dir = evidenceDir(key, d.root);
-  const pointer = await fold(d, key, L.newPack(key, proj.name, b.asset, dir), 0, actor());
+  const pointer = await fold(d, key, L.newPack(key, proj.name, b.asset, dir, L.readDataset(b.dataset)), 0, actor());
   mkdirSync(dir, { recursive: true }); // where the office puts the files, by hand
   return { pack: (await packOf(d, key, L.PACK_ID)).pack, ref: `${KIND}@${pointer.version}`, sha256: pointer.sha256, folder: dir };
 }
@@ -167,15 +172,19 @@ export async function readPack(key, packId, deps) {
   return { pack, ref: `${KIND}@${version}`, sha256, folder: { path: dir, exists: existsSync(dir), ...folderFiles(dir, pack) } };
 }
 
-/** POST /cde/:key/evidence/:pack/attest {code} → 201: a signed-in lead or owner signs one of (a)-(e), once per pack. The machine
+/** POST /cde/:key/evidence/:pack/attest {code} → 201: a signed-in lead or owner signs one of (a)-(f), once per pack. The machine
  *  credential never signs (an attestation is a person's). One attestation:signed row with the pinned text's sha256. */
 export async function signAttestation(key, packId, b = {}, deps) {
   const d = await wire(deps);
   if ((await d.myRole(key)) === "service") throw err(403, "an attestation needs a person: sign in. Nothing was saved.");
   const role = await d.requireMinRole(key, "lead");
   const code = typeof b.code === "string" ? b.code.trim().toLowerCase() : "";
-  if (!L.ATTESTATIONS[code]) throw err(400, "code must be one of a, b, c, d, e — the attestation to sign; nothing was saved");
+  if (!L.ATTESTATIONS[code]) throw err(400, "code must be one of a, b, c, d, e, f — the attestation to sign; nothing was saved");
   const { pack, version } = await packOf(d, key, packId);
+  // MA-4h: a published dataset's pack is signed (f) alone — (a) to (e) speak for an owner or one's own capture; an own pack never signs (f)
+  if ((code === "f") !== !!pack.dataset)
+    throw err(409, code === "f" ? "(f) is signed on a published dataset's pack only — this pack holds your own evidence; nothing was saved"
+      : `a published dataset's pack is signed (f) only — (${code}) speaks for the asset's owner or your own capture; nothing was saved`);
   const done = pack.attestations.find((a) => a.code === code);
   if (done) throw err(409, `attestation (${code}) on ${packId} was signed by ${done.by} at ${done.at} — each is signed once per pack; nothing was saved`);
   const who = actor();
@@ -190,7 +199,8 @@ export async function signAttestation(key, packId, b = {}, deps) {
  *  contributor of an office project (the machine credential is a 403: an admission names who admitted and confirmed it). Refusals before
  *  any store, no row, in this order: 403, 429, 400 (body, path), 404 (no pack), 404 (no file), 409 (already admitted and not flagged —
  *  before any policy check, so an admitted file is never put On hold by a bad body), 409 (the signatures its kind needs — a flagged
- *  item's own kind), 400 (a new item's method or report, a new drawing's request_id), 409 (the cap), 404 (a new drawing's request,
+ *  item's own kind) — MA-4h: on a published dataset's pack, after the pack: 400 (not a scan), 403 (not a lead) —
+ *  400 (a new item's method or report, a new drawing's request_id), 409 (the cap), 404 (a new drawing's request,
  *  MA-4b). Then a policy or content refusal is 200 {verdict: "refused", reasons, ledger} with one evidence:refused row (it then shows On hold until the path is admitted or dismissed); an admission is 201 {verdict: "admitted", item,
  *  pack_version, ledger} with one evidence:admitted row. The pack never changes an item's sha: a changed file is flagged by Re-check,
  *  and admitted again only as the same bytes. */
@@ -206,6 +216,10 @@ export async function runEvidenceIntake(key, packId, b = {}, deps) {
 async function admitRun(d, proj, key, packId, b) {
   let input = L.readAdmitBody(b);
   const { pack, version } = await packOf(d, key, packId);
+  if (pack.dataset) { // MA-4h: a published dataset's pack — its scans only, admitted by a lead (design: an AMBER item is a lead's)
+    if (input.kind !== "scan") throw err(400, "a published dataset's pack admits its scans only — nothing was saved");
+    await d.requireMinRole(key, "lead");
+  }
   const dir = evidenceDir(key, d.root), full = insideFolder(dir, input.path), who = actor();
   if (!isFile(full)) throw err(404, `no file ${input.path} in the project's evidence folder (${dir}) — put it there first; nothing was saved`);
   input = { ...input, path: onDisk(dir, full) }; // the disk's spelling: "Photos/OWN.jpg" is photos/own.jpg, admitted or not
@@ -213,7 +227,7 @@ async function admitRun(d, proj, key, packId, b) {
   if (prev && prev.state !== "changed") throw err(409, `${input.path} is already admitted as ${prev.id} (Re-check finds a changed file) — nothing was saved`);
   if (prev) input = { ...input, kind: prev.kind }; // it comes back as first admitted: a flagged photo is not re-read as a drawing
   // The signatures its kind needs — the flagged item's own kind when it comes back (review: a body's kind asked for the wrong ones).
-  const missing = L.missingAttestations(pack, L.ADMIT_NEEDS[input.kind]);
+  const missing = L.missingAttestations(pack, L.needsOf(pack, input.kind));
   if (missing.length) throw err(409, `a lead must sign ${L.codesSaid(missing)} first; nothing was saved`);
   let request = null;
   if (!prev) {
@@ -227,7 +241,7 @@ async function admitRun(d, proj, key, packId, b) {
   }
   const refuse = async (reasons, sha256 = null) => ({ verdict: "refused", path: input.path, sha256, reasons,
     ledger: await row(d, proj, "evidence", `evidence:refused ${input.path}`, who, { pack_id: packId, path: input.path, sha256, reasons }) });
-  const policy = L.policyRefusals(input);
+  const policy = L.policyRefusals({ ...input, dataset: !!pack.dataset });
   if (policy.length) return refuse(policy);
   const format = L.formatOf(input.path, input.kind);
   const bad0 = L.magicRefusal(format, await readHead(full), input.kind);

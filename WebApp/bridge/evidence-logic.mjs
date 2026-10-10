@@ -1,4 +1,4 @@
-// MA-4a — evidence intake's pure rules (design §6.2; R2M §4.5-§6.3): the five attestation texts pinned with their sha256, the RED
+// MA-4a — evidence intake's pure rules (design §6.2; R2M §4.5-§6.3): the six attestation texts pinned with their sha256, the RED
 // providers, the format table with its magic bytes, the allowed-uses policy, the admit body's shape and the pack's validator. No IO:
 // evidence-store.mjs does the reading and hashing; artefact-store.mjs calls validatePack on every evidence_pack@n it writes.
 import { createHash } from "node:crypto";
@@ -8,18 +8,25 @@ const isObj = (v) => !!v && typeof v === "object" && !Array.isArray(v);
 const str = (v, max) => typeof v === "string" && v.trim().length > 0 && v.length <= max;
 
 /** The texts exactly as signed. Each signature puts its text's sha256 on the ledger, so a word changed here is a different
- *  attestation — evidence-logic.test.mjs pins the five hashes. (a) is R2M's wording (R:248, the founder's default; D:950 is shorthand). */
+ *  attestation — evidence-logic.test.mjs pins the six hashes. (a) is R2M's wording (R:248, the founder's default; D:950 is shorthand). */
 const TEXTS = {
   a: "I am the owner, or authorised by the owner, of this asset.",
   b: "I have the copyright holder's permission for these drawings.",
   c: "These are my own photos and scans. People have consented, or their faces are blurred.",
   d: "None of these images are captures from Google, Apple or Azure/Bing map services.",
   e: "Our commercial licence covers this use and this deliverable.",
+  f: "This published dataset's licence, recorded on this pack with its attribution, allows us to view it and to take geometry from it in our work; I checked its terms at its source.",
 };
 export const ATTESTATIONS = Object.fromEntries(Object.entries(TEXTS).map(([code, text]) => [code, { text, sha256: createHash("sha256").update(text, "utf8").digest("hex") }]));
 /** Signed before an item of that kind is admitted: the owner's authority (a) and own capture (c); a photo also (d), that it is no
  *  Google/Apple/Azure capture — the RED rule (D:486) rests on the attestation, since a body may leave `provider` out. */
 export const ADMIT_NEEDS = { scan: ["a", "c"], photo: ["a", "c", "d"], drawing: ["a", "b"] }; // MA-4b: a drawing, the owner's authority and the holder's permission
+/** MA-4h: the signatures an item needs — on a published dataset's pack, (f) alone (it has no owner here and is no one's own capture). */
+export const needsOf = (pack, kind) => (pack.dataset ? ["f"] : ADMIT_NEEDS[kind]);
+/** MA-4h: the published-dataset licences (SPDX) whose terms allow viewing a scan and taking geometry from it in an office's commercial work.
+ *  ponytail: an allow-list of two — NC, ND and SA terms are refused (commercial use, adaptation, a model's own licence); another licence is
+ *  added when a dataset under it is needed and its terms are read. */
+export const DATASET_LICENCES = ["CC-BY-4.0", "CC0-1.0"];
 /** "(a)", "(a) and (c)", "(a), (c) and (d)". */
 export const codesSaid = (codes) => codes.map((c) => `(${c})`).join(", ").replace(/, ([^,]*)$/, " and $1");
 /** RED sources (R:207, D:486): never admitted, whoever attests. Matched inside the provider's name, case ignored. */
@@ -55,7 +62,7 @@ const DRAWINGS = {
 export const tableOf = (kind) => (kind === "drawing" ? DRAWINGS : FORMATS);
 /** The uses an own item allows. texture_embed and redistribute are always false, by policy (D:668). */
 export const USES = { view_reference: true, geometry_extraction: true, texture_embed: false, redistribute: false, ml_training: false };
-const PACK_FIELDS = ["kind", "pack_id", "project", "asset", "storage_root", "attestations", "items", "requests"];
+const PACK_FIELDS = ["kind", "pack_id", "project", "asset", "storage_root", "attestations", "items", "requests", "dataset"];
 /** MA-4b: who an "ask the owner" letter goes to; a drawing admitted under it carries this as its provider. */
 export const RECIPIENTS = ["owner", "architect", "municipality"];
 export const MAX_REQUESTS = 50;
@@ -103,11 +110,12 @@ export function newItemRefusal({ path, kind, registration, request_id }) {
 }
 
 /** The reasons an item is refused before its bytes are read (each becomes an evidence:refused row). [] = none. */
-export function policyRefusals({ kind, provider, path }) {
+export function policyRefusals({ kind, provider, path, dataset = false }) {
   const out = [];
   if (RED.some((r) => provider.includes(r))) out.push(`${provider} is a RED source — imagery and data from Google, Apple and Azure/Bing map services are never admitted (attestation d says so for every photo)`);
   // A drawing's provider is its request's recipient, stamped by the bridge — the body's is read for the RED rule only.
-  else if (provider !== "own" && kind !== "drawing") out.push("web and third-party items wait for a later stage — only your own scans and photos (provider own) are admitted now");
+  // MA-4h: on a published dataset's pack the body's provider is read for the RED rule only (the pack's is stamped).
+  else if (provider !== "own" && kind !== "drawing" && !dataset) out.push("web and third-party items wait for a later stage — only your own scans and photos (provider own) are admitted now");
   if (kind === "drawing") {
     if (!formatOf(path, kind)) out.push(`${extOf(path) ? `a .${extOf(path)}` : "a file with no extension"} is not admitted as a drawing — drawings are pdf, dwg, dxf, png or jpg`);
     return out;
@@ -128,11 +136,29 @@ export const missingAttestations = (pack, codes) => codes.filter((c) => !pack.at
 /** The next id of a list: "ev-0001", "att-0003" — one past the highest number used. */
 export const nextId = (prefix, list) => `${prefix}-${String(list.reduce((n, x) => Math.max(n, Number(String(x.id).split("-")[1]) || 0), 0) + 1).padStart(4, "0")}`;
 
-/** A new pack for `key` — no attestation, no item; the bridge stamps storage_root. */
-export function newPack(key, projectName, asset, storageRoot) {
+/** A new pack for `key` — no attestation, no item; the bridge stamps storage_root. MA-4h: `dataset` (readDataset's) makes it a published dataset's pack. */
+export function newPack(key, projectName, asset, storageRoot, dataset = null) {
   const a = isObj(asset) ? asset : {};
   const s = (v) => (typeof v === "string" && v.trim() ? v.trim() : null);
-  return { kind: "evidence_pack", pack_id: PACK_ID, project: key, asset: { name: s(a.name) ?? projectName ?? key, type: s(a.type), jurisdiction: s(a.jurisdiction), crs: s(a.crs) }, storage_root: storageRoot, attestations: [], items: [], requests: [] };
+  return { kind: "evidence_pack", pack_id: PACK_ID, project: key, asset: { name: s(a.name) ?? projectName ?? key, type: s(a.type), jurisdiction: s(a.jurisdiction), crs: s(a.crs) }, storage_root: storageRoot, attestations: [], items: [], requests: [], ...(dataset ? { dataset } : {}) };
+}
+
+/** MA-4h: POST /cde/:key/evidence's `dataset` → null (an own pack), {provider, source_url, licence, attribution} (normalised: the provider in
+ *  lower case, the attribution on one line), or a 400 in words before anything is written. */
+export function readDataset(v) {
+  if (v == null) return null;
+  const bad = (m) => err(400, `${m} — nothing was saved`);
+  if (!isObj(v)) throw bad("dataset must be {provider, source_url, licence, attribution} — a published dataset's pack");
+  const provider = typeof v.provider === "string" ? v.provider.trim().toLowerCase() : "";
+  if (!provider || provider.length > 100 || provider === "own") throw bad("dataset.provider must name where it was published (at most 100 characters)");
+  let host = "";
+  try { host = new URL(v.source_url).hostname; } catch { /* said below */ }
+  if (!(typeof v.source_url === "string" && v.source_url.length <= 500 && /^https:\/\/\S+$/.test(v.source_url) && host)) throw bad("dataset.source_url must be its https:// address (at most 500 characters)");
+  const red = [provider, host].find((s) => RED.some((r) => s.includes(r))); // the RED rule on the name and on where it is served from
+  if (red) throw bad(`${red} is a RED source — imagery and data from Google, Apple and Azure/Bing map services are never admitted`);
+  if (!DATASET_LICENCES.includes(v.licence)) throw bad(`dataset.licence must be ${DATASET_LICENCES.join(" or ")} (SPDX) — a licence that allows commercial use and adaptation`);
+  if (!str(v.attribution, 300)) throw bad("dataset.attribution must be the attribution its licence asks for (at most 300 characters)");
+  return { provider, source_url: v.source_url, licence: v.licence, attribution: oneLine(v.attribution) };
 }
 
 /** MA-4b: POST …/requests' body → {recipient_kind, recipient, documents, purpose}, each text on one line, or a 400 in words. */
@@ -188,10 +214,11 @@ export function newItem({ id, input, format, sha256, size_bytes, report, pack, w
   const reg = input.registration;
   const from = input.kind === "drawing"
     ? { provider: request.recipient_kind, licence: "holder-permission", request_id: request.id }
+    : pack.dataset ? { provider: pack.dataset.provider, licence: pack.dataset.licence } // MA-4h: the published dataset's
     : { provider: "own", licence: "owner-supplied" };
   return {
     id, kind: input.kind, format, sha256, size_bytes, path: input.path, ...from,
-    attestation_ids: ADMIT_NEEDS[input.kind].map((c) => pack.attestations.find((a) => a.code === c).id), // a photo's names (d) too
+    attestation_ids: needsOf(pack, input.kind).map((c) => pack.attestations.find((a) => a.code === c).id), // a photo's names (d) too
     allowed_uses: { ...USES },
     ...(reg ? { registration: { method: reg.method, ...(reg.report_path ? { report_path: reg.report_path, report_sha256: report.sha256 } : {}), confirmed_by: who } } : {}),
     surveyable: tableOf(input.kind)[format].surveyable, admitted_by: who, admitted_at: at,
@@ -219,13 +246,19 @@ export function validatePack(p) {
   if (!isObj(p.asset) || !str(p.asset.name, 200)) throw bad("asset.name", "must be a non-empty string of at most 200 characters");
   for (const k of ["type", "jurisdiction", "crs"]) if (p.asset[k] != null && !str(p.asset[k], 100)) throw bad(`asset.${k}`, "must be a string of at most 100 characters, or null");
   if (!str(p.storage_root, 1000)) throw bad("storage_root", "must be the evidence folder's path");
-  if (!Array.isArray(p.attestations) || p.attestations.length > 5) throw bad("attestations", "must be an array of at most 5 (a to e, once each)");
+  if (p.dataset !== undefined) { // MA-4h: a published dataset's pack — its record exactly as readDataset reads it (compared field by field: jsonb reorders keys)
+    let d = null;
+    try { d = readDataset(p.dataset); } catch { /* said below */ }
+    if (!d || !isObj(p.dataset) || Object.keys(p.dataset).length !== 4 || Object.keys(d).some((k) => d[k] !== p.dataset[k]))
+      throw bad("dataset", `must be {provider, source_url, licence (${DATASET_LICENCES.join(" or ")}), attribution}, as the bridge reads it`);
+  }
+  if (!Array.isArray(p.attestations) || p.attestations.length > 6) throw bad("attestations", "must be an array of at most 6 (a to f, once each)");
   const attIds = new Map(), codes = new Set(); // id → code
   p.attestations.forEach((a, i) => {
     const at = `attestations[${i}]`;
     if (!isObj(a)) throw bad(at, "must be an object");
     if (!/^att-\d{4}$/.test(a.id) || attIds.has(a.id)) throw bad(`${at}.id`, "must be a unique att-NNNN");
-    if (!ATTESTATIONS[a.code] || codes.has(a.code)) throw bad(`${at}.code`, "must be one of a to e, once per pack");
+    if (!ATTESTATIONS[a.code] || codes.has(a.code)) throw bad(`${at}.code`, "must be one of a to f, once per pack");
     if (a.text_sha256 !== ATTESTATIONS[a.code].sha256) throw bad(`${at}.text_sha256`, `must be the sha256 of (${a.code})'s pinned text`);
     if (!str(a.by, 320) || !["lead", "owner"].includes(a.role) || !str(a.at, 40)) throw bad(at, "needs by, role (lead or owner) and at — stamped by the bridge");
     attIds.set(a.id, a.code); codes.add(a.code);
@@ -256,13 +289,16 @@ export function validatePack(p) {
     if (!f || f.kind !== x.kind) throw bad(`${at}.format`, "must be in the format table for its kind (scan: e57, las, laz, rcp; photo: jpg, png; drawing: pdf, dwg, dxf, png, jpg)");
     if (!/^[0-9a-f]{64}$/.test(x.sha256)) throw bad(`${at}.sha256`, "must be 64 hex");
     if (!Number.isSafeInteger(x.size_bytes) || x.size_bytes < 0) throw bad(`${at}.size_bytes`, "must be a whole number of bytes");
-    if (x.kind === "drawing") {
+    if (p.dataset) { // MA-4h: a published dataset's pack holds its scans, under its provider and licence
+      if (x.kind !== "scan" || x.provider !== p.dataset.provider || x.licence !== p.dataset.licence || x.request_id !== undefined)
+        throw bad(at, "is the published dataset's scan: its provider and licence, no request");
+    } else if (x.kind === "drawing") {
       if (x.licence !== "holder-permission" || !reqs.has(x.request_id) || x.provider !== reqs.get(x.request_id))
         throw bad(at, "is a drawing: licence holder-permission, request_id naming a request of this pack, provider its recipient_kind");
     } else if (x.provider !== "own" || x.licence !== "owner-supplied" || x.request_id !== undefined) throw bad(at, "is own (licence owner-supplied) — only a drawing comes from someone else, under a request");
     if (!Array.isArray(x.attestation_ids) || !x.attestation_ids.every((a) => attIds.has(a))
-      || !ADMIT_NEEDS[x.kind].every((c) => x.attestation_ids.some((a) => attIds.get(a) === c)))
-      throw bad(`${at}.attestation_ids`, `must name attestations of this pack, ${codesSaid(ADMIT_NEEDS[x.kind])} at least for a ${x.kind}`);
+      || !needsOf(p, x.kind).every((c) => x.attestation_ids.some((a) => attIds.get(a) === c)))
+      throw bad(`${at}.attestation_ids`, `must name attestations of this pack, ${codesSaid(needsOf(p, x.kind))} at least for a ${x.kind}`);
     const u = x.allowed_uses;
     if (!isObj(u) || Object.keys(u).length !== Object.keys(USES).length || Object.keys(USES).some((k) => typeof u[k] !== "boolean")) throw bad(`${at}.allowed_uses`, `must be exactly {${Object.keys(USES).join(", ")}}, each true or false`);
     if (u.texture_embed !== false || u.redistribute !== false) throw bad(`${at}.allowed_uses`, "texture_embed and redistribute are always false (policy)");

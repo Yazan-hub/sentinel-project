@@ -3,6 +3,7 @@ import { describe, it, expect } from "vitest";
 import {
   ATTESTATIONS, ADMIT_NEEDS, MAX_ITEMS, codesSaid, readAdmitBody, newItemRefusal, policyRefusals, magicRefusal,
   nextId, newPack, newItem, flagged, readmitted, validatePack, readRequestBody, letterText, newRequest, requestedValue,
+  DATASET_LICENCES, readDataset, needsOf,
 } from "./evidence-logic.mjs";
 
 const PATH_WORDS = "path must name a file inside the project's evidence folder, relative to it (no drive, no leading slash, no ..) — nothing was saved";
@@ -19,13 +20,14 @@ const photoItem = (pack) => newItem({
 });
 
 describe("the attestations (pinned)", () => {
-  it("the five texts hash exactly as signed", () => {
+  it("the six texts hash exactly as signed", () => {
     expect(Object.fromEntries(Object.entries(ATTESTATIONS).map(([k, v]) => [k, v.sha256]))).toEqual({
       a: "e5fdcf84d2436de3076c8153c4c1cf5748dfab29cbea6f76cdbdb36202782546",
       b: "a66c8e127c1f8e7217ad943f30db0dff7f9f9f025a6fc9c7a0c64afcb9288c92",
       c: "f6103bd87d440564df63796758df64fb7a0e9077aa766559a6b18f1cad041bbc",
       d: "6b4631aec9b8969a9129837fe830943418c6d1a0bc580f3f3336347592920f4a",
       e: "71656072b4e5b61196fcacd3fdf1d3f5b5ca19043cfe124159dca0cc788bc217",
+      f: "be54e04879d716b63add30ab9785ded25ffd6e83817a082489b4aa062be29022",
     });
     expect(ATTESTATIONS.a.text).toBe("I am the owner, or authorised by the owner, of this asset.");
   });
@@ -176,5 +178,40 @@ describe("Ask the owner (MA-4b)", () => {
     fails({ ...pack, items: [{ ...photoItem(packWith(["a", "c", "d"])), request_id: "req-0001" }] }, "evidence_pack: items[0] is own (licence owner-supplied) — only a drawing comes from someone else, under a request");
     const { requests: _r, ...ma4a } = newPack("p", "P", {}, "C:/ev/p");
     expect(validatePack(ma4a)).toBe(true); // an MA-4a pack has no requests
+  });
+});
+
+describe("MA-4h — a published dataset's pack", () => {
+  const DS = { provider: "Example-Repository", source_url: "https://example.test/records/1", licence: "CC-BY-4.0", attribution: "Example scan by A. Surveyor,\n example.test, CC BY 4.0" };
+  const read = { ...DS, provider: "example-repository", attribution: "Example scan by A. Surveyor, example.test, CC BY 4.0" };
+  const bad = (v, message) => expect(() => readDataset(v)).toThrow(expect.objectContaining({ status: 400, message }));
+  const dsPack = (codes) => ({ ...newPack("p", "P", {}, "C:/ev/p", read), attestations: signed(codes) });
+
+  it("its record, read and normalised; anything else refused in words", () => {
+    expect([readDataset(undefined), readDataset(null), readDataset(DS)]).toEqual([null, null, read]);
+    expect(DATASET_LICENCES).toEqual(["CC-BY-4.0", "CC0-1.0"]);
+    bad("x", "dataset must be {provider, source_url, licence, attribution} — a published dataset's pack — nothing was saved");
+    bad({ ...DS, provider: "own" }, "dataset.provider must name where it was published (at most 100 characters) — nothing was saved");
+    bad({ ...DS, provider: "google-earth" }, "google-earth is a RED source — imagery and data from Google, Apple and Azure/Bing map services are never admitted — nothing was saved");
+    bad({ ...DS, source_url: "http://example.test/records/1" }, "dataset.source_url must be its https:// address (at most 500 characters) — nothing was saved");
+    bad({ ...DS, source_url: "https://maps.google.com/x" }, "maps.google.com is a RED source — imagery and data from Google, Apple and Azure/Bing map services are never admitted — nothing was saved");
+    bad({ ...DS, licence: "CC-BY-NC-4.0" }, "dataset.licence must be CC-BY-4.0 or CC0-1.0 (SPDX) — a licence that allows commercial use and adaptation — nothing was saved");
+    bad({ ...DS, attribution: " " }, "dataset.attribution must be the attribution its licence asks for (at most 300 characters) — nothing was saved");
+  });
+  it("its scans need (f) alone and carry its provider and licence; an own pack's needs are unchanged", () => {
+    expect([needsOf(dsPack([]), "scan"), needsOf(packWith([]), "scan")]).toEqual([["f"], ["a", "c"]]);
+    expect(policyRefusals({ kind: "scan", provider: "own", path: "scans/a.las", dataset: true })).toEqual([]);
+    const pack = dsPack(["f"]);
+    const s = scanItem(pack);
+    expect([s.provider, s.licence, s.attestation_ids, s.allowed_uses]).toEqual(["example-repository", "CC-BY-4.0", ["att-0001"], { view_reference: true, geometry_extraction: true, texture_embed: false, redistribute: false, ml_training: false }]);
+    expect(validatePack({ ...pack, items: [s] })).toBe(true);
+  });
+  it("the validator: its record as read, (f) on its scans, nothing own in it", () => {
+    const fails = (p, message) => expect(() => validatePack(p)).toThrow(expect.objectContaining({ status: 400, message }));
+    const pack = dsPack(["f"]);
+    const s = scanItem(pack);
+    fails({ ...pack, dataset: { ...read, licence: "CC-BY-SA-4.0" } }, "evidence_pack: dataset must be {provider, source_url, licence (CC-BY-4.0 or CC0-1.0), attribution}, as the bridge reads it");
+    fails({ ...pack, items: [{ ...s, provider: "own", licence: "owner-supplied" }] }, "evidence_pack: items[0] is the published dataset's scan: its provider and licence, no request");
+    fails({ ...pack, items: [{ ...s, attestation_ids: [] }] }, "evidence_pack: items[0].attestation_ids must name attestations of this pack, (f) at least for a scan");
   });
 });
