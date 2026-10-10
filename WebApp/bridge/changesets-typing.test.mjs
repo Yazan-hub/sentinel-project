@@ -263,3 +263,18 @@ describe("changesets-typing — every refusal a candidate can earn carries its g
   });
   it("a typed candidate is typed (gapOf says so)", () => expect(gapOf(type, "wall", { thickness_mm: 300, params: { Location: "Exterior" } })).toBe("typed"));
 });
+
+describe("bds-dd-survey-guideline.json (the founder's 'do it', 2026-10-11): the layer-free walls plus the elements guideline's other five categories", () => {
+  it("is the two files joined, validates, names only catalogue rows, and types a survey's interior door by rule — an exterior one stays a gap", async () => {
+    const S = read("../../demo/bds-pilot/bds-dd-survey-guideline.json"), E = read("../../demo/bds-pilot/bds-dd-elements-guideline.json");
+    expect(S.elements).toEqual([G.elements.find((e) => e.category === "Walls"), ...E.elements.filter((e) => e.category !== "Walls")]); // no drift
+    const { validateArtefact } = await import("./artefact-store.mjs");
+    expect(() => validateArtefact("guideline", S)).not.toThrow();
+    expect(core.validateAgainstCatalog(S, C.types)).toEqual([]);
+    const t = makeTyper({ ...STANDARDS, guideline: { ...STANDARDS.guideline, body: S } }, core);
+    // the facts survey-plan sends for a scan door: its host's Location and the nominal size (MA-5a)
+    expect(t("door", { params: { HostFunction: "Interior", Size: "W1000 x H2100 mm" } }, "d1")).toMatchObject({ FamilyName: "BDS_INT_1 PNL", TypeName: "BDS_INT_1 PNL_WOOD_1000 x 2100 mm" });
+    refused(() => t("door", { params: { HostFunction: "Exterior", Size: "W1000 x H2100 mm" } }, "d2"), /no rule of guideline@1 .* matches a door/);
+    expect(t("wall", { thickness_mm: 300, params: { Location: "Exterior" } }, "w1")).toMatchObject({ TypeName: "BDS_EXT_ARC_CMU_300 mm" }); // walls as before
+  });
+});
