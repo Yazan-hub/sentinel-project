@@ -27,7 +27,8 @@ SLICE_HALF = 300.0      # mm: the wall slice is mid-storey +-300 mm (ponytail: f
 CELL = 20.0             # mm: the slice's grid; a face is its points within CELL of a line (why voxel_mm stops at 50: at 200 mm,
                         # 4 of the drill's 8 walls lost their thickness, measured; the bridge and read_job both bound it)
 # MA-4h-3, Kladno: clearing 1.5 cells around a found face left a rough face's far half to be found again — 190 of 231 pairs under 100 mm
-# (median 38 mm), one surface twice; F1 at 100 mm rose on GF and 1F at 2 and again at 3. ponytail: two faces closer than 3 cells (a wall
+# (median 40 mm), one surface twice; F1 at 100 mm rose on GF and 1F at 2 and again at 3, and with MA-4h-3's other knobs 61 of 162 pairs
+# are under 100 mm (median 158 mm). ponytail: two faces closer than 3 cells (a wall
 # under ~60 mm, glass) read as one face — never a wall; the scan's normals would tell them apart.
 CLEAR = 3.0             # cells: a found face's cells within CLEAR x CELL of its line leave the Hough
 # MA-4h-3, Kladno (tuned on GF, held out on 1F): F1 at 100 mm 0.089 / 0.204 at 500, 0.102 / 0.225 at 750, 0.116 / 0.330 at 1 000, and
