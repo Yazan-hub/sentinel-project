@@ -611,6 +611,20 @@ class Knobs(unittest.TestCase):
         # two 700 mm pieces of one line, 400 mm apart (a doorway): the Hough finds the line, each run is too short (MAX_GAP breaks it)
         self.assertEqual(pipeline.faces(np.concatenate([self.line(5, 0, 700, 10, 1), self.line(5, 1100, 1800, 10, 2)])), [])
 
+    def test_a_face_a_third_of_the_storey_high_is_furniture_not_a_wall(self):
+        # MA-4h-4: a 3 m long surface 900..1900 mm up (a counter's back through the mid-storey slice, 0.4 of the 2.5 m between the
+        # height edges) inside the drill building
+        rng = np.random.default_rng(11)
+        y, z = np.meshgrid(np.arange(2000, 5000, 100.0), np.arange(900, 1900, 100.0))
+        counter = np.stack([4000 + rng.normal(0, 2, y.size), y.ravel() + rng.uniform(0, 100, y.size), z.ravel() + rng.uniform(0, 100, z.size)], 1)
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            path = os.path.join(tmp, "counter.las")
+            write_las(path, np.concatenate([building(), counter]))
+            found, _ = pipeline.survey([{"id": "ev-0001", "path": path, "head": las.read_header(path)}], Survey.PARAMS, 1)
+        walls = [c for c in found if c["kind"] == "wall"]
+        self.assertEqual(len(walls), 8)  # the building's, as Survey counts them; the counter's face is not one
+        self.assertTrue(all(abs(c["geometry"]["LocationCurve"]["start"][0] - 4000) > 500 for c in walls))
+
 
 class Voxel(unittest.TestCase):
     def test_one_point_per_cube_the_first_in_reading_order_as_the_row_sort_gives(self):
@@ -759,7 +773,7 @@ class Service(unittest.TestCase):
 
     def test_health_answers_only_its_token_and_names_each_tool_with_its_licence(self):
         _, port, version = self.start()
-        self.assertEqual(version, "0.3.0")
+        self.assertEqual(version, "0.4.0")
         self.assertEqual(self.call(port, "GET", "/health", token="nope")[0], 401)
         code, health = self.call(port, "GET", "/health")
         names = [t["name"] for t in health["tools"]]
