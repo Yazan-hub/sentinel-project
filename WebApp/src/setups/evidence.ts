@@ -14,8 +14,10 @@ export const ATTESTATION_TEXTS: Record<string, string> = {
   c: "These are my own photos and scans. People have consented, or their faces are blurred.",
   d: "None of these images are captures from Google, Apple or Azure/Bing map services.",
   e: "Our commercial licence covers this use and this deliverable.",
+  f: "This published dataset's licence, recorded on this pack with its attribution, allows us to view it and to take geometry from it in our work; I checked its terms at its source.",
 };
 export interface Attestation { id: string; code: string; text_sha256: string; by: string; role: string; at: string; }
+export interface Dataset { provider: string; source_url: string; licence: string; attribution: string; }
 export type EvidenceKind = "scan" | "photo" | "drawing";
 export interface EvidenceItem {
   id: string; kind: EvidenceKind; format: string; sha256: string; size_bytes: number; path: string; surveyable: boolean;
@@ -27,7 +29,7 @@ export interface EvidenceRequest {
   id: string; recipient_kind: "owner" | "architect" | "municipality"; recipient: string | null; documents: string[]; purpose: string | null;
   letter: string; letter_sha256: string; drafted_by: string; drafted_at: string;
 }
-export interface EvidencePack { pack_id: string; storage_root: string; attestations: Attestation[]; items: EvidenceItem[]; requests?: EvidenceRequest[]; }
+export interface EvidencePack { pack_id: string; storage_root: string; attestations: Attestation[]; items: EvidenceItem[]; requests?: EvidenceRequest[]; dataset?: Dataset; }
 export interface EvidenceRead { pack: EvidencePack; ref: string; folder: { path: string; exists: boolean; files_not_admitted: { path: string; size_bytes: number }[]; truncated: boolean }; }
 type Ledger = { id: number | null; hash: string | null };
 export interface AdmitReply { verdict: "admitted" | "refused"; item?: EvidenceItem; path?: string; reasons?: string[]; ledger: Ledger; }
@@ -52,6 +54,9 @@ export function attestationLine(code: string, pack: EvidencePack): string {
   const a = pack.attestations.find((x) => x.code === code);
   return a ? `(${code}) signed by ${a.by} (${a.role}) · ${a.at.replace("T", " ").slice(0, 16)}` : `(${code}) not signed`;
 }
+/** MA-4h: a published dataset's pack in one line — where it came from, its licence and the attribution it asks for. Pure. */
+export const datasetLine = (d: Dataset): string =>
+  `Published dataset — ${d.provider} · ${d.licence} · ${d.source_url} · attribution: ${d.attribution}. A lead signs (f), then admits its scans.`;
 /** The status line after Admit. Pure. */
 export function admitLine(r: AdmitReply): string {
   return r.verdict === "admitted" && r.item
