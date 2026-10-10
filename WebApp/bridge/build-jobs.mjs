@@ -311,8 +311,8 @@ export async function trustedJob(key, id, deps = {}) {
  *  is its cwd (the service writes nothing there). → runSurvey's record (it never rejects once started); before the start a 503 (not set up) or
  *  a 409 (a job or a measure running), each ending "nothing was saved". The caller (changesets-store verifyChangeset) checks the person, the
  *  changeset and the bytes, and writes the row.
- *  ponytail: a cold process per measure (start-up 1-2 s beside two hashes and a read of the scan; MA-4c decision 3 kept); a warm service with
- *  a cloud cache keyed on (the items' shas, voxel, seed), an idle timeout and a memory bound when verify runs per Apply in bulk (MA-4h).
+ *  ponytail: a cold process per measure (start-up ~1 s beside two hashes and a read of the scan; MA-4c decision 3 kept) — MA-4h,
+ *  Kladno: a verify ~41 s, an overlay ~21 s; a warm service with a cloud cache keyed on (the items' shas, voxel, seed) when verify runs per Apply in bulk.
  *  MA-4f: the scan overlay runs here too ({path: "/cloud", what: "a scan overlay"}). */
 export async function measureJob(key, jobId, payload, deps = {}, { path = "/measure", what = "a measure" } = {}) {
   const d = await wire(deps);

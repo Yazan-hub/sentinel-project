@@ -210,7 +210,7 @@ export function groupGaps(gaps) {
     for (const e of g.evidence) if (x.evidence.length < 50 && !x.evidence.includes(e)) x.evidence.push(e);
     by.set(id, x);
   }
-  if (by.size > 200) throw err(413, `the job leaves ${by.size} type-gap groups — over the 200 one Holding Area row holds; MA-4h splits it — nothing was saved`);
+  if (by.size > 200) throw err(413, `the job leaves ${by.size} type-gap groups — over the 200 one Holding Area row holds; survey a part of the building, or type more of its sizes — nothing was saved`);
   return [...by.values()];
 }
 
@@ -291,9 +291,10 @@ export function planSurvey({ job, candidates, frame, levels: named = {}, manifes
         place: { BaseElevation: E, Name: s.level }, reason: `scan storey ${s.cid} at ${s.scan_mm} mm (${fit(lv)}) · a new level at ${E} mm in the model · ${ref}`.slice(0, 500) });
       byCid.set(s.cid, trust(lv));
     }
-    // ponytail: one changeset (one Undo) per storey; a storey over 200 needs StoreyBatch to accept the survey source (C#) — MA-4h with Kladno.
+    // ponytail: one changeset (one Undo) per storey; a storey over 200 needs StoreyBatch to accept the survey source (C#) — MA-4h's dry
+    // plan: Kladno's 425-candidate storey types none on the BDS standards (131 gap groups); build the split when a storey types over 200.
     if (elements.length > MAX_CHANGESET_ELEMENTS)
-      throw err(413, `${s.cid} would file ${elements.length} elements on ${s.level} — over the ${MAX_CHANGESET_ELEMENTS} one changeset (one Undo) holds; splitting a storey waits for MA-4h — nothing was saved`);
+      throw err(413, `${s.cid} would file ${elements.length} elements on ${s.level} — over the ${MAX_CHANGESET_ELEMENTS} one changeset (one Undo) holds; a storey is not split into changesets yet — survey a part of the building — nothing was saved`);
     return { storey: s, byCid, exceptions, body: { name: `Survey ${job.id} · ${s.level}`, contract: 2, source: `${job.reader} ${job.version}`, elements, exceptions } };
   });
   return { storeys, groups: groupGaps(gaps), already_filed: already };
@@ -398,7 +399,7 @@ export function meshFaces(el, m) {
  *  a floor or ceiling, a wall whose geometry is not on the changeset. Pure. → {send: [{guid, faces}], skip: [{proposal_guid, reason}],
  *  placed: [{proposal_guid, revit_unique_id, cid, kind}]}
  *  ponytail: walls only — a floor's or ceiling's other face is its type's, which no scan measured, and the slab beyond counts against its one
- *  face (measured: ~200 mm on the drill); a depth from its type is MA-4h's.
+ *  face (measured: ~200 mm on the drill); a depth from its type is Next (MA-4h did not take it).
  *  MA-4f: a wall Revit re-read at Apply is sent by its re-read's faces (reference REVIT, its mesh's sha), else as filed (FILED); placed[i].reference is set only when its faces are sent. */
 export function measurePlan(cs, undone = () => null) {
   const S = toScan(cs.job.frame), send = [], skip = [], placed = [];
@@ -408,8 +409,8 @@ export function measurePlan(cs, undone = () => null) {
     const f = u != null ? { why: `undone in Revit (ledger #${u}) — nothing placed to measure` }
       : rr?.faces ? { faces: rr.faces.map((q) => q.map(([x, y, z]) => [...S.xy([x, y]), S.z(z)])), reference: REVIT, mesh_sha256: rr.mesh_sha256 }
       : el?.kind === "wall" ? { ...facesOf(el, S), reference: FILED }
-      : el?.kind === "level" ? { why: "a level has no face to measure — its height against the scan is MA-4h's level error" }
-      : el?.kind === "floor" || el?.kind === "ceiling" ? { why: `one face of a ${el.kind} is seen; its other is its type's, which no scan measured, and the slab beyond would count against it — MA-4h` }
+      : el?.kind === "level" ? { why: "a level has no face to measure — its height was set when it was proposed" }
+      : el?.kind === "floor" || el?.kind === "ceiling" ? { why: `one face of a ${el.kind} is seen; its other is its type's, which no scan measured, and the slab beyond would count against it` }
       : { why: el ? `a ${el.kind} is not measured by sentinel-survey` : "not on the changeset" };
     placed.push({ proposal_guid: a.proposal_guid, revit_unique_id: a.revit_unique_id ?? null, cid: el?.cid ?? null, kind: el?.kind ?? null,
       ...(f.faces ? { reference: f.reference, ...(f.mesh_sha256 ? { mesh_sha256: f.mesh_sha256 } : {}) } : {}) });

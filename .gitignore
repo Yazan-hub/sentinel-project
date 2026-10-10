@@ -42,3 +42,7 @@ WebApp/bridge/logs-*.out
 
 # MA-4c: sentinel-survey runs with -B (no bytecode); a run without it must not dirty the tree
 __pycache__/
+# MA-4h: scans never enter the repository (the public Kladno scan is 6.5 GB; evidence stays in %APPDATA%\Sentinel\evidence)
+*.las
+*.laz
+*.e57

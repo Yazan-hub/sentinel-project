@@ -219,8 +219,8 @@ describe("MA-4e — a placed wall as filed, back in the scan's frame; the bridge
     expect(p.send.map((s) => s.guid)).toEqual(["w"]);
     expect(p.skip).toEqual([
       { proposal_guid: "u", reason: "undone in Revit (ledger #2211) — nothing placed to measure" },
-      { proposal_guid: "l", reason: "a level has no face to measure — its height against the scan is MA-4h's level error" },
-      { proposal_guid: "f", reason: "one face of a floor is seen; its other is its type's, which no scan measured, and the slab beyond would count against it — MA-4h" }]);
+      { proposal_guid: "l", reason: "a level has no face to measure — its height was set when it was proposed" },
+      { proposal_guid: "f", reason: "one face of a floor is seen; its other is its type's, which no scan measured, and the slab beyond would count against it" }]);
     expect(p.placed.map((x) => [x.proposal_guid, x.revit_unique_id, x.cid, x.kind])).toEqual([["w", "U-w", "c-w", "wall"], ["u", "U-u", "c-u", "wall"], ["l", "U-l", "c-l", "level"], ["f", "U-f", "c-f", "floor"]]);
   });
   it("judge: p95 against D7's 20 mm; missing, insufficient data and not measured in words — never a pass without points", () => {

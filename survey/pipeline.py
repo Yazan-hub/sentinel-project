@@ -29,10 +29,11 @@ END_GAP = 100.0         # mm: a piece shorter than this at a face's end, past an
 MAX_WALL = 600.0        # mm: faces further apart are two walls (a corridor), not one — WallPairing allows 1000 on drawings
 NEAR_FACE = 40.0        # mm: a floor or ceiling point this close to a wall face of its storey is the wall's
 # ponytail: at most 10 million points are held in memory (a seeded sample beyond, read in chunks — las.CHUNK; no memory bound on
-# Windows without a Job Object); MA-4h measures the cap on the 6.5 GB Kladno run.
+# Windows without a Job Object). MA-4h, Kladno (250.5 M points): a 4 % sample, 8.42 M after the voxel; the job 157 s and 1.70 GB private
+# at peak (0.76 GB of it numpy's OpenBLAS buffers, one per thread). Raise it only if wall F1 shows walls lost to sparsity (MA-4h-3).
 MAX_POINTS = 10_000_000
 # ponytail: one building per job — the Hough accumulator is 360 x (2 x span / CELL) votes, ~170 MB at 300 m (twice, with bincount's);
-# a site, a campus or a long infrastructure scan waits for MA-4h's tiled slices.
+# a site, a campus or a long infrastructure scan waits for tiled slices (not built: MA-4h's Kladno is 67 m across).
 MAX_SPAN = 300_000.0    # mm in plan
 
 
@@ -58,7 +59,7 @@ def load(items, params, seed, progress=lambda stage, pct: None):
     span = float(np.ptp(P[:, :2], axis=0).max())
     if span > MAX_SPAN:
         raise las.Refused(f"the scans span {span / 1000:.0f} m in plan — sentinel-survey reads one building (at most "
-                          f"{MAX_SPAN / 1000:.0f} m across); a larger site waits for MA-4h")
+                          f"{MAX_SPAN / 1000:.0f} m across); admit each building's scans to a project of its own")
     src = np.concatenate([np.full(len(c), k) for k, c in enumerate(clouds)])
     P, src = voxel(P, src, float(params["voxel_mm"]))
     return P, src, points_in
@@ -163,8 +164,8 @@ def faces(XY):
     """Wall faces in a slice's plan points (mm), longest first: {seg (x1, y1, x2, y2), len, points, rmse, coverage}. The Hough runs in
     the slice's local frame (its lowest corner at 0), so the accumulator follows the slice's size, never its distance from the scan's
     origin (a UTM easting asked for 1.56 TiB); each seg is given back in the scan's own frame.
-    ponytail: the Hough transform runs again after each face over the cells left (faces x cells x 360 votes) — fine for a house; MA-4h
-    measures a real building."""
+    ponytail: the Hough transform runs again after each face over the cells left (faces x cells x 360 votes) — MA-4h, Kladno's ground
+    storey: 70 103 cells, 420 walls, 129 s of the job's 157 s; tile the slice if a storey nears JOB_MS."""
     if len(XY) == 0:
         return []
     org = XY.min(axis=0)
@@ -405,9 +406,9 @@ def deviation(P, elements, tols, progress=lambda stage, pct: None):
     coverage (its faces' interior cells holding a point it owns — within BAND, so a face seen but placed far off still counts as seen and
     p95 judges it)} — 0.1 mm and 3 decimals; the numbers null with no
     point, coverage null when no face has an interior.
-    ponytail: each face is a pass over the cloud cropped to the elements' box (faces x points) — fine for a storey of 200 walls; a plan-grid
-    index when MA-4h measures Kladno. Clutter, or an element not placed, within BAND of a face's interior counts against it (the honest
-    reading: the scan is not the model). ~1 GB at the 10 M point cap (the crop and three per-point arrays) — MA-4h measures it."""
+    ponytail: each face is a pass over the cloud cropped to the elements' box (faces x points) — MA-4h, Kladno: 200 walls (400
+    faces) over a whole storey in 21 s, under the job's 1.70 GB peak; a plan-grid index if a measure nears JOB_MS. Clutter, or an element
+    not placed, within BAND of a face's interior counts against it (the honest reading: the scan is not the model)."""
     band = 2.0 * float(max(tols))
     F = []  # (element, origin, u, |u|, v, |v|, outward normal)
     for k, e in enumerate(elements):

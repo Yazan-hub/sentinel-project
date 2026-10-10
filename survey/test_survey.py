@@ -565,7 +565,7 @@ class Survey(unittest.TestCase):
         with self.assertRaises(las.Refused) as e:
             pipeline.survey([{"id": "ev-0001", "path": path, "head": las.read_header(path)}], self.PARAMS, 1)
         self.assertEqual(str(e.exception), "the scans span 400 m in plan — sentinel-survey reads one building (at most 300 m across); "
-                                           "a larger site waits for MA-4h")
+                                           "admit each building's scans to a project of its own")
 
 
 class Voxel(unittest.TestCase):
@@ -872,7 +872,7 @@ class InProcess(unittest.TestCase):
     def test_a_file_over_the_point_limit_is_refused_in_words(self):
         item = self.item(np.zeros((5, 3)))
         with mock.patch.object(service, "MAX_POINTS_IN", 4):
-            self.assertEqual(service.check(item), (None, "5 points — sentinel-survey reads at most 4 in one file; a larger scan waits for MA-4h"))
+            self.assertEqual(service.check(item), (None, "5 points — sentinel-survey reads at most 4 in one file; export the scan in parts of at most that many"))
 
     MEASURE = {"voxel_mm": 20, "storey_min_mm": 2000, "tolerances_mm": [50, 100, 200]}
 

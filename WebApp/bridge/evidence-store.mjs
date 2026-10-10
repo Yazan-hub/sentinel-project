@@ -46,9 +46,10 @@ async function readHead(full) {
 
 /** sha256 and size of a file, streamed (never held whole), and its first 8 bytes from the same stream — the bytes checked are the
  *  bytes hashed.
- *  ponytail: hashed inline in the request — fine for the MA-4a files (KB to a few GB on the local disk); MA-4h moves a 6.5 GB hash to a
- *  background job with a pending state if the inline hash is too slow over the Funnel. Re-check re-hashes the whole pack the same way,
- *  so it is budgeted (6 per user, 12 in all, a minute) and runs once at a time per project; the job moves it off the request too. */
+ *  ponytail: hashed inline in the request — MA-4h, Kladno's 6.5 GB: 11.6 s at 535 MB/s, 106 MB of memory, the event loop free between
+ *  chunks; a background job with a pending state only if a hash outlasts a request. Re-check re-hashes the whole pack the same way, so
+ *  it is budgeted (6 per user, 12 in all, a minute) and runs once at a time per project — on Kladno's pack one user's 6 keep the
+ *  disk hashing ~72 s a minute; a size-aware budget if that bites. */
 export async function hashFile(full) {
   const h = createHash("sha256");
   let size = 0, head = Buffer.alloc(0);
@@ -104,7 +105,7 @@ function outOfScope(key, proj) {
 const rechecking = new Set(); // MA-4a: the projects whose Re-check is running — one at a time per project
 // MA-4a: the projects with an admission running — one at a time per project, so a refusal row never lands after a concurrent admission
 // of its path (it would put an admitted file On hold) and a burst of admits never streams many big files at once.
-// ponytail: a per-project lock in this one bridge process; a second contributor waits out a long hash (MA-4h's background job).
+// ponytail: a per-project lock in this one bridge process; a second contributor waits out a long hash (12 s for Kladno's 6.5 GB, MA-4h).
 const admitting = new Set();
 
 /** The pack in force (the project's own — no office fallback) or a 404 in words; `packId` must be its id (one pack per project, MA-4a S1). */

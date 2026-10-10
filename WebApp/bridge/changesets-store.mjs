@@ -394,8 +394,8 @@ async function jobScan(key, cs, { trustedJob, readPack }) {
  *  MA-4f: each wall Revit re-read at Apply (AppliedEntry.mesh → reread) is measured by that re-read, the add-in's claim, said on the row and
  *  each element ("revit (claimed)"); the rest as filed (MA-4e, the founder's answer).
  *  ponytail: the re-read is Revit's at Apply — a wall moved after it, a model closed unsaved and a wrong frame are not seen; a re-read on
- *  demand is Next. Synchronous, bounded by the survey's JOB_MS — a 202 and a record when Kladno's
- *  measure outlasts a request (MA-4h). */
+ *  demand is Next. Synchronous, bounded by the survey's JOB_MS — MA-4h, Kladno: ~41 s for 200 walls, inside
+ *  the request's 30 min; a 202 and a record if a measure ever outlasts a request. */
 export async function verifyChangeset(key, b, actor, deps = {}) {
   const d = wire(deps);
   const trustedJob = deps.trustedJob ?? jobOf, measureJob = deps.measureJob ?? measureOf;
@@ -510,8 +510,8 @@ export async function verifyChangeset(key, b, actor, deps = {}) {
  *  sentinel-survey run (the machine credential is a 403); any status (most useful while reviewing). A view: no row, no doc, no file; the points
  *  are held in memory and answered, never logged. The run takes the bridge's one survey slot and the survey jobs' budget. Its refusals say what
  *  is not shown (one from the shared chain, the budget or the slot says "nothing was saved": re-worded).
- *  ponytail: cold, no cache — each tick of "Show the scan" reads the scan again (seconds on the drill; Revit waits up to 120 s); a cache keyed on
- *  (the row, the evidence shas, the frame, the cut) and a 202 when Kladno's read is slow (MA-4h). */
+ *  ponytail: cold, no cache — each tick of "Show the scan" reads the scan again (MA-4h, Kladno: ~21 s; Revit waits up to 120 s); a cache keyed
+ *  on (the row, the evidence shas, the frame, the cut) if a read nears that. */
 export async function scanOverlay(key, id, deps = {}) {
   const d = wire(deps);
   const trustedJob = deps.trustedJob ?? jobOf, measureJob = deps.measureJob ?? measureOf;

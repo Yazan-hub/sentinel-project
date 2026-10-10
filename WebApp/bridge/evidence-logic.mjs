@@ -34,7 +34,7 @@ export const RED = ["google", "apple", "bing", "azure"];
 export const PACK_ID = "evp-0001";          // one pack per project in MA-4 (MA-4a spec amendment S1)
 // ponytail: every admission, signature and flag writes a whole new evidence_pack@n+1 (kept forever), so stored size grows with the
 // square of the items — 100 items ≈ 5,050 item copies ≈ 3 MB of jsonb. Upgrade path before raising it: a pack of item refs (one doc
-// per item, the pack holding ids and shas) — MA-4h's Kladno pack is the first that needs more.
+// per item, the pack holding ids and shas) — when a real project needs more than 100 (MA-4h's Kladno is one file).
 export const MAX_ITEMS = 100;
 /** The format table: what is admitted, as which kind, and the bytes it begins with (hex; null = by extension only). An RCP cannot be
  *  read here without ReCap: admitted with its registration report, never surveyed (decision 4). */
