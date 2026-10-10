@@ -130,7 +130,7 @@ describe("the survey (MA-4c)", () => {
   const JOB: SurveyJob = {
     id: "job-0001", status: "done", stage: "done", pct: 100, items: [{ id: "ev-0001", path: "scans/two-storey.las", sha256: "a".repeat(64) }], read: ["ev-0001"],
     refused: [{ id: "ev-0002", reason: "a .laz is read from MA-4g — sentinel-survey 0.1 reads plain LAS" }], started_by: "contributor@example.test",
-    started_at: "2026-10-08T10:00:00.000Z", counts: { level: 2, wall: 8, floor: 2, ceiling: 2 }, candidates_total: 14, ledger: { id: 2201, hash: HASH },
+    started_at: "2026-10-08T10:00:00.000Z", counts: { level: 2, wall: 8, floor: 2, ceiling: 2, door: 0, window: 0 }, candidates_total: 14, ledger: { id: 2201, hash: HASH },
   };
   it("surveyableScans: admitted scans that are surveyable and not changed — no photo, no RCP, no flagged scan", () => {
     const pack: EvidencePack = { ...PACK, items: [ITEM, { ...ITEM, id: "ev-0002", format: "rcp", surveyable: false }, { ...ITEM, id: "ev-0003", state: "changed" },
@@ -138,7 +138,7 @@ describe("the survey (MA-4c)", () => {
     expect(surveyableScans(pack).map((i) => i.id)).toEqual(["ev-0001"]);
   });
   it("jobLine: the state, what was read (never a file the service refused) and refused, what was found, who, when and the ledger row", () => {
-    expect(jobLine(JOB)).toBe("job-0001 · done · read ev-0001 · refused ev-0002 (a .laz is read from MA-4g — sentinel-survey 0.1 reads plain LAS) · 2 level(s), 8 wall(s), 2 floor(s), 2 ceiling(s) · by contributor@example.test · 2026-10-08 10:00 · ledger #2201 · receipt abababababababab…");
+    expect(jobLine(JOB)).toBe("job-0001 · done · read ev-0001 · refused ev-0002 (a .laz is read from MA-4g — sentinel-survey 0.1 reads plain LAS) · 2 level(s), 8 wall(s), 2 floor(s), 2 ceiling(s), 0 door(s), 0 window(s) · by contributor@example.test · 2026-10-08 10:00 · ledger #2201 · receipt abababababababab…");
     const lazBit = { id: "ev-0003", reason: "its points are compressed (LAZ) — sentinel-survey 0.1 reads plain LAS; LAZ is read from MA-4g" };
     expect(jobLine({ ...JOB, items: [...JOB.items, { id: "ev-0003", path: "scans/compressed.las", sha256: "c".repeat(64) }], refused: [lazBit], counts: undefined, ledger: undefined }))
       .toBe("job-0001 · done · read ev-0001 · refused ev-0003 (its points are compressed (LAZ) — sentinel-survey 0.1 reads plain LAS; LAZ is read from MA-4g) · by contributor@example.test · 2026-10-08 10:00");
