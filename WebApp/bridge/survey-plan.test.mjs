@@ -6,7 +6,7 @@ import * as core from "./sentinel-core.mjs";
 import { makeTyper } from "./changesets-typing.mjs";
 import { validateChangeset } from "./changesets-logic.mjs";
 import { typeGapId } from "./holding-logic.mjs";
-import { readProposeBody, toModel, matchStoreys, trimEnds, planSurvey, toScan, facesOf, measurePlan, judge, measureRefusal, countWords, readMesh, meshFaces, REVIT, FILED, scanBand, cloudRefusal } from "./survey-plan.mjs";
+import { readProposeBody, toModel, matchStoreys, trimEnds, planSurvey, toScan, facesOf, measurePlan, judge, measureRefusal, countWords, readMesh, meshFaces, REVIT, FILED, scanBand, cloudRefusal, placeRefusal } from "./survey-plan.mjs";
 import { boxMesh } from "./fixtures/box-mesh.mjs";
 
 const read = (p) => JSON.parse(readFileSync(new URL(p, import.meta.url), "utf8"));
@@ -29,8 +29,8 @@ describe("readProposeBody — the lead states two things; the bridge builds the 
     no(() => readProposeBody({ frame: ZERO, measured: {} }, LEVELS), 400, "measured is not a proposal field — the bridge builds every changeset from the job's own result; send {frame, levels?} — nothing was saved");
     no(() => readProposeBody({}, LEVELS), 400, "frame is required — where the scan sits in the model: {dx_mm, dy_mm, dz_mm, rotation_deg}, the move and turn from the model's internal origin to the scan's origin ({0, 0, 0, 0} when the scan is registered to the internal origin) — nothing was saved");
     no(() => readProposeBody({ frame: { ...ZERO, scale: 1 } }, LEVELS), 400, "frame.scale is not read — a frame is {dx_mm, dy_mm, dz_mm, rotation_deg} — nothing was saved");
-    no(() => readProposeBody({ frame: { ...ZERO, dx_mm: 2e7 } }, LEVELS), 400, "frame.dx_mm must be a number of mm within ±10000000 (a scan in a national grid waits for a computed frame — MA-4g-3) — nothing was saved");
-    no(() => readProposeBody({ frame: { ...ZERO, dy_mm: "0" } }, LEVELS), 400, "frame.dy_mm must be a number of mm within ±10000000 (a scan in a national grid waits for a computed frame — MA-4g-3) — nothing was saved");
+    no(() => readProposeBody({ frame: { ...ZERO, dx_mm: 3e10 } }, LEVELS), 400, "frame.dx_mm must be a number of mm within ±20000000000 (where the frame puts the scan is checked when it is proposed) — nothing was saved");
+    no(() => readProposeBody({ frame: { ...ZERO, dy_mm: "0" } }, LEVELS), 400, "frame.dy_mm must be a number of mm within ±20000000000 (where the frame puts the scan is checked when it is proposed) — nothing was saved");
     no(() => readProposeBody({ frame: { ...ZERO, rotation_deg: 360 } }, LEVELS), 400, "frame.rotation_deg must be degrees from 0 up to (not including) 360, anticlockwise in plan — nothing was saved");
     no(() => readProposeBody({ frame: ZERO, levels: { "scan-L09-level": "L09" } }, LEVELS), 400, "levels names scan-L09-level, which is not a storey of this job (scan-L00-level, scan-L01-level) — nothing was saved");
     no(() => readProposeBody({ frame: ZERO, levels: { "scan-L00-level": "GR:FFL" } }, LEVELS), 400, "levels.scan-L00-level must be a Revit level's name — one line of at most 256 characters, without \\ : { } [ ] | ; < > ? ` ~ — nothing was saved");
@@ -165,6 +165,35 @@ describe("planSurvey — the drill's job-0002, frame 40 m east, L00 named GR-FFL
     expect(p.storeys[0].exceptions.find((x) => x.unique_id === "scan-L00-wall-1").reason).toBe("type gap — its thickness was not measured (one face seen); it waits in the Holding Area");
     const bare = RESULT.candidates.filter((c) => c.kind === "level" || c.kind === "floor");
     expect(planSurvey({ job: JOB, candidates: bare, frame: ZERO, levels: {}, manifest: [], type }).storeys.map((s) => s.body)).toEqual([null, null]);
+  });
+});
+
+describe("MA-4h — a scan in a national grid: where the frame puts it is checked, not how far it moves it", () => {
+  // The drill's job-0002 moved by the Kladno scan's LAS offset (mm): S-JTSK, 1 287 km from its grid's origin.
+  const K = [-763_960_000, -1_035_510_000];
+  const mv = (p) => [p[0] + K[0], p[1] + K[1], ...p.slice(2)];
+  const FAR = RESULT.candidates.map((c) => {
+    const g = { ...c.geometry };
+    if (g.LocationCurve) g.LocationCurve = { start: mv(g.LocationCurve.start), end: mv(g.LocationCurve.end) };
+    if (g.LocationLoop) g.LocationLoop = g.LocationLoop.map(mv);
+    if (g.Boundary) g.Boundary = g.Boundary.map(mv);
+    if (g.faces) g.faces = g.faces.map(([a, b, c2, d]) => [a + K[0], b + K[1], c2 + K[0], d + K[1]]);
+    return { ...c, geometry: g };
+  });
+  const at = (candidates, frame) => planSurvey({ job: JOB, candidates, frame, levels: { "scan-L00-level": "GR-FFL" }, manifest: [], type });
+
+  it("a frame that moves the scan back from its grid is read", () => {
+    expect(readProposeBody({ frame: { ...ZERO, dx_mm: 763974000, dy_mm: 1035484000, dz_mm: -409631 } }, LEVELS).frame)
+      .toEqual({ dx_mm: 763974000, dy_mm: 1035484000, dz_mm: -409631, rotation_deg: 0 });
+  });
+  it("a frame that leaves it 1 287 km out is refused, naming the frame that brings it to the origin", () => {
+    expect(placeRefusal(RESULT.candidates, EAST)).toBeNull();
+    no(() => at(FAR, ZERO), 400, "the frame puts the scan 1287 km from the model's internal origin — Revit draws a model within 32 km of it; state where the scan sits in the model (with no turn, dx_mm 763956000 and dy_mm 1035507000 bring its middle to the origin, dz_mm 0 its lowest storey to 0) — nothing was saved");
+  });
+  it("the stated frame proposes exactly what the same building proposes at the origin", () => {
+    const near = at(RESULT.candidates, EAST), far = at(FAR, { ...EAST, dx_mm: EAST.dx_mm - K[0], dy_mm: -K[1] });
+    expect(far.storeys.map((s) => s.body)).toEqual(near.storeys.map((s) => s.body));
+    expect(far.groups).toEqual(near.groups);
   });
 });
 
