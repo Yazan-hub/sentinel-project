@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Reference tracer</title>
+<!-- MA-4h: the person's reference for wall F1 (survey/reference.py build). Offline: nothing is fetched or sent; the image is read from the
+     disk, the trace saved by the browser to its download folder (and kept in this browser until saved), with the name typed in the bar
+     and the time of the save. Click two points per line. Keys: w a wall's centreline (full
+     height; through doorways; broken at corners and where the thickness changes), g a wall whose centreline is guessed (one face seen),
+     f a floor sample (two corners, on clear floor), z undo, Esc drop the first point. The wheel zooms; a right-button drag pans. -->
+<style>
+  body { margin: 0; background: #1b1b1f; color: #eee; font: 13px system-ui, sans-serif; overflow: hidden; }
+  #bar { position: fixed; inset: 0 0 auto 0; height: 34px; display: flex; gap: 12px; align-items: center; padding: 0 8px; background: #111; }
+  canvas { position: fixed; top: 34px; left: 0; cursor: crosshair; }
+</style>
+</head>
+<body>
+<div id="bar"><input type="file" id="file" accept=".png"><input id="by" placeholder="Your name (who traced)"><b id="mode">w: wall</b><span id="count"></span><button id="save" disabled>Save the trace</button></div>
+<canvas id="c"></canvas>
+<script>
+const c = document.getElementById("c"), g = c.getContext("2d"), img = new Image();
+const COLOR = { wall: "#e11d48", guessed: "#f59e0b", floor: "#22c55e" }, KEYS = { w: "wall", g: "guessed", f: "floor" };
+let name = "", sha = "", kind = "wall", lines = [], first = null, s = 1, ox = 0, oy = 0, pan = null, t0 = 0;
+const at = (e) => [(e.offsetX - ox) / s, (e.offsetY - oy) / s]; // the canvas's pixels -> the image's
+const keep = () => { try { localStorage.setItem(`trace-${sha}`, JSON.stringify({ lines, t0 })); } catch { /* the trace is still in memory */ } };
+function draw() {
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.clearRect(0, 0, c.width, c.height);
+  g.setTransform(s, 0, 0, s, ox, oy);
+  g.imageSmoothingEnabled = false;
+  if (img.width) g.drawImage(img, 0, 0);
+  g.lineWidth = 2 / s;
+  for (const l of lines) {
+    g.strokeStyle = COLOR[l.kind];
+    g.beginPath();
+    if (l.kind === "floor") g.rect(l.a[0], l.a[1], l.b[0] - l.a[0], l.b[1] - l.a[1]); else { g.moveTo(...l.a); g.lineTo(...l.b); }
+    g.stroke();
+  }
+  if (first) { g.fillStyle = COLOR[kind]; g.fillRect(first[0] - 3 / s, first[1] - 3 / s, 6 / s, 6 / s); }
+  const n = lines.filter((l) => l.kind !== "floor").length;
+  document.getElementById("count").textContent = `${n} wall line(s), ${lines.length - n} floor sample(s)`;
+}
+function fit() { c.width = innerWidth; c.height = innerHeight - 34; draw(); }
+document.getElementById("file").onchange = async (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const buf = await f.arrayBuffer();
+  sha = [...new Uint8Array(await crypto.subtle.digest("SHA-256", buf))].map((b) => b.toString(16).padStart(2, "0")).join("");
+  name = f.name;
+  let was = null;
+  try { was = JSON.parse(localStorage.getItem(`trace-${sha}`) || "null"); } catch { /* none kept */ }
+  lines = was?.lines ?? [];
+  t0 = was?.t0 ?? Date.now();
+  first = null;
+  img.onload = () => { s = Math.min(c.width / img.width, c.height / img.height); ox = oy = 0; document.getElementById("save").disabled = false; draw(); };
+  img.src = URL.createObjectURL(new Blob([buf], { type: "image/png" }));
+};
+c.onclick = (e) => {
+  if (!img.width) return;
+  const p = at(e);
+  if (!first) first = p; else { lines.push({ kind, a: first, b: p }); first = null; keep(); }
+  draw();
+};
+c.oncontextmenu = (e) => e.preventDefault();
+c.onmousedown = (e) => { if (e.button === 2) pan = [e.clientX - ox, e.clientY - oy]; };
+addEventListener("mousemove", (e) => { if (pan) { ox = e.clientX - pan[0]; oy = e.clientY - pan[1]; draw(); } });
+addEventListener("mouseup", () => { pan = null; });
+c.onwheel = (e) => {
+  e.preventDefault();
+  const [u, v] = at(e);
+  s *= e.deltaY < 0 ? 1.25 : 0.8;
+  ox = e.offsetX - u * s;
+  oy = e.offsetY - v * s;
+  draw();
+};
+addEventListener("keydown", (e) => {
+  if (e.target.tagName === "INPUT") return; // typing the name is not a key command
+  if (KEYS[e.key]) { kind = KEYS[e.key]; first = null; document.getElementById("mode").textContent = `${e.key}: ${kind}`; }
+  if (e.key === "z") { if (first) first = null; else { lines.pop(); keep(); } }
+  if (e.key === "Escape") first = null;
+  draw();
+});
+document.getElementById("save").onclick = () => {
+  const by = document.getElementById("by").value.trim();
+  if (!by) { alert("Type your name in the bar first: the trace records who drew it."); return; }
+  const out = { image: name, image_sha256: sha, traced_by: by, saved: new Date().toISOString(), minutes: Math.round((Date.now() - t0) / 60000), lines };
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(out, null, 1)], { type: "application/json" }));
+  a.download = `${name}.trace.json`;
+  a.click();
+};
+addEventListener("resize", fit);
+fit();
+</script>
+</body>
+</html>

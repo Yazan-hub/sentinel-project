@@ -20,6 +20,7 @@ import time
 import unittest
 import urllib.error
 import urllib.request
+import zlib
 from unittest import mock
 
 import numpy as np
@@ -28,6 +29,7 @@ import las
 import e57
 import pipeline
 import service
+import reference
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -952,12 +954,100 @@ class InProcess(unittest.TestCase):
             self.assertEqual(str(e.exception), "cloud must be {cell_mm: 20 to 1000, z_mm: [low, high] mm, max_points: 8 to 100000}")
 
 
+class Reference(unittest.TestCase):
+    """MA-4h: survey/reference.py on the drill building — slice images and floor samples read every point in the scan's frame; wall F1 at
+    50, 100 and 200 mm and the level error against a reference (its centrelines, its floors). Pinned from the planner's in-memory run."""
+    WALLS = [[(125, 150), (7850, 150)], [(125, 5900), (7850, 5900)], [(125, 150), (125, 5900)], [(7850, 150), (7850, 5900)]]
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        cls.path = os.path.join(cls.tmp.name, "two-storey.las")
+        write_las(cls.path, building())
+        cls.found, _ = pipeline.survey([{"id": "ev-0001", "path": cls.path, "head": las.read_header(cls.path)}], Survey.PARAMS, 1)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def ref(self, shift=0):
+        return {"storeys": [{"name": n, "ffl_mm": f, "walls": [{"a": [a[0] + shift, a[1] + shift], "b": [b[0] + shift, b[1] + shift], "guessed": False}
+                                                             for a, b in self.WALLS]} for n, f in (("GF", 0.0), ("1F", 3000.0))]}
+
+    def test_a_slice_image_and_floor_samples_read_every_point_in_the_scans_frame(self):
+        self.assertEqual({z for z, _ in reference.zpeaks(self.path, 4)}, {-2, 2798, 2998, 5798})  # the floors and ceilings
+        data, side = reference.slice_png(self.path, 900, 1500)
+        w, h = side["size"]
+        self.assertEqual((data[:8], side["px_mm"], side["z_mm"], side["png_sha256"]), (b"\x89PNG\r\n\x1a\n", 20.0, [900, 1500], hashlib.sha256(data).hexdigest()))
+        n = struct.unpack(">I", data[33:37])[0]  # IDAT follows IHDR: per row, one filter byte, then w grey bytes
+        img = np.frombuffer(zlib.decompress(data[41:41 + n]), np.uint8).reshape(h, w + 1)[:, 1:]
+        row = lambda y: img[int((side["origin_mm"][1] - y) // 20), int((1000 - side["origin_mm"][0]) // 20):int((7000 - side["origin_mm"][0]) // 20)]
+        self.assertLess(row(300).min(), 255)       # the south wall's inner face, at the cut
+        self.assertTrue((row(3000) == 255).all())  # the middle of the room: nothing at the cut
+        self.assertEqual(reference.to_mm(side, 0, 0), [round(side["origin_mm"][0], 1), round(side["origin_mm"][1], 1)])
+        self.assertEqual(reference.floor_mm(self.path, 0, [(1000, 1000, 3000, 3000), (7000, 3000, 5000, 1000)])[0], 0.0)
+        self.assertEqual(reference.floor_mm(self.path, 3000, [(1000, 1000, 3000, 3000)]), (3000.0, [3000.0]))  # not the ceiling 200 mm below
+        with self.assertRaises(ValueError):
+            reference.floor_mm(self.path, 1500, [(1000, 1000, 3000, 3000)])  # no floor there
+
+    def test_wall_f1_one_to_one_at_50_100_and_200_mm_and_the_level_error(self):
+        r = reference.score(self.found, self.ref())
+        self.assertEqual([tuple(r["walls"][d][k] for k in ("tp", "fp", "fn", "f1", "completeness")) for d in (50, 100, 200)], [(8, 0, 0, 1.0, 1.0)] * 3)
+        self.assertEqual(r["levels"], {"storeys": [{"name": "GF", "ffl_mm": 0.0, "level": "scan-L00-level", "e_mm": 0.0},
+                                                   {"name": "1F", "ffl_mm": 3000.0, "level": "scan-L01-level", "e_mm": 0.0}], "missed": [], "extra": []})
+        moved = reference.score(self.found, self.ref(shift=75))  # every centreline 75 mm off: out at 50, in at 100
+        self.assertEqual([moved["walls"][d]["f1"] for d in (50, 100, 200)], [0.0, 1.0, 1.0])
+
+    def test_a_split_wall_an_extra_level_a_missed_storey_and_a_storey_not_traced(self):
+        lv = lambda cid, z: {"cid": cid, "kind": "level", "geometry": {"BaseElevation": z}, "measured": {}}
+        wall = lambda cid, a, b, st, t=None: {"cid": cid, "kind": "wall", "geometry": {"LocationCurve": {"start": [*a, 0], "end": [*b, 0]}, "storey": st},
+                                             "measured": {"thickness_mm": t} if t else {}}
+        cands = [lv("L0", 10), lv("L1", 3560), lv("L2", 6500), wall("w1", (0, 0), (2700, 0), "L0", 200), wall("w2", (3300, 0), (6000, 0), "L0", 200),
+                 wall("w3", (0, 3000), (6000, 3000), "L0"), wall("x1", (0, 0), (6000, 0), "L2", 200)]
+        ref = {"storeys": [{"name": "GF", "ffl_mm": 0.0, "walls": [{"a": [0, 0], "b": [6000, 0], "guessed": False}, {"a": [0, 3060], "b": [6000, 3060], "guessed": False}]},
+                           {"name": "1F", "ffl_mm": 3000.0, "walls": None},
+                           {"name": "2F", "ffl_mm": 9000.0, "walls": [{"a": [0, 0], "b": [0, 5000], "guessed": False}]}]}
+        r = reference.score(cands, ref)
+        self.assertEqual(r["levels"], {"storeys": [{"name": "GF", "ffl_mm": 0.0, "level": "L0", "e_mm": 10.0}, {"name": "1F", "ffl_mm": 3000.0, "level": "L1", "e_mm": 560.0},
+                                                   {"name": "2F", "ffl_mm": 9000.0, "level": None, "e_mm": None}], "missed": ["2F"], "extra": ["L2"]})
+        # the wall split at a doorway: neither half covers half of it (1 FN, 2 FP); the one face 60 mm off matches at 100 only, counted apart
+        got = {d: {k: r["walls"][d][k] for k in ("tp", "fp", "fn", "tp_unpaired", "f1", "completeness")} for d in (50, 100)}
+        self.assertEqual(got, {50: {"tp": 0, "fp": 4, "fn": 3, "tp_unpaired": 0, "f1": 0.0, "completeness": 0.327},
+                               100: {"tp": 1, "fp": 3, "fn": 2, "tp_unpaired": 1, "f1": 0.286, "completeness": 0.685}})
+        self.assertEqual(r["not_scored"], {"L1": 0})
+
+    def test_build_maps_a_trace_to_the_scans_frame_drops_a_stray_click_and_refuses_another_image(self):
+        data, side = reference.slice_png(self.path, 900, 1500)
+        px = lambda x, y: [(x - side["origin_mm"][0]) / 20, (side["origin_mm"][1] - y) / 20]
+        trace = {"image_sha256": side["png_sha256"], "minutes": 3, "lines": [
+            {"kind": "wall", "a": px(125, 150), "b": px(7850, 150)}, {"kind": "guessed", "a": px(125, 5900), "b": px(7850, 5900)},
+            {"kind": "wall", "a": px(10, 10), "b": px(20, 20)}, {"kind": "floor", "a": px(1000, 1000), "b": px(3000, 3000)}]}
+        r = reference.build(self.path, [{"name": "GF", "side": side, "trace": trace},
+                                        {"name": "1F", "side": {**side, "z_mm": [3900, 4500]}, "trace": {**trace, "lines": trace["lines"][3:]}}])
+        self.assertEqual([(s["name"], s["ffl_mm"], s["walls"]) for s in r["storeys"]],
+                         [("GF", 0.0, [{"a": [125.0, 150.0], "b": [7850.0, 150.0], "guessed": False}, {"a": [125.0, 5900.0], "b": [7850.0, 5900.0], "guessed": True}]),
+                          ("1F", 3000.0, None)])
+        self.assertEqual((r["scan_sha256"], r["storeys"][0]["origin_mm"]), (service.sha256(self.path), side["origin_mm"]))
+        with self.assertRaises(ValueError):
+            reference.build(self.path, [{"name": "GF", "side": side, "trace": {**trace, "image_sha256": "0" * 64}}])
+        # from the disk: the trace file's sha256 is kept; an image edited or swapped after it was sliced is refused
+        p = os.path.join(self.tmp.name, "gf.png")
+        for name, body in ((p, data), (p + ".json", json.dumps(side).encode()), (p + ".trace.json", json.dumps(trace).encode())):
+            with open(name, "wb") as f:
+                f.write(body)
+        self.assertEqual(reference.load_storey("GF", p)["trace_sha256"], hashlib.sha256(json.dumps(trace).encode()).hexdigest())
+        with open(p, "ab") as f:
+            f.write(b"x")
+        with self.assertRaises(ValueError):
+            reference.load_storey("GF", p)
+
+
 class NoNetwork(unittest.TestCase):
     def test_numpy_and_the_standard_library_at_start_laspy_and_pye57_only_inside_a_read_and_no_client(self):
         wheels = {"laspy", "pye57", "pyquaternion"}
         allowed = {"numpy", "las", "e57", "pipeline", "hashlib", "hmac", "json", "os", "sys", "threading", "time", "datetime", "http.server",
-                   "struct", "math", "re", "contextlib", "importlib.metadata", "platform", "traceback"} | wheels
-        for name in ("las.py", "e57.py", "pipeline.py", "service.py"):
+                   "struct", "math", "re", "contextlib", "importlib.metadata", "platform", "traceback", "zlib"} | wheels
+        for name in ("las.py", "e57.py", "pipeline.py", "service.py", "reference.py"):
             with open(os.path.join(HERE, name), encoding="utf-8") as f:
                 tree = ast.parse(f.read())
             used = {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
@@ -966,6 +1056,10 @@ class NoNetwork(unittest.TestCase):
             top = {a.name for n in tree.body if isinstance(n, ast.Import) for a in n.names}
             top |= {n.module for n in tree.body if isinstance(n, ast.ImportFrom)}
             self.assertFalse(top & wheels, name)  # MA-4g: imported only inside a LAZ's or an E57's read, after las.lib
+        with open(os.path.join(HERE, "trace.html"), encoding="utf-8") as f:
+            page = f.read()
+        for word in ("http", "fetch(", "XMLHttpRequest", "WebSocket", "sendBeacon"):
+            self.assertNotIn(word, page)  # MA-4h: the tracer is offline — it fetches and sends nothing
 
     @unittest.skipUnless(HAS("laspy", "lazrs"), WHY.format("laspy and lazrs are"))
     def test_laspy_finds_no_http_client(self):
