@@ -19,6 +19,9 @@ import pipeline
 PX = 20.0          # mm a pixel of a slice image
 CUT = 1200.0       # mm above a storey's floor: Revit's plan cut, where the person reads the walls (the survey's own slice is mid-storey)
 HALF = 300.0       # mm: a slice image is the cut +- this
+SILL_CUT = 700.0   # mm above the floor (MA-5a): a window's sill is above it, a door's threshold below — an opening still open here is a
+                   # door. ponytail: a window with a sill under 700 mm reads as a door; a third cut (the head) tells them apart.
+OPEN_NEAR = 200.0  # mm: a sill-image opening this close to a 1200-image opening's line, overlapping it by half, is the same opening
 BAND = 150.0       # mm: a floor sample reads the points within this of its storey's floor guess (not the ceiling below a thin slab, nor a table top)
 STEP = 50.0        # mm between a wall's samples
 ANGLE = 5.0        # degrees: a matched pair is at most this far apart in direction (pipeline.pair's tolerance)
@@ -125,31 +128,61 @@ def build(path, storeys):
         lines = [(x["kind"], to_mm(side, *x["a"]), to_mm(side, *x["b"])) for x in tr["lines"]]
         walls = [{"a": a, "b": b, "guessed": k == "guessed"} for k, a, b in lines if k in ("wall", "guessed") and math.dist(a, b) >= 100]
         ffl, each = floor_mm(path, side["z_mm"][0] + HALF - CUT, [(*a, *b) for k, a, b in lines if k == "floor"])
+        # MA-5a: an opening is an o line across the gap on the 1200 image (under 300 mm: a stray click); a door when an o on the sill
+        # image lies on its line (within OPEN_NEAR) and overlaps it by half, else a window; with no sill image its kind is None
+        # (position scored, class not). A traced storey with no o line has openings [] (every candidate opening there is false).
+        opens = [(a, b) for k, a, b in lines if k == "opening" and math.dist(a, b) >= 300]
+        sill = None
+        if s.get("sill_side"):
+            if s["sill_trace"].get("image_sha256") != s["sill_side"]["png_sha256"]:
+                raise ValueError(f"{s['name']}: the sill trace was drawn on another image than its sill side record's")
+            sill = [(to_mm(s["sill_side"], *x["a"]), to_mm(s["sill_side"], *x["b"])) for x in s["sill_trace"]["lines"] if x["kind"] == "opening"]
+        def off_line(a, b, p, q):  # the sill line's midpoint's distance from the 1200 line
+            u = (np.array(b, float) - a) / math.dist(a, b)
+            m = (np.array(p, float) + q) / 2 - a
+            return abs(float(u[0] * m[1] - u[1] * m[0]))
+        openings = []
+        for a, b in opens:
+            kind = None
+            if sill is not None:
+                kind = "door" if any(off_line(a, b, p, q) <= OPEN_NEAR and pipeline._overlap((*a, *b), (*p, *q)) > 0.5
+                                     for p, q in sill) else "window"
+            openings.append({"a": a, "b": b, "kind": kind})
         out.append({"name": s["name"], "ffl_mm": ffl, "floor_samples_mm": each, "walls": walls or None, "cut_mm": side["z_mm"],
                     "origin_mm": side["origin_mm"], "image_sha256": side["png_sha256"], "side_sha256": s.get("side_sha256"),
                     "trace_sha256": s.get("trace_sha256"),
-                    "traced_by": tr.get("traced_by"), "saved": tr.get("saved"), "minutes": tr.get("minutes")})
+                    "traced_by": tr.get("traced_by"), "saved": tr.get("saved"), "minutes": tr.get("minutes"),
+                    "openings": openings if walls else None, "sill_cut_mm": s["sill_side"]["z_mm"] if sill is not None else None,
+                    "sill_image_sha256": s["sill_side"]["png_sha256"] if sill is not None else None,
+                    "sill_side_sha256": s.get("sill_side_sha256"), "sill_trace_sha256": s.get("sill_trace_sha256")})
     with open(path, "rb") as f:
         sha = hashlib.file_digest(f, "sha256").hexdigest()
     return {"scan_sha256": sha, "storeys": out}
 
 
-def load_storey(name, png_path):
+def load_storey(name, png_path, sill_png=None):
     """One storey for build() from the disk: its image, side record (<png>.json) and the person's trace (<png>.trace.json), with the
     trace file's sha256 (the drill notes record it at the save). ValueError when the image's bytes are not the ones its side record
     was made from — an edited or swapped image. MA-4h: the side record's file sha256 too — png_sha256 does not cover its origin_mm, px_mm
-    or z_mm, so an edited one would shift the storey silently; slice prints it, the notes record it, build stores it beside the trace's."""
-    with open(png_path, "rb") as f:
-        png_sha = hashlib.sha256(f.read()).hexdigest()
-    with open(png_path + ".json", "rb") as f:
-        side_raw = f.read()
-    with open(png_path + ".trace.json", "rb") as f:
-        raw = f.read()
-    side = json.loads(side_raw)
-    if png_sha != side["png_sha256"]:
-        raise ValueError(f"{name}: the image is not the one its side record was made from — slice it again")
-    return {"name": name, "side": side, "side_sha256": hashlib.sha256(side_raw).hexdigest(), "trace": json.loads(raw),
-            "trace_sha256": hashlib.sha256(raw).hexdigest()}
+    or z_mm, so an edited one would shift the storey silently; slice prints it, the notes record it, build stores it beside the trace's.
+    MA-5a: sill_png, the storey's sill-height image with its own side record and trace, read the same way (keys sill_side, sill_trace,
+    sill_side_sha256, sill_trace_sha256)."""
+    def read(path, what):
+        with open(path, "rb") as f:
+            png_sha = hashlib.sha256(f.read()).hexdigest()
+        with open(path + ".json", "rb") as f:
+            side_raw = f.read()
+        with open(path + ".trace.json", "rb") as f:
+            raw = f.read()
+        side = json.loads(side_raw)
+        if png_sha != side["png_sha256"]:
+            raise ValueError(f"{name}: the {what}image is not the one its side record was made from — slice it again")
+        return side, hashlib.sha256(side_raw).hexdigest(), json.loads(raw), hashlib.sha256(raw).hexdigest()
+    side, side_sha, trace, trace_sha = read(png_path, "")
+    out = {"name": name, "side": side, "side_sha256": side_sha, "trace": trace, "trace_sha256": trace_sha}
+    if sill_png:
+        out["sill_side"], out["sill_side_sha256"], out["sill_trace"], out["sill_trace_sha256"] = read(sill_png, "sill ")
+    return out
 
 
 def samples(s):
@@ -242,7 +275,35 @@ def score(cands, ref):
         out[d] = {**total, **prf(total), "completeness": round(cov[0] / cov[1], 3) if cov[1] else None,
                   "correctness": round(cov[2] / cov[3], 3) if cov[3] else None, "storeys": per}
     not_scored = {of[s["name"]]: len(walls.get(of[s["name"]], [])) for s in ref["storeys"] if s["walls"] is None and s["name"] in of}
-    return {"levels": levels, "walls": out, "not_scored": not_scored}
+    # MA-5a: openings — a door or window candidate is the segment Location +- width/2 along its host's direction; matched to the
+    # traced o lines by the same match at d; kind_agreement is the matched pairs whose class agrees over the matched pairs with a
+    # class in the reference (None when none). A reference built before MA-5a has no "openings": nothing is scored.
+    opens = {}
+    for c in cands:
+        if c["kind"] in ("door", "window"):
+            opens.setdefault(c["geometry"]["storey"], []).append(c)
+    oseg = lambda c: (*(np.array(c["geometry"]["Location"][:2]) - np.array(c["geometry"]["direction"]) * c["measured"]["width_mm"] / 2),
+                      *(np.array(c["geometry"]["Location"][:2]) + np.array(c["geometry"]["direction"]) * c["measured"]["width_mm"] / 2))
+    ogroups = [(s["name"], s["openings"], opens.get(of.get(s["name"]), [])) for s in ref["storeys"] if s.get("openings") is not None]
+    oout = {}
+    for d in DS:
+        total, per, agree = dict.fromkeys(("tp", "fp", "fn"), 0), {}, [0, 0]
+        for name, R, C in ogroups:
+            S = [tuple(float(v) for v in oseg(c)) for c in C]
+            m = match(S, [(*o["a"], *o["b"]) for o in R], d)
+            row = {"tp": len(m), "fp": len(C) - len(m), "fn": len(R) - len(m)}
+            per[name] = {**row, **prf(row)}
+            for k in total:
+                total[k] += row[k]
+            for i, j in m:
+                if R[j]["kind"] is not None:
+                    agree[1] += 1
+                    agree[0] += C[i]["kind"] == R[j]["kind"]
+        oout[d] = {**total, **prf(total), "kind_agreement": round(agree[0] / agree[1], 3) if agree[1] else None, "storeys": per}
+    for s in ref["storeys"]:
+        if s.get("openings") is None and s["name"] in of and opens.get(of[s["name"]]):
+            not_scored[of[s["name"]]] = not_scored.get(of[s["name"]], 0) + len(opens[of[s["name"]]])
+    return {"levels": levels, "walls": out, "openings": oout if ogroups else None, "not_scored": not_scored}
 
 
 def main(argv):
@@ -250,16 +311,17 @@ def main(argv):
     if cmd == "zpeaks":  # <las>
         for z, n in zpeaks(a[0]):
             print(z, n)
-    elif cmd == "slice":  # <las> <the storey's floor guess, mm> <out.png>: the cut CUT above it, +- HALF; its side record as <out.png>.json
-        data, side = slice_png(a[0], float(a[1]) + CUT - HALF, float(a[1]) + CUT + HALF)
+    elif cmd == "slice":  # <las> <the storey's floor guess, mm> <out.png> [sill]: the cut CUT (or SILL_CUT, MA-5a) above it, +- HALF; its side record as <out.png>.json
+        cut = SILL_CUT if a[3:4] == ["sill"] else CUT
+        data, side = slice_png(a[0], float(a[1]) + cut - HALF, float(a[1]) + cut + HALF)
         raw = json.dumps(side).encode("utf-8")
         with open(a[2], "wb") as f:
             f.write(data)
         with open(a[2] + ".json", "wb") as f:
             f.write(raw)
         print(json.dumps({**side, "side_sha256": hashlib.sha256(raw).hexdigest()}))  # MA-4h: the notes record it; build stores it
-    elif cmd == "build":  # <las> <out.json> <name>=<png> ... lowest first; each png beside <png>.json (its side) and <png>.trace.json
-        storeys = [load_storey(n, p) for n, p in (x.split("=", 1) for x in a[2:])]
+    elif cmd == "build":  # <las> <out.json> <name>=<png>[+<sill.png>] ... lowest first; each png beside <png>.json (its side) and <png>.trace.json
+        storeys = [load_storey(n, *p.split("+", 1)) for n, p in (x.split("=", 1) for x in a[2:])]  # + : a ':' is a drive letter's
         with open(a[1], "w", encoding="utf-8") as f:
             json.dump(build(a[0], storeys), f, indent=1)
     elif cmd == "score":  # <result.json> <reference.json>

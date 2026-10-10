@@ -8,7 +8,9 @@
      disk, the trace saved by the browser to its download folder (and kept in this browser until saved), with the name typed in the bar
      and the time of the save. Click two points per line. Keys: w a wall's centreline (full
      height; through doorways; broken at corners and where the thickness changes), g a wall whose centreline is guessed (one face seen),
-     f a floor sample (two corners, on clear floor), z undo, Esc drop the first point. The wheel zooms; a right-button drag pans. -->
+     f a floor sample (two corners, on clear floor), o an opening (MA-5a: two clicks across the gap, on the wall's line — a doorway or
+     a window on the 1200 image; on the 700 sill image only where the gap is still open at sill height), z undo, Esc drop the first
+     point. The wheel zooms; a right-button drag pans. -->
 <style>
   body { margin: 0; background: #1b1b1f; color: #eee; font: 13px system-ui, sans-serif; overflow: hidden; }
   #bar { position: fixed; inset: 0 0 auto 0; height: 34px; display: flex; gap: 12px; align-items: center; padding: 0 8px; background: #111; }
@@ -20,7 +22,7 @@
 <canvas id="c"></canvas>
 <script>
 const c = document.getElementById("c"), g = c.getContext("2d"), img = new Image();
-const COLOR = { wall: "#e11d48", guessed: "#f59e0b", floor: "#22c55e" }, KEYS = { w: "wall", g: "guessed", f: "floor" };
+const COLOR = { wall: "#e11d48", guessed: "#f59e0b", floor: "#22c55e", opening: "#38bdf8" }, KEYS = { w: "wall", g: "guessed", f: "floor", o: "opening" };
 let name = "", sha = "", kind = "wall", lines = [], first = null, s = 1, ox = 0, oy = 0, pan = null, t0 = 0;
 const at = (e) => [(e.offsetX - ox) / s, (e.offsetY - oy) / s]; // the canvas's pixels -> the image's
 const keep = () => { try { localStorage.setItem(`trace-${sha}`, JSON.stringify({ lines, t0 })); } catch { /* the trace is still in memory */ } };
