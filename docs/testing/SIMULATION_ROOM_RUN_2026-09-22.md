@@ -2717,6 +2717,30 @@ in three reviewed groups and a whole-branch review (no critical or important fin
 
 **Closing list:** `kladno-drill` holds evp-0001 with (f), ev-0001 (the Kladno scan, hard-linked, read-only), job-0001 (#2261) and its
 proposal (0 changesets, 131 gap groups in the Holding Area, two levels created). The reference files live beside the scan
-(`%USERPROFILE%\SentinelData\kladnoeference`, outside the repo). Next: MA-4h-3, the knobs — its own plan, starting from these numbers
+(`%USERPROFILE%\SentinelData\kladno\reference`, outside the repo). Next: MA-4h-3, the knobs — its own plan, starting from these numbers
 (SLAB_MAX for 1F, double faces, MIN_FACE, the fragmentation).
+
+## Session MA4h3 — the knobs measured on Kladno, sentinel-survey 0.3.0 (2026-10-10 local: merged 34f8692; the founder's session; Claude driving)
+
+Built from the MA-4h plan's protocol ("MA-4h-3: the knobs") and recorded in `docs/superpowers/plans/2026-10-10-ma4h3-knobs.md`: an
+in-memory sweep (a scratch harness, never in the repo) against `reference.json` ce1a4f46…, one knob at a time, GF tuned and 1F held
+out; one reviewer on the diff (no critical or important finding; four minors fixed in 794a2f0). 71 survey tests; no bridge, web,
+add-in or migration change, and no restart (the bridge spawns the service per job).
+
+| Row | Result | Evidence |
+|---|---|---|
+| S-1 | The sweep: the baseline reproduced T-3 exactly; `SLAB_MAX` 600 and 900 miss 1F, 1 200 finds it (+18.4 mm) with no extra level, 1 500 the same → **1 200**; clearing 2 then **3** cells, `MIN_FACE` 750 then **1 000**, each raising F1 at 100 mm on GF (tuned) and 1F (held out); `MAX_POINTS` not tried (at 50 mm completeness 0.40 is over correctness 0.32) — **chosen** | the plan's table |
+| S-2 | The double face: 190 of 231 pairs under 100 mm (median 40 mm) → 61 of 162 (median 158 mm) — **pass** | the pair statistics |
+| S-3 | Deviation with the reference walls (99 of 106 fitted from the cloud): `judge` as written (p95 ≤ 20 mm) reads 15 of 99 walls in place within and every shifted or thickened wall out; the share within 25 mm ≥ 0.4 reads 93 % in place within and 98 % of walls 50 mm off out, not 20 mm (87 % within) — **the founder's decision** (open question 8) | dev.json |
+| S-4 | The attic's +543.9 mm is the reference's: its floor samples read the 1F ceiling's underside (418 181 mm); the survey's attic level is the attic floor's top (418 677 mm) — **finding**, the reference kept as recorded | the surfaces |
+| D-1 | Merged 34f8692 (`--no-ff`); the next job runs 0.3.0 — **pass** | git |
+| R-1 | **Run survey** → `job-0002 · done · read ev-0001 · 3 level(s), 367 wall(s), 3 floor(s), 2 ceiling(s) · ledger #2264`, reader sentinel-survey 0.3.0; 181 s (12:27:23–12:30:24), CPU 146 s, 8 420 924 of 250 519 618 points; the child's peak private commit 1.93 GB (sampled private 1.74 GB; the 6.54 GB working set is the LAS's mapped pages), its TCP loopback only — **pass** (≤ 5 min, ≤ 2.5 GB) | the watch log |
+| R-2 | `result.json` sha c1d1657a…; `score`: levels GF +1.5, 1F +18.4, attic +543.9 mm (S-4); F1 at 50 / 100 / 200 mm 0.161 / 0.217 / 0.261 — 1F (held out) 0.294 / 0.330 / 0.376, GF 0.041 / 0.116 / 0.157; P 0.141, R 0.472 at 100 mm — equal to the in-memory run — **pass** (1F under the default 0.6 bar: the founder's) | score |
+| R-3 | **Propose…** at the MA-4h frame (763 974 000 / 1 035 484 000 / −409 631 mm, no turn): the first click answered "Failed to fetch" in a network blip (the platform's own config fetch failed at 12:32–12:33 too; the bridge answered on loopback; no ledger row); the retry → `✓ Proposed job-0002 — 0 changeset(s), 0 ghost(s) … 144 type-gap group(s), 372 element(s) in the Holding Area · scan-L00/L01/L02-level → Scan L00/L01/L02 job-0002 (created) · ledger #2266`; #2265 `type_gap:run job-0002 · survey-planner · 144 group(s), 372 element(s)` — **pass** | the status line, the ledger |
+| R-4 | A measure of a 0.2.0 job fails in words — pinned by `changesets-store.test.mjs` (Kladno types no element, so no live measure) — **covered by the test** | the test |
+
+**Closing list:** `kladno-drill` holds job-0002 (#2264) and its proposal (#2266: 144 gap groups, three levels created) beside
+job-0001. Owed to the founder (open question 8): the acceptance bars (1F F1 0.330 against 0.6), the deviation statistic (recommended:
+the share within 25 mm at 0.4), the pair minimum thickness. Next: precision (faces that are not walls), the reference's attic floor
+from above.
 

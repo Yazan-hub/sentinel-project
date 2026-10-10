@@ -16,7 +16,7 @@ export const DEFAULT_PYTHON = "C:\\Python314\\python.exe";
 export const pythonPath = () => process.env.SENTINEL_PYTHON || DEFAULT_PYTHON;
 export const SCRIPT = fileURLToPath(new URL("../../survey/service.py", import.meta.url));
 export const READY_MS = 20_000; // Python up, numpy imported, its port said
-// ponytail: one wall-clock bound for every job — MA-4h, Kladno (250.5 M points): 157 s in memory, 216 s live; set it by point count when a scan nears it.
+// ponytail: one wall-clock bound for every job — MA-4h, Kladno (250.5 M points): 157 s in memory, 216 s live (0.3.0: 181 s live); set it by point count when a scan nears it.
 export const JOB_MS = 10 * 60_000;
 export const POLL_MS = 500;
 const CALL_MS = 10_000; // one HTTP call to the service
