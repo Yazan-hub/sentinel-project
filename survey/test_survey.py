@@ -573,7 +573,8 @@ class Survey(unittest.TestCase):
 
 
 class Knobs(unittest.TestCase):
-    """MA-4h-3: each knob measured on Kladno, pinned on a synthetic case that fails at its 0.2.0 value."""
+    """MA-4h-3: each knob measured on Kladno, pinned on a synthetic case that fails at its 0.2.0 value; the 100 mm partition passes at
+    both and keeps CLEAR from growing."""
 
     @staticmethod
     def line(y, x0, x1, step, seed):
@@ -607,6 +608,8 @@ class Knobs(unittest.TestCase):
         f = pipeline.faces(np.concatenate([self.line(5, 0, 900, 10, 1), self.line(2005, 0, 1100, 10, 2)]))
         self.assertEqual(len(f), 1)
         self.assertAlmostEqual(f[0]["len"], 1090, delta=20)
+        # two 700 mm pieces of one line, 400 mm apart (a doorway): the Hough finds the line, each run is too short (MAX_GAP breaks it)
+        self.assertEqual(pipeline.faces(np.concatenate([self.line(5, 0, 700, 10, 1), self.line(5, 1100, 1800, 10, 2)])), [])
 
 
 class Voxel(unittest.TestCase):
