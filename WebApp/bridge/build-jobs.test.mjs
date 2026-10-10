@@ -91,14 +91,20 @@ describe("survey jobs (MA-4c)", () => {
     expect(rec()).toMatchObject({ status: "running", stage: "done", pct: 100 });
     await finish({ status: "done", stage: "done", pct: 100, refused: [], result: RESULT, tools: TOOLS, version: "0.1.0" });
     const bytes = readFileSync(join(root, "demo", "job-0001", "result.json"));
-    expect(rec()).toMatchObject({ status: "done", pct: 100, result_sha256: sha(bytes), candidates_total: 2, counts: { level: 1, wall: 1, floor: 0, ceiling: 0, door: 0, window: 0 },
+    expect(rec()).toMatchObject({ status: "done", pct: 100, result_sha256: sha(bytes), candidates_total: 2, counts: { level: 1, wall: 1, floor: 0, ceiling: 0 },
       reader: { name: "sentinel-survey", version: "0.1.0" }, tools: TOOLS, ledger: { id: 101, hash: "cd".repeat(32) } });
     expect(audits).toHaveLength(1);
     expect(audits[0]).toMatchObject({ pid: "uuid-demo", et: "build", eid: null, action: "build:run job-0001 · sentinel-survey 0.1.0 · done", actor: "machine" });
     expect(audits[0].v).toEqual({ job_id: "job-0001", reader: "sentinel-survey", version: "0.1.0", status: "done", pack_id: "evp-0001", pack_version: 9,
       items: [{ id: "ev-0001", sha256: "1".repeat(64) }], read: ["ev-0001"], refused: rec().refused, tools: TOOLS, params: { voxel_mm: 20, storey_min_mm: 2000 }, seed: 1,
       started: "2026-10-08T10:00:00Z", finished: "2026-10-08T10:00:02Z", minutes: 0, cpu_s: 0.4, points_in: 47699, points_used: 47680,
-      model_calls: 0, tokens: 0, candidates: { level: 1, wall: 1, floor: 0, ceiling: 0, door: 0, window: 0 }, gaps: null, result_sha256: sha(bytes), claimed: false });
+      model_calls: 0, tokens: 0, candidates: { level: 1, wall: 1, floor: 0, ceiling: 0 }, gaps: null, result_sha256: sha(bytes), claimed: false }); // MA-5a: a 0.1.0 reader never looked for doors
+  });
+
+  it("(b2) MA-5a: a 0.5.0 reader's counts name doors and windows, none found included — a reader before it never looked (review)", async () => {
+    await start();
+    await finish({ status: "done", stage: "done", pct: 100, refused: [], result: RESULT, tools: TOOLS, version: "0.5.0" });
+    expect(rec().counts).toEqual({ level: 1, wall: 1, floor: 0, ceiling: 0, door: 0, window: 0 });
   });
 
   it("(c) one job at a time on this bridge — a second is a 409 with nothing made; after it ends the next is job-0002", async () => {

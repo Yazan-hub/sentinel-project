@@ -179,8 +179,9 @@ describe("MA-5a — a scan door or window: after its storey's walls, on its host
   const SIZE = { types: [{ category: "Doors", family: "BDS_INT_1 PNL", type: "BDS_INT_1 PNL_WOOD_900 x 2100 mm" }, { category: "Windows", family: "BDS_Window_1 Panel+FX", type: "1200x1200 mm" }],
     label: "type_catalog@2 · project · 5a5a5a5a5a5a…", sha256: "5a".repeat(32) };
   const BDS = { types: read("../../demo/bds-pilot/bds-type-catalog.json").types, label: "type_catalog@1 · project · fedcba987654…", sha256: "cd".repeat(32) };
+  // GR-FFL published at 0: an opening is placed only on a storey whose level height is checked (review)
   const plan = (openings, catalog = SIZE, over = {}) => planSurvey({ job: JOB, candidates: [...RESULT.candidates, ...openings], frame: EAST, levels: { "scan-L00-level": "GR-FFL" },
-    manifest: [], type, catalog, sameCategory: core.sameCategory, ...over });
+    manifest: [{ name: "GR-FFL", elevation_mm: 0, from: "ARC.ifc P01" }], type, catalog, sameCategory: core.sameCategory, ...over });
   const off = (p, { start, end }) => Math.abs((end[0] - start[0]) * (p[1] - start[1]) - (end[1] - start[1]) * (p[0] - start[0])) / Math.hypot(end[0] - start[0], end[1] - start[1]);
 
   it("typed by size: after the walls, on the host's trimmed line at the level, a window's sill; the trust record says bridge-size, framing, never pre-ticked", () => {
@@ -241,15 +242,27 @@ describe("MA-5a — a scan door or window: after its storey's walls, on its host
     expect(typeGapGroups([row([odd])], [], SIZE, core.sameCategory).closed.map((g) => g.type)).toEqual(["BDS_INT_1 PNL_WOOD_900 x 2100 mm"]);
     expect(typeGapGroups([row([odd], true)], [], SIZE, core.sameCategory).open.map((g) => g.size)).toEqual(["1000 x 2100 mm"]);
   });
-  it("a host that is a type gap holds its opening, in words, grouped by its size; a host not on the job is said too", () => {
+  it("a host that is a type gap, seen on one face or not on the job holds its opening in words — an exception only, no size group to close by catalogue", () => {
     const onGap = { ...WINDOW, cid: "scan-L00-wall-4-window-1", geometry: { ...WINDOW.geometry, host: "scan-L00-wall-4", Location: [125, 2600, 0], along_mm: 2535 } };
     const lost = { ...DOOR, cid: "scan-L00-wall-9-door-1", geometry: { ...DOOR.geometry, host: "scan-L00-wall-9" } };
     const p = plan([onGap, lost]);
-    const why = (cid) => p.storeys[0].exceptions.find((x) => x.unique_id === cid).reason;
-    expect(why(onGap.cid)).toBe("type gap — its host wall scan-L00-wall-4 is a type gap; it is placed once the wall is; it waits in the Holding Area");
-    expect(why(lost.cid)).toBe("type gap — its host wall scan-L00-wall-9 is not a wall of GR-FFL in job-0002; it waits in the Holding Area");
-    expect(p.groups.find((g) => g.category === "Windows")).toMatchObject({ want: null, size: "1200 x 1200 mm", key: "host scan-L00-wall-4 is a type gap" });
-    expect(p.groups.find((g) => g.category === "Doors")).toMatchObject({ want: null, size: "900 x 2100 mm", key: "host wall not on the job" });
+    const why = (q, cid) => q.storeys[0].exceptions.find((x) => x.unique_id === cid).reason;
+    expect(why(p, onGap.cid)).toBe("its host wall scan-L00-wall-4 is a type gap — propose the job again once the wall's group in the Holding Area closes");
+    expect(why(p, lost.cid)).toBe("its host wall scan-L00-wall-9 is not a wall of GR-FFL in job-0002");
+    expect(p.groups.filter((g) => g.category === "Windows" || g.category === "Doors")).toEqual([]); // the wall's own group tracks the blocker
+    // a host seen on one face is never typed (its thickness is not measured): proposing again holds it again — a person draws both
+    const one = { ...RESULT, candidates: RESULT.candidates.map((c) => (c.cid === "scan-L00-wall-1" ? { ...c, measured: { ...c.measured, thickness_mm: undefined } } : c)) };
+    const q = planSurvey({ job: JOB, candidates: [...one.candidates, DOOR], frame: EAST, levels: { "scan-L00-level": "GR-FFL" },
+      manifest: [{ name: "GR-FFL", elevation_mm: 0, from: "ARC.ifc P01" }], type, catalog: SIZE, sameCategory: core.sameCategory });
+    expect(why(q, DOOR.cid)).toBe("its host wall scan-L00-wall-1 was seen on one face only, so it is never typed — a person draws the wall and this door");
+    expect(q.groups.filter((g) => g.category === "Doors")).toEqual([]);
+  });
+  it("a storey named to a level no published model holds places no opening — Revit refuses one off its level's height, which is unchecked", () => {
+    const p = plan([DOOR, WINDOW], SIZE, { manifest: [] });
+    expect(p.storeys[0].storey).toMatchObject({ level: "GR-FFL", how: "named", checked: false });
+    expect(p.storeys[0].body.elements.map((e) => e.kind)).toEqual(["wall", "wall", "wall"]);
+    expect(p.storeys[0].exceptions.find((x) => x.unique_id === DOOR.cid).reason).toBe("its level GR-FFL is in no published model, so its height in Revit is unknown here — Revit refuses a door or window off its level's height; name a published level, or leave the storey out of levels to have it created");
+    expect(p.groups.filter((g) => g.category === "Windows" || g.category === "Doors")).toEqual([]);
   });
   it("decision 19: a host this job filed is not proposed again; its opening, not filed, is — the executor finds the host in the model", () => {
     const p = plan([DOOR], SIZE, { filed: { cids: new Set(["scan-L00-wall-1"]), storeys: new Map() } });

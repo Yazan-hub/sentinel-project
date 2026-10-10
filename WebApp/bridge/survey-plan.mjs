@@ -254,7 +254,7 @@ export function planSurvey({ job, candidates, frame, levels: named = {}, manifes
       return { measured: c.measured, accuracy: { status, basis: "fit", from_job: job.id, fit_rmse_mm: Number.isFinite(rms) ? rms : null, face_dev_mm: dev,
         coverage: c.fit?.coverage ?? null, target_mm: TOLERANCE_MM }, pretick: status === "within_tolerance" && s.checked && sized, ...extra };
     };
-    // `why`: the reason's own words when the gap is not the element's type (MA-5a: an opening held by its host wall).
+    // `why`: the reason's own words for a gap the key does not say (MA-5a: several catalogue rows in an opening's size band).
     const gap = (c, g, why = null) => {
       gaps.push({ ...g, size: g.size ?? (g.want ? null : NOT_MEASURED), label: `${s.level} · ${c.cid}`.slice(0, 256), evidence: c.evidence });
       exceptions.push({ unique_id: c.cid.slice(0, 64), name: `${c.kind} ${c.cid}`.slice(0, 256),
@@ -291,10 +291,20 @@ export function planSurvey({ job, candidates, frame, levels: named = {}, manifes
     // (decision 19) is in the model or on the Review desk — the executor finds it among the model's walls.
     for (const c of mine.filter((x) => x.kind === "door" || x.kind === "window")) {
       if (again(c)) continue;
+      // MA-5a (review): an opening held by its level or its host, not its type, is an exception only — a size group in the Holding Area
+      // would close by catalogue while the opening still could not be placed
+      const hold = (why) => exceptions.push({ unique_id: c.cid.slice(0, 64), name: `${c.kind} ${c.cid}`.slice(0, 256), reason: why.slice(0, 300) });
       const category = KIND_CATEGORY[c.kind], host = c.geometry.host, hi = walls.findIndex((w) => w.cid === host);
       const w = nominal(c.measured.width_mm), h = nominal(c.measured.height_mm), sill = c.measured.sill_mm, size = `${w} x ${h} mm`;
-      if (hi < 0) { gap(c, { category, want: null, size, key: "host wall not on the job" }, `its host wall ${host} is not a wall of ${s.level} in ${job.id}`); continue; }
-      if (typed[hi].gap && !filed.cids.has(host)) { gap(c, { category, want: null, size, key: `host ${host} is a type gap` }, `its host wall ${host} is a type gap; it is placed once the wall is`); continue; }
+      // the executor refuses a door or window whose point is off its level's height in Revit (and rolls the changeset back); a level named
+      // but in no published model was never checked against it — a wall or floor takes the level itself, an opening its point (review)
+      if (!s.checked) { hold(`its level ${s.level} is in no published model, so its height in Revit is unknown here — Revit refuses a door or window off its level's height; name a published level, or leave the storey out of levels to have it created`); continue; }
+      if (hi < 0) { hold(`its host wall ${host} is not a wall of ${s.level} in ${job.id}`); continue; }
+      if (typed[hi].gap && !filed.cids.has(host)) {
+        hold(typed[hi].gap.size === NOT_MEASURED ? `its host wall ${host} was seen on one face only, so it is never typed — a person draws the wall and this ${c.kind}`
+          : `its host wall ${host} is a type gap — propose the job again once the wall's group in the Holding Area closes`);
+        continue;
+      }
       const hf = typed[hi].loc?.location, facts = { params: { ...(hf ? { HostFunction: hf } : {}), Size: `W${w} x H${h} mm` } }; // PromotePlanner's shape
       let g = gapOf(type, c.kind, facts, c.cid, null), by = null, why = null;
       if (g && !g.want) {

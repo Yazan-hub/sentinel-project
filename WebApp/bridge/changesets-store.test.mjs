@@ -998,7 +998,7 @@ describe("proposeFromJob (MA-4d): a lead turns a trusted survey job into changes
     await quiet({ docList: vi.fn(async () => docs) }, "Survey job-0002 · GR-FFL (proposed) was filed from job-0002 with the scan moved 40000, 0, 0 mm, turned 0° — send that frame (one job is one frame), or run the survey again to propose it afresh; nothing was saved", 409, { frame: { ...FRAME, dx_mm: 0 } });
     const other = docs.map((c) => ({ ...c, name: c.name.replace("job-0002", "job-0001"), job: { ...c.job, id: "job-0001", ledger_id: 2200 } }));
     await quiet({ docList: vi.fn(async () => other) }, "Survey job-0001 · GR-FFL (from job-0001) is still proposed — decide or withdraw it before proposing another survey job: both would propose the same walls; nothing was saved");
-    await quiet({ resolveArtefact: resolving({ guideline: STD.guideline }) }, expect.stringMatching(/^a survey's candidates are typed from the project's guideline and type catalogue, exactly \(D16\) — guideline: guideline@1 · office · .+; type catalogue: none — .+; install both on the project or its office first\. Nothing was saved$/));
+    await quiet({ resolveArtefact: resolving({ guideline: STD.guideline }) }, expect.stringMatching(/^a survey's candidates are typed from the project's guideline and type catalogue \(walls, floors and ceilings exactly, D16; doors and windows by size within 100 mm\) — guideline: guideline@1 · office · .+; type catalogue: none — .+; install both on the project or its office first\. Nothing was saved$/));
     await quiet({ manifestLevels: vi.fn(async () => { throw new Error("the manifest store is down"); }) },
       "the published models' levels could not be read (the manifest store is down) — nothing was saved; send it again", 503);
   });

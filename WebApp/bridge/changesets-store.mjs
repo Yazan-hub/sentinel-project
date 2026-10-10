@@ -298,7 +298,7 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
       && (c.job.evidence ?? []).some(onScan)).slice(0, 20).map((c) => ({ changeset: c.name, job_id: c.job.id, evidence: c.job.evidence.filter(onScan).map((e) => e.id) }));
     const [guideline, catalog] = await Promise.all([standardOf(key, "guideline", d), standardOf(key, "type_catalog", d)]);
     if (!guideline.body || !catalog.body)
-      throw err(409, `a survey's candidates are typed from the project's guideline and type catalogue, exactly (D16) — guideline: ${guideline.label}; type catalogue: ${catalog.label}; install both on the project or its office first. Nothing was saved`);
+      throw err(409, `a survey's candidates are typed from the project's guideline and type catalogue (walls, floors and ceilings exactly, D16; doors and windows by size within 100 mm) — guideline: ${guideline.label}; type catalogue: ${catalog.label}; install both on the project or its office first. Nothing was saved`);
     const core = await import("./sentinel-core.mjs");
     const type = makeTyper({ guideline, catalog }, core);
     let manifest;
