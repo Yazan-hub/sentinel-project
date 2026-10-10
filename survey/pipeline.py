@@ -44,7 +44,7 @@ MAX_WALL = 600.0        # mm: faces further apart are two walls (a corridor), no
 NEAR_FACE = 40.0        # mm: a floor or ceiling point this close to a wall face of its storey is the wall's
 # ponytail: at most 10 million points are held in memory (a seeded sample beyond, read in chunks — las.CHUNK; no memory bound on
 # Windows without a Job Object). MA-4h, Kladno (250.5 M points): a 4 % sample, 8.42 M after the voxel; the job 157 s in memory (216 s live) and 1.70 GB private
-# at peak (0.76 GB of it numpy's OpenBLAS buffers, one per thread); at 0.3.0's knobs 181 s live and 1.93 GB peak private (job-0002).
+# at peak (0.76 GB of it numpy's OpenBLAS buffers, one per thread); at 0.3.0's knobs 181 s live and 1.93 GB peak private (job-0002); at 0.4.0 200 s, 1.93 GB (job-0003).
 # Raise it only if wall F1 shows walls lost to sparsity — MA-4h-3 measured none: at 50 mm, completeness 0.40 stays over correctness 0.32.
 MAX_POINTS = 10_000_000
 # ponytail: one building per job — the Hough accumulator is 360 x (2 x span / CELL) votes, ~170 MB at 300 m (twice, with bincount's);

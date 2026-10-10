@@ -26,7 +26,7 @@ VERSION = "0.4.0"  # MA-4h-4: a wall face runs the storey's height (MIN_HEIGHT),
 TOKEN = os.environ.get("SENTINEL_SURVEY_TOKEN", "")
 MAX_BODY = 1 << 20
 # ponytail: one file is at most 300 million points: it is hashed twice and read in chunks, within the bridge's 10 min job limit.
-# MA-4h, Kladno (250.5 million points, LAS 1.2, 6.5 GB): each hash ~6 s, the read ~5 s, the job 157 s in memory, 216 s live (job-0001, #2261); at 0.3.0's knobs 181 s live, 1.93 GB peak private (job-0002, #2264) — the cap is not the clock's;
+# MA-4h, Kladno (250.5 million points, LAS 1.2, 6.5 GB): each hash ~6 s, the read ~5 s, the job 157 s in memory, 216 s live (job-0001, #2261); at 0.3.0's knobs 181 s live, 1.93 GB peak private (job-0002, #2264); at 0.4.0 200 s (job-0003, #2267) — the cap is not the clock's;
 # it stays until a larger scan is admitted and measured.
 MAX_POINTS_IN = 300_000_000
 MAX_ELEMENTS = 200  # MA-4e: a changeset holds at most 200 elements (changesets-logic MAX_CHANGESET_ELEMENTS)
