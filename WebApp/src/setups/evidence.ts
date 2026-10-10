@@ -119,7 +119,8 @@ export interface SurveyJob {
 /** An untyped candidate (design §6.9): whatever the reader measured, in mm (an area in m²). */
 export interface Candidate {
   cid: string; kind: string; geometry: Record<string, unknown>; measured: Record<string, number>; evidence: string[];
-  fit?: { inliers: number; rmse_mm: number; coverage: number };
+  /** MA-5a: a door or window has no fit of its own — coverage is its hole's border share, faces_seen the wall faces it was found on. */
+  fit?: { inliers: number; rmse_mm: number; coverage: number; faces_seen?: number };
 }
 export interface JobRead { job: SurveyJob; candidates?: Candidate[]; result_error?: string; }
 /** The pack's scans a survey may read: admitted, surveyable, not changed. Which it can read is sentinel-survey's to say, per item, by the bytes (MA-4g). Pure. */
@@ -140,7 +141,9 @@ export function jobLine(j: SurveyJob): string {
 /** One untyped candidate in one line — generic over what it measured, its fit, the evidence it came from. Pure. */
 export function candidateLine(c: Candidate): string {
   const m = Object.entries(c.measured).map(([k, v]) => `${k.replace(/_/g, " ")} ${v}`).join(", ");
-  const fit = c.fit ? ` · fit ${c.fit.rmse_mm} mm rms, ${Math.round(c.fit.coverage * 100)}% covered` : "";
+  // MA-5a (review): a door or window has no fit (the bridge records none) — its hole's border and the faces that saw it, never "0 mm rms"
+  const fit = c.fit?.faces_seen != null ? ` · hole border ${Math.round(c.fit.coverage * 100)}%, ${c.fit.faces_seen} face(s) seen; a hole is an opening or an occluder`
+    : c.fit ? ` · fit ${c.fit.rmse_mm} mm rms, ${Math.round(c.fit.coverage * 100)}% covered` : "";
   const one = Array.isArray(c.geometry.faces) && c.geometry.faces.length === 1 ? " · one face seen: its thickness is unknown" : "";
   return `${c.cid} · ${c.kind} · ${m}${fit}${one} · from ${c.evidence.join(", ")}`;
 }
