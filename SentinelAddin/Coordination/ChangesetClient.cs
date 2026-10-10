@@ -198,6 +198,10 @@ public sealed class TypingDto
     /// <summary>The bridge's refLabel of the guideline and catalogue that decided ("guideline@1 · office · 0123456789ab…").</summary>
     [JsonPropertyName("guideline")] public string Guideline { get; set; }
     [JsonPropertyName("catalog")] public string Catalog { get; set; }
+    /// <summary>MA-5a ("bridge-size"): a scan door or window typed by its measured size — the nominal size ("1000 x 2100 mm") and the
+    /// band the catalogue was searched within (100 mm).</summary>
+    [JsonPropertyName("size")] public string Size { get; set; }
+    [JsonPropertyName("band_mm")] public double? BandMm { get; set; }
 }
 
 public sealed class AccuracyDto
@@ -232,8 +236,14 @@ public static class ChangesetTrust
 
     /// <summary>MA-2a: the review's words for an element the bridge typed — "typed by the bridge from the facts posted (guideline@1 ·
     /// office · …)"; null for one the caller typed, or from a bridge before MA-2a.</summary>
-    public static string Typing(ChangesetElementDto el) =>
-        el.Typing?.TypedBy == "bridge" ? "typed by the bridge from the facts posted (" + (el.Typing.Guideline ?? "guideline") + ")" : null;
+    public static string Typing(ChangesetElementDto el) => el.Typing?.TypedBy switch
+    {
+        "bridge" => "typed by the bridge from the facts posted (" + (el.Typing.Guideline ?? "guideline") + ")",
+        // MA-5a: a scan door or window no office rule typed — the one catalogue row within the band of its measured size
+        "bridge-size" => "typed by the bridge by size: " + (el.Typing.Size ?? "its measured size") + ", the one catalogue type within "
+            + (el.Typing.BandMm ?? 100) + " mm (" + (el.Typing.Catalog ?? "catalogue") + ")",
+        _ => null,
+    };
 
     /// <summary>Review C21 (MA-2c, founder decision F1's "14 more that this changeset retypes onto it"): the elements this changeset
     /// retypes onto a set_parameter's type — same kind and type name; the family where both name one (the bridge's typer names a

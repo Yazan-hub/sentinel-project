@@ -272,6 +272,10 @@ static partial class Check
         var caller = JsonSerializer.Deserialize<ChangesetElementDto>("{\"kind\":\"wall\",\"op\":\"create\",\"typing\":{\"typed_by\":\"caller\"}}");
         var older = JsonSerializer.Deserialize<ChangesetElementDto>("{\"kind\":\"wall\",\"op\":\"create\"}");
         Ok(ChangesetTrust.Typing(caller) == null && ChangesetTrust.Typing(older) == null, "a caller-typed element, or one from a bridge before MA-2a, adds no words");
+        var sized = JsonSerializer.Deserialize<ChangesetElementDto>("{\"kind\":\"window\",\"op\":\"create\",\"typing\":{\"typed_by\":\"bridge-size\",\"type\":\"800x1200 mm\","
+            + "\"family\":\"BDS_Window_1 Panel+FX\",\"size\":\"800 x 1200 mm\",\"band_mm\":100,\"catalog\":\"type_catalog@1 · project · fedcba987654…\"}}");
+        Ok(ChangesetTrust.Typing(sized) == "typed by the bridge by size: 800 x 1200 mm, the one catalogue type within 100 mm (type_catalog@1 · project · fedcba987654…)",
+           "MA-5a: the review's words for a scan opening typed by its size");
         Ok(cs.Elements.All(e => !ChangesetTrust.PreTick(cs, e)), "neither element opens ticked: a create never, a bridge-typed retype not for that");
         string filed = JsonSerializer.Serialize(new ChangesetElementDto { Kind = "wall", Op = "retype" }, ChangesetClient.WriteJson);
         Ok(!filed.Contains("typing") && !filed.Contains("facts"), "an element the add-in files carries no typing (nulls are left out): the bridge's record is the bridge's");
