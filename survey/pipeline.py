@@ -36,6 +36,8 @@ CLEAR = 3.0             # cells: a found face's cells within CLEAR x CELL of its
 MIN_FACE = 1000.0       # mm: a shorter face is not proposed
 MIN_HEIGHT = 0.8        # MA-4h-4: the share of the storey's height (100 mm bins, HEIGHT_EDGE in from floor and top) a wall face's points cover
 HEIGHT_EDGE = 150.0     # mm: the floor's and the top's own points stay out of a face's height
+# ponytail: the 100 mm bin is fixed in height_share, not a knob; each face scans the storey's points once (faces x points — Kladno's GF:
+# 118 faces over ~3 M points), measured inside the job's time on the drill; a plan-grid index when a storey nears JOB_MS.
 MAX_GAP = 300.0         # mm: a face breaks where its line is empty for longer (a doorway; a closed door reads as wall)
 END_GAP = 100.0         # mm: a piece shorter than this at a face's end, past an empty stretch, is another face crossing the line
 MAX_WALL = 600.0        # mm: faces further apart are two walls (a corridor), not one — WallPairing allows 1000 on drawings
@@ -382,6 +384,7 @@ def measure(P, src, ids, storey_min, progress=lambda stage, pct: None):
         # MA-4h-4, Kladno: a face in the mid-storey slice is a wall only if it runs the storey's height — a sofa back, a counter or a
         # cupboard reads as a face in the slice but stops short (GF: 183 false positives, half of them under 0.5 of the height).
         # Measured on the reference at 100 mm: GF F1 0.116 -> 0.154, 1F (held out) 0.330 -> 0.372, true walls kept 0.93 / 0.94.
+        # The floor's and ceilings' outlines (outline below) are cut by the kept faces only: a counter no longer trims a floor.
         # ponytail: a half-height wall (a parapet, a dwarf wall under glazing) is not proposed — a person draws it.
         st = P[(P[:, 2] > zf + HEIGHT_EDGE) & (P[:, 2] < top - HEIGHT_EDGE)]
         fs = [x for x in fs if height_share(st, x["seg"], zf + HEIGHT_EDGE, top - HEIGHT_EDGE) >= MIN_HEIGHT]

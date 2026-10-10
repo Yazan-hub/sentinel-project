@@ -611,8 +611,9 @@ class Knobs(unittest.TestCase):
         # two 700 mm pieces of one line, 400 mm apart (a doorway): the Hough finds the line, each run is too short (MAX_GAP breaks it)
         self.assertEqual(pipeline.faces(np.concatenate([self.line(5, 0, 700, 10, 1), self.line(5, 1100, 1800, 10, 2)])), [])
 
-    def test_a_face_that_stops_at_half_the_storey_is_furniture_not_a_wall(self):
-        # MA-4h-4: a 3 m long surface 900..1900 mm up (a counter's back, through the mid-storey slice) inside the drill building
+    def test_a_face_a_third_of_the_storey_high_is_furniture_not_a_wall(self):
+        # MA-4h-4: a 3 m long surface 900..1900 mm up (a counter's back through the mid-storey slice, 0.4 of the 2.5 m between the
+        # height edges) inside the drill building
         rng = np.random.default_rng(11)
         y, z = np.meshgrid(np.arange(2000, 5000, 100.0), np.arange(900, 1900, 100.0))
         counter = np.stack([4000 + rng.normal(0, 2, y.size), y.ravel() + rng.uniform(0, 100, y.size), z.ravel() + rng.uniform(0, 100, z.size)], 1)
