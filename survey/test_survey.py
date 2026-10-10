@@ -616,14 +616,15 @@ class Openings(unittest.TestCase):
         d, w = doors[0], windows[0]
         south = next(x for x in self.of("wall") if x["cid"] == d["geometry"]["host"])
         self.assertAlmostEqual(south["geometry"]["LocationCurve"]["start"][1], 150, delta=50)
-        self.assertAlmostEqual(d["measured"]["width_mm"], 900, delta=100)
+        # MA-5a (review): within half a cell — the two faces' union read 1000 here (its outer face's cells meet the door's edges)
+        self.assertAlmostEqual(d["measured"]["width_mm"], 900, delta=50)
         self.assertEqual(d["measured"]["sill_mm"], 0)
         self.assertAlmostEqual(d["measured"]["head_mm"], 2100, delta=100)
         self.assertAlmostEqual(d["geometry"]["Location"][0], 3450, delta=100)
         self.assertEqual(d["fit"]["faces_seen"], 2)
         east = next(x for x in self.of("wall") if x["cid"] == w["geometry"]["host"])
         self.assertAlmostEqual(east["geometry"]["LocationCurve"]["start"][0], 7850, delta=50)
-        self.assertAlmostEqual(w["measured"]["width_mm"], 1200, delta=100)
+        self.assertAlmostEqual(w["measured"]["width_mm"], 1200, delta=50)
         self.assertAlmostEqual(w["measured"]["sill_mm"], 900, delta=100)
         self.assertAlmostEqual(w["measured"]["height_mm"], 1200, delta=100)
         self.assertAlmostEqual(w["geometry"]["Location"][1], 2600, delta=100)
@@ -640,6 +641,54 @@ class Openings(unittest.TestCase):
     def test_the_same_points_params_and_seed_give_the_same_candidates(self):
         again, _ = pipeline.survey(self.items, Survey.PARAMS, 1)
         self.assertEqual(json.dumps(again), json.dumps(self.found))
+
+    @staticmethod
+    def measure(P):
+        P, src = pipeline.voxel(P, np.zeros(len(P), np.int64), Survey.PARAMS["voxel_mm"])
+        return pipeline.measure(P, src, ["ev-0001"], Survey.PARAMS["storey_min_mm"])
+
+    def test_a_stray_cell_beside_a_jamb_or_under_the_lintel_keeps_the_door_whole(self):
+        # MA-5a (review): a stray keeps the wall's 3 cells as neighbours (no speck); the rows' intersection narrowed the whole hole to
+        # the columns past it — its side the door's own near-empty column, its border collapsed (seeds 5, 6, 8 lost the door; seed 4
+        # saw it on one face). Each side grows across a line under half filled.
+        g = np.ones((24, 40), bool)
+        g[0:19, 15:25] = False
+        g[18, 17] = True  # under the lintel (row 19)
+        self.assertEqual(pipeline.holes(g), [(15, 25, 0, 19, 1.0, 48)])
+        g = np.ones((24, 40), bool)
+        g[0:19, 15:21] = False
+        g[10, 15] = g[12, 20] = True  # beside each jamb: the intersection is 4 columns, under OPEN_W
+        self.assertEqual(pipeline.holes(g), [(15, 21, 0, 19, 1.0, 44)])
+        for seed in (4, 5, 6, 8):
+            found = self.measure(building(seed=seed, spacing=50.0, door=((3000, 3900), (0, 2100)), window=((2000, 3200), (900, 2100))))
+            doors = [c for c in found if c["kind"] == "door"]
+            self.assertEqual([(c["measured"]["width_mm"], c["measured"]["head_mm"], c["fit"]["faces_seen"]) for c in doors], [(900, 2100, 2)], seed)
+
+    def test_a_hole_open_at_the_faces_end_is_no_opening(self):
+        # MA-5a (review): a face ends where the mid-storey slice leaves its wall — Kladno's 11 holes at a face's end were all false, their
+        # open side skipped by the border (1.0 here before)
+        g = np.ones((24, 30), bool)
+        g[0:16, 24:30] = False
+        self.assertEqual(pipeline.holes(g), [])
+        g[0:16, 24:30], g[0:16, 0:6] = True, False
+        self.assertEqual(pipeline.holes(g), [])
+        g[0:16, 0:6], g[0:16, 12:18] = True, False
+        self.assertEqual(pipeline.holes(g), [(12, 18, 0, 16, 1.0, 38)])
+
+    def test_direction_is_the_hosts_unit_vector_and_scores_on_a_turned_building(self):
+        # MA-5a (review): whole numbers made a 30 deg wall's direction [1, 0] — reference.score's 5 deg match rejected every opening
+        t = math.radians(30)
+        R = np.array([[math.cos(t), -math.sin(t), 0], [math.sin(t), math.cos(t), 0], [0, 0, 1]])
+        found = self.measure(building(spacing=50.0, door=((3000, 3900), (0, 2100))) @ R.T)
+        doors = [c for c in found if c["kind"] == "door"]
+        self.assertEqual(len(doors), 1)
+        u = doors[0]["geometry"]["direction"]
+        self.assertAlmostEqual(math.hypot(*u), 1.0, delta=1e-3)
+        self.assertAlmostEqual(abs(u[0] * math.cos(t) + u[1] * math.sin(t)), 1.0, delta=1e-3)
+        a, b = R[:2, :2] @ [3000, 150], R[:2, :2] @ [3900, 150]
+        ref = {"storeys": [{"name": "GF", "ffl_mm": 0.0, "walls": None, "openings": [{"a": a.tolist(), "b": b.tolist(), "kind": "door"}]}]}
+        s = reference.score([c for c in found if c["kind"] == "level"] + doors, ref)
+        self.assertEqual([s["openings"][d]["tp"] for d in (50, 100, 200)], [1, 1, 1])
 
 
 class Knobs(unittest.TestCase):
@@ -694,6 +743,72 @@ class Knobs(unittest.TestCase):
         walls = [c for c in found if c["kind"] == "wall"]
         self.assertEqual(len(walls), 8)  # the building's, as Survey counts them; the counter's face is not one
         self.assertTrue(all(abs(c["geometry"]["LocationCurve"]["start"][0] - 4000) > 500 for c in walls))
+
+    # MA-5a's knobs, measured on Kladno (pipeline.py's table), each pinned on a case that fails off its value. ponytail: MIN_BORDER is
+    # pinned from above only — each side of a hole grows across a line under half filled (review), so a border under 0.5 cannot be made;
+    # DOOR_ROWS from above only — a one-row band under a hole is a line of specks, so a hole one row up reaches the floor row at 0 too.
+
+    def test_an_opening_is_at_least_OPEN_W_cells_wide_and_OPEN_H_high(self):
+        g = np.ones((24, 30), bool)
+        g[3:15, 10:14] = False  # 400 mm wide: clutter or a scan shadow
+        self.assertEqual(pipeline.holes(g), [])
+        g[3:15, 14] = False  # 500 mm
+        self.assertEqual([h[:4] for h in pipeline.holes(g)], [(10, 15, 3, 15)])
+        g = np.ones((24, 30), bool)
+        g[3:12, 10:16] = False  # 900 mm high
+        self.assertEqual(pipeline.holes(g), [])
+        g[12, 10:16] = False  # 1000 mm
+        self.assertEqual([h[:4] for h in pipeline.holes(g)], [(10, 16, 3, 13)])
+
+    def test_a_hole_from_the_floor_row_or_the_next_is_a_door_one_row_higher_a_window(self):
+        def kinds(r0):
+            g = np.ones((24, 40), bool)
+            g[r0:r0 + 12, 10:20] = False
+            face = {"seg": (0.0, 0.0, 4000.0, 0.0), "len": 4000.0, "grid": g}
+            return [o[0] for o in pipeline.wall_openings([face], (0.0, 150.0, 4000.0, 150.0), 0.0, 2800.0)]
+        self.assertEqual([kinds(0), kinds(1), kinds(2)], [["door"], ["door"], ["window"]])
+
+    def test_a_hole_framed_by_a_sparse_ring_is_kept_at_MIN_BORDER(self):
+        g = np.ones((24, 40), bool)
+        g[3:16, 15:25] = False
+        ring = [(2, c) for c in range(15, 25)] + [(16, c) for c in range(15, 25)] + [(r, 14) for r in range(3, 16)] + [(r, 25) for r in range(3, 16)]
+        for k, (r, c) in enumerate(ring):
+            g[r, c] = k % 5 not in (0, 2)  # 3 of every 5 ring cells hold the face
+        face = {"seg": (0.0, 0.0, 4000.0, 0.0), "len": 4000.0, "grid": g}
+        found = pipeline.wall_openings([face], (0.0, 150.0, 4000.0, 150.0), 0.0, 2800.0)
+        self.assertEqual([(o[0], round(o[5], 2)) for o in found], [("window", 0.59)])
+
+    def test_a_speck_pair_inside_a_doorway_does_not_split_it(self):
+        # the drill's doorway: a pair of cells split the run and shrank 1000 mm to 750 (SPECK 0); here three cells in a row at mid-height
+        # of a 900 mm door, each half of the row under OPEN_W and each half of the door under OPEN_H (its middle cell has 2 neighbours)
+        g = np.ones((24, 40), bool)
+        g[0:19, 15:24] = False
+        g[9, 18:21] = True
+        self.assertEqual([h[:4] for h in pipeline.holes(g)], [(15, 24, 0, 19)])
+
+    def test_a_hole_on_one_face_only_is_kept_seen_once(self):
+        # an interior scan never sees a window's outer face: the south wall's inner face (y 300) loses a 900 x 2100 hole, its outer is whole
+        P = building(spacing=50.0)
+        P = P[~((np.abs(P[:, 1] - 300) <= 5) & (P[:, 0] > 3000) & (P[:, 0] < 3900) & (P[:, 2] < 2100))]
+        doors = [c for c in Openings.measure(P) if c["kind"] == "door"]
+        self.assertEqual([(c["geometry"]["storey"], c["fit"]["faces_seen"]) for c in doors], [("scan-L00-level", 1)])
+        self.assertAlmostEqual(doors[0]["measured"]["width_mm"], 900, delta=100)
+
+    def test_two_faces_across_a_doorway_are_one_when_the_lintel_holds_LINTEL_of_its_cells_within_MERGE_GAP(self):
+        # two pieces of one face, the doorway between them 2150 mm high; the lintel's cells (5 rows over the gap's columns) filled at a
+        # share, column by column
+        def faces_after(gap, share):
+            x1 = 3000.0 + gap
+            cells = [(x, z) for x in np.arange(50.0, x1 + 3000, 100) for z in np.arange(200.0, 2650, 100)
+                     if not (3000 < x < x1 and z < 2150)]
+            lintel = [(x, z) for x, z in cells if 3100 < x < x1]  # the gap's columns merge_split reads (its first is the face's end cell's)
+            keep = set(lintel[:round(share * len(lintel))])
+            Q = np.array([(x, 0.0, z) for x, z in cells if (x, z) in keep or not 3000 < x < x1])
+            a, b = np.flatnonzero(Q[:, 0] < 3000), np.flatnonzero(Q[:, 0] > x1)
+            fs = [{"seg": (0.0, 0.0, 3000.0, 0.0), "len": 3000.0, "points": a}, {"seg": (x1, 0.0, x1 + 3000, 0.0), "len": 3000.0, "points": b}]
+            return len(pipeline.merge_split(Q, Q, fs, 150.0, 2650.0))
+        self.assertEqual([faces_after(900, 0.45), faces_after(900, 0.55)], [2, 1])
+        self.assertEqual([faces_after(2000, 1.0), faces_after(3000, 1.0)], [1, 2])
 
 
 class Voxel(unittest.TestCase):
@@ -1217,6 +1332,37 @@ class Reference(unittest.TestCase):
         with self.assertRaises(SystemExit) as e:
             reference.main(["reference.py"])
         self.assertEqual(e.exception.code, "reference.py zpeaks|slice|build|score — see the header")
+
+    def test_slice_sill_and_build_name_png_plus_sill_png_from_the_command_line_and_a_swapped_sill_image_refused(self):
+        # MA-5a: `slice <las> <floor> <png> sill` cuts SILL_CUT +- HALF; `build <las> <out> GF=<png>+<sill.png>` reads both traces. A sill
+        # line under 300 mm is a stray click (review): a double-click's zero-length one divided by zero, a short one made a window a door.
+        p, sp, out = (os.path.join(self.tmp.name, n) for n in ("o.png", "o-sill.png", "o.json"))
+        with contextlib.redirect_stdout(io.StringIO()):
+            reference.main(["reference.py", "slice", self.path, "0", p])
+            reference.main(["reference.py", "slice", self.path, "0", sp, "sill"])
+        sides = []
+        for q in (p, sp):
+            with open(q + ".json", "rb") as f:
+                sides.append(json.load(f))
+        self.assertEqual([s["z_mm"] for s in sides], [[900, 1500], [400, 1000]])
+        px = lambda s, x, y: [(x - s["origin_mm"][0]) / 20, (s["origin_mm"][1] - y) / 20]
+        o = lambda s, a, b: {"kind": "opening", "a": px(s, *a), "b": px(s, *b)}
+        traces = {p: [{"kind": "wall", "a": px(sides[0], 125, 150), "b": px(sides[0], 7850, 150)}, {"kind": "floor", "a": px(sides[0], 1000, 1000), "b": px(sides[0], 3000, 3000)},
+                      o(sides[0], (3000, 150), (3900, 150)), o(sides[0], (7850, 2000), (7850, 3200))],
+                  sp: [o(sides[1], (7850, 2600), (7850, 2600)), o(sides[1], (3020, 160), (3880, 160)), o(sides[1], (7850, 2000), (7850, 2200))]}
+        for q, s in ((p, sides[0]), (sp, sides[1])):
+            with open(q + ".trace.json", "w", encoding="utf-8") as f:
+                json.dump({"image_sha256": s["png_sha256"], "lines": traces[q]}, f)
+        reference.main(["reference.py", "build", self.path, out, f"GF={p}+{sp}"])
+        with open(out, encoding="utf-8") as f:
+            gf = json.load(f)["storeys"][0]
+        self.assertEqual((gf["openings"], gf["sill_cut_mm"]), ([{"a": [3000.0, 150.0], "b": [3900.0, 150.0], "kind": "door"},
+                                                                {"a": [7850.0, 2000.0], "b": [7850.0, 3200.0], "kind": "window"}], [400, 1000]))
+        with open(sp, "ab") as f:
+            f.write(b"x")
+        with self.assertRaises(ValueError) as e:
+            reference.load_storey("GF", p, sp)
+        self.assertEqual(str(e.exception), "GF: the sill image is not the one its side record was made from — slice it again")
 
 
 class NoNetwork(unittest.TestCase):

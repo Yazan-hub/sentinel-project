@@ -20,7 +20,8 @@ PX = 20.0          # mm a pixel of a slice image
 CUT = 1200.0       # mm above a storey's floor: Revit's plan cut, where the person reads the walls (the survey's own slice is mid-storey)
 HALF = 300.0       # mm: a slice image is the cut +- this
 SILL_CUT = 700.0   # mm above the floor (MA-5a): a window's sill is above it, a door's threshold below — an opening still open here is a
-                   # door. ponytail: a window with a sill under 700 mm reads as a door; a third cut (the head) tells them apart.
+                   # door. ponytail: the sill image is SILL_CUT +- HALF, so a window with a sill under 400 mm reads as a door; a third
+                   # cut (the head) tells them apart.
 OPEN_NEAR = 200.0  # mm: a sill-image opening this close to a 1200-image opening's line, overlapping it by half, is the same opening
 BAND = 150.0       # mm: a floor sample reads the points within this of its storey's floor guess (not the ceiling below a thin slab, nor a table top)
 STEP = 50.0        # mm between a wall's samples
@@ -131,12 +132,15 @@ def build(path, storeys):
         # MA-5a: an opening is an o line across the gap on the 1200 image (under 300 mm: a stray click); a door when an o on the sill
         # image lies on its line (within OPEN_NEAR) and overlaps it by half, else a window; with no sill image its kind is None
         # (position scored, class not). A traced storey with no o line has openings [] (every candidate opening there is false).
+        # A sill line under 300 mm is a stray click too (review: a double-click's zero-length line divided by zero in _overlap, and a
+        # short one beside a window made it a door).
         opens = [(a, b) for k, a, b in lines if k == "opening" and math.dist(a, b) >= 300]
         sill = None
         if s.get("sill_side"):
             if s["sill_trace"].get("image_sha256") != s["sill_side"]["png_sha256"]:
                 raise ValueError(f"{s['name']}: the sill trace was drawn on another image than its sill side record's")
-            sill = [(to_mm(s["sill_side"], *x["a"]), to_mm(s["sill_side"], *x["b"])) for x in s["sill_trace"]["lines"] if x["kind"] == "opening"]
+            sill = [(a, b) for a, b in ((to_mm(s["sill_side"], *x["a"]), to_mm(s["sill_side"], *x["b"])) for x in s["sill_trace"]["lines"]
+                                        if x["kind"] == "opening") if math.dist(a, b) >= 300]
         def off_line(a, b, p, q):  # the sill line's midpoint's distance from the 1200 line
             u = (np.array(b, float) - a) / math.dist(a, b)
             m = (np.array(p, float) + q) / 2 - a
