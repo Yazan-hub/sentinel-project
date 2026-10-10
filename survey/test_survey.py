@@ -11,6 +11,7 @@ import importlib.util
 import json
 import math
 import os
+import re
 import socket
 import struct
 import subprocess
@@ -1041,6 +1042,25 @@ class Reference(unittest.TestCase):
         with self.assertRaises(ValueError):
             reference.load_storey("GF", p)
 
+    def test_slice_prints_its_side_records_sha256_build_stores_it_and_no_command_is_the_usage_line(self):
+        # MA-4h: png_sha256 does not cover origin_mm, px_mm or z_mm — an edited side record shows as a side_sha256 that is not slice's
+        p = os.path.join(self.tmp.name, "side.png")
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            reference.main(["reference.py", "slice", self.path, "0", p])
+        printed = json.loads(out.getvalue())["side_sha256"]
+        with open(p + ".json", "rb") as f:
+            side = json.load(f)
+        px = lambda x, y: [(x - side["origin_mm"][0]) / 20, (side["origin_mm"][1] - y) / 20]
+        with open(p + ".trace.json", "w", encoding="utf-8") as f:
+            json.dump({"image_sha256": side["png_sha256"], "lines": [{"kind": "floor", "a": px(1000, 1000), "b": px(3000, 3000)}]}, f)
+        self.assertEqual(reference.build(self.path, [reference.load_storey("GF", p)])["storeys"][0]["side_sha256"], printed)
+        with open(p + ".json", "w", encoding="utf-8") as f:
+            json.dump({**side, "origin_mm": [side["origin_mm"][0] + 1000, side["origin_mm"][1]]}, f)  # the image unchanged
+        self.assertNotEqual(reference.load_storey("GF", p)["side_sha256"], printed)
+        with self.assertRaises(SystemExit) as e:
+            reference.main(["reference.py"])
+        self.assertEqual(e.exception.code, "reference.py zpeaks|slice|build|score — see the header")
+
 
 class NoNetwork(unittest.TestCase):
     def test_numpy_and_the_standard_library_at_start_laspy_and_pye57_only_inside_a_read_and_no_client(self):
@@ -1058,8 +1078,10 @@ class NoNetwork(unittest.TestCase):
             self.assertFalse(top & wheels, name)  # MA-4g: imported only inside a LAZ's or an E57's read, after las.lib
         with open(os.path.join(HERE, "trace.html"), encoding="utf-8") as f:
             page = f.read()
-        for word in ("http", "fetch(", "XMLHttpRequest", "WebSocket", "sendBeacon"):
+        for word in ("http", "fetch(", "XMLHttpRequest", "WebSocket", "sendBeacon", "EventSource", "import(", "window.open"):
             self.assertNotIn(word, page)  # MA-4h: the tracer is offline — it fetches and sends nothing
+        # MA-4h: nor loads anything protocol-relative ("//host/x" takes the page's scheme): an attribute or a property set to one, a CSS url()
+        self.assertIsNone(re.search(r"""\b(?:src|href|action|formaction|poster|srcset|data)\s*=\s*["'`]?\s*//|url\(\s*["']?\s*//""", page, re.I))
 
     @unittest.skipUnless(HAS("laspy", "lazrs"), WHY.format("laspy and lazrs are"))
     def test_laspy_finds_no_http_client(self):

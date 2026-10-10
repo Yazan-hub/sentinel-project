@@ -126,7 +126,8 @@ def build(path, storeys):
         walls = [{"a": a, "b": b, "guessed": k == "guessed"} for k, a, b in lines if k in ("wall", "guessed") and math.dist(a, b) >= 100]
         ffl, each = floor_mm(path, side["z_mm"][0] + HALF - CUT, [(*a, *b) for k, a, b in lines if k == "floor"])
         out.append({"name": s["name"], "ffl_mm": ffl, "floor_samples_mm": each, "walls": walls or None, "cut_mm": side["z_mm"],
-                    "origin_mm": side["origin_mm"], "image_sha256": side["png_sha256"], "trace_sha256": s.get("trace_sha256"),
+                    "origin_mm": side["origin_mm"], "image_sha256": side["png_sha256"], "side_sha256": s.get("side_sha256"),
+                    "trace_sha256": s.get("trace_sha256"),
                     "traced_by": tr.get("traced_by"), "saved": tr.get("saved"), "minutes": tr.get("minutes")})
     with open(path, "rb") as f:
         sha = hashlib.file_digest(f, "sha256").hexdigest()
@@ -136,16 +137,19 @@ def build(path, storeys):
 def load_storey(name, png_path):
     """One storey for build() from the disk: its image, side record (<png>.json) and the person's trace (<png>.trace.json), with the
     trace file's sha256 (the drill notes record it at the save). ValueError when the image's bytes are not the ones its side record
-    was made from — an edited or swapped image."""
+    was made from — an edited or swapped image. MA-4h: the side record's file sha256 too — png_sha256 does not cover its origin_mm, px_mm
+    or z_mm, so an edited one would shift the storey silently; slice prints it, the notes record it, build stores it beside the trace's."""
     with open(png_path, "rb") as f:
         png_sha = hashlib.sha256(f.read()).hexdigest()
-    with open(png_path + ".json", encoding="utf-8") as f:
-        side = json.load(f)
+    with open(png_path + ".json", "rb") as f:
+        side_raw = f.read()
     with open(png_path + ".trace.json", "rb") as f:
         raw = f.read()
+    side = json.loads(side_raw)
     if png_sha != side["png_sha256"]:
         raise ValueError(f"{name}: the image is not the one its side record was made from — slice it again")
-    return {"name": name, "side": side, "trace": json.loads(raw), "trace_sha256": hashlib.sha256(raw).hexdigest()}
+    return {"name": name, "side": side, "side_sha256": hashlib.sha256(side_raw).hexdigest(), "trace": json.loads(raw),
+            "trace_sha256": hashlib.sha256(raw).hexdigest()}
 
 
 def samples(s):
@@ -242,17 +246,18 @@ def score(cands, ref):
 
 
 def main(argv):
-    cmd, a = argv[1], argv[2:]
+    cmd, a = argv[1] if len(argv) > 1 else "", argv[2:]  # MA-4h: no command is the usage line below, not an IndexError
     if cmd == "zpeaks":  # <las>
         for z, n in zpeaks(a[0]):
             print(z, n)
     elif cmd == "slice":  # <las> <the storey's floor guess, mm> <out.png>: the cut CUT above it, +- HALF; its side record as <out.png>.json
         data, side = slice_png(a[0], float(a[1]) + CUT - HALF, float(a[1]) + CUT + HALF)
+        raw = json.dumps(side).encode("utf-8")
         with open(a[2], "wb") as f:
             f.write(data)
-        with open(a[2] + ".json", "w", encoding="utf-8") as f:
-            json.dump(side, f)
-        print(json.dumps(side))
+        with open(a[2] + ".json", "wb") as f:
+            f.write(raw)
+        print(json.dumps({**side, "side_sha256": hashlib.sha256(raw).hexdigest()}))  # MA-4h: the notes record it; build stores it
     elif cmd == "build":  # <las> <out.json> <name>=<png> ... lowest first; each png beside <png>.json (its side) and <png>.trace.json
         storeys = [load_storey(n, p) for n, p in (x.split("=", 1) for x in a[2:])]
         with open(a[1], "w", encoding="utf-8") as f:

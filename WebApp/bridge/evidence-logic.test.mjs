@@ -194,6 +194,8 @@ describe("MA-4h — a published dataset's pack", () => {
     bad({ ...DS, provider: "own" }, "dataset.provider must name where it was published (at most 100 characters) — nothing was saved");
     bad({ ...DS, provider: "google-earth" }, "google-earth is a RED source — imagery and data from Google, Apple and Azure/Bing map services are never admitted — nothing was saved");
     bad({ ...DS, source_url: "http://example.test/records/1" }, "dataset.source_url must be its https:// address (at most 500 characters) — nothing was saved");
+    for (const source_url of ["https://user:pw@example.test/records/1", "https://user@example.test/records/1", "https://:pw@example.test/records/1"])
+      bad({ ...DS, source_url }, "dataset.source_url carries a user name or password — give the dataset's public page — nothing was saved");
     bad({ ...DS, source_url: "https://maps.google.com/x" }, "maps.google.com is a RED source — imagery and data from Google, Apple and Azure/Bing map services are never admitted — nothing was saved");
     bad({ ...DS, licence: "CC-BY-NC-4.0" }, "dataset.licence must be CC-BY-4.0 or CC0-1.0 (SPDX) — a licence that allows commercial use and adaptation — nothing was saved");
     bad({ ...DS, attribution: " " }, "dataset.attribution must be the attribution its licence asks for (at most 300 characters) — nothing was saved");
@@ -213,5 +215,8 @@ describe("MA-4h — a published dataset's pack", () => {
     fails({ ...pack, dataset: { ...read, licence: "CC-BY-SA-4.0" } }, "evidence_pack: dataset must be {provider, source_url, licence (CC-BY-4.0 or CC0-1.0), attribution}, as the bridge reads it");
     fails({ ...pack, items: [{ ...s, provider: "own", licence: "owner-supplied" }] }, "evidence_pack: items[0] is the published dataset's scan: its provider and licence, no request");
     fails({ ...pack, items: [{ ...s, attestation_ids: [] }] }, "evidence_pack: items[0].attestation_ids must name attestations of this pack, (f) at least for a scan");
+    // the attestation split, as the sign route keeps it: (f) alone on a dataset's pack, never (f) on an own pack
+    fails(dsPack(["f", "a"]), "evidence_pack: attestations[1].code must be (f) on a published dataset's pack — (a) to (e) speak for an owner or one's own capture");
+    fails(packWith(["a", "f"]), "evidence_pack: attestations[1].code must not be (f) on an own pack — (f) is signed on a published dataset's pack only");
   });
 });

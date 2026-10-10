@@ -151,9 +151,12 @@ export function readDataset(v) {
   if (!isObj(v)) throw bad("dataset must be {provider, source_url, licence, attribution} — a published dataset's pack");
   const provider = typeof v.provider === "string" ? v.provider.trim().toLowerCase() : "";
   if (!provider || provider.length > 100 || provider === "own") throw bad("dataset.provider must name where it was published (at most 100 characters)");
-  let host = "";
-  try { host = new URL(v.source_url).hostname; } catch { /* said below */ }
+  let u = null;
+  try { u = new URL(v.source_url); } catch { /* said below */ }
+  const host = u?.hostname ?? "";
   if (!(typeof v.source_url === "string" && v.source_url.length <= 500 && /^https:\/\/\S+$/.test(v.source_url) && host)) throw bad("dataset.source_url must be its https:// address (at most 500 characters)");
+  // MA-4h: the address is stored on the pack, the ledger and the web line — a user name or password in it would be published with it
+  if (u.username || u.password) throw bad("dataset.source_url carries a user name or password — give the dataset's public page");
   const red = [provider, host].find((s) => RED.some((r) => s.includes(r))); // the RED rule on the name and on where it is served from
   if (red) throw bad(`${red} is a RED source — imagery and data from Google, Apple and Azure/Bing map services are never admitted`);
   if (!DATASET_LICENCES.includes(v.licence)) throw bad(`dataset.licence must be ${DATASET_LICENCES.join(" or ")} (SPDX) — a licence that allows commercial use and adaptation`);
@@ -259,6 +262,9 @@ export function validatePack(p) {
     if (!isObj(a)) throw bad(at, "must be an object");
     if (!/^att-\d{4}$/.test(a.id) || attIds.has(a.id)) throw bad(`${at}.id`, "must be a unique att-NNNN");
     if (!ATTESTATIONS[a.code] || codes.has(a.code)) throw bad(`${at}.code`, "must be one of a to f, once per pack");
+    // MA-4h: the attestation split, as signAttestation's 409 keeps it — checked here too, so no write path can store it otherwise
+    if ((a.code === "f") !== !!p.dataset) throw bad(`${at}.code`, p.dataset ? "must be (f) on a published dataset's pack — (a) to (e) speak for an owner or one's own capture"
+      : "must not be (f) on an own pack — (f) is signed on a published dataset's pack only");
     if (a.text_sha256 !== ATTESTATIONS[a.code].sha256) throw bad(`${at}.text_sha256`, `must be the sha256 of (${a.code})'s pinned text`);
     if (!str(a.by, 320) || !["lead", "owner"].includes(a.role) || !str(a.at, 40)) throw bad(at, "needs by, role (lead or owner) and at — stamped by the bridge");
     attIds.set(a.id, a.code); codes.add(a.code);

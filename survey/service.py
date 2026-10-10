@@ -75,7 +75,8 @@ def sha256(path):
 def check(item):
     """(its header, None) when the item is read, else (None, why not in words).
     ponytail: hashed before the read and again after it (run) — a change made and undone inside the read is not caught. MA-4h: no
-    read lock — the read's memory map already keeps the file from being truncated or deleted while it runs."""
+    read lock — a plain LAS's memory map already keeps the file from being truncated or deleted while it runs (a LAZ or E57 read
+    holds an ordinary handle)."""
     if item["kind"] != "scan":
         return None, f"a {item['kind']} is not surveyed by sentinel-survey (scans only)"
     try:
