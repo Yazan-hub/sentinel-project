@@ -2,12 +2,13 @@
 // A done sentinel-survey job whose result the bridge trusts (build-jobs trustedJob: MA-4c decision 11) becomes, per storey, ONE changeset of
 // creates the bridge builds itself from result.json — never a body's geometry or measurement. The lead states two things: where the scan
 // sits in the model (frame) and, optionally, which existing level a storey is (levels). Walls are trimmed to their corners, read inside or
-// outside (wall-location.mjs, the office's own rule) and typed exactly (D16) by the project's typer; a candidate that does not type is a
+// outside (wall-location.mjs, the office's own rule) and typed exactly (D16) by the project's typer (MA-5a: a door or window no rule types, by
+// its size from the catalogue within SIZE_BAND_MM — holding-logic typeBySize); a candidate that does not type is a
 // gap — grouped for the Holding Area and listed on its storey's changeset as an exception. Pure and deterministic: the same job, frame,
 // levels, published levels and standards give the same bodies (the proposal_guids are validateChangeset's).
 import { MAX_CHANGESET_ELEMENTS } from "./changesets-logic.mjs";
 import { KIND_CATEGORY, KIND_ENTITY } from "./changesets-typing.mjs";
-import { typeGapId, sectionOf } from "./holding-logic.mjs";
+import { typeGapId, typeBySize, SIZE_BAND_MM } from "./holding-logic.mjs";
 import { locate } from "./wall-location.mjs";
 
 const err = (status, message) => Object.assign(new Error(message), { status });
@@ -18,8 +19,6 @@ export const PLANNER_VERSION = "0.1.0";
  *  ponytail: one constant for both, and MA-4e's p95 verdict (judge); a per-class tolerance (lod_matrix or the contract's) is MA-8's. */
 export const TOLERANCE_MM = 20;
 export const NOT_MEASURED = "thickness not measured";
-// MA-5a: one occupancy cell (pipeline.GRID); ponytail: a wider band picks a neighbouring leaf size — a person decides past it
-export const SIZE_BAND_MM = 100;
 /** MA-4h: a frame's move past this is no place on Earth (a UTM northing reaches 1e10 mm). The guard is where the frame puts the scan
  *  (placeRefusal), not how far it moves it: a scan in a national grid is stated with a large frame. */
 const MAX_FRAME_MM = 20_000_000_000;
@@ -199,17 +198,6 @@ function gapOf(type, kind, facts, cid, why) {
   }
 }
 
-/** MA-5a: the catalogue rows of `category` (`same`: the bundle's sameCategory, by name or BuiltInCategory) whose type is named at a size
- *  (holding-logic sectionOf, both spellings) within SIZE_BAND_MM of both the measured width `w` and height `h` → {row} when exactly one,
- *  {rows} when several (a person picks one), null when none. Pure. */
-export function typeBySize(catalog, category, w, h, same) {
-  const rows = (catalog?.types ?? []).filter((t) => {
-    const s = t && same(t, category) ? sectionOf(t.type) : null;
-    return s && Math.abs(s[0] - w) <= SIZE_BAND_MM && Math.abs(s[1] - h) <= SIZE_BAND_MM;
-  });
-  return rows.length === 1 ? { row: rows[0] } : rows.length ? { rows } : null;
-}
-
 /** MA-5a: a + t·û in plan, the scan's frame, 0.1 mm. */
 const pointAlong = (a, b, t) => { const L = Math.hypot(b[0] - a[0], b[1] - a[1]); return [r1(a[0] + (t * (b[0] - a[0])) / L), r1(a[1] + (t * (b[1] - a[1])) / L)]; };
 const r10 = (v) => Math.round(v / 10) * 10; // MA-5a decision 7: an opening's size to 10 mm, so a door of 897 and one of 903 mm are one group
@@ -301,19 +289,23 @@ export function planSurvey({ job, candidates, frame, levels: named = {}, manifes
       if (again(c)) continue;
       const category = KIND_CATEGORY[c.kind], host = c.geometry.host, hi = walls.findIndex((w) => w.cid === host);
       const w = r10(c.measured.width_mm), h = r10(c.measured.height_mm), sill = c.measured.sill_mm, size = `${w} x ${h} mm`;
-      if (hi < 0) { gap(c, { category, want: null, size, key: "host wall not on the job" }, `its host wall ${host} is not a wall of ${s.cid} in ${job.id}`); continue; }
+      if (hi < 0) { gap(c, { category, want: null, size, key: "host wall not on the job" }, `its host wall ${host} is not a wall of ${s.level} in ${job.id}`); continue; }
       if (typed[hi].gap && !filed.cids.has(host)) { gap(c, { category, want: null, size, key: `host ${host} is a type gap` }, `its host wall ${host} is a type gap; it is placed once the wall is`); continue; }
       const hf = typed[hi].loc?.location, facts = { params: { ...(hf ? { HostFunction: hf } : {}), Size: `W${w} x H${h} mm` } }; // PromotePlanner's shape
-      let g = gapOf(type, c.kind, facts, c.cid, null), by = null;
+      let g = gapOf(type, c.kind, facts, c.cid, null), by = null, why = null;
       if (g && !g.want) {
         const z = typeBySize(catalog, category, w, h, sameCategory);
         if (z?.row) { by = z.row; g = null; }
-        else g = { ...g, size, key: (z ? `${z.rows.length} ${category} types are named within ${SIZE_BAND_MM} mm of ${size}: ${z.rows.map((r) => `${r.family} : ${r.type}`).join(", ")} — a person picks one`
-          : `no ${category} type is named within ${SIZE_BAND_MM} mm of ${size}`).slice(0, 500) };
+        else {
+          // several rows: the reason says what a person does (the names would be cut at 300); the key lists them for the Holding Area
+          if (z) why = `${z.rows.length} ${category} types are named within ${SIZE_BAND_MM} mm of ${size} — a person picks one`;
+          g = { ...g, size, key: (z ? `${z.rows.length} ${category} types are named within ${SIZE_BAND_MM} mm of ${size}: ${z.rows.map((r) => `${r.family} : ${r.type}`).join(", ")} — a person picks one`
+            : `no ${category} type is named within ${SIZE_BAND_MM} mm of ${size}`).slice(0, 500) };
+        }
       }
-      if (g) { gap(c, g); continue; }
-      // along_mm is from the UNTRIMMED start; trimEnds moved it to start + t0·u and keeps trim_mm[0] = −t0, so along the trimmed line it is along + trim_mm[0]
-      const L = trimmed[hi], p = pointAlong(L.start, L.end, c.geometry.along_mm + L.trim_mm[0]);
+      if (g) { gap(c, g, why); continue; }
+      // along_mm is from the UNTRIMMED start, and the trimmed line lies on the untrimmed one: measured from the untrimmed ends, exact (review)
+      const U = walls[hi].geometry.LocationCurve, p = pointAlong(U.start, U.end, c.geometry.along_mm);
       elements.push({ op: "create", kind: c.kind, cid: c.cid, evidence: c.evidence, facts, validate: { identity: { Class: KIND_ENTITY[c.kind], Name: c.cid } },
         place: { LevelName: s.level, Location: [...M.xy(p), E], ...(by ? { FamilyName: by.family, TypeName: by.type } : {}), ...(c.kind === "window" ? { SillHeight: sill } : {}) },
         reason: (`scan ${c.kind} ${c.cid} in ${host}: ${w} wide, ${h} high${c.kind === "window" ? `, sill ${sill}` : ""} mm as measured · hole border ${c.fit?.coverage} ` +
@@ -321,7 +313,7 @@ export function planSurvey({ job, candidates, frame, levels: named = {}, manifes
           `sill and head not scored against a reference (MA-5a) · ${ref}`).slice(0, 500) });
       // decision 10: no fit of its own, and its sill and head have no reference — never pre-ticked
       const t = trust(c);
-      byCid.set(c.cid, { ...t, accuracy: { ...t.accuracy, status: "insufficient_data", basis: "framing" }, pretick: false,
+      byCid.set(c.cid, { ...t, accuracy: { ...t.accuracy, status: "insufficient_data", basis: "framing", fit_rmse_mm: null }, pretick: false,
         ...(by ? { typing: { typed_by: "bridge-size", type: by.type, family: by.family, size, band_mm: SIZE_BAND_MM, catalog: catalog.label ?? null, catalog_sha256: catalog.sha256 ?? null } } : {}) });
     }
     for (const c of mine.filter((x) => x.kind === "floor" || x.kind === "ceiling")) {

@@ -172,7 +172,7 @@ async function fileValidated(d, key, v, body, actor) {
   await d.docInsert(STORE, proj.id, changeset.id, changeset, { service: true }); // C1 (migration 0037): the bridge's write, after the role check above
   await d.audit(proj.id, "changeset", changeset.id, "changeset_proposed", actor || "agent", null,
     { name: v.name, source: v.source, elements: changeset.elements.length, exceptions: v.exceptions.length, verdict: adj.verdict, ids_source: adj.ids_source,
-      claimed: v.claimed, ignored: v.ignored.length, typed: v.elements.filter((e) => e.typing?.typed_by === "bridge").length,
+      claimed: v.claimed, ignored: v.ignored.length, typed: v.elements.filter((e) => e.typing?.typed_by?.startsWith("bridge")).length, // MA-5a: "bridge-size" is the bridge's typing too
       // MA-3b3: the ONE row of the filing says how many declines were carried, each with where it came from, and what was not.
       ...(carrySaid ? { carried: carry.carried.length, carried_from: carry.carried, not_carried: { no_reason: carry.no_reason, creates: carry.creates, unverified: carry.unverified } } : {}),
       // MA-4d (drill MA4: "each wall's ledger row lists its evidence sha and its job id"): the job, its evidence shas, and each element's reader
@@ -304,7 +304,7 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
     let manifest;
     try { manifest = await levelsOf(key); }
     catch (e) { throw err(503, `the published models' levels could not be read (${e.message}) — nothing was saved; send it again`); }
-    // MA-5a: the same catalogue the typer reads types a scan door or window by its size when no office rule does (survey-plan typeBySize).
+    // MA-5a: the same catalogue the typer reads types a scan door or window by its size when no office rule does (holding-logic typeBySize).
     const plan = planSurvey({ job: { id, ledger: row.ledger, reader: row.reader, version: row.version }, candidates: result.candidates, frame, levels, manifest, type, filed,
       catalog: { types: catalog.body.types, label: catalog.label, sha256: catalog.sha256 }, sameCategory: core.sameCategory });
     const by = resolveActor(actor, "web");

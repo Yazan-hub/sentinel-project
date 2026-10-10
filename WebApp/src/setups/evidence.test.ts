@@ -139,6 +139,8 @@ describe("the survey (MA-4c)", () => {
   });
   it("jobLine: the state, what was read (never a file the service refused) and refused, what was found, who, when and the ledger row", () => {
     expect(jobLine(JOB)).toBe("job-0001 · done · read ev-0001 · refused ev-0002 (a .laz is read from MA-4g — sentinel-survey 0.1 reads plain LAS) · 2 level(s), 8 wall(s), 2 floor(s), 2 ceiling(s), 0 door(s), 0 window(s) · by contributor@example.test · 2026-10-08 10:00 · ledger #2201 · receipt abababababababab…");
+    // MA-5a: a 0.4.0 job never looked for doors or windows — its counts name none, and the line says none
+    expect(jobLine({ ...JOB, counts: { level: 2, wall: 8, floor: 2, ceiling: 2 } })).toContain(" · 2 level(s), 8 wall(s), 2 floor(s), 2 ceiling(s) · by contributor@example.test");
     const lazBit = { id: "ev-0003", reason: "its points are compressed (LAZ) — sentinel-survey 0.1 reads plain LAS; LAZ is read from MA-4g" };
     expect(jobLine({ ...JOB, items: [...JOB.items, { id: "ev-0003", path: "scans/compressed.las", sha256: "c".repeat(64) }], refused: [lazBit], counts: undefined, ledger: undefined }))
       .toBe("job-0001 · done · read ev-0001 · refused ev-0003 (its points are compressed (LAZ) — sentinel-survey 0.1 reads plain LAS; LAZ is read from MA-4g) · by contributor@example.test · 2026-10-08 10:00");

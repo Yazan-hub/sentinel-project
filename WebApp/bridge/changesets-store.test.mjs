@@ -1088,6 +1088,8 @@ describe("proposeFromJob (MA-4d): a lead turns a trusted survey job into changes
       typing: { typed_by: "bridge-size", type: "3100x1500 mm", family: "BDS_Window_1 Panel", size: "3100 x 1500 mm", band_mm: 100, catalog: planner.catalog, catalog_sha256: "ab".repeat(32) } });
     expect(deps.audit.mock.calls[2][6].groups.find((g) => g.category === "Doors")).toMatchObject({ want: null, size: "1000 x 2100 mm",
       key: expect.stringMatching(/^13 Doors types are named within 100 mm of 1000 x 2100 mm: BDS_EXT_1 PNL : BDS_EXT_1 PNL_GLASS_1000 x 2100 mm, /) });
+    // the ledger row counts the window typed by size with the walls the typer typed (review)
+    expect(deps.audit.mock.calls.filter((c) => c[3] === "changeset_proposed").map((c) => c[6].typed)).toEqual([4, 3]); // L01: its level is not typed
   });
 });
 

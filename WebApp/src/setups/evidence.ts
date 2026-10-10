@@ -133,7 +133,7 @@ export function jobLine(j: SurveyJob): string {
   const given = j.items.map((i) => i.id).join(", ") || "nothing";
   const what = j.status === "done" ? `read ${(j.read ?? []).join(", ") || "nothing"}` : live ? `reading ${given}` : `given ${given}`;
   const refused = j.refused.length ? ` · refused ${j.refused.map((r) => `${r.id} (${r.reason})`).join("; ")}` : "";
-  const found = j.counts ? ` · ${FOUND.map(([k, w]) => `${j.counts![k] ?? 0} ${w}`).join(", ")}` : "";
+  const found = j.counts ? ` · ${FOUND.filter(([k]) => k in j.counts!).map(([k, w]) => `${j.counts![k]} ${w}`).join(", ")}` : ""; // MA-5a: a 0.4.0 job never looked for doors or windows
   return `${j.id} · ${state} · ${what}${refused}${found}${j.error ? ` · ${j.error}` : ""}` +
     ` · by ${j.started_by} · ${j.started_at.replace("T", " ").slice(0, 16)}${j.ledger ? ` · ${ledgerLine(j.ledger)}` : ""}`;
 }

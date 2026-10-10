@@ -129,6 +129,11 @@ describe("survey jobs (MA-4c)", () => {
       "build:run job-0002 · sentinel-survey 0.1.0 · failed", "build:run job-0003 · sentinel-survey 0.1.0 · failed"]);
     expect(resultRefusal({ ...RESULT, candidates: [{ ...RESULT.candidates[0], evidence: ["ev-0009#floor-L00"] }] }, ["ev-0001"])).toBe("candidates[0].evidence");
     expect(resultRefusal(RESULT, ["ev-0001"])).toBeNull();
+    // MA-5a: sentinel-survey 0.5.0's doors and windows are read; a kind it does not propose is not
+    const door = { cid: "scan-L00-wall-1-door-1", kind: "door", geometry: { host: "scan-L00-wall-1", storey: "scan-L00-level", direction: [1, 0], Location: [3450, 150, 0], along_mm: 3465 },
+      measured: { width_mm: 900, height_mm: 2100, sill_mm: 0, head_mm: 2100 }, evidence: ["ev-0001#slice-L00"], fit: { inliers: 56, rmse_mm: 0, coverage: 0.875, faces_seen: 2 } };
+    expect(resultRefusal({ ...RESULT, candidates: [...RESULT.candidates, door, { ...door, cid: "scan-L00-wall-1-window-1", kind: "window" }] }, ["ev-0001"])).toBeNull();
+    expect(resultRefusal({ ...RESULT, candidates: [{ ...door, kind: "skylight" }] }, ["ev-0001"])).toBe("candidates[0].kind");
   });
 
   it("(e) refused before anything is written: no scan sentinel-survey is sent (each with why), sentinel-survey not set up, the machine credential", async () => {
