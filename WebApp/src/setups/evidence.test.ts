@@ -202,6 +202,10 @@ describe("survey proposals (MA-4d)", () => {
       "ledger #2210 · receipt abababababababab… — Review ▸ ↻");
     expect(proposeLine({ ...REPLY, already_filed: 6, overlaps: [{ changeset: "Survey job-0001 · GR-FFL", job_id: "job-0001", evidence: ["ev-0001"] }] }))
       .toContain(" · 6 already filed (not proposed again) · the same scan was placed before by Survey job-0001 · GR-FFL · ledger #2210");
+    // drill MA5a K-3: a storey that files no changeset says its held doors and windows here (their reasons are on the planner's row)
+    const held = [{ name: "door scan-L01-wall-3-door-1", reason: "its host wall scan-L01-wall-3 is a type gap — …" }, { name: "window scan-L01-wall-3-window-1", reason: "…" }];
+    expect(proposeLine({ ...REPLY, storeys: [REPLY.storeys[0], { ...REPLY.storeys[1], changeset: null, held }] }))
+      .toContain(" in the Holding Area · 2 door(s) or window(s) held on a storey with nothing to place — their level or host wall is not placed (each reason on the planner's row) · scan-L00-level");
   });
   it("evidenceControls: Propose is a lead's, never the machine session's", () => {
     expect(["viewer", "contributor", "lead", "owner", "service"].map((r) => evidenceControls(r).propose)).toEqual([false, false, true, true, false]);

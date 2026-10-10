@@ -168,7 +168,9 @@ export const readJob = (base: string, key: string, id: string) => bwrite<JobRead
 /** MA-4d: what POST …/build/jobs/:id/propose answers. */
 export interface ProposeReply {
   job: string; survey_row: Ledger; frame: { dx_mm: number; dy_mm: number; dz_mm: number; rotation_deg: number };
-  storeys: { cid: string; level: string; how: "named" | "matched" | "created" | "filed"; elevation_mm: number; delta_mm: number | null; checked: boolean; from: string | null; changeset: string | null }[];
+  storeys: { cid: string; level: string; how: "named" | "matched" | "created" | "filed"; elevation_mm: number; delta_mm: number | null; checked: boolean; from: string | null; changeset: string | null;
+    /** A storey that files no changeset: its doors and windows held by their level or host (a filed storey's changeset says them). */
+    held?: { name: string; reason: string }[] }[];
   changesets: { id: string; name: string; elements: number; preticked: number }[];
   gaps: { groups: number; elements: number; ledger: Ledger | null }; ledger: Ledger;
   /** Decision 19: candidates this job filed before (not proposed again); another job's placed changesets on the same scan bytes. */
@@ -189,6 +191,8 @@ export function proposeLine(r: ProposeReply): string {
   const levels = r.storeys.map((s) => `${s.cid} → ${s.level} (${s.how}${s.checked ? "" : ", its height not checked"})`).join("; ");
   const again = r.already_filed ? ` · ${r.already_filed} already filed (not proposed again)` : "";
   const placed = r.overlaps.length ? ` · the same scan was placed before by ${r.overlaps.map((o) => o.changeset).join(", ")}` : "";
+  const n = r.storeys.reduce((s, x) => s + (x.held?.length ?? 0), 0);
+  const held = n ? ` · ${n} door(s) or window(s) held on a storey with nothing to place — their level or host wall is not placed (each reason on the planner's row)` : "";
   return `✓ Proposed ${r.job} — ${r.changesets.length} changeset(s), ${ghosts} ghost(s), ${pre} pre-ticked on the Review desk (Revit opens them ticked too, less what the office IDS rejects; a person clicks Apply) · ` +
-    `${r.gaps.groups} type-gap group(s), ${r.gaps.elements} element(s) in the Holding Area · ${levels}${again}${placed} · ${ledgerLine(r.ledger)} — Review ▸ ↻`;
+    `${r.gaps.groups} type-gap group(s), ${r.gaps.elements} element(s) in the Holding Area${held} · ${levels}${again}${placed} · ${ledgerLine(r.ledger)} — Review ▸ ↻`;
 }

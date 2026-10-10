@@ -346,7 +346,13 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
         { groups: plan.groups, source: row.reader, job: jobRef, guideline: guideline.label, catalog: catalog.label, claimed: false });
     } catch (e) { throw await halfWay("the type-gap row was not written", e); }
     const changesets = filed.map((c) => ({ id: c.id, name: c.name, elements: c.elements.length, preticked: c.elements.filter((e) => e.pretick).length }));
-    const storeys = plan.storeys.map((p) => ({ ...storeyRecord(p.storey), changeset: filed.find((c) => c.job.storey.cid === p.storey.cid)?.id ?? null }));
+    // A door or window held by its level or host (an exception that is not a type gap's group) rides its storey's changeset; a storey that
+    // files none has no changeset to say it, so the planner's row names it (drill MA5a K-3: Kladno's 90 openings, every host a gap, said nowhere).
+    const storeys = plan.storeys.map((p) => {
+      const changeset = filed.find((c) => c.job.storey.cid === p.storey.cid)?.id ?? null;
+      const held = changeset ? [] : p.exceptions.filter((e) => !e.reason.startsWith("type gap")).map((e) => ({ name: e.name, reason: e.reason }));
+      return { ...storeyRecord(p.storey), changeset, ...(held.length ? { held } : {}) };
+    });
     const gaps = { groups: plan.groups.length, elements: n, ledger: ledgerRef(gapRow) };
     // The planner run's own build:run row (design :832) — never mistaken for the job's (decision 11's prefix is `· sentinel-survey `).
     try {
