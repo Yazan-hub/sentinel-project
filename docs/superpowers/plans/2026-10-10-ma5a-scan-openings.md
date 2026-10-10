@@ -233,33 +233,37 @@ Kept: the row where openings F1 at 100 mm rises on **both** storeys over the pla
 
 **The opening reference (T-0).** Decision 1's default (the founder traces) was replaced under the founder's standing "continue on your own": a scratch tool listed every empty stretch ≥ 300 mm along the MA-4h wall lines on the 1200 and sill images (GF 50, 1F 28 candidates), and three readers labelled each none / door / window on 3.2 m crops of both images — Claude (who also wrote the finder) and two independent reviewers who saw neither each other's labels nor Claude's. **The reviewers agreed with each other on 98–100 % of candidates and with Claude on only 62 % (GF) and 79 % (1F): Claude over-called openings (24 on GF against their 9–10).** The majority of three is the reference: GF 7 doors + 2 windows, 1F 17 doors. `reference-5a.json` sha `61ee7e01…`; its wall storeys field-equal to `ce1a4f46…`; traces GF `acf5856e…` / sill `2daad53c…`, 1F `978a20b3…` / sill `abd7d66d…`; sill images GF `8e9d93ed…`, 1F `ab635ab3…`. The attic has no openings traced.
 
-**T-3, one knob at a time** (kept only when opening F1 at 100 mm rose on GF and 1F and wall F1 did not fall; every number tuned on this one reference — 9 GF openings make GF's numbers coarse):
+**T-3, one knob at a time** (kept only when opening F1 at 100 mm rose on GF and 1F and wall F1 did not fall; every number tuned on this one reference — 9 GF openings make GF's numbers coarse). The first pass (placeholders 3 × 3 → `OPEN_W` 5, `OPEN_H` 10, `MIN_BORDER` 0.5, `LINTEL` 0.5: openings 0.264 / 0.283 / 0.358) was **scored on a rounded direction** (whole numbers: Kladno's 45° walls made each opening segment √2 long) and on holes the branch review found fragile — it is superseded. **On the reviewed code:**
 
 | Step | Openings F1 @100 GF / 1F | Walls @100 GF / 1F | Kept |
 |---|---|---|---|
 | 0.4.0 (no openings) | 0 / 0 | 0.184 / 0.419 | — |
-| 0.5.0 placeholders (3 × 3 cells, merge, speck 2) | 0.014 / 0.112 | 0.204 / 0.497 | — |
-| `OPEN_W` 5 | 0.020 / 0.131 | same | ✓ |
-| `OPEN_W` 6 | 0.022 / 0.120 | same | ✗ (and a BDS window is 600 mm at the least) |
-| `OPEN_H` 8 / **10** | 0.053 / 0.317 → **0.060 / 0.325** | same | ✓ |
-| `MIN_BORDER` 0.3 / **0.5** | 0.083 / 0.351 → **0.100 / 0.394** | same | ✓ |
-| + both faces seen | 0.095 / 0.686 | same | ✗ (GF falls) — the founder's call |
-| `LINTEL` **0.5** (a wall rule) | 0.100 / 0.394 | 0.211 / 0.500 | ✓ |
-| `MERGE_GAP` 1500 / 3500 | 0.100 / 0.400 both | 0.204 / 0.494 · 0.497 | ✗ |
-| `DOOR_ROWS` 0 / 2; `SPECK` 1 / 3 | unchanged; 0.074 / 0.361, 0.093 / 0.382 | same | ✗ |
+| Reviewed code at 5 × 10 cells, `MIN_BORDER` 0.5, `LINTEL` 0.5 | 0.125 / 0.373 | 0.211 / 0.500 | — |
+| `OPEN_W` 3 / 4 | 0.113 / 0.373 · 0.118 / 0.373 | same | ✗ |
+| `OPEN_H` 8 / 12 | 0.111 / 0.373 · 0.125 / 0.373 | same | ✗ |
+| `MIN_BORDER` 0.6 / **0.7** | 0.128 / 0.384 → **0.133 / 0.394** | same | ✓ |
+| `MIN_BORDER` 0.8 / 0.9 / 0.95 | 0.167 / 0.412 · 0.188 / 0.459 · 0.231 / 0.481 | same | capped (below) |
+| the border read against the face's own fill, 0.5–0.8 | 0.122 / 0.373 | same | ✗ |
+| `LINTEL` 0.4 / 0.6 | 0.107 / 0.341 · 0.136 / 0.378 | 0.239 / 0.533 · 0.204 / 0.497 | ✗ (openings, walls) |
+| + both faces seen | 0.100 / 0.686 | same | ✗ (GF falls) — the founder's call |
+| `MERGE_GAP` 1500 / 3500, `DOOR_ROWS` 0 / 2, `SPECK` 1 / 3 (first pass) | none rose on both | | ✗ |
 
-**At the kept knobs (in memory, 130 s):** openings F1 0.264 / 0.283 / 0.358 at 50 / 100 / 200 mm (P 0.188, R 0.577 at 100; GF 0.050 / 0.100 / 0.150, 1F 0.394 / 0.394 / 0.485); every matched opening's class right (kind_agreement 1.0); walls 0.299 / 0.357 / 0.396 (0.4.0: 0.245 / 0.304 / 0.340 — the merge across doorways). **The ceiling:** 4 of GF's 9 traced openings lie on a wall the survey finds at all (1F 16 of 17) — GF's opening recall is capped by its walls. Counts against the hand count (design :1183): GF 25 doors + 6 windows against 7 + 2, 1F 38 + 11 against 17 + 0.
+**`MIN_BORDER`'s cap.** Every step to 0.95 raised both storeys, but a perfectly scanned door or window reads a border of 0.73 or more at two points a 100 mm cell (20 seeds each of the drill's and the test's buildings at spacing 70), 0.88 at four, and only 0.59 at one — at 0.9 the drill's own clean window (0.889) was dropped. The knob stops at 0.7, the highest that keeps every clean opening at two points a cell; one point a cell loses some (its `ponytail:`). Pinned from below (a ring of 3 in 5 dropped) and from above (a clean opening at spacing 70 kept).
+
+**At the kept knobs (in memory, 102 s):** openings F1 **0.259 / 0.293 / 0.345** at 50 / 100 / 200 mm (P 0.189, R 0.654 at 100; GF 0.089 / 0.133 / 0.178, 1F 0.366 / 0.394 / 0.451); every matched opening's class right (kind_agreement 1.0); walls **0.299 / 0.357 / 0.396** (0.4.0: 0.245 / 0.304 / 0.340 — the merge across doorways). **The ceiling:** 4 of GF's 9 traced openings lie on a wall the survey finds at all (1F 16 of 17) — GF's opening recall is capped by its walls. Counts against the hand count (design :1183): GF 29 doors + 7 windows against 7 + 2, 1F 43 + 11 against 17 + 0.
+
+**The branch review** (three lenses, one skeptic per finding, one fixer; 9 important findings confirmed, none refuted): holes lost doors to a stray cell beside a jamb (3 of 10 seeds) — each side now grows across a line under half filled; a hole at a face's end was judged without its open side (all 12 on Kladno were false) — dropped; the two faces joined by their union read the drill's 1000 door as 1054 (Size W1100) — now by their jambs; the direction was whole numbers — now the host's unit vector; a door or window on a storey whose level no published model holds is held in words (Revit refuses one off its level's height by 0.5 mm); a host-held opening files no size group; the web's candidate line says the hole's border and faces, never "fit 0 mm"; the Holding words for a survey group say "no one type is named within 100 mm"; the merge tests a failed pair once (143 → 117 s); a sill line under 300 mm is a stray click; knob cases pinned. Not taken: `SPECK`'s straight-run rule (a transom or mullion would read as wall — the comment now names both limits); rewording two commit messages (history).
 
 **Changes from the plan, each measured or forced by a case:**
 - **Two minimums, not one:** `OPEN_W` (along) and `OPEN_H` (up) — doors and windows are taller than wide.
-- **`SPECK` 2:** a filled cell with ≤ 2 filled neighbours is stray points, not the face — a pair inside the drill's doorway shrank a 1000 mm door to 750 before it.
-- **`MIN_BORDER` 0.5:** a hole is kept only when half its border holds the face (decision 6's credibility became a measured knob).
-- **Jambs, sill and head at the middle of their boundary cell:** the empty cells alone undershoot by up to a cell a side (1200 read 1098).
+- **`SPECK` 2:** a filled cell with ≤ 2 filled neighbours is stray points, not the face.
+- **`MIN_BORDER` 0.7:** a hole is kept only when 70 % of its border holds the face (decision 6's credibility became a measured, capped knob).
+- **Jambs, sill and head at the middle of their boundary cell;** two faces joined by their jambs.
 - **The `Size` fact to the nearest 100 mm, not 10** (bridge): the scan measures to one 100 mm cell and an office names its doors at nominal 100 mm steps; at 10 mm an office rule at "W1000 x H2100 mm" never meets a scanned door. The measured mm stay in the reason.
-- **The Holding Area** closes a survey opening's gap only when exactly one catalogue row lies in the band (review finding: the first exact-size row closed a 13-row group at once); Promote groups keep the exact size (D16).
+- **The Holding Area** closes a survey opening's gap only when exactly one catalogue row lies in the band; Promote groups keep the exact size (D16).
 - **Revit's review** words name `bridge-size` typing (`ChangesetClient.cs`, display only; promote-check pins it).
 
-**The drill's buildings.** A job reads every admitted scan of its project, so the opening building cannot be added to `ma4c-drill` beside the plain one (the holes would be filled by the other scans). `two-storey-openings.las` (sha `0a6267a26e5e…`, seed 11, spacing 50) is the drill building 20 m east: an 800 × 1200 window (sill 900) in its east wall, a 1000 × 2100 door in its south wall. Surveyed alone at the kept knobs: 8 walls, window 803 × 1200 sill 900 (both faces, border 0.79), door 1050 × 2100 (both faces, border 0.75).
+**The drill's buildings.** A job reads every admitted scan of its project, so the opening building cannot be added to `ma4c-drill` beside the plain one (the holes would be filled by the other scans). `two-storey-openings.las` (sha `0a6267a26e5e…`, seed 11, spacing 50) is the drill building 20 m east: an 800 × 1200 window (sill 900) in its east wall, a 1000 × 2100 door in its south wall. Surveyed alone at the kept knobs: 8 walls, window 800 × 1200 sill 900 head 2100 (both faces, border 0.889), door 1000 × 2100 (both faces, border 1.0). **Propose with the levels blank:** `ma4c-drill`'s GR-FFL is a named level no published model holds (MA4f-1: "the level not checked"), so its openings would be held; a created level is placed at the scan's own height, so the window lands on it exactly.
 
 **BDS types doors only in interior walls.** The project's layer-free guideline has wall rules only, so an opening types by size: one BDS row at 800 × 1200 (`BDS_Window_1 Panel+FX : 800x1200 mm`) — typed; every door at a buildable height has 13 or 16 rows — a gap, "a person picks one". The office's elements guideline types interior doors (`HostFunction Interior` + nominal size); installing it beside the layer-free one is the office's standards decision (Next). R-2 therefore places the window hosted, and R-1 shows the door's Holding row.
 
