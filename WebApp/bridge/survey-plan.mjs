@@ -474,12 +474,13 @@ export function scanBand(cs) {
   return hi > lo ? [lo, hi] : null;
 }
 
-/** MA-4f: null when sentinel-survey's overlay answer has the contract's shape — at most `cap` points of three whole mm (within 1e9), its
- *  receipt.cloud naming the cube used and how many the first cube kept — else what is wrong. Pure. */
+/** MA-4f: null when sentinel-survey's overlay answer has the contract's shape — at most `cap` points of three whole mm (within 2e10 — MA-4h:
+ *  a national grid's coordinates; the service answers in the scan's frame), its receipt.cloud naming the cube used and how many the first
+ *  cube kept — else what is wrong. Pure. */
 export function cloudRefusal(res, cap) {
   const c = res?.receipt?.cloud;
   if (!c || !Number.isInteger(c.cell_mm) || !Number.isInteger(c.of)) return "receipt.cloud";
   if (!Array.isArray(res.points) || res.points.length > cap || res.points.length > c.of) return `not at most ${cap} points`;
-  if (!res.points.every((p) => Array.isArray(p) && p.length === 3 && p.every((v) => Number.isInteger(v) && Math.abs(v) <= 1e9))) return "a point is not three whole numbers of mm";
+  if (!res.points.every((p) => Array.isArray(p) && p.length === 3 && p.every((v) => Number.isInteger(v) && Math.abs(v) <= 2e10))) return "a point is not three whole numbers of mm";
   return null;
 }

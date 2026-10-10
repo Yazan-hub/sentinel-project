@@ -183,10 +183,11 @@ def read_job(b):
 
 
 def rectangle(f):
-    """MA-4e: a face [p0, p1, p3] — three points of three numbers within 1e9 mm (finite: a NaN, an infinity or an int past float range
-    fails the bound, never raises), both sides at least 1 mm, square at p0."""
+    """MA-4e: a face [p0, p1, p3] — three points of three numbers within 2e10 mm (MA-4h: a national grid — Kladno's y is about -1.0355e9,
+    a UTM northing reaches 1e10; finite: a NaN, an infinity or an int past float range fails the bound, never raises), both sides at least
+    1 mm, square at p0."""
     if not (isinstance(f, list) and len(f) == 3 and all(isinstance(p, list) and len(p) == 3 and all(
-            isinstance(x, (int, float)) and not isinstance(x, bool) and abs(x) <= 1e9 for x in p) for p in f)):
+            isinstance(x, (int, float)) and not isinstance(x, bool) and abs(x) <= 2e10 for x in p) for p in f)):
         return False
     a, b = [f[1][k] - f[0][k] for k in range(3)], [f[2][k] - f[0][k] for k in range(3)]
     la, lb = math.hypot(*a), math.hypot(*b)

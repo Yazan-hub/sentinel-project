@@ -903,6 +903,9 @@ class InProcess(unittest.TestCase):
         good = {"job_id": "measure-1", "items": [{"id": "ev-0001", "kind": "scan", "path": "x", "sha256": "a" * 64}], "params": dict(self.MEASURE), "seed": 1,
                 "elements": [{"guid": "w", "faces": wall_faces((0, 0), (5000, 0), 200, 0, 2800)}]}
         self.assertEqual(service.read_measure(good)["elements"][0]["guid"], "w")
+        # MA-4h: a face in a national grid (Kladno's S-JTSK: y about -1.0355e9 mm) is read; past 2e10 mm it is not
+        kladno = [[[-763960000, -1035518760, 409631], [-763960000, -1035518760, 412431], [-763955000, -1035518760, 409631]]]
+        self.assertEqual(service.read_measure({**good, "elements": [{"guid": "w", "faces": kladno}]})["elements"][0]["faces"], kladno)
         for bad, words in (({**good, "params": {"voxel_mm": 20, "storey_min_mm": 2000}}, "params.tolerances_mm must be 1 to 5 whole numbers of mm from 1 to 1000, rising"),
                            ({**good, "params": {**self.MEASURE, "tolerances_mm": [200, 50]}}, "params.tolerances_mm must be 1 to 5 whole numbers of mm from 1 to 1000, rising"),
                            ({**good, "elements": []}, "elements must be 1 to 200 [{guid, faces}]"),
@@ -914,6 +917,8 @@ class InProcess(unittest.TestCase):
                            ({**good, "elements": [{"guid": "w", "faces": [[[0, 0, 0], [1e200, 0, 0], [0, 0, 2800]]]}]},  # finite, overflows
                             "elements[0].faces must be 1 to 12 rectangles [p0, p1, p3] of [x, y, z] mm — both sides at least 1 mm, square at p0"),
                            ({**good, "elements": [{"guid": "w", "faces": [[[0, 0, 0], [10 ** 400, 0, 0], [0, 0, 2800]]]}]},  # past float range
+                            "elements[0].faces must be 1 to 12 rectangles [p0, p1, p3] of [x, y, z] mm — both sides at least 1 mm, square at p0"),
+                           ({**good, "elements": [{"guid": "w", "faces": [[[0, 0, 0], [3e10, 0, 0], [0, 0, 2800]]]}]},
                             "elements[0].faces must be 1 to 12 rectangles [p0, p1, p3] of [x, y, z] mm — both sides at least 1 mm, square at p0")):
             with self.assertRaises(ValueError) as e:
                 service.read_measure(bad)

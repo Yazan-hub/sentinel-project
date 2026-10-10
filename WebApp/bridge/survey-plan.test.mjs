@@ -327,6 +327,8 @@ describe("MA-4f — the scan overlay's cut and its answer", () => {
   it("cloudRefusal: at most the cap, three whole mm each, its receipt", () => {
     const ok = { points: [[1, 2, 3]], receipt: { cloud: { cell_mm: 100, of: 1 } } };
     expect(cloudRefusal(ok, 5000)).toBeNull();
+    expect(cloudRefusal({ ...ok, points: [[-763960000, -1035510000, 409631]] }, 5000)).toBeNull(); // MA-4h: Kladno's national grid
+    expect(cloudRefusal({ ...ok, points: [[3e10, 0, 0]] }, 5000)).toBe("a point is not three whole numbers of mm");
     expect([cloudRefusal({ ...ok, receipt: {} }, 5000), cloudRefusal({ ...ok, points: [[1, 2, 3], [4, 5, 6]] }, 1), cloudRefusal({ ...ok, points: [[1, 2]] }, 5000), cloudRefusal({ ...ok, points: [[1, 2, 3.5]] }, 5000)])
       .toEqual(["receipt.cloud", "not at most 1 points", "a point is not three whole numbers of mm", "a point is not three whole numbers of mm"]);
   });
