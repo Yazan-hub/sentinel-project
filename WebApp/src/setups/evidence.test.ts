@@ -8,7 +8,7 @@ vi.mock("./bridge-fetch", () => ({ bfetch, bwrite }));
 
 import { ATTESTATION_CODES, ATTESTATION_TEXTS, kindOf, needsReport, itemLine, attestationLine, admitLine, recheckLine, readEvidence,
   signAttestation, evidenceControls, requestLine, isImage, jobLine, candidateLine, surveyStartLine, surveyableScans, startSurvey, readJobs,
-  proposeBody, proposeFromJob, proposeLine, type ProposeReply, type EvidenceItem, type EvidencePack, type EvidenceRequest, type SurveyJob } from "./evidence";
+  proposeBody, proposeFromJob, proposeLine, datasetLine, type ProposeReply, type EvidenceItem, type EvidencePack, type EvidenceRequest, type SurveyJob } from "./evidence";
 
 const res = (status: number, body: unknown) => ({ ok: status < 400, status, json: async () => body }) as unknown as Response;
 const HASH = "ab".repeat(32);
@@ -34,6 +34,7 @@ describe("the attestation texts — the bridge's pins", () => {
     };
     expect([...ATTESTATION_CODES]).toEqual(["a", "b", "c", "d", "e"]);
     for (const c of ATTESTATION_CODES) expect(createHash("sha256").update(ATTESTATION_TEXTS[c]).digest("hex")).toBe(pins[c]);
+    expect(createHash("sha256").update(ATTESTATION_TEXTS.f).digest("hex")).toBe("be54e04879d716b63add30ab9785ded25ffd6e83817a082489b4aa062be29022"); // MA-4h
   });
 });
 
@@ -193,5 +194,12 @@ describe("survey proposals (MA-4d)", () => {
   });
   it("evidenceControls: Propose is a lead's, never the machine session's", () => {
     expect(["viewer", "contributor", "lead", "owner", "service"].map((r) => evidenceControls(r).propose)).toEqual([false, false, true, true, false]);
+  });
+});
+
+describe("MA-4h — a published dataset's pack", () => {
+  it("one line: where it came from, its licence and the attribution it asks for", () => {
+    expect(datasetLine({ provider: "example-repository", source_url: "https://example.test/records/1", licence: "CC-BY-4.0", attribution: "Example scan, CC BY 4.0" }))
+      .toBe("Published dataset — example-repository · CC-BY-4.0 · https://example.test/records/1 · attribution: Example scan, CC BY 4.0. A lead signs (f), then admits its scans.");
   });
 });

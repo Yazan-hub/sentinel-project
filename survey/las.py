@@ -14,8 +14,8 @@ import sys
 
 import numpy as np
 
-# Records per read. ~200 MB for a plain LAS whatever the file's size; a LAZ's chunk peaks near 0.5-0.8 GB (laspy's record bytes) and an
-# E57's near 0.8 GB (its buffers and temporaries) — MA-4h measures both on Kladno.
+# Records per read. ~200 MB for a plain LAS at a share of 1, ~80 MB at Kladno's 4 % (MA-4h, measured: 250.5 M points read in 4.4-4.8 s); a
+# LAZ's chunk near 0.5-0.8 GB and an E57's near 0.8 GB — estimated: no large LAZ or E57 has been read yet; measure the first one admitted.
 CHUNK = 8_000_000
 # ponytail: at most 1 000 VLRs (and 1 000 EVLRs) are walked — a file with more reads as if it had none past them (no CRS: metres
 # assumed; no LASzip record: refused, in words); a LAZ declaring more VLRs is refused before laspy opens it (laspy walks every VLR it is

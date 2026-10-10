@@ -25,9 +25,9 @@ import pipeline
 VERSION = "0.2.0"  # MA-4g: LAZ, E57 and the CRS. A job read by 0.1.0 is proposed and overlaid as before; a measure of one fails in words (changesets-store verify)
 TOKEN = os.environ.get("SENTINEL_SURVEY_TOKEN", "")
 MAX_BODY = 1 << 20
-# ponytail: one file is at most 300 million points: it is hashed twice and read in chunks, which must fit the bridge's 10 min job limit.
-# The Kladno scan (MA-4h) has 250.5 million points (LAS 1.2, format 2, 6.5 GB); MA-4h measures its run time against that limit and
-# sets this cap.
+# ponytail: one file is at most 300 million points: it is hashed twice and read in chunks, within the bridge's 10 min job limit.
+# MA-4h, Kladno (250.5 million points, LAS 1.2, 6.5 GB): each hash ~6 s, the read ~5 s, the job 157 s — the cap is not the clock's;
+# it stays until a larger scan is admitted and measured.
 MAX_POINTS_IN = 300_000_000
 MAX_ELEMENTS = 200  # MA-4e: a changeset holds at most 200 elements (changesets-logic MAX_CHANGESET_ELEMENTS)
 MAX_FACES = 12      # per element: a wall sends two
@@ -74,8 +74,9 @@ def sha256(path):
 
 def check(item):
     """(its header, None) when the item is read, else (None, why not in words).
-    ponytail: hashed before the read and again after it (run) — a change made and undone inside the read is not caught; a read lock
-    on the file (MA-4h) closes that if it ever matters."""
+    ponytail: hashed before the read and again after it (run) — a change made and undone inside the read is not caught. MA-4h: no
+    read lock — a plain LAS's memory map already keeps the file from being truncated or deleted while it runs (a LAZ or E57 read
+    holds an ordinary handle)."""
     if item["kind"] != "scan":
         return None, f"a {item['kind']} is not surveyed by sentinel-survey (scans only)"
     try:
@@ -83,7 +84,7 @@ def check(item):
             return None, "changed since admitted (its sha256 is not the pack's) — Re-check flags it"
         head = las.read_header(item["path"])
         if head["count"] > MAX_POINTS_IN:
-            return None, f"{head['count']:,} points — sentinel-survey reads at most {MAX_POINTS_IN:,} in one file; a larger scan waits for MA-4h"
+            return None, f"{head['count']:,} points — sentinel-survey reads at most {MAX_POINTS_IN:,} in one file; export the scan in parts of at most that many"
         return head, None
     except las.Refused as e:
         return None, str(e)
@@ -183,10 +184,11 @@ def read_job(b):
 
 
 def rectangle(f):
-    """MA-4e: a face [p0, p1, p3] — three points of three numbers within 1e9 mm (finite: a NaN, an infinity or an int past float range
-    fails the bound, never raises), both sides at least 1 mm, square at p0."""
+    """MA-4e: a face [p0, p1, p3] — three points of three numbers within 2e10 mm (MA-4h: a national grid — Kladno's y is about -1.0355e9,
+    a UTM northing reaches 1e10; finite: a NaN, an infinity or an int past float range fails the bound, never raises), both sides at least
+    1 mm, square at p0."""
     if not (isinstance(f, list) and len(f) == 3 and all(isinstance(p, list) and len(p) == 3 and all(
-            isinstance(x, (int, float)) and not isinstance(x, bool) and abs(x) <= 1e9 for x in p) for p in f)):
+            isinstance(x, (int, float)) and not isinstance(x, bool) and abs(x) <= 2e10 for x in p) for p in f)):
         return False
     a, b = [f[1][k] - f[0][k] for k in range(3)], [f[2][k] - f[0][k] for k in range(3)]
     la, lb = math.hypot(*a), math.hypot(*b)

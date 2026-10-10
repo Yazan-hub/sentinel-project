@@ -18,8 +18,11 @@ export const PLANNER_VERSION = "0.1.0";
  *  ponytail: one constant for both, and MA-4e's p95 verdict (judge); a per-class tolerance (lod_matrix or the contract's) is MA-8's. */
 export const TOLERANCE_MM = 20;
 export const NOT_MEASURED = "thickness not measured";
-const MAX_XY_MM = 10_000_000; // 10 km: a scan farther from the internal origin is in a national grid — a computed frame (MA-4g-3) lifts it for a scan with a projected CRS
-const MAX_Z_MM = 100_000;
+/** MA-4h: a frame's move past this is no place on Earth (a UTM northing reaches 1e10 mm). The guard is where the frame puts the scan
+ *  (placeRefusal), not how far it moves it: a scan in a national grid is stated with a large frame. */
+const MAX_FRAME_MM = 20_000_000_000;
+/** MA-4h: Revit draws a model reliably within 20 miles (~32 km) of its internal origin. */
+export const MAX_PLACED_MM = 32_000_000;
 const FRAME = ["dx_mm", "dy_mm", "dz_mm", "rotation_deg"];
 const REVIT_BAD = /[\\:{}[\]|;<>?`~\u0000-\u001f]/; // what Revit refuses in a name
 const r1 = (v) => Math.round(v * 10) / 10 || 0; // 0.1 mm, never -0
@@ -34,8 +37,8 @@ export function readProposeBody(b, levelCids) {
   if (!f || typeof f !== "object" || Array.isArray(f))
     throw bad("frame is required — where the scan sits in the model: {dx_mm, dy_mm, dz_mm, rotation_deg}, the move and turn from the model's internal origin to the scan's origin ({0, 0, 0, 0} when the scan is registered to the internal origin)");
   for (const k of Object.keys(f)) if (!FRAME.includes(k)) throw bad(`frame.${k.slice(0, 64)} is not read — a frame is {dx_mm, dy_mm, dz_mm, rotation_deg}`);
-  for (const [k, max] of [["dx_mm", MAX_XY_MM], ["dy_mm", MAX_XY_MM], ["dz_mm", MAX_Z_MM]])
-    if (!Number.isFinite(f[k]) || Math.abs(f[k]) > max) throw bad(`frame.${k} must be a number of mm within ±${max} (a scan in a national grid waits for a computed frame — MA-4g-3)`);
+  for (const k of ["dx_mm", "dy_mm", "dz_mm"])
+    if (!Number.isFinite(f[k]) || Math.abs(f[k]) > MAX_FRAME_MM) throw bad(`frame.${k} must be a number of mm within ±${MAX_FRAME_MM} (where the frame puts the scan is checked when it is proposed)`);
   if (!Number.isFinite(f.rotation_deg) || f.rotation_deg < 0 || f.rotation_deg >= 360)
     throw bad("frame.rotation_deg must be degrees from 0 up to (not including) 360, anticlockwise in plan");
   const levels = {}, used = new Map();
@@ -68,6 +71,29 @@ export function toModel(f) {
 export function toScan(f) {
   const a = (f.rotation_deg * Math.PI) / 180, c = Math.cos(a), s = Math.sin(a);
   return { xy: ([x, y]) => { const X = x - f.dx_mm, Y = y - f.dy_mm; return [r1(c * X + s * Y), r1(c * Y - s * X)]; }, z: (z) => r1(z - f.dz_mm) };
+}
+
+/** MA-4h: null when the lead's frame puts every candidate within MAX_PLACED_MM of the model's internal origin, else the refusal's words, with
+ *  the frame that would (no turn: minus the middle of its candidates in plan, in whole metres; minus its lowest storey). A scan in a national
+ *  grid (Kladno's S-JTSK: 1 287 km from its grid's origin) is stated with a large frame; a frame of 0 there would put every ghost out of
+ *  Revit's reach — a proposal of gaps alone included. Pure.
+ *  ponytail: the hint is for no turn — toModel turns about the scan's origin, so a turned national-grid frame moves the building by km; a
+ *  frame turned about the scan's middle is Next. */
+export function placeRefusal(candidates, frame) {
+  const M = toModel(frame), xy = [], zs = [];
+  for (const c of candidates) {
+    const g = c.geometry ?? {};
+    if (c.kind === "level") zs.push(g.BaseElevation);
+    xy.push(...(g.LocationCurve ? [g.LocationCurve.start, g.LocationCurve.end] : g.LocationLoop ?? g.Boundary ?? []));
+  }
+  let far = 0;
+  for (const p of xy) far = Math.max(far, Math.hypot(...M.xy(p)));
+  for (const z of zs) far = Math.max(far, Math.abs(M.z(z)));
+  if (far <= MAX_PLACED_MM) return null;
+  const mid = (k) => (xy.reduce((m, p) => Math.min(m, p[k]), Infinity) + xy.reduce((m, p) => Math.max(m, p[k]), -Infinity)) / 2;
+  const back = (v) => -Math.round(v / 1000) * 1000; // whole metres
+  return `the frame puts the scan ${Math.round(far / 1e6)} km from the model's internal origin — Revit draws a model within ${MAX_PLACED_MM / 1e6} km of it; state where the scan sits in the model` +
+    (xy.length ? ` (with no turn, dx_mm ${back(mid(0))} and dy_mm ${back(mid(1))} bring its middle to the origin${zs.length ? `, dz_mm ${-Math.min(...zs)} its lowest storey to 0` : ""})` : "");
 }
 
 /** Each storey's level in the model, lowest first: the one the lead named (its height checked when a published IFC holds the name); else the
@@ -184,7 +210,7 @@ export function groupGaps(gaps) {
     for (const e of g.evidence) if (x.evidence.length < 50 && !x.evidence.includes(e)) x.evidence.push(e);
     by.set(id, x);
   }
-  if (by.size > 200) throw err(413, `the job leaves ${by.size} type-gap groups — over the 200 one Holding Area row holds; MA-4h splits it — nothing was saved`);
+  if (by.size > 200) throw err(413, `the job leaves ${by.size} type-gap groups — over the 200 one Holding Area row holds; survey a part of the building, or type more of its sizes — nothing was saved`);
   return [...by.values()];
 }
 
@@ -195,6 +221,8 @@ export function groupGaps(gaps) {
  *  in words; writes nothing. */
 export function planSurvey({ job, candidates, frame, levels: named = {}, manifest = [], type, filed = { cids: new Set(), storeys: new Map() } }) {
   const M = toModel(frame);
+  const far = placeRefusal(candidates, frame); // MA-4h: before anything is typed or built
+  if (far) throw bad(far);
   const ref = `${job.id} (ledger #${job.ledger.id})`;
   const fit = (c) => (Number.isFinite(c.fit?.rmse_mm) ? `fit ${c.fit.rmse_mm} mm rms` : "no fit");
   const gaps = [];
@@ -263,9 +291,10 @@ export function planSurvey({ job, candidates, frame, levels: named = {}, manifes
         place: { BaseElevation: E, Name: s.level }, reason: `scan storey ${s.cid} at ${s.scan_mm} mm (${fit(lv)}) · a new level at ${E} mm in the model · ${ref}`.slice(0, 500) });
       byCid.set(s.cid, trust(lv));
     }
-    // ponytail: one changeset (one Undo) per storey; a storey over 200 needs StoreyBatch to accept the survey source (C#) — MA-4h with Kladno.
+    // ponytail: one changeset (one Undo) per storey; a storey over 200 needs StoreyBatch to accept the survey source (C#) — MA-4h's dry
+    // plan: Kladno's 425-candidate storey types none on the BDS standards (131 gap groups); build the split when a storey types over 200.
     if (elements.length > MAX_CHANGESET_ELEMENTS)
-      throw err(413, `${s.cid} would file ${elements.length} elements on ${s.level} — over the ${MAX_CHANGESET_ELEMENTS} one changeset (one Undo) holds; splitting a storey waits for MA-4h — nothing was saved`);
+      throw err(413, `${s.cid} would file ${elements.length} elements on ${s.level} — over the ${MAX_CHANGESET_ELEMENTS} one changeset (one Undo) holds; a storey is not split into changesets yet — survey a part of the building — nothing was saved`);
     return { storey: s, byCid, exceptions, body: { name: `Survey ${job.id} · ${s.level}`, contract: 2, source: `${job.reader} ${job.version}`, elements, exceptions } };
   });
   return { storeys, groups: groupGaps(gaps), already_filed: already };
@@ -370,7 +399,7 @@ export function meshFaces(el, m) {
  *  a floor or ceiling, a wall whose geometry is not on the changeset. Pure. → {send: [{guid, faces}], skip: [{proposal_guid, reason}],
  *  placed: [{proposal_guid, revit_unique_id, cid, kind}]}
  *  ponytail: walls only — a floor's or ceiling's other face is its type's, which no scan measured, and the slab beyond counts against its one
- *  face (measured: ~200 mm on the drill); a depth from its type is MA-4h's.
+ *  face (measured: ~200 mm on the drill); a depth from its type is Next (MA-4h did not take it).
  *  MA-4f: a wall Revit re-read at Apply is sent by its re-read's faces (reference REVIT, its mesh's sha), else as filed (FILED); placed[i].reference is set only when its faces are sent. */
 export function measurePlan(cs, undone = () => null) {
   const S = toScan(cs.job.frame), send = [], skip = [], placed = [];
@@ -380,8 +409,8 @@ export function measurePlan(cs, undone = () => null) {
     const f = u != null ? { why: `undone in Revit (ledger #${u}) — nothing placed to measure` }
       : rr?.faces ? { faces: rr.faces.map((q) => q.map(([x, y, z]) => [...S.xy([x, y]), S.z(z)])), reference: REVIT, mesh_sha256: rr.mesh_sha256 }
       : el?.kind === "wall" ? { ...facesOf(el, S), reference: FILED }
-      : el?.kind === "level" ? { why: "a level has no face to measure — its height against the scan is MA-4h's level error" }
-      : el?.kind === "floor" || el?.kind === "ceiling" ? { why: `one face of a ${el.kind} is seen; its other is its type's, which no scan measured, and the slab beyond would count against it — MA-4h` }
+      : el?.kind === "level" ? { why: "a level has no face to measure — its height was set when it was proposed" }
+      : el?.kind === "floor" || el?.kind === "ceiling" ? { why: `one face of a ${el.kind} is seen; its other is its type's, which no scan measured, and the slab beyond would count against it` }
       : { why: el ? `a ${el.kind} is not measured by sentinel-survey` : "not on the changeset" };
     placed.push({ proposal_guid: a.proposal_guid, revit_unique_id: a.revit_unique_id ?? null, cid: el?.cid ?? null, kind: el?.kind ?? null,
       ...(f.faces ? { reference: f.reference, ...(f.mesh_sha256 ? { mesh_sha256: f.mesh_sha256 } : {}) } : {}) });
@@ -446,12 +475,13 @@ export function scanBand(cs) {
   return hi > lo ? [lo, hi] : null;
 }
 
-/** MA-4f: null when sentinel-survey's overlay answer has the contract's shape — at most `cap` points of three whole mm (within 1e9), its
- *  receipt.cloud naming the cube used and how many the first cube kept — else what is wrong. Pure. */
+/** MA-4f: null when sentinel-survey's overlay answer has the contract's shape — at most `cap` points of three whole mm (within 2e10 — MA-4h:
+ *  a national grid's coordinates; the service answers in the scan's frame), its receipt.cloud naming the cube used and how many the first
+ *  cube kept — else what is wrong. Pure. */
 export function cloudRefusal(res, cap) {
   const c = res?.receipt?.cloud;
   if (!c || !Number.isInteger(c.cell_mm) || !Number.isInteger(c.of)) return "receipt.cloud";
   if (!Array.isArray(res.points) || res.points.length > cap || res.points.length > c.of) return `not at most ${cap} points`;
-  if (!res.points.every((p) => Array.isArray(p) && p.length === 3 && p.every((v) => Number.isInteger(v) && Math.abs(v) <= 1e9))) return "a point is not three whole numbers of mm";
+  if (!res.points.every((p) => Array.isArray(p) && p.length === 3 && p.every((v) => Number.isInteger(v) && Math.abs(v) <= 2e10))) return "a point is not three whole numbers of mm";
   return null;
 }

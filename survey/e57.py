@@ -4,7 +4,7 @@
 # unless it is plain UTF-8 declaring no DTD, entity or schema location (any case): the bundled Xerces-C parser has schema processing on and
 # a WinSock net accessor, so it could fetch one, and this service makes no network call.
 # ponytail: cartesian points only — pye57 cannot write a spherical E57 to pin a reader against (pye57.utils.convert_spherical_to_cartesian
-# reads one when a real spherical scan arrives, MA-4h); a scan's name, images and grouping are not read.
+# reads one when a real spherical scan arrives); a scan's name, images and grouping are not read.
 import os
 import re
 import struct
