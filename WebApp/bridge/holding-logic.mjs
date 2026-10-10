@@ -94,16 +94,37 @@ const norm = (s) => String(s ?? "").trim().toLowerCase();
 /** A group's id: the same gap on every run is one id — its category and the type it wants, else its size. */
 export const typeGapId = (g) => createHash("sha256").update(`${norm(g.category)}|${g.want ? `type ${norm(g.want)}` : `size ${norm(g.size)}`}`).digest("hex").slice(0, 12);
 
-/** "915 x 2134 mm" → [915, 2134]; the add-in's TypeNameParse.TrySection. */
-const sectionOf = (s) => { const m = /(\d+(?:\.\d+)?)\s*[xX]\s*(\d+(?:\.\d+)?)\s*mm/i.exec(String(s ?? "")); return m ? [Number(m[1]), Number(m[2])] : null; };
+/** "915 x 2134 mm" → [915, 2134]; the add-in's TypeNameParse.TrySection. MA-5a: exported — survey-plan types a scan door or window by it. */
+export const sectionOf = (s) => { const m = /(\d+(?:\.\d+)?)\s*[xX]\s*(\d+(?:\.\d+)?)\s*mm/i.exec(String(s ?? "")); return m ? [Number(m[1]), Number(m[2])] : null; };
+
+// MA-5a: one occupancy cell (pipeline.GRID); ponytail: a wider band picks a neighbouring leaf size — a person decides past it
+export const SIZE_BAND_MM = 100;
+
+/** MA-5a: the catalogue rows of `category` (`same`: the bundle's sameCategory, by name or BuiltInCategory) whose type is named at a size
+ *  (sectionOf, both spellings) within SIZE_BAND_MM of both the measured width `w` and height `h` → {row} when exactly one, {rows} when
+ *  several (a person picks one), null when none. Here, not in survey-plan: the planner types a scan door or window by it and the Holding
+ *  Area closes the planner's gap by it, so both say the same (review). Pure.
+ *  ponytail: by size only — a host's HostFunction (Exterior / Interior) is not read, so an interior leaf can type an outside wall's opening
+ *  when it is the one row in the band; filter by the rule set's function when an office names one per size. */
+export function typeBySize(catalog, category, w, h, same) {
+  const rows = (catalog?.types ?? []).filter((t) => {
+    const s = t && same(t, category) ? sectionOf(t.type) : null;
+    return s && Math.abs(s[0] - w) <= SIZE_BAND_MM && Math.abs(s[1] - h) <= SIZE_BAND_MM;
+  });
+  return rows.length === 1 ? { row: rows[0] } : rows.length ? { rows } : null;
+}
 
 /** The catalogue row that closes a group, or null: of its category (`sameCategory`, the bundle's — by name or BuiltInCategory), the
- *  type it wants by name; a group that wants no named type, a type named at its size. */
+ *  type it wants by name; a group that wants no named type, a type named at its size. MA-5a (review): a survey group (job_id — only the
+ *  bridge's own row carries one) closes when proposing again would type it: typeBySize's one row in the band, never one of several; a
+ *  Promote group at its exact size (Promote types exactly, D16). */
 export function catalogMatch(types, g, sameCategory) {
   const rows = (Array.isArray(types) ? types : []).filter((r) => r && sameCategory(r, g.category));
   if (g.want) return rows.find((r) => norm(r.type) === norm(g.want)) ?? null;
   const want = sectionOf(g.size);
-  return want ? rows.find((r) => { const s = sectionOf(r.type); return s && s[0] === want[0] && s[1] === want[1]; }) ?? null : null;
+  if (!want) return null;
+  if (g.job_id) return typeBySize({ types: rows }, g.category, want[0], want[1], sameCategory)?.row ?? null;
+  return rows.find((r) => { const s = sectionOf(r.type); return s && s[0] === want[0] && s[1] === want[1]; }) ?? null;
 }
 
 /** The type-gap groups, derived: `reportRows` the type_gap rows, `dismissRows` the hold rows (others are ignored), `catalog` the type

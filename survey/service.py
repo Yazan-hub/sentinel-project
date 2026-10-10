@@ -22,7 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import las
 import pipeline
 
-VERSION = "0.4.0"  # MA-4h-4: a wall face runs the storey's height (MIN_HEIGHT), after MA-4h-3's knobs. A job read by 0.3.0 is proposed and overlaid as before; a measure of one fails in words (changesets-store verify)
+VERSION = "0.5.0"  # MA-5a: doors and windows from each wall face's occupancy, a face merged across a doorway. A job read by 0.4.0 is proposed and overlaid as before; a measure of one fails in words (changesets-store verify)
 TOKEN = os.environ.get("SENTINEL_SURVEY_TOKEN", "")
 MAX_BODY = 1 << 20
 # ponytail: one file is at most 300 million points: it is hashed twice and read in chunks, within the bridge's 10 min job limit.

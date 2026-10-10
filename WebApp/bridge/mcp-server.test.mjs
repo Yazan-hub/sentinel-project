@@ -30,6 +30,11 @@ describe("TOOLS registry", () => {
     expect(t.description).toMatch(/not compliance facts/i);
   });
 
+  it("build status names the candidate kinds sentinel-survey reads (MA-5a: doors and windows)", () => {
+    expect(TOOLS.find((t) => t.name === "sentinel_build_status").description).toContain(
+      "untyped geometry {cid, kind: level|wall|floor|ceiling|door|window, geometry, measured, evidence[], fit} in millimetres in the scan's own frame");
+  });
+
   it("required args are declared", () => {
     expect(TOOLS.find((t) => t.name === "sentinel_get_document").inputSchema.required).toEqual(["project", "document"]);
     expect(TOOLS.find((t) => t.name === "sentinel_doc_integrity").inputSchema.required).toEqual(["project", "document"]);

@@ -160,6 +160,12 @@ describe("type gaps — the Holding Area's own section (MA-2c)", () => {
   it("typeGapLine says what is missing, how many, from what facts and the nearest types — as the add-in's dialog does", () => {
     expect(typeGapLine(GAP)).toBe('Walls: "BDS_EXT_ARC_CMU_125 mm" is not in the catalogue — 2 element(s) (Function Exterior); nearest: BDS_EXT_ARC_CMU_100 mm, BDS_EXT_ARC_CMU_200 mm, BDS_EXT_ARC_CMU_300 mm');
     expect(typeGapLine({ ...GAP, want: null, size: "915 x 2134 mm", key: null, nearest: [], elements: 1, category: "Doors" })).toBe("Doors: no type named at 915 x 2134 mm — 1 element(s)");
+    // MA-5a (review): a survey's door group is typed by size within 100 mm — never "no type named at" a size 13 types are named at
+    expect(typeGapLine({ ...GAP, want: null, size: "1000 x 2100 mm", nearest: [], elements: 1, category: "Doors", job_id: "job-0003",
+      key: "13 Doors types are named within 100 mm of 1000 x 2100 mm: BDS_EXT_1 PNL : BDS_EXT_1 PNL_GLASS_1000 x 2100 mm, BDS_" }))
+      .toBe("Doors: no one type is named within 100 mm of 1000 x 2100 mm — 1 element(s) (13 Doors types are named within 100 mm of 1000 x 2100 mm: BDS_EXT_1 PNL : BDS_EXT_1 PNL_GLASS_1000 x 2100 mm, BDS_)");
+    expect(typeGapLine({ ...GAP, want: null, size: "1200 x 1200 mm", nearest: [], elements: 1, category: "Windows", job_id: "job-0003", key: "no Windows type is named within 100 mm of 1200 x 1200 mm" }))
+      .toBe("Windows: no one type is named within 100 mm of 1200 x 1200 mm — 1 element(s) (no Windows type is named within 100 mm of 1200 x 1200 mm)");
   });
 
   it("typeGapClosedLine says how a group was closed: a lead's reason, or the catalogue that now holds the type", () => {

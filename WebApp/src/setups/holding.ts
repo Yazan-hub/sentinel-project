@@ -129,7 +129,11 @@ export async function readHolding(baseUrl: string, key: string): Promise<Holding
 /** MA-2c: a type-gap group in words — the add-in's TypeGaps.Line: "Walls: "BDS_EXT_ARC_CMU_125 mm" is not in the catalogue — 2
  *  element(s) (Function Exterior); nearest: BDS_EXT_ARC_CMU_100 mm, …", or "Doors: no type named at 915 x 2134 mm — 1 element(s)". */
 export function typeGapLine(g: TypeGap): string {
-  return `${g.category}: ` + (g.want ? `"${g.want}" is not in the catalogue` : `no type named at ${g.size}`) + ` — ${g.elements} element(s)` +
+  // MA-5a (review): a survey's door or window group (a job's, a W x H size) closes on the ONE catalogue type named within the bridge's
+  // size band (holding-logic SIZE_BAND_MM, 100 mm) — "no type named at" was false when 13 were named at that very size.
+  const band = !g.want && g.job_id && /\d\s*x\s*\d+(?:\.\d+)?\s*mm/i.test(g.size ?? ""); // holding-logic sectionOf's shape
+  return `${g.category}: ` + (g.want ? `"${g.want}" is not in the catalogue` : band ? `no one type is named within 100 mm of ${g.size}` : `no type named at ${g.size}`) +
+    ` — ${g.elements} element(s)` +
     (g.key ? ` (${g.key})` : "") + (g.nearest?.length ? `; nearest: ${g.nearest.slice(0, 3).join(", ")}` : "");
 }
 

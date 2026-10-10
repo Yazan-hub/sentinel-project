@@ -98,7 +98,13 @@ describe("survey jobs (MA-4c)", () => {
     expect(audits[0].v).toEqual({ job_id: "job-0001", reader: "sentinel-survey", version: "0.1.0", status: "done", pack_id: "evp-0001", pack_version: 9,
       items: [{ id: "ev-0001", sha256: "1".repeat(64) }], read: ["ev-0001"], refused: rec().refused, tools: TOOLS, params: { voxel_mm: 20, storey_min_mm: 2000 }, seed: 1,
       started: "2026-10-08T10:00:00Z", finished: "2026-10-08T10:00:02Z", minutes: 0, cpu_s: 0.4, points_in: 47699, points_used: 47680,
-      model_calls: 0, tokens: 0, candidates: { level: 1, wall: 1, floor: 0, ceiling: 0 }, gaps: null, result_sha256: sha(bytes), claimed: false });
+      model_calls: 0, tokens: 0, candidates: { level: 1, wall: 1, floor: 0, ceiling: 0 }, gaps: null, result_sha256: sha(bytes), claimed: false }); // MA-5a: a 0.1.0 reader never looked for doors
+  });
+
+  it("(b2) MA-5a: a 0.5.0 reader's counts name doors and windows, none found included — a reader before it never looked (review)", async () => {
+    await start();
+    await finish({ status: "done", stage: "done", pct: 100, refused: [], result: RESULT, tools: TOOLS, version: "0.5.0" });
+    expect(rec().counts).toEqual({ level: 1, wall: 1, floor: 0, ceiling: 0, door: 0, window: 0 });
   });
 
   it("(c) one job at a time on this bridge — a second is a 409 with nothing made; after it ends the next is job-0002", async () => {
@@ -129,6 +135,11 @@ describe("survey jobs (MA-4c)", () => {
       "build:run job-0002 · sentinel-survey 0.1.0 · failed", "build:run job-0003 · sentinel-survey 0.1.0 · failed"]);
     expect(resultRefusal({ ...RESULT, candidates: [{ ...RESULT.candidates[0], evidence: ["ev-0009#floor-L00"] }] }, ["ev-0001"])).toBe("candidates[0].evidence");
     expect(resultRefusal(RESULT, ["ev-0001"])).toBeNull();
+    // MA-5a: sentinel-survey 0.5.0's doors and windows are read; a kind it does not propose is not
+    const door = { cid: "scan-L00-wall-1-door-1", kind: "door", geometry: { host: "scan-L00-wall-1", storey: "scan-L00-level", direction: [1, 0], Location: [3450, 150, 0], along_mm: 3465 },
+      measured: { width_mm: 900, height_mm: 2100, sill_mm: 0, head_mm: 2100 }, evidence: ["ev-0001#slice-L00"], fit: { inliers: 56, rmse_mm: 0, coverage: 0.875, faces_seen: 2 } };
+    expect(resultRefusal({ ...RESULT, candidates: [...RESULT.candidates, door, { ...door, cid: "scan-L00-wall-1-window-1", kind: "window" }] }, ["ev-0001"])).toBeNull();
+    expect(resultRefusal({ ...RESULT, candidates: [{ ...door, kind: "skylight" }] }, ["ev-0001"])).toBe("candidates[0].kind");
   });
 
   it("(e) refused before anything is written: no scan sentinel-survey is sent (each with why), sentinel-survey not set up, the machine credential", async () => {

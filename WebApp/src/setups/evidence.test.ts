@@ -2,6 +2,7 @@
 // kind is its extension, every line is pinned, and a project with no pack reads as null — any other failure says "not read — …".
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 
 const { bfetch, bwrite } = vi.hoisted(() => ({ bfetch: vi.fn(), bwrite: vi.fn() }));
 vi.mock("./bridge-fetch", () => ({ bfetch, bwrite }));
@@ -130,7 +131,7 @@ describe("the survey (MA-4c)", () => {
   const JOB: SurveyJob = {
     id: "job-0001", status: "done", stage: "done", pct: 100, items: [{ id: "ev-0001", path: "scans/two-storey.las", sha256: "a".repeat(64) }], read: ["ev-0001"],
     refused: [{ id: "ev-0002", reason: "a .laz is read from MA-4g — sentinel-survey 0.1 reads plain LAS" }], started_by: "contributor@example.test",
-    started_at: "2026-10-08T10:00:00.000Z", counts: { level: 2, wall: 8, floor: 2, ceiling: 2 }, candidates_total: 14, ledger: { id: 2201, hash: HASH },
+    started_at: "2026-10-08T10:00:00.000Z", counts: { level: 2, wall: 8, floor: 2, ceiling: 2, door: 0, window: 0 }, candidates_total: 14, ledger: { id: 2201, hash: HASH },
   };
   it("surveyableScans: admitted scans that are surveyable and not changed — no photo, no RCP, no flagged scan", () => {
     const pack: EvidencePack = { ...PACK, items: [ITEM, { ...ITEM, id: "ev-0002", format: "rcp", surveyable: false }, { ...ITEM, id: "ev-0003", state: "changed" },
@@ -138,7 +139,9 @@ describe("the survey (MA-4c)", () => {
     expect(surveyableScans(pack).map((i) => i.id)).toEqual(["ev-0001"]);
   });
   it("jobLine: the state, what was read (never a file the service refused) and refused, what was found, who, when and the ledger row", () => {
-    expect(jobLine(JOB)).toBe("job-0001 · done · read ev-0001 · refused ev-0002 (a .laz is read from MA-4g — sentinel-survey 0.1 reads plain LAS) · 2 level(s), 8 wall(s), 2 floor(s), 2 ceiling(s) · by contributor@example.test · 2026-10-08 10:00 · ledger #2201 · receipt abababababababab…");
+    expect(jobLine(JOB)).toBe("job-0001 · done · read ev-0001 · refused ev-0002 (a .laz is read from MA-4g — sentinel-survey 0.1 reads plain LAS) · 2 level(s), 8 wall(s), 2 floor(s), 2 ceiling(s), 0 door(s), 0 window(s) · by contributor@example.test · 2026-10-08 10:00 · ledger #2201 · receipt abababababababab…");
+    // MA-5a: a 0.4.0 job never looked for doors or windows — its counts name none, and the line says none
+    expect(jobLine({ ...JOB, counts: { level: 2, wall: 8, floor: 2, ceiling: 2 } })).toContain(" · 2 level(s), 8 wall(s), 2 floor(s), 2 ceiling(s) · by contributor@example.test");
     const lazBit = { id: "ev-0003", reason: "its points are compressed (LAZ) — sentinel-survey 0.1 reads plain LAS; LAZ is read from MA-4g" };
     expect(jobLine({ ...JOB, items: [...JOB.items, { id: "ev-0003", path: "scans/compressed.las", sha256: "c".repeat(64) }], refused: [lazBit], counts: undefined, ledger: undefined }))
       .toBe("job-0001 · done · read ev-0001 · refused ev-0003 (its points are compressed (LAZ) — sentinel-survey 0.1 reads plain LAS; LAZ is read from MA-4g) · by contributor@example.test · 2026-10-08 10:00");
@@ -152,6 +155,14 @@ describe("the survey (MA-4c)", () => {
       .toBe("scan-L00-wall-1 · wall · length mm 8003, height mm 2800, thickness mm 300 · fit 2.2 mm rms, 100% covered · from ev-0001#slice-L00");
     expect(candidateLine({ cid: "scan-L00-wall-5", kind: "wall", geometry: { faces: [[0, 0, 900, 0]] }, measured: { length_mm: 900, height_mm: 2800 }, evidence: ["ev-0001#slice-L00"] }))
       .toBe("scan-L00-wall-5 · wall · length mm 900, height mm 2800 · one face seen: its thickness is unknown · from ev-0001#slice-L00");
+    // MA-5a (review): a door or window has no fit of its own — its hole's border share and the faces that saw it
+    expect(candidateLine({ cid: "scan-L00-wall-1-door-1", kind: "door", geometry: { host: "scan-L00-wall-1" }, measured: { width_mm: 1000, height_mm: 2100, sill_mm: 0, head_mm: 2100 },
+      evidence: ["ev-0001#slice-L00"], fit: { inliers: 48, rmse_mm: 0, coverage: 0.75, faces_seen: 2 } }))
+      .toBe("scan-L00-wall-1-door-1 · door · width mm 1000, height mm 2100, sill mm 0, head mm 2100 · hole border 75%, 2 face(s) seen; a hole is an opening or an occluder · from ev-0001#slice-L00");
+  });
+  it("files-panel's Survey line names what sentinel-survey reads and how the bridge types it (MA-5a)", () => {
+    const src = readFileSync(new URL("./files-panel.ts", import.meta.url), "utf8");
+    expect(src).toContain(`line("Survey — sentinel-survey reads the admitted LAS, LAZ and E57 scans on this PC: levels, walls, floors, ceilings, doors and windows, LOD 200 as found (never survey grade). A lead proposes a done job: the bridge types walls, floors and ceilings exactly and doors and windows by size (within 100 mm) from the office's catalogue into one changeset per storey for review, and holds the rest as type gaps.", "#9ca3af")`);
   });
   it("Run survey posts {pack: evp-0001} to …/build/jobs; the line names what it reads and refused", async () => {
     bwrite.mockResolvedValue({ job: { ...JOB, status: "queued" } });

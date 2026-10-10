@@ -119,12 +119,13 @@ export interface SurveyJob {
 /** An untyped candidate (design §6.9): whatever the reader measured, in mm (an area in m²). */
 export interface Candidate {
   cid: string; kind: string; geometry: Record<string, unknown>; measured: Record<string, number>; evidence: string[];
-  fit?: { inliers: number; rmse_mm: number; coverage: number };
+  /** MA-5a: a door or window has no fit of its own — coverage is its hole's border share, faces_seen the wall faces it was found on. */
+  fit?: { inliers: number; rmse_mm: number; coverage: number; faces_seen?: number };
 }
 export interface JobRead { job: SurveyJob; candidates?: Candidate[]; result_error?: string; }
 /** The pack's scans a survey may read: admitted, surveyable, not changed. Which it can read is sentinel-survey's to say, per item, by the bytes (MA-4g). Pure. */
 export const surveyableScans = (pack: EvidencePack) => pack.items.filter((i) => i.kind === "scan" && i.surveyable && i.state !== "changed");
-const FOUND: [string, string][] = [["level", "level(s)"], ["wall", "wall(s)"], ["floor", "floor(s)"], ["ceiling", "ceiling(s)"]];
+const FOUND: [string, string][] = [["level", "level(s)"], ["wall", "wall(s)"], ["floor", "floor(s)"], ["ceiling", "ceiling(s)"], ["door", "door(s)"], ["window", "window(s)"]]; // MA-5a: doors and windows
 /** A job in one line: its state, what it read (a done job: only what its result was measured from; one running: what it is reading;
  *  else what it was given) and refused, what it found, who and when, its ledger row. Pure. */
 export function jobLine(j: SurveyJob): string {
@@ -133,14 +134,16 @@ export function jobLine(j: SurveyJob): string {
   const given = j.items.map((i) => i.id).join(", ") || "nothing";
   const what = j.status === "done" ? `read ${(j.read ?? []).join(", ") || "nothing"}` : live ? `reading ${given}` : `given ${given}`;
   const refused = j.refused.length ? ` · refused ${j.refused.map((r) => `${r.id} (${r.reason})`).join("; ")}` : "";
-  const found = j.counts ? ` · ${FOUND.map(([k, w]) => `${j.counts![k] ?? 0} ${w}`).join(", ")}` : "";
+  const found = j.counts ? ` · ${FOUND.filter(([k]) => k in j.counts!).map(([k, w]) => `${j.counts![k]} ${w}`).join(", ")}` : ""; // MA-5a: a 0.4.0 job never looked for doors or windows
   return `${j.id} · ${state} · ${what}${refused}${found}${j.error ? ` · ${j.error}` : ""}` +
     ` · by ${j.started_by} · ${j.started_at.replace("T", " ").slice(0, 16)}${j.ledger ? ` · ${ledgerLine(j.ledger)}` : ""}`;
 }
 /** One untyped candidate in one line — generic over what it measured, its fit, the evidence it came from. Pure. */
 export function candidateLine(c: Candidate): string {
   const m = Object.entries(c.measured).map(([k, v]) => `${k.replace(/_/g, " ")} ${v}`).join(", ");
-  const fit = c.fit ? ` · fit ${c.fit.rmse_mm} mm rms, ${Math.round(c.fit.coverage * 100)}% covered` : "";
+  // MA-5a (review): a door or window has no fit (the bridge records none) — its hole's border and the faces that saw it, never "0 mm rms"
+  const fit = c.fit?.faces_seen != null ? ` · hole border ${Math.round(c.fit.coverage * 100)}%, ${c.fit.faces_seen} face(s) seen; a hole is an opening or an occluder`
+    : c.fit ? ` · fit ${c.fit.rmse_mm} mm rms, ${Math.round(c.fit.coverage * 100)}% covered` : "";
   const one = Array.isArray(c.geometry.faces) && c.geometry.faces.length === 1 ? " · one face seen: its thickness is unknown" : "";
   return `${c.cid} · ${c.kind} · ${m}${fit}${one} · from ${c.evidence.join(", ")}`;
 }

@@ -998,7 +998,7 @@ describe("proposeFromJob (MA-4d): a lead turns a trusted survey job into changes
     await quiet({ docList: vi.fn(async () => docs) }, "Survey job-0002 · GR-FFL (proposed) was filed from job-0002 with the scan moved 40000, 0, 0 mm, turned 0° — send that frame (one job is one frame), or run the survey again to propose it afresh; nothing was saved", 409, { frame: { ...FRAME, dx_mm: 0 } });
     const other = docs.map((c) => ({ ...c, name: c.name.replace("job-0002", "job-0001"), job: { ...c.job, id: "job-0001", ledger_id: 2200 } }));
     await quiet({ docList: vi.fn(async () => other) }, "Survey job-0001 · GR-FFL (from job-0001) is still proposed — decide or withdraw it before proposing another survey job: both would propose the same walls; nothing was saved");
-    await quiet({ resolveArtefact: resolving({ guideline: STD.guideline }) }, expect.stringMatching(/^a survey's candidates are typed from the project's guideline and type catalogue, exactly \(D16\) — guideline: guideline@1 · office · .+; type catalogue: none — .+; install both on the project or its office first\. Nothing was saved$/));
+    await quiet({ resolveArtefact: resolving({ guideline: STD.guideline }) }, expect.stringMatching(/^a survey's candidates are typed from the project's guideline and type catalogue \(walls, floors and ceilings exactly, D16; doors and windows by size within 100 mm\) — guideline: guideline@1 · office · .+; type catalogue: none — .+; install both on the project or its office first\. Nothing was saved$/));
     await quiet({ manifestLevels: vi.fn(async () => { throw new Error("the manifest store is down"); }) },
       "the published models' levels could not be read (the manifest store is down) — nothing was saved; send it again", 503);
   });
@@ -1071,6 +1071,25 @@ describe("proposeFromJob (MA-4d): a lead turns a trusted survey job into changes
     const r2 = await propose(sdeps({ docList: vi.fn(async () => other) }));
     expect(r2.overlaps).toEqual([]);
     expect(r2.changesets).toHaveLength(2);
+  });
+  it("(l) MA-5a: the installed catalogue types a scan window by its size (one row); a door at a size of 13 rows is a gap — the stored typing names the catalogue", async () => {
+    const opening = (kind, host, direction, along, Location, measured) => ({ cid: `${host}-${kind}-1`, kind, geometry: { host, storey: "scan-L00-level", direction, Location, along_mm: along },
+      measured, evidence: ["ev-0001#slice-L00"], fit: { inliers: 40, rmse_mm: 0, coverage: 0.9, faces_seen: 2 } });
+    const result = { ...RESULT, candidates: [...RESULT.candidates,
+      opening("window", "scan-L00-wall-3", [0, 1], 2549, [7850, 2600, 0], { width_mm: 3100, height_mm: 1500, sill_mm: 600, head_mm: 2100 }),
+      opening("door", "scan-L00-wall-1", [1, 0], 3465, [3450, 150, 0], { width_mm: 1000, height_mm: 2100, sill_mm: 0, head_mm: 2100 })] };
+    const deps = sdeps({ trustedJob: vi.fn(async () => ({ ...TRUSTED, result })) });
+    const r = await propose(deps);
+    expect(r.changesets.map((c) => [c.name, c.elements, c.preticked])).toEqual([["Survey job-0002 · GR-FFL", 4, 3], ["Survey job-0002 · Scan L01 job-0002", 4, 4]]);
+    const win = [...deps.saved.values()][0].elements[3];
+    const planner = deps.audit.mock.calls.at(-1)[6];
+    expect(win).toMatchObject({ kind: "window", cid: "scan-L00-wall-3-window-1", pretick: false, accuracy: { status: "insufficient_data", basis: "framing" },
+      place: { LevelName: "GR-FFL", Location: [47850, 2600, 0], FamilyName: "BDS_Window_1 Panel", TypeName: "3100x1500 mm", SillHeight: 600 },
+      typing: { typed_by: "bridge-size", type: "3100x1500 mm", family: "BDS_Window_1 Panel", size: "3100 x 1500 mm", band_mm: 100, catalog: planner.catalog, catalog_sha256: "ab".repeat(32) } });
+    expect(deps.audit.mock.calls[2][6].groups.find((g) => g.category === "Doors")).toMatchObject({ want: null, size: "1000 x 2100 mm",
+      key: expect.stringMatching(/^13 Doors types are named within 100 mm of 1000 x 2100 mm: BDS_EXT_1 PNL : BDS_EXT_1 PNL_GLASS_1000 x 2100 mm, /) });
+    // the ledger row counts the window typed by size with the walls the typer typed (review)
+    expect(deps.audit.mock.calls.filter((c) => c[3] === "changeset_proposed").map((c) => c[6].typed)).toEqual([4, 3]); // L01: its level is not typed
   });
 });
 

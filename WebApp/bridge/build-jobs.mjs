@@ -23,7 +23,10 @@ const FIELDS = ["pack", "readers", "params"]; // a body's whole vocabulary: the 
 export const TOLERANCES_MM = [50, 100, 200]; // the contract's (§6.9); deviation reads them from MA-4e
 /** The bridge's seed, never a body's: the same evidence and parameters give the same candidates (§6.9). */
 export const SEED = 1;
-const KINDS = ["level", "wall", "floor", "ceiling"];
+const KINDS = ["level", "wall", "floor", "ceiling", "door", "window"]; // MA-5a: sentinel-survey 0.5.0 proposes doors and windows on its walls
+/** MA-5a (review): the kinds a reader of `version` looks for — before 0.5.0 no door or window, so its job's counts name none (the web's found
+ *  list leaves out a kind its counts lack, never "0 door(s)" from a job that never looked). */
+const kindsOf = (version) => { const [a, b] = String(version ?? "").split(".").map(Number); return a > 0 || b >= 5 ? KINDS : KINDS.slice(0, 4); };
 const MAX_CANDIDATES = 5000;
 const LISTED = 20;
 const JOB_ID = /^job-\d{4,}$/; // job-10000 follows job-9999 (nextId pads to 4, never cuts)
@@ -211,7 +214,7 @@ async function runJob(d, proj, key, job, take) {
     try {
       writeAtomic(join(d.root, key, job.id, "result.json"), bytes);
       Object.assign(job, { result_sha256: sha(bytes), candidates_total: result.candidates.length,
-        counts: Object.fromEntries(KINDS.map((k) => [k, result.candidates.filter((c) => c.kind === k).length])) });
+        counts: Object.fromEntries(kindsOf(r.version).map((k) => [k, result.candidates.filter((c) => c.kind === k).length])) });
     } catch (e) {
       status = "failed";
       error = `the result could not be kept on this PC (${e?.code || "the write failed"}) — nothing it found was kept`;

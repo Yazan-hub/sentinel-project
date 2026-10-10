@@ -3,8 +3,10 @@
 # least squares, then paired by WallPairing's rule — ported below), floors and ceilings as oriented rectangles. numpy only (the files are
 # read by las.py and e57.py); the same points, params and seed give the same candidates (no randomness but the seeded point cap).
 # Millimetres in the scan's own frame (no CRS applied — MA-4g: an E57's scans are posed into its file's frame, and one job reads one
-# declared CRS). Candidates carry no type: the bridge types them (MA-4d). LOD 200 as found — never survey or permit grade (D7): a closed
-# door reads as wall, openings are not proposed (MA-5), stairs are not read.
+# declared CRS). Candidates carry no type: the bridge types them (MA-4d; a door or window by its size, MA-5a). LOD 200 as found — never
+# survey or permit grade (D7): a closed door reads as wall; a hole in a wall face is an opening or an occluder, said by its border
+# (MA-5a); glazing is seen through, so a glazed door reads as a door and a curtain wall as no wall; swing, hinge, frame and lintel
+# are not read; stairs are not read.
 import math
 
 import numpy as np
@@ -36,8 +38,32 @@ CLEAR = 3.0             # cells: a found face's cells within CLEAR x CELL of its
 MIN_FACE = 1000.0       # mm: a shorter face is not proposed
 MIN_HEIGHT = 0.8        # MA-4h-4: the share of the storey's height (100 mm bins, HEIGHT_EDGE in from floor and top) a wall face's points cover
 HEIGHT_EDGE = 150.0     # mm: the floor's and the top's own points stay out of a face's height
-# ponytail: the 100 mm bin is fixed in height_share, not a knob; each face scans the storey's points once (faces x points — Kladno's GF:
-# 118 faces over ~3 M points), measured inside the job's time on the drill; a plan-grid index when a storey nears JOB_MS.
+# ponytail: each face of the slice scans the storey's points once for its occupancy grid (faces x points — Kladno's GF: 118 faces over
+# ~3 M points), and merge_split once more for each collinear pair it tests and each face it merges (MA-5a: a pair that failed is not
+# tested again — Kladno built 671 joined grids for 143 pairs before), measured inside the job's time on the drill; a plan-grid index
+# when a storey nears JOB_MS.
+# MA-5a: doors and windows from each wall face's occupancy — the (along, height) grid height_share reads. Measured on Kladno against
+# the opening reference (reference-5a.json 61ee7e01…: GF 7 doors + 2 windows, 1F 17 doors, majority of three readers) after the
+# branch review (holes grown across lines under half filled, a hole at a face's end dropped, two faces joined by their jambs, a unit
+# direction — every earlier number was scored on the rounded direction), one knob at a time, kept only when opening F1 at 100 mm rose
+# on both storeys and wall F1 did not fall: OPEN_W 3 / 4 and OPEN_H 8 / 12 each lowered GF or raised neither (5 x 10: GF 0.125, 1F
+# 0.373); MIN_BORDER rose on both at every step (0.6: 0.128 / 0.384, 0.7: 0.133 / 0.394, 0.9: 0.188 / 0.459, 0.95: 0.231 / 0.481) and
+# stops at 0.7 — a perfectly scanned door or window reads a border of 0.73 or more at two points a 100 mm cell (20 seeds of the drill's
+# and the test's buildings), 0.59 at one; LINTEL 0.4 raised walls (GF 0.239, 1F 0.533) but lowered openings, 0.6 lowered walls; a border
+# read against the face's own fill flattened Kladno (0.122 / 0.373 at 0.5-0.8) and was not kept; MERGE_GAP 1500 / 3500, DOOR_ROWS 0 / 2
+# and SPECK 1 / 3 did not rise on both (before the review). At these: openings F1 0.259 / 0.293 / 0.345 at 50 / 100 / 200 mm (P 0.189,
+# R 0.654 at 100), every matched class right; walls 0.299 / 0.357 / 0.396; only 4 of GF's 9 traced openings lie on a wall the survey
+# finds (1F 16 of 17) — GF's walls cap its openings. ponytail: a wall scanned at one point a cell loses some clean openings at 0.7; a
+# hole seen on one face only is kept (an interior scan never sees a window's outer face) — keeping only holes seen on both faces doubled
+# 1F (0.394 -> 0.686) but lowered GF (0.133 -> 0.100), so the protocol left it out: the founder's call.
+GRID = 100.0        # mm: the occupancy cell along a face and up it (coverage's bin, height_share's bin)
+OPEN_W = 5          # cells along: a hole narrower is clutter or a scan shadow, not an opening
+OPEN_H = 10         # cells up: a hole under 1 m high is clutter too; every BDS window is at least 1200 mm high (7 of its 27 sized windows are wider than tall)
+MIN_BORDER = 0.7    # share of a hole's border cells that hold the face: an opening is framed by its wall; less is a gap the scan left
+DOOR_ROWS = 1       # a hole whose lowest row is within this of the grid's floor row is a door
+MERGE_GAP = 2500.0  # mm: two faces on one line this close are one wall across a doorway when a lintel bridges the gap
+LINTEL = 0.5        # share of the gap's cells above its hole that must be filled for the merge
+SPECK = 2           # a filled cell with this many filled neighbours or fewer (of 8) is stray points inside a hole, not the face
 MAX_GAP = 300.0         # mm: a face breaks where its line is empty for longer (a doorway; a closed door reads as wall)
 END_GAP = 100.0         # mm: a piece shorter than this at a face's end, past an empty stretch, is another face crossing the line
 MAX_WALL = 600.0        # mm: faces further apart are two walls (a corridor), not one — WallPairing allows 1000 on drawings
@@ -350,16 +376,213 @@ def fit(n, rmse, cover):
     return {"inliers": int(n), "rmse_mm": round(float(rmse), 1), "coverage": round(float(cover), 3)}
 
 
-def height_share(Q, seg, z0, z1):
-    """The share of the 100 mm height bins between z0 and z1 holding a point of Q (mm) within 2 x CELL of the face seg, along it."""
+def occupancy(Q, seg, z0, z1):
+    """MA-5a: the (height, along) occupancy of face seg between z0 and z1 — GRID mm cells, True where a point of Q (mm) lies within
+    2 x CELL of the face; row 0 is the floor's, column 0 the face's start. Computed once per kept face (measure stores it as x["grid"])
+    and read three times: the height share, the holes, the merge. ponytail: a cell is filled by one point; an occluder (a cupboard) and
+    a true opening both read as empty cells — the hole's border says how credible it is, nothing more."""
     a, b = np.array(seg[:2]), np.array(seg[2:])
     L = float(np.linalg.norm(b - a))
     u = (b - a) / L
     R = Q[:, :2] - a
     t, d = R @ u, R @ np.array([-u[1], u[0]])
-    z = Q[(t > 0) & (t < L) & (np.abs(d) <= 2 * CELL), 2]
-    nb = max(1, int((z1 - z0) / 100))
-    return np.unique(np.minimum(((z - z0) // 100).astype(np.int64), nb - 1)).size / nb
+    k = (t > 0) & (t < L) & (np.abs(d) <= 2 * CELL)
+    nr, nc = max(1, int((z1 - z0) / GRID)), max(1, math.ceil(L / GRID))
+    g = np.zeros((nr, nc), bool)
+    g[np.minimum(((Q[k, 2] - z0) // GRID).astype(np.int64), nr - 1), np.minimum((t[k] // GRID).astype(np.int64), nc - 1)] = True
+    return g
+
+
+def height_share(g):
+    """The share of a face's height rows holding a point (MA-4h-4's rule, on the grid)."""
+    return float(g.any(axis=1).mean())
+
+
+def holes(g):
+    """MA-5a: the empty rectangles of a face's grid, at least OPEN_W x OPEN_H cells: [(c0, c1, r0, r1, border, cells)], c1 and r1
+    exclusive; border is the share of the filled cells on the rectangle's sides inside the grid, cells their count. Row by row from the
+    floor, each empty run of >= OPEN_W cells joins the hole below it whose columns it overlaps by more than half (the columns'
+    intersection), else starts one; then each side grows across a line under half filled. A hole open at the face's start or end is
+    not an opening: a face ends where the mid-storey slice leaves the wall, so an opening there ends the face, it is no hole in it
+    (Kladno: all 11 such holes were false, their borders 0.5 to 1.0 with the open side skipped — review).
+    ponytail: greedy, bottom-up — an L-shaped hole is its lower box, an arch its rectangle; two holes of one face grown into one box are
+    not deduplicated (none on Kladno or the drill's seeds) — they would read as one opening seen on both faces."""
+    nr, nc = g.shape
+    # a filled cell with at most SPECK of its 8 neighbours filled is a speck — stray points, not the face: it does not close a hole (one
+    # pair in a doorway split the drill door's run and shrank it from 1000 to 750 mm); a wall's own cells have 5 or more, its edge 3.
+    # ponytail: any line one cell thick is specks too — a transom, a mullion or a cable across an opening is seen through, and so is a
+    # one-row lintel at the grid's top (the door's hole runs to the top: its head reads high) or a one-cell pier (two windows read as one)
+    pad = np.pad(g, 1)
+    nb = sum(pad[1 + dr:1 + dr + nr, 1 + dc:1 + dc + nc].astype(np.int64) for dr in (-1, 0, 1) for dc in (-1, 0, 1) if dr or dc)
+    g = g & (nb > SPECK)
+    live, done = [], []
+    for r in range(nr):
+        runs, c = [], 0
+        while c < nc:
+            if g[r, c]:
+                c += 1
+                continue
+            e = c
+            while e < nc and not g[r, e]:
+                e += 1
+            if e - c >= OPEN_W:
+                runs.append((c, e))
+            c = e
+        used, nxt = [False] * len(runs), []
+        for c0, c1, r0 in live:
+            best = None
+            for i, (p, q) in enumerate(runs):
+                ov = min(c1, q) - max(c0, p)
+                if not used[i] and ov > 0.5 * min(c1 - c0, q - p) and (best is None or ov > best[0]):
+                    best = (ov, i)
+            if best is None:
+                done.append((c0, c1, r0, r))
+            else:
+                used[best[1]] = True
+                p, q = runs[best[1]]
+                nxt.append((max(c0, p), min(c1, q), r0))
+        nxt += [(p, q, r) for i, (p, q) in enumerate(runs) if not used[i]]
+        live = nxt
+    done += [(c0, c1, r0, nr) for c0, c1, r0 in live]
+    out = []
+    for c0, c1, r0, r1 in done:
+        if r1 - r0 < OPEN_H:
+            continue
+        # MA-5a (review): a stray cell beside a jamb or under the lintel keeps the wall's 3 cells as neighbours (it is no speck) and the
+        # intersection above narrowed every row of the hole to the columns past it — its side became the door's own near-empty column and
+        # its border collapsed, or it fell under OPEN_W (4 of 10 seeds of the test's building lost the door or saw it on one face). Each
+        # side grows across a line under half filled, and OPEN_W is read after it: every row of a hole held a run of OPEN_W.
+        while c0 > 0 and g[r0:r1, c0 - 1].mean() < 0.5:
+            c0 -= 1
+        while c1 < nc and g[r0:r1, c1].mean() < 0.5:
+            c1 += 1
+        while r0 > 0 and g[r0 - 1, c0:c1].mean() < 0.5:
+            r0 -= 1
+        while r1 < nr and g[r1, c0:c1].mean() < 0.5:
+            r1 += 1
+        if c1 - c0 < OPEN_W or c0 == 0 or c1 == nc:
+            continue
+        cells = filled = 0
+        for rr0, rr1, cc0, cc1 in ((r0 - 1, r0, c0, c1), (r1, r1 + 1, c0, c1), (r0, r1, c0 - 1, c0), (r0, r1, c1, c1 + 1)):
+            if rr0 >= 0 and rr1 <= nr:  # a door's floor side and a hole's top at the grid's top are not counted
+                sub = g[rr0:rr1, cc0:cc1]
+                cells += sub.size
+                filled += int(sub.sum())
+        out.append((c0, c1, r0, r1, filled / cells if cells else 0.0, cells))
+    return out
+
+
+def wall_openings(two, line, zf, top):
+    """MA-5a: a wall's doors and windows → [(kind, a0, a1, lo, hi, border, cells, seen)]: a0..a1 along its centreline line (x1, y1, x2,
+    y2) from its start, lo and hi the sill (a door's floor) and head heights (mm, the scan's z). Each face's holes are placed along the
+    centreline (a face sits half a thickness off it); a hole on one face overlapping one on the other by more than half along is one
+    opening seen on both faces; a hole seen on one face only is kept with seen 1 and the border it has (an occluder reads the same — the
+    bridge never pre-ticks it); an opening whose border is under MIN_BORDER is dropped."""
+    x1, y1, x2, y2 = line
+    L = math.hypot(x2 - x1, y2 - y1)
+    ux, uy = (x2 - x1) / L, (y2 - y1) / L
+    found = []
+    for x in two:
+        fa = np.array(x["seg"][:2])
+        fu = (np.array(x["seg"][2:]) - fa) / x["len"]
+        for c0, c1, r0, r1, border, cells in holes(x["grid"]):
+            # each jamb at the middle of its boundary cell: a cell holding a few points reads as wall, so the empty cells alone
+            # undershoot the opening by up to a cell a side; the middle is unbiased (+-GRID/2 an edge)
+            p0 = fa + fu * max(0.0, (c0 - 0.5) * GRID)
+            p1 = fa + fu * min(x["len"], (c1 + 0.5) * GRID)
+            a0, a1 = sorted(((p0[0] - x1) * ux + (p0[1] - y1) * uy, (p1[0] - x1) * ux + (p1[1] - y1) * uy))
+            found.append([a0, a1, r0, r1, border, cells, 1])
+    openings = []
+    for h in sorted(found, key=lambda h: h[0]):
+        for o in openings:
+            if min(o[1], h[1]) - max(o[0], h[0]) > 0.5 * min(o[1] - o[0], h[1] - h[0]):
+                # MA-5a (review): the two faces' grids start at different points along the wall, so each reads a jamb to +-GRID/2 at a
+                # different place — their union read the drill's 1000 door as 1054 (its Size W1100). The same count of cells: the jambs'
+                # mean. One cell more on one face: its cells met the opening's edges, a boundary cell holding a sliver of wall read as
+                # empty — the narrower face is the reading (every door and window of the test's and the drill's buildings, 12 seeds each,
+                # to the mm; Kladno's score unchanged). More apart (a stray or an occluder on one face): the better-framed face's reading.
+                dw = (h[1] - h[0]) - (o[1] - o[0])
+                if abs(dw) <= 1.5 * GRID:
+                    if abs(dw) <= 0.5 * GRID:
+                        o[0], o[1] = (o[0] + h[0]) / 2, (o[1] + h[1]) / 2
+                    elif dw < 0:
+                        o[0], o[1] = h[0], h[1]
+                    o[2], o[3] = min(o[2], h[2]), max(o[3], h[3])
+                elif h[4] > o[4]:
+                    o[0], o[1], o[2], o[3] = h[0], h[1], h[2], h[3]
+                o[4], o[5], o[6] = (o[4] * o[5] + h[4] * h[5]) / (o[5] + h[5]), o[5] + h[5], 2
+                break
+        else:
+            openings.append(h)
+    out = []
+    for a0, a1, r0, r1, border, cells, seen in openings:
+        if border < MIN_BORDER:
+            continue
+        kind = "door" if r0 <= DOOR_ROWS else "window"
+        # the sill and head at the middle of their boundary rows, as the jambs; a door runs down to the floor
+        lo = zf if kind == "door" else zf + HEIGHT_EDGE + (r0 - 0.5) * GRID
+        hi = min(top - HEIGHT_EDGE, zf + HEIGHT_EDGE + (r1 + 0.5) * GRID)
+        out.append((kind, a0, a1, lo, hi, border, cells, seen))
+    return out
+
+
+def merge_split(P, Q, fs, z0, z1):
+    """MA-5a (a wall rule, recorded under MA-4h's design row): two kept faces on one line (within 1 deg and CELL across) with an
+    end-to-start gap of at most MERGE_GAP are one face when a lintel bridges the gap — in the joined grid, the gap's columns above
+    their hole hold at least LINTEL of their cells. P: the cloud (the faces' points index it); Q: the storey's points for the grid.
+    ponytail: a doorway with nothing scanned above it (a glazed head, an open top) stays two faces and two walls; a nib under
+    MIN_FACE beside a door was never a face, so it is not merged (pipeline.py MIN_FACE)."""
+    fs = sorted(fs, key=lambda x: -x["len"])
+    tried, changed = set(), True
+    while changed:
+        changed = False
+        for i in range(len(fs)):
+            for j in range(i + 1, len(fs)):
+                a, b = fs[i], fs[j]
+                ua = np.array(a["seg"][2:]) - np.array(a["seg"][:2])
+                ub = np.array(b["seg"][2:]) - np.array(b["seg"][:2])
+                ua, ub = ua / np.linalg.norm(ua), ub / np.linalg.norm(ub)
+                if abs(float(ua @ ub)) < math.cos(math.radians(1)):
+                    continue
+                na = np.array([-ua[1], ua[0]])
+                if abs(float((np.array(b["seg"][:2]) - np.array(a["seg"][:2])) @ na)) > CELL:
+                    continue
+                ta = sorted([0.0, float((np.array(a["seg"][2:]) - np.array(a["seg"][:2])) @ ua)])
+                tb = sorted([float((np.array(b["seg"][:2]) - np.array(a["seg"][:2])) @ ua), float((np.array(b["seg"][2:]) - np.array(a["seg"][:2])) @ ua)])
+                gap = max(ta[0], tb[0]) - min(ta[1], tb[1])
+                if gap <= 0 or gap > MERGE_GAP:
+                    continue
+                key = (a["seg"], b["seg"])  # MA-5a (review): the verdict hangs on the two lines alone — a pair that failed fails again
+                if key in tried:
+                    continue
+                tried.add(key)
+                lo, hi = min(ta[0], tb[0]), max(ta[1], tb[1])
+                o = np.array(a["seg"][:2])
+                seg = (*(o + ua * lo), *(o + ua * hi))
+                g = occupancy(Q, seg, z0, z1)
+                gc0, gc1 = int((min(ta[1], tb[1]) - lo) // GRID) + 1, int((max(ta[0], tb[0]) - lo) // GRID)
+                if gc1 <= gc0:
+                    continue
+                B = g[:, gc0:gc1]
+                empty = np.flatnonzero(~B.any(axis=1))  # the gap's hole: its rows with no point (a door's from the floor, a window's over a sill)
+                top = int(empty.max()) + 1 if empty.size else 0  # the rows above the hole are the lintel's
+                if top >= B.shape[0] or float(B[top:].mean()) < LINTEL:
+                    continue
+                pts = np.concatenate([a["points"], b["points"]])
+                cr, dr, _ = fit_line(P[pts, :2])
+                tr = (P[pts, :2] - cr) @ dr
+                p, q = cr + dr * tr.min(), cr + dr * tr.max()
+                ln = float(tr.max() - tr.min())
+                res = (P[pts, :2] - cr) @ np.array([-dr[1], dr[0]])
+                fs[i] = {"seg": (float(p[0]), float(p[1]), float(q[0]), float(q[1])), "len": ln, "points": pts, "rmse": rms(res),
+                         "coverage": min(1.0, np.unique(np.floor((tr - tr.min()) / 100)).size / max(1, math.ceil(ln / 100))),
+                         "grid": occupancy(Q, (float(p[0]), float(p[1]), float(q[0]), float(q[1])), z0, z1)}
+                del fs[j]
+                changed = True
+                break
+            if changed:
+                break
+    return fs
 
 
 def measure(P, src, ids, storey_min, progress=lambda stage, pct: None):
@@ -387,9 +610,12 @@ def measure(P, src, ids, storey_min, progress=lambda stage, pct: None):
         # The floor's and ceilings' outlines (outline below) are cut by the kept faces only: a counter no longer trims a floor.
         # ponytail: a half-height wall (a parapet, a dwarf wall under glazing) is not proposed — a person draws it.
         st = P[(P[:, 2] > zf + HEIGHT_EDGE) & (P[:, 2] < top - HEIGHT_EDGE)]
-        fs = [x for x in fs if height_share(st, x["seg"], zf + HEIGHT_EDGE, top - HEIGHT_EDGE) >= MIN_HEIGHT]
+        z0, z1 = zf + HEIGHT_EDGE, top - HEIGHT_EDGE
         for x in fs:
+            x["grid"] = occupancy(st, x["seg"], z0, z1)
             x["points"] = sl[x["points"]]
+        fs = [x for x in fs if height_share(x["grid"]) >= MIN_HEIGHT]
+        fs = merge_split(P, st, fs, z0, z1)  # MA-5a: a face broken at a doorway by MAX_GAP is one wall when a lintel bridges the gap
         band = np.flatnonzero(f["band"])
         o = outline(P, f["band"], fs)
         out.append({"cid": lv, "kind": "level", "geometry": {"BaseElevation": r(zf)}, "measured": {"elevation_mm": r(zf)},
@@ -420,6 +646,19 @@ def measure(P, src, ids, storey_min, progress=lambda stage, pct: None):
                         "evidence": refs(pts, f"slice-{name}"),
                         "fit": fit(len(pts), math.sqrt(sum(len(x["points"]) * x["rmse"] ** 2 for x in two) / len(pts)),
                                    min(x["coverage"] for x in two))})
+            # MA-5a: the wall's openings (wall_openings); direction is the host's unit vector to 4 places (review: whole numbers made a
+            # 45 deg wall's [1, 1], sqrt 2 long, and a 30 deg wall's [1, 0], which reference.score's 5 deg match rejects)
+            L = math.hypot(x2 - x1, y2 - y1)
+            ux, uy = (x2 - x1) / L, (y2 - y1) / L
+            for m, (kind, a0, a1, lo, hi, border, cells, seen) in enumerate(wall_openings(two, (x1, y1, x2, y2), zf, top), 1):
+                mid = (a0 + a1) / 2
+                out.append({"cid": f"scan-{name}-wall-{n}-{kind}-{m}", "kind": kind,
+                            "geometry": {"host": f"scan-{name}-wall-{n}", "storey": lv, "direction": [round(ux, 4), round(uy, 4)],
+                                         "Location": [r(x1 + ux * mid), r(y1 + uy * mid), r(zf)], "along_mm": r(mid)},
+                            "measured": {"width_mm": r(a1 - a0), "height_mm": r(hi - lo), "sill_mm": 0 if kind == "door" else r(lo - zf),
+                                         "head_mm": r(hi - zf)},
+                            "evidence": refs(pts, f"slice-{name}"),
+                            "fit": {"inliers": int(cells), "rmse_mm": 0.0, "coverage": round(border, 3), "faces_seen": seen}})
         progress("walls", 30 + 60 * (k + 1) // len(floors))
     return out
 

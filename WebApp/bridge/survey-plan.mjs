@@ -2,12 +2,13 @@
 // A done sentinel-survey job whose result the bridge trusts (build-jobs trustedJob: MA-4c decision 11) becomes, per storey, ONE changeset of
 // creates the bridge builds itself from result.json — never a body's geometry or measurement. The lead states two things: where the scan
 // sits in the model (frame) and, optionally, which existing level a storey is (levels). Walls are trimmed to their corners, read inside or
-// outside (wall-location.mjs, the office's own rule) and typed exactly (D16) by the project's typer; a candidate that does not type is a
+// outside (wall-location.mjs, the office's own rule) and typed exactly (D16) by the project's typer (MA-5a: a door or window no rule types, by
+// its size from the catalogue within SIZE_BAND_MM — holding-logic typeBySize); a candidate that does not type is a
 // gap — grouped for the Holding Area and listed on its storey's changeset as an exception. Pure and deterministic: the same job, frame,
 // levels, published levels and standards give the same bodies (the proposal_guids are validateChangeset's).
 import { MAX_CHANGESET_ELEMENTS } from "./changesets-logic.mjs";
-import { KIND_ENTITY } from "./changesets-typing.mjs";
-import { typeGapId } from "./holding-logic.mjs";
+import { KIND_CATEGORY, KIND_ENTITY } from "./changesets-typing.mjs";
+import { typeGapId, typeBySize, SIZE_BAND_MM } from "./holding-logic.mjs";
 import { locate } from "./wall-location.mjs";
 
 const err = (status, message) => Object.assign(new Error(message), { status });
@@ -84,7 +85,7 @@ export function placeRefusal(candidates, frame) {
   for (const c of candidates) {
     const g = c.geometry ?? {};
     if (c.kind === "level") zs.push(g.BaseElevation);
-    xy.push(...(g.LocationCurve ? [g.LocationCurve.start, g.LocationCurve.end] : g.LocationLoop ?? g.Boundary ?? []));
+    xy.push(...(g.LocationCurve ? [g.LocationCurve.start, g.LocationCurve.end] : g.Location ? [g.Location] : g.LocationLoop ?? g.Boundary ?? [])); // MA-5a: an opening's point
   }
   let far = 0;
   for (const p of xy) far = Math.max(far, Math.hypot(...M.xy(p)));
@@ -197,6 +198,14 @@ function gapOf(type, kind, facts, cid, why) {
   }
 }
 
+/** MA-5a: a + t·û in plan, the scan's frame, 0.1 mm. */
+const pointAlong = (a, b, t) => { const L = Math.hypot(b[0] - a[0], b[1] - a[1]); return [r1(a[0] + (t * (b[0] - a[0])) / L), r1(a[1] + (t * (b[1] - a[1])) / L)]; };
+// MA-5a: an opening's size named to the nearest 100 mm — the scan measures it to one 100 mm cell (sentinel-survey GRID, +-50 mm an edge),
+// and an office names its doors and windows at nominal 100 mm steps; so a door measured 970 x 2080 mm is "W1000 x H2100 mm", an office
+// rule at that size types it, and a door of 1030 mm joins its Holding group. ponytail: a nominal size between hundreds (2350, 2750) is
+// reached only through the size band; the measured millimetres stay in the reason.
+const nominal = (v) => Math.round(v / 100) * 100;
+
 /** The gaps as the Holding Area's groups: one per category and wanted type, else size (typeGapId — exact sizes, no band while the D16 snap is
  *  0), at most 50 labels and evidence refs, in a fixed order. */
 export function groupGaps(gaps) {
@@ -217,9 +226,11 @@ export function groupGaps(gaps) {
 /** The plan of one trusted job → {storeys: [{storey, body | null, byCid, exceptions}], groups, already_filed}. `job` {id, ledger: {id},
  *  reader, version}; `type` the project's typer (the same instance validateChangeset then types with); `manifest` the published levels;
  *  `filed` (decision 19) {cids, storeys}: what this job already filed — not proposed again, but every wall still trims and reads inside or
- *  outside against it. byCid: the bridge's trust record of each element it built — validateChangeset stamps it, never a body. Throws 400/413
- *  in words; writes nothing. */
-export function planSurvey({ job, candidates, frame, levels: named = {}, manifest = [], type, filed = { cids: new Set(), storeys: new Map() } }) {
+ *  outside against it. byCid: the bridge's trust record of each element it built — validateChangeset stamps it, never a body. `catalog`
+ *  {types, label, sha256} and `sameCategory` (MA-5a): the type catalogue the typer reads and the bundle's category match, for a door or
+ *  window no office rule types (typeBySize). Throws 400/413 in words; writes nothing. */
+export function planSurvey({ job, candidates, frame, levels: named = {}, manifest = [], type, filed = { cids: new Set(), storeys: new Map() },
+  catalog = { types: [] }, sameCategory }) {
   const M = toModel(frame);
   const far = placeRefusal(candidates, frame); // MA-4h: before anything is typed or built
   if (far) throw bad(far);
@@ -243,12 +254,13 @@ export function planSurvey({ job, candidates, frame, levels: named = {}, manifes
       return { measured: c.measured, accuracy: { status, basis: "fit", from_job: job.id, fit_rmse_mm: Number.isFinite(rms) ? rms : null, face_dev_mm: dev,
         coverage: c.fit?.coverage ?? null, target_mm: TOLERANCE_MM }, pretick: status === "within_tolerance" && s.checked && sized, ...extra };
     };
-    const gap = (c, g) => {
+    // `why`: the reason's own words for a gap the key does not say (MA-5a: several catalogue rows in an opening's size band).
+    const gap = (c, g, why = null) => {
       gaps.push({ ...g, size: g.size ?? (g.want ? null : NOT_MEASURED), label: `${s.level} · ${c.cid}`.slice(0, 256), evidence: c.evidence });
       exceptions.push({ unique_id: c.cid.slice(0, 64), name: `${c.kind} ${c.cid}`.slice(0, 256),
         // a wall of one face seen was never typed: its thickness is missing, not the rule (final review)
-        reason: `type gap — ${g.want ? `${g.want} is not in the type catalogue` : c.kind === "wall" && g.size === NOT_MEASURED ? `its thickness was not measured (${g.key})`
-          : `no office rule types it (${g.key})`}; it waits in the Holding Area`.slice(0, 300) });
+        reason: `type gap — ${why ?? (g.want ? `${g.want} is not in the type catalogue` : c.kind === "wall" && g.size === NOT_MEASURED ? `its thickness was not measured (${g.key})`
+          : `no office rule types it (${g.key})`)}; it waits in the Holding Area`.slice(0, 300) });
     };
     const walls = mine.filter((c) => c.kind === "wall");
     const trimmed = trimEnds(walls.map((c) => ({ start: c.geometry.LocationCurve.start, end: c.geometry.LocationCurve.end, width: c.measured.thickness_mm ?? 0 })));
@@ -273,6 +285,51 @@ export function planSurvey({ job, candidates, frame, levels: named = {}, manifes
           `${toGap.length ? ` (${toGap.join("; ")})` : ""} · ${ref}`).slice(0, 500) });
       byCid.set(c.cid, trust(c, { trim_mm: tr }));
     });
+    // MA-5a: a door or window found in a wall face, after the walls (the executor hosts it in the one wall under its point, after the same
+    // changeset's walls). Typed by an office rule when one matches, else by its measured size from the catalogue (typeBySize), else a gap
+    // whose size closes it by catalogue in the Holding Area. A host that is a gap holds its opening; a host this job already filed
+    // (decision 19) is in the model or on the Review desk — the executor finds it among the model's walls.
+    for (const c of mine.filter((x) => x.kind === "door" || x.kind === "window")) {
+      if (again(c)) continue;
+      // MA-5a (review): an opening held by its level or its host, not its type, is an exception only — a size group in the Holding Area
+      // would close by catalogue while the opening still could not be placed
+      const hold = (why) => exceptions.push({ unique_id: c.cid.slice(0, 64), name: `${c.kind} ${c.cid}`.slice(0, 256), reason: why.slice(0, 300) });
+      const category = KIND_CATEGORY[c.kind], host = c.geometry.host, hi = walls.findIndex((w) => w.cid === host);
+      const w = nominal(c.measured.width_mm), h = nominal(c.measured.height_mm), sill = c.measured.sill_mm, size = `${w} x ${h} mm`;
+      // the executor refuses a door or window whose point is off its level's height in Revit (and rolls the changeset back); a level named
+      // but in no published model was never checked against it — a wall or floor takes the level itself, an opening its point (review)
+      if (!s.checked) { hold(`its level ${s.level} is in no published model, so its height in Revit is unknown here — Revit refuses a door or window off its level's height; name a published level, or leave the storey out of levels to have it created`); continue; }
+      if (hi < 0) { hold(`its host wall ${host} is not a wall of ${s.level} in ${job.id}`); continue; }
+      if (typed[hi].gap && !filed.cids.has(host)) {
+        hold(typed[hi].gap.size === NOT_MEASURED ? `its host wall ${host} was seen on one face only, so it is never typed — a person draws the wall and this ${c.kind}`
+          : `its host wall ${host} is a type gap — propose the job again once the wall's group in the Holding Area closes`);
+        continue;
+      }
+      const hf = typed[hi].loc?.location, facts = { params: { ...(hf ? { HostFunction: hf } : {}), Size: `W${w} x H${h} mm` } }; // PromotePlanner's shape
+      let g = gapOf(type, c.kind, facts, c.cid, null), by = null, why = null;
+      if (g && !g.want) {
+        const z = typeBySize(catalog, category, w, h, sameCategory);
+        if (z?.row) { by = z.row; g = null; }
+        else {
+          // several rows: the reason says what a person does (the names would be cut at 300); the key lists them for the Holding Area
+          if (z) why = `${z.rows.length} ${category} types are named within ${SIZE_BAND_MM} mm of ${size} — a person picks one`;
+          g = { ...g, size, key: (z ? `${z.rows.length} ${category} types are named within ${SIZE_BAND_MM} mm of ${size}: ${z.rows.map((r) => `${r.family} : ${r.type}`).join(", ")} — a person picks one`
+            : `no ${category} type is named within ${SIZE_BAND_MM} mm of ${size}`).slice(0, 500) };
+        }
+      }
+      if (g) { gap(c, g, why); continue; }
+      // along_mm is from the UNTRIMMED start, and the trimmed line lies on the untrimmed one: measured from the untrimmed ends, exact (review)
+      const U = walls[hi].geometry.LocationCurve, p = pointAlong(U.start, U.end, c.geometry.along_mm);
+      elements.push({ op: "create", kind: c.kind, cid: c.cid, evidence: c.evidence, facts, validate: { identity: { Class: KIND_ENTITY[c.kind], Name: c.cid } },
+        place: { LevelName: s.level, Location: [...M.xy(p), E], ...(by ? { FamilyName: by.family, TypeName: by.type } : {}), ...(c.kind === "window" ? { SillHeight: sill } : {}) },
+        reason: (`scan ${c.kind} ${c.cid} in ${host}: ${c.measured.width_mm} wide, ${c.measured.height_mm} high${c.kind === "window" ? `, sill ${sill}` : ""} mm as measured (${size} nominal) · hole border ${c.fit?.coverage} ` +
+          `(${c.fit?.faces_seen} face(s) seen; a hole is an opening or an occluder) · ${by ? `typed by size from the catalogue: ${by.family} : ${by.type}` : "typed by an office rule"} · ` +
+          `sill and head not scored against a reference (MA-5a) · ${ref}`).slice(0, 500) });
+      // decision 10: no fit of its own, and its sill and head have no reference — never pre-ticked
+      const t = trust(c);
+      byCid.set(c.cid, { ...t, accuracy: { ...t.accuracy, status: "insufficient_data", basis: "framing", fit_rmse_mm: null }, pretick: false,
+        ...(by ? { typing: { typed_by: "bridge-size", type: by.type, family: by.family, size, band_mm: SIZE_BAND_MM, catalog: catalog.label ?? null, catalog_sha256: catalog.sha256 ?? null } } : {}) });
+    }
     for (const c of mine.filter((x) => x.kind === "floor" || x.kind === "ceiling")) {
       if (again(c)) continue;
       const g = gapOf(type, c.kind, null, c.cid, null);
@@ -352,7 +409,8 @@ export function readMesh(m) {
  *  bounding rectangle along the line and up — when it is one plane (its offsets within 1 mm). It sees the type's real width, the location line
  *  and each side's own ends (Revit's joins). The claim is held to the bridge's own facts of the filed wall (its line, measured thickness, base
  *  and top): past them it is not this wall as filed, and the wall is measured as filed. → {faces} or {why}. Pure.
- *  ponytail: a bounding rectangle per side — an opening is drawn over; no survey wall has one before MA-5. */
+ *  ponytail: a bounding rectangle per side — an opening is drawn over (MA-5a places doors and windows in the wall; its re-read stays the
+ *  wall's box — the hole counts as unseen coverage in deviation). */
 export function meshFaces(el, m) {
   const c = el.place?.LocationCurve, t = el.facts?.thickness_mm, zt = el.place?.TopElevation;
   if (!Array.isArray(c?.start) || !Array.isArray(c?.end) || !Number.isFinite(c.start[2]) || !(t > 0) || !Number.isFinite(zt))
