@@ -43,22 +43,23 @@ HEIGHT_EDGE = 150.0     # mm: the floor's and the top's own points stay out of a
 # tested again — Kladno built 671 joined grids for 143 pairs before), measured inside the job's time on the drill; a plan-grid index
 # when a storey nears JOB_MS.
 # MA-5a: doors and windows from each wall face's occupancy — the (along, height) grid height_share reads. Measured on Kladno against
-# the opening reference (reference-5a.json 61ee7e01…: GF 7 doors + 2 windows, 1F 17 doors, majority of three readers), one knob at a
-# time, kept only when opening F1 at 100 mm rose on both storeys and wall F1 did not fall: OPEN_W 3 -> 5 (GF 0.014 -> 0.020, 1F 0.112
-# -> 0.131; 6 lowered 1F, and a BDS window is 600 mm wide at the least), OPEN_H 3 -> 10 (0.060 / 0.325), MIN_BORDER 0 -> 0.5
-# (0.100 / 0.394); LINTEL 0.6 -> 0.5 raised wall F1 (GF 0.204 -> 0.211, 1F 0.497 -> 0.500); MERGE_GAP 1500 / 3500, DOOR_ROWS 0 / 2 and
-# SPECK 1 / 3 did not rise on both. At these: openings F1 0.264 / 0.283 / 0.358 at 50 / 100 / 200 mm (P 0.188, R 0.577 at 100), every
-# matched class right; only 4 of GF's 9 traced openings lie on a wall the survey finds (1F 16 of 17) — GF's walls cap its openings.
-# MA-5a review (holes grown across lines under half filled, a hole at a face's end dropped, two faces joined by their jambs, a unit
-# direction; walls unchanged; the run 143 -> 117 s, the merge's failed pairs not tested again): at these knobs 0.244 / 0.276 / 0.325 (in
-# memory, 2026-10-10). A grown hole's border is at least about half by construction, so MIN_BORDER 0.5 drops nearly nothing — it waits on
-# its re-measure (0.9: 0.323 / 0.366 / 0.430, GF 0.188, 1F 0.459, every matched opening kept).
-# ponytail: a hole seen on one face only is kept (an interior scan never sees a window's outer face); keeping only holes seen on both
-# faces doubled 1F (0.394 -> 0.686) but lowered GF (0.100 -> 0.095), so the protocol left it out — the founder's call.
+# the opening reference (reference-5a.json 61ee7e01…: GF 7 doors + 2 windows, 1F 17 doors, majority of three readers) after the
+# branch review (holes grown across lines under half filled, a hole at a face's end dropped, two faces joined by their jambs, a unit
+# direction — every earlier number was scored on the rounded direction), one knob at a time, kept only when opening F1 at 100 mm rose
+# on both storeys and wall F1 did not fall: OPEN_W 3 / 4 and OPEN_H 8 / 12 each lowered GF or raised neither (5 x 10: GF 0.125, 1F
+# 0.373); MIN_BORDER rose on both at every step (0.6: 0.128 / 0.384, 0.7: 0.133 / 0.394, 0.9: 0.188 / 0.459, 0.95: 0.231 / 0.481) and
+# stops at 0.7 — a perfectly scanned door or window reads a border of 0.73 or more at two points a 100 mm cell (20 seeds of the drill's
+# and the test's buildings), 0.59 at one; LINTEL 0.4 raised walls (GF 0.239, 1F 0.533) but lowered openings, 0.6 lowered walls; a border
+# read against the face's own fill flattened Kladno (0.122 / 0.373 at 0.5-0.8) and was not kept; MERGE_GAP 1500 / 3500, DOOR_ROWS 0 / 2
+# and SPECK 1 / 3 did not rise on both (before the review). At these: openings F1 0.259 / 0.293 / 0.345 at 50 / 100 / 200 mm (P 0.189,
+# R 0.654 at 100), every matched class right; walls 0.299 / 0.357 / 0.396; only 4 of GF's 9 traced openings lie on a wall the survey
+# finds (1F 16 of 17) — GF's walls cap its openings. ponytail: a wall scanned at one point a cell loses some clean openings at 0.7; a
+# hole seen on one face only is kept (an interior scan never sees a window's outer face) — keeping only holes seen on both faces doubled
+# 1F (0.394 -> 0.686) but lowered GF (0.133 -> 0.100), so the protocol left it out: the founder's call.
 GRID = 100.0        # mm: the occupancy cell along a face and up it (coverage's bin, height_share's bin)
 OPEN_W = 5          # cells along: a hole narrower is clutter or a scan shadow, not an opening
 OPEN_H = 10         # cells up: a hole under 1 m high is clutter too; every BDS window is at least 1200 mm high (7 of its 27 sized windows are wider than tall)
-MIN_BORDER = 0.5    # share of a hole's border cells that hold the face: an opening is framed by its wall; less is a gap the scan left
+MIN_BORDER = 0.7    # share of a hole's border cells that hold the face: an opening is framed by its wall; less is a gap the scan left
 DOOR_ROWS = 1       # a hole whose lowest row is within this of the grid's floor row is a door
 MERGE_GAP = 2500.0  # mm: two faces on one line this close are one wall across a doorway when a lintel bridges the gap
 LINTEL = 0.5        # share of the gap's cells above its hole that must be filled for the merge

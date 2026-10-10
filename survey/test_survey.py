@@ -744,9 +744,9 @@ class Knobs(unittest.TestCase):
         self.assertEqual(len(walls), 8)  # the building's, as Survey counts them; the counter's face is not one
         self.assertTrue(all(abs(c["geometry"]["LocationCurve"]["start"][0] - 4000) > 500 for c in walls))
 
-    # MA-5a's knobs, measured on Kladno (pipeline.py's table), each pinned on a case that fails off its value. ponytail: MIN_BORDER is
-    # pinned from above only — each side of a hole grows across a line under half filled (review), so a border under 0.5 cannot be made;
-    # DOOR_ROWS from above only — a one-row band under a hole is a line of specks, so a hole one row up reaches the floor row at 0 too.
+    # MA-5a's knobs, measured on Kladno (pipeline.py's table), each pinned on a case that fails off its value: MIN_BORDER from below (a
+    # ring of 3 in 5 is dropped) and from above (a clean opening at two points a cell is kept). ponytail: DOOR_ROWS is pinned from above
+    # only — a one-row band under a hole is a line of specks, so a hole one row up reaches the floor row at 0 too.
 
     def test_an_opening_is_at_least_OPEN_W_cells_wide_and_OPEN_H_high(self):
         g = np.ones((24, 30), bool)
@@ -768,15 +768,24 @@ class Knobs(unittest.TestCase):
             return [o[0] for o in pipeline.wall_openings([face], (0.0, 150.0, 4000.0, 150.0), 0.0, 2800.0)]
         self.assertEqual([kinds(0), kinds(1), kinds(2)], [["door"], ["door"], ["window"]])
 
-    def test_a_hole_framed_by_a_sparse_ring_is_kept_at_MIN_BORDER(self):
-        g = np.ones((24, 40), bool)
-        g[3:16, 15:25] = False
-        ring = [(2, c) for c in range(15, 25)] + [(16, c) for c in range(15, 25)] + [(r, 14) for r in range(3, 16)] + [(r, 25) for r in range(3, 16)]
-        for k, (r, c) in enumerate(ring):
-            g[r, c] = k % 5 not in (0, 2)  # 3 of every 5 ring cells hold the face
-        face = {"seg": (0.0, 0.0, 4000.0, 0.0), "len": 4000.0, "grid": g}
-        found = pipeline.wall_openings([face], (0.0, 150.0, 4000.0, 150.0), 0.0, 2800.0)
-        self.assertEqual([(o[0], round(o[5], 2)) for o in found], [("window", 0.59)])
+    def test_a_hole_framed_by_four_of_five_ring_cells_is_kept_by_three_dropped(self):
+        def framed(keep):
+            g = np.ones((24, 40), bool)
+            g[3:16, 15:25] = False
+            ring = [(2, c) for c in range(15, 25)] + [(16, c) for c in range(15, 25)] + [(r, 14) for r in range(3, 16)] + [(r, 25) for r in range(3, 16)]
+            for k, (r, c) in enumerate(ring):
+                g[r, c] = k % 5 < keep  # keep of every 5 ring cells hold the face
+            face = {"seg": (0.0, 0.0, 4000.0, 0.0), "len": 4000.0, "grid": g}
+            return [(o[0], round(o[5], 2)) for o in pipeline.wall_openings([face], (0.0, 150.0, 4000.0, 150.0), 0.0, 2800.0)]
+        self.assertEqual((framed(4), framed(3)), ([("window", 0.8)], []))  # MIN_BORDER 0.7
+
+    def test_a_clean_opening_at_two_points_a_cell_is_kept(self):
+        # MIN_BORDER's cap: a perfectly scanned door and window read 0.73 or more at two points a 100 mm cell (spacing 70)
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            path = os.path.join(tmp, "sparse.las")
+            write_las(path, building(seed=3, spacing=70.0, door=((3000, 4000), (0, 2100)), window=((2000, 2800), (900, 2100))))
+            found, _ = pipeline.survey([{"id": "ev-0001", "path": path, "head": las.read_header(path)}], Survey.PARAMS, 1)
+        self.assertEqual(sorted(c["kind"] for c in found if c["kind"] in ("door", "window")), ["door", "window"])
 
     def test_a_speck_pair_inside_a_doorway_does_not_split_it(self):
         # the drill's doorway: a pair of cells split the run and shrank 1000 mm to 750 (SPECK 0); here three cells in a row at mid-height
