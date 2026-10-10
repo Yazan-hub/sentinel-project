@@ -29,7 +29,7 @@ END_GAP = 100.0         # mm: a piece shorter than this at a face's end, past an
 MAX_WALL = 600.0        # mm: faces further apart are two walls (a corridor), not one — WallPairing allows 1000 on drawings
 NEAR_FACE = 40.0        # mm: a floor or ceiling point this close to a wall face of its storey is the wall's
 # ponytail: at most 10 million points are held in memory (a seeded sample beyond, read in chunks — las.CHUNK; no memory bound on
-# Windows without a Job Object). MA-4h, Kladno (250.5 M points): a 4 % sample, 8.42 M after the voxel; the job 157 s and 1.70 GB private
+# Windows without a Job Object). MA-4h, Kladno (250.5 M points): a 4 % sample, 8.42 M after the voxel; the job 157 s in memory (216 s live) and 1.70 GB private
 # at peak (0.76 GB of it numpy's OpenBLAS buffers, one per thread). Raise it only if wall F1 shows walls lost to sparsity (MA-4h-3).
 MAX_POINTS = 10_000_000
 # ponytail: one building per job — the Hough accumulator is 360 x (2 x span / CELL) votes, ~170 MB at 300 m (twice, with bincount's);
@@ -165,7 +165,7 @@ def faces(XY):
     the slice's local frame (its lowest corner at 0), so the accumulator follows the slice's size, never its distance from the scan's
     origin (a UTM easting asked for 1.56 TiB); each seg is given back in the scan's own frame.
     ponytail: the Hough transform runs again after each face over the cells left (faces x cells x 360 votes) — MA-4h, Kladno's ground
-    storey: 70 103 cells, 420 walls, 129 s of the job's 157 s; tile the slice if a storey nears JOB_MS."""
+    storey: 70 103 cells, 420 walls, 129 s of the job's 157 s in memory; tile the slice if a storey nears JOB_MS."""
     if len(XY) == 0:
         return []
     org = XY.min(axis=0)
