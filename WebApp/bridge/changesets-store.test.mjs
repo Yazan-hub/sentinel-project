@@ -1091,6 +1091,21 @@ describe("proposeFromJob (MA-4d): a lead turns a trusted survey job into changes
     // the ledger row counts the window typed by size with the walls the typer typed (review)
     expect(deps.audit.mock.calls.filter((c) => c[3] === "changeset_proposed").map((c) => c[6].typed)).toEqual([4, 3]); // L01: its level is not typed
   });
+  it("(m) drill MA5a K-3: a door held by its gap host on a storey that files no changeset is named on the planner's row; on a filed storey its changeset says it", async () => {
+    const door = (host, storey, Location) => ({ cid: `${host}-door-1`, kind: "door", geometry: { host, storey, direction: [0, 1], Location, along_mm: 2000 },
+      measured: { width_mm: 1000, height_mm: 2100, sill_mm: 0, head_mm: 2100 }, evidence: ["ev-0001#slice-L00"], fit: { inliers: 40, rmse_mm: 0, coverage: 0.9, faces_seen: 2 } });
+    // L01 keeps only its 250 mm wall (a type gap) and its floor and ceiling (gaps): nothing on it types, so no changeset is filed for it
+    const keep = RESULT.candidates.filter((c) => c.geometry?.storey !== "scan-L01-level" || c.kind !== "wall" || c.cid === "scan-L01-wall-3");
+    const result = { ...RESULT, candidates: [...keep, door("scan-L00-wall-4", "scan-L00-level", [125, 2065, 0]), door("scan-L01-wall-3", "scan-L01-level", [125, 2044, 3000])] };
+    const deps = sdeps({ trustedJob: vi.fn(async () => ({ ...TRUSTED, result })) });
+    const r = await propose(deps);
+    expect(r.changesets.map((c) => c.name)).toEqual(["Survey job-0002 · GR-FFL"]);
+    const gapHost = (w) => `its host wall ${w} is a type gap — propose the job again once the wall's group in the Holding Area closes`;
+    expect([...deps.saved.values()][0].exceptions).toContainEqual(expect.objectContaining({ name: "door scan-L00-wall-4-door-1", reason: gapHost("scan-L00-wall-4") }));
+    const planner = deps.audit.mock.calls.at(-1)[6];
+    expect(planner.storeys.map((s) => s.held)).toEqual([undefined, [{ name: "door scan-L01-wall-3-door-1", reason: gapHost("scan-L01-wall-3") }]]);
+    expect(r.storeys).toEqual(planner.storeys);
+  });
 });
 
 describe("verifyChangeset (MA-4e): a signed-in contributor measures a placed survey changeset, as filed, against its job's own scan", () => {

@@ -448,7 +448,7 @@ Example: the Level 3 line above has 264 walls. That is two changesets (200 + 64)
 - Storeys come from a height histogram.
 - Walls come from density slices. The face segments use the shape `WallPairing` already takes.
 - Floors and ceilings.
-- Openings from wall-plane occupancy (MA-5).
+- Openings from wall-plane occupancy (MA-5). BUILT in MA-5a (sentinel-survey 0.5.0, merged 74f4cdd; drill MA5a): each wall face's occupancy grid, a hole framed on 70 % of its border, a door from the floor; Kladno openings F1 0.293 at 100 mm (P 0.189, R 0.654).
 - BUILT in MA-4c: storeys, walls (faces in a mid-storey slice, paired by WallPairing's rule ported to Python — a wall candidate is the paired centreline and thickness, its faces in `geometry.faces`; MA-4c spec amendment S3 settles :449 against :459, Cloud2BIM's start, end and thickness), floors and ceilings (oriented rectangles), as untyped candidates in the contract's keys, the scan's own frame.
 - Deviation per element at 5, 10 and 20 cm [R2M §6.4] — MA-4e (`POST /measure`), not v0.1. BUILT in MA-4e for walls: p95, the signed mean, coverage and the shares within 50 / 100 / 200 mm of the job's own cloud (numpy).
 - **In Revit:** a decimated overlay drawn with DirectContext3D. An RCP is linked only when the user has ReCap [R2M §5.1, §8.6]. MA-4f LANDED 2026-10-09 (drill MA4f-2 on ma4c-drill: 4502 of 11 362 points as cyan crosses on job-0003's GR-FFL ghosts, in 3D and in the plan, staying over the walls after Apply #2238): sentinel-survey `POST /cloud` re-reads the job's own cloud from its row, cut to a changeset's walls' height less 300 mm at the floor and ceiling, one point per 100 mm cube (doubled until at most 5 000); the bridge moves it into the model's frame (`GET /changesets/:key/:id/scan`, a signed-in contributor, no row); **Show the scan** in Review AI Proposals draws it as cyan crosses (DirectContext3D: 3D, plans, sections) until unticked or closed. Nothing enters the model.
@@ -1169,7 +1169,7 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
 **MA-5: Openings, rooms and drawings.**
 - **Size:** XL (7–9 weeks; it may split into 5a scan openings and PDF, 5b rooms and revisions). **Depends on:** MA-2 and MA-4.
 - **Delivers:**
-  - Openings from wall-plane occupancy, as hosted catalogue doors and windows chosen by size (or a gap).
+  - Openings from wall-plane occupancy, as hosted catalogue doors and windows chosen by size (or a gap). BUILT in MA-5a for scans (drill MA5a: a window typed by size, hosted, one Undo; a door at a size of 13 BDS rows is a gap; the PDF half, rooms and the rest of MA-5 are TARGET).
   - The vector PDF reader (PdfPig).
   - Drawing alignment by 2 points, confirmed by a person.
   - Drawing-only ghosts are `inferred` and never pre-ticked. Conflicts become review rows.
