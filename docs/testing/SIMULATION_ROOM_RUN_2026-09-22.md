@@ -2744,3 +2744,23 @@ job-0001. Owed to the founder (open question 8): the acceptance bars (1F F1 0.33
 the share within 25 mm at 0.4), the pair minimum thickness. Next: precision (faces that are not walls), the reference's attic floor
 from above.
 
+## Session MA4h4 — a wall face runs the storey's height, sentinel-survey 0.4.0 (2026-10-10 local: merged bbdf8f0; the founder's session; Claude driving)
+
+Measured before it was built (`docs/superpowers/plans/2026-10-10-ma4h3-knobs.md` ▸ MA-4h-4): of the rules that separate GF's and 1F's
+false positives from the true walls, the face's share of the storey's height (≥ 0.8) keeps 93–94 % of the true walls on both storeys
+and passes the protocol. One reviewer (no critical finding; two important and three minors fixed in the review commit). 72 survey
+tests; Python only, no restart.
+
+| Row | Result | Evidence |
+|---|---|---|
+| S-1 | In memory at 0.4.0 against ce1a4f46…: F1 0.245 / 0.304 / 0.340 at 50 / 100 / 200 mm (0.3.0: 0.161 / 0.217 / 0.261); GF 0.184, 1F held out 0.419 at 100 mm; candidates 118 / 111 / 0 — **pass** (GF up, 1F up at every d) | the plan's table |
+| D-1 | Merged bbdf8f0 (`--no-ff`); the next job runs 0.4.0 — **pass** | git |
+| R-1 | **Run survey** → `job-0003 · done · read ev-0001 · 3 level(s), 229 wall(s), 3 floor(s), 2 ceiling(s) · ledger #2267`, sentinel-survey 0.4.0; 200 s (12:48:39–12:51:59), CPU 170 s, 8 420 924 points used; peak private commit 1.93 GB, loopback only — **pass** (≤ 5 min, ≤ 2.5 GB; the height pass adds ~20 s) | the watch log |
+| R-2 | `result.json` sha 2b18cba…; `score` equal to S-1 exactly; levels GF +1.5, 1F +18.4, attic +543.9 (the reference's); the attic proposes 0 walls (its top is the roof's highest point — Next) — **pass** | score |
+| R-3 | **Propose…** at the MA-4h frame → `✓ Proposed job-0003 — 0 changeset(s), 0 ghost(s) … 89 type-gap group(s), 234 element(s) in the Holding Area · scan-L00/L01/L02-level → Scan L00/L01/L02 job-0003 (created) · ledger #2269` (0.3.0: 144 groups, 372 elements) — **pass** | the status line |
+| R-4 | A measure of a 0.3.0 job fails in words — pinned by `changesets-store.test.mjs` — **covered by the test** | the test |
+
+**Closing list:** `kladno-drill` holds job-0003 (#2267) and its proposal (#2269) beside job-0001 and job-0002. Against the reference at
+100 mm: precision 0.223, recall 0.481. Owed to the founder: open question 8 (the bars — 1F now 0.419 against 0.6 — the deviation
+statistic, the pair minimum thickness). Next: a second tracer before a further precision rule; the attic's sloped-roof height.
+
