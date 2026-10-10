@@ -671,7 +671,7 @@ It is not the audit pack (`GET /cde/:key/audit-pack`), which is the Kitemark exp
 - The pack refuses an item whose sha256 has changed.
 - `texture_embed` and `redistribute` are always false, by policy [R2M §6.3].
 - `request_id` links a drawing to its "ask the owner" request (BUILT in MA-4b: a drawing names (a) and (b) in `attestation_ids`; no registration — drawing alignment by 2 points is MA-5).
-- MA-4a items carry `attestation_ids` (the codes their kind needs: a scan (a) and (c), a photo (a), (c) and (d)) in place of one `attestation_id`; `licence` is stamped `owner-supplied` for own items (a body's is not read); `rmse_mm` comes from a registered scan's report (MA-4g reads E57; its report's rmse is MA-4g-3's; sentinel-survey does not register — §4.3 "Do not build registration"). MA-4g reads E57 and the CRS; the report's rmse is typed and shown with the computed frame (MA-4g-3).
+- MA-4a items carry `attestation_ids` (the codes their kind needs: a scan (a) and (c), a photo (a), (c) and (d)) in place of one `attestation_id`; `licence` is stamped `owner-supplied` for own items (a body's is not read); `rmse_mm` comes from a registered scan's report (MA-4g reads E57; its report's rmse is MA-4g-3's; sentinel-survey does not register — §4.3 "Do not build registration"). MA-4g reads E57 and the CRS; the report's rmse is typed and shown with the computed frame (MA-4g-3). MA-4h: a published dataset's pack carries `dataset {provider, source_url, licence (CC-BY-4.0 or CC0-1.0), attribution}`, stated when it is made; its items are scans, stamped with that provider and licence, naming attestation (f) alone ("This published dataset's licence, recorded on this pack with its attribution, allows us to view it and to take geometry from it in our work; I checked its terms at its source."); a lead admits them.
 
 ### 6.3 Ghost (proposal) contract v2 (TARGET)
 
@@ -890,7 +890,7 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
 - `POST /changesets/:key/:id/review` `{decisions[]}` (the web desk; follows the review states). BUILT (MA-3a): `{decisions: [{proposal_guid, decision: accept | decline, reason}]}`, a signed-in contributor or above; the machine credential is a 403 ("sign in").
 - `POST /changesets/:key/:id/reopen` `{guid, reason}` (lead only). BUILT (MA-3a) as `{proposal_guid, reason}` (spec amendment S2), a signed-in lead or owner.
 - `POST /changesets/:key/:id/reverted` `{guids}`.
-- `POST /cde/:key/verify` `{changeset, results[]}`. MA-4e spec amendment S1: BUILT as `{changeset}` only → 200 — a signed-in contributor (the machine credential is a 403); the bridge picks the elements Revit placed (less an Undo in Revit), their geometry as filed, the job's own scan, params and seed; any other key is a 400 in words. `results[]` (Revit's re-read of what it placed) is MA-4f's — posted by the add-in, it would be the client's claim. Synchronous, bounded by the survey's 10 min; a 202 and a record when Kladno's measure outlasts a request (MA-4h). MA-4f: still `{changeset}` only — Revit's re-read rides on Revit's result (`AppliedEntry.mesh`), not on this body; verify measures by it when present.
+- `POST /cde/:key/verify` `{changeset, results[]}`. MA-4e spec amendment S1: BUILT as `{changeset}` only → 200 — a signed-in contributor (the machine credential is a 403); the bridge picks the elements Revit placed (less an Undo in Revit), their geometry as filed, the job's own scan, params and seed; any other key is a 400 in words. `results[]` (Revit's re-read of what it placed) is MA-4f's — posted by the add-in, it would be the client's claim. Synchronous, bounded by the survey's 10 min; a 202 and a record when Kladno's measure outlasts a request (MA-4h). MA-4f: still `{changeset}` only — Revit's re-read rides on Revit's result (`AppliedEntry.mesh`), not on this body; verify measures by it when present. MA-4h measured Kladno in memory: a verify of 200 walls ~41 s, inside the request — no 202 built. A verify's faces and the overlay's points may sit in a national grid (2e10 mm): pinned by tests, not run live (none of Kladno's candidates types, so no changeset exists to verify or show).
 - `GET /changesets/:key/:id/scan` → `{changeset, job, ledger_id, version, cell_mm, z_mm, of, points}` (MA-4f; a view: a signed-in contributor, the machine credential a 403 — a run on the one survey slot; each scan's `view_reference` must be true; no row).
 - `POST /cde/:key/holding/type-gaps/:group/dismiss` `{reason}` (lead only). BUILT (MA-2c; the machine credential passes, as on the existing dismissal).
 
@@ -970,6 +970,7 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
 | See a survey changeset's scan in Revit (a sentinel-survey run) | contributor, signed in (by name); the machine credential is a 403 (MA-4f) |
 | Sign attestations (a)–(e); (a) is "I am the owner, or authorised by the owner, of this asset." (R:248) | lead, signed in (by name); the machine credential never signs (MA-4a) |
 | Admit an AMBER web photo | lead |
+| Admit a published dataset's scan; sign (f) on its pack (MA-4h) | lead, signed in (by name) |
 | Accept or decline a ghost on the web | contributor |
 | Re-open a web decline | lead |
 | Tick and place in Revit | contributor (signed in) |
@@ -1148,21 +1149,21 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
   - Bridge typing: LANDED EARLY in MA-2a (full contract 2) — an element posted without `place.TypeName` carries `facts {thickness_mm?, params?}` and the bridge calls `resolveWithCatalog` on the project's guideline@n and type_catalog@n, fills the type and records `typing`, or answers 400 naming what is missing; `measured` stays ignored until a survey job backs it (item 8); the shared fixture is `WebApp/bridge/fixtures/changeset-ops/contract2-typed-body.json`. The body at :687-712 is answered 201 with `facts` in place of `measured` and 200 mm (its 203 mm is a gap under the exact rule, :734).
   - sentinel-survey v0.1, pip wheels only: storeys, wall slices in the `WallPairing` shape, floors and ceilings, and deviation per element at 5, 10 and 20 cm.
     - Met in MA-4c for storeys, walls, floors and ceilings (numpy, plain LAS); deviation moved to MA-4e (`POST /measure`); E57 and LAZ to MA-4g — LANDED in MA-4g (sentinel-survey 0.2.0; drill MA4g, job-0004 #2245).
-    - MA-4e: deviation per placed wall (p95, the signed mean, coverage, the shares within 5, 10 and 20 cm) — `verify:measured`; floors, ceilings and levels wait for MA-4h.
+    - MA-4e: deviation per placed wall (p95, the signed mean, coverage, the shares within 5, 10 and 20 cm) — `verify:measured`; floors, ceilings and levels are not measured by verify (MA-4h measures the level error offline against a hand-built reference, `survey/reference.py`; a floor's or ceiling's depth from its type is Next).
   - Gaps go to the Holding Area as groups.
     - Met in MA-4d (LANDED 2026-10-09: #2208 on ma4c-drill): one bridge-written `type_gap` row per proposal, with the job id and evidence ids; each gap also rides on its storey's changeset as "sent to a person".
   - A decimated scan overlay in Revit — LANDED in MA-4f (Show the scan; drill MA4f-2).
   - The scan in the web desk (tiles built on the bridge, if MA-W did not already do it).
 - **Overlaps:** [R2M §7] P1–P2.
 - **Drill MA4:**
-  - **Data:** the public Cloud2BIM Kladno scan (after its licence check and your OK to download), or one scan used with the owner's permission.
-  - Install sentinel-survey on the office PC. Record the steps and the time.
+  - **Data:** the public Cloud2BIM Kladno scan (after its licence check and your OK to download), or one scan used with the owner's permission. — MA-4h BUILT: Kladno (zenodo 14221915, CC BY 4.0, 250.5 M points, 6.5 GB) is admitted as a published dataset's pack on `kladno-drill`, hard-linked into the evidence folder.
+  - Install sentinel-survey on the office PC. Record the steps and the time. — partly met: drill MA4g timed the four wheels offline (2 s) on the founder PC, where Python 3.14 and numpy were already in place; the office-PC install (Python, numpy, the wheels), with its steps and time, is still owed.
   - Measure wall F1 at 5, 10 and 20 cm against a hand-built reference, and the level error in mm.
-    - MA-4h (Kladno), as the MA-4c and MA-4d plans assign it: F1 is detection against a hand-built reference — not MA-4e's per-element shares within 5, 10 and 20 cm; the computed level error likewise. Drill MA4e read the level error by hand (R-1): level error GR-FFL: 0 mm; Scan L01: 0 mm (created at the scan's height) — #2223, the walls' Location Line Wall Centerline and type Width = `measured.thickness_mm` (300 / 200 / 300).
+    - MA-4h (Kladno), as the MA-4c and MA-4d plans assign it: F1 is detection against a hand-built reference — not MA-4e's per-element shares within 5, 10 and 20 cm; the computed level error likewise. Drill MA4e read the level error by hand (R-1): level error GR-FFL: 0 mm; Scan L01: 0 mm (created at the scan's height) — #2223, the walls' Location Line Wall Centerline and type Width = `measured.thickness_mm` (300 / 200 / 300). MA-4h BUILT `survey/reference.py` (offline): the founder traces walls and floor samples on full-density slice images in `survey/trace.html`; `score` gives TP, FP, FN, P, R, F1, completeness and correctness at 50, 100 and 200 mm, and the level error per storey with missed and extra levels named. The knobs are tuned against it in MA-4h-3.
   - Every wall has a catalogue type or is in a gap group. Zero types are created.
   - Each wall's ledger row lists its evidence sha and its job id.
     - Met in MA-4d (LANDED 2026-10-09: #2205, #2207, #2210 on ma4c-drill) by `changeset_proposed` (job, evidence shas, each element's reader id and evidence) and `changeset_applied` (the same per ghost placed).
-  - The run time on the founder PC is recorded.
+  - The run time on the founder PC is recorded. — MA-4h: Kladno's job measured in memory on the founder PC (157 s, 1.70 GB private at peak); the live row's numbers at LANDED.
   - In Revit 2024: storey L0 is placed as one Undo, and Ctrl+Z writes the reverted rows.
 
 **MA-5: Openings, rooms and drawings.**
