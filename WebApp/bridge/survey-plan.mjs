@@ -200,7 +200,11 @@ function gapOf(type, kind, facts, cid, why) {
 
 /** MA-5a: a + t·û in plan, the scan's frame, 0.1 mm. */
 const pointAlong = (a, b, t) => { const L = Math.hypot(b[0] - a[0], b[1] - a[1]); return [r1(a[0] + (t * (b[0] - a[0])) / L), r1(a[1] + (t * (b[1] - a[1])) / L)]; };
-const r10 = (v) => Math.round(v / 10) * 10; // MA-5a decision 7: an opening's size to 10 mm, so a door of 897 and one of 903 mm are one group
+// MA-5a: an opening's size named to the nearest 100 mm — the scan measures it to one 100 mm cell (sentinel-survey GRID, +-50 mm an edge),
+// and an office names its doors and windows at nominal 100 mm steps; so a door measured 970 x 2080 mm is "W1000 x H2100 mm", an office
+// rule at that size types it, and a door of 1030 mm joins its Holding group. ponytail: a nominal size between hundreds (2350, 2750) is
+// reached only through the size band; the measured millimetres stay in the reason.
+const nominal = (v) => Math.round(v / 100) * 100;
 
 /** The gaps as the Holding Area's groups: one per category and wanted type, else size (typeGapId — exact sizes, no band while the D16 snap is
  *  0), at most 50 labels and evidence refs, in a fixed order. */
@@ -288,7 +292,7 @@ export function planSurvey({ job, candidates, frame, levels: named = {}, manifes
     for (const c of mine.filter((x) => x.kind === "door" || x.kind === "window")) {
       if (again(c)) continue;
       const category = KIND_CATEGORY[c.kind], host = c.geometry.host, hi = walls.findIndex((w) => w.cid === host);
-      const w = r10(c.measured.width_mm), h = r10(c.measured.height_mm), sill = c.measured.sill_mm, size = `${w} x ${h} mm`;
+      const w = nominal(c.measured.width_mm), h = nominal(c.measured.height_mm), sill = c.measured.sill_mm, size = `${w} x ${h} mm`;
       if (hi < 0) { gap(c, { category, want: null, size, key: "host wall not on the job" }, `its host wall ${host} is not a wall of ${s.level} in ${job.id}`); continue; }
       if (typed[hi].gap && !filed.cids.has(host)) { gap(c, { category, want: null, size, key: `host ${host} is a type gap` }, `its host wall ${host} is a type gap; it is placed once the wall is`); continue; }
       const hf = typed[hi].loc?.location, facts = { params: { ...(hf ? { HostFunction: hf } : {}), Size: `W${w} x H${h} mm` } }; // PromotePlanner's shape
@@ -308,7 +312,7 @@ export function planSurvey({ job, candidates, frame, levels: named = {}, manifes
       const U = walls[hi].geometry.LocationCurve, p = pointAlong(U.start, U.end, c.geometry.along_mm);
       elements.push({ op: "create", kind: c.kind, cid: c.cid, evidence: c.evidence, facts, validate: { identity: { Class: KIND_ENTITY[c.kind], Name: c.cid } },
         place: { LevelName: s.level, Location: [...M.xy(p), E], ...(by ? { FamilyName: by.family, TypeName: by.type } : {}), ...(c.kind === "window" ? { SillHeight: sill } : {}) },
-        reason: (`scan ${c.kind} ${c.cid} in ${host}: ${w} wide, ${h} high${c.kind === "window" ? `, sill ${sill}` : ""} mm as measured · hole border ${c.fit?.coverage} ` +
+        reason: (`scan ${c.kind} ${c.cid} in ${host}: ${c.measured.width_mm} wide, ${c.measured.height_mm} high${c.kind === "window" ? `, sill ${sill}` : ""} mm as measured (${size} nominal) · hole border ${c.fit?.coverage} ` +
           `(${c.fit?.faces_seen} face(s) seen; a hole is an opening or an occluder) · ${by ? `typed by size from the catalogue: ${by.family} : ${by.type}` : "typed by an office rule"} · ` +
           `sill and head not scored against a reference (MA-5a) · ${ref}`).slice(0, 500) });
       // decision 10: no fit of its own, and its sill and head have no reference — never pre-ticked
