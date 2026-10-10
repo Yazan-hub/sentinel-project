@@ -19,18 +19,28 @@ MIN_PLANE_POINTS = 200
 # ponytail: a horizontal surface under 2 m2, or under a quarter of the largest, is furniture and is not proposed — a small mezzanine is
 # lost with it. MA-4h tunes it on a real scan.
 MIN_PLANE_M2 = 2.0
-SLAB_MAX = 600.0        # mm: a surface this close above a ceiling is the slab's top — the next storey's floor
+# MA-4h-3, Kladno: at 600 and 900 the 1F floor, 1 124 mm over GF's suspended ceiling, read as a ceiling (1F missed); 1 200 found every
+# traced storey with no extra level (1F +18.4 mm). ponytail: a void deeper than 1.2 m loses its storey, and a surface within 1.2 m over a
+# ceiling reads as a floor; the scanner's positions settle it (classify's ponytail).
+SLAB_MAX = 1200.0       # mm: a surface this close above a ceiling is the slab's top — the next storey's floor
 SLICE_HALF = 300.0      # mm: the wall slice is mid-storey +-300 mm (ponytail: furniture taller than mid-storey reads as a wall face)
 CELL = 20.0             # mm: the slice's grid; a face is its points within CELL of a line (why voxel_mm stops at 50: at 200 mm,
                         # 4 of the drill's 8 walls lost their thickness, measured; the bridge and read_job both bound it)
-MIN_FACE = 500.0        # mm: a shorter face is not proposed
+# MA-4h-3, Kladno: clearing 1.5 cells around a found face left a rough face's far half to be found again — 190 of 231 pairs under 100 mm
+# (median 38 mm), one surface twice; F1 at 100 mm rose on GF and 1F at 2 and again at 3. ponytail: two faces closer than 3 cells (a wall
+# under ~60 mm, glass) read as one face — never a wall; the scan's normals would tell them apart.
+CLEAR = 3.0             # cells: a found face's cells within CLEAR x CELL of its line leave the Hough
+# MA-4h-3, Kladno (tuned on GF, held out on 1F): F1 at 100 mm 0.089 / 0.204 at 500, 0.102 / 0.225 at 750, 0.116 / 0.330 at 1 000, and
+# GF's candidates 313 -> 197 (a storey fits one changeset of 200). ponytail: a wall nib or a pier under 1 m is not proposed — a person draws it.
+MIN_FACE = 1000.0       # mm: a shorter face is not proposed
 MAX_GAP = 300.0         # mm: a face breaks where its line is empty for longer (a doorway; a closed door reads as wall)
 END_GAP = 100.0         # mm: a piece shorter than this at a face's end, past an empty stretch, is another face crossing the line
 MAX_WALL = 600.0        # mm: faces further apart are two walls (a corridor), not one — WallPairing allows 1000 on drawings
 NEAR_FACE = 40.0        # mm: a floor or ceiling point this close to a wall face of its storey is the wall's
 # ponytail: at most 10 million points are held in memory (a seeded sample beyond, read in chunks — las.CHUNK; no memory bound on
 # Windows without a Job Object). MA-4h, Kladno (250.5 M points): a 4 % sample, 8.42 M after the voxel; the job 157 s in memory (216 s live) and 1.70 GB private
-# at peak (0.76 GB of it numpy's OpenBLAS buffers, one per thread). Raise it only if wall F1 shows walls lost to sparsity (MA-4h-3).
+# at peak (0.76 GB of it numpy's OpenBLAS buffers, one per thread). Raise it only if wall F1 shows walls lost to sparsity — MA-4h-3
+# measured none: at 50 mm, completeness 0.40 stays over correctness 0.32.
 MAX_POINTS = 10_000_000
 # ponytail: one building per job — the Hough accumulator is 360 x (2 x span / CELL) votes, ~170 MB at 300 m (twice, with bincount's);
 # a site, a campus or a long infrastructure scan waits for tiled slices (not built: MA-4h's Kladno is 67 m across).
@@ -197,7 +207,7 @@ def faces(XY):
             sel = ~used & (np.abs((XY - c) @ n) <= CELL)
         if sel.sum() < 3:
             continue
-        alive &= ~(np.abs((C - c) @ n) <= 1.5 * CELL)
+        alive &= ~(np.abs((C - c) @ n) <= CLEAR * CELL)
         idx = np.flatnonzero(sel)
         tt = (XY[idx] - c) @ d
         o = np.argsort(tt, kind="stable")

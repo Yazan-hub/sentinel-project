@@ -22,7 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import las
 import pipeline
 
-VERSION = "0.2.0"  # MA-4g: LAZ, E57 and the CRS. A job read by 0.1.0 is proposed and overlaid as before; a measure of one fails in words (changesets-store verify)
+VERSION = "0.3.0"  # MA-4h-3: the knobs measured on Kladno (SLAB_MAX, CLEAR, MIN_FACE). A job read by 0.2.0 is proposed and overlaid as before; a measure of one fails in words (changesets-store verify)
 TOKEN = os.environ.get("SENTINEL_SURVEY_TOKEN", "")
 MAX_BODY = 1 << 20
 # ponytail: one file is at most 300 million points: it is hashed twice and read in chunks, within the bridge's 10 min job limit.
