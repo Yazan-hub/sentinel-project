@@ -93,9 +93,10 @@ def write_e57_shell(path, xml):
         f.write(page0 + xml.ljust(1020, b" ") + b"\0" * 4)
 
 
-def building(seed=7, spacing=100.0):
+def building(seed=7, spacing=100.0, ceilings=(2800, 5800)):
     """The drill building (mm), every face scanned: outer faces x 0..8000, y 0..6000, z 0..6000; walls west 250, south 300, north 200
-    and east 300 thick; L00 floor 0, ceiling 2800; L01 floor 3000, ceiling 5800. A jittered grid, 2 mm of noise across each surface."""
+    and east 300 thick; L00 floor 0, ceiling 2800; L01 floor 3000, ceiling 5800 (ceilings: each storey's, its walls stop there).
+    A jittered grid, 2 mm of noise across each surface."""
     rng = np.random.default_rng(seed)
 
     def grid(a0, a1, b0, b1):
@@ -118,7 +119,7 @@ def building(seed=7, spacing=100.0):
 
     W, S, N, E, X, Y = 250, 300, 200, 300, 8000, 6000
     parts = []
-    for zf, zc in ((0, 2800), (3000, 5800)):
+    for zf, zc in zip((0, 3000), ceilings):
         parts += [flat(W, X - E, S, Y - N, zf), flat(W, X - E, S, Y - N, zc), wall_x(W, S, Y - N, zf, zc), wall_x(X - E, S, Y - N, zf, zc),
                   wall_y(S, W, X - E, zf, zc), wall_y(Y - N, W, X - E, zf, zc)]
     parts += [wall_x(0, 0, Y, 0, 6000), wall_x(X, 0, Y, 0, 6000), wall_y(0, 0, X, 0, 6000), wall_y(Y, 0, X, 0, 6000)]
@@ -571,6 +572,46 @@ class Survey(unittest.TestCase):
                                            "admit each building's scans to a project of its own")
 
 
+class Knobs(unittest.TestCase):
+    """MA-4h-3: each knob measured on Kladno, pinned on a synthetic case that fails at its 0.2.0 value; the 100 mm partition passes at
+    both and keeps CLEAR from growing."""
+
+    @staticmethod
+    def line(y, x0, x1, step, seed):
+        """One face's plan points (mm) along x at y, 2 mm of noise across it."""
+        x = np.arange(x0, x1, step, dtype=float)
+        return np.stack([x, y + np.random.default_rng(seed).normal(0, 2, x.size)], 1)
+
+    def test_a_storey_over_a_metre_deep_ceiling_void_keeps_its_level(self):
+        # Kladno's 1F floor sits 1 124 mm over GF's suspended ceiling; at SLAB_MAX 600 it read as a ceiling and 1F was missed
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            path = os.path.join(tmp, "void.las")
+            write_las(path, building(ceilings=(2000, 5800)))
+            found, _ = pipeline.survey([{"id": "ev-0001", "path": path, "head": las.read_header(path)}], Survey.PARAMS, 1)
+        Survey.near(self, [c["measured"]["elevation_mm"] for c in found if c["kind"] == "level"], [0, 3000], 5)
+        Survey.near(self, [c["measured"]["elevation_mm"] for c in found if c["kind"] == "ceiling"], [2000, 5800], 5)
+
+    def test_a_face_scanned_twice_40_mm_apart_is_one_face_of_its_wall(self):
+        # Kladno: 190 of 231 pairs were under 100 mm, one rough surface found twice; the second scan here is the sparser
+        f = pipeline.faces(np.concatenate([self.line(5, 0, 5000, 10, 1), self.line(45, 0, 5000, 50, 2), self.line(255, 0, 5000, 10, 3)]))
+        self.assertEqual(len(f), 2)
+        w = pipeline.pair([x["seg"] for x in f])
+        self.assertEqual(len(w), 1)
+        self.assertAlmostEqual(w[0][4], 250, delta=10)
+
+    def test_a_100_mm_partition_keeps_both_its_faces(self):
+        w = pipeline.pair([x["seg"] for x in pipeline.faces(np.concatenate([self.line(5, 0, 5000, 10, 1), self.line(105, 0, 5000, 10, 2)]))])
+        self.assertEqual(len(w), 1)
+        self.assertAlmostEqual(w[0][4], 100, delta=10)
+
+    def test_a_face_under_a_metre_is_not_proposed(self):
+        f = pipeline.faces(np.concatenate([self.line(5, 0, 900, 10, 1), self.line(2005, 0, 1100, 10, 2)]))
+        self.assertEqual(len(f), 1)
+        self.assertAlmostEqual(f[0]["len"], 1090, delta=20)
+        # two 700 mm pieces of one line, 400 mm apart (a doorway): the Hough finds the line, each run is too short (MAX_GAP breaks it)
+        self.assertEqual(pipeline.faces(np.concatenate([self.line(5, 0, 700, 10, 1), self.line(5, 1100, 1800, 10, 2)])), [])
+
+
 class Voxel(unittest.TestCase):
     def test_one_point_per_cube_the_first_in_reading_order_as_the_row_sort_gives(self):
         P = np.random.default_rng(3).uniform(-5000, 5000, (20000, 3))
@@ -718,7 +759,7 @@ class Service(unittest.TestCase):
 
     def test_health_answers_only_its_token_and_names_each_tool_with_its_licence(self):
         _, port, version = self.start()
-        self.assertEqual(version, "0.2.0")
+        self.assertEqual(version, "0.3.0")
         self.assertEqual(self.call(port, "GET", "/health", token="nope")[0], 401)
         code, health = self.call(port, "GET", "/health")
         names = [t["name"] for t in health["tools"]]
