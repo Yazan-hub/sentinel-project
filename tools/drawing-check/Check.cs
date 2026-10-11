@@ -312,6 +312,14 @@ namespace Sentinel.Checks
             Ok(Kind(rb, "wall").Any(c => { var lc = c["geometry"]["LocationCurve"]; return (Dist(lc["start"], part["start"]) < 0.1 && Dist(lc["end"], part["end"]) < 0.1) || (Dist(lc["start"], part["end"]) < 0.1 && Dist(lc["end"], part["start"]) < 0.1); }),
                $"revision B: the partition at {part["start"].ToJsonString()}–{part["end"].ToJsonString()}");
 
+            // 4d. MA-5b-4: revision C of B — the east and north walls each 100 mm out (2 paper mm)
+            var ec = expected["variants"]["rev-c"];
+            string cp = Path.Combine(fx, (string)ec["file"]);
+            var rc = Run(("ev-0009", cp, Sha(cp)));
+            bool At2(JsonNode w, JsonNode e) { var lc = w["geometry"]["LocationCurve"]; return (Dist(lc["start"], e["start"]) < 0.1 && Dist(lc["end"], e["end"]) < 0.1) || (Dist(lc["start"], e["end"]) < 0.1 && Dist(lc["end"], e["start"]) < 0.1); }
+            Ok(Kind(rc, "wall").Length == 5 && Kind(rc, "wall").Any(w => At2(w, ec["east"])) && Kind(rc, "wall").Any(w => At2(w, ec["north"])),
+               $"revision C: 5 walls, the east at {ec["east"]["start"].ToJsonString()} and the north at {ec["north"]["start"].ToJsonString()}");
+
             // 5. Not the admitted bytes; not a PDF; a mix (the good one read, the bad one listed); a missing file.
             var r4 = Run(("ev-0001", plan, new string('0', 64)));
             Ok((string)r4["status"] == "refused" && r4["result"] == null && (string)r4["refused"][0]["reason"] == "not the bytes admitted (sha256)", $"a changed file: refused, not the bytes admitted ({r4["refused"].ToJsonString()})");

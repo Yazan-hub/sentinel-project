@@ -420,6 +420,21 @@ describe("MA-5b-3 — revision B against what revision A filed (C13a: read-only 
     const q = B(far, priorOf([Astore], "ev-0007"));
     expect([q.revision.rooms_unchanged, q.revision.rooms_removed, els(q).filter((e) => e.kind === "room").length]).toEqual([1, 1, 1]);
   });
+  it("MA-5b-4: revision C of B (east and north 100 mm out): the two moved walls are reshaped onto what the chain placed; the walls running on to them by 100 mm are within the noise (Revit's joins carry them)", () => {
+    const REVC = read("./fixtures/drawing/drill-plan-L00-rev-c-result.json");
+    const pb = B(), Bcs = { name: "Drawing job-0006 · ev-0008 · Drawing ev-0007 job-0005", status: "applied",
+      job: { reader: "sentinel-drawing 0.2.0", alignment: { item: "ev-0008", revises: "ev-0007" }, storey: pb.storeys[0].storey },
+      elements: els(pb).map((e, k) => ({ ...e, proposal_guid: `h${k}` })), result: { rejected: [], applied: els(pb).map((e, k) => ({ proposal_guid: `h${k}`, revit_unique_id: `vid-${k}` })) } };
+    const pc = planDrawing({ job: { ...JOB, id: "job-0007" }, candidates: REVC.candidates, align: readAlignBody({ ...DRILL, revises: "ev-0008" }, ["ev-0009"]), type: anyType, catalog,
+      sameCategory: core.sameCategory, prior: priorOf([A, Bcs], "ev-0008") });
+    expect(pc.revision).toMatchObject({ revises: "ev-0008", unchanged: 3, reshaped: 2, changed: 0, removed: 1 }); // A's partition: still the row it was
+    const byTarget = Object.fromEntries(els(pc).filter((e) => e.op === "reshape").map((e) => [e.target.unique_id, e]));
+    // two paper mm (100 mm at 1:50) is the coverage noise — the south, west and partition running on to the moved walls are the same walls
+    expect(Object.keys(byTarget).some((u) => u.startsWith("vid-"))).toBe(false);
+    const east = Object.values(byTarget).find((e) => e.target.placed.start[0] === 47850);
+    expect(east.place.LocationCurve.start[0]).toBe(47950);
+    expect(els(pc).filter((e) => e.op !== "reshape")).toEqual([]); // nothing created on top of what is placed
+  });
   it("a revision is A's storey: another level or another height is refused in words", () => {
     no(() => planDrawing({ job: JOB, candidates: REVB.candidates, align: readAlignBody({ ...DRILL, revises: "ev-0007", level: "L02" }, ["ev-0008"]), type: anyType, catalog,
       sameCategory: core.sameCategory, prior: priorOf([A], "ev-0007") }), 400, "ev-0008 revises ev-0007, filed on Drawing ev-0007 job-0005 — leave level out, or name Drawing ev-0007 job-0005 — nothing was saved");
