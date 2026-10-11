@@ -115,6 +115,10 @@ export interface SurveyJob {
   items: { id: string; path: string; sha256: string }[]; read?: string[]; refused: { id: string; reason: string }[];
   started_by: string; started_at: string; finished_at?: string; error?: string;
   counts?: Record<string, number>; candidates_total?: number; ledger?: Ledger;
+  /** MA-5a-3: sentinel-survey or sentinel-drawing (a job from before names none: a survey). */
+  reader?: { name: string; version: string | null };
+  /** MA-5a-3 (review): a drawing read with nothing found, and why (one line weight; nothing drawn on the page). */
+  notes?: { id: string; why: string }[];
 }
 /** An untyped candidate (design §6.9): whatever the reader measured, in mm (an area in m²). */
 export interface Candidate {
@@ -135,7 +139,8 @@ export function jobLine(j: SurveyJob): string {
   const what = j.status === "done" ? `read ${(j.read ?? []).join(", ") || "nothing"}` : live ? `reading ${given}` : `given ${given}`;
   const refused = j.refused.length ? ` · refused ${j.refused.map((r) => `${r.id} (${r.reason})`).join("; ")}` : "";
   const found = j.counts ? ` · ${FOUND.filter(([k]) => k in j.counts!).map(([k, w]) => `${j.counts![k]} ${w}`).join(", ")}` : ""; // MA-5a: a 0.4.0 job never looked for doors or windows
-  return `${j.id} · ${state} · ${what}${refused}${found}${j.error ? ` · ${j.error}` : ""}` +
+  const notes = (j.notes ?? []).map((n) => ` · ${n.id}: ${n.why}`).join("");
+  return `${j.id}${isDrawingJob(j) ? ` · ${DRAWING_READER}` : ""} · ${state} · ${what}${refused}${found}${notes}${j.error ? ` · ${j.error}` : ""}` +
     ` · by ${j.started_by} · ${j.started_at.replace("T", " ").slice(0, 16)}${j.ledger ? ` · ${ledgerLine(j.ledger)}` : ""}`;
 }
 /** One untyped candidate in one line — generic over what it measured, its fit, the evidence it came from. Pure. */
@@ -156,6 +161,19 @@ export function surveyStartLine(j: SurveyJob): string {
 }
 /** Run survey: the bridge picks every admitted, surveyable scan of the pack in force (no item list, readers or params from here). */
 export const startSurvey = (base: string, key: string) => post<{ job: SurveyJob }>(base, key, "build/jobs", { pack: PACK_ID });
+
+/** MA-5a-3: the second reader — page 1 of each admitted vector PDF plan; walls and doors in paper mm, proposed with a 2-point alignment (MA-5a-4). */
+export const DRAWING_READER = "sentinel-drawing";
+export const isDrawingJob = (j: SurveyJob) => j.reader?.name === DRAWING_READER;
+/** The pack's drawings sentinel-drawing may read: admitted PDFs, not changed (a DWG or DXF is Ghost Builder's; a PNG or JPG raster, C10). Pure. */
+export const readableDrawings = (pack: EvidencePack) => pack.items.filter((i) => i.kind === "drawing" && i.format === "pdf" && i.state !== "changed");
+/** The status line after Read drawings. Pure. */
+export function drawingStartLine(j: SurveyJob): string {
+  return `✓ Started ${j.id} — ${DRAWING_READER} reads ${j.items.map((i) => `${i.id} (${i.path})`).join(", ")}` +
+    `${j.refused.length ? `; refused ${j.refused.map((r) => `${r.id} (${r.reason})`).join("; ")}` : ""} — ↻ for what it found.`;
+}
+/** Read drawings: the bridge picks every admitted PDF of the pack in force (no item list or params from here). */
+export const startDrawing = (base: string, key: string) => post<{ job: SurveyJob }>(base, key, "build/jobs", { pack: PACK_ID, readers: [DRAWING_READER] });
 /** The project's survey jobs, newest first; any failure throws "not read — …" (the section says it; the pack still shows). */
 export async function readJobs(base: string, key: string): Promise<SurveyJob[]> {
   let r: Response;

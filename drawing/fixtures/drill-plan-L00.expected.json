@@ -1,0 +1,143 @@
+{
+ "units": "paper_mm",
+ "scale": "1:50",
+ "page": 1,
+ "walls": [
+  {
+   "name": "south",
+   "start": [
+    60.0,
+    43.0
+   ],
+   "end": [
+    220.0,
+    43.0
+   ],
+   "thickness_paper_mm": 6.0,
+   "thickness_mm_at_1_50": 300
+  },
+  {
+   "name": "east",
+   "start": [
+    217.0,
+    40.0
+   ],
+   "end": [
+    217.0,
+    160.0
+   ],
+   "thickness_paper_mm": 6.0,
+   "thickness_mm_at_1_50": 300
+  },
+  {
+   "name": "north",
+   "start": [
+    60.0,
+    158.0
+   ],
+   "end": [
+    220.0,
+    158.0
+   ],
+   "thickness_paper_mm": 4.0,
+   "thickness_mm_at_1_50": 200
+  },
+  {
+   "name": "west",
+   "start": [
+    62.5,
+    40.0
+   ],
+   "end": [
+    62.5,
+    160.0
+   ],
+   "thickness_paper_mm": 5.0,
+   "thickness_mm_at_1_50": 250
+  },
+  {
+   "name": "partition",
+   "start": [
+    141.0,
+    46.0
+   ],
+   "end": [
+    141.0,
+    156.0
+   ],
+   "thickness_paper_mm": 2.0,
+   "thickness_mm_at_1_50": 100
+  }
+ ],
+ "doors": [
+  {
+   "host": "south",
+   "location": [
+    129.0,
+    43.0
+   ],
+   "width_paper_mm": 18.0,
+   "direction": [
+    0,
+    1
+   ],
+   "tag_width_mm": 900,
+   "tag_height_mm": 2100
+  },
+  {
+   "host": "partition",
+   "location": [
+    141.0,
+    90.0
+   ],
+   "width_paper_mm": 20.0,
+   "direction": [
+    1,
+    0
+   ],
+   "tag_width_mm": 1000,
+   "tag_height_mm": 2100
+  }
+ ],
+ "marks": [
+  {
+   "label": "A",
+   "building_mm": [
+    0,
+    0
+   ],
+   "paper_mm": [
+    60.0,
+    40.0
+   ]
+  },
+  {
+   "label": "B",
+   "building_mm": [
+    8000,
+    6000
+   ],
+   "paper_mm": [
+    220.0,
+    160.0
+   ]
+  }
+ ],
+ "variants": {
+  "one-weight": {
+   "walls": 0,
+   "doors": 0,
+   "why": "one line weight on the page"
+  },
+  "stray-arc": {
+   "walls": 6,
+   "doors": 1
+  },
+  "two-page": {
+   "pages": 2,
+   "page_read": 1,
+   "walls": 5,
+   "doors": 2
+  }
+ }
+}

@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Offline check for sentinel-drawing (drawing/): the job contract and the plan reading, on the drill plan and its variants
+       (drawing/make_drill_plan.py), and the review's cases on Analyse. Links the reader's own files. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <AssemblyName>drawing-check</AssemblyName>
+    <RootNamespace>Sentinel.Checks</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\..\drawing\Job.cs" />
+    <Compile Include="..\..\drawing\PlanReader.cs" />
+    <PackageReference Include="PdfPig" Version="[0.1.16]" />
+  </ItemGroup>
+</Project>

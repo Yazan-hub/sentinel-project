@@ -985,6 +985,9 @@ describe("proposeFromJob (MA-4d): a lead turns a trusted survey job into changes
     await quiet({ requireMinRole: belowMin("contributor") }, "this action requires the lead role (you are contributor) — proposing from a survey job is a lead's: the frame and levels it states decide where every ghost lands; nothing was saved", 403);
     await quiet({ trustedJob: vi.fn(async () => { throw Object.assign(new Error("job-0002's result is not trusted: … — run the survey again; nothing was saved"), { status: 409 }); }) },
       "job-0002's result is not trusted: … — run the survey again; nothing was saved");
+    // MA-5a-3: a drawing job's own trusted row — refused before the body, the pack or any read
+    await quiet({ trustedJob: vi.fn(async () => ({ ...TRUSTED, row: { ...TRUSTED.row, reader: "sentinel-drawing" } })) },
+      "job-0002 is a drawing job (sentinel-drawing): its walls and doors are in paper millimetres and are proposed with a 2-point alignment — MA-5a-4; nothing was saved");
     await quiet({}, "pretick is not a proposal field — the bridge builds every changeset from the job's own result; send {frame, levels?} — nothing was saved", 400, { frame: FRAME, pretick: true });
     const pack = (items) => ({ readPack: vi.fn(async (_k, id) => (id === "evp-0001" ? { pack: { items } } : null)) }); // the ROW's pack id
     await quiet(pack([{ id: "ev-0001", sha256: EV, state: "changed" }]), "ev-0001 is not the bytes job-0002 read (Re-check flagged it changed) — survey the admitted scan again; nothing was saved");

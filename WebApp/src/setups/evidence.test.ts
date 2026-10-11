@@ -9,7 +9,8 @@ vi.mock("./bridge-fetch", () => ({ bfetch, bwrite }));
 
 import { ATTESTATION_CODES, ATTESTATION_TEXTS, kindOf, needsReport, itemLine, attestationLine, admitLine, recheckLine, readEvidence,
   signAttestation, evidenceControls, requestLine, isImage, jobLine, candidateLine, surveyStartLine, surveyableScans, startSurvey, readJobs,
-  proposeBody, proposeFromJob, proposeLine, datasetLine, type ProposeReply, type EvidenceItem, type EvidencePack, type EvidenceRequest, type SurveyJob } from "./evidence";
+  proposeBody, proposeFromJob, proposeLine, datasetLine, type ProposeReply, type EvidenceItem, type EvidencePack, type EvidenceRequest, type SurveyJob,
+  isDrawingJob, readableDrawings, drawingStartLine, startDrawing } from "./evidence";
 
 const res = (status: number, body: unknown) => ({ ok: status < 400, status, json: async () => body }) as unknown as Response;
 const HASH = "ab".repeat(32);
@@ -223,5 +224,49 @@ describe("MA-4h — a published dataset's pack", () => {
   it("one line: where it came from, its licence and the attribution it asks for", () => {
     expect(datasetLine({ provider: "example-repository", source_url: "https://example.test/records/1", licence: "CC-BY-4.0", attribution: "Example scan, CC BY 4.0" }))
       .toBe("Published dataset — example-repository · CC-BY-4.0 · https://example.test/records/1 · attribution: Example scan, CC BY 4.0. A lead signs (f), then admits its scans.");
+  });
+});
+
+describe("drawing jobs (MA-5a-3) — sentinel-drawing on the admitted PDF plans", () => {
+  const DJOB: SurveyJob = {
+    id: "job-0007", status: "done", stage: "done", pct: 100, items: [{ id: "ev-0010", path: "drawings/drill-plan-L00.pdf", sha256: "d".repeat(64) }], read: ["ev-0010"],
+    refused: [{ id: "ev-0009", reason: "a .dwg is read by Ghost Builder in Revit (Model from Drawings) — sentinel-drawing reads PDF" }], started_by: "contributor@example.test",
+    started_at: "2026-10-11T10:00:00.000Z", counts: { wall: 5, door: 2 }, candidates_total: 7, ledger: { id: 2400, hash: HASH }, reader: { name: "sentinel-drawing", version: "0.1.0" },
+  };
+  it("jobLine names the drawing reader and what it found; a survey job's line is unchanged", () => {
+    expect(isDrawingJob(DJOB)).toBe(true);
+    expect(isDrawingJob({ ...DJOB, reader: { name: "sentinel-survey", version: "0.6.0" } })).toBe(false);
+    expect(isDrawingJob({ ...DJOB, reader: undefined })).toBe(false); // a job from before MA-5a-3 names no reader: a survey
+    expect(jobLine(DJOB)).toBe("job-0007 · sentinel-drawing · done · read ev-0010 · refused ev-0009 (a .dwg is read by Ghost Builder in Revit (Model from Drawings) — sentinel-drawing reads PDF) · 5 wall(s), 2 door(s) · by contributor@example.test · 2026-10-11 10:00 · ledger #2400 · receipt abababababababab…");
+    expect(jobLine({ ...DJOB, reader: { name: "sentinel-survey", version: "0.6.0" } })).toMatch(/^job-0007 · done · /);
+    // review: a drawing read with nothing found says why, on the line itself (no Candidates button for a job of 0)
+    expect(jobLine({ ...DJOB, counts: { wall: 0, door: 0 }, candidates_total: 0, notes: [{ id: "ev-0010", why: "one line weight on the page — walls are not told from the rest" }] }))
+      .toContain(" · 0 wall(s), 0 door(s) · ev-0010: one line weight on the page — walls are not told from the rest · by contributor@example.test");
+  });
+  it("readableDrawings: admitted PDF drawings not changed — no DWG, no raster drawing, no scan", () => {
+    const it_ = (id: string, kind: EvidenceItem["kind"], format: string, over: Partial<EvidenceItem> = {}) =>
+      ({ id, kind, format, path: `drawings/${id}.${format}`, sha256: HASH, size_bytes: 1, surveyable: false, ...over }) as EvidenceItem;
+    const pack = { pack_id: "evp-0001", storage_root: "x", attestations: [], items: [it_("ev-0010", "drawing", "pdf"), it_("ev-0009", "drawing", "dwg"), it_("ev-0008", "drawing", "png"),
+      it_("ev-0007", "drawing", "pdf", { state: "changed" }), it_("ev-0001", "scan", "las", { surveyable: true })] } as EvidencePack;
+    expect(readableDrawings(pack).map((i) => i.id)).toEqual(["ev-0010"]);
+  });
+  it("Read drawings posts {pack: evp-0001, readers: [sentinel-drawing]}; the line names what it reads and refused", async () => {
+    bwrite.mockResolvedValue({ job: { ...DJOB, status: "queued", read: undefined, counts: undefined } });
+    const r = await startDrawing("http://b", "demo");
+    expect(bwrite).toHaveBeenCalledWith("http://b/cde/demo/build/jobs", expect.objectContaining({ method: "POST", body: JSON.stringify({ pack: "evp-0001", readers: ["sentinel-drawing"] }) }));
+    expect(drawingStartLine(r.job)).toBe("✓ Started job-0007 — sentinel-drawing reads ev-0010 (drawings/drill-plan-L00.pdf); refused ev-0009 (a .dwg is read by Ghost Builder in Revit (Model from Drawings) — sentinel-drawing reads PDF) — ↻ for what it found.");
+  });
+  it("candidateLine reads a drawing's door in paper mm with its tag", () => {
+    expect(candidateLine({ cid: "drawing-ev-0010-p1-wall-1-door-1", kind: "door", geometry: { host: "drawing-ev-0010-p1-wall-1", units: "paper_mm" },
+      measured: { width_paper_mm: 18, tag_width_mm: 900, tag_height_mm: 2100 }, evidence: ["ev-0010#page-1"] }))
+      .toBe("drawing-ev-0010-p1-wall-1-door-1 · door · width paper mm 18, tag width mm 900, tag height mm 2100 · from ev-0010#page-1");
+  });
+  it("files-panel: Read drawings beside Run survey, the drawings' words, and no Propose… on a drawing job (MA-5a-4)", () => {
+    const src = readFileSync(new URL("./files-panel.ts", import.meta.url), "utf8");
+    expect(src).toContain(`<button id="fv-ev-drawing"`);
+    expect(src).toContain("readableDrawings(pack).length");
+    expect(src).toContain(`can.propose && !isDrawingJob(j)`);
+    expect(src).toContain(`line("Drawings — sentinel-drawing reads page 1 of the admitted vector PDF plans on this PC: walls (two faces in the page's heaviest line weight) and doors (swing arcs, with any W x H tag), in paper millimetres. They are proposed with a 2-point alignment (MA-5a-4); a DWG is Ghost Builder's, in Revit.", "#9ca3af")`);
+    expect(src).toContain(`drawingStartLine((await startDrawing(base, pid())).job)`);
   });
 });
