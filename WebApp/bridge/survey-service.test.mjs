@@ -67,7 +67,7 @@ describe("runSurvey (MA-4c) — the supervisor, with a Node stand-in for sentine
       expect(await run(mode, calls, opts), mode).toMatchObject(want);
       expect(calls[0].child.exitCode !== null || calls[0].child.signalCode !== null, `${mode}: the child is gone when the job ends`).toBe(true);
     }
-  });
+  }, 30_000); // 8 stand-in spawns + ~1.2 s of planned waits: timed out at 5 s under a full suite's load
 
   it("a service that dies before its port: a failed job in words; the bridge log gets its whole stderr tail (settled on close)", async () => {
     const lines = [], r = await run("crash", [], { log: (l) => lines.push(l) });

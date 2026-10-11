@@ -116,11 +116,14 @@ describe("JSON bodies — 16 MB by default, 1 MB for prompts, a 413 in words, th
   });
 
   it("POST /ai/chat over 1 MB (declared) is a 413 before a byte is read, not a 500", async () => {
+    // The first /ai call of a fresh bridge copy cold-loads ai-gateway and the AI SDK before readBody (up to ~3.4 s under a full suite's
+    // load, against open()'s 4 s): warm it first, so the deadline measures only whether the body was awaited.
+    await fetch(`http://127.0.0.1:${b.port}/ai/providers`, { headers: machine }).then((r) => r.arrayBuffer());
     const reply = await open(b.port, "POST", "/ai/chat", { ...machine, ...keepAlive, "Content-Type": "application/json", "Content-Length": String(2 * MB) }).reply;
     expect(statusOf(reply), reply).toBe(413);
     expect(reply).toMatch(/^Connection: close$/im);
     expect(bodyOf(reply).message).toBe("the request body is over the 1 MB limit for this route — nothing was read or saved");
-  });
+  }, 20_000); // the warm-up and the 4 s deadline both fit
 
   it("POST /ai/run-tool over 1 MB (declared) is a 413 before a byte is read (H0 minor N2)", async () => {
     const reply = await open(b.port, "POST", "/ai/run-tool", { ...machine, ...keepAlive, "Content-Type": "application/json", "Content-Length": String(2 * MB) }).reply;
