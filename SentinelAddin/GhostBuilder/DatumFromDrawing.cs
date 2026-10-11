@@ -135,7 +135,8 @@ namespace Sentinel.GhostBuilder
             bool Through(GridArc a, Seg l) => Math.Abs((a.Cx - l.X1) * (l.Y2 - l.Y1) - (a.Cy - l.Y1) * (l.X2 - l.X1)) / l.Length <= 5;
             bool Hub(GridArc a) => lines.Where(l => Through(a, l)).Select(l => Math.Round(Dir(l))).Distinct().Count() >= 2;
             var arcs = new List<GridArc>();
-            foreach (var a in (planArcs ?? Enumerable.Empty<GridArc>()).Where(a => a.R > 0 && (a.R >= min || a.Span < 359.9 && Hub(a))).OrderByDescending(a => a.Span))
+            double arcMin = Math.Max(min, 2000); // drill MA5b batch 2 (F-3): a grid layer of bubbles and no lines said every bubble as a whole circle
+            foreach (var a in (planArcs ?? Enumerable.Empty<GridArc>()).Where(a => a.R > 0 && (a.R >= arcMin || a.Span < 359.9 && Hub(a))).OrderByDescending(a => a.Span))
             {
                 if (a.Span >= 359.9) { warnings?.Add($"A whole circle of radius {a.R:0} mm on a grid layer, centre ({a.Cx:0}, {a.Cy:0}) — Revit makes no grid of a whole circle; draw it as an arc."); continue; }
                 if (!arcs.Any(k => Math.Abs(k.Cx - a.Cx) <= 5 && Math.Abs(k.Cy - a.Cy) <= 5 && Math.Abs(k.R - a.R) <= mergeTolMm)) arcs.Add(a);
@@ -252,14 +253,17 @@ namespace Sentinel.GhostBuilder
         }
 
         /// <summary>MA-5b-7 (DAT-1): a grid already in the model on the same line — parallel within 0.5° and both of the new grid's ends
-        /// within <paramref name="tolMm"/> of its line. Revit's grid is kept; the new one is not created.</summary>
+        /// within <paramref name="tolMm"/> of its line, the two spans overlapping. Revit's grid is kept; the new one is not created.</summary>
         public static bool SameLine(DetectedGrid g, double x1, double y1, double x2, double y2, double tolMm = 10)
         {
             if (g.IsArc) return false;
             double dx = x2 - x1, dy = y2 - y1, l = Math.Sqrt(dx * dx + dy * dy), gx = g.X2 - g.X1, gy = g.Y2 - g.Y1, gl = Math.Sqrt(gx * gx + gy * gy);
             if (l <= 0 || gl <= 0 || Math.Abs(dx * gy - dy * gx) / (l * gl) > Math.Sin(0.5 * Math.PI / 180)) return false;
             double Off(double x, double y) => Math.Abs((x - x1) * dy - (y - y1) * dx) / l;
-            return Off(g.X1, g.Y1) <= tolMm && Off(g.X2, g.Y2) <= tolMm;
+            // drill MA5b batch 2 (F-2): and where it runs — a grid 200 m along the same line is another grid (two buildings in line)
+            double At(double x, double y) => ((x - x1) * dx + (y - y1) * dy) / l;
+            double a = At(g.X1, g.Y1), b = At(g.X2, g.Y2);
+            return Off(g.X1, g.Y1) <= tolMm && Off(g.X2, g.Y2) <= tolMm && Math.Max(a, b) >= -tolMm && Math.Min(a, b) <= l + tolMm;
         }
     }
 

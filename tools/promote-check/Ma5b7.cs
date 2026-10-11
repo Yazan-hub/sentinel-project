@@ -22,5 +22,11 @@ static partial class Check
         Ok(b.Contains("if (src.IsGrid(layer)) { res.GridArcs.Add(ToArc(arc)); res.GridLayers.Add(layer); }") && b.Contains("DatumFromDrawing.Grids(gridSegs, src.GridMergeMm, src.Skip, res.GridArcs, res.Warnings)")
            && b.Contains("? Grid.Create(_doc, Arc.Create(new XYZ(g.Cx * MmToFeet, g.Cy * MmToFeet, 0), g.R * MmToFeet,") && b.Contains("x.Curve is Arc ea && DatumFromDrawing.SameArc(g,"),
            "MA-5b-8: arcs on a grid layer are read, created as arc grids, and an arc grid already in the model is kept");
+        // Drill MA5b batch 2 (F-1): Ghost refuses an elevation, a section, a drafting or a 3D view before a drawing is picked
+        string ghost = Src("Commands.GhostBuilder.cs");
+        int refuse = ghost.IndexOf("if (uidoc.ActiveView.ViewType is ViewType.Elevation or ViewType.Section or ViewType.Detail or ViewType.DraftingView or ViewType.ThreeD", StringComparison.Ordinal),
+            acquire = ghost.IndexOf("// 2. Acquire the DWG", StringComparison.Ordinal);
+        Ok(refuse > 0 && acquire > refuse && ghost.Contains("Ghost Builder reads a plan drawing into a plan view"),
+           "drill F-1: Ghost Builder refuses a non-plan view, in words, before a drawing is picked (an elevation put the drawing in its vertical plane)");
     }
 }
