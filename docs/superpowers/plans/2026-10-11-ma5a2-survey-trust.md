@@ -471,3 +471,34 @@ and its caller passes `rec`. `package.json` → `"version": "1.0.73"`.
 - Spec coverage: (1) Task 3 + Task 2's faces_seen; (2) Tasks 0, 1, 4, 5; (3) Task 3; (4) Task 2 + Task 3 words; (5) Task 6. Pair minimum: none built (§0).
 - Types: `once` (planSurvey) → `doors_seen_once` (row, ProposeReply); `faces` (deviation → measureRefusal → judge → verify row → Measured); `deviation` (row → VerifyRecord → measureWords) — names match across tasks.
 - Review Focus lines 1–5 each have a test in Tasks 3, 4, 5.
+
+## As built and measured (2026-10-11)
+
+**Task 0 (T-1), the per-face verdict on Kladno** (`dev2.py`, the worktree's per-face `deviation`; 99 traced walls fitted from the cloud; the
+0.5.0 job's 78 paired candidates as filed, 47 matching a traced wall at 100 mm, 31 not). Within, under "every face with an interior holds
+≥ T of its points within w mm":
+
+| w @ T | in place | shift 20 | shift 50 | shift 100 (≤ 140 mm walls) | 50 mm too thick | filed, matched | filed, unmatched |
+|---|---|---|---|---|---|---|---|
+| 10 @ 0.20 | 84 / 99 | 1 | 1 | 0 / 31 | 0 | 40 / 47 | 19 / 31 |
+| **20 @ 0.20** | **95 / 99** | **59** | **2** | **7 / 31** | **18** | **44 / 47** | **23 / 31** |
+| 20 @ 0.25 | 89 / 99 | 50 | 2 | 4 / 31 | 5 | 43 / 47 | 23 / 31 |
+| 25 @ 0.25 | 92 / 99 | 86 | 2 | 11 / 31 | 54 | 43 / 47 | 23 / 31 |
+| 25 @ 0.30 | 86 / 99 | 78 | 2 | 6 / 31 | 38 | 42 / 47 | 21 / 31 |
+| pooled 25 @ 0.4 (the earlier draft) | 92 / 99 | 86 | 2 | 19 / 31 | 48 | 44 / 47 | 26 / 31 |
+
+**The window moved from 25 to 20 mm** by the plan's own rule: 20 mm at 0.2 is the highest share reaching 90 % in place at 20 mm, and it
+beats 25 mm at its best threshold on every case (in place 96 % against 93 %; a 20 mm shift 40 % out against 13 %; thin walls shifted 100 mm
+77 % out against 65 %; too thick 82 % out against 45 %). So `DEVIATION_MM = 20`, `FACE_SHARE_MIN = 0.2`, `TOLERANCES_MM = [20, 50, 100, 200]`
+(the band stays 400). **The thin-wall bar (≥ 90 % out) is not met** — 77 %, from 39 % pooled; the words say so ("a thin partition moved by
+its own thickness can pass"). **The verdict cannot judge precision:** the survey's own non-walls placed as filed pass (23 of 31) — placed from
+the scan's own faces, they agree with the scan by construction; only a person tells a wall from a cupboard (hence no pre-tick).
+
+**Kladno at 0.6.0, in memory** (`asb6.py`): walls F1 0.299 / 0.357 / 0.396 (TP 46 / 55 / 61) — equal to 0.5.0 at every d (the ratchet holds;
+the gate moves no line); level errors GF +1.5, 1F +18.4 mm unchanged. **The thickness gate withholds 8 walls** — `scan-L00-wall-1` (70 mm
+apart, 8.0 mm rms), `-4` (40, 10.9), `-6` (56, 11.7), `-8` (114, 11.7), `-10` (83, 11.7), `-14` (68, 9.1), `-17` (81, 9.0), `scan-L01-wall-36`
+(51, 9.6): the review's 7 suspect thin pairs plus wall-8, none matching a traced wall at 50 mm. **`faces_seen` fixed:** the one window that
+read 2 on a one-face wall now reads 1 (GF windows 7 × 1). **Doors under the bridge's rule** (both faces), doors only @100: F1 0.510, P 0.481,
+R 0.542 (GF 1 / 8 / 6, 1F 12 / 6 / 5) — 0.5.0's count gave 0.500; the fixed count moved one false door out.
+
+**Tests:** survey 94 OK; bridge + web 2981 pass, 1 skipped; promote-check 889 / 889; `tsc` — no error in a touched file.
