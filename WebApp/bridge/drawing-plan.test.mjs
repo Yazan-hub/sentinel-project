@@ -435,6 +435,42 @@ describe("MA-5b-3 — revision B against what revision A filed (C13a: read-only 
     expect(east.place.LocationCurve.start[0]).toBe(47950);
     expect(els(pc).filter((e) => e.op !== "reshape")).toEqual([]); // nothing created on top of what is placed
   });
+  it("MA-5b-4 review: an applied reshape moved its wall — the next revision compares with where it stands now, and a door on a wall being reshaped waits", () => {
+    const REVC = read("./fixtures/drawing/drill-plan-L00-rev-c-result.json");
+    const pb = B(), Bcs = { name: "Drawing job-0006 · ev-0008 · Drawing ev-0007 job-0005", status: "applied",
+      job: { reader: "sentinel-drawing 0.2.0", alignment: { item: "ev-0008", revises: "ev-0007" }, storey: pb.storeys[0].storey },
+      elements: els(pb).map((e, k) => ({ ...e, proposal_guid: `h${k}` })), result: { rejected: [], applied: els(pb).map((e, k) => ({ proposal_guid: `h${k}`, revit_unique_id: `vid-${k}` })) } };
+    const pc = planDrawing({ job: { ...JOB, id: "job-0007" }, candidates: REVC.candidates, align: readAlignBody({ ...DRILL, revises: "ev-0008" }, ["ev-0009"]), type: anyType, catalog,
+      sameCategory: core.sameCategory, prior: priorOf([A, Bcs], "ev-0008") });
+    const east = els(pc).find((e) => e.op === "reshape" && e.target.placed.start[0] === 47850);
+    // C applied: the east wall now stands at 47950
+    const Ccs = { name: "Drawing job-0007 · ev-0009 · Drawing ev-0007 job-0005", status: "applied", job: { reader: "sentinel-drawing 0.2.0", alignment: { item: "ev-0009", revises: "ev-0008" }, storey: pc.storeys[0].storey },
+      elements: els(pc).map((e, k) => ({ ...e, proposal_guid: `k${k}` })), result: { rejected: [], applied: els(pc).map((e, k) => ({ proposal_guid: `k${k}`, revit_unique_id: e.target?.unique_id ?? `wid-${k}` })) } };
+    const pr = priorOf([A, Bcs, Ccs], "ev-0009");
+    expect(pr.walls.find((w) => w.revit === east.target.unique_id).start[0]).toBe(47950);
+    // D draws the wall where C put it: the same, nothing proposed for it (it was "edited by hand" before the fix — a false keep)
+    const D = REVC.candidates.map((c) => JSON.parse(JSON.stringify(c).replaceAll("ev-0009", "ev-0010")));
+    const pd = planDrawing({ job: { ...JOB, id: "job-0008" }, candidates: D, align: readAlignBody({ ...DRILL, revises: "ev-0009" }, ["ev-0010"]), type: anyType, catalog,
+      sameCategory: core.sameCategory, prior: pr });
+    expect(els(pd).filter((e) => e.op === "reshape")).toEqual([]);
+    // a kept reshape (rejected: edited by hand) moved nothing
+    const kept = priorOf([A, Bcs, { ...Ccs, status: "partially_applied", result: { rejected: [`k${els(pc).indexOf(east)}`], applied: [] } }], "ev-0009");
+    expect(kept.walls.find((w) => w.revit === east.target.unique_id).start[0]).toBe(47850);
+  });
+  it("MA-5b-4 review: a door B adds on a wall it reshapes waits for the next proposal; a reshape that would leave A's door beyond the wall's end is a person's row", () => {
+    // B moves A's east wall 100 mm out (paper x 219) and draws a new door in it
+    const moved = REVB.candidates.map((c) => (c.cid === B8(4) ? { ...c, geometry: { ...c.geometry, LocationCurve: { start: [219, 40], end: [219, 160] } } } : c));
+    const door = { cid: `${B8(4)}-door-1`, kind: "door", geometry: { host: B8(4), Location: [219, 100], direction: [1, 0], along_paper_mm: 60, swing_centre: [219, 100], leaves: 1, page: 1, units: "paper_mm" },
+      measured: { width_paper_mm: 18, tag_width_mm: 900, tag_height_mm: 2100 }, evidence: ["ev-0008#page-1"] };
+    const p = B([...moved, door]);
+    expect(els(p).find((e) => e.cid === B8(4)).op).toBe("reshape");
+    expect(p.storeys[0].exceptions.find((x) => x.unique_id === door.cid).reason).toMatch(/^its wall drawing-ev-0008-p1-wall-4 is reshaped in this changeset — apply it first/);
+    // B shortens A's south wall past A's south door (paper x 129): never reshaped — the door would stand beyond its end
+    const short = REVB.candidates.map((c) => (c.cid === B8(5) ? { ...c, geometry: { ...c.geometry, LocationCurve: { start: [60, 43], end: [110, 43] } } } : c)).filter((c) => c.cid !== `${B8(5)}-door-1`);
+    const q = B(short), why = Object.fromEntries(q.storeys[0].exceptions.map((x) => [x.unique_id, x.reason]));
+    expect(els(q).some((e) => e.cid === B8(5))).toBe(false);
+    expect(why[B8(5)]).toMatch(/reshaping drawing-ev-0007-p1-wall-5 would leave drawing-ev-0007-p1-wall-5-door-1 beyond its end — a person decides in Revit$/);
+  });
   it("a revision is A's storey: another level or another height is refused in words", () => {
     no(() => planDrawing({ job: JOB, candidates: REVB.candidates, align: readAlignBody({ ...DRILL, revises: "ev-0007", level: "L02" }, ["ev-0008"]), type: anyType, catalog,
       sameCategory: core.sameCategory, prior: priorOf([A], "ev-0007") }), 400, "ev-0008 revises ev-0007, filed on Drawing ev-0007 job-0005 — leave level out, or name Drawing ev-0007 job-0005 — nothing was saved");

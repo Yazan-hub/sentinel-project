@@ -281,6 +281,10 @@ describe("MA-3d — Highlight in 3D: the plan and its words", () => {
   it("nothing loaded", () => {
     expect(highlightPlan(three, new Map()).words).toBe("Load a model first (Files ▸ Open 3D) — nothing is loaded to highlight in.");
   });
+  it("MA-5b-4 review: a drawing revision's reshapes name their walls by Revit id — said so, never 'run Promote again'", () => {
+    expect(highlightPlan([{ proposal_guid: "r1", kind: "wall", op: "reshape", target: { unique_id: "u-1" } } as Ghost, g(null, "create")], new Map()).words)
+      .toBe("Nothing to highlight: a drawing revision's reshape names its wall by Revit id, not IFC GlobalId — select it in Revit (Show in the review window).");
+  });
   it("retypes from an older add-in carry no GUID", () => {
     expect(highlightPlan([g(null), g(null)], new Map()).words).toBe("Nothing to highlight: these ghosts were filed before the add-in sent IFC GlobalIds — a new Promote run sends them.");
   });

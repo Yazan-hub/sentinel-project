@@ -398,7 +398,11 @@ export function highlightPlan(ghosts: Ghost[], found: Map<string, (number | null
   const typeEdits = ghosts.filter((g) => g.op === "set_parameter").length;
   const typeWords = typeEdits ? `; ${typeEdits} type edit(s) are not highlighted (a type has no geometry)` : "";
   const withoutGuid = changes.length - changes.filter((g) => g.target?.ifc_guid).length;
-  if (!guids.length) return { map: {}, guids, words: withoutGuid > 0
+  // MA-5b-4 review: a drawing revision's reshape names its wall by Revit id only (the bridge has no IFC GlobalId for it)
+  const reshapes = changes.filter((g) => g.op === "reshape" && !g.target?.ifc_guid).length;
+  if (!guids.length) return { map: {}, guids, words: reshapes > 0 && reshapes === withoutGuid
+    ? "Nothing to highlight: a drawing revision's reshape names its wall by Revit id, not IFC GlobalId — select it in Revit (Show in the review window)."
+    : withoutGuid > 0
     ? "Nothing to highlight: these ghosts were filed before the add-in sent IFC GlobalIds — a new Promote run sends them."
     : typeEdits ? "Nothing to highlight: this storey proposes only creates and type edits (a create has no element yet; a type has no geometry)."
     : "Nothing to highlight: this storey proposes only creates (they have no element in the model yet)." };

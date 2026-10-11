@@ -640,6 +640,48 @@ public sealed class ChangesetExecutor
                 Collect(result, el, fi);
             }
 
+            // MA-5b-4 (C13b): a reshape moves an existing wall's location line to where a revised drawing draws it — only when the wall still
+            // stands where it was placed (target.placed, within 2 mm, either way round): one edited by hand since, or gone, is KEPT and said,
+            // and the rest of the changeset is applied. Its type is untouched (a thickness change is a person's row on the bridge); hosted
+            // doors and windows follow their wall (one the new line leaves outside rolls the whole changeset back, in Revit's words).
+            foreach (var el in toPlace.Where(e => e.Op == "reshape"))
+            {
+                at = Label(el);
+                var name = el.Validate?.Identity?.Name ?? el.ProposalGuid;
+                var c = el.Place?.LocationCurve;
+                var was = el.Target?.Placed;
+                if (c?.Start == null || c.End == null || was?.Start == null || was.End == null)
+                    throw new InvalidOperationException($"reshape \"{name}\" has no new line or no placed line");
+                if (!(doc.GetElement(el.Target.UniqueId ?? "") is Wall w))
+                {
+                    result.Kept.Add((el.ProposalGuid, $"wall {el.Target.UniqueId} is no longer in this model — not reshaped (deleted by hand?)"));
+                    continue;
+                }
+                if (!(((w.Location as LocationCurve)?.Curve) is Line now))
+                {
+                    result.Kept.Add((el.ProposalGuid, $"wall {w.Id.IdValue()} is no longer a straight wall — edited by hand since it was placed; kept as it stands"));
+                    continue;
+                }
+                XYZ a0 = now.GetEndPoint(0), a1 = now.GetEndPoint(1);
+                if (!PlacementGeometry.AsPlaced(a0.X / MmToFeet, a0.Y / MmToFeet, a1.X / MmToFeet, a1.Y / MmToFeet, was.Start, was.End, ReshapeTolMm))
+                {
+                    result.Kept.Add((el.ProposalGuid, $"wall {w.Id.IdValue()} was moved by hand since it was placed (it no longer stands on {Pair(was.Start)} → {Pair(was.End)}) — kept as it stands; a person decides"));
+                    continue;
+                }
+                // review: a person's "do not move" — a pin, a group, a colleague's borrowed wall — is kept too, never overridden (a lock rolls
+                // the whole changeset back in Revit's words: finding one needs a scan of locked dimensions)
+                var held = w.Pinned ? "is pinned"
+                         : w.GroupId != null && !w.GroupId.Equals(ElementId.InvalidElementId) ? "is in a group — Sentinel does not edit a group's members"
+                         : doc.IsWorkshared && WorksharingUtils.GetCheckoutStatus(doc, w.Id) == CheckoutStatus.OwnedByOtherUser ? "is borrowed by another user"
+                         : null;
+                if (held != null) { result.Kept.Add((el.ProposalGuid, $"wall {w.Id.IdValue()} {held} — kept as it stands; a person decides")); continue; }
+                // review: the new line runs the wall's own way — a line set end for end reverses the wall (its exterior face goes inside)
+                double bx = c.End[0] - c.Start[0], by = c.End[1] - c.Start[1];
+                var (s0, s1) = bx * (a1.X - a0.X) + by * (a1.Y - a0.Y) < 0 ? (c.End, c.Start) : (c.Start, c.End);
+                ((LocationCurve)w.Location).Curve = Line.CreateBound(new XYZ(s0[0] * MmToFeet, s0[1] * MmToFeet, a0.Z), new XYZ(s1[0] * MmToFeet, s1[1] * MmToFeet, a0.Z));
+                Collect(result, el, w);
+            }
+
             // MA-5b-1: a room at its label's point on its level, after every wall of this changeset (Regenerate first): Revit finds the
             // boundary there (NewRoom(level, UV)). All or nothing, in words — and the changeset stays proposed (PlacementRefused: the model
             // or the ticks, not a verdict on it): a room already standing at a point; two of these rooms in one enclosed area; a room the
@@ -690,38 +732,6 @@ public sealed class ChangesetExecutor
                 for (int i = 0; i < made.Count; i++)
                     if (!(made[i].Area > 0))
                         throw new PlacementRefused($"{spots[i].name} is not enclosed on {spots[i].level.Name} — a wall round it is unticked, held or a type gap: untick the room, or place its walls first; nothing was placed");
-            }
-
-            // MA-5b-4 (C13b): a reshape moves an existing wall's location line to where a revised drawing draws it — only when the wall still
-            // stands where it was placed (target.placed, within 2 mm, either way round): one edited by hand since, or gone, is KEPT and said,
-            // and the rest of the changeset is applied. Its type is untouched (a thickness change is a person's row on the bridge); hosted
-            // doors and windows follow their wall (one the new line leaves outside rolls the whole changeset back, in Revit's words).
-            foreach (var el in toPlace.Where(e => e.Op == "reshape"))
-            {
-                at = Label(el);
-                var name = el.Validate?.Identity?.Name ?? el.ProposalGuid;
-                var c = el.Place?.LocationCurve;
-                var was = el.Target?.Placed;
-                if (c?.Start == null || c.End == null || was?.Start == null || was.End == null)
-                    throw new InvalidOperationException($"reshape \"{name}\" has no new line or no placed line");
-                if (!(doc.GetElement(el.Target.UniqueId ?? "") is Wall w))
-                {
-                    result.Kept.Add((el.ProposalGuid, $"wall {el.Target.UniqueId} is no longer in this model — not reshaped (deleted by hand?)"));
-                    continue;
-                }
-                if (!(((w.Location as LocationCurve)?.Curve) is Line now))
-                {
-                    result.Kept.Add((el.ProposalGuid, $"wall {w.Id.IdValue()} is no longer a straight wall — edited by hand since it was placed; kept as it stands"));
-                    continue;
-                }
-                XYZ a0 = now.GetEndPoint(0), a1 = now.GetEndPoint(1);
-                if (!PlacementGeometry.AsPlaced(a0.X / MmToFeet, a0.Y / MmToFeet, a1.X / MmToFeet, a1.Y / MmToFeet, was.Start, was.End, ReshapeTolMm))
-                {
-                    result.Kept.Add((el.ProposalGuid, $"wall {w.Id.IdValue()} was edited by hand since it was placed (it no longer runs {Pair(was.Start)} → {Pair(was.End)}) — kept as it stands; a person decides"));
-                    continue;
-                }
-                ((LocationCurve)w.Location).Curve = Line.CreateBound(new XYZ(c.Start[0] * MmToFeet, c.Start[1] * MmToFeet, a0.Z), new XYZ(c.End[0] * MmToFeet, c.End[1] * MmToFeet, a0.Z));
-                Collect(result, el, w);
             }
 
             // MA-0: retype before attach. Only to a type already in the document; the model must still hold the type

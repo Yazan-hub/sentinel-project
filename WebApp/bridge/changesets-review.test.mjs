@@ -266,6 +266,13 @@ describe("carryDeclines — a decline carried to the next filing (MA-3b3)", () =
     expect(set("FireRating", undefined)).toBeNull();
     expect(carryKey({ kind: "wall", op: "create", target: null, place: { TypeName: "T" } })).toBeNull();
     expect(carryKey(null)).toBeNull();
+    // MA-5b-4 review: a reshape is the same change when it moves the same wall from the same placed line to the same line (to the mm)
+    const reshape = (placed, to, id = uid) => carryKey({ kind: "wall", op: "reshape", target: { unique_id: id, placed }, place: { LocationCurve: to } });
+    const A = { start: [47850, 0, 0], end: [47850, 6000, 0] }, B = { start: [47950, 0, 0], end: [47950, 6000, 0] };
+    expect(reshape(A, B)).toBe(reshape({ start: [47850.2, 0, 0], end: [47850, 6000, 0] }, B, uid.toUpperCase()));
+    expect(reshape(A, B)).not.toBe(reshape(A, { start: [48050, 0, 0], end: [48050, 6000, 0] }));   // to another line
+    expect(reshape(A, B)).not.toBe(reshape(B, B));                                                  // from another placed line
+    expect(reshape(undefined, B)).toBeNull();
   });
 
   it("a result that applies a carried decline is refused whatever review_rev it claims, and the refusal says where the decline was made", () => {

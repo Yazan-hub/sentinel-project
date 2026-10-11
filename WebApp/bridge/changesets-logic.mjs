@@ -692,6 +692,12 @@ export function carryKey(el) {
   if (el.op === "retype") return name(p.TypeName) ? JSON.stringify([...head, name(p.TypeName), name(p.FamilyName)]) : null;
   if (el.op === "attach") return name(p.BaseLevel) && name(p.TopLevel) ? JSON.stringify([...head, name(p.BaseLevel), name(p.TopLevel)]) : null;
   if (el.op === "set_parameter") return one(el.parameter) && typeof el.to === "string" ? JSON.stringify([...head, name(el.parameter), el.to]) : null;
+  // MA-5b-4 review: a reshape is the same change when it moves the same wall from the same placed line to the same line (to the mm)
+  if (el.op === "reshape") {
+    const mm = (q) => (Array.isArray(q) && q.length === 3 && q.every(Number.isFinite) ? q.map(Math.round) : null);
+    const k = [mm(el.target?.placed?.start), mm(el.target?.placed?.end), mm(p.LocationCurve?.start), mm(p.LocationCurve?.end)];
+    return k.every(Boolean) ? JSON.stringify([...head, ...k]) : null;
+  }
   return null;
 }
 

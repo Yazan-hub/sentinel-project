@@ -160,6 +160,17 @@ export function priorOf(changesets, revises) {
       else if (e.kind === "room" && e.place?.Name) rooms.push({ ...at, name: e.place.Name, number: e.place.Number ?? null, point: e.place.Location ?? null });
     }
   }
+  // MA-5b-4 review: an APPLIED reshape moved its wall — the newest drawing's (the chain is newest first) is where the wall stands now; a
+  // kept one (rejected: edited by hand) moved nothing
+  const moved = new Set();
+  for (const c of items.flatMap((item) => filedOf(item))) {
+    const placedNow = new Map((c.result?.applied ?? []).map((a) => [a.proposal_guid, a.revit_unique_id]));
+    for (const e of c.elements ?? []) {
+      const uid = e.op === "reshape" ? placedNow.get(e.proposal_guid) : null;
+      const w = uid && !moved.has(uid) && walls.find((x) => x.revit === uid);
+      if (w && e.place?.LocationCurve) { moved.add(uid); w.start = e.place.LocationCurve.start; w.end = e.place.LocationCurve.end; }
+    }
+  }
   return { item: revises, walls, doors, rooms, storey: filedOf(revises)[0].job.storey ?? null, changesets: cs.map((c) => c.name), chain: items };
 }
 const DRAWING_READER = "sentinel-drawing ";
@@ -287,6 +298,7 @@ export function planDrawing({ job, candidates, align, manifest = [], type, filed
   for (const [i, p] of [...pOf]) if (p.off > pBest.get(p.j) + S) pOf.delete(i);
   for (const p of ppairs) if (pOf.has(p.i) && p.off <= pOf.get(p.i).off + S) pLine.set(p.i, [...(pLine.get(p.i) ?? []), p.j]);
   const pMatched = new Set([...pLine.values()].flat());
+  const reshapedHere = new Set(); // MA-5b-4 review: the walls this revision reshapes — a door B adds on one waits for the next proposal
   const revision = prior ? { revises: prior.item, unchanged: 0, reshaped: 0, changed: 0, removed: 0, doors_unchanged: 0, doors_removed: 0, rooms_unchanged: 0, rooms_removed: 0 } : null;
   const box = (pts, g) => (pts.length ? [Math.min(...pts.map((p) => p[0])) - g, Math.min(...pts.map((p) => p[1])) - g, Math.max(...pts.map((p) => p[0])) + g, Math.max(...pts.map((p) => p[1])) + g] : null);
   const inBox = (b, p, q) => { const x = (p[0] + q[0]) / 2, y = (p[1] + q[1]) / 2; return !!b && x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3]; };
@@ -347,7 +359,15 @@ export function planDrawing({ job, candidates, align, manifest = [], type, filed
       // to this drawing's line; Revit keeps it as it stands when a person edited it since it was placed (target.placed). A thickness change
       // (a retype would move a face), a split or a merge, or a wall not placed yet stays a person's row.
       const one = (pLine.get(i) ?? []).length === 1 && [...pLine.values()].filter((js) => js.includes(pm.j)).length === 1;
-      if (!thick && one && pv.revit) {
+      // review: a door the chain placed in this wall must stay inside it — a reshape that would leave it beyond an end is a person's row
+      const nl = [M.xy(trimmed[i].start), M.xy(trimmed[i].end)], nL = Math.hypot(nl[1][0] - nl[0][0], nl[1][1] - nl[0][1]);
+      const outside = !(!thick && one && pv.revit) ? [] : prior.doors.filter((d) => { // only a wall that would be reshaped
+        const ox = (pv.end[0] - pv.start[0]), oy = (pv.end[1] - pv.start[1]), oL = Math.hypot(ox, oy);
+        if (!oL || Math.abs(((d.at[0] - pv.start[0]) * oy - (d.at[1] - pv.start[1]) * ox) / oL) > pv.t / 2 + S) return false; // not this wall's door
+        const u = ((d.at[0] - nl[0][0]) * (nl[1][0] - nl[0][0]) + (d.at[1] - nl[0][1]) * (nl[1][1] - nl[0][1])) / (nL || 1);
+        return u < 0 || u > nL;
+      });
+      if (!thick && one && pv.revit && !outside.length) {
         revision.reshaped++;
         elements.push({ op: "reshape", kind: "wall", cid: c.cid, evidence: c.evidence, validate: { identity: { Class: KIND_ENTITY.wall, Name: c.cid } },
           target: { unique_id: pv.revit, placed: { start: pv.start, end: pv.end } },
@@ -355,7 +375,12 @@ export function planDrawing({ job, candidates, align, manifest = [], type, filed
           reason: (`revised wall ${c.cid}: ${what} — ${pv.cid} (${pv.changeset}, Revit ${pv.revit}) moves to ${item}'s line; Revit keeps it as it stands ` +
             `if a person edited it since it was placed · its type kept · drawn, not measured · ${ref}`).slice(0, 500) });
         byCid.set(c.cid, trust({ ...c.measured, thickness_mm: t, length_mm: len }, { trim_mm: trimmed[i].trim_mm }));
+        reshapedHere.add(i);
         return;
+      }
+      if (outside.length) {
+        revision.changed++;
+        return hold(c, `changed since ${prior.item} — ${what}: reshaping ${pv.cid} would leave ${outside.map((d) => d.cid).join(", ")} beyond its end — a person decides in Revit`);
       }
       revision.changed++;
       return hold(c, `changed since ${prior.item} — ${what}: ${pv.cid} (${pv.changeset}${pv.revit ? `, Revit ${pv.revit}` : ""}) stays as placed; a person updates it in Revit`);
@@ -416,6 +441,10 @@ export function planDrawing({ job, candidates, align, manifest = [], type, filed
     const P = M.xy(pointAlong(walls[hi].start, walls[hi].end, c.geometry.along_paper_mm * S));
     // MA-5b-3: a door on a wall the earlier drawing placed goes into that wall, as placed
     const viaPrior = pOf.has(hi), hw = viaPrior ? pw : sw, hl = viaPrior ? pLine : lineOf, hm = viaPrior ? pOf : matchOf;
+    // MA-5b-4 review: its wall moves in this changeset — placed on the old line first, it would be hostless if Revit keeps the wall
+    if (reshapedHere.has(hi) && !(prior?.doors ?? []).some((d) => Math.hypot(...M.xy(pointAlong(walls[hi].start, walls[hi].end, c.geometry.along_paper_mm * S)).map((v, k) => v - d.at[k])) <= MATCH_MM)) {
+      hold(c, `its wall ${host} is reshaped in this changeset — apply it first, then propose the drawing again: the door goes into the wall where it then stands`); continue;
+    }
     let sv = null, on = null;
     for (const j of hl.get(hi) ?? []) {
       const x = hw[j], ex = x.end[0] - x.start[0], ey = x.end[1] - x.start[1], el = Math.hypot(ex, ey), u = ((P[0] - x.start[0]) * ex + (P[1] - x.start[1]) * ey) / el;
