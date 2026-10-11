@@ -61,7 +61,7 @@ namespace Sentinel.Drawing
                         ["wall_weight_pt"] = reading.WallWeight.HasValue ? R(reading.WallWeight.Value) : null, ["faces"] = reading.Faces,
                         ["unpaired_faces"] = reading.Unpaired, ["arcs"] = reading.Arcs, ["walls"] = reading.Walls.Count, ["doors"] = reading.Doors.Count,
                         ["columns"] = reading.Columns,
-                        ["weights"] = new JsonArray(reading.Weights.Select(x => (JsonNode)new JsonObject { ["pt"] = R(x.weight), ["paired_paper_mm"] = R(x.paired) }).ToArray()),
+                        ["weights"] = new JsonArray(reading.Weights.Select(x => (JsonNode)new JsonObject { ["pt"] = R(x.weight), ["paired_paper_mm"] = R(x.paired), ["read"] = x.read }).ToArray()),
                     };
                     if (reading.Why != null) ri["why"] = reading.Why;
                     receiptItems.Add(ri);

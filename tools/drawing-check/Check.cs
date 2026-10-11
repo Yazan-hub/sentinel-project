@@ -116,9 +116,47 @@ namespace Sentinel.Checks
             // (j) A border and a title block drawn heaviest: the walls are read from the weight that pairs into walls.
             var sheet = new List<Stroke> { Ln(10, 10, 287, 10, 1), Ln(287, 10, 287, 200, 1), Ln(287, 200, 10, 200, 1), Ln(10, 200, 10, 10, 1),
                 Ln(225, 12, 285, 12, 1), Ln(225, 19, 285, 19, 1), Ln(225, 26, 285, 26, 1), Ln(225, 33, 285, 33, 1) };
-            for (int k = 0; k < 4; k++) { sheet.Add(Ln(20, 40 + 30 * k, 180, 40 + 30 * k)); sheet.Add(Ln(20, 46 + 30 * k, 180, 46 + 30 * k)); }
+            for (int k = 0; k < 5; k++) { sheet.Add(Ln(20, 40 + 30 * k, 200, 40 + 30 * k)); sheet.Add(Ln(20, 46 + 30 * k, 200, 46 + 30 * k)); }
+            for (int k = 0; k < 3; k++) { sheet.Add(Ln(30 + 60 * k, 52, 30 + 60 * k, 190)); sheet.Add(Ln(36 + 60 * k, 52, 36 + 60 * k, 190)); }
             var rs = An(sheet);
-            Ok(rs.WallWeight == 0.7 && rs.Walls.Count == 4 && rs.Walls.All(w => Math.Abs(w.Thickness - 6) < 0.01), $"a heaviest border and title block: the walls read at 0.7 ({rs.WallWeight}, {Ws(rs)})");
+            Ok(rs.WallWeight == 0.7 && rs.Walls.Count == 8 && rs.Walls.All(w => Math.Abs(w.Thickness - 6) < 0.01) && rs.Weights.Any(w => w.weight == 1 && !w.read),
+                $"a heaviest border and title block pairing into under 30 % of the walls: walls at 0.7 only ({rs.WallWeight}, {Ws(rs)})");
+            // ---- the skeptic's cases (a second review of the new pairing) ----
+            Stroke[] Rect(double x0, double y0, double x1, double y1) => new[] { Ln(x0, y0, x1, y0), Ln(x1, y0, x1, y1), Ln(x1, y1, x0, y1), Ln(x0, y1, x0, y0) };
+            // (l) A cavity wall (four lines: two leaves and the cavity): the two leaves, never the cavity.
+            foreach (var r in Both(new List<Stroke> { Ln(0, 0, 200, 0), Ln(0, 2.05, 200, 2.05), Ln(0, 4.05, 200, 4.05), Ln(0, 6.05, 200, 6.05),
+                Ln(0, 0, 0, 2.05), Ln(200, 0, 200, 2.05), Ln(0, 4.05, 0, 6.05), Ln(200, 4.05, 200, 6.05) }))
+                Ok(r.Walls.Count == 2 && Has(r, 0, 1.025, 200, 1.025, 2.05) && Has(r, 0, 5.05, 200, 5.05, 2), $"a cavity wall: its two leaves, not the cavity — {Ws(r)}");
+            // (m) Two walls with a void between: the two walls; a lining against a wall: both the wall and the lining.
+            foreach (var r in Both(new List<Stroke> { Ln(0, 0, 200, 0), Ln(0, 6, 200, 6), Ln(0, 10, 200, 10), Ln(0, 14, 200, 14), Ln(0, 0, 0, 6), Ln(200, 0, 200, 6), Ln(0, 10, 0, 14), Ln(200, 10, 200, 14) }))
+                Ok(r.Walls.Count == 2 && Has(r, 0, 3, 200, 3, 6) && Has(r, 0, 12, 200, 12, 4), $"two walls with a void between: the two walls — {Ws(r)}");
+            foreach (var r in Both(new List<Stroke> { Ln(0, 0, 200, 0), Ln(0, 6, 200, 6), Ln(0, 7, 200, 7) }))
+                Ok(r.Walls.Count == 2 && Has(r, 0, 3, 200, 3, 6) && Has(r, 0, 6.5, 200, 6.5, 1), $"a lining against a wall: the wall and the lining — {Ws(r)}");
+            // (n) Piers between windows, each a closed outline on the wall's line: walls, not columns.
+            var piers = new List<Stroke>();
+            double[] cuts = { 0, 40, 80, 100, 140, 160, 200, 220, 260, 300 };
+            for (int i = 0; i + 1 < cuts.Length; i += 2) piers.AddRange(Rect(cuts[i], 0, cuts[i + 1], 6));
+            foreach (var r in Both(piers)) Ok(r.Walls.Count == 5 && r.Columns == 0, $"piers between windows: 5 walls, no column — {Ws(r)}; columns {r.Columns}");
+            // (o) Two walls crossing, each cut at the other: both run through.
+            foreach (var r in Both(new List<Stroke> { Ln(0, 0, 98, 0), Ln(102, 0, 200, 0), Ln(0, 4, 98, 4), Ln(102, 4, 200, 4), Ln(0, 0, 0, 4), Ln(200, 0, 200, 4),
+                Ln(98, -100, 98, 0), Ln(98, 4, 98, 100), Ln(102, -100, 102, 0), Ln(102, 4, 102, 100), Ln(98, -100, 102, -100), Ln(98, 100, 102, 100) }))
+                Ok(r.Walls.Count == 2 && Has(r, 0, 2, 200, 2, 4) && Has(r, 100, -100, 100, 100, 4), $"a crossing: both walls run through — {Ws(r)}");
+            // (p) External walls in one pen, more partitions in a lighter one: both read.
+            var pens = new List<Stroke> { Ln(0, 0, 200, 0), Ln(200, 0, 200, 150), Ln(200, 150, 0, 150), Ln(0, 150, 0, 0), Ln(6, 6, 194, 6), Ln(194, 6, 194, 144), Ln(194, 144, 6, 144), Ln(6, 144, 6, 6) };
+            foreach (var px in new[] { 25.0, 45, 65, 85, 105, 125, 145, 165 }) { pens.Add(Ln(px - 1, 6, px - 1, 144, 0.5)); pens.Add(Ln(px + 1, 6, px + 1, 144, 0.5)); }
+            var rp = An(pens);
+            Ok(rp.Walls.Count == 12 && rp.Walls.Count(w => Math.Abs(w.Thickness - 6) < 0.01) == 4, $"two pens: 4 external walls and 8 partitions — {rp.Walls.Count} walls, weights {string.Join(", ", rp.Weights.Select(w => $"{w.weight}:{w.paired}:{w.read}"))}");
+            // (q) A framed door (an 826 leaf in a 926 opening): one wall through, the door the opening's width at its middle.
+            var framed = new List<Stroke> { Ln(0, 0, 50, 0), Ln(0, 4, 50, 4), Ln(50, 0, 50, 4), Ln(68.5, 0, 150, 0), Ln(68.5, 4, 150, 4), Ln(68.5, 0, 68.5, 4) };
+            foreach (var r in Both(framed, new List<Curve> { Bz(51, 4, 16.5, 0, 90) }))
+                Ok(r.Walls.Count == 1 && r.Doors.Count == 1 && Math.Abs(r.Doors[0].Width - 18.5) < 0.05 && Math.Abs(r.Doors[0].X - 59.25) < 0.05, $"a framed door: one wall, the door 18.5 wide at 59.25 — {Ws(r)}");
+            // (r) A threshold line on one face across the door: still a door, in one wall.
+            foreach (var r in Both(door.Concat(new[] { Ln(50, 0, 68, 0) }).ToList(), arc))
+                Ok(r.Walls.Count == 1 && r.Doors.Count == 1 && Math.Abs(r.Doors[0].Width - 18) < 0.05, $"a threshold line across a door: one wall, one door — {Ws(r)}; {r.Doors.Count} door(s)");
+            // (s) A column in a wall's line, its outline full: one column, counted once; the wall stops at it.
+            foreach (var r in Both(new List<Stroke> { Ln(0, 0, 100, 0), Ln(108, 0, 200, 0), Ln(0, 4, 100, 4), Ln(108, 4, 200, 4), Ln(0, 0, 0, 4), Ln(200, 0, 200, 4),
+                Ln(100, -2, 108, -2), Ln(100, 6, 108, 6), Ln(100, -2, 100, 6), Ln(108, -2, 108, 6) }))
+                Ok(r.Walls.Count == 2 && r.Columns == 1, $"a column in a wall's line: 2 walls, 1 column — {Ws(r)}; columns {r.Columns}");
             // (k) Speed: 20,000 wall strokes (500 walls, each face in 20 pieces, shuffled) read well inside the bridge's bound.
             var big = new List<Stroke>();
             for (int k = 0; k < 500; k++) for (int p = 0; p < 20; p++) { big.Add(Ln(p * 10, 10 * k, p * 10 + 10, 10 * k)); big.Add(Ln(p * 10, 10 * k + 4, p * 10 + 10, 10 * k + 4)); }

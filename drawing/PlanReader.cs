@@ -2,19 +2,25 @@
 // MA-5a-3 — sentinel-drawing's reading of one plan page (plan docs/superpowers/plans/2026-10-11-ma5a3-drawing-reader.md).
 //
 // WALLS: a vector plan draws a cut wall as its two faces in one line weight. Collinear strokes of a weight make a FACE LINE (the
-// intervals it covers); two parallel face lines within PAIR_MAX are a wall where BOTH faces are present. Pairs claim in order of their
-// gap, closest first, over the whole page (never in stroke order: a CAD plot writes strokes in any order) — so a face left over at a
-// T-junction cannot steal a far partner, and two walls of different thickness on one flush face stay two. A claimed run then crosses a
-// gap where only ONE face breaks (a wall meeting it: a T) and runs on along a face that continues alone (an L corner); a gap where BOTH
-// faces break is an opening. A wall is longer than it is thick (two jambs a door apart are no wall); a short run capped at both ends
-// is a column, not a wall. The weight read as walls is the one whose lines pair into the most wall length (a border or title block
-// drawn heaviest pairs into little).
-// DOORS: a quarter-circle swing (90° ± 10) aligned with a wall — its strike along the wall, its open leaf across it — hinged at the end
-// of a gap of its radius (± 10 %), which joins the two collinear walls into ONE wall through the door (Revit hosts a door in one
-// wall); two swings of half the gap are a double door; a swing at a wall's end with no wall beyond (a door beside a corner) is a door
-// too, the wall run on through it. A "W x H" tag that is a door's nearest and has that door nearest is kept, as the drawing's numbers.
+// intervals it covers); two parallel face lines within PAIR_MAX are a wall where BOTH faces are present. Pairs claim over the whole page
+// (never in stroke order: a CAD plot writes strokes in any order): those with an OUTER face (nothing parallel beyond it) first, then the
+// rest, each by its gap, closest first; a face is claimed once per side (a lining shares the wall's face), a pair whose faces are
+// already walls on their far sides is a void or a cavity between two walls, and a line inside a wall is no face of another. A claimed
+// run then crosses a gap where only ONE face breaks (a wall meeting it: a T) and runs on along a face that continues alone (an L
+// corner); a gap where BOTH faces break is an opening, or a crossing when a crossing wall's own gap fits it. A wall is longer than it is
+// thick (two jambs a door apart are no wall); a run alone on its line, capped at both ends and at most COLUMN x its thickness (or under
+// 1.5 x), is a column. Every weight whose lines pair into at least WEIGHT_SHARE of the best weight's wall length is read (external walls
+// and partitions in two pens); a border or title block drawn heaviest pairs into little.
+// DOORS: a quarter-circle swing (90° ± 10) set square to a wall — its strike along the wall, its open leaf across it — hinged at an end
+// of an opening of about its radius (a leaf 75–110 % of the opening: a frame takes the rest), which joins the two collinear walls into
+// ONE wall through the door (Revit hosts a door in one wall); two swings of half the opening are a double door; a swing over a gap where
+// one face runs on (a threshold line) is a door in the one wall; a swing at a wall's end with no wall beyond (a door beside a corner) is
+// a door too, the wall run on through it. A "W x H" tag that is a door's nearest and has that door nearest is kept, as the drawing's
+// numbers.
 // Paper millimetres throughout (page origin bottom-left, y up): the scale and placement are the lead's 2-point alignment (MA-5a-4).
 // Analyse() is pure — strokes, curves and words in, a Reading out; Read(page) only collects them.
+// ponytail: window glass or sill lines, stair treads and a door leaf drawn as a rectangle IN the wall weight pair into thin walls; a
+// dense hatch in its own weight can out-pair the walls — the receipt lists every weight's paired length. Fix each when a real set does it.
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -37,9 +43,10 @@ namespace Sentinel.Drawing
         public List<Wall> Walls = new List<Wall>();
         public List<Door> Doors = new List<Door>();
         public int Strokes, Faces, Arcs, Unpaired, Columns;
+        /// <summary>The weight that pairs into the most wall length.</summary>
         public double? WallWeight;
-        /// <summary>Each stroke weight and the wall length its lines pair into (paper mm) — what the wall weight was chosen from.</summary>
-        public List<(double weight, double paired)> Weights = new List<(double, double)>();
+        /// <summary>Each stroke weight, the wall length its lines pair into (paper mm) and whether it was read as walls.</summary>
+        public List<(double weight, double paired, bool read)> Weights = new List<(double, double, bool)>();
         public string Why;
     }
 
@@ -48,9 +55,11 @@ namespace Sentinel.Drawing
         public const double MM_PER_PT = 25.4 / 72;
         public const double PAIR_MAX = 25;     // paper mm: a 1250 mm wall at 1:50 — faces further apart are two walls across a room
         public const double ARC_SPAN = 90, ARC_SPAN_TOL = 10; // degrees: a door swing is a quarter circle
-        public const double GAP_TOL = 0.10;    // a swing's radius within 10 % of its gap; its hinge within 10 % of the gap's end
+        public const double GAP_TOL = 0.10;    // a swing set square within 10 % of its radius; its hinge within 10 % of the opening's end
+        public const double LEAF_MIN = 0.75, LEAF_MAX = 1.1; // a leaf's radius as a share of its opening (a frame takes the rest)
         public const double TAG_REACH = 1.5;   // a tag within 1.5 radii of its door
-        public const double COLUMN = 4;        // a run capped at both ends and shorter than 4 x its thickness is a column
+        public const double COLUMN = 3;        // a lone run capped at both ends and at most 3 x its thickness is a column (300 x 900)
+        public const double WEIGHT_SHARE = 0.3; // a weight pairing into 30 % of the best's wall length is read too (two pens)
         const double PARALLEL = 0.5 * Math.PI / 180; // radians: a plot draws a wall's two faces at one angle
         const double TOUCH = 0.05;             // paper mm: strokes on one line within this touch; a gap shorter than this is none
         const double CIRCLE = 0.02;            // a curve is a circle's arc when its quarter points sit within 2 % of the radius
@@ -102,47 +111,72 @@ namespace Sentinel.Drawing
             if (strokes.Count == 0) { r.Why = "no stroked line on the page — nothing drawn to read (text only, a scan or a filled-only drawing: C10)"; return r; }
             var classes = strokes.GroupBy(s => Math.Round(s.Weight, 3)).OrderByDescending(g => g.Key).ToList();
             if (classes.Count == 1) { r.Why = "one line weight on the page — walls are not told from the rest"; return r; }
-            // The weight whose lines pair into the most wall length; a near tie (within 20 %) goes to the heavier.
-            // ponytail: a dense hatch in its own weight can out-pair the walls — the receipt lists every weight's paired length; exclude
-            // hatch-like spacing when a real set does that.
-            (double weight, List<Line> lines, List<Band> bands, double total) best = (0, null, null, 0);
+            int groups = 0;
+            var read = new List<(double weight, List<Stroke> strokes, List<Line> lines, List<Band> bands, double total)>();
             foreach (var cls in classes)
             {
-                var lines = Lines(cls.ToList());
+                var ss = cls.ToList();
+                var lines = Lines(ss, ref groups);
                 var bands = Bands(lines);
-                double total = bands.Sum(b => b.Hi - b.Lo);
-                r.Weights.Add((cls.Key, Math.Round(total, 3)));
-                if (total > best.total * 1.2) best = (cls.Key, lines, bands, total);
+                read.Add((cls.Key, ss, lines, bands, bands.Sum(b => b.Hi - b.Lo)));
             }
-            if (best.lines == null) { r.Why = $"no two parallel lines of one weight pair into a wall (faces under {PAIR_MAX} paper mm apart, longer than thick)"; return r; }
-            r.WallWeight = best.weight;
-            r.Faces = best.lines.Count;
-            r.Unpaired = best.lines.Count(l => l.Own.Count == 0);
-            var heavy = classes.First(c => c.Key == best.weight).ToList();
-            var pieces = best.bands.Select(b => Piece(b, heavy)).ToList();
+            double most = read.Max(x => x.total);
+            if (most <= 0) { r.Why = $"no two parallel lines of one weight pair into a wall (faces under {PAIR_MAX} paper mm apart, longer than thick)"; return r; }
+            foreach (var x in read) r.Weights.Add((x.weight, Math.Round(x.total, 3), x.total >= WEIGHT_SHARE * most));
+            read = read.Where(x => x.total >= WEIGHT_SHARE * most).ToList();
+            r.WallWeight = read.OrderByDescending(x => x.total).First().weight;
+            r.Faces = read.Sum(x => x.lines.Count);
+            r.Unpaired = read.Sum(x => x.lines.Count(l => l.OwnLo.Count == 0 && l.OwnHi.Count == 0));
+            var pieces = read.SelectMany(x => x.bands.Select(b => Piece(b, x.strokes))).ToList();
 
             var arcs = Arcs(curves);
             r.Arcs = arcs.Count;
             var used = new bool[arcs.Count];
             var group = Enumerable.Range(0, pieces.Count).ToArray();
             int Find(int i) { while (group[i] != i) i = group[i] = group[group[i]]; return i; }
+            void Union(int i, int j) => group[Find(j)] = Find(i);
             var found = new List<(int piece, Door door)>();
+            var tracks = Tracks(pieces);
+            var open = new List<(List<int> track, int k, double g0, double g1)>(); // openings with no door yet
 
-            // Doors in a gap between two collinear pieces of one thickness (consecutive along their line: nothing collinear between).
-            foreach (var track in Tracks(pieces))
+            // Doors in an opening between two collinear pieces of one thickness (consecutive along their line: nothing collinear between).
+            foreach (var track in tracks)
                 for (int k = 0; k + 1 < track.Count; k++)
                 {
                     var a = pieces[track[k]]; var b = pieces[track[k + 1]];
-                    double g0 = a.Hi, g1 = b.Lo, g = g1 - g0;
-                    if (g <= TOUCH) continue;
+                    double g0 = a.Hi, g1 = b.Lo;
+                    if (g1 - g0 <= TOUCH) continue;
                     var door = GapDoor(a, g0, g1, arcs, used);
-                    if (door == null) continue;
+                    if (door == null) { open.Add((track, k, g0, g1)); continue; }
                     a.DoorHi = b.DoorLo = true;
                     found.Add((track[k], door));
-                    group[Find(track[k + 1])] = Find(track[k]);
+                    Union(track[k], track[k + 1]);
+                }
+            // A crossing: two walls cut each other — each one's opening as wide as the other is thick, at the same place. Both run through.
+            foreach (var (track, k, g0, g1) in open)
+            {
+                var a = pieces[track[k]];
+                var (cx, cy) = a.At((g0 + g1) / 2, a.C);
+                foreach (var (t2, k2, h0, h1) in open)
+                {
+                    var b = pieces[t2[k2]];
+                    if (Math.Abs(a.Ux * b.Ux + a.Uy * b.Uy) >= Math.Cos(PARALLEL)) continue;
+                    double tol = Math.Max(0.2, 0.1 * Math.Max(a.G, b.G)), s = S(b, cx, cy), o = cx * b.Nx + cy * b.Ny - b.C;
+                    if (Math.Abs(o) > tol || s < h0 - tol || s > h1 + tol) continue;
+                    if (Math.Abs((g1 - g0) - b.G) > tol || Math.Abs((h1 - h0) - a.G) > tol) continue;
+                    Union(track[k], track[k + 1]);
+                    Union(t2[k2], t2[k2 + 1]);
+                }
+            }
+            // A swing over a gap one face runs on across (a threshold or a frame line): a door in the one wall.
+            foreach (var (p, i) in pieces.Select((p, i) => (p, i)))
+                foreach (var (g0, g1) in p.Gaps)
+                {
+                    var door = GapDoor(p, g0, g1, arcs, used);
+                    if (door != null) found.Add((i, door));
                 }
             // A swing at a piece's end with no piece beyond within its radius: a door beside a corner — the piece runs on through it.
-            foreach (var track in Tracks(pieces))
+            foreach (var track in tracks)
                 for (int k = 0; k < track.Count; k++)
                 {
                     var p = pieces[track[k]];
@@ -158,19 +192,31 @@ namespace Sentinel.Drawing
                     }
                 }
 
-            // One wall per group of pieces joined through doors; a lone run capped at both ends, shorter than COLUMN x its thickness and
-            // with no door is a column — counted, not a wall.
+            // One wall per group of pieces joined through doors and crossings. A run alone on its line, with no door, capped at both ends
+            // and at most COLUMN x its thickness — or under 1.5 x — is a column, counted once by its centre, not a wall (a pier between
+            // windows is on a wall's line: a wall).
+            var alone = new HashSet<int>(tracks.Where(t => t.Count == 1).Select(t => t[0]));
+            var columns = new HashSet<(long, long)>();
             var wallOf = new Dictionary<int, int>();
             for (int i = 0; i < pieces.Count; i++)
             {
                 int root = Find(i);
                 if (wallOf.ContainsKey(root)) continue;
-                var members = Enumerable.Range(0, pieces.Count).Where(k => Find(k) == root).Select(k => pieces[k]).ToList();
-                var p0 = members[0];
-                if (members.Count == 1 && p0.CapLo && p0.CapHi && !p0.DoorLo && !p0.DoorHi && p0.Hi - p0.Lo < COLUMN * p0.G) { r.Columns++; wallOf[root] = -1; continue; }
+                var members = Enumerable.Range(0, pieces.Count).Where(k => Find(k) == root).ToList();
+                var p0 = pieces[members[0]];
+                double len = p0.Hi - p0.Lo;
+                if (members.Count == 1 && alone.Contains(members[0]) && !p0.DoorLo && !p0.DoorHi && !found.Any(f => f.piece == members[0])
+                    && ((p0.CapLo && p0.CapHi && len <= COLUMN * p0.G) || len < 1.5 * p0.G))
+                {
+                    var (mx, my) = p0.At((p0.Lo + p0.Hi) / 2, p0.C);
+                    columns.Add(((long)Math.Round(mx * 2), (long)Math.Round(my * 2)));
+                    wallOf[root] = -1;
+                    continue;
+                }
                 wallOf[root] = r.Walls.Count;
-                r.Walls.Add(Join(members));
+                r.Walls.Add(Join(members.Select(k => pieces[k]).ToList()));
             }
+            r.Columns = columns.Count;
             foreach (var (piece, d) in found)
             {
                 d.Host = wallOf[Find(piece)];
@@ -186,16 +232,20 @@ namespace Sentinel.Drawing
 
         // ---- face lines -------------------------------------------------------------------------------------------------------
 
-        /// <summary>A face line: collinear strokes of one weight, as the intervals they cover along U (s), at offset Off along N.</summary>
+        /// <summary>A face line: collinear strokes of one weight, as the intervals they cover along U (s), at offset Off along N. A pair
+        /// claims its lower line's upper side (OwnHi) and its upper line's lower side (OwnLo). ExpLo / ExpHi: nothing parallel overlaps it
+        /// within PAIR_MAX on that side — an outer face.</summary>
         sealed class Line
         {
-            public int Group; public double Ux, Uy, Off;
+            public int Group; public double Ux, Uy, Off; public bool ExpLo, ExpHi;
             public List<(double a, double b)> Iv;
-            public List<(double a, double b, int cand)> Own = new List<(double, double, int)>(); // claimed by a pair (cand) where both faces are
+            public List<(double a, double b, int cand)> OwnLo = new List<(double, double, int)>(), OwnHi = new List<(double, double, int)>();
+            public IEnumerable<(double a, double b, int cand)> Own => OwnLo.Concat(OwnHi);
         }
 
-        /// <summary>Strokes grouped by direction (within PARALLEL), then by offset (within TOUCH) into face lines. O(n log n).</summary>
-        static List<Line> Lines(List<Stroke> strokes)
+        /// <summary>Strokes grouped by direction (within PARALLEL), then by offset (within TOUCH) into face lines. O(n log n), but for the
+        /// outer-face test (lines within PAIR_MAX of each other).</summary>
+        static List<Line> Lines(List<Stroke> strokes, ref int groupNo)
         {
             var dir = new List<(Stroke s, double th)>();
             foreach (var s in strokes)
@@ -209,7 +259,6 @@ namespace Sentinel.Drawing
             }
             dir.Sort((p, q) => p.th.CompareTo(q.th));
             var lines = new List<Line>();
-            int groupNo = 0;
             for (int i = 0; i < dir.Count;)
             {
                 int j = i + 1;
@@ -218,24 +267,34 @@ namespace Sentinel.Drawing
                 var at = dir.Skip(i).Take(j - i).Select(x => (off: ((x.s.X1 + x.s.X2) / 2) * nx + ((x.s.Y1 + x.s.Y2) / 2) * ny,
                     a: Math.Min(x.s.X1 * ux + x.s.Y1 * uy, x.s.X2 * ux + x.s.Y2 * uy), b: Math.Max(x.s.X1 * ux + x.s.Y1 * uy, x.s.X2 * ux + x.s.Y2 * uy)))
                     .OrderBy(x => x.off).ToList();
+                var mine = new List<Line>();
                 for (int k = 0; k < at.Count;)
                 {
                     int m = k + 1;
                     while (m < at.Count && at[m].off - at[m - 1].off <= TOUCH) m++;
-                    lines.Add(new Line { Group = groupNo, Ux = ux, Uy = uy, Off = at.Skip(k).Take(m - k).Average(x => x.off), Iv = Norm(at.Skip(k).Take(m - k).Select(x => (x.a, x.b))) });
+                    mine.Add(new Line { Group = groupNo, Ux = ux, Uy = uy, Off = at.Skip(k).Take(m - k).Average(x => x.off), Iv = Norm(at.Skip(k).Take(m - k).Select(x => (x.a, x.b))) });
                     k = m;
                 }
+                for (int k = 0; k < mine.Count; k++)
+                {
+                    bool Near(int q) => Math.Abs(mine[q].Off - mine[k].Off) <= PAIR_MAX && Len(Inter(mine[k].Iv, mine[q].Iv)) > TOUCH;
+                    mine[k].ExpLo = true; mine[k].ExpHi = true;
+                    for (int q = k - 1; q >= 0 && mine[k].Off - mine[q].Off <= PAIR_MAX; q--) if (Near(q)) { mine[k].ExpLo = false; break; }
+                    for (int q = k + 1; q < mine.Count && mine[q].Off - mine[k].Off <= PAIR_MAX; q++) if (Near(q)) { mine[k].ExpHi = false; break; }
+                }
+                lines.AddRange(mine);
                 groupNo++;
                 i = j;
             }
             return lines;
         }
 
-        sealed class Band { public Line A, B; public double G, Lo, Hi; }
+        sealed class Band { public Line A, B; public double G, Lo, Hi; public List<(double, double)> Gaps = new List<(double, double)>(); }
 
-        /// <summary>Walls from face lines: candidate pairs (parallel, within PAIR_MAX) claim where both faces are present, closest first;
-        /// each claim then crosses one-sided gaps (a T) and runs on along a face that continues alone (an L corner, at most PAIR_MAX),
-        /// never into another pair's claim.</summary>
+        /// <summary>Walls from face lines: candidate pairs (parallel, within PAIR_MAX) claim where both faces are present — pairs with an
+        /// outer face first, then by gap, closest first; a face once per side; never a void between two walls, never a line inside one.
+        /// Each claim then crosses one-sided gaps (a T, a threshold) and runs on along a face that continues alone (an L corner, at most
+        /// PAIR_MAX), never into another pair's claim.</summary>
         static List<Band> Bands(List<Line> lines)
         {
             var cands = new List<(Line a, Line b, double g)>();
@@ -246,16 +305,20 @@ namespace Sentinel.Drawing
                     for (int j = i + 1; j < ls.Count && ls[j].Off - ls[i].Off <= PAIR_MAX; j++)
                         if (ls[j].Off - ls[i].Off > TOUCH) cands.Add((ls[i], ls[j], ls[j].Off - ls[i].Off));
             }
-            // Stable: the gap first, then where the pair sits — the same page gives the same walls whatever its stroke order.
-            cands = cands.OrderBy(c => c.g).ThenBy(c => c.a.Group).ThenBy(c => c.a.Off).ToList();
+            // Stable: outer first, then the gap, then where the pair sits — the same page gives the same walls whatever its stroke order.
+            cands = cands.OrderBy(c => c.a.ExpLo || c.b.ExpHi ? 0 : 1).ThenBy(c => c.g).ThenBy(c => c.a.Group).ThenBy(c => c.a.Off).ToList();
             var claims = new List<(Line a, Line b, double g, List<(double a, double b)> both)>();
+            static List<(double a, double b)> Ivs(List<(double a, double b, int cand)> own) => Norm(own.Select(o => (o.a, o.b)));
             foreach (var (a, b, g) in cands)
             {
-                var both = Inter(Minus(a.Iv, a.Own.Select(o => (o.a, o.b))), Minus(b.Iv, b.Own.Select(o => (o.a, o.b))));
+                var both = Inter(Minus(a.Iv, Ivs(a.OwnHi)), Minus(b.Iv, Ivs(b.OwnLo)));
+                both = Minus(both, Inter(Ivs(a.OwnLo), Ivs(b.OwnHi))); // walls on both far sides: the void or cavity between them
+                foreach (var c in claims)
+                    if (c.a.Group == a.Group && (Inside(a.Off, c.a, c.b) || Inside(b.Off, c.a, c.b))) both = Minus(both, c.both); // a line inside a wall
                 if (Len(both) < g) continue; // shorter than thick wherever both faces are free: jambs, caps
                 int id = claims.Count;
                 claims.Add((a, b, g, both));
-                foreach (var x in both) { a.Own.Add((x.a, x.b, id)); b.Own.Add((x.a, x.b, id)); }
+                foreach (var x in both) { a.OwnHi.Add((x.a, x.b, id)); b.OwnLo.Add((x.a, x.b, id)); }
             }
             var bands = new List<Band>();
             for (int id = 0; id < claims.Count; id++)
@@ -263,21 +326,27 @@ namespace Sentinel.Drawing
                 var (a, b, g, both) = claims[id];
                 bool Free(Line l, double x0, double x1) =>
                     Covers(l.Iv, x0, x1) && !l.Own.Any(o => o.cand != id && o.b > x0 + TOUCH && o.a < x1 - TOUCH);
-                var runs = new List<(double lo, double hi)>();
+                var runs = new List<(double lo, double hi, List<(double, double)> gaps)>();
                 foreach (var x in both)
                 {
-                    if (runs.Count > 0 && (Free(a, runs[^1].hi, x.a) || Free(b, runs[^1].hi, x.a))) runs[^1] = (runs[^1].lo, x.b);
-                    else runs.Add((x.a, x.b));
+                    if (runs.Count > 0 && (Free(a, runs[^1].hi, x.a) || Free(b, runs[^1].hi, x.a)))
+                    {
+                        runs[^1].gaps.Add((runs[^1].hi, x.a));
+                        runs[^1] = (runs[^1].lo, x.b, runs[^1].gaps);
+                    }
+                    else runs.Add((x.a, x.b, new List<(double, double)>()));
                 }
-                foreach (var (lo0, hi0) in runs)
+                foreach (var (lo0, hi0, gaps) in runs)
                 {
                     double lo = Math.Min(RunOn(a, lo0, -1, id), RunOn(b, lo0, -1, id)), hi = Math.Max(RunOn(a, hi0, 1, id), RunOn(b, hi0, 1, id));
                     if (hi - lo < g) continue; // a wall is longer than it is thick
-                    bands.Add(new Band { A = a, B = b, G = g, Lo = lo, Hi = hi });
+                    bands.Add(new Band { A = a, B = b, G = g, Lo = lo, Hi = hi, Gaps = gaps });
                 }
             }
             return bands;
         }
+
+        static bool Inside(double off, Line lo, Line hi) => off > lo.Off + TOUCH && off < hi.Off - TOUCH;
 
         /// <summary>How far a face continues alone from e (side -1: down, +1: up), at most PAIR_MAX and never into another pair's claim.</summary>
         static double RunOn(Line l, double e, int side, int id)
@@ -297,17 +366,18 @@ namespace Sentinel.Drawing
         // ---- pieces and doors -------------------------------------------------------------------------------------------------
 
         /// <summary>A band as a wall piece in its line's frame: axis U, centre offset C, extent Lo..Hi, thickness G; capped where a
-        /// heavy stroke closes an end across both faces.</summary>
+        /// stroke of its weight closes an end across both faces; Gaps: where one face breaks and the other runs on.</summary>
         sealed class Pc
         {
             public int Group; public double Ux, Uy, Nx, Ny, C, G, Lo, Hi; public Line A, B;
             public bool CapLo, CapHi, DoorLo, DoorHi;
+            public List<(double, double)> Gaps;
             public (double x, double y) At(double s, double o) => (Ux * s + Nx * o, Uy * s + Ny * o);
         }
 
         static Pc Piece(Band b, List<Stroke> heavy)
         {
-            var p = new Pc { Group = b.A.Group, Ux = b.A.Ux, Uy = b.A.Uy, Nx = -b.A.Uy, Ny = b.A.Ux, C = (b.A.Off + b.B.Off) / 2, G = b.G, Lo = b.Lo, Hi = b.Hi, A = b.A, B = b.B };
+            var p = new Pc { Group = b.A.Group, Ux = b.A.Ux, Uy = b.A.Uy, Nx = -b.A.Uy, Ny = b.A.Ux, C = (b.A.Off + b.B.Off) / 2, G = b.G, Lo = b.Lo, Hi = b.Hi, A = b.A, B = b.B, Gaps = b.Gaps };
             double tol = Math.Max(0.1, 0.05 * b.G);
             bool Cap(double s)
             {
@@ -325,9 +395,10 @@ namespace Sentinel.Drawing
             var tracks = new List<List<int>>();
             foreach (int i in Enumerable.Range(0, ps.Count).OrderBy(i => ps[i].Group).ThenBy(i => ps[i].C).ThenBy(i => ps[i].Lo))
             {
-                var t = tracks.FirstOrDefault(tr => { var q = ps[tr[0]]; return q.Group == ps[i].Group && Math.Abs(q.C - ps[i].C) <= Math.Max(0.25 * q.G, 0.2)
-                    && Math.Abs(q.G - ps[i].G) <= 0.1 * Math.Max(q.G, ps[i].G); });
-                if (t == null) tracks.Add(new List<int> { i }); else t.Add(i);
+                var t = tracks.Count == 0 ? null : tracks[^1];
+                var q = t == null ? null : ps[t[0]];
+                bool same = q != null && q.Group == ps[i].Group && Math.Abs(q.C - ps[i].C) <= Math.Max(0.25 * q.G, 0.2) && Math.Abs(q.G - ps[i].G) <= 0.1 * Math.Max(q.G, ps[i].G);
+                if (!same) tracks.Add(new List<int> { i }); else t.Add(i);
             }
             foreach (var t in tracks) t.Sort((x, y) => ps[x].Lo.CompareTo(ps[y].Lo));
             return tracks;
@@ -357,34 +428,37 @@ namespace Sentinel.Drawing
             return new Door { X = x, Y = y, Ux = p.Nx * leaf, Uy = p.Ny * leaf, Width = s1 - s0, Cx = c.Cx, Cy = c.Cy, Leaves = leaves };
         }
 
-        /// <summary>The door in the gap g0..g1 after piece a: one swing of the gap's radius hinged at either end, or two of half of it
-        /// hinged at both (a double door). Marks the arcs used.</summary>
+        /// <summary>The door in the opening g0..g1 of piece a's line: one swing of LEAF_MIN–LEAF_MAX of the opening, hinged at an end (a
+        /// frame's width in from it at most), or two of half that hinged at both ends (a double door). Marks the arcs used.</summary>
         static Door GapDoor(Pc a, double g0, double g1, List<Arc> arcs, bool[] used)
         {
-            double g = g1 - g0;
-            if (g < a.G) return null; // a gap narrower than the wall is thick is no door
+            double g = g1 - g0, tol = GAP_TOL * g;
+            if (g < a.G) return null; // an opening narrower than the wall is thick is no door
+            bool Hinged(Arc c, int strike, double r, double lo, double hi)
+            {
+                double s = S(a, c.Cx, c.Cy), frame = Math.Max(0, (hi - lo) - r);
+                return strike > 0 ? s >= lo - tol && s <= lo + frame + tol : s <= hi + tol && s >= hi - frame - tol;
+            }
             int best = -1; double bestErr = double.MaxValue; int bestLeaf = 0;
             for (int k = 0; k < arcs.Count; k++)
             {
                 var c = arcs[k];
-                if (used[k] || Math.Abs(c.R - g) > GAP_TOL * g || !OnWall(a, c, GAP_TOL * g)) continue;
+                if (used[k] || c.R < LEAF_MIN * g || c.R > LEAF_MAX * g || !OnWall(a, c, tol)) continue;
                 var sw = Swing(c, a);
-                if (sw == null) continue;
-                double s = S(a, c.Cx, c.Cy);
-                bool hinged = (Math.Abs(s - g0) <= GAP_TOL * g && sw.Value.strike > 0) || (Math.Abs(s - g1) <= GAP_TOL * g && sw.Value.strike < 0);
-                if (hinged && Math.Abs(c.R - g) < bestErr) { bestErr = Math.Abs(c.R - g); best = k; bestLeaf = sw.Value.leaf; }
+                if (sw == null || !Hinged(c, sw.Value.strike, c.R, g0, g1)) continue;
+                if (Math.Abs(c.R - g) < bestErr) { bestErr = Math.Abs(c.R - g); best = k; bestLeaf = sw.Value.leaf; }
             }
             if (best >= 0) { used[best] = true; return MakeDoor(a, g0, g1, arcs[best], bestLeaf, 1); }
             int lo = -1, hi = -1; int leafLo = 0;
+            double mid = (g0 + g1) / 2;
             for (int k = 0; k < arcs.Count; k++)
             {
                 var c = arcs[k];
-                if (used[k] || Math.Abs(c.R - g / 2) > GAP_TOL * g / 2 || !OnWall(a, c, GAP_TOL * g)) continue;
+                if (used[k] || c.R < LEAF_MIN * g / 2 || c.R > LEAF_MAX * g / 2 || !OnWall(a, c, tol)) continue;
                 var sw = Swing(c, a);
                 if (sw == null) continue;
-                double s = S(a, c.Cx, c.Cy);
-                if (lo < 0 && Math.Abs(s - g0) <= GAP_TOL * g / 2 && sw.Value.strike > 0) { lo = k; leafLo = sw.Value.leaf; }
-                else if (hi < 0 && Math.Abs(s - g1) <= GAP_TOL * g / 2 && sw.Value.strike < 0) hi = k;
+                if (lo < 0 && sw.Value.strike > 0 && Hinged(c, 1, c.R, g0, mid)) { lo = k; leafLo = sw.Value.leaf; }
+                else if (hi < 0 && sw.Value.strike < 0 && Hinged(c, -1, c.R, mid, g1)) hi = k;
             }
             if (lo < 0 || hi < 0) return null;
             used[lo] = used[hi] = true;
