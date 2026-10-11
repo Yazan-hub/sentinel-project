@@ -378,7 +378,7 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
     const topicKeys = drawing && plan.differences.length ? await differenceKeys(d, key) : new Set();
     const unraised = drawing ? plan.differences.filter((x) => topicKeys instanceof Error || !topicKeys.has(x.key)).length : 0;
     if (!ready.length && mine.length && !unraised) // a job that types nothing and filed nothing files its gaps alone
-      throw err(409, `nothing new to propose from ${id} — every candidate that types is filed already (${mine.map((c) => `${c.name}: ${c.status.replace("_", " ")}`).join("; ")}): withdraw a proposed one on the Review desk to propose it again; an applied one stays applied here after an Undo in Revit — ${drawing ? "read the drawing" : "run the survey"} again to propose it afresh; nothing was saved`);
+      throw err(409, `nothing new to propose from ${id} — every candidate that types is filed already (${mine.map((c) => `${c.name}: ${c.status.replace("_", " ")}`).join("; ")}): decline a proposed one in Revit (Review AI Proposals → Decline all, with a reason) to propose it again; an applied one stays applied here after an Undo in Revit — ${drawing ? "read the drawing" : "run the survey"} again to propose it afresh; nothing was saved`);
     return { proj, row, said, drawing, before: new Set(earlier.map((c) => c.id)), overlaps, guideline, catalog, plan, ready, topicKeys };
   }
 
@@ -393,7 +393,7 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
       try { names = (await d.docList(STORE, proj.id)).filter((c) => !before.has(c.id) && c.job?.ledger_id === row.ledger.id).map((c) => c.name); }
       catch { names = filed.map((c) => c.name); } // the list failed too: what this call saw filed
       return err(502, names.length
-        ? `${names.join(", ")} ${names.length === 1 ? "was" : "were"} filed; ${what} (${e.message}) — withdraw ${names.length === 1 ? "it" : "them"} on the Review desk, then propose ${id} again`
+        ? `${names.join(", ")} ${names.length === 1 ? "was" : "were"} filed; ${what} (${e.message}) — decline ${names.length === 1 ? "it" : "them"} in Revit (Review AI Proposals → Decline all, with a reason), then propose ${id} again`
         : `no changeset of ${id} was stored: ${what} (${e.message}) — propose it again`);
     };
     for (const { p, v } of ready) {

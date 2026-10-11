@@ -226,7 +226,8 @@ public static class ChangesetTrust
         double same = D(was.Start, c.Start) + D(was.End, c.End), swapped = D(was.Start, c.End) + D(was.End, c.Start);
         var (s0, s1) = same <= swapped ? (D(was.Start, c.Start), D(was.End, c.End)) : (D(was.Start, c.End), D(was.End, c.Start));
         string F(double v) => v.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
-        return $"ends move {F(s0)} and {F(s1)} mm to the revised drawing's line (kept if edited by hand since it was placed)";
+        // drill MA5b (F-MA5b-4): two reshapes read alike — each names the wall it moves by the line it was placed on (the kept reason's words)
+        return $"the wall placed on ({F(was.Start[0])}, {F(was.Start[1])}) → ({F(was.End[0])}, {F(was.End[1])}): ends move {F(s0)} and {F(s1)} mm to the revised drawing's line (kept if edited by hand since it was placed)";
     }
 
     /// <summary>What is ticked when the review opens (and by "Tick suggested"). MA-4f: a create is pre-ticked only when a bridge-run survey job

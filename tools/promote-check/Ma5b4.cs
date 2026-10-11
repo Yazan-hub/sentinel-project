@@ -19,8 +19,8 @@ static partial class Check
            "the stale guard: a wall still on its placed line (within 2 mm, either way round, ends free to move along it: Revit's joins) is as placed; one moved off it, or mostly off its extent, was moved by hand");
         var dto = JsonSerializer.Deserialize<ChangesetElementDto>("{\"op\":\"reshape\",\"kind\":\"wall\",\"target\":{\"unique_id\":\"u\",\"placed\":{\"start\":[47850,0,0],\"end\":[47850,6000,0]}}," +
                                                                 "\"place\":{\"LocationCurve\":{\"start\":[47950,6000,0],\"end\":[47950,0,0]}}}");
-        Ok(dto.Target.Placed.End[1] == 6000 && ChangesetTrust.ReshapeWords(dto) == "ends move 100 and 100 mm to the revised drawing's line (kept if edited by hand since it was placed)",
-           "TargetDto reads target.placed; the row says how far each end moves, pairing the ends the near way round");
+        Ok(dto.Target.Placed.End[1] == 6000 && ChangesetTrust.ReshapeWords(dto) == "the wall placed on (47850, 0) → (47850, 6000): ends move 100 and 100 mm to the revised drawing's line (kept if edited by hand since it was placed)",
+           "TargetDto reads target.placed; the row names the wall by its placed line (drill MA5b: two reshapes read alike) and says how far each end moves, pairing the ends the near way round");
         Ok(!ChangesetTrust.PreTick(new ChangesetDto { Source = "sentinel-drawing 0.2.0", Elements = new System.Collections.Generic.List<ChangesetElementDto> { dto } }, dto),
            "a reshape is never pre-ticked");
 

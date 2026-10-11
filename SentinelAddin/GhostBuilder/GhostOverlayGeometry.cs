@@ -155,7 +155,7 @@ namespace Sentinel.GhostBuilder
 
         /// <summary>The overlay's line for the window: <paramref name="drawn"/> of the <paramref name="creates"/> drawable creates outlined.</summary>
         public static string Line(int creates, int drawn) => creates == 0
-            ? "No ghost to draw: this review proposes no create (a retype or attach changes an element that exists — Show selects it)."
+            ? "No ghost to draw: this review proposes no create (a retype, attach or reshape changes an element that exists — Show selects it)."
             : drawn == 0 ? $"No ghost to draw: the {creates} proposed create(s) carry no points to draw from."
             : $"{drawn} of {creates} proposed create(s) outlined in this model's 3D views, plans and sections — a see-through face and its edges, ticked green, unticked grey, declined red; nothing is written. Open one to see them; they go when this window closes or Apply places them.";
 
