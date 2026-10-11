@@ -862,7 +862,7 @@ class Deviation(unittest.TestCase):
 
     def test_a_wall_where_it_was_scanned_is_a_few_mm_off_both_faces_seen_numbers_only(self):
         (m,) = pipeline.deviation(self.P, [self.wall()], self.TOLS)
-        self.assertEqual(set(m), {"guid", "points", "p95_mm", "mean_signed_mm", "share_within", "coverage"})  # no status: the bridge's
+        self.assertEqual(set(m), {"guid", "points", "p95_mm", "mean_signed_mm", "share_within", "coverage", "faces"})  # no status: the bridge's
         self.assertLess(m["p95_mm"], 5.0)  # |N(0, 2)|'s p95 is 3.9 mm
         self.assertLess(abs(m["mean_signed_mm"]), 0.5)
         self.assertEqual(m["share_within"], {"50": 1.0, "100": 1.0, "200": 1.0})
@@ -893,6 +893,28 @@ class Deviation(unittest.TestCase):
         self.assertTrue(250 < m["p95_mm"] < 257, m)
         self.assertTrue(248 < m["mean_signed_mm"] < 252, m)
         self.assertEqual(m["share_within"], {"50": 0.0, "100": 0.0, "200": 0.0})
+
+    def test_each_face_has_its_own_numbers_in_the_order_sent(self):
+        # MA-5a-2: the bridge judges each face (both must pass); the pooled numbers stay
+        (m,) = pipeline.deviation(self.P, [self.wall()], self.TOLS)
+        self.assertEqual(len(m["faces"]), 2)
+        self.assertEqual(sum(f["points"] for f in m["faces"]), m["points"])
+        for f in m["faces"]:
+            self.assertEqual(f["share_within"], {"50": 1.0, "100": 1.0, "200": 1.0})
+            self.assertGreaterEqual(f["coverage"], 0.98)
+
+    def test_a_face_not_scanned_reads_no_point_and_the_other_face_its_own(self):
+        P = self.P[np.abs(self.P[:, 1]) >= 10]  # the south wall's outer face (y 0) not scanned
+        (m,) = pipeline.deviation(P, [self.wall()], self.TOLS)
+        seen = [f for f in m["faces"] if f["points"]]
+        self.assertEqual(len(seen), 1, m["faces"])
+        self.assertEqual(seen[0]["share_within"]["50"], 1.0)
+        empty = [f for f in m["faces"] if not f["points"]][0]
+        self.assertEqual((empty["share_within"], empty["coverage"]), (None, 0.0))
+
+    def test_a_face_without_interior_is_listed_empty(self):
+        (m,) = pipeline.deviation(self.P, [{"guid": "stub", "faces": wall_faces((125, 150), (450, 150), 300, 0, 2800)}], self.TOLS)
+        self.assertEqual(m["faces"], [{"points": 0, "share_within": None, "coverage": None}] * 2)
 
     def test_a_face_under_400_mm_has_no_interior(self):
         (m,) = pipeline.deviation(self.P, [{"guid": "stub", "faces": wall_faces((125, 150), (450, 150), 300, 0, 2800)}], self.TOLS)

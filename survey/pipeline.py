@@ -679,6 +679,8 @@ def deviation(P, elements, tols, progress=lambda stage, pct: None):
     coverage (its faces' interior cells holding a point it owns — within BAND, so a face seen but placed far off still counts as seen and
     p95 judges it)} — 0.1 mm and 3 decimals; the numbers null with no
     point, coverage null when no face has an interior.
+    MA-5a-2: faces — [{points, share_within, coverage}] per face sent, in order (a face with no interior: 0, None, None): the bridge judges
+    each face.
     ponytail: each face is a pass over the cloud cropped to the elements' box (faces x points) — MA-4h, Kladno: 200 walls (400
     faces) over a whole storey in 21 s, under the job's 1.70 GB peak; a plan-grid index if a measure nears JOB_MS. Clutter, or an element
     not placed, within BAND of a face's interior counts against it (the honest reading: the scan is not the model)."""
@@ -709,10 +711,13 @@ def deviation(P, elements, tols, progress=lambda stage, pct: None):
     owner[~inner] = -1  # counted only over the owner's interior: a join's points are the abutting face's, and neither judges them
     out = []
     for k, e in enumerate(elements):
-        ds, filled, cells = [], 0, 0
+        ds, filled, cells, per = [], 0, 0, []
         for i, (kk, o, u, la, v, lb, _) in enumerate(F):
+            if kk != k:
+                continue
             nu, nv = math.ceil((la - 2 * EDGE) / DEV_CELL), math.ceil((lb - 2 * EDGE) / DEV_CELL)
-            if kk != k or nu <= 0 or nv <= 0:
+            if nu <= 0 or nv <= 0:
+                per.append({"points": 0, "share_within": None, "coverage": None})  # MA-5a-2: no interior, not judged
                 continue
             j = np.flatnonzero(owner == i)
             ds.append(sd[j])
@@ -720,12 +725,18 @@ def deviation(P, elements, tols, progress=lambda stage, pct: None):
             R = Q[j] - o  # every point the face owns (already within BAND): a face seen but far off is seen, and p95 judges it
             cu = np.minimum(np.floor((R @ u - EDGE) / DEV_CELL), nu - 1).astype(np.int64)
             cv = np.minimum(np.floor((R @ v - EDGE) / DEV_CELL), nv - 1).astype(np.int64)
-            filled += np.unique(cu * nv + cv).size
+            f = np.unique(cu * nv + cv).size
+            filled += f
+            af = np.abs(sd[j])
+            # MA-5a-2: each face's own numbers — the bridge judges each face (both must pass): pooled, a thin wall shifted by its thickness
+            # still had its two real surfaces near its faces (19 of Kladno's 31 walls of 140 mm or less read within at 100 mm off)
+            per.append({"points": int(j.size), "share_within": {str(t): round(float((af <= t).mean()), 3) for t in tols} if j.size else None,
+                        "coverage": round(f / (nu * nv), 3)})
         d = np.concatenate(ds) if ds else np.zeros(0)
         a = np.abs(d)
         out.append({"guid": e["guid"], "points": int(d.size),
                     "p95_mm": round(float(np.percentile(a, 95)), 1) + 0.0 if d.size else None,  # + 0.0: never -0.0
                     "mean_signed_mm": round(float(d.mean()), 1) + 0.0 if d.size else None,
                     "share_within": {str(t): round(float((a <= t).mean()), 3) for t in tols} if d.size else None,
-                    "coverage": round(filled / cells, 3) if cells else None})
+                    "coverage": round(filled / cells, 3) if cells else None, "faces": per})
     return out
