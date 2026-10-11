@@ -2955,3 +2955,8 @@ Findings (all fixed on `fix/ma5b-b2-drill`):
 
 Owed for batch 2: MA5b5 (Promote rehost) live — a Sentinel sign-in in Revit (the founder's) and a non-hosted placeholder door family;
 the web rows (the desk's rehost row and its "rehosted" count, the batch-1 fixes' words) after the founder's Funnel refresh.
+
+Re-checked live after the fixes (merged 8eeffd1, the add-in redeployed 2021–2027 at 01:56): Ghost Builder from the WIP_PE_EAST elevation →
+"Ghost Builder reads a plan drawing into a plan view — "WIP_PE_EAST" is a Elevation view, …" (F-1; the article is a nit for the next batch);
+Datum on `ma5b8-radial.dxf` → the Runs column shows each arc in full (F-4), spoke 1 created as `1 (3)` — no longer "kept" against A (2)
+200 m away — the rest kept on their own spans (F-2). The drill DXFs removed from the Ghost source folder; `ma5b-b2.rvt` saved.
