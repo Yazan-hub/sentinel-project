@@ -192,13 +192,26 @@ export function validateArtefact(kind, body) {
       if (l.family != null && typeof l.family !== "string") throw bad(kind, `${at}.family`, "must be a string");
       if (l.aliases != null && !texts(l.aliases)) throw bad(kind, `${at}.aliases`, "must be an array of strings");
     });
-    if (body.ignore != null) {
-      if (!texts(body.ignore)) throw bad(kind, "ignore", "must be an array of strings");
-      if (body.ignore.length > MAX_PATTERNS) throw bad(kind, "ignore", `holds more than ${MAX_PATTERNS} globs`);
-      body.ignore.forEach((g, i) => {
-        if (g.length > MAX_PATTERN) throw bad(kind, `ignore[${i}]`, `is longer than ${MAX_PATTERN} characters`);
-        if (g.split("*").length - 1 > MAX_STARS) throw bad(kind, `ignore[${i}]`, `holds more than ${MAX_STARS} * wildcards`);
+    const globs = (path, v) => {
+      if (!texts(v)) throw bad(kind, path, "must be an array of strings");
+      if (v.length > MAX_PATTERNS) throw bad(kind, path, `holds more than ${MAX_PATTERNS} globs`);
+      v.forEach((g, i) => {
+        if (g.length > MAX_PATTERN) throw bad(kind, `${path}[${i}]`, `is longer than ${MAX_PATTERN} characters`);
+        if (g.split("*").length - 1 > MAX_STARS) throw bad(kind, `${path}[${i}]`, `holds more than ${MAX_STARS} * wildcards`);
       });
+    };
+    if (body.ignore != null) globs("ignore", body.ignore);
+    // MA-5b-7 (DAT-1): where Datum from Drawings reads levels and grids — layer globs as ignore's, the grid letters it skips, the
+    // merge tolerances. Checked alike by sentinel-core layers.ts and the add-in's LayerRulesetMatcher.
+    if (body.datum != null) {
+      const d = body.datum;
+      if (!isObj(d)) throw bad(kind, "datum", "must be an object");
+      for (const k of ["levels", "grids"]) if (d[k] != null) globs(`datum.${k}`, d[k]);
+      if (!d.levels?.length && !d.grids?.length) throw bad(kind, "datum", "must name level or grid layers (datum.levels or datum.grids)");
+      if (d.skip_letters != null && !(texts(d.skip_letters) && d.skip_letters.every((s) => /^[A-Z]$/.test(s))))
+        throw bad(kind, "datum.skip_letters", "must be an array of single capital letters A-Z");
+      for (const k of ["level_merge_mm", "grid_merge_mm"])
+        if (d[k] != null && !(typeof d[k] === "number" && d[k] >= 1 && d[k] <= 1000)) throw bad(kind, `datum.${k}`, "must be a number of millimetres 1..1000");
     }
   }
   if (kind === "guideline") {

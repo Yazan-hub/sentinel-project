@@ -30,6 +30,8 @@ export interface LayerRuleset {
   disciplines?: Record<string, string>;     // e.g. { A: "Architectural", S: "Structural" }
   layers: LayerDef[];
   extensions?: LayerExtension[];
+  /** MA-5b-7 (DAT-1): the layers Datum from Drawings reads levels and grids from (globs as ignore's) — never model geometry. */
+  datum?: { levels?: string[]; grids?: string[]; skip_letters?: string[]; level_merge_mm?: number; grid_merge_mm?: number } | null;
 }
 
 export type LayerMatchKind = "exact" | "alias" | "extension" | "pattern" | "ignored" | "none";
@@ -94,6 +96,11 @@ export function mapLayer(raw: string, rs: LayerRuleset): LayerMapping {
   for (const g of rs.ignore ?? []) {
     const rx = globToRegex(ci ? g.toUpperCase() : g);
     if (rx && rx.test(normalized)) return { ...base, kind: "ignored", compliant: true, ignored: true, confidence: 1, needsAI: false, reason: "non-model layer (ignored)" };
+  }
+  // MA-5b-7 (DAT-1): a datum layer is read by Datum from Drawings, never built
+  for (const g of [...(rs.datum?.levels ?? []), ...(rs.datum?.grids ?? [])]) {
+    const rx = globToRegex(ci ? g.toUpperCase() : g);
+    if (rx && rx.test(normalized)) return { ...base, kind: "ignored", compliant: true, ignored: true, confidence: 1, needsAI: false, reason: "a datum layer (Datum from Drawings reads it)" };
   }
 
   // 2 · exact canonical match

@@ -16,6 +16,14 @@ const RS: LayerRuleset = {
 };
 
 describe("mapLayer", () => {
+  it("MA-5b-7: a datum layer is ignored — Datum from Drawings reads it; with no datum section nothing changes", () => {
+    const D: LayerRuleset = { ...RS, datum: { levels: ["*-SECT-DATUM"], grids: ["S-GRID-IDEN"] } };
+    expect(mapLayer("a-sect-datum", D)).toMatchObject({ kind: "ignored", ignored: true, compliant: true, reason: "a datum layer (Datum from Drawings reads it)" });
+    expect(mapLayer("S-GRID-IDEN", D).ignored).toBe(true);
+    expect(mapLayer("A-WALL-EXT", D).kind).toBe("exact");
+    expect(mapLayer("A-SECT-DATUM", RS).ignored).toBe(false);
+  });
+
   it("exact canonical match → deterministic, confidence 1, no AI", () => {
     const m = mapLayer("A-WALL-EXT", RS);
     expect(m.kind).toBe("exact");

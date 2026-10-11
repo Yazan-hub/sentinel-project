@@ -62,6 +62,22 @@ static partial class Check
         Refused(Good.Replace("[\"WALL-EXT\"]", "\"WALL-EXT\""), "layers[0].aliases must be an array of strings", "aliases not an array");
         Refused(Good.Replace("[\"*-ANNO\",\"0\"]", "[0]"), "ignore must be an array of strings", "an ignore entry that is not text");
 
+        // MA-5b-7 (DAT-1): the datum section, by the bridge validator's rules; its layers are Datum's, never Ghost's
+        string D(string datum) => Good.Replace("\"ignore\":", "\"datum\":" + datum + ",\"ignore\":");
+        var dm = LayerRulesetMatcher.FromBody(D("{\"levels\":[\"*-SECT-DATUM\"],\"grids\":[\"S-GRID-IDEN\"],\"skip_letters\":[\"I\"],\"level_merge_mm\":30}"), out var dErr);
+        Ok(dm?.Datum is { } dl && dErr is null && dl.IsLevel("a-sect-datum") && !dl.IsLevel("A-SECT") && dl.IsGrid("S-GRID-IDEN") && !dl.IsGrid("S-GRID")
+           && dl.SkipLetters.SetEquals(new[] { 'I' }) && dl.LevelMergeMm == 30 && dl.GridMergeMm == 100 && dl.Describe() == "levels *-SECT-DATUM; grids S-GRID-IDEN",
+           "a datum section parses: its globs match the whole name in any case, its letters and merges kept, its defaults where it is silent");
+        Ok(dm!.ShouldIgnore("A-SECT-DATUM") && dm.ShouldIgnore("S-GRID-IDEN") && !dm.ShouldIgnore("A-WALL-EXT") && m!.Datum == null && !m.ShouldIgnore("A-SECT-DATUM"),
+           "Ghost ignores a datum layer (F45); a body with no datum section reads as before");
+        Ok(LayerRulesetMatcher.FromBody(D("{\"grids\":[\"G*\"]}"), out _)?.Datum is { Levels.Count: 0 } g1 && g1.SkipLetters.SetEquals(new[] { 'I', 'O' }) && LayerRulesetMatcher.FromBody(D("null"), out _)?.Datum == null,
+           "grids alone parse (no level layers: none, never the built-in words); a null section is none; I and O skipped by default");
+        Refused(D("[]"), "datum must be an object", "a datum section that is not an object");
+        Refused(D("{}"), "datum must name level or grid layers (datum.levels or datum.grids)", "an empty datum section");
+        Refused(D("{\"levels\":\"L*\"}"), "datum.levels must be an array of strings", "datum levels not an array");
+        Refused(D("{\"grids\":[\"G\"],\"skip_letters\":[\"io\"]}"), "datum.skip_letters must be an array of single capital letters A-Z", "a skip entry that is no one capital letter");
+        Refused(D("{\"grids\":[\"G\"],\"grid_merge_mm\":0}"), "datum.grid_merge_mm must be a number of millimetres 1..1000", "a merge of 0 mm");
+
         // what each row says it is
         Ok(m!.Match("a-wall-ext ") is { Source: "standard", Category: "Walls", BdsFamily: "Office_Wall_Ext", Confidence: 1.0, CadLayer: "a-wall-ext " },
            "an exact row is the standard (1.0), case- and space-insensitive, on the DWG's own layer string");
