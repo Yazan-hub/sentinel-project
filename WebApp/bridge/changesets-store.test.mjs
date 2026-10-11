@@ -1180,6 +1180,38 @@ describe("proposeFromJob (MA-5a-4): a lead aligns a drawing job by two points �
     expect([r.changesets, r.gaps.groups, r.gaps.elements]).toEqual([[], 1, 1]);
     expect(deps.audit.mock.calls.map((c) => c[1])).toEqual(["type_gap", "build"]);
   });
+  it("(f) MA-5a-5: on a project whose scan is filed on that storey — what agrees is not proposed, the partition raises ONE topic, a re-run raises none", async () => {
+    const sw = (cid, start, end, t) => ({ op: "create", kind: "wall", cid, proposal_guid: `g-${cid}`, place: { LevelName: "GR-FFL", LocationCurve: { start, end } }, measured: { thickness_mm: t } });
+    const SCAN = { id: "s1", name: "Survey job-0002 · GR-FFL", status: "applied", result: { rejected: [] },
+      job: { id: "job-0002", ledger_id: 2201, reader: "sentinel-survey 0.1.0", storey: { cid: "scan-L00-level", level: "GR-FFL", how: "matched", elevation_mm: 0, delta_mm: 0, checked: true, from: "ARC.ifc P01" } },
+      elements: [sw("scan-L00-wall-1", [40125, 150, 0], [47850, 150, 0], 300), sw("scan-L00-wall-2", [40125, 5900, 0], [47850, 5900, 0], 200), sw("scan-L00-wall-3", [47850, 150, 0], [47850, 5900, 0], 300)] };
+    const topics = [], W1 = "drawing-ev-0007-p1-wall-1";
+    const topicDeps = { bcfListTopics: vi.fn(async () => topics), bcfCreateTopic: vi.fn(async (t) => { topics.push(t); return t; }), broadcast: vi.fn() };
+    const deps = ddeps({ docList: vi.fn(async () => [SCAN]), ...topicDeps });
+    const r = await propose(deps);
+    expect(r.changesets.map((c) => [c.name, c.elements, c.preticked])).toEqual([["Drawing job-0005 · ev-0007 · GR-FFL", 1, 0]]); // the partition alone, on the scan's level
+    const key = `${EV7}|${W1}|-|-|drawn_only`;
+    expect(r.differences).toEqual({ agree: 3, differ: 0, drawn_only: 1, scanned_only: 0, doors_agree: 0, doors_from_drawing: 0,
+      topics: { raised: [{ guid: topics[0].guid, title: `Drawing vs scan: ev-0007 ${W1} — drawn, not in the scan`, key }], skipped: 0 } });
+    expect(topics[0]).toMatchObject({ project_id: "ma4c-drill", topic_type: "Issue", topic_status: "Open",
+      difference: { kind: "drawn_only", key, item: "ev-0007", drawing_cid: W1, scan_cid: null, drawing_job: "job-0005" } });
+    expect(topicDeps.broadcast).toHaveBeenCalledWith("ma4c-drill", { type: "topic", action: "created", guid: topics[0].guid, title: topics[0].title });
+    expect(deps.audit.mock.calls.at(-1)[6]).toMatchObject({ planner: "drawing-planner", differences: r.differences });
+    // withdrawn on the desk and proposed again: the partition is proposed again, its difference is not raised twice
+    const again = ddeps({ docList: vi.fn(async () => [SCAN, { ...[...deps.saved.values()][0], status: "withdrawn" }]), ...topicDeps });
+    expect((await propose(again)).differences.topics).toEqual({ raised: [], skipped: 1 });
+    expect(topics).toHaveLength(1);
+    // the topics not read: said in words, the changeset filed all the same
+    const down = ddeps({ docList: vi.fn(async () => [SCAN]), ...topicDeps, bcfListTopics: vi.fn(async () => { throw new Error("the topic store is down"); }) });
+    const r3 = await propose(down);
+    expect([r3.changesets.length, r3.differences.topics]).toEqual([1, { raised: [], skipped: 0, error: "the project's topics could not be read (the topic store is down) — none raised; propose the drawing again to raise them" }]);
+    // review: proposed again as the words say — nothing new to file, but its topic not raised yet is raised; then a third time is 'nothing new'
+    const fresh = [], up = { bcfListTopics: vi.fn(async () => fresh), bcfCreateTopic: vi.fn(async (t) => { fresh.push(t); return t; }), broadcast: vi.fn() };
+    const retry = ddeps({ docList: vi.fn(async () => [SCAN, ...down.saved.values()]), ...up });
+    const r4 = await propose(retry);
+    expect([r4.changesets, r4.differences.topics.raised.map((t) => t.key), fresh.length]).toEqual([[], [key], 1]);
+    await expect(propose(ddeps({ docList: vi.fn(async () => [SCAN, ...down.saved.values()]), ...up }))).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/^nothing new to propose from job-0005/) });
+  });
   it("(c) a drawing changeset has no scan: measuring it and showing its scan are refused in words", async () => {
     const deps = ddeps(); await propose(deps);
     const cs = { ...[...deps.saved.values()][0], status: "applied" };

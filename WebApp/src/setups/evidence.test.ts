@@ -296,5 +296,12 @@ describe("drawing proposals (MA-5a-4) — the lead's two points, level and heigh
       gaps: { groups: 3, elements: 3, ledger: { id: 3103, hash: HASH } }, already_filed: 0, overlaps: [], ledger: { id: 3104, hash: HASH } };
     expect(proposeLine(r)).toBe("✓ Proposed job-0005 — ev-0007 at 1:50, turned 0°, checked to 0 mm · 1 changeset(s), 5 ghost(s), none pre-ticked (a drawing is what someone drew, not what was built — a person ticks each in Revit) · " +
       "3 type-gap group(s), 3 element(s) in the Holding Area · drawing-ev-0007-p1-level → Drawing ev-0007 job-0005 (created) · ledger #3104 · receipt abababababababab… — Review ▸ ↻");
+    // MA-5a-5: against the scan — said only when there was one to compare with
+    const none = { agree: 0, differ: 0, drawn_only: 0, scanned_only: 0, doors_agree: 0, doors_from_drawing: 0, topics: { raised: [], skipped: 0 } };
+    expect(proposeLine({ ...r, differences: none })).toBe(proposeLine(r));
+    expect(proposeLine({ ...r, differences: { ...none, agree: 3, drawn_only: 1, doors_from_drawing: 1, topics: { raised: [{ guid: "t1", title: "Drawing vs scan: …", key: "k" }], skipped: 1 } } }))
+      .toContain("none pre-ticked (a drawing is what someone drew, not what was built — a person ticks each in Revit) · against the scan: 3 wall(s) agree (not proposed again), 0 differ, 1 drawn only, 0 scanned only, 1 door(s) from the drawing in the scan's walls — 1 BCF topic(s) raised, 1 raised before · 3 type-gap group(s)");
+    expect(proposeLine({ ...r, differences: { ...none, topics: { raised: [], skipped: 0, error: "the project's topics could not be read (down) — none raised; propose the drawing again to raise them" } } }))
+      .toContain(" — 0 BCF topic(s) raised (the project's topics could not be read (down) — none raised; propose the drawing again to raise them) · ");
   });
 });
