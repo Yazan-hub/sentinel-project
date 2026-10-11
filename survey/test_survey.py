@@ -820,6 +820,35 @@ class Knobs(unittest.TestCase):
         self.assertEqual([faces_after(2000, 1.0), faces_after(3000, 1.0)], [1, 2])
 
 
+class TrustRules(unittest.TestCase):
+    """MA-5a-2: a hole counted per face, not per overlap; a thickness kept only clear of its faces' scatter (the plan's §0)."""
+
+    def face(self, holes_at, rows=40, cols=60):
+        g = np.ones((rows, cols), bool)
+        for r0, r1, c0, c1 in holes_at:
+            g[r0:r1, c0:c1] = False
+        return {"seg": (0.0, 0.0, cols * pipeline.GRID, 0.0), "len": cols * pipeline.GRID, "grid": g}
+
+    def test_two_holes_on_one_face_overlapping_along_are_one_opening_seen_once(self):
+        # a door and the glazed panel above its transom bar, on a wall seen from one side: never "both faces" (0.5.0 read 2)
+        f = self.face([(0, 21, 20, 30), (23, 34, 20, 30)])
+        (o,) = pipeline.wall_openings([f], (0.0, 0.0, 6000.0, 0.0), 0.0, 4300.0)
+        self.assertEqual(o[0], "door")
+        self.assertEqual(o[-1], 1)
+
+    def test_one_hole_on_each_face_is_seen_twice(self):
+        a, b = self.face([(0, 21, 20, 30)]), self.face([(0, 21, 20, 30)])
+        (o,) = pipeline.wall_openings([a, b], (0.0, 0.0, 6000.0, 0.0), 0.0, 4300.0)
+        self.assertEqual(o[-1], 2)
+
+    def test_a_thickness_is_kept_only_ten_times_clear_of_its_scatter(self):
+        self.assertEqual(pipeline.THICK_SCATTER, 10.0)
+        self.assertTrue(pipeline.thickness_trusted(101, 7.2))   # a real 1F partition on Kladno (ratio 14.0)
+        self.assertTrue(pipeline.thickness_trusted(76, 6.0))    # the lowest matched ratio, 12.7 — pinned from above
+        self.assertFalse(pipeline.thickness_trusted(83, 9.6))   # a suspect pair on no traced wall (ratio 8.6) — pinned from below
+        self.assertTrue(pipeline.thickness_trusted(300, 0.0))   # a noiseless synthetic face
+
+
 class Voxel(unittest.TestCase):
     def test_one_point_per_cube_the_first_in_reading_order_as_the_row_sort_gives(self):
         P = np.random.default_rng(3).uniform(-5000, 5000, (20000, 3))
@@ -989,7 +1018,7 @@ class Service(unittest.TestCase):
 
     def test_health_answers_only_its_token_and_names_each_tool_with_its_licence(self):
         _, port, version = self.start()
-        self.assertEqual(version, "0.5.0")
+        self.assertEqual(version, "0.6.0")
         self.assertEqual(self.call(port, "GET", "/health", token="nope")[0], 401)
         code, health = self.call(port, "GET", "/health")
         names = [t["name"] for t in health["tools"]]

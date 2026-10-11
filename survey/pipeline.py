@@ -64,6 +64,9 @@ DOOR_ROWS = 1       # a hole whose lowest row is within this of the grid's floor
 MERGE_GAP = 2500.0  # mm: two faces on one line this close are one wall across a doorway when a lintel bridges the gap
 LINTEL = 0.5        # share of the gap's cells above its hole that must be filled for the merge
 SPECK = 2           # a filled cell with this many filled neighbours or fewer (of 8) is stray points inside a hole, not the face
+THICK_SCATTER = 10.0  # MA-5a-2: a pair's faces this many times their fit scatter (rms) apart or more measure a thickness; closer, the wall
+                      # keeps its faces and centreline but no thickness (faces_apart_mm) — never typed, a person draws it. Kladno: every pair
+                      # matching a traced wall at 50 mm reads >= 12.7, every suspect thin pair < 9.7 (one building, one tracer: a knob)
 MAX_GAP = 300.0         # mm: a face breaks where its line is empty for longer (a doorway; a closed door reads as wall)
 END_GAP = 100.0         # mm: a piece shorter than this at a face's end, past an empty stretch, is another face crossing the line
 MAX_WALL = 600.0        # mm: faces further apart are two walls (a corridor), not one — WallPairing allows 1000 on drawings
@@ -376,6 +379,12 @@ def fit(n, rmse, cover):
     return {"inliers": int(n), "rmse_mm": round(float(rmse), 1), "coverage": round(float(cover), 3)}
 
 
+def thickness_trusted(gap, rms):
+    """MA-5a-2: a pair's thickness is measured only when its faces lie THICK_SCATTER times their fit scatter apart (DWG lines have no
+    scatter, so the gate is the scan's alone: pair() stays rule for rule with WallPairing.cs)."""
+    return gap >= THICK_SCATTER * rms
+
+
 def occupancy(Q, seg, z0, z1):
     """MA-5a: the (height, along) occupancy of face seg between z0 and z1 — GRID mm cells, True where a point of Q (mm) lies within
     2 x CELL of the face; row 0 is the floor's, column 0 the face's start. Computed once per kept face (measure stores it as x["grid"])
@@ -476,13 +485,13 @@ def wall_openings(two, line, zf, top):
     """MA-5a: a wall's doors and windows → [(kind, a0, a1, lo, hi, border, cells, seen)]: a0..a1 along its centreline line (x1, y1, x2,
     y2) from its start, lo and hi the sill (a door's floor) and head heights (mm, the scan's z). Each face's holes are placed along the
     centreline (a face sits half a thickness off it); a hole on one face overlapping one on the other by more than half along is one
-    opening seen on both faces; a hole seen on one face only is kept with seen 1 and the border it has (an occluder reads the same — the
+    opening seen on both faces (seen: the number of faces whose holes formed it — MA-5a-2); a hole seen on one face only is kept with seen 1 and the border it has (an occluder reads the same — the
     bridge never pre-ticks it); an opening whose border is under MIN_BORDER is dropped."""
     x1, y1, x2, y2 = line
     L = math.hypot(x2 - x1, y2 - y1)
     ux, uy = (x2 - x1) / L, (y2 - y1) / L
     found = []
-    for x in two:
+    for fi, x in enumerate(two):
         fa = np.array(x["seg"][:2])
         fu = (np.array(x["seg"][2:]) - fa) / x["len"]
         for c0, c1, r0, r1, border, cells in holes(x["grid"]):
@@ -491,7 +500,7 @@ def wall_openings(two, line, zf, top):
             p0 = fa + fu * max(0.0, (c0 - 0.5) * GRID)
             p1 = fa + fu * min(x["len"], (c1 + 0.5) * GRID)
             a0, a1 = sorted(((p0[0] - x1) * ux + (p0[1] - y1) * uy, (p1[0] - x1) * ux + (p1[1] - y1) * uy))
-            found.append([a0, a1, r0, r1, border, cells, 1])
+            found.append([a0, a1, r0, r1, border, cells, {fi}])
     openings = []
     for h in sorted(found, key=lambda h: h[0]):
         for o in openings:
@@ -510,19 +519,20 @@ def wall_openings(two, line, zf, top):
                     o[2], o[3] = min(o[2], h[2]), max(o[3], h[3])
                 elif h[4] > o[4]:
                     o[0], o[1], o[2], o[3] = h[0], h[1], h[2], h[3]
-                o[4], o[5], o[6] = (o[4] * o[5] + h[4] * h[5]) / (o[5] + h[5]), o[5] + h[5], 2
+                o[4], o[5] = (o[4] * o[5] + h[4] * h[5]) / (o[5] + h[5]), o[5] + h[5]
+                o[6] = o[6] | h[6]  # MA-5a-2: the faces it was seen on — two holes on one face are seen once (a door and the glazing above it)
                 break
         else:
             openings.append(h)
     out = []
-    for a0, a1, r0, r1, border, cells, seen in openings:
+    for a0, a1, r0, r1, border, cells, faces in openings:
         if border < MIN_BORDER:
             continue
         kind = "door" if r0 <= DOOR_ROWS else "window"
         # the sill and head at the middle of their boundary rows, as the jambs; a door runs down to the floor
         lo = zf if kind == "door" else zf + HEIGHT_EDGE + (r0 - 0.5) * GRID
         hi = min(top - HEIGHT_EDGE, zf + HEIGHT_EDGE + (r1 + 0.5) * GRID)
-        out.append((kind, a0, a1, lo, hi, border, cells, seen))
+        out.append((kind, a0, a1, lo, hi, border, cells, len(faces)))
     return out
 
 
@@ -637,15 +647,16 @@ def measure(P, src, ids, storey_min, progress=lambda stage, pct: None):
         for n, (x1, y1, x2, y2, t, i, j) in enumerate(pair([x["seg"] for x in fs], max_thickness=MAX_WALL), 1):
             two = [fs[i]] + ([fs[j]] if j >= 0 else [])
             pts = np.concatenate([x["points"] for x in two])
+            scatter = math.sqrt(sum(len(x["points"]) * x["rmse"] ** 2 for x in two) / len(pts))
+            thick = ({"thickness_mm": r(t)} if thickness_trusted(t, scatter) else {"faces_apart_mm": r(t)}) if j >= 0 else {}
             out.append({"cid": f"scan-{name}-wall-{n}", "kind": "wall",
                         "geometry": {"LocationCurve": {"start": [r(x1), r(y1), r(zf)], "end": [r(x2), r(y2), r(zf)]},
                                      "BaseElevation": r(zf), "TopElevation": r(top), "storey": lv,
                                      "faces": [[r(v) for v in x["seg"]] for x in two]},
                         "measured": {"length_mm": r(math.hypot(x2 - x1, y2 - y1)), "height_mm": r(top - zf),
-                                     **({"thickness_mm": r(t)} if j >= 0 else {})},
+                                     **thick},
                         "evidence": refs(pts, f"slice-{name}"),
-                        "fit": fit(len(pts), math.sqrt(sum(len(x["points"]) * x["rmse"] ** 2 for x in two) / len(pts)),
-                                   min(x["coverage"] for x in two))})
+                        "fit": fit(len(pts), scatter, min(x["coverage"] for x in two))})
             # MA-5a: the wall's openings (wall_openings); direction is the host's unit vector to 4 places (review: whole numbers made a
             # 45 deg wall's [1, 1], sqrt 2 long, and a 30 deg wall's [1, 0], which reference.score's 5 deg match rejects)
             L = math.hypot(x2 - x1, y2 - y1)
