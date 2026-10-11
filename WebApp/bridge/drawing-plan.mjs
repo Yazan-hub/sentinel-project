@@ -321,7 +321,10 @@ export function planDrawing({ job, candidates, align, manifest = [], type, filed
     }
     if (matchOf.has(hi) && !sv) { hold(c, `its point falls beyond the scan's ${sw[matchOf.get(hi).j].cid}, which stands for its host ${host} — a person places this door`); continue; }
     const checked = sv ? scan.storey?.checked !== false : s.checked, lvl = sv ? sv.level : s.level;
-    if (!checked) { hold(c, `its level ${lvl} is in no published model, so its height in Revit is unknown here — Revit refuses a door off its level's height; name a published level, or leave level out to have it created`); continue; }
+    // drill MA5a456: a level taken from the scan is the scan's to check — leaving level out gives the scan's level again, never a created one
+    if (!checked) { hold(c, `its level ${lvl} is in no published model, so its height in Revit is unknown here — Revit refuses a door off its level's height; ${sv || s.how === "scan"
+      ? `${lvl} is the scan's level, named when the scan was proposed and never checked: publish a model that holds it, then propose the drawing again`
+      : "name a published level, or leave level out to have it created"}`); continue; }
     if (!sv && typed[hi].gap && !filed.cids.has(host)) { hold(c, `its host wall ${host} is a type gap — propose the drawing again once the wall's group in the Holding Area closes`); continue; }
     if (!Number.isFinite(m.tag_height_mm)) { hold(c, `its height is not drawn (no W x H tag beside its swing; ${drawn} mm wide as drawn) — a person places this door`); continue; }
     if (Number.isFinite(m.tag_width_mm) && Math.abs(m.tag_width_mm - drawn) > SIZE_BAND_MM) {
