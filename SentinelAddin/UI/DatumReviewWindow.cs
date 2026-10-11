@@ -75,7 +75,7 @@ public sealed class DatumReviewWindow : Window
                 var name = new TextBox { Text = r.Name, Margin = new Thickness(4, 2, 4, 2) };
                 var runs = new TextBlock
                 {
-                    Text = $"{(r.Grid.Vertical ? "numbered" : "lettered")}: ({r.Grid.X1:0}, {r.Grid.Y1:0}) → ({r.Grid.X2:0}, {r.Grid.Y2:0})",
+                    Text = Runs(r.Grid),
                     VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 0, 0),
                 };
                 _grids.Add((r, tick, name));
@@ -100,6 +100,15 @@ public sealed class DatumReviewWindow : Window
         root.Children.Add(footer);
         root.Children.Add(new ScrollViewer { Content = body, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
         Content = root;
+    }
+
+    // MA-5b-8 (DAT-5): how a grid runs — an arc by its centre, radius and sweep; a line by its ends, and its angle when it is not square.
+    private static string Runs(DetectedGrid g)
+    {
+        string kind = g.Vertical ? "numbered" : "lettered";
+        if (g.IsArc) return $"{kind}, arc: centre ({g.Cx:0}, {g.Cy:0}), radius {g.R:0}, {g.StartDeg:0.#}°–{g.EndDeg:0.#}°";
+        double off = System.Math.Min(System.Math.Abs(g.AngleDeg % 90), 90 - System.Math.Abs(g.AngleDeg % 90));
+        return $"{kind}{(off > 1.2 ? $", at {(g.AngleDeg + 180) % 180:0.#}°" : "")}: ({g.X1:0}, {g.Y1:0}) → ({g.X2:0}, {g.Y2:0})";
     }
 
     private static TextBlock Heading(string text) => new() { Text = text, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 10, 0, 4) };

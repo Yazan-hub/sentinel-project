@@ -27,7 +27,21 @@ namespace Sentinel.GhostBuilder
     {
         public string Name;         // auto: "1","2"… for vertical, "A","B"… for horizontal
         public double X1, Y1, X2, Y2;
-        public bool Vertical;       // runs up the page (constant X) → numbered; else lettered
+        public bool Vertical;       // numbered (within 45° of vertical, or a spoke); else lettered
+        /// <summary>MA-5b-8 (DAT-5): an arc grid — its centre, radius and sweep (degrees anticlockwise from +X, start &lt; end); X1..Y2 are
+        /// its ends. AngleDeg: a line's direction, 0 up to 180.</summary>
+        public bool IsArc;
+        public double Cx, Cy, R, StartDeg, EndDeg, AngleDeg;
+        /// <summary>The same grid under another name (the review's typed one).</summary>
+        public DetectedGrid With(string name) { var g = (DetectedGrid)MemberwiseClone(); g.Name = name; return g; }
+    }
+
+    /// <summary>MA-5b-8 (DAT-5): an arc drawn on a grid layer, in mm — centre, radius, sweep in degrees anticlockwise from +X (start &lt; end;
+    /// a whole circle spans 360).</summary>
+    public sealed class GridArc
+    {
+        public double Cx, Cy, R, StartDeg, EndDeg;
+        public double Span => EndDeg - StartDeg;
     }
 
     public static class DatumFromDrawing
@@ -85,30 +99,83 @@ namespace Sentinel.GhostBuilder
         }
 
         /// <summary>
-        /// Grids from the lines on a plan's grid layer. Long lines are split into VERTICAL (constant X →
-        /// numbered 1,2,3 left→right) and HORIZONTAL (constant Y → lettered A,B,C bottom→top), the standard
-        /// convention. Near-parallel duplicates on the same axis-position merge. Reviewer can relabel.
+        /// Grids from the lines (and MA-5b-8: arcs) on a plan's grid layer. A line or an arc is a grid when it is at least a quarter as long
+        /// (an arc: as wide in radius) as the longest line there — a bubble, its leader, a tick is smaller; a whole circle is no grid (said).
+        /// Lines group by direction (within the drawing tolerance of ~1.15°, the old 2 % slope); in a direction, lines whose offsets are within
+        /// <paramref name="mergeTolMm"/> are one grid (the longest kept); arcs of one centre (5 mm) and radius (the merge) likewise.
+        /// Names follow GR-01 (letters or numbers): numbers for lines within 45° of vertical (the direction nearest vertical first, then left to
+        /// right) and then for the spokes of a radial plan (a line whose extension passes within 5 mm of an arc grid's centre), by angle
+        /// anticlockwise from +X; letters (never I or O) for lines within 45° of horizontal (nearest horizontal first, then bottom to top) and then
+        /// for the arcs, inner first. Plain orthogonal grids are named exactly as before.
         /// </summary>
-        public static List<DetectedGrid> Grids(IEnumerable<Seg> planLines, double mergeTolMm = 100.0, ISet<char> skipLetters = null)
+        public static List<DetectedGrid> Grids(IEnumerable<Seg> planLines, double mergeTolMm = 100.0, ISet<char> skipLetters = null,
+                                               IEnumerable<GridArc> planArcs = null, List<string> warnings = null)
         {
             skipLetters ??= DefaultSkip;
-            var lines = (planLines ?? Enumerable.Empty<Seg>()).Where(s => s.Length > 1e-6).ToList();
+            var all = (planLines ?? Enumerable.Empty<Seg>()).Where(s => s.Length > 1e-6).ToList();
+            double min = (all.Count == 0 ? 0 : all.Max(l => l.Length)) / 4;
+            var lines = all.Where(l => l.Length >= min).ToList();
 
-            var vertical = Dedupe(lines.Where(IsVertical).OrderBy(s => (s.X1 + s.X2) * 0.5),
-                                  s => (s.X1 + s.X2) * 0.5, mergeTolMm);
-            var horizontal = Dedupe(lines.Where(IsHorizontal).OrderBy(s => (s.Y1 + s.Y2) * 0.5),
-                                    s => (s.Y1 + s.Y2) * 0.5, mergeTolMm);
+            // Arcs: big enough, not whole circles; one per centre and radius (the widest sweep kept).
+            var arcs = new List<GridArc>();
+            foreach (var a in (planArcs ?? Enumerable.Empty<GridArc>()).Where(a => a.R > 0 && a.R >= min).OrderByDescending(a => a.Span))
+            {
+                if (a.Span >= 359.9) { warnings?.Add($"A whole circle of radius {a.R:0} mm on a grid layer, centre ({a.Cx:0}, {a.Cy:0}) — Revit makes no grid of a whole circle; draw it as an arc."); continue; }
+                if (!arcs.Any(k => Math.Abs(k.Cx - a.Cx) <= 5 && Math.Abs(k.Cy - a.Cy) <= 5 && Math.Abs(k.R - a.R) <= mergeTolMm)) arcs.Add(a);
+            }
+
+            // Lines: by direction, then by offset (the longest kept at each).
+            double tolDeg = Math.Atan(0.02) * 180 / Math.PI;
+            double Dir(Seg l) { double d = Math.Atan2(l.Y2 - l.Y1, l.X2 - l.X1) * 180 / Math.PI; d = ((d % 180) + 180) % 180; return d >= 180 - tolDeg ? d - 180 : d; }
+            var families = new List<(double Deg, List<Seg> Lines)>();
+            foreach (var l in lines.OrderBy(Dir))
+            {
+                double d = Dir(l);
+                var f = families.FirstOrDefault(x => Math.Abs(x.Deg - d) <= tolDeg);
+                if (f.Lines == null) families.Add((d, new List<Seg> { l })); else f.Lines.Add(l);
+            }
+            GridArc CentreOf(Seg l) => arcs.FirstOrDefault(a => Math.Abs((a.Cx - l.X1) * (l.Y2 - l.Y1) - (a.Cy - l.Y1) * (l.X2 - l.X1)) / l.Length <= 5);
+            var numbered = new List<(double Key1, double Key2, Seg Line, double Deg)>();
+            var lettered = new List<(double Key1, double Key2, Seg Line, double Deg)>();
+            var spokes = new List<(double Ang, Seg Line, double Deg)>();
+            foreach (var (_, fl) in families)
+            {
+                double deg = fl.Average(Dir), r = deg * Math.PI / 180;
+                bool num = Math.Abs(deg - 90) <= 45;
+                // the normal across the direction: +X-ward for a numbered direction (left to right), +Y-ward for a lettered one (bottom to top)
+                double nx = -Math.Sin(r), ny = Math.Cos(r);
+                if (num ? nx < 0 : ny < 0) { nx = -nx; ny = -ny; }
+                double Off(Seg l) => (l.X1 + l.X2) / 2 * nx + (l.Y1 + l.Y2) / 2 * ny;
+                foreach (var l in Dedupe(fl.Where(x => CentreOf(x) == null).OrderBy(Off), Off, mergeTolMm))
+                    (num ? numbered : lettered).Add((num ? Math.Abs(deg - 90) : Math.Min(Math.Abs(deg), Math.Abs(180 - deg)), Off(l), l, deg));
+                foreach (var l in fl.Where(x => CentreOf(x) != null))
+                {
+                    var c = CentreOf(l);
+                    // the end away from the centre gives its angle; one spoke per angle (the longest kept)
+                    var (fx, fy) = Math.Pow(l.X1 - c.Cx, 2) + Math.Pow(l.Y1 - c.Cy, 2) > Math.Pow(l.X2 - c.Cx, 2) + Math.Pow(l.Y2 - c.Cy, 2) ? (l.X1, l.Y1) : (l.X2, l.Y2);
+                    double ang = (Math.Atan2(fy - c.Cy, fx - c.Cx) * 180 / Math.PI + 360) % 360;
+                    int k = spokes.FindIndex(sp => Math.Abs(sp.Ang - ang) <= 0.5);
+                    if (k < 0) spokes.Add((ang, l, deg));
+                    else if (l.Length > spokes[k].Line.Length) spokes[k] = (ang, l, deg);
+                }
+            }
 
             var grids = new List<DetectedGrid>();
-            for (int i = 0; i < vertical.Count; i++)
-                grids.Add(New(vertical[i], (i + 1).ToString(), true));       // 1, 2, 3…
-            for (int i = 0; i < horizontal.Count; i++)
-                grids.Add(New(horizontal[i], Letter(i, skipLetters), false)); // A, B, C… — never I or O (MA-5b-7, the drawing convention)
+            int n = 0, a0 = 0;
+            foreach (var x in numbered.OrderBy(x => Math.Round(x.Key1, 6)).ThenBy(x => x.Key2)) grids.Add(New(x.Line, (++n).ToString(CultureInfo.InvariantCulture), true, x.Deg));
+            foreach (var x in spokes.OrderBy(x => x.Ang)) grids.Add(New(x.Line, (++n).ToString(CultureInfo.InvariantCulture), true, x.Deg));
+            foreach (var x in lettered.OrderBy(x => Math.Round(x.Key1, 6)).ThenBy(x => x.Key2)) grids.Add(New(x.Line, Letter(a0++, skipLetters), false, x.Deg));
+            foreach (var a in arcs.OrderBy(a => a.R).ThenBy(a => a.Cx).ThenBy(a => a.Cy))
+            {
+                double s0 = a.StartDeg * Math.PI / 180, s1 = a.EndDeg * Math.PI / 180;
+                grids.Add(new DetectedGrid
+                {
+                    Name = Letter(a0++, skipLetters), IsArc = true, Cx = a.Cx, Cy = a.Cy, R = a.R, StartDeg = a.StartDeg, EndDeg = a.EndDeg,
+                    X1 = a.Cx + a.R * Math.Cos(s0), Y1 = a.Cy + a.R * Math.Sin(s0), X2 = a.Cx + a.R * Math.Cos(s1), Y2 = a.Cy + a.R * Math.Sin(s1),
+                });
+            }
             return grids;
         }
-
-        private static bool IsVertical(Seg s)   => Math.Abs(s.X2 - s.X1) < Math.Abs(s.Y2 - s.Y1) * 0.02;
-        private static bool IsHorizontal(Seg s) => Math.Abs(s.Y2 - s.Y1) < Math.Abs(s.X2 - s.X1) * 0.02;
 
         // Keep the LONGEST line at each axis-position (grid lines are long; a duplicate tick is short).
         private static List<Seg> Dedupe(IEnumerable<Seg> ordered, Func<Seg, double> axis, double tol)
@@ -126,8 +193,12 @@ namespace Sentinel.GhostBuilder
             return outp;
         }
 
-        private static DetectedGrid New(Seg s, string name, bool vertical) => new DetectedGrid
-        { Name = name, X1 = s.X1, Y1 = s.Y1, X2 = s.X2, Y2 = s.Y2, Vertical = vertical };
+        private static DetectedGrid New(Seg s, string name, bool vertical, double deg) => new DetectedGrid
+        { Name = name, X1 = s.X1, Y1 = s.Y1, X2 = s.X2, Y2 = s.Y2, Vertical = vertical, AngleDeg = deg };
+
+        /// <summary>MA-5b-8 (DAT-5): an arc grid already in the model — the same centre and radius, each within <paramref name="tolMm"/>.</summary>
+        public static bool SameArc(DetectedGrid g, double cx, double cy, double r, double tolMm = 10) =>
+            g.IsArc && Math.Abs(g.Cx - cx) <= tolMm && Math.Abs(g.Cy - cy) <= tolMm && Math.Abs(g.R - r) <= tolMm;
 
         /// <summary>MA-5b-7 (DAT-1): the letters a grid is never named by unless the layers@n datum section says otherwise — I and O
         /// read as 1 and 0.</summary>
@@ -151,6 +222,7 @@ namespace Sentinel.GhostBuilder
         /// within <paramref name="tolMm"/> of its line. Revit's grid is kept; the new one is not created.</summary>
         public static bool SameLine(DetectedGrid g, double x1, double y1, double x2, double y2, double tolMm = 10)
         {
+            if (g.IsArc) return false;
             double dx = x2 - x1, dy = y2 - y1, l = Math.Sqrt(dx * dx + dy * dy), gx = g.X2 - g.X1, gy = g.Y2 - g.Y1, gl = Math.Sqrt(gx * gx + gy * gy);
             if (l <= 0 || gl <= 0 || Math.Abs(dx * gy - dy * gx) / (l * gl) > Math.Sin(0.5 * Math.PI / 180)) return false;
             double Off(double x, double y) => Math.Abs((x - x1) * dy - (y - y1) * dx) / l;
@@ -220,6 +292,6 @@ namespace Sentinel.GhostBuilder
         /// <summary>The ticked rows as what Build creates: names trimmed as typed, elevations as typed, Building Story as left.</summary>
         public static (List<DetectedLevel> Levels, List<DetectedGrid> Grids) Picked(IReadOnlyList<DatumRow> rows) =>
             (rows.Where(r => r.Tick && !r.IsGrid).Select(r => new DetectedLevel { Name = r.Name.Trim(), ElevationMm = Mm(r.Elevation).Value, Story = r.Story }).ToList(),
-             rows.Where(r => r.Tick && r.IsGrid).Select(r => new DetectedGrid { Name = r.Name.Trim(), X1 = r.Grid.X1, Y1 = r.Grid.Y1, X2 = r.Grid.X2, Y2 = r.Grid.Y2, Vertical = r.Grid.Vertical }).ToList());
+             rows.Where(r => r.Tick && r.IsGrid).Select(r => r.Grid.With(r.Name.Trim())).ToList());
     }
 }

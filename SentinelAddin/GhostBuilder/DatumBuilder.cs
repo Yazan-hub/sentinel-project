@@ -40,6 +40,8 @@ namespace Sentinel.GhostBuilder
             /// <summary>MA-5b-7 (DAT-1): every layer the drawing(s) held — listed when nothing was found — and where the datum was read.</summary>
             public HashSet<string> SeenLayers = new(StringComparer.OrdinalIgnoreCase);
             public DatumSource Source;
+            /// <summary>MA-5b-8 (DAT-5): the arcs read on grid layers, in mm.</summary>
+            public List<GridArc> GridArcs = new();
         }
 
         /// <summary>MA-5b-7 (DAT-1): which layers hold the datum — the project's layers@n datum section, or the built-in words — and how
@@ -134,7 +136,7 @@ namespace Sentinel.GhostBuilder
         {
             var src = res.Source;
             res.Levels = DatumFromDrawing.Levels(levelSegs, src.LevelMergeMm);
-            res.Grids = DatumFromDrawing.Grids(gridSegs, src.GridMergeMm, src.Skip);
+            res.Grids = DatumFromDrawing.Grids(gridSegs, src.GridMergeMm, src.Skip, res.GridArcs, res.Warnings); // MA-5b-8: angled and arc grids too
             if (res.Levels.Count == 0)
                 res.Warnings.Add("No level lines found on a level layer in the drawing(s) read — levels come from a section export.");
             if (res.Grids.Count == 0)
@@ -233,6 +235,12 @@ namespace Sentinel.GhostBuilder
             string layer = LayerOf(o);
             if (layer == null) return;
             res.SeenLayers.Add(layer);
+            // MA-5b-8 (DAT-5): an arc on a grid layer is an arc grid's candidate (Grids keeps the big ones; a bubble is small)
+            if (o is Arc arc)
+            {
+                if (src.IsGrid(layer)) { res.GridArcs.Add(ToArc(arc)); res.GridLayers.Add(layer); }
+                return;
+            }
             var segs = new List<Seg>();
             switch (o)
             {
@@ -248,6 +256,22 @@ namespace Sentinel.GhostBuilder
             if (segs.Count == 0) return;
             if (src.IsLevel(layer)) { levels.AddRange(segs); res.LevelLayers.Add(layer); }
             if (src.IsGrid(layer)) { grids.AddRange(segs); res.GridLayers.Add(layer); }
+        }
+
+        // An import's arc in mm: centre, radius and its sweep anticlockwise from +X (start < end) — the way the arc runs is read from its
+        // middle point, whatever its normal; an unbound arc is a whole circle (360).
+        private static GridArc ToArc(Arc a)
+        {
+            var c = a.Center;
+            var g = new GridArc { Cx = c.X * FeetToMm, Cy = c.Y * FeetToMm, R = a.Radius * FeetToMm, StartDeg = 0, EndDeg = 360 };
+            if (!a.IsBound) return g;
+            double Deg(XYZ p) => (Math.Atan2(p.Y - c.Y, p.X - c.X) * 180 / Math.PI + 360) % 360;
+            double Ccw(double from, double to) => ((to - from) % 360 + 360) % 360;
+            double a0 = Deg(a.GetEndPoint(0)), a1 = Deg(a.GetEndPoint(1)), am = Deg(a.Evaluate(0.5, true));
+            if (Ccw(a0, am) > Ccw(a0, a1)) (a0, a1) = (a1, a0);
+            g.StartDeg = a0;
+            g.EndDeg = a0 + Ccw(a0, a1);
+            return g;
         }
 
         private static string Layers(HashSet<string> layers) =>
@@ -317,15 +341,19 @@ namespace Sentinel.GhostBuilder
             }
             var grids = new FilteredElementCollector(_doc).OfClass(typeof(Grid)).Cast<Grid>().ToList();
             foreach (var x in grids)
-                if (x.Curve is Line l && DatumFromDrawing.SameLine(g, l.GetEndPoint(0).X * FeetToMm, l.GetEndPoint(0).Y * FeetToMm, l.GetEndPoint(1).X * FeetToMm, l.GetEndPoint(1).Y * FeetToMm))
+                if (x.Curve is Line l && DatumFromDrawing.SameLine(g, l.GetEndPoint(0).X * FeetToMm, l.GetEndPoint(0).Y * FeetToMm, l.GetEndPoint(1).X * FeetToMm, l.GetEndPoint(1).Y * FeetToMm)
+                    || x.Curve is Arc ea && DatumFromDrawing.SameArc(g, ea.Center.X * FeetToMm, ea.Center.Y * FeetToMm, ea.Radius * FeetToMm)) // MA-5b-8
                 {
-                    warnings.Add($"Grid '{g.Name}': grid '{x.Name}' already stands on that line — kept.");
+                    warnings.Add($"Grid '{g.Name}': grid '{x.Name}' already stands {(g.IsArc ? "on that arc" : "on that line")} — kept.");
                     return null;
                 }
             var taken = grids.Select(x => x.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
             string want = g.Name;
             for (int i = 2; taken.Contains(want); i++) want = $"{g.Name} ({i})";
-            var grid = Grid.Create(_doc, Line.CreateBound(p1, p2));
+            // MA-5b-8 (DAT-5): an arc grid as drawn — its centre, radius and sweep anticlockwise from +X
+            var grid = g.IsArc
+                ? Grid.Create(_doc, Arc.Create(new XYZ(g.Cx * MmToFeet, g.Cy * MmToFeet, 0), g.R * MmToFeet, g.StartDeg * Math.PI / 180, g.EndDeg * Math.PI / 180, XYZ.BasisX, XYZ.BasisY))
+                : Grid.Create(_doc, Line.CreateBound(p1, p2));
             try
             {
                 grid.Name = want;
