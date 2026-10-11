@@ -10,7 +10,7 @@ vi.mock("./bridge-fetch", () => ({ bfetch, bwrite }));
 import { ATTESTATION_CODES, ATTESTATION_TEXTS, kindOf, needsReport, itemLine, attestationLine, admitLine, recheckLine, readEvidence,
   signAttestation, evidenceControls, requestLine, isImage, jobLine, candidateLine, surveyStartLine, surveyableScans, startSurvey, readJobs,
   proposeBody, proposeFromJob, proposeLine, datasetLine, type ProposeReply, type EvidenceItem, type EvidencePack, type EvidenceRequest, type SurveyJob,
-  isDrawingJob, readableDrawings, drawingStartLine, startDrawing, alignBody, alignPreview, type AlignDraft } from "./evidence";
+  isDrawingJob, readableDrawings, drawingStartLine, startDrawing, alignBody, alignPreview, drawingSvg, snapPaper, type AlignDraft } from "./evidence";
 
 const res = (status: number, body: unknown) => ({ ok: status < 400, status, json: async () => body }) as unknown as Response;
 const HASH = "ab".repeat(32);
@@ -287,6 +287,22 @@ describe("drawing proposals (MA-5a-4) — the lead's two points, level and heigh
     expect(alignPreview({ ...D, pc: "220, 40", mc: "48000, 150" })).toContain(" · the check point lands 150 mm from where you said (the bridge refuses over 100)");
     expect(alignPreview({ ...D, pa: "40000, 0", ma: "60, 40", pb: "48000, 6000", mb: "220, 160" })).toBe("1:0.02 — no plan is drawn at that scale (the bridge takes 1:1 to 1:2000): check paper against model, and that both name the same marks");
     expect(alignPreview({ ...D, mb: "" })).toBe("");
+  });
+  it("MA-5a-6: the drawing as read, to click its marks — the page, each wall's faces, the doors, the marks typed; a click snaps to a wall corner within 3 paper mm", () => {
+    const R = JSON.parse(readFileSync(new URL("../../bridge/fixtures/drawing/drill-plan-L00-result.json", import.meta.url), "utf8"));
+    const svg = drawingSvg(R.candidates, "ev-0007", [297.039, 209.903], { ...D, pc: "220, 40" });
+    expect(svg).toMatch(/^<svg id="fv-al-svg" viewBox="0 0 297 209.9" data-h="209.9" role="img" /);
+    expect([(svg.match(/<line /g) ?? []).length, (svg.match(/<circle cx=/g) ?? []).length]).toEqual([16, 2 + 3]); // the walls' 16 face pieces (doors split them); 2 doors + the A, B, C marks
+    expect(svg).toContain(`<line x1="60" y1="169.9" x2="60" y2="49.9"><title>drawing-ev-0007-p1-wall-3</title></line>`); // y up on the paper, flipped
+    expect(svg).toContain(`>A</text>`); expect(svg).toContain(`>C</text>`);
+    expect(drawingSvg(R.candidates, "ev-0009", null, D)).not.toContain("<line "); // another drawing's walls are not drawn
+    const evil = [{ ...R.candidates[0], cid: `<img src=x onerror=alert(1)>` }];
+    expect(drawingSvg(evil, "ev-0007", null, D)).toContain("<title>&lt;img src=x onerror=alert(1)&gt;</title>");
+    expect([snapPaper(R.candidates, "ev-0007", [61.2, 41.4]), snapPaper(R.candidates, "ev-0007", [221.5, 158.9]), snapPaper(R.candidates, "ev-0007", [100.04, 100.06])])
+      .toEqual([[60, 40], [220, 160], [100, 100.1]]);
+    const src = readFileSync(new URL("./files-panel.ts", import.meta.url), "utf8");
+    expect(src).toContain("const [x, y] = snapPaper(alignView.cands, alignDraft.item, [at.x, Number(svg.dataset.h) - at.y]);");
+    expect(src).toContain(`alignPick = alignPick === "pa" ? "pb" : alignPick === "pb" ? "pc" : null;`);
   });
   it("proposeLine on a drawing: the alignment, the counts, none pre-ticked", () => {
     const r: ProposeReply = { job: "job-0005", drawing_row: { id: 3001, hash: HASH },

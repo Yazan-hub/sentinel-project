@@ -17,7 +17,7 @@ import { unarchiveFile } from "./cde-transition";
 import { firstTag, geometryCheck, linkedHash, linkedTag, sha256Hex, type GeometryLinkRow } from "./geometry-check";
 import { readEvidence, makePack, signAttestation, admitEvidence, recheckEvidence, draftRequest, kindOf, isImage, needsReport, itemLine, attestationLine, admitLine, recheckLine, requestLine, evidenceControls, ATTESTATION_CODES, ATTESTATION_TEXTS, datasetLine, type EvidenceRead, type EvidenceRequest,
   startSurvey, readJobs, readJob, jobLine, candidateLine, surveyStartLine, surveyableScans, proposeBody, proposeFromJob, proposeLine, type SurveyJob, type Candidate,
-  startDrawing, drawingStartLine, readableDrawings, isDrawingJob, alignBody, alignPreview, type AlignDraft } from "./evidence";
+  startDrawing, drawingStartLine, readableDrawings, isDrawingJob, alignBody, alignPreview, drawingSvg, snapPaper, type AlignDraft } from "./evidence";
 
 /**
  * Sentinel Versions panel — file/blob-centric version history for uploaded model files.
@@ -94,6 +94,9 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   let proposeDraft: { dx: string; dy: string; dz: string; rot: string; levels: Record<string, string> } | null = null;
   // MA-5a-4: the drawing job's Propose form as typed — its points, level and height (the same rule: kept across a refusal, cleared on a 201).
   let alignDraft: AlignDraft | null = null;
+  // MA-5a-6: what the drawing's picture is drawn from (the job's candidates and each drawing's page size), and the mark the next click sets.
+  let alignView: { cands: Candidate[]; sizes: Record<string, [number, number]> } | null = null;
+  let alignPick: "pa" | "pb" | "pc" | null = null;
   // MA-4b: `drawingFor` = the folder file whose request picker is open (a drawing names the request it answers); `askDraft` = the
   // Ask the owner form while open (kept across a refused draft, so nothing typed is lost); `lettersOpen` = the requests showing a letter.
   let drawingFor: string | null = null;
@@ -168,7 +171,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   async function load() {
     const mine = ++seq, key = pid();
     // A project or person switch drops the old scope's inline rename / armed confirm (dismissing is reset below).
-    if (loadScope(key) !== loadedScope) { renaming = null; armed = null; unarchiveAsk = null; askDraft = null; drawingFor = null; lettersOpen.clear(); proposing = null; proposeLevels = null; proposeDraft = null; alignDraft = null; }
+    if (loadScope(key) !== loadedScope) { renaming = null; armed = null; unarchiveAsk = null; askDraft = null; drawingFor = null; lettersOpen.clear(); proposing = null; proposeLevels = null; proposeDraft = null; alignDraft = null; alignView = null; alignPick = null; }
     loadedScope = loadScope(key);
     if (cmp.a || cmp.b) { cmp.a = cmp.b = cmp.fileId = undefined; el("fv-compare").style.display = "none"; }
     el("fv-proj").textContent = key;
@@ -318,6 +321,8 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
         if (r.result_error) { status(`Not proposed — ${r.result_error}`); return; }
         proposing = id; proposeLevels = (r.candidates ?? []).filter((c) => c.kind === "level"); proposeDraft = { dx: "0", dy: "0", dz: "0", rot: "0", levels: {} };
         alignDraft = isDrawingJob(r.job) ? { item: (r.job.read ?? [])[0] ?? "", pa: "", ma: "", pb: "", mb: "", pc: "", mc: "", level: "", z: "0" } : null;
+        alignView = alignDraft ? { cands: r.candidates ?? [], sizes: Object.fromEntries((r.receipt?.items ?? []).filter((i) => i.size_paper_mm).map((i) => [i.id, i.size_paper_mm!])) } : null;
+        alignPick = alignDraft ? "pa" : null;
         render();
       } catch (e) { if (mine === seq) status(`Not proposed — ${(e as Error).message}`); }
     }));
@@ -341,10 +346,23 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     });
     root.querySelectorAll("[data-al]").forEach((n) => n.addEventListener("input", () => {
       if (!alignDraft) return;
+      const was = alignDraft.item;
       alignDraft = readAlign();
+      if (alignDraft.item !== was) { render(); return; } // another drawing: its picture
       const p = root.querySelector("#fv-al-preview");
       if (p) p.textContent = alignPreview(alignDraft) || "Type both points — x, y each.";
     }));
+    // MA-5a-6: a click on the drawing sets the mark being picked (snapped to a wall corner within 3 paper mm), then moves on A → B → check
+    root.querySelectorAll<HTMLElement>("[data-alpick]").forEach((n) => n.addEventListener("click", () => { alignDraft = readAlign(); alignPick = n.dataset.alpick as "pa" | "pb" | "pc"; render(); }));
+    root.querySelector<SVGSVGElement>("#fv-al-svg")?.addEventListener("click", (ev) => {
+      const svg = ev.currentTarget as SVGSVGElement, m = svg.getScreenCTM();
+      if (!alignDraft || !alignView || !alignPick || !m) return;
+      const at = new DOMPoint(ev.clientX, ev.clientY).matrixTransform(m.inverse());
+      const [x, y] = snapPaper(alignView.cands, alignDraft.item, [at.x, Number(svg.dataset.h) - at.y]);
+      alignDraft = { ...readAlign(), [alignPick]: `${x}, ${y}` };
+      alignPick = alignPick === "pa" ? "pb" : alignPick === "pb" ? "pc" : null;
+      render();
+    });
     root.querySelector<HTMLButtonElement>("#fv-pr-ok")?.addEventListener("click", (ev) => {
       // MA-4d (review): one press, one proposal — the bridge's per-project lock is the guard; this is the courtesy (evAct's load() re-renders it).
       const btn = ev.currentTarget as HTMLButtonElement;
@@ -615,6 +633,11 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       ([["A", "pa", "ma"], ["B", "pb", "mb"], ["check (optional)", "pc", "mc"]] as const).map(([what, p, m]) =>
         `<div style="display:flex;gap:.3rem;flex-wrap:wrap;align-items:center;font-size:11px;padding:.1rem .2rem"><span style="min-width:6.5rem">${esc(what)}: paper</span><input data-al="${esc(p)}" value="${esc(ad[p])}" placeholder="x, y" style="${inp};width:7rem"/> → model <input data-al="${esc(m)}" value="${esc(ad[m])}" placeholder="x, y" style="${inp};width:9rem"/> mm</div>`).join("") +
       `<div style="display:flex;gap:.3rem;flex-wrap:wrap;align-items:center;font-size:11px;padding:.1rem .2rem">level <input data-al="level" value="${esc(ad.level)}" placeholder="blank: a published level at that height, or a new one" style="${inp};flex:1;min-width:12rem"/> at <input data-al="z" value="${esc(ad.z)}" style="${inp};width:5rem"/> mm</div>` +
+      // MA-5a-6: pick each mark on the drawing as it was read — the paper side; where it is in the model is still the lead's to type
+      (alignView ? `<div style="display:flex;gap:.3rem;flex-wrap:wrap;align-items:center;font-size:11px;padding:.15rem .2rem">click the drawing to set ` +
+        ([["pa", "A"], ["pb", "B"], ["pc", "check"]] as const).map(([k, w]) => `<button data-alpick="${esc(k)}" style="${act}${alignPick === k ? ";color:#c4b5fd;border-color:#6528d7" : ""}">${esc(w)}</button>`).join("") +
+        `<span style="color:#71717a">${esc(alignPick ? "— a click snaps to a wall corner within 3 paper mm" : "— pick a mark to set it again")}</span></div>` +
+        `<div style="padding:.1rem .2rem">${drawingSvg(alignView.cands, ad.item, alignView.sizes[ad.item] ?? null, ad)}</div>` : "") +
       `<div id="fv-al-preview" style="font-size:11px;color:#c4b5fd;padding:.1rem .2rem">${esc(alignPreview(ad) || "Type both points — x, y each.")}</div>` +
       `<div style="padding:.15rem .2rem"><button id="fv-al-ok" style="${act};color:#c4b5fd">Propose</button></div>`;
     // MA-4b: Ask the owner — the requests (each letter shown on demand, to copy) and, for a lead, the form that drafts one.
