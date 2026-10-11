@@ -290,6 +290,19 @@ describe("drawing jobs (MA-5a-3) — sentinel-drawing on the pack's admitted PDF
     expect(rec()).toMatchObject({ status: "failed", error: "sentinel-drawing's result is not the contract's shape (candidates[0].kind) — nothing it found was kept" });
     expect(audits[0].action).toBe("build:run job-0001 · sentinel-drawing 0.1.0 · failed");
   });
+
+  it("(d) review: a drawing read with nothing found says why — the receipt's per-item why on the record and on the build:run row", async () => {
+    drawings();
+    await startD();
+    const why = "one line weight on the page — walls are not told from the rest";
+    await finish({ status: "done", stage: "done", pct: 100, refused: [], tools: DTOOLS, version: "0.1.0",
+      result: { ...DRESULT, candidates: [], receipt: { ...DRESULT.receipt, items: [{ id: "ev-0011", pages: 1, page_read: 1, walls: 0, doors: 0, why }] } } });
+    expect(rec()).toMatchObject({ status: "done", candidates_total: 0, counts: { wall: 0, door: 0 }, notes: [{ id: "ev-0011", why }] });
+    expect(audits[0].v.notes).toEqual([{ id: "ev-0011", why }]);
+    await start(); // a survey's row carries none
+    await finish({ status: "done", stage: "done", pct: 100, refused: [], result: RESULT, tools: TOOLS, version: "0.6.0" });
+    expect(audits[1].v.notes).toBeUndefined();
+  });
 });
 
 describe("trustedJob (MA-4d) — decision 11: the row job.ledger.id names, the job's own, re-hashed now; never by new_value.job_id", () => {

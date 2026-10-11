@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { runDrawing, notSetUp, childEnv, EXE } from "./drawing-service.mjs";
+import { runDrawing, notSetUp, childEnv, boundMs, EXE } from "./drawing-service.mjs";
 
 const STANDIN = fileURLToPath(new URL("./fixtures/drawing-standin.mjs", import.meta.url));
 const PLAN = fileURLToPath(new URL("../../drawing/fixtures/drill-plan-L00.pdf", import.meta.url));
@@ -58,6 +58,10 @@ describe("runDrawing (MA-5a-3) — the supervisor, with a Node stand-in for sent
     expect(calls[0].child.exitCode !== null || calls[0].child.signalCode !== null).toBe(true); // killed, and gone before the answer
   });
 
+  it("the bound is 2 min a PDF, at most 10 min a job (review: one bound for the whole pack failed a pack of big sheets)", () => {
+    expect([boundMs(0), boundMs(1), boundMs(3), boundMs(9)]).toEqual([120_000, 120_000, 360_000, 600_000]);
+  });
+
   it("an exe that cannot start is a failed job in words; not set up is a 503's words", async () => {
     const r = await runDrawing(JOB, { exe: "C:/no/such/sentinel-drawing.exe", log: () => {} });
     expect(r.status).toBe("failed");
@@ -73,7 +77,7 @@ describe.skipIf(!existsSync(EXE))("the real sentinel-drawing on the drill plan (
     const r = await runDrawing({ ...JOB, items: [{ id: "ev-0007", kind: "drawing", path: PLAN, sha256: sha }] }, { cwd: tmpdir(), env: { ...process.env, ...SECRETS }, log: () => {} });
     expect(r).toMatchObject({ status: "done", version: "0.1.0", refused: [] });
     expect(r.result.candidates.filter((c) => c.kind === "wall")).toHaveLength(5);
-    expect(r.result.candidates.filter((c) => c.kind === "door").map((c) => c.measured)).toEqual([
+    expect(r.result.candidates.filter((c) => c.kind === "door").map((c) => c.measured).sort((a, b) => a.width_paper_mm - b.width_paper_mm)).toEqual([
       { width_paper_mm: 18, tag_width_mm: 900, tag_height_mm: 2100 }, { width_paper_mm: 20, tag_width_mm: 1000, tag_height_mm: 2100 }]);
     expect(r.tools.map((t) => t.name)).toEqual(["sentinel-drawing", "PdfPig", ".NET"]);
   });

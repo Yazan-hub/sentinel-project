@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!-- MA-5a-3: sentinel-drawing, the vector PDF plan reader the bridge runs (WebApp/bridge/drawing-service.mjs): one job on stdin,
        its result on stdout. Build: dotnet build drawing -c Release → drawing/bin/Release/net8.0/sentinel-drawing.exe.
-       Check: tools/drawing-check (dotnet run, its project). WallPairing.cs is the add-in's own, linked (the pairing stays rule for rule). -->
+       Check: tools/drawing-check (dotnet run, its project). -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net8.0</TargetFramework>
@@ -11,7 +11,6 @@
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="..\SentinelAddin\GhostBuilder\WallPairing.cs" />
     <PackageReference Include="PdfPig" Version="[0.1.16]" />
   </ItemGroup>
 </Project>

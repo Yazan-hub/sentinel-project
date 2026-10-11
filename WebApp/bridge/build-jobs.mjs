@@ -169,7 +169,7 @@ export function buildRunValue(job, receipt) {
     cpu_s: receipt.cpu_s ?? null, points_in: receipt.points_in ?? null, points_used: receipt.points_used ?? null,
     model_calls: 0, tokens: 0, candidates: job.counts ?? null,
     gaps: null, // typing — and so gaps — is MA-4d's
-    result_sha256: job.result_sha256 ?? null, claimed: false, ...(job.error ? { error: job.error } : {}),
+    result_sha256: job.result_sha256 ?? null, claimed: false, ...(job.error ? { error: job.error } : {}), ...(job.notes ? { notes: job.notes } : {}),
   };
 }
 
@@ -244,6 +244,11 @@ async function runJob(d, proj, key, job, take) {
     // run still gets its build:run row below, so a started job always leaves one.
     try {
       writeAtomic(join(d.root, key, job.id, "result.json"), bytes);
+      // MA-5a-3 (review): a drawing the worker read but found nothing on says why (one weight, nothing drawn) — on the record and the
+      // row, so the lead sees it without opening a result that has no candidate.
+      const notes = name === DRAWING && Array.isArray(result.receipt?.items)
+        ? result.receipt.items.filter((i) => typeof i?.why === "string").map((i) => ({ id: String(i.id), why: i.why.slice(0, 300) })) : [];
+      if (notes.length) job.notes = notes;
       Object.assign(job, { result_sha256: sha(bytes), candidates_total: result.candidates.length,
         counts: Object.fromEntries((name === DRAWING ? DRAWING_KINDS : kindsOf(r.version)).map((k) => [k, result.candidates.filter((c) => c.kind === k).length])) });
     } catch (e) {

@@ -60,6 +60,8 @@ namespace Sentinel.Drawing
                         ["id"] = id, ["pages"] = pages, ["page_read"] = 1, ["size_paper_mm"] = P(w, h), ["strokes"] = reading.Strokes,
                         ["wall_weight_pt"] = reading.WallWeight.HasValue ? R(reading.WallWeight.Value) : null, ["faces"] = reading.Faces,
                         ["unpaired_faces"] = reading.Unpaired, ["arcs"] = reading.Arcs, ["walls"] = reading.Walls.Count, ["doors"] = reading.Doors.Count,
+                        ["columns"] = reading.Columns,
+                        ["weights"] = new JsonArray(reading.Weights.Select(x => (JsonNode)new JsonObject { ["pt"] = R(x.weight), ["paired_paper_mm"] = R(x.paired) }).ToArray()),
                     };
                     if (reading.Why != null) ri["why"] = reading.Why;
                     receiptItems.Add(ri);
@@ -112,7 +114,7 @@ namespace Sentinel.Drawing
                         ["geometry"] = new JsonObject
                         {
                             ["host"] = Cid(d.Host), ["Location"] = P(d.X, d.Y), ["direction"] = P(d.Ux, d.Uy), ["along_paper_mm"] = R(d.Along),
-                            ["swing_centre"] = P(d.Cx, d.Cy), ["page"] = 1, ["units"] = "paper_mm",
+                            ["swing_centre"] = P(d.Cx, d.Cy), ["leaves"] = d.Leaves, ["page"] = 1, ["units"] = "paper_mm",
                         },
                         ["measured"] = measured,
                         ["evidence"] = new JsonArray($"{id}#page-1"),

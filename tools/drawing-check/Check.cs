@@ -2,6 +2,7 @@
 // Drives DrawingJob.Run (the worker's whole contract, stdin JSON → stdout JSON, without the process) on the drill plan and its
 // variants, and holds the reading to drawing/fixtures/drill-plan-L00.expected.json.
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
@@ -34,6 +35,99 @@ namespace Sentinel.Checks
         static JsonNode[] Kind(JsonObject r, string kind) => r["result"]["candidates"].AsArray().Where(c => (string)c["kind"] == kind).ToArray();
         static double D(JsonNode n) => double.Parse(n.ToJsonString()); // a value built from an int has no GetValue<double>
         static double Dist(JsonNode p, JsonNode q) => Math.Sqrt(Math.Pow(D(p[0]) - D(q[0]), 2) + Math.Pow(D(p[1]) - D(q[1]), 2));
+
+        // ---- the branch review's cases (wf_ae3a6c66-31b), on Analyse with drawn strokes (paper mm) — each read in both stroke orders ----
+        static Stroke Ln(double x1, double y1, double x2, double y2, double w = 0.7) => new Stroke { X1 = x1, Y1 = y1, X2 = x2, Y2 = y2, Weight = w };
+        static readonly Stroke THIN = Ln(0, -50, 1, -50, 0.25); // a second weight: walls are told from the rest
+        /// <summary>A circle's arc from a0 over span degrees as one cubic Bezier.</summary>
+        static Curve Bz(double cx, double cy, double r, double a0, double span)
+        {
+            double a = a0 * Math.PI / 180, b = (a0 + span) * Math.PI / 180, k = 4.0 / 3 * Math.Tan((b - a) / 4);
+            double x0 = cx + r * Math.Cos(a), y0 = cy + r * Math.Sin(a), x3 = cx + r * Math.Cos(b), y3 = cy + r * Math.Sin(b);
+            return new Curve { P = new[] { x0, y0, x0 - k * r * Math.Sin(a), y0 + k * r * Math.Cos(a), x3 + k * r * Math.Sin(b), y3 - k * r * Math.Cos(b), x3, y3 } };
+        }
+        static Reading An(List<Stroke> s, List<Curve> c = null, List<Word> w = null) =>
+            PlanReader.Analyse(s.Append(THIN).ToList(), c ?? new List<Curve>(), w ?? new List<Word>());
+        static Reading[] Both(List<Stroke> s, List<Curve> c = null, List<Word> w = null)
+        {
+            var back = new List<Stroke>(s); back.Reverse();
+            return new[] { An(s, c, w), An(back, c, w) };
+        }
+        static string Ws(Reading r) => string.Join("; ", r.Walls.Select(w => $"({w.X1:0.#},{w.Y1:0.#})-({w.X2:0.#},{w.Y2:0.#}) t {w.Thickness:0.##}"));
+        static bool Has(Reading r, double x1, double y1, double x2, double y2, double t) => r.Walls.Any(w => Math.Abs(w.Thickness - t) < 0.01 &&
+            ((Math.Abs(w.X1 - x1) < 0.05 && Math.Abs(w.Y1 - y1) < 0.05 && Math.Abs(w.X2 - x2) < 0.05 && Math.Abs(w.Y2 - y2) < 0.05) ||
+             (Math.Abs(w.X1 - x2) < 0.05 && Math.Abs(w.Y1 - y2) < 0.05 && Math.Abs(w.X2 - x1) < 0.05 && Math.Abs(w.Y2 - y1) < 0.05)));
+
+        static void Review()
+        {
+            // (a) A T-junction breaks a wall's inner face; a cupboard wall 20 mm off: the leftover face pairs with its own wall, never the
+            // cupboard — in either stroke order (it read a 1000 mm wall over the cupboard).
+            var t = new List<Stroke> { Ln(0, 0, 200, 0), Ln(0, 4, 100, 4), Ln(104, 4, 200, 4), Ln(100, 4, 100, 24), Ln(104, 4, 104, 24), Ln(0, 24, 100, 24), Ln(104, 24, 200, 24), Ln(0, 28, 200, 28) };
+            foreach (var r in Both(t))
+                Ok(r.Walls.Count == 3 && Has(r, 0, 2, 200, 2, 4) && Has(r, 0, 26, 200, 26, 4) && r.Walls.All(w => w.Thickness < 4.1),
+                    $"a T-junction and a cupboard wall: 3 walls 4 thick, the outer through the T — {Ws(r)}");
+            // (b) A door 5 mm from an L corner, each wall piece one closed outline: the corner's walls both read, jambs never pair with a
+            // perpendicular face (it lost the 50 mm wall when the jambs came first).
+            var l = new List<Stroke> { Ln(0, 0, 9, 0), Ln(9, 0, 9, 4), Ln(9, 4, 4, 4), Ln(4, 4, 4, 50), Ln(4, 50, 0, 50), Ln(0, 50, 0, 0),
+                Ln(27, 0, 100, 0), Ln(100, 0, 100, 4), Ln(100, 4, 27, 4), Ln(27, 4, 27, 0) };
+            var swing = new List<Curve> { Bz(9, 4, 18, 0, 90) };
+            foreach (var r in Both(l, swing))
+                Ok(r.Walls.Count == 2 && Has(r, 2, 0, 2, 50, 4) && Has(r, 0, 2, 100, 2, 4) && r.Doors.Count == 1 && Math.Abs(r.Doors[0].Width - 18) < 0.05,
+                    $"a door beside an L corner: the corner's 2 walls, the door joining the nib to the rest — {Ws(r)}; {r.Doors.Count} door(s)");
+            // (c) Two walls of different thickness on one flush face: two walls, each its own thickness and length (it read one).
+            var f = new List<Stroke> { Ln(0, 0, 100, 0), Ln(100, 0, 200, 0), Ln(0, 6, 100, 6), Ln(100, 4, 200, 4), Ln(100, 4, 100, 6) };
+            foreach (var r in Both(f))
+                Ok(r.Walls.Count == 2 && Has(r, 0, 3, 100, 3, 6) && Has(r, 100, 2, 200, 2, 4), $"a flush face, two thicknesses: 2 walls, 6 and 4 — {Ws(r)}");
+            // (d) A cut column (a closed square in the wall weight) beside a wall: a column, not a wall.
+            var col = new List<Stroke> { Ln(0, 0, 100, 0), Ln(0, 6, 100, 6), Ln(300, 300, 308, 300), Ln(308, 300, 308, 308), Ln(308, 308, 300, 308), Ln(300, 308, 300, 300) };
+            foreach (var r in Both(col))
+                Ok(r.Walls.Count == 1 && Has(r, 0, 3, 100, 3, 6) && r.Columns >= 1, $"a cut column: no wall, counted a column — {Ws(r)}; columns {r.Columns}");
+            // (e) A double door: two swings of half the gap hinged at both ends — one door of the whole gap, the wall joined through it.
+            var dd = new List<Stroke> { Ln(0, 0, 50, 0), Ln(0, 6, 50, 6), Ln(50, 0, 50, 6), Ln(86, 0, 150, 0), Ln(86, 6, 150, 6), Ln(86, 0, 86, 6) };
+            var leaves = new List<Curve> { Bz(50, 6, 18, 0, 90), Bz(86, 6, 18, 90, 90) };
+            foreach (var r in Both(dd, leaves))
+                Ok(r.Walls.Count == 1 && r.Doors.Count == 1 && Math.Abs(r.Doors[0].Width - 36) < 0.05 && r.Doors[0].Leaves == 2, $"a double door: 1 wall, 1 door 36 wide of 2 leaves — {Ws(r)}");
+            // (f) A nib shorter than the wall is thick still reads (its outer face runs on to the corner), and the door joins it on.
+            var nib = new List<Stroke> { Ln(0, 0, 6, 0), Ln(6, 0, 6, 4), Ln(6, 4, 4, 4), Ln(4, 4, 4, 50), Ln(4, 50, 0, 50), Ln(0, 50, 0, 0),
+                Ln(24, 0, 100, 0), Ln(100, 0, 100, 4), Ln(100, 4, 24, 4), Ln(24, 4, 24, 0) };
+            foreach (var r in Both(nib, new List<Curve> { Bz(6, 4, 18, 0, 90) }))
+                Ok(r.Doors.Count == 1 && Math.Abs(r.Doors[0].Width - 18) < 0.05 && Has(r, 0, 2, 100, 2, 4), $"a door beside a corner after a short nib: found, the nib joined on — {Ws(r)}; {r.Doors.Count} door(s)");
+            // (f2) A door hinged on the corner wall's face, no nib: the door at the wall's end, the wall run on through it to the corner.
+            var corner = new List<Stroke> { Ln(0, 0, 4, 0), Ln(4, 0, 4, 50), Ln(4, 50, 0, 50), Ln(0, 50, 0, 0), Ln(22, 0, 100, 0), Ln(100, 0, 100, 4), Ln(100, 4, 22, 4), Ln(22, 4, 22, 0) };
+            foreach (var r in Both(corner, new List<Curve> { Bz(4, 4, 18, 0, 90) }))
+                Ok(r.Doors.Count == 1 && Math.Abs(r.Doors[0].Width - 18) < 0.05 && Has(r, 4, 2, 100, 2, 4) && Has(r, 2, 0, 2, 50, 4),
+                    $"a door hinged on a corner wall: found at the wall's end, the wall run on to the corner — {Ws(r)}; {r.Doors.Count} door(s)");
+            // (g) A swing not set square to the wall (its strike and leaf off the wall's line and its normal) is no door, even of the
+            // gap's radius at the gap's end.
+            foreach (var r in Both(nib, new List<Curve> { Bz(24, 4, 18, 45, 90) }))
+                Ok(r.Doors.Count == 0 && r.Walls.Count == 3, $"a swing not set square to the wall's line is no door of it — {r.Doors.Count} door(s), {r.Walls.Count} walls");
+            // (h) Tags: a size word is a door's only when each is the other's nearest within 1.5 radii; one past that reach is none.
+            var door = new List<Stroke> { Ln(0, 0, 50, 0), Ln(0, 6, 50, 6), Ln(50, 0, 50, 6), Ln(68, 0, 150, 0), Ln(68, 6, 150, 6), Ln(68, 0, 68, 6) };
+            var arc = new List<Curve> { Bz(50, 6, 18, 0, 90) };
+            var near = An(door, arc, new List<Word> { new Word { Text = "900x2100", X = 59, Y = 14 }, new Word { Text = "1200x1500", X = 59, Y = 40 } });
+            Ok(near.Doors.Count == 1 && near.Doors[0].TagW == 900, $"the nearer size word is the door's ({near.Doors.FirstOrDefault()?.TagW})");
+            var far = An(door, arc, new List<Word> { new Word { Text = "900x2100", X = 59, Y = 40 } });
+            Ok(far.Doors.Count == 1 && far.Doors[0].TagW == null, "a size word past 1.5 radii is no door's");
+            var arabic = An(door, arc, new List<Word> { new Word { Text = "٩٠٠x٢١٠٠", X = 59, Y = 14 } });
+            Ok(arabic.Doors.Count == 1 && arabic.Doors[0].TagW == null, "a size in other digits is not read, and nothing throws");
+            // (i) A swing written as two Beziers, each with its own move: one arc, one door.
+            var split = An(door, new List<Curve> { Bz(50, 6, 18, 0, 45), Bz(50, 6, 18, 45, 45) });
+            Ok(split.Doors.Count == 1 && split.Walls.Count == 1, "a swing in two pieces is one door");
+            // (j) A border and a title block drawn heaviest: the walls are read from the weight that pairs into walls.
+            var sheet = new List<Stroke> { Ln(10, 10, 287, 10, 1), Ln(287, 10, 287, 200, 1), Ln(287, 200, 10, 200, 1), Ln(10, 200, 10, 10, 1),
+                Ln(225, 12, 285, 12, 1), Ln(225, 19, 285, 19, 1), Ln(225, 26, 285, 26, 1), Ln(225, 33, 285, 33, 1) };
+            for (int k = 0; k < 4; k++) { sheet.Add(Ln(20, 40 + 30 * k, 180, 40 + 30 * k)); sheet.Add(Ln(20, 46 + 30 * k, 180, 46 + 30 * k)); }
+            var rs = An(sheet);
+            Ok(rs.WallWeight == 0.7 && rs.Walls.Count == 4 && rs.Walls.All(w => Math.Abs(w.Thickness - 6) < 0.01), $"a heaviest border and title block: the walls read at 0.7 ({rs.WallWeight}, {Ws(rs)})");
+            // (k) Speed: 20,000 wall strokes (500 walls, each face in 20 pieces, shuffled) read well inside the bridge's bound.
+            var big = new List<Stroke>();
+            for (int k = 0; k < 500; k++) for (int p = 0; p < 20; p++) { big.Add(Ln(p * 10, 10 * k, p * 10 + 10, 10 * k)); big.Add(Ln(p * 10, 10 * k + 4, p * 10 + 10, 10 * k + 4)); }
+            var rnd = new Random(7);
+            big = big.OrderBy(_ => rnd.Next()).ToList();
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var rb = An(big);
+            Ok(rb.Walls.Count == 500 && sw.Elapsed.TotalSeconds < 10, $"20,000 strokes: {rb.Walls.Count} walls in {sw.Elapsed.TotalSeconds:0.0} s");
+        }
 
         static int Main()
         {
@@ -120,6 +214,7 @@ namespace Sentinel.Checks
             var r7 = Run(("ev-0001", Path.Combine(fx, "no-such.pdf"), new string('0', 64)));
             Ok((string)r7["status"] == "refused" && ((string)r7["refused"][0]["reason"]).StartsWith("the file cannot be read") && !((string)r7["refused"][0]["reason"]).Contains("no-such"), "a missing file: refused in words that name no path");
 
+            Review();
             Console.WriteLine(fails == 0 ? "drawing-check: all passed" : $"drawing-check: {fails} FAILED");
             return fails == 0 ? 0 : 1;
         }

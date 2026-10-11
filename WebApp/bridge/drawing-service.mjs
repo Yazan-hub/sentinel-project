@@ -11,8 +11,10 @@ import { fileURLToPath } from "node:url";
 /** The worker: SENTINEL_DRAWING_EXE in config/.env, else the Release build in the bridge's own checkout. Never PATH. */
 export const EXE = fileURLToPath(new URL("../../drawing/bin/Release/net8.0/sentinel-drawing.exe", import.meta.url));
 export const exePath = () => process.env.SENTINEL_DRAWING_EXE || EXE;
-// ponytail: one wall-clock bound for every job (the drill plan reads in 0.2 s CPU); set it by page count when real sets near it.
+// The wall-clock bound: 2 min a PDF (20,000 strokes read in 0.3 s; the drill plan in 0.2 s CPU), at most 10 min a job.
 export const DRAWING_MS = 2 * 60_000;
+export const DRAWING_MAX_MS = 10 * 60_000;
+export const boundMs = (items) => Math.min(DRAWING_MS * Math.max(1, items), DRAWING_MAX_MS);
 const OUT_MAX = 64 * 1024 * 1024; // more than any plan's candidates: the worker's stdout is not read past this
 const EXIT_MS = 5_000;            // how long a job's end waits for the exe to be gone
 const TAIL = 4000;                // the last stderr characters, for the bridge log only
@@ -31,7 +33,7 @@ export const childEnv = (env) => Object.fromEntries(Object.entries({
 
 /** One job start to end: → {status: done | failed | refused, stage, pct, refused, error?, result?, tools?, version?}. Never rejects: an exe
  *  that cannot start, crashes, overruns or answers what is not JSON is a failed job in words (its stderr goes to the bridge log). */
-export function runDrawing(job, { cwd, exe = exePath(), spawn = nodeSpawn, env = process.env, jobMs = DRAWING_MS,
+export function runDrawing(job, { cwd, exe = exePath(), spawn = nodeSpawn, env = process.env, jobMs = boundMs(job.items?.length ?? 1),
   log = (l) => console.warn(`[drawing] ${l}`) } = {}) {
   return new Promise((resolve) => {
     let child = null, done = false, size = 0, tail = "", timer;
