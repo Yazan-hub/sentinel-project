@@ -24,9 +24,11 @@ const PID = "11111111-1111-4111-8111-111111111111";    // demo's id
 const USERS = { owner: "u-owner", lead: "u-lead", contributor: "u-contrib", viewer: "u-view", stranger: "u-stranger" };
 
 const b64u = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
-const jwtFor = (who) => {
+// exp is stamped to the second: two calls straddling a second boundary give two DIFFERENT tokens — compare a token only with the one
+// actually sent (the auth front's flake, 2026-10-11), never with a second jwtFor built later.
+const jwtFor = (who, exp = Math.floor(Date.now() / 1000) + 3600) => {
   const head = b64u({ alg: "HS256", typ: "JWT" });
-  const body = b64u({ sub: USERS[who], email: `${who}@example.test`, role: "authenticated", exp: Math.floor(Date.now() / 1000) + 3600 });
+  const body = b64u({ sub: USERS[who], email: `${who}@example.test`, role: "authenticated", exp });
   return `${head}.${body}.${createHmac("sha256", SECRET).update(`${head}.${body}`).digest("base64url")}`;
 };
 
@@ -894,8 +896,10 @@ describe("openCDE slice 1: the BCF-API 3.0 reads", () => {
   });
 
   // ── slice 2: the writes and the auth front ──
+  // as: a role (a fresh session JWT for it), "machine", null (no bearer) — or { bearer } to send exactly that token
   const call2 = async (method, path, as, body) => {
-    const r = await fetch(`http://127.0.0.1:${port}${path}`, { method, headers: { ...(as ? { Authorization: `Bearer ${as === "machine" ? TOKEN : jwtFor(as)}` } : {}), "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
+    const bearer = as?.bearer ?? (as === "machine" ? TOKEN : as ? jwtFor(as) : null);
+    const r = await fetch(`http://127.0.0.1:${port}${path}`, { method, headers: { ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}), "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
     return { status: r.status, type: r.headers.get("content-type") || "", body: (r.headers.get("content-type") || "").includes("json") ? await r.json() : await r.text() };
   };
   it("DELETE topic is the governed close: a contributor closes a plain topic (history kept), a governed one needs a lead; a viewer is refused", async () => {
@@ -938,13 +942,18 @@ describe("openCDE slice 1: the BCF-API 3.0 reads", () => {
     expect(page.status).toBe(200); expect(page.headers.get("content-type")).toMatch(/text\/html/); expect(await page.text()).toContain("Sign in to Sentinel");
     expect((await fetch(`http://127.0.0.1:${port}/oauth/authorize?response_type=code&client_id=zoom&redirect_uri=${encodeURIComponent("http://evil.example.test/cb")}`)).status).toBe(400);
     expect((await call2("POST", "/oauth/code", null, { client_id: "zoom", redirect_uri: "http://localhost:9999/cb" })).status).toBe(401);
-    const minted = await call2("POST", "/oauth/code", "viewer", { client_id: "zoom", redirect_uri: "http://localhost:9999/cb", refresh_token: "r1", expires_in: 3600 });
+    // The consent page's ONE session, kept: the swap must hand back this exact token. Its own exp (2 h, not jwtFor's 1 h) is never what a
+    // fresh jwtFor("viewer") stamps — comparing with one built later (the old flake: a second boundary between mint and assert) now fails
+    // every run instead of some.
+    const session = jwtFor("viewer", Math.floor(Date.now() / 1000) + 7200);
+    const minted = await call2("POST", "/oauth/code", { bearer: session }, { client_id: "zoom", redirect_uri: "http://localhost:9999/cb", refresh_token: "r1", expires_in: 3600 });
     expect(minted.status).toBe(201); expect(minted.body.code).toMatch(/^[A-Za-z0-9_-]{20,}$/);
     expect((await call2("POST", "/oauth/token", null, { grant_type: "authorization_code", code: minted.body.code, client_id: "other", redirect_uri: "http://localhost:9999/cb" })).body.error).toBe("invalid_grant");
-    const minted2 = await call2("POST", "/oauth/code", "viewer", { client_id: "zoom", redirect_uri: "http://localhost:9999/cb", refresh_token: "r1" });
+    const minted2 = await call2("POST", "/oauth/code", { bearer: session }, { client_id: "zoom", redirect_uri: "http://localhost:9999/cb", refresh_token: "r1" });
     const tok = await call2("POST", "/oauth/token", null, { grant_type: "authorization_code", code: minted2.body.code, client_id: "zoom", redirect_uri: "http://localhost:9999/cb" });
-    expect(tok.status).toBe(200); expect(tok.body).toMatchObject({ access_token: jwtFor("viewer"), token_type: "Bearer", refresh_token: "r1" });
-    expect((await call2("GET", "/bcf/3.0/current-user", "viewer")).body.id).toBe("viewer@example.test");   // the swapped JWT is the bearer the bridge takes
+    expect(tok.status).toBe(200); expect(tok.body).toMatchObject({ access_token: session, token_type: "Bearer", refresh_token: "r1" });
+    expect(tok.body.access_token).not.toBe(jwtFor("viewer"));   // the session's own token, byte for byte — never one rebuilt from the clock
+    expect((await call2("GET", "/bcf/3.0/current-user", { bearer: tok.body.access_token })).body.id).toBe("viewer@example.test");   // the swapped JWT is the bearer the bridge takes
     expect((await call2("POST", "/oauth/token", null, { grant_type: "authorization_code", code: minted2.body.code, client_id: "zoom", redirect_uri: "http://localhost:9999/cb" })).status).toBe(400); // spent
     expect((await call2("POST", "/oauth/token", null, { grant_type: "password" })).body.error).toBe("unsupported_grant_type");
   });
