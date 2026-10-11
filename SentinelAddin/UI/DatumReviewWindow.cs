@@ -20,6 +20,8 @@ public sealed class DatumReviewWindow : Window
     private readonly List<(DatumRow Row, CheckBox Tick, TextBox Name, TextBox Elevation, CheckBox Story)> _levels = new();
     private readonly List<(DatumRow Row, CheckBox Tick, TextBox Name)> _grids = new();
     private readonly ComboBox _anchor = new() { MinWidth = 220, Margin = new Thickness(6, 0, 0, 0) };
+    private int _applied = -1;        // the level ±0.00 is on now (review: a refused move goes back to it)
+    private bool _reverting;
     private readonly TextBlock _status = new() { Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap };
     private static readonly Brush Bad = new SolidColorBrush(Color.FromRgb(176, 32, 32));
 
@@ -48,9 +50,6 @@ public sealed class DatumReviewWindow : Window
             body.Children.Add(Heading($"Levels — {levelRows.Count} read"));
             var anchorRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 6) };
             anchorRow.Children.Add(new TextBlock { Text = "±0.00 at:", VerticalAlignment = VerticalAlignment.Center });
-            foreach (var r in levelRows) _anchor.Items.Add(r.Name);
-            _anchor.SelectedIndex = levelRows.FindIndex(r => DatumRows.Mm(r.Elevation) == 0);
-            _anchor.SelectionChanged += (_, __) => MoveAnchor();
             anchorRow.Children.Add(_anchor);
             body.Children.Add(anchorRow);
             body.Children.Add(Columns("Create", "Name", "Elevation (mm from ±0.00)", "Building Story"));
@@ -59,10 +58,16 @@ public sealed class DatumReviewWindow : Window
                 var tick = new CheckBox { IsChecked = r.Tick, VerticalAlignment = VerticalAlignment.Center };
                 var name = new TextBox { Text = r.Name, Margin = new Thickness(4, 2, 4, 2) };
                 var elev = new TextBox { Text = r.Elevation, Margin = new Thickness(4, 2, 4, 2) };
+                // review: the ±0.00 list shows each level's name as it is typed now, never the name it was read with
+                var item = new ComboBoxItem();
+                item.SetBinding(ContentControl.ContentProperty, new System.Windows.Data.Binding("Text") { Source = name });
+                _anchor.Items.Add(item);
                 var story = new CheckBox { IsChecked = r.Story, VerticalAlignment = VerticalAlignment.Center };
                 _levels.Add((r, tick, name, elev, story));
                 body.Children.Add(Line(tick, name, elev, story));
             }
+            _anchor.SelectedIndex = _applied = levelRows.FindIndex(r => DatumRows.Mm(r.Elevation) == 0);
+            _anchor.SelectionChanged += (_, __) => MoveAnchor();
         }
         var gridRows = rows.Where(r => r.IsGrid).ToList();
         if (gridRows.Count > 0)
@@ -83,7 +88,8 @@ public sealed class DatumReviewWindow : Window
             }
         }
 
-        var create = new Button { Content = "Create ▶", Padding = new Thickness(10, 5, 10, 5), Margin = new Thickness(0, 0, 6, 0), IsDefault = true };
+        // review: no IsDefault — Enter in a name or an elevation box must not create the datum before the review is done
+        var create = new Button { Content = "Create ▶", Padding = new Thickness(10, 5, 10, 5), Margin = new Thickness(0, 0, 6, 0) };
         var cancel = new Button { Content = "Cancel", Padding = new Thickness(10, 5, 10, 5), IsCancel = true };
         create.Click += (_, __) => Accept();
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 10, 0, 0) };
@@ -145,10 +151,17 @@ public sealed class DatumReviewWindow : Window
     // ±0.00 moved: every level's elevation shifted by what the chosen level reads now (what was typed).
     private void MoveAnchor()
     {
-        if (_anchor.SelectedIndex < 0) return;
+        if (_reverting || _anchor.SelectedIndex < 0) return;
         Sync();
         string? why = DatumRows.Anchor(_rows, _rows.IndexOf(_levels[_anchor.SelectedIndex].Row));
-        if (why != null) { Say(why, true); return; }
+        if (why != null)
+        {
+            // review: refused — ±0.00 stays where it was, and the list says so
+            _reverting = true; _anchor.SelectedIndex = _applied; _reverting = false;
+            Say(why, true);
+            return;
+        }
+        _applied = _anchor.SelectedIndex;
         foreach (var (row, _, _, elev, _) in _levels) elev.Text = row.Elevation;
         Say($"±0.00 is {_levels[_anchor.SelectedIndex].Name.Text} — every elevation moved with it.", false);
     }

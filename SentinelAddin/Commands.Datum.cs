@@ -113,7 +113,7 @@ public sealed class DatumFromDrawingsCommand : IExternalCommand
             var seen = detected.SeenLayers.OrderBy(l => l, System.StringComparer.OrdinalIgnoreCase).ToList();
             TaskDialog.Show("Sentinel — Datum",
                 "Found no level or grid lines.\n\nRead from: " + src.Label + "\n\n" + string.Join("\n", detected.Warnings) +
-                (seen.Count == 0 ? "\n\nThe drawing holds no lines on any layer." :
+                (seen.Count == 0 ? "\n\nNo line was read from the drawing on any layer (see the notes above)." :
                  $"\n\nThe drawing's layers ({seen.Count}): " + string.Join(", ", seen.Take(40)) + (seen.Count > 40 ? $" … and {seen.Count - 40} more" : "") +
                  "\n\nName the ones that hold levels and grids in the project's layers@n datum section (levels, grids), or check the drawing."));
             return Result.Cancelled;
