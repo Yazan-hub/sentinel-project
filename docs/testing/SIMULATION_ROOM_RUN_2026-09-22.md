@@ -2791,3 +2791,25 @@ restart needs the founder's Funnel refresh). Owed to the founder: the both-faces
 installing the BDS elements guideline (interior doors typed by rule), open question 8 (the bars, the deviation statistic, the pair
 minimum thickness). Next: MA-5a's PDF half or MA-5b, as the roadmap splits MA-5.
 
+## Session MA5a2 — survey trust, sentinel-survey 0.6.0 (2026-10-11 local: merged 9ea10b7, web 1.0.73, the 4100 bridge restarted on master; the founder's session after the Funnel refresh; Claude driving)
+
+The founder's "go" on the measured recommendations (`docs/superpowers/plans/2026-10-11-ma5a2-survey-trust.md`): a door only when seen through
+the wall; `faces_seen` per face; a thickness only clear of its faces' scatter; no pre-ticked scan wall; the per-face verdict, measured first
+(20 mm at 0.2); the bars in the design. Reviewed by three lenses and a skeptic per finding (2 important fixed).
+
+| Row | Result | Evidence |
+|---|---|---|
+| K-1 | **Run survey** on `kladno-drill` → `job-0005 · done · read ev-0001 · 3 level(s), 202 wall(s), 3 floor(s), 2 ceiling(s), 72 door(s), 18 window(s) · ledger #2296`, sentinel-survey 0.6.0; 167 s, peak private commit 1.93 GB — **pass** (≤ 5 min, ≤ 2.5 GB) | the watch log, #2296 |
+| K-2 | `score` of its `result.json` against reference-5a: walls 0.299 / 0.357 / 0.396 (TP 46 / 55 / 61 — 0.5.0's, the ratchet holds); openings 0.259 / 0.293 / 0.345 (the survey emits every hole; the door rule is the bridge's); `faces_apart_mm` on exactly 8 walls (L00-1, -4, -6, -8, -10, -14, -17, L01-36), none on a traced wall at 50 mm; `faces_seen` GF 9 doors × 2, 20 × 1, 7 windows × 1 (the one window that read 2 on a one-face wall now reads 1) — **pass**, equal to the in-memory run | score |
+| K-3 | **Propose…** at the MA-4h frame, levels blank → `✓ Proposed job-0005 — 0 changeset(s), 0 ghost(s), 0 pre-ticked … · 69 type-gap group(s), 207 element(s) in the Holding Area · 45 door(s) or window(s) held on a storey with nothing to place … · 45 door hole(s) seen on one face only — not proposed (a closed door or furniture reads the same; a person draws a door the scan missed) · … · ledger #2298`; the type_gap row (#2297) holds one "thickness not trusted" group of 8 under one key; the planner row's storeys: held 16 + 29, `doors_seen_once` 20 + 25 — **pass** | the line, #2297, #2298 |
+| R-0 | `ma5a.rvt` reopened in Revit 2024: the window's family and type renamed again to `BDS_Window_1 Panel+FX : 800x1200 mm` (MA5a's rename was lost — closed unsaved) and the model bound to `ma4c-drill` in Project Setup; **saved this time** (03:07) — **pass, disclosed** | the file time |
+| R-1 | **Run survey** on `ma4c-drill` → job-0006 (#2299, 0.6.0, 16 walls, 1 door, 1 window); **Propose…** at (40000, 0, 0), levels blank → `2 changeset(s), 15 ghost(s), 2 pre-ticked … (a level the scan created — a person ticks every scan wall, door and window …) · 4 type-gap group(s), 9 element(s)` (#2305). Stored: every wall `pretick: false`, both created levels `true`; the window **typed by guideline@2's rule** ("DD (DRAFT WN-1): the only BDS window at 800 x 1200"), sill 900; the exterior door a gap ("13 Doors types … a person picks one" — BDS types interior doors only) — **pass** | SQL |
+| R-2 | Revit 2024 **Review AI Proposals** → Scan L00 job-0006: `create wall (6) · 0 ticked` (Revit honours the bridge's pre-tick), the level ticked; wall-5 and the window ticked → **Apply** → `Applied 3 element(s)` (#2306) — **pass** | the window, #2306 |
+| V-1 | Review desk → **Measure against the scan** → `1 within tolerance, 0 out, 0 missing, 0 insufficient data, 2 not measured` (#2307): the row carries `deviation {per "face", within_mm 20, face_share_min 0.2}`, `tolerances_mm [20, 50, 100, 200]`, no `target_mm`; wall-5's faces 4 717 / 4 704 points, coverage 0.966 / 0.963, 100 % / 100 % within 20 mm; its reason the check's limits. The desk: `within tolerance (each face 20% within 20 mm) · faces within 20 mm: 100% / 100% · p95 4 mm · … · this check misses most 20 mm offsets, and a thin partition moved by its own thickness can pass` — **pass** | #2307, the desk |
+| V-2 | The old row #2290 (job-0005 on ma4c-drill, before this branch) on the desk: `within tolerance (20 mm, p95) · p95 4 mm · …` — its own rule kept — **pass** | the desk |
+| R-3 | One Undo (the QAT list: one entry `Sentinel AI changeset: Survey job-0006 · Scan L00 job-0006 [405f0e6a]`) → `changeset_reverted` op undo, count 3 (#2308) — **pass** | #2308 |
+
+**Closing list:** the job-0006 L01 proposal declined in Revit with a reason (#2309); Revit closed (`ma5a.rvt` keeps the rename and the
+binding). No survey changeset is left proposed. Owed: the thin-wall deviation bar (77 % out, the bar 90 %) and a second reference before
+the 1F target or the pre-tick bar can be judged; the office's exterior door rules (none in BDS). Next: MA-5's PDF half or MA-5b.
+
