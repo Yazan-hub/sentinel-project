@@ -631,7 +631,7 @@ describe("POST /cde/:key/audit (cde-6, D11): a signed-in caller writes a lead's 
     expect(await call("POST", A, "owner", { action: "one too many" }))
       .toEqual({ status: 429, body: { message: "too many notes in a minute — nothing was saved; try again shortly" } });
     expect(writes("audit_log")).toHaveLength(20);
-  });
+  }, 20_000); // 21 round trips through the bridge copy: never the 5 s default under a full suite's load
 
   it("new projects are budgeted per user too: a sixth in a minute is a 429 and nothing is inserted", async () => {
     for (let i = 1; i <= 5; i++) expect((await call("POST", "/cde/projects", "stranger", { name: `Stranger ${i}` })).status).toBe(201);
@@ -675,7 +675,7 @@ describe("POST /cde/:key/delivery-gate (GATE-E1, H5): Revit's gate row under the
     expect(await call("POST", G, "owner", check))
       .toEqual({ status: 429, body: { message: "too many gate rows in a minute — nothing was saved; try again shortly" } });
     expect(writes("audit_log")).toHaveLength(20);
-  });
+  }, 20_000); // 21 round trips through the bridge copy: never the 5 s default under a full suite's load
 });
 
 describe("DELETE /cde/projects/:key (cde-3, D12): the owner's, the database's delete first", () => {
@@ -837,7 +837,7 @@ describe("POST /cde/:key/audit — the modelling commands' reports and the build
     expect(await call("POST", A, "owner", { entity_type: "doctor", action: "one too many", new_value: {} }))
       .toEqual({ status: 429, body: { message: "too many revit reports in a minute — nothing was saved; try again shortly" } });
     expect(writes("audit_log")).toHaveLength(20);
-  });
+  }, 20_000); // 21 round trips through the bridge copy: never the 5 s default under a full suite's load
 });
 
 describe("openCDE slice 1: the BCF-API 3.0 reads", () => {
@@ -971,13 +971,13 @@ describe("audit pack (paperwork slice 5; renamed in MA-4a)", () => {
     expect(r.body.standards).toHaveProperty("ids");
     if (Array.isArray(r.body.ledger?.rows)) expect(r.body.ledger.rows.map((x) => x.id)).toEqual([1]); else { console.log("ledger part:", JSON.stringify(r.body.ledger)); expect(typeof r.body.ledger?.not_read).toBe("string"); }
     for (const k of ["documents", "reviews", "containers"]) expect(Array.isArray(r.body[k]) || typeof r.body[k]?.not_read === "string", k).toBe(true);   // the fake serves what it serves; nothing is dropped in silence
-  });
+  }, 20_000); // the pack reads every part (~1 s idle): timed out at 5 s under a full suite's load
   it("the old path answers for one release (web 1.0.61's button) with the same export", async () => {
     const r = await get("lead", "evidence-pack");
     expect(r.status).toBe(200); expect(r.body.pack).toBe("sentinel-audit-pack");
     expect(r.disposition).toMatch(/filename="demo-audit-pack-/);
     expect((await get("viewer", "evidence-pack")).status).toBe(403);
-  });
+  }, 20_000); // the pack reads every part (~1 s idle): timed out at 5 s under a full suite's load
 });
 
 describe("changesets (MA-3d2): the proposal model", () => {

@@ -57,7 +57,7 @@ describe("runDrawing (MA-5a-3) — the supervisor, with a Node stand-in for sent
     const hang = await run("hang", calls, { jobMs: 300 });
     expect(hang).toMatchObject({ status: "failed", error: "the drawing read took longer than 1 min — it was stopped; nothing it found was kept" });
     expect(calls[0].child.exitCode !== null || calls[0].child.signalCode !== null).toBe(true); // killed, and gone before the answer
-  });
+  }, 20_000); // 4 stand-in spawns: never the 5 s default under a full suite's load
 
   it("the bound is 2 min a PDF, at most 10 min a job (review: one bound for the whole pack failed a pack of big sheets)", () => {
     expect([boundMs(0), boundMs(1), boundMs(3), boundMs(9)]).toEqual([120_000, 120_000, 360_000, 600_000]);

@@ -163,7 +163,7 @@ describe("/ai/* — cloud AI only for a trusted caller (D2)", () => {
       expect(p).not.toHaveProperty("configured");
     }
     expect(json.providers.find((p) => p.id === "local")).toMatchObject({ available: true });
-  });
+  }, 20_000); // the bridge copy's first request cold-loads the AI SDK: never the 5 s default under a full suite's load
 
   it("GET /ai/providers: an office contributor sees the bridge's own state (gemini is armed in this copy)", async () => {
     const { json } = await call("GET", "/ai/providers", { as: "u-contrib" });
