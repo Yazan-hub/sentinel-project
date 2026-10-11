@@ -18,6 +18,18 @@ const RESULT = {
       measured: { length_mm: 8000, height_mm: 2800, thickness_mm: 300 }, evidence: ["ev-0001#slice-L00"], fit: { inliers: 900, rmse_mm: 2.1, coverage: 1 } }],
   derived: [], receipt: { started: "2026-10-08T10:00:00Z", finished: "2026-10-08T10:00:02Z", cpu_s: 0.4, points_in: 47699, points_used: 47680, seed: 1 },
 };
+// MA-5a-3: a sentinel-drawing result — paper mm, page 1
+const DRESULT = {
+  candidates: [
+    { cid: "drawing-ev-0011-p1-wall-1", kind: "wall", geometry: { LocationCurve: { start: [60, 43], end: [220, 43] }, faces: [[60, 40, 220, 40], [65, 46, 214, 46]], page: 1, units: "paper_mm" },
+      measured: { length_paper_mm: 160, thickness_paper_mm: 6 }, evidence: ["ev-0011#page-1"] },
+    { cid: "drawing-ev-0011-p1-wall-1-door-1", kind: "door", geometry: { host: "drawing-ev-0011-p1-wall-1", Location: [129, 43], direction: [0, 1], along_paper_mm: 69, swing_centre: [120, 46], page: 1, units: "paper_mm" },
+      measured: { width_paper_mm: 18, tag_width_mm: 900, tag_height_mm: 2100 }, evidence: ["ev-0011#page-1"] }],
+  derived: [], receipt: { started: "2026-10-11T10:00:00Z", finished: "2026-10-11T10:00:01Z", cpu_s: 0.2, items: [{ id: "ev-0011", pages: 1, page_read: 1 }] },
+};
+const DTOOLS = [{ name: "sentinel-drawing", version: "0.1.0", licence: "proprietary" }, { name: "PdfPig", version: "0.1.16", licence: "Apache-2.0" }];
+const drawingItem = (id, path, over = {}) => ({ id, kind: "drawing", format: path.split(".").pop(), path, sha256: id.slice(-1).repeat(64), surveyable: false,
+  allowed_uses: { ...USES }, licence: "holder-permission", request_id: "req-0001", ...over });
 let root, ev, PACK, audits, runs, role;
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "sentinel-jobs-"));
@@ -46,6 +58,8 @@ const deps = (over = {}) => ({
   audit: async (pid, et, eid, action, actor, _o, v) => { audits.push({ pid, et, eid, action, actor, v }); return { id: 100 + audits.length, hash: "cd".repeat(32) }; },
   notSetUp: () => null,
   runSurvey: (job, opts) => new Promise((ok) => runs.push({ job, opts, ok })),
+  notSetUpDrawing: () => null,
+  runDrawing: (job, opts) => new Promise((ok) => runs.push({ job, opts, ok, drawing: true })),
   ...over,
 });
 const start = (b = { pack: "evp-0001" }, over) => startJob("demo", b, deps(over));
@@ -156,13 +170,19 @@ describe("survey jobs (MA-4c)", () => {
   });
 
   it("(f) the body: the pack named; readers only sentinel-survey; params in bounds; any other key — snap_mm, seed, items, started_by — refused in words", () => {
-    expect(readStartBody({ pack: " evp-0001 " })).toEqual({ pack: "evp-0001", params: { voxel_mm: 20, storey_min_mm: 2000 } });
+    expect(readStartBody({ pack: " evp-0001 " })).toEqual({ pack: "evp-0001", reader: "sentinel-survey", params: { voxel_mm: 20, storey_min_mm: 2000 } });
+    // MA-5a-3: the second reader takes no parameter
+    expect(readStartBody({ pack: "evp-0001", readers: ["sentinel-drawing"] })).toEqual({ pack: "evp-0001", reader: "sentinel-drawing", params: {} });
+    expect(readStartBody({ pack: "evp-0001", readers: ["sentinel-drawing"], params: {} }).params).toEqual({});
     expect(readStartBody({ pack: "evp-0001", readers: ["sentinel-survey"], params: { voxel_mm: 10 } }).params).toEqual({ voxel_mm: 10, storey_min_mm: 2000 });
     const no = (b) => { try { readStartBody(b); } catch (e) { return [e.status, e.message]; } return null; };
     const D16 = "snap_mm is not a survey parameter: snapping to a catalogue size is the bridge's typing policy (D16, type_snap_mm), MA-4d — nothing was saved";
     const field = (k) => `${k} is not a survey job field — the bridge picks the items, the seed and who started it; send {pack, readers?, params?} — nothing was saved`;
     expect(no({})).toEqual([400, "pack must name the evidence pack in force (evp-0001) — nothing was saved"]);
-    expect(no({ pack: "evp-0001", readers: ["laspy"] })).toEqual([400, 'readers must be ["sentinel-survey"] — the one reader in MA-4c (or leave it out) — nothing was saved']);
+    const READERS = 'readers must be ["sentinel-survey"] or ["sentinel-drawing"] — one reader a job (or leave it out: sentinel-survey) — nothing was saved';
+    expect(no({ pack: "evp-0001", readers: ["laspy"] })).toEqual([400, READERS]);
+    expect(no({ pack: "evp-0001", readers: ["sentinel-survey", "sentinel-drawing"] })).toEqual([400, READERS]);
+    expect(no({ pack: "evp-0001", readers: ["sentinel-drawing"], params: { voxel_mm: 20 } })).toEqual([400, 'sentinel-drawing takes no parameter — send {pack, readers: ["sentinel-drawing"]} — nothing was saved']);
     expect(no({ pack: "evp-0001", params: { snap_mm: 15 } })).toEqual([400, D16]);
     expect(no({ pack: "evp-0001", snap_mm: 15 })).toEqual([400, D16]);
     for (const v of [1, 200]) expect(no({ pack: "evp-0001", params: { voxel_mm: v } })).toEqual([400, "params.voxel_mm must be a whole number of millimetres from 5 to 50 (a wall face needs a point at least every 50 mm) — nothing was saved"]);
@@ -209,6 +229,69 @@ describe("survey jobs (MA-4c)", () => {
   });
 });
 
+describe("drawing jobs (MA-5a-3) — sentinel-drawing on the pack's admitted PDFs, one slot with the survey", () => {
+  const drawings = () => {
+    mkdirSync(join(ev, "drawings"));
+    for (const f of ["A-101.pdf", "A-101.dwg", "b.dxf", "scan.png", "old.pdf", "notes.pdf"]) writeFileSync(join(ev, "drawings", f), "x");
+    PACK.items.push(drawingItem("ev-0011", "drawings/A-101.pdf"), drawingItem("ev-0012", "drawings/A-101.dwg"), drawingItem("ev-0016", "drawings/b.dxf"),
+      drawingItem("ev-0013", "drawings/scan.png"), drawingItem("ev-0014", "drawings/old.pdf", { state: "changed" }),
+      drawingItem("ev-0015", "drawings/notes.pdf", { allowed_uses: { ...USES, geometry_extraction: false } }));
+  };
+  const startD = (over) => start({ pack: "evp-0001", readers: ["sentinel-drawing"] }, over);
+
+  it("(a) reads the admitted PDFs — a DWG or DXF is Ghost Builder's, a PNG raster (C10), a changed one and one whose uses exclude geometry are refused; scans are not its", async () => {
+    drawings();
+    const { job } = await startD();
+    expect(job).toMatchObject({ id: "job-0001", reader: { name: "sentinel-drawing", version: null }, params: {}, seed: 1, items: [{ id: "ev-0011", path: "drawings/A-101.pdf", sha256: "1".repeat(64) }] });
+    expect(job.refused).toEqual([
+      { id: "ev-0012", reason: "a .dwg is read by Ghost Builder in Revit (Model from Drawings) — sentinel-drawing reads PDF" },
+      { id: "ev-0016", reason: "a .dxf is read by Ghost Builder in Revit (Model from Drawings) — sentinel-drawing reads PDF" },
+      { id: "ev-0013", reason: "a .png drawing is raster — out of scope (C10); sentinel-drawing reads vector PDF" },
+      { id: "ev-0014", reason: "changed since admitted (Re-check flagged it) — admit the same bytes again" },
+      { id: "ev-0015", reason: "its allowed uses exclude geometry extraction" }]);
+    expect(runs[0]).toMatchObject({ drawing: true, job: { job_id: "job-0001", items: [{ id: "ev-0011", kind: "drawing", path: join(ev, "drawings", "A-101.pdf"), sha256: "1".repeat(64) }], params: {}, seed: 1 },
+      opts: { cwd: join(root, "demo", "job-0001") } });
+    expect(Object.keys(runs[0].opts)).toEqual(["cwd"]);
+  });
+
+  it("(b) one slot: a survey or a measure meanwhile is a 409 naming the drawing job; its end writes result.json and ONE build:run row naming sentinel-drawing (claimed false)", async () => {
+    drawings();
+    await startD();
+    await expect(start()).rejects.toMatchObject({ status: 409, message: "a drawing job is already running on this bridge (one at a time) — try again when it ends; nothing was saved" });
+    await expect(measureJob("demo", "job-0001", { job_id: "m" }, deps())).rejects.toMatchObject({ status: 409, message: "a drawing job is already running on this bridge (one at a time) — try again when it ends; nothing was saved" });
+    await finish({ status: "done", stage: "done", pct: 100, refused: [], result: DRESULT, tools: DTOOLS, version: "0.1.0" });
+    const bytes = readFileSync(join(root, "demo", "job-0001", "result.json"));
+    expect(rec()).toMatchObject({ status: "done", read: ["ev-0011"], counts: { wall: 1, door: 1 }, candidates_total: 2, result_sha256: sha(bytes),
+      reader: { name: "sentinel-drawing", version: "0.1.0" }, tools: DTOOLS, ledger: { id: 101 } });
+    expect(audits).toHaveLength(1);
+    expect(audits[0].action).toBe("build:run job-0001 · sentinel-drawing 0.1.0 · done");
+    expect(audits[0].v).toMatchObject({ job_id: "job-0001", reader: "sentinel-drawing", version: "0.1.0", status: "done", params: {}, seed: 1, items: [{ id: "ev-0011", sha256: "1".repeat(64) }],
+      read: ["ev-0011"], candidates: { wall: 1, door: 1 }, cpu_s: 0.2, points_in: null, result_sha256: sha(bytes), claimed: false });
+    expect((await start()).job).toMatchObject({ id: "job-0002", reader: { name: "sentinel-survey" } }); // the slot is free after
+  });
+
+  it("(c) refused before anything is written: no PDF it reads (each with why, or what to admit), not set up — and its result held to walls and doors in paper mm", async () => {
+    await expect(startD()).rejects.toMatchObject({ status: 409, message: "no admitted drawing in evp-0001 that sentinel-drawing reads — admit a vector .pdf plan under Evidence first (a drawing answers an Ask the owner request); nothing was saved" });
+    mkdirSync(join(ev, "drawings"));
+    writeFileSync(join(ev, "drawings", "A-101.dwg"), "x");
+    PACK.items.push(drawingItem("ev-0012", "drawings/A-101.dwg"));
+    await expect(startD()).rejects.toMatchObject({ status: 409, message: "no admitted drawing in evp-0001 that sentinel-drawing reads — ev-0012: a .dwg is read by Ghost Builder in Revit (Model from Drawings) — sentinel-drawing reads PDF; nothing was saved" });
+    writeFileSync(join(ev, "drawings", "A-101.pdf"), "x");
+    PACK.items.push(drawingItem("ev-0011", "drawings/A-101.pdf"));
+    await expect(startD({ notSetUpDrawing: () => "sentinel-drawing is not set up on this PC: build it … — nothing was saved", notSetUp: () => "never asked" }))
+      .rejects.toMatchObject({ status: 503, message: "sentinel-drawing is not set up on this PC: build it … — nothing was saved" });
+    expect(existsSync(join(root, "demo"))).toBe(false);
+    expect(resultRefusal(DRESULT, ["ev-0011"], "sentinel-drawing")).toBeNull();
+    expect(resultRefusal({ ...DRESULT, candidates: [{ ...DRESULT.candidates[0], geometry: { ...DRESULT.candidates[0].geometry, units: undefined } }] }, ["ev-0011"], "sentinel-drawing"))
+      .toBe("candidates[0].geometry.units (a drawing's candidates are in paper_mm)");
+    expect(resultRefusal(RESULT, ["ev-0001"], "sentinel-drawing")).toBe("candidates[0].kind"); // a level is not a drawing's
+    await startD();
+    await finish({ status: "done", stage: "done", pct: 100, refused: [], tools: DTOOLS, version: "0.1.0", result: { ...DRESULT, candidates: [{ ...DRESULT.candidates[0], kind: "window" }] } });
+    expect(rec()).toMatchObject({ status: "failed", error: "sentinel-drawing's result is not the contract's shape (candidates[0].kind) — nothing it found was kept" });
+    expect(audits[0].action).toBe("build:run job-0001 · sentinel-drawing 0.1.0 · failed");
+  });
+});
+
 describe("trustedJob (MA-4d) — decision 11: the row job.ledger.id names, the job's own, re-hashed now; never by new_value.job_id", () => {
   const BYTES = Buffer.from(JSON.stringify(RESULT)), SHA = sha(BYTES), H = "13".repeat(32);
   const ROW = (over = {}, v = {}) => ({ id: 2201, hash: H, entity_type: "build", action: "build:run job-0001 · sentinel-survey 0.1.0 · done", ...over,
@@ -222,7 +305,7 @@ describe("trustedJob (MA-4d) — decision 11: the row job.ledger.id names, the j
   // deps() per call (review): the file's root is set in beforeEach, after this describe is collected. The caller (proposeFromJob) checks the role.
   const trust = (row) => trustedJob("demo", "job-0001", deps({ getAuditEntry: async (key, id) => (key === "demo" && id === 2201 ? row : null) }));
   const untrusted = (why) => ({ status: 409, message: `job-0001's result is not trusted: ${why} — run the survey again; nothing was saved` });
-  const NOT_OWN = "ledger #2201 is not job-0001's own build:run row (the bridge's: build:run job-0001 · sentinel-survey … · done, claimed false)";
+  const NOT_OWN = "ledger #2201 is not job-0001's own build:run row (the bridge's: build:run job-0001 · sentinel-survey or sentinel-drawing … · done, claimed false)";
   const CHANGED = "its result.json does not hash to the sha256 on ledger #2201 — it changed after the job";
 
   it("(a) the job's own row: the result, the row's pack, items and read, its id and hash — the pack id is the ROW's, not job.json's", async () => {
@@ -259,6 +342,20 @@ describe("trustedJob (MA-4d) — decision 11: the row job.ledger.id names, the j
     await expect(trust(ROW({}, { read: ["ev-0002"] }))).rejects.toMatchObject(OFF_READ);
     await expect(trust(ROW({}, { items: [{ id: "ev-0001", sha256: "1".repeat(64) }, { id: "ev-0002", sha256: "2".repeat(64) }], read: ["ev-0002"] }))).rejects.toMatchObject(OFF_READ);
   });
+  it("(e) MA-5a-3: a drawing job's own row is trusted and names its reader — the ROW's, never job.json's; a row whose action and new_value disagree on the reader is not; a drawing row holds its result to paper mm", async () => {
+    const D = Buffer.from(JSON.stringify(DRESULT)), DSHA = sha(D);
+    const DROW = (over = {}, v = {}) => ROW({ action: "build:run job-0001 · sentinel-drawing 0.1.0 · done", ...over }, { reader: "sentinel-drawing", read: ["ev-0011"], items: [{ id: "ev-0011", sha256: "1".repeat(64) }], result_sha256: DSHA, ...v });
+    lay({ result_sha256: DSHA, reader: { name: "sentinel-survey" } }, D);
+    expect((await trust(DROW())).row).toMatchObject({ reader: "sentinel-drawing", version: "0.1.0", read: ["ev-0011"] });
+    await expect(trust(DROW({}, { reader: "sentinel-survey" }))).rejects.toMatchObject(untrusted(NOT_OWN));
+    await expect(trust(DROW({ action: "build:run job-0001 · sentinel-drawingx 0.1.0 · done" }))).rejects.toMatchObject(untrusted(NOT_OWN));
+    lay(); // a survey's result under a drawing's row: a level is not a drawing's
+    await expect(trust(DROW({}, { result_sha256: SHA, read: ["ev-0001"] }))).rejects.toMatchObject(
+      untrusted("its result is not the contract's shape over what ledger #2201 says was read (candidates[0].kind)"));
+    lay();
+    expect((await trust(ROW({}, { reader: undefined }))).row.reader).toBe("sentinel-survey"); // a row from before MA-5a-3 names no reader: the survey's
+  });
+
   it("(d) a job that is not there, not done, or not named job-NNNN", async () => {
     await expect(trust(ROW())).rejects.toMatchObject({ status: 404, message: "no survey job job-0001 on demo — nothing was saved" });
     lay({ status: "failed" });

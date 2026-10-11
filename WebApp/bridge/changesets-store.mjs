@@ -11,7 +11,7 @@ import { resolveArtefact, refLabel, validateArtefact } from "./artefact-store.mj
 import { resolveActor } from "./bridge-auth.mjs";
 import { readProposeBody, planSurvey, PLANNER, PLANNER_VERSION, measurePlan, judge, measureRefusal, countWords, STATUSES, MIN_COVERAGE, DEVIATION_MM, FACE_SHARE_MIN, MEASURE_KNOBS,
   readMesh, meshFaces, REVIT, FILED as AS_FILED, toScan, toModel, scanBand, cloudRefusal, SCAN_CELL_MM, SCAN_MAX } from "./survey-plan.mjs";
-import { stillAdmitted, pickItems, trustedJob as jobOf, measureJob as measureOf, TOLERANCES_MM, READER } from "./build-jobs.mjs";
+import { stillAdmitted, pickItems, trustedJob as jobOf, measureJob as measureOf, TOLERANCES_MM, READER, DRAWING } from "./build-jobs.mjs";
 
 const STORE = "changeset";
 const err = (status, message) => Object.assign(new Error(message), { status });
@@ -265,6 +265,8 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
   /** Everything before the first write: the job, the body, the scans, decision 19, the standards, the plan, each storey validated. */
   async function prepare() {
     const { row, result } = await trustedJob(key, id);
+    // MA-5a-3: a drawing's candidates are in paper millimetres — they land with the lead's 2-point alignment (scale and placement), MA-5a-4.
+    if (row.reader === DRAWING) throw err(409, `${id} is a drawing job (${DRAWING}): its walls and doors are in paper millimetres and are proposed with a 2-point alignment — MA-5a-4; nothing was saved`);
     const { frame, levels } = readProposeBody(b, result.candidates.filter((c) => c.kind === "level").map((c) => c.cid));
     // Every item the job read must still be the bytes it read: in the pack the ROW names (job.json is never the anchor), not flagged, with
     // the sha on its row (build-jobs stillAdmitted, shared with MA-4e's measure).
