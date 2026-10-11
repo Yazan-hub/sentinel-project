@@ -231,6 +231,19 @@ describe("validateArtefact — SEC-5: naming, layer and IDS patterns", () => {
     expect(fails(kind, body)).toMatchObject({ status: 400, message: expect.stringContaining(`${kind}: ${path} `) });
   });
 
+  it("MA-5b-7: a layers@n datum section — globs bounded as ignore's, letters, merges; at least one of levels and grids", () => {
+    const datum = { levels: ["*-SECT-DATUM", "*LEVEL*"], grids: ["S-GRID-IDEN"], skip_letters: ["I", "O"], level_merge_mm: 50, grid_merge_mm: 100 };
+    expect(validateArtefact("layers", { ...layersBody, datum })).toBe(true);
+    expect(validateArtefact("layers", { ...layersBody, datum: { grids: ["S-GRID*"] } })).toBe(true);
+    expect(validateArtefact("layers", { ...layersBody, datum: null })).toBe(true);
+    for (const [path, d] of [["datum", []], ["datum", {}], ["datum", { levels: [], grids: [] }], ["datum.levels", { levels: "L*" }],
+      ["datum.grids[0]", { grids: ["*a*b*c*"] }], ["datum.levels", { levels: Array.from({ length: 65 }, () => "L-*") }],
+      ["datum.skip_letters", { grids: ["G"], skip_letters: ["i"] }], ["datum.skip_letters", { grids: ["G"], skip_letters: ["IO"] }],
+      ["datum.level_merge_mm", { levels: ["L"], level_merge_mm: 0 }], ["datum.grid_merge_mm", { grids: ["G"], grid_merge_mm: "100" }]])
+      expect(fails("layers", { ...layersBody, datum: d }).message, path).toContain(`layers: ${path} `);
+    expect(fails("layers", { ...layersBody, datum: {} }).message).toBe("layers: datum must name level or grid layers (datum.levels or datum.grids)");
+  });
+
   it("the words say what to change", () => {
     expect(fails("naming", withField({ pattern: "(\\d+" })).message).toBe("naming: fields[1].pattern does not compile as a pattern (Invalid regular expression: /(\\d+/: Unterminated group) — write it without .NET-only syntax such as a leading (?i)");
     expect(fails("layers", { ...layersBody, ignore: ["*a*b*c*"] }).message).toBe("layers: ignore[0] holds more than 3 * wildcards");

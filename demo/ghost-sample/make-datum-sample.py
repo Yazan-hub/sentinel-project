@@ -48,7 +48,29 @@ def dxf(lines):
     return "\r\n".join(o) + "\r\n"
 
 
+# MA-5b-7 drill (DAT-1, DAT-2): the datum on an office's own layers — levels on A-SECT-DATUM (a basement at -3500 below the
+# ground, two storeys and a parapet line at 7900 a person unticks), grids on S-GRID-IDEN (3 numbered, 9 lettered: no I), and a
+# 200 mm wall on A-WALL beside them (Ghost builds the wall, never the datum layers). ma5b7-plan-shifted.dxf: the same grids
+# 60 m east — its numbered grids stand elsewhere ("1 (2)"), its lettered ones on the same lines (kept).
+MA5B7_SECTION = [("A-SECT-DATUM", 100000.0, y, 110000.0, y) for y in (-3500.0, 0.0, 3500.0, 7000.0, 7900.0)]
+MA5B7_GRIDS = ([("S-GRID-IDEN", x, -500.0, x, 40500.0) for x in (0.0, 6000.0, 12000.0)]
+               + [("S-GRID-IDEN", -500.0, float(y), 12500.0, float(y)) for y in range(0, 45000, 5000)])
+MA5B7_WALL = [("A-WALL", 2000.0, 2000.0, 8000.0, 2000.0), ("A-WALL", 2000.0, 2200.0, 8000.0, 2200.0)]
+
+
+def shifted(lines, dx):
+    return [(l, x1 + dx, y1, x2 + dx, y2) for l, x1, y1, x2, y2 in lines]
+
+
 if __name__ == "__main__":
+    import sys
+    if "--ma5b7" in sys.argv:
+        with open("ma5b7-datum.dxf", "w", newline="") as f:
+            f.write(dxf(MA5B7_SECTION + MA5B7_GRIDS + MA5B7_WALL))
+        with open("ma5b7-plan-shifted.dxf", "w", newline="") as f:
+            f.write(dxf(shifted(MA5B7_GRIDS, 60000.0)))
+        print("wrote ma5b7-datum.dxf (5 level lines, 12 grids, 1 wall) + ma5b7-plan-shifted.dxf (12 grids, 60 m east)")
+        sys.exit(0)
     with open("sample-section.dxf", "w", newline="") as f:
         f.write(dxf(SECTION_LINES))
     with open("sample-grids.dxf", "w", newline="") as f:

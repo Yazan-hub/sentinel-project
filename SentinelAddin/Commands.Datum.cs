@@ -56,6 +56,21 @@ public sealed class DatumFromDrawingsCommand : IExternalCommand
             return Result.Cancelled;
         }
 
+        // MA-5b-7 (DAT-1): the project's layers@n says where its datum is drawn — read with the guideline (MA-1a item 6: its placement
+        // block) before a drawing is picked: off this thread and waited for (Annotate's pattern; an unbound model has none). Review
+        // amendment C7: a guideline that could not be read is not "no block" — refused before anything is read.
+        string key = ProjectContext.For(doc).Key;
+        var standards = Task.Run(() => GhostStandards.Load(key, layers: true, catalog: false)).GetAwaiter().GetResult();
+        if (PlacementPolicy.UnreadRefusal(standards.GuidelineSource.Origin, standards.GuidelineSource.NotInstalled || standards.GuidelineSource.NoProject,
+                                          !string.IsNullOrWhiteSpace(key), standards.GuidelineSource.Reason) is { } unread)
+        {
+            TaskDialog.Show("Sentinel — Datum", unread);
+            return Result.Cancelled;
+        }
+        var src = standards.Layers.Datum is { } datumLayers ? DatumBuilder.DatumSource.Of(datumLayers, standards.LayersSource.Label)
+            : DatumBuilder.DatumSource.Words(standards.LayersSource.Origin == "none" ? $"no layers@n read for this project ({standards.LayersSource.Label})"
+                                                                                     : $"no datum section in {standards.LayersSource.Label}");
+
         var readerClock = new System.Diagnostics.Stopwatch(); // MA-1a item 8: the read's own time, for the receipt
         DatumBuilder.DatumResult detected;
         if (haveFolder)
@@ -72,57 +87,46 @@ public sealed class DatumFromDrawingsCommand : IExternalCommand
 
             var pick = new Sentinel.UI.DwgPickWindow(files,
                 title: "Sentinel — Datum: choose ONE drawing",
-                header: "Pick the drawing to read datum from. Levels come from a section's " +
-                        "LEVEL layer, grids from a plan's GRID layer. The drawing is read " +
-                        "temporarily (nothing is kept). Sheets have different origins - " +
-                        "run once per drawing; existing levels/grids are kept, not duplicated.",
+                header: "Pick the drawing to read datum from: levels from a section, grids from a plan. The drawing is read " +
+                        "temporarily (nothing is kept). Sheets have different origins - run once per drawing; a level at a height " +
+                        "already in the model, or a grid on a line already in it, is kept, not duplicated.\n\nRead from: " + src.Label,
                 showPickFromModel: false);
             new System.Windows.Interop.WindowInteropHelper(pick) { Owner = c.Application.MainWindowHandle };
             if (pick.ShowDialog() != true || pick.SelectedPath == null)
                 return Result.Cancelled;
 
             readerClock.Start();
-            detected = builder.DetectFromFiles(new[] { pick.SelectedPath }, unit: DatumBuilder.UnitOf(pick.Units));
+            detected = builder.DetectFromFiles(new[] { pick.SelectedPath }, src, unit: DatumBuilder.UnitOf(pick.Units));
             readerClock.Stop();
             detected.SourceSha256 = ProvenanceStamp.FileSha256(pick.SelectedPath); // MA-1a item 4: the file the datum was read from
         }
         else
         {
             readerClock.Start();
-            detected = builder.Detect();
+            detected = builder.Detect(src);
             readerClock.Stop();
         }
 
         if (detected.Levels.Count == 0 && detected.Grids.Count == 0)
         {
+            // MA-5b-7 (DAT-1): the layers the drawing holds, so the datum section (or the drawing) can be put right
+            var seen = detected.SeenLayers.OrderBy(l => l, System.StringComparer.OrdinalIgnoreCase).ToList();
             TaskDialog.Show("Sentinel — Datum",
-                "Found no level or grid lines.\n\n" + string.Join("\n", detected.Warnings) +
-                "\n\nLevels are read from a section layer containing \"LEVEL\"; grids from a plan layer " +
-                "containing \"GRID\" — those two words, not the project's layers standard. Check the drawings are imported.");
+                "Found no level or grid lines.\n\nRead from: " + src.Label + "\n\n" + string.Join("\n", detected.Warnings) +
+                (seen.Count == 0 ? "\n\nThe drawing holds no lines on any layer." :
+                 $"\n\nThe drawing's layers ({seen.Count}): " + string.Join(", ", seen.Take(40)) + (seen.Count > 40 ? $" … and {seen.Count - 40} more" : "") +
+                 "\n\nName the ones that hold levels and grids in the project's layers@n datum section (levels, grids), or check the drawing."));
             return Result.Cancelled;
         }
 
-        var td = new TaskDialog("Sentinel — Datum from Drawings")
-        {
-            MainInstruction = $"Create {detected.Levels.Count} level(s) and {detected.Grids.Count} grid(s)?",
-            MainContent = Preview(detected),
-            CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No,
-            DefaultButton = TaskDialogResult.Yes,
-        };
-        if (td.Show() != TaskDialogResult.Yes) return Result.Cancelled;
+        // MA-5b-7 (DAT-2): a row per level and grid — ticked, named, elevations from ±0.00, Building Story — before anything is created
+        var review = new Sentinel.UI.DatumReviewWindow(DatumRows.Of(detected.Levels, detected.Grids), src.Label, detected.Warnings);
+        new System.Windows.Interop.WindowInteropHelper(review) { Owner = c.Application.MainWindowHandle };
+        if (review.ShowDialog() != true) return Result.Cancelled;
+        (detected.Levels, detected.Grids) = DatumRows.Picked(review.Rows);
 
-        // MA-1a item 6: the project's guideline, for its placement block (Annotate's pattern: fetched off this thread and
-        // waited for, 4 s at most; an unbound model has none). A workset the block names for Levels or Grids that the
-        // model lacks is refused before the transaction.
-        string key = ProjectContext.For(doc).Key;
-        var standards = Task.Run(() => GhostStandards.Load(key, layers: false, catalog: false)).GetAwaiter().GetResult();
-        // Review amendment C7: a guideline that could not be read is not "no block" — refused before anything is created.
-        if (PlacementPolicy.UnreadRefusal(standards.GuidelineSource.Origin, standards.GuidelineSource.NotInstalled || standards.GuidelineSource.NoProject,
-                                          !string.IsNullOrWhiteSpace(key), standards.GuidelineSource.Reason) is { } unread)
-        {
-            TaskDialog.Show("Sentinel — Datum", unread);
-            return Result.Cancelled;
-        }
+        // MA-1a item 6: a workset the guideline's placement block names for Levels or Grids that the model lacks is refused before the
+        // transaction.
         var block = standards.Guideline.Placement;
         // Asked by what the drawing holds, not by what will be new (E4): a level that already exists is still asked for.
         var kinds = new[] { detected.Levels.Count > 0 ? "level" : null, detected.Grids.Count > 0 ? "grid" : null }.Where(k => k != null);
@@ -168,24 +172,5 @@ public sealed class DatumFromDrawingsCommand : IExternalCommand
             "elements will host to these levels." +
             "\n\nNext: 3 · Annotate Views pins the story levels and grids and makes a floor plan and an RCP for each story level (it shows the rows first).");
         return Result.Succeeded;
-    }
-
-    private static string Preview(DatumBuilder.DatumResult d)
-    {
-        var sb = new StringBuilder();
-        if (d.Levels.Count > 0)
-        {
-            sb.AppendLine("Levels (ground-up):");
-            foreach (var l in d.Levels) sb.AppendLine($"  {l.Name}  =  +{l.ElevationMm:0} mm");
-        }
-        if (d.Grids.Count > 0)
-        {
-            var v = d.Grids.Where(g => g.Vertical).Select(g => g.Name);
-            var h = d.Grids.Where(g => !g.Vertical).Select(g => g.Name);
-            sb.AppendLine($"Grids:  {string.Join(", ", v)}  /  {string.Join(", ", h)}");
-        }
-        // The read's notes (which file, a units doubt) belong BEFORE the Yes, not in the report after it.
-        if (d.Warnings.Count > 0) sb.AppendLine().AppendLine(string.Join("\n", d.Warnings.Select(w => "• " + w)));
-        return sb.ToString().TrimEnd();
     }
 }

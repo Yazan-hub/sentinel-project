@@ -39,6 +39,9 @@ namespace Sentinel.GhostBuilder
         /// AIA heuristics only. Nothing it maps is a standard.</summary>
         public static LayerRulesetMatcher HeuristicsOnly() => new LayerRulesetMatcher();
 
+        /// <summary>MA-5b-7 (DAT-1): the layers@n datum section — null when the body has none (Datum then reads the built-in words).</summary>
+        public DatumLayers? Datum { get; private set; }
+
         private static readonly string[] Categories = { "Walls", "Floors", "Ceilings", "Doors", "Windows", "Columns", "Furniture" };
 
         /// <summary>A layers@n body (the raw artefact JSON) → the matcher, or null with <paramref name="error"/> naming the
@@ -86,6 +89,36 @@ namespace Sentinel.GhostBuilder
                     foreach (var glob in ignore.EnumerateArray())
                         if (GlobToRegex(glob.GetString()!) is { } rx) m._ignoreGlobs.Add(rx);
                 }
+                // MA-5b-7 (DAT-1): where Datum from Drawings reads levels and grids — the bridge validator's rules (artefact-store.mjs).
+                if (Optional(b, "datum") is { } d)
+                {
+                    if (d.ValueKind != JsonValueKind.Object) throw Bad("datum", "must be an object");
+                    var dl = new DatumLayers();
+                    foreach (var (key, globs, rxs) in new[] { ("levels", dl.Levels, dl.LevelRx), ("grids", dl.Grids, dl.GridRx) })
+                        if (Optional(d, key) is { } list)
+                        {
+                            if (!Strings(list)) throw Bad("datum." + key, "must be an array of strings");
+                            foreach (var g in list.EnumerateArray())
+                            {
+                                globs.Add(g.GetString()!);
+                                if (GlobToRegex(g.GetString()!) is { } rx) rxs.Add(rx);
+                            }
+                        }
+                    if (dl.Levels.Count == 0 && dl.Grids.Count == 0) throw Bad("datum", "must name level or grid layers (datum.levels or datum.grids)");
+                    if (Optional(d, "skip_letters") is { } skip)
+                    {
+                        if (!Strings(skip) || skip.EnumerateArray().Any(s => s.GetString()!.Length != 1 || s.GetString()![0] < 'A' || s.GetString()![0] > 'Z'))
+                            throw Bad("datum.skip_letters", "must be an array of single capital letters A-Z");
+                        dl.SkipLetters = new HashSet<char>(skip.EnumerateArray().Select(s => s.GetString()![0]));
+                    }
+                    foreach (var key in new[] { "level_merge_mm", "grid_merge_mm" })
+                        if (Optional(d, key) is { } v)
+                        {
+                            if (v.ValueKind != JsonValueKind.Number || v.GetDouble() < 1 || v.GetDouble() > 1000) throw Bad("datum." + key, "must be a number of millimetres 1..1000");
+                            if (key == "level_merge_mm") dl.LevelMergeMm = v.GetDouble(); else dl.GridMergeMm = v.GetDouble();
+                        }
+                    m.Datum = dl;
+                }
                 return m;
             }
             catch (Exception ex)
@@ -109,6 +142,7 @@ namespace Sentinel.GhostBuilder
                 try { if (rx.IsMatch(n)) return true; }
                 catch (RegexMatchTimeoutException) { } // SEC-3: a glob past its bound ignores nothing — the layer is mapped
             }
+            if (Datum != null && (Datum.IsLevel(layer) || Datum.IsGrid(layer))) return true; // MA-5b-7: Datum reads it, Ghost never builds it
             if (n == "0" || n == "DEFPOINTS") return true;
             foreach (var t in BuiltInIgnoreTokens) if (n.Contains(t)) return true;
             return false;
@@ -164,6 +198,31 @@ namespace Sentinel.GhostBuilder
         // Blank as the bridge's filled() reads it: char.IsWhiteSpace plus U+FEFF (DeliveryContract.Text's rule).
         private static bool Filled(JsonElement v) =>
             v.ValueKind == JsonValueKind.String && v.GetString()!.Any(ch => !char.IsWhiteSpace(ch) && ch != '\uFEFF');
+
+        /// <summary>MA-5b-7 (DAT-1): where Datum from Drawings reads levels and grids — layer globs (a * is any run; the whole name; any
+        /// case), the grid letters it skips, the merge tolerances. A glob past its bound matches nothing (SEC-3).</summary>
+        public sealed class DatumLayers
+        {
+            public readonly List<string> Levels = new(), Grids = new();
+            internal readonly List<Regex> LevelRx = new(), GridRx = new();
+            public HashSet<char> SkipLetters = new() { 'I', 'O' };
+            public double LevelMergeMm = 50, GridMergeMm = 100;
+            public bool IsLevel(string layer) => Any(LevelRx, layer);
+            public bool IsGrid(string layer) => Any(GridRx, layer);
+            private static bool Any(List<Regex> rxs, string layer)
+            {
+                if (string.IsNullOrWhiteSpace(layer)) return false;
+                foreach (var rx in rxs)
+                {
+                    try { if (rx.IsMatch(Norm(layer))) return true; }
+                    catch (RegexMatchTimeoutException) { }
+                }
+                return false;
+            }
+            /// <summary>"levels *-SECT-DATUM, *LEVEL*; grids S-GRID-IDEN" — what the dialogs name as the source.</summary>
+            public string Describe() =>
+                string.Join("; ", new[] { Levels.Count > 0 ? "levels " + string.Join(", ", Levels) : "no level layers", Grids.Count > 0 ? "grids " + string.Join(", ", Grids) : "no grid layers" });
+        }
 
         // SEC-3: a layers@n ignore glob is matched under a bound.
         private static readonly TimeSpan GlobTimeout = TimeSpan.FromMilliseconds(250);
