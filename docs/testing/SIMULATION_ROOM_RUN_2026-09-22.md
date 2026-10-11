@@ -758,7 +758,7 @@ only the machine credential reaches it), so the founder's own files stay in Dele
 | An archived file | may be deleted, restores with its archived version | archive `{archived: 1}`, delete 200, restore `{versions: 1, deleted_versions: 0}`, state `archived` |
 | The ledger | every move one row, in order | B22-A: #1113 created · #1114/#1116 set live · #1115/#1117 uploaded · #1127/#1128 file_version deleted · #1129 archived · #1130 file_version restored · #1133 container deleted · #1138 container restored · #1139 file_version restored |
 | Not run live | a signed-in viewer's Restore (403) and a web Restore click | no second account; the founder's files are his to restore — the route's lead check and the guard's role check are pinned by `cde-store-writes.test.mjs` and probe rows D1, D14, D21 |
-| Published | web app 1.0.28 with Deleted items | 1.0.28 published ~18:55 UTC (version 6abab82613cf4cfc31e0a522, 15.4 MB); it boots signed out in the founder's tab (reloaded by Claude's mistake: a navigate without a tab id), and says `Can't reach the bridge at https://4374ga.tailfae508.ts.net.` — local /health 200, the tailnet address 200, the public relay's TLS handshake fails, as earlier the same day after a bridge restart; the founder runs `tools/public-bridge-off.cmd` then `public-bridge-on.cmd` |
+| Published | web app 1.0.28 with Deleted items | 1.0.28 published ~18:55 UTC (version 6abab82613cf4cfc31e0a522, 15.4 MB); it boots signed out in the founder's tab (reloaded by Claude's mistake: a navigate without a tab id), and says `Can't reach the bridge at <the Funnel address>` — local /health 200, the tailnet address 200, the public relay's TLS handshake fails, as earlier the same day after a bridge restart; the founder runs `tools/public-bridge-off.cmd` then `public-bridge-on.cmd` |
 | The published app after the toggle | reaches the bridge | still `Can't reach the bridge` after the founder's off/on: the relay answered curl, the platform top page and a sandboxed frame on example.com, but a sandboxed frame on platform.thatopen.com never sent its request. Cause: between `public-bridge-off` (MagicDNS on) and `public-bridge-on`, Chrome cached the tailnet address for the platform site's frames, and Chrome blocks a sandboxed public frame from a private address. Clearing Chrome's cached lookups (restart, or net-internals host cache + socket pools) fixed it — the founder: "worked" |
 
 ## Session B23 — every panel follows a sign-in and a bridge outage (2026-09-29, before the hackathon deadline)
@@ -860,7 +860,7 @@ The founder: "do everything on your own … continue the roadmap". Spec `docs/su
 
 | Row | Observed |
 |---|---|
-| The outage | the published app read "Projects not read — can't reach the bridge at https://4374ga.tailfae508.ts.net". Measured: local `:4100/health` no answer, the public address 502 — the bridge had been a managed server of the previous Claude session and ended with it. Restarted (poller on, platform token valid); local and public `/health` 200 |
+| The outage | the published app read "Projects not read — can't reach the bridge at <the Funnel address>". Measured: local `:4100/health` no answer, the public address 502 — the bridge had been a managed server of the previous Claude session and ended with it. Restarted (poller on, platform token valid); local and public `/health` 200 |
 | Recovery without a reload | the founder's open tab answered over the channel a minute later: `bridge reachable`, `signed_in true`, `sentinel_project aster-tower` (the watcher re-probed and reloaded the panels) |
 | Published app, signed in (the owed row) | `node bridge/ask-sentinel.mjs deliveries --app 6a56513872a416a2841b0667` → ASTR26 v3, the platform's hint "Passed — contract@1", run 6abb1161…, **`ledger #1164`**, `ledger_result pass`, **`agrees true`** — B26 complete |
 | Follow-up | `tools/bridge-start.cmd`: starts the bridge in its own window unless one already answers on :4100 (the "already running" path run; the start path not run — it would stop the founder's live bridge). A shortcut in `shell:startup` makes it start at every sign-in — the founder's to place |
@@ -2872,3 +2872,55 @@ applied, job-0005/0006 Scan L00 partially applied — counted once, applied firs
 **Closing list:** `Drawing job-0007 · ev-0007 · GR-FFL` applied (the partition placed in `ma5a.rvt`, saved); one Open topic on ma4c-drill; the
 250 mm west wall waits in the Holding Area; req-0001 drafted (not sent — the founder's to send, or not). Owed: a live door from the drawing
 in a scan wall (F-MA5a456-1); real drawing sets; MA-5b (rooms and revisions) next on the roadmap.
+## Session MA5b batch 1 — rooms, revision compare, reshape, DWG hygiene (2026-10-11 local: merged through 6d33bf0, web 1.0.76, sentinel-drawing 0.2.0, the add-in deployed 2021–2027, the 4100 bridge restarted once on master; the founder's session (the local app on master) after the Funnel refresh; Claude driving; Revit 2024, `ma5a.rvt`)
+
+The founder's "go ahead with MA-5b" + "run all phases all together": MA-5b-1 (rooms from a drawing's labels), MA-5b-2 (Ghost/Datum DWG
+hygiene: GHB-3, DAT-4), MA-5b-3 (revision compare, C13a) and MA-5b-4 (reshape with an as-placed stale guard, C13b) in one deploy and one
+drill. Fixtures: `drawing/fixtures/drill-plan-L00-rooms.pdf` (A), `-rev-b.pdf` (B: the partition moved east), `-rev-c.pdf` (C: the east and
+north walls each 100 mm out). Marks for every proposal: A `60, 40` → `40000, 0`, B `220, 160` → `48000, 6000`, check `220, 40` → `48000, 0`.
+
+| Row | Result | Evidence |
+|---|---|---|
+| P-1 | The three PDFs copied into the pack's `drawings/`; **Re-check** lists them; each **Admit** → answers req-0001 → `ev-0008` (rooms), `ev-0009` (rev-b), `ev-0010` (rev-c) — **pass** | #2328, #2330, #2332 |
+| P-2 | **Read drawings** → `job-0008 · sentinel-drawing · done · read ev-0007, ev-0008, ev-0009, ev-0010 · 20 wall(s), 8 door(s), 6 room(s)` (two rooms in each new drawing) — **pass** | #2333 |
+| A-0 | ev-0008 at **3000 mm**, level blank → the storey matched the scan's `Scan L01 job-0002` (`checked: true`: created by an applied scan changeset): 3 walls agree with the scan, 1 drawn only, ONE BCF topic; the changeset = the partition, its door and `MEETING ROOM 102`; held: the 250 mm west wall (type gap), the south door (13 door types within 100 mm), `OFFICE 101` ("bounded by …-wall-3, a type gap") — the planner **pass**; but `ma5a.rvt` has no level `Scan L01 job-0002` (that scan was applied into another copy: F-MA5b-1), so Apply would fail on the named level — **declined in Revit with the reason**, re-proposed at 6000 mm | #2337, #2338 |
+| A-1 | ev-0008 at **6000 mm** → `drawing-ev-0008-p1-level → Drawing ev-0008 job-0008 (created)` · 1 changeset, 7 ghosts (the level, 4 walls, the partition door, room 102), none pre-ticked; OFFICE 101 held as above — **pass** | #2342 |
+| R-1 | Review AI Proposals: `room: 102 · MEETING ROOM · Drawing ev-0008 job-0008 · inferred`; the "Sent to a person" rows read as on the bridge — **pass** | the window |
+| R-2 | Everything ticked but the east wall (`wall-4`) → **Apply 6** → `room 102 MEETING ROOM is not enclosed on Drawing ev-0008 job-0008 — a wall round it is unticked, held or a type gap: untick the room, or place its walls first; nothing was placed` · "the proposals are still pending" — **pass** | the window (no row) |
+| R-3 | The east wall ticked → **Apply 7** → `Applied 7 element(s)`; room 102 MEETING ROOM placed: **Area 19.800 m²**, perimeter 18 200 mm, number 102 — **pass** | #2343 |
+| B-1 | ev-0009 revises ev-0008 at 6000 mm → `against ev-0008: 3 wall(s) the same (left as placed), 0 changed, 1 no longer drawn; doors 0 the same, 1 no longer drawn; rooms 1 the same, 0 no longer drawn — each a person's row on the changeset (Sentinel never deletes)` · `→ Drawing ev-0008 job-0008 (revision)`; the changeset = the new partition (x 45050) and its door — **pass** | #2347 |
+| B-2 | Revit: A's partition and door as "Sent to a person" rows (`on ev-0008, not on ev-0009 — placed from … (Revit …-001f9553): Sentinel never deletes; a person removes it in Revit, or keeps it`); the two ticked → `Applied 2 element(s)` — **pass** | #2348 |
+| C-0 | A's north wall moved 500 mm by hand (Move) and saved | the model |
+| C-1 | ev-0010 revises ev-0009 → `against ev-0009: 2 wall(s) the same (left as placed), 2 reshaped to ev-0010's line (Revit keeps one edited by hand since), 0 changed, 1 no longer drawn; doors 1 the same, 1 no longer drawn; rooms 1 the same` — the chain followed through B to A's placed walls — **pass** | #2352 |
+| C-2 | Revit: 2 reshape rows → **Apply 2** → `Applied 1 element(s)` (the east wall moved 100 mm) · `Kept as they stand (1 wall(s), not reshaped): wall …-001f9554 is no longer in this model — not reshaped (deleted by hand?)`. The kept path held, but the reason did not fit what happened: the Move ran with **Disjoin** ticked (left on from an earlier session), and Revit re-creates a wall moved with Disjoin under a new id (2069844 → 2069888; a 1 mm Disjoin move again gave 2069948): F-MA5b-3 | #2353 |
+| C-3 | The main path: Revit's Undo back to before the Disjoin move (the add-in reported the reshape's undo, #2354; the desk shows "undone in Revit after the report"); the north wall moved 500 mm **without** Disjoin (id 2069844 kept) and saved; ev-0010 proposed again → `1 reshaped … 1 already filed (not proposed again)`; Revit shows the carried decline unticked ("a lead re-opens one on the web desk"); the desk shows the reshape row (`reshape …-001f9554 to the revised drawing's line (kept as it stands if edited by hand since placed)`) and the carried decline; **Re-open** refused without a reason, then re-opened with one — **pass** | #2358, #2359 |
+| C-4 | Revit: the reshape ticked → **Apply 1** → `Applied 0 element(s)` · `Kept as they stand (1 wall(s), not reshaped): wall 2069844 was moved by hand since it was placed (it no longer stands on (40125, 5900) → (47850, 5900)) — kept as it stands; a person decides` — the as-placed guard live — **pass** | #2360 |
+| G-1 | Datum from Drawings: the pick window offers **The drawing's units** (as the file says / mm / cm / m / in / ft); a metres DXF with no `$INSUNITS` (the aster section ÷ 1000, a scratch copy in the Ghost source folder, removed after) read "as the file says" → `Create 1 level(s)` with `The levels are at most 5 mm apart — no storey is under 1.5 m: the drawing's units look wrong (a metres drawing read as millimetres?). Choose its units in the drawing window and read it again.` (the re-read after the 50 mm merge) — declined; read as **metres** → 15 levels `+0 … +47400 mm`, no warning — declined (nothing written) — **pass** | the dialogs |
+| G-2 | Ghost Builder: the pick window says the drawing "is imported origin-to-origin for this run and removed when the run ends", with the units choice; A101.dwg imported (seen in the plan), **Cancel** during the vision read → the import gone from the view — **pass** | the view |
+
+**Findings:**
+- **F-MA5b-1 (environment, a known limit):** one bridge, many model copies. The bridge took the scan's `Scan L01 job-0002` as checked
+  (its scan changeset was applied, into another copy of the drill model), and two applied scan storeys stand at 3000 mm (job-0002 and
+  job-0003; the planner takes the first). Apply refuses a named level the model does not hold, in words; the person declines with the
+  reason. Recorded, not changed: which file a changeset was applied into is not on the bridge.
+- **F-MA5b-2 (behaviour, fixed on fix/ma5b-drill):** the room check was only "enclosed" (Area > 0). With a wall of the changeset unticked,
+  walls already standing (a scan's, an earlier drawing's) can close a larger area round the label: an unticked partition would give one
+  room over both. The executor now refuses a room when an unticked wall of the changeset on its level runs through it (its midpoint in the
+  placed room): `… is unticked and runs through it … — Revit would close the room past it: tick the wall, or untick the room`. Not hit live
+  (the drill's west wall is a type gap, so the room did not close); pinned in promote-check.
+- **F-MA5b-3 (words, fixed):** a wall moved with Revit's Move + **Disjoin** is re-created under a new id; the reshape is rightly kept, but
+  the reason said only "deleted by hand?". It now says "deleted by hand, or replaced: Revit's Move with Disjoin gives a wall a new id".
+- **F-MA5b-4 (words, fixed):** two reshape rows read alike ("ends move 100 and 141.4 mm …"); each now names the wall by the line it was
+  placed on, and the overlay's "No ghost to draw" names reshape among the edits of an existing element.
+- **F-MA5b-5 (words, fixed):** the bridge's 409 advice "withdraw … on the Review desk" named a control the desk does not have; it now says
+  "decline … in Revit (Review AI Proposals → Decline all, with a reason)". The Files panel's Drawings line now says the reader reads room
+  labels, and when a room is placed.
+- **F-MA5b-6 (environment):** closing a maximized review window hands the focus to the window behind Revit (Chrome here); restore the
+  window before closing it.
+
+**Closing list:** in `ma5a.rvt` (saved) on level `Drawing ev-0008 job-0008` (6000 mm; a plan view made for the drill): A's walls, door and
+room 102 (19.80 m²), B's partition and door; A's partition and door kept (person's rows); the north wall 500 mm off its placed line (kept);
+the east wall back on A's line after the Undo (the bridge records C's east reshape as applied, then undone, #2354). In the Holding Area:
+the 250 mm west wall and the south door (type gaps), OFFICE 101 behind them. The scratch DXF removed from the Ghost source folder.
+Owed: a live run of F-MA5b-2's refusal (a drawing whose rooms close with a wall unticked); a live Ghost Builder build on a real DWG;
+real PDF/DWG sets (D8); F-MA5a456-1.
