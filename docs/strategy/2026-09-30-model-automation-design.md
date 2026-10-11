@@ -1172,9 +1172,14 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
 - **Delivers:**
   - Openings from wall-plane occupancy, as hosted catalogue doors and windows chosen by size (or a gap). BUILT in MA-5a for scans (drill MA5a: a window typed by size, hosted, one Undo; a door at a size of 13 BDS rows is a gap; the PDF half, rooms and the rest of MA-5 are TARGET).
   - The vector PDF reader (PdfPig). BUILT in MA-5a-3 as `sentinel-drawing` 0.1.0, a .NET worker the bridge runs (drawing/; plan docs/superpowers/plans/2026-10-11-ma5a3-drawing-reader.md): walls from paired face lines and doors from swing arcs, in paper mm, on the ledger as a bridge-run job (drill MA5a3); proposing waits for the 2-point alignment below.
-  - Drawing alignment by 2 points, confirmed by a person.
-  - Drawing-only ghosts are `inferred` and never pre-ticked. Conflicts become review rows.
-  - A difference between drawing and scan becomes a BCF topic.
+  - Drawing alignment by 2 points, confirmed by a person. BUILT in MA-5a-4 (merged 9c81a3d): the lead's two marks paper → model (an optional
+    check within 100 mm, off the A–B line), the bridge's similarity (1:1–1:2000, sizes at the standard scale within 1 %), `job.alignment`
+    with `confirmed_by`; MA-5a-6 (b7e002a) picks the marks on the drawing as read (drill MA5a456).
+  - Drawing-only ghosts are `inferred` and never pre-ticked. Conflicts become review rows. BUILT in MA-5a-4/5a-5: every drawing element
+    `inferred`, pretick false (Revit's ChangesetTrust pre-ticks only within_tolerance); a wall that differs from the scan's, or a scan wall the
+    drawing lacks, is a review row on the drawing's changeset; what agrees is not proposed twice (drill MA5a456).
+  - A difference between drawing and scan becomes a BCF topic. BUILT in MA-5a-5 (merged 7b32137): one topic per difference, keyed on the
+    drawing's bytes, its cid and the one scan wall's job — never raised twice, any status (drill MA5a456: the planted partition, exactly one).
   - Rooms from closed loops, named from the drawing text (C7).
   - Promote gains `rehost` and placeholder swaps (GHB-1 logic).
   - GHB-3, GHB-6, DAT-1, DAT-2, DAT-4, DAT-5.
@@ -1182,7 +1187,8 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
 - **Drill MA5:**
   - A door closed during the scan is proposed from the drawing, flagged `inferred`, and accepted by a person.
   - The opening count is compared with a hand count.
-  - A planted drawing-vs-scan difference gives exactly one BCF topic.
+  - A planted drawing-vs-scan difference gives exactly one BCF topic. MET in drill MA5a456 (2026-10-11): the drill plan's partition, drawn and
+    not in the scan, raised one topic; proposed again, none (the door-from-the-drawing row waits for a checked scan level, F-MA5a456-1).
   - Rooms are placed and named, and the IDS room checks pass.
   - Revision B of the sample DWG updates its walls, keeps the 5 hand-edited ones, and flags 2 deletions for a person.
 

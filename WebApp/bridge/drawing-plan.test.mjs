@@ -209,6 +209,13 @@ describe("MA-5a-5 — the drawing against the scan's filed walls: agree, differ,
     const moved = [{ ...WALLS[0], place: { ...WALLS[0].place, LocationCurve: { start: [40125, 260, 0], end: [47850, 260, 0] } } }, WALLS[1], WALLS[2]];
     expect(vs(moved).differences.find((d) => d.kind === "differs").title).toBe(`Drawing vs scan: ev-0007 ${W(5)} — 110 mm apart (scan-L00-wall-1)`);
   });
+  it("drill MA5a456: the scan's level never checked holds the doors with the scan's words — leaving level out would only give the scan's level again", () => {
+    const named = { ...STOREY, how: "named", checked: false, from: null };
+    const p = plan(DRILL, { scan: scanOnStorey([CS(WALLS, { job: { ...CS([]).job, storey: named } })], 0), drawingSha: SHA, type: anyType });
+    expect(p.storeys[0].storey).toMatchObject({ how: "scan", checked: false });
+    expect(p.storeys[0].exceptions.filter((x) => x.name.startsWith("door ")).map((x) => x.reason)).toEqual(Array(2).fill(
+      "its level GR-FFL is in no published model, so its height in Revit is unknown here — Revit refuses a door off its level's height; GR-FFL is the scan's level, named when the scan was proposed and never checked: publish a model that holds it, then propose the drawing again"));
+  });
   it("no scan on the storey: MA-5a-4 unchanged (a created level, every wall proposed, no difference)", () => {
     const p = plan(DRILL, { scan: scanOnStorey([], 0), drawingSha: SHA });
     expect([p.storeys[0].storey.how, els(p).length, p.differences, p.tally.agree]).toEqual(["created", 5, [], 0]);

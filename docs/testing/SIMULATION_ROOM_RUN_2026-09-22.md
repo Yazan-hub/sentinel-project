@@ -2832,3 +2832,43 @@ read by stroke order, now not linked; then a skeptic on the new pairing: 10 more
 folder, not admitted. Known limits recorded in `drawing/PlanReader.cs` (window, stair and leaf-rectangle lines in the wall weight read as thin
 walls; a dense hatch or a heaviest title block pairing into 30 % of the walls is read). Owed: real drawing sets to tune on; Ghost Builder's
 `WallPairing` reads DWG lines by stroke order (task offered). Next: MA-5a-4 — the 2-point alignment and `inferred` drawing ghosts.
+
+## Session MA5a456 — drawing alignment, drawing against scan, click-to-pick (2026-10-11 local: merged b7e002a, web 1.0.75, the add-in deployed 2021–2027, the 4100 bridge restarted once on master; the founder's session (the local app on master) after the Funnel refresh; Claude driving; Revit 2024)
+
+The founder's "ok go ahead with all three": MA-5a-4 (a lead proposes a drawing job by two marks; every ghost `inferred`, never pre-ticked),
+MA-5a-5 (a drawing proposed onto a storey whose scan is filed: what agrees is not proposed twice; a difference is a review row and ONE BCF
+topic, deduplicated across re-runs) and MA-5a-6 (the marks clicked on the drawing as read). Plans `docs/superpowers/plans/2026-10-11-ma5a4-drawing-align.md`,
+`…-ma5a5-drawing-vs-scan.md`, `…-ma5a6-pick-points.md`. Reviewed per slice (wf_29a27983-1b5: 3 + 6 minor; wf_624b4811-aaf: 7; MA-5a-6: 1 + 5
+minor — all fixed). On `ma4c-drill`: guideline@2 + type_catalog@1, and four scans of the drill building filed at 0 mm (job-0002/0003 GR-FFL
+applied, job-0005/0006 Scan L00 partially applied — counted once, applied first).
+
+| Row | Result | Evidence |
+|---|---|---|
+| P-0 | The founder signed attestation (b) on ma4c-drill (a first signature went to ma4a-drill, the project open in the app, which had (b) already — no row); Claude drafted req-0001 to the owner ("Floor plans, ground floor (vector PDF)"), on the founder's "draft req-0001 yourself" — **pass** | #2318, #2316 |
+| P-1 | `drawing/fixtures/drill-plan-L00.pdf` copied into the pack's `drawings/`; **Admit** → answers req-0001 → **Admit drawing** → `✓ Admitted drawings/drill-plan-L00.pdf as ev-0007 · sha f6171b1138c3…` — **pass** | #2320 |
+| P-2 | **Read drawings** → `job-0007 · sentinel-drawing · done · read ev-0007 · 5 wall(s), 2 door(s)`; **Propose…** offered on the drawing job (MA-5a-3 had none) — **pass** | #2321 |
+| P-3 | MA-5a-6: the form shows page 1 as read (the outer walls, the partition, the two doors); three clicks 2–3 px off the corners → A `60, 40`, B `220, 160`, check `220, 40`, each snapped exactly; the pick moves on A → B → check — **pass** | the panel |
+| W-1 | Model points typed (40000, 0 / 48000, 6000 / 48000, 0), level blank at 0 mm → preview `1:50 · turned 0° · the paper's corner at 37000, -2000 mm in the model · the check point lands 0 mm` — the bridge's tested numbers — **pass** | the panel |
+| W-2 | **Propose** → `✓ Proposed job-0007 — ev-0007 at 1:50, turned 0°, checked to 0 mm · 1 changeset(s), 1 ghost(s), none pre-ticked · against the scan: 3 wall(s) agree (not proposed again), 0 differ, 1 drawn only, 0 scanned only, 0 door(s) from the drawing in the scan's walls — 1 BCF topic(s) raised · 1 type-gap group(s) … · drawing-ev-0007-p1-level → GR-FFL (scan, its height not checked)`. The changeset `Drawing job-0007 · ev-0007 · GR-FFL`: the partition alone (`BDS_INT_ARC_CMU_100 mm`, (44050, 150) → (44050, 5900), `inferred`, pretick false); exceptions: the 250 mm west wall (type gap) and both doors held (finding F-MA5a456-1); `job.alignment` with `confirmed_by`. ONE topic `Drawing vs scan: ev-0007 drawing-ev-0007-p1-wall-1 — drawn, not in the scan` (Open, `difference.key` = sha\|cid\|-\|-\|drawn_only) — the planted difference, exactly one topic — **pass** | #2323, #2324, #2325, topic fa8a3db8… |
+| W-3 | The same points typed (the keyboard route; the marks redrawn in place) and **Propose** again → `Not done — nothing new to propose from job-0007 … read the drawing again to propose it afresh; nothing was saved` (the jsonb key-order fix live: no false "another alignment"); no row, still one topic — **pass** | newest row #2325 |
+| D-1 | Review desk: `Drawing job-0007 · ev-0007 · GR-FFL — 1 ghost(s)`; source words `from drawing job-0007 (ledger #2321) · ev-0007 at 1:50, turned 0°, its paper corner at 37000, -2000 mm, level at 0 mm, stated by <the founder> · checked to 0 mm by a third point · storey GR-FFL (scan — its height not checked) · nothing from a drawing is pre-ticked`; the ghost `drawn — from job-0007 at 1:50 · 100 mm thick as drawn · inferred (what someone drew, not what was built) · alignment checked to 0 mm · not pre-ticked · ends 150 / 100 mm to the corners` — **pass** | the desk |
+| R-1 | Revit 2024, `ma5a.rvt` (bound to ma4c-drill): Review AI Proposals lists the drawing changeset; the window: `Proposed by sentinel-drawing 0.1.0`, the 3 rows sent to a person with their reasons, the partition `inferr…` **unticked**, no "Show the scan" — **pass** | the window |
+| R-2 | Ticked and **Apply 1 ticked in Revit** → `Applied 1 element(s) … reported (ledger #2326)`; `changeset_applied` names job-0007 (#2321), `drawing-ev-0007-p1-wall-1`, its evidence `ev-0007#page-1` and its Revit element; the model saved — **pass** | #2326 |
+| V-1 | The desk's "Recently decided": `Drawing job-0007 … applied in Revit … 1 applied, 0 not applied · ledger #2326` with **no** "Measure against the scan" (survey changesets keep it); the verify/overlay 409s for a drawing changeset are pinned by `changesets-store.test.mjs` — **pass (web), route by test** | the desk |
+| I-1 | The project dashboard: OPEN ISSUES **1** (was 0) — the drawing-vs-scan topic — **pass** | the dashboard |
+
+**Findings:**
+- **F-MA5a456-1 (behaviour, as designed):** both doors were held, not placed: the storey took the scan's level GR-FFL, which the MA-4d drill
+  *named* (no published model holds it), so its height is unchecked and Revit would refuse a door off it. The door-into-the-scan's-wall path
+  (MA-5a-5 decision 7) is therefore proven by test only (`drawing-plan.test.mjs`: hosted on the scan wall's centreline, in the fragment its
+  point falls on), not live. Live it needs a checked scan level — a published model holding GR-FFL, or a scan storey the scan created.
+- **F-MA5a456-2 (words, fixed on fix/ma5a456-drill):** the held doors' advice "name a published level, or leave level out to have it created"
+  was wrong for a level taken from the scan (leaving it out gives the scan's level again) — now "GR-FFL is the scan's level, named when the scan
+  was proposed and never checked: publish a model that holds it, then propose the drawing again". Live after the next bridge restart.
+- **F-MA5a456-3 (environment):** the local app loaded while Chrome was minimized reported `never_ready` (That Open's start timeout); Retry with
+  the window visible loaded it. Not Sentinel's.
+- **F-MA5a456-4 (test):** `bcf-open.test.mjs` "the auth front" fails only under the full-suite load (passes alone 3/3) — pre-existing, flaky.
+
+**Closing list:** `Drawing job-0007 · ev-0007 · GR-FFL` applied (the partition placed in `ma5a.rvt`, saved); one Open topic on ma4c-drill; the
+250 mm west wall waits in the Holding Area; req-0001 drafted (not sent — the founder's to send, or not). Owed: a live door from the drawing
+in a scan wall (F-MA5a456-1); real drawing sets; MA-5b (rooms and revisions) next on the roadmap.
