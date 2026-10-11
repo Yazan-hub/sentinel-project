@@ -142,7 +142,8 @@ public sealed class PromoteWallsCommand : IExternalCommand
         }
 
         var plannerClock = System.Diagnostics.Stopwatch.StartNew(); // MA-1a item 8: the planner's own time, for the receipt
-        var plans = PromotePlanner.Plan(classes, walls, others, levels, docTypes, classTypes, standards.Guideline);
+        // MA-5b-5 (R11): a rehost removes an element — proposed only signed in (the bridge refuses one the machine credential files)
+        var plans = PromotePlanner.Plan(classes, walls, others, levels, docTypes, classTypes, standards.Guideline, UserSession.IsSignedIn);
         // Preflight: Revit's own answer on every retype before anything is filed — a refused ghost is held with the reason.
         PromotePlanner.Refuse(plans, g =>
         {
@@ -150,6 +151,8 @@ public sealed class PromoteWallsCommand : IExternalCommand
             {
                 var e = doc.GetElement(g.UniqueId);
                 if (e == null) return $"{g.Label} is not in this model — re-run Promote";
+                // MA-5b-5 (R5): a rehost's type must be loaded exactly and wall-hosted — what Apply refuses, held now
+                if (g.Op == "rehost") return ChangesetExecutor.RehostRefusal(doc, g.Kind, g.FamilyName, g.TypeName);
                 var nt = ChangesetExecutor.RetypeTarget(doc, e, g.Kind ?? "wall", g.FamilyName, g.TypeName);
                 return ChangesetExecutor.Unsafe(e, g.Kind ?? "wall", doc.GetElement(e.GetTypeId()) as ElementType, nt)
                        ?? (e.IsValidType(nt.Id) ? null : $"\"{g.TypeName}\" is not a valid type for {g.Label} in Revit — a person decides");
@@ -196,7 +199,9 @@ public sealed class PromoteWallsCommand : IExternalCommand
             foreach (var cat in LodMatrix.Order.Where(p.Others.ContainsKey))
             {
                 var n = p.Others[cat];
-                lines.Add($"{p.Storey} · {cat}: {p.Ghosts.Count(g => g.Kind != null && Cat(g.UniqueId) == cat)} retype · " +
+                int rehosts = p.Ghosts.Count(g => g.Op == "rehost" && Cat(g.UniqueId) == cat); // review: said apart — each removes the placeholder
+                lines.Add($"{p.Storey} · {cat}: {p.Ghosts.Count(g => g.Kind != null && g.Op == "retype" && Cat(g.UniqueId) == cat)} retype · " +
+                          (rehosts > 0 ? $"{rehosts} rehost (the unhosted instance removed) · " : "") +
                           $"{p.Held.Where(h => Cat(h.UniqueId) == cat).Select(h => h.UniqueId).Distinct().Count()} sent to a person · DD now {n.DdNow}/{n.Total}" +
                           (n.OfficeTyped > 0 ? $" · {n.OfficeTyped} on other office types, left as is" : "") + $" · stamped by Promote {n.Stamped}");
             }
@@ -354,8 +359,16 @@ public sealed class PromoteWallsCommand : IExternalCommand
         var walls = classes.Contains("Walls") || classes.Contains("Doors")
             ? new FilteredElementCollector(doc).OfClass(typeof(Wall)).Cast<Wall>().Select(w => Fact(doc, w)).ToList()
             : new List<WallFact>();
+        // MA-5b-5: the elements a dimension references, read once and only when an unhosted door or window asks (a rehost would change it)
+        var dimRefs = new Lazy<HashSet<long>>(() =>
+        {
+            var s = new HashSet<long>();
+            foreach (var d in new FilteredElementCollector(doc).OfClass(typeof(Dimension)).Cast<Dimension>())
+                try { foreach (Reference r in d.References) s.Add(r.ElementId.IdValue()); } catch (Exception) { }
+            return s;
+        });
         var others = Others.Where(o => classes.Contains(PromoteWallsPlanner.Classes[o.Kind].Category))
-            .SelectMany(o => new FilteredElementCollector(doc).OfCategory(o.Bic).WhereElementIsNotElementType().Select(e => OtherFact(doc, e, o.Kind)))
+            .SelectMany(o => new FilteredElementCollector(doc).OfCategory(o.Bic).WhereElementIsNotElementType().Select(e => OtherFact(doc, e, o.Kind, dimRefs)))
             .ToList();
         return (walls, others, docTypes, classTypes, levels);
     }
@@ -392,7 +405,7 @@ public sealed class PromoteWallsCommand : IExternalCommand
     internal static LodStateReport LodStateAfter(Document doc, PromoteContext pc)
     {
         var (walls, others, docTypes, classTypes, levels) = ReadFacts(doc, pc.Classes);
-        var plans = PromotePlanner.Plan(pc.Classes, walls, others, levels, docTypes, classTypes, pc.Standards.Guideline);
+        var plans = PromotePlanner.Plan(pc.Classes, walls, others, levels, docTypes, classTypes, pc.Standards.Guideline, UserSession.IsSignedIn);
         return LodStateOf(doc, plans, pc, "after");
     }
 
@@ -501,7 +514,7 @@ public sealed class PromoteWallsCommand : IExternalCommand
 
     /// <summary>A floor's, roof's, ceiling's, door's or window's facts, read on the API thread. Sizes come from the TYPE
     /// (a door's Width/Height on its symbol; a system type's compound structure), so a stale plan is caught by its type.</summary>
-    private static ElementFact OtherFact(Document doc, Element e, string kind)
+    private static ElementFact OtherFact(Document doc, Element e, string kind, Lazy<HashSet<long>> dimRefs)
     {
         var type = doc.GetElement(e.GetTypeId()) as ElementType;
         string LevelName(ElementId id) => id == null || id == ElementId.InvalidElementId ? null : (doc.GetElement(id) as Level)?.Name;
@@ -540,7 +553,127 @@ public sealed class PromoteWallsCommand : IExternalCommand
             f.HostFunction = f.HostBasic ? hw.WallType.Function.ToString() : null;
             f.HostLevel = LevelName(hw.get_Parameter(BuiltInParameter.WALL_BASE_CONSTRAINT)?.AsElementId());
         }
+        else if (ChangesetExecutor.NoWallHost(fi)) RehostFacts(doc, fi, f, dimRefs); // MA-5b-5 (R2): a Level host is no host
         else if (fi.Host != null) f.HostCategory = fi.Host.Category?.Name ?? "an element with no category";
         return f;
+    }
+
+    /// <summary>MA-5b-5 (design review R2-R4): an unhosted door's or window's rehost facts, on the API thread — where it stands (the stale
+    /// guard), its offset from its level, its size when its type has no built-in Width/Height (a placeholder family's own Length type
+    /// parameters named Width and Height, one of each), whether a dimension references it, its opening's middle (the symbol's solids in the
+    /// family's frame, through the instance transform — a family's origin is often a jamb) and the walls whose BODY holds that middle.</summary>
+    private static void RehostFacts(Document doc, FamilyInstance fi, ElementFact f, Lazy<HashSet<long>> dimRefs)
+    {
+        f.Unhosted = true;
+        var level = doc.GetElement(fi.LevelId) as Level;
+        var lp = (fi.Location as LocationPoint)?.Point;
+        if (level == null || lp == null) { f.RehostWhy = "no wall hosts it, and it has no level or no point to place it by — a person places it"; return; }
+        f.AtMm = new[] { lp.X * FtToMm, lp.Y * FtToMm, lp.Z * FtToMm };
+        var off = fi.get_Parameter(BuiltInParameter.INSTANCE_FREE_HOST_OFFSET_PARAM) ?? fi.get_Parameter(BuiltInParameter.INSTANCE_ELEVATION_PARAM);
+        f.OffsetMm = (off is { HasValue: true, StorageType: StorageType.Double } ? off.AsDouble() : lp.Z - level.ProjectElevation) * FtToMm;
+        if (f.WidthMm == null || f.HeightMm == null)
+        {
+            double? Named(string n)
+            {
+                var ps = fi.Symbol.GetParameters(n).Where(p => p.HasValue && p.StorageType == StorageType.Double).ToList();
+                return ps.Count == 1 ? ps[0].AsDouble() * FtToMm : null;
+            }
+            f.WidthMm ??= Named("Width");
+            f.HeightMm ??= Named("Height");
+        }
+        if (dimRefs.Value.Contains(fi.Id.IdValue()))
+        { f.RehostWhy = "no wall hosts it, and a dimension references it — removing it would change the dimension; a person rehosts it"; return; }
+        if (!(OpeningMiddle(fi) is (XYZ mid, double minZ)))
+        { f.RehostWhy = "no wall hosts it, and it has no solid to find its opening's middle by — a person places it"; return; }
+        // review: the sill is read off the offset — its solids must start there (a family whose origin is not at its opening's bottom is a person's)
+        double bottomMm = (minZ - level.ProjectElevation) * FtToMm;
+        if (Math.Abs(bottomMm - f.OffsetMm.Value) > 5)
+        { f.RehostWhy = $"no wall hosts it, and its solids start {bottomMm:0} mm above {level.Name}, its offset says {f.OffsetMm.Value:0} mm — its family's origin is not at its opening's bottom; a person places it"; return; }
+        var probe = new XYZ(mid.X, mid.Y, level.ProjectElevation + (f.OffsetMm.Value + (f.HeightMm ?? 0) / 2) / FtToMm);
+        f.Candidates = Candidates(doc, probe, level);
+    }
+
+    // The middle of its solids in plan: in the family's own frame (X is its hand axis) through the instance transform; an instance whose
+    // geometry Revit returns already placed (a cut instance) is measured as placed — and (review) the lowest point of its solids, in the
+    // model's frame. Null when it has no solid.
+    private static (XYZ Mid, double MinZ)? OpeningMiddle(FamilyInstance fi)
+    {
+        var ge = fi.get_Geometry(new Options());
+        if (ge == null) return null;
+        var gi = ge.OfType<GeometryInstance>().FirstOrDefault();
+        var solids = (gi != null ? gi.GetSymbolGeometry() : ge).OfType<Solid>().Where(s => s.Volume > 1e-9).ToList();
+        if (solids.Count == 0) return null;
+        double x0 = double.MaxValue, y0 = double.MaxValue, x1 = double.MinValue, y1 = double.MinValue, zMin = double.MaxValue;
+        foreach (var s in solids)
+        {
+            var bb = s.GetBoundingBox();
+            foreach (var x in new[] { bb.Min.X, bb.Max.X })
+                foreach (var y in new[] { bb.Min.Y, bb.Max.Y })
+                    foreach (var z in new[] { bb.Min.Z, bb.Max.Z })
+                    {
+                        var q = bb.Transform.OfPoint(new XYZ(x, y, z));
+                        x0 = Math.Min(x0, q.X); x1 = Math.Max(x1, q.X); y0 = Math.Min(y0, q.Y); y1 = Math.Max(y1, q.Y);
+                        zMin = Math.Min(zMin, (gi != null ? gi.Transform.OfPoint(q) : q).Z);
+                    }
+        }
+        var c = new XYZ((x0 + x1) / 2, (y0 + y1) / 2, 0);
+        return (gi != null ? gi.Transform.OfPoint(c) : c, zMin);
+    }
+
+    // The walls whose body holds the point: a straight basic wall when the point lies between its two side faces (each face's outward
+    // normal) and within its length — its location line may be a face, so the line alone cannot tell; a curtain, stacked, curved or
+    // other wall when its line passes within half its width (at least 50 mm), named so the planner holds it.
+    private static List<RehostCandidate> Candidates(Document doc, XYZ p, Level level)
+    {
+        string LevelOf(Wall w) { var id = w.get_Parameter(BuiltInParameter.WALL_BASE_CONSTRAINT)?.AsElementId(); return id == null ? null : (doc.GetElement(id) as Level)?.Name; }
+        var list = new List<RehostCandidate>();
+        foreach (var w in new FilteredElementCollector(doc).OfClass(typeof(Wall)).WherePasses(new BoundingBoxContainsPointFilter(p, 1 / FtToMm)).Cast<Wall>())
+        {
+            if (!(w.Location is LocationCurve lc) || lc.Curve == null || !lc.Curve.IsBound) continue;
+            var wt = w.WallType;
+            string odd = wt.Kind == WallKind.Curtain ? "a curtain wall" : wt.Kind == WallKind.Stacked || w.IsStackedWallMember ? "a stacked wall"
+                       : wt.Kind != WallKind.Basic ? "not a basic wall" : !(lc.Curve is Line) ? "a curved wall" : null;
+            var bb = w.get_BoundingBox(null);
+            var c = new RehostCandidate
+            {
+                UniqueId = w.UniqueId, Label = "wall " + w.Id.IdValue(), TypeName = wt.Name, Basic = odd == null, Odd = odd,
+                Function = odd == null ? wt.Function.ToString() : null, BaseLevel = LevelOf(w),
+                InGroup = w.GroupId != ElementId.InvalidElementId, InOption = w.DesignOption != null,
+                BottomMm = ((bb?.Min.Z ?? 0) - level.ProjectElevation) * FtToMm, TopMm = ((bb?.Max.Z ?? 0) - level.ProjectElevation) * FtToMm,
+            };
+            if (odd != null)
+            {
+                var pr = lc.Curve.Project(new XYZ(p.X, p.Y, lc.Curve.GetEndPoint(0).Z));
+                if (pr != null && pr.Distance <= Math.Max(w.Width / 2, 50 / FtToMm)) list.Add(c);
+                continue;
+            }
+            XYZ a = lc.Curve.GetEndPoint(0), b = lc.Curve.GetEndPoint(1);
+            double dx = b.X - a.X, dy = b.Y - a.Y, len = Math.Sqrt(dx * dx + dy * dy);
+            if (len < 1e-6) continue;
+            double ux = dx / len, uy = dy / len, t = (p.X - a.X) * ux + (p.Y - a.Y) * uy;
+            if (t < -1 / FtToMm || t > len + 1 / FtToMm || !InBody(w, p)) continue;
+            c.LengthMm = len * FtToMm;
+            c.AlongMm = t * FtToMm;
+            c.PointMm = new[] { (a.X + t * ux) * FtToMm, (a.Y + t * uy) * FtToMm, level.Elevation * FtToMm };
+            list.Add(c);
+        }
+        return list;
+    }
+
+    // Between the wall's two side faces (1 mm): each face's normal points out of the wall. A wall Revit gives no planar side face for is
+    // measured by its location line against half its width.
+    private static bool InBody(Wall w, XYZ p)
+    {
+        foreach (var side in new[] { ShellLayerType.Exterior, ShellLayerType.Interior })
+        {
+            var r = HostObjectUtils.GetSideFaces(w, side).FirstOrDefault();
+            if (r == null || !(w.GetGeometryObjectFromReference(r) is PlanarFace f))
+            {
+                var pr = ((LocationCurve)w.Location).Curve.Project(new XYZ(p.X, p.Y, ((LocationCurve)w.Location).Curve.GetEndPoint(0).Z));
+                return pr != null && pr.Distance <= w.Width / 2 + 1 / FtToMm;
+            }
+            if ((p - f.Origin).DotProduct(f.FaceNormal) > 1 / FtToMm) return false;
+        }
+        return true;
     }
 }

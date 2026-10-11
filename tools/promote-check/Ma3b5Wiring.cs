@@ -37,7 +37,7 @@ static partial class Check
         Ok(rebind > open && rebind < busyHop,
            "C12: a model re-bound to another project while Promote filed opens no review of the old project's changesets — said with what was filed");
         Ok(pane > 0 && pool > pane && filing > pool && done > filing && receipt > done && open > receipt && busyHop > open
-           && Count(promote, "release();") == 4 && Count(promote, "return true;") == 2 && At(promote, "return true;") > open // C15
+           && Count(promote, "release();") == 4 && Count(promote.Substring(0, At(promote, "private static bool InBody(")), "return true;") == 2 && At(promote, "return true;") > open // C15
            && promote.Contains("changeset(s) were not confirmed filed") // C14
            && promote.IndexOf("ReviewChangesetsCommand.Open(u, d, cfg, key, StoreyBatch.Of(filed, first));", StringComparison.Ordinal) > busyHop
            && promote.Contains("why => TaskDialog.Show(Title, PropertyPlanner.PromoteNotOpened(why, filed.Count, title)")

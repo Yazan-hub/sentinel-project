@@ -32,8 +32,8 @@ export interface DeskJob {
 }
 export interface Ghost {
   proposal_guid: string; kind: string; op?: string | null;
-  target?: { unique_id?: string; type_before?: string; ifc_guid?: string | null; placed?: { start: number[]; end: number[] } } | null;
-  place?: { TypeName?: string; FamilyName?: string; LevelName?: string; BaseLevel?: string; TopLevel?: string; Name?: string } | null;
+  target?: { unique_id?: string; type_before?: string; ifc_guid?: string | null; placed?: { start: number[]; end: number[] }; at?: number[] } | null;
+  place?: { TypeName?: string; FamilyName?: string; LevelName?: string; BaseLevel?: string; TopLevel?: string; Name?: string; Location?: number[]; SillHeight?: number } | null;
   validate?: { identity?: { Name?: string } } | null;
   parameter?: string; from?: string; to?: string;
   review?: GhostReview | null;
@@ -104,6 +104,8 @@ export function groupDesk(pending: PendingChangeset[]): DeskStorey[] {
   return [...storeys.values()];
 }
 
+const xy = (p?: number[]): string => (p && p.length >= 2 ? `(${Math.round(p[0])}, ${Math.round(p[1])})` : "(?)");
+
 /** One ghost in words — Revit's review row, shortened: `W 1 · Generic - 200mm → BDS_EXT_ARC_CMU_200 mm`. */
 export function ghostLine(el: Ghost): string {
   const name = el.validate?.identity?.Name ?? el.proposal_guid;
@@ -113,6 +115,9 @@ export function ghostLine(el: Ghost): string {
     case "attach": return `${name} · ${el.place?.BaseLevel ?? "?"} → top ${el.place?.TopLevel ?? "?"}`;
     // MA-5b-4: a placed wall moved to the revised drawing's line — Revit keeps one a person edited since it was placed
     case "reshape": return `${name} · reshape ${el.target?.unique_id ?? "?"} to the revised drawing's line (kept as it stands if edited by hand since placed)`;
+    // MA-5b-5: a door or window no wall hosts, replaced by the office type in the one wall it stands in (Revit's row, shortened)
+    case "rehost": return `${name} · rehost ${el.target?.type_before ?? "?"} at ${xy(el.target?.at)} → ${type} in the wall at ${xy(el.place?.Location)} on ${el.place?.LevelName ?? "?"}` +
+      `${el.place?.SillHeight != null ? `, sill ${Math.round(el.place.SillHeight)} mm` : ""}; the unhosted instance and any tags on it are removed (one Undo in Revit brings them back); its Mark, Comments, workset and phase carry over`;
     case "set_parameter": return `${type} · ${el.parameter} "${el.from ?? ""}" → "${el.to ?? ""}" (a type edit: it reaches every element of the type)`;
     // MA-5b-1: a room reads its number, then its name (Revit's review row: room: 101 · OFFICE · its level)
     default: return `${name}${el.place?.Name && el.place.Name !== name ? " · " + el.place.Name : ""}${el.place?.TypeName ? " · " + type : ""}${el.place?.LevelName ? " · " + el.place.LevelName : ""}`;
@@ -248,16 +253,19 @@ export function decidedView(cs: PendingChangeset, ledger: LedgerRows | null | Er
     + (!rev ? "" : rev.op === "undo" ? ` · undone in Revit after the report (ledger #${rev.id})` : rev.op === "redo" ? ` · undone, then redone in Revit (ledger #${rev.id})`
       : ` · a changeset_reverted row follows the report (ledger #${rev.id})`);
   const byGuid = new Map((cs.elements ?? []).map((e) => [e.proposal_guid, e]));
+  const rehosted = applied.filter((a) => byGuid.get(a.proposal_guid)?.op === "rehost").length; // MA-5b-5
   const web = new Map((r.declined_on_web ?? []).map((d) => [d.proposal_guid, d]));
   const revit = (g: string): string | null => (r.reasons && Object.prototype.hasOwnProperty.call(r.reasons, g) ? r.reasons[g] : null);
   return {
-    head: `${cs.name} — ${DECIDED[cs.status] ?? cs.status} in Revit by ${r.reported_by || "an unknown account"} · ${at} · ${applied.length} applied, ${rejected.length} not applied · ${row}`,
+    head: `${cs.name} — ${DECIDED[cs.status] ?? cs.status} in Revit by ${r.reported_by || "an unknown account"} · ${at} · ${applied.length} applied${rehosted ? ` (${rehosted} rehosted — the unhosted instance removed)` : ""}, ${rejected.length} not applied · ${row}`,
     note: r.note ?? null,
     declined: rejected.map((g) => {
       const el = byGuid.get(g), w = web.get(g), why: string[] = [];
       if (revit(g)) why.push(`Revit: ${revit(g)}`);
       if (w) why.push(w.carried_from ? `${declinedBy(w)}: ${w.reason}` : `web, ${w.by} (${w.role}): ${w.reason}`); // MA-3b3: a carried decline names its origin
-      return { line: el ? ghostLine(el) : g, why: why.length ? why : ["no reason given for this ghost"] };
+      // MA-5b-5 review (R10): a ghost Revit kept as it stands carries its reason on the note, not per ghost
+      const kept = !why.length && /kept as they stand/.test(r.note ?? "") && (el?.op === "rehost" || el?.op === "reshape");
+      return { line: el ? ghostLine(el) : g, why: why.length ? why : [kept ? "Revit kept it as it stands — its reason is in the note above" : "no reason given for this ghost"] };
     }),
   };
 }

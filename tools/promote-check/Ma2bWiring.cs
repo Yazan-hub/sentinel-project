@@ -22,7 +22,7 @@ static partial class Check
            "Promote's header shows the LOD state now (step 2), and its lod_state row is posted on every run with a matrix — the read-only run too; a read that throws is said, never the end of Promote (review)");
         Ok(promote.Contains("GovernedElementExtractor.ExtractByIds(doc, doc.Title, ruled.Select(x => x.Element.Id), org)")
            && promote.Contains("var r = LodState.Read(plans, pc.Mx, pc.Ids, pc.IdsWhy, props, pc.NotRun);")
-           && promote.Contains("var plans = PromotePlanner.Plan(pc.Classes, walls, others, levels, docTypes, classTypes, pc.Standards.Guideline);"),
+           && promote.Contains("var plans = PromotePlanner.Plan(pc.Classes, walls, others, levels, docTypes, classTypes, pc.Standards.Guideline, UserSession.IsSignedIn);"),
            "the LOD state reads the facts Promote reads, and the DD IDS judges the elements the rules pass, through the extractor");
         int judged = place.IndexOf("PromoteContext.JudgeApplied(doc, ids, result.Applied, kindOf)", StringComparison.Ordinal);
         Ok(judged > 0 && judged < place.IndexOf("BlockCheck.AddedSince(doc, before)", StringComparison.Ordinal)

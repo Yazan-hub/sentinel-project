@@ -39,6 +39,44 @@ namespace Sentinel.GhostBuilder
         /// <summary>Why Sentinel cannot retype it ("an in-place family", "a nested shared component"), or null.</summary>
         public string NotEditable;
         public bool InGroup, InOption, Structural;
+
+        // ── MA-5b-5: a door or window no wall hosts (rehost) ──
+        /// <summary>No wall hosts it: its Host is none, a Level, a reference plane or a sketch plane (ChangesetExecutor.NoWallHost) — a
+        /// level-based placeholder. A real non-wall host (a roof's skylight) is HostCategory, never this.</summary>
+        public bool Unhosted;
+        /// <summary>Its LocationPoint (mm) when read — the rehost's stale guard (target.at).</summary>
+        public double[] AtMm;
+        /// <summary>Its offset from its level (mm): a door stands on its level; a window's is its sill. Null when unread.</summary>
+        public double? OffsetMm;
+        /// <summary>The walls whose BODY holds the opening's middle (read in Revit, between the wall's side faces and within its length),
+        /// each with the point projected onto its location line.</summary>
+        public List<RehostCandidate> Candidates;
+        /// <summary>Why Revit's read cannot propose a rehost (no geometry to find its opening's middle; a dimension references it), or null.</summary>
+        public string RehostWhy;
+
+        /// <summary>A copy that reads the rehost's host wall as its host (the door's location rule reads the host's Function).</summary>
+        internal ElementFact WithHost(RehostCandidate c)
+        {
+            var f = (ElementFact)MemberwiseClone();
+            f.HostTypeName = c.TypeName; f.HostBasic = c.Basic; f.HostFunction = c.Function; f.HostLevel = c.BaseLevel; f.HostCategory = null;
+            return f;
+        }
+    }
+
+    /// <summary>MA-5b-5: one wall a rehost could go into, as Revit read it.</summary>
+    public sealed class RehostCandidate
+    {
+        public string UniqueId, Label, TypeName, Function, BaseLevel;
+        /// <summary>A straight basic wall (not curtain, not stacked, not curved): the only kind Sentinel hosts an opening in. Odd = why not.</summary>
+        public bool Basic;
+        public string Odd;
+        public bool InGroup, InOption;
+        /// <summary>The wall's length (mm), and where along it (from its start) the opening's middle projects.</summary>
+        public double LengthMm, AlongMm;
+        /// <summary>The wall's bottom and top (mm) relative to the opening's level.</summary>
+        public double BottomMm, TopMm;
+        /// <summary>The opening's middle on the wall's location line, at the level's elevation (mm) — place.Location.</summary>
+        public double[] PointMm;
     }
 
     /// <summary>lod_matrix@n as Promote reads it: per class (Revit category, as guideline@n), what DD means; since MA-2b also the
@@ -224,9 +262,11 @@ namespace Sentinel.GhostBuilder
         /// <param name="docBasicWallTypes">As PromoteWallsPlanner.Plan: the document's basic wall types → their Function.</param>
         /// <param name="docTypes">Category → the document's types of it ("Family : Type" for doors and windows, the type name
         /// otherwise; case-insensitive) → build-up mm (null for a loadable family or none). Never across categories.</param>
+        /// <param name="signedIn">MA-5b-5: a rehost removes an element — proposed only when a person is signed in (the bridge refuses one
+        /// the machine credential files); signed out, each is a held row. Off unless said.</param>
         public static List<StoreyPlan> Plan(IReadOnlyCollection<string> classes, IReadOnlyList<WallFact> walls, IReadOnlyList<ElementFact> others,
             IReadOnlyList<LevelFact> levels, IReadOnlyDictionary<string, string> docBasicWallTypes,
-            IReadOnlyDictionary<string, IReadOnlyDictionary<string, double?>> docTypes, GuidelineMatcher m)
+            IReadOnlyDictionary<string, IReadOnlyDictionary<string, double?>> docTypes, GuidelineMatcher m, bool signedIn = false)
         {
             // The walls are planned even when Walls do not run: a door's location reads its host storey's one-type verdict.
             var wallPlans = PromoteWallsPlanner.Plan(walls ?? new List<WallFact>(), levels, docBasicWallTypes, m);
@@ -248,7 +288,7 @@ namespace Sentinel.GhostBuilder
                 if (ProvenanceStamp.SourceOf(e.Stamp) == "promote") c.Stamped++;
                 byName.TryGetValue(storey, out var level);
                 int ddWas = c.DdNow, officeWas = c.OfficeTyped;
-                var reason = Plan1(e, cls.Category, cls.Word.ToLowerInvariant(), level, oneType, office, docTypes, m, c, out var g, out var blocked, out var gap);
+                var reason = Plan1(e, cls.Category, cls.Word.ToLowerInvariant(), level, oneType, office, docTypes, m, c, signedIn, out var g, out var blocked, out var gap);
                 // MA-2b: the element's DD verdict for the LOD state — the same counters "DD now" reads; an office-typed one is not counted.
                 if (c.OfficeTyped == officeWas) p.Lod.Add(new LodFact { UniqueId = e.UniqueId, Category = cls.Category, RulesOk = c.DdNow > ddWas, Blocked = blocked });
                 // MA-2c: an element that stays on its DD type (no reason, no ghost, not office-typed) — its type's properties are read.
@@ -266,7 +306,7 @@ namespace Sentinel.GhostBuilder
         public static void Refuse(IEnumerable<StoreyPlan> plans, Func<PromoteGhost, string> why)
         {
             foreach (var p in plans)
-                foreach (var g in p.Ghosts.Where(x => x.Op == "retype").ToList())
+                foreach (var g in p.Ghosts.Where(x => x.Op is "retype" or "rehost").ToList()) // MA-5b-5: a rehost Apply would refuse is held too
                 {
                     var r = why(g);
                     if (r == null) continue;
@@ -278,7 +318,7 @@ namespace Sentinel.GhostBuilder
         // One element through the plan's checks, in order: the reason a person decides, or null — with a ghost, or with none
         // (settled, counted in DD now; office-typed, taken out of the denominator). MA-2c: a type gap's facts in gap.
         private static string Plan1(ElementFact e, string cat, string word, LevelFact level, ISet<string> oneType, string office,
-            IReadOnlyDictionary<string, IReadOnlyDictionary<string, double?>> docTypes, GuidelineMatcher m, ClassCount c, out PromoteGhost g,
+            IReadOnlyDictionary<string, IReadOnlyDictionary<string, double?>> docTypes, GuidelineMatcher m, ClassCount c, bool signedIn, out PromoteGhost g,
             out bool blocked, out TypeGap gap)
         {
             g = null;
@@ -291,6 +331,10 @@ namespace Sentinel.GhostBuilder
             if (e.InOption) return "in a design option — Sentinel does not edit design options";
             if (level == null || !level.IsStory) return $"level {e.Level} is not a Building Story — Promote plans storey by storey";
             blocked = false;
+            // MA-5b-5 (design review R5): a door or window no wall hosts is a level-based family — it cannot stay as it is and be DD, whatever
+            // its type: replaced by the office type of its size in the one wall it stands in (rehost), or a person's. Before the settled and
+            // office checks, so no placeholder drops out of every count.
+            if (family && e.Unhosted) return Rehost(e, cat, oneType, office, docTypes, m, signedIn, out g, out gap);
 
             // Settled, by family and type for doors and windows (window type names repeat across families) — never re-measured.
             if (family ? m.RuleProduces(cat, e.TypeName, e.Family) : m.RuleProduces(cat, e.TypeName))
@@ -350,7 +394,7 @@ namespace Sentinel.GhostBuilder
             g = null;
             gap = null;
             if (e.HostTypeName == null)
-                return e.HostCategory == null ? "not hosted by a wall — rehosting is MA-5"
+                return e.HostCategory == null ? "not hosted by a wall, and Revit read no rehost for it — a person decides"
                     : $"its host is not a wall ({e.HostCategory}) — Promote v1 swaps wall-hosted {cat.ToLowerInvariant()} only; a person decides";
             if (!e.HostBasic) return $"host {e.HostTypeName} is not a basic wall — a person decides";
 
@@ -420,6 +464,57 @@ namespace Sentinel.GhostBuilder
                 TypeName = res.Type, FamilyName = res.Family, Reason = $"DD {cat.ToLowerInvariant()}: {what} → {target}{tail}" + (e.Kind == "door" ? DoorSize : ""),
             };
             return null;
+        }
+
+        // MA-5b-5: an unhosted door or window — the one wall it stands in (FindHost), then Swap's resolution (D16) read against that wall: a
+        // rehost ghost (the office type of its size at its middle on the wall's location line), or a person's row. Signed out, none (R11).
+        private static string Rehost(ElementFact e, string cat, ISet<string> oneType, string office,
+            IReadOnlyDictionary<string, IReadOnlyDictionary<string, double?>> docTypes, GuidelineMatcher m, bool signedIn, out PromoteGhost g, out TypeGap gap)
+        {
+            g = null;
+            gap = null;
+            if (!signedIn) return "no wall hosts it — a rehost removes an element: sign in (Sentinel ▸ Sign in) and run Promote again";
+            var host = FindHost(e, out var why);
+            if (host == null) return why;
+            var held = Swap(e.WithHost(host), cat, oneType, office, docTypes, m, out var swap, out gap);
+            if (held != null) return held;
+            swap.Op = "rehost";
+            swap.AtMm = e.AtMm;
+            swap.LocationMm = host.PointMm;
+            swap.LevelName = e.Level;
+            swap.SillHeightMm = e.Kind == "window" ? Math.Max(0, Math.Round(e.OffsetMm.Value, 1)) : null; // FindHost held one below its level
+            swap.Reason = $"rehost — no wall hosts it; it stands in {host.Label}: " + swap.Reason;
+            g = swap;
+            return null;
+        }
+
+        /// <summary>MA-5b-5 (design review R2-R4): the one wall an unhosted door or window stands in, from the candidates Revit read (the
+        /// walls whose body holds its opening's middle) — or why it is a person's: none or two; not a straight basic wall; in a group or a
+        /// design option; a door not on its level; the opening's height not inside the wall; its width running past an end of the wall.</summary>
+        public static RehostCandidate FindHost(ElementFact e, out string why)
+        {
+            string word = e.Kind == "window" ? "window" : "door", lv = e.Level ?? "its level";
+            why = e.RehostWhy;
+            if (why != null) return null;
+            var cs = e.Candidates ?? new List<RehostCandidate>();
+            if (cs.Count == 0) { why = $"no wall hosts it, and it stands in no wall of {lv} — a person places it"; return null; }
+            if (cs.Count > 1) { why = $"no wall hosts it, and it stands in {cs.Count} walls ({string.Join(", ", cs.Select(c => c.Label))}) — a person picks its host"; return null; }
+            var w = cs[0];
+            // review: the executor hosts only in a wall based on the opening's level
+            if (!string.Equals(w.BaseLevel, e.Level, StringComparison.OrdinalIgnoreCase))
+            { why = $"no wall hosts it; the wall it stands in ({w.Label}) is based on {w.BaseLevel ?? "no level"}, not {lv} — Sentinel hosts a {word} only in a wall based on its own level; a person decides"; return null; }
+            if (!w.Basic) { why = $"no wall hosts it; the wall it stands in ({w.Label}) is {w.Odd ?? "not a straight basic wall"} — Sentinel hosts a {word} in one straight basic wall only; a person decides"; return null; }
+            if (w.InGroup || w.InOption) { why = $"no wall hosts it; its host would be {w.Label}, which is in {(w.InGroup ? "a group" : "a design option")} — a person decides"; return null; }
+            if (!e.WidthMm.HasValue || !e.HeightMm.HasValue) { why = "no wall hosts it, and its type has no Width and Height to place it by — a person decides"; return null; }
+            if (!e.OffsetMm.HasValue) { why = "no wall hosts it, and its height above its level was not read — a person decides"; return null; }
+            double off = e.OffsetMm.Value, top = off + e.HeightMm.Value, half = e.WidthMm.Value / 2;
+            if (word == "door" && Math.Abs(off) > 0.5) { why = $"no wall hosts it, and it stands {Mm(off, "0")} mm above {lv} — a door stands on its level; a person places it"; return null; }
+            if (word == "window" && off < -0.5) { why = $"no wall hosts it, and its sill is {Mm(-off, "0")} mm below {lv} — Sentinel files no sill below its level; a person places it"; return null; }
+            if (off < w.BottomMm - 0.5 || top > w.TopMm + 0.5)
+            { why = $"no wall hosts it; its {Mm(off, "0")}–{Mm(top, "0")} mm above {lv} is not inside {w.Label} ({Mm(w.BottomMm, "0")}–{Mm(w.TopMm, "0")} mm) — a person places it"; return null; }
+            if (w.AlongMm - half < -0.5 || w.AlongMm + half > w.LengthMm + 0.5)
+            { why = $"no wall hosts it; at {Mm(w.AlongMm, "0")} mm along {w.Label} ({Mm(w.LengthMm, "0")} mm long) a {Mm(2 * half, "0")} mm {word} runs past its end — a person places it"; return null; }
+            return w;
         }
 
         // DR-1 (confirmed by the founder 2026-10-01): a door is sized by the target's type NAME, so after the swap its Width x

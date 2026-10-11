@@ -226,14 +226,14 @@ describe("validateChangeset — ops, TypeName and exceptions (MA-0)", () => {
     expect(carryKey(retype({ target: { unique_id: UID, ifc_guid: G } }))).toBe(carryKey(retype()));
   });
 
-  it("OPS is create, retype, attach, set_parameter (MA-2c), reshape (MA-5b-4); VOCABULARY is the MA-1 list", () => {
-    expect(OPS).toEqual(["create", "retype", "attach", "set_parameter", "reshape"]);
+  it("OPS is create, retype, attach, set_parameter (MA-2c), reshape (MA-5b-4), rehost (MA-5b-5); VOCABULARY is the MA-1 list", () => {
+    expect(OPS).toEqual(["create", "retype", "attach", "set_parameter", "reshape", "rehost"]);
     expect(VOCABULARY).toEqual(MA1);
   });
 
-  it("OP_KINDS: create takes the vocabulary, retype and set_parameter six element kinds, attach walls only", () => {
+  it("OP_KINDS: create takes the vocabulary, retype and set_parameter six element kinds, attach walls only, rehost doors and windows", () => {
     const SIX = ["wall", "floor", "roof", "ceiling", "door", "window"];
-    expect(OP_KINDS).toEqual({ create: VOCABULARY, retype: SIX, attach: ["wall"], set_parameter: SIX, reshape: ["wall"] });
+    expect(OP_KINDS).toEqual({ create: VOCABULARY, retype: SIX, attach: ["wall"], set_parameter: SIX, reshape: ["wall"], rehost: ["door", "window"] });
   });
 
   it("op defaults to create and is echoed back, with no target, no reason and no exceptions", () => {
@@ -1080,6 +1080,59 @@ describe("validateChangeset — reshape (MA-5b-4)", () => {
     status400(() => ok(R({}, { TypeName: "T" })), /reshape keeps the wall's type — a retype is its own ghost/);
     status400(() => ok(R({ target: { unique_id: UID, type_before: "X", placed: { start: [0, 0, 0], end: [1, 0, 0] } } })), /reshape takes no target\.type_before/);
     status400(() => ok(R({ kind: "door" })), /kind "door" is not supported for reshape/);
+  });
+});
+
+// MA-5b-5: a door or window no wall hosts, replaced by the office's wall-hosted type in its wall — the first op that removes an element
+describe("validateChangeset — rehost (MA-5b-5)", () => {
+  const UID = "5a1c2b3d-1111-2222-3333-444455556666-0004c3f9", UID2 = "5a1c2b3d-1111-2222-3333-444455556666-0004c3fa";
+  const H = (over = {}, place = {}) => ({ op: "rehost", kind: "door", validate: { identity: { Class: "IFCDOOR", Name: "Door 4711" } },
+    target: { unique_id: UID, type_before: "Placeholder Door : 1000 x 2100", at: [44100, 2500, 6000] },
+    place: { LevelName: "L01", Location: [44050, 2500, 6000], FamilyName: "BDS_INT_1 PNL", TypeName: "BDS_INT_1 PNL_WOOD_1000 x 2100 mm", ...place }, ...over });
+  const ok = (els, member = true) => validateChangeset({ name: "Promote · L01", source: "promote", elements: Array.isArray(els) ? els : [els] }, { member });
+
+  it("a member's: kept with its stale guard (type_before, at) and its place; never pre-ticked, never typed", () => {
+    const e = ok(H()).elements[0];
+    expect(e).toMatchObject({ op: "rehost", kind: "door", target: { unique_id: UID, type_before: "Placeholder Door : 1000 x 2100", at: [44100, 2500, 6000] },
+      place: { LevelName: "L01", Location: [44050, 2500, 6000], FamilyName: "BDS_INT_1 PNL", TypeName: "BDS_INT_1 PNL_WOOD_1000 x 2100 mm" },
+      pretick: false, typing: { typed_by: "caller" } });
+    expect(ok(H({ kind: "window", validate: { identity: { Class: "IFCWINDOW", Name: "W1" } } }, { SillHeight: 900 })).elements[0].place.SillHeight).toBe(900);
+  });
+  it("the machine credential files none — a rehost removes an element", () => {
+    status400(() => ok(H(), false), /a rehost removes an element — only a signed-in member files one/);
+  });
+  it("needs its stale guard and its whole place; takes no other place field; a sill is a window's", () => {
+    status400(() => ok(H({ target: { unique_id: UID, at: [0, 0, 0] } })), /rehost needs target\.type_before/);
+    status400(() => ok(H({ target: { unique_id: UID, type_before: "A : B" } })), /rehost needs target\.at \[x,y,z\]/);
+    status400(() => ok(H({}, { Location: [1, 2] })), /rehost needs place\.LevelName, place\.Location \[x,y,z\]/);
+    status400(() => ok(H({ place: { LevelName: "L01", Location: [0, 0, 0], FamilyName: "F" } })), /and place\.FamilyName and place\.TypeName/);
+    for (const f of ["Mark", "FlipFacing", "Rotation", "LocationCurve"])
+      status400(() => ok(H({}, { [f]: f === "Mark" ? "D1" : f === "FlipFacing" ? true : f === "Rotation" ? 90 : { start: [0, 0, 0], end: [1, 0, 0] } })), new RegExp(`rehost takes no place\\.${f}`));
+    status400(() => ok(H({}, { SillHeight: 900 })), /place\.SillHeight is a window's/);
+    // review: a window rehost carries its sill
+    status400(() => ok(H({ kind: "window", validate: { identity: { Class: "IFCWINDOW", Name: "W1" } } })), /a window rehost needs place\.SillHeight/);
+    status400(() => ok(H({ kind: "wall" })), /kind "wall" is not supported for rehost/);
+  });
+  it("a rehost's element carries no other ghost; one rehost per element", () => {
+    const retype = { op: "retype", kind: "door", target: { unique_id: UID, type_before: "Placeholder Door : 1000 x 2100" }, validate: { identity: { Class: "IFCDOOR", Name: "D" } },
+      place: { FamilyName: "BDS_INT_1 PNL", TypeName: "BDS_INT_1 PNL_WOOD_1000 x 2100 mm" } };
+    status400(() => ok([H(), retype]), /a rehost replaces its element — it carries no other ghost/);
+    status400(() => ok([retype, H()]), /a rehost replaces its element — it carries no other ghost/);
+    status400(() => ok([H(), H()]), /a second rehost for the same element/);
+    expect(ok([H(), H({ target: { unique_id: UID2, type_before: "P : Q", at: [1, 2, 3] } })]).elements).toHaveLength(2);
+  });
+  it("target.at rides on a rehost only — listed as not kept on any other op", () => {
+    const v = validateChangeset({ name: "x", elements: [{ op: "retype", kind: "door", target: { unique_id: UID, type_before: "A : B", at: [0, 0, 0] },
+      validate: { identity: { Class: "IFCDOOR", Name: "D" } }, place: { FamilyName: "F", TypeName: "T" } }] }, { member: true });
+    expect(v.elements[0].target.at).toBeUndefined();
+    expect(v.ignored.map((x) => x.field)).toContain("elements[0].target.at");
+  });
+  it("carryKey: the same element, read where it stood, at the same point, as the same type and sill", () => {
+    const a = ok(H()).elements[0];
+    expect(carryKey(a)).toBe(carryKey(ok(H()).elements[0]));
+    expect(carryKey(a)).not.toBe(carryKey(ok(H({}, { Location: [44050, 2600, 6000] })).elements[0]));
+    expect(carryKey(a)).not.toBe(carryKey(ok(H({ target: { unique_id: UID, type_before: "Placeholder Door : 1000 x 2100", at: [44100, 2400, 6000] } })).elements[0]));
+    expect(carryKey(a)).not.toBe(carryKey(ok(H({}, { TypeName: "BDS_INT_1 PNL_WOOD_900 x 2100 mm" })).elements[0]));
   });
 });
 

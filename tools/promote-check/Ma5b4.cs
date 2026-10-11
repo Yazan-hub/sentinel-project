@@ -34,7 +34,7 @@ static partial class Check
            && body.Contains("w.Pinned ? \"is pinned\"") && body.Contains("CheckoutStatus.OwnedByOtherUser") && body.Contains("var (s0, s1) = bx * (a1.X - a0.X) + by * (a1.Y - a0.Y) < 0 ? (c.End, c.Start) : (c.Start, c.End);")
            && ex.Contains("if (result.Applied.Count + result.Kept.Count != toPlace.Count)"),
            "…a wall gone, curved or moved since it was placed is KEPT with why (never a failure of the changeset); one as placed takes the new line; the guard counts the kept");
-        Ok(ev.Contains("result.Kept.AddRange(res.Kept);") && rev.Contains(".Concat(oneKept).Distinct().ToList();") && rev.Contains("foreach (var (g, why) in res.Kept) (whys ??= new Dictionary<string, string>())[g] = why;")
+        Ok(ev.Contains("result.Kept.AddRange(res.Kept);") && rev.Contains(".Concat(oneKept).Distinct().ToList();") && rev.Contains("said = KeptLine(one, res.Kept)") /* MA-5b-5 R10: the reason rides on the note */
            && rev.Contains("var kept = result.Kept.Count == 0 ? \"\" :"),
            "…reported as rejected with its reason (the changeset partially applied), the storey's kept gathered");
     }

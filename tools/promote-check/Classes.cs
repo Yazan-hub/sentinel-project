@@ -228,7 +228,7 @@ static partial class Check
            "a door in a settled gypsum wall whose template says Exterior reads Interior from the DD rule (DR-2, the F2 trap)");
         Ok(H(dw, "DOFF")?.StartsWith("host BDS_EXT_STR_CONC_200 mm is an office type") == true, "a door in another office wall type is held");
         Ok(H(dw, "DONE")?.StartsWith("every wall on Level 2 is one type") == true, "a door in a one-type storey is held");
-        Ok(H(dw, "DNOH") == "not hosted by a wall — rehosting is MA-5" && H(dw, "DCW")?.StartsWith("host Curtain Wall is not a basic wall") == true,
+        Ok(H(dw, "DNOH") == "not hosted by a wall, and Revit read no rehost for it — a person decides" && H(dw, "DCW")?.StartsWith("host Curtain Wall is not a basic wall") == true,
            "an unhosted door and one in a curtain wall are held");
         Ok(H(dw, "DINS")?.Contains("instance-sized family") == true && H(dw, "DIMP")?.Contains("914.4 x 2133.6 mm is not a whole millimetre") == true,
            "an instance-sized door and an imperial size are held");
