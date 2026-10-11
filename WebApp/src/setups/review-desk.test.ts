@@ -367,6 +367,9 @@ describe("survey ghosts (MA-4d)", () => {
         alignment: { item: "ev-0007", scale: 50, rotation_deg: 0, dx_mm: 37000, dy_mm: -2000, dz_mm: 0, check_mm: 0, confirmed_by: "lead@example.test" } } } as PendingChangeset;
     expect(sourceWords(cs)).toBe("from drawing job-0005 (ledger #3001) · ev-0007 at 1:50, turned 0°, its paper corner at 37000, -2000 mm, level at 0 mm, stated by lead@example.test · checked to 0 mm by a third point · storey Drawing ev-0007 job-0005 (created) · nothing from a drawing is pre-ticked");
     expect([isDrawn(cs), isDrawn({ ...cs, job: { ...cs.job!, reader: "sentinel-survey 0.6.0" } }), canMeasure(cs, "lead", null)]).toEqual([true, false, false]);
+    // review: the same drawing placed before by another job is named on the desk, as a scan's is
+    expect(sourceWords({ ...cs, job: { ...cs.job!, overlaps: [{ changeset: "Drawing job-0004 · ev-0007 · GR-FFL", job_id: "job-0004", evidence: ["ev-0007"] }] } }))
+      .toMatch(/ · nothing from a drawing is pre-ticked · the same drawing ev-0007 was placed before by Drawing job-0004 · ev-0007 · GR-FFL$/);
     const src = readFileSync(new URL("./review-desk.ts", import.meta.url), "utf8");
     expect(src).toContain("if (cs.job && !isDrawn(cs)) {");
   });
@@ -375,7 +378,7 @@ describe("survey ghosts (MA-4d)", () => {
     const src = readFileSync(new URL("./review-desk.ts", import.meta.url), "utf8");
     expect(src).toContain("const tw = trustWords(x.el); if (tw) words.append(");
     expect(src).toContain("const w = sourceWords(cs); if (w) box.append(");
-    expect(readFileSync(new URL("./files-panel.ts", import.meta.url), "utf8")).toContain("` · from survey ${esc(x.job_id)}`");
+    expect(readFileSync(new URL("./files-panel.ts", import.meta.url), "utf8")).toContain("` · from ${x.source === \"sentinel-drawing\" ? \"drawing\" : \"survey\"} ${esc(x.job_id)}`"); // MA-5a-4 (review)
   });
 });
 

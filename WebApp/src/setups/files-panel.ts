@@ -543,7 +543,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
         `<div style="font-weight:600">${esc(typeGapLine(x))}</div>` +
         // C10: who reported it and that its counts are claimed; C5: a group open again after a dismissal says since when.
         `<div style="color:#9ca3af;font-size:11px">${esc(x.labels.slice(0, 5).join(", "))}${x.elements > 5 ? ` … (${x.elements})` : ""} · reported by ${esc(x.actor || "—")} · ${esc(x.source ?? "unknown")}` +
-        `${x.claimed ? " (claimed — counted in Revit, not by the bridge)" : ""}${x.job_id ? ` · from survey ${esc(x.job_id)}` : ""}${x.evidence?.length ? ` · evidence ${esc(x.evidence.slice(0, 3).join(", "))}` : ""} · ${esc(when(x.at))}${x.runs > 1 ? ` · reported by ${x.runs} runs` : ""}` +
+        `${x.claimed ? " (claimed — counted in Revit, not by the bridge)" : ""}${x.job_id ? ` · from ${x.source === "sentinel-drawing" ? "drawing" : "survey"} ${esc(x.job_id)}` : ""}${x.evidence?.length ? ` · evidence ${esc(x.evidence.slice(0, 3).join(", "))}` : ""} · ${esc(when(x.at))}${x.runs > 1 ? ` · reported by ${x.runs} runs` : ""}` +
         `${x.reopened ? ` · reopened — ${x.reopened.more} element(s) since the dismissal of ${esc(when(x.reopened.since))}` : ""}</div>` +
         `<div style="color:#71717a;font-size:10.5px;font-family:ui-monospace,Consolas,monospace">${ledgerLine(x.ledger)}</div>` +
         `<div style="display:flex;gap:.35rem;align-items:center;flex-wrap:wrap;margin-top:.3rem"><span style="color:#9ca3af">Install a catalogue with the type, or dismiss it with a reason.</span><span style="flex:1"></span>${dismiss}</div></div>`;

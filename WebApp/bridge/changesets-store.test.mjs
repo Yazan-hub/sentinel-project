@@ -1160,6 +1160,52 @@ describe("proposeFromJob (MA-5a-4): a lead aligns a drawing job by two points �
       409, { ...BODY, elevation_mm: 3000 });
     await quiet({ docList: vi.fn(async () => docs) }, "nothing new to propose from job-0005 — every candidate that types is filed already (Drawing job-0005 · ev-0007 · Drawing ev-0007 job-0005: proposed): withdraw a proposed one on the Review desk to propose it again; an applied one stays applied here after an Undo in Revit — read the drawing again to propose it afresh; nothing was saved");
   });
+  it("(d) review: the same points proposed again read back from jsonb (keys reordered) are the same alignment — 'nothing new', never 'another alignment'", async () => {
+    const jsonb = (v) => JSON.parse(JSON.stringify(v, (_k, x) => (x && typeof x === "object" && !Array.isArray(x)
+      ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => a.length - b.length || (a < b ? -1 : a > b ? 1 : 0))) : x)));
+    const d0 = ddeps(); await propose(d0);
+    const back = jsonb([...d0.saved.values()]);
+    expect(Object.keys(back[0].job.alignment.points[0])).toEqual(["model", "paper"]);
+    const deps = ddeps({ docList: vi.fn(async () => back) });
+    await expect(propose(deps)).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/^nothing new to propose from job-0005 — every candidate that types is filed already \(Drawing job-0005 · ev-0007 · Drawing ev-0007 job-0005: proposed\)/) });
+  });
+  it("(e) review: a job that read two drawings — the second, all type gaps, files its gaps after the first is filed; another drawing changed does not stop it", async () => {
+    const W3 = RESULT.candidates.find((c) => c.cid === "drawing-ev-0007-p1-wall-3"); // 250 mm: a type gap on these standards
+    const two = { ...TRUSTED, result: { ...RESULT, candidates: [...RESULT.candidates, { ...W3, cid: "drawing-ev-0008-p1-wall-1", evidence: ["ev-0008#page-1"] }] },
+      row: { ...TRUSTED.row, items: [...TRUSTED.row.items, { id: "ev-0008", sha256: "d8".repeat(32) }], read: ["ev-0007", "ev-0008"] } };
+    const d0 = ddeps({ trustedJob: vi.fn(async () => two) }); await propose(d0, { ...BODY, item: "ev-0007" });
+    const deps = ddeps({ trustedJob: vi.fn(async () => two), docList: vi.fn(async () => [...d0.saved.values()]),
+      readPack: vi.fn(async () => ({ pack: { items: [{ id: "ev-0007", sha256: EV7, state: "changed" }, { id: "ev-0008", sha256: "d8".repeat(32), state: "admitted" }] } })) });
+    const r = await propose(deps, { ...BODY, item: "ev-0008" });
+    expect([r.changesets, r.gaps.groups, r.gaps.elements]).toEqual([[], 1, 1]);
+    expect(deps.audit.mock.calls.map((c) => c[1])).toEqual(["type_gap", "build"]);
+  });
+  it("(f) MA-5a-5: on a project whose scan is filed on that storey — what agrees is not proposed, the partition raises ONE topic, a re-run raises none", async () => {
+    const sw = (cid, start, end, t) => ({ op: "create", kind: "wall", cid, proposal_guid: `g-${cid}`, place: { LevelName: "GR-FFL", LocationCurve: { start, end } }, measured: { thickness_mm: t } });
+    const SCAN = { id: "s1", name: "Survey job-0002 · GR-FFL", status: "applied", result: { rejected: [] },
+      job: { id: "job-0002", ledger_id: 2201, reader: "sentinel-survey 0.1.0", storey: { cid: "scan-L00-level", level: "GR-FFL", how: "matched", elevation_mm: 0, delta_mm: 0, checked: true, from: "ARC.ifc P01" } },
+      elements: [sw("scan-L00-wall-1", [40125, 150, 0], [47850, 150, 0], 300), sw("scan-L00-wall-2", [40125, 5900, 0], [47850, 5900, 0], 200), sw("scan-L00-wall-3", [47850, 150, 0], [47850, 5900, 0], 300)] };
+    const topics = [], W1 = "drawing-ev-0007-p1-wall-1";
+    const topicDeps = { bcfListTopics: vi.fn(async () => topics), bcfCreateTopic: vi.fn(async (t) => { topics.push(t); return t; }), broadcast: vi.fn() };
+    const deps = ddeps({ docList: vi.fn(async () => [SCAN]), ...topicDeps });
+    const r = await propose(deps);
+    expect(r.changesets.map((c) => [c.name, c.elements, c.preticked])).toEqual([["Drawing job-0005 · ev-0007 · GR-FFL", 1, 0]]); // the partition alone, on the scan's level
+    const key = `${EV7}|${W1}|2201|-|drawn_only`;
+    expect(r.differences).toEqual({ agree: 3, differ: 0, drawn_only: 1, scanned_only: 0, doors_agree: 0, doors_from_drawing: 0,
+      topics: { raised: [{ guid: topics[0].guid, title: `Drawing vs scan: ev-0007 ${W1} — drawn, not in the scan`, key }], skipped: 0 } });
+    expect(topics[0]).toMatchObject({ project_id: "ma4c-drill", topic_type: "Issue", topic_status: "Open",
+      difference: { kind: "drawn_only", key, item: "ev-0007", drawing_cid: W1, scan_cid: null, drawing_job: "job-0005" } });
+    expect(topicDeps.broadcast).toHaveBeenCalledWith("ma4c-drill", { type: "topic", action: "created", guid: topics[0].guid, title: topics[0].title });
+    expect(deps.audit.mock.calls.at(-1)[6]).toMatchObject({ planner: "drawing-planner", differences: r.differences });
+    // withdrawn on the desk and proposed again: the partition is proposed again, its difference is not raised twice
+    const again = ddeps({ docList: vi.fn(async () => [SCAN, { ...[...deps.saved.values()][0], status: "withdrawn" }]), ...topicDeps });
+    expect((await propose(again)).differences.topics).toEqual({ raised: [], skipped: 1 });
+    expect(topics).toHaveLength(1);
+    // the topics not read: said in words, the changeset filed all the same
+    const down = ddeps({ docList: vi.fn(async () => [SCAN]), ...topicDeps, bcfListTopics: vi.fn(async () => { throw new Error("the topic store is down"); }) });
+    const r3 = await propose(down);
+    expect([r3.changesets.length, r3.differences.topics]).toEqual([1, { raised: [], skipped: 0, error: "the project's topics could not be read (the topic store is down) — none raised; propose the drawing again to raise them" }]);
+  });
   it("(c) a drawing changeset has no scan: measuring it and showing its scan are refused in words", async () => {
     const deps = ddeps(); await propose(deps);
     const cs = { ...[...deps.saved.values()][0], status: "applied" };

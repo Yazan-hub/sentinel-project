@@ -190,6 +190,10 @@ export interface ProposeReply {
   /** A scan's job: its row and the lead's frame; a drawing's (MA-5a-4): its row and the alignment the bridge computed from the lead's points. */
   job: string; survey_row?: Ledger; frame?: { dx_mm: number; dy_mm: number; dz_mm: number; rotation_deg: number };
   drawing_row?: Ledger; alignment?: Alignment;
+  /** MA-5a-5: a drawing against the scan's filed walls on its storey — what agreed, differed, was only drawn or only scanned, the doors it adds
+   *  in the scan's walls, and the BCF topics raised (one per difference; one raised before is not raised again). */
+  differences?: { agree: number; differ: number; drawn_only: number; scanned_only: number; doors_agree: number; doors_from_drawing: number;
+    topics: { raised: { guid: string; title: string; key: string }[]; skipped: number; error?: string } };
   storeys: { cid: string; level: string; how: "named" | "matched" | "created" | "filed"; elevation_mm: number; delta_mm: number | null; checked: boolean; from: string | null; changeset: string | null;
     /** A storey that files no changeset: its doors and windows held by their level or host (a filed storey's changeset says them). */
     held?: { name: string; reason: string }[];
@@ -255,9 +259,14 @@ export function proposeLine(r: ProposeReply): string {
   const seenOnce = once ? ` · ${once} door hole(s) seen on one face only — not proposed (a closed door or furniture reads the same; a person draws a door the scan missed)` : "";
   const tail = `${r.gaps.groups} type-gap group(s), ${r.gaps.elements} element(s) in the Holding Area${held}${seenOnce} · ${levels}${again}${placed} · ${ledgerLine(r.ledger)} — Review ▸ ↻`;
   // MA-5a-4: a drawing's ghosts are inferred — none is pre-ticked, the level it creates included
-  const a = r.alignment;
+  const a = r.alignment, v = r.differences;
+  // MA-5a-5: said only when the storey had a scan to compare with (or its topics could not be raised)
+  const seen = v && (v.agree + v.differ + v.drawn_only + v.scanned_only + v.doors_agree + v.doors_from_drawing > 0 || v.topics.error);
+  const vsScan = !seen ? "" : ` · against the scan: ${v.agree} wall(s) agree (not proposed again), ${v.differ} differ, ${v.drawn_only} drawn only, ${v.scanned_only} scanned only, ` +
+    `${v.doors_from_drawing} door(s) from the drawing in the scan's walls${v.doors_agree ? `, ${v.doors_agree} the scan has` : ""} — ${v.topics.raised.length} BCF topic(s) raised` +
+    `${v.topics.skipped ? `, ${v.topics.skipped} raised before` : ""}${v.topics.error ? ` (${v.topics.error})` : ""}`;
   if (a) return `✓ Proposed ${r.job} — ${a.item} at 1:${a.scale}, turned ${a.rotation_deg}°${a.check_mm != null ? `, checked to ${a.check_mm} mm` : ", no check point"} · ` +
-    `${r.changesets.length} changeset(s), ${ghosts} ghost(s), none pre-ticked (a drawing is what someone drew, not what was built — a person ticks each in Revit) · ${tail}`;
+    `${r.changesets.length} changeset(s), ${ghosts} ghost(s), none pre-ticked (a drawing is what someone drew, not what was built — a person ticks each in Revit)${vsScan} · ${tail}`;
   // MA-5a-2: a scan's walls are never pre-ticked — only a level the scan created is
   return `✓ Proposed ${r.job} — ${r.changesets.length} changeset(s), ${ghosts} ghost(s), ${pre} pre-ticked on the Review desk (a level the scan created — a person ticks every scan wall, door and window; Revit leaves unticked what the office IDS rejects) · ${tail}`;
 }
