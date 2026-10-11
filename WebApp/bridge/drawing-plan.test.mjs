@@ -260,3 +260,55 @@ describe("MA-5a-5 — the drawing against the scan's filed walls: agree, differ,
     expect(matchWalls(d, [{ start: [900, 0, 0], end: [3000, 0, 0] }])).toEqual([]); // 100 of 1000 overlap
   });
 });
+
+describe("MA-5b-1 — rooms from the drawing's labels", () => {
+  const ROOMS = read("./fixtures/drawing/drill-plan-L00-rooms-result.json");
+  const R = (n) => `drawing-ev-0007-p1-room-${n}`;
+  const rooms = (p) => els(p).filter((e) => e.kind === "room");
+  const go = (candidates = ROOMS.candidates, more = {}) => plan(DRILL, { candidates, type: anyType, ...more });
+  const held = (p) => p.storeys[0].exceptions.filter((x) => x.name.startsWith("room ")).map((x) => [x.unique_id, x.reason]);
+
+  it("each label a room on the storey's level at its point: IFCSPACE, Name its number, LongName its name; inferred, never pre-ticked", () => {
+    const p = go();
+    expect(rooms(p).map((e) => [e.cid, e.validate.identity, e.place.LevelName, e.place.Name, e.place.Number])).toEqual([
+      [R(1), { Class: "IFCSPACE", Name: "102", LongName: "MEETING ROOM" }, "Drawing ev-0007 job-0005", "MEETING ROOM", "102"],
+      [R(2), { Class: "IFCSPACE", Name: "101", LongName: "OFFICE" }, "Drawing ev-0007 job-0005", "OFFICE", "101"]]);
+    // the label's paper point through the alignment: (x - 60) x 50 + 40000, (y - 40) x 50
+    const office = ROOMS.candidates.find((c) => c.cid === R(2)).geometry.Location;
+    expect(rooms(p)[1].place.Location).toEqual([Math.round(((office[0] - 60) * 50 + 40000) * 10) / 10, Math.round((office[1] - 40) * 50 * 10) / 10, 0]);
+    expect(p.storeys[0].byCid.get(R(2))).toMatchObject({ pretick: false, accuracy: { status: "inferred", basis: "drawing" }, measured: { text_height_paper_mm: expect.any(Number) } });
+    expect(rooms(p)[1].reason).toMatch(/^drawn room 101 OFFICE on ev-0007 page 1 at 1:50, inside .* · also written in it: FFL \+0\.00 · drawn, not measured · job-0005 \(ledger #3001\)$/);
+    expect(els(p)[0].kind).toBe("level"); // a storey that creates its level creates it for rooms too
+  });
+  it("held, never proposed: round a wall that is a type gap; round a wall this drawing does not have", () => {
+    expect(held(go(ROOMS.candidates, { type }))).toEqual([[R(2), "bounded by drawing-ev-0007-p1-wall-3, a type gap — propose the drawing again once the wall's group in the Holding Area closes"]]);
+    const stray = ROOMS.candidates.map((c) => (c.cid === R(1) ? { ...c, geometry: { ...c.geometry, walls: [...c.geometry.walls.slice(0, 3), "drawing-ev-0099-p1-wall-1"] } } : c));
+    expect(held(go(stray))).toEqual([[R(1), "a wall round it, drawing-ev-0099-p1-wall-1, is not a wall of ev-0007 in job-0005"]]);
+  });
+  it("no number drawn: Revit numbers it — the identity's Name is its cid, and the reason says so", () => {
+    const bare = ROOMS.candidates.map((c) => (c.cid === R(1) ? { ...c, geometry: { ...c.geometry, number: undefined } } : c));
+    const [m] = rooms(go(bare));
+    expect([m.validate.identity.Name, m.place.Number, /no number drawn: Revit numbers it/.test(m.reason)]).toEqual([R(1), undefined, true]);
+  });
+  it("on the scan's level when the scan is filed there — even one never checked (a room needs no height); filed rooms are not proposed again", () => {
+    const sw = (cid, start, end, t) => ({ op: "create", kind: "wall", cid, proposal_guid: `g-${cid}`, place: { LevelName: "GR-FFL", LocationCurve: { start, end } }, measured: { thickness_mm: t } });
+    const STOREY = { cid: "scan-L00-level", level: "GR-FFL", how: "named", elevation_mm: 0, delta_mm: 0, checked: false, from: null };
+    const scan = scanOnStorey([{ name: "Survey job-0002 · GR-FFL", status: "applied", result: { rejected: [] }, job: { id: "job-0002", ledger_id: 2201, reader: "sentinel-survey 0.1.0", storey: STOREY },
+      elements: [sw("scan-L00-wall-1", [40125, 150, 0], [47850, 150, 0], 300)] }], 0);
+    expect(rooms(go(ROOMS.candidates, { scan, drawingSha: "d7".repeat(32) })).map((e) => e.place.LevelName)).toEqual(["GR-FFL", "GR-FFL"]);
+    const p = go(ROOMS.candidates, { filed: { cids: new Set([R(1), R(2)]), storeys: new Map() } });
+    expect([rooms(p).length, p.already_filed]).toEqual([0, 2]);
+  });
+  it("the drill's room IDS (drawing/fixtures/drill-rooms-ids.json): both proposed rooms pass as the referee reads them; a room with no number drawn does not", () => {
+    const IDS = read("../../drawing/fixtures/drill-rooms-ids.json");
+    expect(rooms(go()).map((e) => core.validateElement(IDS, e.validate).pass)).toEqual([true, true]);
+    const bare = ROOMS.candidates.map((c) => (c.cid === R(1) ? { ...c, geometry: { ...c.geometry, number: undefined } } : c));
+    expect(core.validateElement(IDS, rooms(go(bare))[0].validate).failures.map((f) => f.requirement)).toEqual(["@Name"]);
+  });
+  it("review: rooms past the one changeset's cap wait as review rows — the walls and doors still go through", () => {
+    const many = [...ROOMS.candidates, ...Array.from({ length: 195 }, (_, i) => ({ ...ROOMS.candidates.find((c) => c.cid === R(1)), cid: R(10 + i) }))];
+    const p = go(many), waiting = p.storeys[0].exceptions.filter((x) => x.reason.startsWith("over the 200 elements"));
+    expect([els(p).length, waiting.length, els(p).filter((e) => e.kind !== "room").length]).toEqual([200, 1 + 5 + 2 + 197 - 200, 8]);
+    expect(waiting.every((x) => !p.storeys[0].byCid.has(x.unique_id))).toBe(true);
+  });
+});

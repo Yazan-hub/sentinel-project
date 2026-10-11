@@ -1,0 +1,17 @@
+{
+ "title": "Drill rooms - every room numbered and named (MA-5b-1)",
+ "enforce": "reject",
+ "specifications": [
+  {
+   "name": "ROOM - a three-digit number and a name",
+   "applicability": { "entity": "IFCSPACE" },
+   "requirements": {
+    "attributes": [
+     { "name": "Name", "cardinality": "required", "pattern": "^[0-9]{3}$" },
+     { "name": "LongName", "cardinality": "required" }
+    ],
+    "properties": []
+   }
+  }
+ ]
+}

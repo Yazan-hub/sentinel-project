@@ -12,7 +12,7 @@ import { locate } from "./wall-location.mjs";
 const err = (status, message) => Object.assign(new Error(message), { status });
 const bad = (m) => err(400, `${m} — nothing was saved`);
 export const PLANNER = "drawing-planner";
-export const PLANNER_VERSION = "0.1.0";
+export const PLANNER_VERSION = "0.2.0"; // MA-5b-1: rooms
 /** A check point landing further than this from where the lead said is a wrong point or a wrong pair (decision 1). */
 export const CHECK_MAX_MM = 100;
 const PAPER_MAX_MM = 2000, PAPER_MIN_APART = 10, MODEL_MIN_APART = 100, SCALE_MIN = 1, SCALE_MAX = 2000;
@@ -346,11 +346,36 @@ export function planDrawing({ job, candidates, align, manifest = [], type, filed
     byCid.set(c.cid, trust({ ...m, width_mm: w, height_mm: h },
       by ? { typing: { typed_by: "bridge-size", type: by.type, family: by.family, size: `${w} x ${h} mm`, band_mm: SIZE_BAND_MM, catalog: catalog.label ?? null, catalog_sha256: catalog.sha256 ?? null } } : {}));
   }
+  // MA-5b-1: a room after the walls and doors, at its label's point on the storey's level — Revit finds its boundary there, and Apply refuses
+  // a room the walls do not close (ChangesetExecutor). Held when a wall round it waits in the Holding Area (it would not close until then).
+  for (const c of mine.filter((x) => x.kind === "room")) {
+    if (again(c.cid)) continue;
+    const g = c.geometry, round = g.walls ?? [], at_ = (cid) => walls.findIndex((w) => w.c.cid === cid);
+    const unknown = round.find((cid) => at_(cid) < 0);
+    if (unknown) { hold(c, `a wall round it, ${unknown}, is not a wall of ${item} in ${job.id}`); continue; }
+    const open = round.find((cid) => typed[at_(cid)].gap && !filed.cids.has(cid) && !matchOf.has(at_(cid)));
+    if (open) { hold(c, `bounded by ${open}, a type gap — propose the drawing again once the wall's group in the Holding Area closes`); continue; }
+    elements.push({ op: "create", kind: "room", cid: c.cid, evidence: c.evidence, validate: { identity: { Class: "IFCSPACE", Name: g.number ?? c.cid, LongName: g.name } },
+      place: { LevelName: s.level, Location: [...M.xy(sc(g.Location)), E], Name: g.name, ...(g.number ? { Number: g.number } : {}) },
+      reason: (`drawn room ${g.number ? `${g.number} ` : ""}${g.name} on ${at}, inside ${round.join(", ")} · Revit finds its boundary at this point; Apply refuses it ` +
+        `if the walls there do not close · ${g.number ? "" : "no number drawn: Revit numbers it · "}${g.also?.length ? `also written in it: ${g.also.join("; ")} · ` : ""}` +
+        `drawn, not measured · ${ref}`).slice(0, 500) });
+    byCid.set(c.cid, trust({ ...c.measured }));
+  }
   if (elements.length && s.how === "created") {
     elements.unshift({ op: "create", kind: "level", cid: lvCid, evidence, validate: { identity: { Class: "IFCBUILDINGSTOREY", Name: s.level } },
       place: { BaseElevation: E, Name: s.level }, reason: `a new level for ${item} at ${E} mm in the model, as the lead stated · ${ref}`.slice(0, 500) });
     byCid.set(lvCid, trust({ elevation_mm: E }));
   }
+  // review (MA-5b-1): rooms past the one changeset's cap wait as review rows — the walls and doors still go through; proposed again, they file
+  const over = elements.length - MAX_CHANGESET_ELEMENTS, roomEls = elements.filter((e) => e.kind === "room");
+  if (over > 0 && over <= roomEls.length)
+    for (const e of roomEls.slice(roomEls.length - over)) {
+      elements.splice(elements.indexOf(e), 1);
+      byCid.delete(e.cid);
+      exceptions.push({ unique_id: e.cid.slice(0, 64), name: `room ${e.cid}`.slice(0, 256),
+        reason: `over the ${MAX_CHANGESET_ELEMENTS} elements one changeset (one Undo) holds — propose the drawing again once this one is applied, and it is filed then` });
+    }
   if (elements.length > MAX_CHANGESET_ELEMENTS)
     throw err(413, `${item} would file ${elements.length} elements on ${s.level} — over the ${MAX_CHANGESET_ELEMENTS} one changeset (one Undo) holds; nothing was saved`);
   const body = elements.length ? { name: `Drawing ${job.id} · ${item} · ${s.level}`, contract: 2, source: `${job.reader} ${job.version}`, elements, exceptions } : null;

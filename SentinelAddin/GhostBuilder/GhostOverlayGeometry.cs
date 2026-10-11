@@ -75,7 +75,7 @@ namespace Sentinel.GhostBuilder
                     segs.Add(Seg(c.Start, Z(c.Start, p), c.End, Z(c.End, p)));
                     return segs;
                 }
-                case "door": case "window":
+                case "door": case "window": case "room": // MA-5b-1: a room at its label's point
                 {
                     var q = p.Location; if (!Ok(q)) return segs;
                     double z = Z(q, p), h = PointCrossMm / 2;

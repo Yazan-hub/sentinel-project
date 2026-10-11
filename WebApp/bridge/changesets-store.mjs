@@ -84,7 +84,7 @@ const UNCHECKED_WHY = "the reporting client sent no review_rev — the bridge ca
 /** MA-2a: does a posted body hold an element the bridge would have to type — a create or retype of a typed kind (not a level or
  *  grid, never an attach or a set_parameter) that names no place.TypeName? Only then are the standards read. */
 export const needsTyping = (body) => Array.isArray(body?.elements) && body.elements.some((e) => e && typeof e === "object"
-  && !["attach", "set_parameter"].includes(e.op ?? "create") && e.kind !== "level" && e.kind !== "grid"
+  && !["attach", "set_parameter"].includes(e.op ?? "create") && !["level", "grid", "room"].includes(e.kind)
   && !(e.place && typeof e.place === "object" && typeof e.place.TypeName === "string" && e.place.TypeName.trim() !== ""));
 
 /** MA-2c: does a posted body hold a set_parameter? Only then are the type catalogue and the ids@n read, to check its source. */
@@ -409,8 +409,8 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
     // files none has no changeset to say it, so the planner's row names it (drill MA5a K-3: Kladno's 90 openings, every host a gap, said nowhere).
     const storeys = plan.storeys.map((p) => {
       const changeset = filed.find((c) => c.job.storey.cid === p.storey.cid)?.id ?? null;
-      // doors and windows only (review: a drawing's wall rows — differs, scanned only — are its differences, said with their topics)
-      const held = changeset ? [] : p.exceptions.filter((e) => !e.reason.startsWith("type gap") && /^(door|window) /.test(e.name)).map((e) => ({ name: e.name, reason: e.reason }));
+      // doors, windows and rooms only (review: a drawing's wall rows — differs, scanned only — are its differences, said with their topics)
+      const held = changeset ? [] : p.exceptions.filter((e) => !e.reason.startsWith("type gap") && /^(door|window|room) /.test(e.name)).map((e) => ({ name: e.name, reason: e.reason }));
       // MA-5a-2: the doors seen on one face only — neither proposed nor held (survey-plan's door rule), listed so the row says what the job
       // found and the planner left out
       return { ...storeyRecord(p.storey), changeset, ...(held.length ? { held } : {}), ...(p.once.length ? { doors_seen_once: p.once } : {}) };

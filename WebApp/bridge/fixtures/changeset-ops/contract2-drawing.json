@@ -3,7 +3,7 @@
   "stored": {
     "name": "Drawing job-0005 · ev-0007 · Drawing ev-0007 job-0005", "source": "sentinel-drawing 0.1.0", "status": "proposed", "claimed": false, "contract": 2,
     "job": { "id": "job-0005", "ledger_id": 3001, "result_sha256": "5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e",
-      "reader": "sentinel-drawing 0.1.0", "planner": "drawing-planner 0.1.0",
+      "reader": "sentinel-drawing 0.1.0", "planner": "drawing-planner 0.2.0",
       "alignment": { "method": "2-point similarity", "item": "ev-0007",
         "points": [{ "paper": [60, 40], "model": [40000, 0] }, { "paper": [220, 160], "model": [48000, 6000] }], "check": { "paper": [220, 40], "model": [48000, 0] },
         "scale": 50, "rotation_deg": 0, "dx_mm": 37000, "dy_mm": -2000, "dz_mm": 0, "check_mm": 0, "rmse_mm": null },

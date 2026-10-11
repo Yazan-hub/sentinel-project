@@ -10,7 +10,10 @@ import { randomUUID } from "node:crypto";
 import { checkFacts, KIND_ENTITY, KIND_PSET } from "./changesets-typing.mjs";
 
 // MA-1 placement slice: roof, ceiling, door, window. MA-1a step 2: column, furniture — Ghost Builder's unhosted point families.
-export const VOCABULARY = ["wall", "floor", "level", "grid", "roof", "ceiling", "door", "window", "column", "furniture"];
+// MA-5b-1: room — a drawing's labelled room, placed at a point on its level; Revit finds its boundary there (no type, no family).
+export const VOCABULARY = ["wall", "floor", "level", "grid", "roof", "ceiling", "door", "window", "column", "furniture", "room"];
+/** The kinds that take no type: a level and a grid are named, a room is named and numbered. */
+const UNTYPED = ["level", "grid", "room"];
 /** What a ghost does. create places a new element (the v1 path); retype changes an EXISTING element's type, named by its
  *  Revit UniqueId (Promote) — a door or window keeps its host: ChangeTypeId to a symbol of the same category; attach re-tops
  *  an existing wall. An element without op is a create. MA-2c: set_parameter writes one value on an existing TYPE, named by its
@@ -53,7 +56,7 @@ const ELEMENT_FIELDS = ["kind", "op", "target", "reason", "validate", "place", "
 // Review amendment C3: what an element's blocks are rebuilt from. PLACE_KEPT is the add-in's PlaceDto (ChangesetClient.cs),
 // name for name; a key added to one must be added to the other, or it is listed under `ignored` and not kept.
 const PLACE_KEPT = ["TypeName", "LevelName", "LocationCurve", "LocationLoop", "BaseElevation", "TopElevation", "Name", "BaseLevel", "TopLevel",
-  "FamilyName", "Location", "SillHeight", "FlipFacing", "FlipHand", "Rotation", "Mirrored", "Boundary", "BaseOffset", "Offset", "Mark", "Structural"];
+  "FamilyName", "Location", "SillHeight", "FlipFacing", "FlipHand", "Rotation", "Mirrored", "Boundary", "BaseOffset", "Offset", "Mark", "Structural", "Number"];
 const TARGET_KEPT = ["unique_id", "type_before"];
 const VALIDATE_KEPT = ["identity", "psets", "quantities"];
 const MAX_EVIDENCE = 50; // review amendment C4: contract 2's evidence ids on one element
@@ -73,7 +76,7 @@ const arcSag = (s, e, m) => {
 // with its family).
 const PLACE_FIELDS = {
   FamilyName: ["door", "window", "column", "furniture"], Mark: ["wall", "floor", "roof", "ceiling", "door", "window", "column", "furniture"],
-  Structural: ["floor"], Location: ["door", "window", "column", "furniture"], FlipFacing: ["door", "window"], FlipHand: ["door", "window"],
+  Structural: ["floor"], Location: ["door", "window", "column", "furniture", "room"], Number: ["room"], FlipFacing: ["door", "window"], FlipHand: ["door", "window"],
   SillHeight: ["window"], Boundary: ["roof", "ceiling"], BaseOffset: ["roof"], Offset: ["ceiling"],
   // MA-1b (GHB-1): a drawn block's direction — the plan angle of its X axis and whether it is mirrored. The add-in flips the
   // placed instance to that hinge side and swing side (ChangesetExecutor), and measures what Revit holds after the commit.
@@ -160,6 +163,12 @@ function checkPlace(kind, place, at) {
       ? `${at}: a ${kind} needs place.Location, the finite [x,y,z] point on its host wall's location line (z = its level's elevation)`
       : `${at}: a ${kind} needs place.Location, the finite [x,y,z] point it stands on (z = its level's elevation)`);
     if (place.SillHeight !== undefined && !inRange(place.SillHeight, 0, MAX_OFFSET_MM)) throw err(400, `${at}: place.SillHeight must be a number of mm from 0 to ${MAX_OFFSET_MM}`);
+  } else if (kind === "room") {
+    // MA-5b-1: the point Revit finds the room's boundary at, its name and its number as drawn — each one line (Revit's Name and Number)
+    if (!point(place.Location)) throw err(400, `${at}: a room needs place.Location, the finite [x,y,z] point inside its walls (z = its level's elevation)`);
+    if (!text(place.Name, 256) || CONTROL_CHAR.test(place.Name)) throw err(400, `${at}: a room needs place.Name, its name: one line of at most 256 characters`);
+    if (place.Number !== undefined && (!text(place.Number, 16) || CONTROL_CHAR.test(place.Number)))
+      throw err(400, `${at}: place.Number must be one line of at most 16 characters — leave it out to have Revit number the room`);
   } else if (kind === "roof" || kind === "ceiling") {
     const why = outlineProblem(place.Boundary);
     if (why) throw err(400, `${at}: ${kind} place.Boundary ${why}`);
@@ -318,13 +327,13 @@ export function validateChangeset(body, { member = false, type = null, cite = nu
     if (op === "create") {
       checkPlace(el.kind, el.place, at);
       // After checkPlace, so a geometry error still reads as one. The Revit executor refuses an empty type too.
-      if (el.kind !== "level" && el.kind !== "grid" && !text(place.TypeName, 256)) {
+      if (!UNTYPED.includes(el.kind) && !text(place.TypeName, 256)) {
         if (!type) throw err(400, `${at}: a ${el.kind} needs place.TypeName — Sentinel never takes the model's first type`);
         typeIt();
       }
       if (POINT_KINDS.includes(el.kind) && !text(place.FamilyName, 256))
         throw err(400, `${at}: a ${el.kind} needs place.FamilyName — a type name alone is not one type`);
-      if (["roof", "ceiling", ...POINT_KINDS].includes(el.kind) && !text(place.LevelName, 256))
+      if (["roof", "ceiling", "room", ...POINT_KINDS].includes(el.kind) && !text(place.LevelName, 256))
         throw err(400, `${at}: a ${el.kind} needs place.LevelName — Sentinel never picks its level`);
       // Drill MA2a (F-MA2a-3): a wall or floor names its level too. The executor read only LevelName for a create and put the
       // design's contract-2 wall (BaseLevel and TopLevel, design :675) on the model's lowest level, in silence. Contract 2's

@@ -1141,9 +1141,9 @@ describe("proposeFromJob (MA-5a-4): a lead aligns a drawing job by two points �
     expect([cs.job.frame, cs.job.alignment.confirmed_by]).toEqual([undefined, "web"]);
     expect(cs.elements.every((e) => e.pretick === false && e.accuracy.status === "inferred" && e.place.TopElevation === undefined)).toBe(true);
     expect(deps.audit.mock.calls.map((c) => [c[1], c[3]])).toEqual([["changeset", "changeset_proposed"],
-      ["type_gap", "type_gap:run job-0005 · drawing-planner · 3 group(s), 3 element(s)"], ["build", "build:run job-0005 · drawing-planner 0.1.0 · proposed"]]);
+      ["type_gap", "type_gap:run job-0005 · drawing-planner · 3 group(s), 3 element(s)"], ["build", "build:run job-0005 · drawing-planner 0.2.0 · proposed"]]);
     expect(deps.audit.mock.calls[1][6]).toMatchObject({ claimed: false, source: "sentinel-drawing", job: { id: "job-0005", ledger_id: 3001 } });
-    expect(deps.audit.mock.calls[2][6]).toMatchObject({ job_id: "job-0005", planner: "drawing-planner", version: "0.1.0", drawing_row: { id: 3001 }, alignment: { scale: 50, check_mm: 0 },
+    expect(deps.audit.mock.calls[2][6]).toMatchObject({ job_id: "job-0005", planner: "drawing-planner", version: "0.2.0", drawing_row: { id: 3001 }, alignment: { scale: 50, check_mm: 0 },
       claimed: false, model_calls: 0, tokens: 0, storeys: [{ level: "Drawing ev-0007 job-0005", how: "created" }] });
   });
   it("(b) refused before anything is written, each in words: the body, a wrong check point, another alignment of the same drawing, nothing new", async () => {
@@ -1211,6 +1211,26 @@ describe("proposeFromJob (MA-5a-4): a lead aligns a drawing job by two points �
     const r4 = await propose(retry);
     expect([r4.changesets, r4.differences.topics.raised.map((t) => t.key), fresh.length]).toEqual([[], [key], 1]);
     await expect(propose(ddeps({ docList: vi.fn(async () => [SCAN, ...down.saved.values()]), ...up }))).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/^nothing new to propose from job-0005/) });
+  });
+  it("(g) MA-5b-1: the plan with room labels — a room at its label's point, named and numbered, inferred and unticked; one round a type gap is held", async () => {
+    const ROOMS = readRepo("WebApp/bridge/fixtures/drawing/drill-plan-L00-rooms-result.json");
+    const deps = ddeps({ trustedJob: vi.fn(async () => ({ ...TRUSTED, result: ROOMS })) });
+    const r = await propose(deps);
+    expect(r.changesets.map((c) => [c.name, c.elements, c.preticked])).toEqual([["Drawing job-0005 · ev-0007 · Drawing ev-0007 job-0005", 6, 0]]);
+    const cs = [...deps.saved.values()][0], [room] = cs.elements.filter((e) => e.kind === "room");
+    expect(room).toMatchObject({ op: "create", cid: "drawing-ev-0007-p1-room-1", pretick: false, accuracy: { status: "inferred", basis: "drawing", from_job: "job-0005", scale: 50 },
+      validate: { identity: { Class: "IFCSPACE", Name: "102", LongName: "MEETING ROOM" } },
+      place: { LevelName: "Drawing ev-0007 job-0005", Name: "MEETING ROOM", Number: "102" }, measured: { text_height_paper_mm: expect.any(Number) } });
+    // its label's point, in the east room's inner faces (x 4100..7700, y 300..5800 from the drawing's (0, 0) at 40000, 0)
+    const [x, y, z] = room.place.Location;
+    expect([x > 44100 && x < 47700, y > 300 && y < 5800, z]).toEqual([true, true, 0]);
+    expect(room.reason).toMatch(/^drawn room 102 MEETING ROOM on ev-0007 page 1 at 1:50, inside drawing-ev-0007-p1-wall-1, drawing-ev-0007-p1-wall-4, drawing-ev-0007-p1-wall-5, drawing-ev-0007-p1-wall-2 · Revit finds its boundary at this point; Apply refuses it if the walls there do not close · drawn, not measured/);
+    // OFFICE: its west wall (250 mm) is a type gap in this catalogue — held, said why
+    expect(cs.exceptions).toContainEqual({ unique_id: "drawing-ev-0007-p1-room-2", name: "room drawing-ev-0007-p1-room-2",
+      reason: "bounded by drawing-ev-0007-p1-wall-3, a type gap — propose the drawing again once the wall's group in the Holding Area closes" });
+    // proposed again: the room is filed — nothing new
+    await expect(propose(ddeps({ trustedJob: vi.fn(async () => ({ ...TRUSTED, result: ROOMS })), docList: vi.fn(async () => [...deps.saved.values()]) })))
+      .rejects.toMatchObject({ status: 409, message: expect.stringMatching(/^nothing new to propose from job-0005/) });
   });
   it("(c) a drawing changeset has no scan: measuring it and showing its scan are refused in words", async () => {
     const deps = ddeps(); await propose(deps);

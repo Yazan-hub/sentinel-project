@@ -78,8 +78,9 @@ describe.skipIf(!existsSync(EXE))("the real sentinel-drawing on the drill plan (
   it("reads 5 walls and 2 doors in paper mm under the allow-listed environment", async () => {
     const sha = createHash("sha256").update(readFileSync(PLAN)).digest("hex");
     const r = await runDrawing({ ...JOB, items: [{ id: "ev-0007", kind: "drawing", path: PLAN, sha256: sha }] }, { cwd: tmpdir(), env: { ...process.env, ...SECRETS }, log: () => {} });
-    expect(r).toMatchObject({ status: "done", version: "0.1.0", refused: [] });
+    expect(r).toMatchObject({ status: "done", version: "0.2.0", refused: [] }); // MA-5b-1: 0.2.0 reads room labels (the drill plan has none)
     expect(r.result.candidates.filter((c) => c.kind === "wall")).toHaveLength(5);
+    expect(r.result.candidates.filter((c) => c.kind === "room")).toHaveLength(0);
     expect(r.result.candidates.filter((c) => c.kind === "door").map((c) => c.measured).sort((a, b) => a.width_paper_mm - b.width_paper_mm)).toEqual([
       { width_paper_mm: 18, tag_width_mm: 900, tag_height_mm: 2100 }, { width_paper_mm: 20, tag_width_mm: 1000, tag_height_mm: 2100 }]);
     expect(r.tools.map((t) => t.name)).toEqual(["sentinel-drawing", "PdfPig", ".NET"]);

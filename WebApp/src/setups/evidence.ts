@@ -132,7 +132,7 @@ export interface JobRead { job: SurveyJob; candidates?: Candidate[]; result_erro
   receipt?: { items?: { id: string; size_paper_mm?: [number, number] }[] }; }
 /** The pack's scans a survey may read: admitted, surveyable, not changed. Which it can read is sentinel-survey's to say, per item, by the bytes (MA-4g). Pure. */
 export const surveyableScans = (pack: EvidencePack) => pack.items.filter((i) => i.kind === "scan" && i.surveyable && i.state !== "changed");
-const FOUND: [string, string][] = [["level", "level(s)"], ["wall", "wall(s)"], ["floor", "floor(s)"], ["ceiling", "ceiling(s)"], ["door", "door(s)"], ["window", "window(s)"]]; // MA-5a: doors and windows
+const FOUND: [string, string][] = [["level", "level(s)"], ["wall", "wall(s)"], ["floor", "floor(s)"], ["ceiling", "ceiling(s)"], ["door", "door(s)"], ["window", "window(s)"], ["room", "room(s)"]]; // MA-5a: doors and windows; MA-5b-1: rooms
 /** A job in one line: its state, what it read (a done job: only what its result was measured from; one running: what it is reading;
  *  else what it was given) and refused, what it found, who and when, its ledger row. Pure. */
 export function jobLine(j: SurveyJob): string {
@@ -294,8 +294,9 @@ export function proposeLine(r: ProposeReply): string {
   const levels = r.storeys.map((s) => `${s.cid} → ${s.level} (${s.how}${s.checked ? "" : ", its height not checked"})`).join("; ");
   const again = r.already_filed ? ` · ${r.already_filed} already filed (not proposed again)` : "";
   const placed = r.overlaps.length ? ` · the same ${r.alignment ? "drawing" : "scan"} was placed before by ${r.overlaps.map((o) => o.changeset).join(", ")}` : "";
-  const n = r.storeys.reduce((s, x) => s + (x.held?.length ?? 0), 0);
-  const held = n ? ` · ${n} door(s) or window(s) held on a storey with nothing to place — their level or host wall is not placed (each reason on the planner's row)` : "";
+  const all = r.storeys.flatMap((x) => x.held ?? []), rooms = all.filter((h) => h.name.startsWith("room ")).length, n = all.length - rooms;
+  const held = (n ? ` · ${n} door(s) or window(s) held on a storey with nothing to place — their level or host wall is not placed (each reason on the planner's row)` : "")
+    + (rooms ? ` · ${rooms} room(s) held on a storey with nothing to place — a wall round each is not placed (each reason on the planner's row)` : ""); // MA-5b-1 review
   const once = r.storeys.reduce((s, x) => s + (x.doors_seen_once?.length ?? 0), 0);
   const seenOnce = once ? ` · ${once} door hole(s) seen on one face only — not proposed (a closed door or furniture reads the same; a person draws a door the scan missed)` : "";
   const tail = `${r.gaps.groups} type-gap group(s), ${r.gaps.elements} element(s) in the Holding Area${held}${seenOnce} · ${levels}${again}${placed} · ${ledgerLine(r.ledger)} — Review ▸ ↻`;

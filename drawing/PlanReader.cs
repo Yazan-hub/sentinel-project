@@ -17,6 +17,8 @@
 // one face runs on (a threshold line) is a door in the one wall; a swing at a wall's end with no wall beyond (a door beside a corner) is
 // a door too, the wall run on through it. A "W x H" tag that is a door's nearest and has that door nearest is kept, as the drawing's
 // numbers.
+// ROOMS (MA-5b-1): a label of two letters or more, set inside four walls (a ray from it hits a wall each way), is a room's — named and
+// numbered as drawn; Revit finds the boundary at its point and refuses one the walls do not close.
 // Paper millimetres throughout (page origin bottom-left, y up): the scale and placement are the lead's 2-point alignment (MA-5a-4).
 // Analyse() is pure — strokes, curves and words in, a Reading out; Read(page) only collects them.
 // ponytail: window glass or sill lines, stair treads and a door leaf drawn as a rectangle IN the wall weight pair into thin walls; a
@@ -28,21 +30,29 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using UglyToad.PdfPig.Content;
 using UglyToad.PdfPig.Core;
+using UglyToad.PdfPig.DocumentLayoutAnalysis;
+using UglyToad.PdfPig.Util;
 
 namespace Sentinel.Drawing
 {
     public sealed class Stroke { public double X1, Y1, X2, Y2, Weight; }
     /// <summary>A cubic Bezier: P0, C1, C2, P3 as x, y pairs; consecutive curves on one circle, end to start, are one arc.</summary>
     public sealed class Curve { public double[] P; }
-    public sealed class Word { public string Text; public double X, Y; }
+    /// <summary>A word on the page: its centre (X, Y) and its box (L, B, R, T), paper mm. A word with no box height (one turned off the
+    /// horizontal, or one built without a box) is never a room's label.</summary>
+    public sealed class Word { public string Text; public double X, Y, L, B, R, T; }
 
     public sealed class Wall { public double X1, Y1, X2, Y2, Thickness; public List<double[]> Faces = new List<double[]>(); }
     public sealed class Door { public int Host; public double X, Y, Ux, Uy, Along, Width, Cx, Cy; public int Leaves = 1; public int? TagW, TagH; }
+    /// <summary>MA-5b-1: a room's label — its name and number as drawn, its point (the label's centre), its height (the tallest word's),
+    /// the other labels inside the same four walls (Also) and those four walls (indices into Walls: left, right, below, above).</summary>
+    public sealed class Room { public string Name, Number; public double X, Y, H; public List<string> Also = new List<string>(); public int[] Walls; }
 
     public sealed class Reading
     {
         public List<Wall> Walls = new List<Wall>();
         public List<Door> Doors = new List<Door>();
+        public List<Room> Rooms = new List<Room>();
         public int Strokes, Faces, Arcs, Unpaired, Columns;
         /// <summary>The weight that pairs into the most wall length.</summary>
         public double? WallWeight;
@@ -66,6 +76,16 @@ namespace Sentinel.Drawing
         const double TOUCH = 0.05;             // paper mm: strokes on one line within this touch; a gap shorter than this is none
         const double CIRCLE = 0.02;            // a curve is a circle's arc when its quarter points sit within 2 % of the radius
         static readonly Regex TAG = new Regex(@"^([0-9]{3,4})\s*[xX×]\s*([0-9]{3,4})$");
+        // MA-5b-1, room labels. ponytail: a label's words join by their heights and spacing (LABEL_H, LINE_GAP, LINES) — a dimension or a
+        // note set beside a label in its size joins it; a room is four walls round its label, not a traced loop (an L-shaped room labelled
+        // twice reads as two rooms, and Apply refuses the pair). Trace loops when a real set needs it.
+        public const double LABEL_H = 0.6;     // two words of one label: the smaller's height at least 60 % of the taller's
+        public const double LINE_GAP = 1.0;    // words on one line: at most one word height apart
+        public const double LINES = 2.0;       // a label's next line: its centre at most two word heights below, the two overlapping across
+        public const double RAY_TOL = 1.0;     // paper mm: a wall's centreline is run on this far at both ends for a label's ray
+        public const int ALSO_MAX = 8, NAME_MAX = 256;
+        static readonly Regex NUMBER = new Regex(@"^[0-9]{1,4}([.\-][0-9]{1,3})?[A-Za-z]?$");
+        static readonly Regex AREA = new Regex(@"^([0-9]+([.,][0-9]+)?)?(m²|m2|sqm|sq\.?m|ft²|sq\.?ft|sf)$", RegexOptions.IgnoreCase);
 
         /// <summary>Collect page 1's stroked lines, curves and words (paper mm) and analyse them.</summary>
         public static Reading Read(Page page)
@@ -103,7 +123,15 @@ namespace Sentinel.Drawing
                     }
                 }
             }
-            var words = page.GetWords().Select(x => new Word { Text = x.Text, X = x.BoundingBox.Centroid.X * MM_PER_PT, Y = x.BoundingBox.Centroid.Y * MM_PER_PT }).ToList();
+            // review (MA-5b-1): text drawn twice at one spot (a print driver's bold, an overlay) is read once — its letters were interleaved
+            var words = DefaultWordExtractor.Instance.GetWords(DuplicateOverlappingTextProcessor.Get(page.Letters).ToList()).Select(x =>
+            {
+                var b = x.BoundingBox;
+                var w = new Word { Text = x.Text, X = b.Centroid.X * MM_PER_PT, Y = b.Centroid.Y * MM_PER_PT };
+                // a room's label is read level (ponytail: a label turned with its room is not read; read it when a real set does)
+                if (x.TextOrientation == TextOrientation.Horizontal) (w.L, w.B, w.R, w.T) = (b.Left * MM_PER_PT, b.Bottom * MM_PER_PT, b.Right * MM_PER_PT, b.Top * MM_PER_PT);
+                return w;
+            }).ToList();
             return Analyse(strokes, curves, words);
         }
 
@@ -219,6 +247,17 @@ namespace Sentinel.Drawing
                 r.Walls.Add(Join(members.Select(k => pieces[k]).ToList()));
             }
             r.Columns = columns.Count;
+            // review (MA-5b-1): an opening with no door kept its two walls apart (a window, a cased opening) — a room label's ray crosses it as
+            // the wall it is in, never past it to the next room's wall or to nothing
+            var openings = new List<(double x1, double y1, double x2, double y2, int wall)>();
+            foreach (var (track, k, g0, g1) in open)
+            {
+                int ra = Find(track[k]), rb = Find(track[k + 1]);
+                if (ra == rb || !wallOf.TryGetValue(ra, out int wa) || wa < 0 || !wallOf.TryGetValue(rb, out int wb) || wb < 0) continue;
+                var a = pieces[track[k]];
+                var (x1, y1) = a.At(g0, a.C); var (x2, y2) = a.At(g1, a.C);
+                openings.Add((x1, y1, x2, y2, wa));
+            }
             foreach (var (piece, d) in found)
             {
                 d.Host = wallOf[Find(piece)];
@@ -229,6 +268,7 @@ namespace Sentinel.Drawing
             }
             r.Doors = r.Doors.OrderBy(d => d.Host).ThenBy(d => d.Along).ToList();
             Tags(r.Doors, words);
+            Rooms(r, words, openings);
             return r;
         }
 
@@ -643,6 +683,95 @@ namespace Sentinel.Drawing
                 if (bestTag < 0 || NearestDoor(tags[bestTag]) != d) continue;
                 doors[d].TagW = tags[bestTag].w; doors[d].TagH = tags[bestTag].h;
             }
+        }
+        /// <summary>MA-5b-1: room labels. The words left once door tags and areas ("12.5 m²": a unit and the number before it) are out,
+        /// joined into labels (LABEL_H, LINE_GAP, LINES), read line by line: the number is the first word like 101, 1.01 or 12A, the
+        /// name the words with a letter. A label is a room's when its name has two letters or more (not a mark A, not a tag D2) and a
+        /// ray from its centre hits a wall's centreline in each of the four axis directions (a title block outside the walls is not);
+        /// labels whose four nearest walls are the same are ONE room — the tallest names it, the rest are kept as Also. Revit finds the
+        /// boundary itself at the label's point and refuses a room the walls do not close (ChangesetExecutor).</summary>
+        static void Rooms(Reading r, IList<Word> words, List<(double x1, double y1, double x2, double y2, int wall)> openings)
+        {
+            if (r.Walls.Count == 0) return;
+            static double Ht(Word w) => w.T - w.B;
+            var drop = new bool[words.Count];
+            for (int i = 0; i < words.Count; i++)
+            {
+                string t = words[i].Text.Trim();
+                if (TAG.IsMatch(t)) drop[i] = true;
+                else if (i + 2 < words.Count && TAG.IsMatch($"{t}{words[i + 1].Text.Trim()}{words[i + 2].Text.Trim()}")) drop[i] = drop[i + 1] = drop[i + 2] = true;
+                else if (AREA.Match(t) is { Success: true } a)
+                {
+                    drop[i] = true;
+                    if (a.Groups[1].Success) continue;
+                    // review: the number before a unit is the one just left of it on its line — by place, never by the reader's word order
+                    var u = words[i]; double h = Math.Max(Ht(u), 0.1);
+                    int n = Enumerable.Range(0, words.Count).Where(j => j != i && Math.Abs(words[j].Y - u.Y) <= 0.5 * h && words[j].R <= u.L + 0.5 * h
+                        && u.L - words[j].R <= LINE_GAP * h && NUMBER.IsMatch(words[j].Text.Trim())).OrderBy(j => u.L - words[j].R).DefaultIfEmpty(-1).First();
+                    if (n >= 0) drop[n] = true;
+                }
+            }
+            var ws = words.Where((w, i) => !drop[i] && Ht(w) > 0 && w.Text.Trim() != "" && !w.Text.Any(char.IsControl)).ToList();
+            var up = Enumerable.Range(0, ws.Count).ToArray();
+            int Find(int i) { while (up[i] != i) i = up[i] = up[up[i]]; return i; }
+            bool Joined(Word a, Word b)
+            {
+                double h = Math.Max(Ht(a), Ht(b)), apart = Math.Max(a.L, b.L) - Math.Min(a.R, b.R); // apart > 0: a gap across
+                if (Math.Min(Ht(a), Ht(b)) < LABEL_H * h) return false;
+                double dy = Math.Abs(a.Y - b.Y);
+                return dy <= 0.5 * h ? apart <= LINE_GAP * h : dy <= LINES * h && apart < 0;
+            }
+            for (int i = 0; i < ws.Count; i++)
+                for (int j = i + 1; j < ws.Count; j++)
+                    if (Joined(ws[i], ws[j])) up[Find(j)] = Find(i);
+            var labels = new List<(string name, string number, string text, double x, double y, double h, int[] key)>();
+            foreach (var g in Enumerable.Range(0, ws.Count).GroupBy(Find))
+            {
+                var gw = g.Select(i => ws[i]).OrderByDescending(w => w.Y).ToList();
+                double h = gw.Max(Ht);
+                // line by line, top down, each left to right
+                var lines = new List<List<Word>>();
+                foreach (var w in gw)
+                    if (lines.Count > 0 && lines[^1][0].Y - w.Y <= 0.5 * h) lines[^1].Add(w); else lines.Add(new List<Word> { w });
+                var tokens = lines.SelectMany(l => l.OrderBy(w => w.X)).Select(w => w.Text.Trim()).ToList();
+                string number = tokens.FirstOrDefault(t => NUMBER.IsMatch(t));
+                string name = string.Join(" ", tokens.Where(t => t != number && t.Any(char.IsLetter)));
+                if (name.Count(char.IsLetter) < 2 || name.Length > NAME_MAX) continue;
+                double x = (gw.Min(w => w.L) + gw.Max(w => w.R)) / 2, y = (gw.Min(w => w.B) + gw.Max(w => w.T)) / 2;
+                var key = new[] { Ray(r.Walls, openings, x, y, -1, 0), Ray(r.Walls, openings, x, y, 1, 0), Ray(r.Walls, openings, x, y, 0, -1), Ray(r.Walls, openings, x, y, 0, 1) };
+                if (key.Any(k => k < 0)) continue;
+                labels.Add((name, number, string.Join(" ", tokens), x, y, h, key));
+            }
+            foreach (var same in labels.GroupBy(l => string.Join(",", l.key)))
+            {
+                var by = same.OrderByDescending(l => l.h).ThenByDescending(l => l.y).ThenBy(l => l.x).ToList();
+                var top = by[0];
+                var room = new Room { Name = top.name, Number = top.number, X = top.x, Y = top.y, H = top.h, Walls = top.key };
+                room.Also.AddRange(by.Skip(1).Select(l => l.text.Length > NAME_MAX ? l.text.Substring(0, NAME_MAX) : l.text).Take(ALSO_MAX));
+                r.Rooms.Add(room);
+            }
+            r.Rooms = r.Rooms.OrderByDescending(m => m.Y).ThenBy(m => m.X).ToList();
+        }
+
+        /// <summary>The nearest wall whose centreline (run on RAY_TOL at both ends) a ray from (px, py) along (dx, dy) crosses — or the
+        /// centreline of a doorless opening, as the wall it is in; -1 for none. A wall parallel to the ray is never hit.</summary>
+        static int Ray(List<Wall> walls, List<(double x1, double y1, double x2, double y2, int wall)> openings, double px, double py, double dx, double dy)
+        {
+            int best = -1; double bt = double.MaxValue;
+            void Try(double x1, double y1, double x2, double y2, int wall)
+            {
+                double ex = x2 - x1, ey = y2 - y1, len = Math.Sqrt(ex * ex + ey * ey);
+                if (len <= 0) return;
+                double ux = ex / len, uy = ey / len, den = dx * uy - dy * ux;
+                if (Math.Abs(den) < 1e-9) return;
+                double qx = x1 - ux * RAY_TOL - px, qy = y1 - uy * RAY_TOL - py;
+                double t = (qx * uy - qy * ux) / den, s = (qx * dy - qy * dx) / den; // p + t d = a + s u
+                if (t <= 0 || s < 0 || s > len + 2 * RAY_TOL || t >= bt) return;
+                bt = t; best = wall;
+            }
+            for (int i = 0; i < walls.Count; i++) Try(walls[i].X1, walls[i].Y1, walls[i].X2, walls[i].Y2, i);
+            foreach (var o in openings) Try(o.x1, o.y1, o.x2, o.y2, o.wall);
+            return best;
         }
     }
 }

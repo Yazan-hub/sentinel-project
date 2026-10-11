@@ -33,7 +33,7 @@ export interface DeskJob {
 export interface Ghost {
   proposal_guid: string; kind: string; op?: string | null;
   target?: { unique_id?: string; type_before?: string; ifc_guid?: string | null } | null;
-  place?: { TypeName?: string; FamilyName?: string; LevelName?: string; BaseLevel?: string; TopLevel?: string } | null;
+  place?: { TypeName?: string; FamilyName?: string; LevelName?: string; BaseLevel?: string; TopLevel?: string; Name?: string } | null;
   validate?: { identity?: { Name?: string } } | null;
   parameter?: string; from?: string; to?: string;
   review?: GhostReview | null;
@@ -104,7 +104,8 @@ export function ghostLine(el: Ghost): string {
     case "retype": return `${name} · ${el.target?.type_before ?? "?"} → ${type}`;
     case "attach": return `${name} · ${el.place?.BaseLevel ?? "?"} → top ${el.place?.TopLevel ?? "?"}`;
     case "set_parameter": return `${type} · ${el.parameter} "${el.from ?? ""}" → "${el.to ?? ""}" (a type edit: it reaches every element of the type)`;
-    default: return `${name}${el.place?.TypeName ? " · " + type : ""}${el.place?.LevelName ? " · " + el.place.LevelName : ""}`;
+    // MA-5b-1: a room reads its number, then its name (Revit's review row: room: 101 · OFFICE · its level)
+    default: return `${name}${el.place?.Name && el.place.Name !== name ? " · " + el.place.Name : ""}${el.place?.TypeName ? " · " + type : ""}${el.place?.LevelName ? " · " + el.place.LevelName : ""}`;
   }
 }
 

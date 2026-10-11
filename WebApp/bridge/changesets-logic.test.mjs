@@ -25,10 +25,10 @@ const status400 = (fn, re) => {
   catch (e) { expect(e.status).toBe(400); expect(e.message).toMatch(re); }
 };
 // MA-1a step 2 adds column and furniture (Ghost Builder's unhosted point families).
-const MA1 = ["wall", "floor", "level", "grid", "roof", "ceiling", "door", "window", "column", "furniture"];
+const MA1 = ["wall", "floor", "level", "grid", "roof", "ceiling", "door", "window", "column", "furniture", "room"];
 
 describe("VOCABULARY", () => {
-  it("is the MA-1 list, with MA-1a step 2's column and furniture", () => expect(VOCABULARY).toEqual(MA1));
+  it("is the MA-1 list, with MA-1a step 2's column and furniture and MA-5b-1's room", () => expect(VOCABULARY).toEqual(MA1));
 });
 
 describe("validateChangeset — shape", () => {
@@ -524,6 +524,39 @@ describe("validateChangeset — MA-1a step 2 (Ghost Builder: column, furniture, 
     status400(() => ok(grid), /LocationCurve\.mid is a wall's point on its arc/);
     // A mid on the chord or on an end is no arc (Arc.Create would throw and decline the whole changeset).
     for (const flat of [[1000, 0, 0], [1000, 0.5, 0], [0, 0, 0], [2000, 0, 0]]) status400(() => ok(arc(flat)), /lies on the line from start to end/);
+  });
+});
+
+// MA-5b-1: a drawing's labelled room — a point on its level, its name and number; no type, no family, no Mark.
+describe("validateChangeset — a room (MA-5b-1)", () => {
+  const room = (over = {}) => ({ kind: "room", validate: { identity: { Class: "IFCSPACE", Name: "101", LongName: "OFFICE" } },
+    place: { LevelName: "L00", Location: [1000, 2000, 0], Name: "OFFICE", Number: "101", ...over } });
+  const ok = (el) => validateChangeset(CS([el])).elements[0];
+
+  it("passes with no type and keeps its name, number and point; the number may be left out", () => {
+    expect(ok(room()).place).toEqual({ LevelName: "L00", Location: [1000, 2000, 0], Name: "OFFICE", Number: "101" });
+    expect(ok(room()).validate.identity).toMatchObject({ Class: "IFCSPACE", Name: "101", LongName: "OFFICE" });
+    expect(ok(room({ Number: undefined })).place.Number).toBeUndefined();
+  });
+
+  it("needs its level, its point and its name — each in words", () => {
+    status400(() => ok(room({ LevelName: undefined })), /a room needs place\.LevelName — Sentinel never picks its level/);
+    for (const bad of [undefined, [1, 2], [NaN, 0, 0]]) status400(() => ok(room({ Location: bad })), /a room needs place\.Location, the finite \[x,y,z\] point inside its walls/);
+    for (const bad of [undefined, "", "   ", "OFF\nICE", "x".repeat(257)]) status400(() => ok(room({ Name: bad })), /a room needs place\.Name, its name: one line of at most 256 characters/);
+  });
+
+  it("a number is one line of at most 16 characters", () => {
+    for (const bad of ["", "1".repeat(17), "10\t1", 101]) status400(() => ok(room({ Number: bad })), /place\.Number must be one line of at most 16 characters/);
+  });
+
+  it("takes no family, Mark, sill or flip — and Number rides on no other kind", () => {
+    for (const f of ["FamilyName", "Mark", "SillHeight", "FlipFacing", "Rotation", "Boundary"]) status400(() => ok(room({ [f]: "x" })), new RegExp(`a room takes no place\.${f}`));
+    status400(() => ok(level({ place: { BaseElevation: 0, Number: "1" } })), /a level takes no place\.Number/);
+  });
+
+  it("is create-only", () => {
+    status400(() => ok({ op: "retype", kind: "room", target: { unique_id: "5a1c2b3d-1111-2222-3333-444455556666-0004c3f8" }, place: { TypeName: "T" },
+      validate: { identity: { Class: "IFCSPACE", Name: "101" } } }), /kind "room" is not supported for retype/);
   });
 });
 

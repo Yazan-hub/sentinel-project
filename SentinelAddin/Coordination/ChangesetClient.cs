@@ -53,6 +53,8 @@ public sealed class PlaceDto
     // any create but a level or grid (MA-1): its Mark (ALL_MODEL_MARK); a floor's Structural (FLOOR_PARAM_IS_STRUCTURAL).
     [JsonPropertyName("Mark")] public string Mark { get; set; }
     [JsonPropertyName("Structural")] public bool? Structural { get; set; }
+    // create (MA-5b-1): a room's number as drawn (its name is Name); none = Revit numbers it.
+    [JsonPropertyName("Number")] public string Number { get; set; }
 }
 
 /// <summary>The existing element a retype/attach ghost changes (MA-0, Promote v1): its Revit UniqueId, and for a retype the

@@ -19,7 +19,7 @@ export const READER = "sentinel-survey";
  *  Its candidates are walls and doors in paper millimetres (units "paper_mm"): proposed with a 2-point alignment, MA-5a-4. */
 export const DRAWING = "sentinel-drawing";
 export const READERS = [READER, DRAWING];
-const DRAWING_KINDS = ["wall", "door"];
+const DRAWING_KINDS = ["wall", "door", "room"]; // MA-5b-1: room labels
 export const DEFAULT_PARAMS = { voxel_mm: 20, storey_min_mm: 2000 };
 // [low, high, why]: a coarser voxel leaves a wall face too sparse for the survey's 20 mm cells (4 of the drill's 8 walls lost their
 // thickness at 200 mm, measured) — the service bounds it the same way (read_job).
@@ -32,6 +32,8 @@ const KINDS = ["level", "wall", "floor", "ceiling", "door", "window"]; // MA-5a:
 /** MA-5a (review): the kinds a reader of `version` looks for — before 0.5.0 no door or window, so its job's counts name none (the web's found
  *  list leaves out a kind its counts lack, never "0 door(s)" from a job that never looked). */
 const kindsOf = (version) => { const [a, b] = String(version ?? "").split(".").map(Number); return a > 0 || b >= 5 ? KINDS : KINDS.slice(0, 4); };
+// review (MA-5b-1): sentinel-drawing reads rooms from 0.2.0 — never "0 room(s)" from a reader that never looked
+const drawingKindsOf = (version) => { const [a, b] = String(version ?? "").split(".").map(Number); return a > 0 || b >= 2 ? DRAWING_KINDS : DRAWING_KINDS.slice(0, 2); };
 const MAX_CANDIDATES = 5000;
 const LISTED = 20;
 const JOB_ID = /^job-\d{4,}$/; // job-10000 follows job-9999 (nextId pads to 4, never cuts)
@@ -126,7 +128,7 @@ export function pickItems(pack, dir, reader = READER) {
 }
 
 /** null when `r` has the contract's shape (§6.9: candidates without a type, each naming items of this job), else what is wrong — the
- *  bridge keeps nothing it could not read back. MA-5a-3: a drawing job's are walls and doors, each in paper millimetres. */
+ *  bridge keeps nothing it could not read back. MA-5a-3: a drawing job's are walls and doors, each in paper millimetres; MA-5b-1: and rooms. */
 export function resultRefusal(r, ids, reader = READER) {
   if (!r || typeof r !== "object" || !Array.isArray(r.candidates)) return "no candidates list";
   if (r.candidates.length > MAX_CANDIDATES) return `over ${MAX_CANDIDATES} candidates`;
@@ -139,6 +141,15 @@ export function resultRefusal(r, ids, reader = READER) {
     if (reader === DRAWING && c.geometry.units !== "paper_mm") return `${at}.geometry.units (a drawing's candidates are in paper_mm)`;
     if ("type" in c || "TypeName" in c.geometry) return `${at} carries a type (the service does no typing)`;
     if (!c.measured || typeof c.measured !== "object" || !Object.values(c.measured).every(Number.isFinite)) return `${at}.measured`;
+    // MA-5b-1: a room's name becomes its name in Revit — one line each, bounded; the walls round it name this result's walls
+    if (c.kind === "room") {
+      const g = c.geometry, line = (x, max) => typeof x === "string" && x.trim() !== "" && x.length <= max && !/[\u0000-\u001f]/.test(x);
+      if (!Array.isArray(g.Location) || g.Location.length !== 2 || !g.Location.every(Number.isFinite)) return `${at}.geometry.Location`;
+      if (!line(g.name, 256)) return `${at}.geometry.name`;
+      if (g.number !== undefined && !line(g.number, 16)) return `${at}.geometry.number`;
+      if (!Array.isArray(g.walls) || g.walls.length > 4 || !g.walls.every((w) => line(w, 256))) return `${at}.geometry.walls`;
+      if (g.also !== undefined && (!Array.isArray(g.also) || g.also.length > 8 || !g.also.every((w) => line(w, 256)))) return `${at}.geometry.also`;
+    }
     if (!Array.isArray(c.evidence) || !c.evidence.length || !c.evidence.every((e) => typeof e === "string" && ids.includes(e.split("#")[0]))) return `${at}.evidence`;
   }
   if (!Array.isArray(r.derived) || !r.receipt || typeof r.receipt !== "object") return "derived or receipt";
@@ -250,7 +261,7 @@ async function runJob(d, proj, key, job, take) {
         ? result.receipt.items.filter((i) => typeof i?.why === "string").map((i) => ({ id: String(i.id), why: i.why.slice(0, 300) })) : [];
       if (notes.length) job.notes = notes;
       Object.assign(job, { result_sha256: sha(bytes), candidates_total: result.candidates.length,
-        counts: Object.fromEntries((name === DRAWING ? DRAWING_KINDS : kindsOf(r.version)).map((k) => [k, result.candidates.filter((c) => c.kind === k).length])) });
+        counts: Object.fromEntries((name === DRAWING ? drawingKindsOf(r.version) : kindsOf(r.version)).map((k) => [k, result.candidates.filter((c) => c.kind === k).length])) });
     } catch (e) {
       status = "failed";
       error = `the result could not be kept on this PC (${e?.code || "the write failed"}) — nothing it found was kept`;

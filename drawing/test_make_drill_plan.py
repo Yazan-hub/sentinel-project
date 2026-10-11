@@ -31,6 +31,18 @@ class DrillPlan(unittest.TestCase):
         self.assertEqual([(d["host"], d["width_paper_mm"]) for d in e["doors"]], [("south", 18.0), ("partition", 20.0)])
         self.assertEqual(e["marks"][1]["paper_mm"], [220.0, 160.0])
 
+    def test_rooms_plan_is_the_base_with_its_labels(self):
+        """MA-5b-1: the rooms plan adds the labels and nothing else — the base plan's bytes (admitted in earlier drills) stay."""
+        rooms, base = m.content("rooms"), m.content("base")
+        self.assertTrue(rooms.startswith(base))
+        for label, _, _ in m.ROOMS:
+            self.assertIn(f"({label}) Tj".encode(), rooms)
+        with open(os.path.join(m.HERE, "fixtures", "drill-plan-L00-rooms.pdf"), "rb") as f:
+            self.assertEqual(f.read(), m.pdf([m.content("rooms")]))
+        e = m.expected()["variants"]["rooms"]
+        self.assertEqual([(r["name"], r["number"], r["also"]) for r in e["rooms"]], [("OFFICE", "101", ["FFL +0.00"]), ("MEETING ROOM", "102", [])])
+        self.assertEqual(e["rooms"][0]["inside_paper_mm"], [65.0, 46.0, 140.0, 156.0])
+
 
 if __name__ == "__main__":
     unittest.main()

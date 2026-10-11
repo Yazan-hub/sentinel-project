@@ -750,7 +750,7 @@ The type names above are examples only. **Read the typing example carefully:**
 | `attach` | Set the base and top levels |
 | `rehost` | Put an opening into its host wall |
 | `set_parameter` | Write a value from a cited source (shared with [BP] P2-7) |
-| `create_room` | A room from a closed loop |
+| `create`, kind `room` | A room at a point on its level: Revit finds the closed loop there (MA-5b-1 — a kind of create, not an op) |
 
 **Pre-tick rule.** The bridge pre-ticks a ghost only when all of these hold [R2M §6.8]:
 1. Its geometry is backed by evidence and within tolerance, or it is a single-answer Promote operation.
@@ -1180,7 +1180,11 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
     drawing lacks, is a review row on the drawing's changeset; what agrees is not proposed twice (drill MA5a456).
   - A difference between drawing and scan becomes a BCF topic. BUILT in MA-5a-5 (merged 7b32137): one topic per difference, keyed on the
     drawing's bytes, its cid and the one scan wall's job — never raised twice, any status (drill MA5a456: the planted partition, exactly one).
-  - Rooms from closed loops, named from the drawing text (C7).
+  - Rooms from closed loops, named from the drawing text (C7). BUILT in MA-5b-1 (PDF path): sentinel-drawing 0.2.0 reads a label of two
+    letters or more set inside four walls (a ray hits a wall each way) as a room — named and numbered as drawn, its other labels kept as
+    `also`; the bridge proposes `create` kind `room` at the label's point (IFCSPACE, Name its number, LongName its name), inferred and never
+    pre-ticked, held while a wall round it waits in the Holding Area; Revit's `NewRoom(level, UV)` finds the loop, and Apply refuses — the
+    changeset staying proposed — a room not enclosed, two in one area, or one where a room stands. Ghost's DWG rooms wait for GHB-6.
   - Promote gains `rehost` and placeholder swaps (GHB-1 logic).
   - GHB-3, GHB-6, DAT-1, DAT-2, DAT-4, DAT-5.
   - DWG revision update (C13).

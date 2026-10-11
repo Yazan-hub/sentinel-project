@@ -13,6 +13,10 @@ north 200, east 300 thick; plus a 100 mm partition at x 4000..4100 (y 300..5800)
 plot draws a plan: cut wall faces heaviest (0.70 pt) as two polylines, door leaves and swings fine (0.25 pt),
 the border and title block 0.35 pt, alignment marks A and B (MA-5a-4) at building (0, 0) and (8000, 6000).
 
+MA-5b-1: drill-plan-L00-rooms.pdf is the same plan with room labels — OFFICE 101 in the west room (with a level note,
+FFL +0.00, that names no room), MEETING ROOM 102 in the east — for the rooms drill; the plan above stays as it was (its
+sha256 is admitted in earlier drills).
+
 Stdlib only, uncompressed, no dates: two runs write the same bytes (the drill admits this file by its sha256).
 """
 import json
@@ -38,6 +42,9 @@ DOORS = [("south", (3000, 300), 900, 90, 0, (3200, 700), "D2 900x2100"),
          ("partition", (4100, 2000), 1000, 0, 0, (4400, 2600), "D1 1000x2100")]
 STRAY = (6000, 4000)            # stray-arc.pdf: where the partition's swing is moved (no wall gap near)
 MARKS = [("A", (0, 0)), ("B", (8000, 6000))]
+# MA-5b-1: room labels (text, size pt, baseline start in building mm) — each name over its number, a level note in the west room
+ROOMS = [("OFFICE", 10, (1400, 3300)), ("101", 8, (1700, 3100)), ("MEETING ROOM", 10, (5100, 3900)), ("102", 8, (5700, 3700)),
+         ("FFL +0.00", 7, (1500, 1500))]
 
 
 def paper(p):
@@ -89,6 +96,10 @@ def content(variant):
         ops += polyline([(p[0] - 200, p[1]), (p[0] + 200, p[1])]) + polyline([(p[0], p[1] - 200), (p[0], p[1] + 200)])
         x, y = paper(p)
         ops += text(x + 1.5, y + 1.5, label)
+    if variant == "rooms":
+        for label, size, at in ROOMS:
+            x, y = paper(at)
+            ops += text(x, y, label, size)
     s = "\n".join(ops)
     if variant == "one-weight":
         s = s.replace(f"{FRAME} w", f"{WALL} w").replace(f"{FINE} w", f"{WALL} w")
@@ -136,11 +147,19 @@ def expected():
               "tag_width_mm": 900, "tag_height_mm": 2100},
              {"host": "partition", "location": [r(c) for c in paper((4050, 2500))], "width_paper_mm": 20.0, "direction": [1, 0],
               "tag_width_mm": 1000, "tag_height_mm": 2100}]
+    def inner(x0, y0, x1, y1):  # a room's inner faces, paper mm
+        return [r(c) for c in paper((x0, y0)) + paper((x1, y1))]
+
+    rooms = [{"name": "OFFICE", "number": "101", "also": ["FFL +0.00"], "walls": ["west", "partition", "south", "north"],
+              "inside_paper_mm": inner(250, 300, 4000, 5800), "area_m2": 20.625},
+             {"name": "MEETING ROOM", "number": "102", "also": [], "walls": ["partition", "east", "south", "north"],
+              "inside_paper_mm": inner(4100, 300, 7700, 5800), "area_m2": 19.8}]
     marks = [{"label": label, "building_mm": list(p), "paper_mm": [r(c) for c in paper(p)]} for label, p in MARKS]
     return {"units": "paper_mm", "scale": "1:50", "page": 1, "walls": walls, "doors": doors, "marks": marks,
             "variants": {"one-weight": {"walls": 0, "doors": 0, "why": "one line weight on the page"},
                          "stray-arc": {"walls": 6, "doors": 1},
-                         "two-page": {"pages": 2, "page_read": 1, "walls": 5, "doors": 2}}}
+                         "two-page": {"pages": 2, "page_read": 1, "walls": 5, "doors": 2},
+                         "rooms": {"file": "drill-plan-L00-rooms.pdf", "walls": 5, "doors": 2, "rooms": rooms}}}
 
 
 def write(path, data):
@@ -152,6 +171,7 @@ def write(path, data):
 def main():
     fx = os.path.join(HERE, "fixtures")
     write(os.path.join(fx, "drill-plan-L00.pdf"), pdf([content("base")]))
+    write(os.path.join(fx, "drill-plan-L00-rooms.pdf"), pdf([content("rooms")]))
     write(os.path.join(fx, "drill-plan-L00.expected.json"), (json.dumps(expected(), indent=1) + "\n").encode())
     write(os.path.join(fx, "variants", "one-weight.pdf"), pdf([content("one-weight")]))
     write(os.path.join(fx, "variants", "stray-arc.pdf"), pdf([content("stray-arc")]))
