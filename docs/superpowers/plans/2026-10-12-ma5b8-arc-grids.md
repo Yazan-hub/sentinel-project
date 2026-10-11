@@ -18,7 +18,8 @@ kept"); `docs/superpowers/plans/2026-10-11-ma5b1-drawing-rooms.md` row 5b-8.
    (within the merge tolerance) are one grid (the longest kept).
 3. **Names (GR-01):** numbers for the lines within 45° of vertical, and for the spokes of a radial plan (a line whose extension passes
    within 5 mm of an arc grid's centre); letters (skipping I and O) for the lines within 45° of horizontal and for the arcs. Numbers run
-   by direction (the one nearest vertical first), then left to right; spokes by angle, anticlockwise from the first after +X. Letters run
+   by direction (the one nearest vertical first), then left to right; spokes (the lines of a direction that all pass through an arc's centre)
+   one centre at a time, anticlockwise from just after the fan's widest gap. Letters run
    by direction (the one nearest horizontal first), then bottom to top; arcs by radius, inner first, after the lines. A drawing of plain
    orthogonal grids is named exactly as before.
 4. **Revit:** an arc grid by `Grid.Create(doc, Arc)` (centre, radius, start and end angle as drawn); one in the model of the same centre
@@ -44,5 +45,5 @@ kept"); `docs/superpowers/plans/2026-10-11-ma5b1-drawing-rooms.md` row 5b-8.
 
 ## Drill MA5b8 (batch 2)
 
-- R-1: Datum on `ma5b8-radial.dxf`: the review lists the arc grids (A, B, C) and spokes (1..5) and the wing (lettered at 30°…); Create:
+- R-1: Datum on `ma5b8-radial.dxf`: the review lists the spokes (1..5), the wing (A, B, C, lettered at 30°) and the arc grids (D, E, F); Create:
   the arcs in Revit within 5 mm of the drawn radii; the wing kept at 30°; no grid from a bubble.

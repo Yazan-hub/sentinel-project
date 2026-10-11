@@ -183,6 +183,32 @@ Check("plain orthogonal grids are named as before (a line 0.004 degrees off stay
 var mixed = DatumFromDrawing.Grids(sq.Concat(new[] { new Seg(20000, 0, 20000 + 8000 * Math.Cos(80 * Math.PI / 180), 8000 * Math.Sin(80 * Math.PI / 180)) }).ToList());
 Check("a direction 10 degrees off vertical is numbered after the verticals", string.Join(",", mixed.Select(g => g.Name)) == "1,2,3,4,A,B" && Math.Abs(mixed[3].AngleDeg - 80) < 0.01);
 
+// Review (MA-5b-8): the cases the first version got wrong.
+var slab = Enumerable.Range(0, 11).Select(i => new Seg(i * 10000, -1000, i * 10000, 21000)).Concat(new[] { 0, 10000, 20000 }.Select(y => new Seg(-1000, y, 101000, y))).ToList();
+Check("a 100 x 20 m slab block: its 22 m grids cross the 102 m ones and are kept, 1-11 then A-C", string.Join(",", DatumFromDrawing.Grids(slab).Select(g => g.Name)) == "1,2,3,4,5,6,7,8,9,10,11,A,B,C");
+var part = new[] { 0, 6000, 18000, 24000 }.Select(x => new Seg(x, -1000, x, 61000)).Append(new Seg(12000, 20000, 12000, 32000)).Concat(new[] { 0, 30000, 60000 }.Select(y => new Seg(-1000, y, 25000, y))).ToList();
+var pg = DatumFromDrawing.Grids(part);
+Check("a 12 m partial grid crossing one long grid is kept in its place (x=12000 is 3)", pg.First(g => g.Vertical && Math.Abs(g.X1 - 12000) < 1).Name == "3" && pg.Count(g => g.Vertical) == 5);
+var setout = new[] { 0, 6000, 12000, 18000, 24000 }.Select(x => new Seg(x, -1000, x, 19000)).Concat(new[] { 0, 6000, 12000, 18000 }.Select(y => new Seg(-1000, y, 25000, y))).ToList();
+var so = DatumFromDrawing.Grids(setout, planArcs: new[] { new GridArc { Cx = 12000, Cy = 6000, R = 15000, StartDeg = 0, EndDeg = 90 } });
+Check("an arc set out from a grid intersection: the grids through its centre keep their names (1-5, A-D), the arc is E",
+      string.Join(",", so.Select(g => g.Name)) == "1,2,3,4,5,A,B,C,D,E" && so.First(g => g.Name == "3").Vertical && Math.Abs(so.First(g => g.Name == "3").X1 - 12000) < 1 && so.Last().IsArc);
+var fan = new[] { -45.0, -22.5, 0, 22.5, 45 }.Select(d => At(0, 0, d, 15000, 32000)).ToList();
+var fg2 = DatumFromDrawing.Grids(fan, planArcs: new[] { new GridArc { Cx = 0, Cy = 0, R = 25000, StartDeg = 315, EndDeg = 405 } });
+Check("a fan across +X runs -45, -22.5, 0, 22.5, 45 as 1-5", fg2.Take(5).Select(FarAngle).SequenceEqual(new[] { -45.0, -22.5, 0, 22.5, 45 }));
+var hubLines = new[] { 0, 30, 60, 90 }.Select(d => At(0, 0, d, 0, 40000)).ToList();
+var hg = DatumFromDrawing.Grids(hubLines, planArcs: new[] { 6000.0, 20000, 30000 }.Select(r => new GridArc { Cx = 0, Cy = 0, R = r, StartDeg = 0, EndDeg = 90 }));
+Check("a radial plan's inner ring (6 m, under a quarter of the 40 m spokes) is kept: its centre is the spokes' hub",
+      hg.Where(g => g.IsArc).Select(g => g.R).SequenceEqual(new[] { 6000.0, 20000, 30000 }));
+var twoHubs = new[] { 0.0, 45, 90 }.Select(d => At(0, 0, d, 15000, 30000)).Concat(new[] { 0.0, 45, 90 }.Select(d => At(100000, 0, d, 15000, 30000))).ToList();
+var th = DatumFromDrawing.Grids(twoHubs, planArcs: new[] { new GridArc { Cx = 0, Cy = 0, R = 20000, StartDeg = 0, EndDeg = 90 }, new GridArc { Cx = 100000, Cy = 0, R = 20000, StartDeg = 0, EndDeg = 90 } });
+Check("two radial groups at the same angles keep all six spokes, numbered one centre at a time", th.Count(g => g.Vertical) == 6 && string.Join(",", th.Where(g => g.Vertical).Select(g => g.Name)) == "1,2,3,4,5,6"
+      && th.Take(3).All(g => Math.Min(g.X1, g.X2) < 50000) && th.Skip(3).Take(3).All(g => Math.Min(g.X1, g.X2) > 50000));
+var turned = new[] { 0.0, 6000 }.Select(o => new Seg(o * 0.7071, -o * 0.7071, o * 0.7071 + 20000 * 0.7071, -o * 0.7071 + 20000 * 0.7071))
+    .Concat(new[] { 0.0, 6000 }.Select(o => new Seg(o * 0.7071, o * 0.7071, o * 0.7071 - 20000 * 0.7071, o * 0.7071 + 20000 * 0.7071))).ToList();
+var tg = DatumFromDrawing.Grids(turned);
+Check("a plan turned 45 degrees: one direction numbered, the other lettered", tg.Count(g => g.Vertical) == 2 && tg.Count(g => !g.Vertical) == 2 && tg.All(g => gr01.IsMatch(g.Name)));
+
 // The drill's radial drawing (make-datum-sample.py --ma5b8), lines, arcs and circles on S-GRID-IDEN, read as DatumBuilder reads them.
 (List<Seg> L, List<GridArc> A) Read(string file, string layer)
 {

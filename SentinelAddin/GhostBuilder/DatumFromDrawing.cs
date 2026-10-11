@@ -104,8 +104,8 @@ namespace Sentinel.GhostBuilder
         /// Lines group by direction (within the drawing tolerance of ~1.15°, the old 2 % slope); in a direction, lines whose offsets are within
         /// <paramref name="mergeTolMm"/> are one grid (the longest kept); arcs of one centre (5 mm) and radius (the merge) likewise.
         /// Names follow GR-01 (letters or numbers): numbers for lines within 45° of vertical (the direction nearest vertical first, then left to
-        /// right) and then for the spokes of a radial plan (a line whose extension passes within 5 mm of an arc grid's centre), by angle
-        /// anticlockwise from +X; letters (never I or O) for lines within 45° of horizontal (nearest horizontal first, then bottom to top) and then
+        /// right) and then for the spokes of a radial plan (the lines of a direction that all pass within 5 mm of an arc grid's
+        /// centre), one centre at a time, anticlockwise from just after the fan's widest gap; letters (never I or O) for lines within 45° of horizontal (nearest horizontal first, then bottom to top) and then
         /// for the arcs, inner first. Plain orthogonal grids are named exactly as before.
         /// </summary>
         public static List<DetectedGrid> Grids(IEnumerable<Seg> planLines, double mergeTolMm = 100.0, ISet<char> skipLetters = null,
@@ -114,19 +114,34 @@ namespace Sentinel.GhostBuilder
             skipLetters ??= DefaultSkip;
             var all = (planLines ?? Enumerable.Empty<Seg>()).Where(s => s.Length > 1e-6).ToList();
             double min = (all.Count == 0 ? 0 : all.Max(l => l.Length)) / 4;
-            var lines = all.Where(l => l.Length >= min).ToList();
+            double tolDeg = Math.Atan(0.02) * 180 / Math.PI;
+            double Dir(Seg l) { double d = Math.Atan2(l.Y2 - l.Y1, l.X2 - l.X1) * 180 / Math.PI; d = ((d % 180) + 180) % 180; return d >= 180 - tolDeg ? d - 180 : d; }
+            // Review: a shorter line is a grid too when it is at least 2 m long and properly crosses a long line of another direction — the
+            // short direction of a long block, a partial grid; a bubble's leader or a tick crosses nothing, or is shorter.
+            bool Crosses(Seg a, Seg b)
+            {
+                double d = Math.Abs(Dir(a) - Dir(b)) % 180;
+                if (Math.Min(d, 180 - d) <= tolDeg) return false;
+                double rx = a.X2 - a.X1, ry = a.Y2 - a.Y1, sx = b.X2 - b.X1, sy = b.Y2 - b.Y1, den = rx * sy - ry * sx;
+                if (Math.Abs(den) < 1e-12) return false;
+                double t = ((b.X1 - a.X1) * sy - (b.Y1 - a.Y1) * sx) / den, u = ((b.X1 - a.X1) * ry - (b.Y1 - a.Y1) * rx) / den;
+                return t > 0 && t < 1 && u > 0 && u < 1;
+            }
+            var lng = all.Where(l => l.Length >= min).ToList();
+            var lines = all.Where(l => l.Length >= min || l.Length >= 2000 && lng.Any(g => Crosses(l, g))).ToList();
 
-            // Arcs: big enough, not whole circles; one per centre and radius (the widest sweep kept).
+            // Arcs: big enough (or, review: the inner ring of a radial plan — two grid directions meet at its centre), not whole circles; one
+            // per centre and radius (the widest sweep kept).
+            bool Through(GridArc a, Seg l) => Math.Abs((a.Cx - l.X1) * (l.Y2 - l.Y1) - (a.Cy - l.Y1) * (l.X2 - l.X1)) / l.Length <= 5;
+            bool Hub(GridArc a) => lines.Where(l => Through(a, l)).Select(l => Math.Round(Dir(l))).Distinct().Count() >= 2;
             var arcs = new List<GridArc>();
-            foreach (var a in (planArcs ?? Enumerable.Empty<GridArc>()).Where(a => a.R > 0 && a.R >= min).OrderByDescending(a => a.Span))
+            foreach (var a in (planArcs ?? Enumerable.Empty<GridArc>()).Where(a => a.R > 0 && (a.R >= min || a.Span < 359.9 && Hub(a))).OrderByDescending(a => a.Span))
             {
                 if (a.Span >= 359.9) { warnings?.Add($"A whole circle of radius {a.R:0} mm on a grid layer, centre ({a.Cx:0}, {a.Cy:0}) — Revit makes no grid of a whole circle; draw it as an arc."); continue; }
                 if (!arcs.Any(k => Math.Abs(k.Cx - a.Cx) <= 5 && Math.Abs(k.Cy - a.Cy) <= 5 && Math.Abs(k.R - a.R) <= mergeTolMm)) arcs.Add(a);
             }
 
             // Lines: by direction, then by offset (the longest kept at each).
-            double tolDeg = Math.Atan(0.02) * 180 / Math.PI;
-            double Dir(Seg l) { double d = Math.Atan2(l.Y2 - l.Y1, l.X2 - l.X1) * 180 / Math.PI; d = ((d % 180) + 180) % 180; return d >= 180 - tolDeg ? d - 180 : d; }
             var families = new List<(double Deg, List<Seg> Lines)>();
             foreach (var l in lines.OrderBy(Dir))
             {
@@ -134,37 +149,55 @@ namespace Sentinel.GhostBuilder
                 var f = families.FirstOrDefault(x => Math.Abs(x.Deg - d) <= tolDeg);
                 if (f.Lines == null) families.Add((d, new List<Seg> { l })); else f.Lines.Add(l);
             }
-            GridArc CentreOf(Seg l) => arcs.FirstOrDefault(a => Math.Abs((a.Cx - l.X1) * (l.Y2 - l.Y1) - (a.Cy - l.Y1) * (l.X2 - l.X1)) / l.Length <= 5);
+            // review: the nearest centre a line passes through (two radial groups may line up)
+            double D2(GridArc a, double x, double y) => (a.Cx - x) * (a.Cx - x) + (a.Cy - y) * (a.Cy - y);
+            GridArc CentreOf(Seg l) => arcs.Where(a => Through(a, l)).OrderBy(a => Math.Min(D2(a, l.X1, l.Y1), D2(a, l.X2, l.Y2))).FirstOrDefault();
             var numbered = new List<(double Key1, double Key2, Seg Line, double Deg)>();
             var lettered = new List<(double Key1, double Key2, Seg Line, double Deg)>();
-            var spokes = new List<(double Ang, Seg Line, double Deg)>();
+            var spokes = new List<(double Ang, Seg Line, double Deg, GridArc C)>();
             foreach (var (_, fl) in families)
             {
                 double deg = fl.Average(Dir), r = deg * Math.PI / 180;
-                bool num = Math.Abs(deg - 90) <= 45;
+                bool num = deg > 45 + 1e-6 && deg <= 135 + 1e-6; // review: a plan turned exactly 45 degrees keeps one numbered and one lettered direction
                 // the normal across the direction: +X-ward for a numbered direction (left to right), +Y-ward for a lettered one (bottom to top)
                 double nx = -Math.Sin(r), ny = Math.Cos(r);
                 if (num ? nx < 0 : ny < 0) { nx = -nx; ny = -ny; }
                 double Off(Seg l) => (l.X1 + l.X2) / 2 * nx + (l.Y1 + l.Y2) / 2 * ny;
-                foreach (var l in Dedupe(fl.Where(x => CentreOf(x) == null).OrderBy(Off), Off, mergeTolMm))
-                    (num ? numbered : lettered).Add((num ? Math.Abs(deg - 90) : Math.Min(Math.Abs(deg), Math.Abs(180 - deg)), Off(l), l, deg));
+                var kept = Dedupe(fl.OrderBy(Off), Off, mergeTolMm);
+                // review: a direction is spokes when every line kept in it passes through an arc's centre (one fan, or two fans at the same
+                // angles); a set of parallel grids keeps its own names even when one of them passes through a centre (an arc set out from a
+                // grid intersection)
+                if (!kept.All(l => CentreOf(l) != null))
+                {
+                    foreach (var l in kept)
+                        (num ? numbered : lettered).Add((num ? Math.Abs(deg - 90) : Math.Min(Math.Abs(deg), Math.Abs(180 - deg)), Off(l), l, deg));
+                    continue;
+                }
                 foreach (var l in fl.Where(x => CentreOf(x) != null))
                 {
                     var c = CentreOf(l);
-                    // the end away from the centre gives its angle; one spoke per angle (the longest kept)
-                    var (fx, fy) = Math.Pow(l.X1 - c.Cx, 2) + Math.Pow(l.Y1 - c.Cy, 2) > Math.Pow(l.X2 - c.Cx, 2) + Math.Pow(l.Y2 - c.Cy, 2) ? (l.X1, l.Y1) : (l.X2, l.Y2);
+                    // the end away from the centre gives its angle; one spoke per centre and angle (the longest kept)
+                    var (fx, fy) = D2(c, l.X1, l.Y1) > D2(c, l.X2, l.Y2) ? (l.X1, l.Y1) : (l.X2, l.Y2);
                     double ang = (Math.Atan2(fy - c.Cy, fx - c.Cx) * 180 / Math.PI + 360) % 360;
-                    int k = spokes.FindIndex(sp => Math.Abs(sp.Ang - ang) <= 0.5);
-                    if (k < 0) spokes.Add((ang, l, deg));
-                    else if (l.Length > spokes[k].Line.Length) spokes[k] = (ang, l, deg);
+                    int k = spokes.FindIndex(sp => sp.C == c && Math.Abs(sp.Ang - ang) <= 0.5);
+                    if (k < 0) spokes.Add((ang, l, deg, c));
+                    else if (l.Length > spokes[k].Line.Length) spokes[k] = (ang, l, deg, c);
                 }
             }
 
             var grids = new List<DetectedGrid>();
             int n = 0, a0 = 0;
-            foreach (var x in numbered.OrderBy(x => Math.Round(x.Key1, 6)).ThenBy(x => x.Key2)) grids.Add(New(x.Line, (++n).ToString(CultureInfo.InvariantCulture), true, x.Deg));
-            foreach (var x in spokes.OrderBy(x => x.Ang)) grids.Add(New(x.Line, (++n).ToString(CultureInfo.InvariantCulture), true, x.Deg));
-            foreach (var x in lettered.OrderBy(x => Math.Round(x.Key1, 6)).ThenBy(x => x.Key2)) grids.Add(New(x.Line, Letter(a0++, skipLetters), false, x.Deg));
+            foreach (var x in numbered.OrderBy(x => Math.Round(x.Key1, 6)).ThenBy(x => Math.Round(x.Deg, 6)).ThenBy(x => x.Key2)) grids.Add(New(x.Line, (++n).ToString(CultureInfo.InvariantCulture), true, x.Deg));
+            // spokes one centre at a time; a fan runs anticlockwise from just after its widest empty gap (a fan across +X: -45, 0, 45)
+            foreach (var hub in spokes.GroupBy(x => x.C).OrderBy(g => g.Key.Cx).ThenBy(g => g.Key.Cy))
+            {
+                var sa = hub.OrderBy(x => x.Ang).ToList();
+                int first = 0;
+                double gap = sa[0].Ang + 360 - sa[sa.Count - 1].Ang;
+                for (int i = 1; i < sa.Count; i++) if (sa[i].Ang - sa[i - 1].Ang > gap + 1e-9) { gap = sa[i].Ang - sa[i - 1].Ang; first = i; }
+                foreach (var x in sa.Skip(first).Concat(sa.Take(first))) grids.Add(New(x.Line, (++n).ToString(CultureInfo.InvariantCulture), true, x.Deg));
+            }
+            foreach (var x in lettered.OrderBy(x => Math.Round(x.Key1, 6)).ThenBy(x => Math.Round(x.Deg, 6)).ThenBy(x => x.Key2)) grids.Add(New(x.Line, Letter(a0++, skipLetters), false, x.Deg));
             foreach (var a in arcs.OrderBy(a => a.R).ThenBy(a => a.Cx).ThenBy(a => a.Cy))
             {
                 double s0 = a.StartDeg * Math.PI / 180, s1 = a.EndDeg * Math.PI / 180;
