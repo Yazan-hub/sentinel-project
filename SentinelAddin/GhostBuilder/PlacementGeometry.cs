@@ -9,6 +9,14 @@ namespace Sentinel.GhostBuilder;
 
 public static class PlacementGeometry
 {
+    /// <summary>MA-5b-4 (C13b): a reshape's stale guard — does a wall whose ends are now (x0, y0)-(x1, y1) mm still run where it was
+    /// placed (start, end mm), within tol in plan, either way round? Pure.</summary>
+    public static bool AsPlaced(double x0, double y0, double x1, double y1, double[] start, double[] end, double tolMm)
+    {
+        bool Near(double x, double y, double[] q) => Math.Abs(x - q[0]) <= tolMm && Math.Abs(y - q[1]) <= tolMm;
+        return (Near(x0, y0, start) && Near(x1, y1, end)) || (Near(x0, y0, end) && Near(x1, y1, start));
+    }
+
     /// <summary>How far a door's or window's point may lie from its host wall's location line (mm): the proposal puts it ON
     /// the line, this absorbs rounding only.</summary>
     public const double HostTolMm = 1.0;

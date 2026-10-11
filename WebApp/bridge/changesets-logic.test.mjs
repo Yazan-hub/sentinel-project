@@ -226,14 +226,14 @@ describe("validateChangeset — ops, TypeName and exceptions (MA-0)", () => {
     expect(carryKey(retype({ target: { unique_id: UID, ifc_guid: G } }))).toBe(carryKey(retype()));
   });
 
-  it("OPS is create, retype, attach, set_parameter (MA-2c); VOCABULARY is the MA-1 list", () => {
-    expect(OPS).toEqual(["create", "retype", "attach", "set_parameter"]);
+  it("OPS is create, retype, attach, set_parameter (MA-2c), reshape (MA-5b-4); VOCABULARY is the MA-1 list", () => {
+    expect(OPS).toEqual(["create", "retype", "attach", "set_parameter", "reshape"]);
     expect(VOCABULARY).toEqual(MA1);
   });
 
   it("OP_KINDS: create takes the vocabulary, retype and set_parameter six element kinds, attach walls only", () => {
     const SIX = ["wall", "floor", "roof", "ceiling", "door", "window"];
-    expect(OP_KINDS).toEqual({ create: VOCABULARY, retype: SIX, attach: ["wall"], set_parameter: SIX });
+    expect(OP_KINDS).toEqual({ create: VOCABULARY, retype: SIX, attach: ["wall"], set_parameter: SIX, reshape: ["wall"] });
   });
 
   it("op defaults to create and is echoed back, with no target, no reason and no exceptions", () => {
@@ -1053,6 +1053,33 @@ describe("validateChangeset — set_parameter (MA-2c)", () => {
     expect(body.elements.map((e) => e.op)).toEqual(["retype", "retype", "set_parameter", "set_parameter"]);
     expect(v.ignored).toEqual([]); // the add-in sends nothing the bridge sets itself
     expect(v.exceptions).toEqual(body.exceptions);
+  });
+});
+
+// MA-5b-4 (C13b): a placed wall moved to where a revised drawing draws it — the bridge's only, its stale guard where the wall was placed
+describe("validateChangeset — reshape (MA-5b-4)", () => {
+  const UID = "5a1c2b3d-1111-2222-3333-444455556666-0004c3f8";
+  const R = (over = {}, place = {}) => ({ op: "reshape", kind: "wall", cid: "drawing-ev-0008-p1-wall-4", validate: { identity: { Class: "IFCWALL", Name: "drawing-ev-0008-p1-wall-4" } },
+    target: { unique_id: UID, placed: { start: [47850, 0, 0], end: [47850, 6000, 0] } }, place: { LocationCurve: { start: [47950, 0, 0], end: [47950, 6000, 0] }, ...place }, ...over });
+  const TRUST = { measured: { thickness_mm: 300 }, pretick: false, accuracy: { status: "inferred", basis: "drawing" } };
+  const JOB = { record: { id: "job-0006", ledger_id: 3002 }, byCid: new Map([["drawing-ev-0008-p1-wall-4", TRUST]]) };
+  const ok = (el) => validateChangeset({ name: "Drawing job-0006", contract: 2, elements: [el] }, { member: true, job: JOB }).elements[0];
+
+  it("from a job: kept with its placed line as the stale guard, never pre-ticked", () => {
+    expect(ok(R())).toMatchObject({ op: "reshape", kind: "wall", target: { unique_id: UID, type_before: null, placed: { start: [47850, 0, 0], end: [47850, 6000, 0] } },
+      place: { LocationCurve: { start: [47950, 0, 0], end: [47950, 6000, 0] } }, pretick: false });
+    expect(OP_KINDS.reshape).toEqual(["wall"]);
+  });
+  it("posted in a body it is refused — only the bridge builds one", () => {
+    status400(() => validateChangeset({ name: "x", elements: [R()] }, { member: true }), /a reshape is the bridge's — it is proposed from a revised drawing \(revises\), never posted/);
+  });
+  it("needs a straight new line, the placed line, and keeps the type", () => {
+    status400(() => ok(R({}, { LocationCurve: { start: [1, 2, 0], end: [1, 2, 0] } })), /reshape needs place\.LocationCurve, a straight finite \[x,y,z\] start and end apart/);
+    status400(() => ok(R({}, { LocationCurve: { start: [0, 0, 0], end: [10, 0, 0], mid: [5, 3, 0] } })), /a straight finite/);
+    status400(() => ok(R({ target: { unique_id: UID } })), /reshape needs target\.placed \{start, end\}/);
+    status400(() => ok(R({}, { TypeName: "T" })), /reshape keeps the wall's type — a retype is its own ghost/);
+    status400(() => ok(R({ target: { unique_id: UID, type_before: "X", placed: { start: [0, 0, 0], end: [1, 0, 0] } } })), /reshape takes no target\.type_before/);
+    status400(() => ok(R({ kind: "door" })), /kind "door" is not supported for reshape/);
   });
 });
 

@@ -624,12 +624,17 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                     foreach (var (one, res) in result.Each)
                     {
                         var oneGone = res.Gone.Select(a => a.ProposalGuid).ToList();
-                        var rejected = StoreyBatch.Own(one, unticked).Concat(oneGone).Distinct().ToList();
+                        // MA-5b-4: a reshape Revit kept (the wall edited by hand since it was placed) is rejected with its reason, never applied
+                        var oneKept = res.Kept.Select(k => k.ProposalGuid).ToList();
+                        var rejected = StoreyBatch.Own(one, unticked).Concat(oneGone).Concat(oneKept).Distinct().ToList();
                         var said = oneGone.Count == 0 ? note : $"{oneGone.Count} element(s) removed by Revit at commit" + (string.IsNullOrEmpty(note) ? "" : $" | reviewer: {note}");
+                        if (oneKept.Count > 0) said = $"{oneKept.Count} wall(s) kept as they stand — edited by hand since placed, not reshaped" + (string.IsNullOrEmpty(said) ? "" : " | " + said);
+                        var whys = StoreyBatch.Own(one, reasons);
+                        foreach (var (g, why) in res.Kept) whys[g] = why;
                         if (result.Block != null) said = result.Block + (string.IsNullOrEmpty(said) ? "" : " | " + said); // MA-1a item 5
                         if (result.Ids != null) said = result.Ids + (string.IsNullOrEmpty(said) ? "" : " | " + said);     // MA-2b
                         // MA-3a: the revision Apply re-checked. Remembered for the undo watcher under the Undo entry's name and the changeset's own.
-                        records.Add(ResultOf(key, one, res.Applied, rejected, said, one.ReviewRev, here, new List<string> { undo, UndoWatcher.TxName(one.Name, one.Id) }, StoreyBatch.Own(one, reasons)));
+                        records.Add(ResultOf(key, one, res.Applied, rejected, said, one.ReviewRev, here, new List<string> { undo, UndoWatcher.TxName(one.Name, one.Id) }, whys));
                     }
                     foreach (var r in records) r.Path = doc.PathName ?? ""; // MA-3b2 review C16: the file itself, beside Doc (a local's central)
                     // AI-2: the record first — on this PC before the report is sent, so a result the bridge never hears of is never forgotten

@@ -32,7 +32,7 @@ export interface DeskJob {
 }
 export interface Ghost {
   proposal_guid: string; kind: string; op?: string | null;
-  target?: { unique_id?: string; type_before?: string; ifc_guid?: string | null } | null;
+  target?: { unique_id?: string; type_before?: string; ifc_guid?: string | null; placed?: { start: number[]; end: number[] } } | null;
   place?: { TypeName?: string; FamilyName?: string; LevelName?: string; BaseLevel?: string; TopLevel?: string; Name?: string } | null;
   validate?: { identity?: { Name?: string } } | null;
   parameter?: string; from?: string; to?: string;
@@ -111,6 +111,8 @@ export function ghostLine(el: Ghost): string {
   switch (el.op) {
     case "retype": return `${name} · ${el.target?.type_before ?? "?"} → ${type}`;
     case "attach": return `${name} · ${el.place?.BaseLevel ?? "?"} → top ${el.place?.TopLevel ?? "?"}`;
+    // MA-5b-4: a placed wall moved to the revised drawing's line — Revit keeps one a person edited since it was placed
+    case "reshape": return `${name} · reshape ${el.target?.unique_id ?? "?"} to the revised drawing's line (kept as it stands if edited by hand since placed)`;
     case "set_parameter": return `${type} · ${el.parameter} "${el.from ?? ""}" → "${el.to ?? ""}" (a type edit: it reaches every element of the type)`;
     // MA-5b-1: a room reads its number, then its name (Revit's review row: room: 101 · OFFICE · its level)
     default: return `${name}${el.place?.Name && el.place.Name !== name ? " · " + el.place.Name : ""}${el.place?.TypeName ? " · " + type : ""}${el.place?.LevelName ? " · " + el.place.LevelName : ""}`;
