@@ -996,7 +996,7 @@ describe("proposeFromJob (MA-4d): a lead turns a trusted survey job into changes
     await quiet({ readPack: vi.fn(async () => { throw Object.assign(new Error("ma4c-drill has no evidence pack — an office row holds none"), { status: 409 }); }) },
       "ma4c-drill has no evidence pack — an office row holds none — nothing was saved"); // a callee's words get the house ending
     const docs = await firstDocs();
-    await quiet({ docList: vi.fn(async () => docs) }, "nothing new to propose from job-0002 — every candidate that types is filed already (Survey job-0002 · GR-FFL: proposed; Survey job-0002 · Scan L01 job-0002: proposed): withdraw a proposed one on the Review desk to propose it again; an applied one stays applied here after an Undo in Revit — run the survey again to propose it afresh; nothing was saved");
+    await quiet({ docList: vi.fn(async () => docs) }, "nothing new to propose from job-0002 — every candidate that types is filed already (Survey job-0002 · GR-FFL: proposed; Survey job-0002 · Scan L01 job-0002: proposed): decline a proposed one in Revit (Review AI Proposals → Decline all, with a reason) to propose it again; an applied one stays applied here after an Undo in Revit — run the survey again to propose it afresh; nothing was saved");
     await quiet({ docList: vi.fn(async () => docs.map((c) => ({ ...c, status: "applied" }))) }, expect.stringContaining("(Survey job-0002 · GR-FFL: applied; Survey job-0002 · Scan L01 job-0002: applied)"));
     await quiet({ docList: vi.fn(async () => docs) }, "Survey job-0002 · GR-FFL (proposed) was filed from job-0002 with the scan moved 40000, 0, 0 mm, turned 0° — send that frame (one job is one frame), or run the survey again to propose it afresh; nothing was saved", 409, { frame: { ...FRAME, dx_mm: 0 } });
     const other = docs.map((c) => ({ ...c, name: c.name.replace("job-0002", "job-0001"), job: { ...c.job, id: "job-0001", ledger_id: 2200 } }));
@@ -1027,18 +1027,18 @@ describe("proposeFromJob (MA-4d): a lead turns a trusted survey job into changes
     const deps = sdeps(); let n = 0; const insert = deps.docInsert;
     deps.docInsert = vi.fn(async (...a) => { if (++n === 2) throw new Error("the store is down"); return insert(...a); });
     await expect(propose(deps)).rejects.toMatchObject({ status: 502,
-      message: "Survey job-0002 · GR-FFL was filed; the filing stopped at Survey job-0002 · Scan L01 job-0002 (the store is down) — withdraw it on the Review desk, then propose job-0002 again" });
+      message: "Survey job-0002 · GR-FFL was filed; the filing stopped at Survey job-0002 · Scan L01 job-0002 (the store is down) — decline it in Revit (Review AI Proposals → Decline all, with a reason), then propose job-0002 again" });
   });
   it("(g) the type-gap row failing after the filing says what was filed — never a raw 5xx (decision 19 would refuse the retry)", async () => {
     const deps = sdeps(); let n = 0; const write = deps.audit;
     deps.audit = vi.fn(async (...a) => { if (++n === 3) throw new Error("the ledger is down"); return write(...a); });
     await expect(propose(deps)).rejects.toMatchObject({ status: 502,
-      message: "Survey job-0002 · GR-FFL, Survey job-0002 · Scan L01 job-0002 were filed; the type-gap row was not written (the ledger is down) — withdraw them on the Review desk, then propose job-0002 again" });
+      message: "Survey job-0002 · GR-FFL, Survey job-0002 · Scan L01 job-0002 were filed; the type-gap row was not written (the ledger is down) — decline them in Revit (Review AI Proposals → Decline all, with a reason), then propose job-0002 again" });
   });
   it("(h) a doc stored before its changeset_proposed row failed is named as filed (the first storey too)", async () => {
     const deps = sdeps(); deps.audit = vi.fn(async () => { throw new Error("the ledger is down"); });
     await expect(propose(deps)).rejects.toMatchObject({ status: 502,
-      message: "Survey job-0002 · GR-FFL was filed; the filing stopped at Survey job-0002 · GR-FFL (the ledger is down) — withdraw it on the Review desk, then propose job-0002 again" });
+      message: "Survey job-0002 · GR-FFL was filed; the filing stopped at Survey job-0002 · GR-FFL (the ledger is down) — decline it in Revit (Review AI Proposals → Decline all, with a reason), then propose job-0002 again" });
   });
   it("(i) two at once (a double-click, two leads): one files, the other is a 409 before anything is written — one job never filed twice", async () => {
     const deps = sdeps();
@@ -1158,7 +1158,7 @@ describe("proposeFromJob (MA-5a-4): a lead aligns a drawing job by two points �
     const d0 = ddeps(); await propose(d0); const docs = [...d0.saved.values()];
     await quiet({ docList: vi.fn(async () => docs) }, "Drawing job-0005 · ev-0007 · Drawing ev-0007 job-0005 (proposed) was filed from job-0005 with ev-0007 aligned at 1:50, turned 0°, moved 37000, -2000 mm, at 0 mm (points [60,40] → [40000,0], [220,160] → [48000,6000]) — send those points and that elevation (one drawing is one alignment), or read the drawing again to propose it afresh; nothing was saved",
       409, { ...BODY, elevation_mm: 3000 });
-    await quiet({ docList: vi.fn(async () => docs) }, "nothing new to propose from job-0005 — every candidate that types is filed already (Drawing job-0005 · ev-0007 · Drawing ev-0007 job-0005: proposed): withdraw a proposed one on the Review desk to propose it again; an applied one stays applied here after an Undo in Revit — read the drawing again to propose it afresh; nothing was saved");
+    await quiet({ docList: vi.fn(async () => docs) }, "nothing new to propose from job-0005 — every candidate that types is filed already (Drawing job-0005 · ev-0007 · Drawing ev-0007 job-0005: proposed): decline a proposed one in Revit (Review AI Proposals → Decline all, with a reason) to propose it again; an applied one stays applied here after an Undo in Revit — read the drawing again to propose it afresh; nothing was saved");
   });
   it("(d) review: the same points proposed again read back from jsonb (keys reordered) are the same alignment — 'nothing new', never 'another alignment'", async () => {
     const jsonb = (v) => JSON.parse(JSON.stringify(v, (_k, x) => (x && typeof x === "object" && !Array.isArray(x)

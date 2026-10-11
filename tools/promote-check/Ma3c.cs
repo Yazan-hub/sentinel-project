@@ -42,7 +42,7 @@ static partial class Check
         Ok(none.All(e => GhostOverlayGeometry.Segments(e, true, false).Count == 0) && none.All(e => !GhostOverlayGeometry.Drawable(e)), "MA-3c: a retype, a type edit, a level and a create with no place draw nothing and are not counted as drawable creates");
         var b = GhostOverlayGeometry.Bounds(s);
         Ok(b != null && b[0].SequenceEqual(new double[] { 0, 0, 0 }) && b[1].SequenceEqual(new double[] { 4000, 0, 3000 }) && GhostOverlayGeometry.Bounds(new List<GhostOverlayGeometry.Segment>()) == null, "MA-3c: Bounds is the least and greatest corner, null when empty");
-        Ok(GhostOverlayGeometry.Line(0, 0) == "No ghost to draw: this review proposes no create (a retype or attach changes an element that exists — Show selects it)."
+        Ok(GhostOverlayGeometry.Line(0, 0) == "No ghost to draw: this review proposes no create (a retype, attach or reshape changes an element that exists — Show selects it)."
            && GhostOverlayGeometry.Line(2, 0) == "No ghost to draw: the 2 proposed create(s) carry no points to draw from."
            && GhostOverlayGeometry.Line(3, 2) == "2 of 3 proposed create(s) outlined in this model's 3D views, plans and sections — a see-through face and its edges, ticked green, unticked grey, declined red; nothing is written. Open one to see them; they go when this window closes or Apply places them.",
            "MA-3c: the window's line says how many outlines, in which colours, and when they go");

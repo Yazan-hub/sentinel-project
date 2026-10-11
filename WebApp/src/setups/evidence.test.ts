@@ -274,7 +274,7 @@ describe("drawing jobs (MA-5a-3) — sentinel-drawing on the admitted PDF plans"
     expect(src).toContain("readableDrawings(pack).length");
     expect(src).toContain(`j.status === "done" && j.candidates_total && can.propose ? `);
     expect(src).toContain(`(proposing === j.id ? (isDrawingJob(j) ? alignForm(j) : proposeForm(proposeLevels ?? [])) : "")`);
-    expect(src).toContain(`line("Drawings — sentinel-drawing reads page 1 of the admitted vector PDF plans on this PC: walls (two faces in the page's heaviest line weight) and doors (swing arcs, with any W x H tag), in paper millimetres. A lead proposes a done drawing job by two marks (a 2-point alignment): the bridge types its walls exactly and its doors by size, as a scan's, every ghost inferred and unticked; a DWG is Ghost Builder's, in Revit.", "#9ca3af")`);
+    expect(src).toContain(`line("Drawings — sentinel-drawing reads page 1 of the admitted vector PDF plans on this PC: walls (two faces in the page's heaviest line weight), doors (swing arcs, with any W x H tag) and room labels (a name, and its number when one is written), in paper millimetres. A lead proposes a done drawing job by two marks (a 2-point alignment): the bridge types its walls exactly and its doors by size, as a scan's, every ghost inferred and unticked; a room is placed where its label stands, and only when the walls round it close; a DWG is Ghost Builder's, in Revit.", "#9ca3af")`);
     expect(src).toContain(`drawingStartLine((await startDrawing(base, pid())).job)`);
     // one press, one proposal; only a 201 closes the form; what was typed is kept across a refusal
     expect(src).toContain(`const body = alignBody((alignDraft = readAlign())), id = proposing!;`);

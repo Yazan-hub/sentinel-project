@@ -654,7 +654,7 @@ public sealed class ChangesetExecutor
                     throw new InvalidOperationException($"reshape \"{name}\" has no new line or no placed line");
                 if (!(doc.GetElement(el.Target.UniqueId ?? "") is Wall w))
                 {
-                    result.Kept.Add((el.ProposalGuid, $"wall {el.Target.UniqueId} is no longer in this model — not reshaped (deleted by hand?)"));
+                    result.Kept.Add((el.ProposalGuid, $"wall {el.Target.UniqueId} is no longer in this model — not reshaped (deleted by hand, or replaced: Revit's Move with Disjoin gives a wall a new id)"));
                     continue;
                 }
                 if (!(((w.Location as LocationCurve)?.Curve) is Line now))
@@ -732,6 +732,17 @@ public sealed class ChangesetExecutor
                 for (int i = 0; i < made.Count; i++)
                     if (!(made[i].Area > 0))
                         throw new PlacementRefused($"{spots[i].name} is not enclosed on {spots[i].level.Name} — a wall round it is unticked, held or a type gap: untick the room, or place its walls first; nothing was placed");
+                // drill MA5b (F-MA5b-2): enclosed is not enough — with a wall of this changeset unticked, walls already standing can close a larger
+                // area round the label (the two rooms an unticked partition splits): an unticked wall on its level through the room refuses it
+                var unticked = cs.Elements.Where(e => IsCreate(e) && e.Kind == "wall" && !tickedGuids.Contains(e.ProposalGuid)
+                                                      && e.Place?.LocationCurve?.Start is { Length: >= 2 } && e.Place.LocationCurve.End is { Length: >= 2 }).ToList();
+                for (int i = 0; i < made.Count; i++)
+                    foreach (var w in unticked.Where(w => string.Equals(w.Place.LevelName, spots[i].el.Place.LevelName, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        double[] a = w.Place.LocationCurve.Start, b = w.Place.LocationCurve.End;
+                        if (made[i].IsPointInRoom(new XYZ((a[0] + b[0]) / 2 * MmToFeet, (a[1] + b[1]) / 2 * MmToFeet, spots[i].pt.Z)))
+                            throw new PlacementRefused($"{spots[i].name}: {Label(w)} is unticked and runs through it on {spots[i].level.Name} — Revit would close the room past it: tick the wall, or untick the room; nothing was placed");
+                    }
             }
 
             // MA-0: retype before attach. Only to a type already in the document; the model must still hold the type
