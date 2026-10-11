@@ -92,7 +92,7 @@ namespace Sentinel.Drawing
         public static Reading Analyse(IList<Stroke> strokes, IList<Curve> curves, IList<Word> words)
         {
             var r = new Reading { Strokes = strokes.Count + curves.Count };
-            if (strokes.Count == 0) { r.Why = "no stroked line on the page — a scanned or filled-only drawing is not read (C10)"; return r; }
+            if (strokes.Count == 0) { r.Why = "no stroked line on the page — nothing drawn to read (text only, a scan or a filled-only drawing: C10)"; return r; }
             var weights = strokes.Select(s => Math.Round(s.Weight, 3)).Distinct().ToList();
             if (weights.Count == 1) { r.Why = "one line weight on the page — walls are not told from the rest"; return r; }
             double heavy = weights.Max();
