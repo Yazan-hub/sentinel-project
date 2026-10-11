@@ -303,6 +303,15 @@ namespace Sentinel.Checks
                 Ok(((string)m["cid"]).StartsWith("drawing-ev-0007-p1-room-") && D(m["measured"]["text_height_paper_mm"]) > 0, $"room {e["name"]}: cid {m["cid"]}, its text height measured");
             }
 
+            // 4c. MA-5b-3: revision B — the partition moved 1000 mm east, its door with it; the same walls elsewhere, both rooms
+            var eb = expected["variants"]["rev-b"];
+            string bp = Path.Combine(fx, (string)eb["file"]);
+            var rb = Run(("ev-0008", bp, Sha(bp)));
+            Ok(Kind(rb, "wall").Length == 5 && Kind(rb, "door").Length == 2 && Kind(rb, "room").Length == 2, $"revision B: 5 walls, 2 doors, 2 rooms (got {Kind(rb, "wall").Length} / {Kind(rb, "door").Length} / {Kind(rb, "room").Length})");
+            var part = eb["partition"];
+            Ok(Kind(rb, "wall").Any(c => { var lc = c["geometry"]["LocationCurve"]; return (Dist(lc["start"], part["start"]) < 0.1 && Dist(lc["end"], part["end"]) < 0.1) || (Dist(lc["start"], part["end"]) < 0.1 && Dist(lc["end"], part["start"]) < 0.1); }),
+               $"revision B: the partition at {part["start"].ToJsonString()}–{part["end"].ToJsonString()}");
+
             // 5. Not the admitted bytes; not a PDF; a mix (the good one read, the bad one listed); a missing file.
             var r4 = Run(("ev-0001", plan, new string('0', 64)));
             Ok((string)r4["status"] == "refused" && r4["result"] == null && (string)r4["refused"][0]["reason"] == "not the bytes admitted (sha256)", $"a changed file: refused, not the bytes admitted ({r4["refused"].ToJsonString()})");

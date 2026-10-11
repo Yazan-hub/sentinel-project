@@ -197,7 +197,9 @@ export interface ProposeReply {
    *  in the scan's walls, and the BCF topics raised (one per difference; one raised before is not raised again). */
   differences?: { agree: number; differ: number; drawn_only: number; scanned_only: number; doors_agree: number; doors_from_drawing: number;
     topics: { raised: { guid: string; title: string; key: string }[]; skipped: number; error?: string } };
-  storeys: { cid: string; level: string; how: "named" | "matched" | "created" | "filed"; elevation_mm: number; delta_mm: number | null; checked: boolean; from: string | null; changeset: string | null;
+  /** MA-5b-3: the drawing against the earlier one it revises — what is the same (left as placed), changed or no longer drawn (a person's rows). */
+  revision?: { revises: string; unchanged: number; changed: number; removed: number; doors_unchanged: number; doors_removed: number; rooms_unchanged: number; rooms_removed: number };
+  storeys: { cid: string; level: string; how: "named" | "matched" | "created" | "filed" | "revision"; elevation_mm: number; delta_mm: number | null; checked: boolean; from: string | null; changeset: string | null;
     /** A storey that files no changeset: its doors and windows held by their level or host (a filed storey's changeset says them). */
     held?: { name: string; reason: string }[];
     /** MA-5a-2: the doors seen on one face only — not proposed (a closed door or furniture reads the same). */
@@ -221,14 +223,14 @@ export const proposeFromJob = (base: string, key: string, id: string, body: Retu
 /** MA-5a-4: the similarity the bridge computed from the lead's two points (drawing-plan alignFrom), and who stated them. */
 export interface Alignment { method: string; item: string; scale: number; rotation_deg: number; dx_mm: number; dy_mm: number; dz_mm: number; check_mm: number | null; rmse_mm: null; confirmed_by?: string }
 /** The drawing Propose form as typed: each point "x, y" — paper mm on page 1 from its bottom-left corner, model mm. */
-export interface AlignDraft { item: string; pa: string; ma: string; pb: string; mb: string; pc: string; mc: string; level: string; z: string }
+export interface AlignDraft { item: string; pa: string; ma: string; pb: string; mb: string; pc: string; mc: string; level: string; z: string; revises?: string }
 const xy = (s: string): [number, number] => { const p = s.split(/[\s,;]+/).filter(Boolean).map(Number); return p.length === 2 ? [p[0], p[1]] : [NaN, NaN]; };
 /** The form → the body: the points as typed (anything not two numbers goes as null, which the bridge refuses in words), a check point only
  *  when one is typed, a level only when named. Pure. */
 export function alignBody(d: AlignDraft) {
   const check = d.pc.trim() || d.mc.trim() ? { check: { paper: xy(d.pc), model: xy(d.mc) } } : {};
   return { item: d.item, points: [{ paper: xy(d.pa), model: xy(d.ma) }, { paper: xy(d.pb), model: xy(d.mb) }], ...check,
-    ...(d.level.trim() ? { level: d.level.trim() } : {}), elevation_mm: d.z.trim() === "" ? NaN : Number(d.z) };
+    ...(d.level.trim() ? { level: d.level.trim() } : {}), elevation_mm: d.z.trim() === "" ? NaN : Number(d.z), ...(d.revises?.trim() ? { revises: d.revises.trim() } : {}) };
 }
 /** What the two points fix, as the lead types them (the bridge computes it again and decides): the scale, the turn, where the paper's
  *  origin lands, and the check point's miss. "" until both points are two numbers each. Pure. */
@@ -294,9 +296,13 @@ export function proposeLine(r: ProposeReply): string {
   const levels = r.storeys.map((s) => `${s.cid} → ${s.level} (${s.how}${s.checked ? "" : ", its height not checked"})`).join("; ");
   const again = r.already_filed ? ` · ${r.already_filed} already filed (not proposed again)` : "";
   const placed = r.overlaps.length ? ` · the same ${r.alignment ? "drawing" : "scan"} was placed before by ${r.overlaps.map((o) => o.changeset).join(", ")}` : "";
-  const all = r.storeys.flatMap((x) => x.held ?? []), rooms = all.filter((h) => h.name.startsWith("room ")).length, n = all.length - rooms;
+  // MA-5b-3 review: a revision's rows (changed since, no longer drawn) are said apart from the held doors, windows and rooms
+  const every = r.storeys.flatMap((x) => x.held ?? []), isRev = (h: { reason: string }) => /^(changed since |on \S+, not on )/.test(h.reason);
+  const all = every.filter((h) => !isRev(h)), revRows = every.length - all.length;
+  const rooms = all.filter((h) => h.name.startsWith("room ")).length, n = all.length - rooms;
   const held = (n ? ` · ${n} door(s) or window(s) held on a storey with nothing to place — their level or host wall is not placed (each reason on the planner's row)` : "")
-    + (rooms ? ` · ${rooms} room(s) held on a storey with nothing to place — a wall round each is not placed (each reason on the planner's row)` : ""); // MA-5b-1 review
+    + (rooms ? ` · ${rooms} room(s) held on a storey with nothing to place — a wall round each is not placed (each reason on the planner's row)` : "") // MA-5b-1 review
+    + (revRows ? ` · ${revRows} revision row(s) — changed since, or no longer drawn — with nothing new to place: each on the planner's row (Sentinel never deletes)` : "");
   const once = r.storeys.reduce((s, x) => s + (x.doors_seen_once?.length ?? 0), 0);
   const seenOnce = once ? ` · ${once} door hole(s) seen on one face only — not proposed (a closed door or furniture reads the same; a person draws a door the scan missed)` : "";
   const tail = `${r.gaps.groups} type-gap group(s), ${r.gaps.elements} element(s) in the Holding Area${held}${seenOnce} · ${levels}${again}${placed} · ${ledgerLine(r.ledger)} — Review ▸ ↻`;
@@ -307,8 +313,14 @@ export function proposeLine(r: ProposeReply): string {
   const vsScan = !seen ? "" : ` · against the scan: ${v.agree} wall(s) agree (not proposed again), ${v.differ} differ, ${v.drawn_only} drawn only, ${v.scanned_only} scanned only, ` +
     `${v.doors_from_drawing} door(s) from the drawing in the scan's walls${v.doors_agree ? `, ${v.doors_agree} the scan has` : ""} — ${v.topics.raised.length} BCF topic(s) raised` +
     `${v.topics.skipped ? `, ${v.topics.skipped} raised before` : ""}${v.topics.error ? ` (${v.topics.error})` : ""}`;
+  // MA-5b-3: against the earlier drawing it revises — never a deletion: what it no longer draws is a person's row
+  const rv = r.revision;
+  const vsPrior = !rv ? "" : ` · against ${rv.revises}: ${rv.unchanged} wall(s) the same (left as placed), ${rv.changed} changed, ${rv.removed} no longer drawn` +
+    `${rv.doors_unchanged + rv.doors_removed ? `; doors ${rv.doors_unchanged} the same, ${rv.doors_removed} no longer drawn` : ""}` +
+    `${rv.rooms_unchanged + rv.rooms_removed ? `; rooms ${rv.rooms_unchanged} the same, ${rv.rooms_removed} no longer drawn` : ""}` +
+    `${rv.changed + rv.removed + rv.doors_removed + rv.rooms_removed ? " — each a person's row on the changeset (Sentinel never deletes)" : ""}`;
   if (a) return `✓ Proposed ${r.job} — ${a.item} at 1:${a.scale}, turned ${a.rotation_deg}°${a.check_mm != null ? `, checked to ${a.check_mm} mm` : ", no check point"} · ` +
-    `${r.changesets.length} changeset(s), ${ghosts} ghost(s), none pre-ticked (a drawing is what someone drew, not what was built — a person ticks each in Revit)${vsScan} · ${tail}`;
+    `${r.changesets.length} changeset(s), ${ghosts} ghost(s), none pre-ticked (a drawing is what someone drew, not what was built — a person ticks each in Revit)${vsPrior}${vsScan} · ${tail}`;
   // MA-5a-2: a scan's walls are never pre-ticked — only a level the scan created is
   return `✓ Proposed ${r.job} — ${r.changesets.length} changeset(s), ${ghosts} ghost(s), ${pre} pre-ticked on the Review desk (a level the scan created — a person ticks every scan wall, door and window; Revit leaves unticked what the office IDS rejects) · ${tail}`;
 }

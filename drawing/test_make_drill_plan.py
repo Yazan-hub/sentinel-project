@@ -43,6 +43,16 @@ class DrillPlan(unittest.TestCase):
         self.assertEqual([(r["name"], r["number"], r["also"]) for r in e["rooms"]], [("OFFICE", "101", ["FFL +0.00"]), ("MEETING ROOM", "102", [])])
         self.assertEqual(e["rooms"][0]["inside_paper_mm"], [65.0, 46.0, 140.0, 156.0])
 
+    def test_revision_b_moves_the_partition_and_its_door(self):
+        """MA-5b-3: revision B of the rooms plan — its own committed bytes; the partition and its door 1000 mm east."""
+        with open(os.path.join(m.HERE, "fixtures", "drill-plan-L00-rev-b.pdf"), "rb") as f:
+            self.assertEqual(f.read(), m.pdf([m.content("rev-b")]))
+        self.assertEqual(m.inner(m.REV_B_PX)[3], (5000, 5800))
+        self.assertEqual(m.doors(m.REV_B_PX)[1][1], (5100, 2000))
+        self.assertEqual(m.inner(), m.INNER)
+        e = m.expected()["variants"]["rev-b"]
+        self.assertEqual(e["partition"]["start"], [161.0, 46.0])
+
 
 if __name__ == "__main__":
     unittest.main()

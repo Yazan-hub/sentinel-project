@@ -25,7 +25,7 @@ export interface DeskJob {
   reader?: string;
   frame?: { dx_mm: number; dy_mm: number; dz_mm: number; rotation_deg: number; stated_by?: string };
   /** MA-5a-4: a drawing's alignment, computed by the bridge from the lead's two points (in place of a scan's frame). */
-  alignment?: { item: string; scale: number; rotation_deg: number; dx_mm: number; dy_mm: number; dz_mm: number; check_mm: number | null; confirmed_by?: string };
+  alignment?: { item: string; scale: number; rotation_deg: number; dx_mm: number; dy_mm: number; dz_mm: number; check_mm: number | null; confirmed_by?: string; revises?: string };
   storey?: { level: string; how: string; checked: boolean };
   /** Decision 19: another job's placed changesets on the same scan bytes — named, never refused. */
   overlaps?: { changeset: string; job_id: string; evidence: string[] }[];
@@ -47,7 +47,15 @@ export interface DeskResult {
   declined_on_web?: { proposal_guid: string; by: string; role: string | null; reason: string; carried_from?: CarriedFrom | null }[];
   reasons?: Record<string, string>;
 }
-export interface PendingChangeset { id: string; name: string; source: string; claimed?: boolean; status: string; created_at: string; review_rev?: number; elements: Ghost[]; result?: DeskResult | null; job?: DeskJob | null; }
+export interface PendingChangeset { id: string; name: string; source: string; claimed?: boolean; status: string; created_at: string; review_rev?: number; elements: Ghost[]; result?: DeskResult | null; job?: DeskJob | null;
+  /** The changeset's review rows — what is held for a person and why (a type gap, a difference, MA-5b-3: what an earlier drawing placed and this
+   *  one no longer draws). Revit shows them untickable; the desk lists them. */
+  exceptions?: { unique_id: string; name: string; reason: string }[]; }
+/** MA-5b-3: a changeset's review rows in words, at most `max`, then how many more. Pure. */
+export function heldLines(cs: PendingChangeset, max = 50): string[] {
+  const x = cs.exceptions ?? [];
+  return [...x.slice(0, max).map((e) => `${e.name} — ${e.reason}`), ...(x.length > max ? [`… and ${x.length - max} more (every one in Revit's review window)`] : [])];
+}
 export interface DecidedView { head: string; note: string | null; declined: { line: string; why: string[] }[]; }
 /** A report's ledger rows: its changeset_applied row, and the newest changeset_reverted row after it (an Undo or a Redo in Revit). */
 export interface LedgerRows { row: number | null; reverted: { id: number; op: string } | null; }
@@ -150,7 +158,7 @@ export function sourceWords(cs: PendingChangeset): string {
   const f = j.frame, s = j.storey, al = j.alignment;
   const o = j.overlaps ?? [];
   const again = o.length ? ` · the same ${al ? "drawing" : "scan"} ${[...new Set(o.flatMap((x) => x.evidence))].join(", ")} was placed before by ${o.map((x) => x.changeset).join(", ")}` : "";
-  if (al) return `from drawing ${j.id} (ledger #${j.ledger_id ?? "?"}) · ${al.item} at 1:${al.scale}, turned ${al.rotation_deg}°, its paper corner at ${al.dx_mm}, ${al.dy_mm} mm, ` +
+  if (al) return `from drawing ${j.id} (ledger #${j.ledger_id ?? "?"}) · ${al.item}${al.revises ? ` (revises ${al.revises}: what is the same is left as placed)` : ""} at 1:${al.scale}, turned ${al.rotation_deg}°, its paper corner at ${al.dx_mm}, ${al.dy_mm} mm, ` +
     `level at ${al.dz_mm} mm${al.confirmed_by ? `, stated by ${al.confirmed_by}` : ""}${al.check_mm != null ? ` · checked to ${al.check_mm} mm by a third point` : " · no check point"}` +
     `${s ? ` · storey ${s.level} (${s.how}${s.checked ? "" : " — its height not checked"})` : ""} · nothing from a drawing is pre-ticked${again}`;
   const frame = f ? ` · the scan ${f.dx_mm || f.dy_mm || f.dz_mm || f.rotation_deg ? `moved ${f.dx_mm}, ${f.dy_mm}, ${f.dz_mm} mm, turned ${f.rotation_deg}°` : "at the model's internal origin"}${f.stated_by ? `, stated by ${f.stated_by}` : ""}` : "";
@@ -612,6 +620,15 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
             }));
           box.append(row);
         }
+      }
+      // MA-5b-3: each changeset's review rows — held for a person, never ticked (textContent: a reason is the bridge's words over drawn text)
+      for (const cs of s.changesets) {
+        const lines = heldLines(cs);
+        if (!lines.length) continue;
+        const held = el("details", "", "margin:.4rem 0 .1rem");
+        held.append(el("summary", `Held for a person in ${cs.name} (${cs.exceptions!.length})`, "cursor:pointer;color:#fbbf24"));
+        for (const l of lines) held.append(el("div", l, "color:#8b93a1;font-size:11px;padding:.05rem 0 .05rem .8rem"));
+        box.append(held);
       }
       body.append(box);
     }

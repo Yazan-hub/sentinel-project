@@ -183,6 +183,47 @@
      "area_m2": 19.8
     }
    ]
+  },
+  "rev-b": {
+   "file": "drill-plan-L00-rev-b.pdf",
+   "revises": "drill-plan-L00-rooms.pdf",
+   "walls": 5,
+   "doors": 2,
+   "rooms": 2,
+   "partition": {
+    "name": "partition",
+    "start": [
+     161.0,
+     46.0
+    ],
+    "end": [
+     161.0,
+     156.0
+    ],
+    "thickness_paper_mm": 2.0,
+    "thickness_mm_at_1_50": 100
+   },
+   "against_the_rooms_plan": {
+    "unchanged": [
+     "south",
+     "east",
+     "north",
+     "west"
+    ],
+    "added": [
+     "partition"
+    ],
+    "removed": [
+     "partition"
+    ],
+    "doors_removed": [
+     "partition"
+    ],
+    "rooms_unchanged": [
+     "101",
+     "102"
+    ]
+   }
   }
  }
 }
