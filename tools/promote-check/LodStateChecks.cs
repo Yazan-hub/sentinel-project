@@ -169,7 +169,7 @@ static partial class Check
            "a door exported as IFCWINDOW is judged against the Doors specification only — NOT MEASURED, never at DD on a window's passing U-value");
         var loose = V1(m2, new[] { Dw("door", "D3", "BDS_INT_1 PNL", "BDS_INT_1 PNL_WOOD_1000 x 2100 mm", 1000, 2100, host: null) }, classes: new[] { "Doors" });
         var looseRow = LodState.Read(loose, dmx, null, "x", new Dictionary<string, StageIds.Verdict>(), null).Rows.Single();
-        Ok(looseRow.Below == 1 && looseRow.Reasons.Single().Key == "on a DD type, but no wall hosts it — Promote does not rehost; a person decides",
+        Ok(looseRow.Below == 1 && looseRow.Reasons.Single().Key == "on a DD type, but hosted by something that is not a wall — a person decides",
            "a settled door no wall hosts reads below DD with its reason — never a count with nothing to act on");
 
         mx.StageMap["DD"] = "coord";

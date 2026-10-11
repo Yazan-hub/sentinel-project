@@ -348,7 +348,34 @@ def ma2a():
     print(f"wrote {json_path}  ({os.path.getsize(json_path):,} bytes)")
 
 
+# MA-5b-6 drill (GHB-6): walls as a draughtsman draws them — a 10 x 7 m box of 200 mm walls on A-WALL-EXT whose outer and inner
+# faces meet at the corners (L), a 100 mm partition on A-WALL-INT across it (two T's: the box's inner faces break where it meets
+# them), and the south wall broken at a DOOR-900 block (both faces stop at the jambs). Ghost Builder must give 4 box walls meeting
+# at their centrelines' crossings, the south one ONE wall through the door, the partition reaching both box centrelines, and the
+# door hosted in the south wall at its middle. Far from the origin, clear of what the drill model holds.
+MA5B6_ORIGIN = (80000.0, 60000.0)
+
+
+def ma5b6():
+    """Write ma5b6-joins.dxf."""
+    ox, oy = MA5B6_ORIGIN
+    ext = [(-100, -100, 1500, -100), (2400, -100, 10100, -100), (10100, -100, 10100, 7100), (10100, 7100, -100, 7100), (-100, 7100, -100, -100),
+           (100, 100, 1500, 100), (2400, 100, 3950, 100), (4050, 100, 9900, 100), (9900, 100, 9900, 6900),
+           (9900, 6900, 4050, 6900), (3950, 6900, 100, 6900), (100, 6900, 100, 100),
+           (1500, -100, 1500, 100), (2400, -100, 2400, 100)]          # the door's jambs
+    part = [(3950, 100, 3950, 6900), (4050, 100, 4050, 6900)]
+    lines = [("A-WALL-EXT", ox + a, oy + b, ox + c, oy + d) for a, b, c, d in ext] + [("A-WALL-INT", ox + a, oy + b, ox + c, oy + d) for a, b, c, d in part]
+    door = ("A-DOOR", "DOOR-900", ox + 1500.0, oy + 0.0, 1, 1, 0)   # hinge at (1500, 0): its drawn middle (1950, 0), swinging into the box
+    path = os.path.join(HERE, "ma5b6-joins.dxf")
+    with open(path, "w", newline="") as f:
+        f.write(dxf([], (), ["A-WALL-EXT", "A-WALL-INT", "A-DOOR"], lines, {"DOOR-900": MA1B_BLOCKS["DOOR-900"]}, [door]))
+    print(f"wrote {path}  ({os.path.getsize(path):,} bytes)")
+
+
 if __name__ == "__main__":
+    if "--ma5b6" in sys.argv:
+        ma5b6()
+        sys.exit(0)
     if "--ma2a" in sys.argv:
         ma2a()
         sys.exit(0)

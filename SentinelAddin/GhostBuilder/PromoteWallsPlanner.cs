@@ -68,6 +68,11 @@ namespace Sentinel.GhostBuilder
         /// that holds it on the TYPE, the value the plan read there (From, "" when empty: the executor's stale guard), the value to
         /// write (To) and its source's kind ("catalogue" | "clause"). UniqueId is the TYPE's; TypeName and FamilyName name it.</summary>
         public string Parameter, RevitParameter, From, To, SourceKind;
+        /// <summary>MA-5b-5, a "rehost": where the instance stood (target.at, mm), where the new one goes (place.Location: its middle on the
+        /// host wall's location line, at the level), its level and a window's sill (mm).</summary>
+        public double[] AtMm, LocationMm;
+        public string LevelName;
+        public double? SillHeightMm;
     }
 
     public sealed class PromoteHeld
@@ -382,7 +387,19 @@ namespace Sentinel.GhostBuilder
             return rows.Count == 0 ? null : rows;
         }
 
-        private static object Element(PromoteGhost g) => g.Op == "set_parameter" ? SetParameter(g) : new
+        // MA-5b-5: a rehost — its stale guard (type_before, at) and its whole place (the bridge's rehost branch requires each); a door's
+        // SillHeight is null and left out of the body (ChangesetClient.WriteJson).
+        private static object Rehost(PromoteGhost g) => new
+        {
+            op = g.Op,
+            kind = g.Kind,
+            target = new { unique_id = g.UniqueId, type_before = g.TypeBefore, ifc_guid = g.IfcGuid, at = g.AtMm },
+            place = new { g.LevelName, Location = g.LocationMm, g.FamilyName, g.TypeName, SillHeight = g.SillHeightMm },
+            reason = Clip(g.Reason, 500),
+            validate = new { identity = new { Class = Classes[g.Kind].Ifc, Name = g.Label } },
+        };
+
+        private static object Element(PromoteGhost g) => g.Op == "set_parameter" ? SetParameter(g) : g.Op == "rehost" ? Rehost(g) : new
         {
             op = g.Op,
             kind = g.Kind ?? "wall",

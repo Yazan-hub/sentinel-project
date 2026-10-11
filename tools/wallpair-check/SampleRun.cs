@@ -60,7 +60,7 @@ static class SampleRun
     }
 
     // Minimal R12 DXF LINE reader: group each layer's segments. Enough for this sample; not a general parser.
-    static Dictionary<string, List<Seg>> ReadDxfLines(string path)
+    internal static Dictionary<string, List<Seg>> ReadDxfLines(string path)
     {
         var res = new Dictionary<string, List<Seg>>(StringComparer.OrdinalIgnoreCase);
         string[] L = File.ReadAllLines(path);

@@ -274,7 +274,7 @@ namespace Sentinel.GhostBuilder
         }
 
         /// <summary>Why Create cannot run, or null: a ticked row with a blank name, two ticked levels (or two ticked grids) of one name, a
-        /// ticked level whose elevation is no number, or two ticked levels at one elevation.</summary>
+        /// ticked level whose elevation is no number, or two ticked levels within 3 mm of each other (Build's tolerance).</summary>
         public static string Check(IReadOnlyList<DatumRow> rows)
         {
             var on = rows.Where(r => r.Tick).ToList();
@@ -284,8 +284,11 @@ namespace Sentinel.GhostBuilder
                 return $"Two ticked {(g.Key.IsGrid ? "grids" : "levels")} are named \"{g.First().Name.Trim()}\" — a name is one {(g.Key.IsGrid ? "grid" : "level")}'s.";
             if (on.FirstOrDefault(r => !r.IsGrid && Mm(r.Elevation) == null) is DatumRow nan)
                 return $"{nan.Name}: \"{nan.Elevation}\" is not a number of mm.";
-            foreach (var g in on.Where(r => !r.IsGrid).GroupBy(r => Math.Round(Mm(r.Elevation).Value, 0)).Where(g => g.Count() > 1))
-                return $"{string.Join(" and ", g.Select(r => r.Name.Trim()))} are both at {g.Key:0} mm — one level stands there.";
+            // review: within Build's own tolerance (0.01 ft, 3 mm) two levels are one — Build would keep the first and drop the second
+            var lv = on.Where(r => !r.IsGrid).OrderBy(r => Mm(r.Elevation).Value).ToList();
+            for (int i = 1; i < lv.Count; i++)
+                if (Mm(lv[i].Elevation).Value - Mm(lv[i - 1].Elevation).Value < 3.048)
+                    return $"{lv[i - 1].Name.Trim()} and {lv[i].Name.Trim()} are both at {Mm(lv[i - 1].Elevation).Value:0} mm — one level stands there.";
             return null;
         }
 

@@ -442,7 +442,7 @@ namespace Sentinel.GhostBuilder
             /// wall, a curved one.</summary>
             public int SkippedNoHost;
             /// <summary>MA-1b (F8): of SkippedNoHost, the doors and windows standing where a wall's line stops short of the
-            /// opening — a wall drawn in two pieces at the opening; the pieces are not joined yet (GHB-6).</summary>
+            /// opening — a wall drawn in two pieces at the opening that GhostWallPairer did not join (MA-5b-6, GHB-6: not one thickness on one line within 2000 mm).</summary>
             public int SkippedBrokenWall;
             /// <summary>MA-1b (F4, option B — drill B1-10): a second door or window block at the same point as one already
             /// planned (within 1 mm after both moved onto the wall's line) — a duplicate in the drawing. Not filed: Revit

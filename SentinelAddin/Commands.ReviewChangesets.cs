@@ -43,6 +43,20 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
     internal const string RunPromoteAgain = "Run Promote (DD) again to plan this storey anew: it first opens any other Promote storey still waiting for review, and plans again once none is waiting.";
     // Review C2: MA-2c F11 puts a type edit on the first storey whose retypes land on its type, so a later storey of the same run
     // may retype onto it; when a storey carrying type edits is declined, those storeys fail the DD IDS until Promote plans again — said.
+    /// <summary>MA-5b-5: how many ghosts Revit kept, by op — "1 wall(s) not reshaped, 2 door/window(s) not rehosted".</summary>
+    private static string KeptCount(IEnumerable<ChangesetDto> changesets, IEnumerable<(string ProposalGuid, string Why)> kept)
+    {
+        var ops = changesets.SelectMany(c => c.Elements ?? new List<ChangesetElementDto>()).GroupBy(e => e.ProposalGuid).ToDictionary(g => g.Key, g => g.First().Op);
+        var by = kept.GroupBy(k => ops.TryGetValue(k.ProposalGuid, out var op) ? op : null).ToList();
+        return string.Join(", ", by.Select(g => g.Key == "rehost" ? $"{g.Count()} door/window(s) not rehosted — the unhosted instance stays"
+                                                : g.Key == "reshape" ? $"{g.Count()} wall(s) not reshaped" : $"{g.Count()} kept"));
+    }
+
+    /// <summary>MA-5b-5 (R10): a changeset's note line for the ghosts Revit kept — the count by op and each one's reason (the ledger reads the
+    /// note; no per-ghost reason, so nothing is carried as a decline).</summary>
+    private static string KeptLine(ChangesetDto cs, IList<(string ProposalGuid, string Why)> kept) =>
+        "kept as they stand: " + KeptCount(new[] { cs }, kept) + " — " + string.Join("; ", kept.Take(5).Select(k => k.Why)) + (kept.Count > 5 ? $"; … and {kept.Count - 5} more" : "");
+
     internal static string CarriedEdits(IEnumerable<ChangesetDto> fresh)
     {
         var edits = fresh.SelectMany(f => f.Elements ?? new List<ChangesetElementDto>()).Where(e => e.Op == "set_parameter").ToList();
@@ -540,6 +554,14 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                     return;
                 }
 
+                // MA-5b-5 (R11): a rehost removes an element — its Apply is a signed-in member's, never the machine credential's (the bridge
+                // refuses that result too; asked here, before anything changes, so no model edit goes unreported)
+                if (role == "service" && fresh.SelectMany(f => f.Elements ?? new List<ChangesetElementDto>()).Any(e => e.Op == "rehost" && ticked.Contains(e.ProposalGuid)))
+                {
+                    window.Refused("A rehost removes an element — sign in (Standards ▸ Sign in) as a contributor to apply it.\n\nNothing was changed.");
+                    return;
+                }
+
                 if (ticked.Count == 0)
                 {
                     // AI-5: Decline all needs a reason — the note, recorded on each changeset's result (result.note) and its changeset_applied row.
@@ -624,13 +646,14 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                     foreach (var (one, res) in result.Each)
                     {
                         var oneGone = res.Gone.Select(a => a.ProposalGuid).ToList();
-                        // MA-5b-4: a reshape Revit kept (the wall edited by hand since it was placed) is rejected with its reason, never applied
+                        // MA-5b-4: a reshape (MA-5b-5: or a rehost) Revit kept — the model changed since it was read — is rejected, never applied.
+                        // Design review R10: its reason rides on the note, never as a per-ghost reason: a reasoned rejection from a member is a
+                        // decline the bridge carries to the next filing, and a kept ghost is the model's state (a pin, a colleague's), not a decision.
                         var oneKept = res.Kept.Select(k => k.ProposalGuid).ToList();
                         var rejected = StoreyBatch.Own(one, unticked).Concat(oneGone).Concat(oneKept).Distinct().ToList();
                         var said = oneGone.Count == 0 ? note : $"{oneGone.Count} element(s) removed by Revit at commit" + (string.IsNullOrEmpty(note) ? "" : $" | reviewer: {note}");
-                        if (oneKept.Count > 0) said = $"{oneKept.Count} wall(s) kept as they stand, not reshaped" + (string.IsNullOrEmpty(said) ? "" : " | " + said);
+                        if (oneKept.Count > 0) said = KeptLine(one, res.Kept) + (string.IsNullOrEmpty(said) ? "" : " | " + said);
                         var whys = StoreyBatch.Own(one, reasons);
-                        foreach (var (g, why) in res.Kept) (whys ??= new Dictionary<string, string>())[g] = why; // review: null when nobody typed a reason
                         if (result.Block != null) said = result.Block + (string.IsNullOrEmpty(said) ? "" : " | " + said); // MA-1a item 5
                         if (result.Ids != null) said = result.Ids + (string.IsNullOrEmpty(said) ? "" : " | " + said);     // MA-2b
                         // MA-3a: the revision Apply re-checked. Remembered for the undo watcher under the Undo entry's name and the changeset's own.
@@ -651,7 +674,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                     }
                     var warnings = GhostFailurePolicy.WarningsLine(result.Warnings, fresh.Count > 1 ? "storey" : "changeset");
                     // MA-5b-4 review: a ticked wall Revit kept as it stands is said here, with why — not only on the ledger
-                    var kept = result.Kept.Count == 0 ? "" : $"\n\nKept as they stand ({result.Kept.Count} wall(s), not reshaped):\n" + string.Join("\n", result.Kept.Take(10).Select(k => "• " + k.Why)) + (result.Kept.Count > 10 ? $"\n… and {result.Kept.Count - 10} more (each on the ledger)" : "");
+                    var kept = result.Kept.Count == 0 ? "" : $"\n\nKept as they stand ({KeptCount(fresh, result.Kept)}):\n" + string.Join("\n", result.Kept.Take(10).Select(k => "• " + k.Why)) + (result.Kept.Count > 10 ? $"\n… and {result.Kept.Count - 10} more (each in its changeset's note)" : "");
                     var head = $"Applied {result.Applied.Count} element(s) from \"{cs.Name}\"." + kept +
                         (warnings != null ? "\n\n" + warnings : "") + (result.Block != null ? "\n\n" + result.Block : "") +
                         (result.Ids != null ? "\n\n" + result.Ids : "") + (result.Placement != null ? "\n\n" + string.Join("\n", result.Placement) : "") + // MA-1a item 6

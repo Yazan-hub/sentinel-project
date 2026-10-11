@@ -89,6 +89,10 @@ ok[1].Tick = true; ok[1].Name = "level 0 ";
 Check("two ticked levels of one name (any case, trimmed) are refused", DatumRows.Check(ok) == "Two ticked levels are named \"Level 0\" — a name is one level's.");
 ok[1].Name = "Ground"; ok[1].Elevation = "0";
 Check("two ticked levels at one elevation are refused", DatumRows.Check(ok) == "Level 0 and Ground are both at 0 mm — one level stands there.");
+ok[1].Elevation = "2.5";
+Check("…and two within 3 mm (Build would keep one and drop the other)", DatumRows.Check(ok) == "Level 0 and Ground are both at 0 mm — one level stands there.");
+ok[1].Elevation = "3.1";
+Check("…3.1 mm apart are two levels", DatumRows.Check(ok) == null);
 ok[1].Elevation = "3500"; ok[2].Story = false; ok[3].Name = "B1";
 var picked = DatumRows.Picked(ok);
 Check("picked: names trimmed as typed, elevations as typed, Building Story as left, the grid renamed on its own line",

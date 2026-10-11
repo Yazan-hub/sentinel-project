@@ -120,6 +120,7 @@ namespace Sentinel.GhostBuilder
                         if (levelSegs.Count + gridSegs.Count > before)
                             read.Add(System.IO.Path.GetFileName(path));
                     }
+                    else res.Warnings.Add($"Revit could not import {System.IO.Path.GetFileName(path)} — nothing was read from it."); // review
                 }
             }
             finally
@@ -182,9 +183,9 @@ namespace Sentinel.GhostBuilder
                 // sets its sha). Imports already in the model (Detect) were placed by someone else — nothing is claimed for them.
                 string how = detected.SourceSha256 != null ? ", read origin to origin" : "";
                 var levelFacts = new ProvenanceStamp.Facts { Layer = Layers(detected.LevelLayers), SourceSha256 = detected.SourceSha256,
-                    Rule = "Datum from Drawings: a level line's height on a level layer (a section) — " + detected.Source?.Label + how };
+                    Rule = "Datum from Drawings: a level line's height on a level layer (a section) — " + detected.Source?.Label + how + "; name, elevation from ±0.00 and Building Story as reviewed" };
                 var gridFacts = new ProvenanceStamp.Facts { Layer = Layers(detected.GridLayers), SourceSha256 = detected.SourceSha256,
-                    Rule = "Datum from Drawings: a grid line on a grid layer (a plan) — " + detected.Source?.Label + how };
+                    Rule = "Datum from Drawings: a grid line on a grid layer (a plan) — " + detected.Source?.Label + how + "; name as reviewed" };
                 foreach (var lv in detected.Levels)
                     if (CreateLevel(lv, detected.Warnings) is Level level)
                     {

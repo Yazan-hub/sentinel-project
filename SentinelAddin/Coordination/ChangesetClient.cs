@@ -66,6 +66,9 @@ public sealed class TargetDto
     /// <summary>MA-5b-4 (C13b): a reshape's stale guard — the location line (mm) the wall was placed with; a wall that no longer stands
     /// there was edited by hand since, and is kept as it stands.</summary>
     [JsonPropertyName("placed")] public CurveDto Placed { get; set; }
+    /// <summary>MA-5b-5: a rehost's stale guard — where the instance stood (its LocationPoint, mm) when Promote read it; one moved since
+    /// is kept as it stands.</summary>
+    [JsonPropertyName("at")] public double[] At { get; set; }
 }
 
 /// <summary>A wall a planner sent to a person instead of proposing a change (the changeset's exceptions).</summary>
@@ -218,6 +221,18 @@ public sealed class AccuracyDto
 public static class ChangesetTrust
 {
     /// <summary>MA-5b-4: how far a reshape moves its wall's ends (mm), from the line it was placed with to the revised drawing's. Pure.</summary>
+    /// <summary>MA-5b-5: a rehost's row — what it replaces, with what, where; that the old instance (and its tags) is removed in the same
+    /// Undo step; that the hinge and swing are the office family's default (a placeholder has none to copy).</summary>
+    public static string RehostWords(ChangesetElementDto el)
+    {
+        var p = el.Place; var at = el.Target?.At;
+        string F(double v) => v.ToString("0", System.Globalization.CultureInfo.InvariantCulture);
+        string Xy(double[] q) => q == null || q.Length < 2 ? "?" : $"({F(q[0])}, {F(q[1])})";
+        var sill = p?.SillHeight is double s ? $", sill {F(s)} mm" : "";
+        return $"{el.Target?.TypeBefore ?? "?"} at {Xy(at)} → {p?.FamilyName} : {p?.TypeName} in the wall at {Xy(p?.Location)} on {p?.LevelName}{sill}; " +
+               "the unhosted instance and any tags on it are removed (one Undo brings them back); its Mark, Comments, workset and phase carry over, its other values do not; hinge and swing: the office family's default — compare with the placeholder";
+    }
+
     public static string ReshapeWords(ChangesetElementDto el)
     {
         var was = el.Target?.Placed; var c = el.Place?.LocationCurve;
@@ -245,7 +260,8 @@ public static class ChangesetTrust
         if (el.Op is null or "create")
             return cs.Claimed == false && el.Pretick == true && el.Accuracy?.Status == "within_tolerance" && el.Verdict?.Status != "rejected";
         // MA-2c: a set_parameter is a TYPE edit — it reaches every element on the type — so it is never pre-ticked (founder decision F1).
-        if (el.Op == "set_parameter") return false;
+        // MA-5b-5: a rehost removes an element — a person ticks each, never pre-ticked.
+        if (el.Op is "set_parameter" or "rehost") return false;
         return el.Pretick ?? (cs.Source == "promote" && (el.Op == "attach" || (el.Op == "retype" && el.Target?.TypeBefore != null)));
     }
 
@@ -539,6 +555,9 @@ public sealed class AppliedEntry
     /// two side faces and verify measures by them ("revit (claimed)"). Null — and then left out of every body and record, which stay
     /// byte-identical — for every other entry, and when the read threw or passed PlacementGeometry.MaxMeshTriangles.</summary>
     [JsonPropertyName("mesh")] [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public double[] Mesh { get; set; }
+    /// <summary>MA-5b-5: a rehost's — the tags Revit removed with the old instance (counted by the probe before the delete); null, and left
+    /// out of the body, for every other entry.</summary>
+    [JsonPropertyName("removed_tags")] [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? RemovedTags { get; set; }
 }
 
 /// <summary>MA-4f: GET /changesets/:key/:id/scan — the scan around a survey changeset's storey, thinned by sentinel-survey and moved into the

@@ -21,7 +21,8 @@ static partial class Check
             pair = At("made[i].IsPointInRoom(spots[j].pt)"), area = At("!(made[i].Area > 0)"), retype = At("// MA-0: retype before attach."), furniture = At("foreach (var el in toPlace.Where(e => e.Op == \"reshape\"))");
         Ok(block > furniture && furniture > 0 && exists > block && create > exists && pair > create && area > pair && retype > area,
            "the executor places rooms after every wall and point family: an existing room checked first, then NewRoom, then one area per room, then enclosed — before any retype");
-        Ok(ex.Substring(block, retype - block).Split("throw new PlacementRefused(").Length == 8 && ex.Substring(block, retype - block).Contains("room.Name = el.Place.Name;"),
+        int rehost = At("var rehosts = toPlace.Where(e => e.Op == \"rehost\").ToList();"); // MA-5b-5: the rehost block follows the rooms
+        Ok(rehost > area && ex.Substring(block, rehost - block).Split("throw new PlacementRefused(").Length == 8 && ex.Substring(block, rehost - block).Contains("room.Name = el.Place.Name;"),
            "its refusals leave the changeset proposed (PlacementRefused: the person changes the ticks) — a room standing there, Revit's own failure or null, another phase, two in one area, not enclosed, an unticked wall through it; the room takes its drawn name");
         int through = At("made[i].IsPointInRoom(new XYZ((a[0] + b[0]) / 2 * MmToFeet");
         Ok(through > area && through < retype && ex.Contains("!tickedGuids.Contains(e.ProposalGuid)") && ex.Contains("string.Equals(w.Place.LevelName, spots[i].el.Place.LevelName"),

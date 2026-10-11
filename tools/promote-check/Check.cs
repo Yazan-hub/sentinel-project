@@ -85,6 +85,7 @@ static partial class Check
         Ma4fChecks();
         Ma5b1Checks();
         Ma5b4Checks();
+        Ma5b5Checks(m2);
         Ma5b7Checks();
         Ma5b2Checks();
         Ma4f2Checks();
