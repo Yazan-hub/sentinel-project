@@ -16,7 +16,8 @@ import { escapeHtml as esc } from "./escape-html";
 import { unarchiveFile } from "./cde-transition";
 import { firstTag, geometryCheck, linkedHash, linkedTag, sha256Hex, type GeometryLinkRow } from "./geometry-check";
 import { readEvidence, makePack, signAttestation, admitEvidence, recheckEvidence, draftRequest, kindOf, isImage, needsReport, itemLine, attestationLine, admitLine, recheckLine, requestLine, evidenceControls, ATTESTATION_CODES, ATTESTATION_TEXTS, datasetLine, type EvidenceRead, type EvidenceRequest,
-  startSurvey, readJobs, readJob, jobLine, candidateLine, surveyStartLine, surveyableScans, proposeBody, proposeFromJob, proposeLine, type SurveyJob, type Candidate } from "./evidence";
+  startSurvey, readJobs, readJob, jobLine, candidateLine, surveyStartLine, surveyableScans, proposeBody, proposeFromJob, proposeLine, type SurveyJob, type Candidate,
+  startDrawing, drawingStartLine, readableDrawings, isDrawingJob } from "./evidence";
 
 /**
  * Sentinel Versions panel — file/blob-centric version history for uploaded model files.
@@ -293,6 +294,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     root.querySelector("#fv-ev-make")?.addEventListener("click", () => void evAct(async () => { await makePack(base, pid()); return "✓ Made the evidence pack evp-0001 — a lead signs (a) and (c); then put files in the folder it names and Admit them."; }));
     root.querySelector("#fv-ev-recheck")?.addEventListener("click", () => void evAct(async () => recheckLine(await recheckEvidence(base, pid()))));
     root.querySelector("#fv-ev-survey")?.addEventListener("click", () => void evAct(async () => surveyStartLine((await startSurvey(base, pid())).job)));
+    root.querySelector("#fv-ev-drawing")?.addEventListener("click", () => void evAct(async () => drawingStartLine((await startDrawing(base, pid())).job)));
     root.querySelectorAll<HTMLElement>("[data-evjob]").forEach((n) => n.addEventListener("click", async () => {
       const id = n.dataset.evjob!;
       if (jobOpen === id) { jobOpen = null; jobCands = null; render(); return; }
@@ -610,11 +612,16 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       (jobsError ? line(`Survey: ${esc(jobsError)}`, "#fbbf24")
         : (jobs ?? []).map((j) => line(esc(jobLine(j)), jobColor(j.status)) +
             (j.status === "done" && j.candidates_total ? `<div style="padding:.1rem .2rem"><button data-evjob="${esc(j.id)}" style="${act}">${jobOpen === j.id ? "Hide candidates" : "Candidates"}</button></div>` : "") +
-            (j.status === "done" && j.candidates_total && can.propose ? `<div style="padding:.1rem .2rem"><button data-evpropose="${esc(j.id)}" style="${act}">${proposing === j.id ? "Cancel proposal" : "Propose…"}</button></div>` : "") +
+            (j.status === "done" && j.candidates_total && can.propose && !isDrawingJob(j) ? `<div style="padding:.1rem .2rem"><button data-evpropose="${esc(j.id)}" style="${act}">${proposing === j.id ? "Cancel proposal" : "Propose…"}</button></div>` : "") +
+            (j.status === "done" && j.candidates_total && isDrawingJob(j) ? line("Paper millimetres, no scale yet — a drawing job is proposed with its 2-point alignment (MA-5a-4).", "#71717a") : "") +
             (proposing === j.id ? proposeForm(proposeLevels ?? []) : "") +
             (jobOpen === j.id ? (jobCands ?? []).map((c) => line(esc(candidateLine(c)), "#cbd5e1")).join("") : "")).join("") || line("no survey yet")) +
-      (can.survey && !busy && surveyableScans(pack).length ? `<div style="margin-top:.35rem"><button id="fv-ev-survey" style="${act}">Run survey</button></div>`
-        : can.survey && busy ? line("A survey is running — ↻ for its progress.") : "");
+      line("Drawings — sentinel-drawing reads page 1 of the admitted vector PDF plans on this PC: walls (two faces in the page's heaviest line weight) and doors (swing arcs, with any W x H tag), in paper millimetres. They are proposed with a 2-point alignment (MA-5a-4); a DWG is Ghost Builder's, in Revit.", "#9ca3af") +
+      // MA-5a-3: one slot for both readers — neither button while a job runs
+      (can.survey && !busy && (surveyableScans(pack).length || readableDrawings(pack).length)
+        ? `<div style="margin-top:.35rem;display:flex;gap:.4rem">${surveyableScans(pack).length ? `<button id="fv-ev-survey" style="${act}">Run survey</button>` : ""}` +
+          `${readableDrawings(pack).length ? `<button id="fv-ev-drawing" style="${act}" title="sentinel-drawing reads page 1 of each admitted PDF plan">Read drawings</button>` : ""}</div>`
+        : can.survey && busy ? line("A job is running — ↻ for its progress.") : "");
     return toggle + `<div style="margin-bottom:.45rem;padding:.45rem .55rem;background:#1b1b21;border:1px solid #2c2c34;border-radius:.4rem">` +
       `<div style="color:#71717a;font-size:10.5px;font-family:ui-monospace,Consolas,monospace;overflow-wrap:anywhere">${esc(pack.pack_id)} · ${esc(ref)} · folder ${esc(folder.path)}${folder.exists ? "" : " (not there yet)"}</div>` +
       line(pack.dataset ? esc(datasetLine(pack.dataset)) : "Attestations — a lead signs (a) and (c) before a scan, also (d) before a photo, and (a) and (b) before a drawing", "#9ca3af") + atts +
