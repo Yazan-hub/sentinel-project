@@ -54,10 +54,14 @@ export interface LedgerRef { id: number | null; hash: string | null; }
 export interface Measured {
   proposal_guid: string; kind?: string | null; status: string; points?: number; p95_mm?: number | null; mean_signed_mm?: number | null;
   coverage?: number | null; share_within?: Record<string, number> | null; reason?: string; reference?: string;
+  /** MA-5a-2: each face's own numbers — the per-face verdict's. */
+  faces?: { points: number; coverage: number | null; share_within: Record<string, number> | null }[];
 }
 /** MA-4e: the newest verify:measured row of a changeset. */
 export interface VerifyRecord {
   id: number; at: string; actor: string; status: string; reference?: string; target_mm?: number; counts?: Record<string, number>; error?: string;
+  /** MA-5a-2: the per-face rule the bridge judged by (rows before it carry target_mm, p95's). */
+  deviation?: { within_mm: number; face_share_min: number };
   placed_by?: { reported_by?: string | null; reported_role?: string | null } | null; elements: Measured[];
 }
 /** MA-4e: what POST /cde/:key/verify answers. */
@@ -285,7 +289,7 @@ export async function readVerified(base: string, key: string, ids: string[]): Pr
       const [x] = (await auditRows<{ id: number; at: string; actor: string; new_value?: Partial<VerifyRecord> | null }>(at + encodeURIComponent(id))).rows;
       if (!x) return [id, null];
       const v = x.new_value ?? {};
-      return [id, { id: x.id, at: x.at, actor: x.actor, status: String(v.status ?? ""), reference: v.reference, target_mm: v.target_mm, counts: v.counts, error: v.error,
+      return [id, { id: x.id, at: x.at, actor: x.actor, status: String(v.status ?? ""), reference: v.reference, target_mm: v.target_mm, deviation: v.deviation, counts: v.counts, error: v.error,
         placed_by: v.placed_by, elements: Array.isArray(v.elements) ? v.elements : [] }];
     } catch (e) { return [id, e as Error]; }
   })));
@@ -295,16 +299,22 @@ const MEASURED = ["within_tolerance", "out_of_tolerance", "missing", "insufficie
 /** "3 within tolerance, 0 out of tolerance, 0 missing, 0 insufficient data, 0 not measured" — the bridge's count words (survey-plan countWords). Pure. */
 export const countWords = (n: Record<string, number>): string => MEASURED.map((s) => `${n[s] ?? 0} ${s.replace(/_/g, " ")}`).join(", ");
 
-/** One measured element in words: the verdict against the target on p95, the numbers sentinel-survey gave, the bridge's reason — a number it
+/** One measured element in words: the verdict against its row's rule (MA-5a-2: each face's share within the window; an older row: p95 against
+ *  its target), the numbers sentinel-survey gave, the bridge's reason — a number it
  *  did not give is left out, never a zero. Pure. */
-export function measureWords(m: Measured, target = 20): string {
-  const pct = (v: number) => `${Math.round(v * 100)}%`, sw = m.share_within;
+export function measureWords(m: Measured, rec: { target_mm?: number; deviation?: { within_mm: number; face_share_min: number } } = {}): string {
+  const pct = (v: number) => `${Math.round(v * 100)}%`, dv = rec.deviation;
   const judged = m.status === "within_tolerance" || m.status === "out_of_tolerance";
-  return [`${m.status.replace(/_/g, " ")}${judged ? ` (${target} mm, p95)` : ""}`,
+  // MA-5a-2: a row that names its per-face rule says it and each face's share at it; an older row keeps p95 against its target
+  const rule = dv ? ` (each face ${pct(dv.face_share_min)} within ${dv.within_mm} mm)` : ` (${rec.target_mm ?? 20} mm, p95)`;
+  const at = dv ? String(dv.within_mm) : null;
+  const faces = at && m.faces?.some((f) => f.share_within) ? [`faces within ${at} mm: ${m.faces.map((f) => (f.share_within ? pct(f.share_within[at]) : "—")).join(" / ")}`] : [];
+  const sw = m.share_within ? Object.entries(m.share_within).filter(([t]) => t !== at) : null;
+  return [`${m.status.replace(/_/g, " ")}${judged ? rule : ""}`, ...faces,
     ...(m.p95_mm != null ? [`p95 ${m.p95_mm} mm`] : []),
     ...(m.mean_signed_mm != null ? [`mean ${m.mean_signed_mm > 0 ? "+" : ""}${m.mean_signed_mm} mm (+ = the scan outside it)`] : []),
     ...(m.coverage != null ? [`${pct(m.coverage)} of its faces seen`] : []),
-    ...(sw ? [`within ${Object.keys(sw).join(" / ")} mm: ${Object.values(sw).map(pct).join(" / ")}`] : []),
+    ...(sw?.length ? [`within ${sw.map(([t]) => t).join(" / ")} mm: ${sw.map(([, v]) => pct(v)).join(" / ")}`] : []),
     ...(m.points ? [`${m.points} points`] : []),
     ...(m.reason ? [m.reason] : [])].join(" · ");
 }
@@ -332,7 +342,7 @@ export function verifiedView(cs: PendingChangeset, rec: VerifyRecord | null | Er
   return {
     head: `Measured against the scan${filed} · ${placed} · ${what} · ledger #${rec.id} · ${when} · by ${rec.actor || "an unknown account"}`,
     lines: rec.elements.map((m) => { const el = byGuid.get(m.proposal_guid); return { line: el ? ghostLine(el) : m.proposal_guid,
-      words: measureWords(m, rec.target_mm) + (rec.reference === "mixed" && m.reference === "as filed" ? " · as filed" : "") }; }),
+      words: measureWords(m, rec) + (rec.reference === "mixed" && m.reference === "as filed" ? " · as filed" : "") }; }),
   };
 }
 

@@ -155,6 +155,10 @@ describe("the survey (MA-4c)", () => {
       .toBe("scan-L00-wall-1 · wall · length mm 8003, height mm 2800, thickness mm 300 · fit 2.2 mm rms, 100% covered · from ev-0001#slice-L00");
     expect(candidateLine({ cid: "scan-L00-wall-5", kind: "wall", geometry: { faces: [[0, 0, 900, 0]] }, measured: { length_mm: 900, height_mm: 2800 }, evidence: ["ev-0001#slice-L00"] }))
       .toBe("scan-L00-wall-5 · wall · length mm 900, height mm 2800 · one face seen: its thickness is unknown · from ev-0001#slice-L00");
+    // MA-5a-2: two faces too close for their scatter — the thickness withheld, said so
+    expect(candidateLine({ cid: "scan-L00-wall-4", kind: "wall", geometry: { faces: [[0, 0, 3400, 0], [0, 40, 3400, 40]] }, measured: { length_mm: 3400, height_mm: 2900, faces_apart_mm: 40 },
+      evidence: ["ev-0001#slice-L00"], fit: { inliers: 200, rmse_mm: 9.6, coverage: 0.8 } }))
+      .toBe("scan-L00-wall-4 · wall · length mm 3400, height mm 2900, faces apart mm 40 · fit 9.6 mm rms, 80% covered · its two faces 40 mm apart against a 9.6 mm scatter: its thickness is not trusted · from ev-0001#slice-L00");
     // MA-5a (review): a door or window has no fit of its own — its hole's border share and the faces that saw it
     expect(candidateLine({ cid: "scan-L00-wall-1-door-1", kind: "door", geometry: { host: "scan-L00-wall-1" }, measured: { width_mm: 1000, height_mm: 2100, sill_mm: 0, head_mm: 2100 },
       evidence: ["ev-0001#slice-L00"], fit: { inliers: 48, rmse_mm: 0, coverage: 0.75, faces_seen: 2 } }))
@@ -197,7 +201,7 @@ describe("survey proposals (MA-4d)", () => {
     bwrite.mockResolvedValue(REPLY);
     const r = await proposeFromJob("http://b", "demo", "job-0002", { frame: FRAME });
     expect(bwrite).toHaveBeenCalledWith("http://b/cde/demo/build/jobs/job-0002/propose", expect.objectContaining({ method: "POST", body: JSON.stringify({ frame: FRAME }) }));
-    expect(proposeLine(r)).toBe("✓ Proposed job-0002 — 2 changeset(s), 7 ghost(s), 4 pre-ticked on the Review desk (Revit opens them ticked too, less what the office IDS rejects; a person clicks Apply) · " +
+    expect(proposeLine(r)).toBe("✓ Proposed job-0002 — 2 changeset(s), 7 ghost(s), 4 pre-ticked on the Review desk (a level the scan created — a person ticks every scan wall, door and window; Revit leaves unticked what the office IDS rejects) · " +
       "3 type-gap group(s), 6 element(s) in the Holding Area · scan-L00-level → GR-FFL (named, its height not checked); scan-L01-level → Scan L01 job-0002 (created) · " +
       "ledger #2210 · receipt abababababababab… — Review ▸ ↻");
     expect(proposeLine({ ...REPLY, already_filed: 6, overlaps: [{ changeset: "Survey job-0001 · GR-FFL", job_id: "job-0001", evidence: ["ev-0001"] }] }))
@@ -206,6 +210,9 @@ describe("survey proposals (MA-4d)", () => {
     const held = [{ name: "door scan-L01-wall-3-door-1", reason: "its host wall scan-L01-wall-3 is a type gap — …" }, { name: "window scan-L01-wall-3-window-1", reason: "…" }];
     expect(proposeLine({ ...REPLY, storeys: [REPLY.storeys[0], { ...REPLY.storeys[1], changeset: null, held }] }))
       .toContain(" in the Holding Area · 2 door(s) or window(s) held on a storey with nothing to place — their level or host wall is not placed (each reason on the planner's row) · scan-L00-level");
+    // MA-5a-2: the doors seen on one face only — not proposed, counted
+    expect(proposeLine({ ...REPLY, storeys: [{ ...REPLY.storeys[0], doors_seen_once: ["a", "b", "c"] }, REPLY.storeys[1]] }))
+      .toContain(" in the Holding Area · 3 door hole(s) seen on one face only — not proposed (a closed door or furniture reads the same; a person draws a door the scan missed) · scan-L00-level");
   });
   it("evidenceControls: Propose is a lead's, never the machine session's", () => {
     expect(["viewer", "contributor", "lead", "owner", "service"].map((r) => evidenceControls(r).propose)).toEqual([false, false, true, true, false]);
