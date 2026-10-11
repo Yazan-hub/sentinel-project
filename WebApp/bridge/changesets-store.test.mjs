@@ -1123,7 +1123,9 @@ describe("verifyChangeset (MA-4e): a signed-in contributor measures a placed sur
     items: [{ id: "ev-0001", sha256: EV }, { id: "ev-0002", sha256: "e2".repeat(32) }], read: ["ev-0001"], result_sha256: CS.job.result_sha256,
     params: { voxel_mm: 20, storey_min_mm: 2000 }, seed: 1 };
   const SCAN = { id: "ev-0001", kind: "scan", format: "las", path: "scans/two-storey.las", sha256: EV, state: "admitted", surveyable: true, allowed_uses: { geometry_extraction: true } };
-  const NUMS = (o = {}) => ({ points: 3512, p95_mm: 3, mean_signed_mm: 0, share_within: { 50: 1, 100: 1, 200: 1 }, coverage: 0.999, ...o });
+  // MA-5a-2: each face's own numbers beside the pooled ones (the per-face verdict); shares at the bridge's tolerances, 20 mm the verdict's
+  const SW = { 20: 1, 50: 1, 100: 1, 200: 1 }, FACE = (points, s20 = 1) => ({ points, coverage: 0.999, share_within: { ...SW, 20: s20 } });
+  const NUMS = (o = {}) => ({ points: 3512, p95_mm: 3, mean_signed_mm: 0, share_within: SW, coverage: 0.999, faces: [FACE(1756), FACE(1756)], ...o });
   const KNOBS = { band_mm: 400, edge_mm: 200, cell_mm: 200 };
   const DONE = (each = () => ({})) => vi.fn(async (_k, _j, p) => ({ status: "done", version: "0.1.0", refused: [], tools: [{ name: "sentinel-survey", version: "0.1.0", licence: "LicenseRef-Sentinel" }],
     result: { elements: p.elements.map((e, i) => ({ guid: e.guid, ...NUMS(each(i)) })), derived: [],
@@ -1144,7 +1146,7 @@ describe("verifyChangeset (MA-4e): a signed-in contributor measures a placed sur
     const r = await verify(deps);
     expect(deps.measureJob.mock.calls[0]).toEqual(["ma4c-drill", "job-0002", { job_id: `measure-${ID}`,
       items: [{ id: "ev-0001", kind: "scan", path: resolve(DIR, "scans/two-storey.las"), sha256: EV }],
-      params: { voxel_mm: 20, storey_min_mm: 2000, tolerances_mm: [50, 100, 200] }, seed: 1, elements: [
+      params: { voxel_mm: 20, storey_min_mm: 2000, tolerances_mm: [20, 50, 100, 200] }, seed: 1, elements: [
         { guid: "g1", faces: [[[125, 300, 0], [125, 300, 2800], [7850, 300, 0]], [[125, 0, 0], [7850, 0, 0], [125, 0, 2800]]] },
         { guid: "g2", faces: [[[125, 6000, 0], [125, 6000, 2800], [7850, 6000, 0]], [[125, 5800, 0], [7850, 5800, 0], [125, 5800, 2800]]] },
         { guid: "g3", faces: [[[7700, 150, 0], [7700, 150, 2800], [7700, 5900, 0]], [[8000, 150, 0], [8000, 5900, 0], [8000, 150, 2800]]] }] }]);
@@ -1158,19 +1160,21 @@ describe("verifyChangeset (MA-4e): a signed-in contributor measures a placed sur
       placed_by: { reported_by: "lead@example.test", reported_role: "lead" }, // Revit's report's provenance: the placed list is the add-in's, said so
       faces_sha256: createHash("sha256").update(JSON.stringify(deps.measureJob.mock.calls[0][2].elements)).digest("hex"),
       status: "done", job: { id: "job-0002", ledger_id: 2201, result_sha256: CS.job.result_sha256, version: "0.1.0" },
-      evidence: [{ id: "ev-0001", sha256: EV }], reader: "sentinel-survey", version: "0.1.0", params: ROW.params, seed: 1, tolerances_mm: [50, 100, 200], target_mm: 20, min_coverage: 0.25,
+      evidence: [{ id: "ev-0001", sha256: EV }], reader: "sentinel-survey", version: "0.1.0", params: ROW.params, seed: 1, tolerances_mm: [20, 50, 100, 200], deviation: { within_mm: 20, face_share_min: 0.2, per: "face" }, min_coverage: 0.25,
       measure: KNOBS, reference: "as filed", frame: CS.job.frame, storey: { level: "GR-FFL", how: "named", checked: false, delta_mm: null }, sign: "+ = the scan outside the element's face",
       points_in: 47699, points_used: 47672, counts: { within_tolerance: 3, out_of_tolerance: 0, missing: 0, insufficient_data: 0, not_measured: 0 }, model_calls: 0, tokens: 0, claimed: false });
     expect(v.elements[0]).toEqual({ proposal_guid: "g1", revit_unique_id: "u1", cid: "scan-L00-wall-1", kind: "wall", reference: "as filed", status: "within_tolerance", basis: "deviation", ...NUMS() });
+    expect(v.target_mm).toBeUndefined(); // MA-5a-2: the verdict is the per-face share, named in deviation
     expect(r).toEqual({ changeset: { id: ID, name: "Survey job-0002 · GR-FFL" }, status: "done", reference: "as filed", counts: v.counts, elements: v.elements, ledger: { id: 2300, hash: "ab".repeat(32) } });
     expect([deps.docInsert.mock.calls.length, deps.docReplaceIfField.mock.calls.length]).toEqual([0, 0]);
   });
   it("(b) the bridge's verdicts: out of tolerance, missing, and an element undone in Revit not measured — counted on the row", async () => {
     const deps = vdeps({ listAudit: audits([{ id: 2215, action: "changeset_reverted", new_value: { op: "undo", guids: ["g3"] } }, ...ROWS]),
-      measureJob: DONE((i) => (i ? { points: 0, p95_mm: null, mean_signed_mm: null, share_within: null, coverage: 0 } : { p95_mm: 63, share_within: { 50: 0, 100: 1, 200: 1 } })) });
+      measureJob: DONE((i) => (i ? { points: 0, p95_mm: null, mean_signed_mm: null, share_within: null, coverage: 0, faces: [{ points: 0, coverage: 0, share_within: null }, { points: 0, coverage: 0, share_within: null }] }
+        : { p95_mm: 63, share_within: { 20: 0, 50: 0, 100: 1, 200: 1 }, faces: [FACE(1756, 0), FACE(1756, 0)] })) });
     const r = await verify(deps);
     expect(deps.measureJob.mock.calls[0][2].elements.map((e) => e.guid)).toEqual(["g1", "g2"]);
-    expect(r.elements.map((e) => [e.status, e.reason ?? null])).toEqual([["out_of_tolerance", null],
+    expect(r.elements.map((e) => [e.status, e.reason ?? null])).toEqual([["out_of_tolerance", "face 1: 0% of its points within 20 mm; face 2: 0% of its points within 20 mm — each face needs 20% (this check misses most 20 mm offsets, and a thin partition moved by its own thickness can pass)"],
       ["missing", "no scan point within 400 mm of its faces — not built where it stands, or not scanned there"], ["not_measured", "undone in Revit (ledger #2215) — nothing placed to measure"]]);
     expect(deps.audit.mock.calls[0][3]).toBe("verify:measured job-0002 · sentinel-survey 0.1.0 · done · 0 within tolerance, 1 out of tolerance, 1 missing, 0 insufficient data, 1 not measured");
   });
@@ -1249,13 +1253,13 @@ describe("verifyChangeset (MA-4e): a signed-in contributor measures a placed sur
   });
   it("(final review) the receipt rides on the row typed, the knobs by name; shares only at the bridge's tolerances; a stray knob fails the run", async () => {
     const odd = vi.fn(async (_k, _j, p) => ({ status: "done", version: "0.1.0", refused: [], tools: [],
-      result: { elements: p.elements.map((e) => ({ guid: e.guid, ...NUMS({ share_within: { 50: 1, 75: 0.5, 100: 1, 200: 1 } }) })), derived: [],
+      result: { elements: p.elements.map((e) => ({ guid: e.guid, ...NUMS({ share_within: { 20: 1, 50: 1, 75: 0.5, 100: 1, 200: 1 } }) })), derived: [],
         receipt: { started: 7, finished: "x".repeat(41), cpu_s: "fast", points_in: 47699, points_used: null, measure: KNOBS, note: "kept nowhere" } } }));
     let deps = vdeps({ measureJob: odd });
     await verify(deps);
     let v = deps.audit.mock.calls[0][6];
     expect([v.status, v.started, v.finished, v.cpu_s, v.points_in, v.points_used, v.measure]).toEqual(["done", null, null, null, 47699, null, KNOBS]);
-    expect(v.elements[0].share_within).toEqual({ 50: 1, 100: 1, 200: 1 }); // the 75 mm share the service sent is not the bridge's tolerance
+    expect(v.elements[0].share_within).toEqual({ 20: 1, 50: 1, 100: 1, 200: 1 }); // the 75 mm share the service sent is not the bridge's tolerance
     expect(JSON.stringify(v)).not.toContain("kept nowhere");
     deps = vdeps({ measureJob: vi.fn(async (_k, _j, p) => ({ status: "done", version: "0.1.0", refused: [], tools: [],
       result: { elements: p.elements.map((e) => ({ guid: e.guid, ...NUMS() })), derived: [], receipt: { measure: { ...KNOBS, verdict: "fine" } } } })) });

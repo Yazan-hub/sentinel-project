@@ -20,7 +20,7 @@ export const DEFAULT_PARAMS = { voxel_mm: 20, storey_min_mm: 2000 };
 // thickness at 200 mm, measured) — the service bounds it the same way (read_job).
 const BOUNDS = { voxel_mm: [5, 50, " (a wall face needs a point at least every 50 mm)"], storey_min_mm: [1500, 6000, ""] };
 const FIELDS = ["pack", "readers", "params"]; // a body's whole vocabulary: the rest is the bridge's
-export const TOLERANCES_MM = [50, 100, 200]; // the contract's (§6.9); deviation reads them from MA-4e
+export const TOLERANCES_MM = [20, 50, 100, 200]; // the contract's (§6.9); deviation reads them from MA-4e; MA-5a-2: 20 is the per-face verdict's (survey-plan DEVIATION_MM) — the band stays 2 x 200
 /** The bridge's seed, never a body's: the same evidence and parameters give the same candidates (§6.9). */
 export const SEED = 1;
 const KINDS = ["level", "wall", "floor", "ceiling", "door", "window"]; // MA-5a: sentinel-survey 0.5.0 proposes doors and windows on its walls

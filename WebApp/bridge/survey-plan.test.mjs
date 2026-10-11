@@ -6,7 +6,7 @@ import * as core from "./sentinel-core.mjs";
 import { makeTyper } from "./changesets-typing.mjs";
 import { validateChangeset } from "./changesets-logic.mjs";
 import { typeGapId, typeGapGroups } from "./holding-logic.mjs";
-import { readProposeBody, toModel, matchStoreys, trimEnds, planSurvey, toScan, facesOf, measurePlan, judge, measureRefusal, countWords, readMesh, meshFaces, REVIT, FILED, scanBand, cloudRefusal, placeRefusal } from "./survey-plan.mjs";
+import { readProposeBody, toModel, matchStoreys, trimEnds, planSurvey, toScan, facesOf, measurePlan, judge, measureRefusal, countWords, readMesh, meshFaces, REVIT, FILED, scanBand, cloudRefusal, placeRefusal, DEVIATION_MM, FACE_SHARE_MIN } from "./survey-plan.mjs";
 import { boxMesh } from "./fixtures/box-mesh.mjs";
 
 const read = (p) => JSON.parse(readFileSync(new URL(p, import.meta.url), "utf8"));
@@ -373,19 +373,26 @@ describe("MA-4e — a placed wall as filed, back in the scan's frame; the bridge
       { proposal_guid: "f", reason: "one face of a floor is seen; its other is its type's, which no scan measured, and the slab beyond would count against it" }]);
     expect(p.placed.map((x) => [x.proposal_guid, x.revit_unique_id, x.cid, x.kind])).toEqual([["w", "U-w", "c-w", "wall"], ["u", "U-u", "c-u", "wall"], ["l", "U-l", "c-l", "level"], ["f", "U-f", "c-f", "floor"]]);
   });
-  it("judge: p95 against D7's 20 mm; missing, insufficient data and not measured in words — never a pass without points", () => {
-    const K = { band_mm: 400, edge_mm: 200, cell_mm: 200 }, M = { points: 3512, p95_mm: 20, coverage: 0.999 };
-    expect(judge(M, K)).toEqual({ status: "within_tolerance" });
-    expect(judge({ ...M, p95_mm: 20.1 }, K)).toEqual({ status: "out_of_tolerance" });
-    expect(judge({ ...M, coverage: 0.2 }, K)).toEqual({ status: "insufficient_data", reason: "20% of its faces seen — under the 25% a verdict needs" });
-    expect(judge({ points: 1759, p95_mm: 253.2, coverage: 0.5 }, K)).toEqual({ status: "out_of_tolerance" }); // one face seen, 250 mm off (Base)
-    expect(judge({ points: 0, p95_mm: null, coverage: 0 }, K)).toEqual({ status: "missing", reason: "no scan point within 400 mm of its faces — not built where it stands, or not scanned there" });
-    expect(judge({ points: 0, p95_mm: null, coverage: null }, K)).toEqual({ status: "not_measured", reason: "no face interior to measure — each face is read 200 mm in from every edge" });
+  it("judge (MA-5a-2): each face with an interior needs FACE_SHARE_MIN of its points within DEVIATION_MM; missing, insufficient data and not measured in words — never a pass without points", () => {
+    const K = { band_mm: 400, edge_mm: 200, cell_mm: 200 };
+    const F = (points, s) => ({ points, coverage: 0.9, share_within: { 20: s, 50: 1, 100: 1, 200: 1 } });
+    const M = (faces, o = {}) => ({ points: faces.reduce((n, f) => n + f.points, 0), p95_mm: 300, coverage: 0.999, faces, ...o });
+    expect([DEVIATION_MM, FACE_SHARE_MIN]).toEqual([20, 0.2]); // measured on Kladno (plan Task 0): 20 mm at 0.2 — in place 95 of 99 within
+    expect(judge(M([F(1800, 0.97), F(1712, 0.95)]), K)).toEqual({ status: "within_tolerance" }); // p95 300 mm: clutter in the band no longer decides
+    expect(judge(M([F(1800, 0.2), F(1712, 0.2)]), K)).toEqual({ status: "within_tolerance" }); // at the threshold
+    expect(judge(M([F(1800, 0.97), F(1712, 0.1)]), K)).toEqual({ status: "out_of_tolerance",
+      reason: "face 2: 10% of its points within 20 mm — each face needs 20% (this check misses most 20 mm offsets, and a thin partition moved by its own thickness can pass)" });
+    expect(judge(M([F(1800, 0.97), { points: 0, coverage: 0, share_within: null }]), K).reason).toMatch(/^face 2: no scan point within 400 mm — each face needs 20% /);
+    expect(judge(M([F(1800, 0.97), { points: 0, coverage: null, share_within: null }]), K)).toEqual({ status: "within_tolerance" }); // no interior: not judged
+    expect(judge(M([F(1800, 1), F(1712, 1)], { coverage: 0.2 }), K)).toEqual({ status: "insufficient_data", reason: "20% of its faces seen — under the 25% a verdict needs" });
+    expect(judge({ points: 0, p95_mm: null, coverage: 0, faces: [] }, K)).toEqual({ status: "missing", reason: "no scan point within 400 mm of its faces — not built where it stands, or not scanned there" });
+    expect(judge({ points: 0, p95_mm: null, coverage: null, faces: [] }, K)).toEqual({ status: "not_measured", reason: "no face interior to measure — each face is read 200 mm in from every edge" });
     expect(countWords({ within_tolerance: 3 })).toBe("3 within tolerance, 0 out of tolerance, 0 missing, 0 insufficient data, 0 not measured");
   });
-  it("measureRefusal: one result per element sent, in order, the five numbers only and in range, its knobs on the receipt", () => {
-    const send = [{ guid: "a" }], T = [50, 100, 200];
-    const ok = { elements: [{ guid: "a", points: 3, p95_mm: 1, mean_signed_mm: 0, coverage: 1, share_within: { 50: 1, 100: 1, 200: 1 } }], receipt: { measure: { band_mm: 400, edge_mm: 200, cell_mm: 200 } } };
+  it("measureRefusal: one result per element sent, in order, the numbers only and in range — each face's too (MA-5a-2) — its knobs on the receipt", () => {
+    const send = [{ guid: "a", faces: [[], []] }], T = [20, 50, 100, 200], SW = { 20: 1, 50: 1, 100: 1, 200: 1 };
+    const FS = [{ points: 2, coverage: 1, share_within: SW }, { points: 1, coverage: 1, share_within: SW }];
+    const ok = { elements: [{ guid: "a", points: 3, p95_mm: 1, mean_signed_mm: 0, coverage: 1, share_within: SW, faces: FS }], receipt: { measure: { band_mm: 400, edge_mm: 200, cell_mm: 200 } } };
     const el = (o) => ({ ...ok, elements: [{ ...ok.elements[0], ...o }] });
     expect(measureRefusal(ok, send, T)).toBeNull();
     expect(measureRefusal(null, send, T)).toBe("receipt.measure");
@@ -394,18 +401,23 @@ describe("MA-4e — a placed wall as filed, back in the scan's frame; the bridge
       .toEqual(["elements[0].guid", "elements[0].points", "elements[0]'s numbers", "elements[0].share_within"]);
     // Rule 3: a service that sends its own verdict is refused, never merged — p95 63 is never within tolerance.
     expect([measureRefusal(el({ status: "within_tolerance", p95_mm: 63 }), send, T), measureRefusal(el({ coverage: 5 }), send, T),
-      measureRefusal(el({ p95_mm: -1 }), send, T), measureRefusal(el({ share_within: { 50: -1, 100: 1, 200: 1 } }), send, T)])
+      measureRefusal(el({ p95_mm: -1 }), send, T), measureRefusal(el({ share_within: { ...SW, 20: -1 } }), send, T)])
       .toEqual(["elements[0] carries status (the verdict is the bridge's)", "elements[0]'s numbers", "elements[0]'s numbers", "elements[0].share_within"]);
     // Final review: the knobs are exactly three numbers; the numbers agree with each other.
     const rc = (measure) => ({ ...ok, receipt: { measure } });
     expect([measureRefusal(rc({ band_mm: 400, edge_mm: 200 }), send, T), measureRefusal(rc({ band_mm: 400, edge_mm: 200, cell_mm: 200, verdict: "ok" }), send, T),
       measureRefusal(rc({ band_mm: 400, edge_mm: 200, cell_mm: "200" }), send, T)]).toEqual(["receipt.measure", "receipt.measure", "receipt.measure"]);
-    const none = { points: 0, p95_mm: null, mean_signed_mm: null, share_within: null, coverage: 0 };
+    const empty = (coverage) => [{ points: 0, coverage, share_within: null }, { points: 0, coverage, share_within: null }];
+    const none = { points: 0, p95_mm: null, mean_signed_mm: null, share_within: null, coverage: 0, faces: empty(0) };
     expect(measureRefusal(el(none), send, T)).toBeNull();
-    expect(measureRefusal(el({ ...none, coverage: null }), send, T)).toBeNull();
+    expect(measureRefusal(el({ ...none, coverage: null, faces: empty(null) }), send, T)).toBeNull();
     expect([measureRefusal(el({ ...none, p95_mm: 3 }), send, T), measureRefusal(el({ ...none, coverage: 0.5 }), send, T),
-      measureRefusal(el({ ...none, share_within: { 50: 1, 100: 1, 200: 1 } }), send, T), measureRefusal(el({ coverage: null }), send, T),
+      measureRefusal(el({ ...none, share_within: SW }), send, T), measureRefusal(el({ coverage: null }), send, T),
       measureRefusal(el({ mean_signed_mm: null }), send, T)]).toEqual(Array(5).fill("elements[0]'s numbers"));
+    // MA-5a-2: each face's numbers — one per face sent, in range, adding up, no verdict of their own
+    expect([el({ faces: undefined }), el({ faces: [FS[0]] }), el({ faces: [FS[0], { ...FS[1], points: 2 }] }), el({ faces: [{ ...FS[0], share_within: { ...SW, 20: 1.5 } }, FS[1]] }),
+      el({ faces: [FS[0], { ...FS[1], share_within: { 50: 1 } }] }), el({ faces: [FS[0], { ...FS[1], status: "within_tolerance" }] }), el({ faces: [FS[0], { ...FS[1], coverage: 2 }] })]
+      .map((r) => measureRefusal(r, send, T))).toEqual(Array(7).fill("elements[0].faces"));
   });
 });
 

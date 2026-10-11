@@ -18,6 +18,12 @@ export const PLANNER_VERSION = "0.1.0";
 /** D7: the pre-tick tolerance (on the fit) and the level match's.
  *  ponytail: one constant for both, and MA-4e's p95 verdict (judge); a per-class tolerance (lod_matrix or the contract's) is MA-8's. */
 export const TOLERANCE_MM = 20;
+// MA-5a-2 (the founder's call on open question 8, measured in plan Task 0): a placed survey wall is judged per face on the share of the face's
+// own points within DEVIATION_MM — p95 refused 84 of Kladno's 99 walls in place (clutter in the band), pooled shares let a thin wall moved by
+// its thickness pass. 20 mm at 0.2: in place 95 of 99 within, a 50 mm shift 97 of 99 out, thin walls shifted 100 mm 24 of 31 out (one
+// building, one tracer). TOLERANCE_MM stays the level match and the fit status.
+export const DEVIATION_MM = 20, FACE_SHARE_MIN = 0.2;
+const DEV_LIMITS = "this check misses most 20 mm offsets, and a thin partition moved by its own thickness can pass";
 export const NOT_MEASURED = "thickness not measured";
 export const NOT_TRUSTED = "thickness not trusted"; // MA-5a-2: two faces, but too close for their scatter (sentinel-survey faces_apart_mm)
 /** MA-4h: a frame's move past this is no place on Earth (a UTM northing reaches 1e10 mm). The guard is where the frame puts the scan
@@ -496,11 +502,18 @@ export function judge(m, k) {
   if (m.coverage == null) return { status: "not_measured", reason: `no face interior to measure — each face is read ${k.edge_mm} mm in from every edge` };
   if (!m.points) return { status: "missing", reason: `no scan point within ${k.band_mm} mm of its faces — not built where it stands, or not scanned there` };
   if (m.coverage < MIN_COVERAGE) return { status: "insufficient_data", reason: `${Math.round(m.coverage * 1000) / 10}% of its faces seen — under the ${MIN_COVERAGE * 100}% a verdict needs` };
-  return { status: m.p95_mm <= TOLERANCE_MM ? "within_tolerance" : "out_of_tolerance" };
+  // MA-5a-2: every face with an interior must hold FACE_SHARE_MIN of its own points within DEVIATION_MM (a face with an interior and no point
+  // within the band is out); a face without an interior is not judged
+  const pct = (v) => `${Math.round(v * 100)}%`;
+  const off = m.faces.map((f, i) => ({ f, i })).filter(({ f }) => f.coverage != null && (!f.points || f.share_within[DEVIATION_MM] < FACE_SHARE_MIN));
+  if (!off.length) return { status: "within_tolerance" };
+  return { status: "out_of_tolerance", reason: off.map(({ f, i }) => `face ${i + 1}: ${f.points ? `${pct(f.share_within[DEVIATION_MM])} of its points within ${DEVIATION_MM} mm` : `no scan point within ${k.band_mm} mm`}`).join("; ") +
+    ` — each face needs ${pct(FACE_SHARE_MIN)} (${DEV_LIMITS})` };
 }
 
 /** The keys a measured element may carry (spec amendment S3: numbers only) — anything else, a status above all, is the bridge's. */
-const MEASURE_KEYS = new Set(["guid", "points", "p95_mm", "mean_signed_mm", "share_within", "coverage"]);
+const MEASURE_KEYS = new Set(["guid", "points", "p95_mm", "mean_signed_mm", "share_within", "coverage", "faces"]); // MA-5a-2: faces, each face's own
+const FACE_KEYS = new Set(["points", "coverage", "share_within"]);
 export const MEASURE_KNOBS = ["band_mm", "edge_mm", "cell_mm"];
 const share = (v) => Number.isFinite(v) && v >= 0 && v <= 1;
 
@@ -525,6 +538,12 @@ export function measureRefusal(res, send, tols) {
     // coverage and a mean (the service sends exactly that; anything else is not its contract, and judge would read it wrong).
     if (m.points === 0 && (m.p95_mm !== null || m.mean_signed_mm !== null || m.share_within != null || (m.coverage !== null && m.coverage !== 0))) return `${at}'s numbers`;
     if (m.points > 0 && (!Number.isFinite(m.mean_signed_mm) || m.coverage === null)) return `${at}'s numbers`;
+    // MA-5a-2: each face's numbers — one per face sent, in range, no verdict of their own, adding up to the element's points (judge reads them)
+    const fs = m.faces;
+    if (!Array.isArray(fs) || fs.length !== (send[i].faces?.length ?? -1)
+        || fs.some((f) => !f || typeof f !== "object" || Object.keys(f).some((x) => !FACE_KEYS.has(x)) || !Number.isInteger(f.points) || f.points < 0
+          || (f.coverage !== null && !share(f.coverage)) || (f.points > 0 ? !tols.every((t) => share(f.share_within?.[t])) : f.share_within != null))
+        || fs.reduce((n, f) => n + f.points, 0) !== m.points) return `${at}.faces`;
   }
   return null;
 }
