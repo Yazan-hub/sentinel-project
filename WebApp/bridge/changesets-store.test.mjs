@@ -981,13 +981,13 @@ describe("proposeFromJob (MA-4d): a lead turns a trusted survey job into changes
       await expect(propose(deps, body)).rejects.toMatchObject({ status, message });
       expect([deps.docInsert.mock.calls.length, deps.audit.mock.calls.length, deps.adjudicateProposal.mock.calls.length]).toEqual([0, 0, 0]);
     };
-    await quiet({ myRole: vi.fn(async () => "service") }, "proposing from a survey job needs a person — the frame and levels it states are a lead's, and its pre-ticks rest on them: sign in. Nothing was saved.", 403);
-    await quiet({ requireMinRole: belowMin("contributor") }, "this action requires the lead role (you are contributor) — proposing from a survey job is a lead's: the frame and levels it states decide where every ghost lands; nothing was saved", 403);
+    await quiet({ myRole: vi.fn(async () => "service") }, "proposing from a survey or drawing job needs a person — where its ghosts land (a scan's frame, a drawing's alignment) and on which level is a lead's statement: sign in. Nothing was saved.", 403);
+    await quiet({ requireMinRole: belowMin("contributor") }, "this action requires the lead role (you are contributor) — proposing from a survey or drawing job is a lead's: the frame or alignment and the level it states decide where every ghost lands; nothing was saved", 403);
     await quiet({ trustedJob: vi.fn(async () => { throw Object.assign(new Error("job-0002's result is not trusted: … — run the survey again; nothing was saved"), { status: 409 }); }) },
       "job-0002's result is not trusted: … — run the survey again; nothing was saved");
-    // MA-5a-3: a drawing job's own trusted row — refused before the body, the pack or any read
+    // MA-5a-4: a drawing job's own trusted row reads a drawing's body — a scan's frame is refused in words
     await quiet({ trustedJob: vi.fn(async () => ({ ...TRUSTED, row: { ...TRUSTED.row, reader: "sentinel-drawing" } })) },
-      "job-0002 is a drawing job (sentinel-drawing): its walls and doors are in paper millimetres and are proposed with a 2-point alignment — MA-5a-4; nothing was saved");
+      "frame is not a proposal field — a drawing is proposed with {item?, points, check?, level?, elevation_mm}; the bridge builds every changeset from the job's own result — nothing was saved", 400);
     await quiet({}, "pretick is not a proposal field — the bridge builds every changeset from the job's own result; send {frame, levels?} — nothing was saved", 400, { frame: FRAME, pretick: true });
     const pack = (items) => ({ readPack: vi.fn(async (_k, id) => (id === "evp-0001" ? { pack: { items } } : null)) }); // the ROW's pack id
     await quiet(pack([{ id: "ev-0001", sha256: EV, state: "changed" }]), "ev-0001 is not the bytes job-0002 read (Re-check flagged it changed) — survey the admitted scan again; nothing was saved");
@@ -1000,7 +1000,7 @@ describe("proposeFromJob (MA-4d): a lead turns a trusted survey job into changes
     await quiet({ docList: vi.fn(async () => docs.map((c) => ({ ...c, status: "applied" }))) }, expect.stringContaining("(Survey job-0002 · GR-FFL: applied; Survey job-0002 · Scan L01 job-0002: applied)"));
     await quiet({ docList: vi.fn(async () => docs) }, "Survey job-0002 · GR-FFL (proposed) was filed from job-0002 with the scan moved 40000, 0, 0 mm, turned 0° — send that frame (one job is one frame), or run the survey again to propose it afresh; nothing was saved", 409, { frame: { ...FRAME, dx_mm: 0 } });
     const other = docs.map((c) => ({ ...c, name: c.name.replace("job-0002", "job-0001"), job: { ...c.job, id: "job-0001", ledger_id: 2200 } }));
-    await quiet({ docList: vi.fn(async () => other) }, "Survey job-0001 · GR-FFL (from job-0001) is still proposed — decide or withdraw it before proposing another survey job: both would propose the same walls; nothing was saved");
+    await quiet({ docList: vi.fn(async () => other) }, "Survey job-0001 · GR-FFL (from job-0001) is still proposed — decide or withdraw it before proposing from another job: both could propose the same walls; nothing was saved");
     await quiet({ resolveArtefact: resolving({ guideline: STD.guideline }) }, expect.stringMatching(/^a survey's candidates are typed from the project's guideline and type catalogue \(walls, floors and ceilings exactly, D16; doors and windows by size within 100 mm\) — guideline: guideline@1 · office · .+; type catalogue: none — .+; install both on the project or its office first\. Nothing was saved$/));
     await quiet({ manifestLevels: vi.fn(async () => { throw new Error("the manifest store is down"); }) },
       "the published models' levels could not be read (the manifest store is down) — nothing was saved; send it again", 503);
@@ -1044,7 +1044,7 @@ describe("proposeFromJob (MA-4d): a lead turns a trusted survey job into changes
     const deps = sdeps();
     const [a, b] = await Promise.allSettled([propose(deps), propose(deps)]);
     expect([a.status, b.status]).toEqual(["fulfilled", "rejected"]);
-    expect(b.reason).toMatchObject({ status: 409, message: "a survey proposal is being filed on ma4c-drill — try again when it ends; nothing was saved" });
+    expect(b.reason).toMatchObject({ status: 409, message: "a proposal from a job is being filed on ma4c-drill — try again when it ends; nothing was saved" });
     expect(deps.saved.size).toBe(2);
     expect((await propose(sdeps())).changesets).toHaveLength(2); // released when it ends
   });
@@ -1111,6 +1111,63 @@ describe("proposeFromJob (MA-4d): a lead turns a trusted survey job into changes
     expect(r.storeys).toEqual(planner.storeys);
     // MA-5a-2: a door seen on one face is not proposed, not held — the planner's row lists it
     expect(planner.storeys.map((s) => s.doors_seen_once)).toEqual([["scan-L00-wall-2-door-9"], undefined]);
+  });
+});
+
+describe("proposeFromJob (MA-5a-4): a lead aligns a drawing job by two points — one changeset per drawing, every ghost inferred, never pre-ticked", () => {
+  const RESULT = readRepo("WebApp/bridge/fixtures/drawing/drill-plan-L00-result.json");
+  const FX = readRepo("WebApp/bridge/fixtures/changeset-ops/contract2-drawing.json").stored;
+  const EV7 = "d7".repeat(32);
+  const TRUSTED = { job: { id: "job-0005", status: "done" }, result: RESULT,
+    row: { ledger: { id: 3001, hash: "31".repeat(32) }, reader: "sentinel-drawing", version: "0.1.0", pack_id: "evp-0001", items: [{ id: "ev-0007", sha256: EV7 }],
+      read: ["ev-0007"], result_sha256: "5e".repeat(32) } };
+  const STD = { guideline: readRepo("demo/bds-pilot/bds-dd-layerfree-guideline.json"), type_catalog: readRepo("demo/bds-pilot/bds-type-catalog.json") };
+  const resolving = (have) => vi.fn(async (key, kind) => (have[kind] ? installed(kind, have[kind]) : NONE));
+  const BODY = { points: FX.job.alignment.points, check: FX.job.alignment.check, elevation_mm: 0 };
+  const ddeps = (over = {}) => { let n = 3100; return baseDeps({
+    myRole: vi.fn(async () => "lead"), requireMinRole: vi.fn(async () => "lead"), takeWriteBudget: vi.fn(), resolveArtefact: resolving(STD),
+    trustedJob: vi.fn(async () => TRUSTED), readPack: vi.fn(async () => ({ pack: { items: [{ id: "ev-0007", sha256: EV7, state: "admitted" }] } })),
+    manifestLevels: vi.fn(async () => []), audit: vi.fn(async () => ({ id: ++n, hash: "ab".repeat(32) })), ...over }); };
+  const propose = (deps, body = BODY) => proposeFromJob("ma4c-drill", "job-0005", body, "web", deps);
+
+  it("(a) the drill plan: one changeset (a created level, four walls typed), every ghost inferred and unticked; the alignment on the changeset and the planner's row", async () => {
+    const deps = ddeps();
+    const r = await propose(deps);
+    expect(r.changesets.map((c) => [c.name, c.elements, c.preticked])).toEqual([["Drawing job-0005 · ev-0007 · Drawing ev-0007 job-0005", 5, 0]]);
+    expect(r).toMatchObject({ job: "job-0005", drawing_row: { id: 3001 }, alignment: { ...FX.job.alignment, confirmed_by: "web" }, gaps: { groups: 3, elements: 3 }, already_filed: 0 });
+    expect([r.frame, r.survey_row]).toEqual([undefined, undefined]);
+    const cs = [...deps.saved.values()][0];
+    expect(cs).toMatchObject(FX); // Trust.cs reads the same
+    expect([cs.job.frame, cs.job.alignment.confirmed_by]).toEqual([undefined, "web"]);
+    expect(cs.elements.every((e) => e.pretick === false && e.accuracy.status === "inferred" && e.place.TopElevation === undefined)).toBe(true);
+    expect(deps.audit.mock.calls.map((c) => [c[1], c[3]])).toEqual([["changeset", "changeset_proposed"],
+      ["type_gap", "type_gap:run job-0005 · drawing-planner · 3 group(s), 3 element(s)"], ["build", "build:run job-0005 · drawing-planner 0.1.0 · proposed"]]);
+    expect(deps.audit.mock.calls[1][6]).toMatchObject({ claimed: false, source: "sentinel-drawing", job: { id: "job-0005", ledger_id: 3001 } });
+    expect(deps.audit.mock.calls[2][6]).toMatchObject({ job_id: "job-0005", planner: "drawing-planner", version: "0.1.0", drawing_row: { id: 3001 }, alignment: { scale: 50, check_mm: 0 },
+      claimed: false, model_calls: 0, tokens: 0, storeys: [{ level: "Drawing ev-0007 job-0005", how: "created" }] });
+  });
+  it("(b) refused before anything is written, each in words: the body, a wrong check point, another alignment of the same drawing, nothing new", async () => {
+    const quiet = async (over, message, status = 409, body = BODY) => {
+      const deps = ddeps(over);
+      await expect(propose(deps, body)).rejects.toMatchObject({ status, message });
+      expect([deps.docInsert.mock.calls.length, deps.audit.mock.calls.length, deps.adjudicateProposal.mock.calls.length]).toEqual([0, 0, 0]);
+    };
+    await quiet({}, "frame is not a proposal field — a drawing is proposed with {item?, points, check?, level?, elevation_mm}; the bridge builds every changeset from the job's own result — nothing was saved", 400, { frame: { dx_mm: 0 } });
+    await quiet({}, "the check point lands 150 mm from where you said it is — more than the 100 mm an alignment is trusted to; one of the three points is not where it was read — nothing was saved", 400,
+      { ...BODY, check: { paper: [220, 40], model: [48000, 150] } });
+    const d0 = ddeps(); await propose(d0); const docs = [...d0.saved.values()];
+    await quiet({ docList: vi.fn(async () => docs) }, "Drawing job-0005 · ev-0007 · Drawing ev-0007 job-0005 (proposed) was filed from job-0005 with ev-0007 aligned at 1:50, turned 0°, moved 37000, -2000 mm, at 0 mm (points [60,40] → [40000,0], [220,160] → [48000,6000]) — send those points and that elevation (one drawing is one alignment), or read the drawing again to propose it afresh; nothing was saved",
+      409, { ...BODY, elevation_mm: 3000 });
+    await quiet({ docList: vi.fn(async () => docs) }, "nothing new to propose from job-0005 — every candidate that types is filed already (Drawing job-0005 · ev-0007 · Drawing ev-0007 job-0005: proposed): withdraw a proposed one on the Review desk to propose it again; an applied one stays applied here after an Undo in Revit — read the drawing again to propose it afresh; nothing was saved");
+  });
+  it("(c) a drawing changeset has no scan: measuring it and showing its scan are refused in words", async () => {
+    const deps = ddeps(); await propose(deps);
+    const cs = { ...[...deps.saved.values()][0], status: "applied" };
+    deps.saved.set(cs.id, cs);
+    await expect(verifyChangeset("ma4c-drill", { changeset: cs.id }, "web", { ...deps, myRole: vi.fn(async () => "contributor"), requireMinRole: vi.fn(async () => "contributor") }))
+      .rejects.toMatchObject({ status: 409, message: "Drawing job-0005 · ev-0007 · Drawing ev-0007 job-0005 was built from a drawing (job-0005) — what someone drew, not what was built: there is no scan to measure it against — nothing was saved" });
+    await expect(scanOverlay("ma4c-drill", cs.id, { ...deps, myRole: vi.fn(async () => "contributor"), requireMinRole: vi.fn(async () => "contributor") }))
+      .rejects.toMatchObject({ status: 409, message: "Drawing job-0005 · ev-0007 · Drawing ev-0007 job-0005 was built from a drawing (job-0005) — it has no scan to show" });
   });
 });
 

@@ -146,9 +146,9 @@ public sealed class ChangesetReviewWindow : Window
         _go.Click += (_, _) => Decide();
         _retry.Click += (_, _) => { _retry.IsEnabled = false; RetryRequested?.Invoke(); };
         // MA-4f: a survey changeset's scan, drawn as crosses beside the ghosts — off until ticked (each tick reads the scan again on the bridge's
-        // one survey slot); a changeset that is a claim has no scan.
+        // one survey slot); a changeset that is a claim has no scan, nor one the bridge built from a drawing (MA-5a-4: its source names sentinel-drawing).
         var scan = new CheckBox { Content = "Show the scan", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0),
-                                  Visibility = _cs.Claimed == false ? Visibility.Visible : Visibility.Collapsed };
+                                  Visibility = _cs.Claimed == false && !(_cs.Source ?? "").StartsWith("sentinel-drawing ") ? Visibility.Visible : Visibility.Collapsed };
         scan.Checked += (_, _) => ScanRequested?.Invoke(true);
         scan.Unchecked += (_, _) => ScanRequested?.Invoke(false);
         buttons.Children.Add(scan);

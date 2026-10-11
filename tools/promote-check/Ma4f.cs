@@ -88,8 +88,8 @@ static partial class Check
         string cli = Src("Coordination", "ChangesetClient.cs"), rev = Src("Commands.ReviewChangesets.cs"), win = Src("UI", "ChangesetReviewWindow.cs"), srv = Src("GhostBuilder", "GhostOverlayServer.cs");
         Ok(cli.Contains("/{Uri.EscapeDataString(id)}/scan\";") && cli.Contains("var (resp, body) = Send(WriteHttp, () => Req(HttpMethod.Get, url, cfg.ServiceToken));"),
            "the scan is read with the person's token (a signed-out Revit sends the file's, which the bridge refuses in words), waiting as long as a write: the bridge runs sentinel-survey");
-        Ok(win.Contains("public event Action<bool> ScanRequested;") && win.Contains("Visibility = _cs.Claimed == false ? Visibility.Visible : Visibility.Collapsed"),
-           "\"Show the scan\" is offered on a survey changeset only, unticked");
+        Ok(win.Contains("public event Action<bool> ScanRequested;") && win.Contains("Visibility = _cs.Claimed == false && !(_cs.Source ?? \"\").StartsWith(\"sentinel-drawing \") ? Visibility.Visible : Visibility.Collapsed"),
+           "\"Show the scan\" is offered on a survey changeset only, unticked (MA-5a-4: never on one built from a drawing)");
         int ask = rev.IndexOf("window.ScanRequested +=", StringComparison.Ordinal);
         Ok(ask > 0 && rev.IndexOf("Task.Run(() =>", ask, StringComparison.Ordinal) < rev.IndexOf("var got = ChangesetClient.FetchScan(cfg, key, cs.Id, out var err);", StringComparison.Ordinal)
            && rev.Contains("App.Events.Enqueue(doc, \"draw the scan overlay\"") && rev.Contains("if (window.Gone || ask != scanAsk || scanOn != null) return;")

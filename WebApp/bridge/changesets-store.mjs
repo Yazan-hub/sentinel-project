@@ -12,6 +12,7 @@ import { resolveActor } from "./bridge-auth.mjs";
 import { readProposeBody, planSurvey, PLANNER, PLANNER_VERSION, measurePlan, judge, measureRefusal, countWords, STATUSES, MIN_COVERAGE, DEVIATION_MM, FACE_SHARE_MIN, MEASURE_KNOBS,
   readMesh, meshFaces, REVIT, FILED as AS_FILED, toScan, toModel, scanBand, cloudRefusal, SCAN_CELL_MM, SCAN_MAX } from "./survey-plan.mjs";
 import { stillAdmitted, pickItems, trustedJob as jobOf, measureJob as measureOf, TOLERANCES_MM, READER, DRAWING } from "./build-jobs.mjs";
+import { readAlignBody, planDrawing, PLANNER as DRAWING_PLANNER, PLANNER_VERSION as DRAWING_PLANNER_VERSION } from "./drawing-plan.mjs";
 
 const STORE = "changeset";
 const err = (status, message) => Object.assign(new Error(message), { status });
@@ -214,6 +215,8 @@ export async function previewChangesets(key, body, deps) {
 const storeyRecord = (s) => ({ cid: s.cid, level: s.level, how: s.how, elevation_mm: s.elevation_mm, delta_mm: s.delta_mm, checked: s.checked, from: s.from });
 const FILED = ["proposed", "applied", "partially_applied"]; // decision 19: a cid on one of these (less what Revit rejected) is filed
 const FRAME_KEYS = ["dx_mm", "dy_mm", "dz_mm", "rotation_deg"];
+/** MA-5a-4: a changeset the bridge built from a drawing job — no scan behind it (its job record names the reader, "sentinel-drawing 0.1.0"). */
+const isDrawn = (cs) => String(cs.job?.reader ?? "").startsWith(`${DRAWING} `);
 // MA-4d (review): the projects a survey proposal is being filed on — decision 19's read of the changesets and the filing are one step per
 // project, so a double-click or two leads at once cannot file one job twice (the evidence-store admitting / rechecking, build-jobs running
 // precedent). ponytail: one bridge process — a second bridge on this PC (4101) can still race; a per-job unique doc key when two bridges serve one project.
@@ -250,11 +253,11 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
   const readPack = deps.readPack ?? (await import("./evidence-store.mjs")).readPack;
   const levelsOf = deps.manifestLevels ?? ((k) => manifestLevels(k, d));
   if ((await d.myRole(key)) === "service")
-    throw err(403, "proposing from a survey job needs a person — the frame and levels it states are a lead's, and its pre-ticks rest on them: sign in. Nothing was saved.");
+    throw err(403, "proposing from a survey or drawing job needs a person — where its ghosts land (a scan's frame, a drawing's alignment) and on which level is a lead's statement: sign in. Nothing was saved.");
   try { await d.requireMinRole(key, "lead"); }
-  catch (e) { throw e.status === 403 ? err(403, `${e.message} — proposing from a survey job is a lead's: the frame and levels it states decide where every ghost lands; nothing was saved`) : unsaved(e); }
+  catch (e) { throw e.status === 403 ? err(403, `${e.message} — proposing from a survey or drawing job is a lead's: the frame or alignment and the level it states decide where every ghost lands; nothing was saved`) : unsaved(e); }
   d.takeWriteBudget("survey proposals", { perUser: 6, all: 12 }); // its 429 says "nothing was saved"
-  if (proposing.has(key)) throw err(409, `a survey proposal is being filed on ${key} — try again when it ends; nothing was saved`);
+  if (proposing.has(key)) throw err(409, `a proposal from a job is being filed on ${key} — try again when it ends; nothing was saved`);
   proposing.add(key); // taken and checked with no await between: two calls cannot both pass
   try {
     let x;
@@ -265,13 +268,15 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
   /** Everything before the first write: the job, the body, the scans, decision 19, the standards, the plan, each storey validated. */
   async function prepare() {
     const { row, result } = await trustedJob(key, id);
-    // MA-5a-3: a drawing's candidates are in paper millimetres — they land with the lead's 2-point alignment (scale and placement), MA-5a-4.
-    if (row.reader === DRAWING) throw err(409, `${id} is a drawing job (${DRAWING}): its walls and doors are in paper millimetres and are proposed with a 2-point alignment — MA-5a-4; nothing was saved`);
-    const { frame, levels } = readProposeBody(b, result.candidates.filter((c) => c.kind === "level").map((c) => c.cid));
+    // MA-5a-4: a drawing's candidates are in paper millimetres — they land with the lead's 2-point alignment (drawing-plan), one drawing
+    // (item) per proposal; a scan's with the lead's frame.
+    const drawing = row.reader === DRAWING;
+    const align = drawing ? readAlignBody(b, row.read) : null;
+    const { frame, levels } = drawing ? {} : readProposeBody(b, result.candidates.filter((c) => c.kind === "level").map((c) => c.cid));
     // Every item the job read must still be the bytes it read: in the pack the ROW names (job.json is never the anchor), not flagged, with
-    // the sha on its row (build-jobs stillAdmitted, shared with MA-4e's measure).
+    // the sha on its row (build-jobs stillAdmitted, shared with MA-4e's measure). A drawing's changeset names its own drawing only.
     const { pack } = await readPack(key, row.pack_id);
-    const evidence = stillAdmitted(row, pack, id);
+    const evidence = stillAdmitted(row, pack, id).filter((e) => !drawing || e.id === align.item);
     const proj = await d.ensureProject(key);
     let earlier;
     try { earlier = await d.docList(STORE, proj.id); }
@@ -285,13 +290,22 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
       for (const e of c.elements ?? []) if (e.cid && !rejected.has(e.proposal_guid)) filed.cids.add(e.cid);
       if (c.job.storey?.cid) filed.storeys.set(c.job.storey.cid, c.job.storey);
     }
-    const moved = mine.find((c) => FRAME_KEYS.some((k) => c.job.frame?.[k] !== frame[k])); // one job is one frame
-    if (moved) {
-      const f = moved.job.frame;
-      throw err(409, `${moved.name} (${moved.status.replace("_", " ")}) was filed from ${id} with the scan moved ${f.dx_mm}, ${f.dy_mm}, ${f.dz_mm} mm, turned ${f.rotation_deg}° — send that frame (one job is one frame), or run the survey again to propose it afresh; nothing was saved`);
+    if (drawing) { // MA-5a-4: one drawing is one alignment — its two points and its height as filed
+      const said = (a) => JSON.stringify([a.points, a.dz_mm]);
+      const moved = mine.find((c) => c.job.alignment?.item === align.item && said(c.job.alignment) !== said({ points: align.points, dz_mm: align.elevation_mm }));
+      if (moved) {
+        const a = moved.job.alignment;
+        throw err(409, `${moved.name} (${moved.status.replace("_", " ")}) was filed from ${id} with ${a.item} aligned at 1:${a.scale}, turned ${a.rotation_deg}°, moved ${a.dx_mm}, ${a.dy_mm} mm, at ${a.dz_mm} mm (points ${a.points.map((p) => `[${p.paper}] → [${p.model}]`).join(", ")}) — send those points and that elevation (one drawing is one alignment), or read the drawing again to propose it afresh; nothing was saved`);
+      }
+    } else {
+      const moved = mine.find((c) => FRAME_KEYS.some((k) => c.job.frame?.[k] !== frame[k])); // one job is one frame
+      if (moved) {
+        const f = moved.job.frame;
+        throw err(409, `${moved.name} (${moved.status.replace("_", " ")}) was filed from ${id} with the scan moved ${f.dx_mm}, ${f.dy_mm}, ${f.dz_mm} mm, turned ${f.rotation_deg}° — send that frame (one job is one frame), or run the survey again to propose it afresh; nothing was saved`);
+      }
     }
     const other = earlier.find((c) => c.job?.ledger_id != null && c.job.ledger_id !== row.ledger.id && c.status === "proposed");
-    if (other) throw err(409, `${other.name} (from ${other.job.id}) is still proposed — decide or withdraw it before proposing another survey job: both would propose the same walls; nothing was saved`);
+    if (other) throw err(409, `${other.name} (from ${other.job.id}) is still proposed — decide or withdraw it before proposing from another job: both could propose the same walls; nothing was saved`);
     // Another job's placed changesets on the same scan bytes are named, never refused: an Undo in Revit leaves a changeset applied here.
     // ponytail: creates only — a scan already placed by another job is proposed again and only named; MA-5 matches scan walls to model
     // walls; status from the newest changeset_reverted when Undo must reopen a job.
@@ -300,30 +314,33 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
       && (c.job.evidence ?? []).some(onScan)).slice(0, 20).map((c) => ({ changeset: c.name, job_id: c.job.id, evidence: c.job.evidence.filter(onScan).map((e) => e.id) }));
     const [guideline, catalog] = await Promise.all([standardOf(key, "guideline", d), standardOf(key, "type_catalog", d)]);
     if (!guideline.body || !catalog.body)
-      throw err(409, `a survey's candidates are typed from the project's guideline and type catalogue (walls, floors and ceilings exactly, D16; doors and windows by size within 100 mm) — guideline: ${guideline.label}; type catalogue: ${catalog.label}; install both on the project or its office first. Nothing was saved`);
+      throw err(409, `a ${drawing ? "drawing's" : "survey's"} candidates are typed from the project's guideline and type catalogue (walls, floors and ceilings exactly, D16; doors and windows by size within 100 mm) — guideline: ${guideline.label}; type catalogue: ${catalog.label}; install both on the project or its office first. Nothing was saved`);
     const core = await import("./sentinel-core.mjs");
     const type = makeTyper({ guideline, catalog }, core);
     let manifest;
     try { manifest = await levelsOf(key); }
     catch (e) { throw err(503, `the published models' levels could not be read (${e.message}) — nothing was saved; send it again`); }
     // MA-5a: the same catalogue the typer reads types a scan door or window by its size when no office rule does (holding-logic typeBySize).
-    const plan = planSurvey({ job: { id, ledger: row.ledger, reader: row.reader, version: row.version }, candidates: result.candidates, frame, levels, manifest, type, filed,
-      catalog: { types: catalog.body.types, label: catalog.label, sha256: catalog.sha256 }, sameCategory: core.sameCategory });
+    const job = { id, ledger: row.ledger, reader: row.reader, version: row.version }, cat = { types: catalog.body.types, label: catalog.label, sha256: catalog.sha256 };
+    const plan = drawing ? planDrawing({ job, candidates: result.candidates, align, manifest, type, filed, catalog: cat, sameCategory: core.sameCategory })
+      : planSurvey({ job, candidates: result.candidates, frame, levels, manifest, type, filed, catalog: cat, sameCategory: core.sameCategory });
     const by = resolveActor(actor, "web");
+    // MA-5a-4: a drawing's changeset carries its alignment and who stated it (design: "confirmed by a person"), a scan's its frame.
+    const said = drawing ? { alignment: { ...plan.alignment, confirmed_by: by } } : { frame: { ...frame, stated_by: by } };
     const record = (s) => ({ id, ledger_id: row.ledger.id, ledger_hash: row.ledger.hash, result_sha256: row.result_sha256, reader: `${row.reader} ${row.version}`,
-      planner: `${PLANNER} ${PLANNER_VERSION}`, frame: { ...frame, stated_by: by }, storey: storeyRecord(s), evidence, overlaps });
+      planner: drawing ? `${DRAWING_PLANNER} ${DRAWING_PLANNER_VERSION}` : `${PLANNER} ${PLANNER_VERSION}`, ...said, storey: storeyRecord(s), evidence, overlaps });
     const ready = plan.storeys.filter((p) => p.body).map((p) => {
       try { return { p, v: validateChangeset(p.body, { member: true, type, job: { record: record(p.storey), byCid: p.byCid } }) }; }
       catch (e) { throw err(e.status ?? 400, `${p.body.name}: ${e.message}`); } // unsaved() then ends it "nothing was saved"
     });
     if (!ready.length && mine.length) // a job that types nothing and filed nothing files its gaps alone
-      throw err(409, `nothing new to propose from ${id} — every candidate that types is filed already (${mine.map((c) => `${c.name}: ${c.status.replace("_", " ")}`).join("; ")}): withdraw a proposed one on the Review desk to propose it again; an applied one stays applied here after an Undo in Revit — run the survey again to propose it afresh; nothing was saved`);
-    return { proj, row, frame, before: new Set(earlier.map((c) => c.id)), overlaps, guideline, catalog, plan, ready, by };
+      throw err(409, `nothing new to propose from ${id} — every candidate that types is filed already (${mine.map((c) => `${c.name}: ${c.status.replace("_", " ")}`).join("; ")}): withdraw a proposed one on the Review desk to propose it again; an applied one stays applied here after an Undo in Revit — ${drawing ? "read the drawing" : "run the survey"} again to propose it afresh; nothing was saved`);
+    return { proj, row, said, drawing, before: new Set(earlier.map((c) => c.id)), overlaps, guideline, catalog, plan, ready };
   }
 
   /** The writes: each storey's changeset (fileValidated), the type_gap row, the planner row — a stop half way says what WAS filed. */
-  async function file({ proj, row, frame, before, overlaps, guideline, catalog, plan, ready, by }) {
-    const filed = [];
+  async function file({ proj, row, said, drawing, before, overlaps, guideline, catalog, plan, ready }) {
+    const filed = [], [P, V] = drawing ? [DRAWING_PLANNER, DRAWING_PLANNER_VERSION] : [PLANNER, PLANNER_VERSION];
     // The house rule for a filing stopped half way: name what WAS filed — the store listed again, so a doc stored before its row failed is
     // named too — and log why (the bridge log).
     const halfWay = async (what, e) => {
@@ -344,7 +361,7 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
     // The type_gap row is the bridge's (claimed false): the open route's are claimed and worded `type_gap:run · …` (cde-store typeGapRow).
     let gapRow = null, done;
     try {
-      if (plan.groups.length) gapRow = await d.audit(proj.id, "type_gap", null, `type_gap:run ${id} · ${PLANNER} · ${plan.groups.length} group(s), ${n} element(s)`, actor || "web", null,
+      if (plan.groups.length) gapRow = await d.audit(proj.id, "type_gap", null, `type_gap:run ${id} · ${P} · ${plan.groups.length} group(s), ${n} element(s)`, actor || "web", null,
         { groups: plan.groups, source: row.reader, job: jobRef, guideline: guideline.label, catalog: catalog.label, claimed: false });
     } catch (e) { throw await halfWay("the type-gap row was not written", e); }
     const changesets = filed.map((c) => ({ id: c.id, name: c.name, elements: c.elements.length, preticked: c.elements.filter((e) => e.pretick).length }));
@@ -360,12 +377,12 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
     const gaps = { groups: plan.groups.length, elements: n, ledger: ledgerRef(gapRow) };
     // The planner run's own build:run row (design :832) — never mistaken for the job's (decision 11's prefix is `· sentinel-survey `).
     try {
-      done = await d.audit(proj.id, "build", null, `build:run ${id} · ${PLANNER} ${PLANNER_VERSION} · proposed`, actor || "web", null, {
-        job_id: id, planner: PLANNER, version: PLANNER_VERSION, survey_row: row.ledger, result_sha256: row.result_sha256, frame: { ...frame, stated_by: by },
+      done = await d.audit(proj.id, "build", null, `build:run ${id} · ${P} ${V} · proposed`, actor || "web", null, {
+        job_id: id, planner: P, version: V, [drawing ? "drawing_row" : "survey_row"]: row.ledger, result_sha256: row.result_sha256, ...said,
         storeys, changesets, gaps, already_filed: plan.already_filed, overlaps, guideline: guideline.label, guideline_sha256: guideline.sha256,
         catalog: catalog.label, catalog_sha256: catalog.sha256, model_calls: 0, tokens: 0, claimed: false });
     } catch (e) { throw await halfWay("the planner's build:run row was not written", e); }
-    return { job: id, survey_row: row.ledger, frame, storeys, changesets, gaps, already_filed: plan.already_filed, overlaps, ledger: ledgerRef(done) };
+    return { job: id, [drawing ? "drawing_row" : "survey_row"]: row.ledger, ...said, storeys, changesets, gaps, already_filed: plan.already_filed, overlaps, ledger: ledgerRef(done) };
   }
 }
 
@@ -490,6 +507,7 @@ export async function verifyChangeset(key, b, actor, deps = {}) {
     const cs = await d.docGet(STORE, proj.id, id);
     if (!cs) throw err(404, `no changeset ${id} on ${key}`);
     if (!cs.job || cs.claimed !== false) throw err(409, `${cs.name} was not built from a survey job — there is no scan to measure it against`);
+    if (isDrawn(cs)) throw err(409, `${cs.name} was built from a drawing (${cs.job.id}) — what someone drew, not what was built: there is no scan to measure it against`);
     if (cs.status !== "applied" && cs.status !== "partially_applied") throw err(409, `${cs.name} is ${String(cs.status).replace("_", " ")} — only what Revit placed is measured`);
     const { row, evidence, items } = await jobScan(key, cs, { trustedJob, readPack });
     const read = async (action_prefix, limit) => {
@@ -541,6 +559,7 @@ export async function scanOverlay(key, id, deps = {}) {
   const cs = await d.docGet(STORE, proj.id, id);
   if (!cs) throw err(404, `no changeset ${id} on ${key}`);
   if (!cs.job || cs.claimed !== false) throw err(409, `${cs.name} was not built from a survey job — it has no scan to show`);
+  if (isDrawn(cs)) throw err(409, `${cs.name} was built from a drawing (${cs.job.id}) — it has no scan to show`);
   const band = scanBand(cs);
   if (!band) throw err(409, `${cs.name} has no wall to show the scan against`);
   let chain;
