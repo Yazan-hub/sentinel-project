@@ -385,6 +385,69 @@ public sealed class ChangesetExecutor
 
     private static bool IsCreate(ChangesetElementDto e) => e.Op is null or "create";
 
+    /// <summary>MA-5b-5 (design review R2): no wall hosts it — no host, or a Level (a level-based family's Host is its level), a reference
+    /// plane or a sketch plane (work-plane based). The one predicate Promote's read, its preflight and Apply share; a real non-wall host
+    /// (a roof's skylight) is not this.</summary>
+    internal static bool NoWallHost(FamilyInstance fi) => fi.Host == null || fi.Host is Level || fi.Host is ReferencePlane || fi.Host is SketchPlane;
+
+    /// <summary>MA-5b-5 (R5): a family that goes into a wall — GhostChangesetBuild's test: one-level-based hosted, hosting a wall (or not said).</summary>
+    internal static bool WallHosted(FamilySymbol s)
+    {
+        var by = s.Family.get_Parameter(BuiltInParameter.FAMILY_HOSTING_BEHAVIOR)?.AsInteger();
+        return s.Family.FamilyPlacementType == FamilyPlacementType.OneLevelBasedHosted && (by == null || by == 1);
+    }
+
+    /// <summary>MA-5b-5: why a rehost's type cannot be placed — not loaded exactly (CreateType's words), or not wall-hosted — or null. Promote's
+    /// preflight holds what Apply would refuse.</summary>
+    internal static string RehostRefusal(Document doc, string kind, string familyName, string typeName)
+    {
+        FamilySymbol s;
+        try { s = (FamilySymbol)CreateType(doc, kind == "window" ? BuiltInCategory.OST_Windows : BuiltInCategory.OST_Doors, kind, familyName, typeName); }
+        catch (InvalidOperationException ex) { return ex.Message; }
+        return WallHosted(s) ? null : $"\"{TypeLabel(s)}\" is not a wall-hosted family — a person picks a wall-hosted {kind} type";
+    }
+
+    /// <summary>MA-5b-5 (R8): a person's "do not touch", or what this user cannot edit here — words ("is pinned"), or null: pinned, in a group,
+    /// in a design option, borrowed by another user, changed or deleted in central since the last reload (App's NotFixableHere test).</summary>
+    internal static string HeldBy(Document doc, Element e)
+    {
+        if (e.Pinned) return "is pinned";
+        if (e.GroupId != null && !e.GroupId.Equals(ElementId.InvalidElementId)) return "is in a group — Sentinel does not edit a group's members";
+        if (e.DesignOption != null) return "is in a design option";
+        if (!doc.IsWorkshared) return null;
+        if (WorksharingUtils.GetCheckoutStatus(doc, e.Id) == CheckoutStatus.OwnedByOtherUser) return "is borrowed by another user";
+        var u = WorksharingUtils.GetModelUpdatesStatus(doc, e.Id);
+        return u == ModelUpdatesStatus.UpdatedInCentral || u == ModelUpdatesStatus.DeletedInCentral ? "was changed in central — Reload Latest, then run Promote again" : null;
+    }
+
+    /// <summary>MA-5b-5 (R9): a door or window already in the host wall across the new one's span (a window over a window: its sill-to-head
+    /// too) — the placeholder may be a leftover, or two rehosts meet; words, or null. A door's size is its type name's (DR-1), else its own.</summary>
+    private static string Overlap(Document doc, Wall wall, double[] p, ChangesetElementDto el, FamilySymbol sym)
+    {
+        if (!(((LocationCurve)wall.Location).Curve is Line line)) return null;
+        XYZ a = line.GetEndPoint(0), d = line.Direction;
+        double Along(double xMm, double yMm) => (xMm * MmToFeet - a.X) * d.X + (yMm * MmToFeet - a.Y) * d.Y;
+        (double? W, double? H) Size(FamilySymbol s, string kind) =>
+            TypeNameParse.TrySection(s.Name, out var nw, out var nh) ? (nw, nh) : TypeSize(s, kind);
+        var (w, h) = Size(sym, el.Kind);
+        double at = Along(p[0], p[1]), half = (w ?? 0) / 2 * MmToFeet, sill = el.Place.SillHeight ?? 0;
+        foreach (var id in wall.FindInserts(false, false, false, false))
+        {
+            if (!(doc.GetElement(id) is FamilyInstance o) || !(o.Location is LocationPoint lp)) continue;
+            string kind = o.Category?.Id.IdValue() == (long)BuiltInCategory.OST_Doors ? "door" : o.Category?.Id.IdValue() == (long)BuiltInCategory.OST_Windows ? "window" : null;
+            if (kind == null) continue;
+            var (ow, oh) = Size(o.Symbol, kind);
+            if (Math.Abs(Along(lp.Point.X / MmToFeet, lp.Point.Y / MmToFeet) - at) >= half + (ow ?? 0) / 2 * MmToFeet) continue;
+            if (el.Kind == "window" && kind == "window" && h is double hh && oh is double ohh)
+            {
+                var os = (o.get_Parameter(BuiltInParameter.INSTANCE_SILL_HEIGHT_PARAM)?.AsDouble() ?? 0) / MmToFeet;
+                if (sill >= os + ohh || os >= sill + hh) continue;
+            }
+            return $"would overlap {kind} {o.Id.IdValue()}, already in wall {wall.Id.IdValue()} across that point (the placeholder may be a leftover)";
+        }
+        return null;
+    }
+
     /// <summary>MA-4f: a wall as Revit holds it — every face of its main solid (ClashManager.GetMainSolid: coarse, the largest; a wall carries no
     /// transform) as triangles, 9 numbers each in mm in Revit's internal frame (the frame Pt places in); PlacementGeometry.PackMesh rounds and caps
     /// it. Null with no element or no solid.</summary>
@@ -414,8 +477,9 @@ public sealed class ChangesetExecutor
         // MA-1a item 6: never into a design option — refused before the transaction, for every source; the changeset stays
         // proposed (NotRun). A retype or an attach creates nothing, so it is not refused here. A retype of a floor, roof,
         // ceiling, door or window that is in an option is refused by Unsafe; a wall's is not (Unsafe keeps MA-0's checks
-        // for walls — Promote's planner holds a wall in an option, an agent's changeset is not held: see Risks).
-        if (toPlace.Any(IsCreate) && PlacementApply.DesignOptionRefusal(doc, "apply it") is { } inOption)
+        // for walls — Promote's planner holds a wall in an option, an agent's changeset is not held: see Risks). MA-5b-5 (R7): a
+        // rehost creates an element (and removes one from the main model), so it is refused like a create.
+        if (toPlace.Any(e => IsCreate(e) || e.Op == "rehost") && PlacementApply.DesignOptionRefusal(doc, "apply it") is { } inOption)
             return new ExecutionResult { NotRun = true, Error = inOption };
 
         string at = null; // the element being placed when something throws — the refusal names it
@@ -745,6 +809,92 @@ public sealed class ChangesetExecutor
                     }
             }
 
+            // MA-5b-5: rehost — a door or window no wall hosts is replaced by the office's wall-hosted type of its size in the one wall it
+            // stands in, and removed: one at a time, after every create (a wall this changeset creates may host it) and the rooms. What a
+            // person may have changed since Promote read it — gone, hosted now, retyped, moved, pinned, grouped, in an option, a colleague's,
+            // its wall gone or held, an opening already there — is KEPT as it stands and said (MA-5b-4's path: rejected, never a failure); a
+            // type not loaded exactly or not wall-hosted refuses the changeset, which stays proposed. Design review R1: a probe delete (rolled
+            // back) gives exactly what the delete would take — the old instance and its tags only, else kept — and the old instance's Mark,
+            // Comments, workset and phase are read before anything is removed.
+            var rehosts = toPlace.Where(e => e.Op == "rehost").ToList();
+            if (rehosts.Count > 0)
+            {
+                doc.Regenerate();
+                var (hosts, odd, lines) = HostWalls(doc);
+                foreach (var el in rehosts)
+                {
+                    at = Label(el);
+                    void Keep(string why) => result.Kept.Add((el.ProposalGuid, $"{at} {why} — not rehosted; it stays as it stands, a person decides"));
+                    if (!(doc.GetElement(el.Target?.UniqueId ?? "") is FamilyInstance old)) { Keep("is no longer in this model"); continue; }
+                    if (!NoWallHost(old)) { Keep(old.Host is Wall ? "is hosted by a wall now" : $"is hosted by {old.Host.Category?.Name ?? "an element"} now"); continue; }
+                    if (!string.Equals(TypeLabel(old.Symbol), el.Target.TypeBefore, StringComparison.OrdinalIgnoreCase))
+                    { Keep($"is \"{TypeLabel(old.Symbol)}\" now, not \"{el.Target.TypeBefore}\" — retyped since Promote read it"); continue; }
+                    var lp = (old.Location as LocationPoint)?.Point;
+                    var was = el.Target.At;
+                    if (lp == null || was == null || was.Length < 2 || Math.Sqrt(Math.Pow(lp.X / MmToFeet - was[0], 2) + Math.Pow(lp.Y / MmToFeet - was[1], 2)) > ReshapeTolMm)
+                    { Keep("was moved by hand since Promote read it"); continue; }
+                    if (HeldBy(doc, old) is string heldOld) { Keep(heldOld); continue; }
+                    var level = ResolveLevel(doc, el.Place);
+                    var p = el.Place.Location ?? throw new PlacementRefused($"{at}: a rehost with no place.Location — re-run Promote");
+                    if (Math.Abs(p[2] * MmToFeet - level.Elevation) > TolFt)
+                        throw new PlacementRefused($"{at}: Location z {Mm(p[2])} mm is not {level.Name}'s elevation {Mm(level.Elevation / MmToFeet)} mm — re-run Promote");
+                    if (RehostRefusal(doc, el.Kind, el.Place.FamilyName, el.Place.TypeName) is string no) throw new PlacementRefused($"{at}: {no}");
+                    var sym = (FamilySymbol)CreateType(doc, el.Kind == "window" ? BuiltInCategory.OST_Windows : BuiltInCategory.OST_Doors, el.Kind, el.Place.FamilyName, el.Place.TypeName);
+                    if (OddNear(odd, level.Id, p[0], p[1]) is Wall near) { Keep($"would go where wall {near.Id.IdValue()} (curtain, stacked, curved or not basic) passes"); continue; }
+                    var i = PlacementGeometry.Host(lines, level.Name, p[0], p[1], out var why);
+                    if (i < 0) { Keep($"has no one wall at its planned point now ({why})"); continue; }
+                    var wall = hosts[i];
+                    if (HeldBy(doc, wall) is string heldWall) { Keep($"would go into wall {wall.Id.IdValue()}, which {heldWall}"); continue; }
+                    if (Overlap(doc, wall, p, el, sym) is string over) { Keep(over); continue; }
+                    // R1: what removing it takes — the probe is rolled back; the old instance's own values are read now, never after the delete
+                    var oldId = old.Id;
+                    string mark = old.get_Parameter(BuiltInParameter.ALL_MODEL_MARK)?.AsString(), comments = old.get_Parameter(BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS)?.AsString();
+                    var home = PlacementApply.Home(old);
+                    ICollection<ElementId> probe;
+                    using (var st = new SubTransaction(doc)) { st.Start(); probe = doc.Delete(oldId); st.RollBack(); }
+                    var others = probe.Where(id => !id.Equals(oldId) && !(doc.GetElement(id) is IndependentTag)).ToList();
+                    if (others.Count > 0)
+                    {
+                        Keep($"cannot be removed alone — removing it would also remove {others.Count} other element(s) (" +
+                             string.Join(", ", others.Take(3).Select(id => doc.GetElement(id)?.Category?.Name ?? "an element with no category")) + (others.Count > 3 ? ", …" : "") + ")");
+                        continue;
+                    }
+                    FamilyInstance made = null;
+                    var removedAlone = true;
+                    using (var st = new SubTransaction(doc))
+                    {
+                        st.Start();
+                        try
+                        {
+                            if (!sym.IsActive) { sym.Activate(); doc.Regenerate(); }
+                            made = doc.Create.NewFamilyInstance(Pt(p), sym, wall, level, StructuralType.NonStructural);
+                            if (!(made.Host is Wall hw && hw.Id.Equals(wall.Id)))
+                                throw new PlacementRefused($"{at}: \"{TypeLabel(sym)}\" did not go into wall {wall.Id.IdValue()} — re-run Promote");
+                            if (el.Place.SillHeight is double sill) Set(made, BuiltInParameter.INSTANCE_SILL_HEIGHT_PARAM, sill * MmToFeet, el.Kind);
+                            var deleted = doc.Delete(oldId);
+                            if (deleted.Count != probe.Count || deleted.Any(id => !probe.Contains(id)))
+                            {
+                                st.RollBack();
+                                removedAlone = false;
+                                Keep($"could not be removed alone (Revit's delete took {deleted.Count} element(s), its probe {probe.Count})");
+                            }
+                            else
+                            {
+                                if (!string.IsNullOrEmpty(mark)) made.get_Parameter(BuiltInParameter.ALL_MODEL_MARK)?.Set(mark);
+                                if (!string.IsNullOrEmpty(comments)) made.get_Parameter(BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS)?.Set(comments);
+                                PlacementApply.Inherit(made, home);
+                                st.Commit();
+                            }
+                        }
+                        catch (PlacementRefused) { throw; }
+                        catch (Exception ex) { throw new PlacementRefused($"{at}: Revit refused the rehost — {ex.GetType().Name}: {ex.Message}"); }
+                    }
+                    if (!removedAlone) continue;
+                    Collect(result, el, made);
+                    result.Applied[result.Applied.Count - 1].RemovedTags = probe.Count - 1;
+                }
+            }
+
             // MA-0: retype before attach. Only to a type already in the document; the model must still hold the type
             // the plan saw, or the reviewer approved something that is no longer true. Promote v1: one path for every kind —
             // a door or window swaps to a symbol of its own category and keeps its host; Unsafe repeats the planner's holds.
@@ -813,7 +963,7 @@ public sealed class ChangesetExecutor
             // phase — inside this transaction, so Ctrl+Z takes them back with the element. A retype or attach target keeps
             // its own workset and phase.
             at = "the placement block";
-            PlacementApply.Apply(Placement, result.Applied.Where(a => IsCreate(toPlace.First(e => e.ProposalGuid == a.ProposalGuid)))
+            PlacementApply.Apply(Placement, result.Applied.Where(a => toPlace.First(e => e.ProposalGuid == a.ProposalGuid) is var pe && (IsCreate(pe) || pe.Op == "rehost"))
                                                   .Select(a => doc.GetElement(a.RevitUniqueId)));
             // The stamp: once per element, with every guid of this changeset that touched it, merged onto the element's
             // earlier stamp (one entity per schema) — inside this transaction, so Ctrl+Z removes it too.
@@ -835,7 +985,12 @@ public sealed class ChangesetExecutor
                 // (RevitElementId → ProposalGuid → element), so the person knows which layer to untick.
                 var labels = new Dictionary<long, string>();
                 foreach (var a in result.Applied) labels[a.RevitElementId] = Label(toPlace.First(e => e.ProposalGuid == a.ProposalGuid));
-                return new ExecutionResult { Error = "Revit did not commit the transaction (failure resolution rolled it back)" + (handler.RolledBack != null ? ": " + handler.RolledBack + GhostFailurePolicy.RolledBackNames(handler.RolledBackIds, labels) : "") };
+                var error = "Revit did not commit the transaction (failure resolution rolled it back)" + (handler.RolledBack != null ? ": " + handler.RolledBack + GhostFailurePolicy.RolledBackNames(handler.RolledBackIds, labels) : "");
+                // MA-5b-5 (R8): a changeset that rehosts stays proposed (NotRun) — a commit-time refusal is this model's state, not a verdict
+                // on the changeset; the person unticks the rehost and applies again
+                return toPlace.Any(e => e.Op == "rehost")
+                    ? new ExecutionResult { NotRun = true, Error = error + " — it rehosts a door or window; it stays proposed: untick the rehost row(s) and Apply again" }
+                    : new ExecutionResult { Error = error };
             }
             // A6: Pending (or any other status) — Revit may still finish or drop it: nothing is reported, nothing recounted.
             if (status != TransactionStatus.Committed)

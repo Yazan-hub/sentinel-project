@@ -683,6 +683,10 @@ export async function reportResult(key, id, { applied, rejected, note, review_re
       if (!a || typeof a.proposal_guid !== "string" || !Number.isInteger(a.revit_element_id) || a.revit_element_id <= 0)
         throw err(400, `applied[${i}] must be {proposal_guid, revit_element_id}`);
     }
+    // MA-5b-5 (design review R11): an applied rehost removed an element — its result is a signed-in member's, never the machine credential's
+    const rehosts = new Set(cs.elements.filter((e) => e.op === "rehost").map((e) => e.proposal_guid));
+    if (role === "service" && appliedArr.some((a) => rehosts.has(a.proposal_guid)))
+      throw err(403, "a rehost removes an element — its result is a signed-in member's (sign in in Revit); nothing was recorded and the changeset stays proposed");
     const known = new Set(cs.elements.map((e) => e.proposal_guid));
     const seen = new Set();
     for (const g of [...appliedArr.map((a) => a.proposal_guid), ...rejectedArr]) {
@@ -709,7 +713,9 @@ export async function reportResult(key, id, { applied, rejected, note, review_re
           // Built field by field: a posted reread is never kept. MA-4f: Revit's re-read of a wall a survey changeset placed (a claimed
           // changeset's mesh is ignored, as before MA-4f).
           return { proposal_guid: a.proposal_guid, revit_element_id: Number(a.revit_element_id), revit_unique_id: a.revit_unique_id ?? null,
-            ...(cs.job && el?.kind === "wall" && a.mesh != null ? { reread: reread(a.mesh, el, role) } : {}) };
+            ...(cs.job && el?.kind === "wall" && a.mesh != null ? { reread: reread(a.mesh, el, role) } : {}),
+            // MA-5b-5 (R1): the tags Revit removed with a rehost's old instance — Revit's count, kept for the ledger
+            ...(el?.op === "rehost" ? { removed_tags: Number.isInteger(a.removed_tags) && a.removed_tags >= 0 && a.removed_tags <= 10000 ? a.removed_tags : null } : {}) };
         }),
         rejected: rejectedArr, note: typeof note === "string" && note.trim() ? note.trim() : null,
         reported_at: new Date().toISOString(), reported_by: resolveActor(actor, "revit"),
@@ -733,9 +739,16 @@ export async function reportResult(key, id, { applied, rejected, note, review_re
     parameter: e.parameter, from: e.from, to: e.to, value_source: e.value_source ?? null,
   }));
   // MA-3b (AI-5): the row is answered with the result, so Revit says "reported (ledger #n)" — on the reply only, never on the stored doc.
+  // MA-5b-5 (decision 6): what each applied rehost removed — the element the changeset named (its target) and what replaced it (Revit's report)
+  const removed = updated.result.applied.flatMap((a) => {
+    const e = cs.elements.find((x) => x.proposal_guid === a.proposal_guid);
+    return e?.op === "rehost" ? [{ proposal_guid: a.proposal_guid, unique_id: e.target?.unique_id ?? null, type_before: e.target?.type_before ?? null,
+      replaced_by: a.revit_unique_id, tags: a.removed_tags ?? null }] : [];
+  });
   const row = await d.audit(proj.id, "changeset", id, "changeset_applied", actor || "revit",
     { status: "proposed" },
     { status, applied: updated.result.applied, rejected: rejectedArr.length, note: updated.result.note, ...(values.length ? { values } : {}),
+      ...(removed.length ? { removed } : {}),
       // MA-4d: a survey changeset's row names its job and, per ghost placed, its Revit id, reader id and evidence (from the stored changeset).
       ...(cs.job ? { job: { id: cs.job.id, ledger_id: cs.job.ledger_id, result_sha256: cs.job.result_sha256 }, evidence: cs.job.evidence,
         from_job: updated.result.applied.map((a) => { const e = cs.elements.find((x) => x.proposal_guid === a.proposal_guid);

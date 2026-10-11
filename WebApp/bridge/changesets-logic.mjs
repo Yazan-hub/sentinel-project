@@ -17,11 +17,16 @@ const UNTYPED = ["level", "grid", "room"];
 /** What a ghost does. create places a new element (the v1 path); retype changes an EXISTING element's type, named by its
  *  Revit UniqueId (Promote) — a door or window keeps its host: ChangeTypeId to a symbol of the same category; attach re-tops
  *  an existing wall. An element without op is a create. MA-2c: set_parameter writes one value on an existing TYPE, named by its
- *  UniqueId, from a cited source the bridge checks (value_source) — [BP] P2-7's item, built once. */
-export const OPS = ["create", "retype", "attach", "set_parameter", "reshape"];
+ *  UniqueId, from a cited source the bridge checks (value_source) — [BP] P2-7's item, built once. MA-5b-5: rehost replaces a door or
+ *  window no wall hosts (a level-based placeholder) with the office's wall-hosted type of its size in the wall it stands in — the old
+ *  instance is removed in the same Undo step (the first element Sentinel removes): a signed-in member's (Promote), never pre-ticked. */
+export const OPS = ["create", "retype", "attach", "set_parameter", "reshape", "rehost"];
 /** The kinds each op takes. */
 export const OP_KINDS = { create: VOCABULARY, retype: ["wall", "floor", "roof", "ceiling", "door", "window"], attach: ["wall"],
-  set_parameter: ["wall", "floor", "roof", "ceiling", "door", "window"], reshape: ["wall"] };
+  set_parameter: ["wall", "floor", "roof", "ceiling", "door", "window"], reshape: ["wall"], rehost: ["door", "window"] };
+/** MA-5b-5: the place fields a rehost takes — where its new instance goes (a point on its host wall's location line, on its level) and
+ *  the office type it becomes; a window's sill. Its Mark is copied from the old instance; it is never turned (the office family's default). */
+const REHOST_PLACE = ["LevelName", "Location", "FamilyName", "TypeName", "SillHeight"];
 export const MAX_CHANGESET_ELEMENTS = 200;
 export const MAX_CHANGESET_EXCEPTIONS = 1000;
 export const MAX_BOUNDARY_POINTS = 256;
@@ -57,7 +62,7 @@ const ELEMENT_FIELDS = ["kind", "op", "target", "reason", "validate", "place", "
 // name for name; a key added to one must be added to the other, or it is listed under `ignored` and not kept.
 const PLACE_KEPT = ["TypeName", "LevelName", "LocationCurve", "LocationLoop", "BaseElevation", "TopElevation", "Name", "BaseLevel", "TopLevel",
   "FamilyName", "Location", "SillHeight", "FlipFacing", "FlipHand", "Rotation", "Mirrored", "Boundary", "BaseOffset", "Offset", "Mark", "Structural", "Number"];
-const TARGET_KEPT = ["unique_id", "type_before", "placed"];
+const TARGET_KEPT = ["unique_id", "type_before", "placed", "at"];
 const VALIDATE_KEPT = ["identity", "psets", "quantities"];
 const MAX_EVIDENCE = 50; // review amendment C4: contract 2's evidence ids on one element
 const SET_BY_BRIDGE = "ignored: set by the bridge";
@@ -287,6 +292,7 @@ export function validateChangeset(body, { member = false, type = null, cite = nu
   const source = sourceOf(body.source, note);
 
   const seen = new Set(); // (op, element) pairs: one ghost per change, so a wall can carry one retype and one attach
+  const rehosted = new Set(), touched = new Set(); // MA-5b-5: elements a rehost replaces; elements another op edits
   const elements = body.elements.map((el, i) => {
     const at = `elements[${i}]`;
     if (!el || typeof el !== "object") throw err(400, `${at}: must be an object`);
@@ -364,9 +370,25 @@ export function validateChangeset(body, { member = false, type = null, cite = nu
       const p = el.place && typeof el.place === "object" ? el.place : {};
       // A create's place fields ride on no retype or attach: the add-in would ignore them, and reads each into a typed field,
       // so one of the wrong type would fail every review in the project. A door's or window's retype names its family.
-      for (const f of Object.keys(PLACE_FIELDS))
-        if (p[f] !== undefined && !(f === "FamilyName" && (op === "retype" || op === "set_parameter") && PLACE_FIELDS.FamilyName.includes(el.kind)))
-          throw err(400, `${at}: ${op} takes no place.${f} — only a create sets it`);
+      if (op !== "rehost")
+        for (const f of Object.keys(PLACE_FIELDS))
+          if (p[f] !== undefined && !(f === "FamilyName" && (op === "retype" || op === "set_parameter") && PLACE_FIELDS.FamilyName.includes(el.kind)))
+            throw err(400, `${at}: ${op} takes no place.${f} — only a create sets it`);
+      if (op !== "rehost" && el.target.at !== undefined) note(`${at}.target.at`, NOT_KEPT); // a rehost's stale guard only
+      // MA-5b-5 (design review R12): a rehost's own rules — the first op that removes an element. A signed-in member's only (the machine
+      // credential — a signed-out PC, the MCP server, a script — files none); its stale guard (type_before, at) and its whole place are
+      // required; the type is Promote's (the DD rule's, D16), never the bridge's.
+      if (op === "rehost") {
+        if (!member) throw err(400, `${at}: a rehost removes an element — only a signed-in member files one (Promote in Revit, signed in); nothing was saved`);
+        if (!text(before, 256)) throw err(400, `${at}: rehost needs target.type_before — the instance's "Family : Type" when it was read (its stale guard)`);
+        if (!point(el.target.at)) throw err(400, `${at}: rehost needs target.at [x,y,z] — where the instance stood when it was read (its stale guard)`);
+        for (const f of Object.keys(p))
+          if (!REHOST_PLACE.includes(f)) throw err(400, `${at}: rehost takes no place.${f} — it takes ${REHOST_PLACE.join(", ")} (its Mark is the old instance's; it is never turned)`);
+        if (!text(place.LevelName, 256) || !point(place.Location) || !text(place.FamilyName, 256) || !text(place.TypeName, 256))
+          throw err(400, `${at}: rehost needs place.LevelName, place.Location [x,y,z] (on its host wall's location line, at its level) and place.FamilyName and place.TypeName (the office type it becomes)`);
+        if (place.SillHeight !== undefined && (el.kind !== "window" || !inRange(place.SillHeight, 0, MAX_OFFSET_MM)))
+          throw err(400, `${at}: place.SillHeight is a window's — a number of mm from 0 to ${MAX_OFFSET_MM}`);
+      }
       // MA-5b-4 (C13b): reshape moves an existing wall's location line to where a revised drawing draws it — only the bridge builds one
       // (from a job, revises), and its stale guard is where the wall was placed: Revit keeps a wall edited since, and says so
       if (op === "reshape") {
@@ -394,12 +416,18 @@ export function validateChangeset(body, { member = false, type = null, cite = nu
       const k = `${op}:${uid.toLowerCase()}` + (written ? `:${written.parameter.toLowerCase()}` : "");
       if (seen.has(k)) throw err(400, `${at}: a second ${op} for the same element` + (written ? ` and ${written.parameter}` : ""));
       seen.add(k);
+      // MA-5b-5: a rehost removes its element — no other ghost may edit it in the same changeset (it would fail on a removed element)
+      const u = uid.toLowerCase();
+      if (op === "rehost" ? touched.has(u) : rehosted.has(u))
+        throw err(400, `${at}: a rehost replaces its element — it carries no other ghost (this changeset has a ${op === "rehost" ? "retype, attach or set_parameter" : "rehost"} of it too)`);
+      (op === "rehost" ? rehosted : touched).add(u);
       // MA-3d: the element's IFC GlobalId, when the add-in sends it — the web desk highlights the ghost's element in the loaded model by it.
       // Optional (a changeset filed by an older add-in has none); a malformed one is a 400 in words; it is kept as sent, never derived.
       const guid = el.target.ifc_guid ?? null;
       if (guid !== null && (typeof guid !== "string" || !IFC_GUID.test(guid))) throw err(400, `${at}: target.ifc_guid must be an IFC GlobalId — 22 characters of its alphabet — when it is sent`);
       target = { unique_id: uid, type_before: before, ...(guid ? { ifc_guid: guid } : {}),
-        ...(op === "reshape" ? { placed: { start: el.target.placed.start, end: el.target.placed.end } } : {}) };
+        ...(op === "reshape" ? { placed: { start: el.target.placed.start, end: el.target.placed.end } } : {}),
+        ...(op === "rehost" ? { at: el.target.at } : {}) };
     }
     if (el.reason != null && !text(el.reason, 500)) throw err(400, `${at}: reason must be text of at most 500 characters`);
     if (validate.psets !== undefined && !Array.isArray(validate.psets)) throw err(400, `${at}: validate.psets must be an array`);
@@ -692,11 +720,16 @@ export function carryKey(el) {
   if (el.op === "retype") return name(p.TypeName) ? JSON.stringify([...head, name(p.TypeName), name(p.FamilyName)]) : null;
   if (el.op === "attach") return name(p.BaseLevel) && name(p.TopLevel) ? JSON.stringify([...head, name(p.BaseLevel), name(p.TopLevel)]) : null;
   if (el.op === "set_parameter") return one(el.parameter) && typeof el.to === "string" ? JSON.stringify([...head, name(el.parameter), el.to]) : null;
+  const mm = (q) => (Array.isArray(q) && q.length === 3 && q.every(Number.isFinite) ? q.map(Math.round) : null);
   // MA-5b-4 review: a reshape is the same change when it moves the same wall from the same placed line to the same line (to the mm)
   if (el.op === "reshape") {
-    const mm = (q) => (Array.isArray(q) && q.length === 3 && q.every(Number.isFinite) ? q.map(Math.round) : null);
     const k = [mm(el.target?.placed?.start), mm(el.target?.placed?.end), mm(p.LocationCurve?.start), mm(p.LocationCurve?.end)];
     return k.every(Boolean) ? JSON.stringify([...head, ...k]) : null;
+  }
+  // MA-5b-5: a rehost is the same change when it replaces the same element, read where it stood, at the same point, as the same type and sill
+  if (el.op === "rehost") {
+    const k = [mm(el.target?.at), mm(p.Location)];
+    return k.every(Boolean) && name(p.TypeName) ? JSON.stringify([...head, ...k, name(p.TypeName), name(p.FamilyName), Number.isFinite(p.SillHeight) ? Math.round(p.SillHeight) : null]) : null;
   }
   return null;
 }

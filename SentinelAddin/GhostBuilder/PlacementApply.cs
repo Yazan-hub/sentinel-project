@@ -107,6 +107,25 @@ namespace Sentinel.GhostBuilder
             }
         }
 
+        /// <summary>MA-5b-5 (design review R13): the workset and created phase an element sits on — read before a rehost removes it, so the
+        /// new instance stands where the old one stood (a placement block, when the guideline has one, then writes its own: Apply).</summary>
+        public static (int? Workset, ElementId Phase) Home(Element e)
+        {
+            var p = e.get_Parameter(BuiltInParameter.ELEM_PARTITION_PARAM);
+            return (p != null && p.HasValue ? p.AsInteger() : (int?)null, e.HasPhases() ? e.CreatedPhaseId : null);
+        }
+
+        /// <summary>MA-5b-5: a rehost's new instance onto the old one's workset and created phase, where Revit lets it — a write Revit refuses
+        /// leaves it as Revit made it (the active workset, the view's phase); never a reason to refuse the rehost.</summary>
+        public static void Inherit(Element made, (int? Workset, ElementId Phase) home)
+        {
+            var p = made.get_Parameter(BuiltInParameter.ELEM_PARTITION_PARAM);
+            if (home.Workset is int ws && p != null && !p.IsReadOnly && p.AsInteger() != ws)
+                try { p.Set(ws); } catch (Exception) { /* left on the active workset */ }
+            if (home.Phase != null && made.HasPhases() && made.ArePhasesModifiable() && !made.CreatedPhaseId.Equals(home.Phase))
+                try { made.CreatedPhaseId = home.Phase; } catch (Exception) { /* left in the phase Revit gave it */ }
+        }
+
         private static void ApplyOne(PlacementPlan plan, Element e)
         {
             string workset = null, unnamed = null;

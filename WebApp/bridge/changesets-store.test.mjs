@@ -161,6 +161,31 @@ describe("result + withdraw lifecycle", () => {
     expect(deps.audit.mock.calls.some((c) => c[3] === "changeset_applied")).toBe(true);
   });
 
+  // MA-5b-5: a rehost removes an element — the ledger names what was removed and what replaced it; the machine credential reports none applied
+  const UID = "5a1c2b3d-1111-2222-3333-444455556666-0004c3f9";
+  const REHOST = { name: "Promote · L01", source: "promote", elements: [{ op: "rehost", kind: "door", validate: { identity: { Class: "IFCDOOR", Name: "Door 4711" } },
+    target: { unique_id: UID, type_before: "Placeholder Door : 1000 x 2100", at: [44100, 2500, 6000] },
+    place: { LevelName: "L01", Location: [44050, 2500, 6000], FamilyName: "BDS_INT_1 PNL", TypeName: "BDS_INT_1 PNL_WOOD_1000 x 2100 mm" } }] };
+  it("MA-5b-5: an applied rehost's row names what was removed (the target) and what replaced it, with the tags Revit removed", async () => {
+    const deps = baseDeps({ myRole: async () => "contributor" });
+    const cs = await proposeChangeset("demo", REHOST, "lead@office.example", deps);
+    const g = cs.elements[0].proposal_guid;
+    const out = await reportResult("demo", cs.id, { applied: [{ proposal_guid: g, revit_element_id: 9001, revit_unique_id: "new-uid", removed_tags: 2 }], rejected: [] }, "lead@office.example", deps);
+    expect(out.result.applied[0]).toMatchObject({ revit_unique_id: "new-uid", removed_tags: 2 });
+    const row = deps.audit.mock.calls.find((c) => c[3] === "changeset_applied");
+    expect(row[6].removed).toEqual([{ proposal_guid: g, unique_id: UID, type_before: "Placeholder Door : 1000 x 2100", replaced_by: "new-uid", tags: 2 }]);
+  });
+  it("MA-5b-5: the machine credential reports no rehost applied — a 403, nothing recorded; declining it is still a result", async () => {
+    const roles = ["contributor", "service", "service", "service"];
+    const deps = baseDeps({ myRole: vi.fn(async () => roles.shift() ?? "service") });
+    const cs = await proposeChangeset("demo", REHOST, "lead@office.example", deps);
+    const g = cs.elements[0].proposal_guid;
+    await expect(reportResult("demo", cs.id, { applied: [{ proposal_guid: g, revit_element_id: 9001, revit_unique_id: "new-uid" }], rejected: [] }, "revit", deps))
+      .rejects.toMatchObject({ status: 403, message: expect.stringMatching(/a rehost removes an element — its result is a signed-in member's/) });
+    expect(deps.audit.mock.calls.some((c) => c[3] === "changeset_applied")).toBe(false);
+    expect((await reportResult("demo", cs.id, { applied: [], rejected: [g] }, "revit", deps)).status).toBe("declined");
+  });
+
   it("MA-3b: a result answers the changeset_applied row it wrote, so Revit says \"reported (ledger #n)\" — the stored doc does not keep it", async () => {
     const deps = baseDeps({ audit: vi.fn(async () => ({ id: 1731, hash: "cd".repeat(32) })) });
     const cs = await propose(deps);

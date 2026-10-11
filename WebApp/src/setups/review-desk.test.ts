@@ -49,6 +49,9 @@ describe("words", () => {
     expect(ghostLine({ kind: "level", proposal_guid: "g", validate: { identity: { Name: "L00" } }, place: { Name: "L00" } } as Ghost)).toBe("L00");
     expect(ghostLine({ kind: "wall", op: "reshape", proposal_guid: "g", validate: { identity: { Name: "drawing-ev-0008-p1-wall-4" } }, target: { unique_id: "u-1" } } as Ghost))
       .toBe("drawing-ev-0008-p1-wall-4 · reshape u-1 to the revised drawing's line (kept as it stands if edited by hand since placed)"); // MA-5b-4
+    expect(ghostLine({ kind: "door", op: "rehost", proposal_guid: "g", validate: { identity: { Name: "PH1" } }, target: { unique_id: "u-2", type_before: "Placeholder Door : 1000 x 2100", at: [44100.4, 2510, 0] },
+      place: { LevelName: "Level 1", Location: [44050, 2500, 0], FamilyName: "BDS_INT_1 PNL", TypeName: "BDS_INT_1 PNL_WOOD_1000 x 2100 mm" } } as Ghost))
+      .toBe("PH1 · rehost Placeholder Door : 1000 x 2100 at (44100, 2510) → BDS_INT_1 PNL : BDS_INT_1 PNL_WOOD_1000 x 2100 mm in the wall at (44050, 2500) on Level 1; the unhosted instance and any tags on it are removed (one Undo in Revit brings them back)");
     expect(ghostLine(g4)).toBe('Basic Wall : BDS_EXT_ARC_CMU_200 mm · FireRating "" → "60 min" (a type edit: it reaches every element of the type)');
     expect(ghostLine({ proposal_guid: "x", kind: "floor", place: { TypeName: "Generic 150mm", LevelName: "L1" } })).toBe("x · Generic 150mm · L1");
   });
@@ -151,6 +154,12 @@ describe("recently decided in Revit (MA-3b2b)", () => {
     expect(bare.head).toBe("Promote (DD) · GR-FFL — declined in Revit by modeller@example.com · an unknown time · 0 applied, 2 not applied · ledger #7");
     expect(bare.note).toBeNull();
     expect(bare.declined).toEqual([{ line: "W 1 · GR-FFL → top 01-FFL", why: ["no reason given for this ghost"] }, { line: "constructor", why: ["no reason given for this ghost"] }]);
+  });
+
+  it("MA-5b-5: a report that applied a rehost counts it — the unhosted instance removed", () => {
+    const rh = { ...cs, status: "applied", elements: [...cs.elements, { kind: "door", op: "rehost", proposal_guid: "g-r", target: { unique_id: "u-9" } } as Ghost],
+      result: { ...cs.result!, applied: [{ proposal_guid: "g-r" }], rejected: [] } };
+    expect(decidedView(rh, row(9)).head).toContain(" · 1 applied (1 rehosted — the unhosted instance removed), 0 not applied · ledger #9");
   });
 
   it("review C3: a report undone in Revit says so, with the ledger row that says it — never 'applied' alone", () => {

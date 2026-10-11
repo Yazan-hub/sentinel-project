@@ -261,11 +261,12 @@ namespace Sentinel.GhostBuilder
                             held.ForEach(Why);
                             var ghosts = held.Count > 0 ? new List<PromoteGhost>() : p.Ghosts.Where(x => x.UniqueId == f.UniqueId).ToList();
                             foreach (var g in ghosts)
-                                Why(g.Op == "attach" ? "top not at the next story — Promote proposes an attach" : "not on a DD type — Promote proposes a retype");
+                                Why(g.Op == "attach" ? "top not at the next story — Promote proposes an attach"
+                                    : g.Op == "rehost" ? "no wall hosts it — Promote proposes a rehost into the wall it stands in" : "not on a DD type — Promote proposes a retype");
                             // Below with nothing held and nothing proposed: a settled door or window no wall hosts (Plan1 counts it out
                             // of "DD now" and proposes nothing) — never a count with no reason.
                             if (held.Count == 0 && ghosts.Count == 0)
-                                Why(cat == "Doors" || cat == "Windows" ? "on a DD type, but no wall hosts it — Promote does not rehost; a person decides"
+                                Why(cat == "Doors" || cat == "Windows" ? "on a DD type, but no wall hosts it — Promote proposes a rehost when it stands in one wall; else a person decides"
                                                                        : "below DD, and Promote proposes nothing for it — a person decides");
                             continue;
                         }
