@@ -157,6 +157,16 @@ namespace Sentinel.Checks
             foreach (var r in Both(new List<Stroke> { Ln(0, 0, 100, 0), Ln(108, 0, 200, 0), Ln(0, 4, 100, 4), Ln(108, 4, 200, 4), Ln(0, 0, 0, 4), Ln(200, 0, 200, 4),
                 Ln(100, -2, 108, -2), Ln(100, 6, 108, 6), Ln(100, -2, 100, 6), Ln(108, -2, 108, 6) }))
                 Ok(r.Walls.Count == 2 && r.Columns == 1, $"a column in a wall's line: 2 walls, 1 column — {Ws(r)}; columns {r.Columns}");
+            // (t) A face that runs on alone far past its partner: the wall stops with its partner — no PAIR_MAX of wall it does not have.
+            foreach (var r in Both(new List<Stroke> { Ln(0, 0, 200, 0), Ln(0, 6, 60, 6), Ln(0, 0, 0, 6) }))
+                Ok(r.Walls.Count == 1 && Has(r, 0, 3, 60, 3, 6), $"a face running on alone: the wall stops at its partner's end — {Ws(r)}");
+            // (u) A lone heavy line 14 paper mm beyond a wall's inner face (a screen) is no wall's face — never a 700 mm wall over the room.
+            foreach (var r in Both(new List<Stroke> { Ln(0, 0, 200, 0), Ln(0, 6, 200, 6), Ln(0, 0, 0, 6), Ln(200, 0, 200, 6), Ln(0, 20, 200, 20) }))
+                Ok(r.Walls.Count == 1 && Has(r, 0, 3, 200, 3, 6), $"a lone line beside a wall: the wall only — {Ws(r)}");
+            // (v) A flush outer face whose wall steps from 300 to 200 at a T: the two walls meet at the T wall's centreline (no notch).
+            foreach (var r in Both(new List<Stroke> { Ln(0, 0, 400, 0), Ln(0, 6, 94, 6), Ln(0, 0, 0, 6), Ln(100, 4, 400, 4), Ln(400, 0, 400, 4),
+                Ln(100, 4, 100, 6), Ln(94, 6, 94, 200), Ln(100, 6, 100, 200), Ln(94, 200, 100, 200) }))
+                Ok(Has(r, 0, 3, 97, 3, 6) && Has(r, 97, 2, 400, 2, 4), $"a flush face stepping at a T: the walls meet at the T's centreline — {Ws(r)}");
             // (k) Speed: 20,000 wall strokes (500 walls, each face in 20 pieces, shuffled) read well inside the bridge's bound.
             var big = new List<Stroke>();
             for (int k = 0; k < 500; k++) for (int p = 0; p < 20; p++) { big.Add(Ln(p * 10, 10 * k, p * 10 + 10, 10 * k)); big.Add(Ln(p * 10, 10 * k + 4, p * 10 + 10, 10 * k + 4)); }

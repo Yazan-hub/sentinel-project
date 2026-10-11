@@ -10,8 +10,21 @@
 // runs and is tested offline on plain .NET, like sentinel-core. GhostCadExtractor feeds it the real curve
 // endpoints and rebuilds Revit curves from the centrelines it returns.
 //
-// The whole thing is one geometric idea: two segments are the two faces of ONE wall when they are
-// parallel, overlap along their shared direction, and sit within a plausible wall-thickness of each other.
+// ORDER-INDEPENDENT (2026-10-11; the MA-5a-3 review found the first version read by line order — a CAD file
+// writes its lines in any order). Collinear segments are one FACE, with its own direction (the intervals it
+// covers); two faces within maxThicknessMm and angleTolDeg of parallel are a wall where BOTH are present.
+// Pairs claim over the whole drawing, never in input order: those with an OUTER face (nothing parallel beyond
+// it) first, then the rest, each by its gap, closest first. A face that is already one wall's face is another
+// wall's face only when one of the two is a lining (LINING of maxThicknessMm) — a lone line beside a wall
+// stays a lone line; a pair whose faces are already walls on their far sides is a void or a cavity; a face
+// inside a wall is no face of another. A claim then crosses a gap where only ONE face breaks (a wall meeting
+// it: a T), crosses a gap where both break when a crossing wall's own gap fits it (a crossing), and runs on
+// along a face that continues alone — to a corner within maxThicknessMm, or to the middle of the gap before
+// the next wall on that face. A wall is longer than it is thick (two jambs a door apart are no wall). Short
+// lines whose ends are wall corners (caps, jambs, steps) are consumed; every other stretch no wall covers is
+// returned as an unpaired line. The same approach reads vector PDF plans in drawing/PlanReader.cs.
+// ponytail: an L corner whose two outer faces both run on alone past maxThicknessMm leaves its corner square empty; faces drifting
+// apart give one averaged straight wall; a cavity's closers and a nib shorter than it is thick are no walls of their own.
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -31,22 +44,29 @@ namespace Sentinel.GhostBuilder
     /// <summary>One wall recovered from a pair of faces: its centreline and the measured thickness.</summary>
     public sealed class PairedWall
     {
-        public double Cx1, Cy1, Cx2, Cy2;   // centreline endpoints
+        public double Cx1, Cy1, Cx2, Cy2;   // centreline endpoints, in the drawn direction of its FaceA segment
         public double ThicknessMm;          // gap between the two faces, in drawing units
-        public int FaceA, FaceB;            // indices of the two segments consumed (for the "used" set)
+        public int FaceA, FaceB;            // indices of a segment of each face it came from (FaceB -1: an unpaired line)
     }
 
     public static class WallPairing
     {
+        const double MERGE_DEG = 0.5; // segments within this of one angle (anchored, not chained), on one line, are one face
+        const double LINING = 0.1;    // of maxThicknessMm: a wall this thin may share a face with another wall (a lining)
+
         /// <summary>
-        /// Recover walls from face segments. Anything not paired is returned as a single "unpaired"
-        /// centreline (the segment itself, thickness 0) rather than dropped — a lone line on a wall layer
-        /// is still a wall the modeller drew, it just has no measurable thickness, and the guideline
-        /// reports that honestly as a gap instead of the builder inventing one.
+        /// Recover walls from face segments, whatever order they come in. A line (or the stretch of one) that
+        /// pairs with nothing is returned as a single "unpaired" centreline (thickness 0) rather than dropped —
+        /// a lone line on a wall layer is still a wall the modeller drew, it just has no measurable thickness,
+        /// and the guideline reports that honestly as a gap instead of the builder inventing one. A short line
+        /// that closes a wall's outline (an end cap, a jamb, a step between two thicknesses) is part of that
+        /// wall, not a wall of its own.
         /// </summary>
         /// <param name="maxThicknessMm">Ignore pairs further apart than this — two walls on opposite sides
         /// of a room are parallel and overlapping but are NOT one wall. 1000mm covers any real wall.</param>
         /// <param name="angleTolDeg">How far from parallel two faces may be and still pair (drawings drift).</param>
+        /// <param name="minOverlapFrac">How much of the shorter face must overlap the longer for the two to be
+        /// considered at all.</param>
         public static List<PairedWall> Pair(
             IReadOnlyList<Seg> segments,
             double maxThicknessMm = 1000.0,
@@ -54,98 +74,469 @@ namespace Sentinel.GhostBuilder
             double minOverlapFrac = 0.5)
         {
             var walls = new List<PairedWall>();
-            var used = new bool[segments.Count];
-            double cosTol = Math.Cos(angleTolDeg * Math.PI / 180.0);
+            if (segments == null || segments.Count == 0) return walls;
+            double touch = Math.Max(1e-6, maxThicknessMm * 1e-3); // 1 mm a 1000 mm wall: lines this close touch
+            double tol = angleTolDeg * Math.PI / 180, lining = LINING * maxThicknessMm;
+            var faces = Faces(segments, touch, Math.Min(MERGE_DEG, angleTolDeg) * Math.PI / 180);
+            var near = Neighbours(faces, maxThicknessMm, tol);
 
-            // Greedy, but deterministic: for each segment take the CLOSEST valid partner. Closest-first
-            // is what stops a thin wall stealing the far face of a thick wall beside it.
-            for (int i = 0; i < segments.Count; i++)
+            // Candidate pairs, and which side of each face has a parallel neighbour (an outer face has none).
+            var pairs = new List<Pr>();
+            foreach (var a in faces)
+                foreach (var b in near[a.Id])
+                {
+                    if (b.Id <= a.Id) continue;
+                    var p = new Pr(a, b);
+                    var raw = Inter(a.Iv, p.ToA(b.Iv), touch);
+                    if (raw.Count == 0) continue;
+                    double mid = (raw[0].a + raw[raw.Count - 1].b) / 2, gs = p.OffsetOfB(mid);
+                    p.G = Math.Abs(gs);
+                    if (p.G <= touch || p.G > maxThicknessMm) continue;
+                    p.SideA = Math.Sign(gs);
+                    p.SideB = Math.Sign(p.OffsetOfA(p.AtoB(mid)));
+                    a.Near[p.SideA > 0 ? 1 : 0] = true;
+                    b.Near[p.SideB > 0 ? 1 : 0] = true;
+                    if (Len(raw) < minOverlapFrac * Math.Min(Len(a.Iv), Len(b.Iv))) continue;
+                    pairs.Add(p);
+                }
+            // Outer first, then the gap, then where the pair sits — the order of the input never decides.
+            pairs = pairs.OrderBy(p => !p.A.Near[p.SideA > 0 ? 0 : 1] || !p.B.Near[p.SideB > 0 ? 0 : 1] ? 0 : 1)
+                         .ThenBy(p => p.G).ThenBy(p => p.A.Id).ThenBy(p => p.B.Id).ToList();
+
+            var claims = new List<Pr>();
+            List<(double a, double b)> Shared(Face f, int side, double g) => // already another wall's face there, neither a lining
+                Norm(f.Own[side > 0 ? 1 : 0].Where(o => Math.Min(g, claims[o.pair].G) > lining).Select(o => (o.a, o.b)), 0);
+            foreach (var p in pairs)
             {
-                if (used[i]) continue;
-                var a = segments[i];
-                if (a.Length < 1e-6) { used[i] = true; continue; }
-
-                int best = -1;
-                double bestGap = double.MaxValue;
-                for (int j = i + 1; j < segments.Count; j++)
-                {
-                    if (used[j]) continue;
-                    var b = segments[j];
-                    if (b.Length < 1e-6) continue;
-
-                    if (!Parallel(a, b, cosTol)) continue;
-                    if (Overlap(a, b) < minOverlapFrac) continue;
-                    double gap = PerpDistance(a, b);
-                    if (gap < 1e-6 || gap > maxThicknessMm) continue; // coincident or too far to be one wall
-
-                    if (gap < bestGap) { bestGap = gap; best = j; }
-                }
-
-                if (best >= 0)
-                {
-                    used[i] = used[best] = true;
-                    walls.Add(Centreline(a, segments[best], bestGap, i, best));
-                }
+                var both = Inter(Minus(p.A.Iv, p.A.Side(p.SideA), touch), p.ToA(Minus(p.B.Iv, p.B.Side(p.SideB), touch)), touch);
+                both = Minus(both, Inter(p.A.Side(-p.SideA), p.ToA(p.B.Side(-p.SideB)), touch), touch); // a void between two walls
+                both = Minus(both, Shared(p.A, -p.SideA, p.G), touch);
+                both = Minus(both, p.ToA(Shared(p.B, -p.SideB, p.G)), touch);
+                foreach (var c in Nearby(p, near, claims))
+                    if (Inside(p.A, c, tol, touch) || Inside(p.B, c, tol, touch)) both = Minus(both, Frame(c.Both, c.A, p.A), touch); // a face inside a wall
+                if (Len(both) < p.G) continue; // shorter than thick wherever both faces are free: jambs, caps
+                p.Id = claims.Count;
+                p.Both = both;
+                claims.Add(p);
+                p.A.Claims.Add(p); p.B.Claims.Add(p);
+                foreach (var x in both) p.A.Own[p.SideA > 0 ? 1 : 0].Add((x.a, x.b, p.Id));
+                foreach (var x in p.ToB(both)) p.B.Own[p.SideB > 0 ? 1 : 0].Add((x.a, x.b, p.Id));
             }
 
-            // Leftover faces — return as unpaired centrelines so nothing a modeller drew is silently lost.
-            for (int i = 0; i < segments.Count; i++)
+            // Each claim's runs: across a gap one face spans alone (a T); then across a gap both break where a crossing wall's
+            // own gap fits it (a crossing).
+            foreach (var p in claims)
             {
-                if (used[i]) continue;
-                var a = segments[i];
-                if (a.Length < 1e-6) continue;
-                walls.Add(new PairedWall { Cx1 = a.X1, Cy1 = a.Y1, Cx2 = a.X2, Cy2 = a.Y2, ThicknessMm = 0, FaceA = i, FaceB = -1 });
+                p.Runs = new List<(double lo, double hi)>();
+                foreach (var x in p.Both)
+                {
+                    if (p.Runs.Count > 0)
+                    {
+                        var last = p.Runs[p.Runs.Count - 1];
+                        var gapB = p.ToB(new List<(double a, double b)> { (last.hi, x.a) });
+                        if (Free(p.A, last.hi, x.a, p.Id, touch) || (gapB.Count > 0 && Free(p.B, gapB[0].a, gapB[0].b, p.Id, touch)))
+                        { p.Runs[p.Runs.Count - 1] = (last.lo, x.b); continue; }
+                    }
+                    p.Runs.Add((x.a, x.b));
+                }
             }
-            return walls;
-        }
+            Crossings(claims, tol, touch);
 
-        private static bool Parallel(Seg a, Seg b, double cosTol)
-        {
-            double la = a.Length, lb = b.Length;
-            double dot = (a.Dx * b.Dx + a.Dy * b.Dy) / (la * lb);
-            return Math.Abs(dot) >= cosTol; // |cos| — same OR opposite direction both count as parallel
-        }
+            // On along a face that continues alone, then the bands: a wall is longer than it is thick.
+            var bands = new List<(Pr p, double lo, double hi)>();
+            foreach (var p in claims)
+                foreach (var (lo0, hi0) in p.Runs)
+                {
+                    double lo = Math.Min(lo0, Math.Min(RunOn(p.A, lo0, -1, p, maxThicknessMm, touch), p.BtoA(RunOn(p.B, p.AtoB(lo0), -p.Dir, p, maxThicknessMm, touch))));
+                    double hi = Math.Max(hi0, Math.Max(RunOn(p.A, hi0, 1, p, maxThicknessMm, touch), p.BtoA(RunOn(p.B, p.AtoB(hi0), p.Dir, p, maxThicknessMm, touch))));
+                    if (hi - lo < p.G) continue;
+                    bands.Add((p, lo, hi));
+                    p.A.Bands.Add((lo, hi, p.G));
+                    double b0 = p.AtoB(lo), b1 = p.AtoB(hi);
+                    p.B.Bands.Add((Math.Min(b0, b1), Math.Max(b0, b1), p.G));
+                }
 
-        /// <summary>Perpendicular distance from b's midpoint to the infinite line through a. This IS the
-        /// wall thickness once the two are known to be parallel and overlapping.</summary>
-        private static double PerpDistance(Seg a, Seg b)
-        {
-            double mx = (b.X1 + b.X2) * 0.5, my = (b.Y1 + b.Y2) * 0.5;
-            double la = a.Length;
-            // 2D cross product of a's direction with (a.start -> midpoint), normalised.
-            return Math.Abs(a.Dx * (my - a.Y1) - a.Dy * (mx - a.X1)) / la;
-        }
-
-        /// <summary>Fraction of the shorter segment that overlaps the longer, measured along a's direction.
-        /// Two collinear-but-separate wall segments (0 overlap) must not pair.</summary>
-        private static double Overlap(Seg a, Seg b)
-        {
-            double ux = a.Dx / a.Length, uy = a.Dy / a.Length;
-            double Proj(double x, double y) => (x - a.X1) * ux + (y - a.Y1) * uy;
-            double a0 = 0, a1 = a.Length;
-            double b0 = Proj(b.X1, b.Y1), b1 = Proj(b.X2, b.Y2);
-            if (b0 > b1) { var t = b0; b0 = b1; b1 = t; }
-            double lo = Math.Max(a0, b0), hi = Math.Min(a1, b1);
-            double overlap = Math.Max(0, hi - lo);
-            return overlap / Math.Min(a.Length, b.Length);
-        }
-
-        /// <summary>The centreline: each face's midpoint pushed half the gap toward the other. Using
-        /// projected endpoints keeps the centreline along a's direction even when b is drawn reversed.</summary>
-        private static PairedWall Centreline(Seg a, Seg b, double gap, int ia, int ib)
-        {
-            double mx = (a.X1 + b.X1 + a.X2 + b.X2) * 0.25;
-            double my = (a.Y1 + b.Y1 + a.Y2 + b.Y2) * 0.25;
-            // Direction from a's own endpoints; the centreline runs a's full length through the mid-point.
-            double ux = a.Dx / a.Length, uy = a.Dy / a.Length;
-            double half = a.Length * 0.5;
-            return new PairedWall
+            // Walls: the centreline midway between the faces over the band, in the drawn direction of its FaceA segment.
+            double nearMm = 5 * touch;
+            var corners = new Dictionary<(long, long), List<(double x, double y)>>();
+            (long, long) Cell(double x, double y) => ((long)Math.Floor(x / nearMm), (long)Math.Floor(y / nearMm));
+            foreach (var (p, lo, hi) in bands)
             {
-                Cx1 = mx - ux * half, Cy1 = my - uy * half,
-                Cx2 = mx + ux * half, Cy2 = my + uy * half,
-                ThicknessMm = gap,
-                FaceA = ia, FaceB = ib,
-            };
+                var a0 = p.A.At(lo); var a1 = p.A.At(hi); var b0 = p.B.At(p.AtoB(lo)); var b1 = p.B.At(p.AtoB(hi));
+                var am = p.A.At((lo + hi) / 2); var bm = p.B.At(p.AtoB((lo + hi) / 2));
+                double b0s = p.AtoB(lo), b1s = p.AtoB(hi);
+                int fa = Member(p.A, lo, hi), fb = Member(p.B, Math.Min(b0s, b1s), Math.Max(b0s, b1s));
+                if (fb < fa) (fa, fb) = (fb, fa); // FaceA: the face line drawn first, as before
+                var w = new PairedWall
+                {
+                    Cx1 = Um((a0.x + b0.x) / 2), Cy1 = Um((a0.y + b0.y) / 2), Cx2 = Um((a1.x + b1.x) / 2), Cy2 = Um((a1.y + b1.y) / 2),
+                    ThicknessMm = Math.Sqrt((am.x - bm.x) * (am.x - bm.x) + (am.y - bm.y) * (am.y - bm.y)),
+                    FaceA = fa, FaceB = fb,
+                };
+                var sa = segments[fa]; // the centreline runs the way its FaceA line is drawn (Revit puts a type's exterior by it)
+                if (sa.Dx * (w.Cx2 - w.Cx1) + sa.Dy * (w.Cy2 - w.Cy1) < 0) { (w.Cx1, w.Cx2) = (w.Cx2, w.Cx1); (w.Cy1, w.Cy2) = (w.Cy2, w.Cy1); }
+                walls.Add(w);
+                foreach (var c in new[] { a0, a1, b0, b1 })
+                {
+                    var k = Cell(c.x, c.y);
+                    if (!corners.TryGetValue(k, out var l)) corners[k] = l = new List<(double x, double y)>();
+                    l.Add(c);
+                }
+            }
+            bool Corner(double x, double y)
+            {
+                var (cx, cy) = Cell(x, y);
+                for (long i = cx - 1; i <= cx + 1; i++)
+                    for (long j = cy - 1; j <= cy + 1; j++)
+                        if (corners.TryGetValue((i, j), out var l) && l.Any(c => (c.x - x) * (c.x - x) + (c.y - y) * (c.y - y) <= nearMm * nearMm)) return true;
+                return false;
+            }
+
+            // Leftovers — every line, or stretch of one, no wall covers, as an unpaired centreline (nothing a modeller drew is
+            // silently lost), except a short line both of whose ends are a wall's corners (a cap, a jamb, a step) and a stub at a
+            // wall's end no longer than that wall is thick (drift's sliver, not a line).
+            foreach (var f in faces)
+            {
+                var covered = Norm(f.Bands.Select(x => (x.lo, x.hi)), touch);
+                double thick = f.Bands.Count == 0 ? 0 : f.Bands.Max(x => x.g);
+                foreach (var (i, s0, s1) in f.Members)
+                {
+                    var seg = segments[i];
+                    if (seg.Length <= nearMm) continue; // a line of a few millimetres is a drafting speck, not a wall
+                    if (seg.Length <= maxThicknessMm && Corner(seg.X1, seg.Y1) && Corner(seg.X2, seg.Y2)) continue;
+                    var left = Minus(new List<(double a, double b)> { (s0, s1) }, covered, touch);
+                    if (left.Count == 1 && left[0].a <= s0 + touch && left[0].b >= s1 - touch)
+                    { walls.Add(new PairedWall { Cx1 = seg.X1, Cy1 = seg.Y1, Cx2 = seg.X2, Cy2 = seg.Y2, ThicknessMm = 0, FaceA = i, FaceB = -1 }); continue; }
+                    bool fwd = seg.Dx * f.Ux + seg.Dy * f.Uy >= 0;
+                    foreach (var (u0, u1) in left)
+                    {
+                        bool between = covered.Any(c => Math.Abs(c.b - u0) <= touch) && covered.Any(c => Math.Abs(c.a - u1) <= touch);
+                        if (u1 - u0 <= (between ? nearMm : Math.Max(nearMm, thick))) continue;
+                        var e0 = f.At(fwd ? u0 : u1); var e1 = f.At(fwd ? u1 : u0);
+                        walls.Add(new PairedWall { Cx1 = Um(e0.x), Cy1 = Um(e0.y), Cx2 = Um(e1.x), Cy2 = Um(e1.y), ThicknessMm = 0, FaceA = i, FaceB = -1 });
+                    }
+                }
+            }
+            // In the drawing's own line order (by the line each came from), as before: Ghost Builder numbers a layer's walls in this order.
+            return walls.OrderBy(w => w.FaceA).ThenBy(w => w.Cx1).ThenBy(w => w.Cy1).ToList();
         }
+
+        // ---- faces ------------------------------------------------------------------------------------------
+
+        /// <summary>A face: collinear segments as the intervals they cover along its own U (s), at offset Off along its N.
+        /// Own[0] / Own[1]: what pairs claimed on its -N / +N side; Near[0] / Near[1]: a parallel face overlaps it there.</summary>
+        sealed class Face
+        {
+            public int Id; public double Th, Ux, Uy, Nx, Ny, Off;
+            public List<(double a, double b)> Iv;
+            public List<(int seg, double a, double b)> Members = new List<(int, double, double)>();
+            public readonly List<(double a, double b, int pair)>[] Own = { new List<(double, double, int)>(), new List<(double, double, int)>() };
+            public readonly bool[] Near = new bool[2];
+            public readonly List<Pr> Claims = new List<Pr>();
+            public readonly List<(double lo, double hi, double g)> Bands = new List<(double, double, double)>();
+            public List<(double a, double b)> Side(int side) => Norm(Own[side > 0 ? 1 : 0].Select(o => (o.a, o.b)), 0);
+            public IEnumerable<(double a, double b, int pair)> AllOwn => Own[0].Concat(Own[1]);
+            public (double x, double y) At(double s) => (Ux * s + Nx * Off, Uy * s + Ny * Off);
+            public double S(double x, double y) => x * Ux + y * Uy;
+            public double O(double x, double y) => x * Nx + y * Ny;
+        }
+
+        /// <summary>A segment's angle in [0, π), the same whichever end it is drawn from.</summary>
+        static double Angle(Seg s)
+        {
+            double dx = s.Dx, dy = s.Dy;
+            if (dx < 0 || (dx == 0 && dy < 0)) { dx = -dx; dy = -dy; }
+            double th = Math.Atan2(dy, dx); // (-π/2, π/2]
+            return th < 0 ? th + Math.PI : th;
+        }
+
+        /// <summary>Segments into faces: angle windows anchored at their first member (never chained across a layer — a curve's
+        /// facets cannot drag a square wall's angle), cut where the angles leave their widest gap (so no fixed angle splits a
+        /// line); within a window, segments on one line (offsets within touch). Each face takes its own members' angle and
+        /// offset, length-weighted. Sorted by geometry, so ids — and every tie-break after — do not depend on input order.</summary>
+        static List<Face> Faces(IReadOnlyList<Seg> segs, double touch, double merge)
+        {
+            var dir = new List<(int i, double th, double len)>();
+            for (int i = 0; i < segs.Count; i++)
+            {
+                var s = segs[i];
+                if (s.Length < 1e-6) continue; // a point is no line
+                dir.Add((i, Angle(s), s.Length));
+            }
+            var faces = new List<Face>();
+            if (dir.Count == 0) return faces;
+            dir = dir.OrderBy(d => d.th).ThenBy(d => segs[d.i].X1 + segs[d.i].X2).ThenBy(d => segs[d.i].Y1 + segs[d.i].Y2).ToList();
+            // Start after the widest angular gap (the circle wraps at π): angles before it come after, +π.
+            int cut = 0; double widest = dir[0].th + Math.PI - dir[dir.Count - 1].th;
+            for (int k = 1; k < dir.Count; k++) if (dir[k].th - dir[k - 1].th > widest) { widest = dir[k].th - dir[k - 1].th; cut = k; }
+            dir = dir.Skip(cut).Concat(dir.Take(cut).Select(d => (d.i, d.th + Math.PI, d.len))).ToList();
+            for (int i = 0; i < dir.Count;)
+            {
+                int j = i + 1;
+                while (j < dir.Count && dir[j].th - dir[i].th <= merge) j++;
+                // The window's frame for telling lines apart: its length-weighted MEDIAN angle — the walls' own, which a few
+                // short unrelated lines in the window (a curve's facets, a drifted line) cannot tilt.
+                double wl = 0, acc = 0, wth = dir[i].th;
+                for (int k = i; k < j; k++) wl += dir[k].len;
+                foreach (var d in dir.Skip(i).Take(j - i).OrderBy(d => d.th)) { acc += d.len; if (acc >= wl / 2) { wth = d.th; break; } }
+                double wnx = -Math.Sin(wth), wny = Math.Cos(wth);
+                var at = new List<(int seg, double th, double len, double off)>();
+                for (int k = i; k < j; k++)
+                {
+                    var s = segs[dir[k].i];
+                    at.Add((dir[k].i, dir[k].th, dir[k].len, ((s.X1 + s.X2) / 2) * wnx + ((s.Y1 + s.Y2) / 2) * wny));
+                }
+                foreach (var cluster in Lines(at, touch))
+                {
+                    var f = Build(cluster, segs, faces.Count, touch);
+                    // A face must be a line: when a member strays from it (pieces drawn at slightly different angles that met
+                    // here), split the cluster by precise angle, each piece on its own line — never one averaged face off all.
+                    if (cluster.Count > 1 && f.Members.Any(mb => Strays(segs[mb.seg], f, touch)))
+                    {
+                        var sorted = cluster.OrderBy(x => x.th).ThenBy(x => x.seg).ToList();
+                        for (int a = 0; a < sorted.Count;)
+                        {
+                            int b = a + 1;
+                            while (b < sorted.Count && sorted[b].th - sorted[a].th <= FINE) b++;
+                            var sub = sorted.Skip(a).Take(b - a).ToList();
+                            var (snx, sny) = (-Math.Sin(sub[0].th), Math.Cos(sub[0].th));
+                            var subAt = sub.Select(x => { var s = segs[x.seg]; return (x.seg, x.th, x.len, off: ((s.X1 + s.X2) / 2) * snx + ((s.Y1 + s.Y2) / 2) * sny); }).ToList();
+                            foreach (var c2 in Lines(subAt, touch)) faces.Add(Build(c2, segs, faces.Count, touch));
+                            a = b;
+                        }
+                    }
+                    else faces.Add(f);
+                }
+                i = j;
+            }
+            return faces;
+        }
+
+        const double FINE = 1e-4; // radians: angles this close are one line's over a 10 m face, to within a millimetre
+
+        /// <summary>Segments on one line: sorted by offset, consecutive offsets within touch.</summary>
+        static List<List<(int seg, double th, double len, double off)>> Lines(List<(int seg, double th, double len, double off)> at, double touch)
+        {
+            var o = new List<List<(int seg, double th, double len, double off)>>();
+            at = at.OrderBy(x => x.off).ThenBy(x => x.seg).ToList();
+            for (int k = 0; k < at.Count;)
+            {
+                int m = k + 1;
+                while (m < at.Count && at[m].off - at[m - 1].off <= touch) m++;
+                o.Add(at.Skip(k).Take(m - k).ToList());
+                k = m;
+            }
+            return o;
+        }
+
+        /// <summary>A face from its members: their length-weighted angle and offset, the intervals they cover.</summary>
+        static Face Build(List<(int seg, double th, double len, double off)> members, IReadOnlyList<Seg> segs, int id, double touch)
+        {
+            double fl = 0, fth = 0;
+            foreach (var x in members) { fth += x.th * x.len; fl += x.len; }
+            fth /= fl;
+            var f = new Face { Id = id, Th = fth, Ux = Math.Cos(fth), Uy = Math.Sin(fth), Nx = -Math.Sin(fth), Ny = Math.Cos(fth) };
+            double off = 0;
+            foreach (var x in members)
+            {
+                var s = segs[x.seg];
+                off += (((s.X1 + s.X2) / 2) * f.Nx + ((s.Y1 + s.Y2) / 2) * f.Ny) * x.len;
+                double s1 = f.S(s.X1, s.Y1), s2 = f.S(s.X2, s.Y2);
+                f.Members.Add((x.seg, Math.Min(s1, s2), Math.Max(s1, s2)));
+            }
+            f.Off = off / fl;
+            f.Iv = Norm(f.Members.Select(x => (x.a, x.b)), touch);
+            return f;
+        }
+
+        static bool Strays(Seg s, Face f, double touch) =>
+            Math.Abs(f.O(s.X1, s.Y1) - f.Off) > touch || Math.Abs(f.O(s.X2, s.Y2) - f.Off) > touch;
+
+        /// <summary>A computed coordinate to the micrometre (a millimetre drawing's float noise, never "-0").</summary>
+        static double Um(double v) => Math.Round(v, 3) + 0.0;
+
+        static double AngleBetween(Face a, Face b)
+        {
+            double d = Math.Abs(a.Th - b.Th) % Math.PI;
+            return Math.Min(d, Math.PI - d);
+        }
+
+        /// <summary>Each face's neighbours: faces within angle tol of parallel whose extents come within max — through a
+        /// grid of max-sized cells along each face, so a big drawing is not every face against every face.</summary>
+        static List<Face>[] Neighbours(List<Face> faces, double max, double tol)
+        {
+            var grid = new Dictionary<(long, long), List<int>>();
+            var cells = new List<(long, long)>[faces.Count];
+            foreach (var f in faces)
+            {
+                var set = new HashSet<(long, long)>();
+                double s0 = f.Iv[0].a, s1 = f.Iv[f.Iv.Count - 1].b;
+                int steps = Math.Max(1, (int)Math.Ceiling((s1 - s0) / max));
+                for (int k = 0; k <= steps; k++)
+                {
+                    var p = f.At(s0 + (s1 - s0) * k / steps);
+                    long cx = (long)Math.Floor(p.x / max), cy = (long)Math.Floor(p.y / max);
+                    for (long i = cx - 1; i <= cx + 1; i++) for (long j = cy - 1; j <= cy + 1; j++) set.Add((i, j));
+                }
+                cells[f.Id] = set.ToList();
+                foreach (var c in set) { if (!grid.TryGetValue(c, out var l)) grid[c] = l = new List<int>(); l.Add(f.Id); }
+            }
+            var near = new List<Face>[faces.Count];
+            foreach (var f in faces)
+            {
+                var ids = new HashSet<int>();
+                foreach (var c in cells[f.Id]) foreach (var id in grid[c]) if (id != f.Id && AngleBetween(f, faces[id]) <= tol) ids.Add(id);
+                near[f.Id] = ids.OrderBy(x => x).Select(x => faces[x]).ToList();
+            }
+            return near;
+        }
+
+        /// <summary>Claims on p's faces and their neighbours — the only ones a face of p can lie inside.</summary>
+        static IEnumerable<Pr> Nearby(Pr p, List<Face>[] near, List<Pr> claims)
+        {
+            var seen = new HashSet<int>();
+            foreach (var f in near[p.A.Id].Concat(near[p.B.Id]).Concat(new[] { p.A, p.B }))
+                foreach (var c in f.Claims) if (seen.Add(c.Id)) yield return c;
+        }
+
+        /// <summary>A candidate pair of faces, with the maps between A's frame (s along A) and B's.</summary>
+        sealed class Pr
+        {
+            public readonly Face A, B; public readonly int Dir; // Dir: +1 when A's and B's U point the same way
+            public double G; public int SideA, SideB, Id; public List<(double a, double b)> Both;
+            public List<(double lo, double hi)> Runs;
+            public Pr(Face a, Face b) { A = a; B = b; Dir = a.Ux * b.Ux + a.Uy * b.Uy >= 0 ? 1 : -1; }
+            public double AtoB(double s) { var p = A.At(s); return B.S(p.x, p.y); }
+            public double BtoA(double s) { var p = B.At(s); return A.S(p.x, p.y); }
+            public double OffsetOfB(double sA) { var p = B.At(AtoB(sA)); return A.O(p.x, p.y) - A.Off; }
+            public double OffsetOfA(double sB) { var p = A.At(BtoA(sB)); return B.O(p.x, p.y) - B.Off; }
+            public (double x, double y) Centre(double sA) { var a = A.At(sA); var b = B.At(AtoB(sA)); return ((a.x + b.x) / 2, (a.y + b.y) / 2); }
+            public List<(double a, double b)> ToA(List<(double a, double b)> iv) => Norm(iv.Select(x => (Math.Min(BtoA(x.a), BtoA(x.b)), Math.Max(BtoA(x.a), BtoA(x.b)))), 0);
+            public List<(double a, double b)> ToB(List<(double a, double b)> iv) => Norm(iv.Select(x => (Math.Min(AtoB(x.a), AtoB(x.b)), Math.Max(AtoB(x.a), AtoB(x.b)))), 0);
+        }
+
+        /// <summary>Two walls that cut each other: each one's opening as wide as the other is thick, at the same place —
+        /// both run through (the PDF reader's rule).</summary>
+        static void Crossings(List<Pr> claims, double tol, double touch)
+        {
+            var gaps = new List<(Pr p, int k, double g0, double g1)>();
+            foreach (var p in claims)
+                for (int k = 0; k + 1 < p.Runs.Count; k++) gaps.Add((p, k, p.Runs[k].hi, p.Runs[k + 1].lo));
+            var join = new HashSet<(int, int)>();
+            foreach (var (p, k, g0, g1) in gaps)
+            {
+                var c = p.Centre((g0 + g1) / 2);
+                foreach (var (q, k2, h0, h1) in gaps)
+                {
+                    if (q == p || AngleBetween(p.A, q.A) <= tol) continue;
+                    double slack = Math.Max(10 * touch, 0.1 * Math.Max(p.G, q.G)), s = q.A.S(c.x, c.y);
+                    var qc = q.Centre(s);
+                    if ((qc.x - c.x) * (qc.x - c.x) + (qc.y - c.y) * (qc.y - c.y) > slack * slack || s < h0 - slack || s > h1 + slack) continue;
+                    if (Math.Abs((g1 - g0) - q.G) > slack || Math.Abs((h1 - h0) - p.G) > slack) continue;
+                    join.Add((p.Id, k)); join.Add((q.Id, k2));
+                }
+            }
+            foreach (var p in claims)
+                for (int k = p.Runs.Count - 2; k >= 0; k--)
+                    if (join.Contains((p.Id, k))) { p.Runs[k] = (p.Runs[k].lo, p.Runs[k + 1].hi); p.Runs.RemoveAt(k + 1); }
+        }
+
+        /// <summary>Intervals in face `from`'s frame, in face `to`'s (through the points they cover).</summary>
+        static List<(double a, double b)> Frame(List<(double a, double b)> iv, Face from, Face to)
+        {
+            if (from == to) return iv;
+            return Norm(iv.Select(x =>
+            {
+                var p = from.At(x.a); var q = from.At(x.b);
+                double s0 = to.S(p.x, p.y), s1 = to.S(q.x, q.y);
+                return (Math.Min(s0, s1), Math.Max(s0, s1));
+            }), 0);
+        }
+
+        /// <summary>Face f lies between claim c's two faces, where they overlap it.</summary>
+        static bool Inside(Face f, Pr c, double tol, double touch)
+        {
+            if (f == c.A || f == c.B || AngleBetween(f, c.A) > tol) return false;
+            var ov = Inter(Frame(f.Iv, f, c.A), c.Both, touch);
+            if (ov.Count == 0) return false;
+            double mid = (ov[0].a + ov[ov.Count - 1].b) / 2;
+            var m = c.A.At(mid);
+            var p = f.At(f.S(m.x, m.y));
+            double d = (c.A.O(p.x, p.y) - c.A.Off) * c.SideA;
+            return d > touch && d < c.G - touch;
+        }
+
+        /// <summary>x0..x1 on face l is drawn and no other pair's claim.</summary>
+        static bool Free(Face l, double x0, double x1, int id, double touch) =>
+            Covers(l.Iv, x0, x1, touch) && !l.AllOwn.Any(o => o.pair != id && o.b > x0 + touch && o.a < x1 - touch);
+
+        /// <summary>How far face l continues alone from e (side -1: down its U, +1: up): to the next wall on that face (to the
+        /// middle of the gap when that wall is on the same side — two walls meeting at a T meet there), else to the face's own
+        /// end — when that is within max (a corner); a face that runs on further is a single line beyond the wall.</summary>
+        static double RunOn(Face l, double e, int side, Pr p, double max, double touch)
+        {
+            var iv = l.Iv.FirstOrDefault(x => x.a <= e + touch && x.b >= e - touch);
+            if (iv.b - iv.a <= 0) return e;
+            double stop = side < 0 ? iv.a : iv.b, nearest = stop;
+            bool same = false;
+            int mine = (l == p.A ? p.SideA : p.SideB) > 0 ? 1 : 0;
+            for (int k = 0; k < 2; k++)
+                foreach (var o in l.Own[k])
+                {
+                    if (o.pair == p.Id) continue;
+                    double at = side < 0 ? o.b : o.a;
+                    if (side < 0 ? (at > e + touch || at <= nearest) : (at < e - touch || at >= nearest)) continue;
+                    nearest = at; same = k == mine;
+                }
+            double end = nearest == stop ? stop : same ? (e + nearest) / 2 : nearest;
+            return Math.Abs(end - e) > max ? e : end;
+        }
+
+        /// <summary>The segment of face f that overlaps lo..hi most (the wall's FaceA / FaceB).</summary>
+        static int Member(Face f, double lo, double hi) =>
+            f.Members.OrderByDescending(m => Math.Min(m.b, hi) - Math.Max(m.a, lo)).ThenBy(m => m.a).First().seg;
+
+        // ---- intervals --------------------------------------------------------------------------------------
+
+        static List<(double a, double b)> Norm(IEnumerable<(double a, double b)> xs, double touch)
+        {
+            var o = new List<(double a, double b)>();
+            foreach (var x in xs.Where(x => x.b - x.a > 0).OrderBy(x => x.a))
+            {
+                if (o.Count > 0 && x.a <= o[o.Count - 1].b + touch) o[o.Count - 1] = (o[o.Count - 1].a, Math.Max(o[o.Count - 1].b, x.b));
+                else o.Add(x);
+            }
+            return o;
+        }
+        static List<(double a, double b)> Inter(List<(double a, double b)> A, List<(double a, double b)> B, double touch)
+        {
+            var o = new List<(double a, double b)>();
+            int i = 0, j = 0;
+            while (i < A.Count && j < B.Count)
+            {
+                double lo = Math.Max(A[i].a, B[j].a), hi = Math.Min(A[i].b, B[j].b);
+                if (hi - lo > touch) o.Add((lo, hi));
+                if (A[i].b < B[j].b) i++; else j++;
+            }
+            return o;
+        }
+        static List<(double a, double b)> Minus(List<(double a, double b)> A, List<(double a, double b)> cut, double touch)
+        {
+            var o = new List<(double a, double b)>(A);
+            foreach (var (ca, cb) in cut)
+            {
+                var next = new List<(double a, double b)>();
+                foreach (var (a, b) in o)
+                {
+                    if (cb <= a || ca >= b) { next.Add((a, b)); continue; }
+                    if (ca - a > touch) next.Add((a, ca));
+                    if (b - cb > touch) next.Add((cb, b));
+                }
+                o = next;
+            }
+            return o;
+        }
+        static double Len(List<(double a, double b)> A) => A.Sum(x => x.b - x.a);
+        static bool Covers(List<(double a, double b)> A, double x0, double x1, double touch) => A.Any(x => x.a <= x0 + touch && x.b >= x1 - touch);
     }
 }
