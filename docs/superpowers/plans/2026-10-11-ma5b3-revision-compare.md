@@ -64,3 +64,21 @@ changesets-store.test (h), evidence.test, review-desk.test.
 | B-3 | Revit 2024 review window | the same row, untickable; Apply the partition → placed beside A's (A's untouched) |
 | B-4 | Propose B again | "nothing new" |
 | B-5 | Propose with revises = an id that filed nothing | 409 in words |
+
+## Review (wf_579e590d-cfa) — 5 important confirmed (each by two reviewers), all fixed
+
+- **A chain (C revises B, B revised A) re-proposed A's walls on top of A's:** `priorOf` follows `alignment.revises` down the chain — what
+  B left as placed is still A's, and placed (nothing is deleted); `chain` names the drawings read.
+- **A wall B shortens or splits counted "the same":** the cover is checked both ways — how much of A's wall B's walls on its line still
+  draw; under all of it by more than two paper mm is "changed since A — B draws X of A's Y mm".
+- **B proposed again without `revises` proposed A's walls again:** `revises` is part of the drawing's one alignment (decision 19's 409
+  names it).
+- **A door A placed in the scan's wall was proposed again by B:** a door within half its width of one the earlier drawing placed is that
+  door, whichever wall hosts it.
+- **A revision that files nothing new said its rows nowhere:** its changed / no-longer-drawn rows ride on the planner's row and the reply
+  (`held`), said in the Propose line as revision rows.
+- Minors fixed: the 409 for an A still proposed from another job says "apply it in Revit first" (it looped into "filed nothing"); the
+  "filed nothing" 409 names the case of a revision that filed nothing new; unnumbered rooms of one name are the same room only within
+  1 m of where it stood; a room is not held behind a wall A placed that B's typer gaps; a B wall beside an A wall another B wall stands
+  for is new, not "changed". Kept as ponytails: a door B resizes is the same door; an A filed on two storeys (one drawing is one
+  alignment, so it is not); A proposed in the same job (Revit refuses a host-less door in words).

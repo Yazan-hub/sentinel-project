@@ -141,9 +141,14 @@ const DUP_MM = 50;
  *  ponytail: a placed element is taken as placed — an Undo in Revit leaves its changeset applied here (decision 19's rule); C13b reads the
  *  model before it changes one. */
 export function priorOf(changesets, revises) {
-  const cs = changesets.filter((c) => String(c.job?.reader ?? "").startsWith(DRAWING_READER) && FILED.includes(c.status) && c.job.alignment?.item === revises)
+  const filedOf = (item) => changesets.filter((c) => String(c.job?.reader ?? "").startsWith(DRAWING_READER) && FILED.includes(c.status) && c.job.alignment?.item === item);
+  // review: a chain — B revised A, so A's walls B left as placed are still placed (nothing is deleted); the newest drawing's storey leads
+  const items = [revises];
+  for (let k = 0; k < items.length; k++)
+    for (const c of filedOf(items[k])) { const up = c.job.alignment?.revises; if (up && !items.includes(up)) items.push(up); }
+  const cs = items.flatMap((item) => filedOf(item))
     .map((c, i) => [c, i]).sort(([a, i], [b, j]) => (a.status === "applied" ? 0 : 1) - (b.status === "applied" ? 0 : 1) || i - j).map(([c]) => c);
-  if (!cs.length) return null;
+  if (!filedOf(revises).length) return null;
   const walls = [], doors = [], rooms = [];
   for (const c of cs) {
     const out = new Set(c.result?.rejected ?? []), placed = new Map((c.result?.applied ?? []).map((a) => [a.proposal_guid, a.revit_unique_id]));
@@ -152,10 +157,10 @@ export function priorOf(changesets, revises) {
       const at = { cid: e.cid, changeset: c.name, status: c.status, level: e.place?.LevelName, revit: placed.get(e.proposal_guid) ?? null };
       if (e.kind === "wall" && e.place?.LocationCurve) walls.push({ ...at, start: e.place.LocationCurve.start, end: e.place.LocationCurve.end, t: e.measured?.thickness_mm ?? e.facts?.thickness_mm ?? null });
       else if (e.kind === "door" && e.place?.Location) doors.push({ ...at, at: e.place.Location });
-      else if (e.kind === "room" && e.place?.Name) rooms.push({ ...at, name: e.place.Name, number: e.place.Number ?? null });
+      else if (e.kind === "room" && e.place?.Name) rooms.push({ ...at, name: e.place.Name, number: e.place.Number ?? null, point: e.place.Location ?? null });
     }
   }
-  return { item: revises, walls, doors, rooms, storey: cs[0].job.storey ?? null, changesets: cs.map((c) => c.name) };
+  return { item: revises, walls, doors, rooms, storey: filedOf(revises)[0].job.storey ?? null, changesets: cs.map((c) => c.name), chain: items };
 }
 const DRAWING_READER = "sentinel-drawing ";
 
@@ -183,6 +188,8 @@ export function matchWalls(drawn, scanned) {
 /** A thickness difference under half the office's 50 mm type step is the reading's; at or over it, another type (review: one paper
  *  millimetre at 1:50 let a 250 mm drawn wall "agree" with a 300 mm scanned one). */
 export const THICK_MM = 25;
+/** MA-5b-3 review: an unnumbered room is the earlier drawing's room of that name when its label is within this of where that one stood. */
+const ROOM_MM = 1000;
 
 /** The drawing's one storey: the level the lead named (its height checked when a published IFC holds the name); else the ONE published level
  *  within TOLERANCE_MM of the stated height; else (MA-5a-5) the scan's storey there — a door the drawing adds is hosted in the scan's wall,
@@ -274,7 +281,11 @@ export function planDrawing({ job, candidates, align, manifest = [], type, filed
   const pw = prior?.walls ?? [], pOf = new Map(), pLine = new Map();
   const ppairs = matchWalls(drawnAt, pw);
   for (const p of ppairs) if (!pOf.has(p.i)) pOf.set(p.i, p);
-  for (const p of ppairs) if (p.off <= pOf.get(p.i).off + S) pLine.set(p.i, [...(pLine.get(p.i) ?? []), p.j]);
+  // review: an A wall stands for ONE line of B — a B wall parallel to it but farther than the noise from that line's nearest is new, not a change
+  const pBest = new Map();
+  for (const p of pOf.values()) pBest.set(p.j, Math.min(pBest.get(p.j) ?? Infinity, p.off));
+  for (const [i, p] of [...pOf]) if (p.off > pBest.get(p.j) + S) pOf.delete(i);
+  for (const p of ppairs) if (pOf.has(p.i) && p.off <= pOf.get(p.i).off + S) pLine.set(p.i, [...(pLine.get(p.i) ?? []), p.j]);
   const pMatched = new Set([...pLine.values()].flat());
   const revision = prior ? { revises: prior.item, unchanged: 0, changed: 0, removed: 0, doors_unchanged: 0, doors_removed: 0, rooms_unchanged: 0, rooms_removed: 0 } : null;
   const box = (pts, g) => (pts.length ? [Math.min(...pts.map((p) => p[0])) - g, Math.min(...pts.map((p) => p[1])) - g, Math.max(...pts.map((p) => p[0])) + g, Math.max(...pts.map((p) => p[1])) + g] : null);
@@ -304,6 +315,17 @@ export function planDrawing({ job, candidates, align, manifest = [], type, filed
   };
 
   const trimmed = trimEnds(walls.map((w) => ({ start: w.start, end: w.end, width: w.t })));
+  // review (MA-5b-3): how much of each A wall the B walls on its line still draw (a wall B shortens or splits is not "the same")
+  const aCover = pw.map((pv, j) => {
+    const a = pv.start, b = pv.end, L = Math.hypot(b[0] - a[0], b[1] - a[1]), ux = (b[0] - a[0]) / L, uy = (b[1] - a[1]) / L;
+    const iv = [...pLine].filter(([, js]) => js.includes(j)).map(([i]) => {
+      const t = [M.xy(trimmed[i].start), M.xy(trimmed[i].end)].map((p) => ux * (p[0] - a[0]) + uy * (p[1] - a[1]));
+      return [Math.max(0, Math.min(...t)), Math.min(L, Math.max(...t))];
+    }).filter(([x, y]) => y > x).sort((p, q) => p[0] - q[0]);
+    let got = 0, end = 0;
+    for (const [x, y] of iv) if (y > end) { got += y - Math.max(x, end); end = y; }
+    return { L: Math.round(L), got: Math.round(got) };
+  });
   const segs = trimmed.map((x, i) => ({ x0: x.start[0], y0: x.start[1], x1: x.end[0], y1: x.end[1], width: walls[i].t }));
   const typed = walls.map((w, i) => {
     const loc = locate(segs, i), facts = { thickness_mm: w.t, ...(loc.location ? { params: { Location: loc.location } } : {}) };
@@ -317,11 +339,11 @@ export function planDrawing({ job, candidates, align, manifest = [], type, filed
     const pm = pOf.get(i);
     if (pm) {
       const pv = pw[pm.j], off = Math.round(pm.off), dt = Number.isFinite(pv.t) ? t - pv.t : null, cv = covered(i, pLine, pw);
-      const thick = dt == null || Math.abs(dt) >= THICK_MM, apart = off > S, part = cv.L - cv.got > 2 * S;
-      if (!thick && !apart && !part) { revision.unchanged++; return; }
+      const ac = aCover[pm.j], thick = dt == null || Math.abs(dt) >= THICK_MM, apart = off > S, part = cv.L - cv.got > 2 * S, short = ac.L - ac.got > 2 * S;
+      if (!thick && !apart && !part && !short) { revision.unchanged++; return; }
       revision.changed++;
       const what = [dt == null ? `${prior.item}'s thickness not filed` : thick ? `${t} mm thick, ${pv.t} mm on ${prior.item}` : null, apart ? `${off} mm from where ${prior.item} drew it` : null,
-        part ? `${prior.item}'s wall covers ${cv.got} of its ${cv.L} mm` : null].filter(Boolean).join(", ");
+        part ? `${prior.item}'s wall covers ${cv.got} of its ${cv.L} mm` : null, short ? `${item} draws ${ac.got} of ${prior.item}'s ${ac.L} mm` : null].filter(Boolean).join(", ");
       return hold(c, `changed since ${prior.item} — ${what}: ${pv.cid} (${pv.changeset}${pv.revit ? `, Revit ${pv.revit}` : ""}) stays as placed; a person updates it in Revit`);
     }
     if (mt) { // the scan has this wall: the scan wins on geometry — never proposed twice (decision 4)
@@ -399,7 +421,10 @@ export function planDrawing({ job, candidates, align, manifest = [], type, filed
     }
     const w = Number.isFinite(m.tag_width_mm) ? m.tag_width_mm : nominal(drawn), h = m.tag_height_mm;
     // a door the scan filed on that wall within half this one's width (and the noise) is the same door — not proposed twice
-    if (on && ((viaPrior ? prior : scan).doors ?? []).some((d) => d.level === sv.level && Math.hypot(d.at[0] - on[0], d.at[1] - on[1]) <= w / 2 + S)) { viaPrior ? revision.doors_unchanged++ : tally.doors_agree++; continue; }
+    const near = (list) => (list ?? []).some((d) => d.level === sv.level && Math.hypot(d.at[0] - on[0], d.at[1] - on[1]) <= w / 2 + S);
+    if (on && !viaPrior && near(scan.doors)) { tally.doors_agree++; continue; }
+    // review: a door the earlier drawing placed there — in its own wall or in the scan's — is that door
+    if (on && prior && near(prior.doors)) { revision.doors_unchanged++; continue; }
     const { facts, g, by, why } = typeOpening({ type, kind: "door", cid: c.cid, w, h, hostFunction: typed[hi].loc?.location, catalog, sameCategory });
     if (g) { gap(c, g, why); continue; }
     const U = walls[hi], p = pointAlong(U.start, U.end, c.geometry.along_paper_mm * S); // the untrimmed centreline: along is from its start
@@ -424,14 +449,16 @@ export function planDrawing({ job, candidates, align, manifest = [], type, filed
   // MA-5b-1: a room after the walls and doors, at its label's point on the storey's level — Revit finds its boundary there, and Apply refuses
   // a room the walls do not close (ChangesetExecutor). Held when a wall round it waits in the Holding Area (it would not close until then).
   const label = (r) => `${r.number ?? ""}|${r.name}`.trim().toLowerCase(), roomsHere = mine.filter((x) => x.kind === "room");
+  // review: a numbered room is its number and name; an unnumbered one (two STOREs) is also its place — within ROOM_MM of the earlier one
+  const sameRoom = (r, g) => label(r) === label(g) && (g.number != null || !r.point || Math.hypot(...M.xy(sc(g.Location)).map((v, k) => v - r.point[k])) <= ROOM_MM);
   for (const c of roomsHere) {
     if (again(c.cid)) continue;
     const g = c.geometry, round = g.walls ?? [], at_ = (cid) => walls.findIndex((w) => w.c.cid === cid);
     // MA-5b-3: a room the earlier drawing placed under the same number and name is that room
-    if (prior?.rooms.some((r) => label(r) === label(g))) { revision.rooms_unchanged++; continue; }
+    if (prior?.rooms.some((r) => sameRoom(r, g))) { revision.rooms_unchanged++; continue; }
     const unknown = round.find((cid) => at_(cid) < 0);
     if (unknown) { hold(c, `a wall round it, ${unknown}, is not a wall of ${item} in ${job.id}`); continue; }
-    const open = round.find((cid) => typed[at_(cid)].gap && !filed.cids.has(cid) && !matchOf.has(at_(cid)));
+    const open = round.find((cid) => typed[at_(cid)].gap && !filed.cids.has(cid) && !matchOf.has(at_(cid)) && !pOf.has(at_(cid)));
     if (open) { hold(c, `bounded by ${open}, a type gap — propose the drawing again once the wall's group in the Holding Area closes`); continue; }
     elements.push({ op: "create", kind: "room", cid: c.cid, evidence: c.evidence, validate: { identity: { Class: "IFCSPACE", Name: g.number ?? c.cid, LongName: g.name } },
       place: { LevelName: s.level, Location: [...M.xy(sc(g.Location)), E], Name: g.name, ...(g.number ? { Number: g.number } : {}) },
@@ -441,7 +468,7 @@ export function planDrawing({ job, candidates, align, manifest = [], type, filed
     byCid.set(c.cid, trust({ ...c.measured }));
   }
   for (const r of prior?.rooms ?? []) {
-    if (roomsHere.some((c) => label(c.geometry) === label(r))) continue;
+    if (roomsHere.some((c) => sameRoom(r, c.geometry))) continue;
     revision.rooms_removed++;
     exceptions.push({ unique_id: r.cid.slice(0, 64), name: `room ${r.cid}`.slice(0, 256), reason: gone(r) });
   }
