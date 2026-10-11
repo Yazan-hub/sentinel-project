@@ -305,8 +305,10 @@ describe("MA-5b-1 — rooms from the drawing's labels", () => {
     const bare = ROOMS.candidates.map((c) => (c.cid === R(1) ? { ...c, geometry: { ...c.geometry, number: undefined } } : c));
     expect(core.validateElement(IDS, rooms(go(bare))[0].validate).failures.map((f) => f.requirement)).toEqual(["@Name"]);
   });
-  it("rooms count toward the one changeset's cap", () => {
+  it("review: rooms past the one changeset's cap wait as review rows — the walls and doors still go through", () => {
     const many = [...ROOMS.candidates, ...Array.from({ length: 195 }, (_, i) => ({ ...ROOMS.candidates.find((c) => c.cid === R(1)), cid: R(10 + i) }))];
-    no(() => go(many), 413, `ev-0007 would file ${1 + 5 + 2 + 197} elements on Drawing ev-0007 job-0005 — over the 200 one changeset (one Undo) holds; nothing was saved`);
+    const p = go(many), waiting = p.storeys[0].exceptions.filter((x) => x.reason.startsWith("over the 200 elements"));
+    expect([els(p).length, waiting.length, els(p).filter((e) => e.kind !== "room").length]).toEqual([200, 1 + 5 + 2 + 197 - 200, 8]);
+    expect(waiting.every((x) => !p.storeys[0].byCid.has(x.unique_id))).toBe(true);
   });
 });

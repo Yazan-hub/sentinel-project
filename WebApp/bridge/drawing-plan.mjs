@@ -367,6 +367,15 @@ export function planDrawing({ job, candidates, align, manifest = [], type, filed
       place: { BaseElevation: E, Name: s.level }, reason: `a new level for ${item} at ${E} mm in the model, as the lead stated · ${ref}`.slice(0, 500) });
     byCid.set(lvCid, trust({ elevation_mm: E }));
   }
+  // review (MA-5b-1): rooms past the one changeset's cap wait as review rows — the walls and doors still go through; proposed again, they file
+  const over = elements.length - MAX_CHANGESET_ELEMENTS, roomEls = elements.filter((e) => e.kind === "room");
+  if (over > 0 && over <= roomEls.length)
+    for (const e of roomEls.slice(roomEls.length - over)) {
+      elements.splice(elements.indexOf(e), 1);
+      byCid.delete(e.cid);
+      exceptions.push({ unique_id: e.cid.slice(0, 64), name: `room ${e.cid}`.slice(0, 256),
+        reason: `over the ${MAX_CHANGESET_ELEMENTS} elements one changeset (one Undo) holds — propose the drawing again once this one is applied, and it is filed then` });
+    }
   if (elements.length > MAX_CHANGESET_ELEMENTS)
     throw err(413, `${item} would file ${elements.length} elements on ${s.level} — over the ${MAX_CHANGESET_ELEMENTS} one changeset (one Undo) holds; nothing was saved`);
   const body = elements.length ? { name: `Drawing ${job.id} · ${item} · ${s.level}`, contract: 2, source: `${job.reader} ${job.version}`, elements, exceptions } : null;

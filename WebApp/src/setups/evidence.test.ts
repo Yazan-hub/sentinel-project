@@ -211,6 +211,9 @@ describe("survey proposals (MA-4d)", () => {
     const held = [{ name: "door scan-L01-wall-3-door-1", reason: "its host wall scan-L01-wall-3 is a type gap — …" }, { name: "window scan-L01-wall-3-window-1", reason: "…" }];
     expect(proposeLine({ ...REPLY, storeys: [REPLY.storeys[0], { ...REPLY.storeys[1], changeset: null, held }] }))
       .toContain(" in the Holding Area · 2 door(s) or window(s) held on a storey with nothing to place — their level or host wall is not placed (each reason on the planner's row) · scan-L00-level");
+    // MA-5b-1 review: a held room on such a storey is said too, in its own words
+    expect(proposeLine({ ...REPLY, storeys: [REPLY.storeys[0], { ...REPLY.storeys[1], changeset: null, held: [...held, { name: "room drawing-ev-0007-p1-room-1", reason: "bounded by …" }] }] }))
+      .toContain(" · 2 door(s) or window(s) held on a storey with nothing to place — their level or host wall is not placed (each reason on the planner's row) · 1 room(s) held on a storey with nothing to place — a wall round each is not placed (each reason on the planner's row) · ");
     // MA-5a-2: the doors seen on one face only — not proposed, counted
     expect(proposeLine({ ...REPLY, storeys: [{ ...REPLY.storeys[0], doors_seen_once: ["a", "b", "c"] }, REPLY.storeys[1]] }))
       .toContain(" in the Holding Area · 3 door hole(s) seen on one face only — not proposed (a closed door or furniture reads the same; a person draws a door the scan missed) · scan-L00-level");

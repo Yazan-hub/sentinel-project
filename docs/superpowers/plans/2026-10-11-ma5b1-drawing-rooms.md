@@ -91,3 +91,16 @@ uses (R-3); Revit's IFC export writing Number → IfcSpace.Name and Name → Lon
 
 drawing-check (all pass), `python -m unittest test_make_drill_plan` (5), bridge+web vitest (all pass, the new room cases included),
 promote-check 896, the add-in builds for 2021, 2024 and 2025.
+
+## Review (wf_67d9c9c6-c68) — fixed
+
+- **Important (confirmed): phase.** `GetRoomAtPoint(XYZ)` reads only the last phase, and `NewRoom(level, UV)` places in the last phase, while
+  the walls go to the view's phase (PlacementApply). Now: the existing-room check reads the placement's phase; a room Revit puts in another
+  phase than the walls' is refused in words ("apply it from a view of the last phase, or untick the room"), the changeset staying proposed.
+- **Important (confirmed, reproduced): a window under a label's ray dropped the room.** An opening with no door keeps its two walls apart;
+  a ray through it hit nothing (or the next room's wall). Now each doorless opening is a ray target owned by the wall it is in.
+- Minors fixed: NewRoom's null or Revit exception is a `PlacementRefused` (was a decline of the whole changeset); the probe uses
+  `ProjectElevation` (Elevation reads from the survey point when the level's base is set so); a held room on a storey that files no
+  changeset is named on the planner's row and in the Propose line; a 0.1.0 reader's job counts no `room` (it never looked); rooms past the
+  200-element cap wait as review rows instead of a 413 for the whole drawing; an area's number is found by its place, not the word order;
+  text drawn twice (synthetic bold, an overlay) is read once (PdfPig's DuplicateOverlappingTextProcessor).
