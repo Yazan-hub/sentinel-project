@@ -198,7 +198,7 @@ export interface ProposeReply {
   differences?: { agree: number; differ: number; drawn_only: number; scanned_only: number; doors_agree: number; doors_from_drawing: number;
     topics: { raised: { guid: string; title: string; key: string }[]; skipped: number; error?: string } };
   /** MA-5b-3: the drawing against the earlier one it revises — what is the same (left as placed), changed or no longer drawn (a person's rows). */
-  revision?: { revises: string; unchanged: number; changed: number; removed: number; doors_unchanged: number; doors_removed: number; rooms_unchanged: number; rooms_removed: number };
+  revision?: { revises: string; unchanged: number; reshaped?: number; changed: number; removed: number; doors_unchanged: number; doors_removed: number; rooms_unchanged: number; rooms_removed: number };
   storeys: { cid: string; level: string; how: "named" | "matched" | "created" | "filed" | "revision"; elevation_mm: number; delta_mm: number | null; checked: boolean; from: string | null; changeset: string | null;
     /** A storey that files no changeset: its doors and windows held by their level or host (a filed storey's changeset says them). */
     held?: { name: string; reason: string }[];
@@ -315,7 +315,8 @@ export function proposeLine(r: ProposeReply): string {
     `${v.topics.skipped ? `, ${v.topics.skipped} raised before` : ""}${v.topics.error ? ` (${v.topics.error})` : ""}`;
   // MA-5b-3: against the earlier drawing it revises — never a deletion: what it no longer draws is a person's row
   const rv = r.revision;
-  const vsPrior = !rv ? "" : ` · against ${rv.revises}: ${rv.unchanged} wall(s) the same (left as placed), ${rv.changed} changed, ${rv.removed} no longer drawn` +
+  const vsPrior = !rv ? "" : ` · against ${rv.revises}: ${rv.unchanged} wall(s) the same (left as placed), ` +
+    `${rv.reshaped ? `${rv.reshaped} reshaped to ${a?.item ?? "this drawing"}'s line (Revit keeps one edited by hand since), ` : ""}${rv.changed} changed, ${rv.removed} no longer drawn` +
     `${rv.doors_unchanged + rv.doors_removed ? `; doors ${rv.doors_unchanged} the same, ${rv.doors_removed} no longer drawn` : ""}` +
     `${rv.rooms_unchanged + rv.rooms_removed ? `; rooms ${rv.rooms_unchanged} the same, ${rv.rooms_removed} no longer drawn` : ""}` +
     `${rv.changed + rv.removed + rv.doors_removed + rv.rooms_removed ? " — each a person's row on the changeset (Sentinel never deletes)" : ""}`;

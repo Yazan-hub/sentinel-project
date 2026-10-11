@@ -1192,8 +1192,9 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
     m, in, ft) for Ghost and Datum alike; Datum says a storey spacing that names wrong units (every gap under 1.5 m, or one over 10 m).
   - DWG revision update (C13). C13a BUILT in MA-5b-3 (PDF path): `revises` on Propose; B against what A filed (A's storey, the MA-5a-5
     matcher): the same left as placed, a change or a removal a person's row (never a deletion), a door B adds on A's wall hosted in it;
-    Horizun's DWG-to-BIM contract read and recorded (docs/superpowers/plans/2026-10-11-ma5b3-revision-compare.md). C13b (reshape with an
-    as-placed stale guard) is MA-5b-4.
+    Horizun's DWG-to-BIM contract read and recorded (docs/superpowers/plans/2026-10-11-ma5b3-revision-compare.md). C13b BUILT in MA-5b-4: the
+    bridge-built `reshape` op moves A's placed wall to B's line when Revit finds it still as placed (within 2 mm); a wall edited by hand since is
+    kept and reported (rejected with its reason, the rest applied); a thickness change, a split or a merge stays a person's row.
 - **Drill MA5:**
   - A door closed during the scan is proposed from the drawing, flagged `inferred`, and accepted by a person.
   - The opening count is compared with a hand count.

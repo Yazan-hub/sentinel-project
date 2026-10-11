@@ -287,7 +287,7 @@ export function planDrawing({ job, candidates, align, manifest = [], type, filed
   for (const [i, p] of [...pOf]) if (p.off > pBest.get(p.j) + S) pOf.delete(i);
   for (const p of ppairs) if (pOf.has(p.i) && p.off <= pOf.get(p.i).off + S) pLine.set(p.i, [...(pLine.get(p.i) ?? []), p.j]);
   const pMatched = new Set([...pLine.values()].flat());
-  const revision = prior ? { revises: prior.item, unchanged: 0, changed: 0, removed: 0, doors_unchanged: 0, doors_removed: 0, rooms_unchanged: 0, rooms_removed: 0 } : null;
+  const revision = prior ? { revises: prior.item, unchanged: 0, reshaped: 0, changed: 0, removed: 0, doors_unchanged: 0, doors_removed: 0, rooms_unchanged: 0, rooms_removed: 0 } : null;
   const box = (pts, g) => (pts.length ? [Math.min(...pts.map((p) => p[0])) - g, Math.min(...pts.map((p) => p[1])) - g, Math.max(...pts.map((p) => p[0])) + g, Math.max(...pts.map((p) => p[1])) + g] : null);
   const inBox = (b, p, q) => { const x = (p[0] + q[0]) / 2, y = (p[1] + q[1]) / 2; return !!b && x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3]; };
   // both extents grown by one paper mm (review: a missed outer wall sits on the scan walls' edge)
@@ -341,9 +341,23 @@ export function planDrawing({ job, candidates, align, manifest = [], type, filed
       const pv = pw[pm.j], off = Math.round(pm.off), dt = Number.isFinite(pv.t) ? t - pv.t : null, cv = covered(i, pLine, pw);
       const ac = aCover[pm.j], thick = dt == null || Math.abs(dt) >= THICK_MM, apart = off > S, part = cv.L - cv.got > 2 * S, short = ac.L - ac.got > 2 * S;
       if (!thick && !apart && !part && !short) { revision.unchanged++; return; }
-      revision.changed++;
       const what = [dt == null ? `${prior.item}'s thickness not filed` : thick ? `${t} mm thick, ${pv.t} mm on ${prior.item}` : null, apart ? `${off} mm from where ${prior.item} drew it` : null,
         part ? `${prior.item}'s wall covers ${cv.got} of its ${cv.L} mm` : null, short ? `${item} draws ${ac.got} of ${prior.item}'s ${ac.L} mm` : null].filter(Boolean).join(", ");
+      // MA-5b-4 (C13b): moved or re-lengthened, the same thickness, ONE placed wall of the earlier drawing on ONE wall of this one — reshaped
+      // to this drawing's line; Revit keeps it as it stands when a person edited it since it was placed (target.placed). A thickness change
+      // (a retype would move a face), a split or a merge, or a wall not placed yet stays a person's row.
+      const one = (pLine.get(i) ?? []).length === 1 && [...pLine.values()].filter((js) => js.includes(pm.j)).length === 1;
+      if (!thick && one && pv.revit) {
+        revision.reshaped++;
+        elements.push({ op: "reshape", kind: "wall", cid: c.cid, evidence: c.evidence, validate: { identity: { Class: KIND_ENTITY.wall, Name: c.cid } },
+          target: { unique_id: pv.revit, placed: { start: pv.start, end: pv.end } },
+          place: { LocationCurve: { start: [...M.xy(trimmed[i].start), E], end: [...M.xy(trimmed[i].end), E] } },
+          reason: (`revised wall ${c.cid}: ${what} — ${pv.cid} (${pv.changeset}, Revit ${pv.revit}) moves to ${item}'s line; Revit keeps it as it stands ` +
+            `if a person edited it since it was placed · its type kept · drawn, not measured · ${ref}`).slice(0, 500) });
+        byCid.set(c.cid, trust({ ...c.measured, thickness_mm: t, length_mm: len }, { trim_mm: trimmed[i].trim_mm }));
+        return;
+      }
+      revision.changed++;
       return hold(c, `changed since ${prior.item} — ${what}: ${pv.cid} (${pv.changeset}${pv.revit ? `, Revit ${pv.revit}` : ""}) stays as placed; a person updates it in Revit`);
     }
     if (mt) { // the scan has this wall: the scan wins on geometry — never proposed twice (decision 4)
