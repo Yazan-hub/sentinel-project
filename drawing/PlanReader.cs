@@ -348,12 +348,14 @@ namespace Sentinel.Drawing
 
         static bool Inside(double off, Line lo, Line hi) => off > lo.Off + TOUCH && off < hi.Off - TOUCH;
 
-        /// <summary>How far a face continues alone from e (side -1: down, +1: up), at most PAIR_MAX and never into another pair's claim.</summary>
+        /// <summary>How far a face continues alone from e (side -1: down, +1: up) when it stops within PAIR_MAX — a corner; a face that
+        /// runs on further is a single line beyond the wall, not more wall. Never into another pair's claim.</summary>
         static double RunOn(Line l, double e, int side, int id)
         {
             var iv = l.Iv.FirstOrDefault(x => x.a <= e + TOUCH && x.b >= e - TOUCH);
             if (iv.b - iv.a <= 0) return e;
-            double end = side < 0 ? Math.Max(iv.a, e - PAIR_MAX) : Math.Min(iv.b, e + PAIR_MAX);
+            double end = side < 0 ? iv.a : iv.b;
+            if (Math.Abs(end - e) > PAIR_MAX) return e;
             foreach (var o in l.Own)
             {
                 if (o.cand == id) continue;

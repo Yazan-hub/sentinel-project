@@ -157,6 +157,9 @@ namespace Sentinel.Checks
             foreach (var r in Both(new List<Stroke> { Ln(0, 0, 100, 0), Ln(108, 0, 200, 0), Ln(0, 4, 100, 4), Ln(108, 4, 200, 4), Ln(0, 0, 0, 4), Ln(200, 0, 200, 4),
                 Ln(100, -2, 108, -2), Ln(100, 6, 108, 6), Ln(100, -2, 100, 6), Ln(108, -2, 108, 6) }))
                 Ok(r.Walls.Count == 2 && r.Columns == 1, $"a column in a wall's line: 2 walls, 1 column — {Ws(r)}; columns {r.Columns}");
+            // (t) A face that runs on alone far past its partner: the wall stops with its partner — no PAIR_MAX of wall it does not have.
+            foreach (var r in Both(new List<Stroke> { Ln(0, 0, 200, 0), Ln(0, 6, 60, 6), Ln(0, 0, 0, 6) }))
+                Ok(r.Walls.Count == 1 && Has(r, 0, 3, 60, 3, 6), $"a face running on alone: the wall stops at its partner's end — {Ws(r)}");
             // (k) Speed: 20,000 wall strokes (500 walls, each face in 20 pieces, shuffled) read well inside the bridge's bound.
             var big = new List<Stroke>();
             for (int k = 0; k < 500; k++) for (int p = 0; p < 20; p++) { big.Add(Ln(p * 10, 10 * k, p * 10 + 10, 10 * k)); big.Add(Ln(p * 10, 10 * k + 4, p * 10 + 10, 10 * k + 4)); }
