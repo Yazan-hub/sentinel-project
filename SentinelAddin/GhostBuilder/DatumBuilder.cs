@@ -145,7 +145,7 @@ namespace Sentinel.GhostBuilder
             double top = res.Levels.Count == 0 ? 0 : res.Levels.Max(l => l.ElevationMm);
             if (top > 250_000)
                 res.Warnings.Add($"Top level at {top / 1000:0} m — the drawing's units look wrong (a DXF with no $INSUNITS header is read as inches, x25.4). Check the file's units before building.");
-            res.Warnings.AddRange(DatumFromDrawing.SpacingWarnings(res.Levels)); // MA-5b-2 (DAT-4)
+            res.Warnings.AddRange(DatumFromDrawing.SpacingWarnings(res.Levels, levelSegs)); // MA-5b-2 (DAT-4)
             return res;
         }
 

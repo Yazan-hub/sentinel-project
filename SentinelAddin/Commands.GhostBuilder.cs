@@ -382,7 +382,8 @@ public sealed class GhostBuilderCommand : IExternalCommand
                     : $"Mapping CAD layers with the model {LocalOnly.Where(settings.OllamaUrl)} ({evidence.Sources.Count} doc(s) for context)…");
                 MappingResult mapping = await orchestrator.MapAsync(inputs, progress.Token).ConfigureAwait(false);
 
-                if (progress.Token.IsCancellationRequested) return; // user aborted; window already closing
+                // user aborted; window already closing — review (MA-5b-2): released, so the import this run made goes too
+                if (progress.Token.IsCancellationRequested) { CloseOnUi(progress, Release); return; }
 
                 // P2 (task 4/5): one more local call — read the project documents for parameter values that
                 // belong on the mapped elements (a spec's "FR60" -> the wall's Fire Rating). Runs over the
@@ -468,7 +469,9 @@ public sealed class GhostBuilderCommand : IExternalCommand
     }
 
     /// <summary>MA-5b-2 (GHB-3): remove the import this run made, in its own transaction, on Revit's thread — never one the person picked
-    /// (null), never one already gone (a build removed it inside its Undo; the model closed).</summary>
+    /// (null), never one already gone (a build removed it inside its Undo; the model closed).
+    /// ponytail: a model closed (and saved) while the review is open keeps the import — Revit takes no edit while a document closes; the
+    /// person deletes it (Manage ▸ Imports) or runs Ghost again.</summary>
     internal static void RemoveImport(Document doc, ElementId? id)
     {
         if (id == null || doc == null || !doc.IsValidObject || doc.GetElement(id) is not ImportInstance) return;

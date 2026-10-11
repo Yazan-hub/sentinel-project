@@ -17,6 +17,7 @@ static partial class Check
         Ok(release.Contains("madeImport = null;") && release.Contains("App.Events!.Enqueue(_ => RemoveImport(doc, made)"),
            "…every end of the run (Release: closed, cancelled, refused, failed, built) removes it once, on Revit's thread");
         Ok(cmd.Split("RemoveImport(doc, madeImport);").Length == 3, "…the two early ends on Revit's thread (the read failed, no layer) remove it at once");
+        Ok(cmd.Contains("if (progress.Token.IsCancellationRequested) { CloseOnUi(progress, Release); return; }"), "review: a Cancel that lands after the mapping finished releases too — the import goes");
         Ok(cmd.Contains("MadeImport = madeImport,") && At(build, "DropImport(doc, r.MadeImport);") > 0 && At(build, "DropImport(doc, r.MadeImport);") < At(build, "group.SetName(undo);"),
            "…a build removes it inside its own Undo group, before the group is named and kept — one Ctrl+Z brings back the build and the drawing");
         Ok(build.Contains("doc.Delete(type);") && build.Contains(".Any(e => e.GetTypeId().Equals(type))"), "…its type too, when no other instance uses it");
@@ -26,6 +27,6 @@ static partial class Check
            "DAT-4: the pick window's units are Revit's import units; \"as the file says\" is the file's own header");
         Ok(cmd.Contains("Unit = DatumBuilder.UnitOf(pick.Units),") && datum.Contains("unit: DatumBuilder.UnitOf(pick.Units)") && builder.Contains("Unit = unit,"),
            "…Ghost Builder and Datum both import in the chosen units");
-        Ok(builder.Contains("res.Warnings.AddRange(DatumFromDrawing.SpacingWarnings(res.Levels));"), "…Datum says a storey spacing that names wrong units (datum-check pins the words)");
+        Ok(builder.Contains("res.Warnings.AddRange(DatumFromDrawing.SpacingWarnings(res.Levels, levelSegs));"), "…Datum says a storey spacing that names wrong units (datum-check pins the words)");
     }
 }

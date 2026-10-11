@@ -39,9 +39,12 @@ namespace Sentinel.GhostBuilder
         /// <summary>MA-5b-2 (DAT-4): storey spacing that says the units are wrong. Every gap under 1.5 m — no storey is that low (a metres
         /// drawing read as millimetres is 1000 x too small); an FFL/SSL pair 300 mm apart beside a 3 m storey is not flagged. A gap
         /// over 10 m: the units, or a level line missing.</summary>
-        public static List<string> SpacingWarnings(IReadOnlyList<DetectedLevel> levels)
+        public static List<string> SpacingWarnings(IReadOnlyList<DetectedLevel> levels, IEnumerable<Seg> sectionLines = null)
         {
             var w = new List<string>();
+            // review: a metres drawing read as millimetres puts every storey within the 50 mm merge — one level is left to judge. Read the
+            // lines again 1000 x finer: a whole stack under a few mm is the units, not one level.
+            if (levels.Count < 2 && sectionLines != null) levels = Levels(sectionLines, 0.05); // the default 50 mm merge, 1000 x finer
             var up = levels.OrderBy(l => l.ElevationMm).ToList();
             if (up.Count < 2) return w;
             var gaps = up.Zip(up.Skip(1), (a, b) => (a, b, mm: b.ElevationMm - a.ElevationMm)).ToList();

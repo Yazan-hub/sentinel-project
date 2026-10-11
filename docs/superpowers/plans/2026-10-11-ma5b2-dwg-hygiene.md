@@ -42,3 +42,12 @@ together?" (2026-10-11).
 ## Checks
 
 promote-check 900 (9 new), datum-check (4 new), the add-in builds for 2021, 2024 and 2025.
+
+## Review (wf_87c268a8-0f1) — fixed
+
+- **Important (confirmed): the spacing warning could not fire for its own case.** A metres section read as mm puts every storey within
+  Datum's 50 mm level merge, so one level was left and nothing was judged. Now `SpacingWarnings` reads the level lines again 1000 x finer
+  when fewer than two levels survive (datum-check: a 12-storey metres stack names the units; a real one-level drawing does not).
+- Minor fixed: a Cancel that lands after the layer mapping finished returned without Release — the import stayed; it now releases.
+- Minor kept as a ponytail: a model closed and saved while the review is open keeps the import (Revit takes no edit while a document
+  closes); the person deletes it or runs Ghost again.
