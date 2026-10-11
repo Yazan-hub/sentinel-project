@@ -313,7 +313,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     }));
     root.querySelectorAll<HTMLElement>("[data-evpropose]").forEach((n) => n.addEventListener("click", async () => {
       const id = n.dataset.evpropose!;
-      if (proposing === id) { proposing = null; proposeLevels = null; proposeDraft = null; alignDraft = null; render(); return; }
+      if (proposing === id) { proposing = null; proposeLevels = null; proposeDraft = null; alignDraft = null; alignView = null; alignPick = null; render(); return; }
       const mine = seq;
       try {
         const r = await readJob(base, pid(), id);
@@ -340,25 +340,36 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       const body = alignBody((alignDraft = readAlign())), id = proposing!;
       void evAct(async () => {
         const r = await proposeFromJob(base, pid(), id, body);
-        proposing = null; proposeLevels = null; proposeDraft = null; alignDraft = null; // only a 201 closes the form
+        proposing = null; proposeLevels = null; proposeDraft = null; alignDraft = null; alignView = null; alignPick = null; // only a 201 closes the form
         return proposeLine(r);
       });
     });
+    // MA-5a-6 (review): the picture redrawn in place as a mark is typed (no re-render: the focus stays), and nothing changed under a Propose
+    // already on its way (a re-render would bring back an enabled Propose)
+    const redraw = () => { const pic = root.querySelector("#fv-al-pic"); if (pic && alignDraft && alignView) pic.innerHTML = drawingSvg(alignView.cands, alignDraft.item, alignView.sizes[alignDraft.item] ?? null, alignDraft); };
+    const pressed = () => !!root.querySelector<HTMLButtonElement>("#fv-al-ok")?.disabled;
     root.querySelectorAll("[data-al]").forEach((n) => n.addEventListener("input", () => {
-      if (!alignDraft) return;
+      if (!alignDraft || pressed()) return;
       const was = alignDraft.item;
       alignDraft = readAlign();
-      if (alignDraft.item !== was) { render(); return; } // another drawing: its picture
+      // another drawing: its picture, and its marks picked afresh (the old ones were on the other page)
+      if (alignDraft.item !== was) { alignDraft = { ...alignDraft, pa: "", pb: "", pc: "" }; alignPick = "pa"; render(); return; }
       const p = root.querySelector("#fv-al-preview");
       if (p) p.textContent = alignPreview(alignDraft) || "Type both points — x, y each.";
+      redraw();
     }));
-    // MA-5a-6: a click on the drawing sets the mark being picked (snapped to a wall corner within 3 paper mm), then moves on A → B → check
-    root.querySelectorAll<HTMLElement>("[data-alpick]").forEach((n) => n.addEventListener("click", () => { alignDraft = readAlign(); alignPick = n.dataset.alpick as "pa" | "pb" | "pc"; render(); }));
-    root.querySelector<SVGSVGElement>("#fv-al-svg")?.addEventListener("click", (ev) => {
-      const svg = ev.currentTarget as SVGSVGElement, m = svg.getScreenCTM();
-      if (!alignDraft || !alignView || !alignPick || !m) return;
+    // MA-5a-6: a click on the drawing sets the mark being picked (snapped to a wall corner within 8 screen px), then moves on A → B → check
+    root.querySelectorAll<HTMLElement>("[data-alpick]").forEach((n) => n.addEventListener("click", () => {
+      if (pressed()) return;
+      alignDraft = readAlign(); alignPick = n.dataset.alpick as "pa" | "pb" | "pc"; render();
+      [...root.querySelectorAll<HTMLElement>("[data-alpick]")].find((b) => b.dataset.alpick === alignPick)?.focus(); // a keyboard stays on the mark
+    }));
+    root.querySelector<HTMLElement>("#fv-al-pic")?.addEventListener("click", (ev) => {
+      const svg = (ev.target as Element | null)?.closest("svg") as SVGSVGElement | null, m = svg?.getScreenCTM();
+      if (!svg || !m || !alignDraft || !alignView || !alignPick || pressed()) return;
       const at = new DOMPoint(ev.clientX, ev.clientY).matrixTransform(m.inverse());
-      const [x, y] = snapPaper(alignView.cands, alignDraft.item, [at.x, Number(svg.dataset.h) - at.y]);
+      // review: the snap is 8 screen px whatever the sheet (3 paper mm was ~1 px on an A1 sheet in this panel)
+      const [x, y] = snapPaper(alignView.cands, alignDraft.item, [at.x, Number(svg.dataset.h) - at.y], 8 / Math.hypot(m.a, m.b));
       alignDraft = { ...readAlign(), [alignPick]: `${x}, ${y}` };
       alignPick = alignPick === "pa" ? "pb" : alignPick === "pb" ? "pc" : null;
       render();
@@ -635,9 +646,9 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       `<div style="display:flex;gap:.3rem;flex-wrap:wrap;align-items:center;font-size:11px;padding:.1rem .2rem">level <input data-al="level" value="${esc(ad.level)}" placeholder="blank: a published level at that height, or a new one" style="${inp};flex:1;min-width:12rem"/> at <input data-al="z" value="${esc(ad.z)}" style="${inp};width:5rem"/> mm</div>` +
       // MA-5a-6: pick each mark on the drawing as it was read — the paper side; where it is in the model is still the lead's to type
       (alignView ? `<div style="display:flex;gap:.3rem;flex-wrap:wrap;align-items:center;font-size:11px;padding:.15rem .2rem">click the drawing to set ` +
-        ([["pa", "A"], ["pb", "B"], ["pc", "check"]] as const).map(([k, w]) => `<button data-alpick="${esc(k)}" style="${act}${alignPick === k ? ";color:#c4b5fd;border-color:#6528d7" : ""}">${esc(w)}</button>`).join("") +
-        `<span style="color:#71717a">${esc(alignPick ? "— a click snaps to a wall corner within 3 paper mm" : "— pick a mark to set it again")}</span></div>` +
-        `<div style="padding:.1rem .2rem">${drawingSvg(alignView.cands, ad.item, alignView.sizes[ad.item] ?? null, ad)}</div>` : "") +
+        ([["pa", "A"], ["pb", "B"], ["pc", "check"]] as const).map(([k, w]) => `<button data-alpick="${esc(k)}" aria-pressed="${esc(String(alignPick === k))}" style="${act}${alignPick === k ? ";color:#c4b5fd;border-color:#6528d7" : ""}">${esc(w)}</button>`).join("") +
+        `<span style="color:#71717a">${esc(alignPick ? "— a click snaps to a wall corner within 8 px; or type it in the fields" : "— pick a mark to set it again, or type it in the fields")}</span></div>` +
+        `<div id="fv-al-pic" style="padding:.1rem .2rem">${drawingSvg(alignView.cands, ad.item, alignView.sizes[ad.item] ?? null, ad)}</div>` : "") +
       `<div id="fv-al-preview" style="font-size:11px;color:#c4b5fd;padding:.1rem .2rem">${esc(alignPreview(ad) || "Type both points — x, y each.")}</div>` +
       `<div style="padding:.15rem .2rem"><button id="fv-al-ok" style="${act};color:#c4b5fd">Propose</button></div>`;
     // MA-4b: Ask the owner — the requests (each letter shown on demand, to copy) and, for a lead, the form that drafts one.

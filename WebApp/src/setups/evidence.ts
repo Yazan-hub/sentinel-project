@@ -268,21 +268,24 @@ export function snapPaper(cands: Candidate[], item: string, p: [number, number],
  *  flipped back by. Every value escaped. Pure. */
 export function drawingSvg(cands: Candidate[], item: string, size: [number, number] | null, d: AlignDraft): string {
   const mine = cands.filter((c) => ofItem(c, item)), all = mine.flatMap((c) => (c.kind === "wall" ? faces(c).map((f) => ({ f, cid: c.cid })) : []));
-  const W = size?.[0] ?? Math.max(10, ...all.flatMap(({ f }) => [f[0], f[2]])) + 10, H = size?.[1] ?? Math.max(10, ...all.flatMap(({ f }) => [f[1], f[3]])) + 10;
-  const lines = all.map(({ f, cid }) => `<line x1="${esc(n1(f[0]))}" y1="${esc(n1(H - f[1]))}" x2="${esc(n1(f[2]))}" y2="${esc(n1(H - f[3]))}"><title>${esc(cid)}</title></line>`).join("");
+  const sz = size && size[0] > 0 && size[1] > 0 ? size : null; // review: a page of no size (an empty MediaBox) is drawn from its walls
+  const W = sz?.[0] ?? Math.max(10, ...all.flatMap(({ f }) => [f[0], f[2]])) + 10, H = sz?.[1] ?? Math.max(10, ...all.flatMap(({ f }) => [f[1], f[3]])) + 10;
+  // review: marks sized from the page (an A1 sheet is ~0.5 px a paper mm in this panel), strokes in screen px
+  const r = W / 120, fs = W / 45, NS = `vector-effect="non-scaling-stroke"`;
+  const lines = all.map(({ f, cid }) => `<line ${NS} x1="${esc(n1(f[0]))}" y1="${esc(n1(H - f[1]))}" x2="${esc(n1(f[2]))}" y2="${esc(n1(H - f[3]))}"><title>${esc(cid)}</title></line>`).join("");
   const doors = mine.filter((c) => c.kind === "door" && Array.isArray(c.geometry.Location)).map((c) => {
     const p = c.geometry.Location as number[];
-    return `<circle cx="${esc(n1(p[0]))}" cy="${esc(n1(H - p[1]))}" r="1.5"><title>${esc(c.cid)}</title></circle>`;
+    return `<circle cx="${esc(n1(p[0]))}" cy="${esc(n1(H - p[1]))}" r="${esc(n1(r * 0.6))}"><title>${esc(c.cid)}</title></circle>`;
   }).join("");
   const marks = (["pa", "pb", "pc"] as const).map((k, i) => {
     const p = xy(d[k]);
     if (!p.every(Number.isFinite)) return "";
-    return `<circle cx="${esc(n1(p[0]))}" cy="${esc(n1(H - p[1]))}" r="2.5" fill="none" stroke="#d97706" stroke-width="0.6"/>` +
-      `<text x="${esc(n1(p[0] + 3))}" y="${esc(n1(H - p[1] - 3))}" font-size="6" fill="#d97706" stroke="none">${"ABC"[i]}</text>`;
+    return `<circle ${NS} cx="${esc(n1(p[0]))}" cy="${esc(n1(H - p[1]))}" r="${esc(n1(r))}" fill="none" stroke="#d97706" stroke-width="2"/>` +
+      `<text x="${esc(n1(p[0] + r * 1.2))}" y="${esc(n1(H - p[1] - r * 1.2))}" font-size="${esc(n1(fs))}" fill="#d97706" stroke="none">${"ABC"[i]}</text>`;
   }).join("");
-  return `<svg id="fv-al-svg" viewBox="0 0 ${esc(n1(W))} ${esc(n1(H))}" data-h="${esc(n1(H))}" role="img" aria-label="the drawing as read: click a mark" ` +
-    `style="width:100%;height:auto;background:#fff;cursor:crosshair;border:1px solid #2c2c34;border-radius:.25rem" stroke="#111" stroke-width="0.5">` +
-    `<rect x="0" y="0" width="${esc(n1(W))}" height="${esc(n1(H))}" fill="#fff" stroke="#d4d4d8"/><g>${lines}</g><g fill="#2563eb" stroke="none">${doors}</g>${marks}</svg>`;
+  return `<svg id="fv-al-svg" viewBox="0 0 ${esc(n1(W))} ${esc(n1(H))}" data-h="${esc(n1(H))}" role="img" aria-label="the drawing as read: click a mark, or type it in the fields" ` +
+    `style="width:100%;height:auto;background:#fff;cursor:crosshair;border:1px solid #2c2c34;border-radius:.25rem" stroke="#111" stroke-width="1">` +
+    `<rect ${NS} x="0" y="0" width="${esc(n1(W))}" height="${esc(n1(H))}" fill="#fff" stroke="#d4d4d8"/><g>${lines}</g><g fill="#2563eb" stroke="none">${doors}</g>${marks}</svg>`;
 }
 
 /** The status line after Propose. Pure. */

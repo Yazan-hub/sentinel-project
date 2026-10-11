@@ -271,7 +271,7 @@ describe("drawing jobs (MA-5a-3) — sentinel-drawing on the admitted PDF plans"
     expect(src).toContain(`drawingStartLine((await startDrawing(base, pid())).job)`);
     // one press, one proposal; only a 201 closes the form; what was typed is kept across a refusal
     expect(src).toContain(`const body = alignBody((alignDraft = readAlign())), id = proposing!;`);
-    expect(src).toContain(`proposing = null; proposeLevels = null; proposeDraft = null; alignDraft = null; // only a 201 closes the form`);
+    expect(src).toContain(`proposing = null; proposeLevels = null; proposeDraft = null; alignDraft = null; alignView = null; alignPick = null; // only a 201 closes the form`);
   });
 });
 
@@ -292,8 +292,11 @@ describe("drawing proposals (MA-5a-4) — the lead's two points, level and heigh
     const R = JSON.parse(readFileSync(new URL("../../bridge/fixtures/drawing/drill-plan-L00-result.json", import.meta.url), "utf8"));
     const svg = drawingSvg(R.candidates, "ev-0007", [297.039, 209.903], { ...D, pc: "220, 40" });
     expect(svg).toMatch(/^<svg id="fv-al-svg" viewBox="0 0 297 209.9" data-h="209.9" role="img" /);
-    expect([(svg.match(/<line /g) ?? []).length, (svg.match(/<circle cx=/g) ?? []).length]).toEqual([16, 2 + 3]); // the walls' 16 face pieces (doors split them); 2 doors + the A, B, C marks
-    expect(svg).toContain(`<line x1="60" y1="169.9" x2="60" y2="49.9"><title>drawing-ev-0007-p1-wall-3</title></line>`); // y up on the paper, flipped
+    expect([(svg.match(/<line /g) ?? []).length, (svg.match(/<circle /g) ?? []).length]).toEqual([16, 2 + 3]); // the walls' 16 face pieces (doors split them); 2 doors + the A, B, C marks
+    expect(svg).toContain(`<line vector-effect="non-scaling-stroke" x1="60" y1="169.9" x2="60" y2="49.9"><title>drawing-ev-0007-p1-wall-3</title></line>`);
+    // review: marks sized from the page (r = W/120), strokes in screen px; a page of no size is drawn from its walls
+    expect(svg).toContain(`cx="220" cy="169.9" r="2.5" fill="none" stroke="#d97706" stroke-width="2"/>`);
+    expect(drawingSvg(R.candidates, "ev-0007", [0, 0], D)).toMatch(/^<svg id="fv-al-svg" viewBox="0 0 230 170" data-h="170" /); // y up on the paper, flipped
     expect(svg).toContain(`>A</text>`); expect(svg).toContain(`>C</text>`);
     expect(drawingSvg(R.candidates, "ev-0009", null, D)).not.toContain("<line "); // another drawing's walls are not drawn
     const evil = [{ ...R.candidates[0], cid: `<img src=x onerror=alert(1)>` }];
@@ -301,7 +304,8 @@ describe("drawing proposals (MA-5a-4) — the lead's two points, level and heigh
     expect([snapPaper(R.candidates, "ev-0007", [61.2, 41.4]), snapPaper(R.candidates, "ev-0007", [221.5, 158.9]), snapPaper(R.candidates, "ev-0007", [100.04, 100.06])])
       .toEqual([[60, 40], [220, 160], [100, 100.1]]);
     const src = readFileSync(new URL("./files-panel.ts", import.meta.url), "utf8");
-    expect(src).toContain("const [x, y] = snapPaper(alignView.cands, alignDraft.item, [at.x, Number(svg.dataset.h) - at.y]);");
+    expect(src).toContain("const [x, y] = snapPaper(alignView.cands, alignDraft.item, [at.x, Number(svg.dataset.h) - at.y], 8 / Math.hypot(m.a, m.b));"); // review: 8 screen px
+    expect(src).toContain("if (!svg || !m || !alignDraft || !alignView || !alignPick || pressed()) return;"); // review: nothing changed under a Propose on its way
     expect(src).toContain(`alignPick = alignPick === "pa" ? "pb" : alignPick === "pb" ? "pc" : null;`);
   });
   it("proposeLine on a drawing: the alignment, the counts, none pre-ticked", () => {
