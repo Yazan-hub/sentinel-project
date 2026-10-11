@@ -2813,3 +2813,22 @@ the wall; `faces_seen` per face; a thickness only clear of its faces' scatter; n
 binding). No survey changeset is left proposed. Owed: the thin-wall deviation bar (77 % out, the bar 90 %) and a second reference before
 the 1F target or the pre-tick bar can be judged; the office's exterior door rules (none in BDS). Next: MA-5's PDF half or MA-5b.
 
+## Session MA5a3 — the drawing reader, sentinel-drawing 0.1.0 (2026-10-11 local: merged ce8c0eb, web 1.0.74, the 4100 bridge restarted on master; the founder's session (the local app on master) after the Funnel refresh; Claude driving)
+
+The founder's "continue" on the roadmap: MA-5's PDF half, slice one (`docs/superpowers/plans/2026-10-11-ma5a3-drawing-reader.md`). A .NET
+worker the bridge runs on the admitted vector PDF plans: walls from paired face lines, doors from swing arcs, paper millimetres; proposing
+waits for MA-5a-4's 2-point alignment. Reviewed twice before merge (wf_ae3a6c66-31b: 9 confirmed, 0 refuted — the add-in's `WallPairing`
+read by stroke order, now not linked; then a skeptic on the new pairing: 10 more, fixed, 0 of 400 fuzzed plans order-dependent).
+
+| Row | Result | Evidence |
+|---|---|---|
+| G-1 | `drawing/fixtures/drill-plan-L00.pdf` (sha f6171b11…) copied into `ma4a-drill`'s `drawings/`; Files ▸ Evidence ▸ **Admit** → answers req-0001 → **Admit drawing** → `✓ Admitted drawings/drill-plan-L00.pdf as ev-0007 · sha f6171b1138c3… · ledger #2311`, a drawing from the owner under req-0001 (attestations (a) and (b) already signed — no new signature) — **pass** | #2311 |
+| D-1 | **Read drawings** → `✓ Started job-0001 — sentinel-drawing reads ev-0005 (drawings/A-101.pdf), ev-0007 (drawings/drill-plan-L00.pdf)`; the job: `job-0001 · sentinel-drawing · done · read ev-0007 · refused ev-0005 (not a PDF PdfPig can open) · 5 wall(s), 2 door(s) · ledger #2312`. Its `result.json` against `drill-plan-L00.expected.json`: the 5 walls on their centrelines within 0.1 paper mm, thickness 6 / 6 / 4 / 5 / 2 (300 / 300 / 200 / 250 / 100 mm at 1:50) exact; both doors at their openings, widths 18 / 20, tags 900x2100 / 1000x2100, swings (0, 1) / (1, 0), each hosted in the wall its gap splits; the receipt: page 1 of 1, 0.7 pt read, 0.35 pt (border and title block) paired 140 of the walls' 632 and not read, 0.2 s CPU. Row #2312: `build:run job-0001 · sentinel-drawing 0.1.0 · done`, `claimed: false`, its `result_sha256` e7995b42… = result.json's, params `{}`, A-101.pdf (MA-4b's 73-byte stub) refused with why — **pass** | result.json, #2312 |
+| D-2 | **Candidates** → 7 lines, each in paper mm from `ev-0007#page-1` (e.g. `drawing-ev-0007-p1-wall-5-door-1 · door · width paper mm 18, tag width mm 900, tag height mm 2100`) — **pass** | the panel |
+| D-3 | No **Propose…** on the drawing job (the founder is the owner: a survey job shows it); its line: "Paper millimetres, no scale yet — a drawing job is proposed with its 2-point alignment (MA-5a-4)." The route's own 409 (`job-NNNN is a drawing job (sentinel-drawing): … MA-5a-4; nothing was saved`) is pinned by `changesets-store.test.mjs` (proposeFromJob (b)); driving it live needs a person's session token, not lifted — **pass (web), route by test** | the panel, the test |
+| D-4 | **Run survey** beside it → `job-0002 · done · read ev-0002 · refused ev-0003 (not surveyable (a .rcp)) · 0 level(s), 0 wall(s), …` (tiny.las finds nothing, as before) · row #2313 `build:run job-0002 · sentinel-survey 0.6.0 · done`, the survey's params, no `notes` — one slot, the survey unchanged — **pass** | #2313 |
+
+**Closing list:** no changeset was filed (a drawing job proposes nothing yet; the survey found nothing). `drawings/fake.pdf` stays in the
+folder, not admitted. Known limits recorded in `drawing/PlanReader.cs` (window, stair and leaf-rectangle lines in the wall weight read as thin
+walls; a dense hatch or a heaviest title block pairing into 30 % of the walls is read). Owed: real drawing sets to tune on; Ghost Builder's
+`WallPairing` reads DWG lines by stroke order (task offered). Next: MA-5a-4 — the 2-point alignment and `inferred` drawing ghosts.
