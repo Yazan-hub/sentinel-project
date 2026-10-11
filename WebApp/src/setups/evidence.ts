@@ -187,7 +187,9 @@ export const readJob = (base: string, key: string, id: string) => bwrite<JobRead
 
 /** MA-4d: what POST …/build/jobs/:id/propose answers. */
 export interface ProposeReply {
-  job: string; survey_row: Ledger; frame: { dx_mm: number; dy_mm: number; dz_mm: number; rotation_deg: number };
+  /** A scan's job: its row and the lead's frame; a drawing's (MA-5a-4): its row and the alignment the bridge computed from the lead's points. */
+  job: string; survey_row?: Ledger; frame?: { dx_mm: number; dy_mm: number; dz_mm: number; rotation_deg: number };
+  drawing_row?: Ledger; alignment?: Alignment;
   storeys: { cid: string; level: string; how: "named" | "matched" | "created" | "filed"; elevation_mm: number; delta_mm: number | null; checked: boolean; from: string | null; changeset: string | null;
     /** A storey that files no changeset: its doors and windows held by their level or host (a filed storey's changeset says them). */
     held?: { name: string; reason: string }[];
@@ -204,20 +206,58 @@ export function proposeBody(v: { dx: string; dy: string; dz: string; rot: string
   const levels = Object.fromEntries(v.levels.filter(([, name]) => name.trim()).map(([cid, name]) => [cid, name.trim()]));
   return { frame: { dx_mm: n(v.dx), dy_mm: n(v.dy), dz_mm: n(v.dz), rotation_deg: n(v.rot) }, ...(Object.keys(levels).length ? { levels } : {}) };
 }
-/** Propose: the bridge builds the changesets from the job's own result — only the frame and the levels go from here. */
-export const proposeFromJob = (base: string, key: string, id: string, body: ReturnType<typeof proposeBody>) =>
+/** Propose: the bridge builds the changesets from the job's own result — only the lead's statements go from here (a scan's frame and
+ *  levels; a drawing's points, level and height). */
+export const proposeFromJob = (base: string, key: string, id: string, body: ReturnType<typeof proposeBody> | ReturnType<typeof alignBody>) =>
   post<ProposeReply>(base, key, `build/jobs/${encodeURIComponent(id)}/propose`, body);
+
+/** MA-5a-4: the similarity the bridge computed from the lead's two points (drawing-plan alignFrom), and who stated them. */
+export interface Alignment { method: string; item: string; scale: number; rotation_deg: number; dx_mm: number; dy_mm: number; dz_mm: number; check_mm: number | null; rmse_mm: null; confirmed_by?: string }
+/** The drawing Propose form as typed: each point "x, y" — paper mm on page 1 from its bottom-left corner, model mm. */
+export interface AlignDraft { item: string; pa: string; ma: string; pb: string; mb: string; pc: string; mc: string; level: string; z: string }
+const xy = (s: string): [number, number] => { const p = s.split(/[\s,;]+/).filter(Boolean).map(Number); return p.length === 2 ? [p[0], p[1]] : [NaN, NaN]; };
+/** The form → the body: the points as typed (anything not two numbers goes as null, which the bridge refuses in words), a check point only
+ *  when one is typed, a level only when named. Pure. */
+export function alignBody(d: AlignDraft) {
+  const check = d.pc.trim() || d.mc.trim() ? { check: { paper: xy(d.pc), model: xy(d.mc) } } : {};
+  return { item: d.item, points: [{ paper: xy(d.pa), model: xy(d.ma) }, { paper: xy(d.pb), model: xy(d.mb) }], ...check,
+    ...(d.level.trim() ? { level: d.level.trim() } : {}), elevation_mm: d.z.trim() === "" ? NaN : Number(d.z) };
+}
+/** What the two points fix, as the lead types them (the bridge computes it again and decides): the scale, the turn, where the paper's
+ *  origin lands, and the check point's miss. "" until both points are two numbers each. Pure. */
+export function alignPreview(d: AlignDraft): string {
+  const [A, Am, B, Bm] = [d.pa, d.ma, d.pb, d.mb].map(xy);
+  if (![A, Am, B, Bm].every((p) => p.every(Number.isFinite))) return "";
+  const dp = [B[0] - A[0], B[1] - A[1]], dm = [Bm[0] - Am[0], Bm[1] - Am[1]], lp = Math.hypot(dp[0], dp[1]);
+  if (!lp) return "the two paper points are one point";
+  const s = Math.hypot(dm[0], dm[1]) / lp;
+  if (!(s >= 1 && s <= 2000)) return `1:${+s.toFixed(4)} — no plan is drawn at that scale (the bridge takes 1:1 to 1:2000): check paper against model, and that both name the same marks`;
+  let deg = (((Math.atan2(dm[1], dm[0]) - Math.atan2(dp[1], dp[0])) * 180) / Math.PI) % 360;
+  if (deg < 0) deg += 360;
+  const a = (deg * Math.PI) / 180, c = Math.cos(a), sn = Math.sin(a);
+  const at = (p: number[]) => [Am[0] + s * (c * (p[0] - A[0]) - sn * (p[1] - A[1])), Am[1] + s * (sn * (p[0] - A[0]) + c * (p[1] - A[1]))];
+  const o = at([0, 0]), C = xy(d.pc), Cm = xy(d.mc);
+  const check = C.every(Number.isFinite) && Cm.every(Number.isFinite)
+    ? ` · the check point lands ${Math.round(Math.hypot(at(C)[0] - Cm[0], at(C)[1] - Cm[1]))} mm from where you said (the bridge refuses over 100)`
+    : " · no check point (two points fix it exactly; a third catches a misread one)";
+  return `1:${+s.toFixed(3)} · turned ${+deg.toFixed(2)}° · the paper's corner at ${Math.round(o[0])}, ${Math.round(o[1])} mm in the model${check}`;
+}
+
 /** The status line after Propose. Pure. */
 export function proposeLine(r: ProposeReply): string {
   const ghosts = r.changesets.reduce((s, c) => s + c.elements, 0), pre = r.changesets.reduce((s, c) => s + c.preticked, 0);
   const levels = r.storeys.map((s) => `${s.cid} → ${s.level} (${s.how}${s.checked ? "" : ", its height not checked"})`).join("; ");
   const again = r.already_filed ? ` · ${r.already_filed} already filed (not proposed again)` : "";
-  const placed = r.overlaps.length ? ` · the same scan was placed before by ${r.overlaps.map((o) => o.changeset).join(", ")}` : "";
+  const placed = r.overlaps.length ? ` · the same ${r.alignment ? "drawing" : "scan"} was placed before by ${r.overlaps.map((o) => o.changeset).join(", ")}` : "";
   const n = r.storeys.reduce((s, x) => s + (x.held?.length ?? 0), 0);
   const held = n ? ` · ${n} door(s) or window(s) held on a storey with nothing to place — their level or host wall is not placed (each reason on the planner's row)` : "";
   const once = r.storeys.reduce((s, x) => s + (x.doors_seen_once?.length ?? 0), 0);
   const seenOnce = once ? ` · ${once} door hole(s) seen on one face only — not proposed (a closed door or furniture reads the same; a person draws a door the scan missed)` : "";
+  const tail = `${r.gaps.groups} type-gap group(s), ${r.gaps.elements} element(s) in the Holding Area${held}${seenOnce} · ${levels}${again}${placed} · ${ledgerLine(r.ledger)} — Review ▸ ↻`;
+  // MA-5a-4: a drawing's ghosts are inferred — none is pre-ticked, the level it creates included
+  const a = r.alignment;
+  if (a) return `✓ Proposed ${r.job} — ${a.item} at 1:${a.scale}, turned ${a.rotation_deg}°${a.check_mm != null ? `, checked to ${a.check_mm} mm` : ", no check point"} · ` +
+    `${r.changesets.length} changeset(s), ${ghosts} ghost(s), none pre-ticked (a drawing is what someone drew, not what was built — a person ticks each in Revit) · ${tail}`;
   // MA-5a-2: a scan's walls are never pre-ticked — only a level the scan created is
-  return `✓ Proposed ${r.job} — ${r.changesets.length} changeset(s), ${ghosts} ghost(s), ${pre} pre-ticked on the Review desk (a level the scan created — a person ticks every scan wall, door and window; Revit leaves unticked what the office IDS rejects) · ` +
-    `${r.gaps.groups} type-gap group(s), ${r.gaps.elements} element(s) in the Holding Area${held}${seenOnce} · ${levels}${again}${placed} · ${ledgerLine(r.ledger)} — Review ▸ ↻`;
+  return `✓ Proposed ${r.job} — ${r.changesets.length} changeset(s), ${ghosts} ghost(s), ${pre} pre-ticked on the Review desk (a level the scan created — a person ticks every scan wall, door and window; Revit leaves unticked what the office IDS rejects) · ${tail}`;
 }

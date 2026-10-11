@@ -10,7 +10,7 @@ vi.mock("./bridge-fetch", () => ({ bfetch, bwrite }));
 import { ATTESTATION_CODES, ATTESTATION_TEXTS, kindOf, needsReport, itemLine, attestationLine, admitLine, recheckLine, readEvidence,
   signAttestation, evidenceControls, requestLine, isImage, jobLine, candidateLine, surveyStartLine, surveyableScans, startSurvey, readJobs,
   proposeBody, proposeFromJob, proposeLine, datasetLine, type ProposeReply, type EvidenceItem, type EvidencePack, type EvidenceRequest, type SurveyJob,
-  isDrawingJob, readableDrawings, drawingStartLine, startDrawing } from "./evidence";
+  isDrawingJob, readableDrawings, drawingStartLine, startDrawing, alignBody, alignPreview, type AlignDraft } from "./evidence";
 
 const res = (status: number, body: unknown) => ({ ok: status < 400, status, json: async () => body }) as unknown as Response;
 const HASH = "ab".repeat(32);
@@ -261,12 +261,40 @@ describe("drawing jobs (MA-5a-3) — sentinel-drawing on the admitted PDF plans"
       measured: { width_paper_mm: 18, tag_width_mm: 900, tag_height_mm: 2100 }, evidence: ["ev-0010#page-1"] }))
       .toBe("drawing-ev-0010-p1-wall-1-door-1 · door · width paper mm 18, tag width mm 900, tag height mm 2100 · from ev-0010#page-1");
   });
-  it("files-panel: Read drawings beside Run survey, the drawings' words, and no Propose… on a drawing job (MA-5a-4)", () => {
+  it("files-panel: Read drawings beside Run survey, the drawings' words, and Propose… on a drawing job opens the alignment form (MA-5a-4)", () => {
     const src = readFileSync(new URL("./files-panel.ts", import.meta.url), "utf8");
     expect(src).toContain(`<button id="fv-ev-drawing"`);
     expect(src).toContain("readableDrawings(pack).length");
-    expect(src).toContain(`can.propose && !isDrawingJob(j)`);
-    expect(src).toContain(`line("Drawings — sentinel-drawing reads page 1 of the admitted vector PDF plans on this PC: walls (two faces in the page's heaviest line weight) and doors (swing arcs, with any W x H tag), in paper millimetres. They are proposed with a 2-point alignment (MA-5a-4); a DWG is Ghost Builder's, in Revit.", "#9ca3af")`);
+    expect(src).toContain(`j.status === "done" && j.candidates_total && can.propose ? `);
+    expect(src).toContain(`(proposing === j.id ? (isDrawingJob(j) ? alignForm(j) : proposeForm(proposeLevels ?? [])) : "")`);
+    expect(src).toContain(`line("Drawings — sentinel-drawing reads page 1 of the admitted vector PDF plans on this PC: walls (two faces in the page's heaviest line weight) and doors (swing arcs, with any W x H tag), in paper millimetres. A lead proposes a done drawing job by two marks (a 2-point alignment): the bridge types its walls exactly and its doors by size, as a scan's, every ghost inferred and unticked; a DWG is Ghost Builder's, in Revit.", "#9ca3af")`);
     expect(src).toContain(`drawingStartLine((await startDrawing(base, pid())).job)`);
+    // one press, one proposal; only a 201 closes the form; what was typed is kept across a refusal
+    expect(src).toContain(`const body = alignBody((alignDraft = readAlign())), id = proposing!;`);
+    expect(src).toContain(`proposing = null; proposeLevels = null; proposeDraft = null; alignDraft = null; // only a 201 closes the form`);
+  });
+});
+
+describe("drawing proposals (MA-5a-4) — the lead's two points, level and height; the bridge computes the alignment", () => {
+  const D: AlignDraft = { item: "ev-0007", pa: "60, 40", ma: "40000, 0", pb: "220 160", mb: "48000,6000", pc: "", mc: "", level: "", z: "0" };
+  it("alignBody: the points as typed (a comma, a space or both), a check point only when typed, a level only when named; anything else goes as null for the bridge to refuse", () => {
+    expect(alignBody(D)).toEqual({ item: "ev-0007", points: [{ paper: [60, 40], model: [40000, 0] }, { paper: [220, 160], model: [48000, 6000] }], elevation_mm: 0 });
+    expect(alignBody({ ...D, pc: "220, 40", mc: "48000, 0", level: " GR-FFL ", z: "3000" })).toMatchObject({ check: { paper: [220, 40], model: [48000, 0] }, level: "GR-FFL", elevation_mm: 3000 });
+    expect(JSON.parse(JSON.stringify(alignBody({ ...D, pa: "60", z: "" })))).toMatchObject({ points: [{ paper: [null, null] }, {}], elevation_mm: null });
+  });
+  it("alignPreview: the scale, the turn, where the paper's corner lands and the check point's miss — the bridge decides", () => {
+    expect(alignPreview(D)).toBe("1:50 · turned 0° · the paper's corner at 37000, -2000 mm in the model · no check point (two points fix it exactly; a third catches a misread one)");
+    expect(alignPreview({ ...D, pc: "220, 40", mc: "48000, 150" })).toContain(" · the check point lands 150 mm from where you said (the bridge refuses over 100)");
+    expect(alignPreview({ ...D, pa: "40000, 0", ma: "60, 40", pb: "48000, 6000", mb: "220, 160" })).toBe("1:0.02 — no plan is drawn at that scale (the bridge takes 1:1 to 1:2000): check paper against model, and that both name the same marks");
+    expect(alignPreview({ ...D, mb: "" })).toBe("");
+  });
+  it("proposeLine on a drawing: the alignment, the counts, none pre-ticked", () => {
+    const r: ProposeReply = { job: "job-0005", drawing_row: { id: 3001, hash: HASH },
+      alignment: { method: "2-point similarity", item: "ev-0007", scale: 50, rotation_deg: 0, dx_mm: 37000, dy_mm: -2000, dz_mm: 0, check_mm: 0, rmse_mm: null, confirmed_by: "lead@example.test" },
+      storeys: [{ cid: "drawing-ev-0007-p1-level", level: "Drawing ev-0007 job-0005", how: "created", elevation_mm: 0, delta_mm: 0, checked: true, from: null, changeset: "c1" }],
+      changesets: [{ id: "c1", name: "Drawing job-0005 · ev-0007 · Drawing ev-0007 job-0005", elements: 5, preticked: 0 }],
+      gaps: { groups: 3, elements: 3, ledger: { id: 3103, hash: HASH } }, already_filed: 0, overlaps: [], ledger: { id: 3104, hash: HASH } };
+    expect(proposeLine(r)).toBe("✓ Proposed job-0005 — ev-0007 at 1:50, turned 0°, checked to 0 mm · 1 changeset(s), 5 ghost(s), none pre-ticked (a drawing is what someone drew, not what was built — a person ticks each in Revit) · " +
+      "3 type-gap group(s), 3 element(s) in the Holding Area · drawing-ev-0007-p1-level → Drawing ev-0007 job-0005 (created) · ledger #3104 · receipt abababababababab… — Review ▸ ↻");
   });
 });

@@ -9,7 +9,7 @@ vi.mock("./bridge-fetch", () => ({ bfetch, bwrite }));
 vi.mock("./active-project", () => ({ activePid: () => "demo", onActiveProjectChange: () => () => {} }));
 
 import { proposalWords, storeyOf, groupDesk, ghostLine, reviewWords, declinedBy, canDecide, canReopen, readPending, postReview, postReopen, rowWords, postsFor, type PendingChangeset,
-  trustWords, sourceWords,
+  trustWords, sourceWords, isDrawn,
   readDecided, readLedger, highlightPlan, type Ghost, decidedView, decidedCount, DECIDED_MAX, type LedgerRows,
   measureWords, verifiedView, readVerified, postMeasure, measureLine, canMeasure, countWords, type VerifyRecord, type Measured } from "./review-desk";
 
@@ -357,6 +357,19 @@ describe("survey ghosts (MA-4d)", () => {
     expect(sourceWords({ ...cs, job: { ...cs.job!, overlaps: [{ changeset: "Survey job-0001 · GR-FFL", job_id: "job-0001", evidence: ["ev-0001"] },
       { changeset: "Survey job-0001 · L01", job_id: "job-0001", evidence: ["ev-0001"] }] } })).toContain(" · the same scan ev-0001 was placed before by Survey job-0001 · GR-FFL, Survey job-0001 · L01");
   });
+  it("MA-5a-4: a drawing's ghost and changeset in words — drawn at the alignment's scale, inferred, never pre-ticked; no Measure", () => {
+    const D: Ghost = { ...G, cid: "drawing-ev-0007-p1-wall-1", evidence: ["ev-0007#page-1"], pretick: false, trim_mm: [150, 100], measured: { thickness_mm: 100, thickness_paper_mm: 2 },
+      accuracy: { status: "inferred", basis: "drawing", from_job: "job-0005", scale: 50, check_mm: 0 } };
+    expect(trustWords(D)).toBe("drawn — from job-0005 at 1:50 · 100 mm thick as drawn · inferred (what someone drew, not what was built) · alignment checked to 0 mm · not pre-ticked · ends 150 / 100 mm to the corners · evidence ev-0007#page-1");
+    expect(trustWords({ ...D, accuracy: { ...D.accuracy!, check_mm: null } })).toContain(" · alignment not checked by a third point · ");
+    const cs = { id: "c", name: "Drawing job-0005 · ev-0007 · Drawing ev-0007 job-0005", source: "sentinel-drawing 0.1.0", claimed: false, status: "applied", created_at: "", elements: [D],
+      job: { id: "job-0005", ledger_id: 3001, reader: "sentinel-drawing 0.1.0", storey: { level: "Drawing ev-0007 job-0005", how: "created", checked: true },
+        alignment: { item: "ev-0007", scale: 50, rotation_deg: 0, dx_mm: 37000, dy_mm: -2000, dz_mm: 0, check_mm: 0, confirmed_by: "lead@example.test" } } } as PendingChangeset;
+    expect(sourceWords(cs)).toBe("from drawing job-0005 (ledger #3001) · ev-0007 at 1:50, turned 0°, its paper corner at 37000, -2000 mm, level at 0 mm, stated by lead@example.test · checked to 0 mm by a third point · storey Drawing ev-0007 job-0005 (created) · nothing from a drawing is pre-ticked");
+    expect([isDrawn(cs), isDrawn({ ...cs, job: { ...cs.job!, reader: "sentinel-survey 0.6.0" } }), canMeasure(cs, "lead", null)]).toEqual([true, false, false]);
+    const src = readFileSync(new URL("./review-desk.ts", import.meta.url), "utf8");
+    expect(src).toContain("if (cs.job && !isDrawn(cs)) {");
+  });
   it("final review: no ends clause for untrimmed ends; the desk shows both lines and the gap card its job", () => {
     expect(trustWords({ ...G, trim_mm: [0, 0] })).not.toContain("ends");
     const src = readFileSync(new URL("./review-desk.ts", import.meta.url), "utf8");
@@ -452,7 +465,7 @@ describe("measured against the scan (MA-4e)", () => {
   });
   it("the desk reads the newest measure after the ledger rows, and Measure sits behind canMeasure with one press, one run (source scan)", () => {
     const src = readFileSync(new URL("./review-desk.ts", import.meta.url), "utf8");
-    expect(src).toContain("const verified = decided instanceof Error ? new Map<string, VerifyRecord | Error | null>() : await readVerified(base, key, decided.slice(0, DECIDED_MAX).filter((c) => c.job).map((c) => c.id));");
+    expect(src).toContain("const verified = decided instanceof Error ? new Map<string, VerifyRecord | Error | null>() : await readVerified(base, key, decided.slice(0, DECIDED_MAX).filter((c) => c.job && !isDrawn(c)).map((c) => c.id));");
     expect(src).toContain("if (canMeasure(cs, role, ledger instanceof Error ? ledger : ledger.get(cs.id) ?? null)) {");
     expect(src).toContain('go.disabled = true; go.textContent = "Measuring…";');
   });
