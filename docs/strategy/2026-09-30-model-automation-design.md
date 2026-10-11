@@ -622,7 +622,7 @@ Example: the Level 3 line above has 264 walls. That is two changesets (200 + 64)
 | Web app: review desk, evidence drop, attestations, LOD state | Browser, inside the That Open platform frame | Existing app; new panels |
 | Bridge (Node) | Office PC today (reached through Funnel) | Existing; new routes |
 | sentinel-survey (Python) | Office PC; listens on 127.0.0.1 only; CPU first | New |
-| Vector PDF reader (PdfPig) | Revit add-in, or a small .NET worker next to the bridge (decided in the MA-5 plan) | New code on an existing dependency |
+| Vector PDF reader (PdfPig) | A small .NET worker next to the bridge (`drawing/`, decided in the MA-5a-3 plan: its result is the bridge's, `claimed: false`) | New code on an existing dependency |
 | Revit add-in | Drills on Revit 2024. The add-in is registered for 2023–2027 on the founder PC | Existing; new operations, overlay, stamp, watcher |
 | That Open Platform | Cloud | Existing; storage, Delivery Gate automations |
 | Ledger | Supabase | Existing; new row kinds |
@@ -1171,7 +1171,7 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
 - **Size:** XL (7–9 weeks; it may split into 5a scan openings and PDF, 5b rooms and revisions). **Depends on:** MA-2 and MA-4.
 - **Delivers:**
   - Openings from wall-plane occupancy, as hosted catalogue doors and windows chosen by size (or a gap). BUILT in MA-5a for scans (drill MA5a: a window typed by size, hosted, one Undo; a door at a size of 13 BDS rows is a gap; the PDF half, rooms and the rest of MA-5 are TARGET).
-  - The vector PDF reader (PdfPig).
+  - The vector PDF reader (PdfPig). BUILT in MA-5a-3 as `sentinel-drawing` 0.1.0, a .NET worker the bridge runs (drawing/; plan docs/superpowers/plans/2026-10-11-ma5a3-drawing-reader.md): walls from paired face lines and doors from swing arcs, in paper mm, on the ledger as a bridge-run job (drill MA5a3); proposing waits for the 2-point alignment below.
   - Drawing alignment by 2 points, confirmed by a person.
   - Drawing-only ghosts are `inferred` and never pre-ticked. Conflicts become review rows.
   - A difference between drawing and scan becomes a BCF topic.
