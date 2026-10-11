@@ -230,7 +230,10 @@ describe("GET /events — a stream ends with the authority it was opened with (S
   }, 10_000);
 
   it("a signed-in stream ends when its token expires; the machine credential's stream does not", async () => {
-    const short = await openWhenFree(jwt("u-member", 2), "alpha");
+    // ttl 3, not 2: exp is floored to the second, so a token lives ttl-1 to ttl seconds — at 2 it could have ~1 s left while openWhenFree
+    // still waits for u-member's earlier streams to be released, and every retry then reads 401 ("never released"). 2–3 s of life ends
+    // the stream well inside ended()'s 4 s.
+    const short = await openWhenFree(jwt("u-member", 3), "alpha");
     const machine = await openEvents(as.token, "beta");
     expect(machine.status).toBe(200);
     expect(await ended(short, 4000)).toBe(true);
