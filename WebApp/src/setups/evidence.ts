@@ -144,7 +144,9 @@ export function candidateLine(c: Candidate): string {
   // MA-5a (review): a door or window has no fit (the bridge records none) — its hole's border and the faces that saw it, never "0 mm rms"
   const fit = c.fit?.faces_seen != null ? ` · hole border ${Math.round(c.fit.coverage * 100)}%, ${c.fit.faces_seen} face(s) seen; a hole is an opening or an occluder`
     : c.fit ? ` · fit ${c.fit.rmse_mm} mm rms, ${Math.round(c.fit.coverage * 100)}% covered` : "";
-  const one = Array.isArray(c.geometry.faces) && c.geometry.faces.length === 1 ? " · one face seen: its thickness is unknown" : "";
+  const apart = (c.measured as Record<string, number | undefined>).faces_apart_mm; // MA-5a-2: two faces too close for their scatter
+  const one = Array.isArray(c.geometry.faces) && c.geometry.faces.length === 1 ? " · one face seen: its thickness is unknown"
+    : apart != null ? ` · its two faces ${apart} mm apart against a ${c.fit?.rmse_mm} mm scatter: its thickness is not trusted` : "";
   return `${c.cid} · ${c.kind} · ${m}${fit}${one} · from ${c.evidence.join(", ")}`;
 }
 /** The status line after Run survey. Pure. */
@@ -170,7 +172,9 @@ export interface ProposeReply {
   job: string; survey_row: Ledger; frame: { dx_mm: number; dy_mm: number; dz_mm: number; rotation_deg: number };
   storeys: { cid: string; level: string; how: "named" | "matched" | "created" | "filed"; elevation_mm: number; delta_mm: number | null; checked: boolean; from: string | null; changeset: string | null;
     /** A storey that files no changeset: its doors and windows held by their level or host (a filed storey's changeset says them). */
-    held?: { name: string; reason: string }[] }[];
+    held?: { name: string; reason: string }[];
+    /** MA-5a-2: the doors seen on one face only — not proposed (a closed door or furniture reads the same). */
+    doors_seen_once?: string[] }[];
   changesets: { id: string; name: string; elements: number; preticked: number }[];
   gaps: { groups: number; elements: number; ledger: Ledger | null }; ledger: Ledger;
   /** Decision 19: candidates this job filed before (not proposed again); another job's placed changesets on the same scan bytes. */
@@ -193,6 +197,9 @@ export function proposeLine(r: ProposeReply): string {
   const placed = r.overlaps.length ? ` · the same scan was placed before by ${r.overlaps.map((o) => o.changeset).join(", ")}` : "";
   const n = r.storeys.reduce((s, x) => s + (x.held?.length ?? 0), 0);
   const held = n ? ` · ${n} door(s) or window(s) held on a storey with nothing to place — their level or host wall is not placed (each reason on the planner's row)` : "";
-  return `✓ Proposed ${r.job} — ${r.changesets.length} changeset(s), ${ghosts} ghost(s), ${pre} pre-ticked on the Review desk (Revit opens them ticked too, less what the office IDS rejects; a person clicks Apply) · ` +
-    `${r.gaps.groups} type-gap group(s), ${r.gaps.elements} element(s) in the Holding Area${held} · ${levels}${again}${placed} · ${ledgerLine(r.ledger)} — Review ▸ ↻`;
+  const once = r.storeys.reduce((s, x) => s + (x.doors_seen_once?.length ?? 0), 0);
+  const seenOnce = once ? ` · ${once} door hole(s) seen on one face only — not proposed (a closed door or furniture reads the same; a person draws a door the scan missed)` : "";
+  // MA-5a-2: a scan's walls are never pre-ticked — only a level the scan created is
+  return `✓ Proposed ${r.job} — ${r.changesets.length} changeset(s), ${ghosts} ghost(s), ${pre} pre-ticked on the Review desk (a level the scan created — a person ticks every scan wall, door and window; Revit leaves unticked what the office IDS rejects) · ` +
+    `${r.gaps.groups} type-gap group(s), ${r.gaps.elements} element(s) in the Holding Area${held}${seenOnce} · ${levels}${again}${placed} · ${ledgerLine(r.ledger)} — Review ▸ ↻`;
 }

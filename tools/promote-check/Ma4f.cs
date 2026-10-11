@@ -13,7 +13,8 @@ static partial class Check
         string survey;
         using (var fx = JsonDocument.Parse(File.ReadAllText(Repo("WebApp", "bridge", "fixtures", "changeset-ops", "contract2-survey.json"))))
             survey = fx.RootElement.GetProperty("stored").GetRawText();
-        bool Ticked(Action<ChangesetDto, ChangesetElementDto> edit) { var c = JsonSerializer.Deserialize<ChangesetDto>(survey); edit(c, c.Elements[0]); return ChangesetTrust.PreTick(c, c.Elements[0]); }
+        // MA-5a-2: the bridge pre-ticks no scan wall now (the fixture's walls read pretick false) — Revit's rule is tested on a create it did pre-tick
+        bool Ticked(Action<ChangesetDto, ChangesetElementDto> edit) { var c = JsonSerializer.Deserialize<ChangesetDto>(survey); c.Elements[0].Pretick = true; edit(c, c.Elements[0]); return ChangesetTrust.PreTick(c, c.Elements[0]); }
         Ok(Ticked((c, e) => { }), "MA-4f: a survey create the bridge pre-ticked within tolerance opens ticked in Revit (the web desk calls it pre-ticked)");
         Ok(!Ticked((c, e) => e.Pretick = false), "…not one the bridge did not pre-tick (a storey whose level was not checked, a size not measured)");
         Ok(!Ticked((c, e) => e.Accuracy.Status = "out_of_tolerance") && !Ticked((c, e) => e.Accuracy = null), "…not one out of tolerance, nor one with no accuracy, whatever its pretick says");

@@ -18,7 +18,14 @@ export const PLANNER_VERSION = "0.1.0";
 /** D7: the pre-tick tolerance (on the fit) and the level match's.
  *  ponytail: one constant for both, and MA-4e's p95 verdict (judge); a per-class tolerance (lod_matrix or the contract's) is MA-8's. */
 export const TOLERANCE_MM = 20;
+// MA-5a-2 (the founder's call on open question 8, measured in plan Task 0): a placed survey wall is judged per face on the share of the face's
+// own points within DEVIATION_MM — p95 refused 84 of Kladno's 99 walls in place (clutter in the band), pooled shares let a thin wall moved by
+// its thickness pass. 20 mm at 0.2: in place 95 of 99 within, a 50 mm shift 97 of 99 out, thin walls shifted 100 mm 24 of 31 out (one
+// building, one tracer). TOLERANCE_MM stays the level match and the fit status.
+export const DEVIATION_MM = 20, FACE_SHARE_MIN = 0.2;
+const DEV_LIMITS = "this check misses most 20 mm offsets, and a thin partition moved by its own thickness can pass";
 export const NOT_MEASURED = "thickness not measured";
+export const NOT_TRUSTED = "thickness not trusted"; // MA-5a-2: two faces, but too close for their scatter (sentinel-survey faces_apart_mm)
 /** MA-4h: a frame's move past this is no place on Earth (a UTM northing reaches 1e10 mm). The guard is where the frame puts the scan
  *  (placeRefusal), not how far it moves it: a scan in a national grid is stated with a large frame. */
 const MAX_FRAME_MM = 20_000_000_000;
@@ -240,7 +247,7 @@ export function planSurvey({ job, candidates, frame, levels: named = {}, manifes
   let already = 0;
   const again = (c) => { if (!filed.cids.has(c.cid)) return false; already++; return true; };
   const storeys = matchStoreys(candidates.filter((c) => c.kind === "level"), frame, named, manifest, job.id, filed.storeys).map((s) => {
-    const E = s.elevation_mm, elements = [], byCid = new Map(), exceptions = [];
+    const E = s.elevation_mm, elements = [], byCid = new Map(), exceptions = [], once = [];
     const mine = candidates.filter((c) => c.kind !== "level" && c.geometry?.storey === s.cid);
     // The trust record: the job's measured block as stored; the accuracy judged on the fit (each face's inliers against its own line) AND on
     // how far the faces sit from the ghost's (faceDev) — design rule 6's measured verdict, said by `basis`; the pre-tick, the bridge's half of
@@ -250,16 +257,19 @@ export function planSurvey({ job, candidates, frame, levels: named = {}, manifes
     const trust = (c, extra = {}) => {
       const rms = c.fit?.rmse_mm, dev = c.kind === "wall" ? faceDev(c) : null;
       const status = !Number.isFinite(rms) ? "insufficient_data" : Math.max(rms, dev ?? 0) <= TOLERANCE_MM ? "within_tolerance" : "out_of_tolerance";
-      const sized = c.kind === "level" || (c.kind === "wall" && Number.isFinite(c.measured?.thickness_mm));
+      // MA-5a-2 (the founder's call): a scan's walls are never pre-ticked until a reference shows >= 0.8 of a scan's paired walls are traced
+      // walls (Kladno 0.5.0: 46 of 77, 0.60) — the fit cannot fail (a face's inliers lie within CELL, 20 mm, by construction), so it never
+      // told a wall from a cupboard; a created level keeps its pre-tick (its height is checked against the published levels)
       return { measured: c.measured, accuracy: { status, basis: "fit", from_job: job.id, fit_rmse_mm: Number.isFinite(rms) ? rms : null, face_dev_mm: dev,
-        coverage: c.fit?.coverage ?? null, target_mm: TOLERANCE_MM }, pretick: status === "within_tolerance" && s.checked && sized, ...extra };
+        coverage: c.fit?.coverage ?? null, target_mm: TOLERANCE_MM }, pretick: c.kind === "level" && status === "within_tolerance" && s.checked, ...extra };
     };
     // `why`: the reason's own words for a gap the key does not say (MA-5a: several catalogue rows in an opening's size band).
     const gap = (c, g, why = null) => {
       gaps.push({ ...g, size: g.size ?? (g.want ? null : NOT_MEASURED), label: `${s.level} · ${c.cid}`.slice(0, 256), evidence: c.evidence });
       exceptions.push({ unique_id: c.cid.slice(0, 64), name: `${c.kind} ${c.cid}`.slice(0, 256),
         // a wall of one face seen was never typed: its thickness is missing, not the rule (final review)
-        reason: `type gap — ${why ?? (g.want ? `${g.want} is not in the type catalogue` : c.kind === "wall" && g.size === NOT_MEASURED ? `its thickness was not measured (${g.key})`
+        reason: `type gap — ${why ?? (g.want ? `${g.want} is not in the type catalogue` : c.kind === "wall" && g.size === NOT_TRUSTED ? `its thickness is not trusted (${g.key})`
+          : c.kind === "wall" && g.size === NOT_MEASURED ? `its thickness was not measured (${g.key})`
           : `no office rule types it (${g.key})`)}; it waits in the Holding Area`.slice(0, 300) });
     };
     const walls = mine.filter((c) => c.kind === "wall");
@@ -268,14 +278,19 @@ export function planSurvey({ job, candidates, frame, levels: named = {}, manifes
     // Every wall's facts and gap first, so a wall trimmed to a gap's centreline can say so (the corner closes once the gap is placed).
     const typed = walls.map((c, i) => {
       const t = c.measured.thickness_mm;
-      if (!Number.isFinite(t)) return { gap: { category: "Walls", want: null, size: NOT_MEASURED, key: "one face seen", nearest: [] } };
+      // MA-5a-2 (review): the group's key is the same for every such wall (a Holding Area group shows its first key); each wall's numbers ride
+      // on its own exception and on the holds of its openings
+      if (!Number.isFinite(t)) return Number.isFinite(c.measured.faces_apart_mm)
+        ? { gap: { category: "Walls", want: null, size: NOT_TRUSTED, key: "two faces too close for their fit scatter to trust a thickness", nearest: [] },
+          apart: `its two faces ${c.measured.faces_apart_mm} mm apart against a ${c.fit?.rmse_mm} mm fit scatter` }
+        : { gap: { category: "Walls", want: null, size: NOT_MEASURED, key: "one face seen", nearest: [] } };
       const loc = locate(segs, i), facts = { thickness_mm: t, ...(loc.location ? { params: { Location: loc.location } } : {}) };
       return { facts, loc, gap: gapOf(type, "wall", facts, c.cid, loc.why) };
     });
     walls.forEach((c, i) => {
       if (again(c)) return;
-      const { facts, loc, gap: g } = typed[i];
-      if (g) return gap(c, g);
+      const { facts, loc, gap: g, apart } = typed[i];
+      if (g) return gap(c, g, apart ? `its thickness is not trusted (${apart})` : null);
       const tr = trimmed[i].trim_mm;
       const toGap = trimmed[i].to.map((j, k) => (j != null && typed[j].gap ? `the ${k ? "end" : "start"} to ${walls[j].cid}'s centreline: a type gap, not placed` : null)).filter(Boolean);
       elements.push({ op: "create", kind: "wall", cid: c.cid, evidence: c.evidence, facts, validate: { identity: { Class: KIND_ENTITY.wall, Name: c.cid } },
@@ -291,6 +306,11 @@ export function planSurvey({ job, candidates, frame, levels: named = {}, manifes
     // (decision 19) is in the model or on the Review desk — the executor finds it among the model's walls.
     for (const c of mine.filter((x) => x.kind === "door" || x.kind === "window")) {
       if (again(c)) continue;
+      // MA-5a-2 (the founder's call, plan §0): a door is proposed only when its hole shows in both faces of its wall — on Kladno the doors
+      // seen on one face were 3 real in 22 on two-face walls and 1 in 22 on one-face walls; a closed leaf or furniture reads the same. A
+      // window is not filtered: a façade's windows are seen from inside only. ponytail: a closed door in a thick wall is not proposed (all 3
+      // real doors lost were in 338-509 mm walls) — a person draws it.
+      if (c.kind === "door" && !((c.fit?.faces_seen ?? 0) >= 2)) { once.push(c.cid); continue; }
       // MA-5a (review): an opening held by its level or its host, not its type, is an exception only — a size group in the Holding Area
       // would close by catalogue while the opening still could not be placed
       const hold = (why) => exceptions.push({ unique_id: c.cid.slice(0, 64), name: `${c.kind} ${c.cid}`.slice(0, 256), reason: why.slice(0, 300) });
@@ -301,7 +321,9 @@ export function planSurvey({ job, candidates, frame, levels: named = {}, manifes
       if (!s.checked) { hold(`its level ${s.level} is in no published model, so its height in Revit is unknown here — Revit refuses a door or window off its level's height; name a published level, or leave the storey out of levels to have it created`); continue; }
       if (hi < 0) { hold(`its host wall ${host} is not a wall of ${s.level} in ${job.id}`); continue; }
       if (typed[hi].gap && !filed.cids.has(host)) {
-        hold(typed[hi].gap.size === NOT_MEASURED ? `its host wall ${host} was seen on one face only, so it is never typed — a person draws the wall and this ${c.kind}`
+        const hg = typed[hi].gap;
+        hold(hg.size === NOT_MEASURED ? `its host wall ${host} was seen on one face only, so it is never typed — a person draws the wall and this ${c.kind}`
+          : hg.size === NOT_TRUSTED ? `its host wall ${host}'s thickness is not trusted (${typed[hi].apart}), so it is never typed — a person draws the wall and this ${c.kind}`
           : `its host wall ${host} is a type gap — propose the job again once the wall's group in the Holding Area closes`);
         continue;
       }
@@ -341,7 +363,7 @@ export function planSurvey({ job, candidates, frame, levels: named = {}, manifes
         reason: `scan ${c.kind} ${c.cid}: ${c.measured.area_m2} m² at ${c.measured.elevation_mm} mm as measured · ${fit(c)} · its thickness is the type's (the scan sees one face) · ${ref}`.slice(0, 500) });
       byCid.set(c.cid, trust(c));
     }
-    if (!elements.length) return { storey: s, body: null, byCid, exceptions };
+    if (!elements.length) return { storey: s, body: null, byCid, exceptions, once };
     if (s.how === "created") {
       const lv = candidates.find((c) => c.cid === s.cid);
       elements.unshift({ op: "create", kind: "level", cid: s.cid, evidence: lv.evidence, validate: { identity: { Class: "IFCBUILDINGSTOREY", Name: s.level } },
@@ -352,7 +374,7 @@ export function planSurvey({ job, candidates, frame, levels: named = {}, manifes
     // plan: Kladno's 425-candidate storey types none on the BDS standards (131 gap groups); build the split when a storey types over 200.
     if (elements.length > MAX_CHANGESET_ELEMENTS)
       throw err(413, `${s.cid} would file ${elements.length} elements on ${s.level} — over the ${MAX_CHANGESET_ELEMENTS} one changeset (one Undo) holds; a storey is not split into changesets yet — survey a part of the building — nothing was saved`);
-    return { storey: s, byCid, exceptions, body: { name: `Survey ${job.id} · ${s.level}`, contract: 2, source: `${job.reader} ${job.version}`, elements, exceptions } };
+    return { storey: s, byCid, exceptions, once, body: { name: `Survey ${job.id} · ${s.level}`, contract: 2, source: `${job.reader} ${job.version}`, elements, exceptions } };
   });
   return { storeys, groups: groupGaps(gaps), already_filed: already };
 }
@@ -483,11 +505,20 @@ export function judge(m, k) {
   if (m.coverage == null) return { status: "not_measured", reason: `no face interior to measure — each face is read ${k.edge_mm} mm in from every edge` };
   if (!m.points) return { status: "missing", reason: `no scan point within ${k.band_mm} mm of its faces — not built where it stands, or not scanned there` };
   if (m.coverage < MIN_COVERAGE) return { status: "insufficient_data", reason: `${Math.round(m.coverage * 1000) / 10}% of its faces seen — under the ${MIN_COVERAGE * 100}% a verdict needs` };
-  return { status: m.p95_mm <= TOLERANCE_MM ? "within_tolerance" : "out_of_tolerance" };
+  // MA-5a-2: every face with an interior must hold FACE_SHARE_MIN of its own points within DEVIATION_MM (a face with an interior and no point
+  // within the band is out); a face without an interior is not judged
+  // a share rounded down (review): 0.196 reads 19%, never the 20% it failed to reach
+  const pct = (v) => `${Math.floor(Math.round(v * 1000) / 10)}%`;
+  const off = m.faces.map((f, i) => ({ f, i })).filter(({ f }) => f.coverage != null && (!f.points || f.share_within[DEVIATION_MM] < FACE_SHARE_MIN));
+  // the limits ride on a pass too (review): a pass is where they matter — a thin partition moved by its own thickness reads within
+  if (!off.length) return { status: "within_tolerance", reason: DEV_LIMITS };
+  return { status: "out_of_tolerance", reason: off.map(({ f, i }) => `face ${i + 1}: ${f.points ? `${pct(f.share_within[DEVIATION_MM])} of its points within ${DEVIATION_MM} mm` : `no scan point within ${k.band_mm} mm`}`).join("; ") +
+    ` — each face needs ${pct(FACE_SHARE_MIN)} (${DEV_LIMITS})` };
 }
 
 /** The keys a measured element may carry (spec amendment S3: numbers only) — anything else, a status above all, is the bridge's. */
-const MEASURE_KEYS = new Set(["guid", "points", "p95_mm", "mean_signed_mm", "share_within", "coverage"]);
+const MEASURE_KEYS = new Set(["guid", "points", "p95_mm", "mean_signed_mm", "share_within", "coverage", "faces"]); // MA-5a-2: faces, each face's own
+const FACE_KEYS = new Set(["points", "coverage", "share_within"]);
 export const MEASURE_KNOBS = ["band_mm", "edge_mm", "cell_mm"];
 const share = (v) => Number.isFinite(v) && v >= 0 && v <= 1;
 
@@ -512,6 +543,13 @@ export function measureRefusal(res, send, tols) {
     // coverage and a mean (the service sends exactly that; anything else is not its contract, and judge would read it wrong).
     if (m.points === 0 && (m.p95_mm !== null || m.mean_signed_mm !== null || m.share_within != null || (m.coverage !== null && m.coverage !== 0))) return `${at}'s numbers`;
     if (m.points > 0 && (!Number.isFinite(m.mean_signed_mm) || m.coverage === null)) return `${at}'s numbers`;
+    // MA-5a-2: each face's numbers — one per face sent, in range, no verdict of their own, adding up to the element's points (judge reads them)
+    const fs = m.faces;
+    if (!Array.isArray(fs) || fs.length !== (send[i].faces?.length ?? -1)
+        || fs.some((f) => !f || typeof f !== "object" || Object.keys(f).some((x) => !FACE_KEYS.has(x)) || !Number.isInteger(f.points) || f.points < 0
+          || (f.coverage !== null && !share(f.coverage)) || (f.points > 0 && f.coverage === null) // points mean an interior (review)
+          || (f.points > 0 ? !tols.every((t) => share(f.share_within?.[t])) : f.share_within != null))
+        || fs.reduce((n, f) => n + f.points, 0) !== m.points) return `${at}.faces`;
   }
   return null;
 }

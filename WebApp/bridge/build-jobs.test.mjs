@@ -63,7 +63,7 @@ describe("survey jobs (MA-4c)", () => {
       { id: "ev-0005", reason: "its allowed uses exclude geometry extraction" }]);
     expect(rec().status).toBe("queued");
     expect(runs[0].job).toEqual({ job_id: "job-0001", items: [{ id: "ev-0001", kind: "scan", path: join(ev, "scans", "a.las"), sha256: "1".repeat(64) }],
-      params: { voxel_mm: 20, storey_min_mm: 2000, tolerances_mm: [50, 100, 200] }, seed: 1 });
+      params: { voxel_mm: 20, storey_min_mm: 2000, tolerances_mm: [20, 50, 100, 200] }, seed: 1 });
     expect(runs[0].opts.cwd).toBe(join(root, "demo", "job-0001"));
   });
 

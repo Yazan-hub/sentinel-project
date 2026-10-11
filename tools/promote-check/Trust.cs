@@ -34,8 +34,8 @@ static partial class Check
         var sv = JsonSerializer.Deserialize<ChangesetDto>(survey);
         Ok(sv.Claimed == false && ChangesetTrust.SourceLabel(sv) == "sentinel-survey 0.1.0" && sv.Elements.Count == 3 && sv.Exceptions.Count == 3,
            "MA-4d: a survey changeset reads — its job, measured and trims ignored; its source is no claim; its gaps are sent to a person");
-        Ok(sv.Elements.All(e => e.Pretick == true && ChangesetTrust.Accuracy(e) == "within tolerance" && ChangesetTrust.Typing(e) != null && e.Cid != null && ChangesetTrust.PreTick(sv, e)),
-           "…each wall pre-ticked by the bridge, within tolerance, typed by the bridge — and (MA-4f) opened ticked in Revit: a measured survey create");
+        Ok(sv.Elements.All(e => e.Pretick == false && ChangesetTrust.Accuracy(e) == "within tolerance" && ChangesetTrust.Typing(e) != null && e.Cid != null && !ChangesetTrust.PreTick(sv, e)),
+           "…each wall measured and typed by the bridge, and (MA-5a-2) never pre-ticked: a scan's walls open unticked in Revit");
 
         ChangesetElementDto El(string op, bool? pretick, string typeBefore = null, string verdict = "accepted") => new ChangesetElementDto
         {

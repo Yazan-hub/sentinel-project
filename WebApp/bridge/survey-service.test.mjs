@@ -13,7 +13,7 @@ import { measurePlan, judge } from "./survey-plan.mjs";
 
 const STANDIN = fileURLToPath(new URL("./fixtures/survey-standin.mjs", import.meta.url));
 const JOB = { job_id: "job-0001", items: [{ id: "ev-0001", kind: "scan", path: join(tmpdir(), "a.las"), sha256: "ab".repeat(32) }],
-  params: { voxel_mm: 20, storey_min_mm: 2000, tolerances_mm: [50, 100, 200] }, seed: 1 };
+  params: { voxel_mm: 20, storey_min_mm: 2000, tolerances_mm: [20, 50, 100, 200] }, seed: 1 }; // MA-5a-2: 20 is the per-face verdict's
 const SECRETS = { BCF_TOKEN: "t", SUPABASE_SERVICE_KEY: "k", SUPABASE_JWT_SECRET: "j", THATOPEN_API_KEY: "a" };
 /** A spawn that runs the stand-in in `mode` and records what the supervisor asked for. */
 const standin = (mode, calls) => (cmd, args, opts) => {
@@ -139,8 +139,10 @@ describe.skipIf(!real)("sentinel-survey for real (Python with numpy on this PC)"
     const a = await measure(cs);
     expect(a.elements.map((m) => judge(m, a.receipt.measure).status)).toEqual(["within_tolerance", "within_tolerance", "within_tolerance"]);
     expect(a.elements.map((m) => [m.p95_mm, m.mean_signed_mm, m.share_within, m.points])).toEqual([
-      [3, 0, { 50: 1, 100: 1, 200: 1 }, 3512], [3, 0, { 50: 1, 100: 1, 200: 1 }, 3523], [3, 0, { 50: 1, 100: 1, 200: 1 }, 2569]]);
+      [3, 0, { 20: 1, 50: 1, 100: 1, 200: 1 }, 3512], [3, 0, { 20: 1, 50: 1, 100: 1, 200: 1 }, 3523], [3, 0, { 20: 1, 50: 1, 100: 1, 200: 1 }, 2569]]);
+    expect(a.elements.every((m) => m.faces.length === 2 && m.faces.every((f) => f.share_within[20] === 1))).toBe(true); // MA-5a-2: each face's own
     const b = await measure(moved);
-    expect([b.elements[0].p95_mm, b.elements[0].share_within, judge(b.elements[0], b.receipt.measure).status]).toEqual([63, { 50: 0, 100: 1, 200: 1 }, "out_of_tolerance"]);
+    expect([b.elements[0].p95_mm, b.elements[0].share_within, judge(b.elements[0], b.receipt.measure).status]).toEqual([63, { 20: 0, 50: 0, 100: 1, 200: 1 }, "out_of_tolerance"]);
+    expect(judge(b.elements[0], b.receipt.measure).reason).toMatch(/^face 1: 0% of its points within 20 mm; face 2: 0% of its points within 20 mm — /);
   }, 60_000);
 });

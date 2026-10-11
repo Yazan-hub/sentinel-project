@@ -820,6 +820,59 @@ class Knobs(unittest.TestCase):
         self.assertEqual([faces_after(2000, 1.0), faces_after(3000, 1.0)], [1, 2])
 
 
+class TrustRules(unittest.TestCase):
+    """MA-5a-2: a hole counted per face, not per overlap; a thickness kept only clear of its faces' scatter (the plan's §0)."""
+
+    def face(self, holes_at, rows=40, cols=60):
+        g = np.ones((rows, cols), bool)
+        for r0, r1, c0, c1 in holes_at:
+            g[r0:r1, c0:c1] = False
+        return {"seg": (0.0, 0.0, cols * pipeline.GRID, 0.0), "len": cols * pipeline.GRID, "grid": g}
+
+    def test_two_holes_on_one_face_overlapping_along_are_one_opening_seen_once(self):
+        # a door and the glazed panel above its transom bar, on a wall seen from one side: never "both faces" (0.5.0 read 2)
+        f = self.face([(0, 21, 20, 30), (23, 34, 20, 30)])
+        (o,) = pipeline.wall_openings([f], (0.0, 0.0, 6000.0, 0.0), 0.0, 4300.0)
+        self.assertEqual(o[0], "door")
+        self.assertEqual(o[-1], 1)
+
+    def test_one_hole_on_each_face_is_seen_twice(self):
+        a, b = self.face([(0, 21, 20, 30)]), self.face([(0, 21, 20, 30)])
+        (o,) = pipeline.wall_openings([a, b], (0.0, 0.0, 6000.0, 0.0), 0.0, 4300.0)
+        self.assertEqual(o[-1], 2)
+
+    def partition(self, sigma, seed=5):
+        # an 80 mm partition across the drill building (x 3960 / 4040, y 1000..5000, the storey's height), its faces' noise sigma mm
+        rng = np.random.default_rng(seed)
+        y, z = np.meshgrid(np.arange(1000, 5000, 50.0), np.arange(0, 2800, 50.0))
+        faces = [np.stack([x + rng.normal(0, sigma, y.size), y.ravel() + rng.uniform(0, 50, y.size), z.ravel() + rng.uniform(0, 50, z.size)], 1) for x in (3960, 4040)]
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            path = os.path.join(tmp, "partition.las")
+            write_las(path, np.concatenate([building(), *faces]))
+            found, _ = pipeline.survey([{"id": "ev-0001", "path": path, "head": las.read_header(path)}], Survey.PARAMS, 1)
+        (w,) = [c for c in found if c["kind"] == "wall" and c["geometry"]["storey"] == "scan-L00-level"
+                and abs(c["geometry"]["LocationCurve"]["start"][0] - 4000) < 100 and abs(c["geometry"]["LocationCurve"]["end"][0] - 4000) < 100]
+        return w
+
+    def test_measure_keeps_a_clean_partitions_thickness_and_withholds_a_scattered_ones(self):
+        # the gate where measure() writes the wall (review): reverting it to always keep the thickness fails the second case
+        clean = self.partition(2.0)
+        self.assertAlmostEqual(clean["measured"]["thickness_mm"], 80, delta=10)
+        self.assertNotIn("faces_apart_mm", clean["measured"])
+        noisy = self.partition(12.0)  # inliers within CELL of each face: a scatter of about 9 mm, so 80 mm apart is under 10 x it
+        self.assertNotIn("thickness_mm", noisy["measured"], noisy)
+        self.assertAlmostEqual(noisy["measured"]["faces_apart_mm"], 80, delta=15)
+        self.assertGreater(10 * noisy["fit"]["rmse_mm"], noisy["measured"]["faces_apart_mm"])
+        self.assertEqual(len(noisy["geometry"]["faces"]), 2)  # still two faces and their centreline
+
+    def test_a_thickness_is_kept_only_ten_times_clear_of_its_scatter(self):
+        self.assertEqual(pipeline.THICK_SCATTER, 10.0)
+        self.assertTrue(pipeline.thickness_trusted(101, 7.2))   # a real 1F partition on Kladno (ratio 14.0)
+        self.assertTrue(pipeline.thickness_trusted(76, 6.0))    # the lowest matched ratio, 12.7 — pinned from above
+        self.assertFalse(pipeline.thickness_trusted(83, 9.6))   # a suspect pair on no traced wall (ratio 8.6) — pinned from below
+        self.assertTrue(pipeline.thickness_trusted(300, 0.0))   # a noiseless synthetic face
+
+
 class Voxel(unittest.TestCase):
     def test_one_point_per_cube_the_first_in_reading_order_as_the_row_sort_gives(self):
         P = np.random.default_rng(3).uniform(-5000, 5000, (20000, 3))
@@ -862,7 +915,7 @@ class Deviation(unittest.TestCase):
 
     def test_a_wall_where_it_was_scanned_is_a_few_mm_off_both_faces_seen_numbers_only(self):
         (m,) = pipeline.deviation(self.P, [self.wall()], self.TOLS)
-        self.assertEqual(set(m), {"guid", "points", "p95_mm", "mean_signed_mm", "share_within", "coverage"})  # no status: the bridge's
+        self.assertEqual(set(m), {"guid", "points", "p95_mm", "mean_signed_mm", "share_within", "coverage", "faces"})  # no status: the bridge's
         self.assertLess(m["p95_mm"], 5.0)  # |N(0, 2)|'s p95 is 3.9 mm
         self.assertLess(abs(m["mean_signed_mm"]), 0.5)
         self.assertEqual(m["share_within"], {"50": 1.0, "100": 1.0, "200": 1.0})
@@ -893,6 +946,29 @@ class Deviation(unittest.TestCase):
         self.assertTrue(250 < m["p95_mm"] < 257, m)
         self.assertTrue(248 < m["mean_signed_mm"] < 252, m)
         self.assertEqual(m["share_within"], {"50": 0.0, "100": 0.0, "200": 0.0})
+
+    def test_each_face_has_its_own_numbers_in_the_order_sent(self):
+        # MA-5a-2: the bridge judges each face (both must pass); the pooled numbers stay
+        (m,) = pipeline.deviation(self.P, [self.wall()], self.TOLS)
+        self.assertEqual(len(m["faces"]), 2)
+        self.assertEqual(sum(f["points"] for f in m["faces"]), m["points"])
+        for f in m["faces"]:
+            self.assertEqual(f["share_within"], {"50": 1.0, "100": 1.0, "200": 1.0})
+            self.assertGreaterEqual(f["coverage"], 0.98)
+
+    def test_a_face_not_scanned_reads_no_point_and_the_other_face_its_own(self):
+        P = self.P[np.abs(self.P[:, 1]) >= 10]  # the south wall's outer face (y 0) not scanned
+        (m,) = pipeline.deviation(P, [self.wall()], self.TOLS)
+        seen = [f for f in m["faces"] if f["points"]]
+        self.assertEqual(len(seen), 1, m["faces"])
+        self.assertEqual([f["points"] > 0 for f in m["faces"]], [True, False])  # in the order sent: wall_faces' first is y 300, the one scanned (review)
+        self.assertEqual(seen[0]["share_within"]["50"], 1.0)
+        empty = [f for f in m["faces"] if not f["points"]][0]
+        self.assertEqual((empty["share_within"], empty["coverage"]), (None, 0.0))
+
+    def test_a_face_without_interior_is_listed_empty(self):
+        (m,) = pipeline.deviation(self.P, [{"guid": "stub", "faces": wall_faces((125, 150), (450, 150), 300, 0, 2800)}], self.TOLS)
+        self.assertEqual(m["faces"], [{"points": 0, "share_within": None, "coverage": None}] * 2)
 
     def test_a_face_under_400_mm_has_no_interior(self):
         (m,) = pipeline.deviation(self.P, [{"guid": "stub", "faces": wall_faces((125, 150), (450, 150), 300, 0, 2800)}], self.TOLS)
@@ -967,7 +1043,7 @@ class Service(unittest.TestCase):
 
     def test_health_answers_only_its_token_and_names_each_tool_with_its_licence(self):
         _, port, version = self.start()
-        self.assertEqual(version, "0.5.0")
+        self.assertEqual(version, "0.6.0")
         self.assertEqual(self.call(port, "GET", "/health", token="nope")[0], 401)
         code, health = self.call(port, "GET", "/health")
         names = [t["name"] for t in health["tools"]]
@@ -1265,6 +1341,9 @@ class Reference(unittest.TestCase):
         self.assertEqual(got, {50: {"tp": 0, "fp": 4, "fn": 3, "tp_unpaired": 0, "f1": 0.0, "completeness": 0.327},
                                100: {"tp": 1, "fp": 3, "fn": 2, "tp_unpaired": 1, "f1": 0.286, "completeness": 0.685}})
         self.assertEqual(r["not_scored"], {"L1": 0})
+        # MA-5a-2 (review): a pair whose thickness was withheld (faces_apart_mm) has two faces — not counted with the one-face walls
+        cands[5] = {**cands[5], "measured": {"faces_apart_mm": 60}}
+        self.assertEqual(reference.score(cands, ref)["walls"][100]["tp_unpaired"], 0)
 
     def test_build_maps_a_trace_to_the_scans_frame_drops_a_stray_click_and_refuses_another_image(self):
         data, side = reference.slice_png(self.path, 900, 1500)

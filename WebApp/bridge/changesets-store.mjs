@@ -9,7 +9,7 @@ import { validateChangeset, attachVerdicts, canWithdraw, deriveResultStatus, una
 import { makeTyper, makeCiter } from "./changesets-typing.mjs";
 import { resolveArtefact, refLabel, validateArtefact } from "./artefact-store.mjs";
 import { resolveActor } from "./bridge-auth.mjs";
-import { readProposeBody, planSurvey, PLANNER, PLANNER_VERSION, measurePlan, judge, measureRefusal, countWords, STATUSES, MIN_COVERAGE, TOLERANCE_MM, MEASURE_KNOBS,
+import { readProposeBody, planSurvey, PLANNER, PLANNER_VERSION, measurePlan, judge, measureRefusal, countWords, STATUSES, MIN_COVERAGE, DEVIATION_MM, FACE_SHARE_MIN, MEASURE_KNOBS,
   readMesh, meshFaces, REVIT, FILED as AS_FILED, toScan, toModel, scanBand, cloudRefusal, SCAN_CELL_MM, SCAN_MAX } from "./survey-plan.mjs";
 import { stillAdmitted, pickItems, trustedJob as jobOf, measureJob as measureOf, TOLERANCES_MM, READER } from "./build-jobs.mjs";
 
@@ -351,7 +351,9 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
     const storeys = plan.storeys.map((p) => {
       const changeset = filed.find((c) => c.job.storey.cid === p.storey.cid)?.id ?? null;
       const held = changeset ? [] : p.exceptions.filter((e) => !e.reason.startsWith("type gap")).map((e) => ({ name: e.name, reason: e.reason }));
-      return { ...storeyRecord(p.storey), changeset, ...(held.length ? { held } : {}) };
+      // MA-5a-2: the doors seen on one face only — neither proposed nor held (survey-plan's door rule), listed so the row says what the job
+      // found and the planner left out
+      return { ...storeyRecord(p.storey), changeset, ...(held.length ? { held } : {}), ...(p.once.length ? { doors_seen_once: p.once } : {}) };
     });
     const gaps = { groups: plan.groups.length, elements: n, ledger: ledgerRef(gapRow) };
     // The planner run's own build:run row (design :832) — never mistaken for the job's (decision 11's prefix is `· sentinel-survey `).
@@ -448,7 +450,9 @@ export async function verifyChangeset(key, b, actor, deps = {}) {
     if (!m) return { ...p, status: "not_measured", basis: "deviation", reason: why.get(p.proposal_guid) };
     // Only the five numbers (measureRefusal let no other key through), shares at the bridge's own tolerances; the verdict last, the bridge's.
     const nums = { points: m.points, p95_mm: m.p95_mm, mean_signed_mm: m.mean_signed_mm, coverage: m.coverage,
-      share_within: m.points ? Object.fromEntries(TOLERANCES_MM.map((t) => [String(t), m.share_within[t]])) : null };
+      share_within: m.points ? Object.fromEntries(TOLERANCES_MM.map((t) => [String(t), m.share_within[t]])) : null,
+      // MA-5a-2: each face's own numbers, the per-face verdict's (measureRefusal checked them)
+      faces: m.faces.map((f) => ({ points: f.points, coverage: f.coverage, share_within: f.points ? Object.fromEntries(TOLERANCES_MM.map((t) => [String(t), f.share_within[t]])) : null })) };
     return { ...p, ...nums, ...judge(m, knobs), basis: "deviation" };
   });
   const counts = Object.fromEntries(STATUSES.map((s) => [s, elements.filter((e) => e.status === s).length]));
@@ -459,7 +463,7 @@ export async function verifyChangeset(key, b, actor, deps = {}) {
     placed_by: { reported_by: cs.result?.reported_by ?? null, reported_role: cs.result?.reported_role ?? null }, faces_sha256: faces,
     status, job: { id: cs.job.id, ledger_id: row.ledger.id, result_sha256: row.result_sha256, version: row.version ?? null },
     evidence, reader: READER, version: r.version ?? null, tools: r.tools ?? [], params: row.params, seed: row.seed,
-    tolerances_mm: TOLERANCES_MM, target_mm: TOLERANCE_MM, min_coverage: MIN_COVERAGE, measure: knobs,
+    tolerances_mm: TOLERANCES_MM, deviation: { within_mm: DEVIATION_MM, face_share_min: FACE_SHARE_MIN, per: "face" }, min_coverage: MIN_COVERAGE, measure: knobs,
     // MA-4f: Revit's re-read where the add-in sent one the bridge could reduce ("revit (claimed)"), else as filed, or "mixed"; the frame is the lead's statement.
     reference, frame: cs.job.frame, storey: { level: s.level ?? null, how: s.how ?? null, checked: s.checked ?? null, delta_mm: s.delta_mm ?? null },
     sign: "+ = the scan outside the element's face", started: when(rc.started), finished: when(rc.finished), cpu_s: num(rc.cpu_s),
