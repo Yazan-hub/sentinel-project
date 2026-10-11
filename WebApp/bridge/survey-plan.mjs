@@ -278,16 +278,19 @@ export function planSurvey({ job, candidates, frame, levels: named = {}, manifes
     // Every wall's facts and gap first, so a wall trimmed to a gap's centreline can say so (the corner closes once the gap is placed).
     const typed = walls.map((c, i) => {
       const t = c.measured.thickness_mm;
-      if (!Number.isFinite(t)) return { gap: Number.isFinite(c.measured.faces_apart_mm)
-        ? { category: "Walls", want: null, size: NOT_TRUSTED, key: `its two faces ${c.measured.faces_apart_mm} mm apart against a ${c.fit?.rmse_mm} mm fit scatter — too close to trust a thickness`, nearest: [] }
-        : { category: "Walls", want: null, size: NOT_MEASURED, key: "one face seen", nearest: [] } };
+      // MA-5a-2 (review): the group's key is the same for every such wall (a Holding Area group shows its first key); each wall's numbers ride
+      // on its own exception and on the holds of its openings
+      if (!Number.isFinite(t)) return Number.isFinite(c.measured.faces_apart_mm)
+        ? { gap: { category: "Walls", want: null, size: NOT_TRUSTED, key: "two faces too close for their fit scatter to trust a thickness", nearest: [] },
+          apart: `its two faces ${c.measured.faces_apart_mm} mm apart against a ${c.fit?.rmse_mm} mm fit scatter` }
+        : { gap: { category: "Walls", want: null, size: NOT_MEASURED, key: "one face seen", nearest: [] } };
       const loc = locate(segs, i), facts = { thickness_mm: t, ...(loc.location ? { params: { Location: loc.location } } : {}) };
       return { facts, loc, gap: gapOf(type, "wall", facts, c.cid, loc.why) };
     });
     walls.forEach((c, i) => {
       if (again(c)) return;
-      const { facts, loc, gap: g } = typed[i];
-      if (g) return gap(c, g);
+      const { facts, loc, gap: g, apart } = typed[i];
+      if (g) return gap(c, g, apart ? `its thickness is not trusted (${apart})` : null);
       const tr = trimmed[i].trim_mm;
       const toGap = trimmed[i].to.map((j, k) => (j != null && typed[j].gap ? `the ${k ? "end" : "start"} to ${walls[j].cid}'s centreline: a type gap, not placed` : null)).filter(Boolean);
       elements.push({ op: "create", kind: "wall", cid: c.cid, evidence: c.evidence, facts, validate: { identity: { Class: KIND_ENTITY.wall, Name: c.cid } },
@@ -304,7 +307,7 @@ export function planSurvey({ job, candidates, frame, levels: named = {}, manifes
     for (const c of mine.filter((x) => x.kind === "door" || x.kind === "window")) {
       if (again(c)) continue;
       // MA-5a-2 (the founder's call, plan §0): a door is proposed only when its hole shows in both faces of its wall — on Kladno the doors
-      // seen on one face were 3 real in 25 on two-face walls and 1 in 22 on one-face walls; a closed leaf or furniture reads the same. A
+      // seen on one face were 3 real in 22 on two-face walls and 1 in 22 on one-face walls; a closed leaf or furniture reads the same. A
       // window is not filtered: a façade's windows are seen from inside only. ponytail: a closed door in a thick wall is not proposed (all 3
       // real doors lost were in 338-509 mm walls) — a person draws it.
       if (c.kind === "door" && !((c.fit?.faces_seen ?? 0) >= 2)) { once.push(c.cid); continue; }
@@ -320,7 +323,7 @@ export function planSurvey({ job, candidates, frame, levels: named = {}, manifes
       if (typed[hi].gap && !filed.cids.has(host)) {
         const hg = typed[hi].gap;
         hold(hg.size === NOT_MEASURED ? `its host wall ${host} was seen on one face only, so it is never typed — a person draws the wall and this ${c.kind}`
-          : hg.size === NOT_TRUSTED ? `its host wall ${host}'s thickness is not trusted (${hg.key}), so it is never typed — a person draws the wall and this ${c.kind}`
+          : hg.size === NOT_TRUSTED ? `its host wall ${host}'s thickness is not trusted (${typed[hi].apart}), so it is never typed — a person draws the wall and this ${c.kind}`
           : `its host wall ${host} is a type gap — propose the job again once the wall's group in the Holding Area closes`);
         continue;
       }
@@ -504,9 +507,11 @@ export function judge(m, k) {
   if (m.coverage < MIN_COVERAGE) return { status: "insufficient_data", reason: `${Math.round(m.coverage * 1000) / 10}% of its faces seen — under the ${MIN_COVERAGE * 100}% a verdict needs` };
   // MA-5a-2: every face with an interior must hold FACE_SHARE_MIN of its own points within DEVIATION_MM (a face with an interior and no point
   // within the band is out); a face without an interior is not judged
-  const pct = (v) => `${Math.round(v * 100)}%`;
+  // a share rounded down (review): 0.196 reads 19%, never the 20% it failed to reach
+  const pct = (v) => `${Math.floor(Math.round(v * 1000) / 10)}%`;
   const off = m.faces.map((f, i) => ({ f, i })).filter(({ f }) => f.coverage != null && (!f.points || f.share_within[DEVIATION_MM] < FACE_SHARE_MIN));
-  if (!off.length) return { status: "within_tolerance" };
+  // the limits ride on a pass too (review): a pass is where they matter — a thin partition moved by its own thickness reads within
+  if (!off.length) return { status: "within_tolerance", reason: DEV_LIMITS };
   return { status: "out_of_tolerance", reason: off.map(({ f, i }) => `face ${i + 1}: ${f.points ? `${pct(f.share_within[DEVIATION_MM])} of its points within ${DEVIATION_MM} mm` : `no scan point within ${k.band_mm} mm`}`).join("; ") +
     ` — each face needs ${pct(FACE_SHARE_MIN)} (${DEV_LIMITS})` };
 }
@@ -542,7 +547,8 @@ export function measureRefusal(res, send, tols) {
     const fs = m.faces;
     if (!Array.isArray(fs) || fs.length !== (send[i].faces?.length ?? -1)
         || fs.some((f) => !f || typeof f !== "object" || Object.keys(f).some((x) => !FACE_KEYS.has(x)) || !Number.isInteger(f.points) || f.points < 0
-          || (f.coverage !== null && !share(f.coverage)) || (f.points > 0 ? !tols.every((t) => share(f.share_within?.[t])) : f.share_within != null))
+          || (f.coverage !== null && !share(f.coverage)) || (f.points > 0 && f.coverage === null) // points mean an interior (review)
+          || (f.points > 0 ? !tols.every((t) => share(f.share_within?.[t])) : f.share_within != null))
         || fs.reduce((n, f) => n + f.points, 0) !== m.points) return `${at}.faces`;
   }
   return null;

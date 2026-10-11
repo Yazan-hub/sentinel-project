@@ -198,11 +198,11 @@ describe("MA-5a — a scan door or window: after its storey's walls, on its host
     const cands = RESULT.candidates.map((c) => (c.cid === host ? { ...c, measured: { length_mm: c.measured.length_mm, height_mm: c.measured.height_mm, faces_apart_mm: 70 }, fit: { ...c.fit, rmse_mm: 9 } } : c));
     const p = planSurvey({ job: JOB, candidates: [...cands, DOOR], frame: EAST, levels: { "scan-L00-level": "GR-FFL" },
       manifest: [{ name: "GR-FFL", elevation_mm: 0, from: "ARC.ifc P01" }], type, catalog: SIZE, sameCategory: core.sameCategory });
-    const key = "its two faces 70 mm apart against a 9 mm fit scatter — too close to trust a thickness";
-    expect(p.groups.find((g) => g.size === "thickness not trusted")).toMatchObject({ category: "Walls", want: null, key, elements: 1, labels: [`GR-FFL · ${host}`] });
-    const ex = p.storeys[0].exceptions;
-    expect(ex.find((e) => e.unique_id === host).reason).toBe(`type gap — its thickness is not trusted (${key}); it waits in the Holding Area`);
-    expect(ex.find((e) => e.unique_id === DOOR.cid).reason).toBe(`its host wall ${host}'s thickness is not trusted (${key}), so it is never typed — a person draws the wall and this door`);
+    // review: the group's key is the same for every such wall; each wall's numbers ride on its own exception and its openings' holds
+    expect(p.groups.find((g) => g.size === "thickness not trusted")).toMatchObject({ category: "Walls", want: null, key: "two faces too close for their fit scatter to trust a thickness", elements: 1, labels: [`GR-FFL · ${host}`] });
+    const ex = p.storeys[0].exceptions, apart = "its two faces 70 mm apart against a 9 mm fit scatter";
+    expect(ex.find((e) => e.unique_id === host).reason).toBe(`type gap — its thickness is not trusted (${apart}); it waits in the Holding Area`);
+    expect(ex.find((e) => e.unique_id === DOOR.cid).reason).toBe(`its host wall ${host}'s thickness is not trusted (${apart}), so it is never typed — a person draws the wall and this door`);
   });
 
   it("typed by size: after the walls, on the host's trimmed line at the level, a window's sill; the trust record says bridge-size, framing, never pre-ticked", () => {
@@ -378,12 +378,14 @@ describe("MA-4e — a placed wall as filed, back in the scan's frame; the bridge
     const F = (points, s) => ({ points, coverage: 0.9, share_within: { 20: s, 50: 1, 100: 1, 200: 1 } });
     const M = (faces, o = {}) => ({ points: faces.reduce((n, f) => n + f.points, 0), p95_mm: 300, coverage: 0.999, faces, ...o });
     expect([DEVIATION_MM, FACE_SHARE_MIN]).toEqual([20, 0.2]); // measured on Kladno (plan Task 0): 20 mm at 0.2 — in place 95 of 99 within
-    expect(judge(M([F(1800, 0.97), F(1712, 0.95)]), K)).toEqual({ status: "within_tolerance" }); // p95 300 mm: clutter in the band no longer decides
-    expect(judge(M([F(1800, 0.2), F(1712, 0.2)]), K)).toEqual({ status: "within_tolerance" }); // at the threshold
+    const LIM = "this check misses most 20 mm offsets, and a thin partition moved by its own thickness can pass";
+    expect(judge(M([F(1800, 0.97), F(1712, 0.95)]), K)).toEqual({ status: "within_tolerance", reason: LIM }); // p95 300 mm: clutter in the band no longer decides; the limits on a pass (review)
+    expect(judge(M([F(1800, 0.2), F(1712, 0.2)]), K)).toEqual({ status: "within_tolerance", reason: LIM }); // at the threshold
+    expect(judge(M([F(1800, 0.97), F(1712, 0.196)]), K).reason).toMatch(/^face 2: 19% of its points within 20 mm — each face needs 20% /); // rounded down (review)
     expect(judge(M([F(1800, 0.97), F(1712, 0.1)]), K)).toEqual({ status: "out_of_tolerance",
       reason: "face 2: 10% of its points within 20 mm — each face needs 20% (this check misses most 20 mm offsets, and a thin partition moved by its own thickness can pass)" });
     expect(judge(M([F(1800, 0.97), { points: 0, coverage: 0, share_within: null }]), K).reason).toMatch(/^face 2: no scan point within 400 mm — each face needs 20% /);
-    expect(judge(M([F(1800, 0.97), { points: 0, coverage: null, share_within: null }]), K)).toEqual({ status: "within_tolerance" }); // no interior: not judged
+    expect(judge(M([F(1800, 0.97), { points: 0, coverage: null, share_within: null }]), K)).toEqual({ status: "within_tolerance", reason: LIM }); // no interior: not judged
     expect(judge(M([F(1800, 1), F(1712, 1)], { coverage: 0.2 }), K)).toEqual({ status: "insufficient_data", reason: "20% of its faces seen — under the 25% a verdict needs" });
     expect(judge({ points: 0, p95_mm: null, coverage: 0, faces: [] }, K)).toEqual({ status: "missing", reason: "no scan point within 400 mm of its faces — not built where it stands, or not scanned there" });
     expect(judge({ points: 0, p95_mm: null, coverage: null, faces: [] }, K)).toEqual({ status: "not_measured", reason: "no face interior to measure — each face is read 200 mm in from every edge" });
@@ -416,8 +418,9 @@ describe("MA-4e — a placed wall as filed, back in the scan's frame; the bridge
       measureRefusal(el({ mean_signed_mm: null }), send, T)]).toEqual(Array(5).fill("elements[0]'s numbers"));
     // MA-5a-2: each face's numbers — one per face sent, in range, adding up, no verdict of their own
     expect([el({ faces: undefined }), el({ faces: [FS[0]] }), el({ faces: [FS[0], { ...FS[1], points: 2 }] }), el({ faces: [{ ...FS[0], share_within: { ...SW, 20: 1.5 } }, FS[1]] }),
-      el({ faces: [FS[0], { ...FS[1], share_within: { 50: 1 } }] }), el({ faces: [FS[0], { ...FS[1], status: "within_tolerance" }] }), el({ faces: [FS[0], { ...FS[1], coverage: 2 }] })]
-      .map((r) => measureRefusal(r, send, T))).toEqual(Array(7).fill("elements[0].faces"));
+      el({ faces: [FS[0], { ...FS[1], share_within: { 50: 1 } }] }), el({ faces: [FS[0], { ...FS[1], status: "within_tolerance" }] }), el({ faces: [FS[0], { ...FS[1], coverage: 2 }] }),
+      el({ faces: [FS[0], { ...FS[1], coverage: null }] })] // points with no interior: judge would skip the face (review)
+      .map((r) => measureRefusal(r, send, T))).toEqual(Array(8).fill("elements[0].faces"));
   });
 });
 

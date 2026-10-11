@@ -841,6 +841,30 @@ class TrustRules(unittest.TestCase):
         (o,) = pipeline.wall_openings([a, b], (0.0, 0.0, 6000.0, 0.0), 0.0, 4300.0)
         self.assertEqual(o[-1], 2)
 
+    def partition(self, sigma, seed=5):
+        # an 80 mm partition across the drill building (x 3960 / 4040, y 1000..5000, the storey's height), its faces' noise sigma mm
+        rng = np.random.default_rng(seed)
+        y, z = np.meshgrid(np.arange(1000, 5000, 50.0), np.arange(0, 2800, 50.0))
+        faces = [np.stack([x + rng.normal(0, sigma, y.size), y.ravel() + rng.uniform(0, 50, y.size), z.ravel() + rng.uniform(0, 50, z.size)], 1) for x in (3960, 4040)]
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            path = os.path.join(tmp, "partition.las")
+            write_las(path, np.concatenate([building(), *faces]))
+            found, _ = pipeline.survey([{"id": "ev-0001", "path": path, "head": las.read_header(path)}], Survey.PARAMS, 1)
+        (w,) = [c for c in found if c["kind"] == "wall" and c["geometry"]["storey"] == "scan-L00-level"
+                and abs(c["geometry"]["LocationCurve"]["start"][0] - 4000) < 100 and abs(c["geometry"]["LocationCurve"]["end"][0] - 4000) < 100]
+        return w
+
+    def test_measure_keeps_a_clean_partitions_thickness_and_withholds_a_scattered_ones(self):
+        # the gate where measure() writes the wall (review): reverting it to always keep the thickness fails the second case
+        clean = self.partition(2.0)
+        self.assertAlmostEqual(clean["measured"]["thickness_mm"], 80, delta=10)
+        self.assertNotIn("faces_apart_mm", clean["measured"])
+        noisy = self.partition(12.0)  # inliers within CELL of each face: a scatter of about 9 mm, so 80 mm apart is under 10 x it
+        self.assertNotIn("thickness_mm", noisy["measured"], noisy)
+        self.assertAlmostEqual(noisy["measured"]["faces_apart_mm"], 80, delta=15)
+        self.assertGreater(10 * noisy["fit"]["rmse_mm"], noisy["measured"]["faces_apart_mm"])
+        self.assertEqual(len(noisy["geometry"]["faces"]), 2)  # still two faces and their centreline
+
     def test_a_thickness_is_kept_only_ten_times_clear_of_its_scatter(self):
         self.assertEqual(pipeline.THICK_SCATTER, 10.0)
         self.assertTrue(pipeline.thickness_trusted(101, 7.2))   # a real 1F partition on Kladno (ratio 14.0)
@@ -937,6 +961,7 @@ class Deviation(unittest.TestCase):
         (m,) = pipeline.deviation(P, [self.wall()], self.TOLS)
         seen = [f for f in m["faces"] if f["points"]]
         self.assertEqual(len(seen), 1, m["faces"])
+        self.assertEqual([f["points"] > 0 for f in m["faces"]], [True, False])  # in the order sent: wall_faces' first is y 300, the one scanned (review)
         self.assertEqual(seen[0]["share_within"]["50"], 1.0)
         empty = [f for f in m["faces"] if not f["points"]][0]
         self.assertEqual((empty["share_within"], empty["coverage"]), (None, 0.0))
@@ -1316,6 +1341,9 @@ class Reference(unittest.TestCase):
         self.assertEqual(got, {50: {"tp": 0, "fp": 4, "fn": 3, "tp_unpaired": 0, "f1": 0.0, "completeness": 0.327},
                                100: {"tp": 1, "fp": 3, "fn": 2, "tp_unpaired": 1, "f1": 0.286, "completeness": 0.685}})
         self.assertEqual(r["not_scored"], {"L1": 0})
+        # MA-5a-2 (review): a pair whose thickness was withheld (faces_apart_mm) has two faces — not counted with the one-face walls
+        cands[5] = {**cands[5], "measured": {"faces_apart_mm": 60}}
+        self.assertEqual(reference.score(cands, ref)["walls"][100]["tp_unpaired"], 0)
 
     def test_build_maps_a_trace_to_the_scans_frame_drops_a_stray_click_and_refuses_another_image(self):
         data, side = reference.slice_png(self.path, 900, 1500)

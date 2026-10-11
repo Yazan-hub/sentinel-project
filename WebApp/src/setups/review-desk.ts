@@ -308,7 +308,9 @@ export function measureWords(m: Measured, rec: { target_mm?: number; deviation?:
   // MA-5a-2: a row that names its per-face rule says it and each face's share at it; an older row keeps p95 against its target
   const rule = dv ? ` (each face ${pct(dv.face_share_min)} within ${dv.within_mm} mm)` : ` (${rec.target_mm ?? 20} mm, p95)`;
   const at = dv ? String(dv.within_mm) : null;
-  const faces = at && m.faces?.some((f) => f.share_within) ? [`faces within ${at} mm: ${m.faces.map((f) => (f.share_within ? pct(f.share_within[at]) : "—")).join(" / ")}`] : [];
+  // a face's share rounded down (review): 0.196 reads 19%, never the 20% its verdict says it missed
+  const down = (v: number) => `${Math.floor(Math.round(v * 1000) / 10)}%`;
+  const faces = at && m.faces?.some((f) => f.share_within) ? [`faces within ${at} mm: ${m.faces.map((f) => (f.share_within ? down(f.share_within[at]) : "—")).join(" / ")}`] : [];
   const sw = m.share_within ? Object.entries(m.share_within).filter(([t]) => t !== at) : null;
   return [`${m.status.replace(/_/g, " ")}${judged ? rule : ""}`, ...faces,
     ...(m.p95_mm != null ? [`p95 ${m.p95_mm} mm`] : []),

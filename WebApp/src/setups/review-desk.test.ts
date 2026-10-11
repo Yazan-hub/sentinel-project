@@ -386,6 +386,8 @@ describe("measured against the scan (MA-4e)", () => {
     expect(measureWords({ ...FACES, status: "out_of_tolerance", faces: [FACES.faces[0], { points: 0, coverage: 0, share_within: null }], reason: "face 2: no scan point within 400 mm" }, { deviation: DEV }))
       .toBe("out of tolerance (each face 20% within 20 mm) · faces within 20 mm: 97% / — · p95 3 mm · mean 0 mm (+ = the scan outside it) · 100% of its faces seen · within 50 / 100 / 200 mm: 100% / 100% / 100% · 3512 points · face 2: no scan point within 400 mm");
     expect(measureWords(IN, { target_mm: 20 })).toBe(measureWords(IN)); // an old row
+    expect(measureWords({ ...FACES, faces: [FACES.faces[0], { points: 1712, coverage: 1, share_within: { ...SW, 20: 0.196 } }] }, { deviation: DEV }))
+      .toContain(" · faces within 20 mm: 97% / 19% · "); // rounded down (review): never "20%" under a verdict that says it missed 20%
   });
   it("verifiedView: the head — as filed, who reported the placement, the counts or why it did not finish, its row, when, who — and a line per placed element; null never measured; a failed read said", () => {
     const cs = { id: A, name: "Survey job-0002 · GR-FFL", source: "sentinel-survey 0.1.0", status: "applied", created_at: "", elements: [W] } as PendingChangeset;
@@ -398,6 +400,12 @@ describe("measured against the scan (MA-4e)", () => {
     expect(verifiedView(cs, { ...rec, placed_by: { reported_by: "revit", reported_role: "service" } })!.head)
       .toContain(" · placed as Revit reported (by revit) — the machine credential's report · ");
     expect(verifiedView(cs, null)).toBeNull();
+    // MA-5a-2 (review): a new row's per-face rule reaches each line — never the old "(20 mm, p95)" on a per-face verdict
+    const DEV = { within_mm: 20, face_share_min: 0.2 }, SW = { 20: 0.97, 50: 1, 100: 1, 200: 1 };
+    const PF: Measured = { ...IN, share_within: SW, faces: [{ points: 1800, coverage: 1, share_within: SW }, { points: 1712, coverage: 1, share_within: SW }] };
+    const lines = verifiedView(cs, { ...rec, target_mm: undefined, deviation: DEV, elements: [PF] })!.lines;
+    expect(lines[0].words).toBe(measureWords(PF, { deviation: DEV }));
+    expect(lines[0].words).toMatch(/^within tolerance \(each face 20% within 20 mm\) · faces within 20 mm: 97% \/ 97% · /);
     expect(verifiedView(cs, { ...rec, status: "failed", error: "the survey took longer than 10 min — it was stopped; nothing it found was kept", elements: [] })!.head)
       .toBe(`${AS_FILED} · did not finish — the survey took longer than 10 min — it was stopped; nothing it found was kept · ledger #2300 · 2026-10-09 10:00 UTC · by lead@example.test`);
     expect(verifiedView(cs, new Error("not read — HTTP 500"))).toEqual({ head: "Measure not read — HTTP 500", lines: [] });

@@ -252,7 +252,8 @@ def level_error(cands, ref):
 def score(cands, ref):
     """Wall F1 at DS against the reference. Scored: each traced storey's walls against its matched level's candidate walls (all false
     negatives when it was missed), and an extra level's candidate walls (false positives: a person would delete them). A storey not
-    traced (walls null) has its level's candidates counted, not scored. A candidate with no thickness_mm is one face, half a thickness off
+    traced (walls null) has its level's candidates counted, not scored. A candidate with no thickness_mm (and, MA-5a-2, no faces_apart_mm:
+    a pair whose thickness was withheld still has two faces) is one face, half a thickness off
     its centreline: its true positives are counted apart (tp_unpaired). completeness: the share of reference length within d of a
     candidate; correctness: the share of candidate length within d of a reference wall.
     -> {levels: level_error's, walls: {d: {tp, fp, fn, tp_unpaired, p, r, f1, completeness, correctness, storeys: {name: {...}}}}, not_scored}"""
@@ -270,7 +271,7 @@ def score(cands, ref):
         for name, R, C in groups:
             S = [seg(c) for c in C]
             m = match(S, R, d)
-            row = {"tp": len(m), "fp": len(C) - len(m), "fn": len(R) - len(m), "tp_unpaired": sum("thickness_mm" not in C[i]["measured"] for i, _ in m)}
+            row = {"tp": len(m), "fp": len(C) - len(m), "fn": len(R) - len(m), "tp_unpaired": sum("thickness_mm" not in C[i]["measured"] and "faces_apart_mm" not in C[i]["measured"] for i, _ in m)}
             per[name] = {**row, **prf(row)}
             for k in total:
                 total[k] += row[k]
