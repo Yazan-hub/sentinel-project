@@ -18,10 +18,10 @@ const UNTYPED = ["level", "grid", "room"];
  *  Revit UniqueId (Promote) — a door or window keeps its host: ChangeTypeId to a symbol of the same category; attach re-tops
  *  an existing wall. An element without op is a create. MA-2c: set_parameter writes one value on an existing TYPE, named by its
  *  UniqueId, from a cited source the bridge checks (value_source) — [BP] P2-7's item, built once. */
-export const OPS = ["create", "retype", "attach", "set_parameter"];
+export const OPS = ["create", "retype", "attach", "set_parameter", "reshape"];
 /** The kinds each op takes. */
 export const OP_KINDS = { create: VOCABULARY, retype: ["wall", "floor", "roof", "ceiling", "door", "window"], attach: ["wall"],
-  set_parameter: ["wall", "floor", "roof", "ceiling", "door", "window"] };
+  set_parameter: ["wall", "floor", "roof", "ceiling", "door", "window"], reshape: ["wall"] };
 export const MAX_CHANGESET_ELEMENTS = 200;
 export const MAX_CHANGESET_EXCEPTIONS = 1000;
 export const MAX_BOUNDARY_POINTS = 256;
@@ -57,7 +57,7 @@ const ELEMENT_FIELDS = ["kind", "op", "target", "reason", "validate", "place", "
 // name for name; a key added to one must be added to the other, or it is listed under `ignored` and not kept.
 const PLACE_KEPT = ["TypeName", "LevelName", "LocationCurve", "LocationLoop", "BaseElevation", "TopElevation", "Name", "BaseLevel", "TopLevel",
   "FamilyName", "Location", "SillHeight", "FlipFacing", "FlipHand", "Rotation", "Mirrored", "Boundary", "BaseOffset", "Offset", "Mark", "Structural", "Number"];
-const TARGET_KEPT = ["unique_id", "type_before"];
+const TARGET_KEPT = ["unique_id", "type_before", "placed"];
 const VALIDATE_KEPT = ["identity", "psets", "quantities"];
 const MAX_EVIDENCE = 50; // review amendment C4: contract 2's evidence ids on one element
 const SET_BY_BRIDGE = "ignored: set by the bridge";
@@ -367,6 +367,17 @@ export function validateChangeset(body, { member = false, type = null, cite = nu
       for (const f of Object.keys(PLACE_FIELDS))
         if (p[f] !== undefined && !(f === "FamilyName" && (op === "retype" || op === "set_parameter") && PLACE_FIELDS.FamilyName.includes(el.kind)))
           throw err(400, `${at}: ${op} takes no place.${f} — only a create sets it`);
+      // MA-5b-4 (C13b): reshape moves an existing wall's location line to where a revised drawing draws it — only the bridge builds one
+      // (from a job, revises), and its stale guard is where the wall was placed: Revit keeps a wall edited since, and says so
+      if (op === "reshape") {
+        if (!job) throw err(400, `${at}: a reshape is the bridge's — it is proposed from a revised drawing (revises), never posted`);
+        if (before !== null) throw err(400, `${at}: reshape takes no target.type_before — its stale guard is target.placed`);
+        const c = place.LocationCurve, w = el.target.placed;
+        if (!isBlock(c) || !point(c.start) || !point(c.end) || c.start.every((v, i) => v === c.end[i]) || c.mid !== undefined)
+          throw err(400, `${at}: reshape needs place.LocationCurve, a straight finite [x,y,z] start and end apart`);
+        if (!isBlock(w) || !point(w.start) || !point(w.end)) throw err(400, `${at}: reshape needs target.placed {start, end} — where the wall was placed (its stale guard)`);
+        if (place.TypeName !== undefined) throw err(400, `${at}: reshape keeps the wall's type — a retype is its own ghost`);
+      }
       if (op === "set_parameter") {
         if (before !== null) throw err(400, `${at}: set_parameter takes no target.type_before — its stale guard is from`);
         written = checkWrite(el, place, at, cite);
@@ -387,7 +398,8 @@ export function validateChangeset(body, { member = false, type = null, cite = nu
       // Optional (a changeset filed by an older add-in has none); a malformed one is a 400 in words; it is kept as sent, never derived.
       const guid = el.target.ifc_guid ?? null;
       if (guid !== null && (typeof guid !== "string" || !IFC_GUID.test(guid))) throw err(400, `${at}: target.ifc_guid must be an IFC GlobalId — 22 characters of its alphabet — when it is sent`);
-      target = { unique_id: uid, type_before: before, ...(guid ? { ifc_guid: guid } : {}) };
+      target = { unique_id: uid, type_before: before, ...(guid ? { ifc_guid: guid } : {}),
+        ...(op === "reshape" ? { placed: { start: el.target.placed.start, end: el.target.placed.end } } : {}) };
     }
     if (el.reason != null && !text(el.reason, 500)) throw err(400, `${at}: reason must be text of at most 500 characters`);
     if (validate.psets !== undefined && !Array.isArray(validate.psets)) throw err(400, `${at}: validate.psets must be an array`);
@@ -680,6 +692,12 @@ export function carryKey(el) {
   if (el.op === "retype") return name(p.TypeName) ? JSON.stringify([...head, name(p.TypeName), name(p.FamilyName)]) : null;
   if (el.op === "attach") return name(p.BaseLevel) && name(p.TopLevel) ? JSON.stringify([...head, name(p.BaseLevel), name(p.TopLevel)]) : null;
   if (el.op === "set_parameter") return one(el.parameter) && typeof el.to === "string" ? JSON.stringify([...head, name(el.parameter), el.to]) : null;
+  // MA-5b-4 review: a reshape is the same change when it moves the same wall from the same placed line to the same line (to the mm)
+  if (el.op === "reshape") {
+    const mm = (q) => (Array.isArray(q) && q.length === 3 && q.every(Number.isFinite) ? q.map(Math.round) : null);
+    const k = [mm(el.target?.placed?.start), mm(el.target?.placed?.end), mm(p.LocationCurve?.start), mm(p.LocationCurve?.end)];
+    return k.every(Boolean) ? JSON.stringify([...head, ...k]) : null;
+  }
   return null;
 }
 

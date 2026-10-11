@@ -9,6 +9,23 @@ namespace Sentinel.GhostBuilder;
 
 public static class PlacementGeometry
 {
+    /// <summary>MA-5b-4 (C13b): a reshape's stale guard — does a wall whose ends are now (x0, y0)-(x1, y1) mm still stand on the line it
+    /// was placed on (start, end mm): both ends within tol of that line, parallel, and overlapping at least half of it? Its ENDS may have
+    /// moved along the line: Revit's corner joins stretch a neighbour's end when a person moves a wall (review: the east wall would read
+    /// "edited by hand" when only the north wall was moved). ponytail: a person who dragged an end along the line is not told from a
+    /// join — the revised drawing redraws that extent anyway. Pure.</summary>
+    public static bool AsPlaced(double x0, double y0, double x1, double y1, double[] start, double[] end, double tolMm)
+    {
+        double ex = end[0] - start[0], ey = end[1] - start[1], L = Math.Sqrt(ex * ex + ey * ey);
+        if (L < 1e-9) return false;
+        double ux = ex / L, uy = ey / L;
+        double Off(double x, double y) => Math.Abs(-(x - start[0]) * uy + (y - start[1]) * ux);
+        double Along(double x, double y) => (x - start[0]) * ux + (y - start[1]) * uy;
+        if (Off(x0, y0) > tolMm || Off(x1, y1) > tolMm) return false;
+        double a = Math.Min(Along(x0, y0), Along(x1, y1)), b = Math.Max(Along(x0, y0), Along(x1, y1));
+        return Math.Min(b, L) - Math.Max(a, 0) >= 0.5 * L;
+    }
+
     /// <summary>How far a door's or window's point may lie from its host wall's location line (mm): the proposal puts it ON
     /// the line, this absorbs rounding only.</summary>
     public const double HostTolMm = 1.0;

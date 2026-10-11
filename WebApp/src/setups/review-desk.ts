@@ -32,7 +32,7 @@ export interface DeskJob {
 }
 export interface Ghost {
   proposal_guid: string; kind: string; op?: string | null;
-  target?: { unique_id?: string; type_before?: string; ifc_guid?: string | null } | null;
+  target?: { unique_id?: string; type_before?: string; ifc_guid?: string | null; placed?: { start: number[]; end: number[] } } | null;
   place?: { TypeName?: string; FamilyName?: string; LevelName?: string; BaseLevel?: string; TopLevel?: string; Name?: string } | null;
   validate?: { identity?: { Name?: string } } | null;
   parameter?: string; from?: string; to?: string;
@@ -111,6 +111,8 @@ export function ghostLine(el: Ghost): string {
   switch (el.op) {
     case "retype": return `${name} · ${el.target?.type_before ?? "?"} → ${type}`;
     case "attach": return `${name} · ${el.place?.BaseLevel ?? "?"} → top ${el.place?.TopLevel ?? "?"}`;
+    // MA-5b-4: a placed wall moved to the revised drawing's line — Revit keeps one a person edited since it was placed
+    case "reshape": return `${name} · reshape ${el.target?.unique_id ?? "?"} to the revised drawing's line (kept as it stands if edited by hand since placed)`;
     case "set_parameter": return `${type} · ${el.parameter} "${el.from ?? ""}" → "${el.to ?? ""}" (a type edit: it reaches every element of the type)`;
     // MA-5b-1: a room reads its number, then its name (Revit's review row: room: 101 · OFFICE · its level)
     default: return `${name}${el.place?.Name && el.place.Name !== name ? " · " + el.place.Name : ""}${el.place?.TypeName ? " · " + type : ""}${el.place?.LevelName ? " · " + el.place.LevelName : ""}`;
@@ -396,7 +398,11 @@ export function highlightPlan(ghosts: Ghost[], found: Map<string, (number | null
   const typeEdits = ghosts.filter((g) => g.op === "set_parameter").length;
   const typeWords = typeEdits ? `; ${typeEdits} type edit(s) are not highlighted (a type has no geometry)` : "";
   const withoutGuid = changes.length - changes.filter((g) => g.target?.ifc_guid).length;
-  if (!guids.length) return { map: {}, guids, words: withoutGuid > 0
+  // MA-5b-4 review: a drawing revision's reshape names its wall by Revit id only (the bridge has no IFC GlobalId for it)
+  const reshapes = changes.filter((g) => g.op === "reshape" && !g.target?.ifc_guid).length;
+  if (!guids.length) return { map: {}, guids, words: reshapes > 0 && reshapes === withoutGuid
+    ? "Nothing to highlight: a drawing revision's reshape names its wall by Revit id, not IFC GlobalId — select it in Revit (Show in the review window)."
+    : withoutGuid > 0
     ? "Nothing to highlight: these ghosts were filed before the add-in sent IFC GlobalIds — a new Promote run sends them."
     : typeEdits ? "Nothing to highlight: this storey proposes only creates and type edits (a create has no element yet; a type has no geometry)."
     : "Nothing to highlight: this storey proposes only creates (they have no element in the model yet)." };

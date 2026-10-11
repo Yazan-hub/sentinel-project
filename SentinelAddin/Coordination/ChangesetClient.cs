@@ -63,6 +63,9 @@ public sealed class TargetDto
 {
     [JsonPropertyName("unique_id")] public string UniqueId { get; set; }
     [JsonPropertyName("type_before")] public string TypeBefore { get; set; }
+    /// <summary>MA-5b-4 (C13b): a reshape's stale guard — the location line (mm) the wall was placed with; a wall that no longer stands
+    /// there was edited by hand since, and is kept as it stands.</summary>
+    [JsonPropertyName("placed")] public CurveDto Placed { get; set; }
 }
 
 /// <summary>A wall a planner sent to a person instead of proposing a change (the changeset's exceptions).</summary>
@@ -214,6 +217,18 @@ public sealed class AccuracyDto
 /// <summary>MA-1a item 8: how the review reads the bridge's trust fields. Pure (tools/promote-check).</summary>
 public static class ChangesetTrust
 {
+    /// <summary>MA-5b-4: how far a reshape moves its wall's ends (mm), from the line it was placed with to the revised drawing's. Pure.</summary>
+    public static string ReshapeWords(ChangesetElementDto el)
+    {
+        var was = el.Target?.Placed; var c = el.Place?.LocationCurve;
+        if (was?.Start == null || was.End == null || c?.Start == null || c.End == null) return "its line not sent";
+        double D(double[] p, double[] q) => Math.Sqrt((p[0] - q[0]) * (p[0] - q[0]) + (p[1] - q[1]) * (p[1] - q[1]));
+        double same = D(was.Start, c.Start) + D(was.End, c.End), swapped = D(was.Start, c.End) + D(was.End, c.Start);
+        var (s0, s1) = same <= swapped ? (D(was.Start, c.Start), D(was.End, c.End)) : (D(was.Start, c.End), D(was.End, c.Start));
+        string F(double v) => v.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
+        return $"ends move {F(s0)} and {F(s1)} mm to the revised drawing's line (kept if edited by hand since it was placed)";
+    }
+
     /// <summary>What is ticked when the review opens (and by "Tick suggested"). MA-4f: a create is pre-ticked only when a bridge-run survey job
     /// measured it — the changeset is no claim (Claimed false) — the bridge pre-ticked it within tolerance (its pretick also needs the storey's
     /// level checked and every size measured: survey-plan's trust), and the office IDS did not reject it — so Revit ticks what the web desk calls

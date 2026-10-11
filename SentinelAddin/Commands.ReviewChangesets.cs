@@ -624,12 +624,17 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                     foreach (var (one, res) in result.Each)
                     {
                         var oneGone = res.Gone.Select(a => a.ProposalGuid).ToList();
-                        var rejected = StoreyBatch.Own(one, unticked).Concat(oneGone).Distinct().ToList();
+                        // MA-5b-4: a reshape Revit kept (the wall edited by hand since it was placed) is rejected with its reason, never applied
+                        var oneKept = res.Kept.Select(k => k.ProposalGuid).ToList();
+                        var rejected = StoreyBatch.Own(one, unticked).Concat(oneGone).Concat(oneKept).Distinct().ToList();
                         var said = oneGone.Count == 0 ? note : $"{oneGone.Count} element(s) removed by Revit at commit" + (string.IsNullOrEmpty(note) ? "" : $" | reviewer: {note}");
+                        if (oneKept.Count > 0) said = $"{oneKept.Count} wall(s) kept as they stand, not reshaped" + (string.IsNullOrEmpty(said) ? "" : " | " + said);
+                        var whys = StoreyBatch.Own(one, reasons);
+                        foreach (var (g, why) in res.Kept) (whys ??= new Dictionary<string, string>())[g] = why; // review: null when nobody typed a reason
                         if (result.Block != null) said = result.Block + (string.IsNullOrEmpty(said) ? "" : " | " + said); // MA-1a item 5
                         if (result.Ids != null) said = result.Ids + (string.IsNullOrEmpty(said) ? "" : " | " + said);     // MA-2b
                         // MA-3a: the revision Apply re-checked. Remembered for the undo watcher under the Undo entry's name and the changeset's own.
-                        records.Add(ResultOf(key, one, res.Applied, rejected, said, one.ReviewRev, here, new List<string> { undo, UndoWatcher.TxName(one.Name, one.Id) }, StoreyBatch.Own(one, reasons)));
+                        records.Add(ResultOf(key, one, res.Applied, rejected, said, one.ReviewRev, here, new List<string> { undo, UndoWatcher.TxName(one.Name, one.Id) }, whys));
                     }
                     foreach (var r in records) r.Path = doc.PathName ?? ""; // MA-3b2 review C16: the file itself, beside Doc (a local's central)
                     // AI-2: the record first — on this PC before the report is sent, so a result the bridge never hears of is never forgotten
@@ -645,7 +650,9 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                         catch (Exception ex) { after = "LOD state after: not read — " + ex.Message; }
                     }
                     var warnings = GhostFailurePolicy.WarningsLine(result.Warnings, fresh.Count > 1 ? "storey" : "changeset");
-                    var head = $"Applied {result.Applied.Count} element(s) from \"{cs.Name}\"." +
+                    // MA-5b-4 review: a ticked wall Revit kept as it stands is said here, with why — not only on the ledger
+                    var kept = result.Kept.Count == 0 ? "" : $"\n\nKept as they stand ({result.Kept.Count} wall(s), not reshaped):\n" + string.Join("\n", result.Kept.Take(10).Select(k => "• " + k.Why)) + (result.Kept.Count > 10 ? $"\n… and {result.Kept.Count - 10} more (each on the ledger)" : "");
+                    var head = $"Applied {result.Applied.Count} element(s) from \"{cs.Name}\"." + kept +
                         (warnings != null ? "\n\n" + warnings : "") + (result.Block != null ? "\n\n" + result.Block : "") +
                         (result.Ids != null ? "\n\n" + result.Ids : "") + (result.Placement != null ? "\n\n" + string.Join("\n", result.Placement) : "") + // MA-1a item 6
                         (unsaved.Count > 0 ? $"\n\n⚠ The result of {string.Join(", ", unsaved)} could not be saved on this PC ({UnreportedResults.Root}): if its report fails too, nothing on this PC remembers it — check the changeset's status on the bridge before reviewing it again." : "");

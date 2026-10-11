@@ -339,21 +339,30 @@ describe("MA-5b-3 — revision B against what revision A filed (C13a: read-only 
   });
   it("the same walls, doors and rooms are left as placed; the moved partition is new; A's partition and its door are a person's rows — never deleted", () => {
     const p = B();
-    expect(p.revision).toEqual({ revises: "ev-0007", unchanged: 4, changed: 0, removed: 1, doors_unchanged: 1, doors_removed: 1, rooms_unchanged: 2, rooms_removed: 0 });
+    expect(p.revision).toEqual({ revises: "ev-0007", unchanged: 4, reshaped: 0, changed: 0, removed: 1, doors_unchanged: 1, doors_removed: 1, rooms_unchanged: 2, rooms_removed: 0 });
     expect(els(p).map((e) => [e.kind, e.cid])).toEqual([["wall", B8(1)], ["door", `${B8(1)}-door-1`]]); // on A's level: none created
     expect(p.storeys[0].storey).toMatchObject({ level: "Drawing ev-0007 job-0005", how: "revision", checked: true });
     expect(rows(p)).toEqual([["wall drawing-ev-0007-p1-wall-1", "on ev-0007, not on ev-0008"], ["door drawing-ev-0007-p1-wall-1-door-1", "on ev-0007, not on ev-0008"]]);
     expect(p.alignment.revises).toBe("ev-0007");
   });
-  it("a wall B moves under 300 mm, or draws another thickness, is changed — a row naming A's wall as placed, never proposed on top of it", () => {
+  it("MA-5b-4: a wall B moves under 300 mm is reshaped to B's line (its stale guard where A placed it); another thickness is a person's row", () => {
     const moved = REVB.candidates.map((c) => (c.cid === B8(4) ? { ...c, geometry: { ...c.geometry, LocationCurve: { start: [219, 40], end: [219, 160] } } } // east 100 mm out
       : c.cid === B8(2) ? { ...c, measured: { ...c.measured, thickness_paper_mm: 6 } } : c)); // north 300 thick, not 200
     const p = B(moved);
-    expect([p.revision.changed, p.revision.unchanged]).toEqual([2, 2]);
+    expect([p.revision.reshaped, p.revision.changed, p.revision.unchanged]).toEqual([1, 1, 2]);
     const why = Object.fromEntries(p.storeys[0].exceptions.map((x) => [x.unique_id, x.reason]));
-    expect(why[B8(4)]).toMatch(/^changed since ev-0007 — 100 mm from where ev-0007 drew it: drawing-ev-0007-p1-wall-4 \(Drawing job-0005 · ev-0007 · Drawing ev-0007 job-0005, Revit uid-\d+\) stays as placed; a person updates it in Revit$/);
     expect(why[B8(2)]).toMatch(/^changed since ev-0007 — 300 mm thick, 200 mm on ev-0007: /);
-    expect(els(p).some((e) => [B8(4), B8(2)].includes(e.cid))).toBe(false);
+    const r = els(p).find((e) => e.cid === B8(4)), aEast = A.elements.find((e) => e.cid === "drawing-ev-0007-p1-wall-4");
+    expect(r).toMatchObject({ op: "reshape", kind: "wall", target: { unique_id: expect.stringMatching(/^uid-\d+$/), placed: aEast.place.LocationCurve },
+      place: { LocationCurve: { start: [47950, expect.any(Number), 0], end: [47950, expect.any(Number), 0] } } }); // (219 - 60) x 50 + 40000
+    expect(r.reason).toMatch(/^revised wall drawing-ev-0008-p1-wall-4: 100 mm from where ev-0007 drew it — drawing-ev-0007-p1-wall-4 \(.*, Revit uid-\d+\) moves to ev-0008's line; Revit keeps it as it stands if a person edited it since it was placed/);
+    expect(p.storeys[0].byCid.get(B8(4))).toMatchObject({ pretick: false, accuracy: { status: "inferred" } });
+    expect(els(p).some((e) => e.cid === B8(2))).toBe(false);
+    // the reshape passes the bridge's own validation as a job-built element (never posted)
+    const UID = "5a1c2b3d-1111-2222-3333-444455556666-0004c3f8"; // a real UniqueId's shape (the fixture's uid-n are not)
+    const body = { ...p.storeys[0].body, elements: p.storeys[0].body.elements.filter((e) => e.op === "reshape").map((e) => ({ ...e, target: { ...e.target, unique_id: UID } })) };
+    expect(validateChangeset(body, { member: true, job: { record: { id: "job-0006" }, byCid: p.storeys[0].byCid } }).elements[0].target.placed)
+      .toEqual(aEast.place.LocationCurve);
   });
   it("a room B no longer labels is a person's row; a door B adds on A's wall is hosted in it, on A's level", () => {
     const p = B(REVB.candidates.filter((c) => c.cid !== "drawing-ev-0008-p1-room-1"));
@@ -364,11 +373,17 @@ describe("MA-5b-3 — revision B against what revision A filed (C13a: read-only 
     expect([d.place.LevelName, d.place.Location[1], /hosted in ev-0007's drawing-ev-0007-p1-wall-5 \(Drawing job-0005 · ev-0007 · Drawing ev-0007 job-0005\), as placed: a door ev-0008 adds/.test(d.reason)])
       .toEqual(["Drawing ev-0007 job-0005", A.elements.find((e) => e.cid === "drawing-ev-0007-p1-wall-5").place.LocationCurve.start[1], true]);
   });
-  it("review: a wall B shortens or splits is changed — the length it no longer draws is a person's row, never 'the same'", () => {
+  it("review: a wall B splits is changed — a person's row; one B shortens is reshaped (MA-5b-4) — never 'the same'", () => {
     const short = REVB.candidates.map((c) => (c.cid === B8(5) ? { ...c, geometry: { ...c.geometry, LocationCurve: { start: [60, 43], end: [140, 43] } }, measured: { ...c.measured, length_paper_mm: 80 } } : c))
       .filter((c) => c.cid !== `${B8(5)}-door-1`);
-    const p = B(short), why = Object.fromEntries(p.storeys[0].exceptions.map((x) => [x.unique_id, x.reason]));
-    expect(why[B8(5)]).toMatch(/^changed since ev-0007 — ev-0008 draws 3\d{3} of ev-0007's 7\d{3} mm: drawing-ev-0007-p1-wall-5 /);
+    const p = B(short);
+    expect([p.revision.unchanged, els(p).find((e) => e.cid === B8(5))?.op]).toEqual([2, "reshape"]); // the east wall's corner moves with it
+    // split: two pieces on one wall of A — a person's row, never a reshape of one piece
+    const split = [...short.filter((c) => c.cid !== B8(5)), { ...short.find((c) => c.cid === B8(5)), geometry: { ...short.find((c) => c.cid === B8(5)).geometry, LocationCurve: { start: [60, 43], end: [120, 43] } } },
+      { ...short.find((c) => c.cid === B8(5)), cid: "drawing-ev-0008-p1-wall-6", geometry: { ...short.find((c) => c.cid === B8(5)).geometry, LocationCurve: { start: [150, 43], end: [220, 43] } } }];
+    const q = B(split), why = Object.fromEntries(q.storeys[0].exceptions.map((x) => [x.unique_id, x.reason]));
+    expect(why[B8(5)]).toMatch(/^changed since ev-0007 — ev-0008 draws \d+ of ev-0007's \d+ mm: drawing-ev-0007-p1-wall-5 /);
+    expect(els(q).some((e) => e.op === "reshape")).toBe(false);
   });
   it("review: a chain — C revises B, B revised A: C compares with everything the chain placed, so A's walls B left as placed are not proposed again", () => {
     const pb = B(), Bcs = { name: "Drawing job-0006 · ev-0008 · Drawing ev-0007 job-0005", status: "applied",
@@ -404,6 +419,57 @@ describe("MA-5b-3 — revision B against what revision A filed (C13a: read-only 
     const far = REVB.candidates.map(strip).map((c) => (c.cid === "drawing-ev-0008-p1-room-1" ? { ...c, geometry: { ...c.geometry, Location: [c.geometry.Location[0] + 20, c.geometry.Location[1]] } } : c));
     const q = B(far, priorOf([Astore], "ev-0007"));
     expect([q.revision.rooms_unchanged, q.revision.rooms_removed, els(q).filter((e) => e.kind === "room").length]).toEqual([1, 1, 1]);
+  });
+  it("MA-5b-4: revision C of B (east and north 100 mm out): the two moved walls are reshaped onto what the chain placed; the walls running on to them by 100 mm are within the noise (Revit's joins carry them)", () => {
+    const REVC = read("./fixtures/drawing/drill-plan-L00-rev-c-result.json");
+    const pb = B(), Bcs = { name: "Drawing job-0006 · ev-0008 · Drawing ev-0007 job-0005", status: "applied",
+      job: { reader: "sentinel-drawing 0.2.0", alignment: { item: "ev-0008", revises: "ev-0007" }, storey: pb.storeys[0].storey },
+      elements: els(pb).map((e, k) => ({ ...e, proposal_guid: `h${k}` })), result: { rejected: [], applied: els(pb).map((e, k) => ({ proposal_guid: `h${k}`, revit_unique_id: `vid-${k}` })) } };
+    const pc = planDrawing({ job: { ...JOB, id: "job-0007" }, candidates: REVC.candidates, align: readAlignBody({ ...DRILL, revises: "ev-0008" }, ["ev-0009"]), type: anyType, catalog,
+      sameCategory: core.sameCategory, prior: priorOf([A, Bcs], "ev-0008") });
+    expect(pc.revision).toMatchObject({ revises: "ev-0008", unchanged: 3, reshaped: 2, changed: 0, removed: 1 }); // A's partition: still the row it was
+    const byTarget = Object.fromEntries(els(pc).filter((e) => e.op === "reshape").map((e) => [e.target.unique_id, e]));
+    // two paper mm (100 mm at 1:50) is the coverage noise — the south, west and partition running on to the moved walls are the same walls
+    expect(Object.keys(byTarget).some((u) => u.startsWith("vid-"))).toBe(false);
+    const east = Object.values(byTarget).find((e) => e.target.placed.start[0] === 47850);
+    expect(east.place.LocationCurve.start[0]).toBe(47950);
+    expect(els(pc).filter((e) => e.op !== "reshape")).toEqual([]); // nothing created on top of what is placed
+  });
+  it("MA-5b-4 review: an applied reshape moved its wall — the next revision compares with where it stands now, and a door on a wall being reshaped waits", () => {
+    const REVC = read("./fixtures/drawing/drill-plan-L00-rev-c-result.json");
+    const pb = B(), Bcs = { name: "Drawing job-0006 · ev-0008 · Drawing ev-0007 job-0005", status: "applied",
+      job: { reader: "sentinel-drawing 0.2.0", alignment: { item: "ev-0008", revises: "ev-0007" }, storey: pb.storeys[0].storey },
+      elements: els(pb).map((e, k) => ({ ...e, proposal_guid: `h${k}` })), result: { rejected: [], applied: els(pb).map((e, k) => ({ proposal_guid: `h${k}`, revit_unique_id: `vid-${k}` })) } };
+    const pc = planDrawing({ job: { ...JOB, id: "job-0007" }, candidates: REVC.candidates, align: readAlignBody({ ...DRILL, revises: "ev-0008" }, ["ev-0009"]), type: anyType, catalog,
+      sameCategory: core.sameCategory, prior: priorOf([A, Bcs], "ev-0008") });
+    const east = els(pc).find((e) => e.op === "reshape" && e.target.placed.start[0] === 47850);
+    // C applied: the east wall now stands at 47950
+    const Ccs = { name: "Drawing job-0007 · ev-0009 · Drawing ev-0007 job-0005", status: "applied", job: { reader: "sentinel-drawing 0.2.0", alignment: { item: "ev-0009", revises: "ev-0008" }, storey: pc.storeys[0].storey },
+      elements: els(pc).map((e, k) => ({ ...e, proposal_guid: `k${k}` })), result: { rejected: [], applied: els(pc).map((e, k) => ({ proposal_guid: `k${k}`, revit_unique_id: e.target?.unique_id ?? `wid-${k}` })) } };
+    const pr = priorOf([A, Bcs, Ccs], "ev-0009");
+    expect(pr.walls.find((w) => w.revit === east.target.unique_id).start[0]).toBe(47950);
+    // D draws the wall where C put it: the same, nothing proposed for it (it was "edited by hand" before the fix — a false keep)
+    const D = REVC.candidates.map((c) => JSON.parse(JSON.stringify(c).replaceAll("ev-0009", "ev-0010")));
+    const pd = planDrawing({ job: { ...JOB, id: "job-0008" }, candidates: D, align: readAlignBody({ ...DRILL, revises: "ev-0009" }, ["ev-0010"]), type: anyType, catalog,
+      sameCategory: core.sameCategory, prior: pr });
+    expect(els(pd).filter((e) => e.op === "reshape")).toEqual([]);
+    // a kept reshape (rejected: edited by hand) moved nothing
+    const kept = priorOf([A, Bcs, { ...Ccs, status: "partially_applied", result: { rejected: [`k${els(pc).indexOf(east)}`], applied: [] } }], "ev-0009");
+    expect(kept.walls.find((w) => w.revit === east.target.unique_id).start[0]).toBe(47850);
+  });
+  it("MA-5b-4 review: a door B adds on a wall it reshapes waits for the next proposal; a reshape that would leave A's door beyond the wall's end is a person's row", () => {
+    // B moves A's east wall 100 mm out (paper x 219) and draws a new door in it
+    const moved = REVB.candidates.map((c) => (c.cid === B8(4) ? { ...c, geometry: { ...c.geometry, LocationCurve: { start: [219, 40], end: [219, 160] } } } : c));
+    const door = { cid: `${B8(4)}-door-1`, kind: "door", geometry: { host: B8(4), Location: [219, 100], direction: [1, 0], along_paper_mm: 60, swing_centre: [219, 100], leaves: 1, page: 1, units: "paper_mm" },
+      measured: { width_paper_mm: 18, tag_width_mm: 900, tag_height_mm: 2100 }, evidence: ["ev-0008#page-1"] };
+    const p = B([...moved, door]);
+    expect(els(p).find((e) => e.cid === B8(4)).op).toBe("reshape");
+    expect(p.storeys[0].exceptions.find((x) => x.unique_id === door.cid).reason).toMatch(/^its wall drawing-ev-0008-p1-wall-4 is reshaped in this changeset — apply it first/);
+    // B shortens A's south wall past A's south door (paper x 129): never reshaped — the door would stand beyond its end
+    const short = REVB.candidates.map((c) => (c.cid === B8(5) ? { ...c, geometry: { ...c.geometry, LocationCurve: { start: [60, 43], end: [110, 43] } } } : c)).filter((c) => c.cid !== `${B8(5)}-door-1`);
+    const q = B(short), why = Object.fromEntries(q.storeys[0].exceptions.map((x) => [x.unique_id, x.reason]));
+    expect(els(q).some((e) => e.cid === B8(5))).toBe(false);
+    expect(why[B8(5)]).toMatch(/reshaping drawing-ev-0007-p1-wall-5 would leave drawing-ev-0007-p1-wall-5-door-1 beyond its end — a person decides in Revit$/);
   });
   it("a revision is A's storey: another level or another height is refused in words", () => {
     no(() => planDrawing({ job: JOB, candidates: REVB.candidates, align: readAlignBody({ ...DRILL, revises: "ev-0007", level: "L02" }, ["ev-0008"]), type: anyType, catalog,

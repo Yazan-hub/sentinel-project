@@ -184,6 +184,39 @@
     }
    ]
   },
+  "rev-c": {
+   "file": "drill-plan-L00-rev-c.pdf",
+   "revises": "drill-plan-L00-rev-b.pdf",
+   "walls": 5,
+   "doors": 2,
+   "rooms": 2,
+   "east": {
+    "name": "east",
+    "start": [
+     219.0,
+     40.0
+    ],
+    "end": [
+     219.0,
+     162.0
+    ],
+    "thickness_paper_mm": 6.0,
+    "thickness_mm_at_1_50": 300
+   },
+   "north": {
+    "name": "north",
+    "start": [
+     60.0,
+     160.0
+    ],
+    "end": [
+     222.0,
+     160.0
+    ],
+    "thickness_paper_mm": 4.0,
+    "thickness_mm_at_1_50": 200
+   }
+  },
   "rev-b": {
    "file": "drill-plan-L00-rev-b.pdf",
    "revises": "drill-plan-L00-rooms.pdf",

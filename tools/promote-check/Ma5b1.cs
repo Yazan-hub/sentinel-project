@@ -18,7 +18,7 @@ static partial class Check
         string ex = Src("GhostBuilder", "ChangesetExecutor.cs"), win = Src("UI", "ChangesetReviewWindow.cs");
         int At(string what) => ex.IndexOf(what, StringComparison.Ordinal);
         int block = At("var rooms = toPlace.Where(e => IsCreate(e) && e.Kind == \"room\")"), exists = At("doc.GetRoomAtPoint(pt, phase)"), create = At("doc.Create.NewRoom(level, new UV(pt.X, pt.Y))"),
-            pair = At("made[i].IsPointInRoom(spots[j].pt)"), area = At("!(made[i].Area > 0)"), retype = At("// MA-0: retype before attach."), furniture = At("e.Kind is \"column\" or \"furniture\"");
+            pair = At("made[i].IsPointInRoom(spots[j].pt)"), area = At("!(made[i].Area > 0)"), retype = At("// MA-0: retype before attach."), furniture = At("foreach (var el in toPlace.Where(e => e.Op == \"reshape\"))");
         Ok(block > furniture && furniture > 0 && exists > block && create > exists && pair > create && area > pair && retype > area,
            "the executor places rooms after every wall and point family: an existing room checked first, then NewRoom, then one area per room, then enclosed — before any retype");
         Ok(ex.Substring(block, retype - block).Split("throw new PlacementRefused(").Length == 7 && ex.Substring(block, retype - block).Contains("room.Name = el.Place.Name;"),

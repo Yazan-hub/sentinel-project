@@ -84,6 +84,7 @@ static partial class Check
         Sec7HubChecks();
         Ma4fChecks();
         Ma5b1Checks();
+        Ma5b4Checks();
         Ma5b2Checks();
         Ma4f2Checks();
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");

@@ -49,6 +49,9 @@ public sealed class ChangesetExecutor
         public List<AppliedEntry> Gone { get; } = new();
         /// MA-1a step 2: the Revit warnings this changeset raised, counted by text — left in the model, never erased ([BP] P1-3).
         public Dictionary<string, int> Warnings { get; } = new();
+        /// MA-5b-4 (C13b): reshapes NOT done — the wall was edited by hand since it was placed, or is gone — each with why; reported as
+        /// rejected with that reason, never as applied, and never a failure of the changeset (the rest is applied).
+        public List<(string ProposalGuid, string Why)> Kept { get; } = new();
         /// A6: Commit returned neither Committed nor RolledBack (Pending, …) — Revit may still finish or drop it, so nothing is
         /// reported and nothing recounted; this is the whole result.
         public string NotFinished { get; set; }
@@ -637,6 +640,48 @@ public sealed class ChangesetExecutor
                 Collect(result, el, fi);
             }
 
+            // MA-5b-4 (C13b): a reshape moves an existing wall's location line to where a revised drawing draws it — only when the wall still
+            // stands where it was placed (target.placed, within 2 mm, either way round): one edited by hand since, or gone, is KEPT and said,
+            // and the rest of the changeset is applied. Its type is untouched (a thickness change is a person's row on the bridge); hosted
+            // doors and windows follow their wall (one the new line leaves outside rolls the whole changeset back, in Revit's words).
+            foreach (var el in toPlace.Where(e => e.Op == "reshape"))
+            {
+                at = Label(el);
+                var name = el.Validate?.Identity?.Name ?? el.ProposalGuid;
+                var c = el.Place?.LocationCurve;
+                var was = el.Target?.Placed;
+                if (c?.Start == null || c.End == null || was?.Start == null || was.End == null)
+                    throw new InvalidOperationException($"reshape \"{name}\" has no new line or no placed line");
+                if (!(doc.GetElement(el.Target.UniqueId ?? "") is Wall w))
+                {
+                    result.Kept.Add((el.ProposalGuid, $"wall {el.Target.UniqueId} is no longer in this model — not reshaped (deleted by hand?)"));
+                    continue;
+                }
+                if (!(((w.Location as LocationCurve)?.Curve) is Line now))
+                {
+                    result.Kept.Add((el.ProposalGuid, $"wall {w.Id.IdValue()} is no longer a straight wall — edited by hand since it was placed; kept as it stands"));
+                    continue;
+                }
+                XYZ a0 = now.GetEndPoint(0), a1 = now.GetEndPoint(1);
+                if (!PlacementGeometry.AsPlaced(a0.X / MmToFeet, a0.Y / MmToFeet, a1.X / MmToFeet, a1.Y / MmToFeet, was.Start, was.End, ReshapeTolMm))
+                {
+                    result.Kept.Add((el.ProposalGuid, $"wall {w.Id.IdValue()} was moved by hand since it was placed (it no longer stands on {Pair(was.Start)} → {Pair(was.End)}) — kept as it stands; a person decides"));
+                    continue;
+                }
+                // review: a person's "do not move" — a pin, a group, a colleague's borrowed wall — is kept too, never overridden (a lock rolls
+                // the whole changeset back in Revit's words: finding one needs a scan of locked dimensions)
+                var held = w.Pinned ? "is pinned"
+                         : w.GroupId != null && !w.GroupId.Equals(ElementId.InvalidElementId) ? "is in a group — Sentinel does not edit a group's members"
+                         : doc.IsWorkshared && WorksharingUtils.GetCheckoutStatus(doc, w.Id) == CheckoutStatus.OwnedByOtherUser ? "is borrowed by another user"
+                         : null;
+                if (held != null) { result.Kept.Add((el.ProposalGuid, $"wall {w.Id.IdValue()} {held} — kept as it stands; a person decides")); continue; }
+                // review: the new line runs the wall's own way — a line set end for end reverses the wall (its exterior face goes inside)
+                double bx = c.End[0] - c.Start[0], by = c.End[1] - c.Start[1];
+                var (s0, s1) = bx * (a1.X - a0.X) + by * (a1.Y - a0.Y) < 0 ? (c.End, c.Start) : (c.Start, c.End);
+                ((LocationCurve)w.Location).Curve = Line.CreateBound(new XYZ(s0[0] * MmToFeet, s0[1] * MmToFeet, a0.Z), new XYZ(s1[0] * MmToFeet, s1[1] * MmToFeet, a0.Z));
+                Collect(result, el, w);
+            }
+
             // MA-5b-1: a room at its label's point on its level, after every wall of this changeset (Regenerate first): Revit finds the
             // boundary there (NewRoom(level, UV)). All or nothing, in words — and the changeset stays proposed (PlacementRefused: the model
             // or the ticks, not a verdict on it): a room already standing at a point; two of these rooms in one enclosed area; a room the
@@ -751,7 +796,7 @@ public sealed class ChangesetExecutor
             // Every ticked element must have been handled by a loop above — if the bridge's
             // vocabulary ever grows past the executor's, the mismatch fails the changeset HERE,
             // inside the transaction, instead of surfacing as a 400 after elements already exist.
-            if (result.Applied.Count != toPlace.Count)
+            if (result.Applied.Count + result.Kept.Count != toPlace.Count)
                 throw new InvalidOperationException($"{toPlace.Count - result.Applied.Count} ticked element(s) of unsupported kind or op were not placed — the add-in is older than the bridge's vocabulary");
             // MA-1a item 6: each element this changeset CREATED goes to the workset its category names and to the view's
             // phase — inside this transaction, so Ctrl+Z takes them back with the element. A retype or attach target keeps
@@ -838,6 +883,11 @@ public sealed class ChangesetExecutor
     }
 
     private static string Label(ChangesetElementDto el) => $"{el.Kind} \"{el.Validate?.Identity?.Name ?? el.ProposalGuid}\"";
+
+    /// <summary>MA-5b-4: how far (mm, in plan) a wall's ends may sit from where it was placed and still be "as placed" — Horizun's point
+    /// tolerance is 1 mm; 2 mm allows the feet/mm round trip.</summary>
+    internal const double ReshapeTolMm = 2;
+    private static string Pair(double[] p) => $"({Mm(p[0])}, {Mm(p[1])})";
 
     // The first stack frame inside Sentinel, e.g. " (at ChangesetExecutor.Execute)"; empty when there is none.
     private static string Frame(Exception ex)

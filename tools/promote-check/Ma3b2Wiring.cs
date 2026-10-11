@@ -31,7 +31,7 @@ static partial class Check
            "each group has one reason box on its own row: its reason goes to that group's unticked rows that may be ticked here (never a row the web declined); one the bridge would refuse, or one with no such row, is refused by the window before anything is sent; the boxes are read-only once their reasons were taken");
         Ok(review.Contains("window.DecideRequested += (ticked, unticked, note, reasons) => Task.Run(() => Decide(ticked, unticked, note, reasons));")
            && review.Contains("ResultOf(key, f, new List<AppliedEntry>(), StoreyBatch.Own(f, unticked), note, null, here, null, StoreyBatch.Own(f, reasons))")
-           && review.Contains("records.Add(ResultOf(key, one, res.Applied, rejected, said, one.ReviewRev, here, new List<string> { undo, UndoWatcher.TxName(one.Name, one.Id) }, StoreyBatch.Own(one, reasons)));")
+           && review.Contains("records.Add(ResultOf(key, one, res.Applied, rejected, said, one.ReviewRev, here, new List<string> { undo, UndoWatcher.TxName(one.Name, one.Id) }, whys));") && review.Contains("var whys = StoreyBatch.Own(one, reasons);") // MA-5b-4: the kept reshapes' reasons join the reviewer's
            // Review C14 (overrides S6): a rolled-back storey carries the reasons of the rows the reviewer unticked — never dropped without a word.
            && review.Contains("(string.IsNullOrEmpty(note) ? \"\" : $\" | reviewer: {note}\"), null, here, null, StoreyBatch.Own(f, reasons))).ToList()), rep =>")
            && !review.Contains("null, here, null, null)")

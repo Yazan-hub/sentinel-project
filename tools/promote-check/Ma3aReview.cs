@@ -75,7 +75,7 @@ static partial class Check
         Ok(freshDone > 0 && refuse > freshDone && refuse < At(review, "var role = ChangesetClient.MyRole(cfg, key, out var roleErr);")
            && refuse < At(review, "handler.SetRequest(") && review.IndexOf("return;", refuse, StringComparison.Ordinal) < At(review, "var role = ChangesetClient.MyRole(cfg, key, out var roleErr);"),
            "Apply re-checks the declines on the fresh copies before anything runs, and a declined tick refuses it all (it returns)");
-        Ok(review.Contains("records.Add(ResultOf(key, one, res.Applied, rejected, said, one.ReviewRev, here, new List<string> { undo, UndoWatcher.TxName(one.Name, one.Id) }, StoreyBatch.Own(one, reasons)));") // MA-3b: sent by ReportAll; MA-3b2: with its reasons
+        Ok(review.Contains("records.Add(ResultOf(key, one, res.Applied, rejected, said, one.ReviewRev, here, new List<string> { undo, UndoWatcher.TxName(one.Name, one.Id) }, whys));") && review.Contains("var whys = StoreyBatch.Own(one, reasons);") // MA-3b: sent by ReportAll; MA-3b2: with its reasons
            && !review.Contains("internal static bool Report(") // MA-3b4: Report and its dialogs are gone — Ghost Builder reports through ReportAll too
            && review.Contains("(ChangesetTrust.LateDeclines(reply) is { } late ? \"\\n\" + late : \"\")")
            && client.Contains("JsonSerializer.Serialize(new { applied, rejected, note, actor = UserSession.Actor, review_rev = reviewRev, reasons })") // MA-3b2: and the reasons

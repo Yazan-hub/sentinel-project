@@ -47,6 +47,8 @@ describe("words", () => {
     // MA-5b-1: a room reads its number then its name; a level whose place.Name is its own name reads as before
     expect(ghostLine({ kind: "room", proposal_guid: "g", validate: { identity: { Name: "101" } }, place: { LevelName: "L00", Name: "OFFICE" } } as Ghost)).toBe("101 · OFFICE · L00");
     expect(ghostLine({ kind: "level", proposal_guid: "g", validate: { identity: { Name: "L00" } }, place: { Name: "L00" } } as Ghost)).toBe("L00");
+    expect(ghostLine({ kind: "wall", op: "reshape", proposal_guid: "g", validate: { identity: { Name: "drawing-ev-0008-p1-wall-4" } }, target: { unique_id: "u-1" } } as Ghost))
+      .toBe("drawing-ev-0008-p1-wall-4 · reshape u-1 to the revised drawing's line (kept as it stands if edited by hand since placed)"); // MA-5b-4
     expect(ghostLine(g4)).toBe('Basic Wall : BDS_EXT_ARC_CMU_200 mm · FireRating "" → "60 min" (a type edit: it reaches every element of the type)');
     expect(ghostLine({ proposal_guid: "x", kind: "floor", place: { TypeName: "Generic 150mm", LevelName: "L1" } })).toBe("x · Generic 150mm · L1");
   });
@@ -278,6 +280,10 @@ describe("MA-3d — Highlight in 3D: the plan and its words", () => {
   });
   it("nothing loaded", () => {
     expect(highlightPlan(three, new Map()).words).toBe("Load a model first (Files ▸ Open 3D) — nothing is loaded to highlight in.");
+  });
+  it("MA-5b-4 review: a drawing revision's reshapes name their walls by Revit id — said so, never 'run Promote again'", () => {
+    expect(highlightPlan([{ proposal_guid: "r1", kind: "wall", op: "reshape", target: { unique_id: "u-1" } } as Ghost, g(null, "create")], new Map()).words)
+      .toBe("Nothing to highlight: a drawing revision's reshape names its wall by Revit id, not IFC GlobalId — select it in Revit (Show in the review window).");
   });
   it("retypes from an older add-in carry no GUID", () => {
     expect(highlightPlan([g(null), g(null)], new Map()).words).toBe("Nothing to highlight: these ghosts were filed before the add-in sent IFC GlobalIds — a new Promote run sends them.");

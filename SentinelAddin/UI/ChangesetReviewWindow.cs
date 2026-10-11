@@ -206,6 +206,8 @@ public sealed class ChangesetReviewWindow : Window
                 {
                     "retype" => $"retype {el.Kind}: {name}  ·  {el.Target?.TypeBefore ?? "?"} → {(el.Place?.FamilyName != null ? el.Place.FamilyName + " : " : "")}{type}",
                     "attach" => $"attach: {name}  ·  {el.Place?.BaseLevel} → top {el.Place?.TopLevel}",
+                    // MA-5b-4: a wall moved to where the revised drawing draws it — kept as it stands if a person edited it since
+                    "reshape" => $"reshape wall: {name}  ·  {ChangesetTrust.ReshapeWords(el)}",
                     // MA-2c: a TYPE edit — never pre-ticked. Review amendment C3: its reach is the add-in's own count (Open, API thread),
                     // before the parameter so the ellipsis never trims it; the reason (the tooltip) is the poster's words.
                     "set_parameter" => $"type edit {el.Kind}: {(el.Place?.FamilyName != null ? el.Place.FamilyName + " : " : "")}{type}  ·  " +

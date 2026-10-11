@@ -139,6 +139,7 @@ public sealed class ChangesetPlacementEvent : IExternalEventHandler
                 result.Each.Add((cs, res));
                 result.Applied.AddRange(res.Applied);
                 result.Gone.AddRange(res.Gone);
+                result.Kept.AddRange(res.Kept); // MA-5b-4
                 result.Turned.AddRange(res.Turned);
                 foreach (var kv in res.Warnings) result.Warnings[kv.Key] = (result.Warnings.TryGetValue(kv.Key, out var seen) ? seen : 0) + kv.Value;
             }

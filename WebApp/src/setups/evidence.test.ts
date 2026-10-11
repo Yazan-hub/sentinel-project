@@ -334,6 +334,8 @@ describe("drawing proposals (MA-5a-4) — the lead's two points, level and heigh
     const rv = { revises: "ev-0007", unchanged: 3, changed: 0, removed: 1, doors_unchanged: 0, doors_removed: 0, rooms_unchanged: 1, rooms_removed: 0 };
     expect(proposeLine({ ...r, revision: rv })).toContain(" · against ev-0007: 3 wall(s) the same (left as placed), 0 changed, 1 no longer drawn; rooms 1 the same, 0 no longer drawn — each a person's row on the changeset (Sentinel never deletes) · ");
     expect(proposeLine({ ...r, revision: { ...rv, removed: 0, rooms_unchanged: 0 } })).toContain(" · against ev-0007: 3 wall(s) the same (left as placed), 0 changed, 0 no longer drawn · ");
+    // MA-5b-4: a reshape is said with what Revit does to a wall edited by hand
+    expect(proposeLine({ ...r, revision: { ...rv, reshaped: 2 } })).toContain(" · against ev-0007: 3 wall(s) the same (left as placed), 2 reshaped to ev-0007's line (Revit keeps one edited by hand since), 0 changed, 1 no longer drawn");
     expect(proposeLine({ ...r, differences: { ...none, topics: { raised: [], skipped: 0, error: "the project's topics could not be read (down) — none raised; propose the drawing again to raise them" } } }))
       .toContain(" — 0 BCF topic(s) raised (the project's topics could not be read (down) — none raised; propose the drawing again to raise them) · ");
   });

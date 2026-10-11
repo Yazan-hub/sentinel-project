@@ -13,6 +13,8 @@ north 200, east 300 thick; plus a 100 mm partition at x 4000..4100 (y 300..5800)
 plot draws a plan: cut wall faces heaviest (0.70 pt) as two polylines, door leaves and swings fine (0.25 pt),
 the border and title block 0.35 pt, alignment marks A and B (MA-5a-4) at building (0, 0) and (8000, 6000).
 
+MA-5b-4: drill-plan-L00-rev-c.pdf is revision C of B: the east and north walls each 100 mm out.
+
 MA-5b-3: drill-plan-L00-rev-b.pdf is revision B of the rooms plan: the partition moved 1000 mm east with its door.
 
 MA-5b-1: drill-plan-L00-rooms.pdf is the same plan with room labels — OFFICE 101 in the west room (with a level note,
@@ -36,12 +38,19 @@ WALL, FINE, FRAME = "0.70", "0.25", "0.35"   # fixed width so a weight swap keep
 # The cut wall faces, building mm. Outer: one polyline round the building with both south jambs; inner: one polyline
 # round both rooms with the partition and its jambs. Each straight piece is a face; the short ones (the jambs, the
 # 100 mm stubs where the partition meets a face) are shorter than a reader's minimum face and are not walls.
-OUTER = [(3900, 300), (3900, 0), (8000, 0), (8000, 6000), (0, 6000), (0, 0), (3000, 0), (3000, 300)]
-def inner(px=4000):
-    """The inner faces with the partition at x px..px+100 (MA-5b-3: revision B moves it)."""
-    q = px + 100
-    return [(3000, 300), (250, 300), (250, 5800), (px, 5800), (px, 3000), (q, 3000), (q, 5800), (7700, 5800),
-            (7700, 300), (q, 300), (q, 2000), (px, 2000), (px, 300), (3900, 300)]
+def outer(e=0, n=0):
+    """The outer faces; MA-5b-4: revision C moves the east wall e mm and the north wall n mm out."""
+    return [(3900, 300), (3900, 0), (8000 + e, 0), (8000 + e, 6000 + n), (0, 6000 + n), (0, 0), (3000, 0), (3000, 300)]
+
+
+OUTER = outer()
+
+
+def inner(px=4000, e=0, n=0):
+    """The inner faces with the partition at x px..px+100 (MA-5b-3: revision B moves it; MA-5b-4: C moves east and north out)."""
+    q, y = px + 100, 5800 + n
+    return [(3000, 300), (250, 300), (250, y), (px, y), (px, 3000), (q, 3000), (q, y), (7700 + e, y),
+            (7700 + e, 300), (q, 300), (q, 2000), (px, 2000), (px, 300), (3900, 300)]
 
 
 INNER = inner()
@@ -60,6 +69,8 @@ ROOMS = [("OFFICE", 10, (1400, 3300)), ("101", 8, (1700, 3100)), ("MEETING ROOM"
 # MA-5b-3: revision B of the rooms plan — the partition moved 1000 mm east (x 5000..5100, its door with it), the east room's label after it
 REV_B_PX = 5000
 ROOMS_B = ROOMS[:2] + [("MEETING ROOM", 10, (5600, 3900)), ("102", 8, (6200, 3700))] + ROOMS[4:]
+# MA-5b-4: revision C of B — the east and north walls each 100 mm out (the walls meeting them run on to them)
+REV_C = (100, 100)
 
 
 def paper(p):
@@ -98,8 +109,9 @@ def content(variant):
     ops += [f"{page_pt(10, 10)} {page_pt(277, 190)} re", "S"]                         # the border
     ops += [f"{page_pt(225, 12)} {page_pt(60, 26)} re", "S"]                          # the title block
     ops += text(228, 28, "Drill building L00 - 1:50 - Sentinel drill") + text(228, 20, "Plan - level 00")
-    rev_b = variant == "rev-b"
-    ops += [f"{WALL} w"] + polyline(OUTER) + polyline(inner(REV_B_PX) if rev_b else INNER)
+    rev_b = variant in ("rev-b", "rev-c")
+    e, n = REV_C if variant == "rev-c" else (0, 0)
+    ops += [f"{WALL} w"] + polyline(outer(e, n) if (e or n) else OUTER) + polyline(inner(REV_B_PX, e, n) if rev_b else INNER)
     ops += [f"{FINE} w"]
     for name, hinge, r, leaf, swing, tag_at, tag in (doors(REV_B_PX) if rev_b else DOORS):
         a = math.radians(leaf)
@@ -112,7 +124,7 @@ def content(variant):
         ops += polyline([(p[0] - 200, p[1]), (p[0] + 200, p[1])]) + polyline([(p[0], p[1] - 200), (p[0], p[1] + 200)])
         x, y = paper(p)
         ops += text(x + 1.5, y + 1.5, label)
-    if variant in ("rooms", "rev-b"):
+    if variant in ("rooms", "rev-b", "rev-c"):
         for label, size, at in (ROOMS_B if rev_b else ROOMS):
             x, y = paper(at)
             ops += text(x, y, label, size)
@@ -176,6 +188,8 @@ def expected():
                          "stray-arc": {"walls": 6, "doors": 1},
                          "two-page": {"pages": 2, "page_read": 1, "walls": 5, "doors": 2},
                          "rooms": {"file": "drill-plan-L00-rooms.pdf", "walls": 5, "doors": 2, "rooms": rooms},
+                         "rev-c": {"file": "drill-plan-L00-rev-c.pdf", "revises": "drill-plan-L00-rev-b.pdf", "walls": 5, "doors": 2, "rooms": 2,
+                                   "east": wall("east", (7950, 0), (7950, 6100), 300), "north": wall("north", (0, 6000), (8100, 6000), 200)},
                          "rev-b": {"file": "drill-plan-L00-rev-b.pdf", "revises": "drill-plan-L00-rooms.pdf", "walls": 5, "doors": 2, "rooms": 2,
                                    "partition": wall("partition", (5050, 300), (5050, 5800), 100),
                                    "against_the_rooms_plan": {"unchanged": ["south", "east", "north", "west"], "added": ["partition"],
@@ -193,6 +207,7 @@ def main():
     write(os.path.join(fx, "drill-plan-L00.pdf"), pdf([content("base")]))
     write(os.path.join(fx, "drill-plan-L00-rooms.pdf"), pdf([content("rooms")]))
     write(os.path.join(fx, "drill-plan-L00-rev-b.pdf"), pdf([content("rev-b")]))
+    write(os.path.join(fx, "drill-plan-L00-rev-c.pdf"), pdf([content("rev-c")]))
     write(os.path.join(fx, "drill-plan-L00.expected.json"), (json.dumps(expected(), indent=1) + "\n").encode())
     write(os.path.join(fx, "variants", "one-weight.pdf"), pdf([content("one-weight")]))
     write(os.path.join(fx, "variants", "stray-arc.pdf"), pdf([content("stray-arc")]))

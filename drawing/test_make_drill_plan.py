@@ -53,6 +53,14 @@ class DrillPlan(unittest.TestCase):
         e = m.expected()["variants"]["rev-b"]
         self.assertEqual(e["partition"]["start"], [161.0, 46.0])
 
+    def test_revision_c_moves_east_and_north_out(self):
+        """MA-5b-4: revision C of B — its own committed bytes; the old plans' outlines unchanged."""
+        with open(os.path.join(m.HERE, "fixtures", "drill-plan-L00-rev-c.pdf"), "rb") as f:
+            self.assertEqual(f.read(), m.pdf([m.content("rev-c")]))
+        self.assertEqual(m.outer(), m.OUTER)
+        self.assertEqual(m.outer(*m.REV_C)[3], (8100, 6100))
+        self.assertEqual(m.inner(m.REV_B_PX, *m.REV_C)[7], (7800, 5900))
+
 
 if __name__ == "__main__":
     unittest.main()

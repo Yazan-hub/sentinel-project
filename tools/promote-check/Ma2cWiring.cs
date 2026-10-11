@@ -13,7 +13,7 @@ static partial class Check
         int At(string s, string what) => s.IndexOf(what, StringComparison.Ordinal);
 
         int attach = At(exec, "foreach (var el in toPlace.Where(e => e.Op == \"attach\"))"), write = At(exec, "foreach (var el in toPlace.Where(e => e.Op == \"set_parameter\"))");
-        Ok(attach > 0 && write > attach && write < At(exec, "if (result.Applied.Count != toPlace.Count)")
+        Ok(attach > 0 && write > attach && write < At(exec, "if (result.Applied.Count + result.Kept.Count != toPlace.Count)")
            && exec.Contains("FixInPlaceService.WriteOnType(doc, type, el.Parameter, el.From, el.To, App.OrgFor(doc));") && exec.Contains("var type = ParamTarget(doc, el);"),
            "the executor writes each set_parameter after every retype and attach, inside the changeset's transaction, on the type the plan named");
         int stale = At(fix, "throw new InvalidOperationException($\"stale: {key} on type {t.Name} reads"), set = At(fix, "if (!p.Set(to))");

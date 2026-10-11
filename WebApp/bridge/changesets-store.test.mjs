@@ -1245,7 +1245,7 @@ describe("proposeFromJob (MA-5a-4): a lead aligns a drawing job by two points �
       docList: vi.fn(async () => [placed]), ...over });
     const proposeB = (deps, body = { ...BODY, revises: "ev-0007" }) => proposeFromJob("ma4c-drill", "job-0006", body, "web", deps);
     const b = bdeps(), r = await proposeB(b);
-    expect(r.revision).toEqual({ revises: "ev-0007", unchanged: 3, changed: 0, removed: 1, doors_unchanged: 0, doors_removed: 0, rooms_unchanged: 1, rooms_removed: 0 });
+    expect(r.revision).toEqual({ revises: "ev-0007", unchanged: 3, reshaped: 0, changed: 0, removed: 1, doors_unchanged: 0, doors_removed: 0, rooms_unchanged: 1, rooms_removed: 0 });
     expect(r.changesets.map((c) => [c.name, c.elements])).toEqual([["Drawing job-0006 · ev-0008 · Drawing ev-0007 job-0005", 1]]); // on A's level: no level created
     const cs = [...b.saved.values()][0];
     expect(cs.elements.map((e) => [e.kind, e.cid, e.place.LevelName])).toEqual([["wall", "drawing-ev-0008-p1-wall-1", "Drawing ev-0007 job-0005"]]);
