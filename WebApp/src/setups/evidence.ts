@@ -2,6 +2,7 @@
 // signs each once), its admitted items, the files in the project's evidence folder on the office PC not yet admitted (Admit, a
 // contributor's), and Re-check. Files are put in the folder by hand: no evidence byte passes through the browser (D11).
 import { bfetch, bwrite } from "./bridge-fetch";
+import { escapeHtml as esc } from "./escape-html";
 import { ledgerLine } from "./stage-gate";
 import { canEditRole, canGovernRole } from "./my-role";
 
@@ -126,7 +127,9 @@ export interface Candidate {
   /** MA-5a: a door or window has no fit of its own — coverage is its hole's border share, faces_seen the wall faces it was found on. */
   fit?: { inliers: number; rmse_mm: number; coverage: number; faces_seen?: number };
 }
-export interface JobRead { job: SurveyJob; candidates?: Candidate[]; result_error?: string; }
+export interface JobRead { job: SurveyJob; candidates?: Candidate[]; result_error?: string;
+  /** MA-5a-6: a drawing job's receipt — each drawing's page size, for its picture in the Propose form. */
+  receipt?: { items?: { id: string; size_paper_mm?: [number, number] }[] }; }
 /** The pack's scans a survey may read: admitted, surveyable, not changed. Which it can read is sentinel-survey's to say, per item, by the bytes (MA-4g). Pure. */
 export const surveyableScans = (pack: EvidencePack) => pack.items.filter((i) => i.kind === "scan" && i.surveyable && i.state !== "changed");
 const FOUND: [string, string][] = [["level", "level(s)"], ["wall", "wall(s)"], ["floor", "floor(s)"], ["ceiling", "ceiling(s)"], ["door", "door(s)"], ["window", "window(s)"]]; // MA-5a: doors and windows
@@ -245,6 +248,44 @@ export function alignPreview(d: AlignDraft): string {
     ? ` · the check point lands ${Math.round(Math.hypot(at(C)[0] - Cm[0], at(C)[1] - Cm[1]))} mm from where you said (the bridge refuses over 100)`
     : " · no check point (two points fix it exactly; a third catches a misread one)";
   return `1:${+s.toFixed(3)} · turned ${+deg.toFixed(2)}° · the paper's corner at ${Math.round(o[0])}, ${Math.round(o[1])} mm in the model${check}`;
+}
+
+// ── MA-5a-6: the marks picked on the drawing as sentinel-drawing read it ──
+const ofItem = (c: Candidate, item: string) => String(c.evidence?.[0] ?? "").split("#")[0] === item;
+const faces = (c: Candidate) => (Array.isArray(c.geometry.faces) ? (c.geometry.faces as number[][]) : []);
+const n1 = (v: number) => String(Math.round(v * 10) / 10);
+/** A point clicked on the drawing, snapped to the nearest end of a wall face within `tol` paper mm (the corner a lead means — the drill's marks
+ *  are the outer corners), else as clicked; 0.1 mm. Pure. */
+export function snapPaper(cands: Candidate[], item: string, p: [number, number], tol = 3): [number, number] {
+  let best: number[] | null = null, bd = tol;
+  for (const c of cands) if (c.kind === "wall" && ofItem(c, item))
+    for (const f of faces(c)) for (const q of [[f[0], f[1]], [f[2], f[3]]]) { const d = Math.hypot(q[0] - p[0], q[1] - p[1]); if (d <= bd) { bd = d; best = q; } }
+  const q = best ?? p;
+  return [Math.round(q[0] * 10) / 10, Math.round(q[1] * 10) / 10];
+}
+/** The drawing's page 1 as the reader saw it — the page, each wall's faces (a title names the wall), each door's point — with the marks
+ *  typed so far (A, B, and the check C), for the lead to click. y up as on the paper (flipped here); `data-h` the page height a click is
+ *  flipped back by. Every value escaped. Pure. */
+export function drawingSvg(cands: Candidate[], item: string, size: [number, number] | null, d: AlignDraft): string {
+  const mine = cands.filter((c) => ofItem(c, item)), all = mine.flatMap((c) => (c.kind === "wall" ? faces(c).map((f) => ({ f, cid: c.cid })) : []));
+  const sz = size && size[0] > 0 && size[1] > 0 ? size : null; // review: a page of no size (an empty MediaBox) is drawn from its walls
+  const W = sz?.[0] ?? Math.max(10, ...all.flatMap(({ f }) => [f[0], f[2]])) + 10, H = sz?.[1] ?? Math.max(10, ...all.flatMap(({ f }) => [f[1], f[3]])) + 10;
+  // review: marks sized from the page (an A1 sheet is ~0.5 px a paper mm in this panel), strokes in screen px
+  const r = W / 120, fs = W / 45, NS = `vector-effect="non-scaling-stroke"`;
+  const lines = all.map(({ f, cid }) => `<line ${NS} x1="${esc(n1(f[0]))}" y1="${esc(n1(H - f[1]))}" x2="${esc(n1(f[2]))}" y2="${esc(n1(H - f[3]))}"><title>${esc(cid)}</title></line>`).join("");
+  const doors = mine.filter((c) => c.kind === "door" && Array.isArray(c.geometry.Location)).map((c) => {
+    const p = c.geometry.Location as number[];
+    return `<circle cx="${esc(n1(p[0]))}" cy="${esc(n1(H - p[1]))}" r="${esc(n1(r * 0.6))}"><title>${esc(c.cid)}</title></circle>`;
+  }).join("");
+  const marks = (["pa", "pb", "pc"] as const).map((k, i) => {
+    const p = xy(d[k]);
+    if (!p.every(Number.isFinite)) return "";
+    return `<circle ${NS} cx="${esc(n1(p[0]))}" cy="${esc(n1(H - p[1]))}" r="${esc(n1(r))}" fill="none" stroke="#d97706" stroke-width="2"/>` +
+      `<text x="${esc(n1(p[0] + r * 1.2))}" y="${esc(n1(H - p[1] - r * 1.2))}" font-size="${esc(n1(fs))}" fill="#d97706" stroke="none">${"ABC"[i]}</text>`;
+  }).join("");
+  return `<svg id="fv-al-svg" viewBox="0 0 ${esc(n1(W))} ${esc(n1(H))}" data-h="${esc(n1(H))}" role="img" aria-label="the drawing as read: click a mark, or type it in the fields" ` +
+    `style="width:100%;height:auto;background:#fff;cursor:crosshair;border:1px solid #2c2c34;border-radius:.25rem" stroke="#111" stroke-width="1">` +
+    `<rect ${NS} x="0" y="0" width="${esc(n1(W))}" height="${esc(n1(H))}" fill="#fff" stroke="#d4d4d8"/><g>${lines}</g><g fill="#2563eb" stroke="none">${doors}</g>${marks}</svg>`;
 }
 
 /** The status line after Propose. Pure. */
