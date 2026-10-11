@@ -1187,7 +1187,10 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
     changeset staying proposed — a room not enclosed, two in one area, or one where a room stands. Ghost's DWG rooms wait for GHB-6.
   - Promote gains `rehost` and placeholder swaps (GHB-1 logic).
   - GHB-3, GHB-6, DAT-1, DAT-2, DAT-4, DAT-5.
-  - DWG revision update (C13).
+  - DWG revision update (C13). C13a BUILT in MA-5b-3 (PDF path): `revises` on Propose; B against what A filed (A's storey, the MA-5a-5
+    matcher): the same left as placed, a change or a removal a person's row (never a deletion), a door B adds on A's wall hosted in it;
+    Horizun's DWG-to-BIM contract read and recorded (docs/superpowers/plans/2026-10-11-ma5b3-revision-compare.md). C13b (reshape with an
+    as-placed stale guard) is MA-5b-4.
 - **Drill MA5:**
   - A door closed during the scan is proposed from the drawing, flagged `inferred`, and accepted by a person.
   - The opening count is compared with a hand count.

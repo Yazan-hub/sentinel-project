@@ -8,7 +8,7 @@ const { bfetch, bwrite } = vi.hoisted(() => ({ bfetch: vi.fn(), bwrite: vi.fn() 
 vi.mock("./bridge-fetch", () => ({ bfetch, bwrite }));
 vi.mock("./active-project", () => ({ activePid: () => "demo", onActiveProjectChange: () => () => {} }));
 
-import { proposalWords, storeyOf, groupDesk, ghostLine, reviewWords, declinedBy, canDecide, canReopen, readPending, postReview, postReopen, rowWords, postsFor, type PendingChangeset,
+import { heldLines, proposalWords, storeyOf, groupDesk, ghostLine, reviewWords, declinedBy, canDecide, canReopen, readPending, postReview, postReopen, rowWords, postsFor, type PendingChangeset,
   trustWords, sourceWords, isDrawn,
   readDecided, readLedger, highlightPlan, type Ghost, decidedView, decidedCount, DECIDED_MAX, type LedgerRows,
   measureWords, verifiedView, readVerified, postMeasure, measureLine, canMeasure, countWords, type VerifyRecord, type Measured } from "./review-desk";
@@ -39,6 +39,11 @@ describe("words", () => {
     const [g1, g2, , g4] = after.elements;
     expect(ghostLine(g1)).toBe("W 1 · Generic - 200mm → BDS_EXT_ARC_CMU_200 mm");
     expect(ghostLine(g2)).toBe("W 1 · GR-FFL → top 01-FFL");
+    // MA-5b-3: a changeset's review rows in words, capped with how many more
+    const cs = { id: "c", name: "Drawing job-0006 · ev-0008 · L00", source: "s", status: "proposed", created_at: "", elements: [],
+      exceptions: Array.from({ length: 3 }, (_, i) => ({ unique_id: `u${i}`, name: `wall w${i}`, reason: "on ev-0007, not on ev-0008 — …" })) } as PendingChangeset;
+    expect(heldLines(cs, 2)).toEqual(["wall w0 — on ev-0007, not on ev-0008 — …", "wall w1 — on ev-0007, not on ev-0008 — …", "… and 1 more (every one in Revit's review window)"]);
+    expect(heldLines({ ...cs, exceptions: undefined })).toEqual([]);
     // MA-5b-1: a room reads its number then its name; a level whose place.Name is its own name reads as before
     expect(ghostLine({ kind: "room", proposal_guid: "g", validate: { identity: { Name: "101" } }, place: { LevelName: "L00", Name: "OFFICE" } } as Ghost)).toBe("101 · OFFICE · L00");
     expect(ghostLine({ kind: "level", proposal_guid: "g", validate: { identity: { Name: "L00" } }, place: { Name: "L00" } } as Ghost)).toBe("L00");

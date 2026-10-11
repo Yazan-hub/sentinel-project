@@ -1232,6 +1232,34 @@ describe("proposeFromJob (MA-5a-4): a lead aligns a drawing job by two points �
     await expect(propose(ddeps({ trustedJob: vi.fn(async () => ({ ...TRUSTED, result: ROOMS })), docList: vi.fn(async () => [...deps.saved.values()]) })))
       .rejects.toMatchObject({ status: 409, message: expect.stringMatching(/^nothing new to propose from job-0005/) });
   });
+  it("(h) MA-5b-3: revision B of a placed drawing — the same walls and room left as placed, the moved partition proposed anew, A's partition a person's row", async () => {
+    const ROOMS = readRepo("WebApp/bridge/fixtures/drawing/drill-plan-L00-rooms-result.json"), REVB = readRepo("WebApp/bridge/fixtures/drawing/drill-plan-L00-rev-b-result.json");
+    const a = ddeps({ trustedJob: vi.fn(async () => ({ ...TRUSTED, result: ROOMS })) });
+    await propose(a);
+    const A = [...a.saved.values()][0];
+    const placed = { ...A, status: "applied", result: { rejected: [], applied: A.elements.map((e, k) => ({ proposal_guid: e.proposal_guid, revit_unique_id: `uid-${k}` })) } };
+    const EV8 = "e8".repeat(32);
+    const TB = { job: { id: "job-0006", status: "done" }, result: REVB, row: { ledger: { id: 3002, hash: "32".repeat(32) }, reader: "sentinel-drawing", version: "0.2.0",
+      pack_id: "evp-0001", items: [{ id: "ev-0008", sha256: EV8 }], read: ["ev-0008"], result_sha256: "6e".repeat(32) } };
+    const bdeps = (over = {}) => ddeps({ trustedJob: vi.fn(async () => TB), readPack: vi.fn(async () => ({ pack: { items: [{ id: "ev-0008", sha256: EV8, state: "admitted" }] } })),
+      docList: vi.fn(async () => [placed]), ...over });
+    const proposeB = (deps, body = { ...BODY, revises: "ev-0007" }) => proposeFromJob("ma4c-drill", "job-0006", body, "web", deps);
+    const b = bdeps(), r = await proposeB(b);
+    expect(r.revision).toEqual({ revises: "ev-0007", unchanged: 3, changed: 0, removed: 1, doors_unchanged: 0, doors_removed: 0, rooms_unchanged: 1, rooms_removed: 0 });
+    expect(r.changesets.map((c) => [c.name, c.elements])).toEqual([["Drawing job-0006 · ev-0008 · Drawing ev-0007 job-0005", 1]]); // on A's level: no level created
+    const cs = [...b.saved.values()][0];
+    expect(cs.elements.map((e) => [e.kind, e.cid, e.place.LevelName])).toEqual([["wall", "drawing-ev-0008-p1-wall-1", "Drawing ev-0007 job-0005"]]);
+    expect(cs.job).toMatchObject({ alignment: { revises: "ev-0007" }, storey: { level: "Drawing ev-0007 job-0005", how: "revision" } });
+    const aPart = "drawing-ev-0007-p1-wall-1"; // A's partition, x 44050
+    expect(cs.exceptions).toContainEqual({ unique_id: aPart, name: `wall ${aPart}`,
+      reason: "on ev-0007, not on ev-0008 — placed from Drawing job-0005 · ev-0007 · Drawing ev-0007 job-0005 (Revit uid-1): Sentinel never deletes; a person removes it in Revit, or keeps it" });
+    expect(b.audit.mock.calls.at(-1)[6]).toMatchObject({ revision: r.revision });
+    // refused in words: a drawing that filed nothing; another storey than A's
+    await expect(proposeB(bdeps({ docList: vi.fn(async () => []) }))).rejects.toMatchObject({ status: 409,
+      message: "ev-0007 filed nothing on ma4c-drill — propose it first (what it filed is what ev-0008 is compared with), or leave revises out; nothing was saved" });
+    await expect(proposeB(bdeps(), { ...BODY, revises: "ev-0007", elevation_mm: 3000 })).rejects.toMatchObject({ status: 400,
+      message: "ev-0007 was filed on Drawing ev-0007 job-0005 at 0 mm, and elevation_mm says 3000 — a revision is the same storey: state 0 — nothing was saved" });
+  });
   it("(c) a drawing changeset has no scan: measuring it and showing its scan are refused in words", async () => {
     const deps = ddeps(); await propose(deps);
     const cs = { ...[...deps.saved.values()][0], status: "applied" };

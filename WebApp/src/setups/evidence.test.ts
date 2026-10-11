@@ -284,6 +284,8 @@ describe("drawing proposals (MA-5a-4) — the lead's two points, level and heigh
   it("alignBody: the points as typed (a comma, a space or both), a check point only when typed, a level only when named; anything else goes as null for the bridge to refuse", () => {
     expect(alignBody(D)).toEqual({ item: "ev-0007", points: [{ paper: [60, 40], model: [40000, 0] }, { paper: [220, 160], model: [48000, 6000] }], elevation_mm: 0 });
     expect(alignBody({ ...D, pc: "220, 40", mc: "48000, 0", level: " GR-FFL ", z: "3000" })).toMatchObject({ check: { paper: [220, 40], model: [48000, 0] }, level: "GR-FFL", elevation_mm: 3000 });
+    // MA-5b-3: revises only when typed
+    expect([alignBody({ ...D, revises: " ev-0007 " }).revises, "revises" in alignBody({ ...D, revises: "  " })]).toEqual(["ev-0007", false]);
     expect(JSON.parse(JSON.stringify(alignBody({ ...D, pa: "60", z: "" })))).toMatchObject({ points: [{ paper: [null, null] }, {}], elevation_mm: null });
   });
   it("alignPreview: the scale, the turn, where the paper's corner lands and the check point's miss — the bridge decides", () => {
@@ -325,6 +327,10 @@ describe("drawing proposals (MA-5a-4) — the lead's two points, level and heigh
     expect(proposeLine({ ...r, differences: none })).toBe(proposeLine(r));
     expect(proposeLine({ ...r, differences: { ...none, agree: 3, drawn_only: 1, doors_from_drawing: 1, topics: { raised: [{ guid: "t1", title: "Drawing vs scan: …", key: "k" }], skipped: 1 } } }))
       .toContain("none pre-ticked (a drawing is what someone drew, not what was built — a person ticks each in Revit) · against the scan: 3 wall(s) agree (not proposed again), 0 differ, 1 drawn only, 0 scanned only, 1 door(s) from the drawing in the scan's walls — 1 BCF topic(s) raised, 1 raised before · 3 type-gap group(s)");
+    // MA-5b-3: against the drawing it revises — the same left as placed, the rest a person's rows
+    const rv = { revises: "ev-0007", unchanged: 3, changed: 0, removed: 1, doors_unchanged: 0, doors_removed: 0, rooms_unchanged: 1, rooms_removed: 0 };
+    expect(proposeLine({ ...r, revision: rv })).toContain(" · against ev-0007: 3 wall(s) the same (left as placed), 0 changed, 1 no longer drawn; rooms 1 the same, 0 no longer drawn — each a person's row on the changeset (Sentinel never deletes) · ");
+    expect(proposeLine({ ...r, revision: { ...rv, removed: 0, rooms_unchanged: 0 } })).toContain(" · against ev-0007: 3 wall(s) the same (left as placed), 0 changed, 0 no longer drawn · ");
     expect(proposeLine({ ...r, differences: { ...none, topics: { raised: [], skipped: 0, error: "the project's topics could not be read (down) — none raised; propose the drawing again to raise them" } } }))
       .toContain(" — 0 BCF topic(s) raised (the project's topics could not be read (down) — none raised; propose the drawing again to raise them) · ");
   });

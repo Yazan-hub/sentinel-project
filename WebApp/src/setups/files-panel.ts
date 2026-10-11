@@ -331,7 +331,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       const got: Record<string, string> = {};
       root.querySelectorAll<HTMLInputElement>("[data-al]").forEach((i) => { got[i.dataset.al!] = i.value; });
       const v = (k: string) => got[k] ?? "";
-      return { item: v("item"), pa: v("pa"), ma: v("ma"), pb: v("pb"), mb: v("mb"), pc: v("pc"), mc: v("mc"), level: v("level"), z: v("z") };
+      return { item: v("item"), pa: v("pa"), ma: v("ma"), pb: v("pb"), mb: v("mb"), pc: v("pc"), mc: v("mc"), level: v("level"), z: v("z"), revises: v("revises") };
     };
     root.querySelector<HTMLButtonElement>("#fv-al-ok")?.addEventListener("click", (ev) => {
       const btn = ev.currentTarget as HTMLButtonElement;
@@ -644,6 +644,8 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       ([["A", "pa", "ma"], ["B", "pb", "mb"], ["check (optional)", "pc", "mc"]] as const).map(([what, p, m]) =>
         `<div style="display:flex;gap:.3rem;flex-wrap:wrap;align-items:center;font-size:11px;padding:.1rem .2rem"><span style="min-width:6.5rem">${esc(what)}: paper</span><input data-al="${esc(p)}" value="${esc(ad[p])}" placeholder="x, y" style="${inp};width:7rem"/> → model <input data-al="${esc(m)}" value="${esc(ad[m])}" placeholder="x, y" style="${inp};width:9rem"/> mm</div>`).join("") +
       `<div style="display:flex;gap:.3rem;flex-wrap:wrap;align-items:center;font-size:11px;padding:.1rem .2rem">level <input data-al="level" value="${esc(ad.level)}" placeholder="blank: a published level at that height, or a new one" style="${inp};flex:1;min-width:12rem"/> at <input data-al="z" value="${esc(ad.z)}" style="${inp};width:5rem"/> mm</div>` +
+      // MA-5b-3: the earlier drawing this one revises — compared with what it filed: the same left as placed, a change or a removal a person's row
+      `<div style="display:flex;gap:.3rem;flex-wrap:wrap;align-items:center;font-size:11px;padding:.1rem .2rem">revises <input data-al="revises" value="${esc(ad.revises ?? "")}" placeholder="blank, or the earlier drawing this one revises (its evidence id, e.g. ev-0007)" style="${inp};flex:1;min-width:12rem"/></div>` +
       // MA-5a-6: pick each mark on the drawing as it was read — the paper side; where it is in the model is still the lead's to type
       (alignView ? `<div style="display:flex;gap:.3rem;flex-wrap:wrap;align-items:center;font-size:11px;padding:.15rem .2rem">click the drawing to set ` +
         ([["pa", "A"], ["pb", "B"], ["pc", "check"]] as const).map(([k, w]) => `<button data-alpick="${esc(k)}" aria-pressed="${esc(String(alignPick === k))}" style="${act}${alignPick === k ? ";color:#c4b5fd;border-color:#6528d7" : ""}">${esc(w)}</button>`).join("") +
