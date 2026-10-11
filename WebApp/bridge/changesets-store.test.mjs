@@ -963,7 +963,7 @@ describe("proposeFromJob (MA-4d): a lead turns a trusted survey job into changes
   it("(a) one changeset per storey, built and stamped by the bridge; the gaps in one type_gap row; then the planner's build:run row", async () => {
     const deps = sdeps();
     const r = await propose(deps);
-    expect(r.changesets.map((c) => [c.name, c.elements, c.preticked])).toEqual([["Survey job-0002 · GR-FFL", 3, 3], ["Survey job-0002 · Scan L01 job-0002", 4, 4]]);
+    expect(r.changesets.map((c) => [c.name, c.elements, c.preticked])).toEqual([["Survey job-0002 · GR-FFL", 3, 0], ["Survey job-0002 · Scan L01 job-0002", 4, 1]]); // MA-5a-2: a created level only
     expect(r.storeys.map((s) => [s.cid, s.level, s.how, s.checked, s.changeset != null])).toEqual([["scan-L00-level", "GR-FFL", "matched", true, true], ["scan-L01-level", "Scan L01 job-0002", "created", true, true]]);
     expect(r).toMatchObject({ job: "job-0002", survey_row: { id: 2201 }, gaps: { groups: 3, elements: 6, ledger: { id: 3003 } }, already_filed: 0, overlaps: [], ledger: { id: 3004 } });
     expect([...deps.saved.values()][0]).toMatchObject(readRepo("WebApp/bridge/fixtures/changeset-ops/contract2-survey.json").stored); // Trust.cs reads the same
@@ -1009,7 +1009,7 @@ describe("proposeFromJob (MA-4d): a lead turns a trusted survey job into changes
   it("(d) a level the lead names that no published model holds: its height is not checked, so nothing on that storey is pre-ticked", async () => {
     const deps = sdeps({ manifestLevels: vi.fn(async () => []) });
     const r = await propose(deps, { frame: FRAME, levels: { "scan-L00-level": "GR-FFL" } });
-    expect(r.changesets.map((c) => c.preticked)).toEqual([0, 4]);
+    expect(r.changesets.map((c) => c.preticked)).toEqual([0, 1]); // MA-5a-2: L01's created level only
     expect([...deps.saved.values()][0].job.storey).toMatchObject({ level: "GR-FFL", how: "named", checked: false });
   });
   it("(e) Revit's result on a survey changeset: changeset_applied names the job, the evidence shas and each placed wall's reader id and evidence", async () => {
@@ -1052,7 +1052,7 @@ describe("proposeFromJob (MA-4d): a lead turns a trusted survey job into changes
     const deps = sdeps({ docList: vi.fn(async () => [placed, l1]),
       resolveArtefact: resolving({ ...STD, type_catalog: { ...STD.type_catalog, types: [...STD.type_catalog.types, W250] } }) });
     const r = await propose(deps);
-    expect(r.changesets.map((c) => [c.name, c.elements, c.preticked])).toEqual([["Survey job-0002 · GR-FFL", 1, 1], ["Survey job-0002 · Scan L01 job-0002", 1, 1]]);
+    expect(r.changesets.map((c) => [c.name, c.elements, c.preticked])).toEqual([["Survey job-0002 · GR-FFL", 1, 0], ["Survey job-0002 · Scan L01 job-0002", 1, 0]]); // MA-5a-2: walls never pre-ticked
     expect([...deps.saved.values()].map((c) => c.elements.map((e) => [e.cid, e.place.TypeName]))).toEqual([[["scan-L00-wall-4", "BDS_EXT_ARC_CMU_250 mm"]], [["scan-L01-wall-3", "BDS_EXT_ARC_CMU_250 mm"]]]);
     expect(r.storeys.map((s) => [s.level, s.how])).toEqual([["GR-FFL", "filed"], ["Scan L01 job-0002", "filed"]]); // L01's level is not created twice
     expect(r).toMatchObject({ already_filed: 6, gaps: { groups: 2, elements: 4 } });
@@ -1080,7 +1080,7 @@ describe("proposeFromJob (MA-4d): a lead turns a trusted survey job into changes
       opening("door", "scan-L00-wall-1", [1, 0], 3465, [3450, 150, 0], { width_mm: 1000, height_mm: 2100, sill_mm: 0, head_mm: 2100 })] };
     const deps = sdeps({ trustedJob: vi.fn(async () => ({ ...TRUSTED, result })) });
     const r = await propose(deps);
-    expect(r.changesets.map((c) => [c.name, c.elements, c.preticked])).toEqual([["Survey job-0002 · GR-FFL", 4, 3], ["Survey job-0002 · Scan L01 job-0002", 4, 4]]);
+    expect(r.changesets.map((c) => [c.name, c.elements, c.preticked])).toEqual([["Survey job-0002 · GR-FFL", 4, 0], ["Survey job-0002 · Scan L01 job-0002", 4, 1]]);
     const win = [...deps.saved.values()][0].elements[3];
     const planner = deps.audit.mock.calls.at(-1)[6];
     expect(win).toMatchObject({ kind: "window", cid: "scan-L00-wall-3-window-1", pretick: false, accuracy: { status: "insufficient_data", basis: "framing" },
@@ -1096,7 +1096,8 @@ describe("proposeFromJob (MA-4d): a lead turns a trusted survey job into changes
       measured: { width_mm: 1000, height_mm: 2100, sill_mm: 0, head_mm: 2100 }, evidence: ["ev-0001#slice-L00"], fit: { inliers: 40, rmse_mm: 0, coverage: 0.9, faces_seen: 2 } });
     // L01 keeps only its 250 mm wall (a type gap) and its floor and ceiling (gaps): nothing on it types, so no changeset is filed for it
     const keep = RESULT.candidates.filter((c) => c.geometry?.storey !== "scan-L01-level" || c.kind !== "wall" || c.cid === "scan-L01-wall-3");
-    const result = { ...RESULT, candidates: [...keep, door("scan-L00-wall-4", "scan-L00-level", [125, 2065, 0]), door("scan-L01-wall-3", "scan-L01-level", [125, 2044, 3000])] };
+    const seenOnce = { ...door("scan-L00-wall-2", "scan-L00-level", [2000, 5900, 0]), cid: "scan-L00-wall-2-door-9", fit: { inliers: 40, rmse_mm: 0, coverage: 0.9, faces_seen: 1 } };
+    const result = { ...RESULT, candidates: [...keep, door("scan-L00-wall-4", "scan-L00-level", [125, 2065, 0]), door("scan-L01-wall-3", "scan-L01-level", [125, 2044, 3000]), seenOnce] };
     const deps = sdeps({ trustedJob: vi.fn(async () => ({ ...TRUSTED, result })) });
     const r = await propose(deps);
     expect(r.changesets.map((c) => c.name)).toEqual(["Survey job-0002 · GR-FFL"]);
@@ -1105,6 +1106,8 @@ describe("proposeFromJob (MA-4d): a lead turns a trusted survey job into changes
     const planner = deps.audit.mock.calls.at(-1)[6];
     expect(planner.storeys.map((s) => s.held)).toEqual([undefined, [{ name: "door scan-L01-wall-3-door-1", reason: gapHost("scan-L01-wall-3") }]]);
     expect(r.storeys).toEqual(planner.storeys);
+    // MA-5a-2: a door seen on one face is not proposed, not held — the planner's row lists it
+    expect(planner.storeys.map((s) => s.doors_seen_once)).toEqual([["scan-L00-wall-2-door-9"], undefined]);
   });
 });
 

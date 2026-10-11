@@ -90,7 +90,7 @@ describe("trimEnds — every end to where the centrelines meet", () => {
 
 describe("planSurvey — the drill's job-0002, frame 40 m east, L00 named GR-FFL (no published IFC)", () => {
   const plan = () => planSurvey({ job: JOB, candidates: RESULT.candidates, frame: EAST, levels: { "scan-L00-level": "GR-FFL" }, manifest: [], type });
-  it("one body per storey: GR-FFL's three typed walls, unchecked (nothing pre-ticked); L01's new level and three walls, pre-ticked", () => {
+  it("one body per storey: GR-FFL's three typed walls, unchecked (nothing pre-ticked); L01's new level pre-ticked, its three walls never (MA-5a-2)", () => {
     const p = plan();
     const [a, b] = p.storeys;
     expect(a.body.name).toBe("Survey job-0002 · GR-FFL");
@@ -109,7 +109,7 @@ describe("planSurvey — the drill's job-0002, frame 40 m east, L00 named GR-FFL
       validate: { identity: { Class: "IFCBUILDINGSTOREY", Name: "Scan L01 job-0002" } }, place: { BaseElevation: 3000, Name: "Scan L01 job-0002" },
       reason: "scan storey scan-L01-level at 3000 mm (fit 3.4 mm rms) · a new level at 3000 mm in the model · job-0002 (ledger #2201)" });
     expect(b.body.elements.map((e) => e.cid)).toEqual(["scan-L01-level", "scan-L01-wall-1", "scan-L01-wall-2", "scan-L01-wall-4"]);
-    expect([...b.byCid.values()].every((t) => t.pretick)).toBe(true);
+    expect(Object.fromEntries([...b.byCid].map(([cid, t]) => [cid, t.pretick]))).toEqual({ "scan-L01-level": true, "scan-L01-wall-1": false, "scan-L01-wall-2": false, "scan-L01-wall-4": false });
     expect(b.byCid.get("scan-L01-wall-1")).toMatchObject({ measured: { thickness_mm: 300 }, trim_mm: [-148, -130],
       accuracy: { status: "within_tolerance", basis: "fit", from_job: "job-0002", fit_rmse_mm: 1.8, face_dev_mm: 0, coverage: 1, target_mm: 20 } });
     expect(b.byCid.get("scan-L01-level").accuracy.face_dev_mm).toBeNull();
@@ -149,13 +149,13 @@ describe("planSurvey — the drill's job-0002, frame 40 m east, L00 named GR-FFL
       { id: typeGapId({ category: "Ceilings", size: "thickness not measured" }), category: "Ceilings", want: null, size: "thickness not measured", key: "no facts", elements: 2,
         labels: ["GR-FFL · scan-L00-ceiling", "Scan L01 job-0002 · scan-L01-ceiling"], nearest: [], evidence: ["ev-0001#ceiling-L00", "ev-0001#ceiling-L01"] }]);
   });
-  it("deterministic; a turned frame and a published GR-FFL: the storey matched and pre-ticked", () => {
+  it("deterministic; a turned frame and a published GR-FFL: the storey matched, its walls never pre-ticked (MA-5a-2)", () => {
     expect(JSON.stringify(plan(), (k, v) => (v instanceof Map ? [...v] : v))).toBe(JSON.stringify(plan(), (k, v) => (v instanceof Map ? [...v] : v)));
     const p = planSurvey({ job: JOB, candidates: RESULT.candidates, frame: { dx_mm: 1000, dy_mm: 2000, dz_mm: 0, rotation_deg: 90 }, levels: {},
       manifest: [{ name: "GR-FFL", elevation_mm: 0, from: "ARC.ifc P01" }], type });
     expect(p.storeys[0].storey).toMatchObject({ level: "GR-FFL", how: "matched", checked: true, from: "ARC.ifc P01" });
     expect(p.storeys[0].body.elements[0].place.LocationCurve).toEqual({ start: [850, 2125, 0], end: [850, 9850, 0] });
-    expect([...p.storeys[0].byCid.values()].every((t) => t.pretick)).toBe(true);
+    expect([...p.storeys[0].byCid.values()].map((t) => t.pretick)).toEqual([false, false, false]);
   });
   it("a wall of one face seen is a gap without typing; a storey of only gaps files nothing (its level is not created)", () => {
     const one = RESULT.candidates.map((c) => (c.cid === "scan-L00-wall-1" ? { ...c, measured: { length_mm: 8001, height_mm: 2800 } } : c));
@@ -183,6 +183,27 @@ describe("MA-5a — a scan door or window: after its storey's walls, on its host
   const plan = (openings, catalog = SIZE, over = {}) => planSurvey({ job: JOB, candidates: [...RESULT.candidates, ...openings], frame: EAST, levels: { "scan-L00-level": "GR-FFL" },
     manifest: [{ name: "GR-FFL", elevation_mm: 0, from: "ARC.ifc P01" }], type, catalog, sameCategory: core.sameCategory, ...over });
   const off = (p, { start, end }) => Math.abs((end[0] - start[0]) * (p[1] - start[1]) - (end[1] - start[1]) * (p[0] - start[0])) / Math.hypot(end[0] - start[0], end[1] - start[1]);
+
+  it("MA-5a-2: a door is proposed only when seen on both faces — the rest listed, neither placed nor held; a window is not filtered", () => {
+    const once = { ...DOOR, fit: { ...DOOR.fit, faces_seen: 1 } }, win1 = { ...WINDOW, fit: { ...WINDOW.fit, faces_seen: 1 } };
+    const a = plan([once, win1]).storeys[0];
+    expect(a.once).toEqual([DOOR.cid]);
+    expect(a.body.elements.map((e) => e.cid)).toEqual(["scan-L00-wall-1", "scan-L00-wall-2", "scan-L00-wall-3", WINDOW.cid]);
+    expect(a.exceptions.some((e) => e.unique_id === DOOR.cid)).toBe(false);
+    expect(plan([DOOR]).storeys[0].once).toEqual([]); // faces_seen 2 — a 0.5.0 job's numbers read the same way
+    expect(plan([{ ...DOOR, fit: { ...DOOR.fit, faces_seen: undefined } }]).storeys[0].once).toEqual([DOOR.cid]); // no count: not seen through
+  });
+  it("MA-5a-2: a wall whose thickness is withheld (faces_apart_mm) is a 'thickness not trusted' gap, and holds its door in those words", () => {
+    const host = DOOR.geometry.host;
+    const cands = RESULT.candidates.map((c) => (c.cid === host ? { ...c, measured: { length_mm: c.measured.length_mm, height_mm: c.measured.height_mm, faces_apart_mm: 70 }, fit: { ...c.fit, rmse_mm: 9 } } : c));
+    const p = planSurvey({ job: JOB, candidates: [...cands, DOOR], frame: EAST, levels: { "scan-L00-level": "GR-FFL" },
+      manifest: [{ name: "GR-FFL", elevation_mm: 0, from: "ARC.ifc P01" }], type, catalog: SIZE, sameCategory: core.sameCategory });
+    const key = "its two faces 70 mm apart against a 9 mm fit scatter — too close to trust a thickness";
+    expect(p.groups.find((g) => g.size === "thickness not trusted")).toMatchObject({ category: "Walls", want: null, key, elements: 1, labels: [`GR-FFL · ${host}`] });
+    const ex = p.storeys[0].exceptions;
+    expect(ex.find((e) => e.unique_id === host).reason).toBe(`type gap — its thickness is not trusted (${key}); it waits in the Holding Area`);
+    expect(ex.find((e) => e.unique_id === DOOR.cid).reason).toBe(`its host wall ${host}'s thickness is not trusted (${key}), so it is never typed — a person draws the wall and this door`);
+  });
 
   it("typed by size: after the walls, on the host's trimmed line at the level, a window's sill; the trust record says bridge-size, framing, never pre-ticked", () => {
     const a = plan([DOOR, WINDOW]).storeys[0];

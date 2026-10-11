@@ -351,7 +351,9 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
     const storeys = plan.storeys.map((p) => {
       const changeset = filed.find((c) => c.job.storey.cid === p.storey.cid)?.id ?? null;
       const held = changeset ? [] : p.exceptions.filter((e) => !e.reason.startsWith("type gap")).map((e) => ({ name: e.name, reason: e.reason }));
-      return { ...storeyRecord(p.storey), changeset, ...(held.length ? { held } : {}) };
+      // MA-5a-2: the doors seen on one face only — neither proposed nor held (survey-plan's door rule), listed so the row says what the job
+      // found and the planner left out
+      return { ...storeyRecord(p.storey), changeset, ...(held.length ? { held } : {}), ...(p.once.length ? { doors_seen_once: p.once } : {}) };
     });
     const gaps = { groups: plan.groups.length, elements: n, ledger: ledgerRef(gapRow) };
     // The planner run's own build:run row (design :832) — never mistaken for the job's (decision 11's prefix is `· sentinel-survey `).

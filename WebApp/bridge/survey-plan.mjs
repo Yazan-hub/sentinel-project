@@ -19,6 +19,7 @@ export const PLANNER_VERSION = "0.1.0";
  *  ponytail: one constant for both, and MA-4e's p95 verdict (judge); a per-class tolerance (lod_matrix or the contract's) is MA-8's. */
 export const TOLERANCE_MM = 20;
 export const NOT_MEASURED = "thickness not measured";
+export const NOT_TRUSTED = "thickness not trusted"; // MA-5a-2: two faces, but too close for their scatter (sentinel-survey faces_apart_mm)
 /** MA-4h: a frame's move past this is no place on Earth (a UTM northing reaches 1e10 mm). The guard is where the frame puts the scan
  *  (placeRefusal), not how far it moves it: a scan in a national grid is stated with a large frame. */
 const MAX_FRAME_MM = 20_000_000_000;
@@ -240,7 +241,7 @@ export function planSurvey({ job, candidates, frame, levels: named = {}, manifes
   let already = 0;
   const again = (c) => { if (!filed.cids.has(c.cid)) return false; already++; return true; };
   const storeys = matchStoreys(candidates.filter((c) => c.kind === "level"), frame, named, manifest, job.id, filed.storeys).map((s) => {
-    const E = s.elevation_mm, elements = [], byCid = new Map(), exceptions = [];
+    const E = s.elevation_mm, elements = [], byCid = new Map(), exceptions = [], once = [];
     const mine = candidates.filter((c) => c.kind !== "level" && c.geometry?.storey === s.cid);
     // The trust record: the job's measured block as stored; the accuracy judged on the fit (each face's inliers against its own line) AND on
     // how far the faces sit from the ghost's (faceDev) — design rule 6's measured verdict, said by `basis`; the pre-tick, the bridge's half of
@@ -250,16 +251,19 @@ export function planSurvey({ job, candidates, frame, levels: named = {}, manifes
     const trust = (c, extra = {}) => {
       const rms = c.fit?.rmse_mm, dev = c.kind === "wall" ? faceDev(c) : null;
       const status = !Number.isFinite(rms) ? "insufficient_data" : Math.max(rms, dev ?? 0) <= TOLERANCE_MM ? "within_tolerance" : "out_of_tolerance";
-      const sized = c.kind === "level" || (c.kind === "wall" && Number.isFinite(c.measured?.thickness_mm));
+      // MA-5a-2 (the founder's call): a scan's walls are never pre-ticked until a reference shows >= 0.8 of a scan's paired walls are traced
+      // walls (Kladno 0.5.0: 46 of 77, 0.60) — the fit cannot fail (a face's inliers lie within CELL, 20 mm, by construction), so it never
+      // told a wall from a cupboard; a created level keeps its pre-tick (its height is checked against the published levels)
       return { measured: c.measured, accuracy: { status, basis: "fit", from_job: job.id, fit_rmse_mm: Number.isFinite(rms) ? rms : null, face_dev_mm: dev,
-        coverage: c.fit?.coverage ?? null, target_mm: TOLERANCE_MM }, pretick: status === "within_tolerance" && s.checked && sized, ...extra };
+        coverage: c.fit?.coverage ?? null, target_mm: TOLERANCE_MM }, pretick: c.kind === "level" && status === "within_tolerance" && s.checked, ...extra };
     };
     // `why`: the reason's own words for a gap the key does not say (MA-5a: several catalogue rows in an opening's size band).
     const gap = (c, g, why = null) => {
       gaps.push({ ...g, size: g.size ?? (g.want ? null : NOT_MEASURED), label: `${s.level} · ${c.cid}`.slice(0, 256), evidence: c.evidence });
       exceptions.push({ unique_id: c.cid.slice(0, 64), name: `${c.kind} ${c.cid}`.slice(0, 256),
         // a wall of one face seen was never typed: its thickness is missing, not the rule (final review)
-        reason: `type gap — ${why ?? (g.want ? `${g.want} is not in the type catalogue` : c.kind === "wall" && g.size === NOT_MEASURED ? `its thickness was not measured (${g.key})`
+        reason: `type gap — ${why ?? (g.want ? `${g.want} is not in the type catalogue` : c.kind === "wall" && g.size === NOT_TRUSTED ? `its thickness is not trusted (${g.key})`
+          : c.kind === "wall" && g.size === NOT_MEASURED ? `its thickness was not measured (${g.key})`
           : `no office rule types it (${g.key})`)}; it waits in the Holding Area`.slice(0, 300) });
     };
     const walls = mine.filter((c) => c.kind === "wall");
@@ -268,7 +272,9 @@ export function planSurvey({ job, candidates, frame, levels: named = {}, manifes
     // Every wall's facts and gap first, so a wall trimmed to a gap's centreline can say so (the corner closes once the gap is placed).
     const typed = walls.map((c, i) => {
       const t = c.measured.thickness_mm;
-      if (!Number.isFinite(t)) return { gap: { category: "Walls", want: null, size: NOT_MEASURED, key: "one face seen", nearest: [] } };
+      if (!Number.isFinite(t)) return { gap: Number.isFinite(c.measured.faces_apart_mm)
+        ? { category: "Walls", want: null, size: NOT_TRUSTED, key: `its two faces ${c.measured.faces_apart_mm} mm apart against a ${c.fit?.rmse_mm} mm fit scatter — too close to trust a thickness`, nearest: [] }
+        : { category: "Walls", want: null, size: NOT_MEASURED, key: "one face seen", nearest: [] } };
       const loc = locate(segs, i), facts = { thickness_mm: t, ...(loc.location ? { params: { Location: loc.location } } : {}) };
       return { facts, loc, gap: gapOf(type, "wall", facts, c.cid, loc.why) };
     });
@@ -291,6 +297,11 @@ export function planSurvey({ job, candidates, frame, levels: named = {}, manifes
     // (decision 19) is in the model or on the Review desk — the executor finds it among the model's walls.
     for (const c of mine.filter((x) => x.kind === "door" || x.kind === "window")) {
       if (again(c)) continue;
+      // MA-5a-2 (the founder's call, plan §0): a door is proposed only when its hole shows in both faces of its wall — on Kladno the doors
+      // seen on one face were 3 real in 25 on two-face walls and 1 in 22 on one-face walls; a closed leaf or furniture reads the same. A
+      // window is not filtered: a façade's windows are seen from inside only. ponytail: a closed door in a thick wall is not proposed (all 3
+      // real doors lost were in 338-509 mm walls) — a person draws it.
+      if (c.kind === "door" && !((c.fit?.faces_seen ?? 0) >= 2)) { once.push(c.cid); continue; }
       // MA-5a (review): an opening held by its level or its host, not its type, is an exception only — a size group in the Holding Area
       // would close by catalogue while the opening still could not be placed
       const hold = (why) => exceptions.push({ unique_id: c.cid.slice(0, 64), name: `${c.kind} ${c.cid}`.slice(0, 256), reason: why.slice(0, 300) });
@@ -301,7 +312,9 @@ export function planSurvey({ job, candidates, frame, levels: named = {}, manifes
       if (!s.checked) { hold(`its level ${s.level} is in no published model, so its height in Revit is unknown here — Revit refuses a door or window off its level's height; name a published level, or leave the storey out of levels to have it created`); continue; }
       if (hi < 0) { hold(`its host wall ${host} is not a wall of ${s.level} in ${job.id}`); continue; }
       if (typed[hi].gap && !filed.cids.has(host)) {
-        hold(typed[hi].gap.size === NOT_MEASURED ? `its host wall ${host} was seen on one face only, so it is never typed — a person draws the wall and this ${c.kind}`
+        const hg = typed[hi].gap;
+        hold(hg.size === NOT_MEASURED ? `its host wall ${host} was seen on one face only, so it is never typed — a person draws the wall and this ${c.kind}`
+          : hg.size === NOT_TRUSTED ? `its host wall ${host}'s thickness is not trusted (${hg.key}), so it is never typed — a person draws the wall and this ${c.kind}`
           : `its host wall ${host} is a type gap — propose the job again once the wall's group in the Holding Area closes`);
         continue;
       }
@@ -341,7 +354,7 @@ export function planSurvey({ job, candidates, frame, levels: named = {}, manifes
         reason: `scan ${c.kind} ${c.cid}: ${c.measured.area_m2} m² at ${c.measured.elevation_mm} mm as measured · ${fit(c)} · its thickness is the type's (the scan sees one face) · ${ref}`.slice(0, 500) });
       byCid.set(c.cid, trust(c));
     }
-    if (!elements.length) return { storey: s, body: null, byCid, exceptions };
+    if (!elements.length) return { storey: s, body: null, byCid, exceptions, once };
     if (s.how === "created") {
       const lv = candidates.find((c) => c.cid === s.cid);
       elements.unshift({ op: "create", kind: "level", cid: s.cid, evidence: lv.evidence, validate: { identity: { Class: "IFCBUILDINGSTOREY", Name: s.level } },
@@ -352,7 +365,7 @@ export function planSurvey({ job, candidates, frame, levels: named = {}, manifes
     // plan: Kladno's 425-candidate storey types none on the BDS standards (131 gap groups); build the split when a storey types over 200.
     if (elements.length > MAX_CHANGESET_ELEMENTS)
       throw err(413, `${s.cid} would file ${elements.length} elements on ${s.level} — over the ${MAX_CHANGESET_ELEMENTS} one changeset (one Undo) holds; a storey is not split into changesets yet — survey a part of the building — nothing was saved`);
-    return { storey: s, byCid, exceptions, body: { name: `Survey ${job.id} · ${s.level}`, contract: 2, source: `${job.reader} ${job.version}`, elements, exceptions } };
+    return { storey: s, byCid, exceptions, once, body: { name: `Survey ${job.id} · ${s.level}`, contract: 2, source: `${job.reader} ${job.version}`, elements, exceptions } };
   });
   return { storeys, groups: groupGaps(gaps), already_filed: already };
 }
