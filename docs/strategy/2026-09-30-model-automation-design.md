@@ -1182,7 +1182,10 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
     drawing's bytes, its cid and the one scan wall's job — never raised twice, any status (drill MA5a456: the planted partition, exactly one).
   - Rooms from closed loops, named from the drawing text (C7).
   - Promote gains `rehost` and placeholder swaps (GHB-1 logic).
-  - GHB-3, GHB-6, DAT-1, DAT-2, DAT-4, DAT-5.
+  - GHB-3, GHB-6, DAT-1, DAT-2, DAT-4, DAT-5. GHB-3 + DAT-4 BUILT in MA-5b-2: Ghost Builder imports the picked drawing afresh every run (an
+    edited DWG is read again; no reuse by name) and removes the import it made at every end — after a build inside the build's one Undo, on
+    Revit's thread otherwise; a drawing picked from the model is kept. The pick window names the drawing's units (as the file says, mm, cm,
+    m, in, ft) for Ghost and Datum alike; Datum says a storey spacing that names wrong units (every gap under 1.5 m, or one over 10 m).
   - DWG revision update (C13).
 - **Drill MA5:**
   - A door closed during the scan is proposed from the drawing, flagged `inferred`, and accepted by a person.

@@ -53,9 +53,12 @@ namespace Sentinel.GhostBuilder
             public string Drawing;
             /// <summary>MA-1a item 3: the DWG import's own Z (ft) — the drawing's Z is read from it (GhostFiling.WallBase).</summary>
             public double ImportZFt;
-            /// <summary>MA-1a item 4: the drawing file's sha256 when this run imported it; null when the import was already in the
-            /// model (it may be older than the file — GHB-3) or was picked from the model (no file).</summary>
+            /// <summary>MA-1a item 4: the drawing file's sha256 when this run imported it; null when the import was picked from the model
+            /// (no file). MA-5b-2: every run imports the file afresh, so an edited drawing is read again.</summary>
             public string SourceSha256;
+            /// <summary>MA-5b-2 (GHB-3): the import this run made, removed inside the build's one Undo (Ctrl+Z brings back the build and the
+            /// drawing together); null = picked from the model, the person's — kept.</summary>
+            public ElementId MadeImport;
             /// <summary>MA-1a item 4: the guideline and layers standards as the review header names them (artefact labels).</summary>
             public string GuidelineLabel, LayersLabel;
             /// <summary>MA-1a item 8: what the command's reader did — its time, its model calls, what it was given — for the
@@ -98,6 +101,17 @@ namespace Sentinel.GhostBuilder
         private const string localLedger = "Ledger: none — this model is not bound to a web project (Project Setup binds it); the build ran " +
                                            "through the changeset executor as a local changeset (source dwg, stamped), as one Undo step.";
         private const string noLedger = "Ledger: none — this model is not bound to a web project; nothing was filed.";
+
+        /// <summary>MA-5b-2 (GHB-3): delete an import this run made, inside the caller's transaction — and its type when no other instance
+        /// uses it (an import's type left behind would wait for a purge).</summary>
+        internal static void DropImport(Document doc, ElementId id)
+        {
+            var type = doc.GetElement(id)?.GetTypeId();
+            doc.Delete(id);
+            if (type != null && !type.Equals(ElementId.InvalidElementId) && doc.GetElement(type) != null
+                && !new FilteredElementCollector(doc).OfClass(typeof(ImportInstance)).Any(e => e.GetTypeId().Equals(type)))
+                doc.Delete(type);
+        }
 
         /// <summary>MA-3b7 event A (Revit's thread): the checks, the types proved and the build planned — inside a group that is ALWAYS
         /// rolled back before this returns (a dry run: nothing is left in the model). A refusal fills Report.NotBuilt.</summary>
@@ -784,6 +798,15 @@ namespace Sentinel.GhostBuilder
                 {
                     blockLine = blockNote;
                     report.Warnings.Add(blockNote);
+                }
+
+                // MA-5b-2 (GHB-3): the drawing this run imported goes with the build — inside its Undo, so one Ctrl+Z brings both back.
+                if (r.MadeImport != null && doc.GetElement(r.MadeImport) is ImportInstance)
+                {
+                    using var drop = new Transaction(doc, "Sentinel — remove the imported DWG");
+                    drop.Start();
+                    DropImport(doc, r.MadeImport);
+                    drop.Commit();
                 }
 
                 // ── 6. One Undo entry, named as the first changeset's transaction ───────────────────────────────────────────

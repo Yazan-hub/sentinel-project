@@ -88,7 +88,7 @@ namespace Sentinel.GhostBuilder
         /// origins. Same scratch-import/rollback structure as DetectFromFolder.
         /// </summary>
         public DatumResult DetectFromFiles(IReadOnlyList<string> files, string levelLayerKeyword = "LEVEL",
-                                           string gridLayerKeyword = "GRID")
+                                           string gridLayerKeyword = "GRID", ImportUnit unit = ImportUnit.Default)
         {
             var dwgs = files;
             var levelSegs = new List<Seg>();
@@ -107,6 +107,7 @@ namespace Sentinel.GhostBuilder
                     Placement = ImportPlacement.Origin,   // origin-to-origin → aligns with the base point
                     ThisViewOnly = true,
                     ColorMode = ImportColorMode.Preserved,
+                    Unit = unit, // MA-5b-2 (DAT-4): the person's choice; Default = the file's own header
                 };
                 foreach (var path in dwgs)
                 {
@@ -144,8 +145,16 @@ namespace Sentinel.GhostBuilder
             double top = res.Levels.Count == 0 ? 0 : res.Levels.Max(l => l.ElevationMm);
             if (top > 250_000)
                 res.Warnings.Add($"Top level at {top / 1000:0} m — the drawing's units look wrong (a DXF with no $INSUNITS header is read as inches, x25.4). Check the file's units before building.");
+            res.Warnings.AddRange(DatumFromDrawing.SpacingWarnings(res.Levels)); // MA-5b-2 (DAT-4)
             return res;
         }
+
+        /// <summary>MA-5b-2 (DAT-4): the pick window's units (DwgPickWindow.UnitChoices) as Revit's import unit; anything else is the file's own.</summary>
+        public static ImportUnit UnitOf(string key) => key switch
+        {
+            "mm" => ImportUnit.Millimeter, "cm" => ImportUnit.Centimeter, "m" => ImportUnit.Meter,
+            "in" => ImportUnit.Inch, "ft" => ImportUnit.Foot, _ => ImportUnit.Default,
+        };
 
         // A throwaway drafting view to host the temporary DWG imports; goes away with the rolled-back txn.
         private View ScratchView()

@@ -85,7 +85,11 @@ public sealed class GhostBuilderCommand : IExternalCommand
 
         // 2. Acquire the DWG: folder-first (same GhostSourceFolder Datum reads), PickObject fallback.
         ImportInstance? cadLink = null;
-        string? sourceSha = null; // MA-1a item 4: the drawing's sha256 — only when this run imports it (a reused import may be older, GHB-3)
+        string? sourceSha = null; // MA-1a item 4: the drawing's sha256 — when this run imports it (an import picked from the model has no file)
+        // MA-5b-2 (GHB-3): the import THIS run made — read fresh from the file every run (an edited drawing is read again), removed when
+        // the run ends: inside the build's one Undo after a build (GhostChangesetBuild), on Revit's thread on every other end. An import
+        // picked from the model is the person's: never removed.
+        ElementId? madeImport = null;
         var folderDwgs = Directory.Exists(settings.GhostSourceFolder ?? "")
             ? Directory.EnumerateFiles(settings.GhostSourceFolder!, "*.*")
                 .Where(f => f.EndsWith(".dwg", System.StringComparison.OrdinalIgnoreCase)
@@ -93,77 +97,57 @@ public sealed class GhostBuilderCommand : IExternalCommand
                 .OrderBy(f => f).ToList()
             : new List<string>();
 
-        // Already-imported DWGs (by filename, sans extension) so the picker can flag them and a
-        // re-run can reuse the existing import instead of importing the same drawing again.
-        var existingImports = new FilteredElementCollector(doc).OfClass(typeof(ImportInstance))
-            .Cast<ImportInstance>()
-            .Select(imp => (Instance: imp, TypeName: doc.GetElement(imp.GetTypeId())?.Name))
-            .Where(x => !string.IsNullOrEmpty(x.TypeName))
-            .Select(x => (x.Instance, Name: Path.GetFileNameWithoutExtension(x.TypeName!)))
-            .ToList();
-        var existingImportNames = existingImports.Select(x => x.Name).ToList();
-
         bool pickFromModel = folderDwgs.Count == 0;
         if (folderDwgs.Count > 0)
         {
-            var pick = new DwgPickWindow(folderDwgs, existingImportNames);
+            var pick = new DwgPickWindow(folderDwgs);
             new System.Windows.Interop.WindowInteropHelper(pick) { Owner = c.Application.MainWindowHandle };
             if (pick.ShowDialog() != true) return Result.Cancelled;
             pickFromModel = pick.PickFromModel;
 
             if (!pickFromModel && pick.SelectedPath is { } dwgPath)
             {
-                // Re-running on the same drawing: reuse the ImportInstance already in the model
-                // instead of importing (and duplicating) it again.
-                var reuse = existingImports.FirstOrDefault(x =>
-                    string.Equals(x.Name, Path.GetFileNameWithoutExtension(dwgPath), System.StringComparison.OrdinalIgnoreCase));
-                if (reuse.Instance != null)
+                // Import needs a view that can actually host CAD geometry — the active view can
+                // be a schedule/legend/sheet etc. in which case fall back to any floor plan.
+                View importView = uidoc.ActiveView;
+                var unhostable = importView.ViewType is ViewType.Schedule or ViewType.Legend
+                    or ViewType.DrawingSheet or ViewType.ProjectBrowser or ViewType.SystemBrowser
+                    or ViewType.Internal or ViewType.Undefined or ViewType.ColumnSchedule or ViewType.PanelSchedule
+                    or ViewType.ThreeD;
+                if (unhostable)
                 {
-                    cadLink = reuse.Instance;
-                }
-                else
-                {
-                    // Import needs a view that can actually host CAD geometry — the active view can
-                    // be a schedule/legend/sheet etc. in which case fall back to any floor plan.
-                    View importView = uidoc.ActiveView;
-                    var unhostable = importView.ViewType is ViewType.Schedule or ViewType.Legend
-                        or ViewType.DrawingSheet or ViewType.ProjectBrowser or ViewType.SystemBrowser
-                        or ViewType.Internal or ViewType.Undefined or ViewType.ColumnSchedule or ViewType.PanelSchedule
-                        or ViewType.ThreeD;
-                    if (unhostable)
+                    var fallback = new FilteredElementCollector(doc).OfClass(typeof(ViewPlan)).Cast<ViewPlan>()
+                        .FirstOrDefault(v => v.ViewType == ViewType.FloorPlan && !v.IsTemplate);
+                    if (fallback is null)
                     {
-                        var fallback = new FilteredElementCollector(doc).OfClass(typeof(ViewPlan)).Cast<ViewPlan>()
-                            .FirstOrDefault(v => v.ViewType == ViewType.FloorPlan && !v.IsTemplate);
-                        if (fallback is null)
-                        {
-                            TaskDialog.Show("Sentinel — Ghost Builder",
-                                "The active view can't host a DWG import, and no floor plan view was found. Open a floor plan view and try again.");
-                            return Result.Cancelled;
-                        }
-                        importView = fallback;
+                        TaskDialog.Show("Sentinel — Ghost Builder",
+                            "The active view can't host a DWG import, and no floor plan view was found. Open a floor plan view and try again.");
+                        return Result.Cancelled;
                     }
+                    importView = fallback;
+                }
 
-                    // Import KEPT in the model (unlike Datum's rolled-back scratch read) so the user
-                    // sees what was built from, and re-runs can re-pick it from the model.
-                    using var t = new Transaction(doc, "Sentinel — import DWG plan");
-                    t.Start();
-                    var opts = new DWGImportOptions
-                    {
-                        Placement = ImportPlacement.Origin,   // aligns with Datum's origin-to-origin read
-                        ThisViewOnly = false,
-                        ColorMode = ImportColorMode.Preserved,
-                    };
-                    if (doc.Import(dwgPath, opts, importView, out ElementId impId))
-                        cadLink = doc.GetElement(impId) as ImportInstance;
-                    if (cadLink is null)
-                    {
-                        t.RollBack();
-                        TaskDialog.Show("Sentinel — Ghost Builder", $"Could not import:\n{dwgPath}");
-                        return Result.Failed;
-                    }
-                    t.Commit();
-                    sourceSha = ProvenanceStamp.FileSha256(dwgPath);
+                // Imported for this run (MA-5b-2): seen under the ghosts while the person reviews, removed when the run ends.
+                using var t = new Transaction(doc, "Sentinel — import DWG plan");
+                t.Start();
+                var opts = new DWGImportOptions
+                {
+                    Placement = ImportPlacement.Origin,   // aligns with Datum's origin-to-origin read
+                    ThisViewOnly = false,
+                    ColorMode = ImportColorMode.Preserved,
+                    Unit = DatumBuilder.UnitOf(pick.Units), // MA-5b-2 (DAT-4): the person's choice; Default = the file's own header
+                };
+                if (doc.Import(dwgPath, opts, importView, out ElementId impId))
+                    cadLink = doc.GetElement(impId) as ImportInstance;
+                if (cadLink is null)
+                {
+                    t.RollBack();
+                    TaskDialog.Show("Sentinel — Ghost Builder", $"Could not import:\n{dwgPath}");
+                    return Result.Failed;
                 }
+                t.Commit();
+                madeImport = cadLink.Id;
+                sourceSha = ProvenanceStamp.FileSha256(dwgPath);
             }
         }
 
@@ -206,6 +190,7 @@ public sealed class GhostBuilderCommand : IExternalCommand
         catch (System.Exception ex)
         {
             llm.Dispose();
+            RemoveImport(doc, madeImport);
             msg = $"{ex.GetType().Name}: {ex.Message}";
             return Result.Failed;
         }
@@ -213,6 +198,7 @@ public sealed class GhostBuilderCommand : IExternalCommand
         if (inputs.Layers.Count == 0)
         {
             llm.Dispose();
+            RemoveImport(doc, madeImport);
             TaskDialog.Show("Sentinel — Ghost Builder", "No CAD layers found in the import; nothing to build.");
             return Result.Cancelled;
         }
@@ -221,8 +207,17 @@ public sealed class GhostBuilderCommand : IExternalCommand
         LayerMapper? mapper = null;
         GhostBuilderOrchestrator? orchestrator = null;
         GhostStandards? standards = null;
-        // Frees the local model's HttpClient (LayerMapper.Dispose forwards to the same LocalGhostBuilder).
-        void Release() => ((System.IDisposable?)mapper ?? llm).Dispose();
+        // Frees the local model's HttpClient (LayerMapper.Dispose forwards to the same LocalGhostBuilder). Every end of the run releases —
+        // MA-5b-2: and removes the import this run made, on Revit's thread (a build removed it already, inside its Undo: then nothing).
+        void Release()
+        {
+            ((System.IDisposable?)mapper ?? llm).Dispose();
+            if (madeImport is { } made)
+            {
+                madeImport = null;
+                App.Events!.Enqueue(_ => RemoveImport(doc, made), "remove the drawing Ghost Builder imported");
+            }
+        }
 
         // 4. Wire the PHASE 3 placement handoff (runs on the API thread through the event hub — SEC-7).
         var placementEvent = new GhostBuilderPlacementEvent { Org = App.OrgFor(doc) };
@@ -280,7 +275,7 @@ public sealed class GhostBuilderCommand : IExternalCommand
             {
                 Doc = doc, Elements = inputs.Elements, Mapping = approved, LevelId = levelId,
                 Guideline = standards!.Guideline, LibraryDir = libraryDir, Key = key, Drawing = drawing,
-                ImportZFt = importZFt, SourceSha256 = sourceSha, GuidelineLabel = standards!.GuidelineSource.Label, LayersLabel = standards!.LayersSource.Label,
+                ImportZFt = importZFt, SourceSha256 = sourceSha, MadeImport = madeImport, GuidelineLabel = standards!.GuidelineSource.Label, LayersLabel = standards!.LayersSource.Label,
                 Reader = reader,
             });
             // SEC-7: through the event hub — a request Revit does not take at once is said and raised again, never dropped unsaid.
@@ -352,8 +347,8 @@ public sealed class GhostBuilderCommand : IExternalCommand
                 }
                 // MA-1a item 6, the office-template check: Build from Evidence runs only in a model whose types match the
                 // installed catalogue. Refused when the model holds none of the office types (founder decision F5);
-                // otherwise the count is said in the summary. The DWG import made above stays in the model, as it does
-                // after every other refusal of this command.
+                // otherwise the count is said in the summary. The DWG import made above is removed (Release), as at every
+                // other end of this command (MA-5b-2).
                 var (officeHave, officeAll) = resolved.Guideline.OfficeTypesIn(heldTypes);
                 if (PlacementPolicy.TemplateRefuses(officeHave, officeAll))
                 {
@@ -470,6 +465,17 @@ public sealed class GhostBuilderCommand : IExternalCommand
         held["Floors"] = new FilteredElementCollector(doc).OfClass(typeof(FloorType)).Cast<FloorType>()
             .Select(t => (Family: (string?)null, Type: t.Name)).OrderBy(x => x.Type, System.StringComparer.OrdinalIgnoreCase).ToList();
         return held;
+    }
+
+    /// <summary>MA-5b-2 (GHB-3): remove the import this run made, in its own transaction, on Revit's thread — never one the person picked
+    /// (null), never one already gone (a build removed it inside its Undo; the model closed).</summary>
+    internal static void RemoveImport(Document doc, ElementId? id)
+    {
+        if (id == null || doc == null || !doc.IsValidObject || doc.GetElement(id) is not ImportInstance) return;
+        using var t = new Transaction(doc, "Sentinel — remove the imported DWG");
+        t.Start();
+        GhostChangesetBuild.DropImport(doc, id);
+        t.Commit();
     }
 
     private static void CloseOnUi(GhostBuilderProgressWindow w, System.Action release) =>
