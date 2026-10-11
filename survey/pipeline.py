@@ -1,6 +1,6 @@
 # MA-4c — sentinel-survey 0.1's measuring code (design §2.1 rule 2: geometry from measuring code, never a language or vision model;
 # §6.9): storeys from a height histogram, walls from a density slice per storey (faces found by a Hough transform and fitted by total
-# least squares, then paired by WallPairing's rule — ported below), floors and ceilings as oriented rectangles. numpy only (the files are
+# least squares, then paired by WallPairing's greedy rule as it was until 2026-10-11 — ported below), floors and ceilings as oriented rectangles. numpy only (the files are
 # read by las.py and e57.py); the same points, params and seed give the same candidates (no randomness but the seeded point cap).
 # Millimetres in the scan's own frame (no CRS applied — MA-4g: an E57's scans are posed into its file's frame, and one job reads one
 # declared CRS). Candidates carry no type: the bridge types them (MA-4d; a door or window by its size, MA-5a). LOD 200 as found — never
@@ -307,7 +307,10 @@ def outline(P, band, fs):
     return {"corners": corners, "area": (u1 - u0) * (v1 - v0), "cover": cover, "points": idx[m]}
 
 
-# ── WallPairing.Pair (SentinelAddin/GhostBuilder/WallPairing.cs), rule for rule — tools/wallpair-check/Check.cs's cases are Pair's tests ──
+# ── WallPairing.Pair's greedy rule as it was until 2026-10-11 (SentinelAddin/GhostBuilder/WallPairing.cs) — tools/wallpair-check/Check.cs's
+# first nine cases are this port's tests. WallPairing.cs now pairs drawn faces order-independently (claims over the whole drawing, outer
+# faces first); the scan keeps the greedy rule — its faces come in the pipeline's own fixed order, so a run never differs by input order —
+# until Kladno is measured with the new claims (a T-junction's leftover face can still pair with a far one here). ──
 def _len(s):
     return math.hypot(s[2] - s[0], s[3] - s[1])
 
@@ -381,7 +384,7 @@ def fit(n, rmse, cover):
 
 def thickness_trusted(gap, rms):
     """MA-5a-2: a pair's thickness is measured only when its faces lie THICK_SCATTER times their fit scatter apart (DWG lines have no
-    scatter, so the gate is the scan's alone: pair() stays rule for rule with WallPairing.cs)."""
+    scatter, so the gate is the scan's alone: pair() stays the greedy rule WallPairing.cs had until 2026-10-11)."""
     return gap >= THICK_SCATTER * rms
 
 
@@ -598,7 +601,7 @@ def merge_split(P, Q, fs, z0, z1):
 def measure(P, src, ids, storey_min, progress=lambda stage, pct: None):
     """The candidates of one registered cloud P (mm); src[i] is point i's item, an index into ids. Per storey, bottom up: its level, its
     floor, its ceilings, its walls. A wall's top is its storey's first ceiling, else the next floor, else the highest point.
-    ponytail: a wall's ends follow WallPairing's centreline (face a's full length) — at a corner up to half a thickness long or short;
+    ponytail: a wall's ends follow the greedy rule's centreline (face a's full length) — at a corner up to half a thickness long or short;
     MA-4d decides whether to trim walls to their intersections."""
     floors, ceilings = classify(surfaces(P), storey_min)
 

@@ -20,7 +20,8 @@
 // Paper millimetres throughout (page origin bottom-left, y up): the scale and placement are the lead's 2-point alignment (MA-5a-4).
 // Analyse() is pure — strokes, curves and words in, a Reading out; Read(page) only collects them.
 // ponytail: window glass or sill lines, stair treads and a door leaf drawn as a rectangle IN the wall weight pair into thin walls; a
-// dense hatch in its own weight can out-pair the walls — the receipt lists every weight's paired length. Fix each when a real set does it.
+// dense hatch in its own weight can out-pair the walls — the receipt lists every weight's paired length; an L corner whose two outer
+// faces both run on alone past PAIR_MAX leaves its corner square empty. Fix each when a real set does it.
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -60,6 +61,7 @@ namespace Sentinel.Drawing
         public const double TAG_REACH = 1.5;   // a tag within 1.5 radii of its door
         public const double COLUMN = 3;        // a lone run capped at both ends and at most 3 x its thickness is a column (300 x 900)
         public const double WEIGHT_SHARE = 0.3; // a weight pairing into 30 % of the best's wall length is read too (two pens)
+        public const double LINING = 0.1;      // of PAIR_MAX: a wall this thin may share a face with another wall (a lining)
         const double PARALLEL = 0.5 * Math.PI / 180; // radians: a plot draws a wall's two faces at one angle
         const double TOUCH = 0.05;             // paper mm: strokes on one line within this touch; a gap shorter than this is none
         const double CIRCLE = 0.02;            // a curve is a circle's arc when its quarter points sit within 2 % of the radius
@@ -247,23 +249,33 @@ namespace Sentinel.Drawing
         /// outer-face test (lines within PAIR_MAX of each other).</summary>
         static List<Line> Lines(List<Stroke> strokes, ref int groupNo)
         {
-            var dir = new List<(Stroke s, double th)>();
+            var dir = new List<(Stroke s, double th, double len)>();
             foreach (var s in strokes)
             {
                 double dx = s.X2 - s.X1, dy = s.Y2 - s.Y1;
                 if (dx * dx + dy * dy < 1e-12) continue;
+                if (dx < 0 || (dx == 0 && dy < 0)) { dx = -dx; dy = -dy; } // the same angle whichever end it is drawn from
                 double th = Math.Atan2(dy, dx);
                 if (th < 0) th += Math.PI;
-                if (th >= Math.PI - PARALLEL / 2) th -= Math.PI; // 179.9° is 0°'s
-                dir.Add((s, th));
+                dir.Add((s, th, Math.Sqrt(dx * dx + dy * dy)));
             }
-            dir.Sort((p, q) => p.th.CompareTo(q.th));
             var lines = new List<Line>();
+            if (dir.Count == 0) return lines;
+            dir = dir.OrderBy(d => d.th).ThenBy(d => d.s.X1 + d.s.X2).ThenBy(d => d.s.Y1 + d.s.Y2).ToList();
+            // Start after the widest angular gap (the circle wraps at π), so no fixed angle splits a line's strokes.
+            int cut = 0; double widest = dir[0].th + Math.PI - dir[dir.Count - 1].th;
+            for (int k = 1; k < dir.Count; k++) if (dir[k].th - dir[k - 1].th > widest) { widest = dir[k].th - dir[k - 1].th; cut = k; }
+            dir = dir.Skip(cut).Concat(dir.Take(cut).Select(d => (d.s, d.th + Math.PI, d.len))).ToList();
             for (int i = 0; i < dir.Count;)
             {
+                // Windows anchored at their first stroke (never chained across the page — a curve's facets cannot drag a wall's
+                // angle); the window's frame its length-weighted MEDIAN angle, the walls' own, which a few stray strokes cannot tilt.
                 int j = i + 1;
-                while (j < dir.Count && dir[j].th - dir[j - 1].th <= PARALLEL) j++;
-                double th = dir.Skip(i).Take(j - i).Average(x => x.th), ux = Math.Cos(th), uy = Math.Sin(th), nx = -uy, ny = ux;
+                while (j < dir.Count && dir[j].th - dir[i].th <= PARALLEL) j++;
+                double wl = 0, acc = 0, th = dir[i].th;
+                for (int k = i; k < j; k++) wl += dir[k].len;
+                foreach (var d in dir.Skip(i).Take(j - i).OrderBy(d => d.th)) { acc += d.len; if (acc >= wl / 2) { th = d.th; break; } }
+                double ux = Math.Cos(th), uy = Math.Sin(th), nx = -uy, ny = ux;
                 var at = dir.Skip(i).Take(j - i).Select(x => (off: ((x.s.X1 + x.s.X2) / 2) * nx + ((x.s.Y1 + x.s.Y2) / 2) * ny,
                     a: Math.Min(x.s.X1 * ux + x.s.Y1 * uy, x.s.X2 * ux + x.s.Y2 * uy), b: Math.Max(x.s.X1 * ux + x.s.Y1 * uy, x.s.X2 * ux + x.s.Y2 * uy)))
                     .OrderBy(x => x.off).ToList();
@@ -309,10 +321,15 @@ namespace Sentinel.Drawing
             cands = cands.OrderBy(c => c.a.ExpLo || c.b.ExpHi ? 0 : 1).ThenBy(c => c.g).ThenBy(c => c.a.Group).ThenBy(c => c.a.Off).ToList();
             var claims = new List<(Line a, Line b, double g, List<(double a, double b)> both)>();
             static List<(double a, double b)> Ivs(List<(double a, double b, int cand)> own) => Norm(own.Select(o => (o.a, o.b)));
+            // Already another wall's face on its far side, neither of the two a lining: a lone line beside a wall is no wall's face.
+            List<(double a, double b)> Shared(List<(double a, double b, int cand)> own, double g) =>
+                Norm(own.Where(o => Math.Min(g, claims[o.cand].g) > LINING * PAIR_MAX).Select(o => (o.a, o.b)));
             foreach (var (a, b, g) in cands)
             {
                 var both = Inter(Minus(a.Iv, Ivs(a.OwnHi)), Minus(b.Iv, Ivs(b.OwnLo)));
                 both = Minus(both, Inter(Ivs(a.OwnLo), Ivs(b.OwnHi))); // walls on both far sides: the void or cavity between them
+                both = Minus(both, Shared(a.OwnLo, g));
+                both = Minus(both, Shared(b.OwnHi, g));
                 foreach (var c in claims)
                     if (c.a.Group == a.Group && (Inside(a.Off, c.a, c.b) || Inside(b.Off, c.a, c.b))) both = Minus(both, c.both); // a line inside a wall
                 if (Len(both) < g) continue; // shorter than thick wherever both faces are free: jambs, caps
@@ -338,7 +355,7 @@ namespace Sentinel.Drawing
                 }
                 foreach (var (lo0, hi0, gaps) in runs)
                 {
-                    double lo = Math.Min(RunOn(a, lo0, -1, id), RunOn(b, lo0, -1, id)), hi = Math.Max(RunOn(a, hi0, 1, id), RunOn(b, hi0, 1, id));
+                    double lo = Math.Min(RunOn(a, lo0, -1, id, true), RunOn(b, lo0, -1, id, false)), hi = Math.Max(RunOn(a, hi0, 1, id, true), RunOn(b, hi0, 1, id, false));
                     if (hi - lo < g) continue; // a wall is longer than it is thick
                     bands.Add(new Band { A = a, B = b, G = g, Lo = lo, Hi = hi, Gaps = gaps });
                 }
@@ -348,21 +365,26 @@ namespace Sentinel.Drawing
 
         static bool Inside(double off, Line lo, Line hi) => off > lo.Off + TOUCH && off < hi.Off - TOUCH;
 
-        /// <summary>How far a face continues alone from e (side -1: down, +1: up) when it stops within PAIR_MAX — a corner; a face that
-        /// runs on further is a single line beyond the wall, not more wall. Never into another pair's claim.</summary>
-        static double RunOn(Line l, double e, int side, int id)
+        /// <summary>How far a face continues alone from e (side -1: down, +1: up): to the next wall on that face (to the middle of the
+        /// gap when that wall is on the same side — two walls meeting at a T meet there), else to the line's own end — when that is
+        /// within PAIR_MAX (a corner); a face that runs on further is a single line beyond the wall. `hi`: this pair claims the line's
+        /// upper side (the line is its lower face).</summary>
+        static double RunOn(Line l, double e, int side, int id, bool hi)
         {
             var iv = l.Iv.FirstOrDefault(x => x.a <= e + TOUCH && x.b >= e - TOUCH);
             if (iv.b - iv.a <= 0) return e;
-            double end = side < 0 ? iv.a : iv.b;
-            if (Math.Abs(end - e) > PAIR_MAX) return e;
-            foreach (var o in l.Own)
-            {
-                if (o.cand == id) continue;
-                if (side < 0 && o.b <= e + TOUCH && o.b > end) end = o.b;
-                if (side > 0 && o.a >= e - TOUCH && o.a < end) end = o.a;
-            }
-            return end;
+            double stop = side < 0 ? iv.a : iv.b, nearest = stop;
+            bool same = false;
+            foreach (var (own, isHi) in new[] { (l.OwnHi, true), (l.OwnLo, false) })
+                foreach (var o in own)
+                {
+                    if (o.cand == id) continue;
+                    double at = side < 0 ? o.b : o.a;
+                    if (side < 0 ? (at > e + TOUCH || at <= nearest) : (at < e - TOUCH || at >= nearest)) continue;
+                    nearest = at; same = isHi == hi;
+                }
+            double end = nearest == stop ? stop : same ? (e + nearest) / 2 : nearest;
+            return Math.Abs(end - e) > PAIR_MAX ? e : end;
         }
 
         // ---- pieces and doors -------------------------------------------------------------------------------------------------

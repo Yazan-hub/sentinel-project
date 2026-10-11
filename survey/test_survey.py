@@ -1,5 +1,5 @@
 # MA-4c — sentinel-survey 0.1's self-checks, run from the repo root: C:\Python314\python.exe -B -m unittest discover -s survey -v.
-# The LAS reader, the WallPairing port (tools/wallpair-check/Check.cs's cases), the measuring code on a synthetic two-storey building
+# The LAS reader, the port of WallPairing's greedy rule (tools/wallpair-check/Check.cs's first nine cases), the measuring code on a synthetic two-storey building
 # written as a LAS here, determinism, and the service as the bridge runs it (its token, a changed file refused, the stdin watchdog, no
 # file written, no network import). numpy and the standard library; MA-4g's LAZ and E57 tests need its wheels
 # (survey/requirements-ma4g.txt) and are skipped, with why, where they are not installed.
@@ -455,7 +455,7 @@ class E57(unittest.TestCase):
 
 
 class Pair(unittest.TestCase):
-    """tools/wallpair-check/Check.cs's cases, rule for rule: the port gives what WallPairing.cs gives."""
+    """tools/wallpair-check/Check.cs's first nine cases: the port gives what WallPairing.cs gave until 2026-10-11 (its greedy rule)."""
 
     def test_two_faces_are_one_wall_with_its_thickness_and_centreline(self):
         w = pipeline.pair([(0, 0, 5000, 0), (0, 200, 5000, 200)])
