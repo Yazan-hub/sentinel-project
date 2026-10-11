@@ -75,6 +75,7 @@ static class Check
         Ok(WallPairing.Pair(drift).Count == 1, "2 degrees of drafting drift still pairs");
 
         OrderCases();
+        JoinCases();
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;
     }
@@ -181,7 +182,8 @@ static class Check
         // a type's exterior on follows it).
         var rtl = WallPairing.Pair(new List<Seg> { new Seg(5000, 0, 0, 0), new Seg(5000, 200, 0, 200) });
         Ok(rtl.Count == 1 && rtl[0].Cx1 > rtl[0].Cx2, $"(m) faces drawn right to left: the centreline runs right to left ({rtl[0].Cx1:0} -> {rtl[0].Cx2:0})");
-        // (n) Speed: 2,500 rooms' worth of walls (10,000 lines, shuffled) read well inside Ghost Builder's patience.
+        // (n) Speed (MA-5b-6, GHB-6: under 2 s for 10k segments): 2,500 rooms' worth of walls (10,000 lines, shuffled), paired, joined at
+        // 500 openings and trimmed.
         var big = new List<Seg>();
         for (int i = 0; i < 2500; i++)
         {
@@ -192,6 +194,103 @@ static class Check
         big = big.OrderBy(_ => rnd.Next()).ToList();
         var sw = System.Diagnostics.Stopwatch.StartNew();
         var rb = WallPairing.Pair(big);
-        Ok(rb.Count == 2500 && sw.Elapsed.TotalSeconds < 5, $"(n) 10,000 lines: {rb.Count} walls in {sw.Elapsed.TotalSeconds:0.00} s");
+        rb = WallPairing.JoinAtOpenings(rb, Enumerable.Range(0, 500).Select(i => ((i % 50) * 7000 + 6000.0, (i / 50) * 7000 + 100.0)).ToList(), 2000, 1);
+        WallPairing.TrimEnds(rb);
+        // 49 gaps a row of the first 10 hold an opening (2000 apart, within reach): 490 joined
+        Ok(rb.Count == 2010 && sw.Elapsed.TotalSeconds < 2, $"(n) 10,000 lines: {rb.Count} walls paired, joined and trimmed in {sw.Elapsed.TotalSeconds:0.00} s");
+    }
+
+    // ---- MA-5b-6 (GHB-6): corners meet at the centrelines; the pieces of a wall broken at a drawn opening are one wall ----
+
+    static List<PairedWall> Built(List<Seg> s, params (double X, double Y)[] openings)
+    {
+        var ws = WallPairing.JoinAtOpenings(WallPairing.Pair(s), openings, 2000, 1);
+        WallPairing.TrimEnds(ws);
+        return ws;
+    }
+
+    static int Paired(List<PairedWall> ws) => ws.Count(w => w.ThicknessMm > 0);
+
+    static void JoinCases()
+    {
+        Console.WriteLine("\nMA-5b-6 — corners joined at the centrelines, pieces joined through an opening");
+        // An L of two 200 walls: each run on to the outer corner, so each overshoots the other's centreline by 100 — both now end there.
+        var l = new List<Seg> { new Seg(0, 0, 5000, 0), new Seg(200, 200, 5000, 200), new Seg(5000, 0, 5000, 200),
+                                new Seg(0, 0, 0, 5000), new Seg(200, 200, 200, 5000), new Seg(0, 5000, 200, 5000) };
+        var lw = WallPairing.Pair(l);
+        Ok(Has(lw, 0, 100, 5000, 100, 200) && Has(lw, 100, 0, 100, 5000, 200), $"an L as paired: each centreline runs on to the outer corner — the overlap GHB-6 closes ({Canon(lw)})");
+        var lt = Built(l);
+        Ok(lt.Count == 2 && Has(lt, 100, 100, 5000, 100, 200) && Has(lt, 100, 100, 100, 5000, 200), $"an L trimmed: both end at the centrelines' crossing (100, 100) — no gap, no overlap ({Canon(lt)})");
+        // A T: the stem stops at the through wall's face; it now reaches its centreline. The through wall keeps its ends.
+        var t = new List<Seg> { new Seg(0, 0, 8000, 0), new Seg(0, 200, 4000, 200), new Seg(4200, 200, 8000, 200), new Seg(4000, 200, 4000, 3000),
+            new Seg(4200, 200, 4200, 3000), new Seg(4000, 3000, 4200, 3000), new Seg(0, 0, 0, 200), new Seg(8000, 0, 8000, 200) };
+        var tt = Built(t);
+        Ok(tt.Count == 2 && Has(tt, 0, 100, 8000, 100, 200) && Has(tt, 4100, 100, 4100, 3000, 200), $"a T: the stem reaches the through wall's centreline, the through wall untouched ({Canon(tt)})");
+        // A crossing: no end at the other, nothing moves.
+        var x = Built(new List<Seg> { new Seg(0, 0, 4900, 0), new Seg(5100, 0, 10000, 0), new Seg(0, 200, 4900, 200), new Seg(5100, 200, 10000, 200),
+            new Seg(4900, -5000, 4900, 0), new Seg(4900, 200, 4900, 5000), new Seg(5100, -5000, 5100, 0), new Seg(5100, 200, 5100, 5000) });
+        Ok(x.Count == 2 && Has(x, 0, 100, 10000, 100, 200) && Has(x, 5000, -5000, 5000, 5000, 200), $"a crossing: both run through, untrimmed ({Canon(x)})");
+        // A corridor's two parallel walls are never trimmed to each other; a cross wall whose centreline is 650 past their ends (beyond
+        // its thickness + 50) does not pull them.
+        var far = Built(new List<Seg> { new Seg(0, 0, 5000, 0), new Seg(0, 200, 5000, 200), new Seg(0, 600, 5000, 600), new Seg(0, 800, 5000, 800),
+            new Seg(5550, -2000, 5550, 3000), new Seg(5750, -2000, 5750, 3000) });
+        Ok(Has(far, 0, 100, 5000, 100, 200) && Has(far, 0, 700, 5000, 700, 200) && Has(far, 5650, -2000, 5650, 3000, 200),
+           $"a corridor's two walls and a cross wall 650 past their ends: nothing trimmed ({Canon(far)})");
+        // An unpaired line near a corner: neither trims nor is trimmed to.
+        var lone = Built(l.Concat(new[] { new Seg(100, -3000, 100, -1000) }).ToList());
+        Ok(Has(lone, 100, -3000, 100, -1000, 0) && Has(lone, 100, 100, 5000, 100, 200), $"an unpaired line keeps its ends; the walls trim as before ({Canon(lone)})");
+        // Every order gives the same trimmed set.
+        var sets = Orders(t.Concat(l.Select(q => new Seg(q.X1 + 20000, q.Y1, q.X2 + 20000, q.Y2))).ToList()).Select(o => Canon(Built(o))).Distinct().Count();
+        Ok(sets == 1, $"trimmed in 6 orders: one set ({sets})");
+
+        // A wall of 200 broken at a door 1000 wide: two pieces; the door's middle in the gap → one wall through it.
+        var door = new List<Seg> { new Seg(0, 0, 3000, 0), new Seg(0, 200, 3000, 200), new Seg(4000, 0, 8000, 0), new Seg(4000, 200, 8000, 200),
+            new Seg(0, 0, 0, 200), new Seg(3000, 0, 3000, 200), new Seg(4000, 0, 4000, 200), new Seg(8000, 0, 8000, 200) };
+        Ok(Paired(WallPairing.Pair(door)) == 2, "a wall broken at a door pairs as two pieces");
+        var dj = Built(door, (3500, 100));
+        Ok(Paired(dj) == 1 && Has(dj, 0, 100, 8000, 100, 200), $"…the door's middle in the gap: one wall through it ({Canon(dj)})");
+        var dirs = Orders(door).Select(o => Canon(Built(o, (3500, 100)))).Distinct().Count();
+        Ok(dirs == 1, $"…the same one wall in 6 orders ({dirs})");
+        Ok(Paired(Built(door, (3500, 0))) == 1 && Paired(Built(door, (3500, 200))) == 1 && Paired(Built(door, (3500, 202))) == 2 && Paired(Built(door, (3500, -2))) == 2,
+           "…across the wall within half its thickness + 1 joins (a block on a face); 102 off the centreline does not");
+        Ok(Paired(Built(door)) == 2 && Paired(Built(door, (2000, 100))) == 2 && Paired(Built(door, (8500, 100))) == 2,
+           "…no opening, or one inside a piece or past the wall's end: two pieces (a gap a person drew)");
+        // Two thicknesses either side of the door: two walls.
+        var two = new List<Seg> { new Seg(0, 0, 3000, 0), new Seg(0, 200, 3000, 200), new Seg(4000, -50, 8000, -50), new Seg(4000, 250, 8000, 250) };
+        Ok(Paired(Built(two, (3500, 100))) == 2, "pieces of 200 and 300 either side of a door: two walls");
+        // Too far apart: a 2500 gap is no opening of one wall.
+        var wide = new List<Seg> { new Seg(0, 0, 3000, 0), new Seg(0, 200, 3000, 200), new Seg(5500, 0, 8000, 0), new Seg(5500, 200, 8000, 200) };
+        Ok(Paired(Built(wide, (4250, 100))) == 2, "pieces 2500 apart (over the 2000 reach): two walls");
+        // Off line: the second piece 30 to the side.
+        var off = new List<Seg> { new Seg(0, 0, 3000, 0), new Seg(0, 200, 3000, 200), new Seg(4000, 30, 8000, 30), new Seg(4000, 230, 8000, 230) };
+        Ok(Paired(Built(off, (3500, 115))) == 2, "pieces 30 apart across their line: two walls");
+        // A chain: wall – door – wall – window – wall is one wall; the first piece's direction kept.
+        var chain = new List<Seg> { new Seg(0, 0, 3000, 0), new Seg(0, 200, 3000, 200), new Seg(4000, 0, 6000, 0), new Seg(4000, 200, 6000, 200),
+            new Seg(7200, 0, 10000, 0), new Seg(7200, 200, 10000, 200) };
+        var cj = Built(chain, (3500, 100), (6600, 100));
+        Ok(Paired(cj) == 1 && Has(cj, 0, 100, 10000, 100, 200) && cj.First(w => w.ThicknessMm > 0).Cx1 < 1,
+           $"wall–door–wall–window–wall: one wall, the first piece's direction ({Canon(cj)})");
+        // A piece of the same line between the two (consecutive only): the door joins only its two neighbours.
+        var mid = new List<Seg> { new Seg(0, 0, 2000, 0), new Seg(0, 200, 2000, 200), new Seg(2500, 0, 3000, 0), new Seg(2500, 200, 3000, 200),
+            new Seg(4000, 0, 8000, 0), new Seg(4000, 200, 8000, 200) };
+        var mj = Built(mid, (3500, 100));
+        Ok(Paired(mj) == 2 && Has(mj, 2500, 100, 8000, 100, 200) && Has(mj, 0, 100, 2000, 100, 200),
+           $"three pieces, one door: only the two either side of it join ({Canon(mj)})");
+        // The joined wall then trims as one: an L whose long leg was broken at a door.
+        var ld = new List<Seg> { new Seg(0, 0, 3000, 0), new Seg(200, 200, 3000, 200), new Seg(4000, 0, 8000, 0), new Seg(4000, 200, 8000, 200), new Seg(8000, 0, 8000, 200),
+            new Seg(0, 0, 0, 5000), new Seg(200, 200, 200, 5000), new Seg(0, 5000, 200, 5000) };
+        var ldj = Built(ld, (3500, 100));
+        Ok(Paired(ldj) == 2 && Has(ldj, 100, 100, 8000, 100, 200) && Has(ldj, 100, 100, 100, 5000, 200), $"an L broken at a door: joined, then trimmed at the corner ({Canon(ldj)})");
+
+        // The drill's drawing (make-sample.py --ma5b6), as GhostWallPairer reads it: paired and joined per wall layer, trimmed across them.
+        string root = AppContext.BaseDirectory;
+        for (int i = 0; i < 6 && !System.IO.Directory.Exists(System.IO.Path.Combine(root, "SentinelAddin")); i++) root = System.IO.Path.GetFullPath(System.IO.Path.Combine(root, ".."));
+        var dxf = SampleRun.ReadDxfLines(System.IO.Path.Combine(root, "demo", "ghost-sample", "ma5b6-joins.dxf"));
+        var door5 = new[] { (81950.0, 60000.0) };
+        var drill = dxf.Where(k => k.Key.StartsWith("A-WALL")).SelectMany(k => WallPairing.JoinAtOpenings(WallPairing.Pair(k.Value), door5, 2000, 1)).ToList();
+        WallPairing.TrimEnds(drill);
+        Ok(drill.Count == 5 && Has(drill, 80000, 60000, 90000, 60000, 200) && Has(drill, 90000, 60000, 90000, 67000, 200) && Has(drill, 90000, 67000, 80000, 67000, 200)
+           && Has(drill, 80000, 67000, 80000, 60000, 200) && Has(drill, 84000, 60000, 84000, 67000, 100),
+           $"ma5b6-joins.dxf: 4 box walls meeting at their centrelines, the south one through the door, the partition box to box ({Canon(drill)})");
     }
 }

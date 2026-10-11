@@ -23,9 +23,11 @@ namespace Sentinel.GhostBuilder
 
         /// <summary>
         /// Return a new element list in which each Walls-category layer's face lines are paired into
-        /// centreline walls with a measured thickness. Non-wall elements, curved walls, and closed-loop
-        /// walls are passed through unchanged. Never throws on odd geometry — a wall it can't pair stays
-        /// a plain run exactly as before, so this can only add information, never break a build.
+        /// centreline walls with a measured thickness. Non-wall elements, curved walls and loops with an arc are
+        /// passed through unchanged; a loop of straight edges is paired like lines (MA-5b-6). Two pieces of a wall
+        /// broken at a drawn door or window are joined through it, and every paired wall's ends meet the
+        /// centreline of the wall they run into (MA-5b-6, GHB-6). Never throws on odd geometry — a wall it can't
+        /// pair stays a plain run exactly as before, so this can only add information, never break a build.
         /// </summary>
         public static List<GhostElement> PairWalls(IEnumerable<GhostElement> elements, MappingResult mapping)
         {
@@ -41,52 +43,66 @@ namespace Sentinel.GhostBuilder
 
             var output = new List<GhostElement>();
 
-            // Pass through everything that isn't a straight single-run wall line (loops, points, curves,
-            // non-wall layers). Only straight LocationCurve lines on wall layers are candidates for pairing.
-            var byLayer = new Dictionary<string, List<GhostElement>>(StringComparer.OrdinalIgnoreCase);
+            // MA-5b-6 (GHB-6): the doors and windows the drawing places (a block's middle, an outline's centroid), in mm — a wall broken
+            // at one is joined through it below.
+            var openLayers = new HashSet<string>(mapping.Mappings.Where(m => string.Equals(m.Category, "Doors", StringComparison.OrdinalIgnoreCase)
+                                                                             || string.Equals(m.Category, "Windows", StringComparison.OrdinalIgnoreCase))
+                                                                 .Select(m => m.CadLayer), StringComparer.OrdinalIgnoreCase);
+            var openings = all.Where(el => openLayers.Contains(el.CadLayer))
+                              .Select(el => el.LocationPoint ?? (el.LocationLoop != null ? ElementPlacementFactory.Centroid(el.LocationLoop) : null))
+                              .Where(p => p != null).Select(p => (p.X * FeetToMm, p.Y * FeetToMm)).ToList();
+
+            // Pass through everything that isn't straight wall lines (points, curves, a loop with an arc, non-wall layers). Straight
+            // LocationCurve lines on wall layers are paired — and (MA-5b-6) a closed outline of straight edges: its edges are the
+            // wall's faces, its short edges the caps. Each segment remembers the element it came from (elevations carry over).
+            var byLayer = new Dictionary<string, List<(Seg seg, GhostElement src)>>(StringComparer.OrdinalIgnoreCase);
             foreach (var el in all)
             {
-                bool pairable = wallLayers.Contains(el.CadLayer)
-                                && el.LocationCurve is Line line && line.IsBound
-                                && el.LocationLoop == null;
-                if (!pairable) { output.Add(el); continue; }
-                if (!byLayer.TryGetValue(el.CadLayer, out var list)) byLayer[el.CadLayer] = list = new List<GhostElement>();
-                list.Add(el);
+                List<Curve> edges = !wallLayers.Contains(el.CadLayer) ? null
+                    : el.LocationLoop == null ? (el.LocationCurve is Line line && line.IsBound ? new List<Curve> { line } : null)
+                    : el.LocationCurve == null && el.LocationLoop.Count >= 3 && el.LocationLoop.All(c => c is Line && c.IsBound) ? el.LocationLoop.ToList() : null;
+                if (edges == null) { output.Add(el); continue; }
+                if (!byLayer.TryGetValue(el.CadLayer, out var list)) byLayer[el.CadLayer] = list = new List<(Seg, GhostElement)>();
+                list.AddRange(edges.Select(c => (ToSeg(c), el)));
             }
 
+            // Paired and joined per layer (a door between two rows' walls joins nothing); trimmed across every layer (an exterior
+            // layer meets an interior one at a corner).
+            var built = new List<(PairedWall w, GhostElement src)>();
             foreach (var kv in byLayer)
             {
                 var els = kv.Value;
-                var segs = els.Select(ToSeg).ToList();
-                var walls = WallPairing.Pair(segs);
+                var walls = WallPairing.JoinAtOpenings(WallPairing.Pair(els.Select(e => e.seg).ToList()), openings,
+                                                       PlacementGeometry.BrokenReachMm, PlacementGeometry.HostTolMm);
+                built.AddRange(walls.Select(w => (w, els[w.FaceA].src)));
+            }
+            WallPairing.TrimEnds(built.Select(b => b.w).ToList());
 
-                foreach (var w in walls)
+            foreach (var (w, src) in built)
+            {
+                // Based on one of the faces it came from, so elevation/height carry over.
+                Line centre;
+                try
                 {
-                    // Base the rebuilt element on one of the faces it came from, so elevation/height carry over.
-                    var src = els[w.FaceA];
-                    Line centre;
-                    try
-                    {
-                        centre = Line.CreateBound(
-                            new XYZ(w.Cx1 / FeetToMm, w.Cy1 / FeetToMm, src.BaseElevation),
-                            new XYZ(w.Cx2 / FeetToMm, w.Cy2 / FeetToMm, src.BaseElevation));
-                    }
-                    catch (Autodesk.Revit.Exceptions.ArgumentException)
-                    {
-                        // Degenerate centreline (near-zero length) — keep the original face rather than drop it.
-                        output.Add(src);
-                        continue;
-                    }
-
-                    output.Add(new GhostElement
-                    {
-                        CadLayer = src.CadLayer,
-                        LocationCurve = centre,
-                        BaseElevation = src.BaseElevation,
-                        TopElevation = src.TopElevation,
-                        ThicknessMm = w.ThicknessMm,   // 0 for an unpaired face — an honest "unknown"
-                    });
+                    centre = Line.CreateBound(
+                        new XYZ(w.Cx1 / FeetToMm, w.Cy1 / FeetToMm, src.BaseElevation),
+                        new XYZ(w.Cx2 / FeetToMm, w.Cy2 / FeetToMm, src.BaseElevation));
                 }
+                catch (Autodesk.Revit.Exceptions.ArgumentException)
+                {
+                    // Degenerate centreline (near-zero length) — keep the original face rather than drop it.
+                    output.Add(src);
+                    continue;
+                }
+
+                output.Add(new GhostElement
+                {
+                    CadLayer = src.CadLayer,
+                    LocationCurve = centre,
+                    BaseElevation = src.BaseElevation,
+                    TopElevation = src.TopElevation,
+                    ThicknessMm = w.ThicknessMm,   // 0 for an unpaired face — an honest "unknown"
+                });
             }
 
             return output;
@@ -94,9 +110,9 @@ namespace Sentinel.GhostBuilder
 
         // Curve endpoints (feet) → a 2D segment in millimetres, the unit the guideline and the template
         // names both use.
-        private static Seg ToSeg(GhostElement el)
+        private static Seg ToSeg(Curve c)
         {
-            XYZ p0 = el.LocationCurve.GetEndPoint(0), p1 = el.LocationCurve.GetEndPoint(1);
+            XYZ p0 = c.GetEndPoint(0), p1 = c.GetEndPoint(1);
             return new Seg(p0.X * FeetToMm, p0.Y * FeetToMm, p1.X * FeetToMm, p1.Y * FeetToMm);
         }
     }

@@ -221,6 +221,120 @@ namespace Sentinel.GhostBuilder
             return walls.OrderBy(w => w.FaceA).ThenBy(w => w.Cx1).ThenBy(w => w.Cy1).ToList();
         }
 
+        // ---- joins (MA-5b-6, GHB-6) ---------------------------------------------------------------------------
+
+        /// <summary>MA-5b-6 (GHB-6): the bridge's trimEnds (WebApp/bridge/survey-plan.mjs), ported — each end of a paired wall moved along
+        /// its own line to the nearest centreline of another paired wall it meets: within that wall's thickness + 50 of the end, the two
+        /// not within 10° of parallel, the crossing on that wall's line or within this wall's thickness + 50 past its ends. Read from the
+        /// untrimmed walls, so the order never matters; a trim that would leave a wall under 1 long leaves it; unpaired lines (thickness 0)
+        /// neither trim nor are trimmed to. An L corner's overshoot (the run on to the outer corner) comes back to the centrelines'
+        /// crossing; a T's stem reaches the through wall's centreline. ponytail: end to centreline only, O(n²) — a mitre or three walls at
+        /// one end are Revit's joins; a grid of buckets when a drawing's walls run to tens of thousands.</summary>
+        public static void TrimEnds(IList<PairedWall> walls)
+        {
+            const double SLACK = 50;
+            double sinMin = Math.Sin(Math.PI / 18);
+            var moved = new (double x1, double y1, double x2, double y2)?[walls.Count];
+            for (int i = 0; i < walls.Count; i++)
+            {
+                var w = walls[i];
+                double dx = w.Cx2 - w.Cx1, dy = w.Cy2 - w.Cy1, len = Math.Sqrt(dx * dx + dy * dy);
+                if (!(w.ThicknessMm > 0) || len <= 0) continue;
+                double ux = dx / len, uy = dy / len;
+                double To(double ex, double ey) // e + t·u = o.start + v·(o.end − o.start)
+                {
+                    double? best = null;
+                    for (int j = 0; j < walls.Count; j++)
+                    {
+                        var o = walls[j];
+                        if (j == i || !(o.ThicknessMm > 0)) continue;
+                        double ox = o.Cx2 - o.Cx1, oy = o.Cy2 - o.Cy1, ol = Math.Sqrt(ox * ox + oy * oy), den = ux * oy - uy * ox;
+                        if (ol <= 0 || Math.Abs(den) < sinMin * ol) continue; // parallel, or nearly
+                        double rx = o.Cx1 - ex, ry = o.Cy1 - ey, t = (rx * oy - ry * ox) / den, v = (rx * uy - ry * ux) / den, slack = (w.ThicknessMm + SLACK) / ol;
+                        if (Math.Abs(t) > o.ThicknessMm + SLACK || v < -slack || v > 1 + slack) continue;
+                        if (best == null || Math.Abs(t) < Math.Abs(best.Value)) best = t;
+                    }
+                    return best ?? 0;
+                }
+                double t0 = To(w.Cx1, w.Cy1), t1 = To(w.Cx2, w.Cy2);
+                if (len - t0 + t1 < 1) continue;
+                moved[i] = (Um(w.Cx1 + t0 * ux), Um(w.Cy1 + t0 * uy), Um(w.Cx2 + t1 * ux), Um(w.Cy2 + t1 * uy));
+            }
+            for (int i = 0; i < walls.Count; i++)
+                if (moved[i] is var (x1, y1, x2, y2)) { walls[i].Cx1 = x1; walls[i].Cy1 = y1; walls[i].Cx2 = x2; walls[i].Cy2 = y2; }
+        }
+
+        /// <summary>MA-5b-6 (GHB-6): two paired walls a drawing broke at a door or window are ONE wall through it (Revit hosts an opening in
+        /// one wall) — of one thickness (± 1), on one line (within 0.5° and 1), consecutive along it (no paired wall of the list on that line
+        /// over the gap), at most <paramref name="reach"/> apart, an opening point in the gap (along it within 1 of its ends, across it
+        /// within half the thickness + <paramref name="hostTol"/>). The joined wall keeps the piece drawn first's direction and face;
+        /// each opening once (wall–door–wall–window–wall is one wall). Two pieces with no opening between them stay two (a gap a
+        /// person drew). Call it per Walls row: a door between two rows' walls joins nothing.</summary>
+        public static List<PairedWall> JoinAtOpenings(IReadOnlyList<PairedWall> walls, IReadOnlyList<(double X, double Y)> openings, double reach, double hostTol)
+        {
+            var ws = walls.ToList();
+            if (openings == null || openings.Count == 0) return ws;
+            double sinTol = Math.Sin(0.5 * Math.PI / 180);
+            double Len(PairedWall a) => Math.Sqrt((a.Cx2 - a.Cx1) * (a.Cx2 - a.Cx1) + (a.Cy2 - a.Cy1) * (a.Cy2 - a.Cy1));
+            // Along a's line from its start: the point's s, and its distance across.
+            (double s, double n) On(PairedWall a, double x, double y)
+            {
+                double dx = a.Cx2 - a.Cx1, dy = a.Cy2 - a.Cy1, l = Len(a);
+                return (((x - a.Cx1) * dx + (y - a.Cy1) * dy) / l, Math.Abs((x - a.Cx1) * dy - (y - a.Cy1) * dx) / l);
+            }
+            bool OneLine(PairedWall a, PairedWall b)
+            {
+                double la = Len(a), lb = Len(b);
+                if (la <= 0 || lb <= 0) return false;
+                double cross = ((a.Cx2 - a.Cx1) * (b.Cy2 - b.Cy1) - (a.Cy2 - a.Cy1) * (b.Cx2 - b.Cx1)) / (la * lb);
+                return Math.Abs(cross) <= sinTol && On(a, b.Cx1, b.Cy1).n <= 1 && On(a, b.Cx2, b.Cy2).n <= 1;
+            }
+            // One pass: an opening sits in one gap, so it joins one pair at most; a chain joins in any order (A+B then AB+C, or B+C then A+BC).
+            foreach (var (px, py) in openings)
+            {
+                {
+                    // The paired walls whose line passes the point and that stop short of it within reach.
+                    var near = ws.Where(a => a.ThicknessMm > 0 && Len(a) > 0).Select(a => (a, at: On(a, px, py)))
+                                 .Where(c => c.at.n <= c.a.ThicknessMm / 2 + hostTol
+                                             && (c.at.s >= Len(c.a) - 1 ? c.at.s - Len(c.a) <= reach + 1 : c.at.s <= 1 && -c.at.s <= reach + 1))
+                                 .Select(c => c.a).ToList();
+                    foreach (var a in near.OrderBy(x => x.FaceA))
+                    {
+                        double la = Len(a), sp = On(a, px, py).s;
+                        PairedWall b = null; double lo = 0, hi = 0;
+                        foreach (var c in near)
+                        {
+                            if (c == a || Math.Abs(c.ThicknessMm - a.ThicknessMm) > 1 || !OneLine(a, c)) continue;
+                            double c0 = On(a, c.Cx1, c.Cy1).s, c1 = On(a, c.Cx2, c.Cy2).s, cl = Math.Min(c0, c1), ch = Math.Max(c0, c1);
+                            bool after = sp >= la - 1 && cl >= sp - 1 && cl - la <= reach, before = sp <= 1 && ch <= sp + 1 && -ch <= reach;
+                            if (!(after || before)) continue;
+                            double g0 = after ? la : ch, g1 = after ? cl : 0;
+                            // consecutive: no other paired wall on this line over the gap
+                            if (ws.Any(d => d != a && d != c && d.ThicknessMm > 0 && OneLine(a, d)
+                                            && Math.Max(On(a, d.Cx1, d.Cy1).s, On(a, d.Cx2, d.Cy2).s) > g0 + 1 && Math.Min(On(a, d.Cx1, d.Cy1).s, On(a, d.Cx2, d.Cy2).s) < g1 - 1)) continue;
+                            b = c; lo = Math.Min(0, cl); hi = Math.Max(la, ch);
+                            break;
+                        }
+                        if (b == null) continue;
+                        double ux = (a.Cx2 - a.Cx1) / la, uy = (a.Cy2 - a.Cy1) / la;
+                        var first = a.FaceA <= b.FaceA ? a : b;
+                        var j = new PairedWall
+                        {
+                            Cx1 = Um(a.Cx1 + lo * ux), Cy1 = Um(a.Cy1 + lo * uy), Cx2 = Um(a.Cx1 + hi * ux), Cy2 = Um(a.Cy1 + hi * uy),
+                            ThicknessMm = first.ThicknessMm, FaceA = first.FaceA, FaceB = first.FaceB,
+                        };
+                        // the piece drawn first's direction (Revit puts a type's exterior by it)
+                        double fx = first.Cx2 - first.Cx1, fy = first.Cy2 - first.Cy1;
+                        if (fx * (j.Cx2 - j.Cx1) + fy * (j.Cy2 - j.Cy1) < 0) { (j.Cx1, j.Cx2) = (j.Cx2, j.Cx1); (j.Cy1, j.Cy2) = (j.Cy2, j.Cy1); }
+                        ws[ws.IndexOf(first)] = j;
+                        ws.Remove(first == a ? b : a);
+                        break;
+                    }
+                }
+            }
+            return ws;
+        }
+
         // ---- faces ------------------------------------------------------------------------------------------
 
         /// <summary>A face: collinear segments as the intervals they cover along its own U (s), at offset Off along its N.
