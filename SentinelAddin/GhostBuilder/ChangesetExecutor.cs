@@ -645,6 +645,8 @@ public sealed class ChangesetExecutor
             if (rooms.Count > 0)
             {
                 doc.Regenerate();
+                // review: the phase the walls go to (the placement block's view phase) — a room is checked and placed in it; none = the last phase
+                var phase = Placement?.PhaseId != null ? doc.GetElement(Placement.PhaseId) as Phase : null;
                 var spots = new List<(ChangesetElementDto el, Level level, XYZ pt, string name)>();
                 foreach (var el in rooms)
                 {
@@ -652,16 +654,25 @@ public sealed class ChangesetExecutor
                     var level = ResolveLevel(doc, el.Place);
                     var p = el.Place.Location ?? throw new InvalidOperationException($"{at} has no Location");
                     var name = $"room {(string.IsNullOrWhiteSpace(el.Place.Number) ? "" : el.Place.Number + " ")}{el.Place.Name}";
-                    var pt = new XYZ(p[0] * MmToFeet, p[1] * MmToFeet, level.Elevation + 1.0); // a foot above its level: inside a room's height
-                    if (doc.GetRoomAtPoint(pt) is { } there)
+                    // a foot above its level, in the model's internal frame (review: ProjectElevation — Elevation reads from the survey point
+                    // when the level's base is set so): inside a room's height
+                    var pt = new XYZ(p[0] * MmToFeet, p[1] * MmToFeet, level.ProjectElevation + 1.0);
+                    if ((phase != null ? doc.GetRoomAtPoint(pt, phase) : doc.GetRoomAtPoint(pt)) is { } there)
                         throw new PlacementRefused($"{name}: room {there.Number} \"{there.Name}\" already stands at its point on {level.Name} — untick it; nothing was placed");
                     spots.Add((el, level, pt, name));
                 }
                 var made = new List<Autodesk.Revit.DB.Architecture.Room>();
-                foreach (var (el, level, pt, _) in spots)
+                foreach (var (el, level, pt, name) in spots)
                 {
                     at = Label(el);
-                    var room = doc.Create.NewRoom(level, new UV(pt.X, pt.Y));
+                    // review: a room Revit cannot place (null, or its own exception) leaves the changeset proposed, said — never a decline of the walls too
+                    Autodesk.Revit.DB.Architecture.Room room;
+                    try { room = doc.Create.NewRoom(level, new UV(pt.X, pt.Y)); }
+                    catch (Autodesk.Revit.Exceptions.ApplicationException ex) { throw new PlacementRefused($"{name}: Revit could not place it on {level.Name} ({ex.Message}) — untick it; nothing was placed"); }
+                    if (room == null) throw new PlacementRefused($"{name}: Revit could not place it on {level.Name} — untick it; nothing was placed");
+                    var inPhase = room.get_Parameter(BuiltInParameter.ROOM_PHASE_ID)?.AsElementId();
+                    if (phase != null && inPhase != null && !inPhase.Equals(phase.Id))
+                        throw new PlacementRefused($"{name}: Revit places a new room in the project's last phase ({(doc.GetElement(inPhase) as Phase)?.Name ?? "?"}), and this changeset's walls go to \"{phase.Name}\" — apply it from a view of the last phase, or untick the room; nothing was placed");
                     room.Name = el.Place.Name;
                     if (!string.IsNullOrWhiteSpace(el.Place.Number)) room.Number = el.Place.Number;
                     made.Add(room);

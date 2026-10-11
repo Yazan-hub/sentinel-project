@@ -263,6 +263,7 @@ describe("drawing jobs (MA-5a-3) — sentinel-drawing on the pack's admitted PDF
     const bytes = readFileSync(join(root, "demo", "job-0001", "result.json"));
     expect(rec()).toMatchObject({ status: "done", read: ["ev-0011"], counts: { wall: 1, door: 1 }, candidates_total: 2, result_sha256: sha(bytes),
       reader: { name: "sentinel-drawing", version: "0.1.0" }, tools: DTOOLS, ledger: { id: 101 } });
+    expect(rec().counts).toEqual({ wall: 1, door: 1 }); // MA-5b-1 review: a 0.1.0 reader never looked for rooms — no "0 room(s)"
     expect(audits).toHaveLength(1);
     expect(audits[0].action).toBe("build:run job-0001 · sentinel-drawing 0.1.0 · done");
     expect(audits[0].v).toMatchObject({ job_id: "job-0001", reader: "sentinel-drawing", version: "0.1.0", status: "done", params: {}, seed: 1, items: [{ id: "ev-0011", sha256: "1".repeat(64) }],

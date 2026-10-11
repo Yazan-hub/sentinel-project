@@ -294,8 +294,9 @@ export function proposeLine(r: ProposeReply): string {
   const levels = r.storeys.map((s) => `${s.cid} → ${s.level} (${s.how}${s.checked ? "" : ", its height not checked"})`).join("; ");
   const again = r.already_filed ? ` · ${r.already_filed} already filed (not proposed again)` : "";
   const placed = r.overlaps.length ? ` · the same ${r.alignment ? "drawing" : "scan"} was placed before by ${r.overlaps.map((o) => o.changeset).join(", ")}` : "";
-  const n = r.storeys.reduce((s, x) => s + (x.held?.length ?? 0), 0);
-  const held = n ? ` · ${n} door(s) or window(s) held on a storey with nothing to place — their level or host wall is not placed (each reason on the planner's row)` : "";
+  const all = r.storeys.flatMap((x) => x.held ?? []), rooms = all.filter((h) => h.name.startsWith("room ")).length, n = all.length - rooms;
+  const held = (n ? ` · ${n} door(s) or window(s) held on a storey with nothing to place — their level or host wall is not placed (each reason on the planner's row)` : "")
+    + (rooms ? ` · ${rooms} room(s) held on a storey with nothing to place — a wall round each is not placed (each reason on the planner's row)` : ""); // MA-5b-1 review
   const once = r.storeys.reduce((s, x) => s + (x.doors_seen_once?.length ?? 0), 0);
   const seenOnce = once ? ` · ${once} door hole(s) seen on one face only — not proposed (a closed door or furniture reads the same; a person draws a door the scan missed)` : "";
   const tail = `${r.gaps.groups} type-gap group(s), ${r.gaps.elements} element(s) in the Holding Area${held}${seenOnce} · ${levels}${again}${placed} · ${ledgerLine(r.ledger)} — Review ▸ ↻`;

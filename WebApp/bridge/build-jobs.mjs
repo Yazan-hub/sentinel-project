@@ -32,6 +32,8 @@ const KINDS = ["level", "wall", "floor", "ceiling", "door", "window"]; // MA-5a:
 /** MA-5a (review): the kinds a reader of `version` looks for — before 0.5.0 no door or window, so its job's counts name none (the web's found
  *  list leaves out a kind its counts lack, never "0 door(s)" from a job that never looked). */
 const kindsOf = (version) => { const [a, b] = String(version ?? "").split(".").map(Number); return a > 0 || b >= 5 ? KINDS : KINDS.slice(0, 4); };
+// review (MA-5b-1): sentinel-drawing reads rooms from 0.2.0 — never "0 room(s)" from a reader that never looked
+const drawingKindsOf = (version) => { const [a, b] = String(version ?? "").split(".").map(Number); return a > 0 || b >= 2 ? DRAWING_KINDS : DRAWING_KINDS.slice(0, 2); };
 const MAX_CANDIDATES = 5000;
 const LISTED = 20;
 const JOB_ID = /^job-\d{4,}$/; // job-10000 follows job-9999 (nextId pads to 4, never cuts)
@@ -259,7 +261,7 @@ async function runJob(d, proj, key, job, take) {
         ? result.receipt.items.filter((i) => typeof i?.why === "string").map((i) => ({ id: String(i.id), why: i.why.slice(0, 300) })) : [];
       if (notes.length) job.notes = notes;
       Object.assign(job, { result_sha256: sha(bytes), candidates_total: result.candidates.length,
-        counts: Object.fromEntries((name === DRAWING ? DRAWING_KINDS : kindsOf(r.version)).map((k) => [k, result.candidates.filter((c) => c.kind === k).length])) });
+        counts: Object.fromEntries((name === DRAWING ? drawingKindsOf(r.version) : kindsOf(r.version)).map((k) => [k, result.candidates.filter((c) => c.kind === k).length])) });
     } catch (e) {
       status = "failed";
       error = `the result could not be kept on this PC (${e?.code || "the write failed"}) — nothing it found was kept`;

@@ -17,12 +17,14 @@ static partial class Check
 
         string ex = Src("GhostBuilder", "ChangesetExecutor.cs"), win = Src("UI", "ChangesetReviewWindow.cs");
         int At(string what) => ex.IndexOf(what, StringComparison.Ordinal);
-        int block = At("var rooms = toPlace.Where(e => IsCreate(e) && e.Kind == \"room\")"), exists = At("doc.GetRoomAtPoint(pt)"), create = At("doc.Create.NewRoom(level, new UV(pt.X, pt.Y))"),
+        int block = At("var rooms = toPlace.Where(e => IsCreate(e) && e.Kind == \"room\")"), exists = At("doc.GetRoomAtPoint(pt, phase)"), create = At("doc.Create.NewRoom(level, new UV(pt.X, pt.Y))"),
             pair = At("made[i].IsPointInRoom(spots[j].pt)"), area = At("!(made[i].Area > 0)"), retype = At("// MA-0: retype before attach."), furniture = At("e.Kind is \"column\" or \"furniture\"");
         Ok(block > furniture && furniture > 0 && exists > block && create > exists && pair > create && area > pair && retype > area,
            "the executor places rooms after every wall and point family: an existing room checked first, then NewRoom, then one area per room, then enclosed — before any retype");
-        Ok(ex.Substring(block, retype - block).Split("throw new PlacementRefused(").Length == 4 && ex.Substring(block, retype - block).Contains("room.Name = el.Place.Name;"),
-           "its three refusals leave the changeset proposed (PlacementRefused: the person changes the ticks); the room takes its drawn name");
+        Ok(ex.Substring(block, retype - block).Split("throw new PlacementRefused(").Length == 7 && ex.Substring(block, retype - block).Contains("room.Name = el.Place.Name;"),
+           "its refusals leave the changeset proposed (PlacementRefused: the person changes the ticks) — a room standing there, Revit's own failure or null, another phase, two in one area, not enclosed; the room takes its drawn name");
+        Ok(ex.Contains("level.ProjectElevation + 1.0") && ex.Contains("BuiltInParameter.ROOM_PHASE_ID") && ex.Contains("Placement?.PhaseId != null ? doc.GetElement(Placement.PhaseId) as Phase : null"),
+           "review: the probe in the model's internal frame; the room checked in the walls' phase, and refused when Revit puts it in another");
         Ok(win.Contains("if (p?.Name != null && p.Name != name) parts.Add(p.Name);"), "Revit's review row reads room: 101 · OFFICE · its level");
     }
 }

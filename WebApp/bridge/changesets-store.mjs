@@ -413,8 +413,8 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
     // files none has no changeset to say it, so the planner's row names it (drill MA5a K-3: Kladno's 90 openings, every host a gap, said nowhere).
     const storeys = plan.storeys.map((p) => {
       const changeset = filed.find((c) => c.job.storey.cid === p.storey.cid)?.id ?? null;
-      // doors and windows only (review: a drawing's wall rows — differs, scanned only — are its differences, said with their topics)
-      const held = changeset ? [] : p.exceptions.filter((e) => !e.reason.startsWith("type gap") && /^(door|window) /.test(e.name)).map((e) => ({ name: e.name, reason: e.reason }));
+      // doors, windows and rooms only (review: a drawing's wall rows — differs, scanned only — are its differences, said with their topics)
+      const held = changeset ? [] : p.exceptions.filter((e) => !e.reason.startsWith("type gap") && /^(door|window|room) /.test(e.name)).map((e) => ({ name: e.name, reason: e.reason }));
       // MA-5a-2: the doors seen on one face only — neither proposed nor held (survey-plan's door rule), listed so the row says what the job
       // found and the planner left out
       return { ...storeyRecord(p.storey), changeset, ...(held.length ? { held } : {}), ...(p.once.length ? { doors_seen_once: p.once } : {}) };

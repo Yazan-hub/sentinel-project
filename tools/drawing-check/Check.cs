@@ -188,6 +188,14 @@ namespace Sentinel.Checks
             var w8 = Rm(box, Wd("LOBBY", 100, 80), Wd("900", 94, 76, 5, 2), Wd("x", 98.5, 76, 1.5, 2), Wd("2100", 103, 76, 6, 2));
             Ok(w8.Rooms.Count == 1 && w8.Rooms[0].Name == "LOBBY" && w8.Rooms[0].Number == null, "a W x H tag in three words beside a label is not its number");
             Ok(Rm(new List<Stroke> { Ln(0, 0, 200, 0), Ln(0, 6, 200, 6) }, Wd("OFFICE", 100, 80)).Rooms.Count == 0, "a label with a wall on one side only is no room");
+            // review: a window in the south wall (an opening with no door) under the label — the ray crosses it as that wall
+            var window = Rect(0, 0, 90, 6).Concat(Rect(110, 0, 200, 6)).Concat(new[] { Ln(0, 6, 0, 150), Ln(6, 6, 6, 144), Ln(200, 6, 200, 150), Ln(194, 6, 194, 144),
+                Ln(0, 150, 200, 150), Ln(6, 144, 194, 144) }).ToList();
+            var w9 = Rm(window, Wd("OFFICE", 100, 80), Wd("101", 100, 76, 5, 2));
+            Ok(w9.Rooms.Count == 1 && w9.Rooms[0].Walls.Distinct().Count() == 4, $"review: a window under the label's ray — still one room, its four walls ({w9.Rooms.Count} room(s), walls {string.Join(",", w9.Rooms.SelectMany(m => m.Walls))}; {Ws(w9)})");
+            // review: the area's number found by its place, whatever the reader's word order
+            var w10 = Rm(box, Wd("OFFICE", 100, 80), Wd("m2", 104, 76, 4, 2), Wd("12.5", 98, 76, 6, 2));
+            Ok(w10.Rooms.Count == 1 && w10.Rooms[0].Number == null, $"review: an area unit before its number in the word order — the number is still the area's ({w10.Rooms.FirstOrDefault()?.Number})");
 
             // (k) Speed: 20,000 wall strokes (500 walls, each face in 20 pieces, shuffled) read well inside the bridge's bound.
             var big = new List<Stroke>();
