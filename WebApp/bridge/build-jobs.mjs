@@ -152,7 +152,7 @@ export function stillAdmitted(row, pack, id) {
     const sent = row.items.find((i) => i.id === rid), now = pack.items.find((i) => i.id === rid);
     const why = !sent ? "its row lists it as read but not as sent" : !now ? "it is no longer in the pack" : now.state === "changed" ? "Re-check flagged it changed"
       : now.sha256 !== sent.sha256 ? "its sha256 in the pack is not the one the job read" : null;
-    if (why) throw err(409, `${rid} is not the bytes ${id} read (${why}) — survey the admitted scan again; nothing was saved`);
+    if (why) throw err(409, `${rid} is not the bytes ${id} read (${why}) — ${row.reader === DRAWING ? "read the admitted drawing" : "survey the admitted scan"} again; nothing was saved`);
     return { id: rid, sha256: sent.sha256 };
   });
 }

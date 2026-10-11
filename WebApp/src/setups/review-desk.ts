@@ -21,7 +21,11 @@ export interface GhostReview { state: "proposed" | "accepted" | "declined"; acti
 /** MA-4d: the survey job a changeset was built from by the bridge (its `job` field; the source stays a string). */
 export interface DeskJob {
   id: string; ledger_id: number | null;
+  /** The reader and its version ("sentinel-survey 0.6.0", "sentinel-drawing 0.1.0"). */
+  reader?: string;
   frame?: { dx_mm: number; dy_mm: number; dz_mm: number; rotation_deg: number; stated_by?: string };
+  /** MA-5a-4: a drawing's alignment, computed by the bridge from the lead's two points (in place of a scan's frame). */
+  alignment?: { item: string; scale: number; rotation_deg: number; dx_mm: number; dy_mm: number; dz_mm: number; check_mm: number | null; confirmed_by?: string };
   storey?: { level: string; how: string; checked: boolean };
   /** Decision 19: another job's placed changesets on the same scan bytes — named, never refused. */
   overlaps?: { changeset: string; job_id: string; evidence: string[] }[];
@@ -35,7 +39,7 @@ export interface Ghost {
   review?: GhostReview | null;
   // MA-4d: a survey ghost's trust record, stamped by the bridge (never the caller's).
   cid?: string; evidence?: string[]; pretick?: boolean; trim_mm?: number[]; measured?: Record<string, number>;
-  accuracy?: { status: string; basis?: string; from_job?: string; fit_rmse_mm?: number | null; face_dev_mm?: number | null; target_mm?: number } | null;
+  accuracy?: { status: string; basis?: string; from_job?: string; fit_rmse_mm?: number | null; face_dev_mm?: number | null; target_mm?: number; scale?: number; check_mm?: number | null } | null;
 }
 /** What Revit reported on a changeset (bridge reportResult). `reasons` — Revit's reason per ghost — is there only when one was sent. */
 export interface DeskResult {
@@ -127,20 +131,28 @@ export function trustWords(el: Ghost): string {
   const a = el.accuracy;
   if (!a?.from_job) return "";
   const t = el.measured?.thickness_mm, trim = el.trim_mm ?? [];
+  const after = [el.pretick ? "pre-ticked" : "not pre-ticked", ...(trim.some((v) => v !== 0) ? [`ends ${trim.join(" / ")} mm to the corners`] : []),
+    ...(el.evidence?.length ? [`evidence ${el.evidence.slice(0, 3).join(", ")}`] : [])];
+  // MA-5a-4: a drawing's ghost — read off the paper at the alignment's scale, never measured
+  if (a.basis === "drawing") return [`drawn — from ${a.from_job} at 1:${a.scale}`, ...(t != null ? [`${t} mm thick as drawn`] : []),
+    `inferred (what someone drew, not what was built)`, a.check_mm != null ? `alignment checked to ${a.check_mm} mm` : "alignment not checked by a third point", ...after].join(" · ");
   return [`measured from ${a.from_job}`, ...(t != null ? [`${t} mm thick`] : []), ...(a.fit_rmse_mm != null ? [`fit ${a.fit_rmse_mm} mm rms`] : []),
-    ...(a.face_dev_mm != null ? [`faces ${a.face_dev_mm} mm off`] : []), `${a.status.replace(/_/g, " ")}${a.target_mm != null ? ` (${a.target_mm} mm)` : ""}`, el.pretick ? "pre-ticked" : "not pre-ticked",
-    ...(trim.some((v) => v !== 0) ? [`ends ${trim.join(" / ")} mm to the corners`] : []),
-    ...(el.evidence?.length ? [`evidence ${el.evidence.slice(0, 3).join(", ")}`] : [])].join(" · ");
+    ...(a.face_dev_mm != null ? [`faces ${a.face_dev_mm} mm off`] : []), `${a.status.replace(/_/g, " ")}${a.target_mm != null ? ` (${a.target_mm} mm)` : ""}`, ...after].join(" · ");
 }
+/** MA-5a-4: a changeset the bridge built from a drawing job — no scan behind it: no Measure, no scan. */
+export const isDrawn = (cs: PendingChangeset): boolean => (cs.job?.reader ?? "").startsWith("sentinel-drawing ");
 /** MA-4d: a survey changeset's origin in words — its job and row, the lead's frame and who stated it, how its storey met its level, and
  *  another job's placed changesets on the same scan (decision 19: named, never refused). "" else. Pure. */
 export function sourceWords(cs: PendingChangeset): string {
   const j = cs.job;
   if (!j) return "";
-  const f = j.frame, s = j.storey;
-  const frame = f ? ` · the scan ${f.dx_mm || f.dy_mm || f.dz_mm || f.rotation_deg ? `moved ${f.dx_mm}, ${f.dy_mm}, ${f.dz_mm} mm, turned ${f.rotation_deg}°` : "at the model's internal origin"}${f.stated_by ? `, stated by ${f.stated_by}` : ""}` : "";
+  const f = j.frame, s = j.storey, al = j.alignment;
   const o = j.overlaps ?? [];
-  const again = o.length ? ` · the same scan ${[...new Set(o.flatMap((x) => x.evidence))].join(", ")} was placed before by ${o.map((x) => x.changeset).join(", ")}` : "";
+  const again = o.length ? ` · the same ${al ? "drawing" : "scan"} ${[...new Set(o.flatMap((x) => x.evidence))].join(", ")} was placed before by ${o.map((x) => x.changeset).join(", ")}` : "";
+  if (al) return `from drawing ${j.id} (ledger #${j.ledger_id ?? "?"}) · ${al.item} at 1:${al.scale}, turned ${al.rotation_deg}°, its paper corner at ${al.dx_mm}, ${al.dy_mm} mm, ` +
+    `level at ${al.dz_mm} mm${al.confirmed_by ? `, stated by ${al.confirmed_by}` : ""}${al.check_mm != null ? ` · checked to ${al.check_mm} mm by a third point` : " · no check point"}` +
+    `${s ? ` · storey ${s.level} (${s.how}${s.checked ? "" : " — its height not checked"})` : ""} · nothing from a drawing is pre-ticked${again}`;
+  const frame = f ? ` · the scan ${f.dx_mm || f.dy_mm || f.dz_mm || f.rotation_deg ? `moved ${f.dx_mm}, ${f.dy_mm}, ${f.dz_mm} mm, turned ${f.rotation_deg}°` : "at the model's internal origin"}${f.stated_by ? `, stated by ${f.stated_by}` : ""}` : "";
   return `from survey ${j.id} (ledger #${j.ledger_id ?? "?"})${frame}${s ? ` · storey ${s.level} (${s.how}${s.checked ? "" : " — its height not checked: nothing here is pre-ticked"})` : ""}${again}`;
 }
 
@@ -351,7 +363,7 @@ export function verifiedView(cs: PendingChangeset, rec: VerifyRecord | null | Er
 /** Who sees Measure on a report: a placed survey changeset (its job; applied or partially), a signed-in contributor or above (never the
  *  machine credential), not undone in Revit since (its newest changeset_reverted row). The bridge holds the same rules. Pure. */
 export const canMeasure = (cs: PendingChangeset, role: string, rows: LedgerRows | null | Error): boolean =>
-  !!cs.job && (cs.status === "applied" || cs.status === "partially_applied") && canDecide(role) && !(rows && !(rows instanceof Error) && rows.reverted?.op === "undo");
+  !!cs.job && !isDrawn(cs) && (cs.status === "applied" || cs.status === "partially_applied") && canDecide(role) && !(rows && !(rows instanceof Error) && rows.reverted?.op === "undo");
 
 /** POST /cde/:key/verify {changeset} — the id only: the bridge picks the elements, their geometry, the scan and the seed. A refusal throws the
  *  bridge's words. */
@@ -513,7 +525,7 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
         one.append(row);
       }
       // MA-4e: a placed survey changeset's newest measure, and Measure — one press, one run (the service may start cold).
-      if (cs.job) {
+      if (cs.job && !isDrawn(cs)) {
         const mv = verifiedView(cs, verified.get(cs.id) ?? null);
         if (mv) {
           one.append(el("div", mv.head, "margin:.3rem 0 .1rem;color:#8b93a1"));
@@ -559,7 +571,7 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
     const ledger = decided instanceof Error ? new Map<string, LedgerRows>() : await readLedger(base, key, decided.slice(0, DECIDED_MAX).map((c) => c.id)).catch((e: Error) => e);
     if (mine !== seq) return;
     // MA-4e: the newest measure of each placed survey changeset shown — one read each; a failed one is said under its own report, never a guess.
-    const verified = decided instanceof Error ? new Map<string, VerifyRecord | Error | null>() : await readVerified(base, key, decided.slice(0, DECIDED_MAX).filter((c) => c.job).map((c) => c.id));
+    const verified = decided instanceof Error ? new Map<string, VerifyRecord | Error | null>() : await readVerified(base, key, decided.slice(0, DECIDED_MAX).filter((c) => c.job && !isDrawn(c)).map((c) => c.id));
     if (mine !== seq) return;
     // Review C4: built once, and a throw in it is said — it never leaves the desk at "Reading…" or takes the proposed list with it.
     let tail: HTMLElement;

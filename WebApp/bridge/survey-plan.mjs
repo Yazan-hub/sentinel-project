@@ -28,11 +28,11 @@ export const NOT_MEASURED = "thickness not measured";
 export const NOT_TRUSTED = "thickness not trusted"; // MA-5a-2: two faces, but too close for their scatter (sentinel-survey faces_apart_mm)
 /** MA-4h: a frame's move past this is no place on Earth (a UTM northing reaches 1e10 mm). The guard is where the frame puts the scan
  *  (placeRefusal), not how far it moves it: a scan in a national grid is stated with a large frame. */
-const MAX_FRAME_MM = 20_000_000_000;
+export const MAX_FRAME_MM = 20_000_000_000;
 /** MA-4h: Revit draws a model reliably within 20 miles (~32 km) of its internal origin. */
 export const MAX_PLACED_MM = 32_000_000;
 const FRAME = ["dx_mm", "dy_mm", "dz_mm", "rotation_deg"];
-const REVIT_BAD = /[\\:{}[\]|;<>?`~\u0000-\u001f]/; // what Revit refuses in a name
+export const REVIT_BAD = /[\\:{}[\]|;<>?`~\u0000-\u001f]/; // what Revit refuses in a name
 const r1 = (v) => Math.round(v * 10) / 10 || 0; // 0.1 mm, never -0
 
 /** POST …/propose's body → {frame, levels}, or a 400 in words. `levelCids`: the job's storeys. Only the lead's two statements are read;
@@ -198,7 +198,7 @@ function faceDev(c) {
 
 /** null when the typer types it, else its gap (changesets-typing attaches one to every refusal a candidate can earn); any other fault — no
  *  standards, a code fault — is thrown and refuses the whole proposal in its own words. */
-function gapOf(type, kind, facts, cid, why) {
+export function gapOf(type, kind, facts, cid, why) {
   try { type(kind, facts, cid); return null; } catch (e) {
     if (!e.gap) throw e;
     return { ...e.gap, key: why ? `${e.gap.key}; inside or outside not read: ${why}`.slice(0, 500) : e.gap.key };
@@ -206,12 +206,31 @@ function gapOf(type, kind, facts, cid, why) {
 }
 
 /** MA-5a: a + t·û in plan, the scan's frame, 0.1 mm. */
-const pointAlong = (a, b, t) => { const L = Math.hypot(b[0] - a[0], b[1] - a[1]); return [r1(a[0] + (t * (b[0] - a[0])) / L), r1(a[1] + (t * (b[1] - a[1])) / L)]; };
+export const pointAlong = (a, b, t) => { const L = Math.hypot(b[0] - a[0], b[1] - a[1]); return [r1(a[0] + (t * (b[0] - a[0])) / L), r1(a[1] + (t * (b[1] - a[1])) / L)]; };
 // MA-5a: an opening's size named to the nearest 100 mm — the scan measures it to one 100 mm cell (sentinel-survey GRID, +-50 mm an edge),
 // and an office names its doors and windows at nominal 100 mm steps; so a door measured 970 x 2080 mm is "W1000 x H2100 mm", an office
 // rule at that size types it, and a door of 1030 mm joins its Holding group. ponytail: a nominal size between hundreds (2350, 2750) is
 // reached only through the size band; the measured millimetres stay in the reason.
-const nominal = (v) => Math.round(v / 100) * 100;
+export const nominal = (v) => Math.round(v / 100) * 100;
+
+/** MA-5a (shared with MA-5a-4's drawings): a door or window typed by an office rule when one matches, else by its size from the catalogue
+ *  within SIZE_BAND_MM (typeBySize), else its gap — `why` the reason's words when several catalogue rows are in the band. → {facts, g, by, why}. */
+export function typeOpening({ type, kind, cid, w, h, hostFunction, catalog, sameCategory }) {
+  const category = KIND_CATEGORY[kind], size = `${w} x ${h} mm`;
+  const facts = { params: { ...(hostFunction ? { HostFunction: hostFunction } : {}), Size: `W${w} x H${h} mm` } }; // PromotePlanner's shape
+  let g = gapOf(type, kind, facts, cid, null), by = null, why = null;
+  if (g && !g.want) {
+    const z = typeBySize(catalog, category, w, h, sameCategory);
+    if (z?.row) { by = z.row; g = null; }
+    else {
+      // several rows: the reason says what a person does (the names would be cut at 300); the key lists them for the Holding Area
+      if (z) why = `${z.rows.length} ${category} types are named within ${SIZE_BAND_MM} mm of ${size} — a person picks one`;
+      g = { ...g, size, key: (z ? `${z.rows.length} ${category} types are named within ${SIZE_BAND_MM} mm of ${size}: ${z.rows.map((r) => `${r.family} : ${r.type}`).join(", ")} — a person picks one`
+        : `no ${category} type is named within ${SIZE_BAND_MM} mm of ${size}`).slice(0, 500) };
+    }
+  }
+  return { facts, g, by, why };
+}
 
 /** The gaps as the Holding Area's groups: one per category and wanted type, else size (typeGapId — exact sizes, no band while the D16 snap is
  *  0), at most 50 labels and evidence refs, in a fixed order. */
@@ -314,7 +333,7 @@ export function planSurvey({ job, candidates, frame, levels: named = {}, manifes
       // MA-5a (review): an opening held by its level or its host, not its type, is an exception only — a size group in the Holding Area
       // would close by catalogue while the opening still could not be placed
       const hold = (why) => exceptions.push({ unique_id: c.cid.slice(0, 64), name: `${c.kind} ${c.cid}`.slice(0, 256), reason: why.slice(0, 300) });
-      const category = KIND_CATEGORY[c.kind], host = c.geometry.host, hi = walls.findIndex((w) => w.cid === host);
+      const host = c.geometry.host, hi = walls.findIndex((w) => w.cid === host);
       const w = nominal(c.measured.width_mm), h = nominal(c.measured.height_mm), sill = c.measured.sill_mm, size = `${w} x ${h} mm`;
       // the executor refuses a door or window whose point is off its level's height in Revit (and rolls the changeset back); a level named
       // but in no published model was never checked against it — a wall or floor takes the level itself, an opening its point (review)
@@ -327,18 +346,7 @@ export function planSurvey({ job, candidates, frame, levels: named = {}, manifes
           : `its host wall ${host} is a type gap — propose the job again once the wall's group in the Holding Area closes`);
         continue;
       }
-      const hf = typed[hi].loc?.location, facts = { params: { ...(hf ? { HostFunction: hf } : {}), Size: `W${w} x H${h} mm` } }; // PromotePlanner's shape
-      let g = gapOf(type, c.kind, facts, c.cid, null), by = null, why = null;
-      if (g && !g.want) {
-        const z = typeBySize(catalog, category, w, h, sameCategory);
-        if (z?.row) { by = z.row; g = null; }
-        else {
-          // several rows: the reason says what a person does (the names would be cut at 300); the key lists them for the Holding Area
-          if (z) why = `${z.rows.length} ${category} types are named within ${SIZE_BAND_MM} mm of ${size} — a person picks one`;
-          g = { ...g, size, key: (z ? `${z.rows.length} ${category} types are named within ${SIZE_BAND_MM} mm of ${size}: ${z.rows.map((r) => `${r.family} : ${r.type}`).join(", ")} — a person picks one`
-            : `no ${category} type is named within ${SIZE_BAND_MM} mm of ${size}`).slice(0, 500) };
-        }
-      }
+      const { facts, g, by, why } = typeOpening({ type, kind: c.kind, cid: c.cid, w, h, hostFunction: typed[hi].loc?.location, catalog, sameCategory });
       if (g) { gap(c, g, why); continue; }
       // along_mm is from the UNTRIMMED start, and the trimmed line lies on the untrimmed one: measured from the untrimmed ends, exact (review)
       const U = walls[hi].geometry.LocationCurve, p = pointAlong(U.start, U.end, c.geometry.along_mm);

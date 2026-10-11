@@ -1130,8 +1130,8 @@ describe("survey proposals (MA-4d): a signed-in lead only; every refusal before 
   const P = "/cde/demo/build/jobs/job-0001/propose", B = { frame: { dx_mm: 0, dy_mm: 0, dz_mm: 0, rotation_deg: 0 } };
   it("the machine credential, a viewer and a contributor may not; a lead meets the job's own refusal — no row, no changeset", async () => {
     const rows = db.audit_log.length;
-    expect(await call("POST", P, "machine", B)).toEqual({ status: 403, body: { message: "proposing from a survey job needs a person — the frame and levels it states are a lead's, and its pre-ticks rest on them: sign in. Nothing was saved." } });
-    expect(await call("POST", P, "contributor", B)).toEqual({ status: 403, body: { message: "this action requires the lead role (you are contributor) — proposing from a survey job is a lead's: the frame and levels it states decide where every ghost lands; nothing was saved" } });
+    expect(await call("POST", P, "machine", B)).toEqual({ status: 403, body: { message: "proposing from a survey or drawing job needs a person — where its ghosts land (a scan's frame, a drawing's alignment) and on which level is a lead's statement: sign in. Nothing was saved." } });
+    expect(await call("POST", P, "contributor", B)).toEqual({ status: 403, body: { message: "this action requires the lead role (you are contributor) — proposing from a survey or drawing job is a lead's: the frame or alignment and the level it states decide where every ghost lands; nothing was saved" } });
     expect((await call("POST", P, "viewer", B)).status).toBe(403);
     expect(await call("POST", P, "lead", B)).toEqual({ status: 404, body: { message: "no survey job job-0001 on demo — nothing was saved" } });
     expect(await call("POST", "/cde/demo/build/jobs/nope/propose", "lead", B)).toEqual({ status: 400, body: { message: "a survey job is named job-NNNN — nothing was saved" } });

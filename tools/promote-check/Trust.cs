@@ -36,6 +36,16 @@ static partial class Check
            "MA-4d: a survey changeset reads — its job, measured and trims ignored; its source is no claim; its gaps are sent to a person");
         Ok(sv.Elements.All(e => e.Pretick == false && ChangesetTrust.Accuracy(e) == "within tolerance" && ChangesetTrust.Typing(e) != null && e.Cid != null && !ChangesetTrust.PreTick(sv, e)),
            "…each wall measured and typed by the bridge, and (MA-5a-2) never pre-ticked: a scan's walls open unticked in Revit");
+        // MA-5a-4: a drawing changeset as proposeFromJob stores it from the drill plan (contract2-drawing.json): its alignment is a field the
+        // deployed ChangesetDto does not know (ignored); every create — the level it creates included — reads "inferred" and opens unticked.
+        string drawn;
+        using (var fx = JsonDocument.Parse(File.ReadAllText(Repo("WebApp", "bridge", "fixtures", "changeset-ops", "contract2-drawing.json"))))
+            drawn = fx.RootElement.GetProperty("stored").GetRawText();
+        var dv = JsonSerializer.Deserialize<ChangesetDto>(drawn);
+        Ok(dv.Claimed == false && ChangesetTrust.SourceLabel(dv) == "sentinel-drawing 0.1.0" && dv.Elements.Count == 5 && dv.Exceptions.Count == 3,
+           "MA-5a-4: a drawing changeset reads — its alignment ignored; its source is no claim; its gaps are sent to a person");
+        Ok(dv.Elements.All(e => e.Pretick == false && ChangesetTrust.Accuracy(e) == "inferred" && !ChangesetTrust.PreTick(dv, e)),
+           "…every create inferred (what someone drew, not what was built) and never pre-ticked: a drawing's ghosts open unticked in Revit");
 
         ChangesetElementDto El(string op, bool? pretick, string typeBefore = null, string verdict = "accepted") => new ChangesetElementDto
         {
