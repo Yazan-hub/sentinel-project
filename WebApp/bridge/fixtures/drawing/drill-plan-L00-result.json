@@ -1,0 +1,339 @@
+{
+ "candidates": [
+  {
+   "cid": "drawing-ev-0007-p1-wall-1",
+   "kind": "wall",
+   "geometry": {
+    "LocationCurve": {
+     "start": [
+      141,
+      46
+     ],
+     "end": [
+      141,
+      156
+     ]
+    },
+    "faces": [
+     [
+      142,
+      46,
+      142,
+      80
+     ],
+     [
+      140,
+      46,
+      140,
+      80
+     ],
+     [
+      142,
+      100,
+      142,
+      156
+     ],
+     [
+      140,
+      100,
+      140,
+      156
+     ]
+    ],
+    "page": 1,
+    "units": "paper_mm"
+   },
+   "measured": {
+    "length_paper_mm": 110,
+    "thickness_paper_mm": 2
+   },
+   "evidence": [
+    "ev-0007#page-1"
+   ]
+  },
+  {
+   "cid": "drawing-ev-0007-p1-wall-2",
+   "kind": "wall",
+   "geometry": {
+    "LocationCurve": {
+     "start": [
+      60,
+      158
+     ],
+     "end": [
+      220,
+      158
+     ]
+    },
+    "faces": [
+     [
+      65,
+      156,
+      140,
+      156
+     ],
+     [
+      142,
+      156,
+      214,
+      156
+     ],
+     [
+      60,
+      160,
+      220,
+      160
+     ]
+    ],
+    "page": 1,
+    "units": "paper_mm"
+   },
+   "measured": {
+    "length_paper_mm": 160,
+    "thickness_paper_mm": 4
+   },
+   "evidence": [
+    "ev-0007#page-1"
+   ]
+  },
+  {
+   "cid": "drawing-ev-0007-p1-wall-3",
+   "kind": "wall",
+   "geometry": {
+    "LocationCurve": {
+     "start": [
+      62.5,
+      40
+     ],
+     "end": [
+      62.5,
+      160
+     ]
+    },
+    "faces": [
+     [
+      65,
+      46,
+      65,
+      156
+     ],
+     [
+      60,
+      40,
+      60,
+      160
+     ]
+    ],
+    "page": 1,
+    "units": "paper_mm"
+   },
+   "measured": {
+    "length_paper_mm": 120,
+    "thickness_paper_mm": 5
+   },
+   "evidence": [
+    "ev-0007#page-1"
+   ]
+  },
+  {
+   "cid": "drawing-ev-0007-p1-wall-4",
+   "kind": "wall",
+   "geometry": {
+    "LocationCurve": {
+     "start": [
+      217,
+      40
+     ],
+     "end": [
+      217,
+      160
+     ]
+    },
+    "faces": [
+     [
+      220,
+      40,
+      220,
+      160
+     ],
+     [
+      214,
+      46,
+      214,
+      156
+     ]
+    ],
+    "page": 1,
+    "units": "paper_mm"
+   },
+   "measured": {
+    "length_paper_mm": 120,
+    "thickness_paper_mm": 6
+   },
+   "evidence": [
+    "ev-0007#page-1"
+   ]
+  },
+  {
+   "cid": "drawing-ev-0007-p1-wall-5",
+   "kind": "wall",
+   "geometry": {
+    "LocationCurve": {
+     "start": [
+      60,
+      43
+     ],
+     "end": [
+      220,
+      43
+     ]
+    },
+    "faces": [
+     [
+      60,
+      40,
+      120,
+      40
+     ],
+     [
+      65,
+      46,
+      120,
+      46
+     ],
+     [
+      138,
+      40,
+      220,
+      40
+     ],
+     [
+      138,
+      46,
+      140,
+      46
+     ],
+     [
+      142,
+      46,
+      214,
+      46
+     ]
+    ],
+    "page": 1,
+    "units": "paper_mm"
+   },
+   "measured": {
+    "length_paper_mm": 160,
+    "thickness_paper_mm": 6
+   },
+   "evidence": [
+    "ev-0007#page-1"
+   ]
+  },
+  {
+   "cid": "drawing-ev-0007-p1-wall-1-door-1",
+   "kind": "door",
+   "geometry": {
+    "host": "drawing-ev-0007-p1-wall-1",
+    "Location": [
+     141,
+     90
+    ],
+    "direction": [
+     1,
+     0
+    ],
+    "along_paper_mm": 44,
+    "swing_centre": [
+     142,
+     80
+    ],
+    "leaves": 1,
+    "page": 1,
+    "units": "paper_mm"
+   },
+   "measured": {
+    "width_paper_mm": 20,
+    "tag_width_mm": 1000,
+    "tag_height_mm": 2100
+   },
+   "evidence": [
+    "ev-0007#page-1"
+   ]
+  },
+  {
+   "cid": "drawing-ev-0007-p1-wall-5-door-1",
+   "kind": "door",
+   "geometry": {
+    "host": "drawing-ev-0007-p1-wall-5",
+    "Location": [
+     129,
+     43
+    ],
+    "direction": [
+     0,
+     1
+    ],
+    "along_paper_mm": 69,
+    "swing_centre": [
+     120,
+     46
+    ],
+    "leaves": 1,
+    "page": 1,
+    "units": "paper_mm"
+   },
+   "measured": {
+    "width_paper_mm": 18,
+    "tag_width_mm": 900,
+    "tag_height_mm": 2100
+   },
+   "evidence": [
+    "ev-0007#page-1"
+   ]
+  }
+ ],
+ "derived": [],
+ "receipt": {
+  "started": "2026-10-11T16:35:48.0151352Z",
+  "finished": "2026-10-11T16:35:48.2004539Z",
+  "cpu_s": 0.188,
+  "items": [
+   {
+    "id": "ev-0007",
+    "pages": 1,
+    "page_read": 1,
+    "size_paper_mm": [
+     297.039,
+     209.903
+    ],
+    "strokes": 36,
+    "wall_weight_pt": 0.7,
+    "faces": 14,
+    "unpaired_faces": 4,
+    "arcs": 2,
+    "walls": 5,
+    "doors": 2,
+    "columns": 0,
+    "weights": [
+     {
+      "pt": 0.7,
+      "paired_paper_mm": 631.999,
+      "read": true
+     },
+     {
+      "pt": 0.35,
+      "paired_paper_mm": 90,
+      "read": false
+     },
+     {
+      "pt": 0.25,
+      "paired_paper_mm": 0,
+      "read": false
+     }
+    ]
+   }
+  ]
+ }
+}
