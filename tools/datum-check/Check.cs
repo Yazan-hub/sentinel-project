@@ -152,6 +152,95 @@ else
           sh.Where(g => g.Vertical).All(g => !dg.Any(o => DatumFromDrawing.SameLine(g, o.X1, o.Y1, o.X2, o.Y2))) && sh.Where(g => !g.Vertical).All(g => dg.Any(o => DatumFromDrawing.SameLine(g, o.X1, o.Y1, o.X2, o.Y2))));
 }
 
+// ---- MA-5b-8 (DAT-5): angled and arc grids, named by GR-01 --------------------------------------------------------
+var gr01 = new System.Text.RegularExpressions.Regex("^([A-Z]{1,2}|\\d{1,3})$");
+Seg At(double cx, double cy, double deg, double r0, double r1) { double a = deg * Math.PI / 180; return new Seg(cx + r0 * Math.Cos(a), cy + r0 * Math.Sin(a), cx + r1 * Math.Cos(a), cy + r1 * Math.Sin(a)); }
+var radial = new[] { 0, 22.5, 45, 67.5, 90 }.Select(d => At(0, 0, d, 15000, 32000))
+    .Concat(new[] { 0, 22.5, 45, 67.5, 90 }.Select(d => At(0, 0, d, 33000, 33800)))                          // the bubbles' leaders
+    .Concat(Enumerable.Range(0, 3).Select(k => new Seg(50000 - k * 3000, k * 5196.152, 50000 - k * 3000 + 17320.508, k * 5196.152 + 10000))) // a 30-degree wing
+    .ToList();
+var arcs = new[] { 20000.0, 25000, 30000 }.Select(r => new GridArc { Cx = 0, Cy = 0, R = r, StartDeg = 0, EndDeg = 90 })
+    .Concat(new[] { 0, 22.5, 45, 67.5, 90 }.Select(d => new GridArc { Cx = 32500 * Math.Cos(d * Math.PI / 180), Cy = 32500 * Math.Sin(d * Math.PI / 180), R = 500, StartDeg = 0, EndDeg = 360 })) // bubbles
+    .ToList();
+var said = new List<string>();
+var rg = DatumFromDrawing.Grids(radial, planArcs: arcs, warnings: said);
+double FarAngle(DetectedGrid g) { var (x, y) = g.X1 * g.X1 + g.Y1 * g.Y1 > g.X2 * g.X2 + g.Y2 * g.Y2 ? (g.X1, g.Y1) : (g.X2, g.Y2); return Math.Round(Math.Atan2(y, x) * 180 / Math.PI, 1); }
+Check("radial: 5 spokes numbered 1-5 by angle, the 30-degree wing A-C, the arcs D-F inner first; no bubble, no leader",
+      string.Join(",", rg.Select(g => g.Name)) == "1,2,3,4,5,A,B,C,D,E,F" && rg.Where(g => g.IsArc).Select(g => g.R).SequenceEqual(new[] { 20000.0, 25000, 30000 })
+      && rg.Take(5).Select(FarAngle).SequenceEqual(new[] { 0, 22.5, 45, 67.5, 90 }) && said.Count == 0);
+Check("the wing is kept at 30 degrees, lettered bottom to top", rg.Where(g => !g.IsArc && !g.Vertical).All(g => Math.Abs(g.AngleDeg - 30) < 0.01)
+      && rg.Where(g => !g.IsArc && !g.Vertical).Select(g => g.Name).SequenceEqual(new[] { "A", "B", "C" }) && rg.First(g => g.Name == "A").Y1 < rg.First(g => g.Name == "C").Y1);
+Check("the arc grids keep their centre, radius and sweep exactly (within 5 mm)", rg.Where(g => g.IsArc).All(g => Math.Abs(g.Cx) < 5 && Math.Abs(g.Cy) < 5 && g.StartDeg == 0 && g.EndDeg == 90
+      && Math.Abs(g.X1 - g.R) < 5 && Math.Abs(g.Y2 - g.R) < 5));
+Check("every name passes GR-01 (letters or numbers)", rg.All(g => gr01.IsMatch(g.Name)) && DatumFromDrawing.Grids(many).All(g => gr01.IsMatch(g.Name)));
+var whole = new List<string>();
+DatumFromDrawing.Grids(radial, planArcs: new[] { new GridArc { Cx = 0, Cy = 0, R = 12000, StartDeg = 0, EndDeg = 360 } }, warnings: whole);
+Check("a whole circle as big as a grid is said, never created", whole.Count == 1 && whole[0].StartsWith("A whole circle of radius 12000 mm on a grid layer"));
+var twice = DatumFromDrawing.Grids(radial, planArcs: arcs.Concat(new[] { new GridArc { Cx = 3, Cy = -2, R = 20050, StartDeg = 10, EndDeg = 60 } }));
+Check("an arc of one centre (5 mm) and radius (the merge) is one grid, the widest kept", twice.Count(g => g.IsArc) == 3 && twice.First(g => g.IsArc).EndDeg == 90);
+var sq = new List<Seg> { new Seg(0, -500, 0, 7500), new Seg(5000, -500, 5000, 7500), new Seg(-500, 0, 10500, 0), new Seg(-500, 7000, 10500, 7000), new Seg(10000, -500, 10000.5, 7500) };
+Check("plain orthogonal grids are named as before (a line 0.004 degrees off stays with its direction)", string.Join(",", DatumFromDrawing.Grids(sq).Select(g => g.Name)) == "1,2,3,A,B");
+var mixed = DatumFromDrawing.Grids(sq.Concat(new[] { new Seg(20000, 0, 20000 + 8000 * Math.Cos(80 * Math.PI / 180), 8000 * Math.Sin(80 * Math.PI / 180)) }).ToList());
+Check("a direction 10 degrees off vertical is numbered after the verticals", string.Join(",", mixed.Select(g => g.Name)) == "1,2,3,4,A,B" && Math.Abs(mixed[3].AngleDeg - 80) < 0.01);
+
+// Review (MA-5b-8): the cases the first version got wrong.
+var slab = Enumerable.Range(0, 11).Select(i => new Seg(i * 10000, -1000, i * 10000, 21000)).Concat(new[] { 0, 10000, 20000 }.Select(y => new Seg(-1000, y, 101000, y))).ToList();
+Check("a 100 x 20 m slab block: its 22 m grids cross the 102 m ones and are kept, 1-11 then A-C", string.Join(",", DatumFromDrawing.Grids(slab).Select(g => g.Name)) == "1,2,3,4,5,6,7,8,9,10,11,A,B,C");
+var part = new[] { 0, 6000, 18000, 24000 }.Select(x => new Seg(x, -1000, x, 61000)).Append(new Seg(12000, 20000, 12000, 32000)).Concat(new[] { 0, 30000, 60000 }.Select(y => new Seg(-1000, y, 25000, y))).ToList();
+var pg = DatumFromDrawing.Grids(part);
+Check("a 12 m partial grid crossing one long grid is kept in its place (x=12000 is 3)", pg.First(g => g.Vertical && Math.Abs(g.X1 - 12000) < 1).Name == "3" && pg.Count(g => g.Vertical) == 5);
+var setout = new[] { 0, 6000, 12000, 18000, 24000 }.Select(x => new Seg(x, -1000, x, 19000)).Concat(new[] { 0, 6000, 12000, 18000 }.Select(y => new Seg(-1000, y, 25000, y))).ToList();
+var so = DatumFromDrawing.Grids(setout, planArcs: new[] { new GridArc { Cx = 12000, Cy = 6000, R = 15000, StartDeg = 0, EndDeg = 90 } });
+Check("an arc set out from a grid intersection: the grids through its centre keep their names (1-5, A-D), the arc is E",
+      string.Join(",", so.Select(g => g.Name)) == "1,2,3,4,5,A,B,C,D,E" && so.First(g => g.Name == "3").Vertical && Math.Abs(so.First(g => g.Name == "3").X1 - 12000) < 1 && so.Last().IsArc);
+var fan = new[] { -45.0, -22.5, 0, 22.5, 45 }.Select(d => At(0, 0, d, 15000, 32000)).ToList();
+var fg2 = DatumFromDrawing.Grids(fan, planArcs: new[] { new GridArc { Cx = 0, Cy = 0, R = 25000, StartDeg = 315, EndDeg = 405 } });
+Check("a fan across +X runs -45, -22.5, 0, 22.5, 45 as 1-5", fg2.Take(5).Select(FarAngle).SequenceEqual(new[] { -45.0, -22.5, 0, 22.5, 45 }));
+var hubLines = new[] { 0, 30, 60, 90 }.Select(d => At(0, 0, d, 0, 40000)).ToList();
+var hg = DatumFromDrawing.Grids(hubLines, planArcs: new[] { 6000.0, 20000, 30000 }.Select(r => new GridArc { Cx = 0, Cy = 0, R = r, StartDeg = 0, EndDeg = 90 }));
+Check("a radial plan's inner ring (6 m, under a quarter of the 40 m spokes) is kept: its centre is the spokes' hub",
+      hg.Where(g => g.IsArc).Select(g => g.R).SequenceEqual(new[] { 6000.0, 20000, 30000 }));
+var twoHubs = new[] { 0.0, 45, 90 }.Select(d => At(0, 0, d, 15000, 30000)).Concat(new[] { 0.0, 45, 90 }.Select(d => At(100000, 0, d, 15000, 30000))).ToList();
+var th = DatumFromDrawing.Grids(twoHubs, planArcs: new[] { new GridArc { Cx = 0, Cy = 0, R = 20000, StartDeg = 0, EndDeg = 90 }, new GridArc { Cx = 100000, Cy = 0, R = 20000, StartDeg = 0, EndDeg = 90 } });
+Check("two radial groups at the same angles keep all six spokes, numbered one centre at a time", th.Count(g => g.Vertical) == 6 && string.Join(",", th.Where(g => g.Vertical).Select(g => g.Name)) == "1,2,3,4,5,6"
+      && th.Take(3).All(g => Math.Min(g.X1, g.X2) < 50000) && th.Skip(3).Take(3).All(g => Math.Min(g.X1, g.X2) > 50000));
+var turned = new[] { 0.0, 6000 }.Select(o => new Seg(o * 0.7071, -o * 0.7071, o * 0.7071 + 20000 * 0.7071, -o * 0.7071 + 20000 * 0.7071))
+    .Concat(new[] { 0.0, 6000 }.Select(o => new Seg(o * 0.7071, o * 0.7071, o * 0.7071 - 20000 * 0.7071, o * 0.7071 + 20000 * 0.7071))).ToList();
+var tg = DatumFromDrawing.Grids(turned);
+Check("a plan turned 45 degrees: one direction numbered, the other lettered", tg.Count(g => g.Vertical) == 2 && tg.Count(g => !g.Vertical) == 2 && tg.All(g => gr01.IsMatch(g.Name)));
+
+// The drill's radial drawing (make-datum-sample.py --ma5b8), lines, arcs and circles on S-GRID-IDEN, read as DatumBuilder reads them.
+(List<Seg> L, List<GridArc> A) Read(string file, string layer)
+{
+    var T = System.IO.File.ReadAllLines(file); var ls = new List<Seg>(); var arcList = new List<GridArc>();
+    for (int i = 0; i + 1 < T.Length; i++)
+    {
+        string kind = T[i + 1].Trim();
+        if (T[i].Trim() != "0" || (kind != "LINE" && kind != "ARC" && kind != "CIRCLE")) continue;
+        string lay = null; double x1 = 0, y1 = 0, x2 = 0, y2 = 0, r = 0, a0 = 0, a1 = 360;
+        for (int j = i + 2; j + 1 < T.Length && T[j].Trim() != "0"; j += 2)
+        {
+            double.TryParse(T[j + 1].Trim(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d);
+            switch (T[j].Trim()) { case "8": lay = T[j + 1].Trim(); break; case "10": x1 = d; break; case "20": y1 = d; break; case "11": x2 = d; break; case "21": y2 = d; break;
+                                   case "40": r = d; break; case "50": a0 = d; break; case "51": a1 = d; break; }
+        }
+        if (lay != layer) continue;
+        if (kind == "LINE") ls.Add(new Seg(x1, y1, x2, y2));
+        else arcList.Add(new GridArc { Cx = x1, Cy = y1, R = r, StartDeg = kind == "CIRCLE" ? 0 : a0, EndDeg = kind == "CIRCLE" ? 360 : (a1 > a0 ? a1 : a1 + 360) });
+    }
+    return (ls, arcList);
+}
+if (sample == null) Console.WriteLine("  skip  demo/ghost-sample not found");
+else if (!System.IO.File.Exists(System.IO.Path.Combine(sample, "ma5b8-radial.dxf"))) Console.WriteLine("  skip  ma5b8-radial.dxf not found");
+else
+{
+    var (fl, fa) = Read(System.IO.Path.Combine(sample, "ma5b8-radial.dxf"), "S-GRID-IDEN");
+    var fg = DatumFromDrawing.Grids(fl, planArcs: fa);
+    Check($"ma5b8-radial.dxf: spokes 1-5, the wing A-C at 30 degrees, the arcs D-F of 20, 25 and 30 m about (200000, 0) — {string.Join(",", fg.Select(g => g.Name))}",
+          string.Join(",", fg.Select(g => g.Name)) == "1,2,3,4,5,A,B,C,D,E,F" && fg.Where(g => g.IsArc).All(g => Math.Abs(g.Cx - 200000) < 5 && Math.Abs(g.Cy) < 5)
+          && fg.Where(g => g.IsArc).Select(g => Math.Round(g.R)).SequenceEqual(new[] { 20000.0, 25000, 30000 }) && fg.Where(g => !g.IsArc && !g.Vertical).All(g => Math.Abs(g.AngleDeg - 30) < 0.01));
+}
+
 // ---- KIT DXFs ----------------------------------------------------------------------------------------
 // Revit imports a DXF with no $INSUNITS header as inches — every mm height x25.4 (simulation 3.9, F41).
 // The kit's hand-written drawings must declare millimetres.
