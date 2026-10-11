@@ -70,7 +70,7 @@ public sealed class DatumFromDrawingsCommand : IExternalCommand
                 return Result.Cancelled;
             }
 
-            var pick = new Sentinel.UI.DwgPickWindow(files, null,
+            var pick = new Sentinel.UI.DwgPickWindow(files,
                 title: "Sentinel — Datum: choose ONE drawing",
                 header: "Pick the drawing to read datum from. Levels come from a section's " +
                         "LEVEL layer, grids from a plan's GRID layer. The drawing is read " +
@@ -82,7 +82,7 @@ public sealed class DatumFromDrawingsCommand : IExternalCommand
                 return Result.Cancelled;
 
             readerClock.Start();
-            detected = builder.DetectFromFiles(new[] { pick.SelectedPath });
+            detected = builder.DetectFromFiles(new[] { pick.SelectedPath }, unit: DatumBuilder.UnitOf(pick.Units));
             readerClock.Stop();
             detected.SourceSha256 = ProvenanceStamp.FileSha256(pick.SelectedPath); // MA-1a item 4: the file the datum was read from
         }
