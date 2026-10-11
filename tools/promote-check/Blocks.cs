@@ -50,7 +50,7 @@ static partial class Check
         Ok(S(3950, 50, null) == "2 walls of this build on L1 are equally near (3950, 50): W1, W2 — a person decides the host"
            && S(3950, 20, null) == "W1 (3950, 0)", "an outline at a corner: the nearer wall, or — equally near — a person decides");
         // Review amendment C4: a wall line that stops just short of the opening is said — walls broken at openings are the usual CAD habit.
-        Ok(S(4090, 0, 0, "L2") == "the wall line of W3 stops 90 mm short of (4090, 0) — its wall pieces were not joined through it (GHB-6 joins two pieces of one thickness on one line, at most 2000 mm apart, the opening between them)"
+        Ok(S(4090, 0, 0, "L2") == "the wall line of W3 stops 90 mm short of (4090, 0) — its wall pieces were not joined through it (GHB-6 joins two pieces of one thickness on one line, at most 2000 mm apart, with the opening and nothing else between them)"
            && PlacementGeometry.IsBrokenWall(S(4090, 0, 0, "L2")) && !PlacementGeometry.IsBrokenWall(S(2000, 102, 0)) && !PlacementGeometry.IsBrokenWall(null),
            "a point past the wall's end is not that wall's opening — and when the wall's line stops just short of it, the sentence says so");
         Ok(S(4000 + PlacementGeometry.BrokenReachMm + 1, 0, 0, "L2") == "no straight wall of this build on L2 passes within half its thickness of (6001, 0)"
@@ -58,7 +58,7 @@ static partial class Check
            && S(4090, 102, 0, "L2").StartsWith("no straight wall of this build on L2"),
            "further past the end than a wide opening, a block across that line, or off the line by more than half the thickness: no wall, plainly");
         var pieces = new List<(string, string, double, double, double, double)> { ("W1", "L1", 0, 0, 1550, 0), ("W2", "L1", 2450, 0, 4000, 0) };
-        Ok(S(2000, 0, 0, w: pieces, h: new List<double> { 100, 100 }) == "the wall line of W1 stops 450 mm short of (2000, 0) — its wall pieces were not joined through it (GHB-6 joins two pieces of one thickness on one line, at most 2000 mm apart, the opening between them)"
+        Ok(S(2000, 0, 0, w: pieces, h: new List<double> { 100, 100 }) == "the wall line of W1 stops 450 mm short of (2000, 0) — its wall pieces were not joined through it (GHB-6 joins two pieces of one thickness on one line, at most 2000 mm apart, with the opening and nothing else between them)"
            && S(2100, 0, null, w: pieces, h: new List<double> { 100, 100 }).StartsWith("the wall line of W2 stops 350 mm short of (2100, 0)"),
            "a door in the gap between two wall pieces on one line is named as a broken wall — the nearer piece, or the first of two equally near");
         var twice = new List<(string, string, double, double, double, double)> { ("W1", "L1", 0, 0, 4000, 0), ("W1 again", "L1", 0, 0, 4000, 0) };
@@ -72,7 +72,7 @@ static partial class Check
            "a block 5.04 degrees off its wall is refused with that angle, not with a rounded 5 — in the planner and in the executor");
         // Review (2026-10-03): near a corner, a block a fraction past its wall's end is answered by the wall whose line stops short,
         // not by the perpendicular neighbour it is turned 90° from.
-        Ok(S(4000.4, 0, 0) == "the wall line of W1 stops 0.4 mm short of (4000.4, 0) — its wall pieces were not joined through it (GHB-6 joins two pieces of one thickness on one line, at most 2000 mm apart, the opening between them)",
+        Ok(S(4000.4, 0, 0) == "the wall line of W1 stops 0.4 mm short of (4000.4, 0) — its wall pieces were not joined through it (GHB-6 joins two pieces of one thickness on one line, at most 2000 mm apart, with the opening and nothing else between them)",
            "at a corner, a block just past the end of the wall it lies along names that wall's line, not the wall it is across");
         // Review (2026-10-03): the planner (Snap, from the import's curves) and the executor (AcrossWall, from the Revit wall's
         // line after the mm->ft->mm round trip) read the 5° bound on different numbers, and at exactly 5° either may land an ulp

@@ -282,6 +282,32 @@ static class Check
         var ldj = Built(ld, (3500, 100));
         Ok(Paired(ldj) == 2 && Has(ldj, 100, 100, 8000, 100, 200) && Has(ldj, 100, 100, 100, 5000, 200), $"an L broken at a door: joined, then trimmed at the corner ({Canon(ldj)})");
 
+        // Review: a nib drawn past the far face keeps its length; an angled L trims to its centrelines' crossing.
+        var nib = new List<PairedWall> { new PairedWall { Cx1 = 200, Cy1 = 100, Cx2 = 5000, Cy2 = 100, ThicknessMm = 200 },
+            new PairedWall { Cx1 = 100, Cy1 = -150, Cx2 = 100, Cy2 = 5000, ThicknessMm = 200 } };
+        WallPairing.TrimEnds(nib);
+        Ok(Math.Abs(nib[1].Cy1 + 150) < 1 && Math.Abs(nib[0].Cx1 - 100) < 1,
+           "a leg running 150 past the other wall's outer face keeps its nib; the other wall still meets its centreline");
+        double c45 = Math.Cos(Math.PI / 4), s45 = Math.Sin(Math.PI / 4);
+        var ang = new List<PairedWall> { new PairedWall { Cx1 = -241.4, Cy1 = 0, Cx2 = 5000, Cy2 = 0, ThicknessMm = 200 },
+            new PairedWall { Cx1 = -170.7, Cy1 = -170.7, Cx2 = -170.7 - 5000 * c45, Cy2 = -170.7 - 5000 * s45, ThicknessMm = 200 } };
+        WallPairing.TrimEnds(ang);
+        Ok(Math.Abs(ang[0].Cx1) < 1 && Math.Abs(ang[0].Cy1) < 1 && Math.Abs(ang[1].Cx1) < 1 && Math.Abs(ang[1].Cy1) < 1, "a 45-degree L trims both ends to the crossing (0, 0)");
+        // Review: the gap must hold nothing — a flush pier, a glass line, another row's wall, a wall across it keep the pieces apart.
+        var pier = new List<PairedWall> { new PairedWall { Cx1 = 0, Cy1 = 100, Cx2 = 3000, Cy2 = 100, ThicknessMm = 200, FaceA = 0 },
+            new PairedWall { Cx1 = 3700, Cy1 = 200, Cx2 = 4300, Cy2 = 200, ThicknessMm = 400, FaceA = 1 },
+            new PairedWall { Cx1 = 5000, Cy1 = 100, Cx2 = 9000, Cy2 = 100, ThicknessMm = 200, FaceA = 2 } };
+        Ok(WallPairing.JoinAtOpenings(pier, new[] { (3350.0, 100.0), (4650.0, 100.0) }, 2000, 1).Count == 3, "a flush 400 pier between two doors: nothing joined over it");
+        var glass = new List<PairedWall> { new PairedWall { Cx1 = 0, Cy1 = 100, Cx2 = 3000, Cy2 = 100, ThicknessMm = 200, FaceA = 0 },
+            new PairedWall { Cx1 = 3000, Cy1 = 100, Cx2 = 4200, Cy2 = 100, ThicknessMm = 0, FaceA = 1 },
+            new PairedWall { Cx1 = 4200, Cy1 = 100, Cx2 = 8000, Cy2 = 100, ThicknessMm = 200, FaceA = 2 } };
+        Ok(WallPairing.JoinAtOpenings(glass, new[] { (3600.0, 100.0) }, 2000, 1).Count == 3, "a glass line on the Walls row across the window: nothing joined over it");
+        var two2 = new List<PairedWall> { glass[0], glass[2] };
+        Ok(WallPairing.JoinAtOpenings(two2, new[] { (3600.0, 100.0) }, 2000, 1, new List<PairedWall> { new PairedWall { Cx1 = 3500, Cy1 = 100, Cx2 = 3700, Cy2 = 100, ThicknessMm = 200 } }).Count == 2
+           && WallPairing.JoinAtOpenings(two2, new[] { (3600.0, 100.0) }, 2000, 1, new List<PairedWall> { new PairedWall { Cx1 = 3600, Cy1 = -3000, Cx2 = 3600, Cy2 = 3000, ThicknessMm = 100 } }).Count == 2
+           && WallPairing.JoinAtOpenings(two2, new[] { (3600.0, 100.0) }, 2000, 1, new List<PairedWall> { new PairedWall { Cx1 = 3600, Cy1 = 600, Cx2 = 3600, Cy2 = 3000, ThicknessMm = 100 } }).Count == 1,
+           "another row's wall in the gap, or a wall across it, keeps the pieces apart; a wall that stops short of the line does not");
+
         // The drill's drawing (make-sample.py --ma5b6), as GhostWallPairer reads it: paired and joined per wall layer, trimmed across them.
         string root = AppContext.BaseDirectory;
         for (int i = 0; i < 6 && !System.IO.Directory.Exists(System.IO.Path.Combine(root, "SentinelAddin")); i++) root = System.IO.Path.GetFullPath(System.IO.Path.Combine(root, ".."));

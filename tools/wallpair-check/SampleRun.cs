@@ -53,21 +53,8 @@ static class SampleRun
             }
         }
         Console.WriteLine($"\n  {placed} walls resolve to a real BDS type · {gaps} reported as gaps (not invented)");
-        // MA-5b-6 (GHB-6): corner gaps — paired wall ends a trim moves (off the centreline of the wall they run into), before and after
-        // Ghost's one trim across the layers; a second trim moves nothing.
-        var all = byLayer.Where(k => k.Key.ToUpper().Contains("WALL")).SelectMany(k => WallPairing.Pair(k.Value)).ToList();
-        int Off(List<PairedWall> ws)
-        {
-            var copy = ws.Select(w => new PairedWall { Cx1 = w.Cx1, Cy1 = w.Cy1, Cx2 = w.Cx2, Cy2 = w.Cy2, ThicknessMm = w.ThicknessMm }).ToList();
-            WallPairing.TrimEnds(copy);
-            return ws.Zip(copy, (a, b) => (Math.Abs(a.Cx1 - b.Cx1) + Math.Abs(a.Cy1 - b.Cy1) > 1 ? 1 : 0) + (Math.Abs(a.Cx2 - b.Cx2) + Math.Abs(a.Cy2 - b.Cy2) > 1 ? 1 : 0)).Sum();
-        }
-        int before = Off(all);
-        WallPairing.TrimEnds(all);
-        int after = Off(all);
-        Console.WriteLine($"  corner ends off the centreline they meet: {before} as paired, {after} after Ghost's trim (GHB-6)");
-        // The sample is designed for exactly 6 real + 1 gap, and no corner gap once trimmed.
-        bool ok = placed == 6 && gaps == 1 && after == 0;
+        // The sample is designed for exactly 6 real + 1 gap.
+        bool ok = placed == 6 && gaps == 1;
         Console.WriteLine(ok ? "\nSAMPLE OK — matches the designed expectation." : "\nSAMPLE MISMATCH.");
         return ok ? 0 : 1;
     }

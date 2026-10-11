@@ -224,7 +224,8 @@ namespace Sentinel.GhostBuilder
         // ---- joins (MA-5b-6, GHB-6) ---------------------------------------------------------------------------
 
         /// <summary>MA-5b-6 (GHB-6): the bridge's trimEnds (WebApp/bridge/survey-plan.mjs), ported — each end of a paired wall moved along
-        /// its own line to the nearest centreline of another paired wall it meets: within that wall's thickness + 50 of the end, the two
+        /// its own line to the nearest centreline of another paired wall it meets: the end within half that wall's thickness (plus its own
+        /// half on a slant) + 50 of its centreline — a nib drawn past the far face is kept — the two
         /// not within 10° of parallel, the crossing on that wall's line or within this wall's thickness + 50 past its ends. Read from the
         /// untrimmed walls, so the order never matters; a trim that would leave a wall under 1 long leaves it; unpaired lines (thickness 0)
         /// neither trim nor are trimmed to. An L corner's overshoot (the run on to the outer corner) comes back to the centrelines'
@@ -251,7 +252,9 @@ namespace Sentinel.GhostBuilder
                         double ox = o.Cx2 - o.Cx1, oy = o.Cy2 - o.Cy1, ol = Math.Sqrt(ox * ox + oy * oy), den = ux * oy - uy * ox;
                         if (ol <= 0 || Math.Abs(den) < sinMin * ol) continue; // parallel, or nearly
                         double rx = o.Cx1 - ex, ry = o.Cy1 - ey, t = (rx * oy - ry * ox) / den, v = (rx * uy - ry * ux) / den, slack = (w.ThicknessMm + SLACK) / ol;
-                        if (Math.Abs(t) > o.ThicknessMm + SLACK || v < -slack || v > 1 + slack) continue;
+                        // review: the end's distance across o's centreline — half o's thickness at an L or a T, plus w's half on a slant
+                        // (an angled L's run on); a nib drawn past o's far face lies further out and keeps its length
+                        if (Math.Abs(t * den) / ol > (o.ThicknessMm + w.ThicknessMm * Math.Abs(ux * ox + uy * oy) / ol) / 2 + SLACK || v < -slack || v > 1 + slack) continue;
                         if (best == null || Math.Abs(t) < Math.Abs(best.Value)) best = t;
                     }
                     return best ?? 0;
@@ -270,9 +273,11 @@ namespace Sentinel.GhostBuilder
         /// within half the thickness + <paramref name="hostTol"/>). The joined wall keeps the piece drawn first's direction and face;
         /// each opening once (wall–door–wall–window–wall is one wall). Two pieces with no opening between them stay two (a gap a
         /// person drew). Call it per Walls row: a door between two rows' walls joins nothing.</summary>
-        public static List<PairedWall> JoinAtOpenings(IReadOnlyList<PairedWall> walls, IReadOnlyList<(double X, double Y)> openings, double reach, double hostTol)
+        public static List<PairedWall> JoinAtOpenings(IReadOnlyList<PairedWall> walls, IReadOnlyList<(double X, double Y)> openings, double reach, double hostTol,
+                                                      IReadOnlyList<PairedWall> blockers = null)
         {
             var ws = walls.ToList();
+            var others = blockers ?? Array.Empty<PairedWall>();
             if (openings == null || openings.Count == 0) return ws;
             double sinTol = Math.Sin(0.5 * Math.PI / 180);
             double Len(PairedWall a) => Math.Sqrt((a.Cx2 - a.Cx1) * (a.Cx2 - a.Cx1) + (a.Cy2 - a.Cy1) * (a.Cy2 - a.Cy1));
@@ -281,6 +286,21 @@ namespace Sentinel.GhostBuilder
             {
                 double dx = a.Cx2 - a.Cx1, dy = a.Cy2 - a.Cy1, l = Len(a);
                 return (((x - a.Cx1) * dx + (y - a.Cy1) * dy) / l, Math.Abs((x - a.Cx1) * dy - (y - a.Cy1) * dx) / l);
+            }
+            bool Blocks(PairedWall a, double la, PairedWall d, double g0, double g1)
+            {
+                double ld = Len(d);
+                if (ld <= 0) return false;
+                var (s1, n1) = On(a, d.Cx1, d.Cy1);
+                var (s2, n2) = On(a, d.Cx2, d.Cy2);
+                double cross = ((a.Cx2 - a.Cx1) * (d.Cy2 - d.Cy1) - (a.Cy2 - a.Cy1) * (d.Cx2 - d.Cx1)) / (la * ld);
+                if (Math.Abs(cross) <= sinTol)
+                    return Math.Min(n1, n2) <= (a.ThicknessMm + d.ThicknessMm) / 2 + 1 && Math.Max(s1, s2) > g0 + 1 && Math.Min(s1, s2) < g1 - 1;
+                // a wall across the gap: its centreline meets a's line inside the gap, within its own length
+                double side1 = ((d.Cx1 - a.Cx1) * (a.Cy2 - a.Cy1) - (d.Cy1 - a.Cy1) * (a.Cx2 - a.Cx1)) / la, side2 = ((d.Cx2 - a.Cx1) * (a.Cy2 - a.Cy1) - (d.Cy2 - a.Cy1) * (a.Cx2 - a.Cx1)) / la;
+                if (side1 * side2 > 0 || side1 == side2) return false;
+                double s = s1 + (s2 - s1) * side1 / (side1 - side2);
+                return s > g0 + 1 && s < g1 - 1;
             }
             bool OneLine(PairedWall a, PairedWall b)
             {
@@ -309,9 +329,9 @@ namespace Sentinel.GhostBuilder
                             bool after = sp >= la - 1 && cl >= sp - 1 && cl - la <= reach, before = sp <= 1 && ch <= sp + 1 && -ch <= reach;
                             if (!(after || before)) continue;
                             double g0 = after ? la : ch, g1 = after ? cl : 0;
-                            // consecutive: no other paired wall on this line over the gap
-                            if (ws.Any(d => d != a && d != c && d.ThicknessMm > 0 && OneLine(a, d)
-                                            && Math.Max(On(a, d.Cx1, d.Cy1).s, On(a, d.Cx2, d.Cy2).s) > g0 + 1 && Math.Min(On(a, d.Cx1, d.Cy1).s, On(a, d.Cx2, d.Cy2).s) < g1 - 1)) continue;
+                            // review: the gap holds nothing — no parallel wall whose body reaches this one's over it (paired or a lone line, of
+                            // this row or another: a pier, a glass line), and no wall crossing it
+                            if (ws.Concat(others).Any(d => d != a && d != c && Blocks(a, la, d, g0, g1))) continue;
                             b = c; lo = Math.Min(0, cl); hi = Math.Max(la, ch);
                             break;
                         }

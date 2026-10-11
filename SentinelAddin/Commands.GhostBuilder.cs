@@ -536,7 +536,7 @@ public sealed class GhostBuilderCommand : IExternalCommand
             if (r.TypeGaps > 0) lines.AppendLine($"Types: {r.TypeGaps} named by the layer mapping not created (each named below with its reason)");
             if (r.SkippedUnknownFamily > 0) lines.AppendLine($"Skipped (type or family not in the model): {r.SkippedUnknownFamily}");
             if (r.SkippedNoHost > 0) lines.AppendLine($"Skipped (no single straight wall of this build within half its thickness of the door or window, and along it): {r.SkippedNoHost}");
-            if (r.SkippedBrokenWall > 0) lines.AppendLine($"  of these, where a wall line stops short of the opening (its wall pieces were not joined through it — not one thickness on one line within 2000 mm of each other: GHB-6): {r.SkippedBrokenWall}");
+            if (r.SkippedBrokenWall > 0) lines.AppendLine($"  of these, where a wall line stops short of the opening (its wall pieces were not joined through it — see each line: GHB-6): {r.SkippedBrokenWall}");
             if (r.SkippedDuplicate > 0) lines.AppendLine($"Skipped (a second door or window block at the same point as one of this build — a duplicate in the drawing, not filed; F4): {r.SkippedDuplicate}");
             if (r.SkippedBlocks > 0) lines.AppendLine($"Skipped (a block on a row that is not Doors or Windows): {r.SkippedBlocks}");
             if (r.SkippedNoGeometry > 0) lines.AppendLine($"Skipped (no geometry): {r.SkippedNoGeometry}");

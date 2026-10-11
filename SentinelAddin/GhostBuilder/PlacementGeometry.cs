@@ -122,7 +122,7 @@ public static class PlacementGeometry
 
     /// <summary>How a gap's sentence ends when a wall's line stops short of the opening (Snap) — MA-5b-6: GhostWallPairer joined the
     /// pieces that qualify (WallPairing.JoinAtOpenings), so the ones left say why not.</summary>
-    public const string BrokenWallNote = "its wall pieces were not joined through it (GHB-6 joins two pieces of one thickness on one line, at most 2000 mm apart, the opening between them)";
+    public const string BrokenWallNote = "its wall pieces were not joined through it (GHB-6 joins two pieces of one thickness on one line, at most 2000 mm apart, with the opening and nothing else between them)";
 
     /// <summary>Whether a Snap reason names a wall broken at the opening — Ghost's planner counts these on their own line.</summary>
     public static bool IsBrokenWall(string why) => why != null && why.EndsWith(BrokenWallNote, StringComparison.Ordinal);

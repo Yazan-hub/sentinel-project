@@ -69,11 +69,13 @@ namespace Sentinel.GhostBuilder
             // Paired and joined per layer (a door between two rows' walls joins nothing); trimmed across every layer (an exterior
             // layer meets an interior one at a corner).
             var built = new List<(PairedWall w, GhostElement src)>();
+            var paired = byLayer.ToDictionary(kv => kv.Key, kv => WallPairing.Pair(kv.Value.Select(e => e.seg).ToList()), StringComparer.OrdinalIgnoreCase);
             foreach (var kv in byLayer)
             {
                 var els = kv.Value;
-                var walls = WallPairing.JoinAtOpenings(WallPairing.Pair(els.Select(e => e.seg).ToList()), openings,
-                                                       PlacementGeometry.BrokenReachMm, PlacementGeometry.HostTolMm);
+                // review: a wall of another row standing in the gap keeps the pieces apart too
+                var walls = WallPairing.JoinAtOpenings(paired[kv.Key], openings, PlacementGeometry.BrokenReachMm, PlacementGeometry.HostTolMm,
+                                                       paired.Where(p => !string.Equals(p.Key, kv.Key, StringComparison.OrdinalIgnoreCase)).SelectMany(p => p.Value).ToList());
                 built.AddRange(walls.Select(w => (w, els[w.FaceA].src)));
             }
             WallPairing.TrimEnds(built.Select(b => b.w).ToList());
