@@ -12,7 +12,7 @@ import { resolveActor } from "./bridge-auth.mjs";
 import { readProposeBody, planSurvey, PLANNER, PLANNER_VERSION, measurePlan, judge, measureRefusal, countWords, STATUSES, MIN_COVERAGE, DEVIATION_MM, FACE_SHARE_MIN, MEASURE_KNOBS,
   readMesh, meshFaces, REVIT, FILED as AS_FILED, toScan, toModel, scanBand, cloudRefusal, SCAN_CELL_MM, SCAN_MAX } from "./survey-plan.mjs";
 import { stillAdmitted, pickItems, trustedJob as jobOf, measureJob as measureOf, TOLERANCES_MM, READER, DRAWING } from "./build-jobs.mjs";
-import { readAlignBody, planDrawing, PLANNER as DRAWING_PLANNER, PLANNER_VERSION as DRAWING_PLANNER_VERSION } from "./drawing-plan.mjs";
+import { readAlignBody, planDrawing, scanOnStorey, PLANNER as DRAWING_PLANNER, PLANNER_VERSION as DRAWING_PLANNER_VERSION } from "./drawing-plan.mjs";
 
 const STORE = "changeset";
 const err = (status, message) => Object.assign(new Error(message), { status });
@@ -29,6 +29,11 @@ const wire = (deps = {}) => ({
   myRole: deps.myRole || members.myRole,
   takeWriteBudget: deps.takeWriteBudget || cde.takeWriteBudget,
   resolveArtefact: deps.resolveArtefact || resolveArtefact,
+  // MA-5a-5: a drawing's differences from the scan as BCF topics (the route passes its broadcast, so they reach the Issues panel and Revit live)
+  bcfListTopics: deps.bcfListTopics || cde.bcfListTopics,
+  bcfCreateTopic: deps.bcfCreateTopic || cde.bcfCreateTopic,
+  newTopicObject: deps.newTopicObject || cde.newTopicObject,
+  broadcast: deps.broadcast || (() => {}),
 });
 
 /** MA-3a (gotcha 1): every write of a changeset doc is read → decided → swapped on review_rev, which each write bumps — a web
@@ -238,6 +243,29 @@ async function manifestLevels(key, d) {
   return out;
 }
 
+/** MA-5a-5: one BCF topic per drawing-vs-scan difference (drawing-plan's `differences`), deduplicated by `difference.key` against every topic
+ *  of the project, any status — a closed one is a person's decision, never raised again. Never throws: what was not raised is said in words
+ *  (the changeset is filed already; Propose again raises the rest). → {raised: [{guid, title, key}], skipped, error?} */
+async function raiseDifferences(d, key, jobId, diffs, actor) {
+  if (!diffs.length) return { raised: [], skipped: 0 };
+  let have;
+  try { have = new Set((await d.bcfListTopics(key, { status: "all" })).map((t) => t?.difference?.key).filter(Boolean)); }
+  catch (e) { return { raised: [], skipped: 0, error: `the project's topics could not be read (${e.message}) — none raised; propose the drawing again to raise them` }; }
+  const now = new Date().toISOString(), raised = [];
+  let skipped = 0;
+  for (const x of diffs) {
+    if (have.has(x.key)) { skipped++; continue; }
+    const topic = d.newTopicObject(key, { title: x.title, topic_type: "Issue", priority: "Normal", creation_author: actor, description: x.description }, now);
+    topic.difference = { kind: x.kind, key: x.key, item: x.item, drawing_cid: x.drawing_cid, scan_cid: x.scan_cid, scan_changeset: x.scan_changeset, scan_job: x.scan_job, drawing_job: jobId };
+    try { await d.bcfCreateTopic(topic); }
+    catch (e) { return { raised, skipped, error: `${e.message} — ${diffs.length - raised.length - skipped} topic(s) not raised; propose the drawing again to raise them` }; }
+    d.broadcast(key, { type: "topic", action: "created", guid: topic.guid, title: topic.title });
+    raised.push({ guid: topic.guid, title: topic.title, key: x.key });
+    have.add(x.key);
+  }
+  return { raised, skipped };
+}
+
 /** MA-4d: POST /cde/:key/build/jobs/:id/propose {frame, levels?} → 201. A signed-in lead turns a done survey job into one changeset per storey
  *  that the bridge builds from the job's own result (survey-plan planSurvey) — measured, accuracy, pre-tick and claimed: false stamped by the
  *  bridge, the job in its own field (`job`; the source stays a string for deployed add-ins) — and its gaps into ONE type_gap row for the
@@ -322,7 +350,9 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
     catch (e) { throw err(503, `the published models' levels could not be read (${e.message}) — nothing was saved; send it again`); }
     // MA-5a: the same catalogue the typer reads types a scan door or window by its size when no office rule does (holding-logic typeBySize).
     const job = { id, ledger: row.ledger, reader: row.reader, version: row.version }, cat = { types: catalog.body.types, label: catalog.label, sha256: catalog.sha256 };
-    const plan = drawing ? planDrawing({ job, candidates: result.candidates, align, manifest, type, filed, catalog: cat, sameCategory: core.sameCategory })
+    // MA-5a-5: the scan's walls filed on the drawing's storey, from the changesets read above — compared, never proposed twice
+    const plan = drawing ? planDrawing({ job, candidates: result.candidates, align, manifest, type, filed, catalog: cat, sameCategory: core.sameCategory,
+      scan: scanOnStorey(earlier, align.elevation_mm), drawingSha: evidence[0]?.sha256 ?? null })
       : planSurvey({ job, candidates: result.candidates, frame, levels, manifest, type, filed, catalog: cat, sameCategory: core.sameCategory });
     const by = resolveActor(actor, "web");
     // MA-5a-4: a drawing's changeset carries its alignment and who stated it (design: "confirmed by a person"), a scan's its frame.
@@ -364,6 +394,8 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
       if (plan.groups.length) gapRow = await d.audit(proj.id, "type_gap", null, `type_gap:run ${id} · ${P} · ${plan.groups.length} group(s), ${n} element(s)`, actor || "web", null,
         { groups: plan.groups, source: row.reader, job: jobRef, guideline: guideline.label, catalog: catalog.label, claimed: false });
     } catch (e) { throw await halfWay("the type-gap row was not written", e); }
+    // MA-5a-5: one topic per difference, after the filing — a topic not raised is said, never a stop (Propose again raises it: dedup by key)
+    const differences = drawing ? { ...plan.tally, topics: await raiseDifferences(d, key, id, plan.differences, actor || "web") } : null;
     const changesets = filed.map((c) => ({ id: c.id, name: c.name, elements: c.elements.length, preticked: c.elements.filter((e) => e.pretick).length }));
     // A door or window held by its level or host (an exception that is not a type gap's group) rides its storey's changeset; a storey that
     // files none has no changeset to say it, so the planner's row names it (drill MA5a K-3: Kladno's 90 openings, every host a gap, said nowhere).
@@ -380,9 +412,10 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
       done = await d.audit(proj.id, "build", null, `build:run ${id} · ${P} ${V} · proposed`, actor || "web", null, {
         job_id: id, planner: P, version: V, [drawing ? "drawing_row" : "survey_row"]: row.ledger, result_sha256: row.result_sha256, ...said,
         storeys, changesets, gaps, already_filed: plan.already_filed, overlaps, guideline: guideline.label, guideline_sha256: guideline.sha256,
-        catalog: catalog.label, catalog_sha256: catalog.sha256, model_calls: 0, tokens: 0, claimed: false });
+        catalog: catalog.label, catalog_sha256: catalog.sha256, ...(differences ? { differences } : {}), model_calls: 0, tokens: 0, claimed: false });
     } catch (e) { throw await halfWay("the planner's build:run row was not written", e); }
-    return { job: id, [drawing ? "drawing_row" : "survey_row"]: row.ledger, ...said, storeys, changesets, gaps, already_filed: plan.already_filed, overlaps, ledger: ledgerRef(done) };
+    return { job: id, [drawing ? "drawing_row" : "survey_row"]: row.ledger, ...said, storeys, changesets, gaps, already_filed: plan.already_filed, overlaps,
+      ...(differences ? { differences } : {}), ledger: ledgerRef(done) };
   }
 }
 
