@@ -987,7 +987,7 @@ describe("proposeFromJob (MA-4d): a lead turns a trusted survey job into changes
       "job-0002's result is not trusted: … — run the survey again; nothing was saved");
     // MA-5a-4: a drawing job's own trusted row reads a drawing's body — a scan's frame is refused in words
     await quiet({ trustedJob: vi.fn(async () => ({ ...TRUSTED, row: { ...TRUSTED.row, reader: "sentinel-drawing" } })) },
-      "frame is not a proposal field — a drawing is proposed with {item?, points, check?, level?, elevation_mm}; the bridge builds every changeset from the job's own result — nothing was saved", 400);
+      "frame is not a proposal field — a drawing is proposed with {item?, points, check?, level?, elevation_mm, revises?}; the bridge builds every changeset from the job's own result — nothing was saved", 400);
     await quiet({}, "pretick is not a proposal field — the bridge builds every changeset from the job's own result; send {frame, levels?} — nothing was saved", 400, { frame: FRAME, pretick: true });
     const pack = (items) => ({ readPack: vi.fn(async (_k, id) => (id === "evp-0001" ? { pack: { items } } : null)) }); // the ROW's pack id
     await quiet(pack([{ id: "ev-0001", sha256: EV, state: "changed" }]), "ev-0001 is not the bytes job-0002 read (Re-check flagged it changed) — survey the admitted scan again; nothing was saved");
@@ -1152,7 +1152,7 @@ describe("proposeFromJob (MA-5a-4): a lead aligns a drawing job by two points �
       await expect(propose(deps, body)).rejects.toMatchObject({ status, message });
       expect([deps.docInsert.mock.calls.length, deps.audit.mock.calls.length, deps.adjudicateProposal.mock.calls.length]).toEqual([0, 0, 0]);
     };
-    await quiet({}, "frame is not a proposal field — a drawing is proposed with {item?, points, check?, level?, elevation_mm}; the bridge builds every changeset from the job's own result — nothing was saved", 400, { frame: { dx_mm: 0 } });
+    await quiet({}, "frame is not a proposal field — a drawing is proposed with {item?, points, check?, level?, elevation_mm, revises?}; the bridge builds every changeset from the job's own result — nothing was saved", 400, { frame: { dx_mm: 0 } });
     await quiet({}, "the check point lands 150 mm from where you said it is — more than the 100 mm an alignment is trusted to; one of the three points is not where it was read — nothing was saved", 400,
       { ...BODY, check: { paper: [220, 40], model: [48000, 150] } });
     const d0 = ddeps(); await propose(d0); const docs = [...d0.saved.values()];

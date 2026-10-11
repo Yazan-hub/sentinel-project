@@ -16,7 +16,7 @@ export const PLANNER_VERSION = "0.2.0"; // MA-5b-1: rooms
 /** A check point landing further than this from where the lead said is a wrong point or a wrong pair (decision 1). */
 export const CHECK_MAX_MM = 100;
 const PAPER_MAX_MM = 2000, PAPER_MIN_APART = 10, MODEL_MIN_APART = 100, SCALE_MIN = 1, SCALE_MAX = 2000;
-const BODY = ["item", "points", "check", "level", "elevation_mm"];
+const BODY = ["item", "points", "check", "level", "elevation_mm", "revises"];
 const r1 = (v) => Math.round(v * 10) / 10 || 0; // 0.1 mm, never -0
 const dist = (a, b) => Math.hypot(b[0] - a[0], b[1] - a[1]);
 /** The drawing a candidate came from: its evidence `<item>#page-1` (sentinel-drawing Job.cs). */
@@ -36,9 +36,9 @@ function pair(p, at) {
 /** POST …/propose's body for a drawing job → {item, points, check, level, elevation_mm}, or a 400 in words. `items`: the drawings the job
  *  read. Only the lead's statements are read; anything else is refused, never dropped — the bridge builds the rest. */
 export function readAlignBody(b, items) {
-  if (!b || typeof b !== "object" || Array.isArray(b)) throw bad("a drawing is proposed with {item?, points, check?, level?, elevation_mm}");
+  if (!b || typeof b !== "object" || Array.isArray(b)) throw bad("a drawing is proposed with {item?, points, check?, level?, elevation_mm, revises?}");
   for (const k of Object.keys(b))
-    if (!BODY.includes(k)) throw bad(`${k.slice(0, 64)} is not a proposal field — a drawing is proposed with {item?, points, check?, level?, elevation_mm}; the bridge builds every changeset from the job's own result`);
+    if (!BODY.includes(k)) throw bad(`${k.slice(0, 64)} is not a proposal field — a drawing is proposed with {item?, points, check?, level?, elevation_mm, revises?}; the bridge builds every changeset from the job's own result`);
   if (b.item != null && !items.includes(b.item)) throw bad(`item ${String(b.item).slice(0, 64)} is not a drawing this job read (${items.join(", ")})`);
   if (b.item == null && items.length > 1) throw bad(`the job read ${items.join(", ")} — name the drawing in item (one drawing, one alignment)`);
   if (!Array.isArray(b.points) || b.points.length !== 2)
@@ -61,7 +61,12 @@ export function readAlignBody(b, items) {
   }
   if (!Number.isFinite(b.elevation_mm) || Math.abs(b.elevation_mm) > MAX_PLACED_MM)
     throw bad(`elevation_mm is required — the drawing's level height in the model, in mm (0 for a ground floor at the model's origin), within ±${MAX_PLACED_MM}`);
-  return { item: b.item ?? items[0], points, check, level, elevation_mm: b.elevation_mm };
+  // MA-5b-3 (C13a): the earlier drawing this one revises — the lead's statement (nothing in a drawing says which one it replaces)
+  const item = b.item ?? items[0];
+  if (b.revises != null && (typeof b.revises !== "string" || !/^[A-Za-z0-9_.-]{1,64}$/.test(b.revises)))
+    throw bad("revises names the earlier drawing this one revises — its evidence id (e.g. ev-0007)");
+  if (b.revises === item) throw bad(`revises names ${item} itself — name the earlier drawing ${item} revises`);
+  return { item, points, check, level, elevation_mm: b.elevation_mm, ...(b.revises != null ? { revises: b.revises } : {}) };
 }
 
 /** The similarity the two points fix — model = scale · R(rotation) · paper + (dx, dy) — rounded first (scale and turn to 1e-6, the move to
@@ -130,6 +135,30 @@ export function scanOnStorey(changesets, E) {
 }
 const DUP_MM = 50;
 
+/** MA-5b-3 (C13a): what the earlier drawing `revises` names filed on this project — its drawing changesets proposed or placed (applied first),
+ *  each create less what Revit rejected, at its filed place: walls (with the thickness filed), doors, rooms, each with the Revit UniqueId it
+ *  was placed as. → {item, walls, doors, rooms, storey, changesets}, or null when it filed nothing. Pure.
+ *  ponytail: a placed element is taken as placed — an Undo in Revit leaves its changeset applied here (decision 19's rule); C13b reads the
+ *  model before it changes one. */
+export function priorOf(changesets, revises) {
+  const cs = changesets.filter((c) => String(c.job?.reader ?? "").startsWith(DRAWING_READER) && FILED.includes(c.status) && c.job.alignment?.item === revises)
+    .map((c, i) => [c, i]).sort(([a, i], [b, j]) => (a.status === "applied" ? 0 : 1) - (b.status === "applied" ? 0 : 1) || i - j).map(([c]) => c);
+  if (!cs.length) return null;
+  const walls = [], doors = [], rooms = [];
+  for (const c of cs) {
+    const out = new Set(c.result?.rejected ?? []), placed = new Map((c.result?.applied ?? []).map((a) => [a.proposal_guid, a.revit_unique_id]));
+    for (const e of c.elements ?? []) {
+      if ((e.op ?? "create") !== "create" || out.has(e.proposal_guid) || !e.cid) continue;
+      const at = { cid: e.cid, changeset: c.name, status: c.status, level: e.place?.LevelName, revit: placed.get(e.proposal_guid) ?? null };
+      if (e.kind === "wall" && e.place?.LocationCurve) walls.push({ ...at, start: e.place.LocationCurve.start, end: e.place.LocationCurve.end, t: e.measured?.thickness_mm ?? e.facts?.thickness_mm ?? null });
+      else if (e.kind === "door" && e.place?.Location) doors.push({ ...at, at: e.place.Location });
+      else if (e.kind === "room" && e.place?.Name) rooms.push({ ...at, name: e.place.Name, number: e.place.Number ?? null });
+    }
+  }
+  return { item: revises, walls, doors, rooms, storey: cs[0].job.storey ?? null, changesets: cs.map((c) => c.name) };
+}
+const DRAWING_READER = "sentinel-drawing ";
+
 /** Drawn walls (model mm, {a, b}) against scanned ones ({start, end}): pairs parallel within 5°, overlapping ≥ half the shorter, the drawn
  *  midpoint within MATCH_MM of the scanned centreline — every such pair, nearest first (then the drawing's order, then the scan's): a drawn
  *  wall's match is its first pair; several drawn pieces (a wall split at a window) may share one scan wall, and one drawn wall may lie over a
@@ -159,11 +188,19 @@ export const THICK_MM = 25;
  *  within TOLERANCE_MM of the stated height; else (MA-5a-5) the scan's storey there — a door the drawing adds is hosted in the scan's wall,
  *  on its level; else a new level, `Drawing <item> <job-id>`. `was` (decision 19): the storey a changeset of this drawing was filed on — it
  *  keeps that level. */
-function storeyOf(cid, item, E, level, manifest, jobId, was, scanStorey) {
+function storeyOf(cid, item, E, level, manifest, jobId, was, scanStorey, prior = null) {
   const same = (a, b) => a.trim().toLowerCase() === b.trim().toLowerCase();
   if (was) {
     if (level && !same(level, was.level)) throw bad(`${item} was filed on ${was.level} — leave level out, or read the drawing again to propose it afresh`);
     return { cid, level: was.level, how: "filed", elevation_mm: was.elevation_mm, delta_mm: was.delta_mm, checked: was.checked, from: was.from };
+  }
+  // MA-5b-3: a revision is the same storey as the drawing it revises — on that drawing's level, at its height
+  const ps = prior?.storey;
+  if (ps) {
+    if (level && !same(level, ps.level)) throw bad(`${item} revises ${prior.item}, filed on ${ps.level} — leave level out, or name ${ps.level}`);
+    if (Math.abs(ps.elevation_mm - E) > TOLERANCE_MM)
+      throw bad(`${prior.item} was filed on ${ps.level} at ${ps.elevation_mm} mm, and elevation_mm says ${E} — a revision is the same storey: state ${ps.elevation_mm}`);
+    return { cid, level: ps.level, how: "revision", elevation_mm: ps.elevation_mm, delta_mm: r1(ps.elevation_mm - E), checked: ps.checked !== false, from: ps.from ?? null };
   }
   if (level) {
     const hit = manifest.find((l) => same(l.name, level));
@@ -192,7 +229,7 @@ function storeyOf(cid, item, E, level, manifest, jobId, was, scanStorey) {
  *  topic's makings, keyed for dedup by `drawingSha`), a door on a matched wall is hosted in the scan's wall; `tally` counts them. Throws
  *  400/413 in words; writes nothing. */
 export function planDrawing({ job, candidates, align, manifest = [], type, filed = { cids: new Set(), storeys: new Map() }, catalog = { types: [] }, sameCategory,
-  scan = null, drawingSha = null }) {
+  scan = null, drawingSha = null, prior = null }) {
   const { item } = align, al = alignFrom(align.points);
   const check_mm = align.check ? checkResidual(al, align.check) : null;
   const S = al.scale, E0 = align.elevation_mm, Z = sizeScale(S); // Z: the scale a drawn size is read at (review)
@@ -206,10 +243,10 @@ export function planDrawing({ job, candidates, align, manifest = [], type, filed
   const far = placeRefusal([{ kind: "level", geometry: { BaseElevation: 0 } }, ...walls.map((w) => ({ kind: "wall", geometry: { LocationCurve: { start: w.start, end: w.end } } })),
     ...doors.map((c) => ({ kind: "door", geometry: { Location: sc(c.geometry.Location) } }))], frame);
   if (far) throw bad(`${far.split("; state where")[0].replace("the frame puts the scan", "the points put the drawing")}; check the points' model coordinates`);
-  const s = storeyOf(lvCid, item, E0, align.level, manifest, job.id, filed.storeys.get(lvCid), scan?.storey ?? null), E = s.elevation_mm;
+  const s = storeyOf(lvCid, item, E0, align.level, manifest, job.id, filed.storeys.get(lvCid), scan?.storey ?? null, prior), E = s.elevation_mm;
   const ref = `${job.id} (ledger #${job.ledger.id})`, at = `${item} page 1 at 1:${S}`;
   const alignment = { method: "2-point similarity", item, points: align.points, check: align.check, scale: S, rotation_deg: al.rotation_deg,
-    dx_mm: al.dx_mm, dy_mm: al.dy_mm, dz_mm: E0, check_mm, rmse_mm: null, ...(Z !== S ? { sizes_at: Z } : {}) };
+    dx_mm: al.dx_mm, dy_mm: al.dy_mm, dz_mm: E0, check_mm, rmse_mm: null, ...(Z !== S ? { sizes_at: Z } : {}), ...(align.revises ? { revises: align.revises } : {}) };
   const gaps = [], elements = [], byCid = new Map(), exceptions = [];
   let already = 0;
   const again = (cid) => { if (!filed.cids.has(cid)) return false; already++; return true; };
@@ -221,6 +258,8 @@ export function planDrawing({ job, candidates, align, manifest = [], type, filed
       reason: `type gap — ${why ?? (g.want ? `${g.want} is not in the type catalogue` : `no office rule types it (${g.key})`)}; it waits in the Holding Area`.slice(0, 300) });
   };
   const hold = (c, why) => exceptions.push({ unique_id: c.cid.slice(0, 64), name: `${c.kind} ${c.cid}`.slice(0, 256), reason: why.slice(0, 300) });
+  // MA-5b-3: what the earlier drawing placed and this one no longer draws
+  const gone = (pv) => `on ${prior.item}, not on ${item} — ${pv.revit ? `placed from ${pv.changeset} (Revit ${pv.revit})` : `${pv.changeset} (${pv.status.replace("_", " ")})`}: Sentinel never deletes; a person removes it in Revit, or keeps it`.slice(0, 300);
 
   // MA-5a-5: the drawn walls (untrimmed, model mm) against the scan's on this storey — every drawn wall, a filed one too (its scan wall is then
   // not "scanned, not drawn"). One paper millimetre at the drawing's scale is the noise (decision 4).
@@ -231,6 +270,13 @@ export function planDrawing({ job, candidates, align, manifest = [], type, filed
   for (const p of pairs) if (!matchOf.has(p.i)) matchOf.set(p.i, p);
   for (const p of pairs) if (p.off <= matchOf.get(p.i).off + S) lineOf.set(p.i, [...(lineOf.get(p.i) ?? []), p.j]);
   const matched = new Set([...lineOf.values()].flat());
+  // MA-5b-3 (C13a): the same matching against what the drawing it revises filed — a wall of that drawing on the same line is that wall
+  const pw = prior?.walls ?? [], pOf = new Map(), pLine = new Map();
+  const ppairs = matchWalls(drawnAt, pw);
+  for (const p of ppairs) if (!pOf.has(p.i)) pOf.set(p.i, p);
+  for (const p of ppairs) if (p.off <= pOf.get(p.i).off + S) pLine.set(p.i, [...(pLine.get(p.i) ?? []), p.j]);
+  const pMatched = new Set([...pLine.values()].flat());
+  const revision = prior ? { revises: prior.item, unchanged: 0, changed: 0, removed: 0, doors_unchanged: 0, doors_removed: 0, rooms_unchanged: 0, rooms_removed: 0 } : null;
   const box = (pts, g) => (pts.length ? [Math.min(...pts.map((p) => p[0])) - g, Math.min(...pts.map((p) => p[1])) - g, Math.max(...pts.map((p) => p[0])) + g, Math.max(...pts.map((p) => p[1])) + g] : null);
   const inBox = (b, p, q) => { const x = (p[0] + q[0]) / 2, y = (p[1] + q[1]) / 2; return !!b && x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3]; };
   // both extents grown by one paper mm (review: a missed outer wall sits on the scan walls' edge)
@@ -246,10 +292,11 @@ export function planDrawing({ job, candidates, align, manifest = [], type, filed
       `${s.level}, and no filed scan wall there matches it (${sw.length} scan walls, ${(scan?.ledgers ?? []).map((l) => `ledger #${l}`).join(", ")}` +
       `${scan?.gaps ? `; the scan held ${scan.gaps} wall(s) on this storey as type gaps, not compared` : ""}). It is proposed, inferred and unticked: a person decides. ${ref}`);
   };
-  // how much of a drawn wall's trimmed centreline its scan line covers (review: a wall the scan saw in part does not agree)
-  const covered = (i) => {
+  // how much of a drawn wall's trimmed centreline its scan line covers (review: a wall the scan saw in part does not agree); MA-5b-3: or the
+  // earlier drawing's line
+  const covered = (i, line = lineOf, ws = sw) => {
     const a = M.xy(trimmed[i].start), b = M.xy(trimmed[i].end), L = Math.hypot(b[0] - a[0], b[1] - a[1]), ux = (b[0] - a[0]) / L, uy = (b[1] - a[1]) / L;
-    const iv = lineOf.get(i).map((j) => { const t = [sw[j].start, sw[j].end].map((p) => ux * (p[0] - a[0]) + uy * (p[1] - a[1])); return [Math.max(0, Math.min(...t)), Math.min(L, Math.max(...t))]; })
+    const iv = line.get(i).map((j) => { const t = [ws[j].start, ws[j].end].map((p) => ux * (p[0] - a[0]) + uy * (p[1] - a[1])); return [Math.max(0, Math.min(...t)), Math.min(L, Math.max(...t))]; })
       .filter(([x, y]) => y > x).sort((p, q) => p[0] - q[0]);
     let got = 0, end = 0;
     for (const [x, y] of iv) if (y > end) { got += y - Math.max(x, end); end = y; }
@@ -265,7 +312,18 @@ export function planDrawing({ job, candidates, align, manifest = [], type, filed
   walls.forEach(({ c, t, len }, i) => {
     const mt = matchOf.get(i);
     // filed already (decision 19): not proposed again — but a drawn-only one is still a difference, so a topic not raised before is (review)
-    if (filed.cids.has(c.cid)) { if (!mt && inBox(scanBox, drawnAt[i].a, drawnAt[i].b)) drawnOnly(c, t, len); return void again(c.cid); }
+    if (filed.cids.has(c.cid)) { if (!mt && !pOf.has(i) && inBox(scanBox, drawnAt[i].a, drawnAt[i].b)) drawnOnly(c, t, len); return void again(c.cid); }
+    // MA-5b-3 (C13a): the drawing it revises placed this wall — the same wall is left as placed; a change is a person's row (C13b reshapes)
+    const pm = pOf.get(i);
+    if (pm) {
+      const pv = pw[pm.j], off = Math.round(pm.off), dt = Number.isFinite(pv.t) ? t - pv.t : null, cv = covered(i, pLine, pw);
+      const thick = dt == null || Math.abs(dt) >= THICK_MM, apart = off > S, part = cv.L - cv.got > 2 * S;
+      if (!thick && !apart && !part) { revision.unchanged++; return; }
+      revision.changed++;
+      const what = [dt == null ? `${prior.item}'s thickness not filed` : thick ? `${t} mm thick, ${pv.t} mm on ${prior.item}` : null, apart ? `${off} mm from where ${prior.item} drew it` : null,
+        part ? `${prior.item}'s wall covers ${cv.got} of its ${cv.L} mm` : null].filter(Boolean).join(", ");
+      return hold(c, `changed since ${prior.item} — ${what}: ${pv.cid} (${pv.changeset}${pv.revit ? `, Revit ${pv.revit}` : ""}) stays as placed; a person updates it in Revit`);
+    }
     if (mt) { // the scan has this wall: the scan wins on geometry — never proposed twice (decision 4)
       const sv = sw[mt.j], off = Math.round(mt.off), dt = Number.isFinite(sv.t) ? t - sv.t : null, cv = covered(i);
       const thick = dt == null || Math.abs(dt) >= THICK_MM, apart = off > S, part = cv.L - cv.got > 2 * S;
@@ -295,6 +353,12 @@ export function planDrawing({ job, candidates, align, manifest = [], type, filed
         `height not drawn (the next level up) · drawn, not measured · ${ref}`).slice(0, 500) });
     byCid.set(c.cid, trust({ ...c.measured, thickness_mm: t, length_mm: len }, { trim_mm: tr }));
   });
+  // MA-5b-3: a wall the earlier drawing placed that this one no longer draws — a person's row; Sentinel never deletes (Horizun's rule too)
+  pw.forEach((pv, j) => {
+    if (pMatched.has(j) || matchWalls(drawnAt, [pv]).some((p) => p.off <= S)) return;
+    revision.removed++;
+    exceptions.push({ unique_id: pv.cid.slice(0, 64), name: `wall ${pv.cid}`.slice(0, 256), reason: gone(pv) });
+  });
   // decision 6: a scan wall inside the drawing's extent that no drawn wall matches — a review row here and a topic
   sw.forEach((sv, j) => {
     // a fragment of a scan wall any drawn wall lies over (within one paper mm) is drawn (review)
@@ -314,13 +378,15 @@ export function planDrawing({ job, candidates, align, manifest = [], type, filed
     // on the scan's level; the drawing wins on openings the scan cannot see (a closed door, or one seen on one face only)
     // review: the host's scan line may be in fragments — the door goes into the fragment its point falls on
     const P = M.xy(pointAlong(walls[hi].start, walls[hi].end, c.geometry.along_paper_mm * S));
+    // MA-5b-3: a door on a wall the earlier drawing placed goes into that wall, as placed
+    const viaPrior = pOf.has(hi), hw = viaPrior ? pw : sw, hl = viaPrior ? pLine : lineOf, hm = viaPrior ? pOf : matchOf;
     let sv = null, on = null;
-    for (const j of lineOf.get(hi) ?? []) {
-      const x = sw[j], ex = x.end[0] - x.start[0], ey = x.end[1] - x.start[1], el = Math.hypot(ex, ey), u = ((P[0] - x.start[0]) * ex + (P[1] - x.start[1]) * ey) / el;
+    for (const j of hl.get(hi) ?? []) {
+      const x = hw[j], ex = x.end[0] - x.start[0], ey = x.end[1] - x.start[1], el = Math.hypot(ex, ey), u = ((P[0] - x.start[0]) * ex + (P[1] - x.start[1]) * ey) / el;
       if (u >= 0 && u <= el) { sv = x; on = [r1(x.start[0] + (u * ex) / el), r1(x.start[1] + (u * ey) / el), x.start[2] ?? E]; break; }
     }
-    if (matchOf.has(hi) && !sv) { hold(c, `its point falls beyond the scan's ${sw[matchOf.get(hi).j].cid}, which stands for its host ${host} — a person places this door`); continue; }
-    const checked = sv ? scan.storey?.checked !== false : s.checked, lvl = sv ? sv.level : s.level;
+    if (hm.has(hi) && !sv) { hold(c, `its point falls beyond ${viaPrior ? `${prior.item}'s` : "the scan's"} ${hw[hm.get(hi).j].cid}, which stands for its host ${host} — a person places this door`); continue; }
+    const checked = sv && !viaPrior ? scan.storey?.checked !== false : s.checked, lvl = sv ? sv.level : s.level;
     // drill MA5a456: a level taken from the scan is the scan's to check — leaving level out gives the scan's level again, never a created one
     if (!checked) { hold(c, `its level ${lvl} is in no published model, so its height in Revit is unknown here — Revit refuses a door off its level's height; ${sv || s.how === "scan"
       ? `${lvl} is the scan's level, named when the scan was proposed and never checked: publish a model that holds it, then propose the drawing again`
@@ -333,24 +399,36 @@ export function planDrawing({ job, candidates, align, manifest = [], type, filed
     }
     const w = Number.isFinite(m.tag_width_mm) ? m.tag_width_mm : nominal(drawn), h = m.tag_height_mm;
     // a door the scan filed on that wall within half this one's width (and the noise) is the same door — not proposed twice
-    if (on && (scan.doors ?? []).some((d) => d.level === sv.level && Math.hypot(d.at[0] - on[0], d.at[1] - on[1]) <= w / 2 + S)) { tally.doors_agree++; continue; }
+    if (on && ((viaPrior ? prior : scan).doors ?? []).some((d) => d.level === sv.level && Math.hypot(d.at[0] - on[0], d.at[1] - on[1]) <= w / 2 + S)) { viaPrior ? revision.doors_unchanged++ : tally.doors_agree++; continue; }
     const { facts, g, by, why } = typeOpening({ type, kind: "door", cid: c.cid, w, h, hostFunction: typed[hi].loc?.location, catalog, sameCategory });
     if (g) { gap(c, g, why); continue; }
     const U = walls[hi], p = pointAlong(U.start, U.end, c.geometry.along_paper_mm * S); // the untrimmed centreline: along is from its start
-    if (on) tally.doors_from_drawing++;
+    if (on && !viaPrior) tally.doors_from_drawing++;
     elements.push({ op: "create", kind: "door", cid: c.cid, evidence: c.evidence, facts, validate: { identity: { Class: KIND_ENTITY.door, Name: c.cid } },
       place: { LevelName: lvl, Location: on ?? [...M.xy(p), E], ...(by ? { FamilyName: by.family, TypeName: by.type } : {}) },
       reason: (`drawn door ${c.cid} in ${host}: W${w} x H${h} mm (${Number.isFinite(m.tag_width_mm) ? `its tag; swing ${drawn} mm` : `swing ${drawn} mm, height from its tag`}) on ${at} · ` +
-        `${on ? `hosted in the scan's ${sv.cid} (${sv.changeset} — placed first): the scan did not see it (a closed door, or seen on one face only) · ` : ""}` +
+        `${on ? viaPrior ? `hosted in ${prior.item}'s ${sv.cid} (${sv.changeset}), as placed: a door ${item} adds · ` : `hosted in the scan's ${sv.cid} (${sv.changeset} — placed first): the scan did not see it (a closed door, or seen on one face only) · ` : ""}` +
         `${by ? `typed by size from the catalogue: ${by.family} : ${by.type}` : "typed by an office rule"} · its facing not read · drawn, not measured · ${ref}`).slice(0, 500) });
     byCid.set(c.cid, trust({ ...m, width_mm: w, height_mm: h },
       by ? { typing: { typed_by: "bridge-size", type: by.type, family: by.family, size: `${w} x ${h} mm`, band_mm: SIZE_BAND_MM, catalog: catalog.label ?? null, catalog_sha256: catalog.sha256 ?? null } } : {}));
   }
+  // MA-5b-3: a door the earlier drawing placed with no door of this one within MATCH_MM — a person's row
+  if (prior) {
+    const drawnDoors = doors.map((c) => walls.find((w) => w.c.cid === c.geometry.host)).map((w, k) => (w ? M.xy(pointAlong(w.start, w.end, doors[k].geometry.along_paper_mm * S)) : null)).filter(Boolean);
+    for (const pd of prior.doors) {
+      if (drawnDoors.some((p) => Math.hypot(p[0] - pd.at[0], p[1] - pd.at[1]) <= MATCH_MM)) continue;
+      revision.doors_removed++;
+      exceptions.push({ unique_id: pd.cid.slice(0, 64), name: `door ${pd.cid}`.slice(0, 256), reason: gone(pd) });
+    }
+  }
   // MA-5b-1: a room after the walls and doors, at its label's point on the storey's level — Revit finds its boundary there, and Apply refuses
   // a room the walls do not close (ChangesetExecutor). Held when a wall round it waits in the Holding Area (it would not close until then).
-  for (const c of mine.filter((x) => x.kind === "room")) {
+  const label = (r) => `${r.number ?? ""}|${r.name}`.trim().toLowerCase(), roomsHere = mine.filter((x) => x.kind === "room");
+  for (const c of roomsHere) {
     if (again(c.cid)) continue;
     const g = c.geometry, round = g.walls ?? [], at_ = (cid) => walls.findIndex((w) => w.c.cid === cid);
+    // MA-5b-3: a room the earlier drawing placed under the same number and name is that room
+    if (prior?.rooms.some((r) => label(r) === label(g))) { revision.rooms_unchanged++; continue; }
     const unknown = round.find((cid) => at_(cid) < 0);
     if (unknown) { hold(c, `a wall round it, ${unknown}, is not a wall of ${item} in ${job.id}`); continue; }
     const open = round.find((cid) => typed[at_(cid)].gap && !filed.cids.has(cid) && !matchOf.has(at_(cid)));
@@ -362,6 +440,11 @@ export function planDrawing({ job, candidates, align, manifest = [], type, filed
         `drawn, not measured · ${ref}`).slice(0, 500) });
     byCid.set(c.cid, trust({ ...c.measured }));
   }
+  for (const r of prior?.rooms ?? []) {
+    if (roomsHere.some((c) => label(c.geometry) === label(r))) continue;
+    revision.rooms_removed++;
+    exceptions.push({ unique_id: r.cid.slice(0, 64), name: `room ${r.cid}`.slice(0, 256), reason: gone(r) });
+  }
   if (elements.length && s.how === "created") {
     elements.unshift({ op: "create", kind: "level", cid: lvCid, evidence, validate: { identity: { Class: "IFCBUILDINGSTOREY", Name: s.level } },
       place: { BaseElevation: E, Name: s.level }, reason: `a new level for ${item} at ${E} mm in the model, as the lead stated · ${ref}`.slice(0, 500) });
@@ -370,5 +453,5 @@ export function planDrawing({ job, candidates, align, manifest = [], type, filed
   if (elements.length > MAX_CHANGESET_ELEMENTS)
     throw err(413, `${item} would file ${elements.length} elements on ${s.level} — over the ${MAX_CHANGESET_ELEMENTS} one changeset (one Undo) holds; nothing was saved`);
   const body = elements.length ? { name: `Drawing ${job.id} · ${item} · ${s.level}`, contract: 2, source: `${job.reader} ${job.version}`, elements, exceptions } : null;
-  return { storeys: [{ storey: s, body, byCid, exceptions, once: [] }], groups: groupGaps(gaps), already_filed: already, alignment, differences, tally };
+  return { storeys: [{ storey: s, body, byCid, exceptions, once: [] }], groups: groupGaps(gaps), already_filed: already, alignment, differences, tally, revision };
 }

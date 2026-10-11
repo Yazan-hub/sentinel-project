@@ -30,7 +30,7 @@ describe("readAlignBody — the lead states the points, the level and its height
     expect(readAlignBody({ points: [A, B], elevation_mm: 3000, item: "ev-0008" }, ["ev-0007", "ev-0008"])).toMatchObject({ item: "ev-0008", check: null, level: null });
   });
   it("anything else is refused in words, never dropped", () => {
-    no(() => readAlignBody({ ...DRILL, frame: {} }, ["ev-0007"]), 400, "frame is not a proposal field — a drawing is proposed with {item?, points, check?, level?, elevation_mm}; the bridge builds every changeset from the job's own result — nothing was saved");
+    no(() => readAlignBody({ ...DRILL, frame: {} }, ["ev-0007"]), 400, "frame is not a proposal field — a drawing is proposed with {item?, points, check?, level?, elevation_mm, revises?}; the bridge builds every changeset from the job's own result — nothing was saved");
     no(() => readAlignBody({ points: [A, B], elevation_mm: 0 }, ["ev-0007", "ev-0008"]), 400, "the job read ev-0007, ev-0008 — name the drawing in item (one drawing, one alignment) — nothing was saved");
     no(() => readAlignBody({ ...DRILL, item: "ev-0009" }, ["ev-0007"]), 400, "item ev-0009 is not a drawing this job read (ev-0007) — nothing was saved");
     no(() => readAlignBody({ ...DRILL, points: [A] }, ["ev-0007"]), 400, "points is two points, each {paper: [x, y], model: [x, y]} — where a mark is on the drawing (paper mm) and where it is in the model (mm) — nothing was saved");

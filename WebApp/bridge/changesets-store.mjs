@@ -12,7 +12,7 @@ import { resolveActor } from "./bridge-auth.mjs";
 import { readProposeBody, planSurvey, PLANNER, PLANNER_VERSION, measurePlan, judge, measureRefusal, countWords, STATUSES, MIN_COVERAGE, DEVIATION_MM, FACE_SHARE_MIN, MEASURE_KNOBS,
   readMesh, meshFaces, REVIT, FILED as AS_FILED, toScan, toModel, scanBand, cloudRefusal, SCAN_CELL_MM, SCAN_MAX } from "./survey-plan.mjs";
 import { stillAdmitted, pickItems, trustedJob as jobOf, measureJob as measureOf, TOLERANCES_MM, READER, DRAWING } from "./build-jobs.mjs";
-import { readAlignBody, planDrawing, scanOnStorey, PLANNER as DRAWING_PLANNER, PLANNER_VERSION as DRAWING_PLANNER_VERSION } from "./drawing-plan.mjs";
+import { readAlignBody, planDrawing, scanOnStorey, priorOf, PLANNER as DRAWING_PLANNER, PLANNER_VERSION as DRAWING_PLANNER_VERSION } from "./drawing-plan.mjs";
 
 const STORE = "changeset";
 const err = (status, message) => Object.assign(new Error(message), { status });
@@ -355,9 +355,13 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
     catch (e) { throw err(503, `the published models' levels could not be read (${e.message}) — nothing was saved; send it again`); }
     // MA-5a: the same catalogue the typer reads types a scan door or window by its size when no office rule does (holding-logic typeBySize).
     const job = { id, ledger: row.ledger, reader: row.reader, version: row.version }, cat = { types: catalog.body.types, label: catalog.label, sha256: catalog.sha256 };
-    // MA-5a-5: the scan's walls filed on the drawing's storey, from the changesets read above — compared, never proposed twice
+    // MA-5a-5: the scan's walls filed on the drawing's storey, from the changesets read above — compared, never proposed twice. MA-5b-3: and
+    // what the drawing it revises filed — the same element left as placed, a change or a removal a person's row
+    const prior = drawing && align.revises ? priorOf(earlier, align.revises) : null;
+    if (drawing && align.revises && !prior)
+      throw err(409, `${align.revises} filed nothing on ${key} — propose it first (what it filed is what ${align.item} is compared with), or leave revises out; nothing was saved`);
     const plan = drawing ? planDrawing({ job, candidates: result.candidates, align, manifest, type, filed, catalog: cat, sameCategory: core.sameCategory,
-      scan: scanOnStorey(earlier, align.elevation_mm), drawingSha: evidence[0]?.sha256 ?? null })
+      scan: scanOnStorey(earlier, align.elevation_mm), drawingSha: evidence[0]?.sha256 ?? null, prior })
       : planSurvey({ job, candidates: result.candidates, frame, levels, manifest, type, filed, catalog: cat, sameCategory: core.sameCategory });
     const by = resolveActor(actor, "web");
     // MA-5a-4: a drawing's changeset carries its alignment and who stated it (design: "confirmed by a person"), a scan's its frame.
@@ -421,10 +425,10 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
       done = await d.audit(proj.id, "build", null, `build:run ${id} · ${P} ${V} · proposed`, actor || "web", null, {
         job_id: id, planner: P, version: V, [drawing ? "drawing_row" : "survey_row"]: row.ledger, result_sha256: row.result_sha256, ...said,
         storeys, changesets, gaps, already_filed: plan.already_filed, overlaps, guideline: guideline.label, guideline_sha256: guideline.sha256,
-        catalog: catalog.label, catalog_sha256: catalog.sha256, ...(differences ? { differences } : {}), model_calls: 0, tokens: 0, claimed: false });
+        catalog: catalog.label, catalog_sha256: catalog.sha256, ...(differences ? { differences } : {}), ...(plan.revision ? { revision: plan.revision } : {}), model_calls: 0, tokens: 0, claimed: false });
     } catch (e) { throw await halfWay("the planner's build:run row was not written", e); }
     return { job: id, [drawing ? "drawing_row" : "survey_row"]: row.ledger, ...said, storeys, changesets, gaps, already_filed: plan.already_filed, overlaps,
-      ...(differences ? { differences } : {}), ledger: ledgerRef(done) };
+      ...(differences ? { differences } : {}), ...(plan.revision ? { revision: plan.revision } : {}), ledger: ledgerRef(done) };
   }
 }
 
