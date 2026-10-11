@@ -5,6 +5,7 @@ import { spawn as nodeSpawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runDrawing, notSetUp, childEnv, boundMs, EXE } from "./drawing-service.mjs";
 
@@ -63,11 +64,13 @@ describe("runDrawing (MA-5a-3) — the supervisor, with a Node stand-in for sent
   });
 
   it("an exe that cannot start is a failed job in words; not set up is a 503's words", async () => {
-    const r = await runDrawing(JOB, { exe: "C:/no/such/sentinel-drawing.exe", log: () => {} });
+    // absolute on this OS (CI runs Linux, where "C:/…" is not absolute — the bridge's own check is the OS's)
+    const missing = resolve(tmpdir(), "no-such-dir", "sentinel-drawing.exe");
+    const r = await runDrawing(JOB, { exe: missing, log: () => {} });
     expect(r.status).toBe("failed");
     expect(r.error).toMatch(/^sentinel-drawing could not start \(ENOENT\)/);
     expect(notSetUp({ exe: "sentinel-drawing.exe" })).toBe("sentinel-drawing is not set up on this PC: SENTINEL_DRAWING_EXE must be the absolute path of sentinel-drawing.exe — nothing was saved");
-    expect(notSetUp({ exe: "C:/no/such/sentinel-drawing.exe" })).toBe("sentinel-drawing is not set up on this PC: build it in the bridge's checkout (dotnet build drawing -c Release) — nothing was saved");
+    expect(notSetUp({ exe: missing })).toBe("sentinel-drawing is not set up on this PC: build it in the bridge's checkout (dotnet build drawing -c Release) — nothing was saved");
   });
 });
 
