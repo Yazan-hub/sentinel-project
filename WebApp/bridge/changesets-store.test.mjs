@@ -1256,7 +1256,13 @@ describe("proposeFromJob (MA-5a-4): a lead aligns a drawing job by two points �
     expect(b.audit.mock.calls.at(-1)[6]).toMatchObject({ revision: r.revision });
     // refused in words: a drawing that filed nothing; another storey than A's
     await expect(proposeB(bdeps({ docList: vi.fn(async () => []) }))).rejects.toMatchObject({ status: 409,
-      message: "ev-0007 filed nothing on ma4c-drill — propose it first (what it filed is what ev-0008 is compared with), or leave revises out; nothing was saved" });
+      message: "ev-0007 filed nothing on ma4c-drill — propose it first (what it filed is what ev-0008 is compared with); if it was proposed and filed nothing new, name the drawing it revised itself; or leave revises out; nothing was saved" });
+    // review: B proposed again WITHOUT revises would propose A's walls on top of A's — one drawing is one alignment, revises included
+    await expect(proposeB(bdeps({ docList: vi.fn(async () => [placed, ...b.saved.values()]) }), BODY)).rejects.toMatchObject({ status: 409,
+      message: expect.stringMatching(/^Drawing job-0006 · ev-0008 · Drawing ev-0007 job-0005 \(proposed\) was filed from job-0006 with ev-0008 aligned at .* — send those points and that elevation, revising ev-0007 \(one drawing is one alignment\)/) });
+    // review: A still proposed (from another job) — the 409 says apply it first, never "withdraw" (which loops into "filed nothing")
+    await expect(proposeB(bdeps({ docList: vi.fn(async () => [A]) }))).rejects.toMatchObject({ status: 409,
+      message: "Drawing job-0005 · ev-0007 · Drawing ev-0007 job-0005 (from job-0005) — the drawing ev-0008 revises — is still proposed: apply it in Revit first (a revision is compared with what it placed); nothing was saved" });
     await expect(proposeB(bdeps(), { ...BODY, revises: "ev-0007", elevation_mm: 3000 })).rejects.toMatchObject({ status: 400,
       message: "ev-0007 was filed on Drawing ev-0007 job-0005 at 0 mm, and elevation_mm says 3000 — a revision is the same storey: state 0 — nothing was saved" });
   });

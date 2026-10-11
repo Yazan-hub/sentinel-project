@@ -324,11 +324,11 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
     }
     if (drawing) { // MA-5a-4: one drawing is one alignment — its two points and its height as filed
       // review: positions, not objects — bridge_docs.data is jsonb, which hands {paper, model} back as {model, paper}
-      const said = (a) => JSON.stringify([a.points.map((p) => [p.paper, p.model]), a.dz_mm]);
-      const moved = mine.find((c) => c.job.alignment?.item === align.item && said(c.job.alignment) !== said({ points: align.points, dz_mm: align.elevation_mm }));
+      const said = (a) => JSON.stringify([a.points.map((p) => [p.paper, p.model]), a.dz_mm, a.revises ?? null]); // review (MA-5b-3): revises too
+      const moved = mine.find((c) => c.job.alignment?.item === align.item && said(c.job.alignment) !== said({ points: align.points, dz_mm: align.elevation_mm, revises: align.revises }));
       if (moved) {
         const a = moved.job.alignment;
-        throw err(409, `${moved.name} (${moved.status.replace("_", " ")}) was filed from ${id} with ${a.item} aligned at 1:${a.scale}, turned ${a.rotation_deg}°, moved ${a.dx_mm}, ${a.dy_mm} mm, at ${a.dz_mm} mm (points ${a.points.map((p) => `[${p.paper}] → [${p.model}]`).join(", ")}) — send those points and that elevation (one drawing is one alignment), or read the drawing again to propose it afresh; nothing was saved`);
+        throw err(409, `${moved.name} (${moved.status.replace("_", " ")}) was filed from ${id} with ${a.item} aligned at 1:${a.scale}, turned ${a.rotation_deg}°, moved ${a.dx_mm}, ${a.dy_mm} mm, at ${a.dz_mm} mm (points ${a.points.map((p) => `[${p.paper}] → [${p.model}]`).join(", ")}) — send those points and that elevation${a.revises ? `, revising ${a.revises}` : ""} (one drawing is one alignment), or read the drawing again to propose it afresh; nothing was saved`);
       }
     } else {
       const moved = mine.find((c) => FRAME_KEYS.some((k) => c.job.frame?.[k] !== frame[k])); // one job is one frame
@@ -338,7 +338,9 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
       }
     }
     const other = earlier.find((c) => c.job?.ledger_id != null && c.job.ledger_id !== row.ledger.id && c.status === "proposed");
-    if (other) throw err(409, `${other.name} (from ${other.job.id}) is still proposed — decide or withdraw it before proposing from another job: both could propose the same walls; nothing was saved`);
+    if (other) throw err(409, drawing && align.revises && other.job.alignment?.item === align.revises
+      ? `${other.name} (from ${other.job.id}) — the drawing ${align.item} revises — is still proposed: apply it in Revit first (a revision is compared with what it placed); nothing was saved`
+      : `${other.name} (from ${other.job.id}) is still proposed — decide or withdraw it before proposing from another job: both could propose the same walls; nothing was saved`);
     // Another job's placed changesets on the same scan bytes are named, never refused: an Undo in Revit leaves a changeset applied here.
     // ponytail: creates only — a scan already placed by another job is proposed again and only named; MA-5 matches scan walls to model
     // walls; status from the newest changeset_reverted when Undo must reopen a job.
@@ -359,7 +361,7 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
     // what the drawing it revises filed — the same element left as placed, a change or a removal a person's row
     const prior = drawing && align.revises ? priorOf(earlier, align.revises) : null;
     if (drawing && align.revises && !prior)
-      throw err(409, `${align.revises} filed nothing on ${key} — propose it first (what it filed is what ${align.item} is compared with), or leave revises out; nothing was saved`);
+      throw err(409, `${align.revises} filed nothing on ${key} — propose it first (what it filed is what ${align.item} is compared with); if it was proposed and filed nothing new, name the drawing it revised itself; or leave revises out; nothing was saved`);
     const plan = drawing ? planDrawing({ job, candidates: result.candidates, align, manifest, type, filed, catalog: cat, sameCategory: core.sameCategory,
       scan: scanOnStorey(earlier, align.elevation_mm), drawingSha: evidence[0]?.sha256 ?? null, prior })
       : planSurvey({ job, candidates: result.candidates, frame, levels, manifest, type, filed, catalog: cat, sameCategory: core.sameCategory });
@@ -414,7 +416,9 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
     const storeys = plan.storeys.map((p) => {
       const changeset = filed.find((c) => c.job.storey.cid === p.storey.cid)?.id ?? null;
       // doors, windows and rooms only (review: a drawing's wall rows — differs, scanned only — are its differences, said with their topics)
-      const held = changeset ? [] : p.exceptions.filter((e) => !e.reason.startsWith("type gap") && /^(door|window|room) /.test(e.name)).map((e) => ({ name: e.name, reason: e.reason }));
+      // review (MA-5b-3): a revision's rows too — what changed since, or is no longer drawn — when no changeset carries them
+      const held = changeset ? [] : p.exceptions.filter((e) => !e.reason.startsWith("type gap") && (/^(door|window|room) /.test(e.name) || /^(changed since |on \S+, not on )/.test(e.reason)))
+        .map((e) => ({ name: e.name, reason: e.reason }));
       // MA-5a-2: the doors seen on one face only — neither proposed nor held (survey-plan's door rule), listed so the row says what the job
       // found and the planner left out
       return { ...storeyRecord(p.storey), changeset, ...(held.length ? { held } : {}), ...(p.once.length ? { doors_seen_once: p.once } : {}) };

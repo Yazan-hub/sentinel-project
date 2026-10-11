@@ -6,16 +6,22 @@ using System.Windows.Controls;
 namespace Sentinel.UI;
 
 /// <summary>Choose which DWG plan from the project folder to build from — or fall back to
-/// picking an import already in the model. Modal; ShowDialog() == true means a choice was made.</summary>
+/// picking an import already in the model — and the drawing's units (MA-5b-2, DAT-4: a DXF with no $INSUNITS header is read
+/// as inches; a metres drawing read as millimetres is 1000 x too small). Modal; ShowDialog() == true means a choice was made.</summary>
 public sealed class DwgPickWindow : Window
 {
     private readonly ListBox _list;
+    private readonly ComboBox _units;
+
+    /// <summary>The units the commands import the drawing in: "file" (the drawing's own header), "mm", "cm", "m", "in" or "ft".</summary>
+    public static readonly (string Key, string Words)[] UnitChoices =
+        { ("file", "as the file says"), ("mm", "millimetres"), ("cm", "centimetres"), ("m", "metres"), ("in", "inches"), ("ft", "feet") };
 
     public string? SelectedPath { get; private set; }
     public bool PickFromModel { get; private set; }
+    public string Units { get; private set; } = "file";
 
     public DwgPickWindow(IReadOnlyList<string> files,
-                         IReadOnlyCollection<string>? alreadyImportedNames = null,
                          string? title = null,
                          string? header = null,
                          bool showPickFromModel = true)
@@ -25,15 +31,10 @@ public sealed class DwgPickWindow : Window
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         ShowInTaskbar = false;
 
-        var imported = new HashSet<string>(alreadyImportedNames ?? System.Array.Empty<string>(),
-            System.StringComparer.OrdinalIgnoreCase);
-
         _list = new ListBox { Margin = new Thickness(0, 6, 0, 6) };
         foreach (var f in files)
         {
-            var label = Path.GetFileName(f);
-            if (imported.Contains(Path.GetFileNameWithoutExtension(f))) label += " (already imported)";
-            _list.Items.Add(new ListBoxItem { Content = label, Tag = f });
+            _list.Items.Add(new ListBoxItem { Content = Path.GetFileName(f), Tag = f });
         }
         if (_list.Items.Count > 0) _list.SelectedIndex = 0;
         _list.MouseDoubleClick += (_, __) => Accept();
@@ -51,14 +52,23 @@ public sealed class DwgPickWindow : Window
 
         var headerText = new TextBlock
         {
-            Text = header ?? "Drawings found in the project's Ghost source folder. The chosen one is imported origin-to-origin and kept in the model.",
+            Text = header ?? "Drawings found in the project's Ghost source folder. The chosen one is imported origin-to-origin for this run and " +
+                             "removed when the run ends (after a build, inside the build's one Undo) — a drawing you edit is read again.",
             TextWrapping = TextWrapping.Wrap, FontWeight = FontWeights.Bold,
         };
+
+        _units = new ComboBox { Width = 160, Margin = new Thickness(6, 0, 0, 0) };
+        foreach (var (key, words) in UnitChoices) _units.Items.Add(new ComboBoxItem { Content = words, Tag = key });
+        _units.SelectedIndex = 0;
+        var unitsRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 8) };
+        unitsRow.Children.Add(new TextBlock { Text = "The drawing's units:", VerticalAlignment = VerticalAlignment.Center });
+        unitsRow.Children.Add(_units);
 
         var root = new DockPanel { Margin = new Thickness(12) };
         DockPanel.SetDock(headerText, Dock.Top);
         DockPanel.SetDock(buttons, Dock.Bottom);
-        root.Children.Add(headerText); root.Children.Add(buttons); root.Children.Add(_list);
+        DockPanel.SetDock(unitsRow, Dock.Bottom);
+        root.Children.Add(headerText); root.Children.Add(buttons); root.Children.Add(unitsRow); root.Children.Add(_list);
         Content = root;
     }
 
@@ -66,6 +76,7 @@ public sealed class DwgPickWindow : Window
     {
         SelectedPath = (_list.SelectedItem as ListBoxItem)?.Tag as string;
         if (SelectedPath == null) return;
+        Units = (_units.SelectedItem as ComboBoxItem)?.Tag as string ?? "file";
         DialogResult = true;
         Close();
     }

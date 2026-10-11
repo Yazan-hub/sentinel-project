@@ -36,6 +36,26 @@ namespace Sentinel.GhostBuilder
         /// named Level 0, 1, 2… — the reviewer renames to the office's own (Ground, L1, Roof).
         /// </summary>
         /// <param name="mergeTolMm">Heights within this are the same level (default 50 mm).</param>
+        /// <summary>MA-5b-2 (DAT-4): storey spacing that says the units are wrong. Every gap under 1.5 m — no storey is that low (a metres
+        /// drawing read as millimetres is 1000 x too small); an FFL/SSL pair 300 mm apart beside a 3 m storey is not flagged. A gap
+        /// over 10 m: the units, or a level line missing.</summary>
+        public static List<string> SpacingWarnings(IReadOnlyList<DetectedLevel> levels, IEnumerable<Seg> sectionLines = null)
+        {
+            var w = new List<string>();
+            // review: a metres drawing read as millimetres puts every storey within the 50 mm merge — one level is left to judge. Read the
+            // lines again 1000 x finer: a whole stack under a few mm is the units, not one level.
+            if (levels.Count < 2 && sectionLines != null) levels = Levels(sectionLines, 0.05); // the default 50 mm merge, 1000 x finer
+            var up = levels.OrderBy(l => l.ElevationMm).ToList();
+            if (up.Count < 2) return w;
+            var gaps = up.Zip(up.Skip(1), (a, b) => (a, b, mm: b.ElevationMm - a.ElevationMm)).ToList();
+            double most = gaps.Max(g => g.mm);
+            if (most < 1500)
+                w.Add($"The levels are at most {most:0} mm apart — no storey is under 1.5 m: the drawing's units look wrong (a metres drawing read as millimetres?). Choose its units in the drawing window and read it again.");
+            foreach (var g in gaps.Where(g => g.mm > 10_000))
+                w.Add($"{g.a.Name} and {g.b.Name} are {g.mm / 1000:0.#} m apart — over 10 m between storeys: check the drawing's units, or a level line is missing.");
+            return w;
+        }
+
         public static List<DetectedLevel> Levels(IEnumerable<Seg> sectionLines, double mergeTolMm = 50.0)
         {
             // Only near-horizontal lines are level datums; a section is full of vertical/diagonal linework.

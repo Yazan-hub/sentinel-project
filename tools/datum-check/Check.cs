@@ -61,6 +61,22 @@ var many = Enumerable.Range(0, 28).Select(i => new Seg(-1, i * 1000, 1, i * 1000
 var lettered = DatumFromDrawing.Grids(many).Where(g => !g.Vertical).Select(g => g.Name).ToList();
 Check("27th letter is AA", lettered.Count == 28 && lettered[26] == "AA" && lettered[27] == "AB");
 
+// ---- SPACING (MA-5b-2, DAT-4) -------------------------------------------------------------------------------
+// A metres drawing read as millimetres: every storey 3 mm apart. An FFL/SSL pair 300 mm apart beside 3 m storeys: no warning.
+List<DetectedLevel> Lv(params double[] mm) => mm.Select((e, i) => new DetectedLevel { Name = $"Level {i}", ElevationMm = e }).ToList();
+var tiny = DatumFromDrawing.SpacingWarnings(Lv(0, 3.2, 6.4));
+Check("every gap under 1.5 m: one warning, the units named", tiny.Count == 1 && tiny[0].StartsWith("The levels are at most 3 mm apart") && tiny[0].Contains("units"));
+Check("an FFL/SSL pair beside 3 m storeys: no warning", DatumFromDrawing.SpacingWarnings(Lv(-300, 0, 3200, 6400)).Count == 0);
+var tall = DatumFromDrawing.SpacingWarnings(Lv(0, 3200, 15200));
+Check("a gap over 10 m names its two levels", tall.Count == 1 && tall[0].StartsWith("Level 1 and Level 2 are 12 m apart"));
+Check("one level, or none: nothing to compare", DatumFromDrawing.SpacingWarnings(Lv(0)).Count == 0 && DatumFromDrawing.SpacingWarnings(Lv()).Count == 0);
+// review: a 12-storey section drawn in metres, read as mm — the 50 mm merge leaves ONE level; the lines read again finer still name the units
+var metres = Enumerable.Range(0, 13).Select(i => new Seg(0, i * 3.2, 12, i * 3.2)).ToList();
+Check("metres read as mm: the merge leaves one level", DatumFromDrawing.Levels(metres).Count == 1);
+var mw = DatumFromDrawing.SpacingWarnings(DatumFromDrawing.Levels(metres), metres);
+Check("…and the spacing check still names the units", mw.Count == 1 && mw[0].StartsWith("The levels are at most 3 mm apart"));
+Check("a real one-level drawing: no warning", DatumFromDrawing.SpacingWarnings(Lv(0), new[] { new Seg(0, 0, 12000, 0) }).Count == 0);
+
 // ---- KIT DXFs ----------------------------------------------------------------------------------------
 // Revit imports a DXF with no $INSUNITS header as inches — every mm height x25.4 (simulation 3.9, F41).
 // The kit's hand-written drawings must declare millimetres.
