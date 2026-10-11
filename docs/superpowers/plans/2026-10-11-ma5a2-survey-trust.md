@@ -502,3 +502,14 @@ read 2 on a one-face wall now reads 1 (GF windows 7 × 1). **Doors under the bri
 R 0.542 (GF 1 / 8 / 6, 1F 12 / 6 / 5) — 0.5.0's count gave 0.500; the fixed count moved one false door out.
 
 **Tests:** survey 94 OK; bridge + web 2981 pass, 1 skipped; promote-check 889 / 889; `tsc` — no error in a touched file.
+
+**The branch review** (three lenses — correctness, product words and old data, plan and tests — and one skeptic per important finding; workflow
+`wf_ae0cc264-764`): 2 important findings confirmed, 1 refuted, 9 minors. Fixed (9e6d0cc): the verdict's limits now ride on a **pass**, where
+they matter (a thin partition moved by its own thickness reads within — 7 of 31); the "thickness not trusted" Holding group's key is the same
+for every wall (it showed the first wall's numbers for all), each wall's numbers on its own reason and on its openings' holds; a share is
+rounded **down** in words (0.196 never reads "20%" under a verdict that says it missed 20 %); a face with points must have an interior (judge
+would skip it); `reference.score` counts a withheld-thickness pair as paired; the door rule's comment says 3 real in 22; new pins — the gate
+inside `measure()` (an 80 mm partition, clean vs scattered; the test fails with the gate reverted), the faces' order, the desk taking a new
+row's per-face rule. Refuted: "the gate has no measure-level test" (the wiring is right — the new test makes it pinned anyway). Not built:
+clamping `pretick` on survey changesets proposed before this merge — none is open (SQL, 2026-10-11: no proposed survey changeset), so the
+rule holds for every new proposal. **Tests after the review:** survey 95 OK; bridge + web 2981 pass, 1 skipped; promote-check 889 / 889.
