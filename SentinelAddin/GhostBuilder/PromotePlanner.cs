@@ -482,7 +482,7 @@ namespace Sentinel.GhostBuilder
             swap.AtMm = e.AtMm;
             swap.LocationMm = host.PointMm;
             swap.LevelName = e.Level;
-            swap.SillHeightMm = e.Kind == "window" ? e.OffsetMm : null;
+            swap.SillHeightMm = e.Kind == "window" ? Math.Max(0, Math.Round(e.OffsetMm.Value, 1)) : null; // FindHost held one below its level
             swap.Reason = $"rehost — no wall hosts it; it stands in {host.Label}: " + swap.Reason;
             g = swap;
             return null;
@@ -500,12 +500,16 @@ namespace Sentinel.GhostBuilder
             if (cs.Count == 0) { why = $"no wall hosts it, and it stands in no wall of {lv} — a person places it"; return null; }
             if (cs.Count > 1) { why = $"no wall hosts it, and it stands in {cs.Count} walls ({string.Join(", ", cs.Select(c => c.Label))}) — a person picks its host"; return null; }
             var w = cs[0];
+            // review: the executor hosts only in a wall based on the opening's level
+            if (!string.Equals(w.BaseLevel, e.Level, StringComparison.OrdinalIgnoreCase))
+            { why = $"no wall hosts it; the wall it stands in ({w.Label}) is based on {w.BaseLevel ?? "no level"}, not {lv} — Sentinel hosts a {word} only in a wall based on its own level; a person decides"; return null; }
             if (!w.Basic) { why = $"no wall hosts it; the wall it stands in ({w.Label}) is {w.Odd ?? "not a straight basic wall"} — Sentinel hosts a {word} in one straight basic wall only; a person decides"; return null; }
             if (w.InGroup || w.InOption) { why = $"no wall hosts it; its host would be {w.Label}, which is in {(w.InGroup ? "a group" : "a design option")} — a person decides"; return null; }
             if (!e.WidthMm.HasValue || !e.HeightMm.HasValue) { why = "no wall hosts it, and its type has no Width and Height to place it by — a person decides"; return null; }
             if (!e.OffsetMm.HasValue) { why = "no wall hosts it, and its height above its level was not read — a person decides"; return null; }
             double off = e.OffsetMm.Value, top = off + e.HeightMm.Value, half = e.WidthMm.Value / 2;
             if (word == "door" && Math.Abs(off) > 0.5) { why = $"no wall hosts it, and it stands {Mm(off, "0")} mm above {lv} — a door stands on its level; a person places it"; return null; }
+            if (word == "window" && off < -0.5) { why = $"no wall hosts it, and its sill is {Mm(-off, "0")} mm below {lv} — Sentinel files no sill below its level; a person places it"; return null; }
             if (off < w.BottomMm - 0.5 || top > w.TopMm + 0.5)
             { why = $"no wall hosts it; its {Mm(off, "0")}–{Mm(top, "0")} mm above {lv} is not inside {w.Label} ({Mm(w.BottomMm, "0")}–{Mm(w.TopMm, "0")} mm) — a person places it"; return null; }
             if (w.AlongMm - half < -0.5 || w.AlongMm + half > w.LengthMm + 0.5)

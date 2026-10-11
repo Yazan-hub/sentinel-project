@@ -438,10 +438,11 @@ public sealed class ChangesetExecutor
             if (kind == null) continue;
             var (ow, oh) = Size(o.Symbol, kind);
             if (Math.Abs(Along(lp.Point.X / MmToFeet, lp.Point.Y / MmToFeet) - at) >= half + (ow ?? 0) / 2 * MmToFeet) continue;
-            if (el.Kind == "window" && kind == "window" && h is double hh && oh is double ohh)
+            // review (MA-5b-5): heights for every pair — a door stands from 0, a window from its sill
+            if (h is double hh && oh is double ohh)
             {
-                var os = (o.get_Parameter(BuiltInParameter.INSTANCE_SILL_HEIGHT_PARAM)?.AsDouble() ?? 0) / MmToFeet;
-                if (sill >= os + ohh || os >= sill + hh) continue;
+                double ob = kind == "window" ? (o.get_Parameter(BuiltInParameter.INSTANCE_SILL_HEIGHT_PARAM)?.AsDouble() ?? 0) / MmToFeet : 0, nb = el.Kind == "window" ? sill : 0;
+                if (nb >= ob + ohh || ob >= nb + hh) continue;
             }
             return $"would overlap {kind} {o.Id.IdValue()}, already in wall {wall.Id.IdValue()} across that point (the placeholder may be a leftover)";
         }
@@ -826,13 +827,21 @@ public sealed class ChangesetExecutor
                     at = Label(el);
                     void Keep(string why) => result.Kept.Add((el.ProposalGuid, $"{at} {why} — not rehosted; it stays as it stands, a person decides"));
                     if (!(doc.GetElement(el.Target?.UniqueId ?? "") is FamilyInstance old)) { Keep("is no longer in this model"); continue; }
+                    // review: a rehost deletes what it names — only a top-level instance of its own kind (as Target() keeps a door ghost off a
+                    // wall); anything else is no placeholder Promote read, and refuses the changeset (it stays proposed)
+                    if (old.Category?.Id.IdValue() != (long)(el.Kind == "window" ? BuiltInCategory.OST_Windows : BuiltInCategory.OST_Doors) || old.SuperComponent != null)
+                        throw new PlacementRefused($"{at}: {el.Target.UniqueId} is not a top-level {el.Kind} ({old.Category?.Name ?? "no category"}) — a rehost replaces a door or window only; re-run Promote");
                     if (!NoWallHost(old)) { Keep(old.Host is Wall ? "is hosted by a wall now" : $"is hosted by {old.Host.Category?.Name ?? "an element"} now"); continue; }
                     if (!string.Equals(TypeLabel(old.Symbol), el.Target.TypeBefore, StringComparison.OrdinalIgnoreCase))
                     { Keep($"is \"{TypeLabel(old.Symbol)}\" now, not \"{el.Target.TypeBefore}\" — retyped since Promote read it"); continue; }
                     var lp = (old.Location as LocationPoint)?.Point;
                     var was = el.Target.At;
-                    if (lp == null || was == null || was.Length < 2 || Math.Sqrt(Math.Pow(lp.X / MmToFeet - was[0], 2) + Math.Pow(lp.Y / MmToFeet - was[1], 2)) > ReshapeTolMm)
-                    { Keep("was moved by hand since Promote read it"); continue; }
+                    if (lp == null || was == null || was.Length < 3
+                        || Math.Sqrt(Math.Pow(lp.X / MmToFeet - was[0], 2) + Math.Pow(lp.Y / MmToFeet - was[1], 2) + Math.Pow(lp.Z / MmToFeet - was[2], 2)) > ReshapeTolMm)
+                    { Keep("was moved or raised by hand since Promote read it"); continue; }
+                    var onLevel = (doc.GetElement(old.LevelId) as Level)?.Name;
+                    if (!string.Equals(onLevel, el.Place.LevelName, StringComparison.OrdinalIgnoreCase))
+                    { Keep($"is on {onLevel ?? "no level"} now, not {el.Place.LevelName} — moved to another level since Promote read it"); continue; }
                     if (HeldBy(doc, old) is string heldOld) { Keep(heldOld); continue; }
                     var level = ResolveLevel(doc, el.Place);
                     var p = el.Place.Location ?? throw new PlacementRefused($"{at}: a rehost with no place.Location — re-run Promote");
@@ -851,7 +860,8 @@ public sealed class ChangesetExecutor
                     string mark = old.get_Parameter(BuiltInParameter.ALL_MODEL_MARK)?.AsString(), comments = old.get_Parameter(BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS)?.AsString();
                     var home = PlacementApply.Home(old);
                     ICollection<ElementId> probe;
-                    using (var st = new SubTransaction(doc)) { st.Start(); probe = doc.Delete(oldId); st.RollBack(); }
+                    try { using (var st = new SubTransaction(doc)) { st.Start(); probe = doc.Delete(oldId); st.RollBack(); } }
+                    catch (Exception ex) when (!(ex is PlacementRefused)) { Keep($"cannot be removed — Revit refused: {ex.Message}"); continue; }
                     var others = probe.Where(id => !id.Equals(oldId) && !(doc.GetElement(id) is IndependentTag)).ToList();
                     if (others.Count > 0)
                     {
@@ -989,7 +999,7 @@ public sealed class ChangesetExecutor
                 // MA-5b-5 (R8): a changeset that rehosts stays proposed (NotRun) — a commit-time refusal is this model's state, not a verdict
                 // on the changeset; the person unticks the rehost and applies again
                 return toPlace.Any(e => e.Op == "rehost")
-                    ? new ExecutionResult { NotRun = true, Error = error + " — it rehosts a door or window; it stays proposed: untick the rehost row(s) and Apply again" }
+                    ? new ExecutionResult { NotRun = true, Error = error + " — it rehosts a door or window, so it stays proposed: untick the row(s) Revit named (a rehost among them, or another) and Apply again" }
                     : new ExecutionResult { Error = error };
             }
             // A6: Pending (or any other status) — Revit may still finish or drop it: nothing is reported, nothing recounted.

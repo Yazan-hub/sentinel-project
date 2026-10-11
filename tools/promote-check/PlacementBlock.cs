@@ -159,7 +159,7 @@ static partial class Check
            "the count is said as counted; with nothing to compare it says not checked, never a pass");
     }
 
-    static string Src(params string[] parts) => File.ReadAllText(Repo(new[] { "SentinelAddin" }.Concat(parts).ToArray()));
+    static string Src(params string[] parts) => File.ReadAllText(Repo(new[] { "SentinelAddin" }.Concat(parts).ToArray())).Replace("\r\n", "\n"); // review (MA-5b-5): one line ending, whatever the checkout
 
     // ── 15. MA-1a item 6: every placer calls the one writer (a source scan: the callers are Revit-bound) ───────────
     static void PlacementWiringChecks()

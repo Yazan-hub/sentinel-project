@@ -1109,6 +1109,8 @@ describe("validateChangeset — rehost (MA-5b-5)", () => {
     for (const f of ["Mark", "FlipFacing", "Rotation", "LocationCurve"])
       status400(() => ok(H({}, { [f]: f === "Mark" ? "D1" : f === "FlipFacing" ? true : f === "Rotation" ? 90 : { start: [0, 0, 0], end: [1, 0, 0] } })), new RegExp(`rehost takes no place\\.${f}`));
     status400(() => ok(H({}, { SillHeight: 900 })), /place\.SillHeight is a window's/);
+    // review: a window rehost carries its sill
+    status400(() => ok(H({ kind: "window", validate: { identity: { Class: "IFCWINDOW", Name: "W1" } } })), /a window rehost needs place\.SillHeight/);
     status400(() => ok(H({ kind: "wall" })), /kind "wall" is not supported for rehost/);
   });
   it("a rehost's element carries no other ghost; one rehost per element", () => {

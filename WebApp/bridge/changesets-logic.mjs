@@ -388,6 +388,9 @@ export function validateChangeset(body, { member = false, type = null, cite = nu
           throw err(400, `${at}: rehost needs place.LevelName, place.Location [x,y,z] (on its host wall's location line, at its level) and place.FamilyName and place.TypeName (the office type it becomes)`);
         if (place.SillHeight !== undefined && (el.kind !== "window" || !inRange(place.SillHeight, 0, MAX_OFFSET_MM)))
           throw err(400, `${at}: place.SillHeight is a window's — a number of mm from 0 to ${MAX_OFFSET_MM}`);
+        // review: a window rehost carries the placeholder's sill — without it Revit would place the office window at its family's default
+        if (el.kind === "window" && place.SillHeight === undefined)
+          throw err(400, `${at}: a window rehost needs place.SillHeight — the placeholder's height above its level, so the window stays where it was drawn`);
       }
       // MA-5b-4 (C13b): reshape moves an existing wall's location line to where a revised drawing draws it — only the bridge builds one
       // (from a job, revises), and its stale guard is where the wall was placed: Revit keeps a wall edited since, and says so

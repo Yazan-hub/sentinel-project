@@ -742,8 +742,10 @@ export async function reportResult(key, id, { applied, rejected, note, review_re
   // MA-5b-5 (decision 6): what each applied rehost removed — the element the changeset named (its target) and what replaced it (Revit's report)
   const removed = updated.result.applied.flatMap((a) => {
     const e = cs.elements.find((x) => x.proposal_guid === a.proposal_guid);
+    // review: Revit's new UniqueId, when it is one string and not the removed one's (the ledger never names the removed element as its own replacement)
+    const by = typeof a.revit_unique_id === "string" && a.revit_unique_id.length > 0 && a.revit_unique_id.length <= 256 && a.revit_unique_id !== e?.target?.unique_id ? a.revit_unique_id : null;
     return e?.op === "rehost" ? [{ proposal_guid: a.proposal_guid, unique_id: e.target?.unique_id ?? null, type_before: e.target?.type_before ?? null,
-      replaced_by: a.revit_unique_id, tags: a.removed_tags ?? null }] : [];
+      replaced_by: by, tags: a.removed_tags ?? null }] : [];
   });
   const row = await d.audit(proj.id, "changeset", id, "changeset_applied", actor || "revit",
     { status: "proposed" },

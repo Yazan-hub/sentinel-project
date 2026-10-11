@@ -230,7 +230,7 @@ public static class ChangesetTrust
         string Xy(double[] q) => q == null || q.Length < 2 ? "?" : $"({F(q[0])}, {F(q[1])})";
         var sill = p?.SillHeight is double s ? $", sill {F(s)} mm" : "";
         return $"{el.Target?.TypeBefore ?? "?"} at {Xy(at)} → {p?.FamilyName} : {p?.TypeName} in the wall at {Xy(p?.Location)} on {p?.LevelName}{sill}; " +
-               "the unhosted instance and any tags on it are removed (one Undo brings them back); hinge and swing: the office family's default — compare with the placeholder";
+               "the unhosted instance and any tags on it are removed (one Undo brings them back); its Mark, Comments, workset and phase carry over, its other values do not; hinge and swing: the office family's default — compare with the placeholder";
     }
 
     public static string ReshapeWords(ChangesetElementDto el)

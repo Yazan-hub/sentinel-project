@@ -175,6 +175,15 @@ describe("result + withdraw lifecycle", () => {
     const row = deps.audit.mock.calls.find((c) => c[3] === "changeset_applied");
     expect(row[6].removed).toEqual([{ proposal_guid: g, unique_id: UID, type_before: "Placeholder Door : 1000 x 2100", replaced_by: "new-uid", tags: 2 }]);
   });
+  it("MA-5b-5 review: a replacement Revit reports with the removed element's own UniqueId, or none, is not named", async () => {
+    for (const uid of [UID, "", undefined]) {
+      const deps = baseDeps({ myRole: async () => "contributor" });
+      const cs = await proposeChangeset("demo", REHOST, "lead@office.example", deps);
+      const g = cs.elements[0].proposal_guid;
+      await reportResult("demo", cs.id, { applied: [{ proposal_guid: g, revit_element_id: 9001, revit_unique_id: uid }], rejected: [] }, "lead@office.example", deps);
+      expect(deps.audit.mock.calls.find((c) => c[3] === "changeset_applied")[6].removed[0].replaced_by).toBeNull();
+    }
+  });
   it("MA-5b-5: the machine credential reports no rehost applied — a 403, nothing recorded; declining it is still a result", async () => {
     const roles = ["contributor", "service", "service", "service"];
     const deps = baseDeps({ myRole: vi.fn(async () => roles.shift() ?? "service") });

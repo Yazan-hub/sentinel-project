@@ -199,7 +199,9 @@ public sealed class PromoteWallsCommand : IExternalCommand
             foreach (var cat in LodMatrix.Order.Where(p.Others.ContainsKey))
             {
                 var n = p.Others[cat];
-                lines.Add($"{p.Storey} · {cat}: {p.Ghosts.Count(g => g.Kind != null && Cat(g.UniqueId) == cat)} retype · " +
+                int rehosts = p.Ghosts.Count(g => g.Op == "rehost" && Cat(g.UniqueId) == cat); // review: said apart — each removes the placeholder
+                lines.Add($"{p.Storey} · {cat}: {p.Ghosts.Count(g => g.Kind != null && g.Op == "retype" && Cat(g.UniqueId) == cat)} retype · " +
+                          (rehosts > 0 ? $"{rehosts} rehost (the unhosted instance removed) · " : "") +
                           $"{p.Held.Where(h => Cat(h.UniqueId) == cat).Select(h => h.UniqueId).Distinct().Count()} sent to a person · DD now {n.DdNow}/{n.Total}" +
                           (n.OfficeTyped > 0 ? $" · {n.OfficeTyped} on other office types, left as is" : "") + $" · stamped by Promote {n.Stamped}");
             }
@@ -403,7 +405,7 @@ public sealed class PromoteWallsCommand : IExternalCommand
     internal static LodStateReport LodStateAfter(Document doc, PromoteContext pc)
     {
         var (walls, others, docTypes, classTypes, levels) = ReadFacts(doc, pc.Classes);
-        var plans = PromotePlanner.Plan(pc.Classes, walls, others, levels, docTypes, classTypes, pc.Standards.Guideline);
+        var plans = PromotePlanner.Plan(pc.Classes, walls, others, levels, docTypes, classTypes, pc.Standards.Guideline, UserSession.IsSignedIn);
         return LodStateOf(doc, plans, pc, "after");
     }
 
@@ -581,22 +583,27 @@ public sealed class PromoteWallsCommand : IExternalCommand
         }
         if (dimRefs.Value.Contains(fi.Id.IdValue()))
         { f.RehostWhy = "no wall hosts it, and a dimension references it — removing it would change the dimension; a person rehosts it"; return; }
-        if (!(OpeningMiddle(fi) is XYZ mid))
+        if (!(OpeningMiddle(fi) is (XYZ mid, double minZ)))
         { f.RehostWhy = "no wall hosts it, and it has no solid to find its opening's middle by — a person places it"; return; }
+        // review: the sill is read off the offset — its solids must start there (a family whose origin is not at its opening's bottom is a person's)
+        double bottomMm = (minZ - level.ProjectElevation) * FtToMm;
+        if (Math.Abs(bottomMm - f.OffsetMm.Value) > 5)
+        { f.RehostWhy = $"no wall hosts it, and its solids start {bottomMm:0} mm above {level.Name}, its offset says {f.OffsetMm.Value:0} mm — its family's origin is not at its opening's bottom; a person places it"; return; }
         var probe = new XYZ(mid.X, mid.Y, level.ProjectElevation + (f.OffsetMm.Value + (f.HeightMm ?? 0) / 2) / FtToMm);
         f.Candidates = Candidates(doc, probe, level);
     }
 
     // The middle of its solids in plan: in the family's own frame (X is its hand axis) through the instance transform; an instance whose
-    // geometry Revit returns already placed (a cut instance) is measured as placed. Null when it has no solid.
-    private static XYZ OpeningMiddle(FamilyInstance fi)
+    // geometry Revit returns already placed (a cut instance) is measured as placed — and (review) the lowest point of its solids, in the
+    // model's frame. Null when it has no solid.
+    private static (XYZ Mid, double MinZ)? OpeningMiddle(FamilyInstance fi)
     {
         var ge = fi.get_Geometry(new Options());
         if (ge == null) return null;
         var gi = ge.OfType<GeometryInstance>().FirstOrDefault();
         var solids = (gi != null ? gi.GetSymbolGeometry() : ge).OfType<Solid>().Where(s => s.Volume > 1e-9).ToList();
         if (solids.Count == 0) return null;
-        double x0 = double.MaxValue, y0 = double.MaxValue, x1 = double.MinValue, y1 = double.MinValue;
+        double x0 = double.MaxValue, y0 = double.MaxValue, x1 = double.MinValue, y1 = double.MinValue, zMin = double.MaxValue;
         foreach (var s in solids)
         {
             var bb = s.GetBoundingBox();
@@ -606,10 +613,11 @@ public sealed class PromoteWallsCommand : IExternalCommand
                     {
                         var q = bb.Transform.OfPoint(new XYZ(x, y, z));
                         x0 = Math.Min(x0, q.X); x1 = Math.Max(x1, q.X); y0 = Math.Min(y0, q.Y); y1 = Math.Max(y1, q.Y);
+                        zMin = Math.Min(zMin, (gi != null ? gi.Transform.OfPoint(q) : q).Z);
                     }
         }
         var c = new XYZ((x0 + x1) / 2, (y0 + y1) / 2, 0);
-        return gi != null ? gi.Transform.OfPoint(c) : c;
+        return (gi != null ? gi.Transform.OfPoint(c) : c, zMin);
     }
 
     // The walls whose body holds the point: a straight basic wall when the point lies between its two side faces (each face's outward
