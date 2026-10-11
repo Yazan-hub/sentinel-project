@@ -165,7 +165,13 @@ describe("MA-5a-5 — the drawing against the scan's filed walls: agree, differ,
     const s = scanOnStorey([CS(WALLS, { result: { rejected: ["g-scan-L00-wall-2"] } }), CS(WALLS, { status: "declined" }), CS(WALLS, { job: { ...CS([]).job, storey: { ...STOREY, elevation_mm: 3000 } } }),
       CS(WALLS, { job: { ...CS([]).job, reader: "sentinel-drawing 0.1.0" } })], 12);
     expect([s.walls.map((w) => [w.cid, w.t, w.level]), s.storey, s.ledgers]).toEqual([[["scan-L00-wall-1", 300, "GR-FFL"], ["scan-L00-wall-3", 300, "GR-FFL"]], STOREY, [2201]]);
-    expect(scanOnStorey([], 0)).toEqual({ walls: [], doors: [], storey: null, ledgers: [], gaps: 0 });
+    expect(scanOnStorey([], 0)).toEqual({ walls: [], doors: [], storey: null, ledgers: [], gaps: 0, copies: 0 });
+    // the drill's GR-FFL: the same building scanned four times — each wall counted once, the applied copy first; no "scanned, not drawn"
+    const later = CS(WALLS.map((w) => ({ ...w, cid: w.cid.replace("L00", "L00x") })), { status: "partially_applied", name: "Survey job-0006 · Scan L00 job-0006",
+      job: { ...CS([]).job, id: "job-0006", ledger_id: 2300, storey: { ...STOREY, level: "Scan L00 job-0006" } } });
+    const s4 = scanOnStorey([later, CS(WALLS)], 0);
+    expect([s4.walls.map((w) => w.cid), s4.copies, s4.storey.level, s4.ledgers]).toEqual([["scan-L00-wall-1", "scan-L00-wall-2", "scan-L00-wall-3"], 3, "GR-FFL", [2201, 2300]]);
+    expect(plan(DRILL, { scan: s4, drawingSha: SHA }).tally).toMatchObject({ agree: 3, scanned_only: 0 });
     expect(scanOnStorey([CS(WALLS, { exceptions: [{ unique_id: "scan-L00-wall-4", name: "wall scan-L00-wall-4", reason: "type gap — BDS_EXT_ARC_CMU_250 mm is not in the type catalogue; it waits in the Holding Area" },
       { unique_id: "scan-L00-floor", name: "floor scan-L00-floor", reason: "type gap — …" }] })], 0).gaps).toBe(1);
   });
@@ -178,7 +184,7 @@ describe("MA-5a-5 — the drawing against the scan's filed walls: agree, differ,
       ["wall", W(1), "GR-FFL", null], ["wall", W(3), "GR-FFL", null], ["door", `${W(1)}-door-1`, "GR-FFL", [44050, 2500, 0]], ["door", `${W(5)}-door-1`, "GR-FFL", [43450, 150, 0]]]);
     expect(els(p)[0].reason).toContain(" · drawn, not in the scan (a BCF topic says it) · ");
     expect(els(p)[3].reason).toContain(` · hosted in the scan's scan-L00-wall-1 (Survey job-0002 · GR-FFL — placed first): the scan did not see it (a closed door, or seen on one face only) · `);
-    expect(p.differences[0]).toEqual({ kind: "drawn_only", key: `${SHA}|${W(1)}|2201|-|drawn_only`, title: `Drawing vs scan: ev-0007 ${W(1)} — drawn, not in the scan`,
+    expect(p.differences[0]).toEqual({ kind: "drawn_only", key: `${SHA}|${W(1)}|-|-|drawn_only`, title: `Drawing vs scan: ev-0007 ${W(1)} — drawn, not in the scan`,
       description: expect.stringContaining(`ev-0007 draws ${W(1)} (100 mm thick, 5500 mm long at 1:50) inside the scan's walls on GR-FFL, and no filed scan wall there matches it (3 scan walls, ledger #2201; the scan held 1 wall(s) on this storey as type gaps, not compared)`), item: "ev-0007",
       drawing_cid: W(1), scan_cid: null, scan_changeset: null, scan_job: null, evidence: ["ev-0007#page-1"] });
     // on the office's standards the 250 mm wall is a gap on the drawing too: only the partition differs — the planted difference, one topic
@@ -194,7 +200,7 @@ describe("MA-5a-5 — the drawing against the scan's filed walls: agree, differ,
     expect(s.exceptions.filter((x) => !x.reason.startsWith("type gap")).map((x) => [x.unique_id, x.reason])).toEqual([
       [W(4), `differs from the scan — drawn 300 mm thick, scanned 200 mm: scan-L00-wall-3 in Survey job-0002 · GR-FFL; the scan wins on geometry, not proposed (BCF topic: Drawing vs scan: ev-0007 ${W(4)} — drawn 300 mm thick, scanned 200 mm (scan-L00-wall-3))`],
       ["scan-L00-wall-9", "scanned (Survey job-0002 · GR-FFL), not on ev-0007 — not proposed here (BCF topic: Drawing vs scan: ev-0007 — scan-L00-wall-9 scanned, not drawn)"]]);
-    expect(p.differences.map((d) => [d.kind, d.key])).toEqual([["drawn_only", `${SHA}|${W(1)}|2201|-|drawn_only`], ["differs", `${SHA}|${W(4)}|2201|scan-L00-wall-3|differs`],
+    expect(p.differences.map((d) => [d.kind, d.key])).toEqual([["drawn_only", `${SHA}|${W(1)}|-|-|drawn_only`], ["differs", `${SHA}|${W(4)}|2201|scan-L00-wall-3|differs`],
       ["scanned_only", `${SHA}|-|2201|scan-L00-wall-9|scanned_only`]]);
   });
   it("a door the scan filed on that wall is the same door — not proposed twice; a wall offset by more than one paper millimetre differs", () => {
@@ -207,9 +213,41 @@ describe("MA-5a-5 — the drawing against the scan's filed walls: agree, differ,
     const p = plan(DRILL, { scan: scanOnStorey([], 0), drawingSha: SHA });
     expect([p.storeys[0].storey.how, els(p).length, p.differences, p.tally.agree]).toEqual(["created", 5, [], 0]);
   });
-  it("matchWalls: parallel within 5°, half the shorter overlapping, within 300 mm — one to one, nearest first", () => {
+  it("review: one type step off is a difference (250 drawn, 300 scanned) — the planted difference, one topic; a wall the scan saw in part differs", () => {
+    const west = sw("scan-L00-wall-4", [40125, 150, 0], [40125, 5900, 0], 300);
+    const p = vs([...WALLS, west]);
+    expect([p.tally.agree, p.tally.differ]).toEqual([3, 1]);
+    expect(p.differences.find((d) => d.kind === "differs")).toMatchObject({ title: `Drawing vs scan: ev-0007 ${W(3)} — drawn 250 mm thick, scanned 300 mm (scan-L00-wall-4)`, key: `${SHA}|${W(3)}|2201|scan-L00-wall-4|differs` });
+    expect(vs([...WALLS, { ...west, measured: { thickness_mm: 270 } }]).tally).toMatchObject({ agree: 4, differ: 0 }); // 20 mm: the reading's
+    const half = [{ ...WALLS[0], place: { ...WALLS[0].place, LocationCurve: { start: [40125, 150, 0], end: [44000, 150, 0] } } }, WALLS[1], WALLS[2]];
+    expect(vs(half).differences.find((d) => d.drawing_cid === W(5)).title).toBe(`Drawing vs scan: ev-0007 ${W(5)} — the scan saw 3875 of its 7725 mm (scan-L00-wall-1)`);
+  });
+  it("review: a drawn wall split at a window shares the scan's wall (never proposed on top of it); a scan wall in fragments is drawn, and the door goes into its own fragment", () => {
+    const edit = (cands) => planDrawing({ job: JOB, candidates: cands, align: readAlignBody(DRILL, ["ev-0007"]), type: anyType, catalog, sameCategory: core.sameCategory,
+      scan: scanOnStorey([CS(WALLS)], 0), drawingSha: SHA });
+    const w2 = RESULT.candidates.find((c) => c.cid === W(2));
+    const split = RESULT.candidates.flatMap((c) => (c.cid !== W(2) ? [c] : [
+      { ...w2, cid: `${W(2)}a`, geometry: { ...w2.geometry, LocationCurve: { start: [60, 158], end: [120, 158] } }, measured: { ...w2.measured, length_paper_mm: 60 } },
+      { ...w2, cid: `${W(2)}b`, geometry: { ...w2.geometry, LocationCurve: { start: [138, 158], end: [220, 158] } }, measured: { ...w2.measured, length_paper_mm: 82 } }]));
+    const p = edit(split);
+    expect([p.tally.agree, els(p).some((e) => String(e.cid).startsWith(W(2))), p.differences.map((d) => d.drawing_cid)]).toEqual([4, false, [W(1), W(3)]]);
+    const frag = [WALLS[0], WALLS[1], WALLS[2]].flatMap((w) => (w.cid !== "scan-L00-wall-1" ? [w]
+      : [{ ...w, cid: "scan-L00-wall-1a", place: { ...w.place, LocationCurve: { start: [40125, 150, 0], end: [43000, 150, 0] } } },
+        { ...w, cid: "scan-L00-wall-1b", place: { ...w.place, LocationCurve: { start: [43000, 150, 0], end: [47850, 150, 0] } } }]));
+    const q = vs(frag);
+    expect([q.tally.scanned_only, q.tally.agree]).toEqual([0, 3]);
+    expect(els(q).find((e) => e.cid === `${W(5)}-door-1`)).toMatchObject({ place: { Location: [43450, 150, 0] }, reason: expect.stringContaining("hosted in the scan's scan-L00-wall-1b") });
+  });
+  it("review: each key names its own scan wall's job — a second scan job filed on the storey changes no key", () => {
+    const west = sw("scan-L00-wall-4", [40125, 150, 0], [40125, 5900, 0], 300);
+    const one = plan(DRILL, { scan: scanOnStorey([CS([...WALLS, west])], 0), drawingSha: SHA, type: anyType });
+    const other = CS([sw("scan-L00x-wall-1", [40125, 150, 0], [47850, 150, 0], 300)], { name: "Survey job-0009 · GR-FFL", status: "proposed", job: { ...CS([]).job, id: "job-0009", ledger_id: 2400 } });
+    const two = plan(DRILL, { scan: scanOnStorey([CS([...WALLS, west]), other], 0), drawingSha: SHA, type: anyType });
+    expect(two.differences.map((d) => d.key)).toEqual(one.differences.map((d) => d.key));
+  });
+  it("matchWalls: parallel within 5°, half the shorter overlapping, within 300 mm — every pair, nearest first", () => {
     const d = [{ a: [0, 0], b: [1000, 0] }, { a: [0, 100], b: [1000, 100] }];
-    expect(matchWalls(d, [{ start: [0, 80, 0], end: [1000, 80, 0] }])).toEqual([{ i: 1, j: 0, off: 20 }]);
+    expect(matchWalls(d, [{ start: [0, 80, 0], end: [1000, 80, 0] }])).toEqual([{ i: 1, j: 0, off: 20 }, { i: 0, j: 0, off: 80 }]); // every pair, nearest first
     expect(matchWalls(d, [{ start: [0, 500, 0], end: [1000, 500, 0] }])).toEqual([]); // too far
     expect(matchWalls(d, [{ start: [0, 0, 0], end: [0, 1000, 0] }])).toEqual([]); // square to it
     expect(matchWalls(d, [{ start: [900, 0, 0], end: [3000, 0, 0] }])).toEqual([]); // 100 of 1000 overlap
