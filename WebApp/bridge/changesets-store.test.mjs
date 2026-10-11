@@ -1160,6 +1160,26 @@ describe("proposeFromJob (MA-5a-4): a lead aligns a drawing job by two points �
       409, { ...BODY, elevation_mm: 3000 });
     await quiet({ docList: vi.fn(async () => docs) }, "nothing new to propose from job-0005 — every candidate that types is filed already (Drawing job-0005 · ev-0007 · Drawing ev-0007 job-0005: proposed): withdraw a proposed one on the Review desk to propose it again; an applied one stays applied here after an Undo in Revit — read the drawing again to propose it afresh; nothing was saved");
   });
+  it("(d) review: the same points proposed again read back from jsonb (keys reordered) are the same alignment — 'nothing new', never 'another alignment'", async () => {
+    const jsonb = (v) => JSON.parse(JSON.stringify(v, (_k, x) => (x && typeof x === "object" && !Array.isArray(x)
+      ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => a.length - b.length || (a < b ? -1 : a > b ? 1 : 0))) : x)));
+    const d0 = ddeps(); await propose(d0);
+    const back = jsonb([...d0.saved.values()]);
+    expect(Object.keys(back[0].job.alignment.points[0])).toEqual(["model", "paper"]);
+    const deps = ddeps({ docList: vi.fn(async () => back) });
+    await expect(propose(deps)).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/^nothing new to propose from job-0005 — every candidate that types is filed already \(Drawing job-0005 · ev-0007 · Drawing ev-0007 job-0005: proposed\)/) });
+  });
+  it("(e) review: a job that read two drawings — the second, all type gaps, files its gaps after the first is filed; another drawing changed does not stop it", async () => {
+    const W3 = RESULT.candidates.find((c) => c.cid === "drawing-ev-0007-p1-wall-3"); // 250 mm: a type gap on these standards
+    const two = { ...TRUSTED, result: { ...RESULT, candidates: [...RESULT.candidates, { ...W3, cid: "drawing-ev-0008-p1-wall-1", evidence: ["ev-0008#page-1"] }] },
+      row: { ...TRUSTED.row, items: [...TRUSTED.row.items, { id: "ev-0008", sha256: "d8".repeat(32) }], read: ["ev-0007", "ev-0008"] } };
+    const d0 = ddeps({ trustedJob: vi.fn(async () => two) }); await propose(d0, { ...BODY, item: "ev-0007" });
+    const deps = ddeps({ trustedJob: vi.fn(async () => two), docList: vi.fn(async () => [...d0.saved.values()]),
+      readPack: vi.fn(async () => ({ pack: { items: [{ id: "ev-0007", sha256: EV7, state: "changed" }, { id: "ev-0008", sha256: "d8".repeat(32), state: "admitted" }] } })) });
+    const r = await propose(deps, { ...BODY, item: "ev-0008" });
+    expect([r.changesets, r.gaps.groups, r.gaps.elements]).toEqual([[], 1, 1]);
+    expect(deps.audit.mock.calls.map((c) => c[1])).toEqual(["type_gap", "build"]);
+  });
   it("(c) a drawing changeset has no scan: measuring it and showing its scan are refused in words", async () => {
     const deps = ddeps(); await propose(deps);
     const cs = { ...[...deps.saved.values()][0], status: "applied" };

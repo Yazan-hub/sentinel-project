@@ -47,6 +47,12 @@ export function readAlignBody(b, items) {
   if (dist(points[0].paper, points[1].paper) < PAPER_MIN_APART) throw bad(`the two points are under ${PAPER_MIN_APART} mm apart on the paper — pick two marks far apart (opposite corners of the plan)`);
   if (dist(points[0].model, points[1].model) < MODEL_MIN_APART) throw bad(`the two points are under ${MODEL_MIN_APART} mm apart in the model — pick two marks far apart`);
   const check = b.check == null ? null : pair(b.check, "check");
+  // review: two points cannot see a mirrored page; only a third off their line can (a check on it proves nothing)
+  if (check) {
+    const [A, B] = [points[0].paper, points[1].paper], ab = dist(A, B);
+    if (Math.abs((B[0] - A[0]) * (check.paper[1] - A[1]) - (B[1] - A[1]) * (check.paper[0] - A[0])) / ab < 0.1 * ab)
+      throw bad("the check point lies on (or near) the line through A and B — it cannot catch a mirrored or misread drawing; pick a mark well off that line (a third corner)");
+  }
   let level = null;
   if (b.level != null) {
     if (typeof b.level !== "string" || !b.level.trim() || b.level.length > 256 || REVIT_BAD.test(b.level))
@@ -72,6 +78,11 @@ export function alignFrom(points) {
   const a = (deg * Math.PI) / 180, c = Math.cos(a), s = Math.sin(a);
   return { scale, rotation_deg: deg, dx_mm: r1(A.model[0] - scale * (c * A.paper[0] - s * A.paper[1])), dy_mm: r1(A.model[1] - scale * (s * A.paper[0] + c * A.paper[1])) };
 }
+
+/** review: the scale a drawn size is read at — the standard scale within 1 % of the points' (typed coordinates are read to a paper
+ *  millimetre, so a 300 mm wall at 1:49.9 would type as 299 mm and land a phantom gap), else the points' own. Placement keeps the points'. */
+const STANDARD = [1, 2, 5, 10, 20, 25, 50, 75, 100, 125, 200, 250, 500, 1000, 1250, 2000];
+export const sizeScale = (s) => STANDARD.find((x) => Math.abs(s / x - 1) <= 0.01) ?? s;
 
 /** Where the alignment puts a paper point in the model, in plan (0.1 mm). */
 export const paperToModel = (al, [x, y]) => toModel({ ...al, dz_mm: 0 }).xy([x * al.scale, y * al.scale]);
@@ -101,10 +112,11 @@ function storeyOf(cid, item, E, level, manifest, jobId, was) {
       throw bad(`${hit.name} is at ${hit.elevation_mm} mm in ${hit.from}, and elevation_mm says ${E} — ${Math.abs(d)} mm apart, more than the ${TOLERANCE_MM} mm a match allows (D7); state the level's own height, or leave level out to have one created`);
     return { cid, level: hit.name, how: "named", elevation_mm: hit.elevation_mm, delta_mm: d, checked: true, from: hit.from };
   }
-  const names = [...new Set(manifest.filter((l) => Math.abs(l.elevation_mm - E) <= TOLERANCE_MM).map((l) => l.name))];
+  // review: the hit from the levels within the tolerance — a same-named level of another model at another height is never it
+  const near = manifest.filter((l) => Math.abs(l.elevation_mm - E) <= TOLERANCE_MM), names = [...new Set(near.map((l) => l.name))];
   if (names.length > 1) throw bad(`the published models have ${names.join(" and ")} within ${TOLERANCE_MM} mm of ${E} mm — name one in level`);
   if (names.length === 1) {
-    const hit = manifest.find((l) => l.name === names[0]);
+    const hit = near[0];
     return { cid, level: hit.name, how: "matched", elevation_mm: hit.elevation_mm, delta_mm: r1(hit.elevation_mm - E), checked: true, from: hit.from };
   }
   return { cid, level: `Drawing ${item} ${jobId}`, how: "created", elevation_mm: E, delta_mm: 0, checked: true, from: null };
@@ -116,12 +128,12 @@ function storeyOf(cid, item, E, level, manifest, jobId, was) {
 export function planDrawing({ job, candidates, align, manifest = [], type, filed = { cids: new Set(), storeys: new Map() }, catalog = { types: [] }, sameCategory }) {
   const { item } = align, al = alignFrom(align.points);
   const check_mm = align.check ? checkResidual(al, align.check) : null;
-  const S = al.scale, E0 = align.elevation_mm;
+  const S = al.scale, E0 = align.elevation_mm, Z = sizeScale(S); // Z: the scale a drawn size is read at (review)
   const frame = { dx_mm: al.dx_mm, dy_mm: al.dy_mm, dz_mm: E0, rotation_deg: al.rotation_deg };
   const M = toModel(frame), sc = ([x, y]) => [x * S, y * S, 0];
   const mine = candidates.filter((c) => itemOf(c) === item);
   const walls = mine.filter((c) => c.kind === "wall").map((c) => ({ c, start: sc(c.geometry.LocationCurve.start), end: sc(c.geometry.LocationCurve.end),
-    t: Math.round(c.measured.thickness_paper_mm * S), len: Math.round(c.measured.length_paper_mm * S) }));
+    t: Math.round(c.measured.thickness_paper_mm * Z), len: Math.round(c.measured.length_paper_mm * S) }));
   const doors = mine.filter((c) => c.kind === "door");
   const lvCid = `drawing-${item}-p1-level`, evidence = [`${item}#page-1`];
   const far = placeRefusal([{ kind: "level", geometry: { BaseElevation: 0 } }, ...walls.map((w) => ({ kind: "wall", geometry: { LocationCurve: { start: w.start, end: w.end } } })),
@@ -130,7 +142,7 @@ export function planDrawing({ job, candidates, align, manifest = [], type, filed
   const s = storeyOf(lvCid, item, E0, align.level, manifest, job.id, filed.storeys.get(lvCid)), E = s.elevation_mm;
   const ref = `${job.id} (ledger #${job.ledger.id})`, at = `${item} page 1 at 1:${S}`;
   const alignment = { method: "2-point similarity", item, points: align.points, check: align.check, scale: S, rotation_deg: al.rotation_deg,
-    dx_mm: al.dx_mm, dy_mm: al.dy_mm, dz_mm: E0, check_mm, rmse_mm: null };
+    dx_mm: al.dx_mm, dy_mm: al.dy_mm, dz_mm: E0, check_mm, rmse_mm: null, ...(Z !== S ? { sizes_at: Z } : {}) };
   const gaps = [], elements = [], byCid = new Map(), exceptions = [];
   let already = 0;
   const again = (cid) => { if (!filed.cids.has(cid)) return false; already++; return true; };
@@ -167,7 +179,7 @@ export function planDrawing({ job, candidates, align, manifest = [], type, filed
   // nominal), else its swing's to the nearest 100 mm; its height the tag's only — a plan draws no height (decision 6).
   for (const c of doors) {
     if (again(c.cid)) continue;
-    const host = c.geometry.host, hi = walls.findIndex((w) => w.c.cid === host), m = c.measured, drawn = Math.round(m.width_paper_mm * S);
+    const host = c.geometry.host, hi = walls.findIndex((w) => w.c.cid === host), m = c.measured, drawn = Math.round(m.width_paper_mm * Z);
     if (!s.checked) { hold(c, `its level ${s.level} is in no published model, so its height in Revit is unknown here — Revit refuses a door off its level's height; name a published level, or leave level out to have it created`); continue; }
     if (hi < 0) { hold(c, `its host wall ${host} is not a wall of ${item} in ${job.id}`); continue; }
     if (typed[hi].gap && !filed.cids.has(host)) { hold(c, `its host wall ${host} is a type gap — propose the drawing again once the wall's group in the Holding Area closes`); continue; }

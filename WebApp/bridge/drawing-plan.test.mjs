@@ -135,6 +135,16 @@ describe("planDrawing — one changeset per drawing, every element inferred and 
     no(() => plan({ points: [{ paper: [60, 40], model: [4e7, 0] }, { paper: [220, 160], model: [4e7 + 8000, 6000] }], elevation_mm: 0 }), 400,
       "the points put the drawing 40 km from the model's internal origin — Revit draws a model within 32 km of it; check the points' model coordinates — nothing was saved");
   });
+  it("review: a same-named level at another height is never the match; a check point on the A-B line is refused; a near-standard scale reads sizes at the standard", () => {
+    const two = [{ name: "Level 1", elevation_mm: 2900, from: "STR.ifc P01" }, { name: "Level 1", elevation_mm: 3000, from: "ARC.ifc P01" }];
+    expect(plan({ ...DRILL, elevation_mm: 3000 }, { manifest: two }).storeys[0].storey).toMatchObject({ level: "Level 1", how: "matched", elevation_mm: 3000, delta_mm: 0, from: "ARC.ifc P01" });
+    no(() => readAlignBody({ ...DRILL, check: { paper: [140, 100], model: [44000, 3000] } }, ["ev-0007"]), 400,
+      "the check point lies on (or near) the line through A and B — it cannot catch a mirrored or misread drawing; pick a mark well off that line (a third corner) — nothing was saved");
+    // B read 0.2 % short (1:49.9): placement keeps the points' scale, the 300 mm walls still type as 300 (the sizes at 1:50, said)
+    const near = plan({ points: [A, { paper: [220, 160], model: [47984, 5988] }], elevation_mm: 0 });
+    expect([near.alignment.scale, near.alignment.sizes_at, els(near).filter((e) => e.kind === "wall").map((e) => e.facts.thickness_mm)]).toEqual([49.9, 50, [100, 200, 300, 300]]);
+    expect(plan().alignment.sizes_at).toBeUndefined();
+  });
   it("itemOf: the drawing a candidate came from", () => {
     expect(RESULT.candidates.map(itemOf)).toEqual(Array(7).fill("ev-0007"));
   });

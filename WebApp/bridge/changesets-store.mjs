@@ -274,16 +274,18 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
     const align = drawing ? readAlignBody(b, row.read) : null;
     const { frame, levels } = drawing ? {} : readProposeBody(b, result.candidates.filter((c) => c.kind === "level").map((c) => c.cid));
     // Every item the job read must still be the bytes it read: in the pack the ROW names (job.json is never the anchor), not flagged, with
-    // the sha on its row (build-jobs stillAdmitted, shared with MA-4e's measure). A drawing's changeset names its own drawing only.
+    // the sha on its row (build-jobs stillAdmitted, shared with MA-4e's measure). A drawing is checked and named alone: another drawing of
+    // the job changed does not stop this one (review).
     const { pack } = await readPack(key, row.pack_id);
-    const evidence = stillAdmitted(row, pack, id).filter((e) => !drawing || e.id === align.item);
+    const evidence = stillAdmitted(drawing ? { ...row, read: [align.item] } : row, pack, id);
     const proj = await d.ensureProject(key);
     let earlier;
     try { earlier = await d.docList(STORE, proj.id); }
     catch (e) { throw err(503, `the project's changesets could not be read (${e.message}) — nothing was saved; send it again`); }
     // Decision 19, per candidate, keyed on this job's ROW (job.ledger_id: hash-chained, unique — a job id repeats across jobs folders): a cid
     // on a proposed or placed changeset of it, less what Revit rejected, is filed — not proposed again; its storey keeps the level it was filed on.
-    const mine = earlier.filter((c) => c.job?.ledger_id === row.ledger.id && FILED.includes(c.status));
+    // MA-5a-4 (review): a drawing job's are per drawing — another drawing of the job filed does not make this one "nothing new"
+    const mine = earlier.filter((c) => c.job?.ledger_id === row.ledger.id && FILED.includes(c.status) && (!drawing || c.job.alignment?.item === align.item));
     const filed = { cids: new Set(), storeys: new Map() };
     for (const c of mine) {
       const rejected = new Set(c.result?.rejected ?? []);
@@ -291,7 +293,8 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
       if (c.job.storey?.cid) filed.storeys.set(c.job.storey.cid, c.job.storey);
     }
     if (drawing) { // MA-5a-4: one drawing is one alignment — its two points and its height as filed
-      const said = (a) => JSON.stringify([a.points, a.dz_mm]);
+      // review: positions, not objects — bridge_docs.data is jsonb, which hands {paper, model} back as {model, paper}
+      const said = (a) => JSON.stringify([a.points.map((p) => [p.paper, p.model]), a.dz_mm]);
       const moved = mine.find((c) => c.job.alignment?.item === align.item && said(c.job.alignment) !== said({ points: align.points, dz_mm: align.elevation_mm }));
       if (moved) {
         const a = moved.job.alignment;
