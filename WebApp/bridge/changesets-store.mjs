@@ -84,7 +84,7 @@ const UNCHECKED_WHY = "the reporting client sent no review_rev — the bridge ca
 /** MA-2a: does a posted body hold an element the bridge would have to type — a create or retype of a typed kind (not a level or
  *  grid, never an attach or a set_parameter) that names no place.TypeName? Only then are the standards read. */
 export const needsTyping = (body) => Array.isArray(body?.elements) && body.elements.some((e) => e && typeof e === "object"
-  && !["attach", "set_parameter"].includes(e.op ?? "create") && e.kind !== "level" && e.kind !== "grid"
+  && !["attach", "set_parameter"].includes(e.op ?? "create") && !["level", "grid", "room"].includes(e.kind)
   && !(e.place && typeof e.place === "object" && typeof e.place.TypeName === "string" && e.place.TypeName.trim() !== ""));
 
 /** MA-2c: does a posted body hold a set_parameter? Only then are the type catalogue and the ids@n read, to check its source. */

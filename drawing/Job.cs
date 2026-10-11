@@ -16,7 +16,7 @@ namespace Sentinel.Drawing
     public static class DrawingJob
     {
         public const string NAME = "sentinel-drawing";
-        public const string VERSION = "0.1.0";
+        public const string VERSION = "0.2.0"; // MA-5b-1: room labels
 
         static double R(double v) => Math.Round(v, 3) + 0.0; // + 0.0: never "-0" in the JSON
         static JsonArray P(double x, double y) => new JsonArray(R(x), R(y));
@@ -60,7 +60,7 @@ namespace Sentinel.Drawing
                         ["id"] = id, ["pages"] = pages, ["page_read"] = 1, ["size_paper_mm"] = P(w, h), ["strokes"] = reading.Strokes,
                         ["wall_weight_pt"] = reading.WallWeight.HasValue ? R(reading.WallWeight.Value) : null, ["faces"] = reading.Faces,
                         ["unpaired_faces"] = reading.Unpaired, ["arcs"] = reading.Arcs, ["walls"] = reading.Walls.Count, ["doors"] = reading.Doors.Count,
-                        ["columns"] = reading.Columns,
+                        ["rooms"] = reading.Rooms.Count, ["columns"] = reading.Columns,
                         ["weights"] = new JsonArray(reading.Weights.Select(x => (JsonNode)new JsonObject { ["pt"] = R(x.weight), ["paired_paper_mm"] = R(x.paired), ["read"] = x.read }).ToArray()),
                     };
                     if (reading.Why != null) ri["why"] = reading.Why;
@@ -85,7 +85,7 @@ namespace Sentinel.Drawing
             return outcome;
         }
 
-        /// <summary>One item's walls and doors as candidates (paper mm, page 1, evidence &lt;item&gt;#page-1), in the reader's order.</summary>
+        /// <summary>One item's walls, doors and rooms as candidates (paper mm, page 1, evidence &lt;item&gt;#page-1), in the reader's order.</summary>
         static void Add(JsonArray candidates, string id, Reading r)
         {
             string Cid(int n) => $"drawing-{id}-p1-wall-{n + 1}";
@@ -120,6 +120,22 @@ namespace Sentinel.Drawing
                         ["evidence"] = new JsonArray($"{id}#page-1"),
                     });
                 }
+            }
+            // MA-5b-1: a room at its label's centre, named and numbered as drawn, with the four walls round it (Revit finds its boundary)
+            for (int n = 0; n < r.Rooms.Count; n++)
+            {
+                var m = r.Rooms[n];
+                var g = new JsonObject { ["Location"] = P(m.X, m.Y), ["name"] = m.Name };
+                if (m.Number != null) g["number"] = m.Number;
+                g["also"] = new JsonArray(m.Also.Select(a => (JsonNode)a).ToArray());
+                g["walls"] = new JsonArray(m.Walls.Distinct().Select(i => (JsonNode)Cid(i)).ToArray());
+                g["page"] = 1; g["units"] = "paper_mm";
+                candidates.Add(new JsonObject
+                {
+                    ["cid"] = $"drawing-{id}-p1-room-{n + 1}", ["kind"] = "room", ["geometry"] = g,
+                    ["measured"] = new JsonObject { ["text_height_paper_mm"] = R(m.H) },
+                    ["evidence"] = new JsonArray($"{id}#page-1"),
+                });
             }
         }
     }

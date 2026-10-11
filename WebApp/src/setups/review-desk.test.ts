@@ -39,6 +39,9 @@ describe("words", () => {
     const [g1, g2, , g4] = after.elements;
     expect(ghostLine(g1)).toBe("W 1 · Generic - 200mm → BDS_EXT_ARC_CMU_200 mm");
     expect(ghostLine(g2)).toBe("W 1 · GR-FFL → top 01-FFL");
+    // MA-5b-1: a room reads its number then its name; a level whose place.Name is its own name reads as before
+    expect(ghostLine({ kind: "room", proposal_guid: "g", validate: { identity: { Name: "101" } }, place: { LevelName: "L00", Name: "OFFICE" } } as Ghost)).toBe("101 · OFFICE · L00");
+    expect(ghostLine({ kind: "level", proposal_guid: "g", validate: { identity: { Name: "L00" } }, place: { Name: "L00" } } as Ghost)).toBe("L00");
     expect(ghostLine(g4)).toBe('Basic Wall : BDS_EXT_ARC_CMU_200 mm · FireRating "" → "60 min" (a type edit: it reaches every element of the type)');
     expect(ghostLine({ proposal_guid: "x", kind: "floor", place: { TypeName: "Generic 150mm", LevelName: "L1" } })).toBe("x · Generic 150mm · L1");
   });

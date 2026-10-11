@@ -271,6 +271,7 @@ public sealed class ChangesetReviewWindow : Window
     {
         var p = el.Place;
         var parts = new List<string> { $"{el.Kind}: {name}" };
+        if (p?.Name != null && p.Name != name) parts.Add(p.Name); // MA-5b-1: a room's name after its number (a level's Name is its own)
         if (p?.TypeName != null) parts.Add((p.FamilyName != null ? p.FamilyName + " : " : "") + p.TypeName);
         if (p?.LevelName != null) parts.Add(p.LevelName);
         if (p?.SillHeight is double s) parts.Add($"sill {Mm(s)} mm");

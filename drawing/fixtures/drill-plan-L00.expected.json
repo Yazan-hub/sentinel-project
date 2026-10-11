@@ -138,6 +138,51 @@
    "page_read": 1,
    "walls": 5,
    "doors": 2
+  },
+  "rooms": {
+   "file": "drill-plan-L00-rooms.pdf",
+   "walls": 5,
+   "doors": 2,
+   "rooms": [
+    {
+     "name": "OFFICE",
+     "number": "101",
+     "also": [
+      "FFL +0.00"
+     ],
+     "walls": [
+      "west",
+      "partition",
+      "south",
+      "north"
+     ],
+     "inside_paper_mm": [
+      65.0,
+      46.0,
+      140.0,
+      156.0
+     ],
+     "area_m2": 20.625
+    },
+    {
+     "name": "MEETING ROOM",
+     "number": "102",
+     "also": [],
+     "walls": [
+      "partition",
+      "east",
+      "south",
+      "north"
+     ],
+     "inside_paper_mm": [
+      142.0,
+      46.0,
+      214.0,
+      156.0
+     ],
+     "area_m2": 19.8
+    }
+   ]
   }
  }
 }

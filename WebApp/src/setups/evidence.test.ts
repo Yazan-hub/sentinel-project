@@ -239,6 +239,7 @@ describe("drawing jobs (MA-5a-3) — sentinel-drawing on the admitted PDF plans"
     expect(isDrawingJob({ ...DJOB, reader: undefined })).toBe(false); // a job from before MA-5a-3 names no reader: a survey
     expect(jobLine(DJOB)).toBe("job-0007 · sentinel-drawing · done · read ev-0010 · refused ev-0009 (a .dwg is read by Ghost Builder in Revit (Model from Drawings) — sentinel-drawing reads PDF) · 5 wall(s), 2 door(s) · by contributor@example.test · 2026-10-11 10:00 · ledger #2400 · receipt abababababababab…");
     expect(jobLine({ ...DJOB, reader: { name: "sentinel-survey", version: "0.6.0" } })).toMatch(/^job-0007 · done · /);
+    expect(jobLine({ ...DJOB, counts: { ...DJOB.counts, room: 2 } })).toContain(" · 5 wall(s), 2 door(s), 2 room(s) · "); // MA-5b-1
     // review: a drawing read with nothing found says why, on the line itself (no Candidates button for a job of 0)
     expect(jobLine({ ...DJOB, counts: { wall: 0, door: 0 }, candidates_total: 0, notes: [{ id: "ev-0010", why: "one line weight on the page — walls are not told from the rest" }] }))
       .toContain(" · 0 wall(s), 0 door(s) · ev-0010: one line weight on the page — walls are not told from the rest · by contributor@example.test");

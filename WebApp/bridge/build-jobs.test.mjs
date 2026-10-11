@@ -285,6 +285,17 @@ describe("drawing jobs (MA-5a-3) — sentinel-drawing on the pack's admitted PDF
     expect(resultRefusal({ ...DRESULT, candidates: [{ ...DRESULT.candidates[0], geometry: { ...DRESULT.candidates[0].geometry, units: undefined } }] }, ["ev-0011"], "sentinel-drawing"))
       .toBe("candidates[0].geometry.units (a drawing's candidates are in paper_mm)");
     expect(resultRefusal(RESULT, ["ev-0001"], "sentinel-drawing")).toBe("candidates[0].kind"); // a level is not a drawing's
+    // MA-5b-1: a room's name becomes a Revit name — each field one line, bounded; its walls are its result's cids
+    const room = { cid: "drawing-ev-0011-p1-room-1", kind: "room", geometry: { Location: [94.5, 105.3], name: "OFFICE", number: "101", also: ["FFL +0.00"],
+      walls: ["drawing-ev-0011-p1-wall-1"], page: 1, units: "paper_mm" }, measured: { text_height_paper_mm: 2.6 }, evidence: ["ev-0011#page-1"] };
+    const withRoom = (g) => ({ ...DRESULT, candidates: [{ ...room, geometry: { ...room.geometry, ...g } }] });
+    expect(resultRefusal(withRoom({}), ["ev-0011"], "sentinel-drawing")).toBeNull();
+    expect(resultRefusal(withRoom({ number: undefined, also: undefined }), ["ev-0011"], "sentinel-drawing")).toBeNull();
+    for (const [g, why] of [[{ name: "" }, "name"], [{ name: "OFF\nICE" }, "name"], [{ name: "x".repeat(257) }, "name"], [{ number: "1".repeat(17) }, "number"],
+      [{ number: 101 }, "number"], [{ Location: [1] }, "Location"], [{ Location: [1, Infinity] }, "Location"], [{ walls: ["a", "b", "c", "d", "e"] }, "walls"],
+      [{ walls: undefined }, "walls"], [{ also: Array(9).fill("x") }, "also"], [{ also: ["\u0007"] }, "also"]])
+      expect(resultRefusal(withRoom(g), ["ev-0011"], "sentinel-drawing"), why).toBe(`candidates[0].geometry.${why}`);
+    expect(resultRefusal({ ...RESULT, candidates: [{ ...room, evidence: ["ev-0001#x"], geometry: { ...room.geometry, units: undefined } }] }, ["ev-0001"])).toBe("candidates[0].kind"); // not a survey's
     await startD();
     await finish({ status: "done", stage: "done", pct: 100, refused: [], tools: DTOOLS, version: "0.1.0", result: { ...DRESULT, candidates: [{ ...DRESULT.candidates[0], kind: "window" }] } });
     expect(rec()).toMatchObject({ status: "failed", error: "sentinel-drawing's result is not the contract's shape (candidates[0].kind) — nothing it found was kept" });

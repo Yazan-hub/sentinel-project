@@ -637,6 +637,47 @@ public sealed class ChangesetExecutor
                 Collect(result, el, fi);
             }
 
+            // MA-5b-1: a room at its label's point on its level, after every wall of this changeset (Regenerate first): Revit finds the
+            // boundary there (NewRoom(level, UV)). All or nothing, in words — and the changeset stays proposed (PlacementRefused: the model
+            // or the ticks, not a verdict on it): a room already standing at a point; two of these rooms in one enclosed area; a room the
+            // walls round it do not close (Area 0: a wall around it unticked, held or a type gap).
+            var rooms = toPlace.Where(e => IsCreate(e) && e.Kind == "room").ToList();
+            if (rooms.Count > 0)
+            {
+                doc.Regenerate();
+                var spots = new List<(ChangesetElementDto el, Level level, XYZ pt, string name)>();
+                foreach (var el in rooms)
+                {
+                    at = Label(el);
+                    var level = ResolveLevel(doc, el.Place);
+                    var p = el.Place.Location ?? throw new InvalidOperationException($"{at} has no Location");
+                    var name = $"room {(string.IsNullOrWhiteSpace(el.Place.Number) ? "" : el.Place.Number + " ")}{el.Place.Name}";
+                    var pt = new XYZ(p[0] * MmToFeet, p[1] * MmToFeet, level.Elevation + 1.0); // a foot above its level: inside a room's height
+                    if (doc.GetRoomAtPoint(pt) is { } there)
+                        throw new PlacementRefused($"{name}: room {there.Number} \"{there.Name}\" already stands at its point on {level.Name} — untick it; nothing was placed");
+                    spots.Add((el, level, pt, name));
+                }
+                var made = new List<Autodesk.Revit.DB.Architecture.Room>();
+                foreach (var (el, level, pt, _) in spots)
+                {
+                    at = Label(el);
+                    var room = doc.Create.NewRoom(level, new UV(pt.X, pt.Y));
+                    room.Name = el.Place.Name;
+                    if (!string.IsNullOrWhiteSpace(el.Place.Number)) room.Number = el.Place.Number;
+                    made.Add(room);
+                    Collect(result, el, room);
+                }
+                doc.Regenerate();
+                at = "the rooms";
+                for (int i = 0; i < made.Count; i++)
+                    for (int j = i + 1; j < made.Count; j++)
+                        if (made[i].IsPointInRoom(spots[j].pt) || made[j].IsPointInRoom(spots[i].pt))
+                            throw new PlacementRefused($"{spots[i].name} and {spots[j].name} fall in one enclosed area on {spots[i].level.Name} — a wall between them is unticked, or the drawing labels one room twice: untick one; nothing was placed");
+                for (int i = 0; i < made.Count; i++)
+                    if (!(made[i].Area > 0))
+                        throw new PlacementRefused($"{spots[i].name} is not enclosed on {spots[i].level.Name} — a wall round it is unticked, held or a type gap: untick the room, or place its walls first; nothing was placed");
+            }
+
             // MA-0: retype before attach. Only to a type already in the document; the model must still hold the type
             // the plan saw, or the reviewer approved something that is no longer true. Promote v1: one path for every kind —
             // a door or window swaps to a symbol of its own category and keeps its host; Unsafe repeats the planner's holds.

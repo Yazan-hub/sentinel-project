@@ -19,7 +19,7 @@ export const READER = "sentinel-survey";
  *  Its candidates are walls and doors in paper millimetres (units "paper_mm"): proposed with a 2-point alignment, MA-5a-4. */
 export const DRAWING = "sentinel-drawing";
 export const READERS = [READER, DRAWING];
-const DRAWING_KINDS = ["wall", "door"];
+const DRAWING_KINDS = ["wall", "door", "room"]; // MA-5b-1: room labels
 export const DEFAULT_PARAMS = { voxel_mm: 20, storey_min_mm: 2000 };
 // [low, high, why]: a coarser voxel leaves a wall face too sparse for the survey's 20 mm cells (4 of the drill's 8 walls lost their
 // thickness at 200 mm, measured) — the service bounds it the same way (read_job).
@@ -126,7 +126,7 @@ export function pickItems(pack, dir, reader = READER) {
 }
 
 /** null when `r` has the contract's shape (§6.9: candidates without a type, each naming items of this job), else what is wrong — the
- *  bridge keeps nothing it could not read back. MA-5a-3: a drawing job's are walls and doors, each in paper millimetres. */
+ *  bridge keeps nothing it could not read back. MA-5a-3: a drawing job's are walls and doors, each in paper millimetres; MA-5b-1: and rooms. */
 export function resultRefusal(r, ids, reader = READER) {
   if (!r || typeof r !== "object" || !Array.isArray(r.candidates)) return "no candidates list";
   if (r.candidates.length > MAX_CANDIDATES) return `over ${MAX_CANDIDATES} candidates`;
@@ -139,6 +139,15 @@ export function resultRefusal(r, ids, reader = READER) {
     if (reader === DRAWING && c.geometry.units !== "paper_mm") return `${at}.geometry.units (a drawing's candidates are in paper_mm)`;
     if ("type" in c || "TypeName" in c.geometry) return `${at} carries a type (the service does no typing)`;
     if (!c.measured || typeof c.measured !== "object" || !Object.values(c.measured).every(Number.isFinite)) return `${at}.measured`;
+    // MA-5b-1: a room's name becomes its name in Revit — one line each, bounded; the walls round it name this result's walls
+    if (c.kind === "room") {
+      const g = c.geometry, line = (x, max) => typeof x === "string" && x.trim() !== "" && x.length <= max && !/[\u0000-\u001f]/.test(x);
+      if (!Array.isArray(g.Location) || g.Location.length !== 2 || !g.Location.every(Number.isFinite)) return `${at}.geometry.Location`;
+      if (!line(g.name, 256)) return `${at}.geometry.name`;
+      if (g.number !== undefined && !line(g.number, 16)) return `${at}.geometry.number`;
+      if (!Array.isArray(g.walls) || g.walls.length > 4 || !g.walls.every((w) => line(w, 256))) return `${at}.geometry.walls`;
+      if (g.also !== undefined && (!Array.isArray(g.also) || g.also.length > 8 || !g.also.every((w) => line(w, 256)))) return `${at}.geometry.also`;
+    }
     if (!Array.isArray(c.evidence) || !c.evidence.length || !c.evidence.every((e) => typeof e === "string" && ids.includes(e.split("#")[0]))) return `${at}.evidence`;
   }
   if (!Array.isArray(r.derived) || !r.receipt || typeof r.receipt !== "object") return "derived or receipt";

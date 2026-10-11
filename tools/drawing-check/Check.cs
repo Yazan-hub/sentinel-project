@@ -167,6 +167,28 @@ namespace Sentinel.Checks
             foreach (var r in Both(new List<Stroke> { Ln(0, 0, 400, 0), Ln(0, 6, 94, 6), Ln(0, 0, 0, 6), Ln(100, 4, 400, 4), Ln(400, 0, 400, 4),
                 Ln(100, 4, 100, 6), Ln(94, 6, 94, 200), Ln(100, 6, 100, 200), Ln(94, 200, 100, 200) }))
                 Ok(Has(r, 0, 3, 97, 3, 6) && Has(r, 97, 2, 400, 2, 4), $"a flush face stepping at a T: the walls meet at the T's centreline — {Ws(r)}");
+            // ---- MA-5b-1: room labels (a 200 x 150 box of 6-thick walls; words with their boxes) ----
+            Word Wd(string text, double cx, double cy, double w = 12, double h = 2.5) => new Word { Text = text, X = cx, Y = cy, L = cx - w / 2, R = cx + w / 2, B = cy - h / 2, T = cy + h / 2 };
+            var box = Rect(0, 0, 200, 150).Concat(Rect(6, 6, 194, 144)).ToList();
+            Reading Rm(List<Stroke> s, params Word[] w) => An(s, null, w.ToList());
+            var w1 = Rm(box, Wd("OFFICE", 100, 80), Wd("101", 100, 76, 5, 2));
+            Ok(w1.Rooms.Count == 1 && w1.Rooms[0].Name == "OFFICE" && w1.Rooms[0].Number == "101" && w1.Rooms[0].Walls.Distinct().Count() == 4 && Math.Abs(w1.Rooms[0].X - 100) < 0.01,
+                $"a label inside four walls: room 101 OFFICE at its centre, its four walls — {string.Join("; ", w1.Rooms.Select(m => $"{m.Number} {m.Name} ({m.X:0.#},{m.Y:0.#})"))}");
+            Ok(Rm(box, Wd("OFFICE", 300, 80)).Rooms.Count == 0, "a label outside the walls (a title block) is no room");
+            var w3 = Rm(box, Wd("STORE", 100, 80), Wd("12.5", 96, 76, 6, 2), Wd("m²", 102, 76, 4, 2));
+            Ok(w3.Rooms.Count == 1 && w3.Rooms[0].Name == "STORE" && w3.Rooms[0].Number == null, $"an area under a name is no number and no name: STORE ({w3.Rooms.FirstOrDefault()?.Number})");
+            Ok(Rm(box, Wd("A", 100, 80, 2), Wd("D2", 50, 50, 4)).Rooms.Count == 0, "a mark A and a door's D2 are no room's label");
+            Ok(Rm(box, new Word { Text = "OFFICE", X = 100, Y = 80 }).Rooms.Count == 0, "a word with no box (turned off the level) is no room's label");
+            var w6 = Rm(box, Wd("KITCHEN", 60, 100, 14), Wd("FFL", 140, 40, 6, 2), Wd("+0.00", 147, 40, 8, 2));
+            Ok(w6.Rooms.Count == 1 && w6.Rooms[0].Name == "KITCHEN" && w6.Rooms[0].Also.SequenceEqual(new[] { "FFL +0.00" }),
+                $"two labels in one room: one room, named by the taller, the other kept ({string.Join(" | ", w6.Rooms.SelectMany(m => m.Also))})");
+            var halves = box.Concat(new[] { Ln(98, 6, 98, 144), Ln(102, 6, 102, 144) }).ToList();
+            var w7 = Rm(halves, Wd("LEFT", 50, 80), Wd("RIGHT", 150, 80));
+            Ok(w7.Rooms.Count == 2 && w7.Rooms[0].Walls.Intersect(w7.Rooms[1].Walls).Count() == 3, $"a partition: two rooms sharing three walls — {w7.Rooms.Count} room(s)");
+            var w8 = Rm(box, Wd("LOBBY", 100, 80), Wd("900", 94, 76, 5, 2), Wd("x", 98.5, 76, 1.5, 2), Wd("2100", 103, 76, 6, 2));
+            Ok(w8.Rooms.Count == 1 && w8.Rooms[0].Name == "LOBBY" && w8.Rooms[0].Number == null, "a W x H tag in three words beside a label is not its number");
+            Ok(Rm(new List<Stroke> { Ln(0, 0, 200, 0), Ln(0, 6, 200, 6) }, Wd("OFFICE", 100, 80)).Rooms.Count == 0, "a label with a wall on one side only is no room");
+
             // (k) Speed: 20,000 wall strokes (500 walls, each face in 20 pieces, shuffled) read well inside the bridge's bound.
             var big = new List<Stroke>();
             for (int k = 0; k < 500; k++) for (int p = 0; p < 20; p++) { big.Add(Ln(p * 10, 10 * k, p * 10 + 10, 10 * k)); big.Add(Ln(p * 10, 10 * k + 4, p * 10 + 10, 10 * k + 4)); }
@@ -185,7 +207,7 @@ namespace Sentinel.Checks
 
             // 1. The drill plan: 5 walls (the south wall and the partition each ONE wall through their door), 2 doors with their tags.
             var r = Run(("ev-0007", plan, Sha(plan)));
-            Ok((string)r["status"] == "done" && (string)r["version"] == "0.1.0", "the drill plan is read: done, sentinel-drawing 0.1.0");
+            Ok((string)r["status"] == "done" && (string)r["version"] == "0.2.0", "the drill plan is read: done, sentinel-drawing 0.2.0");
             var walls = Kind(r, "wall"); var doors = Kind(r, "door");
             Ok(walls.Length == 5, $"5 walls (got {walls.Length}) — the border, title block and marks are no wall, the jambs no wall");
             Ok(doors.Length == 2, $"2 doors (got {doors.Length})");
@@ -222,6 +244,7 @@ namespace Sentinel.Checks
             Ok(all.All(c => c["evidence"].AsArray().Select(x => (string)x).SequenceEqual(new[] { "ev-0007#page-1" })), "every candidate's evidence is ev-0007#page-1");
             Ok(all.All(c => c["type"] == null && c["geometry"]["TypeName"] == null), "no candidate carries a type");
             Ok(all.All(c => ((string)c["cid"]).StartsWith("drawing-ev-0007-p1-wall-")), "cids are drawing-<item>-p1-wall-N[-door-M]");
+            Ok(Kind(r, "room").Length == 0 && (int)r["result"]["receipt"]["items"][0]["rooms"] == 0, "no room: the title block, the tags and the marks A and B are no room's label");
             var it = r["result"]["receipt"]["items"][0];
             Ok((int)it["pages"] == 1 && (int)it["page_read"] == 1 && it["why"] == null, "the receipt: 1 page, page 1 read, no why");
             Ok(Math.Abs(D(it["wall_weight_pt"]) - 0.7) < 1e-6, $"the receipt: walls in the page's heaviest weight, 0.7 pt (got {it["wall_weight_pt"]})");
@@ -247,6 +270,30 @@ namespace Sentinel.Checks
             var r3 = Run(("ev-0001", two, Sha(two)));
             var i3 = r3["result"]["receipt"]["items"][0];
             Ok((int)i3["pages"] == 2 && (int)i3["page_read"] == 1 && Kind(r3, "wall").Length == 5 && Kind(r3, "door").Length == 2, "two pages: page 1 read (5 walls, 2 doors), pages 2");
+
+            // 4b. MA-5b-1: the plan with its room labels — the same walls and doors, and two rooms inside them, each at its label.
+            var ex = expected["variants"]["rooms"];
+            string rp = Path.Combine(fx, (string)ex["file"]);
+            var rr = Run(("ev-0007", rp, Sha(rp)));
+            var rw = Kind(rr, "wall");
+            Ok(rw.Length == 5 && Kind(rr, "door").Length == 2 && Kind(rr, "room").Length == 2, $"the rooms plan: 5 walls, 2 doors, 2 rooms (got {rw.Length} / {Kind(rr, "door").Length} / {Kind(rr, "room").Length})");
+            string WallNamed(string name)
+            {
+                var e = expected["walls"].AsArray().First(x => (string)x["name"] == name);
+                return (string)rw.First(c => { var lc = c["geometry"]["LocationCurve"]; return Dist(lc["start"], e["start"]) < 0.1 || Dist(lc["start"], e["end"]) < 0.1; })["cid"];
+            }
+            foreach (var e in ex["rooms"].AsArray())
+            {
+                var m = Kind(rr, "room").FirstOrDefault(c => (string)c["geometry"]["name"] == (string)e["name"]);
+                Ok(m != null && (string)m["geometry"]["number"] == (string)e["number"], $"room {e["number"]} {e["name"]} read");
+                if (m == null) continue;
+                var at = m["geometry"]["Location"]; var inside = e["inside_paper_mm"];
+                Ok(D(at[0]) > D(inside[0]) && D(at[0]) < D(inside[2]) && D(at[1]) > D(inside[1]) && D(at[1]) < D(inside[3]), $"room {e["name"]}: its point {at.ToJsonString()} is inside its walls");
+                Ok(m["geometry"]["also"].AsArray().Select(x => (string)x).SequenceEqual(e["also"].AsArray().Select(x => (string)x)), $"room {e["name"]}: also {m["geometry"]["also"].ToJsonString()}");
+                var want = e["walls"].AsArray().Select(x => WallNamed((string)x)).OrderBy(x => x);
+                Ok(m["geometry"]["walls"].AsArray().Select(x => (string)x).OrderBy(x => x).SequenceEqual(want), $"room {e["name"]}: the four walls round it ({m["geometry"]["walls"].ToJsonString()})");
+                Ok(((string)m["cid"]).StartsWith("drawing-ev-0007-p1-room-") && D(m["measured"]["text_height_paper_mm"]) > 0, $"room {e["name"]}: cid {m["cid"]}, its text height measured");
+            }
 
             // 5. Not the admitted bytes; not a PDF; a mix (the good one read, the bad one listed); a missing file.
             var r4 = Run(("ev-0001", plan, new string('0', 64)));

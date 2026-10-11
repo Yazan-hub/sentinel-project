@@ -15,7 +15,8 @@ namespace Sentinel.GhostBuilder
     /// <summary>Review amendments C5, C29: Revit refused a placement write on a created element (a workset owned by another
     /// user, a read-only parameter, a phase it will not take) — by answering false or by throwing. It is this session's model state, not a verdict on the changeset: the placer rolls its
     /// transaction back, and the executor answers NotRun, so the changeset stays proposed — as for the other refusals of
-    /// item 6.</summary>
+    /// item 6. MA-5b-1: a room the model or the ticks leave unplaceable (one already there, two in one area, one not enclosed) is refused
+    /// the same way — the person changes the ticks and applies again.</summary>
     public sealed class PlacementRefused : InvalidOperationException
     {
         public PlacementRefused(string message) : base(message) { }
