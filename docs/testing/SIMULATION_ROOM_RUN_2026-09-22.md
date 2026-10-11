@@ -2924,3 +2924,34 @@ the east wall back on A's line after the Undo (the bridge records C's east resha
 the 250 mm west wall and the south door (type gaps), OFFICE 101 behind them. The scratch DXF removed from the Ghost source folder.
 Owed: a live run of F-MA5b-2's refusal (a drawing whose rooms close with a wall unticked); a live Ghost Builder build on a real DWG;
 real PDF/DWG sets (D8); F-MA5a456-1.
+
+## Session MA5b batch 2 — Revit rows: Ghost wall joins, datum layers and review, arc grids (2026-10-12 local: merged through c5e89d7, web 1.0.77, the add-in deployed 2021–2027 at 01:27, the 4100 bridge restarted once on master; Claude driving alone (the founder away, no Funnel refresh yet); Revit 2024, `ma5b-b2.rvt` — a scratch copy of `ma5a.rvt`, bound to ma4c-drill)
+
+Setup: `ma5a.rvt` saved and closed; a Revit 2026 left at the unsigned-add-in prompt since 23:02 (no model) closed. ma4c-drill read the
+office's base layers@1; a project layers@1 with only a `datum` section added (levels `*-SECT-DATUM`, grids `S-GRID-IDEN`) installed over
+loopback with the machine credential (#2361). The four drill DXFs (`make-sample.py --ma5b6`, `make-datum-sample.py --ma5b7 / --ma5b8`)
+copied into the Ghost source folder for the run, removed after.
+
+| Row | What happened | Result |
+|---|---|---|
+| D-1 | Datum's pick window: `Read from: layers@1 · project · 51f606ea9ae3… datum: levels *-SECT-DATUM; grids S-GRID-IDEN` | **pass** |
+| D-2 | `ma5b7-datum.dxf`: the review lists Level 0–4 (0 … 11400) and 12 grids, 1–3 and A–H, J (no I). Renamed B1 / Ground / L01 / Roof — the ±0.00 list followed every rename (the review fix) — Building Story off on Roof, the 11400 parapet unticked, ±0.00 → Ground: B1 −3500, Ground 0, L01 3500, Roof 7000. Create: 3 levels and 12 grids (#2362); `Level at 0 mm already exists ('GR-FFL') — kept`; grids 1–3 / A–H already named in the model → `1 (2)` … said. Read back by a second read: `Level at -3500 mm already exists ('B1')`, `3500 ('L01')`, `7000 ('Roof')`, no level at 7900 | **pass** (Roof's Building Story flag not read back live — the elevation's crop hides the new levels; Annotate needs a views section this guideline lacks; offline pins cover the write) |
+| D-4 | Every grid of the second read: `already stands on that line — kept` (position, not name) | **pass** |
+| D-3 | Ghost Builder on `ma5b7-datum.dxf`: the review lists `Walls — 1 layer(s), 2 element(s): A-WALL` only — neither datum layer | **pass** |
+| G-0 | Ghost Builder on `ma5b6-joins.dxf` (from the GR-FFL plan; the BDS 200 / 100 wall types and a BDS door picked — the base layers name Generic_Wall / Generic_Door, which this model lacks): `Placed: 6`, boundary 4 outside · 1 inside, the only Revit warning a duplicate Mark (no "walls overlap"). The stored changeset 62646153: the four box walls end at their centrelines' crossings (80000/90000 × 60000/67000), the south wall one wall through the door, the partition 84000 from 60000 to 67000, the door at (81950, 60000) hosted. One Ctrl+Z → `changeset_reverted` undo #2369 | **pass** |
+| R-1 | Datum on `ma5b8-radial.dxf`: the review lists spokes 1–5 (0, 22.5, 45, 67.5, 90°), the wing A–C at 30°, the arcs D–F about (200000, 0) — no bubble, no leader. Create: 10 grids; a second read: the arcs `already stand on that arc — kept`, the wing on its lines | **pass**, with F-2 |
+
+Findings (all fixed on `fix/ma5b-b2-drill`):
+- **F-1** Ghost Builder run from an elevation imported the drawing into the elevation's vertical plane — the door read at (0, 81950), the
+  walls vertical, nothing built and nothing said about why. Ghost now refuses an elevation, section, detail, drafting, 3D, walkthrough or
+  rendering view before a drawing is picked, in words.
+- **F-2** Datum kept spoke 1 (y = 0, x 215–232 m) as "grid 'A (2)' already stands on that line" — A (2) runs x −0.5–12.5 m on the same
+  infinite line. A grid is now the one in the model only where their spans meet (named apart and said otherwise).
+- **F-3** A Snowdon sheet read by mistake (keyboard selection) listed dozens of "whole circle of radius 610 mm" lines: with no grid line on
+  the layer the size floor was 0. An arc grid is now at least 2 m in radius (a radial plan's hub ring excepted); bubbles say nothing.
+- **F-4** The review's Runs column cut an arc's centre, radius and sweep; a grid's run now spans the last two columns and wraps.
+- Driving: open_application on a running Revit 2026 started a second instance again (closed); reach a running Revit by its taskbar
+  button. Keyboard Up/Down in the drawing list moves focus, not always the selection — click the row.
+
+Owed for batch 2: MA5b5 (Promote rehost) live — a Sentinel sign-in in Revit (the founder's) and a non-hosted placeholder door family;
+the web rows (the desk's rehost row and its "rehosted" count, the batch-1 fixes' words) after the founder's Funnel refresh.

@@ -83,6 +83,17 @@ public sealed class GhostBuilderCommand : IExternalCommand
             return Result.Cancelled;
         }
 
+        // Drill MA5b batch 2 (F-1): Ghost reads a PLAN — imported into an elevation, a section or a drafting view the drawing lands in that
+        // view's vertical plane and nothing it builds is where it was drawn. Refused before a drawing is picked; a schedule, legend or
+        // sheet keeps its old fallback to a floor plan below.
+        if (uidoc.ActiveView.ViewType is ViewType.Elevation or ViewType.Section or ViewType.Detail or ViewType.DraftingView or ViewType.ThreeD or ViewType.Walkthrough or ViewType.Rendering)
+        {
+            TaskDialog.Show("Sentinel — Ghost Builder",
+                $"Ghost Builder reads a plan drawing into a plan view — \"{uidoc.ActiveView.Name}\" is a {uidoc.ActiveView.ViewType} view, where an imported " +
+                "drawing would lie in the view's vertical plane and nothing would be built where it was drawn. Open a floor plan (the level you build on) and run it again.");
+            return Result.Cancelled;
+        }
+
         // 2. Acquire the DWG: folder-first (same GhostSourceFolder Datum reads), PickObject fallback.
         ImportInstance? cadLink = null;
         string? sourceSha = null; // MA-1a item 4: the drawing's sha256 — when this run imports it (an import picked from the model has no file)

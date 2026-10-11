@@ -58,7 +58,7 @@ def dxf(lines, arcs=()):
 # MA-5b-7 drill (DAT-1, DAT-2): the datum on an office's own layers — levels on A-SECT-DATUM (a basement at -3500 below the
 # ground, two storeys and a parapet line at 7900 a person unticks), grids on S-GRID-IDEN (3 numbered, 9 lettered: no I), and a
 # 200 mm wall on A-WALL beside them (Ghost builds the wall, never the datum layers). ma5b7-plan-shifted.dxf: the same grids
-# 60 m east — its numbered grids stand elsewhere ("1 (2)"), its lettered ones on the same lines (kept).
+# 60 m east — its numbered grids stand elsewhere and its lettered ones on the same lines but 47 m apart: all new ("1 (2)", "A (2)"), said.
 MA5B7_SECTION = [("A-SECT-DATUM", 100000.0, y, 110000.0, y) for y in (-3500.0, 0.0, 3500.0, 7000.0, 7900.0)]
 MA5B7_GRIDS = ([("S-GRID-IDEN", x, -500.0, x, 40500.0) for x in (0.0, 6000.0, 12000.0)]
                + [("S-GRID-IDEN", -500.0, float(y), 12500.0, float(y)) for y in range(0, 45000, 5000)])

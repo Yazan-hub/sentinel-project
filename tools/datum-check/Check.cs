@@ -101,6 +101,10 @@ Check("picked: names trimmed as typed, elevations as typed, Building Story as le
 
 // ---- MA-5b-7: grids de-duplicated by position, not name ---------------------------------------------------
 Check("a grid on the same line (5 mm off, 0.02° turned) is the one in the model", DatumFromDrawing.SameLine(gridLine, -2000, 5, 12000, 5 + 14000 * Math.Tan(0.02 * Math.PI / 180)));
+Check("drill (F-2): a grid 200 m along the same line is another grid", !DatumFromDrawing.SameLine(gridLine, 215000, 0, 232000, 0) && DatumFromDrawing.SameLine(gridLine, 9000, 0, 30000, 0));
+var bubblesOnly = new List<string>();
+Check("drill (F-3): a grid layer of 610 mm bubbles and no lines: no grid and no warning",
+      DatumFromDrawing.Grids(new List<Seg>(), planArcs: Enumerable.Range(0, 20).Select(i => new GridArc { Cx = i * 9000, Cy = 0, R = 610, StartDeg = 0, EndDeg = 360 }), warnings: bubblesOnly).Count == 0 && bubblesOnly.Count == 0);
 Check("…one 20 mm off is another grid; one 1° turned too", !DatumFromDrawing.SameLine(gridLine, 0, 20, 10000, 20) && !DatumFromDrawing.SameLine(gridLine, 0, 0, 10000, 10000 * Math.Tan(Math.PI / 180)));
 
 // ---- SPACING (MA-5b-2, DAT-4) -------------------------------------------------------------------------------
@@ -148,8 +152,10 @@ else
     var dg = DatumFromDrawing.Grids(OnLayer(System.IO.Path.Combine(sample, "ma5b7-datum.dxf"), "S-GRID-IDEN"));
     Check("…12 grids on S-GRID-IDEN: 1-3, then A-H and J (no I)", string.Join(",", dg.Select(g => g.Name)) == "1,2,3,A,B,C,D,E,F,G,H,J");
     var sh = DatumFromDrawing.Grids(OnLayer(System.IO.Path.Combine(sample, "ma5b7-plan-shifted.dxf"), "S-GRID-IDEN"));
-    Check("ma5b7-plan-shifted.dxf: its numbered grids stand elsewhere, its lettered ones on the same lines",
-          sh.Where(g => g.Vertical).All(g => !dg.Any(o => DatumFromDrawing.SameLine(g, o.X1, o.Y1, o.X2, o.Y2))) && sh.Where(g => !g.Vertical).All(g => dg.Any(o => DatumFromDrawing.SameLine(g, o.X1, o.Y1, o.X2, o.Y2))));
+    // drill MA5b batch 2 (F-2): a grid is the one in the model only where their spans meet — the lettered lines 47 m east on the same y are
+    // other grids too (named apart and said, never silently kept)
+    Check("ma5b7-plan-shifted.dxf: 60 m east, none of its grids is one already read (numbered elsewhere, lettered on the same lines but 47 m apart)",
+          sh.All(g => !dg.Any(o => DatumFromDrawing.SameLine(g, o.X1, o.Y1, o.X2, o.Y2))));
 }
 
 // ---- MA-5b-8 (DAT-5): angled and arc grids, named by GR-01 --------------------------------------------------------

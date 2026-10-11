@@ -81,7 +81,7 @@ public sealed class DatumReviewWindow : Window
                 var runs = new TextBlock
                 {
                     Text = Runs(r.Grid),
-                    VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 0, 0),
+                    VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 0, 0), TextWrapping = TextWrapping.Wrap,
                 };
                 _grids.Add((r, tick, name));
                 body.Children.Add(Line(tick, name, runs, null));
@@ -140,6 +140,7 @@ public sealed class DatumReviewWindow : Window
             if (e != null) { Grid.SetColumn(e, i); g.Children.Add(e); }
             i++;
         }
+        if (d == null) Grid.SetColumnSpan(c, 2); // drill MA5b batch 2 (F-4): a grid's run (an arc's centre, radius and sweep) has the room
         return g;
     }
 
