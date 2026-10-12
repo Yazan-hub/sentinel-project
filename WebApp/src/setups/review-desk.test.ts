@@ -512,7 +512,7 @@ describe("measured against the scan (MA-4e)", () => {
 });
 
 describe("edit cost (MA-8-1)", () => {
-  const run: EditCostRun = { run: "job#40", label: "job-0003 (ledger #40)", filed: 12, web: 2, carried: 1, revit: 1, applied: 9, undone: 1, kept: 8, pending: 0,
+  const run: EditCostRun = { run: "job#40", label: "job-0003 (ledger #40)", filed: 12, web: 2, carried: 1, revit: 1, applied: 9, undone: 1, kept: 8, pending: 0, withdrawn: 0,
     share_changed: 4 / 11, complete: true, ceiling: "edits made after Apply, other than an Undo in Revit, are not seen" };
 
   it("says each count in words, carried apart, and the ceiling", () => {
@@ -531,6 +531,17 @@ describe("edit cost (MA-8-1)", () => {
     expect(l).not.toContain("carried");
     expect(l).toContain("3 still pending");
     expect(l).not.toContain("% changed");
+  });
+
+  it("says withdrawn ghosts are not in the share", () => {
+    expect(editCostLine({ ...run, withdrawn: 20 })).toContain("20 withdrawn (not in the share)");
+    expect(editCostLine(run)).not.toContain("withdrawn");
+  });
+
+  it("Publish sits behind a complete run and a lead, the reply names the ledger row, and the desk refreshes (source scan)", () => {
+    const src = readFileSync(new URL("./review-desk.ts", import.meta.url), "utf8");
+    expect(src).toContain("if (r.complete && canReopen(role))");
+    expect(src).toContain("rowWords(await postEditCostPublish(base, activePid(), r.run))}`); void show(); }");
   });
 
   it("readEditCost throws 'not read' on a failure, never an empty list", async () => {

@@ -3,6 +3,7 @@
 // here touches model data — the Revit add-in executes only what a human ticks (A2).
 import { randomUUID, createHash } from "node:crypto";
 import * as cde from "./cde-store.mjs";
+import { canonical } from "./canonical.mjs";
 import * as members from "./members-store.mjs";
 import { validateChangeset, attachVerdicts, canWithdraw, deriveResultStatus, unattributedFailures,
   reviewRev, editCost, applyDecisions, reopenDecline, resultConflicts, resultReasons, carryDeclines, declineWords, UNTYPED } from "./changesets-logic.mjs";
@@ -667,20 +668,20 @@ export async function editCostOf(key, deps) {
 export async function publishEditCost(key, b, actor, deps) {
   const d = wire(deps);
   await reviewer(d, key, "lead", "publishing an edit cost");
-  d.takeWriteBudget("edit cost", { perUser: 20, all: 60 });
   if (!b || typeof b.run !== "string" || b.run === "") throw err(400, "the body is {run} — a run's key from the edit-cost list");
+  d.takeWriteBudget("edit cost", { perUser: 20, all: 60 });
   if (publishing.has(key)) throw err(409, `an edit cost is being published on ${key} — try again when it ends`);
   publishing.add(key);
   try {
     const proj = await d.ensureProject(key);
-    const r = (await editCostOf(key, deps)).runs.find((x) => x.run === b.run);
+    const r = (await editCostOf(key, deps).catch((e) => { throw unsaved(e); })).runs.find((x) => x.run === b.run);
     if (!r) throw err(404, `no run "${b.run.slice(0, 80)}" on ${key}`);
     if (!r.complete) throw err(409, `${r.label} is still being reviewed (${r.pending} ghost(s) pending) — publish when every changeset of it is decided`);
-    const numbers = { filed: r.filed, web: r.web, carried: r.carried, revit: r.revit, applied: r.applied, undone: r.undone, kept: r.kept, share_changed: r.share_changed };
+    const numbers = { filed: r.filed, web: r.web, carried: r.carried, revit: r.revit, applied: r.applied, undone: r.undone, kept: r.kept, withdrawn: r.withdrawn, share_changed: r.share_changed };
     let prev;
     try { prev = (await d.auditAll(key, { entity_type: "edit_cost", action_prefix: "edit_cost:published" })).find((y) => y.new_value?.run === r.run); }
     catch (e) { throw err(503, `the ledger could not be read (${e.message}) — nothing was saved`); }
-    if (prev && JSON.stringify(prev.new_value.numbers) === JSON.stringify(numbers) && JSON.stringify(prev.new_value.rests_on) === JSON.stringify(r.rests_on))
+    if (prev && canonical(prev.new_value.numbers) === canonical(numbers) && canonical(prev.new_value.rests_on) === canonical(r.rests_on)) // jsonb reorders keys
       throw err(409, `${r.label}'s edit cost was published on these same numbers as ledger #${prev.id} — nothing was saved`);
     const row = await d.audit(proj.id, "edit_cost", null, `edit_cost:published ${r.label} · ${r.kept}/${r.filed} kept`, actor || "web", null,
       { run: r.run, label: r.label, numbers, rests_on: r.rests_on, changesets: r.changesets, ceiling: r.ceiling });

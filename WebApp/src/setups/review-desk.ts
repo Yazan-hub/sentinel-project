@@ -410,7 +410,7 @@ export const measureLine = (r: MeasureReply): string =>
 // ── MA-8-1 (C11): the edit cost of each run — how much of what was filed a person changed. Computed by the bridge at read time; a lead
 //    publishes a complete run's numbers as one ledger row. ──
 export interface EditCostRun { run: string; label: string; filed: number; web: number; carried: number; revit: number; applied: number; undone: number; kept: number;
-  pending: number; share_changed: number | null; complete: boolean; ceiling: string; }
+  pending: number; withdrawn: number; share_changed: number | null; complete: boolean; ceiling: string; }
 export interface EditCost { runs: EditCostRun[]; withdrawn: number; ceiling: string; }
 
 /** GET /changesets/:key/edit-cost. Any failure throws "not read — <why>". */
@@ -433,6 +433,7 @@ export function editCostLine(r: EditCostRun): string {
   if (r.carried) parts.push(`${r.carried} declined before (carried)`);
   parts.push(`${r.revit} not applied in Revit (unticked, or removed at commit)`, `${r.applied} applied`, `${r.undone} undone`);
   if (r.pending) parts.push(`${r.pending} still pending`);
+  if (r.withdrawn) parts.push(`${r.withdrawn} withdrawn (not in the share)`);
   const kept = `${r.kept} kept` + (r.share_changed == null ? "" : ` (${Math.round(r.share_changed * 100)} % changed)`);
   return `${parts.join(" · ")} · ${kept} — ${r.ceiling}`;
 }
@@ -625,7 +626,7 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
       row.append(el("div", editCostLine(r), "flex:1"));
       if (r.complete && canReopen(role))
         row.append(btn("Publish", async () => {
-          try { say(`Published ${r.label} · ${rowWords(await postEditCostPublish(base, activePid(), r.run))}`); }
+          try { say(`Published ${r.label} · ${rowWords(await postEditCostPublish(base, activePid(), r.run))}`); void show(); }
           catch (e) { say(`not published — ${(e as Error).message}`, true); }
         }));
       box.append(row);

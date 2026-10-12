@@ -1782,7 +1782,7 @@ describe("proposeFromJob (MA-6-8): a lead turns a concept IFC job into one chang
 
 describe("edit cost (MA-8-1)", () => {
   const doc = (over = {}) => ({ id: "c1", name: "c1", status: "applied", elements: [{ proposal_guid: "g0" }, { proposal_guid: "g1" }], job: { id: "job-0001", ledger_id: 40 },
-    result: { applied: ["g0"], rejected: ["g1"], declined_on_web: [], reported_at: "t1" }, ...over });
+    result: { applied: [{ proposal_guid: "g0", revit_element_id: 1, revit_unique_id: "u0" }], rejected: ["g1"], declined_on_web: [], reported_at: "t1" }, ...over });
   const mk = (docs, over = {}) => baseDeps({ docList: vi.fn(async () => docs), auditAll: vi.fn(async () => []), myRole: async () => "lead",
     takeWriteBudget: vi.fn(), requireMinRole: async () => {}, ...over });
 
@@ -1813,5 +1813,43 @@ describe("edit cost (MA-8-1)", () => {
     const again = mk([doc()], { audit, auditAll: vi.fn(async (k, f) => (f.entity_type === "edit_cost" ? [{ id: 91, new_value: written[0][6] }] : [])) });
     await expect(publishEditCost("demo", { run: "job#40" }, "x", again)).rejects.toMatchObject({ status: 409 });
     expect(written).toHaveLength(1);
+  });
+
+  const jsonbOrder = (o) => Object.fromEntries(Object.entries(o).sort(([a], [b]) => a.length - b.length || (a < b ? -1 : 1))); // jsonb: shorter keys first
+
+  it("publish: the replay check survives jsonb key order; a new Undo row (same counts, other rests_on) publishes again", async () => {
+    const written = [];
+    const audit = vi.fn(async (...a) => { written.push(a); return { id: 91, hash: "h" }; });
+    await publishEditCost("demo", { run: "job#40" }, "x", mk([doc()], { audit }));
+    const stored = jsonbOrder({ ...written[0][6], numbers: jsonbOrder(written[0][6].numbers), rests_on: jsonbOrder(written[0][6].rests_on) });
+    const prior = (nv) => mk([doc()], { audit, auditAll: vi.fn(async (k, f) => (f.entity_type === "edit_cost" ? [{ id: 91, new_value: nv }] : [])) });
+    await expect(publishEditCost("demo", { run: "job#40" }, "x", prior(stored))).rejects.toMatchObject({ status: 409 });
+    expect(written).toHaveLength(1);
+    await publishEditCost("demo", { run: "job#40" }, "x", prior({ ...stored, rests_on: { ...stored.rests_on, reverted: 7 } }));
+    expect(written).toHaveLength(2);
+  });
+
+  it("publish: an Undo row counts (stored applied objects), and the withdrawn ghosts are in the numbers", async () => {
+    const rows = [{ id: 5, entity_id: "c1", new_value: { op: "undo", guids: ["g0"] } }];
+    const w = doc({ id: "c2", status: "withdrawn" });
+    const audit = vi.fn(async () => ({ id: 92, hash: "h" }));
+    const out = await publishEditCost("demo", { run: "job#40" }, "x", mk([doc(), w], { audit, auditAll: vi.fn(async () => rows) }));
+    expect(out.numbers).toMatchObject({ undone: 1, kept: 0, withdrawn: 2 });
+  });
+
+  it("publish: a bad body is a 400 that spends no budget; a ledger-read failure says nothing was saved; a concurrent press is a 409", async () => {
+    const deps = mk([doc()]);
+    await expect(publishEditCost("demo", {}, "x", deps)).rejects.toMatchObject({ status: 400 });
+    expect(deps.takeWriteBudget).not.toHaveBeenCalled();
+    await expect(publishEditCost("demo", { run: "job#40" }, "x", mk([doc()], { auditAll: vi.fn(async () => { throw new Error("down"); }) })))
+      .rejects.toMatchObject({ status: 503, message: expect.stringMatching(/nothing was saved$/) });
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    const slow = mk([doc()], { audit: vi.fn(async () => { await gate; return { id: 1, hash: "h" }; }) });
+    const first = publishEditCost("demo", { run: "job#40" }, "x", slow);
+    await new Promise((r) => setTimeout(r, 20));
+    await expect(publishEditCost("demo", { run: "job#40" }, "x", slow)).rejects.toMatchObject({ status: 409 });
+    release();
+    await first;
   });
 });

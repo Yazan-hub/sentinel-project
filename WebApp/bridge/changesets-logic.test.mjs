@@ -1414,11 +1414,12 @@ describe("validateChangeset — a changeset the bridge built from a survey job (
 describe("editCost (MA-8-1)", () => {
   const els = (n) => Array.from({ length: n }, (_, i) => ({ proposal_guid: `g${i}` }));
   const cs = (id, over = {}) => ({ id, name: id, status: "applied", elements: els(5), job: { id: "job-0001", ledger_id: 40 },
-    result: { applied: ["g0", "g1", "g2"], rejected: ["g3", "g4"], declined_on_web: [{ proposal_guid: "g3" }], reported_at: "2026-10-12T10:00:00Z" }, ...over });
+    result: { applied: ap(["g0", "g1", "g2"]), rejected: ["g3", "g4"], declined_on_web: [{ proposal_guid: "g3" }], reported_at: "2026-10-12T10:00:00Z" }, ...over });
+  const ap = (gs) => gs.map((g, i) => ({ proposal_guid: g, revit_element_id: i + 1, revit_unique_id: `u${i}` })); // the shape the bridge stores
   const rev = (id, entity_id, op, guids) => ({ id, entity_id, new_value: { op, guids } });
 
   it("keeps web, carried and Revit declines apart; carried is left out of the share", () => {
-    const c = cs("a", { result: { applied: ["g0", "g1"], rejected: ["g2", "g3", "g4"],
+    const c = cs("a", { result: { applied: ap(["g0", "g1"]), rejected: ["g2", "g3", "g4"],
       declined_on_web: [{ proposal_guid: "g2" }, { proposal_guid: "g3", carried_from: "x" }], reported_at: "t" } });
     const [r] = editCost([c], []).runs;
     expect(r).toMatchObject({ filed: 5, web: 1, carried: 1, revit: 1, applied: 2, undone: 0, kept: 2, pending: 0, complete: true, ceiling: EDIT_COST_CEILING });
@@ -1438,6 +1439,14 @@ describe("editCost (MA-8-1)", () => {
     expect(out.withdrawn).toBe(1);
     expect(out.runs[0]).toMatchObject({ pending: 5, complete: false, changesets: ["a", "b"] });
     expect(editCost([cs("z", { elements: [], result: { applied: [], rejected: [] } })], []).runs[0].share_changed).toBeNull();
+  });
+
+  it("a withdrawn changeset is said on its run (ghosts), and a run of only withdrawn ones still shows", () => {
+    const out = editCost([cs("a"), cs("w", { status: "withdrawn" })], []);
+    expect(out.runs[0]).toMatchObject({ filed: 5, withdrawn: 5 });
+    const only = editCost([cs("w", { status: "withdrawn" })], []);
+    expect(only.runs).toHaveLength(1);
+    expect(only.runs[0]).toMatchObject({ filed: 0, withdrawn: 5, share_changed: null });
   });
 
   it("groups by the job's ledger row, not its id; a changeset without a job is its own run", () => {

@@ -678,7 +678,7 @@ export function deriveResultStatus(appliedCount, rejectedCount, total) {
 //    a job id repeats across jobs folders), else one changeset (Promote has no run id).
 export const EDIT_COST_CEILING = "edits made after Apply, other than an Undo in Revit, are not seen";
 
-/** `changesets`: the stored docs; `reverted`: the changeset_reverted rows (any order). Withdrawn changesets are left out and counted. */
+/** `changesets`: the stored docs; `reverted`: the changeset_reverted rows (any order). Withdrawn changesets are left out of the share and counted (per run in `withdrawn`, ghosts). */
 export function editCost(changesets, reverted) {
   const rows = [...(reverted ?? [])].sort((a, b) => (b.id ?? 0) - (a.id ?? 0)); // newest first: a guid's newest row decides
   const last = new Map(); // changeset id → guid → newest reverted row
@@ -689,11 +689,11 @@ export function editCost(changesets, reverted) {
   const runs = new Map();
   let withdrawn = 0;
   for (const cs of changesets ?? []) {
-    if (cs.status === "withdrawn") { withdrawn++; continue; }
     const jobRow = cs.job?.ledger_id != null ? cs.job.ledger_id : null;
     const run = jobRow != null ? `job#${jobRow}` : cs.id;
     const r = runs.get(run) ?? runs.set(run, { run, label: jobRow != null ? `${cs.job.id} (ledger #${jobRow})` : cs.name ?? cs.id,
-      filed: 0, web: 0, carried: 0, revit: 0, applied: 0, undone: 0, kept: 0, pending: 0, changesets: [], rests_on: { applied: null, reverted: null } }).get(run);
+      filed: 0, web: 0, carried: 0, revit: 0, applied: 0, undone: 0, kept: 0, pending: 0, withdrawn: 0, changesets: [], rests_on: { applied: null, reverted: null } }).get(run);
+    if (cs.status === "withdrawn") { withdrawn++; r.withdrawn += cs.elements?.length ?? 0; continue; } // MA-8-1 review: said on the run, not only project-wide
     const ro = r.rests_on;
     r.changesets.push(cs.id);
     r.filed += cs.elements?.length ?? 0;
@@ -707,7 +707,7 @@ export function editCost(changesets, reverted) {
     // rests_on: the newest report time (the applied row's id is not on the doc) and the newest Undo/Redo row the numbers rest on
     if (res.reported_at && (ro.applied == null || res.reported_at > ro.applied)) ro.applied = res.reported_at;
     for (const y of m?.values() ?? []) if (ro.reverted == null || y.id > ro.reverted) ro.reverted = y.id;
-    const applied = res.applied ?? [];
+    const applied = (res.applied ?? []).map((a) => a?.proposal_guid ?? a); // stored as {proposal_guid, revit_element_id, …}
     const undone = applied.filter((g) => m?.get(g)?.new_value?.op === "undo").length;
     r.applied += applied.length;
     r.undone += undone;
