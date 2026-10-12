@@ -1568,3 +1568,119 @@ describe("verifyChangeset (MA-4e): a signed-in contributor measures a placed sur
       "sentinel-survey's scan overlay is not the contract's shape (a point is not three whole numbers of mm) — its scan is not shown");
   });
 });
+
+describe("MA-6-2 — Revit's as-built re-read, judged by the bridge against the installed ids@n (fixture as-built-result.json)", () => {
+  const FX = JSON.parse(readFileSync(new URL("./fixtures/changeset-ops/as-built-result.json", import.meta.url), "utf8"));
+  const resolving = (have) => vi.fn(async (key, kind) => (have[kind] ? installed(kind, have[kind]) : NONE));
+  const LABEL = `ids@1 · office · ${"ab".repeat(6)}…`;
+  // The fixture's body proposed, then every element reported applied as Revit sends it (applied[i].element → that element's proposal_guid).
+  const report = async ({ over = {}, ids = FX.ids, edit = (a) => a } = {}) => {
+    const deps = baseDeps({ myRole: async () => "contributor", resolveArtefact: resolving(ids ? { ids } : {}), audit: vi.fn(async () => ({ id: 2201, hash: "ef".repeat(32) })), ...over });
+    const cs = await proposeChangeset("ma4c-drill", FX.body, "agent", deps);
+    const applied = FX.applied.map(({ element, ...a }) => edit({ ...structuredClone(a), proposal_guid: cs.elements[element].proposal_guid }, element));
+    const out = await reportResult("ma4c-drill", cs.id, { applied, rejected: [] }, "lead@office.example", deps);
+    return { out, deps, g: cs.elements.map((e) => e.proposal_guid), row: deps.audit.mock.calls.find((c) => c[3] === "changeset_applied")[6] };
+  };
+
+  it("judges each element as built under its proposal_guid: a wall with its FireRating passes, one without fails, the door is not in scope, the level is counted out of scope; the row carries the counts", async () => {
+    const { out, g, row, deps } = await report();
+    expect(out.result.as_built).toEqual({ ids: LABEL, ids_sha256: "ab".repeat(32), reported_role: "contributor", judged: 2, passed: 1, failed: 1, not_read: 0, out_of_scope: { level: 1 },
+      elements: [
+        { proposal_guid: g[1], class_claimed: "IFCWALL", class_as_built: "IFCWALL", global_id_as_built: "2Hq$9xV1n0Fh8b3XkQd0aB", verdict: "passes" },
+        { proposal_guid: g[2], class_claimed: "IFCWALL", class_as_built: "IFCWALL", global_id_as_built: "5a1c2b3d-1111-2222-3333-444455556666-00061f33", verdict: "fails",
+          failures: [{ specification: "Walls · fire", requirement: "Pset_WallCommon.FireRating", reason: "REQUIRED but missing" }] },
+        { proposal_guid: g[3], class_claimed: "IFCDOOR", class_as_built: "IFCDOOR", global_id_as_built: "0j7Y3Kc4H9qBf2Lw5Pz1sD", verdict: "not in scope" },
+      ] });
+    expect(row.as_built).toEqual({ ids: LABEL, reported_role: "contributor", judged: 2, passed: 1, failed: 1, not_read: 0 });
+    expect(deps.resolveArtefact.mock.calls.map((c) => c.slice(0, 2))).toEqual([["ma4c-drill", "ids"]]);
+    // The applied entries keep what they kept before MA-6-2: the re-read values are not stored on the changeset (it is listed to every desk).
+    expect(out.result.applied[1]).toEqual({ proposal_guid: g[1], revit_element_id: 401202, revit_unique_id: "5a1c2b3d-1111-2222-3333-444455556666-00061f32" });
+  });
+
+  it("is kept field by field: a posted verdict or an extra key changes nothing — the bridge judges what Revit read", async () => {
+    const { out } = await report({ edit: (a, i) => (i === 2 ? { ...a, verdict: "passes", as_built: { ...a.as_built, verdict: "passes", passed: true,
+      identity: { ...a.as_built.identity, Extra: "x", pretick: true }, psets: [{ ...a.as_built.psets[0], accepted: true }] } } : a) });
+    const el = out.result.as_built.elements[1];
+    expect(el.verdict).toBe("fails");
+    expect(Object.keys(el)).toEqual(["proposal_guid", "class_claimed", "class_as_built", "global_id_as_built", "verdict", "failures"]);
+    expect(JSON.stringify(out.result)).not.toMatch(/Extra|pretick|"accepted"|"passed":true/);
+  });
+
+  it("risk R4: a requirement outside Revit's readable keys is \"not read\", never a failure — and with no readable list a missing value fails", async () => {
+    const spec = FX.ids.specifications[0];
+    const ids = { ...FX.ids, specifications: [{ ...spec, requirements: { properties: [...spec.requirements.properties,
+      { pset: "Pset_WallCommon", name: "LoadBearing", cardinality: "required" }], attributes: [] } }] };
+    const { out, row } = await report({ ids });
+    expect(out.result.as_built).toMatchObject({ judged: 2, passed: 0, failed: 1, not_read: 1 });
+    const [rated, unrated] = out.result.as_built.elements;
+    expect(rated).toMatchObject({ verdict: "not read", not_read: ["Pset_WallCommon.LoadBearing"] });
+    expect(rated.failures).toBeUndefined();
+    expect(unrated).toMatchObject({ verdict: "fails", not_read: ["Pset_WallCommon.LoadBearing"], failures: [{ requirement: "Pset_WallCommon.FireRating" }] });
+    expect(row.as_built).toMatchObject({ judged: 2, passed: 0, failed: 1, not_read: 1 });
+    const bare = await report({ ids, edit: (a) => { delete a.readable; return a; } });
+    expect(bare.out.result.as_built).toMatchObject({ judged: 2, passed: 0, failed: 2, not_read: 0 });
+    // The readable keys are compared as the IDS compares a pset and a property: case aside.
+    const shout = await report({ ids, edit: (a) => (a.readable ? { ...a, readable: [...a.readable.map((k) => k.toUpperCase()), "PSET_WALLCOMMON.LOADBEARING"] } : a) });
+    expect(shout.out.result.as_built).toMatchObject({ passed: 0, failed: 2, not_read: 0 });
+  });
+
+  it("no IDS installed, one that does not parse, or a read that fails: the elements are listed with their class, unjudged, and why — the result is still recorded", async () => {
+    const none = await report({ ids: null });
+    const why = "no IDS judged it — not installed for ma4c-drill or its office";
+    expect(none.out.status).toBe("applied");
+    expect(none.out.result.as_built).toMatchObject({ ids: null, why, judged: 0, passed: 0, failed: 0, out_of_scope: { level: 1 } });
+    expect(none.out.result.as_built.elements.map((e) => [e.class_as_built, e.verdict])).toEqual([["IFCWALL", undefined], ["IFCWALL", undefined], ["IFCDOOR", undefined]]);
+    expect(none.row.as_built).toEqual({ ids: null, why, reported_role: "contributor", judged: 0, passed: 0, failed: 0, not_read: 0 });
+    const empty = await report({ ids: { title: "no specs", specifications: [] } });
+    expect(empty.out.result.as_built.why).toMatch(/^no IDS judged it — ids@1 · office · .* did not parse: an IDS artefact needs at least one specification/);
+    const down = await report({ over: { resolveArtefact: vi.fn(async () => { throw new Error("bridge_docs timed out"); }) } });
+    expect([down.out.status, down.out.result.as_built.why]).toEqual(["applied", "no IDS judged it — the ids@n was not read: bridge_docs timed out"]);
+  });
+
+  it("the machine credential's re-read is recorded as its claim and not judged (the agent's own key could send it); the ids@n is not read for it", async () => {
+    const { out, row, deps } = await report({ over: { myRole: async () => "service" } });
+    const why = "reported with the machine credential — the agent's own key could send it";
+    expect(out.result.as_built).toEqual({ why, reported_role: "service" });
+    expect(row.as_built).toEqual({ why, reported_role: "service" });
+    expect(deps.resolveArtefact).not.toHaveBeenCalled();
+  });
+
+  it("review amendment 4a: an entry over the caps or malformed is dropped and recorded with why — the result itself is never refused", async () => {
+    const rowsOf = (n, value = "1") => Array.from({ length: n }, () => ({ name: "x", value }));
+    const cases = [
+      [(a) => ({ ...a, as_built: { ...a.as_built, psets: Array.from({ length: 51 }, (_, i) => ({ name: `P${i}`, rows: [] })) } }), "psets is not a list of at most 50"],
+      [(a) => ({ ...a, as_built: { ...a.as_built, psets: [{ name: "P", rows: rowsOf(101) }] } }), "psets[0] is not {name, rows} with at most 100 rows"],
+      [(a) => ({ ...a, as_built: { ...a.as_built, psets: [{ name: "P", rows: rowsOf(1, "y".repeat(513)) }] } }), "psets[0] holds a row that is not {name, value} — scalars of at most 512 characters"],
+      [(a) => ({ ...a, as_built: { ...a.as_built, psets: [{ name: "P", rows: rowsOf(1, { nested: 1 }) }] } }), "psets[0] holds a row that is not {name, value} — scalars of at most 512 characters"],
+      [(a) => ({ ...a, as_built: { ...a.as_built, identity: { ...a.as_built.identity, Class: ["IFCWALL"] } } }), "identity.Class is not a scalar of at most 512 characters"],
+      [(a) => ({ ...a, as_built: "IFCWALL" }), "not {identity, psets}"],
+      [(a) => ({ ...a, readable: "Pset_WallCommon.FireRating" }), "readable is not a list of at most 500 names"],
+    ];
+    for (const [edit, why] of cases) {
+      const { out, g, row } = await report({ edit: (a, i) => (i === 1 ? edit(a) : a) });
+      expect(out.status).toBe("applied");
+      expect(out.result.as_built.elements[0]).toEqual({ proposal_guid: g[1], class_claimed: "IFCWALL", why: `not kept: ${why}` });
+      expect(out.result.as_built).toMatchObject({ judged: 1, passed: 0, failed: 1 });
+      expect(row.as_built.judged).toBe(1);
+    }
+    // An element of a re-read kind Revit sent no read of (the read threw, or the element was not found) is said too.
+    const { out, g } = await report({ edit: (a, i) => { if (i === 3) delete a.as_built; return a; } });
+    expect(out.result.as_built.elements[2]).toEqual({ proposal_guid: g[3], class_claimed: "IFCDOOR", why: "Revit sent no as-built read of it" });
+  });
+
+  it("a set_parameter's entry is a type: an as_built on it is ignored; a result with no as_built stores none and reads no IDS", async () => {
+    const VS = JSON.parse(readFileSync(new URL("./fixtures/changeset-ops/value-sources.json", import.meta.url), "utf8"));
+    const deps = baseDeps({ resolveArtefact: resolving({ type_catalog: VS.catalog, ids: VS.ids }), myRole: async () => "contributor" });
+    const cs = await proposeChangeset("ma2c", { name: "Promote (DD) · Level 1", source: "promote", elements: [{
+      op: "set_parameter", kind: "wall", target: { unique_id: "5a1c7e2b-3f4d-4c8a-9b1e-2d3c4b5a6f70-00000a01" }, place: { TypeName: "BDS_EXT_ARC_CMU_200 mm" },
+      parameter: "Pset_WallCommon.FireRating", revit_parameter: "Fire Rating", from: "", to: "60 min", value_source: { kind: "catalogue" },
+      validate: { identity: { Class: "IfcWall", Name: "type BDS_EXT_ARC_CMU_200 mm" } } }] }, "lead@office.example", deps);
+    const out = await reportResult("ma2c", cs.id, { applied: [{ proposal_guid: cs.elements[0].proposal_guid, revit_element_id: 501, revit_unique_id: "u-501",
+      as_built: FX.applied[2].as_built, readable: [] }], rejected: [] }, "lead@office.example", deps);
+    expect(out.status).toBe("applied");
+    expect(out.result.as_built).toBeUndefined();
+    const plain = await report({ edit: (a) => { delete a.as_built; delete a.readable; return a; } });
+    expect([plain.out.result.as_built, plain.row.as_built]).toEqual([undefined, undefined]);
+    expect(plain.deps.resolveArtefact).not.toHaveBeenCalled();
+  });
+});

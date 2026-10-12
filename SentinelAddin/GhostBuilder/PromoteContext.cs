@@ -63,18 +63,24 @@ namespace Sentinel.GhostBuilder
         /// the IDS reads it, each against its own class's specification only. The lines of the elements that fail ("W 312 (Walls ·
         /// DD): missing Pset_WallCommon.FireRating"), the requirements Revit cannot read, and what was not judged at all (review C2):
         /// the matrix's properties matrixToIds could not place for an applied class, an element exported as another class, an
-        /// element not found or not read — and how many elements were judged (review: "passed" is never said of none). API thread,
-        /// read-only — safe inside the open TransactionGroup.</summary>
-        public static (List<string> Fails, List<string> NotRead, List<string> NotJudged, int Judged) JudgeApplied(Document doc, StageIds ids, IEnumerable<AppliedEntry> applied, IReadOnlyDictionary<string, string> kindOf)
+        /// element not found or not read — and how many elements were judged (review: "passed" is never said of none). MA-6-2: every
+        /// source's changeset is checked, so a kind Promote has no class for is no longer a silent skip: a level, grid, room or opening
+        /// — no DD class asks anything of it — is counted in OutOfScope (said, and "passed" still stands); any other (a column, a beam,
+        /// furniture: the matrix could ask for it) is not judged, so "passed" is not said. API thread, read-only — safe inside the open
+        /// TransactionGroup.</summary>
+        public static (List<string> Fails, List<string> NotRead, List<string> NotJudged, List<string> OutOfScope, int Judged) JudgeApplied(Document doc, StageIds ids, IEnumerable<AppliedEntry> applied, IReadOnlyDictionary<string, string> kindOf)
         {
             var fails = new List<string>();
             var notRead = new List<string>();
             var notJudged = new List<string>();
+            var outOfScope = new List<string>();
+            var noClass = new List<string>();
             int judged = 0;
             string org = App.OrgFor(doc);
             foreach (var a in applied.GroupBy(x => x.RevitUniqueId).Select(g => g.First()))
             {
-                if (!kindOf.TryGetValue(a.ProposalGuid, out var kind) || !PromoteWallsPlanner.Classes.TryGetValue(kind ?? "wall", out var cls)) continue;
+                if (!kindOf.TryGetValue(a.ProposalGuid, out var kind)) continue; // a set_parameter's type: judged on the elements retyped onto it
+                if (!PromoteWallsPlanner.Classes.TryGetValue(kind ?? "wall", out var cls)) { (NoDdClass.Contains(kind) ? outOfScope : noClass).Add(kind); continue; }
                 notJudged.AddRange(ids.Unmatched.Where(u => u.StartsWith(cls.Category + ": ", StringComparison.Ordinal)).Select(u => "not in the DD IDS: " + u));
                 var spec = ids.For(cls.Category);
                 if (spec == null) continue; // the matrix asks nothing of this class that the IDS could place (the rest is said above)
@@ -88,7 +94,39 @@ namespace Sentinel.GhostBuilder
                 if (StageIds.Line(label, spec.Name, v) is string line) fails.Add(line);
                 notRead.AddRange(v.NotRead);
             }
-            return (fails, notRead, notJudged, judged);
+            notJudged.AddRange(noClass.GroupBy(k => k, StringComparer.Ordinal).Select(g => $"{g.Count()} {g.Key}: Promote has no DD class for it"));
+            return (fails, notRead, notJudged, outOfScope, judged);
+        }
+
+        /// <summary>MA-6-2: the kinds no DD class asks anything of — JudgeApplied counts them out of scope, never "not judged".</summary>
+        public static readonly HashSet<string> NoDdClass = new HashSet<string>(StringComparer.Ordinal) { "level", "grid", "room", "opening" };
+
+        /// <summary>MA-6-2 (review amendment 5): the kinds read again as built — the ones GovernedElementExtractor gives an IFC class; the
+        /// bridge counts every other kind under as_built.out_of_scope (changesets-store AS_BUILT_KINDS, the same list).</summary>
+        public static readonly HashSet<string> AsBuiltKinds = new HashSet<string>(StringComparer.Ordinal) { "wall", "floor", "roof", "ceiling", "door", "window", "column", "beam" };
+
+        /// <summary>MA-6-2 (design §4.6 step 3, D10): each applied element of <see cref="AsBuiltKinds"/> read again as the IDS reads it
+        /// (GovernedElementExtractor — the read JudgeApplied judges), set on its entry's AsBuilt with the keys Sentinel has a reader for on its
+        /// class (Readable, risk R4); the bridge judges them against the installed ids@n. A set_parameter's entry (a type) is not in
+        /// <paramref name="kindOf"/>. API thread, read-only — safe inside the open group. Never throws: a read that fails leaves every
+        /// AsBuilt null and answers the note's line; null when the read ran.</summary>
+        public static string ReadAsBuilt(Document doc, IReadOnlyList<AppliedEntry> applied, IReadOnlyDictionary<string, string> kindOf)
+        {
+            try
+            {
+                string org = App.OrgFor(doc);
+                var mine = applied.Where(a => a.RevitUniqueId != null && kindOf.TryGetValue(a.ProposalGuid, out var k) && AsBuiltKinds.Contains(k)).ToList();
+                var ids = mine.Select(a => doc.GetElement(a.RevitUniqueId)?.Id).Where(id => id != null).Distinct().ToList();
+                var read = GovernedElementExtractor.ExtractByIds(doc, doc.Title, ids, org).ToDictionary(g => g.localId);
+                foreach (var a in mine)
+                    if (read.TryGetValue(a.RevitElementId, out var g)) { a.AsBuilt = g; a.Readable = PsetMap.Readable(org, g.identity.Class); }
+                return null;
+            }
+            catch (Exception ex)
+            {
+                foreach (var a in applied) { a.AsBuilt = null; a.Readable = null; }
+                return $"As built: not read — {ex.GetType().Name}: {ex.Message} (the bridge records the elements unjudged)";
+            }
         }
 
         /// <summary>Ask the person, modal, in the same API call (the group still open): true = place anyway. Closing is going back.</summary>

@@ -76,6 +76,15 @@ static partial class Check
            && StageIds.Summary(1, fails, new[] { "Pset_WallCommon.LoadBearing" }, new string[0], "lod_matrix@1")
               == StageIds.PlacedAnyway(fails, "lod_matrix@1") + " " + StageIds.NotChecked(new[] { "Pset_WallCommon.LoadBearing" }),
            "the check before commit says how many elements it judged — never that every element passed when it judged none (review)");
+        // MA-6-2: every source's changeset is checked — the kinds no DD class asks anything of are counted on a line of their own.
+        var levels = new[] { "level", "opening", "level", "room" };
+        Ok(StageIds.Summary(3, new string[0], new string[0], new string[0], "lod_matrix@1", null, levels)
+              == "DD IDS: 3 element(s) judged, all passed (lod_matrix@1)\nDD IDS: not asked — 2 level, 1 opening, 1 room: no DD class"
+           && StageIds.Summary(0, new string[0], new string[0], new string[0], "lod_matrix@1", null, levels).StartsWith("DD IDS: nothing this changeset applied is asked anything by the DD IDS (lod_matrix@1)\nDD IDS: not asked — 2 level", StringComparison.Ordinal)
+           && StageIds.Summary(1, fails, new string[0], new string[0], "lod_matrix@1", null, levels) == StageIds.PlacedAnyway(fails, "lod_matrix@1") + "\n" + StageIds.OutOfScope(levels)
+           && StageIds.Summary(3, new string[0], new string[0], new string[0], "lod_matrix@1", null, new string[0]) == "DD IDS: 3 element(s) judged, all passed (lod_matrix@1)"
+           && StageIds.OutOfScope(null) == null,
+           "MA-6-2: a level, an opening or a room an agent applies is counted out of scope on its own line — it does not stop \"all passed\"; none, no line");
         var b64 = new string('b', 64);
         var withSha = StageIds.FromReply("{\"matrix\":\"lod_matrix@2 · office · bbbbbbbbbbbb…\",\"sha256\":\"" + b64 + "\",\"ids\":" + fx["ids"].ToJsonString() + "}", out _);
         Ok(withSha.Sha == b64 && StageIds.NotFrom(withSha, b64, "lod_matrix@2 · office · bbbbbbbbbbbb…") == null

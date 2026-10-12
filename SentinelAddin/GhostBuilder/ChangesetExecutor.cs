@@ -498,6 +498,7 @@ public sealed class ChangesetExecutor
             {
                 at = Label(el);
                 var lvl = Level.Create(doc, (el.Place?.BaseElevation ?? 0) * MmToFeet);
+                lvl.get_Parameter(BuiltInParameter.LEVEL_IS_BUILDING_STORY)?.Set(1); // MA-6-2: a storey for Stories(doc) and the LOD state (DatumBuilder's set)
                 if (!string.IsNullOrWhiteSpace(el.Validate?.Identity?.Name)) lvl.Name = el.Validate.Identity.Name;
                 Collect(result, el, lvl);
             }

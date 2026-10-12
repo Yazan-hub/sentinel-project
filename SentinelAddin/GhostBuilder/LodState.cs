@@ -158,13 +158,21 @@ namespace Sentinel.GhostBuilder
         }
 
         /// <summary>The check before commit's line (review C2 and the third review): what failed, what was not read, what was not
-        /// judged — or, when none of these, how many elements were judged and passed; "nothing … is asked" when it judged none.</summary>
-        public static string Summary(int judged, IReadOnlyList<string> fails, IEnumerable<string> notRead, IEnumerable<string> notJudged, string matrix, string who = null)
+        /// judged — or, when none of these, how many elements were judged and passed; "nothing … is asked" when it judged none. MA-6-2:
+        /// the kinds no DD class asks anything of (<paramref name="outOfScope"/>, JudgeApplied) on a line of their own — they do not stop "passed".</summary>
+        public static string Summary(int judged, IReadOnlyList<string> fails, IEnumerable<string> notRead, IEnumerable<string> notJudged, string matrix, string who = null, IEnumerable<string> outOfScope = null)
         {
             var said = new[] { fails.Count > 0 ? PlacedAnyway(fails, matrix, who) : null, NotChecked(notRead), NotJudged(notJudged) }.Where(x => x != null).ToList();
-            return said.Count > 0 ? string.Join(" ", said)
+            return (said.Count > 0 ? string.Join(" ", said)
                 : judged > 0 ? $"DD IDS: {judged} element(s) judged, all passed ({matrix})"
-                : $"DD IDS: nothing this changeset applied is asked anything by the DD IDS ({matrix})";
+                : $"DD IDS: nothing this changeset applied is asked anything by the DD IDS ({matrix})") + (OutOfScope(outOfScope) is string o ? "\n" + o : "");
+        }
+
+        /// <summary>MA-6-2: "DD IDS: not asked — 2 level, 1 room, 1 opening: no DD class"; null when there are none.</summary>
+        public static string OutOfScope(IEnumerable<string> kinds)
+        {
+            var n = (kinds ?? Enumerable.Empty<string>()).GroupBy(k => k, StringComparer.Ordinal).Select(g => $"{g.Count()} {g.Key}").ToList();
+            return n.Count == 0 ? null : "DD IDS: not asked — " + string.Join(", ", n) + ": no DD class";
         }
 
         /// <summary>An extracted element's values, "Pset.Prop" → value (the first row of a name, case ignored).</summary>

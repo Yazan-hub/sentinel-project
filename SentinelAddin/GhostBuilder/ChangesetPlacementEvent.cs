@@ -71,7 +71,8 @@ public sealed class ChangesetPlacementEvent : IExternalEventHandler
             result = RunChecked(doc, batch, ticked, before, plan, promote?.Ids);
             if (before == null && !result.NotRun) result.Block = note; // "not checked — the ruleset has not loaded yet", or null: no BLOCK rule can fire
             // A Promote changeset whose DD IDS could not be read is placed as before, and the result says it was not checked.
-            if (promote != null && promote.Ids == null && !result.NotRun) result.Ids = "DD IDS: not checked — " + promote.IdsWhy;
+            // MA-6-2: every source's (the review fetches the context for each); an as-built line RunChecked set stays after it.
+            if (promote != null && promote.Ids == null && !result.NotRun) result.Ids = "DD IDS: not checked — " + promote.IdsWhy + (result.Ids == null ? "" : "\n" + result.Ids);
             // Said only for a changeset that was placed: a refused, rolled-back or unfinished one set nothing. Counted
             // from result.Applied — what the executor's recount left — so an element Revit removed at commit is in no line.
             if (plan != null && !result.NotRun && result.Error == null && result.NotFinished == null)
@@ -145,21 +146,21 @@ public sealed class ChangesetPlacementEvent : IExternalEventHandler
             }
             // MA-2b (design §3.4 step 5): the DD IDS made from the matrix, judged on what this changeset applied — before the BLOCK
             // check and before the group is kept. Going back rolls everything back; the changeset stays proposed.
+            // MA-2c: a set_parameter's applied entry is a TYPE — the IDS judges the elements, so it is left out (its value is
+            // judged on the elements this changeset retyped onto the type). MA-6-2: the as-built read below leaves it out too.
+            var kindOf = batch.SelectMany(c => c.Elements ?? new List<ChangesetElementDto>()).Where(e => e.Op != "set_parameter").ToDictionary(e => e.ProposalGuid, e => e.Kind ?? "wall");
             string idsLine = null;
             if (ids != null)
             {
-                // MA-2c: a set_parameter's applied entry is a TYPE — the IDS judges the elements, so it is left out (its value is
-                // judged on the elements this changeset retyped onto the type).
-                var kindOf = batch.SelectMany(c => c.Elements ?? new List<ChangesetElementDto>()).Where(e => e.Op != "set_parameter").ToDictionary(e => e.ProposalGuid, e => e.Kind ?? "wall");
-                var (fails, notRead, notJudged, judged) = PromoteContext.JudgeApplied(doc, ids, result.Applied, kindOf);
+                var (fails, notRead, notJudged, outOfScope, judged) = PromoteContext.JudgeApplied(doc, ids, result.Applied, kindOf);
                 if (fails.Count > 0 && !PromoteContext.PlaceAnyway(fails, ids.Matrix, what))
                 {
                     SentinelUndo.RollBack(group, doc);
                     return new ChangesetExecutor.ExecutionResult { NotRun = true, Error = StageIds.WentBack(fails.Count, ids.Matrix) };
                 }
                 // Passed only when nothing failed, nothing was unreadable and nothing was left out (review C2) — and said with how
-                // many were judged, never of none (third review).
-                idsLine = StageIds.Summary(judged, fails, notRead, notJudged, ids.Matrix, batch.Count > 1 ? "This " + what : null);
+                // many were judged, never of none (third review). MA-6-2: the kinds no DD class asks anything of on a line of their own.
+                idsLine = StageIds.Summary(judged, fails, notRead, notJudged, ids.Matrix, batch.Count > 1 ? "This " + what : null, outOfScope);
             }
             var added = before == null ? new List<Violation>() : BlockCheck.AddedSince(doc, before);
             if (added.Count > 0 && !BlockCheck.PlaceAnyway(doc, added, what, before.RulesetRef))
@@ -167,12 +168,16 @@ public sealed class ChangesetPlacementEvent : IExternalEventHandler
                 SentinelUndo.RollBack(group, doc);
                 return new ChangesetExecutor.ExecutionResult { NotRun = true, Error = BlockCheck.WentBack(added) };
             }
+            // MA-6-2 (design §4.6 step 3, D10): every applied wall, floor, roof, ceiling, door, window, column and beam read again as built
+            // — the bridge judges it against the installed ids@n. Read-only, once nothing can go back; a read that fails is said on the
+            // note, never a stop.
+            var asBuilt = PromoteContext.ReadAsBuilt(doc, result.Applied, kindOf);
             // The line first: nothing may throw once the group is kept (the catch below says "not placed").
             var block = added.Count > 0 ? BlockCheck.PlacedAnyway(added, doc.IsWorkshared) : null;
             if (group.Assimilate() != TransactionStatus.Committed)
                 return new ChangesetExecutor.ExecutionResult { Error = $"Revit did not keep the {(batch.Count == 1 ? "changeset's" : "storey's")} Undo group (status {group.GetStatus()})" };
             result.Block = block;
-            result.Ids = idsLine;
+            result.Ids = asBuilt == null ? idsLine : idsLine == null ? asBuilt : idsLine + "\n" + asBuilt;
             return result;
         }
         catch (Exception ex)

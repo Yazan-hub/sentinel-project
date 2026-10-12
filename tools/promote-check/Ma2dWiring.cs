@@ -32,7 +32,7 @@ static partial class Check
         string review = Src("Commands.ReviewChangesets.cs"), place = Src("GhostBuilder", "ChangesetPlacementEvent.cs"), promote = Src("Commands.PromoteWalls.cs");
         string window = Src("UI", "ChangesetReviewWindow.cs"), ctx = Src("GhostBuilder", "PromoteContext.cs");
         // Drill MA2d F-MA2d-2: the DD IDS dialog's headline and the line on every changeset's note speak of the storey.
-        Ok(place.Contains("StageIds.Summary(judged, fails, notRead, notJudged, ids.Matrix, batch.Count > 1 ? \"This \" + what : null)")
+        Ok(place.Contains("StageIds.Summary(judged, fails, notRead, notJudged, ids.Matrix, batch.Count > 1 ? \"This \" + what : null, outOfScope)") // MA-6-2: + the out-of-scope kinds
            && ctx.Contains("StageIds.Headline(fails.Count, matrix, what.StartsWith(\"storey \", StringComparison.Ordinal) ? \"This \" + what : null)"),
            "a storey's DD IDS dialog and the line on its changesets' notes name the storey (drill MA2d F-MA2d-2)");
         int At(string s, string what) => s.IndexOf(what, StringComparison.Ordinal);

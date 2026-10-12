@@ -12,6 +12,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using Sentinel.Commands; // BcfConfig (bridge URL + platform project id)
+using Sentinel.Engine;   // GovElement (MA-6-2: the as-built re-read)
 
 namespace Sentinel.Coordination;
 
@@ -558,6 +559,14 @@ public sealed class AppliedEntry
     /// <summary>MA-5b-5: a rehost's — the tags Revit removed with the old instance (counted by the probe before the delete); null, and left
     /// out of the body, for every other entry.</summary>
     [JsonPropertyName("removed_tags")] [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? RemovedTags { get; set; }
+    /// <summary>MA-6-2 (design §4.6 step 3): Revit's re-read of the wall, floor, roof, ceiling, door, window, column or beam this entry applied,
+    /// as the IDS reads it (GovernedElementExtractor), inside the open group before it is kept (PromoteContext.ReadAsBuilt). The add-in's claim:
+    /// the bridge keeps its identity and psets field by field, judges them against the installed ids@n and stores the verdict (result.as_built).
+    /// Null — and left out of the body — for any other kind, a set_parameter's type, and when the read threw (the note says so).</summary>
+    [JsonPropertyName("as_built")] [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public GovElement AsBuilt { get; set; }
+    /// <summary>MA-6-2 (risk R4): the requirement keys Sentinel has a Revit reader for on that element's class (PsetMap.Readable) — the bridge
+    /// says "not read", never "fails", of an ids@n requirement outside them. Null with AsBuilt.</summary>
+    [JsonPropertyName("readable")] [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public List<string> Readable { get; set; }
 }
 
 /// <summary>MA-4f: GET /changesets/:key/:id/scan — the scan around a survey changeset's storey, thinned by sentinel-survey and moved into the

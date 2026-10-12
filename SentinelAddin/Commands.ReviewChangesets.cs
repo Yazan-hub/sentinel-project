@@ -585,8 +585,9 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                 }
 
                 // MA-2b (design §3.4 steps 5 and 10): a Promote changeset is checked against the DD IDS made from the LOD matrix before
-                // commit, and its LOD state after is recorded — both from what PromoteContext reads, off Revit's thread.
-                var promote = fresh[0].Source == "promote" ? await Task.Run(() => PromoteContext.Fetch(key)) : null;
+                // commit, and its LOD state after is recorded — both from what PromoteContext reads, off Revit's thread. MA-6-2 (design §4.6,
+                // D11): every source's changeset — an agent's, a survey's, a drawing's, a DWG's — so the LOD line stays true after any Apply.
+                var promote = await Task.Run(() => PromoteContext.Fetch(key));
                 // MA-1a item 6: the project's guideline, for its placement block — only when a ticked element is a create. None
                 // installed is no block, and the result says so. A guideline that could not be read is not "no block" (review
                 // amendment C7): nothing runs, and the changeset stays proposed.
@@ -663,8 +664,8 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                     // AI-2: the record first — on this PC before the report is sent, so a result the bridge never hears of is never forgotten
                     // and never applied twice.
                     var unsaved = records.Where(r => r.Applied.Count > 0 && !UnreportedResults.Write(r)).Select(r => $"\"{r.Name}\"").ToList();
-                    // MA-2b, design §3.4 step 10: the LOD state after a Promote changeset, read again on this (the API) thread — sent as one
-                    // more lod_state row once the bridge holds a changeset of it as applied.
+                    // MA-2b, design §3.4 step 10: the LOD state after a Promote changeset (MA-6-2: any source's), read again on this (the API)
+                    // thread — sent as one more lod_state row once the bridge holds a changeset of it as applied.
                     LodStateReport lod = null;
                     string after = null;
                     if (promote != null && result.Applied.Count > 0)
