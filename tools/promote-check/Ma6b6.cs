@@ -75,6 +75,18 @@ static partial class Check
            && cmd.Contains("receipt.Parameters[\"images_sha256\"] = MassingPlanner.HasModelValue(corrected) ? imagesSha : null;")
            && cmd.Contains("BuildReceipt.Run(\"photo-massing\", BuildReceipt.AddinSha256, receipt, 0, new List<string> { cs.Id }, actor)"),
            "the build:run receipt carries the openings seen (D12), the images' sha only while a number is the model's (E7), and the filed changeset");
+        // MA-6-9 (C14): the receipt names the views and the known dimension; the progress line counts photos; the reader sends p1_measure.py's
+        // prompt and schema, one call per photo, counted per call (Trust.cs pins the Usage literals).
+        string reader = Src("GhostBuilder", "MassingVisionReader.cs");
+        Ok(cmd.Contains("receipt.Parameters[\"views\"] = corrected.ViewLines;") && cmd.Contains("receipt.Parameters[\"known_dimension\"] = MassingPlanner.KnownWords(corrected);")
+           && cmd.Contains("progress: new Progress<string>(progress.SetStatus)") && reader.Contains("$\"Reading photo {i + 1} of {images.Count}…\""),
+           "MA-6-9: the Photo Massing receipt carries views (one line per photo) and known_dimension; the progress line reads \"Reading photo i of n…\"");
+        Ok(reader.Contains("\"Look at the tallest building in this photo. Count its storeys: the horizontal floor bands from the ground to the roof, \" +")
+           && reader.Contains("\"Give no length in metres, feet or millimetres - counts and ratios only. Return only JSON.\";")
+           && reader.Contains("\"required\"\": [\"\"storeys\"\", \"\"full_height\"\", \"\"height_to_width\"\", \"\"view\"\"]")
+           && reader.Contains("options\"] = new { temperature = 0 }") && reader.Contains("return MassingPlanner.FromViews(views);")
+           && !reader.Contains("MassingPlanner.Validate(") && !reader.Contains("footprintWidthMm"),
+           "MA-6-9: the reader sends the prompt and schema row P-1 measured, at temperature 0, one call per photo, and hands the estimate on unvalidated (a count of 300 reaches ScaleRefusal)");
         // Review fix: a Photo Massing changeset still waiting is opened instead of filing a second (the same "Massing Lnn" levels, D16).
         int fetch = cmd.IndexOf("var pending = ChangesetClient.FetchProposed(cfg, key, out err);", plan, StringComparison.Ordinal);
         Ok(fetch > plan && fetch < cmd.IndexOf("cs = ChangesetClient.Propose(fileCfg, key, body, out err);", StringComparison.Ordinal)

@@ -17,8 +17,23 @@ namespace Sentinel.GhostBuilder
     {
         public double Value;
         public double Confidence;
-        public string Source = "photo"; // "photo" | "assumed" | "user"
+        public string Source = "photo"; // "photo" | "assumed" | "user" | "inferred" (MA-6-9: worked out from a known dimension)
         public string Note;
+        // MA-6-9 (C#-only: massing.ts and its cases are unchanged, R12): the spread across the photos — Views of Of photos gave a value in Lo..Hi.
+        public double? Lo, Hi;
+        public int Views, Of;
+    }
+
+    /// <summary>MA-6-9 (C14): what the vision model read from ONE photo — counts and a ratio, never a length.</summary>
+    public sealed class ViewReading
+    {
+        public string Photo;
+        public int Storeys;
+        public bool FullHeight;
+        public double HeightToWidth;
+        public int Bays;
+        public string View = "unknown";
+        public string Error; // a view the model could not read is a row with its reason, never a stop
     }
 
     public sealed class OpeningEstimate
@@ -39,6 +54,12 @@ namespace Sentinel.GhostBuilder
         public List<string> FacadesSeen = new List<string>();
         public string Notes;
         public string Provenance = "photo";
+        // MA-6-9: the photos' height : width ratio (null when nothing read one), the one dimension a person gave
+        // (KnownField "height" | "width", KnownMm) and one line per photo read. C#-only, like Lo/Hi.
+        public EstimatedValue HeightToWidth;
+        public string KnownField;
+        public double KnownMm;
+        public List<string> ViewLines = new List<string>();
     }
 
     public static class MassingPlanner
@@ -88,15 +109,22 @@ namespace Sentinel.GhostBuilder
                 FacadesSeen = seen,
                 Notes = raw.Notes,
                 Provenance = "photo",
+                // MA-6-9 (amendment 14): the fields Validate does not judge ride through unchanged.
+                HeightToWidth = raw.HeightToWidth == null ? null : Copy(raw.HeightToWidth),
+                KnownField = raw.KnownField, KnownMm = raw.KnownMm,
+                ViewLines = new List<string>(raw.ViewLines ?? new List<string>()),
             };
         }
 
-        private static EstimatedValue Assumed(double value) =>
-            new EstimatedValue { Value = value, Confidence = 0, Source = "assumed" };
+        private static EstimatedValue Copy(EstimatedValue v) =>
+            new EstimatedValue { Value = v.Value, Confidence = v.Confidence, Source = v.Source, Note = v.Note, Lo = v.Lo, Hi = v.Hi, Views = v.Views, Of = v.Of };
+
+        private static EstimatedValue Assumed(double value, string note = null) =>
+            new EstimatedValue { Value = value, Confidence = 0, Source = "assumed", Note = note };
 
         private static EstimatedValue Clamp(EstimatedValue v, (double lo, double hi) b, string unit = " mm")
         {
-            var o = new EstimatedValue { Value = v.Value, Confidence = v.Confidence, Source = v.Source, Note = v.Note };
+            var o = Copy(v);
             if (double.IsNaN(o.Value) || double.IsInfinity(o.Value))
                 return new EstimatedValue { Value = b.lo, Confidence = 0, Source = "assumed", Note = "no usable value — assumed" };
             if (o.Value < b.lo) { o.Value = b.lo; o.Note = $"raised to the {b.lo}{unit} minimum"; o.Source = "assumed"; o.Confidence = Math.Min(o.Confidence, 0.3); }
@@ -113,9 +141,9 @@ namespace Sentinel.GhostBuilder
         /// When Ollama is down, answers badly, or the reviewer replaced every number, it holds none: the build then came from
         /// the review alone, and its stamp must not name the images as its source.</summary>
         public static bool HasModelValue(MassingEstimate m) =>
-            m != null && new[] { m.FootprintWidthMm, m.FootprintDepthMm, m.Storeys, m.StoreyHeightMm }
+            m != null && new[] { m.FootprintWidthMm, m.FootprintDepthMm, m.Storeys, m.StoreyHeightMm, m.HeightToWidth }
                 .Concat((m.Openings ?? new List<OpeningEstimate>()).Where(o => o != null).SelectMany(o => new[] { o.WidthMm, o.HeightMm }))
-                .Any(v => v != null && v.Source == "photo");
+                .Any(v => v != null && (v.Source == "photo" || v.Source == "inferred")); // MA-6-9: a number worked out from the model's counts is still its
 
         /// <summary>MAS-4: the review's status line when a filing ended with nothing filed — the reason is in the dialog just shown.</summary>
         public const string ReopenStatus = "Nothing was filed — the reason is in the message just shown. Your numbers are kept: put it right, then File for review again.";
@@ -123,6 +151,137 @@ namespace Sentinel.GhostBuilder
         /// <summary>MAS-4 (review amendment C12): the review's status line when the filing could not start — the request threw, Revit did
         /// not take it, or (MA-6-6) a check before filing refused it. The window is reopened where the failure is seen.</summary>
         public static string NotStarted(string why) => $"The filing did not start ({why}). Your numbers are kept: put it right, then File for review again.";
+
+        private const string KnownWanted = "type one known dimension — the building's height or a façade's width; the photos give counts and ratios only";
+        /// <summary>MA-6-9: the review's words when File for review is pressed before a known dimension is given.</summary>
+        public const string NeedsKnown = KnownWanted;
+
+        private static double Median(List<double> xs)
+        {
+            xs.Sort();
+            int n = xs.Count;
+            return n % 2 == 1 ? xs[n / 2] : (xs[n / 2 - 1] + xs[n / 2]) / 2;
+        }
+
+        // The spread of the values a photo set gave: the median, its range, how many gave one, and the share near the median.
+        private static EstimatedValue Spread(List<double> xs, int photos, Func<double, double, bool> near)
+        {
+            double med = Median(new List<double>(xs));
+            return new EstimatedValue
+            {
+                Value = med, Source = "photo", Lo = xs.Min(), Hi = xs.Max(), Views = xs.Count, Of = photos,
+                Confidence = xs.Count(x => near(x, med)) / (double)xs.Count,
+            };
+        }
+
+        /// <summary>MA-6-9 (C14): the photos' readings as ONE estimate. Storeys = the median count of the full-height views (else of all
+        /// counts), its range, confidence = the share within ±2; HeightToWidth likewise over the front, side and corner ratios above zero
+        /// (share within ±15 %). Width, depth and storey height stay assumed until a person gives one known dimension (Scale). Not
+        /// validated: a count of 300 must reach ScaleRefusal, not be capped to 200 first.</summary>
+        public static MassingEstimate FromViews(IReadOnlyList<ViewReading> views)
+        {
+            var vs = (views ?? new List<ViewReading>()).Where(v => v != null).ToList();
+            var counted = vs.Where(v => v.Error == null && v.Storeys > 0).ToList();
+            var use = counted.Where(v => v.FullHeight).ToList();
+            if (use.Count == 0) use = counted;
+            var m = new MassingEstimate
+            {
+                FootprintWidthMm = Assumed(FootprintW.lo, KnownWanted),
+                FootprintDepthMm = Assumed(FootprintD.lo, KnownWanted),
+                Storeys = Assumed(1, "no photo gave a storey count"),
+                StoreyHeightMm = Assumed(3000, KnownWanted),
+                HeightToWidth = Assumed(double.NaN, "no photo gave a usable height : width ratio"),
+                FacadesSeen = vs.Where(v => v.Error == null && v.View != "unknown" && v.View != "aerial").Select(v => v.View).Distinct().ToList(),
+            };
+            if (use.Count > 0)
+            {
+                m.Storeys = Spread(use.Select(v => (double)v.Storeys).ToList(), vs.Count, (x, med) => Math.Abs(x - med) <= 2);
+                m.Storeys.Value = Math.Round(m.Storeys.Value, MidpointRounding.AwayFromZero);
+            }
+            var ratios = vs.Where(v => v.Error == null && v.HeightToWidth > 0 && !double.IsInfinity(v.HeightToWidth) && (v.View == "front" || v.View == "side" || v.View == "corner"))
+                           .Select(v => v.HeightToWidth).ToList();
+            if (ratios.Count > 0) m.HeightToWidth = Spread(ratios, vs.Count, (x, med) => Math.Abs(x - med) <= 0.15 * med);
+            m.ViewLines = vs.Select(ViewLine).ToList();
+            m.Notes = m.ViewLines.Count == 0 ? null : string.Join("\n", m.ViewLines);
+            return m;
+        }
+
+        private static string ViewLine(ViewReading v) => v.Error != null
+            ? $"{v.Photo}: not read — {v.Error}"
+            : $"{v.Photo}: {v.Storeys} storeys{(v.FullHeight ? "" : " (not full height)")}, height : width {v.HeightToWidth.ToString("0.##", CultureInfo.InvariantCulture)}, {v.Bays} bays, {v.View}";
+
+        /// <summary>MA-6-9: the known dimension in words for the receipt, or null when none was given.</summary>
+        public static string KnownWords(MassingEstimate m) => m?.KnownField == null ? null : $"{m.KnownField} {Mm(m.KnownMm)} mm, given";
+
+        private static bool Usable(EstimatedValue r) => r != null && r.Value > 0 && !double.IsInfinity(r.Value);
+
+        /// <summary>MA-6-9: exactly ONE known dimension (mm) turns the photos' counts and ratio into lengths. From the height H: the storey
+        /// height H ÷ storeys and the width H ÷ ratio are inferred (Lo/Hi from the count's and the ratio's spread). From the width W: H = W ×
+        /// ratio. Depth = width, assumed — the photos did not show it. Mutates m's values in place (the review's boxes are keyed by them).
+        /// Returns null, or why nothing was changed.</summary>
+        public static string Scale(MassingEstimate m, double? heightMm, double? widthMm)
+        {
+            if (heightMm.HasValue == widthMm.HasValue) return "give exactly one known dimension — the building's height or a façade's width";
+            double known = heightMm ?? widthMm.Value;
+            if (!(known > 0) || double.IsInfinity(known)) return "the known dimension must be a number above zero";
+            double n = Math.Round(m.Storeys.Value);
+            if (!(n >= 1) || m.Storeys.Source == "assumed") return "type the number of storeys first — the storey height comes from it";
+            var r = m.HeightToWidth;
+            if (widthMm.HasValue && !Usable(r)) return "the photos gave no height : width ratio — give the building's height instead";
+            double H = heightMm ?? known * r.Value;
+            m.KnownField = heightMm.HasValue ? "height" : "width";
+            m.KnownMm = known;
+
+            var h = m.StoreyHeightMm;
+            h.Value = H / n; h.Confidence = m.Storeys.Confidence; h.Source = "inferred";
+            h.Lo = H / (m.Storeys.Hi ?? n); h.Hi = H / (m.Storeys.Lo ?? n); h.Views = h.Of = 0;
+            h.Note = $"{Mm0(H)} mm ÷ {Mm0(n)} storeys";
+
+            var w = m.FootprintWidthMm;
+            if (widthMm.HasValue)
+            {
+                w.Value = known; w.Confidence = 1; w.Source = "user"; w.Lo = w.Hi = null; w.Views = w.Of = 0; w.Note = "given by the reviewer";
+            }
+            else if (Usable(r))
+            {
+                w.Value = H / r.Value; w.Confidence = r.Confidence; w.Source = "inferred";
+                w.Lo = H / (r.Hi ?? r.Value); w.Hi = H / (r.Lo ?? r.Value); w.Views = w.Of = 0;
+                w.Note = $"{Mm0(H)} mm ÷ ratio {r.Value.ToString("0.##", CultureInfo.InvariantCulture)}";
+            }
+            else return null; // no ratio: the width stays what it was, assumed
+            var d = m.FootprintDepthMm;
+            d.Value = w.Value; d.Confidence = 0; d.Source = "assumed"; d.Lo = d.Hi = null; d.Views = d.Of = 0;
+            d.Note = "depth not seen — a person confirms";
+            return null;
+        }
+
+        /// <summary>MA-6-9 (R11): an inferred value outside Validate's bounds is refused in words — never silently clamped to a plausible
+        /// number. Null when nothing inferred is out of range (or no dimension was given).</summary>
+        public static string ScaleRefusal(MassingEstimate m)
+        {
+            if (m?.KnownField == null) return null;
+            double n = Math.Round(m.Storeys.Value), r = m.HeightToWidth?.Value ?? double.NaN;
+            double H = m.KnownField == "height" ? m.KnownMm : m.KnownMm * r;
+            var h = m.StoreyHeightMm; var w = m.FootprintWidthMm;
+            if (h.Source == "inferred" && (h.Value < StoreyH.lo || h.Value > StoreyH.hi))
+                return $"storey height inferred {Mm0(h.Value)} mm ({Mm0(H)} mm ÷ {Mm0(n)} storeys) is outside {Mm0(StoreyH.lo)}–{Mm0(StoreyH.hi)} mm — check the count or the known dimension";
+            if (w.Source == "inferred" && (w.Value < FootprintW.lo || w.Value > FootprintW.hi))
+                return $"footprint width inferred {Mm0(w.Value)} mm ({Mm0(H)} mm ÷ ratio {r.ToString("0.##", CultureInfo.InvariantCulture)}) is outside {Mm0(FootprintW.lo)}–{Mm0(FootprintW.hi)} mm — check the ratio or the known dimension";
+            if (n < Storeys.lo || n > Storeys.hi)
+                return $"{Mm0(n)} storeys is outside {Mm0(Storeys.lo)}–{Mm0(Storeys.hi)} — check the count";
+            return null;
+        }
+
+        /// <summary>MA-6-9: the review's hint for a value — its mark, the spread across the photos or the range worked out, and its note.</summary>
+        public static string Hint(EstimatedValue v)
+        {
+            string num(double x) => x.ToString("0.###", CultureInfo.InvariantCulture);
+            string s = Mark(v);
+            if (v.Lo is double lo && v.Hi is double hi)
+                s += v.Of > 0 ? $" — {v.Views} of {v.Of} photos: {num(lo)}–{num(hi)}" : $" — range {num(lo)}–{num(hi)}";
+            if (!string.IsNullOrEmpty(v.Note)) s += " — " + v.Note;
+            return s;
+        }
 
         /// <summary>Fields a reviewer must confirm before building — anything `assumed` or below the bar.</summary>
         public static List<string> FieldsNeedingReview(MassingEstimate m)
@@ -212,11 +371,15 @@ namespace Sentinel.GhostBuilder
         public static string OpeningsSeen(MassingEstimate m)
         {
             var o = (m?.Openings ?? new List<OpeningEstimate>()).Where(x => x != null).ToList();
+            if (o.Count == 0) return "not read — v2 reads storeys, bays and proportions (C14)"; // MA-6-9 (D12): the photo reader asks for no openings
             return $"{o.Count(x => x.Kind == "door")} door(s), {o.Count(x => x.Kind == "window")} window(s) — not placed (D12)";
         }
 
-        // MA-6-6 review fix: where a number came from, in words (the source codes are the estimate's, not the reviewer's).
-        private static string From(EstimatedValue v) => v.Source == "photo" ? "from the photos" : v.Source == "user" ? "typed by the reviewer" : "assumed";
+        /// <summary>MA-6-9: where a number came from, in the review's four words — the source codes stay photo, user, inferred, assumed.</summary>
+        public static string Mark(EstimatedValue v) => v.Source == "photo" ? "observed" : v.Source == "user" ? "given" : v.Source == "inferred" ? "inferred" : "assumed";
+        // MA-6-6 review fix: where a number came from, in words (the source codes are the estimate's, not the reviewer's). MA-6-9: the marks.
+        private static string From(EstimatedValue v) => Mark(v);
+        private static string Mm0(double v) => Math.Round(v).ToString("0", CultureInfo.InvariantCulture);
         private static string Mm(double v) => v.ToString("0.#", CultureInfo.InvariantCulture);
         private static string Metres(double mm) => (mm / 1000).ToString("0.0", CultureInfo.InvariantCulture);
     }

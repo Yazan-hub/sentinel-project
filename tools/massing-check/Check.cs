@@ -1,6 +1,7 @@
 #nullable disable
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text.Json;
 using Sentinel.GhostBuilder;
@@ -72,13 +73,13 @@ static class Check
            && !mass.GetProperty("place").TryGetProperty("LevelName", out _) && !mass.GetProperty("place").TryGetProperty("TypeName", out _)
            && mass.GetProperty("validate").GetProperty("identity").GetProperty("Class").GetString() == "IFCBUILDINGELEMENTPROXY",
            "one mass: the 12000 x 8000 footprint centred on 0,0 from 0 to 9600 (the Level.Elevation frame), no level, no type, IFCBUILDINGELEMENTPROXY");
-        Ok(mass.GetProperty("reason").GetString() == "Photo Massing: 12.0 × 8.0 m, 3 storeys of 3200 mm — width from the photos, depth assumed, storeys from the photos, storey height from the photos"
+        Ok(mass.GetProperty("reason").GetString() == "Photo Massing: 12.0 × 8.0 m, 3 storeys of 3200 mm — width observed, depth assumed, storeys observed, storey height observed"
            && body.GetProperty("name").GetString() == "Photo Massing · 3 storeys · 12.0 × 8.0 m" && body.GetProperty("source").GetString() == "photo"
            && body.GetProperty("actor").GetString() == "a@example.test" && !els.Any(x => x.TryGetProperty("pretick", out _)),
            "the body: its name, source photo, the actor, the mass's reason naming where each number came from — and no pretick sent (a create never is)");
         Ok(els.Count == 3 && !els.Any(x => x.GetProperty("kind").GetString() is "door" or "window" or "opening" or "wall" or "floor")
-           && MassingPlanner.OpeningsSeen(m) == "1 door(s), 2 window(s) — not placed (D12)" && MassingPlanner.OpeningsSeen(null) == "0 door(s), 0 window(s) — not placed (D12)",
-           "the openings the photos showed are counted for the receipt, never filed (D12); no wall, floor or opening is filed");
+           && MassingPlanner.OpeningsSeen(m) == "1 door(s), 2 window(s) — not placed (D12)" && MassingPlanner.OpeningsSeen(null) == "not read — v2 reads storeys, bays and proportions (C14)",
+           "openings an estimate holds are counted for the receipt, never filed (D12); one that holds none says not read (v2); no wall, floor or opening is filed");
         var huge = MassingPlanner.Validate(new MassingEstimate { FootprintWidthMm = V(20000), FootprintDepthMm = V(20000), Storeys = V(200), StoreyHeightMm = V(3000), FacadesSeen = new List<string> { "front" } });
         var (none, why) = MassingPlanner.Changeset(huge, new List<(string, double, bool)>(), "a");
         var (fits, fitsWhy) = MassingPlanner.Changeset(huge, Enumerable.Range(0, 2).Select(i => ($"L{i}", i * 3000.0, true)).ToList(), "a");
@@ -99,6 +100,107 @@ static class Check
            && oneJson.GetProperty("elements").EnumerateArray().Last().GetProperty("reason").GetString()!.StartsWith("Photo Massing: 20.0 × 20.0 m, 1 storey of 8000 mm — "),
            "one storey is \"1 storey\" in the changeset's name and the mass's reason (drill: \"1 storeys\")");
 
+
+        // ---- MA-6-9 (C14): photo reading v2 — counts and a ratio from each photo, one known dimension, the lengths inferred ----
+        ViewReading Vw(string photo, int n, bool full, double r, string view = "front") =>
+            new ViewReading { Photo = photo, Storeys = n, FullHeight = full, HeightToWidth = r, Bays = 10, View = view };
+        var fused = MassingPlanner.FromViews(new List<ViewReading>
+        {
+            Vw("a.jpg", 37, true, 3.2), Vw("b.jpg", 39, true, 3.0, "side"), Vw("c.jpg", 12, false, 3.4, "corner"), Vw("d.jpg", 41, true, 0),
+            new ViewReading { Photo = "e.jpg", Error = "the model answered HTTP 500" },
+        });
+        Ok(fused.Storeys.Value == 39 && fused.Storeys.Lo == 37 && fused.Storeys.Hi == 41 && fused.Storeys.Views == 3 && fused.Storeys.Of == 5
+           && fused.Storeys.Source == "photo" && fused.Storeys.Confidence == 1 && MassingPlanner.Hint(fused.Storeys) == "observed — 3 of 5 photos: 37–41",
+           "FromViews: storeys = the median of the full-height counts [37, 39, 41] (the 12 of a not-full view and the failed photo left out), its range and the share within ±2");
+        Ok(fused.HeightToWidth.Value == 3.2 && fused.HeightToWidth.Lo == 3.0 && fused.HeightToWidth.Hi == 3.4 && fused.HeightToWidth.Views == 3 && fused.HeightToWidth.Confidence == 1,
+           "FromViews: a zero ratio is skipped — the height : width ratio is the median of 3.2, 3.0 and 3.4");
+        Ok(fused.FootprintWidthMm.Source == "assumed" && fused.FootprintDepthMm.Source == "assumed" && fused.StoreyHeightMm.Source == "assumed"
+           && fused.StoreyHeightMm.Note == MassingPlanner.NeedsKnown
+           && fused.ViewLines.Count == 5 && fused.ViewLines[4] == "e.jpg: not read — the model answered HTTP 500" && fused.Notes.Split('\n').Length == 5,
+           "FromViews: width, depth and storey height stay assumed and say to type one known dimension; one line per photo, a failed one with its reason");
+        var allNot = MassingPlanner.FromViews(new List<ViewReading> { Vw("a.jpg", 20, false, 3.0), Vw("b.jpg", 24, false, 3.0) });
+        var noneRead = MassingPlanner.FromViews(new List<ViewReading>());
+        Ok(allNot.Storeys.Value == 22 && allNot.Storeys.Views == 2 && noneRead.Storeys.Source == "assumed" && double.IsNaN(noneRead.HeightToWidth.Value)
+           && !MassingPlanner.HasModelValue(noneRead),
+           "FromViews: with no full-height view all counts are used; with nothing read everything is assumed and names no images");
+
+        // Scale: 36–40 storeys (median 38) and ratios 3.8–4.2 (median 4.0), 157000 mm known.
+        MassingEstimate Seagram() => MassingPlanner.FromViews(new List<ViewReading>
+            { Vw("1.jpg", 36, true, 3.8), Vw("2.jpg", 38, true, 4.0), Vw("3.jpg", 40, true, 4.2), Vw("4.jpg", 38, true, 4.0) });
+        var sc = Seagram();
+        Ok(MassingPlanner.Scale(sc, 157000, null) == null
+           && Math.Abs(sc.StoreyHeightMm.Value - 4131.578947) < 0.001 && sc.StoreyHeightMm.Source == "inferred"
+           && Math.Abs(sc.StoreyHeightMm.Lo.Value - 157000.0 / 40) < 1e-6 && Math.Abs(sc.StoreyHeightMm.Hi.Value - 157000.0 / 36) < 1e-6
+           && sc.FootprintWidthMm.Value == 39250 && sc.FootprintWidthMm.Source == "inferred"
+           && Math.Abs(sc.FootprintWidthMm.Lo.Value - 157000 / 4.2) < 1e-6 && Math.Abs(sc.FootprintWidthMm.Hi.Value - 157000 / 3.8) < 1e-6
+           && sc.FootprintDepthMm.Value == 39250 && sc.FootprintDepthMm.Source == "assumed" && sc.FootprintDepthMm.Note == "depth not seen — a person confirms"
+           && MassingPlanner.KnownWords(sc) == "height 157000 mm, given" && MassingPlanner.ScaleRefusal(sc) == null
+           && MassingPlanner.Hint(sc.StoreyHeightMm) == "inferred — range 3925–4361.111 — 157000 mm ÷ 38 storeys",
+           "Scale(157000) with 38 storeys: storey height 4131.6 inferred (range from the counts), width 157000 ÷ 4.0 = 39250 inferred (range from the ratios), depth = width, assumed");
+        var byW = Seagram();
+        Ok(MassingPlanner.Scale(byW, null, 39250) == null
+           && Math.Abs(byW.StoreyHeightMm.Value - 4131.578947) < 0.001 && byW.StoreyHeightMm.Source == "inferred"
+           && byW.FootprintWidthMm.Value == 39250 && byW.FootprintWidthMm.Source == "user" && byW.FootprintWidthMm.Confidence == 1
+           && byW.FootprintDepthMm.Source == "assumed" && MassingPlanner.KnownWords(byW) == "width 39250 mm, given",
+           "Scale from a given width: H = W × ratio, so the same storey height; the width is the reviewer's (given), the depth assumed");
+        var bad = Seagram();
+        Ok(MassingPlanner.Scale(bad, 1000, 2000) == "give exactly one known dimension — the building's height or a façade's width"
+           && MassingPlanner.Scale(bad, null, null) != null && MassingPlanner.Scale(bad, -5, null) != null && bad.KnownField == null
+           && MassingPlanner.Scale(fused, null, 20000) == null && MassingPlanner.Scale(noneRead, null, 20000) == "type the number of storeys first — the storey height comes from it"
+           && MassingPlanner.Scale(noneRead, 20000, null) == "type the number of storeys first — the storey height comes from it",
+           "Scale refuses none, two or a non-positive known dimension, and a count of nothing, in words — and changes nothing then");
+        var noRatio = MassingPlanner.FromViews(new List<ViewReading> { Vw("a.jpg", 10, true, 0), Vw("b.jpg", 10, true, 0) });
+        Ok(MassingPlanner.Scale(noRatio, null, 20000) == "the photos gave no height : width ratio — give the building's height instead"
+           && MassingPlanner.Scale(noRatio, 31000, null) == null && noRatio.StoreyHeightMm.Value == 3100 && noRatio.FootprintWidthMm.Source == "assumed",
+           "no ratio: a width cannot give the height; a height still gives the storey height and leaves the width assumed");
+
+        // ScaleRefusal (R11): an inferred number outside Validate's bounds is said, never clamped.
+        var three = MassingPlanner.FromViews(new List<ViewReading> { Vw("a.jpg", 300, true, 4.0) });
+        MassingPlanner.Scale(three, 157000, null);
+        Ok(MassingPlanner.ScaleRefusal(three) == "storey height inferred 523 mm (157000 mm ÷ 300 storeys) is outside 2100–8000 mm — check the count or the known dimension"
+           && three.Storeys.Value == 300 && MassingPlanner.Validate(three).Storeys.Value == 200,
+           "300 storeys over 157000 mm: refused in words (523 mm ÷ …) — FromViews keeps 300 where Validate would cap it to 200");
+        var wide = MassingPlanner.FromViews(new List<ViewReading> { Vw("a.jpg", 40, true, 0.1) });
+        MassingPlanner.Scale(wide, 100000, null);
+        Ok(MassingPlanner.ScaleRefusal(wide) == "footprint width inferred 1000000 mm (100000 mm ÷ ratio 0.1) is outside 2000–500000 mm — check the ratio or the known dimension"
+           && MassingPlanner.ScaleRefusal(Seagram()) == null && MassingPlanner.ScaleRefusal(null) == null,
+           "an inferred width past the bound is refused in words; nothing given, nothing refused");
+
+        // HasModelValue and the marks.
+        var mixed = Seagram();
+        MassingPlanner.Scale(mixed, 157000, null);
+        foreach (var v in new[] { mixed.FootprintWidthMm, mixed.FootprintDepthMm, mixed.Storeys, mixed.HeightToWidth }) v.Source = "user";
+        Ok(MassingPlanner.HasModelValue(mixed) && (mixed.StoreyHeightMm.Source = "user") == "user" && !MassingPlanner.HasModelValue(mixed),
+           "HasModelValue counts an inferred number (the images still name the source), and not once the reviewer has replaced it");
+        var marked = MassingPlanner.Validate(sc);
+        Ok(marked.HeightToWidth.Value == 4.0 && marked.KnownField == "height" && marked.KnownMm == 157000 && marked.ViewLines.Count == 4
+           && marked.FootprintWidthMm.Source == "inferred" && marked.FootprintWidthMm.Lo == sc.FootprintWidthMm.Lo && marked.Storeys.Views == 4,
+           "Validate carries the ratio, the known dimension, the view lines and each value's spread through unchanged (amendment 14)");
+        var (cs, csWhy) = MassingPlanner.Changeset(marked, new List<(string, double, bool)>(), "a@example.test");
+        var csMass = JsonDocument.Parse(JsonSerializer.Serialize(cs)).RootElement.GetProperty("elements").EnumerateArray().Last();
+        Ok(csWhy == null && csMass.GetProperty("reason").GetString() == "Photo Massing: 39.3 × 39.3 m, 38 storeys of 4131.6 mm — width inferred, depth assumed, storeys observed, storey height inferred",
+           "the filed mass's reason names the marks: width inferred, depth assumed, storeys observed, storey height inferred");
+
+        // Row P-1 (D17), the measured table: on the four Seagram photos no local model lands 38 ± 4. The rows are p1-views.json (p1_measure.json).
+        var rows = JsonDocument.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "p1-views.json"))).RootElement.EnumerateArray().ToList();
+        MassingEstimate Model(string tag) => MassingPlanner.FromViews(rows.Where(r => r.GetProperty("model").GetString() == tag).Select(r =>
+            r.TryGetProperty("error", out var err)
+                ? new ViewReading { Photo = r.GetProperty("photo").GetString(), Error = err.GetString() }
+                : new ViewReading
+                {
+                    Photo = r.GetProperty("photo").GetString(), Storeys = r.GetProperty("storeys").GetInt32(), FullHeight = r.GetProperty("full_height").GetBoolean(),
+                    HeightToWidth = r.GetProperty("height_to_width").GetDouble(), View = r.GetProperty("view").GetString(),
+                }).ToList());
+        var llava = Model("llava:latest"); var qwen = Model("qwen3.6:latest"); var llama = Model("llama3.2-vision:latest");
+        MassingPlanner.Scale(qwen, 157000, null);
+        Ok(llava.Storeys.Value == 20 && llava.Storeys.Lo == 20 && llava.Storeys.Hi == 20 && llava.Storeys.Views == 4
+           && qwen.Storeys.Value == 50 && qwen.Storeys.Lo == 42 && qwen.Storeys.Hi == 52 && qwen.Storeys.Views == 3 && qwen.Storeys.Of == 4
+           && Math.Abs(qwen.StoreyHeightMm.Value - 3140) < 1e-9 && MassingPlanner.ScaleRefusal(qwen) == null
+           && llama.Storeys.Source == "assumed" && llama.ViewLines.All(l => l.Contains("not read")),
+           "P-1 table pinned: llava reads 20 on all four photos, qwen3.6 reads 50 (42–52, 3 of 4 full height); llama3.2-vision answered HTTP 500 on all four");
+        Ok(new[] { llava, qwen }.All(e => Math.Abs(e.Storeys.Value - 38) > 4),
+           "P-1 (D17): every local model MISSES 38 ± 4 — recorded, not hidden; the review shows the spread and the mark, a person gives the height");
+
         // review list
         var review = MassingPlanner.FieldsNeedingReview(lowc);
         Ok(review.Contains("storey height"), "review list flags the low-confidence field");
@@ -110,8 +212,8 @@ static class Check
         Ok(before && !MassingPlanner.HasModelValue(empty) && !MassingPlanner.HasModelValue(MassingPlanner.Validate(m)) && !MassingPlanner.HasModelValue(null),
            "an estimate the vision model gave nothing for (Ollama down), or one the reviewer replaced, names no images (MA-6-6: the receipt's images_sha256 is null then)");
         Ok(Body(new List<(string, double, bool)>()).GetProperty("elements").EnumerateArray().Last().GetProperty("reason").GetString()
-              == "Photo Massing: 12.0 × 8.0 m, 3 storeys of 3200 mm — width typed by the reviewer, depth typed by the reviewer, storeys typed by the reviewer, storey height typed by the reviewer",
-           "the mass's reason says in words where a number the reviewer typed came from (review fix: not the source code \"user\")");
+              == "Photo Massing: 12.0 × 8.0 m, 3 storeys of 3200 mm — width given, depth given, storeys given, storey height given",
+           "the mass's reason says in the marks where a number came from (review fix: not the source code \"user\"; MA-6-9: given)");
 
         // MAS-4, MA-6-6: the review's words when nothing was filed.
         Ok(MassingPlanner.ReopenStatus == "Nothing was filed — the reason is in the message just shown. Your numbers are kept: put it right, then File for review again."
