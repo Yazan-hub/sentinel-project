@@ -19,7 +19,7 @@ export const ATTESTATION_TEXTS: Record<string, string> = {
 };
 export interface Attestation { id: string; code: string; text_sha256: string; by: string; role: string; at: string; }
 export interface Dataset { provider: string; source_url: string; licence: string; attribution: string; }
-export type EvidenceKind = "scan" | "photo" | "drawing";
+export type EvidenceKind = "scan" | "photo" | "drawing" | "model";
 export interface EvidenceItem {
   id: string; kind: EvidenceKind; format: string; sha256: string; size_bytes: number; path: string; surveyable: boolean;
   admitted_by: string; admitted_at: string; state?: "changed"; changed_at?: string; registration?: { method: string; report_path?: string };
@@ -36,10 +36,10 @@ type Ledger = { id: number | null; hash: string | null };
 export interface AdmitReply { verdict: "admitted" | "refused"; item?: EvidenceItem; path?: string; reasons?: string[]; ledger: Ledger; }
 export interface RecheckReply { checked: number; changed: { item_id: string; path: string; reason: string }[]; still_changed: number; pack_version: number; }
 
-const SCAN = /\.(e57|las|laz|rcp)$/i, PHOTO = /\.(jpe?g|png)$/i, DRAWING = /\.(pdf|dwg|dxf)$/i;
+const SCAN = /\.(e57|las|laz|rcp)$/i, PHOTO = /\.(jpe?g|png)$/i, DRAWING = /\.(pdf|dwg|dxf)$/i, MODEL = /\.ifc$/i; // MA-6-8: a concept IFC
 /** A folder file's kind by its extension (the bridge's format tables), or null when it is not admitted. An image is a photo here; it is
  *  admitted as a drawing when it answers a request (isImage). Pure. */
-export const kindOf = (path: string): EvidenceKind | null => (SCAN.test(path) ? "scan" : PHOTO.test(path) ? "photo" : DRAWING.test(path) ? "drawing" : null);
+export const kindOf = (path: string): EvidenceKind | null => (SCAN.test(path) ? "scan" : PHOTO.test(path) ? "photo" : DRAWING.test(path) ? "drawing" : MODEL.test(path) ? "model" : null);
 export const isImage = (path: string): boolean => PHOTO.test(path);
 export const needsReport = (path: string): boolean => /\.rcp$/i.test(path);
 const size = (b: number) => (b < 1048576 ? `${Math.max(1, Math.round(b / 1024))} KB` : `${(b / 1048576).toFixed(1)} MB`);
@@ -47,7 +47,7 @@ const size = (b: number) => (b < 1048576 ? `${Math.max(1, Math.round(b / 1024))}
 /** One admitted item in one line. Pure. */
 export function itemLine(i: EvidenceItem): string {
   return `${i.id} · ${i.path} · ${i.format} · ${size(i.size_bytes)} · sha ${i.sha256.slice(0, 12)}…` +
-    (i.kind === "drawing" ? ` · drawing from the ${i.provider} under ${i.request_id}` : i.surveyable ? "" : " · not surveyable (no ReCap here)") +
+    (i.kind === "drawing" ? ` · drawing from the ${i.provider} under ${i.request_id}` : i.kind === "model" ? " · concept model (own)" : i.surveyable ? "" : " · not surveyable (no ReCap here)") +
     (i.state === "changed" ? " · CHANGED since admitted — on hold; restore the file and Admit it again, or put the new file in under a new name" : "");
 }
 /** An attestation's state in one line. Pure. */
@@ -116,7 +116,7 @@ export interface SurveyJob {
   items: { id: string; path: string; sha256: string }[]; read?: string[]; refused: { id: string; reason: string }[];
   started_by: string; started_at: string; finished_at?: string; error?: string;
   counts?: Record<string, number>; candidates_total?: number; ledger?: Ledger;
-  /** MA-5a-3: sentinel-survey or sentinel-drawing (a job from before names none: a survey). */
+  /** MA-5a-3: sentinel-survey or sentinel-drawing; MA-6-8: or sentinel-ifc (a job from before names none: a survey). */
   reader?: { name: string; version: string | null };
   /** MA-5a-3 (review): a drawing read with nothing found, and why (one line weight; nothing drawn on the page). */
   notes?: { id: string; why: string }[];
@@ -128,8 +128,10 @@ export interface Candidate {
   fit?: { inliers: number; rmse_mm: number; coverage: number; faces_seen?: number };
 }
 export interface JobRead { job: SurveyJob; candidates?: Candidate[]; result_error?: string;
+  /** MA-6-8: an IFC job's receipt carries the file's own world position, reported and never applied. */
   /** MA-5a-6: a drawing job's receipt — each drawing's page size, for its picture in the Propose form. */
-  receipt?: { items?: { id: string; size_paper_mm?: [number, number] }[] }; }
+  receipt?: { items?: { id: string; size_paper_mm?: [number, number] }[]; hint?: IfcHint }; }
+export interface IfcHint { site: { at_mm: number[]; rotation_deg: number } | null; map_conversion: { eastings: number; northings: number; height: number } | null; storey_elevation_mismatch: unknown[]; context_wcs_not_origin: boolean; length_unit_assumed: boolean }
 /** The pack's scans a survey may read: admitted, surveyable, not changed. Which it can read is sentinel-survey's to say, per item, by the bytes (MA-4g). Pure. */
 export const surveyableScans = (pack: EvidencePack) => pack.items.filter((i) => i.kind === "scan" && i.surveyable && i.state !== "changed");
 const FOUND: [string, string][] = [["level", "level(s)"], ["wall", "wall(s)"], ["floor", "floor(s)"], ["ceiling", "ceiling(s)"], ["door", "door(s)"], ["window", "window(s)"], ["room", "room(s)"]]; // MA-5a: doors and windows; MA-5b-1: rooms
@@ -143,7 +145,7 @@ export function jobLine(j: SurveyJob): string {
   const refused = j.refused.length ? ` · refused ${j.refused.map((r) => `${r.id} (${r.reason})`).join("; ")}` : "";
   const found = j.counts ? ` · ${FOUND.filter(([k]) => k in j.counts!).map(([k, w]) => `${j.counts![k]} ${w}`).join(", ")}` : ""; // MA-5a: a 0.4.0 job never looked for doors or windows
   const notes = (j.notes ?? []).map((n) => ` · ${n.id}: ${n.why}`).join("");
-  return `${j.id}${isDrawingJob(j) ? ` · ${DRAWING_READER}` : ""} · ${state} · ${what}${refused}${found}${notes}${j.error ? ` · ${j.error}` : ""}` +
+  return `${j.id}${isDrawingJob(j) ? ` · ${DRAWING_READER}` : isIfcJob(j) ? ` · ${IFC_READER}` : ""} · ${state} · ${what}${refused}${found}${notes}${j.error ? ` · ${j.error}` : ""}` +
     ` · by ${j.started_by} · ${j.started_at.replace("T", " ").slice(0, 16)}${j.ledger ? ` · ${ledgerLine(j.ledger)}` : ""}`;
 }
 /** One untyped candidate in one line — generic over what it measured, its fit, the evidence it came from. Pure. */
@@ -177,6 +179,27 @@ export function drawingStartLine(j: SurveyJob): string {
 }
 /** Read drawings: the bridge picks every admitted PDF of the pack in force (no item list or params from here). */
 export const startDrawing = (base: string, key: string) => post<{ job: SurveyJob }>(base, key, "build/jobs", { pack: PACK_ID, readers: [DRAWING_READER] });
+/** MA-6-8: the third reader — the newest admitted concept IFC, read inside the bridge; levels, walls and floors in model mm, proposed with the lead's frame. */
+export const IFC_READER = "sentinel-ifc";
+export const isIfcJob = (j: SurveyJob) => j.reader?.name === IFC_READER;
+/** The pack's concept IFCs: admitted, not changed. The bridge reads the newest and refuses an older one in words. Pure. */
+export const readableIfc = (pack: EvidencePack) => pack.items.filter((i) => i.kind === "model" && i.state !== "changed");
+/** The status line after Read IFC. Pure. */
+export function ifcStartLine(j: SurveyJob): string {
+  return `✓ Started ${j.id} — ${IFC_READER} reads ${j.items.map((i) => `${i.id} (${i.path})`).join(", ")}` +
+    `${j.refused.length ? `; refused ${j.refused.map((r) => `${r.id} (${r.reason})`).join("; ")}` : ""} — ↻ for what it found.`;
+}
+/** Read IFC: the bridge picks the newest admitted concept IFC of the pack in force (no item list or params from here). */
+export const startIfc = (base: string, key: string) => post<{ job: SurveyJob }>(base, key, "build/jobs", { pack: PACK_ID, readers: [IFC_READER] });
+/** MA-6-8: what the IFC says about where it sits in the world, as one line for the Propose form — a hint, never applied (D5). Pure. */
+export function ifcHintLine(h: IfcHint | undefined): string {
+  if (!h) return "";
+  const said = [h.site ? `its site at ${h.site.at_mm.map((v) => Math.round(v)).join(", ")} mm turned ${h.site.rotation_deg}°` : "",
+    h.map_conversion ? `a map conversion (E ${h.map_conversion.eastings}, N ${h.map_conversion.northings}, height ${h.map_conversion.height})` : "",
+    h.context_wcs_not_origin ? "a model origin that is not zero" : "", h.length_unit_assumed ? "no length unit (metres assumed)" : "",
+    h.storey_elevation_mismatch.length ? `${h.storey_elevation_mismatch.length} storey(s) whose Elevation differs from where they are placed` : ""].filter(Boolean);
+  return `the IFC says ${said.length ? said.join("; ") : "nothing about where it sits"} — a hint, never applied (D5): state the frame yourself`;
+}
 /** The project's survey jobs, newest first; any failure throws "not read — …" (the section says it; the pack still shows). */
 export async function readJobs(base: string, key: string): Promise<SurveyJob[]> {
   let r: Response;
@@ -193,6 +216,10 @@ export interface ProposeReply {
   /** A scan's job: its row and the lead's frame; a drawing's (MA-5a-4): its row and the alignment the bridge computed from the lead's points. */
   job: string; survey_row?: Ledger; frame?: { dx_mm: number; dy_mm: number; dz_mm: number; rotation_deg: number };
   drawing_row?: Ledger; alignment?: Alignment;
+  /** MA-6-8: a concept IFC job: its row (the lead's frame rides `frame`). */
+  ifc_row?: Ledger;
+  /** MA-6-8: what the IFC reader left out that no storey of the proposal carries — one row a class. */
+  off_storey?: { ifc_class: string; count: number; name: string; reason: string }[];
   /** MA-5a-5: a drawing against the scan's filed walls on its storey — what agreed, differed, was only drawn or only scanned, the doors it adds
    *  in the scan's walls, and the BCF topics raised (one per difference; one raised before is not raised again). */
   differences?: { agree: number; differ: number; drawn_only: number; scanned_only: number; doors_agree: number; doors_from_drawing: number;
@@ -300,7 +327,8 @@ export function proposeLine(r: ProposeReply): string {
   const every = r.storeys.flatMap((x) => x.held ?? []), isRev = (h: { reason: string }) => /^(changed since |on \S+, not on )/.test(h.reason);
   const all = every.filter((h) => !isRev(h)), revRows = every.length - all.length;
   const rooms = all.filter((h) => h.name.startsWith("room ")).length, n = all.length - rooms;
-  const held = (n ? ` · ${n} door(s) or window(s) held on a storey with nothing to place — their level or host wall is not placed (each reason on the planner's row)` : "")
+  const held = (n ? ` · ${n} ${r.ifc_row ? "IFC element(s) held or not read (each reason on the planner's row)" : "door(s) or window(s) held on a storey with nothing to place — their level or host wall is not placed (each reason on the planner's row)"}` : "")
+    + (r.off_storey?.length ? ` · ${r.off_storey.reduce((m, x) => m + x.count, 0)} IFC element(s) on no storey that is placed — not read (${r.off_storey.map((x) => x.name).join("; ")})` : "")
     + (rooms ? ` · ${rooms} room(s) held on a storey with nothing to place — a wall round each is not placed (each reason on the planner's row)` : "") // MA-5b-1 review
     + (revRows ? ` · ${revRows} revision row(s) — changed since, or no longer drawn — with nothing new to place: each on the planner's row (Sentinel never deletes)` : "");
   const once = r.storeys.reduce((s, x) => s + (x.doors_seen_once?.length ?? 0), 0);
@@ -322,6 +350,8 @@ export function proposeLine(r: ProposeReply): string {
     `${rv.changed + rv.removed + rv.doors_removed + rv.rooms_removed ? " — each a person's row on the changeset (Sentinel never deletes)" : ""}`;
   if (a) return `✓ Proposed ${r.job} — ${a.item} at 1:${a.scale}, turned ${a.rotation_deg}°${a.check_mm != null ? `, checked to ${a.check_mm} mm` : ", no check point"} · ` +
     `${r.changesets.length} changeset(s), ${ghosts} ghost(s), none pre-ticked (a drawing is what someone drew, not what was built — a person ticks each in Revit)${vsPrior}${vsScan} · ${tail}`;
+  // MA-6-8: an IFC concept is what a concept says — nothing is pre-ticked, the level it creates included
+  if (r.ifc_row) return `✓ Proposed ${r.job} — ${r.changesets.length} changeset(s), ${ghosts} ghost(s), none pre-ticked (an IFC is what a concept says, not what was built — a person ticks each in Revit) · ${tail}`;
   // MA-5a-2: a scan's walls are never pre-ticked — only a level the scan created is
   return `✓ Proposed ${r.job} — ${r.changesets.length} changeset(s), ${ghosts} ghost(s), ${pre} pre-ticked on the Review desk (a level the scan created — a person ticks every scan wall, door and window; Revit leaves unticked what the office IDS rejects) · ${tail}`;
 }

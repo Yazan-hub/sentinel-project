@@ -11,7 +11,8 @@ import { resolveArtefact, refLabel, validateArtefact } from "./artefact-store.mj
 import { resolveActor } from "./bridge-auth.mjs";
 import { readProposeBody, planSurvey, PLANNER, PLANNER_VERSION, measurePlan, judge, measureRefusal, countWords, STATUSES, MIN_COVERAGE, DEVIATION_MM, FACE_SHARE_MIN, MEASURE_KNOBS,
   readMesh, meshFaces, REVIT, FILED as AS_FILED, toScan, toModel, scanBand, cloudRefusal, SCAN_CELL_MM, SCAN_MAX } from "./survey-plan.mjs";
-import { stillAdmitted, pickItems, trustedJob as jobOf, measureJob as measureOf, TOLERANCES_MM, READER, DRAWING } from "./build-jobs.mjs";
+import { stillAdmitted, pickItems, trustedJob as jobOf, measureJob as measureOf, TOLERANCES_MM, READER, DRAWING, IFC } from "./build-jobs.mjs";
+import { planIfc, PLANNER as IFC_PLANNER, PLANNER_VERSION as IFC_PLANNER_VERSION } from "./ifc-plan.mjs";
 import { readAlignBody, planDrawing, scanOnStorey, priorOf, PLANNER as DRAWING_PLANNER, PLANNER_VERSION as DRAWING_PLANNER_VERSION } from "./drawing-plan.mjs";
 
 const STORE = "changeset";
@@ -221,8 +222,10 @@ export async function previewChangesets(key, body, deps) {
 const storeyRecord = (s) => ({ cid: s.cid, level: s.level, how: s.how, elevation_mm: s.elevation_mm, delta_mm: s.delta_mm, checked: s.checked, from: s.from });
 const FILED = ["proposed", "applied", "partially_applied"]; // decision 19: a cid on one of these (less what Revit rejected) is filed
 const FRAME_KEYS = ["dx_mm", "dy_mm", "dz_mm", "rotation_deg"];
-/** MA-5a-4: a changeset the bridge built from a drawing job — no scan behind it (its job record names the reader, "sentinel-drawing 0.1.0"). */
-const isDrawn = (cs) => String(cs.job?.reader ?? "").startsWith(`${DRAWING} `);
+/** MA-5a-4: a changeset the bridge built from a drawing job — no scan behind it (its job record names the reader, "sentinel-drawing 0.1.0").
+ *  MA-6-8: and from a concept IFC ("sentinel-ifc 0.1.0") — what a concept says, not what was built. */
+const isDrawn = (cs) => [DRAWING, IFC].some((r) => String(cs.job?.reader ?? "").startsWith(`${r} `));
+const ifcOf = (cs) => String(cs.job?.reader ?? "").startsWith(`${IFC} `);
 // MA-4d (review): the projects a survey proposal is being filed on — decision 19's read of the changesets and the filing are one step per
 // project, so a double-click or two leads at once cannot file one job twice (the evidence-store admitting / rechecking, build-jobs running
 // precedent). ponytail: one bridge process — a second bridge on this PC (4101) can still race; a per-job unique doc key when two bridges serve one project.
@@ -301,7 +304,7 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
     const { row, result } = await trustedJob(key, id);
     // MA-5a-4: a drawing's candidates are in paper millimetres — they land with the lead's 2-point alignment (drawing-plan), one drawing
     // (item) per proposal; a scan's with the lead's frame.
-    const drawing = row.reader === DRAWING;
+    const drawing = row.reader === DRAWING, ifc = row.reader === IFC;
     const align = drawing ? readAlignBody(b, row.read) : null;
     const { frame, levels } = drawing ? {} : readProposeBody(b, result.candidates.filter((c) => c.kind === "level").map((c) => c.cid));
     // Every item the job read must still be the bytes it read: in the pack the ROW names (job.json is never the anchor), not flagged, with
@@ -335,7 +338,7 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
       const moved = mine.find((c) => FRAME_KEYS.some((k) => c.job.frame?.[k] !== frame[k])); // one job is one frame
       if (moved) {
         const f = moved.job.frame;
-        throw err(409, `${moved.name} (${moved.status.replace("_", " ")}) was filed from ${id} with the scan moved ${f.dx_mm}, ${f.dy_mm}, ${f.dz_mm} mm, turned ${f.rotation_deg}° — send that frame (one job is one frame), or run the survey again to propose it afresh; nothing was saved`);
+        throw err(409, `${moved.name} (${moved.status.replace("_", " ")}) was filed from ${id} with the scan moved ${f.dx_mm}, ${f.dy_mm}, ${f.dz_mm} mm, turned ${f.rotation_deg}° — send that frame (one job is one frame), or ${ifc ? "read the IFC" : drawing ? "read the drawing" : "run the survey"} again to propose it afresh; nothing was saved`);
       }
     }
     const other = earlier.find((c) => c.job?.ledger_id != null && c.job.ledger_id !== row.ledger.id && c.status === "proposed");
@@ -350,7 +353,7 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
       && (c.job.evidence ?? []).some(onScan)).slice(0, 20).map((c) => ({ changeset: c.name, job_id: c.job.id, evidence: c.job.evidence.filter(onScan).map((e) => e.id) }));
     const [guideline, catalog] = await Promise.all([standardOf(key, "guideline", d), standardOf(key, "type_catalog", d)]);
     if (!guideline.body || !catalog.body)
-      throw err(409, `a ${drawing ? "drawing's" : "survey's"} candidates are typed from the project's guideline and type catalogue (walls, floors and ceilings exactly, D16; doors and windows by size within 100 mm) — guideline: ${guideline.label}; type catalogue: ${catalog.label}; install both on the project or its office first. Nothing was saved`);
+      throw err(409, `${drawing ? "a drawing's" : ifc ? "an IFC's" : "a survey's"} candidates are typed from the project's guideline and type catalogue (walls, floors and ceilings exactly, D16; doors and windows by size within 100 mm) — guideline: ${guideline.label}; type catalogue: ${catalog.label}; install both on the project or its office first. Nothing was saved`);
     const core = await import("./sentinel-core.mjs");
     const type = makeTyper({ guideline, catalog }, core);
     let manifest;
@@ -365,12 +368,13 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
       throw err(409, `${align.revises} filed nothing on ${key} — propose it first (what it filed is what ${align.item} is compared with); if it was proposed and filed nothing new, name the drawing it revised itself; or leave revises out; nothing was saved`);
     const plan = drawing ? planDrawing({ job, candidates: result.candidates, align, manifest, type, filed, catalog: cat, sameCategory: core.sameCategory,
       scan: scanOnStorey(earlier, align.elevation_mm), drawingSha: evidence[0]?.sha256 ?? null, prior })
+      : ifc ? planIfc({ job, candidates: result.candidates, frame, levels, manifest, type, filed, notRead: result.receipt?.not_read ?? [] })
       : planSurvey({ job, candidates: result.candidates, frame, levels, manifest, type, filed, catalog: cat, sameCategory: core.sameCategory });
     const by = resolveActor(actor, "web");
     // MA-5a-4: a drawing's changeset carries its alignment and who stated it (design: "confirmed by a person"), a scan's its frame.
     const said = drawing ? { alignment: { ...plan.alignment, confirmed_by: by } } : { frame: { ...frame, stated_by: by } };
     const record = (s) => ({ id, ledger_id: row.ledger.id, ledger_hash: row.ledger.hash, result_sha256: row.result_sha256, reader: `${row.reader} ${row.version}`,
-      planner: drawing ? `${DRAWING_PLANNER} ${DRAWING_PLANNER_VERSION}` : `${PLANNER} ${PLANNER_VERSION}`, ...said, storey: storeyRecord(s), evidence, overlaps });
+      planner: drawing ? `${DRAWING_PLANNER} ${DRAWING_PLANNER_VERSION}` : ifc ? `${IFC_PLANNER} ${IFC_PLANNER_VERSION}` : `${PLANNER} ${PLANNER_VERSION}`, ...said, storey: storeyRecord(s), evidence, overlaps });
     const ready = plan.storeys.filter((p) => p.body).map((p) => {
       try { return { p, v: validateChangeset(p.body, { member: true, type, job: { record: record(p.storey), byCid: p.byCid } }) }; }
       catch (e) { throw err(e.status ?? 400, `${p.body.name}: ${e.message}`); } // unsaved() then ends it "nothing was saved"
@@ -379,13 +383,14 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
     const topicKeys = drawing && plan.differences.length ? await differenceKeys(d, key) : new Set();
     const unraised = drawing ? plan.differences.filter((x) => topicKeys instanceof Error || !topicKeys.has(x.key)).length : 0;
     if (!ready.length && mine.length && !unraised) // a job that types nothing and filed nothing files its gaps alone
-      throw err(409, `nothing new to propose from ${id} — every candidate that types is filed already (${mine.map((c) => `${c.name}: ${c.status.replace("_", " ")}`).join("; ")}): decline a proposed one in Revit (Review AI Proposals → Decline all, with a reason) to propose it again; an applied one stays applied here after an Undo in Revit — ${drawing ? "read the drawing" : "run the survey"} again to propose it afresh; nothing was saved`);
-    return { proj, row, said, drawing, before: new Set(earlier.map((c) => c.id)), overlaps, guideline, catalog, plan, ready, topicKeys };
+      throw err(409, `nothing new to propose from ${id} — every candidate that types is filed already (${mine.map((c) => `${c.name}: ${c.status.replace("_", " ")}`).join("; ")}): decline a proposed one in Revit (Review AI Proposals → Decline all, with a reason) to propose it again; an applied one stays applied here after an Undo in Revit — ${ifc ? "read the IFC" : drawing ? "read the drawing" : "run the survey"} again to propose it afresh; nothing was saved`);
+    return { proj, row, said, drawing, ifc, before: new Set(earlier.map((c) => c.id)), overlaps, guideline, catalog, plan, ready, topicKeys };
   }
 
   /** The writes: each storey's changeset (fileValidated), the type_gap row, the planner row — a stop half way says what WAS filed. */
-  async function file({ proj, row, said, drawing, before, overlaps, guideline, catalog, plan, ready, topicKeys }) {
-    const filed = [], [P, V] = drawing ? [DRAWING_PLANNER, DRAWING_PLANNER_VERSION] : [PLANNER, PLANNER_VERSION];
+  async function file({ proj, row, said, drawing, ifc, before, overlaps, guideline, catalog, plan, ready, topicKeys }) {
+    const filed = [], [P, V] = drawing ? [DRAWING_PLANNER, DRAWING_PLANNER_VERSION] : ifc ? [IFC_PLANNER, IFC_PLANNER_VERSION] : [PLANNER, PLANNER_VERSION];
+    const rowKey = drawing ? "drawing_row" : ifc ? "ifc_row" : "survey_row";
     // The house rule for a filing stopped half way: name what WAS filed — the store listed again, so a doc stored before its row failed is
     // named too — and log why (the bridge log).
     const halfWay = async (what, e) => {
@@ -418,7 +423,7 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
       const changeset = filed.find((c) => c.job.storey.cid === p.storey.cid)?.id ?? null;
       // doors, windows and rooms only (review: a drawing's wall rows — differs, scanned only — are its differences, said with their topics)
       // review (MA-5b-3): a revision's rows too — what changed since, or is no longer drawn — when no changeset carries them
-      const held = changeset ? [] : p.exceptions.filter((e) => !e.reason.startsWith("type gap") && (/^(door|window|room) /.test(e.name) || /^(changed since |on \S+, not on )/.test(e.reason)))
+      const held = changeset ? [] : p.exceptions.filter((e) => !e.reason.startsWith("type gap") && (/^(door|window|room) /.test(e.name) || /^(changed since |on \S+, not on |its (base|top) sits )/.test(e.reason) || e.name.startsWith("Ifc")))
         .map((e) => ({ name: e.name, reason: e.reason }));
       // MA-5a-2: the doors seen on one face only — neither proposed nor held (survey-plan's door rule), listed so the row says what the job
       // found and the planner left out
@@ -428,11 +433,11 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
     // The planner run's own build:run row (design :832) — never mistaken for the job's (decision 11's prefix is `· sentinel-survey `).
     try {
       done = await d.audit(proj.id, "build", null, `build:run ${id} · ${P} ${V} · proposed`, actor || "web", null, {
-        job_id: id, planner: P, version: V, [drawing ? "drawing_row" : "survey_row"]: row.ledger, result_sha256: row.result_sha256, ...said,
-        storeys, changesets, gaps, already_filed: plan.already_filed, overlaps, guideline: guideline.label, guideline_sha256: guideline.sha256,
+        job_id: id, planner: P, version: V, [rowKey]: row.ledger, result_sha256: row.result_sha256, ...said,
+        storeys, changesets, gaps, already_filed: plan.already_filed, ...(plan.off_storey?.length ? { off_storey: plan.off_storey } : {}), overlaps, guideline: guideline.label, guideline_sha256: guideline.sha256,
         catalog: catalog.label, catalog_sha256: catalog.sha256, ...(differences ? { differences } : {}), ...(plan.revision ? { revision: plan.revision } : {}), model_calls: 0, tokens: 0, claimed: false });
     } catch (e) { throw await halfWay("the planner's build:run row was not written", e); }
-    return { job: id, [drawing ? "drawing_row" : "survey_row"]: row.ledger, ...said, storeys, changesets, gaps, already_filed: plan.already_filed, overlaps,
+    return { job: id, [rowKey]: row.ledger, ...said, storeys, changesets, gaps, already_filed: plan.already_filed, overlaps, ...(plan.off_storey?.length ? { off_storey: plan.off_storey } : {}),
       ...(differences ? { differences } : {}), ...(plan.revision ? { revision: plan.revision } : {}), ledger: ledgerRef(done) };
   }
 }
@@ -558,7 +563,7 @@ export async function verifyChangeset(key, b, actor, deps = {}) {
     const cs = await d.docGet(STORE, proj.id, id);
     if (!cs) throw err(404, `no changeset ${id} on ${key}`);
     if (!cs.job || cs.claimed !== false) throw err(409, `${cs.name} was not built from a survey job — there is no scan to measure it against`);
-    if (isDrawn(cs)) throw err(409, `${cs.name} was built from a drawing (${cs.job.id}) — what someone drew, not what was built: there is no scan to measure it against`);
+    if (isDrawn(cs)) throw err(409, ifcOf(cs) ? `${cs.name} was built from an IFC (${cs.job.id}) — what a concept says, not what was built: there is no scan to measure it against` : `${cs.name} was built from a drawing (${cs.job.id}) — what someone drew, not what was built: there is no scan to measure it against`);
     if (cs.status !== "applied" && cs.status !== "partially_applied") throw err(409, `${cs.name} is ${String(cs.status).replace("_", " ")} — only what Revit placed is measured`);
     const { row, evidence, items } = await jobScan(key, cs, { trustedJob, readPack });
     const read = async (action_prefix, limit) => {
@@ -610,7 +615,7 @@ export async function scanOverlay(key, id, deps = {}) {
   const cs = await d.docGet(STORE, proj.id, id);
   if (!cs) throw err(404, `no changeset ${id} on ${key}`);
   if (!cs.job || cs.claimed !== false) throw err(409, `${cs.name} was not built from a survey job — it has no scan to show`);
-  if (isDrawn(cs)) throw err(409, `${cs.name} was built from a drawing (${cs.job.id}) — it has no scan to show`);
+  if (isDrawn(cs)) throw err(409, `${cs.name} was built from ${ifcOf(cs) ? "an IFC" : "a drawing"} (${cs.job.id}) — it has no scan to show`);
   const band = scanBand(cs);
   if (!band) throw err(409, `${cs.name} has no wall to show the scan against`);
   let chain;

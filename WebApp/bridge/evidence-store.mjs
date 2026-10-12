@@ -37,14 +37,14 @@ export function insideFolder(dir, rel) {
   return full;
 }
 
-/** A file's first 8 bytes: the magic check, before any byte is hashed (a renamed 6 GB file is refused without reading it). */
+/** A file's first 16 bytes (MA-6-8: an IFC's magic is 12): the magic check, before any byte is hashed (a renamed 6 GB file is refused without reading it). */
 async function readHead(full) {
   const fh = await open(full, "r");
-  try { const b = Buffer.alloc(8); const { bytesRead } = await fh.read(b, 0, 8, 0); return b.subarray(0, bytesRead); }
+  try { const b = Buffer.alloc(16); const { bytesRead } = await fh.read(b, 0, 16, 0); return b.subarray(0, bytesRead); }
   finally { await fh.close(); }
 }
 
-/** sha256 and size of a file, streamed (never held whole), and its first 8 bytes from the same stream — the bytes checked are the
+/** sha256 and size of a file, streamed (never held whole), and its first 16 bytes from the same stream — the bytes checked are the
  *  bytes hashed.
  *  ponytail: hashed inline in the request — MA-4h, Kladno's 6.5 GB: 11.6 s at 535 MB/s, 106 MB of memory, the event loop free between
  *  chunks; a background job with a pending state only if a hash outlasts a request. Re-check re-hashes the whole pack the same way, so
@@ -54,7 +54,7 @@ export async function hashFile(full) {
   const h = createHash("sha256");
   let size = 0, head = Buffer.alloc(0);
   await new Promise((ok, no) => createReadStream(full).on("data", (c) => {
-    if (head.length < 8) head = Buffer.concat([head, c.subarray(0, 8 - head.length)]);
+    if (head.length < 16) head = Buffer.concat([head, c.subarray(0, 16 - head.length)]);
     h.update(c); size += c.length;
   }).on("end", ok).on("error", no));
   return { sha256: h.digest("hex"), size_bytes: size, head };
@@ -247,9 +247,13 @@ async function admitRun(d, proj, key, packId, b) {
   const format = L.formatOf(input.path, input.kind);
   const bad0 = L.magicRefusal(format, await readHead(full), input.kind);
   if (bad0) return refuse([bad0]); // before any byte is hashed
+  const tooBig = L.sizeRefusal(format, statSync(full).size, input.kind); // MA-6-8: an IFC is read in the bridge — over its cap, nothing is hashed
+  if (tooBig) return refuse([tooBig]);
   const f = await hashFile(full);
   const bad = L.magicRefusal(format, f.head, input.kind); // the hashed bytes' own head (the file may have been swapped in between)
   if (bad) return refuse([bad], f.sha256);
+  const tooBig2 = L.sizeRefusal(format, f.size_bytes, input.kind); // the hashed size, as the magic is checked again
+  if (tooBig2) return refuse([tooBig2], f.sha256);
   if (prev && prev.sha256 !== f.sha256) return refuse(["changed since admitted"], f.sha256); // flagged already (Re-check)
   let item;
   if (prev) {

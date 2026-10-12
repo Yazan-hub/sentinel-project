@@ -2,9 +2,12 @@
 // round trip the proposal model makes), and a file that tries to loop the reader.
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
-import { readIfcGeometry, IFC, VERSION } from "./ifc-geometry.mjs";
+import { readIfcGeometry, runIfc, IFC, VERSION } from "./ifc-geometry.mjs";
+import { writeFileSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { proposalElements, levelsOf } from "./proposal-model.mjs";
 import { buildIfc } from "./sentinel-core.mjs";
 
@@ -37,7 +40,8 @@ describe("readIfcGeometry — the concept fixture", () => {
   it("takes the thickness from layers, the type's layers, BaseQuantities Width, then the body", async () => {
     const r = await read(text);
     expect(byName(r, "W4 partition")).toMatchObject({ start: [8000, 0], end: [8000, 12000], thickness_mm: 150, thickness_from: "base_quantities", ifc_class: "IFCWALL" });
-    expect(byName(r, "W7 typed")).toMatchObject({ start: [10000, 2000], end: [16000, 2000], thickness_mm: 200, thickness_from: "type_layers", note: "centre not stated (no layer-set usage)" });
+    expect(byName(r, "W7 typed")).toMatchObject({ start: [10000, 2000], end: [16000, 2000], thickness_mm: 200, thickness_from: "type_layers" });   // MA-6-8 review: its body centres the line, so the note is not needed
+    expect(byName(r, "W7 typed").note).toBeUndefined();
     expect(byName(r, "W6 rect only")).toMatchObject({ start: [1000, 6000], end: [7000, 6000], thickness_mm: 200, thickness_from: "body" });
     expect(byName(r, "W9 profile only")).toMatchObject({ start: [-125, 10000], end: [-125, 15000], thickness_mm: 250, thickness_from: "body" });
     expect(byName(r, "W8 trimmed")).toMatchObject({ start: [0, 8000], end: [6000, 8000], thickness_mm: 300 });
@@ -234,5 +238,63 @@ describe("readIfcGeometry — the smaller rules", () => {
     const r = await read(addLines(edit(["$,$,.ELEMENT.,3500.);", "$,$,.ELEMENT.,3000.);"]), ["#331=IFCPROJECTEDCRS('EPSG:25832',$,$,$,$,$,#10);", "#332=IFCMAPCONVERSION(#9,#331,500000.,5000000.,10.,1.,0.,1.);"]));
     expect(r.hint.storey_elevation_mismatch).toEqual([{ cid: "L01", name: "CN L01", elevation_attr_mm: 3000, placed_mm: 3500 }]);
     expect(r.hint.map_conversion).toEqual({ eastings: 500000, northings: 5000000, height: 10, x_axis_abscissa: 1, x_axis_ordinate: 0, scale: 1 });
+  });
+});
+
+// MA-6-8 — two real Revit 2024 exports of the same two-storey concept (scrubbed to example.test): IFC2x3 CV2.0 and IFC4 Reference View.
+describe("readIfcGeometry — Revit 2024 exports", () => {
+  const rev = (n) => readFileSync(resolve(here, `fixtures/ifc-geometry/${n}.ifc`));
+  const LINES = [[[0, 0], [20000, 0]], [[20000, 0], [20000, 12000]], [[20000, 12000], [0, 12000]], [[0, 12000], [0, 0]]];
+  const sameLine = (w, a, b) => (near(w.start, a, 1) && near(w.end, b, 1)) || (near(w.start, b, 1) && near(w.end, a, 1));
+  const lines9 = (r) => {
+    expect(r.walls).toHaveLength(9);
+    for (const [a, b] of LINES) expect(r.walls.filter((w) => sameLine(w, a, b)).map((w) => w.storey).sort()).toEqual(["L02", "L04"]);
+    expect(r.walls.filter((w) => sameLine(w, [8000, 0], [8000, 12000]))).toHaveLength(1);
+    expect(r.walls.filter((w) => w.thickness_mm === 300)).toHaveLength(8);
+    expect(r.walls.filter((w) => w.thickness_mm === 150)).toHaveLength(1);
+  };
+  it("CV2: 9 walls, thickness from layers, 2 floors of 4 corners, the column, door, roof and roof slab said", async () => {
+    const r = await readIfcGeometry(rev("revit2024-concept-cv2"));
+    lines9(r);
+    expect(new Set(r.walls.map((w) => w.thickness_from))).toEqual(new Set(["layers"]));
+    expect(r.floors.map((f) => [f.loop.length, area(f.loop) / 1e6])).toEqual([[4, 240], [4, 240]]);
+    const said = r.not_read.map((n) => n.ifc_class).sort();
+    for (const c of ["IFCCOLUMN", "IFCDOOR", "IFCROOF", "IFCSLAB"]) expect(said).toContain(c);
+  });
+  it("IFC4 RV (F-B3-1): the Axis is an IfcIndexedPolyCurve with no Segments — a line, not a curve; thickness from the body", async () => {
+    const r = await readIfcGeometry(rev("revit2024-concept-ifc4rv"));
+    lines9(r);
+    expect(new Set(r.walls.map((w) => w.thickness_from))).toEqual(new Set(["body"]));
+    expect(r.not_read.some((n) => /curved/.test(n.why))).toBe(false);
+    expect(r.floors).toHaveLength(2);
+  });
+  it("IFC4 RV without its Axis: the long edges of the profile give the line", async () => {
+    const t = rev("revit2024-concept-ifc4rv").toString("latin1").replace("#277=IFCPRODUCTDEFINITIONSHAPE($,$,(#269,#276));", "#277=IFCPRODUCTDEFINITIONSHAPE($,$,(#276));");
+    const w = (await readIfcGeometry(Buffer.from(t, "latin1"))).walls.find((x) => x.global_id === "2VExwC6xrF6u4NaChOdioM");
+    expect(w.thickness_from).toBe("body");
+    expect(sameLine(w, [0, 12000], [0, 0])).toBe(true);
+  });
+});
+
+describe("readIfcGeometry — MA-6-8 review", () => {
+  it("a body-only wall with mitred ends: the line runs between the middles of the two faces' ends, not the outer extent", async () => {
+    const r = await read(edit(["#203=IFCCARTESIANPOINT((5000.,250.))", "#203=IFCCARTESIANPOINT((4750.,250.))"], ["#204=IFCCARTESIANPOINT((0.,250.))", "#204=IFCCARTESIANPOINT((250.,250.))"]));
+    expect(byName(r, "W9 profile only")).toMatchObject({ start: [-125, 10125], end: [-125, 14875], thickness_mm: 250, thickness_from: "body" });
+  });
+  it("an Axis that is an IfcIndexedPolyCurve with an arc is a curved wall, said as one", async () => {
+    const r = await read(addLines(edit(["#42=IFCPOLYLINE((#40,#41))", "#42=IFCINDEXEDPOLYCURVE(#340,(IFCARCINDEX((1,2,3))),.F.)"]), ["#340=IFCCARTESIANPOINTLIST2D(((0.,0.),(10000.,5000.),(20000.,0.)));"]));
+    expect(why(r, gid("W1"))).toEqual(["a curved wall — straight walls only"]);
+  });
+  it("runIfc: a file that grew since admission is refused by size before it is read; a good one reads", async () => {
+    const dir = mkdtempSync(resolve(tmpdir(), "ifc-")), big = resolve(dir, "big.ifc"), ok = resolve(dir, "ok.ifc");
+    try {
+      writeFileSync(big, Buffer.alloc(20 * 1048576 + 1)); writeFileSync(ok, text);
+      const sha = createHash("sha256").update(text).digest("hex");
+      const r = await runIfc({ job_id: "job-0001", items: [{ id: "ev-0001", path: big, sha256: sha }, { id: "ev-0002", path: ok, sha256: sha }] });
+      expect(r.status).toBe("done");
+      expect(r.refused).toEqual([{ id: "ev-0001", reason: expect.stringMatching(/^a \.ifc is read inside the bridge — at most 20 MB \(this one is 20481 KB\)/) }]);
+      expect(r.result.candidates.some((c) => c.kind === "wall")).toBe(true);
+      expect((await runIfc({ job_id: "job-0001", items: [{ id: "ev-0001", path: big, sha256: sha }] })).status).toBe("refused");
+    } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 });

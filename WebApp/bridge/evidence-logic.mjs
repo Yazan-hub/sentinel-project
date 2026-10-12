@@ -20,7 +20,7 @@ const TEXTS = {
 export const ATTESTATIONS = Object.fromEntries(Object.entries(TEXTS).map(([code, text]) => [code, { text, sha256: createHash("sha256").update(text, "utf8").digest("hex") }]));
 /** Signed before an item of that kind is admitted: the owner's authority (a) and own capture (c); a photo also (d), that it is no
  *  Google/Apple/Azure capture — the RED rule (D:486) rests on the attestation, since a body may leave `provider` out. */
-export const ADMIT_NEEDS = { scan: ["a", "c"], photo: ["a", "c", "d"], drawing: ["a", "b"] }; // MA-4b: a drawing, the owner's authority and the holder's permission
+export const ADMIT_NEEDS = { scan: ["a", "c"], photo: ["a", "c", "d"], drawing: ["a", "b"], model: ["a"] }; // MA-4b: a drawing, the owner's authority and the holder's permission; MA-6-8: the office's own concept model — the owner's authority
 /** MA-4h: the signatures an item needs — on a published dataset's pack, (f) alone (it has no owner here and is no one's own capture). */
 export const needsOf = (pack, kind) => (pack.dataset ? ["f"] : ADMIT_NEEDS[kind]);
 /** MA-4h: the published-dataset licences (SPDX) whose terms allow viewing a scan and taking geometry from it in an office's commercial work.
@@ -47,6 +47,8 @@ export const FORMATS = {
   rcp: { kind: "scan", magic: null, surveyable: false },
   jpg: { kind: "photo", magic: "ffd8ff", surveyable: true },
   png: { kind: "photo", magic: "89504e470d0a1a0a", surveyable: true },
+  // MA-6-8: the office's own concept model, read inside the bridge by web-ifc (so a size cap), never surveyed. "ISO-10303-21" is 12 bytes.
+  ifc: { kind: "model", magic: "49534f2d31303330332d3231", surveyable: false, max_bytes: 20 * 1024 * 1024 },
 };
 /** MA-4b: a drawing's formats — an image may be a photo or a drawing, so the kind picks the table. Read by the DWG/PDF readers, not
  *  sentinel-survey: never surveyable. */
@@ -83,7 +85,7 @@ export function readAdmitBody(b = {}) {
   const bad = (m) => err(400, `${m} — nothing was saved`);
   const path = typeof b.path === "string" ? b.path.trim().replace(/\\/g, "/") : "";
   if (!safeRel(path)) throw bad("path must name a file inside the project's evidence folder, relative to it (no drive, no leading slash, no ..)");
-  if (!["scan", "photo", "drawing"].includes(b.kind)) throw bad("kind must be scan, photo or drawing");
+  if (!["scan", "photo", "drawing", "model"].includes(b.kind)) throw bad("kind must be scan, photo, drawing or model");
   const provider = b.provider == null ? "own" : String(b.provider).trim().toLowerCase();
   if (!provider || provider.length > 100) throw bad("provider must be a name of at most 100 characters (own when left out)");
   if (b.registration != null && !isObj(b.registration)) throw bad("registration must be an object {method, report_path?}");
@@ -121,12 +123,18 @@ export function policyRefusals({ kind, provider, path, dataset = false }) {
     return out;
   }
   const f = formatOf(path);
-  if (!f) out.push(`${extOf(path) ? `a .${extOf(path)}` : "a file with no extension"} is not admitted — scans are e57, las, laz or rcp; photos are jpg or png`);
+  if (!f) out.push(`${extOf(path) ? `a .${extOf(path)}` : "a file with no extension"} is not admitted — scans are e57, las, laz or rcp; photos are jpg or png; a concept model is ifc`);
   else if (FORMATS[f].kind !== kind) out.push(`a .${f} is a ${FORMATS[f].kind}, not a ${kind}`);
   return out;
 }
 
-/** null when the file's first bytes are the format's; else the refusal's words. `head`: a Buffer of the first 8 bytes. */
+/** MA-6-8: an IFC is read inside the bridge, so it has a size cap; null when the size is allowed (or the format has no cap), else the words. */
+export function sizeRefusal(format, size, kind) {
+  const max = tableOf(kind)[format]?.max_bytes;
+  return max && size > max ? `a .${format} is read inside the bridge — at most ${max / 1048576} MB (this one is ${(size / 1048576).toFixed(1) === (max / 1048576).toFixed(1) ? `${Math.ceil(size / 1024)} KB` : `${(size / 1048576).toFixed(1)} MB`}); export the concept without its site, links and furniture` : null;
+}
+
+/** null when the file's first bytes are the format's; else the refusal's words. `head`: a Buffer of the file's first 16 bytes. */
 export function magicRefusal(format, head, kind) {
   const m = tableOf(kind)[format]?.magic;
   return !m || head.toString("hex").startsWith(m) ? null : `the file does not begin as a .${format} does — renamed or damaged`;
@@ -292,7 +300,7 @@ export function validatePack(p) {
     if (!/^ev-\d{4}$/.test(x.id) || ids.has(x.id)) throw bad(`${at}.id`, "must be a unique ev-NNNN");
     if (!safeRel(x.path) || paths.has(x.path)) throw bad(`${at}.path`, "must be a unique path inside the evidence folder");
     const f = tableOf(x.kind)[x.format];
-    if (!f || f.kind !== x.kind) throw bad(`${at}.format`, "must be in the format table for its kind (scan: e57, las, laz, rcp; photo: jpg, png; drawing: pdf, dwg, dxf, png, jpg)");
+    if (!f || f.kind !== x.kind) throw bad(`${at}.format`, "must be in the format table for its kind (scan: e57, las, laz, rcp; photo: jpg, png; drawing: pdf, dwg, dxf, png, jpg; model: ifc)");
     if (!/^[0-9a-f]{64}$/.test(x.sha256)) throw bad(`${at}.sha256`, "must be 64 hex");
     if (!Number.isSafeInteger(x.size_bytes) || x.size_bytes < 0) throw bad(`${at}.size_bytes`, "must be a whole number of bytes");
     if (p.dataset) { // MA-4h: a published dataset's pack holds its scans, under its provider and licence

@@ -34,6 +34,9 @@ describe("TOOLS registry", () => {
     expect(TOOLS.find((t) => t.name === "sentinel_build_status").description).toContain(
       "untyped geometry {cid, kind: level|wall|floor|ceiling|door|window, geometry, measured, evidence[], fit} in millimetres in the scan's own frame");
   });
+  it("build status names the IFC reader (MA-6-8)", () => {
+    expect(TOOLS.find((t) => t.name === "sentinel_build_status").description).toContain("an IFC job (reader sentinel-ifc");
+  });
 
   it("required args are declared", () => {
     expect(TOOLS.find((t) => t.name === "sentinel_get_document").inputSchema.required).toEqual(["project", "document"]);

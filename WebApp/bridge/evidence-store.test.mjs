@@ -99,7 +99,7 @@ describe("evidence intake (MA-4a)", () => {
     await expect(admit({ path: "photos/street.jpg", kind: "photo", provider: "google" })).rejects.toMatchObject({ status: 409, message: "photos/street.jpg is already admitted as ev-0001 (Re-check finds a changed file) — nothing was saved" });
     expect(audits.length).toBe(n);
     put("notes/a.txt", "text");
-    expect(await admit({ path: "notes/a.txt", kind: "photo" })).toMatchObject({ verdict: "refused", reasons: ["a .txt is not admitted — scans are e57, las, laz or rcp; photos are jpg or png"] });
+    expect(await admit({ path: "notes/a.txt", kind: "photo" })).toMatchObject({ verdict: "refused", reasons: ["a .txt is not admitted — scans are e57, las, laz or rcp; photos are jpg or png; a concept model is ifc"] });
     const zip = Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), Buffer.alloc(20, 1)]);
     put("scans/fake.las", zip);
     expect(await admit({ path: "scans/fake.las", kind: "scan", registration: REG })).toMatchObject({ verdict: "refused", sha256: null, reasons: ["the file does not begin as a .las does — renamed or damaged"] }); // refused before any byte is hashed
@@ -353,5 +353,32 @@ describe("surveyStart (MA-4c): the checks before a survey job", () => {
     const s = await surveyStart("demo", "evp-0001", deps());
     expect(s).toMatchObject({ proj: { id: "uuid-demo" }, pack: { pack_id: "evp-0001" }, version: 4, dir: join(root, "demo") });
     expect(budgets).toContainEqual(["survey jobs", { perUser: 6, all: 12 }]);
+  });
+});
+
+describe("a concept IFC (MA-6-8)", () => {
+  const IFC = readFileSync(new URL("./fixtures/ifc-geometry/concept-2storey.ifc", import.meta.url));
+  it("is admitted as a model, own, on (a) alone; a PDF renamed .ifc and a 21 MB file are refused with a row each, the big one unhashed", async () => {
+    await makePack("demo", {}, deps()); await sign(["a"]); role = "contributor";
+    put("model/concept.ifc", IFC); put("model/fake.ifc", "%PDF-1.7\n1 0 obj\n"); put("model/big.ifc", Buffer.concat([Buffer.from("ISO-10303-21;\n"), Buffer.alloc(21 * 1048576)]));
+    const ok = await admit({ path: "model/concept.ifc", kind: "model" });
+    expect(ok).toMatchObject({ verdict: "admitted", item: { id: "ev-0001", kind: "model", format: "ifc", provider: "own", licence: "owner-supplied", surveyable: false, sha256: sha(IFC), size_bytes: IFC.length, attestation_ids: ["att-0001"] } });
+    expect(rows("evidence:admitted")).toHaveLength(1);
+    const pdf = await admit({ path: "model/fake.ifc", kind: "model" });
+    expect(pdf).toMatchObject({ verdict: "refused", sha256: null, reasons: ["the file does not begin as a .ifc does — renamed or damaged"] });
+    const big = await admit({ path: "model/big.ifc", kind: "model" });
+    expect(big.verdict).toBe("refused");
+    expect(big.sha256).toBe(null);
+    expect(big.reasons[0]).toMatch(/^a \.ifc is read inside the bridge — at most 20 MB \(this one is 21\.0 MB\)/);
+    expect(rows("evidence:refused").map((r) => r.action)).toEqual(["evidence:refused model/fake.ifc", "evidence:refused model/big.ifc"]);
+    expect((await admit({ path: "model/concept.ifc", kind: "scan", registration: REG }).catch((e) => e)).status).toBe(409); // already admitted; a scan needs (c) first
+  });
+  it("an .ifc sent as a photo is refused in words; LAS, E57, JPG and PDF still pass the 16-byte head", async () => {
+    await ready();
+    put("a.ifc", IFC); put("scans/tiny.las", LAS); put("photos/own.jpg", JPG); put("scans/s.e57", Buffer.concat([Buffer.from("ASTM-E57"), Buffer.alloc(40)]));
+    put("drawings/a.pdf", Buffer.from("%PDF-1.7\n"));
+    expect((await admit({ path: "a.ifc", kind: "photo" })).reasons).toEqual(["a .ifc is a model, not a photo"]);
+    for (const [path, kind] of [["scans/tiny.las", "scan"], ["scans/s.e57", "scan"]]) expect((await admit({ path, kind, registration: REG })).verdict).toBe("admitted");
+    expect((await admit({ path: "photos/own.jpg", kind: "photo" })).verdict).toBe("admitted");
   });
 });

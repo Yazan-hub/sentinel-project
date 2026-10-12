@@ -385,6 +385,15 @@ describe("survey ghosts (MA-4d)", () => {
     expect(sourceWords({ ...cs, job: { ...cs.job!, overlaps: [{ changeset: "Survey job-0001 · GR-FFL", job_id: "job-0001", evidence: ["ev-0001"] },
       { changeset: "Survey job-0001 · L01", job_id: "job-0001", evidence: ["ev-0001"] }] } })).toContain(" · the same scan ev-0001 was placed before by Survey job-0001 · GR-FFL, Survey job-0001 · L01");
   });
+  it("MA-6-8: an IFC concept's ghost and changeset in words — modelled, inferred, never pre-ticked, no scan to measure", () => {
+    const I: Ghost = { ...G, cid: "2VExwC6xrF6u4NaChOdioP", evidence: ["ev-0021#2VExwC6xrF6u4NaChOdioP"], pretick: false, trim_mm: undefined, measured: { thickness_mm: 300 },
+      accuracy: { status: "inferred", basis: "ifc", from_job: "job-0009" } };
+    expect(trustWords(I)).toBe("modelled — from job-0009 (IFC) · 300 mm thick as modelled · inferred (what a concept says, not what was built) · not pre-ticked · evidence ev-0021#2VExwC6xrF6u4NaChOdioP");
+    const cs = { id: "c", name: "IFC job-0009 · L02", source: "sentinel-ifc 0.1.0", claimed: false, status: "applied", created_at: "", elements: [I],
+      job: { id: "job-0009", ledger_id: 3301, reader: "sentinel-ifc 0.1.0", frame: { dx_mm: 0, dy_mm: 0, dz_mm: 0, rotation_deg: 0, stated_by: "lead@example.test" }, storey: { level: "IFC L02 job-0009", how: "created", checked: true } } } as PendingChangeset;
+    expect(sourceWords(cs)).toBe("from IFC job-0009 (ledger #3301) · the concept at the model's internal origin, stated by lead@example.test · storey IFC L02 job-0009 (created) · nothing from an IFC is pre-ticked");
+    expect([isDrawn(cs), canMeasure(cs, "lead", null)]).toEqual([true, false]);
+  });
   it("MA-5a-4: a drawing's ghost and changeset in words — drawn at the alignment's scale, inferred, never pre-ticked; no Measure", () => {
     const D: Ghost = { ...G, cid: "drawing-ev-0007-p1-wall-1", evidence: ["ev-0007#page-1"], pretick: false, trim_mm: [150, 100], measured: { thickness_mm: 100, thickness_paper_mm: 2 },
       accuracy: { status: "inferred", basis: "drawing", from_job: "job-0005", scale: 50, check_mm: 0 } };
@@ -406,7 +415,7 @@ describe("survey ghosts (MA-4d)", () => {
     const src = readFileSync(new URL("./review-desk.ts", import.meta.url), "utf8");
     expect(src).toContain("const tw = trustWords(x.el); if (tw) words.append(");
     expect(src).toContain("const w = sourceWords(cs); if (w) box.append(");
-    expect(readFileSync(new URL("./files-panel.ts", import.meta.url), "utf8")).toContain("` · from ${x.source === \"sentinel-drawing\" ? \"drawing\" : \"survey\"} ${esc(x.job_id)}`"); // MA-5a-4 (review)
+    expect(readFileSync(new URL("./files-panel.ts", import.meta.url), "utf8")).toContain("` · from ${x.source === \"sentinel-drawing\" ? \"drawing\" : x.source === \"sentinel-ifc\" ? \"IFC\" : \"survey\"} ${esc(x.job_id)}`"); // MA-5a-4 (review)
   });
 });
 

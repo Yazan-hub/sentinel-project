@@ -6,10 +6,12 @@
 // CLI: node bridge/ifc-geometry.mjs <file.ifc>
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, resolve } from "node:path";
-import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { readFileSync, statSync } from "node:fs";
 import * as WebIFC from "web-ifc";
 import { lengthUnit, val, num, ref, idsOf } from "./ifc-manifest.mjs";
 import { elementPsets } from "./ifc-extract.mjs";
+import { sizeRefusal } from "./evidence-logic.mjs";
 
 export const IFC = "sentinel-ifc";
 export const VERSION = "0.1.0";
@@ -139,24 +141,26 @@ async function read(api, mid) {
   // ── curves, profiles, bodies ────────────────────────────────────────────────────────────────────────────────────────────
   const dedupe = (pts) => pts.filter((q, i) => i === 0 || Math.hypot(q[0] - pts[i - 1][0], q[1] - pts[i - 1][1]) >= 1);   // consecutive points under 1 mm apart are one
   const dropClosing = (pts) => (pts.length > 1 && Math.hypot(pts[0][0] - pts.at(-1)[0], pts[0][1] - pts.at(-1)[1]) < 1 ? pts.slice(0, -1) : pts);
+  // An IfcIndexedPolyCurve's points, in order (2 or 3 numbers each). Segments absent = one polyline through the list; the raw line keeps each
+  // segment's type code (the parsed one does not): an IfcArcIndex is a curve, an IfcLineIndex of any length is straight (MA-6-8: F-B3-1, Revit's Axis).
+  const indexedPts = (c, curve, curved = "a curved outline — straight edges only") => {
+    const all = (R(c.Points)?.CoordList || []).map((p) => p.map((n) => (num(n) ?? 0) * mm));
+    if (!(Array.isArray(c.Segments) && c.Segments.length)) return all;
+    const raw = api.GetRawLineData(mid, ref(curve)).arguments?.[1];
+    const pts = [];
+    c.Segments.forEach((s, k) => {
+      if (raw?.[k]?.typecode === WebIFC.IFCARCINDEX) no(curved);
+      const seg = (Array.isArray(s?.value) ? s.value : []).map((n) => all[Number(n?.value ?? n) - 1]).filter(Boolean);
+      for (const q of seg) if (!pts.length || Math.hypot(q[0] - pts.at(-1)[0], q[1] - pts.at(-1)[1]) > 1e-6) pts.push(q);
+    });
+    return pts;
+  };
   const loopOf = (curve) => {   // a closed outline of straight edges, 2D, the closing point dropped
     const c = R(curve);
     let pts;
     if (c?.type === WebIFC.IFCPOLYLINE) pts = (c.Points || []).map((p) => point(p).slice(0, 2));
-    else if (c?.type === WebIFC.IFCINDEXEDPOLYCURVE) {
-      const all = (R(c.Points)?.CoordList || []).map((p) => [(num(p[0]) ?? 0) * mm, (num(p[1]) ?? 0) * mm]);
-      pts = all;
-      if (Array.isArray(c.Segments) && c.Segments.length) {
-        // the raw line keeps each segment's type code (the parsed one does not): an IfcArcIndex is a curve, an IfcLineIndex of any length is straight
-        const raw = api.GetRawLineData(mid, ref(curve)).arguments?.[1];
-        pts = [];
-        (c.Segments).forEach((s, k) => {
-          if (raw?.[k]?.typecode === WebIFC.IFCARCINDEX) no("a curved outline — straight edges only");
-          const seg = (Array.isArray(s?.value) ? s.value : []).map((n) => all[Number(n?.value ?? n) - 1]).filter(Boolean);
-          for (const q of seg) if (!pts.length || Math.hypot(q[0] - pts.at(-1)[0], q[1] - pts.at(-1)[1]) > 1e-6) pts.push(q);
-        });
-      }
-    } else no("a curved outline — straight edges only");
+    else if (c?.type === WebIFC.IFCINDEXEDPOLYCURVE) pts = indexedPts(c, curve).map((q) => q.slice(0, 2));
+    else no("a curved outline — straight edges only");
     pts = dropClosing(dedupe(pts));
     if (pts.length < 3) no("an outline with fewer than 3 corners");
     if (area2(pts) < 1) no("an outline with no area");
@@ -199,27 +203,50 @@ async function read(api, mid) {
           found.push({ kind: "extrusion", clipped, T, profile: ref(it.SweptArea), depth, z0: T.o[2], z1: T.o[2] + depth * dz });
           continue;
         }
-        const zs = [];
+        const zs = [], xy = [];
+        const take = (w) => { zs.push(w[2]); xy.push(w.slice(0, 2)); };
         if (it.type === WebIFC.IFCFACETEDBREP) {
-          for (const f of refs(R(it.Outer)?.CfsFaces)) for (const b of refs(f.Bounds)) { const lp = R(b.Bound); if (lp?.type === WebIFC.IFCPOLYLOOP) for (const p of lp.Polygon || []) zs.push(at(F, point(p))[2]); }
+          for (const f of refs(R(it.Outer)?.CfsFaces)) for (const b of refs(f.Bounds)) { const lp = R(b.Bound); if (lp?.type === WebIFC.IFCPOLYLOOP) for (const p of lp.Polygon || []) take(at(F, point(p))); }
         } else if (it.type === WebIFC.IFCTRIANGULATEDFACESET || it.type === WebIFC.IFCPOLYGONALFACESET) {
-          for (const p of R(it.Coordinates)?.CoordList || []) zs.push(at(F, p.map((c) => (num(c) ?? 0) * mm))[2]);
+          for (const p of R(it.Coordinates)?.CoordList || []) take(at(F, p.map((c) => (num(c) ?? 0) * mm)));
         } else continue;
         if (!zs.length) continue;
         const z0 = Math.min(...zs), z1 = Math.max(...zs);
         if (!(z1 - z0 > 1)) { passed.why = "a flat body"; continue; }
-        found.push({ kind: it.type === WebIFC.IFCFACETEDBREP ? "brep" : "tessellated", clipped, z0, z1 });
+        found.push({ kind: it.type === WebIFC.IFCFACETEDBREP ? "brep" : "tessellated", clipped, z0, z1, xy });
       }
       if (found.length) return { ...found[0], solids: found.length };
     }
     return null;
+  };
+  // MA-6-8: a straight wall's body (any number of points) as a band along the unit direction u: every point lies on one of two parallel lines.
+  // → { s0, s1 (along u), d0, d1 (across, left of u) } | null. Revit's Reference View profiles are joined at corners and may have 6 points.
+  const bandOf = (q, u) => {
+    const n = [-u[1], u[0]], d = q.map((p) => p[0] * n[0] + p[1] * n[1]), sv = q.map((p) => p[0] * u[0] + p[1] * u[1]);
+    const d0 = Math.min(...d), d1 = Math.max(...d);
+    if (!d.every((x) => x - d0 < 1 || d1 - x < 1)) return null;
+    // a mitred or joined end makes the two faces unequal: the mid-line runs between the averages of each face's own ends
+    const ext = (on) => { const v = sv.filter((_, i) => on(d[i])); return [Math.min(...v), Math.max(...v)]; };
+    const [a0, a1] = ext((x) => x - d0 < 1), [b0, b1] = ext((x) => d1 - x < 1);
+    return { s0: (a0 + b0) / 2, s1: (a1 + b1) / 2, d0, d1 };
+  };
+  const bodyXY = (body) => {
+    if (body?.xy) return body.xy;
+    try { return profileOf(body.profile).outer.map((p) => at(body.T, [p[0], p[1], 0]).slice(0, 2)); } catch { return null; }
   };
   const axisOf = (line, F) => {   // the wall's Axis in world xy → [start, end] | null when it has none
     const rep = refs(R(line.Representation)?.Representations).find((r) => String(val(r.RepresentationIdentifier) ?? "") === "Axis");
     const c = rep && refs(rep.Items)[0];
     if (!c) return null;
     let a, b;
-    if (c.type === WebIFC.IFCPOLYLINE) {
+    if (c.type === WebIFC.IFCINDEXEDPOLYCURVE) {   // Revit's IFC4 axis: a 2-point list, no Segments. Several points are one wall only when they lie on one line.
+      const q = indexedPts(c, ref(rep.Items[0]), "a curved wall — straight walls only").map(pad3);
+      [a, b] = [q[0], q.at(-1)];
+      if (q.length > 2 && a && b) {
+        const u = unit([b[0] - a[0], b[1] - a[1], 0]);
+        if (!u || q.some((p) => Math.abs((p[0] - a[0]) * u[1] - (p[1] - a[1]) * u[0]) > 1)) no("a wall with a bent axis — straight walls only");
+      }
+    } else if (c.type === WebIFC.IFCPOLYLINE) {
       if ((c.Points || []).length > 2) no("a wall with a bent axis — straight walls only");
       [a, b] = (c.Points || []).map(point);
     } else if (c.type === WebIFC.IFCTRIMMEDCURVE) {
@@ -252,7 +279,7 @@ async function read(api, mid) {
   };
   const external = (g, pset) => truth(g.psets.find((p) => p.name === pset)?.rows.find((r) => r.name === "IsExternal")?.value);
   const seen = new Set();
-  const skip = (id, l, storey, why) => out.not_read.push({ global_id: gidOf(l, id), ifc_class: className(l, id), storey, why: clean(why, 500) });
+  const skip = (id, l, storey, why) => out.not_read.push({ global_id: gidOf(l, id), ifc_class: className(l, id), ifc_name: prose(l, id), storey, why: clean(why, 500) });
 
   const openingsOf = new Map(), filled = new Set();   // host id → its opening ids; the openings a door or window fills
   for (const id of idsOf(api, mid, WebIFC.IFCRELVOIDSELEMENT)) { const r = L(id); if (r) { const h = ref(r.RelatingBuildingElement); openingsOf.set(h, [...(openingsOf.get(h) ?? []), ref(r.RelatedOpeningElement)]); } }
@@ -299,12 +326,28 @@ async function read(api, mid) {
         const e = (i) => Math.hypot(q[(i + 1) % 4][0] - q[i][0], q[(i + 1) % 4][1] - q[i][1]);
         const sq = q.length === 4 && Math.hypot(q[0][0] + q[2][0] - q[1][0] - q[3][0], q[0][1] + q[2][1] - q[1][1] - q[3][1]) < 1
           && Math.abs((q[1][0] - q[0][0]) * (q[2][0] - q[1][0]) + (q[1][1] - q[0][1]) * (q[2][1] - q[1][1])) < 1e-3 * e(0) * e(1);
-        if (!sq) no("no Axis and no rectangular body");
+        if (!sq) {   // not a 4-point rectangle: the band of its longest edge, if every point sits on one of two parallel lines
+          let k = 0;
+          for (let i = 1; i < q.length; i++) if (Math.hypot(q[(i + 1) % q.length][0] - q[i][0], q[(i + 1) % q.length][1] - q[i][1]) > Math.hypot(q[(k + 1) % q.length][0] - q[k][0], q[(k + 1) % q.length][1] - q[k][1])) k = i;
+          const u = unit([q[(k + 1) % q.length][0] - q[k][0], q[(k + 1) % q.length][1] - q[k][1], 0]), b = u && bandOf(q, u);
+          if (!b) no("no Axis and no rectangular body");
+          const n = [-u[1], u[0]], dm = (b.d0 + b.d1) / 2, pt = (s) => [u[0] * s + n[0] * dm, u[1] * s + n[1] * dm];
+          rect = [{ line: [pt(b.s0), pt(b.s1)], t: b.d1 - b.d0 }];
+          line = rect[0].line;
+        } else {
         rect = [{ line: [mid2(q[3], q[0]), mid2(q[1], q[2])], t: e(1) }, { line: [mid2(q[0], q[1]), mid2(q[2], q[3])], t: e(0) }];   // along either edge pair
         line = rect[e(0) >= e(1) ? 0 : 1].line;
+        }
       }
       // the thickness: the instance's layer-set usage, the type's layer set, BaseQuantities Width, the body's short edge
       let t = null, from = null, note, shift = 0;
+      const bodyThickness = (ln) => {   // the body's width across the axis; the line moves to the middle of the body
+        const q = bodyXY(body), u = unit([ln[1][0] - ln[0][0], ln[1][1] - ln[0][1], 0]), b = q && u && bandOf(q, u);
+        if (!b) return null;
+        const n = [-u[1], u[0]], off = (b.d0 + b.d1) / 2 - (ln[0][0] * n[0] + ln[0][1] * n[1]);
+        line = ln.map((p) => [p[0] + off * n[0], p[1] + off * n[1]]);
+        return b.d1 - b.d0;
+      };
       const own = L(materialOf.get(id)), typed = L(materialOf.get(typeOf.get(id)));
       if (own?.type === WebIFC.IFCMATERIALLAYERSETUSAGE && (t = layerSum(ref(own.ForLayerSet))) > 0) {
         if (String(val(own.LayerSetDirection)) !== "AXIS2") no("layers that do not run across the wall");
@@ -314,10 +357,12 @@ async function read(api, mid) {
         const set = [own, typed].map((m) => (m?.type === WebIFC.IFCMATERIALLAYERSETUSAGE ? L(ref(m.ForLayerSet)) : m)).find((m) => m?.type === WebIFC.IFCMATERIALLAYERSET);
         if (set && (t = layerSum(set.expressID)) > 0) { from = "type_layers"; note = "centre not stated (no layer-set usage)"; }
         else if ((t = quantity(g, "Width")) != null) from = "base_quantities";
-        else if (rect) { t = Math.min(rect[0].t, rect[1].t); from = "body"; }
+        else if (rect) { t = Math.min(...rect.map((c) => c.t)); from = "body"; }
+        else if (body && (t = bodyThickness(line)) > 0) from = "body";   // an Axis and no stated thickness (Revit IFC4 RV): the body's width across it
         else no("no thickness: no material layers, no base quantity Width, no rectangular body");
       }
       // a body-only wall whose thickness came from layers or quantities runs along the edge pair that thickness fits
+      if (from === "type_layers" && fromAxis && body && bodyThickness(line) > 0) note = undefined;   // MA-6-8 review: the Axis may sit on a face — the line is centred on the body band
       if (rect && from !== "body") line = rect.reduce((m, c) => (Math.abs(c.t - t) < Math.abs(m.t - t) ? c : m)).line;
       if (fromAxis && shift) { const y = F.y; line = line.map((p) => [p[0] + shift * y[0], p[1] + shift * y[1]]); }
       // the height and base: the body's z range, else BaseQuantities Height
@@ -329,7 +374,7 @@ async function read(api, mid) {
       if (!(t > 0)) no("no thickness");
       if (passed.why && !body) note = [note, `body not read — ${passed.why}`].filter(Boolean).join("; ");
       out.walls.push({
-        global_id: gid, name, ifc_class: className(l, id), storey,
+        global_id: gid, name, ifc_class: className(l, id), type_name: clean(val(L(typeOf.get(id))?.Name) ?? ""), storey,
         start: line[0].map(r1), end: line[1].map(r1), base_mm: r1(base), height_mm: r1(h), thickness_mm: r1(t), thickness_from: from,
         is_external: external(g, "Pset_WallCommon"), clipped: !!body?.clipped, body: kind, ...(note ? { note } : {}),
       });
@@ -363,6 +408,56 @@ async function read(api, mid) {
     }
   } catch { /* an unreadable WCS is not a finding */ }
   return out;
+}
+
+// ── MA-6-8: the job (build-jobs runs it in this process on the newest admitted concept IFC) ────────────────────────────────────
+// ponytail: web-ifc's OpenModel is synchronous in the bridge, bounded by the 20 MB admission cap (intake and manifests do the same with
+// larger files); over ~2 s on a real concept, a worker_threads worker.
+const toolsOf = () => {
+  let web = "0.0.77";
+  try { web = JSON.parse(readFileSync(resolve(WASM_DIR, "package.json"), "utf8")).version ?? web; } catch { /* the installed version is the pinned one */ }
+  return [{ name: IFC, version: VERSION, licence: "proprietary" }, { name: "web-ifc", version: web, licence: "MPL-2.0" }, { name: "Node", version: process.versions.node, licence: "MIT" }];
+};
+/** job {job_id, items: [{id, kind, path, sha256}], params, seed} → {status, version, tools, refused, result?, error?}. Never rejects.
+ *  `measured` holds finite numbers only: a wall or floor missing one goes to not_read, never into the result with a null. */
+export async function runIfc(job) {
+  const t0 = process.cpuUsage(), refused = [], candidates = [], notRead = [];
+  let first = null;
+  try {
+    for (const it of job.items) {
+      let bytes;
+      // the file at the admitted path is untrusted until its hash is checked: its size first, before it is read into the heap
+      try { const big0 = sizeRefusal("ifc", statSync(it.path).size, "model"); if (big0) { refused.push({ id: it.id, reason: big0 }); continue; } bytes = readFileSync(it.path); } catch (e) { refused.push({ id: it.id, reason: `could not be read (${e?.code || "the read failed"})` }); continue; }
+      const big = sizeRefusal("ifc", bytes.length, "model");
+      if (big) { refused.push({ id: it.id, reason: big }); continue; }
+      if (createHash("sha256").update(bytes).digest("hex") !== it.sha256) { refused.push({ id: it.id, reason: "not the bytes admitted (sha256)" }); continue; }
+      const r = await readIfcGeometry(bytes);
+      first ??= r;
+      const ev = (g) => [`${it.id}#${g}`], fin = (o) => Object.values(o).every(Number.isFinite);
+      const noLevel = new Set(), lost = (x, why) => notRead.push({ global_id: x.global_id, ifc_class: x.ifc_class, storey: x.storey, why, item: it.id });
+      for (const l of r.levels) {
+        if (!fin({ elevation_mm: l.elevation_mm })) { noLevel.add(l.cid); lost({ ...l, ifc_class: "IFCBUILDINGSTOREY", storey: l.cid }, "a storey with no elevation"); continue; }
+        candidates.push({ cid: l.cid, kind: "level", geometry: { BaseElevation: l.elevation_mm, name: l.name, global_id: l.global_id }, measured: { elevation_mm: l.elevation_mm }, evidence: ev(l.global_id) }); }
+      for (const w of r.walls) {
+        const m = { thickness_mm: w.thickness_mm, height_mm: w.height_mm, length_mm: r1(Math.hypot(w.end[0] - w.start[0], w.end[1] - w.start[1])) };
+        if (noLevel.has(w.storey)) { lost(w, "its storey has no elevation"); continue; }
+        if (!fin(m)) { lost(w, "a measurement is missing"); continue; }
+        candidates.push({ cid: w.global_id, kind: "wall", evidence: ev(w.global_id), measured: m, geometry: { storey: w.storey, LocationCurve: { start: w.start, end: w.end },
+          BaseElevation: w.base_mm, TopElevation: r1(w.base_mm + w.height_mm), name: w.name, ifc_class: w.ifc_class, ifc_type_name: w.type_name, thickness_from: w.thickness_from, is_external: w.is_external, clipped: w.clipped, body: w.body, ...(w.note ? { note: w.note } : {}) } });
+      }
+      for (const f of r.floors) {
+        const m = { thickness_mm: f.thickness_mm, area_m2: Math.round(area2(f.loop) / 1e4) / 100 };
+        if (noLevel.has(f.storey)) { lost(f, "its storey has no elevation"); continue; }
+        if (!fin(m)) { lost(f, "a measurement is missing"); continue; }
+        candidates.push({ cid: f.global_id, kind: "floor", evidence: ev(f.global_id), measured: m, geometry: { storey: f.storey, LocationLoop: f.loop, TopElevation: f.top_mm, name: f.name, ifc_class: f.ifc_class, is_external: f.is_external } });
+      }
+      notRead.push(...r.not_read.map((n) => ({ ...n, item: it.id })));
+    }
+  } catch (e) { return { status: "failed", error: `the IFC could not be read: ${clean(e?.message, 300)}`, version: VERSION, tools: toolsOf(), refused }; }
+  if (!first) return { status: "refused", error: "no admitted concept IFC could be read — " + (refused.map((x) => `${x.id}: ${x.reason}`).join("; ") || "no item"), version: VERSION, tools: toolsOf(), refused };
+  const cpu = process.cpuUsage(t0);
+  return { status: "done", version: VERSION, tools: toolsOf(), refused,
+    result: { candidates, derived: [], receipt: { not_read: notRead, hint: first.hint, schema: first.schema, mm_per_unit: first.mm_per_unit, cpu_s: Math.round((cpu.user + cpu.system) / 1e4) / 100 } } };
 }
 
 // ── CLI (I-0): what the reader finds in a file, in words ────────────────────────────────────────────────────────────────────

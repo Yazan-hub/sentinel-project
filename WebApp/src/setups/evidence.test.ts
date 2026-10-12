@@ -10,7 +10,7 @@ vi.mock("./bridge-fetch", () => ({ bfetch, bwrite }));
 import { ATTESTATION_CODES, ATTESTATION_TEXTS, kindOf, needsReport, itemLine, attestationLine, admitLine, recheckLine, readEvidence,
   signAttestation, evidenceControls, requestLine, isImage, jobLine, candidateLine, surveyStartLine, surveyableScans, startSurvey, readJobs,
   proposeBody, proposeFromJob, proposeLine, datasetLine, type ProposeReply, type EvidenceItem, type EvidencePack, type EvidenceRequest, type SurveyJob,
-  isDrawingJob, readableDrawings, drawingStartLine, startDrawing, alignBody, alignPreview, drawingSvg, snapPaper, type AlignDraft } from "./evidence";
+  isDrawingJob, readableDrawings, drawingStartLine, startDrawing, isIfcJob, readableIfc, ifcStartLine, startIfc, ifcHintLine, alignBody, alignPreview, drawingSvg, snapPaper, type AlignDraft } from "./evidence";
 
 const res = (status: number, body: unknown) => ({ ok: status < 400, status, json: async () => body }) as unknown as Response;
 const HASH = "ab".repeat(32);
@@ -273,7 +273,7 @@ describe("drawing jobs (MA-5a-3) — sentinel-drawing on the admitted PDF plans"
     expect(src).toContain(`<button id="fv-ev-drawing"`);
     expect(src).toContain("readableDrawings(pack).length");
     expect(src).toContain(`j.status === "done" && j.candidates_total && can.propose ? `);
-    expect(src).toContain(`(proposing === j.id ? (isDrawingJob(j) ? alignForm(j) : proposeForm(proposeLevels ?? [])) : "")`);
+    expect(src).toContain(`(proposing === j.id ? (isDrawingJob(j) ? alignForm(j) : proposeForm(proposeLevels ?? [], isIfcJob(j) ? "IFC" : "scan")) : "")`);
     expect(src).toContain(`line("Drawings — sentinel-drawing reads page 1 of the admitted vector PDF plans on this PC: walls (two faces in the page's heaviest line weight), doors (swing arcs, with any W x H tag) and room labels (a name, and its number when one is written), in paper millimetres. A lead proposes a done drawing job by two marks (a 2-point alignment): the bridge types its walls exactly and its doors by size, as a scan's, every ghost inferred and unticked; a room is placed where its label stands, and only when the walls round it close; a DWG is Ghost Builder's, in Revit.", "#9ca3af")`);
     expect(src).toContain(`drawingStartLine((await startDrawing(base, pid())).job)`);
     // one press, one proposal; only a 201 closes the form; what was typed is kept across a refusal
@@ -338,5 +338,48 @@ describe("drawing proposals (MA-5a-4) — the lead's two points, level and heigh
     expect(proposeLine({ ...r, revision: { ...rv, reshaped: 2 } })).toContain(" · against ev-0007: 3 wall(s) the same (left as placed), 2 reshaped to ev-0007's line (Revit keeps one edited by hand since), 0 changed, 1 no longer drawn");
     expect(proposeLine({ ...r, differences: { ...none, topics: { raised: [], skipped: 0, error: "the project's topics could not be read (down) — none raised; propose the drawing again to raise them" } } }))
       .toContain(" — 0 BCF topic(s) raised (the project's topics could not be read (down) — none raised; propose the drawing again to raise them) · ");
+  });
+});
+
+describe("a concept IFC (MA-6-8) — Read IFC, the third reader", () => {
+  const model = (id: string, over: Partial<EvidenceItem> = {}) => ({ id, kind: "model", format: "ifc", path: `model/${id}.ifc`, sha256: HASH, size_bytes: 1048576, surveyable: false, admitted_by: "a@example.test", admitted_at: "2026-10-12T10:00:00.000Z", ...over }) as EvidenceItem;
+  const IJOB: SurveyJob = { id: "job-0009", status: "done", stage: "done", pct: 100, items: [{ id: "ev-0021", path: "model/ev-0021.ifc", sha256: HASH }], read: ["ev-0021"],
+    refused: [{ id: "ev-0020", reason: "an older concept — one IFC a job: the newest admitted is read" }], started_by: "lead@example.test", started_at: "2026-10-12T10:00:00.000Z",
+    counts: { level: 2, wall: 8, floor: 3 }, candidates_total: 13, reader: { name: "sentinel-ifc", version: "0.1.0" } };
+  it("kindOf maps .ifc to a model; the item line says a concept model (own)", () => {
+    expect(kindOf("model/Concept.IFC")).toBe("model");
+    expect(itemLine(model("ev-0021"))).toBe("ev-0021 · model/ev-0021.ifc · ifc · 1.0 MB · sha abababababab… · concept model (own)");
+  });
+  it("readableIfc is the admitted, unchanged models; Read IFC posts {pack, readers: [sentinel-ifc]}; the lines name the reader and what it found", async () => {
+    expect(readableIfc({ pack_id: "evp-0001", storage_root: "x", attestations: [], items: [model("ev-0020"), model("ev-0021", { state: "changed" }), ITEM] }).map((i) => i.id)).toEqual(["ev-0020"]);
+    bwrite.mockResolvedValue({ job: { ...IJOB, status: "queued", read: undefined, counts: undefined } });
+    const r = await startIfc("http://b", "demo");
+    expect(bwrite).toHaveBeenCalledWith("http://b/cde/demo/build/jobs", expect.objectContaining({ method: "POST", body: JSON.stringify({ pack: "evp-0001", readers: ["sentinel-ifc"] }) }));
+    expect(ifcStartLine(r.job)).toBe("✓ Started job-0009 — sentinel-ifc reads ev-0021 (model/ev-0021.ifc); refused ev-0020 (an older concept — one IFC a job: the newest admitted is read) — ↻ for what it found.");
+    expect(isIfcJob(IJOB)).toBe(true);
+    expect(jobLine(IJOB)).toContain("job-0009 · sentinel-ifc · done · read ev-0021 · refused ev-0020");
+    expect(jobLine(IJOB)).toContain("2 level(s), 8 wall(s), 3 floor(s)");
+  });
+  it("the hint line says where the IFC sits and that it is never applied; the Propose line says nothing is pre-ticked", () => {
+    expect(ifcHintLine({ site: { at_mm: [1000, 2000, 0], rotation_deg: 15 }, map_conversion: null, storey_elevation_mismatch: [], context_wcs_not_origin: false, length_unit_assumed: false }))
+      .toBe("the IFC says its site at 1000, 2000, 0 mm turned 15° — a hint, never applied (D5): state the frame yourself");
+    const r = { job: "job-0009", ifc_row: { id: 3301, hash: HASH }, frame: { dx_mm: 0, dy_mm: 0, dz_mm: 0, rotation_deg: 0 }, storeys: [{ cid: "L02", level: "IFC L02 job-0009", how: "created", elevation_mm: 0, delta_mm: 0, checked: true, from: null, changeset: "c1",
+        held: [{ name: "IfcRoof G", reason: "an IfcRoof" }] }], changesets: [{ id: "c1", name: "IFC job-0009 · IFC L02 job-0009", elements: 7, preticked: 0 }], gaps: { groups: 0, elements: 0, ledger: null },
+      ledger: { id: 3305, hash: HASH }, already_filed: 0, overlaps: [] } as unknown as ProposeReply;
+    expect(proposeLine(r)).toContain("✓ Proposed job-0009 — 1 changeset(s), 7 ghost(s), none pre-ticked (an IFC is what a concept says, not what was built");
+    expect(proposeLine({ ...r, storeys: [{ ...r.storeys[0], changeset: null }] })).toContain("1 IFC element(s) held or not read (each reason on the planner's row)");
+    expect(proposeLine({ ...r, off_storey: [{ ifc_class: "IFCROOF", count: 2, name: "IfcRoof × 2", reason: "x" }] })).toContain("2 IFC element(s) on no storey that is placed — not read (IfcRoof × 2)");
+  });
+  it("files-panel: a model is admitted with no form (kind from the extension, not a photo); Read IFC beside Read drawings; the form says IFC", () => {
+    const src = readFileSync(new URL("./files-panel.ts", import.meta.url), "utf8");
+    expect(src).toContain(`kindOf(path) === "photo" || kindOf(path) === "model"`);
+    expect(src).toContain(`kind: back?.kind ?? kindOf(path)!`);
+    expect(src).toContain(`<button id="fv-ev-ifc"`);
+    expect(src).toContain("readableIfc(pack).length");
+    expect(src).toContain(`ifcStartLine((await startIfc(base, pid())).job)`);
+    expect(src).toContain("line(\"IFC — sentinel-ifc reads the newest admitted concept .ifc");
+    expect(src).toContain("a concept model ifc</span>");
+    expect(src).toContain("and (a) before a concept IFC");
+    expect(src).toContain('(what === "IFC" && proposeHint ? line(esc(proposeHint), "#c4b5fd") : "")');
   });
 });
