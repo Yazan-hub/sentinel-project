@@ -21,7 +21,7 @@ describe("readIfcGeometry — the concept fixture", () => {
     const r = await read(text);
     expect([r.reader, r.version, r.schema]).toEqual([IFC, VERSION, "IFC4"]);
     expect(r.levels.map((l) => [l.cid, l.name, l.elevation_mm])).toEqual([["L00", "CN L00", 0], ["L01", "CN L01", 3500]]);
-    expect(r.hint).toEqual({ site: { at_mm: [0, 0, 0], rotation_deg: 0 }, map_conversion: null, storey_elevation_mismatch: [], context_wcs_not_origin: false });
+    expect(r.hint).toEqual({ site: { at_mm: [0, 0, 0], rotation_deg: 0 }, map_conversion: null, storey_elevation_mismatch: [], context_wcs_not_origin: false, length_unit_assumed: false });
   });
 
   it("puts every centre line where the layer usage says, on both signs, and on a wall placed (-1,0,0)", async () => {
@@ -140,5 +140,99 @@ describe("readIfcGeometry — a hostile file", () => {
   it("a repeated GlobalId sends the second element to not_read", async () => {
     const r = await read(text.replace("'CN2W300000000000000000'", "'CN2W200000000000000000'"));
     expect(r.not_read.some((n) => n.global_id === "CN2W200000000000000000" && n.why === "GlobalId repeated")).toBe(true);
+  });
+});
+
+// MA-6-7 review fixes — each variant edits one line of the fixture, the way the hostile-file tests do.
+const edit = (...pairs) => pairs.reduce((t, [a, b]) => { if (!t.includes(a)) throw new Error(`fixture has no ${a}`); return t.replace(a, () => b); }, text);
+const addLines = (t, lines) => t.replace("ENDSEC;\nEND-ISO", () => `${lines.join("\n")}\nENDSEC;\nEND-ISO`);
+const why = (r, id) => r.not_read.filter((n) => n.global_id === id).map((n) => n.why);
+const FOOT = "IFCCONVERSIONBASEDUNIT(#9001,.LENGTHUNIT.,'FOOT',#9002)";
+const footWith = (k) => addLines(edit(["IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.)", FOOT]), ["#9000=IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.);", "#9001=IFCDIMENSIONALEXPONENTS(1,0,0,0,0,0,0);", `#9002=IFCMEASUREWITHUNIT(IFCLENGTHMEASURE(${k}),#9000);`]);
+
+describe("readIfcGeometry — a length unit it cannot trust", () => {
+  it("a conversion factor of 0 or below, or an SI prefix it does not know, refuses the whole file", async () => {
+    await expect(read(footWith("0."))).rejects.toThrow(/length unit/);
+    await expect(read(footWith("-0.3048"))).rejects.toThrow(/length unit/);
+    await expect(read(edit(["IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.)", "IFCSIUNIT(*,.LENGTHUNIT.,.NANO.,.METRE.)"]))).rejects.toThrow(/length unit/);
+  });
+  it("no unit in the project: a unit elsewhere in the file is used; none at all reads metres and says so", async () => {
+    const scan = await read(edit(["IFCUNITASSIGNMENT((#10))", "IFCUNITASSIGNMENT(())"]));
+    expect([scan.mm_per_unit, scan.hint.length_unit_assumed]).toEqual([1, false]);
+    const none = await read(edit(["IFCUNITASSIGNMENT((#10))", "IFCUNITASSIGNMENT(())"], ["IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.)", "IFCSIUNIT(*,.AREAUNIT.,$,.SQUARE_METRE.)"]));
+    expect([none.mm_per_unit, none.hint.length_unit_assumed]).toEqual([1000, true]);
+  });
+});
+
+describe("readIfcGeometry — geometry that Revit could not build", () => {
+  it("a sideways extrusion files no 0 mm slab or wall", async () => {
+    const r = await read(edit(["#236=IFCEXTRUDEDAREASOLID(#233,#235,#5,300.)", "#236=IFCEXTRUDEDAREASOLID(#233,#235,#2,300.)"], ["#39=IFCEXTRUDEDAREASOLID(#36,#38,#1,3500.)", "#39=IFCEXTRUDEDAREASOLID(#36,#38,#2,3500.)"]));
+    expect(byName(r, "F1 down")).toBeUndefined();
+    expect(why(r, gid("F1"))).toEqual(["a floor whose body is extruded off vertical"]);
+    expect(byName(r, "W1 south")).toBeUndefined();
+    expect(why(r, gid("W1"))).toEqual(["no height: no extrusion, no brep, no tessellated body, no base quantity Height"]);
+  });
+  it("a wall axis with no length, repeated outline points and an outline with no area", async () => {
+    const r = await read(edit(["#42=IFCPOLYLINE((#40,#41))", "#42=IFCPOLYLINE((#40,#40))"], ["#232=IFCPOLYLINE((#228,#229,#230,#231,#228))", "#232=IFCPOLYLINE((#228,#229,#229,#230,#231,#228))"], ["#205=IFCPOLYLINE((#201,#202,#203,#204,#201))", "#205=IFCPOLYLINE((#201,#202,#201,#202,#201))"]));
+    expect(why(r, gid("W1"))).toEqual(["a wall whose axis has no length"]);
+    expect(byName(r, "F1 down").loop).toEqual([[0, 0], [20000, 0], [20000, 12000], [0, 12000]]);
+    expect(why(r, gid("W9"))).toEqual(["an outline with no area"]);
+  });
+  it("a floor with two sketch loops is not read as one", async () => {
+    const r = await read(addLines(edit(["#237=IFCSHAPEREPRESENTATION(#9,'Body','SweptSolid',(#236))", "#237=IFCSHAPEREPRESENTATION(#9,'Body','SweptSolid',(#236,#329))"]), ["#329=IFCEXTRUDEDAREASOLID(#233,#235,#5,300.);"]));
+    expect(byName(r, "F1 down")).toBeUndefined();
+    expect(why(r, gid("F1"))).toEqual(["a body of 2 solids — one outline only"]);
+  });
+  it("openings that cut a floor, and one no door fills in a wall, are said", async () => {
+    const t = addLines(text, ["#327=IFCOPENINGELEMENT('CN2O200000000000000000',$,'O2',$,$,#227,$,$,.OPENING.);", "#328=IFCRELVOIDSELEMENT('CN2V300000000000000000',$,$,$,#239,#327);", "#329=IFCOPENINGELEMENT('CN2O300000000000000000',$,'O3',$,$,#101,$,$,.OPENING.);", "#330=IFCRELVOIDSELEMENT('CN2V400000000000000000',$,$,$,#117,#329);"]);
+    const r = await read(t);
+    expect(byName(r, "F1 down").voids).toBe(1);
+    expect(why(r, gid("F1"))).toEqual(["1 opening(s) — not proposed"]);
+    expect(byName(r, "W4 partition")).toBeTruthy();
+    expect(why(r, gid("W4"))).toEqual(["1 unfilled opening(s) — not proposed"]);
+    expect(why(r, gid("W1"))).toEqual([]);   // its opening has a door in it
+  });
+  it("a GlobalId that is not an IFC GlobalId leaves as the entity number; a name leaves as one short line", async () => {
+    const r = await read(edit(["'CN2W100000000000000000'", `'${"x".repeat(5000)}'`], ["'W2 north'", `'A\\X\\0A${"n".repeat(300)}'`], ["'CN2S100000000000000000'", "'bad id'"]));
+    expect(r.walls.some((w) => w.global_id === "#46")).toBe(true);
+    expect(r.levels[1].global_id).toBe("#24");
+    const w2 = r.walls.find((w) => w.global_id === gid("W2"));
+    expect(w2.name.length).toBeLessThanOrEqual(256);
+    expect(w2.name).not.toMatch(/\p{Cc}/u);
+    expect(r.walls.every((w) => w.global_id.length <= 22)).toBe(true);
+  });
+});
+
+describe("readIfcGeometry — the smaller rules", () => {
+  it("an IfcLineIndex of three indices is straight; an IfcArcIndex is a curve", async () => {
+    const seg = (a) => edit(["#241=IFCINDEXEDPOLYCURVE(#240,$,.F.)", `#241=IFCINDEXEDPOLYCURVE(#240,(${a}),.F.)`]);
+    const r = await read(seg("IFCLINEINDEX((1,2,3)),IFCLINEINDEX((3,4)),IFCLINEINDEX((4,5,6))"));
+    expect(area(byName(r, "F2 L").loop)).toBe(192e6);
+    expect(why(await read(seg("IFCLINEINDEX((1,2,3)),IFCARCINDEX((3,4,5)),IFCLINEINDEX((5,6))")), gid("F2"))).toEqual(["a curved outline — straight edges only"]);
+  });
+  it("a round hole is counted and does not cost the floor", async () => {
+    const r = await read(edit(["#261=IFCPOLYLINE((#257,#258,#259,#260,#257))", "#261=IFCCIRCLE(#35,500.)"]));
+    expect(byName(r, "F3 void")).toMatchObject({ voids: 1 });
+    expect(why(r, gid("F3"))).toEqual(["1 hole(s) — not proposed"]);
+  });
+  it("a tilted body keeps a wall that has an Axis and quantities; a tilted placement refuses", async () => {
+    const r = await read(edit(["#100=IFCAXIS2PLACEMENT3D(#99,#1,#2)", "#100=IFCAXIS2PLACEMENT3D(#99,#2,#1)"]));
+    expect(why(r, gid("W4"))).toEqual(["placed tilted"]);
+    const r2 = await read(edit(["#109=IFCAXIS2PLACEMENT3D(#108,$,$)", "#109=IFCAXIS2PLACEMENT3D(#108,#2,#1)"]));
+    expect(byName(r2, "W4 partition")).toMatchObject({ height_mm: 3500, thickness_mm: 150, body: "quantities", note: "body not read — a body placed tilted" });
+  });
+  it("a body-only wall runs along the edge pair its quantity thickness fits", async () => {
+    const t = addLines(edit(["#148=IFCRECTANGLEPROFILEDEF(.AREA.,$,#147,6000.,200.)", "#148=IFCRECTANGLEPROFILEDEF(.AREA.,$,#147,250.,300.)"]), ["#335=IFCQUANTITYLENGTH('Width',$,$,300.,$);", "#336=IFCELEMENTQUANTITY('CN2Q600000000000000000',$,'Qto_WallBaseQuantities',$,$,(#335));", "#337=IFCRELDEFINESBYPROPERTIES('CN2Q6R0000000000000000',$,$,$,(#154),#336);"]);
+    expect(byName(await read(t), "W6 rect only")).toMatchObject({ start: [3875, 6000], end: [4125, 6000], thickness_mm: 300, thickness_from: "base_quantities" });
+  });
+  it("a tessellated body gives the z range; a curved axis is a curved wall", async () => {
+    const t = addLines(edit(["#115=IFCSHAPEREPRESENTATION(#9,'Body','SweptSolid',(#110))", "#115=IFCSHAPEREPRESENTATION(#9,'Body','Tessellation',(#333))"]), ["#333=IFCTRIANGULATEDFACESET(#334,$,.T.,((1,2,3)),$);", "#334=IFCCARTESIANPOINTLIST3D(((0.,0.,0.),(1.,0.,0.),(0.,0.,3500.)));"]);
+    expect(byName(await read(t), "W4 partition")).toMatchObject({ body: "tessellated", height_mm: 3500, base_mm: 0 });
+    expect(why(await read(edit(["#42=IFCPOLYLINE((#40,#41))", "#42=IFCCIRCLE(#35,5000.)"])), gid("W1"))).toEqual(["a curved wall — straight walls only"]);
+  });
+  it("hints: a storey whose Elevation differs from its placement, and a map conversion", async () => {
+    const r = await read(addLines(edit(["$,$,.ELEMENT.,3500.);", "$,$,.ELEMENT.,3000.);"]), ["#331=IFCPROJECTEDCRS('EPSG:25832',$,$,$,$,$,#10);", "#332=IFCMAPCONVERSION(#9,#331,500000.,5000000.,10.,1.,0.,1.);"]));
+    expect(r.hint.storey_elevation_mismatch).toEqual([{ cid: "L01", name: "CN L01", elevation_attr_mm: 3000, placed_mm: 3500 }]);
+    expect(r.hint.map_conversion).toEqual({ eastings: 500000, northings: 5000000, height: 10, x_axis_abscissa: 1, x_axis_ordinate: 0, scale: 1 });
   });
 });

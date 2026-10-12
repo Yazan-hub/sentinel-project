@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, resolve } from "node:path";
 import { readFileSync } from "node:fs";
 import * as WebIFC from "web-ifc";
-import { mmPerUnit, val, num, ref, idsOf } from "./ifc-manifest.mjs";
+import { lengthUnit, val, num, ref, idsOf } from "./ifc-manifest.mjs";
 import { elementPsets } from "./ifc-extract.mjs";
 
 export const IFC = "sentinel-ifc";
@@ -21,6 +21,7 @@ class NotRead extends Error {}
 const no = (why) => { throw new NotRead(why); };
 const clean = (s, n = 256) => String(s ?? "").replace(/[\p{Cc}\p{Zl}\p{Zp}]+/gu, " ").trim().slice(0, n);
 const r1 = (x) => Math.round(x * 10) / 10;
+const area2 = (pts) => Math.abs(pts.reduce((s, q, i) => s + q[0] * pts[(i + 1) % pts.length][1] - pts[(i + 1) % pts.length][0] * q[1], 0)) / 2;
 
 // ── vectors and frames ({o, x, y, z}: an origin and three unit axes, in millimetres) ─────────────────────────────────────────
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -51,7 +52,7 @@ export async function readIfcGeometry(bytes) {
 }
 
 async function read(api, mid) {
-  const mm = mmPerUnit(api, mid);
+  const { mm, how: unitHow } = lengthUnit(api, mid);
   const cache = new Map();
   const L = (id) => { if (id == null) return null; if (!cache.has(id)) { try { cache.set(id, api.GetLine(mid, id)); } catch { cache.set(id, null); } } return cache.get(id); };
   const R = (o) => L(ref(o));
@@ -60,6 +61,8 @@ async function read(api, mid) {
   const prose = (l, id) => l?.constructor?.name && l.constructor.name !== "Object" ? l.constructor.name : `Ifc${className(l, id).replace(/^IFC/, "").toLowerCase()}`;
 
   const point = (o) => { const p = R(o); return pad3((p?.Coordinates || []).map((c) => (num(c) ?? 0) * mm)); };
+  // a GlobalId that leaves the reader is a real IFC GlobalId (22 of 0-9A-Za-z_$) or the entity number: the file is untrusted
+  const gidOf = (l, id) => { const g = String(val(l?.GlobalId) ?? ""); return /^[0-9A-Za-z_$]{22}$/.test(g) ? g : `#${id}`; };
   const dirOf = (o) => pad3((R(o)?.DirectionRatios || []).map((c) => num(c) ?? 0));
 
   // IfcAxis2Placement3D → frame. An omitted Axis or RefDirection defaults to Z or X (Revit writes `(#p,$,$)`).
@@ -101,7 +104,7 @@ async function read(api, mid) {
   const placedUpright = (o) => { const F = placementOf(ref(o)); if (!upright(F)) no("placed tilted"); return F; };
 
   // ── spatial structure ───────────────────────────────────────────────────────────────────────────────────────────────────
-  const out = { reader: IFC, version: VERSION, schema: "", mm_per_unit: mm, levels: [], walls: [], floors: [], not_read: [], hint: { site: null, map_conversion: null, storey_elevation_mismatch: [], context_wcs_not_origin: false } };
+  const out = { reader: IFC, version: VERSION, schema: "", mm_per_unit: mm, levels: [], walls: [], floors: [], not_read: [], hint: { site: null, map_conversion: null, storey_elevation_mismatch: [], context_wcs_not_origin: false, length_unit_assumed: unitHow === "default" } };
   try { out.schema = String(api.GetModelSchema(mid) || "").toUpperCase(); } catch { out.schema = ""; }
 
   const storeys = [];
@@ -111,7 +114,7 @@ async function read(api, mid) {
     const attr = num(s.Elevation), elev = attr == null ? null : attr * mm;
     let placed = null;
     try { placed = placementOf(ref(s.ObjectPlacement)).o[2]; } catch { placed = null; }
-    storeys.push({ id, global_id: val(s.GlobalId) == null ? `#${id}` : String(val(s.GlobalId)), name: clean(val(s.Name) ?? `#${id}`), z: placed ?? elev ?? 0, attr: elev, placed });
+    storeys.push({ id, global_id: gidOf(s, id), name: clean(val(s.Name) ?? `#${id}`), z: placed ?? elev ?? 0, attr: elev, placed });
   }
   storeys.sort((a, b) => a.z - b.z || a.id - b.id);
   const cidOf = new Map();
@@ -134,7 +137,8 @@ async function read(api, mid) {
   for (const id of idsOf(api, mid, WebIFC.IFCRELDEFINESBYTYPE)) { const r = L(id); if (r) for (const e of r.RelatedObjects || []) typeOf.set(ref(e), ref(r.RelatingType)); }
 
   // ── curves, profiles, bodies ────────────────────────────────────────────────────────────────────────────────────────────
-  const dropClosing = (pts) => (pts.length > 1 && Math.hypot(pts[0][0] - pts.at(-1)[0], pts[0][1] - pts.at(-1)[1]) < 1e-6 ? pts.slice(0, -1) : pts);
+  const dedupe = (pts) => pts.filter((q, i) => i === 0 || Math.hypot(q[0] - pts[i - 1][0], q[1] - pts[i - 1][1]) >= 1);   // consecutive points under 1 mm apart are one
+  const dropClosing = (pts) => (pts.length > 1 && Math.hypot(pts[0][0] - pts.at(-1)[0], pts[0][1] - pts.at(-1)[1]) < 1 ? pts.slice(0, -1) : pts);
   const loopOf = (curve) => {   // a closed outline of straight edges, 2D, the closing point dropped
     const c = R(curve);
     let pts;
@@ -143,17 +147,19 @@ async function read(api, mid) {
       const all = (R(c.Points)?.CoordList || []).map((p) => [(num(p[0]) ?? 0) * mm, (num(p[1]) ?? 0) * mm]);
       pts = all;
       if (Array.isArray(c.Segments) && c.Segments.length) {
-        // web-ifc hands IfcLineIndex and IfcArcIndex over as bare 1-based index lists, so an arc is three points that are not on a line
+        // the raw line keeps each segment's type code (the parsed one does not): an IfcArcIndex is a curve, an IfcLineIndex of any length is straight
+        const raw = api.GetRawLineData(mid, ref(curve)).arguments?.[1];
         pts = [];
-        for (const s of c.Segments) {
+        (c.Segments).forEach((s, k) => {
+          if (raw?.[k]?.typecode === WebIFC.IFCARCINDEX) no("a curved outline — straight edges only");
           const seg = (Array.isArray(s?.value) ? s.value : []).map((n) => all[Number(n?.value ?? n) - 1]).filter(Boolean);
-          if (seg.length === 3 && Math.abs((seg[1][0] - seg[0][0]) * (seg[2][1] - seg[0][1]) - (seg[1][1] - seg[0][1]) * (seg[2][0] - seg[0][0])) > 1) no("a curved outline — straight edges only");
           for (const q of seg) if (!pts.length || Math.hypot(q[0] - pts.at(-1)[0], q[1] - pts.at(-1)[1]) > 1e-6) pts.push(q);
-        }
+        });
       }
     } else no("a curved outline — straight edges only");
-    pts = dropClosing(pts);
+    pts = dropClosing(dedupe(pts));
     if (pts.length < 3) no("an outline with fewer than 3 corners");
+    if (area2(pts) < 1) no("an outline with no area");
     return pts;
   };
   const profileOf = (id) => {   // → { outer: [[x,y]…] in the solid's plane, inners }
@@ -163,16 +169,18 @@ async function read(api, mid) {
       if (!(hx > 0 && hy > 0)) no("a rectangle with no size");
       return { outer: [[-hx, -hy], [hx, -hy], [hx, hy], [-hx, hy]].map((q) => at(F2, [q[0], q[1], 0]).slice(0, 2)), inners: [] };
     }
-    if (p?.type === WebIFC.IFCARBITRARYPROFILEDEFWITHVOIDS) return { outer: loopOf(p.OuterCurve), inners: (p.InnerCurves || []).map((c) => loopOf(c)) };
+    if (p?.type === WebIFC.IFCARBITRARYPROFILEDEFWITHVOIDS) return { outer: loopOf(p.OuterCurve), inners: (p.InnerCurves || []).map(() => null) }   // holes are counted, not parsed: a round shaft must not cost the floor;
     if (p?.type === WebIFC.IFCARBITRARYCLOSEDPROFILEDEF) return { outer: loopOf(p.OuterCurve), inners: [] };
     return no("a profile it does not read");
   };
-  // The first body item that is a solid we read: an extrusion (through any clipping), a faceted brep or a tessellation.
-  const bodyOf = (line, F) => {
+  // The first representation that holds a solid we read: an extrusion (through any clipping), a faceted brep or a tessellation.
+  // `solids` is how many such items it holds; `why` (set on the line's way) says what was passed over (a tilted, sideways or flat body).
+  const bodyOf = (line, F, passed) => {
     const pds = R(line.Representation);
     const reps = refs(pds?.Representations);
     const idf = (r) => String(val(r.RepresentationIdentifier) ?? "");
     for (const rep of [...reps.filter((r) => idf(r) === "Body"), ...reps.filter((r) => idf(r) !== "Body" && idf(r) !== "Axis")]) {
+      const found = [];
       for (let it of refs(rep.Items)) {
         let clipped = false, d = 0;
         while (it && (it.type === WebIFC.IFCBOOLEANCLIPPINGRESULT || it.type === WebIFC.IFCBOOLEANRESULT)) {
@@ -183,11 +191,13 @@ async function read(api, mid) {
         if (!it) continue;
         if (it.type === WebIFC.IFCEXTRUDEDAREASOLID) {
           const T = compose(F, it.Position ? frame3(ref(it.Position)) : IDENT);
-          if (!upright(T)) no("a body placed tilted");
+          if (!upright(T)) { passed.why = "a body placed tilted"; continue; }
           const depth = (num(it.Depth) ?? 0) * mm;
           const dz = rot(T, unit(dirOf(it.ExtrudedDirection)) ?? [0, 0, 1])[2];
           if (!(depth > 0)) continue;
-          return { kind: "extrusion", clipped, T, profile: ref(it.SweptArea), depth, z0: T.o[2], z1: T.o[2] + depth * dz };
+          if (Math.abs(dz) < 0.9999) { passed.why = "a body extruded off vertical"; continue; }
+          found.push({ kind: "extrusion", clipped, T, profile: ref(it.SweptArea), depth, z0: T.o[2], z1: T.o[2] + depth * dz });
+          continue;
         }
         const zs = [];
         if (it.type === WebIFC.IFCFACETEDBREP) {
@@ -195,8 +205,12 @@ async function read(api, mid) {
         } else if (it.type === WebIFC.IFCTRIANGULATEDFACESET || it.type === WebIFC.IFCPOLYGONALFACESET) {
           for (const p of R(it.Coordinates)?.CoordList || []) zs.push(at(F, p.map((c) => (num(c) ?? 0) * mm))[2]);
         } else continue;
-        if (zs.length) return { kind: it.type === WebIFC.IFCFACETEDBREP ? "brep" : "tessellated", clipped, z0: Math.min(...zs), z1: Math.max(...zs) };
+        if (!zs.length) continue;
+        const z0 = Math.min(...zs), z1 = Math.max(...zs);
+        if (!(z1 - z0 > 1)) { passed.why = "a flat body"; continue; }
+        found.push({ kind: it.type === WebIFC.IFCFACETEDBREP ? "brep" : "tessellated", clipped, z0, z1 });
       }
+      if (found.length) return { ...found[0], solids: found.length };
     }
     return null;
   };
@@ -222,7 +236,9 @@ async function read(api, mid) {
       a = end(c.Trim1); b = end(c.Trim2);
     } else no("a curved wall — straight walls only");
     if (!a || !b) no("a wall whose axis has no ends");
-    return [at(F, a).slice(0, 2), at(F, b).slice(0, 2)];
+    const ends = [at(F, a).slice(0, 2), at(F, b).slice(0, 2)];
+    if (Math.hypot(ends[0][0] - ends[1][0], ends[0][1] - ends[1][1]) < 10) no("a wall whose axis has no length");   // Revit's shortest curve is under 1 mm
+    return ends;
   };
   const layerSum = (setId) => (refs(L(setId)?.MaterialLayers).reduce((s, l) => s + (num(l.LayerThickness) ?? 0) * mm, 0));
 
@@ -236,8 +252,11 @@ async function read(api, mid) {
   };
   const external = (g, pset) => truth(g.psets.find((p) => p.name === pset)?.rows.find((r) => r.name === "IsExternal")?.value);
   const seen = new Set();
-  const skip = (id, l, storey, why) => out.not_read.push({ global_id: val(l?.GlobalId) == null ? `#${id}` : clean(val(l.GlobalId)), ifc_class: className(l, id), storey, why: clean(why, 500) });
+  const skip = (id, l, storey, why) => out.not_read.push({ global_id: gidOf(l, id), ifc_class: className(l, id), storey, why: clean(why, 500) });
 
+  const openingsOf = new Map(), filled = new Set();   // host id → its opening ids; the openings a door or window fills
+  for (const id of idsOf(api, mid, WebIFC.IFCRELVOIDSELEMENT)) { const r = L(id); if (r) { const h = ref(r.RelatingBuildingElement); openingsOf.set(h, [...(openingsOf.get(h) ?? []), ref(r.RelatedOpeningElement)]); } }
+  for (const id of idsOf(api, mid, WebIFC.IFCRELFILLSELEMENT)) { const r = L(id); if (r) filled.add(ref(r.RelatingOpeningElement)); }
   const wallIds = new Set(idsOf(api, mid, WebIFC.IFCWALL));
   const slabIds = new Set(idsOf(api, mid, WebIFC.IFCSLAB));
   for (const id of [...wallIds, ...slabIds]) {
@@ -245,30 +264,35 @@ async function read(api, mid) {
     if (!l) continue;
     const storey = storeyOf.get(id) ?? null;
     try {
-      const gid = val(l.GlobalId) == null ? `#${id}` : String(val(l.GlobalId));
+      const gid = gidOf(l, id);
       if (seen.has(gid)) no("GlobalId repeated");
       seen.add(gid);
       const name = clean(val(l.Name) ?? gid), isWall = wallIds.has(id);
       if (!isWall && String(val(l.PredefinedType)) === "ROOF") no("a roof slab — roofs are not proposed");
       if (storey == null) no("not on a storey");
       const F = placedUpright(l.ObjectPlacement);
-      const body = bodyOf(l, F);
+      const passed = { why: null };
+      const body = bodyOf(l, F, passed);
+      if (body?.solids > 1) no(`a body of ${body.solids} solids — one outline only`);
       const g = await elementPsets(api, mid, id);
       if (!isWall) {
-        if (body?.kind !== "extrusion") no("a floor whose body is not an extrusion of a straight outline");
+        if (body?.kind !== "extrusion") no(passed.why ? `a floor whose body is ${passed.why.replace(/^a body /, "")}` : "a floor whose body is not an extrusion of a straight outline");
         const { outer, inners } = profileOf(body.profile);
-        const top = Math.max(body.z0, body.z1);
+        const top = Math.max(body.z0, body.z1), thick = Math.abs(body.z1 - body.z0);
+        if (!(thick > 1)) no("a floor with no thickness");
+        const opens = openingsOf.get(id)?.length ?? 0;
         out.floors.push({
           global_id: gid, name, ifc_class: className(l, id), storey,
-          loop: outer.map((p) => at(body.T, [p[0], p[1], 0]).slice(0, 2).map(r1)), top_mm: r1(top), thickness_mm: r1(Math.abs(body.z1 - body.z0)),
-          is_external: external(g, "Pset_SlabCommon"), voids: inners.length,
+          loop: outer.map((p) => at(body.T, [p[0], p[1], 0]).slice(0, 2).map(r1)), top_mm: r1(top), thickness_mm: r1(thick),
+          is_external: external(g, "Pset_SlabCommon"), voids: inners.length + opens,
         });
         if (inners.length) skip(id, l, storey, `${inners.length} hole(s) — not proposed`);
+        if (opens) skip(id, l, storey, `${opens} opening(s) — not proposed`);
         continue;
       }
 
       // the line: the Axis, else the mid-line of the short edges of a rectangular body
-      let line = axisOf(l, F), fromAxis = line != null, bodyT = null;
+      let line = axisOf(l, F), fromAxis = line != null, rect = null;
       if (!line) {
         if (body?.kind !== "extrusion") no("no Axis and no rectangular body");
         const { outer } = profileOf(body.profile), q = outer.map((p) => at(body.T, [p[0], p[1], 0]).slice(0, 2));
@@ -276,8 +300,8 @@ async function read(api, mid) {
         const sq = q.length === 4 && Math.hypot(q[0][0] + q[2][0] - q[1][0] - q[3][0], q[0][1] + q[2][1] - q[1][1] - q[3][1]) < 1
           && Math.abs((q[1][0] - q[0][0]) * (q[2][0] - q[1][0]) + (q[1][1] - q[0][1]) * (q[2][1] - q[1][1])) < 1e-3 * e(0) * e(1);
         if (!sq) no("no Axis and no rectangular body");
-        line = e(0) >= e(1) ? [mid2(q[3], q[0]), mid2(q[1], q[2])] : [mid2(q[0], q[1]), mid2(q[2], q[3])];
-        bodyT = Math.min(e(0), e(1));
+        rect = [{ line: [mid2(q[3], q[0]), mid2(q[1], q[2])], t: e(1) }, { line: [mid2(q[0], q[1]), mid2(q[2], q[3])], t: e(0) }];   // along either edge pair
+        line = rect[e(0) >= e(1) ? 0 : 1].line;
       }
       // the thickness: the instance's layer-set usage, the type's layer set, BaseQuantities Width, the body's short edge
       let t = null, from = null, note, shift = 0;
@@ -287,23 +311,30 @@ async function read(api, mid) {
         from = "layers";
         shift = (num(own.OffsetFromReferenceLine) ?? 0) * mm + (String(val(own.DirectionSense)) === "POSITIVE" ? t / 2 : -t / 2);
       } else {
-        const set = [own, typed].find((m) => m?.type === WebIFC.IFCMATERIALLAYERSET);
+        const set = [own, typed].map((m) => (m?.type === WebIFC.IFCMATERIALLAYERSETUSAGE ? L(ref(m.ForLayerSet)) : m)).find((m) => m?.type === WebIFC.IFCMATERIALLAYERSET);
         if (set && (t = layerSum(set.expressID)) > 0) { from = "type_layers"; note = "centre not stated (no layer-set usage)"; }
         else if ((t = quantity(g, "Width")) != null) from = "base_quantities";
-        else if (bodyT != null) { t = bodyT; from = "body"; }
+        else if (rect) { t = Math.min(rect[0].t, rect[1].t); from = "body"; }
         else no("no thickness: no material layers, no base quantity Width, no rectangular body");
       }
+      // a body-only wall whose thickness came from layers or quantities runs along the edge pair that thickness fits
+      if (rect && from !== "body") line = rect.reduce((m, c) => (Math.abs(c.t - t) < Math.abs(m.t - t) ? c : m)).line;
       if (fromAxis && shift) { const y = F.y; line = line.map((p) => [p[0] + shift * y[0], p[1] + shift * y[1]]); }
       // the height and base: the body's z range, else BaseQuantities Height
       let h, base, kind;
       if (body) { h = Math.abs(body.z1 - body.z0); base = Math.min(body.z0, body.z1); kind = body.kind; }
       else if ((h = quantity(g, "Height")) != null) { base = F.o[2]; kind = "quantities"; }
       else no("no height: no extrusion, no brep, no tessellated body, no base quantity Height");
+      if (!(h > 1)) no("no height");
+      if (!(t > 0)) no("no thickness");
+      if (passed.why && !body) note = [note, `body not read — ${passed.why}`].filter(Boolean).join("; ");
       out.walls.push({
         global_id: gid, name, ifc_class: className(l, id), storey,
         start: line[0].map(r1), end: line[1].map(r1), base_mm: r1(base), height_mm: r1(h), thickness_mm: r1(t), thickness_from: from,
         is_external: external(g, "Pset_WallCommon"), clipped: !!body?.clipped, body: kind, ...(note ? { note } : {}),
       });
+      const bare = (openingsOf.get(id) ?? []).filter((o) => !filled.has(o)).length;
+      if (bare) skip(id, l, storey, `${bare} unfilled opening(s) — not proposed`);
     } catch (e) {
       skip(id, l, storey, e instanceof NotRead ? e.message : `could not be read — ${clean(e?.message, 200)}`);
     }
