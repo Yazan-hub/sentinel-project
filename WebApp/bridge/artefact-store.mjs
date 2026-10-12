@@ -388,6 +388,10 @@ export async function putArtefact(key, kind, body, { actor, source } = {}, deps)
   validateArtefact(kind, body);
   if (kind === "contract" && !PLAIN_NAME.test(body.contract_key))
     throw bad(kind, "contract_key", "must be a plain name (letters, digits, . _ @ -), up to 100 characters");
+  // MA-8-2: FG-07 reads tolerance_mm. Install only (as PLAIN_NAME): a contract installed before the bridge read it may hold any value and must
+  // still judge intake; FG-07 alone says "not set" for a value outside the range. The delivery gates and Revit ignore it.
+  if (kind === "contract" && body.tolerance_mm != null && !(typeof body.tolerance_mm === "number" && Number.isFinite(body.tolerance_mm) && body.tolerance_mm >= 1 && body.tolerance_mm <= 1000))
+    throw bad(kind, "tolerance_mm", "must be a number of millimetres from 1 to 1000");
   const d = await wire(deps);
   await d.requireMinRole(key, "lead");
   const proj = await d.ensureProject(key);

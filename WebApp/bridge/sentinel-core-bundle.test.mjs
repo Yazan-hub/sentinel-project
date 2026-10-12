@@ -7,6 +7,7 @@ import { readFileSync } from "node:fs";
 import * as bundle from "./sentinel-core.mjs";
 import * as source from "../src/sentinel-core/guideline";
 import * as lodSource from "../src/sentinel-core/lod-matrix";
+import * as fedSource from "../src/sentinel-core/federation";
 
 const read = (p) => JSON.parse(readFileSync(new URL(p, import.meta.url), "utf8"));
 const FILES = [
@@ -67,4 +68,15 @@ describe("bridge/sentinel-core.mjs is the build of src/sentinel-core (MA-2a)", (
       }
     });
   }
+
+  // MA-8-2: FG-07 lives in the core; a stale bundle would judge walls by the old rules (or not at all).
+  it("judges FG-07 as the source does", () => {
+    const w = (g, y, t) => ({ g, s: [0, y], e: [5000, y], t, z0: 0, z1: 3000, storey: "L1" });
+    const man = (walls, guid) => ({ schema: "IFC4", elements: [{ guid, class: "IFCWALL", type_name: null, storey: null }], levels: [], grids: [], site: null, walls });
+    const models = [{ container: "A.ifc", version_id: "a", manifest: man([w("a1", 0, 300), w("a2", 4000, 200)], "x") }, { container: "B.ifc", version_id: "b", manifest: man([w("b1", 60, 300), w("b2", 4000, 100)], "y") }];
+    const fed = (f) => f.checkFederation(models, { tolerance_mm: 20 }).checks.find((c) => c.id === "FG-07");
+    const got = fed(bundle);
+    expect(got).toEqual(fed(fedSource));
+    expect(got).toMatchObject({ status: "fail", count: 1 });
+  });
 });

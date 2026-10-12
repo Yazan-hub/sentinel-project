@@ -420,6 +420,7 @@ describe("validateArtefact — contract, layers, guideline, type catalogue", () 
     const { schema_version, ...unversioned } = contract;
     expect(validateArtefact("contract", unversioned)).toBe(true);
     for (const min_coverage of [0, 0.5, 1, null]) expect(validateArtefact("contract", { ...contract, min_coverage })).toBe(true);
+    for (const tolerance_mm of [1, 20, 1000, 12.5, null]) expect(validateArtefact("contract", { ...contract, tolerance_mm })).toBe(true); // MA-8-2
     expect(validateArtefact("layers", layers)).toBe(true);
     expect(validateArtefact("layers", { standard: "S", ignore: null, layers: [{ layer: "A-WALL", category: "Walls", family: null, aliases: null }] })).toBe(true);
     expect(validateArtefact("guideline", guideline)).toBe(true);
@@ -510,6 +511,15 @@ describe("validateArtefact — contract, layers, guideline, type catalogue", () 
     ["view_templates", { ...catalog, view_templates: {} }],
   ])("type_catalog: a bad %s is a 400 naming that path", (path, body) => {
     expect(fails("type_catalog", body)).toMatchObject({ status: 400, message: expect.stringContaining(`type_catalog: ${path} `) });
+  });
+  it("MA-8-2: tolerance_mm is range-checked at install only (1..1000); validateArtefact (the read) lets an older value through", async () => {
+    const d = memDeps();
+    for (const tolerance_mm of [0, 1001, "20", NaN])
+      await expect(putArtefact("p", "contract", { ...contract, tolerance_mm }, { actor: "x" }, d))
+        .rejects.toMatchObject({ status: 400, message: "contract: tolerance_mm must be a number of millimetres from 1 to 1000" });
+    expect(d.docs.size).toBe(0);
+    for (const tolerance_mm of [0, 5000, "20"]) expect(validateArtefact("contract", { ...contract, tolerance_mm })).toBe(true);
+    await expect(putArtefact("p", "contract", { ...contract, tolerance_mm: 20 }, { actor: "x" }, d)).resolves.toBeTruthy();
   });
   it("refuses a contract its judge could not use at install, before anything is written", async () => {
     const d = memDeps();

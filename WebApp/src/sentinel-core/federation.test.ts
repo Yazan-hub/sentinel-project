@@ -50,8 +50,9 @@ describe("checkFederation", () => {
     const naming_ruleset = { title: "two fields", separator: "-", strip_extensions: [".ifc"], enforce: "reject" as const, fields: [{ key: "p", label: "P", pattern: "[A-Z]" }, { key: "n", label: "N", pattern: "\\d{4}" }] };
     const r = checkFederation([A(), c], { verdicts: okVerdicts, naming_ruleset });
     expect(r.verdict).toBe("pass");
-    expect(r.checks.map((x) => x.id)).toEqual(["FG-01", "FG-02", "FG-03", "FG-04", "FG-05", "FG-06"]);
-    expect(r.checks.every((x) => x.status === "pass")).toBe(true);
+    expect(r.checks.map((x) => x.id)).toEqual(["FG-01", "FG-02", "FG-03", "FG-04", "FG-05", "FG-06", "FG-07"]);
+    expect(r.checks.filter((x) => x.id !== "FG-07").every((x) => x.status === "pass")).toBe(true);
+    expect(check(r, "FG-07")).toMatchObject({ status: "not_checkable", reason: "the contract sets no tolerance_mm" }); // MA-8-2: and the verdict stays pass
     expect(check(r, "FG-02").reason).toMatch(/no type rule installed/);   // shape-only, said plainly
   });
   it("is not checkable with fewer than two manifests", () => {
@@ -66,7 +67,7 @@ describe("checkFederation", () => {
     it("the whole live set is one clean, named, accepted model: PASS on FG-01 and FG-06; the cross-model checks say why they do not apply", () => {
       const r = checkFederation([one(clean)], { verdicts: okVerdicts, live_count: 1 });
       expect(r.one_model).toBe(true);
-      expect(r.checks.map((c) => [c.id, c.status])).toEqual([["FG-01", "pass"], ["FG-02", "not_checkable"], ["FG-03", "not_checkable"], ["FG-04", "not_checkable"], ["FG-05", "not_checkable"], ["FG-06", expect.any(String)]]);
+      expect(r.checks.map((c) => [c.id, c.status])).toEqual([["FG-01", "pass"], ["FG-02", "not_checkable"], ["FG-03", "not_checkable"], ["FG-04", "not_checkable"], ["FG-05", "not_checkable"], ["FG-06", expect.any(String)], ["FG-07", "not_checkable"]]);
       expect(check(r, "FG-03")).toMatchObject({ title: "Levels align by name and elevation", reason: "one model — a cross-model check; nothing to compare" });
       expect(check(r, "FG-01").title).toBe("No GlobalId appears twice in the model");
       expect(r.verdict).toBe("pass");
@@ -229,5 +230,96 @@ describe("checkFederation", () => {
     const none = check(checkFederation([A(), bad], { verdicts: v }), "FG-06");
     expect(none.status).toBe("not_checkable");
     expect(none.reason).toMatch(/PUT \/cde\/:key\/artefacts\/naming/);
+  });
+});
+
+// MA-8-2: FG-07 — walls two models share sit within the contract's tolerance.
+describe("FG-07 wall tolerance", () => {
+  type W = Manifest["walls"] extends (infer T)[] | null | undefined ? T : never;
+  // x along: a wall from (x0, y) to (x1, y), thickness t, standing z 0..3000
+  const wall = (g: string, y: number, t = 300, x0 = 0, x1 = 5000, z0 = 0, z1 = 3000): W => ({ g, s: [x0, y], e: [x1, y], t, z0, z1, storey: "Level 1" });
+  const pair = (a: W[] | null, b: W[] | null, tol: number | null = 20, over: Partial<Manifest> = {}) =>
+    check(checkFederation([model("A-0101.ifc", manifest({ walls: a })), model("B-0102.ifc", manifest({ walls: b, ...over }))], { verdicts: okVerdicts, tolerance_mm: tol }), "FG-07");
+  it("equal walls 0 mm apart pass; 60 mm apart fail at 20 and pass at 60", () => {
+    expect(pair([wall("a", 0)], [wall("b", 0)]).status).toBe("pass");
+    const f = pair([wall("a", 0)], [wall("b", 60)]);
+    expect(f).toMatchObject({ status: "fail", count: 1 });
+    expect(f.evidence[0]).toMatchObject({ models: ["A-0101.ifc", "B-0102.ifc"], walls: ["a", "b"], storey: "Level 1", offset_mm: 60, centre_mm: 60, thickness_mm: [300, 300] });
+    expect(pair([wall("a", 0)], [wall("b", 60)], 60).status).toBe("pass");
+  });
+  it("a 200 mm core centred in a 300 mm wall passes; moved 60 mm it fails by 10", () => {
+    expect(pair([wall("a", 0, 300)], [wall("b", 0, 200)]).status).toBe("pass");
+    const f = pair([wall("a", 0, 300)], [wall("b", 60, 200)], 5);
+    expect(f.status).toBe("fail");
+    expect(f.evidence[0]).toMatchObject({ offset_mm: 10 });
+    expect(pair([wall("a", 0, 300)], [wall("b", 60, 200)], 10).status).toBe("pass");
+  });
+  it("walls that are not counterparts are not paired: non-parallel, under half the length, no height in common, bodies further apart than the thicknesses plus the tolerance", () => {
+    const turned: W = { g: "t", s: [0, 0], e: [4999, 200], t: 300, z0: 0, z1: 3000, storey: null }; // ~2.3 deg
+    for (const b of [turned, wall("b", 0, 300, 3000, 8000), wall("b", 0, 300, 0, 5000, 3000, 6000), wall("b", 400)])
+      expect(pair([wall("a", 0)], [b]), JSON.stringify(b)).toMatchObject({ status: "not_checkable", reason: "no wall is modelled in two models — nothing to compare" });
+  });
+  it("a parallel wall within 1 degree still pairs", () => {
+    expect(pair([wall("a", 0)], [{ g: "b", s: [0, 0], e: [5000, 40], t: 300, z0: 0, z1: 3000, storey: null }], 1000).status).toBe("pass");
+  });
+  it("is not checkable for: no tolerance, a failing FG-05, a model without walls, zero pairs", () => {
+    expect(pair([wall("a", 0)], [wall("b", 0)], null)).toMatchObject({ status: "not_checkable", reason: "the contract sets no tolerance_mm" });
+    const far = checkFederation([model("A-0101.ifc", manifest({ walls: [wall("a", 0)] })), model("B-0102.ifc", manifest({ walls: [wall("b", 0)], site: site(52.5, -0.1, { eastings: 900000 }) }))], { verdicts: okVerdicts, tolerance_mm: 20 });
+    expect(check(far, "FG-05").status).toBe("fail");
+    expect(check(far, "FG-07").reason).toMatch(/georeference disagrees \(FG-05\)/);
+    const none = pair([wall("a", 0)], null, 20, { walls_why: "larger than the bridge reads (20 MB)" });
+    expect(none.status).toBe("not_checkable");
+    expect(none.reason).toMatch(/B-0102\.ifc: larger than the bridge reads/);
+    expect(pair([wall("a", 0)], null).reason).toMatch(/captured before MA-8 — backfill its manifest/);
+    expect(pair([wall("a", 0)], [wall("b", 9000)]).reason).toBe("no wall is modelled in two models — nothing to compare");
+  });
+  it("warns about unpaired walls, held walls and a stored cap; pairs judged are a warning, count is failing pairs; evidence is capped at 200", () => {
+    const r = pair([wall("a", 0), wall("new", 9000)], [wall("b", 0)], 20, { walls_held: 3, walls_total: 9 });
+    expect(r.status).toBe("pass");
+    expect(r.warnings).toEqual(expect.arrayContaining([
+      expect.stringMatching(/^A-0101\.ifc: 1 wall has no matching wall in another model \(allowed: new design walls/),
+      expect.stringMatching(/^B-0102\.ifc: 3 walls were not compared because the reader could not place them/),
+      "B-0102.ifc: only the first 1 of 9 walls were stored",
+      expect.stringMatching(/^1 wall pair judged at 20 mm/)]));
+    // offsets 21..270 mm, listed mildest first: the 200 kept are the worst, worst first
+    const many = Array.from({ length: 250 }, (_, i) => wall(`a${i}`, i * 5000, 1000, 0, 500));
+    const manyB = Array.from({ length: 250 }, (_, i) => wall(`b${i}`, i * 5000 + 21 + i, 1000, 0, 500));
+    const f = pair(many, manyB, 20);
+    expect(f.count).toBe(250);
+    expect(f.evidence).toHaveLength(200);
+    const offs = f.evidence.map((e) => (e as { offset_mm: number }).offset_mm);
+    expect(offs[0]).toBe(Math.max(...offs));
+    expect(offs).toEqual([...offs].sort((p, q) => q - p));
+    expect(offs[0]).toBe(270);
+  });
+  it("a wall split in one model is judged whichever model is listed first (60 mm off fails both ways)", () => {
+    const whole = [wall("w", 0, 200, 0, 10000)], split = [wall("s1", 0, 200, 0, 5000), wall("s2", 60, 200, 5000, 10000)];
+    expect(pair(whole, split, 20)).toMatchObject({ status: "fail", count: 1 });
+    expect(pair(split, whole, 20)).toMatchObject({ status: "fail", count: 1 });
+    expect(pair(whole, [wall("s1", 0, 200, 0, 5000), wall("s2", 0, 200, 5000, 10000)], 20).status).toBe("pass");
+  });
+  it("a wall moved further than its thickness still pairs, within the tolerance band; beyond that it is a new wall", () => {
+    const a = [wall("a1", 0, 200), wall("a2", 3000, 200)];
+    expect(pair(a, [wall("b1", 215, 200), wall("b2", 3000, 200)], 20)).toMatchObject({ status: "fail", count: 1 }); // 215 < 200 + 20
+    const far = pair(a, [wall("b1", 250, 200), wall("b2", 3000, 200)], 20); // 250 > 200 + 20: reach is thickness + tolerance, and the output says so
+    expect(far.status).toBe("pass");
+    expect(far.warnings.join(" ")).toMatch(/moved further than its thickness plus the tolerance/);
+  });
+  it("a tolerance outside 1..1000 (an older contract, a typo) is not set and never passes", () => {
+    for (const bad of [NaN, 0, -5, 5000])
+      expect(pair([wall("a", 0)], [wall("b", 60)], bad)).toMatchObject({ status: "not_checkable", reason: "tolerance_mm is not a number from 1 to 1000 — not set" });
+  });
+  it("a stored wall with a null end is dropped, not a crash", () => {
+    const broken = { g: "x", s: null, e: [1, 1], t: 200, z0: 0, z1: 1, storey: null } as unknown as W;
+    expect(pair([wall("a", 0)], [wall("b", 0), broken]).status).toBe("pass");
+  });
+  it("one model lists FG-07 as not checkable", () => {
+    const r = checkFederation([model("A-0101.ifc", manifest({ guid_audit: { duplicates: 0, examples: [], missing: 0, scope: "IfcProduct", counted: 4 } }))], { verdicts: okVerdicts, live_count: 1, tolerance_mm: 20 });
+    expect(check(r, "FG-07")).toMatchObject({ status: "not_checkable", reason: "one model — a cross-model check; nothing to compare" });
+  });
+  it("a FAIL on FG-07 alone fails the verdict", () => {
+    const r = checkFederation([model("A-0101.ifc", manifest({ walls: [wall("a", 0)], elements: [{ guid: "mine", class: "IFCWALL", type_name: "Wall 1", storey: "Level 1" }] })), model("B-0102.ifc", manifest({ walls: [wall("b", 80)], elements: [{ guid: "other", class: "IFCWALL", type_name: "Wall 1", storey: "Level 1" }] }))], { verdicts: okVerdicts, tolerance_mm: 20 });
+    expect(r.verdict).toBe("fail");
+    expect(r.checks.filter((c) => c.status === "fail").map((c) => c.id)).toEqual(["FG-07"]);
   });
 });

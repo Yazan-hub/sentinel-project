@@ -12,6 +12,18 @@
     "expect": { "result": "pass", "failures": 0, "warnings": 0 }
   },
   {
+    "name": "ifc4-tolerance-mm-ignored-pass",
+    "ifc": "ifc4-mapconversion.ifc",
+    "contract": {
+      "schema_version": 1, "contract_key": "parity-ifc4", "ifc_schema": "IFC4", "tolerance_mm": 20,
+      "required_entities": [{ "entity": "IFCWALL", "min_count": 1 }, { "entity": "IFCDOOR", "min_count": 1 }, { "entity": "IFCCOLUMN", "min_count": 1 }],
+      "required_psets": ["Pset_WallCommon"], "required_properties": ["FireRating"],
+      "forbidden_entities": [{ "entity": "IFCBUILDINGELEMENTPROXY", "max_count": 0, "max_ratio": 0.2 }],
+      "require_georeference": true
+    },
+    "expect": { "result": "pass", "failures": 0, "warnings": 0 }
+  },
+  {
     "name": "ifc4-no-georef-warns",
     "ifc": "ifc4-no-georef.ifc",
     "contract": {
