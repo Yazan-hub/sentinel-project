@@ -61,7 +61,7 @@ describe("policyRefusals", () => {
   it("refuses RED, third-party, drawings and wrong formats", () => {
     expect(policyRefusals({ kind: "photo", provider: "google maps", path: "a.jpg" })).toEqual(["google maps is a RED source — imagery and data from Google, Apple and Azure/Bing map services are never admitted (attestation d says so for every photo)"]);
     expect(policyRefusals({ kind: "photo", provider: "azure", path: "a.jpg" })).toEqual(["azure is a RED source — imagery and data from Google, Apple and Azure/Bing map services are never admitted (attestation d says so for every photo)"]);
-    expect(policyRefusals({ kind: "photo", provider: "wikimedia-commons", path: "a.jpg" })).toEqual(["web and third-party items wait for a later stage — only your own scans and photos (provider own) are admitted now"]);
+    expect(policyRefusals({ kind: "photo", provider: "wikimedia-commons", path: "a.jpg" })).toEqual(["web and third-party items wait for a later stage — only your own scans and photos (provider own), drawings under a request and third-party models with (e) are admitted now"]);
     expect(policyRefusals({ kind: "drawing", provider: "own", path: "A-101.pdf" })).toEqual([]); // MA-4b: under a request
     expect(policyRefusals({ kind: "drawing", provider: "owner", path: "scan.JPEG" })).toEqual([]);
     expect(policyRefusals({ kind: "drawing", provider: "own", path: "A-101.txt" })).toEqual(["a .txt is not admitted as a drawing — drawings are pdf, dwg, dxf, png or jpg"]);
@@ -175,7 +175,7 @@ describe("Ask the owner (MA-4b)", () => {
     fails({ ...pack, items: [{ ...d, request_id: "req-0009" }] }, drawingWords);
     fails({ ...pack, requests: [{ ...req, letter: req.letter + "!" }], items: [] }, "evidence_pack: requests[0].letter must be the drafted letter, with its sha256");
     fails({ ...pack, requests: [req, req] }, "evidence_pack: requests[1].id must be a unique req-NNNN");
-    fails({ ...pack, items: [{ ...photoItem(packWith(["a", "c", "d"])), request_id: "req-0001" }] }, "evidence_pack: items[0] is own (licence owner-supplied) — only a drawing comes from someone else, under a request");
+    fails({ ...pack, items: [{ ...photoItem(packWith(["a", "c", "d"])), request_id: "req-0001" }] }, "evidence_pack: items[0] is own (licence owner-supplied) — only a drawing comes from someone else, under a request, and a model from a vendor, under a licence_ref");
     const { requests: _r, ...ma4a } = newPack("p", "P", {}, "C:/ev/p");
     expect(validatePack(ma4a)).toBe(true); // an MA-4a pack has no requests
   });
@@ -230,12 +230,14 @@ describe("a concept model (MA-6-8)", () => {
     expect(magicRefusal("ifc", Buffer.from("ISO-10303-21;\nHEAD"), "model")).toBe(null);
     expect(magicRefusal("ifc", Buffer.from("%PDF-1.7\n1 0 obj"), "model")).toBe("the file does not begin as a .ifc does — renamed or damaged");
     expect(magicRefusal("ifc", Buffer.from("ISO-1030"), "model")).toBe("the file does not begin as a .ifc does — renamed or damaged");
-    expect(sizeRefusal("ifc", 20 * MB, "model")).toBe(null);
-    expect(sizeRefusal("ifc", 20 * MB + 1, "model")).toBe("a .ifc is read inside the bridge — at most 20 MB (this one is 20481 KB); export the concept without its site, links and furniture");
-    expect(sizeRefusal("ifc", 25.3 * MB, "model")).toContain("(this one is 25.3 MB)");
+    expect(sizeRefusal("ifc", 64 * MB, "model")).toBe(null); // MA-8-3 (D3): a 25 MB vendor export is read
+    expect(sizeRefusal("ifc", 64 * MB + 1, "model")).toBe("a .ifc is read inside the bridge — at most 64 MB (this one is 65537 KB); export it without its site, links and furniture");
+    expect(sizeRefusal("ifc", 70.3 * MB, "model")).toContain("(this one is 70.3 MB)");
     expect(sizeRefusal("las", 9e9, "scan")).toBe(null);
     expect(policyRefusals({ kind: "model", provider: "own", path: "a.ifc" })).toEqual([]);
-    expect(policyRefusals({ kind: "model", provider: "architect", path: "a.ifc" })).toEqual(["web and third-party items wait for a later stage — only your own scans and photos (provider own) are admitted now"]);
+    expect(policyRefusals({ kind: "model", provider: "architect", path: "a.ifc" })).toEqual([]); // MA-8-3: a vendor's model (e) and a licence_ref are the body's and the pack's
+    expect(policyRefusals({ kind: "model", provider: "google maps", path: "a.ifc" })[0]).toMatch(/^google maps is a RED source/);
+    expect(policyRefusals({ kind: "scan", provider: "vendor", path: "a.las" })[0]).toMatch(/^web and third-party items wait/);
     expect(policyRefusals({ kind: "scan", provider: "own", path: "a.ifc" })).toEqual(["a .ifc is a model, not a scan"]);
     expect(policyRefusals({ kind: "model", provider: "own", path: "a.las" })).toEqual(["a .las is a scan, not a model"]);
   });
@@ -244,5 +246,49 @@ describe("a concept model (MA-6-8)", () => {
       attestation_ids: ["att-0001"], allowed_uses: { ...USES }, surveyable: false, admitted_by: "lead@example.test", admitted_at: "2026-10-12T10:00:00.000Z" };
     expect(validatePack(packWith(["a"], [item]))).toBe(true);
     expect(() => validatePack(packWith(["c"], [{ ...item, attestation_ids: ["att-0001"] }]))).toThrow(/\(a\) at least for a model/);
+  });
+});
+
+// MA-8-3 — a third party's model: a purchase (not a request), (a) + (e), a provider and the order it was bought under.
+describe("a third party's model (MA-8-3)", () => {
+  const body = { path: "model/vendor.ifc", kind: "model", provider: "Acme Scans", licence_ref: " PO-2026-114 " };
+  const packOf = (codes) => packWith(codes);
+  const vendorItem = (pack, over = {}) => newItem({ id: "ev-0001", input: readAdmitBody(body), format: "ifc", sha256: SHA, size_bytes: 1000, report: null, pack, who: "lead@example.test", at: "t", ...over });
+  it("the body names its licence_ref: required for a vendor, refused anywhere else", () => {
+    expect(readAdmitBody(body)).toMatchObject({ kind: "model", provider: "acme scans", licence_ref: "PO-2026-114" });
+    expect(() => readAdmitBody({ ...body, licence_ref: undefined })).toThrow(/names the order or contract it was bought under: licence_ref/);
+    expect(() => readAdmitBody({ ...body, licence_ref: "a\nb" })).toThrow(/licence_ref must be one line/);
+    expect(() => readAdmitBody({ ...body, licence_ref: "x".repeat(101) })).toThrow(/1 to 100 characters/);
+    expect(() => readAdmitBody({ path: "scans/a.las", kind: "scan", licence_ref: "PO-1" })).toThrow(/belongs to a third-party model only/);
+    expect(() => readAdmitBody({ path: "model/a.ifc", kind: "model", licence_ref: "PO-1" })).toThrow(/belongs to a third-party model only/);
+    expect(() => readAdmitBody({ ...body, provider: "acme/../x" })).toThrow(/plain name/);
+    expect(readAdmitBody({ path: "model/a.ifc", kind: "model" })).toMatchObject({ provider: "own" });
+  });
+  it("needsOf: (a) + (e) for a vendor's model, (a) for the office's own, a dataset's (f)", () => {
+    expect(needsOf(packOf([]), "model", "acme")).toEqual(["a", "e"]);
+    expect(needsOf(packOf([]), "model")).toEqual(["a"]);
+    expect(needsOf(packOf([]), "scan", "acme")).toEqual(["a", "c"]);
+    expect(needsOf({ ...packOf([]), dataset: {} }, "model", "acme")).toEqual(["f"]);
+  });
+  it("newItem and validatePack: commercial, with the order; a vendor's scan stays refused", () => {
+    const pack = packOf(["a", "e"]);
+    const m = vendorItem(pack);
+    expect(m).toMatchObject({ provider: "acme scans", licence: "commercial", licence_ref: "PO-2026-114", attestation_ids: ["att-0001", "att-0002"], surveyable: false });
+    expect(validatePack({ ...pack, items: [m] })).toBe(true);
+    expect(() => validatePack({ ...packOf(["a"]), items: [{ ...m, attestation_ids: ["att-0001"] }] })).toThrow(/\(a\) and \(e\) at least for a model/);
+    const fails = (item) => expect(() => validatePack({ ...pack, items: [item] })).toThrow(/is a third party's model/);
+    fails({ ...m, licence: "owner-supplied" });
+    fails({ ...m, licence_ref: undefined });
+    fails({ ...m, request_id: "req-0001" });
+    fails({ ...m, provider: "google maps" });
+    fails({ ...m, provider: "Bad Name" });
+    const own = packOf(["a", "c"]);
+    expect(() => validatePack({ ...own, items: [{ ...scanItem(own), provider: "acme", licence: "commercial", licence_ref: "PO-1" }] })).toThrow(/is own/);
+    expect(() => validatePack({ ...own, items: [{ ...scanItem(own), licence_ref: "PO-1" }] })).toThrow(/is own/);
+  });
+  it("admittedValue carries the licence_ref; a vendor's model is not a RED source", async () => {
+    const { admittedValue } = await import("./evidence-logic.mjs");
+    expect(admittedValue("evp-0001", vendorItem(packOf(["a", "e"])), 3, false)).toMatchObject({ provider: "acme scans", licence: "commercial", licence_ref: "PO-2026-114" });
+    expect(admittedValue("evp-0001", photoItem(packWith(["a", "c", "d"])), 3, false)).not.toHaveProperty("licence_ref");
   });
 });

@@ -495,4 +495,21 @@ describe("IFC jobs (MA-6-8) — sentinel-ifc in this process on the newest admit
     expect(rec()).toMatchObject({ status: "failed" });
     expect(rec().candidates_total ?? 0).toBe(0);
   });
+
+  it("(f) MA-8-3: item names the model (an older concept too); provider and licence reach the job, stillAdmitted's shape stays; the named item is checked", async () => {
+    expect(readStartBody({ pack: "evp-0001", readers: ["sentinel-ifc"], item: "ev-0020" })).toEqual({ pack: "evp-0001", reader: "sentinel-ifc", params: {}, item: "ev-0020" });
+    for (const bad of [{ readers: ["sentinel-ifc"], item: "ev-20" }, { readers: ["sentinel-ifc"], item: 20 }, { item: "ev-0020" }, { readers: ["sentinel-drawing"], item: "ev-0020" }])
+      expect(() => readStartBody({ pack: "evp-0001", ...bad })).toThrow(/item names the model sentinel-ifc reads, as ev-0003/);
+    lay({ provider: "acme scans", licence: "commercial", licence_ref: "PO-1" });
+    PACK.items.push({ id: "ev-0022", kind: "scan", format: "las", path: "scans/a.las", sha256: "1".repeat(64), surveyable: true, allowed_uses: { ...USES } });
+    await expect(start({ pack: "evp-0001", readers: ["sentinel-ifc"], item: "ev-0099" })).rejects.toMatchObject({ status: 404, message: "no item ev-0099 in the evidence pack — nothing was saved" });
+    await expect(start({ pack: "evp-0001", readers: ["sentinel-ifc"], item: "ev-0022" })).rejects.toMatchObject({ status: 409, message: expect.stringContaining("ev-0022: not a model") });
+    const { job } = await start({ pack: "evp-0001", readers: ["sentinel-ifc"], item: "ev-0020" }, { runIfc: async () => ({ status: "done", version: "0.1.0", tools: ITOOLS, refused: [], result: { ...IRESULT, candidates: IRESULT.candidates.map((c) => ({ ...c, evidence: c.evidence.map((e) => e.replace("ev-0021", "ev-0020")) })) } }) });
+    await current();
+    expect(job.items).toEqual([{ id: "ev-0020", path: "model/old.ifc", sha256: sha(FIX), provider: "acme scans", licence: "commercial" }]);
+    expect(job.refused).toEqual([]); // the newer concept is not listed: only the named item is looked at
+    expect(audits[0].v.items).toEqual([{ id: "ev-0020", sha256: sha(FIX), provider: "acme scans", licence: "commercial" }]);
+    const row = { read: ["ev-0020"], items: [{ id: "ev-0020", sha256: sha(FIX) }], reader: "sentinel-ifc" };
+    expect(stillAdmitted(row, PACK, "job-0001")).toEqual([{ id: "ev-0020", sha256: sha(FIX) }]);
+  });
 });

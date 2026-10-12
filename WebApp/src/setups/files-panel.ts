@@ -101,6 +101,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   // MA-4b: `drawingFor` = the folder file whose request picker is open (a drawing names the request it answers); `askDraft` = the
   // Ask the owner form while open (kept across a refused draft, so nothing typed is lost); `lettersOpen` = the requests showing a letter.
   let drawingFor: string | null = null;
+  let vendorFor: string | null = null; // MA-8-3: the folder .ifc whose provider + licence-ref form is open (a third party's model)
   let drawingReq = ""; // the request picked for `drawingFor`, kept across a re-render
   let drafting = false; // a draft in flight: a second click drafts nothing
   let askDraft: { to: EvidenceRequest["recipient_kind"]; name: string; docs: string; purpose: string } | null = null;
@@ -172,7 +173,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   async function load() {
     const mine = ++seq, key = pid();
     // A project or person switch drops the old scope's inline rename / armed confirm (dismissing is reset below).
-    if (loadScope(key) !== loadedScope) { renaming = null; armed = null; unarchiveAsk = null; askDraft = null; drawingFor = null; lettersOpen.clear(); proposing = null; proposeLevels = null; proposeDraft = null; alignDraft = null; alignView = null; alignPick = null; }
+    if (loadScope(key) !== loadedScope) { renaming = null; armed = null; unarchiveAsk = null; askDraft = null; drawingFor = null; vendorFor = null; lettersOpen.clear(); proposing = null; proposeLevels = null; proposeDraft = null; alignDraft = null; alignView = null; alignPick = null; }
     loadedScope = loadScope(key);
     if (cmp.a || cmp.b) { cmp.a = cmp.b = cmp.fileId = undefined; el("fv-compare").style.display = "none"; }
     el("fv-proj").textContent = key;
@@ -220,7 +221,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       dismissing = null; gapDismissing = null;
       try { const h = await readHolding(base, key); if (mine !== seq) return; holding = h; holdError = null; }
       catch (e) { if (mine !== seq) return; holding = { items: [], cleared_recent: [], type_gaps: null }; holdError = (e as Error).message; }
-      admitting = null; drawingFor = null;
+      admitting = null; drawingFor = null; vendorFor = null;
       try { const ev = await readEvidence(base, key); if (mine !== seq) return; evidence = ev; evidenceError = null; }
       catch (e) { if (mine !== seq) return; evidence = null; evidenceError = (e as Error).message; }
       jobOpen = null; jobCands = null; // the Propose form stays open with its draft: a refusal never loses what the lead typed
@@ -302,6 +303,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     root.querySelector("#fv-ev-survey")?.addEventListener("click", () => void evAct(async () => surveyStartLine((await startSurvey(base, pid())).job)));
     root.querySelector("#fv-ev-drawing")?.addEventListener("click", () => void evAct(async () => drawingStartLine((await startDrawing(base, pid())).job)));
     root.querySelector("#fv-ev-ifc")?.addEventListener("click", () => void evAct(async () => ifcStartLine((await startIfc(base, pid())).job))); // MA-6-8
+    root.querySelectorAll<HTMLElement>("[data-evifc]").forEach((n) => n.addEventListener("click", () => void evAct(async () => ifcStartLine((await startIfc(base, pid(), n.dataset.evifc)).job)))); // MA-8-3: the model named
     root.querySelectorAll<HTMLElement>("[data-evjob]").forEach((n) => n.addEventListener("click", async () => {
       const id = n.dataset.evjob!;
       if (jobOpen === id) { jobOpen = null; jobCands = null; render(); return; }
@@ -411,6 +413,14 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       else if (kindOf(path) === "drawing") { drawingFor = path; drawingReq = ""; admitting = null; render(); }
       else { admitting = path; drawingFor = null; render(); (root.querySelector("#fv-ev-method") as HTMLInputElement | null)?.focus(); }
     }));
+    root.querySelectorAll<HTMLElement>("[data-evvendor]").forEach((n) => n.addEventListener("click", () => { vendorFor = n.dataset.evvendor!; admitting = null; drawingFor = null; render(); (root.querySelector("#fv-ev-vprov") as HTMLInputElement | null)?.focus(); }));
+    root.querySelector("#fv-ev-vok")?.addEventListener("click", () => {
+      const path = vendorFor, v = (s: string) => (root.querySelector(s) as HTMLInputElement | null)?.value.trim() ?? "";
+      if (!path) return;
+      const provider = v("#fv-ev-vprov"), licence_ref = v("#fv-ev-vref");
+      vendorFor = null;
+      void evAct(async () => admitLine(await admitEvidence(base, pid(), { path, kind: "model", provider, licence_ref })));
+    });
     root.querySelectorAll<HTMLElement>("[data-evdrawing]").forEach((n) => n.addEventListener("click", () => { drawingFor = n.dataset.evdrawing!; drawingReq = ""; admitting = null; render(); }));
     root.querySelector("#fv-ev-req")?.addEventListener("change", (e) => { drawingReq = (e.target as HTMLSelectElement).value; });
     root.querySelector("#fv-ev-dok")?.addEventListener("click", () => {
@@ -445,7 +455,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       try { await navigator.clipboard.writeText(r.letter); status(`✓ Copied the letter of ${r.id} — sign it and send it yourself`); }
       catch { status("Copy is blocked here — select the letter's text and copy it (Ctrl+C)"); }
     }));
-    root.querySelector("#fv-ev-cancel")?.addEventListener("click", () => { admitting = null; drawingFor = null; render(); });
+    root.querySelector("#fv-ev-cancel")?.addEventListener("click", () => { admitting = null; drawingFor = null; vendorFor = null; render(); });
     root.querySelector("#fv-ev-ok")?.addEventListener("click", () => {
       const path = admitting;
       if (!path) return;
@@ -672,6 +682,10 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
         ? `<input id="fv-ev-method" maxlength="300" placeholder="How was it registered? e.g. registered in source" style="flex:1;min-width:10rem;background:#111;color:#eee;border:1px solid #6528d7;border-radius:.25rem;padding:.2rem .4rem;font:12px system-ui"/>` +
           (needsReport(f.path) ? `<select id="fv-ev-report" style="background:#111;color:#eee;border:1px solid #2c2c34;border-radius:.25rem;font:11px system-ui"><option value="">its registration report…</option>${folder.files_not_admitted.filter((x) => x.path !== f.path).map((x) => `<option value="${esc(x.path)}">${esc(x.path)}</option>`).join("")}</select>` : "") +
           `<button id="fv-ev-ok" style="${act};color:#c4b5fd">Admit</button><button id="fv-ev-cancel" style="${act}">Cancel</button>`
+        : vendorFor === f.path
+          ? `<span style="color:#9ca3af;flex-basis:100%">A third party's model is a purchase, not a request: a lead has signed (a) and (e), and names the order or contract. Sentinel sends nothing to the vendor; the owner's consent to sharing a scan with them is the office's to settle.</span>` +
+            `<input id="fv-ev-vprov" maxlength="100" placeholder="provider, e.g. Acme Scans" style="${inp};min-width:9rem"/><input id="fv-ev-vref" maxlength="100" placeholder="order or contract number" style="${inp};flex:1;min-width:9rem"/>` +
+            `<button id="fv-ev-vok" style="${act};color:#c4b5fd">Admit model</button><button id="fv-ev-cancel" style="${act}">Cancel</button>`
         : drawingFor === f.path
           ? (requests.length
             ? `<select id="fv-ev-req" style="${inp}">${requests.map((r) => `<option value="${esc(r.id)}"${r.id === drawingReq ? " selected" : ""}>answers ${esc(r.id)} · to the ${esc(r.recipient_kind)}</option>`).join("")}</select>` +
@@ -680,6 +694,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
             `<button id="fv-ev-cancel" style="${act}">Cancel</button>`
         : !kindOf(f.path) ? '<span style="color:#71717a">not admitted here — scans e57, las, laz, rcp; photos jpg, png; drawings pdf, dwg, dxf; a concept model ifc</span>'
         : edit ? `<button data-evadmit="${esc(f.path)}" style="${act}">Admit</button>` +
+          (kindOf(f.path) === "model" && can.ask ? ` <button data-evvendor="${esc(f.path)}" style="${act}" title="a model bought from a third party: a lead names the provider and the order">a third party's…</button>` : "") +
           (isImage(f.path) && requests.length ? ` <button data-evdrawing="${esc(f.path)}" style="${act}" title="a scanned drawing that answers a request">as drawing…</button>` : "") : "";
       return `<div style="display:flex;gap:.4rem;align-items:center;flex-wrap:wrap;font-size:11px;padding:.15rem .2rem"><span style="flex:1;min-width:8rem;overflow-wrap:anywhere">${esc(f.path)} · ${esc(humanSize(f.size_bytes))}</span>${form}</div>`;
     }).join("") || line("none");
@@ -695,12 +710,13 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
             (proposing === j.id ? (isDrawingJob(j) ? alignForm(j) : proposeForm(proposeLevels ?? [], isIfcJob(j) ? "IFC" : "scan")) : "") +
             (jobOpen === j.id ? (jobCands ?? []).map((c) => line(esc(candidateLine(c)), "#cbd5e1")).join("") : "")).join("") || line("no survey yet")) +
       line("Drawings — sentinel-drawing reads page 1 of the admitted vector PDF plans on this PC: walls (two faces in the page's heaviest line weight), doors (swing arcs, with any W x H tag) and room labels (a name, and its number when one is written), in paper millimetres. A lead proposes a done drawing job by two marks (a 2-point alignment): the bridge types its walls exactly and its doors by size, as a scan's, every ghost inferred and unticked; a room is placed where its label stands, and only when the walls round it close; a DWG is Ghost Builder's, in Revit.", "#9ca3af") +
-      line("IFC — sentinel-ifc reads the newest admitted concept .ifc inside the bridge (at most 20 MB): levels, straight walls and floors in the IFC's own millimetres; what it does not read (columns, doors, roofs, curved walls) it lists by GlobalId. A lead proposes a done IFC job with a frame — the IFC's own world position is a hint, never applied. Nothing is pre-ticked: a concept is what someone modelled, not what was built.", "#9ca3af") +
+      line("IFC — sentinel-ifc reads an admitted .ifc inside the bridge (the newest, or the one you pick; at most 64 MB; a third party's model carries its provider and licence): levels, straight walls and floors in the IFC's own millimetres; what it does not read (columns, doors, roofs, curved walls) it lists by GlobalId. A lead proposes a done IFC job with a frame — the IFC's own world position is a hint, never applied. Nothing is pre-ticked: a concept is what someone modelled, not what was built.", "#9ca3af") +
       // MA-5a-3: one slot for all readers — no button while a job runs
       (can.survey && !busy && (surveyableScans(pack).length || readableDrawings(pack).length || readableIfc(pack).length)
         ? `<div style="margin-top:.35rem;display:flex;gap:.4rem">${surveyableScans(pack).length ? `<button id="fv-ev-survey" style="${act}">Run survey</button>` : ""}` +
           `${readableDrawings(pack).length ? `<button id="fv-ev-drawing" style="${act}" title="sentinel-drawing reads page 1 of each admitted PDF plan">Read drawings</button>` : ""}` +
-          `${readableIfc(pack).length ? `<button id="fv-ev-ifc" style="${act}" title="sentinel-ifc reads the newest admitted concept IFC: levels, walls and floors">Read IFC</button>` : ""}</div>`
+          `${readableIfc(pack).length > 1 ? readableIfc(pack).map((i) => `<button data-evifc="${esc(i.id)}" style="${act}" title="sentinel-ifc reads ${esc(i.path)}: levels, walls and floors">Read IFC ${esc(i.id)}${i.provider && i.provider !== "own" ? ` (${esc(i.provider)})` : ""}</button>`).join("")
+            : readableIfc(pack).length ? `<button id="fv-ev-ifc" style="${act}" title="sentinel-ifc reads the admitted IFC: levels, walls and floors">Read IFC</button>` : ""}</div>`
         : can.survey && busy ? line("A job is running — ↻ for its progress.") : "");
     return toggle + `<div style="margin-bottom:.45rem;padding:.45rem .55rem;background:#1b1b21;border:1px solid #2c2c34;border-radius:.4rem">` +
       `<div style="color:#71717a;font-size:10.5px;font-family:ui-monospace,Consolas,monospace;overflow-wrap:anywhere">${esc(pack.pack_id)} · ${esc(ref)} · folder ${esc(folder.path)}${folder.exists ? "" : " (not there yet)"}</div>` +
@@ -1115,7 +1131,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   // A plain refresh (same project and person, e.g. the bridge came back) must not wipe an open dismiss reason, rename
   // input or armed confirm; a project or person switch always reloads (load() drops them).
   onActiveProjectChange(() => {
-    if (loadScope(pid()) === loadedScope && (dismissing != null || gapDismissing != null || renaming || armed || admitting || askDraft || drawingFor)) return;
+    if (loadScope(pid()) === loadedScope && (dismissing != null || gapDismissing != null || renaming || armed || admitting || askDraft || drawingFor || vendorFor)) return;
     void load();
   });
   void load();

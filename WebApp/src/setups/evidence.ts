@@ -24,6 +24,8 @@ export interface EvidenceItem {
   id: string; kind: EvidenceKind; format: string; sha256: string; size_bytes: number; path: string; surveyable: boolean;
   admitted_by: string; admitted_at: string; state?: "changed"; changed_at?: string; registration?: { method: string; report_path?: string };
   provider?: string; request_id?: string;
+  /** MA-8-3: a third party's model — commercial, with the order or contract it was bought under. */
+  licence?: string; licence_ref?: string;
 }
 /** MA-4b: an "ask the owner" request as the pack keeps it — the letter is what was drafted (Sentinel sends nothing). */
 export interface EvidenceRequest {
@@ -47,7 +49,7 @@ const size = (b: number) => (b < 1048576 ? `${Math.max(1, Math.round(b / 1024))}
 /** One admitted item in one line. Pure. */
 export function itemLine(i: EvidenceItem): string {
   return `${i.id} · ${i.path} · ${i.format} · ${size(i.size_bytes)} · sha ${i.sha256.slice(0, 12)}…` +
-    (i.kind === "drawing" ? ` · drawing from the ${i.provider} under ${i.request_id}` : i.kind === "model" ? " · concept model (own)" : i.surveyable ? "" : " · not surveyable (no ReCap here)") +
+    (i.kind === "drawing" ? ` · drawing from the ${i.provider} under ${i.request_id}` : i.kind === "model" ? (i.provider && i.provider !== "own" ? ` · ${i.provider}'s model (${i.licence ?? "commercial"}, ref ${i.licence_ref ?? "?"})` : " · concept model (own)") : i.surveyable ? "" : " · not surveyable (no ReCap here)") +
     (i.state === "changed" ? " · CHANGED since admitted — on hold; restore the file and Admit it again, or put the new file in under a new name" : "");
 }
 /** An attestation's state in one line. Pure. */
@@ -104,7 +106,7 @@ export async function readEvidence(base: string, key: string): Promise<EvidenceR
 }
 export const makePack = (base: string, key: string) => post<{ pack: EvidencePack }>(base, key, "evidence", {});
 export const signAttestation = (base: string, key: string, code: string) => post<{ attestation: Attestation; ledger: Ledger }>(base, key, `evidence/${PACK_ID}/attest`, { code });
-export const admitEvidence = (base: string, key: string, b: { path: string; kind: EvidenceKind; registration?: { method: string; report_path?: string }; request_id?: string }) => post<AdmitReply>(base, key, `evidence/${PACK_ID}/items`, b);
+export const admitEvidence = (base: string, key: string, b: { path: string; kind: EvidenceKind; registration?: { method: string; report_path?: string }; request_id?: string; provider?: string; licence_ref?: string }) => post<AdmitReply>(base, key, `evidence/${PACK_ID}/items`, b);
 /** MA-4b: draft an "ask the owner" letter (a lead's; the bridge sends nothing). */
 export const draftRequest = (base: string, key: string, b: { recipient_kind: EvidenceRequest["recipient_kind"]; recipient?: string; documents: string[]; purpose?: string }) =>
   post<{ request: EvidenceRequest; letter: string; ledger: Ledger }>(base, key, `evidence/${PACK_ID}/requests`, b);
@@ -113,7 +115,7 @@ export const recheckEvidence = (base: string, key: string) => post<RecheckReply>
 /** MA-4c: a survey job as the bridge keeps it (GET /cde/:key/build/jobs); its candidates are read on demand (readJob). */
 export interface SurveyJob {
   id: string; status: "queued" | "running" | "done" | "failed" | "refused"; stage: string; pct: number;
-  items: { id: string; path: string; sha256: string }[]; read?: string[]; refused: { id: string; reason: string }[];
+  items: { id: string; path: string; sha256: string; provider?: string; licence?: string }[]; read?: string[]; refused: { id: string; reason: string }[];
   started_by: string; started_at: string; finished_at?: string; error?: string;
   counts?: Record<string, number>; candidates_total?: number; ledger?: Ledger;
   /** MA-5a-3: sentinel-survey or sentinel-drawing; MA-6-8: or sentinel-ifc (a job from before names none: a survey). */
@@ -189,8 +191,8 @@ export function ifcStartLine(j: SurveyJob): string {
   return `✓ Started ${j.id} — ${IFC_READER} reads ${j.items.map((i) => `${i.id} (${i.path})`).join(", ")}` +
     `${j.refused.length ? `; refused ${j.refused.map((r) => `${r.id} (${r.reason})`).join("; ")}` : ""} — ↻ for what it found.`;
 }
-/** Read IFC: the bridge picks the newest admitted concept IFC of the pack in force (no item list or params from here). */
-export const startIfc = (base: string, key: string) => post<{ job: SurveyJob }>(base, key, "build/jobs", { pack: PACK_ID, readers: [IFC_READER] });
+/** Read IFC: the bridge picks the newest admitted IFC of the pack in force, or the `item` named (MA-8-3: when several models are admitted); no params from here. */
+export const startIfc = (base: string, key: string, item?: string) => post<{ job: SurveyJob }>(base, key, "build/jobs", { pack: PACK_ID, readers: [IFC_READER], ...(item ? { item } : {}) });
 /** MA-6-8: what the IFC says about where it sits in the world, as one line for the Propose form — a hint, never applied (D5). Pure. */
 export function ifcHintLine(h: IfcHint | undefined): string {
   if (!h) return "";

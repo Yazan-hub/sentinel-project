@@ -29,6 +29,8 @@ export interface DeskJob {
   storey?: { level: string; how: string; checked: boolean };
   /** Decision 19: another job's placed changesets on the same scan bytes — named, never refused. */
   overlaps?: { changeset: string; job_id: string; evidence: string[] }[];
+  /** The job's items as the bridge stamped them (an IFC job: MA-8-3 adds whose model it is). */
+  evidence?: { id: string; sha256: string; provider?: string; licence?: string; licence_ref?: string }[];
 }
 export interface Ghost {
   proposal_guid: string; kind: string; op?: string | null;
@@ -179,9 +181,11 @@ export function sourceWords(cs: PendingChangeset): string {
   if (al) return `from drawing ${j.id} (ledger #${j.ledger_id ?? "?"}) · ${al.item}${al.revises ? ` (revises ${al.revises}: what is the same is left as placed)` : ""} at 1:${al.scale}, turned ${al.rotation_deg}°, its paper corner at ${al.dx_mm}, ${al.dy_mm} mm, ` +
     `level at ${al.dz_mm} mm${al.confirmed_by ? `, stated by ${al.confirmed_by}` : ""}${al.check_mm != null ? ` · checked to ${al.check_mm} mm by a third point` : " · no check point"}` +
     `${s ? ` · storey ${s.level} (${s.how}${s.checked ? "" : " — its height not checked"})` : ""} · nothing from a drawing is pre-ticked${again}`;
-  if ((j.reader ?? "").startsWith("sentinel-ifc ")) // MA-6-8
-    return `from IFC ${j.id} (ledger #${j.ledger_id ?? "?"})${f ? ` · the concept ${f.dx_mm || f.dy_mm || f.dz_mm || f.rotation_deg ? `moved ${f.dx_mm}, ${f.dy_mm}, ${f.dz_mm} mm, turned ${f.rotation_deg}°` : "at the model's internal origin"}${f.stated_by ? `, stated by ${f.stated_by}` : ""}` : ""}` +
+  if ((j.reader ?? "").startsWith("sentinel-ifc ")) { // MA-6-8
+    const v = j.evidence?.[0], bought = v?.provider && v.provider !== "own"; // MA-8-3: a third party's model says whose, and its order
+    return `from ${bought ? `${v.provider}'s IFC` : "IFC"} ${j.id} (${bought ? `${v.licence ?? "commercial"}, ref ${v.licence_ref ?? "?"}, ` : ""}ledger #${j.ledger_id ?? "?"})${f ? ` · the concept ${f.dx_mm || f.dy_mm || f.dz_mm || f.rotation_deg ? `moved ${f.dx_mm}, ${f.dy_mm}, ${f.dz_mm} mm, turned ${f.rotation_deg}°` : "at the model's internal origin"}${f.stated_by ? `, stated by ${f.stated_by}` : ""}` : ""}` +
       `${s ? ` · storey ${s.level} (${s.how}${s.checked ? "" : " — its height not checked"})` : ""} · nothing from an IFC is pre-ticked${again}`;
+  }
   const frame = f ? ` · the scan ${f.dx_mm || f.dy_mm || f.dz_mm || f.rotation_deg ? `moved ${f.dx_mm}, ${f.dy_mm}, ${f.dz_mm} mm, turned ${f.rotation_deg}°` : "at the model's internal origin"}${f.stated_by ? `, stated by ${f.stated_by}` : ""}` : "";
   return `from survey ${j.id} (ledger #${j.ledger_id ?? "?"})${frame}${s ? ` · storey ${s.level} (${s.how}${s.checked ? "" : " — its height not checked: nothing here is pre-ticked"})` : ""}${again}`;
 }

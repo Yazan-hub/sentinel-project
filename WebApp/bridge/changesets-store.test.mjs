@@ -1768,6 +1768,21 @@ describe("proposeFromJob (MA-6-8): a lead turns a concept IFC job into one chang
     expect(gap[6]).toMatchObject({ source: "sentinel-ifc", claimed: false, job: { id: "job-0007" } });
   });
 
+  it("(c) MA-8-3: a vendor's IFC names whose it is — in each changeset's name, its job evidence and the proposed row; a scan job's evidence keeps its shape", async () => {
+    const vendor = { id: "ev-0001", sha256: EV, state: "admitted", provider: "acme scans", licence: "commercial", licence_ref: "PO-2026-114" };
+    const deps = await ideps({ readPack: vi.fn(async () => ({ pack: { items: [vendor] } })) });
+    const r = await propose(deps);
+    expect(r.changesets.map((c) => c.name)).toEqual(["IFC (acme scans) job-0007 · IFC L02 job-0007", "IFC (acme scans) job-0007 · IFC L04 job-0007"]);
+    const docs = [...deps.saved.values()], ev = { id: "ev-0001", sha256: EV, provider: "acme scans", licence: "commercial", licence_ref: "PO-2026-114" };
+    expect(docs[0].job.evidence).toEqual([ev]);
+    const proposed = deps.audit.mock.calls.filter((c) => c[3] === "changeset_proposed");
+    expect(proposed).toHaveLength(2);
+    for (const p of proposed) expect(p[6].evidence).toEqual([ev]);
+    // an own model keeps the plain name
+    const own = await ideps({ readPack: vi.fn(async () => ({ pack: { items: [{ ...vendor, provider: "own", licence: "owner-supplied", licence_ref: undefined }] } })) });
+    expect((await propose(own)).changesets[0].name).toBe("IFC job-0007 · IFC L02 job-0007");
+  });
+
   it("(b) a second run finds nothing new; a placed IFC changeset has no scan to measure or show", async () => {
     const d0 = await ideps(); await propose(d0);
     const docs = [...d0.saved.values()];

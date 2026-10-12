@@ -138,9 +138,9 @@ describe("backfillManifest — only the version's own file", () => {
     it("bytes over the bridge's read cap are not opened", async () => {
       let opened = false;
       const d = { ...memDeps(), readWalls: async () => { opened = true; return { walls: [], levels: [] }; } };
-      await captureManifest("p", "v-1", Buffer.alloc(20 * 1024 * 1024 + 1), { actor: "cli" }, d);
+      await captureManifest("p", "v-1", Buffer.alloc(64 * 1024 * 1024 + 1), { actor: "cli" }, d);
       expect(opened).toBe(false);
-      expect(d.docs.get("manifest|uuid-p|v-1").walls_why).toBe("larger than the bridge reads (20 MB)");
+      expect(d.docs.get("manifest|uuid-p|v-1").walls_why).toBe("larger than the bridge reads (64 MB)");
     });
     it("a document captured before MA-8 reads back as 'captured before MA-8'", async () => {
       const d = memDeps();

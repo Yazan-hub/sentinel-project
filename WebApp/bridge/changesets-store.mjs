@@ -314,7 +314,9 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
     // the sha on its row (build-jobs stillAdmitted, shared with MA-4e's measure). A drawing is checked and named alone: another drawing of
     // the job changed does not stop this one (review).
     const { pack } = await readPack(key, row.pack_id);
-    const evidence = stillAdmitted(drawing ? { ...row, read: [align.item] } : row, pack, id);
+    // MA-8-3: an IFC job's evidence also names whose model it is (provider, licence, licence_ref) — from the pack item; stillAdmitted's shape is the measure replay's and stays
+    const evidence = stillAdmitted(drawing ? { ...row, read: [align.item] } : row, pack, id)
+      .map((e) => { const it = ifc ? pack.items.find((x) => x.id === e.id) : null; return it ? { ...e, provider: it.provider, licence: it.licence, ...(it.licence_ref ? { licence_ref: it.licence_ref } : {}) } : e; });
     const proj = await d.ensureProject(key);
     let earlier;
     try { earlier = await d.docList(STORE, proj.id); }
@@ -363,7 +365,7 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
     try { manifest = await levelsOf(key); }
     catch (e) { throw err(503, `the published models' levels could not be read (${e.message}) — nothing was saved; send it again`); }
     // MA-5a: the same catalogue the typer reads types a scan door or window by its size when no office rule does (holding-logic typeBySize).
-    const job = { id, ledger: row.ledger, reader: row.reader, version: row.version }, cat = { types: catalog.body.types, label: catalog.label, sha256: catalog.sha256 };
+    const job = { id, ledger: row.ledger, reader: row.reader, version: row.version, ...(ifc ? { provider: evidence[0]?.provider } : {}) }, cat = { types: catalog.body.types, label: catalog.label, sha256: catalog.sha256 };
     // MA-5a-5: the scan's walls filed on the drawing's storey, from the changesets read above — compared, never proposed twice. MA-5b-3: and
     // what the drawing it revises filed — the same element left as placed, a change or a removal a person's row
     const prior = drawing && align.revises ? priorOf(earlier, align.revises) : null;

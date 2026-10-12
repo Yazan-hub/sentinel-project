@@ -349,12 +349,16 @@ describe("a concept IFC (MA-6-8) — Read IFC, the third reader", () => {
   it("kindOf maps .ifc to a model; the item line says a concept model (own)", () => {
     expect(kindOf("model/Concept.IFC")).toBe("model");
     expect(itemLine(model("ev-0021"))).toBe("ev-0021 · model/ev-0021.ifc · ifc · 1.0 MB · sha abababababab… · concept model (own)");
+    // MA-8-3: a third party's model names its provider and the order it was bought under
+    expect(itemLine(model("ev-0022", { provider: "acme scans", licence: "commercial", licence_ref: "PO-2026-114" }))).toBe("ev-0022 · model/ev-0022.ifc · ifc · 1.0 MB · sha abababababab… · acme scans's model (commercial, ref PO-2026-114)");
   });
   it("readableIfc is the admitted, unchanged models; Read IFC posts {pack, readers: [sentinel-ifc]}; the lines name the reader and what it found", async () => {
     expect(readableIfc({ pack_id: "evp-0001", storage_root: "x", attestations: [], items: [model("ev-0020"), model("ev-0021", { state: "changed" }), ITEM] }).map((i) => i.id)).toEqual(["ev-0020"]);
     bwrite.mockResolvedValue({ job: { ...IJOB, status: "queued", read: undefined, counts: undefined } });
     const r = await startIfc("http://b", "demo");
     expect(bwrite).toHaveBeenCalledWith("http://b/cde/demo/build/jobs", expect.objectContaining({ method: "POST", body: JSON.stringify({ pack: "evp-0001", readers: ["sentinel-ifc"] }) }));
+    await startIfc("http://b", "demo", "ev-0020"); // MA-8-3: the model named
+    expect(bwrite).toHaveBeenLastCalledWith("http://b/cde/demo/build/jobs", expect.objectContaining({ body: JSON.stringify({ pack: "evp-0001", readers: ["sentinel-ifc"], item: "ev-0020" }) }));
     expect(ifcStartLine(r.job)).toBe("✓ Started job-0009 — sentinel-ifc reads ev-0021 (model/ev-0021.ifc); refused ev-0020 (an older concept — one IFC a job: the newest admitted is read) — ↻ for what it found.");
     expect(isIfcJob(IJOB)).toBe(true);
     expect(jobLine(IJOB)).toContain("job-0009 · sentinel-ifc · done · read ev-0021 · refused ev-0020");
@@ -377,7 +381,10 @@ describe("a concept IFC (MA-6-8) — Read IFC, the third reader", () => {
     expect(src).toContain(`<button id="fv-ev-ifc"`);
     expect(src).toContain("readableIfc(pack).length");
     expect(src).toContain(`ifcStartLine((await startIfc(base, pid())).job)`);
-    expect(src).toContain("line(\"IFC — sentinel-ifc reads the newest admitted concept .ifc");
+    expect(src).toContain("line(\"IFC — sentinel-ifc reads an admitted .ifc inside the bridge");
+    expect(src).toContain("data-evvendor"); // MA-8-3: a third party's model opens its provider + licence-ref form (a lead's)
+    expect(src).toContain("data-evifc"); // MA-8-3: one Read IFC a model when several are admitted
+    expect(src).toContain("{ path, kind: \"model\", provider, licence_ref }");
     expect(src).toContain("a concept model ifc</span>");
     expect(src).toContain("and (a) before a concept IFC");
     expect(src).toContain('(what === "IFC" && proposeHint ? line(esc(proposeHint), "#c4b5fd") : "")');

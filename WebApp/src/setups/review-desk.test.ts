@@ -393,6 +393,10 @@ describe("survey ghosts (MA-4d)", () => {
       job: { id: "job-0009", ledger_id: 3301, reader: "sentinel-ifc 0.1.0", frame: { dx_mm: 0, dy_mm: 0, dz_mm: 0, rotation_deg: 0, stated_by: "lead@example.test" }, storey: { level: "IFC L02 job-0009", how: "created", checked: true } } } as PendingChangeset;
     expect(sourceWords(cs)).toBe("from IFC job-0009 (ledger #3301) · the concept at the model's internal origin, stated by lead@example.test · storey IFC L02 job-0009 (created) · nothing from an IFC is pre-ticked");
     expect([isDrawn(cs), canMeasure(cs, "lead", null)]).toEqual([true, false]);
+    // MA-8-3: a third party's IFC says whose it is and the order it was bought under; an own model reads as before
+    const bought = { ...cs, job: { ...cs.job!, evidence: [{ id: "ev-0021", sha256: "ab", provider: "acme scans", licence: "commercial", licence_ref: "PO-2026-114" }] } } as PendingChangeset;
+    expect(sourceWords(bought)).toBe("from acme scans's IFC job-0009 (commercial, ref PO-2026-114, ledger #3301) · the concept at the model's internal origin, stated by lead@example.test · storey IFC L02 job-0009 (created) · nothing from an IFC is pre-ticked");
+    expect(sourceWords({ ...cs, job: { ...cs.job!, evidence: [{ id: "ev-0021", sha256: "ab", provider: "own", licence: "owner-supplied" }] } } as PendingChangeset)).toBe(sourceWords(cs));
   });
   it("MA-5a-4: a drawing's ghost and changeset in words — drawn at the alignment's scale, inferred, never pre-ticked; no Measure", () => {
     const D: Ghost = { ...G, cid: "drawing-ev-0007-p1-wall-1", evidence: ["ev-0007#page-1"], pretick: false, trim_mm: [150, 100], measured: { thickness_mm: 100, thickness_paper_mm: 2 },

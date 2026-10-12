@@ -358,9 +358,9 @@ describe("surveyStart (MA-4c): the checks before a survey job", () => {
 
 describe("a concept IFC (MA-6-8)", () => {
   const IFC = readFileSync(new URL("./fixtures/ifc-geometry/concept-2storey.ifc", import.meta.url));
-  it("is admitted as a model, own, on (a) alone; a PDF renamed .ifc and a 21 MB file are refused with a row each, the big one unhashed", async () => {
+  it("is admitted as a model, own, on (a) alone; a PDF renamed .ifc and a 65 MB file are refused with a row each, the big one unhashed", async () => {
     await makePack("demo", {}, deps()); await sign(["a"]); role = "contributor";
-    put("model/concept.ifc", IFC); put("model/fake.ifc", "%PDF-1.7\n1 0 obj\n"); put("model/big.ifc", Buffer.concat([Buffer.from("ISO-10303-21;\n"), Buffer.alloc(21 * 1048576)]));
+    put("model/concept.ifc", IFC); put("model/fake.ifc", "%PDF-1.7\n1 0 obj\n"); put("model/big.ifc", Buffer.concat([Buffer.from("ISO-10303-21;\n"), Buffer.alloc(65 * 1048576)]));
     const ok = await admit({ path: "model/concept.ifc", kind: "model" });
     expect(ok).toMatchObject({ verdict: "admitted", item: { id: "ev-0001", kind: "model", format: "ifc", provider: "own", licence: "owner-supplied", surveyable: false, sha256: sha(IFC), size_bytes: IFC.length, attestation_ids: ["att-0001"] } });
     expect(rows("evidence:admitted")).toHaveLength(1);
@@ -369,7 +369,7 @@ describe("a concept IFC (MA-6-8)", () => {
     const big = await admit({ path: "model/big.ifc", kind: "model" });
     expect(big.verdict).toBe("refused");
     expect(big.sha256).toBe(null);
-    expect(big.reasons[0]).toMatch(/^a \.ifc is read inside the bridge — at most 20 MB \(this one is 21\.0 MB\)/);
+    expect(big.reasons[0]).toMatch(/^a \.ifc is read inside the bridge — at most 64 MB \(this one is 65\.0 MB\)/);
     expect(rows("evidence:refused").map((r) => r.action)).toEqual(["evidence:refused model/fake.ifc", "evidence:refused model/big.ifc"]);
     expect((await admit({ path: "model/concept.ifc", kind: "scan", registration: REG }).catch((e) => e)).status).toBe(409); // already admitted; a scan needs (c) first
   });
@@ -380,5 +380,42 @@ describe("a concept IFC (MA-6-8)", () => {
     expect((await admit({ path: "a.ifc", kind: "photo" })).reasons).toEqual(["a .ifc is a model, not a photo"]);
     for (const [path, kind] of [["scans/tiny.las", "scan"], ["scans/s.e57", "scan"]]) expect((await admit({ path, kind, registration: REG })).verdict).toBe("admitted");
     expect((await admit({ path: "photos/own.jpg", kind: "photo" })).verdict).toBe("admitted");
+  });
+});
+
+// MA-8-3 — a third party's model: a lead's admission, (a) + (e), a licence_ref; a flagged one comes back as first admitted.
+describe("a third party's model (MA-8-3)", () => {
+  const IFC = readFileSync(new URL("./fixtures/ifc-geometry/concept-2storey.ifc", import.meta.url));
+  const vendor = { path: "model/vendor.ifc", kind: "model", provider: "Acme Scans", licence_ref: "PO-2026-114" };
+  it("is a lead's; without (e) a 409; with it the item reads commercial and the row names provider and licence", async () => {
+    await makePack("demo", {}, deps()); await sign(["a"]); put("model/vendor.ifc", IFC);
+    role = "contributor";
+    await expect(admit(vendor)).rejects.toMatchObject({ status: 403, message: "this action requires the lead role (you are contributor)" });
+    role = "lead";
+    await expect(admit(vendor)).rejects.toMatchObject({ status: 409, message: "a lead must sign (e) first; nothing was saved" });
+    await expect(admit({ ...vendor, licence_ref: undefined })).rejects.toMatchObject({ status: 400 });
+    await sign(["e"]);
+    const r = await admit(vendor);
+    expect(r).toMatchObject({ verdict: "admitted", item: { provider: "acme scans", licence: "commercial", licence_ref: "PO-2026-114", attestation_ids: ["att-0001", "att-0002"] } });
+    expect(rows("evidence:admitted")[0].newv).toMatchObject({ provider: "acme scans", licence: "commercial", licence_ref: "PO-2026-114" });
+    expect((await pack()).items[0].licence_ref).toBe("PO-2026-114");
+  });
+  it("a RED vendor is refused with a row; the office's own model needs (a) only and no licence_ref", async () => {
+    await makePack("demo", {}, deps()); await sign(["a", "e"]); put("model/vendor.ifc", IFC); put("model/own.ifc", IFC);
+    const red = await admit({ ...vendor, provider: "Google Earth" });
+    expect(red).toMatchObject({ verdict: "refused", reasons: ["google earth is a RED source — imagery and data from Google, Apple and Azure/Bing map services are never admitted (attestation d says so for every photo)"] });
+    role = "contributor";
+    expect(await admit({ path: "model/own.ifc", kind: "model" })).toMatchObject({ verdict: "admitted", item: { provider: "own", licence: "owner-supplied", attestation_ids: ["att-0001"] } });
+  });
+  it("a flagged vendor model comes back with its vendor and order from the pack, never the body", async () => {
+    await makePack("demo", {}, deps()); await sign(["a", "e"]); put("model/vendor.ifc", IFC);
+    role = "lead";
+    await admit(vendor);
+    put("model/vendor.ifc", Buffer.concat([IFC, Buffer.from(" ")]));
+    await recheck();
+    put("model/vendor.ifc", IFC);
+    const back = await admit({ path: "model/vendor.ifc", kind: "model" });
+    expect(back).toMatchObject({ verdict: "admitted", item: { id: "ev-0001", provider: "acme scans", licence: "commercial", licence_ref: "PO-2026-114" } });
+    expect(rows("evidence:admitted")[1].newv).toMatchObject({ readmitted: true, licence_ref: "PO-2026-114" });
   });
 });

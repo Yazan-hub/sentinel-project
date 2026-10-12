@@ -22,7 +22,7 @@ export const ATTESTATIONS = Object.fromEntries(Object.entries(TEXTS).map(([code,
  *  Google/Apple/Azure capture — the RED rule (D:486) rests on the attestation, since a body may leave `provider` out. */
 export const ADMIT_NEEDS = { scan: ["a", "c"], photo: ["a", "c", "d"], drawing: ["a", "b"], model: ["a"] }; // MA-4b: a drawing, the owner's authority and the holder's permission; MA-6-8: the office's own concept model — the owner's authority
 /** MA-4h: the signatures an item needs — on a published dataset's pack, (f) alone (it has no owner here and is no one's own capture). */
-export const needsOf = (pack, kind) => (pack.dataset ? ["f"] : ADMIT_NEEDS[kind]);
+export const needsOf = (pack, kind, provider = "own") => (pack.dataset ? ["f"] : kind === "model" && provider !== "own" ? ["a", "e"] : ADMIT_NEEDS[kind]); // MA-8-3: a third party's model also needs (e), our commercial licence
 /** MA-4h: the published-dataset licences (SPDX) whose terms allow viewing a scan and taking geometry from it in an office's commercial work.
  *  ponytail: an allow-list of two — NC, ND and SA terms are refused (commercial use, adaptation, a model's own licence); another licence is
  *  added when a dataset under it is needed and its terms are read. */
@@ -31,6 +31,7 @@ export const DATASET_LICENCES = ["CC-BY-4.0", "CC0-1.0"];
 export const codesSaid = (codes) => codes.map((c) => `(${c})`).join(", ").replace(/, ([^,]*)$/, " and $1");
 /** RED sources (R:207, D:486): never admitted, whoever attests. Matched inside the provider's name, case ignored. */
 export const RED = ["google", "apple", "bing", "azure"];
+const PLAIN_NAME = /^[a-z0-9][a-z0-9 ._-]{0,99}$/; // MA-8-3: a third-party model's provider, a plain name on the ledger
 export const PACK_ID = "evp-0001";          // one pack per project in MA-4 (MA-4a spec amendment S1)
 // ponytail: every admission, signature and flag writes a whole new evidence_pack@n+1 (kept forever), so stored size grows with the
 // square of the items — 100 items ≈ 5,050 item copies ≈ 3 MB of jsonb. Upgrade path before raising it: a pack of item refs (one doc
@@ -48,7 +49,7 @@ export const FORMATS = {
   jpg: { kind: "photo", magic: "ffd8ff", surveyable: true },
   png: { kind: "photo", magic: "89504e470d0a1a0a", surveyable: true },
   // MA-6-8: the office's own concept model, read inside the bridge by web-ifc (so a size cap), never surveyed. "ISO-10303-21" is 12 bytes.
-  ifc: { kind: "model", magic: "49534f2d31303330332d3231", surveyable: false, max_bytes: 20 * 1024 * 1024 },
+  ifc: { kind: "model", magic: "49534f2d31303330332d3231", surveyable: false, max_bytes: 64 * 1024 * 1024 }, // MA-8-3 (D3): 64 MB — a 25 MB Revit export reads in 1 s
 };
 /** MA-4b: a drawing's formats — an image may be a photo or a drawing, so the kind picks the table. Read by the DWG/PDF readers, not
  *  sentinel-survey: never surveyable. */
@@ -79,7 +80,7 @@ export const extOf = (p) => (/\.([A-Za-z0-9]+)$/.exec(String(p))?.[1] ?? "").toL
 /** The format of a path in its kind's table (".jpeg" is jpg), or null. */
 export const formatOf = (p, kind) => { const e = extOf(p) === "jpeg" ? "jpg" : extOf(p); return tableOf(kind)[e] ? e : null; };
 
-/** POST …/items' body → {path, kind, provider, registration}, or a 400 in words before anything is read or written. Shape only: what a
+/** POST …/items' body → {path, kind, provider, licence_ref?, registration, request_id}, or a 400 in words before anything is read or written. Shape only: what a
  *  NEW item must carry (a scan's method, an RCP's report) is newItemRefusal's — a flagged item is admitted again as first admitted. */
 export function readAdmitBody(b = {}) {
   const bad = (m) => err(400, `${m} — nothing was saved`);
@@ -88,6 +89,14 @@ export function readAdmitBody(b = {}) {
   if (!["scan", "photo", "drawing", "model"].includes(b.kind)) throw bad("kind must be scan, photo, drawing or model");
   const provider = b.provider == null ? "own" : String(b.provider).trim().toLowerCase();
   if (!provider || provider.length > 100) throw bad("provider must be a name of at most 100 characters (own when left out)");
+  // MA-8-3: a third party's model is a purchase, not a request — it names the order or contract it was bought under
+  if (b.kind === "model" && provider !== "own" && !PLAIN_NAME.test(provider)) throw bad("a third-party model's provider must be a plain name (letters, digits, spaces, . _ -)");
+  let licence_ref = null;
+  if (b.licence_ref != null) {
+    if (b.kind !== "model" || provider === "own") throw bad("licence_ref belongs to a third-party model only");
+    licence_ref = typeof b.licence_ref === "string" ? b.licence_ref.trim() : "";
+    if (!str(licence_ref, 100) || /[\u0000-\u001f]/.test(licence_ref)) throw bad("licence_ref must be one line of 1 to 100 characters");
+  } else if (b.kind === "model" && provider !== "own") throw bad("a third-party model names the order or contract it was bought under: licence_ref");
   if (b.registration != null && !isObj(b.registration)) throw bad("registration must be an object {method, report_path?}");
   let registration = null;
   if (b.kind === "scan" && b.registration != null) {
@@ -99,7 +108,7 @@ export function readAdmitBody(b = {}) {
   }
   const request_id = b.request_id == null ? null : String(b.request_id).trim();
   if (request_id !== null && !/^req-\d{4}$/.test(request_id)) throw bad("request_id must name a request of the pack, as req-0001");
-  return { path, kind: b.kind, provider, registration, request_id };
+  return { path, kind: b.kind, provider, ...(licence_ref ? { licence_ref } : {}), registration, request_id };
 }
 
 /** What a new item (not a flagged one coming back) must carry, as a 400's words, or null. */
@@ -117,7 +126,7 @@ export function policyRefusals({ kind, provider, path, dataset = false }) {
   if (RED.some((r) => provider.includes(r))) out.push(`${provider} is a RED source — imagery and data from Google, Apple and Azure/Bing map services are never admitted (attestation d says so for every photo)`);
   // A drawing's provider is its request's recipient, stamped by the bridge — the body's is read for the RED rule only.
   // MA-4h: on a published dataset's pack the body's provider is read for the RED rule only (the pack's is stamped).
-  else if (provider !== "own" && kind !== "drawing" && !dataset) out.push("web and third-party items wait for a later stage — only your own scans and photos (provider own) are admitted now");
+  else if (provider !== "own" && kind !== "drawing" && kind !== "model" && !dataset) out.push("web and third-party items wait for a later stage — only your own scans and photos (provider own), drawings under a request and third-party models with (e) are admitted now");
   if (kind === "drawing") {
     if (!formatOf(path, kind)) out.push(`${extOf(path) ? `a .${extOf(path)}` : "a file with no extension"} is not admitted as a drawing — drawings are pdf, dwg, dxf, png or jpg`);
     return out;
@@ -131,7 +140,7 @@ export function policyRefusals({ kind, provider, path, dataset = false }) {
 /** MA-6-8: an IFC is read inside the bridge, so it has a size cap; null when the size is allowed (or the format has no cap), else the words. */
 export function sizeRefusal(format, size, kind) {
   const max = tableOf(kind)[format]?.max_bytes;
-  return max && size > max ? `a .${format} is read inside the bridge — at most ${max / 1048576} MB (this one is ${(size / 1048576).toFixed(1) === (max / 1048576).toFixed(1) ? `${Math.ceil(size / 1024)} KB` : `${(size / 1048576).toFixed(1)} MB`}); export the concept without its site, links and furniture` : null;
+  return max && size > max ? `a .${format} is read inside the bridge — at most ${max / 1048576} MB (this one is ${(size / 1048576).toFixed(1) === (max / 1048576).toFixed(1) ? `${Math.ceil(size / 1024)} KB` : `${(size / 1048576).toFixed(1)} MB`}); export it without its site, links and furniture` : null;
 }
 
 /** null when the file's first bytes are the format's; else the refusal's words. `head`: a Buffer of the file's first 16 bytes. */
@@ -226,10 +235,11 @@ export function newItem({ id, input, format, sha256, size_bytes, report, pack, w
   const from = input.kind === "drawing"
     ? { provider: request.recipient_kind, licence: "holder-permission", request_id: request.id }
     : pack.dataset ? { provider: pack.dataset.provider, licence: pack.dataset.licence } // MA-4h: the published dataset's
+    : input.kind === "model" && input.provider !== "own" ? { provider: input.provider, licence: "commercial", licence_ref: input.licence_ref } // MA-8-3: bought, not owned
     : { provider: "own", licence: "owner-supplied" };
   return {
     id, kind: input.kind, format, sha256, size_bytes, path: input.path, ...from,
-    attestation_ids: needsOf(pack, input.kind).map((c) => pack.attestations.find((a) => a.code === c).id), // a photo's names (d) too
+    attestation_ids: needsOf(pack, input.kind, input.provider).map((c) => pack.attestations.find((a) => a.code === c).id), // a photo's names (d) too
     allowed_uses: { ...USES },
     ...(reg ? { registration: { method: reg.method, ...(reg.report_path ? { report_path: reg.report_path, report_sha256: report.sha256 } : {}), confirmed_by: who } } : {}),
     surveyable: tableOf(input.kind)[format].surveyable, admitted_by: who, admitted_at: at,
@@ -242,7 +252,7 @@ export function readmitted(i) { const { state: _s, changed_sha256: _c, changed_a
 /** The evidence:admitted row's new_value. */
 export const admittedValue = (packId, i, packVersion, again) => ({
   pack_id: packId, item_id: i.id, path: i.path, sha256: i.sha256, size_bytes: i.size_bytes, kind: i.kind, format: i.format,
-  provider: i.provider, licence: i.licence, allowed_uses: i.allowed_uses, attestation_ids: i.attestation_ids, surveyable: i.surveyable,
+  provider: i.provider, licence: i.licence, ...(i.licence_ref ? { licence_ref: i.licence_ref } : {}), allowed_uses: i.allowed_uses, attestation_ids: i.attestation_ids, surveyable: i.surveyable,
   ...(i.request_id ? { request_id: i.request_id } : {}), pack_version: packVersion, ...(again ? { readmitted: true } : {}),
 });
 
@@ -309,10 +319,13 @@ export function validatePack(p) {
     } else if (x.kind === "drawing") {
       if (x.licence !== "holder-permission" || !reqs.has(x.request_id) || x.provider !== reqs.get(x.request_id))
         throw bad(at, "is a drawing: licence holder-permission, request_id naming a request of this pack, provider its recipient_kind");
-    } else if (x.provider !== "own" || x.licence !== "owner-supplied" || x.request_id !== undefined) throw bad(at, "is own (licence owner-supplied) — only a drawing comes from someone else, under a request");
+    } else if (x.kind === "model" && x.provider !== "own") { // MA-8-3: a vendor's model — commercial, with the order it was bought under, no request
+      if (RED.some((r) => x.provider.includes(r)) || !PLAIN_NAME.test(x.provider) || x.licence !== "commercial" || !str(x.licence_ref, 100) || x.request_id !== undefined)
+        throw bad(at, "is a third party's model: a plain-name provider (not a RED source), licence commercial, licence_ref the order or contract, no request");
+    } else if (x.provider !== "own" || x.licence !== "owner-supplied" || x.request_id !== undefined || x.licence_ref !== undefined) throw bad(at, "is own (licence owner-supplied) — only a drawing comes from someone else, under a request, and a model from a vendor, under a licence_ref");
     if (!Array.isArray(x.attestation_ids) || !x.attestation_ids.every((a) => attIds.has(a))
-      || !needsOf(p, x.kind).every((c) => x.attestation_ids.some((a) => attIds.get(a) === c)))
-      throw bad(`${at}.attestation_ids`, `must name attestations of this pack, ${codesSaid(needsOf(p, x.kind))} at least for a ${x.kind}`);
+      || !needsOf(p, x.kind, x.provider).every((c) => x.attestation_ids.some((a) => attIds.get(a) === c)))
+      throw bad(`${at}.attestation_ids`, `must name attestations of this pack, ${codesSaid(needsOf(p, x.kind, x.provider))} at least for a ${x.kind}`);
     const u = x.allowed_uses;
     if (!isObj(u) || Object.keys(u).length !== Object.keys(USES).length || Object.keys(USES).some((k) => typeof u[k] !== "boolean")) throw bad(`${at}.allowed_uses`, `must be exactly {${Object.keys(USES).join(", ")}}, each true or false`);
     if (u.texture_embed !== false || u.redistribute !== false) throw bad(`${at}.allowed_uses`, "texture_embed and redistribute are always false (policy)");
