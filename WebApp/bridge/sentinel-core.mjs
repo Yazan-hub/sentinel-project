@@ -2003,13 +2003,19 @@ var iso2 = (t) => new Date(t * 1e3).toISOString().replace(/\.\d+Z$/, "");
 
 // src/sentinel-core/loa.ts
 var LOA_SPEC = {
-  status: "unread",
-  source: null,
-  read_on: null,
-  statistic: null,
+  status: "read",
+  source: "USIBD C120 v3.1, Table 'Levels of Accuracy', p. 15",
+  read_on: "2026-10-12",
+  statistic: "2\u03C3 standard deviation, 95 % confidence (C120 v3.1 p. 15, p. 17)",
   relative_to: "the admitted scan, in the lead's frame \u2014 not survey control"
 };
-var LOA_BANDS = [];
+var LOA_BANDS = [
+  { band: "LOA50", upper_mm: 1, inclusive: false },
+  { band: "LOA40", upper_mm: 5, inclusive: false },
+  { band: "LOA30", upper_mm: 15, inclusive: false },
+  { band: "LOA20", upper_mm: 50, inclusive: false },
+  { band: "LOA10", upper_mm: 150, inclusive: false }
+];
 var LOA_UNREAD = "no band yet \u2014 the USIBD accuracy table has not been loaded into Sentinel";
 var NO_BAND = { insufficient_data: "no band \u2014 insufficient data", missing: "no band \u2014 missing", not_measured: "no band \u2014 not measured" };
 function loaBand(m, bands = LOA_BANDS) {
@@ -2019,8 +2025,12 @@ function loaBand(m, bands = LOA_BANDS) {
   if (!bands.length) return { band: null, why: LOA_UNREAD };
   const p = m.p95_mm;
   if (typeof p !== "number" || !Number.isFinite(p) || p < 0) return { band: null, why: "no band \u2014 no valid p95" };
+  const blind = m.faces?.findIndex((f) => f.coverage != null && !f.points) ?? -1;
+  if (blind >= 0) return { band: null, why: `no band \u2014 face ${blind + 1} has no scan point` };
   const hit = bands.find((b) => b.inclusive ? p <= b.upper_mm : p < b.upper_mm);
-  return hit ? { band: hit.band, p95_mm: p } : { band: null, why: "no band \u2014 beyond the table's last bound" };
+  if (hit) return { band: hit.band, p95_mm: p };
+  const last = bands[bands.length - 1];
+  return { band: null, why: `no band \u2014 over ${last.upper_mm} mm, beyond ${last.band} (the lowest USIBD level)` };
 }
 export {
   ASSET_KEYS,

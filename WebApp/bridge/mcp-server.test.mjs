@@ -433,14 +433,14 @@ describe("MA-6-1 — agent reads, the bridge's class, Undo in the status", () =>
   // MA-8-5: a measured survey changeset carries `measured` with the LOA band of each element, read from its newest verify:measured row.
   const SURVEY = (id, status = "applied", reader = "sentinel-survey") => ({ id, status, job: { id: "job-0001", reader } });
   const MROW = { id: 2300, at: "2026-10-12T10:00:00Z", entity_id: A, action: "verify:measured", new_value: { counts: { within_tolerance: 1, not_measured: 1 }, elements: [
-    { proposal_guid: "g1", cid: "scan-w1", kind: "wall", status: "within_tolerance", p95_mm: 3 }, { proposal_guid: "g2", cid: "scan-f1", kind: "floor", status: "not_measured" }] } };
+    { proposal_guid: "g1", cid: "scan-w1", kind: "wall", status: "within_tolerance", p95_mm: 3, coverage: 0.5, faces: [{ points: 900, coverage: 1 }, { points: 0, coverage: 0 }] }, { proposal_guid: "g2", cid: "scan-f1", kind: "floor", status: "not_measured" }] } };
 
-  it("status: a measured survey changeset carries measured: its row, and a loa per element (null with its words while the LOA table is unread)", async () => {
+  it("status: a measured survey changeset carries measured: its row, and a loa per element (the USIBD band for a wall, the words for a floor)", async () => {
     const fetch = route({ "action_prefix=verify:measured": { rows: [MROW], total: 1 }, "changeset_reverted": { rows: [], total: 0 }, [`/changesets/demo/${A}`]: SURVEY(A) });
     const r = await callTool("sentinel_changeset_status", { project: "demo", changeset: A }, { fetch });
-    expect(r.measured).toEqual({ ledger_id: 2300, at: "2026-10-12T10:00:00Z", status: null, reference: null, claimed: null, counts: { within_tolerance: 1, not_measured: 1 }, loa_spec: null, elements: [
-      { proposal_guid: "g1", cid: "scan-w1", kind: "wall", status: "within_tolerance", p95_mm: 3, reference: null, loa: null, loa_why: "no band yet — the USIBD accuracy table has not been loaded into Sentinel" },
-      { proposal_guid: "g2", cid: "scan-f1", kind: "floor", status: "not_measured", p95_mm: null, reference: null, loa: null, loa_why: "no band — not measured" }] });
+    expect(r.measured).toEqual({ ledger_id: 2300, at: "2026-10-12T10:00:00Z", status: null, reference: null, claimed: null, counts: { within_tolerance: 1, not_measured: 1 }, loa_spec: "USIBD C120 v3.1, Table 'Levels of Accuracy', p. 15, relative to the scan, not independently validated", elements: [
+      { proposal_guid: "g1", cid: "scan-w1", kind: "wall", status: "within_tolerance", p95_mm: 3, coverage: 0.5, reference: null, loa: null, loa_why: "no band — face 2 has no scan point" },
+      { proposal_guid: "g2", cid: "scan-f1", kind: "floor", status: "not_measured", p95_mm: null, coverage: null, reference: null, loa: null, loa_why: "no band — not measured" }] });
     const reads = fetch.mock.calls.map((c) => c[0]).filter((u) => u.includes("verify:measured"));
     expect(reads).toHaveLength(1);
     expect(reads[0]).toMatch(new RegExp(`/cde/demo/audit\\?entity_type=changeset&action_prefix=verify:measured&entity_id=${A}&limit=1$`));
@@ -488,6 +488,8 @@ describe("MA-6-1 — agent reads, the bridge's class, Undo in the status", () =>
     expect(d).toMatch(/`measured`/);
     expect(d).toMatch(/Level of Accuracy band/);
     expect(d).toMatch(/relative to the admitted scan/);
+    expect(d).toMatch(/NOT independently validated/);
+    expect(d).toMatch(/`coverage`/);
     expect(d).toMatch(/insufficient data, missing, not measured/);
     expect(d).toMatch(/`measured\.status` other than done: the run did not finish/);
     expect(d).toMatch(/"revit \(claimed\)".*rests on the add-in's re-read/);
