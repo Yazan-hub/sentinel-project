@@ -44,6 +44,33 @@ static partial class Check
            && r.Categories.Single(c => c.Category == "Conduits").SystemNote.StartsWith("type only"), "trays and conduits: type only, said");
         Ok(r.Findings.Select(f => f.Verdict).OrderBy(x => x).SequenceEqual(new[] { MepTypeCheck.None, MepTypeCheck.Wrong, MepTypeCheck.Wrong, MepTypeCheck.WrongSystem }.OrderBy(x => x)),
            "four findings, one per unmatched group");
+        Ok(r.Findings.Single(f => f.Ids.Contains(2)).Verdict == MepTypeCheck.WrongSystem && r.Findings.Single(f => f.Ids.Contains(3)).Verdict == MepTypeCheck.None
+           && r.Findings.Single(f => f.Ids.Contains(4)).Verdict == MepTypeCheck.Wrong && r.Findings.Single(f => f.Ids.Contains(8)).Verdict == MepTypeCheck.Wrong,
+           "each unmatched element sits in the finding of its own verdict");
+        Ok(ducts.SystemJudged == 3 && r.SystemJudged == 5, $"systems judged only on elements with the office's type (got {ducts.SystemJudged}/{r.SystemJudged})");
+
+        // One wrong type spread over systems is one finding, with no system (it was never judged).
+        var rw = MepTypeCheck.Run(new[] { Mf(1, "Ducts", "Round Duct", "Strange", "Supply Air", "Duct System", true), Mf(2, "Ducts", "Round Duct", "Strange", "Return Air", "Duct System", true) }, m);
+        Ok(rw.Findings.Count == 1 && rw.Findings[0].Count == 2 && rw.Findings[0].System == null, "a wrong type over two systems: one finding, Count 2, no system");
+
+        // A system type whose own family differs from the catalogue's is not the office's: the family reaches CatalogHas.
+        var rf = MepTypeCheck.Run(new[] { Mf(1, "Ducts", "Oval Duct", "Default", "Supply Air", "Lüftungssystem", true) }, m);
+        Ok(rf.SystemNotOffice == 1 && rf.Matched == 0, "a different SystemFamily changes the verdict");
+
+        // A system that cannot be read is counted as not judged, said in the note.
+        var ru = MepTypeCheck.Run(new[] { Mf(1, "Pipes", "Pipe Types", "Default") }, m);
+        Ok(ru.Matched == 1 && ru.SystemJudged == 0 && ru.SystemUnread == 1 && ru.Categories[0].SystemNote.EndsWith("; 1 not judged (system unreadable)"), "system unreadable: matched but counted not judged");
+
+        // A catalogue with no rows for a category: its elements are not checkable, never a type failure.
+        var noDucts = System.Text.Json.Nodes.JsonNode.Parse(catText);
+        var drows = noDucts["types"].AsArray();
+        for (int i = drows.Count - 1; i >= 0; i--) if ((string)drows[i]["category"] == "Ducts") drows.RemoveAt(i);
+        var md = GuidelineMatcher.FromBodies(null, noDucts.ToJsonString(), out _, out _);
+        var rn = MepTypeCheck.Run(new[] { Mf(1, "Ducts", "Oval Duct", "Default", "Supply Air", "Duct System", true), Mf(2, "Cable Trays", "Cable Tray with Fittings", "Ladder Cable Tray") }, md);
+        Ok(rn.Checked == 2 && rn.NotCheckable == 1 && rn.TypeNotOffice == 0 && rn.Matched == 1 && rn.Unmatched == 0 && rn.Findings.Count == 0
+           && rn.Categories.Single(c => c.Category == "Ducts").SystemNote == "not checkable — the catalogue has no Ducts rows",
+           "no Ducts rows: not checkable, said, not a finding");
+        Ok(Json(CommandReports.MepCheck(rn, "cat", "a@b.test")).GetProperty("action").GetString().EndsWith(", 1 not checkable"), "the ledger action says not checkable");
 
         // A catalogue with no Piping Systems rows cannot judge a pipe's system: not checkable, never a fail or a pass of it.
         var trimmed = System.Text.Json.Nodes.JsonNode.Parse(catText);
@@ -64,8 +91,8 @@ static partial class Check
            "the row keeps 50 findings beside the true total");
 
         Ok(JsonSerializer.Serialize(CommandReports.MepCheck(MepTypeCheck.Run(new[] { Mf(9, "Conduits", "Conduit with Fittings", "Rigid Metal Conduit (RMC)") }, m), "cat", "lead@office.example"), new JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }) ==
-           "{\"entity_type\":\"mep_check\",\"actor\":\"lead@office.example\",\"action\":\"mep_check:run · 1 checked, 1 matched, 0 type and 0 system not the office's\"," +
-           "\"new_value\":{\"catalog\":\"cat\",\"categories\":[{\"category\":\"Conduits\",\"checked\":1,\"matched\":1,\"type_not_office\":0,\"system_not_office\":0,\"no_system\":0," +
+           "{\"entity_type\":\"mep_check\",\"actor\":\"lead@office.example\",\"action\":\"mep_check:run · 1 checked, 1 matched, 0 type and 0 system not the office's (system judged on 0)\"," +
+           "\"new_value\":{\"catalog\":\"cat\",\"no_type\":0,\"not_read\":\"flex ducts and pipes, placeholders, fabrication parts, fittings and accessories\",\"categories\":[{\"category\":\"Conduits\",\"checked\":1,\"matched\":1,\"type_not_office\":0,\"system_not_office\":0,\"no_system\":0,\"not_checkable\":0,\"system_judged\":0,\"system_unread\":0," +
            "\"system_note\":\"type only — Revit gives a conduit no system type\"}],\"findings\":[],\"findings_total\":0,\"source\":\"revit\"}}",
            "the mep_check body, whole");
 

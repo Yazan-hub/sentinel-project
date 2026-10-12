@@ -24,6 +24,7 @@ namespace Sentinel.Engine
     {
         public string Category, SystemNote;
         public int Checked, Matched, TypeNotOffice, SystemNotOffice, NoSystem;
+        public int NotCheckable, SystemJudged, SystemUnread;   // no catalogue rows for the category; systems actually judged; system unreadable
     }
 
     public sealed class MepFinding
@@ -42,7 +43,11 @@ namespace Sentinel.Engine
         public int TypeNotOffice => Categories.Sum(c => c.TypeNotOffice);
         public int SystemNotOffice => Categories.Sum(c => c.SystemNotOffice);
         public int NoSystem => Categories.Sum(c => c.NoSystem);
-        public int Unmatched => Checked - Matched;
+        public int NotCheckable => Categories.Sum(c => c.NotCheckable);
+        public int SystemJudged => Categories.Sum(c => c.SystemJudged);
+        public int SystemUnread => Categories.Sum(c => c.SystemUnread);
+        public int NoType;   // elements the command skipped because Revit gave no type (set by the caller)
+        public int Unmatched => Checked - Matched - NotCheckable;
 
         /// <summary>The dialog's per-category lines.</summary>
         public IEnumerable<string> Lines() => Categories.Select(c => $"{c.Category} {c.Checked}: {c.SystemNote}");
@@ -69,26 +74,32 @@ namespace Sentinel.Engine
                 string systems = SystemsOf.TryGetValue(cat.Key, out var s) ? s : null;
                 int rows = systems == null ? 0 : m.CatalogCount(systems);
                 var row = new MepCategoryRow { Category = cat.Key };
-                row.SystemNote = systems == null ? "type only — Revit gives a " + Singular(cat.Key) + " no system type"
+                bool typeless = m.CatalogCount(cat.Key) == 0;   // no rows for this category: nothing to judge a type against
+                row.SystemNote = typeless ? $"not checkable — the catalogue has no {cat.Key} rows"
+                    : systems == null ? "type only — Revit gives a " + Singular(cat.Key) + " no system type"
                     : rows == 0 ? $"type only — system not checkable, the catalogue has no {systems} rows"
                     : $"system checked against {rows} {systems} rows";
                 foreach (var f in cat)
                 {
                     row.Checked++;
+                    if (typeless) { row.NotCheckable++; continue; }
                     string verdict = null;
                     if (!m.CatalogHas(cat.Key, f.Family, f.Type)) { verdict = Wrong; row.TypeNotOffice++; }
-                    else if (systems != null && rows > 0 && f.SystemRead)
+                    else if (systems != null && rows > 0 && !f.SystemRead) row.SystemUnread++;
+                    else if (systems != null && rows > 0)
                     {
+                        row.SystemJudged++;
                         if (f.System == null) { verdict = None; row.NoSystem++; }
                         else if (!m.CatalogHas(systems, f.SystemFamily, f.System)) { verdict = WrongSystem; row.SystemNotOffice++; }
                     }
                     if (verdict == null) { row.Matched++; continue; }
-                    string key = string.Join("|", cat.Key, f.Family, f.Type, f.System, verdict);
+                    string key = string.Join("|", cat.Key, f.Family, f.Type, verdict == Wrong ? null : f.System, verdict);   // a wrong type never had its system judged
                     if (!groups.TryGetValue(key, out var g))
-                        groups[key] = g = new MepFinding { Category = cat.Key, Family = f.Family, Type = f.Type, System = f.System, Verdict = verdict };
+                        groups[key] = g = new MepFinding { Category = cat.Key, Family = f.Family, Type = f.Type, System = verdict == Wrong ? null : f.System, Verdict = verdict };
                     g.Count++;
                     if (g.Ids.Count < IdsPerFinding) g.Ids.Add(f.Id);
                 }
+                if (row.SystemUnread > 0) row.SystemNote += $"; {row.SystemUnread} not judged (system unreadable)";
                 r.Categories.Add(row);
             }
             r.Findings = groups.Values.OrderByDescending(g => g.Count).ThenBy(g => g.Category, StringComparer.Ordinal)

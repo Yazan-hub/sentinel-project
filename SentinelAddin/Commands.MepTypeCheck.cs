@@ -46,11 +46,12 @@ public sealed class MepTypeCheckCommand : IExternalCommand
         if (none != null) { TaskDialog.Show(Title, none); return Result.Cancelled; }
 
         var facts = new List<MepFact>();
+        int noType = 0;
         foreach (var bic in MepVoidManager.MepCats)
             foreach (var e in new FilteredElementCollector(doc).OfCategory(bic).WhereElementIsNotElementType())
             {
                 var type = doc.GetElement(e.GetTypeId()) as ElementType;
-                if (type is null) continue;
+                if (type is null) { noType++; continue; }
                 var f = new MepFact { Id = e.Id.IdValue(), Category = CategoryOf(bic), Family = type.FamilyName, Type = type.Name };
                 var sp = bic == BuiltInCategory.OST_DuctCurves ? e.get_Parameter(BuiltInParameter.RBS_DUCT_SYSTEM_TYPE_PARAM)
                        : bic == BuiltInCategory.OST_PipeCurves ? e.get_Parameter(BuiltInParameter.RBS_PIPING_SYSTEM_TYPE_PARAM) : null;
@@ -65,6 +66,7 @@ public sealed class MepTypeCheckCommand : IExternalCommand
             }
 
         var report = MepTypeCheck.Run(facts, standards.Guideline);
+        report.NoType = noType;
         string label = standards.CatalogSource.Label;
         GovernedNotify.Report("MEP type check", CommandReports.MepCheck(report, label, UserSession.Actor), key);
 
@@ -72,9 +74,12 @@ public sealed class MepTypeCheckCommand : IExternalCommand
         {
             MainInstruction = report.Checked == 0
                 ? "No ducts, pipes, cable trays or conduits in this model."
-                : $"{report.Checked} MEP element(s) checked against {label}: {report.Matched} matched · {report.TypeNotOffice} type not the office's · {report.SystemNotOffice} system not the office's · {report.NoSystem} with no system",
+                : $"{report.Checked} MEP element(s) checked against {label}: {report.Matched} matched · {report.TypeNotOffice} type not the office's · {report.SystemNotOffice} system not the office's · {report.NoSystem} with no system (systems judged on {report.SystemJudged}, the ones with the office's type)"
+                  + (report.NotCheckable > 0 ? $" · {report.NotCheckable} not checkable (no catalogue rows for the category)" : "")
+                  + (report.NoType > 0 ? $" · {report.NoType} without a type, not checked" : ""),
             MainContent = string.Join("\n", report.Lines().Concat(report.Findings.Take(12).Select(MepTypeCheck.Line)))
-                + "\n\nRead only — nothing in the model changed. Sizes are not checked: the office has no size list (D15). Links are not read. "
+                + "\n\nRead only — nothing in the model changed. Sizes are not checked: the office has no size list (D15). Links are not read. Not read: flex ducts and pipes, placeholders, fabrication parts, fittings and accessories. "
+                + "The catalogue's category names must be English (Ducts, Pipes, Cable Trays, Conduits). "
                 + "Sent to the ledger as one mep_check row (the pane's Doctor log says whether it landed).",
             CommonButtons = TaskDialogCommonButtons.Close,
         };
@@ -98,12 +103,14 @@ public sealed class MepTypeCheckCommand : IExternalCommand
         {
             var issue = new BcfExporter.BcfIssue
             {
-                Title = $"MEP types not the office's ({report.Unmatched})",
+                Title = $"MEP types or systems not the office's ({report.Unmatched})",
                 Type = "Issue",
                 Author = UserSession.Actor,
                 Description = string.Join("\n", report.Findings.Take(20).Select(MepTypeCheck.Line)),
             };
             foreach (var id in report.Findings.SelectMany(f => f.Ids).Take(100)) issue.Components.Add(id.ToElementId());
+            if (issue.Components.Count < report.Unmatched || report.Findings.Count > 20)
+                issue.Description += $"\n(ids shown: {issue.Components.Count} of {report.Unmatched}; groups shown: {Math.Min(20, report.Findings.Count)} of {report.Findings.Count})";
             try
             {
                 var file = BcfExporter.Export(evtApp, issue, outDir);

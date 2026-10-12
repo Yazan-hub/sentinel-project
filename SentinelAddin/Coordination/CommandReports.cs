@@ -75,13 +75,15 @@ namespace Sentinel.Coordination
         /// <summary>MA-8-8: one read-only MEP type check — per category the counts, and the unmatched groups (type, system, verdict, count,
         /// a few ids) beside their true total. Nothing reads the row; the bridge only stamps the verified actor.</summary>
         public static object MepCheck(Sentinel.Engine.MepReport r, string catalog, string actor) =>
-            Row("mep_check", actor, $"mep_check:run · {r.Checked} checked, {r.Matched} matched, {r.TypeNotOffice} type and {r.SystemNotOffice} system not the office's", new
+            Row("mep_check", actor, $"mep_check:run · {r.Checked} checked, {r.Matched} matched, {r.TypeNotOffice} type and {r.SystemNotOffice} system not the office's (system judged on {r.SystemJudged})"
+                + (r.NotCheckable > 0 ? $", {r.NotCheckable} not checkable" : "") + (r.NoType > 0 ? $", {r.NoType} without a type" : ""), new
             {
-                catalog,
+                catalog, no_type = r.NoType,
+                not_read = "flex ducts and pipes, placeholders, fabrication parts, fittings and accessories",
                 categories = r.Categories.Select(c => new
                 {
                     category = c.Category, @checked = c.Checked, matched = c.Matched, type_not_office = c.TypeNotOffice,
-                    system_not_office = c.SystemNotOffice, no_system = c.NoSystem, system_note = c.SystemNote,
+                    system_not_office = c.SystemNotOffice, no_system = c.NoSystem, not_checkable = c.NotCheckable, system_judged = c.SystemJudged, system_unread = c.SystemUnread, system_note = c.SystemNote,
                 }).ToArray(),
                 findings = r.Findings.Take(MaxNames).Select(f => new
                 {
