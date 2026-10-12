@@ -168,7 +168,8 @@ namespace Sentinel.GhostBuilder
             {
                 bool one = between.Count == 1;
                 string named = string.Join(", ", between.Take(3).Select(l => $"{l.Name} at {Mm(l.ElevationMm)} mm")) + (between.Count > 3 ? $" and {between.Count - 3} more" : "");
-                return (null, $"{named} {(one ? "is a Building Story" : "are Building Stories")} inside the massing (0 to {Mm(n * h)} mm) — Shell a Mass cuts a storey at every Building Story level: set the storey height to match {(one ? "it" : "them")}, or clear {(one ? "its" : "their")} Building Story");
+                // MA-6 batch-2 drill: clearing Building Story has a cost - Promote holds what stands on a level that is not a storey.
+                return (null, $"{named} {(one ? "is a Building Story" : "are Building Stories")} inside the massing (0 to {Mm(n * h)} mm) — Shell a Mass cuts a storey at every Building Story level: set the storey height to match {(one ? "it" : "them")}, or clear {(one ? "its" : "their")} Building Story (Promote then holds what stands on {(one ? "it" : "them")} — it plans storey by storey)");
             }
             var taken = new HashSet<string>(have.Select(l => l.Name ?? ""), StringComparer.OrdinalIgnoreCase);
             var elements = new List<object>();
@@ -198,11 +199,14 @@ namespace Sentinel.GhostBuilder
                     Boundary = new List<double[]> { new[] { -W / 2, -D / 2 }, new[] { W / 2, -D / 2 }, new[] { W / 2, D / 2 }, new[] { -W / 2, D / 2 } },
                     BaseElevation = 0.0, TopElevation = n * h,
                 },
-                reason = $"Photo Massing: {size}, {n} storeys of {Mm(h)} mm — width {From(m.FootprintWidthMm)}, depth {From(m.FootprintDepthMm)}, storeys {From(m.Storeys)}, storey height {From(m.StoreyHeightMm)}",
+                reason = $"Photo Massing: {size}, {StoreyCount(n)} of {Mm(h)} mm — width {From(m.FootprintWidthMm)}, depth {From(m.FootprintDepthMm)}, storeys {From(m.Storeys)}, storey height {From(m.StoreyHeightMm)}",
                 validate = new { identity = new { Class = "IFCBUILDINGELEMENTPROXY", Name = "Photo mass" } },
             });
-            return (new { name = $"Photo Massing · {n} storeys · {size}", source = "photo", actor, elements }, null);
+            return (new { name = $"Photo Massing · {StoreyCount(n)} · {size}", source = "photo", actor, elements }, null);
         }
+
+        // MA-6 batch-2 drill: "1 storey", not "1 storeys".
+        private static string StoreyCount(int n) => n == 1 ? "1 storey" : $"{n} storeys";
 
         /// <summary>MA-6-6 (D12): the openings the estimate saw — counted on the receipt, never placed (a mass has no openings).</summary>
         public static string OpeningsSeen(MassingEstimate m)

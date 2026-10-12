@@ -53,9 +53,9 @@ static class Check
         // MA-6-6 review fix (MAS-1): a Building Story between two of the photo's storeys would be cut by the shell — refused in words.
         const string Cut = " inside the massing (0 to 9600 mm) — Shell a Mass cuts a storey at every Building Story level: set the storey height to match ";
         Ok(MassingPlanner.Changeset(m, new List<(string, double, bool)> { ("Level 1", 0, true), ("Level 2", 4000, true) }, "a")
-              == (null, "Level 2 at 4000 mm is a Building Story" + Cut + "it, or clear its Building Story")
+              == (null, "Level 2 at 4000 mm is a Building Story" + Cut + "it, or clear its Building Story (Promote then holds what stands on it — it plans storey by storey)")
            && MassingPlanner.Changeset(m, new List<(string, double, bool)> { ("Level 0", 0, true), ("Level 1", 3202.1, true), ("Level 9", 9000, true), ("Top", 9600, true), ("Roof", 12000, true) }, "a")
-              == (null, "Level 1 at 3202.1 mm, Level 9 at 9000 mm are Building Stories" + Cut + "them, or clear their Building Story"),
+              == (null, "Level 1 at 3202.1 mm, Level 9 at 9000 mm are Building Stories" + Cut + "them, or clear their Building Story (Promote then holds what stands on them — it plans storey by storey)"),
            "Revit's template (Level 1 at 0, Level 2 at 4000) under 3 storeys of 3200 is refused, naming Level 2 — the shell would cut an 800 mm storey; a story 2.1 mm off is named too, one at the top or above is not");
         var all = Levels(Body(new List<(string, double, bool)>()));
         Ok(all[0].GetProperty("reason").GetString() == "Photo Massing: the floor of storey 1 of 3 at 0 mm — no Building Story level there"
@@ -92,6 +92,12 @@ static class Check
         Ok(tooTall == null && tallWhy == "130 storeys of 8000 mm are 1040000 mm — a mass is at most 1000000 mm high: lower the storey count or the storey height"
            && atCap != null && capWhy == null,
            "130 storeys of 8000 mm (132 elements, under the cap) are refused in the planner's words — the bridge would refuse the mass; 125 of 8000 (1000000 mm) is filed");
+
+        // MA-6 batch-2 drill: one storey reads "1 storey".
+        var oneJson = Body(new List<(string, double, bool)>(), Tower(1));
+        Ok(oneJson.GetProperty("name").GetString() == "Photo Massing · 1 storey · 20.0 × 20.0 m"
+           && oneJson.GetProperty("elements").EnumerateArray().Last().GetProperty("reason").GetString()!.StartsWith("Photo Massing: 20.0 × 20.0 m, 1 storey of 8000 mm — "),
+           "one storey is \"1 storey\" in the changeset's name and the mass's reason (drill: \"1 storeys\")");
 
         // review list
         var review = MassingPlanner.FieldsNeedingReview(lowc);
