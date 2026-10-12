@@ -71,6 +71,9 @@ namespace Sentinel.GhostBuilder
         public bool Basic;
         public string Odd;
         public bool InGroup, InOption;
+        /// <summary>Drill MA5b5 (F-6): why Apply would keep the door out of this wall (ChangesetExecutor.HeldBy — "is pinned", "is
+        /// borrowed by another user", …), or null.</summary>
+        public string Held;
         /// <summary>The wall's length (mm), and where along it (from its start) the opening's middle projects.</summary>
         public double LengthMm, AlongMm;
         /// <summary>The wall's bottom and top (mm) relative to the opening's level.</summary>
@@ -505,6 +508,7 @@ namespace Sentinel.GhostBuilder
             { why = $"no wall hosts it; the wall it stands in ({w.Label}) is based on {w.BaseLevel ?? "no level"}, not {lv} — Sentinel hosts a {word} only in a wall based on its own level; a person decides"; return null; }
             if (!w.Basic) { why = $"no wall hosts it; the wall it stands in ({w.Label}) is {w.Odd ?? "not a straight basic wall"} — Sentinel hosts a {word} in one straight basic wall only; a person decides"; return null; }
             if (w.InGroup || w.InOption) { why = $"no wall hosts it; its host would be {w.Label}, which is in {(w.InGroup ? "a group" : "a design option")} — a person decides"; return null; }
+            if (w.Held != null) { why = $"no wall hosts it; its host would be {w.Label}, which {w.Held} — a person decides"; return null; } // F-6
             if (!e.WidthMm.HasValue || !e.HeightMm.HasValue) { why = "no wall hosts it, and its type has no Width and Height to place it by — a person decides"; return null; }
             if (!e.OffsetMm.HasValue) { why = "no wall hosts it, and its height above its level was not read — a person decides"; return null; }
             double off = e.OffsetMm.Value, top = off + e.HeightMm.Value, half = e.WidthMm.Value / 2;

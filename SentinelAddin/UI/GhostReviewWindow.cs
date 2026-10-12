@@ -234,7 +234,8 @@ public sealed class GhostReviewWindow : Window
                 };
                 List<TypeItem> items = ItemsFor(m);
                 foreach (TypeItem item in items) pick.Items.Add(item);
-                pick.SelectedIndex = m.Ignore ? items.FindIndex(i => i.Ignore) : 0;
+                int earlier = EarlierIndex(m, items);
+                pick.SelectedIndex = m.Ignore ? items.FindIndex(i => i.Ignore) : Math.Max(0, earlier);
                 void Lock()
                 {
                     // An ignore is never built; a forgotten choice is not built on this run either (it is asked again next run).
@@ -245,7 +246,8 @@ public sealed class GhostReviewWindow : Window
                 Lock();
                 pick.SelectionChanged += (_, __) => { Lock(); UpdateStatus(); };
 
-                string suffix = SourceNote(m.Source) + (absurd ? "  ⚠ high count — likely annotation" : "");
+                string suffix = SourceNote(m.Source) + (earlier > 0 ? "  · your earlier pick (the standard's type is not in this model)" : "") +
+                                (absurd ? "  ⚠ high count — likely annotation" : "");
                 var name = new TextBlock
                 {
                     Text = $"{m.CadLayer}  →",
@@ -313,7 +315,8 @@ public sealed class GhostReviewWindow : Window
 
         _status.Text = $"{_rows.Count} layer(s), {totalElements:N0} element(s) proposed for '{targetLabel}'. " +
                        "Only rows of the installed layers standard start ticked; heuristic, local-model, unmapped and high-count rows start unticked — review before building. " +
-                       "A type you pick, or (ignore), is remembered for this project when you Build or close.";
+                       "A type you pick, or (ignore), is remembered for this project when you Build or close; on a row of the layers standard, " +
+                       "a picked type comes back only while the standard's own type is not in this model (the standard wins).";
         UpdateStatus();
     });
 
@@ -341,8 +344,20 @@ public sealed class GhostReviewWindow : Window
         if (m.Category != null && _types.TryGetValue(m.Category, out var loaded))
             foreach (var (family, type) in loaded) items.Add(new TypeItem(TypeLabel(family, type), family, type));
         items.Add(new TypeItem("(ignore)", null, null, ignore: true));
-        if (m.Source == "reviewer") items.Add(new TypeItem("(forget my choice)", null, null, forget: true));
+        if (m.Source == "reviewer" || m.Earlier != null) items.Add(new TypeItem("(forget my choice)", null, null, forget: true));
         return items;
+    }
+
+    /// <summary>F-5: the item a standard row starts on — its remembered pick (Earlier), when the standard's own type is not loaded
+    /// in this model and the picked one is; else -1 (the row starts as proposed).</summary>
+    private int EarlierIndex(LayerMapping m, List<TypeItem> items)
+    {
+        if (m.Earlier == null || m.Category == null) return -1;
+        var have = _types.TryGetValue(m.Category, out var l) ? l : Array.Empty<(string? Family, string Type)>();
+        bool loaded = m.Category is "Walls" or "Floors" or "Ceilings"
+            ? have.Any(h => Same(h.Type, m.BdsFamilyType ?? m.BdsFamily))
+            : m.BdsFamily != null && have.Any(h => Same(h.Family, m.BdsFamily));
+        return loaded ? -1 : items.FindIndex(t => !t.Proposed && !t.Ignore && !t.Forget && Same(t.Family, m.Earlier.BdsFamily) && Same(t.Type, m.Earlier.BdsFamilyType));
     }
 
     private static string TypeLabel(string? family, string? type) =>
@@ -357,7 +372,7 @@ public sealed class GhostReviewWindow : Window
         if (pick == null) return c;
         // A remembered ignore undone: forget it too, so the row builds as its tier would (not as a reviewer pick).
         if (pick.Proposed) { if (m.Ignore) c.Forget = true; c.Ignore = false; return c; }
-        if (pick.Forget) { c.Forget = true; return c; }
+        if (pick.Forget) { c.Forget = true; c.Source = "reviewer"; return c; } // F-5: a standard row's Earlier is forgotten too
         c.Source = "reviewer";
         c.Confidence = 1.0;
         c.Ignore = pick.Ignore;

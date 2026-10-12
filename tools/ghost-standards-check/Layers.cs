@@ -245,6 +245,8 @@ static partial class Check
             Ok(rows["EXT-PARTITION"] is { Source: "reviewer", BdsFamilyType: "Generic - 200mm", Params: null },
                "a picked type comes back as the reviewer's, ahead of the heuristic guess — with no document values (A1)");
             Ok(rows["A-WALL-EXT"].Source == "standard", "the installed standard still answers first: a remembered choice never outranks layers@n");
+            Ok(rows["A-WALL-EXT"].Earlier is { Source: "reviewer", BdsFamilyType: "Generic - 200mm" } && rows["EXT-PARTITION"].Earlier == null,
+               "drill MA5b5 (F-5): the pick rides on the standard row as its Earlier — the review starts on it only while the standard's type is not loaded");
             Ok(model.Asked.SequenceEqual(new[] { "S-FNDN" }), "a remembered choice never goes to the local model; the rest still does");
         }
 

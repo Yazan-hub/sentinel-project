@@ -41,6 +41,11 @@ namespace Sentinel.GhostBuilder
         /// run asks the heuristic or the local model again (A2). Never written to disk.</summary>
         [JsonIgnore]                        public bool Forget { get; set; }
 
+        /// <summary>Drill MA5b batch 2 (F-5): on a row of the installed standard, the reviewer's remembered type pick for the same
+        /// layer (GHB-5). The review starts on it only while the standard's own type is not in the model — the standard still
+        /// wins whenever it can be built (F3). Never written to disk.</summary>
+        [JsonIgnore]                        public LayerMapping Earlier { get; set; }
+
         /// <summary>A copy the review may change without touching the mapper's own row (LayerMapper keeps its model answers by
         /// reference). Params is shared: nothing edits it after the proposal.</summary>
         public LayerMapping Copy() => (LayerMapping)MemberwiseClone();

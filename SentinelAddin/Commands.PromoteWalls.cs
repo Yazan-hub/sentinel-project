@@ -568,6 +568,8 @@ public sealed class PromoteWallsCommand : IExternalCommand
         var level = doc.GetElement(fi.LevelId) as Level;
         var lp = (fi.Location as LocationPoint)?.Point;
         if (level == null || lp == null) { f.RehostWhy = "no wall hosts it, and it has no level or no point to place it by — a person places it"; return; }
+        // drill MA5b5 (F-6): Apply keeps a held placeholder as it stands — the preflight holds it, so the review never shows a row Apply refuses
+        if (ChangesetExecutor.HeldBy(doc, fi) is string held) { f.RehostWhy = $"no wall hosts it, and it {held} — not rehosted; a person decides"; return; }
         f.AtMm = new[] { lp.X * FtToMm, lp.Y * FtToMm, lp.Z * FtToMm };
         var off = fi.get_Parameter(BuiltInParameter.INSTANCE_FREE_HOST_OFFSET_PARAM) ?? fi.get_Parameter(BuiltInParameter.INSTANCE_ELEVATION_PARAM);
         f.OffsetMm = (off is { HasValue: true, StorageType: StorageType.Double } ? off.AsDouble() : lp.Z - level.ProjectElevation) * FtToMm;
@@ -638,7 +640,7 @@ public sealed class PromoteWallsCommand : IExternalCommand
             {
                 UniqueId = w.UniqueId, Label = "wall " + w.Id.IdValue(), TypeName = wt.Name, Basic = odd == null, Odd = odd,
                 Function = odd == null ? wt.Function.ToString() : null, BaseLevel = LevelOf(w),
-                InGroup = w.GroupId != ElementId.InvalidElementId, InOption = w.DesignOption != null,
+                InGroup = w.GroupId != ElementId.InvalidElementId, InOption = w.DesignOption != null, Held = ChangesetExecutor.HeldBy(doc, w),
                 BottomMm = ((bb?.Min.Z ?? 0) - level.ProjectElevation) * FtToMm, TopMm = ((bb?.Max.Z ?? 0) - level.ProjectElevation) * FtToMm,
             };
             if (odd != null)

@@ -92,8 +92,16 @@ namespace Sentinel.GhostBuilder
             {
                 if (_matcher.ShouldIgnore(layer)) continue;                              // 0. never geometry
                 LayerMapping? hit = _matcher.Match(layer);
-                if (hit is { Source: "standard" }) { resolved.Add(hit); continue; }     // 1. the installed standard
-                if (_cache.TryGetValue(Normalize(layer), out LayerMapping? earlier))      // 2. remembered, same sha
+                _cache.TryGetValue(Normalize(layer), out LayerMapping? earlier);
+                if (hit is { Source: "standard" })                                      // 1. the installed standard
+                {
+                    // F-5: a type the reviewer picked on this standard row rides along — the review starts on it only while the
+                    // standard's own type is not in the model (an ignore of a standard row is not carried: the standard wins, F3)
+                    if (earlier is { Source: "reviewer", Ignore: false }) hit.Earlier = Remembered(earlier, layer);
+                    resolved.Add(hit);
+                    continue;
+                }
+                if (earlier != null)                                                     // 2. remembered, same sha
                 {
                     resolved.Add(Remembered(earlier, layer));
                     continue;
@@ -183,7 +191,8 @@ namespace Sentinel.GhostBuilder
 
         /// <summary>GHB-5: keep the reviewer's choices — a type picked in the review, or "(ignore)" — for this project, under
         /// this layers sha, beside the model's remembered answers. They come back as "reviewer" rows (tier 2), after the
-        /// installed standard: the office's layers@n still wins (F3). Only the choice is kept, never a document's values
+        /// installed standard: the office's layers@n still wins (F3) — on a standard row the pick comes back as its Earlier, which
+        /// the review starts on only while the standard's own type is not in the model (F-5). Only the choice is kept, never a document's values
         /// (A1); a choice marked Forget deletes the remembered row, so the next run asks the heuristic or the model again
         /// (A2). Rows of any other source are not remembered here; an unbound document remembers nothing.</summary>
         public void Remember(IEnumerable<LayerMapping>? choices)
