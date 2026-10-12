@@ -14,6 +14,7 @@ import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
 import { loadEnv } from "./load-env.mjs";
 import { ADDIN_SOURCES } from "./changesets-logic.mjs";
+import { loaBand, LOA_SPEC } from "./sentinel-core.mjs";
 
 // Merge config/.env without mutating process.env (the ai-gateway/cde-store idiom): importing this
 // module from a test must not copy secrets into the test runner's environment.
@@ -128,7 +129,7 @@ export const TOOLS = [
   },
   {
     name: "sentinel_changeset_status",
-    description: "Check staged changesets: pass `changeset` (id) for one, or `status` (proposed|applied|partially_applied|declined|withdrawn) to list. If both `changeset` and `status` are passed, `changeset` wins. Shows per-element verdicts and, once a human reviewed in Revit, the created element ids. An Undo in Revit leaves a changeset applied, so each one carries `undone`: {ledger_id, at, guids: how many elements the Undo removed} when its newest changeset_reverted ledger row is an Undo, null when there is none or it was redone, {unknown: why} when the ledger was not read (never a guess). Once Revit reports its re-read, result.as_built judges each placed wall, floor, roof, ceiling, door, window, column and beam against the installed ids@n (only the verdict is stored, not the values): per element a verdict of passes, fails (with its failures), not read (a requirement Sentinel has no Revit reader for: never passed, never failed), not in scope, or exported as another class (not judged) — or a why (not kept, no read); the counts judged, passed, failed, not_read and not_judged count each element once, and other kinds are counted under out_of_scope. With no IDS installed it says why and judges none; reported with the machine credential it is only {why, reported_role}. Read-only.",
+    description: "Check staged changesets: pass `changeset` (id) for one, or `status` (proposed|applied|partially_applied|declined|withdrawn) to list. If both `changeset` and `status` are passed, `changeset` wins. Shows per-element verdicts and, once a human reviewed in Revit, the created element ids. An Undo in Revit leaves a changeset applied, so each one carries `undone`: {ledger_id, at, guids: how many elements the Undo removed} when its newest changeset_reverted ledger row is an Undo, null when there is none or it was redone, {unknown: why} when the ledger was not read (never a guess). Once Revit reports its re-read, result.as_built judges each placed wall, floor, roof, ceiling, door, window, column and beam against the installed ids@n (only the verdict is stored, not the values): per element a verdict of passes, fails (with its failures), not read (a requirement Sentinel has no Revit reader for: never passed, never failed), not in scope, or exported as another class (not judged) — or a why (not kept, no read); the counts judged, passed, failed, not_read and not_judged count each element once, and other kinds are counted under out_of_scope. With no IDS installed it says why and judges none; reported with the machine credential it is only {why, reported_role}. MA-8-5: a survey changeset measured against the scan also carries `measured`: {ledger_id, at, counts, loa_spec, elements: [{proposal_guid, cid, kind, status, p95_mm, loa, loa_why?}]} from its newest verify:measured row (null when never measured, {unknown: why} when the ledger was not read). `loa` is the USIBD Level of Accuracy band of a measured wall, computed when read from its p95 (relative to the admitted scan, in the lead's frame — not survey control; `loa_spec` names the spec table read); null with `loa_why` means no band — insufficient data, missing, not measured, not a wall, or the LOA table has not yet been read from the USIBD specification (then every wall says so). Read-only.",
     inputSchema: {
       type: "object", required: ["project"],
       properties: { project: { type: "string" }, changeset: { type: "string" }, status: { type: "string" } },
@@ -231,6 +232,37 @@ async function markUndone(project, list, getJson) {
   }
 }
 
+/** MA-8-5: a measured changeset's newest verify:measured row, with the LOA band of each element — computed here, when the row is read, from
+ *  its p95 (a repeat measure is a 409, so a stored row is never rewritten; older rows get bands too). Candidates: an applied or partially
+ *  applied changeset whose job's reader is sentinel-survey. One ledger read each (amendment 16), 10 at a time. Sets `measured` in place:
+ *  null when never measured, {unknown: why} when the ledger was not read — never a guess. The stored doc is never touched.
+ *  ponytail: N reads for a list, chunked by 10 in parallel; a ledger view of the newest row per entity if lists grow. */
+const MEASURED_PARALLEL = 10;
+async function markMeasured(project, list, getJson) {
+  const cands = [];
+  for (const c of list) {
+    if (!c || typeof c !== "object") continue;
+    c.measured = null;
+    if ((c.status === "applied" || c.status === "partially_applied") && String(c.job?.reader ?? "").startsWith("sentinel-survey")) cands.push(c);
+  }
+  for (let i = 0; i < cands.length; i += MEASURED_PARALLEL) {
+    await Promise.all(cands.slice(i, i + MEASURED_PARALLEL).map(async (c) => {
+      try {
+        const page = await getJson(`/cde/${enc(project)}/audit?entity_type=changeset&action_prefix=verify:measured&entity_id=${enc(c.id)}&limit=1`);
+        if (!Array.isArray(page?.rows)) throw new Error("the bridge answered without rows");
+        const r = page.rows[0];
+        if (!r) return;
+        const v = r.new_value ?? {};
+        c.measured = { ledger_id: r.id, at: r.at, counts: v.counts ?? null, loa_spec: LOA_SPEC.source,
+          elements: (Array.isArray(v.elements) ? v.elements : []).map((m) => {
+            const b = loaBand(m);
+            return { proposal_guid: m.proposal_guid, cid: m.cid ?? null, kind: m.kind ?? null, status: m.status, p95_mm: m.p95_mm ?? null, loa: b.band, ...(b.band === null ? { loa_why: b.why } : {}) };
+          }) };
+      } catch (e) { c.measured = { unknown: `ledger not read: ${e?.message || e}` }; }
+    }));
+  }
+}
+
 export async function callTool(name, args = {}, deps = {}) {
   const f = deps.fetch || fetch;
   // DELIBERATE change from v1.0 for list_projects/audit: they previously .json()'d any response with
@@ -312,6 +344,7 @@ export async function callTool(name, args = {}, deps = {}) {
     const got = args.changeset ? await getJson(`/changesets/${enc(project)}/${enc(need(args, "changeset"))}`)
       : await getJson(`/changesets/${enc(project)}${args.status ? `?status=${enc(args.status)}` : ""}`);
     await markUndone(project, Array.isArray(got) ? got : [got], getJson);
+    await markMeasured(project, Array.isArray(got) ? got : [got], getJson);
     return got;
   }
   if (name === "sentinel_build_status") {

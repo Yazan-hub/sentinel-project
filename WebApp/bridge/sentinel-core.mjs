@@ -2000,6 +2000,28 @@ DATA;
 var S = (v) => `'${(v ?? "").replace(/'/g, "''")}'`;
 var cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 var iso2 = (t) => new Date(t * 1e3).toISOString().replace(/\.\d+Z$/, "");
+
+// src/sentinel-core/loa.ts
+var LOA_SPEC = {
+  status: "unread",
+  source: null,
+  read_on: null,
+  statistic: null,
+  relative_to: "the admitted scan, in the lead's frame \u2014 not survey control"
+};
+var LOA_BANDS = [];
+var LOA_UNREAD = "no band \u2014 the LOA table waits for the USIBD spec read (step 0)";
+var NO_BAND = { insufficient_data: "no band \u2014 insufficient data", missing: "no band \u2014 missing", not_measured: "no band \u2014 not measured" };
+function loaBand(m, bands = LOA_BANDS) {
+  if (NO_BAND[m.status]) return { band: null, why: NO_BAND[m.status] };
+  if (m.status !== "within_tolerance" && m.status !== "out_of_tolerance") return { band: null, why: "no band \u2014 not judged" };
+  if (m.kind !== "wall") return { band: null, why: "no band \u2014 only walls are measured" };
+  if (!bands.length) return { band: null, why: LOA_UNREAD };
+  const p = m.p95_mm;
+  if (typeof p !== "number" || !Number.isFinite(p) || p < 0) return { band: null, why: "no band \u2014 no valid p95" };
+  const hit = bands.find((b) => b.inclusive ? p <= b.upper_mm : p < b.upper_mm);
+  return hit ? { band: hit.band, p95_mm: p } : { band: null, why: "no band \u2014 beyond the table's last bound" };
+}
 export {
   ASSET_KEYS,
   ASSUMED_BELOW,
@@ -2007,6 +2029,8 @@ export {
   DEFAULT_STAGE_MAP,
   DEMO_IDS,
   GATE_DEFS,
+  LOA_BANDS,
+  LOA_SPEC,
   MAINTAINABLE_CLASSES,
   MASSING_SCHEMA,
   MATRIX_STAGES,
@@ -2038,6 +2062,7 @@ export {
   firstOf,
   groupFailuresForBcf,
   levelSequence,
+  loaBand,
   mapLayer,
   missingFields,
   nameShape,

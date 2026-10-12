@@ -11,6 +11,7 @@ import { bfetch, bwrite } from "./bridge-fetch";
 import { myRoleRead, roleWords } from "./my-role";
 import { activePid, onActiveProjectChange } from "./active-project";
 import { SERVICE_URL } from "../config";
+import { loaWords } from "../sentinel-core/loa";
 import type * as OBC from "@thatopen/components";
 
 /** MA-3b3: where a carried decline was made — the earlier changeset, the ghost there, and "web" or "revit". */
@@ -361,7 +362,8 @@ export function measureWords(m: Measured, rec: { target_mm?: number; deviation?:
   const down = (v: number) => `${Math.floor(Math.round(v * 1000) / 10)}%`;
   const faces = at && m.faces?.some((f) => f.share_within) ? [`faces within ${at} mm: ${m.faces.map((f) => (f.share_within ? down(f.share_within[at]) : "—")).join(" / ")}`] : [];
   const sw = m.share_within ? Object.entries(m.share_within).filter(([t]) => t !== at) : null;
-  return [`${m.status.replace(/_/g, " ")}${judged ? rule : ""}`, ...faces,
+  // MA-8-5: the LOA band, read at render from the row's p95 — a repeat measure is a 409, so a row is never rewritten; every older row gets it
+  return [`${m.status.replace(/_/g, " ")}${judged ? rule : ""}`, loaWords(m), ...faces,
     ...(m.p95_mm != null ? [`p95 ${m.p95_mm} mm`] : []),
     ...(m.mean_signed_mm != null ? [`mean ${m.mean_signed_mm > 0 ? "+" : ""}${m.mean_signed_mm} mm (+ = the scan outside it)`] : []),
     ...(m.coverage != null ? [`${pct(m.coverage)} of its faces seen`] : []),

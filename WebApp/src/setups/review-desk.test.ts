@@ -430,19 +430,19 @@ describe("measured against the scan (MA-4e)", () => {
   const W: Ghost = { proposal_guid: "g1", kind: "wall", op: "create", cid: "scan-L00-wall-1", place: { TypeName: "BDS_EXT_ARC_CMU_300 mm", LevelName: "GR-FFL" }, validate: { identity: { Name: "scan-L00-wall-1" } } };
   const IN: Measured = { proposal_guid: "g1", kind: "wall", status: "within_tolerance", points: 3512, p95_mm: 3, mean_signed_mm: 0, coverage: 0.999, share_within: { 50: 1, 100: 1, 200: 1 } };
   it("measureWords: the verdict against 20 mm on p95, the numbers, the sign said; a reason — never a made-up zero", () => {
-    expect(measureWords(IN)).toBe("within tolerance (20 mm, p95) · p95 3 mm · mean 0 mm (+ = the scan outside it) · 100% of its faces seen · within 50 / 100 / 200 mm: 100% / 100% / 100% · 3512 points");
+    expect(measureWords(IN)).toBe("within tolerance (20 mm, p95) · no band — the LOA table waits for the USIBD spec read (step 0) · p95 3 mm · mean 0 mm (+ = the scan outside it) · 100% of its faces seen · within 50 / 100 / 200 mm: 100% / 100% / 100% · 3512 points");
     expect(measureWords({ ...IN, status: "out_of_tolerance", p95_mm: 63, mean_signed_mm: 0.2, share_within: { 50: 0, 100: 1, 200: 1 } }))
-      .toBe("out of tolerance (20 mm, p95) · p95 63 mm · mean +0.2 mm (+ = the scan outside it) · 100% of its faces seen · within 50 / 100 / 200 mm: 0% / 100% / 100% · 3512 points");
+      .toBe("out of tolerance (20 mm, p95) · no band — the LOA table waits for the USIBD spec read (step 0) · p95 63 mm · mean +0.2 mm (+ = the scan outside it) · 100% of its faces seen · within 50 / 100 / 200 mm: 0% / 100% / 100% · 3512 points");
     expect(measureWords({ proposal_guid: "g2", status: "missing", points: 0, p95_mm: null, mean_signed_mm: null, coverage: 0, share_within: null, reason: "no scan point within 400 mm of its faces — not built where it stands, or not scanned there" }))
-      .toBe("missing · 0% of its faces seen · no scan point within 400 mm of its faces — not built where it stands, or not scanned there");
-    expect(measureWords({ proposal_guid: "g3", status: "not_measured", reason: "undone in Revit (ledger #2211) — nothing placed to measure" })).toBe("not measured · undone in Revit (ledger #2211) — nothing placed to measure");
+      .toBe("missing · no band — missing · 0% of its faces seen · no scan point within 400 mm of its faces — not built where it stands, or not scanned there");
+    expect(measureWords({ proposal_guid: "g3", status: "not_measured", reason: "undone in Revit (ledger #2211) — nothing placed to measure" })).toBe("not measured · no band — not measured · undone in Revit (ledger #2211) — nothing placed to measure");
     // MA-5a-2: a row that names its per-face rule says it and each face's share; an old row (p95, target_mm) keeps its words
     const DEV = { within_mm: 20, face_share_min: 0.2 }, SW = { 20: 1, 50: 1, 100: 1, 200: 1 };
     const FACES = { ...IN, share_within: SW, faces: [{ points: 1800, coverage: 1, share_within: { ...SW, 20: 0.97 } }, { points: 1712, coverage: 1, share_within: { ...SW, 20: 0.95 } }] };
     expect(measureWords(FACES, { deviation: DEV }))
-      .toBe("within tolerance (each face 20% within 20 mm) · faces within 20 mm: 97% / 95% · p95 3 mm · mean 0 mm (+ = the scan outside it) · 100% of its faces seen · within 50 / 100 / 200 mm: 100% / 100% / 100% · 3512 points");
+      .toBe("within tolerance (each face 20% within 20 mm) · no band — the LOA table waits for the USIBD spec read (step 0) · faces within 20 mm: 97% / 95% · p95 3 mm · mean 0 mm (+ = the scan outside it) · 100% of its faces seen · within 50 / 100 / 200 mm: 100% / 100% / 100% · 3512 points");
     expect(measureWords({ ...FACES, status: "out_of_tolerance", faces: [FACES.faces[0], { points: 0, coverage: 0, share_within: null }], reason: "face 2: no scan point within 400 mm" }, { deviation: DEV }))
-      .toBe("out of tolerance (each face 20% within 20 mm) · faces within 20 mm: 97% / — · p95 3 mm · mean 0 mm (+ = the scan outside it) · 100% of its faces seen · within 50 / 100 / 200 mm: 100% / 100% / 100% · 3512 points · face 2: no scan point within 400 mm");
+      .toBe("out of tolerance (each face 20% within 20 mm) · no band — the LOA table waits for the USIBD spec read (step 0) · faces within 20 mm: 97% / — · p95 3 mm · mean 0 mm (+ = the scan outside it) · 100% of its faces seen · within 50 / 100 / 200 mm: 100% / 100% / 100% · 3512 points · face 2: no scan point within 400 mm");
     expect(measureWords(IN, { target_mm: 20 })).toBe(measureWords(IN)); // an old row
     expect(measureWords({ ...FACES, faces: [FACES.faces[0], { points: 1712, coverage: 1, share_within: { ...SW, 20: 0.196 } }] }, { deviation: DEV }))
       .toContain(" · faces within 20 mm: 97% / 19% · "); // rounded down (review): never "20%" under a verdict that says it missed 20%
@@ -454,7 +454,7 @@ describe("measured against the scan (MA-4e)", () => {
       counts: { within_tolerance: 1, not_measured: 1 }, elements: [IN, { proposal_guid: "g9", status: "not_measured", reason: "a level has no face to measure — its height against the scan is MA-4h's level error" }] };
     const AS_FILED = "Measured against the scan as filed (the changeset's geometry, which Revit placed exactly — not re-read from Revit: a wall moved since, Revit's joins, the type's width in Revit and the lead's frame are not seen) · placed as Revit reported (by lead@example.test)";
     expect(verifiedView(cs, rec)).toEqual({ head: `${AS_FILED} · 1 within tolerance, 0 out of tolerance, 0 missing, 0 insufficient data, 1 not measured · ledger #2300 · 2026-10-09 10:00 UTC · by lead@example.test`,
-      lines: [{ line: ghostLine(W), words: measureWords(IN) }, { line: "g9", words: "not measured · a level has no face to measure — its height against the scan is MA-4h's level error" }] });
+      lines: [{ line: ghostLine(W), words: measureWords(IN) }, { line: "g9", words: "not measured · no band — not measured · a level has no face to measure — its height against the scan is MA-4h's level error" }] });
     expect(verifiedView(cs, { ...rec, placed_by: { reported_by: "revit", reported_role: "service" } })!.head)
       .toContain(" · placed as Revit reported (by revit) — the machine credential's report · ");
     expect(verifiedView(cs, null)).toBeNull();
@@ -463,7 +463,7 @@ describe("measured against the scan (MA-4e)", () => {
     const PF: Measured = { ...IN, share_within: SW, faces: [{ points: 1800, coverage: 1, share_within: SW }, { points: 1712, coverage: 1, share_within: SW }] };
     const lines = verifiedView(cs, { ...rec, target_mm: undefined, deviation: DEV, elements: [PF] })!.lines;
     expect(lines[0].words).toBe(measureWords(PF, { deviation: DEV }));
-    expect(lines[0].words).toMatch(/^within tolerance \(each face 20% within 20 mm\) · faces within 20 mm: 97% \/ 97% · /);
+    expect(lines[0].words).toMatch(/^within tolerance \(each face 20% within 20 mm\) · no band [^·]+ · faces within 20 mm: 97% \/ 97% · /);
     expect(verifiedView(cs, { ...rec, status: "failed", error: "the survey took longer than 10 min — it was stopped; nothing it found was kept", elements: [] })!.head)
       .toBe(`${AS_FILED} · did not finish — the survey took longer than 10 min — it was stopped; nothing it found was kept · ledger #2300 · 2026-10-09 10:00 UTC · by lead@example.test`);
     expect(verifiedView(cs, new Error("not read — HTTP 500"))).toEqual({ head: "Measure not read — HTTP 500", lines: [] });
