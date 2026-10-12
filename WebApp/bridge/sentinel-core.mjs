@@ -2010,7 +2010,7 @@ var LOA_SPEC = {
   relative_to: "the admitted scan, in the lead's frame \u2014 not survey control"
 };
 var LOA_BANDS = [];
-var LOA_UNREAD = "no band \u2014 the LOA table waits for the USIBD spec read (step 0)";
+var LOA_UNREAD = "no band yet \u2014 the USIBD accuracy table has not been loaded into Sentinel";
 var NO_BAND = { insufficient_data: "no band \u2014 insufficient data", missing: "no band \u2014 missing", not_measured: "no band \u2014 not measured" };
 function loaBand(m, bands = LOA_BANDS) {
   if (NO_BAND[m.status]) return { band: null, why: NO_BAND[m.status] };
