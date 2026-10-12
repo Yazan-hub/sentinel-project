@@ -11,7 +11,7 @@ vi.mock("./active-project", () => ({ activePid: () => "demo", onActiveProjectCha
 import { heldLines, proposalWords, storeyOf, groupDesk, ghostLine, reviewWords, declinedBy, canDecide, canReopen, readPending, postReview, postReopen, rowWords, postsFor, type PendingChangeset,
   trustWords, sourceWords, isDrawn,
   readDecided, readLedger, highlightPlan, type Ghost, decidedView, decidedCount, DECIDED_MAX, type LedgerRows,
-  measureWords, verifiedView, readVerified, postMeasure, measureLine, canMeasure, countWords, editCostLine, readEditCost, type EditCostRun, type VerifyRecord, type Measured } from "./review-desk";
+  measureWords, verifiedView, readVerified, readMeasuredRecent, measuredView, MEASURED_MAX, postMeasure, measureLine, canMeasure, countWords, editCostLine, readEditCost, type EditCostRun, type VerifyRecord, type Measured } from "./review-desk";
 
 const fx = JSON.parse(readFileSync(new URL("../../bridge/fixtures/changeset-ops/ma3a-review.json", import.meta.url), "utf8"));
 const after = fx.after as PendingChangeset;
@@ -231,7 +231,7 @@ describe("recently decided in Revit (MA-3b2b)", () => {
     expect(src).toContain('if (!pending.length) { body.replaceChildren(el("div", "Nothing waits for review in Revit on this project."), tail); return; }');
     expect(src).toContain("    body.append(tail);");
     expect(src.split("recent(decided, ledger, role.role, verified)").length - 1).toBe(1);
-    expect(src.split(/\btail\b/).length - 1).toBe(8); // declared, set twice, shown in each of the desk's three endings (+2 in MA-8-1: the edit-cost section is appended to it)
+    expect(src.split(/\btail\b/).length - 1).toBe(10); // declared, set twice, shown in each of the desk's three endings (+2 in MA-8-1: edit-cost section; +2 in MA-8-5c: measured section)
   });
 });
 
@@ -479,6 +479,55 @@ describe("measured against the scan (MA-4e)", () => {
     expect(m.get(A)).toEqual({ id: 2302, at: "2026-10-09T11:00:00Z", actor: "x@example.test", status: "done", reference: "as filed", target_mm: 20, counts: { within_tolerance: 3 }, elements: [IN] });
     expect([m.get(B), m.get(C)]).toEqual([new Error("not read — timeout"), null]);
     expect(bfetch.mock.calls.map((c) => c[0])).toEqual([A, B, C].map((id) => `http://b/cde/demo%20key/audit?entity_type=changeset&action_prefix=verify:measured&limit=1&entity_id=${id}`));
+  });
+  it("MA-8-5c: readMeasuredRecent lists the newest measure of each changeset outside the decided window, with its LOA words; one the decided list shows is not listed twice; the cap words follow the read", async () => {
+    const row = (id: number, cs: string) => ({ id, entity_id: cs, at: "2026-10-09T11:00:00Z", actor: "x@example.test", action: `verify:measured job-000${id % 9} · sentinel-survey 0.6.0 · done`, new_value: { status: "done", reference: "as filed", target_mm: 20, counts: { within_tolerance: 1 }, elements: [IN] } });
+    bfetch.mockResolvedValueOnce(res(200, { rows: [row(2307, A), row(2306, B), row(2225, A), row(2300, C)], total: 4 }));
+    const m = await readMeasuredRecent("http://b/", "demo key", new Set([C]));
+    expect(bfetch.mock.calls[0][0]).toBe(`http://b/cde/demo%20key/audit?entity_type=changeset&action_prefix=verify:measured&limit=${MEASURED_MAX}`);
+    expect(m.items.map((x) => [x.id, x.rec.id])).toEqual([[A, 2307], [B, 2306]]);   // newest row per changeset; C is shown under the decided reports
+    expect(m.capped).toBe(false);
+    const v = verifiedView({ id: A, name: m.items[0].name, source: "", status: "", created_at: "", elements: [] } as PendingChangeset, m.items[0].rec)!;
+    expect(v.head).toContain("ledger #2307");
+    expect(v.lines[0].words).toContain("LOA40");
+    bfetch.mockResolvedValueOnce(res(200, { rows: [row(2307, A)], total: 900 }));
+    expect((await readMeasuredRecent("http://b", "demo", new Set())).capped).toBe(true);
+    bfetch.mockResolvedValueOnce(res(500, { message: "down" }));
+    await expect(readMeasuredRecent("http://b", "demo", new Set())).rejects.toThrow("not read — down");
+  });
+  it("MA-8-5c: measuredView names each changeset from the desk's own list, keeps its ghostLine words, and says the cap, the empty, the failed read and a bad row (DOM rendering of these nodes is a source scan: no DOM here)", () => {
+    const rec = (id: number, elements: unknown) => ({ id, at: "2026-10-09T11:00:00Z", actor: "x@example.test", status: "done", reference: "as filed", target_mm: 20, counts: { within_tolerance: 1 }, elements }) as unknown as VerifyRecord;
+    const el0 = { ...after.elements[2], proposal_guid: "g-1" };
+    const byId = new Map<string, PendingChangeset>([[A, { ...after, id: A, name: "Survey job-0002 · 1F", elements: [el0] } as PendingChangeset], [B, { ...after, id: B, name: "Survey job-0002 · 2F", elements: [] } as PendingChangeset]]);
+    const IN1 = { ...IN, proposal_guid: "g-1" };
+    const v = measuredView({ items: [{ id: A, name: "job-0002 · done", rec: rec(2307, [IN1]) }, { id: B, name: "job-0002 · done", rec: rec(2306, [IN1]) }], capped: false }, byId)!;
+    expect(v.items.map((x) => x.summary)).toEqual(["Survey job-0002 · 1F", "Survey job-0002 · 2F"]);   // two changesets of one job stay apart
+    expect(v.items[0].lines[0].line).toBe(ghostLine(el0 as Ghost));   // words, not a bare guid
+    expect(v.items[1].lines[0].line).toBe("g-1");
+    expect(v.items[0].lines[0].words).toContain("LOA40");
+    expect(v.notes.map((n) => n.text).join(" ")).toContain("an Undo in Revit since then is not read here");
+    expect(v.notes.join(" ")).not.toContain("newest 200");   // cap words only when capped
+    expect(measuredView({ items: [{ id: A, name: "n", rec: rec(1, [IN1]) }], capped: true }, new Map())!.notes[0].text).toBe(`The newest ${MEASURED_MAX} measures — the older ones are on the ledger.`);
+    expect(measuredView({ items: [], capped: false }, byId)).toBeNull();   // nothing to say = no section
+    const e = measuredView({ items: [], capped: true }, byId)!;
+    expect(e.notes[0].text).toContain("None outside the reports above");
+    expect(e.notes[0].text).not.toContain("No other survey changeset");
+    expect(measuredView(new Error("not read — down"), byId)).toEqual({ notes: [{ text: "Measures not read — down", warn: true }], items: [] });
+    // one malformed row is said in its own entry; the others stay
+    const bad = measuredView({ items: [{ id: C, name: "bad", rec: rec(5, [null]) }, { id: A, name: "n", rec: rec(2307, [IN1]) }], capped: false }, byId)!;
+    expect(bad.items[0].summary).toContain("bad: measure not shown");
+    expect(bad.items[1].lines).toHaveLength(1);
+  });
+  it("MA-8-5c: readMeasuredRecent names a changeset by its row's own name, else the action without its ledger prefix", async () => {
+    const base = { actor: "x", at: "2026-10-09T11:00:00Z", new_value: { status: "done", elements: [] } };
+    bfetch.mockResolvedValueOnce(res(200, { rows: [{ ...base, id: 2, entity_id: A, action: "verify:measured job-0002 · done", new_value: { status: "done", elements: [], changeset: { name: "Survey job-0002 · 1F" } } }, { ...base, id: 1, entity_id: B, action: "verify:measured job-0003 · done" }], total: 2 }));
+    expect((await readMeasuredRecent("http://b", "demo", new Set())).items.map((x) => x.name)).toEqual(["Survey job-0002 · 1F", "job-0003 · done"]);
+  });
+  it("MA-8-5c: the desk reads the project's measures beside the decided list and says when it could not (source scan)", () => {
+    const src = readFileSync(new URL("./review-desk.ts", import.meta.url), "utf8");
+    expect(src).toContain("readMeasuredRecent(base, key, shownMeasured).catch((e: Error) => e)");
+    expect(src).toContain("if (mb) tail.append(mb);");
+    expect(src).toContain('"Measured against the scan"');
   });
   it("postMeasure sends the changeset id only to /cde/:key/verify; measureLine says what was judged and its row", async () => {
     bwrite.mockResolvedValueOnce({ changeset: { id: A, name: "Survey job-0002 · GR-FFL" }, status: "done", counts: { within_tolerance: 3 }, elements: [], ledger: { id: 2300, hash: "h" } });
