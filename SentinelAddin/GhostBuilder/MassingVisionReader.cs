@@ -121,14 +121,18 @@ namespace Sentinel.GhostBuilder
                 var root = d.RootElement;
                 if (root.ValueKind != JsonValueKind.Object) return new ViewReading { Photo = photo, Error = "the answer was not an object" };
                 double Num(string k) => root.TryGetProperty(k, out var e) && e.ValueKind == JsonValueKind.Number && e.TryGetDouble(out var x) ? x : 0;
-                int storeys = (int)Math.Round(Num("storeys"));
-                if (storeys <= 0) return new ViewReading { Photo = photo, Error = "no storey count in the answer" };
-                string view = root.TryGetProperty("view", out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : "unknown";
+                double count = Math.Round(Num("storeys")); // bounded before the cast: it is platform-dependent beyond int
+                if (count <= 0) return new ViewReading { Photo = photo, Error = "no storey count in the answer" };
+                if (count > 1000) return new ViewReading { Photo = photo, Error = $"implausible storey count {count:0.###}" };
+                int storeys = (int)count;
+                // The model's text is untrusted: only the five views named in the prompt pass (case aside); anything else is "unknown".
+                string view = (root.TryGetProperty("view", out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : "").Trim().ToLowerInvariant();
+                if (Array.IndexOf(new[] { "front", "side", "corner", "aerial" }, view) < 0) view = "unknown";
                 return new ViewReading
                 {
                     Photo = photo, Storeys = storeys,
                     FullHeight = root.TryGetProperty("full_height", out var f) && f.ValueKind == JsonValueKind.True,
-                    HeightToWidth = Num("height_to_width"), Bays = (int)Math.Round(Num("bays")), View = view,
+                    HeightToWidth = Num("height_to_width"), Bays = (int)Math.Max(0, Math.Min(1000, Math.Round(Num("bays")))), View = view,
                 };
             }
             catch (JsonException) { return new ViewReading { Photo = photo, Error = "the answer was not JSON" }; }

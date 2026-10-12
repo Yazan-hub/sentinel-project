@@ -112,8 +112,12 @@ static class Check
         Ok(fused.Storeys.Value == 39 && fused.Storeys.Lo == 37 && fused.Storeys.Hi == 41 && fused.Storeys.Views == 3 && fused.Storeys.Of == 5
            && fused.Storeys.Source == "photo" && fused.Storeys.Confidence == 1 && MassingPlanner.Hint(fused.Storeys) == "observed — 3 of 5 photos: 37–41",
            "FromViews: storeys = the median of the full-height counts [37, 39, 41] (the 12 of a not-full view and the failed photo left out), its range and the share within ±2");
-        Ok(fused.HeightToWidth.Value == 3.2 && fused.HeightToWidth.Lo == 3.0 && fused.HeightToWidth.Hi == 3.4 && fused.HeightToWidth.Views == 3 && fused.HeightToWidth.Confidence == 1,
-           "FromViews: a zero ratio is skipped — the height : width ratio is the median of 3.2, 3.0 and 3.4");
+        Ok(fused.HeightToWidth.Value == 3.1 && fused.HeightToWidth.Lo == 3.0 && fused.HeightToWidth.Hi == 3.2 && fused.HeightToWidth.Views == 2 && fused.HeightToWidth.Confidence == 1,
+           "FromViews: a zero ratio is skipped, and the cropped view's 3.4 is left out like its count — the ratio is the median of the full-height 3.2 and 3.0");
+        var cropped = MassingPlanner.FromViews(new List<ViewReading> { Vw("a.jpg", 38, true, 3.2), Vw("b.jpg", 38, true, 3.3), Vw("c.jpg", 20, false, 1.5), Vw("d.jpg", 20, false, 1.6) });
+        MassingPlanner.Scale(cropped, 157000, null);
+        Ok(Math.Abs(cropped.HeightToWidth.Value - 3.25) < 1e-9 && Math.Abs(cropped.FootprintWidthMm.Value - 157000 / 3.25) < 1e-6,
+           "review fix: two cropped views at 1.5 and 1.6 do not drag the ratio down — the width is 157000 ÷ 3.25, not ÷ 2.35");
         Ok(fused.FootprintWidthMm.Source == "assumed" && fused.FootprintDepthMm.Source == "assumed" && fused.StoreyHeightMm.Source == "assumed"
            && fused.StoreyHeightMm.Note == MassingPlanner.NeedsKnown
            && fused.ViewLines.Count == 5 && fused.ViewLines[4] == "e.jpg: not read — the model answered HTTP 500" && fused.Notes.Split('\n').Length == 5,
@@ -169,9 +173,30 @@ static class Check
         // HasModelValue and the marks.
         var mixed = Seagram();
         MassingPlanner.Scale(mixed, 157000, null);
-        foreach (var v in new[] { mixed.FootprintWidthMm, mixed.FootprintDepthMm, mixed.Storeys, mixed.HeightToWidth }) v.Source = "user";
-        Ok(MassingPlanner.HasModelValue(mixed) && (mixed.StoreyHeightMm.Source = "user") == "user" && !MassingPlanner.HasModelValue(mixed),
-           "HasModelValue counts an inferred number (the images still name the source), and not once the reviewer has replaced it");
+        foreach (var v in new[] { mixed.FootprintWidthMm, mixed.FootprintDepthMm, mixed.Storeys }) v.Source = "user";
+        bool ratioStillTheirs = MassingPlanner.HasModelValue(mixed); // the ratio is still "photo"
+        mixed.HeightToWidth.Source = "user";
+        Ok(ratioStillTheirs && !MassingPlanner.HasModelValue(mixed) && mixed.StoreyHeightMm.Source == "inferred",
+           "HasModelValue counts the photo-read count or ratio, not an inferred length: with both typed by the reviewer an inferred storey height names no images");
+        var down = MassingPlanner.FromViews(new List<ViewReading> { new ViewReading { Photo = "a.jpg", Error = "down" } });
+        down.Storeys.Value = 38; down.Storeys.Source = "user"; down.HeightToWidth.Value = 4; down.HeightToWidth.Source = "user";
+        MassingPlanner.Scale(down, 157000, null);
+        Ok(down.StoreyHeightMm.Source == "inferred" && down.FootprintWidthMm.Source == "inferred" && !MassingPlanner.HasModelValue(down),
+           "review fix (E7): Ollama down, every number typed, Scale ▶ — the inferred lengths do not name the images");
+        // Scale: a given width is range-checked (R11), a depth the reviewer typed is kept, no ratio leaves a width to type, an uncounted storey count is blank.
+        var big = MassingPlanner.FromViews(new List<ViewReading> { Vw("a.jpg", 10, true, 0.1) }); MassingPlanner.Scale(big, null, 600000);
+        var tiny = MassingPlanner.FromViews(new List<ViewReading> { Vw("a.jpg", 1, true, 3) }); MassingPlanner.Scale(tiny, null, 1500);
+        Ok(MassingPlanner.ScaleRefusal(big) == "footprint width given 600000 mm is outside 2000–500000 mm — check the known dimension"
+           && MassingPlanner.ScaleRefusal(tiny)!.StartsWith("footprint width given 1500 mm is outside"),
+           "review fix (R11): a known width outside the footprint bounds is refused in words, not capped by Validate");
+        var keep = Seagram(); keep.FootprintDepthMm.Value = 20000; keep.FootprintDepthMm.Source = "user";
+        MassingPlanner.Scale(keep, 157000, null);
+        Ok(keep.FootprintDepthMm.Value == 20000 && keep.FootprintDepthMm.Source == "user", "review fix: Scale keeps a depth the reviewer typed");
+        var nr = MassingPlanner.FromViews(new List<ViewReading> { Vw("a.jpg", 10, true, 0, "aerial") });
+        MassingPlanner.Scale(nr, 31000, null);
+        Ok(MassingPlanner.ScaleRefusal(nr) == "no height : width ratio was read — type the footprint width" && nr.FootprintWidthMm.Note == "no height : width ratio was read — type the footprint width",
+           "review fix: scaled from a height with no ratio, the 2 m placeholder width is not filed — the reviewer is told to type it");
+        Ok(double.IsNaN(noneRead.Storeys.Value) && noneRead.Storeys.Source == "assumed", "review fix: an uncounted storey count is blank, so a typed 1 is the reviewer's");
         var marked = MassingPlanner.Validate(sc);
         Ok(marked.HeightToWidth.Value == 4.0 && marked.KnownField == "height" && marked.KnownMm == 157000 && marked.ViewLines.Count == 4
            && marked.FootprintWidthMm.Source == "inferred" && marked.FootprintWidthMm.Lo == sc.FootprintWidthMm.Lo && marked.Storeys.Views == 4,
@@ -193,6 +218,9 @@ static class Check
                 }).ToList());
         var llava = Model("llava:latest"); var qwen = Model("qwen3.6:latest"); var llama = Model("llama3.2-vision:latest");
         MassingPlanner.Scale(qwen, 157000, null);
+        Ok(MassingPlanner.FieldsNeedingReview(llava).Contains("storeys") && llava.Storeys.Confidence == 1 && MassingPlanner.FieldsNeedingReview(Seagram()).Contains("storeys")
+           && MassingPlanner.Hint(llava.Storeys, true).Contains("agreement between photos, not accuracy"),
+           "review fix: a count every photo agrees on (llava 20 on all four, confidence 1) is still listed for review, its hint says agreement is not accuracy");
         Ok(llava.Storeys.Value == 20 && llava.Storeys.Lo == 20 && llava.Storeys.Hi == 20 && llava.Storeys.Views == 4
            && qwen.Storeys.Value == 50 && qwen.Storeys.Lo == 42 && qwen.Storeys.Hi == 52 && qwen.Storeys.Views == 3 && qwen.Storeys.Of == 4
            && Math.Abs(qwen.StoreyHeightMm.Value - 3140) < 1e-9 && MassingPlanner.ScaleRefusal(qwen) == null

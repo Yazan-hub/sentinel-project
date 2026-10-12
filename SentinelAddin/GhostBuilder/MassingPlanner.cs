@@ -143,7 +143,7 @@ namespace Sentinel.GhostBuilder
         public static bool HasModelValue(MassingEstimate m) =>
             m != null && new[] { m.FootprintWidthMm, m.FootprintDepthMm, m.Storeys, m.StoreyHeightMm, m.HeightToWidth }
                 .Concat((m.Openings ?? new List<OpeningEstimate>()).Where(o => o != null).SelectMany(o => new[] { o.WidthMm, o.HeightMm }))
-                .Any(v => v != null && (v.Source == "photo" || v.Source == "inferred")); // MA-6-9: a number worked out from the model's counts is still its
+                .Any(v => v != null && v.Source == "photo"); // MA-6-9: an inferred number is worked out from Storeys / HeightToWidth (listed here) and the typed dimension — it adds no image of its own
 
         /// <summary>MAS-4: the review's status line when a filing ended with nothing filed — the reason is in the dialog just shown.</summary>
         public const string ReopenStatus = "Nothing was filed — the reason is in the message just shown. Your numbers are kept: put it right, then File for review again.";
@@ -175,8 +175,8 @@ namespace Sentinel.GhostBuilder
         }
 
         /// <summary>MA-6-9 (C14): the photos' readings as ONE estimate. Storeys = the median count of the full-height views (else of all
-        /// counts), its range, confidence = the share within ±2; HeightToWidth likewise over the front, side and corner ratios above zero
-        /// (share within ±15 %). Width, depth and storey height stay assumed until a person gives one known dimension (Scale). Not
+        /// counts), its range, confidence = the share within ±2; HeightToWidth likewise over the front, side and corner ratios above zero (full-height views first; share within ±15 %).
+        /// A count's confidence is how far the photos AGREE, not how right it is: the review always asks a person to confirm it. Width, depth and storey height stay assumed until a person gives one known dimension (Scale). Not
         /// validated: a count of 300 must reach ScaleRefusal, not be capped to 200 first.</summary>
         public static MassingEstimate FromViews(IReadOnlyList<ViewReading> views)
         {
@@ -188,7 +188,7 @@ namespace Sentinel.GhostBuilder
             {
                 FootprintWidthMm = Assumed(FootprintW.lo, KnownWanted),
                 FootprintDepthMm = Assumed(FootprintD.lo, KnownWanted),
-                Storeys = Assumed(1, "no photo gave a storey count"),
+                Storeys = Assumed(double.NaN, "no photo gave a storey count"), // blank, so any typed count (even 1) is the reviewer's
                 StoreyHeightMm = Assumed(3000, KnownWanted),
                 HeightToWidth = Assumed(double.NaN, "no photo gave a usable height : width ratio"),
                 FacadesSeen = vs.Where(v => v.Error == null && v.View != "unknown" && v.View != "aerial").Select(v => v.View).Distinct().ToList(),
@@ -198,8 +198,9 @@ namespace Sentinel.GhostBuilder
                 m.Storeys = Spread(use.Select(v => (double)v.Storeys).ToList(), vs.Count, (x, med) => Math.Abs(x - med) <= 2);
                 m.Storeys.Value = Math.Round(m.Storeys.Value, MidpointRounding.AwayFromZero);
             }
-            var ratios = vs.Where(v => v.Error == null && v.HeightToWidth > 0 && !double.IsInfinity(v.HeightToWidth) && (v.View == "front" || v.View == "side" || v.View == "corner"))
-                           .Select(v => v.HeightToWidth).ToList();
+            var seenRatio = vs.Where(v => v.Error == null && v.HeightToWidth > 0 && !double.IsInfinity(v.HeightToWidth) && (v.View == "front" || v.View == "side" || v.View == "corner")).ToList();
+            // The ratio is the VISIBLE height over the width: a cropped view reads low, so full-height views come first (as for the count).
+            var ratios = (seenRatio.Any(v => v.FullHeight) ? seenRatio.Where(v => v.FullHeight) : seenRatio).Select(v => v.HeightToWidth).ToList();
             if (ratios.Count > 0) m.HeightToWidth = Spread(ratios, vs.Count, (x, med) => Math.Abs(x - med) <= 0.15 * med);
             m.ViewLines = vs.Select(ViewLine).ToList();
             m.Notes = m.ViewLines.Count == 0 ? null : string.Join("\n", m.ViewLines);
@@ -212,6 +213,8 @@ namespace Sentinel.GhostBuilder
 
         /// <summary>MA-6-9: the known dimension in words for the receipt, or null when none was given.</summary>
         public static string KnownWords(MassingEstimate m) => m?.KnownField == null ? null : $"{m.KnownField} {Mm(m.KnownMm)} mm, given";
+
+        private const string NoRatioWidth = "no height : width ratio was read — type the footprint width";
 
         private static bool Usable(EstimatedValue r) => r != null && r.Value > 0 && !double.IsInfinity(r.Value);
 
@@ -248,8 +251,14 @@ namespace Sentinel.GhostBuilder
                 w.Lo = H / (r.Hi ?? r.Value); w.Hi = H / (r.Lo ?? r.Value); w.Views = w.Of = 0;
                 w.Note = $"{Mm0(H)} mm ÷ ratio {r.Value.ToString("0.##", CultureInfo.InvariantCulture)}";
             }
-            else return null; // no ratio: the width stays what it was, assumed
+            else
+            {
+                // no ratio: the width stays the placeholder, assumed, and says so (ScaleRefusal holds the filing until a person types it)
+                w.Note = m.FootprintDepthMm.Note = NoRatioWidth;
+                return null;
+            }
             var d = m.FootprintDepthMm;
+            if (d.Source == "user") return null; // a depth the reviewer typed is theirs
             d.Value = w.Value; d.Confidence = 0; d.Source = "assumed"; d.Lo = d.Hi = null; d.Views = d.Of = 0;
             d.Note = "depth not seen — a person confirms";
             return null;
@@ -267,18 +276,26 @@ namespace Sentinel.GhostBuilder
                 return $"storey height inferred {Mm0(h.Value)} mm ({Mm0(H)} mm ÷ {Mm0(n)} storeys) is outside {Mm0(StoreyH.lo)}–{Mm0(StoreyH.hi)} mm — check the count or the known dimension";
             if (w.Source == "inferred" && (w.Value < FootprintW.lo || w.Value > FootprintW.hi))
                 return $"footprint width inferred {Mm0(w.Value)} mm ({Mm0(H)} mm ÷ ratio {r.ToString("0.##", CultureInfo.InvariantCulture)}) is outside {Mm0(FootprintW.lo)}–{Mm0(FootprintW.hi)} mm — check the ratio or the known dimension";
+            if (m.KnownField == "width" && (w.Value < FootprintW.lo || w.Value > FootprintW.hi))
+                return $"footprint width given {Mm0(w.Value)} mm is outside {Mm0(FootprintW.lo)}–{Mm0(FootprintW.hi)} mm — check the known dimension";
+            var d = m.FootprintDepthMm;
+            if (m.KnownField == "width" && d.Source == "assumed" && (d.Value < FootprintD.lo || d.Value > FootprintD.hi))
+                return $"footprint depth {Mm0(d.Value)} mm (copied from the width) is outside {Mm0(FootprintD.lo)}–{Mm0(FootprintD.hi)} mm — check the known dimension";
+            if (m.KnownField == "height" && w.Source == "assumed")
+                return NoRatioWidth;
             if (n < Storeys.lo || n > Storeys.hi)
                 return $"{Mm0(n)} storeys is outside {Mm0(Storeys.lo)}–{Mm0(Storeys.hi)} — check the count";
             return null;
         }
 
         /// <summary>MA-6-9: the review's hint for a value — its mark, the spread across the photos or the range worked out, and its note.</summary>
-        public static string Hint(EstimatedValue v)
+        public static string Hint(EstimatedValue v, bool agreementOnly = false)
         {
             string num(double x) => x.ToString("0.###", CultureInfo.InvariantCulture);
             string s = Mark(v);
             if (v.Lo is double lo && v.Hi is double hi)
                 s += v.Of > 0 ? $" — {v.Views} of {v.Of} photos: {num(lo)}–{num(hi)}" : $" — range {num(lo)}–{num(hi)}";
+            if (agreementOnly && v.Of > 0) s += $" · {v.Confidence:0.0} agreement between photos, not accuracy — check the count";
             if (!string.IsNullOrEmpty(v.Note)) s += " — " + v.Note;
             return s;
         }
@@ -290,7 +307,8 @@ namespace Sentinel.GhostBuilder
             void Check(string label, EstimatedValue v) { if (v.Source != "photo" || v.Confidence <= AssumedBelow) outp.Add(label); }
             Check("footprint width", m.FootprintWidthMm);
             Check("footprint depth", m.FootprintDepthMm);
-            Check("storeys", m.Storeys);
+            if (m.Storeys.Source == "photo") outp.Add("storeys"); // MA-6-9: photos agreeing is not a count being right (P-1, D17)
+            else Check("storeys", m.Storeys);
             Check("storey height", m.StoreyHeightMm);
             for (int i = 0; i < m.Openings.Count; i++)
                 Check($"opening {i + 1} ({m.Openings[i].Kind} on {m.Openings[i].Facade})", m.Openings[i].WidthMm);
