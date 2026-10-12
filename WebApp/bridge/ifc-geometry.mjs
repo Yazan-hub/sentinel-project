@@ -260,13 +260,14 @@ async function read(api, mid, wallsOnly = false) {
   const bodyPoints = (line, F) => {
     const reps = refs(R(line.Representation)?.Representations);
     const idf = (r) => String(val(r.RepresentationIdentifier) ?? "");
-    const pts = [];
-    const add = (p) => { pts.push(p); if (pts.length > MAX_PTS) no(`a body of more than ${MAX_PTS} points`); };
+    const pts = [], groups = [];   // groups: the points of each solid on its own (wallBox: two solids side by side are not one rectangle)
+    const add = (p) => { pts.push(p); groups.at(-1).push(p); if (pts.length > MAX_PTS) no(`a body of more than ${MAX_PTS} points`); };
     const walk = (it0, G, nested) => {
       let it = it0, d = 0;
       while (it && (it.type === WebIFC.IFCBOOLEANCLIPPINGRESULT || it.type === WebIFC.IFCBOOLEANRESULT)) { if (++d > MAX_DEPTH) no("clipping nested too deep"); it = R(it.FirstOperand); }
       if (!it) return;
       if (it.type === WebIFC.IFCMAPPEDITEM) { const m = mapOf(it, G, nested); for (const j of m.items) walk(j, m.F, true); return; }
+      if (it.type === WebIFC.IFCEXTRUDEDAREASOLID || it.type === WebIFC.IFCFACETEDBREP || it.type === WebIFC.IFCTRIANGULATEDFACESET || it.type === WebIFC.IFCPOLYGONALFACESET) groups.push([]);
       if (it.type === WebIFC.IFCEXTRUDEDAREASOLID) {
         const T = compose(G, it.Position ? frame3(ref(it.Position)) : IDENT), depth = (num(it.Depth) ?? 0) * mm, dir = unit(dirOf(it.ExtrudedDirection)) ?? [0, 0, 1];
         if (!(depth > 0)) return;
@@ -279,7 +280,7 @@ async function read(api, mid, wallsOnly = false) {
     };
     for (const rep of [...reps.filter((r) => idf(r) === "Body"), ...reps.filter((r) => idf(r) !== "Body" && idf(r) !== "Axis")]) {
       for (const it of refs(rep.Items)) walk(it, F, false);
-      if (pts.length) return pts;
+      if (pts.length) return Object.assign(pts, { groups });
     }
     return null;
   };
@@ -501,14 +502,30 @@ async function read(api, mid, wallsOnly = false) {
     const across = pts.map((p) => (p[0] - w.start[0]) * -u[1] + (p[1] - w.start[1]) * u[0]);   // its middle lies across the wall's own thickness, or it is another wall's
     if (Math.abs((Math.min(...across) + Math.max(...across)) / 2) > Math.max(w.thickness_mm, 100)) no("an opening that is not in its wall — a person cuts it");
     const a0 = Math.min(...q.map((p) => p[0])), a1 = Math.max(...q.map((p) => p[0])), z0 = Math.min(...q.map((p) => p[1])), z1 = Math.max(...q.map((p) => p[1]));
-    // all four corners of the points' box are there (a notched, sloped or arched shape lacks one); a reveal box nested inside the void (Revit's windows) is the same cut
-    if (!(a1 - a0 > 1 && z1 - z0 > 1) || ![[a0, z0], [a1, z0], [a0, z1], [a1, z1]].every(([x, z]) => q.some((p) => Math.hypot(p[0] - x, p[1] - z) < 1))) no(NOT_RECT);
+    // all four corners of the points' box are there (a notched, sloped or arched shape lacks one)
+    const near = (c) => (p) => Math.hypot(p[0] - c[0], p[1] - c[1]) < 1;
+    const corners = (x0, x1, y0, y1) => [[x0, y0], [x1, y0], [x0, y1], [x1, y1]];
+    if (!(a1 - a0 > 1 && z1 - z0 > 1) || !corners(a0, a1, z0, z1).every((c) => q.some(near(c)))) no(NOT_RECT);
+    // a point off the outer box's edges is a corner of ONE nested box with all four corners (a window's reveal); two solids side by side, a notch
+    // or a pocket leave points that are not (the cut would be the whole box). A point on an edge is one more along it.
+    const onEdge = (p) => (Math.abs(p[0] - a0) < 1 || Math.abs(p[0] - a1) < 1 || Math.abs(p[1] - z0) < 1 || Math.abs(p[1] - z1) < 1);
+    const rest = q.filter((p) => !onEdge(p));
+    if (rest.length) {
+      const b0 = Math.min(...rest.map((p) => p[0])), b1 = Math.max(...rest.map((p) => p[0])), y0 = Math.min(...rest.map((p) => p[1])), y1 = Math.max(...rest.map((p) => p[1]));
+      const inner = corners(b0, b1, y0, y1);
+      if (!(b1 - b0 > 1 && y1 - y0 > 1) || !inner.every((c) => rest.some(near(c))) || !rest.every((p) => inner.some((c) => near(c)(p)))) no(NOT_RECT);
+    }
+    // more than one solid: one holds the others (a reveal inside the void), or the cut is not one rectangle
+    const gb = (pts.groups ?? []).map((g) => { const xs = g.map((p) => (p[0] - w.start[0]) * u[0] + (p[1] - w.start[1]) * u[1]), zs = g.map((p) => p[2]); return [Math.min(...xs), Math.max(...xs), Math.min(...zs), Math.max(...zs)]; });
+    if (gb.length > 1 && !gb.some((o) => gb.every((i) => i[0] >= o[0] - 1 && i[1] <= o[1] + 1 && i[2] >= o[2] - 1 && i[3] <= o[3] + 1))) no(NOT_RECT);
     const elev = out.levels.find((l) => l.cid === w.storey)?.elevation_mm ?? 0;
     const b = { along_mm: r1((a0 + a1) / 2), width_mm: r1(a1 - a0), height_mm: r1(z1 - z0), sill_mm: r1(z0 - elev) };
     boxes.set(oid, b);
     return b;
   };
   const curtainTags = new Set([...curtainIds].map((c) => tagOf(L(c))).filter(Boolean));
+  const byTag = new Map(), openingIds = new Set(idsOf(api, mid, WebIFC.IFCOPENINGELEMENT));   // Tag → the non-opening elements that carry it
+  for (const id of idsOf(api, mid, WebIFC.IFCELEMENT)) { const t = openingIds.has(id) ? "" : tagOf(L(id)); if (t) byTag.set(t, [...(byTag.get(t) ?? []), id]); }
   for (const [hid, h] of hostRec) {
     const hl = L(hid), storey = h.rec.storey, hg = h.rec.global_id;
     if (h.kind === "floor") {
@@ -546,6 +563,13 @@ async function read(api, mid, wallsOnly = false) {
         const t = isRevit ? tagOf(o) : "";
         if (t && curtainTags.has(t)) no("the cut a curtain wall embeds in — not an opening");
         if (t && t === tagOf(hl)) no("a cut in the wall's own geometry (a join or an edited profile) — a person decides");
+        // the Tag names an element that is neither: a window's second void, a column's or a proxy's cut — never a plain opening (amendment 1)
+        const maker = t ? (byTag.get(t) ?? []).find((x) => x !== hid) : null;
+        if (maker != null && (doorIds.has(maker) || windowIds.has(maker))) {
+          const wh = hostRec.get(voidHost.get(doorOpening.get(maker)))?.rec.global_id;
+          no(`a further cut of ${prose(L(maker), maker)} ${gidOf(L(maker), maker)}${wh ? ` (it stands in ${wh})` : ""} — a person decides`);
+        }
+        if (maker != null) no(`a cut made by ${prose(L(maker), maker)} ${gidOf(L(maker), maker)} — a person decides`);
         out.openings.push({ global_id: gidOf(o, oid), host: hg, host_kind: "wall", storey, ...wallBox(oid, h.rec) });
       } catch (e) { skip(oid, o, storey, hurt(e)); }
     }
@@ -686,7 +710,7 @@ async function read(api, mid, wallsOnly = false) {
       if (pts.length) box = { min: [0, 1, 2].map((k) => r1(Math.min(...pts.map((p) => p[k])))), max: [0, 1, 2].map((k) => r1(Math.max(...pts.map((p) => p[k])))) };
       else boxWhy = "no body this reader reads";
     } catch (e) { boxWhy = hurt(e); }
-    skip(id, l, storeyOf.get(id) ?? null, "a stair — flagged from MA-8 batch 3 (8-9); a person places it", { box, ...(box ? {} : { box_why: boxWhy }) });
+    skip(id, l, storeyOf.get(id) ?? null, "a stair — this reader boxes stairs but does not place them; a person places it", { box, ...(box ? {} : { box_why: boxWhy }) });
   }
 
   // everything else that is an element: said, never silently dropped. A piece of a curtain wall or stair says whose; an opening of a host this reader did not read says so.
@@ -699,7 +723,8 @@ async function read(api, mid, wallsOnly = false) {
     if (partOf.has(id)) skip(id, l, storey, partWhy(id));
     else if (featureIds.has(id)) {
       const h = voidHost.get(id), hl = L(h);
-      skip(id, l, storeyOf.get(h) ?? storey, hl ? `an opening in ${prose(hl, h)} ${gidOf(hl, h)}, which this reader did not read — a person cuts it` : `an ${prose(l, id)} with no host — a person cuts it`);
+      skip(id, l, storeyOf.get(h) ?? storey, hl && curtainIds.has(h) && out.curtain_walls.some((c) => c.global_id === gidOf(hl, h)) ? `a cut in curtain wall ${gidOf(hl, h)} — its curtain type draws it; not an opening`
+        : hl ? `an opening in ${prose(hl, h)} ${gidOf(hl, h)}, which this reader did not read — a person cuts it` : `an ${prose(l, id)} with no host — a person cuts it`);
     } else skip(id, l, storey, `an ${prose(l, id)} — sentinel-ifc ${VERSION} reads walls, floors, openings, doors, windows, columns and curtain walls; a person places it`);
   }
   }

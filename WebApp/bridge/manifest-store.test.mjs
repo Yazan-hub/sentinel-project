@@ -1,5 +1,5 @@
 // Manifests per container version: elements into the revision tables, datum + site into one document.
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { captureManifest, getManifest, listManifests, backfillManifest, manifestWalls, WALLS_CAP } from "./manifest-store.mjs";
@@ -125,6 +125,17 @@ describe("backfillManifest — only the version's own file", () => {
       expect(w.z1).toBeGreaterThan(w.z0);
       expect(w.storey).not.toMatch(/^L\d\d$/); // a level's name, not the reader's file-local cid
       expect((await getManifest("p", "v-1", d)).walls).toEqual(doc.walls);
+    });
+    it("MA-8-4 (amendment 17): the default reader is asked for the walls alone", async () => {
+      vi.resetModules();
+      const seen = [];
+      vi.doMock("./ifc-geometry.mjs", () => ({ readIfcGeometry: async (_b, o) => { seen.push(o); return { walls: [], levels: [], version: "x", reader: "sentinel-ifc" }; } }));
+      try {
+        const { captureManifest: cap } = await import("./manifest-store.mjs");
+        const { readWalls, ...rest } = memDeps();
+        await cap("p", "v-1", FIX, { actor: "cli" }, rest);
+        expect(seen).toEqual([{ wallsOnly: true }]);
+      } finally { vi.doUnmock("./ifc-geometry.mjs"); vi.resetModules(); }
     });
     it("a reader that throws keeps the capture and sets walls_why", async () => {
       const d = { ...memDeps(), readWalls: async () => { throw new Error("web-ifc could not open the file"); } };

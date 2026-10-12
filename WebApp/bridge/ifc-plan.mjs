@@ -7,10 +7,10 @@
 // opening or column is pre-checked against what the executor will refuse (one basic wall under its point, a storey whose level is known, a
 // curtain wall not in the way) so one bad opening never costs the storey's changeset; what fails is a held exception, in words.
 // ponytail: the IFC's axes already meet — no trimEnds; level-bound wall tops (Promote DD attaches them) and curved walls are MA-8's.
-import { MAX_CHANGESET_ELEMENTS, CREATE_ENTITY } from "./changesets-logic.mjs";
+import { MAX_CHANGESET_ELEMENTS, CREATE_ENTITY, outlineProblem } from "./changesets-logic.mjs";
 import { KIND_CATEGORY } from "./changesets-typing.mjs";
 import { toModel, placeRefusal, matchStoreys, gapOf, groupGaps, NOT_MEASURED, typeOpening, pointAlong, nominal } from "./survey-plan.mjs";
-import { SIZE_BAND_MM, typeByDiameter, typeBySize } from "./holding-logic.mjs";
+import { SIZE_BAND_MM, typeByDiameter, typeBySize, sectionOf, diameterOf } from "./holding-logic.mjs";
 import { locate } from "./wall-location.mjs";
 
 const err = (status, message) => Object.assign(new Error(message), { status });
@@ -22,6 +22,8 @@ export const LEVEL_MM = 2;
 export const HOST_TOL_MM = 1;
 const FROM = { layers: "material layers", type_layers: "the type's layers", base_quantities: "base quantities", body: "the body" };
 const ID_SHOWN = 3;
+/** MA-8-4: a curtain wall nearer than this to the middle of its storey's walls has no told outside (mm). */
+const FACADE_MIN_MM = 500;
 const r1 = (v) => Math.round(v * 10) / 10 || 0;
 
 const byClass = (list) => { const m = new Map(); for (const n of list) m.set(n.ifc_class, [...(m.get(n.ifc_class) ?? []), n]); return m; };
@@ -63,12 +65,16 @@ const inLoop = (p, loop) => {
   return inside;
 };
 const sameName = (s) => String(s ?? "").replace(/\s*:\s*/g, ":").trim().toLowerCase();
-/** The catalogue row the IFC's own type name ("Family:Type", Revit's) names, when it is exactly one of the category's (D-B2-1, amendment 13). */
-const exactRow = (catalog, category, ifcName, same) => {
+/** The catalogue row the IFC's own type name ("Family:Type", Revit's) names, when it is exactly one of the category's (D-B2-1, amendment 13)
+ *  and its name, if it states a size, agrees with the measured one (`size` {w, h} or {dia}) within SIZE_BAND_MM: a name alone never types against the element. */
+const exactRow = (catalog, category, ifcName, same, size) => {
   const want = sameName(ifcName);
   if (!want.includes(":")) return null;
   const rows = (catalog?.types ?? []).filter((t) => t && same(t, category) && sameName(`${t.family}:${t.type}`) === want);
-  return rows.length === 1 ? rows[0] : null;
+  if (rows.length !== 1) return null;
+  const s = sectionOf(rows[0].type), d = diameterOf(rows[0].type);
+  const off = size.dia != null ? d != null && Math.abs(d - size.dia) > SIZE_BAND_MM : s != null && (Math.abs(s[0] - size.w) > SIZE_BAND_MM || Math.abs(s[1] - size.h) > SIZE_BAND_MM);
+  return off ? null : rows[0];
 };
 
 /** → {storeys: [{storey, body | null, byCid, exceptions, once}], groups, already_filed}, planSurvey's shape. `job` {id, ledger: {id}, reader,
@@ -117,11 +123,15 @@ export function planIfc({ job, candidates, frame, levels: named = {}, manifest =
         const L = g.LocationCurve, ext = g.is_external;
         const loc = ext === true ? { location: "Exterior", why: null } : ext === false ? { location: "Interior", why: null }
           : locate([...segs, { x0: L.start[0], y0: L.start[1], x1: L.end[0], y1: L.end[1], width: 100 }], segs.length);
-        const facade = loc.location === "Exterior" ? facadeOf(L.start, L.end, centre, tn ?? [0, 1]) : null;
+        // the outside is told by which side of the storey's walls' middle the wall lies; on that middle (a lone curtain wall, a symmetric storey) it is a guess
+        const wl = Math.hypot(L.end[0] - L.start[0], L.end[1] - L.start[1]) || 1;
+        const across = Math.abs(-(L.end[1] - L.start[1]) * ((L.start[0] + L.end[0]) / 2 - centre[0]) + (L.end[0] - L.start[0]) * ((L.start[1] + L.end[1]) / 2 - centre[1])) / wl;
+        const unsure = loc.location === "Exterior" && across < FACADE_MIN_MM;
+        const facade = loc.location === "Exterior" && !unsure ? facadeOf(L.start, L.end, centre, tn ?? [0, 1]) : null;
         const facts = { params: { ...(loc.location ? { Location: loc.location } : {}), ...(facade ? { Facade: facade } : {}) } };
         let ans = null, why = null;
         try { ans = type("wall", facts, c.cid, s.level); } catch (e) { if (!e.gap) throw e; why = e.gap.key; }
-        return { curtain: true, facts, loc, facade, ans, why };
+        return { curtain: true, facts, loc, facade, unsure, ans, why };
       }
       const i = basic.indexOf(c);
       const loc = g.is_external === true ? { location: "Exterior", why: null } : g.is_external === false ? { location: "Interior", why: null } : locate(segs, i);
@@ -134,6 +144,7 @@ export function planIfc({ job, candidates, frame, levels: named = {}, manifest =
       const t = typed[i], g = c.geometry, ext = g.is_external;
       if (again(c)) { if (t.curtain) curtains.push(lineOf(c)); else lines.set(c.cid, lineOf(c)); return; }   // in the model already: it still hosts, or is in the way
       if (t.curtain) {
+        if (t.unsure) { hold(c, `IfcCurtainWall ${c.cid}: its outside cannot be told from the storey's walls — a person decides`); return; }
         const said = Object.entries(t.facts.params).map(([k, v]) => `${k} ${v}`).join(", ") || "no facts";
         if (!t.ans) { hold(c, `IfcCurtainWall ${c.cid}: no office rule types a wall with ${said}${t.why ? ` (${t.why})` : ""} — a person decides`); return; }
         if (!/^curtain wall$/i.test(t.ans.FamilyName)) { hold(c, `IfcCurtainWall ${c.cid}: the office's rules answer a basic wall (${t.ans.TypeName}) for ${said} — no facade rule names a curtain type for it; a person decides`); return; }
@@ -160,6 +171,8 @@ export function planIfc({ job, candidates, frame, levels: named = {}, manifest =
     });
     for (const c of mine.filter((x) => x.kind === "floor")) {
       if (again(c)) { floors.set(c.cid, c.geometry.LocationLoop.map((p) => M.xy(p))); continue; }
+      const badLoop = outlineProblem(c.geometry.LocationLoop.map((p) => M.xy(p)));
+      if (badLoop) { hold(c, `its outline ${badLoop} — a person decides`); continue; }
       const facts = { thickness_mm: c.measured.thickness_mm, params: { Function: c.geometry.is_external ? "Exterior" : "Interior" } }; // the BDS floor rule's key
       const gp = gapOf(type, "floor", facts, c.cid, null, s.level);
       if (gp) { gap(c, gp); continue; }
@@ -215,6 +228,8 @@ export function planIfc({ job, candidates, frame, levels: named = {}, manifest =
     for (const c of mine.filter((x) => x.kind === "opening" && x.geometry.host_kind === "floor")) {
       if (again(c)) continue;
       const g = c.geometry, B = g.Boundary.map((q) => M.xy(q)), mid = [0, 1].map((k) => B.reduce((sum, q) => sum + q[k], 0) / B.length), host = floors.get(g.host);
+      const bad = outlineProblem(B);
+      if (bad) { hold(c, `its outline ${bad} — a person cuts the hole`); continue; }
       if (!host) { hold(c, `its host floor ${g.host} is not filed on ${s.level} (a type gap, held, or not read) — a person cuts the hole`); continue; }
       if (!inLoop(mid, host) || !B.every((q) => inLoop(q, host))) { hold(c, `its outline is not inside its host floor ${g.host} — Revit cuts one floor; a person decides`); continue; }
       if ([...floors.values()].filter((l) => inLoop(mid, l)).length !== 1) { hold(c, `its centre lies in more than one floor of ${s.level} — Revit cuts one floor; a person decides`); continue; }
@@ -237,7 +252,7 @@ export function planIfc({ job, candidates, frame, levels: named = {}, manifest =
       if (!at.line) { hold(c, at.why); continue; }
       const w = nominal(m.width_mm), h = nominal(m.height_mm), size = `${w} x ${h} mm`, hi = walls.indexOf(host);
       const { facts, g: gp, by, why, via } = typeOpening({ type, kind: c.kind, cid: c.cid, w, h, hostFunction: typed[hi].loc?.location, catalog, sameCategory, level: s.level,
-        exact: () => exactRow(catalog, KIND_CATEGORY[c.kind], g.ifc_type_name, sameCategory) });
+        exact: () => exactRow(catalog, KIND_CATEGORY[c.kind], g.ifc_type_name, sameCategory, { w, h }) });
       if (gp) { gap(c, gp, why); continue; }
       elements.push({ op: "create", kind: c.kind, cid: c.cid, evidence: c.evidence, facts, validate: { identity: { Class: CREATE_ENTITY[c.kind], Name: c.cid } },
         place: { LevelName: s.level, Location: [...p, E], ...(by ? { FamilyName: by.family, TypeName: by.type } : {}), ...(c.kind === "window" ? { SillHeight: Math.max(0, m.sill_mm) } : {}) },
@@ -251,7 +266,7 @@ export function planIfc({ job, candidates, frame, levels: named = {}, manifest =
       if (again(c)) continue;
       const g = c.geometry, m = c.measured, round = g.shape === "circle";
       if (!s.checked) { hold(c, unchecked); continue; }
-      if (g.load_bearing === true) { hold(c, "a structural column — 8-7 types Structural Columns; a person places it"); continue; }
+      if (g.load_bearing === true) { hold(c, "a structural column — structural columns are not placed from an IFC yet; a person places it"); continue; }
       if (off(c, g.base_mm, "base")) continue;
       const topAt = all.filter((x) => x.cid !== s.cid && x.scan_mm > s.scan_mm + LEVEL_MM && Math.abs(x.scan_mm - g.top_mm) <= LEVEL_MM)[0];
       if (!topAt) { hold(c, `its top is at ${g.top_mm} mm, at no level of this IFC's matched storeys — a person decides`); continue; }
@@ -264,7 +279,7 @@ export function planIfc({ job, candidates, frame, levels: named = {}, manifest =
       }
       const category = KIND_CATEGORY.column, size = round ? `D${Math.round(m.diameter_mm)} mm` : `${Math.round(wd)} x ${Math.round(dp)} mm`;
       const { facts, g: gp, by, why, via } = typeOpening({ type, kind: "column", cid: c.cid, w: Math.round(wd), h: Math.round(dp), catalog, sameCategory, level: s.level,
-        exact: () => exactRow(catalog, category, g.ifc_type_name, sameCategory),
+        exact: () => exactRow(catalog, category, g.ifc_type_name, sameCategory, round ? { dia: m.diameter_mm } : { w: wd, h: dp }),
         ...(round ? { round: Math.round(m.diameter_mm), find: () => typeByDiameter(catalog, category, m.diameter_mm, sameCategory) } : { find: () => typeBySize(catalog, category, wd, dp, sameCategory) }) });
       if (gp) { gap(c, gp, why); continue; }
       elements.push({ op: "create", kind: "column", cid: c.cid, evidence: c.evidence, facts, validate: { identity: { Class: CREATE_ENTITY.column, Name: c.cid } },

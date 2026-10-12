@@ -247,6 +247,30 @@ describe("planIfc — MA-8-4 (0.2.0): openings, doors, windows, columns and curt
     });
   });
 
+  describe("review fixes", () => {
+    it("a floor hole the executor would refuse (a 300-segment circle, an edge under 1 mm) is held in words and costs the storey nothing", () => {
+      const circle = Array.from({ length: 300 }, (_, k) => [10000 + 400 * Math.cos(k * Math.PI / 150), 5000 + 400 * Math.sin(k * Math.PI / 150)]);
+      const sliver = [[5000, 5000], [5000.5, 5000], [5000.5, 6000], [5000, 6000]];
+      const hole = (b, cid) => mk("opening", { host: FLOOR, host_kind: "floor", Boundary: b }, { area_m2: 1 }, cid);
+      const p = plan(withC(hole(circle, "HOLE000000000000001"), hole(sliver, "HOLE000000000000002")));
+      expect(heldOf(p, "HOLE000000000000001")).toMatch(/^its outline must be 3 to 256 finite \[x,y\] points — a person cuts the hole$/);
+      expect(heldOf(p, "HOLE000000000000002")).toMatch(/^its outline has an edge shorter than 1 mm/);
+      expect(filedAs(s02(p)).elements.some((e) => e.kind === "wall")).toBe(true);
+    });
+    it("a door typed by the IFC's own name must agree with the measured size: 1500 wide against a 1000 x 2100 row is not that row", () => {
+      const p = plan(change(cv2, DOOR, (c) => { c.measured.width_mm = 1500; }));
+      expect(elOf(p, DOOR)?.place.TypeName).not.toBe("BDS_EXT_1 PNL_WOOD_1000 x 2100 mm");
+      expect(s02(p).byCid.get(DOOR)?.typing?.typed_by).not.toBe("bridge-ifc-type");
+    });
+    it("a curtain wall on the middle of its storey's walls has no told outside: held, not given a facade", () => {
+      const ws = cv2.candidates.filter((c) => c.kind === "wall" && c.geometry.storey === "L02"), mid = (k) => ws.reduce((m, c) => m + (c.geometry.LocationCurve.start[k] + c.geometry.LocationCurve.end[k]) / 2, 0) / ws.length;
+      const cwall = mk("wall", { LocationCurve: { start: [mid(0) - 4000, mid(1)], end: [mid(0) + 4000, mid(1)] }, BaseElevation: 0, TopElevation: 3500, name: "CW", ifc_class: "IFCCURTAINWALL", ifc_type_name: "", is_external: true, curtain: true, from: "axis" }, { height_mm: 3500, length_mm: 8000 }, "CURTAIN0000000000009");
+      const p = plan(withC(cwall), { type: typeShell, levels: { L02: "FC L01" }, manifest: [{ name: "FC L01", elevation_mm: 0, from: "ARC.ifc P01" }] });
+      expect(heldOf(p, "CURTAIN0000000000009")).toBe("IfcCurtainWall CURTAIN0000000000009: its outside cannot be told from the storey's walls — a person decides");
+      expect(elOf(p, "CURTAIN0000000000009")).toBeUndefined();
+    });
+  });
+
   describe("columns", () => {
     it("the CV2 column: typed by the IFC's own name (457 x 475mm), its top to the matched level above — filed as the bridge validates it", () => {
       const p = plan(cv2, { manifest: MANIFEST }), c = elOf(p, COL);
@@ -277,7 +301,7 @@ describe("planIfc — MA-8-4 (0.2.0): openings, doors, windows, columns and curt
       expect(held({ rotation_deg: 30 })).toBe("a column turned 30° — Sentinel places columns square to the model (no Rotation for a column); a person decides");
       expect(held({ rotation_deg: 0.4 })).toBeUndefined();
       expect(heldOf(plan(change(cv2, COL, (c) => { c.geometry.rotation_deg = 10; }), { manifest: MANIFEST, frame: { ...ZERO, rotation_deg: 80 } }), COL)).toBeUndefined();   // 10° and the lead's 80°: square
-      expect(held({ load_bearing: true })).toBe("a structural column — 8-7 types Structural Columns; a person places it");
+      expect(held({ load_bearing: true })).toBe("a structural column — structural columns are not placed from an IFC yet; a person places it");
       expect(held({ base_mm: 50 })).toBe("its base sits 50 mm off IFC L02 job-0007 — a person decides".replace("IFC L02 job-0007", "GF"));
       expect(held({ top_mm: 3000 })).toBe("its top is at 3000 mm, at no level of this IFC's matched storeys — a person decides");
       expect(held({}, { levels: { L02: "Nowhere" } })).toMatch(/^its level Nowhere is in no published model/);
@@ -326,12 +350,12 @@ describe("planIfc — MA-8-4 (0.2.0): openings, doors, windows, columns and curt
   });
 
   it("stairs: IfcStair rows are one exception on their storey ('IfcStair × 2'), with their boxes on the receipt; nothing is placed for them", () => {
-    const stair = (g, box) => ({ global_id: g, ifc_class: "IFCSTAIR", ifc_name: "IfcStair", storey: "L02", why: "a stair — flagged from MA-8 batch 3 (8-9); a person places it", box });
+    const stair = (g, box) => ({ global_id: g, ifc_class: "IFCSTAIR", ifc_name: "IfcStair", storey: "L02", why: "a stair — this reader boxes stairs but does not place them; a person places it", box });
     const rows = [stair("STAIR000000000000001", { min: [0, 0, 0], max: [1000, 3000, 3500] }), stair("STAIR000000000000002", null)];
     const p = plan({ ...cv2, notRead: [...cv2.notRead, ...rows] });
     const ex = s02(p).exceptions.find((e) => e.unique_id === "IFCSTAIR@L02");
     expect(ex).toMatchObject({ name: "IfcStair × 2" });
-    expect(ex.reason).toMatch(/^a stair — flagged from MA-8 batch 3 \(8-9\); a person places it · STAIR000000000000001, STAIR000000000000002/);
+    expect(ex.reason).toMatch(/^a stair — this reader boxes stairs but does not place them; a person places it · STAIR000000000000001, STAIR000000000000002/);
     expect(s02(p).body.elements.filter((e) => /stair/i.test(JSON.stringify(e.validate)))).toEqual([]);
   });
 

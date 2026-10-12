@@ -384,6 +384,52 @@ describe("readIfcGeometry — MA-8-4 (0.2.0)", () => {
     expect(byName(big, "W1 south")).toBeTruthy();
   });
 
+  // review fixes: an opening of one body with two solids, a notch, a reveal; every body point of the box is not enough
+  it("a body of two separate rectangles or a notched one is not one rectangle; a reveal box inside the void is the same cut", async () => {
+    const solid2 = (x0, x1, z0, z1, n, extrude = "#480") => [`#${n}=IFCCARTESIANPOINT((${x0}.,${z0}.));`, `#${n + 1}=IFCCARTESIANPOINT((${x1}.,${z0}.));`, `#${n + 2}=IFCCARTESIANPOINT((${x1}.,${z1}.));`, `#${n + 3}=IFCCARTESIANPOINT((${x0}.,${z1}.));`,
+      `#${n + 4}=IFCPOLYLINE((#${n},#${n + 1},#${n + 2},#${n + 3},#${n}));`, `#${n + 5}=IFCARBITRARYCLOSEDPROFILEDEF(.AREA.,$,#${n + 4});`, `#${extrude.slice(1)}=IFCEXTRUDEDAREASOLID(#${n + 5},#459,#1,300.);`];
+    const two = (second) => addLines(text, [...O4(["#452=IFCCARTESIANPOINT((5500.,2100.));", "#453=IFCCARTESIANPOINT((5000.,2100.));", "#455=IFCPOLYLINE((#450,#451,#452,#453,#454,#450));"]).map((l) => l.replace("(#460));", "(#460,#480));")), ...second]);
+    const NOT_RECT = ["an opening that is not a rectangle in its wall — a person cuts it"];
+    const apart = await read(two(solid2(7000, 8000, 0, 2100, 600)));
+    expect(why(apart, "CN2O400000000000000000")).toEqual(NOT_RECT);
+    const reveal = await read(two(solid2(4600, 5400, 100, 2000, 600)));
+    expect(reveal.openings.filter((o) => o.host_kind === "wall")).toMatchObject([{ global_id: "CN2O400000000000000000", along_mm: 5000, width_mm: 1000, height_mm: 2100 }]);
+    const notch = await read(addLines(text, O4(["#452=IFCCARTESIANPOINT((5500.,2100.));", "#600=IFCCARTESIANPOINT((5300.,2100.));", "#601=IFCCARTESIANPOINT((5300.,1500.));", "#602=IFCCARTESIANPOINT((4700.,1500.));", "#603=IFCCARTESIANPOINT((4700.,2100.));",
+      "#455=IFCPOLYLINE((#450,#451,#452,#600,#601,#602,#603,#454,#450));"])));
+    expect(why(notch, "CN2O400000000000000000")).toEqual(NOT_RECT);
+  });
+
+  // review fixes: a Revit export's tagged openings belong to the element that made them
+  it("amendment 1: a further void under a window's or a column's Tag is a cut of that element, never a plain wall opening", async () => {
+    const extra = (tag) => addRv(rv("revit2024-concept-cv2"), [`#900=IFCOPENINGELEMENT('REVOP00000000000000001',#18,'x',$,'Opening',#847,#844,'${tag}');`, "#901=IFCRELVOIDSELEMENT('REVOP0000000000000000R',#18,$,$,#84,#900);"]);
+    const d = await rl(extra("2072732"));   // the door's Tag: its own opening is paired first, this is a second one
+    expect(d.openings).toEqual([]);
+    expect(why(d, "REVOP00000000000000001")).toEqual([`a further cut of IfcDoor ${DOOR} (it stands in ${RP}) — a person decides`]);
+    const c = await rl(extra("2072735"));   // the column's Tag
+    expect(c.openings).toEqual([]);
+    expect(why(c, "REVOP00000000000000001")).toEqual([`a cut made by IfcColumn 2VExwC6xrF6u4NaChOdio0 — a person decides`]);
+  });
+
+  it("an opening in a curtain wall that was read says so, not that the host was not read", async () => {
+    const t = addLines(text, [...KWL, "#450=IFCCARTESIANPOINT((4500.,0.));", "#463=IFCOPENINGELEMENT('CN2O400000000000000000',$,'O4',$,$,#33,$,$,.OPENING.);", "#464=IFCRELVOIDSELEMENT('CN2V500000000000000000',$,$,$,#403,#463);"]);
+    const r = await read(t);
+    expect(r.curtain_walls.map((k) => k.global_id)).toEqual(["CN2K100000000000000000"]);
+    expect(why(r, "CN2O400000000000000000")).toEqual(["a cut in curtain wall CN2K100000000000000000 — its curtain type draws it; not an opening"]);
+  });
+
+  // review fixes: Revit exports map walls too
+  it("a wall whose body is an IfcMappedItem with an identity origin is read; one with a moved origin is said", async () => {
+    const wall = (origin = "#7") => [...(origin === "#380" ? ["#379=IFCCARTESIANPOINT((100.,0.,0.));", "#380=IFCAXIS2PLACEMENT3D(#379,$,$);"] : []),
+      "#600=IFCSHAPEREPRESENTATION(#9,'Body','SweptSolid',(#39));", `#601=IFCREPRESENTATIONMAP(${origin},#600);`, "#603=IFCCARTESIANTRANSFORMATIONOPERATOR3D($,$,#6,1.,$);", "#602=IFCMAPPEDITEM(#601,#603);",
+      "#604=IFCSHAPEREPRESENTATION(#9,'Body','MappedRepresentation',(#602));", "#605=IFCSHAPEREPRESENTATION(#9,'Axis','Curve2D',(#42));", "#606=IFCPRODUCTDEFINITIONSHAPE($,$,(#605,#604));",
+      "#607=IFCWALL('CN2WM00000000000000000',$,'WM',$,$,#33,#606,$,.NOTDEFINED.);", "#608=IFCRELCONTAINEDINSPATIALSTRUCTURE('CN2WMR0000000000000000',$,$,$,(#607),#20);"];
+    const ok = await read(addLines(text, wall()));
+    expect(byName(ok, "WM")).toMatchObject({ start: [0, 0], end: [20000, 0], height_mm: 3500, thickness_mm: 300, body: "extrusion" });
+    const moved = await read(addLines(text, wall("#380")));
+    expect(byName(moved, "WM")).toBeUndefined();
+    expect(moved.not_read.some((n) => n.global_id === "CN2WM00000000000000000")).toBe(true);
+  });
+
   it("columns: a circle, a 475 x 610 rectangle (width is the profile's X), a quarter turn, a B-rep box; a section it does not read is said", async () => {
     const round = await read(edit(["#292=IFCRECTANGLEPROFILEDEF(.AREA.,$,#291,400.,400.)", "#292=IFCCIRCLEPROFILEDEF(.AREA.,$,#291,250.)"]));
     expect(round.columns).toMatchObject([{ shape: "circle", diameter_mm: 500, at: [2000, 2000], rotation_deg: 0, base_mm: 0, top_mm: 3500 }]);
@@ -462,7 +508,7 @@ describe("readIfcGeometry — MA-8-4 (0.2.0)", () => {
       "#445=IFCRELCONTAINEDINSPATIALSTRUCTURE('CN2T1R0000000000000000',$,$,$,(#442),#20);"];
     it("a stair is said with its box and never read; its flight says whose it is", async () => {
       const r = await read(addLines(text, ST));
-      expect(r.not_read.find((n) => n.global_id === "CN2T100000000000000000")).toMatchObject({ ifc_class: "IFCSTAIR", storey: "L00", why: "a stair — flagged from MA-8 batch 3 (8-9); a person places it", box: { min: [0, -150, 0], max: [20000, 150, 3500] } });
+      expect(r.not_read.find((n) => n.global_id === "CN2T100000000000000000")).toMatchObject({ ifc_class: "IFCSTAIR", storey: "L00", why: "a stair — this reader boxes stairs but does not place them; a person places it", box: { min: [0, -150, 0], max: [20000, 150, 3500] } });
       expect(r.not_read.find((n) => n.global_id === "CN2T1F0000000000000000")).toMatchObject({ ifc_class: "IFCSTAIRFLIGHT", why: "a flight of stair CN2T100000000000000000" });
       const bare = await read(addLines(text, [...ST.slice(2, 3).map((l) => l.replace(",#441,", ",$,")), ST[5]]));
       expect(bare.not_read.find((n) => n.global_id === "CN2T100000000000000000")).toMatchObject({ box: null, box_why: "no body this reader reads" });

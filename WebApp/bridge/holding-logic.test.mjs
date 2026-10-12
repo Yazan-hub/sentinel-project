@@ -128,6 +128,14 @@ describe("typeGapGroups — the Holding Area's type gaps", () => {
     expect(g.open).toMatchObject([{ category: "Doors", elements: 2, runs: 2, reopened: { since: at(3), more: 1 } }]);
   });
 
+  it("MA-8-4: a survey/IFC group of a round column (size D<n> mm) closes on the one catalogue row named at that diameter; a Promote group does not", () => {
+    const rows = [{ category: "Columns", family: "M_Metal Clad Column", type: "610mm Diameter" }, { category: "Columns", family: "M_Rectangular Column", type: "475 x 610mm" }];
+    const round = { category: "Columns", want: null, size: "D610 mm", job_id: "job-0007" };
+    expect(catalogMatch(rows, round, same)).toBe(rows[0]);
+    expect(catalogMatch(rows, { ...round, size: "D900 mm" }, same)).toBeNull();
+    expect(catalogMatch(rows, { ...round, job_id: null }, same)).toBeNull();
+  });
+
   it("the catalogue in force closes a group when it holds the type it wants — or, wanting none, a type of its category named at its size", () => {
     const catalog = { types: [{ category: "Walls", family: "Basic Wall", type: "BDS_EXT_ARC_CMU_125 mm" }, { category: "Doors", family: "BDS_INT_1 PNL", type: "BDS_INT_1 PNL_WOOD_915 x 2134 mm" }], label: "type_catalog@3 · office · 0f0f0f0f0f0f…" };
     const g = typeGapGroups([run(901, 1, [WALL, DOOR])], [], catalog, same);

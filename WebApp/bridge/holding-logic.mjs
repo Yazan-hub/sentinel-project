@@ -134,6 +134,8 @@ export function typeByDiameter(catalog, category, dia, same) {
 export function catalogMatch(types, g, sameCategory) {
   const rows = (Array.isArray(types) ? types : []).filter((r) => r && sameCategory(r, g.category));
   if (g.want) return rows.find((r) => norm(r.type) === norm(g.want)) ?? null;
+  const round = g.job_id ? /^D(\d+(?:\.\d+)?) mm$/.exec(String(g.size ?? "")) : null;   // MA-8-4: an IFC round column's gap, as the planner finds it
+  if (round) return typeByDiameter({ types: rows }, g.category, Number(round[1]), sameCategory)?.row ?? null;
   const want = sectionOf(g.size);
   if (!want) return null;
   if (g.job_id) return typeBySize({ types: rows }, g.category, want[0], want[1], sameCategory)?.row ?? null;
