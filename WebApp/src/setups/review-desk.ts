@@ -345,6 +345,24 @@ export async function readVerified(base: string, key: string, ids: string[]): Pr
   })));
 }
 
+/** MA-8-5c: how many of the project's newest verify:measured rows the desk's "Measured against the scan" section reads. */
+export const MEASURED_MAX = 200;
+/** MA-8-5c: the project's newest verify:measured rows in one read (no entity_id), the newest per changeset — for the survey changesets older than the
+ *  DECIDED_MAX newest reports, whose measure the decided list no longer shows; `shown` = the ids whose measure the decided list already renders (left out here). `name` is the row's own action text (the desk may not know the
+ *  changeset); `capped` when the ledger holds older rows than this read returns. Throws "not read — <why>". */
+export async function readMeasuredRecent(base: string, key: string, shown: Set<string>): Promise<{ items: { id: string; name: string; rec: VerifyRecord }[]; capped: boolean }> {
+  const j = await auditRows<{ id: number; entity_id: string; at: string; actor: string; action?: string; new_value?: Partial<VerifyRecord> | null }>(
+    `${base.replace(/\/$/, "")}/cde/${encodeURIComponent(key)}/audit?entity_type=changeset&action_prefix=verify:measured&limit=${MEASURED_MAX}`);
+  const seen = new Map<string, { id: string; name: string; rec: VerifyRecord }>();
+  for (const x of j.rows) {   // newest first: the first row of a changeset is its newest
+    if (shown.has(x.entity_id) || seen.has(x.entity_id)) continue;
+    const v = x.new_value ?? {};
+    seen.set(x.entity_id, { id: x.entity_id, name: x.action || `changeset ${x.entity_id}`, rec: { id: x.id, at: x.at, actor: x.actor, status: String(v.status ?? ""), reference: v.reference,
+      target_mm: v.target_mm, deviation: v.deviation, counts: v.counts, error: v.error, placed_by: v.placed_by, elements: Array.isArray(v.elements) ? v.elements : [] } });
+  }
+  return { items: [...seen.values()], capped: j.total > j.rows.length };
+}
+
 const MEASURED = ["within_tolerance", "out_of_tolerance", "missing", "insufficient_data", "not_measured"];
 /** "3 within tolerance, 0 out of tolerance, 0 missing, 0 insufficient data, 0 not measured" — the bridge's count words (survey-plan countWords). Pure. */
 export const countWords = (n: Record<string, number>): string => MEASURED.map((s) => `${n[s] ?? 0} ${s.replace(/_/g, " ")}`).join(", ");
@@ -622,6 +640,24 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
     return box;
   };
 
+  // MA-8-5c: the measured changesets the decided list above does not show (older than its newest DECIDED_MAX). textContent only.
+  const measuredBox = (data: Awaited<ReturnType<typeof readMeasuredRecent>> | Error): HTMLElement => {
+    const box = el("div", "", "margin-top:.9rem;border-top:1px solid #2a2a30;padding-top:.5rem");
+    box.append(el("div", "Measured against the scan", "font-weight:600"));
+    if (data instanceof Error) { box.append(el("div", `Measures ${data.message}`, "color:#fca5a5")); return box; }
+    const rest = data.items;
+    if (!rest.length) box.append(el("div", "No other survey changeset has been measured.", "color:#8b93a1"));
+    if (data.capped) box.append(el("div", `The newest ${MEASURED_MAX} measures — the older ones are on the ledger.`, "color:#fbbf24"));
+    for (const m of rest) {
+      const mv = verifiedView({ id: m.id, name: m.name, source: "", status: "", created_at: "", elements: [] } as PendingChangeset, m.rec)!;
+      const one = el("details", "", "margin:.4rem 0;border:1px solid #2a2a30;border-radius:.35rem;padding:.3rem .5rem");
+      one.append(el("summary", m.name, "cursor:pointer"), el("div", mv.head, "margin:.3rem 0 .1rem;color:#8b93a1"));
+      for (const l of mv.lines) one.append(el("div", l.line), el("div", l.words, "color:#8b93a1;font-size:11px"));
+      box.append(one);
+    }
+    return box;
+  };
+
   // MA-8-1: one line per run; a lead gets Publish on a complete one (textContent only).
   const editCostBox = (data: EditCost | Error, role: string): HTMLElement => {
     const box = el("div", "", "margin-top:.9rem;border-top:1px solid #2a2a30;padding-top:.5rem");
@@ -669,9 +705,13 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
     // MA-4e: the newest measure of each placed survey changeset shown — one read each; a failed one is said under its own report, never a guess.
     const verified = decided instanceof Error ? new Map<string, VerifyRecord | Error | null>() : await readVerified(base, key, decided.slice(0, DECIDED_MAX).filter((c) => c.job && !isDrawn(c)).map((c) => c.id));
     if (mine !== seq) return;
+    const shownMeasured = new Set(decided instanceof Error ? [] : decided.slice(0, DECIDED_MAX).filter((c) => c.job && !isDrawn(c)).map((c) => c.id));
+    const measuredAll = await readMeasuredRecent(base, key, shownMeasured).catch((e: Error) => e);   // MA-8-5c: a read of its own; a failure is said in its section
+    if (mine !== seq) return;
     // Review C4: built once, and a throw in it is said — it never leaves the desk at "Reading…" or takes the proposed list with it.
     let tail: HTMLElement;
     try { tail = recent(decided, ledger, role.role, verified); } catch (e) { tail = el("div", `Reports not shown — ${(e as Error).message}`, "color:#fca5a5"); }
+    try { tail.append(measuredBox(measuredAll)); } catch (e) { tail.append(el("div", `Measures not shown — ${(e as Error).message}`, "color:#fca5a5")); }
     try { tail.append(editCostBox(cost, role.role)); } catch (e) { tail.append(el("div", `Edit cost not shown — ${(e as Error).message}`, "color:#fca5a5")); }
     bar.replaceChildren(el("b", `Review desk · ${key}`), el("span", roleWords(role), "color:#8b93a1"), btn("↻ Refresh", () => void show()));
     if (canDecide(role.role)) bar.append(reason, btn("Accept ticked", () => void decide("accept")), btn("Decline ticked", () => void decide("decline")));
