@@ -435,11 +435,11 @@ describe("MA-6-1 — agent reads, the bridge's class, Undo in the status", () =>
   const MROW = { id: 2300, at: "2026-10-12T10:00:00Z", entity_id: A, action: "verify:measured", new_value: { counts: { within_tolerance: 1, not_measured: 1 }, elements: [
     { proposal_guid: "g1", cid: "scan-w1", kind: "wall", status: "within_tolerance", p95_mm: 3 }, { proposal_guid: "g2", cid: "scan-f1", kind: "floor", status: "not_measured" }] } };
 
-  it("status: a measured survey changeset carries measured: its row, and a loa per element (null with its words while the LOA table is unread)", async () => {
+  it("status: a measured survey changeset carries measured: its row, and a loa per element (the USIBD band for a wall, the words for a floor)", async () => {
     const fetch = route({ "action_prefix=verify:measured": { rows: [MROW], total: 1 }, "changeset_reverted": { rows: [], total: 0 }, [`/changesets/demo/${A}`]: SURVEY(A) });
     const r = await callTool("sentinel_changeset_status", { project: "demo", changeset: A }, { fetch });
-    expect(r.measured).toEqual({ ledger_id: 2300, at: "2026-10-12T10:00:00Z", status: null, reference: null, claimed: null, counts: { within_tolerance: 1, not_measured: 1 }, loa_spec: null, elements: [
-      { proposal_guid: "g1", cid: "scan-w1", kind: "wall", status: "within_tolerance", p95_mm: 3, reference: null, loa: null, loa_why: "no band yet — the USIBD accuracy table has not been loaded into Sentinel" },
+    expect(r.measured).toEqual({ ledger_id: 2300, at: "2026-10-12T10:00:00Z", status: null, reference: null, claimed: null, counts: { within_tolerance: 1, not_measured: 1 }, loa_spec: "USIBD LOA Specification v3.1 (Document C120 Guide, 2025), Levels of Accuracy Table, p. 15", elements: [
+      { proposal_guid: "g1", cid: "scan-w1", kind: "wall", status: "within_tolerance", p95_mm: 3, reference: null, loa: "LOA40" },
       { proposal_guid: "g2", cid: "scan-f1", kind: "floor", status: "not_measured", p95_mm: null, reference: null, loa: null, loa_why: "no band — not measured" }] });
     const reads = fetch.mock.calls.map((c) => c[0]).filter((u) => u.includes("verify:measured"));
     expect(reads).toHaveLength(1);
