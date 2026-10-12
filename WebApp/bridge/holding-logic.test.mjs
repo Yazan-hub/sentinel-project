@@ -2,7 +2,7 @@
 // registered versions — open, repeats collapsed, cleared by a later registration (one not accepted is listed with its
 // label), cleared by a dismissal, a naming hold that says why the corrected file does not clear it.
 import { describe, it, expect } from "vitest";
-import { heldItems, clearedRecent, clearedLabel, NAMING_NOTE, typeGapId, typeGapGroups, catalogMatch, evidenceHolds } from "./holding-logic.mjs";
+import { heldItems, clearedRecent, clearedLabel, NAMING_NOTE, typeGapId, typeGapGroups, catalogMatch, evidenceHolds, typeByDiameter, diameterOf } from "./holding-logic.mjs";
 
 const at = (min) => `2026-09-27T10:${String(min).padStart(2, "0")}:00+00:00`;
 const hash = (id) => String(id).padStart(64, "0");
@@ -149,5 +149,21 @@ describe("typeGapGroups — the Holding Area's type gaps", () => {
     // the open route's typeGapRow keeps a poster's other keys ({...v, groups, claimed: true}): a claimed row naming a job shows none
     const forged = { ...survey, id: 951, new_value: { ...survey.new_value, claimed: true } };
     expect(typeGapGroups([forged], [], NO_CATALOG, same).open[0]).toMatchObject({ job_id: null, evidence: [], claimed: true });
+  });
+});
+
+describe("typeByDiameter — a round column from the catalogue (MA-8-4)", () => {
+  const row = (type, category = "Columns") => ({ category, family: "M_Metal Clad Column", type });
+  const same = (t, c) => t.category === c;
+  it("reads the diameter from a type's name, English spelling, and nothing else", () => {
+    expect([diameterOf("610mm Diameter"), diameterOf("610.5 mm diameter"), diameterOf("457 x 475mm"), diameterOf(null)]).toEqual([610, 610.5, null, null]);
+  });
+  it("one row within 100 mm is the row; several are all returned for a person to pick; none, and a row not named in diameters, are null", () => {
+    const cat = { types: [row("610mm Diameter"), row("700mm Diameter"), row("457 x 475mm"), row("610mm Diameter", "Doors")] };
+    expect(typeByDiameter(cat, "Columns", 590, same)).toEqual({ row: row("610mm Diameter") });
+    expect(typeByDiameter(cat, "Columns", 660, same).rows.map((r) => r.type)).toEqual(["610mm Diameter", "700mm Diameter"]);
+    expect(typeByDiameter(cat, "Columns", 900, same)).toBeNull();
+    expect(typeByDiameter({ types: [row("457 x 475mm")] }, "Columns", 457, same)).toBeNull();
+    expect(typeByDiameter(undefined, "Columns", 610, same)).toBeNull();
   });
 });

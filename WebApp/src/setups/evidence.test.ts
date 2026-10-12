@@ -363,6 +363,10 @@ describe("a concept IFC (MA-6-8) — Read IFC, the third reader", () => {
     expect(isIfcJob(IJOB)).toBe(true);
     expect(jobLine(IJOB)).toContain("job-0009 · sentinel-ifc · done · read ev-0021 · refused ev-0020");
     expect(jobLine(IJOB)).toContain("2 level(s), 8 wall(s), 3 floor(s)");
+    // MA-8-4: a 0.2.0 job names its openings, doors, windows and columns; a 0.1.0 job (counts of three kinds) never says "0 opening(s)"
+    expect(jobLine(IJOB)).not.toMatch(/opening|column/);
+    expect(jobLine({ ...IJOB, reader: { name: "sentinel-ifc", version: "0.2.0" }, counts: { level: 2, wall: 8, floor: 3, opening: 5, door: 1, window: 0, column: 4 } }))
+      .toContain("2 level(s), 8 wall(s), 3 floor(s), 1 door(s), 0 window(s), 5 opening(s), 4 column(s)");
   });
   it("the hint line says where the IFC sits and that it is never applied; the Propose line says nothing is pre-ticked", () => {
     expect(ifcHintLine({ site: { at_mm: [1000, 2000, 0], rotation_deg: 15 }, map_conversion: null, storey_elevation_mismatch: [], context_wcs_not_origin: false, length_unit_assumed: false }))

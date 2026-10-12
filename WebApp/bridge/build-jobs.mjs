@@ -19,10 +19,12 @@ export const READER = "sentinel-survey";
  *  Its candidates are walls and doors in paper millimetres (units "paper_mm"): proposed with a 2-point alignment, MA-5a-4. */
 export const DRAWING = "sentinel-drawing";
 /** MA-6-8: the third reader — sentinel-ifc (ifc-geometry.mjs, web-ifc), run in this process on the newest admitted IFC (any provider; an `item` can name another, MA-8-3). Its candidates are
- *  levels, walls and floors in model millimetres; it takes no parameter. */
+ *  levels, walls and floors in model millimetres (0.2.0: and openings, doors, windows and columns; a curtain wall is a wall flagged `curtain`); it takes no parameter. */
 export const IFC = "sentinel-ifc";
 export const READERS = [READER, DRAWING, IFC];
-const IFC_KINDS = ["level", "wall", "floor"];
+const IFC_KINDS = ["level", "wall", "floor", "opening", "door", "window", "column"]; // MA-8-4: sentinel-ifc 0.2.0
+/** MA-8-4: the kinds a sentinel-ifc of `version` looks for — before 0.2.0 only levels, walls and floors, so its job's counts never say "0 doors". */
+const ifcKindsOf = (version) => { const [a, b] = String(version ?? "").split(".").map(Number); return a > 0 || b >= 2 ? IFC_KINDS : IFC_KINDS.slice(0, 3); };
 const DRAWING_KINDS = ["wall", "door", "room"]; // MA-5b-1: room labels
 export const DEFAULT_PARAMS = { voxel_mm: 20, storey_min_mm: 2000 };
 // [low, high, why]: a coarser voxel leaves a wall face too sparse for the survey's 20 mm cells (4 of the drill's 8 walls lost their
@@ -196,6 +198,7 @@ export function buildRunValue(job, receipt) {
     model_calls: 0, tokens: 0, candidates: job.counts ?? null,
     gaps: null, // typing — and so gaps — is MA-4d's
     ...(receipt.not_read ? { not_read: receipt.not_read.slice(0, 50), not_read_total: receipt.not_read.length } : {}), // MA-6-8: what the IFC reader left out, by GlobalId
+    ...(receipt.not_read_by_class ? { not_read_by_class: receipt.not_read_by_class } : {}), // MA-8-4: and how many of each class
     result_sha256: job.result_sha256 ?? null, claimed: false, ...(job.error ? { error: job.error } : {}), ...(job.notes ? { notes: job.notes } : {}),
   };
 }
@@ -280,7 +283,7 @@ async function runJob(d, proj, key, job, take) {
         ? result.receipt.items.filter((i) => typeof i?.why === "string").map((i) => ({ id: String(i.id), why: i.why.slice(0, 300) })) : [];
       if (notes.length) job.notes = notes;
       Object.assign(job, { result_sha256: sha(bytes), candidates_total: result.candidates.length,
-        counts: Object.fromEntries((name === DRAWING ? drawingKindsOf(r.version) : name === IFC ? IFC_KINDS : kindsOf(r.version)).map((k) => [k, result.candidates.filter((c) => c.kind === k).length])) });
+        counts: Object.fromEntries((name === DRAWING ? drawingKindsOf(r.version) : name === IFC ? ifcKindsOf(r.version) : kindsOf(r.version)).map((k) => [k, result.candidates.filter((c) => c.kind === k).length])) });
     } catch (e) {
       status = "failed";
       error = `the result could not be kept on this PC (${e?.code || "the write failed"}) — nothing it found was kept`;

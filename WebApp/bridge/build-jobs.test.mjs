@@ -461,8 +461,9 @@ describe("IFC jobs (MA-6-8) — sentinel-ifc in this process on the newest admit
     expect(t.result.receipt.not_read).toHaveLength(1);
   });
 
-  it("(c) an IFC door candidate is refused (a failed run, nothing kept); a sha mismatch is refused by the real reader; a read of the fixture finds its levels, walls and floors", async () => {
-    expect(resultRefusal({ ...IRESULT, candidates: [{ ...IRESULT.candidates[1], kind: "door" }] }, ["ev-0021"], "sentinel-ifc")).toBe("candidates[0].kind");
+  it("(c) an IFC candidate of a kind the reader has none of (a stair) is refused (a failed run, nothing kept); a sha mismatch is refused by the real reader; a read of the fixture finds its levels, walls, floors, openings, doors and columns", async () => {
+    expect(resultRefusal({ ...IRESULT, candidates: [{ ...IRESULT.candidates[1], kind: "stair" }] }, ["ev-0021"], "sentinel-ifc")).toBe("candidates[0].kind");
+    for (const k of ["opening", "door", "window", "column"]) expect(resultRefusal({ ...IRESULT, candidates: [{ ...IRESULT.candidates[1], kind: k }] }, ["ev-0021"], "sentinel-ifc")).toBe(null);   // MA-8-4: sentinel-ifc 0.2.0's
     expect(resultRefusal(IRESULT, ["ev-0021"], "sentinel-ifc")).toBe(null);
     expect(resultRefusal({ ...IRESULT, candidates: [{ ...IRESULT.candidates[1], measured: { thickness_mm: null } }] }, ["ev-0021"], "sentinel-ifc")).toBe("candidates[0].measured");
     lay();
@@ -470,13 +471,26 @@ describe("IFC jobs (MA-6-8) — sentinel-ifc in this process on the newest admit
     await startI();   // the real runIfc: the bytes on disk are not the bytes admitted
     await current();
     expect(rec()).toMatchObject({ status: "refused", refused: [{ id: "ev-0020", reason: "an older concept — one IFC a job: the newest admitted is read" }, { id: "ev-0021", reason: "not the bytes admitted (sha256)" }] });
-    expect(audits[0].action).toBe("build:run job-0001 · sentinel-ifc 0.1.0 · refused");
+    expect(audits[0].action).toMatch(/^build:run job-0001 · sentinel-ifc 0\.2\.0 · refused$/);
     PACK.items.find((i) => i.id === "ev-0021").sha256 = sha(FIX);
     await startI();
     await current();
-    expect(rec("job-0002")).toMatchObject({ status: "done", counts: { level: 2, wall: 8, floor: 3 }, reader: { name: "sentinel-ifc", version: "0.1.0" } });
+    expect(rec("job-0002")).toMatchObject({ status: "done", counts: { level: 2, wall: 8, floor: 3, opening: 1, door: 1, window: 0, column: 1 }, reader: { name: "sentinel-ifc", version: "0.2.0" } });
     expect(rec("job-0002").tools.map((t) => t.name)).toEqual(["sentinel-ifc", "web-ifc", "Node"]);
     expect(audits[1].v.not_read.length).toBeGreaterThan(0);
+  });
+
+  it("(c2) MA-8-4: a 0.2.0 job counts seven kinds and its row carries not_read_by_class; a 0.1.0 job still counts three — never '0 doors' from a reader that did not look", async () => {
+    lay();
+    const by = { IFCCOLUMN: 1 };
+    await startI({ runIfc: async () => ({ status: "done", version: "0.2.0", tools: ITOOLS, refused: [], result: { ...IRESULT, receipt: { ...IRESULT.receipt, not_read_by_class: by } } }) });
+    await current();
+    expect(rec()).toMatchObject({ status: "done", reader: { name: "sentinel-ifc", version: "0.2.0" }, counts: { level: 1, wall: 1, floor: 0, opening: 0, door: 0, window: 0, column: 0 } });
+    expect(audits[0].v).toMatchObject({ version: "0.2.0", not_read_by_class: by, candidates: { opening: 0, column: 0 } });
+    await startI({ runIfc: ok() });
+    await current();
+    expect(Object.keys(rec("job-0002").counts)).toEqual(["level", "wall", "floor"]);
+    expect(audits[1].v.not_read_by_class).toBeUndefined();
   });
 
   it("(d) review: the newest concept flagged changed is not 'the newest' — the older admitted one is read", async () => {
@@ -488,9 +502,9 @@ describe("IFC jobs (MA-6-8) — sentinel-ifc in this process on the newest admit
     expect(job.refused).toEqual([{ id: "ev-0021", reason: "changed since admitted (Re-check flagged it) — admit the same bytes again" }]);
   });
 
-  it("(e) review: a run that returns an IFC door candidate is a failed job and keeps no result", async () => {
+  it("(e) review: a run that returns an IFC stair candidate is a failed job and keeps no result", async () => {
     lay();
-    await startI({ runIfc: ok({ ...IRESULT, candidates: [{ ...IRESULT.candidates[1], kind: "door" }] }) });
+    await startI({ runIfc: ok({ ...IRESULT, candidates: [{ ...IRESULT.candidates[1], kind: "stair" }] }) });
     await current();
     expect(rec()).toMatchObject({ status: "failed" });
     expect(rec().candidates_total ?? 0).toBe(0);

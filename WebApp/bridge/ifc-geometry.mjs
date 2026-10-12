@@ -1,7 +1,9 @@
 // MA-6-7 — the IFC geometry reader: an IFC's levels, straight walls and floors as the numbers a changeset needs (centre line,
 // thickness, height, outline), read with web-ifc in process, pure over the file's bytes. Lengths are millimetres in the IFC's own
 // frame (the composed placement chain); a context WCS or site that is not the origin is reported in `hint`, not applied. What it
-// does not read it lists in `not_read`, each with its words; one bad entity is listed, never thrown. The file is untrusted: the
+// does not read it lists in `not_read`, each with its words; one bad entity is listed, never thrown. MA-8-4 (0.2.0): also the wall and floor
+// openings, the doors and windows that fill them, columns and curtain walls, and a body that is a mapped item (Revit's); stairs are boxed, not
+// read (8-9 flags them). The file is untrusted: the
 // placement chain and the clipping unwrap stop at depth 64, and every name that leaves is one clean line.
 // CLI: node bridge/ifc-geometry.mjs <file.ifc>
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -14,10 +16,11 @@ import { elementPsets } from "./ifc-extract.mjs";
 import { sizeRefusal } from "./evidence-logic.mjs";
 
 export const IFC = "sentinel-ifc";
-export const VERSION = "0.1.0";
+export const VERSION = "0.2.0";
 
 const WASM_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../node_modules/web-ifc") + "/";
 const MAX_DEPTH = 64;
+const MAX_PTS = 10_000;   // MA-8-4: a body's points (an untrusted file's guard), and the holes one floor files
 
 class NotRead extends Error {}
 const no = (why) => { throw new NotRead(why); };
@@ -39,7 +42,8 @@ const mid2 = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
 
 const truth = (s) => { const t = String(s ?? "").toLowerCase(); return t === "true" || t === "t" ? true : t === "false" || t === "f" ? false : null; };
 
-export async function readIfcGeometry(bytes) {
+/** `wallsOnly` (MA-8-4, amendment 17): the levels, walls and floors alone — a manifest capture on every Governed Publish needs no more. */
+export async function readIfcGeometry(bytes, { wallsOnly = false } = {}) {
   const api = new WebIFC.IfcAPI();
   api.SetWasmPath(WASM_DIR, true);
   await api.Init();
@@ -47,13 +51,13 @@ export async function readIfcGeometry(bytes) {
   try { mid = api.OpenModel(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)); } catch (e) { throw new Error(`web-ifc could not open the file: ${clean(e?.message, 200)}`); }
   if (mid == null || mid < 0) throw new Error("web-ifc could not open the file: it is not a readable IFC (STEP) model");
   try {
-    return await read(api, mid);
+    return await read(api, mid, wallsOnly);
   } finally {
     api.CloseModel(mid);
   }
 }
 
-async function read(api, mid) {
+async function read(api, mid, wallsOnly = false) {
   const { mm, how: unitHow } = lengthUnit(api, mid);
   const cache = new Map();
   const L = (id) => { if (id == null) return null; if (!cache.has(id)) { try { cache.set(id, api.GetLine(mid, id)); } catch { cache.set(id, null); } } return cache.get(id); };
@@ -106,7 +110,8 @@ async function read(api, mid) {
   const placedUpright = (o) => { const F = placementOf(ref(o)); if (!upright(F)) no("placed tilted"); return F; };
 
   // ── spatial structure ───────────────────────────────────────────────────────────────────────────────────────────────────
-  const out = { reader: IFC, version: VERSION, schema: "", mm_per_unit: mm, levels: [], walls: [], floors: [], not_read: [], hint: { site: null, map_conversion: null, storey_elevation_mismatch: [], context_wcs_not_origin: false, length_unit_assumed: unitHow === "default" } };
+  const out = { reader: IFC, version: VERSION, schema: "", mm_per_unit: mm, levels: [], walls: [], floors: [], openings: [], doors: [], windows: [], columns: [], curtain_walls: [], not_read: [],
+    hint: { site: null, map_conversion: null, storey_elevation_mismatch: [], context_wcs_not_origin: false, true_north: null, length_unit_assumed: unitHow === "default" } };
   try { out.schema = String(api.GetModelSchema(mid) || "").toUpperCase(); } catch { out.schema = ""; }
 
   const storeys = [];
@@ -173,20 +178,44 @@ async function read(api, mid) {
       if (!(hx > 0 && hy > 0)) no("a rectangle with no size");
       return { outer: [[-hx, -hy], [hx, -hy], [hx, hy], [-hx, hy]].map((q) => at(F2, [q[0], q[1], 0]).slice(0, 2)), inners: [] };
     }
-    if (p?.type === WebIFC.IFCARBITRARYPROFILEDEFWITHVOIDS) return { outer: loopOf(p.OuterCurve), inners: (p.InnerCurves || []).map(() => null) }   // holes are counted, not parsed: a round shaft must not cost the floor;
+    // MA-8-4: each hole is parsed ({loop} or {why}), never thrown: a round shaft must not cost the floor
+    if (p?.type === WebIFC.IFCARBITRARYPROFILEDEFWITHVOIDS) return { outer: loopOf(p.OuterCurve), inners: (p.InnerCurves || []).map((c) => { try { return { loop: loopOf(c) }; } catch (e) { if (e instanceof NotRead) return { why: e.message }; throw e; } }) };
     if (p?.type === WebIFC.IFCARBITRARYCLOSEDPROFILEDEF) return { outer: loopOf(p.OuterCurve), inners: [] };
     return no("a profile it does not read");
   };
   // The first representation that holds a solid we read: an extrusion (through any clipping), a faceted brep or a tessellation.
   // `solids` is how many such items it holds; `why` (set on the line's way) says what was passed over (a tilted, sideways or flat body).
-  const bodyOf = (line, F, passed) => {
+  // MA-8-4: an IfcMappedItem (Revit writes a column's and a door's body so) → its source's items and the frame they stand in. The mapping
+  // origin must be the identity and the target's scale 1; a mapped item inside a mapped item is not followed (the untrusted-file guard).
+  const mapOf = (it, F, nested) => {
+    if (nested) no("a mapped body nested twice");
+    const src = R(it.MappingSource), tgt = R(it.MappingTarget);
+    if (!src || !tgt) no("a mapped body that cannot be read");
+    const o = frame3(ref(src.MappingOrigin));
+    if (Math.hypot(...o.o) > 0.01 || Math.abs(o.x[0] - 1) > 1e-6 || Math.abs(o.z[2] - 1) > 1e-6) no("a mapped body with a moved origin");
+    if ([tgt.Scale, tgt.Scale2, tgt.Scale3].some((s) => s != null && Math.abs((num(s) ?? 1) - 1) > 1e-9)) no("a scaled mapped body");
+    const z = unit(tgt.Axis3 ? dirOf(tgt.Axis3) : [0, 0, 1]), xr = tgt.Axis1 ? dirOf(tgt.Axis1) : [1, 0, 0];
+    const x = z && unit([0, 1, 2].map((i) => xr[i] - dot(xr, z) * z[i]));
+    if (!z || !x) no("a mapped body with no usable axes");
+    return { items: refs(R(src.MappedRepresentation)?.Items), F: compose(F, { o: point(tgt.LocalOrigin), x, y: cross(z, x), z }) };
+  };
+  const expand = (items, F, passed) => {
+    const list = [];
+    for (const it of items) {
+      if (it.type !== WebIFC.IFCMAPPEDITEM) { list.push({ it, F }); continue; }
+      try { const m = mapOf(it, F, false); for (const j of m.items) { if (j.type === WebIFC.IFCMAPPEDITEM) passed.why = "a mapped body nested twice"; else list.push({ it: j, F: m.F }); } }
+      catch (e) { if (!(e instanceof NotRead)) throw e; passed.why = e.message; }
+    }
+    return list;
+  };
+  const bodyOf = (line, F0, passed) => {
     const pds = R(line.Representation);
     const reps = refs(pds?.Representations);
     const idf = (r) => String(val(r.RepresentationIdentifier) ?? "");
     for (const rep of [...reps.filter((r) => idf(r) === "Body"), ...reps.filter((r) => idf(r) !== "Body" && idf(r) !== "Axis")]) {
       const found = [];
-      for (let it of refs(rep.Items)) {
-        let clipped = false, d = 0;
+      for (const { it: item, F } of expand(refs(rep.Items), F0, passed)) {
+        let it = item, clipped = false, d = 0;
         while (it && (it.type === WebIFC.IFCBOOLEANCLIPPINGRESULT || it.type === WebIFC.IFCBOOLEANRESULT)) {
           if (++d > MAX_DEPTH) no("clipping nested too deep");
           clipped = true;
@@ -219,6 +248,45 @@ async function read(api, mid) {
     }
     return null;
   };
+  // MA-8-4: a body's 3D world points at any angle (bodyOf drops Revit's horizontal opening extrusions): an extrusion's profile corners at both
+  // ends (a circle as a 16-gon), a B-rep's or face set's vertices; a mapped item once. null when the line has none; over MAX_PTS is not read.
+  const profilePts = (id) => {
+    const p = L(id);
+    if (p?.type !== WebIFC.IFCCIRCLEPROFILEDEF) return profileOf(id).outer;
+    const r = (num(p.Radius) ?? 0) * mm, F2 = frame2(p.Position);
+    if (!(r > 0)) no("a circle with no radius");
+    return Array.from({ length: 16 }, (_, k) => at(F2, [r * Math.cos(k * Math.PI / 8), r * Math.sin(k * Math.PI / 8), 0]).slice(0, 2));
+  };
+  const bodyPoints = (line, F) => {
+    const reps = refs(R(line.Representation)?.Representations);
+    const idf = (r) => String(val(r.RepresentationIdentifier) ?? "");
+    const pts = [];
+    const add = (p) => { pts.push(p); if (pts.length > MAX_PTS) no(`a body of more than ${MAX_PTS} points`); };
+    const walk = (it0, G, nested) => {
+      let it = it0, d = 0;
+      while (it && (it.type === WebIFC.IFCBOOLEANCLIPPINGRESULT || it.type === WebIFC.IFCBOOLEANRESULT)) { if (++d > MAX_DEPTH) no("clipping nested too deep"); it = R(it.FirstOperand); }
+      if (!it) return;
+      if (it.type === WebIFC.IFCMAPPEDITEM) { const m = mapOf(it, G, nested); for (const j of m.items) walk(j, m.F, true); return; }
+      if (it.type === WebIFC.IFCEXTRUDEDAREASOLID) {
+        const T = compose(G, it.Position ? frame3(ref(it.Position)) : IDENT), depth = (num(it.Depth) ?? 0) * mm, dir = unit(dirOf(it.ExtrudedDirection)) ?? [0, 0, 1];
+        if (!(depth > 0)) return;
+        for (const p of profilePts(ref(it.SweptArea))) { add(at(T, [p[0], p[1], 0])); add(at(T, [p[0] + depth * dir[0], p[1] + depth * dir[1], depth * dir[2]])); }
+      } else if (it.type === WebIFC.IFCFACETEDBREP) {
+        for (const f of refs(R(it.Outer)?.CfsFaces)) for (const b of refs(f.Bounds)) { const lp = R(b.Bound); if (lp?.type === WebIFC.IFCPOLYLOOP) for (const p of lp.Polygon || []) add(at(G, point(p))); }
+      } else if (it.type === WebIFC.IFCTRIANGULATEDFACESET || it.type === WebIFC.IFCPOLYGONALFACESET) {
+        for (const p of R(it.Coordinates)?.CoordList || []) add(at(G, p.map((c) => (num(c) ?? 0) * mm)));
+      }
+    };
+    for (const rep of [...reps.filter((r) => idf(r) === "Body"), ...reps.filter((r) => idf(r) !== "Body" && idf(r) !== "Axis")]) {
+      for (const it of refs(rep.Items)) walk(it, F, false);
+      if (pts.length) return pts;
+    }
+    return null;
+  };
+  const e4 = (q, i) => Math.hypot(q[(i + 1) % 4][0] - q[i][0], q[(i + 1) % 4][1] - q[i][1]);
+  // four corners in order: opposite corners share a middle, and the first two edges meet at a right angle
+  const rect4 = (q) => q.length === 4 && Math.hypot(q[0][0] + q[2][0] - q[1][0] - q[3][0], q[0][1] + q[2][1] - q[1][1] - q[3][1]) < 1
+    && Math.abs((q[1][0] - q[0][0]) * (q[2][0] - q[1][0]) + (q[1][1] - q[0][1]) * (q[2][1] - q[1][1])) < 1e-3 * e4(q, 0) * e4(q, 1);
   // MA-6-8: a straight wall's body (any number of points) as a band along the unit direction u: every point lies on one of two parallel lines.
   // → { s0, s1 (along u), d0, d1 (across, left of u) } | null. Revit's Reference View profiles are joined at corners and may have 6 points.
   const bandOf = (q, u) => {
@@ -279,21 +347,51 @@ async function read(api, mid) {
   };
   const external = (g, pset) => truth(g.psets.find((p) => p.name === pset)?.rows.find((r) => r.name === "IsExternal")?.value);
   const seen = new Set();
-  const skip = (id, l, storey, why) => out.not_read.push({ global_id: gidOf(l, id), ifc_class: className(l, id), ifc_name: prose(l, id), storey, why: clean(why, 500) });
+  const skip = (id, l, storey, why, extra = {}) => { reported.add(id); out.not_read.push({ global_id: gidOf(l, id), ifc_class: className(l, id), ifc_name: prose(l, id), storey, why: clean(why, 500), ...extra }); };
 
-  const openingsOf = new Map(), filled = new Set();   // host id → its opening ids; the openings a door or window fills
-  for (const id of idsOf(api, mid, WebIFC.IFCRELVOIDSELEMENT)) { const r = L(id); if (r) { const h = ref(r.RelatingBuildingElement); openingsOf.set(h, [...(openingsOf.get(h) ?? []), ref(r.RelatedOpeningElement)]); } }
-  for (const id of idsOf(api, mid, WebIFC.IFCRELFILLSELEMENT)) { const r = L(id); if (r) filled.add(ref(r.RelatingOpeningElement)); }
+  const openingsOf = new Map(), voidHost = new Map(), fillerOf = new Map(), openingOf = new Map();   // host id → its opening ids; opening → host; opening → its filler; filler → its opening
+  for (const id of idsOf(api, mid, WebIFC.IFCRELVOIDSELEMENT)) { const r = L(id); if (r) { const h = ref(r.RelatingBuildingElement), o = ref(r.RelatedOpeningElement); openingsOf.set(h, [...(openingsOf.get(h) ?? []), o]); voidHost.set(o, h); } }
+  for (const id of idsOf(api, mid, WebIFC.IFCRELFILLSELEMENT)) { const r = L(id); if (r) { fillerOf.set(ref(r.RelatingOpeningElement), ref(r.RelatedBuildingElement)); openingOf.set(ref(r.RelatedBuildingElement), ref(r.RelatingOpeningElement)); } }
   const wallIds = new Set(idsOf(api, mid, WebIFC.IFCWALL));
   const slabIds = new Set(idsOf(api, mid, WebIFC.IFCSLAB));
+  // MA-8-4: what pairs a door or window with its opening, what an element is part of, and which elements are said already (not_read says each once)
+  const tagOf = (l) => clean(val(l?.Tag), 64);
+  const isRevit = idsOf(api, mid, WebIFC.IFCAPPLICATION).some((id) => /revit/i.test(`${val(L(id)?.ApplicationFullName) ?? ""} ${val(L(id)?.ApplicationIdentifier) ?? ""}`));
+  const doorIds = new Set(idsOf(api, mid, WebIFC.IFCDOOR)), windowIds = new Set(idsOf(api, mid, WebIFC.IFCWINDOW));
+  const curtainIds = new Set(idsOf(api, mid, WebIFC.IFCCURTAINWALL)), stairIds = new Set(idsOf(api, mid, WebIFC.IFCSTAIR));
+  const partsOf = new Map(), partOf = new Map();   // parent id → part ids; part id → its curtain wall or stair
+  for (const id of idsOf(api, mid, WebIFC.IFCRELAGGREGATES)) {
+    const r = L(id), p = ref(r?.RelatingObject);
+    if (!r || p == null) continue;
+    const parts = (r.RelatedObjects || []).map(ref).filter((x) => x != null);
+    partsOf.set(p, [...(partsOf.get(p) ?? []), ...parts]);
+    if (curtainIds.has(p) || stairIds.has(p)) for (const x of parts) partOf.set(x, p);
+  }
+  const tagged = new Map();   // Tag → unfilled opening ids; Revit writes a door's or window's void without the fills relation, under the element's own Tag
+  for (const id of idsOf(api, mid, WebIFC.IFCOPENINGELEMENT)) { const t = tagOf(L(id)); if (t && !fillerOf.has(id)) tagged.set(t, [...(tagged.get(t) ?? []), id]); }
+  const claimed = new Set(), doorOpening = new Map();   // openings a door or window owns; door/window id → its opening id
+  for (const [f, o] of openingOf) if (doorIds.has(f) || windowIds.has(f)) { doorOpening.set(f, o); claimed.add(o); }
+  if (isRevit) for (const f of [...doorIds, ...windowIds]) {
+    if (doorOpening.has(f)) continue;
+    const o = (tagged.get(tagOf(L(f))) ?? []).find((x) => !claimed.has(x));
+    if (o != null && tagOf(L(f))) { doorOpening.set(f, o); claimed.add(o); }
+  }
+  const flightIds = new Set(idsOf(api, mid, WebIFC.IFCSTAIRFLIGHT));
+  const partWhy = (id) => {   // the words of a piece of a curtain wall or a stair — the whole is the element, never its pieces
+    const p = partOf.get(id), g = gidOf(L(p), p);
+    return stairIds.has(p) ? (flightIds.has(id) ? `a flight of stair ${g}` : `a part of stair ${g}`) : `a panel or mullion of curtain wall ${g} — its curtain type draws them`;
+  };
+  const reported = new Set(), hostRec = new Map();   // element ids with a record or a not_read row; read wall/floor id → {kind, rec, holes?}
   for (const id of [...wallIds, ...slabIds]) {
     const l = L(id);
     if (!l) continue;
+    reported.add(id);
     const storey = storeyOf.get(id) ?? null;
     try {
       const gid = gidOf(l, id);
       if (seen.has(gid)) no("GlobalId repeated");
       seen.add(gid);
+      if (partOf.has(id)) no(partWhy(id));
       const name = clean(val(l.Name) ?? gid), isWall = wallIds.has(id);
       if (!isWall && String(val(l.PredefinedType)) === "ROOF") no("a roof slab — roofs are not proposed");
       if (storey == null) no("not on a storey");
@@ -313,8 +411,8 @@ async function read(api, mid) {
           loop: outer.map((p) => at(body.T, [p[0], p[1], 0]).slice(0, 2).map(r1)), top_mm: r1(top), thickness_mm: r1(thick),
           is_external: external(g, "Pset_SlabCommon"), voids: inners.length + opens,
         });
-        if (inners.length) skip(id, l, storey, `${inners.length} hole(s) — not proposed`);
-        if (opens) skip(id, l, storey, `${opens} opening(s) — not proposed`);
+        // MA-8-4: the holes are read below (profile voids here, the openings of the voids relation), not counted away
+        hostRec.set(id, { kind: "floor", rec: out.floors.at(-1), holes: inners.map((h) => (h.loop ? { loop: h.loop.map((p) => at(body.T, [p[0], p[1], 0]).slice(0, 2).map(r1)) } : h)) });
         continue;
       }
 
@@ -324,8 +422,7 @@ async function read(api, mid) {
         if (body?.kind !== "extrusion") no("no Axis and no rectangular body");
         const { outer } = profileOf(body.profile), q = outer.map((p) => at(body.T, [p[0], p[1], 0]).slice(0, 2));
         const e = (i) => Math.hypot(q[(i + 1) % 4][0] - q[i][0], q[(i + 1) % 4][1] - q[i][1]);
-        const sq = q.length === 4 && Math.hypot(q[0][0] + q[2][0] - q[1][0] - q[3][0], q[0][1] + q[2][1] - q[1][1] - q[3][1]) < 1
-          && Math.abs((q[1][0] - q[0][0]) * (q[2][0] - q[1][0]) + (q[1][1] - q[0][1]) * (q[2][1] - q[1][1])) < 1e-3 * e(0) * e(1);
+        const sq = rect4(q);
         if (!sq) {   // not a 4-point rectangle: the band of its longest edge, if every point sits on one of two parallel lines
           let k = 0;
           for (let i = 1; i < q.length; i++) if (Math.hypot(q[(i + 1) % q.length][0] - q[i][0], q[(i + 1) % q.length][1] - q[i][1]) > Math.hypot(q[(k + 1) % q.length][0] - q[k][0], q[(k + 1) % q.length][1] - q[k][1])) k = i;
@@ -378,19 +475,233 @@ async function read(api, mid) {
         start: line[0].map(r1), end: line[1].map(r1), base_mm: r1(base), height_mm: r1(h), thickness_mm: r1(t), thickness_from: from,
         is_external: external(g, "Pset_WallCommon"), clipped: !!body?.clipped, body: kind, ...(note ? { note } : {}),
       });
-      const bare = (openingsOf.get(id) ?? []).filter((o) => !filled.has(o)).length;
-      if (bare) skip(id, l, storey, `${bare} unfilled opening(s) — not proposed`);
+      hostRec.set(id, { kind: "wall", rec: out.walls.at(-1) });
     } catch (e) {
       skip(id, l, storey, e instanceof NotRead ? e.message : `could not be read — ${clean(e?.message, 200)}`);
     }
   }
 
-  // everything else that is an element: said, never silently dropped (openings and voids are features of another element)
+  // ── MA-8-4: openings, then the doors and windows that fill them, columns, curtain walls and stairs ───────────────────────────
+  if (!wallsOnly) {
+  const NOT_RECT = "an opening that is not a rectangle in its wall — a person cuts it";
+  const NOT_SECTION = "a column whose section is not a rectangle or a circle — a person places it";
+  const CURVED_HOLE = "a curved hole — the floor is proposed whole; a person cuts it";
+  const HOLES = 200;
+  const hurt = (e) => (e instanceof NotRead ? e.message : `could not be read — ${clean(e?.message, 200)}`);
+  const boxes = new Map();
+  // an opening's rectangle against its host wall's line: its points projected to (along, z)
+  const wallBox = (oid, w) => {
+    if (boxes.has(oid)) return boxes.get(oid);
+    const o = L(oid);
+    if (!o?.Representation) no("an opening with no body");
+    const pts = bodyPoints(o, placementOf(ref(o.ObjectPlacement)));
+    const u = unit([w.end[0] - w.start[0], w.end[1] - w.start[1], 0]);
+    if (!pts || !u) no("an opening with no body");
+    const q = pts.map((p) => [(p[0] - w.start[0]) * u[0] + (p[1] - w.start[1]) * u[1], p[2]]);
+    const across = pts.map((p) => (p[0] - w.start[0]) * -u[1] + (p[1] - w.start[1]) * u[0]);   // its middle lies across the wall's own thickness, or it is another wall's
+    if (Math.abs((Math.min(...across) + Math.max(...across)) / 2) > Math.max(w.thickness_mm, 100)) no("an opening that is not in its wall — a person cuts it");
+    const a0 = Math.min(...q.map((p) => p[0])), a1 = Math.max(...q.map((p) => p[0])), z0 = Math.min(...q.map((p) => p[1])), z1 = Math.max(...q.map((p) => p[1]));
+    // all four corners of the points' box are there (a notched, sloped or arched shape lacks one); a reveal box nested inside the void (Revit's windows) is the same cut
+    if (!(a1 - a0 > 1 && z1 - z0 > 1) || ![[a0, z0], [a1, z0], [a0, z1], [a1, z1]].every(([x, z]) => q.some((p) => Math.hypot(p[0] - x, p[1] - z) < 1))) no(NOT_RECT);
+    const elev = out.levels.find((l) => l.cid === w.storey)?.elevation_mm ?? 0;
+    const b = { along_mm: r1((a0 + a1) / 2), width_mm: r1(a1 - a0), height_mm: r1(z1 - z0), sill_mm: r1(z0 - elev) };
+    boxes.set(oid, b);
+    return b;
+  };
+  const curtainTags = new Set([...curtainIds].map((c) => tagOf(L(c))).filter(Boolean));
+  for (const [hid, h] of hostRec) {
+    const hl = L(hid), storey = h.rec.storey, hg = h.rec.global_id;
+    if (h.kind === "floor") {
+      // the holes: a profile's voids (no entity of their own), then the openings of the voids relation; the rest of a floor of hundreds is said
+      const items = [...h.holes.map((x, k) => ({ gx: `${hg}:hole${k}`, hole: x })), ...(openingsOf.get(hid) ?? []).filter((o) => !claimed.has(o)).map((oid) => ({ oid }))];
+      items.forEach((it, n) => {
+        if (it.oid != null) reported.add(it.oid);
+        const o = it.oid != null ? L(it.oid) : null;
+        if (it.oid != null && !o) return;
+        const gx = it.gx ?? gidOf(o, it.oid);
+        const said = (why) => (o ? skip(it.oid, o, storey, why) : out.not_read.push({ global_id: gx, ifc_class: "IFCOPENINGELEMENT", ifc_name: "IfcOpeningElement", storey, why }));
+        try {
+          if (n >= HOLES) no(`more than ${HOLES} holes in one floor — the rest are not read; a person cuts them`);
+          let loop;
+          if (it.hole) { if (!it.hole.loop) no(CURVED_HOLE); loop = it.hole.loop; }
+          else {
+            if (fillerOf.has(it.oid)) no(`an opening filled by ${prose(L(fillerOf.get(it.oid)), fillerOf.get(it.oid))}`);
+            if (!o.Representation) no("an opening with no body");
+            const body = bodyOf(o, placementOf(ref(o.ObjectPlacement)), { why: null });
+            if (body?.kind !== "extrusion") no("a hole that is not an upright extrusion of a straight outline — the floor is proposed whole; a person cuts it");
+            try { loop = profileOf(body.profile).outer.map((p) => at(body.T, [p[0], p[1], 0]).slice(0, 2).map(r1)); } catch (e) { if (e instanceof NotRead) no(CURVED_HOLE); throw e; }
+          }
+          out.openings.push({ global_id: gx, host: hg, host_kind: "floor", storey, loop });
+        } catch (e) { said(hurt(e)); }
+      });
+      continue;
+    }
+    for (const oid of openingsOf.get(hid) ?? []) {
+      const o = L(oid);
+      if (!o || reported.has(oid)) continue;
+      reported.add(oid);
+      if (claimed.has(oid)) continue;   // a door's or window's: its own record, or its own not_read row, carries it
+      try {
+        if (fillerOf.has(oid)) no(`an opening filled by ${prose(L(fillerOf.get(oid)), fillerOf.get(oid))}`);
+        const t = isRevit ? tagOf(o) : "";
+        if (t && curtainTags.has(t)) no("the cut a curtain wall embeds in — not an opening");
+        if (t && t === tagOf(hl)) no("a cut in the wall's own geometry (a join or an edited profile) — a person decides");
+        out.openings.push({ global_id: gidOf(o, oid), host: hg, host_kind: "wall", storey, ...wallBox(oid, h.rec) });
+      } catch (e) { skip(oid, o, storey, hurt(e)); }
+    }
+  }
+
+  for (const id of [...doorIds, ...windowIds]) {
+    const l = L(id);
+    if (!l) continue;
+    reported.add(id);
+    try {
+      const gid = gidOf(l, id);
+      if (seen.has(gid)) no("GlobalId repeated");
+      seen.add(gid);
+      const oid = doorOpening.get(id);
+      if (oid == null) no("no opening relation — a window in a curtain wall, or not cut");
+      const host = hostRec.get(voidHost.get(oid));
+      if (host?.kind !== "wall") no("its opening is in no wall this reader read (a curtain wall, a curved wall …) — a person places it");
+      const b = wallBox(oid, host.rec), ow = num(l.OverallWidth), oh = num(l.OverallHeight);
+      const rec = { global_id: gid, name: clean(val(l.Name) ?? gid), ifc_class: className(l, id), type_name: clean(val(L(typeOf.get(id))?.Name) ?? ""), host: host.rec.global_id, opening: gidOf(L(oid), oid), storey: host.rec.storey,
+        along_mm: b.along_mm, width_mm: ow > 0 ? r1(ow * mm) : b.width_mm, height_mm: oh > 0 ? r1(oh * mm) : b.height_mm, sill_mm: b.sill_mm };
+      (doorIds.has(id) ? out.doors : out.windows).push(rec);
+    } catch (e) { skip(id, l, storeyOf.get(id) ?? null, hurt(e)); }
+  }
+
+  // a column: an extrusion of a rectangle, a circle or a 4-corner outline, or a B-rep box (Revit's mapped bodies included); the width is its first edge
+  const rectSection = (q) => {
+    if (!rect4(q)) no(NOT_SECTION);
+    const deg = Math.round(((Math.atan2(q[1][1] - q[0][1], q[1][0] - q[0][0]) * 180 / Math.PI) % 360 + 360) % 360 * 100) / 100 % 360;
+    return { shape: "rect", at: [0, 1].map((k) => q.reduce((s, p) => s + p[k], 0) / 4), width_mm: r1(e4(q, 0)), depth_mm: r1(e4(q, 1)), rotation_deg: deg };
+  };
+  const boxOfPoints = (pts) => {
+    const z0 = Math.min(...pts.map((p) => p[2])), z1 = Math.max(...pts.map((p) => p[2])), cs = [];
+    if (!(z1 - z0 > 1)) no("a flat body");
+    for (const p of pts) {
+      if (Math.abs(p[2] - z0) > 1 && Math.abs(p[2] - z1) > 1) no(NOT_SECTION);   // one band of height: a prism
+      if (!cs.some((c) => Math.hypot(c[0] - p[0], c[1] - p[1]) < 1)) { if (cs.length === 4) no(NOT_SECTION); cs.push([p[0], p[1]]); }
+    }
+    if (cs.length !== 4) no(NOT_SECTION);
+    const m = [0, 1].map((k) => cs.reduce((s, p) => s + p[k], 0) / 4);
+    cs.sort((a, b) => Math.atan2(a[1] - m[1], a[0] - m[0]) - Math.atan2(b[1] - m[1], b[0] - m[0]));   // anticlockwise, from the lowest corner
+    const k = cs.reduce((best, p, i) => (p[1] < cs[best][1] - 1 || (Math.abs(p[1] - cs[best][1]) <= 1 && p[0] < cs[best][0]) ? i : best), 0);
+    return { ...rectSection([...cs.slice(k), ...cs.slice(0, k)]), z0, z1 };
+  };
+  const loadBearing = (g) => truth(g.psets.find((p) => p.name === "Pset_ColumnCommon")?.rows.find((r) => r.name === "LoadBearing")?.value);
+  for (const id of idsOf(api, mid, WebIFC.IFCCOLUMN)) {
+    const l = L(id);
+    if (!l) continue;
+    reported.add(id);
+    const storey = storeyOf.get(id) ?? null;
+    try {
+      const gid = gidOf(l, id);
+      if (seen.has(gid)) no("GlobalId repeated");
+      seen.add(gid);
+      if (storey == null) no("not on a storey");
+      const F = placedUpright(l.ObjectPlacement), passed = { why: null }, body = bodyOf(l, F, passed);
+      if (!body) no(passed.why ? `a column whose body is not read (${passed.why})` : "a column with no body");
+      if (body.solids > 1) no(`a body of ${body.solids} solids — one outline only`);
+      let sec, z0 = body.z0, z1 = body.z1;
+      if (body.kind !== "extrusion") ({ z0, z1, ...sec } = boxOfPoints(bodyPoints(l, F)));
+      else {
+        const p = L(body.profile);
+        if (p?.type === WebIFC.IFCCIRCLEPROFILEDEF) {
+          const r = (num(p.Radius) ?? 0) * mm;
+          if (!(r > 0)) no(NOT_SECTION);
+          sec = { shape: "circle", at: at(body.T, [...frame2(p.Position).o.slice(0, 2), 0]).slice(0, 2), diameter_mm: r1(2 * r), rotation_deg: 0 };
+        } else {
+          let q;
+          try { q = profileOf(body.profile).outer.map((x) => at(body.T, [x[0], x[1], 0]).slice(0, 2)); } catch (e) { if (e instanceof NotRead) no(NOT_SECTION); throw e; }
+          sec = rectSection(q);
+        }
+      }
+      if (!(Math.abs(z1 - z0) > 1)) no("no height");
+      const g = await elementPsets(api, mid, id);
+      out.columns.push({ global_id: gid, name: clean(val(l.Name) ?? gid), type_name: clean(val(L(typeOf.get(id))?.Name) ?? ""), storey, at: sec.at.map(r1), shape: sec.shape,
+        ...(sec.shape === "circle" ? { diameter_mm: sec.diameter_mm } : { width_mm: sec.width_mm, depth_mm: sec.depth_mm }), rotation_deg: sec.rotation_deg,
+        base_mm: r1(Math.min(z0, z1)), top_mm: r1(Math.max(z0, z1)), load_bearing: loadBearing(g), ...(body.clipped ? { note: "body clipped — its top is before the clip" } : {}) });
+    } catch (e) { skip(id, l, storey, hurt(e)); }
+  }
+
+  // a curtain wall: its Axis, else the straight line through its parts (plates and mullions: neither is placed, its curtain type draws them)
+  const partPoints = (id) => {
+    const pts = [];
+    for (const c of partsOf.get(id) ?? []) {
+      const cl = L(c);
+      if (!cl?.Representation) continue;
+      try { for (const p of bodyPoints(cl, placementOf(ref(cl.ObjectPlacement))) ?? []) { pts.push(p); if (pts.length > MAX_PTS) no(`parts of more than ${MAX_PTS} points`); } } catch (e) { if (!(e instanceof NotRead) || /more than/.test(e.message)) throw e; }   // a part it cannot read adds nothing
+    }
+    return pts;
+  };
+  for (const id of curtainIds) {
+    const l = L(id);
+    if (!l) continue;
+    reported.add(id);
+    const storey = storeyOf.get(id) ?? null;
+    try {
+      const gid = gidOf(l, id);
+      if (seen.has(gid)) no("GlobalId repeated");
+      seen.add(gid);
+      if (storey == null) no("not on a storey");
+      const F = placedUpright(l.ObjectPlacement), g = await elementPsets(api, mid, id);
+      let line = axisOf(l, F), from = "axis", own = null;
+      try { own = l.Representation ? bodyPoints(l, F) : null; } catch (e) { if (!(e instanceof NotRead)) throw e; }
+      const pp = line && own ? [] : partPoints(id);
+      if (!line) {
+        from = "parts";
+        if (pp.length < 2) no("a curtain wall with no Axis and no parts to read a line from");
+        // the principal direction of the parts' plan points (their covariance): a plate's corners are not on its mid-line, so the farthest pair is skewed
+        const mx = pp.reduce((m, p) => m + p[0], 0) / pp.length, my = pp.reduce((m, p) => m + p[1], 0) / pp.length;
+        const sxx = pp.reduce((m, p) => m + (p[0] - mx) ** 2, 0), syy = pp.reduce((m, p) => m + (p[1] - my) ** 2, 0), sxy = pp.reduce((m, p) => m + (p[0] - mx) * (p[1] - my), 0);
+        const th = 0.5 * Math.atan2(2 * sxy, sxx - syy), u = [Math.cos(th), Math.sin(th), 0], a = [mx, my];
+        const n = [-u[1], u[0]], s = pp.map((p) => (p[0] - a[0]) * u[0] + (p[1] - a[1]) * u[1]), d = pp.map((p) => (p[0] - a[0]) * n[0] + (p[1] - a[1]) * n[1]);
+        const d0 = Math.min(...d), d1 = Math.max(...d), dm = (d0 + d1) / 2;
+        if (d1 - d0 > 1000) no("a curtain wall that is not straight");   // plates sit mid-band and mullions at many depths: the band is the wall's, not a line of points
+        line = [Math.min(...s), Math.max(...s)].map((t) => [a[0] + u[0] * t + n[0] * dm, a[1] + u[1] * t + n[1] * dm]);
+        if (Math.hypot(line[1][0] - line[0][0], line[1][1] - line[0][1]) < 10) no("a curtain wall whose parts have no length");
+      }
+      const zs = (own ?? (pp.length ? pp : partPoints(id))).map((p) => p[2]);
+      if (!zs.length) no("a curtain wall with no body or parts to read a height from");
+      const base = Math.min(...zs), top = Math.max(...zs);
+      if (!(top - base > 1)) no("no height");
+      out.curtain_walls.push({ global_id: gid, name: clean(val(l.Name) ?? gid), type_name: clean(val(L(typeOf.get(id))?.Name) ?? ""), storey, start: line[0].map(r1), end: line[1].map(r1),
+        base_mm: r1(base), height_mm: r1(top - base), is_external: external(g, "Pset_CurtainWallCommon"), from });
+    } catch (e) { skip(id, l, storey, hurt(e)); }
+  }
+
+  // a stair is boxed, not read: 8-9 turns the box into a flag row for a person (the stair, its flights and landings, in the IFC's frame)
+  for (const id of stairIds) {
+    const l = L(id);
+    if (!l) continue;
+    let box = null, boxWhy = null;
+    try {
+      const pts = [];
+      for (const x of [id, ...(partsOf.get(id) ?? [])]) {
+        const xl = L(x);
+        if (!xl?.Representation) continue;
+        try { for (const p of bodyPoints(xl, placementOf(ref(xl.ObjectPlacement))) ?? []) { pts.push(p); if (pts.length > MAX_PTS) no(`a stair of more than ${MAX_PTS} points`); } } catch (e) { if (!(e instanceof NotRead) || /more than/.test(e.message)) throw e; }
+      }
+      if (pts.length) box = { min: [0, 1, 2].map((k) => r1(Math.min(...pts.map((p) => p[k])))), max: [0, 1, 2].map((k) => r1(Math.max(...pts.map((p) => p[k])))) };
+      else boxWhy = "no body this reader reads";
+    } catch (e) { boxWhy = hurt(e); }
+    skip(id, l, storeyOf.get(id) ?? null, "a stair — flagged from MA-8 batch 3 (8-9); a person places it", { box, ...(box ? {} : { box_why: boxWhy }) });
+  }
+
+  // everything else that is an element: said, never silently dropped. A piece of a curtain wall or stair says whose; an opening of a host this reader did not read says so.
   const featureIds = new Set(idsOf(api, mid, WebIFC.IFCFEATUREELEMENT));
   for (const id of idsOf(api, mid, WebIFC.IFCELEMENT)) {
-    if (wallIds.has(id) || slabIds.has(id) || featureIds.has(id)) continue;
+    if (reported.has(id) || claimed.has(id)) continue;
     const l = L(id);
-    if (l) skip(id, l, storeyOf.get(id) ?? null, `an ${prose(l, id)} — the IFC planner reads walls and floors (MA-6); a person places it`);
+    if (!l) continue;
+    const storey = storeyOf.get(id) ?? null;
+    if (partOf.has(id)) skip(id, l, storey, partWhy(id));
+    else if (featureIds.has(id)) {
+      const h = voidHost.get(id), hl = L(h);
+      skip(id, l, storeyOf.get(h) ?? storey, hl ? `an opening in ${prose(hl, h)} ${gidOf(hl, h)}, which this reader did not read — a person cuts it` : `an ${prose(l, id)} with no host — a person cuts it`);
+    } else skip(id, l, storey, `an ${prose(l, id)} — sentinel-ifc ${VERSION} reads walls, floors, openings, doors, windows, columns and curtain walls; a person places it`);
+  }
   }
 
   // ── hint: where the file sits in the world, reported and not applied ────────────────────────────────────────────────────────
@@ -402,6 +713,8 @@ async function read(api, mid) {
   if (mc) out.hint.map_conversion = { eastings: num(mc.Eastings) ?? 0, northings: num(mc.Northings) ?? 0, height: num(mc.OrthogonalHeight) ?? 0, x_axis_abscissa: num(mc.XAxisAbscissa) ?? 1, x_axis_ordinate: num(mc.XAxisOrdinate) ?? 0, scale: num(mc.Scale) ?? 1 };
   try {
     const ctx = idsOf(api, mid, WebIFC.IFCGEOMETRICREPRESENTATIONCONTEXT).map(L).find((c) => c && String(val(c.ContextType)) === "Model") ?? L(idsOf(api, mid, WebIFC.IFCGEOMETRICREPRESENTATIONCONTEXT)[0]);
+    const tn = (R(ctx?.TrueNorth)?.DirectionRatios ?? []).map(num);
+    if (tn.length >= 2 && tn.every(Number.isFinite)) out.hint.true_north = tn.slice(0, 2).map((v) => Math.round(v * 1e6) / 1e6);
     if (ctx?.WorldCoordinateSystem) {
       const F = frame3(ref(ctx.WorldCoordinateSystem));
       out.hint.context_wcs_not_origin = Math.hypot(...F.o) > 0.1 || Math.abs(F.x[0] - 1) > 1e-9 || Math.abs(F.z[2] - 1) > 1e-9;
@@ -451,13 +764,29 @@ export async function runIfc(job) {
         if (!fin(m)) { lost(f, "a measurement is missing"); continue; }
         candidates.push({ cid: f.global_id, kind: "floor", evidence: ev(f.global_id), measured: m, geometry: { storey: f.storey, LocationLoop: f.loop, TopElevation: f.top_mm, name: f.name, ifc_class: f.ifc_class, is_external: f.is_external } });
       }
+      // MA-8-4: openings, doors, windows, columns and curtain walls. A measured number that is missing sends the element to not_read, as above.
+      const place = (x, kind, cls, geometry, measured) => {
+        if (noLevel.has(x.storey)) { lost({ ...x, ifc_class: cls }, "its storey has no elevation"); return; }
+        if (!fin(measured)) { lost({ ...x, ifc_class: cls }, "a measurement is missing"); return; }
+        candidates.push({ cid: x.global_id, kind, evidence: ev(x.global_id), measured, geometry: { storey: x.storey, ...geometry } });
+      };
+      for (const o of r.openings)
+        place(o, "opening", "IFCOPENINGELEMENT", o.loop ? { host: o.host, host_kind: "floor", Boundary: o.loop } : { host: o.host, host_kind: "wall", along_mm: o.along_mm }, o.loop ? { area_m2: Math.round(area2(o.loop) / 1e4) / 100 } : { width_mm: o.width_mm, height_mm: o.height_mm, sill_mm: o.sill_mm });
+      for (const d of [...r.doors.map((x) => ["door", x]), ...r.windows.map((x) => ["window", x])])
+        place(d[1], d[0], d[1].ifc_class, { host: d[1].host, opening: d[1].opening, along_mm: d[1].along_mm, name: d[1].name, ifc_class: d[1].ifc_class, ifc_type_name: d[1].type_name }, { width_mm: d[1].width_mm, height_mm: d[1].height_mm, sill_mm: d[1].sill_mm });
+      for (const c of r.columns)
+        place(c, "column", "IFCCOLUMN", { Location: c.at, shape: c.shape, rotation_deg: c.rotation_deg, base_mm: c.base_mm, top_mm: c.top_mm, load_bearing: c.load_bearing, name: c.name, ifc_type_name: c.type_name, ...(c.note ? { note: c.note } : {}) },
+          { ...(c.shape === "circle" ? { diameter_mm: c.diameter_mm } : { width_mm: c.width_mm, depth_mm: c.depth_mm }), height_mm: r1(c.top_mm - c.base_mm) });
+      for (const w of r.curtain_walls)   // a wall of the planner's, flagged: no thickness (its type draws the panels)
+        place(w, "wall", "IFCCURTAINWALL", { LocationCurve: { start: w.start, end: w.end }, BaseElevation: w.base_mm, TopElevation: r1(w.base_mm + w.height_mm), name: w.name, ifc_class: "IFCCURTAINWALL", ifc_type_name: w.type_name, is_external: w.is_external, curtain: true, from: w.from },
+          { height_mm: w.height_mm, length_mm: r1(Math.hypot(w.end[0] - w.start[0], w.end[1] - w.start[1])) });
       notRead.push(...r.not_read.map((n) => ({ ...n, item: it.id })));
     }
   } catch (e) { return { status: "failed", error: `the IFC could not be read: ${clean(e?.message, 300)}`, version: VERSION, tools: toolsOf(), refused }; }
   if (!first) return { status: "refused", error: "no admitted concept IFC could be read — " + (refused.map((x) => `${x.id}: ${x.reason}`).join("; ") || "no item"), version: VERSION, tools: toolsOf(), refused };
   const cpu = process.cpuUsage(t0);
   return { status: "done", version: VERSION, tools: toolsOf(), refused,
-    result: { candidates, derived: [], receipt: { not_read: notRead, hint: first.hint, schema: first.schema, mm_per_unit: first.mm_per_unit, cpu_s: Math.round((cpu.user + cpu.system) / 1e4) / 100 } } };
+    result: { candidates, derived: [], receipt: { not_read: notRead, not_read_by_class: notRead.reduce((m, n) => ({ ...m, [n.ifc_class]: (m[n.ifc_class] ?? 0) + 1 }), {}), hint: first.hint, schema: first.schema, mm_per_unit: first.mm_per_unit, cpu_s: Math.round((cpu.user + cpu.system) / 1e4) / 100 } } };
 }
 
 // ── CLI (I-0): what the reader finds in a file, in words ────────────────────────────────────────────────────────────────────
@@ -475,6 +804,16 @@ function report(r) {
     f.loop.forEach((q, i) => { const n = f.loop[(i + 1) % f.loop.length]; a += q[0] * n[1] - n[0] * q[1]; });
     p(`  ${f.global_id} · ${f.storey} · ${f.loop.length} corners ${f.loop.map(xy).join(" ")} · ${(Math.abs(a) / 2e6).toFixed(1)} m² · top ${f.top_mm} · ${f.thickness_mm} mm`);
   }
+  p(`openings (${r.openings.length}):`);
+  for (const o of r.openings) p(`  ${o.global_id} · ${o.storey} · in ${o.host_kind} ${o.host} · ${o.loop ? `${o.loop.length} corners` : `${o.width_mm} x ${o.height_mm} mm, sill ${o.sill_mm}, ${o.along_mm} along`}`);
+  for (const [k, list] of [["doors", r.doors], ["windows", r.windows]]) {
+    p(`${k} (${list.length}):`);
+    for (const d of list) p(`  ${d.global_id} · ${d.storey} · ${d.width_mm} x ${d.height_mm} mm, sill ${d.sill_mm}, ${d.along_mm} along ${d.host} · ${d.type_name}`);
+  }
+  p(`columns (${r.columns.length}):`);
+  for (const c of r.columns) p(`  ${c.global_id} · ${c.storey} · ${xy(c.at)} · ${c.shape === "circle" ? `d ${c.diameter_mm}` : `${c.width_mm} x ${c.depth_mm}`} mm turned ${c.rotation_deg}° · ${c.base_mm} to ${c.top_mm} · load bearing ${c.load_bearing}${c.note ? ` · ${c.note}` : ""}`);
+  p(`curtain walls (${r.curtain_walls.length}):`);
+  for (const w of r.curtain_walls) p(`  ${w.global_id} · ${w.storey} · ${xy(w.start)} → ${xy(w.end)} · h ${w.height_mm} from ${w.base_mm} · from ${w.from}`);
   p(`not read (${r.not_read.length}):`);
   for (const n of r.not_read) p(`  ${n.global_id} ${n.ifc_class} ${n.storey ?? "-"} · ${n.why}`);
   p(`hint: ${JSON.stringify(r.hint)}`);

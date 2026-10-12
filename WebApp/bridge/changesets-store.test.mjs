@@ -1729,7 +1729,7 @@ describe("proposeFromJob (MA-6-8): a lead turns a concept IFC job into one chang
     const path = new URL("./fixtures/ifc-geometry/revit2024-concept-cv2.ifc", import.meta.url), bytes = readFileSync(path);
     const r = await runIfc({ job_id: "job-0007", items: [{ id: "ev-0001", kind: "model", path: path.pathname.replace(/^\/([A-Za-z]:)/, "$1").replaceAll("%20", " "), sha256: createHash("sha256").update(bytes).digest("hex") }] });
     const TRUSTED = { job: { id: "job-0007", status: "done" }, result: r.result,
-      row: { ledger: { id: 3301, hash: "13".repeat(32) }, reader: "sentinel-ifc", version: "0.1.0", pack_id: "evp-0001", items: [{ id: "ev-0001", sha256: EV }], read: ["ev-0001"], result_sha256: "7a".repeat(32) } };
+      row: { ledger: { id: 3301, hash: "13".repeat(32) }, reader: "sentinel-ifc", version: "0.2.0", pack_id: "evp-0001", items: [{ id: "ev-0001", sha256: EV }], read: ["ev-0001"], result_sha256: "7a".repeat(32) } };
     let n = 3400;
     return baseDeps({ myRole: vi.fn(async () => "lead"), requireMinRole: vi.fn(async () => "lead"), takeWriteBudget: vi.fn(), resolveArtefact: resolving(STD),
       trustedJob: vi.fn(async () => TRUSTED), readPack: vi.fn(async () => ({ pack: { items: [{ id: "ev-0001", sha256: EV, state: "admitted" }] } })),
@@ -1737,20 +1737,22 @@ describe("proposeFromJob (MA-6-8): a lead turns a concept IFC job into one chang
   };
   const propose = (deps, body = { frame: FRAME }) => proposeFromJob("ma4c-drill", "job-0007", body, "web", deps);
 
-  it("(a) the Revit CV2 concept: two storey changesets, nothing ticked, the planner's row names ifc_row and holds the roof; the column and door ride IFC L02", async () => {
+  it("(a) the Revit CV2 concept: two storey changesets, nothing ticked, the planner's row names ifc_row and holds the roof; the door is filed on IFC L02, the column held for its top level (MA-8-4)", async () => {
     const deps = await ideps();
     const r = await propose(deps);
-    expect(r.changesets.map((c) => [c.name, c.elements, c.preticked])).toEqual([["IFC job-0007 · IFC L02 job-0007", 7, 0], ["IFC job-0007 · IFC L04 job-0007", 6, 0]]);
+    expect(r.changesets.map((c) => [c.name, c.elements, c.preticked])).toEqual([["IFC job-0007 · IFC L02 job-0007", 8, 0], ["IFC job-0007 · IFC L04 job-0007", 6, 0]]);
     expect(r).toMatchObject({ job: "job-0007", ifc_row: { id: 3301 }, frame: FRAME, already_filed: 0, gaps: { groups: 0 } });
     expect(r.survey_row).toBeUndefined();
     const docs = [...deps.saved.values()];
-    expect(docs[0]).toMatchObject({ claimed: false, job: { id: "job-0007", reader: "sentinel-ifc 0.1.0", planner: "ifc-planner 0.1.0", ledger_id: 3301, storey: { cid: "L02", how: "created" } } });
+    expect(docs[0]).toMatchObject({ claimed: false, job: { id: "job-0007", reader: "sentinel-ifc 0.2.0", planner: "ifc-planner 0.2.0", ledger_id: 3301, storey: { cid: "L02", how: "created" } } });
     expect(docs[0].elements.every((e) => e.pretick === false && e.accuracy.status === "inferred" && e.accuracy.basis === "ifc")).toBe(true);
-    expect(docs[0].exceptions.map((e) => e.name.split(" ")[0]).sort()).toEqual(["IfcColumn", "IfcDoor", "IfcWallStandardCase"]);
+    expect(docs[0].exceptions.map((e) => e.name.split(" ")[0]).sort()).toEqual(["IfcOpeningElement", "column"]);   // the wall's own cut; the column held
+    expect(docs[0].exceptions.find((e) => e.name.startsWith("column")).reason).toMatch(/^its top level IFC L04 job-0007 is created by that storey's changeset — apply it, then propose again/);
+    expect(docs[0].elements.find((e) => e.kind === "door")).toMatchObject({ place: { FamilyName: "BDS_EXT_1 PNL", TypeName: "BDS_EXT_1 PNL_WOOD_1000 x 2100 mm" }, typing: { typed_by: "bridge-ifc-type" }, pretick: false });
     expect(docs[0].elements.filter((e) => e.kind === "wall").map((e) => e.place.TypeName).sort()).toEqual(
       ["BDS_EXT_ARC_CMU_300 mm", "BDS_EXT_ARC_CMU_300 mm", "BDS_EXT_ARC_CMU_300 mm", "BDS_EXT_ARC_CMU_300 mm", "BDS_INT_ARC_CMU_150 mm"]);
     const run = deps.audit.mock.calls.find((c) => c[1] === "build");
-    expect(run[3]).toBe("build:run job-0007 · ifc-planner 0.1.0 · proposed");
+    expect(run[3]).toBe("build:run job-0007 · ifc-planner 0.2.0 · proposed");
     expect(run[6]).toMatchObject({ planner: "ifc-planner", ifc_row: { id: 3301 }, claimed: false, model_calls: 0, tokens: 0 });
     expect(run[6].off_storey).toEqual(expect.arrayContaining([expect.objectContaining({ ifc_class: "IFCROOF", count: 1 })]));   // the roof's storey holds nothing to place
     expect(r.off_storey).toEqual(run[6].off_storey);
@@ -1783,10 +1785,14 @@ describe("proposeFromJob (MA-6-8): a lead turns a concept IFC job into one chang
     expect((await propose(own)).changesets[0].name).toBe("IFC job-0007 · IFC L02 job-0007");
   });
 
-  it("(b) a second run finds nothing new; a placed IFC changeset has no scan to measure or show", async () => {
+  it("(b) a second run files only the column that waited for its top level; the third finds nothing new; a placed IFC changeset has no scan to measure or show", async () => {
     const d0 = await ideps(); await propose(d0);
     const docs = [...d0.saved.values()];
-    await expect(propose(await ideps({ docList: vi.fn(async () => docs) }))).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/^nothing new to propose from job-0007 — every candidate that types is filed already/) });
+    const d1 = await ideps({ docList: vi.fn(async () => docs) });
+    expect((await propose(d1)).changesets.map((c) => [c.name, c.elements])).toEqual([["IFC job-0007 · IFC L02 job-0007", 1]]);   // IFC L04 is a filed storey now, its level a known one
+    expect([...d1.saved.values()][0].elements[0]).toMatchObject({ kind: "column", place: { TopLevel: "IFC L04 job-0007" } });
+    const all = [...docs, ...d1.saved.values()];
+    await expect(propose(await ideps({ docList: vi.fn(async () => all) }))).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/^nothing new to propose from job-0007 — every candidate that types is filed already/) });
     const cs = { ...docs[0], status: "applied" };
     d0.saved.set(cs.id, cs);
     const as = { ...d0, myRole: vi.fn(async () => "contributor"), requireMinRole: vi.fn(async () => "contributor") };

@@ -114,6 +114,19 @@ export function typeBySize(catalog, category, w, h, same) {
   return rows.length === 1 ? { row: rows[0] } : rows.length ? { rows } : null;
 }
 
+/** MA-8-4: "610mm Diameter" → 610 (English type names; ponytail: a localized catalogue needs a `kind` column). */
+export const diameterOf = (s) => { const m = /(\d+(?:\.\d+)?)\s*mm\s*diameter/i.exec(String(s ?? "")); return m ? Number(m[1]) : null; };
+
+/** MA-8-4: typeBySize for a round section — the catalogue rows of `category` whose type is named "<n>mm Diameter" within SIZE_BAND_MM of
+ *  the diameter → {row} when exactly one, {rows} when several, null when none (or none named so). */
+export function typeByDiameter(catalog, category, dia, same) {
+  const rows = (catalog?.types ?? []).filter((t) => {
+    const d = t && same(t, category) ? diameterOf(t.type) : null;
+    return d != null && Math.abs(d - dia) <= SIZE_BAND_MM;
+  });
+  return rows.length === 1 ? { row: rows[0] } : rows.length ? { rows } : null;
+}
+
 /** The catalogue row that closes a group, or null: of its category (`sameCategory`, the bundle's — by name or BuiltInCategory), the
  *  type it wants by name; a group that wants no named type, a type named at its size. MA-5a (review): a survey group (job_id — only the
  *  bridge's own row carries one) closes when proposing again would type it: typeBySize's one row in the band, never one of several; a
