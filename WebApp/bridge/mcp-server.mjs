@@ -142,6 +142,12 @@ export const TOOLS = [
       properties: { project: { type: "string", description: "the project key" }, job: { type: "string", description: "optional: a job id (job-NNNN) — that job with its candidates" } },
     },
   },
+  // MA-8-1 (C11): how much of what was filed a person changed, per run.
+  {
+    name: "sentinel_edit_cost",
+    description: "Read a project's edit cost per run (a survey, drawing or IFC job, else one changeset): ghosts filed, declined on the web, declined before (carried from an earlier changeset, left out of the share), not applied in Revit (unticked, or removed at commit), applied, undone (an Undo in Revit), kept, pending, and share_changed = (web + not applied + undone) / (filed - carried). Computed at read time from the changesets and their changeset_reverted rows; every run says its ceiling: edits made after Apply, other than an Undo in Revit, are not seen. Read-only: publishing a run's numbers is a lead's, on the web desk.",
+    inputSchema: { type: "object", required: ["project"], properties: { project: { type: "string", description: "the project key" } } },
+  },
   // MA-6-1: an agent reads what judges it — the LOD line and the standards in force — before it proposes.
   {
     name: "sentinel_lod_state",
@@ -312,6 +318,7 @@ export async function callTool(name, args = {}, deps = {}) {
     const project = need(args, "project");
     return await getJson(`/cde/${enc(project)}/build/jobs${args.job ? `/${enc(need(args, "job"))}` : ""}`);
   }
+  if (name === "sentinel_edit_cost") return await getJson(`/changesets/${enc(need(args, "project"))}/edit-cost`);
   // MA-6-1: the agent's reads (A-1, A-2) — through the routes the web and Revit read, on the same credential.
   if (name === "sentinel_lod_state") {
     const j = await getJson(`/cde/${enc(need(args, "project"))}/journey`);

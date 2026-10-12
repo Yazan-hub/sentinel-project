@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import {
   VOCABULARY, OPS, OP_KINDS, MAX_CHANGESET_ELEMENTS, TRUST_FIELDS, ADDIN_SOURCES, CREATE_ENTITY, PLACE_KEPT,
-  validateChangeset, carryKey, outlineProblem, attachVerdicts, canWithdraw, deriveResultStatus, unattributedFailures,
+  validateChangeset, carryKey, outlineProblem, attachVerdicts, canWithdraw, deriveResultStatus, unattributedFailures, editCost, EDIT_COST_CEILING,
 } from "./changesets-logic.mjs";
 import * as core from "./sentinel-core.mjs";
 import { makeTyper, makeCiter } from "./changesets-typing.mjs";
@@ -1408,5 +1408,42 @@ describe("validateChangeset — a changeset the bridge built from a survey job (
     expect(v.elements[0]).toMatchObject({ pretick: false, accuracy: { status: "not_measured" } });
     expect(v.elements[0]).not.toHaveProperty("measured");
     expect(v.ignored.map((i) => i.field)).toEqual(["job", "source.job_id", "elements[0].measured", "elements[0].pretick"]);
+  });
+});
+
+describe("editCost (MA-8-1)", () => {
+  const els = (n) => Array.from({ length: n }, (_, i) => ({ proposal_guid: `g${i}` }));
+  const cs = (id, over = {}) => ({ id, name: id, status: "applied", elements: els(5), job: { id: "job-0001", ledger_id: 40 },
+    result: { applied: ["g0", "g1", "g2"], rejected: ["g3", "g4"], declined_on_web: [{ proposal_guid: "g3" }], reported_at: "2026-10-12T10:00:00Z" }, ...over });
+  const rev = (id, entity_id, op, guids) => ({ id, entity_id, new_value: { op, guids } });
+
+  it("keeps web, carried and Revit declines apart; carried is left out of the share", () => {
+    const c = cs("a", { result: { applied: ["g0", "g1"], rejected: ["g2", "g3", "g4"],
+      declined_on_web: [{ proposal_guid: "g2" }, { proposal_guid: "g3", carried_from: "x" }], reported_at: "t" } });
+    const [r] = editCost([c], []).runs;
+    expect(r).toMatchObject({ filed: 5, web: 1, carried: 1, revit: 1, applied: 2, undone: 0, kept: 2, pending: 0, complete: true, ceiling: EDIT_COST_CEILING });
+    expect(r.share_changed).toBeCloseTo(2 / 4);
+  });
+
+  it("undo then redo is kept; two undos count once; the newest row decides", () => {
+    const rows = [rev(1, "a", "undo", ["g0", "g1"]), rev(2, "a", "redo", ["g0"]), rev(3, "a", "undo", ["g1"])];
+    const [r] = editCost([cs("a")], rows).runs;
+    expect(r.undone).toBe(1);
+    expect(r.kept).toBe(2);
+    expect(r.rests_on).toEqual({ applied: "2026-10-12T10:00:00Z", reverted: 3 });
+  });
+
+  it("a proposed changeset is pending (run not complete); withdrawn is left out and counted; filed 0 has no share", () => {
+    const out = editCost([cs("a"), cs("b", { status: "proposed", result: undefined }), cs("w", { status: "withdrawn" })], []);
+    expect(out.withdrawn).toBe(1);
+    expect(out.runs[0]).toMatchObject({ pending: 5, complete: false, changesets: ["a", "b"] });
+    expect(editCost([cs("z", { elements: [], result: { applied: [], rejected: [] } })], []).runs[0].share_changed).toBeNull();
+  });
+
+  it("groups by the job's ledger row, not its id; a changeset without a job is its own run", () => {
+    const out = editCost([cs("a"), cs("b"), cs("c", { job: { id: "job-0001", ledger_id: 99 } }), cs("d", { job: undefined, name: "Promote DD" })], []);
+    expect(out.runs.map((r) => r.run)).toEqual(["job#40", "job#99", "d"]);
+    expect(out.runs[0]).toMatchObject({ filed: 10, label: "job-0001 (ledger #40)" });
+    expect(out.runs[2].label).toBe("Promote DD");
   });
 });

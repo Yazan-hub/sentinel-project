@@ -407,6 +407,36 @@ export const postMeasure = (base: string, key: string, id: string): Promise<Meas
 export const measureLine = (r: MeasureReply): string =>
   `✓ Measured ${r.changeset.name} against the scan ${r.reference === "revit (claimed)" ? "as Revit re-read it (the add-in's claim)" : r.reference === "mixed" ? "as Revit re-read it (the add-in's claim), else as filed" : "as filed"} — ${countWords(r.counts)} · ${rowWords(r)}`;
 
+// ── MA-8-1 (C11): the edit cost of each run — how much of what was filed a person changed. Computed by the bridge at read time; a lead
+//    publishes a complete run's numbers as one ledger row. ──
+export interface EditCostRun { run: string; label: string; filed: number; web: number; carried: number; revit: number; applied: number; undone: number; kept: number;
+  pending: number; share_changed: number | null; complete: boolean; ceiling: string; }
+export interface EditCost { runs: EditCostRun[]; withdrawn: number; ceiling: string; }
+
+/** GET /changesets/:key/edit-cost. Any failure throws "not read — <why>". */
+export async function readEditCost(base: string, key: string): Promise<EditCost> {
+  let r: Response;
+  try { r = await bfetch(at(base, key, "/edit-cost")); }
+  catch (e) { throw new Error(`not read — ${(e as Error).message}`); }
+  const j = (await r.json().catch(() => null)) as (EditCost & { message?: string }) | null;
+  if (!r.ok || !j || !Array.isArray(j.runs)) throw new Error(`not read — ${j?.message || (r.ok ? "the bridge answered without runs" : `HTTP ${r.status}`)}`);
+  return j;
+}
+
+/** POST /changesets/:key/edit-cost/publish {run} — a lead's. A refusal throws the bridge's words. */
+export const postEditCostPublish = (base: string, key: string, run: string): Promise<{ ledger: LedgerRef | null }> =>
+  bwrite(at(base, key, "/edit-cost/publish"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ run }) });
+
+/** One run as a line, with the ceiling. Pure. */
+export function editCostLine(r: EditCostRun): string {
+  const parts = [r.label, `${r.filed} filed`, `${r.web} declined on the web`];
+  if (r.carried) parts.push(`${r.carried} declined before (carried)`);
+  parts.push(`${r.revit} not applied in Revit (unticked, or removed at commit)`, `${r.applied} applied`, `${r.undone} undone`);
+  if (r.pending) parts.push(`${r.pending} still pending`);
+  const kept = `${r.kept} kept` + (r.share_changed == null ? "" : ` (${Math.round(r.share_changed * 100)} % changed)`);
+  return `${parts.join(" · ")} · ${kept} — ${r.ceiling}`;
+}
+
 /** MA-3d: what Highlight in 3D does with a storey's ghosts and what each loaded model answered for their GlobalIds (null = not in it):
  *  the highlighter's map (modelId → the local ids found) and the words. Pure. */
 /** MA-3d: the distinct GlobalIds a storey's ghosts highlight: a retype's or an attach's element. A type edit (set_parameter) is left
@@ -584,6 +614,25 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
     return box;
   };
 
+  // MA-8-1: one line per run; a lead gets Publish on a complete one (textContent only).
+  const editCostBox = (data: EditCost | Error, role: string): HTMLElement => {
+    const box = el("div", "", "margin-top:.9rem;border-top:1px solid #2a2a30;padding-top:.5rem");
+    box.append(el("div", "Edit cost per run", "font-weight:600"));
+    if (data instanceof Error) { box.append(el("div", `Edit cost ${data.message}`, "color:#fca5a5")); return box; }
+    if (!data.runs.length) { box.append(el("div", "No run has been filed on this project.", "color:#8b93a1")); return box; }
+    for (const r of data.runs) {
+      const row = el("div", "", "display:flex;gap:.4rem;align-items:flex-start;padding:.2rem 0");
+      row.append(el("div", editCostLine(r), "flex:1"));
+      if (r.complete && canReopen(role))
+        row.append(btn("Publish", async () => {
+          try { say(`Published ${r.label} · ${rowWords(await postEditCostPublish(base, activePid(), r.run))}`); }
+          catch (e) { say(`not published — ${(e as Error).message}`, true); }
+        }));
+      box.append(row);
+    }
+    return box;
+  };
+
   const decide = async (decision: "accept" | "decline") => {
     // One post per changeset (all or none on the bridge); a ghost already accepted (or declined) is not sent again (C6).
     const { posts, already } = postsFor(ticked, decision);
@@ -607,12 +656,15 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
     // MA-3b2b: the ledger rows of the reports shown — a read of its own, so a ledger that cannot be read is said on each report.
     const ledger = decided instanceof Error ? new Map<string, LedgerRows>() : await readLedger(base, key, decided.slice(0, DECIDED_MAX).map((c) => c.id)).catch((e: Error) => e);
     if (mine !== seq) return;
+    const cost = await readEditCost(base, key).catch((e: Error) => e); // MA-8-1: a read of its own; a failure is said in its section
+    if (mine !== seq) return;
     // MA-4e: the newest measure of each placed survey changeset shown — one read each; a failed one is said under its own report, never a guess.
     const verified = decided instanceof Error ? new Map<string, VerifyRecord | Error | null>() : await readVerified(base, key, decided.slice(0, DECIDED_MAX).filter((c) => c.job && !isDrawn(c)).map((c) => c.id));
     if (mine !== seq) return;
     // Review C4: built once, and a throw in it is said — it never leaves the desk at "Reading…" or takes the proposed list with it.
     let tail: HTMLElement;
     try { tail = recent(decided, ledger, role.role, verified); } catch (e) { tail = el("div", `Reports not shown — ${(e as Error).message}`, "color:#fca5a5"); }
+    try { tail.append(editCostBox(cost, role.role)); } catch (e) { tail.append(el("div", `Edit cost not shown — ${(e as Error).message}`, "color:#fca5a5")); }
     bar.replaceChildren(el("b", `Review desk · ${key}`), el("span", roleWords(role), "color:#8b93a1"), btn("↻ Refresh", () => void show()));
     if (canDecide(role.role)) bar.append(reason, btn("Accept ticked", () => void decide("accept")), btn("Decline ticked", () => void decide("decline")));
     else bar.append(el("span", role.role === "service" ? "· sign in to accept or decline — the machine credential never reviews" : "· read-only: accepting or declining needs contributor", "color:#fbbf24"));

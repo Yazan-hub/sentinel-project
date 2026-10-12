@@ -11,7 +11,7 @@ vi.mock("./active-project", () => ({ activePid: () => "demo", onActiveProjectCha
 import { heldLines, proposalWords, storeyOf, groupDesk, ghostLine, reviewWords, declinedBy, canDecide, canReopen, readPending, postReview, postReopen, rowWords, postsFor, type PendingChangeset,
   trustWords, sourceWords, isDrawn,
   readDecided, readLedger, highlightPlan, type Ghost, decidedView, decidedCount, DECIDED_MAX, type LedgerRows,
-  measureWords, verifiedView, readVerified, postMeasure, measureLine, canMeasure, countWords, type VerifyRecord, type Measured } from "./review-desk";
+  measureWords, verifiedView, readVerified, postMeasure, measureLine, canMeasure, countWords, editCostLine, readEditCost, type EditCostRun, type VerifyRecord, type Measured } from "./review-desk";
 
 const fx = JSON.parse(readFileSync(new URL("../../bridge/fixtures/changeset-ops/ma3a-review.json", import.meta.url), "utf8"));
 const after = fx.after as PendingChangeset;
@@ -231,7 +231,7 @@ describe("recently decided in Revit (MA-3b2b)", () => {
     expect(src).toContain('if (!pending.length) { body.replaceChildren(el("div", "Nothing waits for review in Revit on this project."), tail); return; }');
     expect(src).toContain("    body.append(tail);");
     expect(src.split("recent(decided, ledger, role.role, verified)").length - 1).toBe(1);
-    expect(src.split(/\btail\b/).length - 1).toBe(6); // declared, set twice, shown in each of the desk's three endings
+    expect(src.split(/\btail\b/).length - 1).toBe(8); // declared, set twice, shown in each of the desk's three endings (+2 in MA-8-1: the edit-cost section is appended to it)
   });
 });
 
@@ -508,5 +508,33 @@ describe("measured against the scan (MA-4e)", () => {
     expect(src).toContain("const verified = decided instanceof Error ? new Map<string, VerifyRecord | Error | null>() : await readVerified(base, key, decided.slice(0, DECIDED_MAX).filter((c) => c.job && !isDrawn(c)).map((c) => c.id));");
     expect(src).toContain("if (canMeasure(cs, role, ledger instanceof Error ? ledger : ledger.get(cs.id) ?? null)) {");
     expect(src).toContain('go.disabled = true; go.textContent = "Measuring…";');
+  });
+});
+
+describe("edit cost (MA-8-1)", () => {
+  const run: EditCostRun = { run: "job#40", label: "job-0003 (ledger #40)", filed: 12, web: 2, carried: 1, revit: 1, applied: 9, undone: 1, kept: 8, pending: 0,
+    share_changed: 4 / 11, complete: true, ceiling: "edits made after Apply, other than an Undo in Revit, are not seen" };
+
+  it("says each count in words, carried apart, and the ceiling", () => {
+    const l = editCostLine(run);
+    expect(l).toContain("12 filed");
+    expect(l).toContain("2 declined on the web");
+    expect(l).toContain("1 declined before (carried)");
+    expect(l).toContain("1 not applied in Revit (unticked, or removed at commit)");
+    expect(l).toContain("1 undone");
+    expect(l).toContain("8 kept (36 % changed)");
+    expect(l).toContain("edits made after Apply, other than an Undo in Revit, are not seen");
+  });
+
+  it("omits carried when none, says pending, and gives no percentage when nothing was decided", () => {
+    const l = editCostLine({ ...run, carried: 0, pending: 3, share_changed: null });
+    expect(l).not.toContain("carried");
+    expect(l).toContain("3 still pending");
+    expect(l).not.toContain("% changed");
+  });
+
+  it("readEditCost throws 'not read' on a failure, never an empty list", async () => {
+    bfetch.mockResolvedValueOnce({ ok: false, status: 503, json: async () => ({ message: "ledger down" }) });
+    await expect(readEditCost("http://b", "demo")).rejects.toThrow("not read — ledger down");
   });
 });

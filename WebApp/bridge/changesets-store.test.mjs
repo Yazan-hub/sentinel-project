@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { proposeChangeset, getChangeset, reportResult, withdrawChangeset, listChangesets, reportReverted, needsTyping, needsCiting,
-  reviewChangeset, reopenGhost, previewChangesets, proposeFromJob, verifyChangeset, scanOverlay } from "./changesets-store.mjs";
+  reviewChangeset, reopenGhost, previewChangesets, proposeFromJob, verifyChangeset, scanOverlay, editCostOf, publishEditCost } from "./changesets-store.mjs";
 import { meshFaces } from "./survey-plan.mjs";
 import { boxMesh } from "./fixtures/box-mesh.mjs";
 
@@ -1777,5 +1777,41 @@ describe("proposeFromJob (MA-6-8): a lead turns a concept IFC job into one chang
     const as = { ...d0, myRole: vi.fn(async () => "contributor"), requireMinRole: vi.fn(async () => "contributor") };
     await expect(verifyChangeset("ma4c-drill", { changeset: cs.id }, "web", as)).rejects.toMatchObject({ status: 409, message: `${cs.name} was built from an IFC (job-0007) — what a concept says, not what was built: there is no scan to measure it against — nothing was saved` });
     await expect(scanOverlay("ma4c-drill", cs.id, as)).rejects.toMatchObject({ status: 409, message: `${cs.name} was built from an IFC (job-0007) — it has no scan to show` });
+  });
+});
+
+describe("edit cost (MA-8-1)", () => {
+  const doc = (over = {}) => ({ id: "c1", name: "c1", status: "applied", elements: [{ proposal_guid: "g0" }, { proposal_guid: "g1" }], job: { id: "job-0001", ledger_id: 40 },
+    result: { applied: ["g0"], rejected: ["g1"], declined_on_web: [], reported_at: "t1" }, ...over });
+  const mk = (docs, over = {}) => baseDeps({ docList: vi.fn(async () => docs), auditAll: vi.fn(async () => []), myRole: async () => "lead",
+    takeWriteBudget: vi.fn(), requireMinRole: async () => {}, ...over });
+
+  it("a throwing ledger is a 503 and no numbers", async () => {
+    await expect(editCostOf("demo", mk([doc()], { auditAll: vi.fn(async () => { throw new Error("down"); }) }))).rejects.toMatchObject({ status: 503 });
+  });
+
+  it("publish: the machine credential and a contributor are 403", async () => {
+    await expect(publishEditCost("demo", { run: "job#40" }, "x", mk([doc()], { myRole: async () => "service" }))).rejects.toMatchObject({ status: 403 });
+    await expect(publishEditCost("demo", { run: "job#40" }, "x", mk([doc()], { myRole: async () => "contributor" }))).rejects.toMatchObject({ status: 403 });
+  });
+
+  it("publish: an unknown run is 404, a pending one 409", async () => {
+    await expect(publishEditCost("demo", { run: "nope" }, "x", mk([doc()]))).rejects.toMatchObject({ status: 404 });
+    await expect(publishEditCost("demo", { run: "job#40" }, "x", mk([doc({ status: "proposed" })]))).rejects.toMatchObject({ status: 409 });
+  });
+
+  it("publish: one row with rests_on; the same numbers on the same rows again is a 409 and writes nothing", async () => {
+    const written = [];
+    const audit = vi.fn(async (...a) => { written.push(a); return { id: 91, hash: "h" }; });
+    const deps = mk([doc()], { audit });
+    const out = await publishEditCost("demo", { run: "job#40" }, "lead@example.test", deps);
+    expect(out.ledger).toEqual({ id: 91, hash: "h" });
+    expect(written).toHaveLength(1);
+    expect(written[0][1]).toBe("edit_cost");
+    expect(written[0][3]).toMatch(/^edit_cost:published job-0001 \(ledger #40\) · 1\/2 kept/);
+    expect(written[0][6]).toMatchObject({ run: "job#40", numbers: { filed: 2, kept: 1, revit: 1 }, rests_on: { applied: "t1", reverted: null } });
+    const again = mk([doc()], { audit, auditAll: vi.fn(async (k, f) => (f.entity_type === "edit_cost" ? [{ id: 91, new_value: written[0][6] }] : [])) });
+    await expect(publishEditCost("demo", { run: "job#40" }, "x", again)).rejects.toMatchObject({ status: 409 });
+    expect(written).toHaveLength(1);
   });
 });

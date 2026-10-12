@@ -1849,6 +1849,7 @@ async function handleRequest(req, res) {
   //   POST /changesets/:key            · GET /changesets/:key?status=proposed
   //   GET  /changesets/:key/:id        · POST /changesets/:key/:id/result { applied, rejected, note }
   //   POST /changesets/:key/:id/withdraw · POST /changesets/:key/:id/reverted { op: undo|redo, guids } → a ledger row
+  //   GET  /changesets/:key/edit-cost · POST /changesets/:key/edit-cost/publish { run }   (MA-8-1)
   //   POST /changesets/:key/:id/review { decisions: [{proposal_guid, decision, reason}] } · POST /changesets/:key/:id/reopen { proposal_guid, reason }
   // The module dispatchers below match the whole first segment — /bimdocs, never /bimdocsZZ — so a rule keyed on a
   // route (a rate limit, a proxy allowlist, a log alert) sees the route it names.
@@ -1866,6 +1867,9 @@ async function handleRequest(req, res) {
       if (!p2 && req.method === "POST") return send(res, 201, await ch.proposeChangeset(key, body, actor));
       // MA-3b6: what filing these bodies would carry (MA-3b3's rule in its one place) — a read: nothing stored, no ledger row.
       if (p2 === "preview" && !p3 && req.method === "POST") return send(res, 200, await ch.previewChangesets(key, body));
+      // MA-8-1 (C11): the edit cost of each run — a read of the docs and the Undo rows; a lead's Publish writes one edit_cost:published row.
+      if (p2 === "edit-cost" && !p3 && req.method === "GET") return send(res, 200, await ch.editCostOf(key));
+      if (p2 === "edit-cost" && p3 === "publish" && req.method === "POST") return send(res, 201, await ch.publishEditCost(key, body, actor));
       // MA-3d2: the changeset's creates as a proposal model (.frag) — a member's read; nothing stored. A changeset with no create that
       // has a shape is a 409 in words. The counts ride in one header so the web says what it shows and what it skipped.
       // MA-3d3: one proposal model for a storey — ?ids= names its parts (each a changeset of this key; an unknown one is a 404 and

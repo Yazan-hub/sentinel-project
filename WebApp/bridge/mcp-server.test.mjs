@@ -14,7 +14,7 @@ describe("TOOLS registry", () => {
     const names = TOOLS.map((t) => t.name);
     for (const n of ["sentinel_list_projects", "sentinel_propose", "sentinel_audit", "sentinel_ask_app", ...NEW_TOOLS])
       expect(names).toContain(n);
-    expect(TOOLS).toHaveLength(16);
+    expect(TOOLS).toHaveLength(17);
   });
 
   it("every tool has a description and an object inputSchema", () => {
@@ -140,14 +140,14 @@ describe("callTool — existing tools regression", () => {
 });
 
 describe("changeset tools", () => {
-  it("registry has 16 tools including the two changeset tools, receipt verification and MA-6-1's two reads", () => {
+  it("registry has 17 tools including the two changeset tools, receipt verification, MA-6-1's two reads and MA-8-1's edit cost", () => {
     const names = TOOLS.map((t) => t.name);
     expect(names).toContain("sentinel_propose_changeset");
     expect(names).toContain("sentinel_changeset_status");
     expect(names).toContain("sentinel_verify_receipt");
     expect(names).toContain("sentinel_lod_state");
     expect(names).toContain("sentinel_standards");
-    expect(TOOLS).toHaveLength(16);
+    expect(TOOLS).toHaveLength(17);
   });
 
   it("propose tool description states the referee model and the vocabulary", () => {
@@ -336,6 +336,14 @@ describe("MA-6-1 — agent reads, the bridge's class, Undo in the status", () =>
     expect(fetch.mock.calls[0][0]).toMatch(/\/cde\/demo\/journey$/);
     expect(fetch.mock.calls[0][1].method).toBeUndefined();
     await expect(callTool("sentinel_lod_state", {}, { fetch })).rejects.toThrow(/project is required/);
+  });
+
+  it("sentinel_edit_cost reads /changesets/:key/edit-cost — read-only", async () => {
+    const fetch = vi.fn(async () => okJson({ runs: [], withdrawn: 0, ceiling: "c" }));
+    expect(await callTool("sentinel_edit_cost", { project: "demo" }, { fetch })).toEqual({ runs: [], withdrawn: 0, ceiling: "c" });
+    expect(fetch.mock.calls[0][0]).toMatch(/\/changesets\/demo\/edit-cost$/);
+    expect(fetch.mock.calls[0][1].method).toBeUndefined();
+    expect(TOOLS.find((t) => t.name === "sentinel_edit_cost").description).toMatch(/edits made after Apply, other than an Undo/);
   });
 
   it("sentinel_standards reads guideline and ids whole, lod_matrix as its DD IDS; an unknown kind is refused before any fetch", async () => {
