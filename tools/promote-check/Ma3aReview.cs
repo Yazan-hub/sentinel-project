@@ -68,7 +68,7 @@ static partial class Check
         string window = Src("UI", "ChangesetReviewWindow.cs"), review = Src("Commands.ReviewChangesets.cs"), client = Src("Coordination", "ChangesetClient.cs"),
                ghost = Src("GhostBuilder", "GhostChangesetBuild.cs");
         int At(string s, string what) => s.IndexOf(what, StringComparison.Ordinal);
-        Ok(window.Contains("box.IsEnabled = !ChangesetTrust.DeclinedOnWeb(el);") && At(window, "box.IsEnabled = !ChangesetTrust.DeclinedOnWeb(el);") > At(window, "IsChecked = ChangesetTrust.PreTick(_cs, el)")
+        Ok(window.Contains("box.IsEnabled = !ChangesetTrust.DeclinedOnWeb(el);") && At(window, "box.IsEnabled = !ChangesetTrust.DeclinedOnWeb(el);") > At(window, "IsChecked = ChangesetTrust.PreTick(_cs, el, _notLoaded)")
            && window.Contains("if (ChangesetTrust.ReviewLine(el) is string reviewLine)") && window.Contains("if (ChangesetTrust.DeclinedHeader(_cs) is string declinedLine)"),
            "the window shows a declined row unticked and disabled, every row's web decision, and the declines' header");
         int freshDone = At(review, "fresh.Add(f);"), refuse = At(review, "if (ChangesetTrust.DeclinedTicked(fresh, ticked) is { } declinedTicked)");
