@@ -22,7 +22,7 @@ async function wire(deps = {}) {
     sb: deps.sb || cde?.sb,
     extractManifest: deps.extractManifest || (await import("./ifc-manifest.mjs")).extractManifest,
     measureCobie: deps.measureCobie || measureCobie,
-    readWalls: deps.readWalls || (async (b) => (await import("./ifc-geometry.mjs")).readIfcGeometry(b)),
+    readWalls: deps.readWalls || (async (b) => (await import("./ifc-geometry.mjs")).readIfcGeometry(b, { wallsOnly: true })), // MA-8-4: the walls alone, not the 0.2.0 openings, doors and columns
   };
 }
 
@@ -46,7 +46,7 @@ export async function measureCobie(bytes) {
 
 /** MA-8-2: the walls FG-07 compares, from one readIfcGeometry result — plan mm in the file's own frame, `storey` the level's NAME (the
  *  reader's cid is file-local), at most WALLS_CAP stored (walls_total says when more were read), walls_held = IFCWALL* the reader held back
- *  (an unfilled opening) so FG-07 can say they were not compared. PURE. */
+ *  (a curved or bodyless wall) so FG-07 can say they were not compared. PURE. */
 export const WALLS_CAP = 5000;
 export function manifestWalls(r) {
   const name = new Map((r.levels || []).map((l) => [l.cid, l.name]));
@@ -54,7 +54,7 @@ export function manifestWalls(r) {
   return {
     walls: all.slice(0, WALLS_CAP).map((w) => ({ g: w.global_id, s: w.start, e: w.end, t: w.thickness_mm, z0: w.base_mm, z1: w.base_mm + w.height_mm, storey: name.get(w.storey) ?? null })),
     walls_total: all.length,
-    // a wall with unfilled openings is read AND listed in not_read: it is compared, so it is not held
+    // MA-8-4: a wall with openings is read, not listed in not_read (its openings are their own elements): it is compared, so it is not held
     walls_held: new Set((r.not_read || []).filter((n) => /^IFCWALL/.test(String(n.ifc_class)) && !read.has(n.global_id)).map((n) => n.global_id)).size,
   };
 }

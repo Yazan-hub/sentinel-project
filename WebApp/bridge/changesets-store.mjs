@@ -373,7 +373,7 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
       throw err(409, `${align.revises} filed nothing on ${key} — propose it first (what it filed is what ${align.item} is compared with); if it was proposed and filed nothing new, name the drawing it revised itself; or leave revises out; nothing was saved`);
     const plan = drawing ? planDrawing({ job, candidates: result.candidates, align, manifest, type, filed, catalog: cat, sameCategory: core.sameCategory,
       scan: scanOnStorey(earlier, align.elevation_mm), drawingSha: evidence[0]?.sha256 ?? null, prior })
-      : ifc ? planIfc({ job, candidates: result.candidates, frame, levels, manifest, type, filed, notRead: result.receipt?.not_read ?? [] })
+      : ifc ? planIfc({ job, candidates: result.candidates, frame, levels, manifest, type, filed, notRead: result.receipt?.not_read ?? [], catalog: cat, sameCategory: core.sameCategory, hint: result.receipt?.hint }) // MA-8-4: doors, windows and columns are typed from the catalogue
       : planSurvey({ job, candidates: result.candidates, frame, levels, manifest, type, filed, catalog: cat, sameCategory: core.sameCategory });
     const by = resolveActor(actor, "web");
     // MA-5a-4: a drawing's changeset carries its alignment and who stated it (design: "confirmed by a person"), a scan's its frame.

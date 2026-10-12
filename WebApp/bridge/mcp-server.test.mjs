@@ -37,6 +37,12 @@ describe("TOOLS registry", () => {
   it("build status names the IFC reader (MA-6-8)", () => {
     expect(TOOLS.find((t) => t.name === "sentinel_build_status").description).toContain("an IFC job (reader sentinel-ifc");
   });
+  it("build status names what sentinel-ifc 0.2.0 reads (MA-8-4): openings, doors, windows and columns, a curtain wall as a flagged wall, the stairs' boxes", () => {
+    const d = TOOLS.find((t) => t.name === "sentinel_build_status").description;
+    expect(d).toContain("level, wall (a curtain wall is a wall flagged `curtain`), floor, opening, door, window and column candidates in model millimetres (0.2.0");
+    expect(d).toContain("receipt.not_read_by_class counts it by IFC class; a stair is listed there with its box");
+    expect(TOOLS).toHaveLength(17);   // no tool is added
+  });
 
   it("required args are declared", () => {
     expect(TOOLS.find((t) => t.name === "sentinel_get_document").inputSchema.required).toEqual(["project", "document"]);

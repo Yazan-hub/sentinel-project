@@ -16,8 +16,8 @@ export interface GuidAudit { duplicates: number; examples: string[]; missing: nu
 /** MA-8-2: a wall as the IFC geometry reader found it, plan mm in the file's own frame (`storey` = the level's name, not the reader's cid). */
 export interface ManifestWall { g: string; s: [number, number]; e: [number, number]; t: number; z0: number; z1: number; storey: string | null }
 export interface Manifest { schema: string; elements: ManifestElement[]; levels: ManifestLevel[]; grids: string[]; site: ManifestSite | null; counts?: { elements: number; skipped: number }; guid_audit?: GuidAudit | null;
-  /** MA-8-2 (FG-07): null/absent = captured before walls were read; `walls_why` says why none were stored; `walls_held` = walls the reader held
-   *  back (unfilled openings); `walls_total` = walls read, when more than the stored cap. */
+  /** MA-8-2 (FG-07): null/absent = captured before walls were read; `walls_why` says why none were stored; `walls_held` = walls the reader could not place
+   *  (curved, bent, bodyless, or a part of a curtain wall or stair); `walls_total` = walls read, when more than the stored cap. */
   walls?: ManifestWall[] | null; walls_why?: string; walls_held?: number; walls_total?: number }
 export interface FederationModel { container: string; version_id: string; manifest: Manifest | null }
 export type VerdictWord = "accepted" | "recorded" | "rejected";

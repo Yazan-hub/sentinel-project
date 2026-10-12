@@ -216,13 +216,17 @@ export const nominal = (v) => Math.round(v / 100) * 100;
 
 /** MA-5a (shared with MA-5a-4's drawings): a door or window typed by an office rule when one matches, else by its size from the catalogue
  *  within SIZE_BAND_MM (typeBySize), else its gap — `why` the reason's words when several catalogue rows are in the band. → {facts, g, by, why}. */
-export function typeOpening({ type, kind, cid, w, h, hostFunction, catalog, sameCategory, level }) {
-  const category = KIND_CATEGORY[kind], size = `${w} x ${h} mm`;
-  const facts = { params: { ...(hostFunction ? { HostFunction: hostFunction } : {}), Size: `W${w} x H${h} mm` } }; // PromotePlanner's shape
-  let g = gapOf(type, kind, facts, cid, null, level), by = null, why = null;
+export function typeOpening({ type, kind, cid, w, h, hostFunction, catalog, sameCategory, level, exact = null, find = null, round = null }) {
+  // MA-8-4 (IFC): `exact()` is the catalogue row the file's own type name names, tried between the rule and the size; `round` a diameter
+  // (a round column: Size "D<n> mm", found by `find`, typeByDiameter); `via` says which step typed it
+  const category = KIND_CATEGORY[kind], size = round != null ? `D${round} mm` : `${w} x ${h} mm`;
+  const facts = { params: { ...(hostFunction ? { HostFunction: hostFunction } : {}), Size: round != null ? size : `W${w} x H${h} mm` } }; // PromotePlanner's shape
+  let g = gapOf(type, kind, facts, cid, null, level), by = null, why = null, via = null;
   if (g && !g.want) {
-    const z = typeBySize(catalog, category, w, h, sameCategory);
-    if (z?.row) { by = z.row; g = null; }
+    const e = exact?.();
+    const z = e ? null : find ? find() : typeBySize(catalog, category, w, h, sameCategory);
+    if (e) { by = e; g = null; via = "ifc-type"; }
+    else if (z?.row) { by = z.row; g = null; via = "size"; }
     else {
       // several rows: the reason says what a person does (the names would be cut at 300); the key lists them for the Holding Area
       if (z) why = `${z.rows.length} ${category} types are named within ${SIZE_BAND_MM} mm of ${size} — a person picks one`;
@@ -230,7 +234,7 @@ export function typeOpening({ type, kind, cid, w, h, hostFunction, catalog, same
         : `no ${category} type is named within ${SIZE_BAND_MM} mm of ${size}`).slice(0, 500) };
     }
   }
-  return { facts, g, by, why };
+  return { facts, g, by, why, via };
 }
 
 /** The gaps as the Holding Area's groups: one per category and wanted type, else size (typeGapId — exact sizes, no band while the D16 snap is

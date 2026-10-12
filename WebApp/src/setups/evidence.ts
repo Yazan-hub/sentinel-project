@@ -133,10 +133,10 @@ export interface JobRead { job: SurveyJob; candidates?: Candidate[]; result_erro
   /** MA-6-8: an IFC job's receipt carries the file's own world position, reported and never applied. */
   /** MA-5a-6: a drawing job's receipt — each drawing's page size, for its picture in the Propose form. */
   receipt?: { items?: { id: string; size_paper_mm?: [number, number] }[]; hint?: IfcHint }; }
-export interface IfcHint { site: { at_mm: number[]; rotation_deg: number } | null; map_conversion: { eastings: number; northings: number; height: number } | null; storey_elevation_mismatch: unknown[]; context_wcs_not_origin: boolean; length_unit_assumed: boolean }
+export interface IfcHint { site: { at_mm: number[]; rotation_deg: number } | null; map_conversion: { eastings: number; northings: number; height: number } | null; storey_elevation_mismatch: unknown[]; context_wcs_not_origin: boolean; true_north?: number[] | null; length_unit_assumed: boolean }
 /** The pack's scans a survey may read: admitted, surveyable, not changed. Which it can read is sentinel-survey's to say, per item, by the bytes (MA-4g). Pure. */
 export const surveyableScans = (pack: EvidencePack) => pack.items.filter((i) => i.kind === "scan" && i.surveyable && i.state !== "changed");
-const FOUND: [string, string][] = [["level", "level(s)"], ["wall", "wall(s)"], ["floor", "floor(s)"], ["ceiling", "ceiling(s)"], ["door", "door(s)"], ["window", "window(s)"], ["room", "room(s)"]]; // MA-5a: doors and windows; MA-5b-1: rooms
+const FOUND: [string, string][] = [["level", "level(s)"], ["wall", "wall(s)"], ["floor", "floor(s)"], ["ceiling", "ceiling(s)"], ["door", "door(s)"], ["window", "window(s)"], ["opening", "opening(s)"], ["column", "column(s)"], ["room", "room(s)"]]; // MA-5a: doors and windows; MA-5b-1: rooms; MA-8-4: an IFC job's openings and columns
 /** A job in one line: its state, what it read (a done job: only what its result was measured from; one running: what it is reading;
  *  else what it was given) and refused, what it found, who and when, its ledger row. Pure. */
 export function jobLine(j: SurveyJob): string {
