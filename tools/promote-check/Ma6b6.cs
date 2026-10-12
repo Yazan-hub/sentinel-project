@@ -75,6 +75,20 @@ static partial class Check
            && cmd.Contains("receipt.Parameters[\"images_sha256\"] = MassingPlanner.HasModelValue(corrected) ? imagesSha : null;")
            && cmd.Contains("BuildReceipt.Run(\"photo-massing\", BuildReceipt.AddinSha256, receipt, 0, new List<string> { cs.Id }, actor)"),
            "the build:run receipt carries the openings seen (D12), the images' sha only while a number is the model's (E7), and the filed changeset");
+        // Review fix: a Photo Massing changeset still waiting is opened instead of filing a second (the same "Massing Lnn" levels, D16).
+        int fetch = cmd.IndexOf("var pending = ChangesetClient.FetchProposed(cfg, key, out err);", plan, StringComparison.Ordinal);
+        Ok(fetch > plan && fetch < cmd.IndexOf("cs = ChangesetClient.Propose(fileCfg, key, body, out err);", StringComparison.Ordinal)
+           && cmd.Contains("waiting = pending?.FirstOrDefault(p => p.Source == \"photo\");")
+           && cmd.Contains("if (pending != null && waiting == null) cs = ChangesetClient.Propose(fileCfg, key, body, out err);")
+           && cmd.Contains("review.Reopen(MassingPlanner.NotStarted($\"\\\"{waiting.Name}\\\" already waits for review — it opens now: apply or decline it first\"));")
+           && cmd.IndexOf("cs = waiting;", StringComparison.Ordinal) < cmd.IndexOf("ReviewChangesetsCommand.Open(u, d, cfg, key, new[] { cs });", StringComparison.Ordinal),
+           "Photo Massing reads the waiting changesets off Revit's thread before it files: a photo one still waiting opens in the review instead, with words on the status line (review fix)");
+        // Review fix: the reviewer ticks what the row shows — a mass's footprint and elevations on Revit's row; the DD line pluralises a mass.
+        string row = Src("UI", "ChangesetReviewWindow.cs");
+        Ok(row.Contains("if (el.Kind == \"mass\" && p?.Boundary is { Length: > 0 } bd && p.BaseElevation is double mb && p.TopElevation is double mt)")
+           && row.Contains("parts.Add($\"{Mm(bd.Max(q => q[0]) - bd.Min(q => q[0]))} x {Mm(bd.Max(q => q[1]) - bd.Min(q => q[1]))} mm footprint, {Mm(mb)} to {Mm(mt)} mm\");")
+           && StageIds.OutOfScope(new[] { "level", "level", "mass" }) == "DD IDS: not asked of 2 level(s), 1 mass(es): the DD IDS has no class for them",
+           "a mass row reads its footprint extent and its two elevations (not only the poster's reason); the DD line says \"1 mass(es)\"");
         string planner = Src("GhostBuilder", "MassingPlanner.cs");
         Ok(planner.Contains("public static (object Body, string Refusal) Changeset(MassingEstimate m, IReadOnlyList<(string Name, double ElevationMm, bool IsStory)> levels, string actor)")
            && !planner.Contains("LevelFact") && planner.Contains("source = \"photo\""),

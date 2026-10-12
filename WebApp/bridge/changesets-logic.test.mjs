@@ -1290,6 +1290,10 @@ describe("validateChangeset — mass (MA-6-6)", () => {
     status400(() => ok(mass({ LevelName: "Massing L00" })), /: a mass takes no place\.LevelName — the shell gives each storey its level/);
     status400(() => ok(mass({ Mark: "M1" })), /: a mass takes no place\.Mark/);
     status400(() => ok(mass({ TopLevel: "L2" })), /: a mass takes no place\.TopLevel/);
+    // MA-6-6 review fix: every other kept key a mass never reads is refused too — never kept unapplied, never a curve the add-in cannot read
+    for (const [f, v] of [["BaseLevel", "L9"], ["Name", "12-storey tower"], ["LocationCurve", 5], ["LocationLoop", "x"]])
+      status400(() => ok(mass({ [f]: v })), new RegExp(`: a mass takes no place\\.${f} — it is its Boundary between BaseElevation and TopElevation`));
+    status400(() => ok(mass({ LevelName: "L1", BaseLevel: "L1" })), /place\.LevelName — the shell gives each storey its level/); // LevelName's words first
   });
 
   it("a photo body is the add-in's claim: filed by a member with pretick: true, every element still comes back unticked", () => {

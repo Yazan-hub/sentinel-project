@@ -33,7 +33,8 @@ export interface DeskJob {
 export interface Ghost {
   proposal_guid: string; kind: string; op?: string | null;
   target?: { unique_id?: string; type_before?: string; ifc_guid?: string | null; placed?: { start: number[]; end: number[] }; at?: number[] } | null;
-  place?: { TypeName?: string; FamilyName?: string; LevelName?: string; BaseLevel?: string; TopLevel?: string; Name?: string; Location?: number[]; SillHeight?: number } | null;
+  place?: { TypeName?: string; FamilyName?: string; LevelName?: string; BaseLevel?: string; TopLevel?: string; Name?: string; Location?: number[]; SillHeight?: number;
+    Boundary?: number[][]; BaseElevation?: number; TopElevation?: number } | null;
   validate?: { identity?: { Name?: string } } | null;
   parameter?: string; from?: string; to?: string;
   review?: GhostReview | null;
@@ -120,8 +121,15 @@ export function ghostLine(el: Ghost): string {
       `${el.place?.SillHeight != null ? `, sill ${Math.round(el.place.SillHeight)} mm` : ""}; the unhosted instance and any tags on it are removed (one Undo in Revit brings them back); its Mark, Comments, workset and phase carry over`;
     case "set_parameter": return `${type} · ${el.parameter} "${el.from ?? ""}" → "${el.to ?? ""}" (a type edit: it reaches every element of the type)`;
     // MA-5b-1: a room reads its number, then its name (Revit's review row: room: 101 · OFFICE · its level)
-    default: return `${name}${el.place?.Name && el.place.Name !== name ? " · " + el.place.Name : ""}${el.place?.TypeName ? " · " + type : ""}${el.place?.LevelName ? " · " + el.place.LevelName : ""}`;
+    default: return `${name}${el.place?.Name && el.place.Name !== name ? " · " + el.place.Name : ""}${el.place?.TypeName ? " · " + type : ""}${el.place?.LevelName ? " · " + el.place.LevelName : ""}` +
+      (el.kind === "mass" ? massSize(el.place) : "");
   }
+}
+
+/** MA-6-6 review fix: a mass's size as Revit's row says it — its footprint's plan extent, then its two elevations. */
+function massSize(p: Ghost["place"]): string {
+  const b = p?.Boundary ?? [], span = (i: number) => Math.round(Math.max(...b.map((q) => q[i])) - Math.min(...b.map((q) => q[i])));
+  return b.length && p?.BaseElevation != null && p.TopElevation != null ? ` · ${span(0)} x ${span(1)} mm footprint, ${Math.round(p.BaseElevation)} to ${Math.round(p.TopElevation)} mm` : "";
 }
 
 /** MA-3b3: who declined, and — for a decline the bridge carried from an earlier changeset — where it was made (the web, or Revit) and

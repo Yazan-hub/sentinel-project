@@ -301,6 +301,9 @@ public sealed class ChangesetReviewWindow : Window
         // (the ghost overlay draws a sloped roof flat).
         if (el.Kind == "column" && p?.TopLevel != null) parts.Add("to " + p.TopLevel);
         if (el.Kind == "opening" && p?.Boundary != null) parts.Add("hole in a floor");
+        // MA-6-6 review fix: a mass row shows its size — the footprint's plan extent and its two elevations (an agent's reason may say anything).
+        if (el.Kind == "mass" && p?.Boundary is { Length: > 0 } bd && p.BaseElevation is double mb && p.TopElevation is double mt)
+            parts.Add($"{Mm(bd.Max(q => q[0]) - bd.Min(q => q[0]))} x {Mm(bd.Max(q => q[1]) - bd.Min(q => q[1]))} mm footprint, {Mm(mb)} to {Mm(mt)} mm");
         if (p?.Slopes?.Any(s => s != null) == true) parts.Add("slopes " + string.Join("/", p.Slopes.Select(s => s is double d ? Mm(d) + "°" : "–")));
         if (p?.Width is double w && p.Height is double h) parts.Add($"{Mm(w)} x {Mm(h)} mm"); // MA-6-3: a wall opening's size
         if (p?.SillHeight is double s) parts.Add($"sill {Mm(s)} mm");

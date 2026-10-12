@@ -132,7 +132,7 @@ public sealed class MassingFromImagesCommand : IExternalCommand
     // MA-6-6: on Revit's thread in the model the command started from (DocPin) — the key and the guard asked again, the levels read, the
     // body planned (MassingPlanner.Changeset), then filed off Revit's thread as Shell a Mass files (review C11: signed in, the person's token
     // or none, never the PC's), the review guard held until the bridge has answered. Filed: the receipt, the review closes and Review AI
-    // Proposals opens on the changeset. Not filed: the review reopens with why.
+    // Proposals opens on the changeset. Not filed: the review reopens with why. A Photo Massing changeset already waiting is opened instead.
     private static void PlanAndFile(Document doc, BcfConfig cfg, string key, MassingEstimate corrected, MassingReviewWindow review, BuildReceipt.Facts receipt)
     {
         if (ProjectContext.For(doc).Key != key) { review.Reopen(MassingPlanner.NotStarted($"this model's project changed since the images were read (was {key}) — run Photo Massing again")); return; }
@@ -149,12 +149,27 @@ public sealed class MassingFromImagesCommand : IExternalCommand
         App.PanelVm?.LogDoctor("Photo Massing: filing the changeset off Revit's thread — the review opens by itself in this model once the bridge has answered.");
         Task.Run(() =>
         {
-            ChangesetDto cs = null;
+            ChangesetDto cs = null, waiting = null;
             string err = null;
-            try { cs = ChangesetClient.Propose(fileCfg, key, body, out err); }
+            try
+            {
+                // MA-6-6 review fix: a Photo Massing changeset still waiting for review is opened instead, as Shell a Mass and Promote do — a
+                // second would create the same "Massing Lnn" levels (its Apply declined for good, D16) and a second mass on the first.
+                var pending = ChangesetClient.FetchProposed(cfg, key, out err);
+                waiting = pending?.FirstOrDefault(p => p.Source == "photo");
+                if (pending != null && waiting == null) cs = ChangesetClient.Propose(fileCfg, key, body, out err);
+            }
             catch (Exception ex) { err = $"{ex.GetType().Name}: {ex.Message}"; }
             finally { ReviewChangesetsCommand.Release(); }
-            if (cs == null)
+            if (waiting != null)
+            {
+                _ = review.Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (review.IsVisible) review.Reopen(MassingPlanner.NotStarted($"\"{waiting.Name}\" already waits for review — it opens now: apply or decline it first"));
+                }));
+                cs = waiting;
+            }
+            else if (cs == null)
             {
                 _ = review.Dispatcher.BeginInvoke(new Action(() =>
                 {
@@ -163,15 +178,18 @@ public sealed class MassingFromImagesCommand : IExternalCommand
                 }));
                 return;
             }
-            try
+            else
             {
-                // MA-1a item 8: the build:run receipt — the vision model's run and what it filed (the counts ride on it, D12).
-                receipt.Candidates = cs.Elements?.Count ?? 0;
-                GovernedNotify.Report("Photo Massing receipt", BuildReceipt.Run("photo-massing", BuildReceipt.AddinSha256, receipt, 0, new List<string> { cs.Id }, actor), key, pane);
+                try
+                {
+                    // MA-1a item 8: the build:run receipt — the vision model's run and what it filed (the counts ride on it, D12).
+                    receipt.Candidates = cs.Elements?.Count ?? 0;
+                    GovernedNotify.Report("Photo Massing receipt", BuildReceipt.Run("photo-massing", BuildReceipt.AddinSha256, receipt, 0, new List<string> { cs.Id }, actor), key, pane);
+                }
+                catch (Exception ex) { App.PanelVm?.LogDoctor($"Photo Massing's receipt was not sent — {ex.GetType().Name}: {ex.Message}"); }
+                App.PanelVm?.LogDoctor($"Photo Massing: \"{cs.Name}\" filed (confirmed by the bridge) — the filing is done.");
+                _ = review.Dispatcher.BeginInvoke(new Action(() => { if (review.IsVisible) review.Close(); }));
             }
-            catch (Exception ex) { App.PanelVm?.LogDoctor($"Photo Massing's receipt was not sent — {ex.GetType().Name}: {ex.Message}"); }
-            App.PanelVm?.LogDoctor($"Photo Massing: \"{cs.Name}\" filed (confirmed by the bridge) — the filing is done.");
-            _ = review.Dispatcher.BeginInvoke(new Action(() => { if (review.IsVisible) review.Close(); }));
             string NotOpened(string why) => why + $"\n\n\"{cs.Name}\" waits for review — in \"{title}\", run Review AI Proposals.";
             App.Events.Enqueue(doc, "open the review of Photo Massing", (u, d) =>
             {

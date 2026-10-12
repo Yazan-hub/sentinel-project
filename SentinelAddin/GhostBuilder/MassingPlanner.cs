@@ -142,6 +142,8 @@ namespace Sentinel.GhostBuilder
         public const int MaxElements = 200;
         /// <summary>MA-6-6: a level within this many mm of a storey's elevation is that storey's level.</summary>
         public const double LevelTolMm = 2;
+        /// <summary>MA-6-6 review fix: a mass is at most this many mm high (the bridge's MAX_MASS_MM).</summary>
+        public const double MaxMassMm = 1000000;
 
         /// <summary>MA-6-6 (MAS-2 + MAS-1): the reviewed estimate as ONE changeset body (POST /changesets/:key), or null and why in words.
         /// n = round(Storeys) storeys of StoreyHeightMm give the elevations e(i) = i·h, i = 0…n (the old plan's frame: Level.Elevation mm).
@@ -149,12 +151,25 @@ namespace Sentinel.GhostBuilder
         /// Level.Elevation mm, IsStory) within ±LevelTolMm; otherwise it is a level create named "Massing Lii" — " (2)", " (3)"… while
         /// any level holds the name, case aside (a duplicate name fails the changeset, D16). Then one mass: the W × D rectangle centred on
         /// 0,0 from e(0) to e(n), in the same frame (amendment 3). Source photo, never a pre-tick (the bridge pre-ticks no create). Over
-        /// MaxElements is refused. Anonymous objects only: massing-check and ghost-p2-check compile this file alone (amendment 4).</summary>
+        /// MaxElements, a mass over MaxMassMm, or a Building Story level between two of its storeys (the shell would cut it) is refused. Anonymous objects only: massing-check and ghost-p2-check compile this file alone (amendment 4).</summary>
         public static (object Body, string Refusal) Changeset(MassingEstimate m, IReadOnlyList<(string Name, double ElevationMm, bool IsStory)> levels, string actor)
         {
             double W = m.FootprintWidthMm.Value, D = m.FootprintDepthMm.Value, h = m.StoreyHeightMm.Value;
             int n = Math.Max(1, (int)Math.Round(m.Storeys.Value));
+            // MA-6-6 review fix: the bridge's mass height cap (MAX_MASS_MM), said in the planner's words before anything is filed.
+            if (n * h > MaxMassMm)
+                return (null, $"{n} storeys of {Mm(h)} mm are {Mm(n * h)} mm — a mass is at most {Mm(MaxMassMm)} mm high: lower the storey count or the storey height");
             var have = levels ?? new List<(string Name, double ElevationMm, bool IsStory)>();
+            // MA-6-6 review fix (MAS-1): Shell a Mass cuts a storey at EVERY Building Story level inside the mass (ShellReader), so one between
+            // two of the photo's storeys would add a storey the photos do not have (Level 2 at 4000 under 3200 mm storeys: an 800 mm sliver).
+            var between = have.Where(l => l.IsStory && l.ElevationMm > LevelTolMm && l.ElevationMm < n * h - LevelTolMm
+                                          && !Enumerable.Range(0, n + 1).Any(i => Math.Abs(l.ElevationMm - i * h) <= LevelTolMm)).ToList();
+            if (between.Count > 0)
+            {
+                bool one = between.Count == 1;
+                string named = string.Join(", ", between.Take(3).Select(l => $"{l.Name} at {Mm(l.ElevationMm)} mm")) + (between.Count > 3 ? $" and {between.Count - 3} more" : "");
+                return (null, $"{named} {(one ? "is a Building Story" : "are Building Stories")} inside the massing (0 to {Mm(n * h)} mm) — Shell a Mass cuts a storey at every Building Story level: set the storey height to match {(one ? "it" : "them")}, or clear {(one ? "its" : "their")} Building Story");
+            }
             var taken = new HashSet<string>(have.Select(l => l.Name ?? ""), StringComparer.OrdinalIgnoreCase);
             var elements = new List<object>();
             for (int i = 0; i <= n; i++)
@@ -168,7 +183,7 @@ namespace Sentinel.GhostBuilder
                 {
                     op = "create", kind = "level",
                     place = new { BaseElevation = e },
-                    reason = $"Photo Massing: storey {i} of {n} at {Mm(e)} mm — no Building Story level there",
+                    reason = (i < n ? $"Photo Massing: the floor of storey {i + 1} of {n}" : "Photo Massing: the top of the mass") + $" at {Mm(e)} mm — no Building Story level there",
                     validate = new { identity = new { Class = "IFCBUILDINGSTOREY", Name = name } },
                 });
             }
@@ -183,7 +198,7 @@ namespace Sentinel.GhostBuilder
                     Boundary = new List<double[]> { new[] { -W / 2, -D / 2 }, new[] { W / 2, -D / 2 }, new[] { W / 2, D / 2 }, new[] { -W / 2, D / 2 } },
                     BaseElevation = 0.0, TopElevation = n * h,
                 },
-                reason = $"Photo Massing: {size}, {n} storeys of {Mm(h)} mm — width {m.FootprintWidthMm.Source}, depth {m.FootprintDepthMm.Source}, storeys {m.Storeys.Source}, storey height {m.StoreyHeightMm.Source}",
+                reason = $"Photo Massing: {size}, {n} storeys of {Mm(h)} mm — width {From(m.FootprintWidthMm)}, depth {From(m.FootprintDepthMm)}, storeys {From(m.Storeys)}, storey height {From(m.StoreyHeightMm)}",
                 validate = new { identity = new { Class = "IFCBUILDINGELEMENTPROXY", Name = "Photo mass" } },
             });
             return (new { name = $"Photo Massing · {n} storeys · {size}", source = "photo", actor, elements }, null);
@@ -196,6 +211,8 @@ namespace Sentinel.GhostBuilder
             return $"{o.Count(x => x.Kind == "door")} door(s), {o.Count(x => x.Kind == "window")} window(s) — not placed (D12)";
         }
 
+        // MA-6-6 review fix: where a number came from, in words (the source codes are the estimate's, not the reviewer's).
+        private static string From(EstimatedValue v) => v.Source == "photo" ? "from the photos" : v.Source == "user" ? "typed by the reviewer" : "assumed";
         private static string Mm(double v) => v.ToString("0.#", CultureInfo.InvariantCulture);
         private static string Metres(double mm) => (mm / 1000).ToString("0.0", CultureInfo.InvariantCulture);
     }

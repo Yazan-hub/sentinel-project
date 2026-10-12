@@ -238,6 +238,11 @@ function checkPlace(kind, place, at) {
     // MA-6-6 (MAS-2): a footprint and two elevations, in the Level.Elevation frame (a level's BaseElevation's) — no level of its own: a
     // DirectShape has none, and Shell a Mass gives each storey its level (amendment 14: a LevelName would be kept and never applied).
     if (place.LevelName !== undefined) throw err(400, `${at}: a mass takes no place.LevelName — the shell gives each storey its level`);
+    // MA-6-6 review fix: so is every other kept key a mass never reads (BaseLevel, Name, LocationCurve, LocationLoop) — kept, it would be shown
+    // and never applied, and a mistyped curve or loop fails the add-in's read of the project's changesets. TypeName and TopLevel have their own words.
+    for (const f of PLACE_KEPT)
+      if (place[f] !== undefined && !["Boundary", "BaseElevation", "TopElevation", "TypeName", "TopLevel"].includes(f))
+        throw err(400, `${at}: a mass takes no place.${f} — it is its Boundary between BaseElevation and TopElevation`);
     const why = outlineProblem(place.Boundary);
     if (why) throw err(400, `${at}: mass place.Boundary ${why}`);
     for (const f of ["BaseElevation", "TopElevation"])
