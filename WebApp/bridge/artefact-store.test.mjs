@@ -420,6 +420,7 @@ describe("validateArtefact — contract, layers, guideline, type catalogue", () 
     const { schema_version, ...unversioned } = contract;
     expect(validateArtefact("contract", unversioned)).toBe(true);
     for (const min_coverage of [0, 0.5, 1, null]) expect(validateArtefact("contract", { ...contract, min_coverage })).toBe(true);
+    for (const tolerance_mm of [1, 20, 1000, 12.5, null]) expect(validateArtefact("contract", { ...contract, tolerance_mm })).toBe(true); // MA-8-2
     expect(validateArtefact("layers", layers)).toBe(true);
     expect(validateArtefact("layers", { standard: "S", ignore: null, layers: [{ layer: "A-WALL", category: "Walls", family: null, aliases: null }] })).toBe(true);
     expect(validateArtefact("guideline", guideline)).toBe(true);
@@ -454,6 +455,11 @@ describe("validateArtefact — contract, layers, guideline, type catalogue", () 
     ["min_coverage", { ...contract, min_coverage: -0.1 }],
     ["min_coverage", { ...contract, min_coverage: "0.5" }],
     ["min_coverage", { ...contract, min_coverage: true }],
+    // MA-8-2: FG-07's tolerance, millimetres 1..1000 (the delivery gates and Revit ignore it)
+    ["tolerance_mm", { ...contract, tolerance_mm: 0 }],
+    ["tolerance_mm", { ...contract, tolerance_mm: 1001 }],
+    ["tolerance_mm", { ...contract, tolerance_mm: "20" }],
+    ["tolerance_mm", { ...contract, tolerance_mm: NaN }],
   ])("contract: a bad or missing %s is a 400 naming that path", (path, body) => {
     expect(fails("contract", body)).toMatchObject({ status: 400, message: expect.stringContaining(`contract: ${path} `) });
   });

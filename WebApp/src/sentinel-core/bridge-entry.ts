@@ -11,6 +11,7 @@ export type { NamingRuleset, NamingField, NamingResult, NamingFailure, NamingEnf
 export { mapLayer, validateLayers } from "./layers";
 export type { LayerRuleset, LayerDef, LayerExtension, LayerMapping, LayerValidation, LayerMatchKind, LayerEnforce } from "./layers";
 export { checkFederation, nameShape, raisedFederationTitleKey } from "./federation";
+export type { ManifestWall } from "./federation";
 export { parseLodMatrix, STAGES, MATRIX_STAGES, DEFAULT_STAGE_MAP } from "./lod-matrix"; // MA-2b: the one lod_matrix reader
 export type { LodMatrix, LodRow } from "./lod-matrix";
 export { buildIfc } from "./ifc-writer"; // MA-3d2: the proposal model is written with the same IFC writer

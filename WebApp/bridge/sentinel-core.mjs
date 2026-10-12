@@ -1144,7 +1144,8 @@ var TITLES = {
   "FG-03": "Levels align by name and elevation",
   "FG-04": "Grid tags match",
   "FG-05": "Georeference agrees",
-  "FG-06": "Every model is named to the rule and judged"
+  "FG-06": "Every model is named to the rule and judged",
+  "FG-07": "Walls two models share sit within the contract's tolerance"
 };
 var ONE_MODEL = "one model \u2014 a cross-model check; nothing to compare";
 function raisedFederationTitleKey(title) {
@@ -1348,6 +1349,56 @@ function fg06(models, opts) {
   else if (!rs) return nc(c, "no naming standard installed \u2014 names cannot be checked (install one: PUT /cde/:key/artefacts/naming)");
   return c;
 }
+var EVIDENCE_CAP = 200;
+function fg07(ms, tolMm, fg05Status) {
+  const c = mk("FG-07", TITLES["FG-07"]);
+  if (tolMm == null) return nc(c, "the contract sets no tolerance_mm");
+  if (fg05Status === "fail") return nc(c, "the models' georeference disagrees (FG-05) \u2014 their walls are not in one frame");
+  const sound = (w) => [...w.s, ...w.e, w.t, w.z0, w.z1].every(Number.isFinite) && Math.hypot(w.e[0] - w.s[0], w.e[1] - w.s[1]) > 0 && w.t > 0;
+  const withWalls = ms.filter((x) => Array.isArray(x.m.walls)).map((x) => ({ container: x.container, m: x.m, walls: x.m.walls.filter(sound) }));
+  if (withWalls.length < 2) {
+    const missing = ms.filter((x) => !Array.isArray(x.m.walls)).map((x) => `${x.container}: ${x.m.walls_why ?? "captured before MA-8 \u2014 backfill its manifest"}`);
+    return nc(c, `fewer than two models carry walls (${missing.join("; ") || "none stored"})`);
+  }
+  const SIN1 = Math.sin(Math.PI / 180);
+  const pairs = [];
+  const paired = withWalls.map((x) => /* @__PURE__ */ new Set());
+  for (let i = 0; i < withWalls.length; i++) for (let j = i + 1; j < withWalls.length; j++) {
+    withWalls[i].walls.forEach((a, ai) => {
+      const la = Math.hypot(a.e[0] - a.s[0], a.e[1] - a.s[1]), ux = (a.e[0] - a.s[0]) / la, uy = (a.e[1] - a.s[1]) / la;
+      let best = null;
+      withWalls[j].walls.forEach((b2, bi2) => {
+        const lb = Math.hypot(b2.e[0] - b2.s[0], b2.e[1] - b2.s[1]);
+        if (Math.abs(ux * (b2.e[1] - b2.s[1]) - uy * (b2.e[0] - b2.s[0])) / lb > SIN1) return;
+        if (Math.min(a.z1, b2.z1) - Math.max(a.z0, b2.z0) <= 0) return;
+        const t1 = (b2.s[0] - a.s[0]) * ux + (b2.s[1] - a.s[1]) * uy, t2 = (b2.e[0] - a.s[0]) * ux + (b2.e[1] - a.s[1]) * uy;
+        if (Math.min(la, Math.max(t1, t2)) - Math.max(0, Math.min(t1, t2)) < Math.min(la, lb) / 2) return;
+        const d2 = Math.abs((b2.s[0] - a.s[0]) * uy - (b2.s[1] - a.s[1]) * ux + ((b2.e[0] - a.s[0]) * uy - (b2.e[1] - a.s[1]) * ux)) / 2;
+        if (!(d2 < (a.t + b2.t) / 2) || best && best.d <= d2) return;
+        best = { b: b2, bi: bi2, d: d2 };
+      });
+      if (!best) return;
+      const { b, bi, d } = best;
+      paired[i].add(ai);
+      paired[j].add(bi);
+      const err = Math.round(Math.max(0, d + Math.min(a.t, b.t) / 2 - Math.max(a.t, b.t) / 2));
+      pairs.push({ models: [withWalls[i].container, withWalls[j].container], walls: [a.g, b.g], storey: a.storey, offset_mm: err, centre_mm: Math.round(d), thickness_mm: [a.t, b.t] });
+    });
+  }
+  withWalls.forEach((x, k) => {
+    const lone = x.walls.length - paired[k].size;
+    if (lone > 0) c.warnings.push(`${x.container}: ${lone} wall(s) have no counterpart in another model (not a failure: new design walls are allowed)`);
+    if (x.m.walls_held) c.warnings.push(`${x.container}: ${x.m.walls_held} wall(s) not compared (held by the reader)`);
+    if (x.m.walls_total && x.m.walls_total > x.m.walls.length) c.warnings.push(`${x.container}: only the first ${x.m.walls.length} of ${x.m.walls_total} walls were stored`);
+  });
+  if (!pairs.length) return nc(c, "no wall is modelled in two models \u2014 nothing to compare");
+  const bad2 = pairs.filter((p) => p.offset_mm > tolMm).sort((p, q) => q.offset_mm - p.offset_mm);
+  c.warnings.push(`${pairs.length} wall pair(s) judged at ${tolMm} mm`);
+  c.evidence = bad2.slice(0, EVIDENCE_CAP);
+  if (!bad2.length) return c;
+  c.count = bad2.length;
+  return fail(c, `${bad2.length} wall pair(s) differ by more than ${tolMm} mm`);
+}
 function checkFederation(models, opts = {}) {
   const tol = { level_mm: 1, georef_m: 0.5, angle_deg: 0.1, ...opts.tolerance ?? {} };
   const withManifest = models.filter((m) => !!m.manifest).map((m) => ({ container: m.container, m: m.manifest }));
@@ -1357,7 +1408,8 @@ function checkFederation(models, opts = {}) {
     out.checks = [
       fg01One(withManifest[0].container, withManifest[0].m),
       ...["FG-02", "FG-03", "FG-04", "FG-05"].map((id) => nc(mk(id, TITLES[id]), ONE_MODEL)),
-      fg06(models, opts)
+      fg06(models, opts),
+      nc(mk("FG-07", TITLES["FG-07"]), ONE_MODEL)
     ];
     out.verdict = out.checks.some((c) => c.status === "fail") ? "fail" : out.checks.some((c) => c.status === "pass") ? "pass" : "not_checkable";
     return out;
@@ -1366,10 +1418,11 @@ function checkFederation(models, opts = {}) {
     out.verdict = "not_checkable";
     const why = models.length === 0 && (opts.live_count ?? 0) === 0 ? "no live model \u2014 nothing to federate" : models.length === 1 && opts.live_count === 1 ? `the one live model (${models[0].container}) carries no manifest \u2014 capture it (manifest backfill) and run the gate again` : `fewer than two models carry a manifest (${withManifest.length} of ${models.length})`;
     if (models.length === 1 && opts.live_count === 1) out.one_model = true;
-    for (const id of ["FG-01", "FG-02", "FG-03", "FG-04", "FG-05", "FG-06"]) out.checks.push(nc(mk(id, TITLES[id]), why));
+    for (const id of ["FG-01", "FG-02", "FG-03", "FG-04", "FG-05", "FG-06", "FG-07"]) out.checks.push(nc(mk(id, TITLES[id]), why));
     return out;
   }
-  out.checks = [fg01(withManifest), fg02(withManifest, opts), fg03(withManifest, tol.level_mm), fg04(withManifest), fg05(withManifest, tol.georef_m, tol.angle_deg), fg06(models, opts)];
+  const g05 = fg05(withManifest, tol.georef_m, tol.angle_deg);
+  out.checks = [fg01(withManifest), fg02(withManifest, opts), fg03(withManifest, tol.level_mm), fg04(withManifest), g05, fg06(models, opts), fg07(withManifest, opts.tolerance_mm, g05.status)];
   out.verdict = out.checks.some((c) => c.status === "fail") ? "fail" : out.checks.some((c) => c.status === "pass") ? "pass" : "not_checkable";
   return out;
 }

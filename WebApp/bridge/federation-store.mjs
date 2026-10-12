@@ -10,7 +10,7 @@ async function wire(deps = {}) {
   const need = ["ensureProject", "docGet", "docUpsert", "audit", "versionVerdicts"];
   const cde = need.every((n) => deps[n]) ? null : await import("./cde-store.mjs");
   const ms = deps.listManifests && deps.getManifest ? null : await import("./manifest-store.mjs");
-  const art = deps.resolveArtefact ? null : await import("./artefact-store.mjs");
+  const art = deps.resolveArtefact && deps.resolveContract ? null : await import("./artefact-store.mjs");
   const core = deps.checkFederation ? null : await import("./sentinel-core.mjs");
   return {
     ensureProject: deps.ensureProject || cde.ensureProject,
@@ -21,6 +21,7 @@ async function wire(deps = {}) {
     listManifests: deps.listManifests || ms.listManifests,
     getManifest: deps.getManifest || ms.getManifest,
     resolveArtefact: deps.resolveArtefact || art.resolveArtefact,
+    resolveContract: deps.resolveContract || art.resolveContract, // MA-8-2: FG-07's tolerance_mm
     checkFederation: deps.checkFederation || core.checkFederation,
     requireMinRole: deps.requireMinRole || (await import("./members-store.mjs")).requireMinRole,
   };
@@ -52,12 +53,15 @@ export async function runFederation(key, { versions } = {}, { actor: claimed } =
   const verdicts = await d.versionVerdicts(key, models.map((m) => m.version_id));
   // Both standards come through the artefact resolver (project → office → none), never a metadata slot:
   // the type rule (target "type", the TN family) from `ruleset`, the container-name shape from `naming`.
-  const [rs, nm] = await Promise.all([d.resolveArtefact(key, "ruleset"), d.resolveArtefact(key, "naming")]);
+  const [rs, nm, ct] = await Promise.all([d.resolveArtefact(key, "ruleset"), d.resolveArtefact(key, "naming"), d.resolveContract(key)]);
   const naming = nm?.body ?? null;
   const rule = (Array.isArray(rs?.body?.rules) ? rs.body.rules : []).find((r) => r && r.target === "type" && Array.isArray(r.tokens) && r.tokens.length) || null;
   const org = rs?.body?.org ?? null;
-  const result = d.checkFederation(models, { type_rule: rule, org, naming_ruleset: naming, verdicts, live_count: liveCount });
+  const result = d.checkFederation(models, { type_rule: rule, org, naming_ruleset: naming, verdicts, live_count: liveCount, tolerance_mm: ct?.body?.tolerance_mm ?? null });
   const refs = { ruleset: labelOf(rs), naming: labelOf(nm) };
+  // MA-8-2: a contract that does not parse is "none — why"; FG-07 says it sets no tolerance, and the reason rides as a warning on it.
+  const fg07 = result.checks.find((c) => c.id === "FG-07");
+  if (fg07 && !result.one_model && ct && !ct.body && ct.reason) fg07.warnings.push(`contract: ${ct.label}`);
   const fg02 = result.checks.find((c) => c.id === "FG-02");
   if (fg02 && !result.one_model) { // with one model FG-02 did not run: no "compared only" warnings under it
     fg02.refs = refs;
@@ -67,7 +71,7 @@ export async function runFederation(key, { versions } = {}, { actor: claimed } =
   const run = {
     result, set: set.map((m) => ({ container: m.container, version_id: m.version_id, revision: m.revision ?? null, has_manifest: m.has_manifest })),
     at: new Date().toISOString(), actor, type_rule: rule?.id ?? null, naming_ruleset: naming?.title ?? null,
-    ruleset_ref: refs.ruleset, naming_ref: refs.naming,
+    ruleset_ref: refs.ruleset, naming_ref: refs.naming, contract_ref: ct?.label ?? null,
     // "all" = the whole live set was judged (a model added later makes it stale); "explicit" = a partial
     // run over a named subset (models outside the subset never affect its staleness).
     scope: Array.isArray(versions) && versions.length ? "explicit" : "all",
@@ -80,7 +84,7 @@ export async function runFederation(key, { versions } = {}, { actor: claimed } =
     (result.one_model ? ` (one model — judged: ${judged.length ? judged.join(", ") : "nothing"}; the cross-model checks do not apply)` : "");
   const ignoredNote = ignored.length ? ` (${ignored.length} requested version(s) not live, ignored)` : "";
   await d.audit(proj.id, "federation_gate", null, `Federation gate ${word}: ${models.length} model(s)${ignoredNote}`, actor, null, {
-    verdict: result.verdict, models: run.set, ruleset_ref: refs.ruleset, naming_ref: refs.naming,
+    verdict: result.verdict, models: run.set, ruleset_ref: refs.ruleset, naming_ref: refs.naming, contract_ref: ct?.label ?? null,
     checks: result.checks.map((c) => ({ id: c.id, status: c.status, reason: c.reason ?? null, evidence: c.evidence.length })),
   });
   return run;

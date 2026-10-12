@@ -25,6 +25,7 @@ function memDeps({ manifests = { "v-1": mA, "v-2": mB }, verdicts = { "v-1": "ac
     getManifest: async (key, vid) => manifests[vid] ?? null,
     versionVerdicts: async () => verdicts,
     resolveArtefact: async () => NONE,
+    resolveContract: async () => ({ body: null, ref: null, source: "none", sha256: null, label: "none — not installed", reason: "not installed" }),
     requireMinRole: async () => {}, // a role that passes; the role tests below replace it
   };
 }
@@ -62,7 +63,7 @@ describe("runFederation", () => {
     expect(d.docs.get("federation|uuid-p|latest").result.verdict).toBe("fail");
     expect(d.audits).toHaveLength(1);
     expect(d.audits[0]).toMatchObject({ et: "federation_gate", eid: null, action: "Federation gate FAIL: 2 model(s)", actor: "cli" });
-    expect(d.audits[0].newv.checks.map((c) => c.id)).toEqual(["FG-01", "FG-02", "FG-03", "FG-04", "FG-05", "FG-06"]);
+    expect(d.audits[0].newv.checks.map((c) => c.id)).toEqual(["FG-01", "FG-02", "FG-03", "FG-04", "FG-05", "FG-06", "FG-07"]);
   });
   it("is not checkable when only one live model carries a manifest, and says which lacks one", async () => {
     const d = memDeps({ manifests: { "v-1": mA } });
@@ -210,5 +211,32 @@ describe("who ran the gate comes from the sign-in (cde-rem-9, H0 D6)", () => {
   it("the machine credential keeps its label; none is web", async () => {
     expect((await runFederation("p", {}, { actor: "cli" }, memDeps())).actor).toBe("cli");
     expect((await runFederation("p", {}, {}, memDeps())).actor).toBe("web");
+  });
+});
+
+describe("runFederation — FG-07 tolerance (MA-8-2)", () => {
+  const wall = (g, y, t) => ({ g, s: [0, y], e: [5000, y], t, z0: 0, z1: 3000, storey: "L1" });
+  const walled = (m, w, guid) => ({ ...m, walls: w, elements: [{ guid, class: "IFCWALL", type_name: m.elements[0].type_name, storey: null }] });
+  const set = () => ({ "v-1": walled(mA, [wall("a", 0, 300)], "ga"), "v-2": walled(mB, [wall("b", 60, 300)], "gb") });
+  const withContract = (body, label = "contract@2 · project · abc123…", reason = null) => async () => ({ body, ref: "contract@2", source: body ? "project" : "none", sha256: "abc", label, reason });
+  it("the contract's tolerance_mm reaches the core; contract_ref is on the run and the ledger row", async () => {
+    const d = { ...memDeps({ manifests: set() }), resolveContract: withContract({ tolerance_mm: 20 }) };
+    const run = await runFederation("p", {}, { actor: "cli" }, d);
+    expect(run.result.checks.find((c) => c.id === "FG-07")).toMatchObject({ status: "fail", count: 1 });
+    expect(run.contract_ref).toBe("contract@2 · project · abc123…");
+    expect(d.docs.get("federation|uuid-p|latest").contract_ref).toBe("contract@2 · project · abc123…");
+    expect(d.audits[0].newv.contract_ref).toBe("contract@2 · project · abc123…");
+    expect(d.audits[0].newv.checks.map((c) => c.id)).toContain("FG-07");
+    const loose = { ...memDeps({ manifests: set() }), resolveContract: withContract({ tolerance_mm: 60 }) };
+    expect((await runFederation("p", {}, { actor: "cli" }, loose)).result.checks.find((c) => c.id === "FG-07").status).toBe("pass");
+  });
+  it("a contract that does not parse is 'the contract sets no tolerance_mm', with the reason as a warning", async () => {
+    const label = "none — contract@1 · project · abc123… did not parse: contract_key must be a non-empty string";
+    const d = { ...memDeps({ manifests: set() }), resolveContract: withContract(null, label, "contract@1 did not parse") };
+    const run = await runFederation("p", {}, { actor: "cli" }, d);
+    const c = run.result.checks.find((x) => x.id === "FG-07");
+    expect(c).toMatchObject({ status: "not_checkable", reason: "the contract sets no tolerance_mm" });
+    expect(c.warnings).toContain(`contract: ${label}`);
+    expect(run.contract_ref).toBe(label);
   });
 });

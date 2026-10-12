@@ -4,6 +4,7 @@
 // version id. Capture is called after a publish is registered and must never fail that publish: the
 // callers log an error and the model reads "no manifest" in the gate.
 import { createHash } from "node:crypto";
+import { FORMATS } from "./evidence-logic.mjs";
 
 export const STORE = "manifest";
 
@@ -21,6 +22,7 @@ async function wire(deps = {}) {
     sb: deps.sb || cde?.sb,
     extractManifest: deps.extractManifest || (await import("./ifc-manifest.mjs")).extractManifest,
     measureCobie: deps.measureCobie || measureCobie,
+    readWalls: deps.readWalls || (async (b) => (await import("./ifc-geometry.mjs")).readIfcGeometry(b)),
   };
 }
 
@@ -42,6 +44,20 @@ export async function measureCobie(bytes) {
   return { total: r.total, complete: r.complete, readiness: r.readiness, coverage: r.coverage, skipped: x.counts.skipped, unknown_classes: x.counts.unknown_classes, measured_at: new Date().toISOString() };
 }
 
+/** MA-8-2: the walls FG-07 compares, from one readIfcGeometry result — plan mm in the file's own frame, `storey` the level's NAME (the
+ *  reader's cid is file-local), at most WALLS_CAP stored (walls_total says when more were read), walls_held = IFCWALL* the reader held back
+ *  (an unfilled opening) so FG-07 can say they were not compared. PURE. */
+export const WALLS_CAP = 5000;
+export function manifestWalls(r) {
+  const name = new Map((r.levels || []).map((l) => [l.cid, l.name]));
+  const all = r.walls || [];
+  return {
+    walls: all.slice(0, WALLS_CAP).map((w) => ({ g: w.global_id, s: w.start, e: w.end, t: w.thickness_mm, z0: w.base_mm, z1: w.base_mm + w.height_mm, storey: name.get(w.storey) ?? null })),
+    walls_total: all.length,
+    walls_held: (r.not_read || []).filter((n) => /^IFCWALL/.test(String(n.ifc_class))).length,
+  };
+}
+
 export async function captureManifest(key, versionId, bytes, { actor = "bridge", source = "intake", rev_code = null } = {}, deps) {
   const d = await wire(deps);
   const proj = await d.ensureProject(key);
@@ -53,9 +69,20 @@ export async function captureManifest(key, versionId, bytes, { actor = "bridge",
   // COBie measured on these same bytes; a failure is kept as "not read — why" and never fails the capture.
   let cobie;
   try { cobie = await d.measureCobie(bytes); } catch (e) { cobie = { not_read: String(e?.message || e).slice(0, 200) }; }
+  // MA-8-2: the walls (FG-07) from a second read of the same bytes. A published IFC is a partner's bytes: over the bridge's read cap it is not
+  // opened, and a failed read is kept as "why" — never a failed capture, as COBie.
+  // ponytail: a second OpenModel on the same bytes; read once with the manifest when capture time matters.
+  let wallsPart;
+  const cap = FORMATS.ifc.max_bytes;
+  if (bytes.length > cap) wallsPart = { walls_why: `larger than the bridge reads (${Math.round(cap / 1048576)} MB)` };
+  else {
+    try { const r = await d.readWalls(bytes); wallsPart = { ...manifestWalls(r), walls_reader: `${r.reader} ${r.version}` }; }
+    catch (e) { wallsPart = { walls_why: String(e?.message || e).slice(0, 200) }; }
+  }
   const doc = {
     version_id: versionId, revision_id: rev.revision_id, schema: m.schema, cobie,
     levels: m.levels, grids: m.grids, site: m.site, counts: m.counts, guid_audit: m.guid_audit ?? null,
+    ...wallsPart,
     sha256: createHash("sha256").update(bytes).digest("hex"), captured_at: new Date().toISOString(), source,
   };
   // Written with the service key: every caller has been checked first (intake, the backfill's lead, the outbox's
@@ -91,6 +118,7 @@ export async function getManifest(key, versionId, deps) {
   const rows = await d.getRevisionSnapshots(doc.revision_id);
   return {
     schema: doc.schema, levels: doc.levels || [], grids: doc.grids || [], site: doc.site ?? null, counts: doc.counts, guid_audit: doc.guid_audit ?? null,
+    walls: doc.walls ?? null, walls_why: doc.walls_why ?? (doc.walls ? undefined : "captured before MA-8 — backfill its manifest"), walls_held: doc.walls_held, walls_total: doc.walls_total,
     elements: rows.map((r) => ({ guid: r.guid, class: r.category, type_name: r.type_name ?? null, storey: null })),
     captured_at: doc.captured_at, sha256: doc.sha256,
   };

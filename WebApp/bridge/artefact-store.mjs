@@ -181,6 +181,11 @@ export function validateArtefact(kind, body) {
     // GATE-E2: the share of a class's elements that must carry each required pset and property; absent or null is 1.
     if (body.min_coverage != null && !(typeof body.min_coverage === "number" && body.min_coverage >= 0 && body.min_coverage <= 1))
       throw bad(kind, "min_coverage", "must be a number 0..1");
+    // MA-8-2: the Federation Gate reads it (FG-07, walls two models share). The delivery gates and Revit ignore it: DeliveryContract.FromBody
+    // reads named fields only (unknown ones are ignored) and the platform's contractShapeError checks named fields only, so no C# or
+    // CloudComponents change.
+    if (body.tolerance_mm != null && !(typeof body.tolerance_mm === "number" && Number.isFinite(body.tolerance_mm) && body.tolerance_mm >= 1 && body.tolerance_mm <= 1000))
+      throw bad(kind, "tolerance_mm", "must be a number of millimetres from 1 to 1000");
   }
   if (kind === "layers") {
     // enforce, extensions, params, disciplines, match and format stay in the body; Revit does not read them.
