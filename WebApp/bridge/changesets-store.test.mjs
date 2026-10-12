@@ -1718,3 +1718,52 @@ describe("MA-6-2 — Revit's as-built re-read, judged by the bridge against the 
     expect(plain.deps.resolveArtefact).not.toHaveBeenCalled();
   });
 });
+
+describe("proposeFromJob (MA-6-8): a lead turns a concept IFC job into one changeset per storey — inferred, never pre-ticked, no scan behind it", () => {
+  const EV = "e1".repeat(32);
+  const STD = { guideline: readRepo("demo/bds-pilot/bds-dd-survey-guideline.json"), type_catalog: readRepo("demo/bds-pilot/bds-type-catalog.json") };
+  const resolving = (have) => vi.fn(async (key, kind) => (have[kind] ? installed(kind, have[kind]) : NONE));
+  const FRAME = { dx_mm: 0, dy_mm: 0, dz_mm: 0, rotation_deg: 0 };
+  const ideps = async (over = {}) => {
+    const { runIfc } = await import("./ifc-geometry.mjs");
+    const path = new URL("./fixtures/ifc-geometry/revit2024-concept-cv2.ifc", import.meta.url), bytes = readFileSync(path);
+    const r = await runIfc({ job_id: "job-0007", items: [{ id: "ev-0001", kind: "model", path: path.pathname.replace(/^\/([A-Za-z]:)/, "$1").replaceAll("%20", " "), sha256: createHash("sha256").update(bytes).digest("hex") }] });
+    const TRUSTED = { job: { id: "job-0007", status: "done" }, result: r.result,
+      row: { ledger: { id: 3301, hash: "13".repeat(32) }, reader: "sentinel-ifc", version: "0.1.0", pack_id: "evp-0001", items: [{ id: "ev-0001", sha256: EV }], read: ["ev-0001"], result_sha256: "7a".repeat(32) } };
+    let n = 3400;
+    return baseDeps({ myRole: vi.fn(async () => "lead"), requireMinRole: vi.fn(async () => "lead"), takeWriteBudget: vi.fn(), resolveArtefact: resolving(STD),
+      trustedJob: vi.fn(async () => TRUSTED), readPack: vi.fn(async () => ({ pack: { items: [{ id: "ev-0001", sha256: EV, state: "admitted" }] } })),
+      manifestLevels: vi.fn(async () => []), audit: vi.fn(async () => ({ id: ++n, hash: "ab".repeat(32) })), ...over });
+  };
+  const propose = (deps, body = { frame: FRAME }) => proposeFromJob("ma4c-drill", "job-0007", body, "web", deps);
+
+  it("(a) the Revit CV2 concept: two storey changesets, nothing ticked, the planner's row names ifc_row and holds the roof; the column and door ride CN L00", async () => {
+    const deps = await ideps();
+    const r = await propose(deps);
+    expect(r.changesets.map((c) => [c.name, c.elements, c.preticked])).toEqual([["IFC job-0007 · IFC L02 job-0007", 7, 0], ["IFC job-0007 · IFC L04 job-0007", 6, 0]]);
+    expect(r).toMatchObject({ job: "job-0007", ifc_row: { id: 3301 }, frame: FRAME, already_filed: 0, gaps: { groups: 0 } });
+    expect(r.survey_row).toBeUndefined();
+    const docs = [...deps.saved.values()];
+    expect(docs[0]).toMatchObject({ claimed: false, job: { id: "job-0007", reader: "sentinel-ifc 0.1.0", planner: "ifc-planner 0.1.0", ledger_id: 3301, storey: { cid: "L02", how: "created" } } });
+    expect(docs[0].elements.every((e) => e.pretick === false && e.accuracy.status === "inferred" && e.accuracy.basis === "ifc")).toBe(true);
+    expect(docs[0].exceptions.map((e) => e.name.split(" ")[0]).sort()).toEqual(["IfcColumn", "IfcDoor", "IfcWallStandardCase"]);
+    expect(docs[0].elements.filter((e) => e.kind === "wall").map((e) => e.place.TypeName).sort()).toEqual(
+      ["BDS_EXT_ARC_CMU_300 mm", "BDS_EXT_ARC_CMU_300 mm", "BDS_EXT_ARC_CMU_300 mm", "BDS_EXT_ARC_CMU_300 mm", "BDS_INT_ARC_CMU_150 mm"]);
+    const run = deps.audit.mock.calls.find((c) => c[1] === "build");
+    expect(run[3]).toBe("build:run job-0007 · ifc-planner 0.1.0 · proposed");
+    expect(run[6]).toMatchObject({ planner: "ifc-planner", ifc_row: { id: 3301 }, claimed: false, model_calls: 0, tokens: 0 });
+    const roof = run[6].storeys.find((s) => s.cid === "L07");
+    expect(roof).toMatchObject({ changeset: null, held: [{ name: expect.stringMatching(/^IfcRoof /) }] });
+  });
+
+  it("(b) a second run finds nothing new; a placed IFC changeset has no scan to measure or show", async () => {
+    const d0 = await ideps(); await propose(d0);
+    const docs = [...d0.saved.values()];
+    await expect(propose(await ideps({ docList: vi.fn(async () => docs) }))).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/^nothing new to propose from job-0007 — every candidate that types is filed already/) });
+    const cs = { ...docs[0], status: "applied" };
+    d0.saved.set(cs.id, cs);
+    const as = { ...d0, myRole: vi.fn(async () => "contributor"), requireMinRole: vi.fn(async () => "contributor") };
+    await expect(verifyChangeset("ma4c-drill", { changeset: cs.id }, "web", as)).rejects.toMatchObject({ status: 409, message: `${cs.name} was built from an IFC (job-0007) — what a concept says, not what was built: there is no scan to measure it against — nothing was saved` });
+    await expect(scanOverlay("ma4c-drill", cs.id, as)).rejects.toMatchObject({ status: 409, message: `${cs.name} was built from an IFC (job-0007) — it has no scan to show` });
+  });
+});

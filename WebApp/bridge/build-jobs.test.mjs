@@ -179,7 +179,7 @@ describe("survey jobs (MA-4c)", () => {
     const D16 = "snap_mm is not a survey parameter: snapping to a catalogue size is the bridge's typing policy (D16, type_snap_mm), MA-4d — nothing was saved";
     const field = (k) => `${k} is not a survey job field — the bridge picks the items, the seed and who started it; send {pack, readers?, params?} — nothing was saved`;
     expect(no({})).toEqual([400, "pack must name the evidence pack in force (evp-0001) — nothing was saved"]);
-    const READERS = 'readers must be ["sentinel-survey"] or ["sentinel-drawing"] — one reader a job (or leave it out: sentinel-survey) — nothing was saved';
+    const READERS = 'readers must be ["sentinel-survey"], ["sentinel-drawing"] or ["sentinel-ifc"] — one reader a job (or leave it out: sentinel-survey) — nothing was saved';
     expect(no({ pack: "evp-0001", readers: ["laspy"] })).toEqual([400, READERS]);
     expect(no({ pack: "evp-0001", readers: ["sentinel-survey", "sentinel-drawing"] })).toEqual([400, READERS]);
     expect(no({ pack: "evp-0001", readers: ["sentinel-drawing"], params: { voxel_mm: 20 } })).toEqual([400, 'sentinel-drawing takes no parameter — send {pack, readers: ["sentinel-drawing"]} — nothing was saved']);
@@ -330,7 +330,7 @@ describe("trustedJob (MA-4d) — decision 11: the row job.ledger.id names, the j
   // deps() per call (review): the file's root is set in beforeEach, after this describe is collected. The caller (proposeFromJob) checks the role.
   const trust = (row) => trustedJob("demo", "job-0001", deps({ getAuditEntry: async (key, id) => (key === "demo" && id === 2201 ? row : null) }));
   const untrusted = (why) => ({ status: 409, message: `job-0001's result is not trusted: ${why} — run the survey again; nothing was saved` });
-  const NOT_OWN = "ledger #2201 is not job-0001's own build:run row (the bridge's: build:run job-0001 · sentinel-survey or sentinel-drawing … · done, claimed false)";
+  const NOT_OWN = "ledger #2201 is not job-0001's own build:run row (the bridge's: build:run job-0001 · sentinel-survey, sentinel-drawing or sentinel-ifc … · done, claimed false)";
   const CHANGED = "its result.json does not hash to the sha256 on ledger #2201 — it changed after the job";
 
   it("(a) the job's own row: the result, the row's pack, items and read, its id and hash — the pack id is the ROW's, not job.json's", async () => {
@@ -420,5 +420,62 @@ describe("stillAdmitted and measureJob (MA-4e)", () => {
     await expect(start()).rejects.toMatchObject({ status: 409, message: "a scan overlay is already running on this bridge (one at a time) — try again when it ends; nothing was saved" });
     runs[0].ok({ status: "done", result: { points: [] } }); runs.pop();
     expect(await r).toMatchObject({ status: "done" });
+  });
+});
+
+describe("IFC jobs (MA-6-8) — sentinel-ifc in this process on the newest admitted concept IFC", () => {
+  const FIX = readFileSync(new URL("./fixtures/ifc-geometry/concept-2storey.ifc", import.meta.url));
+  const model = (id, path, over = {}) => ({ id, kind: "model", format: "ifc", path, sha256: sha(FIX), surveyable: false, allowed_uses: { ...USES }, ...over });
+  const lay = (over = {}) => { mkdirSync(join(ev, "model")); writeFileSync(join(ev, "model", "old.ifc"), FIX); writeFileSync(join(ev, "model", "concept.ifc"), FIX); PACK.items.push(model("ev-0020", "model/old.ifc", over), model("ev-0021", "model/concept.ifc")); };
+  const startI = (over) => start({ pack: "evp-0001", readers: ["sentinel-ifc"] }, over);
+  const ITOOLS = [{ name: "sentinel-ifc", version: "0.1.0", licence: "proprietary" }, { name: "web-ifc", version: "0.0.77", licence: "MPL-2.0" }];
+  const IRESULT = { candidates: [
+    { cid: "L00", kind: "level", geometry: { BaseElevation: 0, name: "CN L00", global_id: "G".repeat(22) }, measured: { elevation_mm: 0 }, evidence: ["ev-0021#" + "G".repeat(22)] },
+    { cid: "W".repeat(22), kind: "wall", geometry: { storey: "L00", LocationCurve: { start: [0, 0], end: [8000, 0] }, BaseElevation: 0, TopElevation: 3500 }, measured: { thickness_mm: 300, height_mm: 3500, length_mm: 8000 }, evidence: ["ev-0021#" + "W".repeat(22)] }],
+    derived: [], receipt: { cpu_s: 0.3, not_read: [{ global_id: "C".repeat(22), ifc_class: "IFCCOLUMN", storey: "L00", why: "an IfcColumn — the IFC planner reads walls and floors (MA-6); a person places it" }] } };
+  const ok = (result = IRESULT) => async () => ({ status: "done", version: "0.1.0", tools: ITOOLS, refused: [], result });
+
+  it("(a) the body takes no parameter; the newest admitted model is read and the older one refused; no model is a 409 in words", async () => {
+    expect(readStartBody({ pack: "evp-0001", readers: ["sentinel-ifc"] })).toEqual({ pack: "evp-0001", reader: "sentinel-ifc", params: {} });
+    expect(() => readStartBody({ pack: "evp-0001", readers: ["sentinel-ifc"], params: { voxel_mm: 20 } })).toThrow('sentinel-ifc takes no parameter — send {pack, readers: ["sentinel-ifc"]} — nothing was saved');
+    await expect(startI()).rejects.toMatchObject({ status: 409, message: "no admitted concept IFC in evp-0001 — admit a .ifc under Evidence first; nothing was saved" });
+    lay();
+    let seen;
+    const { job } = await startI({ notSetUp: () => "survey not set up", runIfc: async (j) => { seen = j; return ok()(); } }); // the IFC reader needs no set-up
+    await current();
+    expect(job.items).toEqual([{ id: "ev-0021", path: "model/concept.ifc", sha256: sha(FIX) }]);
+    expect(job.refused).toEqual([{ id: "ev-0020", reason: "an older concept — one IFC a job: the newest admitted is read" }]);
+    expect(seen).toEqual({ job_id: "job-0001", items: [{ id: "ev-0021", kind: "model", path: join(ev, "model", "concept.ifc"), sha256: sha(FIX) }], params: {}, seed: 1 });
+  });
+
+  it("(b) the run writes ONE build:run row naming sentinel-ifc with its not_read, counts of levels, walls and floors; trustedJob accepts it", async () => {
+    lay();
+    await startI({ runIfc: ok() });
+    await current();
+    expect(rec()).toMatchObject({ status: "done", reader: { name: "sentinel-ifc", version: "0.1.0" }, counts: { level: 1, wall: 1, floor: 0 }, candidates_total: 2, tools: ITOOLS });
+    expect(audits).toHaveLength(1);
+    expect(audits[0].action).toBe("build:run job-0001 · sentinel-ifc 0.1.0 · done");
+    expect(audits[0].v).toMatchObject({ reader: "sentinel-ifc", status: "done", claimed: false, cpu_s: 0.3, not_read_total: 1, not_read: [{ ifc_class: "IFCCOLUMN", storey: "L00" }], read: ["ev-0021"], candidates: { level: 1, wall: 1, floor: 0 } });
+    const t = await trustedJob("demo", "job-0001", deps({ getAuditEntry: async () => ({ id: 101, hash: "cd".repeat(32), entity_type: "build", action: audits[0].action, new_value: audits[0].v }) }));
+    expect(t.row).toMatchObject({ reader: "sentinel-ifc", version: "0.1.0", read: ["ev-0021"] });
+    expect(t.result.receipt.not_read).toHaveLength(1);
+  });
+
+  it("(c) an IFC door candidate is refused (a failed run, nothing kept); a sha mismatch is refused by the real reader; a read of the fixture finds its levels, walls and floors", async () => {
+    expect(resultRefusal({ ...IRESULT, candidates: [{ ...IRESULT.candidates[1], kind: "door" }] }, ["ev-0021"], "sentinel-ifc")).toBe("candidates[0].kind");
+    expect(resultRefusal(IRESULT, ["ev-0021"], "sentinel-ifc")).toBe(null);
+    expect(resultRefusal({ ...IRESULT, candidates: [{ ...IRESULT.candidates[1], measured: { thickness_mm: null } }] }, ["ev-0021"], "sentinel-ifc")).toBe("candidates[0].measured");
+    lay();
+    PACK.items.find((i) => i.id === "ev-0021").sha256 = "f".repeat(64);
+    await startI();   // the real runIfc: the bytes on disk are not the bytes admitted
+    await current();
+    expect(rec()).toMatchObject({ status: "refused", refused: [{ id: "ev-0020", reason: "an older concept — one IFC a job: the newest admitted is read" }, { id: "ev-0021", reason: "not the bytes admitted (sha256)" }] });
+    expect(audits[0].action).toBe("build:run job-0001 · sentinel-ifc 0.1.0 · refused");
+    PACK.items.find((i) => i.id === "ev-0021").sha256 = sha(FIX);
+    await startI();
+    await current();
+    expect(rec("job-0002")).toMatchObject({ status: "done", counts: { level: 2, wall: 8, floor: 3 }, reader: { name: "sentinel-ifc", version: "0.1.0" } });
+    expect(rec("job-0002").tools.map((t) => t.name)).toEqual(["sentinel-ifc", "web-ifc", "Node"]);
+    expect(audits[1].v.not_read.length).toBeGreaterThan(0);
   });
 });

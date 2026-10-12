@@ -3,7 +3,7 @@ import { describe, it, expect } from "vitest";
 import {
   ATTESTATIONS, ADMIT_NEEDS, MAX_ITEMS, codesSaid, readAdmitBody, newItemRefusal, policyRefusals, magicRefusal,
   nextId, newPack, newItem, flagged, readmitted, validatePack, readRequestBody, letterText, newRequest, requestedValue,
-  DATASET_LICENCES, readDataset, needsOf,
+  DATASET_LICENCES, readDataset, needsOf, sizeRefusal, USES,
 } from "./evidence-logic.mjs";
 
 const PATH_WORDS = "path must name a file inside the project's evidence folder, relative to it (no drive, no leading slash, no ..) — nothing was saved";
@@ -42,7 +42,7 @@ describe("readAdmitBody and newItemRefusal", () => {
     expect(readAdmitBody({ path: "scans/a.las", kind: "scan" }).registration).toBe(null);
     expect(readAdmitBody({ path: "a.jpg", kind: "photo" }).provider).toBe("own");
     expect(readAdmitBody({ path: "a.jpg", kind: "photo", provider: "Google Maps" }).provider).toBe("google maps");
-    expect(() => readAdmitBody({ path: "a.jpg", kind: "dataset" })).toThrow(expect.objectContaining({ status: 400, message: "kind must be scan, photo or drawing — nothing was saved" }));
+    expect(() => readAdmitBody({ path: "a.jpg", kind: "dataset" })).toThrow(expect.objectContaining({ status: 400, message: "kind must be scan, photo, drawing or model — nothing was saved" }));
   });
   it("a new item's own needs", () => {
     expect(newItemRefusal({ path: "a.las", kind: "scan", registration: null })).toMatch(/registration\.method/);
@@ -53,7 +53,7 @@ describe("readAdmitBody and newItemRefusal", () => {
   it("names the codes and what each kind needs", () => {
     expect(codesSaid(["a", "c", "d"])).toBe("(a), (c) and (d)");
     expect(codesSaid(["d"])).toBe("(d)");
-    expect(ADMIT_NEEDS).toEqual({ scan: ["a", "c"], photo: ["a", "c", "d"], drawing: ["a", "b"] });
+    expect(ADMIT_NEEDS).toEqual({ scan: ["a", "c"], photo: ["a", "c", "d"], drawing: ["a", "b"], model: ["a"] });
   });
 });
 
@@ -66,7 +66,7 @@ describe("policyRefusals", () => {
     expect(policyRefusals({ kind: "drawing", provider: "owner", path: "scan.JPEG" })).toEqual([]);
     expect(policyRefusals({ kind: "drawing", provider: "own", path: "A-101.txt" })).toEqual(["a .txt is not admitted as a drawing — drawings are pdf, dwg, dxf, png or jpg"]);
     expect(policyRefusals({ kind: "drawing", provider: "apple", path: "A-101.pdf" })[0]).toMatch(/^apple is a RED source/);
-    expect(policyRefusals({ kind: "photo", provider: "own", path: "a.txt" })).toEqual(["a .txt is not admitted — scans are e57, las, laz or rcp; photos are jpg or png"]);
+    expect(policyRefusals({ kind: "photo", provider: "own", path: "a.txt" })).toEqual(["a .txt is not admitted — scans are e57, las, laz or rcp; photos are jpg or png; a concept model is ifc"]);
     expect(policyRefusals({ kind: "scan", provider: "own", path: "a.jpg" })).toEqual(["a .jpg is a photo, not a scan"]);
     expect(policyRefusals({ kind: "photo", provider: "own", path: "a.JPEG" })).toEqual([]);
   });
@@ -218,5 +218,31 @@ describe("MA-4h — a published dataset's pack", () => {
     // the attestation split, as the sign route keeps it: (f) alone on a dataset's pack, never (f) on an own pack
     fails(dsPack(["f", "a"]), "evidence_pack: attestations[1].code must be (f) on a published dataset's pack — (a) to (e) speak for an owner or one's own capture");
     fails(packWith(["a", "f"]), "evidence_pack: attestations[1].code must not be (f) on an own pack — (f) is signed on a published dataset's pack only");
+  });
+});
+
+// MA-6-8 — the office's own concept model: an .ifc, the owner's authority (a) alone, read inside the bridge (a size cap).
+describe("a concept model (MA-6-8)", () => {
+  const MB = 1048576;
+  it("the body, the magic (12 bytes), the size and the policy", () => {
+    expect(readAdmitBody({ path: "model/concept.ifc", kind: "model" })).toMatchObject({ kind: "model", provider: "own" });
+    expect(newItemRefusal({ path: "model/concept.ifc", kind: "model", registration: null })).toBe(null);
+    expect(magicRefusal("ifc", Buffer.from("ISO-10303-21;\nHEAD"), "model")).toBe(null);
+    expect(magicRefusal("ifc", Buffer.from("%PDF-1.7\n1 0 obj"), "model")).toBe("the file does not begin as a .ifc does — renamed or damaged");
+    expect(magicRefusal("ifc", Buffer.from("ISO-1030"), "model")).toBe("the file does not begin as a .ifc does — renamed or damaged");
+    expect(sizeRefusal("ifc", 20 * MB, "model")).toBe(null);
+    expect(sizeRefusal("ifc", 20 * MB + 1, "model")).toBe("a .ifc is read inside the bridge — at most 20 MB (this one is 20.0 MB); export the concept without its site, links and furniture");
+    expect(sizeRefusal("ifc", 25.3 * MB, "model")).toContain("(this one is 25.3 MB)");
+    expect(sizeRefusal("las", 9e9, "scan")).toBe(null);
+    expect(policyRefusals({ kind: "model", provider: "own", path: "a.ifc" })).toEqual([]);
+    expect(policyRefusals({ kind: "model", provider: "architect", path: "a.ifc" })).toEqual(["web and third-party items wait for a later stage — only your own scans and photos (provider own) are admitted now"]);
+    expect(policyRefusals({ kind: "scan", provider: "own", path: "a.ifc" })).toEqual(["a .ifc is a model, not a scan"]);
+    expect(policyRefusals({ kind: "model", provider: "own", path: "a.las" })).toEqual(["a .las is a scan, not a model"]);
+  });
+  it("validatePack takes a model item with (a) alone", () => {
+    const item = { id: "ev-0001", kind: "model", format: "ifc", path: "model/concept.ifc", sha256: SHA, size_bytes: 1000, provider: "own", licence: "owner-supplied",
+      attestation_ids: ["att-0001"], allowed_uses: { ...USES }, surveyable: false, admitted_by: "lead@example.test", admitted_at: "2026-10-12T10:00:00.000Z" };
+    expect(validatePack(packWith(["a"], [item]))).toBe(true);
+    expect(() => validatePack(packWith(["c"], [{ ...item, attestation_ids: ["att-0001"] }]))).toThrow(/\(a\) at least for a model/);
   });
 });

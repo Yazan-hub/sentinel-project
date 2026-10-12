@@ -17,7 +17,7 @@ import { unarchiveFile } from "./cde-transition";
 import { firstTag, geometryCheck, linkedHash, linkedTag, sha256Hex, type GeometryLinkRow } from "./geometry-check";
 import { readEvidence, makePack, signAttestation, admitEvidence, recheckEvidence, draftRequest, kindOf, isImage, needsReport, itemLine, attestationLine, admitLine, recheckLine, requestLine, evidenceControls, ATTESTATION_CODES, ATTESTATION_TEXTS, datasetLine, type EvidenceRead, type EvidenceRequest,
   startSurvey, readJobs, readJob, jobLine, candidateLine, surveyStartLine, surveyableScans, proposeBody, proposeFromJob, proposeLine, type SurveyJob, type Candidate,
-  startDrawing, drawingStartLine, readableDrawings, isDrawingJob, alignBody, alignPreview, drawingSvg, snapPaper, type AlignDraft } from "./evidence";
+  startDrawing, drawingStartLine, readableDrawings, isDrawingJob, startIfc, ifcStartLine, readableIfc, isIfcJob, ifcHintLine, alignBody, alignPreview, drawingSvg, snapPaper, type AlignDraft } from "./evidence";
 
 /**
  * Sentinel Versions panel — file/blob-centric version history for uploaded model files.
@@ -90,6 +90,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   // MA-4d: the done job a lead is proposing (its form open) and its storeys (read with the job).
   let proposing: string | null = null;
   let proposeLevels: Candidate[] | null = null;
+  let proposeHint = ""; // MA-6-8: an IFC job's own world position, as one line
   // MA-4d (final review): what the lead typed in the Propose form, kept across a refusal or a refresh (askDraft's precedent); cleared on a 201.
   let proposeDraft: { dx: string; dy: string; dz: string; rot: string; levels: Record<string, string> } | null = null;
   // MA-5a-4: the drawing job's Propose form as typed — its points, level and height (the same rule: kept across a refusal, cleared on a 201).
@@ -300,6 +301,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     root.querySelector("#fv-ev-recheck")?.addEventListener("click", () => void evAct(async () => recheckLine(await recheckEvidence(base, pid()))));
     root.querySelector("#fv-ev-survey")?.addEventListener("click", () => void evAct(async () => surveyStartLine((await startSurvey(base, pid())).job)));
     root.querySelector("#fv-ev-drawing")?.addEventListener("click", () => void evAct(async () => drawingStartLine((await startDrawing(base, pid())).job)));
+    root.querySelector("#fv-ev-ifc")?.addEventListener("click", () => void evAct(async () => ifcStartLine((await startIfc(base, pid())).job))); // MA-6-8
     root.querySelectorAll<HTMLElement>("[data-evjob]").forEach((n) => n.addEventListener("click", async () => {
       const id = n.dataset.evjob!;
       if (jobOpen === id) { jobOpen = null; jobCands = null; render(); return; }
@@ -319,7 +321,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
         const r = await readJob(base, pid(), id);
         if (mine !== seq) return;
         if (r.result_error) { status(`Not proposed — ${r.result_error}`); return; }
-        proposing = id; proposeLevels = (r.candidates ?? []).filter((c) => c.kind === "level"); proposeDraft = { dx: "0", dy: "0", dz: "0", rot: "0", levels: {} };
+        proposing = id; proposeHint = isIfcJob(r.job) ? ifcHintLine(r.receipt?.hint) : ""; proposeLevels = (r.candidates ?? []).filter((c) => c.kind === "level"); proposeDraft = { dx: "0", dy: "0", dz: "0", rot: "0", levels: {} };
         alignDraft = isDrawingJob(r.job) ? { item: (r.job.read ?? [])[0] ?? "", pa: "", ma: "", pb: "", mb: "", pc: "", mc: "", level: "", z: "0" } : null;
         alignView = alignDraft ? { cands: r.candidates ?? [], sizes: Object.fromEntries((r.receipt?.items ?? []).filter((i) => i.size_paper_mm).map((i) => [i.id, i.size_paper_mm!])) } : null;
         alignPick = alignDraft ? "pa" : null;
@@ -403,9 +405,9 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     })));
     root.querySelectorAll<HTMLElement>("[data-evadmit]").forEach((n) => n.addEventListener("click", () => {
       const path = n.dataset.evadmit!;
-      // A photo, or a flagged item coming back (the bridge keeps its first registration, report and request), is admitted with no form.
+      // A photo or a concept IFC (MA-6-8: the owner's authority alone), or a flagged item coming back (the bridge keeps its first registration, report and request), is admitted with no form.
       const back = evidence?.pack.items.find((i) => i.path === path && i.state === "changed");
-      if (back || kindOf(path) === "photo") void evAct(async () => admitLine(await admitEvidence(base, pid(), { path, kind: back?.kind ?? "photo", ...(back?.request_id ? { request_id: back.request_id } : {}) })));
+      if (back || kindOf(path) === "photo" || kindOf(path) === "model") void evAct(async () => admitLine(await admitEvidence(base, pid(), { path, kind: back?.kind ?? kindOf(path)!, ...(back?.request_id ? { request_id: back.request_id } : {}) })));
       else if (kindOf(path) === "drawing") { drawingFor = path; drawingReq = ""; admitting = null; render(); }
       else { admitting = path; drawingFor = null; render(); (root.querySelector("#fv-ev-method") as HTMLInputElement | null)?.focus(); }
     }));
@@ -629,8 +631,9 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     // MA-4d: the lead's two statements — where the scan sits in the model, and which existing level each scanned storey is (blank: matched from
     // a published IFC within 20 mm, or created). Everything else the bridge builds from the job.
     const pd = proposeDraft ?? { dx: "0", dy: "0", dz: "0", rot: "0", levels: {} };
-    const proposeForm = (levels: Candidate[]) =>
-      line("Where the scan sits in the model: the move and turn from the model's internal origin to the scan's origin (all 0 when the scan is registered to it). You state it; every ghost lands by it.", "#9ca3af") +
+    const proposeForm = (levels: Candidate[], what: "scan" | "IFC" = "scan") =>
+      line(`Where the ${what === "IFC" ? "concept" : "scan"} sits in the model: the move and turn from the model's internal origin to the ${what === "IFC" ? "IFC's" : "scan's"} origin (all 0 when ${what === "IFC" ? "the concept was drawn from" : "the scan is registered to"} it). You state it; every ghost lands by it.`, "#9ca3af") +
+      (what === "IFC" && proposeHint ? line(esc(proposeHint), "#c4b5fd") : "") +
       `<div style="display:flex;gap:.3rem;flex-wrap:wrap;align-items:center;font-size:11px;padding:.15rem .2rem">x <input id="fv-pr-dx" value="${esc(pd.dx)}" style="${inp};width:6rem"/> y <input id="fv-pr-dy" value="${esc(pd.dy)}" style="${inp};width:6rem"/> z <input id="fv-pr-dz" value="${esc(pd.dz)}" style="${inp};width:5rem"/> mm, turned <input id="fv-pr-rot" value="${esc(pd.rot)}" style="${inp};width:4rem"/> °</div>` +
       levels.map((c) => `<div style="display:flex;gap:.3rem;align-items:center;font-size:11px;padding:.1rem .2rem"><span>${esc(c.cid)} at ${esc(String(c.geometry.BaseElevation))} mm (scan) → existing level</span><input data-prlevel="${esc(c.cid)}" value="${esc(pd.levels[c.cid] ?? "")}" placeholder="blank: a published level within 20 mm, or a new one" style="${inp};flex:1"/></div>`).join("") +
       `<div style="padding:.15rem .2rem"><button id="fv-pr-ok" style="${act};color:#c4b5fd">Propose</button></div>`;
@@ -675,7 +678,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
               `<button id="fv-ev-dok" style="${act};color:#c4b5fd">Admit drawing</button>`
             : '<span style="color:#fbbf24">a drawing answers a request — a lead drafts one under Ask the owner first</span>') +
             `<button id="fv-ev-cancel" style="${act}">Cancel</button>`
-        : !kindOf(f.path) ? '<span style="color:#71717a">not admitted here — scans e57, las, laz, rcp; photos jpg, png; drawings pdf, dwg, dxf</span>'
+        : !kindOf(f.path) ? '<span style="color:#71717a">not admitted here — scans e57, las, laz, rcp; photos jpg, png; drawings pdf, dwg, dxf; a concept model ifc</span>'
         : edit ? `<button data-evadmit="${esc(f.path)}" style="${act}">Admit</button>` +
           (isImage(f.path) && requests.length ? ` <button data-evdrawing="${esc(f.path)}" style="${act}" title="a scanned drawing that answers a request">as drawing…</button>` : "") : "";
       return `<div style="display:flex;gap:.4rem;align-items:center;flex-wrap:wrap;font-size:11px;padding:.15rem .2rem"><span style="flex:1;min-width:8rem;overflow-wrap:anywhere">${esc(f.path)} · ${esc(humanSize(f.size_bytes))}</span>${form}</div>`;
@@ -689,17 +692,19 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
         : (jobs ?? []).map((j) => line(esc(jobLine(j)), jobColor(j.status)) +
             (j.status === "done" && j.candidates_total ? `<div style="padding:.1rem .2rem"><button data-evjob="${esc(j.id)}" style="${act}">${jobOpen === j.id ? "Hide candidates" : "Candidates"}</button></div>` : "") +
             (j.status === "done" && j.candidates_total && can.propose ? `<div style="padding:.1rem .2rem"><button data-evpropose="${esc(j.id)}" style="${act}">${proposing === j.id ? "Cancel proposal" : "Propose…"}</button></div>` : "") +
-            (proposing === j.id ? (isDrawingJob(j) ? alignForm(j) : proposeForm(proposeLevels ?? [])) : "") +
+            (proposing === j.id ? (isDrawingJob(j) ? alignForm(j) : proposeForm(proposeLevels ?? [], isIfcJob(j) ? "IFC" : "scan")) : "") +
             (jobOpen === j.id ? (jobCands ?? []).map((c) => line(esc(candidateLine(c)), "#cbd5e1")).join("") : "")).join("") || line("no survey yet")) +
       line("Drawings — sentinel-drawing reads page 1 of the admitted vector PDF plans on this PC: walls (two faces in the page's heaviest line weight), doors (swing arcs, with any W x H tag) and room labels (a name, and its number when one is written), in paper millimetres. A lead proposes a done drawing job by two marks (a 2-point alignment): the bridge types its walls exactly and its doors by size, as a scan's, every ghost inferred and unticked; a room is placed where its label stands, and only when the walls round it close; a DWG is Ghost Builder's, in Revit.", "#9ca3af") +
-      // MA-5a-3: one slot for both readers — neither button while a job runs
-      (can.survey && !busy && (surveyableScans(pack).length || readableDrawings(pack).length)
+      line("IFC — sentinel-ifc reads the newest admitted concept .ifc inside the bridge (at most 20 MB): levels, straight walls and floors in the IFC's own millimetres; what it does not read (columns, doors, roofs, curved walls) it lists by GlobalId. A lead proposes a done IFC job with a frame — the IFC's own world position is a hint, never applied. Nothing is pre-ticked: a concept is what someone modelled, not what was built.", "#9ca3af") +
+      // MA-5a-3: one slot for all readers — no button while a job runs
+      (can.survey && !busy && (surveyableScans(pack).length || readableDrawings(pack).length || readableIfc(pack).length)
         ? `<div style="margin-top:.35rem;display:flex;gap:.4rem">${surveyableScans(pack).length ? `<button id="fv-ev-survey" style="${act}">Run survey</button>` : ""}` +
-          `${readableDrawings(pack).length ? `<button id="fv-ev-drawing" style="${act}" title="sentinel-drawing reads page 1 of each admitted PDF plan">Read drawings</button>` : ""}</div>`
+          `${readableDrawings(pack).length ? `<button id="fv-ev-drawing" style="${act}" title="sentinel-drawing reads page 1 of each admitted PDF plan">Read drawings</button>` : ""}` +
+          `${readableIfc(pack).length ? `<button id="fv-ev-ifc" style="${act}" title="sentinel-ifc reads the newest admitted concept IFC: levels, walls and floors">Read IFC</button>` : ""}</div>`
         : can.survey && busy ? line("A job is running — ↻ for its progress.") : "");
     return toggle + `<div style="margin-bottom:.45rem;padding:.45rem .55rem;background:#1b1b21;border:1px solid #2c2c34;border-radius:.4rem">` +
       `<div style="color:#71717a;font-size:10.5px;font-family:ui-monospace,Consolas,monospace;overflow-wrap:anywhere">${esc(pack.pack_id)} · ${esc(ref)} · folder ${esc(folder.path)}${folder.exists ? "" : " (not there yet)"}</div>` +
-      line(pack.dataset ? esc(datasetLine(pack.dataset)) : "Attestations — a lead signs (a) and (c) before a scan, also (d) before a photo, and (a) and (b) before a drawing", "#9ca3af") + atts +
+      line(pack.dataset ? esc(datasetLine(pack.dataset)) : "Attestations — a lead signs (a) and (c) before a scan, also (d) before a photo, (a) and (b) before a drawing, and (a) before a concept IFC", "#9ca3af") + atts +
       line(`Ask the owner (${requests.length}) — Sentinel drafts the letter and sends nothing: you send it; the drawings that come back are admitted under it`, "#9ca3af") + asks + askForm +
       line(`Admitted (${pack.items.length})`, "#9ca3af") + items +
       line(`In the folder, not yet admitted (${folder.files_not_admitted.length}${folder.truncated ? ", the list stops at 1000" : ""}) — put files there on the office PC`, "#9ca3af") + files +

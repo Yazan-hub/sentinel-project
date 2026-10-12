@@ -6,10 +6,12 @@
 // CLI: node bridge/ifc-geometry.mjs <file.ifc>
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, resolve } from "node:path";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import * as WebIFC from "web-ifc";
 import { lengthUnit, val, num, ref, idsOf } from "./ifc-manifest.mjs";
 import { elementPsets } from "./ifc-extract.mjs";
+import { sizeRefusal } from "./evidence-logic.mjs";
 
 export const IFC = "sentinel-ifc";
 export const VERSION = "0.1.0";
@@ -273,7 +275,7 @@ async function read(api, mid) {
   };
   const external = (g, pset) => truth(g.psets.find((p) => p.name === pset)?.rows.find((r) => r.name === "IsExternal")?.value);
   const seen = new Set();
-  const skip = (id, l, storey, why) => out.not_read.push({ global_id: gidOf(l, id), ifc_class: className(l, id), storey, why: clean(why, 500) });
+  const skip = (id, l, storey, why) => out.not_read.push({ global_id: gidOf(l, id), ifc_class: className(l, id), ifc_name: prose(l, id), storey, why: clean(why, 500) });
 
   const openingsOf = new Map(), filled = new Set();   // host id → its opening ids; the openings a door or window fills
   for (const id of idsOf(api, mid, WebIFC.IFCRELVOIDSELEMENT)) { const r = L(id); if (r) { const h = ref(r.RelatingBuildingElement); openingsOf.set(h, [...(openingsOf.get(h) ?? []), ref(r.RelatedOpeningElement)]); } }
@@ -367,7 +369,7 @@ async function read(api, mid) {
       if (!(t > 0)) no("no thickness");
       if (passed.why && !body) note = [note, `body not read — ${passed.why}`].filter(Boolean).join("; ");
       out.walls.push({
-        global_id: gid, name, ifc_class: className(l, id), storey,
+        global_id: gid, name, ifc_class: className(l, id), type_name: clean(val(L(typeOf.get(id))?.Name) ?? ""), storey,
         start: line[0].map(r1), end: line[1].map(r1), base_mm: r1(base), height_mm: r1(h), thickness_mm: r1(t), thickness_from: from,
         is_external: external(g, "Pset_WallCommon"), clipped: !!body?.clipped, body: kind, ...(note ? { note } : {}),
       });
@@ -401,6 +403,51 @@ async function read(api, mid) {
     }
   } catch { /* an unreadable WCS is not a finding */ }
   return out;
+}
+
+// ── MA-6-8: the job (build-jobs runs it in this process on the newest admitted concept IFC) ────────────────────────────────────
+// ponytail: web-ifc's OpenModel is synchronous in the bridge, bounded by the 20 MB admission cap (intake and manifests do the same with
+// larger files); over ~2 s on a real concept, a worker_threads worker.
+const toolsOf = () => {
+  let web = "0.0.77";
+  try { web = JSON.parse(readFileSync(resolve(WASM_DIR, "package.json"), "utf8")).version ?? web; } catch { /* the installed version is the pinned one */ }
+  return [{ name: IFC, version: VERSION, licence: "proprietary" }, { name: "web-ifc", version: web, licence: "MPL-2.0" }, { name: "Node", version: process.versions.node, licence: "MIT" }];
+};
+/** job {job_id, items: [{id, kind, path, sha256}], params, seed} → {status, version, tools, refused, result?, error?}. Never rejects.
+ *  `measured` holds finite numbers only: a wall or floor missing one goes to not_read, never into the result with a null. */
+export async function runIfc(job) {
+  const t0 = process.cpuUsage(), refused = [], candidates = [], notRead = [];
+  let first = null;
+  try {
+    for (const it of job.items) {
+      let bytes;
+      try { bytes = readFileSync(it.path); } catch (e) { refused.push({ id: it.id, reason: `could not be read (${e?.code || "the read failed"})` }); continue; }
+      const big = sizeRefusal("ifc", bytes.length, "model");
+      if (big) { refused.push({ id: it.id, reason: big }); continue; }
+      if (createHash("sha256").update(bytes).digest("hex") !== it.sha256) { refused.push({ id: it.id, reason: "not the bytes admitted (sha256)" }); continue; }
+      const r = await readIfcGeometry(bytes);
+      first ??= r;
+      const ev = (g) => [`${it.id}#${g}`], fin = (o) => Object.values(o).every(Number.isFinite);
+      const lost = (x, why) => notRead.push({ global_id: x.global_id, ifc_class: x.ifc_class, storey: x.storey, why, item: it.id });
+      for (const l of r.levels) candidates.push({ cid: l.cid, kind: "level", geometry: { BaseElevation: l.elevation_mm, name: l.name, global_id: l.global_id }, measured: { elevation_mm: l.elevation_mm }, evidence: ev(l.global_id) });
+      for (const w of r.walls) {
+        const m = { thickness_mm: w.thickness_mm, height_mm: w.height_mm, length_mm: r1(Math.hypot(w.end[0] - w.start[0], w.end[1] - w.start[1])) };
+        if (!fin(m)) { lost(w, "a measurement is missing"); continue; }
+        candidates.push({ cid: w.global_id, kind: "wall", evidence: ev(w.global_id), measured: m, geometry: { storey: w.storey, LocationCurve: { start: w.start, end: w.end },
+          BaseElevation: w.base_mm, TopElevation: r1(w.base_mm + w.height_mm), name: w.name, ifc_class: w.ifc_class, ifc_type_name: w.type_name, thickness_from: w.thickness_from, is_external: w.is_external, clipped: w.clipped, body: w.body } });
+      }
+      for (const f of r.floors) {
+        const m = { thickness_mm: f.thickness_mm, area_m2: Math.round(area2(f.loop) / 1e4) / 100 };
+        if (!fin(m)) { lost(f, "a measurement is missing"); continue; }
+        candidates.push({ cid: f.global_id, kind: "floor", evidence: ev(f.global_id), measured: m, geometry: { storey: f.storey, LocationLoop: f.loop, TopElevation: f.top_mm, name: f.name, ifc_class: f.ifc_class, is_external: f.is_external } });
+      }
+      notRead.push(...r.not_read.map((n) => ({ ...n, item: it.id })));
+    }
+  } catch (e) { return { status: "failed", error: `the IFC could not be read: ${clean(e?.message, 300)}`, version: VERSION, tools: toolsOf(), refused }; }
+  if (!first) return { status: "refused", error: "no admitted concept IFC could be read — " + (refused.map((x) => `${x.id}: ${x.reason}`).join("; ") || "no item"), version: VERSION, tools: toolsOf(), refused };
+  const cpu = process.cpuUsage(t0);
+  return { status: "done", version: VERSION, tools: toolsOf(), refused,
+    result: { candidates, derived: [], receipt: { not_read: notRead, hint: first.hint, schema: first.schema, mm_per_unit: first.mm_per_unit, cpu_s: Math.round((cpu.user + cpu.system) / 1e4) / 100 } } };
 }
 
 // ── CLI (I-0): what the reader finds in a file, in words ────────────────────────────────────────────────────────────────────

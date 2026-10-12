@@ -18,7 +18,11 @@ export const READER = "sentinel-survey";
 /** MA-5a-3: the second reader — sentinel-drawing (drawing/, .NET with PdfPig) on the admitted vector PDF plans; drawing-service.mjs runs it.
  *  Its candidates are walls and doors in paper millimetres (units "paper_mm"): proposed with a 2-point alignment, MA-5a-4. */
 export const DRAWING = "sentinel-drawing";
-export const READERS = [READER, DRAWING];
+/** MA-6-8: the third reader — sentinel-ifc (ifc-geometry.mjs, web-ifc), run in this process on the newest admitted concept IFC. Its candidates are
+ *  levels, walls and floors in model millimetres; it takes no parameter. */
+export const IFC = "sentinel-ifc";
+export const READERS = [READER, DRAWING, IFC];
+const IFC_KINDS = ["level", "wall", "floor"];
 const DRAWING_KINDS = ["wall", "door", "room"]; // MA-5b-1: room labels
 export const DEFAULT_PARAMS = { voxel_mm: 20, storey_min_mm: 2000 };
 // [low, high, why]: a coarser voxel leaves a wall face too sparse for the survey's 20 mm cells (4 of the drill's 8 walls lost their
@@ -69,14 +73,15 @@ async function wire(deps = {}) {
     notSetUp: deps.notSetUp || svc.notSetUp,
     runDrawing: deps.runDrawing || drw.runDrawing,
     notSetUpDrawing: deps.notSetUpDrawing || drw.notSetUp,
+    runIfc: deps.runIfc || (async (...a) => (await import("./ifc-geometry.mjs")).runIfc(...a)), // lazy: web-ifc never loads with build-jobs
     root: deps.jobsRoot ?? jobsRoot(),
     now: deps.now || (() => new Date().toISOString()),
   };
 }
 
 /** POST's body → {pack, reader, params}, or a 400 in words. The web sends {pack} (a survey) or {pack, readers: ["sentinel-drawing"]}
- *  (MA-5a-3); readers and params default. Any other key is refused, never dropped: the items, the seed and who started it are the
- *  bridge's, and a caller who sent them must not think it chose them. sentinel-drawing takes no parameter. */
+ *  (MA-5a-3) or {pack, readers: ["sentinel-ifc"]} (MA-6-8); readers and params default. Any other key is refused, never dropped: the items, the seed and who started it are the
+ *  bridge's, and a caller who sent them must not think it chose them. sentinel-drawing and sentinel-ifc take no parameter. */
 export function readStartBody(b = {}) {
   const bad = (m) => err(400, `${m} — nothing was saved`);
   const D16 = "snap_mm is not a survey parameter: snapping to a catalogue size is the bridge's typing policy (D16, type_snap_mm), MA-4d";
@@ -87,11 +92,11 @@ export function readStartBody(b = {}) {
   }
   if (typeof b.pack !== "string" || !b.pack.trim()) throw bad("pack must name the evidence pack in force (evp-0001)");
   const readers = b.readers ?? [READER];
-  if (!Array.isArray(readers) || readers.length !== 1 || !READERS.includes(readers[0])) throw bad(`readers must be ["${READER}"] or ["${DRAWING}"] — one reader a job (or leave it out: ${READER})`);
+  if (!Array.isArray(readers) || readers.length !== 1 || !READERS.includes(readers[0])) throw bad(`readers must be ["${READER}"], ["${DRAWING}"] or ["${IFC}"] — one reader a job (or leave it out: ${READER})`);
   const reader = readers[0];
   const p = b.params ?? {};
-  if (reader === DRAWING) {
-    if (!p || typeof p !== "object" || Array.isArray(p) || Object.keys(p).length) throw bad(`${DRAWING} takes no parameter — send {pack, readers: ["${DRAWING}"]}`);
+  if (reader === DRAWING || reader === IFC) {
+    if (!p || typeof p !== "object" || Array.isArray(p) || Object.keys(p).length) throw bad(`${reader} takes no parameter — send {pack, readers: ["${reader}"]}`);
     return { pack: b.pack.trim(), reader, params: {} };
   }
   if (!p || typeof p !== "object" || Array.isArray(p)) throw bad("params must be an object {voxel_mm?, storey_min_mm?}");
@@ -112,9 +117,12 @@ export function readStartBody(b = {}) {
  *  DXF is Ghost Builder's (it reads one in Revit), a PNG or JPG a raster plan (C10) — each listed with why. */
 export function pickItems(pack, dir, reader = READER) {
   const take = [], refused = [];
-  const kind = reader === DRAWING ? "drawing" : "scan";
+  const kind = reader === DRAWING ? "drawing" : reader === IFC ? "model" : "scan";
+  // MA-6-8: one concept a job — two would clash storey for storey (ponytail: the newest admitted is read; a person picks between concepts later)
+  const newest = kind === "model" ? Math.max(...pack.items.filter((x) => x.kind === kind).map((x) => Number(String(x.id).split("-")[1]))) : null;
   for (const i of pack.items.filter((x) => x.kind === kind)) {
-    const why = i.state === "changed" ? "changed since admitted (Re-check flagged it) — admit the same bytes again"
+    const why = kind === "model" && Number(String(i.id).split("-")[1]) !== newest ? "an older concept — one IFC a job: the newest admitted is read"
+      : i.state === "changed" ? "changed since admitted (Re-check flagged it) — admit the same bytes again"
       : kind === "drawing" && ["dwg", "dxf"].includes(i.format) ? `a .${i.format} is read by Ghost Builder in Revit (Model from Drawings) — ${DRAWING} reads PDF`
       : kind === "drawing" && i.format !== "pdf" ? `a .${i.format} drawing is raster — out of scope (C10); ${DRAWING} reads vector PDF`
       : kind === "scan" && !i.surveyable ? `not surveyable (a .${i.format})`
@@ -136,7 +144,7 @@ export function resultRefusal(r, ids, reader = READER) {
     const at = `candidates[${n}]`;
     if (!c || typeof c !== "object") return at;
     if (typeof c.cid !== "string" || !/^[^\u0000-\u001f]{1,256}$/.test(c.cid)) return `${at}.cid`;
-    if (!(reader === DRAWING ? DRAWING_KINDS : KINDS).includes(c.kind)) return `${at}.kind`;
+    if (!(reader === DRAWING ? DRAWING_KINDS : reader === IFC ? IFC_KINDS : KINDS).includes(c.kind)) return `${at}.kind`;
     if (!c.geometry || typeof c.geometry !== "object") return `${at}.geometry`;
     if (reader === DRAWING && c.geometry.units !== "paper_mm") return `${at}.geometry.units (a drawing's candidates are in paper_mm)`;
     if ("type" in c || "TypeName" in c.geometry) return `${at} carries a type (the service does no typing)`;
@@ -163,7 +171,7 @@ export function stillAdmitted(row, pack, id) {
     const sent = row.items.find((i) => i.id === rid), now = pack.items.find((i) => i.id === rid);
     const why = !sent ? "its row lists it as read but not as sent" : !now ? "it is no longer in the pack" : now.state === "changed" ? "Re-check flagged it changed"
       : now.sha256 !== sent.sha256 ? "its sha256 in the pack is not the one the job read" : null;
-    if (why) throw err(409, `${rid} is not the bytes ${id} read (${why}) — ${row.reader === DRAWING ? "read the admitted drawing" : "survey the admitted scan"} again; nothing was saved`);
+    if (why) throw err(409, `${rid} is not the bytes ${id} read (${why}) — ${row.reader === DRAWING ? "read the admitted drawing" : row.reader === IFC ? "read the admitted IFC" : "survey the admitted scan"} again; nothing was saved`);
     return { id: rid, sha256: sent.sha256 };
   });
 }
@@ -180,6 +188,7 @@ export function buildRunValue(job, receipt) {
     cpu_s: receipt.cpu_s ?? null, points_in: receipt.points_in ?? null, points_used: receipt.points_used ?? null,
     model_calls: 0, tokens: 0, candidates: job.counts ?? null,
     gaps: null, // typing — and so gaps — is MA-4d's
+    ...(receipt.not_read ? { not_read: receipt.not_read.slice(0, 50), not_read_total: receipt.not_read.length } : {}), // MA-6-8: what the IFC reader left out, by GlobalId
     result_sha256: job.result_sha256 ?? null, claimed: false, ...(job.error ? { error: job.error } : {}), ...(job.notes ? { notes: job.notes } : {}),
   };
 }
@@ -191,16 +200,18 @@ export function buildRunValue(job, receipt) {
 export async function startJob(key, b = {}, deps = {}) {
   const d = await wire(deps);
   const body = readStartBody(b);
-  const drawing = body.reader === DRAWING;
+  const drawing = body.reader === DRAWING, ifc = body.reader === IFC;
   const { proj, pack, version, dir } = await d.surveyStart(key, body.pack);
   const { take, refused } = pickItems(pack, dir, body.reader);
   if (!take.length) {
     const listed = refused.length ? ` — ${refused.map((x) => `${x.id}: ${x.reason}`).join("; ")}` : null;
-    throw err(409, drawing
+    throw err(409, ifc
+      ? `no admitted concept IFC in ${body.pack}${listed ?? " — admit a .ifc under Evidence first"}; nothing was saved`
+      : drawing
       ? `no admitted drawing in ${body.pack} that ${DRAWING} reads${listed ?? " — admit a vector .pdf plan under Evidence first (a drawing answers an Ask the owner request)"}; nothing was saved`
       : `no admitted scan in ${body.pack} that sentinel-survey reads${listed ?? " — admit a .las, .laz or .e57 under Evidence first"}; nothing was saved`);
   }
-  const notSet = drawing ? d.notSetUpDrawing() : d.notSetUp();
+  const notSet = ifc ? null : drawing ? d.notSetUpDrawing() : d.notSetUp(); // the IFC reader runs in this process: nothing to set up
   if (notSet) throw err(503, notSet);
   // One slot for both readers and MA-4e's measure: the office PC's CPU is the scarce thing.
   if (running) throw err(409, `${running.what ?? "a survey job"} is already running on this bridge (one at a time) — try again when it ends; nothing was saved`);
@@ -216,20 +227,21 @@ export async function startJob(key, b = {}, deps = {}) {
   };
   save(d, key, job);
   const answer = { job: { ...job } };
-  running = { key, id, ...(drawing ? { what: "a drawing job" } : {}) };
+  running = { key, id, ...(drawing ? { what: "a drawing job" } : ifc ? { what: "an IFC job" } : {}) };
   running.done = runJob(d, proj, key, job, take)
-    .catch((e) => console.error(`${drawing ? "[drawing]" : "[survey]"} ${key} ${id}: its record was not finished — ${e?.message || e}`)) // never an unhandled rejection
+    .catch((e) => console.error(`${drawing ? "[drawing]" : ifc ? "[ifc]" : "[survey]"} ${key} ${id}: its record was not finished — ${e?.message || e}`)) // never an unhandled rejection
     .finally(() => { running = null; });
   return answer;
 }
 
 async function runJob(d, proj, key, job, take) {
   let last = "";
-  const name = job.reader.name, tag = name === DRAWING ? "[drawing]" : "[survey]";
+  const name = job.reader.name, tag = name === DRAWING ? "[drawing]" : name === IFC ? "[ifc]" : "[survey]";
   const items = take.map(({ id, kind, path, sha256 }) => ({ id, kind, path, sha256 }));
   const r = name === DRAWING
     // One-shot, no progress: the worker answers once (drawing-service.mjs).
     ? await d.runDrawing({ job_id: job.id, items, params: {}, seed: job.seed }, { cwd: join(d.root, key, job.id) })
+    : name === IFC ? await d.runIfc({ job_id: job.id, items, params: {}, seed: job.seed })
     : await d.runSurvey(
     { job_id: job.id, items, params: { ...job.params, tolerances_mm: TOLERANCES_MM }, seed: job.seed },
     { cwd: join(d.root, key, job.id), onProgress: (p) => {
@@ -261,7 +273,7 @@ async function runJob(d, proj, key, job, take) {
         ? result.receipt.items.filter((i) => typeof i?.why === "string").map((i) => ({ id: String(i.id), why: i.why.slice(0, 300) })) : [];
       if (notes.length) job.notes = notes;
       Object.assign(job, { result_sha256: sha(bytes), candidates_total: result.candidates.length,
-        counts: Object.fromEntries((name === DRAWING ? drawingKindsOf(r.version) : kindsOf(r.version)).map((k) => [k, result.candidates.filter((c) => c.kind === k).length])) });
+        counts: Object.fromEntries((name === DRAWING ? drawingKindsOf(r.version) : name === IFC ? IFC_KINDS : kindsOf(r.version)).map((k) => [k, result.candidates.filter((c) => c.kind === k).length])) });
     } catch (e) {
       status = "failed";
       error = `the result could not be kept on this PC (${e?.code || "the write failed"}) — nothing it found was kept`;
@@ -342,7 +354,7 @@ export async function trustedJob(key, id, deps = {}) {
   const reader = READERS.find((n) => String(row?.action).startsWith(`build:run ${id} · ${n} `));
   if (!row || !reader || row.entity_type !== "build" || !String(row.action).endsWith(" · done") || (v.reader ?? READER) !== reader
     || v.status !== "done" || v.claimed !== false || typeof v.result_sha256 !== "string")
-    throw untrusted(`ledger #${rowId} is not ${id}'s own build:run row (the bridge's: build:run ${id} · ${READER} or ${DRAWING} … · done, claimed false)`);
+    throw untrusted(`ledger #${rowId} is not ${id}'s own build:run row (the bridge's: build:run ${id} · ${READER}, ${DRAWING} or ${IFC} … · done, claimed false)`);
   let bytes;
   try { bytes = readFileSync(join(dir, "result.json")); } catch { throw untrusted("its result.json is missing"); }
   if (sha(bytes) !== v.result_sha256) throw untrusted(`its result.json does not hash to the sha256 on ledger #${rowId} — it changed after the job`);

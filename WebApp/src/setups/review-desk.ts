@@ -160,11 +160,14 @@ export function trustWords(el: Ghost): string {
   // MA-5a-4: a drawing's ghost — read off the paper at the alignment's scale, never measured
   if (a.basis === "drawing") return [`drawn — from ${a.from_job} at 1:${a.scale}`, ...(t != null ? [`${t} mm thick as drawn`] : []),
     `inferred (what someone drew, not what was built)`, a.check_mm != null ? `alignment checked to ${a.check_mm} mm` : "alignment not checked by a third point", ...after].join(" · ");
+  // MA-6-8: an IFC concept's ghost — read off the model, never measured
+  if (a.basis === "ifc") return [`modelled — from ${a.from_job} (IFC)`, ...(t != null ? [`${t} mm thick as modelled`] : []),
+    "inferred (what a concept says, not what was built)", ...after].join(" · ");
   return [`measured from ${a.from_job}`, ...(t != null ? [`${t} mm thick`] : []), ...(a.fit_rmse_mm != null ? [`fit ${a.fit_rmse_mm} mm rms`] : []),
     ...(a.face_dev_mm != null ? [`faces ${a.face_dev_mm} mm off`] : []), `${a.status.replace(/_/g, " ")}${a.target_mm != null ? ` (${a.target_mm} mm)` : ""}`, ...after].join(" · ");
 }
-/** MA-5a-4: a changeset the bridge built from a drawing job — no scan behind it: no Measure, no scan. */
-export const isDrawn = (cs: PendingChangeset): boolean => (cs.job?.reader ?? "").startsWith("sentinel-drawing ");
+/** MA-5a-4: a changeset the bridge built from a drawing job — no scan behind it: no Measure, no scan. MA-6-8: and from a concept IFC. */
+export const isDrawn = (cs: PendingChangeset): boolean => ["sentinel-drawing ", "sentinel-ifc "].some((r) => (cs.job?.reader ?? "").startsWith(r));
 /** MA-4d: a survey changeset's origin in words — its job and row, the lead's frame and who stated it, how its storey met its level, and
  *  another job's placed changesets on the same scan (decision 19: named, never refused). "" else. Pure. */
 export function sourceWords(cs: PendingChangeset): string {
@@ -176,6 +179,9 @@ export function sourceWords(cs: PendingChangeset): string {
   if (al) return `from drawing ${j.id} (ledger #${j.ledger_id ?? "?"}) · ${al.item}${al.revises ? ` (revises ${al.revises}: what is the same is left as placed)` : ""} at 1:${al.scale}, turned ${al.rotation_deg}°, its paper corner at ${al.dx_mm}, ${al.dy_mm} mm, ` +
     `level at ${al.dz_mm} mm${al.confirmed_by ? `, stated by ${al.confirmed_by}` : ""}${al.check_mm != null ? ` · checked to ${al.check_mm} mm by a third point` : " · no check point"}` +
     `${s ? ` · storey ${s.level} (${s.how}${s.checked ? "" : " — its height not checked"})` : ""} · nothing from a drawing is pre-ticked${again}`;
+  if ((j.reader ?? "").startsWith("sentinel-ifc ")) // MA-6-8
+    return `from IFC ${j.id} (ledger #${j.ledger_id ?? "?"})${f ? ` · the concept ${f.dx_mm || f.dy_mm || f.dz_mm || f.rotation_deg ? `moved ${f.dx_mm}, ${f.dy_mm}, ${f.dz_mm} mm, turned ${f.rotation_deg}°` : "at the model's internal origin"}${f.stated_by ? `, stated by ${f.stated_by}` : ""}` : ""}` +
+      `${s ? ` · storey ${s.level} (${s.how}${s.checked ? "" : " — its height not checked"})` : ""} · nothing from an IFC is pre-ticked${again}`;
   const frame = f ? ` · the scan ${f.dx_mm || f.dy_mm || f.dz_mm || f.rotation_deg ? `moved ${f.dx_mm}, ${f.dy_mm}, ${f.dz_mm} mm, turned ${f.rotation_deg}°` : "at the model's internal origin"}${f.stated_by ? `, stated by ${f.stated_by}` : ""}` : "";
   return `from survey ${j.id} (ledger #${j.ledger_id ?? "?"})${frame}${s ? ` · storey ${s.level} (${s.how}${s.checked ? "" : " — its height not checked: nothing here is pre-ticked"})` : ""}${again}`;
 }

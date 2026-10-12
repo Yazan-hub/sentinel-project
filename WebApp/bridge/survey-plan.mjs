@@ -115,7 +115,8 @@ export function placeRefusal(candidates, frame) {
  *  ponytail: a created level's name is unique per job id, not per row — a jobs folder deleted reuses job ids (decision 19), and a name already
  *  in the Revit model makes the executor's lvl.Name throw, rolling the storey's changeset back in Revit's words (fails safe); the upgrade is to
  *  name it from the row (`Scan L01 job-0002 #2201`) — the controller's call, the name is pinned in Tasks 5, 7 and 11 and the drill rows. */
-export function matchStoreys(levelCands, frame, named, manifest, jobId, filedStoreys = new Map()) {
+export function matchStoreys(levelCands, frame, named, manifest, jobId, filedStoreys = new Map(),
+  nameOf = (c) => `Scan ${/L\d+/.exec(c.cid)?.[0] ?? c.cid} ${jobId}`) {   // MA-6-8: a created level's name — the IFC planner passes its own
   const M = toModel(frame);
   const same = (a, b) => a.trim().toLowerCase() === b.trim().toLowerCase();
   const out = [...levelCands].sort((a, b) => a.geometry.BaseElevation - b.geometry.BaseElevation).map((c) => {
@@ -138,7 +139,7 @@ export function matchStoreys(levelCands, frame, named, manifest, jobId, filedSto
     const names = [...new Set(near.map((l) => l.name))];
     if (names.length > 1) throw bad(`the published models have ${names.join(" and ")} within ${TOLERANCE_MM} mm of the scan's storey ${c.cid} (${z} mm in the model's frame) — name one in levels`);
     if (names.length === 1) return { ...base, level: near[0].name, how: "matched", elevation_mm: near[0].elevation_mm, delta_mm: r1(near[0].elevation_mm - z), checked: true, from: near[0].from };
-    return { ...base, level: `Scan ${/L\d+/.exec(c.cid)?.[0] ?? c.cid} ${jobId}`, how: "created", elevation_mm: z, delta_mm: 0, checked: true, from: null };
+    return { ...base, level: nameOf(c), how: "created", elevation_mm: z, delta_mm: 0, checked: true, from: null };
   });
   const seen = new Map();
   for (const s of out) {
