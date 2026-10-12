@@ -40,5 +40,5 @@ describe("ifc-compare", () => {
       expect(r.status, args.join(" ")).toBe(1);
       expect(r.stderr).toMatch(/^Usage: node bridge\/ifc-compare\.mjs/);
     }
-  });
+  }, 30000); // seven node processes, three of them opening web-ifc: 4.1 s on a CI runner, near the 5 s default
 });
