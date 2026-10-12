@@ -254,9 +254,9 @@ describe("FG-07 wall tolerance", () => {
     expect(f.evidence[0]).toMatchObject({ offset_mm: 10 });
     expect(pair([wall("a", 0, 300)], [wall("b", 60, 200)], 10).status).toBe("pass");
   });
-  it("walls that are not counterparts are not paired: non-parallel, under half the length, no height in common, bodies only touching", () => {
+  it("walls that are not counterparts are not paired: non-parallel, under half the length, no height in common, bodies further apart than the thicknesses plus the tolerance", () => {
     const turned: W = { g: "t", s: [0, 0], e: [4999, 200], t: 300, z0: 0, z1: 3000, storey: null }; // ~2.3 deg
-    for (const b of [turned, wall("b", 0, 300, 3000, 8000), wall("b", 0, 300, 0, 5000, 3000, 6000), wall("b", 300)])
+    for (const b of [turned, wall("b", 0, 300, 3000, 8000), wall("b", 0, 300, 0, 5000, 3000, 6000), wall("b", 400)])
       expect(pair([wall("a", 0)], [b]), JSON.stringify(b)).toMatchObject({ status: "not_checkable", reason: "no wall is modelled in two models — nothing to compare" });
   });
   it("a parallel wall within 1 degree still pairs", () => {
@@ -277,15 +277,41 @@ describe("FG-07 wall tolerance", () => {
     const r = pair([wall("a", 0), wall("new", 9000)], [wall("b", 0)], 20, { walls_held: 3, walls_total: 9 });
     expect(r.status).toBe("pass");
     expect(r.warnings).toEqual(expect.arrayContaining([
-      "A-0101.ifc: 1 wall(s) have no counterpart in another model (not a failure: new design walls are allowed)",
-      "B-0102.ifc: 3 wall(s) not compared (held by the reader)",
+      expect.stringMatching(/^A-0101\.ifc: 1 wall has no matching wall in another model \(allowed: new design walls/),
+      expect.stringMatching(/^B-0102\.ifc: 3 walls were not compared because the reader could not place them/),
       "B-0102.ifc: only the first 1 of 9 walls were stored",
-      "1 wall pair(s) judged at 20 mm"]));
-    const many = Array.from({ length: 250 }, (_, i) => wall(`a${i}`, i * 1000, 100, 0, 500));
-    const manyB = Array.from({ length: 250 }, (_, i) => wall(`b${i}`, i * 1000 + 50, 100, 0, 500));
+      expect.stringMatching(/^1 wall pair judged at 20 mm/)]));
+    // offsets 21..270 mm, listed mildest first: the 200 kept are the worst, worst first
+    const many = Array.from({ length: 250 }, (_, i) => wall(`a${i}`, i * 5000, 1000, 0, 500));
+    const manyB = Array.from({ length: 250 }, (_, i) => wall(`b${i}`, i * 5000 + 21 + i, 1000, 0, 500));
     const f = pair(many, manyB, 20);
     expect(f.count).toBe(250);
     expect(f.evidence).toHaveLength(200);
+    const offs = f.evidence.map((e) => (e as { offset_mm: number }).offset_mm);
+    expect(offs[0]).toBe(Math.max(...offs));
+    expect(offs).toEqual([...offs].sort((p, q) => q - p));
+    expect(offs[0]).toBe(270);
+  });
+  it("a wall split in one model is judged whichever model is listed first (60 mm off fails both ways)", () => {
+    const whole = [wall("w", 0, 200, 0, 10000)], split = [wall("s1", 0, 200, 0, 5000), wall("s2", 60, 200, 5000, 10000)];
+    expect(pair(whole, split, 20)).toMatchObject({ status: "fail", count: 1 });
+    expect(pair(split, whole, 20)).toMatchObject({ status: "fail", count: 1 });
+    expect(pair(whole, [wall("s1", 0, 200, 0, 5000), wall("s2", 0, 200, 5000, 10000)], 20).status).toBe("pass");
+  });
+  it("a wall moved further than its thickness still pairs, within the tolerance band; beyond that it is a new wall", () => {
+    const a = [wall("a1", 0, 200), wall("a2", 3000, 200)];
+    expect(pair(a, [wall("b1", 215, 200), wall("b2", 3000, 200)], 20)).toMatchObject({ status: "fail", count: 1 }); // 215 < 200 + 20
+    const far = pair(a, [wall("b1", 250, 200), wall("b2", 3000, 200)], 20); // 250 > 200 + 20: reach is thickness + tolerance, and the output says so
+    expect(far.status).toBe("pass");
+    expect(far.warnings.join(" ")).toMatch(/moved further than its thickness plus the tolerance/);
+  });
+  it("a tolerance outside 1..1000 (an older contract, a typo) is not set and never passes", () => {
+    for (const bad of [NaN, 0, -5, 5000])
+      expect(pair([wall("a", 0)], [wall("b", 60)], bad)).toMatchObject({ status: "not_checkable", reason: "tolerance_mm is not a number from 1 to 1000 — not set" });
+  });
+  it("a stored wall with a null end is dropped, not a crash", () => {
+    const broken = { g: "x", s: null, e: [1, 1], t: 200, z0: 0, z1: 1, storey: null } as unknown as W;
+    expect(pair([wall("a", 0)], [wall("b", 0), broken]).status).toBe("pass");
   });
   it("one model lists FG-07 as not checkable", () => {
     const r = checkFederation([model("A-0101.ifc", manifest({ guid_audit: { duplicates: 0, examples: [], missing: 0, scope: "IfcProduct", counted: 4 } }))], { verdicts: okVerdicts, live_count: 1, tolerance_mm: 20 });

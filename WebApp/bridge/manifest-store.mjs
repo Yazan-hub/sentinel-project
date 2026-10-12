@@ -50,11 +50,12 @@ export async function measureCobie(bytes) {
 export const WALLS_CAP = 5000;
 export function manifestWalls(r) {
   const name = new Map((r.levels || []).map((l) => [l.cid, l.name]));
-  const all = r.walls || [];
+  const all = r.walls || [], read = new Set(all.map((w) => w.global_id));
   return {
     walls: all.slice(0, WALLS_CAP).map((w) => ({ g: w.global_id, s: w.start, e: w.end, t: w.thickness_mm, z0: w.base_mm, z1: w.base_mm + w.height_mm, storey: name.get(w.storey) ?? null })),
     walls_total: all.length,
-    walls_held: (r.not_read || []).filter((n) => /^IFCWALL/.test(String(n.ifc_class))).length,
+    // a wall with unfilled openings is read AND listed in not_read: it is compared, so it is not held
+    walls_held: new Set((r.not_read || []).filter((n) => /^IFCWALL/.test(String(n.ifc_class)) && !read.has(n.global_id)).map((n) => n.global_id)).size,
   };
 }
 

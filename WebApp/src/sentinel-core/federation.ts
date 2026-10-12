@@ -257,8 +257,9 @@ const EVIDENCE_CAP = 200;
 function fg07(ms: { container: string; m: Manifest }[], tolMm: number | null | undefined, fg05Status: CheckStatus): FederationCheck {
   const c = mk("FG-07", TITLES["FG-07"]);
   if (tolMm == null) return nc(c, "the contract sets no tolerance_mm");
+  if (!(Number.isFinite(tolMm) && tolMm >= 1 && tolMm <= 1000)) return nc(c, "tolerance_mm is not a number from 1 to 1000 — not set"); // MA-8-2: an old contract's value, or a typo, never passes
   if (fg05Status === "fail") return nc(c, "the models' georeference disagrees (FG-05) — their walls are not in one frame");
-  const sound = (w: ManifestWall) => [...w.s, ...w.e, w.t, w.z0, w.z1].every(Number.isFinite) && Math.hypot(w.e[0] - w.s[0], w.e[1] - w.s[1]) > 0 && w.t > 0;
+  const sound = (w: ManifestWall) => Array.isArray(w.s) && Array.isArray(w.e) && w.s.length === 2 && w.e.length === 2 && [...w.s, ...w.e, w.t, w.z0, w.z1].every(Number.isFinite) && Math.hypot(w.e[0] - w.s[0], w.e[1] - w.s[1]) > 0 && w.t > 0;
   const withWalls = ms.filter((x) => Array.isArray(x.m.walls)).map((x) => ({ container: x.container, m: x.m, walls: x.m.walls!.filter(sound) }));
   if (withWalls.length < 2) {
     const missing = ms.filter((x) => !Array.isArray(x.m.walls)).map((x) => `${x.container}: ${x.m.walls_why ?? "captured before MA-8 — backfill its manifest"}`);
@@ -267,22 +268,30 @@ function fg07(ms: { container: string; m: Manifest }[], tolMm: number | null | u
   const SIN1 = Math.sin(Math.PI / 180);
   const pairs: Record<string, unknown>[] = [];
   const paired = withWalls.map((x) => new Set<number>());
+  /** the nearest counterpart of `a` among `others`: [index, centre distance] or null. Bodies count as overlapping within the tolerance (a wall moved
+   *  further than that has no counterpart: it is a new wall). */
+  const nearest = (a: ManifestWall, others: ManifestWall[]): [number, number] | null => {
+    const la = Math.hypot(a.e[0] - a.s[0], a.e[1] - a.s[1]), ux = (a.e[0] - a.s[0]) / la, uy = (a.e[1] - a.s[1]) / la;
+    let best: [number, number] | null = null;
+    others.forEach((b, bi) => {
+      const lb = Math.hypot(b.e[0] - b.s[0], b.e[1] - b.s[1]);
+      if (Math.abs(ux * (b.e[1] - b.s[1]) - uy * (b.e[0] - b.s[0])) / lb > SIN1) return; // not parallel
+      if (Math.min(a.z1, b.z1) - Math.max(a.z0, b.z0) <= 0) return; // no height in common
+      const t1 = (b.s[0] - a.s[0]) * ux + (b.s[1] - a.s[1]) * uy, t2 = (b.e[0] - a.s[0]) * ux + (b.e[1] - a.s[1]) * uy;
+      if (Math.min(la, Math.max(t1, t2)) - Math.max(0, Math.min(t1, t2)) < Math.min(la, lb) / 2) return; // under half the shorter length along
+      const d = Math.abs(((b.s[0] - a.s[0]) * uy - (b.s[1] - a.s[1]) * ux) + ((b.e[0] - a.s[0]) * uy - (b.e[1] - a.s[1]) * ux)) / 2;
+      if (!(d < (a.t + b.t) / 2 + tolMm) || (best && best[1] <= d)) return; // bodies (plus the tolerance) do not overlap, or not the nearest
+      best = [bi, d];
+    });
+    return best;
+  };
   for (let i = 0; i < withWalls.length; i++) for (let j = i + 1; j < withWalls.length; j++) {
-    withWalls[i].walls.forEach((a, ai) => {
-      const la = Math.hypot(a.e[0] - a.s[0], a.e[1] - a.s[1]), ux = (a.e[0] - a.s[0]) / la, uy = (a.e[1] - a.s[1]) / la;
-      let best: { b: ManifestWall; bi: number; d: number } | null = null;
-      withWalls[j].walls.forEach((b, bi) => {
-        const lb = Math.hypot(b.e[0] - b.s[0], b.e[1] - b.s[1]);
-        if (Math.abs(ux * (b.e[1] - b.s[1]) - uy * (b.e[0] - b.s[0])) / lb > SIN1) return; // not parallel
-        if (Math.min(a.z1, b.z1) - Math.max(a.z0, b.z0) <= 0) return; // no height in common
-        const t1 = (b.s[0] - a.s[0]) * ux + (b.s[1] - a.s[1]) * uy, t2 = (b.e[0] - a.s[0]) * ux + (b.e[1] - a.s[1]) * uy;
-        if (Math.min(la, Math.max(t1, t2)) - Math.max(0, Math.min(t1, t2)) < Math.min(la, lb) / 2) return; // under half the shorter length along
-        const d = Math.abs(((b.s[0] - a.s[0]) * uy - (b.s[1] - a.s[1]) * ux) + ((b.e[0] - a.s[0]) * uy - (b.e[1] - a.s[1]) * ux)) / 2;
-        if (!(d < (a.t + b.t) / 2) || (best && best.d <= d)) return; // bodies do not overlap, or not the nearest
-        best = { b, bi, d };
-      });
-      if (!best) return;
-      const { b, bi, d } = best as { b: ManifestWall; bi: number; d: number };
+    // Both directions, so a wall split in one model is judged whichever model is listed first; one pair per (a, b).
+    const found = new Map<string, [number, number, number]>();
+    withWalls[i].walls.forEach((a, ai) => { const n = nearest(a, withWalls[j].walls); if (n) found.set(`${ai}|${n[0]}`, [ai, n[0], n[1]]); });
+    withWalls[j].walls.forEach((b, bi) => { const n = nearest(b, withWalls[i].walls); if (n) found.set(`${n[0]}|${bi}`, [n[0], bi, n[1]]); });
+    found.forEach(([ai, bi, d]) => {
+      const a = withWalls[i].walls[ai], b = withWalls[j].walls[bi];
       paired[i].add(ai); paired[j].add(bi);
       const err = Math.round(Math.max(0, d + Math.min(a.t, b.t) / 2 - Math.max(a.t, b.t) / 2));
       pairs.push({ models: [withWalls[i].container, withWalls[j].container], walls: [a.g, b.g], storey: a.storey, offset_mm: err, centre_mm: Math.round(d), thickness_mm: [a.t, b.t] });
@@ -290,17 +299,17 @@ function fg07(ms: { container: string; m: Manifest }[], tolMm: number | null | u
   }
   withWalls.forEach((x, k) => {
     const lone = x.walls.length - paired[k].size;
-    if (lone > 0) c.warnings.push(`${x.container}: ${lone} wall(s) have no counterpart in another model (not a failure: new design walls are allowed)`);
-    if (x.m.walls_held) c.warnings.push(`${x.container}: ${x.m.walls_held} wall(s) not compared (held by the reader)`);
+    if (lone > 0) c.warnings.push(`${x.container}: ${lone} ${lone === 1 ? "wall has" : "walls have"} no matching wall in another model (allowed: new design walls; a wall moved further than its thickness plus the tolerance also shows here)`);
+    if (x.m.walls_held) c.warnings.push(`${x.container}: ${x.m.walls_held} ${x.m.walls_held === 1 ? "wall was" : "walls were"} not compared because the reader could not place ${x.m.walls_held === 1 ? "it" : "them"} (curved, bent or without thickness)`);
     if (x.m.walls_total && x.m.walls_total > x.m.walls!.length) c.warnings.push(`${x.container}: only the first ${x.m.walls!.length} of ${x.m.walls_total} walls were stored`);
   });
   if (!pairs.length) return nc(c, "no wall is modelled in two models — nothing to compare");
   const bad = pairs.filter((p) => (p.offset_mm as number) > tolMm).sort((p, q) => (q.offset_mm as number) - (p.offset_mm as number));
-  c.warnings.push(`${pairs.length} wall pair(s) judged at ${tolMm} mm`);
+  c.warnings.push(`${pairs.length} wall ${pairs.length === 1 ? "pair" : "pairs"} judged at ${tolMm} mm (walls are paired while their bodies, widened by the tolerance, overlap)`);
   c.evidence = bad.slice(0, EVIDENCE_CAP); // the count is whole
   if (!bad.length) return c;
   c.count = bad.length; // failing pairs (the BCF topic title shows it), not pairs judged
-  return fail(c, `${bad.length} wall pair(s) differ by more than ${tolMm} mm`);
+  return fail(c, `${bad.length} wall ${bad.length === 1 ? "pair sticks" : "pairs stick"} out of each other by more than ${tolMm} mm (the thinner wall outside the thicker one)`);
 }
 
 export function checkFederation(models: FederationModel[], opts: FederationOptions = {}): FederationResult {
@@ -333,7 +342,7 @@ export function checkFederation(models: FederationModel[], opts: FederationOptio
   }
   const g05 = fg05(withManifest, tol.georef_m, tol.angle_deg);
   out.checks = [fg01(withManifest), fg02(withManifest, opts), fg03(withManifest, tol.level_mm), fg04(withManifest), g05, fg06(models, opts), fg07(withManifest, opts.tolerance_mm, g05.status)];
-  // A pass needs something checked: six not-checkable checks are NOT CHECKABLE, never PASS (the lock on the clash
+  // A pass needs something checked: all-not-checkable checks are NOT CHECKABLE, never PASS (the lock on the clash
   // register opens on PASS — found by its review, 2026-09-28).
   out.verdict = out.checks.some((c) => c.status === "fail") ? "fail" : out.checks.some((c) => c.status === "pass") ? "pass" : "not_checkable";
   return out;

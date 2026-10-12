@@ -55,7 +55,7 @@ functions are the ones in `docs/handbook/04-core-workflows.md` and `05-capabilit
 4. **Review and authorise.** A version enters the project's review chain (`review@n`: named steps, roles, approvals)
    only on an accepted verdict; each decision is a `review:` row by the reviewer's identity; the Published state is set
    on the web after the chain closes.
-5. **Federation.** The Federation Gate's six data checks run across the live models before any clash run; the clash
+5. **Federation.** The Federation Gate's data checks (FG-01 to FG-07; FG-07 judges walls only when the contract sets tolerance_mm) run across the live models before any clash run; the clash
    register is locked until the gate passes; clashes are raised as BCF issues, each with its elements' IFC GlobalIds.
 6. **Issues** are BCF topics, inside Sentinel and over the open BCF-API 3.0 surface (`/bcf/3.0/…`, OAuth2 sign-in): a
    stock BCF client sees the same issues, comments and viewpoints; a governed issue (IDS, Federation) closes by a lead.

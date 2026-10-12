@@ -2,7 +2,7 @@
 import { describe, it, expect } from "vitest";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { captureManifest, getManifest, listManifests, backfillManifest, manifestWalls } from "./manifest-store.mjs";
+import { captureManifest, getManifest, listManifests, backfillManifest, manifestWalls, WALLS_CAP } from "./manifest-store.mjs";
 
 const manifestA = { schema: "IFC4", elements: [{ guid: "g1", class: "IFCWALL", type_name: "Wall 1", storey: "Level 1" }, { guid: "g2", class: "IFCSLAB", type_name: null, storey: "Level 1" }], levels: [{ name: "Level 1", elevation_mm: 0 }], grids: ["A"], site: { lat: 51.5, lon: -0.1, elevation_m: 12, map_conversion: null }, counts: { elements: 2, skipped: 0 } };
 
@@ -149,8 +149,15 @@ describe("backfillManifest — only the version's own file", () => {
     });
     it("manifestWalls maps one reading: names the level, counts held IFCWALL*", () => {
       const r = { levels: [{ cid: "L00", name: "Ground" }], walls: [{ global_id: "g", start: [0, 0], end: [1000, 0], thickness_mm: 200, base_mm: 10, height_mm: 2990, storey: "L00" }, { global_id: "h", start: [0, 0], end: [1, 0], thickness_mm: 1, base_mm: 0, height_mm: 1, storey: null }],
-        not_read: [{ ifc_class: "IFCWALLSTANDARDCASE" }, { ifc_class: "IFCWINDOW" }] };
+        // "h" is read AND listed (unfilled opening): compared, not held; "x" is really held (listed twice, counted once)
+        not_read: [{ ifc_class: "IFCWALLSTANDARDCASE", global_id: "x" }, { ifc_class: "IFCWALL", global_id: "x" }, { ifc_class: "IFCWALL", global_id: "h" }, { ifc_class: "IFCWINDOW", global_id: "w" }] };
       expect(manifestWalls(r)).toEqual({ walls: [{ g: "g", s: [0, 0], e: [1000, 0], t: 200, z0: 10, z1: 3000, storey: "Ground" }, expect.objectContaining({ g: "h", storey: null })], walls_total: 2, walls_held: 1 });
+    });
+    it("manifestWalls stores at most WALLS_CAP walls and says how many were read", () => {
+      const r = { levels: [], walls: Array.from({ length: WALLS_CAP + 1 }, (_, i) => ({ global_id: `g${i}`, start: [0, 0], end: [1000, 0], thickness_mm: 200, base_mm: 0, height_mm: 3000, storey: null })) };
+      const m = manifestWalls(r);
+      expect(m.walls).toHaveLength(5000);
+      expect(m.walls_total).toBe(5001);
     });
   });
 });

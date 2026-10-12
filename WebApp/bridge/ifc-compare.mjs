@@ -22,8 +22,8 @@ if (process.argv[1]?.endsWith("ifc-compare.mjs")) {
   const args = process.argv.slice(2), fi = args.indexOf("--frame");
   const fr = fi >= 0 ? (args.splice(fi, 2)[1] ?? "").split(",").map(Number) : null;
   const [a, b, tol] = args;
-  if (!a || !b || (fr && (fr.length !== 4 || !fr.every(Number.isFinite)))) { console.error("Usage: node bridge/ifc-compare.mjs <a.ifc> <b.ifc> [tolerance_mm] [--frame dx,dy,dz,rotation_deg]"); process.exit(1); }
   const tolerance_mm = tol == null ? 20 : Number(tol);
+  if (!a || !b || (fr && (fr.length !== 4 || !fr.every(Number.isFinite))) || !(Number.isFinite(tolerance_mm) && tolerance_mm >= 1 && tolerance_mm <= 1000)) { console.error("Usage: node bridge/ifc-compare.mjs <a.ifc> <b.ifc> [tolerance_mm] [--frame dx,dy,dz,rotation_deg]"); process.exit(1); }
   const c = compareWalls(await readIfcGeometry(readFileSync(a)), await readIfcGeometry(readFileSync(b)), tolerance_mm, fr && { dx_mm: fr[0], dy_mm: fr[1], dz_mm: fr[2], rotation_deg: fr[3] });
   console.log(`FG-07 ${c.status === "not_checkable" ? "NOT CHECKABLE" : c.status.toUpperCase()} at ${tolerance_mm} mm${c.reason ? " — " + c.reason : ""}`);
   for (const e of c.evidence.slice(0, 20)) console.log(`  ${JSON.stringify(e)}`);
