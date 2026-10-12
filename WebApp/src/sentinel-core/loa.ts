@@ -38,7 +38,7 @@ export function loaBand(m: { kind?: string | null; status: string; p95_mm?: numb
   const hit = bands.find((b) => (b.inclusive ? p <= b.upper_mm : p < b.upper_mm));
   if (hit) return { band: hit.band, p95_mm: p };
   const last = bands[bands.length - 1];
-  return { band: null, why: `no band — over ${last.upper_mm} mm, beyond ${last.band} (the lowest USIBD level)` };
+  return { band: null, why: `no band — ${last.upper_mm} mm or more, beyond ${last.band} (the lowest USIBD level)` }; // bounds are exclusive: exactly the last bound is out too
 }
 
 /** The desk's words: "LOA20 (p95 23 mm, <source>, relative to the scan, not independently validated)" or the no-band words. `bands`/`spec` are for tests only. */
