@@ -1617,6 +1617,10 @@ function mapLayer(raw, rs) {
     const rx = globToRegex(ci ? g.toUpperCase() : g);
     if (rx && rx.test(normalized)) return { ...base, kind: "ignored", compliant: true, ignored: true, confidence: 1, needsAI: false, reason: "non-model layer (ignored)" };
   }
+  for (const g of [...rs.datum?.levels ?? [], ...rs.datum?.grids ?? []]) {
+    const rx = globToRegex(ci ? g.toUpperCase() : g);
+    if (rx && rx.test(normalized)) return { ...base, kind: "ignored", compliant: true, ignored: true, confidence: 1, needsAI: false, reason: "a datum layer (Datum from Drawings reads it)" };
+  }
   const exact = rs.layers.find((l) => norm2(l.layer) === normalized);
   if (exact) return { ...base, kind: "exact", compliant: true, confidence: 1, needsAI: false, category: exact.category, family: exact.family, params: exact.params, requires: exact.requires };
   const aliased = rs.layers.find((l) => (l.aliases ?? []).some((a) => norm2(a) === normalized));
