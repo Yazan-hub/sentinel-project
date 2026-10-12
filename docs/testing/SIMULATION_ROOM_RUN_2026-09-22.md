@@ -2960,3 +2960,46 @@ Re-checked live after the fixes (merged 8eeffd1, the add-in redeployed 2021–20
 "Ghost Builder reads a plan drawing into a plan view — "WIP_PE_EAST" is a Elevation view, …" (F-1; the article is a nit for the next batch);
 Datum on `ma5b8-radial.dxf` → the Runs column shows each arc in full (F-4), spoke 1 created as `1 (3)` — no longer "kept" against A (2)
 200 m away — the rest kept on their own spans (F-2). The drill DXFs removed from the Ghost source folder; `ma5b-b2.rvt` saved.
+
+## Session MA5b5 — Promote rehost live, and the batch-2 web rows (2026-10-12 local: master at 9a6d289, web 1.0.77, the add-in deployed 2021–2027 at 01:56, the 4100 bridge on master; the founder signed in to Sentinel in Revit and refreshed the Funnel; Claude driving; Revit 2024, `ma5b-b2.rvt` bound to ma4c-drill)
+
+Setup: on ma4c-drill a draft lod_matrix@1 (`BDS-LOD-DRILL-MA5B5`, the repo's DD Doors row only) installed over loopback with the machine
+credential (never printed). A level-based placeholder family `Family1` (Doors, type `1000 x 2100`, its own Width 1000 / Height 2100, a
+1000 × 80 × 2100 box) loaded; one instance placed with snaps off so its box's middle lies inside the GR-FFL interior wall `Generic - 125mm`
+(4000 mm long), one in open floor.
+
+| Row | What happened | Result |
+|---|---|---|
+| P-1 | Promote (DD): `GR-FFL · Doors: 2 retype · 1 rehost (the unhosted instance removed) · 3 sent to a person`; the open-floor one held: `Door 2072075 (MA1-D11): no wall hosts it, and it stands in no wall of GR-FFL — a person places it` | **pass** (#2383–#2386) |
+| R-1 | The review opened on GR-FFL: the rehost row unticked — `rehost door: Door 2072062 (MA1-D10) · Family1 : 1000 x 2100 at (3014, 5873) → BDS_INT_1 PNL : BDS_INT_1 PNL_WOOD_1000 x 2100 mm in the wall at (3514, 6000) on GR-FFL; the unhosted instance and any tags on it are removed (one Undo brings them back); its Mark, Comments, work…` | **pass** |
+| R-2 | Only the rehost ticked → Apply: `Applied 1 element(s)`; the office door hosted in the wall where the placeholder stood, Mark `MA1-D10` carried, sill 0, the placeholder gone. Ledger: `changeset_applied` with `applied` (the new door) and `removed: [{type_before: "Family1 : 1000 x 2100", replaced_by: …}]`; LOD state after DD 5 of 11 | **pass** (#2387, #2388) |
+| R-3 | One Ctrl+Z: the placeholder back, the door gone → `changeset_reverted` (undo, the same proposal guid) | **pass** (#2389) |
+| R-4 | The placeholder pinned → Promote → the rehost proposed again (F-6) → ticked → Apply: `Applied 0 element(s)` · `Kept as they stand (1 door/window(s) not rehosted — the unhosted instance stays): door "Door 2072062 (MA1-D10)" is pinned — not rehosted; it stays as it stands, a person decides` | **pass** (#2398) |
+| W-1 | The web desk (Refresh in the panel): `rehost door (1)` — `Door 2072062 (MA1-D10) · rehost Family1 : 1000 x 2100 at (3014, 5873) → … in the wall at (3514, 6000) on GR-FFL; the unhosted instance and any tags on it are removed (one Undo in Revit brings them back); its Mark, Comments, workset and phase carry over · waiting — nobody decided on the web` | **pass** |
+| W-2 | Recently decided: `Promote (DD) · GR-FFL — partially applied in Revit by <the founder> · … · 1 applied (1 rehosted — the unhosted instance removed), 2 not applied · ledger #2387 · undone in Revit after the report (ledger #2389)`; #2398 opened: the rehost under Not applied says `Revit kept it as it stands — its reason is in the note above` | **pass** |
+| W-3 | Batch-1 fix words: Project Files ▸ Evidence: `Drawings — … doors (swing arcs, with any W x H tag) and room labels (a name, and its number when one is written) … a room is placed where its label stands, and only when the walls round it close`. The 409 advice words (decline in Revit) stay pinned by changesets-store.test.mjs — not hit live | **pass** |
+
+Declines kept the drill project clean: 01-FFL declined twice (#2390 with a note only — proposed again undecided; #2399 with a group
+reason — carried: the next Promote said `1 not filed — every ghost in them was declined before`), the web-row changeset declined (#2405).
+The undo of an accidental floor drag (a window-select started on the floor) posted nothing — only Sentinel's own transactions are watched.
+
+Findings (fixed on `fix/ma5b5-drill`, merged 5dfbffb, the add-in redeployed 2021–2027 at 02:39):
+- **F-5** (from batch 2) Ghost Builder's footer said a picked type "is remembered", but a pick on a row of the layers standard never came
+  back: the standard answers first (F3). A pick on a standard row now rides along as its `Earlier`; the review starts on it only while the
+  standard's own type is not in the model (the standard still wins when it can be built), says `your earlier pick (the standard's type is
+  not in this model)`, and offers `(forget my choice)`. The footer says so.
+- **F-6** Promote proposed a rehost for a pinned placeholder that Apply always keeps (R-4). The preflight now holds a placeholder, or its
+  one host wall, that `ChangesetExecutor.HeldBy` names — pinned, in a group or design option, borrowed, changed in central — in words.
+- **F-7 (words)** `Decline all (needs a reason)` stayed after a note was typed; it now reads `Decline all` once the note holds one.
+- **Nit** Ghost's view refusal said "is a Elevation view"; it now says `is not a plan (its view type is Elevation)`.
+- Driving: a window-select dragged from inside an element moves that element in Revit — start a selection box on empty canvas.
+
+Re-checked live after the fixes (Revit 2024 restarted on the deployed add-in): Ghost Builder on `ma5b6-joins.dxf` → A-DOOR, A-WALL-EXT and
+A-WALL-INT start on `BDS_EXT_1 PNL_WOOD_1000 x 2100 mm`, `BDS_EXT_ARC_CMU_200 mm`, `BDS_INT_ARC_GYPS_100 mm` with `your earlier pick (…)`,
+`Types: this build adds no type or family to the model` — cancelled, nothing built (F-5); the placeholder pinned → Promote:
+`GR-FFL · Doors: 2 retype · 4 sent to a person`, `Door 2072062 (MA1-D10): no wall hosts it, and it is pinned — not rehosted; a person
+decides` (F-6); in the review, Untick all → `Decline all (needs a reason)`, a note typed → `Decline all`, declined (#2411) (F-7).
+
+Closing list: `ma5b-b2.rvt` saved with both placeholders (unpinned) and no rehost applied; ma4c-drill keeps the draft lod_matrix@1 (Doors
+only) and the project layers@1 with a datum section; `ma5b6-joins.dxf` removed from the Ghost source folder (the batch-2 note above said
+removed — it was still there). Owed: F-MA5a456-1; a live F-MA5b-2 refusal; real PDF/DWG sets.
