@@ -39,6 +39,8 @@ export const MAX_BOUNDARY_POINTS = 256;
 export const MAX_OFFSET_MM = 100000;
 
 const err = (status, message) => Object.assign(new Error(message), { status });
+// MA-6-3 review fix: "an opening", not "a opening", in the generic messages.
+const a = (kind) => (/^[aeiou]/.test(kind) ? "an " : "a ") + kind;
 const finite = (n) => typeof n === "number" && Number.isFinite(n);
 const point = (p) => Array.isArray(p) && p.length === 3 && p.every(finite);
 const text = (s, max) => typeof s === "string" && s.trim() !== "" && s.length <= max;
@@ -149,7 +151,7 @@ export function outlineProblem(b) {
 function checkPlace(kind, place, at) {
   if (!place || typeof place !== "object") throw err(400, `${at}: place is required`);
   for (const [f, kinds] of Object.entries(PLACE_FIELDS))
-    if (place[f] !== undefined && !kinds.includes(kind)) throw err(400, `${at}: a ${kind} takes no place.${f}`);
+    if (place[f] !== undefined && !kinds.includes(kind)) throw err(400, `${at}: ${a(kind)} takes no place.${f}`);
   if (place.Mark !== undefined && !text(place.Mark, 256)) throw err(400, `${at}: place.Mark must be text of at most 256 characters`);
   for (const f of ["Structural", "FlipFacing", "FlipHand", "Mirrored"])
     if (place[f] !== undefined && typeof place[f] !== "boolean") throw err(400, `${at}: place.${f} must be true or false`);
@@ -168,6 +170,9 @@ function checkPlace(kind, place, at) {
     // Distinctness is near-free to check here; a zero-length curve would cost a whole-changeset
     // Revit transaction rollback (up to 200 elements) for trivially detectable garbage.
     if (c.start.every((v, i) => v === c.end[i])) throw err(400, `${at}: ${kind} LocationCurve start and end are identical (zero-length)`);
+    // MA-6-3 review fix: a beam runs in plan — a vertical or sub-millimetre one is Revit's refusal at Apply, declining the whole changeset.
+    if (kind === "beam" && Math.hypot(c.end[0] - c.start[0], c.end[1] - c.start[1]) < MIN_EDGE_MM)
+      throw err(400, `${at}: a beam runs in plan — its LocationCurve start and end at least ${MIN_EDGE_MM} mm apart in x,y`);
     // MA-1a step 2: an arc wall carries one more point on its arc (Ghost Builder's curved DWG walls); a grid stays straight.
     if (c.mid !== undefined && (kind !== "wall" || !point(c.mid))) throw err(400, `${at}: place.LocationCurve.mid is a wall's point on its arc, a finite [x,y,z]`);
     // A mid on the chord (or on an end) makes no arc: Arc.Create would throw and decline the whole changeset.
@@ -373,7 +378,13 @@ export function validateChangeset(body, { member = false, type = null, cite = nu
     const typeIt = () => {
       typed = type(el.kind, facts, at); // a 400 in the typer's words when it cannot
       place.TypeName = typed.TypeName;
-      if (FAMILY_KINDS.includes(el.kind) && !text(place.FamilyName, 256) && text(typed.FamilyName, 256)) place.FamilyName = typed.FamilyName;
+      // MA-6-3 review fix: the bridge types the family too, in the rule's spelling — a posted family other than the rule's would store a
+      // pair no catalogue row holds, under a `typing` record that says the office rule chose it.
+      if (FAMILY_KINDS.includes(el.kind) && text(typed.FamilyName, 256)) {
+        if (text(place.FamilyName, 256) && place.FamilyName.trim().toLowerCase() !== typed.FamilyName.trim().toLowerCase())
+          throw err(400, `${at}: the bridge types the family too (${typed.FamilyName}, not ${place.FamilyName}) — leave place.FamilyName out, or send place.TypeName`);
+        place.FamilyName = typed.FamilyName;
+      }
     };
     let target = null;
     if (op === "create") {
@@ -386,10 +397,12 @@ export function validateChangeset(body, { member = false, type = null, cite = nu
       if (FAMILY_KINDS.includes(el.kind) && !text(place.FamilyName, 256))
         throw err(400, `${at}: a ${el.kind} needs place.FamilyName — a type name alone is not one type`);
       if (["roof", "ceiling", "room", "opening", ...FAMILY_KINDS].includes(el.kind) && !text(place.LevelName, 256))
-        throw err(400, `${at}: a ${el.kind} needs place.LevelName — Sentinel never picks its level`);
+        throw err(400, `${at}: ${a(el.kind)} needs place.LevelName — Sentinel never picks its level`);
+      // MA-6-3 review fix: an opening is its shape — a TypeName on it would be shown to the reviewer and never applied.
+      if (el.kind === "opening" && place.TypeName !== undefined) throw err(400, `${at}: an opening takes no place.TypeName — it is its shape`);
       // MA-6-3 (amendment 3): TopLevel is a wall's top (and a floor's, as before) and now a column's — the level its top reaches. On any
       // other create it is a 400, never kept unread; it stays out of PLACE_FIELDS, so an attach still carries its own.
-      if (place.TopLevel !== undefined && !["wall", "floor", "column"].includes(el.kind)) throw err(400, `${at}: a ${el.kind} takes no place.TopLevel`);
+      if (place.TopLevel !== undefined && !["wall", "floor", "column"].includes(el.kind)) throw err(400, `${at}: ${a(el.kind)} takes no place.TopLevel`);
       if (el.kind === "column" && place.TopLevel !== undefined) {
         if (!text(place.TopLevel, 256)) throw err(400, `${at}: place.TopLevel must be text of at most 256 characters — the level the column's top reaches`);
         if (place.TopLevel.trim().toLowerCase() === place.LevelName.trim().toLowerCase())

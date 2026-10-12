@@ -654,16 +654,18 @@ public sealed class ChangesetExecutor
                 if (slopes != null)
                 {
                     var unmatched = Enumerable.Range(0, slopes.Count).Where(i => slopes[i] != null && !sloped.Any(s => s.Edge == i)).ToList();
+                    // Review fix (C5's rule): Revit not holding a slope as sent is this Revit's state, not a verdict on the proposal —
+                    // PlacementRefused rolls it back and the changeset stays proposed, to apply again once the add-in is fixed.
                     if (unmatched.Count > 0)
-                        throw new InvalidOperationException($"roof \"{name}\": Revit's footprint has no line on Boundary edge(s) {string.Join(", ", unmatched)} — their slope could not be set; nothing was placed");
-                    // Read back after a regeneration (risk R3, the API's slope unit): a slope Revit does not hold as sent rolls the changeset back, in words.
+                        throw new PlacementRefused($"roof \"{name}\": Revit's footprint has no line on Boundary edge(s) {string.Join(", ", unmatched)} — their slope could not be set; nothing was placed, and this one stays proposed");
+                    // Read back after a regeneration (risk R3, the API's slope unit) from the roof's top faces — never through SlopeAngle, which
+                    // returns the number in the unit it was written in, so a wrong unit would read as sent. Each sent pitch needs a top face that pitch.
                     doc.Regenerate();
+                    var pitches = HostObjectUtils.GetTopFaces(roof).Select(r => roof.GetGeometryObjectFromReference(r)).OfType<PlanarFace>()
+                        .Select(f => Math.Acos(Math.Min(1, Math.Abs(f.FaceNormal.Z))) * 180 / Math.PI).ToList();
                     foreach (var (mc, i, d) in sloped)
-                    {
-                        var got = Math.Atan(roof.get_SlopeAngle(mc)) * 180 / Math.PI;
-                        if (!roof.get_DefinesSlope(mc) || Math.Abs(got - d) > 0.1)
-                            throw new InvalidOperationException($"roof \"{name}\": Boundary edge {i} reads {(roof.get_DefinesSlope(mc) ? Mm(got) + "°" : "no slope")} after the set, not the {Mm(d)}° sent — Revit did not take the slope; nothing was placed");
-                    }
+                        if (!roof.get_DefinesSlope(mc) || !pitches.Any(a => Math.Abs(a - d) <= 0.1))
+                            throw new PlacementRefused($"roof \"{name}\": Boundary edge {i} {(roof.get_DefinesSlope(mc) ? "" : "defines no slope after the set, and ")}no top face is pitched the {Mm(d)}° sent (they read {(pitches.Count == 0 ? "none" : string.Join(", ", pitches.Select(a => Mm(a) + "°")))}) — Revit did not take the slope; nothing was placed, and this one stays proposed");
                 }
                 if (el.Place.BaseOffset is double off) Set(roof, BuiltInParameter.ROOF_LEVEL_OFFSET_PARAM, off * MmToFeet, "roof");
                 SetMark(roof, el);
@@ -767,6 +769,12 @@ public sealed class ChangesetExecutor
                         var i = PlacementGeometry.Host(lines, level.Name, p[0], p[1], out var why);
                         if (i < 0) throw new InvalidOperationException($"opening \"{name}\": {why}");
                         double w = (el.Place.Width ?? 0) * MmToFeet, h = (el.Place.Height ?? 0) * MmToFeet, z0 = level.Elevation + (el.Place.SillHeight ?? 0) * MmToFeet;
+                        // Review fix: the rectangle lies inside its one host — between the wall's line ends, its bottom and its top — or it is
+                        // refused: NewOpening cuts that wall alone, and a wall it runs past (a collinear neighbour, the storey above) would stay whole.
+                        var (wb, wt) = Heights(doc, hosts[i]);
+                        if (PlacementGeometry.OpeningFits(lines[i].Label, lines[i].X0, lines[i].Y0, lines[i].X1, lines[i].Y1, wb / MmToFeet, wt / MmToFeet,
+                                                          p[0], p[1], el.Place.Width ?? 0, z0 / MmToFeet, (z0 + h) / MmToFeet) is string past)
+                            throw new InvalidOperationException($"opening \"{name}\": {past}");
                         var wc = ((LocationCurve)hosts[i].Location).Curve;
                         var d = new XYZ(wc.GetEndPoint(1).X - wc.GetEndPoint(0).X, wc.GetEndPoint(1).Y - wc.GetEndPoint(0).Y, 0).Normalize();
                         double x = p[0] * MmToFeet, y = p[1] * MmToFeet;
@@ -776,11 +784,19 @@ public sealed class ChangesetExecutor
                     {
                         var outline = Outline(el.Place.Boundary, level.Elevation, $"opening \"{name}\"");
                         var mid = new XYZ(outline.Average(c => c.GetEndPoint(0).X), outline.Average(c => c.GetEndPoint(0).Y), level.Elevation);
-                        var holding = new FilteredElementCollector(doc).OfClass(typeof(Floor)).Cast<Floor>()
-                            .Where(f => f.LevelId.Equals(level.Id) && Holds(f, mid)).ToList();
-                        var pick = holding.Any(f => ours.Contains(f.Id.IdValue())) ? holding.Where(f => ours.Contains(f.Id.IdValue())).ToList() : holding;
+                        var onLevel = new FilteredElementCollector(doc).OfClass(typeof(Floor)).Cast<Floor>().Where(f => f.LevelId.Equals(level.Id)).ToList();
+                        var pool = onLevel.Any(f => ours.Contains(f.Id.IdValue()) && Holds(f, mid)) ? onLevel.Where(f => ours.Contains(f.Id.IdValue())).ToList() : onLevel;
+                        var pick = pool.Where(f => Holds(f, mid)).ToList();
                         if (pick.Count != 1)
-                            throw new InvalidOperationException($"opening \"{name}\": {(pick.Count == 0 ? "no floor" : pick.Count + " floors")} of {level.Name} hold the centre of its Boundary — Sentinel cuts one floor; a person decides");
+                            throw new InvalidOperationException($"opening \"{name}\": {(pick.Count == 0 ? "no floor of " + level.Name + " holds" : pick.Count + " floors of " + level.Name + " hold")} the centre of its Boundary — Sentinel cuts one floor; a person decides");
+                        // Review fix: no vertex or edge middle of the outline lies on another floor of that pool — NewOpening cuts pick[0] alone, and
+                        // a floor beside it under the same void would stay whole. A void flush with the edge two floors share stays legal: each point
+                        // is taken 1 mm toward the centre first (Holds counts a point on an edge as inside one of the two floors). ponytail: a
+                        // strongly concave outline can step 1 mm out of itself there; sample inside the outline if that ever refuses a real void.
+                        var spots = outline.SelectMany(c => new[] { c.GetEndPoint(0), c.Evaluate(0.5, true) })
+                            .Select(q => (mid - q).GetLength() <= MmToFeet ? q : q + (mid - q).Normalize() * MmToFeet).ToList();
+                        if (pool.FirstOrDefault(f => !f.Id.Equals(pick[0].Id) && spots.Any(q => Holds(f, q))) is Floor other)
+                            throw new InvalidOperationException($"opening \"{name}\": its Boundary reaches floor {other.Id.IdValue()} of {level.Name} as well as floor {pick[0].Id.IdValue()} — Sentinel cuts one floor; re-propose the void inside one floor, or a person decides");
                         var arr = new CurveArray();
                         foreach (var c in outline) arr.Append(c);
                         cut = doc.Create.NewOpening(pick[0], arr, true);
@@ -1092,8 +1108,10 @@ public sealed class ChangesetExecutor
             // Every ticked element must have been handled by a loop above — if the bridge's
             // vocabulary ever grows past the executor's, the mismatch fails the changeset HERE,
             // inside the transaction, instead of surfacing as a 400 after elements already exist.
+            // MA-6-3 review fix: the add-in's version is this session's state, not a verdict on the changeset (C5's rule) — PlacementRefused
+            // keeps it proposed, to apply once the add-in that reads the kind is deployed.
             if (result.Applied.Count + result.Kept.Count != toPlace.Count)
-                throw new InvalidOperationException($"{toPlace.Count - result.Applied.Count} ticked element(s) of unsupported kind or op were not placed — the add-in is older than the bridge's vocabulary");
+                throw new PlacementRefused($"{toPlace.Count - result.Applied.Count} ticked element(s) of unsupported kind or op were not placed — the add-in is older than the bridge's vocabulary; nothing was placed, and this one stays proposed until the add-in is updated");
             // MA-1a item 6: each element this changeset CREATED goes to the workset its category names and to the view's
             // phase — inside this transaction, so Ctrl+Z takes them back with the element. A retype or attach target keeps
             // its own workset and phase.

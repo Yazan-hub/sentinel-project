@@ -910,11 +910,13 @@ describe("validateChangeset — bridge typing (MA-2a, full contract 2)", () => {
       /^elements\[1\]: a wall without place\.TypeName is typed by the bridge — no thickness was sent$/);
   });
 
-  it("a door typed by the bridge takes the rule's FamilyName too (a type name alone is not one type); one that names its family keeps it", () => {
+  // MA-6-3 review fix: one that names another family is refused (the stored pair is the `typing` record's), not kept.
+  it("a door typed by the bridge takes the rule's FamilyName too (a type name alone is not one type); one that names another family is a 400", () => {
     const door = (place) => ({ kind: "door", facts: { thickness_mm: 1 }, place: { LevelName: "L1", Location: [1, 2, 0], ...place }, validate: { identity: { Class: "IfcDoor", Name: "D" } } });
-    const v = validateChangeset(CS([door({}), door({ FamilyName: "Mine" })]), { type: typer });
+    const v = validateChangeset(CS([door({}), door({ FamilyName: "basic wall" })]), { type: typer });
     expect(v.elements[0].place).toMatchObject({ TypeName: "T1", FamilyName: "Basic Wall" });
-    expect(v.elements[1].place).toMatchObject({ TypeName: "T1", FamilyName: "Mine" });
+    expect(v.elements[1].place).toMatchObject({ TypeName: "T1", FamilyName: "Basic Wall" });
+    status400(() => validateChangeset(CS([door({ FamilyName: "Mine" })]), { type: typer }), /^elements\[0\]: the bridge types the family too \(Basic Wall, not Mine\)/);
     status400(() => validateChangeset(CS([{ ...door({}), place: { Location: [1, 2, 0] } }]), { type: typer }), /a door needs place\.LevelName/); // the other checks still run
   });
 
@@ -1160,9 +1162,12 @@ describe("validateChangeset — vocabulary v2 (MA-6-3)", () => {
 
   it("an opening and a beam name their level; an opening takes no family, Mark or TopLevel; Width and Height are an opening's only", () => {
     for (const b of [wallOpening, floorOpening, beam]) status400(() => ok(b({ LevelName: undefined })), /needs place\.LevelName — Sentinel never picks its level/);
-    status400(() => ok(wallOpening({ FamilyName: "F" })), /takes no place\.FamilyName/);
-    status400(() => ok(wallOpening({ Mark: "O1" })), /takes no place\.Mark/);
-    status400(() => ok(floorOpening({ TopLevel: "H L3" })), /takes no place\.TopLevel/);
+    status400(() => ok(wallOpening({ LevelName: undefined })), /: an opening needs place\.LevelName/); // review fix: "an", not "a"
+    status400(() => ok(wallOpening({ FamilyName: "F" })), /: an opening takes no place\.FamilyName/);
+    status400(() => ok(wallOpening({ Mark: "O1" })), /: an opening takes no place\.Mark/);
+    status400(() => ok(floorOpening({ TopLevel: "H L3" })), /: an opening takes no place\.TopLevel/);
+    // Review fix: an opening is untyped — a TypeName would be shown to the reviewer and never applied.
+    for (const o of [wallOpening, floorOpening]) status400(() => ok(o({ TypeName: "Generic - 200mm" })), /an opening takes no place\.TypeName — it is its shape/);
     status400(() => ok(roof({ Width: 900 })), /a roof takes no place\.Width/);
     status400(() => ok(beam({ Height: 600 })), /a beam takes no place\.Height/);
     status400(() => ok(wall({ place: { ...wall().place, SillHeight: 0 } })), /a wall takes no place\.SillHeight/);
@@ -1171,11 +1176,24 @@ describe("validateChangeset — vocabulary v2 (MA-6-3)", () => {
   it("a beam is one straight LocationCurve with its family and type (or facts the bridge types it from)", () => {
     status400(() => ok(beam({ LocationCurve: undefined })), /beam needs place\.LocationCurve with finite \[x,y,z\] start and end/);
     status400(() => ok(beam({ LocationCurve: { start: [0, 0, 3000], end: [0, 0, 3000] } })), /beam LocationCurve start and end are identical/);
+    // Review fix: a vertical or sub-millimetre beam is Revit's refusal at Apply — the whole storey declined for good.
+    for (const end of [[0, 0, 6000], [0.5, 0.5, 3000]])
+      status400(() => ok(beam({ LocationCurve: { start: [0, 0, 3000], end } })), /a beam runs in plan — its LocationCurve start and end at least 1 mm apart in x,y/);
+    expect(ok(beam({ LocationCurve: { start: [0, 0, 3000], end: [1, 0, 3500] } })).place.LocationCurve.end).toEqual([1, 0, 3500]);
     status400(() => ok(beam({ LocationCurve: { start: [0, 0, 3000], end: [6000, 0, 3000], mid: [3000, 1000, 3000] } })), /place\.LocationCurve\.mid is a wall's point on its arc/);
     status400(() => ok(beam({ FamilyName: undefined })), /a beam needs place\.FamilyName — a type name alone is not one type/);
     status400(() => ok(beam({ TypeName: undefined })), /a beam needs place\.TypeName — Sentinel never takes the model's first type/);
     status400(() => ok(beam({ Location: [0, 0, 0] })), /a beam takes no place\.Location/);
     expect(ok(beam()).place.Mark).toBe("B1");
+  });
+
+  // Review fix: the stored family-and-type pair is the `typing` record's — a posted family the rule did not choose is refused in words.
+  it("a beam typed from facts takes the rule's family: another posted family is a 400, the rule's own in any case is stored in its spelling", () => {
+    status400(() => validateChangeset(CS([sent(4, { FamilyName: "M_Concrete-Rectangular Beam" })]), { type }),
+      /the bridge types the family too \(BDS_STR_CONC_Rectangular Beam, not M_Concrete-Rectangular Beam\) — leave place\.FamilyName out, or send place\.TypeName/);
+    const v = validateChangeset(CS([sent(4, { FamilyName: " bds_str_conc_rectangular beam " })]), { type }).elements[0];
+    expect(v.place).toMatchObject({ FamilyName: "BDS_STR_CONC_Rectangular Beam", TypeName: "BDS_INT_STR_CONC_300 x 600 mm" });
+    expect(v.typing).toMatchObject({ typed_by: "bridge", family: "BDS_STR_CONC_Rectangular Beam" });
   });
 
   it("a roof's Slopes has one entry per Boundary edge — a closing point is no edge — each null or degrees above 0 and at most 75", () => {

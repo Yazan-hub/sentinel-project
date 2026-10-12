@@ -178,6 +178,12 @@ describe("changeset tools", () => {
     expect(d).toMatch(/place\.Slopes — one entry per Boundary edge, Slopes\[i\] for the edge Boundary\[i\]→\[i\+1\] \(a closing point is no edge\), null where the edge defines no slope \(a gable\)/);
     expect(d).toMatch(/a column may name place\.TopLevel, the level its top reaches/);
     expect(d).toMatch(/Every kind but a level, grid, room or opening also needs place\.TypeName/);
+    // Review fix: the rectangle stays in its one wall, the void in its one floor; a family the bridge types is not the agent's.
+    expect(d).toMatch(/the rectangle within that wall's ends, bottom and top/);
+    expect(d).toMatch(/inside exactly one floor and reaching no other/);
+    expect(d).toMatch(/beam's FamilyName: send none of your own then\)/);
+    // Review fix: an agent reading the standards first learns a beam's catalogue category from this text.
+    expect(TOOLS.find((t) => t.name === "sentinel_standards").description).toMatch(/type_catalog takes category \(Walls, Floors, Roofs, Ceilings, Doors, Windows, Columns, Furniture, Structural Framing — a beam's\)/);
   });
 
   it("propose POSTs the changeset body", async () => {

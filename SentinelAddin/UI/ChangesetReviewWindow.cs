@@ -282,6 +282,11 @@ public sealed class ChangesetReviewWindow : Window
         if (p?.Name != null && p.Name != name) parts.Add(p.Name); // MA-5b-1: a room's name after its number (a level's Name is its own)
         if (p?.TypeName != null) parts.Add((p.FamilyName != null ? p.FamilyName + " : " : "") + p.TypeName);
         if (p?.LevelName != null) parts.Add(p.LevelName);
+        // MA-6-3 review fix: the reviewer ticks what the row shows — a column's top level, a hole in a floor, a roof's pitch per edge
+        // (the ghost overlay draws a sloped roof flat).
+        if (el.Kind == "column" && p?.TopLevel != null) parts.Add("to " + p.TopLevel);
+        if (el.Kind == "opening" && p?.Boundary != null) parts.Add("hole in a floor");
+        if (p?.Slopes?.Any(s => s != null) == true) parts.Add("slopes " + string.Join("/", p.Slopes.Select(s => s is double d ? Mm(d) + "°" : "–")));
         if (p?.Width is double w && p.Height is double h) parts.Add($"{Mm(w)} x {Mm(h)} mm"); // MA-6-3: a wall opening's size
         if (p?.SillHeight is double s) parts.Add($"sill {Mm(s)} mm");
         if (p?.Offset is double o) parts.Add($"offset {Mm(o)} mm");

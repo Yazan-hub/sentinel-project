@@ -40,6 +40,7 @@ describe("proposalElements", () => {
     expect(r.creates).toBe(2); expect(r.drawn).toBe(0);
     expect(r.skipped).toHaveLength(2);
     expect(r.skipped[0]).toContain("a grid — not drawn");
+    expect(proposalElements({ elements: [create("opening", {})] }).skipped[0]).toContain("an opening — not drawn"); // MA-6-3 review fix
   });
   it("a create with no op is a create; a wall whose ends are not arrays is skipped in words", () => {
     const r = proposalElements({ elements: [{ kind: "wall", proposal_guid: "w0", place: { LocationCurve: { start: [0, 0], end: [5000, 0] } } }, create("wall", { LocationCurve: { start: { x: 0, y: 0 }, end: { x: 1, y: 1 } } })] });

@@ -52,7 +52,41 @@ static partial class Check
            && ex.Contains("Set(fi, BuiltInParameter.FAMILY_TOP_LEVEL_PARAM, top.Id, \"column\");") && ex.Contains("Set(fi, BuiltInParameter.FAMILY_TOP_LEVEL_OFFSET_PARAM, 0.0, \"column\");"),
            "a beam is the named Structural Framing type on its line; a column with a TopLevel stands to it at offset 0");
         Ok(!ex.Contains("foreach (ModelCurve mc in edges) roof.set_DefinesSlope(mc, false);") && ex.Contains("roof.set_SlopeAngle(mc, Math.Tan(d * Math.PI / 180));")
-           && ex.Contains("var got = Math.Atan(roof.get_SlopeAngle(mc)) * 180 / Math.PI;") && ex.Contains("Math.Abs(got - d) > 0.1"),
-           "a roof edge with a slope defines it (rise over run) and is read back within 0.1° after a regeneration (risk R3); every other edge defines none, as before");
+           && ex.Contains("HostObjectUtils.GetTopFaces(roof).Select(r => roof.GetGeometryObjectFromReference(r)).OfType<PlanarFace>()")
+           && ex.Contains(".Select(f => Math.Acos(Math.Min(1, Math.Abs(f.FaceNormal.Z))) * 180 / Math.PI)") && ex.Contains("!pitches.Any(a => Math.Abs(a - d) <= 0.1)")
+           && !ex.Contains("get_SlopeAngle"),
+           "a roof edge with a slope defines it (rise over run) and is read back within 0.1° after a regeneration from the roof's top faces, never through SlopeAngle (review fix: that reads the unit it wrote — risk R3); every other edge defines none, as before");
+
+        // ── MA-6-3 review fixes ──
+        Ok(ex.Contains("throw new PlacementRefused($\"roof \\\"{name}\\\": Revit's footprint has no line on Boundary edge(s)")
+           && ex.Contains("throw new PlacementRefused($\"roof \\\"{name}\\\": Boundary edge {i}")
+           && ex.Contains("throw new PlacementRefused($\"{toPlace.Count - result.Applied.Count} ticked element(s) of unsupported kind or op were not placed — the add-in is older than the bridge's vocabulary"),
+           "a slope Revit does not hold, and an add-in older than the bridge's vocabulary, are this session's state (C5's rule): PlacementRefused, so the changeset stays proposed (NotRun)");
+
+        // A wall opening's rectangle stays inside its one host wall: between the line's ends, its bottom and its top (HostTolMm slack).
+        string Fits(double x, double w, double z0, double z1) => PlacementGeometry.OpeningFits("wall 7", 0, 0, 4000, 0, 0, 3000, x, 0, w, z0, z1);
+        Ok(Fits(2000, 900, 0, 2100) == null && Fits(450, 900, 0, 2100) == null && Fits(3550.5, 900, 0, 3000.5) == null
+           && Fits(400, 900, 0, 2100)?.Contains("its 900 mm width, centred 400 mm along wall 7, runs past an end of that wall (4000 mm long)") == true
+           && Fits(3600, 900, 0, 2100) != null && Fits(2000, 900, 1000, 3100)?.Contains("it runs from 1000 to 3100 mm, past wall 7's bottom (0 mm) or top (3000 mm)") == true
+           && Fits(2000, 900, -5, 2100) != null
+           && PlacementGeometry.OpeningFits("wall 7", 0, 0, 4000, 0, double.NegativeInfinity, double.PositiveInfinity, 2000, 0, 900, 0, 99999) == null,
+           "PlacementGeometry.OpeningFits: a wall opening inside its wall fits; one past an end, its bottom or its top is refused in words (an unreadable base reads as every height)");
+        Ok(cutBlock.Contains("var (wb, wt) = Heights(doc, hosts[i]);") && cutBlock.Contains("PlacementGeometry.OpeningFits(lines[i].Label, lines[i].X0, lines[i].Y0, lines[i].X1, lines[i].Y1, wb / MmToFeet, wt / MmToFeet,")
+           && cutBlock.IndexOf("PlacementGeometry.OpeningFits(", StringComparison.Ordinal) < cutBlock.IndexOf("doc.Create.NewOpening(hosts[i]", StringComparison.Ordinal),
+           "the executor asks OpeningFits of the host wall's line and heights before it cuts the wall");
+        Ok(cutBlock.Contains("if (pool.FirstOrDefault(f => !f.Id.Equals(pick[0].Id) && spots.Any(q => Holds(f, q))) is Floor other)")
+           && cutBlock.Contains("outline.SelectMany(c => new[] { c.GetEndPoint(0), c.Evaluate(0.5, true) })")
+           && cutBlock.Contains("its Boundary reaches floor {other.Id.IdValue()} of {level.Name} as well as floor {pick[0].Id.IdValue()}")
+           && cutBlock.IndexOf("is Floor other)", StringComparison.Ordinal) < cutBlock.IndexOf("doc.Create.NewOpening(pick[0], arr, true)", StringComparison.Ordinal)
+           && cutBlock.Contains("\"no floor of \" + level.Name + \" holds\" : pick.Count + \" floors of \" + level.Name + \" hold\""),
+           "a floor opening whose outline (its vertices and edge middles, 1 mm in) reaches another floor of the pool is refused before the cut; 'no floor … holds', 'N floors … hold'");
+
+        string ui = Src("UI", "ChangesetReviewWindow.cs");
+        string label = ui.Substring(ui.IndexOf("private static string CreateLabel(", StringComparison.Ordinal));
+        label = label.Substring(0, label.IndexOf("\n    }\n", StringComparison.Ordinal));
+        Ok(label.Contains("if (el.Kind == \"column\" && p?.TopLevel != null) parts.Add(\"to \" + p.TopLevel);")
+           && label.Contains("if (el.Kind == \"opening\" && p?.Boundary != null) parts.Add(\"hole in a floor\");")
+           && label.Contains("if (p?.Slopes?.Any(s => s != null) == true) parts.Add(\"slopes \" + string.Join(\"/\", p.Slopes.Select(s => s is double d ? Mm(d) + \"°\" : \"–\")));"),
+           "Revit's review row shows what Apply builds: a column's top level, a hole in a floor, a roof's pitch per edge (the overlay draws a sloped roof flat)");
     }
 }

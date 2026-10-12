@@ -361,7 +361,7 @@ namespace Sentinel.GhostBuilder
         {
             ["Walls"] = "OST_Walls", ["Floors"] = "OST_Floors", ["Roofs"] = "OST_Roofs", ["Ceilings"] = "OST_Ceilings", ["Doors"] = "OST_Doors",
             ["Windows"] = "OST_Windows", ["Columns"] = "OST_Columns", ["Furniture"] = "OST_Furniture", ["Levels"] = "OST_Levels", ["Grids"] = "OST_Grids",
-            ["Structural Framing"] = "OST_StructuralFraming", // MA-6-3 (a beam); guideline.ts's CATEGORY_BIC gains it with the next web change
+            ["Structural Framing"] = "OST_StructuralFraming", // MA-6-3 (a beam)
         };
 
         /// <summary>Does a catalogue row belong to <paramref name="category"/>? By name (case and padding ignored), or by its

@@ -133,7 +133,7 @@ namespace Sentinel.GhostBuilder
             string workset = null, unnamed = null;
             if (plan.WorksetIds != null)
             {
-                // Locale-safe: the element's BuiltInCategory against the ten English category names a block may use
+                // Locale-safe: the element's BuiltInCategory against the English category names a block may use (PlacementCategories)
                 // (Compat), then the block's own key for that category, whatever its case or padding.
                 string category = GuidelineMatcher.PlacementCategories.FirstOrDefault(c => e.Category != null && e.Category.MatchesCategoryKey(c));
                 string name = PlacementPolicy.WorksetFor(plan.Block, category);
