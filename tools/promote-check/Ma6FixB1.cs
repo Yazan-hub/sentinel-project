@@ -13,7 +13,7 @@ static partial class Check
         string Body(string head) { int i = At(ex, head); return i < 0 ? "" : ex.Substring(i, ex.IndexOf("\n    }\n", i, StringComparison.Ordinal) - i); }
 
         // F-1: the missing-level refusal, on an agent's changeset too — no "re-run Promote" first.
-        const string tail = " does not exist in this model — apply the changeset that creates it first, or propose again creating it or naming a level it has (Promote: run it again); nothing was placed, and this one stays proposed\");";
+        const string tail = " does not exist in this model — apply the changeset that creates it first, or propose again with the level in the changeset or naming a level this model has (Promote: run it again); nothing was placed, and this one stays proposed\");";
         Ok(Body("private static Level ResolveLevel(Document doc, PlaceDto place)").Contains("throw new PlacementRefused($\"level \\\"{place.LevelName}\\\"" + tail)
            && Body("private static Level LevelNamed(Document doc, string name)").Contains("throw new PlacementRefused($\"level \\\"{n}\\\"" + tail)
            && !ex.Contains("re-run Promote, re-propose naming a level it has"),
@@ -23,7 +23,7 @@ static partial class Check
         string wallT = Body("internal static WallType ResolveWallType(Document doc, string typeName)"), floorT = Body("internal static FloorType ResolveFloorType(Document doc, string typeName)"),
                createT = Body("internal static ElementType CreateType(Document doc, BuiltInCategory bic, string kind, string familyName, string typeName)"),
                retypeT = Body("internal static ElementType RetypeTarget(Document doc, Element e, string kind, string familyName, string typeName)");
-        Ok(wallT.Contains("?? throw new PlacementRefused($\"wall type \\\"{typeName}\\\" does not exist in this model")
+        Ok(wallT.Contains("throw new PlacementRefused($\"wall type \\\"{typeName}\\\" does not exist in this model")
            && floorT.Contains("if (hits.Count == 0) throw new PlacementRefused($\"floor type \\\"{typeName}\\\" does not exist in this model")
            && createT.Contains("if (hits.Count == 0) throw new PlacementRefused($\"{kind} type \\\"{label}\\\" does not exist in this model — load it (Sentinel loads no families and creates no types)")
            && retypeT.Contains("if (hits.Count == 0) throw new PlacementRefused($\"{kind} type \\\"{label}\\\" does not exist in this model")
@@ -94,13 +94,57 @@ static partial class Check
            "F-3: a row whose type is not loaded opens unticked even when the bridge pre-ticked it (a Promote retype, a measured survey create); every other row as before");
         var one = ChangesetTrust.NotLoadedRefusal(new[] { El("g1", "create", null) });
         var seven = ChangesetTrust.NotLoadedRefusal(Enumerable.Range(1, 7).Select(i => El("g" + i, "create", null)));
-        Ok(one == "1 ticked row(s) name a type this model does not hold — window \"W-g1\" (BDS_Window_Single Panel : 1200x2000 mm): load the family (Sentinel loads no families and creates no types), "
-                  + "or untick that row and apply the rest, or propose again with a loaded type; nothing was placed, and this one stays proposed"
+        Ok(one == "1 ticked row(s) name a type this model does not hold — window \"W-g1\" (BDS_Window_Single Panel : 1200x2000 mm): load the family or add the type (Sentinel loads no families and creates no types), "
+                  + "or untick that row and what it hosts and apply the rest, or propose again with a loaded type; nothing was placed, and this one stays proposed"
            && seven.StartsWith("7 ticked row(s) name a type this model does not hold — window \"W-g1\"") && seven.Contains("window \"W-g5\" (BDS_Window_Single Panel : 1200x2000 mm) and 2 more: ")
-           && !seven.Contains("W-g6"),
-           "F-2: Apply's refusal names each row and its type (five, then a count), says what to do — load the family, untick the row, or propose again — and that nothing was placed and it stays proposed");
-        Ok(ChangesetTrust.NotLoadedLine(0) == null && ChangesetTrust.NotLoadedLine(2)?.Contains("2 row(s) name a type this model does not hold") == true
-           && ChangesetTrust.NotLoadedMark == "⚠ not in this model — load the family, or untick this row",
-           "F-3: the footer counts the rows (none, no line); each row's mark is plain words");
+           && !seven.Contains("W-g6") && seven.Contains("or untick those rows and what they host and apply the rest"),
+           "F-2: Apply's refusal names each row and its type (five, then a count), says what to do — load the family or add the type, untick the row(s) and what they host, or propose again — and that nothing was placed and it stays proposed");
+        Ok(ChangesetTrust.NotLoadedLine(0) == null
+           && ChangesetTrust.NotLoadedLine(2) == "⚠ 2 row(s) name a type this model does not hold (the ⚠ says which) — they open unticked; load the family or add the type, or leave them unticked, and what they host"
+           && ChangesetTrust.NotLoadedMark == "⚠ type not in this model"
+           && ChangesetTrust.NotLoadedTip(El("g1", "create", null)) == "\"BDS_Window_Single Panel : 1200x2000 mm\" is not in this model — load the family or add the type (Sentinel loads no families and creates no types), or leave this row unticked, and what it hosts"
+           && ChangesetTrust.NotLoadedTip(new ChangesetElementDto { Kind = "wall", Place = new PlaceDto { TypeName = "Generic - 300mm Ext" } }).StartsWith("\"Generic - 300mm Ext\" is not in this model — load the family or add the type"),
+           "F-3 (review): the footer counts the rows (none, no line); each row's mark is short, so the label keeps its width; its tooltip names the type (a system type too) — words that fit a family and a wall's or floor's type; 'leave … unticked', never 'untick' a row that opens unticked");
+        Ok(win.Contains("var notHere = new TextBlock { Text = ChangesetTrust.NotLoadedMark, ToolTip = ChangesetTrust.NotLoadedTip(el),"),
+           "F-3 (review): the ⚠ mark's tooltip is NotLoadedTip — the only place on the row that names the missing type in full");
+
+        // Review: a door, window or opening whose host is a create of this changeset the person left unticked (a not-loaded wall or floor opens
+        // unticked) is the ticks, not a verdict — PlacementRefused, the changeset stays proposed (the room rule's), never a decline.
+        ChangesetElementDto Host(string guid, string kind, string level, double[][] at) => new ChangesetElementDto
+        {
+            ProposalGuid = guid, Op = "create", Kind = kind, Validate = new ValidateDto { Identity = new IdentityDto { Name = guid } },
+            Place = kind == "wall" ? new PlaceDto { LevelName = level, LocationCurve = new CurveDto { Start = at[0], End = at[1] } } : new PlaceDto { LevelName = level, LocationLoop = at },
+        };
+        var rows = new[]
+        {
+            Host("W", "wall", "L1", new[] { new double[] { 0, 0, 0 }, new double[] { 4000, 0, 0 } }),
+            Host("W2", "wall", "L1", new[] { new double[] { 0, 5000, 0 }, new double[] { 4000, 5000, 0 } }),
+            Host("F", "floor", "L1", new[] { new double[] { 0, 0, 0 }, new double[] { 4000, 0, 0 }, new double[] { 4000, 3000, 0 }, new double[] { 0, 3000, 0 }, new double[] { 0, 0, 0 } }),
+            new ChangesetElementDto { ProposalGuid = "R", Op = "retype", Kind = "wall", Place = new PlaceDto { LevelName = "L1", LocationCurve = new CurveDto { Start = new double[] { 0, 0 }, End = new double[] { 4000, 0 } } } },
+        };
+        var ticked = new HashSet<string> { "W2", "D" };
+        Ok(ChangesetTrust.UntickedHost(rows, ticked, "wall", "L1", 2000, 0.5)?.ProposalGuid == "W" && ChangesetTrust.UntickedHost(rows, ticked, "wall", "l1", 2000, 0)?.ProposalGuid == "W"
+           && ChangesetTrust.UntickedHost(rows, ticked, "wall", "L2", 2000, 0) == null && ChangesetTrust.UntickedHost(rows, ticked, "wall", "L1", 2000, 5000) == null
+           && ChangesetTrust.UntickedHost(rows, ticked, "wall", "L1", 2000, 2) == null && ChangesetTrust.UntickedHost(rows, new HashSet<string> { "W" }, "wall", "L1", 2000, 0) == null
+           && ChangesetTrust.UntickedHost(rows, ticked, "floor", "L1", 2000, 1500)?.ProposalGuid == "F" && ChangesetTrust.UntickedHost(rows, ticked, "floor", "L1", 5000, 1500) == null
+           && ChangesetTrust.UntickedHost(rows, ticked, "wall", "L1", 2000, 1500) == null,
+           "review: UntickedHost finds the unticked wall create whose line passes the point on the level (1 mm), or the unticked floor create holding it — a ticked one, another level, a point off it or a retype is not that");
+        string doors = ex.Substring(At(ex, "var openings = toPlace.Where(e => IsCreate(e) && e.Kind is \"door\" or \"window\").ToList();"));
+        Ok(doors.Contains("if (i < 0) throw UntickedHost(cs, tickedGuids, $\"{el.Kind} \\\"{name}\\\"\", \"wall\", level, p[0], p[1]) ?? new InvalidOperationException($\"{el.Kind} \\\"{name}\\\": {why}\");")
+           && doors.Contains("if (i < 0) throw UntickedHost(cs, tickedGuids, $\"opening \\\"{name}\\\"\", \"wall\", level, p[0], p[1]) ?? new InvalidOperationException($\"opening \\\"{name}\\\": {why}\");")
+           && At(doors, "if (pick.Count == 0 && UntickedHost(cs, tickedGuids, $\"opening \\\"{name}\\\"\", \"floor\", level, mid.X / MmToFeet, mid.Y / MmToFeet) is { } offFloor) throw offFloor;") is int fl
+           && fl > 0 && fl < At(doors, "if (pick.Count != 1)")
+           && ex.Contains("? new PlacementRefused($\"{what}: its host {Label(h)} in this changeset is unticked — tick it, or untick this row too; nothing was placed, and this one stays proposed\")"),
+           "review: a door, window or wall opening with no host wall, or a floor opening with no host floor, whose host is an unticked create of this changeset is refused as PlacementRefused (stays proposed), named, before the decline");
+
+        // Review: NotLoaded flags only what Apply would refuse as not loaded — never a retype Apply declines first, never a curtain or stacked type it holds.
+        Ok(notLoaded.Contains("try { e = Target(doc, el); } catch (InvalidOperationException) { continue; }")
+           && notLoaded.Contains("|| el.Target.TypeBefore != null && !string.Equals(TypeLabel(cur), el.Target.TypeBefore, StringComparison.OrdinalIgnoreCase)) continue;")
+           && notLoaded.Contains("if (el.Kind != \"wall\") scope = $\"{cur.Category?.Id.IdValue()}|{cur.GetType().Name}\";")
+           && notLoaded.Contains("var key = $\"{el.Op}|{el.Kind}|{p.FamilyName}|{p.TypeName}|{scope}\";")
+           && wallT.Contains("if (named.FirstOrDefault(t => t.Kind == WallKind.Basic) is WallType basic) return basic;")
+           && At(wallT, "throw new InvalidOperationException($\"wall type \\\"{typeName}\\\" is a {named[0].Kind.ToString().ToLowerInvariant()} type — Sentinel places basic walls only") is int cw
+           && cw > 0 && cw < At(wallT, "throw new PlacementRefused("),
+           "review: a retype whose target is not of its kind, has no readable type or a stale type_before is left to Apply's decline (Execute's order); a retype's answer is cached per target category and class; a curtain or stacked wall type the model holds declines (loading cannot help)");
     }
 }

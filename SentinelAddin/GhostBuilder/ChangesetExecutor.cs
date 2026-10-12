@@ -136,7 +136,7 @@ public sealed class ChangesetExecutor
             // proposal names no level. MA-6-3 (amendment 1): it is the model's state, not a verdict on the changeset (C5's rule) —
             // PlacementRefused keeps it proposed, so a storey applied before the one that creates its levels can be applied after it.
             return levels.FirstOrDefault(l => string.Equals(l.Name, place.LevelName, StringComparison.OrdinalIgnoreCase))
-                   ?? throw new PlacementRefused($"level \"{place.LevelName}\" does not exist in this model — apply the changeset that creates it first, or propose again creating it or naming a level it has (Promote: run it again); nothing was placed, and this one stays proposed");
+                   ?? throw new PlacementRefused($"level \"{place.LevelName}\" does not exist in this model — apply the changeset that creates it first, or propose again with the level in the changeset or naming a level this model has (Promote: run it again); nothing was placed, and this one stays proposed");
         }
         // Drill MA2a (F-MA2a-3): contract 2 names a wall's level BaseLevel (design :675). It was read only for an attach, and a
         // create naming no LevelName fell to the model's LOWEST level — the design's wall went on GR_SSL, 300 mm high, in silence.
@@ -161,10 +161,13 @@ public sealed class ChangesetExecutor
     internal static WallType ResolveWallType(Document doc, string typeName)
     {
         if (string.IsNullOrWhiteSpace(typeName)) throw new InvalidOperationException(NoTypeName);
-        var types = new FilteredElementCollector(doc).OfClass(typeof(WallType)).Cast<WallType>()
-            .Where(t => t.Kind == WallKind.Basic).ToList();
-        return types.FirstOrDefault(t => string.Equals(t.Name, typeName, StringComparison.OrdinalIgnoreCase))
-               ?? throw new PlacementRefused($"wall type \"{typeName}\" does not exist in this model — load it (Sentinel creates no types), or re-propose with the exact name of a loaded type");
+        var named = new FilteredElementCollector(doc).OfClass(typeof(WallType)).Cast<WallType>()
+            .Where(t => string.Equals(t.Name, typeName, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (named.FirstOrDefault(t => t.Kind == WallKind.Basic) is WallType basic) return basic;
+        // MA-6 fix-b1 (review): a curtain or stacked type of the name IS loaded — loading cannot help, so it stays a decline (NotLoaded skips it).
+        if (named.Count > 0)
+            throw new InvalidOperationException($"wall type \"{typeName}\" is a {named[0].Kind.ToString().ToLowerInvariant()} type — Sentinel places basic walls only; re-propose with a basic wall type");
+        throw new PlacementRefused($"wall type \"{typeName}\" does not exist in this model — load it (Sentinel creates no types), or re-propose with the exact name of a loaded type");
     }
 
     // MA-1a step 2: a floor's type among the model's FLOOR types only — a foundation slab type of the same name is another
@@ -273,7 +276,7 @@ public sealed class ChangesetExecutor
         if (string.IsNullOrEmpty(n)) throw new InvalidOperationException("attach needs a BaseLevel and a TopLevel");
         return new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
                    .FirstOrDefault(l => string.Equals(l.Name, n, StringComparison.OrdinalIgnoreCase))
-               ?? throw new PlacementRefused($"level \"{n}\" does not exist in this model — apply the changeset that creates it first, or propose again creating it or naming a level it has (Promote: run it again); nothing was placed, and this one stays proposed");
+               ?? throw new PlacementRefused($"level \"{n}\" does not exist in this model — apply the changeset that creates it first, or propose again with the level in the changeset or naming a level this model has (Promote: run it again); nothing was placed, and this one stays proposed");
     }
 
     /// The existing wall a retype/attach names by UniqueId.
@@ -452,10 +455,18 @@ public sealed class ChangesetExecutor
             var p = el?.Place;
             if (el?.ProposalGuid == null || p == null) continue;
             Func<ElementType> pick = null;
+            var scope = "";
             if (el.Op == "retype")
             {
-                var e = string.IsNullOrWhiteSpace(el.Target?.UniqueId) ? null : doc.GetElement(el.Target.UniqueId);
-                if (e != null) pick = () => RetypeTarget(doc, e, el.Kind, p.FamilyName, p.TypeName);
+                // Review: Execute's own order — its target of the kind's category (Target), a readable type, still the type_before the plan saw;
+                // a row failing any of those is declined by Apply in its own words before the lookup, so it is not "not loaded".
+                Element e;
+                try { e = Target(doc, el); } catch (InvalidOperationException) { continue; }
+                if (!(doc.GetElement(e.GetTypeId()) is ElementType cur)
+                    || el.Target.TypeBefore != null && !string.Equals(TypeLabel(cur), el.Target.TypeBefore, StringComparison.OrdinalIgnoreCase)) continue;
+                pick = () => RetypeTarget(doc, e, el.Kind, p.FamilyName, p.TypeName);
+                // RetypeTarget's answer for a non-wall depends on the target type's category and class too
+                if (el.Kind != "wall") scope = $"{cur.Category?.Id.IdValue()}|{cur.GetType().Name}";
             }
             else if (IsCreate(el) || el.Op == "rehost") // Execute's own call for each kind (a rehost places a door or window)
                 pick = el.Kind switch
@@ -472,7 +483,7 @@ public sealed class ChangesetExecutor
                     _ => null, // a level, grid, room or opening names no type
                 };
             if (pick == null) continue;
-            var key = $"{el.Op}|{el.Kind}|{p.FamilyName}|{p.TypeName}";
+            var key = $"{el.Op}|{el.Kind}|{p.FamilyName}|{p.TypeName}|{scope}";
             if (!asked.TryGetValue(key, out var gone))
             {
                 try { pick(); gone = false; }
@@ -775,7 +786,7 @@ public sealed class ChangesetExecutor
                                                             $"Sentinel hosts a {el.Kind} in one straight basic wall only; a person decides the host");
                     }
                     var i = PlacementGeometry.Host(lines, level.Name, p[0], p[1], out var why);
-                    if (i < 0) throw new InvalidOperationException($"{el.Kind} \"{name}\": {why}");
+                    if (i < 0) throw UntickedHost(cs, tickedGuids, $"{el.Kind} \"{name}\"", "wall", level, p[0], p[1]) ?? new InvalidOperationException($"{el.Kind} \"{name}\": {why}");
                     // MA-1b (review amendment C1): a block's direction runs along its wall. Ghost's planner files none that does
                     // not (its snap has the same rule); an agent's changeset is refused here, in words,
                     // before this instance is created; the rollback takes the rest of the changeset with it (one Undo, Error -> Decline).
@@ -822,7 +833,7 @@ public sealed class ChangesetExecutor
                         if (OddNear(odd, level.Id, p[0], p[1]) is Wall near)
                             throw new InvalidOperationException($"opening \"{name}\": a wall Sentinel does not cut (wall {near.Id.IdValue()}: curtain, stacked or curved) on {level.Name} passes the point — a person decides");
                         var i = PlacementGeometry.Host(lines, level.Name, p[0], p[1], out var why);
-                        if (i < 0) throw new InvalidOperationException($"opening \"{name}\": {why}");
+                        if (i < 0) throw UntickedHost(cs, tickedGuids, $"opening \"{name}\"", "wall", level, p[0], p[1]) ?? new InvalidOperationException($"opening \"{name}\": {why}");
                         double w = (el.Place.Width ?? 0) * MmToFeet, h = (el.Place.Height ?? 0) * MmToFeet, z0 = level.Elevation + (el.Place.SillHeight ?? 0) * MmToFeet;
                         // Review fix: the rectangle lies inside its one host — between the wall's line ends, its bottom and its top — or it is
                         // refused: NewOpening cuts that wall alone, and a wall it runs past (a collinear neighbour, the storey above) would stay whole.
@@ -842,6 +853,7 @@ public sealed class ChangesetExecutor
                         var onLevel = new FilteredElementCollector(doc).OfClass(typeof(Floor)).Cast<Floor>().Where(f => f.LevelId.Equals(level.Id)).ToList();
                         var pool = onLevel.Any(f => ours.Contains(f.Id.IdValue()) && Holds(f, mid)) ? onLevel.Where(f => ours.Contains(f.Id.IdValue())).ToList() : onLevel;
                         var pick = pool.Where(f => Holds(f, mid)).ToList();
+                        if (pick.Count == 0 && UntickedHost(cs, tickedGuids, $"opening \"{name}\"", "floor", level, mid.X / MmToFeet, mid.Y / MmToFeet) is { } offFloor) throw offFloor;
                         if (pick.Count != 1)
                             throw new InvalidOperationException($"opening \"{name}\": {(pick.Count == 0 ? "no floor of " + level.Name + " holds" : pick.Count + " floors of " + level.Name + " hold")} the centre of its Boundary — Sentinel cuts one floor; a person decides");
                         // Review fix: no vertex or edge middle of the outline lies on another floor of that pool — NewOpening cuts pick[0] alone, and
@@ -1257,6 +1269,14 @@ public sealed class ChangesetExecutor
     }
 
     private static string Label(ChangesetElementDto el) => $"{el.Kind} \"{el.Validate?.Identity?.Name ?? el.ProposalGuid}\"";
+
+    /// <summary>MA-6 fix-b1 (review): no host was found for a door, window or opening, and the one it would go into is a create of this changeset
+    /// the person left unticked (a type not loaded opens unticked, F-3) — the ticks, not a verdict (the room rule's): PlacementRefused, so the
+    /// changeset stays proposed; null when it is not that.</summary>
+    private static PlacementRefused UntickedHost(ChangesetDto cs, HashSet<string> ticked, string what, string hostKind, Level level, double xMm, double yMm) =>
+        ChangesetTrust.UntickedHost(cs.Elements, ticked, hostKind, level.Name, xMm, yMm) is { } h
+            ? new PlacementRefused($"{what}: its host {Label(h)} in this changeset is unticked — tick it, or untick this row too; nothing was placed, and this one stays proposed")
+            : null;
 
     /// <summary>MA-5b-4: how far (mm, in plan) a wall's ends may sit from where it was placed and still be "as placed" — Horizun's point
     /// tolerance is 1 mm; 2 mm allows the feet/mm round trip.</summary>

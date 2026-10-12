@@ -206,10 +206,11 @@ public sealed class ChangesetReviewWindow : Window
                 DockPanel.SetDock(show, Dock.Right);
                 row.Children.Add(show);
 
-                // MA-6 fix-b1 (F-3): a type this model does not hold, said after the label on its own (the ellipsis never trims it).
+                // MA-6 fix-b1 (F-3): a type this model does not hold, said after the label on its own (the ellipsis never trims it). Review: the
+                // mark is short so the label keeps its width; its tooltip names the type and says what to do.
                 if (el.ProposalGuid != null && _notLoaded.Contains(el.ProposalGuid))
                 {
-                    var notHere = new TextBlock { Text = ChangesetTrust.NotLoadedMark, Foreground = Brushes.Orange, Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center };
+                    var notHere = new TextBlock { Text = ChangesetTrust.NotLoadedMark, ToolTip = ChangesetTrust.NotLoadedTip(el), Foreground = Brushes.Orange, Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center };
                     DockPanel.SetDock(notHere, Dock.Right);
                     row.Children.Add(notHere);
                 }
