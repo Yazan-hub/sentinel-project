@@ -506,14 +506,15 @@ async function read(api, mid, wallsOnly = false) {
     const near = (c) => (p) => Math.hypot(p[0] - c[0], p[1] - c[1]) < 1;
     const corners = (x0, x1, y0, y1) => [[x0, y0], [x1, y0], [x0, y1], [x1, y1]];
     if (!(a1 - a0 > 1 && z1 - z0 > 1) || !corners(a0, a1, z0, z1).every((c) => q.some(near(c)))) no(NOT_RECT);
-    // a point off the outer box's edges is a corner of ONE nested box with all four corners (a window's reveal); two solids side by side, a notch
-    // or a pocket leave points that are not (the cut would be the whole box). A point on an edge is one more along it.
+    // a point off the outer box's edges is a corner of ONE nested box with all four corners (a window's reveal), inside the outer box and flush with
+    // one or more of its sides (MA-8-4b: a Revit reveal sits on the sill); two solids side by side, a stepped notch or a pocket leave points that are not.
+    // A point on an edge is one more along it. (A notch cut flush into one side reads like a flush reveal: the points alone cannot tell them apart.)
     const onEdge = (p) => (Math.abs(p[0] - a0) < 1 || Math.abs(p[0] - a1) < 1 || Math.abs(p[1] - z0) < 1 || Math.abs(p[1] - z1) < 1);
     const rest = q.filter((p) => !onEdge(p));
     if (rest.length) {
-      const b0 = Math.min(...rest.map((p) => p[0])), b1 = Math.max(...rest.map((p) => p[0])), y0 = Math.min(...rest.map((p) => p[1])), y1 = Math.max(...rest.map((p) => p[1]));
-      const inner = corners(b0, b1, y0, y1);
-      if (!(b1 - b0 > 1 && y1 - y0 > 1) || !inner.every((c) => rest.some(near(c))) || !rest.every((p) => inner.some((c) => near(c)(p)))) no(NOT_RECT);
+      const span = (k, lo, hi) => { const v = rest.map((p) => p[k]), m = Math.min(...v), M = Math.max(...v); return M - m > 1 ? [[m, M]] : [[m, hi], [lo, m]]; };   // no extent in the rest: the box runs to one side
+      const fits = (b0, b1, y0, y1) => b1 - b0 > 1 && y1 - y0 > 1 && corners(b0, b1, y0, y1).every((c) => q.some(near(c))) && rest.every((p) => corners(b0, b1, y0, y1).some((c) => near(c)(p)));
+      if (!span(0, a0, a1).some(([b0, b1]) => span(1, z0, z1).some(([y0, y1]) => fits(b0, b1, y0, y1)))) no(NOT_RECT);
     }
     // more than one solid: one holds the others (a reveal inside the void), or the cut is not one rectangle
     const gb = (pts.groups ?? []).map((g) => { const xs = g.map((p) => (p[0] - w.start[0]) * u[0] + (p[1] - w.start[1]) * u[1]), zs = g.map((p) => p[2]); return [Math.min(...xs), Math.max(...xs), Math.min(...zs), Math.max(...zs)]; });

@@ -394,8 +394,13 @@ describe("readIfcGeometry — MA-8-4 (0.2.0)", () => {
     expect(why(apart, "CN2O400000000000000000")).toEqual(NOT_RECT);
     const reveal = await read(two(solid2(4600, 5400, 100, 2000, 600)));
     expect(reveal.openings.filter((o) => o.host_kind === "wall")).toMatchObject([{ global_id: "CN2O400000000000000000", along_mm: 5000, width_mm: 1000, height_mm: 2100 }]);
-    const notch = await read(addLines(text, O4(["#452=IFCCARTESIANPOINT((5500.,2100.));", "#600=IFCCARTESIANPOINT((5300.,2100.));", "#601=IFCCARTESIANPOINT((5300.,1500.));", "#602=IFCCARTESIANPOINT((4700.,1500.));", "#603=IFCCARTESIANPOINT((4700.,2100.));",
-      "#455=IFCPOLYLINE((#450,#451,#452,#600,#601,#602,#603,#454,#450));"])));
+    // MA-8-4b: a reveal flush with the sill (or a side) is the same cut; a stepped notch is not (a plain notch flush into one side has the points of a flush reveal)
+    const flush = await read(two(solid2(4600, 5400, 0, 2000, 600)));
+    expect(flush.openings.filter((o) => o.host_kind === "wall")).toMatchObject([{ global_id: "CN2O400000000000000000", along_mm: 5000, width_mm: 1000, height_mm: 2100, sill_mm: 0 }]);
+    const flushSide = await read(two(solid2(4600, 5500, 100, 2000, 600)));
+    expect(flushSide.openings.filter((o) => o.host_kind === "wall")).toHaveLength(1);
+    const notch = await read(addLines(text, O4(["#452=IFCCARTESIANPOINT((5500.,2100.));", "#600=IFCCARTESIANPOINT((5300.,2100.));", "#601=IFCCARTESIANPOINT((5300.,1500.));", "#602=IFCCARTESIANPOINT((5000.,1500.));", "#603=IFCCARTESIANPOINT((5000.,1800.));",
+      "#604=IFCCARTESIANPOINT((4700.,1800.));", "#605=IFCCARTESIANPOINT((4700.,2100.));", "#455=IFCPOLYLINE((#450,#451,#452,#600,#601,#602,#603,#604,#605,#454,#450));"])));
     expect(why(notch, "CN2O400000000000000000")).toEqual(NOT_RECT);
   });
 
