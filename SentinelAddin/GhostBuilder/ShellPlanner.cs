@@ -36,7 +36,7 @@ namespace Sentinel.GhostBuilder
         public List<(string Storey, List<object> Elements)> Storeys = new List<(string, List<object>)>();
         /// <summary>The flat roof as posted, or null (held).</summary>
         public object Roof;
-        /// <summary>What goes to a person: a storey, the roof, a setback, the mass below the lowest level.</summary>
+        /// <summary>What goes to a person: a storey, the roof, a step in the outline, the mass below the lowest level.</summary>
         public List<(string Name, string Reason)> Held = new List<(string, string)>();
         /// <summary>The elements filed.</summary>
         public int Count;
@@ -52,7 +52,9 @@ namespace Sentinel.GhostBuilder
         public const int MaxElements = 200;
         public const string Leans = "the mass leans in this storey — a person decides";
         public const string Thickness = "the rule names its type with {thickness} — a mass has no thickness; write an exact-type rule";
-        private const double TolMm = 2;
+        /// <summary>ShellReader cuts each storey this far inside its two levels (mm).</summary>
+        internal const double CutMm = 10;
+        private const double TolMm = 2, MinWallMm = 10;
 
         public static ShellPlan Plan(ShellFacts f, GuidelineMatcher m)
         {
@@ -72,16 +74,19 @@ namespace Sentinel.GhostBuilder
             for (int i = 0; i < n; i++)
             {
                 string a = f.Levels[i].Name, b = f.Levels[i + 1].Name;
-                double z = f.Levels[i].ElevationMm;
+                double z = f.Levels[i].ElevationMm, gap = f.Levels[i + 1].ElevationMm - z;
                 var whys = new List<string>();
                 var bottom = Clean(f.Storeys[i].Bottom);
                 var walls = new List<object>();
                 object floor = null;
-                if (f.Storeys[i].Why != null) whys.Add(f.Storeys[i].Why);
+                // MA-6-4 review: two levels within the reader's two cuts are no storey — its cuts cross, and the executor refuses a 0 mm wall.
+                if (gap <= 2 * CutMm) whys.Add($"{a} and {b} are {Mm(gap)} mm apart — not a storey; a person decides");
+                else if (f.Storeys[i].Why != null) whys.Add(f.Storeys[i].Why);
                 else if (!Same(bottom, f.Storeys[i].Top)) whys.Add(Leans);
-                // MA-6 amendment 5: no (i/n) parts — walls in a second part would read the first part's as existing and not join them.
-                else if (bottom.Count + 1 + (i == n - 1 && roofAtTop ? 1 : 0) > MaxElements)
-                    whys.Add($"{bottom.Count} edges in one storey — more than one changeset holds; a person decides");
+                // MA-6 amendment 5: no (i/n) parts — walls in a second part would read the first part's as existing and not join them. The
+                // storey's walls and floor only (the amendment's count); a roof that does not fit with them is held on its own, below.
+                else if (bottom.Count + 1 > MaxElements)
+                    whys.Add($"{bottom.Count} walls and a floor are {bottom.Count + 1} elements — more than one changeset holds; a person decides");
                 else
                 {
                     // One untypable element holds its whole storey (a partial storey leaves gaps), with every reason.
@@ -98,11 +103,12 @@ namespace Sentinel.GhostBuilder
                     var floorFacts = new Dictionary<string, string> { ["Function"] = "Interior" };
                     var ft = TypeOf(m, "Floors", a, floorFacts, t => f.FloorTypes.Contains(t) ? null : NotLoaded(t), out var floorWhy, out var floorUsed);
                     if (floorWhy != null) whys.Add("floor: " + floorWhy);
+                    // D3: each wall's centreline inset by half its type's width, mitred at the corners — its exterior face on the mass face.
+                    var inset = whys.Count == 0 ? types.Select(t => f.WallTypes[t.Type].WidthMm / 2).ToList() : null;
+                    var line = inset == null ? null : Inset(bottom, inset);
+                    if (line != null) whys.AddRange(InsetFaults(bottom, line));
                     if (whys.Count == 0)
                     {
-                        // D3: each wall's centreline inset by half its type's width, mitred at the corners — its exterior face on the mass face.
-                        var inset = types.Select(t => f.WallTypes[t.Type].WidthMm / 2).ToList();
-                        var line = Inset(bottom, inset);
                         for (int k = 0; k < bottom.Count; k++)
                         {
                             var s = line[k]; var e = line[(k + 1) % bottom.Count];
@@ -137,16 +143,20 @@ namespace Sentinel.GhostBuilder
                 p.Count += walls.Count + 1;
                 p.Lines.Add($"{a}→{b}: {walls.Count} walls · floor · filed");
             }
-            // A setback between two filed storeys: the storey below's top is not the one above's bottom — never a silent gap. ponytail: an
-            // overhang (the storey above steps out) is said the same way — a row too many, never a gap missed; a containment test if it matters.
+            // A step above a filed storey: its top is not the next storey's bottom (read), whatever became of that storey — never a silent
+            // gap. MA-6-4 review: in or out (a terrace or an overhang's underside), said in words true both ways. ponytail: no containment
+            // test to tell which; add one if a person needs "steps in" said apart.
             for (int i = 0; i + 1 < n; i++)
-                if (filed[i] && filed[i + 1] && !Same(f.Storeys[i].Top, f.Storeys[i + 1].Bottom))
-                    p.Held.Add(($"{f.Levels[i + 1].Name} setback", $"the mass steps in at {f.Levels[i + 1].Name} — the terrace below gets no roof; a person decides"));
+                if (filed[i] && f.Storeys[i + 1].Bottom != null && !Same(f.Storeys[i].Top, f.Storeys[i + 1].Bottom))
+                    p.Held.Add(($"{f.Levels[i + 1].Name} step", $"the mass changes outline at {f.Levels[i + 1].Name} (a step in or out) — what covers the difference is not shelled; a person decides"));
 
             // The roof: on the top level, over the top storey's top face — only at the mass top and only with the top storey filed.
             string top = f.Levels[n].Name, roofHeld;
             if (!roofAtTop) roofHeld = $"the mass rises {Mm(f.RiseMm)} mm above {top} — no level there; add one (Datum) or a person decides";
             else if (!filed[n - 1]) roofHeld = $"its storey {f.Levels[n - 1].Name}→{top} is held — a person decides";
+            // MA-6-4 review: the roof files with the top storey (Bodies) — a top storey of exactly MaxElements leaves it no room.
+            else if (p.Storeys[p.Storeys.Count - 1].Elements.Count + 1 > MaxElements)
+                roofHeld = $"the roof does not fit the top storey's changeset ({MaxElements} elements) — a person decides";
             else
             {
                 var roofFacts = new Dictionary<string, string> { ["Family"] = "Basic Roof" };
@@ -237,11 +247,46 @@ namespace Sentinel.GhostBuilder
             return pts;
         }
 
-        /// <summary>S-2: the same loop — as many vertices after Clean, each within <paramref name="tolMm"/> of one of the other's.</summary>
+        /// <summary>S-2: the same loop — as many vertices after Clean, each within <paramref name="tolMm"/> of one of the other's, both ways
+        /// (MA-6-4 review: two close vertices of one loop never both match one of the other's and leave one of its vertices untested).</summary>
         internal static bool Same(List<double[]> a, List<double[]> b, double tolMm = TolMm)
         {
             a = Clean(a); b = Clean(b);
-            return a.Count >= 3 && a.Count == b.Count && a.All(q => b.Any(r => Dist(q, r) <= tolMm));
+            return a.Count >= 3 && a.Count == b.Count && a.All(q => b.Any(r => Dist(q, r) <= tolMm)) && b.All(r => a.Any(q => Dist(q, r) <= tolMm));
+        }
+
+        /// <summary>MA-6-4 review: why an inset loop cannot be walled, or none — an edge that came back reversed or under 10 mm (shorter than
+        /// its corners' insets need: its wall would face inward, or Wall.Create throws and the executor declines the whole changeset), else two
+        /// walls that meet or cross (the mass narrower there than its walls). ponytail: walls back to back (a neck between one and two wall
+        /// widths) are not caught — their centrelines stay apart; a width-aware test that spares a short edge's corners if it matters.</summary>
+        internal static List<string> InsetFaults(List<double[]> cw, List<double[]> line)
+        {
+            int n = cw.Count;
+            var why = new List<string>();
+            for (int k = 0; k < n; k++)
+            {
+                double[] a = cw[k], b = cw[(k + 1) % n], s = line[k], e = line[(k + 1) % n];
+                if ((e[0] - s[0]) * (b[0] - a[0]) + (e[1] - s[1]) * (b[1] - a[1]) <= 0 || Dist(s, e) < MinWallMm)
+                    why.Add($"edge {k + 1} ({Mm(Dist(a, b))} mm) is shorter than its walls' corners need — a person decides");
+            }
+            for (int j = 0; j < n && why.Count == 0; j++)
+                for (int k = j + 2; k < n && why.Count == 0; k++)
+                    if ((k + 1) % n != j && SegDist(line[j], line[(j + 1) % n], line[k], line[(k + 1) % n]) < MinWallMm)
+                        why.Add($"the walls on edges {j + 1} and {k + 1} meet or cross — the mass is narrower there than its walls; a person decides");
+            return why;
+        }
+
+        private static double SegDist(double[] p, double[] q, double[] r, double[] s)
+        {
+            static double Cross(double[] o, double[] a, double[] b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+            if (Cross(p, q, r) * Cross(p, q, s) < 0 && Cross(r, s, p) * Cross(r, s, q) < 0) return 0; // they cross
+            static double To(double[] x, double[] a, double[] b)
+            {
+                double dx = b[0] - a[0], dy = b[1] - a[1], len2 = dx * dx + dy * dy;
+                double t = len2 < 1e-12 ? 0 : Math.Max(0, Math.Min(1, ((x[0] - a[0]) * dx + (x[1] - a[1]) * dy) / len2));
+                return Dist(x, new[] { a[0] + t * dx, a[1] + t * dy });
+            }
+            return Math.Min(Math.Min(To(p, r, s), To(q, r, s)), Math.Min(To(r, p, q), To(s, p, q)));
         }
 
         /// <summary>D3: a clockwise loop's edges each moved to their right (the inside) by their own offset, consecutive lines met at their

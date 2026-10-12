@@ -109,12 +109,41 @@ static partial class Check
         var rp = ShellPlanner.Plan(rises, shell);
         Ok(rp.Roof == null && rp.Storeys.Count == 2 && Held(rp, "roof") == "the mass rises 600 mm above SH L2 — no level there; add one (Datum) or a person decides",
            "the roof is filed only at the mass top: a mass that rises 600 mm above its top level holds the roof, in words");
+        const string step = "the mass changes outline at SH L1 (a step in or out) — what covers the difference is not shelled; a person decides";
         var setback = ShellPlanner.Plan(Facts(2, i => i == 0 ? (L, L, null) : (small, small, null)), shell);
-        Ok(setback.Storeys.Count == 2 && setback.Roof != null && Held(setback, "SH L1 setback") == "the mass steps in at SH L1 — the terrace below gets no roof; a person decides",
-           "a setback between two filed storeys is a held row, never a silent gap");
+        Ok(setback.Storeys.Count == 2 && setback.Roof != null && Held(setback, "SH L1 step") == step,
+           "a step between two filed storeys is a held row, never a silent gap — in words true of a setback and of an overhang (review)");
+        // Review: the step is said whatever became of the storey above — here held for a leaning top.
+        var stepHeld = ShellPlanner.Plan(Facts(2, i => i == 0 ? (L, L, null) : (small, L, null)), shell);
+        Ok(stepHeld.Storeys.Count == 1 && Held(stepHeld, "SH L1 storey") == ShellPlanner.Leans && Held(stepHeld, "SH L1 step") == step,
+           "the storey below filed and the one above held: the step at SH L1 is still a held row (the terrace is never a silent gap)");
+        // Review: two Building Story levels within the reader's two 10 mm cuts are no storey.
+        var flat = Facts(2); flat.Levels[2] = ("SH L1 Str", 4015);
+        var fp = ShellPlanner.Plan(flat, shell);
+        Ok(fp.Storeys.Count == 1 && Held(fp, "SH L1 storey") == "SH L1 and SH L1 Str are 15 mm apart — not a storey; a person decides" && fp.Roof == null
+           && ShellPlanner.CutMm == 10,
+           "two levels 15 mm apart (within the reader's two 10 mm cuts) make no storey — held in words, never a 0 mm wall the executor refuses");
+        // Review: Same is checked both ways — two close vertices of one loop never cover a far vertex of the other.
+        var near = new List<double[]> { P(0, 0), P(0, 12000), P(6000, 12000), P(6000, 2), P(5998, 0) };
+        var far = new List<double[]> { P(0, 0), P(0, 12000), P(6000, 12000), P(5999, 1), P(4000, -2000) };
+        Ok(!ShellPlanner.Same(near, far) && !ShellPlanner.Same(far, near) && ShellPlanner.Same(near, near),
+           "Same is symmetric: a bottom whose two vertices 2.8 mm apart both match one top vertex, the top's fifth 2 m away, is not the same");
         var unread = ShellPlanner.Plan(Facts(1, _ => (null, null, "the mass has a hole (a courtyard) 10 mm above SH L0 — a person decides")), shell);
         Ok(unread.Count == 0 && Held(unread, "SH L0 storey") == "the mass has a hole (a courtyard) 10 mm above SH L0 — a person decides",
            "a storey the reader could not read is held with the reader's why");
+        // Review: the rows the first cases left untested — a mass meeting one level, a roof type not loaded, held rows with nothing to file.
+        var oneLevel = Facts(0);
+        var ol = ShellPlanner.Plan(oneLevel, shell);
+        Ok(ol.Count == 0 && Held(ol, "storeys") == "the mass spans no storey — two Building Story levels must meet it; add them (Datum) or a person decides"
+           && ShellPlanner.Bodies(ol, oneLevel, "a").Count == 0,
+           "a mass that meets one Building Story level spans no storey: held in words, nothing filed");
+        var noRoof = Facts(2); noRoof.RoofTypes.Clear();
+        var nr = ShellPlanner.Plan(noRoof, shell);
+        Ok(nr.Storeys.Count == 2 && nr.Count == 14 && nr.Roof == null
+           && Held(nr, "roof") == "\"BDS_EXT_ARC_GENRC_300 mm\" is in the catalogue but not loaded in this model — Sentinel creates no types",
+           "a roof type the model does not hold holds the roof only — its storeys are filed");
+        Ok(unread.Held.Count > 0 && ShellPlanner.Bodies(unread, Facts(1), "a").Count == 0,
+           "held rows with nothing to file make no body — they are said in the dialog only");
 
         // Bodies (D2): ≤ 200 elements one changeset; above, one per storey with the roof in the top storey's and the held rows on the first.
         // Amendment 5: a storey of more than 200 elements is held — no (i/n) parts.
@@ -137,11 +166,26 @@ static partial class Check
            && ShellPlanner.Bodies(new ShellPlan(), lf, "a").Count == 0,
            "199 elements: one body; 260: one per storey (no \" (i/n)\" parts), the roof with the top storey, the held rows on the first; nothing to file: no body");
         List<double[]> Gon(int n) => Enumerable.Range(0, n).Select(i => P(50000 * Math.Cos(-2 * Math.PI * i / n), 50000 * Math.Sin(-2 * Math.PI * i / n))).ToList();
-        var big = ShellPlanner.Plan(Facts(1, _ => (Gon(199), Gon(199), null)), shell);
+        var big = ShellPlanner.Plan(Facts(1, _ => (Gon(200), Gon(200), null)), shell);
+        var full = ShellPlanner.Plan(Facts(1, _ => (Gon(199), Gon(199), null)), shell);
         var fits = ShellPlanner.Plan(Facts(1, _ => (Gon(198), Gon(198), null)), shell);
-        Ok(big.Count == 0 && Held(big, "SH L0 storey") == "199 edges in one storey — more than one changeset holds; a person decides"
+        Ok(big.Count == 0 && Held(big, "SH L0 storey") == "200 walls and a floor are 201 elements — more than one changeset holds; a person decides"
+           && full.Count == 200 && full.Roof == null && Held(full, "roof") == "the roof does not fit the top storey's changeset (200 elements) — a person decides"
+           && Json(ShellPlanner.Bodies(full, lf, "a")).Single()["elements"].AsArray().Count == 200
            && fits.Count == 200 && fits.Roof != null && Json(ShellPlanner.Bodies(fits, lf, "a")).Single()["elements"].AsArray().Count == 200,
-           "amendment 5: a storey that with its floor (and roof) is more than 200 elements is held in words; 198 edges, a floor and the roof fit one changeset");
+           "amendment 5 counts a storey's walls and floor: 200 walls and a floor are held in words; 199 and a floor are filed, the roof held on its own (review); 198, a floor and the roof fit one changeset");
+
+        // Review: an edge shorter than its corners' insets need — a 200 × 200 mm bump under 300 mm walls — holds the storey (its outer wall
+        // would come back reversed, the face walls overlapping); a neck narrower than the walls (their lines cross) likewise; the L files.
+        var bump = new List<double[]> { P(0, 0), P(0, 10000), P(4000, 10000), P(4000, 10200), P(4200, 10200), P(4200, 10000), P(10000, 10000), P(10000, 0) };
+        var bp = ShellPlanner.Plan(Facts(1, _ => (bump, bump, null)), shell);
+        Ok(bp.Count == 0 && Held(bp, "SH L0 storey") == "edge 4 (200 mm) is shorter than its walls' corners need — a person decides"
+           && ShellPlanner.InsetFaults(L, ShellPlanner.Inset(L, Enumerable.Repeat(150.0, 6).ToList())).Count == 0 && plan.Storeys.Count == 2,
+           "a 200 mm bump under 300 mm walls: its outer edge cannot keep a wall — the storey is held in words; the L's inset has no fault and files");
+        var neck = new List<double[]> { P(0, 0), P(0, 6000), P(6000, 6000), P(6000, 3100), P(8000, 3100), P(8000, 6000), P(14000, 6000), P(14000, 0), P(8000, 0), P(8000, 2900), P(6000, 2900), P(6000, 0) };
+        var np = ShellPlanner.Plan(Facts(1, _ => (neck, neck, null)), shell);
+        Ok(np.Count == 0 && Held(np, "SH L0 storey").StartsWith("the walls on edges ") && Held(np, "SH L0 storey").EndsWith(" meet or cross — the mass is narrower there than its walls; a person decides"),
+           "two blocks joined by a 200 mm neck under 300 mm walls: the neck's walls would cross — held in words");
 
         // The overlay draws a wall to its TopLevel (the executor's top), or SketchHeightMm without one (MA-3c's case stands).
         var topped = new ChangesetElementDto { Op = "create", Kind = "wall", Place = new PlaceDto { BaseLevel = "SH L0", TopLevel = "SH L1", LocationCurve = new CurveDto { Start = new double[] { 0, 0, 0 }, End = new double[] { 4000, 0, 0 } } } };
@@ -160,6 +204,7 @@ static partial class Check
            && Count(review, "(PromoteRun(fresh[0]) ? CarriedEdits(fresh) + \"\\n\\n\" + RunPromoteAgain : \"\")") == 2 && !review.Contains("(fresh[0].Source == \"promote\" ?")
            && review.Contains("levelMm.TryGetValue(e.Place.TopLevel, out var mm) ? mm : (double?)null;")
            && review.Contains("GhostOverlayGeometry.Segments(e, true, false, LevelOf(e), TopOf(e))") && Count(review, "GhostOverlayGeometry.All(window.RowStates(), LevelOf, TopOf)") == 2
+           && Count(review, "GhostOverlayGeometry.AllTris(window.RowStates(), LevelOf, TopOf)") == 2 // review: the two first draws' faces too
            && review.Contains("GhostOverlayGeometry.All(states, LevelOf, TopOf); var tris = GhostOverlayGeometry.AllTris(states, LevelOf, TopOf);"),
            "the review gates both \"Run Promote (DD) again\" texts on PromoteRun, and gives the overlay each wall's TopLevel elevation at every draw");
 
@@ -172,11 +217,14 @@ static partial class Check
            && cmd.Contains("finally { release(); }") && cmd.Contains("if (UserSession.IsSignedIn) fileCfg.FileToken = \"\";")
            && cmd.Contains("ReviewChangesetsCommand.Open(u, d, cfg, key, StoreyBatch.Of(filed, first));") && cmd.Contains("if (ProjectContext.For(d).Key != key)")
            && cmd.Contains("var unreviewed = pending.FirstOrDefault(p => p.Source == \"promote\");") && cmd.Contains("if (!m.HasCatalog)")
-           && cmd.Contains("GovernedNotify.Report(\"Shell a Mass receipt\", BuildReceipt.Run(\"shell-mass\", BuildReceipt.AddinSha256,"),
-           "the command holds the review guard and releases it once on every path (a refusal, No, a throw, the hub's refusal, the filing's finally, a waiting changeset reopened), files as Promote does and posts its build:run receipt");
+           && cmd.Contains("GovernedNotify.Report(\"Shell a Mass receipt\", BuildReceipt.Run(\"shell-mass\", BuildReceipt.AddinSha256,")
+           && cmd.Contains("said += \"\\nDecline the storey changeset(s) Shell a Mass filed, then run it again — once one is applied, Shell plans no more of this mass.\";")
+           && cmd.IndexOf("finally { release(); }", StringComparison.Ordinal) < cmd.IndexOf("if (filed.Count > 0 && filed.Count < bodies.Count)", StringComparison.Ordinal),
+           "the command holds the review guard and releases it once on every path (a refusal, No, a throw, the hub's refusal, the filing's finally, a waiting changeset reopened), files as Promote does and posts its build:run receipt; a filing stopped part-way says to decline the storeys filed before running again (review)");
         Ok(cmd.Contains("e.Category?.Id.IdValue() == (long)BuiltInCategory.OST_Mass || e is DirectShape ds && ds.ApplicationId == \"Sentinel\"")
            && cmd.Contains("catch (Autodesk.Revit.Exceptions.OperationCanceledException) { return Result.Cancelled; }")
-           && cmd.Contains("This model has no mass") && cmd.Contains("turn on Show Mass (Massing & Site) to see and pick an in-place mass"),
+           && cmd.Contains("This model has no mass") && cmd.Contains("turn on Show Mass (Massing & Site) to see and pick an in-place mass")
+           && !cmd.Contains("run 2b · Photo Massing"), // review: Photo Massing files no mass before MA-6-6
            "the pick takes a mass, or a DirectShape Sentinel placed (amendment 11); Esc cancels; no mass, or none shown, is said before the pick (amendment 13)");
         Ok(reader.Contains("catch (Exception ex) { f.Storeys.Add((null, null, $\"Revit could not cut the mass at {a.Name} — {ex.Message}\")); }")
            && reader.Contains("WherePasses(new ElementIntersectsSolidFilter(solid))") && reader.Contains("bb.Transform.OfPoint(new XYZ(x, y, z)).Z")

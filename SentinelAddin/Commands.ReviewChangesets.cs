@@ -29,12 +29,13 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
     // windows never apply one changeset and one result is never sent twice at once. Once it is released, a changeset Revit applied and
     // the bridge has not taken is kept closed by its record (UnreportedResults), never by this.
     // MA-3b5 (F1): Promote (DD) holds it too, while it reads and files — so a picker never lists a storey whose parts are still being filed.
+    // MA-6-4: Shell a Mass holds it too, while it reads and files — the Busy words name it (review).
     private static int _holds;
     internal static bool Held => Volatile.Read(ref _holds) > 0;
     internal static void Hold() => Interlocked.Increment(ref _holds);
     internal static void Release() => Interlocked.Decrement(ref _holds);
     private const string Title = "Sentinel — AI proposals";
-    internal const string Busy = "A review window is open, a result is still being reported to the bridge, or Promote (DD) is reading or filing, or Ghost Builder is filing or withdrawing a build — finish or close the window, or wait until the pane's Doctor log says the report or Promote's filing is done (a Promote that files nothing is done when its dialog closes), or until the Ghost build's dialog shows (and, after one that was not placed, the Doctor log says its withdrawals), then run the command again.";
+    internal const string Busy = "A review window is open, a result is still being reported to the bridge, or Promote (DD) or Shell a Mass is reading or filing, or Ghost Builder is filing or withdrawing a build — finish or close the window, or wait until the pane's Doctor log says the report, Promote's filing or Shell a Mass's filing is done (a Promote or a Shell a Mass that files nothing is done when its dialog closes), or until the Ghost build's dialog shows (and, after one that was not placed, the Doctor log says its withdrawals), then run the command again.";
     // The roles POST /changesets/:key/:id/result accepts (changesets-store.mjs reportResult: contributor or above; the
     // machine credential reads as service).
     private static readonly string[] Reporters = { "service", "contributor", "lead", "owner" };

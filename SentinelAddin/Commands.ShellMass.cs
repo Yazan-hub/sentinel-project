@@ -51,7 +51,7 @@ public sealed class ShellMassCommand : IExternalCommand
         {
             if (!MassOnly.Any(doc, null))
             {
-                TaskDialog.Show(Title, "This model has no mass — model one (Massing & Site ▸ In-Place Mass), place a mass family, or run 2b · Photo Massing.");
+                TaskDialog.Show(Title, "This model has no mass — model one (Massing & Site ▸ In-Place Mass) or place a mass family."); // MA-6-6 adds Photo Massing here, once it files a mass
                 return Result.Cancelled;
             }
             if (!MassOnly.Any(doc, uidoc.ActiveView))
@@ -179,6 +179,9 @@ public sealed class ShellMassCommand : IExternalCommand
             }
             catch (Exception ex) { said = $"Shell a Mass's filing stopped — {ex.GetType().Name}: {ex.Message}"; }
             finally { release(); }
+            // MA-6-4 review: once a filed storey is applied, ShellReader refuses this mass (walls stand inside it) — the rest is never shelled.
+            if (filed.Count > 0 && filed.Count < bodies.Count)
+                said += "\nDecline the storey changeset(s) Shell a Mass filed, then run it again — once one is applied, Shell plans no more of this mass.";
             if (filed.Count > 0)
             {
                 try

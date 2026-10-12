@@ -62,7 +62,8 @@ export function proposalElements(cs, levelMmOf = () => null) {
       const dx = c.end[0] - c.start[0], dy = c.end[1] - c.start[1], len = Math.hypot(dx, dy);
       if (!Number.isFinite(len) || len < 1) { out.skipped.push(`${name}: a wall shorter than 1 mm`); continue; }
       const wallBase = p.BaseElevation ?? (Number.isFinite(c.start[2]) ? c.start[2] : base);
-      const top = p.TopElevation ?? wallBase + SKETCH_HEIGHT_MM;
+      // MA-6-4 review: a wall to its TopLevel when this changeset tells that level (the add-in's overlay draws it so); else sketched.
+      const top = p.TopElevation ?? (p.TopLevel ? levelMmOf({ LevelName: p.TopLevel }) : null) ?? wallBase + SKETCH_HEIGHT_MM;
       if (top <= wallBase) { out.skipped.push(`${name}: a wall whose top is not above its base`); continue; }
       const mx = (c.start[0] + c.end[0]) / 2, my = (c.start[1] + c.end[1]) / 2, mz = wallBase + (top - wallBase) / 2;
       out.elements.push({ kind: "wall", size: { x: len * MM, y: (top - wallBase) * MM, z: thickMm * MM }, position: [mx * MM, mz * MM, -my * MM], rotationY: Math.atan2(dy, dx), typeName: p.TypeName ?? undefined, name });
@@ -77,7 +78,9 @@ export function proposalElements(cs, levelMmOf = () => null) {
       const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
       if (x1 - x0 < 1 || y1 - y0 < 1) { out.skipped.push(`${name}: a ${el.kind} with no area`); continue; }
       // a floor's loop carries its level's z (the executor refuses any other); the proposal's BaseElevation, if sent, wins.
-      const slabBase = p.BaseElevation ?? (el.kind === "floor" && Number.isFinite(loop[0][2]) ? loop[0][2] : base);
+      const slabBase = p.BaseElevation ?? (el.kind !== "floor" ? levelMmOf(p) : Number.isFinite(loop[0][2]) ? loop[0][2] : base);
+      // MA-6-4 review: a roof or ceiling on a level no element here tells (a shell's roof on its top level) is said, never drawn at 0.
+      if (slabBase == null) { out.skipped.push(`${name}: a ${el.kind} on a level this changeset does not tell`); continue; }
       // a floor's or roof's top sits at its level: its centre is half a thickness below; a ceiling's underside hangs at its offset above.
       const centreZ = el.kind === "ceiling" ? slabBase + (p.Offset ?? 0) + thickMm / 2 : slabBase - thickMm / 2;
       const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;

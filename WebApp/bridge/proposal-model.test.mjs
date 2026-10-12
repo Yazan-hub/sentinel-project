@@ -1,5 +1,6 @@
 // MA-3d2 — the proposal model: the creates as the IFC writer's boxes, in the executor's frame (Revit mm Z-up -> three.js m Y-up).
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
 import { proposalElements, proposalFrag, levelsOf, storeyModel } from "./proposal-model.mjs";
 
 const create = (kind, place, extra = {}) => ({ op: "create", kind, proposal_guid: `g-${kind}`, place, ...extra });
@@ -95,6 +96,26 @@ describe("levelsOf", () => {
     const cs = { elements: [create("level", { BaseElevation: 3000 }, { validate: { identity: { Name: "L2" } } }), create("wall", { LocationCurve: { start: [0, 0], end: [4000, 0] }, LevelName: "L2" })] };
     const e = proposalElements(cs, levelsOf(cs)).elements[0];
     expect(e.position[1]).toBeCloseTo(4.5, 9); // 3000 + 3000/2
+  });
+});
+
+describe("proposalElements — MA-6-4 shell (review)", () => {
+  it("a shell's walls rise to the TopLevel the changeset tells; its roof, on a level no element tells, is skipped in words, never drawn at 0", () => {
+    const cs = JSON.parse(readFileSync(new URL("./fixtures/changeset-ops/shell-body.json", import.meta.url), "utf8"));
+    const r = proposalElements(cs, levelsOf(cs));
+    const walls = r.elements.filter((e) => e.kind === "wall");
+    const l0 = walls.filter((e) => e.name.startsWith("Shell SH L0 ")), l1 = walls.filter((e) => e.name.startsWith("Shell SH L1 "));
+    expect(l0).toHaveLength(6); expect(l1).toHaveLength(6);
+    l0.forEach((e) => { expect(e.size.y).toBeCloseTo(4, 9); expect(e.position[1]).toBeCloseTo(2, 9); }); // SH L0 → SH L1: 0 → 4000
+    l1.forEach((e) => expect(e.size.y).toBeCloseTo(3, 9)); // SH L2 is told by no element here: sketched, as before
+    expect(r.skipped).toEqual(["Shell SH L2 roof: a roof on a level this changeset does not tell"]);
+    expect(r.elements.some((e) => e.name === "Shell SH L2 roof")).toBe(false);
+  });
+  it("a roof whose level the changeset tells, or that sends its BaseElevation, is still drawn", () => {
+    const roof = create("roof", { Boundary: [[0, 0], [6000, 0], [6000, 4000], [0, 4000]], LevelName: "L2" }, { facts: { thickness_mm: 300 } });
+    const cs = { elements: [create("level", { BaseElevation: 8000 }, { validate: { identity: { Name: "L2" } } }), roof] };
+    expect(proposalElements(cs, levelsOf(cs)).elements[0].position[1]).toBeCloseTo(7.85, 9);
+    expect(proposalElements({ elements: [create("ceiling", { Boundary: [[0, 0], [6000, 0], [6000, 4000], [0, 4000]], LevelName: "L9" })] }).skipped[0]).toContain("a ceiling on a level this changeset does not tell");
   });
 });
 

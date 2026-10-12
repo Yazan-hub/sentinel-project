@@ -48,8 +48,8 @@ static partial class Check
         Ok(!promote.Contains("GetAwaiter().GetResult()") && !promote.Contains(".Wait(") && Count(promote, "Task.Run(") == 3
            && review.Contains("internal static bool Held => Volatile.Read(ref _holds) > 0;") && review.Contains("internal static void Hold() =>") && review.Contains("internal static void Release() =>")
            && !review.Contains("Open(ExternalCommandData") && !review.Contains("two minutes at most")
-           && review.Contains("internal const string Busy = \"A review window is open, a result is still being reported to the bridge, or Promote (DD) is reading or filing")
-           && review.Contains("(a Promote that files nothing is done when its dialog closes)"), // C13
-           "AI-2, XC-3: nothing in Promote waits for the bridge on Revit's thread; the guard is the review's (F1), and its words name Promote with no time bound a filing cannot keep (F3)");
+           && review.Contains("internal const string Busy = \"A review window is open, a result is still being reported to the bridge, or Promote (DD) or Shell a Mass is reading or filing")
+           && review.Contains("the report, Promote's filing or Shell a Mass's filing is done (a Promote or a Shell a Mass that files nothing is done when its dialog closes)"), // C13
+           "AI-2, XC-3: nothing in Promote waits for the bridge on Revit's thread; the guard is the review's (F1), and its words name Promote (and, MA-6-4, Shell a Mass) with no time bound a filing cannot keep (F3)");
     }
 }

@@ -13,7 +13,7 @@ namespace Sentinel.GhostBuilder
     internal static class ShellReader
     {
         private const double FtToMm = 304.8;
-        private const double CutMm = 10, TolMm = 2;
+        private const double CutMm = ShellPlanner.CutMm, TolMm = 2;
 
         /// <summary>The facts ShellPlanner plans from, or null and <paramref name="refusal"/>: the mass has no solid Revit can cut, or walls
         /// already stand inside it (Shell plans an empty mass only — a second run after Apply files no second shell).</summary>
