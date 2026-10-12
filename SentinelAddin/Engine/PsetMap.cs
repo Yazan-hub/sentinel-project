@@ -77,6 +77,12 @@ public static class PsetMap
         return list;
     }
 
+    /// <summary>MA-6-2 (risk R4): the requirement keys ("Pset.Prop", "@Attr") Sentinel has a Revit reader for on an element of this IFC
+    /// class — what StageIds.Judge counts as read. Sent beside each as-built re-read: the bridge says "not read", never "fails", of an ids@n
+    /// requirement outside them.</summary>
+    public static List<string> Readable(string? org, string? ifcClass) =>
+        Entries(org).Where(e => e.Classes.Length == 0 || e.Classes.Contains(ifcClass ?? "", StringComparer.OrdinalIgnoreCase)).Select(e => e.Key).ToList();
+
     public static PsetEntry? Find(string? org, string requirementKey) =>
         Entries(org).FirstOrDefault(e => string.Equals(e.Key, (requirementKey ?? "").Trim(), StringComparison.OrdinalIgnoreCase));
 

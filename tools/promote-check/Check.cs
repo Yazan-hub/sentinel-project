@@ -89,6 +89,7 @@ static partial class Check
         Ma5b7Checks();
         Ma5b2Checks();
         Ma4f2Checks();
+        Ma6b2Checks();
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;
     }

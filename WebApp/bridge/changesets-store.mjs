@@ -661,6 +661,101 @@ const reread = (m, el, role) => {
   return bad ? { mesh_sha256, why: bad } : { mesh_sha256, ...meshFaces(el, m) };
 };
 
+/** MA-6-2 (design §4.6 step 3, D10; review amendment 5): the kinds Revit re-reads as built — the ones GovernedElementExtractor gives an IFC
+ *  class (PromoteContext.ReadAsBuilt reads the same list). Every other kind (a level, a grid, a room, furniture, an opening) exports as a
+ *  proxy: it is counted under out_of_scope, never judged. */
+export const AS_BUILT_KINDS = ["wall", "floor", "roof", "ceiling", "door", "window", "column", "beam"];
+const AS_BUILT_CAP = { psets: 50, rows: 100, chars: 512, readable: 500 };
+const AS_BUILT_IDENTITY = ["Class", "Name", "GlobalId", "ObjectType", "Tag"];
+
+/** One as_built entry, rebuilt field by field (as `reread`): identity's IFC attributes (text) and psets[{name, rows[{name, value}]}] (scalars),
+ *  and Revit's readable keys ("Pset.Prop", lower-cased) — or {why} when it is malformed or over the caps (review amendment 4a: the entry is
+ *  dropped, the result is never refused). Anything else posted — a verdict, an extra key, quantities — is not kept. */
+function keptAsBuilt(b, readable) {
+  const C = AS_BUILT_CAP;
+  const obj = (x) => !!x && typeof x === "object" && !Array.isArray(x);
+  const scalar = (v) => v === null || typeof v === "number" || typeof v === "boolean" || (typeof v === "string" && v.length <= C.chars);
+  const name = (s) => typeof s === "string" && s.length <= C.chars;
+  if (!obj(b) || !obj(b.identity)) return { why: "not {identity, psets}" };
+  const identity = {};
+  for (const k of AS_BUILT_IDENTITY) {
+    if (b.identity[k] == null) continue;
+    // MA-6-2 review: text only (GovIdentity is all strings) — sentinel-core upper-cases the Class, so a number would throw inside decide
+    if (!name(b.identity[k])) return { why: `identity.${k} is not text of at most ${C.chars} characters` };
+    identity[k] = b.identity[k];
+  }
+  const groups = b.psets ?? [];
+  if (!Array.isArray(groups) || groups.length > C.psets) return { why: `psets is not a list of at most ${C.psets}` };
+  const psets = [];
+  for (const [i, g] of groups.entries()) {
+    if (!obj(g) || !name(g.name) || !Array.isArray(g.rows) || g.rows.length > C.rows) return { why: `psets[${i}] is not {name, rows} with at most ${C.rows} rows` };
+    if (!g.rows.every((r) => obj(r) && name(r.name) && scalar(r.value))) return { why: `psets[${i}] holds a row that is not {name, value} — scalars of at most ${C.chars} characters` };
+    psets.push({ name: g.name, rows: g.rows.map((r) => ({ name: r.name, value: r.value })) });
+  }
+  if (readable != null && (!Array.isArray(readable) || readable.length > C.readable || !readable.every(name)))
+    return { why: `readable is not a list of at most ${C.readable} names` };
+  return { identity, psets, readable: readable == null ? null : new Set(readable.map((k) => k.toLowerCase())) };
+}
+
+/** MA-6-2 (design §4.6 steps 3-4, D10): what the bridge records of Revit's as-built re-read — each applied element of an AS_BUILT_KINDS
+ *  kind judged against the installed ids@n by the same adjudicate that judged the claim, one element at a time (an element no specification
+ *  applies to is "not in scope", never "passes"), under its proposal_guid (amendment 4d: Revit's own id is kept as global_id_as_built). A
+ *  requirement outside Revit's readable keys is "not read", never a failure (risk R4: PsetMap reads few properties). The values are the
+ *  add-in's claim: the record says who reported them, and the machine credential's are not judged (amendment 4, the `reread` precedent).
+ *  Null when Revit sent no as_built (an add-in before MA-6-2). Synchronous: rewrite's decide calls it (amendment 4b). */
+function asBuiltOf(cs, applied, role, judge) {
+  // A set_parameter's entry is a type: its value is judged on the elements retyped onto it, so an as_built on it is ignored.
+  const placed = applied.map((a) => [a, cs.elements.find((e) => e.proposal_guid === a.proposal_guid)]).filter(([, el]) => el.op !== "set_parameter");
+  if (!placed.some(([a]) => a.as_built != null)) return null;
+  if (role === "service") return { why: "reported with the machine credential — the agent's own key could send it", reported_role: role };
+  const { core, ids } = judge;
+  const out = { ids: ids.body ? ids.label : null, ...(ids.body ? { ids_sha256: ids.sha256 } : { why: `no IDS judged it — ${ids.label.replace(/^none — /, "")}` }),
+    reported_role: role ?? null, judged: 0, passed: 0, failed: 0, not_read: 0, not_judged: 0, out_of_scope: {}, elements: [] };
+  // MA-6-2 review: an element is counted once (JudgeApplied groups by UniqueId) — Promote's retype and attach of one wall are two entries.
+  // Each element is judged, "not in scope" (no specification asks its class or the claimed one), or not_judged: judged == passed never
+  // stands for an element that escaped.
+  const seen = new Set();
+  const put = (a, entry, ...counts) => {
+    out.elements.push(entry);
+    const id = a.revit_unique_id ?? a.revit_element_id;
+    if (seen.has(id)) return;
+    seen.add(id);
+    for (const k of counts) out[k]++;
+  };
+  for (const [a, el] of placed) {
+    if (!AS_BUILT_KINDS.includes(el.kind)) { out.out_of_scope[el.kind] = (out.out_of_scope[el.kind] ?? 0) + 1; continue; }
+    const at = { proposal_guid: a.proposal_guid, class_claimed: el.validate?.identity?.Class ?? null };
+    if (a.as_built == null) { put(a, { ...at, why: "Revit sent no as-built read of it" }, "not_judged"); continue; }
+    const b = keptAsBuilt(a.as_built, a.readable);
+    if (b.why) { put(a, { ...at, why: `not kept: ${b.why}` }, "not_judged"); continue; }
+    const one = { ...at, class_as_built: b.identity.Class ?? null, global_id_as_built: b.identity.GlobalId ?? null };
+    if (!ids.body) { put(a, one, "not_judged"); continue; }
+    const read = { identity: { ...b.identity, GlobalId: a.proposal_guid }, psets: b.psets, quantities: [] };
+    let adj, claimed;
+    try {
+      adj = core.adjudicate(ids.body, [read]);
+      claimed = !adj.summary.in_scope && at.class_claimed != null && core.adjudicate(ids.body, [{ ...read, identity: { ...read.identity, Class: at.class_claimed } }]).summary.in_scope;
+    } catch (e) { put(a, { ...at, why: `not judged: ${e.message}` }, "not_judged"); continue; } // a backstop: the result is never refused (amendment 4a)
+    // An as-built class the spec its claim was judged under does not ask (a proxy, IfcWallStandardCase) escaped it: never "not in scope".
+    if (claimed) { put(a, { ...one, verdict: `exported as ${one.class_as_built ?? "no class"} — not judged as ${at.class_claimed}` }, "not_judged"); continue; }
+    if (!adj.summary.in_scope) { put(a, { ...one, verdict: "not in scope" }); continue; }
+    // R4 (review): a requirement Revit has no reader for and did not send is "not read" whatever it asks — a prohibited one, or an
+    // optional one with a value, would otherwise pass unseen. One that asks nothing (optional, no value, no pattern) cannot fail.
+    const sent = (r, k) => k.startsWith("@") ? read.identity[r.name] : read.psets.find((g) => g.name.toLowerCase() === String(r.pset).toLowerCase())
+      ?.rows.find((x) => x.name.toLowerCase() === String(r.name).toLowerCase())?.value;
+    const notRead = !b.readable ? [] : [...new Set(ids.body.specifications.filter((s) => core.applies(s, read))
+      .flatMap((s) => [...(s.requirements?.attributes ?? []).map((r) => [r, `@${r.name}`]), ...(s.requirements?.properties ?? []).map((r) => [r, `${r.pset}.${r.name}`])])
+      .filter(([r, k]) => (r.cardinality === "required" || r.cardinality === "prohibited" || r.value != null || r.pattern != null)
+        && !b.readable.has(k.toLowerCase()) && (sent(r, k) ?? "") === "")
+      .map(([, k]) => k))];
+    const failures = adj.failures.filter((f) => !notRead.includes(f.requirement)).map(({ specification, requirement, reason }) => ({ specification, requirement, reason }));
+    const verdict = failures.length ? "fails" : notRead.length ? "not read" : "passes";
+    put(a, { ...one, verdict, ...(failures.length ? { failures } : {}), ...(notRead.length ? { not_read: notRead } : {}) },
+      "judged", { fails: "failed", "not read": "not_read", passes: "passed" }[verdict]);
+  }
+  return out;
+}
+
 /** The add-in's report: which proposals a human ticked (with the created Revit ids) and which they
  *  didn't. Writable exactly once, only from `proposed`. Status is DERIVED from the counts. */
 export async function reportResult(key, id, { applied, rejected, note, review_rev, reasons } = {}, actor, deps) {
@@ -674,6 +769,12 @@ export async function reportResult(key, id, { applied, rejected, note, review_re
   const proj = await d.ensureProject(key);
   const appliedArr = Array.isArray(applied) ? applied : [];
   const rejectedArr = Array.isArray(rejected) ? rejected : [];
+  // MA-6-2 (review amendment 4b, 4c): the ids@n that judges Revit's as-built re-read is read here, before the swap (decide is synchronous);
+  // none for the machine credential's (not judged). A read that fails is "no IDS judged it", never a refused result.
+  const judge = role !== "service" && appliedArr.some((a) => a?.as_built != null) ? {
+    core: await import("./sentinel-core.mjs"),
+    ids: await standardOf(key, "ids", d).catch((e) => ({ body: null, label: `none — the ids@n was not read: ${e.message}`, sha256: null })),
+  } : null;
 
   // CAS (MA-3a: on review_rev, rewrite): a concurrent withdraw or report can't both land — the loser reads the winner's status and
   // 409s, with no audit row — and a web decision written in between is kept, and judged.
@@ -705,6 +806,7 @@ export async function reportResult(key, id, { applied, rejected, note, review_re
     // MA-3b2: Revit's reason per declined ghost — validated before anything is written, stored beside the web's declines.
     const why = resultReasons(rejectedArr, reasons);
     const status = deriveResultStatus(appliedArr.length, rejectedArr.length, cs.elements.length);
+    const as_built = asBuiltOf(cs, appliedArr, role, judge); // MA-6-2
     return { conflicts, why, updated: {
       ...cs, status, updated_at: new Date().toISOString(), review_rev: reviewRev(cs) + 1,
       result: {
@@ -724,6 +826,7 @@ export async function reportResult(key, id, { applied, rejected, note, review_re
         review_rev_seen: review_rev == null ? null : { value: review_rev, claimed: true },
         declined_on_web: conflicts.declined_on_web, applied_over_late_decline: conflicts.late, applied_over_decline_unchecked: conflicts.unchecked,
         ...(why ? { reasons: why } : {}),
+        ...(as_built ? { as_built } : {}), // MA-6-2: Revit's re-read, judged by the bridge (never a posted verdict)
       },
     } };
   });
@@ -756,6 +859,8 @@ export async function reportResult(key, id, { applied, rejected, note, review_re
         from_job: updated.result.applied.map((a) => { const e = cs.elements.find((x) => x.proposal_guid === a.proposal_guid);
           return { proposal_guid: a.proposal_guid, revit_unique_id: a.revit_unique_id, cid: e?.cid ?? null, evidence: e?.evidence ?? [] }; }) } : {}),
       ...(why ? { reasons: why } : {}), // MA-3b2: Revit's reason per declined ghost, as stored
+      // MA-6-2: the as-built verdict's counts (the elements are on the changeset's result) — which ids@n judged, and who reported the values
+      ...(updated.result.as_built ? { as_built: (({ elements, out_of_scope, ids_sha256, ...counts }) => counts)(updated.result.as_built) } : {}),
       // MA-3a: the web's declines the result rejected (counted), and any ghost applied over a decline Revit could not see (named).
       // C8: "late" rests on the revision the client claims it re-checked — the row carries that claim, as the doc does.
       // MA-3b3 (C14): how many of those the bridge had carried from an earlier changeset (a web decline, or Revit's) — absent when none (E4).

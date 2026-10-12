@@ -361,7 +361,10 @@ describe("MA-6-1 — agent reads, the bridge's class, Undo in the status", () =>
     expect(tool("sentinel_changeset_status").description).toMatch(/result\.as_built/);
     // Review fix: as_built is not promised for every element, and guids is a count.
     expect(tool("sentinel_changeset_status").description).toMatch(/guids: how many elements the Undo removed/);
-    expect(tool("sentinel_changeset_status").description).toMatch(/or why it was not judged \(no IDS installed; reported with the machine credential\); other kinds are counted under out_of_scope/);
+    // MA-6-2 review: what as_built holds — verdicts and counts, not the values — and the machine credential's shape.
+    expect(tool("sentinel_changeset_status").description).toMatch(/only the verdict is stored, not the values\): per element a verdict of passes, fails \(with its failures\), not read \(.*\), not in scope, or exported as another class \(not judged\) — or a why \(not kept, no read\)/);
+    expect(tool("sentinel_changeset_status").description).toMatch(/judged, passed, failed, not_read and not_judged count each element once, and other kinds are counted under out_of_scope/);
+    expect(tool("sentinel_changeset_status").description).toMatch(/reported with the machine credential it is only \{why, reported_role\}/);
   });
 
   const A = "aaaaaaaa-0000-4000-8000-000000000001", B = "bbbbbbbb-0000-4000-8000-000000000002", C = "cccccccc-0000-4000-8000-000000000003";
