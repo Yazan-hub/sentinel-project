@@ -1611,5 +1611,499 @@
    "common_psets": "yes"
   },
   "error": "common_psets must be true or false"
+ },
+ {
+  "name": "a repeated set name, compared without case",
+  "body": {
+   "label": "Example Office export",
+   "psets": [
+    {
+     "name": "Pset_Office",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "PSET_OFFICE",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    }
+   ]
+  },
+  "error": "psets[1].name repeats another property set's name — each set name is used once (compared without case)"
+ },
+ {
+  "name": "a repeated property name in one set",
+  "body": {
+   "label": "Example Office export",
+   "psets": [
+    {
+     "name": "Pset_Office",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "fire rating",
+       "type": "Boolean"
+      }
+     ]
+    }
+   ]
+  },
+  "error": "psets[0].properties[1].name repeats another property in this set — each property name is used once per set (compared without case)"
+ },
+ {
+  "name": "revit_parameter of 257 characters",
+  "body": {
+   "label": "Example Office export",
+   "psets": [
+    {
+     "name": "Pset_Office",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    }
+   ]
+  },
+  "error": "psets[0].properties[0].revit_parameter must be one line of 1 to 256 characters with no tab or line break"
+ },
+ {
+  "name": "a line break in revit_parameter",
+  "body": {
+   "label": "Example Office export",
+   "psets": [
+    {
+     "name": "Pset_Office",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "a\r\nPropertySet:"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    }
+   ]
+  },
+  "error": "psets[0].properties[0].revit_parameter must be one line of 1 to 256 characters with no tab or line break"
+ },
+ {
+  "name": "65 properties in a set",
+  "body": {
+   "label": "Example Office export",
+   "psets": [
+    {
+     "name": "Pset_Office",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "P0",
+       "type": "Text"
+      },
+      {
+       "name": "P1",
+       "type": "Text"
+      },
+      {
+       "name": "P2",
+       "type": "Text"
+      },
+      {
+       "name": "P3",
+       "type": "Text"
+      },
+      {
+       "name": "P4",
+       "type": "Text"
+      },
+      {
+       "name": "P5",
+       "type": "Text"
+      },
+      {
+       "name": "P6",
+       "type": "Text"
+      },
+      {
+       "name": "P7",
+       "type": "Text"
+      },
+      {
+       "name": "P8",
+       "type": "Text"
+      },
+      {
+       "name": "P9",
+       "type": "Text"
+      },
+      {
+       "name": "P10",
+       "type": "Text"
+      },
+      {
+       "name": "P11",
+       "type": "Text"
+      },
+      {
+       "name": "P12",
+       "type": "Text"
+      },
+      {
+       "name": "P13",
+       "type": "Text"
+      },
+      {
+       "name": "P14",
+       "type": "Text"
+      },
+      {
+       "name": "P15",
+       "type": "Text"
+      },
+      {
+       "name": "P16",
+       "type": "Text"
+      },
+      {
+       "name": "P17",
+       "type": "Text"
+      },
+      {
+       "name": "P18",
+       "type": "Text"
+      },
+      {
+       "name": "P19",
+       "type": "Text"
+      },
+      {
+       "name": "P20",
+       "type": "Text"
+      },
+      {
+       "name": "P21",
+       "type": "Text"
+      },
+      {
+       "name": "P22",
+       "type": "Text"
+      },
+      {
+       "name": "P23",
+       "type": "Text"
+      },
+      {
+       "name": "P24",
+       "type": "Text"
+      },
+      {
+       "name": "P25",
+       "type": "Text"
+      },
+      {
+       "name": "P26",
+       "type": "Text"
+      },
+      {
+       "name": "P27",
+       "type": "Text"
+      },
+      {
+       "name": "P28",
+       "type": "Text"
+      },
+      {
+       "name": "P29",
+       "type": "Text"
+      },
+      {
+       "name": "P30",
+       "type": "Text"
+      },
+      {
+       "name": "P31",
+       "type": "Text"
+      },
+      {
+       "name": "P32",
+       "type": "Text"
+      },
+      {
+       "name": "P33",
+       "type": "Text"
+      },
+      {
+       "name": "P34",
+       "type": "Text"
+      },
+      {
+       "name": "P35",
+       "type": "Text"
+      },
+      {
+       "name": "P36",
+       "type": "Text"
+      },
+      {
+       "name": "P37",
+       "type": "Text"
+      },
+      {
+       "name": "P38",
+       "type": "Text"
+      },
+      {
+       "name": "P39",
+       "type": "Text"
+      },
+      {
+       "name": "P40",
+       "type": "Text"
+      },
+      {
+       "name": "P41",
+       "type": "Text"
+      },
+      {
+       "name": "P42",
+       "type": "Text"
+      },
+      {
+       "name": "P43",
+       "type": "Text"
+      },
+      {
+       "name": "P44",
+       "type": "Text"
+      },
+      {
+       "name": "P45",
+       "type": "Text"
+      },
+      {
+       "name": "P46",
+       "type": "Text"
+      },
+      {
+       "name": "P47",
+       "type": "Text"
+      },
+      {
+       "name": "P48",
+       "type": "Text"
+      },
+      {
+       "name": "P49",
+       "type": "Text"
+      },
+      {
+       "name": "P50",
+       "type": "Text"
+      },
+      {
+       "name": "P51",
+       "type": "Text"
+      },
+      {
+       "name": "P52",
+       "type": "Text"
+      },
+      {
+       "name": "P53",
+       "type": "Text"
+      },
+      {
+       "name": "P54",
+       "type": "Text"
+      },
+      {
+       "name": "P55",
+       "type": "Text"
+      },
+      {
+       "name": "P56",
+       "type": "Text"
+      },
+      {
+       "name": "P57",
+       "type": "Text"
+      },
+      {
+       "name": "P58",
+       "type": "Text"
+      },
+      {
+       "name": "P59",
+       "type": "Text"
+      },
+      {
+       "name": "P60",
+       "type": "Text"
+      },
+      {
+       "name": "P61",
+       "type": "Text"
+      },
+      {
+       "name": "P62",
+       "type": "Text"
+      },
+      {
+       "name": "P63",
+       "type": "Text"
+      },
+      {
+       "name": "P64",
+       "type": "Text"
+      }
+     ]
+    }
+   ]
+  },
+  "error": "psets[0].properties must be an array of 1 to 64 properties"
+ },
+ {
+  "name": "no classes",
+  "body": {
+   "label": "Example Office export",
+   "psets": [
+    {
+     "name": "Pset_Office",
+     "level": "instance",
+     "classes": [],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    }
+   ]
+  },
+  "error": "psets[0].classes must be 1 to 32 IFC classes in the exporter's spelling (IfcWall, not IFCWALL)"
+ },
+ {
+  "name": "33 classes",
+  "body": {
+   "label": "Example Office export",
+   "psets": [
+    {
+     "name": "Pset_Office",
+     "level": "instance",
+     "classes": [
+      "IfcC0",
+      "IfcC1",
+      "IfcC2",
+      "IfcC3",
+      "IfcC4",
+      "IfcC5",
+      "IfcC6",
+      "IfcC7",
+      "IfcC8",
+      "IfcC9",
+      "IfcC10",
+      "IfcC11",
+      "IfcC12",
+      "IfcC13",
+      "IfcC14",
+      "IfcC15",
+      "IfcC16",
+      "IfcC17",
+      "IfcC18",
+      "IfcC19",
+      "IfcC20",
+      "IfcC21",
+      "IfcC22",
+      "IfcC23",
+      "IfcC24",
+      "IfcC25",
+      "IfcC26",
+      "IfcC27",
+      "IfcC28",
+      "IfcC29",
+      "IfcC30",
+      "IfcC31",
+      "IfcC32"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    }
+   ]
+  },
+  "error": "psets[0].classes must be 1 to 32 IFC classes in the exporter's spelling (IfcWall, not IFCWALL)"
  }
 ]

@@ -1438,8 +1438,9 @@ export function readDeliveryGate(b = {}) {
   for (const k of ["contract_sha256", "sha256"]) if (v(k) !== null && !(typeof b[k] === "string" && /^[0-9a-f]{64}$/i.test(b[k]))) throw bad(`${k} must be 64 hex characters or null`);
   for (const k of ["entities", "size_bytes"]) if (v(k) !== null && !(Number.isSafeInteger(b[k]) && b[k] >= 0)) throw bad(`${k} must be a whole number or null`);
   // MA-8-6: the mapping the judged file was exported with (ifc_export@n and its sha); null for a file the person exported themselves.
-  if (v("export_ref") !== null && !(typeof b.export_ref === "string" && b.export_ref.length >= 1 && b.export_ref.length <= 64 && !/[\t\r\n]/.test(b.export_ref))) throw bad("export_ref must be one line of at most 64 characters, or null");
+  if (v("export_ref") !== null && !(typeof b.export_ref === "string" && /^ifc_export@[1-9][0-9]{0,8}$/.test(b.export_ref))) throw bad("export_ref must be an ifc_export version such as ifc_export@2, or null");
   if (v("export_sha256") !== null && !(typeof b.export_sha256 === "string" && /^[0-9a-f]{64}$/i.test(b.export_sha256))) throw bad("export_sha256 must be 64 hex characters or null");
+  if ((v("export_ref") === null) !== (v("export_sha256") === null)) throw bad("export_ref and export_sha256 go together — both set or both null");
   const failures = v("failures") ?? [];
   const line = (f) => typeof f === "string" || (!!f && typeof f === "object" && typeof f.requirement === "string" && typeof f.detail === "string");
   if (!Array.isArray(failures) || failures.length > 200 || !failures.every(line)) throw bad("failures must be a list of at most 200 lines, each a string or {requirement, detail}");

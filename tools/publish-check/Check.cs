@@ -160,8 +160,17 @@ static class Check
            "the file holds no line that is neither a comment, a set nor a property");
         Is(mapping.Describe(), "ifc_export@2 · 0123456789ab… (2 property sets)", "the dialog's description names the ref, the sha's start and the set count");
 
-        var none = IfcExportMapping.FromResolved(ArtefactClient.None("ifc_export", "not installed for aster-tower or its office"));
-        Ok(none.Mapping is null && none.Error is null, "none installed is no mapping and no error: the export is Revit's default");
+        var notInstalled = ArtefactClient.None("ifc_export", "not installed for aster-tower or its office"); notInstalled.NotInstalled = true;
+        var none = IfcExportMapping.FromResolved(notInstalled);
+        Ok(none.Mapping is null && none.Error is null, "none installed (the bridge said so) is no mapping and no error: the export is Revit's default");
+        var noProject = ArtefactClient.None("ifc_export", "no project p on the bridge"); noProject.NoProject = true;
+        Ok(IfcExportMapping.FromResolved(noProject) is (null, null), "no project on the bridge is the same: nothing to read");
+        var unreachable = IfcExportMapping.FromResolved(ArtefactClient.None("ifc_export", "bridge unreachable (timed out after 4 s)"));
+        Is(unreachable.Error ?? "null", "ifc_export could not be read (bridge unreachable (timed out after 4 s)) — the bridge did not confirm whether an export mapping is installed",
+           "a none the bridge did not confirm (timeout, unreachable, signed out, 5xx, unknown kind) is NOT 'nothing installed': it is refused");
+        Ok(unreachable.Mapping is null && IfcExportMapping.FromResolved(ArtefactClient.None("ifc_export", "the bridge does not know the kind 'ifc_export'")).Error is not null,
+           "…an unrestarted 4100 (unknown_kind) the same");
+        Is(PublishLines.ExportMappingRefused("x", publishes: false), "x — nothing was exported.", "the IFC Gate command publishes nothing, so it does not say 'or published'");
         var bad = IfcExportMapping.FromResolved(new ResolvedArtefact { Kind = "ifc_export", Ref = "ifc_export@3", BodyJson = "{\"label\":\"x\",\"psets\":[]}", Origin = "bridge", Label = "ifc_export@3 · office · 0123456789ab…" });
         Is(bad.Error ?? "null", "ifc_export@3 · office · 0123456789ab… did not parse: psets must be an array of 1 to 64 property sets", "an installed ifc_export that does not parse names itself and why");
         Ok(bad.Mapping is null && IfcExportMapping.FromResolved(new ResolvedArtefact { Kind = "ifc_export", BodyJson = "not json", Origin = "cache", Label = "ifc_export@4 (cached 10:00)" }).Error!.StartsWith("ifc_export@4 (cached 10:00) did not parse: the body is not JSON"),
@@ -173,9 +182,16 @@ static class Check
         var plan = Ready();
         Is(PublishLines.Export(plan), "IFC export: no export mapping — Revit's default property sets.", "the dialog's line with no mapping says so");
         plan.ExportMapping = mapping;
-        Is(PublishLines.Export(plan), "IFC export: ifc_export@2 · 0123456789ab… (2 property sets).", "…and with a mapping names it");
-        Ok(PublishLines.Dialog(plan, Outcome(Accepted), Staged).Contains("Delivery gate: PASS · contract@1 · office · 0123456789ab… · Schema IFC4\nIFC export: ifc_export@2 · 0123456789ab… (2 property sets).\nSHA-256:"),
+        Is(PublishLines.Export(plan), "IFC export: ifc_export@2 · 0123456789ab… (2 property sets) asked of Revit's exporter; not checked in the file.", "…and with a mapping names it, as a request, not a result");
+        Ok(PublishLines.Dialog(plan, Outcome(Accepted), Staged).Contains("Delivery gate: PASS · contract@1 · office · 0123456789ab… · Schema IFC4\nIFC export: ifc_export@2 · 0123456789ab… (2 property sets) asked of Revit's exporter; not checked in the file.\nSHA-256:"),
            "an accepted publish's dialog carries the export line between the gate line and the SHA");
+        var cachedSrc = new ResolvedArtefact { Kind = "ifc_export", Ref = "ifc_export@1", Sha256 = CSha, BodyJson = Body, Origin = "cache", FetchedAt = DateTime.UtcNow, Label = "x" };
+        Ok(IfcExportMapping.FromResolved(cachedSrc).Mapping!.Describe().Contains(" (cached "), "a mapping read from the machine cache keeps the 'cached HH:mm' marker in the dialog");
+        var evil = IfcExportMapping.FromResolved(src).Mapping!;
+        evil.Ref = "ifc_export@1\r\nPropertySet:\tEvil\tI\tIfcWall"; evil.Sha256 = "ab\ncd";
+        var evilLines = evil.FileText().Split("\r\n");
+        Ok(!evilLines.Any(l => l.StartsWith("PropertySet:\tEvil")), "a Ref carrying a line break adds no property set to the exporter's file");
+        Ok(evilLines.TakeWhile(l => !l.StartsWith("PropertySet:")).Count(l => l.StartsWith("#")) == 2, "…and the header stays exactly two # lines");
     }
 
     // ── 3. PublishOutcome: what the answer allows ─────────────────────────────────────────────────────
@@ -322,8 +338,8 @@ static class Check
         var failed = Ready(Gate(GateOutcome.Fail, "IFC2X3"));
         Ok(failed.GateFailed && !failed.Ready, "a gate FAIL is not ready");
         Is(PublishLines.Dialog(failed),
-           "✕ REJECTED — delivery gate failed (not published)\n\nContract: contract@1 · office · 0123456789ab… · Schema: IFC2X3\n\nFAILURES:\n• IFCCOLUMN: 0 found, contract requires ≥ 1.\n\nFix the deliverable and run Governed Publish again.\n\n" + GateRowLine,
-           "gate FAIL: GateLines.PublishRejected and the gate row, as before");
+           "✕ REJECTED — delivery gate failed (not published)\n\nContract: contract@1 · office · 0123456789ab… · Schema: IFC2X3\n\nFAILURES:\n• IFCCOLUMN: 0 found, contract requires ≥ 1.\n\nFix the deliverable and run Governed Publish again.\n\n" + GateRowLine + ExportLine,
+           "gate FAIL: GateLines.PublishRejected, the gate row and the export line");
         var notChecked = Ready(new GateResult { Outcome = GateOutcome.NotChecked, ContractLabel = "none — not installed for aster-tower or its office", NotCheckedReason = "none — not installed for aster-tower or its office", DetectedSchema = "IFC2X3", FileSizeBytes = 5120000, FileSha256 = FileSha });
         Ok(!notChecked.GateFailed && notChecked.Ready, "a NOT CHECKED gate is not a fail: the referee is still asked");
 
@@ -405,7 +421,7 @@ static class Check
         Is(PublishLines.Doctor(plan, none, Staged), "Auto-published " + Container + " v1 · wip · ledger #814 · receipt 6e7f8091a2b3c4d5… — not judged: no IDS installed for aster-tower or its office", "auto, recorded with no IDS");
         Is(PublishLines.Doctor(plan, rej, NotStaged), "Auto-publish rejected — nothing uploaded — 3 of 40 element check(s) failed · ids@4 · office · 23bb57937fb0… · ledger #813 · receipt 0a1b2c3d4e5f6071…", "auto, rejected: nothing uploaded, the failures, what judged, the proposal row");
         Is(PublishLines.Doctor(plan, badName, NotStaged), "Auto-publish rejected — nothing uploaded — the model name " + Container + " failed naming naming@2 · office · 77e1d2c3b4a5… · ledger #813 · receipt 0a1b2c3d4e5f6071…", "auto, rejected by name");
-        Is(PublishLines.Doctor(failed), "Auto-publish rejected — nothing uploaded — delivery gate FAIL · contract@1 · office · 0123456789ab… · Schema IFC2X3 · 1 failure(s) · gate row: ledger #812 · receipt 5c6d7e8f90112233…", "auto, gate FAIL: nothing uploaded, the contract, the gate row");
+        Is(PublishLines.Doctor(failed), "Auto-publish rejected — nothing uploaded — delivery gate FAIL · contract@1 · office · 0123456789ab… · Schema IFC2X3 · 1 failure(s) · gate row: ledger #812 · receipt 5c6d7e8f90112233… · IFC export: no export mapping — Revit's default property sets.", "auto, gate FAIL: nothing uploaded, the contract, the gate row");
         Is(PublishLines.Doctor(plan, Unreached, NotStaged), "Auto-publish: no verdict — nothing uploaded — timed out after 120s (model may be very large)", "auto, bridge not reached");
         Is(PublishLines.Doctor(noGeom), "Auto-publish failed — nothing uploaded — IFC export contained no geometry — nothing to publish. Check the model's IFC mappings (Export to IFC As).", "auto, empty export");
         Is(PublishLines.Doctor(plan, Outcome(Reply("accepted", null, 40, 40, 0, version: false)), NotStaged), "Auto-publish: verdict accepted but the bridge registered no version — nothing uploaded · ledger #813 · receipt 0a1b2c3d4e5f6071…", "auto, no version in the reply");

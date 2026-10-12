@@ -27,9 +27,6 @@ public sealed class IfcDeliveryGateCommand : IExternalCommand
         // caps it). An unbound document resolves to none without a request.
         var (contract, contractSource) = Task.Run(() => Sentinel.Engine.DeliveryContract.Load(projectKey)).GetAwaiter().GetResult();
         var schema = contract?.IfcSchema ?? "IFC2X3"; // no contract: export IFC 2x3 as before and judge nothing
-        // MA-8-6 (V11): the same mapping a publish exports with, so this check judges what a publish would publish. One that is installed and does not parse stops the command.
-        var (mapping, mappingError) = Task.Run(() => Sentinel.Engine.IfcExportMapping.FromResolved(Sentinel.Coordination.ArtefactClient.Resolve(projectKey, "ifc_export"))).GetAwaiter().GetResult();
-        if (mappingError is not null) { TaskDialog.Show("Sentinel — IFC Delivery Gate", Sentinel.Engine.PublishLines.ExportMappingRefused(mappingError)); return Result.Cancelled; }
 
         var choice = new TaskDialog("Sentinel — IFC Delivery Gate")
         {
@@ -39,7 +36,7 @@ public sealed class IfcDeliveryGateCommand : IExternalCommand
         };
         choice.AddCommandLink(TaskDialogCommandLinkId.CommandLink1,
             "Export the whole model to IFC, then certify",
-            "Runs Revit's IFC exporter on the whole model (" + (mapping is null ? "Revit's default property sets: no ifc_export installed; not a saved IFC export setup" : "property sets from " + mapping.Describe()) + "), then validates the result. Revit pauses until the export finishes.");
+            "Runs Revit's IFC exporter on the whole model (property sets from the office's ifc_export when one is installed, else Revit's defaults; not a saved IFC export setup), then validates the result. Revit pauses until the export finishes.");
         choice.AddCommandLink(TaskDialogCommandLinkId.CommandLink2,
             "Certify an existing IFC file",
             "Validate a file already exported (any source).");
@@ -58,6 +55,12 @@ public sealed class IfcDeliveryGateCommand : IExternalCommand
             Certify(ifcPath, contract, contractSource, projectKey, null); // a file the person exported: no mapping of ours
             return Result.Succeeded;
         }
+
+        // MA-8-6 (V11): the same mapping a publish exports with, so this check judges what a publish would publish. Read only on this path (certifying an
+        // existing file uses none): one installed and not parsing, or not confirmed either way by the bridge, stops the export. An unbound document has none to read.
+        var (mapping, mappingError) = projectKey.Length == 0 ? (null, null)
+            : Task.Run(() => Sentinel.Engine.IfcExportMapping.FromResolved(Sentinel.Coordination.ArtefactClient.Resolve(projectKey, "ifc_export"))).GetAwaiter().GetResult();
+        if (mappingError is not null) { TaskDialog.Show("Sentinel — IFC Delivery Gate", Sentinel.Engine.PublishLines.ExportMappingRefused(mappingError, publishes: false)); return Result.Cancelled; }
 
         // Export path: the whole model (GP-2, no view filter) to a save location.
         var save = new Microsoft.Win32.SaveFileDialog

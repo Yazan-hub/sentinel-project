@@ -369,18 +369,24 @@ export function validateArtefact(kind, body) {
     if (!filled(body.label) || body.label.length > 300) throw bad(kind, "label", "must be 1 to 300 characters");
     if (body.common_psets != null && typeof body.common_psets !== "boolean") throw bad(kind, "common_psets", "must be true or false");
     if (!Array.isArray(body.psets) || !body.psets.length || body.psets.length > 64) throw bad(kind, "psets", "must be an array of 1 to 64 property sets");
+    const setNames = new Set();
     objects(kind, "psets", body.psets, (ps, at) => {
       const strayPs = Object.keys(ps).find((k) => !["name", "level", "classes", "properties"].includes(k));
       if (strayPs !== undefined) throw bad(kind, `${at}.${strayPs}`, "is not a property-set field — a set is exactly {name, level, classes, properties}");
       if (typeof ps.name !== "string" || !/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(ps.name)) throw bad(kind, `${at}.name`, "must be letters, digits and _ only, starting with a letter, up to 64 characters");
+      if (setNames.has(ps.name.toLowerCase())) throw bad(kind, `${at}.name`, "repeats another property set's name — each set name is used once (compared without case)");
+      setNames.add(ps.name.toLowerCase());
       if (ps.level !== "instance" && ps.level !== "type") throw bad(kind, `${at}.level`, 'must be "instance" or "type"');
       if (!Array.isArray(ps.classes) || !ps.classes.length || ps.classes.length > 32 || !ps.classes.every((c) => typeof c === "string" && /^Ifc[A-Z][A-Za-z0-9]*$/.test(c)))
         throw bad(kind, `${at}.classes`, "must be 1 to 32 IFC classes in the exporter's spelling (IfcWall, not IFCWALL)");
       if (!Array.isArray(ps.properties) || !ps.properties.length || ps.properties.length > 64) throw bad(kind, `${at}.properties`, "must be an array of 1 to 64 properties");
+      const propNames = new Set();
       objects(kind, `${at}.properties`, ps.properties, (pr, pat) => {
         const strayPr = Object.keys(pr).find((k) => !["name", "type", "revit_parameter"].includes(k));
         if (strayPr !== undefined) throw bad(kind, `${pat}.${strayPr}`, "is not a property field — a property is exactly {name, type, revit_parameter?}");
         if (typeof pr.name !== "string" || !/^[A-Za-z][A-Za-z0-9_ ]{0,63}$/.test(pr.name)) throw bad(kind, `${pat}.name`, "must be letters, digits, _ and spaces only, starting with a letter, up to 64 characters");
+        if (propNames.has(pr.name.toLowerCase())) throw bad(kind, `${pat}.name`, "repeats another property in this set — each property name is used once per set (compared without case)");
+        propNames.add(pr.name.toLowerCase());
         if (!IFC_EXPORT_TYPES.includes(pr.type)) throw bad(kind, `${pat}.type`, `must be a data type the Revit IFC exporter knows (Text, Label, Boolean, Integer, Real, Length …)`);
         if (pr.revit_parameter != null && !(typeof pr.revit_parameter === "string" && pr.revit_parameter.length >= 1 && pr.revit_parameter.length <= 256 && !/[\t\r\n]/.test(pr.revit_parameter)))
           throw bad(kind, `${pat}.revit_parameter`, "must be one line of 1 to 256 characters with no tab or line break");

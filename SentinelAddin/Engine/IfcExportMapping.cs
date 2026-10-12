@@ -27,6 +27,8 @@ public sealed class IfcExportMapping
     public List<Pset> Psets = new();
     /// <summary>"ifc_export@2" and the installed body's sha256 (the <see cref="ResolvedArtefact"/>'s) — what the gate row names.</summary>
     public string Ref = "", Sha256 = "";
+    /// <summary>Set when the copy read is the machine cache's (the bridge was not reached): when it was fetched, so the dialog keeps the "cached" marker.</summary>
+    public DateTime? CachedAt;
 
     // \A…\z, not ^…$: .NET's $ also matches before a final newline, which the bridge's regexes (JS) do not.
     private static readonly Regex PsetName = new(@"\A[A-Za-z][A-Za-z0-9_]{0,63}\z");
@@ -47,13 +49,17 @@ public sealed class IfcExportMapping
     private static bool Filled(string s) => s.Any(ch => !char.IsWhiteSpace(ch) && ch != '﻿');
 
     /// <summary>A resolved ifc_export@n → (the mapping, null); none installed → (null, null); a body the bridge would have refused →
-    /// (null, "ifc_export@n · … did not parse: …"). The publish is refused on the last (an export without the office's psets would misstate the deliverable).</summary>
+    /// (null, "ifc_export@n · … did not parse: …"). The publish is refused on the last (an export without the office's psets would misstate the deliverable).
+    /// "none" is "nothing installed" only when the bridge said so (NotInstalled / NoProject); a timeout, an unreachable or erroring bridge with no cache,
+    /// or a 4100 that does not know the kind is not that answer — refused the same way, never read as "the office has none".</summary>
     public static (IfcExportMapping? Mapping, string? Error) FromResolved(ResolvedArtefact src)
     {
-        if (src.Origin == "none") return (null, null);
+        if (src.Origin == "none")
+            return src.NotInstalled || src.NoProject ? (null, null)
+                 : (null, $"ifc_export could not be read ({src.Reason}) — the bridge did not confirm whether an export mapping is installed");
         var m = FromBody(src.BodyJson, out var error);
         if (m is null) return (null, $"{src.Label} did not parse: {error}");
-        m.Ref = src.Ref ?? ""; m.Sha256 = src.Sha256 ?? "";
+        m.Ref = src.Ref ?? ""; m.Sha256 = src.Sha256 ?? ""; if (src.Origin == "cache") m.CachedAt = src.FetchedAt;
         return (m, null);
     }
 
@@ -76,6 +82,7 @@ public sealed class IfcExportMapping
                 m.CommonPsets = cp.ValueKind is JsonValueKind.True or JsonValueKind.False ? cp.GetBoolean() : throw Bad("common_psets", "must be true or false");
             if (!o.TryGetProperty("psets", out var ps) || ps.ValueKind != JsonValueKind.Array || ps.GetArrayLength() is 0 or > 64) throw Bad("psets", "must be an array of 1 to 64 property sets");
             int i = 0;
+            var setNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var s in ps.EnumerateArray())
             {
                 var at = $"psets[{i++}]";
@@ -86,6 +93,7 @@ public sealed class IfcExportMapping
                 var set = new Pset();
                 if (!s.TryGetProperty("name", out var n) || n.ValueKind != JsonValueKind.String || !PsetName.IsMatch(n.GetString()!)) throw Bad(at + ".name", "must be letters, digits and _ only, starting with a letter, up to 64 characters");
                 set.Name = n.GetString()!;
+                if (!setNames.Add(set.Name)) throw Bad(at + ".name", "repeats another property set's name — each set name is used once (compared without case)");
                 if (!s.TryGetProperty("level", out var lv) || lv.ValueKind != JsonValueKind.String || lv.GetString() is not ("instance" or "type")) throw Bad(at + ".level", "must be \"instance\" or \"type\"");
                 set.Level = lv.GetString()!;
                 if (!s.TryGetProperty("classes", out var cl) || cl.ValueKind != JsonValueKind.Array || cl.GetArrayLength() is 0 or > 32
@@ -94,6 +102,7 @@ public sealed class IfcExportMapping
                 set.Classes = string.Join(",", cl.EnumerateArray().Select(c => c.GetString()));
                 if (!s.TryGetProperty("properties", out var pr) || pr.ValueKind != JsonValueKind.Array || pr.GetArrayLength() is 0 or > 64) throw Bad(at + ".properties", "must be an array of 1 to 64 properties");
                 int j = 0;
+                var propNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 foreach (var q in pr.EnumerateArray())
                 {
                     var pat = $"{at}.properties[{j++}]";
@@ -104,6 +113,7 @@ public sealed class IfcExportMapping
                     var prop = new Prop();
                     if (!q.TryGetProperty("name", out var pn) || pn.ValueKind != JsonValueKind.String || !PropName.IsMatch(pn.GetString()!)) throw Bad(pat + ".name", "must be letters, digits, _ and spaces only, starting with a letter, up to 64 characters");
                     prop.Name = pn.GetString()!;
+                    if (!propNames.Add(prop.Name)) throw Bad(pat + ".name", "repeats another property in this set — each property name is used once per set (compared without case)");
                     if (!q.TryGetProperty("type", out var pt) || pt.ValueKind != JsonValueKind.String || !Types.Contains(pt.GetString()!)) throw Bad(pat + ".type", "must be a data type the Revit IFC exporter knows (Text, Label, Boolean, Integer, Real, Length …)");
                     prop.Type = pt.GetString()!;
                     if (q.TryGetProperty("revit_parameter", out var rp) && rp.ValueKind != JsonValueKind.Null)
@@ -145,5 +155,6 @@ public sealed class IfcExportMapping
 
     /// <summary>The one-line description the dialog prints: "ifc_export@2 · 3f07a1b2c3d4… (2 property sets)".</summary>
     public string Describe() => (Ref.Length > 0 ? Ref : "ifc_export") + (Sha256.Length >= 12 ? " · " + Sha256.Substring(0, 12) + "…" : "") +
+        (CachedAt is { } at ? $" (cached {at.ToLocalTime():HH:mm})" : "") +
         " (" + Psets.Count + " property set" + (Psets.Count == 1 ? "" : "s") + ")";
 }

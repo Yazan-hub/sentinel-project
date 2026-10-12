@@ -334,11 +334,12 @@ public static class PublishLines
 
     /// <summary>MA-8-6: the dialog's export line — the mapping the file was exported with, or that none was (never silent).</summary>
     public static string Export(PublishPlan p) => p.ExportMapping is { } m
-        ? "IFC export: " + m.Describe() + "."
+        ? "IFC export: " + m.Describe() + " asked of Revit's exporter; not checked in the file."
         : "IFC export: no export mapping — Revit's default property sets.";
 
-    /// <summary>MA-8-6: an installed ifc_export that does not parse refuses the publish before the export.</summary>
-    public static string ExportMappingRefused(string error) => error + " — nothing was exported or published.";
+    /// <summary>MA-8-6: an installed ifc_export that does not parse, or one the bridge did not confirm either way, refuses the run before the export.
+    /// The IFC Gate command publishes nothing, so it says "nothing was exported" only.</summary>
+    public static string ExportMappingRefused(string error, bool publishes = true) => error + " — nothing was exported" + (publishes ? " or published." : ".");
     public static string VerdictRow(PublishOutcome o) => "Verdict row: " + LedgerLine.For(o.VerdictRow);
 
     /// <summary>"Held on the web: Project Files ▸ On hold · ledger #815 · receipt 7a8b9c0d1e2f3041…" (spec 2026-09-27
@@ -399,7 +400,7 @@ public static class PublishLines
     {
         if (o is null || s is null)
             return p.Refusal is not null ? p.Refusal
-                 : p.GateFailed ? GateLines.PublishRejected(p.Gate) + "\n\n" + GateRow(p) + (p.GateRow.Hold is { } gateHold ? "\n" + Held(gateHold) : "")
+                 : p.GateFailed ? GateLines.PublishRejected(p.Gate) + "\n\n" + GateRow(p) + "\n" + Export(p) + (p.GateRow.Hold is { } gateHold ? "\n" + Held(gateHold) : "")
                  : "";
         var gateLine = GateLines.PublishLine(p.Gate, p.Key);
         if (!o.Reached)
@@ -499,7 +500,7 @@ public static class PublishLines
     public static string Doctor(PublishPlan p, PublishOutcome? o = null, StageResult? s = null)
     {
         if (p.Refusal is not null) return "Auto-publish failed — nothing uploaded — " + p.Refusal.Replace("\n", " ").Replace("  ", " ");
-        if (p.GateFailed) return "Auto-publish rejected — nothing uploaded — delivery gate " + GateLines.Verdict(p.Gate, p.Key) + " · " + p.Gate.Failures.Count + " failure(s) · gate row: " + LedgerLine.For(p.GateRow) +
+        if (p.GateFailed) return "Auto-publish rejected — nothing uploaded — delivery gate " + GateLines.Verdict(p.Gate, p.Key) + " · " + p.Gate.Failures.Count + " failure(s) · gate row: " + LedgerLine.For(p.GateRow) + " · " + Export(p) +
                                  (p.GateRow.Hold is { } gateHold ? " · " + Held(gateHold) : "");
         if (o is null || s is null) return "Auto-publish: no verdict — the publish stopped before the referee answered — nothing uploaded";
         var v = o.Verdict;
