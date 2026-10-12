@@ -53,4 +53,12 @@ describe("extractManifest", () => {
     const m = await extractManifest(Buffer.from(text, "utf8"));
     expect(m.levels[1].elevation_mm).toBeCloseTo(3300, 6);
   });
+  it("MA-6-7: a foot file reads as 304.8 (the metre it is defined in is not the project unit)", async () => {
+    // Revit writes FOOT for every imperial project: an IfcConversionBasedUnit over IfcMeasureWithUnit(0.3048 METRE)
+    const foot = fx("fed-a.ifc").toString("utf8")
+      .replace("IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.)", "IFCCONVERSIONBASEDUNIT(#9001,.LENGTHUNIT.,'FOOT',#9002)")
+      .replace("ENDSEC;\nEND-ISO", "#9000=IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.);\n#9001=IFCDIMENSIONALEXPONENTS(1,0,0,0,0,0,0);\n#9002=IFCMEASUREWITHUNIT(IFCLENGTHMEASURE(0.3048),#9000);\nENDSEC;\nEND-ISO");
+    const m = await extractManifest(Buffer.from(foot, "utf8"));
+    expect(m.levels[1].elevation_mm).toBeCloseTo(3300 * 304.8, 3);
+  });
 });

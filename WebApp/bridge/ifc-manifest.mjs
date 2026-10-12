@@ -14,37 +14,40 @@ export const MANIFEST_CLASSES = [
   "IFCFOOTING", "IFCSPACE", "IFCCURTAINWALL", "IFCRAILING", "IFCMEMBER", "IFCPLATE",
 ];
 
-const val = (o) => (o == null ? null : typeof o === "object" && !Array.isArray(o) && "value" in o ? o.value : o);
-const num = (o) => { const v = val(o); if (v == null || v === "") return null; const n = Number(v); return Number.isFinite(n) ? n : null; };
-const ref = (o) => (o && typeof o === "object" && "value" in o ? o.value : typeof o === "number" ? o : null);
-const idsOf = (api, mid, type) => { const v = api.GetLineIDsWithType(mid, type, true); const out = []; for (let i = 0; i < v.size(); i++) out.push(v.get(i)); return out; };
+export const val = (o) => (o == null ? null : typeof o === "object" && !Array.isArray(o) && "value" in o ? o.value : o);
+export const num = (o) => { const v = val(o); if (v == null || v === "") return null; const n = Number(v); return Number.isFinite(n) ? n : null; };
+export const ref = (o) => (o && typeof o === "object" && "value" in o ? o.value : typeof o === "number" ? o : null);
+export const idsOf = (api, mid, type) => { const v = api.GetLineIDsWithType(mid, type, true); const out = []; for (let i = 0; i < v.size(); i++) out.push(v.get(i)); return out; };
 
-/** Project length unit → millimetres per unit. IfcSIUnit METRE with prefix MILLI is 1; bare METRE 1000;
- *  conversion-based FOOT 304.8, INCH 25.4. Unknown → assume metres (the IFC default). */
-function mmPerUnit(api, mid) {
-  for (const id of idsOf(api, mid, WebIFC.IFCSIUNIT)) {
-    const u = api.GetLine(mid, id);
-    if (val(u.UnitType) !== "LENGTHUNIT") continue;
-    const p = val(u.Prefix);
-    if (p === "MILLI") return 1;
-    if (p === "CENTI") return 10;
-    if (p === "DECI") return 100;
-    if (p === "KILO") return 1e6;
-    if (p == null) return 1000;
+/** A length unit entity → millimetres per unit, or null when it is not a length unit. IfcSIUnit: the prefix over METRE
+ *  (MILLI 1, bare 1000, KILO 1e6). IfcConversionBasedUnit (FOOT, INCH): its factor times the SI unit it is measured in. */
+const SI_PREFIX = { MICRO: 0.001, MILLI: 1, CENTI: 10, DECI: 100, DECA: 1e4, HECTO: 1e5, KILO: 1e6, MEGA: 1e9 };
+function lengthUnitMm(api, mid, id, depth = 0) {
+  const u = id == null || depth > 4 ? null : api.GetLine(mid, id);
+  if (!u || val(u.UnitType) !== "LENGTHUNIT") return null;
+  if (u.type === WebIFC.IFCSIUNIT) { const p = val(u.Prefix); return p == null ? 1000 : (SI_PREFIX[p] ?? null); }
+  if (u.type === WebIFC.IFCCONVERSIONBASEDUNIT) {
+    const cf = api.GetLine(mid, ref(u.ConversionFactor));
+    const base = lengthUnitMm(api, mid, ref(cf?.UnitComponent), depth + 1), k = num(cf?.ValueComponent);
+    return base != null && k != null ? base * k : null;
   }
-  for (const id of idsOf(api, mid, WebIFC.IFCCONVERSIONBASEDUNIT)) {
-    const u = api.GetLine(mid, id);
-    if (val(u.UnitType) !== "LENGTHUNIT") continue;
-    const n = String(val(u.Name) || "").toUpperCase();
-    if (n === "FOOT" || n === "FEET") return 304.8;
-    if (n === "INCH") return 25.4;
-  }
+  return null;
+}
+
+/** Project length unit → millimetres per unit, from IfcProject.UnitsInContext → IfcUnitAssignment.Units (a FOOT file also holds the
+ *  metre it is defined by, so scanning every unit would misread it as metres). Unknown → assume metres (the IFC default). */
+export function mmPerUnit(api, mid) {
+  try {
+    const pid = idsOf(api, mid, WebIFC.IFCPROJECT)[0];
+    const ua = pid == null ? null : api.GetLine(mid, ref(api.GetLine(mid, pid).UnitsInContext));
+    for (const u of ua?.Units || []) { const f = lengthUnitMm(api, mid, ref(u)); if (f != null) return f; }
+  } catch { /* an unreadable assignment is the default below */ }
   return 1000;
 }
 
 /** IfcCompoundPlaneAngleMeasure (deg, min, sec[, millionths]) → decimal degrees; the sign is carried by
  *  the first non-zero component, as the IFC spec defines it. */
-function compoundAngle(list) {
+export function compoundAngle(list) {
   if (!Array.isArray(list) || !list.length) return null;
   const parts = list.map((x) => num(x) ?? 0);
   const first = parts.find((p) => p !== 0);
