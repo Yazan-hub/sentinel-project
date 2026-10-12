@@ -1170,7 +1170,7 @@ export async function listAudit(key, filters = {}) {
 /** Every ledger row of `key` matching `filters` (auditQuery's), newest first: listAudit read page after page (AUDIT_MAX
  *  each) to the exact total. The pages are read by offset, newest first, so a row written between two reads pushes a
  *  row into the next page a second time: each id is kept once (the ledger is append-only, so none is skipped). */
-async function auditAll(key, filters) {
+export async function auditAll(key, filters) {
   const byId = new Map();
   for (let offset = 0; ;) {
     const page = await listAudit(key, { ...filters, limit: AUDIT_MAX, offset });
@@ -1209,8 +1209,9 @@ export async function audit(project_id, entity_type, entity_id, action, actor, o
 // posts one here: the add-in posts build, naming, family_heal and the XC-5 report types; its Undo goes to POST /changesets/:key/:id/reverted.
 // The prefix comes after the two above, so `find` keeps their own words.
 // MA-4e: verify:measured is the bridge's measure of a placed changeset (changesets-store verifyChangeset) — the desk reads the newest one by entity_id as fact; no client posts a verify: row.
-const RESERVED_ACTIONS = ["verdict:", "gate:", "roi:", "state:", "hold:", "review:", "changeset_reviewed", "changeset_reopened", "changeset_", "geometry linked", "evidence:", "attestation:", "verify:"];
-const RESERVED_TYPES = ["stage_gate", "hold", "delivery_gate", "review", "platform_gate", "evidence", "attestation"];
+// MA-8-1: edit_cost:published (entity_type edit_cost) is a lead's publish of a run's edit cost (changesets-store publishEditCost) — read back as the last published numbers.
+const RESERVED_ACTIONS = ["verdict:", "gate:", "roi:", "state:", "hold:", "review:", "changeset_reviewed", "changeset_reopened", "changeset_", "geometry linked", "evidence:", "attestation:", "verify:", "edit_cost:"];
+const RESERVED_TYPES = ["stage_gate", "hold", "delivery_gate", "review", "platform_gate", "evidence", "attestation", "edit_cost"];
 
 /** Record an audit event by project KEY (golden thread) — the DB trigger hash-chains it (tamper-evident). A reserved
  *  row (an action starting with one of RESERVED_ACTIONS, or an entity_type in RESERVED_TYPES; case and surrounding

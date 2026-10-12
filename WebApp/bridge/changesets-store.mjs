@@ -3,9 +3,10 @@
 // here touches model data — the Revit add-in executes only what a human ticks (A2).
 import { randomUUID, createHash } from "node:crypto";
 import * as cde from "./cde-store.mjs";
+import { canonical } from "./canonical.mjs";
 import * as members from "./members-store.mjs";
 import { validateChangeset, attachVerdicts, canWithdraw, deriveResultStatus, unattributedFailures,
-  reviewRev, applyDecisions, reopenDecline, resultConflicts, resultReasons, carryDeclines, declineWords, UNTYPED } from "./changesets-logic.mjs";
+  reviewRev, editCost, applyDecisions, reopenDecline, resultConflicts, resultReasons, carryDeclines, declineWords, UNTYPED } from "./changesets-logic.mjs";
 import { makeTyper, makeCiter } from "./changesets-typing.mjs";
 import { resolveArtefact, refLabel, validateArtefact } from "./artefact-store.mjs";
 import { resolveActor } from "./bridge-auth.mjs";
@@ -26,6 +27,7 @@ const wire = (deps = {}) => ({
   docList: deps.docList || cde.docList,
   docReplaceIfField: deps.docReplaceIfField || cde.docReplaceIfField,
   audit: deps.audit || cde.audit,
+  auditAll: deps.auditAll || cde.auditAll,
   requireMinRole: deps.requireMinRole || members.requireMinRole,
   myRole: deps.myRole || members.myRole,
   takeWriteBudget: deps.takeWriteBudget || cde.takeWriteBudget,
@@ -230,6 +232,7 @@ const ifcOf = (cs) => String(cs.job?.reader ?? "").startsWith(`${IFC} `);
 // project, so a double-click or two leads at once cannot file one job twice (the evidence-store admitting / rechecking, build-jobs running
 // precedent). ponytail: one bridge process — a second bridge on this PC (4101) can still race; a per-job unique doc key when two bridges serve one project.
 const proposing = new Set();
+const publishing = new Set(); // MA-8-1: one edit-cost publish per key at a time
 /** The house rule: a refusal before the first write ends "nothing was saved" — a callee's own words (readPack, validateChangeset, the
  *  typer, a store read) get it appended. */
 const unsaved = (e) => (/nothing was saved/i.test(e.message) ? e : err(e.status ?? 503, `${e.message} — nothing was saved`));
@@ -646,6 +649,44 @@ export async function listChangesets(key, { status } = {}, deps) {
   const proj = await d.ensureProject(key);
   const all = await d.docList(STORE, proj.id);
   return status ? all.filter((c) => c.status === status) : all;
+}
+
+/** MA-8-1 (C11): GET /changesets/:key/edit-cost → the edit cost of every run of `key`, from the docs and the changeset_reverted rows.
+ *  A failed ledger read is a 503: numbers without the Undo column would overclaim what was kept. */
+export async function editCostOf(key, deps) {
+  const d = wire(deps);
+  const proj = await d.ensureProject(key);
+  const all = await d.docList(STORE, proj.id);
+  let reverted;
+  try { reverted = await d.auditAll(key, { entity_type: "changeset", action_prefix: "changeset_reverted" }); }
+  catch (e) { throw err(503, `the ledger could not be read (${e.message}) — an Undo in Revit could be missed, so no edit cost is shown`); }
+  return editCost(all, reverted);
+}
+
+/** MA-8-1: POST /changesets/:key/edit-cost/publish {run} — a lead's ledger row naming the numbers and the rows they rest on. A person's
+ *  (the machine credential is a 403); a run still being reviewed (409); the same numbers on the same rows twice (409, no row). */
+export async function publishEditCost(key, b, actor, deps) {
+  const d = wire(deps);
+  await reviewer(d, key, "lead", "publishing an edit cost");
+  if (!b || typeof b.run !== "string" || b.run === "") throw err(400, "the body is {run} — a run's key from the edit-cost list");
+  d.takeWriteBudget("edit cost", { perUser: 20, all: 60 });
+  if (publishing.has(key)) throw err(409, `an edit cost is being published on ${key} — try again when it ends`);
+  publishing.add(key);
+  try {
+    const proj = await d.ensureProject(key);
+    const r = (await editCostOf(key, deps).catch((e) => { throw unsaved(e); })).runs.find((x) => x.run === b.run);
+    if (!r) throw err(404, `no run "${b.run.slice(0, 80)}" on ${key}`);
+    if (!r.complete) throw err(409, `${r.label} is still being reviewed (${r.pending} ghost(s) pending) — publish when every changeset of it is decided`);
+    const numbers = { filed: r.filed, web: r.web, carried: r.carried, revit: r.revit, applied: r.applied, undone: r.undone, kept: r.kept, withdrawn: r.withdrawn, share_changed: r.share_changed };
+    let prev;
+    try { prev = (await d.auditAll(key, { entity_type: "edit_cost", action_prefix: "edit_cost:published" })).find((y) => y.new_value?.run === r.run); }
+    catch (e) { throw err(503, `the ledger could not be read (${e.message}) — nothing was saved`); }
+    if (prev && canonical(prev.new_value.numbers) === canonical(numbers) && canonical(prev.new_value.rests_on) === canonical(r.rests_on)) // jsonb reorders keys
+      throw err(409, `${r.label}'s edit cost was published on these same numbers as ledger #${prev.id} — nothing was saved`);
+    const row = await d.audit(proj.id, "edit_cost", null, `edit_cost:published ${r.label} · ${r.kept}/${r.filed} kept`, actor || "web", null,
+      { run: r.run, label: r.label, numbers, rests_on: r.rests_on, changesets: r.changesets, ceiling: r.ceiling });
+    return { ledger: ledgerRef(row), run: r.run, numbers };
+  } finally { publishing.delete(key); }
 }
 
 export async function getChangeset(key, id, deps) {

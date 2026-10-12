@@ -88,6 +88,9 @@ describe("POST /cde/:key/audit (recordAudit) — Sentinel's own rows are refused
     [{ entity_type: "note", action: " Attestation:signed a evp-0001" }, "attestation: rows are written by Sentinel, not through this route"],
     [{ entity_type: "evidence", action: "recorded" }, "evidence rows are written by Sentinel, not through this route"],
     [{ entity_type: " Attestation ", action: "recorded" }, "attestation rows are written by Sentinel, not through this route"],
+    // MA-8-1: a lead's published edit cost is the bridge's row.
+    [{ entity_type: "event", action: " Edit_Cost:published job-0001" }, "edit_cost: rows are written by Sentinel, not through this route"],
+    [{ entity_type: "edit_cost", action: "recorded" }, "edit_cost rows are written by Sentinel, not through this route"],
   ])("%j → 400", async (body, message) => {
     await expect(recordAudit("aster-tower", body)).rejects.toMatchObject({ status: 400, message });
     expect(calls).toHaveLength(0);

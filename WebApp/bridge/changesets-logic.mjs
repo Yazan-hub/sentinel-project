@@ -673,6 +673,53 @@ export function deriveResultStatus(appliedCount, rejectedCount, total) {
   return "partially_applied";
 }
 
+// ── MA-8-1 (C11): the edit cost of a run — how much of what Sentinel filed a person changed. Computed at read time from rows that exist
+//    (the changeset docs and their changeset_reverted rows); nothing is stored but a lead's publish. A run is a job (its ledger row —
+//    a job id repeats across jobs folders), else one changeset (Promote has no run id).
+export const EDIT_COST_CEILING = "edits made after Apply, other than an Undo in Revit, are not seen";
+
+/** `changesets`: the stored docs; `reverted`: the changeset_reverted rows (any order). Withdrawn changesets are left out of the share and counted (per run in `withdrawn`, ghosts). */
+export function editCost(changesets, reverted) {
+  const rows = [...(reverted ?? [])].sort((a, b) => (b.id ?? 0) - (a.id ?? 0)); // newest first: a guid's newest row decides
+  const last = new Map(); // changeset id → guid → newest reverted row
+  for (const y of rows) {
+    const m = last.get(y.entity_id) ?? last.set(y.entity_id, new Map()).get(y.entity_id);
+    for (const g of y.new_value?.guids ?? []) if (!m.has(g)) m.set(g, y);
+  }
+  const runs = new Map();
+  let withdrawn = 0;
+  for (const cs of changesets ?? []) {
+    const jobRow = cs.job?.ledger_id != null ? cs.job.ledger_id : null;
+    const run = jobRow != null ? `job#${jobRow}` : cs.id;
+    const r = runs.get(run) ?? runs.set(run, { run, label: jobRow != null ? `${cs.job.id} (ledger #${jobRow})` : cs.name ?? cs.id,
+      filed: 0, web: 0, carried: 0, revit: 0, applied: 0, undone: 0, kept: 0, pending: 0, withdrawn: 0, changesets: [], rests_on: { applied: null, reverted: null } }).get(run);
+    if (cs.status === "withdrawn") { withdrawn++; r.withdrawn += cs.elements?.length ?? 0; continue; } // MA-8-1 review: said on the run, not only project-wide
+    const ro = r.rests_on;
+    r.changesets.push(cs.id);
+    r.filed += cs.elements?.length ?? 0;
+    if (cs.status === "proposed") { r.pending += cs.elements?.length ?? 0; continue; }
+    const res = cs.result ?? {}, web = res.declined_on_web ?? [];
+    const carried = web.filter((x) => x.carried_from).length;
+    r.web += web.length - carried;
+    r.carried += carried;
+    r.revit += Math.max(0, (res.rejected?.length ?? 0) - web.length);
+    const m = last.get(cs.id);
+    // rests_on: the newest report time (the applied row's id is not on the doc) and the newest Undo/Redo row the numbers rest on
+    if (res.reported_at && (ro.applied == null || res.reported_at > ro.applied)) ro.applied = res.reported_at;
+    for (const y of m?.values() ?? []) if (ro.reverted == null || y.id > ro.reverted) ro.reverted = y.id;
+    const applied = (res.applied ?? []).map((a) => a?.proposal_guid ?? a); // stored as {proposal_guid, revit_element_id, …}
+    const undone = applied.filter((g) => m?.get(g)?.new_value?.op === "undo").length;
+    r.applied += applied.length;
+    r.undone += undone;
+    r.kept += applied.length - undone;
+  }
+  const out = [...runs.values()].map((r) => {
+    const den = r.filed - r.pending - r.carried;
+    return { ...r, share_changed: den > 0 ? (r.web + r.revit + r.undone) / den : null, complete: r.pending === 0, ceiling: EDIT_COST_CEILING };
+  });
+  return { runs: out, withdrawn, ceiling: EDIT_COST_CEILING };
+}
+
 // ── MA-3a: the review states of design §6.6, one per ghost — the web desk's half (Revit's tick, apply and revert are its result and
 //    its changeset_reverted rows). A ghost's `review` is absent while nobody decided: proposed. A web decline BINDS: Revit shows the
 //    ghost unticked with the reason and refuses the tick, and the bridge refuses a result that applies a decline Revit had seen. A web
