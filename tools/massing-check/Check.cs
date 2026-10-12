@@ -248,6 +248,59 @@ static class Check
            && MassingPlanner.NotStarted("no plan") == "The filing did not start (no plan). Your numbers are kept: put it right, then File for review again.",
            "MAS-4 (MA-6-6): a filing that did not start, or that the bridge did not take, keeps the numbers and says to file again");
 
+        // MA-6-10 (MAS-3): the footprint pick - Chain, Placed, Area, and Changeset with a footprint.
+        double[] P(double x, double y) => new[] { x, y };
+        var L = new List<double[]> { P(0, 0), P(30000, 0), P(30000, 8000), P(18000, 8000), P(18000, 20000), P(0, 20000) };
+        List<(double[] A, double[] B)> Segs(List<double[]> loop) => loop.Select((p, i) => (p, loop[(i + 1) % loop.Count])).ToList();
+        var shuffled = Segs(L); shuffled.Reverse(); shuffled = shuffled.Select((s, i) => i % 2 == 0 ? (s.B, s.A) : s).ToList();
+        shuffled = new[] { 3, 0, 5, 1, 4, 2 }.Select(i => shuffled[i]).ToList();
+        var chained = MassingPlanner.Chain(shuffled, 1, out string cwhy);
+        Ok(chained != null && cwhy == null && chained.Count == 6 && Math.Abs(MassingPlanner.Area(chained) - 456.0) < 1e-9,
+           "Chain joins shuffled and reversed segments into one loop of 6 corners, 456.0 m2");
+        var gapSegs = Segs(L); gapSegs[5] = (gapSegs[5].A, P(5, 0));
+        Ok(MassingPlanner.Chain(gapSegs, 1, out string gwhy) == null && gwhy == "the lines do not close — a gap of 5 mm at (0, 0)",
+           "Chain: a 5 mm gap is refused in words (" + gwhy + ")");
+        var branchSegs = Segs(L); branchSegs.Add((P(0, 0), P(-5000, -5000)));
+        Ok(MassingPlanner.Chain(branchSegs, 1, out string bwhy) == null && bwhy == "the lines branch at (0, 0) — pick one outline", "Chain: a branch is refused (" + bwhy + ")");
+        Ok(MassingPlanner.Chain(Segs(L).Take(2).ToList(), 1, out string fwhy) == null && fwhy == "fewer than 3 edges", "Chain: 2 edges is refused");
+        var two = Segs(new List<double[]> { P(0, 0), P(1000, 0), P(1000, 1000) }); two.AddRange(Segs(new List<double[]> { P(5000, 5000), P(6000, 5000), P(6000, 6000) }));
+        Ok(MassingPlanner.Chain(two, 1, out string twhy) == null && twhy == "the lines make more than one outline — pick one outline", "Chain: two separate triangles are refused (" + twhy + ")");
+
+        var rect = new List<double[]> { P(0, 0), P(4000, 0), P(4000, 2000), P(0, 2000) };
+        var r90 = MassingPlanner.Placed(new Footprint { Loop = rect }, 90);
+        Ok(r90 != null && Math.Abs(MassingPlanner.Area(r90) - 8.0) < 0.01
+           && r90.Max(q => q[0]) - r90.Min(q => q[0]) == 2000 && r90.Max(q => q[1]) - r90.Min(q => q[1]) == 4000
+           && (r90.Min(q => q[0]) + r90.Max(q => q[0])) / 2 == 2000 && (r90.Min(q => q[1]) + r90.Max(q => q[1])) / 2 == 1000,
+           "Placed 90 degrees turns about the bounding-box centre: 2000 x 4000, same centre, area kept");
+        var moved = MassingPlanner.Placed(new Footprint { Loop = L, At = P(100000, -50000) }, 30);
+        Ok(moved != null && Math.Abs(MassingPlanner.Area(moved) - 456.0) < 0.01 && Math.Abs((moved.Min(q => q[0]) + moved.Max(q => q[0])) / 2 - 100000) < 1500,
+           "Placed with a moved centre and a 30 degree turn keeps the area within 0.01 m2");
+        var cw = new List<double[]> { P(0, 0), P(0, 2000), P(4000, 2000), P(4000, 0), P(4000, 0), P(2000, 0) };
+        var ccw = MassingPlanner.Placed(new Footprint { Loop = cw }, 0);
+        double shoelace = 0; if (ccw != null) for (int i = 0; i < ccw.Count; i++) { var q = ccw[(i + 1) % ccw.Count]; shoelace += ccw[i][0] * q[1] - q[0] * ccw[i][1]; }
+        Ok(ccw != null && ccw.Count == 4 && shoelace > 0 && ccw[0][0] == 0 && ccw[0][1] == 0, "Placed drops a repeated and a straight-through point and returns counter-clockwise from the same first corner");
+
+        var fp = new Footprint { Loop = L, From = "a closed CAD polyline on layer A-SITE", At = P(100000, 0) };
+        var mf = MassingPlanner.Validate(new MassingEstimate { Storeys = V(3), StoreyHeightMm = V(3500), RotationDeg = 30, Footprint = fp, FacadesSeen = new List<string> { "front" } });
+        Ok(mf.RotationDeg == 30 && mf.Footprint == fp, "Validate copies RotationDeg and the footprint");
+        var cb = JsonDocument.Parse(JsonSerializer.Serialize(MassingPlanner.Changeset(mf, new List<(string, double, bool)>(), "a@example.test", fp).Body)).RootElement;
+        var mfMass = cb.GetProperty("elements").EnumerateArray().Last();
+        string mreason = mfMass.GetProperty("reason").GetString();
+        Ok(mfMass.GetProperty("kind").GetString() == "mass" && mfMass.GetProperty("place").GetProperty("Boundary").GetArrayLength() == 6
+           && mreason.Contains("footprint: a closed CAD polyline on layer A-SITE, 6 corners, 456.0 m² (the polyline: 456.0 m²), centre at (100000, 0) mm, turned 30°")
+           && cb.GetProperty("name").GetString() == "Photo Massing · 3 storeys · footprint 456.0 m²"
+           && !mfMass.TryGetProperty("LevelName", out _) && !mfMass.TryGetProperty("TypeName", out _) && cb.GetProperty("source").GetString() == "photo",
+           "Changeset with a footprint: a 6-corner Boundary, the footprint reason, the footprint name, no LevelName or TypeName (" + mreason + ")");
+        var plain = MassingPlanner.Changeset(m, new List<(string, double, bool)>(), "a@example.test");
+        var at0 = JsonSerializer.Serialize(MassingPlanner.Changeset(m, new List<(string, double, bool)>(), "a@example.test", null).Body);
+        Ok(at0 == JsonSerializer.Serialize(plain.Body) && at0.Contains("\"Boundary\":[[-6000,-4000],[6000,-4000],[6000,4000],[-6000,4000]]"),
+           "without a footprint or a turn the changeset is unchanged: the W x D rectangle centred on the origin");
+        var centred = MassingPlanner.Changeset(m, new List<(string, double, bool)>(), "a", new Footprint { At = P(5000, 7000), From = "x" }).Body;
+        Ok(JsonSerializer.Serialize(centred).Contains("\"Boundary\":[[-1000,3000],[11000,3000],[11000,11000],[-1000,11000]]"), "choice 2: the photos' rectangle is centred on the picked point");
+        var pickedStorey = new MassingEstimate { Storeys = V(3), StoreyHeightMm = V(3500), Footprint = fp, FootprintWidthMm = new EstimatedValue { Value = 2000, Source = "assumed" }, FootprintDepthMm = new EstimatedValue { Value = 2000, Source = "assumed" } };
+        Ok(!MassingPlanner.FieldsNeedingReview(pickedStorey).Contains("footprint width") && MassingPlanner.Scale(pickedStorey, null, 12000) is { } w0 && w0.Contains("give the building's height"),
+           "a picked footprint: width and depth are not asked of the reviewer, and a known width is refused");
+
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;
     }

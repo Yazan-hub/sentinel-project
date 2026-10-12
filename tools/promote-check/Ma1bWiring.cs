@@ -94,7 +94,7 @@ static partial class Check
            && massing.Contains("if (refusal != null) { review.Reopen(MassingPlanner.NotStarted(refusal)); return; }")
            && massing.IndexOf("review.Close();", StringComparison.Ordinal) > massing.IndexOf("cs = ChangesetClient.Propose(fileCfg, key, body, out err);", StringComparison.Ordinal),
            "MAS-4 (MA-6-6): the command closes the review once the bridge has the changeset, and reopens it with why when nothing was filed");
-        Ok(massing.Contains("App.Events.Enqueue(doc, \"plan Photo Massing\", (u, d) => PlanAndFile(d, cfg, key, corrected, review, receipt),")
+        Ok(massing.Contains("App.Events.Enqueue(doc, \"plan Photo Massing\", (u, d) => PlanAndFile(d, cfg, key, corrected, fp, review, receipt),")
            && massing.Contains("why => review.Reopen(MassingPlanner.NotStarted(why)));") && massingReview.Contains("Reopen(MassingPlanner.NotStarted(ex.Message));"),
            "MAS-4 (SEC-7, MA-6-6): a filing request goes through the event hub, pinned to this model — one Revit refuses reopens the review with why; one that threw before it was queued reopens it too");
     }

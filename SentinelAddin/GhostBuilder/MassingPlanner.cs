@@ -60,6 +60,18 @@ namespace Sentinel.GhostBuilder
         public string KnownField;
         public double KnownMm;
         public List<string> ViewLines = new List<string>();
+        // MA-6-10 (C#-only): the turn the reviewer gave (degrees, counter-clockwise) and the footprint picked in Revit, if any.
+        public double RotationDeg;
+        public Footprint Footprint;
+    }
+
+    /// <summary>MA-6-10 (MAS-3): where the mass stands. Loop = a picked outline in model mm (null: the photos' W x D rectangle), At = where its
+    /// centre goes (null: where it lies / the origin), From = the pick in words.</summary>
+    public sealed class Footprint
+    {
+        public List<double[]> Loop;
+        public double[] At;
+        public string From;
     }
 
     public static class MassingPlanner
@@ -113,6 +125,7 @@ namespace Sentinel.GhostBuilder
                 HeightToWidth = raw.HeightToWidth == null ? null : Copy(raw.HeightToWidth),
                 KnownField = raw.KnownField, KnownMm = raw.KnownMm,
                 ViewLines = new List<string>(raw.ViewLines ?? new List<string>()),
+                RotationDeg = raw.RotationDeg, Footprint = raw.Footprint, // MA-6-10 (amendment 14)
             };
         }
 
@@ -225,6 +238,8 @@ namespace Sentinel.GhostBuilder
         public static string Scale(MassingEstimate m, double? heightMm, double? widthMm)
         {
             if (heightMm.HasValue == widthMm.HasValue) return "give exactly one known dimension — the building's height or a façade's width";
+            bool picked = m.Footprint?.Loop != null; // MA-6-10: the outline is the footprint - only the height is worked out
+            if (picked && widthMm.HasValue) return "the footprint is picked — give the building's height instead";
             double known = heightMm ?? widthMm.Value;
             if (!(known > 0) || double.IsInfinity(known)) return "the known dimension must be a number above zero";
             double n = Math.Round(m.Storeys.Value);
@@ -240,6 +255,7 @@ namespace Sentinel.GhostBuilder
             h.Lo = H / (m.Storeys.Hi ?? n); h.Hi = H / (m.Storeys.Lo ?? n); h.Views = h.Of = 0;
             h.Note = $"{Mm0(H)} mm ÷ {Mm0(n)} storeys";
 
+            if (picked) return null;
             var w = m.FootprintWidthMm;
             if (widthMm.HasValue)
             {
@@ -274,6 +290,8 @@ namespace Sentinel.GhostBuilder
             var h = m.StoreyHeightMm; var w = m.FootprintWidthMm;
             if (h.Source == "inferred" && (h.Value < StoreyH.lo || h.Value > StoreyH.hi))
                 return $"storey height inferred {Mm0(h.Value)} mm ({Mm0(H)} mm ÷ {Mm0(n)} storeys) is outside {Mm0(StoreyH.lo)}–{Mm0(StoreyH.hi)} mm — check the count or the known dimension";
+            if (m.Footprint?.Loop != null) // MA-6-10: no width or depth to judge
+                return n < Storeys.lo || n > Storeys.hi ? $"{Mm0(n)} storeys is outside {Mm0(Storeys.lo)}–{Mm0(Storeys.hi)} — check the count" : null;
             if (w.Source == "inferred" && (w.Value < FootprintW.lo || w.Value > FootprintW.hi))
                 return $"footprint width inferred {Mm0(w.Value)} mm ({Mm0(H)} mm ÷ ratio {r.ToString("0.##", CultureInfo.InvariantCulture)}) is outside {Mm0(FootprintW.lo)}–{Mm0(FootprintW.hi)} mm — check the ratio or the known dimension";
             if (m.KnownField == "width" && (w.Value < FootprintW.lo || w.Value > FootprintW.hi))
@@ -305,8 +323,11 @@ namespace Sentinel.GhostBuilder
         {
             var outp = new List<string>();
             void Check(string label, EstimatedValue v) { if (v.Source != "photo" || v.Confidence <= AssumedBelow) outp.Add(label); }
-            Check("footprint width", m.FootprintWidthMm);
-            Check("footprint depth", m.FootprintDepthMm);
+            if (m.Footprint?.Loop == null) // MA-6-10: a picked outline has no width or depth to confirm
+            {
+                Check("footprint width", m.FootprintWidthMm);
+                Check("footprint depth", m.FootprintDepthMm);
+            }
             if (m.Storeys.Source == "photo") outp.Add("storeys"); // MA-6-9: photos agreeing is not a count being right (P-1, D17)
             else Check("storeys", m.Storeys);
             Check("storey height", m.StoreyHeightMm);
@@ -329,7 +350,7 @@ namespace Sentinel.GhostBuilder
         /// any level holds the name, case aside (a duplicate name fails the changeset, D16). Then one mass: the W × D rectangle centred on
         /// 0,0 from e(0) to e(n), in the same frame (amendment 3). Source photo, never a pre-tick (the bridge pre-ticks no create). Over
         /// MaxElements, a mass over MaxMassMm, or a Building Story level between two of its storeys (the shell would cut it) is refused. Anonymous objects only: massing-check and ghost-p2-check compile this file alone (amendment 4).</summary>
-        public static (object Body, string Refusal) Changeset(MassingEstimate m, IReadOnlyList<(string Name, double ElevationMm, bool IsStory)> levels, string actor)
+        public static (object Body, string Refusal) Changeset(MassingEstimate m, IReadOnlyList<(string Name, double ElevationMm, bool IsStory)> levels, string actor, Footprint fp = null)
         {
             double W = m.FootprintWidthMm.Value, D = m.FootprintDepthMm.Value, h = m.StoreyHeightMm.Value;
             int n = Math.Max(1, (int)Math.Round(m.Storeys.Value));
@@ -368,18 +389,116 @@ namespace Sentinel.GhostBuilder
             if (elements.Count + 1 > MaxElements)
                 return (null, $"{elements.Count} levels and a mass are {elements.Count + 1} elements — a changeset holds {MaxElements} elements: lower the storey count, or file the levels with Datum");
             string size = $"{Metres(W)} × {Metres(D)} m";
+            List<double[]> boundary = new List<double[]> { new[] { -W / 2, -D / 2 }, new[] { W / 2, -D / 2 }, new[] { W / 2, D / 2 }, new[] { -W / 2, D / 2 } };
+            string where = "";
+            // MA-6-10 (MAS-3): a picked outline, or a turn / a point for the photos' rectangle, is placed by Placed; with neither the output is as before.
+            if (fp != null || m.RotationDeg != 0)
+            {
+                var src = fp?.Loop ?? boundary;
+                var placed = Placed(new Footprint { Loop = src, At = fp?.At }, m.RotationDeg);
+                if (placed == null) return (null, "the footprint has fewer than 3 corners once its repeated and straight-through points are dropped — check the outline");
+                boundary = placed;
+                // the pivot: where the outline's bounding-box centre was put (the point picked, else where it lay)
+                double cx = fp?.At?[0] ?? (src.Min(q => q[0]) + src.Max(q => q[0])) / 2, cy = fp?.At?[1] ?? (src.Min(q => q[1]) + src.Max(q => q[1])) / 2;
+                where = $"centre at ({Mm(cx)}, {Mm(cy)}) mm" + (m.RotationDeg != 0 ? $", turned {Mm(m.RotationDeg)}°" : "");
+                if (fp?.Loop != null)
+                {
+                    string a = Area(placed).ToString("0.0", CultureInfo.InvariantCulture);
+                    size = $"footprint {a} m²";
+                    where = $"footprint: {fp.From}, {placed.Count} corners, {a} m² (the polyline: {Area(fp.Loop).ToString("0.0", CultureInfo.InvariantCulture)} m²), " + where;
+                }
+            }
+            bool picked = fp?.Loop != null;
             elements.Add(new
             {
                 op = "create", kind = "mass",
-                place = new
-                {
-                    Boundary = new List<double[]> { new[] { -W / 2, -D / 2 }, new[] { W / 2, -D / 2 }, new[] { W / 2, D / 2 }, new[] { -W / 2, D / 2 } },
-                    BaseElevation = 0.0, TopElevation = n * h,
-                },
-                reason = $"Photo Massing: {size}, {StoreyCount(n)} of {Mm(h)} mm — width {From(m.FootprintWidthMm)}, depth {From(m.FootprintDepthMm)}, storeys {From(m.Storeys)}, storey height {From(m.StoreyHeightMm)}",
+                place = new { Boundary = boundary, BaseElevation = 0.0, TopElevation = n * h },
+                reason = picked
+                    ? $"Photo Massing: {where}; {StoreyCount(n)} of {Mm(h)} mm — storeys {From(m.Storeys)}, storey height {From(m.StoreyHeightMm)}"
+                    : $"Photo Massing: {size}, {StoreyCount(n)} of {Mm(h)} mm — width {From(m.FootprintWidthMm)}, depth {From(m.FootprintDepthMm)}, storeys {From(m.Storeys)}, storey height {From(m.StoreyHeightMm)}" + (where == "" ? "" : "; " + where),
                 validate = new { identity = new { Class = "IFCBUILDINGELEMENTPROXY", Name = "Photo mass" } },
             });
             return (new { name = $"Photo Massing · {StoreyCount(n)} · {size}", source = "photo", actor, elements }, null);
+        }
+
+        // ---- MA-6-10 (MAS-3): footprint pick, pure -------------------------------------------------------------------------------
+        /// <summary>One closed loop of every segment (model mm), or null and why: fewer than 3 edges, a branch, a gap, or more than one outline.
+        /// Endpoints within <paramref name="tolMm"/> are one corner.</summary>
+        public static List<double[]> Chain(IReadOnlyList<(double[] A, double[] B)> segs, double tolMm, out string why)
+        {
+            why = null;
+            var list = (segs ?? new List<(double[] A, double[] B)>()).Where(s => Math.Sqrt(Math.Pow(s.A[0] - s.B[0], 2) + Math.Pow(s.A[1] - s.B[1], 2)) > tolMm).ToList();
+            if (list.Count < 3) { why = "fewer than 3 edges"; return null; }
+            var nodes = new List<double[]>();
+            int Node(double[] p)
+            {
+                for (int i = 0; i < nodes.Count; i++) if (Math.Sqrt(Math.Pow(nodes[i][0] - p[0], 2) + Math.Pow(nodes[i][1] - p[1], 2)) <= tolMm) return i;
+                nodes.Add(new[] { p[0], p[1] });
+                return nodes.Count - 1;
+            }
+            var ends = list.Select(s => (a: Node(s.A), b: Node(s.B))).ToList();
+            var deg = new int[nodes.Count];
+            foreach (var e in ends) { deg[e.a]++; deg[e.b]++; }
+            string at(int i) => $"({Mm(nodes[i][0])}, {Mm(nodes[i][1])})";
+            for (int i = 0; i < deg.Length; i++)
+                if (deg[i] > 2) { why = $"the lines branch at {at(i)} — pick one outline"; return null; }
+            var open = Enumerable.Range(0, deg.Length).Where(i => deg[i] == 1).ToList();
+            if (open.Count > 0)
+            {
+                int i = open[0];
+                double gap = open.Count > 1 ? open.Skip(1).Min(j => Math.Sqrt(Math.Pow(nodes[i][0] - nodes[j][0], 2) + Math.Pow(nodes[i][1] - nodes[j][1], 2))) : double.NaN;
+                why = $"the lines do not close — a gap of {(double.IsNaN(gap) ? "unknown" : Mm(gap))} mm at {at(i)}";
+                return null;
+            }
+            // every corner has two edges: walk from the first edge; a walk that returns to the start before using every edge = more than one outline
+            var loop = new List<double[]>();
+            var used = new bool[ends.Count];
+            int cur = ends[0].a, k = 0;
+            while (k < ends.Count)
+            {
+                int e = Enumerable.Range(0, ends.Count).First(x => !used[x] && (ends[x].a == cur || ends[x].b == cur));
+                used[e] = true; loop.Add(nodes[cur]);
+                cur = ends[e].a == cur ? ends[e].b : ends[e].a;
+                k++;
+                if (cur == ends[0].a && k < ends.Count) { why = "the lines make more than one outline — pick one outline"; return null; }
+            }
+            return loop;
+        }
+
+        private static double Signed(IList<double[]> p)
+        {
+            double a = 0;
+            for (int i = 0; i < p.Count; i++) { var q = p[(i + 1) % p.Count]; a += p[i][0] * q[1] - q[0] * p[i][1]; }
+            return a / 2;
+        }
+
+        /// <summary>The loop's area in m2 (mm in).</summary>
+        public static double Area(IList<double[]> loop) => Math.Abs(Signed(loop)) / 1e6;
+
+        /// <summary>The footprint turned by <paramref name="rotDeg"/> (counter-clockwise) about its bounding-box centre, the centre then moved to At when
+        /// given: counter-clockwise, repeats and straight-through points dropped, 0.1 mm. Null when fewer than 3 corners remain.</summary>
+        public static List<double[]> Placed(Footprint fp, double rotDeg)
+        {
+            var p = fp.Loop;
+            double cx = (p.Min(v => v[0]) + p.Max(v => v[0])) / 2, cy = (p.Min(v => v[1]) + p.Max(v => v[1])) / 2;
+            double ox = fp.At?[0] ?? cx, oy = fp.At?[1] ?? cy, a = rotDeg * Math.PI / 180, c = Math.Cos(a), s = Math.Sin(a);
+            var q = p.Select(v => new[] { Math.Round(ox + c * (v[0] - cx) - s * (v[1] - cy), 1), Math.Round(oy + s * (v[0] - cx) + c * (v[1] - cy), 1) }).ToList();
+            for (bool changed = true; changed && q.Count >= 3;)
+            {
+                changed = false;
+                for (int i = 0; i < q.Count && q.Count >= 3; i++)
+                {
+                    var prev = q[(i + q.Count - 1) % q.Count]; var cur = q[i]; var next = q[(i + 1) % q.Count];
+                    double len = Math.Sqrt(Math.Pow(next[0] - prev[0], 2) + Math.Pow(next[1] - prev[1], 2));
+                    double cross = (cur[0] - prev[0]) * (next[1] - prev[1]) - (cur[1] - prev[1]) * (next[0] - prev[0]);
+                    bool same = Math.Abs(cur[0] - prev[0]) < 0.05 && Math.Abs(cur[1] - prev[1]) < 0.05;
+                    bool straight = len > 0 && Math.Abs(cross) / len < 0.05 && (cur[0] - prev[0]) * (next[0] - cur[0]) + (cur[1] - prev[1]) * (next[1] - cur[1]) > 0;
+                    if (same || straight) { q.RemoveAt(i); i--; changed = true; }
+                }
+            }
+            if (q.Count < 3) return null;
+            if (Signed(q) < 0) { var first = q[0]; q.RemoveAt(0); q.Reverse(); q.Insert(0, first); }
+            return q;
         }
 
         // MA-6 batch-2 drill: "1 storey", not "1 storeys".
