@@ -75,6 +75,6 @@ static partial class Check
            && win.Contains("Ticks(); // MA-3c: the ghost overlay recolours") && win.Contains("r.Box.IsEnabled = false; } Ticks(); });")
            && win.Contains("_applied = true; Ticks();") && win.Contains("Say(words); Ticks(); }); // MA-3c review: the overlay comes back"),
            "MA-3c: the window says every row's state after a tick, a Lock or Apply");
-        Ok(Count(rev, "GhostOverlayServer.Register(") == 2 && Count(rev, "GhostOverlayServer.Remove(") == 2, "MA-3c: the overlay is registered once and removed in one place — MA-4f: and the scan overlay likewise");
+        Ok(Count(rev, "GhostOverlayServer.Register(") == 3 && Count(rev, "GhostOverlayServer.Remove(") == 2, "MA-3c: the overlay is registered once and removed in one place — MA-4f: and the scan overlay likewise (MA-8-9: a stair slice is drawn as a third registration; the scan and its slice are removed by the one ScanOff)");
     }
 }

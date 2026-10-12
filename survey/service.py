@@ -128,10 +128,11 @@ def run(job):
         if "cloud" in job:  # MA-4f: the overlay's points (the bridge cuts the band and moves them into the model's frame)
             P, _, points_in = pipeline.load(ok, job["params"], job["seed"], progress)
             c = job["cloud"]
-            Q, cell, of = pipeline.thin(P, c["z_mm"], c["cell_mm"], c["max_points"])
+            Q, cell, of = pipeline.thin(P, c["z_mm"], c["cell_mm"], c["max_points"], c.get("xy_mm"))
             out = {"points": Q.tolist(), "derived": []}
             stats = {"points_in": int(points_in), "points_used": int(len(P)),
-                     "cloud": {"cell_mm": int(cell), "z_mm": c["z_mm"], "of": int(of), "points": int(len(Q))}}
+                     "cloud": {"cell_mm": int(cell), "z_mm": c["z_mm"], "of": int(of), "points": int(len(Q)),
+                                **({"xy_mm": c["xy_mm"]} if "xy_mm" in c else {})}}
         elif measuring:
             P, _, points_in = pipeline.load(ok, job["params"], job["seed"], progress)
             tol = job["params"]["tolerances_mm"]
@@ -219,7 +220,8 @@ def read_measure(b):
 
 def read_cloud(b):
     """MA-4f: POST /cloud's body — a job's (read_job: its own items, params and seed, so the cloud is the one its candidates came from) plus
-    cloud {cell_mm, z_mm: [low, high], max_points}; or ValueError in words."""
+    cloud {cell_mm, z_mm: [low, high], max_points, xy_mm?: [[x0, y0], [x1, y1]]} (MA-8-9: a stair flag's slice crops to the box's plan first,
+    sentinel-survey stays 0.6.0 — an optional input, no existing output changes); or ValueError in words."""
     m = read_job(b)
     c = b.get("cloud")
     num = lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and abs(v) <= 1e9  # a NaN fails the bound
@@ -227,7 +229,11 @@ def read_cloud(b):
     if not (isinstance(c, dict) and whole(c.get("cell_mm"), 20, 1000) and whole(c.get("max_points"), 8, MAX_CLOUD)  # 8: thin's doubling ends
             and isinstance(c.get("z_mm"), list) and len(c["z_mm"]) == 2 and all(num(z) for z in c["z_mm"]) and c["z_mm"][0] < c["z_mm"][1]):
         raise ValueError(f"cloud must be {{cell_mm: 20 to 1000, z_mm: [low, high] mm, max_points: 8 to {MAX_CLOUD}}}")
-    return {**m, "cloud": {"cell_mm": c["cell_mm"], "z_mm": c["z_mm"], "max_points": c["max_points"]}}
+    xy = c.get("xy_mm")
+    if xy is not None and not (isinstance(xy, list) and len(xy) == 2 and all(isinstance(q, list) and len(q) == 2 and all(num(v) for v in q) for q in xy)
+                               and xy[0][0] < xy[1][0] and xy[0][1] < xy[1][1]):
+        raise ValueError("cloud.xy_mm must be [[x0, y0], [x1, y1]] mm with x0 < x1 and y0 < y1")
+    return {**m, "cloud": {"cell_mm": c["cell_mm"], "z_mm": c["z_mm"], "max_points": c["max_points"], **({} if xy is None else {"xy_mm": xy})}}
 
 
 class Server(ThreadingHTTPServer):

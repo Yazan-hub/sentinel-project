@@ -22,6 +22,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using Sentinel.Coordination;
+using Sentinel.GhostBuilder;
 
 namespace Sentinel.UI;
 
@@ -36,6 +37,11 @@ public sealed class ChangesetReviewWindow : Window
     public event Action RetryRequested;
     /// <summary>MA-4f: "Show the scan" ticked (true) or unticked (false) — a survey changeset only.</summary>
     public event Action<bool> ScanRequested;
+    /// <summary>MA-8-9: "Flag a stair…" pressed - the command picks two plan corners on the active storey's plan and files the flag.</summary>
+    public event Action FlagStairRequested;
+    /// <summary>MA-8-9: a stair flag's "Scan slice" ticked (true) or unticked (false) - its unique_id; a survey changeset only. Shares the scan's
+    /// overlay: ticking a slice unticks "Show the scan" and the other slices, and the reverse.</summary>
+    public event Action<bool, string> StairSliceRequested;
     /// <summary>MA-3c: every row's state after a tick, a group tick, a Lock or Apply — the ghost overlay recolours from it.</summary>
     public event Action<List<(ChangesetElementDto El, bool Ticked, bool Locked)>> TicksChanged;
     /// <summary>MA-3c: every row's state, for the ghost overlay — locked = a declined row (its box disabled).</summary>
@@ -58,6 +64,12 @@ public sealed class ChangesetReviewWindow : Window
     private readonly List<(string What, TextBox Reason, List<(CheckBox Box, ChangesetElementDto El)> Rows)> _groups = new();
     private readonly TextBlock _shown = new() { Foreground = Brushes.Gray, TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed, Margin = new Thickness(0, 0, 0, 4) };
     private readonly ChangesetDto _cs;
+    // MA-8-9: the "Sent to a person" list is kept so a flag filed from this window joins it; the slice toggles and the scan box untick each other.
+    private readonly StackPanel _heldList = new();
+    private readonly Expander _heldExp = new() { IsExpanded = true, Margin = new Thickness(0, 0, 0, 8) };
+    private readonly List<CheckBox> _slices = new();
+    private CheckBox _scanBox;
+    private bool SurveyChangeset => _cs.Claimed == false && !(_cs.Source ?? "").StartsWith("sentinel-drawing ") && !(_cs.Source ?? "").StartsWith("sentinel-ifc ");
     private readonly ISet<string> _notLoaded; // MA-6 fix-b1 (F-3): rows whose type this model does not hold, read by the command on the API thread
     private bool _applied; // MA-3b: once Apply was raised, never again from this window — a second Apply could place it twice
     private volatile bool _gone;
@@ -108,31 +120,12 @@ public sealed class ChangesetReviewWindow : Window
         root.Children.Add(head);
 
         // The elements sent to a person (Promote's exceptions): shown with their reason, never tickable.
-        var held = _cs.Exceptions ?? new List<ExceptionRowDto>();
-        if (held.Count > 0)
-        {
-            var heldList = new StackPanel();
-            foreach (var x in held)
-            {
-                var row = new DockPanel { Margin = new Thickness(0, 2, 0, 2) };
-                var box = new CheckBox { IsChecked = false, IsEnabled = false, VerticalAlignment = VerticalAlignment.Center };
-                DockPanel.SetDock(box, Dock.Left);
-                row.Children.Add(box);
-                row.Children.Add(new TextBlock
-                {
-                    Text = $"{x.Name ?? x.UniqueId} — {x.Reason}", Foreground = Brushes.Orange, TextWrapping = TextWrapping.Wrap,
-                    Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, ToolTip = x.UniqueId,
-                });
-                heldList.Children.Add(row);
-            }
-            var exp = new Expander
-            {
-                Header = $"Sent to a person ({held.Select(x => x.UniqueId).Distinct().Count()} element(s))", IsExpanded = true, Margin = new Thickness(0, 0, 0, 8),
-                Content = new ScrollViewer { Content = heldList, MaxHeight = 140, VerticalScrollBarVisibility = ScrollBarVisibility.Auto },
-            };
-            DockPanel.SetDock(exp, Dock.Top);
-            root.Children.Add(exp);
-        }
+        // MA-8-9: a stair flag shows its line (storey, size) and, on a survey changeset, a "Scan slice" toggle; a flag filed from here joins the list (AddFlag).
+        _heldExp.Content = new ScrollViewer { Content = _heldList, MaxHeight = 140, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+        foreach (var x in _cs.Exceptions ?? new List<ExceptionRowDto>()) _heldList.Children.Add(HeldRow(x));
+        HeldHeader();
+        DockPanel.SetDock(_heldExp, Dock.Top);
+        root.Children.Add(_heldExp);
 
         // Footer: reviewer note + actions. (Top/bottom docked before the fill so the list scrolls.)
         var foot = new StackPanel { Margin = new Thickness(0, 8, 0, 0) };
@@ -155,9 +148,17 @@ public sealed class ChangesetReviewWindow : Window
         // MA-4f: a survey changeset's scan, drawn as crosses beside the ghosts — off until ticked (each tick reads the scan again on the bridge's
         // one survey slot); a changeset that is a claim has no scan, nor one the bridge built from a drawing (MA-5a-4: its source names sentinel-drawing; MA-6-8: or sentinel-ifc).
         var scan = new CheckBox { Content = "Show the scan", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0),
-                                  Visibility = _cs.Claimed == false && !(_cs.Source ?? "").StartsWith("sentinel-drawing ") && !(_cs.Source ?? "").StartsWith("sentinel-ifc ") ? Visibility.Visible : Visibility.Collapsed };
-        scan.Checked += (_, _) => ScanRequested?.Invoke(true);
+                                  Visibility = SurveyChangeset ? Visibility.Visible : Visibility.Collapsed };
+        _scanBox = scan;
+        // MA-8-9: ticking the scan unticks the stair slices (their events clean the slice up first), then asks for the scan.
+        scan.Checked += (_, _) => { foreach (var sl in _slices.Where(x => x.IsChecked == true).ToList()) sl.IsChecked = false; ScanRequested?.Invoke(true); };
         scan.Unchecked += (_, _) => ScanRequested?.Invoke(false);
+        // MA-8-9: a person's pick of a stair, on any changeset still live.
+        var flagStair = new Button { Content = "Flag a stair…", Padding = new Thickness(10, 4, 10, 4), Margin = new Thickness(0, 0, 12, 0),
+                                     ToolTip = "Pick the stair's two plan corners on a storey's plan; it is saved on this changeset as a flag for a person - nothing is placed",
+                                     Visibility = _cs.Status == "withdrawn" ? Visibility.Collapsed : Visibility.Visible };
+        flagStair.Click += (_, _) => FlagStairRequested?.Invoke();
+        buttons.Children.Add(flagStair);
         buttons.Children.Add(scan);
         buttons.Children.Add(_retry); buttons.Children.Add(all); buttons.Children.Add(none); buttons.Children.Add(_go);
         foot.Children.Add(buttons);
@@ -380,6 +381,60 @@ public sealed class ChangesetReviewWindow : Window
     /// <summary>Review C2: the reason boxes are read-only once their reasons were taken (the press), and editable again only when nothing
     /// was applied (Refused, Reopen) — the next press takes them afresh.</summary>
     private void Reasons(bool taken) { foreach (var g in _groups) g.Reason.IsReadOnly = taken; }
+
+    private void HeldHeader()
+    {
+        var held = _cs.Exceptions ?? new List<ExceptionRowDto>();
+        _heldExp.Header = $"Sent to a person ({held.Select(x => x.UniqueId).Distinct().Count()} element(s))";
+        _heldExp.Visibility = held.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>MA-8-9 review: who a stair flag is from - only the bridge sets source, so a posted flag is not read as a person's pick.</summary>
+    private static string FlagSource(ExceptionRowDto x) => x.Source switch
+    {
+        "pick" => "picked by a person",
+        "ifc" => $"from the IFC, GlobalId {x.GlobalId}",
+        _ => "posted with the changeset, not checked",
+    };
+
+    private UIElement HeldRow(ExceptionRowDto x)
+    {
+        var row = new DockPanel { Margin = new Thickness(0, 2, 0, 2) };
+        var box = new CheckBox { IsChecked = false, IsEnabled = false, VerticalAlignment = VerticalAlignment.Center };
+        DockPanel.SetDock(box, Dock.Left);
+        row.Children.Add(box);
+        var stair = x.Kind == "stair" && x.Box?.Min != null && x.Box.Max != null;
+        if (stair && SurveyChangeset)
+        {
+            var slice = new CheckBox { Content = "Scan slice", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0),
+                                       ToolTip = "Show the scan inside this stair's box (reads the scan on the bridge; off until ticked)" };
+            slice.Checked += (_, _) =>
+            {
+                if (_scanBox?.IsChecked == true) _scanBox.IsChecked = false;
+                foreach (var o in _slices.Where(y => y != slice && y.IsChecked == true).ToList()) o.IsChecked = false;
+                StairSliceRequested?.Invoke(true, x.UniqueId);
+            };
+            slice.Unchecked += (_, _) => StairSliceRequested?.Invoke(false, x.UniqueId);
+            _slices.Add(slice);
+            DockPanel.SetDock(slice, Dock.Right);
+            row.Children.Add(slice);
+        }
+        row.Children.Add(new TextBlock
+        {
+            Text = stair ? $"{StairFlag.Line(x.Storey, x.Box.Min, x.Box.Max)} — {x.Reason} ({FlagSource(x)})" : $"{x.Name ?? x.UniqueId} — {x.Reason}", Foreground = Brushes.Orange, TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, ToolTip = x.UniqueId,
+        });
+        return row;
+    }
+
+    /// <summary>MA-8-9: a stair flag the bridge took joins "Sent to a person" (and a slice toggle on a survey changeset). Any thread.</summary>
+    public void AddFlag(ExceptionRowDto x) => Ui(() =>
+    {
+        (_cs.Exceptions ??= new List<ExceptionRowDto>()).Add(x);
+        _heldList.Children.Add(HeldRow(x));
+        HeldHeader();
+        _heldExp.IsExpanded = true;
+    });
 
     /// <summary>MA-3b: the status line; any thread. Apply stays as it is.</summary>
     public void Say(string words) => Ui(() =>

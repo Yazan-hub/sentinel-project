@@ -1180,3 +1180,16 @@ describe("showing a changeset's scan (MA-4f): a signed-in contributor; a view, n
     expect(db.audit_log.length).toBe(rows);
   });
 });
+
+describe("flagging a stair (MA-8-9): a signed-in contributor's pick, never the machine credential's", () => {
+  const PICK = { kind: "stair", storey: "L01", box: { min: [0, 0, 0], max: [1200, 5400, 3000] } };
+  it("POST /changesets/demo/x/flags: the machine credential is a 403 in the bridge's words, a viewer too; no row", async () => {
+    const rows = db.audit_log.length;
+    expect(await call("POST", "/changesets/demo/x/flags", "machine", PICK)).toEqual({ status: 403, body: { message: "a stair flag is a person's pick — sign in (Standards ▸ Sign in); nothing was saved" } });
+    expect(await call("POST", "/changesets/demo/x/flags", "viewer", PICK)).toEqual(refused("contributor", "viewer"));
+    expect(db.audit_log.length).toBe(rows);
+  });
+  it("GET /changesets/demo/x/scan?flag= over 64 characters is a 400 before anything runs", async () => {
+    expect(await call("GET", `/changesets/demo/x/scan?flag=${"s".repeat(65)}`, "contributor")).toEqual({ status: 400, body: { message: "flag must be a stair flag's unique_id (1 to 64 characters)" } });
+  });
+});

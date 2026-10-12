@@ -7,7 +7,7 @@
 // opening or column is pre-checked against what the executor will refuse (one basic wall under its point, a storey whose level is known, a
 // curtain wall not in the way) so one bad opening never costs the storey's changeset; what fails is a held exception, in words.
 // ponytail: the IFC's axes already meet — no trimEnds; level-bound wall tops (Promote DD attaches them) and curved walls are MA-8's.
-import { MAX_CHANGESET_ELEMENTS, CREATE_ENTITY, outlineProblem } from "./changesets-logic.mjs";
+import { MAX_CHANGESET_ELEMENTS, CREATE_ENTITY, outlineProblem, checkStairFlag } from "./changesets-logic.mjs";
 import { KIND_CATEGORY } from "./changesets-typing.mjs";
 import { toModel, placeRefusal, matchStoreys, gapOf, groupGaps, NOT_MEASURED, typeOpening, pointAlong, nominal } from "./survey-plan.mjs";
 import { SIZE_BAND_MM, typeByDiameter, typeBySize, sectionOf, diameterOf } from "./holding-logic.mjs";
@@ -15,7 +15,7 @@ import { locate } from "./wall-location.mjs";
 
 const err = (status, message) => Object.assign(new Error(message), { status });
 export const PLANNER = "ifc-planner";
-export const PLANNER_VERSION = "0.2.0";
+export const PLANNER_VERSION = "0.2.1";   // MA-8-9: 0.2.1 files a boxed stair as a flag row, not in the IFCSTAIR class row
 /** A base or top more than this off its storey's level is held for a person (mm). */
 export const LEVEL_MM = 2;
 /** How far a point may lie from the one wall that hosts it (mm): PlacementGeometry.HostTolMm, which the executor checks at Apply. */
@@ -25,6 +25,8 @@ const ID_SHOWN = 3;
 /** MA-8-4: a curtain wall nearer than this to the middle of its storey's walls has no told outside (mm). */
 const FACADE_MIN_MM = 500;
 const r1 = (v) => Math.round(v * 10) / 10 || 0;
+/** MA-8-9: at most this many stair flags a storey; the rest stay counted in the class row. */
+const MAX_STAIR_FLAGS = 50;
 
 const byClass = (list) => { const m = new Map(); for (const n of list) m.set(n.ifc_class, [...(m.get(n.ifc_class) ?? []), n]); return m; };
 const whysOf = (list) => [...new Set(list.map((n) => n.why))];
@@ -288,8 +290,25 @@ export function planIfc({ job, candidates, frame, levels: named = {}, manifest =
           `${g.load_bearing === false ? "LoadBearing false" : "LoadBearing not stated — read as architectural"} · ${wordsOf(by, via, g.ifc_type_name)}${topAt.how === "filed" ? ` · its top level ${topAt.level} comes with that storey's changeset: apply it first` : ""}${g.note ? ` · ${g.note}` : ""} · ${ref}`).slice(0, 500) });
       byCid.set(c.cid, { ...trust(c), ...(by ? typing(by, via, size, g.ifc_type_name) : {}) });
     }
+    // MA-8-9: a stair with a box (and a flag the bridge accepts: sides 300-50 000 mm, 300-60 000 mm tall) is one flag row for a person — the box
+    // in the model's frame (the 8 corners of the IFC-frame box moved by the lead's frame: a turned frame gives the larger axis-aligned box); the
+    // first MAX_STAIR_FLAGS a storey, the rest stay in the class row below.
+    const flagged = new Set(), turned = Math.abs(((frame.rotation_deg % 90) + 90) % 90) > 1e-9;
+    for (const n of notRead) {
+      if (flagged.size >= MAX_STAIR_FLAGS) break;
+      if (n.storey !== s.cid || n.ifc_class !== "IFCSTAIR" || !n.box) continue;
+      if (filed.stairs?.has(`stair:${n.global_id}`.slice(0, 64))) { flagged.add(n); continue; }   // review: already flagged on a changeset of this job - not flagged twice
+      const cs = [];
+      for (const x of [n.box.min[0], n.box.max[0]]) for (const y of [n.box.min[1], n.box.max[1]]) for (const z of [n.box.min[2], n.box.max[2]]) cs.push([...M.xy([x, y]), M.z(z)]);
+      const box = { min: [0, 1, 2].map((k) => Math.round(Math.min(...cs.map((p) => p[k])))), max: [0, 1, 2].map((k) => Math.round(Math.max(...cs.map((p) => p[k])))) };
+      try { checkStairFlag({ kind: "stair", storey: s.level, box }, "stair"); } catch { continue; }   // a box the bridge would refuse stays in the class row
+      const [w, dp, h] = box.max.map((v, k) => v - box.min[k]);
+      exceptions.push({ unique_id: `stair:${n.global_id}`.slice(0, 64), name: `Stair ${n.global_id}`, kind: "stair", storey: s.level, box, global_id: n.global_id,
+        reason: `a stair — Sentinel does not place stairs yet; a person adds it; box ${w} × ${dp} mm in plan${turned ? " (the larger axis-aligned box of a turned frame)" : ""}, ${h} mm tall, from (${box.min.join(", ")}) on ${s.level} · ${ref}`.slice(0, 300) });
+      flagged.add(n);
+    }
     // what was not read: one exception per IFC class on the storey (a 64 MB file can hold thousands), the first GlobalIds named
-    for (const [cls, list] of byClass(notRead.filter((x) => x.storey === s.cid)))
+    for (const [cls, list] of byClass(notRead.filter((x) => x.storey === s.cid && !flagged.has(x))))
       exceptions.push({ unique_id: `${cls}@${s.cid}`.slice(0, 64), name: nameOf(list), reason: reasonOf(list) });
     if (!elements.length) return { storey: s, body: null, byCid, exceptions, once: [] };
     if (s.how === "created") {

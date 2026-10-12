@@ -1850,6 +1850,7 @@ async function handleRequest(req, res) {
   //   GET  /changesets/:key/:id        · POST /changesets/:key/:id/result { applied, rejected, note }
   //   POST /changesets/:key/:id/withdraw · POST /changesets/:key/:id/reverted { op: undo|redo, guids } → a ledger row
   //   GET  /changesets/:key/edit-cost · POST /changesets/:key/edit-cost/publish { run }   (MA-8-1)
+  //   POST /changesets/:key/:id/flags { kind: "stair", storey, box } (MA-8-9) · GET /changesets/:key/:id/scan?flag=<stair flag uid>
   //   POST /changesets/:key/:id/review { decisions: [{proposal_guid, decision, reason}] } · POST /changesets/:key/:id/reopen { proposal_guid, reason }
   // The module dispatchers below match the whole first segment — /bimdocs, never /bimdocsZZ — so a rule keyed on a
   // route (a rate limit, a proxy allowlist, a log alert) sees the route it names.
@@ -1860,7 +1861,7 @@ async function handleRequest(req, res) {
       const seg = url.pathname.split("/").filter(Boolean); // ['changesets', key, id?, action?]
       const [, key, p2, p3] = seg;
       const body = req.method === "POST" ? await readBody(req) : {};
-      const actor = body.actor || (["result", "reverted"].includes(p3) ? "revit" : ["review", "reopen"].includes(p3) ? "web" : "agent");
+      const actor = body.actor || (["result", "reverted"].includes(p3) ? "revit" : ["review", "reopen", "flags"].includes(p3) ? "web" : "agent");
       if (!key) return send(res, 404, { message: "changesets route not found" });
 
       if (!p2 && req.method === "GET") return send(res, 200, await ch.listChangesets(key, { status: url.searchParams.get("status") || undefined }));
@@ -1896,7 +1897,14 @@ async function handleRequest(req, res) {
       }
       // MA-4f: the scan around a survey changeset's storey, decimated, in the model's frame — Revit's overlay (changesets-store scanOverlay). A view:
       //   a signed-in contributor (the machine credential is a 403); no row; the run takes the bridge's one survey slot.
-      if (p2 && p3 === "scan" && req.method === "GET") return send(res, 200, await ch.scanOverlay(key, p2));
+      // MA-8-9: ?flag=<a stair flag's unique_id> cuts the slice to that flag's box instead (≤ 64 characters, else 400).
+      if (p2 && p3 === "scan" && req.method === "GET") {
+        const flag = url.searchParams.get("flag");
+        if (flag != null && (flag === "" || flag.length > 64)) return send(res, 400, { message: "flag must be a stair flag's unique_id (1 to 64 characters)" });
+        return send(res, 200, await ch.scanOverlay(key, p2, {}, flag != null ? { flag } : {}));
+      }
+      // MA-8-9: a person's stair pick, appended to the changeset's exceptions (a signed-in contributor; the machine credential is a 403). The body is {kind, storey, box}.
+      if (p2 && p3 === "flags" && req.method === "POST") { const { actor: _who, ...pick } = body; return send(res, 201, await ch.flagChangeset(key, p2, pick, actor)); }
       if (p2 && !p3 && req.method === "GET") return send(res, 200, await ch.getChangeset(key, p2));
       if (p2 && p3 === "result" && req.method === "POST") return send(res, 200, await ch.reportResult(key, p2, body, actor));
       if (p2 && p3 === "withdraw" && req.method === "POST") return send(res, 200, await ch.withdrawChangeset(key, p2, actor));
