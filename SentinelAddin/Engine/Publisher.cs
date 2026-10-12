@@ -165,9 +165,16 @@ public static class Publisher
 
         // 0) The delivery contract in force (project → office → none), resolved OFF this thread and waited, as
         //    Governed Publish did: the export below uses the schema it asks for.
+        //    MA-8-6: the office's IFC export mapping (ifc_export@n) is read beside it, off the thread too. Installed and read → the export writes
+        //    those property sets. Installed and not read → refused BEFORE the export: a file without the office's psets would misstate the deliverable.
+        //    None, or unreachable with no cache → Revit's default property sets, and the dialog says so.
+        var exportTask = Task.Run(() => IfcExportMapping.FromResolved(resolve is null ? ArtefactClient.Resolve(key, "ifc_export") : resolve("ifc_export", null)));
         var (contract, contractSource) = Task.Run(() => resolve is null ? DeliveryContract.Load(key) : DeliveryContract.FromResolved(resolve("contract", null))).GetAwaiter().GetResult();
         plan.Contract = contract;
         plan.ContractSource = contractSource;
+        var (mapping, mappingError) = exportTask.GetAwaiter().GetResult();
+        if (mappingError is not null) { plan.Refusal = PublishLines.ExportMappingRefused(mappingError); return plan; }
+        plan.ExportMapping = mapping;
 
         // 1) The whole model, to a temp folder of this plan's own (two runs never share a file), NOT the outbox: only
         //    a judged, registered version reaches the outbox (Stage).
@@ -177,7 +184,7 @@ public static class Publisher
         progress?.Step(1, "Export — the whole model to IFC (" + schema + "). Revit is busy until the export ends.");
         if (progress is not null) doc.Application.ProgressChanged += progress.OnRevitProgress;
         (PlatformExporter.State state, string path, long, string? error) export;
-        try { export = PlatformExporter.ExportToDir(doc, dir, plan.ContainerName, schema); }
+        try { export = PlatformExporter.ExportToDir(doc, dir, plan.ContainerName, schema, mapping); }
         finally { if (progress is not null) doc.Application.ProgressChanged -= progress.OnRevitProgress; }
         var (state, path, _, error) = export;
         plan.TempIfcPath = path;
@@ -208,7 +215,7 @@ public static class Publisher
             plan.Sha256 = plan.Gate.FileSha256;
             var gate = plan.Gate;
             var name = plan.ContainerName;
-            plan.GateRow = Task.Run(() => GovernedNotify.DeliveryGate(name, gate, key, source, publish: true)).GetAwaiter().GetResult();
+            plan.GateRow = Task.Run(() => GovernedNotify.DeliveryGate(name, gate, key, source, publish: true, plan.ExportMapping?.Ref, plan.ExportMapping?.Sha256)).GetAwaiter().GetResult();
             if (plan.GateFailed) { Discard(plan); return plan; }
 
             // 3) The elements the referee judges, read-only from the live model. Without an office code the Pset_<org>.*
@@ -268,6 +275,8 @@ public sealed class PublishPlan
     public string? OrgWarning;
     public DeliveryContract? Contract;
     public ResolvedArtefact ContractSource = ArtefactClient.None("contract", "not loaded");
+    /// <summary>MA-8-6: the ifc_export@n the file was exported with; null when none is installed (Revit's default property sets).</summary>
+    public IfcExportMapping? ExportMapping;
     public IfcDeliveryGate.GateResult Gate = new IfcDeliveryGate.GateResult();
     /// <summary>The gate row as the bridge answered; on a FAIL its <see cref="LedgerResult.Hold"/> is the hold:gate row.</summary>
     public LedgerResult GateRow = LedgerResult.NotRecorded("the gate did not run");
@@ -322,6 +331,15 @@ public sealed class StageResult
 public static class PublishLines
 {
     public static string GateRow(PublishPlan p) => "Gate row: " + LedgerLine.For(p.GateRow);
+
+    /// <summary>MA-8-6: the dialog's export line — the mapping the file was exported with, or that none was (never silent).</summary>
+    public static string Export(PublishPlan p) => p.ExportMapping is { } m
+        ? "IFC export: " + m.Describe() + " asked of Revit's exporter; not checked in the file."
+        : "IFC export: no export mapping — Revit's default property sets.";
+
+    /// <summary>MA-8-6: an installed ifc_export that does not parse, or one the bridge did not confirm either way, refuses the run before the export.
+    /// The IFC Gate command publishes nothing, so it says "nothing was exported" only.</summary>
+    public static string ExportMappingRefused(string error, bool publishes = true) => error + " — nothing was exported" + (publishes ? " or published." : ".");
     public static string VerdictRow(PublishOutcome o) => "Verdict row: " + LedgerLine.For(o.VerdictRow);
 
     /// <summary>"Held on the web: Project Files ▸ On hold · ledger #815 · receipt 7a8b9c0d1e2f3041…" (spec 2026-09-27
@@ -382,7 +400,7 @@ public static class PublishLines
     {
         if (o is null || s is null)
             return p.Refusal is not null ? p.Refusal
-                 : p.GateFailed ? GateLines.PublishRejected(p.Gate) + "\n\n" + GateRow(p) + (p.GateRow.Hold is { } gateHold ? "\n" + Held(gateHold) : "")
+                 : p.GateFailed ? GateLines.PublishRejected(p.Gate) + "\n\n" + GateRow(p) + "\n" + Export(p) + (p.GateRow.Hold is { } gateHold ? "\n" + Held(gateHold) : "")
                  : "";
         var gateLine = GateLines.PublishLine(p.Gate, p.Key);
         if (!o.Reached)
@@ -424,6 +442,7 @@ public static class PublishLines
                Naming(o) + "\n" +
                gateLine + "\n" +
                (o.Accepted && p.Gate.Outcome == GateOutcome.NotChecked ? GateLines.JudgedAlone(p.Gate) + "\n" : "") +
+               Export(p) + "\n" +
                "SHA-256: " + p.Sha256.Substring(0, Math.Min(16, p.Sha256.Length)) + "…\n" +
                GateRow(p) + "\n" +
                VerdictRow(o) + "\n" +
@@ -481,7 +500,7 @@ public static class PublishLines
     public static string Doctor(PublishPlan p, PublishOutcome? o = null, StageResult? s = null)
     {
         if (p.Refusal is not null) return "Auto-publish failed — nothing uploaded — " + p.Refusal.Replace("\n", " ").Replace("  ", " ");
-        if (p.GateFailed) return "Auto-publish rejected — nothing uploaded — delivery gate " + GateLines.Verdict(p.Gate, p.Key) + " · " + p.Gate.Failures.Count + " failure(s) · gate row: " + LedgerLine.For(p.GateRow) +
+        if (p.GateFailed) return "Auto-publish rejected — nothing uploaded — delivery gate " + GateLines.Verdict(p.Gate, p.Key) + " · " + p.Gate.Failures.Count + " failure(s) · gate row: " + LedgerLine.For(p.GateRow) + " · " + Export(p) +
                                  (p.GateRow.Hold is { } gateHold ? " · " + Held(gateHold) : "");
         if (o is null || s is null) return "Auto-publish: no verdict — the publish stopped before the referee answered — nothing uploaded";
         var v = o.Verdict;

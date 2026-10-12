@@ -42,12 +42,14 @@ public static class PlatformExporter
     /// on a verdict) and the IFC Delivery Gate. <paramref name="ifcSchema"/> is the delivery contract's
     /// <c>ifc_schema</c>: "IFC4" exports IFC4 Reference View, anything else exports IFC 2x3 CV2. GP-2: no FilterViewId
     /// — a filter view exports only what that view shows (its section box, hidden categories, phase; B17 exported a
-    /// per-user "{3D - user}"); no filter is the whole model. Revit exports IFC only inside an open transaction; it is
+    /// per-user "{3D - user}"); no filter is the whole model. MA-8-6: with <paramref name="mapping"/> the exporter is told to write the office's
+    /// property sets (<see cref="IfcExportMapping.FileText"/>, a file beside the IFC in the caller's own folder); without one it exports Revit's default
+    /// property sets, as before. Revit exports IFC only inside an open transaction; it is
     /// ROLLED BACK once the file is written, so an export leaves no Undo entry and does not mark the document modified
     /// (B10: a committed one forced a second save and a second auto run). Never throws; returns a result.
     /// </summary>
     public static (State state, string path, long bytes, string? error) ExportToDir(
-        Document doc, string dir, string ifcName, string ifcSchema = "IFC2X3")
+        Document doc, string dir, string ifcName, string ifcSchema = "IFC2X3", IfcExportMapping? mapping = null)
     {
         Directory.CreateDirectory(dir);
         string ifcPath = Path.Combine(dir, ifcName);
@@ -60,12 +62,30 @@ public static class PlatformExporter
                     ? IFCVersion.IFC4RV : IFCVersion.IFC2x3CV2,
                 ExportBaseQuantities = true,
             };
+            // MA-8-6: the property-set file lives in a folder of this export's own under %TEMP% (never the outbox, never the person's chosen folder) and goes after it.
+            string? psetsDir = null;
+            if (mapping is not null)
+            {
+                // The user-defined property-set settings are exporter options, not IFCExportOptions members (no named export setup: that is the exporter UI's,
+                // version-specific). An exporter that does not know a key ignores it silently: what the published IFC holds is the proof, never this call.
+                psetsDir = Path.Combine(Path.GetTempPath(), "Sentinel", Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(psetsDir);
+                string psets = Path.Combine(psetsDir, ifcName + ".psets.txt");
+                File.WriteAllText(psets, mapping.FileText(), new System.Text.UTF8Encoding(false));
+                opts.AddOption("ExportUserDefinedPsets", "true");
+                opts.AddOption("ExportUserDefinedPsetsFileName", psets);
+                if (mapping.CommonPsets is { } common) opts.AddOption("ExportIFCCommonPropertySets", common ? "true" : "false");
+            }
 
             bool finished;
             using var t = new Transaction(doc, "Sentinel: IFC export");
             t.Start();
             try { finished = doc.Export(dir, ifcName, opts); }
-            finally { if (t.GetStatus() == TransactionStatus.Started) t.RollBack(); } // the file is written; the model is not touched
+            finally
+            {
+                if (t.GetStatus() == TransactionStatus.Started) t.RollBack(); // the file is written; the model is not touched
+                try { if (psetsDir is not null) Directory.Delete(psetsDir, true); } catch { /* best-effort */ }
+            }
             // False = the exporter did not finish (a Cancel it honoured, or a failure): a file it left is partial, never judged.
             if (!finished) return (State.Failed, ifcPath, 0, "Revit's IFC exporter did not finish (Document.Export returned false)");
         }

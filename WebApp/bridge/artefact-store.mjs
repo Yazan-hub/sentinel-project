@@ -11,7 +11,16 @@ import { parseLodMatrix } from "./sentinel-core.mjs"; // MA-2b: the one lod_matr
 import { validatePack } from "./evidence-logic.mjs"; // MA-4a: the evidence_pack validator (pure, no cycle)
 
 export const STORE = "artefact";
-export const KINDS = ["ids", "ruleset", "naming", "contract", "guideline", "layers", "type_catalog", "publish", "roi", "review", "carbon_factors", "lod_matrix", "evidence_pack"];
+export const KINDS = ["ids", "ruleset", "naming", "contract", "guideline", "layers", "type_catalog", "publish", "roi", "review", "carbon_factors", "lod_matrix", "evidence_pack", "ifc_export"];
+// MA-8-6 (P1-11): the data types the Revit 2027 IFC exporter's DefaultUserDefinedParameterSets.txt lists (read on this PC). The add-in
+// writes that file's format from an ifc_export body, so a type the exporter does not know never installs. SentinelAddin/Engine/IfcExportMapping.cs mirrors this.
+export const IFC_EXPORT_TYPES = ["Acceleration", "AngularVelocity", "Area", "AreaDensity", "Boolean", "ClassificationReference", "ColorTemperature", "Count", "Currency",
+  "DynamicViscosity", "ElectricCurrent", "ElectricVoltage", "Energy", "ElectricalEfficacy", "Force", "Frequency", "HeatFluxDensity", "HeatingValue", "Identifier", "Illuminance",
+  "Integer", "IonConcentration", "IsothermalMoistureCapacity", "Label", "Length", "LinearForce", "LinearMoment", "LinearStiffness", "LinearVelocity", "Logical", "LuminousFlux",
+  "LuminousIntensity", "Mass", "MassDensity", "MassFlowRate", "MassPerLength", "ModulusOfElasticity", "MoistureDiffusivity", "MomentOfInertia", "NormalisedRatio", "Numeric",
+  "PlanarForce", "PlaneAngle", "PositiveLength", "PositivePlaneAngle", "PositiveRatio", "Power", "Pressure", "Ratio", "Real", "RotationalFrequency", "SoundPower", "SoundPressure",
+  "SpecificHeatCapacity", "Text", "ThermalConductivity", "ThermalExpansionCoefficient", "ThermalResistance", "ThermalTransmittance", "ThermodynamicTemperature", "Time", "Torque",
+  "VaporPermeability", "Volume", "VolumetricFlowRate", "WarpingConstant"];
 const CARBON_MEASURES = ["count", "length", "area", "volume", "weight"];
 
 const err = (status, message) => Object.assign(new Error(message), { status });
@@ -351,6 +360,38 @@ export function validateArtefact(kind, body) {
   if (kind === "evidence_pack") {
     // MA-4a (design §6.2): the manifest only — the files stay in the project's evidence folder. Every write is the bridge's own fold.
     validatePack(body);
+  }
+  if (kind === "ifc_export") {
+    // MA-8-6 (P1-11): the office's property-set mapping for the IFC export. The add-in writes the exporter's tab-separated file from it at export
+    // time, so a tab, CR or LF in any name would add psets to that file: refused here, as IfcExportMapping.cs refuses it.
+    const stray = Object.keys(body).find((k) => !["label", "psets", "common_psets"].includes(k));
+    if (stray !== undefined) throw bad(kind, stray, "is not an ifc_export field — the body is {label, psets, common_psets?}");
+    if (!filled(body.label) || body.label.length > 300) throw bad(kind, "label", "must be 1 to 300 characters");
+    if (body.common_psets != null && typeof body.common_psets !== "boolean") throw bad(kind, "common_psets", "must be true or false");
+    if (!Array.isArray(body.psets) || !body.psets.length || body.psets.length > 64) throw bad(kind, "psets", "must be an array of 1 to 64 property sets");
+    const setNames = new Set();
+    objects(kind, "psets", body.psets, (ps, at) => {
+      const strayPs = Object.keys(ps).find((k) => !["name", "level", "classes", "properties"].includes(k));
+      if (strayPs !== undefined) throw bad(kind, `${at}.${strayPs}`, "is not a property-set field — a set is exactly {name, level, classes, properties}");
+      if (typeof ps.name !== "string" || !/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(ps.name)) throw bad(kind, `${at}.name`, "must be letters, digits and _ only, starting with a letter, up to 64 characters");
+      if (setNames.has(ps.name.toLowerCase())) throw bad(kind, `${at}.name`, "repeats another property set's name — each set name is used once (compared without case)");
+      setNames.add(ps.name.toLowerCase());
+      if (ps.level !== "instance" && ps.level !== "type") throw bad(kind, `${at}.level`, 'must be "instance" or "type"');
+      if (!Array.isArray(ps.classes) || !ps.classes.length || ps.classes.length > 32 || !ps.classes.every((c) => typeof c === "string" && /^Ifc[A-Z][A-Za-z0-9]*$/.test(c)))
+        throw bad(kind, `${at}.classes`, "must be 1 to 32 IFC classes in the exporter's spelling (IfcWall, not IFCWALL)");
+      if (!Array.isArray(ps.properties) || !ps.properties.length || ps.properties.length > 64) throw bad(kind, `${at}.properties`, "must be an array of 1 to 64 properties");
+      const propNames = new Set();
+      objects(kind, `${at}.properties`, ps.properties, (pr, pat) => {
+        const strayPr = Object.keys(pr).find((k) => !["name", "type", "revit_parameter"].includes(k));
+        if (strayPr !== undefined) throw bad(kind, `${pat}.${strayPr}`, "is not a property field — a property is exactly {name, type, revit_parameter?}");
+        if (typeof pr.name !== "string" || !/^[A-Za-z][A-Za-z0-9_ ]{0,63}$/.test(pr.name)) throw bad(kind, `${pat}.name`, "must be letters, digits, _ and spaces only, starting with a letter, up to 64 characters");
+        if (propNames.has(pr.name.toLowerCase())) throw bad(kind, `${pat}.name`, "repeats another property in this set — each property name is used once per set (compared without case)");
+        propNames.add(pr.name.toLowerCase());
+        if (!IFC_EXPORT_TYPES.includes(pr.type)) throw bad(kind, `${pat}.type`, `must be a data type the Revit IFC exporter knows (Text, Label, Boolean, Integer, Real, Length …)`);
+        if (pr.revit_parameter != null && !(typeof pr.revit_parameter === "string" && pr.revit_parameter.length >= 1 && pr.revit_parameter.length <= 256 && !/[\t\r\n]/.test(pr.revit_parameter)))
+          throw bad(kind, `${pat}.revit_parameter`, "must be one line of 1 to 256 characters with no tab or line break");
+      });
+    });
   }
   return true;
 }

@@ -77,10 +77,10 @@ namespace Sentinel.Coordination
         /// <see cref="LedgerResult.Hold"/>. The IFC gate and the Publisher wait for the answer and print its line.
         /// </summary>
         public static LedgerResult DeliveryGate(string fileName, Sentinel.Engine.IfcDeliveryGate.GateResult gate, string projectKey,
-                                                string source, bool publish)
+                                                string source, bool publish, string? exportRef = null, string? exportSha256 = null)
         {
             // XC-4: the machine credential's row names UserSession.Actor; a signed-in row is the verified identity whatever this says.
-            var value = Sentinel.Engine.GateLines.AuditValue(fileName, gate, source, publish);
+            var value = Sentinel.Engine.GateLines.AuditValue(fileName, gate, source, publish, exportRef, exportSha256);
             value["actor"] = UserSession.Actor;
             return Event("/delivery-gate", value, projectKey);
         }

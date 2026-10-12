@@ -22,6 +22,7 @@
     <Compile Include="..\..\SentinelAddin\Engine\IfcDeliveryGate.cs" />
     <Compile Include="..\..\SentinelAddin\Engine\DeliveryContract.cs" />
     <Compile Include="..\..\SentinelAddin\Engine\GateLines.cs" />
+    <Compile Include="..\..\SentinelAddin\Engine\IfcExportMapping.cs" />
     <Compile Include="..\..\SentinelAddin\Engine\ArtefactCache.cs" />
     <Compile Include="..\..\SentinelAddin\Coordination\ArtefactClient.cs" />
     <Compile Include="..\..\SentinelAddin\Coordination\BcfConfig.cs" />

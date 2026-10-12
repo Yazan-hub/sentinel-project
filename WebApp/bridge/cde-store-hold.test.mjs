@@ -148,6 +148,13 @@ describe("recordDeliveryGate — Revit's gate row: the machine credential or a s
     [{ failures: Array.from({ length: 201 }, () => "x") }, "failures must be a list of at most 200 lines, each a string or {requirement, detail}"],
     [{ failures_total: 1 }, "failures_total must be a whole number, at least the number of failures sent"],
     [{ failures_total: "250" }, "failures_total must be a whole number, at least the number of failures sent"],
+    [{ export_ref: 5 }, "export_ref must be an ifc_export version such as ifc_export@2, or null"],
+    [{ export_ref: "ifc_export@1\nx" }, "export_ref must be an ifc_export version such as ifc_export@2, or null"],
+    [{ export_ref: "x".repeat(65) }, "export_ref must be an ifc_export version such as ifc_export@2, or null"],
+    [{ export_sha256: "abc" }, "export_sha256 must be 64 hex characters or null"],
+    [{ export_ref: "contract@1", export_sha256: "ab".repeat(32) }, "export_ref must be an ifc_export version such as ifc_export@2, or null"],
+    [{ export_ref: "ifc_export@2" }, "export_ref and export_sha256 go together — both set or both null"],
+    [{ export_sha256: "ab".repeat(32) }, "export_ref and export_sha256 go together — both set or both null"],
     [{ source: "cli" }, "source must be revit, auto-publish or check"],
     [{ publish: "yes" }, "publish must be true or false"],
     [{ source: "check" }, "publish is true only for revit or auto-publish — the IFC Gate command checks a file, it publishes nothing"],
@@ -162,7 +169,7 @@ describe("recordDeliveryGate — Revit's gate row: the machine credential or a s
       ["delivery_gate", `IFC delivery gate FAIL: ${NAME}`, "Revit"],
       ["hold", `hold:gate ${NAME}`, "Revit"],
     ]);
-    expect(db.audit_log[0].new_value).toEqual({ ...gate, contract_sha256: "cd".repeat(32), failures_total: 2 });
+    expect(db.audit_log[0].new_value).toEqual({ ...gate, contract_sha256: "cd".repeat(32), failures_total: 2, export_ref: null, export_sha256: null });
     expect(db.audit_log[1].new_value).toMatchObject({ container_name: NAME, stage: "gate", verdict: "rejected", source: "revit", sha256: SHA, size_bytes: 1234, gate_row_id: 901, proposal_row_id: null, contract_ref: "contract@1", failures_total: 2,
       failures: [{ requirement: "delivery gate", detail: "IFCPROJECT: 0 found, contract requires ≥ 1." }, { requirement: "Pset_WallCommon", detail: "Required property set 'Pset_WallCommon' not found in the file." }] });
     expect(r).toEqual({ id: 901, hash: "901".padStart(64, "0"), hold: { id: 902, hash: "902".padStart(64, "0") } });
@@ -185,6 +192,13 @@ describe("recordDeliveryGate — Revit's gate row: the machine credential or a s
     expect(db.audit_log[0]).toMatchObject({ action: `IFC delivery gate PASS: ${NAME}`, actor: "Auto-Publish" });
     expect(db.audit_log[0].new_value).toMatchObject({ contract: null, schema: null });
     expect(db.audit_log[0].new_value).not.toHaveProperty("extra");
+  });
+
+  it("MA-8-6: the mapping the file was exported with is kept on the row (sha lower-cased); left out, both are null", async () => {
+    await recordDeliveryGate("aster-tower", { ...gate, export_ref: "ifc_export@2", export_sha256: "AB".repeat(32) });
+    expect(db.audit_log[0].new_value).toMatchObject({ export_ref: "ifc_export@2", export_sha256: "ab".repeat(32) });
+    await recordDeliveryGate("aster-tower", { ...gate, result: "pass", passed: true, failures: [] });
+    expect(db.audit_log.at(-1).new_value).toMatchObject({ export_ref: null, export_sha256: null });
   });
 
   it("a cut list: the sender's failures_total is the gate row's and the hold's; a failure keeps its requirement and detail only", async () => {
