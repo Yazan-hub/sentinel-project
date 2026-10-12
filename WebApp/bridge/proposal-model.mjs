@@ -100,7 +100,7 @@ export function proposalElements(cs, levelMmOf = () => null) {
       out.drawn++;
       continue;
     }
-    out.skipped.push(`${name}: a ${el.kind} — not drawn (the proposal model draws walls, floors, roofs, ceilings, doors and windows as boxes)`);
+    out.skipped.push(`${name}: ${/^[aeiou]/.test(el.kind) ? "an" : "a"} ${el.kind} — not drawn (the proposal model draws walls, floors, roofs, ceilings, doors and windows as boxes)`);
   }
   return out;
 }

@@ -238,6 +238,31 @@ public static class PlacementGeometry
     /// <summary>Whether a direction (ox, oy) points against the target (tx, ty) — the flip test. Square to it is not against it.</summary>
     public static bool Opposes(double ox, double oy, double tx, double ty) => ox * tx + oy * ty < 0;
 
+    /// <summary>MA-6-3: do closed loops, given as plan segments, hold the point (x, y)? Even-odd, so a point in a hole of the outline is
+    /// outside. A floor opening is cut through the one floor whose top face holds its outline's centre (ChangesetExecutor).</summary>
+    public static bool Holds(IEnumerable<(double X0, double Y0, double X1, double Y1)> segments, double x, double y)
+    {
+        var inside = false;
+        foreach (var (x0, y0, x1, y1) in segments)
+            if ((y0 > y) != (y1 > y) && x < x0 + (y - y0) * (x1 - x0) / (y1 - y0)) inside = !inside;
+        return inside;
+    }
+
+    /// <summary>MA-6-3 review fix: a wall opening's rectangle against its one host wall (mm, Level.Elevation's frame for heights) — null
+    /// when its width, centred at (x, y), lies between the ends of the wall's line (x0, y0)→(x1, y1) and it runs from z0 to z1 within the
+    /// wall's bottom and top (HostTolMm of slack each), else the refusal's words. NewOpening cuts that wall alone.</summary>
+    public static string OpeningFits(string wallLabel, double x0, double y0, double x1, double y1, double bottom, double top,
+                                     double x, double y, double widthMm, double z0, double z1)
+    {
+        double len = Math.Sqrt((x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0));
+        double t = len == 0 ? 0 : ((x - x0) * (x1 - x0) + (y - y0) * (y1 - y0)) / len;
+        if (t - widthMm / 2 < -HostTolMm || t + widthMm / 2 > len + HostTolMm)
+            return $"its {Mm(widthMm)} mm width, centred {Mm(t)} mm along {wallLabel}, runs past an end of that wall ({Mm(len)} mm long) — Sentinel cuts one wall; re-propose it inside the wall";
+        if (z0 < bottom - HostTolMm || z1 > top + HostTolMm)
+            return $"it runs from {Mm(z0)} to {Mm(z1)} mm, past {wallLabel}'s bottom ({Mm(bottom)} mm) or top ({Mm(top)} mm) — Sentinel cuts one wall; re-propose its SillHeight and Height inside the wall";
+        return null;
+    }
+
     /// <summary>Review amendment C1: a door or window's Rotation must run along its host wall — null when it does (within
     /// ParallelTolDeg, either way round), else the refusal's words. The flip test (Opposes) cannot see a Rotation across the
     /// wall (a dot product of 0 flips nothing), so the executor asks this before it creates the instance. The bound carries

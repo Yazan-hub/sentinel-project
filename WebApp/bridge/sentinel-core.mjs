@@ -847,7 +847,9 @@ var CATEGORY_BIC = {
   Columns: "OST_Columns",
   Furniture: "OST_Furniture",
   Levels: "OST_Levels",
-  Grids: "OST_Grids"
+  Grids: "OST_Grids",
+  "Structural Framing": "OST_StructuralFraming"
+  // MA-6-3: a beam's
 };
 function sameCategory(c, category) {
   if (norm(c.category) === norm(category)) return true;

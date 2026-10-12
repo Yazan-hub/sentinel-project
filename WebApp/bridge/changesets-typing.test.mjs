@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import * as core from "./sentinel-core.mjs";
 import { makeTyper, checkFacts, saidOf, KIND_CATEGORY, FACTS_FIELDS, CATALOG_PARAM, KIND_ENTITY, KIND_PSET, CLASS_NOUN, clauseValues, makeCiter, notAValue, NOT_ALONE, ENTITY_SUBTYPES, saysMore } from "./changesets-typing.mjs";
 import { compileIds } from "./ids-compile.mjs";
-import { VOCABULARY } from "./changesets-logic.mjs";
+import { VOCABULARY, UNTYPED } from "./changesets-logic.mjs";
 
 const read = (p) => JSON.parse(readFileSync(new URL(p, import.meta.url), "utf8"));
 const G = read("../../demo/bds-pilot/bds-dd-layerfree-guideline.json");
@@ -20,9 +20,11 @@ const type = makeTyper(STANDARDS, core);
 const refused = (fn, re) => { try { fn(); throw new Error("no throw"); } catch (e) { expect(e.status).toBe(400); expect(e.message).toMatch(re); } };
 
 describe("changesets-typing — the bridge types from the facts, or says what is missing (MA-2a)", () => {
-  it("every typed kind has its guideline category; a level or grid has none", () => {
-    for (const k of VOCABULARY.filter((k) => !["level", "grid", "room"].includes(k))) expect(KIND_CATEGORY[k], k).toBeTruthy(); // MA-5b-1: a room takes no type
-    expect(KIND_CATEGORY.level).toBeUndefined();
+  it("every typed kind has its guideline category; a level, grid, room or opening has none", () => {
+    for (const k of VOCABULARY.filter((k) => !UNTYPED.includes(k))) expect(KIND_CATEGORY[k], k).toBeTruthy(); // MA-5b-1: a room takes no type; MA-6-3: nor an opening
+    for (const k of UNTYPED) expect(KIND_CATEGORY[k], k).toBeUndefined();
+    expect(UNTYPED).toEqual(["level", "grid", "room", "opening"]);
+    expect(KIND_CATEGORY.beam).toBe("Structural Framing"); // MA-6-3: PlacementPolicy.CategoriesOf names the same
     expect(FACTS_FIELDS).toEqual(["thickness_mm", "params"]);
   });
 
@@ -69,6 +71,19 @@ describe("changesets-typing — the bridge types from the facts, or says what is
     expect(typer("BDS_INT_1 PNL")("door", { params: { Location: "Interior" } }, "e")).toMatchObject({ TypeName: "BDS_INT_1 PNL_WOOD_1000 x 2100 mm", FamilyName: "BDS_INT_1 PNL", typing: { typed_by: "bridge" } });
     refused(() => typer("BDS_INT_2 PNL")("door", { params: { Location: "Interior" } }, "elements[7]"),
       /^elements\[7\]: .* "BDS_INT_2 PNL : BDS_INT_1 PNL_WOOD_1000 x 2100 mm" \(the rule of guideline@1 · office · 0123456789ab… for Location Interior\) is not one type in type_catalog@1 · office · fedcba987654… — the catalogue holds BDS_INT_1 PNL_WOOD_1000 x 2100 mm under BDS_INT_1 PNL; send place\.TypeName, or name that family in the rule$/);
+  });
+
+  // MA-6-3: a beam is typed as a door is — one catalogue (family, type) row, by an office rule (vocab-v2-body.json's beam_rule).
+  it("a beam is typed from one catalogue family and type pair; a rule naming a family the catalogue lacks is a 400 naming the families it has", () => {
+    const fx = read("./fixtures/changeset-ops/vocab-v2-body.json");
+    const typer = (rule) => makeTyper({ guideline: { ...STANDARDS.guideline, body: { ...G, elements: [...G.elements, rule] } }, catalog: STANDARDS.catalog }, core);
+    expect(typer(fx.beam_rule)("beam", fx.posted.elements[4].facts, "e")).toMatchObject({ TypeName: "BDS_INT_STR_CONC_300 x 600 mm", FamilyName: "BDS_STR_CONC_Rectangular Beam",
+      typing: { typed_by: "bridge", input: { category: "Structural Framing", params: { Material: "Concrete" } } } });
+    const steel = structuredClone(fx.beam_rule);
+    steel.rules[0].use.family = "BDS_STR_STEEL_Beam";
+    refused(() => typer(steel)("beam", fx.posted.elements[4].facts, "elements[4]"),
+      /^elements\[4\]: .* "BDS_STR_STEEL_Beam : BDS_INT_STR_CONC_300 x 600 mm" \(the rule of guideline@1 · office · 0123456789ab… for Material Concrete\) is not one type in type_catalog@1 · office · fedcba987654… — the catalogue holds BDS_INT_STR_CONC_300 x 600 mm under BDS_STR_CONC_Rectangular Beam; send place\.TypeName, or name that family in the rule$/);
+    refused(() => typer(fx.beam_rule)("beam", { params: { Material: "Steel" } }, "e"), /no rule of guideline@1 · office · 0123456789ab… matches a beam with Material Steel/);
   });
 
   it("checkFacts keeps thickness_mm and params name for name and refuses what it cannot keep", () => {

@@ -255,7 +255,7 @@ export function validateArtefact(kind, body) {
         // Review amendment C8: a key is a category Sentinel places (GuidelineMatcher.PlacementCategories, the same list),
         // named once — case and padding ignored. A misspelt key would install and then leave every element of that
         // category on the active workset.
-        const categories = ["Walls", "Floors", "Roofs", "Ceilings", "Doors", "Windows", "Columns", "Furniture", "Levels", "Grids"];
+        const categories = ["Walls", "Floors", "Roofs", "Ceilings", "Doors", "Windows", "Columns", "Furniture", "Levels", "Grids", "Structural Framing"]; // MA-6-3: a beam's
         const named = new Set();
         for (const [category, name] of Object.entries(p.worksets)) {
           // A byte-order mark is padding to JavaScript's trim() and a character to .NET's Trim(): refused here, as the add-in

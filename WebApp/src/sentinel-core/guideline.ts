@@ -157,6 +157,7 @@ const norm = (s?: string) => (s ?? "").trim().toLowerCase();
 export const CATEGORY_BIC: Record<string, string> = {
   Walls: "OST_Walls", Floors: "OST_Floors", Roofs: "OST_Roofs", Ceilings: "OST_Ceilings", Doors: "OST_Doors",
   Windows: "OST_Windows", Columns: "OST_Columns", Furniture: "OST_Furniture", Levels: "OST_Levels", Grids: "OST_Grids",
+  "Structural Framing": "OST_StructuralFraming", // MA-6-3: a beam's
 };
 
 /** Does a catalogue row belong to `category`? By name (case and padding ignored), or by its BuiltInCategory when the row

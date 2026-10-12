@@ -55,7 +55,7 @@ static partial class Check
         Ok(PlacementPolicy.CategoriesOf("wall").SequenceEqual(new[] { "Walls" }) && PlacementPolicy.CategoriesOf("level").SequenceEqual(new[] { "Levels" })
            && PlacementPolicy.CategoriesOf("column").SequenceEqual(new[] { "Columns" }) && PlacementPolicy.CategoriesOf("stair").Length == 0,
            "each changeset kind names its guideline category — a column the architectural Columns the executor places, an unknown kind none");
-        foreach (var kind in new[] { "wall", "floor", "level", "grid", "roof", "ceiling", "door", "window", "column", "furniture" })
+        foreach (var kind in new[] { "wall", "floor", "level", "grid", "roof", "ceiling", "door", "window", "column", "furniture", "beam" })
             Ok(PlacementPolicy.CategoriesOf(kind).Length > 0, "the bridge's vocabulary is covered: " + kind);
         Ok(PlacementPolicy.Kinds.SelectMany(PlacementPolicy.CategoriesOf).OrderBy(c => c, StringComparer.Ordinal)
                .SequenceEqual(GuidelineMatcher.PlacementCategories.OrderBy(c => c, StringComparer.Ordinal)),

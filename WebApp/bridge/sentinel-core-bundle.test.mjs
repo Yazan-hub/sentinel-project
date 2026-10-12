@@ -33,6 +33,16 @@ describe("bridge/sentinel-core.mjs is the build of src/sentinel-core (MA-2a)", (
     expect(bundle.CATEGORY_BIC).toEqual(source.CATEGORY_BIC);
   });
 
+  // MA-6-3 review fix: the add-in's GuidelineMatcher.CategoryBics is the same list, name for name — a category added on one side only
+  // (6-3's Structural Framing was) types a non-English catalogue's rows there alone, and the two judges disagree in silence.
+  it("CATEGORY_BIC is the add-in's GuidelineMatcher.CategoryBics, name for name", () => {
+    const cs = readFileSync(new URL("../../SentinelAddin/GhostBuilder/GuidelineMatcher.cs", import.meta.url), "utf8");
+    const from = cs.indexOf("CategoryBics = new Dictionary");
+    const bics = Object.fromEntries([...cs.slice(from, cs.indexOf("};", from)).matchAll(/\["([^"]+)"\] = "([^"]+)"/g)].map((m) => [m[1], m[2]]));
+    expect(bics["Structural Framing"]).toBe("OST_StructuralFraming");
+    expect(bics).toEqual(source.CATEGORY_BIC);
+  });
+
   // MA-2b: the install check runs parseLodMatrix from the bundle — every shared case, the same answer and the same words.
   it("reads every lod_matrix case as the TS source does — rebuild the bundle when this fails", () => {
     const cases = read("./fixtures/lod-matrix/cases.json");

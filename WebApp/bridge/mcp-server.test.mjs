@@ -167,6 +167,25 @@ describe("changeset tools", () => {
     expect(t.inputSchema.required).toEqual(["project", "name", "elements"]);
   });
 
+  // MA-6-3 (amendment 7): an agent learns vocabulary v2 from this text alone (drill H-1).
+  it("propose tool description names vocabulary v2: opening and beam, a roof's Slopes per edge, a column's TopLevel", () => {
+    const d = TOOLS.find((t) => t.name === "sentinel_propose_changeset").description;
+    expect(d).toMatch(/column, furniture, room, opening, beam\./);
+    expect(d).toMatch(/openings \(no type, no family, no Mark\) place\.LevelName and exactly one shape: a rectangle cut in a wall — place\.Location/);
+    expect(d).toMatch(/place\.Width and place\.Height \(mm, above 50 and at most 20000\) and place\.SillHeight/);
+    expect(d).toMatch(/or a hole in a floor of that level \(a stair void\): place\.Boundary/);
+    expect(d).toMatch(/beams place\.LocationCurve \{start:\[x,y,z\], end:\[x,y,z\]\} \(straight, no mid; z = the beam's top\), place\.LevelName and place\.FamilyName with place\.TypeName \(a Structural Framing type\), or facts/);
+    expect(d).toMatch(/place\.Slopes — one entry per Boundary edge, Slopes\[i\] for the edge Boundary\[i\]→\[i\+1\] \(a closing point is no edge\), null where the edge defines no slope \(a gable\)/);
+    expect(d).toMatch(/a column may name place\.TopLevel, the level its top reaches/);
+    expect(d).toMatch(/Every kind but a level, grid, room or opening also needs place\.TypeName/);
+    // Review fix: the rectangle stays in its one wall, the void in its one floor; a family the bridge types is not the agent's.
+    expect(d).toMatch(/the rectangle within that wall's ends, bottom and top/);
+    expect(d).toMatch(/inside exactly one floor and reaching no other/);
+    expect(d).toMatch(/beam's FamilyName: send none of your own then\)/);
+    // Review fix: an agent reading the standards first learns a beam's catalogue category from this text.
+    expect(TOOLS.find((t) => t.name === "sentinel_standards").description).toMatch(/type_catalog takes category \(Walls, Floors, Roofs, Ceilings, Doors, Windows, Columns, Furniture, Structural Framing — a beam's\)/);
+  });
+
   it("propose POSTs the changeset body", async () => {
     const fetch = vi.fn(async () => okJson({ id: "c1", status: "proposed" }));
     await callTool("sentinel_propose_changeset", { project: "demo", name: "N", source: "agent", elements: [{ kind: "level" }] }, { fetch });

@@ -101,6 +101,8 @@ describe("proposeChangeset — bridge typing (MA-2a, full contract 2)", () => {
     expect(needsTyping(BODY)).toBe(false);
     expect(needsTyping({ elements: [untypedWall()] })).toBe(true);
     expect(needsTyping({ elements: [{ kind: "level", place: { BaseElevation: 0 } }] })).toBe(false);
+    expect(needsTyping({ elements: [{ kind: "opening", place: { LevelName: "L1", Boundary: [[0, 0], [1, 0], [1, 1]] } }] })).toBe(false); // MA-6-3: untyped
+    expect(needsTyping({ elements: [{ kind: "beam", place: { LevelName: "L1" }, facts: { params: { Material: "Concrete" } } }] })).toBe(true);
     expect(needsTyping({ elements: [{ op: "attach", kind: "wall", place: {} }] })).toBe(false);
     expect(needsTyping({ elements: [{ op: "retype", kind: "wall", place: {} }] })).toBe(true);
     expect(needsTyping({ elements: "nope" })).toBe(false);
