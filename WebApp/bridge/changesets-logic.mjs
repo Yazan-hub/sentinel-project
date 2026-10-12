@@ -14,6 +14,10 @@ import { checkFacts, KIND_ENTITY, KIND_PSET } from "./changesets-typing.mjs";
 export const VOCABULARY = ["wall", "floor", "level", "grid", "roof", "ceiling", "door", "window", "column", "furniture", "room"];
 /** The kinds that take no type: a level and a grid are named, a room is named and numbered. */
 const UNTYPED = ["level", "grid", "room"];
+/** MA-6-1: the IFC class the bridge sets from each kind — the Promote six (KIND_ENTITY, held to PromoteWallsPlanner.Classes by
+ *  promote-check) and the rest of the vocabulary as the add-in files them (GhostFiling: IFCFURNITURE). A posted class that is not
+ *  exactly this one is listed and replaced: an IDS entity pattern matches no subtype, so a chosen class could step outside a spec. */
+const CREATE_ENTITY = { ...KIND_ENTITY, level: "IFCBUILDINGSTOREY", grid: "IFCGRID", room: "IFCSPACE", column: "IFCCOLUMN", furniture: "IFCFURNITURE" };
 /** What a ghost does. create places a new element (the v1 path); retype changes an EXISTING element's type, named by its
  *  Revit UniqueId (Promote) — a door or window keeps its host: ChangeTypeId to a symbol of the same category; attach re-tops
  *  an existing wall. An element without op is a create. MA-2c: set_parameter writes one value on an existing TYPE, named by its
@@ -453,10 +457,11 @@ export function validateChangeset(body, { member = false, type = null, cite = nu
     if (!identity.GlobalId) identity.GlobalId = proposal_guid;
     // Review amendment C2 (MA-2c): a set_parameter's validate is the bridge's — the class from its kind, one pset row from parameter
     // and to — so the referee judges the value Revit will write; a posted psets, quantities or other class is listed, never judged.
-    if (written) {
+    if (written)
       for (const f of ["psets", "quantities"]) if (validate[f] !== undefined) note(`${at}.validate.${f}`, "ignored: set by the bridge from parameter and to");
-      if (String(identity.Class).toUpperCase() !== KIND_ENTITY[el.kind]) { note(`${at}.validate.identity.Class`, "ignored: set by the bridge from kind"); identity.Class = KIND_ENTITY[el.kind]; }
-    }
+    // MA-6-1: every op's class is the bridge's, from its kind (C2's rule, for every op): an exact compare, case aside.
+    const want = CREATE_ENTITY[el.kind];
+    if (want && String(identity.Class).toUpperCase() !== want) { note(`${at}.validate.identity.Class`, "ignored: set by the bridge from kind"); identity.Class = want; }
     const [pset, prop] = written ? written.parameter.split(".") : [];
     return {
       proposal_guid,

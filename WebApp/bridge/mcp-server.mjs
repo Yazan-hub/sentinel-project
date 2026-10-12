@@ -30,6 +30,9 @@ const ok = (id, result) => send({ jsonrpc: "2.0", id, result });
 const rpcErr = (id, code, message) => send({ jsonrpc: "2.0", id, error: { code, message } });
 const asText = (o) => ({ content: [{ type: "text", text: typeof o === "string" ? o : JSON.stringify(o, null, 2) }] });
 
+/** MA-6-1: the standards an agent may read (sentinel_standards). */
+const STANDARD_KINDS = ["guideline", "type_catalog", "ids", "lod_matrix"];
+
 export const TOOLS = [
   { name: "sentinel_list_projects", description: "List the governed CDE projects (id, key, name).", inputSchema: { type: "object", properties: {} } },
   {
@@ -99,7 +102,7 @@ export const TOOLS = [
   {
     name: "sentinel_propose_changeset",
     description:
-      "Propose model elements for human review in Revit. Nothing is created by this call: elements are adjudicated against the project's IDS (verdicts attached per element) and STAGED; a person reviews and ticks each element inside Revit before anything enters the model, and the result (created element ids or rejection) is recorded in the audit trail. Element kinds: wall, floor, level, grid, roof, ceiling, door, window, column, furniture, room. Geometry in millimetres, project-internal coordinates: walls/grids need place.LocationCurve {start:[x,y,z], end:[x,y,z]} (an arc wall adds mid:[x,y,z], a point on its arc); floors place.LocationLoop [[x,y,z]×≥3]; levels place.BaseElevation; roofs and ceilings place.LevelName and place.Boundary, one simple closed outline [[x,y]×3–256] (a roof is flat, optional place.BaseOffset; a ceiling needs place.Offset, its height above the level); doors and windows place.FamilyName, place.LevelName and place.Location [x,y,z], a point on the location line of exactly one wall of that level, z = the level's elevation (a window: optional place.SillHeight; both: optional place.FlipFacing, place.FlipHand — or, for an opening read from a drawn block, place.Rotation, the plan angle in degrees (0 up to 360) of the block's X axis, with optional place.Mirrored: the add-in then flips the instance to that hinge side and swing side, and neither flip may be sent with it); columns and furniture place.FamilyName, place.LevelName and place.Location [x,y,z], unhosted on that level, z = the level's elevation; rooms place.LevelName, place.Location [x,y,z] (a point inside its walls: Revit finds the boundary there, and Apply refuses a room the walls do not close, one where a room already stands, or two in one enclosed area), place.Name and optional place.Number (one line each; no type, no family, no Mark). Every kind but a level, grid or room also needs place.TypeName, the exact name of a type already loaded in the model — Sentinel never takes the model's first type, loads no families and creates no types — or, on a project whose guideline and type catalogue are installed, leaves TypeName out and sends facts {thickness_mm?, params?: {Function?, Location?, Material?, …}}: the bridge then types the element by the office's layer-free rules from exactly those facts (never measured, never guessed), fills place.TypeName (and a door's or window's FamilyName) with a type the catalogue holds, records who typed it and from what in `typing`, and otherwise answers 400 naming what is missing (no guideline or catalogue installed, no rule for those facts, no thickness for a {thickness} type, a type the catalogue lacks and the sizes it has); an element the bridge typed is never pre-ticked. Any create may carry place.Mark; a floor may carry place.Structural (true/false). Each element: {kind, validate:{identity:{Class, Name}, psets:[]}, place:{...}}. Optional op (default create), with none of a create's place fields (no LocationCurve, Location, Boundary, Mark or Structural — a retype keeps the element's own Mark): retype changes an EXISTING wall, floor, roof, ceiling, door or window named by target:{unique_id: its Revit UniqueId, type_before?} to place.TypeName — or, with facts, to the type the bridge resolves (a door or window also needs place.FamilyName: it keeps its host); attach re-tops an existing wall (place.BaseLevel and place.TopLevel, two different level names); one of each per element. A rehost (a door or window no wall hosts, replaced by the office type in the one wall it stands in, the old instance removed) is a signed-in member's, filed by Promote in Revit — the bridge refuses one from this tool. set_parameter writes one value on an existing TYPE named by target:{unique_id} with place.TypeName (and a door's or window's place.FamilyName): parameter \"Pset_Name.Property\" (the kind's own common set), revit_parameter?, from (the value read on the type: \"\" — set_parameter fills an empty value only, and Revit refuses the write when the type reads anything else), to, and value_source {kind: catalogue | clause}; the bridge checks the value against the installed type catalogue's row of exactly that type, or the one value the installed ids@n's whole-class clauses pin (a clause that sets a minimum pins none), refuses it when the other source disagrees, and refuses anything else (a person types their own value in Revit); it builds the element's validate itself from kind, parameter and to; one per type and parameter, never pre-ticked. An optional reason (≤500 characters) is shown to the reviewer. Trust: the bridge sets pretick, accuracy, confidence, typing, claimed and proposal_guid itself — a posted one is ignored and listed back in the reply's `ignored` as \"ignored: set by the bridge\", as is a `measured` block (no survey job backs it). An agent's element is never pre-ticked, and its accuracy is not_measured.",
+      "Propose model elements for human review in Revit. Nothing is created by this call: elements are adjudicated against the project's IDS (verdicts attached per element) and STAGED; a person reviews and ticks each element inside Revit before anything enters the model, and the result (created element ids or rejection) is recorded in the audit trail. Element kinds: wall, floor, level, grid, roof, ceiling, door, window, column, furniture, room. Geometry in millimetres, project-internal coordinates: walls/grids need place.LocationCurve {start:[x,y,z], end:[x,y,z]} (an arc wall adds mid:[x,y,z], a point on its arc); floors place.LocationLoop [[x,y,z]×≥3]; levels place.BaseElevation; roofs and ceilings place.LevelName and place.Boundary, one simple closed outline [[x,y]×3–256] (a roof is flat, optional place.BaseOffset; a ceiling needs place.Offset, its height above the level); doors and windows place.FamilyName, place.LevelName and place.Location [x,y,z], a point on the location line of exactly one wall of that level, z = the level's elevation (a window: optional place.SillHeight; both: optional place.FlipFacing, place.FlipHand — or, for an opening read from a drawn block, place.Rotation, the plan angle in degrees (0 up to 360) of the block's X axis, with optional place.Mirrored: the add-in then flips the instance to that hinge side and swing side, and neither flip may be sent with it); columns and furniture place.FamilyName, place.LevelName and place.Location [x,y,z], unhosted on that level, z = the level's elevation; rooms place.LevelName, place.Location [x,y,z] (a point inside its walls: Revit finds the boundary there, and Apply refuses a room the walls do not close, one where a room already stands, or two in one enclosed area), place.Name and optional place.Number (one line each; no type, no family, no Mark). Every kind but a level, grid or room also needs place.TypeName, the exact name of a type already loaded in the model — Sentinel never takes the model's first type, loads no families and creates no types — or, on a project whose guideline and type catalogue are installed, leaves TypeName out and sends facts {thickness_mm?, params?: {Function?, Location?, Material?, …}}: the bridge then types the element by the office's layer-free rules from exactly those facts (never measured, never guessed), fills place.TypeName (and a door's or window's FamilyName) with a type the catalogue holds, records who typed it and from what in `typing`, and otherwise answers 400 naming what is missing (no guideline or catalogue installed, no rule for those facts, no thickness for a {thickness} type, a type the catalogue lacks and the sizes it has); an element the bridge typed is never pre-ticked. Any create may carry place.Mark; a floor may carry place.Structural (true/false). Each element: {kind, validate:{identity:{Class, Name}, psets:[]}, place:{...}}. Optional op (default create), with none of a create's place fields (no LocationCurve, Location, Boundary, Mark or Structural — a retype keeps the element's own Mark): retype changes an EXISTING wall, floor, roof, ceiling, door or window named by target:{unique_id: its Revit UniqueId, type_before?} to place.TypeName — or, with facts, to the type the bridge resolves (a door or window also needs place.FamilyName: it keeps its host); attach re-tops an existing wall (place.BaseLevel and place.TopLevel, two different level names); one of each per element. A rehost (a door or window no wall hosts, replaced by the office type in the one wall it stands in, the old instance removed) is a signed-in member's, filed by Promote in Revit — the bridge refuses one from this tool. set_parameter writes one value on an existing TYPE named by target:{unique_id} with place.TypeName (and a door's or window's place.FamilyName): parameter \"Pset_Name.Property\" (the kind's own common set), revit_parameter?, from (the value read on the type: \"\" — set_parameter fills an empty value only, and Revit refuses the write when the type reads anything else), to, and value_source {kind: catalogue | clause}; the bridge checks the value against the installed type catalogue's row of exactly that type, or the one value the installed ids@n's whole-class clauses pin (a clause that sets a minimum pins none), refuses it when the other source disagrees, and refuses anything else (a person types their own value in Revit); it builds the element's validate itself from kind, parameter and to; one per type and parameter, never pre-ticked. An optional reason (≤500 characters) is shown to the reviewer. Trust: the bridge sets pretick, accuracy, confidence, typing, claimed and proposal_guid itself — a posted one is ignored and listed back in the reply's `ignored` as \"ignored: set by the bridge\", as is a `measured` block (no survey job backs it). An agent's element is never pre-ticked, and its accuracy is not_measured. validate.identity.Class is the bridge's too, set from the kind (wall IFCWALL, floor IFCSLAB, level IFCBUILDINGSTOREY, …): a different class, a subtype included, is replaced and listed as \"ignored: set by the bridge from kind\". Building a model: file one changeset per storey (each is one Undo in Revit; a storey whose levels do not exist yet cannot be applied); create your own levels, uniquely named, in the first storey's changeset; give walls place.BaseLevel and place.TopLevel; send facts (thickness_mm, params.Location), not TypeName, to have the bridge type an element — read sentinel_standards (guideline, type_catalog) first.",
     inputSchema: {
       type: "object", required: ["project", "name", "elements"],
       properties: {
@@ -125,7 +128,7 @@ export const TOOLS = [
   },
   {
     name: "sentinel_changeset_status",
-    description: "Check staged changesets: pass `changeset` (id) for one, or `status` (proposed|applied|partially_applied|declined|withdrawn) to list. If both `changeset` and `status` are passed, `changeset` wins. Shows per-element verdicts and, once a human reviewed in Revit, the created element ids. Read-only.",
+    description: "Check staged changesets: pass `changeset` (id) for one, or `status` (proposed|applied|partially_applied|declined|withdrawn) to list. If both `changeset` and `status` are passed, `changeset` wins. Shows per-element verdicts and, once a human reviewed in Revit, the created element ids. An Undo in Revit leaves a changeset applied, so each one carries `undone`: {ledger_id, at, guids} when its newest changeset_reverted ledger row is an Undo, null when there is none or it was redone, {unknown: why} when the ledger was not read (never a guess). Once Revit reports its re-read of what it placed, result.as_built holds each element as built, judged against the installed ids@n. Read-only.",
     inputSchema: {
       type: "object", required: ["project"],
       properties: { project: { type: "string" }, changeset: { type: "string" }, status: { type: "string" } },
@@ -137,6 +140,24 @@ export const TOOLS = [
     inputSchema: {
       type: "object", required: ["project"],
       properties: { project: { type: "string", description: "the project key" }, job: { type: "string", description: "optional: a job id (job-NNNN) — that job with its candidates" } },
+    },
+  },
+  // MA-6-1: an agent reads what judges it — the LOD line and the standards in force — before it proposes.
+  {
+    name: "sentinel_lod_state",
+    description: "Read a project's judged LOD state line, the same line the web's Next strip and Revit's pane print: {lod_state: {line, share, at, ledger}} from the newest lod_state ledger row (Revit's count, claimed). It reads \"not measured\" until Promote (DD) or a reviewed Apply in Revit records a lod_state row, or when the lod_matrix in force is not the one that row was measured against; null for an office. Read-only.",
+    inputSchema: { type: "object", required: ["project"], properties: { project: { type: "string", description: "the project key" } } },
+  },
+  {
+    name: "sentinel_standards",
+    description: "Read a standard in force for a project (its own, else its office's — what every judge reads). kind: guideline (the office's typing rules: which type a wall, floor, … of given facts gets), type_catalog (the types the office models with), ids (the installed ids@n proposals are judged against), lod_matrix (the DD stage IDS made from the LOD matrix in force). type_catalog takes category (Walls, Floors, Roofs, Ceilings, Doors, Windows, Columns, Furniture) and returns that category's rows whole — family, type, width_mm, height_mm and params (e.g. Fire Rating); without category it returns the category names with their counts. Read the guideline and the catalogue before proposing, so the facts you send type to a type the IDS passes. A standard not installed is an error in words. Read-only.",
+    inputSchema: {
+      type: "object", required: ["project", "kind"],
+      properties: {
+        project: { type: "string", description: "the project key" },
+        kind: { type: "string", enum: STANDARD_KINDS },
+        category: { type: "string", description: "type_catalog only: the Revit category whose rows to return (e.g. Walls); omit for the category names with counts" },
+      },
     },
   },
 
@@ -173,6 +194,36 @@ const need = (args, key) => {
   return v;
 };
 
+/** MA-6-1 (amendment 9): an Undo in Revit leaves a changeset applied and writes a changeset_reverted row only — so the status tool reads
+ *  the ledger, as the web desk does (review-desk readLedger): one read for the applied changesets asked, rows newest first, so a
+ *  changeset's first row is its newest; an "undo" there is `undone`, a redo or no row is null. A failed or cut read (total > rows) is
+ *  {unknown} — never "not undone". Sets `undone` on each changeset in place; the stored doc is never touched. */
+async function markUndone(project, list, getJson) {
+  const ids = [];
+  for (const c of list) {
+    if (!c || typeof c !== "object") continue;
+    c.undone = null;
+    if (c.status === "applied" || c.status === "partially_applied") ids.push(c.id);
+  }
+  if (!ids.length) return;
+  let rows;
+  try {
+    const page = await getJson(`/cde/${enc(project)}/audit?entity_type=changeset&action_prefix=changeset_reverted&entity_id=${ids.map(enc).join(",")}&limit=1000`);
+    if (!Array.isArray(page?.rows)) throw new Error("the bridge answered without rows");
+    if ((page.total ?? 0) > page.rows.length) throw new Error(`the ledger holds more changeset_reverted rows (${page.total}) than one read returns`);
+    rows = page.rows;
+  } catch (e) {
+    for (const c of list) if (ids.includes(c?.id)) c.undone = { unknown: `ledger not read: ${e?.message || e} — an Undo in Revit may not show` };
+    return;
+  }
+  const newest = new Map();
+  for (const r of rows) if (!newest.has(r.entity_id)) newest.set(r.entity_id, r);
+  for (const c of list) {
+    const r = newest.get(c?.id);
+    if (r?.new_value?.op === "undo") c.undone = { ledger_id: r.id, at: r.at, guids: r.new_value.count ?? r.new_value.guids?.length ?? null };
+  }
+}
+
 export async function callTool(name, args = {}, deps = {}) {
   const f = deps.fetch || fetch;
   // DELIBERATE change from v1.0 for list_projects/audit: they previously .json()'d any response with
@@ -180,7 +231,7 @@ export async function callTool(name, args = {}, deps = {}) {
   // throw the same "bridge <status>: <text>" error the other tools always used.
   const getJson = async (path) => {
     const r = await f(`${BASE}${path}`, { headers: authHeaders });
-    if (!r.ok) throw new Error(`bridge ${r.status}: ${await r.text()}`);
+    if (!r.ok) throw Object.assign(new Error(`bridge ${r.status}: ${await r.text()}`), { status: r.status });
     return await r.json();
   };
 
@@ -251,12 +302,38 @@ export async function callTool(name, args = {}, deps = {}) {
   }
   if (name === "sentinel_changeset_status") {
     const project = need(args, "project");
-    if (args.changeset) return await getJson(`/changesets/${enc(project)}/${enc(need(args, "changeset"))}`);
-    return await getJson(`/changesets/${enc(project)}${args.status ? `?status=${enc(args.status)}` : ""}`);
+    const got = args.changeset ? await getJson(`/changesets/${enc(project)}/${enc(need(args, "changeset"))}`)
+      : await getJson(`/changesets/${enc(project)}${args.status ? `?status=${enc(args.status)}` : ""}`);
+    await markUndone(project, Array.isArray(got) ? got : [got], getJson);
+    return got;
   }
   if (name === "sentinel_build_status") {
     const project = need(args, "project");
     return await getJson(`/cde/${enc(project)}/build/jobs${args.job ? `/${enc(need(args, "job"))}` : ""}`);
+  }
+  // MA-6-1: the agent's reads (A-1, A-2) — through the routes the web and Revit read, on the same credential.
+  if (name === "sentinel_lod_state") {
+    const j = await getJson(`/cde/${enc(need(args, "project"))}/journey`);
+    return { lod_state: j.lod_state };
+  }
+  if (name === "sentinel_standards") {
+    const project = need(args, "project"), kind = need(args, "kind");
+    if (!STANDARD_KINDS.includes(kind)) throw new Error(`kind must be one of ${STANDARD_KINDS.join(", ")}`);
+    const j = await getJson(`/cde/${enc(project)}/artefacts/${kind === "lod_matrix" ? "lod_matrix/ids" : kind}`).catch((e) => {
+      throw e.status === 404 ? new Error(`${kind} is not installed for ${project} or its office (${e.message})`) : e;
+    });
+    if (kind !== "type_catalog") return j;
+    // The catalogue is large (343 KB on the pilot): one category's rows whole (amendment 6: params too, so an agent sees the Fire
+    // Rating its facts would type to), matched as the typer matches (sameCategory: the name or the row's BuiltInCategory).
+    const rows = Array.isArray(j.body?.types) ? j.body.types : [];
+    const counts = {};
+    for (const t of rows) counts[t.category] = (counts[t.category] ?? 0) + 1;
+    const head = { ref: j.ref ?? null, source: j.source ?? null, sha256: j.sha256 ?? null };
+    if (!args.category) return { ...head, categories: counts };
+    const { sameCategory } = await import("./sentinel-core.mjs");
+    const types = rows.filter((t) => sameCategory(t, String(args.category)));
+    if (!types.length) throw new Error(`no ${args.category} types in ${head.ref} — its categories: ${Object.entries(counts).map(([c, n]) => `${c} (${n})`).join(", ") || "none"}`);
+    return { ...head, category: args.category, types };
   }
 
   if (name === "sentinel_ask_app") {
