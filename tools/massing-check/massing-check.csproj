@@ -8,5 +8,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\..\SentinelAddin\GhostBuilder\MassingPlanner.cs" />
+    <None Include="p1-views.json" CopyToOutputDirectory="PreserveNewest" /> <!-- MA-6-9: row P-1, the measured readings -->
   </ItemGroup>
 </Project>

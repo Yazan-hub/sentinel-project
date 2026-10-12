@@ -1,0 +1,158 @@
+[
+  {
+    "model": "llava:latest",
+    "photo": "seagram-01.jpg",
+    "px": [
+      666,
+      1024
+    ],
+    "storeys": 20,
+    "full_height": true,
+    "height_to_width": 3.2,
+    "view": "front",
+    "bays": 10,
+    "eval_count": 51,
+    "seconds": 9.0
+  },
+  {
+    "model": "llava:latest",
+    "photo": "seagram-02.jpg",
+    "px": [
+      683,
+      1024
+    ],
+    "storeys": 20,
+    "full_height": true,
+    "height_to_width": 3.2,
+    "view": "front",
+    "bays": 10,
+    "eval_count": 56,
+    "seconds": 3.7
+  },
+  {
+    "model": "llava:latest",
+    "photo": "seagram-03.jpg",
+    "px": [
+      683,
+      1024
+    ],
+    "storeys": 20,
+    "full_height": true,
+    "height_to_width": 3.2,
+    "view": "front",
+    "bays": 10,
+    "eval_count": 51,
+    "seconds": 3.7
+  },
+  {
+    "model": "llava:latest",
+    "photo": "seagram-04.jpg",
+    "px": [
+      771,
+      1024
+    ],
+    "storeys": 20,
+    "full_height": true,
+    "height_to_width": 3.2,
+    "view": "front",
+    "bays": 10,
+    "eval_count": 51,
+    "seconds": 3.6
+  },
+  {
+    "model": "llama3.2-vision:latest",
+    "photo": "seagram-01.jpg",
+    "px": [
+      666,
+      1024
+    ],
+    "error": "HTTP Error 500: Internal Server Error",
+    "seconds": 3.6
+  },
+  {
+    "model": "llama3.2-vision:latest",
+    "photo": "seagram-02.jpg",
+    "px": [
+      683,
+      1024
+    ],
+    "error": "HTTP Error 500: Internal Server Error",
+    "seconds": 3.7
+  },
+  {
+    "model": "llama3.2-vision:latest",
+    "photo": "seagram-03.jpg",
+    "px": [
+      683,
+      1024
+    ],
+    "error": "HTTP Error 500: Internal Server Error",
+    "seconds": 3.7
+  },
+  {
+    "model": "llama3.2-vision:latest",
+    "photo": "seagram-04.jpg",
+    "px": [
+      771,
+      1024
+    ],
+    "error": "HTTP Error 500: Internal Server Error",
+    "seconds": 4.9
+  },
+  {
+    "model": "qwen3.6:latest",
+    "photo": "seagram-01.jpg",
+    "px": [
+      666,
+      1024
+    ],
+    "storeys": 52,
+    "full_height": true,
+    "height_to_width": 3.8,
+    "view": "front",
+    "eval_count": 42,
+    "seconds": 109.4
+  },
+  {
+    "model": "qwen3.6:latest",
+    "photo": "seagram-02.jpg",
+    "px": [
+      683,
+      1024
+    ],
+    "storeys": 50,
+    "full_height": true,
+    "height_to_width": 3.2,
+    "view": "front",
+    "eval_count": 42,
+    "seconds": 12.1
+  },
+  {
+    "model": "qwen3.6:latest",
+    "photo": "seagram-03.jpg",
+    "px": [
+      683,
+      1024
+    ],
+    "storeys": 50,
+    "full_height": false,
+    "height_to_width": 3.8,
+    "view": "front",
+    "eval_count": 42,
+    "seconds": 46.3
+  },
+  {
+    "model": "qwen3.6:latest",
+    "photo": "seagram-04.jpg",
+    "px": [
+      771,
+      1024
+    ],
+    "storeys": 42,
+    "full_height": true,
+    "height_to_width": 3.15,
+    "view": "front",
+    "eval_count": 43,
+    "seconds": 10.1
+  }
+]

@@ -16,12 +16,21 @@ namespace Sentinel.UI;
 /// user-corrected estimate — everything the reviewer touched is stamped source="user", confidence 1. MA-6-6: the command
 /// files it as one changeset (the missing levels and a mass); nothing is placed until a person applies it.
 ///
+/// MA-6-9 (C14): the photos give counts and a ratio, not lengths. The rows show each mark (observed / given / inferred / assumed) and the
+/// spread across the photos; a person gives ONE known dimension (the height or a façade's width), Scale ▶ works the lengths out, and File
+/// for review is refused until one is given.
+///
 /// Mirrors GhostReviewWindow / StandardsReviewWindow: plain code, no XAML pair.
 /// </summary>
 public sealed class MassingReviewWindow : Window
 {
     private readonly MassingEstimate _estimate;
     private readonly Dictionary<EstimatedValue, TextBox> _fields = new();
+    private readonly Dictionary<EstimatedValue, TextBlock> _hints = new();
+    private TextBox _knownH = null!, _knownW = null!; // MA-6-9: the known dimension, in metres
+    // What Scale ▶ worked from — Emit refuses to file lengths whose inputs have changed since (storeys, ratio, either known box).
+    private bool _scaled;
+    private double _sN, _sRatio; private double? _sKnownH, _sKnownW;
     private readonly TextBlock _status;
     private readonly Button _build; // MAS-4: disabled by the click that files; Reopen enables it again
 
@@ -32,7 +41,7 @@ public sealed class MassingReviewWindow : Window
     {
         _estimate = estimate;
         Title = "Sentinel — Massing: review the estimate before filing";
-        Width = 560; Height = 620;
+        Width = 640; Height = 720;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         ShowInTaskbar = false;
 
@@ -51,10 +60,13 @@ public sealed class MassingReviewWindow : Window
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
         int row = 0;
+        AddRow(grid, ref row, "Storeys", estimate.Storeys);
+        if (estimate.HeightToWidth != null) AddRow(grid, ref row, "Height : width", estimate.HeightToWidth);
+        _knownH = AddKnown(grid, ref row, "Known height (m)", estimate.KnownField == "height" ? estimate.KnownMm : (double?)null);
+        _knownW = AddKnown(grid, ref row, "Known width (m)", estimate.KnownField == "width" ? estimate.KnownMm : (double?)null);
+        AddRow(grid, ref row, "Storey height (mm)", estimate.StoreyHeightMm);
         AddRow(grid, ref row, "Footprint width (mm)", estimate.FootprintWidthMm);
         AddRow(grid, ref row, "Footprint depth (mm)", estimate.FootprintDepthMm);
-        AddRow(grid, ref row, "Storeys", estimate.Storeys);
-        AddRow(grid, ref row, "Storey height (mm)", estimate.StoreyHeightMm);
         for (int i = 0; i < estimate.Openings.Count; i++)
         {
             var o = estimate.Openings[i];
@@ -63,12 +75,23 @@ public sealed class MassingReviewWindow : Window
         }
         panel.Children.Add(grid);
 
+        var scale = new Button { Content = "Scale ▶", Padding = new Thickness(12, 4, 12, 4), Margin = new Thickness(0, 6, 0, 0), HorizontalAlignment = HorizontalAlignment.Left };
+        scale.Click += (_, __) => ScaleNow();
+        panel.Children.Add(scale);
+        panel.Children.Add(new TextBlock
+        {
+            Text = "The photos give counts and ratios, not lengths. Type ONE known dimension — the building's height or a façade's width, in metres — " +
+                   "and press Scale ▶: the storey height and the width are then worked out (inferred), the depth is only assumed. " +
+                   "A model's storey count can be wrong the same way on every photo — compare it with the photos.",
+            TextWrapping = TextWrapping.Wrap, Foreground = Brushes.Gray, FontSize = 11, Margin = new Thickness(0, 6, 0, 0),
+        });
+
         int needReview = MassingPlanner.FieldsNeedingReview(estimate).Count;
         _status = new TextBlock
         {
             Text = needReview == 0
                 ? "Every field came back confident — for a photo that's unusual; sanity-check the numbers anyway."
-                : $"{needReview} field(s) need your confirmation (amber). Correct them, then File for review.",
+                : $"Type one known dimension, press Scale ▶, check the {needReview} amber field(s), then File for review.",
             Margin = new Thickness(0, 10, 0, 8), TextWrapping = TextWrapping.Wrap, Foreground = Brushes.Gray,
         };
         panel.Children.Add(_status);
@@ -101,21 +124,62 @@ public sealed class MassingReviewWindow : Window
 
         var box = new TextBox
         {
-            Text = v.Value.ToString("0.#", CultureInfo.InvariantCulture),
             Margin = new Thickness(0, 3, 6, 3),
-            Background = needsReview ? new SolidColorBrush(Color.FromRgb(255, 244, 214)) : Brushes.White,
         };
         Grid.SetRow(box, row); Grid.SetColumn(box, 1); grid.Children.Add(box);
         _fields[v] = box;
 
-        var hint = new TextBlock
-        {
-            Text = needsReview ? (v.Note ?? "confirm this") : $"{v.Confidence:0.0} confident",
-            Foreground = needsReview ? new SolidColorBrush(Color.FromRgb(180, 120, 20)) : Brushes.Gray,
-            VerticalAlignment = VerticalAlignment.Center, FontSize = 11,
-        };
+        var hint = new TextBlock { VerticalAlignment = VerticalAlignment.Center, FontSize = 11, TextWrapping = TextWrapping.Wrap, MaxWidth = 300 };
+        Grid.SetRow(hint, row); Grid.SetColumn(hint, 2); grid.Children.Add(hint);
+        _hints[v] = hint;
+        Show(v);
+        row++;
+    }
+
+    // A row's box, colour and hint from its value: the mark, the spread across the photos, the note (MA-6-9).
+    private void Show(EstimatedValue v)
+    {
+        // A photo-read storey count is always to be confirmed: the photos agreeing is not the count being right (P-1, D17).
+        bool needsReview = v.Source != "photo" || v.Confidence <= MassingPlanner.AssumedBelow || v == _estimate.Storeys;
+        _fields[v].Text = double.IsNaN(v.Value) ? "" : v.Value.ToString("0.###", CultureInfo.InvariantCulture); // 3 places: Emit's 0.001 change check never sees a rounding
+        _fields[v].Background = needsReview ? new SolidColorBrush(Color.FromRgb(255, 244, 214)) : Brushes.White;
+        _hints[v].Text = MassingPlanner.Hint(v, v == _estimate.Storeys && v.Source == "photo") + (needsReview ? "" : $" · {v.Confidence:0.0} confident");
+        _hints[v].Foreground = needsReview ? new SolidColorBrush(Color.FromRgb(180, 120, 20)) : Brushes.Gray;
+    }
+
+    private TextBox AddKnown(Grid grid, ref int row, string label, double? mm)
+    {
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        var lbl = new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 3, 6, 3) };
+        Grid.SetRow(lbl, row); Grid.SetColumn(lbl, 0); grid.Children.Add(lbl);
+        var box = new TextBox { Text = mm is double x ? (x / 1000).ToString("0.###", CultureInfo.InvariantCulture) : "", Margin = new Thickness(0, 3, 6, 3) };
+        Grid.SetRow(box, row); Grid.SetColumn(box, 1); grid.Children.Add(box);
+        var hint = new TextBlock { Text = "given — type one of the two", Foreground = Brushes.Gray, VerticalAlignment = VerticalAlignment.Center, FontSize = 11 };
         Grid.SetRow(hint, row); Grid.SetColumn(hint, 2); grid.Children.Add(hint);
         row++;
+        return box;
+    }
+
+    private static double? Metres(string text) =>
+        double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out double m) && m > 0 ? m * 1000 : (double?)null;
+
+    // A decimal comma would otherwise read as a group separator (12,5 m → 125 m): every box takes a point.
+    private const string Point = "use a point for decimals — a comma is not read";
+    private bool HasComma() => _fields.Values.Append(_knownH).Append(_knownW).Any(b => b.Text.Contains(','));
+
+    /// <summary>Scale ▶: the one known dimension in the boxes turns the photos' counts and ratio into lengths (MassingPlanner.Scale); the
+    /// boxes and the values are rewritten together, so Emit's change check does not take them for the reviewer's own numbers.</summary>
+    public void ScaleNow()
+    {
+        if (HasComma()) { _status.Text = "Scale: " + Point; return; }
+        ReadBoxes(); // a number the reviewer typed first is theirs and is what Scale works from
+        double? kh = Metres(_knownH.Text), kw = Metres(_knownW.Text);
+        string why = MassingPlanner.Scale(_estimate, kh, kw);
+        if (why != null) { _status.Text = "Scale: " + why; return; }
+        _scaled = true; _sN = Math.Round(_estimate.Storeys.Value); _sRatio = _estimate.HeightToWidth?.Value ?? double.NaN; _sKnownH = kh; _sKnownW = kw;
+        foreach (var v in _fields.Keys) Show(v);
+        _status.Text = MassingPlanner.ScaleRefusal(_estimate)
+                       ?? $"Scaled from the given {MassingPlanner.KnownWords(_estimate).Replace(", given", "")}. The inferred numbers are amber — check them, then File for review.";
     }
 
     /// <summary>Read the (possibly edited) boxes back into the estimate. A field the reviewer changed is
@@ -128,15 +192,21 @@ public sealed class MassingReviewWindow : Window
         if (!_build.IsEnabled) return;
         _build.IsEnabled = false;
         _status.Text = "Filing the massing for review…";
-        foreach (var kv in _fields)
+        if (HasComma()) { Reopen(Point); return; }
+        ReadBoxes();
+        // MA-6-9: a building the photos gave no length for cannot be filed; and an inferred number out of range is said, never clamped.
+        double? kh = Metres(_knownH.Text), kw = Metres(_knownW.Text);
+        if (!_scaled || _estimate.KnownField == null)
         {
-            if (double.TryParse(kv.Value.Text, NumberStyles.Any, CultureInfo.InvariantCulture, out double val))
-            {
-                bool changed = Math.Abs(val - kv.Key.Value) > 0.001;
-                kv.Key.Value = val;
-                if (changed) { kv.Key.Source = "user"; kv.Key.Confidence = 1.0; kv.Key.Note = "confirmed by the reviewer"; }
-            }
+            Reopen(kh == null && kw == null ? MassingPlanner.NeedsKnown : "press Scale ▶ after typing the known dimension — the lengths are worked out from it");
+            return;
         }
+        // The inferred lengths were worked out from the storeys, the ratio and the known dimension as Scale saw them: if any changed since, file nothing.
+        double ratio = _estimate.HeightToWidth?.Value ?? double.NaN;
+        if (Math.Round(_estimate.Storeys.Value) != _sN || !(double.IsNaN(ratio) && double.IsNaN(_sRatio) || Math.Abs(ratio - _sRatio) <= 0.001)
+            || kh != _sKnownH || kw != _sKnownW)
+        { Reopen("press Scale ▶ again — the storeys, the ratio or the known dimension changed since the lengths were worked out"); return; }
+        if (MassingPlanner.ScaleRefusal(_estimate) is { } tooFar) { Reopen(tooFar); return; }
         // Re-validate so any still-out-of-range hand-entry is caught, then hand off.
         // Review amendment C12: a subscriber that throws (the request to file) never reaches the command's own reopen — the
         // review is reopened here, with the reason, before the exception goes on as it did before.
@@ -145,6 +215,20 @@ public sealed class MassingReviewWindow : Window
         {
             Reopen(MassingPlanner.NotStarted(ex.Message));
             throw;
+        }
+    }
+
+    // Read the (possibly edited) boxes back: a number the reviewer changed is theirs.
+    private void ReadBoxes()
+    {
+        foreach (var kv in _fields)
+        {
+            if (double.TryParse(kv.Value.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out double val))
+            {
+                bool changed = Math.Abs(val - kv.Key.Value) > 0.001 || double.IsNaN(kv.Key.Value);
+                kv.Key.Value = val;
+                if (changed) { kv.Key.Source = "user"; kv.Key.Confidence = 1.0; kv.Key.Note = "confirmed by the reviewer"; kv.Key.Lo = kv.Key.Hi = null; kv.Key.Views = kv.Key.Of = 0; }
+            }
         }
     }
 

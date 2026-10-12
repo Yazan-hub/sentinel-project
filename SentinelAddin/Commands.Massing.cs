@@ -88,7 +88,7 @@ public sealed class MassingFromImagesCommand : IExternalCommand
                 progress.SetStatus($"Reading the project images with the vision model {LocalOnly.Where(settings.OllamaUrl)}…");
                 using var reader = new MassingVisionReader(settings.GhostVisionModel, settings.OllamaUrl, settings.GhostCloudOptIn);
                 readerClock.Start();
-                MassingEstimate estimate = await reader.EstimateAsync(folder, ct: progress.Token).ConfigureAwait(false);
+                MassingEstimate estimate = await reader.EstimateAsync(folder, ct: progress.Token, progress: new Progress<string>(progress.SetStatus)).ConfigureAwait(false); // MA-6-9: "Reading photo i of n…"
                 readerClock.Stop();
                 visionUsage = reader.Usage;
                 // MA-1a item 4 (founder decision F6): one sha256 over the images the vision model read. MA-6-6: it rides on the receipt —
@@ -109,6 +109,8 @@ public sealed class MassingFromImagesCommand : IExternalCommand
                         // Final review (E7): the images are the source only while the numbers still hold one the vision model gave.
                         receipt.Parameters["images_sha256"] = MassingPlanner.HasModelValue(corrected) ? imagesSha : null;
                         receipt.Parameters["openings_seen"] = MassingPlanner.OpeningsSeen(corrected); // D12: counted, never placed
+                        receipt.Parameters["views"] = corrected.ViewLines; // MA-6-9: one line per photo read (counts and ratio, never a length)
+                        receipt.Parameters["known_dimension"] = MassingPlanner.KnownWords(corrected); // MA-6-9: the one length a person gave
                         // SEC-7, amendment 4: planned on Revit's thread in this model when the person files — the levels read then, not when
                         // the review opened (a level added since would give a duplicate name, and Apply would decline the changeset for good).
                         if (App.Events is null) { review.Reopen(MassingPlanner.NotStarted("Sentinel's event hub is not running — restart Revit")); return; }

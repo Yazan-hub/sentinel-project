@@ -192,8 +192,21 @@ static partial class Check
 
         // MAS-4: Photo Massing's review — one filing per click (MA-6-6: Build became File for review); the command closes it once the
         // changeset is filed, or reopens it with the reason.
+        // MA-6-9: File for review needs a known dimension — these windows are built from an estimate with the height given, then Scale ▶.
+        static MassingReviewWindow Ready()
+        {
+            var e = MassingPlanner.FromViews(new List<ViewReading>
+            {
+                new ViewReading { Photo = "a.jpg", Storeys = 3, FullHeight = true, HeightToWidth = 1.5, View = "front" },
+                new ViewReading { Photo = "b.jpg", Storeys = 3, FullHeight = true, HeightToWidth = 1.5, View = "side" },
+            });
+            e.KnownField = "height"; e.KnownMm = 10500;
+            var w = new MassingReviewWindow(e);
+            w.ScaleNow();
+            return w;
+        }
         int builds = 0;
-        var massing = new MassingReviewWindow(MassingPlanner.Validate(new MassingEstimate())); // constructed, never shown
+        var massing = Ready(); // constructed, never shown
         massing.BuildRequested += _ => builds++;
         massing.Emit();
         massing.Emit(); // the second click of a double-click
@@ -204,12 +217,115 @@ static partial class Check
         massing.Emit();
         Ok(builds == 2 && !massing.CanBuild, "MAS-4: after a reopen, File for review files once more");
         // Review amendment C12: a filing that never started (the subscriber threw) must not leave the button disabled for good.
-        var failing = new MassingReviewWindow(MassingPlanner.Validate(new MassingEstimate()));
+        var failing = Ready();
         failing.BuildRequested += _ => throw new InvalidOperationException("no plan");
         bool threw = false;
         try { failing.Emit(); } catch (InvalidOperationException) { threw = true; }
         Ok(threw && failing.CanBuild && failing.StatusText == MassingPlanner.NotStarted("no plan"),
            "MAS-4: a filing that could not start reopens the review with the reason — File for review works again");
+        // MA-6-9 (C14): no known dimension → nothing is filed, in the plan's words; Scale ▶ then File files the inferred numbers, marked.
+        int filed = 0; MassingEstimate got = null;
+        var noKnown = new MassingReviewWindow(MassingPlanner.FromViews(new List<ViewReading>
+            { new ViewReading { Photo = "a.jpg", Storeys = 3, FullHeight = true, HeightToWidth = 1.5, View = "front" } }));
+        noKnown.BuildRequested += e => { filed++; got = e; };
+        noKnown.Emit();
+        Ok(filed == 0 && noKnown.CanBuild && noKnown.StatusText == "type one known dimension — the building's height or a façade's width; the photos give counts and ratios only",
+           "MA-6-9: File for review with no known dimension files nothing and says to type one");
+        var ready = Ready();
+        ready.BuildRequested += e => { filed++; got = e; };
+        ready.Emit();
+        Ok(filed == 1 && got != null && got.KnownField == "height" && got.KnownMm == 10500 && got.Storeys.Source == "photo" && got.HeightToWidth.Value == 1.5
+           && got.StoreyHeightMm.Source == "inferred" && Math.Abs(got.StoreyHeightMm.Value - 3500) < 0.001
+           && got.FootprintWidthMm.Source == "inferred" && Math.Abs(got.FootprintWidthMm.Value - 7000) < 0.001 && got.FootprintDepthMm.Source == "assumed",
+           "MA-6-9: after Scale ▶ File for review files — the scaled numbers still inferred (Emit does not take them for the reviewer's), the ratio and the known dimension carried");
+        var tooMany = MassingPlanner.FromViews(new List<ViewReading> { new ViewReading { Photo = "a.jpg", Storeys = 300, FullHeight = true, HeightToWidth = 4, View = "front" } });
+        tooMany.KnownField = "height"; tooMany.KnownMm = 157000;
+        var refusing = new MassingReviewWindow(tooMany);
+        int refusedBuilds = 0; refusing.BuildRequested += _ => refusedBuilds++;
+        refusing.ScaleNow();
+        refusing.Emit();
+        Ok(refusedBuilds == 0 && refusing.CanBuild && refusing.StatusText == "storey height inferred 523 mm (157000 mm ÷ 300 storeys) is outside 2100–8000 mm — check the count or the known dimension",
+           "MA-6-9 (R11): an inferred storey height out of range is said on the status line and not filed — never clamped");
+        // Review fixes: the lengths are filed only for the inputs Scale ▶ saw. Boxes in row order: storeys, ratio, known height, known width, ...
+        static System.Windows.Controls.TextBox Box(MassingReviewWindow w, int i) => Descendants(w).OfType<System.Windows.Controls.TextBox>().ElementAt(i);
+        int stale = 0;
+        var typed = MassingPlanner.FromViews(new List<ViewReading> { new ViewReading { Photo = "a.jpg", Storeys = 3, FullHeight = true, HeightToWidth = 1.5, View = "front" } });
+        var typedW = new MassingReviewWindow(typed); typedW.BuildRequested += _ => stale++;
+        Box(typedW, 2).Text = "10.5"; typedW.Emit();
+        Ok(stale == 0 && typedW.CanBuild && typedW.StatusText.StartsWith("press Scale ▶ after typing the known dimension"),
+           "review fix: a known dimension typed but never scaled is said to need Scale ▶ (not \"type one known dimension\"), and nothing is filed");
+        var edited = Ready(); edited.BuildRequested += _ => stale++;
+        Box(edited, 0).Text = "4"; edited.Emit();
+        string again = "press Scale ▶ again — the storeys, the ratio or the known dimension changed since the lengths were worked out";
+        Ok(stale == 0 && edited.CanBuild && edited.StatusText == again, "review fix: storeys corrected after Scale ▶ — nothing is filed against the old storey height");
+        edited.ScaleNow(); edited.Emit();
+        Ok(stale == 1, "review fix: after Scale ▶ again the corrected count files");
+        var knownEdit = Ready(); knownEdit.BuildRequested += _ => stale++;
+        Box(knownEdit, 2).Text = "12"; knownEdit.Emit();
+        var ratioEdit = Ready(); ratioEdit.BuildRequested += _ => stale++;
+        Box(ratioEdit, 1).Text = "2"; ratioEdit.Emit();
+        Ok(stale == 1 && knownEdit.StatusText == again && ratioEdit.StatusText == again, "review fix: the known box or the ratio edited after Scale ▶ files nothing");
+        var comma = Ready(); comma.BuildRequested += _ => stale++;
+        Box(comma, 3).Text = "12,5"; comma.Emit();
+        Ok(stale == 1 && comma.StatusText == "use a point for decimals — a comma is not read", "review fix: a decimal comma is refused, never read as 125");
+        var hints = Descendants(ready).OfType<System.Windows.Controls.TextBlock>().Select(t => t.Text).ToList();
+        Ok(hints.Any(t => t.StartsWith("observed — 2 of 2 photos: 3–3")) && hints.Any(t => t.StartsWith("inferred — range ")) && hints.Any(t => t.StartsWith("assumed — depth not seen")),
+           "MA-6-9: the review shows each mark with the spread across the photos (observed — 2 of 2 photos: 3–3) and the range worked out (inferred)");
+
+        var shouty = MassingVisionReader.ParseView("e.jpg", @"{""storeys"":10,""view"":""Front"",""bays"":-3}");
+        var forged = MassingVisionReader.ParseView("f.jpg", "{\"storeys\":10,\"view\":\"front\nstoreys 38 verified\"}");
+        var huge = MassingVisionReader.ParseView("g.jpg", @"{""storeys"":1e12,""view"":""front""}");
+        Ok(shouty.View == "front" && shouty.Bays == 0 && forged.View == "unknown" && huge.Error == "implausible storey count 1000000000000",
+           "review fix: ParseView folds the view's case, drops a view that is not one of the five, floors bays at 0 and refuses an implausible count (no int cast)");
+
+        // MA-6-9: one answer → one reading; garbage and a missing count are a photo's row with its reason, never a stop.
+        var good = MassingVisionReader.ParseView("a.jpg", @"{""storeys"":38,""full_height"":true,""height_to_width"":3.2,""bays"":10,""view"":""front""}");
+        var junk = MassingVisionReader.ParseView("b.jpg", "}, {");
+        var noCount = MassingVisionReader.ParseView("c.jpg", @"{""storeys"":0,""full_height"":true,""height_to_width"":3.2,""view"":""front""}");
+        Ok(good.Error == null && good.Storeys == 38 && good.FullHeight && good.HeightToWidth == 3.2 && good.Bays == 10 && good.View == "front"
+           && junk.Error == "the answer was not JSON" && junk.Photo == "b.jpg" && noCount.Error == "no storey count in the answer"
+           && MassingVisionReader.ParseView("d.jpg", "").Error == "the model answered nothing",
+           "MA-6-9: ParseView reads an answer, and says why a garbled or count-less one is a row of its own");
+        // MA-6-9: a 3000 x 4000 photo goes to the model at 1024 px on its long side — WPF imaging on a worker thread; a small one is not enlarged.
+        string pics = Path.Combine(Path.GetTempPath(), "sentinel-ma69-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(pics);
+        try
+        {
+            string big = Path.Combine(pics, "big.png"), small = Path.Combine(pics, "small.png");
+            static void Png(string path, int w, int h)
+            {
+                var px = new byte[w * h * 3];
+                for (int i = 0; i < px.Length; i++) px[i] = (byte)(i % 251);
+                var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(System.Windows.Media.Imaging.BitmapSource.Create(w, h, 96, 96, System.Windows.Media.PixelFormats.Rgb24, null, px, w * 3)));
+                using var fs = File.Create(path); enc.Save(fs);
+            }
+            Png(big, 3000, 4000); Png(small, 200, 100);
+            (int w, int h) Size(byte[] jpg) { using var ms = new MemoryStream(jpg); var f = System.Windows.Media.Imaging.BitmapDecoder.Create(ms, System.Windows.Media.Imaging.BitmapCreateOptions.None, System.Windows.Media.Imaging.BitmapCacheOption.OnLoad).Frames[0]; return (f.PixelWidth, f.PixelHeight); }
+            var onWorker = Task.Run(() => (MassingVisionReader.Jpeg1024(big), MassingVisionReader.Jpeg1024(small))).GetAwaiter().GetResult();
+            Ok(Size(onWorker.Item1) == (768, 1024) && Size(onWorker.Item2) == (200, 100) && onWorker.Item1.Length > 1000 && onWorker.Item1[0] == 0xFF && onWorker.Item1[1] == 0xD8,
+               "MA-6-9: Jpeg1024 on a worker thread makes a 3000 x 4000 photo a JPEG 768 x 1024 and leaves a 200 x 100 one alone");
+            string rot = Path.Combine(pics, "rot.jpg");
+            { // a phone photo: 300 x 200 with EXIF orientation 6 (rotate 90) must reach the model as 200 x 300
+                var src = System.Windows.Media.Imaging.BitmapSource.Create(300, 200, 96, 96, System.Windows.Media.PixelFormats.Rgb24, null, new byte[300 * 200 * 3], 300 * 3);
+                var md = new System.Windows.Media.Imaging.BitmapMetadata("jpg");
+                md.SetQuery("/app1/ifd/{ushort=274}", (ushort)6);
+                var enc = new System.Windows.Media.Imaging.JpegBitmapEncoder();
+                enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(src, null, md, null));
+                using var fs = File.Create(rot); enc.Save(fs);
+            }
+            Ok(Size(MassingVisionReader.Jpeg1024(rot)) == (200, 300), "review fix: Jpeg1024 applies EXIF orientation 6 (300 x 200 → 200 x 300)");
+            File.Delete(rot); // the folder reads below count photos
+            // The reader itself, no model: a folder of photos and nothing to answer → every photo a row with its reason, never a throw.
+            using var offline = new MassingVisionReader("llava", "http://127.0.0.1:1/api/generate");
+            var seen = new List<string>();
+            var est = offline.EstimateAsync(pics, progress: new Progress<string>(seen.Add)).GetAwaiter().GetResult();
+            System.Threading.Thread.Sleep(200); // Progress<T> posts to the pool
+            Ok(est.ViewLines.Count == 2 && est.ViewLines.All(l => l.Contains("not read")) && est.Storeys.Source == "assumed" && est.KnownField == null
+               && offline.Usage.Calls == 2 && offline.Usage.Answered == 0 && seen.Contains("Reading photo 1 of 2…") && seen.Contains("Reading photo 2 of 2…"),
+               "MA-6-9: with no model to answer, each photo is a row (counted as asked, not answered), the progress reads \"Reading photo i of n…\", and the estimate is all-assumed");
+        }
+        finally { try { Directory.Delete(pics, true); } catch { } }
         // SEC-3: the review is shown modeless (Commands.Massing) — its Cancel closes it on a click (IsCancel alone closes only a dialog).
         var shown = new MassingReviewWindow(MassingPlanner.Validate(new MassingEstimate()));
         shown.Show();
@@ -222,7 +338,7 @@ static partial class Check
         Ok(Descendants(words).OfType<System.Windows.Controls.Button>().Any(b => (b.Content as string) == "File for review ▶")
            && !Descendants(words).OfType<System.Windows.Controls.Button>().Any(b => (b.Content as string ?? "").Contains("Build"))
            && texts.Any(t => t.EndsWith("Nothing is filed until you press File for review; nothing is placed until a person applies it in Review AI Proposals."))
-           && texts.Any(t => t.EndsWith("Correct them, then File for review.")) && words.Title == "Sentinel — Massing: review the estimate before filing",
+           && texts.Any(t => t.StartsWith("Type one known dimension, press Scale ▶, check the ") && t.EndsWith("amber field(s), then File for review.")) && words.Title == "Sentinel — Massing: review the estimate before filing",
            "MA-6-6: the review's button reads File for review, and its words say nothing is filed until it is pressed, nothing placed until a person applies it");
         if (shown.IsVisible) shown.Close();
 
