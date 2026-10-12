@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import {
-  VOCABULARY, OPS, OP_KINDS, MAX_CHANGESET_ELEMENTS, TRUST_FIELDS, ADDIN_SOURCES,
+  VOCABULARY, OPS, OP_KINDS, MAX_CHANGESET_ELEMENTS, TRUST_FIELDS, ADDIN_SOURCES, CREATE_ENTITY,
   validateChangeset, carryKey, outlineProblem, attachVerdicts, canWithdraw, deriveResultStatus, unattributedFailures,
 } from "./changesets-logic.mjs";
 import * as core from "./sentinel-core.mjs";
@@ -1053,6 +1053,56 @@ describe("validateChangeset — set_parameter (MA-2c)", () => {
     expect(body.elements.map((e) => e.op)).toEqual(["retype", "retype", "set_parameter", "set_parameter"]);
     expect(v.ignored).toEqual([]); // the add-in sends nothing the bridge sets itself
     expect(v.exceptions).toEqual(body.exceptions);
+  });
+});
+
+// MA-6-1: the bridge owns the IFC class — set from the kind on every op (amendment 2: an exact compare, so no subtype steps outside a spec).
+describe("validateChangeset — the class is the bridge's, from the kind (MA-6-1)", () => {
+  const CLASS = { field: "elements[0].validate.identity.Class", why: "ignored: set by the bridge from kind" };
+  const cls = (el) => validateChangeset(CS([el]));
+
+  it("a wall claiming IFCDOOR reads IFCWALL, and the claim is listed back", () => {
+    const v = cls(wall({ validate: { identity: { Class: "IFCDOOR", Name: "W1" } } }));
+    expect(v.elements[0].validate.identity.Class).toBe("IFCWALL");
+    expect(v.ignored).toEqual([CLASS]);
+  });
+
+  it("a subtype is not the kind's class: IfcWallStandardCase reads IFCWALL, listed", () => {
+    const v = cls(wall({ validate: { identity: { Class: "IfcWallStandardCase", Name: "W1" } } }));
+    expect(v.elements[0].validate.identity.Class).toBe("IFCWALL");
+    expect(v.ignored).toEqual([CLASS]);
+  });
+
+  it("the kind's own class in any case is kept as sent, with nothing listed", () => {
+    const v = cls(wall({ validate: { identity: { Class: "IfcWall", Name: "W1" } } }));
+    expect(v.elements[0].validate.identity.Class).toBe("IfcWall");
+    expect(v.ignored).toEqual([]);
+  });
+
+  it("a kind outside the Promote six takes its own class: a level, a column, furniture (as GhostFiling sends it)", () => {
+    const v = cls(level({ validate: { identity: { Class: "IFCWALL", Name: "L2" } } }));
+    expect(v.elements[0].validate.identity.Class).toBe("IFCBUILDINGSTOREY");
+    expect(v.ignored).toEqual([CLASS]);
+    const point = (kind, Class) => ({ kind, validate: { identity: { Class } }, place: { FamilyName: "F", TypeName: "T", LevelName: "Level 1", Location: [0, 0, 0] } });
+    expect(cls(point("column", "IFCWALL")).elements[0].validate.identity.Class).toBe("IFCCOLUMN");
+    expect(cls(point("furniture", "IFCFURNISHINGELEMENT")).elements[0].validate.identity.Class).toBe("IFCFURNITURE");
+    expect(cls(point("furniture", "IFCFURNITURE")).ignored).toEqual([]);
+  });
+
+  it("every op, not only a create: a retype of a wall claiming IFCDOOR reads IFCWALL", () => {
+    const v = cls({ op: "retype", kind: "wall", target: { unique_id: "5a1c2b3d-1111-2222-3333-444455556666-0004c3f8" }, place: { TypeName: "T" },
+      validate: { identity: { Class: "IFCDOOR" } } });
+    expect(v.elements[0].validate.identity.Class).toBe("IFCWALL");
+    expect(v.ignored).toEqual([CLASS]);
+  });
+
+  it("a class is still required: an older poster's missing class is a 400, never filled in", () => {
+    status400(() => cls(wall({ validate: { identity: { Name: "W1" } } })), /validate\.identity\.Class is required \(send the kind's IFC class, e\.g\. IFCWALL; the bridge sets it from the kind\)/);
+  });
+
+  // Review fix: the override fails closed, so a kind added to OP_KINDS (6-3's opening and beam, 6-6's mass) cannot ship without a class.
+  it("every kind any op takes has its IFC class", () => {
+    for (const k of new Set(Object.values(OP_KINDS).flat())) expect(CREATE_ENTITY[k], k).toMatch(/^IFC[A-Z]+$/);
   });
 });
 

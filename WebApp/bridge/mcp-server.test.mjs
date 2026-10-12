@@ -14,7 +14,7 @@ describe("TOOLS registry", () => {
     const names = TOOLS.map((t) => t.name);
     for (const n of ["sentinel_list_projects", "sentinel_propose", "sentinel_audit", "sentinel_ask_app", ...NEW_TOOLS])
       expect(names).toContain(n);
-    expect(TOOLS).toHaveLength(14);
+    expect(TOOLS).toHaveLength(16);
   });
 
   it("every tool has a description and an object inputSchema", () => {
@@ -137,12 +137,14 @@ describe("callTool — existing tools regression", () => {
 });
 
 describe("changeset tools", () => {
-  it("registry has 12 tools including the two changeset tools and receipt verification", () => {
+  it("registry has 16 tools including the two changeset tools, receipt verification and MA-6-1's two reads", () => {
     const names = TOOLS.map((t) => t.name);
     expect(names).toContain("sentinel_propose_changeset");
     expect(names).toContain("sentinel_changeset_status");
     expect(names).toContain("sentinel_verify_receipt");
-    expect(TOOLS).toHaveLength(14);
+    expect(names).toContain("sentinel_lod_state");
+    expect(names).toContain("sentinel_standards");
+    expect(TOOLS).toHaveLength(16);
   });
 
   it("propose tool description states the referee model and the vocabulary", () => {
@@ -283,5 +285,141 @@ describe("sentinel_propose_changeset — contract 2's trust rules (MA-1a item 8)
     for (const source of [{ reader: "promote" }, { reader: " DWG " }, ["promote"], 7, null])
       expect((await sent({ source })).source).toBe("agent");
     expect(await sent({})).toEqual({ name: "N", source: "agent", elements: [{ kind: "level" }] });
+  });
+});
+
+// MA-6-1: an agent reads what judges it (the LOD line, the standards in force), the class is the bridge's, and an Undo shows.
+describe("MA-6-1 — agent reads, the bridge's class, Undo in the status", () => {
+  const tool = (n) => TOOLS.find((t) => t.name === n);
+  // A fetch that answers by path: each entry's key is matched against the requested URL (first match wins).
+  const route = (table) => vi.fn(async (url) => {
+    const hit = Object.entries(table).find(([k]) => url.includes(k));
+    if (!hit) throw new Error(`no route for ${url}`);
+    return typeof hit[1] === "function" ? hit[1](url) : okJson(hit[1]);
+  });
+
+  it("sentinel_lod_state reads /cde/:key/journey and returns its lod_state only — read-only", async () => {
+    const lod = { line: "LOD state: 12/14 at DD — Revit's count (claimed), revit, 2026-10-12 04:00 UTC · ledger #77", share: 0.86, at: "2026-10-12T04:00:00Z", ledger: { id: 77, hash: "ab" } };
+    const fetch = vi.fn(async () => okJson({ key: "demo", steps: [], lod_state: lod }));
+    expect(await callTool("sentinel_lod_state", { project: "demo" }, { fetch })).toEqual({ lod_state: lod });
+    expect(fetch.mock.calls[0][0]).toMatch(/\/cde\/demo\/journey$/);
+    expect(fetch.mock.calls[0][1].method).toBeUndefined();
+    await expect(callTool("sentinel_lod_state", {}, { fetch })).rejects.toThrow(/project is required/);
+  });
+
+  it("sentinel_standards reads guideline and ids whole, lod_matrix as its DD IDS; an unknown kind is refused before any fetch", async () => {
+    const fetch = vi.fn(async () => okJson({ kind: "guideline", ref: "guideline@2", body: { rules: [] } }));
+    expect(await callTool("sentinel_standards", { project: "demo", kind: "guideline" }, { fetch })).toEqual({ kind: "guideline", ref: "guideline@2", body: { rules: [] } });
+    expect(fetch.mock.calls[0][0]).toMatch(/\/cde\/demo\/artefacts\/guideline$/);
+    await callTool("sentinel_standards", { project: "demo", kind: "ids" }, { fetch });
+    expect(fetch.mock.calls[1][0]).toMatch(/\/cde\/demo\/artefacts\/ids$/);
+    await callTool("sentinel_standards", { project: "demo", kind: "lod_matrix" }, { fetch });
+    expect(fetch.mock.calls[2][0]).toMatch(/\/cde\/demo\/artefacts\/lod_matrix\/ids$/);
+    await expect(callTool("sentinel_standards", { project: "demo", kind: "naming" }, { fetch })).rejects.toThrow(/kind must be one of guideline, type_catalog, ids, lod_matrix/);
+    await expect(callTool("sentinel_standards", { project: "demo", kind: "../members" }, { fetch })).rejects.toThrow(/kind must be one of/);
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(tool("sentinel_standards").inputSchema.required).toEqual(["project", "kind"]);
+  });
+
+  it("type_catalog: one category's rows whole (params too; a row matched by its BuiltInCategory), or the category names with counts", async () => {
+    const W1 = { category: "Walls", family: "Basic Wall", type: "BDS_EXT_200", system: true, width_mm: 200, height_mm: null, params: { "Fire Rating": "60 min" } };
+    const W2 = { category: "Murs", bic: "OST_Walls", family: "Basic Wall", type: "BDS_INT_100", system: true, width_mm: 100, height_mm: null, params: {} };
+    const D1 = { category: "Doors", family: "BDS_INT_1 PNL", type: "1000 x 2100", system: false, width_mm: 1000, height_mm: 2100, params: { "Fire Rating": "FD30" } };
+    const fetch = vi.fn(async () => okJson({ kind: "type_catalog", version: 3, ref: "type_catalog@3", source: "office", sha256: "cd".repeat(32), body: { types: [W1, W2, D1] } }));
+    const head = { ref: "type_catalog@3", source: "office", sha256: "cd".repeat(32) };
+    expect(await callTool("sentinel_standards", { project: "demo", kind: "type_catalog", category: "Walls" }, { fetch })).toEqual({ ...head, category: "Walls", types: [W1, W2] });
+    expect(fetch.mock.calls[0][0]).toMatch(/\/cde\/demo\/artefacts\/type_catalog$/);
+    expect(await callTool("sentinel_standards", { project: "demo", kind: "type_catalog" }, { fetch })).toEqual({ ...head, categories: { Walls: 1, Murs: 1, Doors: 1 } });
+    await expect(callTool("sentinel_standards", { project: "demo", kind: "type_catalog", category: "Stairs" }, { fetch }))
+      .rejects.toThrow(/^no Stairs types in type_catalog@3 — its categories: Walls \(1\), Murs \(1\), Doors \(1\)$/);
+  });
+
+  it("a standard not installed is an error in words; any other bridge error is passed through", async () => {
+    const fetch = vi.fn(async () => failText(404, '{"message":"no guideline artefact installed for demo or its office","reason":"not_installed"}'));
+    await expect(callTool("sentinel_standards", { project: "demo", kind: "guideline" }, { fetch })).rejects.toThrow(/^guideline is not installed for demo or its office \(bridge 404: .*not_installed/);
+    const down = vi.fn(async () => failText(503, "down"));
+    await expect(callTool("sentinel_standards", { project: "demo", kind: "ids" }, { fetch: down })).rejects.toThrow(/^bridge 503: down$/);
+    // Review fix: the lod_matrix route's own 404 is "not installed" too; a no_project 404 (a typo'd key, a non-member) is the bridge's words.
+    const noMatrix = vi.fn(async () => failText(404, '{"message":"no lod_matrix installed for demo or its office"}'));
+    await expect(callTool("sentinel_standards", { project: "demo", kind: "lod_matrix" }, { fetch: noMatrix })).rejects.toThrow(/^lod_matrix is not installed for demo or its office/);
+    const typo = vi.fn(async () => failText(404, '{"message":"Project \\"dmeo\\" was not found, or you are not a member of it","reason":"no_project"}'));
+    await expect(callTool("sentinel_standards", { project: "dmeo", kind: "guideline" }, { fetch: typo })).rejects.toThrow(/^bridge 404: .*was not found.*no_project/);
+  });
+
+  it("the propose description tells an agent the class is the bridge's and how to build: one changeset per storey, own levels, BaseLevel/TopLevel, facts", () => {
+    const d = tool("sentinel_propose_changeset").description;
+    // Review fix: the description and the 400 agree — the class is still sent, and the kind's class replaces any other.
+    expect(d).toMatch(/validate\.identity\.Class is still required: send the kind's class \(wall IFCWALL/);
+    expect(d).toMatch(/the bridge sets it from the kind, so any other class, a subtype included, is replaced/);
+    expect(d).toMatch(/ignored: set by the bridge from kind/);
+    expect(d).toMatch(/file one changeset per storey/);
+    expect(d).toMatch(/create your own levels, uniquely named, in the first storey's changeset/);
+    expect(d).toMatch(/give walls place\.BaseLevel and place\.TopLevel/);
+    expect(d).toMatch(/send facts \(thickness_mm, params\.Location\), not TypeName/);
+    expect(d).toMatch(/read sentinel_standards/);
+    expect(tool("sentinel_changeset_status").description).toMatch(/`undone`/);
+    expect(tool("sentinel_changeset_status").description).toMatch(/result\.as_built/);
+    // Review fix: as_built is not promised for every element, and guids is a count.
+    expect(tool("sentinel_changeset_status").description).toMatch(/guids: how many elements the Undo removed/);
+    expect(tool("sentinel_changeset_status").description).toMatch(/or why it was not judged \(no IDS installed; reported with the machine credential\); other kinds are counted under out_of_scope/);
+  });
+
+  const A = "aaaaaaaa-0000-4000-8000-000000000001", B = "bbbbbbbb-0000-4000-8000-000000000002", C = "cccccccc-0000-4000-8000-000000000003";
+  const undo = (id, entity_id, op, n = 3) => ({ id, at: `2026-10-12T0${id % 10}:00:00Z`, entity_id, action: "changeset_reverted", new_value: { op, guids: Array(n).fill("g"), count: n } });
+
+  it("status: an applied changeset whose newest changeset_reverted row is an Undo reads undone, with its ledger row", async () => {
+    const fetch = route({ "/audit?": { rows: [undo(91, A, "undo", 4)], total: 1 }, [`/changesets/demo/${A}`]: { id: A, status: "applied" } });
+    const r = await callTool("sentinel_changeset_status", { project: "demo", changeset: A }, { fetch });
+    expect(r.undone).toEqual({ ledger_id: 91, at: "2026-10-12T01:00:00Z", guids: 4 });
+    expect(fetch.mock.calls[1][0]).toMatch(new RegExp(`/cde/demo/audit\\?entity_type=changeset&action_prefix=changeset_reverted&entity_id=${A}&limit=1000$`));
+    expect(fetch.mock.calls[1][1].method).toBeUndefined();
+  });
+
+  it("status: a Redo after the Undo (the newest row) reads null; so does an applied changeset with no row", async () => {
+    const fetch = route({ "/audit?": { rows: [undo(92, A, "redo"), undo(91, A, "undo")], total: 2 }, [`/changesets/demo/${A}`]: { id: A, status: "applied" } });
+    expect((await callTool("sentinel_changeset_status", { project: "demo", changeset: A }, { fetch })).undone).toBeNull();
+    const none = route({ "/audit?": { rows: [], total: 0 }, [`/changesets/demo/${A}`]: { id: A, status: "partially_applied" } });
+    expect((await callTool("sentinel_changeset_status", { project: "demo", changeset: A }, { fetch: none })).undone).toBeNull();
+  });
+
+  it("status: a ledger read that fails, answers without rows, or is cut (total > rows) is {unknown} — never \"not undone\"", async () => {
+    for (const audit of [() => failText(503, "the ledger is down"), { message: "no rows here" }, { rows: [undo(91, A, "redo")], total: 2 }]) {
+      const fetch = route({ "/audit?": audit, [`/changesets/demo/${A}`]: { id: A, status: "applied" } });
+      const r = await callTool("sentinel_changeset_status", { project: "demo", changeset: A }, { fetch });
+      expect(r.undone).toEqual({ unknown: expect.stringMatching(/^ledger not read: .+ — an Undo in Revit may not show$/) });
+    }
+  });
+
+  it("status list: one ledger read for the applied changesets only, its rows mapped to each changeset by entity_id", async () => {
+    const list = [{ id: A, status: "applied" }, { id: B, status: "applied" }, { id: C, status: "proposed" }];
+    const fetch = route({ "/audit?": { rows: [undo(95, B, "undo", 2), undo(94, A, "redo"), undo(93, A, "undo")], total: 3 }, "/changesets/demo": list });
+    const r = await callTool("sentinel_changeset_status", { project: "demo" }, { fetch });
+    expect(r.map((c) => c.undone)).toEqual([null, { ledger_id: 95, at: "2026-10-12T05:00:00Z", guids: 2 }, null]);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch.mock.calls[1][0]).toMatch(new RegExp(`entity_id=${A},${B}&limit=1000$`));
+    // nothing applied: no ledger read at all
+    const quiet = route({ "/changesets/demo": [{ id: C, status: "proposed" }] });
+    expect((await callTool("sentinel_changeset_status", { project: "demo", status: "proposed" }, { fetch: quiet }))[0].undone).toBeNull();
+    expect(quiet).toHaveBeenCalledTimes(1);
+  });
+
+  // Review fix: a list over a project's whole history reads the ledger 100 ids at a time; a failed read marks only its own changesets.
+  it("status list: the ledger is read 100 ids per read, and a failed read is {unknown} for its own changesets only", async () => {
+    const id = (n) => `${String(n).padStart(8, "0")}-0000-4000-8000-000000000000`;
+    const list = Array.from({ length: 150 }, (_, n) => ({ id: id(n), status: "applied" }));
+    let reads = 0;
+    const fetch = route({
+      "/audit?": () => (++reads === 1 ? okJson({ rows: [undo(91, id(0), "undo", 1)], total: 1 }) : failText(431, "request header fields too large")),
+      "/changesets/demo": list,
+    });
+    const r = await callTool("sentinel_changeset_status", { project: "demo", status: "applied" }, { fetch });
+    expect(fetch).toHaveBeenCalledTimes(3);
+    const ids = (k) => new URL(fetch.mock.calls[k][0]).searchParams.get("entity_id").split(",");
+    expect(ids(1)).toEqual(list.slice(0, 100).map((c) => c.id));
+    expect(ids(2)).toEqual(list.slice(100).map((c) => c.id));
+    expect(r[0].undone).toEqual({ ledger_id: 91, at: "2026-10-12T01:00:00Z", guids: 1 });
+    expect(r[99].undone).toBeNull();
+    expect(r[100].undone).toEqual({ unknown: expect.stringMatching(/^ledger not read: bridge 431: .+ — an Undo in Revit may not show$/) });
+    expect(r[149].undone).toEqual(r[100].undone);
   });
 });
