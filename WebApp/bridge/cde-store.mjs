@@ -1437,6 +1437,9 @@ export function readDeliveryGate(b = {}) {
   for (const k of ["contract", "contract_ref", "contract_source", "schema"]) if (v(k) !== null && typeof b[k] !== "string") throw bad(`${k} must be a string or null`);
   for (const k of ["contract_sha256", "sha256"]) if (v(k) !== null && !(typeof b[k] === "string" && /^[0-9a-f]{64}$/i.test(b[k]))) throw bad(`${k} must be 64 hex characters or null`);
   for (const k of ["entities", "size_bytes"]) if (v(k) !== null && !(Number.isSafeInteger(b[k]) && b[k] >= 0)) throw bad(`${k} must be a whole number or null`);
+  // MA-8-6: the mapping the judged file was exported with (ifc_export@n and its sha); null for a file the person exported themselves.
+  if (v("export_ref") !== null && !(typeof b.export_ref === "string" && b.export_ref.length >= 1 && b.export_ref.length <= 64 && !/[\t\r\n]/.test(b.export_ref))) throw bad("export_ref must be one line of at most 64 characters, or null");
+  if (v("export_sha256") !== null && !(typeof b.export_sha256 === "string" && /^[0-9a-f]{64}$/i.test(b.export_sha256))) throw bad("export_sha256 must be 64 hex characters or null");
   const failures = v("failures") ?? [];
   const line = (f) => typeof f === "string" || (!!f && typeof f === "object" && typeof f.requirement === "string" && typeof f.detail === "string");
   if (!Array.isArray(failures) || failures.length > 200 || !failures.every(line)) throw bad("failures must be a list of at most 200 lines, each a string or {requirement, detail}");
@@ -1448,6 +1451,7 @@ export function readDeliveryGate(b = {}) {
   return {
     file, result: b.result, passed: GATE_PASSED[b.result], contract: v("contract"), contract_ref: v("contract_ref"),
     contract_source: v("contract_source"), contract_sha256: v("contract_sha256")?.toLowerCase() ?? null, schema: v("schema"),
+    export_ref: v("export_ref"), export_sha256: v("export_sha256")?.toLowerCase() ?? null,
     entities: v("entities"), failures: failures.map((f) => (typeof f === "string" ? f : { requirement: f.requirement, detail: f.detail })),
     failures_total: total, sha256: v("sha256")?.toLowerCase() ?? null, size_bytes: v("size_bytes"), source: b.source, publish: b.publish,
   };

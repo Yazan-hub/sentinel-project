@@ -1,0 +1,1615 @@
+[
+ {
+  "name": "a good body installs",
+  "body": {
+   "label": "Example Office export",
+   "psets": [
+    {
+     "name": "Pset_Office",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    }
+   ]
+  },
+  "error": null
+ },
+ {
+  "name": "a type-level set with common_psets false installs",
+  "body": {
+   "label": "Example Office export",
+   "psets": [
+    {
+     "name": "Pset_Office",
+     "level": "type",
+     "classes": [
+      "IfcDoor"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    }
+   ],
+   "common_psets": false
+  },
+  "error": null
+ },
+ {
+  "name": "a tab in revit_parameter",
+  "body": {
+   "label": "Example Office export",
+   "psets": [
+    {
+     "name": "Pset_Office",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "A",
+       "type": "Text",
+       "revit_parameter": "x\ty"
+      }
+     ]
+    }
+   ]
+  },
+  "error": "psets[0].properties[0].revit_parameter must be one line of 1 to 256 characters with no tab or line break"
+ },
+ {
+  "name": "a newline in a set name",
+  "body": {
+   "label": "Example Office export",
+   "psets": [
+    {
+     "name": "Pset\nEvil",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    }
+   ]
+  },
+  "error": "psets[0].name must be letters, digits and _ only, starting with a letter, up to 64 characters"
+ },
+ {
+  "name": "a newline in a property name",
+  "body": {
+   "label": "Example Office export",
+   "psets": [
+    {
+     "name": "Pset_Office",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "A\nB",
+       "type": "Text"
+      }
+     ]
+    }
+   ]
+  },
+  "error": "psets[0].properties[0].name must be letters, digits, _ and spaces only, starting with a letter, up to 64 characters"
+ },
+ {
+  "name": "an unknown data type",
+  "body": {
+   "label": "Example Office export",
+   "psets": [
+    {
+     "name": "Pset_Office",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "A",
+       "type": "Varchar"
+      }
+     ]
+    }
+   ]
+  },
+  "error": "psets[0].properties[0].type must be a data type the Revit IFC exporter knows (Text, Label, Boolean, Integer, Real, Length …)"
+ },
+ {
+  "name": "a class in capitals",
+  "body": {
+   "label": "Example Office export",
+   "psets": [
+    {
+     "name": "Pset_Office",
+     "level": "instance",
+     "classes": [
+      "IFCWALL"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    }
+   ]
+  },
+  "error": "psets[0].classes must be 1 to 32 IFC classes in the exporter's spelling (IfcWall, not IFCWALL)"
+ },
+ {
+  "name": "65 sets",
+  "body": {
+   "label": "Example Office export",
+   "psets": [
+    {
+     "name": "Pset_0",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_1",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_2",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_3",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_4",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_5",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_6",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_7",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_8",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_9",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_10",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_11",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_12",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_13",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_14",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_15",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_16",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_17",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_18",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_19",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_20",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_21",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_22",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_23",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_24",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_25",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_26",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_27",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_28",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_29",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_30",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_31",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_32",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_33",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_34",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_35",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_36",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_37",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_38",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_39",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_40",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_41",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_42",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_43",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_44",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_45",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_46",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_47",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_48",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_49",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_50",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_51",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_52",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_53",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_54",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_55",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_56",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_57",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_58",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_59",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_60",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_61",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_62",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_63",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    },
+    {
+     "name": "Pset_64",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    }
+   ]
+  },
+  "error": "psets must be an array of 1 to 64 property sets"
+ },
+ {
+  "name": "a stray key",
+  "body": {
+   "label": "Example Office export",
+   "psets": [
+    {
+     "name": "Pset_Office",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    }
+   ],
+   "extra": 1
+  },
+  "error": "extra is not an ifc_export field — the body is {label, psets, common_psets?}"
+ },
+ {
+  "name": "a set name with a trailing newline",
+  "body": {
+   "label": "Example Office export",
+   "psets": [
+    {
+     "name": "Pset_Office\n",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    }
+   ]
+  },
+  "error": "psets[0].name must be letters, digits and _ only, starting with a letter, up to 64 characters"
+ },
+ {
+  "name": "a stray key in a set",
+  "body": {
+   "label": "Example Office export",
+   "psets": [
+    {
+     "name": "Pset_Office",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ],
+     "note": "x"
+    }
+   ]
+  },
+  "error": "psets[0].note is not a property-set field — a set is exactly {name, level, classes, properties}"
+ },
+ {
+  "name": "a level that is neither",
+  "body": {
+   "label": "Example Office export",
+   "psets": [
+    {
+     "name": "Pset_Office",
+     "level": "both",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    }
+   ]
+  },
+  "error": "psets[0].level must be \"instance\" or \"type\""
+ },
+ {
+  "name": "no properties",
+  "body": {
+   "label": "Example Office export",
+   "psets": [
+    {
+     "name": "Pset_Office",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": []
+    }
+   ]
+  },
+  "error": "psets[0].properties must be an array of 1 to 64 properties"
+ },
+ {
+  "name": "no label",
+  "body": {
+   "psets": [
+    {
+     "name": "Pset_Office",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    }
+   ]
+  },
+  "error": "label must be 1 to 300 characters"
+ },
+ {
+  "name": "common_psets as text",
+  "body": {
+   "label": "Example Office export",
+   "psets": [
+    {
+     "name": "Pset_Office",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    }
+   ],
+   "common_psets": "yes"
+  },
+  "error": "common_psets must be true or false"
+ }
+]

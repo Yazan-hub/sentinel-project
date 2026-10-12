@@ -53,6 +53,7 @@ static class Check
         Lines();
         Policy();
         Cancel();
+        ExportMapping();
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;
     }
@@ -120,8 +121,61 @@ static class Check
            "hold null, or a refused write, carries no hold");
         Is(JsonSerializer.Serialize(GateLines.AuditValue(Container, Gate(GateOutcome.Fail, "IFC2X3"), "auto-publish", true)),
            "{\"file\":\"" + Container + "\",\"result\":\"fail\",\"passed\":false,\"contract\":\"pilot-ifc4\",\"contract_ref\":\"contract@1\",\"contract_source\":\"office\",\"contract_sha256\":\"" + CSha + "\"," +
-           "\"schema\":\"IFC2X3\",\"entities\":40,\"failures\":[\"IFCCOLUMN: 0 found, contract requires \\u2265 1.\"],\"failures_total\":1,\"sha256\":\"" + FileSha + "\",\"size_bytes\":5120000,\"source\":\"auto-publish\",\"publish\":true}",
+           "\"schema\":\"IFC2X3\",\"entities\":40,\"failures\":[\"IFCCOLUMN: 0 found, contract requires \\u2265 1.\"],\"failures_total\":1,\"sha256\":\"" + FileSha + "\",\"size_bytes\":5120000,\"source\":\"auto-publish\",\"publish\":true,\"export_ref\":null,\"export_sha256\":null}",
            "Prepare's gate row body for /cde/:key/delivery-gate: the gate, every failure and their count, sha256 and size_bytes, the caller's source, publish true");
+    }
+
+    // ── 8. MA-8-6: the IFC export mapping (ifc_export@n) ───────────────────────────────────────────────
+    static void ExportMapping()
+    {
+        Console.WriteLine("\nMA-8-6 — the IFC export mapping: the bridge's cases, the exporter's file, the refusal and the dialog line");
+        var dir = AppContext.BaseDirectory;
+        while (dir != null && !Directory.Exists(Path.Combine(dir, "WebApp", "bridge", "fixtures"))) dir = Path.GetDirectoryName(dir);
+        using var cases = JsonDocument.Parse(File.ReadAllText(Path.Combine(dir!, "WebApp", "bridge", "fixtures", "ifc-export", "cases.json")));
+        foreach (var c in cases.RootElement.EnumerateArray())
+        {
+            string? want = c.GetProperty("error").ValueKind == JsonValueKind.Null ? null : c.GetProperty("error").GetString();
+            var m = IfcExportMapping.FromBody(c.GetProperty("body").GetRawText(), out var error);
+            Ok(error == want && (m != null) == (want == null),
+               "parity with the bridge — " + c.GetProperty("name").GetString() + (want == null ? ": accepted" : ": refused") + (error == want ? "" : " (the add-in said: " + (error ?? "accepted") + ")"));
+        }
+
+        const string Body = "{\"label\":\"Example Office export\",\"common_psets\":false,\"psets\":[" +
+            "{\"name\":\"Pset_Office\",\"level\":\"instance\",\"classes\":[\"IfcWall\",\"IfcWallStandardCase\"],\"properties\":[{\"name\":\"Fire Rating\",\"type\":\"Label\",\"revit_parameter\":\"Fire Rating\"},{\"name\":\"IsLoadBearing\",\"type\":\"Boolean\"}]}," +
+            "{\"name\":\"Pset_Door\",\"level\":\"type\",\"classes\":[\"IfcDoor\"],\"properties\":[{\"name\":\"Width\",\"type\":\"Length\"}]}]}";
+        var src = new ResolvedArtefact { Kind = "ifc_export", Ref = "ifc_export@2", Source = "office", Sha256 = CSha, BodyJson = Body, Origin = "bridge", Label = "ifc_export@2 · office · 0123456789ab…" };
+        var (mapping, err) = IfcExportMapping.FromResolved(src);
+        Ok(mapping is not null && err is null && mapping.CommonPsets == false && mapping.Psets.Count == 2 && mapping.Ref == "ifc_export@2" && mapping.Sha256 == CSha,
+           "a resolved ifc_export reads: two sets, common_psets false, its ref and the installed body's sha");
+        Is(mapping!.FileText(),
+           "# Sentinel IFC export mapping — written for this export from ifc_export@2; edit the artefact, not this file.\r\n" +
+           "# sha256 " + CSha + "\r\n" +
+           "PropertySet:\tPset_Office\tI\tIfcWall,IfcWallStandardCase\r\n" +
+           "\tFire Rating\tLabel\tFire Rating\r\n" +
+           "\tIsLoadBearing\tBoolean\r\n" +
+           "PropertySet:\tPset_Door\tT\tIfcDoor\r\n" +
+           "\tWidth\tLength\r\n",
+           "the exporter's file, byte for byte: # header lines, PropertySet:<TAB>Name<TAB>I|T<TAB>classes, <TAB>Prop<TAB>Type[<TAB>RevitParam]");
+        Ok(!mapping.FileText().Split("\r\n").Where(l => !l.StartsWith("#") && l.Length > 0 && !l.StartsWith("PropertySet:\t") && !l.StartsWith("\t")).Any(),
+           "the file holds no line that is neither a comment, a set nor a property");
+        Is(mapping.Describe(), "ifc_export@2 · 0123456789ab… (2 property sets)", "the dialog's description names the ref, the sha's start and the set count");
+
+        var none = IfcExportMapping.FromResolved(ArtefactClient.None("ifc_export", "not installed for aster-tower or its office"));
+        Ok(none.Mapping is null && none.Error is null, "none installed is no mapping and no error: the export is Revit's default");
+        var bad = IfcExportMapping.FromResolved(new ResolvedArtefact { Kind = "ifc_export", Ref = "ifc_export@3", BodyJson = "{\"label\":\"x\",\"psets\":[]}", Origin = "bridge", Label = "ifc_export@3 · office · 0123456789ab…" });
+        Is(bad.Error ?? "null", "ifc_export@3 · office · 0123456789ab… did not parse: psets must be an array of 1 to 64 property sets", "an installed ifc_export that does not parse names itself and why");
+        Ok(bad.Mapping is null && IfcExportMapping.FromResolved(new ResolvedArtefact { Kind = "ifc_export", BodyJson = "not json", Origin = "cache", Label = "ifc_export@4 (cached 10:00)" }).Error!.StartsWith("ifc_export@4 (cached 10:00) did not parse: the body is not JSON"),
+           "a body that is not JSON is a parse failure too, cached or not");
+        Is(PublishLines.ExportMappingRefused(bad.Error!),
+           "ifc_export@3 · office · 0123456789ab… did not parse: psets must be an array of 1 to 64 property sets — nothing was exported or published.",
+           "Prepare's refusal before the export: the mapping, the reason, nothing exported or published");
+
+        var plan = Ready();
+        Is(PublishLines.Export(plan), "IFC export: no export mapping — Revit's default property sets.", "the dialog's line with no mapping says so");
+        plan.ExportMapping = mapping;
+        Is(PublishLines.Export(plan), "IFC export: ifc_export@2 · 0123456789ab… (2 property sets).", "…and with a mapping names it");
+        Ok(PublishLines.Dialog(plan, Outcome(Accepted), Staged).Contains("Delivery gate: PASS · contract@1 · office · 0123456789ab… · Schema IFC4\nIFC export: ifc_export@2 · 0123456789ab… (2 property sets).\nSHA-256:"),
+           "an accepted publish's dialog carries the export line between the gate line and the SHA");
     }
 
     // ── 3. PublishOutcome: what the answer allows ─────────────────────────────────────────────────────
@@ -252,6 +306,7 @@ static class Check
         const string GateRowLine = "Gate row: ledger #812 · receipt 5c6d7e8f90112233…";
         const string VerdictRowLine = "Verdict row: ledger #813 · receipt 0a1b2c3d4e5f6071…";
         const string Judged = "IDS ids@4 · office · 23bb57937fb0…: 40/40 in-scope element checks passed.\nNaming naming@2 · office · 77e1d2c3b4a5…: passed.\n";
+        const string ExportLine = "\nIFC export: no export mapping — Revit's default property sets.";
         const string Rows = "\nSHA-256: 3f9a0c1d2e4b5f60…\n" + GateRowLine + "\n" + VerdictRowLine + "\n";
         const string VersionLine = "Version: " + Container + " v1 · wip · ledger #814 · receipt 6e7f8091a2b3c4d5…";
         const string Queued = "Queued for upload — the outbox watcher attaches the geometry to this version.";
@@ -284,7 +339,7 @@ static class Check
 
         // accepted
         Is(PublishLines.Dialog(plan, acc, Staged),
-           "✓ ACCEPTED — published as v1 · wip\nProject: aster-tower\n\n" + Judged + GateLine + Rows + VersionLine + "\n\n" + Queued,
+           "✓ ACCEPTED — published as v1 · wip\nProject: aster-tower\n\n" + Judged + GateLine + ExportLine + Rows + VersionLine + "\n\n" + Queued,
            "accepted and staged: what judged, both ledger rows, the version, the upload");
         var warned = Outcome(Accepted.Replace("\"failing\":0", "\"failing\":2").Replace("\"warned\":false,\"ids_enforce\":\"reject\"", "\"warned\":true,\"ids_enforce\":\"warn\""));
         Ok(PublishLines.Dialog(plan, warned, Staged).Contains("IDS ids@4 · office · 23bb57937fb0…: 40/40 in-scope element checks passed — 2 failure(s) kept as warnings (enforce: warn).\n"),
@@ -292,11 +347,11 @@ static class Check
         Ok(PublishLines.Dialog(notChecked, acc, Staged).Contains("Delivery gate: NOT CHECKED — contract: none — not installed for aster-tower or its office\nThe IDS judged alone — the delivery gate was not checked (contract: none — not installed for aster-tower or its office).\n"),
            "accepted with no contract: NOT CHECKED and the IDS-judged-alone note (A3)");
         Is(PublishLines.Dialog(plan, acc, new StageResult { Reason = "the IFC did not reach the upload outbox (Access to the path is denied.)", SidecarPath = @"C:\o\a.ifc.meta.json", KeptIfcPath = @"C:\t\a.ifc" }),
-           "✓ ACCEPTED — v1 · wip registered, NOT in the upload outbox\nProject: aster-tower\n\n" + Judged + GateLine + Rows + VersionLine + "\n\n" +
+           "✓ ACCEPTED — v1 · wip registered, NOT in the upload outbox\nProject: aster-tower\n\n" + Judged + GateLine + ExportLine + Rows + VersionLine + "\n\n" +
            "NOT in the upload outbox — the IFC did not reach the upload outbox (Access to the path is denied.). The IFC is kept at C:\\t\\a.ifc — run Governed Publish again.",
            "accepted, registered, but the move failed: never 'published', the reason and where the IFC is");
         Is(PublishLines.Dialog(plan, Outcome(Reply("accepted", null, 40, 40, 0, version: false)), NotStaged),
-           "✓ ACCEPTED — no version registered\nProject: aster-tower\n\n" + Judged + GateLine + Rows +
+           "✓ ACCEPTED — no version registered\nProject: aster-tower\n\n" + Judged + GateLine + ExportLine + Rows +
            "Version: not confirmed — the bridge registered no version\n\n" +
            "Nothing was uploaded: there is no version to attach the geometry to — run Governed Publish again.",
            "accepted but the reply carries no version: no version claimed, nothing uploaded");
@@ -306,14 +361,14 @@ static class Check
         Is(PublishLines.Dialog(plan, down, Staged),
            "Published — not judged: nothing in the IDS's scope (ids@4 · office · 23bb57937fb0…)\nProject: aster-tower\n\n" +
            "IDS ids@4 · office · 23bb57937fb0…: nothing in its scope — 0 in-scope element checks, so nothing was judged.\n" +
-           "Naming naming@2 · office · 77e1d2c3b4a5…: passed.\n" + GateLine + Rows + VersionLine + "\n\n" + Queued + "\n" +
+           "Naming naming@2 · office · 77e1d2c3b4a5…: passed.\n" + GateLine + ExportLine + Rows + VersionLine + "\n\n" + Queued + "\n" +
            "No verdict badge: the IDS found nothing in its scope, so nothing was judged — the verdict is \"recorded\", and publishing this version on the web needs the lead's reason. Give the IDS something in its scope, or install one that covers this model, to judge the next one.",
            "recorded, nothing in scope: never ACCEPTED, names the IDS, says what publishing needs");
         var none = Outcome(Reply("recorded", null, 0, 0, 0).Replace("\"ids_source\":\"office\",\"ids_ref\":\"ids@4\",\"ids_sha256\":\"" + ISha + "\"", "\"ids_source\":\"none\",\"ids_ref\":null,\"ids_sha256\":null"));
         Is(PublishLines.Dialog(plan, none, Staged),
            "Published — not judged: no IDS installed for aster-tower or its office\nProject: aster-tower\n\n" +
            "IDS: none — no IDS installed for aster-tower or its office. The model was NOT judged.\n" +
-           "Naming naming@2 · office · 77e1d2c3b4a5…: passed.\n" + GateLine + Rows + VersionLine + "\n\n" + Queued + "\n" +
+           "Naming naming@2 · office · 77e1d2c3b4a5…: passed.\n" + GateLine + ExportLine + Rows + VersionLine + "\n\n" + Queued + "\n" +
            "No verdict badge: nothing was judged — the verdict is \"recorded\", and publishing this version on the web needs the lead's reason. Install an IDS on the project or its office to judge the next one.",
            "recorded, no IDS: the none reason, the install hint");
         Ok(PublishLines.Dialog(plan, Outcome(Reply("recorded", null, 0, 0, 0, version: false)), NotStaged).StartsWith("Recorded — not judged: nothing in the IDS's scope (ids@4 · office · 23bb57937fb0…)\n"),

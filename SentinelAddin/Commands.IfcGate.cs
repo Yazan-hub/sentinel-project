@@ -27,6 +27,9 @@ public sealed class IfcDeliveryGateCommand : IExternalCommand
         // caps it). An unbound document resolves to none without a request.
         var (contract, contractSource) = Task.Run(() => Sentinel.Engine.DeliveryContract.Load(projectKey)).GetAwaiter().GetResult();
         var schema = contract?.IfcSchema ?? "IFC2X3"; // no contract: export IFC 2x3 as before and judge nothing
+        // MA-8-6 (V11): the same mapping a publish exports with, so this check judges what a publish would publish. One that is installed and does not parse stops the command.
+        var (mapping, mappingError) = Task.Run(() => Sentinel.Engine.IfcExportMapping.FromResolved(Sentinel.Coordination.ArtefactClient.Resolve(projectKey, "ifc_export"))).GetAwaiter().GetResult();
+        if (mappingError is not null) { TaskDialog.Show("Sentinel — IFC Delivery Gate", Sentinel.Engine.PublishLines.ExportMappingRefused(mappingError)); return Result.Cancelled; }
 
         var choice = new TaskDialog("Sentinel — IFC Delivery Gate")
         {
@@ -36,7 +39,7 @@ public sealed class IfcDeliveryGateCommand : IExternalCommand
         };
         choice.AddCommandLink(TaskDialogCommandLinkId.CommandLink1,
             "Export the whole model to IFC, then certify",
-            "Runs Revit's IFC exporter on the whole model with default options (not a saved IFC export setup), then validates the result. Revit pauses until the export finishes.");
+            "Runs Revit's IFC exporter on the whole model (" + (mapping is null ? "Revit's default property sets: no ifc_export installed; not a saved IFC export setup" : "property sets from " + mapping.Describe()) + "), then validates the result. Revit pauses until the export finishes.");
         choice.AddCommandLink(TaskDialogCommandLinkId.CommandLink2,
             "Certify an existing IFC file",
             "Validate a file already exported (any source).");
@@ -52,7 +55,7 @@ public sealed class IfcDeliveryGateCommand : IExternalCommand
             { Title = "Select IFC file", Filter = "IFC files (*.ifc)|*.ifc", CheckFileExists = true };
             if (Sentinel.UI.DialogOwner.ShowFileDialog(open, c.Application) != true) return Result.Cancelled;
             ifcPath = open.FileName;
-            Certify(ifcPath, contract, contractSource, projectKey);
+            Certify(ifcPath, contract, contractSource, projectKey, null); // a file the person exported: no mapping of ours
             return Result.Succeeded;
         }
 
@@ -75,7 +78,7 @@ public sealed class IfcDeliveryGateCommand : IExternalCommand
             // The shared export primitive: the whole model in the contract's schema (IFC4 → IFC4 Reference View, else
             // IFC 2x3 CV2), base quantities, the transaction rolled back. It never throws.
             var (state, exported, _, error) = Sentinel.Engine.PlatformExporter.ExportToDir(
-                d, Path.GetDirectoryName(ifcPath!)!, Path.GetFileName(ifcPath!), schema);
+                d, Path.GetDirectoryName(ifcPath!)!, Path.GetFileName(ifcPath!), schema, mapping);
             if (state != Sentinel.Engine.PlatformExporter.State.Ok)
             {
                 TaskDialog.Show("Sentinel — IFC Delivery Gate",
@@ -84,14 +87,14 @@ public sealed class IfcDeliveryGateCommand : IExternalCommand
                         : "Export failed: " + (error ?? state.ToString()));
                 return;
             }
-            try { Certify(exported, contract, contractSource, projectKey); }
+            try { Certify(exported, contract, contractSource, projectKey, mapping); }
             catch (Exception ex) { TaskDialog.Show("Sentinel — IFC Delivery Gate", "Certification failed: " + ex.Message); }
         });
         return Result.Succeeded;
     }
 
     private static void Certify(string ifcPath, Sentinel.Engine.DeliveryContract? contract,
-                                Sentinel.Coordination.ResolvedArtefact contractSource, string projectKey)
+                                Sentinel.Coordination.ResolvedArtefact contractSource, string projectKey, Sentinel.Engine.IfcExportMapping? mapping)
     {
         // No contract → NOT CHECKED: the file's sha and schema are recorded, nothing is judged, never a PASS.
         var r = Sentinel.Engine.IfcDeliveryGate.Validate(ifcPath, contract, contractSource);
@@ -100,7 +103,7 @@ public sealed class IfcDeliveryGateCommand : IExternalCommand
         // answer OFF this thread (≤ 6 s) — both callers are API contexts: the command body and the export's event job.
         // The dialog ends with what the ledger answered: "Recorded: ledger #<id> · receipt <16 hex>…", not confirmed,
         // not recorded, or — unbound — nothing sent.
-        var ledger = Task.Run(() => Sentinel.Coordination.GovernedNotify.DeliveryGate(Path.GetFileName(ifcPath), r, projectKey, "check", publish: false)).GetAwaiter().GetResult();
+        var ledger = Task.Run(() => Sentinel.Coordination.GovernedNotify.DeliveryGate(Path.GetFileName(ifcPath), r, projectKey, "check", publish: false, mapping?.Ref, mapping?.Sha256)).GetAwaiter().GetResult();
         TaskDialog.Show("Sentinel — IFC Delivery Gate",
             Sentinel.Engine.GateLines.GateDialog(r, projectKey) + "\n\n" + Sentinel.Coordination.LedgerLine.Sentence(ledger));
     }

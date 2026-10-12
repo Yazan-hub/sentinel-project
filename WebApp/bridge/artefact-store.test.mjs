@@ -806,3 +806,23 @@ describe("evidence_pack (MA-4a): project only, never a hand PUT, folded by the b
       .toThrow(expect.objectContaining({ status: 400, message: "evidence_pack: asset.name must be a non-empty string of at most 200 characters" }));
   });
 });
+
+// MA-8-6 (P1-11): ifc_export@n — the office's property-set mapping. The cases are shared with the add-in's reader (tools/publish-check
+// reads the same file), so both sides accept and refuse the same bodies in the same words.
+describe("validateArtefact — ifc_export (MA-8-6)", () => {
+  const cases = JSON.parse(readFileSync(new URL("./fixtures/ifc-export/cases.json", import.meta.url), "utf8"));
+  it("holds both kinds of case: accepted and refused", () => {
+    expect(KINDS).toContain("ifc_export");
+    expect(cases.filter((c) => c.error === null).length).toBeGreaterThan(0);
+    expect(cases.filter((c) => c.error !== null).length).toBeGreaterThan(8);
+  });
+  it.each(cases.map((c) => [c.name, c]))("%s", (_name, c) => {
+    if (c.error === null) expect(validateArtefact("ifc_export", c.body)).toBe(true);
+    else expect(fails("ifc_export", c.body)).toMatchObject({ status: 400, message: `ifc_export: ${c.error}` });
+  });
+  it("installs through putArtefact as ifc_export@1", async () => {
+    const d = memDeps();
+    const r = await putArtefact("p", "ifc_export", cases[0].body, { actor: "x" }, d);
+    expect(r).toMatchObject({ kind: "ifc_export", version: 1 });
+  });
+});

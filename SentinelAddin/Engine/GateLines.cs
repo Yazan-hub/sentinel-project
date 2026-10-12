@@ -93,8 +93,10 @@ public static class GateLines
     /// <item>sha256 and size_bytes of the certified file, both null when it was never read</item>
     /// <item>source: "revit" (Governed Publish), "auto-publish" or "check" (the IFC Delivery Gate command); publish:
     /// true when a publish is judging the file — the bridge then holds a FAIL on the web (Project Files ▸ On hold)</item>
+    /// <item>export_ref and export_sha256 (MA-8-6): the ifc_export@n and its sha the judged file was exported with, both null when it
+    /// was exported without a mapping or the person exported it themselves (Certify an existing IFC file)</item>
     /// </list></summary>
-    public static Dictionary<string, object?> AuditValue(string file, GateResult r, string source, bool publish)
+    public static Dictionary<string, object?> AuditValue(string file, GateResult r, string source, bool publish, string? exportRef = null, string? exportSha256 = null)
     {
         var judged = r.Outcome != GateOutcome.NotChecked;
         var read = r.FileSha256.Length == 64; // IfcDeliveryGate.Seal hashed the file: its bytes were read
@@ -119,6 +121,8 @@ public static class GateLines
             ["size_bytes"] = read ? r.FileSizeBytes : (long?)null,
             ["source"] = source,
             ["publish"] = publish,
+            ["export_ref"] = string.IsNullOrEmpty(exportRef) ? null : exportRef,        // MA-8-6: the ifc_export@n the file was exported with; null for a file exported without one
+            ["export_sha256"] = string.IsNullOrEmpty(exportSha256) ? null : exportSha256,
         };
     }
 

@@ -107,8 +107,8 @@ static class GateLinesCheck
         // ── 5. the delivery-gate route's body (6a): the gate row's fields, passed nullable, every failure ─────────
         //    The bridge words the row ("IFC delivery gate PASS | FAIL | NOT CHECKED: <file>") itself: Revit sends no action.
         ok(string.Join(",", GateLines.AuditValue("a.ifc", pass, "revit", true).Keys) ==
-           "file,result,passed,contract,contract_ref,contract_source,contract_sha256,schema,entities,failures,failures_total,sha256,size_bytes,source,publish",
-           "route body: the gate row's fields, in order, with failures_total, then size_bytes, source and publish");
+           "file,result,passed,contract,contract_ref,contract_source,contract_sha256,schema,entities,failures,failures_total,sha256,size_bytes,source,publish,export_ref,export_sha256",
+           "route body: the gate row's fields, in order, with failures_total, then size_bytes, source and publish, then export_ref and export_sha256 (MA-8-6)");
         using (var j = JsonDocument.Parse(JsonSerializer.Serialize(GateLines.AuditValue("a.ifc", pass, "revit", true))))
         {
             var e = j.RootElement;
@@ -149,6 +149,16 @@ static class GateLinesCheck
         var at201 = Flood(201); var s201 = (List<string>)at201["failures"]!;
         ok(s201.Count == 200 && s201[198] == "failure 199" && s201[199] == "… and 2 more — the certificate lists every one" && (int)at201["failures_total"]! == 201,
            "route body: 201 failures are the first 199 and '… and 2 more'");
+        // MA-8-6: the gate row names the export mapping the judged file was exported with; null when it was exported without one.
+        using (var j = JsonDocument.Parse(JsonSerializer.Serialize(GateLines.AuditValue("a.ifc", pass, "revit", true, "ifc_export@2", Sha))))
+            ok(j.RootElement.GetProperty("export_ref").GetString() == "ifc_export@2" && j.RootElement.GetProperty("export_sha256").GetString() == Sha,
+               "route body: export_ref and export_sha256 carry the mapping the file was exported with");
+        using (var j = JsonDocument.Parse(JsonSerializer.Serialize(GateLines.AuditValue("a.ifc", pass, "check", false))))
+            ok(j.RootElement.GetProperty("export_ref").ValueKind == JsonValueKind.Null && j.RootElement.GetProperty("export_sha256").ValueKind == JsonValueKind.Null,
+               "route body: no mapping (a file exported without one, or Certify an existing IFC file) sends export_ref and export_sha256 null");
+        using (var j = JsonDocument.Parse(JsonSerializer.Serialize(GateLines.AuditValue("a.ifc", pass, "check", false, "", ""))))
+            ok(j.RootElement.GetProperty("export_ref").ValueKind == JsonValueKind.Null && j.RootElement.GetProperty("export_sha256").ValueKind == JsonValueKind.Null,
+               "route body: an empty ref or sha is null, never an empty string the bridge would refuse");
         var unread = GateLines.AuditValue("gone.ifc", missing, "check", false);
         ok(unread["sha256"] is null && unread["size_bytes"] is null && unread["schema"] is null,
            "route body: a file that was never read sends sha256, size_bytes and schema null — never an empty hash");
