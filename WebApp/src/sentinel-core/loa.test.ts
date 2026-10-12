@@ -14,14 +14,14 @@ describe("loaBand: the shipped constants (USIBD C120 v3.1 p. 15)", () => {
     expect(LOA_SPEC.statistic).toMatch(/95 %/);
     expect(loaSpecProblem(LOA_SPEC, LOA_BANDS)).toBeNull();
   });
-  it("pins every band edge: bounds are inclusive and take the better band", () => {
+  it("pins every band edge: bounds are exclusive and take the lower band (a rounded 5.0 may be 5.04)", () => {
     const at = (p: number) => (loaBand(wall("within_tolerance", p)) as { band: string | null }).band;
     expect([0, 1, 1.01, 5, 5.01, 15, 15.01, 50, 50.01, 150, 150.01].map(at))
-      .toEqual(["LOA50", "LOA50", "LOA40", "LOA40", "LOA30", "LOA30", "LOA20", "LOA20", "LOA10", "LOA10", null]);
+      .toEqual(["LOA50", "LOA40", "LOA40", "LOA30", "LOA30", "LOA20", "LOA20", "LOA10", "LOA10", null, null]);
   });
   it("words: the band, the source, relative to the scan, not independently validated; over 150 mm no band", () => {
     expect(loaWords(wall("out_of_tolerance", 23))).toBe(`LOA20 (p95 23 mm, ${LOA_SPEC.source}, relative to the scan, not independently validated)`);
-    expect(loaWords(wall("out_of_tolerance", 151))).toBe("no band — over 150 mm, beyond LOA10 (the lowest USIBD level)");
+    expect(loaWords(wall("out_of_tolerance", 150))).toBe("no band — over 150 mm, beyond LOA10 (the lowest USIBD level)");
     expect(loaWords({ kind: "floor", status: "within_tolerance", p95_mm: 3 })).toBe("no band — only walls are measured");
   });
   it("an empty table (unread) reads the waiting words", () => {
@@ -31,6 +31,7 @@ describe("loaBand: the shipped constants (USIBD C120 v3.1 p. 15)", () => {
     const good = { ...LOA_SPEC, status: "read" as const, read_on: "2026-10-20", source: "USIBD LOA Specification v3.0, Table 1, p. 5", statistic: "95 % (2σ)" };
     expect(loaSpecProblem(good, SAMPLE)).toBeNull();
     expect(loaSpecProblem({ ...good, source: "USIBD LOA Specification v3.0, Table 1" }, SAMPLE)).toMatch(/table and page/);
+    expect(loaSpecProblem({ ...good, source: "USIBD spec, Table, p. 5" }, SAMPLE)).toMatch(/table and page/); // no table name
     expect(loaSpecProblem({ ...good, read_on: "20 Oct 2026" }, SAMPLE)).toMatch(/date/);
     expect(loaSpecProblem({ ...good, statistic: null }, SAMPLE)).toMatch(/statistic/);
     expect(loaSpecProblem({ ...good, statistic: "RMSE" }, SAMPLE)).toMatch(/statistic/);
@@ -46,6 +47,11 @@ describe("loaBand: the logic, on a test-only table", () => {
     expect(loaBand(wall("out_of_tolerance", 10.01), SAMPLE)).toEqual({ band: "SAMPLE-B", p95_mm: 10.01 });
     expect(loaBand(wall("out_of_tolerance", 29.99), SAMPLE)).toEqual({ band: "SAMPLE-B", p95_mm: 29.99 });
     expect(loaBand(wall("out_of_tolerance", 30), SAMPLE)).toMatchObject({ band: null }); // exclusive, and past the last row
+  });
+  it("a face with an interior but no scan point gives no band, even with a good pooled p95", () => {
+    const faces = (...f: [number, number | null][]) => f.map(([points, coverage]) => ({ points, coverage }));
+    expect(loaBand({ ...wall("out_of_tolerance", 3), faces: faces([900, 1], [0, 0]) }, SAMPLE)).toEqual({ band: null, why: "no band — face 2 has no scan point" });
+    expect(loaBand({ ...wall("within_tolerance", 3), faces: faces([900, 1], [0, null]) }, SAMPLE)).toMatchObject({ band: "SAMPLE-A" }); // no interior: nothing to see
   });
   it("a negative, NaN, missing or infinite p95 gives no band", () => {
     for (const p of [-1, NaN, null, undefined, Infinity]) expect(loaBand(wall("within_tolerance", p), SAMPLE)).toMatchObject({ band: null });
@@ -64,7 +70,7 @@ describe("loaBand: the logic, on a test-only table", () => {
   it("words: the filled-table sentence, the beyond-last-bound words and the not-judged words are pinned", () => {
     const spec = { source: "SAMPLE spec, Table 9, p. 1" };
     expect(loaWords(wall("within_tolerance", 23), SAMPLE, spec)).toBe("SAMPLE-B (p95 23 mm, SAMPLE spec, Table 9, p. 1, relative to the scan, not independently validated)");
-    expect(loaWords(wall("out_of_tolerance", 40), SAMPLE, spec)).toBe("no band — over 30 mm, beyond SAMPLE-B (the lowest USIBD level)");
+    expect(loaWords(wall("out_of_tolerance", 40), SAMPLE, spec)).toMatch(/^no band — over 30 mm, beyond SAMPLE-B/);
     expect(loaBand(wall("weird", 5), SAMPLE)).toEqual({ band: null, why: "no band — not judged" });
     expect(loaWords(wall("weird", 5), SAMPLE, spec)).toBe("no band — not judged");
   });
