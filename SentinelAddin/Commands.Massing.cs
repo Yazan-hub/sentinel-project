@@ -71,6 +71,39 @@ public sealed class MassingFromImagesCommand : IExternalCommand
             return Result.Cancelled;
         }
 
+        // MA-6-10 review: both picks work on the active view's plane - a section, sheet or 3D view would file the mass at the wrong place.
+        if (uidoc.ActiveView is not ViewPlan)
+        {
+            TaskDialog.Show(Title, "Open a plan view, then run Photo Massing again - the mass is placed on the plan.");
+            return Result.Cancelled;
+        }
+        // MA-6-10 (MAS-3): where the mass stands - asked here, a valid API context (the modeless review and the event hub never pick).
+        var ask = new TaskDialog(Title)
+        {
+            MainInstruction = "Where does the mass stand?",
+            CommonButtons = TaskDialogCommonButtons.Cancel,
+        };
+        ask.AddCommandLink(TaskDialogCommandLinkId.CommandLink1, "Pick its footprint — a closed CAD polyline, a property line, or the model lines you selected first");
+        ask.AddCommandLink(TaskDialogCommandLinkId.CommandLink2, "Width × depth from the photos, centred on a point you pick");
+        var way = ask.Show();
+        if (way != TaskDialogResult.CommandLink1 && way != TaskDialogResult.CommandLink2) return Result.Cancelled;
+        Footprint fp = null;
+        if (way == TaskDialogResult.CommandLink1)
+        {
+            var segs = FootprintPicker.Pick(uidoc, out string pickedFrom, out string pickWhy);
+            if (segs == null) { if (pickWhy != null) TaskDialog.Show(Title, "The footprint could not be read: " + pickWhy + "."); return Result.Cancelled; }
+            var loop = MassingPlanner.Chain(segs, 1, out string chainWhy);
+            if (loop == null) { TaskDialog.Show(Title, "The footprint is not one closed outline — " + chainWhy); return Result.Cancelled; }
+            // MA-6-10 review: the outline is normalised and checked now - not found out at File, after the vision run.
+            var norm = MassingPlanner.Placed(new Footprint { Loop = loop }, 0);
+            if (norm == null) { TaskDialog.Show(Title, "The footprint has fewer than 3 corners once its repeated and straight-through points are dropped - check the outline."); return Result.Cancelled; }
+            if (MassingPlanner.OutlineProblem(norm) is { } outlineWhy) { TaskDialog.Show(Title, "The footprint cannot be used: " + outlineWhy + "."); return Result.Cancelled; }
+            fp = new Footprint { Loop = norm, From = pickedFrom };
+        }
+        var centre = FootprintPicker.Centre(uidoc, out string centreWhy);
+        if (centreWhy != null) { TaskDialog.Show(Title, centreWhy); return Result.Cancelled; }
+        if (centre != null) (fp ??= new Footprint { From = "width × depth from the photos" }).At = centre; // Esc: where it lies / the internal origin, as before
+
         string key = ctx.Key;
         var cfg = BcfConfig.Load();
         // MA-1a item 8: the vision reader's time and usage, for the filing's receipt.
@@ -99,6 +132,7 @@ public sealed class MassingFromImagesCommand : IExternalCommand
                 progress.Dispatcher.Invoke(() =>
                 {
                     progress.Close();
+                    estimate.Footprint = fp; // MA-6-10: Scale and the review's rows read it
                     var review = new MassingReviewWindow(estimate); // closed once the changeset is filed, reopened with why otherwise
                     new System.Windows.Interop.WindowInteropHelper(review) { Owner = c.Application.MainWindowHandle };
                     review.BuildRequested += corrected =>
@@ -114,7 +148,7 @@ public sealed class MassingFromImagesCommand : IExternalCommand
                         // SEC-7, amendment 4: planned on Revit's thread in this model when the person files — the levels read then, not when
                         // the review opened (a level added since would give a duplicate name, and Apply would decline the changeset for good).
                         if (App.Events is null) { review.Reopen(MassingPlanner.NotStarted("Sentinel's event hub is not running — restart Revit")); return; }
-                        App.Events.Enqueue(doc, "plan Photo Massing", (u, d) => PlanAndFile(d, cfg, key, corrected, review, receipt),
+                        App.Events.Enqueue(doc, "plan Photo Massing", (u, d) => PlanAndFile(d, cfg, key, corrected, fp, review, receipt),
                             why => review.Reopen(MassingPlanner.NotStarted(why)));
                     };
                     review.Show();
@@ -135,13 +169,13 @@ public sealed class MassingFromImagesCommand : IExternalCommand
     // body planned (MassingPlanner.Changeset), then filed off Revit's thread as Shell a Mass files (review C11: signed in, the person's token
     // or none, never the PC's), the review guard held until the bridge has answered. Filed: the receipt, the review closes and Review AI
     // Proposals opens on the changeset. Not filed: the review reopens with why. A Photo Massing changeset already waiting is opened instead.
-    private static void PlanAndFile(Document doc, BcfConfig cfg, string key, MassingEstimate corrected, MassingReviewWindow review, BuildReceipt.Facts receipt)
+    private static void PlanAndFile(Document doc, BcfConfig cfg, string key, MassingEstimate corrected, Footprint fp, MassingReviewWindow review, BuildReceipt.Facts receipt)
     {
         if (ProjectContext.For(doc).Key != key) { review.Reopen(MassingPlanner.NotStarted($"this model's project changed since the images were read (was {key}) — run Photo Massing again")); return; }
         if (ReviewChangesetsCommand.Held) { review.Reopen(MassingPlanner.NotStarted(ReviewChangesetsCommand.Busy)); return; }
         var levels = ChangesetExecutor.Stories(doc).Select(l => (l.Name, l.ElevationMm, l.IsStory)).ToList();
         var actor = UserSession.Actor;
-        var (body, refusal) = MassingPlanner.Changeset(corrected, levels, actor);
+        var (body, refusal) = MassingPlanner.Changeset(corrected, levels, actor, fp);
         if (refusal != null) { review.Reopen(MassingPlanner.NotStarted(refusal)); return; }
 
         ReviewChangesetsCommand.Hold(); // released once the bridge has answered

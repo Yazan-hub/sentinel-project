@@ -268,6 +268,26 @@ static partial class Check
         var comma = Ready(); comma.BuildRequested += _ => stale++;
         Box(comma, 3).Text = "12,5"; comma.Emit();
         Ok(stale == 1 && comma.StatusText == "use a point for decimals — a comma is not read", "review fix: a decimal comma is refused, never read as 125");
+        // MA-6-10 (MAS-3): the Rotation box (row 7 with width and depth) and a picked footprint (no width or depth rows; the footprint line).
+        MassingEstimate rotGot = null;
+        var rotW = Ready(); rotW.BuildRequested += e => rotGot = e;
+        Box(rotW, 7).Text = "30"; rotW.Emit();
+        Ok(rotGot != null && rotGot.RotationDeg == 30, "MA-6-10: the Rotation (°) box is read into the estimate that is filed");
+        var rotBad = Ready(); int rotBadBuilds = 0; rotBad.BuildRequested += _ => rotBadBuilds++;
+        Box(rotBad, 7).Text = "abc"; rotBad.Emit();
+        Ok(rotBadBuilds == 0 && rotBad.CanBuild && rotBad.StatusText == "Rotation must be a number of degrees", "MA-6-10: a rotation that is not a number files nothing and says so");
+        var pickedE = MassingPlanner.FromViews(new List<ViewReading> { new ViewReading { Photo = "a.jpg", Storeys = 3, FullHeight = true, HeightToWidth = 1.5, View = "front" } });
+        pickedE.Footprint = new Footprint { Loop = new List<double[]> { new[] { 0.0, 0 }, new[] { 30000.0, 0 }, new[] { 30000.0, 8000 }, new[] { 18000.0, 8000 }, new[] { 18000.0, 20000 }, new[] { 0.0, 20000 } }, From = "a closed CAD polyline on layer A-SITE" };
+        pickedE.KnownField = "height"; pickedE.KnownMm = 10500;
+        var pickedW = new MassingReviewWindow(pickedE); MassingEstimate pickedGot = null; pickedW.BuildRequested += e => pickedGot = e;
+        var labels = Descendants(pickedW).OfType<System.Windows.Controls.TextBlock>().Select(t => t.Text).ToList();
+        Ok(!labels.Contains("Footprint width (mm)") && !labels.Contains("Footprint depth (mm)") && !labels.Contains("Known width (m)") && labels.Contains("Known height (m)") && labels.Contains("Rotation (°)")
+           && labels.Contains("Footprint: a closed CAD polyline on layer A-SITE, 6 corners, 456.0 m²"),
+           "MA-6-10: a picked footprint hides the width and depth rows and shows its line (from, corners, area) and the Rotation box");
+        pickedW.ScaleNow(); Box(pickedW, 4).Text = "30"; pickedW.Emit();
+        Ok(pickedGot != null && pickedGot.RotationDeg == 30 && pickedGot.Footprint?.Loop?.Count == 6 && Math.Abs(pickedGot.StoreyHeightMm.Value - 3500) < 0.001,
+           "MA-6-10: with a footprint, Scale ▶ works the storey height from the height alone and File for review files the footprint and the turn");
+
         var hints = Descendants(ready).OfType<System.Windows.Controls.TextBlock>().Select(t => t.Text).ToList();
         Ok(hints.Any(t => t.StartsWith("observed — 2 of 2 photos: 3–3")) && hints.Any(t => t.StartsWith("inferred — range ")) && hints.Any(t => t.StartsWith("assumed — depth not seen")),
            "MA-6-9: the review shows each mark with the spread across the photos (observed — 2 of 2 photos: 3–3) and the range worked out (inferred)");

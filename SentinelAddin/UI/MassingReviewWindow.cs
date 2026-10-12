@@ -27,7 +27,7 @@ public sealed class MassingReviewWindow : Window
     private readonly MassingEstimate _estimate;
     private readonly Dictionary<EstimatedValue, TextBox> _fields = new();
     private readonly Dictionary<EstimatedValue, TextBlock> _hints = new();
-    private TextBox _knownH = null!, _knownW = null!; // MA-6-9: the known dimension, in metres
+    private TextBox _knownH = null!, _knownW = null!, _rot = null!; // MA-6-9: the known dimension, in metres
     // What Scale ▶ worked from — Emit refuses to file lengths whose inputs have changed since (storeys, ratio, either known box).
     private bool _scaled;
     private double _sN, _sRatio; private double? _sKnownH, _sKnownW;
@@ -63,10 +63,27 @@ public sealed class MassingReviewWindow : Window
         AddRow(grid, ref row, "Storeys", estimate.Storeys);
         if (estimate.HeightToWidth != null) AddRow(grid, ref row, "Height : width", estimate.HeightToWidth);
         _knownH = AddKnown(grid, ref row, "Known height (m)", estimate.KnownField == "height" ? estimate.KnownMm : (double?)null);
-        _knownW = AddKnown(grid, ref row, "Known width (m)", estimate.KnownField == "width" ? estimate.KnownMm : (double?)null);
+        // MA-6-10 review: a picked outline is the footprint - Scale refuses a typed width, so the row is not shown (an empty box keeps the reads below simple).
+        _knownW = estimate.Footprint?.Loop != null ? new TextBox() : AddKnown(grid, ref row, "Known width (m)", estimate.KnownField == "width" ? estimate.KnownMm : (double?)null);
         AddRow(grid, ref row, "Storey height (mm)", estimate.StoreyHeightMm);
-        AddRow(grid, ref row, "Footprint width (mm)", estimate.FootprintWidthMm);
-        AddRow(grid, ref row, "Footprint depth (mm)", estimate.FootprintDepthMm);
+        // MA-6-10 (MAS-3): a picked outline IS the footprint — its line (from, corners, area) replaces the width and depth rows.
+        if (estimate.Footprint?.Loop is { } loop)
+        {
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            var fl = new TextBlock
+            {
+                Text = $"Footprint: {estimate.Footprint.From}, {loop.Count} corners, {MassingPlanner.Area(loop).ToString("0.0", CultureInfo.InvariantCulture)} m²",
+                TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 6, 3),
+            };
+            Grid.SetRow(fl, row); Grid.SetColumn(fl, 0); Grid.SetColumnSpan(fl, 3); grid.Children.Add(fl);
+            row++;
+        }
+        else
+        {
+            AddRow(grid, ref row, "Footprint width (mm)", estimate.FootprintWidthMm);
+            AddRow(grid, ref row, "Footprint depth (mm)", estimate.FootprintDepthMm);
+        }
+        _rot = AddKnown(grid, ref row, "Rotation (°)", estimate.RotationDeg, "turned counter-clockwise about the footprint's centre; 0 leaves it", 1);
         for (int i = 0; i < estimate.Openings.Count; i++)
         {
             var o = estimate.Openings[i];
@@ -147,14 +164,14 @@ public sealed class MassingReviewWindow : Window
         _hints[v].Foreground = needsReview ? new SolidColorBrush(Color.FromRgb(180, 120, 20)) : Brushes.Gray;
     }
 
-    private TextBox AddKnown(Grid grid, ref int row, string label, double? mm)
+    private TextBox AddKnown(Grid grid, ref int row, string label, double? mm, string note = "given — type one of the two", double per = 1000)
     {
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         var lbl = new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 3, 6, 3) };
         Grid.SetRow(lbl, row); Grid.SetColumn(lbl, 0); grid.Children.Add(lbl);
-        var box = new TextBox { Text = mm is double x ? (x / 1000).ToString("0.###", CultureInfo.InvariantCulture) : "", Margin = new Thickness(0, 3, 6, 3) };
+        var box = new TextBox { Text = mm is double x ? (x / per).ToString("0.###", CultureInfo.InvariantCulture) : "", Margin = new Thickness(0, 3, 6, 3) };
         Grid.SetRow(box, row); Grid.SetColumn(box, 1); grid.Children.Add(box);
-        var hint = new TextBlock { Text = "given — type one of the two", Foreground = Brushes.Gray, VerticalAlignment = VerticalAlignment.Center, FontSize = 11 };
+        var hint = new TextBlock { Text = note, Foreground = Brushes.Gray, VerticalAlignment = VerticalAlignment.Center, FontSize = 11 };
         Grid.SetRow(hint, row); Grid.SetColumn(hint, 2); grid.Children.Add(hint);
         row++;
         return box;
@@ -165,7 +182,7 @@ public sealed class MassingReviewWindow : Window
 
     // A decimal comma would otherwise read as a group separator (12,5 m → 125 m): every box takes a point.
     private const string Point = "use a point for decimals — a comma is not read";
-    private bool HasComma() => _fields.Values.Append(_knownH).Append(_knownW).Any(b => b.Text.Contains(','));
+    private bool HasComma() => _fields.Values.Append(_knownH).Append(_knownW).Append(_rot).Any(b => b.Text.Contains(','));
 
     /// <summary>Scale ▶: the one known dimension in the boxes turns the photos' counts and ratio into lengths (MassingPlanner.Scale); the
     /// boxes and the values are rewritten together, so Emit's change check does not take them for the reviewer's own numbers.</summary>
@@ -194,6 +211,10 @@ public sealed class MassingReviewWindow : Window
         _status.Text = "Filing the massing for review…";
         if (HasComma()) { Reopen(Point); return; }
         ReadBoxes();
+        // MA-6-10: the turn, in degrees (blank = 0)
+        if (string.IsNullOrWhiteSpace(_rot.Text)) _estimate.RotationDeg = 0;
+        else if (double.TryParse(_rot.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out double deg) && !double.IsInfinity(deg) && !double.IsNaN(deg)) _estimate.RotationDeg = deg;
+        else { Reopen("Rotation must be a number of degrees"); return; }
         // MA-6-9: a building the photos gave no length for cannot be filed; and an inferred number out of range is said, never clamped.
         double? kh = Metres(_knownH.Text), kw = Metres(_knownW.Text);
         if (!_scaled || _estimate.KnownField == null)

@@ -66,7 +66,7 @@ static partial class Check
            "Photo Massing says an unbound model and a busy review before an image is read (amendment 4)");
         Ok(plan > 0 && cmd.IndexOf("if (ProjectContext.For(doc).Key != key)", plan, StringComparison.Ordinal) > plan
            && cmd.IndexOf("var levels = ChangesetExecutor.Stories(doc).Select(l => (l.Name, l.ElevationMm, l.IsStory)).ToList();", plan, StringComparison.Ordinal) > plan
-           && cmd.Contains("var (body, refusal) = MassingPlanner.Changeset(corrected, levels, actor);")
+           && cmd.Contains("var (body, refusal) = MassingPlanner.Changeset(corrected, levels, actor, fp);")
            && cmd.IndexOf("ReviewChangesetsCommand.Hold();", StringComparison.Ordinal) > cmd.IndexOf("if (refusal != null)", StringComparison.Ordinal)
            && cmd.Contains("if (UserSession.IsSignedIn) fileCfg.FileToken = \"\";") && cmd.Contains("finally { ReviewChangesetsCommand.Release(); }")
            && cmd.Contains("ReviewChangesetsCommand.Open(u, d, cfg, key, new[] { cs });"),
@@ -102,11 +102,29 @@ static partial class Check
            && StageIds.OutOfScope(new[] { "level", "level", "mass" }) == "DD IDS: not asked of 2 level(s), 1 mass(es): the DD IDS has no class for them",
            "a mass row reads its footprint extent and its two elevations (not only the poster's reason); the DD line says \"1 mass(es)\"");
         string planner = Src("GhostBuilder", "MassingPlanner.cs");
-        Ok(planner.Contains("public static (object Body, string Refusal) Changeset(MassingEstimate m, IReadOnlyList<(string Name, double ElevationMm, bool IsStory)> levels, string actor)")
+        Ok(planner.Contains("public static (object Body, string Refusal) Changeset(MassingEstimate m, IReadOnlyList<(string Name, double ElevationMm, bool IsStory)> levels, string actor, Footprint fp = null)")
            && !planner.Contains("LevelFact") && planner.Contains("source = \"photo\""),
            "MassingPlanner.Changeset is self-contained (amendment 4): tuples in, anonymous objects out — massing-check and ghost-p2-check compile it alone");
         Ok(Src("App.cs").Contains("then file one changeset — the missing levels and a mass — for review; nothing is placed until a person applies it in Review AI Proposals; then Shell it (2c · Shell a Mass)"),
            "the 2b tooltip says what Photo Massing does now: one changeset for review, then Shell it");
+
+        // MA-6-10 (MAS-3): the footprint pick - asked after the guards and before the images are read; the picker's traps (Esc, view-specific imports).
+        string picker = Src("GhostBuilder", "FootprintPicker.cs");
+        int ask = cmd.IndexOf("Where does the mass stand?", StringComparison.Ordinal);
+        Ok(ask > cmd.IndexOf("MassingVisionReader.CountImages(folder) == 0", StringComparison.Ordinal) && ask < cmd.IndexOf("Task.Run(async () =>", StringComparison.Ordinal)
+           && ask < cmd.IndexOf("reader.EstimateAsync(", StringComparison.Ordinal)
+           && cmd.Contains("MassingPlanner.Changeset(corrected, levels, actor, fp);") && cmd.Contains("FootprintPicker.Centre(uidoc, out string centreWhy)")
+           && cmd.Contains("estimate.Footprint = fp;"),
+           "MA-6-10: Photo Massing asks where the mass stands after the guards and before an image is read, and files the footprint it was given");
+        Ok(picker.Contains("ObjectType.PointOnElement") && picker.Contains("public bool AllowReference(Reference r, XYZ p) => true;")
+           && picker.Contains("e is ImportInstance || e is ModelCurve || e is PropertyLine")
+           && picker.Contains("catch (Autodesk.Revit.Exceptions.OperationCanceledException)") && !picker.Contains("catch (OperationCanceledException)")
+           && picker.Contains("if (imp.ViewSpecific)") && picker.Contains("opt.View = ov;") && !picker.Contains(": null }") // Options.View throws on null
+           && cmd.Contains("uidoc.ActiveView is not ViewPlan") && picker.Contains("ArcNear(geo, at)") && picker.Contains("MassingPlanner.CadName(best.layer)")
+           && cmd.Contains("MassingPlanner.OutlineProblem(norm)")
+           && picker.Contains("the footprint has a curved edge — Sentinel takes straight edges only")
+           && picker.Contains("the curve you picked is not a closed polyline — join it in CAD (PEDIT), or select model lines along it first"),
+           "MA-6-10: the pick is a PointOnElement pick whose filter allows the reference, Esc is caught by its Revit name, a view-specific import is read in its view, and the refusals have the plan's words");
 
         // The bridge's half, the same names: the kind, its class and the source.
         string logic = File.ReadAllText(Repo("WebApp", "bridge", "changesets-logic.mjs"));
