@@ -102,6 +102,9 @@ public static class GovernedElementExtractor
             return cls;
         }
 
+        // MA-6-5 (D4): a curtain wall is what Revit's IFC export writes — IfcCurtainWall, not IfcWall — so no wall specification judges it
+        // (the DD check says "not judged"), and Pset_WallCommon (scoped to IFCWALL in PsetMap) is no longer read or written for it.
+        if (e is Wall cw && cw.WallType?.Kind == WallKind.Curtain) return "IFCCURTAINWALL";
         long catId = e.Category?.Id.IdValue() ?? 0;
         foreach (var (cat, ifc) in CategoryToIfc)
             if ((long)(int)cat == catId) return ifc;

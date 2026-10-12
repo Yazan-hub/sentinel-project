@@ -129,6 +129,16 @@ describe("planSurvey — the drill's job-0002, frame 40 m east, L00 named GR-FFL
       expect([v.elements.length, v.ignored]).toEqual([s.body.elements.length, []]); // no place key the bridge built is dropped (final review)
     }
   });
+  // MA-6-5 (amendment 9b): held or proposed is decided by the typer as the bridge will type the element filed — with its level (a facade rule's when.level).
+  it("each candidate is typed with the level its element is filed on", () => {
+    const seen = new Map();
+    const p = planSurvey({ job: JOB, candidates: RESULT.candidates, frame: EAST, levels: { "scan-L00-level": "GR-FFL" }, manifest: [],
+      type: (k, f, cid, level) => { seen.set(cid, level); return type(k, f, cid, level); } });
+    const filed = p.storeys.flatMap((s) => s.body?.elements ?? []).filter((e) => seen.has(e.cid));
+    expect(filed.length).toBe(6);
+    for (const e of filed) expect(seen.get(e.cid), e.cid).toBe(e.place.LevelName);
+    expect([...seen.values()].every((l) => typeof l === "string" && l)).toBe(true); // the gaps too
+  });
   it("floors and ceilings, when the office types them: the loop at the level, the ceiling's Offset its measured height above its level", () => {
     const all = () => ({}); // a typer that types every candidate (the BDS standards leave floors and ceilings as gaps)
     const at = (p, i, cid) => p.storeys[i].body.elements.find((e) => e.cid === cid).place;

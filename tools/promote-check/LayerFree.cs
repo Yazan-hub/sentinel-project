@@ -103,6 +103,7 @@ static partial class Check
             var r = m.Resolve(new GuidelineInput
             {
                 Category = (string)input["category"],
+                Level = (string)input["level"], // MA-6-5: the facade cases name a level
                 Params = input["params"]?.AsObject().ToDictionary(kv => kv.Key, kv => (string)kv.Value),
                 ThicknessMm = (double?)input["thicknessMm"],
             });
@@ -114,6 +115,6 @@ static partial class Check
             if (ok) same++;
             else Console.WriteLine($"        differs: {input.ToJsonString()} → C# {r.Family} / {r.Type} / {r.Source} / {r.Confidence} / [{string.Join(", ", r.Available ?? new List<string>())}] / matched [{string.Join(", ", r.Matched ?? new List<string>())}]");
         }
-        Ok(cases.Count == 20 && same == cases.Count, $"the C# matcher gives the TS resolver's answer on every shared layer-free case ({same}/{cases.Count})");
+        Ok(cases.Count == 24 && same == cases.Count, $"the C# matcher gives the TS resolver's answer on every shared layer-free case ({same}/{cases.Count})");
     }
 }

@@ -484,6 +484,7 @@ public sealed class PromoteWallsCommand : IExternalCommand
             TopOffsetMm = Mm(BuiltInParameter.WALL_TOP_OFFSET),
             HeightMm = Mm(BuiltInParameter.WALL_USER_HEIGHT_PARAM),
             IsBasic = basic,
+            Curtain = wt?.Kind == WallKind.Curtain, // MA-6-5: settled when a facade rule produces its type
             InGroup = w.GroupId != ElementId.InvalidElementId,
             InOption = w.DesignOption != null,
             Structural = w.get_Parameter(BuiltInParameter.WALL_STRUCTURAL_SIGNIFICANT)?.AsInteger() == 1,

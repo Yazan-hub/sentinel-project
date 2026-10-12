@@ -7,6 +7,9 @@
 //
 // EXACT OR A PERSON (D3, D16). A type is the DD rule's exact answer at confidence 1, in the catalogue and loaded in this model. A mass has
 // no thickness, so a {thickness} rule cannot answer: the office writes an exact-type rule under the same when.
+//
+// MA-6-5 FACADES (D4). With curtain, each wall's facts also carry its Facade (N/E/S/W, against True North), so a facade rule
+// ({when: {level, params: {Facade}}}) may answer a curtain wall type: it is filed on the mass face (inset 0, its panels centred there).
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -28,6 +31,8 @@ namespace Sentinel.GhostBuilder
         /// <summary>The model's wall types by name (case-insensitive, a basic one first, as ResolveWallType picks): its kind and a basic one's width.</summary>
         public Dictionary<string, (string Kind, double WidthMm)> WallTypes = new Dictionary<string, (string, double)>(StringComparer.OrdinalIgnoreCase);
         public HashSet<string> FloorTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase), RoofTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        /// <summary>MA-6-5: the project's True North angle (degrees, ProjectPosition.Angle) — each wall's Facade (N/E/S/W) is read against it.</summary>
+        public double TrueNorthDeg;
     }
 
     public sealed class ShellPlan
@@ -56,7 +61,8 @@ namespace Sentinel.GhostBuilder
         internal const double CutMm = 10;
         private const double TolMm = 2, MinWallMm = 10;
 
-        public static ShellPlan Plan(ShellFacts f, GuidelineMatcher m)
+        /// <param name="curtain">MA-6-5: walls carry their Facade, and a curtain answer is filed (inset 0); off, 6-4's basic walls only.</param>
+        public static ShellPlan Plan(ShellFacts f, GuidelineMatcher m, bool curtain = false)
         {
             var p = new ShellPlan();
             int n = f.Storeys.Count;
@@ -90,13 +96,17 @@ namespace Sentinel.GhostBuilder
                 else
                 {
                     // One untypable element holds its whole storey (a partial storey leaves gaps), with every reason.
-                    var wallFacts = new Dictionary<string, string> { ["Location"] = "Exterior" };
+                    // MA-6-5: with curtain, each wall's facts carry its Facade too — the side its edge faces against True North.
+                    var wallFacts = Enumerable.Range(0, bottom.Count).Select(k => curtain
+                        ? new Dictionary<string, string> { ["Location"] = "Exterior", ["Facade"] = Facade(bottom[k], bottom[(k + 1) % bottom.Count], f.TrueNorthDeg) }
+                        : new Dictionary<string, string> { ["Location"] = "Exterior" }).ToList();
                     string Basic(string type) => !f.WallTypes.TryGetValue(type, out var wt) ? NotLoaded(type)
-                        : wt.Kind == "Basic" ? null : $"\"{type}\" is a {wt.Kind.ToLowerInvariant()} wall type — Sentinel places basic walls only";
+                        : wt.Kind == "Basic" || curtain && wt.Kind == "Curtain" ? null
+                        : $"\"{type}\" is a {wt.Kind.ToLowerInvariant()} wall type — Sentinel places basic " + (curtain ? "and curtain walls only" : "walls only");
                     var types = new List<(string Type, string Used)>();
                     for (int k = 0; k < bottom.Count; k++)
                     {
-                        var t = TypeOf(m, "Walls", a, wallFacts, Basic, out var why, out var used);
+                        var t = TypeOf(m, "Walls", a, wallFacts[k], Basic, out var why, out var used);
                         types.Add((t, used));
                         if (why != null) whys.Add("walls: " + why);
                     }
@@ -104,7 +114,8 @@ namespace Sentinel.GhostBuilder
                     var ft = TypeOf(m, "Floors", a, floorFacts, t => f.FloorTypes.Contains(t) ? null : NotLoaded(t), out var floorWhy, out var floorUsed);
                     if (floorWhy != null) whys.Add("floor: " + floorWhy);
                     // D3: each wall's centreline inset by half its type's width, mitred at the corners — its exterior face on the mass face.
-                    var inset = whys.Count == 0 ? types.Select(t => f.WallTypes[t.Type].WidthMm / 2).ToList() : null;
+                    // MA-6-5 (D4): a curtain wall's line is the mass face itself (inset 0), its panels centred there.
+                    var inset = whys.Count == 0 ? types.Select(t => f.WallTypes[t.Type].Kind == "Curtain" ? 0 : f.WallTypes[t.Type].WidthMm / 2).ToList() : null;
                     var line = inset == null ? null : Inset(bottom, inset);
                     if (line != null) whys.AddRange(InsetFaults(bottom, line));
                     if (whys.Count == 0)
@@ -116,7 +127,7 @@ namespace Sentinel.GhostBuilder
                             {
                                 op = "create", kind = "wall",
                                 place = new { BaseLevel = a, TopLevel = b, TypeName = types[k].Type, LocationCurve = new { start = new[] { s[0], s[1], z }, end = new[] { e[0], e[1], z } } },
-                                facts = new { @params = wallFacts },
+                                facts = new { @params = wallFacts[k] },
                                 reason = Clip($"Shell of {f.MassLabel} · {a}→{b} · rule {types[k].Used} → {types[k].Type}, inset {Mm(inset[k])} mm", 500),
                                 validate = new { identity = new { Class = "IFCWALL", Name = $"Shell {a} W{k + 1}" } },
                             });
@@ -245,6 +256,18 @@ namespace Sentinel.GhostBuilder
             for (int i = 0; i < pts.Count; i++) { var q = pts[i]; var r = pts[(i + 1) % pts.Count]; area2 += q[0] * r[1] - r[0] * q[1]; }
             if (area2 > 0) pts.Reverse(); // counter-clockwise (shoelace) → clockwise
             return pts;
+        }
+
+        /// <summary>MA-6-5: the side the edge a→b of a clockwise loop faces, as a compass letter. Its exterior normal is its left normal
+        /// (-dy, dx); turned by True North (counter-clockwise positive, as ProjectPosition.Angle reads — drill C-1 checks the sign; if south
+        /// lands on the wrong face, negate it here), its bearing clockwise from north is N [315, 45), E [45, 135), S [135, 225) or
+        /// W [225, 315): half-open, so 45° is E (rounded to 1e-6°, so a rotation's float noise never moves a tie).</summary>
+        internal static string Facade(double[] a, double[] b, double trueNorthDeg)
+        {
+            double nx = a[1] - b[1], ny = b[0] - a[0], t = trueNorthDeg * Math.PI / 180;
+            double x = nx * Math.Cos(t) - ny * Math.Sin(t), y = nx * Math.Sin(t) + ny * Math.Cos(t);
+            double deg = Math.Round((Math.Atan2(x, y) * 180 / Math.PI + 360) % 360, 6) % 360;
+            return deg >= 315 || deg < 45 ? "N" : deg < 135 ? "E" : deg < 225 ? "S" : "W";
         }
 
         /// <summary>S-2: the same loop — as many vertices after Clean, each within <paramref name="tolMm"/> of one of the other's, both ways

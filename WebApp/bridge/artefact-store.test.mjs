@@ -399,6 +399,7 @@ describe("validateArtefact — contract, layers, guideline, type catalogue", () 
     expect(validateArtefact("guideline", readRepoJson("demo/bds-pilot/bds-guideline.json"))).toBe(true);
     expect(validateArtefact("guideline", readRepoJson("demo/bds-pilot/bds-dd-elements-guideline.json"))).toBe(true);
     expect(validateArtefact("guideline", readRepoJson("demo/bds-pilot/bds-dd-layerfree-guideline.json"))).toBe(true); // MA-2a: layer-free rules install
+    expect(validateArtefact("guideline", readRepoJson("demo/bds-pilot/bds-dd-shell-guideline.json"))).toBe(true); // MA-6-5: facade rules (when.level, params.Facade) install
     expect(validateArtefact("type_catalog", { ...catalog, types: [{ ...catalog.types[0], bic: "OST_Walls" }, { ...catalog.types[1], bic: null }] })).toBe(true); // BOS-5: a row's bic, or none
     expect(validateArtefact("lod_matrix", readRepoJson("demo/bds-pilot/bds-lod-matrix-dd.json"))).toBe(true);
     expect(validateArtefact("lod_matrix", readRepoJson("demo/bds-pilot/bds-lod-matrix-dd-ma2b.json"))).toBe(true); // MA-2b: stage_map, type_snap_mm

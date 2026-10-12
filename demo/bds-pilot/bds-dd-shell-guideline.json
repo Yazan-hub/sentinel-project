@@ -11,6 +11,21 @@
           "when": { "params": { "Location": "Exterior" } },
           "use": { "family": "Basic Wall", "type": "BDS_EXT_ARC_CMU_300 mm" },
           "why": "DD (DRAFT SH-1): a shell wall is the office's external CMU at 300 mm — an exact type, because a mass has no thickness to fill {thickness} from."
+        },
+        {
+          "when": { "level": "FC L00", "params": { "Location": "Exterior" } },
+          "use": { "family": "Curtain Wall", "type": "M_Storefront" },
+          "why": "DD (DRAFT SH-4, MA-6-5): the podium storey FC L00 is storefront on every face."
+        },
+        {
+          "when": { "level": "FC L01", "params": { "Facade": "S" } },
+          "use": { "family": "Curtain Wall", "type": "M_Exterior Glazing" },
+          "why": "DD (DRAFT SH-5, MA-6-5): south glazing above the podium (FC L01)."
+        },
+        {
+          "when": { "level": "FC L02", "params": { "Facade": "S" } },
+          "use": { "family": "Curtain Wall", "type": "M_Exterior Glazing" },
+          "why": "DD (DRAFT SH-5, MA-6-5): south glazing above the podium (FC L02)."
         }
       ]
     },

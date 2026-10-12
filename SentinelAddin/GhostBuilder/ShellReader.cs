@@ -34,7 +34,9 @@ namespace Sentinel.GhostBuilder
                 .Where(l => l.get_Parameter(BuiltInParameter.LEVEL_IS_BUILDING_STORY)?.AsInteger() == 1
                             && l.ProjectElevation >= zMin - tol && l.ProjectElevation <= zMax + tol)
                 .OrderBy(l => l.ProjectElevation).ToList();
-            var f = new ShellFacts { MassUid = mass.UniqueId, MassLabel = "mass " + mass.Id.IdValue() };
+            // MA-6-5: True North ("Angle from True North", radians) — each wall's Facade is read against it.
+            var f = new ShellFacts { MassUid = mass.UniqueId, MassLabel = "mass " + mass.Id.IdValue(),
+                                     TrueNorthDeg = doc.ActiveProjectLocation.GetProjectPosition(XYZ.Zero).Angle * 180 / Math.PI };
             f.Levels.AddRange(levels.Select(l => (l.Name, l.Elevation * FtToMm)));
             if (levels.Count > 0)
             {

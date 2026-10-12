@@ -136,7 +136,7 @@ public sealed class ShellMassCommand : IExternalCommand
         }
 
         var clock = System.Diagnostics.Stopwatch.StartNew();
-        var plan = ShellPlanner.Plan(facts, m);
+        var plan = ShellPlanner.Plan(facts, m, curtain: true); // MA-6-5: facade rules may type a curtain wall
         var actor = UserSession.Actor;
         var bodies = ShellPlanner.Bodies(plan, facts, actor);
         clock.Stop();

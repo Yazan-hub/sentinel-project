@@ -376,7 +376,10 @@ export function validateChangeset(body, { member = false, type = null, cite = nu
     let written = null; // a set_parameter's checked fields
     let typed = null; // the bridge's typing of this element, when it had to type it
     const typeIt = () => {
-      typed = type(el.kind, facts, at); // a 400 in the typer's words when it cannot
+      // MA-6-5 (amendment 9a): the element's level, so a rule's when.level (a facade rule) answers an agent's facts as it does the add-in's —
+      // text only: this runs before the LevelName and BaseLevel checks below, and the resolver trims it.
+      const level = [place.LevelName, place.BaseLevel].find((s) => text(s, 256));
+      typed = type(el.kind, facts, at, level); // a 400 in the typer's words when it cannot
       place.TypeName = typed.TypeName;
       // MA-6-3 review fix: the bridge types the family too, in the rule's spelling — a posted family other than the rule's would store a
       // pair no catalogue row holds, under a `typing` record that says the office rule chose it.

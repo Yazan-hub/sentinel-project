@@ -35,6 +35,8 @@ namespace Sentinel.GhostBuilder
         /// <summary>Unconnected Height (WALL_USER_HEIGHT_PARAM); read only when TopLevel is null.</summary>
         public double HeightMm;
         public bool IsBasic, InGroup, InOption;
+        /// <summary>MA-6-5 (D4): the wall's type is a curtain type — settled when a DD rule produces it (a facade rule), else held.</summary>
+        public bool Curtain;
         /// <summary>The wall's Structural usage (WALL_STRUCTURAL_SIGNIFICANT = 1).</summary>
         public bool Structural;
         /// <summary>MA-2a: the wall's location line in plan (mm) as the outer boundary reads it — a curved wall's chord, flagged;
@@ -202,7 +204,8 @@ namespace Sentinel.GhostBuilder
                     void Block(string reason) { Hold(reason); p.Lod.Add(new LodFact { UniqueId = w.UniqueId, Category = "Walls", Blocked = true }); }
 
                     // Whole-wall holds: nothing is proposed for these walls.
-                    if (!w.IsBasic) { Block("not a basic wall — Promote v0 types basic walls only"); continue; }
+                    // MA-6-5 (D4): a curtain wall on a type a DD rule produces (a facade rule) is settled — only its top is judged.
+                    if (!w.IsBasic && !(w.Curtain && m.RuleProduces("Walls", w.TypeName))) { Block("not a basic wall — Promote v0 types basic walls only"); continue; }
                     if (w.InGroup) { Block("in a group — Sentinel does not edit group members"); continue; }
                     if (w.InOption) { Block("in a design option — Sentinel does not edit design options"); continue; }
                     if (baseLevel == null || !baseLevel.IsStory)
@@ -307,7 +310,8 @@ namespace Sentinel.GhostBuilder
                         });
 
                     if (typeOk && topOk) p.DdNow++;
-                    if (typeOk) p.Settled.Add(("Walls", null, w.TypeName)); // MA-2c: its DD type's properties are read
+                    // MA-2c: its DD type's properties are read — MA-6-5: not a curtain type's (no wall specification judges IfcCurtainWall)
+                    if (typeOk && !w.Curtain) p.Settled.Add(("Walls", null, w.TypeName));
                     p.Lod.Add(new LodFact { UniqueId = w.UniqueId, Category = "Walls", RulesOk = typeOk && topOk });
                 }
                 p.Walls = ws.Count - p.OfficeTyped;

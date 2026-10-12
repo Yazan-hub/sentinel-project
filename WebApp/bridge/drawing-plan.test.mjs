@@ -63,6 +63,14 @@ describe("alignFrom / checkResidual — the similarity two points fix, and a thi
 });
 
 describe("planDrawing — one changeset per drawing, every element inferred and never pre-ticked", () => {
+  // MA-6-5 (amendment 9b): each candidate is typed with the level its element is filed on, as the bridge types the element filed.
+  it("each wall and door is typed with its element's level", () => {
+    const seen = new Map();
+    const p = plan(DRILL, { type: (k, f, cid, level) => { seen.set(cid, level); return type(k, f, cid, level); } });
+    const filed = els(p).filter((e) => seen.has(e.cid));
+    expect(filed.some((e) => e.kind === "wall")).toBe(true);
+    for (const e of filed) expect(seen.get(e.cid), e.cid).toBe(e.place.LevelName);
+  });
   it("the drill on the BDS layer-free standards: a created level, four walls cornered and typed, the 250 mm wall and both doors gaps", () => {
     const p = plan();
     expect(p.alignment).toEqual({ method: "2-point similarity", item: "ev-0007", points: [A, B], check: CHECK, scale: 50, rotation_deg: 0, dx_mm: 37000, dy_mm: -2000, dz_mm: 0, check_mm: 0, rmse_mm: null });
