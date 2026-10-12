@@ -1764,7 +1764,7 @@ describe("proposeFromJob (MA-6-8): a lead turns a concept IFC job into one chang
     const r = await propose(deps);
     expect(r.gaps.groups).toBe(1);
     const gap = deps.audit.mock.calls.find((c) => c[1] === "type_gap");
-    expect(gap[3]).toMatch(/^type_gap:run job-0007 · ifc-planner 0\.1\.0 · 1 group\(s\), 1 element\(s\)$/);
+    expect(gap[3]).toMatch(/^type_gap:run job-0007 · ifc-planner · 1 group\(s\), 1 element\(s\)$/);
     expect(gap[6]).toMatchObject({ source: "sentinel-ifc", claimed: false, job: { id: "job-0007" } });
   });
 
