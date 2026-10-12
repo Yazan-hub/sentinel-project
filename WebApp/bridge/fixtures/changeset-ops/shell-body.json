@@ -1,0 +1,561 @@
+{
+  "name": "Shell (DD) · mass 41233",
+  "source": "promote",
+  "actor": "yazan",
+  "elements": [
+    {
+      "op": "create",
+      "kind": "wall",
+      "place": {
+        "BaseLevel": "SH L0",
+        "TopLevel": "SH L1",
+        "TypeName": "BDS_EXT_ARC_CMU_300 mm",
+        "LocationCurve": {
+          "start": [
+            150,
+            150,
+            0
+          ],
+          "end": [
+            150,
+            11850,
+            0
+          ]
+        }
+      },
+      "facts": {
+        "params": {
+          "Location": "Exterior"
+        }
+      },
+      "reason": "Shell of mass 41233 · SH L0→SH L1 · rule Location Exterior → BDS_EXT_ARC_CMU_300 mm, inset 150 mm",
+      "validate": {
+        "identity": {
+          "Class": "IFCWALL",
+          "Name": "Shell SH L0 W1"
+        }
+      }
+    },
+    {
+      "op": "create",
+      "kind": "wall",
+      "place": {
+        "BaseLevel": "SH L0",
+        "TopLevel": "SH L1",
+        "TypeName": "BDS_EXT_ARC_CMU_300 mm",
+        "LocationCurve": {
+          "start": [
+            150,
+            11850,
+            0
+          ],
+          "end": [
+            5850,
+            11850,
+            0
+          ]
+        }
+      },
+      "facts": {
+        "params": {
+          "Location": "Exterior"
+        }
+      },
+      "reason": "Shell of mass 41233 · SH L0→SH L1 · rule Location Exterior → BDS_EXT_ARC_CMU_300 mm, inset 150 mm",
+      "validate": {
+        "identity": {
+          "Class": "IFCWALL",
+          "Name": "Shell SH L0 W2"
+        }
+      }
+    },
+    {
+      "op": "create",
+      "kind": "wall",
+      "place": {
+        "BaseLevel": "SH L0",
+        "TopLevel": "SH L1",
+        "TypeName": "BDS_EXT_ARC_CMU_300 mm",
+        "LocationCurve": {
+          "start": [
+            5850,
+            11850,
+            0
+          ],
+          "end": [
+            5850,
+            5850,
+            0
+          ]
+        }
+      },
+      "facts": {
+        "params": {
+          "Location": "Exterior"
+        }
+      },
+      "reason": "Shell of mass 41233 · SH L0→SH L1 · rule Location Exterior → BDS_EXT_ARC_CMU_300 mm, inset 150 mm",
+      "validate": {
+        "identity": {
+          "Class": "IFCWALL",
+          "Name": "Shell SH L0 W3"
+        }
+      }
+    },
+    {
+      "op": "create",
+      "kind": "wall",
+      "place": {
+        "BaseLevel": "SH L0",
+        "TopLevel": "SH L1",
+        "TypeName": "BDS_EXT_ARC_CMU_300 mm",
+        "LocationCurve": {
+          "start": [
+            5850,
+            5850,
+            0
+          ],
+          "end": [
+            17850,
+            5850,
+            0
+          ]
+        }
+      },
+      "facts": {
+        "params": {
+          "Location": "Exterior"
+        }
+      },
+      "reason": "Shell of mass 41233 · SH L0→SH L1 · rule Location Exterior → BDS_EXT_ARC_CMU_300 mm, inset 150 mm",
+      "validate": {
+        "identity": {
+          "Class": "IFCWALL",
+          "Name": "Shell SH L0 W4"
+        }
+      }
+    },
+    {
+      "op": "create",
+      "kind": "wall",
+      "place": {
+        "BaseLevel": "SH L0",
+        "TopLevel": "SH L1",
+        "TypeName": "BDS_EXT_ARC_CMU_300 mm",
+        "LocationCurve": {
+          "start": [
+            17850,
+            5850,
+            0
+          ],
+          "end": [
+            17850,
+            150,
+            0
+          ]
+        }
+      },
+      "facts": {
+        "params": {
+          "Location": "Exterior"
+        }
+      },
+      "reason": "Shell of mass 41233 · SH L0→SH L1 · rule Location Exterior → BDS_EXT_ARC_CMU_300 mm, inset 150 mm",
+      "validate": {
+        "identity": {
+          "Class": "IFCWALL",
+          "Name": "Shell SH L0 W5"
+        }
+      }
+    },
+    {
+      "op": "create",
+      "kind": "wall",
+      "place": {
+        "BaseLevel": "SH L0",
+        "TopLevel": "SH L1",
+        "TypeName": "BDS_EXT_ARC_CMU_300 mm",
+        "LocationCurve": {
+          "start": [
+            17850,
+            150,
+            0
+          ],
+          "end": [
+            150,
+            150,
+            0
+          ]
+        }
+      },
+      "facts": {
+        "params": {
+          "Location": "Exterior"
+        }
+      },
+      "reason": "Shell of mass 41233 · SH L0→SH L1 · rule Location Exterior → BDS_EXT_ARC_CMU_300 mm, inset 150 mm",
+      "validate": {
+        "identity": {
+          "Class": "IFCWALL",
+          "Name": "Shell SH L0 W6"
+        }
+      }
+    },
+    {
+      "op": "create",
+      "kind": "floor",
+      "place": {
+        "LevelName": "SH L0",
+        "TypeName": "BDS_INT_STR_CONC_300 mm",
+        "LocationLoop": [
+          [
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            12000,
+            0
+          ],
+          [
+            6000,
+            12000,
+            0
+          ],
+          [
+            6000,
+            6000,
+            0
+          ],
+          [
+            18000,
+            6000,
+            0
+          ],
+          [
+            18000,
+            0,
+            0
+          ]
+        ]
+      },
+      "facts": {
+        "params": {
+          "Function": "Interior"
+        }
+      },
+      "reason": "Shell of mass 41233 · floor on SH L0 · rule Function Interior → BDS_INT_STR_CONC_300 mm",
+      "validate": {
+        "identity": {
+          "Class": "IFCSLAB",
+          "Name": "Shell SH L0 floor"
+        }
+      }
+    },
+    {
+      "op": "create",
+      "kind": "wall",
+      "place": {
+        "BaseLevel": "SH L1",
+        "TopLevel": "SH L2",
+        "TypeName": "BDS_EXT_ARC_CMU_300 mm",
+        "LocationCurve": {
+          "start": [
+            150,
+            150,
+            4000
+          ],
+          "end": [
+            150,
+            11850,
+            4000
+          ]
+        }
+      },
+      "facts": {
+        "params": {
+          "Location": "Exterior"
+        }
+      },
+      "reason": "Shell of mass 41233 · SH L1→SH L2 · rule Location Exterior → BDS_EXT_ARC_CMU_300 mm, inset 150 mm",
+      "validate": {
+        "identity": {
+          "Class": "IFCWALL",
+          "Name": "Shell SH L1 W1"
+        }
+      }
+    },
+    {
+      "op": "create",
+      "kind": "wall",
+      "place": {
+        "BaseLevel": "SH L1",
+        "TopLevel": "SH L2",
+        "TypeName": "BDS_EXT_ARC_CMU_300 mm",
+        "LocationCurve": {
+          "start": [
+            150,
+            11850,
+            4000
+          ],
+          "end": [
+            5850,
+            11850,
+            4000
+          ]
+        }
+      },
+      "facts": {
+        "params": {
+          "Location": "Exterior"
+        }
+      },
+      "reason": "Shell of mass 41233 · SH L1→SH L2 · rule Location Exterior → BDS_EXT_ARC_CMU_300 mm, inset 150 mm",
+      "validate": {
+        "identity": {
+          "Class": "IFCWALL",
+          "Name": "Shell SH L1 W2"
+        }
+      }
+    },
+    {
+      "op": "create",
+      "kind": "wall",
+      "place": {
+        "BaseLevel": "SH L1",
+        "TopLevel": "SH L2",
+        "TypeName": "BDS_EXT_ARC_CMU_300 mm",
+        "LocationCurve": {
+          "start": [
+            5850,
+            11850,
+            4000
+          ],
+          "end": [
+            5850,
+            5850,
+            4000
+          ]
+        }
+      },
+      "facts": {
+        "params": {
+          "Location": "Exterior"
+        }
+      },
+      "reason": "Shell of mass 41233 · SH L1→SH L2 · rule Location Exterior → BDS_EXT_ARC_CMU_300 mm, inset 150 mm",
+      "validate": {
+        "identity": {
+          "Class": "IFCWALL",
+          "Name": "Shell SH L1 W3"
+        }
+      }
+    },
+    {
+      "op": "create",
+      "kind": "wall",
+      "place": {
+        "BaseLevel": "SH L1",
+        "TopLevel": "SH L2",
+        "TypeName": "BDS_EXT_ARC_CMU_300 mm",
+        "LocationCurve": {
+          "start": [
+            5850,
+            5850,
+            4000
+          ],
+          "end": [
+            17850,
+            5850,
+            4000
+          ]
+        }
+      },
+      "facts": {
+        "params": {
+          "Location": "Exterior"
+        }
+      },
+      "reason": "Shell of mass 41233 · SH L1→SH L2 · rule Location Exterior → BDS_EXT_ARC_CMU_300 mm, inset 150 mm",
+      "validate": {
+        "identity": {
+          "Class": "IFCWALL",
+          "Name": "Shell SH L1 W4"
+        }
+      }
+    },
+    {
+      "op": "create",
+      "kind": "wall",
+      "place": {
+        "BaseLevel": "SH L1",
+        "TopLevel": "SH L2",
+        "TypeName": "BDS_EXT_ARC_CMU_300 mm",
+        "LocationCurve": {
+          "start": [
+            17850,
+            5850,
+            4000
+          ],
+          "end": [
+            17850,
+            150,
+            4000
+          ]
+        }
+      },
+      "facts": {
+        "params": {
+          "Location": "Exterior"
+        }
+      },
+      "reason": "Shell of mass 41233 · SH L1→SH L2 · rule Location Exterior → BDS_EXT_ARC_CMU_300 mm, inset 150 mm",
+      "validate": {
+        "identity": {
+          "Class": "IFCWALL",
+          "Name": "Shell SH L1 W5"
+        }
+      }
+    },
+    {
+      "op": "create",
+      "kind": "wall",
+      "place": {
+        "BaseLevel": "SH L1",
+        "TopLevel": "SH L2",
+        "TypeName": "BDS_EXT_ARC_CMU_300 mm",
+        "LocationCurve": {
+          "start": [
+            17850,
+            150,
+            4000
+          ],
+          "end": [
+            150,
+            150,
+            4000
+          ]
+        }
+      },
+      "facts": {
+        "params": {
+          "Location": "Exterior"
+        }
+      },
+      "reason": "Shell of mass 41233 · SH L1→SH L2 · rule Location Exterior → BDS_EXT_ARC_CMU_300 mm, inset 150 mm",
+      "validate": {
+        "identity": {
+          "Class": "IFCWALL",
+          "Name": "Shell SH L1 W6"
+        }
+      }
+    },
+    {
+      "op": "create",
+      "kind": "floor",
+      "place": {
+        "LevelName": "SH L1",
+        "TypeName": "BDS_INT_STR_CONC_300 mm",
+        "LocationLoop": [
+          [
+            0,
+            0,
+            4000
+          ],
+          [
+            0,
+            12000,
+            4000
+          ],
+          [
+            6000,
+            12000,
+            4000
+          ],
+          [
+            6000,
+            6000,
+            4000
+          ],
+          [
+            18000,
+            6000,
+            4000
+          ],
+          [
+            18000,
+            0,
+            4000
+          ]
+        ]
+      },
+      "facts": {
+        "params": {
+          "Function": "Interior"
+        }
+      },
+      "reason": "Shell of mass 41233 · floor on SH L1 · rule Function Interior → BDS_INT_STR_CONC_300 mm",
+      "validate": {
+        "identity": {
+          "Class": "IFCSLAB",
+          "Name": "Shell SH L1 floor"
+        }
+      }
+    },
+    {
+      "op": "create",
+      "kind": "roof",
+      "place": {
+        "LevelName": "SH L2",
+        "TypeName": "BDS_EXT_ARC_GENRC_300 mm",
+        "Boundary": [
+          [
+            0,
+            0
+          ],
+          [
+            0,
+            12000
+          ],
+          [
+            6000,
+            12000
+          ],
+          [
+            6000,
+            6000
+          ],
+          [
+            18000,
+            6000
+          ],
+          [
+            18000,
+            0
+          ]
+        ],
+        "BaseOffset": 0
+      },
+      "facts": {
+        "params": {
+          "Family": "Basic Roof"
+        }
+      },
+      "reason": "Shell of mass 41233 · flat roof on SH L2 · rule Family Basic Roof → BDS_EXT_ARC_GENRC_300 mm",
+      "validate": {
+        "identity": {
+          "Class": "IFCROOF",
+          "Name": "Shell SH L2 roof"
+        }
+      }
+    }
+  ],
+  "exceptions": [
+    {
+      "unique_id": "5a1c7e2b-3f4d-4c8a-9b1e-2d3c4b5a6f70-0000a111",
+      "name": "below SH L0",
+      "reason": "the mass reaches 300 mm below SH L0 — no level there; add one (Datum) or a person decides"
+    }
+  ]
+}

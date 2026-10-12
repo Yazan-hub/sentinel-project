@@ -327,7 +327,7 @@ The founder asked for the model to be "tied to office's rule set or standards, r
 | 5 | Wall joins | `WallUtils.AllowWallJoinAtEnd` | GHB-6 | MA-5 |
 | 6 | Openings: rehost unhosted doors and windows. Swap placeholder families (for example HyparDoor) for office families of the same size; otherwise a gap | `NewFamilyInstance` with a host | GHB-1 | MA-5 |
 | 7 | Rooms from closed wall loops, named from the programme or the drawing text | `NewRoom` | C7 | MA-5 |
-| 8 | Massing to shell: mass faces become typed walls, floors and roofs on each level. Spike: does `FaceWall` work on a DirectShape mass? | `FaceWall.Create`, `NewFootPrintRoof` | C6, MAS-2 | MA-6 |
+| 8 | Massing to shell: the mass is cut at each Building Story level; each storey's section becomes typed walls (base level to the next level), a floor on its level, and a flat roof on the top face, filed as ordinary `create` ghosts through the changeset path — one reviewed changeset (one per storey above 200 elements). A storey that leans, or whose section is not one straight-edged loop, goes to a person. No `FaceWall`: a face wall spans every storey, so it is not level-bound and would break one Undo per storey (MA-6 D1); the DirectShape spike was not run. BUILT (MA-6-4) | `BooleanOperationsUtils.CutWithHalfSpace`, `Wall.Create`, `Floor.Create`, `NewFootPrintRoof` | C6, MAS-2 | MA-6 |
 | 9 | Curtain walls from a facade rule in the guideline | `Wall.Create` with a curtain type | C6 | MA-6 |
 | 10 | Stairs and cores from rules (riser and tread tables, egress widths, stair types from the catalogue) | `StairsRun.CreateStraightRun` in a `StairsEditScope` | C8 | MA-8 |
 
@@ -510,7 +510,7 @@ Example: the Level 3 line above has 264 walls. That is two changesets (200 + 64)
 
 **Target**
 - **Revit models with generic types** (a Forma Building Design export, Hypar, Finch, Snaptrude, TestFit, or a hand-made concept) are promoted directly in Revit.
-- **Revit masses, and MAS-2 DirectShape masses,** go through massing to shell (C6), with `FaceWall.Create` and a spike on DirectShape masses.
+- **Revit masses, and MAS-2 DirectShape masses,** go through massing to shell (C6): Shell a Mass cuts the mass at each Building Story level and files typed walls, floors and a flat roof as reviewed `create` ghosts. `FaceWall.Create` is not used and the DirectShape spike was not run (MA-6 D1): a face wall covers its whole face across every storey, so it is neither level-bound nor one Undo per storey. Forma, Hypar and Snaptrude models are covered two ways: brought into Revit as a mass, they are shelled; brought in on generic types, Promote v1 retypes them. There is no live drill row for a Forma export, because it needs the founder's licence (D8).
 - **IFC concepts: MISSING, and more work than it looks.**
   - `ifc-extract.mjs` reads properties, not geometry.
   - An IFC element cannot be re-typed in place in Revit. Opening an IFC in Revit reportedly gives DirectShapes [R2M §5.1, UNKNOWN]. So an IFC must be **re-created natively** from its geometry.
@@ -1206,7 +1206,7 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
 **MA-6: Promote v2 (massing to shell, facades, IFC concepts) + agents.**
 - **Size:** L (5–6 weeks). **Depends on:** MA-2 and MA-3.
 - **Delivers:**
-  - C6: masses (Revit masses, MAS-2 DirectShape masses, Forma, Hypar or Snaptrude models) become typed walls, floors and roofs on each level, with `FaceWall.Create`. A spike first: does `FaceWall` work on a DirectShape mass?
+  - C6: masses (Revit masses, MAS-2 DirectShape masses, and Forma, Hypar or Snaptrude models brought into Revit as masses) become typed walls, floors and roofs on each level: cut per Building Story level and filed as `create` ghosts through the changeset path (D1). No `FaceWall.Create`, and the DirectShape spike was not run — a face wall spans every storey and would break one Undo per storey. Models on generic types go through Promote v1.
   - The IFC geometry reader (M): IFC concepts become `create` ghosts, re-created natively.
   - Curtain walls from a facade rule.
   - The complete vocabulary v2.

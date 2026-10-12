@@ -1,0 +1,38 @@
+{
+  "standard": "BDS DD shell v0 (MA-6-4) — DRAFT",
+  "office": "BDS",
+  "stage": "DD",
+  "status": "draft",
+  "elements": [
+    {
+      "category": "Walls",
+      "rules": [
+        {
+          "when": { "params": { "Location": "Exterior" } },
+          "use": { "family": "Basic Wall", "type": "BDS_EXT_ARC_CMU_300 mm" },
+          "why": "DD (DRAFT SH-1): a shell wall is the office's external CMU at 300 mm — an exact type, because a mass has no thickness to fill {thickness} from."
+        }
+      ]
+    },
+    {
+      "category": "Floors",
+      "rules": [
+        {
+          "when": { "params": { "Function": "Interior" } },
+          "use": { "family": "Floor", "type": "BDS_INT_STR_CONC_300 mm" },
+          "why": "DD (DRAFT SH-2): a shell floor is the office's structural concrete slab at 300 mm, exact."
+        }
+      ]
+    },
+    {
+      "category": "Roofs",
+      "rules": [
+        {
+          "when": { "params": { "Family": "Basic Roof" } },
+          "use": { "family": "Basic Roof", "type": "BDS_EXT_ARC_GENRC_300 mm" },
+          "why": "DD (DRAFT SH-3): a shell's flat roof is the office's one roof type, BDS_EXT_ARC_GENRC_300 mm, exact."
+        }
+      ]
+    }
+  ]
+}
