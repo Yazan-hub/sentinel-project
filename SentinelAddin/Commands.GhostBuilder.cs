@@ -89,7 +89,7 @@ public sealed class GhostBuilderCommand : IExternalCommand
         if (uidoc.ActiveView.ViewType is ViewType.Elevation or ViewType.Section or ViewType.Detail or ViewType.DraftingView or ViewType.ThreeD or ViewType.Walkthrough or ViewType.Rendering)
         {
             TaskDialog.Show("Sentinel — Ghost Builder",
-                $"Ghost Builder reads a plan drawing into a plan view — \"{uidoc.ActiveView.Name}\" is a {uidoc.ActiveView.ViewType} view, where an imported " +
+                $"Ghost Builder reads a plan drawing into a plan view — \"{uidoc.ActiveView.Name}\" is not a plan (its view type is {uidoc.ActiveView.ViewType}), where an imported " +
                 "drawing would lie in the view's vertical plane and nothing would be built where it was drawn. Open a floor plan (the level you build on) and run it again.");
             return Result.Cancelled;
         }

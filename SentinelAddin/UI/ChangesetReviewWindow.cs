@@ -144,6 +144,7 @@ public sealed class ChangesetReviewWindow : Window
         none.Click += (_, _) => { foreach (var r in _rows) r.Box.IsChecked = false; };
         // Re-entrancy guard: Decide disables Apply at once; it comes back only when nothing ran (Refused).
         _go.Click += (_, _) => Decide();
+        _note.TextChanged += (_, _) => { if (_rows.All(r => r.Box.IsChecked != true)) _go.Content = DeclineLabel(); };
         _retry.Click += (_, _) => { _retry.IsEnabled = false; RetryRequested?.Invoke(); };
         // MA-4f: a survey changeset's scan, drawn as crosses beside the ghosts — off until ticked (each tick reads the scan again on the bridge's
         // one survey slot); a changeset that is a claim has no scan, nor one the bridge built from a drawing (MA-5a-4: its source names sentinel-drawing).
@@ -265,9 +266,12 @@ public sealed class ChangesetReviewWindow : Window
     {
         foreach (var h in _headers) h();
         int n = _rows.Count(r => r.Box.IsChecked == true);
-        _go.Content = n == 0 ? "Decline all (needs a reason)" : $"Apply {n} ticked in Revit";
+        _go.Content = n == 0 ? DeclineLabel() : $"Apply {n} ticked in Revit";
         Ticks(); // MA-3c: the ghost overlay recolours
     }
+
+    // drill MA5b5: once the note holds a reason the button stops asking for one
+    private string DeclineLabel() => ChangesetTrust.Blank(_note.Text) ? "Decline all (needs a reason)" : "Decline all";
 
     /// <summary>A create row (MA-1): kind and name, then family : type, level, and the numbers a reviewer checks. Rows of the
     /// four v1 kinds read exactly as before.</summary>

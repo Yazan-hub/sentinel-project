@@ -46,6 +46,7 @@ static partial class Check
            && Why(f => f.Candidates.Add(Wall(c => c.Label = "wall 8"))) == "no wall hosts it, and it stands in 2 walls (wall 7, wall 8) — a person picks its host"
            && Why(f => f.Candidates[0] = Wall(c => { c.Basic = false; c.Odd = "a curtain wall"; })) == "no wall hosts it; the wall it stands in (wall 7) is a curtain wall — Sentinel hosts a door in one straight basic wall only; a person decides"
            && Why(f => f.Candidates[0] = Wall(c => c.InGroup = true)) == "no wall hosts it; its host would be wall 7, which is in a group — a person decides"
+           && Why(f => f.Candidates[0] = Wall(c => c.Held = "is pinned")) == "no wall hosts it; its host would be wall 7, which is pinned — a person decides" // drill MA5b5 (F-6)
            && Why(f => f.RehostWhy = "no wall hosts it, and a dimension references it — removing it would change the dimension; a person rehosts it") == "no wall hosts it, and a dimension references it — removing it would change the dimension; a person rehosts it",
            "FindHost: none, two, a curtain wall, a grouped wall, and Revit's own reason (a dimension) are a person's");
         Ok(Why(f => f.OffsetMm = 3500) == "no wall hosts it, and it stands 3500 mm above Level 1 — a door stands on its level; a person places it"
@@ -102,8 +103,10 @@ static partial class Check
            "a rehost is refused in a design option like a create (R7); its new instance takes the placement block; a commit-time rollback leaves a rehosting changeset proposed (R8)");
         Ok(pw.Contains("else if (ChangesetExecutor.NoWallHost(fi)) RehostFacts(doc, fi, f, dimRefs);") && ex.Contains("if (!NoWallHost(old))")
            && pw.Contains("if (g.Op == \"rehost\") return ChangesetExecutor.RehostRefusal(doc, g.Kind, g.FamilyName, g.TypeName);")
-           && pw.Contains("standards.Guideline, UserSession.IsSignedIn)"),
-           "one predicate for 'no wall hosts it' in Promote's read and at Apply (R2); the preflight holds what Apply refuses (R5); Promote plans rehosts only signed in");
+           && pw.Contains("standards.Guideline, UserSession.IsSignedIn)")
+           && pw.Contains("if (ChangesetExecutor.HeldBy(doc, fi) is string held) { f.RehostWhy = $\"no wall hosts it, and it {held} — not rehosted; a person decides\"; return; }")
+           && pw.Contains("Held = ChangesetExecutor.HeldBy(doc, w),"),
+           "one predicate for 'no wall hosts it' in Promote's read and at Apply (R2); the preflight holds what Apply refuses (R5) — (drill MA5b5, F-6) a pinned, grouped, borrowed placeholder or host wall too; Promote plans rehosts only signed in");
         int svc = At(rv, "if (role == \"service\" && fresh.SelectMany(f => f.Elements ?? new List<ChangesetElementDto>()).Any(e => e.Op == \"rehost\" && ticked.Contains(e.ProposalGuid)))"),
             none = At(rv, "if (ticked.Count == 0)");
         Ok(svc > 0 && none > svc && !rv.Contains("foreach (var (g, why) in res.Kept)") && rv.Contains("said = KeptLine(one, res.Kept)"),

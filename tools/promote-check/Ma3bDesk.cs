@@ -250,8 +250,10 @@ static partial class Check
            "the window stays open: a refusal keeps the ticks and the note and Apply comes back; once Apply ran it never comes back; its words arrive from any thread");
         Ok(window.Contains("GroupBy(ChangesetTrust.GroupOf)") && window.Contains("foreach (var b in boxes.Where(x => x.IsEnabled)) b.IsChecked = true;")
            && window.Contains("$\"{what} ({boxes.Count}) · {boxes.Count(b => b.IsChecked == true)} ticked\"")
-           && window.Contains("_go.Content = n == 0 ? \"Decline all (needs a reason)\" : $\"Apply {n} ticked in Revit\";"),
-           "the rows are grouped by what they do, with Tick group (never a declined row) and Untick group, each header counting its ticks");
+           && window.Contains("_go.Content = n == 0 ? DeclineLabel() : $\"Apply {n} ticked in Revit\";")
+           && window.Contains("ChangesetTrust.Blank(_note.Text) ? \"Decline all (needs a reason)\" : \"Decline all\"")
+           && window.Contains("_note.TextChanged += (_, _) => { if (_rows.All(r => r.Box.IsChecked != true)) _go.Content = DeclineLabel(); };"),
+           "the rows are grouped by what they do, with Tick group (never a declined row) and Untick group, each header counting its ticks; (drill MA5b5) Decline all stops asking for a reason once the note holds one");
         Ok(picker.Contains("Tag = blocked == null ? entry : null") // review C15: and what Waiting returns
            && review.Contains("var w = entry.Select(c => UnreportedResults.Read(key, c.Id)).Where(r => r != null).ToList();") && review.Contains("return w.Count == 0 ? null : UnreportedResults.Blocked(w);")
            && review.Contains("$\"\\\"{r.Name}\\\" in {r.Doc}. {UnreportedResults.DeleteOnce(r)}\"") // review C14: the away line names the file too
