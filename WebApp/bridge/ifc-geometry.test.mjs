@@ -288,11 +288,11 @@ describe("readIfcGeometry — MA-6-8 review", () => {
   it("runIfc: a file that grew since admission is refused by size before it is read; a good one reads", async () => {
     const dir = mkdtempSync(resolve(tmpdir(), "ifc-")), big = resolve(dir, "big.ifc"), ok = resolve(dir, "ok.ifc");
     try {
-      writeFileSync(big, Buffer.alloc(20 * 1048576 + 1)); writeFileSync(ok, text);
+      writeFileSync(big, Buffer.alloc(64 * 1048576 + 1)); writeFileSync(ok, text);
       const sha = createHash("sha256").update(text).digest("hex");
       const r = await runIfc({ job_id: "job-0001", items: [{ id: "ev-0001", path: big, sha256: sha }, { id: "ev-0002", path: ok, sha256: sha }] });
       expect(r.status).toBe("done");
-      expect(r.refused).toEqual([{ id: "ev-0001", reason: expect.stringMatching(/^a \.ifc is read inside the bridge — at most 20 MB \(this one is 20481 KB\)/) }]);
+      expect(r.refused).toEqual([{ id: "ev-0001", reason: expect.stringMatching(/^a \.ifc is read inside the bridge — at most 64 MB \(this one is 65537 KB\)/) }]);
       expect(r.result.candidates.some((c) => c.kind === "wall")).toBe(true);
       expect((await runIfc({ job_id: "job-0001", items: [{ id: "ev-0001", path: big, sha256: sha }] })).status).toBe("refused");
     } finally { rmSync(dir, { recursive: true, force: true }); }

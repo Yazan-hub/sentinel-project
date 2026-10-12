@@ -29,6 +29,8 @@ export interface DeskJob {
   storey?: { level: string; how: string; checked: boolean };
   /** Decision 19: another job's placed changesets on the same scan bytes — named, never refused. */
   overlaps?: { changeset: string; job_id: string; evidence: string[] }[];
+  /** The job's items as the bridge stamped them (an IFC job: MA-8-3 adds whose model it is). */
+  evidence?: { id: string; sha256: string; provider?: string; licence?: string; licence_ref?: string }[];
 }
 export interface Ghost {
   proposal_guid: string; kind: string; op?: string | null;
@@ -151,7 +153,7 @@ export function reviewWords(el: Ghost): string {
 
 /** MA-4d: a ghost the bridge built from a survey job, in words — what was measured, from which job, the fit and the faces against D7's 20 mm, whether the
  *  bridge pre-ticked it, its trimmed ends and its evidence; "" for a ghost nothing measured. Pure. */
-export function trustWords(el: Ghost): string {
+export function trustWords(el: Ghost, vendor = false): string { // vendor (MA-8-3): the ghost's IFC is a third party's model
   const a = el.accuracy;
   if (!a?.from_job) return "";
   const t = el.measured?.thickness_mm, trim = el.trim_mm ?? [];
@@ -162,7 +164,7 @@ export function trustWords(el: Ghost): string {
     `inferred (what someone drew, not what was built)`, a.check_mm != null ? `alignment checked to ${a.check_mm} mm` : "alignment not checked by a third point", ...after].join(" · ");
   // MA-6-8: an IFC concept's ghost — read off the model, never measured
   if (a.basis === "ifc") return [`modelled — from ${a.from_job} (IFC)`, ...(t != null ? [`${t} mm thick as modelled`] : []),
-    "inferred (what a concept says, not what was built)", ...after].join(" · ");
+    vendor ? "inferred (what a third party's model says, not what was measured here)" : "inferred (what a concept says, not what was built)", ...after].join(" · ");
   return [`measured from ${a.from_job}`, ...(t != null ? [`${t} mm thick`] : []), ...(a.fit_rmse_mm != null ? [`fit ${a.fit_rmse_mm} mm rms`] : []),
     ...(a.face_dev_mm != null ? [`faces ${a.face_dev_mm} mm off`] : []), `${a.status.replace(/_/g, " ")}${a.target_mm != null ? ` (${a.target_mm} mm)` : ""}`, ...after].join(" · ");
 }
@@ -179,9 +181,11 @@ export function sourceWords(cs: PendingChangeset): string {
   if (al) return `from drawing ${j.id} (ledger #${j.ledger_id ?? "?"}) · ${al.item}${al.revises ? ` (revises ${al.revises}: what is the same is left as placed)` : ""} at 1:${al.scale}, turned ${al.rotation_deg}°, its paper corner at ${al.dx_mm}, ${al.dy_mm} mm, ` +
     `level at ${al.dz_mm} mm${al.confirmed_by ? `, stated by ${al.confirmed_by}` : ""}${al.check_mm != null ? ` · checked to ${al.check_mm} mm by a third point` : " · no check point"}` +
     `${s ? ` · storey ${s.level} (${s.how}${s.checked ? "" : " — its height not checked"})` : ""} · nothing from a drawing is pre-ticked${again}`;
-  if ((j.reader ?? "").startsWith("sentinel-ifc ")) // MA-6-8
-    return `from IFC ${j.id} (ledger #${j.ledger_id ?? "?"})${f ? ` · the concept ${f.dx_mm || f.dy_mm || f.dz_mm || f.rotation_deg ? `moved ${f.dx_mm}, ${f.dy_mm}, ${f.dz_mm} mm, turned ${f.rotation_deg}°` : "at the model's internal origin"}${f.stated_by ? `, stated by ${f.stated_by}` : ""}` : ""}` +
+  if ((j.reader ?? "").startsWith("sentinel-ifc ")) { // MA-6-8
+    const v = j.evidence?.[0], bought = v?.provider && v.provider !== "own"; // MA-8-3: a third party's model says whose, and its order
+    return `from IFC ${j.id}${bought ? ` by ${v.provider}` : ""} (${bought ? `${v.licence ?? "commercial"}, ref ${v.licence_ref ?? "?"}, ` : ""}ledger #${j.ledger_id ?? "?"})${f ? ` · the concept ${f.dx_mm || f.dy_mm || f.dz_mm || f.rotation_deg ? `moved ${f.dx_mm}, ${f.dy_mm}, ${f.dz_mm} mm, turned ${f.rotation_deg}°` : "at the model's internal origin"}${f.stated_by ? `, stated by ${f.stated_by}` : ""}` : ""}` +
       `${s ? ` · storey ${s.level} (${s.how}${s.checked ? "" : " — its height not checked"})` : ""} · nothing from an IFC is pre-ticked${again}`;
+  }
   const frame = f ? ` · the scan ${f.dx_mm || f.dy_mm || f.dz_mm || f.rotation_deg ? `moved ${f.dx_mm}, ${f.dy_mm}, ${f.dz_mm} mm, turned ${f.rotation_deg}°` : "at the model's internal origin"}${f.stated_by ? `, stated by ${f.stated_by}` : ""}` : "";
   return `from survey ${j.id} (ledger #${j.ledger_id ?? "?"})${frame}${s ? ` · storey ${s.level} (${s.how}${s.checked ? "" : " — its height not checked: nothing here is pre-ticked"})` : ""}${again}`;
 }
@@ -691,7 +695,7 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
           tick.onchange = () => { if (tick.checked) ticked.set(x.el.proposal_guid, x); else ticked.delete(x.el.proposal_guid); };
           const words = el("div", "");
           words.append(el("div", ghostLine(x.el)), el("div", reviewWords(x.el), `color:${x.el.review?.state === "declined" ? "#fca5a5" : x.el.review?.state === "accepted" ? "#86efac" : "#8b93a1"}`));
-          const tw = trustWords(x.el); if (tw) words.append(el("div", tw, "color:#8b93a1;font-size:11px"));
+          const tw = trustWords(x.el, x.cs.job?.evidence?.[0]?.provider != null && x.cs.job.evidence[0].provider !== "own"); if (tw) words.append(el("div", tw, "color:#8b93a1;font-size:11px"));
           row.append(tick, words);
           if (x.el.review?.state === "declined" && canReopen(role.role))
             row.append(btn("Re-open", async () => {

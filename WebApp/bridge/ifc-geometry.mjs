@@ -411,8 +411,8 @@ async function read(api, mid) {
 }
 
 // ── MA-6-8: the job (build-jobs runs it in this process on the newest admitted concept IFC) ────────────────────────────────────
-// ponytail: web-ifc's OpenModel is synchronous in the bridge, bounded by the 20 MB admission cap (intake and manifests do the same with
-// larger files); over ~2 s on a real concept, a worker_threads worker.
+// ponytail: web-ifc's OpenModel is synchronous in the bridge, bounded by the 64 MB admission cap (MA-8-3, D3; intake and manifests do the same with
+// larger files). ~1 s per 25 MB measured, so a vendor IFC over ~50 MB blocks the event loop past 2 s: the worker_threads worker is due then.
 const toolsOf = () => {
   let web = "0.0.77";
   try { web = JSON.parse(readFileSync(resolve(WASM_DIR, "package.json"), "utf8")).version ?? web; } catch { /* the installed version is the pinned one */ }

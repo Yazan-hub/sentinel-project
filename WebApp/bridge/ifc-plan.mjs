@@ -29,7 +29,7 @@ const reasonOf = (list) => {
 };
 
 /** → {storeys: [{storey, body | null, byCid, exceptions, once}], groups, already_filed}, planSurvey's shape. `job` {id, ledger: {id}, reader,
- *  version}; `notRead` the receipt's list [{global_id, ifc_class, storey, why}]. Throws 400/413 in words; writes nothing. */
+ *  version, provider?}; `notRead` the receipt's list [{global_id, ifc_class, storey, why}]. Throws 400/413 in words; writes nothing. */
 export function planIfc({ job, candidates, frame, levels: named = {}, manifest = [], type, filed = { cids: new Set(), storeys: new Map() }, notRead = [] }) {
   const M = toModel(frame);
   const far = placeRefusal(candidates, frame);
@@ -85,7 +85,7 @@ export function planIfc({ job, candidates, frame, levels: named = {}, manifest =
         reason: `IFC floor ${c.cid} "${c.geometry.name}": ${c.measured.thickness_mm} mm thick, ${c.measured.area_m2} m² as modelled · ${ref}`.slice(0, 500) });
       byCid.set(c.cid, trust(c));
     }
-    // what was not read: one exception per IFC class on the storey (a 20 MB file can hold thousands), the first GlobalIds named
+    // what was not read: one exception per IFC class on the storey (a 64 MB file can hold thousands), the first GlobalIds named
     for (const [cls, list] of byClass(notRead.filter((x) => x.storey === s.cid)))
       exceptions.push({ unique_id: `${cls}@${s.cid}`.slice(0, 64), name: nameOf(list), reason: reasonOf(list) });
     if (!elements.length) return { storey: s, body: null, byCid, exceptions, once: [] };
@@ -97,7 +97,8 @@ export function planIfc({ job, candidates, frame, levels: named = {}, manifest =
     }
     if (elements.length > MAX_CHANGESET_ELEMENTS)
       throw err(413, `${s.cid} would file ${elements.length} elements on ${s.level} — over the ${MAX_CHANGESET_ELEMENTS} one changeset (one Undo) holds; a storey is not split into changesets yet — export a part of the concept — nothing was saved`);
-    return { storey: s, byCid, exceptions, once: [], body: { name: `IFC ${job.id} · ${s.level}`, contract: 2, source: `${job.reader} ${job.version}`, elements, exceptions } };
+    // MA-8-3: a vendor's IFC says whose in the changeset's name
+    return { storey: s, byCid, exceptions, once: [], body: { name: `IFC${job.provider && job.provider !== "own" ? ` (${job.provider})` : ""} ${job.id} · ${s.level}`, contract: 2, source: `${job.reader} ${job.version}`, elements, exceptions } };
   });
   // MA-6-8 review: what the reader left out that no matched storey carries (no storey, or a storey with nothing to place) — one row a class
   const on = new Set(storeys.map((s) => s.storey.cid));

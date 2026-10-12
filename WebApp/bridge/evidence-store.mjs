@@ -226,9 +226,13 @@ async function admitRun(d, proj, key, packId, b) {
   input = { ...input, path: onDisk(dir, full) }; // the disk's spelling: "Photos/OWN.jpg" is photos/own.jpg, admitted or not
   const prev = pack.items.find((i) => i.path === input.path);
   if (prev && prev.state !== "changed") throw err(409, `${input.path} is already admitted as ${prev.id} (Re-check finds a changed file) — nothing was saved`);
-  if (prev) input = { ...input, kind: prev.kind }; // it comes back as first admitted: a flagged photo is not re-read as a drawing
+  if (prev && prev.kind === "model" && input.provider !== "own" && input.provider !== prev.provider) throw err(409, `${input.path} comes back as first admitted (${prev.provider}) — put a re-classified file in under a new name; nothing was saved`);
+  // it comes back as first admitted: a flagged photo is not re-read as a drawing, a flagged vendor model keeps its vendor and order (MA-8-3)
+  if (prev) input = { ...input, kind: prev.kind, ...(prev.kind === "model" ? { provider: prev.provider, licence_ref: prev.licence_ref } : {}) };
+  // MA-8-3: (e) is signed once for the pack, so who brings in a vendor's model is a lead's call (as an AMBER dataset item is)
+  if (input.kind === "model" && input.provider !== "own") await d.requireMinRole(key, "lead");
   // The signatures its kind needs — the flagged item's own kind when it comes back (review: a body's kind asked for the wrong ones).
-  const missing = L.missingAttestations(pack, L.needsOf(pack, input.kind));
+  const missing = L.missingAttestations(pack, L.needsOf(pack, input.kind, input.provider));
   if (missing.length) throw err(409, `a lead must sign ${L.codesSaid(missing)} first; nothing was saved`);
   let request = null;
   if (!prev) {

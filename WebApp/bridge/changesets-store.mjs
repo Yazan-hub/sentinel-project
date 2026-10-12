@@ -314,7 +314,9 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
     // the sha on its row (build-jobs stillAdmitted, shared with MA-4e's measure). A drawing is checked and named alone: another drawing of
     // the job changed does not stop this one (review).
     const { pack } = await readPack(key, row.pack_id);
-    const evidence = stillAdmitted(drawing ? { ...row, read: [align.item] } : row, pack, id);
+    // MA-8-3: an IFC job's evidence also names whose model it is (provider, licence, licence_ref) — from the pack item; stillAdmitted's shape is the measure replay's and stays
+    const evidence = stillAdmitted(drawing ? { ...row, read: [align.item] } : row, pack, id)
+      .map((e) => { const it = ifc ? pack.items.find((x) => x.id === e.id) : null; return it ? { ...e, provider: it.provider, licence: it.licence, ...(it.licence_ref ? { licence_ref: it.licence_ref } : {}) } : e; });
     const proj = await d.ensureProject(key);
     let earlier;
     try { earlier = await d.docList(STORE, proj.id); }
@@ -363,7 +365,7 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
     try { manifest = await levelsOf(key); }
     catch (e) { throw err(503, `the published models' levels could not be read (${e.message}) — nothing was saved; send it again`); }
     // MA-5a: the same catalogue the typer reads types a scan door or window by its size when no office rule does (holding-logic typeBySize).
-    const job = { id, ledger: row.ledger, reader: row.reader, version: row.version }, cat = { types: catalog.body.types, label: catalog.label, sha256: catalog.sha256 };
+    const job = { id, ledger: row.ledger, reader: row.reader, version: row.version, ...(ifc ? { provider: evidence[0]?.provider } : {}) }, cat = { types: catalog.body.types, label: catalog.label, sha256: catalog.sha256 };
     // MA-5a-5: the scan's walls filed on the drawing's storey, from the changesets read above — compared, never proposed twice. MA-5b-3: and
     // what the drawing it revises filed — the same element left as placed, a change or a removal a person's row
     const prior = drawing && align.revises ? priorOf(earlier, align.revises) : null;
@@ -566,7 +568,7 @@ export async function verifyChangeset(key, b, actor, deps = {}) {
     const cs = await d.docGet(STORE, proj.id, id);
     if (!cs) throw err(404, `no changeset ${id} on ${key}`);
     if (!cs.job || cs.claimed !== false) throw err(409, `${cs.name} was not built from a survey job — there is no scan to measure it against`);
-    if (isDrawn(cs)) throw err(409, ifcOf(cs) ? `${cs.name} was built from an IFC (${cs.job.id}) — what a concept says, not what was built: there is no scan to measure it against` : `${cs.name} was built from a drawing (${cs.job.id}) — what someone drew, not what was built: there is no scan to measure it against`);
+    if (isDrawn(cs)) throw err(409, ifcOf(cs) ? `${cs.name} was built from an IFC (${cs.job.id}) — what a model says, not what was built: there is no scan to measure it against` : `${cs.name} was built from a drawing (${cs.job.id}) — what someone drew, not what was built: there is no scan to measure it against`);
     if (cs.status !== "applied" && cs.status !== "partially_applied") throw err(409, `${cs.name} is ${String(cs.status).replace("_", " ")} — only what Revit placed is measured`);
     const { row, evidence, items } = await jobScan(key, cs, { trustedJob, readPack });
     const read = async (action_prefix, limit) => {

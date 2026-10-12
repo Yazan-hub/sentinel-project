@@ -18,7 +18,7 @@ export const READER = "sentinel-survey";
 /** MA-5a-3: the second reader — sentinel-drawing (drawing/, .NET with PdfPig) on the admitted vector PDF plans; drawing-service.mjs runs it.
  *  Its candidates are walls and doors in paper millimetres (units "paper_mm"): proposed with a 2-point alignment, MA-5a-4. */
 export const DRAWING = "sentinel-drawing";
-/** MA-6-8: the third reader — sentinel-ifc (ifc-geometry.mjs, web-ifc), run in this process on the newest admitted concept IFC. Its candidates are
+/** MA-6-8: the third reader — sentinel-ifc (ifc-geometry.mjs, web-ifc), run in this process on the newest admitted IFC (any provider; an `item` can name another, MA-8-3). Its candidates are
  *  levels, walls and floors in model millimetres; it takes no parameter. */
 export const IFC = "sentinel-ifc";
 export const READERS = [READER, DRAWING, IFC];
@@ -28,7 +28,7 @@ export const DEFAULT_PARAMS = { voxel_mm: 20, storey_min_mm: 2000 };
 // [low, high, why]: a coarser voxel leaves a wall face too sparse for the survey's 20 mm cells (4 of the drill's 8 walls lost their
 // thickness at 200 mm, measured) — the service bounds it the same way (read_job).
 const BOUNDS = { voxel_mm: [5, 50, " (a wall face needs a point at least every 50 mm)"], storey_min_mm: [1500, 6000, ""] };
-const FIELDS = ["pack", "readers", "params"]; // a body's whole vocabulary: the rest is the bridge's
+const FIELDS = ["pack", "readers", "params", "item"]; // a body's whole vocabulary: the rest is the bridge's
 export const TOLERANCES_MM = [20, 50, 100, 200]; // the contract's (§6.9); deviation reads them from MA-4e; MA-5a-2: 20 is the per-face verdict's (survey-plan DEVIATION_MM) — the band stays 2 x 200
 /** The bridge's seed, never a body's: the same evidence and parameters give the same candidates (§6.9). */
 export const SEED = 1;
@@ -95,9 +95,11 @@ export function readStartBody(b = {}) {
   if (!Array.isArray(readers) || readers.length !== 1 || !READERS.includes(readers[0])) throw bad(`readers must be ["${READER}"], ["${DRAWING}"] or ["${IFC}"] — one reader a job (or leave it out: ${READER})`);
   const reader = readers[0];
   const p = b.params ?? {};
+  // MA-8-3: sentinel-ifc alone may name the model it reads (one of several admitted), as ev-0003
+  if (b.item !== undefined && (reader !== IFC || typeof b.item !== "string" || !/^ev-\d{4}$/.test(b.item))) throw bad(`item names the model ${IFC} reads, as ev-0003 — ${IFC} only`);
   if (reader === DRAWING || reader === IFC) {
     if (!p || typeof p !== "object" || Array.isArray(p) || Object.keys(p).length) throw bad(`${reader} takes no parameter — send {pack, readers: ["${reader}"]}`);
-    return { pack: b.pack.trim(), reader, params: {} };
+    return { pack: b.pack.trim(), reader, params: {}, ...(b.item ? { item: b.item } : {}) };
   }
   if (!p || typeof p !== "object" || Array.isArray(p)) throw bad("params must be an object {voxel_mm?, storey_min_mm?}");
   const params = { ...DEFAULT_PARAMS };
@@ -115,21 +117,25 @@ export function readStartBody(b = {}) {
  *  E57 alike — the service picks the reader from the bytes and refuses what it cannot, in words), and every other scan with why. Photos
  *  and drawings are not scans and are not listed. MA-5a-3, `reader` sentinel-drawing: the pack's drawings instead — a PDF is sent; a DWG or
  *  DXF is Ghost Builder's (it reads one in Revit), a PNG or JPG a raster plan (C10) — each listed with why. */
-export function pickItems(pack, dir, reader = READER) {
+export function pickItems(pack, dir, reader = READER, item = null) {
   const take = [], refused = [];
   const kind = reader === DRAWING ? "drawing" : reader === IFC ? "model" : "scan";
-  // MA-6-8: one concept a job — two would clash storey for storey (ponytail: the newest admitted is read; a person picks between concepts later)
-  const newest = kind === "model" ? Math.max(...pack.items.filter((x) => x.kind === kind && x.state !== "changed").map((x) => Number(String(x.id).split("-")[1]))) : null;
-  for (const i of pack.items.filter((x) => x.kind === kind)) {
-    const why = i.state === "changed" ? "changed since admitted (Re-check flagged it) — admit the same bytes again"
-      : kind === "model" && Number(String(i.id).split("-")[1]) !== newest ? "an older concept — one IFC a job: the newest admitted is read"
+  // MA-8-3: a named model (several are admitted — the office's concept, a vendor's) is read alone, whatever its age
+  const named = item ? pack.items.find((x) => x.id === item) : null;
+  if (item && !named) throw err(404, `no item ${item} in the evidence pack — nothing was saved`);
+  // MA-6-8: one concept a job — two would clash storey for storey (ponytail: the newest admitted model of ANY provider is read unless `item` names one, MA-8-3; a vendor's can be the default)
+  const newest = kind === "model" && !named ? Math.max(...pack.items.filter((x) => x.kind === kind && x.state !== "changed").map((x) => Number(String(x.id).split("-")[1]))) : null;
+  for (const i of named ? [named] : pack.items.filter((x) => x.kind === kind)) {
+    const why = named && i.kind !== kind ? `not a ${kind} — ${reader} reads the model named`
+      : i.state === "changed" ? "changed since admitted (Re-check flagged it) — admit the same bytes again"
+      : kind === "model" && !named && Number(String(i.id).split("-")[1]) !== newest ? "an older concept — one IFC a job: the newest admitted is read"
       : kind === "drawing" && ["dwg", "dxf"].includes(i.format) ? `a .${i.format} is read by Ghost Builder in Revit (Model from Drawings) — ${DRAWING} reads PDF`
       : kind === "drawing" && i.format !== "pdf" ? `a .${i.format} drawing is raster — out of scope (C10); ${DRAWING} reads vector PDF`
       : kind === "scan" && !i.surveyable ? `not surveyable (a .${i.format})`
       : i.allowed_uses?.geometry_extraction !== true ? "its allowed uses exclude geometry extraction"
       : null;
     if (why) { refused.push({ id: i.id, reason: why }); continue; }
-    try { take.push({ id: i.id, kind, path: insideFolder(dir, i.path), sha256: i.sha256, rel: i.path }); }
+    try { take.push({ id: i.id, kind, path: insideFolder(dir, i.path), sha256: i.sha256, rel: i.path, ...(kind === "model" ? { provider: i.provider, licence: i.licence } : {}) }); }
     catch (e) { if (e.status !== 400) throw e; refused.push({ id: i.id, reason: "not inside the evidence folder any more (a link or junction) — Re-check flags it" }); }
   }
   return { take, refused };
@@ -182,8 +188,9 @@ export function stillAdmitted(row, pack, id) {
 export function buildRunValue(job, receipt) {
   const ms = Date.parse(job.finished_at) - Date.parse(job.started_at);
   return {
+    // MA-8-3: a model item also names its provider and licence
     job_id: job.id, reader: job.reader.name, version: job.reader.version, status: job.status, pack_id: job.pack_id, pack_version: job.pack_version,
-    items: job.items.map(({ id, sha256 }) => ({ id, sha256 })), read: job.read ?? [], refused: job.refused, tools: job.tools, params: job.params, seed: job.seed,
+    items: job.items.map(({ id, sha256, provider, licence }) => ({ id, sha256, ...(provider ? { provider, licence } : {}) })), read: job.read ?? [], refused: job.refused, tools: job.tools, params: job.params, seed: job.seed,
     started: receipt.started ?? job.started_at, finished: receipt.finished ?? job.finished_at, minutes: Number.isFinite(ms) ? Math.round(ms / 600) / 100 : null,
     cpu_s: receipt.cpu_s ?? null, points_in: receipt.points_in ?? null, points_used: receipt.points_used ?? null,
     model_calls: 0, tokens: 0, candidates: job.counts ?? null,
@@ -202,7 +209,7 @@ export async function startJob(key, b = {}, deps = {}) {
   const body = readStartBody(b);
   const drawing = body.reader === DRAWING, ifc = body.reader === IFC;
   const { proj, pack, version, dir } = await d.surveyStart(key, body.pack);
-  const { take, refused } = pickItems(pack, dir, body.reader);
+  const { take, refused } = pickItems(pack, dir, body.reader, body.item);
   if (!take.length) {
     const listed = refused.length ? ` — ${refused.map((x) => `${x.id}: ${x.reason}`).join("; ")}` : null;
     throw err(409, ifc
@@ -222,7 +229,7 @@ export async function startJob(key, b = {}, deps = {}) {
   catch (e) { if (e.code === "EEXIST") throw err(409, `${id} was just taken by another bridge on this PC — try again; nothing was saved`); throw e; }
   const job = {
     id, project: key, pack_id: body.pack, pack_version: version, reader: { name: body.reader, version: null }, status: "queued", stage: "queued", pct: 0,
-    items: take.map((t) => ({ id: t.id, path: t.rel, sha256: t.sha256 })), refused, params: body.params, seed: SEED,
+    items: take.map((t) => ({ id: t.id, path: t.rel, sha256: t.sha256, ...(t.provider ? { provider: t.provider, licence: t.licence } : {}) })), refused, params: body.params, seed: SEED,
     started_by: resolveActor(null, "machine"), started_at: d.now(),
   };
   save(d, key, job);

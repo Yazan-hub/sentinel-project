@@ -38,6 +38,12 @@ describe("planIfc — a concept IFC becomes one changeset per storey", () => {
     expect(s0.body.elements[0]).toMatchObject({ op: "create", kind: "level", place: { BaseElevation: 0, Name: "IFC L00 job-0007" } });
     for (const t of s0.byCid.values()) expect(t).toMatchObject({ pretick: false, accuracy: { status: "inferred", basis: "ifc", from_job: "job-0007" } });
   });
+  it("MA-8-3: a vendor's IFC is named for its provider; the trust is the same claim, still never pre-ticked", () => {
+    const p = plan(concept, { job: { ...JOB, provider: "acme scans" } });
+    expect(p.storeys[0].body.name).toBe("IFC (acme scans) job-0007 · IFC L00 job-0007");
+    expect(plan(concept, { job: { ...JOB, provider: "own" } }).storeys[0].body.name).toBe("IFC job-0007 · IFC L00 job-0007");
+    for (const t of p.storeys[0].byCid.values()) expect(t).toMatchObject({ pretick: false, accuracy: { status: "inferred", basis: "ifc" } });
+  });
 
   it("the Revit CV2 export: 300 + IsExternal is the 300 external CMU, 150 not external the 150 internal; a floor 300 is the structural slab", () => {
     const p = plan(cv2);
