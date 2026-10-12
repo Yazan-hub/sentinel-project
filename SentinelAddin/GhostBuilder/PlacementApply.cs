@@ -1,7 +1,7 @@
 #nullable disable
 // MA-1a item 6, the Revit half: the one place Sentinel writes an element's workset and phase, and the one place it asks
 // whether a design option is being edited. Every placer calls it — ChangesetExecutor (Ghost Builder, Review AI Proposals,
-// Promote), DatumBuilder and Photo Massing's PlacePrepared — inside its own transaction, after its creates and before its
+// Promote, and MA-6-6 Photo Massing's changeset) and DatumBuilder — inside its own transaction, after its creates and before its
 // stamp, so one Ctrl+Z removes the elements with their workset and phase. The decisions and every word are
 // PlacementPolicy's (pure, tools/promote-check). It never creates a workset and never switches the active one.
 using System;

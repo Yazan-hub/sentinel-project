@@ -193,26 +193,23 @@ static partial class Check
            "Ghost Builder refuses a design option and a missing workset before it files anything, and hands its plan to the executor");
         Ok(Src("Commands.Datum.cs").Contains("PlacementApply.DesignOptionRefusal(doc,") && Src("GhostBuilder", "DatumBuilder.cs").Contains("PlacementApply.Apply(placing, made);"),
            "Datum from Drawings refuses a design option and places its levels and grids");
-        Ok(Src("Commands.Massing.cs").Contains("PlacementApply.DesignOptionRefusal(orch.Doc,") && Src("GhostBuilder", "GhostBuilderOrchestrator.cs").Contains("PlacementApply.Apply(placing,"),
-           "Photo Massing refuses a design option and places its elements");
 
         // Review amendments C5, C6, C7, C10, C17.
         Ok(apply.Contains("class PlacementRefused : InvalidOperationException") && executor.Contains("catch (PlacementRefused ex)")
            && executor.Contains("NotRun = true, Error = ex.Message") && ghost.Contains("if (res.NotRun) return Abandon("),
            "a workset write Revit refuses leaves the changeset proposed (NotRun), never declined; Ghost Builder abandons and withdraws what it filed");
-        Ok(apply.Contains("!view.Document.Equals(doc)") && Src("Commands.Massing.cs").Contains("DocPin.Check(app, orch.Doc, \"build the massing\")"),
-           "a view of another model gives no phase, and Photo Massing builds only in the model it was started on");
+        Ok(apply.Contains("!view.Document.Equals(doc)") && Src("Commands.Massing.cs").Contains("App.Events.Enqueue(doc, \"plan Photo Massing\","),
+           "a view of another model gives no phase, and Photo Massing files only from the model it was started on (MA-6-6: the hub's DocPin)");
         Ok(Src("GhostBuilder", "ChangesetPlacementEvent.cs").Contains("plan.Lines(doc, result.Applied.Select(a => a.RevitUniqueId))")
            && ghost.Contains("placing.Lines(doc, applied.Select(a => a.RevitUniqueId))")
-           && Src("GhostBuilder", "DatumBuilder.cs").Contains("placing?.Lines(_doc, made.Where(e => e.IsValidObject).Select(e => e.UniqueId))")
-           && Src("GhostBuilder", "GhostBuilderOrchestrator.cs").Contains("placing.Lines(_doc, report.NewElements.Where("),
+           && Src("GhostBuilder", "DatumBuilder.cs").Contains("placing?.Lines(_doc, made.Where(e => e.IsValidObject).Select(e => e.UniqueId))"),
            "every placer counts its workset and phase lines after the commit, from the elements still in the model");
         foreach (var file in new[] { "Commands.ReviewChangesets.cs", "Commands.Datum.cs" })
             Ok(Src(file).Contains("PlacementPolicy.UnreadRefusal("), file + ": a guideline that could not be read is refused, never read as no block");
         // Review of items 6-8 (C29–C32).
         Ok(apply.Contains("catch (Exception ex) when (!(ex is PlacementRefused))") && apply.Contains("throw new PlacementRefused(PlacementPolicy.WriteRefusal("),
            "a workset or phase write that throws is a PlacementRefused too: the changeset stays proposed, never declined");
-        foreach (var file in new[] { "Commands.ReviewChangesets.cs", "Commands.Datum.cs", "Commands.GhostBuilder.cs", "Commands.Massing.cs" })
+        foreach (var file in new[] { "Commands.ReviewChangesets.cs", "Commands.Datum.cs", "Commands.GhostBuilder.cs" })
             Ok(Src(file).Contains("GuidelineSource.NotInstalled || ") && Src(file).Contains("GuidelineSource.NoProject,"),
                file + ": a project the bridge does not have yet has no guideline — it places as before, it is not refused");
         string datumBuilder = Src("GhostBuilder", "DatumBuilder.cs");
@@ -232,11 +229,11 @@ static partial class Check
         Ok(massingOption > 0 && massingCmd.IndexOf("string folder = settings.GhostSourceFolder;", StringComparison.Ordinal) > massingOption,
            "Photo Massing refuses a design option before an image is read");
 
-        // The office-template check: the three commands that load the catalogue count, refuse at none, and say the count.
+        // The office-template check: the two commands that load the catalogue count, refuse at none, and say the count (MA-6-6: Photo
+        // Massing files untyped levels and a mass, and reads no catalogue).
         foreach (var (file, count) in new[]
         {
             ("Commands.GhostBuilder.cs", "resolved.Guideline.OfficeTypesIn(heldTypes)"),  // F-MA2a-4: every type the model holds
-            ("Commands.Massing.cs", "standards.Guideline.OfficeTypesIn(loadedTypes)"),
             ("Commands.PromoteWalls.cs", "standards.Guideline.OfficeTypesIn(GhostBuilderCommand.HeldTypes(doc))"),
         })
         {
@@ -245,8 +242,10 @@ static partial class Check
                && src.Contains("PlacementPolicy.TemplateRefusal(officeAll,") && src.Contains("PlacementPolicy.TemplateLine("),
                file + ": counts the office types in the model, refuses when there are none, and says the count");
         }
-        // Review amendment C7: the two commands that load the full standards refuse a guideline that could not be read.
-        foreach (var file in new[] { "Commands.GhostBuilder.cs", "Commands.Massing.cs" })
-            Ok(Src(file).Contains("PlacementPolicy.UnreadRefusal("), file + ": a guideline that could not be read is refused, never read as no block");
+        // Review amendment C7: the command that loads the full standards refuses a guideline that could not be read (MA-6-6: Photo Massing
+        // loads none; Review AI Proposals reads the placement block at Apply and refuses it there).
+        Ok(Src("Commands.GhostBuilder.cs").Contains("PlacementPolicy.UnreadRefusal("), "Commands.GhostBuilder.cs: a guideline that could not be read is refused, never read as no block");
+        Ok(!Src("Commands.Massing.cs").Contains("GhostStandards") && !Src("Commands.Massing.cs").Contains("GhostBuilderOrchestrator"),
+           "Photo Massing reads no standards and builds no orchestrator: it files a changeset (MA-6-6)");
     }
 }

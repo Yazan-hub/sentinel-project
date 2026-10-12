@@ -12,14 +12,16 @@ import { checkFacts, KIND_ENTITY, KIND_PSET } from "./changesets-typing.mjs";
 // MA-1 placement slice: roof, ceiling, door, window. MA-1a step 2: column, furniture — Ghost Builder's unhosted point families.
 // MA-5b-1: room — a drawing's labelled room, placed at a point on its level; Revit finds its boundary there (no type, no family).
 // MA-6-3 (vocabulary v2): opening — a rectangle cut in a wall, or a hole in a floor; beam — a straight structural framing member.
-export const VOCABULARY = ["wall", "floor", "level", "grid", "roof", "ceiling", "door", "window", "column", "furniture", "room", "opening", "beam"];
-/** The kinds that take no type: a level and a grid are named, a room is named and numbered, an opening is its shape (MA-6-3). */
-export const UNTYPED = ["level", "grid", "room", "opening"];
+// MA-6-6 (MAS-2, D8): mass — a footprint between two elevations, placed as a DirectShape in Mass (Photo Massing's; Shell a Mass shells it).
+export const VOCABULARY = ["wall", "floor", "level", "grid", "roof", "ceiling", "door", "window", "column", "furniture", "room", "opening", "beam", "mass"];
+/** The kinds that take no type: a level and a grid are named, a room is named and numbered, an opening (MA-6-3) and a mass (MA-6-6) are their shape. */
+export const UNTYPED = ["level", "grid", "room", "opening", "mass"];
 /** MA-6-1: the IFC class the bridge sets from each kind — the Promote six (KIND_ENTITY, held to PromoteWallsPlanner.Classes by
  *  promote-check) and the rest of the vocabulary as the add-in files them (GhostFiling: IFCFURNITURE). A posted class that is not
  *  exactly this one is listed and replaced: an IDS entity pattern matches no subtype, so a chosen class could step outside a spec. */
 export const CREATE_ENTITY = { ...KIND_ENTITY, level: "IFCBUILDINGSTOREY", grid: "IFCGRID", room: "IFCSPACE", column: "IFCCOLUMN", furniture: "IFCFURNITURE",
-  opening: "IFCOPENINGELEMENT", beam: "IFCBEAM" }; // MA-6-3
+  opening: "IFCOPENINGELEMENT", beam: "IFCBEAM", // MA-6-3
+  mass: "IFCBUILDINGELEMENTPROXY" }; // MA-6-6: what GovernedElementExtractor reads for OST_Mass (as_built counts it out_of_scope)
 /** What a ghost does. create places a new element (the v1 path); retype changes an EXISTING element's type, named by its
  *  Revit UniqueId (Promote) — a door or window keeps its host: ChangeTypeId to a symbol of the same category; attach re-tops
  *  an existing wall. An element without op is a create. MA-2c: set_parameter writes one value on an existing TYPE, named by its
@@ -58,7 +60,7 @@ export const TRUST_FIELDS = ["pretick", "accuracy", "confidence", "typing", "cla
 /** The sources the Revit add-in files under (GhostFiling, PromoteWallsPlanner). The bridge cannot tell the add-in from
  *  another caller holding the same credential, so every changeset's source is a claim (claimed: true); the MCP tool never
  *  files as one of these. */
-export const ADDIN_SOURCES = ["dwg", "promote"];
+export const ADDIN_SOURCES = ["dwg", "promote", "photo"]; // MA-6-6: Photo Massing files its mass and levels as "photo"
 const BODY_FIELDS = ["name", "source", "elements", "exceptions", "actor", "agent", "contract"]; // what a posted body is read for
 // MA-2a: `facts` — the poster's thickness and parameters (Function, Location, Material, …), kept as a record and, on an element
 // without place.TypeName, what the bridge types it from (changesets-typing).
@@ -91,7 +93,7 @@ const arcSag = (s, e, m) => {
 const PLACE_FIELDS = {
   FamilyName: ["door", "window", "column", "furniture", "beam"], Mark: ["wall", "floor", "roof", "ceiling", "door", "window", "column", "furniture", "beam"],
   Structural: ["floor"], Location: ["door", "window", "column", "furniture", "room", "opening"], Number: ["room"], FlipFacing: ["door", "window"], FlipHand: ["door", "window"],
-  SillHeight: ["window", "opening"], Boundary: ["roof", "ceiling", "opening"], BaseOffset: ["roof"], Offset: ["ceiling"],
+  SillHeight: ["window", "opening"], Boundary: ["roof", "ceiling", "opening", "mass"], BaseOffset: ["roof"], Offset: ["ceiling"],
   // MA-1b (GHB-1): a drawn block's direction — the plan angle of its X axis and whether it is mirrored. The add-in flips the
   // placed instance to that hinge side and swing side (ChangesetExecutor), and measures what Revit holds after the commit.
   Rotation: ["door", "window"], Mirrored: ["door", "window"],
@@ -105,6 +107,7 @@ const POINT_KINDS = ["door", "window", "column", "furniture"];
 const FAMILY_KINDS = [...POINT_KINDS, "beam"];
 const MAX_OPENING_MM = 20000; // MA-6-3: a wall opening's width, height and sill
 const MAX_SLOPE_DEG = 75;
+const MIN_MASS_MM = 100, MAX_MASS_MM = 1000000; // MA-6-6: a mass's height, TopElevation less BaseElevation
 
 const MIN_EDGE_MM = 1; // Revit refuses a line shorter than about 0.8 mm
 const xy = (p) => Array.isArray(p) && p.length === 2 && p.every(finite);
@@ -231,6 +234,17 @@ function checkPlace(kind, place, at) {
       for (const f of ["Width", "Height", "SillHeight"])
         if (place[f] !== undefined) throw err(400, `${at}: a floor opening is its place.Boundary — it takes no place.${f}`);
     }
+  } else if (kind === "mass") {
+    // MA-6-6 (MAS-2): a footprint and two elevations, in the Level.Elevation frame (a level's BaseElevation's) — no level of its own: a
+    // DirectShape has none, and Shell a Mass gives each storey its level (amendment 14: a LevelName would be kept and never applied).
+    if (place.LevelName !== undefined) throw err(400, `${at}: a mass takes no place.LevelName — the shell gives each storey its level`);
+    const why = outlineProblem(place.Boundary);
+    if (why) throw err(400, `${at}: mass place.Boundary ${why}`);
+    for (const f of ["BaseElevation", "TopElevation"])
+      if (!finite(place[f])) throw err(400, `${at}: a mass needs place.${f}, a finite number of mm (the levels' elevation frame, as a level's BaseElevation)`);
+    const h = place.TopElevation - place.BaseElevation;
+    if (!(h >= MIN_MASS_MM && h <= MAX_MASS_MM))
+      throw err(400, `${at}: a mass's place.TopElevation is ${MIN_MASS_MM} to ${MAX_MASS_MM} mm above its place.BaseElevation (got ${h} mm)`);
   }
 }
 
@@ -402,8 +416,8 @@ export function validateChangeset(body, { member = false, type = null, cite = nu
         throw err(400, `${at}: a ${el.kind} needs place.FamilyName — a type name alone is not one type`);
       if (["roof", "ceiling", "room", "opening", ...FAMILY_KINDS].includes(el.kind) && !text(place.LevelName, 256))
         throw err(400, `${at}: ${a(el.kind)} needs place.LevelName — Sentinel never picks its level`);
-      // MA-6-3 review fix: an opening is its shape — a TypeName on it would be shown to the reviewer and never applied.
-      if (el.kind === "opening" && place.TypeName !== undefined) throw err(400, `${at}: an opening takes no place.TypeName — it is its shape`);
+      // MA-6-3 review fix: an opening is its shape — a TypeName on it would be shown to the reviewer and never applied. MA-6-6: so is a mass.
+      if ((el.kind === "opening" || el.kind === "mass") && place.TypeName !== undefined) throw err(400, `${at}: ${a(el.kind)} takes no place.TypeName — it is its shape`);
       // MA-6-3 (amendment 3): TopLevel is a wall's top (and a floor's, as before) and now a column's — the level its top reaches. On any
       // other create it is a 400, never kept unread; it stays out of PLACE_FIELDS, so an attach still carries its own.
       if (place.TopLevel !== undefined && !["wall", "floor", "column"].includes(el.kind)) throw err(400, `${at}: ${a(el.kind)} takes no place.TopLevel`);

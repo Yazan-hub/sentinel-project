@@ -53,8 +53,7 @@ static partial class Check
         Ok(ghostCmd.Contains("held[\"Walls\"] = new FilteredElementCollector(doc).OfClass(typeof(WallType)).Cast<WallType>()")
            && !ghostCmd.Substring(ghostCmd.IndexOf("internal static Dictionary<string, IReadOnlyList<(string? Family, string Type)>> HeldTypes(Document doc)", StringComparison.Ordinal)).Split(new[] { "return held;" }, StringSplitOptions.None)[0].Contains("WallKind.Basic")
            && ghostCmd.Contains("resolved.Guideline.OfficeTypesIn(heldTypes)") && ghostCmd.Contains("review.LoadTypes(loadedTypes);")
-           && Src("Commands.PromoteWalls.cs").Contains("standards.Guideline.OfficeTypesIn(GhostBuilderCommand.HeldTypes(doc))")
-           && Src("Commands.Massing.cs").Contains("var loadedTypes = GhostBuilderCommand.HeldTypes(doc);"),
-           "the office-template count reads every type the model holds (curtain and stacked walls, every floor type) in Ghost Builder, Promote and Photo Massing; Ghost's type drop-down still offers only what it places (F-MA2a-4)");
+           && Src("Commands.PromoteWalls.cs").Contains("standards.Guideline.OfficeTypesIn(GhostBuilderCommand.HeldTypes(doc))"),
+           "the office-template count reads every type the model holds (curtain and stacked walls, every floor type) in Ghost Builder and Promote (MA-6-6: Photo Massing files untyped levels and a mass); Ghost's type drop-down still offers only what it places (F-MA2a-4)");
     }
 }

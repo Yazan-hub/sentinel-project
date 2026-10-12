@@ -16,9 +16,10 @@ static partial class Check
         Ok(ghost.Contains("App.Events!.Enqueue(ua => placementEvent.Execute(ua), \"place the Ghost Builder build\");") && !ghost.Contains(".Raise()") && !ghost.Contains("externalEvent"),
            "Ghost Builder's Build goes through the hub — a request Revit does not take at once is said and raised again, never dropped unsaid");
         Ok(massing.Contains("if (App.Events is null) { review.Reopen(MassingPlanner.NotStarted(\"Sentinel's event hub is not running — restart Revit\")); return; }")
-           && massing.Contains("App.Events.Enqueue(ua => placementEvent.Execute(ua), \"place the massing build\");")
+           && massing.Contains("App.Events.Enqueue(doc, \"plan Photo Massing\", (u, d) => PlanAndFile(")
+           && massing.Contains("App.Events.Enqueue(doc, \"open the review of Photo Massing\", (u, d) =>")
            && !massing.Contains("externalEvent") && !massing.Contains("Revit did not accept the build request"),
-           "Photo Massing's Build goes through the hub; a Pending answer no longer reopens the review (the request is held, not lost); a missing hub is said in the review");
+           "Photo Massing's filing is planned through the hub and its review opened through it (MA-6-6), pinned to its model; a missing hub is said in the review");
         Ok(review.Contains("App.Events.Enqueue(ua => handler.Execute(ua), \"apply the proposals\");") && !review.Contains("evt.Raise()") && !review.Contains("Revit did not take the request"),
            "Review AI Proposals' Apply goes through the hub — Apply stays pressed until Completed, whatever Revit answered the raise");
     }

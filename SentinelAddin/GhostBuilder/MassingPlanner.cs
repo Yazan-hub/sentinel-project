@@ -1,14 +1,13 @@
 #nullable disable
-// C# port of sentinel-core/massing.ts + massing-plan.ts — the estimate validator and the build-plan
-// generator. massing.test.ts + massing-plan.test.ts are the CONFORMANCE REFERENCE, the same relationship
-// GuidelineMatcher has to guideline.ts. Pure — no Revit — so it's offline-testable; MassingBuilder is the
-// thin Revit layer that places the plan this produces.
+// C# port of sentinel-core/massing.ts — the estimate validator; massing.test.ts is its CONFORMANCE REFERENCE, the same relationship
+// GuidelineMatcher has to guideline.ts. Pure — no Revit — so it's offline-testable (tools/massing-check).
 //
-// A photo estimate is WHAT the building is; this makes it WHERE every element goes, in millimetres, with
-// no types — GhostBuilder's guideline chooses those. So a photo-massing goes through the same governed,
-// audited placement as a DWG build, which is the whole point.
+// MA-6-6 (MAS-2 + MAS-1): a photo estimate is WHAT the building is; Changeset makes it one reviewed changeset — the Building Story
+// levels the massing needs that the model lacks, and one untyped mass between them (a DirectShape in Mass at Apply). Its walls,
+// floors and roof come from Shell a Mass (MA-6-4), one storey per level; the old wall, floor and opening placement path is gone (R12).
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 
 namespace Sentinel.GhostBuilder
@@ -39,37 +38,6 @@ namespace Sentinel.GhostBuilder
         public List<OpeningEstimate> Openings = new List<OpeningEstimate>();
         public List<string> FacadesSeen = new List<string>();
         public string Notes;
-        public string Provenance = "photo";
-    }
-
-    // ---- plan ----------------------------------------------------------------------------------------
-    public sealed class PlanWall
-    {
-        public double X1, Y1, X2, Y2;
-        public double ThicknessMm, HeightMm, BaseElevationMm;
-        public string Layer = "A-WALL-EXT";
-    }
-
-    public sealed class PlanFloor
-    {
-        public List<double[]> Loop = new List<double[]>(); // closed rectangle, [x,y] points
-        public double BaseElevationMm;
-        public string Layer = "A-FLOR";
-    }
-
-    public sealed class PlanOpening
-    {
-        public string Kind;
-        public int WallIndex;
-        public double OffsetMm, WidthMm, HeightMm, SillMm;
-        public string Layer;
-    }
-
-    public sealed class MassingPlan
-    {
-        public List<PlanWall> Walls = new List<PlanWall>();
-        public List<PlanFloor> Floors = new List<PlanFloor>();
-        public List<PlanOpening> Openings = new List<PlanOpening>();
         public string Provenance = "photo";
     }
 
@@ -149,38 +117,12 @@ namespace Sentinel.GhostBuilder
                 .Concat((m.Openings ?? new List<OpeningEstimate>()).Where(o => o != null).SelectMany(o => new[] { o.WidthMm, o.HeightMm }))
                 .Any(v => v != null && v.Source == "photo");
 
-        /// <summary>The rule a Photo Massing element's stamp records: the vision model's estimate when the images are its source
-        /// (<paramref name="fromImages"/>: their sha is stamped with it), else the reviewer's own numbers.</summary>
-        public static string StampRule(string what, bool fromImages) =>
-            $"Photo Massing: {what} of the massing plan, " + (fromImages
-                ? "from the vision model's estimate as corrected in the review"
-                : "from the numbers the reviewer confirmed in the review — no vision-model reading is recorded for them");
+        /// <summary>MAS-4: the review's status line when a filing ended with nothing filed — the reason is in the dialog just shown.</summary>
+        public const string ReopenStatus = "Nothing was filed — the reason is in the message just shown. Your numbers are kept: put it right, then File for review again.";
 
-        /// <summary>MAS-4: whether a build's end closes the review. It closes when the build left something in the model
-        /// (<paramref name="placed"/> &gt; 0), or when Revit has not finished the commit (<paramref name="notFinished"/>: it
-        /// may still land, so a second Build must not be offered). A refusal before the transaction (<paramref name="failed"/>:
-        /// the wrong model in front, a design option being edited, a workset the model lacks), a rollback, or a build that
-        /// placed nothing leaves the review open with the reviewer's numbers — reading the images again takes time, and the
-        /// corrections would be lost.</summary>
-        public static bool BuildKept(bool failed, bool rolledBack, bool notFinished, int placed) =>
-            !failed && !rolledBack && (notFinished || placed > 0);
-
-        /// <summary>MAS-4: the review's status line when a build ended with nothing kept.</summary>
-        public const string ReopenStatus = "Nothing was built — the reason is in the message just shown. Your numbers are kept: put it right, then Build again.";
-
-        /// <summary>MAS-4 (review amendment C12): the review's status line when the build could not start — the request threw,
-        /// or Revit did not accept it. Completed never fires then, so the window is reopened where the failure is seen.</summary>
-        public static string NotStarted(string why) => $"The build did not start ({why}). Your numbers are kept: put it right, then Build again.";
-
-        /// <summary>MAS-4: the summary's line for the selection made after a kept build. <paramref name="selected"/> is what
-        /// Revit holds selected, read back after the selection was set (review amendment C11) — not the count asked for;
-        /// <paramref name="placed"/> is how many placed elements were asked for. Both are said when they differ.</summary>
-        public static string SelectedLine(int selected, int placed) => selected == placed
-            ? $"Selected: {selected} element(s) — the massing just placed; the view zooms to them."
-            : $"Selected: {selected} of the {placed} element(s) placed — Revit holds fewer selected than were placed; the view zooms to the massing.";
-
-        /// <summary>MAS-4: the summary's line when Revit refused the selection or the zoom — the build stands.</summary>
-        public static string NotSelectedLine(string why) => $"Selected: nothing — Revit would not select the new elements ({why}); the massing is placed.";
+        /// <summary>MAS-4 (review amendment C12): the review's status line when the filing could not start — the request threw, Revit did
+        /// not take it, or (MA-6-6) a check before filing refused it. The window is reopened where the failure is seen.</summary>
+        public static string NotStarted(string why) => $"The filing did not start ({why}). Your numbers are kept: put it right, then File for review again.";
 
         /// <summary>Fields a reviewer must confirm before building — anything `assumed` or below the bar.</summary>
         public static List<string> FieldsNeedingReview(MassingEstimate m)
@@ -196,64 +138,65 @@ namespace Sentinel.GhostBuilder
             return outp;
         }
 
-        /// <summary>Estimate → build plan. Mirrors planMassing: a centred rectangle, four perimeter walls +
-        /// a floor per storey, front openings evenly spread on the ground front wall.</summary>
-        public static MassingPlan Plan(MassingEstimate m, double defaultWallThicknessMm = 200,
-                                       double originX = 0, double originY = 0)
+        /// <summary>MA-6-6: a changeset holds at most this many elements (the bridge's MAX_CHANGESET_ELEMENTS).</summary>
+        public const int MaxElements = 200;
+        /// <summary>MA-6-6: a level within this many mm of a storey's elevation is that storey's level.</summary>
+        public const double LevelTolMm = 2;
+
+        /// <summary>MA-6-6 (MAS-2 + MAS-1): the reviewed estimate as ONE changeset body (POST /changesets/:key), or null and why in words.
+        /// n = round(Storeys) storeys of StoreyHeightMm give the elevations e(i) = i·h, i = 0…n (the old plan's frame: Level.Elevation mm).
+        /// Each e(i) reuses a Building Story level of <paramref name="levels"/> (read on the API thread when the person files: Name,
+        /// Level.Elevation mm, IsStory) within ±LevelTolMm; otherwise it is a level create named "Massing Lii" — " (2)", " (3)"… while
+        /// any level holds the name, case aside (a duplicate name fails the changeset, D16). Then one mass: the W × D rectangle centred on
+        /// 0,0 from e(0) to e(n), in the same frame (amendment 3). Source photo, never a pre-tick (the bridge pre-ticks no create). Over
+        /// MaxElements is refused. Anonymous objects only: massing-check and ghost-p2-check compile this file alone (amendment 4).</summary>
+        public static (object Body, string Refusal) Changeset(MassingEstimate m, IReadOnlyList<(string Name, double ElevationMm, bool IsStory)> levels, string actor)
         {
-            double W = m.FootprintWidthMm.Value, D = m.FootprintDepthMm.Value;
-            int storeys = Math.Max(1, (int)Math.Round(m.Storeys.Value));
-            double h = m.StoreyHeightMm.Value;
-
-            double x0 = originX - W / 2, x1 = originX + W / 2;
-            double y0 = originY - D / 2, y1 = originY + D / 2;
-
-            var plan = new MassingPlan();
-            for (int s = 0; s < storeys; s++)
+            double W = m.FootprintWidthMm.Value, D = m.FootprintDepthMm.Value, h = m.StoreyHeightMm.Value;
+            int n = Math.Max(1, (int)Math.Round(m.Storeys.Value));
+            var have = levels ?? new List<(string Name, double ElevationMm, bool IsStory)>();
+            var taken = new HashSet<string>(have.Select(l => l.Name ?? ""), StringComparer.OrdinalIgnoreCase);
+            var elements = new List<object>();
+            for (int i = 0; i <= n; i++)
             {
-                double baseEl = s * h;
-                var edges = new[]
+                double e = i * h;
+                if (have.Any(l => l.IsStory && Math.Abs(l.ElevationMm - e) <= LevelTolMm)) continue;
+                string name = $"Massing L{i:00}";
+                for (int k = 2; taken.Contains(name); k++) name = $"Massing L{i:00} ({k})";
+                taken.Add(name);
+                elements.Add(new
                 {
-                    new[] { x0, y0, x1, y0 }, // south (front)
-                    new[] { x1, y0, x1, y1 }, // east
-                    new[] { x1, y1, x0, y1 }, // north
-                    new[] { x0, y1, x0, y0 }, // west
-                };
-                foreach (var e in edges)
-                    plan.Walls.Add(new PlanWall
-                    {
-                        X1 = e[0], Y1 = e[1], X2 = e[2], Y2 = e[3],
-                        ThicknessMm = defaultWallThicknessMm, HeightMm = h, BaseElevationMm = baseEl,
-                        Layer = "A-WALL-EXT",
-                    });
-                plan.Floors.Add(new PlanFloor
-                {
-                    Loop = new List<double[]>
-                    {
-                        new[] { x0, y0 }, new[] { x1, y0 }, new[] { x1, y1 }, new[] { x0, y1 }, new[] { x0, y0 },
-                    },
-                    BaseElevationMm = baseEl,
-                    Layer = "A-FLOR",
+                    op = "create", kind = "level",
+                    place = new { BaseElevation = e },
+                    reason = $"Photo Massing: storey {i} of {n} at {Mm(e)} mm — no Building Story level there",
+                    validate = new { identity = new { Class = "IFCBUILDINGSTOREY", Name = name } },
                 });
             }
-
-            var front = m.Openings.Where(o => o.Facade == "front" || m.FacadesSeen.Contains(o.Facade)).ToList();
-            for (int i = 0; i < front.Count; i++)
+            if (elements.Count + 1 > MaxElements)
+                return (null, $"{elements.Count} levels and a mass are {elements.Count + 1} elements — a changeset holds {MaxElements} elements: lower the storey count, or file the levels with Datum");
+            string size = $"{Metres(W)} × {Metres(D)} m";
+            elements.Add(new
             {
-                var o = front[i];
-                double frac = (double)(i + 1) / (front.Count + 1);
-                plan.Openings.Add(new PlanOpening
+                op = "create", kind = "mass",
+                place = new
                 {
-                    Kind = o.Kind,
-                    WallIndex = 0,
-                    OffsetMm = frac * W,
-                    WidthMm = o.WidthMm.Value,
-                    HeightMm = o.HeightMm.Value,
-                    SillMm = o.Kind == "window" ? 900 : 0,
-                    Layer = o.Kind == "window" ? "A-WIND" : "A-DOOR",
-                });
-            }
-            return plan;
+                    Boundary = new List<double[]> { new[] { -W / 2, -D / 2 }, new[] { W / 2, -D / 2 }, new[] { W / 2, D / 2 }, new[] { -W / 2, D / 2 } },
+                    BaseElevation = 0.0, TopElevation = n * h,
+                },
+                reason = $"Photo Massing: {size}, {n} storeys of {Mm(h)} mm — width {m.FootprintWidthMm.Source}, depth {m.FootprintDepthMm.Source}, storeys {m.Storeys.Source}, storey height {m.StoreyHeightMm.Source}",
+                validate = new { identity = new { Class = "IFCBUILDINGELEMENTPROXY", Name = "Photo mass" } },
+            });
+            return (new { name = $"Photo Massing · {n} storeys · {size}", source = "photo", actor, elements }, null);
         }
+
+        /// <summary>MA-6-6 (D12): the openings the estimate saw — counted on the receipt, never placed (a mass has no openings).</summary>
+        public static string OpeningsSeen(MassingEstimate m)
+        {
+            var o = (m?.Openings ?? new List<OpeningEstimate>()).Where(x => x != null).ToList();
+            return $"{o.Count(x => x.Kind == "door")} door(s), {o.Count(x => x.Kind == "window")} window(s) — not placed (D12)";
+        }
+
+        private static string Mm(double v) => v.ToString("0.#", CultureInfo.InvariantCulture);
+        private static string Metres(double mm) => (mm / 1000).ToString("0.0", CultureInfo.InvariantCulture);
     }
 }

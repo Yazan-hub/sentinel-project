@@ -402,9 +402,15 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
         // MA-6-4: a wall whose top the executor constrains to its TopLevel is drawn to that level, not sketched SketchHeightMm high.
         double? TopOf(ChangesetElementDto e) =>
             e.Kind == "wall" && !string.IsNullOrWhiteSpace(e.Place?.TopLevel) && levelMm.TryGetValue(e.Place.TopLevel, out var mm) ? mm : (double?)null;
+        // MA-6-6 (amendment 3): a mass's elevations are in the Level.Elevation frame — it is drawn where the executor extrudes it, offset by the
+        // nearest level's ProjectElevation less its Elevation (mm), read here on the API thread. ponytail: a level this changeset creates is drawn
+        // with its nearest existing level's offset; read the new level's type's elevation base if two bases ever differ in one model.
+        var frames = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().Select(l => (Mm: l.Elevation * 304.8, Off: (l.ProjectElevation - l.Elevation) * 304.8)).ToList();
+        double? FrameOf(ChangesetElementDto e) =>
+            e.Kind == "mass" && e.Place?.BaseElevation is double be && frames.Count > 0 ? frames.OrderBy(f => Math.Abs(f.Mm - be)).First().Off : (double?)null;
         var drawable = (cs.Elements ?? new List<ChangesetElementDto>()).Where(GhostOverlayGeometry.Drawable).ToList();
-        int creates = drawable.Count, outlined = drawable.Count(e => GhostOverlayGeometry.Segments(e, true, false, LevelOf(e), TopOf(e)).Count > 0);
-        var overlay = new GhostOverlayServer(doc, cs.Name, GhostOverlayGeometry.All(window.RowStates(), LevelOf, TopOf), GhostOverlayGeometry.AllTris(window.RowStates(), LevelOf, TopOf));
+        int creates = drawable.Count, outlined = drawable.Count(e => GhostOverlayGeometry.Segments(e, true, false, LevelOf(e), TopOf(e), FrameOf(e)).Count > 0);
+        var overlay = new GhostOverlayServer(doc, cs.Name, GhostOverlayGeometry.All(window.RowStates(), LevelOf, TopOf, FrameOf), GhostOverlayGeometry.AllTris(window.RowStates(), LevelOf, TopOf, FrameOf));
         var overlayOn = new[] { false };
         var overlayFailed = false;
         void OverlayOff(string why)
@@ -428,13 +434,13 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                     window.Shown($"The ghost overlay could not be drawn — {ex.GetType().Name}: {ex.Message}. The review works as before; Show still zooms to a row.");
                 }
             }, refusal => window.Shown($"The ghost overlay was not drawn — {refusal}"));
-        if (outlined > 0) OverlayDraw(GhostOverlayGeometry.All(window.RowStates(), LevelOf, TopOf), GhostOverlayGeometry.AllTris(window.RowStates(), LevelOf, TopOf));
+        if (outlined > 0) OverlayDraw(GhostOverlayGeometry.All(window.RowStates(), LevelOf, TopOf, FrameOf), GhostOverlayGeometry.AllTris(window.RowStates(), LevelOf, TopOf, FrameOf));
         else window.Shown(GhostOverlayGeometry.Line(creates, 0));
         window.TicksChanged += states =>
         {
             if (outlined == 0) return;
             if (window.Applied) { OverlayOff("Apply"); return; }
-            var segs = GhostOverlayGeometry.All(states, LevelOf, TopOf); var tris = GhostOverlayGeometry.AllTris(states, LevelOf, TopOf);
+            var segs = GhostOverlayGeometry.All(states, LevelOf, TopOf, FrameOf); var tris = GhostOverlayGeometry.AllTris(states, LevelOf, TopOf, FrameOf);
             // Review: not drawn yet (a refusal, or removed at Apply and the window reopened) — drawn now; else recoloured. The recolour
             // touches no Document, so it needs no DocPin: it runs whichever model is in front.
             if (!overlayOn[0]) { OverlayDraw(segs, tris); return; }
@@ -668,6 +674,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                         var whys = StoreyBatch.Own(one, reasons);
                         if (result.Block != null) said = result.Block + (string.IsNullOrEmpty(said) ? "" : " | " + said); // MA-1a item 5
                         if (result.Ids != null) said = result.Ids + (string.IsNullOrEmpty(said) ? "" : " | " + said);     // MA-2b
+                        if (res.MassAs != null) said = res.MassAs + (string.IsNullOrEmpty(said) ? "" : " | " + said);     // MA-6-6 (D13): on its own row
                         // MA-3a: the revision Apply re-checked. Remembered for the undo watcher under the Undo entry's name and the changeset's own.
                         records.Add(ResultOf(key, one, res.Applied, rejected, said, one.ReviewRev, here, new List<string> { undo, UndoWatcher.TxName(one.Name, one.Id) }, whys));
                     }
@@ -691,6 +698,10 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                         (warnings != null ? "\n\n" + warnings : "") + (result.Block != null ? "\n\n" + result.Block : "") +
                         (result.Ids != null ? "\n\n" + result.Ids : "") + (result.Placement != null ? "\n\n" + string.Join("\n", result.Placement) : "") + // MA-1a item 6
                         (unsaved.Count > 0 ? $"\n\n⚠ The result of {string.Join(", ", unsaved)} could not be saved on this PC ({UnreportedResults.Root}): if its report fails too, nothing on this PC remembers it — check the changeset's status on the bridge before reviewing it again." : "");
+                    // MA-6-6 (MAS-1): a Photo Massing mass was applied — the next step is its shell, one storey per level.
+                    var next = fresh.Where(f => f.Source == "photo").SelectMany(f => f.Elements ?? new List<ChangesetElementDto>())
+                        .Any(e => e.Kind == "mass" && result.Applied.Any(a => a.ProposalGuid == e.ProposalGuid))
+                        ? "\n\nNext: Shell it — select the mass and run Model from Drawings ▸ 2c · Shell a Mass" : "";
                     Tell(head + "\n\nReporting to the bridge…", interim: true);
                     Send(ReportAll(cfg, records), rep =>
                     {
@@ -706,7 +717,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                         else if (lod != null) after = "LOD state after: not sent — the bridge took no changeset of this Apply as applied (a result reported later sends none).";
                         return head + (unticked.Count > 0 ? $"\n{untickedTaken} of {unticked.Count} unticked element(s) reported as rejected." : "") +
                                (gone.Count > 0 ? $"\n{goneTaken} of {gone.Count} element(s) removed by Revit at commit — reported as rejected." : "") +
-                               (after != null ? "\n\n" + after : "");
+                               (after != null ? "\n\n" + after : "") + next;
                     });
                 };
                 // Review C2: × pressed while the re-check, the role or the standards were read is a cancel — nothing is raised.

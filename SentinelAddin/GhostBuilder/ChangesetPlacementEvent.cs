@@ -81,6 +81,8 @@ public sealed class ChangesetPlacementEvent : IExternalEventHandler
             // printed with the placement lines. Turned is filled only by a committed changeset.
             if (result.Turned.Count > 0)
                 (result.Placement ??= new System.Collections.Generic.List<string>()).AddRange(PlacementGeometry.TurnLines(result.Turned));
+            // MA-6-6 (D13): a mass placed as a Generic Model is said with the placement lines — the dialog and the note carry it.
+            if (result.MassAs != null) (result.Placement ??= new System.Collections.Generic.List<string>()).Add(result.MassAs);
         }
         catch (Exception ex)
         {
@@ -142,6 +144,7 @@ public sealed class ChangesetPlacementEvent : IExternalEventHandler
                 result.Gone.AddRange(res.Gone);
                 result.Kept.AddRange(res.Kept); // MA-5b-4
                 result.Turned.AddRange(res.Turned);
+                result.MassAs ??= res.MassAs; // MA-6-6 (D13)
                 foreach (var kv in res.Warnings) result.Warnings[kv.Key] = (result.Warnings.TryGetValue(kv.Key, out var seen) ? seen : 0) + kv.Value;
             }
             // MA-2b (design §3.4 step 5): the DD IDS made from the matrix, judged on what this changeset applied — before the BLOCK

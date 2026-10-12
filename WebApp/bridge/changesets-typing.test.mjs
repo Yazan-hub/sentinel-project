@@ -20,10 +20,10 @@ const type = makeTyper(STANDARDS, core);
 const refused = (fn, re) => { try { fn(); throw new Error("no throw"); } catch (e) { expect(e.status).toBe(400); expect(e.message).toMatch(re); } };
 
 describe("changesets-typing — the bridge types from the facts, or says what is missing (MA-2a)", () => {
-  it("every typed kind has its guideline category; a level, grid, room or opening has none", () => {
-    for (const k of VOCABULARY.filter((k) => !UNTYPED.includes(k))) expect(KIND_CATEGORY[k], k).toBeTruthy(); // MA-5b-1: a room takes no type; MA-6-3: nor an opening
+  it("every typed kind has its guideline category; a level, grid, room, opening or mass has none", () => {
+    for (const k of VOCABULARY.filter((k) => !UNTYPED.includes(k))) expect(KIND_CATEGORY[k], k).toBeTruthy(); // MA-5b-1: a room takes no type; MA-6-3: nor an opening; MA-6-6: nor a mass
     for (const k of UNTYPED) expect(KIND_CATEGORY[k], k).toBeUndefined();
-    expect(UNTYPED).toEqual(["level", "grid", "room", "opening"]);
+    expect(UNTYPED).toEqual(["level", "grid", "room", "opening", "mass"]);
     expect(KIND_CATEGORY.beam).toBe("Structural Framing"); // MA-6-3: PlacementPolicy.CategoriesOf names the same
     expect(FACTS_FIELDS).toEqual(["thickness_mm", "params"]);
   });

@@ -24,11 +24,11 @@ const status400 = (fn, re) => {
   try { fn(); throw new Error("no throw"); }
   catch (e) { expect(e.status).toBe(400); expect(e.message).toMatch(re); }
 };
-// MA-1a step 2 adds column and furniture (Ghost Builder's unhosted point families); MA-6-3 opening and beam (vocabulary v2).
-const MA1 = ["wall", "floor", "level", "grid", "roof", "ceiling", "door", "window", "column", "furniture", "room", "opening", "beam"];
+// MA-1a step 2 adds column and furniture (Ghost Builder's unhosted point families); MA-6-3 opening and beam (vocabulary v2); MA-6-6 mass.
+const MA1 = ["wall", "floor", "level", "grid", "roof", "ceiling", "door", "window", "column", "furniture", "room", "opening", "beam", "mass"];
 
 describe("VOCABULARY", () => {
-  it("is the MA-1 list, with MA-1a step 2's column and furniture, MA-5b-1's room and MA-6-3's opening and beam", () => expect(VOCABULARY).toEqual(MA1));
+  it("is the MA-1 list, with MA-1a step 2's column and furniture, MA-5b-1's room, MA-6-3's opening and beam and MA-6-6's mass", () => expect(VOCABULARY).toEqual(MA1));
 });
 
 describe("validateChangeset — shape", () => {
@@ -860,7 +860,7 @@ describe("validateChangeset — contract 2's trust rules (MA-1a item 8)", () => 
   });
 
   it("the add-in's sources are named, so the MCP tool can refuse to file as one", () => {
-    expect(ADDIN_SOURCES).toEqual(["dwg", "promote"]);
+    expect(ADDIN_SOURCES).toEqual(["dwg", "promote", "photo"]); // MA-6-6: Photo Massing's
     expect(TRUST_FIELDS).toEqual(["pretick", "accuracy", "confidence", "typing", "claimed", "proposal_guid"]);
   });
 });
@@ -1255,6 +1255,50 @@ describe("validateChangeset — vocabulary v2 (MA-6-3)", () => {
     const names = [...cs.slice(from, cs.indexOf("\n}", from)).matchAll(/\[JsonPropertyName\("([^"]+)"\)\]/g)].map((m) => m[1]);
     expect(names.length).toBeGreaterThan(20);
     expect([...names].sort()).toEqual([...PLACE_KEPT].sort());
+  });
+});
+
+// MA-6-6 (MAS-2): a mass — a footprint between two elevations (the Level.Elevation frame), untyped, levelless; Photo Massing files it as "photo".
+describe("validateChangeset — mass (MA-6-6)", () => {
+  const mass = (place = {}, over = {}) => {
+    const el = { kind: "mass", validate: { identity: { Class: "IFCBUILDINGELEMENTPROXY", Name: "Photo mass" } },
+      place: { Boundary: [[-6000, -4000], [6000, -4000], [6000, 4000], [-6000, 4000]], BaseElevation: 0, TopElevation: 9600, ...place }, ...over };
+    for (const k of Object.keys(place)) if (place[k] === undefined) delete el.place[k];
+    return el;
+  };
+  const ok = (el) => validateChangeset(CS([el])).elements[0];
+
+  it("is stored with its Boundary and elevations, untyped, as the bridge's IFCBUILDINGELEMENTPROXY — a posted IFCMASS is replaced and listed", () => {
+    const v = validateChangeset(CS([mass({}, { validate: { identity: { Class: "IFCMASS", Name: "Photo mass" } } })]));
+    expect(v.elements[0]).toMatchObject({ kind: "mass", op: "create", place: mass().place, typing: { typed_by: "caller" }, pretick: false });
+    expect(v.elements[0].validate.identity.Class).toBe("IFCBUILDINGELEMENTPROXY");
+    expect(v.ignored).toEqual([{ field: "elements[0].validate.identity.Class", why: "ignored: set by the bridge from kind" }]);
+    expect(CREATE_ENTITY.mass).toBe("IFCBUILDINGELEMENTPROXY");
+  });
+
+  it("400s in words: no Boundary, a non-finite elevation, top at or below base, less than 100 mm high, a TypeName, a Slopes, a LevelName (amendment 14)", () => {
+    status400(() => ok(mass({ Boundary: undefined })), /mass place\.Boundary must be 3 to 256 finite \[x,y\] points/);
+    status400(() => ok(mass({ Boundary: [[0, 0], [10, 0], [0, 10], [10, 10]] })), /mass place\.Boundary crosses or touches itself/);
+    for (const f of ["BaseElevation", "TopElevation"])
+      for (const bad of [undefined, "0", NaN]) status400(() => ok(mass({ [f]: bad })), new RegExp(`a mass needs place\\.${f}, a finite number of mm`));
+    for (const [b, t] of [[3000, 3000], [3000, 0], [0, 99.9]])
+      status400(() => ok(mass({ BaseElevation: b, TopElevation: t })), /a mass's place\.TopElevation is 100 to 1000000 mm above its place\.BaseElevation/);
+    status400(() => ok(mass({ TopElevation: 1000001 })), /\(got 1000001 mm\)/);
+    expect(ok(mass({ BaseElevation: -100, TopElevation: 0 })).place).toMatchObject({ BaseElevation: -100, TopElevation: 0 });
+    status400(() => ok(mass({ TypeName: "Generic - 200mm" })), /: a mass takes no place\.TypeName — it is its shape/);
+    status400(() => ok(mass({ Slopes: [null, null, null, null] })), /: a mass takes no place\.Slopes/);
+    status400(() => ok(mass({ LevelName: "Massing L00" })), /: a mass takes no place\.LevelName — the shell gives each storey its level/);
+    status400(() => ok(mass({ Mark: "M1" })), /: a mass takes no place\.Mark/);
+    status400(() => ok(mass({ TopLevel: "L2" })), /: a mass takes no place\.TopLevel/);
+  });
+
+  it("a photo body is the add-in's claim: filed by a member with pretick: true, every element still comes back unticked", () => {
+    const lvl = level({ validate: { identity: { Class: "IFCBUILDINGSTOREY", Name: "Massing L01" } }, place: { BaseElevation: 3200 } });
+    const v = validateChangeset(CS([lvl, mass()], { source: "photo", pretick: true }), { member: true });
+    expect(v.source).toBe("photo");
+    expect(v.claimed).toBe(true);
+    expect(v.elements.map((e) => e.pretick)).toEqual([false, false]);
+    expect(validateChangeset(CS([{ ...mass(), pretick: true }], { source: "photo" }), { member: true }).elements[0].pretick).toBe(false);
   });
 });
 

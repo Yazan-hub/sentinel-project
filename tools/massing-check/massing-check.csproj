@@ -1,5 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- Offline conformance for MassingPlanner.cs (port of massing.ts + massing-plan.ts). Pure, no Revit. -->
+  <!-- Offline conformance for MassingPlanner.cs (port of massing.ts; MA-6-6: the changeset Photo Massing files). Pure, no Revit. -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net8.0</TargetFramework>
