@@ -155,6 +155,7 @@ static partial class Check
             (new[] { "Commands.Massing.cs" }, "GovernedNotify.Report(\"Photo Massing receipt\", BuildReceipt.Run(\"photo-massing\", BuildReceipt.AddinSha256,"),
             (new[] { "Commands.Datum.cs" }, "GovernedNotify.Report(\"Datum receipt\", BuildReceipt.Run(\"datum\", BuildReceipt.AddinSha256,"),
             (new[] { "Commands.PromoteWalls.cs" }, "GovernedNotify.Report(\"Promote receipt\", BuildReceipt.Run(\"promote\", BuildReceipt.AddinSha256,"),
+            (new[] { "Commands.ShellMass.cs" }, "GovernedNotify.Report(\"Shell a Mass receipt\", BuildReceipt.Run(\"shell-mass\", BuildReceipt.AddinSha256,"), // MA-6 amendment 12
         })
         {
             string src = Src(file);

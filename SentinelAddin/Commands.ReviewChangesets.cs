@@ -57,6 +57,10 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
     private static string KeptLine(ChangesetDto cs, IList<(string ProposalGuid, string Why)> kept) =>
         "kept as they stand: " + KeptCount(new[] { cs }, kept) + " — " + string.Join("; ", kept.Take(5).Select(k => k.Why)) + (kept.Count > 5 ? $"; … and {kept.Count - 5} more" : "");
 
+    /// <summary>MA-6 amendment 12: a changeset Promote (DD) plans again. A shell is filed as source promote too, but Shell a Mass plans it,
+    /// so "Run Promote (DD) again" is never said of one.</summary>
+    internal static bool PromoteRun(ChangesetDto cs) => cs.Source == "promote" && !(cs.Name ?? "").StartsWith(ShellPlanner.Title, StringComparison.Ordinal);
+
     internal static string CarriedEdits(IEnumerable<ChangesetDto> fresh)
     {
         var edits = fresh.SelectMany(f => f.Elements ?? new List<ChangesetElementDto>()).Where(e => e.Op == "set_parameter").ToList();
@@ -394,9 +398,12 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
             if (e.Place?.BaseElevation is double be && levelMm.Count > 0) return levelMm.Values.OrderBy(v => Math.Abs(v - be)).First();
             return null;
         }
+        // MA-6-4: a wall whose top the executor constrains to its TopLevel is drawn to that level, not sketched SketchHeightMm high.
+        double? TopOf(ChangesetElementDto e) =>
+            e.Kind == "wall" && !string.IsNullOrWhiteSpace(e.Place?.TopLevel) && levelMm.TryGetValue(e.Place.TopLevel, out var mm) ? mm : (double?)null;
         var drawable = (cs.Elements ?? new List<ChangesetElementDto>()).Where(GhostOverlayGeometry.Drawable).ToList();
-        int creates = drawable.Count, outlined = drawable.Count(e => GhostOverlayGeometry.Segments(e, true, false, LevelOf(e)).Count > 0);
-        var overlay = new GhostOverlayServer(doc, cs.Name, GhostOverlayGeometry.All(window.RowStates(), LevelOf), GhostOverlayGeometry.AllTris(window.RowStates(), LevelOf));
+        int creates = drawable.Count, outlined = drawable.Count(e => GhostOverlayGeometry.Segments(e, true, false, LevelOf(e), TopOf(e)).Count > 0);
+        var overlay = new GhostOverlayServer(doc, cs.Name, GhostOverlayGeometry.All(window.RowStates(), LevelOf, TopOf), GhostOverlayGeometry.AllTris(window.RowStates(), LevelOf, TopOf));
         var overlayOn = new[] { false };
         var overlayFailed = false;
         void OverlayOff(string why)
@@ -420,13 +427,13 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                     window.Shown($"The ghost overlay could not be drawn — {ex.GetType().Name}: {ex.Message}. The review works as before; Show still zooms to a row.");
                 }
             }, refusal => window.Shown($"The ghost overlay was not drawn — {refusal}"));
-        if (outlined > 0) OverlayDraw(GhostOverlayGeometry.All(window.RowStates(), LevelOf), GhostOverlayGeometry.AllTris(window.RowStates(), LevelOf));
+        if (outlined > 0) OverlayDraw(GhostOverlayGeometry.All(window.RowStates(), LevelOf, TopOf), GhostOverlayGeometry.AllTris(window.RowStates(), LevelOf, TopOf));
         else window.Shown(GhostOverlayGeometry.Line(creates, 0));
         window.TicksChanged += states =>
         {
             if (outlined == 0) return;
             if (window.Applied) { OverlayOff("Apply"); return; }
-            var segs = GhostOverlayGeometry.All(states, LevelOf); var tris = GhostOverlayGeometry.AllTris(states, LevelOf);
+            var segs = GhostOverlayGeometry.All(states, LevelOf, TopOf); var tris = GhostOverlayGeometry.AllTris(states, LevelOf, TopOf);
             // Review: not drawn yet (a refusal, or removed at Apply and the window reopened) — drawn now; else recoloured. The recolour
             // touches no Document, so it needs no DocPin: it runs whichever model is in front.
             if (!overlayOn[0]) { OverlayDraw(segs, tris); return; }
@@ -582,7 +589,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                         // Review C6: said, never silent — counted from the declines the bridge took; nothing in the model changed.
                         int declined = rep.Landed.Count;
                         return $"Declined {declined} of {fresh.Count} changeset(s) — nothing in the model changed." +
-                               (fresh[0].Source == "promote" ? CarriedEdits(fresh) + "\n\n" + RunPromoteAgain : "");
+                               (PromoteRun(fresh[0]) ? CarriedEdits(fresh) + "\n\n" + RunPromoteAgain : "");
                     });
                     return;
                 }
@@ -638,7 +645,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                             // Review C14: counted from the declines the bridge took (C6's rule), never the number sent.
                             int declined = rep.Landed.Count;
                             return $"Transaction failed and was rolled back:\n{result.Error}\n\nReported as declined: {declined} of {fresh.Count} changeset(s)" +
-                                   (declined < fresh.Count ? " — the rest are still proposed; the model holds none of them." : ".") + (fresh[0].Source == "promote" ? CarriedEdits(fresh) + "\n\n" + RunPromoteAgain : "");
+                                   (declined < fresh.Count ? " — the rest are still proposed; the model holds none of them." : ".") + (PromoteRun(fresh[0]) ? CarriedEdits(fresh) + "\n\n" + RunPromoteAgain : "");
                         });
                         return;
                     }

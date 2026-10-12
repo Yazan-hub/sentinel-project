@@ -77,7 +77,7 @@ static partial class Check
            // Review C14: the rolled-back storey's declines are counted from what the bridge took, as C6's are (MA-3b: the reports that landed).
            && Count(review, "int declined = rep.Landed.Count;") == 2 && review.Contains("Reported as declined: {declined} of {fresh.Count} changeset(s)")
            && review.Contains("(declined < fresh.Count ? \" — the rest are still proposed; the model holds none of them.\" : \".\")")
-           && Count(review, "(fresh[0].Source == \"promote\" ? CarriedEdits(fresh) + \"\\n\\n\" + RunPromoteAgain : \"\")") == 2
+           && Count(review, "(PromoteRun(fresh[0]) ? CarriedEdits(fresh) + \"\\n\\n\" + RunPromoteAgain : \"\")") == 2 // MA-6 amendment 12: never of a shell
            && review.Contains("it first opens any other Promote storey still waiting for review, and plans again once none is waiting")
            // Review C2: a declined storey's type edits — later storeys of the same run that retype onto them fail the DD IDS.
            && review.Contains("Other storeys of the same run that retype onto those types will fail the DD IDS check for that property until Promote plans again — decline them (untick all, write the reason in the note, press Decline all), then run Promote (DD).") // MA-3b review C16: Decline all needs a reason

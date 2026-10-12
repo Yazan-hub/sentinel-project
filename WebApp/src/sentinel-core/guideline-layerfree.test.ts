@@ -96,6 +96,16 @@ describe("guideline layer-free fixtures (MA-2a, TS ↔ C# ↔ bridge bundle)", (
   });
 });
 
+// MA-6-4: Shell a Mass types by exact-type rules only (a mass has no thickness) — every type it names is in the BDS catalogue; tools/promote-check
+// holds the C# side (GuidelineMatcher.ValidateAgainstCatalog) to the same file.
+describe("the shell guideline (MA-6-4, demo/bds-pilot/bds-dd-shell-guideline.json)", () => {
+  const S: Guideline = JSON.parse(readFileSync("../demo/bds-pilot/bds-dd-shell-guideline.json", "utf8"));
+  it("is a guideline every type of which the BDS catalogue has", () => {
+    expect(validateGuideline(S)).toEqual([]);
+    expect(validateAgainstCatalog(S, CATALOG)).toEqual([]);
+  });
+});
+
 // The drill's Ghost Builder guideline: a layer rule and layer-free rules in one Walls block (demo/ghost-sample/ma2a-ghost-guideline.json).
 describe("a layer rule and layer-free rules together (drill MA2a's Ghost guideline)", () => {
   const M: Guideline = JSON.parse(readFileSync("../demo/ghost-sample/ma2a-ghost-guideline.json", "utf8"));

@@ -38,8 +38,9 @@ namespace Sentinel.GhostBuilder
         /// <summary>Review: a create the overlay can draw — a level is a create with no shape.</summary>
         public static bool Drawable(ChangesetElementDto el) => IsCreate(el) && el.Kind != "level";
 
-        /// <summary><paramref name="levelMm"/>: the elevation (mm) of the level the executor resolves for this create, read on the API thread.</summary>
-        public static List<Segment> Segments(ChangesetElementDto el, bool ticked, bool locked, double? levelMm = null)
+        /// <summary><paramref name="levelMm"/>: the elevation (mm) of the level the executor resolves for this create, read on the API thread.
+        /// MA-6-4: <paramref name="topMm"/>, a wall's TopLevel's elevation (mm) — the executor constrains its top there, so it is drawn there.</summary>
+        public static List<Segment> Segments(ChangesetElementDto el, bool ticked, bool locked, double? levelMm = null, double? topMm = null)
         {
             var segs = new List<Segment>();
             if (!IsCreate(el)) return segs;
@@ -52,7 +53,7 @@ namespace Sentinel.GhostBuilder
                 case "wall":
                 {
                     var c = p.LocationCurve; if (c == null || !Ok(c.Start) || !Ok(c.End)) return segs;
-                    double z0 = p.BaseElevation ?? levelMm ?? Z(c.Start, p), z1 = p.TopElevation ?? z0 + SketchHeightMm;
+                    double z0 = p.BaseElevation ?? levelMm ?? Z(c.Start, p), z1 = p.TopElevation ?? topMm ?? z0 + SketchHeightMm;
                     var pts = Ok(c.Mid) ? Arc(c.Start, c.Mid, c.End) : new List<double[]> { c.Start, c.End };
                     for (int i = 0; i + 1 < pts.Count; i++) { segs.Add(Seg(pts[i], z0, pts[i + 1], z0)); segs.Add(Seg(pts[i], z1, pts[i + 1], z1)); }
                     segs.Add(Seg(c.Start, z0, c.Start, z1));
@@ -91,7 +92,7 @@ namespace Sentinel.GhostBuilder
         /// <summary>MA-3c Next: the faces of a create — a wall's sheet between base and top along each chord; a floor's, roof's or
         /// ceiling's outline as a fan from its first point (ponytail: a fan over-covers a concave outline; ear-clipping if it matters);
         /// a door's or window's two small upright panels at its point. Both windings, so the face shows from either side.</summary>
-        public static List<Tri> Tris(ChangesetElementDto el, bool ticked, bool locked, double? levelMm = null)
+        public static List<Tri> Tris(ChangesetElementDto el, bool ticked, bool locked, double? levelMm = null, double? topMm = null)
         {
             var tris = new List<Tri>();
             if (!IsCreate(el)) return tris;
@@ -108,7 +109,7 @@ namespace Sentinel.GhostBuilder
                 case "wall":
                 {
                     var c = p.LocationCurve; if (c == null || !Ok(c.Start) || !Ok(c.End)) return tris;
-                    double z0 = p.BaseElevation ?? levelMm ?? Z(c.Start, p), z1 = p.TopElevation ?? z0 + SketchHeightMm;
+                    double z0 = p.BaseElevation ?? levelMm ?? Z(c.Start, p), z1 = p.TopElevation ?? topMm ?? z0 + SketchHeightMm;
                     var pts = Ok(c.Mid) ? Arc(c.Start, c.Mid, c.End) : new List<double[]> { c.Start, c.End };
                     for (int i = 0; i + 1 < pts.Count; i++) Quad(At(pts[i], z0), At(pts[i + 1], z0), At(pts[i + 1], z1), At(pts[i], z1));
                     return tris;
@@ -138,12 +139,12 @@ namespace Sentinel.GhostBuilder
         }
 
         /// <summary>Every face of a review, from its rows' states.</summary>
-        public static List<Tri> AllTris(IEnumerable<(ChangesetElementDto El, bool Ticked, bool Locked)> rows, Func<ChangesetElementDto, double?> levelMm = null) =>
-            (rows ?? Array.Empty<(ChangesetElementDto, bool, bool)>()).SelectMany(x => Tris(x.El, x.Ticked, x.Locked, levelMm?.Invoke(x.El))).ToList();
+        public static List<Tri> AllTris(IEnumerable<(ChangesetElementDto El, bool Ticked, bool Locked)> rows, Func<ChangesetElementDto, double?> levelMm = null, Func<ChangesetElementDto, double?> topMm = null) =>
+            (rows ?? Array.Empty<(ChangesetElementDto, bool, bool)>()).SelectMany(x => Tris(x.El, x.Ticked, x.Locked, levelMm?.Invoke(x.El), topMm?.Invoke(x.El))).ToList();
 
         /// <summary>Every segment of a review, from its rows' states.</summary>
-        public static List<Segment> All(IEnumerable<(ChangesetElementDto El, bool Ticked, bool Locked)> rows, Func<ChangesetElementDto, double?> levelMm = null) =>
-            (rows ?? Array.Empty<(ChangesetElementDto, bool, bool)>()).SelectMany(x => Segments(x.El, x.Ticked, x.Locked, levelMm?.Invoke(x.El))).ToList();
+        public static List<Segment> All(IEnumerable<(ChangesetElementDto El, bool Ticked, bool Locked)> rows, Func<ChangesetElementDto, double?> levelMm = null, Func<ChangesetElementDto, double?> topMm = null) =>
+            (rows ?? Array.Empty<(ChangesetElementDto, bool, bool)>()).SelectMany(x => Segments(x.El, x.Ticked, x.Locked, levelMm?.Invoke(x.El), topMm?.Invoke(x.El))).ToList();
 
         /// <summary>The least and greatest corner (mm) of the segments, or null when there are none.</summary>
         public static double[][] Bounds(IReadOnlyList<Segment> segs)

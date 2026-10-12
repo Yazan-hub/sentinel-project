@@ -597,6 +597,28 @@ describe("promote-body-v1 parity fixture (Promote v1)", () => {
   });
 });
 
+// MA-6-4: the body Shell a Mass files (ShellPlanner.Bodies, a 2-storey L); tools/promote-check writes the same body. Its creates are filed as
+// source promote, and none is pre-ticked — pretickOf pre-ticks a Promote retype or attach only, whoever files it.
+describe("shell-body parity fixture (MA-6-4)", () => {
+  const body = JSON.parse(readFileSync(new URL("./fixtures/changeset-ops/shell-body.json", import.meta.url), "utf8"));
+  it("passes validateChangeset for a signed-in member, keeps every place field, the facts and the held row, and pre-ticks nothing", () => {
+    const v = validateChangeset(body, { member: true });
+    expect(v).toMatchObject({ name: body.name, source: "promote", claimed: true });
+    expect(v.ignored).toEqual([]);
+    expect(v.elements.map((e) => e.kind)).toEqual([...Array(6).fill("wall"), "floor", ...Array(6).fill("wall"), "floor", "roof"]);
+    v.elements.forEach((el, i) => {
+      const sent = body.elements[i];
+      expect(el).toMatchObject({ op: "create", reason: sent.reason, pretick: false, typing: { typed_by: "caller" } });
+      expect(el.place).toEqual(sent.place);
+      expect(el.facts).toEqual(sent.facts);
+      expect(el.validate.identity.Class).toBe(sent.validate.identity.Class);
+    });
+    // A wall's BaseLevel with its TopLevel: the executor constrains its top there (no TopElevation is sent with it).
+    expect(v.elements.filter((e) => e.kind === "wall").every((e) => e.place.BaseLevel && e.place.TopLevel && e.place.TopElevation === undefined)).toBe(true);
+    expect(v.exceptions).toEqual(body.exceptions);
+  });
+});
+
 // MA-1: drill B35's seed as make-concept.py --b35 writes it; tools/promote-check reads the same file into the add-in's DTOs.
 describe("b35-seed-body parity fixture (MA-1 placement slice)", () => {
   const body = JSON.parse(readFileSync(new URL("./fixtures/changeset-ops/b35-seed-body.json", import.meta.url), "utf8"));
