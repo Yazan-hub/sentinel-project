@@ -31,10 +31,6 @@ static partial class Check
         Ok(gv.GetProperty("changesets").GetArrayLength() == 50 && gv.GetProperty("changesets_total").GetInt32() == 60 && CommandReports.MaxNames == 50,
            "60 changesets → the first 50 ids beside the true total");
 
-        var massing = Json(CommandReports.Massing(12, 0, 4, 0, 2, 0, null, "a"));
-        Ok(massing.GetProperty("entity_type").GetString() == "massing" && massing.GetProperty("action").GetString() == "Photo Massing placed 12 element(s)"
-           && massing.GetProperty("new_value").GetProperty("wall_gaps").GetInt32() == 4 && massing.GetProperty("new_value").GetProperty("images_sha256").ValueKind == JsonValueKind.Null,
-           "a Massing build is one massing row; no image sha when the numbers are the reviewer's");
 
         var created6 = new[] { "WIP_FP_GR-FFL", "WIP_RCP_GR-FFL", "WIP_FP_01-FFL", "WIP_RCP_01-FFL", "WIP_FP_02-FFL", "WIP_RCP_02-FFL" };
         const string pinnedNow = "Pinned now: 3/3 story level(s), 0/1 other level(s), 4/4 grid(s) (read from the model after the commit); links are not checked (MH-LNK-01 is not in code).";
@@ -73,7 +69,7 @@ static partial class Check
 
         Ok(Json(CommandReports.GhostBuild(new string('d', 600), "L", 1, 0, 0, 0, 0, 0, 0, new string[0], "a")).GetProperty("action").GetString().Length == 500,
            "an action is clipped to the route's 500 characters");
-        foreach (var row in new[] { ghost, massing, annotate, std, fix, inPlace })
+        foreach (var row in new[] { ghost, annotate, std, fix, inPlace }) // MA-6-6: no massing row — Photo Massing's changeset_applied is its record
             Ok(row.GetProperty("new_value").GetProperty("source").GetString() == "revit" && row.GetProperty("actor").GetString().Length > 0,
                row.GetProperty("entity_type").GetString() + ": names its actor and source revit");
 
@@ -120,7 +116,6 @@ static partial class Check
         {
             (new[] { "Commands.Datum.cs" }, "GovernedNotify.Report(\"Datum from Drawings\", CommandReports.Datum("),
             (new[] { "GhostBuilder", "GhostChangesetBuild.cs" }, "GovernedNotify.Report(\"Ghost Builder\", CommandReports.GhostBuild("),
-            (new[] { "Commands.Massing.cs" }, "GovernedNotify.Report(\"Photo Massing\", CommandReports.Massing("),
             (new[] { "Commands.Annotate.cs" }, "GovernedNotify.Report(\"Annotate\", CommandReports.Annotate("),
             (new[] { "Commands.Standards.cs" }, "GovernedNotify.Report(\"Apply Standard\", CommandReports.ApplyStandard("),
             (new[] { "Workflow", "AutoFixExecution.cs" }, "GovernedNotify.Report(\"Auto-fix \" + ruleId, Sentinel.Coordination.CommandReports.AutoFix("),

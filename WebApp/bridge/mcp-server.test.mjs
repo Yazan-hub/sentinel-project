@@ -170,20 +170,28 @@ describe("changeset tools", () => {
   // MA-6-3 (amendment 7): an agent learns vocabulary v2 from this text alone (drill H-1).
   it("propose tool description names vocabulary v2: opening and beam, a roof's Slopes per edge, a column's TopLevel", () => {
     const d = TOOLS.find((t) => t.name === "sentinel_propose_changeset").description;
-    expect(d).toMatch(/column, furniture, room, opening, beam\./);
+    expect(d).toMatch(/column, furniture, room, opening, beam, mass\./);
     expect(d).toMatch(/openings \(no type, no family, no Mark\) place\.LevelName and exactly one shape: a rectangle cut in a wall — place\.Location/);
     expect(d).toMatch(/place\.Width and place\.Height \(mm, above 50 and at most 20000\) and place\.SillHeight/);
     expect(d).toMatch(/or a hole in a floor of that level \(a stair void\): place\.Boundary/);
     expect(d).toMatch(/beams place\.LocationCurve \{start:\[x,y,z\], end:\[x,y,z\]\} \(straight, no mid; z = the beam's top\), place\.LevelName and place\.FamilyName with place\.TypeName \(a Structural Framing type\), or facts/);
     expect(d).toMatch(/place\.Slopes — one entry per Boundary edge, Slopes\[i\] for the edge Boundary\[i\]→\[i\+1\] \(a closing point is no edge\), null where the edge defines no slope \(a gable\)/);
     expect(d).toMatch(/a column may name place\.TopLevel, the level its top reaches/);
-    expect(d).toMatch(/Every kind but a level, grid, room or opening also needs place\.TypeName/);
+    expect(d).toMatch(/Every kind but a level, grid, room, opening or mass also needs place\.TypeName/);
     // Review fix: the rectangle stays in its one wall, the void in its one floor; a family the bridge types is not the agent's.
     expect(d).toMatch(/the rectangle within that wall's ends, bottom and top/);
     expect(d).toMatch(/inside exactly one floor and reaching no other/);
     expect(d).toMatch(/beam's FamilyName: send none of your own then\)/);
     // Review fix: an agent reading the standards first learns a beam's catalogue category from this text.
     expect(TOOLS.find((t) => t.name === "sentinel_standards").description).toMatch(/type_catalog takes category \(Walls, Floors, Roofs, Ceilings, Doors, Windows, Columns, Furniture, Structural Framing — a beam's\)/);
+  });
+
+  // MA-6-6 (MAS-2): an agent learns the mass kind and its place shape from this text alone.
+  it("propose tool description names the mass: its footprint and two elevations, no type and no level", () => {
+    const d = TOOLS.find((t) => t.name === "sentinel_propose_changeset").description;
+    expect(d).toMatch(/masses \(no type, no family, no Mark, no level\) place\.Boundary, one simple closed outline \[\[x,y\]×3–256\] \(its footprint\), with place\.BaseElevation and place\.TopElevation/);
+    expect(d).toMatch(/in the levels' elevation frame, as a level's place\.BaseElevation; the top 100 to 1000000 mm above the base\) — a DirectShape in Mass/);
+    expect(d).toMatch(/that Shell a Mass in Revit turns into typed walls, a floor per storey and a roof, one storey per level/);
   });
 
   it("propose POSTs the changeset body", async () => {
@@ -287,7 +295,7 @@ describe("sentinel_propose_changeset — contract 2's trust rules (MA-1a item 8)
     expect(t.description).toMatch(/ignored: set by the bridge/);
     expect(t.description).toMatch(/never pre-ticked/);
     expect(t.description).toMatch(/not_measured/);
-    expect(t.inputSchema.properties.source.description).toMatch(/dwg and promote are the Revit add-in's/);
+    expect(t.inputSchema.properties.source.description).toMatch(/dwg, promote and photo are the Revit add-in's/);
   });
 
   it("forwards the claimed agent block, and files as agent when the label is one of the add-in's sources", async () => {
@@ -299,6 +307,7 @@ describe("sentinel_propose_changeset — contract 2's trust rules (MA-1a item 8)
     expect(await sent({ source: "my-agent", agent: { kind: "agent", model: "m" } })).toEqual({ name: "N", source: "my-agent", elements: [{ kind: "level" }], agent: { kind: "agent", model: "m" } });
     expect((await sent({ source: "promote" })).source).toBe("agent");
     expect((await sent({ source: " DWG " })).source).toBe("agent");
+    expect((await sent({ source: "photo" })).source).toBe("agent"); // MA-6-6: Photo Massing's source
     // Review amendment C1: a source that is not text is never forwarded — the bridge reads contract 2's { reader } object,
     // and { reader: "promote" } would otherwise be stored as the source "promote".
     for (const source of [{ reader: "promote" }, { reader: " DWG " }, ["promote"], 7, null])

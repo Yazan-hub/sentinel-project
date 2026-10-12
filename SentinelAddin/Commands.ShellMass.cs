@@ -51,7 +51,7 @@ public sealed class ShellMassCommand : IExternalCommand
         {
             if (!MassOnly.Any(doc, null))
             {
-                TaskDialog.Show(Title, "This model has no mass — model one (Massing & Site ▸ In-Place Mass) or place a mass family."); // MA-6-6 adds Photo Massing here, once it files a mass
+                TaskDialog.Show(Title, "This model has no mass — model one (Massing & Site ▸ In-Place Mass), place a mass family, or run 2b · Photo Massing and apply its changeset."); // MA-6-6: Photo Massing files a mass
                 return Result.Cancelled;
             }
             if (!MassOnly.Any(doc, uidoc.ActiveView))

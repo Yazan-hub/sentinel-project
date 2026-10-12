@@ -180,7 +180,7 @@ Pure, dependency-free TypeScript (no DOM, no Revit), each with tests, and each m
 | `element-graph` | The governed element graph (what relates to what). |
 | `ifc-writer` | IFC generation. |
 | `revision-diff` | What changed between two model versions. |
-| `massing`, `massing-plan` | Photo-massing estimate + build plan. |
+| `massing` | Photo-massing estimate validator; Photo Massing's changeset is planned in the add-in (`MassingPlanner.Changeset`, MA-6-6). |
 
 Plus C#-only pure modules on the Revit side that follow the same discipline (offline-tested, no Revit types): `DatumFromDrawing`, `WallPairing`, `TypeNameParse`, `GuidelineMatcher`, `MassingPlanner`.
 

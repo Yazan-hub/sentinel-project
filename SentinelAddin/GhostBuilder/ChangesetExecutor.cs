@@ -73,6 +73,9 @@ public sealed class ChangesetExecutor
         /// (ChangesetPlacementEvent.RunChecked), and the fields above are the storey's whole; one entry for a changeset run alone. Set by
         /// ChangesetPlacementEvent for a placed storey; the review reports each entry on its own ledger row.
         public List<(ChangesetDto Cs, ExecutionResult Res)> Each { get; } = new();
+        /// MA-6-6 (D13): said when this Revit refused a DirectShape in Mass and the mass was placed as a Generic Model instead;
+        /// null otherwise. Carried by ChangesetPlacementEvent onto the placement lines, so the note and the dialog say it.
+        public string MassAs { get; set; }
     }
 
     /// F-S2-2: the ids of the walls that were in the model before the caller's build (a Ghost build of several changesets sets
@@ -485,7 +488,7 @@ public sealed class ChangesetExecutor
                     "column" => () => CreateType(doc, BuiltInCategory.OST_Columns, "column", p.FamilyName, p.TypeName),
                     "furniture" => () => CreateType(doc, BuiltInCategory.OST_Furniture, "furniture", p.FamilyName, p.TypeName),
                     "beam" => () => CreateType(doc, BuiltInCategory.OST_StructuralFraming, "beam", p.FamilyName, p.TypeName),
-                    _ => null, // a level, grid, room or opening names no type
+                    _ => null, // a level, grid, room, opening or mass (MA-6-6) names no type
                 };
             if (pick == null) continue;
             var key = $"{el.Op}|{el.Kind}|{p.FamilyName}|{p.TypeName}|{scope}";
@@ -743,6 +746,35 @@ public sealed class ChangesetExecutor
                 if (el.Place.BaseOffset is double off) Set(roof, BuiltInParameter.ROOF_LEVEL_OFFSET_PARAM, off * MmToFeet, "roof");
                 SetMark(roof, el);
                 Collect(result, el, roof);
+            }
+
+            // MA-6-6 (MAS-2, D13): a mass — its Boundary extruded from BaseElevation to TopElevation as a DirectShape in Mass: no wall or floor
+            // schedule rows, no IfcWall or IfcSlab. Asked before it is made: a Revit that refuses Mass for a DirectShape gets a Generic Model,
+            // said on the result (Shell a Mass still takes it: MassOnly, amendment 11). Amendment 3: the elevations are in the Level.Elevation
+            // frame (a level's BaseElevation's), so the solid's z0 is the nearest level's ProjectElevation plus the offset from that level.
+            foreach (var el in toPlace.Where(e => IsCreate(e) && e.Kind == "mass"))
+            {
+                at = Label(el);
+                var name = el.Validate?.Identity?.Name ?? el.ProposalGuid;
+                double baseMm = el.Place.BaseElevation ?? throw new InvalidOperationException($"mass \"{name}\" has no BaseElevation");
+                double topMm = el.Place.TopElevation ?? throw new InvalidOperationException($"mass \"{name}\" has no TopElevation");
+                if (topMm <= baseMm) throw new InvalidOperationException($"mass \"{name}\": TopElevation ({topMm}mm) must be above BaseElevation ({baseMm}mm)");
+                var lvl = ResolveLevel(doc, new PlaceDto { BaseElevation = baseMm });
+                var z0 = lvl.ProjectElevation + (baseMm * MmToFeet - lvl.Elevation);
+                var cat = new ElementId(BuiltInCategory.OST_Mass);
+                if (!DirectShape.IsValidCategoryId(cat, doc))
+                {
+                    cat = new ElementId(BuiltInCategory.OST_GenericModel);
+                    result.MassAs = "Mass: placed as Generic Models — this Revit refuses a DirectShape in Mass (D13); Shell it still works";
+                }
+                var loop = CurveLoop.Create(Outline(el.Place.Boundary, z0, $"mass \"{name}\""));
+                var solid = GeometryCreationUtilities.CreateExtrusionGeometry(new List<CurveLoop> { loop }, XYZ.BasisZ, (topMm - baseMm) * MmToFeet);
+                var ds = DirectShape.CreateElement(doc, cat);
+                ds.ApplicationId = "Sentinel"; // Shell a Mass's pick takes a Sentinel DirectShape whatever its category (MassOnly)
+                ds.ApplicationDataId = el.ProposalGuid;
+                ds.SetShape(new List<GeometryObject> { solid });
+                ds.SetName(name);
+                Collect(result, el, ds);
             }
 
             // MA-1: a ceiling at its height above the level (place.Offset, required by the bridge).

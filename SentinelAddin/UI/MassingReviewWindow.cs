@@ -10,10 +10,11 @@ using Sentinel.GhostBuilder;
 namespace Sentinel.UI;
 
 /// <summary>
-/// Review + CORRECT a photo massing estimate before it's built. The Geopogo demo places geometry straight
+/// Review + CORRECT a photo massing estimate before it's filed. The Geopogo demo places geometry straight
 /// from the photo; this shows the estimate as EDITABLE NUMBERS with the low-confidence ones flagged, so the
-/// "where the camera can't see" gap is a field a human fills, not a silent guess. On Build it emits a
-/// user-corrected estimate — everything the reviewer touched is stamped source="user", confidence 1.
+/// "where the camera can't see" gap is a field a human fills, not a silent guess. On File for review it emits a
+/// user-corrected estimate — everything the reviewer touched is stamped source="user", confidence 1. MA-6-6: the command
+/// files it as one changeset (the missing levels and a mass); nothing is placed until a person applies it.
 ///
 /// Mirrors GhostReviewWindow / StandardsReviewWindow: plain code, no XAML pair.
 /// </summary>
@@ -22,15 +23,15 @@ public sealed class MassingReviewWindow : Window
     private readonly MassingEstimate _estimate;
     private readonly Dictionary<EstimatedValue, TextBox> _fields = new();
     private readonly TextBlock _status;
-    private readonly Button _build; // MAS-4: disabled by the click that builds; Reopen enables it again
+    private readonly Button _build; // MAS-4: disabled by the click that files; Reopen enables it again
 
-    /// <summary>Fires with the reviewer-corrected estimate — build exactly this.</summary>
+    /// <summary>Fires with the reviewer-corrected estimate — file exactly this (MA-6-6).</summary>
     public event Action<MassingEstimate>? BuildRequested;
 
     public MassingReviewWindow(MassingEstimate estimate)
     {
         _estimate = estimate;
-        Title = "Sentinel — Massing: review the estimate before building";
+        Title = "Sentinel — Massing: review the estimate before filing";
         Width = 560; Height = 620;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         ShowInTaskbar = false;
@@ -40,7 +41,7 @@ public sealed class MassingReviewWindow : Window
         {
             Text = "This is an ESTIMATE from the project images, not a measured drawing. Confirm or correct " +
                    "each number — amber fields are low-confidence or from a façade the photos didn't show. " +
-                   "Nothing is built until you press Build.",
+                   "Nothing is filed until you press File for review; nothing is placed until a person applies it in Review AI Proposals.",
             TextWrapping = TextWrapping.Wrap, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 10),
         });
 
@@ -67,7 +68,7 @@ public sealed class MassingReviewWindow : Window
         {
             Text = needReview == 0
                 ? "Every field came back confident — for a photo that's unusual; sanity-check the numbers anyway."
-                : $"{needReview} field(s) need your confirmation (amber). Correct them, then Build.",
+                : $"{needReview} field(s) need your confirmation (amber). Correct them, then File for review.",
             Margin = new Thickness(0, 10, 0, 8), TextWrapping = TextWrapping.Wrap, Foreground = Brushes.Gray,
         };
         panel.Children.Add(_status);
@@ -79,7 +80,7 @@ public sealed class MassingReviewWindow : Window
                 FontStyle = FontStyles.Italic, Foreground = Brushes.Gray, Margin = new Thickness(0, 0, 0, 8),
             });
 
-        _build = new Button { Content = "Build massing ▶", Padding = new Thickness(12, 6, 12, 6), Margin = new Thickness(0, 6, 8, 0) };
+        _build = new Button { Content = "File for review ▶", Padding = new Thickness(12, 6, 12, 6), Margin = new Thickness(0, 6, 8, 0) };
         _build.Click += (_, __) => Emit();
         var cancel = new Button { Content = "Cancel", Padding = new Thickness(12, 6, 12, 6), Margin = new Thickness(0, 6, 0, 0), IsCancel = true };
         cancel.Click += (_, __) => Close(); // shown modeless (Commands.Massing): IsCancel alone closes only a dialog
@@ -121,12 +122,12 @@ public sealed class MassingReviewWindow : Window
     /// now authoritative — source="user", confidence 1 — which is what makes a photo build trustworthy.</summary>
     public void Emit()
     {
-        // MAS-4: one build per click. A second click — the other half of a double-click, or one while Revit is still
-        // placing — finds Build disabled and does nothing. The command closes this window when the build is kept, or
-        // calls Reopen when nothing was built.
+        // MAS-4: one filing per click. A second click — the other half of a double-click, or one while the bridge is still
+        // answering — finds the button disabled and does nothing. The command closes this window once the changeset is filed
+        // (MA-6-6), or calls Reopen when nothing was filed.
         if (!_build.IsEnabled) return;
         _build.IsEnabled = false;
-        _status.Text = "Building the massing…";
+        _status.Text = "Filing the massing for review…";
         foreach (var kv in _fields)
         {
             if (double.TryParse(kv.Value.Text, NumberStyles.Any, CultureInfo.InvariantCulture, out double val))
@@ -137,8 +138,8 @@ public sealed class MassingReviewWindow : Window
             }
         }
         // Re-validate so any still-out-of-range hand-entry is caught, then hand off.
-        // Review amendment C12: a subscriber that throws (the plan, the build inputs) never reaches the command's Completed
-        // handler — the review is reopened here, with the reason, before the exception goes on as it did before.
+        // Review amendment C12: a subscriber that throws (the request to file) never reaches the command's own reopen — the
+        // review is reopened here, with the reason, before the exception goes on as it did before.
         try { BuildRequested?.Invoke(MassingPlanner.Validate(_estimate)); }
         catch (Exception ex)
         {
@@ -147,15 +148,15 @@ public sealed class MassingReviewWindow : Window
         }
     }
 
-    /// <summary>MAS-4: the build ended with nothing kept (refused, rolled back, or nothing placed) — Build works again, the
-    /// numbers as the reviewer left them, and the status line says why.</summary>
+    /// <summary>MAS-4: the filing ended with nothing filed (refused, or the bridge did not take it) — File for review works again,
+    /// the numbers as the reviewer left them, and the status line says why.</summary>
     public void Reopen(string status)
     {
         _build.IsEnabled = true;
         _status.Text = status;
     }
 
-    /// <summary>Whether a click on Build would build (the offline check reads it).</summary>
+    /// <summary>Whether a click on File for review would file (the offline check reads it).</summary>
     public bool CanBuild => _build.IsEnabled;
     /// <summary>The status line under the numbers (the offline check reads it).</summary>
     public string StatusText => _status.Text;

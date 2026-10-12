@@ -202,9 +202,9 @@ static partial class Check
         Ok(review.Contains("internal static bool PromoteRun(ChangesetDto cs) => cs.Source == \"promote\" && !(cs.Name ?? \"\").StartsWith(ShellPlanner.Title, StringComparison.Ordinal);")
            && Count(review, "(PromoteRun(fresh[0]) ? CarriedEdits(fresh) + \"\\n\\n\" + RunPromoteAgain : \"\")") == 2 && !review.Contains("(fresh[0].Source == \"promote\" ?")
            && review.Contains("levelMm.TryGetValue(e.Place.TopLevel, out var mm) ? mm : (double?)null;")
-           && review.Contains("GhostOverlayGeometry.Segments(e, true, false, LevelOf(e), TopOf(e))") && Count(review, "GhostOverlayGeometry.All(window.RowStates(), LevelOf, TopOf)") == 2
-           && Count(review, "GhostOverlayGeometry.AllTris(window.RowStates(), LevelOf, TopOf)") == 2 // review: the two first draws' faces too
-           && review.Contains("GhostOverlayGeometry.All(states, LevelOf, TopOf); var tris = GhostOverlayGeometry.AllTris(states, LevelOf, TopOf);"),
+           && review.Contains("GhostOverlayGeometry.Segments(e, true, false, LevelOf(e), TopOf(e), FrameOf(e))") && Count(review, "GhostOverlayGeometry.All(window.RowStates(), LevelOf, TopOf, FrameOf)") == 2
+           && Count(review, "GhostOverlayGeometry.AllTris(window.RowStates(), LevelOf, TopOf, FrameOf)") == 2 // review: the two first draws' faces too
+           && review.Contains("GhostOverlayGeometry.All(states, LevelOf, TopOf, FrameOf); var tris = GhostOverlayGeometry.AllTris(states, LevelOf, TopOf, FrameOf);"),
            "the review gates both \"Run Promote (DD) again\" texts on PromoteRun, and gives the overlay each wall's TopLevel elevation at every draw");
 
         // The command: the review guard taken, released exactly once on every path; the filing as Promote's; the receipt.
@@ -223,7 +223,7 @@ static partial class Check
         Ok(cmd.Contains("e.Category?.Id.IdValue() == (long)BuiltInCategory.OST_Mass || e is DirectShape ds && ds.ApplicationId == \"Sentinel\"")
            && cmd.Contains("catch (Autodesk.Revit.Exceptions.OperationCanceledException) { return Result.Cancelled; }")
            && cmd.Contains("This model has no mass") && cmd.Contains("turn on Show Mass (Massing & Site) to see and pick an in-place mass")
-           && !cmd.Contains("run 2b · Photo Massing"), // review: Photo Massing files no mass before MA-6-6
+           && cmd.Contains("or run 2b · Photo Massing and apply its changeset"), // MA-6-6: Photo Massing files a mass
            "the pick takes a mass, or a DirectShape Sentinel placed (amendment 11); Esc cancels; no mass, or none shown, is said before the pick (amendment 13)");
         Ok(reader.Contains("catch (Exception ex) { f.Storeys.Add((null, null, $\"Revit could not cut the mass at {a.Name} — {ex.Message}\")); }")
            && reader.Contains("WherePasses(new ElementIntersectsSolidFilter(solid))") && reader.Contains("bb.Transform.OfPoint(new XYZ(x, y, z)).Z")

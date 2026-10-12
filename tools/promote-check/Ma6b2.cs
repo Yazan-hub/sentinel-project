@@ -55,10 +55,10 @@ static partial class Check
         // MA-6-2 review (plan §4 item 2): only the kinds no DD class could ask anything of are out of scope; a column, a beam or furniture stays
         // not judged, so "all passed" is never said over them.
         var noDd = Kinds(ctx, "public static readonly HashSet<string> NoDdClass = new HashSet<string>(StringComparer.Ordinal) {", '}').Split(',');
-        Ok(string.Join(",", noDd) == "level,grid,room,opening" && !noDd.Any(PromoteWallsPlanner.Classes.ContainsKey)
+        Ok(string.Join(",", noDd) == "level,grid,room,opening,mass" && !noDd.Any(PromoteWallsPlanner.Classes.ContainsKey) // MA-6-6: + mass
            && !noDd.Intersect(new[] { "column", "beam", "furniture" }).Any()
            && ctx.Contains("no as-built verdict is recorded for this Apply") && !ctx.Contains("records the elements unjudged"),
-           "a level, grid, room or opening is out of scope (no DD class) and none has a Promote class; a column, beam or furniture is not judged; a failed as-built read says nothing was recorded (review: the bridge stores no as_built then)");
+           "a level, grid, room, opening or mass is out of scope (no DD class) and none has a Promote class; a column, beam or furniture is not judged; a failed as-built read says nothing was recorded (review: the bridge stores no as_built then)");
         int created = At(ex, "var lvl = Level.Create(doc, (el.Place?.BaseElevation ?? 0) * MmToFeet);");
         Ok(created > 0 && ex.Substring(ex.IndexOf('\n', created) + 1).TrimStart().StartsWith("lvl.get_Parameter(BuiltInParameter.LEVEL_IS_BUILDING_STORY)?.Set(1);", StringComparison.Ordinal),
            "a level a changeset creates is a Building Story (DatumBuilder's set), so Stories(doc) and the LOD state count it");

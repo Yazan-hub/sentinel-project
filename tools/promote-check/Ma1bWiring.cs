@@ -87,15 +87,15 @@ static partial class Check
 
         string massing = Src("Commands.Massing.cs"), massingReview = Src("UI", "MassingReviewWindow.cs");
         Ok(massingReview.Contains("if (!_build.IsEnabled) return;") && massingReview.Contains("_build.IsEnabled = false;"),
-           "MAS-4: Photo Massing's Build is disabled by the click that builds");
-        Ok(massing.Contains("MassingPlanner.BuildKept(error != null, report?.RolledBack != null, report?.NotFinished != null, report?.Placed ?? 0)")
-           && massing.Contains("if (kept) review.Close();") && massing.Contains("else review.Reopen(MassingPlanner.ReopenStatus);"),
-           "MAS-4: the command closes the review when the build is kept, and reopens it when nothing was built");
-        Ok(massing.Contains("report.NewElements.Select(n => n.Id).Where(id => uidoc.Document.GetElement(id) != null)")
-           && massing.Contains("uidoc.Selection.SetElementIds(ids);") && massing.Contains("uidoc.ShowElements(ids);")
-           && massing.Contains("MassingPlanner.SelectedLine(uidoc.Selection.GetElementIds().Count, ids.Count)"),
-           "MAS-4: what was placed and is still in the model is selected and zoomed to, and the line prints what Revit holds selected, read back");
-        Ok(massing.Contains("App.Events.Enqueue(ua => placementEvent.Execute(ua), \"place the massing build\");") && massingReview.Contains("Reopen(MassingPlanner.NotStarted(ex.Message));"),
-           "MAS-4 (SEC-7): a build request goes through the event hub — one Revit does not take at once is held, said and raised again, never lost; one that threw before it was queued reopens the review");
+           "MAS-4: Photo Massing's File for review is disabled by the click that files");
+        // MA-6-6: the command files a changeset — the review closes once the bridge has it, and reopens with why when nothing was filed.
+        Ok(massing.Contains("_ = review.Dispatcher.BeginInvoke(new Action(() => { if (review.IsVisible) review.Close(); }));")
+           && massing.Contains("if (review.IsVisible) review.Reopen(MassingPlanner.ReopenStatus);")
+           && massing.Contains("if (refusal != null) { review.Reopen(MassingPlanner.NotStarted(refusal)); return; }")
+           && massing.IndexOf("review.Close();", StringComparison.Ordinal) > massing.IndexOf("cs = ChangesetClient.Propose(fileCfg, key, body, out err);", StringComparison.Ordinal),
+           "MAS-4 (MA-6-6): the command closes the review once the bridge has the changeset, and reopens it with why when nothing was filed");
+        Ok(massing.Contains("App.Events.Enqueue(doc, \"plan Photo Massing\", (u, d) => PlanAndFile(d, cfg, key, corrected, review, receipt),")
+           && massing.Contains("why => review.Reopen(MassingPlanner.NotStarted(why)));") && massingReview.Contains("Reopen(MassingPlanner.NotStarted(ex.Message));"),
+           "MAS-4 (SEC-7, MA-6-6): a filing request goes through the event hub, pinned to this model — one Revit refuses reopens the review with why; one that threw before it was queued reopens it too");
     }
 }

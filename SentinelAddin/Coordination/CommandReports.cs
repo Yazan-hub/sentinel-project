@@ -44,15 +44,7 @@ namespace Sentinel.Coordination
                 changesets = changesetIds.Take(MaxNames).ToArray(), changesets_total = changesetIds.Count, source = "revit",
             });
 
-        /// <summary>One Photo Massing build that was kept. <paramref name="imagesSha256"/> is null when the build holds no
-        /// number of the vision model's.</summary>
-        public static object Massing(int placed, int removedByRevit, int wallGaps, int skipped, int revitWarnings, int typesAdded,
-                                     string imagesSha256, string actor) =>
-            Row("massing", actor, $"Photo Massing placed {placed} element(s)", new
-            {
-                placed, removed_by_revit = removedByRevit, wall_gaps = wallGaps, skipped, revit_warnings = revitWarnings,
-                types_added = typesAdded, images_sha256 = imagesSha256, source = "revit",
-            });
+        // MA-6-6: Photo Massing files a changeset — its changeset_applied row is the build's record, so the massing row is gone.
 
         /// <summary>Review C4: the views and datums an Annotate row names — the record B31 may leave (one view and one RCP for each
         /// of 100 storeys), beside their true totals.</summary>

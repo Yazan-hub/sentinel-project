@@ -54,6 +54,9 @@ describe("words", () => {
       .toBe("PH1 · rehost Placeholder Door : 1000 x 2100 at (44100, 2510) → BDS_INT_1 PNL : BDS_INT_1 PNL_WOOD_1000 x 2100 mm in the wall at (44050, 2500) on Level 1; the unhosted instance and any tags on it are removed (one Undo in Revit brings them back); its Mark, Comments, workset and phase carry over");
     expect(ghostLine(g4)).toBe('Basic Wall : BDS_EXT_ARC_CMU_200 mm · FireRating "" → "60 min" (a type edit: it reaches every element of the type)');
     expect(ghostLine({ proposal_guid: "x", kind: "floor", place: { TypeName: "Generic 150mm", LevelName: "L1" } })).toBe("x · Generic 150mm · L1");
+    // MA-6-6 review fix: a mass reads its size — the reviewer ticks what the row shows, not what a reason says
+    expect(ghostLine({ proposal_guid: "g", kind: "mass", validate: { identity: { Name: "Photo mass" } },
+      place: { Boundary: [[-6000, -4000], [6000, -4000], [6000, 4000], [-6000, 4000]], BaseElevation: 0, TopElevation: 9600 } })).toBe("Photo mass · 12000 x 8000 mm footprint, 0 to 9600 mm");
   });
 
   it("a decline binds, an accept is advice, a re-open is said; nobody decided is waiting", () => {

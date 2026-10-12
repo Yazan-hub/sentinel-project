@@ -38,25 +38,13 @@ namespace Sentinel.GhostBuilder
         // false) or null = the mapping's family, the pre-guideline behaviour — counted as such (WallsByMapping).
         private readonly GuidelineMatcher _guideline;
 
-        // Massing is an LOD 100 estimate: when the office standard has no type for a wall, floor, door or window, place it
-        // with the template's DEFAULT type and say so, rather than placing nothing (simulation 3.9, F43 —
-        // every wall was skipped on a template without the pilot's type names). The DWG path keeps the
-        // strict behaviour: a mis-typed element there is a real defect, a placeholder box here is the point.
-        private readonly bool _placeholderTypes;
-
-        // The document's default type of a group (the template's), or null — never the model's first type (D16, MA-1a).
-        private T DefaultType<T>(ElementTypeGroup group) where T : ElementType =>
-            _doc.GetElement(_doc.GetDefaultElementTypeId(group)) as T;
-
         public ElementPlacementFactory(
             Document doc, Level level,
             IReadOnlyDictionary<string, WallType> wallTypes,
             IReadOnlyDictionary<string, FloorType> floorTypes = null,
             IReadOnlyDictionary<string, ElementType> ceilingTypes = null,
-            GuidelineMatcher guideline = null,
-            bool placeholderTypes = false)
+            GuidelineMatcher guideline = null)
         {
-            _placeholderTypes = placeholderTypes;
             _doc = doc ?? throw new ArgumentNullException(nameof(doc));
             _level = level ?? throw new ArgumentNullException(nameof(level));
             _wallTypes = wallTypes ?? new Dictionary<string, WallType>();
@@ -235,17 +223,6 @@ namespace Sentinel.GhostBuilder
             // The guideline decides the type from the measured thickness where it can; a gap is surfaced
             // and the wall skipped rather than mis-typed.
             string resolved = ResolveWallType(el, map, out string gapReason, out string typedBy);
-            if (gapReason != null && _placeholderTypes)
-            {
-                var ph = DefaultType<WallType>(ElementTypeGroup.WallType);
-                if (ph != null)
-                {
-                    Notes.Add($"Placeholder wall type '{ph.Name}' used for {el.ThicknessMm:0} mm walls on '{el.CadLayer}' — {gapReason.TrimEnd('.')}. Retype before issue.");
-                    resolved = ph.Name; gapReason = null;
-                    typedBy = "placeholder"; // counted in WallGaps once it is placed
-                    if (!_wallTypes.ContainsKey(ph.Name)) _createdWallTypes[ph.Name] = ph;
-                }
-            }
             if (gapReason != null)
             {
                 WallGaps++;
@@ -292,7 +269,6 @@ namespace Sentinel.GhostBuilder
                 if (typedBy == "guideline") WallsByGuideline++;
                 else if (typedBy == "mapping") WallsByMapping++;
                 else if (typedBy == "reviewer") WallsByReviewer++;
-                else WallGaps++; // a massing placeholder: placed, but typed by nobody — reported for retyping
             }
             if (placed == 0) return Outcome.SkippedNoGeometry;
             return Outcome.Placed;
@@ -329,20 +305,10 @@ namespace Sentinel.GhostBuilder
 
             // The ONE loaded (family, type) the row names, among this category's types only (GhostTypePick: exact, or a gap a
             // person resolves in the review) — never a symbol of another category that shares the type name, never the first
-            // one loaded. Massing (LOD 100) alone may use the category's DEFAULT family type, declared in a Note like its walls.
+            // one loaded.
             List<FamilySymbol> syms = SymbolsOf(category);
             int i = GhostTypePick.Pick(syms.Select(s => (s.FamilyName, s.Name)).ToList(), category, map.BdsFamily, map.BdsFamilyType, out string why);
             FamilySymbol sym = i >= 0 ? syms[i] : null;
-            if (sym == null && _placeholderTypes)
-            {
-                sym = DefaultSymbol(category);
-                if (sym != null)
-                    Notes.Add($"Placeholder {category} type '{sym.FamilyName} : {sym.Name}' (the template's default) used on '{el.CadLayer}' — the massing names no {category} type. Retype before issue.");
-                else // massing has no review to pick in: say what the model lacks
-                    why = syms.Count == 0
-                        ? $"no {category} family is loaded in this model (the template has no default {category} type) — load one"
-                        : $"the template has no default {category} type to use as a placeholder — set one";
-            }
             if (sym == null)
             {
                 warning = $"{category} on '{el.CadLayer}': {why}; skipped.";
@@ -383,14 +349,6 @@ namespace Sentinel.GhostBuilder
             return syms;
         }
 
-        // Massing only: the category's default family type in this document (the template's), or null.
-        private FamilySymbol DefaultSymbol(string category)
-        {
-            BuiltInCategory bic = Compat.ResolveCategoryKey(category ?? "");
-            return bic == BuiltInCategory.INVALID ? null
-                : _doc.GetElement(_doc.GetDefaultFamilyTypeId(new ElementId(bic))) as FamilySymbol;
-        }
-
         // ---- Floors & ceilings: the ONE genuine cross-version break ----
         private Outcome PlaceSlab(GhostElement el, string wanted, bool isCeiling, LayerMapping map, out string warning)
         {
@@ -414,12 +372,6 @@ namespace Sentinel.GhostBuilder
         {
             warning = null;
             FloorType ft = ResolveType(_floorTypes, wanted);
-            if (ft == null && _placeholderTypes)
-            {
-                ft = DefaultType<FloorType>(ElementTypeGroup.FloorType);
-                if (ft != null)
-                    Notes.Add($"Placeholder floor type '{ft.Name}' used on '{el.CadLayer}' — the office standard names no floor type for the massing. Retype before issue.");
-            }
             if (ft == null)
             {
                 warning = $"FloorType '{wanted ?? ""}' not found (layer '{el.CadLayer}'); skipped.";

@@ -190,31 +190,40 @@ static partial class Check
         w2.Build();
         Ok(emitted == null, "empty proposal cannot be built");
 
-        // MAS-4: Photo Massing's review — one build per click; the command closes it, or reopens it with the reason.
+        // MAS-4: Photo Massing's review — one filing per click (MA-6-6: Build became File for review); the command closes it once the
+        // changeset is filed, or reopens it with the reason.
         int builds = 0;
         var massing = new MassingReviewWindow(MassingPlanner.Validate(new MassingEstimate())); // constructed, never shown
         massing.BuildRequested += _ => builds++;
         massing.Emit();
         massing.Emit(); // the second click of a double-click
-        Ok(builds == 1 && !massing.CanBuild && massing.StatusText == "Building the massing…",
-           "MAS-4: a double-click on Build gives one massing — Build is disabled by the first click");
+        Ok(builds == 1 && !massing.CanBuild && massing.StatusText == "Filing the massing for review…",
+           "MAS-4: a double-click on File for review files once — the button is disabled by the first click");
         massing.Reopen(MassingPlanner.ReopenStatus);
-        Ok(massing.CanBuild && massing.StatusText == MassingPlanner.ReopenStatus, "MAS-4: a build that kept nothing reopens the review, the reason on its status line");
+        Ok(massing.CanBuild && massing.StatusText == MassingPlanner.ReopenStatus, "MAS-4: a filing that filed nothing reopens the review, the reason on its status line");
         massing.Emit();
-        Ok(builds == 2 && !massing.CanBuild, "MAS-4: after a reopen, Build builds once more");
-        // Review amendment C12: a build that never started (the subscriber threw) must not leave Build disabled for good.
+        Ok(builds == 2 && !massing.CanBuild, "MAS-4: after a reopen, File for review files once more");
+        // Review amendment C12: a filing that never started (the subscriber threw) must not leave the button disabled for good.
         var failing = new MassingReviewWindow(MassingPlanner.Validate(new MassingEstimate()));
         failing.BuildRequested += _ => throw new InvalidOperationException("no plan");
         bool threw = false;
         try { failing.Emit(); } catch (InvalidOperationException) { threw = true; }
         Ok(threw && failing.CanBuild && failing.StatusText == MassingPlanner.NotStarted("no plan"),
-           "MAS-4: a build that could not start reopens the review with the reason — Build works again");
+           "MAS-4: a filing that could not start reopens the review with the reason — File for review works again");
         // SEC-3: the review is shown modeless (Commands.Massing) — its Cancel closes it on a click (IsCancel alone closes only a dialog).
         var shown = new MassingReviewWindow(MassingPlanner.Validate(new MassingEstimate()));
         shown.Show();
         var cancelButton = Descendants(shown).OfType<System.Windows.Controls.Button>().First(b => (b.Content as string) == "Cancel");
         cancelButton.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
         Ok(!shown.IsVisible, "SEC-3: Photo Massing's Cancel closes the review it shows modeless");
+        // MA-6-6: the words say what the button does now — it files for review; nothing is placed until a person applies it.
+        var words = new MassingReviewWindow(MassingPlanner.Validate(new MassingEstimate()));
+        var texts = Descendants(words).OfType<System.Windows.Controls.TextBlock>().Select(t => t.Text).ToList();
+        Ok(Descendants(words).OfType<System.Windows.Controls.Button>().Any(b => (b.Content as string) == "File for review ▶")
+           && !Descendants(words).OfType<System.Windows.Controls.Button>().Any(b => (b.Content as string ?? "").Contains("Build"))
+           && texts.Any(t => t.EndsWith("Nothing is filed until you press File for review; nothing is placed until a person applies it in Review AI Proposals."))
+           && texts.Any(t => t.EndsWith("Correct them, then File for review.")) && words.Title == "Sentinel — Massing: review the estimate before filing",
+           "MA-6-6: the review's button reads File for review, and its words say nothing is filed until it is pressed, nothing placed until a person applies it");
         if (shown.IsVisible) shown.Close();
 
         // SEC-2: every model client checks its endpoint in its constructor — a host off this PC only when this PC opted in.

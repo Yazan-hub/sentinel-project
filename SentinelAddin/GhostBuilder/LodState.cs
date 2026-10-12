@@ -171,7 +171,7 @@ namespace Sentinel.GhostBuilder
         /// <summary>MA-6-2: "DD IDS: not asked of 2 level(s), 1 room(s): the DD IDS has no class for them"; null when there are none.</summary>
         public static string OutOfScope(IEnumerable<string> kinds)
         {
-            var n = (kinds ?? Enumerable.Empty<string>()).GroupBy(k => k, StringComparer.Ordinal).Select(g => $"{g.Count()} {g.Key}(s)").ToList();
+            var n = (kinds ?? Enumerable.Empty<string>()).GroupBy(k => k, StringComparer.Ordinal).Select(g => $"{g.Count()} {(g.Key == "mass" ? "mass(es)" : g.Key + "(s)")}").ToList(); // MA-6-6 review fix: "1 mass(es)"
             return n.Count == 0 ? null : "DD IDS: not asked of " + string.Join(", ", n) + ": the DD IDS has no class for them";
         }
 

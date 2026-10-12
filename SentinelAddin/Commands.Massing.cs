@@ -1,5 +1,6 @@
 #nullable disable
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Autodesk.Revit.Attributes;
@@ -14,150 +15,105 @@ namespace Sentinel.Commands;
 
 /// <summary>
 /// Photo → Massing: estimate a building's envelope from the project images (renders, photos, elevations)
-/// in the scoped folder, let the user CORRECT the numbers, then build it through the SAME governed
-/// GhostBuilder placement a DWG uses, typed by the guideline@n and type_catalog@n installed on the document's web
-/// project (or its office) and named in the summary; with no guideline every wall is a declared placeholder.
+/// in the scoped folder, let the user CORRECT the numbers, then (MA-6-6, MAS-2) file them as ONE reviewed changeset —
+/// the Building Story levels the massing needs that the model lacks, and one untyped mass between them
+/// (MassingPlanner.Changeset). Nothing is placed until a person ticks and applies it in Review AI Proposals, which opens
+/// on it; Shell a Mass (2c) then turns the mass into typed walls, floors and a roof, one storey per level (MAS-1). A mass
+/// and levels are untyped, so no guideline or type catalogue is read here.
 /// The governed answer to the Geopogo demo: the estimate is an explicit, reviewable input, not silent geometry
 /// that drifts.
 ///
-/// Threading mirrors GhostBuilderCommand: vision inference on a background thread (Revit-API-free);
-/// placement funnels through an ExternalEvent (API thread only).
+/// Threading: vision inference on a background thread (Revit-API-free); the levels are read and the body planned on the
+/// API thread through the event hub when the person files (the review is modeless — MA-6 amendment 4); the bridge is
+/// called off Revit's thread, under the review guard.
 /// </summary>
 [Transaction(TransactionMode.Manual)]
 public sealed class MassingFromImagesCommand : IExternalCommand
 {
+    private const string Title = "Sentinel — Massing";
+
     public Result Execute(ExternalCommandData c, ref string msg, ElementSet els)
     {
         var uidoc = c.Application.ActiveUIDocument;
         if (uidoc?.Document is not { } doc) return Result.Cancelled;
-        // MA-1a item 6 (review amendment C10): never into a design option — said before an image is read. The placement
-        // event asks again, for an option entered while the review is open.
+        // MA-1a item 6 (review amendment C10): never into a design option — said before an image is read. Apply asks again
+        // (the executor), for an option entered while the review is open.
         if (PlacementApply.DesignOptionRefusal(doc, "run Photo Massing") is { } inOption)
         {
-            TaskDialog.Show("Sentinel — Massing", inOption);
+            TaskDialog.Show(Title, inOption);
+            return Result.Cancelled;
+        }
+        // MA-6-6 (amendment 4): filing needs a project key and the review guard free — said before an image is read.
+        var ctx = ProjectContext.For(doc);
+        if (!ctx.IsBound)
+        {
+            TaskDialog.Show(Title, ProjectContext.NotBound);
+            return Result.Cancelled;
+        }
+        if (ReviewChangesetsCommand.Held)
+        {
+            TaskDialog.Show(Title, ReviewChangesetsCommand.Busy);
             return Result.Cancelled;
         }
 
         var settings = SettingsManager.Resolve(doc);
         if (SettingsManager.ToolRefusal(settings, callsModel: true) is { } notLocal) // SEC-2: asked before an image is read or sent
         {
-            TaskDialog.Show("Sentinel — Massing", notLocal);
+            TaskDialog.Show(Title, notLocal);
             return Result.Cancelled;
         }
         string folder = settings.GhostSourceFolder;
         if (string.IsNullOrWhiteSpace(folder) || MassingVisionReader.CountImages(folder) == 0)
         {
-            TaskDialog.Show("Sentinel — Massing",
+            TaskDialog.Show(Title,
                 "No images found. Set the Ghost source folder (Project Setup) to a folder containing the " +
                 "project's photos / renders / elevations, then run again.");
             return Result.Cancelled;
         }
 
-        string libraryDir = string.IsNullOrWhiteSpace(settings.GhostFamilyLibraryDir) ? null : settings.GhostFamilyLibraryDir;
-        // The project key is read here (Extensible Storage, API thread); the guideline and type catalogue it names are
-        // fetched off this thread while the vision model reads the images. Massing reads no layer standard.
-        string key = ProjectContext.For(doc).Key;
-        GhostStandards standards = null; // set in the background before the review window can raise a build
-        var loadedTypes = GhostBuilderCommand.HeldTypes(doc); // MA-1a item 6: the model's types, read on the API thread (F-MA2a-4: every type it holds)
-        string templateLine = null;                             // the office-template check's line, for the summary
-        string stampSha = null; // MA-1a item 7: the images' sha the build was stamped with (null: the numbers are the reviewer's)
-        // MA-1a item 8: the vision reader's time and usage, and the facts of the run that was built, for its receipt.
+        string key = ctx.Key;
+        var cfg = BcfConfig.Load();
+        // MA-1a item 8: the vision reader's time and usage, for the filing's receipt.
         var readerClock = new System.Diagnostics.Stopwatch();
         ModelUsage visionUsage = null;
-        BuildReceipt.Facts receipt = null;
-
-        var placementEvent = new MassingPlacementEvent(); // run on the API thread through the event hub (SEC-7)
 
         var progress = new GhostBuilderProgressWindow();
         new System.Windows.Interop.WindowInteropHelper(progress) { Owner = c.Application.MainWindowHandle };
 
-        MassingReviewWindow review = null; // MAS-4: set when the review opens; closed below once a build is kept
-        placementEvent.Completed += (report, error) => progress.Dispatcher.Invoke(() =>
-        {
-            progress.Close();
-            // MA-1a item 7: one massing row for a build Revit committed, sent off this thread.
-            if (error == null && report != null && report.RolledBack == null && report.NotFinished == null && report.Placed > 0)
-                GovernedNotify.Report("Photo Massing", CommandReports.Massing(report.Placed, report.DeletedByRevit.Count, report.WallGaps,
-                    report.SkippedUnknownFamily + report.SkippedNoGeometry, report.RevitWarnings.Values.Sum(), report.CreatedTypes.Count,
-                    stampSha, UserSession.Actor), key);
-            if (error == null && report != null && report.RolledBack == null && report.NotFinished == null && report.Placed > 0 && receipt != null)
-                GovernedNotify.Report("Photo Massing receipt", BuildReceipt.Run("photo-massing", BuildReceipt.AddinSha256, receipt, report.WallGaps, new string[0], UserSession.Actor), key);
-            // MAS-4: a kept build closes the review (Build was disabled by the click, so no second massing lands on top) and
-            // what it placed is selected and zoomed to, before the summary; a build that kept nothing — refused before the
-            // transaction, rolled back, or nothing placed — leaves the review open with the reviewer's numbers.
-            bool kept = MassingPlanner.BuildKept(error != null, report?.RolledBack != null, report?.NotFinished != null, report?.Placed ?? 0);
-            string selected = kept && report.NotFinished == null ? SelectPlaced(uidoc, report) : null;
-            if (review != null && review.IsVisible)
-            {
-                if (kept) review.Close();
-                else review.Reopen(MassingPlanner.ReopenStatus);
-            }
-            TaskDialog.Show("Sentinel — Massing",
-                error != null ? "Build failed: " + error.Message
-                              : Summarize(report, standards, templateLine) + (selected == null ? "" : Environment.NewLine + selected));
-        });
-
-        // Vision estimate and the standards GET on background threads; the review window (API thread) drives the build.
+        // Vision estimate on a background thread; the review window (Revit's thread) asks for the filing.
         _ = Task.Run(async () =>
         {
             try
             {
-                var fetch = Task.Run(() => GhostStandards.Load(key, layers: false)); // guideline@n + type_catalog@n
                 progress.SetStatus($"Reading the project images with the vision model {LocalOnly.Where(settings.OllamaUrl)}…");
                 using var reader = new MassingVisionReader(settings.GhostVisionModel, settings.OllamaUrl, settings.GhostCloudOptIn);
                 readerClock.Start();
                 MassingEstimate estimate = await reader.EstimateAsync(folder, ct: progress.Token).ConfigureAwait(false);
                 readerClock.Stop();
                 visionUsage = reader.Usage;
-                // MA-1a item 4 (founder decision F6): one sha256 over the images the vision model read, for every element's stamp.
+                // MA-1a item 4 (founder decision F6): one sha256 over the images the vision model read. MA-6-6: it rides on the receipt —
+                // the executor never reads a changeset's provenance (C1), so it is not stamped on the mass.
                 string imagesSha = ProvenanceStamp.FilesSha256(MassingVisionReader.Images(folder).Take(MassingVisionReader.MaxImages));
                 if (progress.Token.IsCancellationRequested) return;
-                progress.SetStatus("Reading the project's guideline and type catalogue…");
-                standards = await fetch.ConfigureAwait(false);
-                if (progress.Token.IsCancellationRequested) return;
-                // MA-1a item 6 (review amendment C7): a guideline that could not be read is not "no block".
-                if (PlacementPolicy.UnreadRefusal(standards.GuidelineSource.Origin, standards.GuidelineSource.NotInstalled || standards.GuidelineSource.NoProject,
-                                                  !string.IsNullOrWhiteSpace(key), standards.GuidelineSource.Reason) is { } unread)
-                {
-                    progress.Dispatcher.Invoke(() => { progress.Close(); TaskDialog.Show("Sentinel — Massing", unread); });
-                    return;
-                }
-                // MA-1a item 6, the office-template check: refused when the model holds none of the office types.
-                var (officeHave, officeAll) = standards.Guideline.OfficeTypesIn(loadedTypes);
-                if (PlacementPolicy.TemplateRefuses(officeHave, officeAll))
-                {
-                    string refused = PlacementPolicy.TemplateRefusal(officeAll, standards.CatalogSource.Label);
-                    progress.Dispatcher.Invoke(() => { progress.Close(); TaskDialog.Show("Sentinel — Massing", refused); });
-                    return;
-                }
-                templateLine = PlacementPolicy.TemplateLine(standards.Guideline.HasCatalog, officeHave, officeAll, standards.CatalogSource.Label);
-                var orchestrator = new GhostBuilderOrchestrator(doc, mapper: null, minConfidence: 0,
-                                                                familyLibraryDir: libraryDir, guideline: standards.Guideline,
-                                                                placeholderTypes: true); // LOD 100: default types, declared
 
                 progress.Dispatcher.Invoke(() =>
                 {
                     progress.Close();
-                    review = new MassingReviewWindow(estimate); // MAS-4: the Completed handler closes or reopens it
+                    var review = new MassingReviewWindow(estimate); // closed once the changeset is filed, reopened with why otherwise
                     new System.Windows.Interop.WindowInteropHelper(review) { Owner = c.Application.MainWindowHandle };
                     review.BuildRequested += corrected =>
                     {
-                        var plan = MassingPlanner.Plan(corrected, defaultWallThicknessMm: 200);
-                        var (elements, mapping) = MassingBuilder.ToBuildInputs(plan);
-                        // Final review (E7): the images are the stamp's source only when the build still holds a number the
-                        // vision model gave — not when Ollama was down or answered badly, or the reviewer replaced them all.
-                        stampSha = MassingPlanner.HasModelValue(corrected) ? imagesSha : null;
-                        receipt = new BuildReceipt.Facts { Seconds = readerClock.Elapsed.TotalSeconds, Candidates = elements.Count };
+                        var receipt = new BuildReceipt.Facts { Seconds = readerClock.Elapsed.TotalSeconds };
                         receipt.Models.Add(visionUsage);
                         receipt.Parameters["images_read"] = Math.Min(MassingVisionReader.CountImages(folder), MassingVisionReader.MaxImages);
-                        receipt.Parameters["guideline"] = standards.GuidelineSource.Label;
-                        receipt.Parameters["type_catalogue"] = standards.CatalogSource.Label;
-                        placementEvent.SetRequest(orchestrator, elements, mapping, stampSha, standards.Guideline.Placement); // MA-1a item 6
-                        // SEC-7: through the event hub — a request Revit does not take at once is held, said in the Doctor log and
-                        // raised again (never lost), so Build stays disabled until Completed; only a missing hub reopens the review
-                        // (MAS-4 review C12's words).
+                        // Final review (E7): the images are the source only while the numbers still hold one the vision model gave.
+                        receipt.Parameters["images_sha256"] = MassingPlanner.HasModelValue(corrected) ? imagesSha : null;
+                        receipt.Parameters["openings_seen"] = MassingPlanner.OpeningsSeen(corrected); // D12: counted, never placed
+                        // SEC-7, amendment 4: planned on Revit's thread in this model when the person files — the levels read then, not when
+                        // the review opened (a level added since would give a duplicate name, and Apply would decline the changeset for good).
                         if (App.Events is null) { review.Reopen(MassingPlanner.NotStarted("Sentinel's event hub is not running — restart Revit")); return; }
-                        App.Events.Enqueue(ua => placementEvent.Execute(ua), "place the massing build");
+                        App.Events.Enqueue(doc, "plan Photo Massing", (u, d) => PlanAndFile(d, cfg, key, corrected, review, receipt),
+                            why => review.Reopen(MassingPlanner.NotStarted(why)));
                     };
                     review.Show();
                 });
@@ -165,7 +121,7 @@ public sealed class MassingFromImagesCommand : IExternalCommand
             catch (OperationCanceledException) { progress.Dispatcher.Invoke(progress.Close); }
             catch (Exception ex)
             {
-                progress.Dispatcher.Invoke(() => { progress.Close(); TaskDialog.Show("Sentinel — Massing", ex.Message); });
+                progress.Dispatcher.Invoke(() => { progress.Close(); TaskDialog.Show(Title, ex.Message); });
             }
         });
 
@@ -173,102 +129,74 @@ public sealed class MassingFromImagesCommand : IExternalCommand
         return Result.Succeeded;
     }
 
-    // MAS-4: select and zoom to what the build placed — NewElements still in the model, the same elements "Placed" counts.
-    // The line prints what Revit holds selected afterwards, read back (review amendment C11). Runs inside the placement event, after its transaction ended (a selection is no
-    // model change). DocPin.Check let the build run only in this command's own model, so uidoc is the active one. A refusal
-    // by Revit (no view can show them) is one line of the summary; the build stands.
-    private static string SelectPlaced(UIDocument uidoc, GhostPlacementEngine.PlacementReport report)
+    // MA-6-6: on Revit's thread in the model the command started from (DocPin) — the key and the guard asked again, the levels read, the
+    // body planned (MassingPlanner.Changeset), then filed off Revit's thread as Shell a Mass files (review C11: signed in, the person's token
+    // or none, never the PC's), the review guard held until the bridge has answered. Filed: the receipt, the review closes and Review AI
+    // Proposals opens on the changeset. Not filed: the review reopens with why. A Photo Massing changeset already waiting is opened instead.
+    private static void PlanAndFile(Document doc, BcfConfig cfg, string key, MassingEstimate corrected, MassingReviewWindow review, BuildReceipt.Facts receipt)
     {
-        var ids = report.NewElements.Select(n => n.Id).Where(id => uidoc.Document.GetElement(id) != null).ToList();
-        try
+        if (ProjectContext.For(doc).Key != key) { review.Reopen(MassingPlanner.NotStarted($"this model's project changed since the images were read (was {key}) — run Photo Massing again")); return; }
+        if (ReviewChangesetsCommand.Held) { review.Reopen(MassingPlanner.NotStarted(ReviewChangesetsCommand.Busy)); return; }
+        var levels = ChangesetExecutor.Stories(doc).Select(l => (l.Name, l.ElevationMm, l.IsStory)).ToList();
+        var actor = UserSession.Actor;
+        var (body, refusal) = MassingPlanner.Changeset(corrected, levels, actor);
+        if (refusal != null) { review.Reopen(MassingPlanner.NotStarted(refusal)); return; }
+
+        ReviewChangesetsCommand.Hold(); // released once the bridge has answered
+        var pane = System.Windows.Threading.Dispatcher.CurrentDispatcher;
+        var title = doc.Title;
+        var fileCfg = BcfConfig.Load(); if (UserSession.IsSignedIn) fileCfg.FileToken = "";
+        App.PanelVm?.LogDoctor("Photo Massing: filing the changeset off Revit's thread — the review opens by itself in this model once the bridge has answered.");
+        Task.Run(() =>
         {
-            uidoc.Selection.SetElementIds(ids);
-            uidoc.ShowElements(ids);
-            return MassingPlanner.SelectedLine(uidoc.Selection.GetElementIds().Count, ids.Count);
-        }
-        catch (Exception ex) { return MassingPlanner.NotSelectedLine(ex.Message); }
+            ChangesetDto cs = null, waiting = null;
+            string err = null;
+            try
+            {
+                // MA-6-6 review fix: a Photo Massing changeset still waiting for review is opened instead, as Shell a Mass and Promote do — a
+                // second would create the same "Massing Lnn" levels (its Apply declined for good, D16) and a second mass on the first.
+                var pending = ChangesetClient.FetchProposed(cfg, key, out err);
+                waiting = pending?.FirstOrDefault(p => p.Source == "photo");
+                if (pending != null && waiting == null) cs = ChangesetClient.Propose(fileCfg, key, body, out err);
+            }
+            catch (Exception ex) { err = $"{ex.GetType().Name}: {ex.Message}"; }
+            finally { ReviewChangesetsCommand.Release(); }
+            if (waiting != null)
+            {
+                _ = review.Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (review.IsVisible) review.Reopen(MassingPlanner.NotStarted($"\"{waiting.Name}\" already waits for review — it opens now: apply or decline it first"));
+                }));
+                cs = waiting;
+            }
+            else if (cs == null)
+            {
+                _ = review.Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (review.IsVisible) review.Reopen(MassingPlanner.ReopenStatus);
+                    TaskDialog.Show(Title, "Photo Massing was not filed — " + (err ?? "the bridge did not take it") + "\n\nNothing was placed; nothing in the model changed.");
+                }));
+                return;
+            }
+            else
+            {
+                try
+                {
+                    // MA-1a item 8: the build:run receipt — the vision model's run and what it filed (the counts ride on it, D12).
+                    receipt.Candidates = cs.Elements?.Count ?? 0;
+                    GovernedNotify.Report("Photo Massing receipt", BuildReceipt.Run("photo-massing", BuildReceipt.AddinSha256, receipt, 0, new List<string> { cs.Id }, actor), key, pane);
+                }
+                catch (Exception ex) { App.PanelVm?.LogDoctor($"Photo Massing's receipt was not sent — {ex.GetType().Name}: {ex.Message}"); }
+                App.PanelVm?.LogDoctor($"Photo Massing: \"{cs.Name}\" filed (confirmed by the bridge) — the filing is done.");
+                _ = review.Dispatcher.BeginInvoke(new Action(() => { if (review.IsVisible) review.Close(); }));
+            }
+            string NotOpened(string why) => why + $"\n\n\"{cs.Name}\" waits for review — in \"{title}\", run Review AI Proposals.";
+            App.Events.Enqueue(doc, "open the review of Photo Massing", (u, d) =>
+            {
+                if (ProjectContext.For(d).Key != key) { TaskDialog.Show(Title, NotOpened($"This model's project changed while Photo Massing filed (was {key})")); return; }
+                if (ReviewChangesetsCommand.Held) { TaskDialog.Show(Title, NotOpened(ReviewChangesetsCommand.Busy)); return; }
+                ReviewChangesetsCommand.Open(u, d, cfg, key, new[] { cs });
+            }, why => TaskDialog.Show(Title, NotOpened(why)));
+        });
     }
-
-    private static string Summarize(GhostPlacementEngine.PlacementReport r, GhostStandards s, string template = null)
-    {
-        if (r is null) return "No report returned.";
-        var sb = new System.Text.StringBuilder();
-        // What typed this massing, first: the project's guideline and type catalogue, a none named as none.
-        sb.AppendLine("Guideline: " + s.GuidelineSource.Label + " · Type catalogue: " + s.CatalogSource.Label);
-        if (s.CatalogSource.Origin == "none") sb.AppendLine(GhostBuilderCommand.CatalogueNotChecked(s));
-        if (template != null) sb.AppendLine(template); // MA-1a item 6: the office-template check
-        sb.AppendLine();
-        if (r.RolledBack != null) return sb.AppendLine(GhostFailurePolicy.NotBuiltLine(r.RolledBack)).ToString();
-        if (r.NotFinished != null) return sb.AppendLine(r.NotFinished).ToString(); // A6
-        sb.AppendLine(GhostFailurePolicy.PlacedLine(r.Placed, r.DeletedByRevit));
-        sb.AppendLine(GhostBuilderCommand.WallsLine(r, s));
-        if (r.SkippedUnknownFamily > 0) sb.AppendLine($"Skipped (type or family not in the model): {r.SkippedUnknownFamily}");
-        var revitWarnings = GhostFailurePolicy.WarningsLine(r.RevitWarnings);
-        if (revitWarnings != null) sb.AppendLine(revitWarnings);
-        if (r.CreatedTypes.Count > 0)
-        {
-            sb.AppendLine().AppendLine($"Added {r.CreatedTypes.Count} type(s) or family(ies) to the model:");
-            foreach (var t in r.CreatedTypes) sb.AppendLine($"  + {t}");
-        }
-        // MA-1a item 6: what the placement block did — a result of the build, not a note.
-        if (r.Placement.Count > 0)
-        {
-            sb.AppendLine();
-            foreach (var p in r.Placement) sb.AppendLine(p);
-        }
-        if (r.Warnings.Count > 0)
-        {
-            sb.AppendLine().AppendLine("Notes:");
-            foreach (var g in r.Warnings.GroupBy(w => w).OrderByDescending(g => g.Count()))
-                sb.AppendLine(g.Count() > 1 ? $"  • {g.Key}  (×{g.Count()})" : $"  • {g.Key}");
-        }
-        return sb.ToString();
-    }
-}
-
-/// <summary>PHASE 3 handoff for massing placement — mirrors GhostBuilderPlacementEvent. Places the
-/// prepared elements on the API thread via the orchestrator's PlacePrepared (skips DWG face-pairing).</summary>
-public sealed class MassingPlacementEvent : IExternalEventHandler
-{
-    private GhostBuilderOrchestrator _orchestrator;
-    private System.Collections.Generic.List<GhostElement> _elements;
-    private MappingResult _mapping;
-    private string _imagesSha; // MA-1a item 4: the images read, for the stamp
-    private GuidelinePlacement _placement; // MA-1a item 6: the guideline's placement block; null = none
-
-    public event Action<GhostPlacementEngine.PlacementReport, Exception> Completed;
-
-    public void SetRequest(GhostBuilderOrchestrator orchestrator,
-                           System.Collections.Generic.List<GhostElement> elements, MappingResult mapping, string imagesSha,
-                           GuidelinePlacement placement = null)
-    {
-        _orchestrator = orchestrator; _elements = elements; _mapping = mapping; _imagesSha = imagesSha; _placement = placement;
-    }
-
-    public void Execute(UIApplication app)
-    {
-        var orch = _orchestrator; var els = _elements; var map = _mapping; var sha = _imagesSha; var placement = _placement;
-        _orchestrator = null; _elements = null; _mapping = null; _imagesSha = null; _placement = null;
-        try
-        {
-            if (orch == null) throw new InvalidOperationException("No massing request staged.");
-            // XC-1 (review amendment C17): the review window is modeless — build only while the model the command was
-            // started on is the active one, so the active view (and its phase) is that model's.
-            if (DocPin.Check(app, orch.Doc, "build the massing") is { } pinned) throw new InvalidOperationException(pinned);
-            // MA-1a item 6: never into a design option, and never onto a workset the model does not have — both said
-            // before the transaction.
-            if (PlacementApply.DesignOptionRefusal(orch.Doc, "build the massing") is { } inOption) throw new InvalidOperationException(inOption);
-            // Only the kinds of the layers this plan staged are asked for (review amendment C8): a massing with no
-            // openings needs no Doors or Windows workset.
-            var kinds = map?.Mappings == null || els == null ? new System.Collections.Generic.List<string>()
-                : map.Mappings.Where(m => els.Any(e => e.CadLayer == m.CadLayer)).Select(m => PlacementPolicy.KindOf(m.Category))
-                     .Where(k => k != null).Distinct().ToList();
-            var placing = PlacementApply.Resolve(orch.Doc, placement, app.ActiveUIDocument?.ActiveView, kinds, out var noWorkset);
-            if (placing == null) throw new InvalidOperationException(noWorkset);
-            Completed?.Invoke(orch.PlacePrepared(els, map, imagesSha256: sha, placing: placing), null);
-        }
-        catch (Exception ex) { Completed?.Invoke(null, ex); }
-    }
-
-    public string GetName() => "Sentinel Massing - Placement";
 }
