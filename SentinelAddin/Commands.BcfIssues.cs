@@ -286,6 +286,8 @@ public sealed class BcfIssuesCommand : IExternalCommand
                         ticked = ticked.Where(r => r.Proposed.Trim().Length > 0).ToList();
                         if (ticked.Count == 0) { fix.SetStatus("Enter a value in at least one ticked row, then Check."); fix.SetBusy(false); return; }
                         var payload = FixInPlaceService.ExtractPatched(d, projectKey, plan, ticked, req, org);
+                        // MA-6-5 review: an element now exported outside the requirement's classes (a curtain wall) has no verdict on it.
+                        if (FixPlan.OutsideRequirement(payload, req, org) is { } outside) { fix.SetStatus(outside); fix.SetBusy(false); return; }
                         var expected = ticked.SelectMany(r => r.InstanceIds).Distinct().Count();
                         var keys = new HashSet<string>(ticked.Select(r => r.Key));
                         Task.Run(() =>
@@ -351,6 +353,10 @@ public sealed class BcfIssuesCommand : IExternalCommand
                 {
                     if (!SameDoc(ua2)) return;
                     var payload = FixInPlaceService.Extract(d, projectKey, plan, plan.Rows, org);
+                    // MA-6-5 review: a curtain wall on an open IFCWALL issue is IFCCURTAINWALL now — "no failure" would certify an
+                    // unwritten value, so nothing is sent and nothing certified; a fresh Publish raises the issue it belongs to.
+                    if (FixPlan.OutsideRequirement(payload, req, org) is { } outside)
+                    { fix.SetStatus((applied ? "Applied. NOT verified — " : "") + outside); fix.SetBusy(false); return; }
                     var expected = plan.Rows.SelectMany(r => r.InstanceIds).Distinct().Count();
                     var keys = new HashSet<string>(plan.Rows.Select(r => r.Key));
                     Task.Run(async () =>

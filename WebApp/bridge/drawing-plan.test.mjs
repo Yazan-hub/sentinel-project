@@ -70,6 +70,10 @@ describe("planDrawing — one changeset per drawing, every element inferred and 
     const filed = els(p).filter((e) => seen.has(e.cid));
     expect(filed.some((e) => e.kind === "wall")).toBe(true);
     for (const e of filed) expect(seen.get(e.cid), e.cid).toBe(e.place.LevelName);
+    // review: both doors are gaps in DRILL — each is typed with its storey's level all the same (drawing-plan's typeOpening site)
+    const doors = [...seen.keys()].filter((cid) => cid.includes("-door-"));
+    expect(doors).toHaveLength(2);
+    for (const cid of doors) expect(seen.get(cid), cid).toBe(p.storeys[0].storey.level);
   });
   it("the drill on the BDS layer-free standards: a created level, four walls cornered and typed, the 250 mm wall and both doors gaps", () => {
     const p = plan();

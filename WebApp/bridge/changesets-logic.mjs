@@ -377,8 +377,9 @@ export function validateChangeset(body, { member = false, type = null, cite = nu
     let typed = null; // the bridge's typing of this element, when it had to type it
     const typeIt = () => {
       // MA-6-5 (amendment 9a): the element's level, so a rule's when.level (a facade rule) answers an agent's facts as it does the add-in's —
-      // text only: this runs before the LevelName and BaseLevel checks below, and the resolver trims it.
-      const level = [place.LevelName, place.BaseLevel].find((s) => text(s, 256));
+      // text only: this runs before the LevelName and BaseLevel checks below, and the resolver trims it. A create only (review): a retype's
+      // element stays on its own level, which the poster does not state and Apply never checks.
+      const level = op === "create" ? [place.LevelName, place.BaseLevel].find((s) => text(s, 256)) : undefined;
       typed = type(el.kind, facts, at, level); // a 400 in the typer's words when it cannot
       place.TypeName = typed.TypeName;
       // MA-6-3 review fix: the bridge types the family too, in the rule's spelling — a posted family other than the rule's would store a
@@ -502,6 +503,10 @@ export function validateChangeset(body, { member = false, type = null, cite = nu
         ...(op === "reshape" ? { placed: { start: el.target.placed.start, end: el.target.placed.end } } : {}),
         ...(op === "rehost" ? { at: el.target.at } : {}) };
     }
+    // MA-6-5 review: the add-in reads these into string properties (ChangesetClient PlaceDto) — one stored as a number would fail the
+    // whole project's proposed list in Revit, whatever op or kind did not check it. Last, so an op's or kind's own words win.
+    for (const f of ["TypeName", "LevelName", "Name", "BaseLevel", "TopLevel", "FamilyName", "Mark", "Number"])
+      if (place[f] != null && typeof place[f] !== "string") throw err(400, `${at}: place.${f} must be text`);
     if (el.reason != null && !text(el.reason, 500)) throw err(400, `${at}: reason must be text of at most 500 characters`);
     if (validate.psets !== undefined && !Array.isArray(validate.psets)) throw err(400, `${at}: validate.psets must be an array`);
     if (validate.quantities !== undefined && !Array.isArray(validate.quantities)) throw err(400, `${at}: validate.quantities must be an array`);

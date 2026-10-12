@@ -56,10 +56,11 @@ namespace Sentinel.GhostBuilder
                 catch (Exception ex) { f.Storeys.Add((null, null, $"Revit could not cut the mass at {a.Name} — {ex.Message}")); }
             }
 
-            // Amendment 6c: wall types grouped by name, case-insensitive, a basic one first (ResolveWallType's pick); a basic one's width only.
+            // Amendment 6c: wall types grouped by name, case-insensitive, a basic one first, then a curtain one (ResolveWallType's pick with
+            // curtainOk, MA-6-5 review); a basic one's width only.
             foreach (var g in new FilteredElementCollector(doc).OfClass(typeof(WallType)).Cast<WallType>().GroupBy(t => t.Name, StringComparer.OrdinalIgnoreCase))
             {
-                var t = g.FirstOrDefault(x => x.Kind == WallKind.Basic) ?? g.First();
+                var t = g.FirstOrDefault(x => x.Kind == WallKind.Basic) ?? g.FirstOrDefault(x => x.Kind == WallKind.Curtain) ?? g.First();
                 f.WallTypes[g.Key] = (t.Kind.ToString(), t.Kind == WallKind.Basic ? t.Width * FtToMm : 0);
             }
             foreach (var t in new FilteredElementCollector(doc).OfClass(typeof(FloorType)).Cast<FloorType>().Where(t => !t.IsFoundationSlab)) f.FloorTypes.Add(t.Name);

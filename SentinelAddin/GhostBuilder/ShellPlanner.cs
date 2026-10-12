@@ -28,7 +28,8 @@ namespace Sentinel.GhostBuilder
         public List<(List<double[]> Bottom, List<double[]> Top, string Why)> Storeys = new List<(List<double[]>, List<double[]>, string)>();
         /// <summary>How far the mass rises above the top level and reaches below the lowest (mm; about 0 when it ends at the level).</summary>
         public double RiseMm, BelowMm;
-        /// <summary>The model's wall types by name (case-insensitive, a basic one first, as ResolveWallType picks): its kind and a basic one's width.</summary>
+        /// <summary>The model's wall types by name (case-insensitive, a basic one first, then a curtain one, as ResolveWallType picks with curtainOk):
+        /// its kind and a basic one's width.</summary>
         public Dictionary<string, (string Kind, double WidthMm)> WallTypes = new Dictionary<string, (string, double)>(StringComparer.OrdinalIgnoreCase);
         public HashSet<string> FloorTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase), RoofTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         /// <summary>MA-6-5: the project's True North angle (degrees, ProjectPosition.Angle) — each wall's Facade (N/E/S/W) is read against it.</summary>
@@ -193,11 +194,12 @@ namespace Sentinel.GhostBuilder
         }
 
         // The DD rule's exact answer for these facts, in the catalogue and loaded in this model (loaded(type) = why not, or null) — else null
-        // and why. `used` names the facts the rule matched ("Location Exterior").
+        // and why. `used` names the facts the rule matched ("Location Exterior"), its level first when it matched one (MA-6-5 review: a facade
+        // rule's "level FC L00, Location Exterior" is not the plain Location Exterior rule).
         private static string TypeOf(GuidelineMatcher m, string category, string level, Dictionary<string, string> ps, Func<string, string> loaded, out string why, out string used)
         {
             var r = m.Resolve(new GuidelineInput { Category = category, Level = level, Params = ps });
-            used = PromoteWallsPlanner.What(ps, r.Matched);
+            used = (r.Matched?.Contains("level") == true ? $"level {level}, " : "") + PromoteWallsPlanner.What(ps, r.Matched);
             why = r.Source != "rule" ? $"no DD rule for {used} in {m.Standard}" + (r.Source == "default" ? " (its default is not an exact answer)" : "")
                 : string.IsNullOrWhiteSpace(r.Type) ? Thickness
                 : r.Confidence != 1 ? m.Gap($"{category} on {level} ({used})", r.Why)

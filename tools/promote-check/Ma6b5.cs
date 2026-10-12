@@ -53,10 +53,10 @@ static partial class Check
         Ok(Enumerable.Range(0, 4).All(k => At(l0[k], "start").Take(2).SequenceEqual(sq[k]) && At(l0[k], "end").Take(2).SequenceEqual(sq[(k + 1) % 4]))
            && At(l1[3], "start").SequenceEqual(new double[] { 19850, 0, 4000 }) && At(l1[3], "end").SequenceEqual(new double[] { 150, 0, 4000 })
            && At(l1[2], "start").SequenceEqual(new double[] { 19850, 9850, 4000 }) && At(l1[2], "end").SequenceEqual(new double[] { 19850, 0, 4000 })
-           && (string)l1[3]["reason"] == "Shell of mass 52344 · FC L01→FC L02 · rule Facade S → M_Exterior Glazing, inset 0 mm"
+           && (string)l1[3]["reason"] == "Shell of mass 52344 · FC L01→FC L02 · rule level FC L01, Facade S → M_Exterior Glazing, inset 0 mm"
            && (string)l1[2]["reason"] == "Shell of mass 52344 · FC L01→FC L02 · rule Location Exterior → BDS_EXT_ARC_CMU_300 mm, inset 150 mm"
-           && (string)l0[0]["reason"] == "Shell of mass 52344 · FC L00→FC L01 · rule Location Exterior → M_Storefront, inset 0 mm",
-           "a curtain wall's line is the mass face (inset 0); the CMU beside it is inset 150 mm and runs to the face line — the south glazing between the CMU centrelines");
+           && (string)l0[0]["reason"] == "Shell of mass 52344 · FC L00→FC L01 · rule level FC L00, Location Exterior → M_Storefront, inset 0 mm",
+           "a curtain wall's line is the mass face (inset 0); the CMU beside it is inset 150 mm and runs to the face line — the south glazing between the CMU centrelines; a facade rule's reason names its level (review), the plain rule's does not");
         Ok(string.Concat(l1.Select(e => (string)e["facts"]["params"]["Facade"])) == "WNES" && l1.All(e => (string)e["facts"]["params"]["Location"] == "Exterior")
            && (string)l1[3]["validate"]["identity"]["Class"] == "IFCWALL",
            "each wall's facts carry its Facade with Location Exterior — the record of what the rule saw; the bridge still sets the kind's class");
@@ -83,9 +83,9 @@ static partial class Check
         WallFact Cw(string type, string uid) => new WallFact { UniqueId = "5a1c7e2b-3f4d-4c8a-9b1e-2d3c4b5a6f70-" + uid, Label = "W " + uid, TypeName = type, BaseLevel = "FC L00", TopLevel = "FC L01", Curtain = true };
         var promoted = PromoteWallsPlanner.Plan(new[] { Cw("M_Storefront", "0000c001"), Cw("Curtain Wall 1", "0000c002") }, levels, new Dictionary<string, string>(), shell).Single();
         Ok(promoted.Walls == 2 && promoted.DdNow == 1 && promoted.Settled.Count == 0 && promoted.Ghosts.Count == 0
-           && promoted.Held.Count == 1 && promoted.Held[0].Label == "W 0000c002" && promoted.Held[0].Reason == "not a basic wall — Promote v0 types basic walls only"
+           && promoted.Held.Count == 1 && promoted.Held[0].Label == "W 0000c002" && promoted.Held[0].Reason == "a curtain wall on \"Curtain Wall 1\", a type no DD rule produces — Promote does not retype curtain walls; a rule that names it, or a person, decides"
            && promoted.Lod.Any(l => l.UniqueId.EndsWith("0000c001") && l.RulesOk) && promoted.Lod.Any(l => l.UniqueId.EndsWith("0000c002") && l.Blocked),
-           "Promote: a curtain wall on M_Storefront (a facade rule's type) is settled and DD now, its type's properties not asked; one on an unruled curtain type is still blocked as not a basic wall");
+           "Promote: a curtain wall on M_Storefront (a facade rule's type) is settled and DD now, its type's properties not asked; one on an unruled curtain type is still blocked, in words that say what would settle it (review)");
 
         // The executor: curtainOk only at the two create sites (Execute's and NotLoaded's); a retype and Ghost stay basic.
         string ex = Src("GhostBuilder", "ChangesetExecutor.cs");
@@ -114,7 +114,15 @@ static partial class Check
         // The wiring: the shell passes curtain and reads True North; Promote reads a wall's curtain type.
         Ok(Src("Commands.ShellMass.cs").Contains("var plan = ShellPlanner.Plan(facts, m, curtain: true);")
            && Src("GhostBuilder", "ShellReader.cs").Contains("TrueNorthDeg = doc.ActiveProjectLocation.GetProjectPosition(XYZ.Zero).Angle * 180 / Math.PI")
-           && Src("Commands.PromoteWalls.cs").Contains("Curtain = wt?.Kind == WallKind.Curtain,"),
-           "Shell a Mass plans with curtain and the project's True North; Promote's wall facts say a curtain type");
+           && Src("Commands.PromoteWalls.cs").Contains("Curtain = wt?.Kind == WallKind.Curtain,")
+           && Src("GhostBuilder", "ShellReader.cs").Contains("g.FirstOrDefault(x => x.Kind == WallKind.Basic) ?? g.FirstOrDefault(x => x.Kind == WallKind.Curtain) ?? g.First();"),
+           "Shell a Mass plans with curtain and the project's True North; Promote's wall facts say a curtain type; the reader picks a name's basic type, then its curtain one, as ResolveWallType does with curtainOk (review)");
+
+        // Review: fix-in-place refuses a payload element outside the requirement's classes (a curtain wall on an IFCWALL issue) at Check and
+        // Re-check, before the bridge — never certified off "no failure". The logic is tools/fixplace-check's.
+        string bcf = Src("Commands.BcfIssues.cs");
+        Ok(Count(bcf, "FixPlan.OutsideRequirement(payload, req, org) is { } outside") == 2
+           && bcf.IndexOf("FixPlan.OutsideRequirement", bcf.IndexOf("void Recheck(", StringComparison.Ordinal), StringComparison.Ordinal) < bcf.IndexOf("GovernedNotify.Propose", bcf.IndexOf("void Recheck(", StringComparison.Ordinal), StringComparison.Ordinal),
+           "fix-in-place: Check and Re-check refuse an element exported outside the issue's requirement (a curtain wall is IFCCURTAINWALL now) before anything is sent or certified");
     }
 }

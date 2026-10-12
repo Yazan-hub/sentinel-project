@@ -321,5 +321,25 @@ describe("the shell guideline's facade rules (MA-6-5): the bridge types with the
 
   it("amendment 9a: a level that is not text never reaches the resolver — the wall's own level check answers, a 400, not a 500", () => {
     refused(() => validateChangeset({ name: "Facade", source: "test-agent", elements: [wall({ LevelName: 5 })] }, { type: t }), /a wall needs place\.LevelName or place\.BaseLevel/);
+    // review: a non-text level beside a text one is refused too — never stored, where the add-in's PlaceDto would fail the project's list
+    refused(() => validateChangeset({ name: "Facade", source: "test-agent", elements: [wall({ LevelName: 5, BaseLevel: "FC L01" })] }, { type: t }), /place\.LevelName must be text/);
+    for (const [f, v] of [["LevelName", 5], ["BaseLevel", {}]]) // a retype checks neither — the generic check does
+      refused(() => validateChangeset({ name: "Facade", source: "test-agent", elements: [{ op: "retype", kind: "wall", target: { unique_id: "5a1c2b3d-1111-2222-3333-444455556666-0004c3f8" },
+        place: { TypeName: "BDS_EXT_ARC_CMU_300 mm", [f]: v }, validate: { identity: { Class: "IFCWALL", Name: "W1" } } }] }, { type: t }), new RegExp(`place\\.${f} must be text$`));
+  });
+
+  it("review: Facade is one letter — a spelled-out side would match a one-letter rule by substring ('West' holds an 's')", () => {
+    for (const side of ["West", "East", "s", "SW", " S"])
+      refused(() => validateChangeset({ name: "Facade", source: "test-agent", elements: [{ ...wall({ LevelName: "FC L01" }), facts: { params: { Location: "Exterior", Facade: side } } }] }, { type: t }),
+        /facts\.params\.Facade is one letter, N, E, S or W/);
+    refused(() => checkFacts({ params: { " fa cade ": "West" } }, "e"), /Facade is one letter/); // the matcher's name test: case and whitespace ignored
+    expect(checkFacts({ params: { Facade: "W", Location: "Exterior" } }, "e")).toEqual({ params: { Facade: "W", Location: "Exterior" } });
+  });
+
+  it("review: a retype is typed without the poster's level — a facade rule never answers it (its element stays on its own level)", () => {
+    const v = validateChangeset({ name: "Facade", source: "test-agent", elements: [{ op: "retype", kind: "wall", facts: FACADE,
+      target: { unique_id: "5a1c2b3d-1111-2222-3333-444455556666-0004c3f8" }, place: { BaseLevel: "FC L01" }, validate: { identity: { Class: "IFCWALL", Name: "W1" } } }] }, { type: t });
+    expect(v.elements[0].place.TypeName).toBe("BDS_EXT_ARC_CMU_300 mm");
+    expect(v.elements[0].typing.input).not.toHaveProperty("level");
   });
 });

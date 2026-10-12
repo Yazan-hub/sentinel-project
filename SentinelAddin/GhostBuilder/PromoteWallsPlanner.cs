@@ -205,7 +205,13 @@ namespace Sentinel.GhostBuilder
 
                     // Whole-wall holds: nothing is proposed for these walls.
                     // MA-6-5 (D4): a curtain wall on a type a DD rule produces (a facade rule) is settled — only its top is judged.
-                    if (!w.IsBasic && !(w.Curtain && m.RuleProduces("Walls", w.TypeName))) { Block("not a basic wall — Promote v0 types basic walls only"); continue; }
+                    if (!w.IsBasic && !(w.Curtain && m.RuleProduces("Walls", w.TypeName)))
+                    {
+                        // MA-6-5 review: a curtain wall is settled when a rule produces its type — say what would settle this one.
+                        Block(w.Curtain ? $"a curtain wall on \"{w.TypeName}\", a type no DD rule produces — Promote does not retype curtain walls; a rule that names it, or a person, decides"
+                            : "not a basic wall — Promote v0 types basic walls only");
+                        continue;
+                    }
                     if (w.InGroup) { Block("in a group — Sentinel does not edit group members"); continue; }
                     if (w.InOption) { Block("in a design option — Sentinel does not edit design options"); continue; }
                     if (baseLevel == null || !baseLevel.IsStory)

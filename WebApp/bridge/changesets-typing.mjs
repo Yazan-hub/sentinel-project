@@ -43,6 +43,9 @@ export function checkFacts(f, at) {
     for (const k of keys) {
       if (!text(k, 64) || CONTROL_CHAR.test(k)) throw err(400, `${at}: facts.params has a parameter name that is not one line of at most 64 characters`);
       if (!text(f.params[k], 256) || CONTROL_CHAR.test(f.params[k])) throw err(400, `${at}: facts.params.${k.replace(CONTROL_CHAR, " ").slice(0, 64)} must be one line of text of at most 256 characters`);
+      // MA-6-5 review: a rule's param matches by substring ("West" and "East" hold an "s"), so a facade rule fires only on the one letter.
+      if (k.replace(/\s+/g, "").toLowerCase() === "facade" && !/^[NESW]$/.test(f.params[k])) // the matcher's name test
+        throw err(400, `${at}: facts.params.Facade is one letter, N, E, S or W (the side the wall faces against True North)`);
     }
     out.params = { ...f.params };
   }

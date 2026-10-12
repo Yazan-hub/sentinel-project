@@ -139,6 +139,18 @@ public static class FixPlan
         return res;
     }
 
+    /// MA-6-5 review: since 6-5 a curtain wall is extracted as IFCCURTAINWALL, and PsetMap reads Pset_WallCommon for IFCWALL only. An
+    /// element outside the classes the issue's requirement is read for gets no verdict on it, while inScope (whole-payload) still counts it
+    /// when any other specification applies, so "no failure" would read as a pass. Returns the first such element in words, or null.
+    /// A requirement PsetMap does not map (or an unmapped attribute) is not judged here.
+    public static string? OutsideRequirement(IEnumerable<GovElement> payload, IdsIssueRef req, string? org)
+    {
+        if (PsetMap.Find(org, req.Requirement) == null) return null;
+        var el = payload.FirstOrDefault(p => !PsetMap.Readable(org, p.identity?.Class).Contains(req.Requirement, StringComparer.OrdinalIgnoreCase));
+        return el == null ? null
+            : $"element {el.localId} is exported as {el.identity?.Class} now; the issue's requirement {req.Requirement} does not apply to it — re-publish to raise a fresh issue; nothing certified";
+    }
+
     /// The bridge truncates its failure list, and judges only what is in scope — so "no failure came back"
     /// is only evidence of passing when everything sent was judged and the list was not cut off. Returns
     /// false (with the reason) whenever the response cannot be read as a verdict on every element sent.

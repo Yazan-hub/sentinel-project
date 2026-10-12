@@ -25,7 +25,8 @@
       },
       "facts": {
         "params": {
-          "Location": "Exterior"
+          "Location": "Exterior",
+          "Facade": "W"
         }
       },
       "reason": "Shell of mass 41233 · SH L0→SH L1 · rule Location Exterior → BDS_EXT_ARC_CMU_300 mm, inset 150 mm",
@@ -58,7 +59,8 @@
       },
       "facts": {
         "params": {
-          "Location": "Exterior"
+          "Location": "Exterior",
+          "Facade": "N"
         }
       },
       "reason": "Shell of mass 41233 · SH L0→SH L1 · rule Location Exterior → BDS_EXT_ARC_CMU_300 mm, inset 150 mm",
@@ -91,7 +93,8 @@
       },
       "facts": {
         "params": {
-          "Location": "Exterior"
+          "Location": "Exterior",
+          "Facade": "E"
         }
       },
       "reason": "Shell of mass 41233 · SH L0→SH L1 · rule Location Exterior → BDS_EXT_ARC_CMU_300 mm, inset 150 mm",
@@ -124,7 +127,8 @@
       },
       "facts": {
         "params": {
-          "Location": "Exterior"
+          "Location": "Exterior",
+          "Facade": "N"
         }
       },
       "reason": "Shell of mass 41233 · SH L0→SH L1 · rule Location Exterior → BDS_EXT_ARC_CMU_300 mm, inset 150 mm",
@@ -157,7 +161,8 @@
       },
       "facts": {
         "params": {
-          "Location": "Exterior"
+          "Location": "Exterior",
+          "Facade": "E"
         }
       },
       "reason": "Shell of mass 41233 · SH L0→SH L1 · rule Location Exterior → BDS_EXT_ARC_CMU_300 mm, inset 150 mm",
@@ -190,7 +195,8 @@
       },
       "facts": {
         "params": {
-          "Location": "Exterior"
+          "Location": "Exterior",
+          "Facade": "S"
         }
       },
       "reason": "Shell of mass 41233 · SH L0→SH L1 · rule Location Exterior → BDS_EXT_ARC_CMU_300 mm, inset 150 mm",
@@ -275,7 +281,8 @@
       },
       "facts": {
         "params": {
-          "Location": "Exterior"
+          "Location": "Exterior",
+          "Facade": "W"
         }
       },
       "reason": "Shell of mass 41233 · SH L1→SH L2 · rule Location Exterior → BDS_EXT_ARC_CMU_300 mm, inset 150 mm",
@@ -308,7 +315,8 @@
       },
       "facts": {
         "params": {
-          "Location": "Exterior"
+          "Location": "Exterior",
+          "Facade": "N"
         }
       },
       "reason": "Shell of mass 41233 · SH L1→SH L2 · rule Location Exterior → BDS_EXT_ARC_CMU_300 mm, inset 150 mm",
@@ -341,7 +349,8 @@
       },
       "facts": {
         "params": {
-          "Location": "Exterior"
+          "Location": "Exterior",
+          "Facade": "E"
         }
       },
       "reason": "Shell of mass 41233 · SH L1→SH L2 · rule Location Exterior → BDS_EXT_ARC_CMU_300 mm, inset 150 mm",
@@ -374,7 +383,8 @@
       },
       "facts": {
         "params": {
-          "Location": "Exterior"
+          "Location": "Exterior",
+          "Facade": "N"
         }
       },
       "reason": "Shell of mass 41233 · SH L1→SH L2 · rule Location Exterior → BDS_EXT_ARC_CMU_300 mm, inset 150 mm",
@@ -407,7 +417,8 @@
       },
       "facts": {
         "params": {
-          "Location": "Exterior"
+          "Location": "Exterior",
+          "Facade": "E"
         }
       },
       "reason": "Shell of mass 41233 · SH L1→SH L2 · rule Location Exterior → BDS_EXT_ARC_CMU_300 mm, inset 150 mm",
@@ -440,7 +451,8 @@
       },
       "facts": {
         "params": {
-          "Location": "Exterior"
+          "Location": "Exterior",
+          "Facade": "S"
         }
       },
       "reason": "Shell of mass 41233 · SH L1→SH L2 · rule Location Exterior → BDS_EXT_ARC_CMU_300 mm, inset 150 mm",
