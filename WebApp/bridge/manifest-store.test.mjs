@@ -11,6 +11,9 @@ function memDeps() {
   const k = (s, p, d) => `${s}|${p}|${d}`;
   return {
     docs, revisions, calls,
+    // CI: the unit tests never open web-ifc on stand-in bytes (COBie + walls took ~6 s on a CI runner and timed out); the walls test that reads a real IFC drops readWalls
+    measureCobie: async () => ({ total: 0, complete: 0, readiness: null, coverage: [], skipped: 0, unknown_classes: [], measured_at: "2026-10-13T00:00:00.000Z" }),
+    readWalls: async () => ({ reader: "sentinel-ifc", version: "stub", walls: [], levels: [], not_read: [] }),
     ensureProject: async (key) => ({ id: `uuid-${key}`, key }),
     extractManifest: async () => manifestA,
     createRevision: async (key, b) => { calls.push(["createRevision", key, b]); const id = `rev-${revisions.size + 1}`; revisions.set(id, b.snapshots); return { revision_id: id, element_count: b.snapshots.length }; },
@@ -115,7 +118,7 @@ describe("backfillManifest — only the version's own file", () => {
   describe("walls (MA-8-2)", () => {
     const FIX = readFileSync(new URL("./fixtures/ifc-geometry/concept-2storey.ifc", import.meta.url));
     it("captures the walls of a real IFC: plan mm, the level's NAME as storey, the reader's version; getManifest returns them", async () => {
-      const d = memDeps();
+      const { readWalls, ...d } = memDeps(); // the real reader
       await captureManifest("p", "v-1", FIX, { actor: "cli" }, d);
       const doc = d.docs.get("manifest|uuid-p|v-1");
       expect(doc.walls.length).toBeGreaterThan(0);
@@ -125,7 +128,7 @@ describe("backfillManifest — only the version's own file", () => {
       expect(w.z1).toBeGreaterThan(w.z0);
       expect(w.storey).not.toMatch(/^L\d\d$/); // a level's name, not the reader's file-local cid
       expect((await getManifest("p", "v-1", d)).walls).toEqual(doc.walls);
-    });
+    }, 30000); // web-ifc's first open is slow on a CI runner
     it("MA-8-4 (amendment 17): the default reader is asked for the walls alone", async () => {
       vi.resetModules();
       const seen = [];
