@@ -43,6 +43,9 @@ export function checkFacts(f, at) {
     for (const k of keys) {
       if (!text(k, 64) || CONTROL_CHAR.test(k)) throw err(400, `${at}: facts.params has a parameter name that is not one line of at most 64 characters`);
       if (!text(f.params[k], 256) || CONTROL_CHAR.test(f.params[k])) throw err(400, `${at}: facts.params.${k.replace(CONTROL_CHAR, " ").slice(0, 64)} must be one line of text of at most 256 characters`);
+      // MA-6-5 review: a rule's param matches by substring ("West" and "East" hold an "s"), so a facade rule fires only on the one letter.
+      if (k.replace(/\s+/g, "").toLowerCase() === "facade" && !/^[NESW]$/.test(f.params[k])) // the matcher's name test
+        throw err(400, `${at}: facts.params.Facade is one letter, N, E, S or W (the side the wall faces against True North)`);
     }
     out.params = { ...f.params };
   }
@@ -59,19 +62,20 @@ export function saidOf(facts) {
 /**
  * The typer validateChangeset calls for an element without place.TypeName. `standards` = { guideline, catalog }, each
  * { body (null = none installed, or one that did not parse), label (artefact-store refLabel, or "none — <reason>"), sha256 };
- * `core` = the sentinel-core bundle. Returns (kind, facts, at) → { TypeName, FamilyName, typing }, or throws a 400 that says
+ * `core` = the sentinel-core bundle. Returns (kind, facts, at, level?) → { TypeName, FamilyName, typing }, or throws a 400 that says
  * exactly what is missing. `typing` is the bridge's record: who typed it, the type and family, the rule's own words, the
  * conditions it matched, the input it was given, and which guideline and catalogue decided (label and sha).
  */
 export function makeTyper({ guideline: g, catalog: c }, core) {
-  return (kind, facts, at) => {
+  // MA-6-5: `level` (the element's LevelName or BaseLevel, text) is matched by a rule's when.level; the input carries it only when sent.
+  return (kind, facts, at, level) => {
     const category = KIND_CATEGORY[kind];
     const lead = `${at}: a ${kind} without place.TypeName is typed by the bridge from the project's guideline and type catalogue — `;
     const send = "; send place.TypeName, or ";
     if (!category) throw err(400, `${lead}a ${kind} is not typed`);
     if (!g.body) throw err(400, `${lead}no guideline is installed for this project or its office (${g.label}): not checkable${send}install guideline@n`);
     if (!c.body) throw err(400, `${lead}no type catalogue is installed for this project or its office (${c.label}): a type is chosen from the catalogue only (D16)${send}install type_catalog@n`);
-    const input = { category, params: facts?.params ?? {}, ...(facts?.thickness_mm !== undefined ? { thicknessMm: facts.thickness_mm } : {}) };
+    const input = { category, params: facts?.params ?? {}, ...(facts?.thickness_mm !== undefined ? { thicknessMm: facts.thickness_mm } : {}), ...(level ? { level } : {}) };
     const r = core.resolveWithCatalog(g.body, input, c.body.types);
     const said = saidOf(facts);
     // MA-4d: each refusal a candidate can earn says what is missing as data too — the Holding Area groups it (survey-plan groupGaps); the

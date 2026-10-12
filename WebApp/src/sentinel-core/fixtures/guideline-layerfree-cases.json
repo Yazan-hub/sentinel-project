@@ -512,5 +512,471 @@
     "matched": [
       "param:Location"
     ]
+  },
+  {
+    "input": {
+      "category": "Walls",
+      "level": "FC L00",
+      "params": {
+        "Location": "Exterior",
+        "Facade": "N"
+      }
+    },
+    "guideline": {
+      "standard": "BDS DD shell v0 (MA-6-4) — DRAFT",
+      "office": "BDS",
+      "stage": "DD",
+      "status": "draft",
+      "elements": [
+        {
+          "category": "Walls",
+          "rules": [
+            {
+              "when": {
+                "params": {
+                  "Location": "Exterior"
+                }
+              },
+              "use": {
+                "family": "Basic Wall",
+                "type": "BDS_EXT_ARC_CMU_300 mm"
+              },
+              "why": "DD (DRAFT SH-1): a shell wall is the office's external CMU at 300 mm — an exact type, because a mass has no thickness to fill {thickness} from."
+            },
+            {
+              "when": {
+                "level": "FC L00",
+                "params": {
+                  "Location": "Exterior"
+                }
+              },
+              "use": {
+                "family": "Curtain Wall",
+                "type": "M_Storefront"
+              },
+              "why": "DD (DRAFT SH-4, MA-6-5): the podium storey FC L00 is storefront on every face."
+            },
+            {
+              "when": {
+                "level": "FC L01",
+                "params": {
+                  "Facade": "S"
+                }
+              },
+              "use": {
+                "family": "Curtain Wall",
+                "type": "M_Exterior Glazing"
+              },
+              "why": "DD (DRAFT SH-5, MA-6-5): south glazing above the podium (FC L01)."
+            },
+            {
+              "when": {
+                "level": "FC L02",
+                "params": {
+                  "Facade": "S"
+                }
+              },
+              "use": {
+                "family": "Curtain Wall",
+                "type": "M_Exterior Glazing"
+              },
+              "why": "DD (DRAFT SH-5, MA-6-5): south glazing above the podium (FC L02)."
+            }
+          ]
+        },
+        {
+          "category": "Floors",
+          "rules": [
+            {
+              "when": {
+                "params": {
+                  "Function": "Interior"
+                }
+              },
+              "use": {
+                "family": "Floor",
+                "type": "BDS_INT_STR_CONC_300 mm"
+              },
+              "why": "DD (DRAFT SH-2): a shell floor is the office's structural concrete slab at 300 mm, exact."
+            }
+          ]
+        },
+        {
+          "category": "Roofs",
+          "rules": [
+            {
+              "when": {
+                "params": {
+                  "Family": "Basic Roof"
+                }
+              },
+              "use": {
+                "family": "Basic Roof",
+                "type": "BDS_EXT_ARC_GENRC_300 mm"
+              },
+              "why": "DD (DRAFT SH-3): a shell's flat roof is the office's one roof type, BDS_EXT_ARC_GENRC_300 mm, exact."
+            }
+          ]
+        }
+      ]
+    },
+    "family": "Curtain Wall",
+    "type": "M_Storefront",
+    "source": "rule",
+    "confidence": 1,
+    "available": null,
+    "matched": [
+      "level",
+      "param:Location"
+    ]
+  },
+  {
+    "input": {
+      "category": "Walls",
+      "level": "FC L01",
+      "params": {
+        "Location": "Exterior",
+        "Facade": "S"
+      }
+    },
+    "guideline": {
+      "standard": "BDS DD shell v0 (MA-6-4) — DRAFT",
+      "office": "BDS",
+      "stage": "DD",
+      "status": "draft",
+      "elements": [
+        {
+          "category": "Walls",
+          "rules": [
+            {
+              "when": {
+                "params": {
+                  "Location": "Exterior"
+                }
+              },
+              "use": {
+                "family": "Basic Wall",
+                "type": "BDS_EXT_ARC_CMU_300 mm"
+              },
+              "why": "DD (DRAFT SH-1): a shell wall is the office's external CMU at 300 mm — an exact type, because a mass has no thickness to fill {thickness} from."
+            },
+            {
+              "when": {
+                "level": "FC L00",
+                "params": {
+                  "Location": "Exterior"
+                }
+              },
+              "use": {
+                "family": "Curtain Wall",
+                "type": "M_Storefront"
+              },
+              "why": "DD (DRAFT SH-4, MA-6-5): the podium storey FC L00 is storefront on every face."
+            },
+            {
+              "when": {
+                "level": "FC L01",
+                "params": {
+                  "Facade": "S"
+                }
+              },
+              "use": {
+                "family": "Curtain Wall",
+                "type": "M_Exterior Glazing"
+              },
+              "why": "DD (DRAFT SH-5, MA-6-5): south glazing above the podium (FC L01)."
+            },
+            {
+              "when": {
+                "level": "FC L02",
+                "params": {
+                  "Facade": "S"
+                }
+              },
+              "use": {
+                "family": "Curtain Wall",
+                "type": "M_Exterior Glazing"
+              },
+              "why": "DD (DRAFT SH-5, MA-6-5): south glazing above the podium (FC L02)."
+            }
+          ]
+        },
+        {
+          "category": "Floors",
+          "rules": [
+            {
+              "when": {
+                "params": {
+                  "Function": "Interior"
+                }
+              },
+              "use": {
+                "family": "Floor",
+                "type": "BDS_INT_STR_CONC_300 mm"
+              },
+              "why": "DD (DRAFT SH-2): a shell floor is the office's structural concrete slab at 300 mm, exact."
+            }
+          ]
+        },
+        {
+          "category": "Roofs",
+          "rules": [
+            {
+              "when": {
+                "params": {
+                  "Family": "Basic Roof"
+                }
+              },
+              "use": {
+                "family": "Basic Roof",
+                "type": "BDS_EXT_ARC_GENRC_300 mm"
+              },
+              "why": "DD (DRAFT SH-3): a shell's flat roof is the office's one roof type, BDS_EXT_ARC_GENRC_300 mm, exact."
+            }
+          ]
+        }
+      ]
+    },
+    "family": "Curtain Wall",
+    "type": "M_Exterior Glazing",
+    "source": "rule",
+    "confidence": 1,
+    "available": null,
+    "matched": [
+      "level",
+      "param:Facade"
+    ]
+  },
+  {
+    "input": {
+      "category": "Walls",
+      "level": "FC L01",
+      "params": {
+        "Location": "Exterior",
+        "Facade": "E"
+      }
+    },
+    "guideline": {
+      "standard": "BDS DD shell v0 (MA-6-4) — DRAFT",
+      "office": "BDS",
+      "stage": "DD",
+      "status": "draft",
+      "elements": [
+        {
+          "category": "Walls",
+          "rules": [
+            {
+              "when": {
+                "params": {
+                  "Location": "Exterior"
+                }
+              },
+              "use": {
+                "family": "Basic Wall",
+                "type": "BDS_EXT_ARC_CMU_300 mm"
+              },
+              "why": "DD (DRAFT SH-1): a shell wall is the office's external CMU at 300 mm — an exact type, because a mass has no thickness to fill {thickness} from."
+            },
+            {
+              "when": {
+                "level": "FC L00",
+                "params": {
+                  "Location": "Exterior"
+                }
+              },
+              "use": {
+                "family": "Curtain Wall",
+                "type": "M_Storefront"
+              },
+              "why": "DD (DRAFT SH-4, MA-6-5): the podium storey FC L00 is storefront on every face."
+            },
+            {
+              "when": {
+                "level": "FC L01",
+                "params": {
+                  "Facade": "S"
+                }
+              },
+              "use": {
+                "family": "Curtain Wall",
+                "type": "M_Exterior Glazing"
+              },
+              "why": "DD (DRAFT SH-5, MA-6-5): south glazing above the podium (FC L01)."
+            },
+            {
+              "when": {
+                "level": "FC L02",
+                "params": {
+                  "Facade": "S"
+                }
+              },
+              "use": {
+                "family": "Curtain Wall",
+                "type": "M_Exterior Glazing"
+              },
+              "why": "DD (DRAFT SH-5, MA-6-5): south glazing above the podium (FC L02)."
+            }
+          ]
+        },
+        {
+          "category": "Floors",
+          "rules": [
+            {
+              "when": {
+                "params": {
+                  "Function": "Interior"
+                }
+              },
+              "use": {
+                "family": "Floor",
+                "type": "BDS_INT_STR_CONC_300 mm"
+              },
+              "why": "DD (DRAFT SH-2): a shell floor is the office's structural concrete slab at 300 mm, exact."
+            }
+          ]
+        },
+        {
+          "category": "Roofs",
+          "rules": [
+            {
+              "when": {
+                "params": {
+                  "Family": "Basic Roof"
+                }
+              },
+              "use": {
+                "family": "Basic Roof",
+                "type": "BDS_EXT_ARC_GENRC_300 mm"
+              },
+              "why": "DD (DRAFT SH-3): a shell's flat roof is the office's one roof type, BDS_EXT_ARC_GENRC_300 mm, exact."
+            }
+          ]
+        }
+      ]
+    },
+    "family": "Basic Wall",
+    "type": "BDS_EXT_ARC_CMU_300 mm",
+    "source": "rule",
+    "confidence": 1,
+    "available": null,
+    "matched": [
+      "param:Location"
+    ]
+  },
+  {
+    "input": {
+      "category": "Walls",
+      "level": "FC L03",
+      "params": {
+        "Location": "Exterior",
+        "Facade": "S"
+      }
+    },
+    "guideline": {
+      "standard": "BDS DD shell v0 (MA-6-4) — DRAFT",
+      "office": "BDS",
+      "stage": "DD",
+      "status": "draft",
+      "elements": [
+        {
+          "category": "Walls",
+          "rules": [
+            {
+              "when": {
+                "params": {
+                  "Location": "Exterior"
+                }
+              },
+              "use": {
+                "family": "Basic Wall",
+                "type": "BDS_EXT_ARC_CMU_300 mm"
+              },
+              "why": "DD (DRAFT SH-1): a shell wall is the office's external CMU at 300 mm — an exact type, because a mass has no thickness to fill {thickness} from."
+            },
+            {
+              "when": {
+                "level": "FC L00",
+                "params": {
+                  "Location": "Exterior"
+                }
+              },
+              "use": {
+                "family": "Curtain Wall",
+                "type": "M_Storefront"
+              },
+              "why": "DD (DRAFT SH-4, MA-6-5): the podium storey FC L00 is storefront on every face."
+            },
+            {
+              "when": {
+                "level": "FC L01",
+                "params": {
+                  "Facade": "S"
+                }
+              },
+              "use": {
+                "family": "Curtain Wall",
+                "type": "M_Exterior Glazing"
+              },
+              "why": "DD (DRAFT SH-5, MA-6-5): south glazing above the podium (FC L01)."
+            },
+            {
+              "when": {
+                "level": "FC L02",
+                "params": {
+                  "Facade": "S"
+                }
+              },
+              "use": {
+                "family": "Curtain Wall",
+                "type": "M_Exterior Glazing"
+              },
+              "why": "DD (DRAFT SH-5, MA-6-5): south glazing above the podium (FC L02)."
+            }
+          ]
+        },
+        {
+          "category": "Floors",
+          "rules": [
+            {
+              "when": {
+                "params": {
+                  "Function": "Interior"
+                }
+              },
+              "use": {
+                "family": "Floor",
+                "type": "BDS_INT_STR_CONC_300 mm"
+              },
+              "why": "DD (DRAFT SH-2): a shell floor is the office's structural concrete slab at 300 mm, exact."
+            }
+          ]
+        },
+        {
+          "category": "Roofs",
+          "rules": [
+            {
+              "when": {
+                "params": {
+                  "Family": "Basic Roof"
+                }
+              },
+              "use": {
+                "family": "Basic Roof",
+                "type": "BDS_EXT_ARC_GENRC_300 mm"
+              },
+              "why": "DD (DRAFT SH-3): a shell's flat roof is the office's one roof type, BDS_EXT_ARC_GENRC_300 mm, exact."
+            }
+          ]
+        }
+      ]
+    },
+    "family": "Basic Wall",
+    "type": "BDS_EXT_ARC_CMU_300 mm",
+    "source": "rule",
+    "confidence": 1,
+    "available": null,
+    "matched": [
+      "param:Location"
+    ]
   }
 ]

@@ -20,7 +20,8 @@ static partial class Check
            "F-1: a named level that does not exist is refused in words that fit every source (an agent's storey applied before the one that makes its level) — ResolveLevel and LevelNamed say the same");
 
         // F-2: a type the model does not hold is the model's state — PlacementRefused in every lookup; two of the name still decline.
-        string wallT = Body("internal static WallType ResolveWallType(Document doc, string typeName)"), floorT = Body("internal static FloorType ResolveFloorType(Document doc, string typeName)"),
+        // MA-6-5: ResolveWallType takes curtainOk.
+        string wallT = Body("internal static WallType ResolveWallType(Document doc, string typeName, bool curtainOk = false)"), floorT = Body("internal static FloorType ResolveFloorType(Document doc, string typeName)"),
                createT = Body("internal static ElementType CreateType(Document doc, BuiltInCategory bic, string kind, string familyName, string typeName)"),
                retypeT = Body("internal static ElementType RetypeTarget(Document doc, Element e, string kind, string familyName, string typeName)");
         Ok(wallT.Contains("throw new PlacementRefused($\"wall type \\\"{typeName}\\\" does not exist in this model")
@@ -41,7 +42,7 @@ static partial class Check
         string notLoaded = Body("internal static HashSet<string> NotLoaded(Document doc, IEnumerable<ChangesetElementDto> rows)");
         string[] pairs =
         {
-            "ResolveWallType(doc, p.TypeName)", "ResolveWallType(doc, el.Place.TypeName)",
+            "ResolveWallType(doc, p.TypeName, curtainOk: true)", "ResolveWallType(doc, el.Place.TypeName, curtainOk: true)", // MA-6-5: a create may be curtain
             "ResolveFloorType(doc, p.TypeName)", "ResolveFloorType(doc, el.Place.TypeName)",
             "CreateType(doc, BuiltInCategory.OST_Roofs, \"roof\", null, p.TypeName)", "CreateType(doc, BuiltInCategory.OST_Roofs, \"roof\", null, el.Place.TypeName)",
             "CreateType(doc, BuiltInCategory.OST_Ceilings, \"ceiling\", null, p.TypeName)", "CreateType(doc, BuiltInCategory.OST_Ceilings, \"ceiling\", null, el.Place.TypeName)",
@@ -143,8 +144,13 @@ static partial class Check
            && notLoaded.Contains("if (el.Kind != \"wall\") scope = $\"{cur.Category?.Id.IdValue()}|{cur.GetType().Name}\";")
            && notLoaded.Contains("var key = $\"{el.Op}|{el.Kind}|{p.FamilyName}|{p.TypeName}|{scope}\";")
            && wallT.Contains("if (named.FirstOrDefault(t => t.Kind == WallKind.Basic) is WallType basic) return basic;")
-           && At(wallT, "throw new InvalidOperationException($\"wall type \\\"{typeName}\\\" is a {named[0].Kind.ToString().ToLowerInvariant()} type — Sentinel places basic walls only") is int cw
-           && cw > 0 && cw < At(wallT, "throw new PlacementRefused("),
+           // MA-6-5 (amendment 2): the curtain return sits between the Basic return and the decline; the decline keeps its words when !curtainOk
+           && At(wallT, "if (curtainOk && named.FirstOrDefault(t => t.Kind == WallKind.Curtain) is WallType cw) return cw;") is int ok
+           && ok > At(wallT, "if (named.FirstOrDefault(t => t.Kind == WallKind.Basic) is WallType basic) return basic;")
+           && At(wallT, ": $\"wall type \\\"{typeName}\\\" is a {named[0].Kind.ToString().ToLowerInvariant()} type — Sentinel places basic walls only; re-propose with a basic wall type\");") is int cw
+           && cw > ok && cw < At(wallT, "throw new PlacementRefused("),
            "review: a retype whose target is not of its kind, has no readable type or a stale type_before is left to Apply's decline (Execute's order); a retype's answer is cached per target category and class; a curtain or stacked wall type the model holds declines (loading cannot help)");
+        Ok(wallT.Contains("? $\"wall type \\\"{typeName}\\\" is a {named[0].Kind.ToString().ToLowerInvariant()} type — Sentinel places basic and curtain walls only; re-propose with a basic or curtain wall type\""),
+           "MA-6-5 (amendment 2): with curtainOk (a create) a stacked type of the name declines in the words \"Sentinel places basic and curtain walls only\"");
     }
 }

@@ -12,6 +12,8 @@ import { resolveWithCatalog, validateGuideline, validateAgainstCatalog, CATEGORY
 const OUT = "src/sentinel-core/fixtures/guideline-layerfree-cases.json";
 const G: Guideline = JSON.parse(readFileSync("../demo/bds-pilot/bds-dd-layerfree-guideline.json", "utf8"));
 const CATALOG: CatalogType[] = JSON.parse(readFileSync("../demo/bds-pilot/bds-type-catalog.json", "utf8")).types;
+// MA-6-4/6-5: Shell a Mass's exact-type rules, with MA-6-5's facade rules (when.level + params.Facade).
+const SHELL: Guideline = JSON.parse(readFileSync("../demo/bds-pilot/bds-dd-shell-guideline.json", "utf8"));
 
 const wall = (params: Record<string, string>, thicknessMm?: number): ResolveInput =>
   (thicknessMm === undefined ? { category: "Walls", params } : { category: "Walls", params, thicknessMm });
@@ -43,6 +45,11 @@ const INPUTS: { input: ResolveInput; catalog?: CatalogType[]; guideline?: Guidel
   { input: wall({ Location: "Interior" }, 100.5) },                              // half a millimetre rounds UP on both sides: CMU_101, a gap (C# was to-even: CMU_100)
   { input: wall({ Location: "Interior", Material: "Gypsum Wall Board" }, 125), guideline: REORDERED }, // a GYPS gap lists GYPS sizes, whatever the file's order
   { input: wall({ "Loca tion": "Exterior" }, 200) },                       // a poster's NBSP in a fact name: every whitespace is squashed on both sides
+  // MA-6-5: the shell's facade rules — a level and the Facade fact; a level + param rule (2) beats the plain Location rule (1) on both sides
+  { input: { category: "Walls", level: "FC L00", params: { Location: "Exterior", Facade: "N" } }, guideline: SHELL }, // the podium: storefront on every face
+  { input: { category: "Walls", level: "FC L01", params: { Location: "Exterior", Facade: "S" } }, guideline: SHELL }, // south glazing
+  { input: { category: "Walls", level: "FC L01", params: { Location: "Exterior", Facade: "E" } }, guideline: SHELL }, // another face: the plain rule
+  { input: { category: "Walls", level: "FC L03", params: { Location: "Exterior", Facade: "S" } }, guideline: SHELL }, // a level no facade rule names
 ];
 
 const cases = INPUTS.map(({ input, catalog, guideline }) => {
@@ -60,7 +67,7 @@ describe("guideline layer-free fixtures (MA-2a, TS ↔ C# ↔ bridge bundle)", (
   });
 
   it("pins the answers Promote, Ghost Builder and the bridge depend on", () => {
-    expect(cases).toHaveLength(20);
+    expect(cases).toHaveLength(24);
     expect(find((c) => P(c).Location === "Exterior" && c.input.thicknessMm === 200 && !c.catalog)).toMatchObject({ type: "BDS_EXT_ARC_CMU_200 mm", source: "rule", confidence: 1 });
     expect(find((c) => P(c).Location === "Interior" && c.input.thicknessMm === 200 && !P(c).Material)).toMatchObject({ type: "BDS_INT_ARC_CMU_200 mm", confidence: 1 });
     expect(find((c) => P(c).Location === "Interior" && P(c).Function === "Exterior")).toMatchObject({ type: "BDS_INT_ARC_CMU_100 mm", confidence: 1 });
@@ -75,6 +82,11 @@ describe("guideline layer-free fixtures (MA-2a, TS ↔ C# ↔ bridge bundle)", (
     expect(find((c) => c.input.thicknessMm === undefined)).toMatchObject({ source: "rule", confidence: 1, type: null });
     expect(find((c) => c.input.thicknessMm === 100.5)).toMatchObject({ type: "BDS_INT_ARC_CMU_101 mm", confidence: 0 });
     expect(find((c) => "Loca tion" in P(c))).toMatchObject({ type: "BDS_EXT_ARC_CMU_200 mm", confidence: 1, matched: ["param:Location"] });
+    const facade = (level: string, side: string) => find((c) => c.guideline === SHELL && c.input.level === level && P(c).Facade === side);
+    expect(facade("FC L00", "N")).toMatchObject({ family: "Curtain Wall", type: "M_Storefront", confidence: 1, matched: ["level", "param:Location"] });
+    expect(facade("FC L01", "S")).toMatchObject({ family: "Curtain Wall", type: "M_Exterior Glazing", confidence: 1, matched: ["level", "param:Facade"] });
+    expect(facade("FC L01", "E")).toMatchObject({ family: "Basic Wall", type: "BDS_EXT_ARC_CMU_300 mm", confidence: 1, matched: ["param:Location"] });
+    expect(facade("FC L03", "S")).toMatchObject({ type: "BDS_EXT_ARC_CMU_300 mm", confidence: 1, matched: ["param:Location"] });
     expect(find((c) => c.guideline === REORDERED)).toMatchObject({ type: "BDS_INT_ARC_GYPS_125 mm", confidence: 0, available: ["BDS_INT_ARC_GYPS_50 mm", "BDS_INT_ARC_GYPS_100 mm"], matched: ["param:Location", "param:Material"] });
   });
 
@@ -99,10 +111,9 @@ describe("guideline layer-free fixtures (MA-2a, TS ↔ C# ↔ bridge bundle)", (
 // MA-6-4: Shell a Mass types by exact-type rules only (a mass has no thickness) — every type it names is in the BDS catalogue; tools/promote-check
 // holds the C# side (GuidelineMatcher.ValidateAgainstCatalog) to the same file.
 describe("the shell guideline (MA-6-4, demo/bds-pilot/bds-dd-shell-guideline.json)", () => {
-  const S: Guideline = JSON.parse(readFileSync("../demo/bds-pilot/bds-dd-shell-guideline.json", "utf8"));
-  it("is a guideline every type of which the BDS catalogue has", () => {
-    expect(validateGuideline(S)).toEqual([]);
-    expect(validateAgainstCatalog(S, CATALOG)).toEqual([]);
+  it("is a guideline every type of which the BDS catalogue has (MA-6-5: its curtain types too)", () => {
+    expect(validateGuideline(SHELL)).toEqual([]);
+    expect(validateAgainstCatalog(SHELL, CATALOG)).toEqual([]);
   });
 });
 

@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import * as core from "./sentinel-core.mjs";
 import { makeTyper, checkFacts, saidOf, KIND_CATEGORY, FACTS_FIELDS, CATALOG_PARAM, KIND_ENTITY, KIND_PSET, CLASS_NOUN, clauseValues, makeCiter, notAValue, NOT_ALONE, ENTITY_SUBTYPES, saysMore } from "./changesets-typing.mjs";
 import { compileIds } from "./ids-compile.mjs";
-import { VOCABULARY, UNTYPED } from "./changesets-logic.mjs";
+import { VOCABULARY, UNTYPED, validateChangeset } from "./changesets-logic.mjs";
 
 const read = (p) => JSON.parse(readFileSync(new URL(p, import.meta.url), "utf8"));
 const G = read("../../demo/bds-pilot/bds-dd-layerfree-guideline.json");
@@ -291,5 +291,55 @@ describe("bds-dd-survey-guideline.json (the founder's 'do it', 2026-10-11): the 
     expect(t("door", { params: { HostFunction: "Interior", Size: "W1000 x H2100 mm" } }, "d1")).toMatchObject({ FamilyName: "BDS_INT_1 PNL", TypeName: "BDS_INT_1 PNL_WOOD_1000 x 2100 mm" });
     refused(() => t("door", { params: { HostFunction: "Exterior", Size: "W1000 x H2100 mm" } }, "d2"), /no rule of guideline@1 .* matches a door/);
     expect(t("wall", { thickness_mm: 300, params: { Location: "Exterior" } }, "w1")).toMatchObject({ TypeName: "BDS_EXT_ARC_CMU_300 mm" }); // walls as before
+  });
+});
+
+// MA-6-5: a facade rule (when.level + params.Facade) types an agent's wall as it types the shell's — the bridge passes the element's level.
+describe("the shell guideline's facade rules (MA-6-5): the bridge types with the element's level", () => {
+  const S = read("../../demo/bds-pilot/bds-dd-shell-guideline.json");
+  const t = makeTyper({ ...STANDARDS, guideline: { ...STANDARDS.guideline, body: S } }, core);
+  const FACADE = { params: { Location: "Exterior", Facade: "S" } };
+  const wall = (place) => ({ kind: "wall", facts: FACADE, validate: { identity: { Class: "IFCWALL", Name: "W1" } },
+    place: { LocationCurve: { start: [0, 0, 0], end: [5000, 0, 0] }, ...place } });
+
+  it("a south wall on FC L01 is M_Exterior Glazing, and typing.input carries the level; with no level it is the plain rule's CMU", () => {
+    expect(t("wall", FACADE, "e", "FC L01")).toMatchObject({ TypeName: "M_Exterior Glazing", FamilyName: "Curtain Wall",
+      typing: { typed_by: "bridge", matched: ["level", "param:Facade"], input: { category: "Walls", level: "FC L01", params: { Location: "Exterior", Facade: "S" } } } });
+    const plain = t("wall", FACADE, "e");
+    expect(plain.TypeName).toBe("BDS_EXT_ARC_CMU_300 mm");
+    expect(plain.typing.input).not.toHaveProperty("level"); // sent only when there is one
+  });
+
+  it("validateChangeset passes a wall's LevelName, or its BaseLevel, to the typer", () => {
+    for (const place of [{ LevelName: "FC L01" }, { BaseLevel: "FC L01", TopLevel: "FC L02" }]) {
+      const v = validateChangeset({ name: "Facade", source: "test-agent", elements: [wall(place)] }, { type: t });
+      expect(v.elements[0].place.TypeName, JSON.stringify(place)).toBe("M_Exterior Glazing");
+      expect(v.elements[0].typing).toMatchObject({ typed_by: "bridge", input: { level: "FC L01" } });
+    }
+    expect(validateChangeset({ name: "Facade", source: "test-agent", elements: [wall({ LevelName: "FC L03" })] }, { type: t }).elements[0].place.TypeName).toBe("BDS_EXT_ARC_CMU_300 mm");
+  });
+
+  it("amendment 9a: a level that is not text never reaches the resolver — the wall's own level check answers, a 400, not a 500", () => {
+    refused(() => validateChangeset({ name: "Facade", source: "test-agent", elements: [wall({ LevelName: 5 })] }, { type: t }), /a wall needs place\.LevelName or place\.BaseLevel/);
+    // review: a non-text level beside a text one is refused too — never stored, where the add-in's PlaceDto would fail the project's list
+    refused(() => validateChangeset({ name: "Facade", source: "test-agent", elements: [wall({ LevelName: 5, BaseLevel: "FC L01" })] }, { type: t }), /place\.LevelName must be text/);
+    for (const [f, v] of [["LevelName", 5], ["BaseLevel", {}]]) // a retype checks neither — the generic check does
+      refused(() => validateChangeset({ name: "Facade", source: "test-agent", elements: [{ op: "retype", kind: "wall", target: { unique_id: "5a1c2b3d-1111-2222-3333-444455556666-0004c3f8" },
+        place: { TypeName: "BDS_EXT_ARC_CMU_300 mm", [f]: v }, validate: { identity: { Class: "IFCWALL", Name: "W1" } } }] }, { type: t }), new RegExp(`place\\.${f} must be text$`));
+  });
+
+  it("review: Facade is one letter — a spelled-out side would match a one-letter rule by substring ('West' holds an 's')", () => {
+    for (const side of ["West", "East", "s", "SW", " S"])
+      refused(() => validateChangeset({ name: "Facade", source: "test-agent", elements: [{ ...wall({ LevelName: "FC L01" }), facts: { params: { Location: "Exterior", Facade: side } } }] }, { type: t }),
+        /facts\.params\.Facade is one letter, N, E, S or W/);
+    refused(() => checkFacts({ params: { " fa cade ": "West" } }, "e"), /Facade is one letter/); // the matcher's name test: case and whitespace ignored
+    expect(checkFacts({ params: { Facade: "W", Location: "Exterior" } }, "e")).toEqual({ params: { Facade: "W", Location: "Exterior" } });
+  });
+
+  it("review: a retype is typed without the poster's level — a facade rule never answers it (its element stays on its own level)", () => {
+    const v = validateChangeset({ name: "Facade", source: "test-agent", elements: [{ op: "retype", kind: "wall", facts: FACADE,
+      target: { unique_id: "5a1c2b3d-1111-2222-3333-444455556666-0004c3f8" }, place: { BaseLevel: "FC L01" }, validate: { identity: { Class: "IFCWALL", Name: "W1" } } }] }, { type: t });
+    expect(v.elements[0].place.TypeName).toBe("BDS_EXT_ARC_CMU_300 mm");
+    expect(v.elements[0].typing.input).not.toHaveProperty("level");
   });
 });

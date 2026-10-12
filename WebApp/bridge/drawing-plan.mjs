@@ -341,7 +341,7 @@ export function planDrawing({ job, candidates, align, manifest = [], type, filed
   const segs = trimmed.map((x, i) => ({ x0: x.start[0], y0: x.start[1], x1: x.end[0], y1: x.end[1], width: walls[i].t }));
   const typed = walls.map((w, i) => {
     const loc = locate(segs, i), facts = { thickness_mm: w.t, ...(loc.location ? { params: { Location: loc.location } } : {}) };
-    return { facts, loc, gap: gapOf(type, "wall", facts, w.c.cid, loc.why) };
+    return { facts, loc, gap: gapOf(type, "wall", facts, w.c.cid, loc.why, s.level) }; // MA-6-5: typed on its level, as filed
   });
   walls.forEach(({ c, t, len }, i) => {
     const mt = matchOf.get(i);
@@ -468,7 +468,7 @@ export function planDrawing({ job, candidates, align, manifest = [], type, filed
     if (on && !viaPrior && near(scan.doors)) { tally.doors_agree++; continue; }
     // review: a door the earlier drawing placed there — in its own wall or in the scan's — is that door
     if (on && prior && near(prior.doors)) { revision.doors_unchanged++; continue; }
-    const { facts, g, by, why } = typeOpening({ type, kind: "door", cid: c.cid, w, h, hostFunction: typed[hi].loc?.location, catalog, sameCategory });
+    const { facts, g, by, why } = typeOpening({ type, kind: "door", cid: c.cid, w, h, hostFunction: typed[hi].loc?.location, catalog, sameCategory, level: lvl });
     if (g) { gap(c, g, why); continue; }
     const U = walls[hi], p = pointAlong(U.start, U.end, c.geometry.along_paper_mm * S); // the untrimmed centreline: along is from its start
     if (on && !viaPrior) tally.doors_from_drawing++;

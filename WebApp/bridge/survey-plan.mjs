@@ -198,8 +198,8 @@ function faceDev(c) {
 
 /** null when the typer types it, else its gap (changesets-typing attaches one to every refusal a candidate can earn); any other fault — no
  *  standards, a code fault — is thrown and refuses the whole proposal in its own words. */
-export function gapOf(type, kind, facts, cid, why) {
-  try { type(kind, facts, cid); return null; } catch (e) {
+export function gapOf(type, kind, facts, cid, why, level) {
+  try { type(kind, facts, cid, level); return null; } catch (e) { // MA-6-5 (amendment 9b): typed with the level, as typeIt types the element filed
     if (!e.gap) throw e;
     return { ...e.gap, key: why ? `${e.gap.key}; inside or outside not read: ${why}`.slice(0, 500) : e.gap.key };
   }
@@ -215,10 +215,10 @@ export const nominal = (v) => Math.round(v / 100) * 100;
 
 /** MA-5a (shared with MA-5a-4's drawings): a door or window typed by an office rule when one matches, else by its size from the catalogue
  *  within SIZE_BAND_MM (typeBySize), else its gap — `why` the reason's words when several catalogue rows are in the band. → {facts, g, by, why}. */
-export function typeOpening({ type, kind, cid, w, h, hostFunction, catalog, sameCategory }) {
+export function typeOpening({ type, kind, cid, w, h, hostFunction, catalog, sameCategory, level }) {
   const category = KIND_CATEGORY[kind], size = `${w} x ${h} mm`;
   const facts = { params: { ...(hostFunction ? { HostFunction: hostFunction } : {}), Size: `W${w} x H${h} mm` } }; // PromotePlanner's shape
-  let g = gapOf(type, kind, facts, cid, null), by = null, why = null;
+  let g = gapOf(type, kind, facts, cid, null, level), by = null, why = null;
   if (g && !g.want) {
     const z = typeBySize(catalog, category, w, h, sameCategory);
     if (z?.row) { by = z.row; g = null; }
@@ -304,7 +304,7 @@ export function planSurvey({ job, candidates, frame, levels: named = {}, manifes
           apart: `its two faces ${c.measured.faces_apart_mm} mm apart against a ${c.fit?.rmse_mm} mm fit scatter` }
         : { gap: { category: "Walls", want: null, size: NOT_MEASURED, key: "one face seen", nearest: [] } };
       const loc = locate(segs, i), facts = { thickness_mm: t, ...(loc.location ? { params: { Location: loc.location } } : {}) };
-      return { facts, loc, gap: gapOf(type, "wall", facts, c.cid, loc.why) };
+      return { facts, loc, gap: gapOf(type, "wall", facts, c.cid, loc.why, s.level) };
     });
     walls.forEach((c, i) => {
       if (again(c)) return;
@@ -346,7 +346,7 @@ export function planSurvey({ job, candidates, frame, levels: named = {}, manifes
           : `its host wall ${host} is a type gap — propose the job again once the wall's group in the Holding Area closes`);
         continue;
       }
-      const { facts, g, by, why } = typeOpening({ type, kind: c.kind, cid: c.cid, w, h, hostFunction: typed[hi].loc?.location, catalog, sameCategory });
+      const { facts, g, by, why } = typeOpening({ type, kind: c.kind, cid: c.cid, w, h, hostFunction: typed[hi].loc?.location, catalog, sameCategory, level: s.level });
       if (g) { gap(c, g, why); continue; }
       // along_mm is from the UNTRIMMED start, and the trimmed line lies on the untrimmed one: measured from the untrimmed ends, exact (review)
       const U = walls[hi].geometry.LocationCurve, p = pointAlong(U.start, U.end, c.geometry.along_mm);
@@ -362,7 +362,7 @@ export function planSurvey({ job, candidates, frame, levels: named = {}, manifes
     }
     for (const c of mine.filter((x) => x.kind === "floor" || x.kind === "ceiling")) {
       if (again(c)) continue;
-      const g = gapOf(type, c.kind, null, c.cid, null);
+      const g = gapOf(type, c.kind, null, c.cid, null, s.level);
       if (g) { gap(c, g); continue; }
       const place = c.kind === "floor"
         ? { LevelName: s.level, LocationLoop: c.geometry.LocationLoop.map((p) => [...M.xy(p), E]) }

@@ -158,15 +158,20 @@ public sealed class ChangesetExecutor
     // an InvalidOperationException, so Ghost's and Promote's pre-checks read it as before. Two types of the name, or no TypeName, still decline.
     private const string NoTypeName = "gap: no type name — Sentinel never takes the model's first type; re-propose with a TypeName";
 
-    internal static WallType ResolveWallType(Document doc, string typeName)
+    /// <param name="curtainOk">MA-6-5 (D4): a create may place a curtain type (its grid from the type) — only the create loop and NotLoaded's
+    /// create branch pass it; a retype (RetypeTarget) and Ghost stay basic, so no retype ever turns a basic wall into a curtain wall.</param>
+    internal static WallType ResolveWallType(Document doc, string typeName, bool curtainOk = false)
     {
         if (string.IsNullOrWhiteSpace(typeName)) throw new InvalidOperationException(NoTypeName);
         var named = new FilteredElementCollector(doc).OfClass(typeof(WallType)).Cast<WallType>()
             .Where(t => string.Equals(t.Name, typeName, StringComparison.OrdinalIgnoreCase)).ToList();
         if (named.FirstOrDefault(t => t.Kind == WallKind.Basic) is WallType basic) return basic;
+        if (curtainOk && named.FirstOrDefault(t => t.Kind == WallKind.Curtain) is WallType cw) return cw;
         // MA-6 fix-b1 (review): a curtain or stacked type of the name IS loaded — loading cannot help, so it stays a decline (NotLoaded skips it).
         if (named.Count > 0)
-            throw new InvalidOperationException($"wall type \"{typeName}\" is a {named[0].Kind.ToString().ToLowerInvariant()} type — Sentinel places basic walls only; re-propose with a basic wall type");
+            throw new InvalidOperationException(curtainOk
+                ? $"wall type \"{typeName}\" is a {named[0].Kind.ToString().ToLowerInvariant()} type — Sentinel places basic and curtain walls only; re-propose with a basic or curtain wall type"
+                : $"wall type \"{typeName}\" is a {named[0].Kind.ToString().ToLowerInvariant()} type — Sentinel places basic walls only; re-propose with a basic wall type");
         throw new PlacementRefused($"wall type \"{typeName}\" does not exist in this model — load it (Sentinel creates no types), or re-propose with the exact name of a loaded type");
     }
 
@@ -471,7 +476,7 @@ public sealed class ChangesetExecutor
             else if (IsCreate(el) || el.Op == "rehost") // Execute's own call for each kind (a rehost places a door or window)
                 pick = el.Kind switch
                 {
-                    "wall" => () => ResolveWallType(doc, p.TypeName),
+                    "wall" => () => ResolveWallType(doc, p.TypeName, curtainOk: true), // MA-6-5: a wall here is a create (Execute's own call)
                     "floor" => () => ResolveFloorType(doc, p.TypeName),
                     "roof" => () => CreateType(doc, BuiltInCategory.OST_Roofs, "roof", null, p.TypeName),
                     "ceiling" => () => CreateType(doc, BuiltInCategory.OST_Ceilings, "ceiling", null, p.TypeName),
@@ -617,7 +622,9 @@ public sealed class ChangesetExecutor
                 at = Label(el);
                 var c = el.Place.LocationCurve;
                 var level = ResolveLevel(doc, el.Place);
-                var wt = ResolveWallType(doc, el.Place.TypeName);
+                // MA-6-5 (D4): a curtain type places a curtain wall, its grid from the type. Its Width (read below for the joins) is what Revit
+                // gives a curtain type — drill C-1 watches the corners where curtain meets basic (R8).
+                var wt = ResolveWallType(doc, el.Place.TypeName, curtainOk: true);
                 // MA-1a item 3 (GHB-2): the base is BaseElevation, or the level itself (0 mm put a named level's wall at minus its
                 // elevation). The top is TopElevation, unconnected, as reviewed; else the next Building Story above the base,
                 // constrained there; on the top story, unconnected at the storey below's height (founder decision F2); else a

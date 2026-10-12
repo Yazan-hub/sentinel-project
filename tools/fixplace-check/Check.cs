@@ -109,6 +109,16 @@ static class Check
         Ok(FixPlan.Conclusive(30, 30, 200, 200, out var w3) && w3 == "", "with the bridge's matched count: 200 of 200 returned → conclusive, the cap heuristic is not used");
         Ok(!FixPlan.Conclusive(30, 30, 1000, 1500, out var w4) && w4.Contains("1000 of 1500 returned"), "with the matched count: fewer returned than matched → truncated, by count");
         Ok(FixPlan.Conclusive(3, 3, 0, 0, out var w5) && w5 == "", "matched 0, returned 0 → conclusive");
+        // MA-6-5 review: a curtain wall is IFCCURTAINWALL now — an open IFCWALL issue on it is refused before the bridge, never certified.
+        GovElement Of(long id, string cls) => new GovElement { localId = id, identity = new GovIdentity { Class = cls } };
+        var fire = new IdsIssueRef { Spec = "Walls", Requirement = "Pset_WallCommon.FireRating" };
+        Ok(FixPlan.OutsideRequirement(new[] { Of(1, "IFCWALL"), Of(2, "IFCCURTAINWALL") }, fire, "BDS")
+           == "element 2 is exported as IFCCURTAINWALL now; the issue's requirement Pset_WallCommon.FireRating does not apply to it — re-publish to raise a fresh issue; nothing certified",
+           "a curtain wall on a Pset_WallCommon issue is outside the requirement's classes — refused in words, nothing certified");
+        Ok(FixPlan.OutsideRequirement(new[] { Of(1, "IFCWALL"), Of(3, "ifcwall") }, fire, "BDS") == null
+           && FixPlan.OutsideRequirement(new[] { Of(2, "IFCCURTAINWALL") }, new IdsIssueRef { Requirement = "@Name" }, "BDS") == null
+           && FixPlan.OutsideRequirement(new[] { Of(2, "IFCCURTAINWALL") }, new IdsIssueRef { Requirement = "Pset_Nope.Thing" }, "BDS") == null,
+           "walls on a wall requirement pass through; @Name applies to every class; a requirement PsetMap does not map is not judged here");
         var pr3 = ProposalResult.Parse("{\"verdict\":\"rejected\",\"failures\":[],\"failures_total\":264,\"failures_matched\":0}");
         Ok(pr3.FailuresTotal == 264 && pr3.FailuresMatched == 0 && ProposalResult.Parse("{}").FailuresMatched == -1, "totals parsed; absent → -1 (not reported)");
 

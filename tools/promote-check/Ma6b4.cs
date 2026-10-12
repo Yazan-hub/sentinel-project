@@ -53,7 +53,8 @@ static partial class Check
             return f;
         }
         var lf = Facts(2);
-        var plan = ShellPlanner.Plan(lf, shell);
+        // MA-6-5 review: the body Shell a Mass files (curtain: true) — SH L* meets no facade rule, so only each wall's facts gain its Facade.
+        var plan = ShellPlanner.Plan(lf, shell, curtain: true);
         var one = Json(ShellPlanner.Bodies(plan, lf, "yazan"));
         var els = one.Count == 1 ? one[0]["elements"].AsArray() : new JsonArray();
         Ok(plan.Count == 15 && plan.Storeys.Select(s => s.Storey).SequenceEqual(new[] { "SH L0", "SH L1" }) && plan.Roof != null
@@ -70,7 +71,7 @@ static partial class Check
         var w0 = els.FirstOrDefault(e => (string)e["validate"]["identity"]["Name"] == "Shell SH L0 W4");
         Ok(w0 != null && w0["place"]["LocationCurve"]["start"].AsArray().Select(v => (double)v).SequenceEqual(new double[] { 5850, 5850, 0 })
            && (string)w0["reason"] == "Shell of mass 41233 · SH L0→SH L1 · rule Location Exterior → BDS_EXT_ARC_CMU_300 mm, inset 150 mm"
-           && (string)w0["facts"]["params"]["Location"] == "Exterior" && (string)w0["validate"]["identity"]["Class"] == "IFCWALL"
+           && (string)w0["facts"]["params"]["Location"] == "Exterior" && (string)w0["facts"]["params"]["Facade"] == "N" && (string)w0["validate"]["identity"]["Class"] == "IFCWALL"
            && els.First(e => (string)e["kind"] == "floor")["place"]["LocationLoop"].AsArray().Count == 6,
            "a wall's centreline is the inset line at its level (the reflex corner's wall starts at the mitre), with the facts its rule saw and why; a floor is the mass face");
         var path = Repo("WebApp", "bridge", "fixtures", "changeset-ops", "shell-body.json");
@@ -91,9 +92,7 @@ static partial class Check
         var nl = ShellPlanner.Plan(notLoaded, shell);
         Ok(nl.Count == 0 && Held(nl, "SH L0 storey") == "walls: \"BDS_EXT_ARC_CMU_300 mm\" is in the catalogue but not loaded in this model — Sentinel creates no types",
            "a wall type the model does not hold holds the storey — its floor is not filed either (one bad wall holds its floor)");
-        var curtain = Facts(1); curtain.WallTypes["BDS_EXT_ARC_CMU_300 mm"] = ("Curtain", 0);
-        Ok(Held(ShellPlanner.Plan(curtain, shell), "SH L0 storey") == "walls: \"BDS_EXT_ARC_CMU_300 mm\" is a curtain wall type — Sentinel places basic walls only",
-           "a rule whose type is a curtain wall type here holds the storey (6-4 places basic walls only)");
+        // MA-6-5 review: 6-4's "a curtain answer is held" (curtain off) is Ma6b5's explicit contrast now — Shell a Mass no longer has it.
         var noFloor = Facts(2); noFloor.FloorTypes.Clear();
         var nf = ShellPlanner.Plan(noFloor, shell);
         Ok(nf.Count == 0 && nf.Storeys.Count == 0 && Held(nf, "SH L1 storey").StartsWith("floor: \"BDS_INT_STR_CONC_300 mm\" is in the catalogue but not loaded"),
