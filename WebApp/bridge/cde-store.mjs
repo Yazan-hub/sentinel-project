@@ -1268,7 +1268,9 @@ const REVIT_REPORT_TYPES = ["naming", "family_heal",
   // MA-2b: Promote's LOD state of the model, now or after an applied changeset (lodStateRow marks it claimed).
   "lod_state",
   // MA-2c: Promote's type gaps of one run, grouped (typeGapRow names each group and marks the row claimed).
-  "type_gap"];
+  "type_gap",
+  // MA-8-8: a read-only MEP type check, one row per run (nothing reads it; no validator).
+  "mep_check"];
 
 /** MA-2c (design §6.4): one Promote run's type gaps — groups of held elements the office has no type for — counted in Revit, not by
  *  the bridge: claimed, like lod_state, whoever posts it. Each group {category, want | size, key?, elements ≥ 1, labels?, nearest?}

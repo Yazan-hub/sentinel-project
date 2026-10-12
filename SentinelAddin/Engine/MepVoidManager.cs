@@ -29,7 +29,8 @@ public static class MepVoidManager
         BuiltInCategory.OST_Walls, BuiltInCategory.OST_Floors,
         BuiltInCategory.OST_StructuralFraming,
     };
-    private static readonly BuiltInCategory[] MepCats =
+    // MA-8-8: MEP Type Check walks the same four categories.
+    internal static readonly BuiltInCategory[] MepCats =
     {
         BuiltInCategory.OST_DuctCurves, BuiltInCategory.OST_PipeCurves,
         BuiltInCategory.OST_CableTray, BuiltInCategory.OST_Conduit,

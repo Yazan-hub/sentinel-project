@@ -72,6 +72,25 @@ namespace Sentinel.Coordination
                 created_total = created.Count, skipped_total = skipped.Count, failed_total = failed.Count, source = "revit",
             });
 
+        /// <summary>MA-8-8: one read-only MEP type check — per category the counts, and the unmatched groups (type, system, verdict, count,
+        /// a few ids) beside their true total. Nothing reads the row; the bridge only stamps the verified actor.</summary>
+        public static object MepCheck(Sentinel.Engine.MepReport r, string catalog, string actor) =>
+            Row("mep_check", actor, $"mep_check:run · {r.Checked} checked, {r.Matched} matched, {r.TypeNotOffice} type and {r.SystemNotOffice} system not the office's", new
+            {
+                catalog,
+                categories = r.Categories.Select(c => new
+                {
+                    category = c.Category, @checked = c.Checked, matched = c.Matched, type_not_office = c.TypeNotOffice,
+                    system_not_office = c.SystemNotOffice, no_system = c.NoSystem, system_note = c.SystemNote,
+                }).ToArray(),
+                findings = r.Findings.Take(MaxNames).Select(f => new
+                {
+                    category = f.Category, family = f.Family, type = f.Type, system = f.System, verdict = f.Verdict, count = f.Count, ids = f.Ids.ToArray(),
+                }).ToArray(),
+                findings_total = r.Findings.Count,
+                source = "revit",
+            });
+
         /// <summary>One click of Fix that Revit committed.</summary>
         public static object AutoFix(string ruleId, string category, string oldName, string newName, long elementId, string actor) =>
             Row("auto_fix", actor, $"Auto-fix {ruleId}: 1 {category} renamed",
