@@ -19,9 +19,10 @@ describe("loaBand: the shipped constants (USIBD C120 v3.1 p. 15)", () => {
     expect([0, 1, 1.01, 5, 5.01, 15, 15.01, 50, 50.01, 150, 150.01].map(at))
       .toEqual(["LOA50", "LOA40", "LOA40", "LOA30", "LOA30", "LOA20", "LOA20", "LOA10", "LOA10", null, null]);
   });
-  it("words: the band, the source, relative to the scan, not independently validated; over 150 mm no band", () => {
+  it("words: the band, the source, relative to the scan, not independently validated; 150 mm or more no band", () => {
     expect(loaWords(wall("out_of_tolerance", 23))).toBe(`LOA20 (p95 23 mm, ${LOA_SPEC.source}, relative to the scan, not independently validated)`);
-    expect(loaWords(wall("out_of_tolerance", 150))).toBe("no band — over 150 mm, beyond LOA10 (the lowest USIBD level)");
+    expect(loaWords(wall("out_of_tolerance", 150))).toBe("no band — 150 mm or more, beyond LOA10 (the lowest USIBD level)");
+    expect(loaWords(wall("out_of_tolerance", 149.9))).toMatch(/^LOA10 \(p95 149\.9 mm/);
     expect(loaWords({ kind: "floor", status: "within_tolerance", p95_mm: 3 })).toBe("no band — only walls are measured");
   });
   it("an empty table (unread) reads the waiting words", () => {
@@ -70,7 +71,7 @@ describe("loaBand: the logic, on a test-only table", () => {
   it("words: the filled-table sentence, the beyond-last-bound words and the not-judged words are pinned", () => {
     const spec = { source: "SAMPLE spec, Table 9, p. 1" };
     expect(loaWords(wall("within_tolerance", 23), SAMPLE, spec)).toBe("SAMPLE-B (p95 23 mm, SAMPLE spec, Table 9, p. 1, relative to the scan, not independently validated)");
-    expect(loaWords(wall("out_of_tolerance", 40), SAMPLE, spec)).toMatch(/^no band — over 30 mm, beyond SAMPLE-B/);
+    expect(loaWords(wall("out_of_tolerance", 40), SAMPLE, spec)).toMatch(/^no band — 30 mm or more, beyond SAMPLE-B/);
     expect(loaBand(wall("weird", 5), SAMPLE)).toEqual({ band: null, why: "no band — not judged" });
     expect(loaWords(wall("weird", 5), SAMPLE, spec)).toBe("no band — not judged");
   });

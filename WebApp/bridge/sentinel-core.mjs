@@ -2030,7 +2030,7 @@ function loaBand(m, bands = LOA_BANDS) {
   const hit = bands.find((b) => b.inclusive ? p <= b.upper_mm : p < b.upper_mm);
   if (hit) return { band: hit.band, p95_mm: p };
   const last = bands[bands.length - 1];
-  return { band: null, why: `no band \u2014 over ${last.upper_mm} mm, beyond ${last.band} (the lowest USIBD level)` };
+  return { band: null, why: `no band \u2014 ${last.upper_mm} mm or more, beyond ${last.band} (the lowest USIBD level)` };
 }
 export {
   ASSET_KEYS,
