@@ -77,7 +77,7 @@ public sealed class MassingFromImagesCommand : IExternalCommand
         var readerClock = new System.Diagnostics.Stopwatch();
         ModelUsage visionUsage = null;
 
-        var progress = new GhostBuilderProgressWindow();
+        var progress = new GhostBuilderProgressWindow(Title);
         new System.Windows.Interop.WindowInteropHelper(progress) { Owner = c.Application.MainWindowHandle };
 
         // Vision estimate on a background thread; the review window (Revit's thread) asks for the filing.

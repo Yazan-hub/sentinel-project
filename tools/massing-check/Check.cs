@@ -93,6 +93,12 @@ static class Check
            && atCap != null && capWhy == null,
            "130 storeys of 8000 mm (132 elements, under the cap) are refused in the planner's words — the bridge would refuse the mass; 125 of 8000 (1000000 mm) is filed");
 
+        // MA-6 batch-2 drill: one storey reads "1 storey".
+        var oneJson = Body(new List<(string, double, bool)>(), Tower(1));
+        Ok(oneJson.GetProperty("name").GetString() == "Photo Massing · 1 storey · 20.0 × 20.0 m"
+           && oneJson.GetProperty("elements").EnumerateArray().Last().GetProperty("reason").GetString()!.StartsWith("Photo Massing: 20.0 × 20.0 m, 1 storey of 8000 mm — "),
+           "one storey is \"1 storey\" in the changeset's name and the mass's reason (drill: \"1 storeys\")");
+
         // review list
         var review = MassingPlanner.FieldsNeedingReview(lowc);
         Ok(review.Contains("storey height"), "review list flags the low-confidence field");

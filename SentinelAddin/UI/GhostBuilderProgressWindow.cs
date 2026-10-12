@@ -23,9 +23,9 @@ public sealed class GhostBuilderProgressWindow : Window
     /// <summary>Token the background LLM call observes. Cancelled on ESC / Cancel / close.</summary>
     public CancellationToken Token => _cts.Token;
 
-    public GhostBuilderProgressWindow()
+    public GhostBuilderProgressWindow(string title = "Sentinel — Ghost Builder") // MA-6 batch-2 drill: Photo Massing says its own name
     {
-        Title = "Sentinel — Ghost Builder";
+        Title = title;
         Width = 380;
         SizeToContent = SizeToContent.Height;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
