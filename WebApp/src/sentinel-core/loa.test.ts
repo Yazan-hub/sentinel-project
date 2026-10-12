@@ -1,7 +1,7 @@
 // MA-8-5: the LOA band. The real table is UNREAD (step 0: the USIBD spec is the founder's download), so these tests pin the unread
 // behaviour on the shipped constants and the band logic on a TEST-ONLY table: its numbers are NOT the USIBD spec's.
 import { describe, it, expect } from "vitest";
-import { loaBand, loaWords, LOA_BANDS, LOA_SPEC, LOA_UNREAD, type LoaBandRow } from "./loa";
+import { loaBand, loaWords, loaSpecProblem, LOA_BANDS, LOA_SPEC, LOA_UNREAD, type LoaBandRow } from "./loa";
 
 // TEST-ONLY sample (invented values, not the spec): lowest upper first; the first band's bound is inclusive, the second's is not.
 const SAMPLE: LoaBandRow[] = [{ band: "SAMPLE-A", upper_mm: 10, inclusive: true }, { band: "SAMPLE-B", upper_mm: 30, inclusive: false }];
@@ -12,15 +12,21 @@ describe("loaBand: the shipped constants (step 0 not done)", () => {
     expect(LOA_SPEC).toMatchObject({ status: "unread", source: null, read_on: null });
     expect(LOA_BANDS).toEqual([]);
     expect(loaBand(wall("within_tolerance", 3))).toEqual({ band: null, why: LOA_UNREAD });
-    expect(loaBand(wall("out_of_tolerance", 63))).toEqual({ band: null, why: "no band — the LOA table waits for the USIBD spec read (step 0)" });
+    expect(loaBand(wall("out_of_tolerance", 63))).toEqual({ band: null, why: "no band yet — the USIBD accuracy table has not been loaded into Sentinel" });
     expect(loaWords(wall("within_tolerance", 3))).toBe(LOA_UNREAD);
   });
-  it("a spec marked read must name a table and a page and carry a date (a guard against a half-filled constant)", () => {
-    if (LOA_SPEC.status === "read") {
-      expect(LOA_SPEC.read_on).toMatch(/^\d{4}-\d\d-\d\d$/);
-      expect(LOA_SPEC.source).toMatch(/Table\s+\S+.*p\.\s*\d+/);
-      expect(LOA_BANDS.length).toBeGreaterThan(0);
-    } else expect(LOA_BANDS).toEqual([]);
+  it("the shipped constants pass the half-filled guard", () => {
+    expect(loaSpecProblem(LOA_SPEC, LOA_BANDS)).toBeNull();
+  });
+  it("the guard fails a spec marked read that is half filled, and passes a whole one", () => {
+    const good = { ...LOA_SPEC, status: "read" as const, read_on: "2026-10-20", source: "USIBD LOA Specification v3.0, Table 1, p. 5", statistic: "95 % (2σ)" };
+    expect(loaSpecProblem(good, SAMPLE)).toBeNull();
+    expect(loaSpecProblem({ ...good, source: "USIBD LOA Specification v3.0, Table 1" }, SAMPLE)).toMatch(/table and page/);
+    expect(loaSpecProblem({ ...good, read_on: "20 Oct 2026" }, SAMPLE)).toMatch(/date/);
+    expect(loaSpecProblem({ ...good, statistic: null }, SAMPLE)).toMatch(/statistic/);
+    expect(loaSpecProblem({ ...good, statistic: "RMSE" }, SAMPLE)).toMatch(/statistic/);
+    expect(loaSpecProblem(good, [])).toMatch(/no bands/);
+    expect(loaSpecProblem(LOA_SPEC, SAMPLE)).toMatch(/unread/);
   });
 });
 
@@ -45,5 +51,12 @@ describe("loaBand: the logic, on a test-only table", () => {
   it("a judged non-wall (or a row with no kind) gives no band", () => {
     expect(loaBand({ kind: "door", status: "within_tolerance", p95_mm: 2 }, SAMPLE)).toEqual({ band: null, why: "no band — only walls are measured" });
     expect(loaBand({ status: "within_tolerance", p95_mm: 2 }, SAMPLE)).toMatchObject({ band: null });
+  });
+  it("words: the filled-table sentence, the beyond-last-bound words and the not-judged words are pinned", () => {
+    const spec = { source: "SAMPLE spec, Table 9, p. 1" };
+    expect(loaWords(wall("within_tolerance", 23), SAMPLE, spec)).toBe("SAMPLE-B (p95 23 mm, SAMPLE spec, Table 9, p. 1, relative to the scan)");
+    expect(loaWords(wall("out_of_tolerance", 40), SAMPLE, spec)).toBe("no band — beyond the table's last bound");
+    expect(loaBand(wall("weird", 5), SAMPLE)).toEqual({ band: null, why: "no band — not judged" });
+    expect(loaWords(wall("weird", 5), SAMPLE, spec)).toBe("no band — not judged");
   });
 });

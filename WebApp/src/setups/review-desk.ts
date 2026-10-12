@@ -363,7 +363,8 @@ export function measureWords(m: Measured, rec: { target_mm?: number; deviation?:
   const faces = at && m.faces?.some((f) => f.share_within) ? [`faces within ${at} mm: ${m.faces.map((f) => (f.share_within ? down(f.share_within[at]) : "—")).join(" / ")}`] : [];
   const sw = m.share_within ? Object.entries(m.share_within).filter(([t]) => t !== at) : null;
   // MA-8-5: the LOA band, read at render from the row's p95 — a repeat measure is a 409, so a row is never rewritten; every older row gets it
-  return [`${m.status.replace(/_/g, " ")}${judged ? rule : ""}`, loaWords(m), ...faces,
+  // the band words only where a band could stand (judged, or insufficient data): missing and not-measured rows already say it
+  return [`${m.status.replace(/_/g, " ")}${judged ? rule : ""}`, ...(judged || m.status === "insufficient_data" ? [loaWords(m)] : []), ...faces,
     ...(m.p95_mm != null ? [`p95 ${m.p95_mm} mm`] : []),
     ...(m.mean_signed_mm != null ? [`mean ${m.mean_signed_mm > 0 ? "+" : ""}${m.mean_signed_mm} mm (+ = the scan outside it)`] : []),
     ...(m.coverage != null ? [`${pct(m.coverage)} of its faces seen`] : []),

@@ -438,9 +438,9 @@ describe("MA-6-1 — agent reads, the bridge's class, Undo in the status", () =>
   it("status: a measured survey changeset carries measured: its row, and a loa per element (null with its words while the LOA table is unread)", async () => {
     const fetch = route({ "action_prefix=verify:measured": { rows: [MROW], total: 1 }, "changeset_reverted": { rows: [], total: 0 }, [`/changesets/demo/${A}`]: SURVEY(A) });
     const r = await callTool("sentinel_changeset_status", { project: "demo", changeset: A }, { fetch });
-    expect(r.measured).toEqual({ ledger_id: 2300, at: "2026-10-12T10:00:00Z", counts: { within_tolerance: 1, not_measured: 1 }, loa_spec: null, elements: [
-      { proposal_guid: "g1", cid: "scan-w1", kind: "wall", status: "within_tolerance", p95_mm: 3, loa: null, loa_why: "no band — the LOA table waits for the USIBD spec read (step 0)" },
-      { proposal_guid: "g2", cid: "scan-f1", kind: "floor", status: "not_measured", p95_mm: null, loa: null, loa_why: "no band — not measured" }] });
+    expect(r.measured).toEqual({ ledger_id: 2300, at: "2026-10-12T10:00:00Z", status: null, reference: null, claimed: null, counts: { within_tolerance: 1, not_measured: 1 }, loa_spec: null, elements: [
+      { proposal_guid: "g1", cid: "scan-w1", kind: "wall", status: "within_tolerance", p95_mm: 3, reference: null, loa: null, loa_why: "no band yet — the USIBD accuracy table has not been loaded into Sentinel" },
+      { proposal_guid: "g2", cid: "scan-f1", kind: "floor", status: "not_measured", p95_mm: null, reference: null, loa: null, loa_why: "no band — not measured" }] });
     const reads = fetch.mock.calls.map((c) => c[0]).filter((u) => u.includes("verify:measured"));
     expect(reads).toHaveLength(1);
     expect(reads[0]).toMatch(new RegExp(`/cde/demo/audit\\?entity_type=changeset&action_prefix=verify:measured&entity_id=${A}&limit=1$`));
@@ -458,12 +458,39 @@ describe("MA-6-1 — agent reads, the bridge's class, Undo in the status", () =>
     expect((await callTool("sentinel_changeset_status", { project: "demo", changeset: A }, { fetch: bad })).measured).toEqual({ unknown: expect.stringMatching(/^ledger not read: .+/) });
   });
 
+  it("status: a failed or refused newest row says so (status, error, no elements); a claimed row says what it rests on", async () => {
+    const run = async (row) => (await callTool("sentinel_changeset_status", { project: "demo", changeset: A },
+      { fetch: route({ "action_prefix=verify:measured": { rows: [row], total: 1 }, "changeset_reverted": { rows: [], total: 0 }, [`/changesets/demo/${A}`]: SURVEY(A) }) })).measured;
+    for (const status of ["failed", "refused"]) {
+      const m = await run({ ...MROW, new_value: { status, error: "the job was read by sentinel-survey 0.5.0 and this measure ran 0.6.0", counts: { within_tolerance: 0 }, elements: [], reference: "as filed", claimed: false } });
+      expect(m).toMatchObject({ ledger_id: 2300, status, error: expect.stringMatching(/0\.6\.0/), elements: [], claimed: false });
+    }
+    const c = await run({ ...MROW, new_value: { status: "done", reference: "mixed", claimed: true, counts: {}, elements: [{ proposal_guid: "g1", kind: "wall", status: "within_tolerance", p95_mm: 4, reference: "revit (claimed)" }] } });
+    expect(c).toMatchObject({ status: "done", reference: "mixed", claimed: true, elements: [{ proposal_guid: "g1", reference: "revit (claimed)", p95_mm: 4 }] });
+    expect(c.error).toBeUndefined();
+  });
+
+  it("status: a partially applied survey changeset is read too; a list reads the ledger once per survey changeset only", async () => {
+    const one = route({ "action_prefix=verify:measured": { rows: [MROW], total: 1 }, "changeset_reverted": { rows: [], total: 0 }, [`/changesets/demo/${A}`]: SURVEY(A, "partially_applied") });
+    expect((await callTool("sentinel_changeset_status", { project: "demo", changeset: A }, { fetch: one })).measured).toMatchObject({ ledger_id: 2300 });
+    const fetch = route({ "action_prefix=verify:measured": { rows: [MROW], total: 1 }, "changeset_reverted": { rows: [], total: 0 },
+      "/changesets/demo": [SURVEY(A), SURVEY(B, "partially_applied"), SURVEY(C, "applied", "promote")] });
+    const r = await callTool("sentinel_changeset_status", { project: "demo", status: "applied" }, { fetch });
+    expect(r.map((c) => c.measured === null)).toEqual([false, false, true]);
+    const reads = fetch.mock.calls.map((x) => x[0]).filter((u) => u.includes("verify:measured"));
+    expect(reads).toHaveLength(2);
+    expect(reads[0]).toContain(`entity_id=${A}`);
+    expect(reads[1]).toContain(`entity_id=${B}`);
+  });
+
   it("status: the description names measured, the LOA band, relative to the scan, and what no band means", () => {
     const d = tool("sentinel_changeset_status").description;
     expect(d).toMatch(/`measured`/);
     expect(d).toMatch(/Level of Accuracy band/);
     expect(d).toMatch(/relative to the admitted scan/);
     expect(d).toMatch(/insufficient data, missing, not measured/);
+    expect(d).toMatch(/`measured\.status` other than done: the run did not finish/);
+    expect(d).toMatch(/"revit \(claimed\)".*rests on the add-in's re-read/);
   });
 
   it("status: a ledger read that fails, answers without rows, or is cut (total > rows) is {unknown} — never \"not undone\"", async () => {

@@ -14,7 +14,8 @@ export const LOA_SPEC: { status: "unread" | "read"; source: string | null; read_
 /** Lowest upper bound first. Empty until step 0. */
 export const LOA_BANDS: LoaBandRow[] = [];
 
-export const LOA_UNREAD = "no band — the LOA table waits for the USIBD spec read (step 0)";
+// plain words for the desk and the agent; "step 0" stays in the comments (review)
+export const LOA_UNREAD = "no band yet — the USIBD accuracy table has not been loaded into Sentinel";
 const NO_BAND: Record<string, string> = { insufficient_data: "no band — insufficient data", missing: "no band — missing", not_measured: "no band — not measured" };
 
 /** A measured wall's band from its p95. The status words first (a floor's row is not_measured too), the kind only for a judged status;
@@ -30,8 +31,19 @@ export function loaBand(m: { kind?: string | null; status: string; p95_mm?: numb
   return hit ? { band: hit.band, p95_mm: p } : { band: null, why: "no band — beyond the table's last bound" };
 }
 
-/** The desk's words: "LOA20 (p95 23 mm, <source>, relative to the scan)" or the no-band words. */
-export function loaWords(m: { kind?: string | null; status: string; p95_mm?: number | null }): string {
-  const b = loaBand(m);
-  return b.band === null ? b.why : `${b.band} (p95 ${b.p95_mm} mm, ${LOA_SPEC.source}, relative to the scan)`;
+/** The desk's words: "LOA20 (p95 23 mm, <source>, relative to the scan)" or the no-band words. `bands`/`spec` are for tests only. */
+export function loaWords(m: { kind?: string | null; status: string; p95_mm?: number | null }, bands: LoaBandRow[] = LOA_BANDS, spec: { source: string | null } = LOA_SPEC): string {
+  const b = loaBand(m, bands);
+  return b.band === null ? b.why : `${b.band} (p95 ${b.p95_mm} mm, ${spec.source}, relative to the scan)`;
+}
+
+/** What is wrong with a spec marked "read" (null when fine or unread): the guard against a half-filled constant. The statistic must be a 95 % one
+ *  (95 % or 2σ), else p95_mm is the wrong input and the slice stops (plan step 0). */
+export function loaSpecProblem(spec: typeof LOA_SPEC, bands: LoaBandRow[]): string | null {
+  if (spec.status !== "read") return bands.length ? "bands filled while the spec is unread" : null;
+  if (!/^\d{4}-\d\d-\d\d$/.test(spec.read_on ?? "")) return "read_on is not a YYYY-MM-DD date";
+  if (!/Table\s+\S+.*p\.\s*\d+/.test(spec.source ?? "")) return "source names no table and page";
+  if (!/95\s*%|2\s*σ/.test(spec.statistic ?? "")) return "statistic is not a 95 % one (95 % or 2σ)";
+  if (!bands.length) return "no bands";
+  return null;
 }
