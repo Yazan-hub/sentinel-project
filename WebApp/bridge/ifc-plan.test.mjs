@@ -349,14 +349,47 @@ describe("planIfc — MA-8-4 (0.2.0): openings, doors, windows, columns and curt
     });
   });
 
-  it("stairs: IfcStair rows are one exception on their storey ('IfcStair × 2'), with their boxes on the receipt; nothing is placed for them", () => {
-    const stair = (g, box) => ({ global_id: g, ifc_class: "IFCSTAIR", ifc_name: "IfcStair", storey: "L02", why: "a stair — this reader boxes stairs but does not place them; a person places it", box });
-    const rows = [stair("STAIR000000000000001", { min: [0, 0, 0], max: [1000, 3000, 3500] }), stair("STAIR000000000000002", null)];
-    const p = plan({ ...cv2, notRead: [...cv2.notRead, ...rows] });
-    const ex = s02(p).exceptions.find((e) => e.unique_id === "IFCSTAIR@L02");
-    expect(ex).toMatchObject({ name: "IfcStair × 2" });
-    expect(ex.reason).toMatch(/^a stair — this reader boxes stairs but does not place them; a person places it · STAIR000000000000001, STAIR000000000000002/);
-    expect(s02(p).body.elements.filter((e) => /stair/i.test(JSON.stringify(e.validate)))).toEqual([]);
+  describe("stairs: a boxed stair is one flag row for a person (MA-8-9); nothing is placed or pre-ticked", () => {
+    const G = (n) => `STAIR${String(n).padStart(17, "0")}`;   // 22 characters
+    const stair = (g, box, storey = "L02") => ({ global_id: g, ifc_class: "IFCSTAIR", ifc_name: "IfcStair", storey, why: "a stair — this reader boxes stairs but does not place them; a person places it", box });
+    const BOX = { min: [0, 0, 0], max: [1000, 3000, 3500] };
+    const withStairs = (rows, over = {}) => plan({ ...cv2, notRead: [...cv2.notRead, ...rows] }, over);
+    it("a stair with a box becomes a flag on its storey; one without a box stays in the class row with its why", () => {
+      const p = withStairs([stair(G(1), BOX), stair(G(2), null)]);
+      const flag = s02(p).exceptions.find((e) => e.unique_id === `stair:${G(1)}`);
+      expect(flag).toMatchObject({ name: `Stair ${G(1)}`, kind: "stair", storey: s02(p).storey.level, global_id: G(1), box: { min: [0, 0, 0], max: [1000, 3000, 3500] } });
+      expect(flag.reason).toMatch(/^a stair — Sentinel places none yet; box 1000 × 3000 mm in plan, 3500 mm tall, from \(0, 0, 0\) on .+; MA-8-10 starts from this flag · job-0007 \(ledger #3301\)$/);
+      expect(flag.reason.length).toBeLessThanOrEqual(300);
+      const row = s02(p).exceptions.find((e) => e.unique_id === "IFCSTAIR@L02");
+      expect(row).toMatchObject({ name: `IfcStair ${G(2)}` });
+      expect(row.reason).toMatch(/^a stair — this reader boxes stairs but does not place them; a person places it · /);
+      expect(s02(p).body.elements.filter((e) => /stair/i.test(JSON.stringify(e.validate)))).toEqual([]);
+      expect(s02(p).body.elements.some((e) => e.pretick)).toBe(false);
+    });
+    it("the bridge files it: kind, storey, box and the IFC GlobalId kept, source ifc", () => {
+      const f = filedAs(s02(withStairs([stair(G(1), BOX)]))).exceptions.find((e) => e.kind === "stair");
+      expect(f).toMatchObject({ unique_id: `stair:${G(1)}`, kind: "stair", source: "ifc", global_id: G(1), box: BOX });
+    });
+    it("the lead's frame moves the box into the model; a turned frame gives the larger axis-aligned box and says so", () => {
+      const moved = s02(withStairs([stair(G(1), BOX)], { frame: { dx_mm: 5000, dy_mm: -2000, dz_mm: 100, rotation_deg: 0 } })).exceptions.find((e) => e.kind === "stair");
+      expect(moved.box).toEqual({ min: [5000, -2000, 100], max: [6000, 1000, 3600] });
+      expect(moved.reason).not.toMatch(/turned frame/);
+      const quarter = s02(withStairs([stair(G(1), BOX)], { frame: { ...ZERO, rotation_deg: 90 } })).exceptions.find((e) => e.kind === "stair");
+      expect(quarter.box).toEqual({ min: [-3000, 0, 0], max: [0, 1000, 3500] });
+      const turned = s02(withStairs([stair(G(1), BOX)], { frame: { ...ZERO, rotation_deg: 45 } })).exceptions.find((e) => e.kind === "stair");
+      expect(turned.box.max[0] - turned.box.min[0]).toBeGreaterThan(2800);   // (1000 + 3000) / sqrt 2
+      expect(turned.reason).toMatch(/box 2828 × 2828 mm in plan \(the larger axis-aligned box of a turned frame\)/);
+    });
+    it("51 stairs: 50 flags, the 51st stays in the class row", () => {
+      const p = withStairs(Array.from({ length: 51 }, (_, i) => stair(G(i + 1), BOX)));
+      expect(s02(p).exceptions.filter((e) => e.kind === "stair")).toHaveLength(50);
+      expect(s02(p).exceptions.find((e) => e.unique_id === "IFCSTAIR@L02")).toMatchObject({ name: `IfcStair ${G(51)}` });
+    });
+    it("a box the bridge would refuse (a side under 300 mm) stays in the class row", () => {
+      const p = withStairs([stair(G(1), { min: [0, 0, 0], max: [200, 3000, 3500] })]);
+      expect(s02(p).exceptions.filter((e) => e.kind === "stair")).toEqual([]);
+      expect(s02(p).exceptions.find((e) => e.unique_id === "IFCSTAIR@L02")).toBeTruthy();
+    });
   });
 
   it("an unchecked level holds every point the executor checks the height of, and still files the walls and floor", () => {

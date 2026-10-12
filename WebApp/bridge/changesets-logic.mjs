@@ -581,7 +581,9 @@ export function validateChangeset(body, { member = false, type = null, cite = nu
     };
   });
 
-  const exceptions = checkExceptions(body.exceptions, (k, at) => note(`${at}.${k}`, trustWhy(k) ?? NOT_KEPT));
+  // MA-8-9: a stair flag's source is the bridge's — "ifc" for a flag the bridge built from an IFC job it ran, "posted" for a body's; a flag from any other job is a 400
+  const flagSource = !job ? "posted" : String(job.record?.reader ?? "").startsWith("sentinel-ifc ") ? "ifc" : null;
+  const exceptions = checkExceptions(body.exceptions, (k, at, why) => note(`${at}.${k}`, why ?? trustWhy(k) ?? NOT_KEPT), flagSource);
   const more = ignored.length - MAX_IGNORED;
   return {
     name, source,
@@ -613,9 +615,34 @@ function checkProvenance(p, op, at) {
   return { layer: p.layer ?? null, rule: p.rule ?? null, source_sha256: p.source_sha256 ?? null };
 }
 
+/** MA-8-9: what a stair flag is — the exception row's own fields (unique_id, name, reason) plus these. `source` is the bridge's. */
+export const STAIR_FLAG_FIELDS = ["unique_id", "name", "reason", "kind", "storey", "box", "source", "global_id"];
+const FLAG_PLAN_MM = [300, 50000], FLAG_HEIGHT_MM = [300, 60000], FLAG_REACH_MM = 3.2e7;
+
+/** MA-8-9: the part of a stair flag a person's pick and a planner's row share — {kind: "stair", storey, box} → the same three, the box in
+ *  whole mm, or a 400 in words (`at` names the row). box: {min, max} of [x, y, z] in the model's frame; min below max on every axis; plan
+ *  sides 300 to 50 000 mm, height 300 to 60 000 mm. Pure. */
+export function checkStairFlag(x, at) {
+  if (!x || typeof x !== "object" || Array.isArray(x)) throw err(400, `${at}: must be an object`);
+  if (x.kind !== "stair") throw err(400, `${at}: kind "${String(x.kind).slice(0, 40)}" is not an exception kind — only "stair" (MA-8-9)`);
+  if (!text(x.storey, 256)) throw err(400, `${at}: storey is required — the model's level name (at most 256 characters)`);
+  const b = x.box;
+  const v3 = (a) => Array.isArray(a) && a.length === 3 && a.every((n) => typeof n === "number" && Number.isFinite(n));
+  if (!b || typeof b !== "object" || !v3(b.min) || !v3(b.max)) throw err(400, `${at}: box must be {min: [x, y, z], max: [x, y, z]} — three finite numbers each, in mm`);
+  const min = b.min.map((n) => Math.round(n) || 0), max = b.max.map((n) => Math.round(n) || 0);   // || 0: never -0
+  if ([...min, ...max].some((n) => Math.abs(n) > FLAG_REACH_MM)) throw err(400, `${at}: box values must lie within ${FLAG_REACH_MM / 1000} m of the origin`);
+  if (min.some((n, k) => n >= max[k])) throw err(400, `${at}: box.min must be below box.max on every axis`);
+  const [w, dp, h] = max.map((n, k) => n - min[k]);
+  if (Math.min(w, dp) < FLAG_PLAN_MM[0] || Math.max(w, dp) > FLAG_PLAN_MM[1]) throw err(400, `${at}: the box's plan sides must be ${FLAG_PLAN_MM[0]} to ${FLAG_PLAN_MM[1]} mm (got ${w} × ${dp})`);
+  if (h < FLAG_HEIGHT_MM[0] || h > FLAG_HEIGHT_MM[1]) throw err(400, `${at}: the box's height must be ${FLAG_HEIGHT_MM[0]} to ${FLAG_HEIGHT_MM[1]} mm (got ${h})`);
+  return { kind: "stair", storey: x.storey.trim(), box: { min, max } };
+}
+
 /** The elements a planner sent to a person instead of proposing a change: optional, at most 1000 rows of
- *  {unique_id (≤64), name?, reason (≤300)}. They ride on the changeset for the reviewer; a bad row is a 400. */
-function checkExceptions(rows, extra) {
+ *  {unique_id (≤64), name?, reason (≤300)}. They ride on the changeset for the reviewer; a bad row is a 400.
+ *  MA-8-9: a row with `kind` is a stair flag — checkStairFlag, plus `source` (`flagSource`: "ifc" | "posted", the bridge's; null = a job that is
+ *  not an IFC, which flags nothing) and, from an IFC, its `global_id`. Every other row is as before. */
+function checkExceptions(rows, extra, flagSource = "posted") {
   if (rows == null) return [];
   if (!Array.isArray(rows)) throw err(400, "exceptions must be an array");
   if (rows.length > MAX_CHANGESET_EXCEPTIONS) throw err(400, `too many exceptions (${rows.length}; limit ${MAX_CHANGESET_EXCEPTIONS})`);
@@ -625,8 +652,13 @@ function checkExceptions(rows, extra) {
     if (!text(x.unique_id, 64)) throw err(400, `${at}: unique_id is required (at most 64 characters)`);
     if (!text(x.reason, 300)) throw err(400, `${at}: reason is required (at most 300 characters)`);
     if (x.name != null && !text(x.name, 256)) throw err(400, `${at}: name must be text of at most 256 characters`);
-    for (const k of Object.keys(x)) if (!["unique_id", "name", "reason"].includes(k)) extra(k, at); // listed, not kept
-    return { unique_id: x.unique_id, name: x.name ?? null, reason: x.reason };
+    const flag = x.kind !== undefined;
+    if (flag && !flagSource && x.kind === "stair") throw err(400, `${at}: a stair flag comes from an IFC job or a person's pick — this changeset's job is neither (MA-8-9)`);
+    const f = flag ? checkStairFlag(x, at) : null;
+    const gid = flag && flagSource === "ifc" && typeof x.global_id === "string" && /^[0-9A-Za-z_$]{22}$/.test(x.global_id) ? x.global_id : null;
+    const kept = flag ? [...STAIR_FLAG_FIELDS.slice(0, 6), ...(gid ? ["global_id"] : [])] : STAIR_FLAG_FIELDS.slice(0, 3);
+    for (const k of Object.keys(x)) if (!kept.includes(k)) extra(k, at, flag && k === "source" ? SET_BY_BRIDGE : undefined); // listed, not kept
+    return { unique_id: x.unique_id, name: x.name ?? null, reason: x.reason, ...(f ? { ...f, source: flagSource, ...(gid ? { global_id: gid } : {}) } : {}) };
   });
 }
 

@@ -1,0 +1,21 @@
+{
+  "_note": "MA-8-9: a stair flag's {kind, storey, box} - checkStairFlag's good and refused bodies with the bridge's exact 400 words. Read by changesets-logic.test.mjs (the pick route and the exception row share the check). example.test data only.",
+  "good": [
+    { "name": "a plain box", "body": { "kind": "stair", "storey": "L01", "box": { "min": [0, 0, 0], "max": [1200, 5400, 3000] } }, "kept": { "kind": "stair", "storey": "L01", "box": { "min": [0, 0, 0], "max": [1200, 5400, 3000] } } },
+    { "name": "values are rounded to whole mm", "body": { "kind": "stair", "storey": " L02 ", "box": { "min": [0.4, -1000.6, 3000], "max": [1300.5, 4000, 6000.49] } }, "kept": { "kind": "stair", "storey": "L02", "box": { "min": [0, -1001, 3000], "max": [1301, 4000, 6000] } } },
+    { "name": "the limits themselves", "body": { "kind": "stair", "storey": "L01", "box": { "min": [0, 0, 0], "max": [300, 50000, 60000] } }, "kept": { "kind": "stair", "storey": "L01", "box": { "min": [0, 0, 0], "max": [300, 50000, 60000] } } }
+  ],
+  "refused": [
+    { "name": "another kind", "body": { "kind": "ramp", "storey": "L01", "box": { "min": [0, 0, 0], "max": [1200, 5400, 3000] } }, "message": "x: kind \"ramp\" is not an exception kind — only \"stair\" (MA-8-9)" },
+    { "name": "no storey", "body": { "kind": "stair", "box": { "min": [0, 0, 0], "max": [1200, 5400, 3000] } }, "message": "x: storey is required — the model's level name (at most 256 characters)" },
+    { "name": "no box", "body": { "kind": "stair", "storey": "L01" }, "message": "x: box must be {min: [x, y, z], max: [x, y, z]} — three finite numbers each, in mm" },
+    { "name": "two numbers", "body": { "kind": "stair", "storey": "L01", "box": { "min": [0, 0], "max": [1200, 5400, 3000] } }, "message": "x: box must be {min: [x, y, z], max: [x, y, z]} — three finite numbers each, in mm" },
+    { "name": "a string number", "body": { "kind": "stair", "storey": "L01", "box": { "min": [0, 0, "0"], "max": [1200, 5400, 3000] } }, "message": "x: box must be {min: [x, y, z], max: [x, y, z]} — three finite numbers each, in mm" },
+    { "name": "too far out", "body": { "kind": "stair", "storey": "L01", "box": { "min": [0, 0, 0], "max": [1200, 5400, 33000000] } }, "message": "x: box values must lie within 32000 m of the origin" },
+    { "name": "min not below max", "body": { "kind": "stair", "storey": "L01", "box": { "min": [0, 5400, 0], "max": [1200, 5400, 3000] } }, "message": "x: box.min must be below box.max on every axis" },
+    { "name": "a plan side under 300", "body": { "kind": "stair", "storey": "L01", "box": { "min": [0, 0, 0], "max": [299, 5400, 3000] } }, "message": "x: the box's plan sides must be 300 to 50000 mm (got 299 × 5400)" },
+    { "name": "a plan side over 50 000", "body": { "kind": "stair", "storey": "L01", "box": { "min": [0, 0, 0], "max": [1200, 50001, 3000] } }, "message": "x: the box's plan sides must be 300 to 50000 mm (got 1200 × 50001)" },
+    { "name": "too low", "body": { "kind": "stair", "storey": "L01", "box": { "min": [0, 0, 0], "max": [1200, 5400, 299] } }, "message": "x: the box's height must be 300 to 60000 mm (got 299)" },
+    { "name": "too tall", "body": { "kind": "stair", "storey": "L01", "box": { "min": [0, 0, 0], "max": [1200, 5400, 60001] } }, "message": "x: the box's height must be 300 to 60000 mm (got 60001)" }
+  ]
+}

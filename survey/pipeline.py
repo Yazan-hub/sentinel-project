@@ -133,11 +133,14 @@ def voxel(P, src, mm):
     return P[first], src[first]
 
 
-def thin(P, z, mm, cap):
+def thin(P, z, mm, cap, xy=None):
     """MA-4f: the scan overlay's points — the cloud between heights z[0] and z[1] (mm, the scan's frame), one point per mm cube, the cube doubled
     until at most cap are left (even over the walls, never a cut list; the same points every run). → (whole-mm int64 rows, the cube used, how many
-    the first cube kept). cap >= 8 (read_cloud): a cube larger than the band's extent keys at most 2 cells an axis, 8 in all, so the doubling ends."""
+    the first cube kept). cap >= 8 (read_cloud): a cube larger than the band's extent keys at most 2 cells an axis, 8 in all, so the doubling ends.
+    MA-8-9: xy [[x0, y0], [x1, y1]] crops to that plan box first (a stair flag's slice); None keeps every point, as before."""
     Q = P[(P[:, 2] >= z[0]) & (P[:, 2] <= z[1])]
+    if xy is not None:
+        Q = Q[(Q[:, 0] >= xy[0][0]) & (Q[:, 0] <= xy[1][0]) & (Q[:, 1] >= xy[0][1]) & (Q[:, 1] <= xy[1][1])]
     if not len(Q):
         return np.zeros((0, 3), np.int64), mm, 0
     none = np.zeros(len(Q), np.int8)

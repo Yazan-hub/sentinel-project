@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import {
   VOCABULARY, OPS, OP_KINDS, MAX_CHANGESET_ELEMENTS, TRUST_FIELDS, ADDIN_SOURCES, CREATE_ENTITY, PLACE_KEPT,
-  validateChangeset, carryKey, outlineProblem, attachVerdicts, canWithdraw, deriveResultStatus, unattributedFailures, editCost, EDIT_COST_CEILING,
+  validateChangeset, checkStairFlag, STAIR_FLAG_FIELDS, carryKey, outlineProblem, attachVerdicts, canWithdraw, deriveResultStatus, unattributedFailures, editCost, EDIT_COST_CEILING,
 } from "./changesets-logic.mjs";
 import * as core from "./sentinel-core.mjs";
 import { makeTyper, makeCiter } from "./changesets-typing.mjs";
@@ -1454,5 +1454,40 @@ describe("editCost (MA-8-1)", () => {
     expect(out.runs.map((r) => r.run)).toEqual(["job#40", "job#99", "d"]);
     expect(out.runs[0]).toMatchObject({ filed: 10, label: "job-0001 (ledger #40)" });
     expect(out.runs[2].label).toBe("Promote DD");
+  });
+});
+
+// MA-8-9 — a stair flag: an exception row with kind "stair", checked by checkStairFlag (the pick route's body is the same three fields).
+describe("stair flags (MA-8-9)", () => {
+  const CASES = JSON.parse(readFileSync(new URL("./fixtures/stair-flag/cases.json", import.meta.url), "utf8"));
+  const BOX = { min: [0, 0, 0], max: [1200, 5400, 3000] };
+  const GID = "0abcdefghijklmnopqrstu";
+  const row = (over = {}) => ({ unique_id: `stair:${GID}`, name: `Stair ${GID}`, reason: "a stair", kind: "stair", storey: "L01", box: BOX, ...over });
+  const trust = { measured: { m: 1 }, pretick: false, accuracy: { status: "inferred", basis: "ifc", from_job: "job-0007" } };
+  const IFC = { record: { id: "job-0007", reader: "sentinel-ifc 0.2.0" }, byCid: new Map([["c1", trust]]) };
+  const W1 = () => wall({ cid: "c1" });
+
+  it("the fields", () => expect(STAIR_FLAG_FIELDS).toEqual(["unique_id", "name", "reason", "kind", "storey", "box", "source", "global_id"]));
+  for (const c of CASES.good) it(`good: ${c.name}`, () => expect(checkStairFlag(c.body, "x")).toEqual(c.kept));
+  for (const c of CASES.refused) it(`refused: ${c.name}`, () => {
+    try { checkStairFlag(c.body, "x"); throw new Error("no throw"); } catch (e) { expect([e.status, e.message]).toEqual([400, c.message]); }
+  });
+  it("a row in a posted body is kept with source posted; its global_id and a posted source are listed, not kept", () => {
+    const v = validateChangeset(CS([wall()], { exceptions: [row({ source: "ifc", global_id: GID })] }));
+    expect(v.exceptions).toEqual([{ unique_id: `stair:${GID}`, name: `Stair ${GID}`, reason: "a stair", kind: "stair", storey: "L01", box: BOX, source: "posted" }]);
+    expect(v.ignored).toEqual(expect.arrayContaining([{ field: "exceptions[0].source", why: "ignored: set by the bridge" }, { field: "exceptions[0].global_id", why: expect.stringMatching(/^ignored/) }]));
+  });
+  it("from an IFC job the source is ifc and a 22-character GlobalId is kept; another job's flag is a 400", () => {
+    const v = validateChangeset(CS([W1()], { exceptions: [row({ global_id: GID }), row({ unique_id: "stair:#9", global_id: "#9" })] }), { job: IFC });
+    expect(v.exceptions.map((x) => [x.source, x.global_id ?? null])).toEqual([["ifc", GID], ["ifc", null]]);
+    status400(() => validateChangeset(CS([W1()], { exceptions: [row()] }), { job: { record: { id: "job-1", reader: "sentinel-survey 0.6.0" }, byCid: IFC.byCid } }), /exceptions\[0\]: a stair flag comes from an IFC job or a person's pick/);
+  });
+  it("an unknown kind is a 400 in words; a row without kind is as before (source stays not kept)", () => {
+    status400(() => validateChangeset(CS([wall()], { exceptions: [row({ kind: "ramp" })] })), /exceptions\[0\]: kind "ramp" is not an exception kind — only "stair" \(MA-8-9\)/);
+    status400(() => validateChangeset(CS([wall()], { exceptions: [row({ box: { min: [0, 0, 0], max: [100, 5400, 3000] } })] })), /exceptions\[0\]: the box's plan sides/);
+    const v = validateChangeset(CS([wall()], { exceptions: [{ unique_id: "u", reason: "r", source: "x", box: BOX }] }));
+    expect(v.exceptions).toEqual([{ unique_id: "u", name: null, reason: "r" }]);
+    expect(v.ignored.map((i) => i.field)).toEqual(["exceptions[0].source", "exceptions[0].box"]);
+    expect(v.ignored.every((i) => i.why === "ignored: not a field this bridge keeps")).toBe(true);
   });
 });

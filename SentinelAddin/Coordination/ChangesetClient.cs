@@ -83,6 +83,25 @@ public sealed class ExceptionRowDto
     [JsonPropertyName("unique_id")] public string UniqueId { get; set; }
     [JsonPropertyName("name")] public string Name { get; set; }
     [JsonPropertyName("reason")] public string Reason { get; set; }
+    // MA-8-9: a stair flag (kind "stair") also carries its storey, its box in the model's frame (mm) and where it came from; all null on any other row.
+    [JsonPropertyName("kind")] public string Kind { get; set; }
+    [JsonPropertyName("storey")] public string Storey { get; set; }
+    [JsonPropertyName("box")] public BoxDto Box { get; set; }
+    [JsonPropertyName("source")] public string Source { get; set; }
+    [JsonPropertyName("global_id")] public string GlobalId { get; set; }
+}
+
+/// <summary>MA-8-9: an axis-aligned box in mm, [x, y, z] each.</summary>
+public sealed class BoxDto
+{
+    [JsonPropertyName("min")] public double[] Min { get; set; }
+    [JsonPropertyName("max")] public double[] Max { get; set; }
+}
+
+/// <summary>MA-8-9: the bridge's answer to a stair pick - the flag row it appended.</summary>
+public sealed class FlagReplyDto
+{
+    [JsonPropertyName("flag")] public ExceptionRowDto Flag { get; set; }
 }
 
 public sealed class ElementVerdictDto
@@ -701,6 +720,30 @@ internal static class ChangesetClient
             return JsonSerializer.Deserialize<ScanDto>(body);
         }
         catch (Exception ex) { error = ChangesetTrust.BridgeWords(ex, (int)WriteHttp.Timeout.TotalSeconds); return null; }
+    }
+
+    /// <summary>MA-8-9: a stair flag's scan slice - the same overlay, cut to that flag's box. A separate overload: the whole-storey read above is unchanged.</summary>
+    public static ScanDto FetchScan(BcfConfig cfg, string projectKey, string id, string flag, out string error)
+    {
+        error = null;
+        try
+        {
+            var url = $"{cfg.ServiceUrl.TrimEnd('/')}/changesets/{Uri.EscapeDataString(projectKey)}/{Uri.EscapeDataString(id)}/scan?flag={Uri.EscapeDataString(flag)}";
+            var (resp, body) = Send(WriteHttp, () => Req(HttpMethod.Get, url, cfg.ServiceToken));
+            if (!resp.IsSuccessStatusCode) { error = $"Bridge {(int)resp.StatusCode}: {body}"; return null; }
+            return JsonSerializer.Deserialize<ScanDto>(body);
+        }
+        catch (Exception ex) { error = ChangesetTrust.BridgeWords(ex, (int)WriteHttp.Timeout.TotalSeconds); return null; }
+    }
+
+    /// <summary>MA-8-9: a person's stair pick, appended to the changeset's exceptions. Signed-in only: ServiceToken falls back to the machine
+    /// credential, which the bridge refuses (403), so a signed-out Revit is told so here, before anything is sent. <paramref name="reply"/> is
+    /// the bridge's {flag, ledger}.</summary>
+    public static bool FlagStair(BcfConfig cfg, string projectKey, string id, Sentinel.GhostBuilder.StairFlag flag, out string reply, out string error)
+    {
+        reply = null;
+        if (!UserSession.IsSignedIn) { error = "a stair flag is a person's pick — sign in (Standards ▸ Sign in); nothing was saved"; return false; }
+        return Post(cfg, $"/changesets/{Uri.EscapeDataString(projectKey)}/{Uri.EscapeDataString(id)}/flags", flag.Body(), 201, out reply, out error);
     }
 
     /// <summary>MA-3a: <paramref name="reviewRev"/> is the review_rev Apply re-checked (null: no revision was re-checked — the bridge records any decline it applied as applied_over_decline_unchecked, C2);

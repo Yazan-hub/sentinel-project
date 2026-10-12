@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { proposeChangeset, getChangeset, reportResult, withdrawChangeset, listChangesets, reportReverted, needsTyping, needsCiting,
-  reviewChangeset, reopenGhost, previewChangesets, proposeFromJob, verifyChangeset, scanOverlay, editCostOf, publishEditCost } from "./changesets-store.mjs";
+  reviewChangeset, reopenGhost, previewChangesets, proposeFromJob, verifyChangeset, scanOverlay, editCostOf, publishEditCost, flagChangeset } from "./changesets-store.mjs";
 import { meshFaces } from "./survey-plan.mjs";
 import { boxMesh } from "./fixtures/box-mesh.mjs";
 
@@ -800,7 +800,7 @@ describe("MA-3a — the routes", () => {
     const src = readFileSync(new URL("./bcf-service.mjs", import.meta.url), "utf8");
     expect(src).toContain('if (p2 && p3 === "review" && req.method === "POST") return send(res, 200, await ch.reviewChangeset(key, p2, body, actor));');
     expect(src).toContain('if (p2 && p3 === "reopen" && req.method === "POST") return send(res, 200, await ch.reopenGhost(key, p2, body, actor));');
-    expect(src).toContain('const actor = body.actor || (["result", "reverted"].includes(p3) ? "revit" : ["review", "reopen"].includes(p3) ? "web" : "agent");');
+    expect(src).toContain('const actor = body.actor || (["result", "reverted"].includes(p3) ? "revit" : ["review", "reopen", "flags"].includes(p3) ? "web" : "agent");');
   });
 });
 
@@ -1569,6 +1569,25 @@ describe("verifyChangeset (MA-4e): a signed-in contributor measures a placed sur
     await no({ measureJob: vi.fn(async () => ({ status: "done", result: { points: [[1.5, 0, 0]], receipt: { cloud: { cell_mm: 100, of: 1 } } } })) }, CS, 502,
       "sentinel-survey's scan overlay is not the contract's shape (a point is not three whole numbers of mm) — its scan is not shown");
   });
+  it("(j) MA-8-9: a stair flag's scan slice - the flag's own band (no margin) and plan box go to the service, the points outside the exact box are dropped; an unknown flag is a 404; an IFC changeset says there is no slice", async () => {
+    const flag = { unique_id: "stair:pick-0a1b2c3d", name: "Stair picked on L01", reason: "r", kind: "stair", storey: "L01", source: "pick", box: { min: [40000, 0, 1000], max: [41000, 1000, 2000] } };   // CS: the scan moved 40 m in x
+    const deps = sdeps({}, { ...CS, exceptions: [flag] });
+    const r = await scanOverlay("ma4c-drill", ID, deps, { flag: flag.unique_id });
+    expect(deps.measureJob.mock.calls[0][2].cloud).toEqual({ cell_mm: 100, z_mm: [1000, 2000], max_points: 5000, xy_mm: [[0, 0], [1000, 1000]] });
+    expect([r.flag, r.z_mm, r.points]).toEqual([flag.unique_id, [1000, 2000], [[40125, 150, 1400]]]);   // the second point is outside the box
+    const wallless = sdeps({}, { ...CS, elements: [], exceptions: [flag] });   // the 'no wall' 409 is skipped when a flag is given
+    expect((await scanOverlay("ma4c-drill", ID, wallless, { flag: flag.unique_id })).points).toHaveLength(1);
+    const turned = sdeps({}, { ...CS, exceptions: [flag], job: { ...CS.job, frame: { dx_mm: 40000, dy_mm: 0, dz_mm: 1000, rotation_deg: 90 } } });
+    await scanOverlay("ma4c-drill", ID, turned, { flag: flag.unique_id });
+    expect(turned.measureJob.mock.calls[0][2].cloud).toMatchObject({ z_mm: [0, 1000] });
+    expect(turned.measureJob.mock.calls[0][2].cloud.xy_mm).toHaveLength(2);
+    const without = sdeps({}, { ...CS, exceptions: [flag] });   // no flag asked: the request is as before (no xy_mm)
+    await scanOverlay("ma4c-drill", ID, without);
+    expect(without.measureJob.mock.calls[0][2].cloud).toEqual({ cell_mm: 100, z_mm: [300, 2500], max_points: 5000 });
+    await expect(scanOverlay("ma4c-drill", ID, sdeps({}, { ...CS, exceptions: [flag] }), { flag: "stair:nope" })).rejects.toMatchObject({ status: 404, message: `${CS.name} has no stair flag "stair:nope" — its scan slice is not shown` });
+    await expect(scanOverlay("ma4c-drill", ID, sdeps({}, { ...CS, exceptions: [flag], job: { ...CS.job, reader: "sentinel-ifc 0.2.0" } }), { flag: flag.unique_id }))
+      .rejects.toMatchObject({ status: 409, message: `${CS.name} was built from an IFC (${CS.job.id}) — it has no scan to show — a stair flag on it has no scan slice: flag the stair on a survey changeset of this storey` });
+  });
 });
 
 describe("MA-6-2 — Revit's as-built re-read, judged by the bridge against the installed ids@n (fixture as-built-result.json)", () => {
@@ -1758,6 +1777,30 @@ describe("proposeFromJob (MA-6-8): a lead turns a concept IFC job into one chang
     expect(r.off_storey).toEqual(run[6].off_storey);
   });
 
+  it("(a3) MA-8-9: a stair flag rides its storey's changeset exceptions (source ifc); on a storey that files no changeset it rides the build:run row's storeys[].held", async () => {
+    const GID = "STAIR00000000000000001";
+    const stair = (storey) => ({ global_id: GID, ifc_class: "IFCSTAIR", ifc_name: "IfcStair", storey, why: "a stair — this reader boxes stairs but does not place them; a person places it", box: { min: [0, 0, 0], max: [1200, 5400, 3000] } });
+    const deps = await ideps();
+    const t = await deps.trustedJob();
+    t.result.receipt.not_read.push(stair("L02"));
+    const r = await propose(deps);
+    const flag = [...deps.saved.values()][0].exceptions.find((e) => e.kind === "stair");
+    expect(flag).toMatchObject({ unique_id: `stair:${GID}`, name: `Stair ${GID}`, source: "ifc", global_id: GID, box: { min: [0, 0, 0], max: [1200, 5400, 3000] } });
+    expect(r.storeys.find((x) => x.cid === "L02").held).toBeUndefined();
+    // L04 keeps one floor the typer cannot type (275 mm: a type gap), so its storey files nothing - its stair flag is said on the planner's row
+    const none = await ideps();
+    const n = await none.trustedJob();
+    const f = n.result.candidates.find((c) => c.kind === "floor" && c.geometry.storey === "L04");
+    f.measured.thickness_mm = 275;
+    n.result.candidates = n.result.candidates.filter((c) => c.kind === "level" || c.geometry.storey !== "L04" || c === f);
+    n.result.receipt.not_read.push(stair("L04"));
+    const r2 = await propose(none);
+    const l04 = r2.storeys.find((x) => x.cid === "L04");
+    expect(l04.changeset).toBeNull();
+    expect(l04.held).toEqual([expect.objectContaining({ name: `Stair ${GID}`, kind: "stair", storey: expect.any(String), box: { min: [0, 0, 0], max: [1200, 5400, 3000] }, global_id: GID })]);
+    expect(none.audit.mock.calls.find((c) => c[1] === "build")[6].storeys.find((x) => x.cid === "L04").held[0]).toMatchObject({ kind: "stair", global_id: GID });
+  });
+
   it("(a2) review: a 275 mm floor is one type_gap ledger row sourced sentinel-ifc", async () => {
     const deps = await ideps();
     const t = await deps.trustedJob();
@@ -1872,5 +1915,68 @@ describe("edit cost (MA-8-1)", () => {
     await expect(publishEditCost("demo", { run: "job#40" }, "x", slow)).rejects.toMatchObject({ status: 409 });
     release();
     await first;
+  });
+});
+
+describe("flagChangeset (MA-8-9): a person's stair pick, appended to a changeset's exceptions", () => {
+  const BOX = { min: [0, 0, 0], max: [1200, 5400, 3000] };
+  const PICK = { kind: "stair", storey: "L01", box: BOX };
+  const person = (over = {}) => baseDeps({ myRole: vi.fn(async () => "contributor"), requireMinRole: vi.fn(async () => "contributor"), takeWriteBudget: vi.fn(), ...over });
+  const filed = async (deps) => proposeChangeset("demo", BODY, "agent", deps);
+
+  it("appends one flag (source pick, unique_id stair:pick-<8 hex>), bumps review_rev and writes ONE changeset_flagged row; the reply is {flag, ledger}", async () => {
+    const deps = person({ audit: vi.fn(async () => ({ id: 41, hash: "ab".repeat(32) })) });
+    const cs = await filed(deps);
+    deps.audit.mockClear();
+    const out = await flagChangeset("demo", cs.id, PICK, "yazan", deps);
+    expect(out.flag).toMatchObject({ kind: "stair", storey: "L01", box: BOX, source: "pick", name: "Stair picked on L01" });
+    expect(out.flag.unique_id).toMatch(/^stair:pick-[0-9a-f]{8}$/);
+    expect(out.flag.reason).toMatch(/^a stair picked by .+ — Sentinel places none yet; box 1200 × 5400 mm in plan, 3000 mm tall, from \(0, 0, 0\) on L01; MA-8-10 starts from this flag$/);
+    expect(out.ledger).toEqual({ id: 41, hash: "ab".repeat(32) });
+    const doc = deps.saved.get(cs.id);
+    expect([doc.exceptions, doc.review_rev]).toEqual([[out.flag], 1]);
+    expect(deps.docReplaceIfField.mock.calls.at(-1).slice(4, 6)).toEqual(["review_rev", 0]);
+    expect(deps.audit.mock.calls).toHaveLength(1);
+    expect(deps.audit.mock.calls[0].slice(1, 6)).toEqual(["changeset", cs.id, `changeset_flagged ${cs.name} · stair on L01`, "yazan", { review_rev: 0 }]);
+    expect(deps.audit.mock.calls[0][6]).toMatchObject({ review_rev: 1, changeset: cs.id, flag: out.flag });
+  });
+  it("the machine credential and a viewer save nothing; the budget is taken; a bad body is a 400 in the validator's words", async () => {
+    const deps = person();
+    const cs = await filed(deps);
+    const rows = deps.audit.mock.calls.length;
+    const machine = person({ myRole: vi.fn(async () => "service"), requireMinRole: vi.fn(async () => "service") });
+    machine.saved.set(cs.id, deps.saved.get(cs.id));
+    await expect(flagChangeset("demo", cs.id, PICK, "x", machine)).rejects.toMatchObject({ status: 403, message: "a stair flag is a person's pick — sign in (Standards ▸ Sign in); nothing was saved" });
+    const viewer = person({ requireMinRole: vi.fn(async () => { throw Object.assign(new Error("this action requires the contributor role (you are viewer)"), { status: 403 }); }) });
+    await expect(flagChangeset("demo", cs.id, PICK, "x", viewer)).rejects.toMatchObject({ status: 403, message: "this action requires the contributor role (you are viewer)" });
+    await flagChangeset("demo", cs.id, PICK, "x", deps);
+    expect(deps.takeWriteBudget).toHaveBeenCalledWith("flags", { perUser: 20, all: 60 });
+    await expect(flagChangeset("demo", cs.id, { ...PICK, box: { min: [0, 0, 0], max: [100, 5400, 3000] } }, "x", deps)).rejects.toMatchObject({ status: 400, message: "flag: the box's plan sides must be 300 to 50000 mm (got 100 × 5400)" });
+    await expect(flagChangeset("demo", cs.id, { ...PICK, unique_id: "stair:mine" }, "x", deps)).rejects.toMatchObject({ status: 400, message: expect.stringMatching(/^a stair flag is \{kind, storey, box\} — not unique_id/) });
+    await expect(flagChangeset("demo", cs.id, [], "x", deps)).rejects.toMatchObject({ status: 400 });
+    expect(deps.audit.mock.calls.length).toBe(rows + 1);
+  });
+  it("an unknown changeset is a 404, a withdrawn one a 409; 50 picks fill a changeset (409), a full exceptions list is a 413", async () => {
+    const deps = person();
+    const cs = await filed(deps);
+    await expect(flagChangeset("demo", "no-such", PICK, "x", deps)).rejects.toMatchObject({ status: 404 });
+    const w = await filed(deps);
+    await withdrawChangeset("demo", w.id, "agent", deps);
+    await expect(flagChangeset("demo", w.id, PICK, "x", deps)).rejects.toMatchObject({ status: 409, message: `${w.name} is withdrawn — flag the stair on a changeset that is still live; nothing was saved` });
+    deps.saved.set(cs.id, { ...deps.saved.get(cs.id), exceptions: Array.from({ length: 50 }, (_, i) => ({ unique_id: `stair:pick-${i}`, reason: "r", kind: "stair", source: "pick" })) });
+    await expect(flagChangeset("demo", cs.id, PICK, "x", deps)).rejects.toMatchObject({ status: 409, message: `${cs.name} already holds 50 picked stair flags — nothing was saved` });
+    deps.saved.set(cs.id, { ...deps.saved.get(cs.id), exceptions: Array.from({ length: 1000 }, (_, i) => ({ unique_id: `u${i}`, reason: "r" })) });
+    await expect(flagChangeset("demo", cs.id, PICK, "x", deps)).rejects.toMatchObject({ status: 413 });
+  });
+  it("a ledger that does not take the row takes the flag back off the doc (recorded)", async () => {
+    const deps = person({ audit: vi.fn(async (...a) => { if (a[3].startsWith("changeset_flagged")) throw new Error("ledger down"); return {}; }) });
+    const cs = await filed(deps);
+    await expect(flagChangeset("demo", cs.id, PICK, "x", deps)).rejects.toMatchObject({ status: 503 });
+    expect(deps.saved.get(cs.id).exceptions).toEqual([]);
+  });
+  it("the routes: POST /flags (201, the body without actor) and GET /scan?flag= reach the store", () => {
+    const src = readFileSync(new URL("./bcf-service.mjs", import.meta.url), "utf8");
+    expect(src).toContain('if (p2 && p3 === "flags" && req.method === "POST") { const { actor: _who, ...pick } = body; return send(res, 201, await ch.flagChangeset(key, p2, pick, actor)); }');
+    expect(src).toContain('await ch.scanOverlay(key, p2, {}, flag != null ? { flag } : {})');
   });
 });

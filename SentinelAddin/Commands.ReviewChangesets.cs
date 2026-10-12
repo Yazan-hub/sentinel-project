@@ -484,6 +484,64 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
             });
         };
         window.Closed += (_, _) => { scanAsk++; ScanOff("the window closed"); };
+        // MA-8-9: a stair flag's scan slice - the same overlay (scanOn / scanAsk are shared, so a slice and "Show the scan" replace each other and the
+        // newest tick wins), cut by the bridge to the flag's box (GET …/scan?flag=). Read off Revit's thread, drawn through the hub; nothing is written.
+        window.StairSliceRequested += (on, flagUid) =>
+        {
+            var ask = ++scanAsk;
+            ScanOff(on ? "a slice ticked" : "a slice unticked");
+            if (!on) { window.Shown(window.Applied ? "" : GhostOverlayGeometry.Line(creates, outlined)); return; }
+            window.Shown("Reading the scan slice on the bridge…");
+            Task.Run(() =>
+            {
+                var slice = ChangesetClient.FetchScan(cfg, key, cs.Id, flagUid, out var sliceErr);
+                if (ask != scanAsk) return; // a newer tick or untick since: this answer is not shown
+                if (slice == null) { window.Shown("The scan slice was not drawn — " + sliceErr); return; }
+                var segs = GhostOverlayGeometry.ScanCrosses(slice.Points, GhostOverlayGeometry.ScanBudget);
+                App.Events.Enqueue(doc, "draw the scan slice", (ua, _) =>
+                {
+                    if (window.Gone || ask != scanAsk || scanOn != null) return;
+                    var s = new GhostOverlayServer(doc, cs.Name, segs, null, "Scan slice");
+                    scanOn = s;
+                    try { GhostOverlayServer.Register(ua, s); window.Shown(GhostOverlayGeometry.StairSliceLine(slice, segs.Count / 3)); }
+                    catch (Exception ex) { ScanOff("the registration failed"); window.Shown($"The scan slice could not be drawn — {ex.GetType().Name}: {ex.Message}"); }
+                }, refusal => { if (ask == scanAsk) window.Shown($"The scan slice was not drawn — {refusal}"); });
+            });
+        };
+        // MA-8-9: "Flag a stair…" - two plan corners picked on the active view (a plan of a Building Story), the box from that level to the next story,
+        // filed on this changeset by the bridge as a flag for a person (POST …/flags, off Revit's thread). Nothing is written to the model.
+        window.FlagStairRequested += () => App.Events.Enqueue(doc, "pick a stair", (ua, d) =>
+        {
+            if (!UserSession.IsSignedIn) { window.Shown("A stair flag is a person's pick — sign in (Standards ▸ Sign in); nothing was saved."); return; }
+            var uidoc = ua.ActiveUIDocument;
+            if (uidoc.ActiveView is not ViewPlan viewPlan || viewPlan.GenLevel is not Level lvl)
+            { window.Shown("Flag a stair from a floor plan: open the plan of the storey it starts on, then press Flag a stair… again; nothing was saved."); return; }
+            var stories = ChangesetExecutor.Stories(d);
+            var here = stories.FirstOrDefault(l => l.Name == lvl.Name);
+            if (here == null || !here.IsStory)
+            { window.Shown($"{lvl.Name} is not a Building Story — open the plan of a storey (a level marked Building Story); nothing was saved."); return; }
+            var next = stories.Where(l => l.IsStory && l.ElevationMm > here.ElevationMm + 1).OrderBy(l => l.ElevationMm).FirstOrDefault();
+            XYZ c1, c2;
+            try
+            {
+                c1 = uidoc.Selection.PickPoint(Autodesk.Revit.UI.Selection.ObjectSnapTypes.Endpoints | Autodesk.Revit.UI.Selection.ObjectSnapTypes.Intersections, "Stair: first corner");
+                c2 = uidoc.Selection.PickPoint(Autodesk.Revit.UI.Selection.ObjectSnapTypes.Endpoints | Autodesk.Revit.UI.Selection.ObjectSnapTypes.Intersections, "Stair: opposite corner");
+            }
+            catch (Autodesk.Revit.Exceptions.OperationCanceledException) { window.Shown("Flagging a stair was cancelled; nothing was saved."); return; }
+            const double ft = 304.8;
+            var flag = StairFlag.FromPick(here.Name, here.ElevationMm, next?.ElevationMm, new[] { c1.X * ft, c1.Y * ft }, new[] { c2.X * ft, c2.Y * ft }, out var why);
+            if (flag == null) { window.Shown(why + "; nothing was saved."); return; }
+            window.Shown("Saving the stair flag on the bridge…");
+            Task.Run(() =>
+            {
+                if (!ChangesetClient.FlagStair(cfg, key, cs.Id, flag, out var reply, out var flagErr)) { window.Shown("The stair was not flagged — " + flagErr); return; }
+                ExceptionRowDto row = null;
+                try { row = System.Text.Json.JsonSerializer.Deserialize<FlagReplyDto>(reply)?.Flag; } catch (System.Text.Json.JsonException) { }
+                if (row == null) { window.Shown("The stair was flagged, but the bridge's answer could not be read — reopen the review to see it."); return; }
+                window.AddFlag(row);
+                window.Shown($"Flagged: {StairFlag.Line(flag.Storey, flag.Min, flag.Max)} — saved on {cs.Name} for a person; nothing was placed.");
+            });
+        }, refusal => window.Shown($"The stair was not flagged — {refusal}"));
         var here = DocOf(doc);
         var left = new List<UnreportedResults.Record>(); // what Retry report sends again
         // Review C13: a decline that did not land lives only in this window (E4) — closing it loses it, said.

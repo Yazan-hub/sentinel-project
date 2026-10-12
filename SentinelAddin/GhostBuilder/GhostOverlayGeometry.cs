@@ -226,6 +226,13 @@ namespace Sentinel.GhostBuilder
             return $"Scan: {drawn} of {s.Of} point(s) drawn as cyan crosses — {s.Job} (ledger #{s.LedgerId}), one point per {s.CellMm} mm, {F(s.ZMm[0])}–{F(s.ZMm[1])} mm high (the walls less 300 mm at the floor and ceiling), placed by the lead's frame; nothing is written. Untick to hide.";
         }
 
+        /// <summary>MA-8-9: the window's line once a stair flag's scan slice is drawn: <paramref name="drawn"/> points of the scan's.</summary>
+        public static string StairSliceLine(ScanDto s, int drawn)
+        {
+            string F(double v) => v.ToString("0", CultureInfo.InvariantCulture);
+            return $"Scan slice: {drawn} of {s.Of} point(s) inside the stair's box drawn as cyan crosses — {s.Job} (ledger #{s.LedgerId}), one point per {s.CellMm} mm, {F(s.ZMm[0])}–{F(s.ZMm[1])} mm high (the box's own height), placed by the lead's frame; nothing is written. Untick to hide.";
+        }
+
         static double Z(double[] q, PlaceDto p) => q.Length >= 3 ? q[2] : p.BaseElevation ?? 0;
         static double[] At(double[] q, double z) => new[] { q[0], q[1], z };
 

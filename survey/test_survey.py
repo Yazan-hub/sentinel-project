@@ -900,6 +900,17 @@ class Thin(unittest.TestCase):
         Q, cell, of = pipeline.thin(building(), (90000, 91000), 100, 5000)
         self.assertEqual((Q.shape, cell, of), ((0, 3), 100, 0))
 
+    def test_xy_crops_to_the_plan_box_first_and_none_is_the_same_as_before(self):
+        """MA-8-9: a stair flag's slice — only the points inside the plan box; without xy the answer is byte-identical."""
+        P = building()
+        Qall, cell, of = pipeline.thin(P, (300, 2500), 100, 10 ** 6)
+        x0, x1 = float(np.median(Qall[:, 0])), float(Qall[:, 0].max())
+        Q, _, n = pipeline.thin(P, (300, 2500), 100, 10 ** 6, [[x0, -1e9], [x1, 1e9]])
+        self.assertTrue(0 < len(Q) < len(Qall))
+        self.assertTrue((Q[:, 0] >= x0 - 100).all())
+        np.testing.assert_array_equal(pipeline.thin(P, (300, 2500), 100, 10 ** 6, None)[0], Qall)
+        self.assertEqual(pipeline.thin(P, (300, 2500), 100, 10 ** 6, [[1e8, 1e8], [1e8 + 1, 1e8 + 1]])[0].shape, (0, 3))
+
 
 class Deviation(unittest.TestCase):
     """MA-4e: pipeline.deviation on the drill building (2 mm of noise across each face) — numbers only, the bridge judges (survey-plan judge).
@@ -1109,6 +1120,21 @@ class Service(unittest.TestCase):
         code, bad = self.call(port, "POST", "/cloud", {**body, "cloud": {**body["cloud"], "z_mm": [2500, 300]}})
         self.assertEqual((code, bad["message"].startswith("cloud must be {cell_mm: 20 to 1000")), (400, True))
         self.assertEqual(self.call(port, "POST", "/cloud", body)[0], 202)
+
+    def test_a_cloud_xy_mm_is_optional_and_refused_in_words_when_not_a_box(self):
+        """MA-8-9: xy_mm [[x0, y0], [x1, y1]] — read_cloud keeps it when it is a box, refuses it in words when not, and leaves the cloud as it was without it."""
+        spec = importlib.util.spec_from_file_location("svc89", os.path.join(os.path.dirname(os.path.abspath(__file__)), "service.py"))
+        svc = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(svc)
+        item = {"id": "ev-0001", "kind": "scan", "path": "x.las", "sha256": "0" * 64}
+        body = {"job_id": "scan-1", "items": [item], "params": {"voxel_mm": 20, "storey_min_mm": 2000}, "seed": 1,
+                "cloud": {"cell_mm": 100, "z_mm": [300, 2500], "max_points": 5000}}
+        self.assertEqual(svc.read_cloud(body)["cloud"], {"cell_mm": 100, "z_mm": [300, 2500], "max_points": 5000})
+        good = svc.read_cloud({**body, "cloud": {**body["cloud"], "xy_mm": [[0, 0], [10, 20]]}})["cloud"]
+        self.assertEqual(good["xy_mm"], [[0, 0], [10, 20]])
+        for bad in ([[0, 0]], [[10, 0], [0, 20]], [[0, 0], [10, 0]], [[0, 0], [10, "a"]], [[0, 0], [10, float("nan")]], "box"):
+            with self.assertRaisesRegex(ValueError, r"cloud\.xy_mm must be \[\[x0, y0\], \[x1, y1\]\] mm"):
+                svc.read_cloud({**body, "cloud": {**body["cloud"], "xy_mm": bad}})
 
     def test_it_exits_when_the_bridge_goes(self):
         p, _, _ = self.start()
