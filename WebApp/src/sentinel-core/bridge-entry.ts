@@ -16,3 +16,4 @@ export { parseLodMatrix, STAGES, MATRIX_STAGES, DEFAULT_STAGE_MAP } from "./lod-
 export type { LodMatrix, LodRow } from "./lod-matrix";
 export { buildIfc } from "./ifc-writer"; // MA-3d2: the proposal model is written with the same IFC writer
 export type { BakeElement, BakeKind } from "./ifc-writer";
+export { loaBand, LOA_BANDS, LOA_SPEC } from "./loa"; // MA-8-5: the LOA band the status tool reads per measured wall

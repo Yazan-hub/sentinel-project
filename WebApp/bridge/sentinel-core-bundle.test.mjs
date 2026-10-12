@@ -8,6 +8,7 @@ import * as bundle from "./sentinel-core.mjs";
 import * as source from "../src/sentinel-core/guideline";
 import * as lodSource from "../src/sentinel-core/lod-matrix";
 import * as fedSource from "../src/sentinel-core/federation";
+import * as loaSource from "../src/sentinel-core/loa";
 
 const read = (p) => JSON.parse(readFileSync(new URL(p, import.meta.url), "utf8"));
 const FILES = [
@@ -26,6 +27,17 @@ describe("bridge/sentinel-core.mjs is the build of src/sentinel-core (MA-2a)", (
     const el = { modelId: "m", localId: 1, identity: { Class: "IFCDOOR", GlobalId: "g" }, psets: [{ name: "P", rows: [{ name: "FireRating", value: "EI60" }] }], quantities: [] };
     for (const validate of [ids.validateElement, bundle.validateElement])
       expect(validate(spec, el)).toEqual({ inScope: true, pass: false, failures: [{ specification: "s", requirement: "P.FireRating", reason: "the requirement's pattern /EI(60/ does not compile — not a pass" }] });
+  });
+
+  // MA-8-5: the LOA table is one constant; a stale bundle would band walls by an older table.
+  it("loaBand, LOA_BANDS and LOA_SPEC in the bundle are the source's, case for case", () => {
+    expect(bundle.LOA_BANDS).toEqual(loaSource.LOA_BANDS);
+    expect(bundle.LOA_SPEC).toEqual(loaSource.LOA_SPEC);
+    const sample = [{ band: "T-A", upper_mm: 10, inclusive: true }, { band: "T-B", upper_mm: 30, inclusive: false }]; // test-only values
+    for (const m of [{ kind: "wall", status: "within_tolerance", p95_mm: 10 }, { kind: "wall", status: "out_of_tolerance", p95_mm: 30 }, { kind: "wall", status: "within_tolerance", p95_mm: 3 }, { kind: "floor", status: "not_measured" }, { kind: "wall", status: "missing" }, { kind: "door", status: "within_tolerance", p95_mm: 1 }, { kind: "wall", status: "within_tolerance", p95_mm: NaN }]) {
+      expect(bundle.loaBand(m)).toEqual(loaSource.loaBand(m));
+      expect(bundle.loaBand(m, sample)).toEqual(loaSource.loaBand(m, sample));
+    }
   });
 
   it("exports the resolver and the BOS-5 category ids the bridge types with", () => {
