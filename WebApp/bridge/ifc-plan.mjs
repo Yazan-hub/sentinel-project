@@ -85,7 +85,7 @@ export function planIfc({ job, candidates, frame, levels: named = {}, manifest =
         reason: `IFC floor ${c.cid} "${c.geometry.name}": ${c.measured.thickness_mm} mm thick, ${c.measured.area_m2} m² as modelled · ${ref}`.slice(0, 500) });
       byCid.set(c.cid, trust(c));
     }
-    // what was not read: one exception per IFC class on the storey (a 20 MB file can hold thousands), the first GlobalIds named
+    // what was not read: one exception per IFC class on the storey (a 64 MB file can hold thousands), the first GlobalIds named
     for (const [cls, list] of byClass(notRead.filter((x) => x.storey === s.cid)))
       exceptions.push({ unique_id: `${cls}@${s.cid}`.slice(0, 64), name: nameOf(list), reason: reasonOf(list) });
     if (!elements.length) return { storey: s, body: null, byCid, exceptions, once: [] };

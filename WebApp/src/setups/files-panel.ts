@@ -683,7 +683,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
           (needsReport(f.path) ? `<select id="fv-ev-report" style="background:#111;color:#eee;border:1px solid #2c2c34;border-radius:.25rem;font:11px system-ui"><option value="">its registration report…</option>${folder.files_not_admitted.filter((x) => x.path !== f.path).map((x) => `<option value="${esc(x.path)}">${esc(x.path)}</option>`).join("")}</select>` : "") +
           `<button id="fv-ev-ok" style="${act};color:#c4b5fd">Admit</button><button id="fv-ev-cancel" style="${act}">Cancel</button>`
         : vendorFor === f.path
-          ? `<span style="color:#9ca3af;flex-basis:100%">A third party's model is a purchase, not a request: a lead has signed (a) and (e), and names the order or contract. Sentinel sends nothing to the vendor; the owner's consent to sharing a scan with them is the office's to settle.</span>` +
+          ? `<span style="color:#9ca3af;flex-basis:100%">A third party's model is a purchase, not a request. Needs (a) and (e) signed by a lead, and a lead to admit it. Name the provider and the order or contract it was bought under. Sentinel sends nothing to the vendor; the owner's consent to sharing a scan with them is the office's to settle.</span>` +
             `<input id="fv-ev-vprov" maxlength="100" placeholder="provider, e.g. Acme Scans" style="${inp};min-width:9rem"/><input id="fv-ev-vref" maxlength="100" placeholder="order or contract number" style="${inp};flex:1;min-width:9rem"/>` +
             `<button id="fv-ev-vok" style="${act};color:#c4b5fd">Admit model</button><button id="fv-ev-cancel" style="${act}">Cancel</button>`
         : drawingFor === f.path
@@ -694,7 +694,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
             `<button id="fv-ev-cancel" style="${act}">Cancel</button>`
         : !kindOf(f.path) ? '<span style="color:#71717a">not admitted here — scans e57, las, laz, rcp; photos jpg, png; drawings pdf, dwg, dxf; a concept model ifc</span>'
         : edit ? `<button data-evadmit="${esc(f.path)}" style="${act}">Admit</button>` +
-          (kindOf(f.path) === "model" && can.ask ? ` <button data-evvendor="${esc(f.path)}" style="${act}" title="a model bought from a third party: a lead names the provider and the order">a third party's…</button>` : "") +
+          (kindOf(f.path) === "model" && can.ask && !pack.items.some((i) => i.path === f.path && i.state === "changed") ? ` <button data-evvendor="${esc(f.path)}" style="${act}" title="a model bought from a third party: a lead names the provider and the order">a third party's…</button>` : "") +
           (isImage(f.path) && requests.length ? ` <button data-evdrawing="${esc(f.path)}" style="${act}" title="a scanned drawing that answers a request">as drawing…</button>` : "") : "";
       return `<div style="display:flex;gap:.4rem;align-items:center;flex-wrap:wrap;font-size:11px;padding:.15rem .2rem"><span style="flex:1;min-width:8rem;overflow-wrap:anywhere">${esc(f.path)} · ${esc(humanSize(f.size_bytes))}</span>${form}</div>`;
     }).join("") || line("none");

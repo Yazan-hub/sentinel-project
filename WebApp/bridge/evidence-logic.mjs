@@ -31,6 +31,8 @@ export const DATASET_LICENCES = ["CC-BY-4.0", "CC0-1.0"];
 export const codesSaid = (codes) => codes.map((c) => `(${c})`).join(", ").replace(/, ([^,]*)$/, " and $1");
 /** RED sources (R:207, D:486): never admitted, whoever attests. Matched inside the provider's name, case ignored. */
 export const RED = ["google", "apple", "bing", "azure"];
+/** MA-8-3: a vendor's company name is matched by whole words ('Bingham Geomatics' is not Bing); every other provider by substring. */
+const redModel = (provider) => provider.split(/[^a-z0-9]+/).some((t) => RED.includes(t));
 const PLAIN_NAME = /^[a-z0-9][a-z0-9 ._-]{0,99}$/; // MA-8-3: a third-party model's provider, a plain name on the ledger
 export const PACK_ID = "evp-0001";          // one pack per project in MA-4 (MA-4a spec amendment S1)
 // ponytail: every admission, signature and flag writes a whole new evidence_pack@n+1 (kept forever), so stored size grows with the
@@ -90,7 +92,7 @@ export function readAdmitBody(b = {}) {
   const provider = b.provider == null ? "own" : String(b.provider).trim().toLowerCase();
   if (!provider || provider.length > 100) throw bad("provider must be a name of at most 100 characters (own when left out)");
   // MA-8-3: a third party's model is a purchase, not a request — it names the order or contract it was bought under
-  if (b.kind === "model" && provider !== "own" && !PLAIN_NAME.test(provider)) throw bad("a third-party model's provider must be a plain name (letters, digits, spaces, . _ -)");
+  if (b.kind === "model" && provider !== "own" && !PLAIN_NAME.test(provider) && !redModel(provider)) throw bad("a third-party model's provider must be a plain name (letters, digits, spaces, . _ -)");
   let licence_ref = null;
   if (b.licence_ref != null) {
     if (b.kind !== "model" || provider === "own") throw bad("licence_ref belongs to a third-party model only");
@@ -123,7 +125,7 @@ export function newItemRefusal({ path, kind, registration, request_id }) {
 /** The reasons an item is refused before its bytes are read (each becomes an evidence:refused row). [] = none. */
 export function policyRefusals({ kind, provider, path, dataset = false }) {
   const out = [];
-  if (RED.some((r) => provider.includes(r))) out.push(`${provider} is a RED source — imagery and data from Google, Apple and Azure/Bing map services are never admitted (attestation d says so for every photo)`);
+  if (kind === "model" && provider !== "own" ? redModel(provider) : RED.some((r) => provider.includes(r))) out.push(`${provider} is a RED source — imagery and data from Google, Apple and Azure/Bing map services are never admitted (attestation d says so for every photo)`);
   // A drawing's provider is its request's recipient, stamped by the bridge — the body's is read for the RED rule only.
   // MA-4h: on a published dataset's pack the body's provider is read for the RED rule only (the pack's is stamped).
   else if (provider !== "own" && kind !== "drawing" && kind !== "model" && !dataset) out.push("web and third-party items wait for a later stage — only your own scans and photos (provider own), drawings under a request and third-party models with (e) are admitted now");
@@ -320,7 +322,7 @@ export function validatePack(p) {
       if (x.licence !== "holder-permission" || !reqs.has(x.request_id) || x.provider !== reqs.get(x.request_id))
         throw bad(at, "is a drawing: licence holder-permission, request_id naming a request of this pack, provider its recipient_kind");
     } else if (x.kind === "model" && x.provider !== "own") { // MA-8-3: a vendor's model — commercial, with the order it was bought under, no request
-      if (RED.some((r) => x.provider.includes(r)) || !PLAIN_NAME.test(x.provider) || x.licence !== "commercial" || !str(x.licence_ref, 100) || x.request_id !== undefined)
+      if (redModel(x.provider) || !PLAIN_NAME.test(x.provider) || x.licence !== "commercial" || !str(x.licence_ref, 100) || x.request_id !== undefined)
         throw bad(at, "is a third party's model: a plain-name provider (not a RED source), licence commercial, licence_ref the order or contract, no request");
     } else if (x.provider !== "own" || x.licence !== "owner-supplied" || x.request_id !== undefined || x.licence_ref !== undefined) throw bad(at, "is own (licence owner-supplied) — only a drawing comes from someone else, under a request, and a model from a vendor, under a licence_ref");
     if (!Array.isArray(x.attestation_ids) || !x.attestation_ids.every((a) => attIds.has(a))

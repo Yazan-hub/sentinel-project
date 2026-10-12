@@ -509,6 +509,9 @@ describe("IFC jobs (MA-6-8) — sentinel-ifc in this process on the newest admit
     expect(job.items).toEqual([{ id: "ev-0020", path: "model/old.ifc", sha256: sha(FIX), provider: "acme scans", licence: "commercial" }]);
     expect(job.refused).toEqual([]); // the newer concept is not listed: only the named item is looked at
     expect(audits[0].v.items).toEqual([{ id: "ev-0020", sha256: sha(FIX), provider: "acme scans", licence: "commercial" }]);
+    PACK.items.find((x) => x.id === "ev-0020").state = "changed";
+    await expect(start({ pack: "evp-0001", readers: ["sentinel-ifc"], item: "ev-0020" })).rejects.toMatchObject({ message: expect.stringContaining("changed since admitted") });
+    PACK.items.find((x) => x.id === "ev-0020").state = "admitted";
     const row = { read: ["ev-0020"], items: [{ id: "ev-0020", sha256: sha(FIX) }], reader: "sentinel-ifc" };
     expect(stillAdmitted(row, PACK, "job-0001")).toEqual([{ id: "ev-0020", sha256: sha(FIX) }]);
   });

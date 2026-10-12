@@ -237,6 +237,10 @@ describe("a concept model (MA-6-8)", () => {
     expect(policyRefusals({ kind: "model", provider: "own", path: "a.ifc" })).toEqual([]);
     expect(policyRefusals({ kind: "model", provider: "architect", path: "a.ifc" })).toEqual([]); // MA-8-3: a vendor's model (e) and a licence_ref are the body's and the pack's
     expect(policyRefusals({ kind: "model", provider: "google maps", path: "a.ifc" })[0]).toMatch(/^google maps is a RED source/);
+    expect(policyRefusals({ kind: "model", provider: "bingham geomatics", path: "a.ifc" })).toEqual([]); // whole words: Bingham is not Bing
+    expect(policyRefusals({ kind: "model", provider: "big apple scanning", path: "a.ifc" })[0]).toMatch(/RED source/);
+    expect(readAdmitBody({ path: "a.ifc", kind: "model", provider: "Google/Maps", licence_ref: "x" }).provider).toBe("google/maps"); // refused with a row, not a 400
+    expect(policyRefusals({ kind: "model", provider: "google/maps", path: "a.ifc" })[0]).toMatch(/RED source/);
     expect(policyRefusals({ kind: "scan", provider: "vendor", path: "a.las" })[0]).toMatch(/^web and third-party items wait/);
     expect(policyRefusals({ kind: "scan", provider: "own", path: "a.ifc" })).toEqual(["a .ifc is a model, not a scan"]);
     expect(policyRefusals({ kind: "model", provider: "own", path: "a.las" })).toEqual(["a .las is a scan, not a model"]);

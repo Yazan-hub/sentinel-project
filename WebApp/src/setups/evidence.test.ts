@@ -350,7 +350,7 @@ describe("a concept IFC (MA-6-8) — Read IFC, the third reader", () => {
     expect(kindOf("model/Concept.IFC")).toBe("model");
     expect(itemLine(model("ev-0021"))).toBe("ev-0021 · model/ev-0021.ifc · ifc · 1.0 MB · sha abababababab… · concept model (own)");
     // MA-8-3: a third party's model names its provider and the order it was bought under
-    expect(itemLine(model("ev-0022", { provider: "acme scans", licence: "commercial", licence_ref: "PO-2026-114" }))).toBe("ev-0022 · model/ev-0022.ifc · ifc · 1.0 MB · sha abababababab… · acme scans's model (commercial, ref PO-2026-114)");
+    expect(itemLine(model("ev-0022", { provider: "acme scans", licence: "commercial", licence_ref: "PO-2026-114" }))).toBe("ev-0022 · model/ev-0022.ifc · ifc · 1.0 MB · sha abababababab… · model from acme scans (commercial, ref PO-2026-114)");
   });
   it("readableIfc is the admitted, unchanged models; Read IFC posts {pack, readers: [sentinel-ifc]}; the lines name the reader and what it found", async () => {
     expect(readableIfc({ pack_id: "evp-0001", storage_root: "x", attestations: [], items: [model("ev-0020"), model("ev-0021", { state: "changed" }), ITEM] }).map((i) => i.id)).toEqual(["ev-0020"]);
@@ -370,7 +370,7 @@ describe("a concept IFC (MA-6-8) — Read IFC, the third reader", () => {
     const r = { job: "job-0009", ifc_row: { id: 3301, hash: HASH }, frame: { dx_mm: 0, dy_mm: 0, dz_mm: 0, rotation_deg: 0 }, storeys: [{ cid: "L02", level: "IFC L02 job-0009", how: "created", elevation_mm: 0, delta_mm: 0, checked: true, from: null, changeset: "c1",
         held: [{ name: "IfcRoof G", reason: "an IfcRoof" }] }], changesets: [{ id: "c1", name: "IFC job-0009 · IFC L02 job-0009", elements: 7, preticked: 0 }], gaps: { groups: 0, elements: 0, ledger: null },
       ledger: { id: 3305, hash: HASH }, already_filed: 0, overlaps: [] } as unknown as ProposeReply;
-    expect(proposeLine(r)).toContain("✓ Proposed job-0009 — 1 changeset(s), 7 ghost(s), none pre-ticked (an IFC is what a concept says, not what was built");
+    expect(proposeLine(r)).toContain("✓ Proposed job-0009 — 1 changeset(s), 7 ghost(s), none pre-ticked (an IFC is what a model says, not what was built or measured");
     expect(proposeLine({ ...r, storeys: [{ ...r.storeys[0], changeset: null }] })).toContain("1 IFC element(s) held or not read (each reason on the planner's row)");
     expect(proposeLine({ ...r, off_storey: [{ ifc_class: "IFCROOF", count: 2, name: "IfcRoof × 2", reason: "x" }] })).toContain("2 IFC element(s) on no storey that is placed — not read (IfcRoof × 2)");
   });

@@ -226,6 +226,7 @@ async function admitRun(d, proj, key, packId, b) {
   input = { ...input, path: onDisk(dir, full) }; // the disk's spelling: "Photos/OWN.jpg" is photos/own.jpg, admitted or not
   const prev = pack.items.find((i) => i.path === input.path);
   if (prev && prev.state !== "changed") throw err(409, `${input.path} is already admitted as ${prev.id} (Re-check finds a changed file) — nothing was saved`);
+  if (prev && prev.kind === "model" && input.provider !== "own" && input.provider !== prev.provider) throw err(409, `${input.path} comes back as first admitted (${prev.provider}) — put a re-classified file in under a new name; nothing was saved`);
   // it comes back as first admitted: a flagged photo is not re-read as a drawing, a flagged vendor model keeps its vendor and order (MA-8-3)
   if (prev) input = { ...input, kind: prev.kind, ...(prev.kind === "model" ? { provider: prev.provider, licence_ref: prev.licence_ref } : {}) };
   // MA-8-3: (e) is signed once for the pack, so who brings in a vendor's model is a lead's call (as an AMBER dataset item is)

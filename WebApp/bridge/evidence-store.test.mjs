@@ -417,5 +417,10 @@ describe("a third party's model (MA-8-3)", () => {
     const back = await admit({ path: "model/vendor.ifc", kind: "model" });
     expect(back).toMatchObject({ verdict: "admitted", item: { id: "ev-0001", provider: "acme scans", licence: "commercial", licence_ref: "PO-2026-114" } });
     expect(rows("evidence:admitted")[1].newv).toMatchObject({ readmitted: true, licence_ref: "PO-2026-114" });
+    // a body naming another provider for a flagged model is a 409, not a silent drop
+    put("model/vendor.ifc", Buffer.concat([IFC, Buffer.from(" ")]));
+    await recheck();
+    put("model/vendor.ifc", IFC);
+    await expect(admit({ ...vendor, provider: "other co" })).rejects.toMatchObject({ status: 409, message: expect.stringContaining("comes back as first admitted (acme scans)") });
   });
 });

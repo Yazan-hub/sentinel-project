@@ -18,7 +18,7 @@ export const READER = "sentinel-survey";
 /** MA-5a-3: the second reader — sentinel-drawing (drawing/, .NET with PdfPig) on the admitted vector PDF plans; drawing-service.mjs runs it.
  *  Its candidates are walls and doors in paper millimetres (units "paper_mm"): proposed with a 2-point alignment, MA-5a-4. */
 export const DRAWING = "sentinel-drawing";
-/** MA-6-8: the third reader — sentinel-ifc (ifc-geometry.mjs, web-ifc), run in this process on the newest admitted concept IFC. Its candidates are
+/** MA-6-8: the third reader — sentinel-ifc (ifc-geometry.mjs, web-ifc), run in this process on the newest admitted IFC (any provider; an `item` can name another, MA-8-3). Its candidates are
  *  levels, walls and floors in model millimetres; it takes no parameter. */
 export const IFC = "sentinel-ifc";
 export const READERS = [READER, DRAWING, IFC];
@@ -123,7 +123,7 @@ export function pickItems(pack, dir, reader = READER, item = null) {
   // MA-8-3: a named model (several are admitted — the office's concept, a vendor's) is read alone, whatever its age
   const named = item ? pack.items.find((x) => x.id === item) : null;
   if (item && !named) throw err(404, `no item ${item} in the evidence pack — nothing was saved`);
-  // MA-6-8: one concept a job — two would clash storey for storey (ponytail: the newest admitted is read unless a person names one, MA-8-3)
+  // MA-6-8: one concept a job — two would clash storey for storey (ponytail: the newest admitted model of ANY provider is read unless `item` names one, MA-8-3; a vendor's can be the default)
   const newest = kind === "model" && !named ? Math.max(...pack.items.filter((x) => x.kind === kind && x.state !== "changed").map((x) => Number(String(x.id).split("-")[1]))) : null;
   for (const i of named ? [named] : pack.items.filter((x) => x.kind === kind)) {
     const why = named && i.kind !== kind ? `not a ${kind} — ${reader} reads the model named`

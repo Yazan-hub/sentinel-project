@@ -1790,7 +1790,7 @@ describe("proposeFromJob (MA-6-8): a lead turns a concept IFC job into one chang
     const cs = { ...docs[0], status: "applied" };
     d0.saved.set(cs.id, cs);
     const as = { ...d0, myRole: vi.fn(async () => "contributor"), requireMinRole: vi.fn(async () => "contributor") };
-    await expect(verifyChangeset("ma4c-drill", { changeset: cs.id }, "web", as)).rejects.toMatchObject({ status: 409, message: `${cs.name} was built from an IFC (job-0007) — what a concept says, not what was built: there is no scan to measure it against — nothing was saved` });
+    await expect(verifyChangeset("ma4c-drill", { changeset: cs.id }, "web", as)).rejects.toMatchObject({ status: 409, message: `${cs.name} was built from an IFC (job-0007) — what a model says, not what was built: there is no scan to measure it against — nothing was saved` });
     await expect(scanOverlay("ma4c-drill", cs.id, as)).rejects.toMatchObject({ status: 409, message: `${cs.name} was built from an IFC (job-0007) — it has no scan to show` });
   });
 });
