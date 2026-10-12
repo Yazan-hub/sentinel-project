@@ -236,3 +236,38 @@ describe("readIfcGeometry — the smaller rules", () => {
     expect(r.hint.map_conversion).toEqual({ eastings: 500000, northings: 5000000, height: 10, x_axis_abscissa: 1, x_axis_ordinate: 0, scale: 1 });
   });
 });
+
+// MA-6-8 — two real Revit 2024 exports of the same two-storey concept (scrubbed to example.test): IFC2x3 CV2.0 and IFC4 Reference View.
+describe("readIfcGeometry — Revit 2024 exports", () => {
+  const rev = (n) => readFileSync(resolve(here, `fixtures/ifc-geometry/${n}.ifc`));
+  const LINES = [[[0, 0], [20000, 0]], [[20000, 0], [20000, 12000]], [[20000, 12000], [0, 12000]], [[0, 12000], [0, 0]]];
+  const sameLine = (w, a, b) => (near(w.start, a, 1) && near(w.end, b, 1)) || (near(w.start, b, 1) && near(w.end, a, 1));
+  const lines9 = (r) => {
+    expect(r.walls).toHaveLength(9);
+    for (const [a, b] of LINES) expect(r.walls.filter((w) => sameLine(w, a, b)).map((w) => w.storey).sort()).toEqual(["L02", "L04"]);
+    expect(r.walls.filter((w) => sameLine(w, [8000, 0], [8000, 12000]))).toHaveLength(1);
+    expect(r.walls.filter((w) => w.thickness_mm === 300)).toHaveLength(8);
+    expect(r.walls.filter((w) => w.thickness_mm === 150)).toHaveLength(1);
+  };
+  it("CV2: 9 walls, thickness from layers, 2 floors of 4 corners, the column, door, roof and roof slab said", async () => {
+    const r = await readIfcGeometry(rev("revit2024-concept-cv2"));
+    lines9(r);
+    expect(new Set(r.walls.map((w) => w.thickness_from))).toEqual(new Set(["layers"]));
+    expect(r.floors.map((f) => [f.loop.length, area(f.loop) / 1e6])).toEqual([[4, 240], [4, 240]]);
+    const said = r.not_read.map((n) => n.ifc_class).sort();
+    for (const c of ["IFCCOLUMN", "IFCDOOR", "IFCROOF", "IFCSLAB"]) expect(said).toContain(c);
+  });
+  it("IFC4 RV (F-B3-1): the Axis is an IfcIndexedPolyCurve with no Segments — a line, not a curve; thickness from the body", async () => {
+    const r = await readIfcGeometry(rev("revit2024-concept-ifc4rv"));
+    lines9(r);
+    expect(new Set(r.walls.map((w) => w.thickness_from))).toEqual(new Set(["body"]));
+    expect(r.not_read.some((n) => /curved/.test(n.why))).toBe(false);
+    expect(r.floors).toHaveLength(2);
+  });
+  it("IFC4 RV without its Axis: the long edges of the profile give the line", async () => {
+    const t = rev("revit2024-concept-ifc4rv").toString("latin1").replace("#277=IFCPRODUCTDEFINITIONSHAPE($,$,(#269,#276));", "#277=IFCPRODUCTDEFINITIONSHAPE($,$,(#276));");
+    const w = (await readIfcGeometry(Buffer.from(t, "latin1"))).walls.find((x) => x.global_id === "2VExwC6xrF6u4NaChOdioM");
+    expect(w.thickness_from).toBe("body");
+    expect(sameLine(w, [0, 12000], [0, 0])).toBe(true);
+  });
+});

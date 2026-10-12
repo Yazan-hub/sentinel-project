@@ -139,24 +139,26 @@ async function read(api, mid) {
   // ── curves, profiles, bodies ────────────────────────────────────────────────────────────────────────────────────────────
   const dedupe = (pts) => pts.filter((q, i) => i === 0 || Math.hypot(q[0] - pts[i - 1][0], q[1] - pts[i - 1][1]) >= 1);   // consecutive points under 1 mm apart are one
   const dropClosing = (pts) => (pts.length > 1 && Math.hypot(pts[0][0] - pts.at(-1)[0], pts[0][1] - pts.at(-1)[1]) < 1 ? pts.slice(0, -1) : pts);
+  // An IfcIndexedPolyCurve's points, in order (2 or 3 numbers each). Segments absent = one polyline through the list; the raw line keeps each
+  // segment's type code (the parsed one does not): an IfcArcIndex is a curve, an IfcLineIndex of any length is straight (MA-6-8: F-B3-1, Revit's Axis).
+  const indexedPts = (c, curve) => {
+    const all = (R(c.Points)?.CoordList || []).map((p) => p.map((n) => (num(n) ?? 0) * mm));
+    if (!(Array.isArray(c.Segments) && c.Segments.length)) return all;
+    const raw = api.GetRawLineData(mid, ref(curve)).arguments?.[1];
+    const pts = [];
+    c.Segments.forEach((s, k) => {
+      if (raw?.[k]?.typecode === WebIFC.IFCARCINDEX) no("a curved outline — straight edges only");
+      const seg = (Array.isArray(s?.value) ? s.value : []).map((n) => all[Number(n?.value ?? n) - 1]).filter(Boolean);
+      for (const q of seg) if (!pts.length || Math.hypot(q[0] - pts.at(-1)[0], q[1] - pts.at(-1)[1]) > 1e-6) pts.push(q);
+    });
+    return pts;
+  };
   const loopOf = (curve) => {   // a closed outline of straight edges, 2D, the closing point dropped
     const c = R(curve);
     let pts;
     if (c?.type === WebIFC.IFCPOLYLINE) pts = (c.Points || []).map((p) => point(p).slice(0, 2));
-    else if (c?.type === WebIFC.IFCINDEXEDPOLYCURVE) {
-      const all = (R(c.Points)?.CoordList || []).map((p) => [(num(p[0]) ?? 0) * mm, (num(p[1]) ?? 0) * mm]);
-      pts = all;
-      if (Array.isArray(c.Segments) && c.Segments.length) {
-        // the raw line keeps each segment's type code (the parsed one does not): an IfcArcIndex is a curve, an IfcLineIndex of any length is straight
-        const raw = api.GetRawLineData(mid, ref(curve)).arguments?.[1];
-        pts = [];
-        (c.Segments).forEach((s, k) => {
-          if (raw?.[k]?.typecode === WebIFC.IFCARCINDEX) no("a curved outline — straight edges only");
-          const seg = (Array.isArray(s?.value) ? s.value : []).map((n) => all[Number(n?.value ?? n) - 1]).filter(Boolean);
-          for (const q of seg) if (!pts.length || Math.hypot(q[0] - pts.at(-1)[0], q[1] - pts.at(-1)[1]) > 1e-6) pts.push(q);
-        });
-      }
-    } else no("a curved outline — straight edges only");
+    else if (c?.type === WebIFC.IFCINDEXEDPOLYCURVE) pts = indexedPts(c, curve).map((q) => q.slice(0, 2));
+    else no("a curved outline — straight edges only");
     pts = dropClosing(dedupe(pts));
     if (pts.length < 3) no("an outline with fewer than 3 corners");
     if (area2(pts) < 1) no("an outline with no area");
@@ -199,27 +201,46 @@ async function read(api, mid) {
           found.push({ kind: "extrusion", clipped, T, profile: ref(it.SweptArea), depth, z0: T.o[2], z1: T.o[2] + depth * dz });
           continue;
         }
-        const zs = [];
+        const zs = [], xy = [];
+        const take = (w) => { zs.push(w[2]); xy.push(w.slice(0, 2)); };
         if (it.type === WebIFC.IFCFACETEDBREP) {
-          for (const f of refs(R(it.Outer)?.CfsFaces)) for (const b of refs(f.Bounds)) { const lp = R(b.Bound); if (lp?.type === WebIFC.IFCPOLYLOOP) for (const p of lp.Polygon || []) zs.push(at(F, point(p))[2]); }
+          for (const f of refs(R(it.Outer)?.CfsFaces)) for (const b of refs(f.Bounds)) { const lp = R(b.Bound); if (lp?.type === WebIFC.IFCPOLYLOOP) for (const p of lp.Polygon || []) take(at(F, point(p))); }
         } else if (it.type === WebIFC.IFCTRIANGULATEDFACESET || it.type === WebIFC.IFCPOLYGONALFACESET) {
-          for (const p of R(it.Coordinates)?.CoordList || []) zs.push(at(F, p.map((c) => (num(c) ?? 0) * mm))[2]);
+          for (const p of R(it.Coordinates)?.CoordList || []) take(at(F, p.map((c) => (num(c) ?? 0) * mm)));
         } else continue;
         if (!zs.length) continue;
         const z0 = Math.min(...zs), z1 = Math.max(...zs);
         if (!(z1 - z0 > 1)) { passed.why = "a flat body"; continue; }
-        found.push({ kind: it.type === WebIFC.IFCFACETEDBREP ? "brep" : "tessellated", clipped, z0, z1 });
+        found.push({ kind: it.type === WebIFC.IFCFACETEDBREP ? "brep" : "tessellated", clipped, z0, z1, xy });
       }
       if (found.length) return { ...found[0], solids: found.length };
     }
     return null;
+  };
+  // MA-6-8: a straight wall's body (any number of points) as a band along the unit direction u: every point lies on one of two parallel lines.
+  // → { s0, s1 (along u), d0, d1 (across, left of u) } | null. Revit's Reference View profiles are joined at corners and may have 6 points.
+  const bandOf = (q, u) => {
+    const n = [-u[1], u[0]], d = q.map((p) => p[0] * n[0] + p[1] * n[1]), sv = q.map((p) => p[0] * u[0] + p[1] * u[1]);
+    const d0 = Math.min(...d), d1 = Math.max(...d);
+    return d.every((x) => x - d0 < 1 || d1 - x < 1) ? { s0: Math.min(...sv), s1: Math.max(...sv), d0, d1 } : null;
+  };
+  const bodyXY = (body) => {
+    if (body?.xy) return body.xy;
+    try { return profileOf(body.profile).outer.map((p) => at(body.T, [p[0], p[1], 0]).slice(0, 2)); } catch { return null; }
   };
   const axisOf = (line, F) => {   // the wall's Axis in world xy → [start, end] | null when it has none
     const rep = refs(R(line.Representation)?.Representations).find((r) => String(val(r.RepresentationIdentifier) ?? "") === "Axis");
     const c = rep && refs(rep.Items)[0];
     if (!c) return null;
     let a, b;
-    if (c.type === WebIFC.IFCPOLYLINE) {
+    if (c.type === WebIFC.IFCINDEXEDPOLYCURVE) {   // Revit's IFC4 axis: a 2-point list, no Segments. Several points are one wall only when they lie on one line.
+      const q = indexedPts(c, ref(rep.Items[0])).map(pad3);
+      [a, b] = [q[0], q.at(-1)];
+      if (q.length > 2 && a && b) {
+        const u = unit([b[0] - a[0], b[1] - a[1], 0]);
+        if (!u || q.some((p) => Math.abs((p[0] - a[0]) * u[1] - (p[1] - a[1]) * u[0]) > 1)) no("a wall with a bent axis — straight walls only");
+      }
+    } else if (c.type === WebIFC.IFCPOLYLINE) {
       if ((c.Points || []).length > 2) no("a wall with a bent axis — straight walls only");
       [a, b] = (c.Points || []).map(point);
     } else if (c.type === WebIFC.IFCTRIMMEDCURVE) {
@@ -299,12 +320,28 @@ async function read(api, mid) {
         const e = (i) => Math.hypot(q[(i + 1) % 4][0] - q[i][0], q[(i + 1) % 4][1] - q[i][1]);
         const sq = q.length === 4 && Math.hypot(q[0][0] + q[2][0] - q[1][0] - q[3][0], q[0][1] + q[2][1] - q[1][1] - q[3][1]) < 1
           && Math.abs((q[1][0] - q[0][0]) * (q[2][0] - q[1][0]) + (q[1][1] - q[0][1]) * (q[2][1] - q[1][1])) < 1e-3 * e(0) * e(1);
-        if (!sq) no("no Axis and no rectangular body");
+        if (!sq) {   // not a 4-point rectangle: the band of its longest edge, if every point sits on one of two parallel lines
+          let k = 0;
+          for (let i = 1; i < q.length; i++) if (Math.hypot(q[(i + 1) % q.length][0] - q[i][0], q[(i + 1) % q.length][1] - q[i][1]) > Math.hypot(q[(k + 1) % q.length][0] - q[k][0], q[(k + 1) % q.length][1] - q[k][1])) k = i;
+          const u = unit([q[(k + 1) % q.length][0] - q[k][0], q[(k + 1) % q.length][1] - q[k][1], 0]), b = u && bandOf(q, u);
+          if (!b) no("no Axis and no rectangular body");
+          const n = [-u[1], u[0]], dm = (b.d0 + b.d1) / 2, pt = (s) => [u[0] * s + n[0] * dm, u[1] * s + n[1] * dm];
+          rect = [{ line: [pt(b.s0), pt(b.s1)], t: b.d1 - b.d0 }];
+          line = rect[0].line;
+        } else {
         rect = [{ line: [mid2(q[3], q[0]), mid2(q[1], q[2])], t: e(1) }, { line: [mid2(q[0], q[1]), mid2(q[2], q[3])], t: e(0) }];   // along either edge pair
         line = rect[e(0) >= e(1) ? 0 : 1].line;
+        }
       }
       // the thickness: the instance's layer-set usage, the type's layer set, BaseQuantities Width, the body's short edge
       let t = null, from = null, note, shift = 0;
+      const bodyThickness = (ln) => {   // the body's width across the axis; the line moves to the middle of the body
+        const q = bodyXY(body), u = unit([ln[1][0] - ln[0][0], ln[1][1] - ln[0][1], 0]), b = q && u && bandOf(q, u);
+        if (!b) return null;
+        const n = [-u[1], u[0]], off = (b.d0 + b.d1) / 2 - (ln[0][0] * n[0] + ln[0][1] * n[1]);
+        line = ln.map((p) => [p[0] + off * n[0], p[1] + off * n[1]]);
+        return b.d1 - b.d0;
+      };
       const own = L(materialOf.get(id)), typed = L(materialOf.get(typeOf.get(id)));
       if (own?.type === WebIFC.IFCMATERIALLAYERSETUSAGE && (t = layerSum(ref(own.ForLayerSet))) > 0) {
         if (String(val(own.LayerSetDirection)) !== "AXIS2") no("layers that do not run across the wall");
@@ -314,7 +351,8 @@ async function read(api, mid) {
         const set = [own, typed].map((m) => (m?.type === WebIFC.IFCMATERIALLAYERSETUSAGE ? L(ref(m.ForLayerSet)) : m)).find((m) => m?.type === WebIFC.IFCMATERIALLAYERSET);
         if (set && (t = layerSum(set.expressID)) > 0) { from = "type_layers"; note = "centre not stated (no layer-set usage)"; }
         else if ((t = quantity(g, "Width")) != null) from = "base_quantities";
-        else if (rect) { t = Math.min(rect[0].t, rect[1].t); from = "body"; }
+        else if (rect) { t = Math.min(...rect.map((c) => c.t)); from = "body"; }
+        else if (body && (t = bodyThickness(line)) > 0) from = "body";   // an Axis and no stated thickness (Revit IFC4 RV): the body's width across it
         else no("no thickness: no material layers, no base quantity Width, no rectangular body");
       }
       // a body-only wall whose thickness came from layers or quantities runs along the edge pair that thickness fits
