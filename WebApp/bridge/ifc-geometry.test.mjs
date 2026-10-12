@@ -315,7 +315,7 @@ describe("readIfcGeometry — MA-8-4 (0.2.0)", () => {
   const addRv = (t, lines) => t.replace(/ENDSEC;\s*END-ISO/, () => `${lines.join("\n")}\nENDSEC;\nEND-ISO`);   // Revit's export has a blank line before END-ISO
   const sameSet = (a, b) => a.length === b.length && a.every((x, i) => Math.abs(x - b[i]) <= 1);
 
-  it("the version is 0.2.0", () => expect(VERSION).toBe("0.2.0"));
+  it("the version is 0.2.1 (0.2.0 plus MA-8-4b's flush reveal)", () => expect(VERSION).toBe("0.2.1"));
 
   for (const n of ["revit2024-concept-cv2", "revit2024-concept-ifc4rv"]) {
     it(`${n}: the door is paired with its opening (1000 x 2000, sill 0, in the wall it stands in), the column reads through its mapped body, the wall's own cut is said`, async () => {
@@ -394,8 +394,24 @@ describe("readIfcGeometry — MA-8-4 (0.2.0)", () => {
     expect(why(apart, "CN2O400000000000000000")).toEqual(NOT_RECT);
     const reveal = await read(two(solid2(4600, 5400, 100, 2000, 600)));
     expect(reveal.openings.filter((o) => o.host_kind === "wall")).toMatchObject([{ global_id: "CN2O400000000000000000", along_mm: 5000, width_mm: 1000, height_mm: 2100 }]);
-    const notch = await read(addLines(text, O4(["#452=IFCCARTESIANPOINT((5500.,2100.));", "#600=IFCCARTESIANPOINT((5300.,2100.));", "#601=IFCCARTESIANPOINT((5300.,1500.));", "#602=IFCCARTESIANPOINT((4700.,1500.));", "#603=IFCCARTESIANPOINT((4700.,2100.));",
-      "#455=IFCPOLYLINE((#450,#451,#452,#600,#601,#602,#603,#454,#450));"])));
+    // MA-8-4b: a reveal that is its own solid, flush with the sill (or a side), is the same cut; a notch or pocket of ONE outline is not, flush or stepped
+    const flush = await read(two(solid2(4600, 5400, 0, 2000, 600)));
+    expect(flush.openings.filter((o) => o.host_kind === "wall")).toMatchObject([{ global_id: "CN2O400000000000000000", along_mm: 5000, width_mm: 1000, height_mm: 2100, sill_mm: 0 }]);
+    const flushSide = await read(two(solid2(4600, 5500, 100, 2000, 600)));
+    expect(flushSide.openings.filter((o) => o.host_kind === "wall")).toMatchObject([{ along_mm: 5000, width_mm: 1000, height_mm: 2100, sill_mm: 0 }]);
+    const flushTop = await read(two(solid2(4600, 5400, 100, 2100, 600)));
+    expect(flushTop.openings.filter((o) => o.host_kind === "wall")).toMatchObject([{ along_mm: 5000, width_mm: 1000, height_mm: 2100, sill_mm: 0 }]);
+    const flushBoth = await read(two(solid2(4500, 5500, 100, 2100, 600)));   // flush with three sides
+    expect(flushBoth.openings.filter((o) => o.host_kind === "wall")).toMatchObject([{ along_mm: 5000, width_mm: 1000, height_mm: 2100 }]);
+    // one outline: a rectangular notch flush into the top edge, or into a jamb, is refused (the old pin); so is a stepped one
+    const plain = await read(addLines(text, O4(["#452=IFCCARTESIANPOINT((5500.,2100.));", "#600=IFCCARTESIANPOINT((5300.,2100.));", "#601=IFCCARTESIANPOINT((5300.,1500.));", "#602=IFCCARTESIANPOINT((4700.,1500.));",
+      "#603=IFCCARTESIANPOINT((4700.,2100.));", "#455=IFCPOLYLINE((#450,#451,#452,#600,#601,#602,#603,#454,#450));"])));
+    expect(why(plain, "CN2O400000000000000000")).toEqual(NOT_RECT);
+    const jamb = await read(addLines(text, O4(["#452=IFCCARTESIANPOINT((5500.,2100.));", "#600=IFCCARTESIANPOINT((5500.,1500.));", "#601=IFCCARTESIANPOINT((5300.,1500.));", "#602=IFCCARTESIANPOINT((5300.,500.));",
+      "#603=IFCCARTESIANPOINT((5500.,500.));", "#455=IFCPOLYLINE((#450,#451,#603,#602,#601,#600,#452,#454,#450));"])));
+    expect(why(jamb, "CN2O400000000000000000")).toEqual(NOT_RECT);
+    const notch = await read(addLines(text, O4(["#452=IFCCARTESIANPOINT((5500.,2100.));", "#600=IFCCARTESIANPOINT((5300.,2100.));", "#601=IFCCARTESIANPOINT((5300.,1500.));", "#602=IFCCARTESIANPOINT((5000.,1500.));", "#603=IFCCARTESIANPOINT((5000.,1800.));",
+      "#604=IFCCARTESIANPOINT((4700.,1800.));", "#605=IFCCARTESIANPOINT((4700.,2100.));", "#455=IFCPOLYLINE((#450,#451,#452,#600,#601,#602,#603,#604,#605,#454,#450));"])));
     expect(why(notch, "CN2O400000000000000000")).toEqual(NOT_RECT);
   });
 

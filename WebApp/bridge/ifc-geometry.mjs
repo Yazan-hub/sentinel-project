@@ -16,7 +16,7 @@ import { elementPsets } from "./ifc-extract.mjs";
 import { sizeRefusal } from "./evidence-logic.mjs";
 
 export const IFC = "sentinel-ifc";
-export const VERSION = "0.2.0";
+export const VERSION = "0.2.1";   // 0.2.1 (MA-8-4b): a reveal flush with a side of the void is the same cut — kinds unchanged
 
 const WASM_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../node_modules/web-ifc") + "/";
 const MAX_DEPTH = 64;
@@ -506,18 +506,21 @@ async function read(api, mid, wallsOnly = false) {
     const near = (c) => (p) => Math.hypot(p[0] - c[0], p[1] - c[1]) < 1;
     const corners = (x0, x1, y0, y1) => [[x0, y0], [x1, y0], [x0, y1], [x1, y1]];
     if (!(a1 - a0 > 1 && z1 - z0 > 1) || !corners(a0, a1, z0, z1).every((c) => q.some(near(c)))) no(NOT_RECT);
-    // a point off the outer box's edges is a corner of ONE nested box with all four corners (a window's reveal); two solids side by side, a notch
-    // or a pocket leave points that are not (the cut would be the whole box). A point on an edge is one more along it.
-    const onEdge = (p) => (Math.abs(p[0] - a0) < 1 || Math.abs(p[0] - a1) < 1 || Math.abs(p[1] - z0) < 1 || Math.abs(p[1] - z1) < 1);
-    const rest = q.filter((p) => !onEdge(p));
-    if (rest.length) {
-      const b0 = Math.min(...rest.map((p) => p[0])), b1 = Math.max(...rest.map((p) => p[0])), y0 = Math.min(...rest.map((p) => p[1])), y1 = Math.max(...rest.map((p) => p[1]));
-      const inner = corners(b0, b1, y0, y1);
-      if (!(b1 - b0 > 1 && y1 - y0 > 1) || !inner.every((c) => rest.some(near(c))) || !rest.every((p) => inner.some((c) => near(c)(p)))) no(NOT_RECT);
-    }
     // more than one solid: one holds the others (a reveal inside the void), or the cut is not one rectangle
     const gb = (pts.groups ?? []).map((g) => { const xs = g.map((p) => (p[0] - w.start[0]) * u[0] + (p[1] - w.start[1]) * u[1]), zs = g.map((p) => p[2]); return [Math.min(...xs), Math.max(...xs), Math.min(...zs), Math.max(...zs)]; });
     if (gb.length > 1 && !gb.some((o) => gb.every((i) => i[0] >= o[0] - 1 && i[1] <= o[1] + 1 && i[2] >= o[2] - 1 && i[3] <= o[3] + 1))) no(NOT_RECT);
+    // a point off the outer box's edges is a corner of ONE nested box with all four corners (a window's reveal), inside the outer box; two solids side by side,
+    // a stepped notch or a pocket leave points that are not. A reveal flush with one or more sides (MA-8-4b: a Revit reveal sits on the sill) has no extent
+    // off the edge on that axis, and a notch or pocket cut flush into one side of ONE outline has the same points — so a flush box counts only as its own solid.
+    // A point on an edge is one more along it.
+    const onEdge = (p) => (Math.abs(p[0] - a0) < 1 || Math.abs(p[0] - a1) < 1 || Math.abs(p[1] - z0) < 1 || Math.abs(p[1] - z1) < 1);
+    const rest = q.filter((p) => !onEdge(p));
+    if (rest.length) {
+      const span = (k, lo, hi) => { const v = rest.map((p) => p[k]), m = Math.min(...v), M = Math.max(...v); return M - m > 1 ? [[m, M, false]] : [[m, hi, true], [lo, m, true]]; };   // no extent in the rest: the box runs to one side
+      const fits = (b0, b1, y0, y1) => b1 - b0 > 1 && y1 - y0 > 1 && corners(b0, b1, y0, y1).every((c) => q.some(near(c))) && rest.every((p) => corners(b0, b1, y0, y1).some((c) => near(c)(p)));
+      const own = (b0, b1, y0, y1) => gb.some((g) => Math.abs(g[0] - b0) < 1 && Math.abs(g[1] - b1) < 1 && Math.abs(g[2] - y0) < 1 && Math.abs(g[3] - y1) < 1);
+      if (!span(0, a0, a1).some(([b0, b1, f0]) => span(1, z0, z1).some(([y0, y1, f1]) => fits(b0, b1, y0, y1) && (!(f0 || f1) || own(b0, b1, y0, y1))))) no(NOT_RECT);
+    }
     const elev = out.levels.find((l) => l.cid === w.storey)?.elevation_mm ?? 0;
     const b = { along_mm: r1((a0 + a1) / 2), width_mm: r1(a1 - a0), height_mm: r1(z1 - z0), sill_mm: r1(z0 - elev) };
     boxes.set(oid, b);

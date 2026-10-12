@@ -471,11 +471,11 @@ describe("IFC jobs (MA-6-8) — sentinel-ifc in this process on the newest admit
     await startI();   // the real runIfc: the bytes on disk are not the bytes admitted
     await current();
     expect(rec()).toMatchObject({ status: "refused", refused: [{ id: "ev-0020", reason: "an older concept — one IFC a job: the newest admitted is read" }, { id: "ev-0021", reason: "not the bytes admitted (sha256)" }] });
-    expect(audits[0].action).toMatch(/^build:run job-0001 · sentinel-ifc 0\.2\.0 · refused$/);
+    expect(audits[0].action).toMatch(/^build:run job-0001 · sentinel-ifc 0.2.1 · refused$/);
     PACK.items.find((i) => i.id === "ev-0021").sha256 = sha(FIX);
     await startI();
     await current();
-    expect(rec("job-0002")).toMatchObject({ status: "done", counts: { level: 2, wall: 8, floor: 3, opening: 1, door: 1, window: 0, column: 1 }, reader: { name: "sentinel-ifc", version: "0.2.0" } });
+    expect(rec("job-0002")).toMatchObject({ status: "done", counts: { level: 2, wall: 8, floor: 3, opening: 1, door: 1, window: 0, column: 1 }, reader: { name: "sentinel-ifc", version: "0.2.1" } });
     expect(rec("job-0002").tools.map((t) => t.name)).toEqual(["sentinel-ifc", "web-ifc", "Node"]);
     expect(audits[1].v.not_read.length).toBeGreaterThan(0);
   });
