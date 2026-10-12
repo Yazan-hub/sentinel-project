@@ -168,7 +168,8 @@ namespace Sentinel.GhostBuilder
             {
                 bool one = between.Count == 1;
                 string named = string.Join(", ", between.Take(3).Select(l => $"{l.Name} at {Mm(l.ElevationMm)} mm")) + (between.Count > 3 ? $" and {between.Count - 3} more" : "");
-                return (null, $"{named} {(one ? "is a Building Story" : "are Building Stories")} inside the massing (0 to {Mm(n * h)} mm) — Shell a Mass cuts a storey at every Building Story level: set the storey height to match {(one ? "it" : "them")}, or clear {(one ? "its" : "their")} Building Story");
+                // MA-6 batch-2 drill: clearing Building Story has a cost - Promote holds what stands on a level that is not a storey.
+                return (null, $"{named} {(one ? "is a Building Story" : "are Building Stories")} inside the massing (0 to {Mm(n * h)} mm) — Shell a Mass cuts a storey at every Building Story level: set the storey height to match {(one ? "it" : "them")}, or clear {(one ? "its" : "their")} Building Story (Promote then holds what stands on {(one ? "it" : "them")} — it plans storey by storey)");
             }
             var taken = new HashSet<string>(have.Select(l => l.Name ?? ""), StringComparer.OrdinalIgnoreCase);
             var elements = new List<object>();
