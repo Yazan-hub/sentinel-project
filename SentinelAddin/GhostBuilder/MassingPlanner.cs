@@ -397,10 +397,11 @@ namespace Sentinel.GhostBuilder
                 var src = fp?.Loop ?? boundary;
                 var placed = Placed(new Footprint { Loop = src, At = fp?.At }, m.RotationDeg);
                 if (placed == null) return (null, "the footprint has fewer than 3 corners once its repeated and straight-through points are dropped — check the outline");
+                if (OutlineProblem(placed) is { } bad) return (null, "the footprint cannot be used: " + bad);
                 boundary = placed;
                 // the pivot: where the outline's bounding-box centre was put (the point picked, else where it lay)
                 double cx = fp?.At?[0] ?? (src.Min(q => q[0]) + src.Max(q => q[0])) / 2, cy = fp?.At?[1] ?? (src.Min(q => q[1]) + src.Max(q => q[1])) / 2;
-                where = $"centre at ({Mm(cx)}, {Mm(cy)}) mm" + (m.RotationDeg != 0 ? $", turned {Mm(m.RotationDeg)}°" : "");
+                where = (fp?.Loop == null && fp?.At == null ? "centred on the model origin" : $"centre at ({Mm(cx)}, {Mm(cy)}) mm") + (m.RotationDeg != 0 ? $", turned {Mm(m.RotationDeg)}°" : "");
                 if (fp?.Loop != null)
                 {
                     string a = Area(placed).ToString("0.0", CultureInfo.InvariantCulture);
@@ -463,6 +464,42 @@ namespace Sentinel.GhostBuilder
                 if (cur == ends[0].a && k < ends.Count) { why = "the lines make more than one outline — pick one outline"; return null; }
             }
             return loop;
+        }
+
+        /// <summary>MA-6-10 review: the bridge's mass Boundary rules (changesets-logic.mjs outlineProblem) in the planner's words, so a bad outline
+        /// is refused before the vision run, not at File: more than 256 corners, an edge under 1 mm, a loop that crosses or touches itself.
+        /// ponytail: O(n^2) pair test, fine at 256 corners.</summary>
+        public static string OutlineProblem(IList<double[]> p)
+        {
+            int n = p.Count;
+            if (n > 256) return $"the outline has {n} corners; a mass takes at most 256";
+            for (int i = 0; i < n; i++)
+            {
+                var a = p[i]; var b = p[(i + 1) % n];
+                if (Math.Sqrt(Math.Pow(b[0] - a[0], 2) + Math.Pow(b[1] - a[1], 2)) < 1) return $"the outline has an edge shorter than 1 mm at ({Mm(a[0])}, {Mm(a[1])})";
+            }
+            for (int i = 0; i < n; i++)
+                for (int j = i + 2; j < n; j++)
+                    if (!(i == 0 && j == n - 1) && Meet(p[i], p[(i + 1) % n], p[j], p[(j + 1) % n]))
+                        return $"the outline crosses or touches itself near ({Mm(p[j][0])}, {Mm(p[j][1])})";
+            return null;
+        }
+
+        /// <summary>MA-6-10 review: a CAD layer name is untrusted text - one line, at most 64 characters.</summary>
+        public static string CadName(string s)
+        {
+            s = new string((s ?? "").Where(ch => !char.IsControl(ch)).ToArray()).Trim();
+            return s.Length > 64 ? s.Substring(0, 63) + "…" : s;
+        }
+
+        private static double Cross(double[] o, double[] a, double[] b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+        private static bool OnSeg(double[] a, double[] b, double[] p) => Math.Min(a[0], b[0]) <= p[0] && p[0] <= Math.Max(a[0], b[0]) && Math.Min(a[1], b[1]) <= p[1] && p[1] <= Math.Max(a[1], b[1]);
+        /// <summary>Two segments share a point (crossing, touching or overlapping).</summary>
+        private static bool Meet(double[] a, double[] b, double[] c, double[] d)
+        {
+            double d1 = Cross(a, b, c), d2 = Cross(a, b, d), d3 = Cross(c, d, a), d4 = Cross(c, d, b);
+            if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) return true;
+            return (d1 == 0 && OnSeg(a, b, c)) || (d2 == 0 && OnSeg(a, b, d)) || (d3 == 0 && OnSeg(c, d, a)) || (d4 == 0 && OnSeg(c, d, b));
         }
 
         private static double Signed(IList<double[]> p)

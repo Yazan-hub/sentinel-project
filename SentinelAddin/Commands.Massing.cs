@@ -71,6 +71,12 @@ public sealed class MassingFromImagesCommand : IExternalCommand
             return Result.Cancelled;
         }
 
+        // MA-6-10 review: both picks work on the active view's plane - a section, sheet or 3D view would file the mass at the wrong place.
+        if (uidoc.ActiveView is not ViewPlan)
+        {
+            TaskDialog.Show(Title, "Open a plan view, then run Photo Massing again - the mass is placed on the plan.");
+            return Result.Cancelled;
+        }
         // MA-6-10 (MAS-3): where the mass stands - asked here, a valid API context (the modeless review and the event hub never pick).
         var ask = new TaskDialog(Title)
         {
@@ -85,10 +91,14 @@ public sealed class MassingFromImagesCommand : IExternalCommand
         if (way == TaskDialogResult.CommandLink1)
         {
             var segs = FootprintPicker.Pick(uidoc, out string pickedFrom, out string pickWhy);
-            if (segs == null) { if (pickWhy != null) TaskDialog.Show(Title, pickWhy); return Result.Cancelled; }
+            if (segs == null) { if (pickWhy != null) TaskDialog.Show(Title, "The footprint could not be read: " + pickWhy + "."); return Result.Cancelled; }
             var loop = MassingPlanner.Chain(segs, 1, out string chainWhy);
             if (loop == null) { TaskDialog.Show(Title, "The footprint is not one closed outline — " + chainWhy); return Result.Cancelled; }
-            fp = new Footprint { Loop = loop, From = pickedFrom };
+            // MA-6-10 review: the outline is normalised and checked now - not found out at File, after the vision run.
+            var norm = MassingPlanner.Placed(new Footprint { Loop = loop }, 0);
+            if (norm == null) { TaskDialog.Show(Title, "The footprint has fewer than 3 corners once its repeated and straight-through points are dropped - check the outline."); return Result.Cancelled; }
+            if (MassingPlanner.OutlineProblem(norm) is { } outlineWhy) { TaskDialog.Show(Title, "The footprint cannot be used: " + outlineWhy + "."); return Result.Cancelled; }
+            fp = new Footprint { Loop = norm, From = pickedFrom };
         }
         var centre = FootprintPicker.Centre(uidoc, out string centreWhy);
         if (centreWhy != null) { TaskDialog.Show(Title, centreWhy); return Result.Cancelled; }

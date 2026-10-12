@@ -60,7 +60,13 @@ namespace Sentinel.GhostBuilder
             if (picked is ImportInstance imp)
             {
                 // A view-specific ("Current view only") import gives no geometry without its view.
-                var opt = new Options { View = imp.ViewSpecific ? doc.GetElement(imp.OwnerViewId) as View : null };
+                // MA-6-10 review: Options.View throws on null, so it is set only when there is a view.
+                var opt = new Options();
+                if (imp.ViewSpecific)
+                {
+                    if (doc.GetElement(imp.OwnerViewId) is not ViewPlan ov) { why = "this CAD import sits in a view that is not a plan — import it into a plan view, or untick \"Current view only\""; return null; }
+                    opt.View = ov;
+                }
                 var geo = imp.get_Geometry(opt);
                 var at = Mm(r.GlobalPoint);
                 var best = (poly: (IList<XYZ>)null, layer: (string)null, d: PickTolMm + 1e-9);
@@ -91,10 +97,12 @@ namespace Sentinel.GhostBuilder
                     }
                 if (best.poly == null)
                 {
-                    why = "the curve you picked is not a closed polyline — join it in CAD (PEDIT), or select model lines along it first";
+                    why = ArcNear(geo, at)
+                        ? "the footprint has a curved edge — Sentinel takes straight edges only"
+                        : "the curve you picked is not a closed polyline — join it in CAD (PEDIT), or select model lines along it first";
                     return null;
                 }
-                from = "a closed CAD polyline" + (best.layer == null ? "" : $" on layer {best.layer}");
+                from = "a closed CAD polyline" + (best.layer == null ? "" : $" on layer {MassingPlanner.CadName(best.layer)}");
                 var edges = new List<(double[] A, double[] B)>();
                 for (int i = 0; i < best.poly.Count - 1; i++) edges.Add((Mm(best.poly[i]), Mm(best.poly[i + 1])));
                 return edges;
@@ -103,6 +111,24 @@ namespace Sentinel.GhostBuilder
             if (picked is PropertyLine) { AddCurves(picked, new Options(), curves); from = "the property line"; if (curves.Count == 0) { why = "this property line gives no edges — select model lines along it"; return null; } return Edges(curves, ref why); }
             why = "a single model line is not an outline — select the model lines along it first, then run Photo Massing again";
             return null;
+        }
+
+        /// <summary>MA-6-10 review: a DWG polyline with a bulge arrives as separate Line and Arc curves, never a PolyLine - an Arc at the picked point says "curved edge".</summary>
+        private static bool ArcNear(GeometryElement geo, double[] at)
+        {
+            bool Near(Arc a, Transform t)
+            {
+                var c = t == null ? (Curve)a : a.CreateTransformed(t);
+                return c.Tessellate().Any(p => Mm(p) is var m && Math.Sqrt(Math.Pow(m[0] - at[0], 2) + Math.Pow(m[1] - at[1], 2)) <= PickTolMm * 2);
+            }
+            if (geo == null) return false;
+            foreach (GeometryObject o in geo)
+            {
+                if (o is Arc a0 && Near(a0, null)) return true;
+                if (o is GeometryInstance gi && gi.GetSymbolGeometry() is { } sym)
+                    foreach (GeometryObject n in sym) if (n is Arc a1 && Near(a1, gi.Transform)) return true;
+            }
+            return false;
         }
 
         private static void AddCurves(Element e, Options opt, List<Curve> into)

@@ -281,10 +281,10 @@ static partial class Check
         pickedE.KnownField = "height"; pickedE.KnownMm = 10500;
         var pickedW = new MassingReviewWindow(pickedE); MassingEstimate pickedGot = null; pickedW.BuildRequested += e => pickedGot = e;
         var labels = Descendants(pickedW).OfType<System.Windows.Controls.TextBlock>().Select(t => t.Text).ToList();
-        Ok(!labels.Contains("Footprint width (mm)") && !labels.Contains("Footprint depth (mm)") && labels.Contains("Rotation (°)")
+        Ok(!labels.Contains("Footprint width (mm)") && !labels.Contains("Footprint depth (mm)") && !labels.Contains("Known width (m)") && labels.Contains("Known height (m)") && labels.Contains("Rotation (°)")
            && labels.Contains("Footprint: a closed CAD polyline on layer A-SITE, 6 corners, 456.0 m²"),
            "MA-6-10: a picked footprint hides the width and depth rows and shows its line (from, corners, area) and the Rotation box");
-        pickedW.ScaleNow(); Box(pickedW, 5).Text = "30"; pickedW.Emit();
+        pickedW.ScaleNow(); Box(pickedW, 4).Text = "30"; pickedW.Emit();
         Ok(pickedGot != null && pickedGot.RotationDeg == 30 && pickedGot.Footprint?.Loop?.Count == 6 && Math.Abs(pickedGot.StoreyHeightMm.Value - 3500) < 0.001,
            "MA-6-10: with a footprint, Scale ▶ works the storey height from the height alone and File for review files the footprint and the turn");
 

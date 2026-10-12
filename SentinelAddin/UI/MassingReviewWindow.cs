@@ -63,7 +63,8 @@ public sealed class MassingReviewWindow : Window
         AddRow(grid, ref row, "Storeys", estimate.Storeys);
         if (estimate.HeightToWidth != null) AddRow(grid, ref row, "Height : width", estimate.HeightToWidth);
         _knownH = AddKnown(grid, ref row, "Known height (m)", estimate.KnownField == "height" ? estimate.KnownMm : (double?)null);
-        _knownW = AddKnown(grid, ref row, "Known width (m)", estimate.KnownField == "width" ? estimate.KnownMm : (double?)null);
+        // MA-6-10 review: a picked outline is the footprint - Scale refuses a typed width, so the row is not shown (an empty box keeps the reads below simple).
+        _knownW = estimate.Footprint?.Loop != null ? new TextBox() : AddKnown(grid, ref row, "Known width (m)", estimate.KnownField == "width" ? estimate.KnownMm : (double?)null);
         AddRow(grid, ref row, "Storey height (mm)", estimate.StoreyHeightMm);
         // MA-6-10 (MAS-3): a picked outline IS the footprint — its line (from, corners, area) replaces the width and depth rows.
         if (estimate.Footprint?.Loop is { } loop)

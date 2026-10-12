@@ -119,7 +119,9 @@ static partial class Check
         Ok(picker.Contains("ObjectType.PointOnElement") && picker.Contains("public bool AllowReference(Reference r, XYZ p) => true;")
            && picker.Contains("e is ImportInstance || e is ModelCurve || e is PropertyLine")
            && picker.Contains("catch (Autodesk.Revit.Exceptions.OperationCanceledException)") && !picker.Contains("catch (OperationCanceledException)")
-           && picker.Contains("View = imp.ViewSpecific ? doc.GetElement(imp.OwnerViewId) as View : null")
+           && picker.Contains("if (imp.ViewSpecific)") && picker.Contains("opt.View = ov;") && !picker.Contains(": null }") // Options.View throws on null
+           && cmd.Contains("uidoc.ActiveView is not ViewPlan") && picker.Contains("ArcNear(geo, at)") && picker.Contains("MassingPlanner.CadName(best.layer)")
+           && cmd.Contains("MassingPlanner.OutlineProblem(norm)")
            && picker.Contains("the footprint has a curved edge — Sentinel takes straight edges only")
            && picker.Contains("the curve you picked is not a closed polyline — join it in CAD (PEDIT), or select model lines along it first"),
            "MA-6-10: the pick is a PointOnElement pick whose filter allows the reference, Esc is caught by its Revit name, a view-specific import is read in its view, and the refusals have the plan's words");

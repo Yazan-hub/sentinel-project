@@ -301,6 +301,27 @@ static class Check
         Ok(!MassingPlanner.FieldsNeedingReview(pickedStorey).Contains("footprint width") && MassingPlanner.Scale(pickedStorey, null, 12000) is { } w0 && w0.Contains("give the building's height"),
            "a picked footprint: width and depth are not asked of the reviewer, and a known width is refused");
 
+        // MA-6-10 review fixes: the bridge's Boundary rules at pick time, the turned photo rectangle, the layer bound.
+        var bow = new List<double[]> { P(0, 0), P(4000, 4000), P(4000, 0), P(0, 4000) };
+        Ok(MassingPlanner.OutlineProblem(bow) is { } bowWhy && bowWhy.StartsWith("the outline crosses or touches itself"), "OutlineProblem: a bow-tie is refused in words");
+        Ok(MassingPlanner.OutlineProblem(L) == null && MassingPlanner.OutlineProblem(rect) == null, "OutlineProblem: an L and a rectangle pass");
+        var many = Enumerable.Range(0, 300).Select(i => P(50000 * Math.Cos(i * 2 * Math.PI / 300), 50000 * Math.Sin(i * 2 * Math.PI / 300))).ToList();
+        Ok(MassingPlanner.OutlineProblem(many) == "the outline has 300 corners; a mass takes at most 256", "OutlineProblem: 300 corners is refused");
+        Ok(MassingPlanner.OutlineProblem(new List<double[]> { P(0, 0), P(0.5, 0), P(4000, 3000) }) is { } shortWhy && shortWhy.Contains("shorter than 1 mm"), "OutlineProblem: an edge under 1 mm is refused");
+        Ok(MassingPlanner.OutlineProblem(new List<double[]> { P(0, 0), P(4000, 0), P(4000, 4000), P(2000, 0), P(0, 4000) }) != null, "OutlineProblem: a corner touching an edge is refused");
+        var bowM = MassingPlanner.Validate(new MassingEstimate { Storeys = V(3), StoreyHeightMm = V(3500), Footprint = new Footprint { Loop = bow, From = "x" }, FacadesSeen = new List<string> { "front" } });
+        var bowC = MassingPlanner.Changeset(bowM, new List<(string, double, bool)>(), "a@example.test", bowM.Footprint);
+        Ok(bowC.Body == null && bowC.Refusal.StartsWith("the footprint cannot be used: the outline crosses"), "Changeset refuses a self-crossing picked outline in words (" + bowC.Refusal + ")");
+        var turned = JsonDocument.Parse(JsonSerializer.Serialize(MassingPlanner.Changeset(new MassingEstimate { Storeys = V(3), StoreyHeightMm = V(3500), RotationDeg = 30, FootprintWidthMm = V(12000), FootprintDepthMm = V(8000), FacadesSeen = new List<string> { "front" } }, new List<(string, double, bool)>(), "a@example.test").Body)).RootElement;
+        var tMass = turned.GetProperty("elements").EnumerateArray().Last();
+        var tb = tMass.GetProperty("place").GetProperty("Boundary").EnumerateArray().Select(e => new[] { e[0].GetDouble(), e[1].GetDouble() }).ToList();
+        Ok(Math.Abs(MassingPlanner.Area(tb) - 96.0) < 0.01 && Math.Abs((tb.Min(q => q[0]) + tb.Max(q => q[0])) / 2) < 0.2
+           && tMass.GetProperty("reason").GetString().Contains("centred on the model origin, turned 30°"),
+           "a photo rectangle turned 30 degrees with no picked point: area kept, centred on the origin, said so");
+        var lonely = JsonDocument.Parse(JsonSerializer.Serialize(MassingPlanner.Changeset(mf, new List<(string, double, bool)>(), "a@example.test", new Footprint { Loop = L, From = "x" }).Body)).RootElement;
+        Ok(lonely.GetProperty("elements").EnumerateArray().Last().GetProperty("reason").GetString().Contains("centre at (15000, 10000) mm"), "a footprint with no picked point: the pivot is the outline's own centre");
+        Ok(MassingPlanner.CadName("A\nB" + new string('x', 100)).Length == 64 && !MassingPlanner.CadName("A\nB").Contains('\n'), "a CAD layer name is one line, at most 64 characters");
+
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;
     }
