@@ -16,13 +16,13 @@ namespace Sentinel.GhostBuilder
         public double[] Max;
 
         /// <summary>The box of two picked plan corners (mm, any order) on a storey: x and y sorted, z from the level to the next Building Story's
-        /// elevation. null with <paramref name="why"/> when there is no story above (the box's top is not known; a person decides).</summary>
+        /// elevation. null with <paramref name="why"/> (a whole sentence, ending "Nothing was saved.") when there is no story above (the box's top is not known).</summary>
         public static StairFlag FromPick(string levelName, double levelElevMm, double? nextStoryElevMm, double[] p1, double[] p2, out string why)
         {
             why = null;
             if (nextStoryElevMm is not double top)
             {
-                why = $"no Building Story above {levelName} — the box's top is not known; a person decides";
+                why = $"There is no Building Story above {levelName}, so the stair's height is unknown. Add a story level above it (mark it Building Story), then flag the stair again. Nothing was saved.";
                 return null;
             }
             double R(double v) => Math.Round(v, MidpointRounding.AwayFromZero);

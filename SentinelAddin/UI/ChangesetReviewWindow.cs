@@ -148,7 +148,7 @@ public sealed class ChangesetReviewWindow : Window
         // MA-4f: a survey changeset's scan, drawn as crosses beside the ghosts — off until ticked (each tick reads the scan again on the bridge's
         // one survey slot); a changeset that is a claim has no scan, nor one the bridge built from a drawing (MA-5a-4: its source names sentinel-drawing; MA-6-8: or sentinel-ifc).
         var scan = new CheckBox { Content = "Show the scan", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0),
-                                  Visibility = _cs.Claimed == false && !(_cs.Source ?? "").StartsWith("sentinel-drawing ") && !(_cs.Source ?? "").StartsWith("sentinel-ifc ") ? Visibility.Visible : Visibility.Collapsed };
+                                  Visibility = SurveyChangeset ? Visibility.Visible : Visibility.Collapsed };
         _scanBox = scan;
         // MA-8-9: ticking the scan unticks the stair slices (their events clean the slice up first), then asks for the scan.
         scan.Checked += (_, _) => { foreach (var sl in _slices.Where(x => x.IsChecked == true).ToList()) sl.IsChecked = false; ScanRequested?.Invoke(true); };
@@ -389,6 +389,14 @@ public sealed class ChangesetReviewWindow : Window
         _heldExp.Visibility = held.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
+    /// <summary>MA-8-9 review: who a stair flag is from - only the bridge sets source, so a posted flag is not read as a person's pick.</summary>
+    private static string FlagSource(ExceptionRowDto x) => x.Source switch
+    {
+        "pick" => "picked by a person",
+        "ifc" => $"from the IFC, GlobalId {x.GlobalId}",
+        _ => "posted with the changeset, not checked",
+    };
+
     private UIElement HeldRow(ExceptionRowDto x)
     {
         var row = new DockPanel { Margin = new Thickness(0, 2, 0, 2) };
@@ -413,7 +421,7 @@ public sealed class ChangesetReviewWindow : Window
         }
         row.Children.Add(new TextBlock
         {
-            Text = stair ? $"{StairFlag.Line(x.Storey, x.Box.Min, x.Box.Max)} — {x.Reason}" : $"{x.Name ?? x.UniqueId} — {x.Reason}", Foreground = Brushes.Orange, TextWrapping = TextWrapping.Wrap,
+            Text = stair ? $"{StairFlag.Line(x.Storey, x.Box.Min, x.Box.Max)} — {x.Reason} ({FlagSource(x)})" : $"{x.Name ?? x.UniqueId} — {x.Reason}", Foreground = Brushes.Orange, TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, ToolTip = x.UniqueId,
         });
         return row;

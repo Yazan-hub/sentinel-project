@@ -530,7 +530,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
             catch (Autodesk.Revit.Exceptions.OperationCanceledException) { window.Shown("Flagging a stair was cancelled; nothing was saved."); return; }
             const double ft = 304.8;
             var flag = StairFlag.FromPick(here.Name, here.ElevationMm, next?.ElevationMm, new[] { c1.X * ft, c1.Y * ft }, new[] { c2.X * ft, c2.Y * ft }, out var why);
-            if (flag == null) { window.Shown(why + "; nothing was saved."); return; }
+            if (flag == null) { window.Shown(why); return; }
             window.Shown("Saving the stair flag on the bridge…");
             Task.Run(() =>
             {

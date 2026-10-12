@@ -158,7 +158,7 @@ describe("planIfc — MA-8-4 (0.2.0): openings, doors, windows, columns and curt
   const typeShell = typerOf("../../demo/bds-pilot/bds-dd-shell-guideline.json");
 
   it("the version is 0.2.0 and every new element is bridge-built, inferred from the IFC and never pre-ticked", () => {
-    expect(PLANNER_VERSION).toBe("0.2.0");
+    expect(PLANNER_VERSION).toBe("0.2.1");
     const p = plan(withC(mk("opening", { host: RP, host_kind: "wall", along_mm: 10000 }, { width_mm: 1000, height_mm: 1500, sill_mm: 900 }, "OPENING0000000000001")), { manifest: MANIFEST });
     expect(s02(p).body.elements.map((e) => e.kind).sort()).toEqual(["column", "door", "floor", "opening", "wall", "wall", "wall", "wall", "wall"]);
     for (const t of s02(p).byCid.values()) expect(t).toMatchObject({ pretick: false, accuracy: { status: "inferred", basis: "ifc", from_job: "job-0007" } });
@@ -358,7 +358,7 @@ describe("planIfc — MA-8-4 (0.2.0): openings, doors, windows, columns and curt
       const p = withStairs([stair(G(1), BOX), stair(G(2), null)]);
       const flag = s02(p).exceptions.find((e) => e.unique_id === `stair:${G(1)}`);
       expect(flag).toMatchObject({ name: `Stair ${G(1)}`, kind: "stair", storey: s02(p).storey.level, global_id: G(1), box: { min: [0, 0, 0], max: [1000, 3000, 3500] } });
-      expect(flag.reason).toMatch(/^a stair — Sentinel places none yet; box 1000 × 3000 mm in plan, 3500 mm tall, from \(0, 0, 0\) on .+; MA-8-10 starts from this flag · job-0007 \(ledger #3301\)$/);
+      expect(flag.reason).toMatch(/^a stair — Sentinel does not place stairs yet; a person adds it; box 1000 × 3000 mm in plan, 3500 mm tall, from \(0, 0, 0\) on .+ · job-0007 \(ledger #3301\)$/);
       expect(flag.reason.length).toBeLessThanOrEqual(300);
       const row = s02(p).exceptions.find((e) => e.unique_id === "IFCSTAIR@L02");
       expect(row).toMatchObject({ name: `IfcStair ${G(2)}` });
@@ -379,6 +379,11 @@ describe("planIfc — MA-8-4 (0.2.0): openings, doors, windows, columns and curt
       const turned = s02(withStairs([stair(G(1), BOX)], { frame: { ...ZERO, rotation_deg: 45 } })).exceptions.find((e) => e.kind === "stair");
       expect(turned.box.max[0] - turned.box.min[0]).toBeGreaterThan(2800);   // (1000 + 3000) / sqrt 2
       expect(turned.reason).toMatch(/box 2828 × 2828 mm in plan \(the larger axis-aligned box of a turned frame\)/);
+    });
+    it("a stair already flagged on a changeset of this job is not flagged again, nor does it fall into the class row", () => {
+      const p = withStairs([stair(G(1), BOX), stair(G(2), BOX)], { filed: { cids: new Set(), storeys: new Map(), stairs: new Set([`stair:${G(1)}`]) } });
+      expect(s02(p).exceptions.filter((e) => e.kind === "stair").map((e) => e.global_id)).toEqual([G(2)]);
+      expect(s02(p).exceptions.find((e) => e.unique_id === "IFCSTAIR@L02")).toBeUndefined();
     });
     it("51 stairs: 50 flags, the 51st stays in the class row", () => {
       const p = withStairs(Array.from({ length: 51 }, (_, i) => stair(G(i + 1), BOX)));

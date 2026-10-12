@@ -325,8 +325,9 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
     // on a proposed or placed changeset of it, less what Revit rejected, is filed — not proposed again; its storey keeps the level it was filed on.
     // MA-5a-4 (review): a drawing job's are per drawing — another drawing of the job filed does not make this one "nothing new"
     const mine = earlier.filter((c) => c.job?.ledger_id === row.ledger.id && FILED.includes(c.status) && (!drawing || c.job.alignment?.item === align.item));
-    const filed = { cids: new Set(), storeys: new Map() };
+    const filed = { cids: new Set(), storeys: new Map(), stairs: new Set() };
     for (const c of mine) {
+      for (const x of c.exceptions ?? []) if (x.kind === "stair" && x.source === "ifc") filed.stairs.add(x.unique_id);   // MA-8-9 review: a stair flagged before is not flagged again
       const rejected = new Set(c.result?.rejected ?? []);
       for (const e of c.elements ?? []) if (e.cid && !rejected.has(e.proposal_guid)) filed.cids.add(e.cid);
       if (c.job.storey?.cid) filed.storeys.set(c.job.storey.cid, c.job.storey);
@@ -624,8 +625,9 @@ export async function scanOverlay(key, id, deps = {}, { flag = null } = {}) {
   const fl = flag == null ? null : (cs.exceptions ?? []).find((x) => x.kind === "stair" && x.unique_id === flag);
   if (flag != null && !fl) throw err(404, `${cs.name} has no stair flag "${String(flag).slice(0, 64)}" — its scan slice is not shown`);
   const noSlice = fl ? " — a stair flag on it has no scan slice: flag the stair on a survey changeset of this storey" : "";
-  if (!cs.job || cs.claimed !== false) throw err(409, `${cs.name} was not built from a survey job — it has no scan to show${noSlice}`);
+  if (!cs.job || cs.claimed !== false) throw err(409, `${cs.name} was not built from a survey job — it has no scan to show`);
   if (isDrawn(cs)) throw err(409, `${cs.name} was built from ${ifcOf(cs) ? "an IFC" : "a drawing"} (${cs.job.id}) — it has no scan to show${noSlice}`);
+  const exactCrop = !fl || Math.abs((((cs.job.frame.rotation_deg ?? 0) % 90) + 90) % 90) < 1e-9;   // a turned frame crops the larger axis-aligned square
   const band = fl ? [fl.box.min[2], fl.box.max[2]] : scanBand(cs);
   if (!band) throw err(409, `${cs.name} has no wall to show the scan against`);
   let chain;
@@ -651,8 +653,8 @@ export async function scanOverlay(key, id, deps = {}, { flag = null } = {}) {
   if (bad) throw err(502, `sentinel-survey's scan overlay is not the contract's shape (${bad}) — its scan is not shown`);
   const M = toModel(cs.job.frame), c = r.result.receipt.cloud;
   const inBox = (p) => !fl || p.every((v, k) => v >= fl.box.min[k] && v <= fl.box.max[k]);
-  return { changeset: { id: cs.id, name: cs.name }, job: cs.job.id, ledger_id: row.ledger.id, version: r.version ?? null, cell_mm: c.cell_mm, z_mm: band, of: c.of,
-    ...(fl ? { flag: fl.unique_id } : {}),
+  return { changeset: { id: cs.id, name: cs.name }, job: cs.job.id, ledger_id: row.ledger.id, version: r.version ?? null, cell_mm: c.cell_mm, z_mm: band, of: exactCrop ? c.of : null,
+    ...(fl ? { flag: fl.unique_id } : {}), ...(exactCrop ? {} : { crop: "axis-aligned square of a turned frame" }),
     points: r.result.points.map(([x, y, z]) => [...M.xy([x, y]), M.z(z)].map(Math.round)).filter(inBox) };
 }
 
@@ -982,10 +984,12 @@ export async function flagChangeset(key, id, b, actor, deps) {
   const proj = await d.ensureProject(key);
   const [w, dp, h] = f.box.max.map((v, k) => v - f.box.min[k]);
   const flag = { unique_id: `stair:pick-${randomUUID().slice(0, 8)}`, name: `Stair picked on ${f.storey}`.slice(0, 256), ...f, source: "pick",
-    reason: `a stair picked by ${resolveActor(actor, "web")} — Sentinel places none yet; box ${w} × ${dp} mm in plan, ${h} mm tall, from (${f.box.min.join(", ")}) on ${f.storey}; MA-8-10 starts from this flag`.slice(0, 300) };
+    reason: `a stair picked by ${resolveActor(actor, "web")} — Sentinel does not place stairs yet; a person adds it; box ${w} × ${dp} mm in plan, ${h} mm tall, from (${f.box.min.join(", ")}) on ${f.storey}`.slice(0, 300) };
   const { before, updated } = await rewrite(d, proj.id, id, (cs) => {
     if (cs.status === "withdrawn") throw err(409, `${cs.name} is withdrawn — flag the stair on a changeset that is still live; nothing was saved`);
     const have = cs.exceptions ?? [];
+    const same = have.find((x) => x.kind === "stair" && x.storey === f.storey && x.box?.min?.join() === f.box.min.join() && x.box?.max?.join() === f.box.max.join());
+    if (same) throw err(409, `already flagged as ${same.unique_id} - nothing was saved`);   // review: a pick sent twice (a lost reply) is one flag
     if (have.filter((x) => x.source === "pick").length >= MAX_PICKS) throw err(409, `${cs.name} already holds ${MAX_PICKS} picked stair flags — nothing was saved`);
     if (have.length >= MAX_CHANGESET_EXCEPTIONS) throw err(413, `${cs.name} holds ${have.length} exceptions already (limit ${MAX_CHANGESET_EXCEPTIONS}) — nothing was saved`);
     return { updated: { ...cs, exceptions: [...have, flag], updated_at: new Date().toISOString(), review_rev: reviewRev(cs) + 1 } };

@@ -15,7 +15,7 @@ import { locate } from "./wall-location.mjs";
 
 const err = (status, message) => Object.assign(new Error(message), { status });
 export const PLANNER = "ifc-planner";
-export const PLANNER_VERSION = "0.2.0";
+export const PLANNER_VERSION = "0.2.1";   // MA-8-9: 0.2.1 files a boxed stair as a flag row, not in the IFCSTAIR class row
 /** A base or top more than this off its storey's level is held for a person (mm). */
 export const LEVEL_MM = 2;
 /** How far a point may lie from the one wall that hosts it (mm): PlacementGeometry.HostTolMm, which the executor checks at Apply. */
@@ -297,13 +297,14 @@ export function planIfc({ job, candidates, frame, levels: named = {}, manifest =
     for (const n of notRead) {
       if (flagged.size >= MAX_STAIR_FLAGS) break;
       if (n.storey !== s.cid || n.ifc_class !== "IFCSTAIR" || !n.box) continue;
+      if (filed.stairs?.has(`stair:${n.global_id}`.slice(0, 64))) { flagged.add(n); continue; }   // review: already flagged on a changeset of this job - not flagged twice
       const cs = [];
       for (const x of [n.box.min[0], n.box.max[0]]) for (const y of [n.box.min[1], n.box.max[1]]) for (const z of [n.box.min[2], n.box.max[2]]) cs.push([...M.xy([x, y]), M.z(z)]);
       const box = { min: [0, 1, 2].map((k) => Math.round(Math.min(...cs.map((p) => p[k])))), max: [0, 1, 2].map((k) => Math.round(Math.max(...cs.map((p) => p[k])))) };
       try { checkStairFlag({ kind: "stair", storey: s.level, box }, "stair"); } catch { continue; }   // a box the bridge would refuse stays in the class row
       const [w, dp, h] = box.max.map((v, k) => v - box.min[k]);
       exceptions.push({ unique_id: `stair:${n.global_id}`.slice(0, 64), name: `Stair ${n.global_id}`, kind: "stair", storey: s.level, box, global_id: n.global_id,
-        reason: `a stair — Sentinel places none yet; box ${w} × ${dp} mm in plan${turned ? " (the larger axis-aligned box of a turned frame)" : ""}, ${h} mm tall, from (${box.min.join(", ")}) on ${s.level}; MA-8-10 starts from this flag · ${ref}`.slice(0, 300) });
+        reason: `a stair — Sentinel does not place stairs yet; a person adds it; box ${w} × ${dp} mm in plan${turned ? " (the larger axis-aligned box of a turned frame)" : ""}, ${h} mm tall, from (${box.min.join(", ")}) on ${s.level} · ${ref}`.slice(0, 300) });
       flagged.add(n);
     }
     // what was not read: one exception per IFC class on the storey (a 64 MB file can hold thousands), the first GlobalIds named

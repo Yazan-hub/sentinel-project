@@ -1581,6 +1581,10 @@ describe("verifyChangeset (MA-4e): a signed-in contributor measures a placed sur
     await scanOverlay("ma4c-drill", ID, turned, { flag: flag.unique_id });
     expect(turned.measureJob.mock.calls[0][2].cloud).toMatchObject({ z_mm: [0, 1000] });
     expect(turned.measureJob.mock.calls[0][2].cloud.xy_mm).toHaveLength(2);
+    // review: a frame turned a multiple of 90 degrees crops the exact box, so `of` is the survey's; any other turn crops a larger square - `of` is null and the crop said
+    expect([r.of, r.crop]).toEqual([2, undefined]);
+    const t45 = await scanOverlay("ma4c-drill", ID, sdeps({}, { ...CS, exceptions: [flag], job: { ...CS.job, frame: { dx_mm: 40000, dy_mm: 0, dz_mm: 1000, rotation_deg: 45 } } }), { flag: flag.unique_id });
+    expect([t45.of, t45.crop]).toEqual([null, "axis-aligned square of a turned frame"]);
     const without = sdeps({}, { ...CS, exceptions: [flag] });   // no flag asked: the request is as before (no xy_mm)
     await scanOverlay("ma4c-drill", ID, without);
     expect(without.measureJob.mock.calls[0][2].cloud).toEqual({ cell_mm: 100, z_mm: [300, 2500], max_points: 5000 });
@@ -1763,7 +1767,7 @@ describe("proposeFromJob (MA-6-8): a lead turns a concept IFC job into one chang
     expect(r).toMatchObject({ job: "job-0007", ifc_row: { id: 3301 }, frame: FRAME, already_filed: 0, gaps: { groups: 0 } });
     expect(r.survey_row).toBeUndefined();
     const docs = [...deps.saved.values()];
-    expect(docs[0]).toMatchObject({ claimed: false, job: { id: "job-0007", reader: "sentinel-ifc 0.2.0", planner: "ifc-planner 0.2.0", ledger_id: 3301, storey: { cid: "L02", how: "created" } } });
+    expect(docs[0]).toMatchObject({ claimed: false, job: { id: "job-0007", reader: "sentinel-ifc 0.2.0", planner: "ifc-planner 0.2.1", ledger_id: 3301, storey: { cid: "L02", how: "created" } } });
     expect(docs[0].elements.every((e) => e.pretick === false && e.accuracy.status === "inferred" && e.accuracy.basis === "ifc")).toBe(true);
     expect(docs[0].exceptions.map((e) => e.name.split(" ")[0]).sort()).toEqual(["IfcOpeningElement", "column"]);   // the wall's own cut; the column held
     expect(docs[0].exceptions.find((e) => e.name.startsWith("column")).reason).toMatch(/^its top level IFC L04 job-0007 is created by that storey's changeset — apply it, then propose again/);
@@ -1771,7 +1775,7 @@ describe("proposeFromJob (MA-6-8): a lead turns a concept IFC job into one chang
     expect(docs[0].elements.filter((e) => e.kind === "wall").map((e) => e.place.TypeName).sort()).toEqual(
       ["BDS_EXT_ARC_CMU_300 mm", "BDS_EXT_ARC_CMU_300 mm", "BDS_EXT_ARC_CMU_300 mm", "BDS_EXT_ARC_CMU_300 mm", "BDS_INT_ARC_CMU_150 mm"]);
     const run = deps.audit.mock.calls.find((c) => c[1] === "build");
-    expect(run[3]).toBe("build:run job-0007 · ifc-planner 0.2.0 · proposed");
+    expect(run[3]).toBe("build:run job-0007 · ifc-planner 0.2.1 · proposed");
     expect(run[6]).toMatchObject({ planner: "ifc-planner", ifc_row: { id: 3301 }, claimed: false, model_calls: 0, tokens: 0 });
     expect(run[6].off_storey).toEqual(expect.arrayContaining([expect.objectContaining({ ifc_class: "IFCROOF", count: 1 })]));   // the roof's storey holds nothing to place
     expect(r.off_storey).toEqual(run[6].off_storey);
@@ -1931,7 +1935,7 @@ describe("flagChangeset (MA-8-9): a person's stair pick, appended to a changeset
     const out = await flagChangeset("demo", cs.id, PICK, "yazan", deps);
     expect(out.flag).toMatchObject({ kind: "stair", storey: "L01", box: BOX, source: "pick", name: "Stair picked on L01" });
     expect(out.flag.unique_id).toMatch(/^stair:pick-[0-9a-f]{8}$/);
-    expect(out.flag.reason).toMatch(/^a stair picked by .+ — Sentinel places none yet; box 1200 × 5400 mm in plan, 3000 mm tall, from \(0, 0, 0\) on L01; MA-8-10 starts from this flag$/);
+    expect(out.flag.reason).toMatch(/^a stair picked by .+ — Sentinel does not place stairs yet; a person adds it; box 1200 × 5400 mm in plan, 3000 mm tall, from \(0, 0, 0\) on L01$/);
     expect(out.ledger).toEqual({ id: 41, hash: "ab".repeat(32) });
     const doc = deps.saved.get(cs.id);
     expect([doc.exceptions, doc.review_rev]).toEqual([[out.flag], 1]);
@@ -1939,6 +1943,14 @@ describe("flagChangeset (MA-8-9): a person's stair pick, appended to a changeset
     expect(deps.audit.mock.calls).toHaveLength(1);
     expect(deps.audit.mock.calls[0].slice(1, 6)).toEqual(["changeset", cs.id, `changeset_flagged ${cs.name} · stair on L01`, "yazan", { review_rev: 0 }]);
     expect(deps.audit.mock.calls[0][6]).toMatchObject({ review_rev: 1, changeset: cs.id, flag: out.flag });
+  });
+  it("the same storey and box picked twice is a 409 naming the first flag - a lost reply never makes two flags", async () => {
+    const deps = person();
+    const cs = await filed(deps);
+    const first = await flagChangeset("demo", cs.id, PICK, "yazan", deps);
+    await expect(flagChangeset("demo", cs.id, { ...PICK, box: { min: [0.4, 0, 0], max: [1200, 5400, 3000.2] } }, "yazan", deps)).rejects.toMatchObject({ status: 409, message: `already flagged as ${first.flag.unique_id} - nothing was saved` });
+    await flagChangeset("demo", cs.id, { ...PICK, storey: "L02" }, "yazan", deps);
+    expect(deps.saved.get(cs.id).exceptions).toHaveLength(2);
   });
   it("the machine credential and a viewer save nothing; the budget is taken; a bad body is a 400 in the validator's words", async () => {
     const deps = person();

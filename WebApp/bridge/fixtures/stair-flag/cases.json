@@ -6,7 +6,7 @@
     { "name": "the limits themselves", "body": { "kind": "stair", "storey": "L01", "box": { "min": [0, 0, 0], "max": [300, 50000, 60000] } }, "kept": { "kind": "stair", "storey": "L01", "box": { "min": [0, 0, 0], "max": [300, 50000, 60000] } } }
   ],
   "refused": [
-    { "name": "another kind", "body": { "kind": "ramp", "storey": "L01", "box": { "min": [0, 0, 0], "max": [1200, 5400, 3000] } }, "message": "x: kind \"ramp\" is not an exception kind — only \"stair\" (MA-8-9)" },
+    { "name": "another kind", "body": { "kind": "ramp", "storey": "L01", "box": { "min": [0, 0, 0], "max": [1200, 5400, 3000] } }, "message": "x: kind \"ramp\" is not an exception kind — only \"stair\"" },
     { "name": "no storey", "body": { "kind": "stair", "box": { "min": [0, 0, 0], "max": [1200, 5400, 3000] } }, "message": "x: storey is required — the model's level name (at most 256 characters)" },
     { "name": "no box", "body": { "kind": "stair", "storey": "L01" }, "message": "x: box must be {min: [x, y, z], max: [x, y, z]} — three finite numbers each, in mm" },
     { "name": "two numbers", "body": { "kind": "stair", "storey": "L01", "box": { "min": [0, 0], "max": [1200, 5400, 3000] } }, "message": "x: box must be {min: [x, y, z], max: [x, y, z]} — three finite numbers each, in mm" },

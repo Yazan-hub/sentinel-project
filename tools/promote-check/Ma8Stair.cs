@@ -15,7 +15,7 @@ static partial class Check
         Ok(f != null && why == null && f.Storey == "L01" && f.Min.SequenceEqual(new[] { 1000.0, 600.0, 0.0 }) && f.Max.SequenceEqual(new[] { 4200.0, 6001.0, 3000.0 }),
            "FromPick sorts the corners, takes z from the level to the next story, in whole mm");
         var top = StairFlag.FromPick("L03", 6000, null, new[] { 0.0, 0 }, new[] { 1000.0, 3000 }, out var noTop);
-        Ok(top == null && noTop == "no Building Story above L03 — the box's top is not known; a person decides", "no story above: no box, and why");
+        Ok(top == null && noTop == "There is no Building Story above L03, so the stair's height is unknown. Add a story level above it (mark it Building Story), then flag the stair again. Nothing was saved.", "no story above: no box, and why");
         Ok(StairFlag.Line("L01", new[] { 0.0, 0, 0 }, new[] { 3200.0, 5400, 3000 }) == "Stair on L01 · 3200 × 5400 mm, 3000 mm tall", "Line: storey, plan size, height");
         Ok(StairFlag.Line("L01", null, null) == "Stair on L01", "Line with no box says the storey only");
         // the body: exactly {kind, storey, box:{min,max}} - the bridge refuses any other key

@@ -643,7 +643,8 @@ public sealed class ScanDto
     [JsonPropertyName("ledger_id")] public long? LedgerId { get; set; }
     [JsonPropertyName("cell_mm")] public int CellMm { get; set; }
     [JsonPropertyName("z_mm")] public double[] ZMm { get; set; }
-    [JsonPropertyName("of")] public int Of { get; set; }
+    [JsonPropertyName("of")] public int? Of { get; set; }   // MA-8-9 review: null for a stair slice on a turned frame (the crop is larger than the box)
+    [JsonPropertyName("crop")] public string Crop { get; set; }
     [JsonPropertyName("points")] public List<double[]> Points { get; set; } = new();
 }
 

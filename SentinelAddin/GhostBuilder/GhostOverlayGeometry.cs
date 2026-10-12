@@ -230,7 +230,8 @@ namespace Sentinel.GhostBuilder
         public static string StairSliceLine(ScanDto s, int drawn)
         {
             string F(double v) => v.ToString("0", CultureInfo.InvariantCulture);
-            return $"Scan slice: {drawn} of {s.Of} point(s) inside the stair's box drawn as cyan crosses — {s.Job} (ledger #{s.LedgerId}), one point per {s.CellMm} mm, {F(s.ZMm[0])}–{F(s.ZMm[1])} mm high (the box's own height), placed by the lead's frame; nothing is written. Untick to hide.";
+            var of = s.Of is int n ? $" (of {n} in the scan's square crop around it)" : "";   // null: a turned frame, the crop is not the box
+            return $"Scan slice: {drawn} point(s) inside the stair's box{of} drawn as cyan crosses — {s.Job} (ledger #{s.LedgerId}), one point per {s.CellMm} mm, {F(s.ZMm[0])}–{F(s.ZMm[1])} mm high (the box's own height), placed by the lead's frame; nothing is written. Untick to hide.";
         }
 
         static double Z(double[] q, PlaceDto p) => q.Length >= 3 ? q[2] : p.BaseElevation ?? 0;

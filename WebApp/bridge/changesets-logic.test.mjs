@@ -1473,18 +1473,24 @@ describe("stair flags (MA-8-9)", () => {
     try { checkStairFlag(c.body, "x"); throw new Error("no throw"); } catch (e) { expect([e.status, e.message]).toEqual([400, c.message]); }
   });
   it("a row in a posted body is kept with source posted; its global_id and a posted source are listed, not kept", () => {
-    const v = validateChangeset(CS([wall()], { exceptions: [row({ source: "ifc", global_id: GID })] }));
-    expect(v.exceptions).toEqual([{ unique_id: `stair:${GID}`, name: `Stair ${GID}`, reason: "a stair", kind: "stair", storey: "L01", box: BOX, source: "posted" }]);
+    const v = validateChangeset(CS([wall()], { exceptions: [row({ unique_id: "s1", source: "ifc", global_id: GID })] }));
+    expect(v.exceptions).toEqual([{ unique_id: "s1", name: `Stair ${GID}`, reason: "a stair", kind: "stair", storey: "L01", box: BOX, source: "posted" }]);
     expect(v.ignored).toEqual(expect.arrayContaining([{ field: "exceptions[0].source", why: "ignored: set by the bridge" }, { field: "exceptions[0].global_id", why: expect.stringMatching(/^ignored/) }]));
   });
   it("from an IFC job the source is ifc and a 22-character GlobalId is kept; another job's flag is a 400", () => {
     const v = validateChangeset(CS([W1()], { exceptions: [row({ global_id: GID }), row({ unique_id: "stair:#9", global_id: "#9" })] }), { job: IFC });
     expect(v.exceptions.map((x) => [x.source, x.global_id ?? null])).toEqual([["ifc", GID], ["ifc", null]]);
-    status400(() => validateChangeset(CS([W1()], { exceptions: [row()] }), { job: { record: { id: "job-1", reader: "sentinel-survey 0.6.0" }, byCid: IFC.byCid } }), /exceptions\[0\]: a stair flag comes from an IFC job or a person's pick/);
+    status400(() => validateChangeset(CS([W1()], { exceptions: [row({ unique_id: "s1" })] }), { job: { record: { id: "job-1", reader: "sentinel-survey 0.6.0" }, byCid: IFC.byCid } }), /exceptions\[0\]: a stair flag comes from an IFC job or a person's pick/);
   });
   it("an unknown kind is a 400 in words; a row without kind is as before (source stays not kept)", () => {
-    status400(() => validateChangeset(CS([wall()], { exceptions: [row({ kind: "ramp" })] })), /exceptions\[0\]: kind "ramp" is not an exception kind — only "stair" \(MA-8-9\)/);
-    status400(() => validateChangeset(CS([wall()], { exceptions: [row({ box: { min: [0, 0, 0], max: [100, 5400, 3000] } })] })), /exceptions\[0\]: the box's plan sides/);
+    // review: only kind "stair" is a flag; any other kind is listed as not kept, as before the slice
+    const ramp = validateChangeset(CS([wall()], { exceptions: [{ unique_id: "u", reason: "r", kind: "ramp" }, { unique_id: "u2", reason: "r", kind: null }] }));
+    expect(ramp.exceptions.map((x) => x.kind)).toEqual([undefined, undefined]);
+    expect(ramp.ignored.map((i) => i.field)).toEqual(["exceptions[0].kind", "exceptions[1].kind"]);
+    // review: "stair:…" ids are the bridge's own (an IFC job's flag or a person's pick) - a posted row cannot wear one
+    status400(() => validateChangeset(CS([wall()], { exceptions: [row({ unique_id: "stair:pick-1a2b3c4d" })] })), /exceptions\[0\]: unique_id "stair:…" is the bridge's own/);
+    status400(() => validateChangeset(CS([wall()], { exceptions: [{ unique_id: "stair:x", reason: "r" }] })), /unique_id "stair:…" is the bridge's own/);
+    status400(() => validateChangeset(CS([wall()], { exceptions: [row({ unique_id: "s1", box: { min: [0, 0, 0], max: [100, 5400, 3000] } })] })), /exceptions\[0\]: the box's plan sides/);
     const v = validateChangeset(CS([wall()], { exceptions: [{ unique_id: "u", reason: "r", source: "x", box: BOX }] }));
     expect(v.exceptions).toEqual([{ unique_id: "u", name: null, reason: "r" }]);
     expect(v.ignored.map((i) => i.field)).toEqual(["exceptions[0].source", "exceptions[0].box"]);

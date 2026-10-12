@@ -624,7 +624,7 @@ const FLAG_PLAN_MM = [300, 50000], FLAG_HEIGHT_MM = [300, 60000], FLAG_REACH_MM 
  *  sides 300 to 50 000 mm, height 300 to 60 000 mm. Pure. */
 export function checkStairFlag(x, at) {
   if (!x || typeof x !== "object" || Array.isArray(x)) throw err(400, `${at}: must be an object`);
-  if (x.kind !== "stair") throw err(400, `${at}: kind "${String(x.kind).slice(0, 40)}" is not an exception kind — only "stair" (MA-8-9)`);
+  if (x.kind !== "stair") throw err(400, `${at}: kind "${String(x.kind).slice(0, 40)}" is not an exception kind — only "stair"`);
   if (!text(x.storey, 256)) throw err(400, `${at}: storey is required — the model's level name (at most 256 characters)`);
   const b = x.box;
   const v3 = (a) => Array.isArray(a) && a.length === 3 && a.every((n) => typeof n === "number" && Number.isFinite(n));
@@ -652,8 +652,9 @@ function checkExceptions(rows, extra, flagSource = "posted") {
     if (!text(x.unique_id, 64)) throw err(400, `${at}: unique_id is required (at most 64 characters)`);
     if (!text(x.reason, 300)) throw err(400, `${at}: reason is required (at most 300 characters)`);
     if (x.name != null && !text(x.name, 256)) throw err(400, `${at}: name must be text of at most 256 characters`);
-    const flag = x.kind !== undefined;
-    if (flag && !flagSource && x.kind === "stair") throw err(400, `${at}: a stair flag comes from an IFC job or a person's pick — this changeset's job is neither (MA-8-9)`);
+    const flag = x.kind === "stair";   // review: any other `kind` is listed as not kept, as before this slice
+    if (flagSource !== "ifc" && x.unique_id.startsWith("stair:")) throw err(400, `${at}: unique_id "stair:…" is the bridge's own - it names a stair flag from an IFC or a person's pick; use another unique_id`);
+    if (flag && !flagSource) throw err(400, `${at}: a stair flag comes from an IFC job or a person's pick — this changeset's job is neither`);
     const f = flag ? checkStairFlag(x, at) : null;
     const gid = flag && flagSource === "ifc" && typeof x.global_id === "string" && /^[0-9A-Za-z_$]{22}$/.test(x.global_id) ? x.global_id : null;
     const kept = flag ? [...STAIR_FLAG_FIELDS.slice(0, 6), ...(gid ? ["global_id"] : [])] : STAIR_FLAG_FIELDS.slice(0, 3);
