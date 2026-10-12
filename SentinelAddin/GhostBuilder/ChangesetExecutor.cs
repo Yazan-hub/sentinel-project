@@ -133,9 +133,10 @@ public sealed class ChangesetExecutor
         {
             // A NAMED level that doesn't exist fails honestly (same rule as named types): the
             // reviewer saw that level name on the row. Nearest-by-elevation applies only when the
-            // proposal names no level.
+            // proposal names no level. MA-6-3 (amendment 1): it is the model's state, not a verdict on the changeset (C5's rule) —
+            // PlacementRefused keeps it proposed, so a storey applied before the one that creates its levels can be applied after it.
             return levels.FirstOrDefault(l => string.Equals(l.Name, place.LevelName, StringComparison.OrdinalIgnoreCase))
-                   ?? throw new InvalidOperationException($"level \"{place.LevelName}\" does not exist in this model — include it in the changeset or re-propose without a LevelName");
+                   ?? throw new PlacementRefused($"level \"{place.LevelName}\" does not exist in this model — include it in the changeset, or apply the changeset that creates it first; nothing was placed, and this one stays proposed");
         }
         // Drill MA2a (F-MA2a-3): contract 2 names a wall's level BaseLevel (design :675). It was read only for an attach, and a
         // create naming no LevelName fell to the model's LOWEST level — the design's wall went on GR_SSL, 300 mm high, in silence.
@@ -228,20 +229,48 @@ public sealed class ChangesetExecutor
         return Enumerable.Range(0, n).Select(i => (Curve)Line.CreateBound(P(i), P((i + 1) % n))).ToList();
     }
 
+    /// MA-6-3: two curves with the same ends in plan (1 mm, either way round) — a roof's footprint line and the Boundary edge it was made from.
+    private static bool SameEnds(Curve a, Curve b)
+    {
+        bool Near(XYZ p, XYZ q) => Math.Abs(p.X - q.X) <= MmToFeet && Math.Abs(p.Y - q.Y) <= MmToFeet;
+        XYZ a0 = a.GetEndPoint(0), a1 = a.GetEndPoint(1), b0 = b.GetEndPoint(0), b1 = b.GetEndPoint(1);
+        return (Near(a0, b0) && Near(a1, b1)) || (Near(a0, b1) && Near(a1, b0));
+    }
+
+    /// MA-6-3: does a floor's planar top face hold the point in plan (its edges tessellated, PlacementGeometry.Holds)? A floor whose top
+    /// is not planar holds nothing here: its opening is a person's.
+    private static bool Holds(Floor f, XYZ p)
+    {
+        foreach (var r in HostObjectUtils.GetTopFaces(f))
+        {
+            if (!(f.GetGeometryObjectFromReference(r) is PlanarFace top)) continue;
+            var segments = new List<(double, double, double, double)>();
+            foreach (EdgeArray loop in top.EdgeLoops)
+                foreach (Edge e in loop)
+                {
+                    var pts = e.Tessellate();
+                    for (var k = 1; k < pts.Count; k++) segments.Add((pts[k - 1].X, pts[k - 1].Y, pts[k].X, pts[k].Y));
+                }
+            if (PlacementGeometry.Holds(segments, p.X, p.Y)) return true;
+        }
+        return false;
+    }
+
     /// MA-1: a create's Mark (ALL_MODEL_MARK), when it carries one (the bridge refuses one on a level or grid).
     private static void SetMark(Element e, ChangesetElementDto el)
     {
         if (!string.IsNullOrWhiteSpace(el.Place?.Mark)) Set(e, BuiltInParameter.ALL_MODEL_MARK, el.Place.Mark, el.Kind);
     }
 
-    /// A level named exactly (case-insensitive, as ResolveLevel reads a LevelName); blank or missing fails.
+    /// A level named exactly (case-insensitive, as ResolveLevel reads a LevelName); blank or missing fails. MA-6-3 (amendment 1): a
+    /// missing one keeps the changeset proposed (PlacementRefused), as ResolveLevel's does.
     private static Level LevelNamed(Document doc, string name)
     {
         var n = name?.Trim();
         if (string.IsNullOrEmpty(n)) throw new InvalidOperationException("attach needs a BaseLevel and a TopLevel");
         return new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
                    .FirstOrDefault(l => string.Equals(l.Name, n, StringComparison.OrdinalIgnoreCase))
-               ?? throw new InvalidOperationException($"level \"{n}\" does not exist in this model — re-run Promote, or re-propose naming a level it has");
+               ?? throw new PlacementRefused($"level \"{n}\" does not exist in this model — re-run Promote, re-propose naming a level it has, or apply the changeset that creates it first; nothing was placed, and this one stays proposed");
     }
 
     /// The existing wall a retype/attach names by UniqueId.
@@ -359,10 +388,10 @@ public sealed class ChangesetExecutor
     private static string Size(double? w, double? h) => w.HasValue && h.HasValue ? $"{Mm(w.Value)} x {Mm(h.Value)} mm" : "not sized by its type";
 
     // A parameter that is missing, read-only or refuses the value fails the changeset: attach lands as reviewed or not at all.
-    private static void Set(Element e, BuiltInParameter bip, ElementId v)
+    private static void Set(Element e, BuiltInParameter bip, ElementId v, string kind = "wall")
     {
         var p = e.get_Parameter(bip);
-        if (p == null || p.IsReadOnly || !p.Set(v)) throw new InvalidOperationException($"could not set {bip} on wall {e.UniqueId}");
+        if (p == null || p.IsReadOnly || !p.Set(v)) throw new InvalidOperationException($"could not set {bip} on {kind} {e.UniqueId}");
     }
 
     private static void Set(Element e, BuiltInParameter bip, double v, string kind = "wall")
@@ -596,7 +625,7 @@ public sealed class ChangesetExecutor
                 Collect(result, el, floor);
             }
 
-            // MA-1: a flat roof on its level — NewFootPrintRoof, and no footprint edge defines a slope (slopes are a later field).
+            // MA-1: a roof on its level — NewFootPrintRoof; flat unless it carries Slopes (MA-6-3).
             foreach (var el in toPlace.Where(e => IsCreate(e) && e.Kind == "roof"))
             {
                 at = Label(el);
@@ -605,12 +634,37 @@ public sealed class ChangesetExecutor
                 var rt = CreateType(doc, BuiltInCategory.OST_Roofs, "roof", null, el.Place.TypeName) as RoofType
                          ?? throw new InvalidOperationException($"roof \"{name}\": \"{el.Place.TypeName}\" is not a roof type Sentinel can sketch");
                 var arr = new CurveArray();
-                foreach (var c in Outline(el.Place.Boundary, level.Elevation, $"roof \"{name}\"")) arr.Append(c);
+                var lines = Outline(el.Place.Boundary, level.Elevation, $"roof \"{name}\"");
+                foreach (var c in lines) arr.Append(c);
                 // The API reads this "out" array before filling it (the SDK sample creates it first): passed null, the call throws a
                 // bare "Value cannot be null." (B35, live).
                 var edges = new ModelCurveArray();
                 var roof = doc.Create.NewFootPrintRoof(arr, level, rt, out edges);
-                foreach (ModelCurve mc in edges) roof.set_DefinesSlope(mc, false);
+                // MA-6-3: each footprint line is matched to its Boundary edge by its ends (1 mm, either way round). An edge the bridge sent a
+                // slope for defines it (SlopeAngle is rise over run); every other edge defines none — a gable, or a flat roof as before.
+                var slopes = el.Place.Slopes;
+                var sloped = new List<(ModelCurve Mc, int Edge, double Deg)>();
+                foreach (ModelCurve mc in edges)
+                {
+                    var i = slopes == null ? -1 : lines.FindIndex(l => SameEnds(l, mc.GeometryCurve));
+                    var deg = i >= 0 && i < slopes.Count ? slopes[i] : null;
+                    roof.set_DefinesSlope(mc, deg != null);
+                    if (deg is double d) { roof.set_SlopeAngle(mc, Math.Tan(d * Math.PI / 180)); sloped.Add((mc, i, d)); }
+                }
+                if (slopes != null)
+                {
+                    var unmatched = Enumerable.Range(0, slopes.Count).Where(i => slopes[i] != null && !sloped.Any(s => s.Edge == i)).ToList();
+                    if (unmatched.Count > 0)
+                        throw new InvalidOperationException($"roof \"{name}\": Revit's footprint has no line on Boundary edge(s) {string.Join(", ", unmatched)} — their slope could not be set; nothing was placed");
+                    // Read back after a regeneration (risk R3, the API's slope unit): a slope Revit does not hold as sent rolls the changeset back, in words.
+                    doc.Regenerate();
+                    foreach (var (mc, i, d) in sloped)
+                    {
+                        var got = Math.Atan(roof.get_SlopeAngle(mc)) * 180 / Math.PI;
+                        if (!roof.get_DefinesSlope(mc) || Math.Abs(got - d) > 0.1)
+                            throw new InvalidOperationException($"roof \"{name}\": Boundary edge {i} reads {(roof.get_DefinesSlope(mc) ? Mm(got) + "°" : "no slope")} after the set, not the {Mm(d)}° sent — Revit did not take the slope; nothing was placed");
+                    }
+                }
                 if (el.Place.BaseOffset is double off) Set(roof, BuiltInParameter.ROOF_LEVEL_OFFSET_PARAM, off * MmToFeet, "roof");
                 SetMark(roof, el);
                 Collect(result, el, roof);
@@ -688,6 +742,53 @@ public sealed class ChangesetExecutor
                 }
             }
 
+            // MA-6-3: openings after every wall, floor, door and window of this changeset (Regenerate first: a host made in this transaction
+            // is cut too). A wall opening is a rectangle in the ONE straight basic wall under its point (the door's host finder and its
+            // refusals), Width along the wall, from its sill up Height; a floor opening is its Boundary cut through the ONE floor of its level
+            // that holds the outline's centre — this changeset's floors first, then the model's. None or two is a refusal in words.
+            var cuts = toPlace.Where(e => IsCreate(e) && e.Kind == "opening").ToList();
+            if (cuts.Count > 0)
+            {
+                doc.Regenerate();
+                var (hosts, odd, lines) = HostWalls(doc);
+                var ours = new HashSet<long>(result.Applied.Where(a => toPlace.First(e => e.ProposalGuid == a.ProposalGuid).Kind == "floor").Select(a => a.RevitElementId));
+                foreach (var el in cuts)
+                {
+                    at = Label(el);
+                    var name = el.Validate?.Identity?.Name ?? el.ProposalGuid;
+                    var level = ResolveLevel(doc, el.Place);
+                    Opening cut;
+                    if (el.Place.Location is double[] p)
+                    {
+                        if (Math.Abs(p[2] * MmToFeet - level.Elevation) > TolFt)
+                            throw new InvalidOperationException($"opening \"{name}\": Location z {Mm(p[2])} mm is not {level.Name}'s elevation {Mm(level.Elevation / MmToFeet)} mm — a wall opening stands on its level; its bottom is place.SillHeight");
+                        if (OddNear(odd, level.Id, p[0], p[1]) is Wall near)
+                            throw new InvalidOperationException($"opening \"{name}\": a wall Sentinel does not cut (wall {near.Id.IdValue()}: curtain, stacked or curved) on {level.Name} passes the point — a person decides");
+                        var i = PlacementGeometry.Host(lines, level.Name, p[0], p[1], out var why);
+                        if (i < 0) throw new InvalidOperationException($"opening \"{name}\": {why}");
+                        double w = (el.Place.Width ?? 0) * MmToFeet, h = (el.Place.Height ?? 0) * MmToFeet, z0 = level.Elevation + (el.Place.SillHeight ?? 0) * MmToFeet;
+                        var wc = ((LocationCurve)hosts[i].Location).Curve;
+                        var d = new XYZ(wc.GetEndPoint(1).X - wc.GetEndPoint(0).X, wc.GetEndPoint(1).Y - wc.GetEndPoint(0).Y, 0).Normalize();
+                        double x = p[0] * MmToFeet, y = p[1] * MmToFeet;
+                        cut = doc.Create.NewOpening(hosts[i], new XYZ(x - d.X * w / 2, y - d.Y * w / 2, z0), new XYZ(x + d.X * w / 2, y + d.Y * w / 2, z0 + h));
+                    }
+                    else
+                    {
+                        var outline = Outline(el.Place.Boundary, level.Elevation, $"opening \"{name}\"");
+                        var mid = new XYZ(outline.Average(c => c.GetEndPoint(0).X), outline.Average(c => c.GetEndPoint(0).Y), level.Elevation);
+                        var holding = new FilteredElementCollector(doc).OfClass(typeof(Floor)).Cast<Floor>()
+                            .Where(f => f.LevelId.Equals(level.Id) && Holds(f, mid)).ToList();
+                        var pick = holding.Any(f => ours.Contains(f.Id.IdValue())) ? holding.Where(f => ours.Contains(f.Id.IdValue())).ToList() : holding;
+                        if (pick.Count != 1)
+                            throw new InvalidOperationException($"opening \"{name}\": {(pick.Count == 0 ? "no floor" : pick.Count + " floors")} of {level.Name} hold the centre of its Boundary — Sentinel cuts one floor; a person decides");
+                        var arr = new CurveArray();
+                        foreach (var c in outline) arr.Append(c);
+                        cut = doc.Create.NewOpening(pick[0], arr, true);
+                    }
+                    Collect(result, el, cut);
+                }
+            }
+
             // MA-1a step 2: a column or furniture stands unhosted on its level at its point (Ghost Builder's point families): the
             // one loaded (family, type) it names, activated inside this transaction, z = the level's elevation.
             foreach (var el in toPlace.Where(e => IsCreate(e) && e.Kind is "column" or "furniture"))
@@ -702,6 +803,29 @@ public sealed class ChangesetExecutor
                                                    el.Kind, el.Place.FamilyName, el.Place.TypeName);
                 if (!sym.IsActive) { sym.Activate(); doc.Regenerate(); }
                 var fi = doc.Create.NewFamilyInstance(Pt(p), sym, level, StructuralType.NonStructural);
+                // MA-6-3: a column with a TopLevel stands to it, offset 0 (the bridge checked it is not its own level).
+                if (el.Kind == "column" && !string.IsNullOrWhiteSpace(el.Place.TopLevel))
+                {
+                    var top = LevelNamed(doc, el.Place.TopLevel);
+                    if (top.Elevation <= level.Elevation) throw new InvalidOperationException($"column \"{name}\": its TopLevel {top.Name} is not above {level.Name}");
+                    Set(fi, BuiltInParameter.FAMILY_TOP_LEVEL_PARAM, top.Id, "column");
+                    Set(fi, BuiltInParameter.FAMILY_TOP_LEVEL_OFFSET_PARAM, 0.0, "column");
+                }
+                SetMark(fi, el);
+                Collect(result, el, fi);
+            }
+
+            // MA-6-3: a beam on its straight line (z = its top: Revit's default justification, the curve's height above the level sets
+            // its end offsets) — the one loaded Structural Framing (family, type) it names, activated inside this transaction.
+            foreach (var el in toPlace.Where(e => IsCreate(e) && e.Kind == "beam"))
+            {
+                at = Label(el);
+                var name = el.Validate?.Identity?.Name ?? el.ProposalGuid;
+                var level = ResolveLevel(doc, el.Place);
+                var c = el.Place.LocationCurve ?? throw new InvalidOperationException($"beam \"{name}\" has no LocationCurve");
+                var sym = (FamilySymbol)CreateType(doc, BuiltInCategory.OST_StructuralFraming, "beam", el.Place.FamilyName, el.Place.TypeName);
+                if (!sym.IsActive) { sym.Activate(); doc.Regenerate(); }
+                var fi = doc.Create.NewFamilyInstance(Line.CreateBound(Pt(c.Start), Pt(c.End)), sym, level, StructuralType.Beam);
                 SetMark(fi, el);
                 Collect(result, el, fi);
             }

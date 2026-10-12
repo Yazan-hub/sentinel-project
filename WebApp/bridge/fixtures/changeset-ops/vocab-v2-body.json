@@ -1,0 +1,23 @@
+{
+  "what": "MA-6-3, vocabulary v2: storey 2 of the drill house as an agent would post it — a 900 x 2100 opening at sill 0 in a wall, a stair void in a floor, a column standing to its top level, a beam on the catalogue pair and one typed by the bridge from its facts, and a gable roof whose two long edges slope. beam_rule is the Structural Framing block added to demo/bds-pilot/bds-dd-layerfree-guideline.json to type the second beam (its pair is a bds-type-catalog.json row). changesets-logic.test.mjs and changesets-typing.test.mjs read it.",
+  "beam_rule": { "category": "Structural Framing", "rules": [{ "when": { "params": { "Material": "Concrete" } }, "use": { "family": "BDS_STR_CONC_Rectangular Beam", "type": "BDS_INT_STR_CONC_300 x 600 mm" }, "why": "MA-6-3 drill: a concrete beam" }] },
+  "posted": {
+    "name": "House storey 2",
+    "source": "agent",
+    "elements": [
+      { "kind": "opening", "validate": { "identity": { "Class": "IFCOPENINGELEMENT", "Name": "OP-1" } },
+        "place": { "LevelName": "H L1", "Location": [2500, 0, 0], "Width": 900, "Height": 2100, "SillHeight": 0 } },
+      { "kind": "opening", "validate": { "identity": { "Class": "IFCOPENINGELEMENT", "Name": "STAIR-VOID" } },
+        "place": { "LevelName": "H L2", "Boundary": [[1000, 1000], [3700, 1000], [3700, 2000], [1000, 2000]] } },
+      { "kind": "column", "validate": { "identity": { "Class": "IFCCOLUMN", "Name": "C1" } },
+        "place": { "LevelName": "H L1", "TopLevel": "H L2", "FamilyName": "M_Rectangular Column", "TypeName": "450 x 600mm", "Location": [0, 0, 0] } },
+      { "kind": "beam", "validate": { "identity": { "Class": "IFCBEAM", "Name": "B1" } },
+        "place": { "LevelName": "H L2", "LocationCurve": { "start": [0, 0, 3000], "end": [6000, 0, 3000] }, "FamilyName": "BDS_STR_CONC_Rectangular Beam", "TypeName": "BDS_INT_STR_CONC_300 x 600 mm", "Mark": "B1" } },
+      { "kind": "beam", "validate": { "identity": { "Class": "IFCBEAM", "Name": "B2" } },
+        "place": { "LevelName": "H L2", "LocationCurve": { "start": [0, 4000, 3000], "end": [6000, 4000, 3000] } },
+        "facts": { "params": { "Material": "Concrete" } } },
+      { "kind": "roof", "validate": { "identity": { "Class": "IFCROOF", "Name": "R1" } },
+        "place": { "LevelName": "H L2", "TypeName": "Generic - 300mm", "Boundary": [[0, 0], [8000, 0], [8000, 6000], [0, 6000], [0, 0]], "Slopes": [30, null, 30, null] } }
+    ]
+  }
+}

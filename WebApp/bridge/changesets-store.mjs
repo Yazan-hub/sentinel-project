@@ -5,7 +5,7 @@ import { randomUUID, createHash } from "node:crypto";
 import * as cde from "./cde-store.mjs";
 import * as members from "./members-store.mjs";
 import { validateChangeset, attachVerdicts, canWithdraw, deriveResultStatus, unattributedFailures,
-  reviewRev, applyDecisions, reopenDecline, resultConflicts, resultReasons, carryDeclines, declineWords } from "./changesets-logic.mjs";
+  reviewRev, applyDecisions, reopenDecline, resultConflicts, resultReasons, carryDeclines, declineWords, UNTYPED } from "./changesets-logic.mjs";
 import { makeTyper, makeCiter } from "./changesets-typing.mjs";
 import { resolveArtefact, refLabel, validateArtefact } from "./artefact-store.mjs";
 import { resolveActor } from "./bridge-auth.mjs";
@@ -82,9 +82,10 @@ async function recorded(d, pid, id, before, updated, what, write) {
 const UNCHECKED_WHY = "the reporting client sent no review_rev — the bridge cannot tell whether it saw the decline";
 
 /** MA-2a: does a posted body hold an element the bridge would have to type — a create or retype of a typed kind (not a level or
- *  grid, never an attach or a set_parameter) that names no place.TypeName? Only then are the standards read. */
+ *  grid, never an attach or a set_parameter) that names no place.TypeName? Only then are the standards read. MA-6-3: the untyped kinds
+ *  are changesets-logic's own list (an opening, too). */
 export const needsTyping = (body) => Array.isArray(body?.elements) && body.elements.some((e) => e && typeof e === "object"
-  && !["attach", "set_parameter"].includes(e.op ?? "create") && !["level", "grid", "room"].includes(e.kind)
+  && !["attach", "set_parameter"].includes(e.op ?? "create") && !UNTYPED.includes(e.kind)
   && !(e.place && typeof e.place === "object" && typeof e.place.TypeName === "string" && e.place.TypeName.trim() !== ""));
 
 /** MA-2c: does a posted body hold a set_parameter? Only then are the type catalogue and the ids@n read, to check its source. */

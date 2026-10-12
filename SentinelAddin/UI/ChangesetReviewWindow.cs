@@ -282,6 +282,7 @@ public sealed class ChangesetReviewWindow : Window
         if (p?.Name != null && p.Name != name) parts.Add(p.Name); // MA-5b-1: a room's name after its number (a level's Name is its own)
         if (p?.TypeName != null) parts.Add((p.FamilyName != null ? p.FamilyName + " : " : "") + p.TypeName);
         if (p?.LevelName != null) parts.Add(p.LevelName);
+        if (p?.Width is double w && p.Height is double h) parts.Add($"{Mm(w)} x {Mm(h)} mm"); // MA-6-3: a wall opening's size
         if (p?.SillHeight is double s) parts.Add($"sill {Mm(s)} mm");
         if (p?.Offset is double o) parts.Add($"offset {Mm(o)} mm");
         if (p?.BaseOffset is double b) parts.Add($"base offset {Mm(b)} mm");

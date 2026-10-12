@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import {
-  VOCABULARY, OPS, OP_KINDS, MAX_CHANGESET_ELEMENTS, TRUST_FIELDS, ADDIN_SOURCES, CREATE_ENTITY,
+  VOCABULARY, OPS, OP_KINDS, MAX_CHANGESET_ELEMENTS, TRUST_FIELDS, ADDIN_SOURCES, CREATE_ENTITY, PLACE_KEPT,
   validateChangeset, carryKey, outlineProblem, attachVerdicts, canWithdraw, deriveResultStatus, unattributedFailures,
 } from "./changesets-logic.mjs";
 import * as core from "./sentinel-core.mjs";
@@ -24,11 +24,11 @@ const status400 = (fn, re) => {
   try { fn(); throw new Error("no throw"); }
   catch (e) { expect(e.status).toBe(400); expect(e.message).toMatch(re); }
 };
-// MA-1a step 2 adds column and furniture (Ghost Builder's unhosted point families).
-const MA1 = ["wall", "floor", "level", "grid", "roof", "ceiling", "door", "window", "column", "furniture", "room"];
+// MA-1a step 2 adds column and furniture (Ghost Builder's unhosted point families); MA-6-3 opening and beam (vocabulary v2).
+const MA1 = ["wall", "floor", "level", "grid", "roof", "ceiling", "door", "window", "column", "furniture", "room", "opening", "beam"];
 
 describe("VOCABULARY", () => {
-  it("is the MA-1 list, with MA-1a step 2's column and furniture and MA-5b-1's room", () => expect(VOCABULARY).toEqual(MA1));
+  it("is the MA-1 list, with MA-1a step 2's column and furniture, MA-5b-1's room and MA-6-3's opening and beam", () => expect(VOCABULARY).toEqual(MA1));
 });
 
 describe("validateChangeset — shape", () => {
@@ -58,7 +58,7 @@ describe("validateChangeset — shape", () => {
   });
 
   it("rejects a kind outside the vocabulary, naming the element index and the allowed set", () => {
-    try { validateChangeset(CS([wall(), { ...wall(), kind: "beam" }])); throw new Error("no throw"); }
+    try { validateChangeset(CS([wall(), { ...wall(), kind: "duct" }])); throw new Error("no throw"); }
     catch (e) {
       expect(e.status).toBe(400);
       expect(e.message).toMatch(/\[1\]/);
@@ -279,7 +279,7 @@ describe("validateChangeset — ops, TypeName and exceptions (MA-0)", () => {
     }
     status400(() => validateChangeset(CS([attach({ kind: "floor" })])), /not supported for attach — allowed: wall/);
     status400(() => validateChangeset(CS([retype({ kind: "level" })])), /not supported for retype — allowed: wall, floor, roof, ceiling, door, window/);
-    status400(() => validateChangeset(CS([wall({ kind: "beam" })])), /kind "beam" is not supported — allowed: wall, floor, level, grid, roof, ceiling, door, window, column, furniture/);
+    status400(() => validateChangeset(CS([wall({ kind: "duct" })])), /kind "duct" is not supported — allowed: wall, floor, level, grid, roof, ceiling, door, window, column, furniture/);
   });
 
   it("the same (op, wall) twice is a 400; a retype plus an attach on one wall is fine", () => {
@@ -1103,6 +1103,118 @@ describe("validateChangeset — the class is the bridge's, from the kind (MA-6-1
   // Review fix: the override fails closed, so a kind added to OP_KINDS (6-3's opening and beam, 6-6's mass) cannot ship without a class.
   it("every kind any op takes has its IFC class", () => {
     for (const k of new Set(Object.values(OP_KINDS).flat())) expect(CREATE_ENTITY[k], k).toMatch(/^IFC[A-Z]+$/);
+  });
+});
+
+// MA-6-3 (vocabulary v2): an opening (a rectangle in a wall, or a hole in a floor), a beam, a roof's Slopes per edge, a column's TopLevel.
+describe("validateChangeset — vocabulary v2 (MA-6-3)", () => {
+  const fx = JSON.parse(readFileSync(new URL("./fixtures/changeset-ops/vocab-v2-body.json", import.meta.url), "utf8"));
+  const read = (p) => JSON.parse(readFileSync(new URL(p, import.meta.url), "utf8"));
+  const G = read("../../demo/bds-pilot/bds-dd-layerfree-guideline.json");
+  const type = makeTyper({
+    guideline: { body: { ...G, elements: [...G.elements, fx.beam_rule] }, label: "guideline@1 · office · 0123456789ab…", sha256: "ab".repeat(32) },
+    catalog: { body: read("../../demo/bds-pilot/bds-type-catalog.json"), label: "type_catalog@1 · office · fedcba987654…", sha256: "cd".repeat(32) },
+  }, core);
+  // The fixture's element i, its place merged with `place` (a key set to undefined is removed).
+  const sent = (i, place = {}) => {
+    const el = structuredClone(fx.posted.elements[i]);
+    el.place = { ...el.place, ...place };
+    for (const k of Object.keys(place)) if (place[k] === undefined) delete el.place[k];
+    return el;
+  };
+  const [wallOpening, floorOpening, column, beam, , roof] = [0, 1, 2, 3, 4, 5].map((i) => (place) => sent(i, place));
+  const ok = (el) => validateChangeset(CS([el])).elements[0];
+
+  it("the fixture's storey is stored with its v2 fields, the bridge types the beam sent with facts, and nothing is ignored", () => {
+    const v = validateChangeset(fx.posted, { type });
+    expect(v.ignored).toEqual([]);
+    expect(v.elements.map((e) => [e.kind, e.validate.identity.Class])).toEqual([["opening", "IFCOPENINGELEMENT"], ["opening", "IFCOPENINGELEMENT"],
+      ["column", "IFCCOLUMN"], ["beam", "IFCBEAM"], ["beam", "IFCBEAM"], ["roof", "IFCROOF"]]);
+    for (const i of [0, 1, 2, 3, 5]) expect(v.elements[i].place, String(i)).toEqual(fx.posted.elements[i].place);
+    expect(v.elements[4].place).toEqual({ ...fx.posted.elements[4].place, FamilyName: "BDS_STR_CONC_Rectangular Beam", TypeName: "BDS_INT_STR_CONC_300 x 600 mm" });
+    expect(v.elements[4].typing).toMatchObject({ typed_by: "bridge", family: "BDS_STR_CONC_Rectangular Beam", type: "BDS_INT_STR_CONC_300 x 600 mm" });
+    expect(v.elements[4].pretick).toBe(false);
+    expect(v.elements[0].typing).toEqual({ typed_by: "caller" }); // an opening is never typed: no typer is asked for it
+    expect(validateChangeset(CS([wallOpening(), floorOpening()])).elements).toHaveLength(2);
+  });
+
+  it("an opening is exactly one shape: both, or neither, is a 400 in words", () => {
+    const both = /an opening is a rectangle in a wall \(place\.Location, Width, Height and SillHeight\) or a hole in a floor \(place\.Boundary\) — send exactly one of the two/;
+    status400(() => ok(wallOpening({ Boundary: [[0, 0], [1000, 0], [1000, 1000]] })), both);
+    status400(() => ok(floorOpening({ Location: [0, 0, 0] })), both);
+    status400(() => ok(wallOpening({ Location: undefined })), both);
+  });
+
+  it("a wall opening needs its point, its Width and Height (above 50, at most 20000 mm) and its SillHeight (0 to 20000 mm)", () => {
+    status400(() => ok(wallOpening({ Location: [1, 2] })), /a wall opening needs place\.Location, the finite \[x,y,z\] point at its middle on its host wall's location line/);
+    for (const f of ["Width", "Height"])
+      for (const bad of [undefined, 50, 20001, "900", NaN]) status400(() => ok(wallOpening({ [f]: bad })), new RegExp(`a wall opening needs place\\.${f}, a number of mm above 50 and at most 20000`));
+    for (const bad of [undefined, -1, 20001, "0"]) status400(() => ok(wallOpening({ SillHeight: bad })), /a wall opening needs place\.SillHeight, its bottom above its level — a number of mm from 0 to 20000/);
+    expect(ok(wallOpening({ Width: 20000, Height: 50.5, SillHeight: 20000 })).place).toMatchObject({ Width: 20000, Height: 50.5, SillHeight: 20000 });
+  });
+
+  it("a floor opening is its Boundary — one simple outline, and no Width, Height or SillHeight", () => {
+    status400(() => ok(floorOpening({ Boundary: [[0, 0], [10, 0], [0, 10], [10, 10]] })), /opening place\.Boundary crosses or touches itself/);
+    for (const f of ["Width", "Height", "SillHeight"]) status400(() => ok(floorOpening({ [f]: 900 })), new RegExp(`a floor opening is its place\\.Boundary — it takes no place\\.${f}`));
+  });
+
+  it("an opening and a beam name their level; an opening takes no family, Mark or TopLevel; Width and Height are an opening's only", () => {
+    for (const b of [wallOpening, floorOpening, beam]) status400(() => ok(b({ LevelName: undefined })), /needs place\.LevelName — Sentinel never picks its level/);
+    status400(() => ok(wallOpening({ FamilyName: "F" })), /takes no place\.FamilyName/);
+    status400(() => ok(wallOpening({ Mark: "O1" })), /takes no place\.Mark/);
+    status400(() => ok(floorOpening({ TopLevel: "H L3" })), /takes no place\.TopLevel/);
+    status400(() => ok(roof({ Width: 900 })), /a roof takes no place\.Width/);
+    status400(() => ok(beam({ Height: 600 })), /a beam takes no place\.Height/);
+    status400(() => ok(wall({ place: { ...wall().place, SillHeight: 0 } })), /a wall takes no place\.SillHeight/);
+  });
+
+  it("a beam is one straight LocationCurve with its family and type (or facts the bridge types it from)", () => {
+    status400(() => ok(beam({ LocationCurve: undefined })), /beam needs place\.LocationCurve with finite \[x,y,z\] start and end/);
+    status400(() => ok(beam({ LocationCurve: { start: [0, 0, 3000], end: [0, 0, 3000] } })), /beam LocationCurve start and end are identical/);
+    status400(() => ok(beam({ LocationCurve: { start: [0, 0, 3000], end: [6000, 0, 3000], mid: [3000, 1000, 3000] } })), /place\.LocationCurve\.mid is a wall's point on its arc/);
+    status400(() => ok(beam({ FamilyName: undefined })), /a beam needs place\.FamilyName — a type name alone is not one type/);
+    status400(() => ok(beam({ TypeName: undefined })), /a beam needs place\.TypeName — Sentinel never takes the model's first type/);
+    status400(() => ok(beam({ Location: [0, 0, 0] })), /a beam takes no place\.Location/);
+    expect(ok(beam()).place.Mark).toBe("B1");
+  });
+
+  it("a roof's Slopes has one entry per Boundary edge — a closing point is no edge — each null or degrees above 0 and at most 75", () => {
+    status400(() => ok(roof({ Slopes: [30, null, 30, null, null] })), /place\.Slopes needs one entry per Boundary edge \(4 here; Slopes\[i\] is Boundary\[i\]→\[i\+1\]\)/);
+    status400(() => ok(roof({ Slopes: "30" })), /place\.Slopes needs one entry per Boundary edge/);
+    for (const bad of [0, -5, 75.1, "30", NaN]) status400(() => ok(roof({ Slopes: [bad, null, 30, null] })), /place\.Slopes\[0\] must be null \(the edge defines no slope\) or degrees above 0 and at most 75/);
+    expect(ok(roof({ Boundary: [[0, 0], [8000, 0], [8000, 6000], [0, 6000]], Slopes: [75, null, 0.5, null] })).place.Slopes).toEqual([75, null, 0.5, null]);
+    expect(ok(roof({ Slopes: undefined })).place).not.toHaveProperty("Slopes"); // flat, as before
+    const ceiling = { kind: "ceiling", validate: { identity: { Class: "IfcCovering", Name: "C" } }, place: { LevelName: "H L1", TypeName: "T", Boundary: [[0, 0], [1, 0], [1, 1]], Offset: 2700, Slopes: [null, null, null] } };
+    status400(() => ok(ceiling), /a ceiling takes no place\.Slopes/);
+  });
+
+  it("TopLevel (amendment 3): a column's is text and not its own level; on a door or a beam it is a 400; a wall's and a floor's as before; an attach still validates", () => {
+    status400(() => ok(column({ TopLevel: 2 })), /place\.TopLevel must be text of at most 256 characters — the level the column's top reaches/);
+    status400(() => ok(column({ TopLevel: " h l1 " })), /place\.TopLevel is the column's own level — name the level its top reaches/);
+    status400(() => ok(beam({ TopLevel: "H L3" })), /a beam takes no place\.TopLevel/);
+    const door = { kind: "door", validate: { identity: { Class: "IFCDOOR", Name: "D" } }, place: { LevelName: "H L1", FamilyName: "F", TypeName: "T", Location: [0, 0, 0], TopLevel: "H L2" } };
+    status400(() => ok(door), /a door takes no place\.TopLevel/);
+    expect(ok(column()).place.TopLevel).toBe("H L2");
+    const floor = { kind: "floor", validate: { identity: { Class: "IFCSLAB", Name: "F" } }, place: { TypeName: "T", LevelName: "H L1", TopLevel: "H L2", LocationLoop: [[0, 0, 0], [1, 0, 0], [1, 1, 0]] } };
+    expect(ok(floor).place.TopLevel).toBe("H L2");
+    const attach = { op: "attach", kind: "wall", target: { unique_id: "5a1c2b3d-1111-2222-3333-444455556666-0004c3f8" }, place: { BaseLevel: "H L1", TopLevel: "H L2" }, validate: { identity: { Class: "IFCWALL", Name: "W" } } };
+    expect(ok(attach).place).toEqual({ BaseLevel: "H L1", TopLevel: "H L2" });
+  });
+
+  it("Width, Height and Slopes ride on no retype (only a create sets them); a beam is create-only", () => {
+    const UID = "5a1c2b3d-1111-2222-3333-444455556666-0004c3f8";
+    const retype = (place) => ({ op: "retype", kind: "roof", target: { unique_id: UID }, place: { TypeName: "T", ...place }, validate: { identity: { Class: "IFCROOF", Name: "R" } } });
+    for (const f of ["Width", "Height", "Slopes"]) status400(() => ok(retype({ [f]: [1] })), new RegExp(`retype takes no place\\.${f} — only a create sets it`));
+    status400(() => ok({ ...beam(), op: "retype", target: { unique_id: UID } }), /kind "beam" is not supported for retype/);
+  });
+
+  // Risk R14: a place field the bridge keeps that the add-in's PlaceDto does not read would be stored, and dropped in Revit unread.
+  it("PLACE_KEPT is the add-in's PlaceDto, name for name (ChangesetClient.cs)", () => {
+    const cs = readFileSync(new URL("../../SentinelAddin/Coordination/ChangesetClient.cs", import.meta.url), "utf8");
+    const from = cs.indexOf("public sealed class PlaceDto");
+    const names = [...cs.slice(from, cs.indexOf("\n}", from)).matchAll(/\[JsonPropertyName\("([^"]+)"\)\]/g)].map((m) => m[1]);
+    expect(names.length).toBeGreaterThan(20);
+    expect([...names].sort()).toEqual([...PLACE_KEPT].sort());
   });
 });
 

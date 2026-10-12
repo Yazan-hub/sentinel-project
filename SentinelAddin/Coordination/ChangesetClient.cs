@@ -56,6 +56,11 @@ public sealed class PlaceDto
     [JsonPropertyName("Structural")] public bool? Structural { get; set; }
     // create (MA-5b-1): a room's number as drawn (its name is Name); none = Revit numbers it.
     [JsonPropertyName("Number")] public string Number { get; set; }
+    // create (MA-6-3): a wall opening's width and height (mm; its sill is SillHeight); a roof's slope per Boundary edge, in degrees —
+    // Slopes[i] for the edge Boundary[i]→[i+1], null where the edge defines no slope. A column's top is TopLevel.
+    [JsonPropertyName("Width")] public double? Width { get; set; }
+    [JsonPropertyName("Height")] public double? Height { get; set; }
+    [JsonPropertyName("Slopes")] public List<double?> Slopes { get; set; }
 }
 
 /// <summary>The existing element a retype/attach ghost changes (MA-0, Promote v1): its Revit UniqueId, and for a retype the

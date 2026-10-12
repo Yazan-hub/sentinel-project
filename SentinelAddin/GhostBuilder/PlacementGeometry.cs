@@ -238,6 +238,16 @@ public static class PlacementGeometry
     /// <summary>Whether a direction (ox, oy) points against the target (tx, ty) — the flip test. Square to it is not against it.</summary>
     public static bool Opposes(double ox, double oy, double tx, double ty) => ox * tx + oy * ty < 0;
 
+    /// <summary>MA-6-3: do closed loops, given as plan segments, hold the point (x, y)? Even-odd, so a point in a hole of the outline is
+    /// outside. A floor opening is cut through the one floor whose top face holds its outline's centre (ChangesetExecutor).</summary>
+    public static bool Holds(IEnumerable<(double X0, double Y0, double X1, double Y1)> segments, double x, double y)
+    {
+        var inside = false;
+        foreach (var (x0, y0, x1, y1) in segments)
+            if ((y0 > y) != (y1 > y) && x < x0 + (y - y0) * (x1 - x0) / (y1 - y0)) inside = !inside;
+        return inside;
+    }
+
     /// <summary>Review amendment C1: a door or window's Rotation must run along its host wall — null when it does (within
     /// ParallelTolDeg, either way round), else the refusal's words. The flip test (Opposes) cannot see a Rotation across the
     /// wall (a dot product of 0 flips nothing), so the executor asks this before it creates the instance. The bound carries

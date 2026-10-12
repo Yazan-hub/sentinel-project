@@ -11,13 +11,15 @@ import { checkFacts, KIND_ENTITY, KIND_PSET } from "./changesets-typing.mjs";
 
 // MA-1 placement slice: roof, ceiling, door, window. MA-1a step 2: column, furniture — Ghost Builder's unhosted point families.
 // MA-5b-1: room — a drawing's labelled room, placed at a point on its level; Revit finds its boundary there (no type, no family).
-export const VOCABULARY = ["wall", "floor", "level", "grid", "roof", "ceiling", "door", "window", "column", "furniture", "room"];
-/** The kinds that take no type: a level and a grid are named, a room is named and numbered. */
-const UNTYPED = ["level", "grid", "room"];
+// MA-6-3 (vocabulary v2): opening — a rectangle cut in a wall, or a hole in a floor; beam — a straight structural framing member.
+export const VOCABULARY = ["wall", "floor", "level", "grid", "roof", "ceiling", "door", "window", "column", "furniture", "room", "opening", "beam"];
+/** The kinds that take no type: a level and a grid are named, a room is named and numbered, an opening is its shape (MA-6-3). */
+export const UNTYPED = ["level", "grid", "room", "opening"];
 /** MA-6-1: the IFC class the bridge sets from each kind — the Promote six (KIND_ENTITY, held to PromoteWallsPlanner.Classes by
  *  promote-check) and the rest of the vocabulary as the add-in files them (GhostFiling: IFCFURNITURE). A posted class that is not
  *  exactly this one is listed and replaced: an IDS entity pattern matches no subtype, so a chosen class could step outside a spec. */
-export const CREATE_ENTITY = { ...KIND_ENTITY, level: "IFCBUILDINGSTOREY", grid: "IFCGRID", room: "IFCSPACE", column: "IFCCOLUMN", furniture: "IFCFURNITURE" };
+export const CREATE_ENTITY = { ...KIND_ENTITY, level: "IFCBUILDINGSTOREY", grid: "IFCGRID", room: "IFCSPACE", column: "IFCCOLUMN", furniture: "IFCFURNITURE",
+  opening: "IFCOPENINGELEMENT", beam: "IFCBEAM" }; // MA-6-3
 /** What a ghost does. create places a new element (the v1 path); retype changes an EXISTING element's type, named by its
  *  Revit UniqueId (Promote) — a door or window keeps its host: ChangeTypeId to a symbol of the same category; attach re-tops
  *  an existing wall. An element without op is a create. MA-2c: set_parameter writes one value on an existing TYPE, named by its
@@ -64,8 +66,9 @@ const ELEMENT_FIELDS = ["kind", "op", "target", "reason", "validate", "place", "
   "parameter", "revit_parameter", "from", "to", "value_source"]; // what an element is rebuilt from
 // Review amendment C3: what an element's blocks are rebuilt from. PLACE_KEPT is the add-in's PlaceDto (ChangesetClient.cs),
 // name for name; a key added to one must be added to the other, or it is listed under `ignored` and not kept.
-const PLACE_KEPT = ["TypeName", "LevelName", "LocationCurve", "LocationLoop", "BaseElevation", "TopElevation", "Name", "BaseLevel", "TopLevel",
-  "FamilyName", "Location", "SillHeight", "FlipFacing", "FlipHand", "Rotation", "Mirrored", "Boundary", "BaseOffset", "Offset", "Mark", "Structural", "Number"];
+export const PLACE_KEPT = ["TypeName", "LevelName", "LocationCurve", "LocationLoop", "BaseElevation", "TopElevation", "Name", "BaseLevel", "TopLevel",
+  "FamilyName", "Location", "SillHeight", "FlipFacing", "FlipHand", "Rotation", "Mirrored", "Boundary", "BaseOffset", "Offset", "Mark", "Structural", "Number",
+  "Width", "Height", "Slopes"]; // MA-6-3: a wall opening's size; a roof's slope per edge
 const TARGET_KEPT = ["unique_id", "type_before", "placed", "at"];
 const VALIDATE_KEPT = ["identity", "psets", "quantities"];
 const MAX_EVIDENCE = 50; // review amendment C4: contract 2's evidence ids on one element
@@ -84,16 +87,22 @@ const arcSag = (s, e, m) => {
 // or grid's name is identity.Name, so it has no Mark; only a point family's type — door, window, column, furniture — is named
 // with its family).
 const PLACE_FIELDS = {
-  FamilyName: ["door", "window", "column", "furniture"], Mark: ["wall", "floor", "roof", "ceiling", "door", "window", "column", "furniture"],
-  Structural: ["floor"], Location: ["door", "window", "column", "furniture", "room"], Number: ["room"], FlipFacing: ["door", "window"], FlipHand: ["door", "window"],
-  SillHeight: ["window"], Boundary: ["roof", "ceiling"], BaseOffset: ["roof"], Offset: ["ceiling"],
+  FamilyName: ["door", "window", "column", "furniture", "beam"], Mark: ["wall", "floor", "roof", "ceiling", "door", "window", "column", "furniture", "beam"],
+  Structural: ["floor"], Location: ["door", "window", "column", "furniture", "room", "opening"], Number: ["room"], FlipFacing: ["door", "window"], FlipHand: ["door", "window"],
+  SillHeight: ["window", "opening"], Boundary: ["roof", "ceiling", "opening"], BaseOffset: ["roof"], Offset: ["ceiling"],
   // MA-1b (GHB-1): a drawn block's direction — the plan angle of its X axis and whether it is mirrored. The add-in flips the
   // placed instance to that hinge side and swing side (ChangesetExecutor), and measures what Revit holds after the commit.
   Rotation: ["door", "window"], Mirrored: ["door", "window"],
+  // MA-6-3: a wall opening's size; a roof's slope per Boundary edge. TopLevel is not here (an attach needs it): the create branch checks it.
+  Width: ["opening"], Height: ["opening"], Slopes: ["roof"],
 };
 // The point kinds: a family placed at place.Location on its level — a door or window in the one wall under it, a column or
 // furniture unhosted (MA-1a step 2).
 const POINT_KINDS = ["door", "window", "column", "furniture"];
+// MA-6-3: the kinds whose type is a family's (place.FamilyName with TypeName): the point kinds and a beam on its line.
+const FAMILY_KINDS = [...POINT_KINDS, "beam"];
+const MAX_OPENING_MM = 20000; // MA-6-3: a wall opening's width, height and sill
+const MAX_SLOPE_DEG = 75;
 
 const MIN_EDGE_MM = 1; // Revit refuses a line shorter than about 0.8 mm
 const xy = (p) => Array.isArray(p) && p.length === 2 && p.every(finite);
@@ -106,12 +115,16 @@ function meet(a, b, c, d) {
   return (d1 === 0 && within(a, b, c)) || (d2 === 0 && within(a, b, d)) || (d3 === 0 && within(c, d, a)) || (d4 === 0 && within(c, d, b));
 }
 
+/** An outline's edges: its points less a closing one equal to the first (the executor's Outline reads it so). MA-6-3: a roof's
+ *  Slopes has one entry per edge, Slopes[i] for Boundary[i]→[i+1]. */
+const edgeCount = (b) => b.length - (b[0][0] === b.at(-1)[0] && b[0][1] === b.at(-1)[1] ? 1 : 0);
+
 /** MA-1: a roof's or ceiling's outline in plan, [[x,y],…] mm, a closing point equal to the first allowed: why Revit could not
  *  sketch it as one simple closed loop, or null. Exact arithmetic on the numbers sent. ponytail: O(n²) pair test, fine at 256
  *  points x 200 elements; a sweep if outlines ever grow. */
 export function outlineProblem(b) {
   if (!Array.isArray(b) || b.length < 3 || b.length > MAX_BOUNDARY_POINTS || !b.every(xy)) return `must be 3 to ${MAX_BOUNDARY_POINTS} finite [x,y] points`;
-  const n = b.length - (b[0][0] === b.at(-1)[0] && b[0][1] === b.at(-1)[1] ? 1 : 0);
+  const n = edgeCount(b);
   if (n < 3) return "needs 3 points besides a closing one";
   const at = (i) => b[i % n];
   for (let i = 0; i < n; i++)
@@ -148,7 +161,8 @@ function checkPlace(kind, place, at) {
   }
   if (place.Mirrored !== undefined && place.Rotation === undefined)
     throw err(400, `${at}: place.Mirrored needs place.Rotation — a mirror is read about the block's own X axis`);
-  if (kind === "wall" || kind === "grid") {
+  // MA-6-3: a beam runs on a straight LocationCurve too (z = its top: Revit's default justification), never an arc.
+  if (kind === "wall" || kind === "grid" || kind === "beam") {
     const c = place.LocationCurve;
     if (!c || !point(c.start) || !point(c.end)) throw err(400, `${at}: ${kind} needs place.LocationCurve with finite [x,y,z] start and end`);
     // Distinctness is near-free to check here; a zero-length curve would cost a whole-changeset
@@ -184,6 +198,34 @@ function checkPlace(kind, place, at) {
     const f = kind === "roof" ? "BaseOffset" : "Offset";
     if ((kind === "ceiling" || place[f] !== undefined) && !inRange(place[f], -MAX_OFFSET_MM, MAX_OFFSET_MM))
       throw err(400, `${at}: ${kind === "ceiling" ? "a ceiling needs " : ""}place.${f}, a number of mm within ±${MAX_OFFSET_MM}`);
+    // MA-6-3: a pitched roof — one entry per Boundary edge, null where the edge defines no slope (a gable), else its pitch in degrees.
+    if (place.Slopes !== undefined) {
+      const n = edgeCount(place.Boundary);
+      if (!Array.isArray(place.Slopes) || place.Slopes.length !== n)
+        throw err(400, `${at}: place.Slopes needs one entry per Boundary edge (${n} here; Slopes[i] is Boundary[i]→[i+1]) — null for an edge with no slope, else degrees`);
+      place.Slopes.forEach((s, i) => {
+        if (s !== null && !(finite(s) && s > 0 && s <= MAX_SLOPE_DEG))
+          throw err(400, `${at}: place.Slopes[${i}] must be null (the edge defines no slope) or degrees above 0 and at most ${MAX_SLOPE_DEG}`);
+      });
+    }
+  } else if (kind === "opening") {
+    // MA-6-3: exactly one shape — a rectangle cut in a wall (its middle on the wall's location line, as a door's point) or a hole in a
+    // floor (its outline). Both, or neither, is a 400: the bridge never chooses which was meant.
+    if ((place.Location !== undefined) === (place.Boundary !== undefined))
+      throw err(400, `${at}: an opening is a rectangle in a wall (place.Location, Width, Height and SillHeight) or a hole in a floor (place.Boundary) — send exactly one of the two`);
+    if (place.Location !== undefined) {
+      if (!point(place.Location))
+        throw err(400, `${at}: a wall opening needs place.Location, the finite [x,y,z] point at its middle on its host wall's location line (z = its level's elevation)`);
+      for (const f of ["Width", "Height"])
+        if (!(finite(place[f]) && place[f] > 50 && place[f] <= MAX_OPENING_MM)) throw err(400, `${at}: a wall opening needs place.${f}, a number of mm above 50 and at most ${MAX_OPENING_MM}`);
+      if (!inRange(place.SillHeight, 0, MAX_OPENING_MM))
+        throw err(400, `${at}: a wall opening needs place.SillHeight, its bottom above its level — a number of mm from 0 to ${MAX_OPENING_MM}`);
+    } else {
+      const why = outlineProblem(place.Boundary);
+      if (why) throw err(400, `${at}: opening place.Boundary ${why}`);
+      for (const f of ["Width", "Height", "SillHeight"])
+        if (place[f] !== undefined) throw err(400, `${at}: a floor opening is its place.Boundary — it takes no place.${f}`);
+    }
   }
 }
 
@@ -331,7 +373,7 @@ export function validateChangeset(body, { member = false, type = null, cite = nu
     const typeIt = () => {
       typed = type(el.kind, facts, at); // a 400 in the typer's words when it cannot
       place.TypeName = typed.TypeName;
-      if (POINT_KINDS.includes(el.kind) && !text(place.FamilyName, 256) && text(typed.FamilyName, 256)) place.FamilyName = typed.FamilyName;
+      if (FAMILY_KINDS.includes(el.kind) && !text(place.FamilyName, 256) && text(typed.FamilyName, 256)) place.FamilyName = typed.FamilyName;
     };
     let target = null;
     if (op === "create") {
@@ -341,10 +383,18 @@ export function validateChangeset(body, { member = false, type = null, cite = nu
         if (!type) throw err(400, `${at}: a ${el.kind} needs place.TypeName — Sentinel never takes the model's first type`);
         typeIt();
       }
-      if (POINT_KINDS.includes(el.kind) && !text(place.FamilyName, 256))
+      if (FAMILY_KINDS.includes(el.kind) && !text(place.FamilyName, 256))
         throw err(400, `${at}: a ${el.kind} needs place.FamilyName — a type name alone is not one type`);
-      if (["roof", "ceiling", "room", ...POINT_KINDS].includes(el.kind) && !text(place.LevelName, 256))
+      if (["roof", "ceiling", "room", "opening", ...FAMILY_KINDS].includes(el.kind) && !text(place.LevelName, 256))
         throw err(400, `${at}: a ${el.kind} needs place.LevelName — Sentinel never picks its level`);
+      // MA-6-3 (amendment 3): TopLevel is a wall's top (and a floor's, as before) and now a column's — the level its top reaches. On any
+      // other create it is a 400, never kept unread; it stays out of PLACE_FIELDS, so an attach still carries its own.
+      if (place.TopLevel !== undefined && !["wall", "floor", "column"].includes(el.kind)) throw err(400, `${at}: a ${el.kind} takes no place.TopLevel`);
+      if (el.kind === "column" && place.TopLevel !== undefined) {
+        if (!text(place.TopLevel, 256)) throw err(400, `${at}: place.TopLevel must be text of at most 256 characters — the level the column's top reaches`);
+        if (place.TopLevel.trim().toLowerCase() === place.LevelName.trim().toLowerCase())
+          throw err(400, `${at}: place.TopLevel is the column's own level — name the level its top reaches`);
+      }
       // Drill MA2a (F-MA2a-3): a wall or floor names its level too. The executor read only LevelName for a create and put the
       // design's contract-2 wall (BaseLevel and TopLevel, design :675) on the model's lowest level, in silence. Contract 2's
       // BaseLevel names a wall's level and TopLevel its top; two names for one end are refused, never chosen between.

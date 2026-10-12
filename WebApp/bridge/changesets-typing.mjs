@@ -16,8 +16,9 @@ const text = (s, max) => typeof s === "string" && s.trim() !== "" && s.length <=
 const CONTROL_CHAR = /[\u0000-\u001f]/;
 
 /** The guideline category each typed changeset kind is resolved under (PlacementPolicy.CategoriesOf names the same ones). A
- *  level or grid is never typed. */
-export const KIND_CATEGORY = { wall: "Walls", floor: "Floors", roof: "Roofs", ceiling: "Ceilings", door: "Doors", window: "Windows", column: "Columns", furniture: "Furniture" };
+ *  level or grid is never typed. MA-6-3: a beam is typed by one catalogue family and type pair, as a door is; an opening is never typed. */
+export const KIND_CATEGORY = { wall: "Walls", floor: "Floors", roof: "Roofs", ceiling: "Ceilings", door: "Doors", window: "Windows", column: "Columns", furniture: "Furniture",
+  beam: "Structural Framing" };
 export const FACTS_FIELDS = ["thickness_mm", "params"];
 export const MAX_FACT_PARAMS = 20;
 export const MAX_THICKNESS_MM = 10000;

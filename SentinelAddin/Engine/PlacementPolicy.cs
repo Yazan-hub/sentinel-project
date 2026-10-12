@@ -28,6 +28,7 @@ namespace Sentinel.Engine
                 case "window": return new[] { "Windows" };
                 case "column": return new[] { "Columns" };
                 case "furniture": return new[] { "Furniture" };
+                case "beam": return new[] { "Structural Framing" }; // MA-6-3: a beam lands in Structural Framing
                 case "level": return new[] { "Levels" };
                 case "grid": return new[] { "Grids" };
                 default: return new string[0];
@@ -35,7 +36,7 @@ namespace Sentinel.Engine
         }
 
         /// <summary>The changeset kinds Sentinel places — the bridge's vocabulary (changesets-logic.mjs VOCABULARY).</summary>
-        public static readonly string[] Kinds = { "wall", "floor", "roof", "ceiling", "door", "window", "column", "furniture", "level", "grid" };
+        public static readonly string[] Kinds = { "wall", "floor", "roof", "ceiling", "door", "window", "column", "furniture", "level", "grid", "beam" };
 
         /// <summary>The kind that lands in a category (case and padding ignored); null for one Sentinel does not place.</summary>
         public static string KindOf(string category) =>

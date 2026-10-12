@@ -361,6 +361,7 @@ namespace Sentinel.GhostBuilder
         {
             ["Walls"] = "OST_Walls", ["Floors"] = "OST_Floors", ["Roofs"] = "OST_Roofs", ["Ceilings"] = "OST_Ceilings", ["Doors"] = "OST_Doors",
             ["Windows"] = "OST_Windows", ["Columns"] = "OST_Columns", ["Furniture"] = "OST_Furniture", ["Levels"] = "OST_Levels", ["Grids"] = "OST_Grids",
+            ["Structural Framing"] = "OST_StructuralFraming", // MA-6-3 (a beam); guideline.ts's CATEGORY_BIC gains it with the next web change
         };
 
         /// <summary>Does a catalogue row belong to <paramref name="category"/>? By name (case and padding ignored), or by its
@@ -585,7 +586,7 @@ namespace Sentinel.GhostBuilder
         /// Sentinel places (every changeset kind lands in one: PlacementPolicy.CategoriesOf; tools/promote-check holds the
         /// two lists equal). The bridge's check carries the same list (artefact-store.mjs); the shared cases prove it.</summary>
         internal static readonly string[] PlacementCategories =
-            { "Walls", "Floors", "Roofs", "Ceilings", "Doors", "Windows", "Columns", "Furniture", "Levels", "Grids" };
+            { "Walls", "Floors", "Roofs", "Ceilings", "Doors", "Windows", "Columns", "Furniture", "Levels", "Grids", "Structural Framing" }; // MA-6-3: a beam's
 
         /// <summary>MA-1a item 6, the office-template check: of the catalogue's types in the categories the guideline has
         /// rules for, how many the open model holds. <paramref name="documentTypes"/> is the model's types by category as
