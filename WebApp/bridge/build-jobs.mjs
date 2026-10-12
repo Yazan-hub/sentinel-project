@@ -119,10 +119,10 @@ export function pickItems(pack, dir, reader = READER) {
   const take = [], refused = [];
   const kind = reader === DRAWING ? "drawing" : reader === IFC ? "model" : "scan";
   // MA-6-8: one concept a job — two would clash storey for storey (ponytail: the newest admitted is read; a person picks between concepts later)
-  const newest = kind === "model" ? Math.max(...pack.items.filter((x) => x.kind === kind).map((x) => Number(String(x.id).split("-")[1]))) : null;
+  const newest = kind === "model" ? Math.max(...pack.items.filter((x) => x.kind === kind && x.state !== "changed").map((x) => Number(String(x.id).split("-")[1]))) : null;
   for (const i of pack.items.filter((x) => x.kind === kind)) {
-    const why = kind === "model" && Number(String(i.id).split("-")[1]) !== newest ? "an older concept — one IFC a job: the newest admitted is read"
-      : i.state === "changed" ? "changed since admitted (Re-check flagged it) — admit the same bytes again"
+    const why = i.state === "changed" ? "changed since admitted (Re-check flagged it) — admit the same bytes again"
+      : kind === "model" && Number(String(i.id).split("-")[1]) !== newest ? "an older concept — one IFC a job: the newest admitted is read"
       : kind === "drawing" && ["dwg", "dxf"].includes(i.format) ? `a .${i.format} is read by Ghost Builder in Revit (Model from Drawings) — ${DRAWING} reads PDF`
       : kind === "drawing" && i.format !== "pdf" ? `a .${i.format} drawing is raster — out of scope (C10); ${DRAWING} reads vector PDF`
       : kind === "scan" && !i.surveyable ? `not surveyable (a .${i.format})`

@@ -415,7 +415,7 @@ describe("survey ghosts (MA-4d)", () => {
     const src = readFileSync(new URL("./review-desk.ts", import.meta.url), "utf8");
     expect(src).toContain("const tw = trustWords(x.el); if (tw) words.append(");
     expect(src).toContain("const w = sourceWords(cs); if (w) box.append(");
-    expect(readFileSync(new URL("./files-panel.ts", import.meta.url), "utf8")).toContain("` · from ${x.source === \"sentinel-drawing\" ? \"drawing\" : \"survey\"} ${esc(x.job_id)}`"); // MA-5a-4 (review)
+    expect(readFileSync(new URL("./files-panel.ts", import.meta.url), "utf8")).toContain("` · from ${x.source === \"sentinel-drawing\" ? \"drawing\" : x.source === \"sentinel-ifc\" ? \"IFC\" : \"survey\"} ${esc(x.job_id)}`"); // MA-5a-4 (review)
   });
 });
 

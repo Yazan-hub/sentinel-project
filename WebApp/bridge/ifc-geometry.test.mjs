@@ -2,9 +2,12 @@
 // round trip the proposal model makes), and a file that tries to loop the reader.
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
-import { readIfcGeometry, IFC, VERSION } from "./ifc-geometry.mjs";
+import { readIfcGeometry, runIfc, IFC, VERSION } from "./ifc-geometry.mjs";
+import { writeFileSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { proposalElements, levelsOf } from "./proposal-model.mjs";
 import { buildIfc } from "./sentinel-core.mjs";
 
@@ -37,7 +40,8 @@ describe("readIfcGeometry — the concept fixture", () => {
   it("takes the thickness from layers, the type's layers, BaseQuantities Width, then the body", async () => {
     const r = await read(text);
     expect(byName(r, "W4 partition")).toMatchObject({ start: [8000, 0], end: [8000, 12000], thickness_mm: 150, thickness_from: "base_quantities", ifc_class: "IFCWALL" });
-    expect(byName(r, "W7 typed")).toMatchObject({ start: [10000, 2000], end: [16000, 2000], thickness_mm: 200, thickness_from: "type_layers", note: "centre not stated (no layer-set usage)" });
+    expect(byName(r, "W7 typed")).toMatchObject({ start: [10000, 2000], end: [16000, 2000], thickness_mm: 200, thickness_from: "type_layers" });   // MA-6-8 review: its body centres the line, so the note is not needed
+    expect(byName(r, "W7 typed").note).toBeUndefined();
     expect(byName(r, "W6 rect only")).toMatchObject({ start: [1000, 6000], end: [7000, 6000], thickness_mm: 200, thickness_from: "body" });
     expect(byName(r, "W9 profile only")).toMatchObject({ start: [-125, 10000], end: [-125, 15000], thickness_mm: 250, thickness_from: "body" });
     expect(byName(r, "W8 trimmed")).toMatchObject({ start: [0, 8000], end: [6000, 8000], thickness_mm: 300 });
@@ -269,5 +273,28 @@ describe("readIfcGeometry — Revit 2024 exports", () => {
     const w = (await readIfcGeometry(Buffer.from(t, "latin1"))).walls.find((x) => x.global_id === "2VExwC6xrF6u4NaChOdioM");
     expect(w.thickness_from).toBe("body");
     expect(sameLine(w, [0, 12000], [0, 0])).toBe(true);
+  });
+});
+
+describe("readIfcGeometry — MA-6-8 review", () => {
+  it("a body-only wall with mitred ends: the line runs between the middles of the two faces' ends, not the outer extent", async () => {
+    const r = await read(edit(["#203=IFCCARTESIANPOINT((5000.,250.))", "#203=IFCCARTESIANPOINT((4750.,250.))"], ["#204=IFCCARTESIANPOINT((0.,250.))", "#204=IFCCARTESIANPOINT((250.,250.))"]));
+    expect(byName(r, "W9 profile only")).toMatchObject({ start: [-125, 10125], end: [-125, 14875], thickness_mm: 250, thickness_from: "body" });
+  });
+  it("an Axis that is an IfcIndexedPolyCurve with an arc is a curved wall, said as one", async () => {
+    const r = await read(addLines(edit(["#42=IFCPOLYLINE((#40,#41))", "#42=IFCINDEXEDPOLYCURVE(#340,(IFCARCINDEX((1,2,3))),.F.)"]), ["#340=IFCCARTESIANPOINTLIST2D(((0.,0.),(10000.,5000.),(20000.,0.)));"]));
+    expect(why(r, gid("W1"))).toEqual(["a curved wall — straight walls only"]);
+  });
+  it("runIfc: a file that grew since admission is refused by size before it is read; a good one reads", async () => {
+    const dir = mkdtempSync(resolve(tmpdir(), "ifc-")), big = resolve(dir, "big.ifc"), ok = resolve(dir, "ok.ifc");
+    try {
+      writeFileSync(big, Buffer.alloc(20 * 1048576 + 1)); writeFileSync(ok, text);
+      const sha = createHash("sha256").update(text).digest("hex");
+      const r = await runIfc({ job_id: "job-0001", items: [{ id: "ev-0001", path: big, sha256: sha }, { id: "ev-0002", path: ok, sha256: sha }] });
+      expect(r.status).toBe("done");
+      expect(r.refused).toEqual([{ id: "ev-0001", reason: expect.stringMatching(/^a \.ifc is read inside the bridge — at most 20 MB \(this one is 20481 KB\)/) }]);
+      expect(r.result.candidates.some((c) => c.kind === "wall")).toBe(true);
+      expect((await runIfc({ job_id: "job-0001", items: [{ id: "ev-0001", path: big, sha256: sha }] })).status).toBe("refused");
+    } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 });

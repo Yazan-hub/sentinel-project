@@ -338,7 +338,7 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
       const moved = mine.find((c) => FRAME_KEYS.some((k) => c.job.frame?.[k] !== frame[k])); // one job is one frame
       if (moved) {
         const f = moved.job.frame;
-        throw err(409, `${moved.name} (${moved.status.replace("_", " ")}) was filed from ${id} with the scan moved ${f.dx_mm}, ${f.dy_mm}, ${f.dz_mm} mm, turned ${f.rotation_deg}° — send that frame (one job is one frame), or run the survey again to propose it afresh; nothing was saved`);
+        throw err(409, `${moved.name} (${moved.status.replace("_", " ")}) was filed from ${id} with the scan moved ${f.dx_mm}, ${f.dy_mm}, ${f.dz_mm} mm, turned ${f.rotation_deg}° — send that frame (one job is one frame), or ${ifc ? "read the IFC" : drawing ? "read the drawing" : "run the survey"} again to propose it afresh; nothing was saved`);
       }
     }
     const other = earlier.find((c) => c.job?.ledger_id != null && c.job.ledger_id !== row.ledger.id && c.status === "proposed");
@@ -383,7 +383,7 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
     const topicKeys = drawing && plan.differences.length ? await differenceKeys(d, key) : new Set();
     const unraised = drawing ? plan.differences.filter((x) => topicKeys instanceof Error || !topicKeys.has(x.key)).length : 0;
     if (!ready.length && mine.length && !unraised) // a job that types nothing and filed nothing files its gaps alone
-      throw err(409, `nothing new to propose from ${id} — every candidate that types is filed already (${mine.map((c) => `${c.name}: ${c.status.replace("_", " ")}`).join("; ")}): decline a proposed one in Revit (Review AI Proposals → Decline all, with a reason) to propose it again; an applied one stays applied here after an Undo in Revit — ${drawing ? "read the drawing" : "run the survey"} again to propose it afresh; nothing was saved`);
+      throw err(409, `nothing new to propose from ${id} — every candidate that types is filed already (${mine.map((c) => `${c.name}: ${c.status.replace("_", " ")}`).join("; ")}): decline a proposed one in Revit (Review AI Proposals → Decline all, with a reason) to propose it again; an applied one stays applied here after an Undo in Revit — ${ifc ? "read the IFC" : drawing ? "read the drawing" : "run the survey"} again to propose it afresh; nothing was saved`);
     return { proj, row, said, drawing, ifc, before: new Set(earlier.map((c) => c.id)), overlaps, guideline, catalog, plan, ready, topicKeys };
   }
 
@@ -434,10 +434,10 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
     try {
       done = await d.audit(proj.id, "build", null, `build:run ${id} · ${P} ${V} · proposed`, actor || "web", null, {
         job_id: id, planner: P, version: V, [rowKey]: row.ledger, result_sha256: row.result_sha256, ...said,
-        storeys, changesets, gaps, already_filed: plan.already_filed, overlaps, guideline: guideline.label, guideline_sha256: guideline.sha256,
+        storeys, changesets, gaps, already_filed: plan.already_filed, ...(plan.off_storey?.length ? { off_storey: plan.off_storey } : {}), overlaps, guideline: guideline.label, guideline_sha256: guideline.sha256,
         catalog: catalog.label, catalog_sha256: catalog.sha256, ...(differences ? { differences } : {}), ...(plan.revision ? { revision: plan.revision } : {}), model_calls: 0, tokens: 0, claimed: false });
     } catch (e) { throw await halfWay("the planner's build:run row was not written", e); }
-    return { job: id, [rowKey]: row.ledger, ...said, storeys, changesets, gaps, already_filed: plan.already_filed, overlaps,
+    return { job: id, [rowKey]: row.ledger, ...said, storeys, changesets, gaps, already_filed: plan.already_filed, overlaps, ...(plan.off_storey?.length ? { off_storey: plan.off_storey } : {}),
       ...(differences ? { differences } : {}), ...(plan.revision ? { revision: plan.revision } : {}), ledger: ledgerRef(done) };
   }
 }

@@ -478,4 +478,21 @@ describe("IFC jobs (MA-6-8) — sentinel-ifc in this process on the newest admit
     expect(rec("job-0002").tools.map((t) => t.name)).toEqual(["sentinel-ifc", "web-ifc", "Node"]);
     expect(audits[1].v.not_read.length).toBeGreaterThan(0);
   });
+
+  it("(d) review: the newest concept flagged changed is not 'the newest' — the older admitted one is read", async () => {
+    lay();
+    PACK.items.find((i) => i.id === "ev-0021").state = "changed";
+    const { job } = await startI({ runIfc: ok() });
+    await current();
+    expect(job.items.map((i) => i.id)).toEqual(["ev-0020"]);
+    expect(job.refused).toEqual([{ id: "ev-0021", reason: "changed since admitted (Re-check flagged it) — admit the same bytes again" }]);
+  });
+
+  it("(e) review: a run that returns an IFC door candidate is a failed job and keeps no result", async () => {
+    lay();
+    await startI({ runIfc: ok({ ...IRESULT, candidates: [{ ...IRESULT.candidates[1], kind: "door" }] }) });
+    await current();
+    expect(rec()).toMatchObject({ status: "failed" });
+    expect(rec().candidates_total ?? 0).toBe(0);
+  });
 });

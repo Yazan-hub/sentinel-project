@@ -231,7 +231,7 @@ describe("a concept model (MA-6-8)", () => {
     expect(magicRefusal("ifc", Buffer.from("%PDF-1.7\n1 0 obj"), "model")).toBe("the file does not begin as a .ifc does — renamed or damaged");
     expect(magicRefusal("ifc", Buffer.from("ISO-1030"), "model")).toBe("the file does not begin as a .ifc does — renamed or damaged");
     expect(sizeRefusal("ifc", 20 * MB, "model")).toBe(null);
-    expect(sizeRefusal("ifc", 20 * MB + 1, "model")).toBe("a .ifc is read inside the bridge — at most 20 MB (this one is 20.0 MB); export the concept without its site, links and furniture");
+    expect(sizeRefusal("ifc", 20 * MB + 1, "model")).toBe("a .ifc is read inside the bridge — at most 20 MB (this one is 20481 KB); export the concept without its site, links and furniture");
     expect(sizeRefusal("ifc", 25.3 * MB, "model")).toContain("(this one is 25.3 MB)");
     expect(sizeRefusal("las", 9e9, "scan")).toBe(null);
     expect(policyRefusals({ kind: "model", provider: "own", path: "a.ifc" })).toEqual([]);

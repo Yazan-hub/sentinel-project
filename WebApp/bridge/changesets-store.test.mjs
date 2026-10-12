@@ -1737,7 +1737,7 @@ describe("proposeFromJob (MA-6-8): a lead turns a concept IFC job into one chang
   };
   const propose = (deps, body = { frame: FRAME }) => proposeFromJob("ma4c-drill", "job-0007", body, "web", deps);
 
-  it("(a) the Revit CV2 concept: two storey changesets, nothing ticked, the planner's row names ifc_row and holds the roof; the column and door ride CN L00", async () => {
+  it("(a) the Revit CV2 concept: two storey changesets, nothing ticked, the planner's row names ifc_row and holds the roof; the column and door ride IFC L02", async () => {
     const deps = await ideps();
     const r = await propose(deps);
     expect(r.changesets.map((c) => [c.name, c.elements, c.preticked])).toEqual([["IFC job-0007 · IFC L02 job-0007", 7, 0], ["IFC job-0007 · IFC L04 job-0007", 6, 0]]);
@@ -1752,8 +1752,20 @@ describe("proposeFromJob (MA-6-8): a lead turns a concept IFC job into one chang
     const run = deps.audit.mock.calls.find((c) => c[1] === "build");
     expect(run[3]).toBe("build:run job-0007 · ifc-planner 0.1.0 · proposed");
     expect(run[6]).toMatchObject({ planner: "ifc-planner", ifc_row: { id: 3301 }, claimed: false, model_calls: 0, tokens: 0 });
-    const roof = run[6].storeys.find((s) => s.cid === "L07");
-    expect(roof).toMatchObject({ changeset: null, held: [{ name: expect.stringMatching(/^IfcRoof /) }] });
+    expect(run[6].off_storey).toEqual(expect.arrayContaining([expect.objectContaining({ ifc_class: "IFCROOF", count: 1 })]));   // the roof's storey holds nothing to place
+    expect(r.off_storey).toEqual(run[6].off_storey);
+  });
+
+  it("(a2) review: a 275 mm floor is one type_gap ledger row sourced sentinel-ifc", async () => {
+    const deps = await ideps();
+    const t = await deps.trustedJob();
+    const f = t.result.candidates.find((c) => c.kind === "floor" && c.geometry.storey === "L02");
+    f.measured.thickness_mm = 275;
+    const r = await propose(deps);
+    expect(r.gaps.groups).toBe(1);
+    const gap = deps.audit.mock.calls.find((c) => c[1] === "type_gap");
+    expect(gap[3]).toMatch(/^type_gap:run job-0007 · ifc-planner 0\.1\.0 · 1 group\(s\), 1 element\(s\)$/);
+    expect(gap[6]).toMatchObject({ source: "sentinel-ifc", claimed: false, job: { id: "job-0007" } });
   });
 
   it("(b) a second run finds nothing new; a placed IFC changeset has no scan to measure or show", async () => {

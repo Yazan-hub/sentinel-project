@@ -67,9 +67,28 @@ describe("planIfc — a concept IFC becomes one changeset per storey", () => {
     const p = plan(cv2);
     const ex = p.storeys.find((x) => x.storey.cid === "L02").exceptions;
     expect(ex.map((e) => e.name.split(" ")[0])).toEqual(expect.arrayContaining(["IfcColumn", "IfcDoor"]));
-    const roof = p.storeys.find((x) => x.storey.cid === "L07");
-    expect(roof.body).toBe(null);
-    expect(roof.exceptions.map((e) => e.name)).toEqual([expect.stringMatching(/^IfcRoof /)]);
+    // a storey that holds no wall or floor is not matched (review): its roof is said on the row, not on a storey
+    expect(p.storeys.find((x) => x.storey.cid === "L07")).toBeUndefined();
+    expect(p.off_storey.map((e) => [e.ifc_class, e.count, e.name])).toEqual(expect.arrayContaining([["IFCROOF", 1, expect.stringMatching(/^IfcRoof /)]]));
+  });
+
+  it("review: two storeys at one height, one empty, do not both match a published level; the empty one's not_read and a storey-null one are said off storey", () => {
+    const empty = cv2.candidates.find((c) => c.cid === "L01");
+    expect(cv2.candidates.find((c) => c.cid === "L02").geometry.BaseElevation).toBe(empty.geometry.BaseElevation);
+    const manifest = [{ name: "GF", elevation_mm: empty.geometry.BaseElevation, from: "ARC.ifc P01" }];
+    const lost = { global_id: "N".repeat(22), ifc_class: "IFCWALL", ifc_name: "IfcWall", storey: null, why: "not on a storey" };
+    const p = plan({ ...cv2, notRead: [...cv2.notRead, lost] }, { manifest });
+    expect(p.storeys.map((x) => [x.storey.cid, x.storey.level])).toEqual(expect.arrayContaining([["L02", "GF"]]));
+    expect(p.storeys.some((x) => x.storey.cid === "L01")).toBe(false);
+    expect(p.off_storey.find((e) => e.ifc_class === "IFCWALL")).toMatchObject({ count: 1, name: `IfcWall ${lost.global_id}`, reason: expect.stringContaining("not on a storey") });
+  });
+
+  it("review: a clipped wall says its height is before the clip; a note from the reader rides the reason", () => {
+    const c = structuredClone(cv2.candidates);
+    const w = c.find((x) => x.kind === "wall" && x.geometry.storey === "L02");
+    w.geometry.clipped = true; w.geometry.note = "centre not stated (no layer-set usage)";
+    const e = plan({ ...cv2, candidates: c }).storeys.find((x) => x.storey.cid === "L02").body.elements.find((x) => x.cid === w.cid);
+    expect(e.reason).toMatch(/3500 mm high \(before its clip\), .* · centre not stated \(no layer-set usage\) · job-0007/);
   });
 
   it("not_read is one exception a class: 312 pieces of furniture are one row, the first GlobalIds named", () => {

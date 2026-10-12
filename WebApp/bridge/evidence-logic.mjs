@@ -131,7 +131,7 @@ export function policyRefusals({ kind, provider, path, dataset = false }) {
 /** MA-6-8: an IFC is read inside the bridge, so it has a size cap; null when the size is allowed (or the format has no cap), else the words. */
 export function sizeRefusal(format, size, kind) {
   const max = tableOf(kind)[format]?.max_bytes;
-  return max && size > max ? `a .${format} is read inside the bridge — at most ${max / 1048576} MB (this one is ${(size / 1048576).toFixed(1)} MB); export the concept without its site, links and furniture` : null;
+  return max && size > max ? `a .${format} is read inside the bridge — at most ${max / 1048576} MB (this one is ${(size / 1048576).toFixed(1) === (max / 1048576).toFixed(1) ? `${Math.ceil(size / 1024)} KB` : `${(size / 1048576).toFixed(1)} MB`}); export the concept without its site, links and furniture` : null;
 }
 
 /** null when the file's first bytes are the format's; else the refusal's words. `head`: a Buffer of the file's first 16 bytes. */

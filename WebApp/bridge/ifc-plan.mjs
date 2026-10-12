@@ -17,6 +17,17 @@ export const LEVEL_MM = 2;
 const FROM = { layers: "material layers", type_layers: "the type's layers", base_quantities: "base quantities", body: "the body" };
 const ID_SHOWN = 3;
 
+const byClass = (list) => { const m = new Map(); for (const n of list) m.set(n.ifc_class, [...(m.get(n.ifc_class) ?? []), n]); return m; };
+const whysOf = (list) => [...new Set(list.map((n) => n.why))];
+const nameOf = (list) => {
+  const pretty = list[0].ifc_name ?? /^an (Ifc\w+) —/.exec(whysOf(list)[0] ?? "")?.[1] ?? `Ifc${list[0].ifc_class.slice(3).toLowerCase()}`;   // the reader's CamelCase name
+  return `${pretty}${list.length > 1 ? ` × ${list.length}` : ` ${list[0].global_id}`}`.slice(0, 256);
+};
+const reasonOf = (list) => {
+  const whys = whysOf(list);
+  return `${whys[0]}${whys.length > 1 ? ` (and ${whys.length - 1} other reason(s))` : ""} · ${list.slice(0, ID_SHOWN).map((n) => n.global_id).join(", ")}${list.length > ID_SHOWN ? ", …" : ""}`.slice(0, 300);
+};
+
 /** → {storeys: [{storey, body | null, byCid, exceptions, once}], groups, already_filed}, planSurvey's shape. `job` {id, ledger: {id}, reader,
  *  version}; `notRead` the receipt's list [{global_id, ifc_class, storey, why}]. Throws 400/413 in words; writes nothing. */
 export function planIfc({ job, candidates, frame, levels: named = {}, manifest = [], type, filed = { cids: new Set(), storeys: new Map() }, notRead = [] }) {
@@ -27,7 +38,10 @@ export function planIfc({ job, candidates, frame, levels: named = {}, manifest =
   const gaps = [];
   let already = 0;
   const again = (c) => { if (!filed.cids.has(c.cid)) return false; already++; return true; };
-  const storeys = matchStoreys(candidates.filter((c) => c.kind === "level"), frame, named, manifest, job.id, filed.storeys, (c) => `IFC ${c.cid} ${job.id}`).map((s) => {
+  // only a storey that holds a wall or floor is matched: Revit exports every Building Story level, and two empty ones at one height would
+  // otherwise both match a published level and refuse the whole proposal (their not_read entries are said on `off_storey`)
+  const used = new Set(candidates.filter((c) => c.kind !== "level").map((c) => c.geometry?.storey));
+  const storeys = matchStoreys(candidates.filter((c) => c.kind === "level" && used.has(c.cid)), frame, named, manifest, job.id, filed.storeys, (c) => `IFC ${c.cid} ${job.id}`).map((s) => {
     const E = s.elevation_mm, elements = [], byCid = new Map(), exceptions = [];
     const mine = candidates.filter((c) => c.kind !== "level" && c.geometry?.storey === s.cid);
     const trust = (c) => ({ measured: c.measured, accuracy: { status: "inferred", basis: "ifc", from_job: job.id }, pretick: false });
@@ -56,8 +70,8 @@ export function planIfc({ job, candidates, frame, levels: named = {}, manifest =
       const L = g.LocationCurve;
       elements.push({ op: "create", kind: "wall", cid: c.cid, evidence: c.evidence, facts, validate: { identity: { Class: KIND_ENTITY.wall, Name: c.cid } },
         place: { LevelName: s.level, LocationCurve: { start: [...M.xy(L.start), E], end: [...M.xy(L.end), E] }, TopElevation: M.z(g.TopElevation) },
-        reason: (`IFC wall ${c.cid} "${g.name}": ${c.measured.thickness_mm} mm thick (${FROM[g.thickness_from] ?? g.thickness_from}), ${c.measured.height_mm} mm high, ` +
-          `${c.measured.length_mm} mm long as modelled · Location ${loc.location} (${ext == null ? "read from the storey's walls" : "IsExternal"}) · ${ref}`).slice(0, 500) });
+        reason: (`IFC wall ${c.cid} "${g.name}": ${c.measured.thickness_mm} mm thick (${FROM[g.thickness_from] ?? g.thickness_from}), ${c.measured.height_mm} mm high${g.clipped ? " (before its clip)" : ""}, ` +
+          `${c.measured.length_mm} mm long as modelled · Location ${loc.location} (${ext == null ? "read from the storey's walls" : "IsExternal"})${g.note ? ` · ${g.note}` : ""} · ${ref}`).slice(0, 500) });
       byCid.set(c.cid, trust(c));
     });
     for (const c of mine.filter((x) => x.kind === "floor")) {
@@ -72,14 +86,8 @@ export function planIfc({ job, candidates, frame, levels: named = {}, manifest =
       byCid.set(c.cid, trust(c));
     }
     // what was not read: one exception per IFC class on the storey (a 20 MB file can hold thousands), the first GlobalIds named
-    const unread = new Map();
-    for (const n of notRead.filter((x) => x.storey === s.cid)) unread.set(n.ifc_class, [...(unread.get(n.ifc_class) ?? []), n]);
-    for (const [cls, list] of unread) {
-      const whys = [...new Set(list.map((n) => n.why))], shown = list.slice(0, ID_SHOWN).map((n) => n.global_id).join(", ");
-      const pretty = list[0].ifc_name ?? /^an (Ifc\w+) —/.exec(whys[0] ?? "")?.[1] ?? `Ifc${cls.slice(3).toLowerCase()}`;   // the reader's CamelCase name
-      exceptions.push({ unique_id: `${cls}@${s.cid}`.slice(0, 64), name: `${pretty}${list.length > 1 ? ` × ${list.length}` : ` ${list[0].global_id}`}`.slice(0, 256),
-        reason: `${whys[0]}${whys.length > 1 ? ` (and ${whys.length - 1} other reason(s))` : ""} · ${shown}${list.length > ID_SHOWN ? ", …" : ""}`.slice(0, 300) });
-    }
+    for (const [cls, list] of byClass(notRead.filter((x) => x.storey === s.cid)))
+      exceptions.push({ unique_id: `${cls}@${s.cid}`.slice(0, 64), name: nameOf(list), reason: reasonOf(list) });
     if (!elements.length) return { storey: s, body: null, byCid, exceptions, once: [] };
     if (s.how === "created") {
       const lv = candidates.find((c) => c.cid === s.cid);
@@ -91,5 +99,8 @@ export function planIfc({ job, candidates, frame, levels: named = {}, manifest =
       throw err(413, `${s.cid} would file ${elements.length} elements on ${s.level} — over the ${MAX_CHANGESET_ELEMENTS} one changeset (one Undo) holds; a storey is not split into changesets yet — export a part of the concept — nothing was saved`);
     return { storey: s, byCid, exceptions, once: [], body: { name: `IFC ${job.id} · ${s.level}`, contract: 2, source: `${job.reader} ${job.version}`, elements, exceptions } };
   });
-  return { storeys, groups: groupGaps(gaps), already_filed: already };
+  // MA-6-8 review: what the reader left out that no matched storey carries (no storey, or a storey with nothing to place) — one row a class
+  const on = new Set(storeys.map((s) => s.storey.cid));
+  const off_storey = [...byClass(notRead.filter((x) => !on.has(x.storey)))].map(([cls, list]) => ({ ifc_class: cls, count: list.length, name: nameOf(list), reason: reasonOf(list) }));
+  return { storeys, groups: groupGaps(gaps), already_filed: already, off_storey };
 }

@@ -367,7 +367,8 @@ describe("a concept IFC (MA-6-8) — Read IFC, the third reader", () => {
         held: [{ name: "IfcRoof G", reason: "an IfcRoof" }] }], changesets: [{ id: "c1", name: "IFC job-0009 · IFC L02 job-0009", elements: 7, preticked: 0 }], gaps: { groups: 0, elements: 0, ledger: null },
       ledger: { id: 3305, hash: HASH }, already_filed: 0, overlaps: [] } as unknown as ProposeReply;
     expect(proposeLine(r)).toContain("✓ Proposed job-0009 — 1 changeset(s), 7 ghost(s), none pre-ticked (an IFC is what a concept says, not what was built");
-    expect(proposeLine({ ...r, storeys: [{ ...r.storeys[0], changeset: null }] })).toContain("1 IFC element(s) held on a storey with nothing to place");
+    expect(proposeLine({ ...r, storeys: [{ ...r.storeys[0], changeset: null }] })).toContain("1 IFC element(s) held or not read (each reason on the planner's row)");
+    expect(proposeLine({ ...r, off_storey: [{ ifc_class: "IFCROOF", count: 2, name: "IfcRoof × 2", reason: "x" }] })).toContain("2 IFC element(s) on no storey that is placed — not read (IfcRoof × 2)");
   });
   it("files-panel: a model is admitted with no form (kind from the extension, not a photo); Read IFC beside Read drawings; the form says IFC", () => {
     const src = readFileSync(new URL("./files-panel.ts", import.meta.url), "utf8");

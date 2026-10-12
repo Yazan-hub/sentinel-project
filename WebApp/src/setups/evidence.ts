@@ -218,6 +218,8 @@ export interface ProposeReply {
   drawing_row?: Ledger; alignment?: Alignment;
   /** MA-6-8: a concept IFC job: its row (the lead's frame rides `frame`). */
   ifc_row?: Ledger;
+  /** MA-6-8: what the IFC reader left out that no storey of the proposal carries — one row a class. */
+  off_storey?: { ifc_class: string; count: number; name: string; reason: string }[];
   /** MA-5a-5: a drawing against the scan's filed walls on its storey — what agreed, differed, was only drawn or only scanned, the doors it adds
    *  in the scan's walls, and the BCF topics raised (one per difference; one raised before is not raised again). */
   differences?: { agree: number; differ: number; drawn_only: number; scanned_only: number; doors_agree: number; doors_from_drawing: number;
@@ -325,7 +327,8 @@ export function proposeLine(r: ProposeReply): string {
   const every = r.storeys.flatMap((x) => x.held ?? []), isRev = (h: { reason: string }) => /^(changed since |on \S+, not on )/.test(h.reason);
   const all = every.filter((h) => !isRev(h)), revRows = every.length - all.length;
   const rooms = all.filter((h) => h.name.startsWith("room ")).length, n = all.length - rooms;
-  const held = (n ? ` · ${n} ${r.ifc_row ? "IFC element(s)" : "door(s) or window(s)"} held on a storey with nothing to place — their level or host wall is not placed (each reason on the planner's row)` : "")
+  const held = (n ? ` · ${n} ${r.ifc_row ? "IFC element(s) held or not read (each reason on the planner's row)" : "door(s) or window(s) held on a storey with nothing to place — their level or host wall is not placed (each reason on the planner's row)"}` : "")
+    + (r.off_storey?.length ? ` · ${r.off_storey.reduce((m, x) => m + x.count, 0)} IFC element(s) on no storey that is placed — not read (${r.off_storey.map((x) => x.name).join("; ")})` : "")
     + (rooms ? ` · ${rooms} room(s) held on a storey with nothing to place — a wall round each is not placed (each reason on the planner's row)` : "") // MA-5b-1 review
     + (revRows ? ` · ${revRows} revision row(s) — changed since, or no longer drawn — with nothing new to place: each on the planner's row (Sentinel never deletes)` : "");
   const once = r.storeys.reduce((s, x) => s + (x.doors_seen_once?.length ?? 0), 0);
