@@ -10,6 +10,7 @@
 *.rfa  binary
 *.rvt  binary
 *.ifc  binary
+WebApp/bridge/fixtures/ifc-geometry/*.ifc text eol=lf
 
 # DXF is plain text, but the AutoCAD family expects CRLF. Pin it so the sample file is byte-identical
 # on every machine that clones this repo.

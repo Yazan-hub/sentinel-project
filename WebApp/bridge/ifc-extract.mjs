@@ -79,6 +79,14 @@ function mergeTypeGroups(el, psetDefs) {
   }
 }
 
+/** MA-6-7: one element's property sets and quantities — its own, then its type's (a row already present is not overridden). */
+export async function elementPsets(api, mid, id) {
+  const el = { psets: [], quantities: [] };
+  groupsOf(await api.properties.getPropertySets(mid, id, true, false), el);
+  mergeTypeGroups(el, typePsetDefs(api, mid, await api.properties.getTypeProperties(mid, id, true)));
+  return el;
+}
+
 export async function extractElements(bytes, { classes = DEFAULT_CLASSES, modelId = "intake" } = {}) {
   const api = new WebIFC.IfcAPI();
   api.SetWasmPath(WASM_DIR, true);
@@ -108,9 +116,7 @@ export async function extractElements(bytes, { classes = DEFAULT_CLASSES, modelI
             },
             psets: [], quantities: [],
           };
-          groupsOf(await api.properties.getPropertySets(mid, id, true, false), el);
-          const typeDefs = await api.properties.getTypeProperties(mid, id, true);
-          mergeTypeGroups(el, typePsetDefs(api, mid, typeDefs));
+          Object.assign(el, await elementPsets(api, mid, id));
           out.elements.push(el);
           out.counts.elements++;
           out.counts.by_class[concrete] = (out.counts.by_class[concrete] || 0) + 1;
