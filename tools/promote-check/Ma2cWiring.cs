@@ -39,7 +39,7 @@ static partial class Check
            // MA-2d C11: a storey's window (StoreyBatch.Merge's name) counts "this storey's" retypes.
            && window.Contains("(ChangesetTrust.RetypedOnto(_cs, el) is int more && more > 0 ? $\" + {more} if this {((_cs.Name ?? \"\").EndsWith(\", one Undo)\", StringComparison.Ordinal) ? \"storey\" : \"changeset\")}'s retypes onto it are applied\" : \"\")")
            && review.Contains("reach[sp.ProposalGuid] = new FilteredElementCollector(doc).WhereElementIsNotElementType().Count(x => x.GetTypeId() == spType.Id);")
-           && review.Contains("new ChangesetReviewWindow(cs, reach)"),
+           && review.Contains("new ChangesetReviewWindow(cs, reach, notLoaded)"),
            "the review window shows a set_parameter as a type edit: its reach counted by the add-in in the model now (C3), the parameter, from, to and the source");
         Ok(promote.Contains("var run = PropertyPlanner.FileAll(toFile, PropertyPlanner.Stalling((body, retry) =>") // MA-3b5 (F4): under the stall rule
            && promote.Contains("type edit(s) not filed — see Sent to a person")

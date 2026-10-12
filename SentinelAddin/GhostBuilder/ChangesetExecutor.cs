@@ -136,7 +136,7 @@ public sealed class ChangesetExecutor
             // proposal names no level. MA-6-3 (amendment 1): it is the model's state, not a verdict on the changeset (C5's rule) —
             // PlacementRefused keeps it proposed, so a storey applied before the one that creates its levels can be applied after it.
             return levels.FirstOrDefault(l => string.Equals(l.Name, place.LevelName, StringComparison.OrdinalIgnoreCase))
-                   ?? throw new PlacementRefused($"level \"{place.LevelName}\" does not exist in this model — include it in the changeset, or apply the changeset that creates it first; nothing was placed, and this one stays proposed");
+                   ?? throw new PlacementRefused($"level \"{place.LevelName}\" does not exist in this model — apply the changeset that creates it first, or propose again creating it or naming a level it has (Promote: run it again); nothing was placed, and this one stays proposed");
         }
         // Drill MA2a (F-MA2a-3): contract 2 names a wall's level BaseLevel (design :675). It was read only for an attach, and a
         // create naming no LevelName fell to the model's LOWEST level — the design's wall went on GR_SSL, 300 mm high, in silence.
@@ -153,7 +153,9 @@ public sealed class ChangesetExecutor
     // silently substituting: the human ticked a row showing that TypeName, and the IDS adjudicated
     // the proposal it labels — placing an arbitrary type would break the governance chain at its
     // last link. A proposal with NO TypeName is a gap and fails too (D16): Sentinel never takes the
-    // model's first type, and it never creates one here.
+    // model's first type, and it never creates one here. MA-6 fix-b1 (F-2): a type the model does not hold is the model's state, not a verdict
+    // (C5's rule, as a missing level) — PlacementRefused, so the changeset stays proposed (Execute refuses such rows first: NotLoaded); it is still
+    // an InvalidOperationException, so Ghost's and Promote's pre-checks read it as before. Two types of the name, or no TypeName, still decline.
     private const string NoTypeName = "gap: no type name — Sentinel never takes the model's first type; re-propose with a TypeName";
 
     internal static WallType ResolveWallType(Document doc, string typeName)
@@ -162,7 +164,7 @@ public sealed class ChangesetExecutor
         var types = new FilteredElementCollector(doc).OfClass(typeof(WallType)).Cast<WallType>()
             .Where(t => t.Kind == WallKind.Basic).ToList();
         return types.FirstOrDefault(t => string.Equals(t.Name, typeName, StringComparison.OrdinalIgnoreCase))
-               ?? throw new InvalidOperationException($"wall type \"{typeName}\" does not exist in this model — load it (Sentinel creates no types), or re-propose with the exact name of a loaded type");
+               ?? throw new PlacementRefused($"wall type \"{typeName}\" does not exist in this model — load it (Sentinel creates no types), or re-propose with the exact name of a loaded type");
     }
 
     // MA-1a step 2: a floor's type among the model's FLOOR types only — a foundation slab type of the same name is another
@@ -172,7 +174,7 @@ public sealed class ChangesetExecutor
         if (string.IsNullOrWhiteSpace(typeName)) throw new InvalidOperationException(NoTypeName);
         var hits = new FilteredElementCollector(doc).OfClass(typeof(FloorType)).Cast<FloorType>()
             .Where(t => !t.IsFoundationSlab && string.Equals(t.Name, typeName, StringComparison.OrdinalIgnoreCase)).ToList();
-        if (hits.Count == 0) throw new InvalidOperationException($"floor type \"{typeName}\" does not exist in this model — load it (Sentinel creates no types), or re-propose with the exact name of a loaded type");
+        if (hits.Count == 0) throw new PlacementRefused($"floor type \"{typeName}\" does not exist in this model — load it (Sentinel creates no types), or re-propose with the exact name of a loaded type");
         if (hits.Count > 1) throw new InvalidOperationException($"{hits.Count} floor types are named \"{typeName}\" in this model — a person decides");
         return hits[0];
     }
@@ -213,7 +215,7 @@ public sealed class ChangesetExecutor
                         && (familyName == null || t is FamilySymbol s && string.Equals(s.FamilyName, familyName, StringComparison.OrdinalIgnoreCase)))
             .ToList();
         var label = familyName == null ? typeName : familyName + " : " + typeName;
-        if (hits.Count == 0) throw new InvalidOperationException($"{kind} type \"{label}\" does not exist in this model — load it (Sentinel loads no families and creates no types), or re-propose with the exact name of a loaded type");
+        if (hits.Count == 0) throw new PlacementRefused($"{kind} type \"{label}\" does not exist in this model — load it (Sentinel loads no families and creates no types), or re-propose with the exact name of a loaded type");
         if (hits.Count > 1) throw new InvalidOperationException($"{hits.Count} {kind} types are named \"{label}\" in this model — a person decides");
         return hits[0];
     }
@@ -263,14 +265,15 @@ public sealed class ChangesetExecutor
     }
 
     /// A level named exactly (case-insensitive, as ResolveLevel reads a LevelName); blank or missing fails. MA-6-3 (amendment 1): a
-    /// missing one keeps the changeset proposed (PlacementRefused), as ResolveLevel's does.
+    /// missing one keeps the changeset proposed (PlacementRefused), as ResolveLevel's does. MA-6 fix-b1 (F-1): ResolveLevel's words, which fit
+    /// every source — an agent's changeset is not Promote's.
     private static Level LevelNamed(Document doc, string name)
     {
         var n = name?.Trim();
         if (string.IsNullOrEmpty(n)) throw new InvalidOperationException("attach needs a BaseLevel and a TopLevel");
         return new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
                    .FirstOrDefault(l => string.Equals(l.Name, n, StringComparison.OrdinalIgnoreCase))
-               ?? throw new PlacementRefused($"level \"{n}\" does not exist in this model — re-run Promote, re-propose naming a level it has, or apply the changeset that creates it first; nothing was placed, and this one stays proposed");
+               ?? throw new PlacementRefused($"level \"{n}\" does not exist in this model — apply the changeset that creates it first, or propose again creating it or naming a level it has (Promote: run it again); nothing was placed, and this one stays proposed");
     }
 
     /// The existing wall a retype/attach names by UniqueId.
@@ -325,7 +328,7 @@ public sealed class ChangesetExecutor
                         && (t is not FamilySymbol s || string.Equals(s.FamilyName, familyName, StringComparison.OrdinalIgnoreCase)))
             .ToList();
         string label = familyName == null ? typeName : familyName + " : " + typeName;
-        if (hits.Count == 0) throw new InvalidOperationException($"{kind} type \"{label}\" does not exist in this model — load it (Sentinel creates no types), or re-run Promote");
+        if (hits.Count == 0) throw new PlacementRefused($"{kind} type \"{label}\" does not exist in this model — load it (Sentinel creates no types), or propose again with a loaded type (Promote: run it again)");
         if (hits.Count > 1) throw new InvalidOperationException($"{hits.Count} {kind} types are named \"{label}\" in this model — a person decides");
         return hits[0];
     }
@@ -436,6 +439,52 @@ public sealed class ChangesetExecutor
         return WallHosted(s) ? null : $"\"{TypeLabel(s)}\" is not a wall-hosted family — a person picks a wall-hosted {kind} type";
     }
 
+    /// <summary>MA-6 fix-b1 (F-2, F-3): the rows — creates, retypes and rehosts — whose type this model does not hold: the answer of the very
+    /// lookup Apply runs for the row's kind (ResolveWallType, ResolveFloorType, CreateType, RetypeTarget: their PlacementRefused), each distinct
+    /// type asked once. Read-only. Any other refusal (no TypeName, two types of the name, a retype's element gone) is not this — Apply says it.
+    /// The review window reads it when it opens; Execute refuses the ticked ones before its transaction.</summary>
+    internal static HashSet<string> NotLoaded(Document doc, IEnumerable<ChangesetElementDto> rows)
+    {
+        var missing = new HashSet<string>(StringComparer.Ordinal);
+        var asked = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        foreach (var el in rows ?? Enumerable.Empty<ChangesetElementDto>())
+        {
+            var p = el?.Place;
+            if (el?.ProposalGuid == null || p == null) continue;
+            Func<ElementType> pick = null;
+            if (el.Op == "retype")
+            {
+                var e = string.IsNullOrWhiteSpace(el.Target?.UniqueId) ? null : doc.GetElement(el.Target.UniqueId);
+                if (e != null) pick = () => RetypeTarget(doc, e, el.Kind, p.FamilyName, p.TypeName);
+            }
+            else if (IsCreate(el) || el.Op == "rehost") // Execute's own call for each kind (a rehost places a door or window)
+                pick = el.Kind switch
+                {
+                    "wall" => () => ResolveWallType(doc, p.TypeName),
+                    "floor" => () => ResolveFloorType(doc, p.TypeName),
+                    "roof" => () => CreateType(doc, BuiltInCategory.OST_Roofs, "roof", null, p.TypeName),
+                    "ceiling" => () => CreateType(doc, BuiltInCategory.OST_Ceilings, "ceiling", null, p.TypeName),
+                    "door" => () => CreateType(doc, BuiltInCategory.OST_Doors, "door", p.FamilyName, p.TypeName),
+                    "window" => () => CreateType(doc, BuiltInCategory.OST_Windows, "window", p.FamilyName, p.TypeName),
+                    "column" => () => CreateType(doc, BuiltInCategory.OST_Columns, "column", p.FamilyName, p.TypeName),
+                    "furniture" => () => CreateType(doc, BuiltInCategory.OST_Furniture, "furniture", p.FamilyName, p.TypeName),
+                    "beam" => () => CreateType(doc, BuiltInCategory.OST_StructuralFraming, "beam", p.FamilyName, p.TypeName),
+                    _ => null, // a level, grid, room or opening names no type
+                };
+            if (pick == null) continue;
+            var key = $"{el.Op}|{el.Kind}|{p.FamilyName}|{p.TypeName}";
+            if (!asked.TryGetValue(key, out var gone))
+            {
+                try { pick(); gone = false; }
+                catch (PlacementRefused) { gone = true; }
+                catch (Exception) { gone = false; } // another refusal — Apply says it in its own words
+                asked[key] = gone;
+            }
+            if (gone) missing.Add(el.ProposalGuid);
+        }
+        return missing;
+    }
+
     /// <summary>MA-5b-5 (R8): a person's "do not touch", or what this user cannot edit here — words ("is pinned"), or null: pinned, in a group,
     /// in a design option, borrowed by another user, changed or deleted in central since the last reload (App's NotFixableHere test).</summary>
     internal static string HeldBy(Document doc, Element e)
@@ -511,6 +560,12 @@ public sealed class ChangesetExecutor
         // rehost creates an element (and removes one from the main model), so it is refused like a create.
         if (toPlace.Any(e => IsCreate(e) || e.Op == "rehost") && PlacementApply.DesignOptionRefusal(doc, "apply it") is { } inOption)
             return new ExecutionResult { NotRun = true, Error = inOption };
+        // MA-6 fix-b1 (F-2): a ticked row naming a type this model does not hold is the model's state, not a verdict on the changeset (C5's
+        // rule, as a missing level) — refused before the transaction, every such row named, and the changeset stays proposed (NotRun). The
+        // review window read the same answer when it opened (NotLoaded) and opened those rows unticked.
+        var notLoaded = NotLoaded(doc, toPlace);
+        if (notLoaded.Count > 0)
+            return new ExecutionResult { NotRun = true, Error = ChangesetTrust.NotLoadedRefusal(toPlace.Where(e => notLoaded.Contains(e.ProposalGuid))) };
 
         string at = null; // the element being placed when something throws — the refusal names it
         using var t = new Transaction(doc, UndoWatcher.TxName(cs.Name, cs.Id)); // the undo watcher finds it by this name

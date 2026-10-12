@@ -58,6 +58,7 @@ public sealed class ChangesetReviewWindow : Window
     private readonly List<(string What, TextBox Reason, List<(CheckBox Box, ChangesetElementDto El)> Rows)> _groups = new();
     private readonly TextBlock _shown = new() { Foreground = Brushes.Gray, TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed, Margin = new Thickness(0, 0, 0, 4) };
     private readonly ChangesetDto _cs;
+    private readonly ISet<string> _notLoaded; // MA-6 fix-b1 (F-3): rows whose type this model does not hold, read by the command on the API thread
     private bool _applied; // MA-3b: once Apply was raised, never again from this window — a second Apply could place it twice
     private volatile bool _gone;
     /// <summary>MA-3b review C2: the person closed the window — read from any thread; nothing is raised after it, and words go elsewhere.</summary>
@@ -65,9 +66,12 @@ public sealed class ChangesetReviewWindow : Window
 
     /// <param name="reach">Review amendment C3 (MA-2c): for each set_parameter's proposal_guid, the elements on its type in the model
     /// now — counted by the caller on the API thread; shown on the row, never read from the reason.</param>
-    public ChangesetReviewWindow(ChangesetDto changeset, IReadOnlyDictionary<string, int> reach = null)
+    /// <param name="notLoaded">MA-6 fix-b1 (F-3): the proposal_guids whose type this model does not hold (ChangesetExecutor.NotLoaded, read by the
+    /// caller on the API thread) — each such row says so after its label and opens unticked; the footer counts them.</param>
+    public ChangesetReviewWindow(ChangesetDto changeset, IReadOnlyDictionary<string, int> reach = null, ISet<string> notLoaded = null)
     {
         _cs = changeset;
+        _notLoaded = notLoaded ?? new HashSet<string>();
         Closed += (_, _) => _gone = true;
         Title = $"Sentinel — Review AI proposal: {_cs.Name}";
         Width = 640; Height = 560; WindowStartupLocation = WindowStartupLocation.CenterScreen;
@@ -133,6 +137,8 @@ public sealed class ChangesetReviewWindow : Window
         // Footer: reviewer note + actions. (Top/bottom docked before the fill so the list scrolls.)
         var foot = new StackPanel { Margin = new Thickness(0, 8, 0, 0) };
         foot.Children.Add(_shown);
+        if (ChangesetTrust.NotLoadedLine(_notLoaded.Count) is string notLoadedLine) // MA-6 fix-b1 (F-3)
+            foot.Children.Add(new TextBlock { Text = notLoadedLine, Foreground = Brushes.Orange, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 4) });
         foot.Children.Add(new TextBlock { Text = "Reviewer note (recorded with the result; Decline all needs one):", Foreground = Brushes.Gray });
         foot.Children.Add(_note);
         foot.Children.Add(_status);
@@ -140,7 +146,7 @@ public sealed class ChangesetReviewWindow : Window
         var all = new Button { Content = "Tick suggested", Padding = new Thickness(10, 4, 10, 4), Margin = new Thickness(0, 0, 6, 0) };
         var none = new Button { Content = "Untick all", Padding = new Thickness(10, 4, 10, 4), Margin = new Thickness(0, 0, 6, 0) };
         // Review C3: a row locked here (a late web decline) is never re-ticked.
-        all.Click += (_, _) => { foreach (var r in _rows.Where(x => x.Box.IsEnabled)) r.Box.IsChecked = ChangesetTrust.PreTick(_cs, r.El); };
+        all.Click += (_, _) => { foreach (var r in _rows.Where(x => x.Box.IsEnabled)) r.Box.IsChecked = ChangesetTrust.PreTick(_cs, r.El, _notLoaded); };
         none.Click += (_, _) => { foreach (var r in _rows) r.Box.IsChecked = false; };
         // Re-entrancy guard: Decide disables Apply at once; it comes back only when nothing ran (Refused).
         _go.Click += (_, _) => Decide();
@@ -171,7 +177,7 @@ public sealed class ChangesetReviewWindow : Window
                 var box = new CheckBox
                 {
                     VerticalAlignment = VerticalAlignment.Center,
-                    IsChecked = ChangesetTrust.PreTick(_cs, el), // MA-1a item 8, MA-4f: the bridge's pre-tick — a create only when a survey job measured it and the IDS did not reject it
+                    IsChecked = ChangesetTrust.PreTick(_cs, el, _notLoaded), // MA-1a item 8, MA-4f: the bridge's pre-tick — a create only when a survey job measured it and the IDS did not reject it
                 };
                 // MA-3a (design §6.6, D17): a web decline binds — the row opens unticked (PreTick) and cannot be ticked here; a lead re-opens it
                 // on the web desk. Apply re-checks the fresh copy (ReviewChangesetsCommand).
@@ -199,6 +205,14 @@ public sealed class ChangesetReviewWindow : Window
                 show.Click += (_, _) => ShowRequested?.Invoke(el);
                 DockPanel.SetDock(show, Dock.Right);
                 row.Children.Add(show);
+
+                // MA-6 fix-b1 (F-3): a type this model does not hold, said after the label on its own (the ellipsis never trims it).
+                if (el.ProposalGuid != null && _notLoaded.Contains(el.ProposalGuid))
+                {
+                    var notHere = new TextBlock { Text = ChangesetTrust.NotLoadedMark, Foreground = Brushes.Orange, Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center };
+                    DockPanel.SetDock(notHere, Dock.Right);
+                    row.Children.Add(notHere);
+                }
 
                 var label = new TextBlock { Margin = new Thickness(8, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
                 var name = el.Validate?.Identity?.Name ?? el.ProposalGuid;

@@ -257,10 +257,13 @@ public static class ChangesetTrust
     /// pre-ticked, less what its IDS badge marks rejected. An agent's, Promote's or a drawing's create — any claimed source, or a bridge before
     /// item 8 — still opens unticked, whatever a bridge answers. A retype or attach takes the bridge's decision; from a bridge before item 8 (no
     /// pretick) the window's own rule holds: a Promote attach, and a Promote retype with the type the plan saw (DR-1). A person still clicks Apply.</summary>
-    public static bool PreTick(ChangesetDto cs, ChangesetElementDto el)
+    public static bool PreTick(ChangesetDto cs, ChangesetElementDto el, ISet<string> notLoaded = null)
     {
         // MA-3a (design §6.6, D17): a web decline binds — never ticked, whatever else holds. A web accept changes nothing here (advice).
         if (DeclinedOnWeb(el)) return false;
+        // MA-6 fix-b1 (F-3): a row naming a type this model does not hold (ChangesetExecutor.NotLoaded, read when the window opened) — Apply
+        // would refuse it, so it is never ticked for the person, whatever the bridge pre-ticked; a person may still tick it.
+        if (el.ProposalGuid != null && notLoaded?.Contains(el.ProposalGuid) == true) return false;
         // MA-4f: a measured survey create, as the bridge pre-ticked it — never one the office IDS rejected (a suggestion Apply's IDS stage would
         // ask to override straight after; GhostChangesetBuild's idiom).
         if (el.Op is null or "create")
@@ -391,6 +394,22 @@ public static class ChangesetTrust
 
     /// <summary>MA-3b2: a type edit's row has no Show.</summary>
     public const string NoPlace = "A type edit has no place in the model — it reaches every element on its type (the row says how many).";
+
+    /// <summary>MA-6 fix-b1 (F-3): said after the label of a row whose type this model does not hold.</summary>
+    public const string NotLoadedMark = "⚠ not in this model — load the family, or untick this row";
+
+    /// <summary>MA-6 fix-b1 (F-3): the window's footer line counting those rows; null when there is none.</summary>
+    public static string NotLoadedLine(int n) => n > 0 ? $"⚠ {n} row(s) name a type this model does not hold — they open unticked; load the family, or leave them unticked" : null;
+
+    /// <summary>MA-6 fix-b1 (F-2): Apply's refusal when ticked rows name a type this model does not hold — the model's state, not a verdict on the
+    /// changeset (C5's rule, as a missing level): nothing is placed, the changeset stays proposed, and the words say what the person does.</summary>
+    public static string NotLoadedRefusal(IEnumerable<ChangesetElementDto> rows)
+    {
+        var named = (rows ?? Enumerable.Empty<ChangesetElementDto>()).Select(e =>
+            $"{e.Kind} \"{e.Validate?.Identity?.Name ?? e.ProposalGuid}\" ({(e.Place?.FamilyName != null ? e.Place.FamilyName + " : " : "")}{e.Place?.TypeName})").ToList();
+        return $"{named.Count} ticked row(s) name a type this model does not hold — {string.Join(", ", named.Take(5))}{(named.Count > 5 ? $" and {named.Count - 5} more" : "")}: " +
+               "load the family (Sentinel loads no families and creates no types), or untick that row and apply the rest, or propose again with a loaded type; nothing was placed, and this one stays proposed";
+    }
 
     /// <summary>MA-3b2 (zoom to row): the rectangle a create's row shows — the least and greatest corner {x, y, z} in mm around every point
     /// of its place (a wall's line and an arc's middle point, a floor's loop, a roof's or ceiling's outline, a door's point),

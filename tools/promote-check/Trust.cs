@@ -137,7 +137,7 @@ static partial class Check
     {
         Console.WriteLine("\nMA-1a item 8 — the review window, the model counters and the receipt posts (source scan)");
         string window = Src("UI", "ChangesetReviewWindow.cs");
-        Ok(window.Contains("IsChecked = ChangesetTrust.PreTick(_cs, el)") && window.Contains("r.Box.IsChecked = ChangesetTrust.PreTick(_cs, r.El)")
+        Ok(window.Contains("IsChecked = ChangesetTrust.PreTick(_cs, el, _notLoaded)") && window.Contains("r.Box.IsChecked = ChangesetTrust.PreTick(_cs, r.El, _notLoaded)") // MA-6 fix-b1: less the rows whose type is not loaded
            && !window.Contains("private static bool PreTick("),
            "Review AI Proposals pre-ticks by ChangesetTrust — the window keeps no rule of its own");
         Ok(window.Contains("ChangesetTrust.SourceLabel(_cs)") && window.Contains("ChangesetTrust.Accuracy(el)"),

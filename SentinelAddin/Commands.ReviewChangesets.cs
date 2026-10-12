@@ -370,7 +370,10 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
         foreach (var sp in (cs.Elements ?? new List<ChangesetElementDto>()).Where(e => e.Op == "set_parameter" && e.ProposalGuid != null))
             if (!string.IsNullOrWhiteSpace(sp.Target?.UniqueId) && doc.GetElement(sp.Target.UniqueId) is ElementType spType)
                 reach[sp.ProposalGuid] = new FilteredElementCollector(doc).WhereElementIsNotElementType().Count(x => x.GetTypeId() == spType.Id);
-        var window = new ChangesetReviewWindow(cs, reach);
+        // MA-6 fix-b1 (F-3): the rows whose type this model does not hold — the executor's own lookup, read here on the API thread before the
+        // window shows, so a person sees it before Apply (which refuses a ticked one and keeps the changeset proposed: F-2).
+        var notLoaded = ChangesetExecutor.NotLoaded(doc, cs.Elements);
+        var window = new ChangesetReviewWindow(cs, reach, notLoaded);
         DialogOwner.Attach(window, ui); // house helper: owned by Revit's main window
         Hold();
         window.Closed += (_, _) => Release();
