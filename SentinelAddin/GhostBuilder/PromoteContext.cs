@@ -94,7 +94,7 @@ namespace Sentinel.GhostBuilder
                 if (StageIds.Line(label, spec.Name, v) is string line) fails.Add(line);
                 notRead.AddRange(v.NotRead);
             }
-            notJudged.AddRange(noClass.GroupBy(k => k, StringComparer.Ordinal).Select(g => $"{g.Count()} {g.Key}: Promote has no DD class for it"));
+            notJudged.AddRange(noClass.GroupBy(k => k, StringComparer.Ordinal).Select(g => $"{g.Count()} {g.Key}(s): the DD IDS made from the LOD matrix has no class for this kind yet"));
             return (fails, notRead, notJudged, outOfScope, judged);
         }
 
@@ -125,7 +125,8 @@ namespace Sentinel.GhostBuilder
             catch (Exception ex)
             {
                 foreach (var a in applied) { a.AsBuilt = null; a.Readable = null; }
-                return $"As built: not read — {ex.GetType().Name}: {ex.Message} (the bridge records the elements unjudged)";
+                // MA-6-2 review: with no entry carrying as_built the bridge stores no result.as_built at all — said as it is
+                return $"As built: not read — {ex.GetType().Name}: {ex.Message}. Nothing was judged: no as-built verdict is recorded for this Apply";
             }
         }
 

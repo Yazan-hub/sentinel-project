@@ -79,8 +79,8 @@ static partial class Check
         // MA-6-2: every source's changeset is checked — the kinds no DD class asks anything of are counted on a line of their own.
         var levels = new[] { "level", "opening", "level", "room" };
         Ok(StageIds.Summary(3, new string[0], new string[0], new string[0], "lod_matrix@1", null, levels)
-              == "DD IDS: 3 element(s) judged, all passed (lod_matrix@1)\nDD IDS: not asked — 2 level, 1 opening, 1 room: no DD class"
-           && StageIds.Summary(0, new string[0], new string[0], new string[0], "lod_matrix@1", null, levels).StartsWith("DD IDS: nothing this changeset applied is asked anything by the DD IDS (lod_matrix@1)\nDD IDS: not asked — 2 level", StringComparison.Ordinal)
+              == "DD IDS: 3 element(s) judged, all passed (lod_matrix@1)\nDD IDS: not asked of 2 level(s), 1 opening(s), 1 room(s): the DD IDS has no class for them"
+           && StageIds.Summary(0, new string[0], new string[0], new string[0], "lod_matrix@1", null, levels).StartsWith("DD IDS: nothing this changeset applied is asked anything by the DD IDS (lod_matrix@1)\nDD IDS: not asked of 2 level(s)", StringComparison.Ordinal)
            && StageIds.Summary(1, fails, new string[0], new string[0], "lod_matrix@1", null, levels) == StageIds.PlacedAnyway(fails, "lod_matrix@1") + "\n" + StageIds.OutOfScope(levels)
            && StageIds.Summary(3, new string[0], new string[0], new string[0], "lod_matrix@1", null, new string[0]) == "DD IDS: 3 element(s) judged, all passed (lod_matrix@1)"
            && StageIds.OutOfScope(null) == null,

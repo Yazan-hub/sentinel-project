@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Sentinel.Coordination;
 using Sentinel.Engine;
+using Sentinel.GhostBuilder;
 
 static partial class Check
 {
@@ -51,6 +52,13 @@ static partial class Check
         string addin = Kinds(ctx, "public static readonly HashSet<string> AsBuiltKinds = new HashSet<string>(StringComparer.Ordinal) {", '}');
         Ok(addin == "wall,floor,roof,ceiling,door,window,column,beam" && addin == Kinds(store, "export const AS_BUILT_KINDS = [", ']'),
            "the kinds Revit re-reads are the kinds the bridge judges (amendment 5) — every other kind is the bridge's out_of_scope");
+        // MA-6-2 review (plan §4 item 2): only the kinds no DD class could ask anything of are out of scope; a column, a beam or furniture stays
+        // not judged, so "all passed" is never said over them.
+        var noDd = Kinds(ctx, "public static readonly HashSet<string> NoDdClass = new HashSet<string>(StringComparer.Ordinal) {", '}').Split(',');
+        Ok(string.Join(",", noDd) == "level,grid,room,opening" && !noDd.Any(PromoteWallsPlanner.Classes.ContainsKey)
+           && !noDd.Intersect(new[] { "column", "beam", "furniture" }).Any()
+           && ctx.Contains("no as-built verdict is recorded for this Apply") && !ctx.Contains("records the elements unjudged"),
+           "a level, grid, room or opening is out of scope (no DD class) and none has a Promote class; a column, beam or furniture is not judged; a failed as-built read says nothing was recorded (review: the bridge stores no as_built then)");
         int created = At(ex, "var lvl = Level.Create(doc, (el.Place?.BaseElevation ?? 0) * MmToFeet);");
         Ok(created > 0 && ex.Substring(ex.IndexOf('\n', created) + 1).TrimStart().StartsWith("lvl.get_Parameter(BuiltInParameter.LEVEL_IS_BUILDING_STORY)?.Set(1);", StringComparison.Ordinal),
            "a level a changeset creates is a Building Story (DatumBuilder's set), so Stories(doc) and the LOD state count it");

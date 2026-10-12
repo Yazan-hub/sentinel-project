@@ -168,11 +168,11 @@ namespace Sentinel.GhostBuilder
                 : $"DD IDS: nothing this changeset applied is asked anything by the DD IDS ({matrix})") + (OutOfScope(outOfScope) is string o ? "\n" + o : "");
         }
 
-        /// <summary>MA-6-2: "DD IDS: not asked — 2 level, 1 room, 1 opening: no DD class"; null when there are none.</summary>
+        /// <summary>MA-6-2: "DD IDS: not asked of 2 level(s), 1 room(s): the DD IDS has no class for them"; null when there are none.</summary>
         public static string OutOfScope(IEnumerable<string> kinds)
         {
-            var n = (kinds ?? Enumerable.Empty<string>()).GroupBy(k => k, StringComparer.Ordinal).Select(g => $"{g.Count()} {g.Key}").ToList();
-            return n.Count == 0 ? null : "DD IDS: not asked — " + string.Join(", ", n) + ": no DD class";
+            var n = (kinds ?? Enumerable.Empty<string>()).GroupBy(k => k, StringComparer.Ordinal).Select(g => $"{g.Count()} {g.Key}(s)").ToList();
+            return n.Count == 0 ? null : "DD IDS: not asked of " + string.Join(", ", n) + ": the DD IDS has no class for them";
         }
 
         /// <summary>An extracted element's values, "Pset.Prop" → value (the first row of a name, case ignored).</summary>

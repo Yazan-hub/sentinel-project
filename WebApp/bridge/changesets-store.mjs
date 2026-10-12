@@ -668,7 +668,7 @@ export const AS_BUILT_KINDS = ["wall", "floor", "roof", "ceiling", "door", "wind
 const AS_BUILT_CAP = { psets: 50, rows: 100, chars: 512, readable: 500 };
 const AS_BUILT_IDENTITY = ["Class", "Name", "GlobalId", "ObjectType", "Tag"];
 
-/** One as_built entry, rebuilt field by field (as `reread`): identity's IFC attributes and psets[{name, rows[{name, value}]}], scalars only,
+/** One as_built entry, rebuilt field by field (as `reread`): identity's IFC attributes (text) and psets[{name, rows[{name, value}]}] (scalars),
  *  and Revit's readable keys ("Pset.Prop", lower-cased) — or {why} when it is malformed or over the caps (review amendment 4a: the entry is
  *  dropped, the result is never refused). Anything else posted — a verdict, an extra key, quantities — is not kept. */
 function keptAsBuilt(b, readable) {
@@ -680,7 +680,8 @@ function keptAsBuilt(b, readable) {
   const identity = {};
   for (const k of AS_BUILT_IDENTITY) {
     if (b.identity[k] == null) continue;
-    if (!scalar(b.identity[k])) return { why: `identity.${k} is not a scalar of at most ${C.chars} characters` };
+    // MA-6-2 review: text only (GovIdentity is all strings) — sentinel-core upper-cases the Class, so a number would throw inside decide
+    if (!name(b.identity[k])) return { why: `identity.${k} is not text of at most ${C.chars} characters` };
     identity[k] = b.identity[k];
   }
   const groups = b.psets ?? [];
@@ -709,24 +710,48 @@ function asBuiltOf(cs, applied, role, judge) {
   if (role === "service") return { why: "reported with the machine credential — the agent's own key could send it", reported_role: role };
   const { core, ids } = judge;
   const out = { ids: ids.body ? ids.label : null, ...(ids.body ? { ids_sha256: ids.sha256 } : { why: `no IDS judged it — ${ids.label.replace(/^none — /, "")}` }),
-    reported_role: role ?? null, judged: 0, passed: 0, failed: 0, not_read: 0, out_of_scope: {}, elements: [] };
+    reported_role: role ?? null, judged: 0, passed: 0, failed: 0, not_read: 0, not_judged: 0, out_of_scope: {}, elements: [] };
+  // MA-6-2 review: an element is counted once (JudgeApplied groups by UniqueId) — Promote's retype and attach of one wall are two entries.
+  // Each element is judged, "not in scope" (no specification asks its class or the claimed one), or not_judged: judged == passed never
+  // stands for an element that escaped.
+  const seen = new Set();
+  const put = (a, entry, ...counts) => {
+    out.elements.push(entry);
+    const id = a.revit_unique_id ?? a.revit_element_id;
+    if (seen.has(id)) return;
+    seen.add(id);
+    for (const k of counts) out[k]++;
+  };
   for (const [a, el] of placed) {
     if (!AS_BUILT_KINDS.includes(el.kind)) { out.out_of_scope[el.kind] = (out.out_of_scope[el.kind] ?? 0) + 1; continue; }
     const at = { proposal_guid: a.proposal_guid, class_claimed: el.validate?.identity?.Class ?? null };
-    if (a.as_built == null) { out.elements.push({ ...at, why: "Revit sent no as-built read of it" }); continue; }
+    if (a.as_built == null) { put(a, { ...at, why: "Revit sent no as-built read of it" }, "not_judged"); continue; }
     const b = keptAsBuilt(a.as_built, a.readable);
-    if (b.why) { out.elements.push({ ...at, why: `not kept: ${b.why}` }); continue; }
+    if (b.why) { put(a, { ...at, why: `not kept: ${b.why}` }, "not_judged"); continue; }
     const one = { ...at, class_as_built: b.identity.Class ?? null, global_id_as_built: b.identity.GlobalId ?? null };
-    if (!ids.body) { out.elements.push(one); continue; }
-    const adj = core.adjudicate(ids.body, [{ identity: { ...b.identity, GlobalId: a.proposal_guid }, psets: b.psets, quantities: [] }]);
-    if (!adj.summary.in_scope) { out.elements.push({ ...one, verdict: "not in scope" }); continue; }
-    const unread = (f) => !!b.readable && !b.readable.has(String(f.requirement).toLowerCase());
-    const failures = adj.failures.filter((f) => !unread(f)).map(({ specification, requirement, reason }) => ({ specification, requirement, reason }));
-    const notRead = adj.failures.filter(unread).map((f) => f.requirement);
+    if (!ids.body) { put(a, one, "not_judged"); continue; }
+    const read = { identity: { ...b.identity, GlobalId: a.proposal_guid }, psets: b.psets, quantities: [] };
+    let adj, claimed;
+    try {
+      adj = core.adjudicate(ids.body, [read]);
+      claimed = !adj.summary.in_scope && at.class_claimed != null && core.adjudicate(ids.body, [{ ...read, identity: { ...read.identity, Class: at.class_claimed } }]).summary.in_scope;
+    } catch (e) { put(a, { ...at, why: `not judged: ${e.message}` }, "not_judged"); continue; } // a backstop: the result is never refused (amendment 4a)
+    // An as-built class the spec its claim was judged under does not ask (a proxy, IfcWallStandardCase) escaped it: never "not in scope".
+    if (claimed) { put(a, { ...one, verdict: `exported as ${one.class_as_built ?? "no class"} — not judged as ${at.class_claimed}` }, "not_judged"); continue; }
+    if (!adj.summary.in_scope) { put(a, { ...one, verdict: "not in scope" }); continue; }
+    // R4 (review): a requirement Revit has no reader for and did not send is "not read" whatever it asks — a prohibited one, or an
+    // optional one with a value, would otherwise pass unseen. One that asks nothing (optional, no value, no pattern) cannot fail.
+    const sent = (r, k) => k.startsWith("@") ? read.identity[r.name] : read.psets.find((g) => g.name.toLowerCase() === String(r.pset).toLowerCase())
+      ?.rows.find((x) => x.name.toLowerCase() === String(r.name).toLowerCase())?.value;
+    const notRead = !b.readable ? [] : [...new Set(ids.body.specifications.filter((s) => core.applies(s, read))
+      .flatMap((s) => [...(s.requirements?.attributes ?? []).map((r) => [r, `@${r.name}`]), ...(s.requirements?.properties ?? []).map((r) => [r, `${r.pset}.${r.name}`])])
+      .filter(([r, k]) => (r.cardinality === "required" || r.cardinality === "prohibited" || r.value != null || r.pattern != null)
+        && !b.readable.has(k.toLowerCase()) && (sent(r, k) ?? "") === "")
+      .map(([, k]) => k))];
+    const failures = adj.failures.filter((f) => !notRead.includes(f.requirement)).map(({ specification, requirement, reason }) => ({ specification, requirement, reason }));
     const verdict = failures.length ? "fails" : notRead.length ? "not read" : "passes";
-    out.judged++;
-    out[{ fails: "failed", "not read": "not_read", passes: "passed" }[verdict]]++;
-    out.elements.push({ ...one, verdict, ...(failures.length ? { failures } : {}), ...(notRead.length ? { not_read: notRead } : {}) });
+    put(a, { ...one, verdict, ...(failures.length ? { failures } : {}), ...(notRead.length ? { not_read: notRead } : {}) },
+      "judged", { fails: "failed", "not read": "not_read", passes: "passed" }[verdict]);
   }
   return out;
 }
