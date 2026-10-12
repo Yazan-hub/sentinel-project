@@ -903,7 +903,7 @@ The existing web review chain (`review-logic.mjs`) is for shared model versions.
 
 **MCP**
 - `sentinel_propose_changeset` takes contract 2, with the same trust rules.
-- New read tools: `sentinel_lod_state` and `sentinel_build_status` — `sentinel_build_status` BUILT in MA-4c (read-only).
+- New read tools: `sentinel_lod_state` and `sentinel_build_status` — `sentinel_build_status` BUILT in MA-4c (read-only); `sentinel_lod_state` BUILT in MA-6-1 (read-only), with `sentinel_standards` (read-only).
 - No write tool beyond proposing.
 
 ### 6.9 The Python service contract: `sentinel-survey` (TARGET)

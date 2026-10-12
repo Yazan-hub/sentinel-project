@@ -17,7 +17,7 @@ const UNTYPED = ["level", "grid", "room"];
 /** MA-6-1: the IFC class the bridge sets from each kind — the Promote six (KIND_ENTITY, held to PromoteWallsPlanner.Classes by
  *  promote-check) and the rest of the vocabulary as the add-in files them (GhostFiling: IFCFURNITURE). A posted class that is not
  *  exactly this one is listed and replaced: an IDS entity pattern matches no subtype, so a chosen class could step outside a spec. */
-const CREATE_ENTITY = { ...KIND_ENTITY, level: "IFCBUILDINGSTOREY", grid: "IFCGRID", room: "IFCSPACE", column: "IFCCOLUMN", furniture: "IFCFURNITURE" };
+export const CREATE_ENTITY = { ...KIND_ENTITY, level: "IFCBUILDINGSTOREY", grid: "IFCGRID", room: "IFCSPACE", column: "IFCCOLUMN", furniture: "IFCFURNITURE" };
 /** What a ghost does. create places a new element (the v1 path); retype changes an EXISTING element's type, named by its
  *  Revit UniqueId (Promote) — a door or window keeps its host: ChangeTypeId to a symbol of the same category; attach re-tops
  *  an existing wall. An element without op is a create. MA-2c: set_parameter writes one value on an existing TYPE, named by its
@@ -316,7 +316,7 @@ export function validateChangeset(body, { member = false, type = null, cite = nu
     if (!OP_KINDS[op].includes(el.kind)) throw err(400, `${at}: kind "${el.kind}" is not supported${op === "create" ? "" : ` for ${op}`} — allowed: ${OP_KINDS[op].join(", ")}`);
     const validate = el.validate && typeof el.validate === "object" ? el.validate : {};
     if (!validate.identity || typeof validate.identity.Class !== "string" || !validate.identity.Class)
-      throw err(400, `${at}: validate.identity.Class is required (the IFC class adjudication reads)`);
+      throw err(400, `${at}: validate.identity.Class is required (send the kind's IFC class, e.g. IFCWALL; the bridge sets it from the kind)`);
     // Review amendment C3: rebuilt from the names the add-in reads — a posted place.pretick or place.measured is not stored.
     const place = Object.fromEntries(Object.entries(isBlock(el.place) ? el.place : {}).filter(([k]) => PLACE_KEPT.includes(k)));
     // MA-2a: the poster's facts, checked and kept name for name; an attach types nothing, so it takes none.
@@ -460,8 +460,10 @@ export function validateChangeset(body, { member = false, type = null, cite = nu
     if (written)
       for (const f of ["psets", "quantities"]) if (validate[f] !== undefined) note(`${at}.validate.${f}`, "ignored: set by the bridge from parameter and to");
     // MA-6-1: every op's class is the bridge's, from its kind (C2's rule, for every op): an exact compare, case aside.
+    // Review fix: fail closed — a kind added to OP_KINDS without a class here is a 500, never the posted class kept.
     const want = CREATE_ENTITY[el.kind];
-    if (want && String(identity.Class).toUpperCase() !== want) { note(`${at}.validate.identity.Class`, "ignored: set by the bridge from kind"); identity.Class = want; }
+    if (!want) throw err(500, `${at}: no IFC class for kind "${el.kind}" — CREATE_ENTITY must name one`);
+    if (String(identity.Class).toUpperCase() !== want) { note(`${at}.validate.identity.Class`, "ignored: set by the bridge from kind"); identity.Class = want; }
     const [pset, prop] = written ? written.parameter.split(".") : [];
     return {
       proposal_guid,

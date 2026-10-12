@@ -339,11 +339,18 @@ describe("MA-6-1 — agent reads, the bridge's class, Undo in the status", () =>
     await expect(callTool("sentinel_standards", { project: "demo", kind: "guideline" }, { fetch })).rejects.toThrow(/^guideline is not installed for demo or its office \(bridge 404: .*not_installed/);
     const down = vi.fn(async () => failText(503, "down"));
     await expect(callTool("sentinel_standards", { project: "demo", kind: "ids" }, { fetch: down })).rejects.toThrow(/^bridge 503: down$/);
+    // Review fix: the lod_matrix route's own 404 is "not installed" too; a no_project 404 (a typo'd key, a non-member) is the bridge's words.
+    const noMatrix = vi.fn(async () => failText(404, '{"message":"no lod_matrix installed for demo or its office"}'));
+    await expect(callTool("sentinel_standards", { project: "demo", kind: "lod_matrix" }, { fetch: noMatrix })).rejects.toThrow(/^lod_matrix is not installed for demo or its office/);
+    const typo = vi.fn(async () => failText(404, '{"message":"Project \\"dmeo\\" was not found, or you are not a member of it","reason":"no_project"}'));
+    await expect(callTool("sentinel_standards", { project: "dmeo", kind: "guideline" }, { fetch: typo })).rejects.toThrow(/^bridge 404: .*was not found.*no_project/);
   });
 
   it("the propose description tells an agent the class is the bridge's and how to build: one changeset per storey, own levels, BaseLevel/TopLevel, facts", () => {
     const d = tool("sentinel_propose_changeset").description;
-    expect(d).toMatch(/validate\.identity\.Class is the bridge's too, set from the kind/);
+    // Review fix: the description and the 400 agree — the class is still sent, and the kind's class replaces any other.
+    expect(d).toMatch(/validate\.identity\.Class is still required: send the kind's class \(wall IFCWALL/);
+    expect(d).toMatch(/the bridge sets it from the kind, so any other class, a subtype included, is replaced/);
     expect(d).toMatch(/ignored: set by the bridge from kind/);
     expect(d).toMatch(/file one changeset per storey/);
     expect(d).toMatch(/create your own levels, uniquely named, in the first storey's changeset/);
@@ -352,6 +359,9 @@ describe("MA-6-1 — agent reads, the bridge's class, Undo in the status", () =>
     expect(d).toMatch(/read sentinel_standards/);
     expect(tool("sentinel_changeset_status").description).toMatch(/`undone`/);
     expect(tool("sentinel_changeset_status").description).toMatch(/result\.as_built/);
+    // Review fix: as_built is not promised for every element, and guids is a count.
+    expect(tool("sentinel_changeset_status").description).toMatch(/guids: how many elements the Undo removed/);
+    expect(tool("sentinel_changeset_status").description).toMatch(/or why it was not judged \(no IDS installed; reported with the machine credential\); other kinds are counted under out_of_scope/);
   });
 
   const A = "aaaaaaaa-0000-4000-8000-000000000001", B = "bbbbbbbb-0000-4000-8000-000000000002", C = "cccccccc-0000-4000-8000-000000000003";
@@ -391,5 +401,25 @@ describe("MA-6-1 — agent reads, the bridge's class, Undo in the status", () =>
     const quiet = route({ "/changesets/demo": [{ id: C, status: "proposed" }] });
     expect((await callTool("sentinel_changeset_status", { project: "demo", status: "proposed" }, { fetch: quiet }))[0].undone).toBeNull();
     expect(quiet).toHaveBeenCalledTimes(1);
+  });
+
+  // Review fix: a list over a project's whole history reads the ledger 100 ids at a time; a failed read marks only its own changesets.
+  it("status list: the ledger is read 100 ids per read, and a failed read is {unknown} for its own changesets only", async () => {
+    const id = (n) => `${String(n).padStart(8, "0")}-0000-4000-8000-000000000000`;
+    const list = Array.from({ length: 150 }, (_, n) => ({ id: id(n), status: "applied" }));
+    let reads = 0;
+    const fetch = route({
+      "/audit?": () => (++reads === 1 ? okJson({ rows: [undo(91, id(0), "undo", 1)], total: 1 }) : failText(431, "request header fields too large")),
+      "/changesets/demo": list,
+    });
+    const r = await callTool("sentinel_changeset_status", { project: "demo", status: "applied" }, { fetch });
+    expect(fetch).toHaveBeenCalledTimes(3);
+    const ids = (k) => new URL(fetch.mock.calls[k][0]).searchParams.get("entity_id").split(",");
+    expect(ids(1)).toEqual(list.slice(0, 100).map((c) => c.id));
+    expect(ids(2)).toEqual(list.slice(100).map((c) => c.id));
+    expect(r[0].undone).toEqual({ ledger_id: 91, at: "2026-10-12T01:00:00Z", guids: 1 });
+    expect(r[99].undone).toBeNull();
+    expect(r[100].undone).toEqual({ unknown: expect.stringMatching(/^ledger not read: bridge 431: .+ — an Undo in Revit may not show$/) });
+    expect(r[149].undone).toEqual(r[100].undone);
   });
 });

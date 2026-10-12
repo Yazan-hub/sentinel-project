@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import {
-  VOCABULARY, OPS, OP_KINDS, MAX_CHANGESET_ELEMENTS, TRUST_FIELDS, ADDIN_SOURCES,
+  VOCABULARY, OPS, OP_KINDS, MAX_CHANGESET_ELEMENTS, TRUST_FIELDS, ADDIN_SOURCES, CREATE_ENTITY,
   validateChangeset, carryKey, outlineProblem, attachVerdicts, canWithdraw, deriveResultStatus, unattributedFailures,
 } from "./changesets-logic.mjs";
 import * as core from "./sentinel-core.mjs";
@@ -1097,7 +1097,12 @@ describe("validateChangeset — the class is the bridge's, from the kind (MA-6-1
   });
 
   it("a class is still required: an older poster's missing class is a 400, never filled in", () => {
-    status400(() => cls(wall({ validate: { identity: { Name: "W1" } } })), /validate\.identity\.Class is required/);
+    status400(() => cls(wall({ validate: { identity: { Name: "W1" } } })), /validate\.identity\.Class is required \(send the kind's IFC class, e\.g\. IFCWALL; the bridge sets it from the kind\)/);
+  });
+
+  // Review fix: the override fails closed, so a kind added to OP_KINDS (6-3's opening and beam, 6-6's mass) cannot ship without a class.
+  it("every kind any op takes has its IFC class", () => {
+    for (const k of new Set(Object.values(OP_KINDS).flat())) expect(CREATE_ENTITY[k], k).toMatch(/^IFC[A-Z]+$/);
   });
 });
 
