@@ -472,6 +472,8 @@ public sealed class App : IExternalApplication
             "Scan families already in the project; auto-inject missing shared parameters and reload silently.");
         Push(va, "Sentinel_MepVoids", "MEP\nOpenings", "Sentinel.Commands.MepVoidsCommand", "mep",
             "Find linked MEP vs structure intersections; place provision-for-void families.");
+        Push(va, "Sentinel_MepTypeCheck", "MEP\nType Check", "Sentinel.Commands.MepTypeCheckCommand", "mep",
+            "Check every duct, pipe, cable tray and conduit in this model against the type catalogue installed on its web project (or its office): type name, and system type for ducts and pipes. Reads only; one ledger row per check; an optional BCF topic file. No size check, no retype.");
         Push(va, "Sentinel_NamingManager", "Naming\nManager", "Sentinel.Commands.NamingManagerCommand", "family",
             "Review family and type names against the office naming rules: recovered proposals, duplicates blocked, rename only what you tick. Each batch is one ledger row, and the window says whether it landed.");
 

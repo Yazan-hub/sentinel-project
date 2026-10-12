@@ -742,7 +742,7 @@ describe("POST /cde/:key/manifests/:versionId (cde-rem-7): a backfill is a lead'
 // lod_state row, marked claimed like the receipt.
 describe("POST /cde/:key/audit — the modelling commands' reports and the build:run receipt (MA-1a items 7, 8)", () => {
   const A = "/cde/demo/audit";
-  const TYPES = ["datum", "ghost_build", "massing", "annotate", "apply_standard", "auto_fix", "fix_in_place", "doctor"];
+  const TYPES = ["datum", "ghost_build", "massing", "annotate", "apply_standard", "auto_fix", "fix_in_place", "doctor", "mep_check"];
 
   it.each(TYPES)("a contributor's %s report lands as one row under the verified identity", async (type) => {
     const r = await call("POST", A, "contributor", { entity_type: type, actor: "Someone else", action: `${type}: 2 done`, new_value: { count: 2 } });

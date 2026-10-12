@@ -548,6 +548,9 @@ namespace Sentinel.GhostBuilder
             return values.Count == 1 ? values[0] : null;
         }
 
+        /// <summary>MA-8-8: how many catalogue rows belong to <paramref name="category"/> (0 = the catalogue cannot judge it).</summary>
+        public int CatalogCount(string category) => _catalog.Count(c => SameCategory(c, category));
+
         /// <summary>Does the catalogue hold exactly this family AND type under the category? (Resolve's check matches the type
         /// name only; window type names repeat across families.)</summary>
         public bool CatalogHas(string category, string family, string type) =>
