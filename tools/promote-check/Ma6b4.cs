@@ -199,7 +199,8 @@ static partial class Check
            "a Promote changeset is planned again by Promote (DD); a shell (source promote, named Shell (DD)) and an agent's are not");
         string review = Src("Commands.ReviewChangesets.cs"), cmd = Src("Commands.ShellMass.cs"), reader = Src("GhostBuilder", "ShellReader.cs"), app = Src("App.cs");
         int Count(string s, string what) { int n = 0, i = 0; while ((i = s.IndexOf(what, i, StringComparison.Ordinal)) >= 0) { n++; i += what.Length; } return n; }
-        Ok(review.Contains("internal static bool PromoteRun(ChangesetDto cs) => cs.Source == \"promote\" && !(cs.Name ?? \"\").StartsWith(ShellPlanner.Title, StringComparison.Ordinal);")
+        Ok(review.Contains("internal static bool PromoteRun(ChangesetDto cs) => cs.Source == \"promote\" && !(cs.Name ?? \"\").StartsWith(ShellPlanner.Title, StringComparison.Ordinal)")
+           && review.Contains("!(cs.Elements ?? new()).Any(e => e.Kind == \"stair\")")
            && Count(review, "(PromoteRun(fresh[0]) ? CarriedEdits(fresh) + \"\\n\\n\" + RunPromoteAgain : \"\")") == 2 && !review.Contains("(fresh[0].Source == \"promote\" ?")
            && review.Contains("levelMm.TryGetValue(e.Place.TopLevel, out var mm) ? mm : (double?)null;")
            && review.Contains("GhostOverlayGeometry.Segments(e, true, false, LevelOf(e), TopOf(e), FrameOf(e))") && Count(review, "GhostOverlayGeometry.All(window.RowStates(), LevelOf, TopOf, FrameOf)") == 2

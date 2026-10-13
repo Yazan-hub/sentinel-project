@@ -248,6 +248,17 @@ export function validateArtefact(kind, body) {
             if (!filled(k) || !filled(v)) throw bad(kind, `${rat}.when.params.${k}`, "must be a non-empty string, name and value (the value is matched by substring)");
       });
       if (e.default != null && !(isObj(e.default) && filled(e.default.family))) throw bad(kind, `${at}.default.family`, "must be a non-empty string");
+      // MA-8-10: a Stairs element names the office's stair type and its run width in every rule and the default. Checked by
+      // GuidelineMatcher.CheckGuideline in the same words (tools/promote-check runs both against fixtures/guideline-stairs/cases.json).
+      if (String(e.category).trim().toLowerCase() === "stairs") {
+        const stairUse = (u, uat) => {
+          if (!filled(u.type)) throw bad(kind, `${uat}.type`, "must be a non-empty string — the office's stair type");
+          const w = isObj(u.params) ? u.params.width_mm : undefined;
+          if (!(typeof w === "number" && Number.isFinite(w) && w >= 300 && w <= 5000)) throw bad(kind, `${uat}.params.width_mm`, "must be a number of millimetres from 300 to 5000 — the stair's run width");
+        };
+        e.rules.forEach((r, j) => stairUse(r.use, `${at}.rules[${j}].use`));
+        if (e.default != null) stairUse(e.default, `${at}.default`);
+      }
     });
     if (body.views != null && !Array.isArray(body.views)) throw bad(kind, "views", "must be an array");
     if (body.viewNaming != null && !isObj(body.viewNaming)) throw bad(kind, "viewNaming", "must be an object");

@@ -57,6 +57,11 @@ describe("words", () => {
     // MA-6-6 review fix: a mass reads its size — the reviewer ticks what the row shows, not what a reason says
     expect(ghostLine({ proposal_guid: "g", kind: "mass", validate: { identity: { Name: "Photo mass" } },
       place: { Boundary: [[-6000, -4000], [6000, -4000], [6000, 4000], [-6000, 4000]], BaseElevation: 0, TopElevation: 9600 } })).toBe("Photo mass · 12000 x 8000 mm footprint, 0 to 9600 mm");
+    // MA-8-10: a stair reads where it goes and that it is one straight run — landings, turns and railings are a person's (Revit's row says the same)
+    const stair = { proposal_guid: "g", kind: "stair", validate: { identity: { Name: "Stair · L00 → L01" } },
+      place: { LevelName: "L00", TopLevel: "L01", FamilyName: "Assembled Stair", TypeName: "190mm max riser 250mm going", Risers: 16, Going: 250, Width: 1200 } } as Ghost;
+    expect(ghostLine(stair)).toBe("Stair · L00 → L01 · Assembled Stair : 190mm max riser 250mm going · L00 · to L01 · 16 risers, going 250 mm, width 1200 mm — one straight run; landings, turns and railings are a person's");
+    expect(ghostLine({ ...stair, place: { ...stair.place, Risers: undefined } } as Ghost)).toBe("Stair · L00 → L01 · Assembled Stair : 190mm max riser 250mm going · L00");
   });
 
   it("a decline binds, an accept is advice, a re-open is said; nobody decided is waiting", () => {

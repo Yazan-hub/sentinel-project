@@ -27,6 +27,7 @@ using System.Globalization;
 using System.Linq;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Structure;
+using Arch = Autodesk.Revit.DB.Architecture; // MA-8-10: Stairs, StairsRun, StairsType (a using would make Room and Railing ambiguous with the executor's own names)
 using Sentinel.Coordination;
 using Sentinel.Engine;
 
@@ -76,6 +77,9 @@ public sealed class ChangesetExecutor
         /// MA-6-6 (D13): said when this Revit refused a DirectShape in Mass and the mass was placed as a Generic Model instead;
         /// null otherwise. Carried by ChangesetPlacementEvent onto the placement lines, so the note and the dialog say it.
         public string MassAs { get; set; }
+        /// MA-8-10: the line saying which Revit warnings a stair's edit scope removed (GhostFailurePolicy.RemovedLine); null when none. Rides on the note and
+        /// the dialog like MassAs - the one place Sentinel erases a warning is always said.
+        public string Removed { get; set; }
     }
 
     /// F-S2-2: the ids of the walls that were in the model before the caller's build (a Ghost build of several changesets sets
@@ -228,6 +232,22 @@ public sealed class ChangesetExecutor
         var label = familyName == null ? typeName : familyName + " : " + typeName;
         if (hits.Count == 0) throw new PlacementRefused($"{kind} type \"{label}\" does not exist in this model — load it (Sentinel loads no families and creates no types), or re-propose with the exact name of a loaded type");
         if (hits.Count > 1) throw new InvalidOperationException($"{hits.Count} {kind} types are named \"{label}\" in this model — a person decides");
+        return hits[0];
+    }
+
+    /// MA-8-10 (amendment 15): the one loaded stair type a stair create names, by family and name - Stairs types are element types of OST_Stairs. None: not
+    /// loaded (PlacementRefused - the model's state; Manage > Transfer Project Standards brings the office's Stairs types in); more than one: a person decides;
+    /// one that is not a StairsType is a sketch (legacy) stair type - Sentinel builds component stairs only (declined, in words: the plan named it).
+    internal static ElementType StairsTypeOf(Document doc, string familyName, string typeName)
+    {
+        if (string.IsNullOrWhiteSpace(typeName) || string.IsNullOrWhiteSpace(familyName)) throw new InvalidOperationException(NoTypeName);
+        var hits = new FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_Stairs).WhereElementIsElementType().Cast<ElementType>()
+            .Where(t => string.Equals(t.Name, typeName, StringComparison.OrdinalIgnoreCase) && string.Equals(t.FamilyName, familyName, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        var label = familyName + " : " + typeName;
+        if (hits.Count == 0) throw new PlacementRefused($"stair type \"{label}\" does not exist in this model — Manage ▸ Transfer Project Standards (Stairs types) from the office template; Sentinel creates no types");
+        if (hits.Count > 1) throw new InvalidOperationException($"{hits.Count} stair types are named \"{label}\" in this model — a person decides");
+        if (!(hits[0] is Arch.StairsType)) throw new InvalidOperationException($"stair type \"{label}\" is a sketch (legacy) stair type — Sentinel builds component stairs only");
         return hits[0];
     }
 
@@ -620,6 +640,7 @@ public sealed class ChangesetExecutor
                     "column" => () => CreateType(doc, BuiltInCategory.OST_Columns, "column", p.FamilyName, p.TypeName),
                     "furniture" => () => CreateType(doc, BuiltInCategory.OST_Furniture, "furniture", p.FamilyName, p.TypeName),
                     "beam" => () => CreateType(doc, BuiltInCategory.OST_StructuralFraming, "beam", p.FamilyName, p.TypeName),
+                    "stair" => () => StairsTypeOf(doc, p.FamilyName, p.TypeName), // MA-8-10
                     _ => null, // a level, grid, room, opening or mass (MA-6-6) names no type
                 };
             if (pick == null) continue;
@@ -717,6 +738,10 @@ public sealed class ChangesetExecutor
         var notLoaded = NotLoaded(doc, toPlace);
         if (notLoaded.Count > 0)
             return new ExecutionResult { NotRun = true, Error = ChangesetTrust.NotLoadedRefusal(toPlace.Where(e => notLoaded.Contains(e.ProposalGuid))) };
+
+        // MA-8-10: a stair is built in Revit's own stair edit scope, which cannot start with a transaction open - so it branches off here, before the
+        // changeset's transaction (RunChecked's TransactionGroup is open: one Undo entry). The bridge files a stair alone in its changeset.
+        if (toPlace.Any(e => IsCreate(e) && e.Kind == "stair")) return ExecuteStair(doc, cs, toPlace);
 
         string at = null; // the element being placed when something throws — the refusal names it
         using var t = new Transaction(doc, UndoWatcher.TxName(cs.Name, cs.Id)); // the undo watcher finds it by this name
@@ -1488,6 +1513,97 @@ public sealed class ChangesetExecutor
             // its type and the first Sentinel frame, so a declined changeset says which element failed and where.
             return new ExecutionResult { Error = ex is InvalidOperationException ? ex.Message : $"{at ?? "the changeset"}: {ex.GetType().Name}: {ex.Message}{Frame(ex)}" }; // fresh result: NOTHING was applied
         }
+    }
+
+    /// <summary>MA-8-10: one straight stair between two levels, in Revit's stair edit scope (spike S1, Revit 2024: one Undo entry, one Ctrl+Z removes the stairs,
+    /// the run and the type's railings). Called by Execute inside RunChecked's TransactionGroup with NO transaction open. The sequence: re-check the plan against
+    /// this model (the levels, the type: StairPlanner.Risers) - scope.Start - an inner transaction (the type, DesiredRisersNumber, CreateStraightRun, the run's
+    /// width, Regenerate, the risers and the riser height read back and refused before commit, the placement block, the stamp) - scope.Commit with the warnings it
+    /// raises deleted (a warning at the scope's commit is otherwise a modal dialog) - then the built facts read AFTER the commit (the railings appear only there).
+    /// A refusal rolls both back; the run is (N - 1) x going long (N x going gives N + 1 risers and a top-end warning).</summary>
+    private ExecutionResult ExecuteStair(Document doc, ChangesetDto cs, List<ChangesetElementDto> toPlace)
+    {
+        if (toPlace.Count != 1)
+            return new ExecutionResult { NotRun = true, Error = "a stair changeset holds its stair and nothing else — Revit builds a stair in its own edit scope; nothing was placed" };
+        var el = toPlace[0];
+        var at = Label(el);
+        StairsEditScope scope = null;
+        Transaction t = null;
+        GhostFailureHandler scopeHandler = null, innerHandler = null;
+        try
+        {
+            var p = el.Place ?? throw new InvalidOperationException($"{at} has no place");
+            var level = ResolveLevel(doc, p);
+            var top = LevelNamed(doc, p.TopLevel);
+            if (top.Elevation <= level.Elevation + TolFt)
+                throw new PlacementRefused($"{at}: its TopLevel {top.Name} is not above {level.Name} — re-propose from the flag; nothing was placed, and this one stays proposed");
+            var type = (Arch.StairsType)StairsTypeOf(doc, p.FamilyName, p.TypeName);
+            var c = p.LocationCurve;
+            if (c?.Start == null || c.End == null || p.Risers is not int risers || p.Going is not double going || p.Width is not double width)
+                throw new InvalidOperationException($"{at} needs place.LocationCurve, place.Risers, place.Going and place.Width");
+            if (Math.Abs(c.Start[2] * MmToFeet - level.Elevation) > TolFt || Math.Abs(c.End[2] * MmToFeet - level.Elevation) > TolFt)
+                throw new InvalidOperationException($"{at}: the run's z is not {level.Name}'s elevation {Mm(level.Elevation / MmToFeet)} mm — a stair's run starts on its level");
+            // the plan against the model it is applied in: the riser rule (one pure function, with the planner's), the going and the width the type allows
+            double f2f = (top.Elevation - level.Elevation) / MmToFeet, maxRiser = type.MaxRiserHeight / MmToFeet;
+            if (StairPlanner.Risers(f2f, maxRiser) != risers || going < type.MinTreadDepth / MmToFeet - StairPlanner.TolMm || width < type.MinRunWidth / MmToFeet - StairPlanner.TolMm)
+                throw new PlacementRefused($"{at}: the levels or the stair type changed since the plan — re-propose from the flag; nothing was placed, and this one stays proposed");
+
+            scope = new StairsEditScope(doc, UndoWatcher.TxName(cs.Name, cs.Id));
+            var stairsId = scope.Start(level.Id, top.Id);
+            t = new Transaction(doc, UndoWatcher.TxName(cs.Name, cs.Id)); // the Doctor skips it by its prefix (GhostFailurePolicy.DoctorSkips)
+            t.Start();
+            innerHandler = GhostFailureHandler.AllOrNothingOn(t);
+            var stairs = (Arch.Stairs)doc.GetElement(stairsId);
+            stairs.ChangeTypeId(type.Id);
+            stairs.DesiredRisersNumber = risers;
+            stairs.ActualTreadDepth = going * MmToFeet; // review fix: the plan's going, not the instance's default (the type's minimum)
+            var run = Arch.StairsRun.CreateStraightRun(doc, stairsId, Line.CreateBound(Pt(c.Start), Pt(c.End)), Arch.StairsRunJustification.Center);
+            run.ActualRunWidth = width * MmToFeet;
+            doc.Regenerate();
+            // refused BEFORE the commit: Revit's warning for it would be a modal dialog at the scope's commit (spike S1)
+            if (stairs.ActualRisersNumber != risers)
+                throw new PlacementRefused($"{at}: Revit made {stairs.ActualRisersNumber} risers, not the {risers} planned (the run is {Mm(Math.Sqrt((c.End[0] - c.Start[0]) * (c.End[0] - c.Start[0]) + (c.End[1] - c.Start[1]) * (c.End[1] - c.Start[1])))} mm) — nothing was placed; re-propose from the flag");
+            if (stairs.ActualRiserHeight > type.MaxRiserHeight + 1e-6)
+                throw new PlacementRefused($"{at}: the riser would be {Mm(stairs.ActualRiserHeight / MmToFeet)} mm, over the type's maximum {Mm(maxRiser)} mm — nothing was placed; re-propose from the flag");
+            // MA-1a item 6: the workset and phase, and the stamp - inside the scope's transaction, so the one Ctrl+Z takes them with the stair
+            PlacementApply.Apply(Placement, new Element[] { stairs });
+            ProvenanceStamp.Write(stairs, cs.Id, cs.Source, new[] { el.ProposalGuid },
+                ProvenanceStamp.ForChangeset(Provenance, new[] { (el.ProposalGuid, el.Reason) }, cs.Adjudication?.LedgerRow));
+            if (t.Commit() != TransactionStatus.Committed)
+                throw new InvalidOperationException("Revit did not commit the stair's transaction" + (innerHandler.RolledBack != null ? ": " + innerHandler.RolledBack : ""));
+            scopeHandler = new GhostFailureHandler { AllOrNothing = true, RollBackOtherWarnings = true };
+            scopeHandler.DeletableWarnings.Add(BuiltInFailures.StairRampFailures.StairsTopEndExceedsOrNotReachWarning.Guid); // the one warning the spike saw as harmless
+            // the elements a warning of this stair may name and still be removed: the stair, its runs, landings and supports (read inside the scope)
+            scopeHandler.Ours.Add(stairsId.IdValue());
+            foreach (var id in stairs.GetStairsRuns().Concat(stairs.GetStairsLandings()).Concat(stairs.GetStairsSupports())) scopeHandler.Ours.Add(id.IdValue());
+            scope.Commit(scopeHandler);
+
+            // what Revit holds now, read after the scope's commit: the type's railings appear only there. Rounded to 0.01 mm.
+            var made = doc.GetElement(stairsId) as Arch.Stairs ?? throw new InvalidOperationException($"{at}: Revit no longer holds the stair after its edit scope committed");
+            var runs = made.GetStairsRuns();
+            double R(double ft) => Math.Round(ft / MmToFeet, 2);
+            var result = new ExecutionResult();
+            Collect(result, el, made);
+            result.Applied[0].Built = new StairBuiltDto
+            {
+                Risers = made.ActualRisersNumber, RiserMm = R(made.ActualRiserHeight), GoingMm = R(made.ActualTreadDepth),
+                WidthMm = runs.Count > 0 && doc.GetElement(runs.First()) is Arch.StairsRun r0 ? R(r0.ActualRunWidth) : 0,
+                Runs = runs.Count, Railings = made.GetAssociatedRailings().Count,
+            };
+            foreach (var kv in GhostFailurePolicy.CountWarnings(innerHandler.SeenWarnings.Concat(scopeHandler.SeenWarnings).ToList(), new HashSet<long>())) result.Warnings[kv.Key] = kv.Value;
+            result.Removed = GhostFailurePolicy.RemovedLine(scopeHandler.RemovedWarnings);
+            return result;
+        }
+        catch (Exception ex)
+        {
+            if (t != null && t.HasStarted() && !t.HasEnded()) t.RollBack();
+            try { if (scope != null && scope.IsActive) scope.Cancel(); } catch (Exception) { /* closed with the group's rollback */ }
+            if (ex is PlacementRefused) return new ExecutionResult { NotRun = true, Error = ex.Message };
+            var why = scopeHandler?.RolledBack ?? innerHandler?.RolledBack;
+            return new ExecutionResult { Error = why != null ? "Revit did not commit the stair (failure resolution rolled it back): " + why
+                : ex is InvalidOperationException ? ex.Message : $"{at}: {ex.GetType().Name}: {ex.Message}{Frame(ex)}" };
+        }
+        finally { t?.Dispose(); scope?.Dispose(); }
     }
 
     private static XYZ CentreOf(Element e) { var bb = e.get_BoundingBox(null); return bb == null ? null : (bb.Min + bb.Max) / 2; }

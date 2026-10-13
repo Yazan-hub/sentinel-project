@@ -101,8 +101,9 @@ namespace Sentinel.GhostBuilder
         }
 
         /// <summary>MA-6-2: the kinds no DD class asks anything of — JudgeApplied counts them out of scope, never "not judged". MA-6-6: a mass
-        /// too (its storeys are judged once Shell a Mass files them), so "not asked of 1 mass(es)" and "passed" still stands.</summary>
-        public static readonly HashSet<string> NoDdClass = new HashSet<string>(StringComparer.Ordinal) { "level", "grid", "room", "opening", "mass" };
+        /// too (its storeys are judged once Shell a Mass files them), so "not asked of 1 mass(es)" and "passed" still stands. MA-8-10: a stair too (the DD IDS
+        /// asks nothing of IFCSTAIR; the as-built count has it out_of_scope).</summary>
+        public static readonly HashSet<string> NoDdClass = new HashSet<string>(StringComparer.Ordinal) { "level", "grid", "room", "opening", "mass", "stair" };
 
         /// <summary>MA-6-2 (review amendment 5): the kinds read again as built — the ones GovernedElementExtractor gives an IFC class; the
         /// bridge counts every other kind under as_built.out_of_scope (changesets-store AS_BUILT_KINDS, the same list).</summary>

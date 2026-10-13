@@ -61,6 +61,9 @@ public sealed class PlaceDto
     [JsonPropertyName("Width")] public double? Width { get; set; }
     [JsonPropertyName("Height")] public double? Height { get; set; }
     [JsonPropertyName("Slopes")] public List<double?> Slopes { get; set; }
+    // create (MA-8-10): a stair's riser count and going (mm) - one straight run, LocationCurve its centre line first riser to last, Width its run width, TopLevel the level it reaches.
+    [JsonPropertyName("Risers")] public int? Risers { get; set; }
+    [JsonPropertyName("Going")] public double? Going { get; set; }
 }
 
 /// <summary>The existing element a retype/attach ghost changes (MA-0, Promote v1): its Revit UniqueId, and for a retype the
@@ -178,6 +181,15 @@ public sealed class ChangesetElementDto
     /// <summary>MA-8-7 (amendment 16): the bridge's judgement of a retype - its type is not one of the office's catalogue (true), is (false), or could
     /// not be judged (null: no catalogue, or an older bridge). A foreign retype is never pre-ticked.</summary>
     [JsonPropertyName("foreign")] [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public bool? Foreign { get; set; }
+    /// <summary>MA-8-10: the stair flag a stair create starts from - {changeset, unique_id} of the exception row it was proposed from. Null on every other element.</summary>
+    [JsonPropertyName("from_flag")] [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public FromFlagDto FromFlag { get; set; }
+}
+
+/// <summary>MA-8-10: a stair's flag - the changeset that holds it and its exception row's unique_id.</summary>
+public sealed class FromFlagDto
+{
+    [JsonPropertyName("changeset")] public string Changeset { get; set; }
+    [JsonPropertyName("unique_id")] public string UniqueId { get; set; }
 }
 
 /// <summary>MA-8-7: a create's `replaces` - the element it removes (UniqueId) and where it stood (box, model mm).</summary>
@@ -667,6 +679,9 @@ public sealed class AppliedEntry
     /// <summary>MA-8-7 (batch-3 amendment 3): a replacing create's - the UniqueId of the element Revit deleted, set ONLY after the delete's count matched
     /// the probe's. The bridge lists in the ledger's `removed` only what is reported here; null (left out of the body) for every other entry.</summary>
     [JsonPropertyName("removed_unique_id")] [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string RemovedUniqueId { get; set; }
+    /// <summary>MA-8-10: what Revit holds of the stair it built, read AFTER the stair edit scope's commit (the type's railings appear only there) - the
+    /// bridge keeps it field by field (a signed-in member's report only) and the changeset_applied row sets it beside the plan. Null, and left out, for every other entry.</summary>
+    [JsonPropertyName("built")] [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public StairBuiltDto Built { get; set; }
     /// <summary>MA-6-2 (design §4.6 step 3): Revit's re-read of the wall, floor, roof, ceiling, door, window, column or beam this entry applied,
     /// as the IDS reads it (GovernedElementExtractor), inside the open group before it is kept (PromoteContext.ReadAsBuilt). The add-in's claim:
     /// the bridge keeps its identity and psets field by field, judges them against the installed ids@n and stores the verdict (result.as_built).
@@ -675,6 +690,17 @@ public sealed class AppliedEntry
     /// <summary>MA-6-2 (risk R4): the requirement keys Sentinel has a Revit reader for on that element's class (PsetMap.Readable) — the bridge
     /// says "not read", never "fails", of an ids@n requirement outside them. Null with AsBuilt.</summary>
     [JsonPropertyName("readable")] [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public List<string> Readable { get; set; }
+}
+
+/// <summary>MA-8-10: a built stair as Revit reads it back - risers, riser height, tread depth and run width (mm), runs and railings.</summary>
+public sealed class StairBuiltDto
+{
+    [JsonPropertyName("risers")] public int Risers { get; set; }
+    [JsonPropertyName("riser_mm")] public double RiserMm { get; set; }
+    [JsonPropertyName("going_mm")] public double GoingMm { get; set; }
+    [JsonPropertyName("width_mm")] public double WidthMm { get; set; }
+    [JsonPropertyName("runs")] public int Runs { get; set; }
+    [JsonPropertyName("railings")] public int Railings { get; set; }
 }
 
 /// <summary>MA-4f: GET /changesets/:key/:id/scan — the scan around a survey changeset's storey, thinned by sentinel-survey and moved into the

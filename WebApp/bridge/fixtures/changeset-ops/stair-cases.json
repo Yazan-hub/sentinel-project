@@ -1,0 +1,58 @@
+{
+  "comment": "MA-8-10: a stair from a flag. Read by changesets-logic.test.mjs (the bridge validates `good` and refuses each of `refusals` in the exact words) and by tools/promote-check Ma8Stairs.cs (StairPlanner's body for `plan` equals `good`, and Risers() answers `risers`). example.test names only.",
+  "risers": [
+    { "f2fMm": 3000, "maxRiserMm": 187.5, "risers": 16 },
+    { "f2fMm": 3040, "maxRiserMm": 190, "risers": 16 },
+    { "f2fMm": 3040.6, "maxRiserMm": 190, "risers": 17 },
+    { "f2fMm": 3040.3, "maxRiserMm": 190, "risers": 17 },
+    { "f2fMm": 3000, "maxRiserMm": 190, "risers": 16 },
+    { "f2fMm": 3500, "maxRiserMm": 190, "risers": 19 },
+    { "f2fMm": 3000.0000001, "maxRiserMm": 187.5, "risers": 16 }
+  ],
+  "plan": {
+    "flag": { "name": "Stair picked on L00", "changeset": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d", "unique_id": "stair:pick-0a1b2c3d", "storey": "L00",
+              "min": [1000, 2000, 0], "max": [5500, 3300, 3000] },
+    "stories": [ { "name": "L00", "elevationMm": 0, "isStory": true }, { "name": "L01", "elevationMm": 3000, "isStory": true } ],
+    "bottomAtMin": true,
+    "rule": { "family": "Assembled Stair", "type": "190mm max riser 250mm going", "widthMm": 1200, "source": "guideline@2 default" },
+    "type": { "maxRiserMm": 190, "minTreadMm": 250, "minRunWidthMm": 1000 },
+    "actor": "planner@example.test"
+  },
+  "good": {
+    "name": "Stair · L00 → L01 · from Stair picked on L00",
+    "source": "promote",
+    "actor": "planner@example.test",
+    "elements": [
+      {
+        "kind": "stair",
+        "validate": { "identity": { "Class": "IFCSTAIR", "Name": "Stair · L00 → L01" } },
+        "reason": "16 risers of 187.5 mm (type maximum 190 mm), going 250 mm (type minimum), width 1200 mm (from guideline@2 default) — one straight run between L00 and L01; landings, turns, winders and railings are a person's",
+        "place": {
+          "LevelName": "L00", "TopLevel": "L01", "FamilyName": "Assembled Stair", "TypeName": "190mm max riser 250mm going",
+          "LocationCurve": { "start": [1000, 2650, 0], "end": [4750, 2650, 0] },
+          "Width": 1200, "Risers": 16, "Going": 250
+        },
+        "from_flag": { "changeset": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d", "unique_id": "stair:pick-0a1b2c3d" }
+      }
+    ]
+  },
+  "refusals": [
+    { "name": "a place key a stair does not take", "place": { "Boundary": [[0, 0], [1000, 0], [1000, 1000]] }, "message": "a stair takes no place.Boundary — it is one straight run between two levels" },
+    { "name": "a base elevation is the levels'", "place": { "BaseElevation": 0 }, "message": "a stair takes no place.BaseElevation — it is one straight run between two levels" },
+    { "name": "no bottom level", "place": { "LevelName": null }, "message": "a stair needs place.LevelName (the level it rises from) and place.TopLevel (the level its top reaches) — Sentinel never picks its levels" },
+    { "name": "no top level", "place": { "TopLevel": null }, "message": "a stair needs place.LevelName (the level it rises from) and place.TopLevel (the level its top reaches) — Sentinel never picks its levels" },
+    { "name": "the top is its own level", "place": { "TopLevel": "l00" }, "message": "place.TopLevel is the stair's own level — name the level its top reaches" },
+    { "name": "no type", "place": { "TypeName": null }, "message": "a stair needs place.FamilyName and place.TypeName — the office's stair type (the guideline's Stairs rule); Sentinel never takes the model's first type" },
+    { "name": "no family", "place": { "FamilyName": null }, "message": "a stair needs place.FamilyName and place.TypeName — the office's stair type (the guideline's Stairs rule); Sentinel never takes the model's first type" },
+    { "name": "no run", "place": { "LocationCurve": null }, "message": "a stair needs place.LocationCurve with finite [x,y,z] start and end — the run's centre line, first riser to last" },
+    { "name": "a run with a mid point", "place": { "LocationCurve": { "start": [1000, 2650, 0], "end": [4750, 2650, 0], "mid": [2500, 2700, 0] } }, "message": "a stair is one straight run — place.LocationCurve takes no mid" },
+    { "name": "a run that climbs", "place": { "LocationCurve": { "start": [1000, 2650, 0], "end": [4750, 2650, 100] } }, "message": "a stair's LocationCurve is level — start and end z within 1 mm (the rise is the two levels')" },
+    { "name": "one riser", "place": { "Risers": 1 }, "message": "a stair needs place.Risers, a whole number from 2 to 60" },
+    { "name": "61 risers", "place": { "Risers": 61 }, "message": "a stair needs place.Risers, a whole number from 2 to 60" },
+    { "name": "a fractional riser count", "place": { "Risers": 16.5 }, "message": "a stair needs place.Risers, a whole number from 2 to 60" },
+    { "name": "a going under 100 mm", "place": { "Going": 99 }, "message": "a stair needs place.Going, a number of mm from 100 to 1000" },
+    { "name": "a width under 300 mm", "place": { "Width": 299 }, "message": "a stair needs place.Width, its run width, a number of mm from 300 to 5000" },
+    { "name": "a width over 5000 mm", "place": { "Width": 5001 }, "message": "a stair needs place.Width, its run width, a number of mm from 300 to 5000" },
+    { "name": "N x going instead of (N - 1) x going", "place": { "LocationCurve": { "start": [1000, 2650, 0], "end": [5000, 2650, 0] } }, "message": "the run is 4000 mm; 16 risers at 250 mm going need 3750 mm ((risers − 1) × going)" }
+  ]
+}

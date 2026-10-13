@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import {
   VOCABULARY, OPS, OP_KINDS, MAX_CHANGESET_ELEMENTS, TRUST_FIELDS, ADDIN_SOURCES, CREATE_ENTITY, PLACE_KEPT,
-  validateChangeset, foreignOf, checkStairFlag, STAIR_FLAG_FIELDS, carryKey, outlineProblem, attachVerdicts, canWithdraw, deriveResultStatus, unattributedFailures, editCost, EDIT_COST_CEILING,
+  validateChangeset, foreignOf, checkStairFlag, checkFromFlag, keepBuilt, stairsOf, STAIR_FLAG_FIELDS, carryKey, outlineProblem, attachVerdicts, canWithdraw, deriveResultStatus, unattributedFailures, editCost, EDIT_COST_CEILING,
 } from "./changesets-logic.mjs";
 import * as core from "./sentinel-core.mjs";
 import { makeTyper, makeCiter } from "./changesets-typing.mjs";
@@ -25,10 +25,11 @@ const status400 = (fn, re) => {
   catch (e) { expect(e.status).toBe(400); expect(e.message).toMatch(re); }
 };
 // MA-1a step 2 adds column and furniture (Ghost Builder's unhosted point families); MA-6-3 opening and beam (vocabulary v2); MA-6-6 mass.
-const MA1 = ["wall", "floor", "level", "grid", "roof", "ceiling", "door", "window", "column", "furniture", "room", "opening", "beam", "mass"];
+// MA-8-10 stair.
+const MA1 = ["wall", "floor", "level", "grid", "roof", "ceiling", "door", "window", "column", "furniture", "room", "opening", "beam", "mass", "stair"];
 
 describe("VOCABULARY", () => {
-  it("is the MA-1 list, with MA-1a step 2's column and furniture, MA-5b-1's room, MA-6-3's opening and beam and MA-6-6's mass", () => expect(VOCABULARY).toEqual(MA1));
+  it("is the MA-1 list, with MA-1a step 2's column and furniture, MA-5b-1's room, MA-6-3's opening and beam, MA-6-6's mass and MA-8-10's stair", () => expect(VOCABULARY).toEqual(MA1));
 });
 
 describe("validateChangeset — shape", () => {
@@ -1589,5 +1590,150 @@ describe("MA-8-7 (D16): a wall or floor create that replaces a DirectShape", () 
     expect(carryKey(a)).toBe(carryKey(file([make()]).elements[0]));
     expect(carryKey(a)).not.toBe(carryKey(file([make({ place: { ...wall().place, TypeName: "Other" } })]).elements[0]));
     expect(carryKey(file([wall()]).elements[0])).toBeNull(); // a plain create names no element
+  });
+});
+
+// MA-8-10: a stair from a flag - one straight run between two levels, alone in its changeset. The cases are shared with the add-in's planner
+// (tools/promote-check Ma8Stairs.cs: StairPlanner's body for `plan` equals `good`).
+describe("validateChangeset — stair (MA-8-10)", () => {
+  const cases = JSON.parse(readFileSync(new URL("./fixtures/changeset-ops/stair-cases.json", import.meta.url), "utf8"));
+  const CHANGESET = cases.plan.flag.changeset, FLAG = cases.plan.flag.unique_id;
+  const body = (placePatch = {}, elPatch = {}) => {
+    const b = structuredClone(cases.good);
+    for (const [k, v] of Object.entries(placePatch)) { if (v === null) delete b.elements[0].place[k]; else b.elements[0].place[k] = v; }
+    Object.assign(b.elements[0], elPatch);
+    return b;
+  };
+  const ok = (b) => validateChangeset(b).elements[0];
+
+  it("the planner's good body is accepted: kind stair, the bridge's IFCSTAIR, place and from_flag kept as sent, caller-typed, never pre-ticked, nothing ignored", () => {
+    const v = validateChangeset(cases.good);
+    expect(v.ignored).toEqual([]);
+    expect(v.elements).toHaveLength(1);
+    expect(v.elements[0]).toMatchObject({ kind: "stair", op: "create", place: cases.good.elements[0].place, from_flag: { changeset: CHANGESET, unique_id: FLAG },
+      typing: { typed_by: "caller" }, pretick: false, reason: cases.good.elements[0].reason });
+    expect(v.elements[0].validate.identity.Class).toBe("IFCSTAIR");
+    expect(CREATE_ENTITY.stair).toBe("IFCSTAIR");
+    expect(VOCABULARY.at(-1)).toBe("stair");
+  });
+
+  it.each(cases.refusals.map((c) => [c.name, c]))("refuses %s in words (400)", (_n, c) => status400(() => ok(body(c.place)), new RegExp(`^elements\\[0\\]: ${c.message.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`)));
+
+  it("fixture self-consistency: the riser rows agree with ceil((f2f − 0.001) / max); the real guard is promote-check's Risers() assertions on the same rows (incl. 3040.3 / 190 = 17, the band the old 0.5 mm slack let through)", () => {
+    for (const r of cases.risers) expect(Math.ceil((r.f2fMm - 0.001) / r.maxRiserMm), JSON.stringify(r)).toBe(r.risers);
+    expect(Math.ceil(3000.0000001 / 187.5)).toBe(17); // a bare ceil is what the float-noise slack guards against
+  });
+
+  it("a stair is alone in its changeset: with any other element it is a 400 in words, whichever comes first", () => {
+    const wall = { kind: "wall", validate: { identity: { Class: "IFCWALL", Name: "W" } }, place: { TypeName: "Generic - 200mm", LevelName: "L00", LocationCurve: { start: [0, 0, 0], end: [5000, 0, 0] } } };
+    for (const els of [[cases.good.elements[0], wall], [wall, cases.good.elements[0]]])
+      status400(() => validateChangeset({ ...cases.good, elements: els }), /^a stair changeset holds its stair and nothing else — Revit builds a stair in its own edit scope; file the rest apart$/);
+    expect(validateChangeset({ ...cases.good, elements: [wall] }).elements).toHaveLength(1);
+  });
+
+  it("a stair is never typed from facts, a mark rides along, and the bridge's class replaces a posted one (listed)", () => {
+    status400(() => ok(body({ TypeName: null }, { facts: { thickness_mm: 200 } })), /a stair needs place\.FamilyName and place\.TypeName/);
+    expect(ok(body({ Mark: "ST-1" })).place.Mark).toBe("ST-1");
+    const el = body().elements[0]; el.validate.identity.Class = "IFCSTAIRFLIGHT";
+    const v = validateChangeset({ ...cases.good, elements: [el] });
+    expect(v.elements[0].validate.identity.Class).toBe("IFCSTAIR");
+    expect(v.ignored).toEqual([{ field: "elements[0].validate.identity.Class", why: "ignored: set by the bridge from kind" }]);
+  });
+
+  it("from_flag: {changeset: a uuid, unique_id: stair:…}; a stray key is listed and not kept; it belongs to a stair create only", () => {
+    const withFlag = (f) => body({}, { from_flag: f });
+    status400(() => ok(withFlag("x")), /^elements\[0\]: from_flag must be \{changeset, unique_id\}$/);
+    status400(() => ok(withFlag({ changeset: "nope", unique_id: FLAG })), /from_flag\.changeset must be the id \(a uuid\) of the changeset that holds the flag/);
+    status400(() => ok(withFlag({ changeset: CHANGESET, unique_id: "wall:1" })), /from_flag\.unique_id must be the stair flag's unique_id \(text starting "stair:", at most 64 characters\)/);
+    status400(() => ok(withFlag({ changeset: CHANGESET, unique_id: "stair:" + "x".repeat(60) })), /from_flag\.unique_id/);
+    const v = validateChangeset({ ...cases.good, elements: [{ ...cases.good.elements[0], from_flag: { changeset: CHANGESET.toUpperCase(), unique_id: FLAG, why: "x" } }] });
+    expect(v.elements[0].from_flag).toEqual({ changeset: CHANGESET, unique_id: FLAG });
+    expect(v.ignored).toEqual([{ field: "elements[0].from_flag.why", why: "ignored: not a field this bridge keeps" }]);
+    expect(ok(body({}, { from_flag: undefined })).from_flag).toBeUndefined(); // a stair needs no flag: an agent's own is filed as it is
+    const w = { kind: "wall", validate: { identity: { Class: "IFCWALL", Name: "W" } }, place: { TypeName: "T", LevelName: "L", LocationCurve: { start: [0, 0, 0], end: [1000, 0, 0] } }, from_flag: { changeset: CHANGESET, unique_id: FLAG } };
+    status400(() => validateChangeset({ name: "n", elements: [w] }), /^elements\[0\]: from_flag belongs to a stair create only/);
+  });
+
+  it("a retype or any other op takes no stair fields: Risers and Going are a create's, and only a stair's", () => {
+    const w = { kind: "wall", validate: { identity: { Class: "IFCWALL", Name: "W" } }, place: { TypeName: "T", LevelName: "L", LocationCurve: { start: [0, 0, 0], end: [1000, 0, 0] }, Risers: 16 } };
+    status400(() => validateChangeset({ name: "n", elements: [w] }), /^elements\[0\]: a wall takes no place\.Risers$/);
+    status400(() => validateChangeset({ name: "n", elements: [{ ...w, place: { ...w.place, Risers: undefined, Going: 250 } }] }), /a wall takes no place\.Going/);
+  });
+});
+
+describe("checkFromFlag (MA-8-10): the flag a stair starts from, and one live stair per flag", () => {
+  const cases = JSON.parse(readFileSync(new URL("./fixtures/changeset-ops/stair-cases.json", import.meta.url), "utf8"));
+  const f = cases.plan.flag;
+  const stair = () => validateChangeset(structuredClone(cases.good)).elements;
+  const flagCs = (over = {}) => ({ id: f.changeset, name: "Survey L00", status: "proposed", elements: [], exceptions: [{ unique_id: f.unique_id, name: f.name, reason: "r", kind: "stair", storey: "L00", box: { min: f.min, max: f.max }, source: "pick" }], ...over });
+  const other = (status, over = {}) => { const [e] = stair(); return { id: "11111111-2222-4333-8444-555555555555", name: "Stair · L00 → L01 · from Stair picked on L00", status, elements: [e], result: null, ...over }; };
+  const fails = (fn, status, re) => { try { fn(); throw new Error("no throw"); } catch (e) { expect(e.status).toBe(status); expect(e.message).toMatch(re); } };
+
+  it("passes with the flag in place and nothing else from it; no from_flag checks nothing", () => {
+    expect(() => checkFromFlag(stair(), [flagCs()], [])).not.toThrow();
+    const [e] = stair(); delete e.from_flag;
+    expect(() => checkFromFlag([e], [], [])).not.toThrow();
+  });
+  it("404: no such changeset, or it holds no such stair flag (a wall's exception row is not one)", () => {
+    fails(() => checkFromFlag(stair(), [], []), 404, /^elements\[0\]: from_flag names changeset 0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d, which this project does not hold — nothing was saved$/);
+    fails(() => checkFromFlag(stair(), [flagCs({ exceptions: [] })], []), 404, /^elements\[0\]: changeset "Survey L00" holds no stair flag stair:pick-0a1b2c3d — nothing was saved$/);
+    fails(() => checkFromFlag(stair(), [flagCs({ exceptions: [{ unique_id: f.unique_id, name: "w", reason: "r" }] })], []), 404, /holds no stair flag/);
+  });
+  it("400: the stair rises from another storey than the flag's; a run end outside the flag's box (1 mm of slack)", () => {
+    const e = stair(); e[0].place.LevelName = "L01";
+    fails(() => checkFromFlag(e, [flagCs()], []), 400, /^elements\[0\]: the flag is on L00, the stair rises from L01 — a stair starts on its flag's storey$/);
+    const out = stair(); out[0].place.LocationCurve.end = [5501.5, 2650, 0];
+    fails(() => checkFromFlag(out, [flagCs()], []), 400, /^elements\[0\]: the run leaves the flag's box — its end \(5502, 2650\) is outside 1000\.\.5500 × 2000\.\.3300 mm$/);
+    const edge = stair(); edge[0].place.LocationCurve.end = [5501, 3301, 0];
+    expect(() => checkFromFlag(edge, [flagCs()], [])).not.toThrow();
+    const lo = stair(); lo[0].place.LocationCurve.start = [999.5, 1998.9, 0];
+    fails(() => checkFromFlag(lo, [flagCs()], []), 400, /its start \(1000, 1999\) is outside/);
+  });
+  it("409: the flag is already proposed — withdraw it first", () => {
+    fails(() => checkFromFlag(stair(), [flagCs(), other("proposed")], []), 409, /^elements\[0\]: this flag is already proposed as "Stair · L00 → L01 · from Stair picked on L00" — withdraw it first$/);
+  });
+  it("amendment 2: an applied stair holds the flag until Undo; a stair undone in Revit frees it, a Redo holds it again", () => {
+    const mine = stair()[0], g = mine.proposal_guid;
+    const applied = other("applied", { elements: [mine], result: { applied: [{ proposal_guid: g, revit_element_id: 5 }], rejected: [] } });
+    const row = (id, op, entity = applied.id) => ({ id, entity_id: entity, new_value: { op, guids: [g] } });
+    fails(() => checkFromFlag(stair(), [flagCs(), applied], []), 409,
+      /^elements\[0\]: this flag is already built as "Stair · L00 → L01 · from Stair picked on L00" \(applied\) — undo it in Revit first$/);
+    expect(() => checkFromFlag(stair(), [flagCs(), applied], [row(7, "undo")])).not.toThrow();
+    fails(() => checkFromFlag(stair(), [flagCs(), applied], [row(7, "undo"), row(9, "redo")]), 409, /already built/); // the newest row decides, whatever the order read
+    fails(() => checkFromFlag(stair(), [flagCs(), applied], [row(9, "redo"), row(7, "undo")]), 409, /already built/);
+    expect(() => checkFromFlag(stair(), [flagCs(), applied], [row(7, "redo"), row(9, "undo")])).not.toThrow();
+    expect(() => checkFromFlag(stair(), [flagCs(), applied], [row(12, "redo", "another-changeset"), row(7, "undo")])).not.toThrow(); // another changeset's rows are not this one's
+  });
+  it("a withdrawn or declined stair, and a partially applied changeset whose stair was not applied, free the flag", () => {
+    for (const status of ["withdrawn", "declined"]) expect(() => checkFromFlag(stair(), [flagCs(), other(status)], [])).not.toThrow();
+    expect(() => checkFromFlag(stair(), [flagCs(), other("partially_applied", { result: { applied: [], rejected: [] } })], [])).not.toThrow();
+  });
+  it("the flag's own changeset, with its stair from another flag, holds nothing against this one", () => {
+    const [e] = stair(); e.from_flag = { changeset: f.changeset, unique_id: "stair:pick-ffffffff" };
+    expect(() => checkFromFlag(stair(), [flagCs(), other("proposed", { elements: [e] })], [])).not.toThrow();
+  });
+});
+
+describe("a built stair (MA-8-10): keepBuilt and the changeset_applied row's stairs", () => {
+  const cases = JSON.parse(readFileSync(new URL("./fixtures/changeset-ops/stair-cases.json", import.meta.url), "utf8"));
+  const built = { risers: 16, riser_mm: 187.5, going_mm: 250, width_mm: 1200, runs: 1, railings: 2 };
+  it("keepBuilt keeps the six fields of a signed-in member's read; anything else out of range or missing is null; the machine credential's read is not trusted", () => {
+    expect(keepBuilt({ ...built, extra: 1 }, true)).toEqual(built);
+    for (const bad of [{ ...built, risers: 0 }, { ...built, risers: 16.5 }, { ...built, riser_mm: -1 }, { ...built, going_mm: 2001 }, { ...built, width_mm: "1200" }, { ...built, runs: 11 }, { ...built, railings: 21 }, { risers: 16 }, null, [], "x"])
+      expect(keepBuilt(bad, true), JSON.stringify(bad)).toBeNull();
+    expect(keepBuilt(built, false)).toEqual({ why: "reported with the machine credential — sign in in Revit" });
+    expect(keepBuilt(undefined, false)).toEqual({ why: "reported with the machine credential — sign in in Revit" });
+  });
+  it("stairsOf: planned beside built; as_planned only when Revit's read agrees (risers, going and width within 1 mm); no read says so; a non-stair entry is left out", () => {
+    const [e] = validateChangeset(structuredClone(cases.good)).elements;
+    const wall = { proposal_guid: "w", kind: "wall", place: {} };
+    const planned = { risers: 16, going_mm: 250, width_mm: 1200 };
+    const run = (b) => stairsOf([e, wall], [{ proposal_guid: e.proposal_guid, built: b }, { proposal_guid: "w" }]);
+    expect(run(built)).toEqual([{ proposal_guid: e.proposal_guid, planned, built, as_planned: true }]);
+    expect(run({ ...built, risers: 17 })[0].as_planned).toBe(false);
+    expect(run({ ...built, going_mm: 251.5 })[0].as_planned).toBe(false);
+    expect(run({ ...built, width_mm: 1200.9 })[0].as_planned).toBe(true);
+    expect(run(null)).toEqual([{ proposal_guid: e.proposal_guid, planned, built: null, as_planned: null, note: "Revit sent no read of what it built — check the model" }]);
+    expect(run({ why: "reported with the machine credential — sign in in Revit" })[0]).toMatchObject({ built: { why: expect.any(String) }, as_planned: null });
   });
 });
