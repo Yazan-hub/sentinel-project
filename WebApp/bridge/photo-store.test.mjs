@@ -18,22 +18,22 @@ describe("runBlur (MA-7-7)", () => {
 
   it("runs the script with an allow-listed environment (no secret), a bound, no shell; → the tool's answer", async () => {
     const env = { SYSTEMROOT: "C:\\Windows", APPDATA: "C:\\a", TEMP: "C:\\t", TMP: "C:\\t", SUPABASE_SERVICE_KEY: "secret", BCF_TOKEN: "secret" };
-    const r = await runBlur("in.jpg", "out.jpg", [{ x: 0, y: 0, w: 1, h: 1 }], { ...here, env, execFileFn: stub(JSON.stringify(ok)) });
+    const r = await runBlur("in.jpg", "out.jpg", [{ x: 0, y: 0, w: 1, h: 1 }], { w: 400, h: 600 }, { ...here, env, execFileFn: stub(JSON.stringify(ok)) });
     expect(r).toEqual(ok);
-    expect(stub.seen.args).toEqual(["-B", BLUR_SCRIPT, "in.jpg", "out.jpg", '[{"x":0,"y":0,"w":1,"h":1}]']);
+    expect(stub.seen.args).toEqual(["-B", BLUR_SCRIPT, "in.jpg", "out.jpg", '[{"x":0,"y":0,"w":1,"h":1}]', "400x600"]);
     expect(stub.seen.opts).toMatchObject({ windowsHide: true, timeout: 60_000, env: { SYSTEMROOT: "C:\\Windows", APPDATA: "C:\\a", TEMP: "C:\\t", TMP: "C:\\t" } });
     expect(Object.keys(stub.seen.opts.env)).toHaveLength(4);
     expect(stub.seen.opts.shell).toBeUndefined();
   });
 
   it("a refusal from the tool is a 422 in words; a dead or stuck child is a 500; a missing tool is a 503 before anything runs", async () => {
-    await expect(runBlur("a", "b", [], { ...here, execFileFn: stub(JSON.stringify({ ok: false, error: "UnidentifiedImageError: <file>" }), Object.assign(new Error("exit 2"), { code: 2 })) }))
+    await expect(runBlur("a", "b", [], undefined, { ...here, execFileFn: stub(JSON.stringify({ ok: false, error: "UnidentifiedImageError: <file>" }), Object.assign(new Error("exit 2"), { code: 2 })) }))
       .rejects.toMatchObject({ status: 422, message: "this photo could not be blurred (UnidentifiedImageError: <file>) — nothing was saved" });
-    await expect(runBlur("a", "b", [], { ...here, execFileFn: stub("", new Error("boom"), "Traceback ...") })).rejects.toMatchObject({ status: 500, message: "the blur tool failed — nothing was saved" });
-    await expect(runBlur("a", "b", [], { ...here, execFileFn: stub("", Object.assign(new Error("t"), { killed: true })) })).rejects.toMatchObject({ status: 500, message: expect.stringContaining("took too long") });
+    await expect(runBlur("a", "b", [], undefined, { ...here, execFileFn: stub("", new Error("boom"), "Traceback ...") })).rejects.toMatchObject({ status: 500, message: "the blur tool failed — nothing was saved" });
+    await expect(runBlur("a", "b", [], undefined, { ...here, execFileFn: stub("", Object.assign(new Error("t"), { killed: true })) })).rejects.toMatchObject({ status: 500, message: expect.stringContaining("took too long") });
     let ran = false;
-    await expect(runBlur("a", "b", [], { python: "relative.exe", execFileFn: () => { ran = true; } })).rejects.toMatchObject({ status: 503 });
-    await expect(runBlur("a", "b", [], { python: join(tmpdir(), "no-python.exe"), execFileFn: () => { ran = true; } })).rejects.toMatchObject({ status: 503, message: expect.stringContaining("no Python where SENTINEL_PYTHON") });
+    await expect(runBlur("a", "b", [], undefined, { python: "relative.exe", execFileFn: () => { ran = true; } })).rejects.toMatchObject({ status: 503 });
+    await expect(runBlur("a", "b", [], undefined, { python: join(tmpdir(), "no-python.exe"), execFileFn: () => { ran = true; } })).rejects.toMatchObject({ status: 503, message: expect.stringContaining("no Python where SENTINEL_PYTHON") });
     expect(ran).toBe(false);
     expect(blurNotSetUp({ python: process.execPath, script: join(tmpdir(), "none.py") })).toContain("survey/blur.py is missing");
   });

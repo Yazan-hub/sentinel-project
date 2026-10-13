@@ -110,7 +110,8 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   // the boxes drawn so far (kept across a re-render), which kind the next box is, and a refusal in the bridge's words.
   let markFor: string | null = null; let markUrl: string | null = null; let markMarks: Mark[] = []; let markWhat: MarkWhat = "face"; let markErr = ""; let marking = false;
   let marker: Marker | null = null;
-  const thumbs = new Map<string, string>(); // `${id}:${sha}` → the blurred copy as an object URL
+  const thumbs = new Map<string, Promise<string>>(); // `${id}:${sha}` → the blurred copy as an object URL, in flight or ready (one fetch per copy)
+  function thumbsClear() { for (const p of thumbs.values()) p.then((u) => URL.revokeObjectURL(u), () => {}); thumbs.clear(); } // MA-7-7: a project or person switch frees them
   function markClose() { if (markUrl) URL.revokeObjectURL(markUrl); markFor = null; markUrl = null; markMarks = []; markErr = ""; marker = null; }
   let vendorFor: string | null = null; // MA-8-3: the folder .ifc whose provider + licence-ref form is open (a third party's model)
   let drawingReq = ""; // the request picked for `drawingFor`, kept across a re-render
@@ -184,7 +185,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   async function load() {
     const mine = ++seq, key = pid();
     // A project or person switch drops the old scope's inline rename / armed confirm (dismissing is reset below).
-    if (loadScope(key) !== loadedScope) { markClose(); renaming = null; armed = null; unarchiveAsk = null; askDraft = null; drawingFor = null; vendorFor = null; photoFor = null; lettersOpen.clear(); proposing = null; proposeLevels = null; proposeDraft = null; alignDraft = null; alignView = null; alignPick = null; }
+    if (loadScope(key) !== loadedScope) { markClose(); thumbsClear(); renaming = null; armed = null; unarchiveAsk = null; askDraft = null; drawingFor = null; vendorFor = null; photoFor = null; lettersOpen.clear(); proposing = null; proposeLevels = null; proposeDraft = null; alignDraft = null; alignView = null; alignPick = null; }
     loadedScope = loadScope(key);
     if (cmp.a || cmp.b) { cmp.a = cmp.b = cmp.fileId = undefined; el("fv-compare").style.display = "none"; }
     el("fv-proj").textContent = key;
@@ -509,16 +510,17 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     const saveMark = (body: { boxes?: Mark[]; none_seen?: boolean }) => {
       const id = markFor;
       if (!id || marking) return;
-      marking = true;
-      void evAct(async () => { const r = await markViewCopy(base, pid(), id, body); markClose(); return blurredLine(r); }).finally(() => { marking = false; });
+      marking = true; // MA-7-7: `shown` = the size the marker showed, so the bridge can refuse a mismatch
+      void evAct(async () => { const sh = marker?.shown(), r = await markViewCopy(base, pid(), id, sh ? { ...body, shown: sh } : body); markClose(); return blurredLine(r); }).finally(() => { marking = false; });
     };
     root.querySelector("#fv-mk-save")?.addEventListener("click", () => saveMark({ boxes: markMarks }));
     root.querySelector("#fv-mk-none")?.addEventListener("click", () => saveMark({ none_seen: true }));
     root.querySelectorAll<HTMLImageElement>("[data-evthumb]").forEach((n) => {
       const it = evidence?.pack.items.find((x) => x.id === n.dataset.evthumb), k = it ? `${it.id}:${it.view_copy?.sha256}` : "";
-      const have = thumbs.get(k);
-      if (have) { n.src = have; return; }
-      if (it) photoUrl(base, pid(), it.id, "view").then((u) => { thumbs.set(k, u); n.src = u; }).catch((e) => { n.alt = `the blurred copy could not be shown — ${(e as Error).message}`; });
+      if (!it) return;
+      let p = thumbs.get(k);
+      if (!p) { p = photoUrl(base, pid(), it.id, "view"); thumbs.set(k, p); p.catch(() => thumbs.delete(k)); }
+      p.then((u) => { n.src = u; }, (e) => { n.alt = `the blurred copy could not be shown — ${(e as Error).message}`; });
     });
     root.querySelector("#fv-ev-cancel")?.addEventListener("click", () => { admitting = null; drawingFor = null; vendorFor = null; photoFor = null; render(); });
     root.querySelector("#fv-ev-ok")?.addEventListener("click", () => {

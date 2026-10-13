@@ -51,7 +51,9 @@ class Blur(unittest.TestCase):
             src, dst = self.photo(d), os.path.join(d, "out.jpg")
             r = blur.blur(src, dst, blur.read_boxes([{"x": 0.25, "y": 0.5, "w": 0.25, "h": 0.25}, {"x": 0.7, "y": 0.1, "w": 0.1, "h": 0.1}]))
             from PIL import Image, ImageStat
-            self.assertEqual(r, {"width": 2048, "height": 1365, "areas": 2})
+            import hashlib
+            import pathlib
+            self.assertEqual(r, {"width": 2048, "height": 1365, "areas": 2, "source_sha256": hashlib.sha256(pathlib.Path(src).read_bytes()).hexdigest()})
             with Image.open(dst) as im:
                 self.assertEqual(im.size, (2048, 1365))
                 inside = ImageStat.Stat(im.crop((int(2048 * .26), int(1365 * .51), int(2048 * .49), int(1365 * .74)))).stddev
@@ -78,6 +80,62 @@ class Blur(unittest.TestCase):
             self.assertEqual(blur.blur(src, dst, [])["width"], 400)
             with Image.open(dst) as im:
                 self.assertEqual(im.size, (400, 600))
+
+    def test_xmp_only_orientation_is_not_followed_as_a_browser_ignores_it(self):
+        # MA-7-7 review: Pillow's getexif() trusts XMP tiff:Orientation; a browser does not. The box is where the person saw the face.
+        from PIL import Image
+        with tempfile.TemporaryDirectory() as d:
+            im = Image.new("RGB", (400, 200), (10, 20, 200))
+            im.paste((255, 0, 0), (0, 0, 100, 100))  # the "face", top-left as shown
+            src, dst = os.path.join(d, "x.jpg"), os.path.join(d, "o.jpg")
+            xmp = b'<?xpacket?><x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:tiff="http://ns.adobe.com/tiff/1.0/" tiff:Orientation="6"/></rdf:RDF></x:xmpmeta>'
+            im.save(src, "JPEG", quality=95, xmp=xmp)
+            r = blur.blur(src, dst, blur.read_boxes([{"x": 0, "y": 0, "w": 0.5, "h": 0.5}]), (400, 200))  # the face plus blue beside it: the fill is purple
+            self.assertEqual((r["width"], r["height"]), (400, 200))
+            with Image.open(dst) as o:
+                px = o.getpixel((50, 50))
+            self.assertLess(px[0], 200, "the face is filled with the box's mean (purple), not left red")
+
+    def test_shown_size_that_disagrees_is_refused_in_words(self):
+        with tempfile.TemporaryDirectory() as d:
+            src, dst = self.photo(d, size=(600, 400), orientation=6), os.path.join(d, "out.jpg")  # upright 400x600
+            with self.assertRaisesRegex(ValueError, "wrong place"):
+                blur.blur(src, dst, [], (600, 400))
+            self.assertFalse(os.path.exists(dst))
+            self.assertEqual(blur.blur(src, dst, [], (400, 600))["width"], 400)
+
+    def test_an_mpo_photo_is_blurred_from_frame_zero_only(self):
+        from PIL import Image
+        with tempfile.TemporaryDirectory() as d:
+            a, b = Image.new("RGB", (300, 200), (200, 10, 10)), Image.new("RGB", (60, 40), (0, 0, 0))
+            src, dst = os.path.join(d, "two.jpg"), os.path.join(d, "o.jpg")
+            a.save(src, "MPO", save_all=True, append_images=[b])
+            with Image.open(src) as chk:
+                self.assertEqual((chk.format, getattr(chk, "n_frames", 1)), ("MPO", 2))
+            self.assertEqual(blur.blur(src, dst, [])["width"], 300)
+            with Image.open(dst) as o:
+                self.assertEqual((o.format, getattr(o, "n_frames", 1)), ("JPEG", 1))
+            self.assertFalse({m for m, _ in segments(__import__("pathlib").Path(dst).read_bytes())} & {0xE1, 0xE2})
+
+    def test_the_byte_cap_and_the_pixel_cap_refuse_and_leave_no_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            src, dst = self.photo(d, size=(100, 100)), os.path.join(d, "o.jpg")
+            for name, val in (("MAX_BYTES", 1000), ("MAX_PIXELS", 100)):
+                old = getattr(blur, name)
+                setattr(blur, name, val)
+                try:
+                    with self.assertRaises(Exception, msg=name):
+                        blur.blur(src, dst, [])
+                finally:
+                    setattr(blur, name, old)
+                self.assertEqual(os.listdir(d), ["in.jpg"], "no copy and no .part is left")
+
+    def test_a_failed_save_leaves_no_part_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            src, dst = self.photo(d, size=(100, 100)), os.path.join(d, "no-such-dir", "o.jpg")
+            with self.assertRaises(Exception):
+                blur.blur(src, dst, [])
+            self.assertEqual(os.listdir(d), ["in.jpg"])
 
     def test_pillow_heif_is_blocked_not_loaded(self):
         self.assertIsNone(sys.modules.get("pillow_heif", 0))

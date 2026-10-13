@@ -243,6 +243,8 @@ describe("a concept model (MA-6-8)", () => {
     expect(sizeRefusal("ifc", 64 * MB + 1, "model")).toBe("a .ifc is read inside the bridge — at most 64 MB (this one is 65537 KB); export it without its site, links and furniture");
     expect(sizeRefusal("ifc", 70.3 * MB, "model")).toContain("(this one is 70.3 MB)");
     expect(sizeRefusal("las", 9e9, "scan")).toBe(null);
+    expect(sizeRefusal("jpg", 64 * MB, "photo")).toBe(null); // MA-7-7 (R18)
+    expect(sizeRefusal("png", 64 * MB + 1, "photo")).toBe("a .png photo is at most 64 MB (this one is 65537 KB) — it is not admitted; a camera's own file is smaller");
     expect(policyRefusals({ kind: "model", provider: "own", path: "a.ifc" })).toEqual([]);
     expect(policyRefusals({ kind: "model", provider: "architect", path: "a.ifc" })).toEqual([]); // MA-8-3: a vendor's model (e) and a licence_ref are the body's and the pack's
     expect(policyRefusals({ kind: "model", provider: "google maps", path: "a.ifc" })[0]).toMatch(/^google maps is a RED source/);
@@ -530,6 +532,8 @@ describe("MA-7-7: a photo's blurred copy", () => {
     expect(() => readBoxes({ none_seen: true, boxes: [{ x: 0, y: 0, w: 1, h: 1 }] })).toThrow("cannot be true with boxes marked");
     for (const bad of [{ x: 0.9, y: 0, w: 0.3, h: 0.1 }, { x: 0, y: 0, w: 0, h: 0.1 }, { x: "0", y: 0, w: 1, h: 1 }, { x: 0, y: 0, w: 1, h: 1, what: "car" }, null])
       expect(() => readBoxes({ boxes: [bad] }), JSON.stringify(bad)).toThrow(/boxes\[0\]/);
+    expect(readBoxes({ none_seen: true, shown: { w: 400, h: 600 } })).toEqual({ boxes: [], none_seen: true, shown: { w: 400, h: 600 } }); // MA-7-7 review: the size the marker showed
+    for (const bad of [{ w: 0, h: 5 }, { w: 1.5, h: 5 }, "400x600", { w: 400 }, null]) expect(() => readBoxes({ none_seen: true, shown: bad }), JSON.stringify(bad)).toThrow(/shown must be/);
     expect(() => readBoxes({ boxes: Array(201).fill({ x: 0, y: 0, w: 1, h: 1 }) })).toThrow("at most 200");
   });
   it("validatePack: view_copy is a photo's, with its counts agreeing; none_seen exactly when no area was marked", () => {
@@ -547,6 +551,7 @@ describe("MA-7-7: a photo's blurred copy", () => {
     expect(v).toMatchObject({ item_id: "ev-0004", original_sha256: SHA, copy_sha256: "b".repeat(64), areas: 2, faces: 1, plates: 1, gps_removed: true, metadata_removed: true, pack_version: 7 });
     expect(JSON.stringify(v)).not.toMatch(/"(x|y|w|h|boxes)"/);
     expect(blurredValue("evp-0001", { ...i, capture: { ...i.capture, gps: false } }, VC(), 7).gps_removed).toBe(false);
+    expect(blurredValue("evp-0001", { ...i, capture: undefined }, VC(), 7).gps_removed).toBe(null); // admitted before 7-4: never looked for, so not claimed
     expect(blurredValue("evp-0001", i, VC({ areas: 0, faces: 0, plates: 0, none_seen: true }), 7).none_seen).toBe(true);
   });
 });

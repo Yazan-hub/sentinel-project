@@ -223,6 +223,15 @@ describe("evidence intake (MA-4a)", () => {
     await expect(webStatus("demo", "evp-0009", deps())).rejects.toMatchObject({ status: 404 });
   });
 
+  it("(w2) MA-7-7 review (R18): a photo over 64 MB is refused in words with a row, unhashed", async () => {
+    await ready();
+    put("photos/huge.jpg", Buffer.concat([JPG.subarray(0, 64), Buffer.alloc(65 * 1048576)]));
+    const big = await admit({ path: "photos/huge.jpg", kind: "photo" });
+    expect(big.verdict).toBe("refused");
+    expect(big.sha256).toBe(null);
+    expect(big.reasons[0]).toMatch(/^a \.jpg photo is at most 64 MB \(this one is 65\.0 MB\) — it is not admitted/);
+    expect(rows("evidence:refused").map((r) => r.action)).toEqual(["evidence:refused photos/huge.jpg"]);
+  });
   it("(w) MA-7-4: a NEW photo must carry camera data; a screenshot and a PNG are refused; the capture is on the item and the row, without coordinates", async () => {
     await ready();
     put("photos/cam.jpg", JPG); put("photos/shot.jpg", SHOT); put("photos/shot.png", Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(40)]));
@@ -691,7 +700,7 @@ describe("blurred copies (MA-7-7)", () => {
   const BLURRED = Buffer.from("blurred jpeg stand-in");
   const TOOLS = [{ name: "sentinel-blur", version: "0.1.0", licence: "LicenseRef-Sentinel" }, { name: "pillow", version: "12.3.0", licence: "MIT-CMU" }];
   let calls;
-  const blur = async (src, dst, boxes) => { calls.push({ src, dst, boxes }); writeFileSync(dst, BLURRED); return { ok: true, width: 2048, height: 1365, areas: boxes.length, version: "0.1.0", tools: TOOLS }; };
+  const blur = async (src, dst, boxes, shown) => { calls.push({ src, dst, boxes, shown }); writeFileSync(dst, BLURRED); return { ok: true, width: 2048, height: 1365, areas: boxes.length, source_sha256: sha(readFileSync(src)), version: "0.1.0", tools: TOOLS }; };
   const mark = (id, b, extra = {}) => makeViewCopy("demo", "evp-0001", id, b, { ...deps(), blur, ...extra });
   const file = (id, which, o = {}) => photoFile("demo", "evp-0001", id, which, o, deps());
   const BOXES = [{ x: 0.1, y: 0.2, w: 0.1, h: 0.1, what: "face" }, { x: 0.6, y: 0.6, w: 0.2, h: 0.1, what: "plate" }];
@@ -702,6 +711,7 @@ describe("blurred copies (MA-7-7)", () => {
     const r = await mark("ev-0001", { boxes: BOXES });
     expect(calls).toHaveLength(1);
     expect(calls[0].src).toBe(join(root, "demo", "photos", "own.jpg"));
+    expect(calls[0].shown).toBeUndefined();
     expect(calls[0].boxes).toEqual([{ x: 0.1, y: 0.2, w: 0.1, h: 0.1 }, { x: 0.6, y: 0.6, w: 0.2, h: 0.1 }]);
     expect(r.copy).toMatchObject({ sha256: sha(BLURRED), size_bytes: BLURRED.length, width: 2048, height: 1365, areas: 2, faces: 1, plates: 1, method: "person-marked", marked_by: "machine", tool: "sentinel-blur 0.1.0" });
     expect(r.copy.none_seen).toBeUndefined();
@@ -742,6 +752,11 @@ describe("blurred copies (MA-7-7)", () => {
     await expect(mark("ev-0001", { boxes: BOXES }, { blur: async () => { throw Object.assign(new Error("this photo could not be blurred (x)"), { status: 422 }); } })).rejects.toMatchObject({ status: 422 });
     await expect(mark("ev-0001", { boxes: BOXES }, { blur: async (_s, dst, b) => { writeFileSync(dst, "x"); return { width: 10, height: 10, areas: b.length + 1, version: "0.1.0", tools: [] }; } })).rejects.toMatchObject({ status: 500 });
     expect(existsSync(join(root, "demo", ".sentinel", "view", "ev-0001.jpg"))).toBe(false); // a copy no pack names is not left behind
+    expect(rows("evidence:blurred")).toEqual([]);
+    // MA-7-7 review: the tool hashes the bytes it decoded; a file swapped after the bridge's own hash is refused and the copy removed
+    await expect(mark("ev-0001", { boxes: BOXES }, { blur: async (_s, dst, b) => { writeFileSync(dst, "x"); return { width: 10, height: 10, areas: b.length, source_sha256: "0".repeat(64), version: "0.1.0", tools: [] }; } }))
+      .rejects.toMatchObject({ status: 409, message: expect.stringContaining("changed after it was admitted and before it was blurred") });
+    expect(existsSync(join(root, "demo", ".sentinel", "view", "ev-0001.jpg"))).toBe(false);
     expect(rows("evidence:blurred")).toEqual([]);
     expect((await pack()).items[0].view_copy).toBeUndefined();
     await mark("ev-0001", { boxes: BOXES });

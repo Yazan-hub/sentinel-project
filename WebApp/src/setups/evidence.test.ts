@@ -501,6 +501,9 @@ describe("blurred copy (MA-7-7)", () => {
     expect(String(bwrite.mock.calls[0][0])).toMatch(/\/cde\/demo\/evidence\/evp-0001\/items\/ev-0002\/view-copy$/);
     expect(bwrite.mock.calls[0][1].method).toBe("POST");
     expect(JSON.parse(bwrite.mock.calls[0][1].body)).toEqual({ boxes: [{ x: 0.1, y: 0.1, w: 0.1, h: 0.1, what: "face" }] });
+    bwrite.mockResolvedValueOnce({ item: { ...PH, view_copy: VC }, copy: VC, pack_version: 8, ledger: { id: 10, hash: HASH } });
+    await markViewCopy("http://b", "demo", "ev-0002", { none_seen: true, shown: { w: 400, h: 600 } }); // MA-7-7 review: the size the marker showed rides along
+    expect(JSON.parse(bwrite.mock.calls[1][1].body)).toEqual({ none_seen: true, shown: { w: 400, h: 600 } });
     expect(blurredLine(r)).toBe(`✓ Blurred copy of ev-0002 · blurred copy 2048×1365: 2 area(s) filled (1 face, 1 number plate) · marked by lead@example.test · sha ${"cd".repeat(6)}… · ledger #9 · receipt abababababababab…`);
   });
   it("photoUrl: the copy or the original as an object URL; the bridge's own words come through when it refuses", async () => {
@@ -519,7 +522,8 @@ describe("blurred copy (MA-7-7)", () => {
     expect(src).toContain('photoUrl(base, pid(), id, "original")');
     expect(src).toContain("No faces or number plates in this photo");
     expect(src).toContain('saveMark({ none_seen: true })');
+    expect(src).toContain("marker?.shown()"); // the shown size is sent with the marks
     expect(src).toContain("drawingFor || vendorFor || photoFor || markFor)) return;");
-    expect(src).toContain("{ markClose(); renaming = null;"); // a project or person switch drops the open marker
+    expect(src).toContain("{ markClose(); thumbsClear(); renaming = null;"); // a project or person switch drops the open marker and frees the thumbnails
   });
 });

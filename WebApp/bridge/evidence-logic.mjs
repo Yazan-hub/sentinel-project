@@ -50,8 +50,8 @@ export const FORMATS = {
   // ponytail: RCP is checked by extension only (a ReCap project is a folder index with no fixed magic here); a real one waits for an
   // owner's scan — until then any bytes named .rcp are admitted with their report.
   rcp: { kind: "scan", magic: null, surveyable: false },
-  jpg: { kind: "photo", magic: "ffd8ff", surveyable: true },
-  png: { kind: "photo", magic: "89504e470d0a1a0a", surveyable: true },
+  jpg: { kind: "photo", magic: "ffd8ff", surveyable: true, max_bytes: 64 * 1024 * 1024 }, // MA-7-7 (R18): 64 MB — a phone photo is 2 to 12 MB; the blur tool decodes it in memory
+  png: { kind: "photo", magic: "89504e470d0a1a0a", surveyable: true, max_bytes: 64 * 1024 * 1024 },
   // MA-6-8: the office's own concept model, read inside the bridge by web-ifc (so a size cap), never surveyed. "ISO-10303-21" is 12 bytes.
   ifc: { kind: "model", magic: "49534f2d31303330332d3231", surveyable: false, max_bytes: 64 * 1024 * 1024 }, // MA-8-3 (D3): 64 MB — a 25 MB Revit export reads in 1 s
 };
@@ -171,7 +171,9 @@ export function readBoxes(b = {}) {
     if (what !== "face" && what !== "plate") throw bad(`boxes[${i}].what`, "must be face or plate");
     return { x: px, y: py, w, h, what };
   });
-  return { boxes, none_seen: none };
+  const sh = b.shown; // the size the marker showed the photo at (naturalWidth × naturalHeight); blur.py refuses a photo whose upright size differs
+  if (sh !== undefined && !(isObj(sh) && [sh.w, sh.h].every((v) => Number.isInteger(v) && v >= 1 && v <= 100000))) throw bad("shown", "must be {w, h}, whole pixels");
+  return { boxes, none_seen: none, ...(sh ? { shown: { w: sh.w, h: sh.h } } : {}) };
 }
 export const MAX_BOXES = 200;
 
@@ -179,7 +181,8 @@ export const MAX_BOXES = 200;
 export const blurredValue = (packId, i, v, packVersion) => ({
   pack_id: packId, item_id: i.id, path: i.path, original_sha256: i.sha256, copy_sha256: v.sha256, size_bytes: v.size_bytes, width: v.width, height: v.height,
   areas: v.areas, faces: v.faces, plates: v.plates, ...(v.none_seen ? { none_seen: true } : {}), method: v.method, marked_by: v.marked_by,
-  gps_removed: i.capture?.gps === true, metadata_removed: true, tool: v.tool, tools: v.tools, pack_version: packVersion,
+  gps_removed: i.capture ? i.capture.gps === true : null, // null: admitted before 7-4, so the original's GPS block was never looked for
+  metadata_removed: true, tool: v.tool, tools: v.tools, pack_version: packVersion,
 });
 
 /** MA-7-5: what Sentinel may delete when an item expires, as [{path, sha256}] (a file is deleted only if it still has that sha256): its blurred
@@ -341,7 +344,10 @@ export function photoRefusal({ format, camera }) {
 /** MA-6-8: an IFC is read inside the bridge, so it has a size cap; null when the size is allowed (or the format has no cap), else the words. */
 export function sizeRefusal(format, size, kind) {
   const max = tableOf(kind)[format]?.max_bytes;
-  return max && size > max ? `a .${format} is read inside the bridge — at most ${max / 1048576} MB (this one is ${(size / 1048576).toFixed(1) === (max / 1048576).toFixed(1) ? `${Math.ceil(size / 1024)} KB` : `${(size / 1048576).toFixed(1)} MB`}); export it without its site, links and furniture` : null;
+  if (!max || size <= max) return null;
+  const mb = max / 1048576, is = (size / 1048576).toFixed(1) === mb.toFixed(1) ? `${Math.ceil(size / 1024)} KB` : `${(size / 1048576).toFixed(1)} MB`;
+  return kind === "photo" ? `a .${format} photo is at most ${mb} MB (this one is ${is}) — it is not admitted; a camera's own file is smaller`
+    : `a .${format} is read inside the bridge — at most ${mb} MB (this one is ${is}); export it without its site, links and furniture`;
 }
 
 /** null when the file's first bytes are the format's; else the refusal's words. `head`: a Buffer of the file's first 16 bytes. */

@@ -21,7 +21,7 @@ export const markSummary = (m: Mark[]): string => {
   return m.length ? `${m.length} area(s) marked (${f} face, ${p} number plate) — Save fills each with its own colour; the original stays as it is` : "Nothing marked yet — draw a box round each face and number plate, or answer that there are none";
 };
 
-export interface Marker { marks(): Mark[]; undo(): void; destroy(): void; }
+export interface Marker { marks(): Mark[]; undo(): void; destroy(): void; shown(): { w: number; h: number } | null; }
 /** Show the photo at `url` in `host` and let the pointer draw boxes over it. `initial` = marks kept across a re-render; `onChange` gets the list. */
 export function mountMarker(host: HTMLElement, url: string, what: () => MarkWhat, initial: Mark[], onChange: (m: Mark[]) => void): Marker {
   let marks = initial.slice();
@@ -49,5 +49,7 @@ export function mountMarker(host: HTMLElement, url: string, what: () => MarkWhat
     draw();
   });
   draw();
-  return { marks: () => marks, undo: () => { marks = marks.slice(0, -1); onChange(marks); draw(); }, destroy: () => { host.replaceChildren(); } };
+  return { marks: () => marks, undo: () => { marks = marks.slice(0, -1); onChange(marks); draw(); }, destroy: () => { host.replaceChildren(); },
+    // the size the browser decoded the photo to, orientation applied: blur.py refuses a photo whose upright size differs (the boxes would land elsewhere)
+    shown: () => (img.naturalWidth > 0 && img.naturalHeight > 0 ? { w: img.naturalWidth, h: img.naturalHeight } : null) };
 }

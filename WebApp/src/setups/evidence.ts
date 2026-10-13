@@ -175,7 +175,7 @@ export const draftRequest = (base: string, key: string, b: { recipient_kind: Evi
 export const setDeleteBy = (base: string, key: string, item: string, date: string, why?: string) =>
   post<{ item: EvidenceItem; pack_version: number; ledger: Ledger[]; note?: string }>(base, key, `evidence/${PACK_ID}/items/${encodeURIComponent(item)}/delete-by`, { date, ...(why ? { why } : {}) });
 /** MA-7-7: a contributor's marks on an own photo — boxes (fractions of the photo as shown, each a face or a number plate), or the explicit answer that there are none. */
-export const markViewCopy = (base: string, key: string, item: string, b: { boxes?: { x: number; y: number; w: number; h: number; what: "face" | "plate" }[]; none_seen?: boolean }) =>
+export const markViewCopy = (base: string, key: string, item: string, b: { boxes?: { x: number; y: number; w: number; h: number; what: "face" | "plate" }[]; none_seen?: boolean; shown?: { w: number; h: number } }) =>
   post<{ item: EvidenceItem; copy: ViewCopy; pack_version: number; ledger: Ledger }>(base, key, `evidence/${PACK_ID}/items/${encodeURIComponent(item)}/view-copy`, b);
 /** The status line after a blurred copy is made. Pure. */
 export const blurredLine = (r: { item: EvidenceItem; copy: ViewCopy; ledger: Ledger }): string =>
