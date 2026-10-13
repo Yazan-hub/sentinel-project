@@ -3265,3 +3265,14 @@ Notes: CI runs the licence check before the tests; LC-1's pending count is 12, n
 | M-0, 7-8 (VR-1…VR-4, MV-1), PT-R, MV-R | The vision spike and reader; the Revit rows | **held / owed** — the founder's 12 labelled wall photos; Revit |
 
 Ceilings recorded by the slices: the web marker has no DOM test (no jsdom; installs barred); a blur-only project's NOTICE does not yet credit Pillow/FreeType (toolsOf reads build:run rows only); amendment 29's frame lock relies on the existing "one job is one frame" 409.
+
+## Session MA7 batch 3 — splats in the desk, Commons behind the switch, web items context only (2026-10-14 local: the founder's "go batch 3"; 7-12 Commons admission 9ea2b6b, 7-13 context only 1bb4f50, 7-11 splats + splat:placed c6474bc; one review round each, 5 confirmed findings fixed before the merges (among them: a Commons admission whose file replace fails still writes its ledger rows); web 1.0.89 published (0d2b3ba); the 4100 bridge restarted on master; CI green; **the web-evidence switch stays off** (counsel has not reviewed); no download (the Commons drill photos need the founder's per-file OK), no Revit)
+
+| Row | What happened | Result |
+|---|---|---|
+| G-3 again | Every real evidence pack through master's `validatePack` after batch 3: ma4a-drill ok (7), ma4c-drill ok (13), kladno-drill ok (1) | **pass** |
+| Unit + CI | Bridge 3 786 passed (1 skipped), web 716+, CI green on c6474bc | **pass** |
+| SP-0 | A synthetic 3DGS PLY (1k and 200k gaussians) admitted as a splat and shown in the local app (≥ 20 fps at 200k) and in the published app; if Spark's worker cannot load in the published iframe the desk says "local app only" | **owed** — a signed-in lead's admission in the founder's session |
+| SP-1…SP-5, CM-1…CM-7, CX-1, CX-2 | Splat admission, Show in 3D, Save placement (`splat:placed`), reload, refusals; the Commons drill (switch `drill:ma7-web-drill`, 5 Commons photos — per-file download OK); context-only refusals | **owed** — the founder's session; the founder's switch and download OK |
+
+Ceilings: no web form yet for a Commons admission (a lead uses the items route; the panel refuses in counsel's words while the switch is off); a web photo cannot be cited on a ghost (the 7-10 cite path refuses context items), so "context (assumed, web)" appears on the item line only; CM-2 (field-by-field against design §6.2) owed in the drill.
