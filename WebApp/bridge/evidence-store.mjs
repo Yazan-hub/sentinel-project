@@ -11,6 +11,7 @@ import { homedir } from "node:os";
 import { join, relative, resolve, sep } from "node:path";
 import { resolveActor } from "./bridge-auth.mjs";
 import * as L from "./evidence-logic.mjs";
+import * as W from "./web-sources.mjs"; // MA-7-2: a pure table, no I/O
 
 const err = (status, message) => Object.assign(new Error(message), { status });
 const KIND = "evidence_pack";
@@ -171,6 +172,19 @@ export async function readPack(key, packId, deps) {
   const { pack, version, sha256 } = got;
   const dir = evidenceDir(key, d.root);
   return { pack, ref: `${KIND}@${version}`, sha256, folder: { path: dir, exists: existsSync(dir), ...folderFiles(dir, pack) } };
+}
+
+/** MA-7-2: GET /cde/:key/evidence/:pack/web → the founder's web switch for this project, the source lists and their sha256. Reads only the
+ *  switch (a 12-hex counsel ref at most): no other env value is echoed. */
+export async function webStatus(key, packId, deps) {
+  const d = await wire(deps);
+  const { pack } = await packOf(d, key, packId);
+  const sw = W.webSwitch(deps?.env ?? process.env, key);
+  return {
+    mode: sw.mode, why: sw.why, counsel_ref: sw.counsel_ref12, a_signed: pack.attestations.some((a) => a.code === "a"),
+    sources: W.SOURCES.map(({ id, list, label, licences, held_for_counsel, share_alike }) => ({ id, list, label, licences, held_for_counsel, share_alike })),
+    red: { labels: W.RED_LABELS, hosts: W.RED_HOSTS }, sources_sha256: W.SOURCES_SHA256,
+  };
 }
 
 /** POST /cde/:key/evidence/:pack/attest {code} → 201: a signed-in lead or owner signs one of (a)-(f), once per pack. The machine

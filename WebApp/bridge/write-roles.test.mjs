@@ -6,7 +6,7 @@
 // credential is the BCF_TOKEN. The fake plays no row-level security beyond "a member sees the project" and "only its
 // owner deletes it", so every refusal here is the bridge's own, and each is checked twice: the status and words the
 // caller gets, and that nothing reached the table.
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
 import { spawn } from "node:child_process";
 import { createHash, createHmac, randomUUID } from "node:crypto";
 import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
@@ -1062,6 +1062,17 @@ describe("evidence intake (MA-4a): who makes, signs, admits and reads", () => {
     expect(rows("attestation:signed").map((r) => [r.entity_type, r.new_value.code, r.new_value.text_sha256])).toEqual([["attestation", "a", "e5fdcf84d2436de3076c8153c4c1cf5748dfab29cbea6f76cdbdb36202782546"]]);
     const again = await call("POST", `${E}/evp-0001/attest`, "lead", { code: "a" });
     expect(again.status).toBe(409); expect(again.body.message).toContain("was signed by lead@example.test");
+  });
+  it("MA-7-2: GET …/web is a read — a viewer, a contributor, a lead and the machine credential all get the off state", async () => {
+    await call("POST", E, "lead", {});
+    for (const k of ["SENTINEL_WEB_EVIDENCE", "SENTINEL_WEB_COUNSEL_REF"]) vi.stubEnv(k, ""); // the founder's own switch must not leak in
+    for (const as of ["viewer", "contributor", "lead", "machine"]) {
+      const r = await call("GET", `${E}/evp-0001/web`, as);
+      expect(r.status, as).toBe(200);
+      expect(r.body).toMatchObject({ mode: "off", a_signed: false, counsel_ref: null });
+      expect(r.body.sources_sha256).toMatch(/^[0-9a-f]{64}$/);
+    }
+    vi.unstubAllEnvs();
   });
   it("admitting: a 409 before (a) and (c), a photo also (d); a contributor admits with the streamed sha; the machine credential, a viewer and ../x are refused with no row; google on a file not admitted is refused with a row; a viewer reads; a forged row is a 400", async () => {
     await call("POST", E, "lead", {});

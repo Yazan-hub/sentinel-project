@@ -1674,6 +1674,7 @@ async function handleRequest(req, res) {
       //   (a signed-in lead; the machine credential is a 403). POST …/:pack/items {path, kind, provider?, registration?} → 201 admitted |
       //   200 refused, with its ledger row (a contributor of an office project). POST …/:pack/recheck → 200. Small JSON only: the files are
       //   in the project's evidence folder on this PC and are hashed there (evidence-store.mjs); no evidence byte crosses this route.
+      //   MA-7-2: GET …/:pack/web → the web switch state and the source lists (a read).
       if (p2 === "evidence") {
         const ev = await import("./evidence-store.mjs");
         const body = async () => (await readBody(req, { max: SMALL_JSON })) || {};
@@ -1685,6 +1686,8 @@ async function handleRequest(req, res) {
           return send(res, r.verdict === "admitted" ? 201 : 200, r);
         }
         if (p3 && p4 === "recheck" && !seg[5] && req.method === "POST") return send(res, 200, await ev.recheckPack(p1, p3));
+        // MA-7-2: GET …/:pack/web → the founder's web switch (off/drill/on), the source lists and their sha256 (any member; a read).
+        if (p3 && p4 === "web" && !seg[5] && req.method === "GET") return send(res, 200, await ev.webStatus(p1, p3));
         // MA-4b: POST …/:pack/requests {recipient_kind, recipient?, documents[], purpose?} → 201 the drafted letter (a signed-in lead;
         //   Sentinel sends nothing).
         if (p3 && p4 === "requests" && !seg[5] && req.method === "POST") return send(res, 201, await ev.draftRequest(p1, p3, await body()));

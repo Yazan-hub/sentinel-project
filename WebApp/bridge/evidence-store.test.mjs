@@ -4,7 +4,8 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { makePack, readPack, signAttestation, runEvidenceIntake, recheckPack, draftRequest, surveyStart } from "./evidence-store.mjs";
+import { makePack, readPack, signAttestation, runEvidenceIntake, recheckPack, draftRequest, surveyStart, webStatus } from "./evidence-store.mjs";
+import * as W from "./web-sources.mjs";
 import { ATTESTATIONS, USES } from "./evidence-logic.mjs";
 
 let root, docs, audits, budgets, role;
@@ -195,10 +196,29 @@ describe("evidence intake (MA-4a)", () => {
   it("(h) E-7 offline: no evidence byte leaves the PC — no upload, fetch or remote module", () => {
     const src = readFileSync(new URL("./evidence-store.mjs", import.meta.url), "utf8");
     for (const word of ["readRaw", "fetch(", "uploadIfc", "/cde/files", "thatopen"]) expect(src).not.toContain(word);
-    const allowed = ["./bridge-auth.mjs", "./evidence-logic.mjs", "./artefact-store.mjs", "./cde-store.mjs", "./members-store.mjs"];
+    const allowed = ["./bridge-auth.mjs", "./evidence-logic.mjs", "./artefact-store.mjs", "./cde-store.mjs", "./members-store.mjs",
+      "./web-sources.mjs"]; // MA-7-2: a pure table, no I/O
     const specs = [...src.matchAll(/(?:from|import\()\s*["']([^"']+)["']/g)].map((m) => m[1]);
     expect(specs.length).toBeGreaterThan(0);
     for (const s of specs) expect(s.startsWith("node:") || allowed.includes(s), s).toBe(true);
+  });
+
+  it("(v) MA-7-2: webStatus reads the switch for this project and echoes no other env value", async () => {
+    await ready();
+    role = "viewer";
+    const off = await webStatus("demo", "evp-0001", { ...deps(), env: { SENTINEL_WEB_EVIDENCE: "", SENTINEL_AI_KEY: "sk-secret-value", SENTINEL_WEB_COUNSEL_REF: "ab".repeat(32) } });
+    expect(off).toMatchObject({ mode: "off", counsel_ref: null, a_signed: true });
+    expect(off.red.labels).toContain("google");
+    expect(off.sources_sha256).toBe(W.SOURCES_SHA256);
+    expect(off.sources.find((s) => s.id === "wikimedia-commons")).toMatchObject({ list: "AMBER", held_for_counsel: true });
+    expect(JSON.stringify(off)).not.toMatch(/sk-secret|SENTINEL_AI|abababababababab/);
+    const on = await webStatus("demo", "evp-0001", { ...deps(), env: { SENTINEL_WEB_EVIDENCE: "on", SENTINEL_WEB_COUNSEL_REF: "ab".repeat(32) } });
+    expect(on).toMatchObject({ mode: "on", counsel_ref: "abababababab" });
+    expect(JSON.stringify(on)).not.toContain("ab".repeat(13));
+    expect((await webStatus("demo", "evp-0001", { ...deps(), env: { SENTINEL_WEB_EVIDENCE: "drill:demo" } })).mode).toBe("drill");
+    expect(await webStatus("demo", "evp-0001", { ...deps(), env: { SENTINEL_WEB_EVIDENCE: "drill" } })).toMatchObject({ mode: "off", why: W.DRILL_NO_KEY });
+    expect(await webStatus("demo", "evp-0001", { ...deps(), env: { SENTINEL_WEB_EVIDENCE: "on", SENTINEL_WEB_COUNSEL_REF: "ab".repeat(31) + "a" } })).toMatchObject({ mode: "off", why: W.ON_NO_REF });
+    await expect(webStatus("demo", "evp-0009", deps())).rejects.toMatchObject({ status: 404 });
   });
 
   it("(i) Re-check is budgeted, runs once at a time per project, and is a contributor's", async () => {

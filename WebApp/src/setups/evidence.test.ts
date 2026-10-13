@@ -10,7 +10,7 @@ vi.mock("./bridge-fetch", () => ({ bfetch, bwrite }));
 import { ATTESTATION_CODES, ATTESTATION_TEXTS, kindOf, needsReport, itemLine, attestationLine, admitLine, recheckLine, readEvidence,
   signAttestation, evidenceControls, requestLine, isImage, jobLine, candidateLine, surveyStartLine, surveyableScans, startSurvey, readJobs,
   proposeBody, proposeFromJob, proposeLine, datasetLine, type ProposeReply, type EvidenceItem, type EvidencePack, type EvidenceRequest, type SurveyJob,
-  isDrawingJob, readableDrawings, drawingStartLine, startDrawing, isIfcJob, readableIfc, ifcStartLine, startIfc, startRecipe, ifcHintLine, alignBody, alignPreview, drawingSvg, snapPaper, type AlignDraft } from "./evidence";
+  isDrawingJob, readableDrawings, drawingStartLine, startDrawing, isIfcJob, readableIfc, ifcStartLine, startIfc, startRecipe, webLine, ifcHintLine, alignBody, alignPreview, drawingSvg, snapPaper, type AlignDraft } from "./evidence";
 
 const res = (status: number, body: unknown) => ({ ok: status < 400, status, json: async () => body }) as unknown as Response;
 const HASH = "ab".repeat(32);
@@ -413,5 +413,16 @@ describe("recipe runs (MA-8-13, D13)", () => {
     expect(l).toContain(" · from recipe@1 (approvals #950, #951) · by contributor@example.test");
     expect(jobLine({ ...JOB, recipe: { ref: "recipe@3" } })).toContain(" · from recipe@3 · by ");
     expect(jobLine(JOB)).not.toContain("from recipe");
+  });
+});
+
+describe("MA-7-2: the web switch line", () => {
+  it("webLine says off, drill and on in the plan's words", () => {
+    expect(webLine({ mode: "off", counsel_ref: null })).toBe("Web evidence: off — counsel has not reviewed it yet (D5). Your own photos and scans are admitted as before.");
+    expect(webLine({ mode: "drill", counsel_ref: null })).toBe("Web evidence: DRILL — the founder's switch; counsel has not reviewed web evidence.");
+    expect(webLine({ mode: "off", counsel_ref: null, why: "web evidence is off until counsel has reviewed it (design D5) — the founder's switch SENTINEL_WEB_EVIDENCE; nothing" })).toContain("counsel has not reviewed it yet");
+    expect(webLine({ mode: "off", counsel_ref: null, why: "SENTINEL_WEB_EVIDENCE=on needs SENTINEL_WEB_COUNSEL_REF" })).toBe("Web evidence: off — SENTINEL_WEB_EVIDENCE=on needs SENTINEL_WEB_COUNSEL_REF");
+    expect(webLine({ mode: "off", counsel_ref: null, why: "drill mode names its project(s): SENTINEL_WEB_EVIDENCE=drill:<project key>" })).toMatch(/^Web evidence: off — drill mode/);
+    expect(webLine({ mode: "on", counsel_ref: "abcdef012345" })).toBe("Web evidence: on (counsel ref abcdef012345…)");
   });
 });
