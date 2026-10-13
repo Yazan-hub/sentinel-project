@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Security.Cryptography;
 using Autodesk.Revit.ApplicationServices;
 using Autodesk.Revit.DB;
@@ -24,12 +26,20 @@ internal sealed class OfficeTemplateSource
 /// </summary>
 internal static class OfficeTemplate
 {
+    /// <summary>Same file by normalised path; an unsaved or cloud path (empty, or one GetFullPath refuses) is simply not the file.</summary>
+    private static bool Same(string a, string? b)
+    {
+        if (string.IsNullOrEmpty(a) || string.IsNullOrEmpty(b)) return false;
+        try { return string.Equals(Path.GetFullPath(a), Path.GetFullPath(b!), StringComparison.OrdinalIgnoreCase); }
+        catch (Exception) { return string.Equals(a, b, StringComparison.OrdinalIgnoreCase); }
+    }
+
     public static OfficeTemplateSource? Open(Application app, Document active, string path, out string why)
     {
         why = "";
         string name = Path.GetFileName(path);
         if (!File.Exists(path)) { why = $"{name} is not there - nothing was created."; return null; }
-        if (string.Equals(Path.GetFullPath(path), Path.GetFullPath(active.PathName ?? ""), StringComparison.OrdinalIgnoreCase))
+        if (Same(path, active.PathName))
         { why = "That is the model you are annotating - nothing was created."; return null; }
 
         string sha;
@@ -44,8 +54,15 @@ internal static class OfficeTemplate
 
         // A document the person already holds: used, never closed (it may hold their work). A linked copy is not it.
         foreach (Document d in app.Documents)
-            if (!d.IsLinked && string.Equals(d.PathName, path, StringComparison.OrdinalIgnoreCase))
-                return new OfficeTemplateSource { Doc = d, Sha256 = sha, FileName = name, Title = d.Title, Format = app.VersionNumber, Opened = false };
+            if (!d.IsLinked && Same(path, d.PathName))
+            {
+                string fmt;
+                try { fmt = BasicFileInfo.Extract(path).Format; } catch (Exception) { fmt = "not read (already open)"; }
+                return new OfficeTemplateSource { Doc = d, Sha256 = sha, FileName = name, Title = d.Title, Format = fmt, Opened = false };
+            }
+        // R-B4-3: whatever Revit hands back for a path form the match missed, a document that was open before is never ours to close.
+        var before = new List<Document>();
+        foreach (Document d in app.Documents) before.Add(d);
 
         BasicFileInfo info;
         try { info = BasicFileInfo.Extract(path); }
@@ -63,7 +80,8 @@ internal static class OfficeTemplate
         try
         {
             var doc = app.OpenDocumentFile(ModelPathUtils.ConvertUserVisiblePathToModelPath(path), o);
-            return new OfficeTemplateSource { Doc = doc, Sha256 = sha, FileName = name, Title = doc.Title, Format = info.Format, Opened = true, Seconds = clock.Elapsed.TotalSeconds };
+            bool held = before.Any(d => ReferenceEquals(d, doc) || Same(doc.PathName, d.PathName));
+            return new OfficeTemplateSource { Doc = doc, Sha256 = sha, FileName = name, Title = doc.Title, Format = info.Format, Opened = !held, Seconds = clock.Elapsed.TotalSeconds };
         }
         catch (Exception ex) { why = $"Revit could not open {name} ({ex.Message}) - nothing was created."; return null; }
     }

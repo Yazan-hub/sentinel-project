@@ -189,8 +189,10 @@ public sealed class AnnotateViewsCommand : IExternalCommand
                 using var t = new Transaction(doc, "Sentinel — Annotate: guideline views");
                 t.Start();
                 // MA-8-11: each ticked template in its own SubTransaction (the ANV-2 pattern), before the views that use it.
+                var usedNames = new HashSet<string>(pick.Views.Select(v => v.Template));
                 foreach (var tr in pick.Templates)
                 {
+                    if (!usedNames.Contains(tr.Name)) { notCopied.Add((tr.Name, "no ticked view uses it")); continue; }
                     using var st = new SubTransaction(doc);
                     st.Start();
                     try
@@ -224,12 +226,14 @@ public sealed class AnnotateViewsCommand : IExternalCommand
                         if (!NamingUtils.IsValidName(p.Name)) throw new InvalidOperationException("Revit refuses this view name");
                         var view = ViewPlan.Create(doc, viewType[p.ViewType], levelId[p.LevelName]);
                         view.Name = p.Name;
-                        if (p.TemplateInModel) view.ViewTemplateId = templates[p.Template].Id;
+                        // A template of another view family (e.g. a CeilingPlan one on a FloorPlan view) is not valid here: created without it.
+                        bool tplUsed = p.TemplateInModel && view.IsValidViewTemplate(templates[p.Template].Id);
+                        if (tplUsed) view.ViewTemplateId = templates[p.Template].Id;
                         bool routed = string.IsNullOrWhiteSpace(p.BrowserStatus) || ViewGenerator.SetFirstMatch(view, routeParams, p.BrowserStatus);
                         if (st.Commit() != TransactionStatus.Committed) throw new InvalidOperationException("Revit did not commit this view");
                         created.Add(p.Name);
                         if (!routed) unrouted++;
-                        if (!p.TemplateInModel && !string.IsNullOrWhiteSpace(p.Template))
+                        if (!tplUsed && !string.IsNullOrWhiteSpace(p.Template))
                             warnings.Add($"View template '{p.Template}' not in this model — '{p.Name}' created without it.");
                     }
                     catch (Exception ex)
@@ -303,7 +307,7 @@ public sealed class AnnotateViewsCommand : IExternalCommand
 
         var sb = new StringBuilder();
         if (!kept)
-            sb.AppendLine($"Revit committed this run but did not keep the Undo group (B31?): {present.Count} view(s) and {pinnedNow.Count} pin(s) are in the model — the annotate ledger row is the record.").AppendLine();
+            sb.AppendLine($"Revit committed this run but did not keep the Undo group (B31?): {present.Count} view(s), {pinnedNow.Count} pin(s) and {templatesNow.Count} view template(s) are in the model — the annotate ledger row is the record.").AppendLine();
         sb.AppendLine(words[0]).AppendLine(words[1]);
         sb.AppendLine($"Created: {present.Count} view(s). Pinned: {pinnedLevels} level(s) and {pinnedGrids} grid(s).");
         sb.AppendLine(pinnedLine);
@@ -331,7 +335,8 @@ public sealed class AnnotateViewsCommand : IExternalCommand
         finally
         {
             // MA-8-11: Cancel, a throw and success all end here; a file the person already held open is never closed.
-            if (src != null && src.Opened) src.Doc.Close(false);
+            try { if (src != null && src.Opened) src.Doc.Close(false); }
+            catch (Exception ex) { App.PanelVm?.LogDoctor($"Annotate: the office template file could not be closed in the background ({ex.Message}); close it by hand, unsaved."); }
         }
     }
 }

@@ -223,7 +223,7 @@ namespace Sentinel.GhostBuilder
         public static string TemplateFileLine(string name, string sha256, string title, string catalogTitle, string format, double seconds, bool opened) =>
             $"Copy view templates from {name} (sha256 {(sha256 ?? "").Substring(0, Math.Min(12, (sha256 ?? "").Length))}…; title '{title}'"
             + (string.IsNullOrWhiteSpace(catalogTitle) ? "; the type catalogue names no template title to compare"
-               : string.Equals(title, catalogTitle, StringComparison.OrdinalIgnoreCase) ? "" : $" — WARNING: not the catalogue's '{catalogTitle}'")
+               : string.Equals((title ?? "").Replace("_detached", ""), catalogTitle, StringComparison.OrdinalIgnoreCase) ? "" : $" — WARNING: not the catalogue's '{catalogTitle}'")
             + $"; saved in Revit {format}; " + (opened ? $"opened in the background in {seconds:0.0} s" : "already open in this session") + "). It is never saved.";
 
         /// <summary>DAT-3 (F3 A, F7): every unpinned level and grid. Story levels and grids are pre-ticked; a level that is not a

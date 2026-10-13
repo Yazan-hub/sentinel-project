@@ -233,19 +233,22 @@ Check("F3: Datum's result names Annotate as the next step", Src("Commands.Datum.
     Check("MA-8-11: the file is picked and opened before the preview, and a refusal is a dialog and Cancelled with nothing written",
         pickAt > 0 && pickAt < ann.IndexOf("new AnnotatePreviewWindow(") && annN.Contains("TaskDialog.Show(Title, why); return Result.Cancelled;"));
     Check("MA-8-11: one Close(false), in a finally, and only for a document this run opened",
-        CountOf(ann, ".Close(false)") == 1 && finAt > ann.IndexOf("TaskDialog.Show(Title, sb.ToString())") && ann.IndexOf(".Close(false)") > finAt && ann.Contains("if (src != null && src.Opened) src.Doc.Close(false);"));
+        CountOf(ann, ".Close(false)") == 1 && finAt > ann.IndexOf("TaskDialog.Show(Title, sb.ToString())") && ann.IndexOf(".Close(false)") > finAt && ann.Contains("try { if (src != null && src.Opened) src.Doc.Close(false); }") && ann.Contains("could not be closed in the background"));
     Check("MA-8-11: the office file is never saved - no Save( / SaveAs( in either file",
         !off.Contains(".Save(") && !off.Contains("SaveAs(") && !ann.Contains(".Save(") && !ann.Contains("SaveAs(") && !ann.Contains("SaveAsOptions"));
     int detach = off.IndexOf("DetachFromCentralOption"), shared = off.IndexOf("if (info.IsWorkshared)");
     Check("MA-8-11: detached only when workshared, with every workset closed", shared > 0 && detach > shared && off.Contains("WorksetConfigurationOption.CloseAllWorksets") && CountOf(off, "DetachFromCentralOption") == 2);
     Check("MA-8-11: an already-open document is used (not linked) and flagged not-opened; the hash is read with FileShare.ReadWrite",
-        off.Contains("!d.IsLinked && string.Equals(d.PathName, path") && off.Contains("Opened = false") && off.Contains("FileShare.ReadWrite"));
+        off.Contains("!d.IsLinked && Same(path, d.PathName)") && off.Contains("ReferenceEquals(d, doc)") && off.Contains("Opened = !held") && off.Contains("catch (Exception) { return string.Equals(a, b") && off.Contains("Opened = false") && off.Contains("FileShare.ReadWrite"));
     Check("MA-8-11: the copy is a SubTransaction inside the one Transaction, after the group starts and before the views loop, with UseDestinationTypes; a renamed copy rolls back",
         copyAt > run && copyAt < ann.IndexOf("foreach (var p in pick.Views)") && copyAt > ann.IndexOf("new Transaction(") && ann.Contains("new StandardsBuilder.UseDestinationTypes()")
         && ann.Contains("Revit renamed it to") && CountOf(ann, "new Transaction(") == 1);
     Check("MA-8-11 (amendment 5): templates count in the guard, the keep and the nothing-created exit",
         ann.Contains("pick.Views.Count + pick.Pins.Count + pick.Templates.Count == 0") && ann.Contains("created.Count + claimedPins + copiedNames.Count > 0")
         && ann.Contains("present.Count + pinnedNow.Count + templatesNow.Count == 0"));
+    Check("MA-8-11 (review): a template no ticked view uses is not copied; IsValidViewTemplate guards the assignment; the undo line counts templates",
+        ann.Contains("no ticked view uses it") && ann.Contains("view.IsValidViewTemplate(") && ann.Contains("{templatesNow.Count} view template(s) are in the model") && ann.Contains("tplUsed"));
+    Check("MA-8-11 (review): a detached title matches the catalogue's", !ViewPlanner.TemplateFileLine("o.rte", "ab", "T_detached", "T", "2024", 0, true).Contains("WARNING"));
     Check("MA-8-11 (amendment 6): the row's copied names are read back from the model, and the path is never sent",
         ann.Contains("v.IsTemplate && copiedNames.Contains(v.Name)") && ann.Contains("Copied = templatesNow") && ann.Contains("FileName = src.FileName") && off.Contains("string name = Path.GetFileName(path);") && off.Contains("FileName = name"));
 }
