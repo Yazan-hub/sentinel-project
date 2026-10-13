@@ -136,9 +136,10 @@ export function pickItems(pack, dir, reader = READER, item = null) {
   const named = item ? pack.items.find((x) => x.id === item) : null;
   if (item && !named) throw err(404, `no item ${item} in the evidence pack — nothing was saved`);
   // MA-6-8: one concept a job — two would clash storey for storey (ponytail: the newest admitted model of ANY provider is read unless `item` names one, MA-8-3; a vendor's can be the default)
-  const newest = kind === "model" && !named ? Math.max(...pack.items.filter((x) => x.kind === kind && x.state !== "changed").map((x) => Number(String(x.id).split("-")[1]))) : null;
+  const newest = kind === "model" && !named ? Math.max(...pack.items.filter((x) => x.kind === kind && x.state !== "changed" && x.state !== "expired").map((x) => Number(String(x.id).split("-")[1]))) : null;
   for (const i of named ? [named] : pack.items.filter((x) => x.kind === kind)) {
     const why = named && i.kind !== kind ? `not a ${kind} — ${reader} reads the model named`
+      : i.state === "expired" ? `expired on ${i.expired_at.slice(0, 10)} (delete-by) — not read` // MA-7-5
       : i.state === "changed" ? "changed since admitted (Re-check flagged it) — admit the same bytes again"
       : kind === "model" && !named && Number(String(i.id).split("-")[1]) !== newest ? "an older concept — one IFC a job: the newest admitted is read"
       : kind === "drawing" && ["dwg", "dxf"].includes(i.format) ? `a .${i.format} is read by Ghost Builder in Revit (Model from Drawings) — ${DRAWING} reads PDF`
@@ -188,6 +189,7 @@ export function stillAdmitted(row, pack, id) {
   return row.read.map((rid) => {
     const sent = row.items.find((i) => i.id === rid), now = pack.items.find((i) => i.id === rid);
     const why = !sent ? "its row lists it as read but not as sent" : !now ? "it is no longer in the pack" : now.state === "changed" ? "Re-check flagged it changed"
+      : now.state === "expired" ? `it expired on ${now.expired_at.slice(0, 10)} (delete-by)` // MA-7-5
       : now.sha256 !== sent.sha256 ? "its sha256 in the pack is not the one the job read" : null;
     if (why) throw err(409, `${rid} is not the bytes ${id} read (${why}) — ${row.reader === DRAWING ? "read the admitted drawing" : row.reader === IFC ? "read the admitted IFC" : "survey the admitted scan"} again; nothing was saved`);
     return { id: rid, sha256: sent.sha256 };

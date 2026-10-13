@@ -564,6 +564,7 @@ server.listen(PORT, HOST, () => {
   })();
   startEventPoll(); // cross-machine SSE fan-out (no-op without Supabase)
   startPlatformGatePoll(); // platform gate runs → ledger rows (off without THATOPEN_GATE_COMPONENT_ID)
+  import("./evidence-store.mjs").then((ev) => ev.startExpirySweep()).catch(() => {}); // MA-7-5: delete-by sweep (off with SENTINEL_EXPIRY_SWEEP=off)
 });
 // A service manager stops the bridge with SIGTERM, a console with Ctrl+C (SIGINT): take no new connection, give the
 // ones in flight up to 5 s to answer (the stores write synchronously, so no write is cut in half), then exit.
@@ -1686,6 +1687,8 @@ async function handleRequest(req, res) {
           return send(res, r.verdict === "admitted" ? 201 : 200, r);
         }
         if (p3 && p4 === "recheck" && !seg[5] && req.method === "POST") return send(res, 200, await ev.recheckPack(p1, p3));
+        // MA-7-5: POST …/:pack/items/:id/delete-by {date, why?} → 200 (a signed-in lead; today retires the item now — the record and sha stay).
+        if (p3 && p4 === "items" && seg[5] && seg[6] === "delete-by" && !seg[7] && req.method === "POST") return send(res, 200, await ev.setDeleteBy(p1, p3, seg[5], await body()));
         // MA-7-2: GET …/:pack/web → the founder's web switch (off/drill/on), the source lists and their sha256 (any member; a read).
         if (p3 && p4 === "web" && !seg[5] && req.method === "GET") return send(res, 200, await ev.webStatus(p1, p3));
         // MA-4b: POST …/:pack/requests {recipient_kind, recipient?, documents[], purpose?} → 201 the drafted letter (a signed-in lead;

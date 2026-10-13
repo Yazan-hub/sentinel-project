@@ -1,13 +1,13 @@
 // MA-4a — evidence intake end to end on a temp evidence folder: the pack, the signatures, admission (streamed sha, magic, policy), a changed file refused and flagged, Re-check, re-admission — deps injected, no Supabase.
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { makePack, readPack, signAttestation, runEvidenceIntake, recheckPack, draftRequest, surveyStart, webStatus } from "./evidence-store.mjs";
+import { makePack, readPack, signAttestation, runEvidenceIntake, recheckPack, draftRequest, surveyStart, webStatus, setDeleteBy, startExpirySweep } from "./evidence-store.mjs";
 import * as W from "./web-sources.mjs";
 import { jpegWithExif } from "./fixtures/jpeg-exif.mjs";
-import { ATTESTATIONS, USES } from "./evidence-logic.mjs";
+import { ATTESTATIONS, USES, ITEM_FIELDS } from "./evidence-logic.mjs";
 
 let root, docs, audits, budgets, role;
 beforeEach(() => { root = mkdtempSync(join(tmpdir(), "sentinel-evidence-")); docs = new Map(); audits = []; budgets = []; role = "lead"; });
@@ -480,5 +480,143 @@ describe("a third party's model (MA-8-3)", () => {
     await recheck();
     put("model/vendor.ifc", IFC);
     await expect(admit({ ...vendor, provider: "other co" })).rejects.toMatchObject({ status: 409, message: expect.stringContaining("comes back as first admitted (acme scans)") });
+  });
+});
+
+describe("delete-by, expiry and retire (MA-7-5)", () => {
+  const TODAY = "2026-10-08"; // deps()'s clock
+  const delBy = (id, b, d = deps()) => setDeleteBy("demo", "evp-0001", id, b, d);
+  const setup = async () => { await ready(); put("scans/tiny.las", LAS); put("photos/own.jpg", JPG); await admit({ path: "scans/tiny.las", kind: "scan", registration: REG }); await admit({ path: "photos/own.jpg", kind: "photo" }); role = "lead"; };
+  const edit = (id, f) => { // plant a field on a stored item (7-7 / 7-12 write view_copy and role; the sweep reads only the pack)
+    const k = [...docs.keys()].filter((x) => x.startsWith("artefact|uuid-demo|evidence_pack@")).sort((a, b) => Number(a.split("@")[1]) - Number(b.split("@")[1])).pop();
+    Object.assign(docs.get(k).body.items.find((i) => i.id === id), f);
+  };
+  const copy = (rel) => join(root, "demo", ".sentinel", "view", rel);
+  // view_copy and role are 7-7's and 7-12's item fields (they widen ITEM_FIELDS then); the sweep already reads them, so these tests plant them
+  const FIELDS = ["view_copy", "role"];
+  beforeEach(() => { ITEM_FIELDS.push(...FIELDS); });
+  afterEach(() => { ITEM_FIELDS.splice(ITEM_FIELDS.length - FIELDS.length, FIELDS.length); });
+
+  it("(p) roles: the machine credential 403 with the words, a contributor 403, a lead 200 with one delete_by row", async () => {
+    await setup();
+    role = "service";
+    await expect(delBy("ev-0002", { date: "2026-12-31" })).rejects.toMatchObject({ status: 403, message: "a delete-by date needs a person — it names who set it: sign in. Nothing was saved." });
+    role = "contributor";
+    await expect(delBy("ev-0002", { date: "2026-12-31" })).rejects.toMatchObject({ status: 403 });
+    expect(rows("evidence:delete_by")).toHaveLength(0);
+    role = "lead";
+    const r = await delBy("ev-0002", { date: "2026-12-31", why: "owner asked" });
+    expect(r.item).toMatchObject({ id: "ev-0002", delete_by: "2026-12-31", delete_why: "owner asked" });
+    expect(r.ledger).toHaveLength(1);
+    expect(rows("evidence:delete_by").map((a) => a.action)).toEqual(["evidence:delete_by ev-0002 2026-12-31"]);
+    expect(rows("evidence:delete_by")[0].newv).toMatchObject({ item_id: "ev-0002", delete_by: "2026-12-31", why: "owner asked", actor: "machine" });
+    expect(rows("evidence:expired")).toHaveLength(0);
+    expect(budgets).toContainEqual(["evidence delete-by", { perUser: 20, all: 60 }]);
+    await expect(delBy("ev-0099", { date: "2026-12-31" })).rejects.toMatchObject({ status: 404 });
+    await expect(delBy("ev-0002", { date: "2026-10-07" })).rejects.toMatchObject({ status: 400 });
+    expect((await delBy("ev-0002", { date: "2027-01-01" })).item.delete_why).toBeUndefined(); // a new date without a why drops the old why
+  });
+
+  it("(q) retire now on an own scan: expired, one evidence:expired row with removed [] — and the office's file still exists", async () => {
+    await setup();
+    const r = await delBy("ev-0001", { date: TODAY });
+    expect(r.item).toMatchObject({ state: "expired", expired_at: "2026-10-08T10:00:00.000Z", removed: [], sha256: sha(LAS), delete_by: TODAY });
+    expect(rows("evidence:delete_by").map((a) => a.action)).toEqual([`evidence:delete_by ev-0001 ${TODAY}`]);
+    const x = rows("evidence:expired");
+    expect(x.map((a) => a.action)).toEqual(["evidence:expired ev-0001 scans/tiny.las"]);
+    expect(x[0].newv).toMatchObject({ item_id: "ev-0001", sha256: sha(LAS), removed: [], kept: "hash and record", office_file: "not touched — delete it by hand if the owner asked" });
+    expect(x[0].newv.not_removed).toBeUndefined();
+    expect(existsSync(join(root, "demo", "scans", "tiny.las"))).toBe(true);
+    expect(r.ledger).toHaveLength(2);
+    await expect(delBy("ev-0001", { date: "2026-12-31" })).rejects.toMatchObject({ status: 409, message: "ev-0001 expired on 2026-10-08 — its record stays and cannot change; nothing was saved" });
+  });
+
+  it("(r) a Sentinel copy with the admitted bytes is removed, one with other bytes is left (and said); a fold that fails deletes nothing", async () => {
+    await setup();
+    const COPY = Buffer.from("blurred copy bytes");
+    edit("ev-0002", { view_copy: { sha256: sha(COPY) } });
+    put(".sentinel/view/ev-0002.jpg", COPY);
+    const r = await delBy("ev-0002", { date: TODAY });
+    expect(r.item.removed).toEqual([".sentinel/view/ev-0002.jpg"]);
+    expect(existsSync(copy("ev-0002.jpg"))).toBe(false);
+    expect(existsSync(join(root, "demo", "photos", "own.jpg"))).toBe(true); // an own photo is the office's
+    expect(rows("evidence:expired")[0].newv).toMatchObject({ removed: [".sentinel/view/ev-0002.jpg"] });
+    // other bytes: left in place, said on the row
+    edit("ev-0001", { view_copy: { sha256: sha(COPY) } });
+    put(".sentinel/view/ev-0001.jpg", "someone else's bytes");
+    const r2 = await delBy("ev-0001", { date: TODAY });
+    expect(r2.item.removed).toEqual([]);
+    expect(existsSync(copy("ev-0001.jpg"))).toBe(true);
+    expect(rows("evidence:expired")[1].newv.not_removed).toEqual([{ path: ".sentinel/view/ev-0001.jpg", why: "not the admitted bytes — left in place" }]);
+  });
+
+  it("(r2) the record comes first: a fold that throws 409 leaves the copy where it is", async () => {
+    await setup();
+    const COPY = Buffer.from("blurred copy bytes");
+    edit("ev-0002", { view_copy: { sha256: sha(COPY) }, delete_by: TODAY });
+    put(".sentinel/view/ev-0002.jpg", COPY);
+    const d = deps(), ins = d.artDeps.docInsert;
+    let n = 0; // fold 1 sets ev-0001's delete-by; fold 2 is the sweep's, and another write landed first
+    d.artDeps.docInsert = async (...a) => { if (++n === 2) throw Object.assign(new Error("conflict"), { status: 409 }); return ins(...a); };
+    await expect(delBy("ev-0001", { date: TODAY }, d)).rejects.toMatchObject({ status: 409 });
+    expect(n).toBe(2);
+    expect(existsSync(copy("ev-0002.jpg"))).toBe(true);
+    expect(rows("evidence:expired")).toHaveLength(0);
+    expect((await pack()).items.every((i) => i.state === undefined)).toBe(true);
+  });
+
+  it("(r3) a web item's own file is removed on its sha; the row has no office_file", async () => {
+    await setup();
+    edit("ev-0002", { role: "context" });
+    const r = await delBy("ev-0002", { date: TODAY });
+    expect(r.item.removed).toEqual(["photos/own.jpg"]);
+    expect(existsSync(join(root, "demo", "photos", "own.jpg"))).toBe(false);
+    expect(rows("evidence:expired")[0].newv.office_file).toBeNull();
+  });
+
+  it("(s) an expired path is a 409 before the already-admitted one; Re-check skips it and the folder list does not offer it", async () => {
+    await setup();
+    await delBy("ev-0001", { date: TODAY });
+    role = "contributor";
+    await expect(admit({ path: "scans/tiny.las", kind: "scan", registration: REG })).rejects.toMatchObject({ status: 409, message: "scans/tiny.las was ev-0001, expired on 2026-10-08 (delete-by) — put the file in under a new name; nothing was saved" });
+    rmSync(join(root, "demo", "scans", "tiny.las"));
+    const rc = await recheck();
+    expect(rc.changed).toEqual([]); // the missing file of an expired item is no change
+    expect(rc.checked).toBe(1);
+    put("scans/tiny.las", LAS);
+    expect((await readPack("demo", "evp-0001", deps())).folder.files_not_admitted).toEqual([]);
+  });
+
+  it("(t) the sweep runs over each project folder with a pack and skips a busy one", async () => {
+    await setup();
+    await delBy("ev-0001", { date: "2026-10-09" }); // due tomorrow
+    // a second project: the same pack with one due item
+    const keyOf = (p) => `artefact|uuid-${p}|evidence_pack@`;
+    mkdirSync(join(root, "other"), { recursive: true });
+    const base = [...docs.keys()].filter((x) => x.startsWith(keyOf("demo"))).sort((a, b) => Number(a.split("@")[1]) - Number(b.split("@")[1])).pop();
+    for (const [k, v] of [...docs]) if (k.includes("|uuid-demo|evidence_pack")) docs.set(k.replace("uuid-demo", "uuid-other"), structuredClone(v.body ? { ...v, body: { ...v.body, project: "other" } } : v));
+    expect(base).toBeTruthy();
+    const later = { ...deps(), now: () => "2026-10-10T10:00:00.000Z" };
+    // hold "demo": a delete-by whose pack read waits
+    let release; const gate = new Promise((ok) => { release = ok; }); let entered = false;
+    const slow = deps(); const get = slow.artDeps.docGet; slow.artDeps.docGet = async (...a) => { entered = true; await gate; return get(...a); };
+    const held = delBy("ev-0002", { date: "2026-12-31" }, slow);
+    await vi.waitFor(() => expect(entered).toBe(true));
+    const timer = startExpirySweep({ every: 3600_000, deps: later, env: {} });
+    await vi.waitFor(() => expect(rows("evidence:expired").map((a) => a.action)).toEqual(["evidence:expired ev-0001 scans/tiny.las"]));
+    clearInterval(timer);
+    release(); await held;
+    expect((await pack()).items[0].state).toBeUndefined(); // demo was busy: left for the next run
+    expect(audits.filter((a) => a.action.startsWith("evidence:expired"))).toHaveLength(1);
+  });
+
+  it("(t2) SENTINEL_EXPIRY_SWEEP=off starts nothing", () => {
+    expect(startExpirySweep({ deps: deps(), env: { SENTINEL_EXPIRY_SWEEP: "off" } })).toBeNull();
+  });
+
+  it("(u) Sentinel's own .sentinel/ folder is not listed", async () => {
+    await ready();
+    put("scans/tiny.las", LAS); put(".sentinel/view/ev-0009.jpg", "x");
+    expect((await readPack("demo", "evp-0001", deps())).folder.files_not_admitted.map((f) => f.path)).toEqual(["scans/tiny.las"]);
   });
 });

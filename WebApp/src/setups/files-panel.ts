@@ -15,7 +15,7 @@ import { readDeleted, restoreDeleted, deletedItemLine, restoredLine, archivable,
 import { escapeHtml as esc } from "./escape-html";
 import { unarchiveFile } from "./cde-transition";
 import { firstTag, geometryCheck, linkedHash, linkedTag, sha256Hex, type GeometryLinkRow } from "./geometry-check";
-import { readEvidence, readWebStatus, webLine, type WebStatus, makePack, signAttestation, admitEvidence, recheckEvidence, draftRequest, kindOf, isImage, needsReport, itemLine, attestationLine, admitLine, recheckLine, requestLine, evidenceControls, ATTESTATION_CODES, ATTESTATION_TEXTS, datasetLine, PHOTO_SOURCES, MAP_SERVICES, photoProvider, type PhotoSource, type EvidenceRead, type EvidenceRequest,
+import { readEvidence, readWebStatus, webLine, type WebStatus, makePack, signAttestation, admitEvidence, recheckEvidence, setDeleteBy, draftRequest, kindOf, isImage, needsReport, itemLine, attestationLine, admitLine, recheckLine, requestLine, evidenceControls, ATTESTATION_CODES, ATTESTATION_TEXTS, datasetLine, PHOTO_SOURCES, MAP_SERVICES, photoProvider, type PhotoSource, type EvidenceRead, type EvidenceRequest,
   startSurvey, readJobs, readJob, jobLine, candidateLine, surveyStartLine, surveyableScans, proposeBody, proposeFromJob, proposeLine, type SurveyJob, type Candidate,
   startDrawing, drawingStartLine, readableDrawings, isDrawingJob, startIfc, ifcStartLine, readableIfc, isIfcJob, ifcHintLine, alignBody, alignPreview, drawingSvg, snapPaper, type AlignDraft } from "./evidence";
 
@@ -406,6 +406,19 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
         levels: Object.fromEntries([...root.querySelectorAll<HTMLInputElement>("[data-prlevel]")].map((i) => [i.dataset.prlevel!, i.value])) };
     };
     root.querySelectorAll("#fv-pr-dx, #fv-pr-dy, #fv-pr-dz, #fv-pr-rot, [data-prlevel]").forEach((n) => n.addEventListener("input", syncPropose));
+    root.querySelectorAll<HTMLElement>("[data-evdelby]").forEach((n) => n.addEventListener("click", () => void evAct(async () => {
+      const id = n.dataset.evdelby!, date = ([...root.querySelectorAll<HTMLInputElement>("[data-evdate]")].find((x) => x.dataset.evdate === id)?.value ?? "").trim();
+      if (!date) return "Pick a delete-by date first — nothing was saved";
+      const r = await setDeleteBy(base, pid(), id, date);
+      return `✓ ${id} delete by ${date} · ${r.ledger.map(ledgerLine).join(" · ")}`;
+    })));
+    root.querySelectorAll<HTMLElement>("[data-evretire]").forEach((n) => n.addEventListener("click", () => {
+      if (!confirm(`Retire ${n.dataset.evpath} now? No job reads it again; its record and sha256 stay on the pack and the ledger. The office's own file is not deleted. This cannot be undone.`)) return;
+      void evAct(async () => {
+        const r = await setDeleteBy(base, pid(), n.dataset.evretire!, new Date().toISOString().slice(0, 10));
+        return `✓ Retired ${n.dataset.evretire} · ${r.ledger.map(ledgerLine).join(" · ")}`;
+      });
+    }));
     root.querySelectorAll<HTMLElement>("[data-evsign]").forEach((n) => n.addEventListener("click", () => void evAct(async () => {
       const r = await signAttestation(base, pid(), n.dataset.evsign!);
       return `✓ Signed (${r.attestation.code}) as ${r.attestation.by} · ${ledgerLine(r.ledger)}`;
@@ -651,7 +664,12 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       return line(`<span style="color:${done ? "#4ade80" : "#9ca3af"}">${esc(attestationLine(c, pack))}</span> “${esc(ATTESTATION_TEXTS[c])}”` +
         (!done && signer ? ` <button data-evsign="${esc(c)}" style="${act}">Sign (${c})</button>` : ""));
     }).join("");
-    const items = pack.items.map((i) => line(esc(itemLine(i)), i.state === "changed" ? "#fca5a5" : "#cbd5e1")).join("") || line("none yet");
+    // MA-7-5: a lead sets a delete-by day or retires an item now; an expired item is greyed, with no controls
+    const today = new Date().toISOString().slice(0, 10);
+    const items = pack.items.map((i) => line(esc(itemLine(i)) + (can.sign && i.state !== "expired"
+      ? ` <input type="date" data-evdate="${esc(i.id)}" min="${esc(today)}" value="${esc(i.delete_by ?? "")}" style="background:#111;color:#eee;border:1px solid #2c2c34;border-radius:.25rem;font:11px system-ui"/>` +
+        ` <button data-evdelby="${esc(i.id)}" style="${act}">Set delete-by</button> <button data-evretire="${esc(i.id)}" data-evpath="${esc(i.path)}" style="${act}">Retire now</button>` : ""),
+      i.state === "changed" ? "#fca5a5" : i.state === "expired" ? "#52525b" : "#cbd5e1")).join("") || line("none yet");
     const requests = pack.requests ?? [];
     const inp = "background:#111;color:#eee;border:1px solid #2c2c34;border-radius:.25rem;padding:.2rem .4rem;font:12px system-ui";
     // MA-4d: the lead's two statements — where the scan sits in the model, and which existing level each scanned storey is (blank: matched from

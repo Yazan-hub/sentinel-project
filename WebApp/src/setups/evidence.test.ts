@@ -57,6 +57,12 @@ describe("the lines", () => {
     expect(itemLine(rcp)).toBe("ev-0003 · scans/site.rcp · rcp · 1 KB · sha 0123456789ab… · not surveyable (no ReCap here) · CHANGED since admitted — on hold; restore the file and Admit it again, or put the new file in under a new name");
     expect(itemLine(ITEM)).toBe("ev-0001 · scans/tiny.las · las · 2 KB · sha 76c6b5e940d1…");
   });
+  it("itemLine (MA-7-5): a delete-by day, an expired scan the office keeps, a web item whose copies were removed", () => {
+    expect(itemLine({ ...ITEM, delete_by: "2026-12-31" })).toBe("ev-0001 · scans/tiny.las · las · 2 KB · sha 76c6b5e940d1… · delete by 2026-12-31");
+    const gone: EvidenceItem = { ...ITEM, delete_by: "2026-10-13", state: "expired", expired_at: "2026-10-13T10:00:00.000Z", removed: [] };
+    expect(itemLine(gone)).toBe("ev-0001 · scans/tiny.las · las · 2 KB · sha 76c6b5e940d1… · EXPIRED 2026-10-13 — not read by any job; its record and sha stay; the office's file is not touched (delete it by hand if the owner asked)");
+    expect(itemLine({ ...gone, removed: [".sentinel/view/ev-0001.jpg"] })).toBe("ev-0001 · scans/tiny.las · las · 2 KB · sha 76c6b5e940d1… · EXPIRED 2026-10-13 — Sentinel's copies removed; its record and sha stay");
+  });
   it("attestationLine: signed and not signed", () => {
     expect(attestationLine("a", PACK)).toBe("(a) signed by lead@example.test (lead) · 2026-10-08 10:00");
     expect(attestationLine("b", PACK)).toBe("(b) not signed");

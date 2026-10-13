@@ -81,6 +81,13 @@ describe("survey jobs (MA-4c)", () => {
     expect(runs[0].opts.cwd).toBe(join(root, "demo", "job-0001"));
   });
 
+  it("(a1) MA-7-5: an expired scan is refused with the words, and nothing is sent for it", async () => {
+    PACK.items.push(item("ev-0009", "scans/old.las", { state: "expired", expired_at: "2026-10-13T10:00:00.000Z" }));
+    const { job } = await start();
+    expect(job.refused).toContainEqual({ id: "ev-0009", reason: "expired on 2026-10-13 (delete-by) — not read" });
+    expect(job.items.map((i) => i.id)).toEqual(["ev-0001"]);
+  });
+
   it("(a2) MA-4g: a .laz and an .e57 are sent like a .las — sentinel-survey reads each by its bytes and refuses what it cannot, in words", async () => {
     PACK.items.push(item("ev-0002", "scans/b.laz"), item("ev-0007", "scans/f.e57"));
     const { job } = await start();
@@ -393,6 +400,9 @@ describe("stillAdmitted and measureJob (MA-4e)", () => {
   const ROW = { items: [{ id: "ev-0001", sha256: "1".repeat(64) }], read: ["ev-0001"] };
   it("stillAdmitted: the read items, still the bytes the job read, or MA-4d's words", () => {
     expect(stillAdmitted(ROW, { items: [{ id: "ev-0001", sha256: "1".repeat(64), state: "admitted" }] }, "job-0001")).toEqual([{ id: "ev-0001", sha256: "1".repeat(64) }]);
+    // MA-7-5: an expired item is never read again - by propose, verify, the overlay or a recipe (all go through this check)
+    expect(() => stillAdmitted(ROW, { items: [{ id: "ev-0001", sha256: "1".repeat(64), state: "expired", expired_at: "2026-10-13T10:00:00.000Z" }] }, "job-0001"))
+      .toThrow("ev-0001 is not the bytes job-0001 read (it expired on 2026-10-13 (delete-by)) — survey the admitted scan again; nothing was saved");
     expect(() => stillAdmitted(ROW, { items: [] }, "job-0001")).toThrow("ev-0001 is not the bytes job-0001 read (it is no longer in the pack) — survey the admitted scan again; nothing was saved");
   });
   const P = { job_id: "measure-c1", items: [], params: {}, seed: 1, elements: [] };
