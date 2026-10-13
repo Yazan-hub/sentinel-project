@@ -288,6 +288,14 @@ namespace Sentinel.GhostBuilder
                 }
                 if (Present(e, "default", out var def) && !(def.ValueKind == JsonValueKind.Object && Filled(def, "family")))
                     throw Bad(at + ".default.family", "must be a non-empty string");
+                // MA-8-10: a Stairs element names the office's stair type and its run width in every rule and the default, refused as the bridge
+                // refuses it (artefact-store.mjs), in the same words - tools/promote-check runs both against WebApp/bridge/fixtures/guideline-stairs/cases.json.
+                if (Norm(e.GetProperty("category").GetString()) == "stairs")
+                {
+                    int k = 0;
+                    foreach (var r in rules.EnumerateArray()) CheckStairUse(r.GetProperty("use"), at + ".rules[" + k++ + "].use");
+                    if (Present(e, "default", out var sdef)) CheckStairUse(sdef, at + ".default");
+                }
             }
             if (Present(b, "views", out var views) && views.ValueKind != JsonValueKind.Array) throw Bad("views", "must be an array");
             if (Present(b, "viewNaming", out var vn) && vn.ValueKind != JsonValueKind.Object) throw Bad("viewNaming", "must be an object");
@@ -342,6 +350,37 @@ namespace Sentinel.GhostBuilder
                 if (Present(pl, "phase", out var ph) && !(ph.ValueKind == JsonValueKind.String && ph.GetString() == "view"))
                     throw Bad("placement.phase", "must be \"view\" (the phase of the view the person builds in)");
             }
+        }
+
+        // MA-8-10: a Stairs rule's use - the type itself (a pattern fills nothing: a stair has no thickness) and params.width_mm, the run's width.
+        private static void CheckStairUse(JsonElement use, string at)
+        {
+            if (!Filled(use, "type")) throw Bad(at + ".type", "must be a non-empty string — the office's stair type");
+            if (!(use.TryGetProperty("params", out var ps) && ps.ValueKind == JsonValueKind.Object && ps.TryGetProperty("width_mm", out var w)
+                  && w.ValueKind == JsonValueKind.Number && w.TryGetDouble(out var mm) && mm >= 300 && mm <= 5000))
+                throw Bad(at + ".params.width_mm", "must be a number of millimetres from 300 to 5000 — the stair's run width");
+        }
+
+        /// <summary>MA-8-10 (D9): the office's stair on <paramref name="level"/> - the Stairs element's rule for that level, else its default (an
+        /// ordinary guideline element, no new section): family, type and the run width (params.width_mm) with where the answer came from. Null with
+        /// <paramref name="hold"/> (a person decides) when the guideline has no Stairs element, or its type is not in the catalogue in force.
+        /// params.width_mm arrives as a JsonElement (Dictionary&lt;string, object&gt; read by System.Text.Json).</summary>
+        public (string Family, string Type, double WidthMm, string Source)? StairRule(string level, out string hold)
+        {
+            hold = null;
+            var r = Resolve(new GuidelineInput { Category = "Stairs", Level = level });
+            if (r.Source == "none")
+            {
+                hold = $"no Stairs rule in {Standard} — add a Stairs element (a stair type and params.width_mm) to the guideline; a person decides";
+                return null;
+            }
+            if (r.Confidence == 0) { hold = Gap($"Stairs on {level}", r.Why); return null; }
+            if (!(r.Params != null && r.Params.TryGetValue("width_mm", out var o) && o is JsonElement w && w.ValueKind == JsonValueKind.Number && w.TryGetDouble(out var mm) && mm >= 300 && mm <= 5000))
+            {
+                hold = $"the Stairs rule in {Standard} has no params.width_mm (300 to 5000 mm) — the run's width; a person decides";
+                return null;
+            }
+            return (r.Family, r.Type, mm, $"{Standard} {r.Source}");
         }
 
         // type_catalog@n as the bridge validates it (the office-snapshot row shape, template instead of source).

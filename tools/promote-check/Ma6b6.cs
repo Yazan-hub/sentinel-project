@@ -128,7 +128,7 @@ static partial class Check
 
         // The bridge's half, the same names: the kind, its class and the source.
         string logic = File.ReadAllText(Repo("WebApp", "bridge", "changesets-logic.mjs"));
-        Ok(logic.Contains("\"room\", \"opening\", \"beam\", \"mass\"];") && logic.Contains("mass: \"IFCBUILDINGELEMENTPROXY\"")
+        Ok(logic.Contains("\"room\", \"opening\", \"beam\", \"mass\", \"stair\"];") && logic.Contains("mass: \"IFCBUILDINGELEMENTPROXY\"")
            && logic.Contains("export const ADDIN_SOURCES = [\"dwg\", \"promote\", \"photo\"];") && planner.Contains("Class = \"IFCBUILDINGELEMENTPROXY\", Name = \"Photo mass\""),
            "the bridge takes the mass kind under the class the planner posts (IFCBUILDINGELEMENTPROXY) and files photo as the add-in's source");
 

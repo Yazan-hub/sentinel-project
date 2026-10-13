@@ -543,6 +543,64 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                 window.Shown($"Flagged: {StairFlag.Line(flag.Storey, flag.Min, flag.Max)} — saved on {cs.Name} for a person; nothing was placed.");
             });
         }, refusal => window.Shown($"The stair was not flagged — {refusal}"));
+        // MA-8-10: "Propose a stair…" on a flag - one straight stair planned from the guideline's Stairs rule and the model's stair type, filed as a changeset of its own
+        // (nothing ticked, nothing placed). Hops (amendment 16): (a) this thread - sign-in; (b) a pool thread - the standards read; (c) Revit's thread - the type, the
+        // stories, which end the stair rises from, the plan; (d) a pool thread - the POST with this window's cfg (the person's token); (e) window.Shown.
+        window.ProposeStairRequested += uid =>
+        {
+            // (a)
+            if (!UserSession.IsSignedIn) { window.Shown("Proposing a stair needs a signed-in person (Standards ▸ Sign in); nothing was saved."); return; }
+            var flag = (cs.Exceptions ?? new List<ExceptionRowDto>()).FirstOrDefault(x => x.UniqueId == uid && x.Kind == "stair" && x.Box?.Min != null && x.Box.Max != null);
+            if (flag == null) { window.Shown("That stair flag is not on this changeset; nothing was saved."); return; }
+            window.Shown("Reading the office's Stairs rule…");
+            Task.Run(() =>
+            {
+                // (b)
+                (string Family, string Type, double WidthMm, string Source)? rule;
+                string hold;
+                try
+                {
+                    var standards = GhostStandards.Load(key, layers: false, guideline: true, catalog: true);
+                    rule = standards.Guideline.StairRule(flag.Storey, out hold);
+                }
+                catch (Exception ex) { window.Shown($"The stair was not planned — the office standards could not be read: {ex.Message}"); return; }
+                if (rule == null) { window.Shown("Held for a person — " + hold); return; }
+                // (c)
+                App.Events.Enqueue(doc, "plan a stair", (ua, d) =>
+                {
+                    if (window.Gone) return;
+                    StairTypeFacts facts;
+                    try
+                    {
+                        var type = (Autodesk.Revit.DB.Architecture.StairsType)ChangesetExecutor.StairsTypeOf(d, rule.Value.Family, rule.Value.Type);
+                        const double ft = 304.8;
+                        facts = new StairTypeFacts { MaxRiserMm = type.MaxRiserHeight * ft, MinTreadMm = type.MinTreadDepth * ft, MinRunWidthMm = type.MinRunWidth * ft };
+                    }
+                    catch (Exception ex) when (ex is PlacementRefused || ex is InvalidOperationException) { window.Shown("Held for a person — " + ex.Message); return; }
+                    // the box does not say which end the stair rises from: a person does (reading the IFC flight's first riser is not built)
+                    var (low, high, lowAt, highAt, alongX) = StairPlanner.Ends(flag.Box.Min, flag.Box.Max);
+                    string axis = alongX ? "x" : "y";
+                    var ask = new TaskDialog(Title) { MainInstruction = "Which end does the stair rise from?", CommonButtons = TaskDialogCommonButtons.Cancel,
+                        MainContent = $"{StairFlag.Line(flag.Storey, flag.Box.Min, flag.Box.Max)}. The box does not say where the stair starts; the stair runs the long way of the box." };
+                    ask.AddCommandLink(TaskDialogCommandLinkId.CommandLink1, $"Rises from the {low} end", $"{axis} = {lowAt.ToString("0", System.Globalization.CultureInfo.InvariantCulture)} mm");
+                    ask.AddCommandLink(TaskDialogCommandLinkId.CommandLink2, $"Rises from the {high} end", $"{axis} = {highAt.ToString("0", System.Globalization.CultureInfo.InvariantCulture)} mm");
+                    var pick = ask.Show();
+                    if (pick != TaskDialogResult.CommandLink1 && pick != TaskDialogResult.CommandLink2) { window.Shown("Proposing the stair was cancelled; nothing was saved."); return; }
+                    var plan = StairPlanner.Plan(flag.Name ?? flag.UniqueId, cs.Id, flag.UniqueId, flag.Storey, flag.Box.Min, flag.Box.Max, pick == TaskDialogResult.CommandLink1,
+                                                 ChangesetExecutor.Stories(d), rule.Value, facts, UserSession.Actor);
+                    if (plan.Hold != null) { window.Shown("Held for a person — " + plan.Hold); return; }
+                    window.Shown("Filing the stair on the bridge…");
+                    // (d)
+                    Task.Run(() =>
+                    {
+                        var filed = ChangesetClient.Propose(cfg, key, plan.Body, out var proposeErr);
+                        // (e)
+                        window.Shown(filed == null ? "The stair was not proposed — " + proposeErr
+                            : $"Proposed {filed.Name}: {plan.Line}. Review it (Review AI Proposals); nothing was ticked or placed.");
+                    });
+                }, refusal => window.Shown($"The stair was not planned — {refusal}"));
+            });
+        };
         var here = DocOf(doc);
         var left = new List<UnreportedResults.Record>(); // what Retry report sends again
         // Review C13: a decline that did not land lives only in this window (E4) — closing it loses it, said.
@@ -734,6 +792,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                         if (result.Block != null) said = result.Block + (string.IsNullOrEmpty(said) ? "" : " | " + said); // MA-1a item 5
                         if (result.Ids != null) said = result.Ids + (string.IsNullOrEmpty(said) ? "" : " | " + said);     // MA-2b
                         if (res.MassAs != null) said = res.MassAs + (string.IsNullOrEmpty(said) ? "" : " | " + said);     // MA-6-6 (D13): on its own row
+                        if (res.Removed != null) said = res.Removed + (string.IsNullOrEmpty(said) ? "" : " | " + said);   // MA-8-10: the warnings a stair's scope removed, on its row
                         // MA-3a: the revision Apply re-checked. Remembered for the undo watcher under the Undo entry's name and the changeset's own.
                         records.Add(ResultOf(key, one, res.Applied, rejected, said, one.ReviewRev, here, new List<string> { undo, UndoWatcher.TxName(one.Name, one.Id) }, whys));
                     }
@@ -754,7 +813,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                     // MA-5b-4 review: a ticked wall Revit kept as it stands is said here, with why — not only on the ledger
                     var kept = result.Kept.Count == 0 ? "" : $"\n\nKept as they stand ({KeptCount(fresh, result.Kept)}):\n" + string.Join("\n", result.Kept.Take(10).Select(k => "• " + k.Why)) + (result.Kept.Count > 10 ? $"\n… and {result.Kept.Count - 10} more (each in its changeset's note)" : "");
                     var head = $"Applied {result.Applied.Count} element(s) from \"{cs.Name}\"." + kept +
-                        (warnings != null ? "\n\n" + warnings : "") + (result.Block != null ? "\n\n" + result.Block : "") +
+                        (warnings != null ? "\n\n" + warnings : "") + (result.Removed != null ? "\n\n" + result.Removed : "") + (result.Block != null ? "\n\n" + result.Block : "") +
                         (result.Ids != null ? "\n\n" + result.Ids : "") + (result.Placement != null ? "\n\n" + string.Join("\n", result.Placement) : "") + // MA-1a item 6
                         (unsaved.Count > 0 ? $"\n\n⚠ The result of {string.Join(", ", unsaved)} could not be saved on this PC ({UnreportedResults.Root}): if its report fails too, nothing on this PC remembers it — check the changeset's status on the bridge before reviewing it again." : "");
                     // MA-6-6 (MAS-1): a Photo Massing mass was applied — the next step is its shell, one storey per level.

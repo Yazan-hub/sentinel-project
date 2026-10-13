@@ -42,6 +42,9 @@ public sealed class ChangesetReviewWindow : Window
     /// <summary>MA-8-9: a stair flag's "Scan slice" ticked (true) or unticked (false) - its unique_id; a survey changeset only. Shares the scan's
     /// overlay: ticking a slice unticks "Show the scan" and the other slices, and the reverse.</summary>
     public event Action<bool, string> StairSliceRequested;
+    /// <summary>MA-8-10: a stair flag's "Propose a stair…" pressed - its unique_id. The command plans one straight stair from the flag (the guideline's Stairs
+    /// rule, the model's stair type), asks which end it rises from, and files it as its own changeset; nothing is placed.</summary>
+    public event Action<string> ProposeStairRequested;
     /// <summary>MA-3c: every row's state after a tick, a group tick, a Lock or Apply — the ghost overlay recolours from it.</summary>
     public event Action<List<(ChangesetElementDto El, bool Ticked, bool Locked)>> TicksChanged;
     /// <summary>MA-3c: every row's state, for the ghost overlay — locked = a declined row (its box disabled).</summary>
@@ -303,6 +306,8 @@ public sealed class ChangesetReviewWindow : Window
         // (the ghost overlay draws a sloped roof flat).
         if (el.Kind == "column" && p?.TopLevel != null) parts.Add("to " + p.TopLevel);
         if (el.Kind == "opening" && p?.Boundary != null) parts.Add("hole in a floor");
+        // MA-8-10: the reviewer ticks a stair knowing it is one straight run to the level above - and what the rest is (a person's)
+        if (el.Kind == "stair" && p?.TopLevel != null && p.Risers != null) parts.Add(StairPlanner.RowWords(p.TopLevel, p.Risers, p.Going, p.Width));
         // MA-6-6 review fix: a mass row shows its size — the footprint's plan extent and its two elevations (an agent's reason may say anything).
         if (el.Kind == "mass" && p?.Boundary is { Length: > 0 } bd && p.BaseElevation is double mb && p.TopElevation is double mt)
             parts.Add($"{Mm(bd.Max(q => q[0]) - bd.Min(q => q[0]))} x {Mm(bd.Max(q => q[1]) - bd.Min(q => q[1]))} mm footprint, {Mm(mb)} to {Mm(mt)} mm");
@@ -419,6 +424,15 @@ public sealed class ChangesetReviewWindow : Window
             _slices.Add(slice);
             DockPanel.SetDock(slice, Dock.Right);
             row.Children.Add(slice);
+        }
+        // MA-8-10: a flag on a live changeset can become a stair proposal - one straight run, planned in Revit from the guideline's Stairs rule
+        if (stair && _cs.Status != "withdrawn")
+        {
+            var propose = new Button { Content = "Propose a stair…", Padding = new Thickness(8, 2, 8, 2), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0),
+                                       ToolTip = "Plan one straight stair in this box from the office's Stairs rule and the model's stair type, as a changeset of its own - nothing is ticked or placed" };
+            propose.Click += (_, _) => ProposeStairRequested?.Invoke(x.UniqueId);
+            DockPanel.SetDock(propose, Dock.Right);
+            row.Children.Add(propose);
         }
         row.Children.Add(new TextBlock
         {

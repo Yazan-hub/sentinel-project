@@ -2059,3 +2059,95 @@ describe("flagChangeset (MA-8-9): a person's stair pick, appended to a changeset
     expect(src).toContain('await ch.scanOverlay(key, p2, {}, flag != null ? { flag } : {})');
   });
 });
+
+// MA-8-10: a stair is filed from a stair flag of an earlier changeset, and Revit's read of what it built rides on the result and its ledger row
+describe("proposeChangeset — a stair from a flag (MA-8-10)", () => {
+  const cases = JSON.parse(readFileSync(new URL("./fixtures/changeset-ops/stair-cases.json", import.meta.url), "utf8"));
+  const f = cases.plan.flag;
+  const flagDoc = (over = {}) => ({ id: f.changeset, name: "Survey L00", status: "proposed", elements: [], exceptions: [{ unique_id: f.unique_id, name: f.name, reason: "r", kind: "stair", storey: "L00", box: { min: f.min, max: f.max }, source: "pick" }], ...over });
+  const member = (over = {}) => baseDeps({ myRole: vi.fn(async () => "contributor"), requireMinRole: vi.fn(async () => "contributor"), auditAll: vi.fn(async () => []), ...over });
+  const withFlag = (deps, over) => { deps.saved.set(f.changeset, flagDoc(over)); return deps; };
+  const rows = (deps, action) => deps.audit.mock.calls.filter((c) => c[3] === action);
+
+  it("files the planner's body next to its flag: the stair keeps from_flag, is never pre-ticked, and the filing reads the ledger's Undo rows once", async () => {
+    const deps = withFlag(member());
+    const cs = await proposeChangeset("demo", structuredClone(cases.good), "yazan", deps);
+    expect(cs.status).toBe("proposed");
+    expect(cs.elements).toHaveLength(1);
+    expect(cs.elements[0]).toMatchObject({ kind: "stair", from_flag: { changeset: f.changeset, unique_id: f.unique_id }, pretick: false, place: { Risers: 16, Going: 250, Width: 1200 } });
+    expect(deps.auditAll).toHaveBeenCalledOnce();
+    expect(deps.auditAll.mock.calls[0]).toEqual(["demo", { entity_type: "changeset", action_prefix: "changeset_reverted" }]);
+    expect(rows(deps, "changeset_proposed")).toHaveLength(1);
+  });
+  it("a stair with no from_flag reads no ledger (an agent's own stair is filed as it is)", async () => {
+    const deps = member();
+    const body = structuredClone(cases.good); delete body.elements[0].from_flag;
+    await proposeChangeset("demo", body, "agent", deps);
+    expect(deps.auditAll).not.toHaveBeenCalled();
+  });
+  it("a flag the project does not hold, or one on another storey or box, is refused in words and nothing is written (404, 400)", async () => {
+    const none = member();
+    await expect(proposeChangeset("demo", structuredClone(cases.good), "y", none)).rejects.toMatchObject({ status: 404, message: expect.stringMatching(/^elements\[0\]: from_flag names changeset .* nothing was saved$/) });
+    expect(none.docInsert).not.toHaveBeenCalled();
+    expect(none.audit).not.toHaveBeenCalled();
+    const off = withFlag(member(), { exceptions: [{ unique_id: f.unique_id, name: "n", reason: "r", kind: "stair", storey: "L00", box: { min: [9000, 9000, 0], max: [12000, 10500, 3000] } }] });
+    await expect(proposeChangeset("demo", structuredClone(cases.good), "y", off)).rejects.toMatchObject({ status: 400, message: expect.stringMatching(/the run leaves the flag's box/) });
+    expect(off.docInsert).not.toHaveBeenCalled();
+  });
+  it("amendment 2: the same flag twice is a 409 while the first is proposed; withdrawn it is free; applied it is built until Undo, and undone it is free again", async () => {
+    const deps = withFlag(member());
+    const first = await proposeChangeset("demo", structuredClone(cases.good), "y", deps);
+    await expect(proposeChangeset("demo", structuredClone(cases.good), "y", deps)).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/already proposed as "Stair · L00 → L01 · from Stair picked on L00" — withdraw it first/) });
+    await withdrawChangeset("demo", first.id, "y", deps);
+    const second = await proposeChangeset("demo", structuredClone(cases.good), "y", deps);
+    const g = second.elements[0].proposal_guid;
+    await reportResult("demo", second.id, { applied: [{ proposal_guid: g, revit_element_id: 77, revit_unique_id: "u-77", built: { risers: 16, riser_mm: 187.5, going_mm: 250, width_mm: 1200, runs: 1, railings: 2 } }], rejected: [] }, "revit", deps);
+    await expect(proposeChangeset("demo", structuredClone(cases.good), "y", deps)).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/already built as .* \(applied\) — undo it in Revit first/) });
+    deps.auditAll = vi.fn(async () => [{ id: 5, entity_id: second.id, new_value: { op: "undo", guids: [g] } }]);
+    const third = await proposeChangeset("demo", structuredClone(cases.good), "y", deps);
+    expect(third.elements[0].from_flag.unique_id).toBe(f.unique_id);
+  });
+  it("a ledger that cannot be read refuses the filing (503) - an Undo of an earlier stair could be missed", async () => {
+    const deps = withFlag(member({ auditAll: vi.fn(async () => { throw new Error("db down"); }) }));
+    await expect(proposeChangeset("demo", structuredClone(cases.good), "y", deps)).rejects.toMatchObject({ status: 503, message: expect.stringMatching(/the ledger could not be read \(db down\).*nothing was filed/) });
+    expect(deps.docInsert).not.toHaveBeenCalled();
+  });
+
+  const BUILT = { risers: 16, riser_mm: 187.5, going_mm: 250, width_mm: 1200, runs: 1, railings: 2 };
+  const applyWith = async (role, built) => {
+    let who = "contributor"; // the filing is a person's; the report is whoever reports
+    const deps = withFlag(member({ myRole: vi.fn(async () => who) }));
+    const cs = await proposeChangeset("demo", structuredClone(cases.good), "y", deps);
+    const g = cs.elements[0].proposal_guid;
+    who = role;
+    const out = await reportResult("demo", cs.id, { applied: [{ proposal_guid: g, revit_element_id: 77, revit_unique_id: "u-77", ...(built === undefined ? {} : { built }) }], rejected: [] }, "revit", deps);
+    return { out, row: deps.audit.mock.calls.find((c) => c[3] === "changeset_applied")[6], g };
+  };
+  it("a signed-in member's result keeps what Revit built, field by field; the row sets it beside the plan and says they agree", async () => {
+    const { out, row, g } = await applyWith("contributor", { ...BUILT, extra: "x" });
+    expect(out.result.applied[0].built).toEqual(BUILT);
+    expect(row.stairs).toEqual([{ proposal_guid: g, planned: { risers: 16, going_mm: 250, width_mm: 1200 }, built: BUILT, as_planned: true }]);
+    expect(row.applied[0].built).toEqual(BUILT);
+  });
+  it("what Revit built that is not what was planned is on the row as it is, with as_planned false — the row never repeats the plan as if it were done", async () => {
+    const { row } = await applyWith("contributor", { ...BUILT, risers: 17, riser_mm: 176.5 });
+    expect(row.stairs[0]).toMatchObject({ as_planned: false, built: { risers: 17 }, planned: { risers: 16 } });
+  });
+  it("no read, or an unusable one, is null and says so; the machine credential's read is not trusted (amendment 13)", async () => {
+    for (const built of [undefined, { risers: "16" }, null]) {
+      const { out, row } = await applyWith("contributor", built);
+      expect(out.result.applied[0].built).toBeNull();
+      expect(row.stairs[0]).toMatchObject({ built: null, as_planned: null, note: "Revit sent no read of what it built — check the model" });
+    }
+    const { out, row } = await applyWith("service", BUILT);
+    expect(out.result.applied[0].built).toEqual({ why: "reported with the machine credential — sign in in Revit" });
+    expect(row.stairs[0]).toMatchObject({ built: { why: "reported with the machine credential — sign in in Revit" }, as_planned: null });
+  });
+  it("a changeset with no stair has no stairs on its row, and no built on its entries", async () => {
+    const deps = baseDeps({ myRole: vi.fn(async () => "contributor"), requireMinRole: vi.fn(async () => "contributor") });
+    const cs = await proposeChangeset("demo", { name: "W", source: "a", elements: [wall()] }, "y", deps);
+    const out = await reportResult("demo", cs.id, { applied: [{ proposal_guid: cs.elements[0].proposal_guid, revit_element_id: 5, revit_unique_id: "u", built: BUILT }], rejected: [] }, "revit", deps);
+    expect(out.result.applied[0]).not.toHaveProperty("built");
+    expect(deps.audit.mock.calls.find((c) => c[3] === "changeset_applied")[6]).not.toHaveProperty("stairs");
+  });
+});

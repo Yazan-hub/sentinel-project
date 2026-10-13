@@ -97,6 +97,7 @@ static partial class Check
         Ma6b6Checks();
         Ma8MepChecks();
         Ma8StairChecks();
+        Ma8StairsChecks();
         Ma8ForeignChecks();
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;

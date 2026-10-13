@@ -179,7 +179,7 @@ describe("changeset tools", () => {
   // MA-6-3 (amendment 7): an agent learns vocabulary v2 from this text alone (drill H-1).
   it("propose tool description names vocabulary v2: opening and beam, a roof's Slopes per edge, a column's TopLevel", () => {
     const d = TOOLS.find((t) => t.name === "sentinel_propose_changeset").description;
-    expect(d).toMatch(/column, furniture, room, opening, beam, mass\./);
+    expect(d).toMatch(/column, furniture, room, opening, beam, mass, stair\./);
     expect(d).toMatch(/openings \(no type, no family, no Mark\) place\.LevelName and exactly one shape: a rectangle cut in a wall — place\.Location/);
     expect(d).toMatch(/place\.Width and place\.Height \(mm, above 50 and at most 20000\) and place\.SillHeight/);
     expect(d).toMatch(/or a hole in a floor of that level \(a stair void\): place\.Boundary/);

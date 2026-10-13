@@ -13,7 +13,9 @@ import { checkFacts, KIND_ENTITY, KIND_PSET } from "./changesets-typing.mjs";
 // MA-5b-1: room — a drawing's labelled room, placed at a point on its level; Revit finds its boundary there (no type, no family).
 // MA-6-3 (vocabulary v2): opening — a rectangle cut in a wall, or a hole in a floor; beam — a straight structural framing member.
 // MA-6-6 (MAS-2, D8): mass — a footprint between two elevations, placed as a DirectShape in Mass (Photo Massing's; Shell a Mass shells it).
-export const VOCABULARY = ["wall", "floor", "level", "grid", "roof", "ceiling", "door", "window", "column", "furniture", "room", "opening", "beam", "mass"];
+// MA-8-10: stair — one straight run between two Building Stories, between two levels the model holds, of the office's stair type; built in Revit's own
+// stair edit scope, so a stair changeset holds its stair and nothing else (the bridge never types it: checkPlace demands TypeName).
+export const VOCABULARY = ["wall", "floor", "level", "grid", "roof", "ceiling", "door", "window", "column", "furniture", "room", "opening", "beam", "mass", "stair"];
 /** The kinds that take no type: a level and a grid are named, a room is named and numbered, an opening (MA-6-3) and a mass (MA-6-6) are their shape. */
 export const UNTYPED = ["level", "grid", "room", "opening", "mass"];
 /** MA-6-1: the IFC class the bridge sets from each kind — the Promote six (KIND_ENTITY, held to PromoteWallsPlanner.Classes by
@@ -21,7 +23,8 @@ export const UNTYPED = ["level", "grid", "room", "opening", "mass"];
  *  exactly this one is listed and replaced: an IDS entity pattern matches no subtype, so a chosen class could step outside a spec. */
 export const CREATE_ENTITY = { ...KIND_ENTITY, level: "IFCBUILDINGSTOREY", grid: "IFCGRID", room: "IFCSPACE", column: "IFCCOLUMN", furniture: "IFCFURNITURE",
   opening: "IFCOPENINGELEMENT", beam: "IFCBEAM", // MA-6-3
-  mass: "IFCBUILDINGELEMENTPROXY" }; // MA-6-6: what GovernedElementExtractor reads for OST_Mass (as_built counts it out_of_scope)
+  mass: "IFCBUILDINGELEMENTPROXY", // MA-6-6: what GovernedElementExtractor reads for OST_Mass (as_built counts it out_of_scope)
+  stair: "IFCSTAIR" }; // MA-8-10: what GovernedElementExtractor reads for OST_Stairs (as_built counts it out_of_scope; the DD IDS asks nothing of it)
 /** What a ghost does. create places a new element (the v1 path); retype changes an EXISTING element's type, named by its
  *  Revit UniqueId (Promote) — a door or window keeps its host: ChangeTypeId to a symbol of the same category; attach re-tops
  *  an existing wall. An element without op is a create. MA-2c: set_parameter writes one value on an existing TYPE, named by its
@@ -46,6 +49,7 @@ const a = (kind) => (/^[aeiou]/.test(kind) ? "an " : "a ") + kind;
 const finite = (n) => typeof n === "number" && Number.isFinite(n);
 const point = (p) => Array.isArray(p) && p.length === 3 && p.every(finite);
 const text = (s, max) => typeof s === "string" && s.trim() !== "" && s.length <= max;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const IFC_GUID = /^[0-9A-Za-z_$]{22}$/; // MA-3d: an IFC GlobalId as the export writes it (22 characters of its base64 alphabet)
 // Revit's UniqueId: the episode GUID, then "-", then the element id as 8 hex digits.
 const UNIQUE_ID = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}-[0-9a-f]{8}$/i;
@@ -67,12 +71,13 @@ const BODY_FIELDS = ["name", "source", "elements", "exceptions", "actor", "agent
 // MA-2c: a set_parameter's parameter, the Revit parameter's name, the value the plan read (from), the value to write (to) and
 // where it comes from (value_source — the bridge checks it and writes its own record).
 const ELEMENT_FIELDS = ["kind", "op", "target", "reason", "validate", "place", "provenance", "cid", "evidence", "facts",
-  "parameter", "revit_parameter", "from", "to", "value_source", "replaces"]; // what an element is rebuilt from
+  "parameter", "revit_parameter", "from", "to", "value_source", "replaces", "from_flag"]; // what an element is rebuilt from (MA-8-10: a stair's from_flag)
 // Review amendment C3: what an element's blocks are rebuilt from. PLACE_KEPT is the add-in's PlaceDto (ChangesetClient.cs),
 // name for name; a key added to one must be added to the other, or it is listed under `ignored` and not kept.
 export const PLACE_KEPT = ["TypeName", "LevelName", "LocationCurve", "LocationLoop", "BaseElevation", "TopElevation", "Name", "BaseLevel", "TopLevel",
   "FamilyName", "Location", "SillHeight", "FlipFacing", "FlipHand", "Rotation", "Mirrored", "Boundary", "BaseOffset", "Offset", "Mark", "Structural", "Number",
-  "Width", "Height", "Slopes"]; // MA-6-3: a wall opening's size; a roof's slope per edge
+  "Width", "Height", "Slopes", // MA-6-3: a wall opening's size; a roof's slope per edge
+  "Risers", "Going"]; // MA-8-10: a stair's riser count and going (mm); its width is Width
 const TARGET_KEPT = ["unique_id", "type_before", "placed", "at"];
 const VALIDATE_KEPT = ["identity", "psets", "quantities"];
 const MAX_EVIDENCE = 50; // review amendment C4: contract 2's evidence ids on one element
@@ -91,15 +96,19 @@ const arcSag = (s, e, m) => {
 // or grid's name is identity.Name, so it has no Mark; only a point family's type — door, window, column, furniture — is named
 // with its family).
 const PLACE_FIELDS = {
-  FamilyName: ["door", "window", "column", "furniture", "beam"], Mark: ["wall", "floor", "roof", "ceiling", "door", "window", "column", "furniture", "beam"],
+  FamilyName: ["door", "window", "column", "furniture", "beam", "stair"], Mark: ["wall", "floor", "roof", "ceiling", "door", "window", "column", "furniture", "beam", "stair"],
   Structural: ["floor"], Location: ["door", "window", "column", "furniture", "room", "opening"], Number: ["room"], FlipFacing: ["door", "window"], FlipHand: ["door", "window"],
   SillHeight: ["window", "opening"], Boundary: ["roof", "ceiling", "opening", "mass"], BaseOffset: ["roof"], Offset: ["ceiling"],
   // MA-1b (GHB-1): a drawn block's direction — the plan angle of its X axis and whether it is mirrored. The add-in flips the
   // placed instance to that hinge side and swing side (ChangesetExecutor), and measures what Revit holds after the commit.
   Rotation: ["door", "window"], Mirrored: ["door", "window"],
   // MA-6-3: a wall opening's size; a roof's slope per Boundary edge. TopLevel is not here (an attach needs it): the create branch checks it.
-  Width: ["opening"], Height: ["opening"], Slopes: ["roof"],
+  Width: ["opening", "stair"], Height: ["opening"], Slopes: ["roof"],
+  // MA-8-10: a stair's riser count and going. TopLevel is not here either: the create branch checks it for a stair too.
+  Risers: ["stair"], Going: ["stair"],
 };
+const STAIR_PLACE = ["LevelName", "TopLevel", "FamilyName", "TypeName", "LocationCurve", "Width", "Risers", "Going", "Mark"]; // MA-8-10: all a stair takes
+const same = (a, b) => a.trim().toLowerCase() === b.trim().toLowerCase(); // names are compared as the executor reads them: case aside
 // The point kinds: a family placed at place.Location on its level — a door or window in the one wall under it, a column or
 // furniture unhosted (MA-1a step 2).
 const POINT_KINDS = ["door", "window", "column", "furniture"];
@@ -153,6 +162,10 @@ export function outlineProblem(b) {
  *  transaction (and roll the whole changeset back) — this guards against garbage, not bad design. */
 function checkPlace(kind, place, at) {
   if (!place || typeof place !== "object") throw err(400, `${at}: place is required`);
+  // MA-8-10: a stair is one straight run between two levels - every other kept key is a 400 in its own words, before the generic ones.
+  if (kind === "stair")
+    for (const f of PLACE_KEPT)
+      if (place[f] !== undefined && !STAIR_PLACE.includes(f)) throw err(400, `${at}: a stair takes no place.${f} — it is one straight run between two levels`);
   for (const [f, kinds] of Object.entries(PLACE_FIELDS))
     if (place[f] !== undefined && !kinds.includes(kind)) throw err(400, `${at}: ${a(kind)} takes no place.${f}`);
   if (place.Mark !== undefined && !text(place.Mark, 256)) throw err(400, `${at}: place.Mark must be text of at most 256 characters`);
@@ -234,6 +247,25 @@ function checkPlace(kind, place, at) {
       for (const f of ["Width", "Height", "SillHeight"])
         if (place[f] !== undefined) throw err(400, `${at}: a floor opening is its place.Boundary — it takes no place.${f}`);
     }
+  } else if (kind === "stair") {
+    // MA-8-10: one straight run, first riser to last, between two levels the add-in finds by name. The riser rule is Revit's (the type's maximum
+    // riser, which only the model's StairsType holds), so the plan is made in Revit (StairPlanner) and the bridge holds the arithmetic it can see:
+    // a run of N risers at a going G is (N - 1) x G long in plan (spike S1: N x G gives N + 1 risers and a top-end warning).
+    if (!text(place.LevelName, 256) || !text(place.TopLevel, 256))
+      throw err(400, `${at}: a stair needs place.LevelName (the level it rises from) and place.TopLevel (the level its top reaches) — Sentinel never picks its levels`);
+    if (same(place.LevelName, place.TopLevel)) throw err(400, `${at}: place.TopLevel is the stair's own level — name the level its top reaches`);
+    if (!text(place.FamilyName, 256) || !text(place.TypeName, 256))
+      throw err(400, `${at}: a stair needs place.FamilyName and place.TypeName — the office's stair type (the guideline's Stairs rule); Sentinel never takes the model's first type`);
+    const c = place.LocationCurve;
+    if (!c || !point(c.start) || !point(c.end)) throw err(400, `${at}: a stair needs place.LocationCurve with finite [x,y,z] start and end — the run's centre line, first riser to last`);
+    if (c.mid !== undefined) throw err(400, `${at}: a stair is one straight run — place.LocationCurve takes no mid`);
+    if (Math.abs(c.end[2] - c.start[2]) > 1) throw err(400, `${at}: a stair's LocationCurve is level — start and end z within 1 mm (the rise is the two levels')`);
+    if (!Number.isInteger(place.Risers) || place.Risers < 2 || place.Risers > 60) throw err(400, `${at}: a stair needs place.Risers, a whole number from 2 to 60`);
+    if (!inRange(place.Going, 100, 1000)) throw err(400, `${at}: a stair needs place.Going, a number of mm from 100 to 1000`);
+    if (!inRange(place.Width, 300, 5000)) throw err(400, `${at}: a stair needs place.Width, its run width, a number of mm from 300 to 5000`);
+    const run = Math.hypot(c.end[0] - c.start[0], c.end[1] - c.start[1]), need = (place.Risers - 1) * place.Going;
+    if (Math.abs(run - need) > 1)
+      throw err(400, `${at}: the run is ${Math.round(run)} mm; ${place.Risers} risers at ${place.Going} mm going need ${need} mm ((risers − 1) × going)`);
   } else if (kind === "mass") {
     // MA-6-6 (MAS-2): a footprint and two elevations, in the Level.Elevation frame (a level's BaseElevation's) — no level of its own: a
     // DirectShape has none, and Shell a Mass gives each storey its level (amendment 14: a LevelName would be kept and never applied).
@@ -429,6 +461,17 @@ export function validateChangeset(body, { member = false, type = null, cite = nu
     let foreign = null; // MA-8-7: a retype's type is not the office's (null: no catalogue to judge by)
     let replaces = null; // MA-8-7 (D16): a wall or floor create that replaces a DirectShape or Generic Model with an office type
     if (el.replaces !== undefined && op !== "create") throw err(400, `${at}: ${op} takes no replaces — only a wall or floor create replaces an element`);
+    // MA-8-10: the stair flag a stair is proposed from - the shape here (nested stray keys listed), the flag's own facts in checkFromFlag (the earlier changesets are read in the store).
+    let from_flag = null;
+    if (el.from_flag !== undefined) {
+      if (op !== "create" || el.kind !== "stair") throw err(400, `${at}: from_flag belongs to a stair create only — the stair flag it starts from`);
+      const f = el.from_flag;
+      if (!isBlock(f)) throw err(400, `${at}: from_flag must be {changeset, unique_id}`);
+      nested(f, ["changeset", "unique_id"], `${at}.from_flag`);
+      if (typeof f.changeset !== "string" || !UUID.test(f.changeset)) throw err(400, `${at}: from_flag.changeset must be the id (a uuid) of the changeset that holds the flag`);
+      if (!text(f.unique_id, 64) || !f.unique_id.startsWith("stair:")) throw err(400, `${at}: from_flag.unique_id must be the stair flag's unique_id (text starting "stair:", at most 64 characters)`);
+      from_flag = { changeset: f.changeset.toLowerCase(), unique_id: f.unique_id };
+    }
     if (op === "create") {
       checkPlace(el.kind, el.place, at);
       if (el.replaces !== undefined) replaces = checkReplaces(el, at, member, nested, rehosted, touched);
@@ -439,13 +482,13 @@ export function validateChangeset(body, { member = false, type = null, cite = nu
       }
       if (FAMILY_KINDS.includes(el.kind) && !text(place.FamilyName, 256))
         throw err(400, `${at}: a ${el.kind} needs place.FamilyName — a type name alone is not one type`);
-      if (["roof", "ceiling", "room", "opening", ...FAMILY_KINDS].includes(el.kind) && !text(place.LevelName, 256))
+      if (["roof", "ceiling", "room", "opening", "stair", ...FAMILY_KINDS].includes(el.kind) && !text(place.LevelName, 256))
         throw err(400, `${at}: ${a(el.kind)} needs place.LevelName — Sentinel never picks its level`);
       // MA-6-3 review fix: an opening is its shape — a TypeName on it would be shown to the reviewer and never applied. MA-6-6: so is a mass.
       if ((el.kind === "opening" || el.kind === "mass") && place.TypeName !== undefined) throw err(400, `${at}: ${a(el.kind)} takes no place.TypeName — it is its shape`);
       // MA-6-3 (amendment 3): TopLevel is a wall's top (and a floor's, as before) and now a column's — the level its top reaches. On any
       // other create it is a 400, never kept unread; it stays out of PLACE_FIELDS, so an attach still carries its own.
-      if (place.TopLevel !== undefined && !["wall", "floor", "column"].includes(el.kind)) throw err(400, `${at}: ${a(el.kind)} takes no place.TopLevel`);
+      if (place.TopLevel !== undefined && !["wall", "floor", "column", "stair"].includes(el.kind)) throw err(400, `${at}: ${a(el.kind)} takes no place.TopLevel`);
       if (el.kind === "column" && place.TopLevel !== undefined) {
         if (!text(place.TopLevel, 256)) throw err(400, `${at}: place.TopLevel must be text of at most 256 characters — the level the column's top reaches`);
         if (place.TopLevel.trim().toLowerCase() === place.LevelName.trim().toLowerCase())
@@ -457,7 +500,6 @@ export function validateChangeset(body, { member = false, type = null, cite = nu
       if (el.kind === "wall" || el.kind === "floor") {
         for (const f of ["BaseLevel", "TopLevel"])
           if (place[f] !== undefined && !text(place[f], 256)) throw err(400, `${at}: place.${f} must be text of at most 256 characters`);
-        const same = (a, b) => a.trim().toLowerCase() === b.trim().toLowerCase();
         const named = text(place.LevelName, 256) || (el.kind === "wall" && text(place.BaseLevel, 256)) || place.BaseElevation !== undefined;
         if (!named) throw err(400, el.kind === "wall"
           ? `${at}: a wall needs place.LevelName or place.BaseLevel (or place.BaseElevation) — Sentinel never picks its level`
@@ -583,6 +625,7 @@ export function validateChangeset(body, { member = false, type = null, cite = nu
       op, target, reason: el.reason ?? null,
       ...(op === "retype" ? { foreign } : {}), // MA-8-7 (amendment 16): the bridge's judgement; a foreign retype is never pre-ticked
       ...(replaces ? { replaces } : {}),
+      ...(from_flag ? { from_flag } : {}),
       validate: written ? { identity, psets: [{ name: pset, rows: [{ name: prop, value: written.to }] }], quantities: [] }
         : { identity, psets: entries(validate.psets, "psets"), quantities: entries(validate.quantities, "quantities") },
       place,
@@ -604,6 +647,10 @@ export function validateChangeset(body, { member = false, type = null, cite = nu
       accuracy: fromJob ? fromJob.accuracy : { status: "not_measured" },
     };
   });
+
+  // MA-8-10: a stair is built in Revit's own stair edit scope - it is the only element of its changeset
+  if (elements.some((e) => e.kind === "stair") && elements.length !== 1)
+    throw err(400, "a stair changeset holds its stair and nothing else — Revit builds a stair in its own edit scope; file the rest apart");
 
   // MA-8-9: a stair flag's source is the bridge's — "ifc" for a flag the bridge built from an IFC job it ran, "posted" for a body's; a flag from any other job is a 400
   const flagSource = !job ? "posted" : String(job.record?.reader ?? "").startsWith("sentinel-ifc ") ? "ifc" : null;
@@ -646,6 +693,69 @@ function checkReplaces(el, at, member, nested, rehosted, touched) {
   if (r.category !== undefined && (typeof r.category !== "string" || !r.category.trim() || r.category.length > 80 || /[ -]/.test(r.category)))
     throw err(400, `${at}: replaces.category must be a short text (the original's Revit category)`);
   return { unique_id: r.unique_id, box: { min, max }, ...(r.kind ? { kind: r.kind } : {}), ...(r.category ? { category: r.category.trim() } : {}) };
+}
+
+/** MA-8-10: the stair flag each stair of `elements` (as validateChangeset returns them) starts from, checked against `earlier` (every stored
+ *  changeset of the project) and `reverted` (its changeset_reverted ledger rows, any order). Pure; a failure is a 4xx in words:
+ *  404 - no such changeset, or it holds no such stair flag; 400 - the stair's LevelName is not the flag's storey, or a run end lies outside
+ *  the flag's box in plan by more than 1 mm; 409 - another changeset already holds a stair from the same flag: a proposed one ("withdraw it
+ *  first"), or an applied one still standing ("undo it in Revit first"). A withdrawn or declined one, and an applied one whose stair was
+ *  undone (its newest changeset_reverted row for the stair's guid is an undo), free the flag. */
+export function checkFromFlag(elements, earlier, reverted = []) {
+  const rows = [...(reverted ?? [])].sort((x, y) => (y.id ?? 0) - (x.id ?? 0)); // newest first
+  for (const [i, el] of (elements ?? []).entries()) {
+    const f = el.from_flag;
+    if (!f) continue;
+    const at = `elements[${i}]`;
+    const cs = (earlier ?? []).find((c) => c.id === f.changeset);
+    if (!cs) throw err(404, `${at}: from_flag names changeset ${f.changeset}, which this project does not hold — nothing was saved`);
+    const flag = (cs.exceptions ?? []).find((x) => x.kind === "stair" && x.unique_id === f.unique_id);
+    if (!flag) throw err(404, `${at}: changeset "${cs.name}" holds no stair flag ${f.unique_id} — nothing was saved`);
+    if (!same(String(flag.storey ?? ""), String(el.place?.LevelName ?? "")))
+      throw err(400, `${at}: the flag is on ${flag.storey}, the stair rises from ${el.place?.LevelName} — a stair starts on its flag's storey`);
+    const { min, max } = flag.box;
+    for (const [end, p] of [["start", el.place.LocationCurve.start], ["end", el.place.LocationCurve.end]])
+      if (p[0] < min[0] - 1 || p[0] > max[0] + 1 || p[1] < min[1] - 1 || p[1] > max[1] + 1)
+        throw err(400, `${at}: the run leaves the flag's box — its ${end} (${Math.round(p[0])}, ${Math.round(p[1])}) is outside ${Math.round(min[0])}..${Math.round(max[0])} × ${Math.round(min[1])}..${Math.round(max[1])} mm`);
+    for (const other of earlier) {
+      for (const o of other.elements ?? []) {
+        if (o.kind !== "stair" || o.from_flag?.changeset !== f.changeset || o.from_flag?.unique_id !== f.unique_id) continue;
+        if (other.status === "proposed") throw err(409, `${at}: this flag is already proposed as "${other.name}" — withdraw it first`);
+        if (other.status !== "applied" && other.status !== "partially_applied") continue; // withdrawn, declined: the flag is free
+        if (!(other.result?.applied ?? []).some((a) => (a?.proposal_guid ?? a) === o.proposal_guid)) continue; // the stair was not the part applied
+        const last = rows.find((y) => y.entity_id === other.id && (y.new_value?.guids ?? []).includes(o.proposal_guid));
+        if (last?.new_value?.op !== "undo")
+          throw err(409, `${at}: this flag is already built as "${other.name}" (applied) — undo it in Revit first`);
+      }
+    }
+  }
+}
+
+/** MA-8-10: what Revit says it built for a stair - field by field, anything else is null. Revit's read, kept for the ledger; the bridge does not
+ *  judge it. A reader that is not a signed-in member's (the machine credential: the bridge cannot tell the add-in from any holder of the
+ *  token) is not trusted - amendment 13, as the wall re-read. */
+export function keepBuilt(b, member) {
+  if (!member) return { why: "reported with the machine credential — sign in in Revit" };
+  if (!b || typeof b !== "object" || Array.isArray(b)) return null;
+  const int = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
+  if (!int(b.risers, 1, 100) || !inRange(b.riser_mm, 0, 1000) || !inRange(b.going_mm, 0, 2000) || !inRange(b.width_mm, 0, 10000) || !int(b.runs, 0, 10) || !int(b.railings, 0, 20)) return null;
+  return { risers: b.risers, riser_mm: b.riser_mm, going_mm: b.going_mm, width_mm: b.width_mm, runs: b.runs, railings: b.railings };
+}
+
+/** MA-8-10: the changeset_applied row's account of each applied stair - what was planned (the element's place) beside what Revit read back
+ *  (the entry's `built`: null reads "Revit sent no read of what it built - check the model"), and whether they agree (null when nothing was read).
+ *  The row never repeats the plan as if it were done. */
+export function stairsOf(elements, applied) {
+  return (applied ?? []).flatMap((a) => {
+    const e = (elements ?? []).find((x) => x.proposal_guid === a.proposal_guid);
+    if (e?.kind !== "stair") return [];
+    const planned = { risers: e.place.Risers, going_mm: e.place.Going, width_mm: e.place.Width };
+    const b = a.built ?? null;
+    const read = b && b.risers !== undefined;
+    return [{ proposal_guid: a.proposal_guid, planned, built: b,
+      as_planned: read ? b.risers === planned.risers && Math.abs(b.going_mm - planned.going_mm) <= 1 && Math.abs(b.width_mm - planned.width_mm) <= 1 : null,
+      ...(b === null ? { note: "Revit sent no read of what it built — check the model" } : {}) }];
+  });
 }
 
 /** MA-1a item 4: where an element came from, as its placer knows it — the CAD layer, the rule that typed it and the source

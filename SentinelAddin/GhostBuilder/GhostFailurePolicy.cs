@@ -87,6 +87,17 @@ namespace Sentinel.GhostBuilder
                                              .Select(kv => kv.Value > 1 ? $"{kv.Key} ×{kv.Value}" : kv.Key));
         }
 
+        /// <summary>MA-8-10: the warnings a stair's edit scope removed (GhostFailureHandler.RemovedWarnings) - counted by text, each of which named only the
+        /// stair Sentinel built; null when there were none. The one place a warning is erased, so it is always said.</summary>
+        public static string RemovedLine(IEnumerable<(string Key, string Text, IReadOnlyCollection<long> Ids)> removed)
+        {
+            var counts = CountWarnings(removed, null);
+            int total = counts.Values.Sum();
+            if (total == 0) return null;
+            return $"Revit warnings Sentinel removed at the stair's commit: {total} — each named only the stair it built (a stair edit scope shows its warnings in a modal dialog): " +
+                   string.Join("; ", counts.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => kv.Value > 1 ? $"{kv.Key} ×{kv.Value}" : kv.Key));
+        }
+
         /// <summary>A build Revit rolled back: nothing exists, so this is the whole report.</summary>
         public static string NotBuiltLine(string reason) =>
             "Nothing was built — Revit rolled the build back, so the model is as it was before Build: " + reason;

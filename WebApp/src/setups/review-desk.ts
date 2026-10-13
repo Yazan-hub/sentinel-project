@@ -37,13 +37,17 @@ export interface Ghost {
   proposal_guid: string; kind: string; op?: string | null;
   target?: { unique_id?: string; type_before?: string; ifc_guid?: string | null; placed?: { start: number[]; end: number[] }; at?: number[] } | null;
   place?: { TypeName?: string; FamilyName?: string; LevelName?: string; BaseLevel?: string; TopLevel?: string; Name?: string; Location?: number[]; SillHeight?: number;
-    Boundary?: number[][]; BaseElevation?: number; TopElevation?: number } | null;
+    Boundary?: number[][]; BaseElevation?: number; TopElevation?: number;
+    /** MA-8-10: a stair - one straight run, its riser count, going and width (mm); TopLevel is the level it reaches. */
+    Risers?: number; Going?: number; Width?: number } | null;
   validate?: { identity?: { Name?: string } } | null;
   parameter?: string; from?: string; to?: string;
   /** MA-8-7 (D16): a wall or floor create that re-creates a DirectShape or Generic Model as an office type; the original is deleted in the same Undo. */
   replaces?: { unique_id: string; box?: { min: number[]; max: number[] }; kind?: "directshape" | "generic"; category?: string } | null;
   /** MA-8-7: the bridge's judgement of a retype - its type is not one of the office's catalogue; null = no catalogue to judge by. */
   foreign?: boolean | null;
+  /** MA-8-10: the stair flag a stair was proposed from. */
+  from_flag?: { changeset: string; unique_id: string } | null;
   review?: GhostReview | null;
   // MA-4d: a survey ghost's trust record, stamped by the bridge (never the caller's).
   cid?: string; evidence?: string[]; pretick?: boolean; trim_mm?: number[]; measured?: Record<string, number>;
@@ -51,7 +55,7 @@ export interface Ghost {
 }
 /** What Revit reported on a changeset (bridge reportResult). `reasons` — Revit's reason per ghost — is there only when one was sent. */
 export interface DeskResult {
-  applied: { proposal_guid: string; removed_unique_id?: string }[]; rejected: string[]; note: string | null; reported_at: string; reported_by: string;
+  applied: { proposal_guid: string; removed_unique_id?: string; built?: { risers?: number; riser_mm?: number; going_mm?: number; width_mm?: number; runs?: number; railings?: number; why?: string } | null }[]; rejected: string[]; note: string | null; reported_at: string; reported_by: string;
   declined_on_web?: { proposal_guid: string; by: string; role: string | null; reason: string; carried_from?: CarriedFrom | null }[];
   reasons?: Record<string, string>;
 }
@@ -130,8 +134,14 @@ export function ghostLine(el: Ghost): string {
     // MA-5b-1: a room reads its number, then its name (Revit's review row: room: 101 · OFFICE · its level)
     default: if (el.replaces) return replacesLine(el, name, type); // MA-8-7: a create is not a plain create when it deletes the original
       return `${name}${el.place?.Name && el.place.Name !== name ? " · " + el.place.Name : ""}${el.place?.TypeName ? " · " + type : ""}${el.place?.LevelName ? " · " + el.place.LevelName : ""}` +
-      (el.kind === "mass" ? massSize(el.place) : "");
+      (el.kind === "mass" ? massSize(el.place) : "") + (el.kind === "stair" ? stairLine(el.place) : "");
   }
+}
+
+/** MA-8-10: a stair says what it is - one straight run to the level above, and that the rest is a person's (Revit's row says the same). */
+function stairLine(p: Ghost["place"]): string {
+  return p?.TopLevel && p.Risers != null && p.Going != null && p.Width != null
+    ? ` · to ${p.TopLevel} · ${p.Risers} risers, going ${p.Going} mm, width ${p.Width} mm — one straight run; landings, turns and railings are a person's` : "";
 }
 
 /** MA-8-7 review: why a retype is not pre-ticked, in a few words (Revit never ticks a foreign one, nor a column or beam; no catalogue = not judged). */

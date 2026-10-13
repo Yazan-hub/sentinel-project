@@ -6,7 +6,7 @@ import * as cde from "./cde-store.mjs";
 import { canonical } from "./canonical.mjs";
 import * as members from "./members-store.mjs";
 import { validateChangeset, attachVerdicts, canWithdraw, deriveResultStatus, unattributedFailures,
-  reviewRev, editCost, checkStairFlag, MAX_CHANGESET_EXCEPTIONS, applyDecisions, reopenDecline, resultConflicts, resultReasons, carryDeclines, declineWords, UNTYPED } from "./changesets-logic.mjs";
+  reviewRev, editCost, checkStairFlag, checkFromFlag, keepBuilt, stairsOf, MAX_CHANGESET_EXCEPTIONS, applyDecisions, reopenDecline, resultConflicts, resultReasons, carryDeclines, declineWords, UNTYPED } from "./changesets-logic.mjs";
 import { makeTyper, makeCiter } from "./changesets-typing.mjs";
 import { resolveArtefact, refLabel, validateArtefact } from "./artefact-store.mjs";
 import { resolveActor } from "./bridge-auth.mjs";
@@ -150,6 +150,14 @@ async function fileValidated(d, key, v, body, actor) {
   let earlier;
   try { earlier = await d.docList(STORE, proj.id); }
   catch (e) { throw err(503, `the project's earlier changesets could not be read (${e.message}) — nothing was filed: a decline made before could not be carried to this changeset; send it again`); }
+  // MA-8-10: a stair starts from a stair flag of an earlier changeset - the flag must exist, the run lie in its box, and no other live stair come from it.
+  // The ledger's Undo rows are read only for this (a flag whose stair was applied and then undone is free again).
+  if (v.elements.some((e) => e.from_flag)) {
+    let reverted;
+    try { reverted = await d.auditAll(key, { entity_type: "changeset", action_prefix: "changeset_reverted" }); }
+    catch (e) { throw err(503, `the ledger could not be read (${e.message}) — an Undo in Revit of an earlier stair could be missed; nothing was filed, send it again`); }
+    checkFromFlag(v.elements, earlier, reverted);
+  }
 
   // Reuse the referee as-is: it resolves the project's installed IDS (artefact-store) and writes its own
   // proposal audit row — the changeset stores that audit_id as its adjudication receipt.
@@ -885,6 +893,8 @@ export async function reportResult(key, id, { applied, rejected, note, review_re
           return { proposal_guid: a.proposal_guid, revit_element_id: Number(a.revit_element_id), revit_unique_id: a.revit_unique_id ?? null,
             ...(cs.job && el?.kind === "wall" && a.mesh != null ? { reread: reread(a.mesh, el, role) } : {}),
             // MA-5b-5 (R1): the tags Revit removed with a rehost's old instance — Revit's count, kept for the ledger
+            // MA-8-10 (amendment 13): what Revit read back of the stair it built - kept field by field, and only a signed-in member's is trusted
+            ...(el?.kind === "stair" ? { built: keepBuilt(a.built, role != null && role !== "service") } : {}),
             ...(el?.op === "rehost" || el?.replaces ? { removed_tags: Number.isInteger(a.removed_tags) && a.removed_tags >= 0 && a.removed_tags <= 10000 ? a.removed_tags : null } : {}),
             // MA-8-7 (amendment 3): the UniqueId of the element Revit reports it deleted for a replacing create - kept as reported, one line
             ...(el?.replaces ? { removed_unique_id: typeof a.removed_unique_id === "string" && a.removed_unique_id.length > 0 && a.removed_unique_id.length <= 256 && !/[\u0000-\u001f]/.test(a.removed_unique_id) ? a.removed_unique_id : null } : {}) };
@@ -932,9 +942,11 @@ export async function reportResult(key, id, { applied, rejected, note, review_re
     return e?.replaces && !(typeof a.removed_unique_id === "string" && a.removed_unique_id.toLowerCase() === e.replaces.unique_id.toLowerCase())
       ? [{ proposal_guid: a.proposal_guid, unique_id: e.replaces.unique_id, why: "the new element was placed but Revit did not report the original deleted - check the model" }] : [];
   });
+  const stairs = stairsOf(cs.elements, updated.result.applied); // MA-8-10: planned beside built, per stair
   const row = await d.audit(proj.id, "changeset", id, "changeset_applied", actor || "revit",
     { status: "proposed" },
     { status, applied: updated.result.applied, rejected: rejectedArr.length, note: updated.result.note, ...(values.length ? { values } : {}),
+      ...(stairs.length ? { stairs } : {}),
       ...(removed.length ? { removed } : {}),
       ...(notRemoved.length ? { not_removed: notRemoved } : {}),
       // MA-4d: a survey changeset's row names its job and, per ghost placed, its Revit id, reader id and evidence (from the stored changeset).
