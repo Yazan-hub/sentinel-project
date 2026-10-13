@@ -91,9 +91,19 @@ function readModels() {
   return [...names];
 }
 
+// MA-7-3: imagery is never put into the model (design 4.4) — the add-in has no image-import API. A tracked SentinelAddin/**/*.cs naming one fails the run.
+// `--imagery` runs this scan alone.
+const IMAGERY = /ImageType\.Create|ImageInstance\.Create|ImageTypeOptions|DecalType|AppearanceAssetElement|RenderingAsset|IfcImageTexture|IfcBlobTexture|IfcPixelTexture|ImageView.Create|ImageImportOptions|SaveToProjectAsImage/;
+const hits = [];
+for (const f of files.filter((f) => /^SentinelAddin\/.*\.cs$/.test(f)))
+  (existsSync(join(root, f)) ? read(f) : "").split(/\r?\n/).forEach((line, i) => { if (IMAGERY.test(line)) hits.push(`IMAGERY ${f}:${i + 1} — imagery is never put into the model (design 4.4); nothing ships with it`); });
+console.log(`imagery: ${hits.length} hits`);
+for (const h of hits) console.log(h);
+if (process.argv.includes("--imagery")) process.exit(hits.length ? 1 : 0);
+
 const npm = readNpm(lockPath), python = readPython(), nuget = readNuget();
 const weights = Object.entries(WEIGHTS).map(([name, w]) => ({ source: "weights", name, version: w.digest, licence: w.licence }));
 const r = checkAll({ npm, python, nuget, weights, models: readModels(), allow });
 console.log(`licence-check: ${npm.length} npm, ${python.length} python, ${nuget.length} nuget, ${weights.length} weights — banned ${r.banned}, unknown ${r.unknown}, pending ${r.pending} (warn: the founder's decision D-7-16)`);
 for (const l of r.lines) console.log(l);
-process.exit(r.code);
+process.exit(r.code || (hits.length ? 1 : 0));

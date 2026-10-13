@@ -7,13 +7,13 @@ import { join } from "node:path";
 
 const check = join(import.meta.dirname, "..", "..", "tools", "licence-check", "check.mjs");
 
-function run(files) {
+function run(files, args = []) {
   const root = mkdtempSync(join(tmpdir(), "lc-"));
   try {
     const all = { "survey/las.py": 'PINS = {"laspy": "2.7.0"}\n', "WebApp/bridge/ai-gateway.mjs": "", "SentinelAddin/Engine/SettingsManager.cs": "", ...files };
     for (const [p, c] of Object.entries(all)) { mkdirSync(join(root, p, ".."), { recursive: true }); writeFileSync(join(root, p), c); }
     writeFileSync(join(root, "lock.json"), JSON.stringify({ packages: {} }));
-    try { return { code: 0, out: execFileSync("node", [check, "--root", root, "--lock", join(root, "lock.json")], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }) }; }
+    try { return { code: 0, out: execFileSync("node", [check, "--root", root, "--lock", join(root, "lock.json"), ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }) }; }
     catch (e) { return { code: e.status, out: String(e.stdout) }; }
   } finally { rmSync(root, { recursive: true, force: true }); }
 }
@@ -30,5 +30,22 @@ describe("licence-check pin readers", () => {
     expect(r.code).toBe(1);
     expect(r.out).toMatch(/UNKNOWN laspy@2\.8\.0/);
     expect(r.out).toMatch(/UNKNOWN transformers@4\.1/);
+  });
+});
+
+// MA-7-3 (amendment 20): the add-in has no image-import API — a SentinelAddin .cs naming one fails the run, naming the line.
+describe("licence-check imagery scan (MA-7-3)", () => {
+  it("prints 0 hits on clean code; a Revit image import fails and names file:line", () => {
+    const clean = run({ "SentinelAddin/A.cs": "class A { }\n" });
+    expect(clean.code).toBe(0);
+    expect(clean.out).toContain("imagery: 0 hits");
+    expect(run({ "SentinelAddin/A.cs": "class A { }\n" }, ["--imagery"])).toEqual({ code: 0, out: "imagery: 0 hits\n" });
+    const aloneHit = run({ "SentinelAddin/A.cs": "class A {\n  void M() { ImageView.Create(d, p); }\n}\n" }, ["--imagery"]);
+    expect(aloneHit.code).toBe(1);
+    expect(aloneHit.out).toContain("IMAGERY SentinelAddin/A.cs:2");
+    for (const api of ["ImageImportOptions", "SaveToProjectAsImage"]) expect(run({ "SentinelAddin/A.cs": "class A { void M() { " + api + "(); } }\n" }, ["--imagery"]).code).toBe(1);
+    const r = run({ "SentinelAddin/A.cs": "class A {\n  void M() { ImageType.Create(d, o); }\n}\n" });
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("IMAGERY SentinelAddin/A.cs:2 — imagery is never put into the model (design 4.4); nothing ships with it");
   });
 });

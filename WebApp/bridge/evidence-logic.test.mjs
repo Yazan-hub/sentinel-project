@@ -3,7 +3,7 @@ import { describe, it, expect } from "vitest";
 import {
   ATTESTATIONS, ADMIT_NEEDS, MAX_ITEMS, codesSaid, readAdmitBody, newItemRefusal, policyRefusals, magicRefusal,
   nextId, newPack, newItem, flagged, readmitted, validatePack, readRequestBody, letterText, newRequest, requestedValue,
-  DATASET_LICENCES, readDataset, needsOf, sizeRefusal, USES,
+  DATASET_LICENCES, readDataset, needsOf, sizeRefusal, USES, ITEM_FIELDS,
 } from "./evidence-logic.mjs";
 
 const PATH_WORDS = "path must name a file inside the project's evidence folder, relative to it (no drive, no leading slash, no ..) — nothing was saved";
@@ -294,5 +294,44 @@ describe("a third party's model (MA-8-3)", () => {
     const { admittedValue } = await import("./evidence-logic.mjs");
     expect(admittedValue("evp-0001", vendorItem(packOf(["a", "e"])), 3, false)).toMatchObject({ provider: "acme scans", licence: "commercial", licence_ref: "PO-2026-114" });
     expect(admittedValue("evp-0001", photoItem(packWith(["a", "c", "d"])), 3, false)).not.toHaveProperty("licence_ref");
+  });
+});
+
+// MA-7-3 — the item-field whitelist, and the replay guard: every item shape stored before it must still validate unchanged (a stored pack
+// is never rewritten to fit — a failure here widens ITEM_FIELDS).
+describe("the item-field whitelist (MA-7-3)", () => {
+  const DS = { provider: "example-repository", source_url: "https://example.test/records/1", licence: "CC-BY-4.0", attribution: "Example scan by A. Surveyor" };
+  const req = { id: "req-0001", recipient_kind: "owner", recipient: null, documents: ["plans"], purpose: null, letter: "L", letter_sha256: "", drafted_by: "lead@example.test", drafted_at: "t" };
+  const reqs = [{ ...req, letter_sha256: newRequest({ id: "r", input: { documents: [] }, letter: "L", who: "w", at: "t" }).letter_sha256 }];
+  const mk = (pack, input, format, over = {}) => newItem({ id: "ev-0001", input, format, sha256: SHA, size_bytes: 9, report: null, pack, who: "lead@example.test", at: "2026-10-08T10:01:00.000Z", ...over });
+  const REG = { method: "registered in source", report_path: null };
+  const shapes = () => {
+    const rcpPack = packWith(["a", "c"]);
+    const photoPack = packWith(["a", "c", "d"]);
+    const drawPack = { ...packWith(["a", "b"]), requests: reqs };
+    const dsPack = { ...newPack("p", "P", {}, "C:/ev/p", DS), attestations: signed(["f"]) };
+    const vendPack = packWith(["a", "e"]);
+    const rcp = mk(rcpPack, { path: "scans/s.rcp", kind: "scan", provider: "own", registration: { ...REG, report_path: "scans/s.txt" } }, "rcp", { report: { sha256: SHA } });
+    return [
+      ["own scan with registration", packWith(["a", "c"]), (p) => mk(p, { path: "scans/a.las", kind: "scan", provider: "own", registration: REG }, "las")],
+      ["RCP with report path + sha", rcpPack, () => rcp],
+      ["flagged photo", photoPack, (p) => flagged(mk(p, { path: "photos/a.jpg", kind: "photo", provider: "own", registration: null }, "jpg"), SHA, "2026-10-09T10:00:00.000Z")],
+      ["drawing under a request", drawPack, (p) => mk(p, { path: "drawings/A.pdf", kind: "drawing", provider: "own", registration: null, request_id: "req-0001" }, "pdf", { request: p.requests[0] })],
+      ["dataset scan", dsPack, (p) => mk(p, { path: "scans/d.las", kind: "scan", provider: "own", registration: REG }, "las")],
+      ["vendor model with licence_ref", vendPack, (p) => mk(p, { path: "model/v.ifc", kind: "model", provider: "acme", licence_ref: "PO-1", registration: null }, "ifc")],
+      ["own concept IFC", packWith(["a"]), (p) => mk(p, { path: "model/c.ifc", kind: "model", provider: "own", registration: null }, "ifc")],
+    ];
+  };
+  it("lists exactly the 19 fields the bridge writes today", () => { expect(ITEM_FIELDS).toEqual(["id", "kind", "format", "sha256", "size_bytes", "path", "provider", "licence", "licence_ref", "request_id", "attestation_ids", "allowed_uses", "registration", "surveyable", "admitted_by", "admitted_at", "state", "changed_sha256", "changed_at"]); });
+  it.each(shapes().map((s) => [s[0], s]))("replay: %s validates unchanged", (_n, [, pack, make]) => {
+    const item = make(pack);
+    expect(Object.keys(item).every((k) => ITEM_FIELDS.includes(k))).toBe(true);
+    expect(validatePack({ ...pack, items: [item] })).toBe(true);
+  });
+  it("a stray item field is a 400 naming it", () => {
+    const pack = packWith(["a", "c"]);
+    const item = scanItem(pack);
+    expect(() => validatePack({ ...pack, items: [{ ...item, foo: 1 }] })).toThrow(expect.objectContaining({
+      status: 400, message: "evidence_pack: items[0].foo is not an item field — the bridge writes items; an unknown field is never stored" }));
   });
 });

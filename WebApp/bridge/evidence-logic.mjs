@@ -67,6 +67,8 @@ const DRAWINGS = {
 export const tableOf = (kind) => (kind === "drawing" ? DRAWINGS : FORMATS);
 /** The uses an own item allows. texture_embed and redistribute are always false, by policy (D:668). */
 export const USES = { view_reference: true, geometry_extraction: true, texture_embed: false, redistribute: false, ml_training: false };
+// MA-7-3: every field an item may carry — the bridge writes items, so an unknown field is never stored. Each slice that writes a new item field adds it here in the same commit (D-7-30).
+export const ITEM_FIELDS = ["id", "kind", "format", "sha256", "size_bytes", "path", "provider", "licence", "licence_ref", "request_id", "attestation_ids", "allowed_uses", "registration", "surveyable", "admitted_by", "admitted_at", "state", "changed_sha256", "changed_at"];
 const PACK_FIELDS = ["kind", "pack_id", "project", "asset", "storage_root", "attestations", "items", "requests", "dataset"];
 /** MA-4b: who an "ask the owner" letter goes to; a drawing admitted under it carries this as its provider. */
 export const RECIPIENTS = ["owner", "architect", "municipality"];
@@ -309,6 +311,8 @@ export function validatePack(p) {
   p.items.forEach((x, i) => {
     const at = `items[${i}]`;
     if (!isObj(x)) throw bad(at, "must be an object");
+    const s = Object.keys(x).find((k) => !ITEM_FIELDS.includes(k)); // MA-7-3
+    if (s !== undefined) throw bad(`${at}.${s}`, "is not an item field — the bridge writes items; an unknown field is never stored");
     if (!/^ev-\d{4}$/.test(x.id) || ids.has(x.id)) throw bad(`${at}.id`, "must be a unique ev-NNNN");
     if (!safeRel(x.path) || paths.has(x.path)) throw bad(`${at}.path`, "must be a unique path inside the evidence folder");
     const f = tableOf(x.kind)[x.format];

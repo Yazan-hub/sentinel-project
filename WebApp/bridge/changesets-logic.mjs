@@ -407,6 +407,32 @@ function checkWrite(el, place, at, cite) {
   };
 }
 
+/** MA-7-3: imagery is never put into the model (RVT or IFC; design 4.4). Walks every element value except the human-text fields (reason,
+ *  evidence, validate, name) and refuses an image carried as text. ponytail: byte checks, not names — a name is not imagery, and ops carry no file field. */
+const IMAGE_B64 = /^(\/9j\/|iVBORw0KGgo|UklGR|AAAAIGZ0eXBoZWlj)/; // JPEG, PNG, WebP, HEIC as base64
+export function imageryRefusal(body) {
+  const SKIP = ["reason", "evidence", "validate", "name"];
+  const hit = (v, path, depth = 0) => {
+    if (typeof v === "string") { const t = v.trim(); return /^data:[^,]*;base64,/i.test(t) || /^data:image\//i.test(t) || (t.length > 64 && IMAGE_B64.test(t)) ? path.slice(0, 200) : null; } // review: checkWrite stores the trimmed value
+    if (depth > 8 || !v || typeof v !== "object") return null;
+    for (const [k, x] of Object.entries(v)) { const h = hit(x, Array.isArray(v) ? `${path}[${k}]` : `${path}.${k}`, depth + 1); if (h) return h; }
+    return null;
+  };
+  for (const [i, el] of body.elements.entries()) {
+    if (!el || typeof el !== "object") continue;
+    for (const [k, v] of Object.entries(el)) {
+      if (SKIP.includes(k)) continue;
+      const h = hit(v, `elements[${i}].${k}`);
+      if (h) throw err(400, `imagery is never put into the model (RVT or IFC) — ${h} carries an image as text; nothing was filed`);
+    }
+  }
+}
+/** MA-7-3: a photo only confirms a ghost or chooses its type (design 4.2), so a source:"photo" changeset creates only a mass or a level. */
+export function photoKindRefusal(body, source) {
+  if (String(source).toLowerCase() !== "photo") return;
+  const el = body.elements.find((e) => e && typeof e === "object" && (e.op ?? "create") === "create" && OP_KINDS.create.includes(e.kind) && !["mass", "level"].includes(e.kind)); // an unknown kind falls through to the kind 400
+  if (el) throw err(400, `a photo never creates ${a(el.kind)} on its own — photos confirm a ghost or choose its type (design 4.2); nothing was filed`);
+}
 /** Validate + normalise a proposed changeset. Assigns proposal_guids (a posted one is ignored); a missing
  *  validate.identity.GlobalId is synced to the proposal_guid so adjudication failures (tagged by
  *  GlobalId) map back to the element that earned them. Each element comes back with its op, target and reason, and
@@ -455,6 +481,7 @@ export function validateChangeset(body, { member = false, type = null, cite = nu
   }
   if (body.contract != null && body.contract !== 1 && body.contract !== 2) throw err(400, "contract must be 1 or 2");
   const source = sourceOf(body.source, note);
+  imageryRefusal(body); photoKindRefusal(body, source); // MA-7-3
 
   const seen = new Set(); // (op, element) pairs: one ghost per change, so a wall can carry one retype and one attach
   const rehosted = new Set(), touched = new Set(); // MA-5b-5: elements a rehost replaces; elements another op edits
