@@ -3,8 +3,9 @@ import { describe, it, expect } from "vitest";
 import {
   ATTESTATIONS, ADMIT_NEEDS, MAX_ITEMS, codesSaid, readAdmitBody, newItemRefusal, policyRefusals, magicRefusal,
   nextId, newPack, newItem, flagged, readmitted, validatePack, readRequestBody, letterText, newRequest, requestedValue,
-  DATASET_LICENCES, readDataset, needsOf, sizeRefusal, USES, ITEM_FIELDS,
+  DATASET_LICENCES, readDataset, needsOf, sizeRefusal, USES, ITEM_FIELDS, cameraOf, photoRefusal,
 } from "./evidence-logic.mjs";
+import { jpegWithExif } from "./fixtures/jpeg-exif.mjs";
 
 const PATH_WORDS = "path must name a file inside the project's evidence folder, relative to it (no drive, no leading slash, no ..) — nothing was saved";
 const SHA = "a".repeat(64);
@@ -61,7 +62,11 @@ describe("policyRefusals", () => {
   it("refuses RED, third-party, drawings and wrong formats", () => {
     expect(policyRefusals({ kind: "photo", provider: "google maps", path: "a.jpg" })).toEqual(["google maps is a RED source — imagery and data from Google, Apple and Azure/Bing map services are never admitted (attestation d says so for every photo)"]);
     expect(policyRefusals({ kind: "photo", provider: "azure", path: "a.jpg" })).toEqual(["azure is a RED source — imagery and data from Google, Apple and Azure/Bing map services are never admitted (attestation d says so for every photo)"]);
-    expect(policyRefusals({ kind: "photo", provider: "wikimedia-commons", path: "a.jpg" })).toEqual(["web and third-party items wait for a later stage — only your own scans and photos (provider own), drawings under a request and third-party models with (e) are admitted now"]);
+    expect(policyRefusals({ kind: "photo", provider: "wikimedia-commons", path: "a.jpg" })).toEqual(["a third party's or a website's photo waits for counsel's review — web evidence is not admitted yet (the founder's switch SENTINEL_WEB_EVIDENCE); only your own photos (provider own) are admitted now"]); // MA-7-4
+    expect(policyRefusals({ kind: "scan", provider: "wikimedia-commons", path: "a.las" })).toEqual(["web and third-party items wait for a later stage — only your own scans and photos (provider own), drawings under a request and third-party models with (e) are admitted now"]);
+    expect(policyRefusals({ kind: "photo", provider: "street view", path: "a.jpg" })).toEqual(["street view is a RED source — imagery and data from Google, Apple and Azure/Bing map services are never admitted (attestation d says so for every photo)"]);
+    expect(policyRefusals({ kind: "photo", provider: "google street view", path: "a.jpg" })[0]).toMatch(/^google street view is a RED source/);
+    expect(policyRefusals({ kind: "photo", provider: "website", path: "a.jpg", webMode: "drill" })[0]).toMatch(/^a third party's or a website's photo waits for counsel/);
     expect(policyRefusals({ kind: "drawing", provider: "own", path: "A-101.pdf" })).toEqual([]); // MA-4b: under a request
     expect(policyRefusals({ kind: "drawing", provider: "owner", path: "scan.JPEG" })).toEqual([]);
     expect(policyRefusals({ kind: "drawing", provider: "own", path: "A-101.txt" })).toEqual(["a .txt is not admitted as a drawing — drawings are pdf, dwg, dxf, png or jpg"]);
@@ -316,13 +321,14 @@ describe("the item-field whitelist (MA-7-3)", () => {
       ["own scan with registration", packWith(["a", "c"]), (p) => mk(p, { path: "scans/a.las", kind: "scan", provider: "own", registration: REG }, "las")],
       ["RCP with report path + sha", rcpPack, () => rcp],
       ["flagged photo", photoPack, (p) => flagged(mk(p, { path: "photos/a.jpg", kind: "photo", provider: "own", registration: null }, "jpg"), SHA, "2026-10-09T10:00:00.000Z")],
+      ["photo with capture (7-4)", photoPack, (p) => mk(p, { path: "photos/c.jpg", kind: "photo", provider: "own", registration: null, capture: { make: "Example", model: "Cam", taken_at: null, gps: false } }, "jpg")],
       ["drawing under a request", drawPack, (p) => mk(p, { path: "drawings/A.pdf", kind: "drawing", provider: "own", registration: null, request_id: "req-0001" }, "pdf", { request: p.requests[0] })],
       ["dataset scan", dsPack, (p) => mk(p, { path: "scans/d.las", kind: "scan", provider: "own", registration: REG }, "las")],
       ["vendor model with licence_ref", vendPack, (p) => mk(p, { path: "model/v.ifc", kind: "model", provider: "acme", licence_ref: "PO-1", registration: null }, "ifc")],
       ["own concept IFC", packWith(["a"]), (p) => mk(p, { path: "model/c.ifc", kind: "model", provider: "own", registration: null }, "ifc")],
     ];
   };
-  it("lists exactly the 19 fields the bridge writes today", () => { expect(ITEM_FIELDS).toEqual(["id", "kind", "format", "sha256", "size_bytes", "path", "provider", "licence", "licence_ref", "request_id", "attestation_ids", "allowed_uses", "registration", "surveyable", "admitted_by", "admitted_at", "state", "changed_sha256", "changed_at"]); });
+  it("lists the 19 fields the bridge wrote before MA-7, then capture (7-4)", () => { expect(ITEM_FIELDS).toEqual(["id", "kind", "format", "sha256", "size_bytes", "path", "provider", "licence", "licence_ref", "request_id", "attestation_ids", "allowed_uses", "registration", "surveyable", "admitted_by", "admitted_at", "state", "changed_sha256", "changed_at", "capture"]); });
   it.each(shapes().map((s) => [s[0], s]))("replay: %s validates unchanged", (_n, [, pack, make]) => {
     const item = make(pack);
     expect(Object.keys(item).every((k) => ITEM_FIELDS.includes(k))).toBe(true);
@@ -333,5 +339,48 @@ describe("the item-field whitelist (MA-7-3)", () => {
     const item = scanItem(pack);
     expect(() => validatePack({ ...pack, items: [{ ...item, foo: 1 }] })).toThrow(expect.objectContaining({
       status: 400, message: "evidence_pack: items[0].foo is not an item field — the bridge writes items; an unknown field is never stored" }));
+  });
+});
+
+// MA-7-4 — a photo's camera record from its EXIF, and what a new own photo must carry.
+describe("cameraOf and photoRefusal (MA-7-4)", () => {
+  it("reads make, model, taken and a GPS flag; little- and big-endian; coordinates are never read", () => {
+    for (const endian of ["II", "MM"]) {
+      expect(cameraOf(jpegWithExif({ endian, gps: true }))).toEqual({ make: "Example", model: "Test Cam 1", taken_at: "2026-10-13 09:30", gps: true });
+    }
+    const c = cameraOf(jpegWithExif({ gps: true }));
+    expect(JSON.stringify(c)).not.toMatch(/lat|lon|coord/i);
+    expect(cameraOf(jpegWithExif({ taken: null }))).toEqual({ make: "Example", model: "Test Cam 1", taken_at: null, gps: false });
+    expect(cameraOf(jpegWithExif({ make: "A".repeat(80), model: "" }))).toMatchObject({ make: "A".repeat(64), model: null });
+  });
+  it("a bad Exif sub-IFD pointer keeps make/model with taken_at null; control characters (C0, C1) are removed", () => {
+    // jpegWithExif: JPEG 2 + APP1 4 + "Exif  " 6 + TIFF; IFD0 entries at TIFF 10, sorted 010f, 0110, 8769 -> the 3rd entry's value at TIFF 10+24+8
+    const bad = Buffer.from(jpegWithExif({})); bad.writeUInt32LE(0x7fffffff, 2 + 4 + 6 + 10 + 24 + 8);
+    expect(cameraOf(bad)).toEqual({ make: "Example", model: "Test Cam 1", taken_at: null, gps: false });
+    expect(cameraOf(jpegWithExif({ make: "Example" }))).toMatchObject({ make: "Example" });
+  });
+  it("is null for no APP1, no make/model, a bad header or a truncated IFD", () => {
+    expect(cameraOf(Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4, 5, 6, 7, 8]))).toBeNull();
+    expect(cameraOf(jpegWithExif({ make: "", model: "" }))).toBeNull();
+    expect(cameraOf(Buffer.from("not a jpeg at all"))).toBeNull();
+    expect(cameraOf(null)).toBeNull();
+    const full = jpegWithExif({ gps: true });
+    for (const n of [30, 40, 60, 90]) expect(cameraOf(full.subarray(0, n))).toBeNull();
+    const bad = Buffer.from(full); bad.writeUInt32LE(0x00ffffff, 4 + 2 + 2 + 6 + 4 - 2); // IFD0 offset (TIFF offset 4) far outside
+    expect(cameraOf(bad)).toBeNull();
+  });
+  it("photoRefusal: a PNG and a file without camera data are refused in words; a camera's JPEG is not", () => {
+    expect(photoRefusal({ format: "png", camera: { make: "A", model: null, taken_at: null, gps: false } })).toMatch(/^a \.png photo is a screenshot or an export/);
+    expect(photoRefusal({ format: "jpg", camera: null })).toBe("this photo carries no camera data (EXIF make and model) — a screenshot or a saved web image is not admitted as your own photo (attestation d); admit the camera's original file");
+    expect(photoRefusal({ format: "jpg", camera: { make: "A", model: null, taken_at: null, gps: false } })).toBeNull();
+  });
+  it("validatePack: capture is exactly {make, model, taken_at, gps}, on a photo only", () => {
+    const pack = packWith(["a", "c", "d"]);
+    const item = (cap, over = {}) => ({ ...photoItem(pack), capture: cap, ...over });
+    const ok = { make: "A", model: null, taken_at: null, gps: false };
+    expect(validatePack({ ...pack, items: [item(ok)] })).toBe(true);
+    const fails = (cap, over) => expect(() => validatePack({ ...pack, items: [item(cap, over)] })).toThrow(/items\[0\]\.capture is a photo's/);
+    fails({ ...ok, lat: 1 }); fails({ ...ok, make: null }); fails({ ...ok, gps: "yes" }); fails({ ...ok, taken_at: "x".repeat(17) }); fails("A");
+    expect(() => validatePack({ ...packWith(["a", "c"]), items: [{ ...scanItem(packWith(["a", "c"])), capture: ok }] })).toThrow(/capture is a photo's/);
   });
 });

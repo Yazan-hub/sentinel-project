@@ -15,7 +15,7 @@ import { readDeleted, restoreDeleted, deletedItemLine, restoredLine, archivable,
 import { escapeHtml as esc } from "./escape-html";
 import { unarchiveFile } from "./cde-transition";
 import { firstTag, geometryCheck, linkedHash, linkedTag, sha256Hex, type GeometryLinkRow } from "./geometry-check";
-import { readEvidence, readWebStatus, webLine, type WebStatus, makePack, signAttestation, admitEvidence, recheckEvidence, draftRequest, kindOf, isImage, needsReport, itemLine, attestationLine, admitLine, recheckLine, requestLine, evidenceControls, ATTESTATION_CODES, ATTESTATION_TEXTS, datasetLine, type EvidenceRead, type EvidenceRequest,
+import { readEvidence, readWebStatus, webLine, type WebStatus, makePack, signAttestation, admitEvidence, recheckEvidence, draftRequest, kindOf, isImage, needsReport, itemLine, attestationLine, admitLine, recheckLine, requestLine, evidenceControls, ATTESTATION_CODES, ATTESTATION_TEXTS, datasetLine, PHOTO_SOURCES, MAP_SERVICES, photoProvider, type PhotoSource, type EvidenceRead, type EvidenceRequest,
   startSurvey, readJobs, readJob, jobLine, candidateLine, surveyStartLine, surveyableScans, proposeBody, proposeFromJob, proposeLine, type SurveyJob, type Candidate,
   startDrawing, drawingStartLine, readableDrawings, isDrawingJob, startIfc, ifcStartLine, readableIfc, isIfcJob, ifcHintLine, alignBody, alignPreview, drawingSvg, snapPaper, type AlignDraft } from "./evidence";
 
@@ -102,6 +102,8 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   // MA-4b: `drawingFor` = the folder file whose request picker is open (a drawing names the request it answers); `askDraft` = the
   // Ask the owner form while open (kept across a refused draft, so nothing typed is lost); `lettersOpen` = the requests showing a letter.
   let drawingFor: string | null = null;
+  let photoFor: string | null = null; // MA-7-4: the folder photo whose source form (own camera / map service / website) is open
+  let photoSource: PhotoSource = "own"; let photoService: string = MAP_SERVICES[0];
   let vendorFor: string | null = null; // MA-8-3: the folder .ifc whose provider + licence-ref form is open (a third party's model)
   let drawingReq = ""; // the request picked for `drawingFor`, kept across a re-render
   let drafting = false; // a draft in flight: a second click drafts nothing
@@ -174,7 +176,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   async function load() {
     const mine = ++seq, key = pid();
     // A project or person switch drops the old scope's inline rename / armed confirm (dismissing is reset below).
-    if (loadScope(key) !== loadedScope) { renaming = null; armed = null; unarchiveAsk = null; askDraft = null; drawingFor = null; vendorFor = null; lettersOpen.clear(); proposing = null; proposeLevels = null; proposeDraft = null; alignDraft = null; alignView = null; alignPick = null; }
+    if (loadScope(key) !== loadedScope) { renaming = null; armed = null; unarchiveAsk = null; askDraft = null; drawingFor = null; vendorFor = null; photoFor = null; lettersOpen.clear(); proposing = null; proposeLevels = null; proposeDraft = null; alignDraft = null; alignView = null; alignPick = null; }
     loadedScope = loadScope(key);
     if (cmp.a || cmp.b) { cmp.a = cmp.b = cmp.fileId = undefined; el("fv-compare").style.display = "none"; }
     el("fv-proj").textContent = key;
@@ -222,7 +224,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       dismissing = null; gapDismissing = null;
       try { const h = await readHolding(base, key); if (mine !== seq) return; holding = h; holdError = null; }
       catch (e) { if (mine !== seq) return; holding = { items: [], cleared_recent: [], type_gaps: null }; holdError = (e as Error).message; }
-      admitting = null; drawingFor = null; vendorFor = null;
+      admitting = null; drawingFor = null; vendorFor = null; photoFor = null;
       try { const ev = await readEvidence(base, key); if (mine !== seq) return; evidence = ev; evidenceError = null; }
       catch (e) { if (mine !== seq) return; evidence = null; evidenceError = (e as Error).message; }
       // MA-7-2: the web switch is its own read; a failure leaves the line unsaid, never "off" guessed
@@ -410,13 +412,15 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     })));
     root.querySelectorAll<HTMLElement>("[data-evadmit]").forEach((n) => n.addEventListener("click", () => {
       const path = n.dataset.evadmit!;
-      // A photo or a concept IFC (MA-6-8: the owner's authority alone), or a flagged item coming back (the bridge keeps its first registration, report and request), is admitted with no form.
+      // A concept IFC (MA-6-8: the owner's authority alone), or a flagged item coming back (the bridge keeps its first registration, report and request), is admitted with no form.
+      // MA-7-4: a NEW photo asks where it came from first.
       const back = evidence?.pack.items.find((i) => i.path === path && i.state === "changed");
-      if (back || kindOf(path) === "photo" || kindOf(path) === "model") void evAct(async () => admitLine(await admitEvidence(base, pid(), { path, kind: back?.kind ?? kindOf(path)!, ...(back?.request_id ? { request_id: back.request_id } : {}) })));
-      else if (kindOf(path) === "drawing") { drawingFor = path; drawingReq = ""; admitting = null; render(); }
-      else { admitting = path; drawingFor = null; render(); (root.querySelector("#fv-ev-method") as HTMLInputElement | null)?.focus(); }
+      if (!back && kindOf(path) === "photo") { photoFor = path; photoSource = "own"; photoService = MAP_SERVICES[0]; admitting = null; drawingFor = null; vendorFor = null; render(); }
+      else if (back || kindOf(path) === "model") void evAct(async () => admitLine(await admitEvidence(base, pid(), { path, kind: back?.kind ?? kindOf(path)!, ...(back?.request_id ? { request_id: back.request_id } : {}) })));
+      else if (kindOf(path) === "drawing") { drawingFor = path; drawingReq = ""; admitting = null; photoFor = null; render(); }
+      else { admitting = path; drawingFor = null; photoFor = null; render(); (root.querySelector("#fv-ev-method") as HTMLInputElement | null)?.focus(); }
     }));
-    root.querySelectorAll<HTMLElement>("[data-evvendor]").forEach((n) => n.addEventListener("click", () => { vendorFor = n.dataset.evvendor!; admitting = null; drawingFor = null; render(); (root.querySelector("#fv-ev-vprov") as HTMLInputElement | null)?.focus(); }));
+    root.querySelectorAll<HTMLElement>("[data-evvendor]").forEach((n) => n.addEventListener("click", () => { vendorFor = n.dataset.evvendor!; admitting = null; drawingFor = null; photoFor = null; render(); (root.querySelector("#fv-ev-vprov") as HTMLInputElement | null)?.focus(); }));
     root.querySelector("#fv-ev-vok")?.addEventListener("click", () => {
       const path = vendorFor, v = (s: string) => (root.querySelector(s) as HTMLInputElement | null)?.value.trim() ?? "";
       if (!path) return;
@@ -458,7 +462,16 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       try { await navigator.clipboard.writeText(r.letter); status(`✓ Copied the letter of ${r.id} — sign it and send it yourself`); }
       catch { status("Copy is blocked here — select the letter's text and copy it (Ctrl+C)"); }
     }));
-    root.querySelector("#fv-ev-cancel")?.addEventListener("click", () => { admitting = null; drawingFor = null; vendorFor = null; render(); });
+    root.querySelectorAll<HTMLInputElement>("[name=fv-ev-psrc]").forEach((n) => n.addEventListener("change", () => { photoSource = n.value as PhotoSource; render(); }));
+    root.querySelector("#fv-ev-psvc")?.addEventListener("change", (e) => { photoService = (e.target as HTMLSelectElement).value; });
+    root.querySelector("#fv-ev-pok")?.addEventListener("click", () => {
+      const path = photoFor;
+      if (!path) return;
+      const provider = photoProvider(photoSource, photoService);
+      photoFor = null;
+      void evAct(async () => admitLine(await admitEvidence(base, pid(), { path, kind: "photo", ...(provider ? { provider } : {}) })));
+    });
+    root.querySelector("#fv-ev-cancel")?.addEventListener("click", () => { admitting = null; drawingFor = null; vendorFor = null; photoFor = null; render(); });
     root.querySelector("#fv-ev-ok")?.addEventListener("click", () => {
       const path = admitting;
       if (!path) return;
@@ -685,6 +698,11 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
         ? `<input id="fv-ev-method" maxlength="300" placeholder="How was it registered? e.g. registered in source" style="flex:1;min-width:10rem;background:#111;color:#eee;border:1px solid #6528d7;border-radius:.25rem;padding:.2rem .4rem;font:12px system-ui"/>` +
           (needsReport(f.path) ? `<select id="fv-ev-report" style="background:#111;color:#eee;border:1px solid #2c2c34;border-radius:.25rem;font:11px system-ui"><option value="">its registration report…</option>${folder.files_not_admitted.filter((x) => x.path !== f.path).map((x) => `<option value="${esc(x.path)}">${esc(x.path)}</option>`).join("")}</select>` : "") +
           `<button id="fv-ev-ok" style="${act};color:#c4b5fd">Admit</button><button id="fv-ev-cancel" style="${act}">Cancel</button>`
+        : photoFor === f.path
+          ? `<span style="color:#9ca3af;flex-basis:100%">Where did this photo come from? Only your camera's original file is admitted now (it must carry camera data). A map service is never admitted; a website waits for counsel's review.</span>` +
+            PHOTO_SOURCES.map((s) => `<label style="font-size:11px"><input type="radio" name="fv-ev-psrc" value="${esc(s.id)}"${photoSource === s.id ? " checked" : ""}/> ${esc(s.label)}</label>`).join("") +
+            (photoSource === "map" ? `<select id="fv-ev-psvc" style="${inp}">${MAP_SERVICES.map((m) => `<option${m === photoService ? " selected" : ""}>${esc(m)}</option>`).join("")}</select>` : "") +
+            `<button id="fv-ev-pok" style="${act};color:#c4b5fd">Admit photo</button><button id="fv-ev-cancel" style="${act}">Cancel</button>`
         : vendorFor === f.path
           ? `<span style="color:#9ca3af;flex-basis:100%">A third party's model is a purchase, not a request. Needs (a) and (e) signed by a lead, and a lead to admit it. Name the provider and the order or contract it was bought under. Sentinel sends nothing to the vendor; the owner's consent to sharing a scan with them is the office's to settle.</span>` +
             `<input id="fv-ev-vprov" maxlength="100" placeholder="provider, e.g. Acme Scans" style="${inp};min-width:9rem"/><input id="fv-ev-vref" maxlength="100" placeholder="order or contract number" style="${inp};flex:1;min-width:9rem"/>` +
@@ -1135,7 +1153,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   // A plain refresh (same project and person, e.g. the bridge came back) must not wipe an open dismiss reason, rename
   // input or armed confirm; a project or person switch always reloads (load() drops them).
   onActiveProjectChange(() => {
-    if (loadScope(pid()) === loadedScope && (dismissing != null || gapDismissing != null || renaming || armed || admitting || askDraft || drawingFor || vendorFor)) return;
+    if (loadScope(pid()) === loadedScope && (dismissing != null || gapDismissing != null || renaming || armed || admitting || askDraft || drawingFor || vendorFor || photoFor)) return;
     void load();
   });
   void load();

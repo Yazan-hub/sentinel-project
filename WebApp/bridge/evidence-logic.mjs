@@ -31,6 +31,8 @@ export const DATASET_LICENCES = ["CC-BY-4.0", "CC0-1.0"];
 export const codesSaid = (codes) => codes.map((c) => `(${c})`).join(", ").replace(/, ([^,]*)$/, " and $1");
 /** RED sources (R:207, D:486): never admitted, whoever attests. Matched inside the provider's name, case ignored. */
 export const RED = ["google", "apple", "bing", "azure"];
+/** MA-7-4: words that name a map service by itself, for a photo only ("street view" with no vendor in front of it). */
+export const RED_PHOTO = ["street view", "streetview"];
 /** MA-8-3: a vendor's company name is matched by whole words ('Bingham Geomatics' is not Bing); every other provider by substring. */
 const redModel = (provider) => provider.split(/[^a-z0-9]+/).some((t) => RED.includes(t));
 const PLAIN_NAME = /^[a-z0-9][a-z0-9 ._-]{0,99}$/; // MA-8-3: a third-party model's provider, a plain name on the ledger
@@ -68,7 +70,8 @@ export const tableOf = (kind) => (kind === "drawing" ? DRAWINGS : FORMATS);
 /** The uses an own item allows. texture_embed and redistribute are always false, by policy (D:668). */
 export const USES = { view_reference: true, geometry_extraction: true, texture_embed: false, redistribute: false, ml_training: false };
 // MA-7-3: every field an item may carry — the bridge writes items, so an unknown field is never stored. Each slice that writes a new item field adds it here in the same commit (D-7-30).
-export const ITEM_FIELDS = ["id", "kind", "format", "sha256", "size_bytes", "path", "provider", "licence", "licence_ref", "request_id", "attestation_ids", "allowed_uses", "registration", "surveyable", "admitted_by", "admitted_at", "state", "changed_sha256", "changed_at"];
+export const ITEM_FIELDS = ["id", "kind", "format", "sha256", "size_bytes", "path", "provider", "licence", "licence_ref", "request_id", "attestation_ids", "allowed_uses", "registration", "surveyable", "admitted_by", "admitted_at", "state", "changed_sha256", "changed_at",
+  "capture"]; // MA-7-4
 const PACK_FIELDS = ["kind", "pack_id", "project", "asset", "storage_root", "attestations", "items", "requests", "dataset"];
 /** MA-4b: who an "ask the owner" letter goes to; a drawing admitted under it carries this as its provider. */
 export const RECIPIENTS = ["owner", "architect", "municipality"];
@@ -125,11 +128,14 @@ export function newItemRefusal({ path, kind, registration, request_id }) {
 }
 
 /** The reasons an item is refused before its bytes are read (each becomes an evidence:refused row). [] = none. */
-export function policyRefusals({ kind, provider, path, dataset = false }) {
+export function policyRefusals({ kind, provider, path, dataset = false, webMode = "off" }) {
   const out = [];
-  if (kind === "model" && provider !== "own" ? redModel(provider) : RED.some((r) => provider.includes(r))) out.push(`${provider} is a RED source — imagery and data from Google, Apple and Azure/Bing map services are never admitted (attestation d says so for every photo)`);
+  if (kind === "model" && provider !== "own" ? redModel(provider) : RED.some((r) => provider.includes(r)) || (kind === "photo" && RED_PHOTO.some((r) => provider.includes(r)))) out.push(`${provider} is a RED source — imagery and data from Google, Apple and Azure/Bing map services are never admitted (attestation d says so for every photo)`);
   // A drawing's provider is its request's recipient, stamped by the bridge — the body's is read for the RED rule only.
   // MA-4h: on a published dataset's pack the body's provider is read for the RED rule only (the pack's is stamped).
+  // MA-7-4: a photo from a website waits for counsel (the founder's switch); 7-12 admits it through the web path when the switch is not off.
+  // Until 7-12 builds the web path every mode says the same words (the switch is not read here).
+  else if (provider !== "own" && kind === "photo" && !dataset) out.push("a third party's or a website's photo waits for counsel's review — web evidence is not admitted yet (the founder's switch SENTINEL_WEB_EVIDENCE); only your own photos (provider own) are admitted now");
   else if (provider !== "own" && kind !== "drawing" && kind !== "model" && !dataset) out.push("web and third-party items wait for a later stage — only your own scans and photos (provider own), drawings under a request and third-party models with (e) are admitted now");
   if (kind === "drawing") {
     if (!formatOf(path, kind)) out.push(`${extOf(path) ? `a .${extOf(path)}` : "a file with no extension"} is not admitted as a drawing — drawings are pdf, dwg, dxf, png or jpg`);
@@ -139,6 +145,56 @@ export function policyRefusals({ kind, provider, path, dataset = false }) {
   if (!f) out.push(`${extOf(path) ? `a .${extOf(path)}` : "a file with no extension"} is not admitted — scans are e57, las, laz or rcp; photos are jpg or png; a concept model is ifc`);
   else if (FORMATS[f].kind !== kind) out.push(`a .${f} is a ${FORMATS[f].kind}, not a ${kind}`);
   return out;
+}
+
+/** MA-7-4: a photo's camera record from its first bytes (a JPEG's EXIF), or null — no APP1, no Make/Model, or any offset out of bounds.
+ *  {make, model, taken_at "YYYY-MM-DD HH:MM"|null, gps: bool}. GPS is only noticed (the tag is there); its values are never read. */
+export function cameraOf(buf) {
+  try {
+    if (!buf || buf.length < 12 || buf[0] !== 0xff || buf[1] !== 0xd8) return null;
+    let i = 2, t = -1;
+    while (i + 4 <= buf.length && buf[i] === 0xff) {
+      const m = buf[i + 1], len = buf.readUInt16BE(i + 2);
+      if (m === 0xda || len < 2) break;
+      if (m === 0xe1 && buf.toString("latin1", i + 4, i + 10) === "Exif\0\0") { t = i + 10; break; }
+      i += 2 + len;
+    }
+    if (t < 0) return null;
+    const le = buf.toString("latin1", t, t + 2) === "II";
+    if (!le && buf.toString("latin1", t, t + 2) !== "MM") return null;
+    const u16 = (o) => { if (o < 0 || o + 2 > buf.length) throw new Error("oob"); return le ? buf.readUInt16LE(o) : buf.readUInt16BE(o); };
+    const u32 = (o) => { if (o < 0 || o + 4 > buf.length) throw new Error("oob"); return le ? buf.readUInt32LE(o) : buf.readUInt32BE(o); };
+    if (u16(t + 2) !== 42) return null;
+    const ifd = (off) => { // tag -> {e: the entry's offset, type, n}
+      const o = t + off, n = u16(o), out = new Map();
+      if (n > 256) throw new Error("big");
+      for (let k = 0; k < n; k++) { const e = o + 2 + 12 * k; u16(e + 10); out.set(u16(e), { e, type: u16(e + 2), n: u32(e + 4) }); }
+      return out;
+    };
+    const ascii = (x) => {
+      if (!x || x.type !== 2 || x.n < 1 || x.n > 1024) return null;
+      const at = x.n <= 4 ? x.e + 8 : t + u32(x.e + 8);
+      if (at < 0 || at + x.n > buf.length) throw new Error("oob");
+      return buf.toString("latin1", at, at + x.n).split("\0")[0];
+    };
+    const clean = (v) => { const c = (v ?? "").replace(/[^\x20-\x7e]/g, "").trim().slice(0, 64); return c || null; };
+    const i0 = ifd(u32(t + 4));
+    const make = clean(ascii(i0.get(0x010f))), model = clean(ascii(i0.get(0x0110)));
+    if (!make && !model) return null;
+    let taken_at = null;
+    if (i0.has(0x8769)) try { // a bad Exif sub-IFD loses the time only, not the make and model
+      const m = /^(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2})/.exec(ascii(ifd(u32(i0.get(0x8769).e + 8)).get(0x9003)) ?? "");
+      if (m) taken_at = `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}`;
+    } catch { /* taken_at stays null */ }
+    return { make, model, taken_at, gps: i0.has(0x8825) };
+  } catch { return null; }
+}
+
+/** MA-7-4: a NEW own photo must look like a camera's file; null when it does, else the words. `camera`: cameraOf's. */
+export function photoRefusal({ format, camera }) {
+  if (format === "png") return "a .png photo is a screenshot or an export — a camera writes JPEG: admit the camera's original file (attestation d)";
+  if (!camera) return "this photo carries no camera data (EXIF make and model) — a screenshot or a saved web image is not admitted as your own photo (attestation d); admit the camera's original file";
+  return null;
 }
 
 /** MA-6-8: an IFC is read inside the bridge, so it has a size cap; null when the size is allowed (or the format has no cap), else the words. */
@@ -246,6 +302,7 @@ export function newItem({ id, input, format, sha256, size_bytes, report, pack, w
     attestation_ids: needsOf(pack, input.kind, input.provider).map((c) => pack.attestations.find((a) => a.code === c).id), // a photo's names (d) too
     allowed_uses: { ...USES },
     ...(reg ? { registration: { method: reg.method, ...(reg.report_path ? { report_path: reg.report_path, report_sha256: report.sha256 } : {}), confirmed_by: who } } : {}),
+    ...(input.capture ? { capture: input.capture } : {}), // MA-7-4: a photo's camera record
     surveyable: tableOf(input.kind)[format].surveyable, admitted_by: who, admitted_at: at,
   };
 }
@@ -257,7 +314,7 @@ export function readmitted(i) { const { state: _s, changed_sha256: _c, changed_a
 export const admittedValue = (packId, i, packVersion, again) => ({
   pack_id: packId, item_id: i.id, path: i.path, sha256: i.sha256, size_bytes: i.size_bytes, kind: i.kind, format: i.format,
   provider: i.provider, licence: i.licence, ...(i.licence_ref ? { licence_ref: i.licence_ref } : {}), allowed_uses: i.allowed_uses, attestation_ids: i.attestation_ids, surveyable: i.surveyable,
-  ...(i.request_id ? { request_id: i.request_id } : {}), pack_version: packVersion, ...(again ? { readmitted: true } : {}),
+  ...(i.request_id ? { request_id: i.request_id } : {}), ...(i.capture ? { capture: i.capture } : {}), pack_version: packVersion, ...(again ? { readmitted: true } : {}),
 });
 
 /** validateArtefact's branch for evidence_pack: a 400 naming the path, so the bridge never writes a pack it could not trust. */
@@ -339,6 +396,12 @@ export function validatePack(p) {
     if (x.format === "rcp" && !(safeRel(x.registration.report_path) && /^[0-9a-f]{64}$/.test(x.registration.report_sha256 ?? ""))) throw bad(`${at}.registration`, "an RCP carries its report's path and sha256");
     if (x.surveyable !== f.surveyable) throw bad(`${at}.surveyable`, `must be ${f.surveyable} for a .${x.format}`);
     if (!str(x.admitted_by, 320) || !str(x.admitted_at, 40)) throw bad(at, "needs admitted_by and admitted_at — stamped by the bridge");
+    if (x.capture !== undefined) { // MA-7-4: a photo's camera record — exactly these four, no coordinates
+      const c = x.capture, ok = (v) => v === null || (typeof v === "string" && v.length <= 64);
+      if (x.kind !== "photo" || !isObj(c) || Object.keys(c).sort().join() !== "gps,make,model,taken_at" || !ok(c.make) || !ok(c.model) || (c.make === null && c.model === null)
+        || !(c.taken_at === null || (typeof c.taken_at === "string" && c.taken_at.length <= 16)) || typeof c.gps !== "boolean")
+        throw bad(`${at}.capture`, "is a photo's {make, model, taken_at, gps}: make or model set, taken_at text or null, gps true or false");
+    }
     if (x.state !== undefined && x.state !== "changed") throw bad(`${at}.state`, 'is "changed" or absent');
     ids.add(x.id); paths.add(x.path);
   });

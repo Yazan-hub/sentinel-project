@@ -9,7 +9,7 @@ vi.mock("./bridge-fetch", () => ({ bfetch, bwrite }));
 
 import { ATTESTATION_CODES, ATTESTATION_TEXTS, kindOf, needsReport, itemLine, attestationLine, admitLine, recheckLine, readEvidence,
   signAttestation, evidenceControls, requestLine, isImage, jobLine, candidateLine, surveyStartLine, surveyableScans, startSurvey, readJobs,
-  proposeBody, proposeFromJob, proposeLine, datasetLine, type ProposeReply, type EvidenceItem, type EvidencePack, type EvidenceRequest, type SurveyJob,
+  photoProvider, MAP_SERVICES, PHOTO_SOURCES, proposeBody, proposeFromJob, proposeLine, datasetLine, type ProposeReply, type EvidenceItem, type EvidencePack, type EvidenceRequest, type SurveyJob,
   isDrawingJob, readableDrawings, drawingStartLine, startDrawing, isIfcJob, readableIfc, ifcStartLine, startIfc, startRecipe, webLine, ifcHintLine, alignBody, alignPreview, drawingSvg, snapPaper, type AlignDraft } from "./evidence";
 
 const res = (status: number, body: unknown) => ({ ok: status < 400, status, json: async () => body }) as unknown as Response;
@@ -380,7 +380,11 @@ describe("a concept IFC (MA-6-8) — Read IFC, the third reader", () => {
   });
   it("files-panel: a model is admitted with no form (kind from the extension, not a photo); Read IFC beside Read drawings; the form says IFC", () => {
     const src = readFileSync(new URL("./files-panel.ts", import.meta.url), "utf8");
-    expect(src).toContain(`kindOf(path) === "photo" || kindOf(path) === "model"`);
+    expect(src).toContain(`else if (back || kindOf(path) === "model")`); // MA-7-4: a NEW photo asks its source first (photoFor)
+    expect(src).toContain(`if (!back && kindOf(path) === "photo") { photoFor = path;`);
+    expect(src).toContain('admitEvidence(base, pid(), { path, kind: "photo", ...(provider ? { provider } : {}) })'); // own sends no provider
+    expect(src).toContain("const provider = photoProvider(photoSource, photoService);");
+    expect(src).toContain('drawingFor = path; drawingReq = ""; admitting = null; photoFor = null;'); // one form open at a time
     expect(src).toContain(`kind: back?.kind ?? kindOf(path)!`);
     expect(src).toContain(`<button id="fv-ev-ifc"`);
     expect(src).toContain("readableIfc(pack).length");
@@ -424,5 +428,22 @@ describe("MA-7-2: the web switch line", () => {
     expect(webLine({ mode: "off", counsel_ref: null, why: "SENTINEL_WEB_EVIDENCE=on needs SENTINEL_WEB_COUNSEL_REF" })).toBe("Web evidence: off — SENTINEL_WEB_EVIDENCE=on needs SENTINEL_WEB_COUNSEL_REF");
     expect(webLine({ mode: "off", counsel_ref: null, why: "drill mode names its project(s): SENTINEL_WEB_EVIDENCE=drill:<project key>" })).toMatch(/^Web evidence: off — drill mode/);
     expect(webLine({ mode: "on", counsel_ref: "abcdef012345" })).toBe("Web evidence: on (counsel ref abcdef012345…)");
+  });
+});
+
+// MA-7-4 — where a photo came from, and the camera line.
+describe("photo source and capture (MA-7-4)", () => {
+  it("photoProvider: own sends none, a map service its lower-cased name, a website 'website'", () => {
+    expect(photoProvider("own")).toBeUndefined();
+    expect(photoProvider("map", "Google Street View")).toBe("google street view");
+    expect(photoProvider("map")).toBe(MAP_SERVICES[0].toLowerCase());
+    expect(photoProvider("web")).toBe("website");
+    expect(PHOTO_SOURCES.map((p) => p.id)).toEqual(["own", "map", "web"]);
+  });
+  it("itemLine adds the camera, the time and the location note for a photo with capture", () => {
+    const p: EvidenceItem = { ...ITEM, id: "ev-0002", kind: "photo", format: "jpg", path: "photos/a.jpg", surveyable: true, capture: { make: "Example", model: "Cam 1", taken_at: "2026-10-13 09:30", gps: true } };
+    expect(itemLine(p)).toMatch(/ · Example Cam 1 · taken 2026-10-13 09:30 · EXIF GPS block in the original \(not copied\)$/);
+    expect(itemLine({ ...p, capture: { make: "Example", model: null, taken_at: null, gps: false } })).toMatch(/ · Example · taken \? · no EXIF GPS block$/);
+    expect(itemLine({ ...p, capture: undefined })).not.toMatch(/taken/);
   });
 });

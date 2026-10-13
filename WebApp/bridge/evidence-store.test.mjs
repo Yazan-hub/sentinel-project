@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { makePack, readPack, signAttestation, runEvidenceIntake, recheckPack, draftRequest, surveyStart, webStatus } from "./evidence-store.mjs";
 import * as W from "./web-sources.mjs";
+import { jpegWithExif } from "./fixtures/jpeg-exif.mjs";
 import { ATTESTATIONS, USES } from "./evidence-logic.mjs";
 
 let root, docs, audits, budgets, role;
@@ -30,7 +31,8 @@ const deps = () => ({
 });
 const put = (rel, bytes) => { const f = join(root, "demo", rel); mkdirSync(dirname(f), { recursive: true }); writeFileSync(f, bytes); };
 const LAS = Buffer.concat([Buffer.from("LASF"), Buffer.alloc(300, 7)]);
-const JPG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4]);
+const JPG = jpegWithExif({ make: "Example", model: "Test Cam 1", taken: "2026:10:13 09:30:00", gps: true }); // MA-7-4: a NEW photo needs camera data
+const SHOT = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4]); // a screenshot: a JPEG with no EXIF
 const sha = (b) => createHash("sha256").update(b).digest("hex");
 const sign = async (codes) => { const was = role; role = "lead"; for (const code of codes) await signAttestation("demo", "evp-0001", { code }, deps()); role = was; };
 const ready = async () => { role = "lead"; await makePack("demo", {}, deps()); await sign(["a", "c", "d"]); role = "contributor"; };
@@ -219,6 +221,42 @@ describe("evidence intake (MA-4a)", () => {
     expect(await webStatus("demo", "evp-0001", { ...deps(), env: { SENTINEL_WEB_EVIDENCE: "drill" } })).toMatchObject({ mode: "off", why: W.DRILL_NO_KEY });
     expect(await webStatus("demo", "evp-0001", { ...deps(), env: { SENTINEL_WEB_EVIDENCE: "on", SENTINEL_WEB_COUNSEL_REF: "ab".repeat(31) + "a" } })).toMatchObject({ mode: "off", why: W.ON_NO_REF });
     await expect(webStatus("demo", "evp-0009", deps())).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("(w) MA-7-4: a NEW photo must carry camera data; a screenshot and a PNG are refused; the capture is on the item and the row, without coordinates", async () => {
+    await ready();
+    put("photos/cam.jpg", JPG); put("photos/shot.jpg", SHOT); put("photos/shot.png", Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(40)]));
+    const noCam = "this photo carries no camera data (EXIF make and model) — a screenshot or a saved web image is not admitted as your own photo (attestation d); admit the camera's original file";
+    expect(await admit({ path: "photos/shot.jpg", kind: "photo" })).toMatchObject({ verdict: "refused", reasons: [noCam] });
+    expect(await admit({ path: "photos/shot.png", kind: "photo" })).toMatchObject({ verdict: "refused", reasons: ["a .png photo is a screenshot or an export — a camera writes JPEG: admit the camera's original file (attestation d)"] });
+    expect(rows("evidence:refused").map((r) => r.action)).toEqual(["evidence:refused photos/shot.jpg", "evidence:refused photos/shot.png"]);
+    const ok = await admit({ path: "photos/cam.jpg", kind: "photo" });
+    expect(ok.item.capture).toEqual({ make: "Example", model: "Test Cam 1", taken_at: "2026-10-13 09:30", gps: true });
+    const row = rows("evidence:admitted")[0].newv;
+    expect(row.capture).toEqual(ok.item.capture);
+    expect(JSON.stringify(row)).not.toMatch(/lat|lon|coord/i);
+    expect((await pack()).items[0].capture).toEqual(ok.item.capture);
+  });
+
+  it("(x) MA-7-4: a photo from a map service is RED, from a website waits for counsel (switch off); a flagged pre-7-4 PNG re-admitted unchanged is admitted", async () => {
+    await ready();
+    put("photos/cam.jpg", JPG);
+    const red = await admit({ path: "photos/cam.jpg", kind: "photo", provider: "Google Street View" });
+    expect(red.reasons).toEqual(["google street view is a RED source — imagery and data from Google, Apple and Azure/Bing map services are never admitted (attestation d says so for every photo)"]);
+    expect((await admit({ path: "photos/cam.jpg", kind: "photo", provider: "street view" })).reasons[0]).toMatch(/^street view is a RED source/);
+    // R19: RED reads the provider only — an Apple camera's own photo is admitted
+    put("photos/iphone.jpg", jpegWithExif({ make: "Apple", model: "iPhone 15" }));
+    expect(await admit({ path: "photos/iphone.jpg", kind: "photo" })).toMatchObject({ verdict: "admitted", item: { capture: { make: "Apple" } } });
+    expect((await admit({ path: "photos/cam.jpg", kind: "photo", provider: "website" })).reasons[0]).toMatch(/^a third party's or a website's photo waits for counsel's review/);
+    // a photo admitted before 7-4 (a PNG, no capture), flagged by Re-check, comes back as first admitted — it is not re-checked for camera data
+    const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(40)]);
+    put("photos/old.png", png);
+    const packKey = [...docs.keys()].filter((k) => k.startsWith("artefact|uuid-demo|evidence_pack@")).sort((a, b) => Number(a.split("@")[1]) - Number(b.split("@")[1])).pop(); // the current version
+    docs.get(packKey).body.items.push({ id: "ev-0099", kind: "photo", format: "png", sha256: createHash("sha256").update(png).digest("hex"), size_bytes: png.length, path: "photos/old.png", provider: "own", licence: "owner-supplied",
+      attestation_ids: ["att-0001", "att-0002", "att-0003"], allowed_uses: { ...USES }, surveyable: true, admitted_by: "x", admitted_at: "2026-10-01T00:00:00.000Z", state: "changed", changed_sha256: "b".repeat(64), changed_at: "2026-10-02T00:00:00.000Z" });
+    const back = await admit({ path: "photos/old.png", kind: "photo" });
+    expect(back).toMatchObject({ verdict: "admitted", item: { id: "ev-0099" } });
+    expect(back.item.capture).toBeUndefined(); // no camera re-check
   });
 
   it("(i) Re-check is budgeted, runs once at a time per project, and is a contributor's", async () => {

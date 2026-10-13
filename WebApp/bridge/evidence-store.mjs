@@ -38,10 +38,11 @@ export function insideFolder(dir, rel) {
   return full;
 }
 
-/** A file's first 16 bytes (MA-6-8: an IFC's magic is 12): the magic check, before any byte is hashed (a renamed 6 GB file is refused without reading it). */
-async function readHead(full) {
+/** A file's first 16 bytes (MA-6-8: an IFC's magic is 12): the magic check, before any byte is hashed (a renamed 6 GB file is refused without reading it).
+ *  MA-7-4: `n` = 131072 for a new photo, whose EXIF is read from it. */
+async function readHead(full, n = 16) {
   const fh = await open(full, "r");
-  try { const b = Buffer.alloc(16); const { bytesRead } = await fh.read(b, 0, 16, 0); return b.subarray(0, bytesRead); }
+  try { const b = Buffer.alloc(n); const { bytesRead } = await fh.read(b, 0, n, 0); return b.subarray(0, bytesRead); }
   finally { await fh.close(); }
 }
 
@@ -51,11 +52,11 @@ async function readHead(full) {
  *  chunks; a background job with a pending state only if a hash outlasts a request. Re-check re-hashes the whole pack the same way, so
  *  it is budgeted (6 per user, 12 in all, a minute) and runs once at a time per project — on Kladno's pack one user's 6 keep the
  *  disk hashing ~72 s a minute; a size-aware budget if that bites. */
-export async function hashFile(full) {
+export async function hashFile(full, headBytes = 16) { // MA-7-4: headBytes
   const h = createHash("sha256");
   let size = 0, head = Buffer.alloc(0);
   await new Promise((ok, no) => createReadStream(full).on("data", (c) => {
-    if (head.length < 16) head = Buffer.concat([head, c.subarray(0, 16 - head.length)]);
+    if (head.length < headBytes) head = Buffer.concat([head, c.subarray(0, headBytes - head.length)]);
     h.update(c); size += c.length;
   }).on("end", ok).on("error", no));
   return { sha256: h.digest("hex"), size_bytes: size, head };
@@ -260,14 +261,19 @@ async function admitRun(d, proj, key, packId, b) {
   }
   const refuse = async (reasons, sha256 = null) => ({ verdict: "refused", path: input.path, sha256, reasons,
     ledger: await row(d, proj, "evidence", `evidence:refused ${input.path}`, who, { pack_id: packId, path: input.path, sha256, reasons }) });
-  const policy = L.policyRefusals({ ...input, dataset: !!pack.dataset });
+  const policy = L.policyRefusals({ ...input, dataset: !!pack.dataset, webMode: W.webSwitch(d.env ?? process.env, key).mode });
   if (policy.length) return refuse(policy);
   const format = L.formatOf(input.path, input.kind);
   const bad0 = L.magicRefusal(format, await readHead(full), input.kind);
   if (bad0) return refuse([bad0]); // before any byte is hashed
   const tooBig = L.sizeRefusal(format, statSync(full).size, input.kind); // MA-6-8: an IFC is read in the bridge — over its cap, nothing is hashed
   if (tooBig) return refuse([tooBig]);
-  const f = await hashFile(full);
+  // MA-7-4 (a deliberate change to MA-4a): a NEW photo must be a camera's JPEG — EXIF make/model, read from the same first 128 KB that is hashed
+  const newPhoto = !prev && input.kind === "photo";
+  const cam = newPhoto ? L.cameraOf(await readHead(full, 131072)) : null;
+  if (newPhoto) { const pr = L.photoRefusal({ format, camera: cam }); if (pr) return refuse([pr]); }
+  const f = await hashFile(full, newPhoto ? 131072 : 16);
+  if (newPhoto && JSON.stringify(L.cameraOf(f.head)) !== JSON.stringify(cam)) return refuse(["changed while read"], f.sha256);
   const bad = L.magicRefusal(format, f.head, input.kind); // the hashed bytes' own head (the file may have been swapped in between)
   if (bad) return refuse([bad], f.sha256);
   const tooBig2 = L.sizeRefusal(format, f.size_bytes, input.kind); // the hashed size, as the magic is checked again
@@ -288,7 +294,7 @@ async function admitRun(d, proj, key, packId, b) {
       input = { ...input, registration: { ...input.registration, report_path: onDisk(dir, rf) } };
       report = await hashFile(rf);
     }
-    item = L.newItem({ id: L.nextId("ev", pack.items), input, format, sha256: f.sha256, size_bytes: f.size_bytes, report, pack, who, at: d.now(), request });
+    item = L.newItem({ id: L.nextId("ev", pack.items), input: newPhoto ? { ...input, capture: cam } : input, format, sha256: f.sha256, size_bytes: f.size_bytes, report, pack, who, at: d.now(), request });
   }
   const items = prev ? pack.items.map((i) => (i === prev ? item : i)) : [...pack.items, item];
   const pointer = await fold(d, key, { ...pack, items }, version, who);
