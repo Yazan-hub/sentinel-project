@@ -1154,7 +1154,7 @@ export async function flagChangeset(key, id, b, actor, deps) {
  *  decisions, all or none, while the changeset is proposed (design §6.6). A signed-in contributor or above (Q1). Stored on each
  *  ghost's `review` (Revit reads it: a decline binds, an accept is advice) and written as ONE changeset_reviewed row naming each
  *  ghost's step, the reviewer and the role. Answers {changeset, ledger: {id, hash}}. */
-export async function reviewChangeset(key, id, { decisions } = {}, actor, deps) {
+export async function reviewChangeset(key, id, { decisions } = {}, actor, deps = {}) { // MA-7-10: deps = {} - the route passes four arguments
   const d = wire(deps);
   const role = await reviewer(d, key, "contributor", "accepting or declining a ghost");
   d.takeWriteBudget("changeset reviews", { perUser: 60, all: 300 });
@@ -1165,7 +1165,8 @@ export async function reviewChangeset(key, id, { decisions } = {}, actor, deps) 
   // sha is read here and stored with the decision. Nothing about a photo creates or moves a ghost.
   const copies = new Map();
   if (cited.size) {
-    const { pack } = await (deps.readPack ?? (await import("./evidence-store.mjs")).readPack)(key, PACK_ID);
+    const readPack = deps.readPack ?? (await import("./evidence-store.mjs")).readPack;
+    const { pack } = await readPack(key, PACK_ID).catch((e) => { if (e.status === 404 || e.status === 409) e.message += "; nothing was saved"; throw e; });
     for (const e of cited) {
       const it = pack.items.find((x) => x.id === e);
       if (!it) throw err(400, `evidence ${e} is not an item of the evidence pack; nothing was saved`);

@@ -803,6 +803,17 @@ describe("MA-3a — reviewChangeset and reopenGhost: a signed-in person, contrib
       const web = await bad([photo("ev-000C", { role: "context" })], "ev-000C");
       expect([web.status, web.message]).toEqual([400, expect.stringMatching(/web photo - context only; it cannot confirm a ghost; nothing was saved$/)]);
     });
+    it("the default path: no readPack dep (as the route calls it) reads the evidence store; its 409 ends 'nothing was saved'", async () => {
+      const readPack = vi.fn(async () => { throw Object.assign(new Error("no evidence pack for demo"), { status: 409 }); });
+      vi.resetModules(); vi.doMock("./evidence-store.mjs", () => ({ readPack }));
+      try {
+        const fresh = await import("./changesets-store.mjs");
+        const deps = seeded(fx.before, { myRole: as("contributor"), audit: vi.fn() });
+        await expect(fresh.reviewChangeset("demo", "cs-ma3a", { decisions: accept(["ev-000C"]) }, fx.who.by, deps))
+          .rejects.toMatchObject({ status: 409, message: "no evidence pack for demo; nothing was saved" });
+        expect(readPack).toHaveBeenCalledWith("demo", "evp-0001");
+      } finally { vi.doUnmock("./evidence-store.mjs"); vi.resetModules(); }
+    });
     it("a decline cannot cite a photo, and a malformed list is a 400 before the pack is read", async () => {
       for (const d of [[{ proposal_guid: "g-1", decision: "decline", reason: "no", evidence: ["ev-000C"] }], accept("ev-000C"), accept([]), accept(["ev-000C", "ev-000C"]), accept(["x"]), accept(["ev-1", "ev-2", "ev-3", "ev-4"])]) {
         const { deps, out } = run(d, packWith(photo("ev-000C")));

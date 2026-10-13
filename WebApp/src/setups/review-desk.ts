@@ -682,7 +682,7 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
   const reason = el("input", "", "flex:1;min-width:10rem;background:#111;color:#e5e7eb;border:1px solid #2c2c34;border-radius:.3rem;padding:.25rem .4rem;font:11px system-ui");
   reason.placeholder = "Reason (a decline needs one; one line)";
   const photos = el("input", "", "width:9rem;background:#111;color:#e5e7eb;border:1px solid #2c2c34;border-radius:.3rem;padding:.25rem .4rem;font:11px system-ui");
-  photos.placeholder = "Photo ev-… (accept only)";
+  photos.placeholder = "Photo ev-… (accept only)"; photos.title = "Cited for every ticked ghost in this accept";
   const ticked = new Map<string, { cs: PendingChangeset; el: Ghost }>();
   const say = (text: string, bad = false) => { status.textContent = text; status.style.color = bad ? "#fca5a5" : "#93c5fd"; };
   // MA-3d: Highlight in 3D — a storey's ghosts in the viewer's loaded models, by each element's IFC GlobalId. No model is loaded here:
@@ -904,7 +904,7 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
     const done: string[] = [];
     try {
       for (const [id, guids] of posts) done.push(`${guids.length} ${decision === "accept" ? "accepted" : "declined"} · ${rowWords(await postReview(base, activePid(), id, decision, guids, reason.value, decision === "accept" ? citesOf(photos.value) : []))}`);
-      reason.value = ""; photos.value = "";
+      reason.value = ""; if (decision === "accept") photos.value = "";
       say([...done, ...(skipped ? [skipped] : [])].join("; ") + (decision === "decline" ? " — Revit now shows them unticked with the reason and refuses the tick." : " — advice: Revit still asks for the tick."));
     } catch (e) { say(`${done.length ? done.join("; ") + "; then " : ""}not recorded — ${(e as Error).message}`, true); }
     void show();
