@@ -382,6 +382,9 @@ describe("a concept IFC (MA-6-8) — Read IFC, the third reader", () => {
     const src = readFileSync(new URL("./files-panel.ts", import.meta.url), "utf8");
     expect(src).toContain(`else if (back || kindOf(path) === "model")`); // MA-7-4: a NEW photo asks its source first (photoFor)
     expect(src).toContain(`if (!back && kindOf(path) === "photo") { photoFor = path;`);
+    expect(src).toContain('admitEvidence(base, pid(), { path, kind: "photo", ...(provider ? { provider } : {}) })'); // own sends no provider
+    expect(src).toContain("const provider = photoProvider(photoSource, photoService);");
+    expect(src).toContain('drawingFor = path; drawingReq = ""; admitting = null; photoFor = null;'); // one form open at a time
     expect(src).toContain(`kind: back?.kind ?? kindOf(path)!`);
     expect(src).toContain(`<button id="fv-ev-ifc"`);
     expect(src).toContain("readableIfc(pack).length");
@@ -439,8 +442,8 @@ describe("photo source and capture (MA-7-4)", () => {
   });
   it("itemLine adds the camera, the time and the location note for a photo with capture", () => {
     const p: EvidenceItem = { ...ITEM, id: "ev-0002", kind: "photo", format: "jpg", path: "photos/a.jpg", surveyable: true, capture: { make: "Example", model: "Cam 1", taken_at: "2026-10-13 09:30", gps: true } };
-    expect(itemLine(p)).toMatch(/ · Example Cam 1 · taken 2026-10-13 09:30 · location in the original only \(not copied\)$/);
-    expect(itemLine({ ...p, capture: { make: "Example", model: null, taken_at: null, gps: false } })).toMatch(/ · Example · taken \? · no location recorded$/);
+    expect(itemLine(p)).toMatch(/ · Example Cam 1 · taken 2026-10-13 09:30 · EXIF GPS block in the original \(not copied\)$/);
+    expect(itemLine({ ...p, capture: { make: "Example", model: null, taken_at: null, gps: false } })).toMatch(/ · Example · taken \? · no EXIF GPS block$/);
     expect(itemLine({ ...p, capture: undefined })).not.toMatch(/taken/);
   });
 });

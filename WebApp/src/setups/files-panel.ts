@@ -417,10 +417,10 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       const back = evidence?.pack.items.find((i) => i.path === path && i.state === "changed");
       if (!back && kindOf(path) === "photo") { photoFor = path; photoSource = "own"; photoService = MAP_SERVICES[0]; admitting = null; drawingFor = null; vendorFor = null; render(); }
       else if (back || kindOf(path) === "model") void evAct(async () => admitLine(await admitEvidence(base, pid(), { path, kind: back?.kind ?? kindOf(path)!, ...(back?.request_id ? { request_id: back.request_id } : {}) })));
-      else if (kindOf(path) === "drawing") { drawingFor = path; drawingReq = ""; admitting = null; render(); }
-      else { admitting = path; drawingFor = null; render(); (root.querySelector("#fv-ev-method") as HTMLInputElement | null)?.focus(); }
+      else if (kindOf(path) === "drawing") { drawingFor = path; drawingReq = ""; admitting = null; photoFor = null; render(); }
+      else { admitting = path; drawingFor = null; photoFor = null; render(); (root.querySelector("#fv-ev-method") as HTMLInputElement | null)?.focus(); }
     }));
-    root.querySelectorAll<HTMLElement>("[data-evvendor]").forEach((n) => n.addEventListener("click", () => { vendorFor = n.dataset.evvendor!; admitting = null; drawingFor = null; render(); (root.querySelector("#fv-ev-vprov") as HTMLInputElement | null)?.focus(); }));
+    root.querySelectorAll<HTMLElement>("[data-evvendor]").forEach((n) => n.addEventListener("click", () => { vendorFor = n.dataset.evvendor!; admitting = null; drawingFor = null; photoFor = null; render(); (root.querySelector("#fv-ev-vprov") as HTMLInputElement | null)?.focus(); }));
     root.querySelector("#fv-ev-vok")?.addEventListener("click", () => {
       const path = vendorFor, v = (s: string) => (root.querySelector(s) as HTMLInputElement | null)?.value.trim() ?? "";
       if (!path) return;

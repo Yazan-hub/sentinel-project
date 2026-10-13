@@ -244,13 +244,19 @@ describe("evidence intake (MA-4a)", () => {
     const red = await admit({ path: "photos/cam.jpg", kind: "photo", provider: "Google Street View" });
     expect(red.reasons).toEqual(["google street view is a RED source — imagery and data from Google, Apple and Azure/Bing map services are never admitted (attestation d says so for every photo)"]);
     expect((await admit({ path: "photos/cam.jpg", kind: "photo", provider: "street view" })).reasons[0]).toMatch(/^street view is a RED source/);
-    expect((await admit({ path: "photos/cam.jpg", kind: "photo", provider: "website" })).reasons[0]).toMatch(/^a photo from a website waits for counsel's review — web evidence is off/);
+    // R19: RED reads the provider only — an Apple camera's own photo is admitted
+    put("photos/iphone.jpg", jpegWithExif({ make: "Apple", model: "iPhone 15" }));
+    expect(await admit({ path: "photos/iphone.jpg", kind: "photo" })).toMatchObject({ verdict: "admitted", item: { capture: { make: "Apple" } } });
+    expect((await admit({ path: "photos/cam.jpg", kind: "photo", provider: "website" })).reasons[0]).toMatch(/^a third party's or a website's photo waits for counsel's review/);
     // a photo admitted before 7-4 (a PNG, no capture), flagged by Re-check, comes back as first admitted — it is not re-checked for camera data
     const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(40)]);
     put("photos/old.png", png);
-    docs.get("artefact|uuid-demo|evidence_pack@4").body.items.push({ id: "ev-0001", kind: "photo", format: "png", sha256: createHash("sha256").update(png).digest("hex"), size_bytes: png.length, path: "photos/old.png", provider: "own", licence: "owner-supplied",
+    const packKey = [...docs.keys()].filter((k) => k.startsWith("artefact|uuid-demo|evidence_pack@")).sort((a, b) => Number(a.split("@")[1]) - Number(b.split("@")[1])).pop(); // the current version
+    docs.get(packKey).body.items.push({ id: "ev-0099", kind: "photo", format: "png", sha256: createHash("sha256").update(png).digest("hex"), size_bytes: png.length, path: "photos/old.png", provider: "own", licence: "owner-supplied",
       attestation_ids: ["att-0001", "att-0002", "att-0003"], allowed_uses: { ...USES }, surveyable: true, admitted_by: "x", admitted_at: "2026-10-01T00:00:00.000Z", state: "changed", changed_sha256: "b".repeat(64), changed_at: "2026-10-02T00:00:00.000Z" });
-    expect(await admit({ path: "photos/old.png", kind: "photo" })).toMatchObject({ verdict: "admitted", item: { id: "ev-0001" } });
+    const back = await admit({ path: "photos/old.png", kind: "photo" });
+    expect(back).toMatchObject({ verdict: "admitted", item: { id: "ev-0099" } });
+    expect(back.item.capture).toBeUndefined(); // no camera re-check
   });
 
   it("(i) Re-check is budgeted, runs once at a time per project, and is a contributor's", async () => {

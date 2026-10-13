@@ -134,9 +134,8 @@ export function policyRefusals({ kind, provider, path, dataset = false, webMode 
   // A drawing's provider is its request's recipient, stamped by the bridge — the body's is read for the RED rule only.
   // MA-4h: on a published dataset's pack the body's provider is read for the RED rule only (the pack's is stamped).
   // MA-7-4: a photo from a website waits for counsel (the founder's switch); 7-12 admits it through the web path when the switch is not off.
-  else if (provider !== "own" && kind === "photo" && !dataset) out.push(webMode === "off"
-    ? "a photo from a website waits for counsel's review — web evidence is off (the founder's switch SENTINEL_WEB_EVIDENCE); only your own photos (provider own) are admitted now"
-    : "a photo from a website is admitted through the web path, not here — nothing was saved");
+  // Until 7-12 builds the web path every mode says the same words (the switch is not read here).
+  else if (provider !== "own" && kind === "photo" && !dataset) out.push("a third party's or a website's photo waits for counsel's review — web evidence is not admitted yet (the founder's switch SENTINEL_WEB_EVIDENCE); only your own photos (provider own) are admitted now");
   else if (provider !== "own" && kind !== "drawing" && kind !== "model" && !dataset) out.push("web and third-party items wait for a later stage — only your own scans and photos (provider own), drawings under a request and third-party models with (e) are admitted now");
   if (kind === "drawing") {
     if (!formatOf(path, kind)) out.push(`${extOf(path) ? `a .${extOf(path)}` : "a file with no extension"} is not admitted as a drawing — drawings are pdf, dwg, dxf, png or jpg`);
@@ -178,15 +177,15 @@ export function cameraOf(buf) {
       if (at < 0 || at + x.n > buf.length) throw new Error("oob");
       return buf.toString("latin1", at, at + x.n).split("\0")[0];
     };
-    const clean = (v) => { const c = (v ?? "").replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 64); return c || null; };
+    const clean = (v) => { const c = (v ?? "").replace(/[^\x20-\x7e]/g, "").trim().slice(0, 64); return c || null; };
     const i0 = ifd(u32(t + 4));
     const make = clean(ascii(i0.get(0x010f))), model = clean(ascii(i0.get(0x0110)));
     if (!make && !model) return null;
     let taken_at = null;
-    if (i0.has(0x8769)) {
+    if (i0.has(0x8769)) try { // a bad Exif sub-IFD loses the time only, not the make and model
       const m = /^(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2})/.exec(ascii(ifd(u32(i0.get(0x8769).e + 8)).get(0x9003)) ?? "");
       if (m) taken_at = `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}`;
-    }
+    } catch { /* taken_at stays null */ }
     return { make, model, taken_at, gps: i0.has(0x8825) };
   } catch { return null; }
 }

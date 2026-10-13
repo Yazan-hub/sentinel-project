@@ -62,11 +62,11 @@ describe("policyRefusals", () => {
   it("refuses RED, third-party, drawings and wrong formats", () => {
     expect(policyRefusals({ kind: "photo", provider: "google maps", path: "a.jpg" })).toEqual(["google maps is a RED source — imagery and data from Google, Apple and Azure/Bing map services are never admitted (attestation d says so for every photo)"]);
     expect(policyRefusals({ kind: "photo", provider: "azure", path: "a.jpg" })).toEqual(["azure is a RED source — imagery and data from Google, Apple and Azure/Bing map services are never admitted (attestation d says so for every photo)"]);
-    expect(policyRefusals({ kind: "photo", provider: "wikimedia-commons", path: "a.jpg" })).toEqual(["a photo from a website waits for counsel's review — web evidence is off (the founder's switch SENTINEL_WEB_EVIDENCE); only your own photos (provider own) are admitted now"]); // MA-7-4
+    expect(policyRefusals({ kind: "photo", provider: "wikimedia-commons", path: "a.jpg" })).toEqual(["a third party's or a website's photo waits for counsel's review — web evidence is not admitted yet (the founder's switch SENTINEL_WEB_EVIDENCE); only your own photos (provider own) are admitted now"]); // MA-7-4
     expect(policyRefusals({ kind: "scan", provider: "wikimedia-commons", path: "a.las" })).toEqual(["web and third-party items wait for a later stage — only your own scans and photos (provider own), drawings under a request and third-party models with (e) are admitted now"]);
     expect(policyRefusals({ kind: "photo", provider: "street view", path: "a.jpg" })).toEqual(["street view is a RED source — imagery and data from Google, Apple and Azure/Bing map services are never admitted (attestation d says so for every photo)"]);
     expect(policyRefusals({ kind: "photo", provider: "google street view", path: "a.jpg" })[0]).toMatch(/^google street view is a RED source/);
-    expect(policyRefusals({ kind: "photo", provider: "website", path: "a.jpg", webMode: "drill" })[0]).toMatch(/admitted through the web path/);
+    expect(policyRefusals({ kind: "photo", provider: "website", path: "a.jpg", webMode: "drill" })[0]).toMatch(/^a third party's or a website's photo waits for counsel/);
     expect(policyRefusals({ kind: "drawing", provider: "own", path: "A-101.pdf" })).toEqual([]); // MA-4b: under a request
     expect(policyRefusals({ kind: "drawing", provider: "owner", path: "scan.JPEG" })).toEqual([]);
     expect(policyRefusals({ kind: "drawing", provider: "own", path: "A-101.txt" })).toEqual(["a .txt is not admitted as a drawing — drawings are pdf, dwg, dxf, png or jpg"]);
@@ -353,6 +353,12 @@ describe("cameraOf and photoRefusal (MA-7-4)", () => {
     expect(cameraOf(jpegWithExif({ taken: null }))).toEqual({ make: "Example", model: "Test Cam 1", taken_at: null, gps: false });
     expect(cameraOf(jpegWithExif({ make: "A".repeat(80), model: "" }))).toMatchObject({ make: "A".repeat(64), model: null });
   });
+  it("a bad Exif sub-IFD pointer keeps make/model with taken_at null; control characters (C0, C1) are removed", () => {
+    // jpegWithExif: JPEG 2 + APP1 4 + "Exif  " 6 + TIFF; IFD0 entries at TIFF 10, sorted 010f, 0110, 8769 -> the 3rd entry's value at TIFF 10+24+8
+    const bad = Buffer.from(jpegWithExif({})); bad.writeUInt32LE(0x7fffffff, 2 + 4 + 6 + 10 + 24 + 8);
+    expect(cameraOf(bad)).toEqual({ make: "Example", model: "Test Cam 1", taken_at: null, gps: false });
+    expect(cameraOf(jpegWithExif({ make: "Example" }))).toMatchObject({ make: "Example" });
+  });
   it("is null for no APP1, no make/model, a bad header or a truncated IFD", () => {
     expect(cameraOf(Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4, 5, 6, 7, 8]))).toBeNull();
     expect(cameraOf(jpegWithExif({ make: "", model: "" }))).toBeNull();
@@ -360,7 +366,7 @@ describe("cameraOf and photoRefusal (MA-7-4)", () => {
     expect(cameraOf(null)).toBeNull();
     const full = jpegWithExif({ gps: true });
     for (const n of [30, 40, 60, 90]) expect(cameraOf(full.subarray(0, n))).toBeNull();
-    const bad = Buffer.from(full); bad.writeUInt32LE(0x00ffffff, 4 + 2 + 2 + 6 + 4); // IFD0 offset far outside
+    const bad = Buffer.from(full); bad.writeUInt32LE(0x00ffffff, 4 + 2 + 2 + 6 + 4 - 2); // IFD0 offset (TIFF offset 4) far outside
     expect(cameraOf(bad)).toBeNull();
   });
   it("photoRefusal: a PNG and a file without camera data are refused in words; a camera's JPEG is not", () => {
