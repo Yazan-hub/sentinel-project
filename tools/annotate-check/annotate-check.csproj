@@ -13,6 +13,7 @@
     <Compile Include="..\..\SentinelAddin\GhostBuilder\GuidelineMatcher.cs" />
     <Compile Include="..\..\SentinelAddin\GhostBuilder\TypeNameParse.cs" />
     <Compile Include="..\..\SentinelAddin\GhostBuilder\ViewPlanner.cs" />
+    <Compile Include="..\..\SentinelAddin\GhostBuilder\SheetPlanner.cs" />
     <!-- MA-2e: the View rule and its one token compiler (ANV-1) -->
     <Compile Include="..\..\SentinelAddin\Engine\RuleModels.cs" />
     <Compile Include="..\..\SentinelAddin\Engine\RuleRegex.cs" />

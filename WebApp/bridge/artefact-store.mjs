@@ -251,6 +251,27 @@ export function validateArtefact(kind, body) {
     });
     if (body.views != null && !Array.isArray(body.views)) throw bad(kind, "views", "must be an array");
     if (body.viewNaming != null && !isObj(body.viewNaming)) throw bad(kind, "viewNaming", "must be an object");
+    // MA-8-12 (ANV-4): the sheets block — the title block, the sheet number and name patterns Annotate fills for one level. Checked
+    // by GuidelineMatcher.CheckGuideline in the same words (tools/annotate-check runs both against fixtures/guideline-sheets/cases.json).
+    if (body.sheets != null) {
+      const sh = body.sheets;
+      if (!isObj(sh)) throw bad(kind, "sheets", "must be an object");
+      const extra = Object.keys(sh).find((k) => k !== "titleBlock" && k !== "number" && k !== "name");
+      if (extra !== undefined) throw bad(kind, `sheets.${extra}`, "is not a sheets field (titleBlock, number, name)");
+      for (const [f, max] of [["titleBlock", 256], ["number", 128], ["name", 128]]) {
+        if (!filled(sh[f])) throw bad(kind, `sheets.${f}`, "must be a non-empty string");
+        if (/[\r\n]/.test(sh[f])) throw bad(kind, `sheets.${f}`, "must be one line");
+        if (sh[f].length > max) throw bad(kind, `sheets.${f}`, `must be at most ${max} characters`);
+        if (f === "titleBlock") {
+          const at = sh[f].indexOf(" : ");
+          if (at < 0 || !filled(sh[f].slice(0, at)) || !filled(sh[f].slice(at + 3))) throw bad(kind, "sheets.titleBlock", 'must be "Family : Type"');
+        } else {
+          const token = [...sh[f].matchAll(/\{([^{}]*)\}/g)].map((m) => m[0]).find((t) => !["{level}", "{use}", "{prefix}", "{n}"].includes(t));
+          if (token !== undefined) throw bad(kind, `sheets.${f}`, `holds ${token}, which is not a sheet token ({level}, {use}, {prefix}, {n})`);
+        }
+      }
+      if (!sh.number.includes("{level}")) throw bad(kind, "sheets.number", "must hold {level}");
+    }
     // MA-1a item 6: where a placed element goes — the workset its category names, and the phase. Optional; a block the
     // add-in could not read as written is a 400 here (GuidelineMatcher.CheckGuideline refuses the same, in the same words).
     // No design-option field: Sentinel never places into a design option, whatever a guideline says.

@@ -244,13 +244,146 @@ Check("F3: Datum's result names Annotate as the next step", Src("Commands.Datum.
         copyAt > run && copyAt < ann.IndexOf("foreach (var p in pick.Views)") && copyAt > ann.IndexOf("new Transaction(") && ann.Contains("new StandardsBuilder.UseDestinationTypes()")
         && ann.Contains("Revit renamed it to") && CountOf(ann, "new Transaction(") == 1);
     Check("MA-8-11 (amendment 5): templates count in the guard, the keep and the nothing-created exit",
-        ann.Contains("pick.Views.Count + pick.Pins.Count + pick.Templates.Count == 0") && ann.Contains("created.Count + claimedPins + copiedNames.Count > 0")
-        && ann.Contains("present.Count + pinnedNow.Count + templatesNow.Count == 0"));
+        ann.Contains("pick.Views.Count + pick.Pins.Count + pick.Templates.Count + pick.Sheets.Count + pick.Tags.Count == 0")
+        && ann.Contains("committed && created.Count + claimedPins + copiedNames.Count + sheetsMade.Count + tagRuns.Sum(r => r.Placed) > 0")
+        && ann.Contains("present.Count + pinnedNow.Count + templatesNow.Count + sheetsNow.Count + tagsNow.Sum(t => t.Placed) == 0"));
     Check("MA-8-11 (review): a template no ticked view uses is not copied; IsValidViewTemplate guards the assignment; the undo line counts templates",
-        ann.Contains("no ticked view uses it") && ann.Contains("view.IsValidViewTemplate(") && ann.Contains("{templatesNow.Count} view template(s) are in the model") && ann.Contains("tplUsed"));
+        ann.Contains("no ticked view or sheet uses it") && ann.Contains("view.IsValidViewTemplate(") && ann.Contains("{templatesNow.Count} view template(s) are in the model") && ann.Contains("tplUsed"));
     Check("MA-8-11 (review): a detached title matches the catalogue's", !ViewPlanner.TemplateFileLine("o.rte", "ab", "T_detached", "T", "2024", 0, true).Contains("WARNING"));
     Check("MA-8-11 (amendment 6): the row's copied names are read back from the model, and the path is never sent",
         ann.Contains("v.IsTemplate && copiedNames.Contains(v.Name)") && ann.Contains("Copied = templatesNow") && ann.Contains("FileName = src.FileName") && off.Contains("string name = Path.GetFileName(path);") && off.Contains("FileName = name"));
+}
+
+// ── MA-8-12 (ANV-4 sheets, ANV-5 tags, MH-VW-01): the pure half, then the wiring by source scan (Revit-bound; drill C-2, C-3) ──
+{
+    var bdsSheets = new GuidelineSheets { TitleBlock = "BDS_Sheet : A1", Number = "A-{level}-{n}", Name = "{use} — {level}" };
+    var noNames = new HashSet<string>();
+    var sp = SheetPlanner.Plan(m.Views, m.ViewNaming, bdsSheets, "L01", none, noNames, noNames);
+    Check("MA-8-12: BDS has 7 plan entries with a sheet template (Section and 3D entries make no row)", sp.Count == 7 && !sp.Exists(s => s.Use == "Section" || s.Use == "3D View"));
+    Check("MA-8-12: the sheet view is SH_<prefix>_<LEVEL>, routed by the SH_ status, on the sheet template",
+        sp[0].ViewName == "SH_FP_L01" && sp[0].BrowserStatus == "02_SHEET_VIEWS" && sp[0].Template == "02.100_SHEET_FLOOR_PLANS" && sp[5].ViewName == "SH_RCP_L01" && sp[5].ViewType == "CeilingPlan");
+    Check("MA-8-12: the number and name fill the patterns; {n} is the entry's index among the sheet entries",
+        sp[0].Number == "A-L01-01" && sp[0].Name == "GA Plan — L01" && sp[5].Number == "A-L01-06" && sp[6].Number == "A-L01-07" && sp[6].Name == "Enlarged Drawing — L01");
+    Check("MA-8-12 (amendment 11): the second PP entry collides on name and is refused, yet keeps its index so the numbers after it stay put",
+        sp[2].Refusal == "same name as 'Presentation Plan'" && sp[3].Number == "A-L01-04" && sp.Count(s => s.Refusal != null) == 1);
+    Check("MA-8-12 (amendment 16): no sheet row is pre-ticked", sp.All(s => !s.PreTicked));
+    var held = SheetPlanner.Plan(m.Views, m.ViewNaming, bdsSheets, "L01", none, new HashSet<string> { "SH_FP_L01" }, new HashSet<string> { "A-L01-02" });
+    Check("MA-8-12: a view name or a sheet number the model holds is refused, in words",
+        held[0].Refusal == ViewPlanner.Existing && held[1].Refusal == "a sheet in the model already holds this number" && held.Count(s => s.Refusal != null) == 3);
+    var same = SheetPlanner.Plan(m.Views, m.ViewNaming, new GuidelineSheets { TitleBlock = "F : T", Number = "A-{level}", Name = "{prefix}-{n}" }, "L01", none, noNames, noNames);
+    Check("MA-8-12: a number every row fills alike is taken by the first row only", same[0].Refusal == null && same[1].Refusal == "same number as 'GA Plan'" && same[0].Name == "FP-01");
+    var colonNo = SheetPlanner.Plan(m.Views, m.ViewNaming, new GuidelineSheets { TitleBlock = "F : T", Number = "A:{level}-{n}", Name = "{use}" }, "L01", none, noNames, noNames);
+    Check("MA-8-12: a character Revit refuses in a number is refused in words", colonNo[0].Refusal == "'A:L01-01' holds ':', which Revit does not allow in a sheet number");
+    var pipe = SheetPlanner.Plan(m.Views, m.ViewNaming, new GuidelineSheets { TitleBlock = "F : T", Number = "{level}-{n}", Name = "{use}|{level}" }, "L01", none, noNames, noNames);
+    Check("MA-8-12: ...and in a name", pipe[0].Refusal == "'GA Plan|L01' holds '|', which Revit does not allow in a sheet name");
+    var sheetRule = new Ruleset { Rules = { new Rule { Id = "SN-WL", Target = RuleTarget.Sheet, Whitelist = { "A-L01-01" }, MessageEn = "Sheet '{name}' is not on the list." } } };
+    var judged = SheetPlanner.Plan(m.Views, m.ViewNaming, bdsSheets, "L01", sheetRule, noNames, noNames);
+    Check("MA-8-12 (V5): the number is judged by Scan Now's Sheet rule - a listed number passes, another is refused with the rule's words",
+        judged[0].Refusal == null && judged[1].Refusal == "'A-L01-02' does not pass SN-WL: Sheet 'A-L01-02' is not on the list.");
+    var bdsJudged = SheetPlanner.Plan(m.Views, m.ViewNaming, bdsSheets, "L01", bdsRules, noNames, noNames);
+    Check("MA-8-12: BDS's own sheet rule (SN-01, ten tokens) refuses the pattern's number, naming the rule - the guideline's pattern is the office's to fix",
+        bdsJudged[0].Refusal != null && bdsJudged[0].Refusal.Contains("SN-01") && bdsJudged[0].ViewName == "SH_FP_L01");
+    var orgSheet = new Ruleset { Rules = { new Rule { Id = "SN-ORG", Target = RuleTarget.Sheet, Tokens = { "ORG", "N" }, TokenDefs = { ["ORG"] = "{org}" } } } };
+    Check("MA-8-12: a Sheet rule that needs the office code, with ruleset.org empty, refuses in words (fails closed)",
+        SheetPlanner.Plan(m.Views, m.ViewNaming, bdsSheets, "L01", orgSheet, noNames, noNames)[0].Refusal == "SN-ORG needs an office code and ruleset.org is empty — the number cannot be judged; set the office code");
+    var tokenEntry = new List<GuidelineViewStandard> { new() { Use = "GA Plan", ViewType = "FloorPlan", SheetTemplate = "T", Tokens = new() { ["DISC"] = "ARC" } },
+        new() { Use = "Section", ViewType = "Section", SheetTemplate = "S", NamePrefix = "SEC" }, new() { Use = "No sheet", ViewType = "FloorPlan", NamePrefix = "NS" } };
+    var tk = SheetPlanner.Plan(tokenEntry, naming, bdsSheets, "L01", astRules, noNames, noNames);
+    Check("MA-8-12: a token-named entry is refused in words (ponytail); a Section entry and an entry with no sheet template make no row",
+        tk.Count == 1 && tk[0].Refusal == "named by tokens — its sheet view needs sheet tokens the guideline does not have yet" && tk[0].ViewName == null);
+    Check("MA-8-12: one line says the Section and 3D entries are not per level, naming them",
+        SheetPlanner.NotPerLevel(m.Views) == "5 sheet entries (Elevation, Section, Enlarged Section, Typical Detail, 3D View) are sections, elevations or 3D views - not per level, so no sheet row for them."
+        && SheetPlanner.NotPerLevel(views) == null);
+    Check("MA-8-12: no sheets block, no level or no views plan nothing",
+        SheetPlanner.Plan(m.Views, m.ViewNaming, null, "L01", none, noNames, noNames).Count == 0 && SheetPlanner.Plan(m.Views, m.ViewNaming, bdsSheets, " ", none, noNames, noNames).Count == 0
+        && SheetPlanner.Plan(null, m.ViewNaming, bdsSheets, "L01", none, noNames, noNames).Count == 0);
+
+    // amendment 7: the copy list takes the sheet templates of the entries SheetPlanner would plan, not every sheet entry
+    var tpls = SheetPlanner.Templates(m.Views, bdsSheets);
+    Check("MA-8-12 (amendment 7): the sheet templates are the 7 plan entries', not the Section or 3D ones", tpls.Count == 7 && tpls[0] == "02.100_SHEET_FLOOR_PLANS" && !tpls.Any(t => t.Contains("SECTIONS") || t.Contains("3D")) && SheetPlanner.Templates(m.Views, null).Count == 0);
+    Check("MA-8-12: Missing adds the sheet templates the model lacks to the rows' (after them), with no sheets block it is as before",
+        ViewPlanner.Missing(new List<PlannedView> { new() { Name = "a", Template = "W" } }, new HashSet<string> { "02.100_SHEET_FLOOR_PLANS" }, tpls).SequenceEqual(new[] { "W" }.Concat(tpls.Skip(1)))
+        && ViewPlanner.Missing(new List<PlannedView> { new() { Name = "a", Template = "W" } }, new HashSet<string>(), null).SequenceEqual(new[] { "W" }));
+
+    // the tag rows
+    var tags = SheetPlanner.Tags(sp, m.Graphics);
+    var doors = tags.Find(t => t.ViewName == "SH_FP_L01" && t.Category == "Doors");
+    var rooms = tags.Find(t => t.ViewName == "SH_FP_L01" && t.Category == "Rooms");
+    var ceilings = tags.Find(t => t.Category == "Ceilings");
+    Check("MA-8-12: a tag row for each category of each creatable sheet entry (GA 3, PP 1, Area 1, RCP 1, Enlarged 3); the refused sheet has none", tags.Count == 9 && !tags.Any(t => t.ViewName == null));
+    Check("MA-8-12: Doors is an IndependentTag on the guideline's own tag", doors.ElementBic == "OST_Doors" && doors.TagBic == "OST_DoorTags" && doors.How == "independent" && doors.Family == "BDS_Door Tag" && doors.Type == "BDS_Door Tag" && doors.OfficeAuthored && doors.Refusal == null);
+    Check("MA-8-12 (amendment 13): Rooms go through NewRoomTag, not IndependentTag", rooms.How == "room" && rooms.ElementBic == "OST_Rooms" && rooms.TagBic == "OST_RoomTags" && rooms.Type == "Number, Number, Area_1-100");
+    Check("MA-8-12: a tag that names a family and no type carries no type (the command asks the model), and is not the office's", ceilings.Family == "M_Ceiling Tag w Height" && ceilings.Type == null && !ceilings.OfficeAuthored && ceilings.TagBic == "OST_CeilingTags");
+    Check("MA-8-12 (amendment 16): no tag row is pre-ticked", tags.All(t => !t.PreTicked));
+    var gapEntry = new List<GuidelineViewStandard> { new() { Use = "GA Plan", ViewType = "FloorPlan", SheetTemplate = "T", NamePrefix = "FP", Tag = new() { "Walls", "Doors", "Curtain Walls", "doors", " Windows " } } };
+    var gapTags = SheetPlanner.Tags(SheetPlanner.Plan(gapEntry, naming, bdsSheets, "L01", none, noNames, noNames), new GuidelineGraphics { Tags = new() { ["Walls"] = new GuidelineTag { Family = "M_Wall Tag" }, ["Windows"] = new GuidelineTag { Family = "W Tag", Type = " 8mm " } } });
+    Check("MA-8-12 (amendment 10): a category Sentinel does not tag gets a refusal in words, so does one the guideline names no tag for; a repeat is one row",
+        gapTags.Count == 4 && gapTags[0].Refusal == "Sentinel does not tag Walls yet" && gapTags[1].Refusal == "the guideline names no tag for Doors (graphics.tags)"
+        && gapTags[2].Refusal == "Sentinel does not tag Curtain Walls yet" && gapTags[3].Refusal == null && gapTags[3].Type == "8mm" && gapTags[3].Category == "Windows");
+    Check("MA-8-12: no graphics block at all is a gap, not a crash", SheetPlanner.Tags(sp, null).All(t => t.Refusal != null));
+
+    // MH-VW-01
+    var wipSet = new HashSet<string> { "WIP_T" };
+    var facts = new List<ViewFact>
+    {
+        new() { Name = "open1", Level = "L01", Printable = true }, new() { Name = "open2", Level = "L01", Printable = true, Template = "OTHER_T" },
+        new() { Name = "wip", Level = "L01", Printable = true, Template = "WIP_T" }, new() { Name = "onsheet", Level = "L01", Printable = true, OnSheet = true },
+        new() { Name = "tpl", Level = "L01", Printable = true, IsTemplate = true }, new() { Name = "unprintable", Level = "L01", Printable = false },
+        new() { Name = "other level", Level = "L02", Printable = true }, new() { Name = "no level", Level = null, Printable = true },
+    };
+    var mh = SheetPlanner.MhVw01(facts, "L01", wipSet);
+    Check("MA-8-12 (C-3): MH-VW-01 counts the printable plans of the level on no sheet, less those on a WIP template - another level, templates, views on sheets, unprintable and WIP views are left out",
+        mh.Count == 2 && mh.Names.SequenceEqual(new[] { "open1", "open2" }) && mh.WipExcepted == 1);
+    Check("MA-8-12: the line names the level, the count, the WIP exception, that Annotate counts it and that the health engine is not built",
+        mh.Line() == "MH-VW-01 on L01: 2 printable plan view(s) of this level on no sheet (1 on a WIP template excepted) — counted by Annotate; plans only (sections, elevations and 3D views have no level); the model health engine is not built (D12)");
+    Check("MA-8-12: nothing left over reads 0, and the names stop at 20",
+        SheetPlanner.MhVw01(new List<ViewFact>(), "L01", wipSet).Count == 0
+        && SheetPlanner.MhVw01(Enumerable.Range(0, 30).Select(i => new ViewFact { Name = "v" + i, Level = "L01", Printable = true }), "L01", null).Names.Count == 20
+        && SheetPlanner.MhVw01(Enumerable.Range(0, 30).Select(i => new ViewFact { Name = "v" + i, Level = "L01", Printable = true }), "L01", null).Count == 30);
+
+    // the guideline's sheets block, through the add-in's CheckGuideline, against the bridge's cases
+    using (var cases = JsonDocument.Parse(File.ReadAllText(Path.Combine(root, "WebApp", "bridge", "fixtures", "guideline-sheets", "cases.json"))))
+        foreach (var c in cases.RootElement.EnumerateArray())
+        {
+            var body = System.Text.Json.Nodes.JsonNode.Parse("{\"standard\":\"x\",\"elements\":[{\"category\":\"Walls\",\"rules\":[]}]}").AsObject();
+            var sh = c.GetProperty("sheets");
+            body["sheets"] = sh.ValueKind == JsonValueKind.Null ? null : System.Text.Json.Nodes.JsonNode.Parse(sh.GetRawText());
+            var gm = GuidelineMatcher.FromBodies(body.ToJsonString(), null, out string sheetsError, out _);
+            string want = c.GetProperty("error").ValueKind == JsonValueKind.Null ? null : c.GetProperty("error").GetString();
+            Check("MA-8-12: parity with the bridge - " + c.GetProperty("name").GetString() + (want == null ? ": accepted" : ": refused") + (sheetsError == want ? "" : " (the add-in said: " + (sheetsError ?? "accepted") + ")"),
+                sheetsError == want && gm.HasGuideline == (want == null));
+        }
+    var withBlock = GuidelineMatcher.FromBodies("{\"standard\":\"x\",\"elements\":[{\"category\":\"Walls\",\"rules\":[]}],\"sheets\":{\"titleBlock\":\"BDS_Sheet : A1\",\"number\":\"A-{level}-{n}\",\"name\":\"{use}\"}}", null, out _, out _);
+    Check("MA-8-12: the block is read as written; no block reads null", withBlock.Sheets?.TitleBlock == "BDS_Sheet : A1" && withBlock.Sheets.Number == "A-{level}-{n}" && m.Sheets == null);
+
+    // wiring
+    var win = Src("UI", "AnnotatePreviewWindow.cs");
+    int canAdd = ann.IndexOf("Viewport.CanAddViewToSheet("), vpCreate = ann.IndexOf("Viewport.Create(");
+    int sheetLoop = ann.IndexOf("foreach (var sp in pick.Sheets)"), tagLoop = ann.IndexOf("foreach (var tg in pick.Tags)");
+    Check("MA-8-12: CanAddViewToSheet is asked before Viewport.Create, the sheet is made on the title block, and the sheet and tag rows come before the pins, inside the one group",
+        canAdd > 0 && canAdd < vpCreate && ann.Contains("ViewSheet.Create(doc, tb.Id)") && ann.Contains("if (!tb.IsActive) tb.Activate();")
+        && sheetLoop > run && sheetLoop < tagLoop && tagLoop < pinLoop && CountOf(ann, "new Transaction(") == 1 && CountOf(ann, "ViewPlanner.UndoWords()") == 2);
+    Check("MA-8-12 (amendment 9): the model is regenerated between the sheets and the tags; each sheet and each tag set is its own SubTransaction, rolled back alone",
+        ann.IndexOf("if (sheetViews.Count > 0) doc.Regenerate();") > sheetLoop && ann.IndexOf("if (sheetViews.Count > 0) doc.Regenerate();") < tagLoop && CountOf(ann, "using var st = new SubTransaction(doc);") == 4);
+    Check("MA-8-12 (amendment 13): Rooms use NewRoomTag then ChangeTypeId, IndependentTag.Create is the other path and names no room category, and a tag row waits for its sheet view",
+        ann.Contains("doc.Create.NewRoomTag(new LinkElementId(room.Id)") && ann.Contains("tag.ChangeTypeId(symId)") && CountOf(ann, "IndependentTag.Create(") == 1 && !ann.Contains("OST_Rooms")
+        && ann.Contains("SheetPlanner.SheetNotMade") && !ann.Contains("NewAreaTag") && !ann.Contains("NewSpaceTag"));
+    Check("MA-8-12 (amendment 5): sheet views stay out of `created`; sheets and tags count in the guard, the keep and the nothing-created exit",
+        ann.Contains("sheetViews[sp.ViewName] = view.Id;") && !ann.Contains("created.Add(sp.") && ann.Contains("pick.Sheets.Count + pick.Tags.Count == 0") && ann.Contains("sheetsMade.Count + tagRuns.Sum(r => r.Placed) > 0")
+        && ann.Contains("sheetsNow.Count + tagsNow.Sum(t => t.Placed) == 0"));
+    int group = ann.IndexOf("kept = SentinelUndo.Run(doc, \"Annotate views\""), readBack = ann.IndexOf("var sheetsNow = new List<");
+    Check("MA-8-12: the sheets, viewports and tags are read back after the group, and MH-VW-01 is read from the model after it too, beside the ledger row",
+        readBack > group && ann.IndexOf("SheetPlanner.MhVw01(facts, pick.SheetLevel, wipTemplates)") > readBack && ann.Contains("v.CanBePrinted") && ann.Contains("OfClass(typeof(Viewport))")
+        && ann.Contains("tagsNow.Add((r.View, r.Category, r.Tag, held, r.Skipped, r.Why))") && ann.Contains("more.Mh = (mh.Level, mh.Count, mh.Names, mh.WipExcepted, mh.Line());") && ann.Contains("mh.Line()"));
+    Check("MA-8-12: one level per run, none by default, chosen in the preview; the title block and every tag type are looked up in the model (Sentinel loads no families) and a miss refuses the row in words",
+        win.Contains("combo.SelectedIndex = 0;") && win.Contains("(none this run)") && win.Contains("Sheets and tags for:") && win.Contains("a tag row waits for its sheet row to be ticked")
+        && ann.Contains("Sentinel loads no families") && ann.Contains("not which of its {ofFamily.Count} types") && ann.Contains("is not a Title Blocks row of the office type catalogue"));
+    Check("MA-8-12 review fixes: rooms are read model-wide by level, a zero says why, skips are not called Revit refusals, the unrouted count waits for the commit, sheet rows get the F6 view-type check, the catalogue is read before the preview",
+        ann.Contains("rm.Area > 0 && rm.LevelId == view.GenLevel?.Id") && ann.Contains("the sheet view shows no {tg.Category} (its template or view range hides them)")
+        && ann.Contains("no placed room (Area > 0) on {pick.SheetLevel} in the model") && ann.Contains("skipped (Sentinel's checks or Revit refused)") && !ann.Contains("refused by Revit\"")
+        && ann.IndexOf("if (!sheetRouted) unrouted++;") > ann.IndexOf("Revit did not commit this sheet") && ann.Contains("viewType[s.ViewType] == ElementId.InvalidElementId")
+        && ann.IndexOf("var cat = Task.Run(") > 0 && ann.IndexOf("sheetsFor = level =>") > ann.LastIndexOf("var cat = Task.Run(") && !ann.Contains("tbChecked"));
+    Check("MA-8-12: the guideline without a sheets block says so in the preview's words, and plans no sheet", ann.Contains("if (guideline.Sheets == null) words.Add(SheetPlanner.NoSheetsBlock);") && SheetPlanner.NoSheetsBlock == "the guideline has no sheets block — no sheets planned");
 }
 
 Console.WriteLine($"{total - failed}/{total} checks pass");

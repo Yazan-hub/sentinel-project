@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
@@ -19,6 +20,11 @@ public sealed class AnnotatePreviewWindow : Window
     private readonly List<(CheckBox Box, PlannedView View)> _views = new();
     private readonly List<(CheckBox Box, PinRow Pin)> _pins = new();
     private readonly List<(CheckBox Box, TemplateRow Template)> _templates = new();
+    // MA-8-12: the sheet rows and tag rows of the level chosen in "Sheets and tags for" - rebuilt each time the choice changes.
+    private readonly List<(CheckBox Box, PlannedSheet Sheet)> _sheets = new();
+    private readonly List<(CheckBox Box, PlannedTag Tag, CheckBox SheetBox)> _tags = new();
+    private string? _sheetLevel;
+    private const string NoLevel = "(none this run)";
     private readonly TextBlock _status = new() { Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap };
     private static readonly System.Windows.Media.Brush Greyed = new SolidColorBrush(System.Windows.Media.Color.FromRgb(128, 128, 128));
 
@@ -26,9 +32,14 @@ public sealed class AnnotatePreviewWindow : Window
     public IReadOnlyList<PinRow> Pins { get; private set; } = new List<PinRow>();
     /// <summary>MA-8-11: the ticked view templates to copy from the office file; none unless a file was picked.</summary>
     public IReadOnlyList<TemplateRow> Templates { get; private set; } = new List<TemplateRow>();
+    /// <summary>MA-8-12: the level chosen for sheets and tags, else null; the ticked sheet rows; the ticked tag rows (only of a ticked sheet).</summary>
+    public string? SheetLevel { get; private set; }
+    public IReadOnlyList<PlannedSheet> Sheets { get; private set; } = new List<PlannedSheet>();
+    public IReadOnlyList<PlannedTag> Tags { get; private set; } = new List<PlannedTag>();
 
     public AnnotatePreviewWindow(IReadOnlyList<PlannedView> views, IReadOnlyList<PinRow> pins, IReadOnlyList<string> words,
-        IReadOnlyList<TemplateRow>? templates = null, string? templatesHeader = null)
+        IReadOnlyList<TemplateRow>? templates = null, string? templatesHeader = null,
+        IReadOnlyList<string>? sheetLevels = null, Func<string, SheetNode>? sheetsFor = null)
     {
         Title = "Sentinel — Annotate: views and pins";
         Width = 760; Height = 680; MinWidth = 480; MinHeight = 380;
@@ -79,6 +90,26 @@ public sealed class AnnotatePreviewWindow : Window
             tree.Items.Insert(0, tNode);
         }
 
+        // MA-8-12 (ANV-4, ANV-5): one level per run; its sheets and their tags are rows a person ticks, never pre-ticked (amendment 16).
+        if (sheetLevels != null && sheetsFor != null)
+        {
+            var sNode = new TreeViewItem { IsExpanded = true, FontWeight = FontWeights.Bold };
+            var combo = new ComboBox { MinWidth = 180, Margin = new Thickness(6, 0, 0, 0) };
+            combo.Items.Add(NoLevel);
+            foreach (var l in sheetLevels) combo.Items.Add(l);
+            combo.SelectedIndex = 0;
+            var head = new StackPanel { Orientation = Orientation.Horizontal };
+            head.Children.Add(new TextBlock { Text = "Sheets and tags for:", VerticalAlignment = VerticalAlignment.Center });
+            head.Children.Add(combo);
+            sNode.Header = head;
+            combo.SelectionChanged += (_, __) =>
+            {
+                FillSheets(sNode, combo.SelectedItem as string is { } chosen && chosen != NoLevel ? chosen : null, sheetsFor);
+                ShowCount();
+            };
+            tree.Items.Add(sNode);
+        }
+
         var create = new Button { Content = "Create ▶", Padding = new Thickness(10, 5, 10, 5), Margin = new Thickness(0, 0, 6, 0), IsDefault = true };
         var cancel = new Button { Content = "Cancel", Padding = new Thickness(10, 5, 10, 5), IsCancel = true };
         create.Click += (_, __) => Accept();
@@ -116,16 +147,54 @@ public sealed class AnnotatePreviewWindow : Window
         return box;
     }
 
+    private void FillSheets(TreeViewItem node, string? level, Func<string, SheetNode> sheetsFor)
+    {
+        node.Items.Clear();
+        _sheets.Clear();
+        _tags.Clear();
+        _sheetLevel = level;
+        if (level == null) return;
+        var plan = sheetsFor(level);
+        foreach (var line in plan.Lines)
+            node.Items.Add(new TreeViewItem { Header = new TextBlock { Text = line, TextWrapping = TextWrapping.Wrap, FontWeight = FontWeights.Normal }, Focusable = false });
+        if (plan.Sheets.Count == 0) node.Items.Add(new TreeViewItem { Header = new TextBlock { Text = "No sheet row for this level.", FontWeight = FontWeights.Normal }, Focusable = false });
+        foreach (var s in plan.Sheets)
+        {
+            var box = Row(node, $"Sheet {s.Number} · {s.Name}  ·  view {s.ViewName ?? "(no name)"}  ·  template {s.Template}", false, s.Refusal);
+            if (s.Refusal != null) continue;
+            _sheets.Add((box, s));
+            var item = (TreeViewItem)node.Items[node.Items.Count - 1];
+            item.IsExpanded = true;
+            var mine = new List<(CheckBox Box, PlannedTag Tag)>();
+            foreach (var t in plan.Tags.Where(t => t.ViewName == s.ViewName))
+            {
+                string text = $"Tags · {t.Category}" + (t.Family != null ? $" · {t.Family}{(t.Type != null ? " : " + t.Type : "")}" : "") + (t.Refusal == null && !t.OfficeAuthored ? " · stock Revit tag" : "");
+                var tbox = Row(item, text, false, t.Refusal);
+                tbox.IsEnabled = false; // a tag row waits for its sheet row to be ticked
+                if (t.Refusal == null) { _tags.Add((tbox, t, box)); mine.Add((tbox, t)); }
+            }
+            box.Click += (_, __) =>
+            {
+                foreach (var (tb, _) in mine) { tb.IsEnabled = box.IsChecked == true; if (box.IsChecked != true) tb.IsChecked = false; }
+                ShowCount();
+            };
+        }
+    }
+
     private void ShowCount() =>
         _status.Text = $"{_views.Count(r => r.Box.IsChecked == true)} of {_views.Count} creatable view(s) and " +
                        $"{_pins.Count(r => r.Box.IsChecked == true)} of {_pins.Count} datum(s) to pin" +
-                       (_templates.Count > 0 ? $" and {_templates.Count(r => r.Box.IsChecked == true)} of {_templates.Count} view template(s) to copy" : "") + " are ticked.";
+                       (_templates.Count > 0 ? $" and {_templates.Count(r => r.Box.IsChecked == true)} of {_templates.Count} view template(s) to copy" : "") +
+                       (_sheetLevel != null ? $" and {_sheets.Count(r => r.Box.IsChecked == true)} of {_sheets.Count} sheet(s) and {_tags.Count(r => r.Box.IsChecked == true)} of {_tags.Count} tag set(s) on {_sheetLevel}" : "") + " are ticked.";
 
     private void Accept()
     {
         Views = _views.Where(r => r.Box.IsChecked == true).Select(r => r.View).ToList();
         Pins = _pins.Where(r => r.Box.IsChecked == true).Select(r => r.Pin).ToList();
         Templates = _templates.Where(r => r.Box.IsChecked == true).Select(r => r.Template).ToList();
+        SheetLevel = _sheetLevel;
+        Sheets = _sheets.Where(r => r.Box.IsChecked == true).Select(r => r.Sheet).ToList();
+        Tags = _tags.Where(r => r.Box.IsChecked == true && r.SheetBox.IsChecked == true).Select(r => r.Tag).ToList();
         DialogResult = true;
         Close();
     }
