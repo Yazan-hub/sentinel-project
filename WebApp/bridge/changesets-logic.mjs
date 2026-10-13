@@ -282,7 +282,7 @@ const pretickOf = (op, source, target, member, foreign = null, kind = null) =>
 // MA-8-7 (amendment 16): a retype of an element whose type is NOT one of the office's is never pre-ticked. The category names a kind's type
 // catalogue rows are filed under; a structural column is a "Structural Columns" row (or a "Columns" one).
 const KIND_CATEGORIES = { wall: ["Walls"], floor: ["Floors"], roof: ["Roofs"], ceiling: ["Ceilings"], door: ["Doors"], window: ["Windows"],
-  column: ["Structural Columns", "Columns"], beam: ["Structural Framing"] };
+  column: ["Structural Columns"], beam: ["Structural Framing"] };
 /** Is the type a retype names ("Family : Type", or a bare type name for a system type) a type of the office's catalogue? `catalog` is the
  *  type_catalog body ({types: [{category, family, type, bic?}]}); `same` is sentinel-core's sameCategory. true = foreign (no catalogue row
  *  of the kind's category), false = a catalogue row, null = no catalogue to judge by. Pure. */
@@ -629,7 +629,7 @@ function checkReplaces(el, at, member, nested, rehosted, touched) {
   if (el.kind !== "wall" && el.kind !== "floor")
     throw err(400, `${at}: only a wall or floor create replaces an element (a DirectShape or Generic Model re-created as an office type), not ${a(el.kind)}`);
   if (!r || typeof r !== "object" || Array.isArray(r)) throw err(400, `${at}: replaces must be {unique_id, box}`);
-  nested(r, ["unique_id", "box"], `${at}.replaces`);
+  nested(r, ["unique_id", "box", "kind", "category"], `${at}.replaces`);
   if (!member) throw err(400, `${at}: a create that replaces removes an element — only a signed-in member files one (Promote in Revit, signed in); nothing was saved`);
   if (typeof r.unique_id !== "string" || !UNIQUE_ID.test(r.unique_id)) throw err(400, `${at}: replaces.unique_id must be a Revit UniqueId`);
   const b = r.box, v3 = (x) => point(x);
@@ -641,7 +641,11 @@ function checkReplaces(el, at, member, nested, rehosted, touched) {
   if (touched.has(u) || rehosted.has(u))
     throw err(400, `${at}: replaces ${r.unique_id}, which another ghost of this changeset also names — a replaced element carries no other ghost, and two creates cannot replace one`);
   rehosted.add(u);
-  return { unique_id: r.unique_id, box: { min, max } };
+  // review: what the original is (its class and category), so the reviewer's row and the ledger say what is removed; both optional
+  if (r.kind !== undefined && r.kind !== "directshape" && r.kind !== "generic") throw err(400, `${at}: replaces.kind must be "directshape" or "generic"`);
+  if (r.category !== undefined && (typeof r.category !== "string" || !r.category.trim() || r.category.length > 80 || /[ -]/.test(r.category)))
+    throw err(400, `${at}: replaces.category must be a short text (the original's Revit category)`);
+  return { unique_id: r.unique_id, box: { min, max }, ...(r.kind ? { kind: r.kind } : {}), ...(r.category ? { category: r.category.trim() } : {}) };
 }
 
 /** MA-1a item 4: where an element came from, as its placer knows it — the CAD layer, the rule that typed it and the source

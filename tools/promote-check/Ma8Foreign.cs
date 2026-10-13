@@ -86,6 +86,13 @@ static partial class Check
         Ok(Ghost(ps, "C6") == null && Held(ps, "C6") == null && ps[0].Others["Structural Columns"].DdNow == 1 && ps[0].Others["Structural Columns"].OfficeTyped == 1 && ps[0].Others["Structural Columns"].Total == 1,
            "settled (a catalogue row) is untouched and counted; the office's own prefix is left as is and not counted");
         Ok(Held(Run(new[] { Col("C8", null, null, set: f => f.NotEditable = "framing of structural type Brace (a brace or purlin)") }), "C8") == "framing of structural type Brace (a brace or purlin) — Sentinel does not retype it; a person decides", "a brace is held in words");
+        // review: a measured rectangle that no row carries is a gap even when a row has the type's name; a name alone is for steel shapes only
+        var c12 = Run(new[] { Col("C12", 350, 350, "Ext", "300 x 450mm") });
+        Ok(Ghost(c12, "C12") == null && c12.SelectMany(x => x.Held).First(h => h.Label == "C12").Gap is { Size: "350 x 350 mm", Want: null }, "a 350 x 350 column named like a 300 x 450 row is a gap at its size, never retyped by name");
+        // review: a section not read as a rectangle and a name the catalogue lacks is a gap that WANTS that type (the bridge's type_gap row needs a want or a size)
+        var c13 = Run(new[] { Col("C13", null, null, "Ext", "W999 X 99", why: "a section that is not a rectangle (a steel shape or a profile) — by its type name only") });
+        var grp = TypeGaps.Group(c13);
+        Ok(grp.Count == 1 && grp[0].Want == "W999 X 99" && grp[0].Size == null && grp[0].Category == "Structural Columns", "an unread section with an unknown name is a gap group with Want = the type name (typeGapRow accepts it)");
         // two catalogue rows at one section: a person decides, naming both
         var two = JsonNode.Parse(catText);
         two["types"].AsArray().Add(JsonNode.Parse("{\"category\":\"Structural Columns\",\"family\":\"Other Col\",\"type\":\"300 x 1500 mm\",\"system\":false,\"width_mm\":null,\"height_mm\":null,\"params\":{}}"));
@@ -145,6 +152,31 @@ static partial class Check
         Ok(Why(wall, signedIn: false) == "a replacing create removes an element: sign in (Sentinel ▸ Sign in) and run Promote again", "signed out, none is proposed (the bridge refuses one from the machine credential)");
         Ok(Why(wall, wt: new Dictionary<string, string>(DocTypes)).Contains("\"BDS_EXT_ARC_CMU_300 mm\" is in the catalogue but not loaded in this model") , "the office wall type must be loaded");
         Ok(Why(Sh("S11", new[] { 0.0, 0, 0 }, new[] { 6000.0, 300.4, 3000 })).Contains("is not a whole millimetre — exact match only (D16)"), "a thickness that is not a whole millimetre is held (exact or a person)");
+        // review: only a Walls DirectShape that is wall-like, a Floors one that is floor-like, or a Generic Model is re-created
+        string Cat(string cat, double[] min, double[] max) => Why(Sh("K", min, max, s => s.Category = cat));
+        var wmin = new[] { 0.0, 0, 0 }; var wmax = new[] { 6000.0, 300, 3000 }; var fmin = new[] { 0.0, 0, -300 }; var fmax = new[] { 6000.0, 4000, 0 };
+        Ok(Cat("Structural Foundations", fmin, fmax) == "K (Structural Foundations DirectShape, 6000 x 4000 x 300 mm): a Structural Foundations DirectShape — Promote re-creates walls and floors only; a person decides"
+           && Cat("Walls", fmin, fmax) != null && Cat("Floors", wmin, wmax) != null && Cat("Walls", wmin, wmax) == null && Cat("Floors", fmin, fmax) == null && Cat("Generic Models", wmin, wmax) == null,
+           "a footing or roof slab DirectShape is held with its category; Walls/Floors DirectShapes of the matching shape and Generic Models are re-created");
+        // review: an office catalogue Generic Model family is the office's own
+        var gm = JsonNode.Parse(catText)["types"].AsArray().First(t => (string)t["category"] == "Generic Models");
+        string gfam = (string)gm["family"], gtyp = (string)gm["type"];
+        Ok(Why(Sh("K2", wmin, wmax, s => { s.Kind = "generic"; s.Family = gfam; s.Type = gtyp; })) == $"K2 is the office's own type ({gfam} : {gtyp}) — Sentinel does not remove it"
+           && Why(Sh("K3", wmin, wmax, s => { s.Kind = "generic"; s.Family = "Foreign Fam"; s.Type = "X"; })) == null, "an office catalogue Generic Model instance is never removed; a third party's is re-created");
+        // review: classes this Promote runs
+        var onlyWalls = ReplacePlanner.Plan(new[] { Sh("K4", wmin, wmax), Sh("K5", fmin, fmax) }, Levels, new List<WallFact>(), wallTypes, V1Types(), mr, true, new[] { "Walls" });
+        Ok(onlyWalls[0].Held == null && onlyWalls[1].Held == "K5 (Generic Models DirectShape, 6000 x 4000 x 300 mm): this Promote does not run Floors (no LOD matrix = walls only) — a person decides", "with no matrix (walls only) a floor-like shape is held, not re-created");
+        // review: the box z is in the levels' frame, the stale guard's box in Revit's internal frame
+        var framed = Re(new[] { Sh("K6", new[] { 0.0, 0, 0 }, new[] { 6000.0, 300, 3000 }, s => { s.RawMin = new[] { 0.0, 0, 250000 }; s.RawMax = new[] { 6000.0, 300, 253000 }; }) })[0].Ghost;
+        Ok(framed != null && framed.ReplacesMin[2] == 250000 && framed.ReplacesMax[2] == 253000 && framed.StartMm[2] == 0 && framed.TopLevel == "Level 2", "replaces.box keeps Revit's internal box; the storey and the top read the level-frame box");
+        var kb = JsonSerializer.SerializeToNode(PromoteWallsPlanner.Bodies(Re(new[] { Sh("K7", wmin, wmax, s => s.Category = "Walls") }).Select(r => new StoreyPlan { Storey = r.Storey, Ghosts = { r.Ghost } }).ToList(), "yazan").First(), ChangesetClient.WriteJson);
+        var kdto = JsonSerializer.Deserialize<ChangesetElementDto>(kb["elements"][0].ToJsonString());
+        Ok((string)kb["elements"][0]["replaces"]["kind"] == "directshape" && (string)kb["elements"][0]["replaces"]["category"] == "Walls"
+           && ChangesetTrust.ReplacesWords(kdto).Contains("(Walls DirectShape, 6000 x 300 x 3000 mm)"), "the body carries the original's class and category; the review row names them");
+        Ok(ChangesetTrust.UntickedWords(new ChangesetElementDto { Op = "retype", Kind = "column" }) == "not pre-ticked: structure is a person's"
+           && ChangesetTrust.UntickedWords(new ChangesetElementDto { Op = "retype", Kind = "wall", Foreign = true }) == "not pre-ticked: a type that is not the office's"
+           && ChangesetTrust.UntickedWords(new ChangesetElementDto { Op = "retype", Kind = "wall", Foreign = false }) == null && ChangesetTrust.UntickedWords(new ChangesetElementDto { Op = "create", Kind = "wall" }) == null,
+           "a retype row says why it is not pre-ticked");
         // the plan: ghosts ride on the storey of their shape; never counted in the LOD state; Refuse moves a refused one to Held
         var plans = PromotePlanner.Plan(WithStructure, new List<WallFact>(), new List<ElementFact>(), Levels, wallTypes, V1Types(), mr, true, new[] { wall, floor, Sh("S12", new[] { 0.0, 0, 0 }, new[] { 300.0, 300, 3000 }) });
         var l1 = plans.Single(p => p.Storey == "Level 1");
@@ -161,7 +193,7 @@ static partial class Check
         var fe = rb["elements"].AsArray().Count > 1 ? rb["elements"].AsArray()[1] : null;
         Ok(fe == null || ((string)fe["kind"] == "floor" && fe["place"]["LocationLoop"].AsArray().Count == 4), "a replacing floor create carries its LocationLoop");
         var dto = JsonSerializer.Deserialize<ChangesetElementDto>(we.ToJsonString());
-        Ok(dto.Replaces?.UniqueId == wall.UniqueId && dto.Replaces.Box.Max[0] == 6000 && ChangesetTrust.ReplacesWords(dto) == $"re-creates {wall.UniqueId} (DirectShape or Generic Model, 6000 x 300 x 3000 mm) — the original and any tags on it are removed in the same Undo (one Undo brings it back and removes the new wall)"
+        Ok(dto.Replaces?.UniqueId == wall.UniqueId && dto.Replaces.Box.Max[0] == 6000 && ChangesetTrust.ReplacesWords(dto) == $"re-creates {wall.UniqueId} (Generic Models DirectShape, 6000 x 300 x 3000 mm) — the original and any tags on it are removed in the same Undo (one Undo brings it back and removes the new wall)"
            && ChangesetTrust.ReplacesWords(new ChangesetElementDto { Kind = "wall" }) == null, "the DTO reads replaces; the review row says the original is removed in the same Undo");
         var cs = new ChangesetDto { Source = "promote", Claimed = true };
         Ok(!ChangesetTrust.PreTick(cs, new ChangesetElementDto { Op = "retype", Kind = "wall", Foreign = true, Pretick = true, Target = new TargetDto { TypeBefore = "T" } })
@@ -197,6 +229,11 @@ static partial class Check
         Ok(rep.Rows.Single(r => r.Type == "Plain").Why == "Sentinel does not retype Furniture" && rep.Rows.Single(r => r.Type == "Innenwand 11.5").Why == "gap: no wall rule"
            && rep.Rows.Single(r => r.Bin == ForeignReport.DirectShape).Why.StartsWith("S5:"), "a gap says why: Promote's hold, or that Sentinel does not retype the category");
         Ok(rep.Lines(2).Count == 3 && rep.Lines(2)[2] == "… and 3 more type row(s)" && rep.TopCategories().Select(x => x.Count).SequenceEqual(new[] { 2, 2, 1 }), "the lines are the top groups, then how many more; the top categories lead with the most elements");
+        // review: a Generic Model instance of the office's own catalogue is settled, not a shape; a refused model (no plans) says nothing was planned
+        var gen = ForeignTypes.Classify(new[] { Ff("g1", "Generic Models", gfam, gtyp, shape: "generic"), Ff("g2", "Generic Models", "Foreign Fam", "X", shape: "generic") }, new[] { new StoreyPlan { Storey = "Level 1" } }, m);
+        Ok(gen.NSettled == 1 && gen.NDirectShape == 1, "an office-catalogue Generic Model instance is settled, a foreign one is a DirectShape/Generic Model row");
+        var refused = ForeignTypes.Classify(new[] { Ff("w9", "Walls", "Basic Wall", "Innenwand 11.5", true), Ff("d9", "Generic Models", null, null, shape: "directshape") }, null, m);
+        Ok(refused.Rows.All(r => r.Why == ForeignTypes.NotPlanned), "on a refused model the reasons say nothing was planned, not that Sentinel does not retype");
         var nocat = ForeignTypes.Classify(facts, null, GuidelineMatcher.FromBodies(null, null, out _, out _));
         Ok(nocat.NotChecked == "no type catalogue installed (type_catalog (unlabelled)) — foreign types are not judged" && nocat.Foreign == 0 && nocat.Line.StartsWith("Foreign types: not judged — "), "no catalogue: nothing is classified, said in words");
         var led = Json(CommandReports.ForeignTypes(rep, "cat", "a@b.test"));
@@ -206,21 +243,22 @@ static partial class Check
         Ok(CommandReports.ForeignTypes(nocat, "cat", "a@b.test") is var nr && Json(nr).GetProperty("action").GetString().StartsWith("foreign_types:run · not judged"), "a run that judged nothing is a row that says so");
 
         // ── Revit halves, by source text ──
-        string ex = Src("GhostBuilder", "ChangesetExecutor.cs"), cmd = Src("Commands.PromoteWalls.cs"), cli = Src("Coordination", "ChangesetClient.cs"), pw = Src("GhostBuilder", "PromoteWallsPlanner.cs");
-        int pre = At(ex, "var replaced = new Dictionary<string, (Element Old, string Uid, List<ElementId> Probe)>"), walls = At(ex, "var wallCreates = toPlace.Where("), floors = At(ex, "toPlace.Where(e => IsCreate(e) && e.Kind == \"floor\""),
+        string ex = Src("GhostBuilder", "ChangesetExecutor.cs"), cmd = Src("Commands.PromoteWalls.cs"), cli = Src("Coordination", "ChangesetClient.cs"), pw = Src("GhostBuilder", "PromoteWallsPlanner.cs"), rcv = Src("Commands.ReviewChangesets.cs");
+        int pre = At(ex, "var replaced = new Dictionary<string, (ElementId OldId, string Uid, List<ElementId> Probe)>"), walls = At(ex, "var wallCreates = toPlace.Where("), floors = At(ex, "toPlace.Where(e => IsCreate(e) && e.Kind == \"floor\""),
             del = At(ex, "var deleted = doc.Delete(oldId);"), roofs = At(ex, "// MA-1: a roof on its level"), rehost = At(ex, "var rehosts = toPlace.Where(e => e.Op == \"rehost\").ToList();");
         Ok(pre > 0 && walls > pre && floors > walls && del > floors && roofs > del && rehost > roofs
-           && ex.Contains("var (why, refuse, old, probe) = ReplaceCheck(doc, el.Replaces.UniqueId, el.Replaces.Box?.Min, el.Replaces.Box?.Max, probe: true);") && ex.Contains("if (refuse) throw new PlacementRefused($\"{at}: {why}\");")
+           && ex.Contains("var (why, refuse, oldId, oldUid, probe) = ReplaceCheck(doc, el.Replaces.UniqueId, el.Replaces.Box?.Min, el.Replaces.Box?.Max, probe: true);") && ex.Contains("if (refuse) throw new PlacementRefused($\"{at}: {why}\");")
            && ex.Contains("deleted.Count != probe.Count || deleted.Any(id => !probe.Contains(id))") && ex.Contains("entry.RemovedUniqueId = uid;") && ex.Contains("notMade.Add(el.ProposalGuid);")
            && ex.Contains("&& !notMade.Contains(e.ProposalGuid)).ToList();"),
            "the executor checks every original before the creates (kept ones are not made), deletes after the walls and floors, refuses unless the delete equals the probe, and reports the removed UniqueId");
-        string rc = ex.Substring(At(ex, "internal static (string Why, bool Refuse, Element Old, List<ElementId> Probe) ReplaceCheck"), 3600);
+        string rc = ex.Substring(At(ex, "internal static (string Why, bool Refuse, ElementId OldId, string OldUid, List<ElementId> Probe) ReplaceCheck"), 3600);
         Ok(rc.Contains("old is DirectShape") && rc.Contains("old.Category?.Id.IdValue() == (long)BuiltInCategory.OST_GenericModel") && rc.Contains("!(gfi.Symbol?.Family?.IsInPlace ?? false)")
            && rc.Contains("Sentinel.Commands.MassOnly.Is(old)") && rc.Contains("not a DirectShape or Generic Model") && rc.Contains("HeldBy(doc, old)") && rc.Contains("new SubTransaction(doc)") && rc.Contains("sub.RollBack()")
-           && rc.Contains("!(doc.GetElement(id) is IndependentTag)") && rc.Contains("> ReshapeTolMm"),
+           && rc.Contains("!(doc.GetElement(id) is IndependentTag)") && rc.IndexOf("var oldUid = old.UniqueId;", StringComparison.Ordinal) is int ou && ou > 0 && ou < rc.IndexOf("new SubTransaction(doc)", StringComparison.Ordinal) && !rc.Substring(rc.IndexOf("sub.RollBack()", StringComparison.Ordinal)).Contains("old.") && rc.Contains("> ReshapeTolMm"),
            "R12: only a DirectShape or a Generic Model instance (never an in-place family, never a mass), the box it stood in, not held, and a probe delete in a rolled-back SubTransaction that takes only itself and its tags");
         Ok(ex.Contains("if (kind is \"column\" or \"beam\")") && ex.Contains("StructureHold(sfi, kind)") && ex.Contains("a retype would change its section; a person decides") && ex.Contains("SectionOf(sfi, kind)")
-           && ex.Contains("fi.GetOriginalGeometry(new Options { DetailLevel = ViewDetailLevel.Fine })") && ex.Contains("moved on the retype") && ex.Contains("PromoteWallsPlanner.TryClassOf(el.Kind, out var cls)")
+           && ex.Contains("fi.GetOriginalGeometry(new Options { DetailLevel = ViewDetailLevel.Fine })?.GetTransformed(fi.GetTransform())") && ex.Contains("bool byName = !(sw.HasValue && sd.HasValue) &&")
+           && ex.Contains("var centres = new List<(Element E, string Kind, XYZ Centre)>();") && ex.Contains("foreach (var (me, mkind, centre0) in centres)") && ex.Contains("moved on the retype") && ex.Contains("PromoteWallsPlanner.TryClassOf(el.Kind, out var cls)")
            && ex.Contains("fi.StructuralType != StructuralType.Beam") && ex.Contains("fi.IsSlantedColumn") && ex.Contains("fi.SuperComponent != null"),
            "Unsafe keeps a structure retype's section (by TrySection or by name); the section is read from the original geometry; a moved centre declines; Target goes through TryClassOf");
         Ok(cmd.IndexOf("ReadForeign(doc)", StringComparison.Ordinal) is int rf && rf > 0 && cmd.IndexOf("PlacementPolicy.TemplateRefuses(officeHave, officeAll)", StringComparison.Ordinal) > rf
@@ -228,6 +266,12 @@ static partial class Check
            && cmd.Contains("UserSession.IsSignedIn, shapes);") && cmd.Contains("ChangesetExecutor.ReplaceRefusal(doc, g.ReplacesUid, g.ReplacesMin, g.ReplacesMax)") && cmd.Contains("foreignText +")
            && cmd.Contains("!(e is DirectShape) && !(e is FamilyInstance sfi && sfi.Symbol?.Family?.IsInPlace == true)") && cmd.Contains("Compat.CategoryKeyOf(cat)") && cmd.Contains("&& !e.ViewSpecific") == false,
            "Promote reads the foreign types before the template refusal and says them in it; structure runs with a matrix; the DirectShape collectors skip shapes and in-place families; the plan takes the shapes");
+        Ok(rcv.Contains("(e.Op == \"rehost\" || e.Replaces != null) && ticked.Contains(e.ProposalGuid)") && rcv.Contains("A rehost or a re-creation removes an element"), "the machine credential's Apply is refused client-side for a re-creation too (the bridge refuses its result)");
+        Ok(cmd.Contains("s.RawMin = (double[])s.BoxMin.Clone();") && cmd.Contains("(near.Elevation - near.ProjectElevation) * FtToMm") && cmd.Contains("if (MassOnly.Is(e)) continue; // review") && cmd.Contains("an in-place family - a person re-creates it")
+           && ex.Contains("return \"an in-place family - a person re-creates it\";"), "ReadShapes moves the box into the levels' frame (raw kept for the guard), the foreign read skips Sentinel's masses, one in-place words");
+        var pcx = Src("GhostBuilder", "PromoteContext.cs");
+        Ok(pcx.Contains("structure is outside the LOD matrix - the DD IDS judges no structure") && pcx.Contains("the DD IDS made from the LOD matrix has no class for this kind yet")
+           && pcx.Contains("NoDdClass = new HashSet<string>(StringComparer.Ordinal) { \"level\", \"grid\", \"room\", \"opening\", \"mass\" }"), "JudgeApplied says an applied column or beam is outside the LOD matrix; the NoDdClass kinds are unchanged");
         Ok(cmd.Contains("cat.CategoryType != CategoryType.Model || e.ViewSpecific") && cmd.Contains("fi?.SuperComponent != null") && cmd.Contains("\"OST_CurtainWallPanels\"") && cmd.Contains("\"OST_Lines\"")
            && cmd.Contains("if (type == null && shape != \"directshape\") continue;"), "the foreign collector leaves out view-specific elements, nested components, curtain parts, stair and railing parts, lines and typeless elements");
         Ok(cmd.Contains("if (kind == \"beam\") f.Level ??= LevelName(sfi.get_Parameter(BuiltInParameter.INSTANCE_REFERENCE_LEVEL_PARAM)?.AsElementId());") && cmd.Contains("ChangesetExecutor.StructureHold(sfi, kind)")

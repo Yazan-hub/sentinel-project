@@ -916,12 +916,13 @@ export async function reportResult(key, id, { applied, rejected, note, review_re
   const removed = updated.result.applied.flatMap((a) => {
     const e = cs.elements.find((x) => x.proposal_guid === a.proposal_guid);
     // review: Revit's new UniqueId, when it is one string and not the removed one's (the ledger never names the removed element as its own replacement)
-    const by = typeof a.revit_unique_id === "string" && a.revit_unique_id.length > 0 && a.revit_unique_id.length <= 256 && a.revit_unique_id !== e?.target?.unique_id ? a.revit_unique_id : null;
+    const gone = (e?.target?.unique_id ?? e?.replaces?.unique_id ?? "").toLowerCase(); // the element this entry removes (a rehost's target, a replacing create's original)
+    const by = typeof a.revit_unique_id === "string" && a.revit_unique_id.length > 0 && a.revit_unique_id.length <= 256 && a.revit_unique_id.toLowerCase() !== gone ? a.revit_unique_id : null;
     // MA-8-7 (amendment 3): a replacing create lists in `removed` only what Revit REPORTED it deleted (its removed_unique_id is the planned one);
     // a plan the add-in did not carry out is `not_removed`, in words - the row never repeats the plan as if it were done.
     if (e?.replaces) {
       const done = typeof a.removed_unique_id === "string" && a.removed_unique_id.toLowerCase() === e.replaces.unique_id.toLowerCase();
-      return done ? [{ proposal_guid: a.proposal_guid, unique_id: a.removed_unique_id, type_before: "DirectShape", replaced_by: by, tags: a.removed_tags ?? null }] : [];
+      return done ? [{ proposal_guid: a.proposal_guid, unique_id: a.removed_unique_id, type_before: e.replaces.kind === "generic" ? "Generic Model" : e.replaces.kind === "directshape" ? "DirectShape" : "DirectShape or Generic Model", replaced_by: by, tags: a.removed_tags ?? null }] : [];
     }
     return e?.op === "rehost" ? [{ proposal_guid: a.proposal_guid, unique_id: e.target?.unique_id ?? null, type_before: e.target?.type_before ?? null,
       replaced_by: by, tags: a.removed_tags ?? null }] : [];

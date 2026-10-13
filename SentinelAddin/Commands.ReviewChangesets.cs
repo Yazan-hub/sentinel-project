@@ -632,9 +632,9 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
 
                 // MA-5b-5 (R11): a rehost removes an element — its Apply is a signed-in member's, never the machine credential's (the bridge
                 // refuses that result too; asked here, before anything changes, so no model edit goes unreported)
-                if (role == "service" && fresh.SelectMany(f => f.Elements ?? new List<ChangesetElementDto>()).Any(e => e.Op == "rehost" && ticked.Contains(e.ProposalGuid)))
+                if (role == "service" && fresh.SelectMany(f => f.Elements ?? new List<ChangesetElementDto>()).Any(e => (e.Op == "rehost" || e.Replaces != null) && ticked.Contains(e.ProposalGuid))) // MA-8-7 review: a re-creation removes an element too
                 {
-                    window.Refused("A rehost removes an element — sign in (Standards ▸ Sign in) as a contributor to apply it.\n\nNothing was changed.");
+                    window.Refused("A rehost or a re-creation removes an element — sign in (Standards ▸ Sign in) as a contributor to apply it.\n\nNothing was changed.");
                     return;
                 }
 

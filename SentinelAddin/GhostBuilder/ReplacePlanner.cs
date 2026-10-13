@@ -18,11 +18,16 @@ namespace Sentinel.GhostBuilder
     public sealed class ShapeFact
     {
         public string UniqueId, Label, Category;
+        /// <summary>A Generic Model instance's family and type (the office's own catalogue families are never removed); null for a DirectShape.</summary>
+        public string Family, Type;
         /// <summary>"directshape" | "generic" (an OST_GenericModel family instance) | "inplace" (an in-place family).</summary>
         public string Kind;
         /// <summary>Sentinel's own mass (ApplicationId "Sentinel"): Shell a Mass shells it, Promote never removes it.</summary>
         public bool Sentinel, Pinned, InGroup, InOption;
         public double[] BoxMin, BoxMax;
+        /// <summary>The box in Revit's internal frame (what get_BoundingBox reads): the stale guard's `replaces.box`. BoxMin/BoxMax are in the Level.Elevation frame
+        /// (the levels' frame, which the storey, the wall's top and the executor read); null = the same.</summary>
+        public double[] RawMin, RawMax;
         /// <summary>The bottom face's outer loop (straight edges, [x, y, z] mm), or null with <see cref="PrismWhy"/>.</summary>
         public List<double[]> Loop;
         /// <summary>Why the shape is not one upright prism (several solids, a sloped face, a curved edge ...), or null.</summary>
@@ -49,7 +54,7 @@ namespace Sentinel.GhostBuilder
 
         public static List<ReplaceRow> Plan(IReadOnlyList<ShapeFact> shapes, IReadOnlyList<LevelFact> levels, IReadOnlyList<WallFact> walls,
             IReadOnlyDictionary<string, string> docBasicWallTypes, IReadOnlyDictionary<string, IReadOnlyDictionary<string, double?>> docTypes,
-            GuidelineMatcher m, bool signedIn)
+            GuidelineMatcher m, bool signedIn, IReadOnlyCollection<string> classes = null)
         {
             var rows = new List<ReplaceRow>();
             var stories = (levels ?? new List<LevelFact>()).Where(l => l != null && l.IsStory).OrderBy(l => l.ElevationMm).ToList();
@@ -58,7 +63,7 @@ namespace Sentinel.GhostBuilder
                 if (s == null || s.UniqueId == null) continue;
                 var row = new ReplaceRow { Fact = s, Storey = RidesOn(stories, s) };
                 rows.Add(row);
-                row.Held = Judge(s, stories, levels, walls, docBasicWallTypes, docTypes, m, signedIn, row);
+                row.Held = Judge(s, stories, levels, walls, docBasicWallTypes, docTypes, m, signedIn, row, classes);
             }
             return rows;
         }
@@ -74,7 +79,7 @@ namespace Sentinel.GhostBuilder
         // The reason a person decides, or null with row.Ghost set.
         private static string Judge(ShapeFact s, List<LevelFact> stories, IReadOnlyList<LevelFact> levels, IReadOnlyList<WallFact> walls,
             IReadOnlyDictionary<string, string> docBasicWallTypes, IReadOnlyDictionary<string, IReadOnlyDictionary<string, double?>> docTypes,
-            GuidelineMatcher m, bool signedIn, ReplaceRow row)
+            GuidelineMatcher m, bool signedIn, ReplaceRow row, IReadOnlyCollection<string> classes)
         {
             if (s.Sentinel) return "Sentinel's own mass (ApplicationId Sentinel) — Shell it (2c); Promote does not remove it";
             if (s.Kind == "inplace") return "an in-place family — a person re-creates it"; // amendment 14: deleting the last instance would delete its family
@@ -85,6 +90,9 @@ namespace Sentinel.GhostBuilder
             if (s.BoxMin == null || s.BoxMax == null || s.Loop == null || s.Loop.Count < 3) return "a DirectShape that is not one upright prism (no bottom loop was read) — a person decides";
             if (!signedIn) return "a replacing create removes an element: sign in (Sentinel ▸ Sign in) and run Promote again";
             if (!m.HasCatalog) return $"no type catalogue installed ({m.CatalogLabel}) — the exact DD type cannot be checked (D16)";
+            // review: an office catalogue family (a plinth, a bench) is the office's own, never a third party's shape to remove
+            if (s.Kind == "generic" && s.Family != null && m.CatalogHas("Generic Models", s.Family, s.Type))
+                return $"{s.Label} is the office's own type ({s.Family} : {s.Type}) — Sentinel does not remove it";
 
             double dx = s.BoxMax[0] - s.BoxMin[0], dy = s.BoxMax[1] - s.BoxMin[1], h = s.BoxMax[2] - s.BoxMin[2];
             string size = $"{Mm(dx)} x {Mm(dy)} x {Mm(h)} mm";
@@ -94,6 +102,12 @@ namespace Sentinel.GhostBuilder
             bool wallShape = rect && shortSide >= MinThickMm - TolMm && shortSide <= MaxThickMm + TolMm && longSide >= MinRatio * shortSide && h >= MinRatio * shortSide;
             bool floorShape = !wallShape && h <= MaxThickMm + TolMm && h <= Math.Min(dx, dy) / 2 + TolMm;
             if (!wallShape && !floorShape) return $"{what}: neither wall- nor floor-like (a column, a beam?) — a person decides";
+            // review: only a Walls DirectShape that is wall-like, a Floors one that is floor-like, or a Generic Model (a footing, a roof slab, a column is not either)
+            if (s.Category != "Generic Models" && s.Category != (wallShape ? "Walls" : "Floors"))
+                return $"{what}: a {s.Category} {kind} — Promote re-creates walls and floors only; a person decides";
+            // review: only the classes this Promote runs (no LOD matrix = walls only)
+            if (classes != null && !classes.Contains(wallShape ? "Walls" : "Floors"))
+                return $"{what}: this Promote does not run {(wallShape ? "Walls" : "Floors")} (no LOD matrix = walls only) — a person decides";
 
             if (wallShape)
             {
@@ -124,7 +138,7 @@ namespace Sentinel.GhostBuilder
                 row.Ghost = new PromoteGhost
                 {
                     Op = "create", Kind = "wall", UniqueId = s.UniqueId, Label = s.Label, TypeName = res.Type, LevelName = story.Name,
-                    ReplacesUid = s.UniqueId, ReplacesMin = s.BoxMin, ReplacesMax = s.BoxMax,
+                    ReplacesUid = s.UniqueId, ReplacesMin = s.RawMin ?? s.BoxMin, ReplacesMax = s.RawMax ?? s.BoxMax, ReplacesKind = s.Kind, ReplacesCategory = s.Category,
                     StartMm = new[] { a0[0], a0[1], s.BoxMin[2] }, EndMm = new[] { a1[0], a1[1], s.BoxMin[2] },
                     TopLevel = toNext ? next.Name : null, TopElevationMm = toNext ? (double?)null : s.BoxMax[2],
                     Reason = $"re-create {s.Label} ({s.Category} {kind}, {size}) as {res.Type} — the original is removed in the same Undo (D16)",
@@ -153,7 +167,7 @@ namespace Sentinel.GhostBuilder
                 row.Ghost = new PromoteGhost
                 {
                     Op = "create", Kind = "floor", UniqueId = s.UniqueId, Label = s.Label, TypeName = res.Type, LevelName = story.Name,
-                    ReplacesUid = s.UniqueId, ReplacesMin = s.BoxMin, ReplacesMax = s.BoxMax,
+                    ReplacesUid = s.UniqueId, ReplacesMin = s.RawMin ?? s.BoxMin, ReplacesMax = s.RawMax ?? s.BoxMax, ReplacesKind = s.Kind, ReplacesCategory = s.Category,
                     LoopMm = s.Loop.Select(p => new[] { p[0], p[1], s.BoxMax[2] }).ToList(),
                     Reason = $"re-create {s.Label} ({s.Category} {kind}, {size}) as {res.Type} — the original is removed in the same Undo (D16)",
                 };

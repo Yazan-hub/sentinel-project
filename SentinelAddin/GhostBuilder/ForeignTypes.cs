@@ -77,6 +77,9 @@ namespace Sentinel.GhostBuilder
 
         /// <summary>The elements of <paramref name="facts"/> in their bins. <paramref name="plans"/> (null or empty before Promote has planned) say which a
         /// ghost covers (by the element's UniqueId; a replacing create's is the DirectShape's) and why the rest are held.</summary>
+        /// <summary>Why a foreign element has no plan when Promote refused the model (plans null): nothing was planned, not "Sentinel does not retype".</summary>
+        public const string NotPlanned = "not planned — Promote refused the model (not made from the office template)";
+
         public static ForeignReport Classify(IReadOnlyList<ForeignFact> facts, IReadOnlyList<StoreyPlan> plans, GuidelineMatcher m)
         {
             var r = new ForeignReport();
@@ -96,18 +99,19 @@ namespace Sentinel.GhostBuilder
             {
                 if (f == null) continue;
                 string bin, why = null;
-                if (f.Shape != null)
+                // review: a Generic Model family instance is judged by its type first - an office catalogue row is settled (a DirectShape has no type)
+                if (f.Shape != null && !(f.Shape == "generic" && !IsForeign(m, f.Category, f.Family, f.Type, f.System)))
                 {
                     // A shape has no office type to be judged by: re-created (a ghost covers it) or a DirectShape/Generic Model row with its hold.
                     bin = ghosted.Contains(f.UniqueId) ? ForeignReport.Retype : ForeignReport.DirectShape;
-                    if (bin == ForeignReport.DirectShape) why = held.TryGetValue(f.UniqueId ?? "", out var h) ? h : f.Shape == "inplace" ? "an in-place family — a person re-creates it" : "Promote re-creates only a wall- or floor-like shape";
+                    if (bin == ForeignReport.DirectShape) why = held.TryGetValue(f.UniqueId ?? "", out var h) ? h : plans == null ? NotPlanned : f.Shape == "inplace" ? "an in-place family — a person re-creates it" : "Promote re-creates only a wall- or floor-like shape";
                 }
                 else if (!IsForeign(m, f.Category, f.Family, f.Type, f.System)) bin = ForeignReport.Settled;
                 else if (ghosted.Contains(f.UniqueId ?? "")) bin = ForeignReport.Retype;
                 else
                 {
                     bin = ForeignReport.Gap;
-                    why = held.TryGetValue(f.UniqueId ?? "", out var h) ? h : $"Sentinel does not retype {f.Category}";
+                    why = held.TryGetValue(f.UniqueId ?? "", out var h) ? h : plans == null ? NotPlanned : $"Sentinel does not retype {f.Category}";
                 }
                 if (why != null && why.Length > MaxWhy) why = why.Substring(0, MaxWhy - 1) + "…";
                 // the key: a type in a bin; a held reason differs element to element, so the first one stands for the group

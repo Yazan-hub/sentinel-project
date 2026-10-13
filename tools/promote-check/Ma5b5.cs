@@ -107,7 +107,7 @@ static partial class Check
            && pw.Contains("if (ChangesetExecutor.HeldBy(doc, fi) is string held) { f.RehostWhy = $\"no wall hosts it, and it {held} — not rehosted; a person decides\"; return; }")
            && pw.Contains("Held = ChangesetExecutor.HeldBy(doc, w),"),
            "one predicate for 'no wall hosts it' in Promote's read and at Apply (R2); the preflight holds what Apply refuses (R5) — (drill MA5b5, F-6) a pinned, grouped, borrowed placeholder or host wall too; Promote plans rehosts only signed in");
-        int svc = At(rv, "if (role == \"service\" && fresh.SelectMany(f => f.Elements ?? new List<ChangesetElementDto>()).Any(e => e.Op == \"rehost\" && ticked.Contains(e.ProposalGuid)))"),
+        int svc = At(rv, "if (role == \"service\" && fresh.SelectMany(f => f.Elements ?? new List<ChangesetElementDto>()).Any(e => (e.Op == \"rehost\" || e.Replaces != null) && ticked.Contains(e.ProposalGuid))) // MA-8-7 review: a re-creation removes an element too"),
             none = At(rv, "if (ticked.Count == 0)");
         Ok(svc > 0 && none > svc && !rv.Contains("foreach (var (g, why) in res.Kept)") && rv.Contains("said = KeptLine(one, res.Kept)"),
            "Review AI Proposals refuses a ticked rehost under the machine credential before anything runs (R11); a kept ghost's reason rides on the note, never a carried decline (R10)");

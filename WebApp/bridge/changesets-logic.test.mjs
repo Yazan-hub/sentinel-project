@@ -1567,6 +1567,11 @@ describe("MA-8-7 (D16): a wall or floor create that replaces a DirectShape", () 
     status400(() => file([make({ replaces: { unique_id: UID, box: { min: [0, 0, 0], max: [0, 5, 5] } } })]), /box\.min must be below box\.max/);
     status400(() => file([make({ replaces: "x" })]), /replaces must be \{unique_id, box\}/);
   });
+  it("review: replaces keeps the original's kind and category when sent, and 400s a bad one", () => {
+    expect(file([make({ replaces: { unique_id: UID, box: BOX, kind: "generic", category: " Floors " } })]).elements[0].replaces).toEqual({ unique_id: UID, box: BOX, kind: "generic", category: "Floors" });
+    status400(() => file([make({ replaces: { unique_id: UID, box: BOX, kind: "mass" } })]), /replaces\.kind must be/);
+    status400(() => file([make({ replaces: { unique_id: UID, box: BOX, category: 5 } })]), /replaces\.category must be a short text/);
+  });
   it("lists a stray key inside replaces and keeps nothing of it", () => {
     const v = file([make({ replaces: { unique_id: UID, box: BOX, why: "x" } })]);
     expect(v.ignored).toEqual([{ field: "elements[0].replaces.why", why: "ignored: not a field this bridge keeps" }]);

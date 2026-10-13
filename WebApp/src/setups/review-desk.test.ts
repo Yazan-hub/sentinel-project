@@ -172,8 +172,20 @@ describe("recently decided in Revit (MA-3b2b)", () => {
       place: { LevelName: "Level 1", TypeName: "BDS_EXT_ARC_CMU_300 mm" } } as Ghost;
     expect(ghostLine(rp)).toBe("WALL-DS · re-creates u-ds (DirectShape or Generic Model, 6000 x 300 x 3000 mm) as BDS_EXT_ARC_CMU_300 mm on Level 1; the original and any tags on it are removed in the same Undo (one Undo in Revit brings it back and removes the new element)");
     expect(ghostLine({ ...rp, replaces: undefined })).toBe("WALL-DS · BDS_EXT_ARC_CMU_300 mm · Level 1"); // a plain create is as before
-    const done = { ...cs, status: "applied", elements: [...cs.elements, rp], result: { ...cs.result!, applied: [{ proposal_guid: "g-p" }], rejected: [] } };
+    const done = { ...cs, status: "applied", elements: [...cs.elements, rp], result: { ...cs.result!, applied: [{ proposal_guid: "g-p", removed_unique_id: "U-DS" }], rejected: [] } };
     expect(decidedView(done, row(11)).head).toContain(" · 1 applied (1 re-created — the original removed), 0 not applied · ledger #11");
+    // review: the header repeats only what Revit reported; a replacing create applied without the matching removed_unique_id is said apart
+    const rp2 = { ...rp, proposal_guid: "g-q", replaces: { ...rp.replaces!, unique_id: "u-ds" } } as Ghost;
+    const mixed = { ...done, elements: [...cs.elements, rp2, { ...rp, replaces: { unique_id: "u-other", kind: "generic" as const } }], result: { ...done.result!, applied: [{ proposal_guid: "g-q", removed_unique_id: "U-DS" }, { proposal_guid: "g-p" }] } };
+    expect(decidedView(mixed, row(11)).head).toContain("2 applied (1 re-created — the original removed) (1 placed, the original not reported removed");
+    // the original's class and category are in the row when the bridge kept them
+    expect(ghostLine({ ...rp, replaces: { ...rp.replaces!, kind: "directshape", category: "Floors" } })).toContain("re-creates u-ds (Floors DirectShape, 6000 x 300 x 3000 mm)");
+    // a retype says why it is not pre-ticked
+    const rt = { kind: "column", op: "retype", proposal_guid: "g-r", validate: { identity: { Name: "C1" } }, target: { type_before: "A : B" }, place: { FamilyName: "F", TypeName: "T" } } as Ghost;
+    expect(ghostLine(rt)).toBe("C1 · A : B → F : T — not pre-ticked: structure is a person's");
+    expect(ghostLine({ ...rt, kind: "wall", foreign: true })).toBe("C1 · A : B → F : T — not pre-ticked: a type that is not the office's");
+    expect(ghostLine({ ...rt, kind: "wall", foreign: null, pretick: false })).toBe("C1 · A : B → F : T — not pre-ticked: not judged, no type catalogue");
+    expect(ghostLine({ ...rt, kind: "wall", foreign: false })).toBe("C1 · A : B → F : T");
     const kept = { ...done, status: "declined", result: { ...done.result!, applied: [], rejected: ["g-p"], note: "kept as they stand: 1 not re-created", reasons: undefined, declined_on_web: undefined } };
     expect(decidedView(kept, row(12)).declined[0].why).toEqual(["Revit kept it as it stands — its reason is in the note above"]);
   });

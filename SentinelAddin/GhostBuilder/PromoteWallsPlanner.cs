@@ -78,7 +78,7 @@ namespace Sentinel.GhostBuilder
         /// <summary>MA-8-7 (D16), a "create" that replaces: the DirectShape or Generic Model it re-creates as an office wall or floor (its
         /// UniqueId and its box in model mm when it was read: the executor's stale guard) and its place — a wall's location line (start,
         /// end; LevelName with TopLevel, or TopElevationMm), a floor's loop (LevelName). TypeName is the office type. Null ReplacesUid = no replace.</summary>
-        public string ReplacesUid;
+        public string ReplacesUid, ReplacesKind, ReplacesCategory; // kind: "directshape" | "generic"; the original's category (review: the reviewer reads what is removed)
         public double[] ReplacesMin, ReplacesMax, StartMm, EndMm;
         public List<double[]> LoopMm;
         public double? TopElevationMm;
@@ -443,7 +443,7 @@ namespace Sentinel.GhostBuilder
         {
             op = "create",
             kind = g.Kind,
-            replaces = new { unique_id = g.ReplacesUid, box = new { min = g.ReplacesMin, max = g.ReplacesMax } },
+            replaces = new { unique_id = g.ReplacesUid, box = new { min = g.ReplacesMin, max = g.ReplacesMax }, kind = g.ReplacesKind, category = g.ReplacesCategory },
             place = g.Kind == "floor"
                 ? (object)new { g.LevelName, LocationLoop = g.LoopMm, g.TypeName }
                 : new { g.LevelName, LocationCurve = new { start = g.StartMm, end = g.EndMm }, g.TopLevel, TopElevation = g.TopElevationMm, g.TypeName },

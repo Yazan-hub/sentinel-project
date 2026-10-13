@@ -221,7 +221,7 @@ public sealed class ChangesetReviewWindow : Window
                 var type = el.Place?.TypeName;
                 label.Text = el.Op switch
                 {
-                    "retype" => $"retype {el.Kind}: {name}  ·  {el.Target?.TypeBefore ?? "?"} → {(el.Place?.FamilyName != null ? el.Place.FamilyName + " : " : "")}{type}",
+                    "retype" => $"retype {el.Kind}: {name}  ·  {el.Target?.TypeBefore ?? "?"} → {(el.Place?.FamilyName != null ? el.Place.FamilyName + " : " : "")}{type}" + (ChangesetTrust.UntickedWords(el) is string unticked ? "  ·  " + unticked : ""),
                     "attach" => $"attach: {name}  ·  {el.Place?.BaseLevel} → top {el.Place?.TopLevel}",
                     // MA-5b-4: a wall moved to where the revised drawing draws it — kept as it stands if a person edited it since
                     "reshape" => $"reshape wall: {name}  ·  {ChangesetTrust.ReshapeWords(el)}",

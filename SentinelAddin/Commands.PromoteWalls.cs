@@ -208,7 +208,7 @@ public sealed class PromoteWallsCommand : IExternalCommand
         // MA-8-7: the foreign classifier again, now with the plans (a ghost covers an element; a hold says why not) - one foreign_types row per run, the read-only one too.
         var foreign = foreignFacts == null ? null : ForeignTypes.Classify(foreignFacts, plans, standards.Guideline);
         if (foreign != null) GovernedNotify.Report("Foreign types", CommandReports.ForeignTypes(foreign, standards.CatalogSource.Label, actor), key);
-        var foreignText = foreign != null ? "\n\n" + foreign.Line + (foreign.NotChecked == null && foreign.Foreign > 0 ? " (sent to the ledger)" : "")
+        var foreignText = foreign != null ? "\n\n" + foreign.Line + (foreign.NotChecked == null && foreign.Foreign > 0 ? " (sent to the ledger; the pane's Doctor log says whether it was recorded)" : "")
             : foreignErr != null ? "\n\nForeign types: not read — " + foreignErr : "";
         var bodies = PromoteWallsPlanner.Bodies(plans, actor, title: pc.Classes.Count == 1 && pc.Classes[0] == "Walls" ? "Promote walls (DD)" : "Promote (DD)");
 
@@ -427,7 +427,7 @@ public sealed class PromoteWallsCommand : IExternalCommand
         if (r.NotChecked != null || r.Foreign == 0) return "";
         var top = string.Join(", ", r.TopCategories().Take(4).Select(c => $"{c.Category} {c.Count}"));
         return $"\n\nThis model holds {r.Foreign} element(s) on {r.Types} type(s) that are not the office's — {top}. Load the office's types (Manage ▸ Transfer Project Standards " +
-               "from the office template; families by Load Family), then run Promote again. The foreign types were sent to the ledger.";
+               "from the office template; families by Load Family), then run Promote again. The foreign types were sent to the ledger (the pane's Doctor log says whether it was recorded).";
     }
 
     // Category parts (curtain panels and mullions, stair runs, landings and supports, railing parts), lines and the spatial and system elements are no type the
@@ -451,6 +451,7 @@ public sealed class PromoteWallsCommand : IExternalCommand
             if (cat == null || cat.CategoryType != CategoryType.Model || e.ViewSpecific) continue;
             long cid = cat.Id.IdValue();
             if (ForeignSkip.Contains(cid)) continue;
+            if (MassOnly.Is(e)) continue; // review: Sentinel's own masses are no third party's type
             if (e is Level || e is Grid || e is SpatialElement || e is MEPSystem || e is RevitLinkInstance || e is ImportInstance) continue;
             var fi = e as FamilyInstance;
             if (fi?.SuperComponent != null) continue;
@@ -474,6 +475,9 @@ public sealed class PromoteWallsCommand : IExternalCommand
     internal static List<ShapeFact> ReadShapes(Document doc)
     {
         var list = new List<ShapeFact>();
+        // review: the box is read in Revit's internal frame; the levels (storey, a wall's top) are in the Level.Elevation frame - the nearest level's
+        // (Elevation - ProjectElevation) takes the box z there, as ReviewChangesets does. RawMin/RawMax keep the internal box for the stale guard.
+        var lvls = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().ToList();
         foreach (var e in new FilteredElementCollector(doc).WhereElementIsNotElementType())
         {
             var fi = e as FamilyInstance;
@@ -487,9 +491,21 @@ public sealed class PromoteWallsCommand : IExternalCommand
                 Kind = e is DirectShape ? "directshape" : inPlace ? "inplace" : "generic", Sentinel = MassOnly.Is(e),
                 Pinned = e.Pinned, InGroup = e.GroupId != ElementId.InvalidElementId, InOption = e.DesignOption != null,
             };
+            if (s.Kind == "generic") { s.Family = fi?.Symbol?.FamilyName; s.Type = fi?.Symbol?.Name; }
             list.Add(s);
             if (s.Kind == "inplace") continue;
-            try { ReadPrism(e, s); }
+            try
+            {
+                ReadPrism(e, s);
+                if (s.BoxMin != null && lvls.Count > 0)
+                {
+                    s.RawMin = (double[])s.BoxMin.Clone(); s.RawMax = (double[])s.BoxMax.Clone();
+                    double mid = (s.RawMin[2] + s.RawMax[2]) / 2 / FtToMm;
+                    var near = lvls.OrderBy(l => Math.Abs(l.ProjectElevation - mid)).First();
+                    double shift = (near.Elevation - near.ProjectElevation) * FtToMm;
+                    s.BoxMin[2] += shift; s.BoxMax[2] += shift;
+                }
+            }
             catch (Exception ex) { s.PrismWhy = "its geometry could not be read: " + ex.Message; }
         }
         return list;
@@ -708,7 +724,7 @@ public sealed class PromoteWallsCommand : IExternalCommand
         }
         if (kind is "floor" or "roof" or "ceiling")
         {
-            if (e is not HostObject || type is not HostObjAttributes h) f.NotEditable ??= "an in-place family";
+            if (e is not HostObject || type is not HostObjAttributes h) f.NotEditable ??= "an in-place family - a person re-creates it";
             else f.ThicknessMm = h.GetCompoundStructure() is CompoundStructure cs ? cs.GetWidth() * FtToMm : (double?)null;
             if (kind == "floor")
             {

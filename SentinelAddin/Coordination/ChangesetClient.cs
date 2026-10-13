@@ -185,6 +185,9 @@ public sealed class ReplacesDto
 {
     [JsonPropertyName("unique_id")] public string UniqueId { get; set; }
     [JsonPropertyName("box")] public BoxDto Box { get; set; }
+    /// <summary>"directshape" | "generic", and the original's Revit category - both optional (an older body sends neither).</summary>
+    [JsonPropertyName("kind")] public string Kind { get; set; }
+    [JsonPropertyName("category")] public string Category { get; set; }
 }
 
 /// <summary>MA-3a: one web desk decision on a ghost (changesets-logic.mjs applyDecisions / reopenDecline).</summary>
@@ -281,7 +284,8 @@ public static class ChangesetTrust
         var b = r.Box;
         var size = b?.Min != null && b.Max != null && b.Min.Length == 3 && b.Max.Length == 3
             ? $", {F(b.Max[0] - b.Min[0])} x {F(b.Max[1] - b.Min[1])} x {F(b.Max[2] - b.Min[2])} mm" : "";
-        return $"re-creates {r.UniqueId} (DirectShape or Generic Model{size}) — the original and any tags on it are removed in the same Undo (one Undo brings it back and removes the new {el.Kind})";
+        var cls = r.Kind == "generic" ? "Generic Model" : r.Kind == "directshape" ? "DirectShape" : "DirectShape or Generic Model";
+        return $"re-creates {r.UniqueId} ({(string.IsNullOrWhiteSpace(r.Category) ? "" : r.Category + " ")}{cls}{size}) — the original and any tags on it are removed in the same Undo (one Undo brings it back and removes the new {el.Kind})";
     }
 
     public static string ReshapeWords(ChangesetElementDto el)
@@ -321,6 +325,12 @@ public static class ChangesetTrust
         if (el.Foreign == true || (el.Op == "retype" && (el.Kind == "column" || el.Kind == "beam"))) return false;
         return el.Pretick ?? (cs.Source == "promote" && (el.Op == "attach" || (el.Op == "retype" && el.Target?.TypeBefore != null)));
     }
+
+    /// <summary>MA-8-7 review: why a retype is not pre-ticked, in a few words (a foreign type, structure, or the bridge could not judge it); null otherwise.</summary>
+    public static string UntickedWords(ChangesetElementDto el) => el.Op != "retype" ? null
+        : el.Foreign == true ? "not pre-ticked: a type that is not the office's"
+        : el.Kind == "column" || el.Kind == "beam" ? "not pre-ticked: structure is a person's"
+        : el.Foreign == null && el.Pretick == false ? "not pre-ticked: not judged, no type catalogue" : null;
 
     /// <summary>The element's accuracy in words ("not measured"); null when the bridge sent none.</summary>
     public static string Accuracy(ChangesetElementDto el) => el.Accuracy?.Status?.Replace('_', ' ');

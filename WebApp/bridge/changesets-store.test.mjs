@@ -208,13 +208,23 @@ describe("result + withdraw lifecycle", () => {
       const out = await reportResult("demo", cs.id, { applied: [{ proposal_guid: g, revit_element_id: 9001, revit_unique_id: "new-uid", removed_tags: 1, removed_unique_id: reported }], rejected: [] }, "lead@office.example", deps);
       const row = deps.audit.mock.calls.find((c) => c[3] === "changeset_applied")[6];
       if (reported === REPLACED) {
-        expect(row.removed).toEqual([{ proposal_guid: g, unique_id: REPLACED, type_before: "DirectShape", replaced_by: "new-uid", tags: 1 }]);
+        expect(row.removed).toEqual([{ proposal_guid: g, unique_id: REPLACED, type_before: "DirectShape or Generic Model", replaced_by: "new-uid", tags: 1 }]);
         expect(row).not.toHaveProperty("not_removed");
         expect(out.result.applied[0]).toMatchObject({ removed_tags: 1, removed_unique_id: REPLACED });
       } else {
         expect(row).not.toHaveProperty("removed");
         expect(row.not_removed).toEqual([{ proposal_guid: g, unique_id: REPLACED, why: expect.stringMatching(/did not report the original deleted/) }]);
       }
+    }
+  });
+  it("MA-8-7 review: the removed row names the original's class (replaces.kind); none sent says both; a report naming the removed element as its replacement is not kept", async () => {
+    for (const [kind, want] of [["directshape", "DirectShape"], ["generic", "Generic Model"], [undefined, "DirectShape or Generic Model"]]) {
+      const deps = baseDeps({ myRole: async () => "contributor" });
+      const cs = await proposeChangeset("demo", { ...REPLACES, elements: [{ ...REPLACES.elements[0], replaces: { ...REPLACES.elements[0].replaces, ...(kind ? { kind, category: "Floors" } : {}) } }] }, "lead@office.example", deps);
+      const g = cs.elements[0].proposal_guid;
+      await reportResult("demo", cs.id, { applied: [{ proposal_guid: g, revit_element_id: 9001, revit_unique_id: REPLACED.toUpperCase(), removed_unique_id: REPLACED }], rejected: [] }, "lead@office.example", deps);
+      const r = deps.audit.mock.calls.find((c) => c[3] === "changeset_applied")[6].removed[0];
+      expect(r).toMatchObject({ type_before: want, replaced_by: null });
     }
   });
   it("MA-8-7: the machine credential reports no replacing create applied - a 403, nothing recorded", async () => {

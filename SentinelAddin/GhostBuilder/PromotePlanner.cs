@@ -316,7 +316,7 @@ namespace Sentinel.GhostBuilder
 
             // MA-8-7 (D16): a DirectShape that is wall- or floor-like re-created as an office type, the rest held with their reason. After the
             // other classes; never counted in the LOD state (a third-party model's shapes are not a matrix class).
-            foreach (var r in ReplacePlanner.Plan(shapes, levels, walls, docBasicWallTypes, docTypes, m, signedIn))
+            foreach (var r in ReplacePlanner.Plan(shapes, levels, walls, docBasicWallTypes, docTypes, m, signedIn, classes))
             {
                 var p = plans.FirstOrDefault(x => x.Storey == r.Storey);
                 if (p == null) plans.Add(p = new StoreyPlan { Storey = r.Storey });
@@ -469,7 +469,7 @@ namespace Sentinel.GhostBuilder
                            (have.Count > 1 ? "; which one is office policy" : ", but no DD rule names it (office policy)");
                 if (faults?.Count > 0)
                     return $"the catalogue's {string.Join(", ", faults)} (named at {size}) read another Width x Height in the template — a template fault (WN-3); a person decides";
-                gap = new TypeGap { Category = cat, Size = size, Key = what };
+                gap = new TypeGap { Category = cat, Size = size, Want = size == null ? e.TypeName : null, Key = what };
                 return m.Gap($"{e.Label} ({e.Family} : {e.TypeName})", $"no {cat} type named at {size} in the catalogue");
             }
             if (string.IsNullOrWhiteSpace(res.Type)) return "the DD rule names no type — a person decides";
@@ -580,12 +580,14 @@ namespace Sentinel.GhostBuilder
             }
             if (target == null)
             {
-                var named = m.CatalogOfName(cat, e.TypeName);
+                // MA-8-7 review: the name is for steel shapes (no rectangle read). A measured rectangle that no row carries is a gap - a generic name
+                // ("C1", "Type 1") must not retype a 300 x 300 into an office row of another size.
+                var named = size != null ? new List<string>() : m.CatalogOfName(cat, e.TypeName);
                 if (named.Count > 1) return $"the catalogue holds \"{e.TypeName}\" under {string.Join(", ", named.Select(x => x.Substring(0, x.IndexOf(" : ", StringComparison.Ordinal))))} — which family is office policy";
                 if (named.Count == 1) { target = named[0]; how = "by its type name"; }
                 else
                 {
-                    gap = new TypeGap { Category = cat, Size = size, Key = $"{word} {from}", Nearest = new List<string>() };
+                    gap = new TypeGap { Category = cat, Size = size, Want = size == null ? e.TypeName : null, Key = $"{word} {from}", Nearest = new List<string>() };
                     return m.Gap(label, size != null ? $"no {cat} type named at {size} in the catalogue" : $"no {cat} type of this name in the catalogue — {e.SectionWhy ?? "no section was read"}");
                 }
             }
