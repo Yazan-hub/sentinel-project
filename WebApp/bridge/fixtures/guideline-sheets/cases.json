@@ -15,5 +15,8 @@
   { "name": "a number token the planner does not fill", "sheets": { "titleBlock": "F : T", "number": "A-{level}-{count}", "name": "x" }, "error": "sheets.number holds {count}, which is not a sheet token ({level}, {use}, {prefix}, {n})" },
   { "name": "a number without a level", "sheets": { "titleBlock": "F : T", "number": "A-{n}", "name": "x" }, "error": "sheets.number must hold {level}" },
   { "name": "a name with a stray token", "sheets": { "titleBlock": "F : T", "number": "{level}", "name": "{use} {floor}" }, "error": "sheets.name holds {floor}, which is not a sheet token ({level}, {use}, {prefix}, {n})" },
-  { "name": "a name with no text", "sheets": { "titleBlock": "F : T", "number": "{level}", "name": "" }, "error": "sheets.name must be a non-empty string" }
+  { "name": "a name with no text", "sheets": { "titleBlock": "F : T", "number": "{level}", "name": "" }, "error": "sheets.name must be a non-empty string" },
+  {"name":"a number too long","sheets":{"titleBlock":"F : T","number":"{level}NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN","name":"x"},"error":"sheets.number must be at most 128 characters"},
+  {"name":"a name too long","sheets":{"titleBlock":"F : T","number":"{level}","name":"NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN"},"error":"sheets.name must be at most 128 characters"},
+  {"name":"a name on two lines","sheets":{"titleBlock":"F : T","number":"{level}","name":"a\nb"},"error":"sheets.name must be one line"}
 ]

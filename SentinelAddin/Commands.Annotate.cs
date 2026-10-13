@@ -178,24 +178,23 @@ public sealed class AnnotateViewsCommand : IExternalCommand
             string tbFamily = tbText.Substring(0, tbAt).Trim(), tbType = tbText.Substring(tbAt + 3).Trim();
             titleBlockId = TypesOf(doc, BuiltInCategory.OST_TitleBlocks).FirstOrDefault(e => e is FamilySymbol && e.FamilyName == tbFamily && e.Name == tbType)?.Id.IdValue() ?? 0;
             var sheetNumbers = new HashSet<string>(new FilteredElementCollector(doc).OfClass(typeof(ViewSheet)).Cast<ViewSheet>().Select(s => s.SheetNumber));
-            string? tbWarning = null;
-            bool tbChecked = false;
+            // Review fix: the catalogue is read here, before the preview, never in a UI handler (src != null already loaded it once above).
+            var cat = Task.Run(() => GhostStandards.Load(key, layers: false, guideline: false, catalog: true)).GetAwaiter().GetResult().Guideline;
+            string? tbWarning = !cat.HasCatalog ? "the type catalogue is not installed, so the title block is not checked against it"
+                : cat.CatalogHas("Title Blocks", tbFamily, tbType) ? null : "it is not a Title Blocks row of the office type catalogue";
             sheetsFor = level =>
             {
                 var node = sheetNodes[level] = new SheetNode { Sheets = SheetPlanner.Plan(guideline.Views, guideline.ViewNaming, guideline.Sheets, level, ruleset, taken, sheetNumbers) };
-                if (!tbChecked)
-                {
-                    tbChecked = true; // the catalogue is read once, the first time a level is chosen, off the API thread
-                    var cat = Task.Run(() => GhostStandards.Load(key, layers: false, guideline: false, catalog: true)).GetAwaiter().GetResult().Guideline;
-                    tbWarning = !cat.HasCatalog ? "the type catalogue is not installed, so the title block is not checked against it"
-                        : cat.CatalogHas("Title Blocks", tbFamily, tbType) ? null : "WARNING: it is not a Title Blocks row of the office type catalogue";
-                }
-                node.Lines.Add($"Title block {tbText}" + (titleBlockId == 0 ? " is not loaded in this model" : "") + (tbWarning != null ? " — " + tbWarning : "") + ".");
+                node.Lines.Add($"Title block {tbText}" + (titleBlockId == 0 ? " is not loaded in this model." : " is loaded."));
+                if (tbWarning != null && titleBlockId != 0) node.Lines.Add("WARNING: " + tbWarning + ".");
                 var perLevel = SheetPlanner.NotPerLevel(guideline.Views);
                 if (perLevel != null) node.Lines.Add(perLevel);
                 if (titleBlockId == 0)
                     foreach (var s in node.Sheets.Where(s => s.Refusal == null))
                         s.Refusal = $"title block {tbText} not loaded — load it (Sentinel loads no families)";
+                // Review fix (F6 for sheets): a row whose view family has no default view type is refused in the preview, as the WIP rows are.
+                foreach (var s in node.Sheets.Where(s => s.Refusal == null && viewType[s.ViewType] == ElementId.InvalidElementId))
+                    s.Refusal = $"this model has no default {(s.ViewType == "CeilingPlan" ? "ceiling plan" : "floor plan")} view type";
                 node.Tags = SheetPlanner.Tags(node.Sheets, guideline.Graphics);
                 var typesByTag = new Dictionary<string, List<ElementType>>();
                 foreach (var t in node.Tags.Where(t => t.Refusal == null))
@@ -315,7 +314,7 @@ public sealed class AnnotateViewsCommand : IExternalCommand
                         view.Name = sp.ViewName;
                         bool tplUsed = templates.TryGetValue(sp.Template, out var tpl) && view.IsValidViewTemplate(tpl.Id);
                         if (tplUsed) view.ViewTemplateId = tpl!.Id;
-                        if (!string.IsNullOrWhiteSpace(sp.BrowserStatus) && !ViewGenerator.SetFirstMatch(view, routeParams, sp.BrowserStatus)) unrouted++;
+                        bool sheetRouted = string.IsNullOrWhiteSpace(sp.BrowserStatus) || ViewGenerator.SetFirstMatch(view, routeParams, sp.BrowserStatus);
                         var tb = doc.GetElement(titleBlockId.ToElementId()) as FamilySymbol ?? throw new InvalidOperationException("the title block is no longer in the model");
                         if (!tb.IsActive) tb.Activate();
                         var sheet = ViewSheet.Create(doc, tb.Id);
@@ -327,6 +326,7 @@ public sealed class AnnotateViewsCommand : IExternalCommand
                         if (!Viewport.CanAddViewToSheet(doc, sheet.Id, view.Id)) throw new InvalidOperationException("Revit says this view cannot go on this sheet");
                         Viewport.Create(doc, sheet.Id, view.Id, centre);
                         if (st.Commit() != TransactionStatus.Committed) throw new InvalidOperationException("Revit did not commit this sheet");
+                        if (!sheetRouted) unrouted++;
                         sheetViews[sp.ViewName] = view.Id;
                         sheetsMade.Add((sp.Number, sp.Name, sp.ViewName));
                         if (!tplUsed) warnings.Add($"View template '{sp.Template}' not in this model — '{sp.ViewName}' created without it.");
@@ -360,7 +360,17 @@ public sealed class AnnotateViewsCommand : IExternalCommand
                         if (!Enum.TryParse(tg.ElementBic, out BuiltInCategory elementBic)) throw new InvalidOperationException("no such category " + tg.ElementBic);
                         var symId = tg.SymbolId.ToElementId();
                         var view = (View)doc.GetElement(vid);
-                        var elements = new FilteredElementCollector(doc, vid).OfCategory(elementBic).WhereElementIsNotElementType().ToList();
+                        // Review fix: rooms are the placed rooms of the level, model-wide (a sheet template may hide Rooms in the view); the rest are what the view shows.
+                        var elements = (tg.How == "room"
+                            ? new FilteredElementCollector(doc).OfCategory(elementBic).WhereElementIsNotElementType()
+                                .Where(r => r is Autodesk.Revit.DB.Architecture.Room rm && rm.Area > 0 && rm.LevelId == view.GenLevel?.Id)
+                            : new FilteredElementCollector(doc, vid).OfCategory(elementBic).WhereElementIsNotElementType()).ToList();
+                        if (elements.Count == 0)
+                        {
+                            why = tg.How == "room" ? $"no placed room (Area > 0) on {pick.SheetLevel} in the model"
+                                : $"the sheet view shows no {tg.Category} (its template or view range hides them)";
+                            tagGaps.Add((tg.Category, why));
+                        }
                         foreach (var e in elements)
                         {
                             try
@@ -510,7 +520,7 @@ public sealed class AnnotateViewsCommand : IExternalCommand
         {
             sb.AppendLine($"Sheets on {pick.SheetLevel}: {sheetsNow.Count} made with {sheetsNow.Sum(s => s.Viewports)} viewport(s)" + (sheetsNow.Count > 0 ? " — " + string.Join(", ", sheetsNow.Select(s => s.Number)) : "") + ".");
             foreach (var g in tagsNow.GroupBy(t => t.Category))
-                sb.AppendLine($"Tags, {g.Key} ({g.First().Tag}): {g.Sum(t => t.Placed)} in the model, {g.Sum(t => t.Skipped)} refused by Revit" + (g.Any(t => t.Why != null) ? " — " + g.First(t => t.Why != null).Why : "") + ".");
+                sb.AppendLine($"Tags, {g.Key} ({g.First().Tag}): {g.Sum(t => t.Placed)} in the model, {g.Sum(t => t.Skipped)} skipped (Sentinel's checks or Revit refused)" + (g.Any(t => t.Why != null) ? " — " + g.First(t => t.Why != null).Why : "") + ".");
             if (mh != null) sb.AppendLine(mh.Line() + ".");
         }
         if (skippedExisting + refused > 0) sb.AppendLine($"Not created, as the preview said: {skippedExisting} already in the model, {refused} refused with a reason.");

@@ -378,6 +378,11 @@ Check("F3: Datum's result names Annotate as the next step", Src("Commands.Datum.
     Check("MA-8-12: one level per run, none by default, chosen in the preview; the title block and every tag type are looked up in the model (Sentinel loads no families) and a miss refuses the row in words",
         win.Contains("combo.SelectedIndex = 0;") && win.Contains("(none this run)") && win.Contains("Sheets and tags for:") && win.Contains("a tag row waits for its sheet row to be ticked")
         && ann.Contains("Sentinel loads no families") && ann.Contains("not which of its {ofFamily.Count} types") && ann.Contains("is not a Title Blocks row of the office type catalogue"));
+    Check("MA-8-12 review fixes: rooms are read model-wide by level, a zero says why, skips are not called Revit refusals, the unrouted count waits for the commit, sheet rows get the F6 view-type check, the catalogue is read before the preview",
+        ann.Contains("rm.Area > 0 && rm.LevelId == view.GenLevel?.Id") && ann.Contains("the sheet view shows no {tg.Category} (its template or view range hides them)")
+        && ann.Contains("no placed room (Area > 0) on {pick.SheetLevel} in the model") && ann.Contains("skipped (Sentinel's checks or Revit refused)") && !ann.Contains("refused by Revit\"")
+        && ann.IndexOf("if (!sheetRouted) unrouted++;") > ann.IndexOf("Revit did not commit this sheet") && ann.Contains("viewType[s.ViewType] == ElementId.InvalidElementId")
+        && ann.IndexOf("var cat = Task.Run(") > 0 && ann.IndexOf("sheetsFor = level =>") > ann.LastIndexOf("var cat = Task.Run(") && !ann.Contains("tbChecked"));
     Check("MA-8-12: the guideline without a sheets block says so in the preview's words, and plans no sheet", ann.Contains("if (guideline.Sheets == null) words.Add(SheetPlanner.NoSheetsBlock);") && SheetPlanner.NoSheetsBlock == "the guideline has no sheets block — no sheets planned");
 }
 
