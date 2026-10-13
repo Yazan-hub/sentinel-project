@@ -31,8 +31,28 @@ static partial class Check
         bool same = plan.Hold == null && JsonNode.DeepEquals(got, JsonNode.Parse(root.GetProperty("good").GetRawText()));
         Ok(same, "the planner's body for the fixture's scan equals the fixture the bridge validates (fixtures/changeset-ops/terrain-cases.json: 6 ground points, source promote, from_scan)");
         if (!same) Console.WriteLine("        got: " + (plan.Hold ?? got.ToJsonString(new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping })));
-        Ok(plan.Points == 6 && plan.Line == "6 ground points on L00 outside the walls, lowest per 500 mm cell, -5000 to 1500 mm, Site Ground 300 (guideline@2 default), from job-0003",
-           "the plan's account: 6 ground points on the level, outside the walls, the cell and the height band read, the rule's type and where it came from, the job");
+        Ok(plan.Points == 6 && plan.Line == "6 ground points on L00 outside the walls, lowest per 500 mm cell, -5000 to 1500 mm, Site Ground 300 (guideline@2 default), from job-0003; " + TerrainPlanner.Shape,
+           "the plan's account: 6 ground points on the level, outside the walls, the cell and the height band read, the rule's type and where it came from, the job, the shape Revit builds");
+        // review round 2 (D-B5-9, said): the hole is the walls' box plus 1 m and the rim points are Sentinel's - in the reason, the line, the row and the button's tooltip
+        string goodReason = JsonSerializer.SerializeToNode(plan.Body)["elements"][0]["reason"].GetValue<string>();
+        Ok(TerrainPlanner.Shape == "the hole is the walls' box plus 1 m (a notch or courtyard inside it gets no ground); Sentinel adds points along the outer edge and the hole's edge, each at the nearest ground point's height"
+           && goodReason.EndsWith("; " + TerrainPlanner.Shape + " — check it against the site survey") && TerrainPlanner.RowWords(6, true).Contains("; " + TerrainPlanner.Shape + " — check it against the site survey"),
+           "review round 2 (round 3: one plain sentence): the reason, the plan's line and the review row say the hole is the walls' box plus 1 m (a notch or courtyard gets no ground) and that Sentinel adds points along both loops at the nearest ground height");
+        // review round 3: the drift guard on "plus 1 m" and on the desk's copy - survey-plan's pad is 1000 mm, and review-desk.ts holds Shape verbatim
+        string surveySrc = File.ReadAllText(Repo("WebApp", "bridge", "survey-plan.mjs")), desk = File.ReadAllText(Repo("WebApp", "src", "setups", "review-desk.ts"));
+        Ok(surveySrc.Contains("GROUND_MAX = 2000, GROUND_PAD_MM = 1000;") && TerrainPlanner.Shape.Contains("the walls' box plus 1 m ")
+           && desk.Contains("export const TERRAIN_SHAPE = \"" + TerrainPlanner.Shape + "\";") && goodReason.Length <= 500,
+           "review round 3: \"plus 1 m\" is survey-plan.mjs's GROUND_PAD_MM (1000), the web desk's TERRAIN_SHAPE is TerrainPlanner.Shape verbatim, and the fixture's reason is within the bridge's 500 characters");
+        // review round 2: the row claims only what the bridge checks (as the desk), never that the add-in read the points off the scan
+        Ok(TerrainPlanner.RowWords(6, true).StartsWith("Toposolid from 6 ground points filed by a signed-in member from the survey changeset (the bridge checked its level, footprint and height band, not the points; not re-measured); ")
+           && !TerrainPlanner.RowWords(6, true).Contains("read off the scan"), "review round 2: the review row says a signed-in member filed the points and the bridge checked their level, footprint and band - not the points");
+        // review round 2: the bridge's 500 m span is held here, in words, before the slow ground read is filed and refused
+        // review round 3: measured over the points and the footprint (x -1000 to 11000), as the bridge - so points over 0 to 600 m span 601 m, and 0 to 499 m with the footprint 500 m
+        var wideSpan = new[] { new double[] { 0, 0, -300 }, new double[] { 600000, 0, -300 }, new double[] { 0, 1000, -300 } };
+        var farCluster = new[] { new double[] { 300000000, 0, -300 }, new double[] { 300005000, 0, -300 }, new double[] { 300000000, 5000, -300 } };
+        Ok(Plan(pts: wideSpan).Hold == "the ground spans 601 m in plan — a terrain is at most 500 m across; a person decides" && Plan(pts: new[] { wideSpan[0], new double[] { 499000, 0, -300 }, wideSpan[2] }).Hold == null
+           && Plan(pts: farCluster).Hold == "the ground spans 300006 m in plan — a terrain is at most 500 m across; a person decides",
+           "review round 2: ground wider than 500 m in plan holds the terrain in words (the bridge's MAX_TERRAIN_SPAN_MM); 500 m is filed - review round 3: over the points and the footprint (a 5 m cluster 300 km off holds)");
         // review: the limits of the read are said - a widened cell (and what the 500 mm cell kept) and the band the ground outside of which is not read
         var wide = Plan(cellMm: 2000, of: 7000);
         var wideReason = JsonSerializer.SerializeToNode(wide.Body)["elements"][0]["reason"].GetValue<string>();
@@ -48,7 +68,42 @@ static partial class Check
         Ok(Plan(level: " ").Hold == "Survey job-0003 · GR-FFL's lowest walls name no level — the Toposolid is created on a level; a person decides", "walls that name no level hold it");
         Ok(Plan(fp: foot.Take(2).ToArray()).Hold == "the scan's storey has no footprint (no wall on L00) — a person decides", "no footprint holds it");
         Ok(Plan(pts: Enumerable.Range(0, 2001).Select(i => new[] { (double)i * 10, 0, -300 }).ToArray()).Hold == "2001 ground points — a terrain takes at most 2000; a person decides", "more than 2000 points hold it (the bridge's cap)");
-        Ok(TerrainPlanner.MinPoints == 3 && TerrainPlanner.MaxPoints == 2000, "the planner's bounds are the bridge's (3 to 2000)");
+        // review round 1: the bridge's constants read from its source (a change there turns this red), beside the planner's
+        string logic = File.ReadAllText(Repo("WebApp", "bridge", "changesets-logic.mjs")), survey = File.ReadAllText(Repo("WebApp", "bridge", "survey-plan.mjs"));
+        Ok(logic.Contains($"const MIN_TERRAIN_POINTS = {TerrainPlanner.MinPoints}, MAX_TERRAIN_POINTS = {TerrainPlanner.MaxPoints}, MAX_TERRAIN_SPAN_MM = {TerrainPlanner.MaxSpanMm.ToString(System.Globalization.CultureInfo.InvariantCulture)};")
+           && survey.Contains($"export const GROUND_CELL_MM = {TerrainPlanner.BaseCellMm}, GROUND_MAX = {TerrainPlanner.MaxPoints}, ")
+           && survey.Contains("return { band: [lo - 5000, lo + 1500], ") && wideReason.Contains("(5 m under to 1.5 m over L00's floor;"),
+           "the planner's bounds (3 to 2000, 500 m across), base cell (500 mm) and stated band (5 m under to 1.5 m over) are the bridge's, read from changesets-logic.mjs and survey-plan.mjs");
+
+        // review round 1: the rim - points inside each loop at the nearest ground z, one per corner, none on a loop line
+        var ground = new List<double[]> { new double[] { 0, 0, -100 }, new double[] { 10000, 0, -200 }, new double[] { 10000, 10000, -300 }, new double[] { 0, 10000, -400 } };
+        var square = new List<double[]> { new double[] { 0, 0 }, new double[] { 4000, 0 }, new double[] { 4000, 4000 }, new double[] { 0, 4000 } };
+        var inRim = TerrainPlanner.RimPoints(square, ground, 50); var outRim = TerrainPlanner.RimPoints(square, ground, -50);
+        Ok(TerrainPlanner.NearestZ(ground, 9000, 1000) == -200 && inRim.Count == 32 && inRim.All(q => q[0] > 49 && q[0] < 3951 && q[1] > 49 && q[1] < 3951)
+           && outRim.All(q => q[0] < -49 || q[0] > 4049 || q[1] < -49 || q[1] > 4049) && inRim.Select(q => $"{q[0]:0.#},{q[1]:0.#}").Distinct().Count() == inRim.Count
+           && inRim.Any(q => Math.Abs(q[0] - 50) < 1e-6 && Math.Abs(q[1] - 50) < 1e-6 && q[2] == -100) && inRim.All(q => q[2] == TerrainPlanner.NearestZ(ground, q[0], q[1])),
+           "RimPoints: every 500 mm or less, 50 mm inside a loop (or outside the hole), one per corner, each at its nearest ground point's z");
+
+        // review round 3: CreateTerrain's arithmetic, run on values (Compat calls these inside the 2024 guard; only the Revit calls stay pinned by text)
+        Ok(TerrainPlanner.OffsetMm(points.Min(p => p[2]), 0) == -330 && TerrainPlanner.OffsetMm(-1500, -1000) == -510 && TerrainPlanner.OffsetMm(500, 0) == 0 && TerrainPlanner.OffsetMm(-320, -1000) == 0,
+           "OffsetMm: the lowest point (-320) less the level (0) less 10 mm is -330; under a level at -1000 a -1500 lowest gives -510; ground above the level clamps to 0");
+        var outer = TerrainPlanner.OuterRect(points, foot, 1000);
+        Ok(outer.Select(q => $"{q[0]},{q[1]}").SequenceEqual(new[] { "-3000,-4000", "13000,-4000", "13000,12000", "-3000,12000" })
+           && TerrainPlanner.OuterRect(points, new[] { new double[] { 20000, 0 }, new double[] { 21000, 0 }, new double[] { 21000, 1000 } }, 1000)[1][0] == 22000,
+           "OuterRect: round the fixture's six points and the footprint, 1 m out on every side, anticlockwise from the low corner; a footprint beyond the points widens it");
+        var cw = new[] { foot[0], foot[3], foot[2], foot[1], foot[0] };   // clockwise, closed
+        Ok(TerrainPlanner.AnticlockwiseRing(cw).Select(q => $"{q[0]},{q[1]}").SequenceEqual(new[] { foot[1], foot[2], foot[3], foot[0] }.Select(q => $"{q[0]},{q[1]}"))
+           && TerrainPlanner.AnticlockwiseRing(foot).Select(q => $"{q[0]},{q[1]}").SequenceEqual(foot.Select(q => $"{q[0]},{q[1]}")),
+           "AnticlockwiseRing: a clockwise, closed footprint loses its closing point and is turned anticlockwise; an anticlockwise one is kept as it is");
+
+        // review round 3: an applied terrain whose Toposolid this model no longer holds is found (reported as undone before a re-proposal); a standing one, a proposed one, a wall are not
+        ChangesetDto Cs(string status, string kind, string applied) => JsonSerializer.Deserialize<ChangesetDto>(
+            "{\"id\":\"c-" + status + "\",\"name\":\"Terrain · L00 · from S\",\"status\":\"" + status + "\",\"elements\":[{\"proposal_guid\":\"g1\",\"kind\":\"" + kind + "\"}],\"result\":{\"applied\":[" + applied + "]}}");
+        const string Uid = "{\"proposal_guid\":\"g1\",\"revit_unique_id\":\"u1\"}";
+        var goneOne = TerrainPlanner.Gone(new[] { Cs("applied", "terrain", Uid), Cs("partially_applied", "terrain", Uid), Cs("proposed", "terrain", Uid), Cs("applied", "wall", Uid), Cs("applied", "terrain", "{\"proposal_guid\":\"g1\"}") }, _ => false);
+        Ok(goneOne.Count == 2 && goneOne[0].Id == "c-applied" && goneOne[0].Guids.SequenceEqual(new[] { "g1" }) && goneOne[1].Id == "c-partially_applied"
+           && TerrainPlanner.Gone(new[] { Cs("applied", "terrain", Uid) }, u => u == "u1").Count == 0 && TerrainPlanner.Gone(null, _ => false).Count == 0,
+           "Gone: an applied (or partly applied) terrain whose UniqueId the model does not hold, with its guid; never a standing one, a proposed one, another kind, or an entry with no UniqueId");
 
         // the Revit 2021-2023 words, at Propose and at Apply
         Ok(TerrainPlanner.NoProposal("2023") == "a terrain is a Toposolid — Revit 2024 and later; this is Revit 2023. Nothing was proposed"
@@ -75,8 +130,11 @@ static partial class Check
                                                                   "\"from_scan\":{\"changeset\":\"c1\"}}");
         Ok(dto.Place.Points.Length == 3 && dto.Place.Points[1][2] == -6 && dto.Place.Boundary.Length == 3 && dto.FromScan.Changeset == "c1", "the client reads a terrain: Points, Boundary and from_scan");
         Ok(JsonSerializer.Serialize(new ChangesetElementDto { Kind = "wall" }).IndexOf("from_scan", StringComparison.Ordinal) < 0, "an element with no from_scan sends none");
-        var g = JsonSerializer.Deserialize<GroundDto>("{\"job\":\"job-0003\",\"ledger_id\":7,\"level\":\"L00\",\"footprint\":[[0,0],[1,0],[1,1],[0,1]],\"cell_mm\":500,\"z_mm\":[-5000,1500],\"of\":3,\"points\":[[1,2,3]]}");
-        Ok(g.Job == "job-0003" && g.Level == "L00" && g.Footprint.Length == 4 && g.Points.Count == 1 && g.CellMm == 500 && g.Of == 3, "the client reads the ground answer: job, level, footprint, points");
+        // review round 2: the ground answer is the shared fixture's sample (changesets-store.test (k) checks scanOverlay answers its keys and types) - the drift guard
+        var g = JsonSerializer.Deserialize<GroundDto>(root.GetProperty("ground_answer").GetRawText());
+        Ok(g.Ground == true && g.Job == "job-0003" && g.LedgerId == 7 && g.Level == "L00" && g.Footprint.Length == 4 && g.Points.Count == 3 && g.Points[2][2] == -290 && g.CellMm == 500 && g.ZMm.Length == 2 && g.Of == 3,
+           "the client reads the fixture's ground answer (terrain-cases.json ground_answer, the bridge's shape): ground, job, ledger_id, level, footprint, cell, band, of, points");
+        Ok(JsonSerializer.Deserialize<GroundDto>("{\"job\":\"job-0003\",\"points\":[[1,2,3]]}").Ground == null, "review round 1: a plain scan answer (a bridge from before ?ground=1) reads as no ground");
 
         // the Revit halves, by source text
         string Src(params string[] p) => File.ReadAllText(Repo(new[] { "SentinelAddin" }.Concat(p).ToArray()));
@@ -88,16 +146,21 @@ static partial class Check
             .Where(f => !f.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar) && !f.Contains(Path.DirectorySeparatorChar + "bin" + Path.DirectorySeparatorChar) && Path.GetFileName(f) != "Compat.cs")
             .Where(f => File.ReadAllLines(f).Where(l => !l.TrimStart().StartsWith("//")).Any(l => Regex.IsMatch(l, @"Toposolid\.Create\(|typeof\(Toposolid|OST_Toposolid|TOPOSOLID_|\(Toposolid\)|<Toposolid>|\bToposolidType\b"))).ToList();
         Ok(outside.Count == 0, "no Toposolid, ToposolidType or OST_Toposolid token outside Compat.cs (the 2021-2023 builds never name a type they do not have)" + (outside.Count == 0 ? "" : " - found in " + string.Join(", ", outside.Select(Path.GetFileName))));
-        int create = At(compat, "Toposolid.Create(doc, new List<CurveLoop> { outer, inner }, lifted, typeId, level.Id)"), gate = At(compat, "#if REVIT2024_OR_GREATER", At(compat, "public static Element CreateTerrain("));
+        int create = At(compat, "Toposolid.Create(doc, new List<CurveLoop> { Loop(outerMm), Loop(ringMm) }, lifted, typeId, level.Id)"), gate = At(compat, "#if REVIT2024_OR_GREATER", At(compat, "public static Element CreateTerrain("));
         int els = At(compat, "#else", gate), types = At(compat, "typeof(ToposolidType)");
         Ok(create > gate && gate > 0 && create < els && compat.Split("Toposolid.Create(").Length == 2 && types > 0 && At(compat, "#if REVIT2024_OR_GREATER", At(compat, "public static List<ElementType> TerrainTypes(")) is var tg && tg > 0 && tg < types,
            "Toposolid.Create (the CurveLoop overload: outer + inner loop, the points) is called once, inside #if REVIT2024_OR_GREATER in Compat.CreateTerrain; so is the ToposolidType collector");
-        Ok(compat.Contains("double o = Math.Min(0, pointsMm.Min(p => p[2]) * mm - level.Elevation - 10 * mm);") && compat.Contains("new XYZ(p[0] * mm, p[1] * mm, p[2] * mm + dz - o)")
+        Ok(compat.Contains("double o = Sentinel.GhostBuilder.TerrainPlanner.OffsetMm(pointsMm.Min(p => p[2]), level.Elevation * 304.8) * mm;") && compat.Contains("new XYZ(p[0] * mm, p[1] * mm, p[2] * mm + dz - o)")
+           && compat.Contains("var outerMm = Sentinel.GhostBuilder.TerrainPlanner.OuterRect(pointsMm, footprintMm, 1000);") && compat.Contains("var ringMm = Sentinel.GhostBuilder.TerrainPlanner.AnticlockwiseRing(footprintMm);")
            && compat.Contains("ts.get_Parameter(BuiltInParameter.TOPOSOLID_HEIGHTABOVELEVEL_PARAM)") && compat.Contains("if (!offset.Set(o)) throw new InvalidOperationException(") && !compat.Contains("LookupParameter(\"Height Offset From Level\")")
            && compat.Contains("nothing was placed") && compat.Contains("public static bool TerrainSupported"),
            "lift then offset (the spike): the points go in lifted by -o, the height offset is set to o by its BuiltInParameter (a localised Revit works), never above 0 - and no type is created");
 
         Ok(!GhostOverlayGeometry.Drawable(dto) && GhostOverlayGeometry.Segments(dto, true, false).Count == 0, "review: a terrain has no ghost drawing, so the overlay does not count it as drawable");
+        Ok(GhostOverlayGeometry.TerrainLine == "No ghost to draw: a terrain is a Toposolid made from points; it has no ghost drawing — Show zooms to its footprint."
+           && rv.Contains("else window.Shown(creates == 0 && (cs.Elements ?? new()).Any(e => GhostOverlayGeometry.IsCreate(e) && e.Kind == \"terrain\") ? GhostOverlayGeometry.TerrainLine : GhostOverlayGeometry.Line(creates, 0));")
+           && ChangesetTrust.PlaceBox(dto.Place) != null,
+           "review round 2: a terrain changeset's overlay line says a terrain has no ghost drawing and Show zooms to its footprint (PlaceBox reads its Boundary) - never \"proposes no create\"");
         // review: the points' z is the Level.Elevation frame - moved to the internal z by ProjectElevation less Elevation (as the mass), the loops drawn at ProjectElevation; no FamilyName match on the type
         int ct = At(compat, "public static Element CreateTerrain("), cte = At(compat, "#else", ct);
         string ctBody = compat.Substring(ct, cte - ct);
@@ -116,9 +179,28 @@ static partial class Check
         Ok(ex.Contains("\"terrain\" => Compat.TerrainSupported ? () => ToposolidTypeOf(doc, p.FamilyName, p.TypeName) : null,") && ex.Contains("Compat.TerrainTypes(doc, familyName, typeName)")
            && ex.Contains("Manage ▸ Transfer Project Standards (Toposolid types) from the office template; Sentinel creates no types"),
            "NotLoaded asks the Toposolid type of the model on 2024 and later (and nothing before: Execute's own words); a type not loaded says how to bring it in; Sentinel creates no types");
-        int fh = At(Src("GhostBuilder", "GhostFailureHandler.cs"), "AllOrNothing");
-        Ok(fh > 0 && !Src("GhostBuilder", "GhostFailureHandler.cs").Contains("Toposolid") && !ex.Substring(loop, made - loop).Contains("DeleteWarning"),
-           "F-K1-1: the executor's handler is unchanged and never erases a warning - one at the commit is counted and left (the drill watches that it does not reach the person as a modal)");
+        string fhs = Src("GhostBuilder", "GhostFailureHandler.cs");
+        int ho = At(ex, "var handler = GhostFailureHandler.AllOrNothingOn(t);", start), rb = At(ex, "if (toPlace.Any(e => IsCreate(e) && e.Kind == \"terrain\")) { handler.RollBackOtherWarnings = true; handler.WarningOn = \"the terrain\"; }", ho);
+        Ok(ho > start && rb > ho && rb < loop && !fhs.Contains("Toposolid") && !fhs.Contains("DeleteWarning(") && !ex.Substring(loop, made - loop).Contains("DeleteWarning")
+           && fhs.Contains("if (RollBackOtherWarnings) return RollBack(\"Revit raised a warning on \" + WarningOn + \": \" + text, named);"),
+           "F-K1-1 (review round 1): a terrain's transaction rolls back on any warning at the commit, in its words (\"Revit raised a warning on the terrain: …\") - never a modal, never erased");
+        Ok(rv.Contains("!(cs.Elements ?? new()).Any(e => e.Kind == \"stair\" || e.Kind == \"terrain\"); // a stair is re-proposed from its flag, a terrain from the scan"),
+           "review round 1: \"Run Promote (DD) again\" is never said of a terrain (PromoteRun excludes it, as a stair) - it is re-proposed from the scan");
+        Ok(cli.Contains("if (ground?.Ground != true || ground.Footprint == null) { error = NotGround; return null; }")
+           && ChangesetClient.NotGround == "this bridge does not read ground — restart or update it; nothing was proposed",
+           "review round 1: FetchGround fails closed - an answer that is not a ground answer (a bridge from before ?ground=1) is said in words, never planned as ground");
+        Ok(ctBody.Contains("var editor = ts.GetSlabShapeEditor();") && ctBody.Contains("v.VertexType != SlabShapeVertexType.Interior") && ctBody.Contains("editor.ModifySubElement(v, Sentinel.GhostBuilder.TerrainPlanner.NearestZ(pointsMm, v.Position.X / mm, v.Position.Y / mm) * mm + dz - top);")
+           && ctBody.IndexOf("if (!offset.Set(o))", StringComparison.Ordinal) < ctBody.IndexOf("var editor = ts.GetSlabShapeEditor();", StringComparison.Ordinal)
+           && ctBody.Contains("RimPoints(outerMm, pointsMm, 50)") && ctBody.Contains("RimPoints(ringMm, pointsMm, -50)") && ctBody.Contains("var lifted = pointsMm.Concat(rim)"),
+           "review round 1 (Revit-only, source pin): CreateTerrain adds rim points inside both loops and, after the offset, raises every loop vertex to its nearest ground point's z - no trench round the building, no sunken rim");
+        // review round 2 (Revit-only, source pin; K-1c reads the heights back): Regenerate before the editor (as the spike), fail closed on fewer loop vertices than corners, all behind one switch
+        int setO = ctBody.IndexOf("if (!offset.Set(o))", StringComparison.Ordinal), sw = ctBody.IndexOf("if (!TerrainRim) return ts;", StringComparison.Ordinal),
+            regen = ctBody.IndexOf("doc.Regenerate();", StringComparison.Ordinal), ed = ctBody.IndexOf("var editor = ts.GetSlabShapeEditor();", StringComparison.Ordinal),
+            guard = ctBody.IndexOf("if (loopVerts.Count < outerMm.Count + ringMm.Count)", StringComparison.Ordinal), mod = ctBody.IndexOf("foreach (var v in loopVerts)", StringComparison.Ordinal);
+        Ok(setO > 0 && sw > setO && regen > sw && ed > regen && guard > ed && mod > guard && ctBody.Contains("editor.IsEnabled ? editor.SlabShapeVertices")
+           && ctBody.Contains("throw new InvalidOperationException($\"the Toposolid's loop corners could not be read ({loopVerts.Count} of {outerMm.Count + ringMm.Count})") && ctBody.Contains("nothing was placed\");")
+           && compat.Contains("public static readonly bool TerrainRim = true;") && ctBody.Contains("var rim = !TerrainRim ? Enumerable.Empty<double[]>()"),
+           "review round 2 (Revit-only, source pin): after the offset, the Toposolid is regenerated before its shape editor is read; fewer loop vertices than the loops' corners throws in words (the changeset's transaction rolls back, nothing placed); the rim and the raise sit behind Compat.TerrainRim (false = the spike's proven route)");
 
         // the propose hops: sign-in and the version on this thread, the ground and the standards on a pool thread, Revit's thread for the type and the plan, the POST on a pool thread, the words
         int pr = At(rv, "window.ProposeTerrainRequested += () =>");
@@ -132,10 +214,28 @@ static partial class Check
         Ok(rv.Contains("Held for a person — ") && rv.Contains("The terrain was not proposed — ") && rv.Contains("Review it (Review AI Proposals); nothing was ticked or placed."),
            "a hold is said as one; a refusal (a 409 included) shows the bridge's message only; the proposal is not ticked or placed");
         Ok(win.Contains("public event Action ProposeTerrainRequested;") && win.Contains("Content = \"Propose terrain from the scan…\"") && win.Contains("terrain.Click += (_, _) => ProposeTerrainRequested?.Invoke();")
-           && win.Contains("Visibility = SurveyChangeset && _cs.Status != \"withdrawn\" ? Visibility.Visible : Visibility.Collapsed") && win.Contains("TerrainPlanner.RowWords(p.Points.Length, Compat.TerrainSupported)"),
+           && win.Contains("Visibility = SurveyChangeset && _cs.Status != \"withdrawn\" ? Visibility.Visible : Visibility.Collapsed") && win.Contains("TerrainPlanner.RowWords(p.Points.Length, Compat.TerrainSupported)")
+           && win.Contains("as a changeset of its own - \" + TerrainPlanner.Shape + \" - nothing is ticked or placed\""),
            "the window: Propose terrain from the scan… on a live survey changeset; a terrain row says the points are the add-in's reading, and on a Revit before 2024 the refusal's words");
         Ok(cli.Contains("[JsonPropertyName(\"Points\")] public double[][] Points { get; set; }") && cli.Contains("[JsonPropertyName(\"from_scan\")]") && cli.Contains("/scan?ground=1")
            && cli.Contains("public static GroundDto FetchGround(") && cli.Contains("Send(WriteHttp, () => Req(HttpMethod.Get, url, cfg.ServiceToken))"),
            "the client: PlaceDto Points, the element's from_scan, and FetchGround - a new overload beside FetchScan, waiting as long as a write, with the person's token");
+        // review round 3 (Revit-only, source pin): a scan held by an applied terrain whose Toposolid is gone is freed - the changesets read with the ground, Gone on Revit's thread,
+        // and only on the bridge's "(applied) — undo it in Revit first" 409 the Undo's own row posted and the terrain filed again, once, said
+        int fa = At(rv, "var all = ChangesetClient.FetchAll(cfg, key, out _);", fg), gn = At(rv, "var gone = TerrainPlanner.Gone(all, uid => d.GetElement(uid) != null);", pn),
+            rr = At(rv, "if (filed == null && gone.Count > 0 && (proposeErr ?? \"\").Contains(\"(applied) — undo it in Revit first\"))", po),
+            rp = At(rv, "ChangesetClient.ReportReverted(cfg, key, g.Id, g.Guids, \"undo\", out _)", rr), again = At(rv, "filed = ChangesetClient.Propose(cfg, key, plan.Body, out proposeErr);", rp);
+        Ok(fa > fg && fa < eq && gn > pn && gn < tk && rr > po && rp > rr && again > rp && again < At(rv, "window.Shown(filed == null ?", po) && rv.Contains("is no longer in this model — the bridge took its Undo row, so the scan is free.")
+           && cli.Contains("public static List<ChangesetDto> FetchAll(BcfConfig cfg, string projectKey, out string error) => FetchList(cfg, projectKey, \"\", out error);"),
+           "review round 3 (Revit-only, source pin): Propose terrain reads the project's changesets with the ground, finds the applied terrains this model no longer holds (Gone), and on the bridge's \"undo it in Revit first\" 409 posts their Undo row and files once more, saying so");
+        // review round 3 (source pin): a pending stair or terrain (source promote) is not a Promote or Shell storey run - neither command opens it instead of planning
+        string pw = Src("Commands.PromoteWalls.cs"), sm = Src("Commands.ShellMass.cs");
+        Ok(rv.Contains("internal static bool PromoteRun(ChangesetDto cs) => StoreyRun(cs) && ") && rv.Contains("internal static bool StoreyRun(ChangesetDto cs) => cs.Source == \"promote\"")
+           && new[] { pw, sm }.All(c => c.Contains("var unreviewed = pending.FirstOrDefault(ReviewChangesetsCommand.StoreyRun);") && c.Contains("pending.Any(ReviewChangesetsCommand.StoreyRun)") && !c.Contains("p.Source == \"promote\"")),
+           "review round 3 (source pin): Promote (DD) and Shell a Mass open only a waiting Promote or Shell changeset (StoreyRun) - a pending stair or terrain never stops them planning");
+        // review round 3: the Apply refusals in the house words (an em dash, as the executor's)
+        Ok(ctBody.Contains("Height Offset From Level — the ground cannot") && ctBody.Contains("mm — the ground would stand") && ctBody.Contains(") — the ground at the building")
+           && compat.Contains("\"a terrain is a Toposolid — Revit 2024 and later\"") && !Regex.IsMatch(ctBody, "\"[^\"\\n]* - [^\"\\n]*nothing was placed"),
+           "review round 3: CreateTerrain's refusals use an em dash, as every other terrain message");
     }
 }

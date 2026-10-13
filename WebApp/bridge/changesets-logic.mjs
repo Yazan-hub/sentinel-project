@@ -295,8 +295,10 @@ function checkPlace(kind, place, at) {
     const pts = place.Points;
     if (!Array.isArray(pts) || pts.length < MIN_TERRAIN_POINTS || pts.length > MAX_TERRAIN_POINTS || !pts.every(point))
       throw err(400, `${at}: a terrain needs place.Points, ${MIN_TERRAIN_POINTS} to ${MAX_TERRAIN_POINTS} finite [x,y,z] points`);
-    const span = Math.max(Math.max(...pts.map((p) => p[0])) - Math.min(...pts.map((p) => p[0])), Math.max(...pts.map((p) => p[1])) - Math.min(...pts.map((p) => p[1])));
-    if (span > MAX_TERRAIN_SPAN_MM) throw err(400, `${at}: place.Points span ${Math.round(span / 1000)} m in plan — a terrain is at most ${MAX_TERRAIN_SPAN_MM / 1000} m across`);
+    // review round 3: over the Points and the Boundary - Revit's outer loop runs round both (Compat.CreateTerrain), so points clustered far from the footprint make a solid that wide
+    const plan = [...pts, ...(Array.isArray(place.Boundary) ? place.Boundary.filter((q) => Array.isArray(q) && Number.isFinite(q[0]) && Number.isFinite(q[1])) : [])];
+    const span = Math.max(Math.max(...plan.map((p) => p[0])) - Math.min(...plan.map((p) => p[0])), Math.max(...plan.map((p) => p[1])) - Math.min(...plan.map((p) => p[1])));
+    if (span > MAX_TERRAIN_SPAN_MM) throw err(400, `${at}: place.Points and place.Boundary span ${Math.round(span / 1000)} m in plan — a terrain is at most ${MAX_TERRAIN_SPAN_MM / 1000} m across`);
     const byX = [...pts.keys()].sort((i, j) => pts[i][0] - pts[j][0]);   // two points within 1 mm in plan: sweep by x
     for (let i = 0; i < byX.length; i++)
       for (let j = i + 1; j < byX.length && pts[byX[j]][0] - pts[byX[i]][0] < MIN_EDGE_MM; j++)
@@ -794,10 +796,13 @@ export function checkFromFlag(elements, earlier, reverted = []) {
   }
 }
 
-/** MA-8-14: the survey changeset each terrain of `elements` starts from, checked against `earlier` (every stored changeset of the project). Pure; a
- *  failure is a 4xx in words: 404 - the project holds no such changeset; 400 - it was not built from a survey job the bridge ran (a posted body, an
- *  IFC or drawing job), so there is no scan behind the points. The points themselves are the add-in's word: the bridge read no scan for them. */
-export function checkFromScan(elements, earlier) {
+/** MA-8-14: the survey changeset each terrain of `elements` starts from, checked against `earlier` (every stored changeset of the project) and `reverted`
+ *  (its changeset_reverted ledger rows, any order). Pure; a failure is a 4xx in words: 404 - the project holds no such changeset; 400 - it was not built from
+ *  a survey job the bridge ran (a posted body, an IFC or drawing job), so there is no scan behind the points; 409 - another terrain from the same scan is
+ *  proposed ("withdraw it first") or applied and still standing ("undo it in Revit first"), as checkFromFlag's stair. The points themselves are the add-in's
+ *  word: the bridge read no scan for them (the store ties their level, hole and band to the scan's cut). */
+export function checkFromScan(elements, earlier, reverted = []) {
+  const rows = [...(reverted ?? [])].sort((x, y) => (y.id ?? 0) - (x.id ?? 0)); // newest first
   for (const [i, el] of (elements ?? []).entries()) {
     const f = el.from_scan;
     if (!f) continue;
@@ -806,11 +811,29 @@ export function checkFromScan(elements, earlier) {
     if (!cs) throw err(404, `${at}: from_scan names changeset ${f.changeset}, which this project does not hold — nothing was saved`);
     if (!cs.job || cs.claimed !== false || !String(cs.job.reader ?? "").startsWith("sentinel-survey "))
       throw err(400, `${at}: changeset "${cs.name}" was not built from a survey job the bridge ran — there is no scan behind a terrain from it; nothing was saved`);
+    // MA-8-14 review round 2: a terrain from the same scan, not the same changeset - another storey of the job, or another job's survey changeset on the same scan bytes
+    const onScan = (o) => o.kind === "terrain" && o.from_scan && sameScan(cs, (earlier ?? []).find((c) => c.id === o.from_scan.changeset) ?? { id: o.from_scan.changeset });
     // MA-8-14 review: one live terrain per scan - a second press (or a retry after a slow reply) would stand two Toposolids on each other
-    const twin = (earlier ?? []).find((c) => c.status === "proposed" && (c.elements ?? []).some((o) => o.kind === "terrain" && o.from_scan?.changeset === f.changeset));
+    const twin = (earlier ?? []).find((c) => c.status === "proposed" && (c.elements ?? []).some(onScan));
     if (twin) throw err(409, `${at}: a terrain from "${cs.name}"'s scan is already filed ("${twin.name}") — withdraw it first; nothing was saved`);
+    // MA-8-14 review round 1: an applied one still standing holds the scan too (its newest changeset_reverted row for the guid is not an undo), as a stair's flag
+    for (const other of earlier ?? []) {
+      if (other.status !== "applied" && other.status !== "partially_applied") continue;
+      for (const o of other.elements ?? []) {
+        if (!onScan(o)) continue;
+        if (!(other.result?.applied ?? []).some((a) => (a?.proposal_guid ?? a) === o.proposal_guid)) continue; // the terrain was not the part applied
+        const last = rows.find((y) => y.entity_id === other.id && (y.new_value?.guids ?? []).includes(o.proposal_guid));
+        if (last?.new_value?.op !== "undo")
+          throw err(409, `${at}: a terrain from "${cs.name}"'s scan is already built as "${other.name}" (applied) — undo it in Revit first; nothing was saved`);
+      }
+    }
   }
 }
+/** MA-8-14 review round 2: two survey changesets read the same scan - the same changeset, the same job (its ledger row), or a job of the same evidence bytes (a sha256
+ *  in both): a survey re-run (a new planner version) files the scan's walls again under a new job, and its terrain would stand on the first. Review round 3: the sha256
+ *  alone - admission dedupes by path, so the same file admitted from another path is a new evidence id over the same bytes. */
+const sameScan = (a, b) => a.id === b.id || (a.job?.ledger_id != null && a.job.ledger_id === b.job?.ledger_id)
+  || (a.job?.evidence ?? []).some((e) => e?.sha256 && (b.job?.evidence ?? []).some((x) => x?.sha256 === e.sha256));
 
 /** MA-8-10: what Revit says it built for a stair - field by field, anything else is null. Revit's read, kept for the ledger; the bridge does not
  *  judge it. A reader that is not a signed-in member's (the machine credential: the bridge cannot tell the add-in from any holder of the

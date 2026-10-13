@@ -600,6 +600,7 @@ export function cloudRefusal(res, cap) {
 
 /** The ground read: a cell of 500 mm, at most 2000 points (the spike's size: seconds in Revit, one Undo), a storey's box padded by 1 m. */
 export const GROUND_CELL_MM = 500, GROUND_MAX = 2000, GROUND_PAD_MM = 1000;
+const SNAP_DEG = 0.5; // MA-8-14 review: orientedBox puts a box this close to a plan axis on it
 
 /** The smallest rectangle (least area, by rotating calipers over the convex hull) around plan points, padded by `pad` mm on every side: four
  *  [x, y] corners, anticlockwise, in whole 0.1 mm. A turned building keeps its own box (an axis-aligned one keeps only the scan's corners —
@@ -618,6 +619,14 @@ export function orientedBox(points, pad) {
     const box = { s0: Math.min(...s), s1: Math.max(...s), t0: Math.min(...t), t1: Math.max(...t), ux, uy, a };
     box.area = (box.s1 - box.s0) * (box.t1 - box.t0);
     if (!best || box.area < best.area - 1e-9) best = box;
+  }
+  // MA-8-14 review: a box within SNAP_DEG of a plan axis is put on it (re-measured over the hull, growing by at most length·sin 0.5° - inside the pad): scan-fitted
+  // walls leave a skew of hundredths of a degree, and a hole line that far off axis is Revit's "slightly off axis" warning, which the spike saw come up modal (F-K1-1)
+  const q = Math.atan2(best.uy, best.ux), k = Math.round(q / (Math.PI / 2)) * (Math.PI / 2);
+  if (Math.abs(q - k) < SNAP_DEG * Math.PI / 180) {
+    const ux = Math.round(Math.cos(k)), uy = Math.round(Math.sin(k)), a = hull[0];
+    const s = hull.map((p) => (p[0] - a[0]) * ux + (p[1] - a[1]) * uy), t = hull.map((p) => -(p[0] - a[0]) * uy + (p[1] - a[1]) * ux);
+    best = { s0: Math.min(...s), s1: Math.max(...s), t0: Math.min(...t), t1: Math.max(...t), ux, uy, a };
   }
   const { s0, s1, t0, t1, ux, uy, a } = best;
   const at = (s, t) => [r1(a[0] + s * ux - t * uy), r1(a[1] + s * uy + t * ux)];

@@ -181,6 +181,9 @@ describe("changeset tools", () => {
     const d = TOOLS.find((t) => t.name === "sentinel_propose_changeset").description;
     expect(d).toMatch(/column, furniture, room, opening, beam, mass, stair\./);
     expect(d).not.toMatch(/terrain/i); // MA-8-14 review: a terrain is a signed-in member's from Revit - the machine credential files none, so agents are not told of it
+    // review round 3: but an agent reading one is told whose word its points are (the read path, sentinel_changeset_status)
+    expect(TOOLS.find((t) => t.name === "sentinel_changeset_status").description).toContain("A terrain (MA-8-14, a Toposolid) is filed only by a signed-in member from Revit; its place.Points and reason are the add-in's word: " +
+      "the bridge checked its level, footprint (place.Boundary) and height band against from_scan's survey changeset, not the points, and its accuracy.status is not_measured.");
     expect(d).toMatch(/openings \(no type, no family, no Mark\) place\.LevelName and exactly one shape: a rectangle cut in a wall — place\.Location/);
     expect(d).toMatch(/place\.Width and place\.Height \(mm, above 50 and at most 20000\) and place\.SillHeight/);
     expect(d).toMatch(/or a hole in a floor of that level \(a stair void\): place\.Boundary/);

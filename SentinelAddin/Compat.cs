@@ -36,8 +36,8 @@ public static class Compat
         false;
 #endif
 
-    /// MA-8-14: the loaded Toposolid types named <paramref name="typeName"/> (case aside; <paramref name="familyName"/> too when given - a ToposolidType's family is
-    /// "Toposolid"). None before Revit 2024. The caller says none / more than one in words; Sentinel creates no types.
+    /// MA-8-14: the loaded Toposolid types named <paramref name="typeName"/> (case aside), matched by type name only; <paramref name="familyName"/> is accepted for the
+    /// caller's label. None before Revit 2024. The caller says none / more than one in words; Sentinel creates no types.
     public static List<ElementType> TerrainTypes(Document doc, string? familyName, string typeName)
     {
 #if REVIT2024_OR_GREATER
@@ -49,39 +49,50 @@ public static class Compat
 #endif
     }
 
+    /// MA-8-14 review round 2: the rim points and the loop-vertex raise (review round 1) are not spiked - K-1c reads them back. false is the spike's proven route
+    /// (lift, offset, CurveLoop) alone: a one-line revert if K-1c fails them (then TerrainPlanner.Shape's rim clause goes too).
+    public static readonly bool TerrainRim = true;
+
     /// MA-8-14 (the spike, K-1b): the ground as one Toposolid. Created with the CurveLoop overload - an outer axis-aligned rectangle around the points and the
     /// footprint (+ 1 m), the inner loop the storey's footprint (the hole) - because the points-only overload spans the building. The points are lifted by -o and the
-    /// Toposolid's Height Offset From Level is then set to o (o = the lowest point less the level, less 10 mm, never above 0): the type's thickness never limits the relief
+    /// Toposolid's Height Offset From Level is then set to o (o = the lowest point less the level, less 10 mm, never above 0: TerrainPlanner.OffsetMm): the type's thickness never limits the relief
     /// and no type is created. A point's z is the absolute model elevation (mm) in the Level.Elevation frame, moved to the internal z by the level's ProjectElevation less its Elevation (as the mass, Amendment 3). The caller's Transaction is the one Undo step.
+    /// Review round 1: a loop vertex carries no point and would stay at the top face (the lowest point less 10 mm) - a trench round the building and a sunken rim - so rim
+    /// points go in 50 mm inside each loop (TerrainPlanner.RimPoints) and every loop vertex is raised to its nearest ground point's z by the slab shape editor.
     public static Element CreateTerrain(Document doc, IReadOnlyList<double[]> pointsMm, IReadOnlyList<double[]> footprintMm, ElementId typeId, Level level)
     {
 #if REVIT2024_OR_GREATER
         const double mm = 1.0 / 304.8;
         double dz = level.ProjectElevation - level.Elevation; // the Level.Elevation frame -> the internal z (a Survey Point base, or a moved base point, makes them differ)
-        double o = Math.Min(0, pointsMm.Min(p => p[2]) * mm - level.Elevation - 10 * mm);
-        var lifted = pointsMm.Select(p => new XYZ(p[0] * mm, p[1] * mm, p[2] * mm + dz - o)).ToList();
-        double x0 = Math.Min(pointsMm.Min(p => p[0]), footprintMm.Min(p => p[0])) * mm - 1000 * mm, x1 = Math.Max(pointsMm.Max(p => p[0]), footprintMm.Max(p => p[0])) * mm + 1000 * mm;
-        double y0 = Math.Min(pointsMm.Min(p => p[1]), footprintMm.Min(p => p[1])) * mm - 1000 * mm, y1 = Math.Max(pointsMm.Max(p => p[1]), footprintMm.Max(p => p[1])) * mm + 1000 * mm;
+        // review round 3: the arithmetic is TerrainPlanner's (pure, run on values by promote-check); o is clamped to 0 there - why is said on OffsetMm
+        double o = Sentinel.GhostBuilder.TerrainPlanner.OffsetMm(pointsMm.Min(p => p[2]), level.Elevation * 304.8) * mm;
+        var outerMm = Sentinel.GhostBuilder.TerrainPlanner.OuterRect(pointsMm, footprintMm, 1000);
+        var ringMm = Sentinel.GhostBuilder.TerrainPlanner.AnticlockwiseRing(footprintMm); // the hole, anticlockwise like the outer loop
         double z = level.ProjectElevation;
-        var outer = CurveLoop.Create(new List<Curve>
-        {
-            Line.CreateBound(new XYZ(x0, y0, z), new XYZ(x1, y0, z)), Line.CreateBound(new XYZ(x1, y0, z), new XYZ(x1, y1, z)),
-            Line.CreateBound(new XYZ(x1, y1, z), new XYZ(x0, y1, z)), Line.CreateBound(new XYZ(x0, y1, z), new XYZ(x0, y0, z)),
-        });
-        // the hole, anticlockwise like the outer loop (the bridge checks the footprint is one simple loop, not which way it turns)
-        var ring = footprintMm.Select(p => new XYZ(p[0] * mm, p[1] * mm, z)).ToList();
-        if (ring.Count > 3 && ring[0].DistanceTo(ring[ring.Count - 1]) < 1e-9) ring.RemoveAt(ring.Count - 1);
-        double area2 = 0;
-        for (int i = 0; i < ring.Count; i++) area2 += ring[i].X * ring[(i + 1) % ring.Count].Y - ring[(i + 1) % ring.Count].X * ring[i].Y;
-        if (area2 < 0) ring.Reverse();
-        var inner = CurveLoop.Create(Enumerable.Range(0, ring.Count).Select(i => (Curve)Line.CreateBound(ring[i], ring[(i + 1) % ring.Count])).ToList());
-        var ts = Toposolid.Create(doc, new List<CurveLoop> { outer, inner }, lifted, typeId, level.Id);
+        CurveLoop Loop(List<double[]> l) => CurveLoop.Create(Enumerable.Range(0, l.Count)
+            .Select(i => (Curve)Line.CreateBound(new XYZ(l[i][0] * mm, l[i][1] * mm, z), new XYZ(l[(i + 1) % l.Count][0] * mm, l[(i + 1) % l.Count][1] * mm, z))).ToList());
+        // review round 1: the rim - 50 mm inside the outer loop and 50 mm outside the hole, each at its nearest ground point's z
+        var rim = !TerrainRim ? Enumerable.Empty<double[]>()
+            : Sentinel.GhostBuilder.TerrainPlanner.RimPoints(outerMm, pointsMm, 50).Concat(Sentinel.GhostBuilder.TerrainPlanner.RimPoints(ringMm, pointsMm, -50));
+        var lifted = pointsMm.Concat(rim).Select(p => new XYZ(p[0] * mm, p[1] * mm, p[2] * mm + dz - o)).ToList();
+        var ts = Toposolid.Create(doc, new List<CurveLoop> { Loop(outerMm), Loop(ringMm) }, lifted, typeId, level.Id);
         var offset = ts.get_Parameter(BuiltInParameter.TOPOSOLID_HEIGHTABOVELEVEL_PARAM);
-        if (offset == null || offset.IsReadOnly) throw new InvalidOperationException("this Toposolid has no settable Height Offset From Level - the ground cannot be put at its own height; nothing was placed");
-        if (!offset.Set(o)) throw new InvalidOperationException($"the Toposolid's Height Offset From Level could not be set to {o * 304.8:0} mm - the ground would stand that far off the scan; nothing was placed");
+        if (offset == null || offset.IsReadOnly) throw new InvalidOperationException("this Toposolid has no settable Height Offset From Level — the ground cannot be put at its own height; nothing was placed");
+        if (!offset.Set(o)) throw new InvalidOperationException($"the Toposolid's Height Offset From Level could not be set to {o * 304.8:0} mm — the ground would stand that far off the scan; nothing was placed");
+        if (!TerrainRim) return ts;
+        // review round 1: each loop vertex (no point on it) raised from the top face (level + o, internal) to its nearest ground point's z
+        // review round 2: regenerated first (the spike read the editor's vertices only after a Regenerate), and fail closed - every loop corner is found, or nothing is placed
+        doc.Regenerate();
+        var editor = ts.GetSlabShapeEditor();
+        double top = level.ProjectElevation + o;
+        var loopVerts = editor.IsEnabled ? editor.SlabShapeVertices.Cast<SlabShapeVertex>().Where(v => v.VertexType != SlabShapeVertexType.Interior).ToList() : new List<SlabShapeVertex>();
+        if (loopVerts.Count < outerMm.Count + ringMm.Count)
+            throw new InvalidOperationException($"the Toposolid's loop corners could not be read ({loopVerts.Count} of {outerMm.Count + ringMm.Count}) — the ground at the building and the rim would stand at the lowest point; nothing was placed");
+        foreach (var v in loopVerts)
+            editor.ModifySubElement(v, Sentinel.GhostBuilder.TerrainPlanner.NearestZ(pointsMm, v.Position.X / mm, v.Position.Y / mm) * mm + dz - top);
         return ts;
 #else
-        throw new NotSupportedException("a terrain is a Toposolid - Revit 2024 and later");
+        throw new NotSupportedException("a terrain is a Toposolid — Revit 2024 and later");
 #endif
     }
 

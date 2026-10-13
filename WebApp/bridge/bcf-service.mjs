@@ -1862,7 +1862,7 @@ async function handleRequest(req, res) {
   //   GET  /changesets/:key/:id        · POST /changesets/:key/:id/result { applied, rejected, note }
   //   POST /changesets/:key/:id/withdraw · POST /changesets/:key/:id/reverted { op: undo|redo, guids } → a ledger row
   //   GET  /changesets/:key/edit-cost · POST /changesets/:key/edit-cost/publish { run }   (MA-8-1)
-  //   POST /changesets/:key/:id/flags { kind: "stair", storey, box } (MA-8-9) · GET /changesets/:key/:id/scan?flag=<stair flag uid>
+  //   POST /changesets/:key/:id/flags { kind: "stair", storey, box } (MA-8-9) · GET /changesets/:key/:id/scan?flag=<stair flag uid> | ?ground=1 (MA-8-14)
   //   POST /changesets/:key/:id/review { decisions: [{proposal_guid, decision, reason}] } · POST /changesets/:key/:id/reopen { proposal_guid, reason }
   // The module dispatchers below match the whole first segment — /bimdocs, never /bimdocsZZ — so a rule keyed on a
   // route (a rate limit, a proxy allowlist, a log alert) sees the route it names.
@@ -1910,14 +1910,9 @@ async function handleRequest(req, res) {
       // MA-4f: the scan around a survey changeset's storey, decimated, in the model's frame — Revit's overlay (changesets-store scanOverlay). A view:
       //   a signed-in contributor (the machine credential is a 403); no row; the run takes the bridge's one survey slot.
       // MA-8-9: ?flag=<a stair flag's unique_id> cuts the slice to that flag's box instead (≤ 64 characters, else 400).
-      if (p2 && p3 === "scan" && req.method === "GET") {
-        const flag = url.searchParams.get("flag");
-        if (flag != null && (flag === "" || flag.length > 64)) return send(res, 400, { message: "flag must be a stair flag's unique_id (1 to 64 characters)" });
-        // MA-8-14: ?ground=1 answers the ground a terrain is made of (the lowest point per cell outside the storey's box), not the scan; not with a flag.
-        const ground = url.searchParams.get("ground") === "1";
-        if (ground && flag != null) return send(res, 400, { message: "ground and flag are two different cuts of the scan — send one" });
-        return send(res, 200, await ch.scanOverlay(key, p2, {}, { ...(flag != null ? { flag } : {}), ...(ground ? { ground } : {}) }));
-      }
+      // MA-8-14: ?ground=1 answers the ground a terrain is made of (the lowest point per cell outside the storey's box), not the scan; not with a flag.
+      // MA-8-14 review round 2: the query is read by ch.scanQuery (unit-tested); its 400s reach the catch below.
+      if (p2 && p3 === "scan" && req.method === "GET") return send(res, 200, await ch.scanOverlay(key, p2, {}, ch.scanQuery(url.searchParams)));
       // MA-8-9: a person's stair pick, appended to the changeset's exceptions (a signed-in contributor; the machine credential is a 403). The body is {kind, storey, box}.
       if (p2 && p3 === "flags" && req.method === "POST") { const { actor: _who, ...pick } = body; return send(res, 201, await ch.flagChangeset(key, p2, pick, actor)); }
       if (p2 && !p3 && req.method === "GET") return send(res, 200, await ch.getChangeset(key, p2));
