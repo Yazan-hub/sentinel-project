@@ -2105,7 +2105,7 @@ describe("flagChangeset (MA-8-9): a person's stair pick, appended to a changeset
     const out = await flagChangeset("demo", cs.id, PICK, "yazan", deps);
     expect(out.flag).toMatchObject({ kind: "stair", storey: "L01", box: BOX, source: "pick", name: "Stair picked on L01" });
     expect(out.flag.unique_id).toMatch(/^stair:pick-[0-9a-f]{8}$/);
-    expect(out.flag.reason).toMatch(/^a stair picked by .+ — Sentinel does not place stairs yet; a person adds it; box 1200 × 5400 mm in plan, 3000 mm tall, from \(0, 0, 0\) on L01$/);
+    expect(out.flag.reason).toMatch(/^a stair picked by .+ — a person proposes it from this flag \(Propose a stair…, Revit 2021\+\), or adds it; box 1200 × 5400 mm in plan, 3000 mm tall, from \(0, 0, 0\) on L01$/);
     expect(out.ledger).toEqual({ id: 41, hash: "ab".repeat(32) });
     const doc = deps.saved.get(cs.id);
     expect([doc.exceptions, doc.review_rev]).toEqual([[out.flag], 1]);

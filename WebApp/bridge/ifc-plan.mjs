@@ -304,7 +304,7 @@ export function planIfc({ job, candidates, frame, levels: named = {}, manifest =
       try { checkStairFlag({ kind: "stair", storey: s.level, box }, "stair"); } catch { continue; }   // a box the bridge would refuse stays in the class row
       const [w, dp, h] = box.max.map((v, k) => v - box.min[k]);
       exceptions.push({ unique_id: `stair:${n.global_id}`.slice(0, 64), name: `Stair ${n.global_id}`, kind: "stair", storey: s.level, box, global_id: n.global_id,
-        reason: `a stair — Sentinel does not place stairs yet; a person adds it; box ${w} × ${dp} mm in plan${turned ? " (the larger axis-aligned box of a turned frame)" : ""}, ${h} mm tall, from (${box.min.join(", ")}) on ${s.level} · ${ref}`.slice(0, 300) });
+        reason: `a stair — a person proposes it from this flag (Propose a stair…, Revit 2021+), or adds it; box ${w} × ${dp} mm in plan${turned ? " (the larger axis-aligned box of a turned frame)" : ""}, ${h} mm tall, from (${box.min.join(", ")}) on ${s.level} · ${ref}`.slice(0, 300) });
       flagged.add(n);
     }
     // what was not read: one exception per IFC class on the storey (a 64 MB file can hold thousands), the first GlobalIds named

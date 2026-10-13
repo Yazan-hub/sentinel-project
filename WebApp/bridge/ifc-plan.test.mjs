@@ -358,7 +358,7 @@ describe("planIfc — MA-8-4 (0.2.0): openings, doors, windows, columns and curt
       const p = withStairs([stair(G(1), BOX), stair(G(2), null)]);
       const flag = s02(p).exceptions.find((e) => e.unique_id === `stair:${G(1)}`);
       expect(flag).toMatchObject({ name: `Stair ${G(1)}`, kind: "stair", storey: s02(p).storey.level, global_id: G(1), box: { min: [0, 0, 0], max: [1000, 3000, 3500] } });
-      expect(flag.reason).toMatch(/^a stair — Sentinel does not place stairs yet; a person adds it; box 1000 × 3000 mm in plan, 3500 mm tall, from \(0, 0, 0\) on .+ · job-0007 \(ledger #3301\)$/);
+      expect(flag.reason).toMatch(/^a stair — a person proposes it from this flag \(Propose a stair…, Revit 2021\+\), or adds it; box 1000 × 3000 mm in plan, 3500 mm tall, from \(0, 0, 0\) on .+ · job-0007 \(ledger #3301\)$/);
       expect(flag.reason.length).toBeLessThanOrEqual(300);
       const row = s02(p).exceptions.find((e) => e.unique_id === "IFCSTAIR@L02");
       expect(row).toMatchObject({ name: `IfcStair ${G(2)}` });
