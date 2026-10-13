@@ -470,6 +470,12 @@ describe("reportReverted", () => {
   it("final verification round 2: an undo recorded on a person's word keeps basis \"absent\" on its row; any other basis, or one on a redo, is a 400 and writes nothing", async () => {
     const deps = baseDeps({ takeWriteBudget: vi.fn() });
     const { cs, a } = await appliedChangeset(deps);
+    // final verification round 3: the machine credential records no person's word - 403, nothing written; a plain undo from it still lands
+    deps.myRole = vi.fn(async () => "service");
+    await expect(reportReverted("demo", cs.id, { op: "undo", guids: [a], basis: "absent" }, "yazan", deps))
+      .rejects.toMatchObject({ status: 403, message: 'an Undo recorded as gone (basis "absent") is a signed-in person\'s word — the machine credential records none; nothing was saved' });
+    expect(deps.audit).not.toHaveBeenCalled();
+    deps.myRole = vi.fn(async () => "contributor");
     await reportReverted("demo", cs.id, { op: "undo", guids: [a], basis: "absent" }, "yazan", deps);
     expect(deps.audit.mock.calls[0][6]).toEqual({ op: "undo", guids: [a], count: 1, basis: "absent" });
     deps.audit.mockClear();

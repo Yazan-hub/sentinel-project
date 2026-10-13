@@ -1080,6 +1080,9 @@ export async function reportReverted(key, id, { op, guids, basis } = {}, actor, 
   if (!Array.isArray(guids) || !guids.length || guids.length > 200 || !guids.every((g) => typeof g === "string") || new Set(guids).size !== guids.length)
     throw err(400, "guids must be 1–200 distinct proposal_guids");
   if (basis !== undefined && (basis !== "absent" || op !== "undo")) throw err(400, 'basis is "absent" on an undo, or none');
+  // final verification round 3: "absent" is a person's word (the desk and MCP name them) - the machine credential's actor is only claimed
+  if (basis !== undefined && (await d.myRole(key)) === "service")
+    throw err(403, 'an Undo recorded as gone (basis "absent") is a signed-in person\'s word — the machine credential records none; nothing was saved');
   const proj = await d.ensureProject(key);
   const cs = await d.docGet(STORE, proj.id, id);
   if (!cs) throw err(404, "changeset not found");
