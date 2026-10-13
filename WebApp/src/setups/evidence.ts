@@ -104,6 +104,21 @@ export async function readEvidence(base: string, key: string): Promise<EvidenceR
   if (!r.ok || !j?.pack) throw new Error(`not read — ${j?.message || `HTTP ${r.status}`}`);
   return j;
 }
+/** MA-7-2: the founder's web switch for this project and the source lists (GET …/evidence/evp-0001/web). */
+export interface WebStatus { mode: "off" | "drill" | "on"; why: string; counsel_ref: string | null; a_signed: boolean; sources: { id: string; list: "GREEN" | "AMBER"; label: string; licences: string[]; held_for_counsel: boolean; share_alike: boolean }[]; red: { labels: string[]; hosts: string[] }; sources_sha256: string; }
+/** The web switch's state; throws "not read — …" when it cannot be read. */
+export async function readWebStatus(base: string, key: string): Promise<WebStatus> {
+  let r: Response;
+  try { r = await bfetch(at(base, key, `evidence/${PACK_ID}/web`)); } catch (e) { throw new Error(`not read — ${(e as Error).message}`); }
+  const j = (await r.json().catch(() => null)) as (WebStatus & { message?: string }) | null;
+  if (!r.ok || !j?.mode) throw new Error(`not read — ${j?.message || `HTTP ${r.status}`}`);
+  return j;
+}
+/** MA-7-2: the web switch in one line. Pure. */
+export const webLine = (s: Pick<WebStatus, "mode" | "counsel_ref">): string =>
+  s.mode === "on" ? `Web evidence: on (counsel ref ${s.counsel_ref ?? "?"}…)`
+    : s.mode === "drill" ? "Web evidence: DRILL — the founder's switch; counsel has not reviewed web evidence."
+      : "Web evidence: off — counsel has not reviewed it yet (D5). Your own photos and scans are admitted as before.";
 export const makePack = (base: string, key: string) => post<{ pack: EvidencePack }>(base, key, "evidence", {});
 export const signAttestation = (base: string, key: string, code: string) => post<{ attestation: Attestation; ledger: Ledger }>(base, key, `evidence/${PACK_ID}/attest`, { code });
 export const admitEvidence = (base: string, key: string, b: { path: string; kind: EvidenceKind; registration?: { method: string; report_path?: string }; request_id?: string; provider?: string; licence_ref?: string }) => post<AdmitReply>(base, key, `evidence/${PACK_ID}/items`, b);

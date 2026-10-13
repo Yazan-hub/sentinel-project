@@ -15,7 +15,7 @@ import { readDeleted, restoreDeleted, deletedItemLine, restoredLine, archivable,
 import { escapeHtml as esc } from "./escape-html";
 import { unarchiveFile } from "./cde-transition";
 import { firstTag, geometryCheck, linkedHash, linkedTag, sha256Hex, type GeometryLinkRow } from "./geometry-check";
-import { readEvidence, makePack, signAttestation, admitEvidence, recheckEvidence, draftRequest, kindOf, isImage, needsReport, itemLine, attestationLine, admitLine, recheckLine, requestLine, evidenceControls, ATTESTATION_CODES, ATTESTATION_TEXTS, datasetLine, type EvidenceRead, type EvidenceRequest,
+import { readEvidence, readWebStatus, webLine, type WebStatus, makePack, signAttestation, admitEvidence, recheckEvidence, draftRequest, kindOf, isImage, needsReport, itemLine, attestationLine, admitLine, recheckLine, requestLine, evidenceControls, ATTESTATION_CODES, ATTESTATION_TEXTS, datasetLine, type EvidenceRead, type EvidenceRequest,
   startSurvey, readJobs, readJob, jobLine, candidateLine, surveyStartLine, surveyableScans, proposeBody, proposeFromJob, proposeLine, type SurveyJob, type Candidate,
   startDrawing, drawingStartLine, readableDrawings, isDrawingJob, startIfc, ifcStartLine, readableIfc, isIfcJob, ifcHintLine, alignBody, alignPreview, drawingSvg, snapPaper, type AlignDraft } from "./evidence";
 
@@ -79,6 +79,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   // whose registration input is open (a scan names how it was registered; an RCP also names its report).
   let evidence: EvidenceRead | null = null;
   let evidenceError: string | null = null;
+  let webState: WebStatus | null = null; // MA-7-2: the founder's web switch for this project; null when unread
   let showEvidence = false;
   let admitting: string | null = null;
   // MA-4c: the project's survey jobs (read after the pack; a failure says "Survey: not read — …" and leaves the pack shown) and the done
@@ -224,6 +225,8 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       admitting = null; drawingFor = null; vendorFor = null;
       try { const ev = await readEvidence(base, key); if (mine !== seq) return; evidence = ev; evidenceError = null; }
       catch (e) { if (mine !== seq) return; evidence = null; evidenceError = (e as Error).message; }
+      // MA-7-2: the web switch is its own read; a failure leaves the line unsaid, never "off" guessed
+      try { const w = evidence ? await readWebStatus(base, key) : null; if (mine !== seq) return; webState = w; } catch { if (mine !== seq) return; webState = null; }
       jobOpen = null; jobCands = null; // the Propose form stays open with its draft: a refusal never loses what the lead typed
       try { const js = evidence ? await readJobs(base, key) : null; if (mine !== seq) return; jobs = js; jobsError = null; }
       catch (e) { if (mine !== seq) return; jobs = null; jobsError = (e as Error).message; }
@@ -721,6 +724,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     return toggle + `<div style="margin-bottom:.45rem;padding:.45rem .55rem;background:#1b1b21;border:1px solid #2c2c34;border-radius:.4rem">` +
       `<div style="color:#71717a;font-size:10.5px;font-family:ui-monospace,Consolas,monospace;overflow-wrap:anywhere">${esc(pack.pack_id)} · ${esc(ref)} · folder ${esc(folder.path)}${folder.exists ? "" : " (not there yet)"}</div>` +
       line(pack.dataset ? esc(datasetLine(pack.dataset)) : "Attestations — a lead signs (a) and (c) before a scan, also (d) before a photo, (a) and (b) before a drawing, and (a) before a concept IFC", "#9ca3af") + atts +
+      (webState ? line(esc(webLine(webState)), webState.mode === "off" ? "#71717a" : "#fbbf24") : "") + // MA-7-2
       line(`Ask the owner (${requests.length}) — Sentinel drafts the letter and sends nothing: you send it; the drawings that come back are admitted under it`, "#9ca3af") + asks + askForm +
       line(`Admitted (${pack.items.length})`, "#9ca3af") + items +
       line(`In the folder, not yet admitted (${folder.files_not_admitted.length}${folder.truncated ? ", the list stops at 1000" : ""}) — put files there on the office PC`, "#9ca3af") + files +

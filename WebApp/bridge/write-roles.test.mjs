@@ -1063,6 +1063,15 @@ describe("evidence intake (MA-4a): who makes, signs, admits and reads", () => {
     const again = await call("POST", `${E}/evp-0001/attest`, "lead", { code: "a" });
     expect(again.status).toBe(409); expect(again.body.message).toContain("was signed by lead@example.test");
   });
+  it("MA-7-2: GET …/web is a read — a viewer, a contributor, a lead and the machine credential all get the off state", async () => {
+    await call("POST", E, "lead", {});
+    for (const as of ["viewer", "contributor", "lead", "machine"]) {
+      const r = await call("GET", `${E}/evp-0001/web`, as);
+      expect(r.status, as).toBe(200);
+      expect(r.body).toMatchObject({ mode: "off", a_signed: false, counsel_ref: null });
+      expect(r.body.sources_sha256).toMatch(/^[0-9a-f]{64}$/);
+    }
+  });
   it("admitting: a 409 before (a) and (c), a photo also (d); a contributor admits with the streamed sha; the machine credential, a viewer and ../x are refused with no row; google on a file not admitted is refused with a row; a viewer reads; a forged row is a 400", async () => {
     await call("POST", E, "lead", {});
     mkdirSync(join(DIR(), "scans"), { recursive: true }); writeFileSync(join(DIR(), "scans", "tiny.las"), LAS);
