@@ -115,10 +115,11 @@ export async function readWebStatus(base: string, key: string): Promise<WebStatu
   return j;
 }
 /** MA-7-2: the web switch in one line. Pure. */
-export const webLine = (s: Pick<WebStatus, "mode" | "counsel_ref">): string =>
+export const webLine = (s: Pick<WebStatus, "mode" | "counsel_ref"> & { why?: string }): string =>
   s.mode === "on" ? `Web evidence: on (counsel ref ${s.counsel_ref ?? "?"}…)`
     : s.mode === "drill" ? "Web evidence: DRILL — the founder's switch; counsel has not reviewed web evidence."
-      : "Web evidence: off — counsel has not reviewed it yet (D5). Your own photos and scans are admitted as before.";
+      : s.why && /SENTINEL_WEB_EVIDENCE=/.test(s.why) ? `Web evidence: off — ${s.why}`
+        : "Web evidence: off — counsel has not reviewed it yet (D5). Your own photos and scans are admitted as before.";
 export const makePack = (base: string, key: string) => post<{ pack: EvidencePack }>(base, key, "evidence", {});
 export const signAttestation = (base: string, key: string, code: string) => post<{ attestation: Attestation; ledger: Ledger }>(base, key, `evidence/${PACK_ID}/attest`, { code });
 export const admitEvidence = (base: string, key: string, b: { path: string; kind: EvidenceKind; registration?: { method: string; report_path?: string }; request_id?: string; provider?: string; licence_ref?: string }) => post<AdmitReply>(base, key, `evidence/${PACK_ID}/items`, b);

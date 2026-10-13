@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, s
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { makePack, readPack, signAttestation, runEvidenceIntake, recheckPack, draftRequest, surveyStart, webStatus } from "./evidence-store.mjs";
+import * as W from "./web-sources.mjs";
 import { ATTESTATIONS, USES } from "./evidence-logic.mjs";
 
 let root, docs, audits, budgets, role;
@@ -207,12 +208,16 @@ describe("evidence intake (MA-4a)", () => {
     role = "viewer";
     const off = await webStatus("demo", "evp-0001", { ...deps(), env: { SENTINEL_WEB_EVIDENCE: "", SENTINEL_AI_KEY: "sk-secret-value", SENTINEL_WEB_COUNSEL_REF: "ab".repeat(32) } });
     expect(off).toMatchObject({ mode: "off", counsel_ref: null, a_signed: true });
+    expect(off.red.labels).toContain("google");
+    expect(off.sources_sha256).toBe(W.SOURCES_SHA256);
     expect(off.sources.find((s) => s.id === "wikimedia-commons")).toMatchObject({ list: "AMBER", held_for_counsel: true });
     expect(JSON.stringify(off)).not.toMatch(/sk-secret|SENTINEL_AI|abababababababab/);
     const on = await webStatus("demo", "evp-0001", { ...deps(), env: { SENTINEL_WEB_EVIDENCE: "on", SENTINEL_WEB_COUNSEL_REF: "ab".repeat(32) } });
     expect(on).toMatchObject({ mode: "on", counsel_ref: "abababababab" });
     expect(JSON.stringify(on)).not.toContain("ab".repeat(13));
     expect((await webStatus("demo", "evp-0001", { ...deps(), env: { SENTINEL_WEB_EVIDENCE: "drill:demo" } })).mode).toBe("drill");
+    expect(await webStatus("demo", "evp-0001", { ...deps(), env: { SENTINEL_WEB_EVIDENCE: "drill" } })).toMatchObject({ mode: "off", why: W.DRILL_NO_KEY });
+    expect(await webStatus("demo", "evp-0001", { ...deps(), env: { SENTINEL_WEB_EVIDENCE: "on", SENTINEL_WEB_COUNSEL_REF: "ab".repeat(31) + "a" } })).toMatchObject({ mode: "off", why: W.ON_NO_REF });
     await expect(webStatus("demo", "evp-0009", deps())).rejects.toMatchObject({ status: 404 });
   });
 

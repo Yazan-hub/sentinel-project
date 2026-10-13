@@ -21,25 +21,29 @@ export const SOURCES = [
 /** RED: matched as whole host labels (maps.google.co.uk, lh3.ggpht.com), never as a substring (bingham.example.test is not RED). */
 export const RED_LABELS = ["google", "googleapis", "gstatic", "ggpht", "googleusercontent", "goo", "apple", "mzstatic", "bing", "virtualearth"];
 export const RED_HOSTS = ["atlas.microsoft.com"];
+// MA-7-2 review: frozen so the hash below always stands for the table classifyHost reads.
+const deepFreeze = (o) => { if (o && typeof o === "object" && !Object.isFrozen(o)) { Object.freeze(o); Object.values(o).forEach(deepFreeze); } return o; };
+[SOURCES, RED_LABELS, RED_HOSTS].forEach(deepFreeze);
 export const SOURCES_SHA256 = createHash("sha256").update(JSON.stringify({ SOURCES, RED_LABELS, RED_HOSTS })).digest("hex");
 
 const underHost = (h, host) => h === host || h.endsWith(`.${host}`);
-const underPath = (p, prefix) => p.startsWith(prefix) && (prefix.endsWith("/") || p.length === prefix.length || p[prefix.length] === "/");
+const underPath = (p, prefix) => (p = p.toLowerCase(), prefix = prefix.toLowerCase(), p.startsWith(prefix)) && (prefix.endsWith("/") || p.length === prefix.length || p[prefix.length] === "/");
 
-/** {list, id} for an https URL — RED by label or host, else the source row whose host (and path prefix) it is under — or null. Pure. */
+/** {list, id} for an http(s) URL — RED by label or host, else the source row whose host (and path prefix) it is under — or null. Pure. */
 export function classifyHost(url) {
   let u;
   try { u = new URL(String(url)); } catch { return null; }
-  if (u.protocol !== "https:") return null;
+  if (u.protocol !== "https:" && u.protocol !== "http:") return null; // http is classified so RED reads RED; only https can be GREEN/AMBER
   const h = u.hostname.toLowerCase().replace(/\.$/, "");
   const label = h.split(".").find((l) => RED_LABELS.includes(l));
   if (label) return { list: "RED", id: label };
   const red = RED_HOSTS.find((r) => underHost(h, r));
   if (red) return { list: "RED", id: red };
+  if (u.protocol !== "https:") return null;
   for (const s of SOURCES) for (const host of s.hosts) {
     if (!underHost(h, host)) continue;
     const prefix = typeof s.path_prefix === "string" ? s.path_prefix : s.path_prefix?.[host];
-    if (prefix && !underPath(u.pathname, prefix)) continue;
+    if (prefix && (/%2f|%5c/i.test(u.pathname) || !underPath(u.pathname, prefix))) continue; // an encoded slash could hide a different path behind a front end
     return { list: s.list, id: s.id };
   }
   return null;

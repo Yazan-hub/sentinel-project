@@ -1,6 +1,6 @@
 // MA-7-2 — the counsel switch and the source lists: whole-label host matching (RED), host + path prefix (AMBER/GREEN), and the switch's modes.
 import { describe, it, expect } from "vitest";
-import { SOURCES, SOURCES_SHA256, RED_LABELS, classifyHost, webSwitch, webRefusal, OFF, ON_NO_REF, DRILL, DRILL_NO_KEY, NO_A } from "./web-sources.mjs";
+import { SOURCES, SOURCES_SHA256, RED_LABELS, RED_HOSTS, classifyHost, webSwitch, webRefusal, OFF, ON_NO_REF, DRILL, DRILL_NO_KEY, NO_A } from "./web-sources.mjs";
 
 const REF = "ab12".repeat(16);
 
@@ -18,6 +18,11 @@ describe("classifyHost", () => {
     expect(classifyHost("https://commons.wikimedia.org/wiki/File:X.jpg")).toEqual({ list: "AMBER", id: "wikimedia-commons" });
     expect(classifyHost("https://upload.wikimedia.org/wikipedia/en/a/ab/x.jpg")).toBeNull();
     expect(classifyHost("http://commons.wikimedia.org/x")).toBeNull();
+    expect(classifyHost("http://maps.google.com/x")).toEqual({ list: "RED", id: "google" }); // MA-7-2 review: http RED reads RED
+    expect(classifyHost("https://upload.wikimedia.org/wikipedia/commons/..%2fen/a/ab/x.jpg")).toBeNull(); // encoded slash hides /wikipedia/en/
+    expect(classifyHost("https://github.com/microsoft/GlobalMLBuildingFootprints%2f..%2fx")).toBeNull();
+    expect(classifyHost("https://github.com/Microsoft/globalmlbuildingfootprints/x")).toEqual({ list: "GREEN", id: "ms-footprints" });
+    for (const u of ["https://s3.amazonaws.com/b/x", "https://blob.core.windows.net/b/x", "https://fbcdn.net/x"]) expect(classifyHost(u), u).toBeNull(); // no shared cloud apex is listed
     expect(classifyHost("not a url")).toBeNull();
   });
   it("github.com is classified only under the Microsoft footprints path", () => {
@@ -73,5 +78,16 @@ describe("the table", () => {
   it("no listed host is RED, and the hash is 64 hex", () => {
     for (const s of SOURCES) for (const h of s.hosts) expect(h.split(".").some((l) => RED_LABELS.includes(l)), h).toBe(false);
     expect(SOURCES_SHA256).toMatch(/^[0-9a-f]{64}$/);
+  });
+  it("the approved lists are pinned: a change here is the founder's approval (D5)", () => {
+    expect(SOURCES_SHA256).toBe("cb21cd4956880d0b6db0067abb9f2cc5a62b601d318a8c5a18babdf0cadcc9f1");
+  });
+  it("the table is frozen all the way down", () => {
+    expect(() => SOURCES[0].hosts.push("evil.example.test")).toThrow();
+    expect(() => SOURCES.push({})).toThrow();
+    expect(() => RED_LABELS.push("x")).toThrow();
+    expect(() => RED_HOSTS.push("x")).toThrow();
+    expect(() => { SOURCES[0].licences[0] = "MIT"; }).toThrow();
+    expect(classifyHost("https://evil.example.test/")).toBeNull();
   });
 });

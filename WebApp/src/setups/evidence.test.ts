@@ -420,6 +420,9 @@ describe("MA-7-2: the web switch line", () => {
   it("webLine says off, drill and on in the plan's words", () => {
     expect(webLine({ mode: "off", counsel_ref: null })).toBe("Web evidence: off — counsel has not reviewed it yet (D5). Your own photos and scans are admitted as before.");
     expect(webLine({ mode: "drill", counsel_ref: null })).toBe("Web evidence: DRILL — the founder's switch; counsel has not reviewed web evidence.");
+    expect(webLine({ mode: "off", counsel_ref: null, why: "web evidence is off until counsel has reviewed it (design D5) — the founder's switch SENTINEL_WEB_EVIDENCE; nothing" })).toContain("counsel has not reviewed it yet");
+    expect(webLine({ mode: "off", counsel_ref: null, why: "SENTINEL_WEB_EVIDENCE=on needs SENTINEL_WEB_COUNSEL_REF" })).toBe("Web evidence: off — SENTINEL_WEB_EVIDENCE=on needs SENTINEL_WEB_COUNSEL_REF");
+    expect(webLine({ mode: "off", counsel_ref: null, why: "drill mode names its project(s): SENTINEL_WEB_EVIDENCE=drill:<project key>" })).toMatch(/^Web evidence: off — drill mode/);
     expect(webLine({ mode: "on", counsel_ref: "abcdef012345" })).toBe("Web evidence: on (counsel ref abcdef012345…)");
   });
 });
