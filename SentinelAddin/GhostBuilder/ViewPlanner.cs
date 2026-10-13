@@ -91,7 +91,7 @@ namespace Sentinel.GhostBuilder
             string browserStatus = null;
             naming?.StatusPrefixes?.TryGetValue(status, out browserStatus);
 
-            var rules = ViewRules(ruleset);
+            var rules = Rules(ruleset, RuleTarget.View);
             var entries = views.Where(v => v != null && Plannable.Contains(v.ViewType ?? "")
                 && (!string.IsNullOrWhiteSpace(v.NamePrefix) || (v.Tokens != null && v.Tokens.Count > 0))).ToList();
             // F2: the first FloorPlan entry and the first CeilingPlan entry, in the guideline's order.
@@ -115,7 +115,8 @@ namespace Sentinel.GhostBuilder
         }
 
         // The name of one row, or why there is none / why it is refused.
-        private static string NameOf(GuidelineViewStandard v, string level, List<Rule> rules, string org, out string name)
+        // MA-8-12: <paramref name="status"/> is the fixed name's first part - "WIP_" for a work view, "SH_" for a sheet view (SheetPlanner).
+        internal static string NameOf(GuidelineViewStandard v, string level, List<Rule> rules, string org, out string name, string status = "WIP_")
         {
             name = null;
             // Review C5: a rule that needs the office code cannot be judged without one (Scan Now leaves it unevaluated) — fail closed, said.
@@ -145,10 +146,16 @@ namespace Sentinel.GhostBuilder
                 // Review C14: Scan Now passes a name its rule excludes or whitelists before it reads a token, so the planner does too.
                 if (tokenRefusal != null && !Admits(rule, name)) { name = null; return tokenRefusal; }
             }
-            else name = "WIP_" + v.NamePrefix + "_" + Regex.Replace(level.Trim().ToUpperInvariant(), @"\s+", "-");
+            else name = status + v.NamePrefix + "_" + Regex.Replace(level.Trim().ToUpperInvariant(), @"\s+", "-");
 
             int bad = name.IndexOfAny(Prohibited.ToCharArray());
             if (bad >= 0) return $"'{name}' holds '{name[bad]}', which Revit does not allow in a view name";
+            return Judge(rules, org, name);
+        }
+
+        /// <summary>Why <paramref name="name"/> fails the first of <paramref name="rules"/> it does not pass, in Scan Now's words; null when it passes all.</summary>
+        internal static string Judge(List<Rule> rules, string org, string name)
+        {
             foreach (var r in rules)
                 if (!Passes(r, org, name, out string error))
                     return error != null ? $"{r.Id}: {error}" : $"'{name}' does not pass {r.Id}: " + RuleRegex.TextWithOrg(r.MessageEn ?? "", org).Replace("{name}", name);
@@ -165,7 +172,7 @@ namespace Sentinel.GhostBuilder
 
         // Scan Now's own judgement (RuleEngineHost.CheckName): an excluded or whitelisted name passes; a whitelist-only rule
         // passes nothing else (review C5); else the rule's pattern.
-        private static bool Passes(Rule r, string org, string name, out string error)
+        internal static bool Passes(Rule r, string org, string name, out string error)
         {
             error = null;
             if (Admits(r, name)) return true;
@@ -184,24 +191,27 @@ namespace Sentinel.GhostBuilder
             catch (RegexMatchTimeoutException) { return false; }
         }
 
-        // The View rules Scan Now judges a name by: with tokens, or with a whitelist (review C5); lists never null below.
-        private static List<Rule> ViewRules(Ruleset ruleset) =>
-            (ruleset?.Rules ?? new List<Rule>()).Where(r => r != null && r.Target == RuleTarget.View && r.Tokens != null && r.Whitelist != null
+        // The rules of a target Scan Now judges a name by (View: a view's name; Sheet: a sheet's number - MA-8-12): with tokens, or with a
+        // whitelist (review C5); lists never null below.
+        internal static List<Rule> Rules(Ruleset ruleset, RuleTarget target) =>
+            (ruleset?.Rules ?? new List<Rule>()).Where(r => r != null && r.Target == target && r.Tokens != null && r.Whitelist != null
                 && (r.Tokens.Count > 0 || r.Whitelist.Count > 0)).ToList();
 
         /// <summary>The preview's and the result's line on what judged the names (F4).</summary>
         public static string RuleLine(Ruleset ruleset, string rulesetLabel)
         {
-            var ids = ViewRules(ruleset).Select(r => r.Id).ToList();
+            var ids = Rules(ruleset, RuleTarget.View).Select(r => r.Id).ToList();
             return ids.Count > 0
                 ? $"View names are checked against {string.Join(", ", ids)} (ruleset {rulesetLabel}) — Scan Now's own rule."
                 : $"View names not checked: no View rule with tokens or a whitelist in the ruleset ({rulesetLabel}).";
         }
 
-        /// <summary>MA-8-11 (amendment 7): the distinct view templates the creatable rows name that the model lacks, in row order.</summary>
-        public static List<string> Missing(IEnumerable<PlannedView> rows, ICollection<string> modelTemplateNames) =>
-            (rows ?? Enumerable.Empty<PlannedView>()).Where(p => p != null && p.Refusal == null && !string.IsNullOrWhiteSpace(p.Template)
-                && (modelTemplateNames == null || !modelTemplateNames.Contains(p.Template))).Select(p => p.Template).Distinct().ToList();
+        /// <summary>MA-8-11 (amendment 7): the distinct view templates the creatable rows name that the model lacks, in row order. MA-8-12:
+        /// <paramref name="sheetTemplates"/> are the sheet templates of the entries SheetPlanner would plan (SheetPlanner.Templates), after the rows'.</summary>
+        public static List<string> Missing(IEnumerable<PlannedView> rows, ICollection<string> modelTemplateNames, IEnumerable<string> sheetTemplates = null) =>
+            (rows ?? Enumerable.Empty<PlannedView>()).Where(p => p != null && p.Refusal == null).Select(p => p.Template)
+                .Concat(sheetTemplates ?? Enumerable.Empty<string>())
+                .Where(t => !string.IsNullOrWhiteSpace(t) && (modelTemplateNames == null || !modelTemplateNames.Contains(t))).Distinct().ToList();
 
         private static readonly HashSet<string> PlanTypes = new HashSet<string> { "FloorPlan", "CeilingPlan", "EngineeringPlan", "AreaPlan" };
 

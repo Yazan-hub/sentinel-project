@@ -71,6 +71,33 @@ static partial class Check
            && already.GetProperty("action").GetString() == "Annotate created 6 view(s) and pinned 6 datum(s) across 3 level(s)",
            "an already-open source says so, with the unsaved-edits note, and nothing copied adds nothing to the action words (amendment 6)");
 
+        // MA-8-12 (ANV-4, ANV-5, MH-VW-01): an annotate row with sheets, tags and the view count for one level - what the model held after the group.
+        var withSheets = Json(CommandReports.Annotate(created6, 3, 2, 3, 1, 1, 2, 4, 1, 3, new long[0], pinnedNow, true, "g", "r", "a", new CommandReports.AnnotateMore
+        {
+            Level = "L01",
+            Sheets = new[] { ("A-L01-01", "GA Plan - L01", "SH_FP_L01", 1) },
+            SheetsFailed = new[] { ("A-L01-02", "Revit says this view cannot go on this sheet") },
+            Tags = new[] { ("SH_FP_L01", "Doors", "BDS_Door Tag : BDS_Door Tag", 12, 1, "the element has no point in the view"), ("SH_FP_L01", "Rooms", "BDS_Room Tag : Number", 7, 0, (string)null) },
+            TagGaps = new[] { ("Ceilings", "the guideline names the family M_Ceiling Tag w Height, not which of its 2 types") },
+            Mh = ("L01", 3, new[] { "Coordination", "L01 copy", "L01 old" }, 2, "MH-VW-01 on L01: 3 printable plan view(s) of this level on no sheet (2 on a WIP template excepted)"),
+        }));
+        var sv = withSheets.GetProperty("new_value");
+        Ok(withSheets.GetProperty("action").GetString() == "Annotate created 6 view(s) and pinned 6 datum(s) across 3 level(s); 1 sheet(s) and 19 tag(s) on L01; MH-VW-01 3 on L01"
+           && sv.GetProperty("level").GetString() == "L01" && sv.GetProperty("sheets")[0].GetProperty("number").GetString() == "A-L01-01" && sv.GetProperty("sheets")[0].GetProperty("viewport").GetInt32() == 1
+           && sv.GetProperty("sheets")[0].GetProperty("view").GetString() == "SH_FP_L01" && sv.GetProperty("sheets_failed")[0].GetProperty("number").GetString() == "A-L01-02"
+           && sv.GetProperty("tags").GetArrayLength() == 2 && sv.GetProperty("tags")[0].GetProperty("placed").GetInt32() == 12 && sv.GetProperty("tags")[0].GetProperty("skipped").GetInt32() == 1
+           && sv.GetProperty("tags")[0].GetProperty("why").GetString() == "the element has no point in the view" && sv.GetProperty("tags")[1].GetProperty("category").GetString() == "Rooms"
+           && sv.GetProperty("tag_gaps")[0].GetProperty("category").GetString() == "Ceilings"
+           && sv.GetProperty("mh_vw_01").GetProperty("count").GetInt32() == 3 && sv.GetProperty("mh_vw_01").GetProperty("wip_excepted").GetInt32() == 2 && sv.GetProperty("mh_vw_01").GetProperty("views").GetArrayLength() == 3
+           && sv.GetProperty("mh_vw_01").GetProperty("note").GetString().StartsWith("MH-VW-01 on L01: 3") && !sv.TryGetProperty("template_file", out _) && sv.GetProperty("views_created").GetInt32() == 6,
+           "an Annotate row with sheets and tags records what the model held after the group - the sheets with their viewports, the tags per view and category, the gaps and MH-VW-01 - and no template-file fields when no file was used (MA-8-12)");
+        var levelOnly = Json(CommandReports.Annotate(created6, 3, 2, 3, 1, 1, 2, 4, 1, 3, new long[0], pinnedNow, true, "g", "r", "a", new CommandReports.AnnotateMore { Level = "L02" }));
+        Ok(levelOnly.GetProperty("new_value").GetProperty("sheets").GetArrayLength() == 0 && !levelOnly.GetProperty("new_value").TryGetProperty("mh_vw_01", out _)
+           && levelOnly.GetProperty("action").GetString() == "Annotate created 6 view(s) and pinned 6 datum(s) across 3 level(s); 0 sheet(s) and 0 tag(s) on L02",
+           "a level chosen and nothing made says 0 sheets and 0 tags on it, not nothing (MA-8-12)");
+        Ok(!av.TryGetProperty("level", out _) && !av.TryGetProperty("sheets", out _) && !av.TryGetProperty("tags", out _) && !av.TryGetProperty("mh_vw_01", out _),
+           "...and a run with no level chosen carries none of those fields (MA-8-12)");
+
         var many = Enumerable.Range(1, 55).Select(i => "Workset: W" + i).ToList();
         var std = Json(CommandReports.ApplyStandard(many, new[] { "Line style: Hidden" }, new string[0], "a"));
         Ok(std.GetProperty("entity_type").GetString() == "apply_standard" && std.GetProperty("action").GetString() == "Apply Standard: 55 created, 1 skipped, 0 failed"
@@ -157,7 +184,7 @@ static partial class Check
            && readBack > 0 && readBack < notKept && notKept < annSrc.IndexOf("GovernedNotify.Report(\"Annotate\"")
            && annSrc.Contains("var present = new FilteredElementCollector(doc).OfClass(typeof(ViewPlan))")
            && annSrc.Contains("var pinnedNow = pick.Pins.Select(p => doc.GetElement(p.Id.ToElementId())).Where(e => e != null && e.Pinned)")
-           && annSrc.Contains("if (!kept && present.Count + pinnedNow.Count + templatesNow.Count == 0)"),
+           && annSrc.Contains("if (!kept && present.Count + pinnedNow.Count + templatesNow.Count + sheetsNow.Count + tagsNow.Sum(t => t.Placed) == 0)"),
            "Annotate reads the model back after its group, kept or not (a group that throws too), says 'the model is as it was' only when the read-back finds nothing, and reports what it read (MA-2e, review C2)");
         string doctor = Src("Updaters", "FailureInterceptor.cs");
         Ok(doctor.Contains("Reported.Add(key, p.Text, p.Tx, p.Ids)") && doctor.Contains("Task.Delay(TimeSpan.FromSeconds(Sentinel.Coordination.DoctorBuffer.WindowSeconds))")

@@ -1,0 +1,19 @@
+[
+  { "name": "the pilot's block", "sheets": { "titleBlock": "BDS_Sheet : A1", "number": "A-{level}-{n}", "name": "{use} — {level}" }, "error": null },
+  { "name": "every token", "sheets": { "titleBlock": "Fam : Type", "number": "{prefix}-{level}-{n}", "name": "{use} {prefix} {level} {n}" }, "error": null },
+  { "name": "null is no block", "sheets": null, "error": null },
+  { "name": "text instead of a block", "sheets": "A1", "error": "sheets must be an object" },
+  { "name": "a list instead of a block", "sheets": [], "error": "sheets must be an object" },
+  { "name": "a field the block does not have", "sheets": { "titleBlock": "F : T", "number": "{level}", "name": "x", "size": "A1" }, "error": "sheets.size is not a sheets field (titleBlock, number, name)" },
+  { "name": "no title block", "sheets": { "number": "{level}", "name": "x" }, "error": "sheets.titleBlock must be a non-empty string" },
+  { "name": "a blank title block", "sheets": { "titleBlock": "  ", "number": "{level}", "name": "x" }, "error": "sheets.titleBlock must be a non-empty string" },
+  { "name": "a title block on two lines", "sheets": { "titleBlock": "F : T\nG : U", "number": "{level}", "name": "x" }, "error": "sheets.titleBlock must be one line" },
+  { "name": "a title block too long", "sheets": { "titleBlock": "F : TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT", "number": "{level}", "name": "x" }, "error": "sheets.titleBlock must be at most 256 characters" },
+  { "name": "a title block without a type", "sheets": { "titleBlock": "BDS_Sheet", "number": "{level}", "name": "x" }, "error": "sheets.titleBlock must be \"Family : Type\"" },
+  { "name": "a title block with an empty type", "sheets": { "titleBlock": "BDS_Sheet : ", "number": "{level}", "name": "x" }, "error": "sheets.titleBlock must be \"Family : Type\"" },
+  { "name": "a number that is not text", "sheets": { "titleBlock": "F : T", "number": 7, "name": "x" }, "error": "sheets.number must be a non-empty string" },
+  { "name": "a number token the planner does not fill", "sheets": { "titleBlock": "F : T", "number": "A-{level}-{count}", "name": "x" }, "error": "sheets.number holds {count}, which is not a sheet token ({level}, {use}, {prefix}, {n})" },
+  { "name": "a number without a level", "sheets": { "titleBlock": "F : T", "number": "A-{n}", "name": "x" }, "error": "sheets.number must hold {level}" },
+  { "name": "a name with a stray token", "sheets": { "titleBlock": "F : T", "number": "{level}", "name": "{use} {floor}" }, "error": "sheets.name holds {floor}, which is not a sheet token ({level}, {use}, {prefix}, {n})" },
+  { "name": "a name with no text", "sheets": { "titleBlock": "F : T", "number": "{level}", "name": "" }, "error": "sheets.name must be a non-empty string" }
+]

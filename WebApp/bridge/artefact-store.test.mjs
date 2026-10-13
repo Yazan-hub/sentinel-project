@@ -777,6 +777,24 @@ describe("validateArtefact — a guideline's placement block (MA-1a item 6)", ()
   });
 });
 
+// MA-8-12 (ANV-4): guideline@n's sheets block. The cases are shared with the add-in's loader (tools/annotate-check reads the same file).
+describe("validateArtefact — a guideline's sheets block (MA-8-12)", () => {
+  const cases = JSON.parse(readFileSync(new URL("./fixtures/guideline-sheets/cases.json", import.meta.url), "utf8"));
+  it("holds both kinds of case: accepted and refused", () => {
+    expect(cases.filter((c) => c.error === null).length).toBeGreaterThan(0);
+    expect(cases.filter((c) => c.error !== null).length).toBeGreaterThan(0);
+  });
+  it.each(cases.map((c) => [c.name, c]))("%s", (_name, c) => {
+    const body = { ...guideline, sheets: c.sheets };
+    if (c.error === null) expect(validateArtefact("guideline", body)).toBe(true);
+    else expect(fails("guideline", body)).toMatchObject({ status: 400, message: `guideline: ${c.error}` });
+  });
+  it("a guideline with no sheets block installs as before", () => {
+    expect(validateArtefact("guideline", guideline)).toBe(true);
+    expect(guideline).not.toHaveProperty("sheets");
+  });
+});
+
 describe("evidence_pack (MA-4a): project only, never a hand PUT, folded by the bridge", () => {
   const pack = (over = {}) => ({ kind: "evidence_pack", pack_id: "evp-0001", project: "p", asset: { name: "P", type: null, jurisdiction: null, crs: null }, storage_root: "C:/evidence/p", attestations: [], items: [], ...over });
   const RACE = "another change to evidence_pack landed at the same moment — read it again and retry; nothing was saved";

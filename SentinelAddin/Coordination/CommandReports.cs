@@ -66,7 +66,7 @@ namespace Sentinel.Coordination
                 ["warnings"] = warnings, ["story_levels"] = storyLevels, ["guideline"] = guideline, ["ruleset"] = ruleset, ["source"] = "revit",
             };
             string action = $"Annotate created {views.Count} view(s) and pinned {pinnedLevels + pinnedGrids} datum(s) across {levels} level(s)";
-            if (more != null)
+            if (more != null && more.FileName != null)
             {
                 // MA-8-11: what Revit holds after the group (the caller reads it back), never the workstation path (V2).
                 value["template_file"] = new
@@ -79,12 +79,35 @@ namespace Sentinel.Coordination
                 value["templates_not_copied"] = more.NotCopied.Take(MaxRecord).Select(n => new { name = n.Name, why = n.Why }).ToArray();
                 if (more.Copied.Count > 0) action += $"; copied {more.Copied.Count} view template(s) from {more.FileName}";
             }
+            if (more != null && more.Level != null)
+            {
+                // MA-8-12 (ANV-4, ANV-5, MH-VW-01): the sheets and tags the model holds after the group, for the one level the run chose.
+                value["level"] = more.Level;
+                value["sheets"] = more.Sheets.Take(MaxRecord).Select(s => new { number = s.Number, name = s.Name, view = s.View, viewport = s.Viewports }).ToArray();
+                value["sheets_failed"] = more.SheetsFailed.Take(MaxRecord).Select(s => new { number = s.Number, why = s.Why }).ToArray();
+                value["tags"] = more.Tags.Take(MaxRecord).Select(t => new { view = t.View, category = t.Category, tag = t.Tag, placed = t.Placed, skipped = t.Skipped, why = t.Why }).ToArray();
+                value["tag_gaps"] = more.TagGaps.Take(MaxRecord).Select(g => new { category = g.Category, why = g.Why }).ToArray();
+                if (more.Mh is { } mh)
+                    value["mh_vw_01"] = new { level = mh.Level, count = mh.Count, views = mh.Views.ToArray(), wip_excepted = mh.WipExcepted, note = mh.Note };
+                action += $"; {more.Sheets.Count} sheet(s) and {more.Tags.Sum(t => t.Placed)} tag(s) on {more.Level}" + (more.Mh is { } mhNow ? $"; MH-VW-01 {mhNow.Count} on {more.Level}" : "");
+            }
             return Row("annotate", actor, action, value);
         }
 
         /// <summary>MA-8-11 (ANV-3): the office template file an Annotate run copied view templates from, and what it did with each name.</summary>
         public sealed class AnnotateMore
         {
+            /// <summary>MA-8-12: the level the run made sheets and tags for; null when it chose none (the sheets, tags and MH-VW-01 fields are then left out).</summary>
+            public string Level;
+            /// <summary>The sheets present after the group, with their viewport count.</summary>
+            public IReadOnlyList<(string Number, string Name, string View, int Viewports)> Sheets = new (string, string, string, int)[0];
+            public IReadOnlyList<(string Number, string Why)> SheetsFailed = new (string, string)[0];
+            /// <summary>Per sheet view and category: the tags the model holds after the group (Placed), those Revit refused (Skipped) and the first reason.</summary>
+            public IReadOnlyList<(string View, string Category, string Tag, int Placed, int Skipped, string Why)> Tags = new (string, string, string, int, int, string)[0];
+            public IReadOnlyList<(string Category, string Why)> TagGaps = new (string, string)[0];
+            /// <summary>MH-VW-01 for the level (SheetPlanner.MhVw01): the count, up to 20 names, the views on a WIP template left out, and the line in words.</summary>
+            public (string Level, int Count, IReadOnlyList<string> Views, int WipExcepted, string Note)? Mh;
+            /// <summary>MA-8-11: null when no office template file was used.</summary>
             public string FileName, Title, Sha256, Format;
             public bool Opened;
             public double Seconds;

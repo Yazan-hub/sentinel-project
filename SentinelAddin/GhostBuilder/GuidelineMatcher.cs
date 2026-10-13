@@ -70,6 +70,17 @@ namespace Sentinel.GhostBuilder
         [JsonPropertyName("viewNaming")] public GuidelineViewNaming ViewNaming { get; set; }
         /// <summary>MA-1a item 6: where a placed element goes; null when the guideline has no block.</summary>
         [JsonPropertyName("placement")]  public GuidelinePlacement Placement { get; set; }
+        /// <summary>MA-8-12 (ANV-4): the title block and the sheet number and name patterns Annotate fills for one level; null when absent.</summary>
+        [JsonPropertyName("sheets")]     public GuidelineSheets Sheets { get; set; }
+    }
+
+    /// <summary>MA-8-12: guideline@n's sheets block. <c>TitleBlock</c> is "Family : Type"; <c>Number</c> and <c>Name</c> hold the tokens
+    /// {level}, {use}, {prefix} and {n} (SheetPlanner fills them).</summary>
+    public sealed class GuidelineSheets
+    {
+        [JsonPropertyName("titleBlock")] public string TitleBlock { get; set; }
+        [JsonPropertyName("number")]     public string Number { get; set; }
+        [JsonPropertyName("name")]       public string Name { get; set; }
     }
 
     /// <summary>MA-1a item 6: guideline@n's placement block. <c>worksets</c> maps a category (an <c>elements[].category</c>,
@@ -192,6 +203,8 @@ namespace Sentinel.GhostBuilder
         public GuidelineGraphics Graphics => _doc?.Graphics;
         /// <summary>MA-1a item 6: the guideline's placement block; null when it has none or no guideline is installed.</summary>
         public GuidelinePlacement Placement => _doc?.Placement;
+        /// <summary>MA-8-12: the guideline's sheets block; null when it has none or no guideline is installed.</summary>
+        public GuidelineSheets Sheets => _doc?.Sheets;
 
         /// <summary>What the catalogue check judges by: the type_catalog artefact's label ("type_catalog@1 · office ·
         /// 3f2a9c…", or "none — not installed for &lt;key&gt; or its office"). GhostStandards sets it; every gap text
@@ -278,6 +291,33 @@ namespace Sentinel.GhostBuilder
             }
             if (Present(b, "views", out var views) && views.ValueKind != JsonValueKind.Array) throw Bad("views", "must be an array");
             if (Present(b, "viewNaming", out var vn) && vn.ValueKind != JsonValueKind.Object) throw Bad("viewNaming", "must be an object");
+            // MA-8-12 (ANV-4): the sheets block, refused as the bridge refuses it (artefact-store.mjs), in the same words —
+            // tools/annotate-check runs both against WebApp/bridge/fixtures/guideline-sheets/cases.json.
+            if (Present(b, "sheets", out var sh))
+            {
+                if (sh.ValueKind != JsonValueKind.Object) throw Bad("sheets", "must be an object");
+                foreach (var sf in sh.EnumerateObject())
+                    if (sf.Name != "titleBlock" && sf.Name != "number" && sf.Name != "name") throw Bad("sheets." + sf.Name, "is not a sheets field (titleBlock, number, name)");
+                foreach (var (field, max) in new[] { ("titleBlock", 256), ("number", 128), ("name", 128) })
+                {
+                    if (!Filled(sh, field)) throw Bad("sheets." + field, "must be a non-empty string");
+                    string text = sh.GetProperty(field).GetString();
+                    if (text.IndexOfAny(new[] { '\r', '\n' }) >= 0) throw Bad("sheets." + field, "must be one line");
+                    if (text.Length > max) throw Bad("sheets." + field, "must be at most " + max + " characters");
+                    if (field == "titleBlock")
+                    {
+                        int at = text.IndexOf(" : ", StringComparison.Ordinal);
+                        if (at < 0 || !text.Substring(0, at).Any(ch => !char.IsWhiteSpace(ch) && ch != '\uFEFF') || !text.Substring(at + 3).Any(ch => !char.IsWhiteSpace(ch) && ch != '\uFEFF'))
+                            throw Bad("sheets.titleBlock", "must be \"Family : Type\"");
+                    }
+                    else
+                    {
+                        var stray = Regex.Matches(text, @"\{([^{}]*)\}").Cast<Match>().Select(m => m.Value).FirstOrDefault(t => t != "{level}" && t != "{use}" && t != "{prefix}" && t != "{n}");
+                        if (stray != null) throw Bad("sheets." + field, "holds " + stray + ", which is not a sheet token ({level}, {use}, {prefix}, {n})");
+                    }
+                }
+                if (!sh.GetProperty("number").GetString().Contains("{level}")) throw Bad("sheets.number", "must hold {level}");
+            }
             // MA-1a item 6: the placement block, refused as the bridge refuses it (artefact-store.mjs), in the same words —
             // tools/promote-check runs both against WebApp/bridge/fixtures/guideline-placement/cases.json.
             if (Present(b, "placement", out var pl))
