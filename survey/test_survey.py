@@ -912,6 +912,46 @@ class Thin(unittest.TestCase):
         self.assertEqual(pipeline.thin(P, (300, 2500), 100, 10 ** 6, [[1e8, 1e8], [1e8 + 1, 1e8 + 1]])[0].shape, (0, 3))
 
 
+class Ground(unittest.TestCase):
+    """MA-8-14: pipeline.ground - the lowest point per plan cell outside a storey's convex box; thin is untouched."""
+    # a flat site: 20 x 20 points 100 mm apart at z -50 .. -30, a stray lower point and a building on it (z up to 2000) in the middle
+    P = np.array([[x * 100.0, y * 100.0, -30.0 - ((x + y) % 3) * 10] for x in range(20) for y in range(20)] + [[505.0, 505.0, -400.0]]
+                 + [[900.0 + i, 900.0 + j, 2000.0] for i in range(0, 200, 50) for j in range(0, 200, 50)])
+
+    def test_the_lowest_point_of_each_cell_and_a_stray_low_point_wins_its_cell(self):
+        Q, cell, of = pipeline.ground(self.P, (-5000, 1500), 500, 5000)
+        self.assertEqual(Q.dtype, np.int64)
+        self.assertEqual(cell, 500)
+        self.assertEqual(len(Q), of)
+        self.assertLessEqual(Q[:, 2].max(), -30)  # the building (2000) is above the band
+        self.assertIn(-400, Q[:, 2])  # the lowest point of its cell, not the first read
+        k = {(int(x // 500), int(y // 500)) for x, y, _ in Q}
+        self.assertEqual(len(k), len(Q))  # one per cell
+
+    def test_a_convex_polygon_is_dropped_whichever_way_it_turns_and_none_keeps_all(self):
+        box = [[400, 400], [1200, 400], [1200, 1200], [400, 1200]]
+        Qall = pipeline.ground(self.P, (-5000, 1500), 100, 5000)[0]
+        for poly in (box, box[::-1]):
+            Q = pipeline.ground(self.P, (-5000, 1500), 100, 5000, poly)[0]
+            self.assertTrue(0 < len(Q) < len(Qall))
+            self.assertFalse(((Q[:, 0] > 400) & (Q[:, 0] < 1200) & (Q[:, 1] > 400) & (Q[:, 1] < 1200)).any())
+        diamond = [[800, 0], [1600, 800], [800, 1600], [0, 800]]  # turned: the corner (100, 100) is outside it, (800, 800) inside
+        Q = pipeline.ground(self.P, (-5000, 1500), 100, 5000, diamond)[0]
+        self.assertTrue(any((q[0], q[1]) == (100, 100) for q in Q.tolist()))
+        self.assertFalse(any((q[0], q[1]) == (800, 800) for q in Q.tolist()))
+        np.testing.assert_array_equal(pipeline.ground(self.P, (-5000, 1500), 100, 5000, None)[0], Qall)
+
+    def test_the_cell_doubles_under_the_cap_and_nothing_in_the_band_is_no_point(self):
+        Q, cell, of = pipeline.ground(self.P, (-5000, 1500), 100, 50)
+        self.assertGreater(cell, 100)
+        self.assertLessEqual(len(Q), 50)
+        self.assertGreater(of, 50)
+        self.assertEqual(pipeline.ground(self.P, (90000, 91000), 500, 5000)[0].shape, (0, 3))
+
+    def test_the_same_points_every_run(self):
+        np.testing.assert_array_equal(pipeline.ground(self.P, (-5000, 1500), 300, 5000)[0], pipeline.ground(self.P, (-5000, 1500), 300, 5000)[0])
+
+
 class Deviation(unittest.TestCase):
     """MA-4e: pipeline.deviation on the drill building (2 mm of noise across each face) — numbers only, the bridge judges (survey-plan judge).
     Pinned from the in-memory run of the plan (Base)."""
@@ -1302,6 +1342,54 @@ class InProcess(unittest.TestCase):
                          "cloud": {"cell_mm": 100, "z_mm": [300, 2500], "max_points": 5000, "xy_mm": [[-1e6, -1e6], [1e6, 1e6]]}})
         self.assertEqual(service.JOB["status"], "done", service.JOB)
         self.assertEqual(service.JOB["result"]["receipt"]["cloud"]["xy_mm"], [[-1e6, -1e6], [1e6, 1e6]])
+
+    def test_a_ground_cloud_is_the_lowest_per_cell_and_its_receipt_says_so_and_a_plain_one_does_not(self):
+        """MA-8-14: cloud.ground reads the ground instead of thinning; the receipt gains ground/outside_mm only then."""
+        item = self.item(building())
+        box = [[-1e5, -1e5], [1e5, -1e5], [1e5, 1e5], [-1e5, 1e5]]
+        service.JOB.clear()
+        service.JOB.update(id="scan-3", status="queued", stage="queued", pct=0, refused=[])
+        with contextlib.redirect_stderr(io.StringIO()):
+            service.run({"job_id": "scan-3", "items": [item], "params": {"voxel_mm": 20, "storey_min_mm": 2000}, "seed": 1,
+                         "cloud": {"cell_mm": 500, "z_mm": [-100, 100], "max_points": 2000, "ground": True, "outside_mm": box}})
+        self.assertEqual(service.JOB["status"], "done", service.JOB)
+        rc = service.JOB["result"]["receipt"]["cloud"]
+        self.assertEqual((rc["ground"], rc["outside_mm"], rc["points"]), (True, box, 0))  # the polygon holds the whole building: nothing outside it
+
+    def test_a_ground_cloud_with_part_of_the_scan_outside_the_box_gives_one_lowest_point_per_cell_and_none_inside(self):
+        """MA-8-14 review: end to end through run() - a box that leaves some of the scan outside returns rows, one per cell, none inside the box."""
+        item = self.item(building())
+        box = [[0, 0], [2000, 0], [2000, 2000], [0, 2000]]
+        service.JOB.clear()
+        service.JOB.update(id="scan-4", status="queued", stage="queued", pct=0, refused=[])
+        with contextlib.redirect_stderr(io.StringIO()):
+            service.run({"job_id": "scan-4", "items": [item], "params": {"voxel_mm": 20, "storey_min_mm": 2000}, "seed": 1,
+                         "cloud": {"cell_mm": 500, "z_mm": [-5000, 5000], "max_points": 2000, "ground": True, "outside_mm": box}})
+        self.assertEqual(service.JOB["status"], "done", service.JOB)
+        pts, rc = service.JOB["result"]["points"], service.JOB["result"]["receipt"]["cloud"]
+        self.assertTrue(len(pts) > 0 and rc["points"] == len(pts) and rc["ground"] is True and rc["of"] >= len(pts))
+        cells = {(p[0] // rc["cell_mm"], p[1] // rc["cell_mm"]) for p in pts}
+        self.assertEqual(len(cells), len(pts))  # one point per cell
+        self.assertFalse(any(0 <= p[0] <= 2000 and 0 <= p[1] <= 2000 for p in pts))  # none inside the box
+
+    def test_read_cloud_ground_and_outside_mm(self):
+        good = {"job_id": "scan-1", "items": [{"id": "ev-0001", "kind": "scan", "path": "x", "sha256": "a" * 64}], "params": {"voxel_mm": 20, "storey_min_mm": 2000},
+                "seed": 1, "cloud": {"cell_mm": 500, "z_mm": [-5000, 1500], "max_points": 2000}}
+        box = [[0, 0], [10, 0], [10, 20], [0, 20]]
+        self.assertEqual(service.read_cloud(good)["cloud"], good["cloud"])  # without ground: the answer is as it was
+        self.assertEqual(service.read_cloud({**good, "cloud": {**good["cloud"], "ground": True}})["cloud"], {**good["cloud"], "ground": True})
+        self.assertEqual(service.read_cloud({**good, "cloud": {**good["cloud"], "ground": True, "outside_mm": box}})["cloud"]["outside_mm"], box)
+        grid = [[-763971000.5, -1035486000.25], [-763961000.5, -1035486000.25], [-763961000.5, -1035476000.25], [-763971000.5, -1035476000.25]]
+        self.assertEqual(service.read_cloud({**good, "cloud": {**good["cloud"], "ground": True, "outside_mm": grid}})["cloud"]["outside_mm"], grid)  # a national grid's box
+        with self.assertRaisesRegex(ValueError, r"cloud\.outside_mm must be a convex polygon .* only with cloud\.ground"):
+            service.read_cloud({**good, "cloud": {**good["cloud"], "outside_mm": box}})  # outside_mm alone
+        for bad in ([[0, 0], [1, 1]], [[0, 0], [10, 0], [10, 20], [5, 5], [0, 20]], [[0, 0], [10, 0], [10, "a"]], "box", [[0, 0]] * 9):
+            with self.assertRaisesRegex(ValueError, r"cloud\.outside_mm must be a convex polygon"):
+                service.read_cloud({**good, "cloud": {**good["cloud"], "ground": True, "outside_mm": bad}})
+        with self.assertRaisesRegex(ValueError, "two different cuts"):
+            service.read_cloud({**good, "cloud": {**good["cloud"], "ground": True, "xy_mm": [[0, 0], [1, 1]]}})
+        with self.assertRaisesRegex(ValueError, "cloud.ground must be true"):
+            service.read_cloud({**good, "cloud": {**good["cloud"], "ground": False}})
 
     def test_read_cloud_refuses_in_words(self):
         good = {"job_id": "scan-1", "items": [{"id": "ev-0001", "kind": "scan", "path": "x", "sha256": "a" * 64}], "params": {"voxel_mm": 20, "storey_min_mm": 2000},

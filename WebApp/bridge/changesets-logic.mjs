@@ -15,7 +15,9 @@ import { checkFacts, KIND_ENTITY, KIND_PSET } from "./changesets-typing.mjs";
 // MA-6-6 (MAS-2, D8): mass — a footprint between two elevations, placed as a DirectShape in Mass (Photo Massing's; Shell a Mass shells it).
 // MA-8-10: stair — one straight run between two Building Stories, between two levels the model holds, of the office's stair type; built in Revit's own
 // stair edit scope, so a stair changeset holds its stair and nothing else (the bridge never types it: checkPlace demands TypeName).
-export const VOCABULARY = ["wall", "floor", "level", "grid", "roof", "ceiling", "door", "window", "column", "furniture", "room", "opening", "beam", "mass", "stair"];
+// MA-8-14: terrain — the ground of a survey as one Toposolid (Revit 2024 and later) of the office's Toposolid type, from points the add-in read off the scan
+// (lowest per cell, outside the storey's box), around a hole of the storey's footprint; a terrain changeset holds its terrain and nothing else.
+export const VOCABULARY = ["wall", "floor", "level", "grid", "roof", "ceiling", "door", "window", "column", "furniture", "room", "opening", "beam", "mass", "stair", "terrain"];
 /** The kinds that take no type: a level and a grid are named, a room is named and numbered, an opening (MA-6-3) and a mass (MA-6-6) are their shape. */
 export const UNTYPED = ["level", "grid", "room", "opening", "mass"];
 /** MA-6-1: the IFC class the bridge sets from each kind — the Promote six (KIND_ENTITY, held to PromoteWallsPlanner.Classes by
@@ -24,7 +26,8 @@ export const UNTYPED = ["level", "grid", "room", "opening", "mass"];
 export const CREATE_ENTITY = { ...KIND_ENTITY, level: "IFCBUILDINGSTOREY", grid: "IFCGRID", room: "IFCSPACE", column: "IFCCOLUMN", furniture: "IFCFURNITURE",
   opening: "IFCOPENINGELEMENT", beam: "IFCBEAM", // MA-6-3
   mass: "IFCBUILDINGELEMENTPROXY", // MA-6-6: what GovernedElementExtractor reads for OST_Mass (as_built counts it out_of_scope)
-  stair: "IFCSTAIR" }; // MA-8-10: what GovernedElementExtractor reads for OST_Stairs (as_built counts it out_of_scope; the DD IDS asks nothing of it)
+  stair: "IFCSTAIR", // MA-8-10: what GovernedElementExtractor reads for OST_Stairs (as_built counts it out_of_scope; the DD IDS asks nothing of it)
+  terrain: "IFCGEOGRAPHICELEMENT" }; // MA-8-14: what Revit's IFC4 export makes of a Toposolid (IfcGeographicElement, .TERRAIN - the spike, K-1b)
 /** What a ghost does. create places a new element (the v1 path); retype changes an EXISTING element's type, named by its
  *  Revit UniqueId (Promote) — a door or window keeps its host: ChangeTypeId to a symbol of the same category; attach re-tops
  *  an existing wall. An element without op is a create. MA-2c: set_parameter writes one value on an existing TYPE, named by its
@@ -71,13 +74,14 @@ const BODY_FIELDS = ["name", "source", "elements", "exceptions", "actor", "agent
 // MA-2c: a set_parameter's parameter, the Revit parameter's name, the value the plan read (from), the value to write (to) and
 // where it comes from (value_source — the bridge checks it and writes its own record).
 const ELEMENT_FIELDS = ["kind", "op", "target", "reason", "validate", "place", "provenance", "cid", "evidence", "facts",
-  "parameter", "revit_parameter", "from", "to", "value_source", "replaces", "from_flag"]; // what an element is rebuilt from (MA-8-10: a stair's from_flag)
+  "parameter", "revit_parameter", "from", "to", "value_source", "replaces", "from_flag", "from_scan"]; // what an element is rebuilt from (MA-8-10: a stair's from_flag; MA-8-14: a terrain's from_scan)
 // Review amendment C3: what an element's blocks are rebuilt from. PLACE_KEPT is the add-in's PlaceDto (ChangesetClient.cs),
 // name for name; a key added to one must be added to the other, or it is listed under `ignored` and not kept.
 export const PLACE_KEPT = ["TypeName", "LevelName", "LocationCurve", "LocationLoop", "BaseElevation", "TopElevation", "Name", "BaseLevel", "TopLevel",
   "FamilyName", "Location", "SillHeight", "FlipFacing", "FlipHand", "Rotation", "Mirrored", "Boundary", "BaseOffset", "Offset", "Mark", "Structural", "Number",
   "Width", "Height", "Slopes", // MA-6-3: a wall opening's size; a roof's slope per edge
-  "Risers", "Going"]; // MA-8-10: a stair's riser count and going (mm); its width is Width
+  "Risers", "Going", // MA-8-10: a stair's riser count and going (mm); its width is Width
+  "Points"]; // MA-8-14: a terrain's ground points, [x, y, z] mm (z = the absolute model elevation); its footprint is Boundary
 const TARGET_KEPT = ["unique_id", "type_before", "placed", "at"];
 const VALIDATE_KEPT = ["identity", "psets", "quantities"];
 const MAX_EVIDENCE = 50; // review amendment C4: contract 2's evidence ids on one element
@@ -96,9 +100,9 @@ const arcSag = (s, e, m) => {
 // or grid's name is identity.Name, so it has no Mark; only a point family's type — door, window, column, furniture — is named
 // with its family).
 const PLACE_FIELDS = {
-  FamilyName: ["door", "window", "column", "furniture", "beam", "stair"], Mark: ["wall", "floor", "roof", "ceiling", "door", "window", "column", "furniture", "beam", "stair"],
+  FamilyName: ["door", "window", "column", "furniture", "beam", "stair", "terrain"], Mark: ["wall", "floor", "roof", "ceiling", "door", "window", "column", "furniture", "beam", "stair"],
   Structural: ["floor"], Location: ["door", "window", "column", "furniture", "room", "opening"], Number: ["room"], FlipFacing: ["door", "window"], FlipHand: ["door", "window"],
-  SillHeight: ["window", "opening"], Boundary: ["roof", "ceiling", "opening", "mass"], BaseOffset: ["roof"], Offset: ["ceiling"],
+  SillHeight: ["window", "opening"], Boundary: ["roof", "ceiling", "opening", "mass", "terrain"], BaseOffset: ["roof"], Offset: ["ceiling"],
   // MA-1b (GHB-1): a drawn block's direction — the plan angle of its X axis and whether it is mirrored. The add-in flips the
   // placed instance to that hinge side and swing side (ChangesetExecutor), and measures what Revit holds after the commit.
   Rotation: ["door", "window"], Mirrored: ["door", "window"],
@@ -106,8 +110,11 @@ const PLACE_FIELDS = {
   Width: ["opening", "stair"], Height: ["opening"], Slopes: ["roof"],
   // MA-8-10: a stair's riser count and going. TopLevel is not here either: the create branch checks it for a stair too.
   Risers: ["stair"], Going: ["stair"],
+  Points: ["terrain"], // MA-8-14
 };
 const STAIR_PLACE = ["LevelName", "TopLevel", "FamilyName", "TypeName", "LocationCurve", "Width", "Risers", "Going", "Mark"]; // MA-8-10: all a stair takes
+const TERRAIN_PLACE = ["LevelName", "FamilyName", "TypeName", "Points", "Boundary"]; // MA-8-14: all a terrain takes
+const MIN_TERRAIN_POINTS = 3, MAX_TERRAIN_POINTS = 2000, MAX_TERRAIN_SPAN_MM = 500000;
 const same = (a, b) => a.trim().toLowerCase() === b.trim().toLowerCase(); // names are compared as the executor reads them: case aside
 // The point kinds: a family placed at place.Location on its level — a door or window in the one wall under it, a column or
 // furniture unhosted (MA-1a step 2).
@@ -158,6 +165,14 @@ export function outlineProblem(b) {
   return null;
 }
 
+/** MA-8-14: whether the plan point p is inside the first n vertices of the outline b (even-odd; an outline the checks above passed). */
+function inside(b, n, p) {
+  let c = false;
+  for (let i = 0, j = n - 1; i < n; j = i++)
+    if ((b[i][1] > p[1]) !== (b[j][1] > p[1]) && p[0] < ((b[j][0] - b[i][0]) * (p[1] - b[i][1])) / (b[j][1] - b[i][1]) + b[i][0]) c = !c;
+  return c;
+}
+
 /** Per-kind geometry sanity. Deliberately shallow: real placement failures surface in Revit's
  *  transaction (and roll the whole changeset back) — this guards against garbage, not bad design. */
 function checkPlace(kind, place, at) {
@@ -166,6 +181,10 @@ function checkPlace(kind, place, at) {
   if (kind === "stair")
     for (const f of PLACE_KEPT)
       if (place[f] !== undefined && !STAIR_PLACE.includes(f)) throw err(400, `${at}: a stair takes no place.${f} — it is one straight run between two levels`);
+  // MA-8-14: so is a terrain - a Toposolid of points around a hole, nothing else of the kept keys.
+  if (kind === "terrain")
+    for (const f of PLACE_KEPT)
+      if (place[f] !== undefined && !TERRAIN_PLACE.includes(f)) throw err(400, `${at}: a terrain takes no place.${f} — it is its Points around the storey's Boundary, of the office's Toposolid type`);
   for (const [f, kinds] of Object.entries(PLACE_FIELDS))
     if (place[f] !== undefined && !kinds.includes(kind)) throw err(400, `${at}: ${a(kind)} takes no place.${f}`);
   if (place.Mark !== undefined && !text(place.Mark, 256)) throw err(400, `${at}: place.Mark must be text of at most 256 characters`);
@@ -266,6 +285,32 @@ function checkPlace(kind, place, at) {
     const run = Math.hypot(c.end[0] - c.start[0], c.end[1] - c.start[1]), need = (place.Risers - 1) * place.Going;
     if (Math.abs(run - need) > 1)
       throw err(400, `${at}: the run is ${Math.round(run)} mm; ${place.Risers} risers at ${place.Going} mm going need ${need} mm ((risers − 1) × going)`);
+  } else if (kind === "terrain") {
+    // MA-8-14: the ground as one Toposolid. Revit triangulates the points in plan, so the refusals are the ones it would make at Apply (the spike, K-1b):
+    // fewer than 3 points or all on one line throw, two within 1 mm merge silently. The Boundary is the storey's footprint, the hole the solid leaves.
+    if (!text(place.LevelName, 256)) throw err(400, `${at}: a terrain needs place.LevelName — the level the Toposolid is created on; Sentinel never picks its level`);
+    if (!text(place.TypeName, 256))
+      throw err(400, `${at}: a terrain needs place.TypeName — the office's Toposolid type (the guideline's Toposolid rule); Sentinel never takes the model's first type`);
+    if (place.FamilyName !== undefined && !text(place.FamilyName, 256)) throw err(400, `${at}: place.FamilyName must be text of at most 256 characters`);
+    const pts = place.Points;
+    if (!Array.isArray(pts) || pts.length < MIN_TERRAIN_POINTS || pts.length > MAX_TERRAIN_POINTS || !pts.every(point))
+      throw err(400, `${at}: a terrain needs place.Points, ${MIN_TERRAIN_POINTS} to ${MAX_TERRAIN_POINTS} finite [x,y,z] points`);
+    const span = Math.max(Math.max(...pts.map((p) => p[0])) - Math.min(...pts.map((p) => p[0])), Math.max(...pts.map((p) => p[1])) - Math.min(...pts.map((p) => p[1])));
+    if (span > MAX_TERRAIN_SPAN_MM) throw err(400, `${at}: place.Points span ${Math.round(span / 1000)} m in plan — a terrain is at most ${MAX_TERRAIN_SPAN_MM / 1000} m across`);
+    const byX = [...pts.keys()].sort((i, j) => pts[i][0] - pts[j][0]);   // two points within 1 mm in plan: sweep by x
+    for (let i = 0; i < byX.length; i++)
+      for (let j = i + 1; j < byX.length && pts[byX[j]][0] - pts[byX[i]][0] < MIN_EDGE_MM; j++)
+        if (Math.hypot(pts[byX[j]][0] - pts[byX[i]][0], pts[byX[j]][1] - pts[byX[i]][1]) < MIN_EDGE_MM)
+          throw err(400, `${at}: place.Points[${Math.min(byX[i], byX[j])}] and [${Math.max(byX[i], byX[j])}] lie within ${MIN_EDGE_MM} mm of each other in plan — Revit merges them; send one`);
+    const far = pts.reduce((m, p) => (Math.hypot(p[0] - pts[0][0], p[1] - pts[0][1]) > Math.hypot(m[0] - pts[0][0], m[1] - pts[0][1]) ? p : m), pts[0]);
+    const line = Math.hypot(far[0] - pts[0][0], far[1] - pts[0][1]);   // > 0: no two points coincide
+    if (pts.every((p) => Math.abs(cross(pts[0], far, p)) / line < MIN_EDGE_MM))
+      throw err(400, `${at}: place.Points lie on one line in plan — Revit cannot make a surface of them; send points that are not in a line`);
+    const why = outlineProblem(place.Boundary);
+    if (why) throw err(400, `${at}: terrain place.Boundary ${why} (the storey's footprint, the hole in the Toposolid)`);
+    const n = edgeCount(place.Boundary);
+    const hole = pts.findIndex((p) => inside(place.Boundary, n, p));
+    if (hole >= 0) throw err(400, `${at}: place.Points[${hole}] lies inside the Boundary — ground is outside the storey's footprint`);
   } else if (kind === "mass") {
     // MA-6-6 (MAS-2): a footprint and two elevations, in the Level.Elevation frame (a level's BaseElevation's) — no level of its own: a
     // DirectShape has none, and Shell a Mass gives each storey its level (amendment 14: a LevelName would be kept and never applied).
@@ -472,6 +517,19 @@ export function validateChangeset(body, { member = false, type = null, cite = nu
       if (!text(f.unique_id, 64) || !f.unique_id.startsWith("stair:")) throw err(400, `${at}: from_flag.unique_id must be the stair flag's unique_id (text starting "stair:", at most 64 characters)`);
       from_flag = { changeset: f.changeset.toLowerCase(), unique_id: f.unique_id };
     }
+    // MA-8-14: the survey changeset whose scan a terrain's points came off - the shape here, its facts in checkFromScan (the earlier changesets are read in the store).
+    // Required: a terrain starts from a scan, and the add-in (not the bridge) read its points - the ledger and the desk say whose word they are.
+    let from_scan = null;
+    if (el.from_scan !== undefined && (op !== "create" || el.kind !== "terrain")) throw err(400, `${at}: from_scan belongs to a terrain create only — the survey changeset whose scan its points came from`);
+    if (op === "create" && el.kind === "terrain") {
+      // MA-8-14 review: the bridge cannot tie the points to the scan, so only a signed-in member's Revit (Propose terrain from the scan) files one - never an agent or a script
+      if (!member) throw err(400, `${at}: a terrain is filed by a signed-in member from Revit (Propose terrain from the scan) — the machine credential files none; nothing was saved`);
+      const f = el.from_scan;
+      if (!isBlock(f)) throw err(400, `${at}: a terrain needs from_scan {changeset} — the survey changeset whose scan its ground points came from`);
+      nested(f, ["changeset"], `${at}.from_scan`);
+      if (typeof f.changeset !== "string" || !UUID.test(f.changeset)) throw err(400, `${at}: from_scan.changeset must be the id (a uuid) of the survey changeset`);
+      from_scan = { changeset: f.changeset.toLowerCase() };
+    }
     if (op === "create") {
       checkPlace(el.kind, el.place, at);
       if (el.replaces !== undefined) replaces = checkReplaces(el, at, member, nested, rehosted, touched);
@@ -482,7 +540,7 @@ export function validateChangeset(body, { member = false, type = null, cite = nu
       }
       if (FAMILY_KINDS.includes(el.kind) && !text(place.FamilyName, 256))
         throw err(400, `${at}: a ${el.kind} needs place.FamilyName — a type name alone is not one type`);
-      if (["roof", "ceiling", "room", "opening", "stair", ...FAMILY_KINDS].includes(el.kind) && !text(place.LevelName, 256))
+      if (["roof", "ceiling", "room", "opening", "stair", "terrain", ...FAMILY_KINDS].includes(el.kind) && !text(place.LevelName, 256))
         throw err(400, `${at}: ${a(el.kind)} needs place.LevelName — Sentinel never picks its level`);
       // MA-6-3 review fix: an opening is its shape — a TypeName on it would be shown to the reviewer and never applied. MA-6-6: so is a mass.
       if ((el.kind === "opening" || el.kind === "mass") && place.TypeName !== undefined) throw err(400, `${at}: ${a(el.kind)} takes no place.TypeName — it is its shape`);
@@ -626,6 +684,7 @@ export function validateChangeset(body, { member = false, type = null, cite = nu
       ...(op === "retype" ? { foreign } : {}), // MA-8-7 (amendment 16): the bridge's judgement; a foreign retype is never pre-ticked
       ...(replaces ? { replaces } : {}),
       ...(from_flag ? { from_flag } : {}),
+      ...(from_scan ? { from_scan } : {}),
       validate: written ? { identity, psets: [{ name: pset, rows: [{ name: prop, value: written.to }] }], quantities: [] }
         : { identity, psets: entries(validate.psets, "psets"), quantities: entries(validate.quantities, "quantities") },
       place,
@@ -651,6 +710,10 @@ export function validateChangeset(body, { member = false, type = null, cite = nu
   // MA-8-10: a stair is built in Revit's own stair edit scope - it is the only element of its changeset
   if (elements.some((e) => e.kind === "stair") && elements.length !== 1)
     throw err(400, "a stair changeset holds its stair and nothing else — Revit builds a stair in its own edit scope; file the rest apart");
+
+  // MA-8-14: so is a terrain - a Toposolid is made in one go, from its points around its hole
+  if (elements.some((e) => e.kind === "terrain") && elements.length !== 1)
+    throw err(400, "a terrain changeset holds its terrain and nothing else — file the rest apart");
 
   // MA-8-9: a stair flag's source is the bridge's — "ifc" for a flag the bridge built from an IFC job it ran, "posted" for a body's; a flag from any other job is a 400
   const flagSource = !job ? "posted" : String(job.record?.reader ?? "").startsWith("sentinel-ifc ") ? "ifc" : null;
@@ -728,6 +791,24 @@ export function checkFromFlag(elements, earlier, reverted = []) {
           throw err(409, `${at}: this flag is already built as "${other.name}" (applied) — undo it in Revit first`);
       }
     }
+  }
+}
+
+/** MA-8-14: the survey changeset each terrain of `elements` starts from, checked against `earlier` (every stored changeset of the project). Pure; a
+ *  failure is a 4xx in words: 404 - the project holds no such changeset; 400 - it was not built from a survey job the bridge ran (a posted body, an
+ *  IFC or drawing job), so there is no scan behind the points. The points themselves are the add-in's word: the bridge read no scan for them. */
+export function checkFromScan(elements, earlier) {
+  for (const [i, el] of (elements ?? []).entries()) {
+    const f = el.from_scan;
+    if (!f) continue;
+    const at = `elements[${i}]`;
+    const cs = (earlier ?? []).find((c) => c.id === f.changeset);
+    if (!cs) throw err(404, `${at}: from_scan names changeset ${f.changeset}, which this project does not hold — nothing was saved`);
+    if (!cs.job || cs.claimed !== false || !String(cs.job.reader ?? "").startsWith("sentinel-survey "))
+      throw err(400, `${at}: changeset "${cs.name}" was not built from a survey job the bridge ran — there is no scan behind a terrain from it; nothing was saved`);
+    // MA-8-14 review: one live terrain per scan - a second press (or a retry after a slow reply) would stand two Toposolids on each other
+    const twin = (earlier ?? []).find((c) => c.status === "proposed" && (c.elements ?? []).some((o) => o.kind === "terrain" && o.from_scan?.changeset === f.changeset));
+    if (twin) throw err(409, `${at}: a terrain from "${cs.name}"'s scan is already filed ("${twin.name}") — withdraw it first; nothing was saved`);
   }
 }
 

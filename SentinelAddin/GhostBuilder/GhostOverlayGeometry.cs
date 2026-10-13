@@ -37,7 +37,8 @@ namespace Sentinel.GhostBuilder
         public static bool IsCreate(ChangesetElementDto el) => el != null && el.Op == "create" && el.Place != null;
 
         /// <summary>Review: a create the overlay can draw — a level is a create with no shape.</summary>
-        public static bool Drawable(ChangesetElementDto el) => IsCreate(el) && el.Kind != "level";
+        // MA-8-14 review: a terrain is a level-like create with no ghost drawing (the Toposolid is points, not a sketch) - not counted as drawable
+        public static bool Drawable(ChangesetElementDto el) => IsCreate(el) && el.Kind != "level" && el.Kind != "terrain";
 
         /// <summary><paramref name="levelMm"/>: the elevation (mm) of the level the executor resolves for this create, read on the API thread.
         /// MA-6-4: <paramref name="topMm"/>, a wall's TopLevel's elevation (mm) — the executor constrains its top there, so it is drawn there.

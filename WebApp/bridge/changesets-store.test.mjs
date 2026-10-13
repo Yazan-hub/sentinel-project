@@ -1680,6 +1680,37 @@ describe("verifyChangeset (MA-4e): a signed-in contributor measures a placed sur
     await expect(scanOverlay("ma4c-drill", ID, sdeps({}, { ...CS, exceptions: [flag], job: { ...CS.job, reader: "sentinel-ifc 0.2.0" } }), { flag: flag.unique_id }))
       .rejects.toMatchObject({ status: 409, message: `${CS.name} was built from an IFC (${CS.job.id}) — it has no scan to show — a stair flag on it has no scan slice: flag the stair on a survey changeset of this storey` });
   });
+  it("(k) MA-8-14: the ground - the band under and over the lowest wall, the storey's oriented box as outside_mm in the scan's frame, 500 mm cells, 2000 points; the answer carries the level and the box; it fails closed on a service that does not read ground", async () => {
+    const wall = (e, level) => ({ ...e, place: { ...e.place, LevelName: level } });
+    const cs = { ...CS, elements: CS.elements.map((e) => wall(e, "GR-FFL")) };
+    const echo = (over = {}) => vi.fn(async (_k, _j, p) => ({ status: "done", version: "0.6.0", refused: [], result: { points: [[125, -900, -300], [9000, 100, -250], [4000, 3000, -300], [-876, 3000, -300], [-877, 3000, -290]], derived: [],
+      receipt: { cloud: { cell_mm: 500, z_mm: p.cloud.z_mm, of: 5, points: 5, ground: true, outside_mm: p.cloud.outside_mm, ...over } } } }));
+    const deps = sdeps({ measureJob: echo() }, cs);
+    const r = await scanOverlay("ma4c-drill", ID, deps, { ground: true });
+    const sent = deps.measureJob.mock.calls[0][2].cloud;
+    expect([sent.cell_mm, sent.max_points, sent.ground, sent.z_mm, sent.xy_mm]).toEqual([500, 2000, true, [-5000, 1500], undefined]);   // the model's z 0, less dz 0 in the scan's frame (CS's frame)
+    expect(sent.outside_mm).toHaveLength(4);
+    expect(deps.measureJob.mock.calls[0][4]).toEqual({ path: "/cloud", what: "a scan overlay" });
+    expect([r.ground, r.level, r.footprint.length, r.z_mm, r.of, r.cell_mm]).toEqual([true, "GR-FFL", 4, [-5000, 1500], 5, 500]);
+    // frame dx 40000, the box x 39125..48850: inside (44000) and 1 mm out (39124: a turned frame's rounding can put a point there) are dropped; 2 mm out (39123) stays
+    expect(r.points).toEqual([[40125, -900, -300], [49000, 100, -250], [39123, 3000, -290]]);
+    expect([deps.audit.mock.calls.length, deps.docInsert.mock.calls.length]).toEqual([0, 0]);
+    const old = sdeps({ measureJob: echo({ ground: undefined }) }, cs);   // a sentinel-survey that drops keys it does not know
+    await expect(scanOverlay("ma4c-drill", ID, old, { ground: true })).rejects.toMatchObject({ status: 502, message: "this sentinel-survey does not read ground — its scan is not shown" });
+    await expect(scanOverlay("ma4c-drill", ID, sdeps({}, { ...CS, elements: [] }), { ground: true })).rejects.toMatchObject({ status: 409, message: `${CS.name} has no wall to show the ground against` });
+    await expect(scanOverlay("ma4c-drill", ID, sdeps({ myRole: vi.fn(async () => "service") }, cs), { ground: true })).rejects.toMatchObject({ status: 403 });
+    // MA-8-14 review: the ground is read under the job's lowest storey - a higher survey changeset of the same job is a 409 and nothing is read
+    const higher = sdeps({ measureJob: echo() }, cs);
+    higher.saved.set("low", { id: "low", name: "Survey job-0002 · B1", status: "proposed", job: cs.job,
+      elements: cs.elements.map((e) => ({ ...e, place: { ...e.place, LevelName: "B1", LocationCurve: { ...e.place.LocationCurve, start: [...e.place.LocationCurve.start.slice(0, 2), -3000], end: [...e.place.LocationCurve.end.slice(0, 2), -3000] } } })) });
+    await expect(scanOverlay("ma4c-drill", ID, higher, { ground: true })).rejects.toMatchObject({ status: 409, message: `terrain is read under the lowest storey (B1, Survey job-0002 · B1); ${cs.name} is higher — nothing was read` });
+    expect(higher.measureJob).not.toHaveBeenCalled();
+    higher.saved.set("low", { ...higher.saved.get("low"), status: "withdrawn" });
+    await expect(scanOverlay("ma4c-drill", ID, higher, { ground: true })).resolves.toMatchObject({ ground: true });
+    const plain = sdeps({}, cs);   // no ground asked: the request is as before
+    await scanOverlay("ma4c-drill", ID, plain);
+    expect(plain.measureJob.mock.calls[0][2].cloud).toEqual({ cell_mm: 100, z_mm: [300, 2500], max_points: 5000 });
+  });
 });
 
 describe("MA-6-2 — Revit's as-built re-read, judged by the bridge against the installed ids@n (fixture as-built-result.json)", () => {
@@ -2077,7 +2108,8 @@ describe("flagChangeset (MA-8-9): a person's stair pick, appended to a changeset
   it("the routes: POST /flags (201, the body without actor) and GET /scan?flag= reach the store", () => {
     const src = readFileSync(new URL("./bcf-service.mjs", import.meta.url), "utf8");
     expect(src).toContain('if (p2 && p3 === "flags" && req.method === "POST") { const { actor: _who, ...pick } = body; return send(res, 201, await ch.flagChangeset(key, p2, pick, actor)); }');
-    expect(src).toContain('await ch.scanOverlay(key, p2, {}, flag != null ? { flag } : {})');
+    expect(src).toContain('await ch.scanOverlay(key, p2, {}, { ...(flag != null ? { flag } : {}), ...(ground ? { ground } : {}) })');
+    expect(src).toContain('if (ground && flag != null) return send(res, 400, { message: "ground and flag are two different cuts of the scan — send one" });');   // MA-8-14
   });
 });
 
@@ -2177,5 +2209,43 @@ describe("proposeChangeset — a stair from a flag (MA-8-10)", () => {
     const out = await reportResult("demo", cs.id, { applied: [{ proposal_guid: cs.elements[0].proposal_guid, revit_element_id: 5, revit_unique_id: "u", built: BUILT }], rejected: [] }, "revit", deps);
     expect(out.result.applied[0]).not.toHaveProperty("built");
     expect(deps.audit.mock.calls.find((c) => c[3] === "changeset_applied")[6]).not.toHaveProperty("stairs");
+  });
+});
+
+// MA-8-14: a terrain is filed from a survey changeset the bridge built; the points are the add-in's word, so the element names its scan and the ledger is not read
+describe("proposeChangeset — a terrain from a scan (MA-8-14)", () => {
+  const cases = JSON.parse(readFileSync(new URL("./fixtures/changeset-ops/terrain-cases.json", import.meta.url), "utf8"));
+  const sc = cases.plan.changeset;
+  const surveyDoc = (over = {}) => ({ id: sc.id, name: sc.name, status: "proposed", claimed: false, job: { id: sc.job, reader: "sentinel-survey 0.6.0" }, elements: [], exceptions: [], ...over });
+  const member = (over = {}) => baseDeps({ myRole: vi.fn(async () => "contributor"), requireMinRole: vi.fn(async () => "contributor"), auditAll: vi.fn(async () => []), ...over });
+
+  it("files the planner's body next to its survey changeset: the terrain keeps from_scan, is never pre-ticked, and no ledger is read", async () => {
+    const deps = member(); deps.saved.set(sc.id, surveyDoc());
+    const cs = await proposeChangeset("demo", structuredClone(cases.good), "yazan", deps);
+    expect(cs.status).toBe("proposed");
+    expect(cs.elements).toHaveLength(1);
+    expect(cs.elements[0]).toMatchObject({ kind: "terrain", from_scan: { changeset: sc.id }, pretick: false, typing: { typed_by: "caller" }, validate: { identity: { Class: "IFCGEOGRAPHICELEMENT" } }, place: { Points: cases.plan.points, Boundary: cases.plan.footprint } });
+    expect(deps.auditAll).not.toHaveBeenCalled();
+  });
+  it("MA-8-14 review: the machine credential files no terrain (400, nothing written)", async () => {
+    const svc = member({ myRole: vi.fn(async () => "service") }); svc.saved.set(sc.id, surveyDoc());
+    await expect(proposeChangeset("demo", structuredClone(cases.good), "agent", svc)).rejects.toMatchObject({ status: 400, message: expect.stringMatching(/a terrain is filed by a signed-in member from Revit/) });
+    expect(svc.docInsert).not.toHaveBeenCalled();
+  });
+  it("MA-8-14 review: a second terrain from the same scan is a 409 while the first is proposed, and goes through once it is withdrawn", async () => {
+    const deps = member(); deps.saved.set(sc.id, surveyDoc());
+    const first = await proposeChangeset("demo", structuredClone(cases.good), "yazan", deps);
+    await expect(proposeChangeset("demo", structuredClone(cases.good), "yazan", deps)).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/is already filed .* withdraw it first; nothing was saved$/) });
+    await withdrawChangeset("demo", first.id, "yazan", deps);
+    await expect(proposeChangeset("demo", structuredClone(cases.good), "yazan", deps)).resolves.toMatchObject({ status: "proposed" });
+  });
+  it("a scan the project does not hold (404), or a changeset that is no survey job's (400), is refused in words and nothing is written", async () => {
+    const none = member();
+    await expect(proposeChangeset("demo", structuredClone(cases.good), "y", none)).rejects.toMatchObject({ status: 404, message: expect.stringMatching(/^elements\[0\]: from_scan names changeset .* nothing was saved$/) });
+    expect(none.docInsert).not.toHaveBeenCalled();
+    expect(none.audit).not.toHaveBeenCalled();
+    const posted = member(); posted.saved.set(sc.id, surveyDoc({ claimed: true, job: null }));
+    await expect(proposeChangeset("demo", structuredClone(cases.good), "y", posted)).rejects.toMatchObject({ status: 400, message: expect.stringMatching(/was not built from a survey job the bridge ran/) });
+    expect(posted.docInsert).not.toHaveBeenCalled();
   });
 });

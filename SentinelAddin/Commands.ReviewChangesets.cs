@@ -602,6 +602,51 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                 }, refusal => window.Shown($"The stair was not planned — {refusal}"));
             });
         };
+        // MA-8-14: "Propose terrain from the scan…" on a survey changeset - the ground read off its scan (the lowest point per cell outside the storey's walls), planned as one
+        // Toposolid of the guideline's Toposolid type and filed as a changeset of its own (nothing ticked, nothing placed). Hops, as the stair's: (a) this thread - sign-in, and
+        // the Revit version (a Toposolid is 2024 and later); (b) a pool thread - the ground and the standards read; (c) Revit's thread - the Toposolid type, by name, exactly one,
+        // then the plan; (d) a pool thread - the POST with this window's cfg (the person's token); (e) window.Shown.
+        var revitVersion = ui.Application.VersionNumber;
+        window.ProposeTerrainRequested += () =>
+        {
+            // (a)
+            if (!UserSession.IsSignedIn) { window.Shown("Proposing a terrain needs a signed-in person (Standards ▸ Sign in); nothing was saved."); return; }
+            if (!Compat.TerrainSupported) { window.Shown(TerrainPlanner.NoProposal(revitVersion)); return; }
+            window.Shown("Reading the ground off the scan on the bridge…");
+            Task.Run(() =>
+            {
+                // (b)
+                var ground = ChangesetClient.FetchGround(cfg, key, cs.Id, out var groundErr);
+                if (ground == null) { window.Shown("The terrain was not planned — " + groundErr); return; }
+                (string Family, string Type, string Source)? rule;
+                string hold;
+                try
+                {
+                    var standards = GhostStandards.Load(key, layers: false, guideline: true, catalog: true);
+                    rule = standards.Guideline.TerrainRule(ground.Level, out hold);
+                }
+                catch (Exception ex) { window.Shown($"The terrain was not planned — the office standards could not be read: {ex.Message}"); return; }
+                if (rule == null) { window.Shown("Held for a person — " + hold); return; }
+                // (c)
+                App.Events.Enqueue(doc, "plan a terrain", (ua, d) =>
+                {
+                    if (window.Gone) return;
+                    try { ChangesetExecutor.ToposolidTypeOf(d, rule.Value.Family, rule.Value.Type); }
+                    catch (Exception ex) when (ex is PlacementRefused || ex is InvalidOperationException) { window.Shown("Held for a person — " + ex.Message); return; }
+                    var plan = TerrainPlanner.Plan(ground.Points.ToArray(), ground.Footprint, ground.Level, rule, cs.Name, cs.Id, ground.Job, ground.CellMm, ground.ZMm, ground.Of, UserSession.Actor);
+                    if (plan.Hold != null) { window.Shown("Held for a person — " + plan.Hold); return; }
+                    window.Shown("Filing the terrain on the bridge…");
+                    // (d)
+                    Task.Run(() =>
+                    {
+                        var filed = ChangesetClient.Propose(cfg, key, plan.Body, out var proposeErr);
+                        // (e) a 409 (or any refusal) shows the bridge's message only
+                        window.Shown(filed == null ? "The terrain was not proposed — " + proposeErr
+                            : $"Proposed {filed.Name}: {plan.Line}. Review it (Review AI Proposals); nothing was ticked or placed.");
+                    });
+                }, refusal => window.Shown($"The terrain was not planned — {refusal}"));
+            });
+        };
         var here = DocOf(doc);
         var left = new List<UnreportedResults.Record>(); // what Retry report sends again
         // Review C13: a decline that did not land lives only in this window (E4) — closing it loses it, said.

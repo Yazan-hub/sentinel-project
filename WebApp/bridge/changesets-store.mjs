@@ -6,12 +6,12 @@ import * as cde from "./cde-store.mjs";
 import { canonical } from "./canonical.mjs";
 import * as members from "./members-store.mjs";
 import { validateChangeset, attachVerdicts, canWithdraw, deriveResultStatus, unattributedFailures,
-  reviewRev, editCost, checkStairFlag, checkFromFlag, keepBuilt, stairsOf, MAX_CHANGESET_EXCEPTIONS, applyDecisions, reopenDecline, resultConflicts, resultReasons, carryDeclines, declineWords, UNTYPED } from "./changesets-logic.mjs";
+  reviewRev, editCost, checkStairFlag, checkFromFlag, checkFromScan, keepBuilt, stairsOf, MAX_CHANGESET_EXCEPTIONS, applyDecisions, reopenDecline, resultConflicts, resultReasons, carryDeclines, declineWords, UNTYPED } from "./changesets-logic.mjs";
 import { makeTyper, makeCiter } from "./changesets-typing.mjs";
 import { resolveArtefact, refLabel, validateArtefact } from "./artefact-store.mjs";
 import { resolveActor } from "./bridge-auth.mjs";
 import { readProposeBody, planSurvey, PLANNER, PLANNER_VERSION, measurePlan, judge, measureRefusal, countWords, STATUSES, MIN_COVERAGE, DEVIATION_MM, FACE_SHARE_MIN, MEASURE_KNOBS,
-  readMesh, meshFaces, REVIT, FILED as AS_FILED, toScan, toModel, scanBand, cloudRefusal, SCAN_CELL_MM, SCAN_MAX } from "./survey-plan.mjs";
+  readMesh, meshFaces, REVIT, FILED as AS_FILED, toScan, toModel, scanBand, cloudRefusal, SCAN_CELL_MM, SCAN_MAX, groundCut, groundRefusal, beyond, GROUND_CELL_MM, GROUND_MAX } from "./survey-plan.mjs";
 import { stillAdmitted, pickItems, trustedJob as jobOf, measureJob as measureOf, TOLERANCES_MM, READER, DRAWING, IFC } from "./build-jobs.mjs";
 import { planIfc, PLANNER as IFC_PLANNER, PLANNER_VERSION as IFC_PLANNER_VERSION } from "./ifc-plan.mjs";
 import { readAlignBody, planDrawing, scanOnStorey, priorOf, PLANNER as DRAWING_PLANNER, PLANNER_VERSION as DRAWING_PLANNER_VERSION } from "./drawing-plan.mjs";
@@ -165,6 +165,8 @@ async function fileValidatedInner(d, key, v, body, actor) {
     catch (e) { throw err(503, `the ledger could not be read (${e.message}) — an Undo in Revit of an earlier stair could be missed; nothing was filed, send it again`); }
     checkFromFlag(v.elements, earlier, reverted);
   }
+  // MA-8-14: a terrain starts from a survey changeset the bridge built - the one whose scan its points came from (no ledger row is read)
+  checkFromScan(v.elements, earlier);
 
   // Reuse the referee as-is: it resolves the project's installed IDS (artefact-store) and writes its own
   // proposal audit row — the changeset stores that audit_id as its adjudication receipt.
@@ -629,9 +631,12 @@ export async function verifyChangeset(key, b, actor, deps = {}) {
  *  sentinel-survey run (the machine credential is a 403); any status (most useful while reviewing). A view: no row, no doc, no file; the points
  *  are held in memory and answered, never logged. The run takes the bridge's one survey slot and the survey jobs' budget. Its refusals say what
  *  is not shown (one from the shared chain, the budget or the slot says "nothing was saved": re-worded).
+ *  MA-8-14: with `ground`, the answer is the ground a terrain is made of instead — the lowest point per 500 mm plan cell, at most 2000, outside
+ *  the changeset's lowest storey's oriented box (groundCut), with that level and the box (model frame) for the add-in's TerrainPlanner; it fails closed
+ *  on a sentinel-survey that does not read ground.
  *  ponytail: cold, no cache — each tick of "Show the scan" reads the scan again (MA-4h, Kladno: ~21 s; Revit waits up to 120 s); a cache keyed
  *  on (the row, the evidence shas, the frame, the cut) if a read nears that. */
-export async function scanOverlay(key, id, deps = {}, { flag = null } = {}) {
+export async function scanOverlay(key, id, deps = {}, { flag = null, ground = false } = {}) {
   const d = wire(deps);
   const trustedJob = deps.trustedJob ?? jobOf, measureJob = deps.measureJob ?? measureOf;
   const readPack = deps.readPack ?? (await import("./evidence-store.mjs")).readPack;
@@ -651,8 +656,14 @@ export async function scanOverlay(key, id, deps = {}, { flag = null } = {}) {
   if (!cs.job || cs.claimed !== false) throw err(409, `${cs.name} was not built from a survey job — it has no scan to show`);
   if (isDrawn(cs)) throw err(409, `${cs.name} was built from ${ifcOf(cs) ? "an IFC" : "a drawing"} (${cs.job.id}) — it has no scan to show${noSlice}`);
   const exactCrop = !fl || Math.abs((((cs.job.frame.rotation_deg ?? 0) % 90) + 90) % 90) < 1e-9;   // a turned frame crops the larger axis-aligned square
-  const band = fl ? [fl.box.min[2], fl.box.max[2]] : scanBand(cs);
-  if (!band) throw err(409, `${cs.name} has no wall to show the scan against`);
+  const cut = ground ? groundCut(cs) : null;   // MA-8-14
+  // MA-8-14 review: the ground is read under the job's lowest storey - on a higher one, podium roofs and the slab below would be read as ground
+  if (cut) {
+    const lower = (await d.docList(STORE, proj.id)).find((o) => o.id !== cs.id && o.job?.id === cs.job.id && o.status !== "withdrawn" && (groundCut(o)?.band[0] ?? Infinity) < cut.band[0] - 1);
+    if (lower) throw err(409, `terrain is read under the lowest storey (${groundCut(lower).level ?? lower.name}, ${lower.name}); ${cs.name} is higher — nothing was read`);
+  }
+  const band = ground ? cut?.band : fl ? [fl.box.min[2], fl.box.max[2]] : scanBand(cs);
+  if (!band) throw err(409, `${cs.name} has no wall to show the ${ground ? "ground" : "scan"} against`);
   let chain;
   try { chain = await jobScan(key, cs, { trustedJob, readPack }); } catch (e) { throw shown(e); }
   const { row, evidence, items, pack } = chain;
@@ -664,21 +675,26 @@ export async function scanOverlay(key, id, deps = {}, { flag = null } = {}) {
   const S = toScan(cs.job.frame);
   // the box's four plan corners in the scan's frame, bounded (a turned frame makes the crop the larger axis-aligned box; the answer is cut back to the exact box below)
   const corners = fl ? [[fl.box.min[0], fl.box.min[1]], [fl.box.max[0], fl.box.min[1]], [fl.box.max[0], fl.box.max[1]], [fl.box.min[0], fl.box.max[1]]].map(S.xy) : null;
+  const outside = cut ? cut.footprint.map(S.xy) : null;   // MA-8-14: the box is a rotation of the model's, so it stays a rectangle in the scan's frame
   const xy_mm = corners ? [[Math.min(...corners.map((p) => p[0])), Math.min(...corners.map((p) => p[1]))], [Math.max(...corners.map((p) => p[0])), Math.max(...corners.map((p) => p[1]))]] : null;
   let r;
   try {
     r = await measureJob(key, cs.job.id, { job_id: `scan-${cs.id}`, items, params: row.params, seed: row.seed,
-      cloud: { cell_mm: SCAN_CELL_MM, z_mm: band.map(S.z), max_points: SCAN_MAX, ...(xy_mm ? { xy_mm } : {}) } }, {}, { path: "/cloud", what: "a scan overlay" });
+      cloud: ground ? { cell_mm: GROUND_CELL_MM, z_mm: band.map(S.z), max_points: GROUND_MAX, ground: true, outside_mm: outside }
+        : { cell_mm: SCAN_CELL_MM, z_mm: band.map(S.z), max_points: SCAN_MAX, ...(xy_mm ? { xy_mm } : {}) } }, {}, { path: "/cloud", what: "a scan overlay" });
   } catch (e) { throw shown(e); } // not set up (503), busy (409)
   if (r.status === "refused") throw err(409, `the scan of ${cs.name} was not read again — ${(r.refused ?? []).map((i) => `${i.id}: ${i.reason}`).join("; ")} — its scan is not shown`);
   if (r.status !== "done") throw err(502, `the scan of ${cs.name} was not read: ${r.error ?? "sentinel-survey did not finish"} — its scan is not shown`);
-  const bad = cloudRefusal(r.result, SCAN_MAX);
+  const bad = cloudRefusal(r.result, ground ? GROUND_MAX : SCAN_MAX);
   if (bad) throw err(502, `sentinel-survey's scan overlay is not the contract's shape (${bad}) — its scan is not shown`);
+  if (ground && groundRefusal(r.result, outside)) throw err(502, "this sentinel-survey does not read ground — its scan is not shown");
   const M = toModel(cs.job.frame), c = r.result.receipt.cloud;
   const inBox = (p) => !fl || p.every((v, k) => v >= fl.box.min[k] && v <= fl.box.max[k]);
   return { changeset: { id: cs.id, name: cs.name }, job: cs.job.id, ledger_id: row.ledger.id, version: r.version ?? null, cell_mm: c.cell_mm, z_mm: band, of: exactCrop ? c.of : null,
+    ...(ground ? { ground: true, level: cut.level, footprint: cut.footprint } : {}),
     ...(fl ? { flag: fl.unique_id } : {}), ...(exactCrop ? {} : { crop: "axis-aligned square of a turned frame" }),
-    points: r.result.points.map(([x, y, z]) => [...M.xy([x, y]), M.z(z)].map(Math.round)).filter(inBox) };
+    // MA-8-14: a ground point rounded onto or into the footprint is dropped (more than 1 mm outside it stays), or the terrain's own check refuses them all
+    points: r.result.points.map(([x, y, z]) => [...M.xy([x, y]), M.z(z)].map(Math.round)).filter((p) => inBox(p) && (!cut || beyond(cut.footprint, p, 1))) };
 }
 
 export async function listChangesets(key, { status } = {}, deps) {

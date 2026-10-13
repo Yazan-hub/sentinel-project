@@ -45,6 +45,9 @@ public sealed class ChangesetReviewWindow : Window
     /// <summary>MA-8-10: a stair flag's "Propose a stair…" pressed - its unique_id. The command plans one straight stair from the flag (the guideline's Stairs
     /// rule, the model's stair type), asks which end it rises from, and files it as its own changeset; nothing is placed.</summary>
     public event Action<string> ProposeStairRequested;
+    /// <summary>MA-8-14: "Propose terrain from the scan…" pressed (a survey changeset). The command reads the ground off the scan on the bridge, plans one Toposolid from the
+    /// guideline's Toposolid rule, and files it as its own changeset; nothing is ticked or placed.</summary>
+    public event Action ProposeTerrainRequested;
     /// <summary>MA-3c: every row's state after a tick, a group tick, a Lock or Apply — the ghost overlay recolours from it.</summary>
     public event Action<List<(ChangesetElementDto El, bool Ticked, bool Locked)>> TicksChanged;
     /// <summary>MA-3c: every row's state, for the ghost overlay — locked = a declined row (its box disabled).</summary>
@@ -162,6 +165,12 @@ public sealed class ChangesetReviewWindow : Window
                                      Visibility = _cs.Status == "withdrawn" ? Visibility.Collapsed : Visibility.Visible };
         flagStair.Click += (_, _) => FlagStairRequested?.Invoke();
         buttons.Children.Add(flagStair);
+        // MA-8-14: the ground of this survey as a Toposolid proposal (a survey changeset only: the bridge reads the job's scan again for it)
+        var terrain = new Button { Content = "Propose terrain from the scan…", Padding = new Thickness(10, 4, 10, 4), Margin = new Thickness(0, 0, 12, 0),
+                                   ToolTip = "Read the ground off this survey's scan (the lowest point per cell outside the storey's walls) and propose it as one Toposolid of the office's type, as a changeset of its own - nothing is ticked or placed",
+                                   Visibility = SurveyChangeset && _cs.Status != "withdrawn" ? Visibility.Visible : Visibility.Collapsed };
+        terrain.Click += (_, _) => ProposeTerrainRequested?.Invoke();
+        buttons.Children.Add(terrain);
         buttons.Children.Add(scan);
         buttons.Children.Add(_retry); buttons.Children.Add(all); buttons.Children.Add(none); buttons.Children.Add(_go);
         foot.Children.Add(buttons);
@@ -308,6 +317,8 @@ public sealed class ChangesetReviewWindow : Window
         if (el.Kind == "opening" && p?.Boundary != null) parts.Add("hole in a floor");
         // MA-8-10: the reviewer ticks a stair knowing it is one straight run to the level above - and what the rest is (a person's)
         if (el.Kind == "stair" && p?.TopLevel != null && p.Risers != null) parts.Add(StairPlanner.RowWords(p.TopLevel, p.Risers, p.Going, p.Width));
+        // MA-8-14: a terrain is the add-in's reading of the scan, not re-measured - and on a Revit before 2024 it cannot be applied (the same words Apply gives)
+        if (el.Kind == "terrain" && p?.Points != null) parts.Add(TerrainPlanner.RowWords(p.Points.Length, Compat.TerrainSupported));
         // MA-6-6 review fix: a mass row shows its size — the footprint's plan extent and its two elevations (an agent's reason may say anything).
         if (el.Kind == "mass" && p?.Boundary is { Length: > 0 } bd && p.BaseElevation is double mb && p.TopElevation is double mt)
             parts.Add($"{Mm(bd.Max(q => q[0]) - bd.Min(q => q[0]))} x {Mm(bd.Max(q => q[1]) - bd.Min(q => q[1]))} mm footprint, {Mm(mb)} to {Mm(mt)} mm");

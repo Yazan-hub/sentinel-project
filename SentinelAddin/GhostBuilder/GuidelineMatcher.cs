@@ -383,6 +383,22 @@ namespace Sentinel.GhostBuilder
             return (r.Family, r.Type, mm, $"{Standard} {r.Source}");
         }
 
+        /// <summary>MA-8-14: the guideline's Toposolid rule for a level - an ordinary guideline element (category "Toposolid"; any category resolves, so no validator change): family
+        /// (optional - a ToposolidType's is "Toposolid"), type, and where the answer came from. Null with <paramref name="hold"/> (a person decides) when the guideline has no
+        /// Toposolid element, or its type is not in the catalogue in force.</summary>
+        public (string Family, string Type, string Source)? TerrainRule(string level, out string hold)
+        {
+            hold = null;
+            var r = Resolve(new GuidelineInput { Category = "Toposolid", Level = level });
+            if (r.Source == "none")
+            {
+                hold = $"the guideline names no Toposolid type — {Standard} has no Toposolid element; add one (a Toposolid type) to the guideline; a person decides";
+                return null;
+            }
+            if (r.Confidence == 0) { hold = $"Toposolid on {level} — {r.Why} (type_catalog: {CatalogLabel})"; return null; }
+            return (r.Family, r.Type, $"{Standard} {r.Source}");
+        }
+
         // type_catalog@n as the bridge validates it (the office-snapshot row shape, template instead of source).
         private static void CheckCatalog(JsonElement b)
         {

@@ -64,6 +64,8 @@ public sealed class PlaceDto
     // create (MA-8-10): a stair's riser count and going (mm) - one straight run, LocationCurve its centre line first riser to last, Width its run width, TopLevel the level it reaches.
     [JsonPropertyName("Risers")] public int? Risers { get; set; }
     [JsonPropertyName("Going")] public double? Going { get; set; }
+    // create (MA-8-14): a terrain's ground points [x, y, z] mm (z = the absolute model elevation); its Boundary is the storey's footprint, the hole in the Toposolid.
+    [JsonPropertyName("Points")] public double[][] Points { get; set; }
 }
 
 /// <summary>The existing element a retype/attach ghost changes (MA-0, Promote v1): its Revit UniqueId, and for a retype the
@@ -183,6 +185,14 @@ public sealed class ChangesetElementDto
     [JsonPropertyName("foreign")] [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public bool? Foreign { get; set; }
     /// <summary>MA-8-10: the stair flag a stair create starts from - {changeset, unique_id} of the exception row it was proposed from. Null on every other element.</summary>
     [JsonPropertyName("from_flag")] [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public FromFlagDto FromFlag { get; set; }
+    /// <summary>MA-8-14: the survey changeset whose scan a terrain's ground points came from - {changeset}. Null on every other element.</summary>
+    [JsonPropertyName("from_scan")] [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public FromScanDto FromScan { get; set; }
+}
+
+/// <summary>MA-8-14: the survey changeset a terrain starts from.</summary>
+public sealed class FromScanDto
+{
+    [JsonPropertyName("changeset")] public string Changeset { get; set; }
 }
 
 /// <summary>MA-8-10: a stair's flag - the changeset that holds it and its exception row's unique_id.</summary>
@@ -716,6 +726,20 @@ public sealed class ScanDto
     [JsonPropertyName("points")] public List<double[]> Points { get; set; } = new();
 }
 
+/// <summary>MA-8-14: GET …/scan?ground=1 - the ground a terrain is made of: the lowest scan point per 500 mm plan cell outside the survey storey's oriented box, in the
+/// model's frame (whole mm, z absolute), with the level the lowest walls name and that box (the Toposolid's hole).</summary>
+public sealed class GroundDto
+{
+    [JsonPropertyName("job")] public string Job { get; set; }
+    [JsonPropertyName("ledger_id")] public long? LedgerId { get; set; }
+    [JsonPropertyName("level")] public string Level { get; set; }
+    [JsonPropertyName("footprint")] public double[][] Footprint { get; set; }
+    [JsonPropertyName("cell_mm")] public int CellMm { get; set; }
+    [JsonPropertyName("z_mm")] public double[] ZMm { get; set; }
+    [JsonPropertyName("of")] public int? Of { get; set; }
+    [JsonPropertyName("points")] public List<double[]> Points { get; set; } = new();
+}
+
 internal static class ChangesetClient
 {
     // Reads: short timeout, errors surfaced (the review flow must tell the human, unlike the
@@ -801,6 +825,22 @@ internal static class ChangesetClient
             var (resp, body) = Send(WriteHttp, () => Req(HttpMethod.Get, url, cfg.ServiceToken));
             if (!resp.IsSuccessStatusCode) { error = $"Bridge {(int)resp.StatusCode}: {body}"; return null; }
             return JsonSerializer.Deserialize<ScanDto>(body);
+        }
+        catch (Exception ex) { error = ChangesetTrust.BridgeWords(ex, (int)WriteHttp.Timeout.TotalSeconds); return null; }
+    }
+
+    /// <summary>MA-8-14: the ground a terrain is made of (GET …/scan?ground=1). A new overload beside FetchScan, which is unchanged: the bridge reads the job's scan on its
+    /// one survey slot, so this waits as long as a write; off Revit's thread. Null with the bridge's words (ServiceToken falls back to the machine credential,
+    /// which the bridge refuses in words).</summary>
+    public static GroundDto FetchGround(BcfConfig cfg, string projectKey, string id, out string error)
+    {
+        error = null;
+        try
+        {
+            var url = $"{cfg.ServiceUrl.TrimEnd('/')}/changesets/{Uri.EscapeDataString(projectKey)}/{Uri.EscapeDataString(id)}/scan?ground=1";
+            var (resp, body) = Send(WriteHttp, () => Req(HttpMethod.Get, url, cfg.ServiceToken));
+            if (!resp.IsSuccessStatusCode) { error = $"Bridge {(int)resp.StatusCode}: {body}"; return null; }
+            return JsonSerializer.Deserialize<GroundDto>(body);
         }
         catch (Exception ex) { error = ChangesetTrust.BridgeWords(ex, (int)WriteHttp.Timeout.TotalSeconds); return null; }
     }
