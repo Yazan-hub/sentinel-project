@@ -386,6 +386,9 @@ describe("a concept IFC (MA-6-8) — Read IFC, the third reader", () => {
     expect(src).toContain("readableIfc(pack).length");
     expect(src).toContain(`ifcStartLine((await startIfc(base, pid())).job)`);
     expect(src).toContain("line(\"IFC — sentinel-ifc reads an admitted .ifc inside the bridge");
+    // MA-8 nits (F-B3-5): since 8-9 a boxed IfcStair is a flag row, not a "does not read"
+    expect(src).toContain("(roofs, curved walls, proxies, members, plates, railings) it lists by GlobalId; a stair is boxed and flagged for a person (Propose a stair… in Revit).");
+    expect(src).not.toContain("curved walls, stairs,");
     expect(src).toContain("data-evvendor"); // MA-8-3: a third party's model opens its provider + licence-ref form (a lead's)
     expect(src).toContain("data-evifc"); // MA-8-3: one Read IFC a model when several are admitted
     expect(src).toContain("{ path, kind: \"model\", provider, licence_ref }");
