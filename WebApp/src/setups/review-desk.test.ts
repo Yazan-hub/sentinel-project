@@ -67,8 +67,8 @@ describe("words", () => {
     // MA-8-14: a terrain says whose word its points are (the add-in's reading of the scan, not re-measured) and that a person checks it against the site survey
     const terrain = { proposal_guid: "g", kind: "terrain", validate: { identity: { Name: "Terrain · L00" } }, from_scan: { changeset: "5b1c6f3e-2a4d-4e8f-9c1a-7d2e3f4a5b6c" },
       place: { LevelName: "L00", FamilyName: "Toposolid", TypeName: "Site Ground 300", Points: [[0, 0, -300], [1, 2, -300], [3, 4, -300]] } } as Ghost;
-    expect(ghostLine(terrain)).toBe("Terrain · L00 · Toposolid : Site Ground 300 · L00 · Toposolid from 3 ground points, as Revit filed them from changeset 5b1c6f3e's scan (not re-measured) — check it against the site survey");
-    expect(ghostLine({ ...terrain, from_scan: null } as Ghost)).toContain("as Revit filed them from a scan (not re-measured)");
+    expect(ghostLine(terrain)).toBe("Terrain · L00 · Toposolid : Site Ground 300 · L00 · Toposolid from 3 ground points, as Revit filed them from the survey changeset this was proposed from (not re-measured) — check it against the site survey");
+    expect(ghostLine({ ...terrain, from_scan: null } as Ghost)).toContain("from the survey changeset this was proposed from (not re-measured)");
     expect(ghostLine({ ...terrain, place: { ...terrain.place, Points: undefined } } as Ghost)).toBe("Terrain · L00 · Toposolid : Site Ground 300 · L00");
   });
 

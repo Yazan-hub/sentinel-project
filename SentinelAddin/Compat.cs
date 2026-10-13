@@ -42,8 +42,7 @@ public static class Compat
     {
 #if REVIT2024_OR_GREATER
         return new FilteredElementCollector(doc).OfClass(typeof(ToposolidType)).Cast<ElementType>()
-            .Where(t => string.Equals(t.Name, typeName, StringComparison.OrdinalIgnoreCase)
-                        && (string.IsNullOrWhiteSpace(familyName) || string.Equals(t.FamilyName, familyName, StringComparison.OrdinalIgnoreCase)))
+            .Where(t => string.Equals(t.Name, typeName, StringComparison.OrdinalIgnoreCase)) // MA-8-14 review: no FamilyName match - Toposolid is one system family and its FamilyName is localised
             .ToList();
 #else
         return new List<ElementType>();
@@ -53,16 +52,17 @@ public static class Compat
     /// MA-8-14 (the spike, K-1b): the ground as one Toposolid. Created with the CurveLoop overload - an outer axis-aligned rectangle around the points and the
     /// footprint (+ 1 m), the inner loop the storey's footprint (the hole) - because the points-only overload spans the building. The points are lifted by -o and the
     /// Toposolid's Height Offset From Level is then set to o (o = the lowest point less the level, less 10 mm, never above 0): the type's thickness never limits the relief
-    /// and no type is created. A point's z is the absolute model elevation (mm) at create. The caller's Transaction is the one Undo step.
+    /// and no type is created. A point's z is the absolute model elevation (mm) in the Level.Elevation frame, moved to the internal z by the level's ProjectElevation less its Elevation (as the mass, Amendment 3). The caller's Transaction is the one Undo step.
     public static Element CreateTerrain(Document doc, IReadOnlyList<double[]> pointsMm, IReadOnlyList<double[]> footprintMm, ElementId typeId, Level level)
     {
 #if REVIT2024_OR_GREATER
         const double mm = 1.0 / 304.8;
+        double dz = level.ProjectElevation - level.Elevation; // the Level.Elevation frame -> the internal z (a Survey Point base, or a moved base point, makes them differ)
         double o = Math.Min(0, pointsMm.Min(p => p[2]) * mm - level.Elevation - 10 * mm);
-        var lifted = pointsMm.Select(p => new XYZ(p[0] * mm, p[1] * mm, p[2] * mm - o)).ToList();
+        var lifted = pointsMm.Select(p => new XYZ(p[0] * mm, p[1] * mm, p[2] * mm + dz - o)).ToList();
         double x0 = Math.Min(pointsMm.Min(p => p[0]), footprintMm.Min(p => p[0])) * mm - 1000 * mm, x1 = Math.Max(pointsMm.Max(p => p[0]), footprintMm.Max(p => p[0])) * mm + 1000 * mm;
         double y0 = Math.Min(pointsMm.Min(p => p[1]), footprintMm.Min(p => p[1])) * mm - 1000 * mm, y1 = Math.Max(pointsMm.Max(p => p[1]), footprintMm.Max(p => p[1])) * mm + 1000 * mm;
-        double z = level.Elevation;
+        double z = level.ProjectElevation;
         var outer = CurveLoop.Create(new List<Curve>
         {
             Line.CreateBound(new XYZ(x0, y0, z), new XYZ(x1, y0, z)), Line.CreateBound(new XYZ(x1, y0, z), new XYZ(x1, y1, z)),
@@ -78,7 +78,7 @@ public static class Compat
         var ts = Toposolid.Create(doc, new List<CurveLoop> { outer, inner }, lifted, typeId, level.Id);
         var offset = ts.get_Parameter(BuiltInParameter.TOPOSOLID_HEIGHTABOVELEVEL_PARAM);
         if (offset == null || offset.IsReadOnly) throw new InvalidOperationException("this Toposolid has no settable Height Offset From Level - the ground cannot be put at its own height; nothing was placed");
-        offset.Set(o);
+        if (!offset.Set(o)) throw new InvalidOperationException($"the Toposolid's Height Offset From Level could not be set to {o * 304.8:0} mm - the ground would stand that far off the scan; nothing was placed");
         return ts;
 #else
         throw new NotSupportedException("a terrain is a Toposolid - Revit 2024 and later");

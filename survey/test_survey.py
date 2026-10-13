@@ -1356,6 +1356,22 @@ class InProcess(unittest.TestCase):
         rc = service.JOB["result"]["receipt"]["cloud"]
         self.assertEqual((rc["ground"], rc["outside_mm"], rc["points"]), (True, box, 0))  # the polygon holds the whole building: nothing outside it
 
+    def test_a_ground_cloud_with_part_of_the_scan_outside_the_box_gives_one_lowest_point_per_cell_and_none_inside(self):
+        """MA-8-14 review: end to end through run() - a box that leaves some of the scan outside returns rows, one per cell, none inside the box."""
+        item = self.item(building())
+        box = [[0, 0], [2000, 0], [2000, 2000], [0, 2000]]
+        service.JOB.clear()
+        service.JOB.update(id="scan-4", status="queued", stage="queued", pct=0, refused=[])
+        with contextlib.redirect_stderr(io.StringIO()):
+            service.run({"job_id": "scan-4", "items": [item], "params": {"voxel_mm": 20, "storey_min_mm": 2000}, "seed": 1,
+                         "cloud": {"cell_mm": 500, "z_mm": [-5000, 5000], "max_points": 2000, "ground": True, "outside_mm": box}})
+        self.assertEqual(service.JOB["status"], "done", service.JOB)
+        pts, rc = service.JOB["result"]["points"], service.JOB["result"]["receipt"]["cloud"]
+        self.assertTrue(len(pts) > 0 and rc["points"] == len(pts) and rc["ground"] is True and rc["of"] >= len(pts))
+        cells = {(p[0] // rc["cell_mm"], p[1] // rc["cell_mm"]) for p in pts}
+        self.assertEqual(len(cells), len(pts))  # one point per cell
+        self.assertFalse(any(0 <= p[0] <= 2000 and 0 <= p[1] <= 2000 for p in pts))  # none inside the box
+
     def test_read_cloud_ground_and_outside_mm(self):
         good = {"job_id": "scan-1", "items": [{"id": "ev-0001", "kind": "scan", "path": "x", "sha256": "a" * 64}], "params": {"voxel_mm": 20, "storey_min_mm": 2000},
                 "seed": 1, "cloud": {"cell_mm": 500, "z_mm": [-5000, 1500], "max_points": 2000}}

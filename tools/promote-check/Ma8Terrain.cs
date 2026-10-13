@@ -21,9 +21,9 @@ static partial class Check
         var rl = pl.GetProperty("rule");
         var rule = (Family: rl.GetProperty("family").GetString(), Type: rl.GetProperty("type").GetString(), Source: rl.GetProperty("source").GetString());
         var points = Pts(pl.GetProperty("points")); var foot = Pts(pl.GetProperty("footprint"));
-        TerrainPlan Plan(double[][] pts = null, double[][] fp = null, string level = null, (string Family, string Type, string Source)? ru = null, bool noRule = false) =>
+        TerrainPlan Plan(double[][] pts = null, double[][] fp = null, string level = null, (string Family, string Type, string Source)? ru = null, bool noRule = false, int? cellMm = null, int? of = null) =>
             TerrainPlanner.Plan(pts ?? points, fp ?? foot, level ?? pl.GetProperty("level").GetString(), noRule ? null : (ru ?? rule), cs.GetProperty("name").GetString(), cs.GetProperty("id").GetString(),
-                                cs.GetProperty("job").GetString(), pl.GetProperty("actor").GetString());
+                                cs.GetProperty("job").GetString(), cellMm ?? pl.GetProperty("cell_mm").GetInt32(), pl.GetProperty("z_mm").EnumerateArray().Select(x => x.GetDouble()).ToArray(), of ?? pl.GetProperty("of").GetInt32(), pl.GetProperty("actor").GetString());
 
         // the body for the fixture's inputs equals the fixture the bridge validates
         var plan = Plan();
@@ -31,8 +31,13 @@ static partial class Check
         bool same = plan.Hold == null && JsonNode.DeepEquals(got, JsonNode.Parse(root.GetProperty("good").GetRawText()));
         Ok(same, "the planner's body for the fixture's scan equals the fixture the bridge validates (fixtures/changeset-ops/terrain-cases.json: 6 ground points, source promote, from_scan)");
         if (!same) Console.WriteLine("        got: " + (plan.Hold ?? got.ToJsonString(new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping })));
-        Ok(plan.Points == 6 && plan.Line == "6 ground points on L00 outside the walls, Site Ground 300 (guideline@2 default), from job-0003",
-           "the plan's account: 6 ground points on the level, outside the walls, the rule's type and where it came from, the job");
+        Ok(plan.Points == 6 && plan.Line == "6 ground points on L00 outside the walls, lowest per 500 mm cell, -5000 to 1500 mm, Site Ground 300 (guideline@2 default), from job-0003",
+           "the plan's account: 6 ground points on the level, outside the walls, the cell and the height band read, the rule's type and where it came from, the job");
+        // review: the limits of the read are said - a widened cell (and what the 500 mm cell kept) and the band the ground outside of which is not read
+        var wide = Plan(cellMm: 2000, of: 7000);
+        var wideReason = JsonSerializer.SerializeToNode(wide.Body)["elements"][0]["reason"].GetValue<string>();
+        Ok(wideReason.Contains("lowest per 2000 mm cell (widened from 500 mm, which kept 7000)") && wideReason.Contains("between -5000 and 1500 mm (5 m under to 1.5 m over L00's floor; ground outside that band is not read)")
+           && wide.Line.Contains("lowest per 2000 mm cell (widened from 500 mm, which kept 7000), -5000 to 1500 mm"), "a widened cell is said with what the 500 mm cell kept; the height band and its limit are said");
         var noFamily = JsonSerializer.SerializeToNode(Plan(ru: ("", rule.Type, rule.Source)).Body)["elements"][0]["place"].AsObject();
         Ok(!noFamily.ContainsKey("FamilyName") && noFamily["TypeName"].GetValue<string>() == rule.Type, "a rule with no family sends no FamilyName (a Toposolid type's family is the system's)");
 
@@ -87,10 +92,19 @@ static partial class Check
         int els = At(compat, "#else", gate), types = At(compat, "typeof(ToposolidType)");
         Ok(create > gate && gate > 0 && create < els && compat.Split("Toposolid.Create(").Length == 2 && types > 0 && At(compat, "#if REVIT2024_OR_GREATER", At(compat, "public static List<ElementType> TerrainTypes(")) is var tg && tg > 0 && tg < types,
            "Toposolid.Create (the CurveLoop overload: outer + inner loop, the points) is called once, inside #if REVIT2024_OR_GREATER in Compat.CreateTerrain; so is the ToposolidType collector");
-        Ok(compat.Contains("double o = Math.Min(0, pointsMm.Min(p => p[2]) * mm - level.Elevation - 10 * mm);") && compat.Contains("new XYZ(p[0] * mm, p[1] * mm, p[2] * mm - o)")
-           && compat.Contains("ts.get_Parameter(BuiltInParameter.TOPOSOLID_HEIGHTABOVELEVEL_PARAM)") && compat.Contains("offset.Set(o);") && !compat.Contains("LookupParameter(\"Height Offset From Level\")")
+        Ok(compat.Contains("double o = Math.Min(0, pointsMm.Min(p => p[2]) * mm - level.Elevation - 10 * mm);") && compat.Contains("new XYZ(p[0] * mm, p[1] * mm, p[2] * mm + dz - o)")
+           && compat.Contains("ts.get_Parameter(BuiltInParameter.TOPOSOLID_HEIGHTABOVELEVEL_PARAM)") && compat.Contains("if (!offset.Set(o)) throw new InvalidOperationException(") && !compat.Contains("LookupParameter(\"Height Offset From Level\")")
            && compat.Contains("nothing was placed") && compat.Contains("public static bool TerrainSupported"),
            "lift then offset (the spike): the points go in lifted by -o, the height offset is set to o by its BuiltInParameter (a localised Revit works), never above 0 - and no type is created");
+
+        Ok(!GhostOverlayGeometry.Drawable(dto) && GhostOverlayGeometry.Segments(dto, true, false).Count == 0, "review: a terrain has no ghost drawing, so the overlay does not count it as drawable");
+        // review: the points' z is the Level.Elevation frame - moved to the internal z by ProjectElevation less Elevation (as the mass), the loops drawn at ProjectElevation; no FamilyName match on the type
+        int ct = At(compat, "public static Element CreateTerrain("), cte = At(compat, "#else", ct);
+        string ctBody = compat.Substring(ct, cte - ct);
+        Ok(ctBody.Contains("double dz = level.ProjectElevation - level.Elevation;") && ctBody.Contains("double z = level.ProjectElevation;") && !ctBody.Contains("double z = level.Elevation;"),
+           "CreateTerrain moves the points from the Level.Elevation frame to the internal z (ProjectElevation less Elevation, as the mass) and draws its loops at ProjectElevation - a Survey Point base or a moved base point no longer puts the ground metres off the building");
+        int tt = At(compat, "public static List<ElementType> TerrainTypes("), tte = At(compat, "#else", tt);
+        Ok(!compat.Substring(tt, tte - tt).Contains("t.FamilyName"), "a Toposolid type is matched by its name only: FamilyName is the system family's localised display name");
 
         // Execute: refused before the transaction on a Revit before 2024; one terrain loop inside the changeset's one transaction
         int branch = At(ex, "if (toPlace.Any(e => IsCreate(e) && e.Kind == \"stair\")) return ExecuteStair(doc, cs, toPlace);");
@@ -111,7 +125,7 @@ static partial class Check
         int a = At(rv, "if (!UserSession.IsSignedIn) { window.Shown(\"Proposing a terrain needs a signed-in person", pr), v = At(rv, "if (!Compat.TerrainSupported) { window.Shown(TerrainPlanner.NoProposal(revitVersion)); return; }", a),
             b = At(rv, "Task.Run(() =>", v), fg = At(rv, "ChangesetClient.FetchGround(cfg, key, cs.Id, out var groundErr)", b), ld = At(rv, "GhostStandards.Load(key, layers: false, guideline: true, catalog: true)", fg),
             tr = At(rv, "standards.Guideline.TerrainRule(ground.Level, out hold)", ld), eq = At(rv, "App.Events.Enqueue(doc, \"plan a terrain\"", tr), ty = At(rv, "ChangesetExecutor.ToposolidTypeOf(d, rule.Value.Family, rule.Value.Type)", eq),
-            pn = At(rv, "TerrainPlanner.Plan(ground.Points.ToArray(), ground.Footprint, ground.Level, rule, cs.Name, cs.Id, ground.Job, UserSession.Actor)", ty), tk = At(rv, "Task.Run(() =>", pn),
+            pn = At(rv, "TerrainPlanner.Plan(ground.Points.ToArray(), ground.Footprint, ground.Level, rule, cs.Name, cs.Id, ground.Job, ground.CellMm, ground.ZMm, ground.Of, UserSession.Actor)", ty), tk = At(rv, "Task.Run(() =>", pn),
             po = At(rv, "ChangesetClient.Propose(cfg, key, plan.Body, out var proposeErr)", tk), sh = At(rv, "window.Shown(filed == null ?", po);
         Ok(pr > 0 && a > pr && v > a && b > v && fg > b && ld > fg && tr > ld && eq > tr && ty > eq && pn > ty && tk > pn && po > tk && sh > po && rv.Contains("var revitVersion = ui.Application.VersionNumber;"),
            "Propose terrain…: (a) the sign-in check and the Revit version, (b) a pool thread reads the ground and the Toposolid rule, (c) Revit's thread reads the type and plans, (d) a pool thread files it with the window's cfg, (e) the words");

@@ -179,8 +179,8 @@ describe("changeset tools", () => {
   // MA-6-3 (amendment 7): an agent learns vocabulary v2 from this text alone (drill H-1).
   it("propose tool description names vocabulary v2: opening and beam, a roof's Slopes per edge, a column's TopLevel", () => {
     const d = TOOLS.find((t) => t.name === "sentinel_propose_changeset").description;
-    expect(d).toMatch(/column, furniture, room, opening, beam, mass, stair, terrain\./);
-    expect(d).toMatch(/A terrain \(Revit 2024 and later: one Toposolid of the office's type\) is alone in its changeset: place\.LevelName, place\.TypeName .*place\.Points .*place\.Boundary .*from_scan \{changeset\}/); // MA-8-14
+    expect(d).toMatch(/column, furniture, room, opening, beam, mass, stair\./);
+    expect(d).not.toMatch(/terrain/i); // MA-8-14 review: a terrain is a signed-in member's from Revit - the machine credential files none, so agents are not told of it
     expect(d).toMatch(/openings \(no type, no family, no Mark\) place\.LevelName and exactly one shape: a rectangle cut in a wall — place\.Location/);
     expect(d).toMatch(/place\.Width and place\.Height \(mm, above 50 and at most 20000\) and place\.SillHeight/);
     expect(d).toMatch(/or a hole in a floor of that level \(a stair void\): place\.Boundary/);

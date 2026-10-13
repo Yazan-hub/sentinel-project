@@ -633,7 +633,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                     if (window.Gone) return;
                     try { ChangesetExecutor.ToposolidTypeOf(d, rule.Value.Family, rule.Value.Type); }
                     catch (Exception ex) when (ex is PlacementRefused || ex is InvalidOperationException) { window.Shown("Held for a person — " + ex.Message); return; }
-                    var plan = TerrainPlanner.Plan(ground.Points.ToArray(), ground.Footprint, ground.Level, rule, cs.Name, cs.Id, ground.Job, UserSession.Actor);
+                    var plan = TerrainPlanner.Plan(ground.Points.ToArray(), ground.Footprint, ground.Level, rule, cs.Name, cs.Id, ground.Job, ground.CellMm, ground.ZMm, ground.Of, UserSession.Actor);
                     if (plan.Hold != null) { window.Shown("Held for a person — " + plan.Hold); return; }
                     window.Shown("Filing the terrain on the bridge…");
                     // (d)

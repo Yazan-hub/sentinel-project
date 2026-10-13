@@ -1671,10 +1671,11 @@ describe("validateChangeset — terrain (MA-8-14)", () => {
     Object.assign(b.elements[0], elPatch);
     return b;
   };
-  const ok = (b) => validateChangeset(b).elements[0];
+  const M = { member: true }; // a terrain is a signed-in member's (Propose terrain from the scan)
+  const ok = (b) => validateChangeset(b, M).elements[0];
 
   it("the planner's good body is accepted: kind terrain, the bridge's IFCGEOGRAPHICELEMENT, place and from_scan kept as sent, caller-typed, never pre-ticked, nothing ignored", () => {
-    const v = validateChangeset(cases.good);
+    const v = validateChangeset(cases.good, M);
     expect(v.ignored).toEqual([]);
     expect(v.elements).toHaveLength(1);
     expect(v.elements[0]).toMatchObject({ kind: "terrain", op: "create", place: cases.good.elements[0].place, from_scan: cases.good.elements[0].from_scan,
@@ -1688,10 +1689,16 @@ describe("validateChangeset — terrain (MA-8-14)", () => {
   it.each(cases.refusals.map((c) => [c.name, c]))("refuses %s in words (400)", (_n, c) =>
     status400(() => ok(body(c.place ?? {}, c.el ?? {})), new RegExp(`^elements\\[0\\]: ${c.message.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`)));
 
+  it("MA-8-14 review: only a signed-in member files a terrain - the machine credential (member false) is a 400 in words; more than 2000 points is a 400", () => {
+    status400(() => validateChangeset(cases.good), /^elements\[0\]: a terrain is filed by a signed-in member from Revit \(Propose terrain from the scan\) — the machine credential files none; nothing was saved$/);
+    const many = Array.from({ length: 2001 }, (_, i) => [i * 10, (i % 7) * 10, -300]);
+    status400(() => ok(body({ Points: many })), /^elements\[0\]: a terrain needs place\.Points, 3 to 2000 finite \[x,y,z\] points$/);
+  });
+
   it("a terrain is alone in its changeset: with any other element it is a 400 in words, whichever comes first", () => {
     const w = { kind: "wall", validate: { identity: { Class: "IFCWALL", Name: "W" } }, place: { TypeName: "Generic - 200mm", LevelName: "L00", LocationCurve: { start: [0, 0, 0], end: [5000, 0, 0] }, BaseElevation: 0, TopElevation: 3000 } };
     for (const els of [[cases.good.elements[0], w], [w, cases.good.elements[0]]])
-      status400(() => validateChangeset({ ...cases.good, elements: els }), /^a terrain changeset holds its terrain and nothing else — file the rest apart$/);
+      status400(() => validateChangeset({ ...cases.good, elements: els }, M), /^a terrain changeset holds its terrain and nothing else — file the rest apart$/);
   });
 
   it("a terrain is never typed from facts, the family is optional, and the bridge's class replaces a posted one (listed)", () => {
@@ -1699,7 +1706,7 @@ describe("validateChangeset — terrain (MA-8-14)", () => {
     expect(ok(body({ FamilyName: null })).place.FamilyName).toBeUndefined();
     status400(() => ok(body({ FamilyName: 7 })), /place\.FamilyName must be text/);
     const el = body().elements[0]; el.validate.identity.Class = "IFCSLAB";
-    const v = validateChangeset({ ...cases.good, elements: [el] });
+    const v = validateChangeset({ ...cases.good, elements: [el] }, M);
     expect(v.elements[0].validate.identity.Class).toBe("IFCGEOGRAPHICELEMENT");
     expect(v.ignored).toEqual([{ field: "elements[0].validate.identity.Class", why: "ignored: set by the bridge from kind" }]);
   });
@@ -1708,28 +1715,34 @@ describe("validateChangeset — terrain (MA-8-14)", () => {
     const withScan = (f) => body({}, { from_scan: f });
     status400(() => ok(withScan("x")), /^elements\[0\]: a terrain needs from_scan \{changeset\}/);
     status400(() => ok(withScan({ changeset: "nope" })), /from_scan\.changeset must be the id \(a uuid\) of the survey changeset/);
-    const v = validateChangeset({ ...cases.good, elements: [{ ...cases.good.elements[0], from_scan: { changeset: cases.plan.changeset.id.toUpperCase(), why: "x" } }] });
+    const v = validateChangeset({ ...cases.good, elements: [{ ...cases.good.elements[0], from_scan: { changeset: cases.plan.changeset.id.toUpperCase(), why: "x" } }] }, M);
     expect(v.elements[0].from_scan).toEqual({ changeset: cases.plan.changeset.id });
     expect(v.ignored).toEqual([{ field: "elements[0].from_scan.why", why: "ignored: not a field this bridge keeps" }]);
     const w = { kind: "wall", validate: { identity: { Class: "IFCWALL", Name: "W" } }, place: { TypeName: "T", LevelName: "L", LocationCurve: { start: [0, 0, 0], end: [1000, 0, 0] } }, from_scan: { changeset: cases.plan.changeset.id } };
-    status400(() => validateChangeset({ name: "n", elements: [w] }), /^elements\[0\]: from_scan belongs to a terrain create only/);
+    status400(() => validateChangeset({ name: "n", elements: [w] }, M), /^elements\[0\]: from_scan belongs to a terrain create only/);
   });
 
   it("Points belong to a terrain only: a wall carrying them is a 400", () => {
     const w = { kind: "wall", validate: { identity: { Class: "IFCWALL", Name: "W" } }, place: { TypeName: "T", LevelName: "L", LocationCurve: { start: [0, 0, 0], end: [1000, 0, 0] }, Points: [[0, 0, 0]] } };
-    status400(() => validateChangeset({ name: "n", elements: [w] }), /^elements\[0\]: a wall takes no place\.Points$/);
+    status400(() => validateChangeset({ name: "n", elements: [w] }, M), /^elements\[0\]: a wall takes no place\.Points$/);
   });
 });
 
 describe("checkFromScan (MA-8-14): the survey changeset a terrain starts from", () => {
   const cases = JSON.parse(readFileSync(new URL("./fixtures/changeset-ops/terrain-cases.json", import.meta.url), "utf8"));
-  const terrain = () => validateChangeset(structuredClone(cases.good)).elements;
+  const M = { member: true };
+  const terrain = () => validateChangeset(structuredClone(cases.good), M).elements;
   const survey = (over = {}) => ({ id: cases.plan.changeset.id, name: cases.plan.changeset.name, status: "proposed", claimed: false, job: { id: "job-0003", reader: "sentinel-survey 0.6.0" }, elements: [], ...over });
   const fails = (fn, status, re) => { try { fn(); throw new Error("no throw"); } catch (e) { expect(e.status).toBe(status); expect(e.message).toMatch(re); } };
 
   it("passes with a survey changeset the bridge built; no from_scan checks nothing", () => {
     expect(() => checkFromScan(terrain(), [survey()])).not.toThrow();
     expect(() => checkFromScan([{ kind: "wall" }], [])).not.toThrow();
+  });
+  it("409: one live terrain per scan - a proposed one from the same scan is named; a withdrawn one frees it", () => {
+    const filed = (status) => ({ id: "other", name: "Terrain · L00 · from Survey job-0003 · GR-FFL", status, elements: terrain() });
+    fails(() => checkFromScan(terrain(), [survey(), filed("proposed")]), 409, /^elements\[0\]: a terrain from "Survey job-0003 · GR-FFL"'s scan is already filed \("Terrain · L00 · from Survey job-0003 · GR-FFL"\) — withdraw it first; nothing was saved$/);
+    expect(() => checkFromScan(terrain(), [survey(), filed("withdrawn")])).not.toThrow();
   });
   it("404: the project holds no such changeset", () => {
     fails(() => checkFromScan(terrain(), []), 404, /^elements\[0\]: from_scan names changeset 5b1c6f3e-2a4d-4e8f-9c1a-7d2e3f4a5b6c, which this project does not hold — nothing was saved$/);

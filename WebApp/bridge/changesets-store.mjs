@@ -657,6 +657,11 @@ export async function scanOverlay(key, id, deps = {}, { flag = null, ground = fa
   if (isDrawn(cs)) throw err(409, `${cs.name} was built from ${ifcOf(cs) ? "an IFC" : "a drawing"} (${cs.job.id}) — it has no scan to show${noSlice}`);
   const exactCrop = !fl || Math.abs((((cs.job.frame.rotation_deg ?? 0) % 90) + 90) % 90) < 1e-9;   // a turned frame crops the larger axis-aligned square
   const cut = ground ? groundCut(cs) : null;   // MA-8-14
+  // MA-8-14 review: the ground is read under the job's lowest storey - on a higher one, podium roofs and the slab below would be read as ground
+  if (cut) {
+    const lower = (await d.docList(STORE, proj.id)).find((o) => o.id !== cs.id && o.job?.id === cs.job.id && o.status !== "withdrawn" && (groundCut(o)?.band[0] ?? Infinity) < cut.band[0] - 1);
+    if (lower) throw err(409, `terrain is read under the lowest storey (${groundCut(lower).level ?? lower.name}, ${lower.name}); ${cs.name} is higher — nothing was read`);
+  }
   const band = ground ? cut?.band : fl ? [fl.box.min[2], fl.box.max[2]] : scanBand(cs);
   if (!band) throw err(409, `${cs.name} has no wall to show the ${ground ? "ground" : "scan"} against`);
   let chain;

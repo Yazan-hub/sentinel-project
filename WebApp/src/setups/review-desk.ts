@@ -144,10 +144,10 @@ export function ghostLine(el: Ghost): string {
   }
 }
 
-/** MA-8-14: a terrain says whose word its points are - the add-in's reading of the scan as Revit filed it, not re-measured by the bridge - and that a person checks it. */
+/** MA-8-14: a terrain says whose word its points are - the reading a signed-in member's Revit filed (the bridge refuses any other caller), not re-measured by the bridge - and that a person checks it. */
 function terrainLine(el: Ghost): string {
   const n = el.place?.Points?.length;
-  return n ? ` · Toposolid from ${n} ground points, as Revit filed them from ${el.from_scan?.changeset ? `changeset ${el.from_scan.changeset.slice(0, 8)}'s` : "a"} scan (not re-measured) — check it against the site survey` : "";
+  return n ? ` · Toposolid from ${n} ground points, as Revit filed them from the survey changeset this was proposed from (not re-measured) — check it against the site survey` : "";
 }
 
 /** MA-8-10: a stair says what it is - one straight run to the level above, and that the rest is a person's (Revit's row says the same). */

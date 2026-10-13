@@ -62,6 +62,9 @@
         9000
       ]
     ],
+    "cell_mm": 500,
+    "z_mm": [-5000, 1500],
+    "of": 6,
     "actor": "planner@example.test"
   },
   "good": {
@@ -77,7 +80,7 @@
             "Name": "Terrain · L00"
           }
         },
-        "reason": "6 ground points (lowest per cell, outside the storey's walls) from job-0003 — check it against the site survey",
+        "reason": "6 ground points, lowest per 500 mm cell, between -5000 and 1500 mm (5 m under to 1.5 m over L00's floor; ground outside that band is not read), outside the storey's walls, from job-0003 — check it against the site survey",
         "place": {
           "LevelName": "L00",
           "FamilyName": "Toposolid",
@@ -314,6 +317,13 @@
         ]
       },
       "message": "place.Points span 602 m in plan — a terrain is at most 500 m across"
+    },
+    {
+      "name": "a point that is not a number",
+      "place": {
+        "Points": [[0, 0, -300], [5000, 0, -300], [0, 5000, "a"]]
+      },
+      "message": "a terrain needs place.Points, 3 to 2000 finite [x,y,z] points"
     },
     {
       "name": "no footprint",

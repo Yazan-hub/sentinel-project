@@ -26,6 +26,8 @@ namespace Sentinel.GhostBuilder
     {
         /// <summary>The bridge's own bounds (changesets-logic MIN/MAX_TERRAIN_POINTS): fewer than 3 points make no surface, more than 2000 are refused.</summary>
         public const int MinPoints = 3, MaxPoints = 2000;
+        /// <summary>The bridge's ground cell (survey-plan GROUND_CELL_MM); a wider one means the cell doubled to stay under <see cref="MaxPoints"/>.</summary>
+        public const int BaseCellMm = 500;
         /// <summary>The refusal at Apply (and on the review row) on a Revit before 2024 - which has no Toposolid. Nothing was placed.</summary>
         public const string OldRevit = "a terrain is a Toposolid — Revit 2024 and later; this Revit cannot apply it; nothing was placed";
         /// <summary>The refusal at Propose on a Revit before 2024.</summary>
@@ -34,9 +36,10 @@ namespace Sentinel.GhostBuilder
         /// <param name="points">The ground points [x, y, z] mm, z the absolute model elevation (the bridge's answer).</param>
         /// <param name="footprint">The storey's footprint [x, y] mm (the oriented box of the lowest walls, + 1 m) - the hole in the Toposolid.</param>
         /// <param name="level">The level the lowest walls name.</param>
+        /// <param name="cellMm">The plan cell the lowest point was kept per (the answer's cell_mm), <paramref name="zMm"/> the height band read, <paramref name="of"/> the points the 500 mm cell kept before it widened.</param>
         /// <param name="rule">The guideline's Toposolid rule (GuidelineMatcher.TerrainRule), or null when it names none.</param>
         public static TerrainPlan Plan(double[][] points, double[][] footprint, string level, (string Family, string Type, string Source)? rule,
-                                       string csName, string csId, string jobId, string actor)
+                                       string csName, string csId, string jobId, int cellMm, double[] zMm, int? of, string actor)
         {
             TerrainPlan Hold(string why) => new TerrainPlan { Hold = why };
             if (string.IsNullOrWhiteSpace(level)) return Hold($"{csName}'s lowest walls name no level — the Toposolid is created on a level; a person decides");
@@ -46,7 +49,10 @@ namespace Sentinel.GhostBuilder
             if (n < MinPoints) return Hold($"{n} ground point(s) outside the walls of {level} in the scan — a surface needs at least {MinPoints}; a person decides");
             if (n > MaxPoints) return Hold($"{n} ground points — a terrain takes at most {MaxPoints}; a person decides");
             string name = $"Terrain · {level}";
-            string reason = $"{n} ground points (lowest per cell, outside the storey's walls) from {jobId} — check it against the site survey";
+            // review: say what the read does not see - the cell it kept one point per, the band it cut to, and the walls' box it left out
+            string widened = cellMm > BaseCellMm && of != null ? $" (widened from {BaseCellMm} mm, which kept {of})" : "";
+            string band = zMm is { Length: 2 } ? $", between {Mm(zMm[0])} and {Mm(zMm[1])} mm (5 m under to 1.5 m over {level}'s floor; ground outside that band is not read)" : "";
+            string reason = $"{n} ground points, lowest per {cellMm} mm cell{widened}{band}, outside the storey's walls, from {jobId} — check it against the site survey";
             var place = new Dictionary<string, object> { ["LevelName"] = level };
             if (!string.IsNullOrWhiteSpace(rule.Value.Family)) place["FamilyName"] = rule.Value.Family;
             place["TypeName"] = rule.Value.Type;
@@ -64,9 +70,11 @@ namespace Sentinel.GhostBuilder
             {
                 Body = new { name = $"{name} · from {csName}", source = "promote", actor, elements = new[] { element } },
                 Points = n,
-                Line = $"{n} ground points on {level} outside the walls, {rule.Value.Type} ({rule.Value.Source}), from {jobId}",
+                Line = $"{n} ground points on {level} outside the walls, lowest per {cellMm} mm cell{widened}{(zMm is { Length: 2 } ? $", {Mm(zMm[0])} to {Mm(zMm[1])} mm" : "")}, {rule.Value.Type} ({rule.Value.Source}), from {jobId}",
             };
         }
+
+        static string Mm(double v) => Math.Round(v).ToString("0", CultureInfo.InvariantCulture);
 
         /// <summary>The line the review window reads beside a terrain row.</summary>
         public static string RowWords(int points, bool supported) =>

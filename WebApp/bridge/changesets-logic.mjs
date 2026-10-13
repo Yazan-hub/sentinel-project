@@ -522,6 +522,8 @@ export function validateChangeset(body, { member = false, type = null, cite = nu
     let from_scan = null;
     if (el.from_scan !== undefined && (op !== "create" || el.kind !== "terrain")) throw err(400, `${at}: from_scan belongs to a terrain create only — the survey changeset whose scan its points came from`);
     if (op === "create" && el.kind === "terrain") {
+      // MA-8-14 review: the bridge cannot tie the points to the scan, so only a signed-in member's Revit (Propose terrain from the scan) files one - never an agent or a script
+      if (!member) throw err(400, `${at}: a terrain is filed by a signed-in member from Revit (Propose terrain from the scan) — the machine credential files none; nothing was saved`);
       const f = el.from_scan;
       if (!isBlock(f)) throw err(400, `${at}: a terrain needs from_scan {changeset} — the survey changeset whose scan its ground points came from`);
       nested(f, ["changeset"], `${at}.from_scan`);
@@ -804,6 +806,9 @@ export function checkFromScan(elements, earlier) {
     if (!cs) throw err(404, `${at}: from_scan names changeset ${f.changeset}, which this project does not hold — nothing was saved`);
     if (!cs.job || cs.claimed !== false || !String(cs.job.reader ?? "").startsWith("sentinel-survey "))
       throw err(400, `${at}: changeset "${cs.name}" was not built from a survey job the bridge ran — there is no scan behind a terrain from it; nothing was saved`);
+    // MA-8-14 review: one live terrain per scan - a second press (or a retry after a slow reply) would stand two Toposolids on each other
+    const twin = (earlier ?? []).find((c) => c.status === "proposed" && (c.elements ?? []).some((o) => o.kind === "terrain" && o.from_scan?.changeset === f.changeset));
+    if (twin) throw err(409, `${at}: a terrain from "${cs.name}"'s scan is already filed ("${twin.name}") — withdraw it first; nothing was saved`);
   }
 }
 
