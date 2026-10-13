@@ -1703,6 +1703,10 @@ async function handleRequest(req, res) {
           const f = await ev.photoFile(p1, p3, seg[5], seg[6], { thisPc: fromThisPc(req) });
           return (await import("./photo-store.mjs")).sendBytes(res, f.full, f.type, { "Cache-Control": f.noStore ? "no-store" : "private, no-cache", ...corsHeaders(res) });
         }
+        // MA-7-11: a splat's placement. POST …/items/:id/placement {matrix[16]} → 201 (a signed-in contributor; the machine credential is a 403; one splat:placed row);
+        //   GET …/items/:id/placement → the newest row's placement or null (any member). GET …/items/:id/view streams the splat's .ply to a member.
+        if (p3 && p4 === "items" && seg[5] && seg[6] === "placement" && !seg[7] && req.method === "POST") return send(res, 201, await ev.placeSplat(p1, p3, seg[5], await body()));
+        if (p3 && p4 === "items" && seg[5] && seg[6] === "placement" && !seg[7] && req.method === "GET") return send(res, 200, await ev.readSplatPlacement(p1, p3, seg[5]));
         // MA-7-2: GET …/:pack/web → the founder's web switch (off/drill/on), the source lists and their sha256 (any member; a read).
         if (p3 && p4 === "web" && !seg[5] && req.method === "GET") return send(res, 200, await ev.webStatus(p1, p3));
         // MA-7-6: GET …/:pack/notice → the credits text and its sha256 (any member; a read).

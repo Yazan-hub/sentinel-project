@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { makePack, readPack, signAttestation, runEvidenceIntake, recheckPack, draftRequest, surveyStart, webStatus, noticeOf, setDeleteBy, startExpirySweep, makeViewCopy, photoFile } from "./evidence-store.mjs";
+import { makePack, readPack, signAttestation, runEvidenceIntake, recheckPack, draftRequest, surveyStart, webStatus, noticeOf, setDeleteBy, startExpirySweep, makeViewCopy, photoFile, placeSplat, readSplatPlacement } from "./evidence-store.mjs";
 import * as W from "./web-sources.mjs";
 import { jpegWithExif } from "./fixtures/jpeg-exif.mjs";
 import { ATTESTATIONS, USES, realDay } from "./evidence-logic.mjs";
@@ -102,7 +102,7 @@ describe("evidence intake (MA-4a)", () => {
     await expect(admit({ path: "photos/street.jpg", kind: "photo", provider: "google" })).rejects.toMatchObject({ status: 409, message: "photos/street.jpg is already admitted as ev-0001 (Re-check finds a changed file) — nothing was saved" });
     expect(audits.length).toBe(n);
     put("notes/a.txt", "text");
-    expect(await admit({ path: "notes/a.txt", kind: "photo" })).toMatchObject({ verdict: "refused", reasons: ["a .txt is not admitted — scans are e57, las, laz or rcp; photos are jpg or png; a concept model is ifc"] });
+    expect(await admit({ path: "notes/a.txt", kind: "photo" })).toMatchObject({ verdict: "refused", reasons: ["a .txt is not admitted — scans are e57, las, laz or rcp; photos are jpg or png; a concept model is ifc; a Gaussian splat is a ply"] });
     const zip = Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), Buffer.alloc(20, 1)]);
     put("scans/fake.las", zip);
     expect(await admit({ path: "scans/fake.las", kind: "scan", registration: REG })).toMatchObject({ verdict: "refused", sha256: null, reasons: ["the file does not begin as a .las does — renamed or damaged"] }); // refused before any byte is hashed
@@ -1056,5 +1056,124 @@ describe("Wikimedia Commons admission behind the switch (MA-7-12)", () => {
     writeFileSync(join(root, "demo", "web", "commons-1.html"), "<html>edited</html>");
     role = "contributor";
     expect((await recheck()).changed).toEqual([expect.objectContaining({ item_id: "ev-0001", reason: "its saved terms page changed since admitted" })]);
+  });
+});
+
+// MA-7-11 - a Gaussian splat in the pack: admitted on (a)(c)(d) and the person's answer, viewed by a member, placed by a contributor (the ledger holds the matrix).
+describe("a Gaussian splat (MA-7-11)", () => {
+  const head = (props) => Buffer.from(`ply\nformat binary_little_endian 1.0\nelement vertex 2\n${props.map((p) => `property float ${p}`).join("\n")}\nend_header\n`, "latin1");
+  const GS = ["x", "y", "z", "f_dc_0", "f_dc_1", "f_dc_2", "opacity", "scale_0", "scale_1", "scale_2", "rot_0", "rot_1", "rot_2", "rot_3"];
+  const PLY = Buffer.concat([head(GS), Buffer.alloc(2 * GS.length * 4, 3)]);
+  const CLOUD = Buffer.concat([head(["x", "y", "z", "red", "green", "blue"]), Buffer.alloc(40, 3)]);
+  const I = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+  const ledgerRows = (_k, f) => audits.map((a, i) => ({ id: i + 1, entity_type: a.et, action: a.action, actor: a.actor, new_value: a.newv, at: "2026-10-13T10:00:00.000Z" }))
+    .filter((r) => r.entity_type === f.entity_type && r.action.startsWith(f.action_prefix));
+  const dp = (over = {}) => ({ ...deps(), auditAll: async (k, f) => ledgerRows(k, f), ...over });
+  const withAnswer = (path) => ({ path, kind: "splat", no_people_or_plates: true });
+  const place = (item, matrix, d = dp()) => placeSplat("demo", "evp-0001", item, { matrix }, d);
+
+  it("(SP-1) admitted on (a)(c)(d) and the explicit answer: a splat, own, not surveyable, looked at only; the row names the answer; the same bytes as a point cloud are refused", async () => {
+    await ready();
+    put("splats/drill.ply", PLY); put("splats/cloud.ply", CLOUD);
+    await expect(admit({ path: "splats/drill.ply", kind: "splat" })).rejects.toMatchObject({ status: 400, message: "a splat cannot be blurred after it is trained — train it in Sentinel from blurred photos (7-19), or confirm that no face or number plate is visible in it; nothing was saved" });
+    expect(audits.filter((a) => a.et === "evidence")).toEqual([]); // SP-1b: no answer, no row
+    const r = await admit(withAnswer("splats/drill.ply"));
+    expect(r.verdict).toBe("admitted");
+    expect(r.item).toMatchObject({ id: "ev-0001", kind: "splat", format: "ply", sha256: sha(PLY), size_bytes: PLY.length, provider: "own", licence: "owner-supplied", surveyable: false,
+      no_people_or_plates: true, attestation_ids: ["att-0001", "att-0002", "att-0003"], allowed_uses: { ...USES, geometry_extraction: false }, admitted_by: "machine" });
+    expect(rows("evidence:admitted")[0].newv).toMatchObject({ kind: "splat", format: "ply", no_people_or_plates: true });
+    const c = await admit(withAnswer("splats/cloud.ply"));
+    expect(c).toMatchObject({ verdict: "refused", reasons: ["this .ply is not a Gaussian splat (no opacity, scale_0, rot_0 in its header)"] });
+    expect(rows("evidence:refused").map((x) => x.action)).toEqual(["evidence:refused splats/cloud.ply"]);
+    expect((await pack()).items.map((i) => i.id)).toEqual(["ev-0001"]);
+  });
+  it("(SP-1c) the other refusals: a missing (d), a RED source, a renamed file, a file over 256 MB (unhashed), a photo sent as a splat's extension", async () => {
+    await makePack("demo", {}, deps()); await sign(["a", "c"]); role = "contributor";
+    put("splats/drill.ply", PLY);
+    await expect(admit(withAnswer("splats/drill.ply"))).rejects.toMatchObject({ status: 409, message: "a lead must sign (d) first; nothing was saved" });
+    await sign(["d"]);
+    expect((await admit({ ...withAnswer("splats/drill.ply"), provider: "google" })).reasons[0]).toMatch(/^google is a RED source/);
+    put("splats/fake.ply", Buffer.concat([Buffer.from("PK\x03\x04"), Buffer.alloc(40, 1)]));
+    expect(await admit(withAnswer("splats/fake.ply"))).toMatchObject({ verdict: "refused", sha256: null, reasons: ["the file does not begin as a .ply does — renamed or damaged"] });
+    put("splats/huge.ply", Buffer.concat([head(GS), Buffer.alloc(257 * 1048576)]));
+    const big = await admit(withAnswer("splats/huge.ply"));
+    expect(big.sha256).toBe(null);
+    expect(big.reasons[0]).toMatch(/^a \.ply splat is at most 256 MB \(this one is 257\.0 MB\) — it is not admitted/);
+    put("photos/a.ply", PLY);
+    expect(await admit({ path: "photos/a.ply", kind: "photo" })).toMatchObject({ verdict: "refused", reasons: ["a .ply is a splat, not a photo"] });
+    await expect(admit({ path: "splats/drill.ply", kind: "photo", no_people_or_plates: true })).rejects.toMatchObject({ status: 400 });
+  });
+  it("(SP-1d) a flagged splat comes back as first admitted when the same bytes are put back", async () => {
+    await ready();
+    put("splats/drill.ply", PLY);
+    await admit(withAnswer("splats/drill.ply"));
+    put("splats/drill.ply", Buffer.concat([PLY, Buffer.from("x")]));
+    expect((await recheck()).changed).toHaveLength(1);
+    expect((await pack()).items[0].state).toBe("changed");
+    await expect(place("ev-0001", I)).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/changed since it was admitted.*nothing was saved$/) });
+    put("splats/drill.ply", PLY);
+    const back = await admit({ path: "splats/drill.ply", kind: "splat" }); // no answer needed: it comes back as first admitted
+    expect(back).toMatchObject({ verdict: "admitted", item: { id: "ev-0001", no_people_or_plates: true } });
+    expect(back.item.state).toBeUndefined();
+  });
+  it("(SP-3) a contributor saves a placement: one splat:placed row {matrix, sha256, actor, role, from_registration:null}; the pack is unchanged; the machine credential, a viewer and a bad matrix are refused with no row", async () => {
+    await ready();
+    put("splats/drill.ply", PLY);
+    await admit(withAnswer("splats/drill.ply"));
+    const v0 = (await readPack("demo", "evp-0001", deps())).ref;
+    const M = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 12.5, -3, 0.25, 1];
+    const r = await place("ev-0001", M);
+    expect(r.placement).toEqual({ item_id: "ev-0001", matrix: M, sha256: sha(PLY), actor: "machine", role: "contributor", from_registration: null });
+    expect(rows("splat:placed").map((x) => [x.et, x.action, x.newv])).toEqual([["splat", "splat:placed ev-0001", { pack_id: "evp-0001", item_id: "ev-0001", matrix: M, sha256: sha(PLY), actor: "machine", role: "contributor", from_registration: null }]]);
+    expect((await readPack("demo", "evp-0001", deps())).ref).toBe(v0);
+    expect(budgets).toContainEqual(["splat placements", { perUser: 30, all: 90 }]);
+    const n = audits.length;
+    role = "service";
+    await expect(place("ev-0001", M)).rejects.toMatchObject({ status: 403, message: "a placement needs a person — the row names who placed the splat: sign in. Nothing was saved." });
+    role = "viewer";
+    await expect(place("ev-0001", M)).rejects.toMatchObject({ status: 403 });
+    role = "contributor";
+    for (const bad of [I.map((v, i) => (i === 12 ? null : v)), I.map((v, i) => (i === 0 ? -1 : v)), I.slice(1), I.map((v, i) => (i === 15 ? 2 : v))]) await expect(place("ev-0001", bad)).rejects.toMatchObject({ status: 400 });
+    await expect(place("ev-9999", M)).rejects.toMatchObject({ status: 404 });
+    put("photos/own.jpg", JPG);
+    await admit({ path: "photos/own.jpg", kind: "photo" });
+    await expect(place("ev-0002", M)).rejects.toMatchObject({ status: 409, message: "ev-0002 is a photo, not a splat; nothing was saved" });
+    expect(audits.length - n).toBe(1); // only the photo's admitted row
+  });
+  it("(SP-4) a reload places from the newest row; a viewer and the machine credential read it; none yet is null; an unreadable ledger is a 503", async () => {
+    await ready();
+    put("splats/drill.ply", PLY);
+    await admit(withAnswer("splats/drill.ply"));
+    expect(await readSplatPlacement("demo", "evp-0001", "ev-0001", dp())).toEqual({ placement: null });
+    const A = I.map((v, i) => (i === 12 ? 1 : v)), B = I.map((v, i) => (i === 12 ? 2 : v));
+    await place("ev-0001", A); await place("ev-0001", B);
+    for (const r of ["viewer", "service"]) {
+      role = r;
+      const got = await readSplatPlacement("demo", "evp-0001", "ev-0001", dp());
+      expect(got.placement).toMatchObject({ item_id: "ev-0001", matrix: B, sha256: sha(PLY), actor: "machine", ledger_id: expect.any(Number) });
+    }
+    // a row that is not a placement of these bytes is passed over, never trusted
+    audits.push({ et: "splat", action: "splat:placed ev-0001", actor: "x", newv: { matrix: I.map((v, i) => (i === 0 ? -1 : v)), sha256: sha(PLY), item_id: "ev-0001" } });
+    audits.push({ et: "splat", action: "splat:placed ev-0001", actor: "x", newv: { matrix: A, sha256: "f".repeat(64), item_id: "ev-0001" } });
+    expect((await readSplatPlacement("demo", "evp-0001", "ev-0001", dp())).placement.matrix).toEqual(B);
+    await expect(readSplatPlacement("demo", "evp-0001", "ev-0009", dp())).rejects.toMatchObject({ status: 404 });
+    await expect(readSplatPlacement("demo", "evp-0001", "ev-0001", dp({ auditAll: async () => { throw new Error("down"); } }))).rejects.toMatchObject({ status: 503 });
+  });
+  it("(SP-2) the view streams a splat's own file to any member; the original route and an expired or changed splat are refused", async () => {
+    await ready();
+    put("splats/drill.ply", PLY);
+    await admit(withAnswer("splats/drill.ply"));
+    for (const r of ["viewer", "contributor", "lead", "service"]) {
+      role = r;
+      const f = await photoFile("demo", "evp-0001", "ev-0001", "view", {}, deps());
+      expect(f).toMatchObject({ type: "application/octet-stream", noStore: false });
+      expect(readFileSync(f.full).equals(PLY)).toBe(true);
+    }
+    role = "contributor";
+    await expect(photoFile("demo", "evp-0001", "ev-0001", "original", { thisPc: true }, deps())).rejects.toMatchObject({ status: 409, message: "ev-0001 is a splat, not a photo; nothing was shown" });
+    role = "lead";
+    await setDeleteBy("demo", "evp-0001", "ev-0001", { date: "2026-10-08" }, deps()); // today: retired now
+    await expect(photoFile("demo", "evp-0001", "ev-0001", "view", {}, deps())).rejects.toMatchObject({ status: 409, message: expect.stringContaining("expired on 2026-10-08") });
+    await expect(place("ev-0001", I)).rejects.toMatchObject({ status: 409 });
   });
 });

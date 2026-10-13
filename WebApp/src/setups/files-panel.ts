@@ -17,7 +17,8 @@ import { unarchiveFile } from "./cde-transition";
 import { firstTag, geometryCheck, linkedHash, linkedTag, sha256Hex, type GeometryLinkRow } from "./geometry-check";
 import { saveAs } from "./audit-pack";
 import { mountMarker, markSummary, type Mark, type Marker, type MarkWhat } from "./photo-marker";
-import { readEvidence, readWebStatus, readNotice, noticeLine, webLine, type WebStatus, makePack, signAttestation, admitEvidence, recheckEvidence, setDeleteBy, draftRequest, kindOf, isImage, needsReport, itemLine, attestationLine, admitLine, recheckLine, requestLine, evidenceControls, ATTESTATION_CODES, ATTESTATION_TEXTS, datasetLine, PHOTO_SOURCES, MAP_SERVICES, photoProvider, type PhotoSource, markViewCopy, blurredLine, photoUrl, type EvidenceItem, type EvidenceRead, type EvidenceRequest,
+import type { SplatShown } from "./splat-view"; // MA-7-11: type only - Spark and the viewer load when "Show in 3D" is pressed
+import { readEvidence, readWebStatus, readNotice, noticeLine, webLine, type WebStatus, makePack, signAttestation, admitEvidence, recheckEvidence, setDeleteBy, draftRequest, kindOf, isImage, needsReport, itemLine, attestationLine, admitLine, recheckLine, requestLine, evidenceControls, ATTESTATION_CODES, ATTESTATION_TEXTS, datasetLine, PHOTO_SOURCES, MAP_SERVICES, photoProvider, type PhotoSource, markViewCopy, blurredLine, photoUrl, readSplatPlacement, saveSplatPlacement, splatBytes, placementLine, splatShownLine, canPlaceSplat, SPLAT_LOOK, type SplatPlacement, type EvidenceItem, type EvidenceRead, type EvidenceRequest,
   startSurvey, readJobs, readJob, readFrameDraft, jobLine, candidateLine, surveyStartLine, surveyableScans, proposeBody, proposeFromJob, proposeLine, choosablePhotos, choiceLine, type PhotoChoice, type SurveyJob, type Candidate,
   startDrawing, drawingStartLine, readableDrawings, isDrawingJob, startIfc, ifcStartLine, readableIfc, isIfcJob, ifcHintLine, alignBody, alignPreview, drawingSvg, snapPaper, type AlignDraft } from "./evidence";
 
@@ -117,6 +118,11 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   const thumbs = new Map<string, Promise<string>>(); // `${id}:${sha}` → the blurred copy as an object URL, in flight or ready (one fetch per copy)
   function thumbsClear() { for (const p of thumbs.values()) p.then((u) => URL.revokeObjectURL(u), () => {}); thumbs.clear(); } // MA-7-7: a project or person switch frees them
   function markClose() { if (markUrl) URL.revokeObjectURL(markUrl); markFor = null; markUrl = null; markMarks = []; markErr = ""; marker = null; }
+  // MA-7-11: a folder .ply whose answer form is open (an uploaded splat cannot be blurred, so a person says no face or number plate is in it), and the splat
+  // shown in the 3D world (one at a time) with the placement the ledger held when it was shown; `splatBusy` = the item being loaded.
+  let splatFor: string | null = null; let splatAnswer = false;
+  let splat: { id: string; ctl: SplatShown; placed: SplatPlacement | null } | null = null; let splatBusy: string | null = null;
+  function splatClose() { try { splat?.ctl.dispose(); } catch { /* the scene is gone */ } splat = null; }
   let vendorFor: string | null = null; // MA-8-3: the folder .ifc whose provider + licence-ref form is open (a third party's model)
   let drawingReq = ""; // the request picked for `drawingFor`, kept across a re-render
   let drafting = false; // a draft in flight: a second click drafts nothing
@@ -189,7 +195,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   async function load() {
     const mine = ++seq, key = pid();
     // A project or person switch drops the old scope's inline rename / armed confirm (dismissing is reset below).
-    if (loadScope(key) !== loadedScope) { markClose(); thumbsClear(); renaming = null; armed = null; unarchiveAsk = null; askDraft = null; drawingFor = null; vendorFor = null; photoFor = null; lettersOpen.clear(); proposing = null; proposeLevels = null; proposeDraft = null; alignDraft = null; alignView = null; alignPick = null; }
+    if (loadScope(key) !== loadedScope) { markClose(); splatClose(); splatFor = null; thumbsClear(); renaming = null; armed = null; unarchiveAsk = null; askDraft = null; drawingFor = null; vendorFor = null; photoFor = null; lettersOpen.clear(); proposing = null; proposeLevels = null; proposeDraft = null; alignDraft = null; alignView = null; alignPick = null; }
     loadedScope = loadScope(key);
     if (cmp.a || cmp.b) { cmp.a = cmp.b = cmp.fileId = undefined; el("fv-compare").style.display = "none"; }
     el("fv-proj").textContent = key;
@@ -237,9 +243,10 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       dismissing = null; gapDismissing = null;
       try { const h = await readHolding(base, key); if (mine !== seq) return; holding = h; holdError = null; }
       catch (e) { if (mine !== seq) return; holding = { items: [], cleared_recent: [], type_gaps: null }; holdError = (e as Error).message; }
-      admitting = null; drawingFor = null; vendorFor = null; photoFor = null;
+      admitting = null; drawingFor = null; vendorFor = null; photoFor = null; splatFor = null;
       try { const ev = await readEvidence(base, key); if (mine !== seq) return; evidence = ev; evidenceError = null; }
       catch (e) { if (mine !== seq) return; evidence = null; evidenceError = (e as Error).message; }
+      if (splat && !evidence?.pack.items.some((x) => x.id === splat!.id && x.kind === "splat" && !x.state)) splatClose(); // MA-7-11: a retired or changed splat leaves the scene
       // MA-7-2: the web switch is its own read; a failure leaves the line unsaid, never "off" guessed
       try { const w = evidence ? await readWebStatus(base, key) : null; if (mine !== seq) return; webState = w; } catch { if (mine !== seq) return; webState = null; }
       jobOpen = null; jobCands = null; // the Propose form stays open with its draft: a refusal never loses what the lead typed
@@ -462,6 +469,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       const back = evidence?.pack.items.find((i) => i.path === path && i.state === "changed");
       if (!back && kindOf(path) === "photo") { photoFor = path; photoSource = "own"; photoService = MAP_SERVICES[0]; admitting = null; drawingFor = null; vendorFor = null; render(); }
       else if (back || kindOf(path) === "model") void evAct(async () => admitLine(await admitEvidence(base, pid(), { path, kind: back?.kind ?? kindOf(path)!, ...(back?.request_id ? { request_id: back.request_id } : {}) })));
+      else if (kindOf(path) === "splat") { splatFor = path; splatAnswer = false; admitting = null; drawingFor = null; vendorFor = null; photoFor = null; render(); } // MA-7-11
       else if (kindOf(path) === "drawing") { drawingFor = path; drawingReq = ""; admitting = null; photoFor = null; render(); }
       else { admitting = path; drawingFor = null; photoFor = null; render(); (root.querySelector("#fv-ev-method") as HTMLInputElement | null)?.focus(); }
     }));
@@ -543,7 +551,23 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       if (!p) { p = photoUrl(base, pid(), it.id, "view"); thumbs.set(k, p); p.catch(() => thumbs.delete(k)); }
       p.then((u) => { n.src = u; }, (e) => { n.alt = `the blurred copy could not be shown — ${(e as Error).message}`; });
     });
-    root.querySelector("#fv-ev-cancel")?.addEventListener("click", () => { admitting = null; drawingFor = null; vendorFor = null; photoFor = null; render(); });
+    // MA-7-11: admit a splat on the explicit answer; show it in 3D (any member), move it with the gizmo, save the placement (a contributor's)
+    root.querySelector("#fv-ev-sans")?.addEventListener("change", (e) => { splatAnswer = (e.target as HTMLInputElement).checked; const ok = root.querySelector<HTMLButtonElement>("#fv-ev-sok"); if (ok) ok.disabled = !splatAnswer; });
+    root.querySelector("#fv-ev-sok")?.addEventListener("click", () => {
+      const path = splatFor;
+      if (!path || !splatAnswer) return;
+      splatFor = null;
+      void evAct(async () => admitLine(await admitEvidence(base, pid(), { path, kind: "splat", no_people_or_plates: true })));
+    });
+    root.querySelectorAll<HTMLElement>("[data-evshow]").forEach((n) => n.addEventListener("click", () => void showSplat(n.dataset.evshow!)));
+    root.querySelectorAll<HTMLElement>("[data-evsmode]").forEach((n) => n.addEventListener("click", () => splat?.ctl.setMode(n.dataset.evsmode as "translate" | "rotate" | "scale")));
+    root.querySelector("#fv-ev-shide")?.addEventListener("click", () => { splatClose(); render(); status("Hid the splat"); });
+    root.querySelector("#fv-ev-ssave")?.addEventListener("click", () => {
+      const s = splat;
+      if (!s) return;
+      void evAct(async () => { const r = await saveSplatPlacement(base, pid(), s.id, s.ctl.matrix()); s.placed = r.placement; return placementLine(r); });
+    });
+    root.querySelector("#fv-ev-cancel")?.addEventListener("click", () => { admitting = null; drawingFor = null; vendorFor = null; photoFor = null; splatFor = null; render(); });
     root.querySelector("#fv-ev-ok")?.addEventListener("click", () => {
       const path = admitting;
       if (!path) return;
@@ -693,6 +717,25 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     } catch (e) { status(`Not dismissed — ${(e as Error).message}`); }
   }
 
+  /** MA-7-11: show an admitted splat in the 3D world: Spark is probed first (the published view may not start its worker - then it says so and loads nothing), the
+   *  bytes and the newest placement are read, and the splat appears at that placement (or where the camera looks) with the gizmo on. One at a time. */
+  async function showSplat(id: string) {
+    if (splatBusy) return;
+    splatClose(); splatBusy = id; render(); status(`Loading ${id}…`);
+    const scope = loadedScope;
+    try {
+      const sv = await import("./splat-view");
+      const probe = await sv.probeSpark();
+      if (!probe.ok) { status(probe.why); return; }
+      const [bytes, placed] = await Promise.all([splatBytes(base, pid(), id), readSplatPlacement(base, pid(), id)]);
+      const ctl = await sv.showSplat(_components, bytes, { matrix: placed?.matrix ?? null });
+      if (loadedScope !== scope) { ctl.dispose(); return; } // the project or person changed while it loaded
+      splat = { id, ctl, placed };
+      status(`Showing ${id} — ${splatShownLine(placed)}`);
+    } catch (e) { status(`Not shown — ${(e as Error).message}`); }
+    finally { splatBusy = null; render(); }
+  }
+
   /** MA-4a: one Evidence action, then a reload; the line is the bridge's answer (a refusal before any store ends "nothing was saved"). */
   async function evAct(run: () => Promise<string>) {
     let line: string;
@@ -730,6 +773,12 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     const photoActs = (i: EvidenceItem) => i.kind !== "photo" || i.state ? "" :
       i.view_copy ? ` <img data-evthumb="${esc(i.id)}" alt="blurred copy of ${esc(i.id)}" style="height:2.6rem;vertical-align:middle;border-radius:.2rem;border:1px solid #2c2c34;background:#111"/>`
         : can.survey && markFor !== i.id ? ` <button data-evmark="${esc(i.id)}" style="${act};color:#c4b5fd">Mark faces and plates</button>` : "";
+    // MA-7-11: a splat is for looking only - Show in 3D for every member; while shown, the gizmo's modes, Save placement (a contributor's) and Hide
+    const splatActs = (i: EvidenceItem) => i.kind !== "splat" || i.state ? "" : splat?.id === i.id
+      ? ([["translate", "Move"], ["rotate", "Turn"], ["scale", "Scale"]] as const).map(([m, w]) => ` <button data-evsmode="${esc(m)}" style="${act}">${esc(w)}</button>`).join("") +
+        (canPlaceSplat(role) ? ` <button id="fv-ev-ssave" style="${act};color:#c4b5fd">Save placement</button>` : "") + ` <button id="fv-ev-shide" style="${act}">Hide</button>`
+      : ` <button data-evshow="${esc(i.id)}" style="${act}"${splatBusy ? " disabled" : ""} title="${esc(SPLAT_LOOK)}">${splatBusy === i.id ? "Loading…" : "Show in 3D"}</button>`;
+    const splatBlock = (i: EvidenceItem) => splat?.id !== i.id ? "" : line(esc(splatShownLine(splat.placed)) + (canPlaceSplat(role) ? "" : ` A contributor or above saves the placement — ${roleSaid}.`), "#c4b5fd");
     const markBlock = (i: EvidenceItem) => markFor !== i.id ? "" : `<div style="padding:.3rem .2rem;display:flex;flex-direction:column;gap:.3rem">` +
       `<span style="color:#9ca3af;font-size:11px">Draw a box round every face and every number plate you can see. Each box is filled with its own colour in a copy that is shown and read from now on; the original stays in your folder and is no longer shown. Sentinel does not find faces itself yet. The original is shown on the office PC only (the local app).</span>` +
       (markErr ? `<span style="color:#fca5a5;font-size:11px">${esc(markErr)}</span>` : "") +
@@ -738,10 +787,10 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       `<label><input type="radio" name="fv-mk-what" value="plate"${markWhat === "plate" ? " checked" : ""}/> number plate</label><span id="fv-mk-sum" style="color:#c4b5fd">${esc(markSummary(markMarks))}</span></div>` +
       `<div style="display:flex;gap:.4rem;flex-wrap:wrap"><button id="fv-mk-save" style="${act};color:#c4b5fd">Save blurred copy</button><button id="fv-mk-undo" style="${act}">Undo last box</button>` +
       `<button id="fv-mk-none" style="${act}">No faces or number plates in this photo</button><button id="fv-mk-cancel" style="${act}">Cancel</button></div></div>`;
-    const items = pack.items.map((i) => line(esc(itemLine(i)) + photoActs(i) + (can.sign && i.state !== "expired"
+    const items = pack.items.map((i) => line(esc(itemLine(i)) + photoActs(i) + splatActs(i) + (can.sign && i.state !== "expired"
       ? ` <input type="date" data-evdate="${esc(i.id)}" min="${esc(today)}" value="${esc(i.delete_by ?? "")}" style="background:#111;color:#eee;border:1px solid #2c2c34;border-radius:.25rem;font:11px system-ui"/>` +
         ` <button data-evdelby="${esc(i.id)}" style="${act}">Set delete-by</button> <button data-evretire="${esc(i.id)}" data-evpath="${esc(i.path)}" style="${act}">Retire now</button>` : ""),
-      i.state === "changed" ? "#fca5a5" : i.state === "expired" ? "#52525b" : "#cbd5e1") + markBlock(i)).join("") || line("none yet");
+      i.state === "changed" ? "#fca5a5" : i.state === "expired" ? "#52525b" : "#cbd5e1") + markBlock(i) + splatBlock(i)).join("") || line("none yet");
     const requests = pack.requests ?? [];
     const inp = "background:#111;color:#eee;border:1px solid #2c2c34;border-radius:.25rem;padding:.2rem .4rem;font:12px system-ui";
     // MA-4d: the lead's two statements — where the scan sits in the model, and which existing level each scanned storey is (blank: matched from
@@ -810,13 +859,17 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
           ? `<span style="color:#9ca3af;flex-basis:100%">A third party's model is a purchase, not a request. Needs (a) and (e) signed by a lead, and a lead to admit it. Name the provider and the order or contract it was bought under. Sentinel sends nothing to the vendor; the owner's consent to sharing a scan with them is the office's to settle.</span>` +
             `<input id="fv-ev-vprov" maxlength="100" placeholder="provider, e.g. Acme Scans" style="${inp};min-width:9rem"/><input id="fv-ev-vref" maxlength="100" placeholder="order or contract number" style="${inp};flex:1;min-width:9rem"/>` +
             `<button id="fv-ev-vok" style="${act};color:#c4b5fd">Admit model</button><button id="fv-ev-cancel" style="${act}">Cancel</button>`
+        : splatFor === f.path
+          ? `<span style="color:#9ca3af;flex-basis:100%">A splat cannot be blurred after it is trained: train it in Sentinel from blurred photos, or confirm that no face or number plate is visible in it. A splat is ${esc(SPLAT_LOOK)}; Sentinel checks its header only (opacity, scale_0, rot_0).</span>` +
+            `<label style="font-size:11px"><input type="checkbox" id="fv-ev-sans"${splatAnswer ? " checked" : ""}/> No faces or number plates are visible in this splat</label>` +
+            `<button id="fv-ev-sok" style="${act};color:#c4b5fd"${splatAnswer ? "" : " disabled"}>Admit splat</button><button id="fv-ev-cancel" style="${act}">Cancel</button>`
         : drawingFor === f.path
           ? (requests.length
             ? `<select id="fv-ev-req" style="${inp}">${requests.map((r) => `<option value="${esc(r.id)}"${r.id === drawingReq ? " selected" : ""}>answers ${esc(r.id)} · to the ${esc(r.recipient_kind)}</option>`).join("")}</select>` +
               `<button id="fv-ev-dok" style="${act};color:#c4b5fd">Admit drawing</button>`
             : '<span style="color:#fbbf24">a drawing answers a request — a lead drafts one under Ask the owner first</span>') +
             `<button id="fv-ev-cancel" style="${act}">Cancel</button>`
-        : !kindOf(f.path) ? '<span style="color:#71717a">not admitted here — scans e57, las, laz, rcp; photos jpg, png; drawings pdf, dwg, dxf; a concept model ifc</span>'
+        : !kindOf(f.path) ? '<span style="color:#71717a">not admitted here — scans e57, las, laz, rcp; photos jpg, png; drawings pdf, dwg, dxf; a concept model ifc; a Gaussian splat ply</span>'
         : edit ? `<button data-evadmit="${esc(f.path)}" style="${act}">Admit</button>` +
           (kindOf(f.path) === "model" && can.ask && !pack.items.some((i) => i.path === f.path && i.state === "changed") ? ` <button data-evvendor="${esc(f.path)}" style="${act}" title="a model bought from a third party: a lead names the provider and the order">a third party's…</button>` : "") +
           (isImage(f.path) && requests.length ? ` <button data-evdrawing="${esc(f.path)}" style="${act}" title="a scanned drawing that answers a request">as drawing…</button>` : "") : "";
@@ -1257,7 +1310,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   // A plain refresh (same project and person, e.g. the bridge came back) must not wipe an open dismiss reason, rename
   // input or armed confirm; a project or person switch always reloads (load() drops them).
   onActiveProjectChange(() => {
-    if (loadScope(pid()) === loadedScope && (dismissing != null || gapDismissing != null || renaming || armed || admitting || askDraft || drawingFor || vendorFor || photoFor || markFor)) return;
+    if (loadScope(pid()) === loadedScope && (dismissing != null || gapDismissing != null || renaming || armed || admitting || askDraft || drawingFor || vendorFor || photoFor || markFor || splatFor)) return;
     void load();
   });
   void load();

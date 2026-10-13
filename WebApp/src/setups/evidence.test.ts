@@ -432,7 +432,7 @@ describe("a concept IFC (MA-6-8) — Read IFC, the third reader", () => {
     expect(src).toContain("data-evvendor"); // MA-8-3: a third party's model opens its provider + licence-ref form (a lead's)
     expect(src).toContain("data-evifc"); // MA-8-3: one Read IFC a model when several are admitted
     expect(src).toContain("{ path, kind: \"model\", provider, licence_ref }");
-    expect(src).toContain("a concept model ifc</span>");
+    expect(src).toContain("a concept model ifc; a Gaussian splat ply</span>");
     expect(src).toContain("and (a) before a concept IFC");
     expect(src).toContain('(what === "IFC" && proposeHint ? line(esc(proposeHint), "#c4b5fd") : "")');
   });
@@ -551,7 +551,81 @@ describe("blurred copy (MA-7-7)", () => {
     expect(src).toContain("No faces or number plates in this photo");
     expect(src).toContain('saveMark({ none_seen: true })');
     expect(src).toContain("marker?.shown()"); // the shown size is sent with the marks
-    expect(src).toContain("drawingFor || vendorFor || photoFor || markFor)) return;");
-    expect(src).toContain("{ markClose(); thumbsClear(); renaming = null;"); // a project or person switch drops the open marker and frees the thumbnails
+    expect(src).toContain("drawingFor || vendorFor || photoFor || markFor || splatFor)) return;"); // MA-7-11: an open splat form too
+    expect(src).toContain("{ markClose(); splatClose(); splatFor = null; thumbsClear(); renaming = null;"); // a project or person switch drops the open marker and frees the thumbnails
+  });
+});
+
+// MA-7-11 - a Gaussian splat: its kind, its words, its three calls and the panel's wiring.
+import { SPLAT_LOOK, canPlaceSplat, splatBytes, readSplatPlacement, saveSplatPlacement, placementLine, splatShownLine, admitEvidence, type SplatPlacement } from "./evidence";
+describe("a Gaussian splat (MA-7-11)", () => {
+  const SP: EvidenceItem = { ...ITEM, id: "ev-0003", kind: "splat", format: "ply", path: "splats/drill.ply", surveyable: false, size_bytes: 3_000_000, no_people_or_plates: true };
+  const M = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 12.5, -3, 0.25, 1];
+  const PL: SplatPlacement = { item_id: "ev-0003", matrix: M, sha256: HASH, actor: "lead@example.test", role: "lead", at: "2026-10-14T09:30:15.000Z", ledger_id: 12 };
+  it("a .ply in the folder is a splat (any case); nothing else changes", () => {
+    expect(kindOf("splats/drill.ply")).toBe("splat");
+    expect(kindOf("S/A.PLY")).toBe("splat");
+    expect(kindOf("p/a.jpg")).toBe("photo");
+    expect(kindOf("p/a.txt")).toBe(null);
+    expect(isImage("splats/a.ply")).toBe(false);
+  });
+  it("itemLine: says it is for looking only, and on whose answer (or which trainer) it was admitted; never 'not surveyable (no ReCap here)'", () => {
+    const l = itemLine(SP);
+    expect(l).toContain(" · Gaussian splat, for looking only — dimensions come from scans · admitted on the answer: no faces or number plates visible");
+    expect(l).not.toMatch(/ReCap/);
+    expect(itemLine({ ...SP, no_people_or_plates: undefined, made_with: { tool: "gsplat", version: "1.0.0" } })).toContain("made in Sentinel with gsplat 1.0.0");
+    expect(SPLAT_LOOK).toBe("for looking only — dimensions come from scans");
+  });
+  it("canPlaceSplat: a contributor and above, never the machine session's", () => {
+    expect(["viewer", "contributor", "lead", "owner", "service"].map(canPlaceSplat)).toEqual([false, true, true, true, false]);
+  });
+  it("admitEvidence carries the explicit answer; splatBytes reads the view route as bytes with the bridge's own words on a refusal", async () => {
+    bwrite.mockResolvedValueOnce({ verdict: "admitted", item: SP, pack_version: 5, ledger: { id: 1, hash: HASH } });
+    await admitEvidence("http://b", "demo", { path: "splats/drill.ply", kind: "splat", no_people_or_plates: true });
+    expect(JSON.parse(bwrite.mock.calls[bwrite.mock.calls.length - 1][1].body)).toEqual({ path: "splats/drill.ply", kind: "splat", no_people_or_plates: true });
+    const buf = new Uint8Array([112, 108, 121, 10]);
+    bfetch.mockResolvedValueOnce({ ok: true, status: 200, arrayBuffer: async () => buf.buffer } as unknown as Response);
+    expect([...await splatBytes("http://b", "demo", "ev-0003")]).toEqual([112, 108, 121, 10]);
+    expect(String(bfetch.mock.calls[bfetch.mock.calls.length - 1][0])).toMatch(/\/cde\/demo\/evidence\/evp-0001\/items\/ev-0003\/view$/);
+    bfetch.mockResolvedValueOnce(res(409, { message: "ev-0003 changed since it was admitted — Re-check and put the same file back first; nothing was shown" }));
+    await expect(splatBytes("http://b", "demo", "ev-0003")).rejects.toThrow("changed since it was admitted");
+  });
+  it("readSplatPlacement: the newest placement or null; a failure is 'not read — …' (never a default placement)", async () => {
+    bfetch.mockResolvedValueOnce(res(200, { placement: PL }));
+    expect(await readSplatPlacement("http://b", "demo", "ev-0003")).toEqual(PL);
+    expect(String(bfetch.mock.calls[bfetch.mock.calls.length - 1][0])).toMatch(/\/items\/ev-0003\/placement$/);
+    bfetch.mockResolvedValueOnce(res(200, { placement: null }));
+    expect(await readSplatPlacement("http://b", "demo", "ev-0003")).toBe(null);
+    bfetch.mockResolvedValueOnce(res(503, { message: "the placement is in the ledger and the ledger could not be read — nothing was shown" }));
+    await expect(readSplatPlacement("http://b", "demo", "ev-0003")).rejects.toThrow("not read — the placement is in the ledger and the ledger could not be read");
+    bfetch.mockRejectedValueOnce(new Error("bridge down"));
+    await expect(readSplatPlacement("http://b", "demo", "ev-0003")).rejects.toThrow("not read — bridge down");
+  });
+  it("saveSplatPlacement posts the 16 numbers to the placement route; placementLine names the role and the ledger row", async () => {
+    bwrite.mockResolvedValueOnce({ placement: { ...PL, from_registration: null }, ledger: { id: 12, hash: HASH } });
+    const r = await saveSplatPlacement("http://b", "demo", "ev-0003", M);
+    expect(String(bwrite.mock.calls[bwrite.mock.calls.length - 1][0])).toMatch(/\/cde\/demo\/evidence\/evp-0001\/items\/ev-0003\/placement$/);
+    expect(bwrite.mock.calls[bwrite.mock.calls.length - 1][1].method).toBe("POST");
+    expect(JSON.parse(bwrite.mock.calls[bwrite.mock.calls.length - 1][1].body)).toEqual({ matrix: M });
+    expect(placementLine(r)).toBe("✓ Saved the placement of ev-0003 (lead) · ledger #12 · receipt abababababababab… — the newest row is where the splat is put again");
+  });
+  it("splatShownLine: for looking only, who placed it and when, or that it starts where the camera looks", () => {
+    expect(splatShownLine(PL)).toBe("for looking only — dimensions come from scans. Placed by lead@example.test · 2026-10-14 09:30. Drag the gizmo (W move, E turn, R scale), then Save placement.");
+    expect(splatShownLine(null)).toContain("Not placed yet: it starts where the camera looks.");
+  });
+  it("files-panel: a folder .ply asks the explicit answer (the button waits for it); Show in 3D loads Spark lazily after the probe; Save placement is a contributor's; the viewer file never imports Spark at load", () => {
+    const src = readFileSync(new URL("./files-panel.ts", import.meta.url), "utf8");
+    expect(src).toContain('kindOf(path) === "splat") { splatFor = path; splatAnswer = false;');
+    expect(src).toContain("No faces or number plates are visible in this splat");
+    expect(src).toContain('{ path, kind: "splat", no_people_or_plates: true }');
+    expect(src).toContain('<button id="fv-ev-sok" style="${act};color:#c4b5fd"${splatAnswer ? "" : " disabled"}>Admit splat</button>');
+    expect(src).toContain('await import("./splat-view")');
+    expect(src).toContain("const probe = await sv.probeSpark();");
+    expect(src).toContain("if (!probe.ok) { status(probe.why); return; }");
+    expect(src).toContain("canPlaceSplat(role) ?");
+    expect(src).toMatch(/import type \{ SplatShown \} from "\.\/splat-view"/);
+    const view = readFileSync(new URL("./splat-view.ts", import.meta.url), "utf8");
+    expect(view).not.toMatch(/^import [^\n]*from "@sparkjsdev\/spark"/m); // loaded lazily, with the viewer
+    expect(view).toContain('import("@sparkjsdev/spark")');
   });
 });

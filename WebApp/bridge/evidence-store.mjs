@@ -311,16 +311,20 @@ async function admitRun(d, proj, key, packId, b) {
   if (bad0) return refuse([bad0]); // before any byte is hashed
   const tooBig = L.sizeRefusal(format, statSync(full).size, input.kind); // MA-6-8: an IFC is read in the bridge — over its cap, nothing is hashed
   if (tooBig) return refuse([tooBig]);
+  // MA-7-11: a splat's 3DGS header (opacity, scale_0, rot_0), read through readHead(full, 4096) before any byte is hashed; checked again on the hashed head
+  const splat = input.kind === "splat";
+  if (splat) { const sr = L.splatHeaderRefusal(await readHead(full, 4096)); if (sr) return refuse([sr]); }
   // MA-7-4 (a deliberate change to MA-4a): a NEW photo must be a camera's JPEG — EXIF make/model, read from the same first 128 KB that is hashed
   const newPhoto = !prev && input.kind === "photo" && !webPath; // MA-7-12: a web photo has no camera data to read; it is blurred instead
   const cam = newPhoto ? L.cameraOf(await readHead(full, 131072)) : null;
   if (newPhoto) { const pr = L.photoRefusal({ format, camera: cam }); if (pr) return refuse([pr]); }
-  const f = await hashFile(full, newPhoto ? 131072 : 16);
+  const f = await hashFile(full, newPhoto ? 131072 : splat ? 4096 : 16);
   if (newPhoto && JSON.stringify(L.cameraOf(f.head)) !== JSON.stringify(cam)) return refuse(["changed while read"], f.sha256);
   const bad = L.magicRefusal(format, f.head, input.kind); // the hashed bytes' own head (the file may have been swapped in between)
   if (bad) return refuse([bad], f.sha256);
   const tooBig2 = L.sizeRefusal(format, f.size_bytes, input.kind); // the hashed size, as the magic is checked again
   if (tooBig2) return refuse([tooBig2], f.sha256);
+  if (splat) { const sr2 = L.splatHeaderRefusal(f.head); if (sr2) return refuse([sr2], f.sha256); } // MA-7-11
   if (prev && prev.sha256 !== f.sha256) return refuse(["changed since admitted"], f.sha256); // flagged already (Re-check)
   if (webPath) return admitWeb(d, { proj, key, packId, pack, version, input, wrec, boxes, f, full, dir, who, mode: webMode });
   let item;
@@ -457,6 +461,14 @@ export async function photoFile(key, packId, itemId, which, o = {}, deps) {
   const item = pack.items.find((i) => i.id === itemId);
   if (!item) throw err(404, `no item ${itemId} in ${packId} — nothing was shown`);
   const dir = evidenceDir(key, d.root);
+  if (!orig && item.kind === "splat") { // MA-7-11: a splat's own file, to any member (the machine credential too - a read); looked at, never measured
+    const why = L.splatUsable(item, "shown");
+    if (why) throw err(409, why);
+    const full = insideFolder(dir, item.path);
+    // ponytail: the splat's bytes are not re-hashed per view (Re-check flags a changed file; the placement row names the sha256) - up to 256 MB
+    if (!isFile(full)) throw err(404, `${item.path} is missing from the project's evidence folder; nothing was shown`);
+    return { full, type: "application/octet-stream", noStore: false };
+  }
   if (!orig) {
     const why = L.usable(item, "view", { webMode: W.webSwitch(deps?.env ?? process.env, key).mode });
     if (why) throw err(why.startsWith("web evidence is off") ? 403 : 409, why); // MA-7-12 amendment 11: off = 403
@@ -472,6 +484,49 @@ export async function photoFile(key, packId, itemId, which, o = {}, deps) {
   const full = insideFolder(dir, item.path);
   if (!isFile(full)) throw err(404, `${item.path} is missing from the project's evidence folder; nothing was shown`);
   return { full, type: item.format === "png" ? "image/png" : "image/jpeg", noStore: true };
+}
+
+/** MA-7-11: POST …/items/:id/placement {matrix} → 201 {placement, ledger}: a signed-in contributor saves where a splat sits in the model - the 4×4 the gizmo
+ *  left, as one splat:placed row {matrix[16], sha256, actor, role, from_registration:null}. It is a view, not a model change (D-7-28), so a contributor's;
+ *  the machine credential is a 403 (the row names who placed it). The pack is not changed: the ledger holds the placement and the newest row is the one in force.
+ *  Refusals in order: 403 (the machine credential), 403/404 (role, project), 400 (the matrix: NaN, not 16 numbers, a mirror, flat or skewed), 429, 404 (pack, item), 409 (not a splat, expired, changed). */
+export async function placeSplat(key, packId, itemId, b = {}, deps) {
+  const d = await wire(deps);
+  if ((await d.myRole(key)) === "service") throw err(403, "a placement needs a person — the row names who placed the splat: sign in. Nothing was saved.");
+  const proj = await officeProject(d, key, "contributor");
+  const { matrix } = L.readPlacement(b);
+  d.takeWriteBudget("splat placements", { perUser: 30, all: 90 });
+  const { pack } = await packOf(d, key, packId);
+  const item = pack.items.find((i) => i.id === itemId);
+  if (!item) throw err(404, `no item ${itemId} in ${packId} — nothing was saved`);
+  const why = L.splatUsable(item, "saved");
+  if (why) throw err(409, why);
+  const who = actor(), role = await d.myRole(key);
+  const value = L.placedValue(packId, item, matrix, who, role);
+  const ledger = await row(d, proj, "splat", `splat:placed ${itemId}`, who, value);
+  return { placement: { item_id: itemId, matrix, sha256: item.sha256, actor: who, role, from_registration: null }, ledger };
+}
+
+/** MA-7-11: GET …/items/:id/placement → {placement}: the newest splat:placed row of the item (any member), or null when none was saved. A ledger that cannot be read is a 503
+ *  (an empty answer would place the splat at the default as if no one had moved it). */
+export async function readSplatPlacement(key, packId, itemId, deps) {
+  const d = await wire(deps);
+  await officeProject(d, key, "viewer");
+  const { pack } = await packOf(d, key, packId);
+  const item = pack.items.find((i) => i.id === itemId);
+  if (!item) throw err(404, `no item ${itemId} in ${packId} — nothing was shown`);
+  if (item.kind !== "splat") throw err(409, L.splatUsable(item, "shown"));
+  let rows;
+  try { rows = (await d.auditAll(key, { entity_type: "splat", action_prefix: `splat:placed ${itemId}` })).filter((r) => r.action === `splat:placed ${itemId}`); }
+  catch { throw err(503, "the placement is in the ledger and the ledger could not be read — nothing was shown"); }
+  // newest first; a row that does not read as a placement of these bytes is passed over, never trusted
+  for (const r of rows.sort((x, y) => Number(y.id) - Number(x.id))) {
+    const v = r.new_value;
+    let m = null;
+    try { m = L.readPlacement({ matrix: v?.matrix }).matrix; } catch { /* not a placement */ }
+    if (m && v.sha256 === item.sha256 && v.item_id === itemId) return { placement: { item_id: itemId, matrix: m, sha256: v.sha256, actor: v.actor ?? r.actor ?? null, role: v.role ?? null, at: r.at ?? null, ledger_id: r.id ?? null } };
+  }
+  return { placement: null };
 }
 
 /** MA-7-5: POST …/items/:id/delete-by {date, why?} → 200 {item, pack_version, ledger}: a signed-in lead sets the day after which no job reads the

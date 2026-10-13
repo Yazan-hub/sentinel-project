@@ -95,6 +95,11 @@ describe("POST /cde/:key/audit (recordAudit) — Sentinel's own rows are refused
     [{ entity_type: "event", action: " Recipe:approved recipe@1 · owner" }, "recipe: rows are written by Sentinel, not through this route"],
     [{ entity_type: "note", action: "recipe:withdrawn recipe@1" }, "recipe: rows are written by Sentinel, not through this route"],
     [{ entity_type: " Recipe ", action: "recorded" }, "recipe rows are written by Sentinel, not through this route"],
+    // MA-7-11: a splat's placement is the bridge's row - the web desk puts the splat back from the newest one.
+    [{ entity_type: "event", action: "splat:placed ev-0001" }, "splat: rows are written by Sentinel, not through this route"],
+    [{ entity_type: "note", action: " Splat:Placed ev-0001" }, "splat: rows are written by Sentinel, not through this route"],
+    [{ entity_type: "splat", action: "recorded" }, "splat rows are written by Sentinel, not through this route"],
+    [{ entity_type: " SPLAT ", action: "recorded" }, "splat rows are written by Sentinel, not through this route"],
   ])("%j → 400", async (body, message) => {
     await expect(recordAudit("aster-tower", body)).rejects.toMatchObject({ status: 400, message });
     expect(calls).toHaveLength(0);

@@ -21,7 +21,7 @@ export const ATTESTATION_TEXTS: Record<string, string> = {
 };
 export interface Attestation { id: string; code: string; text_sha256: string; by: string; role: string; at: string; }
 export interface Dataset { provider: string; source_url: string; licence: string; attribution: string; }
-export type EvidenceKind = "scan" | "photo" | "drawing" | "model";
+export type EvidenceKind = "scan" | "photo" | "drawing" | "model" | "splat"; // MA-7-11: a Gaussian splat (.ply), looked at in 3D
 export interface EvidenceItem {
   id: string; kind: EvidenceKind; format: string; sha256: string; size_bytes: number; path: string; surveyable: boolean;
   admitted_by: string; admitted_at: string; state?: "changed" | "expired"; changed_at?: string;
@@ -36,6 +36,8 @@ export interface EvidenceItem {
   view_copy?: ViewCopy;
   /** MA-7-12: a Commons photo (role context): the page it came from; its file is the blurred copy. Context only - never read for geometry or a type. */
   web?: { source_url: string; author: string; attribution_text: string; retrieved_at: string; terms_path: string; terms_sha256: string; freedom_of_panorama: "yes"; web_mode: "drill" | "on" };
+  /** MA-7-11: a splat cannot be blurred, so an uploaded one carries the admitting person's answer (no faces or number plates visible); one made in Sentinel (7-19) names its trainer. */
+  no_people_or_plates?: boolean; made_with?: { tool: string; version: string; licence?: string };
 }
 export interface ViewCopy {
   sha256: string; size_bytes: number; width: number; height: number; areas: number; faces: number; plates: number; none_seen?: boolean;
@@ -52,10 +54,10 @@ type Ledger = { id: number | null; hash: string | null };
 export interface AdmitReply { verdict: "admitted" | "refused"; item?: EvidenceItem; path?: string; reasons?: string[]; ledger: Ledger; }
 export interface RecheckReply { checked: number; changed: { item_id: string; path: string; reason: string }[]; still_changed: number; pack_version: number; }
 
-const SCAN = /\.(e57|las|laz|rcp)$/i, PHOTO = /\.(jpe?g|png)$/i, DRAWING = /\.(pdf|dwg|dxf)$/i, MODEL = /\.ifc$/i; // MA-6-8: a concept IFC
+const SCAN = /\.(e57|las|laz|rcp)$/i, PHOTO = /\.(jpe?g|png)$/i, DRAWING = /\.(pdf|dwg|dxf)$/i, MODEL = /\.ifc$/i, SPLAT = /\.ply$/i; // MA-6-8: a concept IFC; MA-7-11: a Gaussian splat
 /** A folder file's kind by its extension (the bridge's format tables), or null when it is not admitted. An image is a photo here; it is
  *  admitted as a drawing when it answers a request (isImage). Pure. */
-export const kindOf = (path: string): EvidenceKind | null => (SCAN.test(path) ? "scan" : PHOTO.test(path) ? "photo" : DRAWING.test(path) ? "drawing" : MODEL.test(path) ? "model" : null);
+export const kindOf = (path: string): EvidenceKind | null => (SCAN.test(path) ? "scan" : PHOTO.test(path) ? "photo" : DRAWING.test(path) ? "drawing" : MODEL.test(path) ? "model" : SPLAT.test(path) ? "splat" : null);
 export const isImage = (path: string): boolean => PHOTO.test(path);
 export const needsReport = (path: string): boolean => /\.rcp$/i.test(path);
 const size = (b: number) => (b < 1048576 ? `${Math.max(1, Math.round(b / 1024))} KB` : `${(b / 1048576).toFixed(1)} MB`);
@@ -72,10 +74,15 @@ export const MAP_SERVICES = ["Google Street View", "Google Maps", "Google Earth"
 export const photoProvider = (source: PhotoSource, service?: string): string | undefined =>
   source === "own" ? undefined : source === "map" ? (service ?? MAP_SERVICES[0]).toLowerCase() : "website";
 
+/** MA-7-11: what a splat is for, said wherever it is shown - looked at, never measured. */
+export const SPLAT_LOOK = "for looking only — dimensions come from scans";
+/** MA-7-11: a splat's own words on its item line. Pure. */
+const splatLine = (i: EvidenceItem): string => ` · Gaussian splat, ${SPLAT_LOOK}` +
+  (i.no_people_or_plates ? " · admitted on the answer: no faces or number plates visible" : i.made_with ? ` · made in Sentinel with ${i.made_with.tool} ${i.made_with.version}` : "");
 /** One admitted item in one line. Pure. */
 export function itemLine(i: EvidenceItem): string {
   return `${i.id} · ${i.path} · ${i.format} · ${size(i.size_bytes)} · sha ${i.sha256.slice(0, 12)}…` +
-    (i.kind === "drawing" ? ` · drawing from the ${i.provider} under ${i.request_id}` : i.kind === "model" ? (i.provider && i.provider !== "own" ? ` · model from ${i.provider} (${i.licence ?? "commercial"}, ref ${i.licence_ref ?? "?"})` : " · concept model (own)") : i.surveyable ? "" : " · not surveyable (no ReCap here)") +
+    (i.kind === "splat" ? splatLine(i) : i.kind === "drawing" ? ` · drawing from the ${i.provider} under ${i.request_id}` : i.kind === "model" ? (i.provider && i.provider !== "own" ? ` · model from ${i.provider} (${i.licence ?? "commercial"}, ref ${i.licence_ref ?? "?"})` : " · concept model (own)") : i.surveyable ? "" : " · not surveyable (no ReCap here)") +
     (i.role === "context" && i.web ? ` · web photo, context (assumed, web) · ${i.web.author} · ${i.licence} · ${i.web.source_url} · retrieved ${i.web.retrieved_at}${i.web.web_mode === "drill" ? " · drill: counsel has not reviewed web evidence" : ""}` : "") + // MA-7-12
     (i.kind === "photo" && i.capture ? ` · ${[i.capture.make, i.capture.model].filter(Boolean).join(" ")} · taken ${i.capture.taken_at ?? "?"} · ${i.capture.gps ? "EXIF GPS block in the original (not copied)" : "no EXIF GPS block"}` : "") +
     (i.kind === "photo" && i.state !== "expired" ? viewCopyLine(i) : "") + // MA-7-7
@@ -172,7 +179,7 @@ export async function readNotice(base: string, key: string): Promise<Notice> {
 export const noticeLine = (r: Pick<Notice, "credits" | "tools" | "sha256">): string => `NOTICE saved · ${r.credits} credit(s) · ${r.tools} tool(s) · sha ${r.sha256.slice(0, 12)}…`;
 export const makePack = (base: string, key: string) => post<{ pack: EvidencePack }>(base, key, "evidence", {});
 export const signAttestation = (base: string, key: string, code: string) => post<{ attestation: Attestation; ledger: Ledger }>(base, key, `evidence/${PACK_ID}/attest`, { code });
-export const admitEvidence = (base: string, key: string, b: { path: string; kind: EvidenceKind; registration?: { method: string; report_path?: string }; request_id?: string; provider?: string; licence_ref?: string }) => post<AdmitReply>(base, key, `evidence/${PACK_ID}/items`, b);
+export const admitEvidence = (base: string, key: string, b: { path: string; kind: EvidenceKind; registration?: { method: string; report_path?: string }; request_id?: string; provider?: string; licence_ref?: string; no_people_or_plates?: boolean }) => post<AdmitReply>(base, key, `evidence/${PACK_ID}/items`, b);
 /** MA-4b: draft an "ask the owner" letter (a lead's; the bridge sends nothing). */
 export const draftRequest = (base: string, key: string, b: { recipient_kind: EvidenceRequest["recipient_kind"]; recipient?: string; documents: string[]; purpose?: string }) =>
   post<{ request: EvidenceRequest; letter: string; ledger: Ledger }>(base, key, `evidence/${PACK_ID}/requests`, b);
@@ -193,6 +200,35 @@ export async function photoUrl(base: string, key: string, item: string, which: "
   return URL.createObjectURL(await r.blob());
 }
 export const recheckEvidence = (base: string, key: string) => post<RecheckReply>(base, key, `evidence/${PACK_ID}/recheck`, {});
+
+// ── MA-7-11: a Gaussian splat in the 3D view - its bytes, and where it sits (the newest splat:placed row on the ledger) ──
+/** A placement is a person's: a contributor or above, never the machine session's (the row names who placed it). Pure. */
+export const canPlaceSplat = (role: string): boolean => canEditRole(role) && role !== "service";
+/** The splat the bridge keeps for a member (GET …/items/:id/view), as bytes for Spark - with the Authorization header a plain URL cannot carry. The bridge's own words come through when it refuses. */
+export async function splatBytes(base: string, key: string, item: string): Promise<Uint8Array> {
+  const r = await bfetch(at(base, key, `evidence/${PACK_ID}/items/${encodeURIComponent(item)}/view`));
+  if (!r.ok) throw new Error(((await r.json().catch(() => null)) as { message?: string } | null)?.message || `HTTP ${r.status}`);
+  return new Uint8Array(await r.arrayBuffer());
+}
+/** Where a splat was put: the newest splat:placed row's 4×4 (column-major, as three.js keeps it) - the frame the splat's own (Y-up) container sits in, in the model's world. */
+export interface SplatPlacement { item_id: string; matrix: number[]; sha256: string; actor: string | null; role: string | null; at?: string | null; ledger_id?: number | null; from_registration?: null }
+/** The newest placement of a splat, or null when none was saved; a failure throws "not read — …". */
+export async function readSplatPlacement(base: string, key: string, item: string): Promise<SplatPlacement | null> {
+  let r: Response;
+  try { r = await bfetch(at(base, key, `evidence/${PACK_ID}/items/${encodeURIComponent(item)}/placement`)); } catch (e) { throw new Error(`not read — ${(e as Error).message}`); }
+  const j = (await r.json().catch(() => null)) as { placement?: SplatPlacement | null; message?: string } | null;
+  if (!r.ok || !j || !("placement" in j)) throw new Error(`not read — ${j?.message || `HTTP ${r.status}`}`);
+  return j.placement ?? null;
+}
+/** Save the placement: one splat:placed row on the ledger (a contributor's; the bridge refuses a mirror, a flat or a skewed matrix in words). */
+export const saveSplatPlacement = (base: string, key: string, item: string, matrix: number[]) =>
+  post<{ placement: SplatPlacement; ledger: Ledger }>(base, key, `evidence/${PACK_ID}/items/${encodeURIComponent(item)}/placement`, { matrix });
+/** The status line after Save placement. Pure. */
+export const placementLine = (r: { placement: SplatPlacement; ledger: Ledger }): string =>
+  `✓ Saved the placement of ${r.placement.item_id} (${r.placement.role ?? "?"}) · ${ledgerLine(r.ledger)} — the newest row is where the splat is put again`;
+/** The words under a shown splat. Pure. */
+export const splatShownLine = (placed: SplatPlacement | null): string =>
+  `${SPLAT_LOOK}. ${placed ? `Placed by ${placed.actor ?? "?"}${placed.at ? ` · ${placed.at.replace("T", " ").slice(0, 16)}` : ""}.` : "Not placed yet: it starts where the camera looks."} Drag the gizmo (W move, E turn, R scale), then Save placement.`;
 
 /** MA-4c: a survey job as the bridge keeps it (GET /cde/:key/build/jobs); its candidates are read on demand (readJob). */
 export interface SurveyJob {
