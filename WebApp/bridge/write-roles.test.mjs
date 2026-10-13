@@ -1184,6 +1184,54 @@ describe("evidence intake (MA-4a): who makes, signs, admits and reads", () => {
     expect((await call("GET", `${E}/evp-0001`, "viewer")).body.pack.items).toEqual([]);
     vi.unstubAllEnvs();
   });
+  // MA-7-11 - a splat: who admits it (a contributor, on the answer), who views it (every member), who places it (a person, a contributor), who reads the placement.
+  it("MA-7-11 SP-1/SP-3/SP-4: the answer is needed; a viewer and the machine credential cannot place (the words); a contributor and a lead can; every member reads the newest placement and the bytes; a forged splat row is a 400", async () => {
+    const U = `${E}/evp-0001/items/ev-0001`;
+    const GS = ["x", "y", "z", "f_dc_0", "f_dc_1", "f_dc_2", "opacity", "scale_0", "scale_1", "scale_2", "rot_0", "rot_1", "rot_2", "rot_3"];
+    const PLY = Buffer.concat([Buffer.from(`ply\nformat binary_little_endian 1.0\nelement vertex 3\n${GS.map((p) => `property float ${p}`).join("\n")}\nend_header\n`, "latin1"), Buffer.alloc(3 * GS.length * 4, 5)]);
+    const M = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 4, 5, 6, 1];
+    await call("POST", E, "lead", {});
+    for (const code of ["a", "c", "d"]) await call("POST", `${E}/evp-0001/attest`, "lead", { code });
+    mkdirSync(join(DIR(), "splats"), { recursive: true }); writeFileSync(join(DIR(), "splats", "drill.ply"), PLY);
+    const body = { path: "splats/drill.ply", kind: "splat" };
+    const no = await call("POST", `${E}/evp-0001/items`, "contributor", body);
+    expect(no.status).toBe(400); expect(no.body.message).toMatch(/^a splat cannot be blurred after it is trained/);
+    expect(await call("POST", `${E}/evp-0001/items`, "viewer", { ...body, no_people_or_plates: true })).toEqual(refused("contributor", "viewer"));
+    const ok = await call("POST", `${E}/evp-0001/items`, "contributor", { ...body, no_people_or_plates: true, admitted_by: "someone@example.test" });
+    expect(ok.status).toBe(201);
+    expect(ok.body.item).toMatchObject({ id: "ev-0001", kind: "splat", format: "ply", surveyable: false, no_people_or_plates: true, admitted_by: "contributor@example.test", allowed_uses: { geometry_extraction: false, view_reference: true } });
+    // placing: a person, a contributor
+    expect(await call("POST", `${U}/placement`, "viewer", { matrix: M })).toEqual(refused("contributor", "viewer"));
+    expect(await call("POST", `${U}/placement`, "machine", { matrix: M })).toEqual({ status: 403, body: { message: "a placement needs a person — the row names who placed the splat: sign in. Nothing was saved." } });
+    expect(rows("splat:placed")).toHaveLength(0);
+    const mirror = await call("POST", `${U}/placement`, "contributor", { matrix: M.map((v, i) => (i === 0 ? -1 : v)) });
+    expect(mirror.status).toBe(400); expect(mirror.body.message).toMatch(/^matrix mirrors the splat/);
+    expect((await call("POST", `${U}/placement`, "contributor", { matrix: M.map((v, i) => (i === 12 ? null : v)) })).status).toBe(400);
+    expect(rows("splat:placed")).toHaveLength(0);
+    const c = await call("POST", `${U}/placement`, "contributor", { matrix: M });
+    expect(c.status).toBe(201);
+    expect(c.body.placement).toMatchObject({ item_id: "ev-0001", matrix: M, sha256: createHash("sha256").update(PLY).digest("hex"), actor: "contributor@example.test", role: "contributor", from_registration: null });
+    const M2 = M.map((v, i) => (i === 12 ? 9 : v));
+    expect((await call("POST", `${U}/placement`, "lead", { matrix: M2 })).body.placement).toMatchObject({ role: "lead", actor: "lead@example.test" });
+    expect(rows("splat:placed").map((r) => r.action)).toEqual(["splat:placed ev-0001", "splat:placed ev-0001"]);
+    // the newest row is in force, for every member
+    for (const as of ["viewer", "contributor", "lead", "machine"]) {
+      const g = await call("GET", `${U}/placement`, as);
+      expect(g.status, as).toBe(200);
+      expect(g.body.placement, as).toMatchObject({ matrix: M2, actor: "lead@example.test", role: "lead" });
+    }
+    // the bytes: a read for every member, the file as it is, no wildcard CORS
+    for (const as of ["viewer", "contributor", "lead", "machine"]) {
+      const r = await fetch(`http://127.0.0.1:${port}${U}/view`, { headers: { Authorization: `Bearer ${as === "machine" ? TOKEN : jwtFor(as)}` } });
+      expect(r.status, as).toBe(200);
+      expect(r.headers.get("content-type"), as).toBe("application/octet-stream");
+      expect(r.headers.get("access-control-allow-origin"), as).not.toBe("*");
+      expect(Buffer.from(await r.arrayBuffer()).equals(PLY), as).toBe(true);
+    }
+    // a note may not pass for a placement
+    expect(await call("POST", "/cde/demo/audit", "lead", { entity_type: "note", action: "splat:placed ev-0001", new_value: { matrix: M } })).toEqual({ status: 400, body: { message: "splat: rows are written by Sentinel, not through this route" } });
+    expect((await call("POST", "/cde/demo/audit", "lead", { entity_type: "splat", action: "recorded" })).status).toBe(400); // a signed-in caller writes notes only; the reserved type is refused by cde-store (ledger-write.test.mjs)
+  }, 30_000);
 });
 
 describe("survey jobs (MA-4c): who starts and reads; every refusal before anything is written", () => {

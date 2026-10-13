@@ -23,7 +23,7 @@ const TEXTS = {
 export const ATTESTATIONS = Object.fromEntries(Object.entries(TEXTS).map(([code, text]) => [code, { text, sha256: createHash("sha256").update(text, "utf8").digest("hex") }]));
 /** Signed before an item of that kind is admitted: the owner's authority (a) and own capture (c); a photo also (d), that it is no
  *  Google/Apple/Azure capture — the RED rule (D:486) rests on the attestation, since a body may leave `provider` out. */
-export const ADMIT_NEEDS = { scan: ["a", "c"], photo: ["a", "c", "d"], drawing: ["a", "b"], model: ["a"] }; // MA-4b: a drawing, the owner's authority and the holder's permission; MA-6-8: the office's own concept model — the owner's authority
+export const ADMIT_NEEDS = { scan: ["a", "c"], photo: ["a", "c", "d"], drawing: ["a", "b"], model: ["a"], splat: ["a", "c", "d"] }; // MA-4b: a drawing, the owner's authority and the holder's permission; MA-6-8: the office's own concept model — the owner's authority
 /** MA-4h: the signatures an item needs — on a published dataset's pack, (f) alone (it has no owner here and is no one's own capture). */
 export const needsOf = (pack, kind, provider = "own") => (pack.dataset ? ["f"] : kind === "model" && provider !== "own" ? ["a", "e"] : kind === "photo" && provider !== "own" ? ["a", "d", "g"] : ADMIT_NEEDS[kind]); // MA-7-12: a web photo is a website's, not our own capture - (c) is for own capture only // MA-8-3: a third party's model also needs (e), our commercial licence
 /** MA-4h: the published-dataset licences (SPDX) whose terms allow viewing a scan and taking geometry from it in an office's commercial work.
@@ -57,6 +57,8 @@ export const FORMATS = {
   png: { kind: "photo", magic: "89504e470d0a1a0a", surveyable: true, max_bytes: 64 * 1024 * 1024 },
   // MA-6-8: the office's own concept model, read inside the bridge by web-ifc (so a size cap), never surveyed. "ISO-10303-21" is 12 bytes.
   ifc: { kind: "model", magic: "49534f2d31303330332d3231", surveyable: false, max_bytes: 64 * 1024 * 1024 }, // MA-8-3 (D3): 64 MB — a 25 MB Revit export reads in 1 s
+  // MA-7-11 (D-7-25): a Gaussian splat is a .ply (Spark reads it) with a 3DGS header (splatHeaderRefusal); looked at, never surveyed or measured.
+  ply: { kind: "splat", magic: "706c79", surveyable: false, max_bytes: 256 * 1024 * 1024 }, // "ply"; 256 MB (R24: the Funnel carries ~7 MB/s)
 };
 /** MA-4b: a drawing's formats — an image may be a photo or a drawing, so the kind picks the table. Read by the DWG/PDF readers, not
  *  sentinel-survey: never surveyable. */
@@ -77,7 +79,8 @@ export const ITEM_FIELDS = ["id", "kind", "format", "sha256", "size_bytes", "pat
   "capture", // MA-7-4
   "delete_by", "delete_why", "expired_at", "removed", "not_removed", // MA-7-5
   "view_copy", // MA-7-7
-  "role", "web", "original_sha256", "original_size_bytes"]; // MA-7-12
+  "role", "web", "original_sha256", "original_size_bytes", // MA-7-12
+  "made_with", "no_people_or_plates"]; // MA-7-11
 const PACK_FIELDS = ["kind", "pack_id", "project", "asset", "storage_root", "attestations", "items", "requests", "dataset"];
 /** MA-4b: who an "ask the owner" letter goes to; a drawing admitted under it carries this as its provider. */
 export const RECIPIENTS = ["owner", "architect", "municipality"];
@@ -100,7 +103,7 @@ export function readAdmitBody(b = {}) {
   const path = typeof b.path === "string" ? b.path.trim().replace(/\\/g, "/") : "";
   if (!safeRel(path)) throw bad("path must name a file inside the project's evidence folder, relative to it (no drive, no leading slash, no ..)");
   if (path.split("/")[0].toLowerCase() === ".sentinel") throw bad(".sentinel/ is Sentinel's own folder (blurred copies)"); // MA-7-5
-  if (!["scan", "photo", "drawing", "model"].includes(b.kind)) throw bad("kind must be scan, photo, drawing or model");
+  if (!["scan", "photo", "drawing", "model", "splat"].includes(b.kind)) throw bad("kind must be scan, photo, drawing, model or splat");
   const provider = b.provider == null ? "own" : String(b.provider).trim().toLowerCase();
   if (!provider || provider.length > 100) throw bad("provider must be a name of at most 100 characters (own when left out)");
   // MA-8-3: a third party's model is a purchase, not a request — it names the order or contract it was bought under
@@ -122,9 +125,11 @@ export function readAdmitBody(b = {}) {
   }
   const request_id = b.request_id == null ? null : String(b.request_id).trim();
   if (request_id !== null && !/^req-\d{4}$/.test(request_id)) throw bad("request_id must name a request of the pack, as req-0001");
+  // MA-7-11 (amendment 2): the explicit answer for an uploaded splat - a splat cannot be blurred, so a person says no face or number plate is in it
+  if (b.no_people_or_plates !== undefined && (b.kind !== "splat" || typeof b.no_people_or_plates !== "boolean")) throw bad("no_people_or_plates is true or false and belongs to a splat only");
   // MA-7-12: a website photo's record and its blur boxes ride on the body; they are read (readWebBody, readBoxes) only once the switch is not off
   for (const k of ["web", "blur"]) if (b[k] != null && (!isObj(b[k]) || b.kind !== "photo" || provider === "own")) throw bad(`${k} belongs to a website photo only (provider wikimedia-commons) and is an object`);
-  return { path, kind: b.kind, provider, ...(licence_ref ? { licence_ref } : {}), registration, request_id, ...(b.web != null ? { web: b.web } : {}), ...(b.blur != null ? { blur: b.blur } : {}) };
+  return { path, kind: b.kind, provider, ...(licence_ref ? { licence_ref } : {}), registration, request_id, ...(b.no_people_or_plates === true ? { no_people_or_plates: true } : {}), ...(b.web != null ? { web: b.web } : {}), ...(b.blur != null ? { blur: b.blur } : {}) };
 }
 
 /** MA-7-12: the sources a web photo is admitted from now. Flickr and the GREEN street-level sources come with batch 7. */
@@ -343,8 +348,44 @@ export const expiredValue = (packId, i, packVersion) => ({
   kept: "hash and record", office_file: i.role === "context" ? null : "not touched — delete it by hand if the owner asked", pack_version: packVersion,
 });
 
+/** MA-7-11: a splat's header check, from the file's first 4096 bytes - a 3DGS .ply names opacity, scale_0 and rot_0 as properties. null when it does, else the words.
+ *  Only the header is read (no gaussian is decoded here); Spark reads the body in the viewer. */
+export function splatHeaderRefusal(head) {
+  const text = Buffer.from(head ?? []).toString("latin1"), end = text.indexOf("end_header");
+  if (!text.startsWith("ply") || end < 0) return "this .ply has no header Sentinel can read in its first 4096 bytes — not a Gaussian splat";
+  const props = new Set([...text.slice(0, end).matchAll(/^property\s+\S+\s+(\S+)\s*$/gm)].map((m) => m[1]));
+  const missing = ["opacity", "scale_0", "rot_0"].filter((p) => !props.has(p));
+  return missing.length ? `this .ply is not a Gaussian splat (no ${missing.join(", ")} in its header)` : null;
+}
+/** MA-7-11: may this splat be looked at or placed? null when it may, else the words (a 409's). A splat is shown and placed; nothing reads it for geometry. */
+export function splatUsable(i, done = "done") {
+  if (i.kind !== "splat") return `${i.id} is a ${i.kind}, not a splat; nothing was ${done}`;
+  if (i.state === "expired") return `${i.id} expired on ${String(i.expired_at).slice(0, 10)} (delete-by) — it is not used; nothing was ${done}`;
+  if (i.state === "changed") return `${i.id} changed since it was admitted — Re-check and put the same file back first; nothing was ${done}`;
+  return null;
+}
+/** MA-7-11: POST …/items/:id/placement's body → {matrix} (16 numbers, column-major as three.js keeps them: the splat's frame in the model's world), or a 400 in words.
+ *  An affine, right-handed placement: a bottom row of 0 0 0 1, a determinant above zero (a mirror or a flat matrix is refused), nothing past 1e9. */
+export function readPlacement(b = {}) {
+  const bad = (m) => err(400, `${m} — nothing was saved`);
+  const m = b.matrix;
+  if (!Array.isArray(m) || m.length !== 16 || !m.every((v) => typeof v === "number" && Number.isFinite(v) && Math.abs(v) <= 1e9)) throw bad("matrix must be 16 finite numbers (a 4×4, column-major), none past 1e9");
+  const eq = (v, w) => Math.abs(v - w) <= 1e-9;
+  if (!(eq(m[3], 0) && eq(m[7], 0) && eq(m[11], 0) && eq(m[15], 1))) throw bad("matrix is not a placement: its bottom row must be 0 0 0 1 (move, turn, scale - no skew to a point)");
+  // MA-7-11 review: no shear - the three columns of the 3x3 are mutually orthogonal, so only translate·rotate·scale passes (what the gizmo makes and Matrix4.decompose keeps)
+  const col = [[m[0], m[1], m[2]], [m[4], m[5], m[6]], [m[8], m[9], m[10]]], dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  for (const [i, j] of [[0, 1], [0, 2], [1, 2]]) if (Math.abs(dot(col[i], col[j])) > 1e-6 * Math.sqrt(dot(col[i], col[i]) * dot(col[j], col[j]))) throw bad("matrix shears the splat — a placement moves, turns and scales, no shear");
+  const det = m[0] * (m[5] * m[10] - m[9] * m[6]) - m[4] * (m[1] * m[10] - m[9] * m[2]) + m[8] * (m[1] * m[6] - m[5] * m[2]);
+  if (!(det > 1e-12)) throw bad(det < 0 ? "matrix mirrors the splat (its determinant is below zero) — a placement moves, turns and scales" : "matrix flattens the splat (its determinant is zero) — a placement keeps it solid");
+  return { matrix: m };
+}
+/** The splat:placed row's new_value. A placement by hand: from_registration is null until a registration (7-17) makes one. */
+export const placedValue = (packId, i, matrix, who, role) => ({ pack_id: packId, item_id: i.id, matrix, sha256: i.sha256, actor: who, role, from_registration: null });
+
 /** What a new item (not a flagged one coming back) must carry, as a 400's words, or null. */
-export function newItemRefusal({ path, kind, registration, request_id }) {
+export function newItemRefusal({ path, kind, registration, request_id, no_people_or_plates }) {
+  // MA-7-11 (amendment 2): a splat cannot be blurred after it is trained, so an uploaded one is admitted only on a person's explicit answer
+  if (kind === "splat") return no_people_or_plates === true ? null : "a splat cannot be blurred after it is trained — train it in Sentinel from blurred photos (7-19), or confirm that no face or number plate is visible in it; nothing was saved";
   if (kind === "drawing") return request_id ? null : "a drawing names the Ask the owner request it answers: request_id, as req-0001 — nothing was saved";
   if (kind !== "scan") return null;
   if (!registration?.method) return 'a scan names how it was registered: registration.method, for example "registered in source" (at most 300 characters) — nothing was saved';
@@ -365,13 +406,13 @@ export function policyRefusals({ kind, provider, path, dataset = false, webMode 
     if (webMode === "off") out.push("a photo from a website waits for counsel's review — web evidence is off (the founder's switch SENTINEL_WEB_EVIDENCE); only your own photos (provider own) are admitted now");
     else if (!WEB_ADMITTED.includes(provider)) out.push(`${provider} is not a source Sentinel admits photos from yet — Wikimedia Commons only (provider wikimedia-commons)`);
   }
-  else if (provider !== "own" && kind !== "drawing" && kind !== "model" && !dataset) out.push("web and third-party items wait for a later stage — only your own scans and photos (provider own), drawings under a request and third-party models with (e) are admitted now");
+  else if (provider !== "own" && kind !== "drawing" && kind !== "model" && !dataset) out.push("web and third-party items wait for a later stage — only your own scans, photos and splats (provider own), drawings under a request and third-party models with (e) are admitted now");
   if (kind === "drawing") {
     if (!formatOf(path, kind)) out.push(`${extOf(path) ? `a .${extOf(path)}` : "a file with no extension"} is not admitted as a drawing — drawings are pdf, dwg, dxf, png or jpg`);
     return out;
   }
   const f = formatOf(path);
-  if (!f) out.push(`${extOf(path) ? `a .${extOf(path)}` : "a file with no extension"} is not admitted — scans are e57, las, laz or rcp; photos are jpg or png; a concept model is ifc`);
+  if (!f) out.push(`${extOf(path) ? `a .${extOf(path)}` : "a file with no extension"} is not admitted — scans are e57, las, laz or rcp; photos are jpg or png; a concept model is ifc; a Gaussian splat is a ply`);
   else if (FORMATS[f].kind !== kind) out.push(`a .${f} is a ${FORMATS[f].kind}, not a ${kind}`);
   return out;
 }
@@ -431,6 +472,7 @@ export function sizeRefusal(format, size, kind) {
   const max = tableOf(kind)[format]?.max_bytes;
   if (!max || size <= max) return null;
   const mb = max / 1048576, is = (size / 1048576).toFixed(1) === mb.toFixed(1) ? `${Math.ceil(size / 1024)} KB` : `${(size / 1048576).toFixed(1)} MB`;
+  if (kind === "splat") return `a .${format} splat is at most ${mb} MB (this one is ${is}) — it is not admitted; reduce it (fewer gaussians, SH degree 0)`;
   return kind === "photo" ? `a .${format} photo is at most ${mb} MB (this one is ${is}) — it is not admitted; a camera's own file is smaller`
     : `a .${format} is read inside the bridge — at most ${mb} MB (this one is ${is}); export it without its site, links and furniture`;
 }
@@ -532,7 +574,8 @@ export function newItem({ id, input, format, sha256, size_bytes, report, pack, w
   return {
     id, kind: input.kind, format, sha256, size_bytes, path: input.path, ...from,
     attestation_ids: needsOf(pack, input.kind, input.provider).map((c) => pack.attestations.find((a) => a.code === c).id), // a photo's names (d) too
-    allowed_uses: { ...USES },
+    allowed_uses: input.kind === "splat" ? { ...USES, geometry_extraction: false } : { ...USES }, // MA-7-11: a splat is for looking only - dimensions come from scans
+    ...(input.kind === "splat" && input.no_people_or_plates === true ? { no_people_or_plates: true } : {}),
     ...(reg ? { registration: { method: reg.method, ...(reg.report_path ? { report_path: reg.report_path, report_sha256: report.sha256 } : {}), confirmed_by: who } } : {}),
     ...(input.capture ? { capture: input.capture } : {}), // MA-7-4: a photo's camera record
     surveyable: tableOf(input.kind)[format].surveyable, admitted_by: who, admitted_at: at,
@@ -546,7 +589,7 @@ export function readmitted(i) { const { state: _s, changed_sha256: _c, changed_a
 export const admittedValue = (packId, i, packVersion, again) => ({
   pack_id: packId, item_id: i.id, path: i.path, sha256: i.sha256, size_bytes: i.size_bytes, kind: i.kind, format: i.format,
   provider: i.provider, licence: i.licence, ...(i.licence_ref ? { licence_ref: i.licence_ref } : {}), allowed_uses: i.allowed_uses, attestation_ids: i.attestation_ids, surveyable: i.surveyable,
-  ...(i.request_id ? { request_id: i.request_id } : {}), ...(i.capture ? { capture: i.capture } : {}), pack_version: packVersion, ...(again ? { readmitted: true } : {}),
+  ...(i.request_id ? { request_id: i.request_id } : {}), ...(i.capture ? { capture: i.capture } : {}), ...(i.no_people_or_plates ? { no_people_or_plates: true } : {}), ...(i.made_with ? { made_with: i.made_with } : {}), pack_version: packVersion, ...(again ? { readmitted: true } : {}),
   // MA-7-12 (amendment 5): a web photo's author and attribution text stay in the pack (and the NOTICE) — the append-only ledger holds their sha256 only
   ...(i.role === "context" ? { role: "context", web: { source_url: i.web.source_url, retrieved_at: i.web.retrieved_at, terms_sha256: i.web.terms_sha256, freedom_of_panorama: i.web.freedom_of_panorama,
     delete_by: i.delete_by, web_mode: i.web.web_mode, attribution_sha256: shaOf(i.web.attribution_text) }, ...(i.web.web_mode === "drill" ? { counsel: "counsel has not reviewed web evidence" } : {}) } : {}),
@@ -608,7 +651,7 @@ export function validatePack(p) {
     if (!/^ev-\d{4}$/.test(x.id) || ids.has(x.id)) throw bad(`${at}.id`, "must be a unique ev-NNNN");
     if (!safeRel(x.path) || paths.has(x.path)) throw bad(`${at}.path`, "must be a unique path inside the evidence folder");
     const f = tableOf(x.kind)[x.format];
-    if (!f || f.kind !== x.kind) throw bad(`${at}.format`, "must be in the format table for its kind (scan: e57, las, laz, rcp; photo: jpg, png; drawing: pdf, dwg, dxf, png, jpg; model: ifc)");
+    if (!f || f.kind !== x.kind) throw bad(`${at}.format`, "must be in the format table for its kind (scan: e57, las, laz, rcp; photo: jpg, png; drawing: pdf, dwg, dxf, png, jpg; model: ifc; splat: ply)");
     if (!/^[0-9a-f]{64}$/.test(x.sha256)) throw bad(`${at}.sha256`, "must be 64 hex");
     if (!Number.isSafeInteger(x.size_bytes) || x.size_bytes < 0) throw bad(`${at}.size_bytes`, "must be a whole number of bytes");
     if (p.dataset) { // MA-4h: a published dataset's pack holds its scans, under its provider and licence
@@ -659,6 +702,14 @@ export function validatePack(p) {
       if (!x.view_copy || x.view_copy.sha256 !== x.sha256 || x.view_copy.size_bytes !== x.size_bytes) throw bad(`${at}.view_copy`, "a web photo's file is its blurred copy: view_copy.sha256 and size_bytes are the item's");
       if (x.delete_by === undefined) throw bad(`${at}.delete_by`, "a web photo carries a delete-by day");
     } else if (x.web !== undefined || x.original_sha256 !== undefined || x.original_size_bytes !== undefined) throw bad(`${at}.web`, "belongs to a web photo (role context) only");
+    if (x.kind === "splat") { // MA-7-11: looked at, never measured; admitted on a person's answer (amendment 2) or made in Sentinel (7-19, bridge-stamped made_with)
+      const m = x.made_with;
+      if (x.allowed_uses.geometry_extraction !== false || x.allowed_uses.view_reference !== true) throw bad(`${at}.allowed_uses`, "a splat is for looking only: geometry_extraction false, view_reference true");
+      if (x.no_people_or_plates !== undefined && x.no_people_or_plates !== true) throw bad(`${at}.no_people_or_plates`, "is true or absent");
+      if (m !== undefined && !(isObj(m) && Object.keys(m).every((k) => ["tool", "version", "licence"].includes(k)) && str(m.tool, 100) && str(m.version, 40) && (m.licence === undefined || str(m.licence, 100))))
+        throw bad(`${at}.made_with`, "is the trainer Sentinel ran {tool, version, licence?}, stamped by the bridge");
+      if (x.no_people_or_plates !== true && m === undefined) throw bad(`${at}.no_people_or_plates`, "a splat carries the admitting person's answer (no faces or number plates visible) or the trainer that made it from blurred photos");
+    } else if (x.made_with !== undefined || x.no_people_or_plates !== undefined) throw bad(`${at}.made_with`, "belongs to a splat only");
     if (x.state !== undefined && x.state !== "changed" && x.state !== "expired") throw bad(`${at}.state`, 'is "changed", "expired" or absent');
     if (x.state === "expired" && !(str(x.expired_at, 40) && Array.isArray(x.removed) && x.removed.length <= 2 && x.removed.every(safeRel))) // MA-7-5
       throw bad(`${at}.removed`, "an expired item carries expired_at and removed, at most two paths");

@@ -6,6 +6,7 @@ import {
   nextId, newPack, newItem, flagged, readmitted, validatePack, readRequestBody, letterText, newRequest, requestedValue,
   DATASET_LICENCES, readDataset, needsOf, sizeRefusal, USES, ITEM_FIELDS, cameraOf, photoRefusal,
   readDeleteBy, due, removable, expire, expiredValue, noticeText, toolsOf, creditCount,
+  FORMATS, splatHeaderRefusal, splatUsable, readPlacement, placedValue, admittedValue,
 } from "./evidence-logic.mjs";
 import { jpegWithExif } from "./fixtures/jpeg-exif.mjs";
 import { usable, readBoxes, blurredValue } from "./evidence-logic.mjs";
@@ -48,7 +49,7 @@ describe("readAdmitBody and newItemRefusal", () => {
     expect(readAdmitBody({ path: "scans/a.las", kind: "scan" }).registration).toBe(null);
     expect(readAdmitBody({ path: "a.jpg", kind: "photo" }).provider).toBe("own");
     expect(readAdmitBody({ path: "a.jpg", kind: "photo", provider: "Google Maps" }).provider).toBe("google maps");
-    expect(() => readAdmitBody({ path: "a.jpg", kind: "dataset" })).toThrow(expect.objectContaining({ status: 400, message: "kind must be scan, photo, drawing or model — nothing was saved" }));
+    expect(() => readAdmitBody({ path: "a.jpg", kind: "dataset" })).toThrow(expect.objectContaining({ status: 400, message: "kind must be scan, photo, drawing, model or splat — nothing was saved" }));
   });
   it("a new item's own needs", () => {
     expect(newItemRefusal({ path: "a.las", kind: "scan", registration: null })).toMatch(/registration\.method/);
@@ -59,7 +60,7 @@ describe("readAdmitBody and newItemRefusal", () => {
   it("names the codes and what each kind needs", () => {
     expect(codesSaid(["a", "c", "d"])).toBe("(a), (c) and (d)");
     expect(codesSaid(["d"])).toBe("(d)");
-    expect(ADMIT_NEEDS).toEqual({ scan: ["a", "c"], photo: ["a", "c", "d"], drawing: ["a", "b"], model: ["a"] });
+    expect(ADMIT_NEEDS).toEqual({ scan: ["a", "c"], photo: ["a", "c", "d"], drawing: ["a", "b"], model: ["a"], splat: ["a", "c", "d"] });
   });
 });
 
@@ -73,7 +74,7 @@ describe("policyRefusals", () => {
     expect(policyRefusals({ kind: "photo", provider: "wikimedia-commons", path: "a.jpg", webMode: "drill" })).toEqual([]); // MA-7-12: then the web path (webPhotoRefusals) decides
     expect(policyRefusals({ kind: "photo", provider: "wikimedia-commons", path: "a.jpg", webMode: "on" })).toEqual([]);
     expect(policyRefusals({ kind: "photo", provider: "flickr", path: "a.jpg", webMode: "drill" })).toEqual(["flickr is not a source Sentinel admits photos from yet — Wikimedia Commons only (provider wikimedia-commons)"]);
-    expect(policyRefusals({ kind: "scan", provider: "wikimedia-commons", path: "a.las" })).toEqual(["web and third-party items wait for a later stage — only your own scans and photos (provider own), drawings under a request and third-party models with (e) are admitted now"]);
+    expect(policyRefusals({ kind: "scan", provider: "wikimedia-commons", path: "a.las" })).toEqual(["web and third-party items wait for a later stage — only your own scans, photos and splats (provider own), drawings under a request and third-party models with (e) are admitted now"]);
     expect(policyRefusals({ kind: "photo", provider: "street view", path: "a.jpg" })).toEqual(["street view is a RED source — imagery and data from Google, Apple and Azure/Bing map services are never admitted (attestation d says so for every photo)"]);
     expect(policyRefusals({ kind: "photo", provider: "google street view", path: "a.jpg" })[0]).toMatch(/^google street view is a RED source/);
     expect(policyRefusals({ kind: "photo", provider: "website", path: "a.jpg", webMode: "drill" })[0]).toMatch(/^website is not a source Sentinel admits photos from yet/);
@@ -81,7 +82,7 @@ describe("policyRefusals", () => {
     expect(policyRefusals({ kind: "drawing", provider: "owner", path: "scan.JPEG" })).toEqual([]);
     expect(policyRefusals({ kind: "drawing", provider: "own", path: "A-101.txt" })).toEqual(["a .txt is not admitted as a drawing — drawings are pdf, dwg, dxf, png or jpg"]);
     expect(policyRefusals({ kind: "drawing", provider: "apple", path: "A-101.pdf" })[0]).toMatch(/^apple is a RED source/);
-    expect(policyRefusals({ kind: "photo", provider: "own", path: "a.txt" })).toEqual(["a .txt is not admitted — scans are e57, las, laz or rcp; photos are jpg or png; a concept model is ifc"]);
+    expect(policyRefusals({ kind: "photo", provider: "own", path: "a.txt" })).toEqual(["a .txt is not admitted — scans are e57, las, laz or rcp; photos are jpg or png; a concept model is ifc; a Gaussian splat is a ply"]);
     expect(policyRefusals({ kind: "scan", provider: "own", path: "a.jpg" })).toEqual(["a .jpg is a photo, not a scan"]);
     expect(policyRefusals({ kind: "photo", provider: "own", path: "a.JPEG" })).toEqual([]);
   });
@@ -339,9 +340,11 @@ describe("the item-field whitelist (MA-7-3)", () => {
       ["dataset scan", dsPack, (p) => mk(p, { path: "scans/d.las", kind: "scan", provider: "own", registration: REG }, "las")],
       ["vendor model with licence_ref", vendPack, (p) => mk(p, { path: "model/v.ifc", kind: "model", provider: "acme", licence_ref: "PO-1", registration: null }, "ifc")],
       ["own concept IFC", packWith(["a"]), (p) => mk(p, { path: "model/c.ifc", kind: "model", provider: "own", registration: null }, "ifc")],
+      ["splat with the person's answer (7-11)", photoPack, (p) => mk(p, { path: "splats/s.ply", kind: "splat", provider: "own", registration: null, no_people_or_plates: true }, "ply")],
+      ["splat made in Sentinel (7-11)", photoPack, (p) => ({ ...mk(p, { path: "splats/m.ply", kind: "splat", provider: "own", registration: null, no_people_or_plates: true }, "ply"), no_people_or_plates: undefined, made_with: { tool: "gsplat", version: "1.0.0", licence: "Apache-2.0" } })],
     ];
   };
-  it("lists the 19 fields the bridge wrote before MA-7, then capture (7-4), 7-5's four, view_copy (7-7) and 7-12's role, web and original record", () => { expect(ITEM_FIELDS).toEqual(["id", "kind", "format", "sha256", "size_bytes", "path", "provider", "licence", "licence_ref", "request_id", "attestation_ids", "allowed_uses", "registration", "surveyable", "admitted_by", "admitted_at", "state", "changed_sha256", "changed_at", "capture", "delete_by", "delete_why", "expired_at", "removed", "not_removed", "view_copy", "role", "web", "original_sha256", "original_size_bytes"]); });
+  it("lists the 19 fields the bridge wrote before MA-7, then capture (7-4), 7-5's four, view_copy (7-7), 7-12's role, web and original record and 7-11's made_with and no_people_or_plates", () => { expect(ITEM_FIELDS).toEqual(["id", "kind", "format", "sha256", "size_bytes", "path", "provider", "licence", "licence_ref", "request_id", "attestation_ids", "allowed_uses", "registration", "surveyable", "admitted_by", "admitted_at", "state", "changed_sha256", "changed_at", "capture", "delete_by", "delete_why", "expired_at", "removed", "not_removed", "view_copy", "role", "web", "original_sha256", "original_size_bytes", "made_with", "no_people_or_plates"]); });
   it.each(shapes().map((s) => [s[0], s]))("replay: %s validates unchanged", (_n, [, pack, make]) => {
     const item = make(pack);
     expect(Object.keys(item).every((k) => ITEM_FIELDS.includes(k))).toBe(true);
@@ -702,5 +705,90 @@ describe("a web photo (MA-7-12)", () => {
     for (const use of ["read", "type", "train", "register"]) expect(usable(item, use, { webMode: "drill" })).toMatch(/is a web photo — context only/);
     expect(usable(item, "view", { webMode: "off" })).toBe("web evidence is off until counsel has reviewed it — this web photo is kept, not shown; nothing was shown");
     expect(usable(item, "view", { webMode: "drill" })).toBe(null);
+  });
+});
+
+// MA-7-11 - a Gaussian splat: the evidence kind (format ply, a 3DGS header, 256 MB), the explicit answer an uploaded one needs, and a placement.
+const plyHead = (props, fmt = "binary_little_endian 1.0") => Buffer.from(`ply\nformat ${fmt}\nelement vertex 1\n${props.map((p) => `property float ${p}`).join("\n")}\nend_header\n`, "latin1");
+const GS = ["x", "y", "z", "f_dc_0", "f_dc_1", "f_dc_2", "opacity", "scale_0", "scale_1", "scale_2", "rot_0", "rot_1", "rot_2", "rot_3"];
+describe("a Gaussian splat (MA-7-11)", () => {
+  const splatItem = (pack, over = {}) => newItem({ id: "ev-0001", input: { path: "splats/s.ply", kind: "splat", provider: "own", registration: null, no_people_or_plates: true }, format: "ply", sha256: SHA, size_bytes: 99, report: null, pack, who: "contributor@example.test", at: "2026-10-13T10:00:00.000Z", ...over });
+  const splatPack = () => packWith(["a", "c", "d"]);
+  it("the format table: ply is a splat, 256 MB, not surveyable; it needs (a), (c) and (d); the body carries the answer for a splat only", () => {
+    expect(FORMATS.ply).toMatchObject({ kind: "splat", magic: "706c79", surveyable: false, max_bytes: 256 * 1024 * 1024 });
+    expect(ADMIT_NEEDS.splat).toEqual(["a", "c", "d"]);
+    expect(needsOf(splatPack(), "splat")).toEqual(["a", "c", "d"]);
+    expect(readAdmitBody({ path: "splats/s.ply", kind: "splat", no_people_or_plates: true })).toMatchObject({ kind: "splat", no_people_or_plates: true });
+    expect(readAdmitBody({ path: "splats/s.ply", kind: "splat" })).not.toHaveProperty("no_people_or_plates");
+    expect(() => readAdmitBody({ path: "p/a.jpg", kind: "photo", no_people_or_plates: true })).toThrow("no_people_or_plates is true or false and belongs to a splat only — nothing was saved");
+    expect(() => readAdmitBody({ path: "splats/s.ply", kind: "splat", no_people_or_plates: "yes" })).toThrow(/true or false/);
+    expect(policyRefusals({ kind: "splat", provider: "own", path: "splats/s.ply" })).toEqual([]);
+    expect(policyRefusals({ kind: "splat", provider: "google", path: "splats/s.ply" })[0]).toMatch(/^google is a RED source/);
+    expect(policyRefusals({ kind: "splat", provider: "acme", path: "splats/s.ply" })[0]).toMatch(/^web and third-party items wait for a later stage/);
+    expect(policyRefusals({ kind: "photo", provider: "own", path: "p/a.ply" })).toEqual(["a .ply is a splat, not a photo"]);
+    expect(magicRefusal("ply", Buffer.from("ply\nformat"), "splat")).toBe(null);
+    expect(magicRefusal("ply", Buffer.from("PK\x03\x04junk"), "splat")).toBe("the file does not begin as a .ply does — renamed or damaged");
+    expect(sizeRefusal("ply", 256 * 1024 * 1024, "splat")).toBe(null);
+    expect(sizeRefusal("ply", 257 * 1048576, "splat")).toBe("a .ply splat is at most 256 MB (this one is 257.0 MB) — it is not admitted; reduce it (fewer gaussians, SH degree 0)");
+  });
+  it("amendment 2: an uploaded splat needs the person's explicit answer, in the amendment's words", () => {
+    const words = "a splat cannot be blurred after it is trained — train it in Sentinel from blurred photos (7-19), or confirm that no face or number plate is visible in it; nothing was saved";
+    expect(newItemRefusal({ path: "splats/s.ply", kind: "splat" })).toBe(words);
+    expect(newItemRefusal({ path: "splats/s.ply", kind: "splat", no_people_or_plates: false })).toBe(words);
+    expect(newItemRefusal({ path: "splats/s.ply", kind: "splat", no_people_or_plates: true })).toBe(null);
+  });
+  it("splatHeaderRefusal: opacity, scale_0 and rot_0 in the header; a point cloud, a partial header, a headerless or non-ply file are refused in words", () => {
+    expect(splatHeaderRefusal(plyHead(GS))).toBe(null);
+    expect(splatHeaderRefusal(Buffer.concat([plyHead(GS), Buffer.alloc(40, 1)]))).toBe(null); // the body follows the header
+    expect(splatHeaderRefusal(plyHead(["x", "y", "z", "red", "green", "blue"]))).toBe("this .ply is not a Gaussian splat (no opacity, scale_0, rot_0 in its header)");
+    expect(splatHeaderRefusal(plyHead(GS.filter((p) => p !== "rot_0")))).toBe("this .ply is not a Gaussian splat (no rot_0 in its header)");
+    expect(splatHeaderRefusal(Buffer.from("ply\nformat binary_little_endian 1.0\nproperty float opacity\n"))).toMatch(/^this \.ply has no header Sentinel can read/);
+    expect(splatHeaderRefusal(Buffer.from("PK\x03\x04"))).toMatch(/^this \.ply has no header/);
+    expect(splatHeaderRefusal(Buffer.from(plyHead(GS).toString("latin1").replace(/\n/g, "\r\n"), "latin1"))).toBe(null); // CRLF header lines
+  });
+  it("newItem and validatePack: looked at only (geometry_extraction false), the answer on the item and the row; made_with is the bridge's", () => {
+    const pack = splatPack(), item = splatItem(pack);
+    expect(item).toMatchObject({ kind: "splat", format: "ply", surveyable: false, no_people_or_plates: true, provider: "own", licence: "owner-supplied", attestation_ids: ["att-0001", "att-0002", "att-0003"],
+      allowed_uses: { ...USES, geometry_extraction: false } });
+    expect(validatePack({ ...pack, items: [item] })).toBe(true);
+    expect(admittedValue("evp-0001", item, 4, false)).toMatchObject({ kind: "splat", format: "ply", no_people_or_plates: true, surveyable: false });
+    const fails = (i, m) => expect(() => validatePack({ ...pack, items: [i] })).toThrow(expect.objectContaining({ status: 400, message: expect.stringContaining(m) }));
+    const { no_people_or_plates: _n, ...bare } = item;
+    fails(bare, "a splat carries the admitting person's answer");
+    expect(validatePack({ ...pack, items: [{ ...bare, made_with: { tool: "gsplat", version: "1.0.0" } }] })).toBe(true);
+    fails({ ...bare, made_with: { tool: "gsplat", version: "1.0.0", extra: 1 } }, "made_with");
+    fails({ ...bare, made_with: { tool: "", version: "1" } }, "made_with");
+    fails({ ...item, no_people_or_plates: false }, "is true or absent");
+    fails({ ...item, allowed_uses: { ...item.allowed_uses, geometry_extraction: true } }, "a splat is for looking only");
+    const photo = photoItem(packWith(["a", "c", "d"]));
+    expect(() => validatePack({ ...packWith(["a", "c", "d"]), items: [{ ...photo, no_people_or_plates: true }] })).toThrow(/belongs to a splat only/);
+  });
+  it("splatUsable: a splat may be shown and placed unless expired or changed; a photo is not a splat", () => {
+    const item = splatItem(splatPack());
+    expect(splatUsable(item)).toBe(null);
+    expect(splatUsable({ ...item, state: "expired", expired_at: "2026-10-14T00:00:00.000Z" }, "shown")).toBe("ev-0001 expired on 2026-10-14 (delete-by) — it is not used; nothing was shown");
+    expect(splatUsable({ ...item, state: "changed" }, "saved")).toMatch(/changed since it was admitted.*nothing was saved$/);
+    expect(splatUsable(photoItem(packWith(["a", "c", "d"])), "saved")).toBe("ev-0001 is a photo, not a splat; nothing was saved");
+  });
+  it("readPlacement (SP-5): 16 finite numbers, a bottom row of 0 0 0 1, a determinant above zero - a mirror, NaN, a flat or skewed matrix is a 400 in words", () => {
+    const I = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+    const at = (over) => I.map((v, i) => (i in over ? over[i] : v));
+    expect(readPlacement({ matrix: I })).toEqual({ matrix: I });
+    expect(readPlacement({ matrix: at({ 12: 12.5, 13: -3, 14: 0.2, 0: 2, 5: 2, 10: 2 }) }).matrix[12]).toBe(12.5); // moved and scaled
+    const c = Math.cos(0.7), s = Math.sin(0.7);
+    expect(readPlacement({ matrix: at({ 0: c, 1: s, 4: -s, 5: c }) }).matrix).toHaveLength(16); // turned
+    const bad = (b, m) => expect(() => readPlacement(b)).toThrow(expect.objectContaining({ status: 400, message: m }));
+    bad({ matrix: at({ 0: -1 }) }, "matrix mirrors the splat (its determinant is below zero) — a placement moves, turns and scales — nothing was saved");
+    bad({ matrix: at({ 0: 0, 5: 0 }) }, "matrix flattens the splat (its determinant is zero) — a placement keeps it solid — nothing was saved");
+    bad({ matrix: at({ 3: 0.5 }) }, "matrix is not a placement: its bottom row must be 0 0 0 1 (move, turn, scale - no skew to a point) — nothing was saved");
+    bad({ matrix: at({ 15: 2 }) }, "matrix is not a placement: its bottom row must be 0 0 0 1 (move, turn, scale - no skew to a point) — nothing was saved");
+    for (const b of [{}, { matrix: I.slice(1) }, { matrix: at({ 12: NaN }) }, { matrix: at({ 12: Infinity }) }, { matrix: at({ 12: null }) }, { matrix: at({ 12: "1" }) }, { matrix: at({ 12: 2e9 }) }, { matrix: "x" }])
+      bad(b, "matrix must be 16 finite numbers (a 4×4, column-major), none past 1e9 — nothing was saved");
+    expect(JSON.parse(JSON.stringify({ matrix: at({ 12: NaN }) })).matrix[12]).toBe(null); // over the wire a NaN is a null: also refused
+  });
+  it("placedValue: the matrix, the splat's sha256, who and in what role; from_registration is null", () => {
+    const item = splatItem(splatPack());
+    expect(placedValue("evp-0001", item, [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 5, 6, 7, 1], "lead@example.test", "lead")).toEqual({
+      pack_id: "evp-0001", item_id: "ev-0001", matrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 5, 6, 7, 1], sha256: SHA, actor: "lead@example.test", role: "lead", from_registration: null });
   });
 });
