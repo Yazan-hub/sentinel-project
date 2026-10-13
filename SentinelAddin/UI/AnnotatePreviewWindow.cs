@@ -18,13 +18,17 @@ public sealed class AnnotatePreviewWindow : Window
 {
     private readonly List<(CheckBox Box, PlannedView View)> _views = new();
     private readonly List<(CheckBox Box, PinRow Pin)> _pins = new();
+    private readonly List<(CheckBox Box, TemplateRow Template)> _templates = new();
     private readonly TextBlock _status = new() { Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap };
     private static readonly System.Windows.Media.Brush Greyed = new SolidColorBrush(System.Windows.Media.Color.FromRgb(128, 128, 128));
 
     public IReadOnlyList<PlannedView> Views { get; private set; } = new List<PlannedView>();
     public IReadOnlyList<PinRow> Pins { get; private set; } = new List<PinRow>();
+    /// <summary>MA-8-11: the ticked view templates to copy from the office file; none unless a file was picked.</summary>
+    public IReadOnlyList<TemplateRow> Templates { get; private set; } = new List<TemplateRow>();
 
-    public AnnotatePreviewWindow(IReadOnlyList<PlannedView> views, IReadOnlyList<PinRow> pins, IReadOnlyList<string> words)
+    public AnnotatePreviewWindow(IReadOnlyList<PlannedView> views, IReadOnlyList<PinRow> pins, IReadOnlyList<string> words,
+        IReadOnlyList<TemplateRow>? templates = null, string? templatesHeader = null)
     {
         Title = "Sentinel — Annotate: views and pins";
         Width = 760; Height = 680; MinWidth = 480; MinHeight = 380;
@@ -63,6 +67,17 @@ public sealed class AnnotatePreviewWindow : Window
             if (p.Refusal == null) _pins.Add((box, p));
         }
         tree.Items.Add(pinNode);
+        // MA-8-11 (amendment 16): copying a template is a row a person ticks, never pre-ticked.
+        if (templates != null && templates.Count > 0)
+        {
+            var tNode = new TreeViewItem { Header = templatesHeader ?? "Copy view templates from the office file", IsExpanded = true, FontWeight = FontWeights.Bold };
+            foreach (var t in templates)
+            {
+                var box = Row(tNode, "View template " + t.Name, false, t.Refusal);
+                if (t.Refusal == null) _templates.Add((box, t));
+            }
+            tree.Items.Insert(0, tNode);
+        }
 
         var create = new Button { Content = "Create ▶", Padding = new Thickness(10, 5, 10, 5), Margin = new Thickness(0, 0, 6, 0), IsDefault = true };
         var cancel = new Button { Content = "Cancel", Padding = new Thickness(10, 5, 10, 5), IsCancel = true };
@@ -103,12 +118,14 @@ public sealed class AnnotatePreviewWindow : Window
 
     private void ShowCount() =>
         _status.Text = $"{_views.Count(r => r.Box.IsChecked == true)} of {_views.Count} creatable view(s) and " +
-                       $"{_pins.Count(r => r.Box.IsChecked == true)} of {_pins.Count} datum(s) to pin are ticked.";
+                       $"{_pins.Count(r => r.Box.IsChecked == true)} of {_pins.Count} datum(s) to pin" +
+                       (_templates.Count > 0 ? $" and {_templates.Count(r => r.Box.IsChecked == true)} of {_templates.Count} view template(s) to copy" : "") + " are ticked.";
 
     private void Accept()
     {
         Views = _views.Where(r => r.Box.IsChecked == true).Select(r => r.View).ToList();
         Pins = _pins.Where(r => r.Box.IsChecked == true).Select(r => r.Pin).ToList();
+        Templates = _templates.Where(r => r.Box.IsChecked == true).Select(r => r.Template).ToList();
         DialogResult = true;
         Close();
     }

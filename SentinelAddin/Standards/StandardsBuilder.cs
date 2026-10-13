@@ -306,7 +306,7 @@ public static class StandardsBuilder
     }
 
     /// Keep the target's existing types when a copied element's dependent type name collides.
-    private sealed class UseDestinationTypes : IDuplicateTypeNamesHandler
+    internal sealed class UseDestinationTypes : IDuplicateTypeNamesHandler
     {
         public DuplicateTypeAction OnDuplicateTypeNamesFound(DuplicateTypeNamesHandlerArgs args)
             => DuplicateTypeAction.UseDestinationTypes;

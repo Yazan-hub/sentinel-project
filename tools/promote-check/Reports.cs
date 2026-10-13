@@ -50,6 +50,27 @@ static partial class Check
         Ok(annotateMany.GetProperty("views_created").GetInt32() == 205 && annotateMany.GetProperty("views").GetArrayLength() == CommandReports.MaxRecord && annotateMany.GetProperty("undo_group_kept").GetBoolean(),
            "an Annotate row names at most MaxRecord views beside their true total (review C4)");
 
+        // MA-8-11: an annotate row with the office template file - the file name only, the sha, what the model holds, why the rest were not copied.
+        var withFile = Json(CommandReports.Annotate(created6, 3, 2, 3, 1, 1, 2, 4, 1, 3, new long[0], pinnedNow, true, "g", "r", "a", new CommandReports.AnnotateMore
+        {
+            FileName = "BDS_Revit.Template.rvt", Title = "BDS_Revit.Template_detached", Sha256 = "ab12", Format = "2024", Opened = true, Seconds = 3.24,
+            Copied = new[] { "01.100_WIP_FLOOR_PLANS", "02.100_SHEET_FLOOR_PLANS" }, NotCopied = new[] { ("01.100_WIP_RCP", "not in BDS_Revit.Template.rvt either") },
+        }));
+        var wv = withFile.GetProperty("new_value");
+        Ok(withFile.GetProperty("action").GetString() == "Annotate created 6 view(s) and pinned 6 datum(s) across 3 level(s); copied 2 view template(s) from BDS_Revit.Template.rvt"
+           && wv.GetProperty("template_file").GetProperty("name").GetString() == "BDS_Revit.Template.rvt" && wv.GetProperty("template_file").GetProperty("sha256").GetString() == "ab12"
+           && wv.GetProperty("template_file").GetProperty("opened").GetString() == "background" && wv.GetProperty("template_file").GetProperty("seconds").GetDouble() == 3.2
+           && wv.GetProperty("templates_copied").GetArrayLength() == 2 && wv.GetProperty("templates_not_copied")[0].GetProperty("name").GetString() == "01.100_WIP_RCP"
+           && wv.GetProperty("templates_not_copied")[0].GetProperty("why").GetString() == "not in BDS_Revit.Template.rvt either"
+           && !withFile.GetRawText().Contains(":\\\\") && wv.GetProperty("views_created").GetInt32() == 6,
+           "an Annotate row with the office template file names the file (never a path), its sha256 and what was copied or not, and appends the copied count to the action (MA-8-11)");
+        Ok(!av.TryGetProperty("template_file", out _) && !av.TryGetProperty("templates_copied", out _), "...and a run without the file carries none of those fields (the two existing calls compile and read unchanged)");
+        var already = Json(CommandReports.Annotate(created6, 3, 2, 3, 1, 1, 2, 4, 1, 3, new long[0], pinnedNow, true, "g", "r", "a", new CommandReports.AnnotateMore { FileName = "o.rte", Opened = false, Sha256 = "x", Title = "t", Format = "2024" }));
+        Ok(already.GetProperty("new_value").GetProperty("template_file").GetProperty("opened").GetString() == "already open"
+           && already.GetProperty("new_value").GetProperty("template_file").GetProperty("note").GetString().Contains("unsaved edits")
+           && already.GetProperty("action").GetString() == "Annotate created 6 view(s) and pinned 6 datum(s) across 3 level(s)",
+           "an already-open source says so, with the unsaved-edits note, and nothing copied adds nothing to the action words (amendment 6)");
+
         var many = Enumerable.Range(1, 55).Select(i => "Workset: W" + i).ToList();
         var std = Json(CommandReports.ApplyStandard(many, new[] { "Line style: Hidden" }, new string[0], "a"));
         Ok(std.GetProperty("entity_type").GetString() == "apply_standard" && std.GetProperty("action").GetString() == "Apply Standard: 55 created, 1 skipped, 0 failed"
@@ -136,7 +157,7 @@ static partial class Check
            && readBack > 0 && readBack < notKept && notKept < annSrc.IndexOf("GovernedNotify.Report(\"Annotate\"")
            && annSrc.Contains("var present = new FilteredElementCollector(doc).OfClass(typeof(ViewPlan))")
            && annSrc.Contains("var pinnedNow = pick.Pins.Select(p => doc.GetElement(p.Id.ToElementId())).Where(e => e != null && e.Pinned)")
-           && annSrc.Contains("if (!kept && present.Count + pinnedNow.Count == 0)"),
+           && annSrc.Contains("if (!kept && present.Count + pinnedNow.Count + templatesNow.Count == 0)"),
            "Annotate reads the model back after its group, kept or not (a group that throws too), says 'the model is as it was' only when the read-back finds nothing, and reports what it read (MA-2e, review C2)");
         string doctor = Src("Updaters", "FailureInterceptor.cs");
         Ok(doctor.Contains("Reported.Add(key, p.Text, p.Tx, p.Ids)") && doctor.Contains("Task.Delay(TimeSpan.FromSeconds(Sentinel.Coordination.DoctorBuffer.WindowSeconds))")

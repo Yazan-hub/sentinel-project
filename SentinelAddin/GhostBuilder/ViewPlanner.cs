@@ -10,6 +10,7 @@
 // first FloorPlan entry and the first CeilingPlan entry; everything else is listed unticked — a person decides. The pin rows
 // (DAT-3, F3 A) and the words of the preview and the result are here too. This is the only view planner: the TS planViews
 // had no caller and was retired in MA-2e (F5).
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
@@ -33,6 +34,14 @@ namespace Sentinel.GhostBuilder
         public bool PreTicked { get; set; }
         /// <summary>Why the row cannot be created, in words; null when it can.</summary>
         public string Refusal { get; set; }
+    }
+
+    /// <summary>MA-8-11 (ANV-3): one view template the office file could supply. Never pre-ticked (amendment 16); a refused row says why.</summary>
+    public sealed class TemplateRow
+    {
+        public string Name { get; set; }
+        public string Refusal { get; set; }
+        public bool PreTicked => false;
     }
 
     /// <summary>A level or a grid as the pin rows read it (DAT-3).</summary>
@@ -188,6 +197,34 @@ namespace Sentinel.GhostBuilder
                 ? $"View names are checked against {string.Join(", ", ids)} (ruleset {rulesetLabel}) — Scan Now's own rule."
                 : $"View names not checked: no View rule with tokens or a whitelist in the ruleset ({rulesetLabel}).";
         }
+
+        /// <summary>MA-8-11 (amendment 7): the distinct view templates the creatable rows name that the model lacks, in row order.</summary>
+        public static List<string> Missing(IEnumerable<PlannedView> rows, ICollection<string> modelTemplateNames) =>
+            (rows ?? Enumerable.Empty<PlannedView>()).Where(p => p != null && p.Refusal == null && !string.IsNullOrWhiteSpace(p.Template)
+                && (modelTemplateNames == null || !modelTemplateNames.Contains(p.Template))).Select(p => p.Template).Distinct().ToList();
+
+        private static readonly HashSet<string> PlanTypes = new HashSet<string> { "FloorPlan", "CeilingPlan", "EngineeringPlan", "AreaPlan" };
+
+        /// <summary>MA-8-11: a row for each missing template. <paramref name="fileTemplates"/> is the office file's view templates, name → ViewType;
+        /// <paramref name="modelViewNames"/> every view name the model holds (a missing template is none of them, so a hit is a view). Refused: not in
+        /// the file, not a plan template, or the name is a view's here. Never pre-ticked.</summary>
+        public static List<TemplateRow> TemplateRows(IEnumerable<string> missing, IDictionary<string, string> fileTemplates, string fileName,
+            ICollection<string> modelViewNames) =>
+            (missing ?? Enumerable.Empty<string>()).Select(n => new TemplateRow
+            {
+                Name = n,
+                Refusal = fileTemplates == null || !fileTemplates.TryGetValue(n, out var type) ? $"not in {fileName} either — its views are created without it"
+                    : !PlanTypes.Contains(type ?? "") ? $"in {fileName} as a {type} template — a plan view cannot use it"
+                    : modelViewNames != null && modelViewNames.Contains(n) ? "a view in this model already holds the name"
+                    : null,
+            }).ToList();
+
+        /// <summary>MA-8-11: the preview's line on the file. The sha is the bytes on disk; the catalogue's template title is a warning to compare, not a gate.</summary>
+        public static string TemplateFileLine(string name, string sha256, string title, string catalogTitle, string format, double seconds, bool opened) =>
+            $"Copy view templates from {name} (sha256 {(sha256 ?? "").Substring(0, Math.Min(12, (sha256 ?? "").Length))}…; title '{title}'"
+            + (string.IsNullOrWhiteSpace(catalogTitle) ? "; the type catalogue names no template title to compare"
+               : string.Equals((title ?? "").Replace("_detached", ""), catalogTitle, StringComparison.OrdinalIgnoreCase) ? "" : $" — WARNING: not the catalogue's '{catalogTitle}'")
+            + $"; saved in Revit {format}; " + (opened ? $"opened in the background in {seconds:0.0} s" : "already open in this session") + "). It is never saved.";
 
         /// <summary>DAT-3 (F3 A, F7): every unpinned level and grid. Story levels and grids are pre-ticked; a level that is not a
         /// Building Story is listed unticked; one another user owns, or one changed in central (review C7), is listed unticked with
