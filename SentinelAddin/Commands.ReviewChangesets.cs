@@ -61,7 +61,11 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
 
     /// <summary>MA-6 amendment 12: a changeset Promote (DD) plans again. A shell is filed as source promote too, but Shell a Mass plans it,
     /// so "Run Promote (DD) again" is never said of one; nor of a stair or a terrain (MA-8-14 review round 1).</summary>
-    internal static bool PromoteRun(ChangesetDto cs) => cs.Source == "promote" && !(cs.Name ?? "").StartsWith(ShellPlanner.Title, StringComparison.Ordinal)
+    internal static bool PromoteRun(ChangesetDto cs) => StoreyRun(cs) && !(cs.Name ?? "").StartsWith(ShellPlanner.Title, StringComparison.Ordinal);
+
+    /// <summary>MA-8-14 review round 3: a Promote (DD) or Shell a Mass changeset - what either opens, while it waits for review, instead of planning. A stair and a terrain are
+    /// filed as source promote too, but neither is a storey run of Promote or Shell, so neither holds them.</summary>
+    internal static bool StoreyRun(ChangesetDto cs) => cs.Source == "promote"
         && !(cs.Elements ?? new()).Any(e => e.Kind == "stair" || e.Kind == "terrain"); // a stair is re-proposed from its flag, a terrain from the scan - neither planned by Promote
 
     internal static string CarriedEdits(IEnumerable<ChangesetDto> fresh)
@@ -618,6 +622,8 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                 // (b)
                 var ground = ChangesetClient.FetchGround(cfg, key, cs.Id, out var groundErr);
                 if (ground == null) { window.Shown("The terrain was not planned — " + groundErr); return; }
+                // review round 3: the project's changesets, for an applied terrain this model no longer holds (unread: nothing is freed, the bridge's 409 stands)
+                var all = ChangesetClient.FetchAll(cfg, key, out _);
                 (string Family, string Type, string Source)? rule;
                 string hold;
                 try
@@ -635,14 +641,27 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                     catch (Exception ex) when (ex is PlacementRefused || ex is InvalidOperationException) { window.Shown("Held for a person — " + ex.Message); return; }
                     var plan = TerrainPlanner.Plan(ground.Points.ToArray(), ground.Footprint, ground.Level, rule, cs.Name, cs.Id, ground.Job, ground.CellMm, ground.ZMm, ground.Of, UserSession.Actor);
                     if (plan.Hold != null) { window.Shown("Held for a person — " + plan.Hold); return; }
+                    var gone = TerrainPlanner.Gone(all, uid => d.GetElement(uid) != null);
                     window.Shown("Filing the terrain on the bridge…");
                     // (d)
                     Task.Run(() =>
                     {
                         var filed = ChangesetClient.Propose(cfg, key, plan.Body, out var proposeErr);
+                        // review round 3: the scan is held by an applied terrain whose Toposolid this model no longer holds (deleted by hand, or undone after a restart - no Undo
+                        // row was posted, and "undo it in Revit first" cannot be done): it is recorded as undone (the Undo's own row) and the terrain filed again, once
+                        string freed = "";
+                        if (filed == null && gone.Count > 0 && (proposeErr ?? "").Contains("(applied) — undo it in Revit first"))
+                        {
+                            var undone = gone.Where(g => ChangesetClient.ReportReverted(cfg, key, g.Id, g.Guids, "undo", out _)).Select(g => $"\"{g.Name}\"").ToList();
+                            if (undone.Count > 0)
+                            {
+                                freed = $" The Toposolid of {string.Join(", ", undone)} is no longer in this model — the bridge took its Undo row, so the scan is free.";
+                                filed = ChangesetClient.Propose(cfg, key, plan.Body, out proposeErr);
+                            }
+                        }
                         // (e) a 409 (or any refusal) shows the bridge's message only
-                        window.Shown(filed == null ? "The terrain was not proposed — " + proposeErr
-                            : $"Proposed {filed.Name}: {plan.Line}. Review it (Review AI Proposals); nothing was ticked or placed.");
+                        window.Shown(filed == null ? "The terrain was not proposed — " + proposeErr + freed
+                            : $"Proposed {filed.Name}: {plan.Line}. Review it (Review AI Proposals); nothing was ticked or placed.{freed}");
                     });
                 }, refusal => window.Shown($"The terrain was not planned — {refusal}"));
             });

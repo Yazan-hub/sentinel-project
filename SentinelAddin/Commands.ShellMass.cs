@@ -82,7 +82,7 @@ public sealed class ShellMassCommand : IExternalCommand
         Task.Run(() =>
         {
             var pending = ChangesetClient.FetchProposed(cfg, key, out var err);
-            return (Pending: pending, Err: err, Standards: pending == null || pending.Any(p => p.Source == "promote") ? null : GhostStandards.Load(key, layers: false));
+            return (Pending: pending, Err: err, Standards: pending == null || pending.Any(ReviewChangesetsCommand.StoreyRun) ? null : GhostStandards.Load(key, layers: false));
         }).ContinueWith(read => App.Events.Enqueue(doc, "plan Shell a Mass", (ui, d) =>
         {
             var held = 1;
@@ -115,7 +115,7 @@ public sealed class ShellMassCommand : IExternalCommand
             return false;
         }
         // A Promote or Shell changeset still waiting for review is opened instead — a shell is never planned on top of one.
-        var unreviewed = pending.FirstOrDefault(p => p.Source == "promote");
+        var unreviewed = pending.FirstOrDefault(ReviewChangesetsCommand.StoreyRun); // review round 3: a pending stair or terrain is not a storey run
         if (unreviewed != null)
         {
             TaskDialog.Show(Title, $"\"{unreviewed.Name}\" is still waiting for review — it opens now. Apply or decline it, then run Shell a Mass again.");

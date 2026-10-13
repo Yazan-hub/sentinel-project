@@ -200,7 +200,8 @@ static partial class Check
            "a Promote changeset is planned again by Promote (DD); a shell (source promote, named Shell (DD)), a stair, a terrain and an agent's are not");
         string review = Src("Commands.ReviewChangesets.cs"), cmd = Src("Commands.ShellMass.cs"), reader = Src("GhostBuilder", "ShellReader.cs"), app = Src("App.cs");
         int Count(string s, string what) { int n = 0, i = 0; while ((i = s.IndexOf(what, i, StringComparison.Ordinal)) >= 0) { n++; i += what.Length; } return n; }
-        Ok(review.Contains("internal static bool PromoteRun(ChangesetDto cs) => cs.Source == \"promote\" && !(cs.Name ?? \"\").StartsWith(ShellPlanner.Title, StringComparison.Ordinal)")
+        Ok(review.Contains("internal static bool PromoteRun(ChangesetDto cs) => StoreyRun(cs) && !(cs.Name ?? \"\").StartsWith(ShellPlanner.Title, StringComparison.Ordinal);")
+           && review.Contains("internal static bool StoreyRun(ChangesetDto cs) => cs.Source == \"promote\"") // MA-8-14 review round 3
            && review.Contains("!(cs.Elements ?? new()).Any(e => e.Kind == \"stair\" || e.Kind == \"terrain\")")
            && Count(review, "(PromoteRun(fresh[0]) ? CarriedEdits(fresh) + \"\\n\\n\" + RunPromoteAgain : \"\")") == 2 && !review.Contains("(fresh[0].Source == \"promote\" ?")
            && review.Contains("levelMm.TryGetValue(e.Place.TopLevel, out var mm) ? mm : (double?)null;")
@@ -217,7 +218,7 @@ static partial class Check
            && cmd.IndexOf("release(); // Open checks the guard", StringComparison.Ordinal) < cmd.IndexOf("ReviewChangesetsCommand.Open(ui, doc, cfg, key, StoreyBatch.Of(pending, unreviewed));", StringComparison.Ordinal)
            && cmd.Contains("finally { release(); }") && cmd.Contains("if (UserSession.IsSignedIn) fileCfg.FileToken = \"\";")
            && cmd.Contains("ReviewChangesetsCommand.Open(u, d, cfg, key, StoreyBatch.Of(filed, first));") && cmd.Contains("if (ProjectContext.For(d).Key != key)")
-           && cmd.Contains("var unreviewed = pending.FirstOrDefault(p => p.Source == \"promote\");") && cmd.Contains("if (!m.HasCatalog)")
+           && cmd.Contains("var unreviewed = pending.FirstOrDefault(ReviewChangesetsCommand.StoreyRun);") && cmd.Contains("if (!m.HasCatalog)")
            && cmd.Contains("GovernedNotify.Report(\"Shell a Mass receipt\", BuildReceipt.Run(\"shell-mass\", BuildReceipt.AddinSha256,")
            && cmd.Contains("said += \"\\nDecline the storey changeset(s) Shell a Mass filed, then run it again — once one is applied, Shell plans no more of this mass.\";")
            && cmd.IndexOf("finally { release(); }", StringComparison.Ordinal) < cmd.IndexOf("if (filed.Count > 0 && filed.Count < bodies.Count)", StringComparison.Ordinal),

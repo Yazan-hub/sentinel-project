@@ -775,12 +775,18 @@ internal static class ChangesetClient
             return (resp, await resp.Content.ReadAsStringAsync().ConfigureAwait(false));
         }).GetAwaiter().GetResult();
 
-    public static List<ChangesetDto> FetchProposed(BcfConfig cfg, string projectKey, out string error)
+    public static List<ChangesetDto> FetchProposed(BcfConfig cfg, string projectKey, out string error) => FetchList(cfg, projectKey, "?status=proposed", out error);
+
+    /// <summary>MA-8-14 review round 3: every changeset of the project (GET /changesets/:key, no status) - Propose terrain reads the applied terrains to find one
+    /// whose Toposolid this model no longer holds (TerrainPlanner.Gone).</summary>
+    public static List<ChangesetDto> FetchAll(BcfConfig cfg, string projectKey, out string error) => FetchList(cfg, projectKey, "", out error);
+
+    private static List<ChangesetDto> FetchList(BcfConfig cfg, string projectKey, string query, out string error)
     {
         error = null;
         try
         {
-            var url = $"{cfg.ServiceUrl.TrimEnd('/')}/changesets/{Uri.EscapeDataString(projectKey)}?status=proposed";
+            var url = $"{cfg.ServiceUrl.TrimEnd('/')}/changesets/{Uri.EscapeDataString(projectKey)}{query}";
             var (resp, body) = Send(ReadHttp, () => Req(HttpMethod.Get, url, cfg.ServiceToken));
             if (!resp.IsSuccessStatusCode) { error = $"Bridge {(int)resp.StatusCode}: {body}"; return null; }
             var list = JsonSerializer.Deserialize<List<ChangesetDto>>(body) ?? new List<ChangesetDto>();

@@ -1765,6 +1765,9 @@ describe("checkFromScan (MA-8-14): the survey changeset a terrain starts from", 
     fails(() => checkFromScan(terrain(), [mine, first({ id: "job-0004", ledger_id: 52 }), filed("proposed")]), 409, /withdraw it first/);   // the same job, another storey
     expect(() => checkFromScan(terrain(), [mine, first({ id: "job-0003", ledger_id: 41, evidence: ev("bb") }), filed("proposed")])).not.toThrow();   // other bytes: another scan
     expect(() => checkFromScan(terrain(), [mine, first({ id: "job-0003", ledger_id: 41, evidence: [{ id: "ev-scan" }] }), filed("proposed")])).not.toThrow();   // no sha: not matched
+    // review round 3: the same bytes admitted from another path (a new evidence id, the same sha256) are the same scan - both 409s
+    fails(() => checkFromScan(terrain(), [mine, first({ id: "job-0003", ledger_id: 41, evidence: [{ id: "ev-copy", sha256: "aa" }] }), filed("proposed")]), 409, /withdraw it first/);
+    fails(() => checkFromScan(terrain(), [mine, first({ id: "job-0003", ledger_id: 41, evidence: [{ id: "ev-copy", sha256: "aa" }] }), filed("applied")]), 409, /undo it in Revit first/);
   });
   it("404: the project holds no such changeset", () => {
     fails(() => checkFromScan(terrain(), []), 404, /^elements\[0\]: from_scan names changeset 5b1c6f3e-2a4d-4e8f-9c1a-7d2e3f4a5b6c, which this project does not hold — nothing was saved$/);

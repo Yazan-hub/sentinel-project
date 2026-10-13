@@ -148,7 +148,7 @@ async function fileValidated(d, key, v, body, actor) {
     // ponytail: two terrains from different scans of one project filed in the same moment, one is told to try again; key on the scan's evidence shas if that is ever felt
     ...(v.elements.some((e) => e.from_scan) ? [`${key}|scan`] : [])];
   if (held.some((h) => filingFlags.has(h)))
-    throw err(409, v.elements.some((e) => e.from_scan) ? "a terrain on this project is being filed - try again when it ends" : "a stair from this flag is being filed - try again when it ends");
+    throw err(409, v.elements.some((e) => e.from_scan) ? "a terrain on this project is being filed — try again when it ends; nothing was saved" : "a stair from this flag is being filed - try again when it ends");
   for (const h of held) filingFlags.add(h);
   try { return await fileValidatedInner(d, key, v, body, actor); } finally { for (const h of held) filingFlags.delete(h); }
 }
@@ -172,7 +172,7 @@ async function fileValidatedInner(d, key, v, body, actor) {
   }
   // MA-8-14: a terrain starts from a survey changeset the bridge built - the one whose scan its points came from
   checkFromScan(v.elements, earlier, reverted);
-  for (const [i, e] of v.elements.entries()) if (e.from_scan) tieToScan(e, `elements[${i}]`, earlier);
+  for (const [i, e] of v.elements.entries()) if (e.from_scan) tieToScan(e, `elements[${i}]`, earlier, v.name);
 
   // Reuse the referee as-is: it resolves the project's installed IDS (artefact-store) and writes its own
   // proposal audit row — the changeset stores that audit_id as its adjudication receipt.
@@ -676,8 +676,7 @@ export async function scanOverlay(key, id, deps = {}, { flag = null, ground = fa
   // The owner's allowed uses (evidence-logic USES): an overlay is viewing a scan as a reference. Fails closed, like pickItems — and this is
   // the first route whose answer (derived points) leaves the PC, over the Funnel to a member's Revit.
   const hidden = pack.items.find((i) => evidence.some((e) => e.id === i.id) && i.allowed_uses?.view_reference !== true);
-  if (hidden) throw err(409, `${hidden.id}'s allowed uses do not include viewing it as a reference — its scan is not shown`);
-  try { d.takeWriteBudget("survey jobs", { perUser: 6, all: 12 }); } catch (e) { throw shown(e); } // a run on the PC's CPU (MA-4e decision 13)
+  if (hidden) throw err(409, `${hidden.id}'s allowed uses do not include viewing it as a reference — its scan is not shown`);  try { d.takeWriteBudget("survey jobs", { perUser: 6, all: 12 }); } catch (e) { throw shown(e); } // a run on the PC's CPU (MA-4e decision 13)
   const S = toScan(cs.job.frame);
   // the box's four plan corners in the scan's frame, bounded (a turned frame makes the crop the larger axis-aligned box; the answer is cut back to the exact box below)
   const corners = fl ? [[fl.box.min[0], fl.box.min[1]], [fl.box.max[0], fl.box.min[1]], [fl.box.max[0], fl.box.max[1]], [fl.box.min[0], fl.box.max[1]]].map(S.xy) : null;
@@ -712,7 +711,7 @@ export function scanQuery(q) {
   if (flag != null && (flag === "" || flag.length > 64)) throw err(400, "flag must be a stair flag's unique_id (1 to 64 characters)");
   const ground = q.get("ground") === "1";
   if (q.has("ground") && !ground) throw err(400, "ground must be 1 — send ?ground=1; nothing was read");
-  if (ground && flag != null) throw err(400, "ground and flag are two different cuts of the scan — send one");
+  if (ground && flag != null) throw err(400, "ground and flag are two different cuts of the scan — send one; nothing was read");
   return { ...(flag != null ? { flag } : {}), ...(ground ? { ground } : {}) };
 }
 
@@ -735,10 +734,13 @@ function lowerStorey(all, cs, cut) {
 
 /** MA-8-14 review round 1: a terrain is tied to the scan it names - the bridge read no scan for its points, but it checks what it can of them against that
  *  changeset's ground cut (groundCut, the ground read's): a live survey changeset of the job's lowest storey (409), the cut's level, its footprint as the Boundary
- *  corner for corner, every point in its height band and outside its footprint (400). checkFromScan ran first (the changeset exists and is a survey job's). */
-function tieToScan(el, at, earlier) {
+ *  corner for corner, every point in its height band and outside its footprint, and (review round 3) a name ending " · from <that changeset's name>" (400). checkFromScan ran first (the changeset exists and is a survey job's). */
+function tieToScan(el, at, earlier, name) {
   const cs = earlier.find((c) => c.id === el.from_scan.changeset), cut = groundCut(cs);
   if (cs.status === "withdrawn") throw err(409, `${at}: "${cs.name}" is withdrawn — no terrain is read from its scan; nothing was saved`);
+  // review round 3: the changeset's title is where a reviewer reads which scan it came from (amendment 8 amended) - it names from_scan's changeset, or it is refused
+  if (!String(name).endsWith(` · from ${cs.name}`))
+    throw err(400, `${at}: the changeset is named "${name}" — a terrain's name ends " · from ${cs.name}", the survey changeset its from_scan names; nothing was saved`);
   if (!cut?.footprint) throw err(409, `${at}: "${cs.name}" has no wall — its scan has no ground cut to read a terrain from; nothing was saved`);
   const lower = lowerStorey(earlier, cs, cut);
   if (lower) throw err(409, `${at}: terrain is read under the lowest storey (${groundCut(lower).level ?? lower.name}, ${lower.name}); "${cs.name}" is higher — nothing was saved`);

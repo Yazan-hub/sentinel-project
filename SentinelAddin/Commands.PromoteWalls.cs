@@ -70,7 +70,7 @@ public sealed class PromoteWallsCommand : IExternalCommand
     private static (List<ChangesetDto> Pending, string Err, PromoteContext Pc) Read(BcfConfig cfg, string key)
     {
         var pending = ChangesetClient.FetchProposed(cfg, key, out var err);
-        return (pending, err, pending == null || pending.Any(p => p.Source == "promote") ? null : PromoteContext.Fetch(key));
+        return (pending, err, pending == null || pending.Any(ReviewChangesetsCommand.StoreyRun) ? null : PromoteContext.Fetch(key));
     }
 
     // MA-3b5 (E4): the event hub's job, on Revit's thread in the pinned model. The guard Execute took is released exactly once (Once): here
@@ -106,7 +106,7 @@ public sealed class PromoteWallsCommand : IExternalCommand
             TaskDialog.Show(Title, $"Couldn't reach the bridge:\n{fetchErr}");
             return false;
         }
-        var unreviewed = pending.FirstOrDefault(p => p.Source == "promote");
+        var unreviewed = pending.FirstOrDefault(ReviewChangesetsCommand.StoreyRun); // review round 3: a pending stair or terrain is not a storey run
         if (unreviewed != null) // MA-2d: with the rest of its storey (StoreyBatch)
         {
             release(); // Open checks the guard

@@ -82,7 +82,7 @@
             "Name": "Terrain · L00"
           }
         },
-        "reason": "6 ground points, lowest per 500 mm cell, between -5000 and 1500 mm (5 m under to 1.5 m over L00's floor; ground outside that band is not read), outside the storey's walls, from job-0003; the hole is the walls' box plus 1 m (a notch or courtyard inside it gets no ground); rim points at the nearest ground point's height line both edges — check it against the site survey",
+        "reason": "6 ground points, lowest per 500 mm cell, between -5000 and 1500 mm (5 m under to 1.5 m over L00's floor; ground outside that band is not read), outside the storey's walls, from job-0003; the hole is the walls' box plus 1 m (a notch or courtyard inside it gets no ground); Sentinel adds points along the outer edge and the hole's edge, each at the nearest ground point's height — check it against the site survey",
         "place": {
           "LevelName": "L00",
           "FamilyName": "Toposolid",
@@ -318,7 +318,14 @@
           ]
         ]
       },
-      "message": "place.Points span 602 m in plan — a terrain is at most 500 m across"
+      "message": "place.Points and place.Boundary span 602 m in plan — a terrain is at most 500 m across"
+    },
+    {
+      "name": "review round 3: points clustered 300 km from the Boundary (Revit's outer loop runs round both)",
+      "place": {
+        "Points": [[300000000, 0, -300], [300005000, 0, -300], [300000000, 5000, -300]]
+      },
+      "message": "place.Points and place.Boundary span 300006 m in plan — a terrain is at most 500 m across"
     },
     {
       "name": "a point that is not a number",

@@ -295,8 +295,10 @@ function checkPlace(kind, place, at) {
     const pts = place.Points;
     if (!Array.isArray(pts) || pts.length < MIN_TERRAIN_POINTS || pts.length > MAX_TERRAIN_POINTS || !pts.every(point))
       throw err(400, `${at}: a terrain needs place.Points, ${MIN_TERRAIN_POINTS} to ${MAX_TERRAIN_POINTS} finite [x,y,z] points`);
-    const span = Math.max(Math.max(...pts.map((p) => p[0])) - Math.min(...pts.map((p) => p[0])), Math.max(...pts.map((p) => p[1])) - Math.min(...pts.map((p) => p[1])));
-    if (span > MAX_TERRAIN_SPAN_MM) throw err(400, `${at}: place.Points span ${Math.round(span / 1000)} m in plan — a terrain is at most ${MAX_TERRAIN_SPAN_MM / 1000} m across`);
+    // review round 3: over the Points and the Boundary - Revit's outer loop runs round both (Compat.CreateTerrain), so points clustered far from the footprint make a solid that wide
+    const plan = [...pts, ...(Array.isArray(place.Boundary) ? place.Boundary.filter((q) => Array.isArray(q) && Number.isFinite(q[0]) && Number.isFinite(q[1])) : [])];
+    const span = Math.max(Math.max(...plan.map((p) => p[0])) - Math.min(...plan.map((p) => p[0])), Math.max(...plan.map((p) => p[1])) - Math.min(...plan.map((p) => p[1])));
+    if (span > MAX_TERRAIN_SPAN_MM) throw err(400, `${at}: place.Points and place.Boundary span ${Math.round(span / 1000)} m in plan — a terrain is at most ${MAX_TERRAIN_SPAN_MM / 1000} m across`);
     const byX = [...pts.keys()].sort((i, j) => pts[i][0] - pts[j][0]);   // two points within 1 mm in plan: sweep by x
     for (let i = 0; i < byX.length; i++)
       for (let j = i + 1; j < byX.length && pts[byX[j]][0] - pts[byX[i]][0] < MIN_EDGE_MM; j++)
@@ -827,10 +829,11 @@ export function checkFromScan(elements, earlier, reverted = []) {
     }
   }
 }
-/** MA-8-14 review round 2: two survey changesets read the same scan - the same changeset, the same job (its ledger row), or a job of the same evidence (an id and sha256
- *  in both): a survey re-run (a new planner version) files the scan's walls again under a new job, and its terrain would stand on the first. */
+/** MA-8-14 review round 2: two survey changesets read the same scan - the same changeset, the same job (its ledger row), or a job of the same evidence bytes (a sha256
+ *  in both): a survey re-run (a new planner version) files the scan's walls again under a new job, and its terrain would stand on the first. Review round 3: the sha256
+ *  alone - admission dedupes by path, so the same file admitted from another path is a new evidence id over the same bytes. */
 const sameScan = (a, b) => a.id === b.id || (a.job?.ledger_id != null && a.job.ledger_id === b.job?.ledger_id)
-  || (a.job?.evidence ?? []).some((e) => e?.sha256 && (b.job?.evidence ?? []).some((x) => x?.id === e.id && x?.sha256 === e.sha256));
+  || (a.job?.evidence ?? []).some((e) => e?.sha256 && (b.job?.evidence ?? []).some((x) => x?.sha256 === e.sha256));
 
 /** MA-8-10: what Revit says it built for a stair - field by field, anything else is null. Revit's read, kept for the ledger; the bridge does not
  *  judge it. A reader that is not a signed-in member's (the machine credential: the bridge cannot tell the add-in from any holder of the
