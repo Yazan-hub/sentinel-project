@@ -11,7 +11,7 @@ vi.mock("./active-project", () => ({ activePid: () => "demo", onActiveProjectCha
 import { heldLines, proposalWords, storeyOf, groupDesk, ghostLine, reviewWords, declinedBy, canDecide, canReopen, readPending, postReview, postReopen, rowWords, postsFor, type PendingChangeset,
   trustWords, sourceWords, isDrawn,
   readDecided, readLedger, highlightPlan, type Ghost, decidedView, decidedCount, DECIDED_MAX, type LedgerRows,
-  measureWords, verifiedView, readVerified, readMeasuredRecent, measuredView, MEASURED_MAX, postMeasure, measureLine, canMeasure, countWords, editCostLine, readEditCost, type EditCostRun, type VerifyRecord, type Measured } from "./review-desk";
+  measureWords, verifiedView, readVerified, readMeasuredRecent, measuredView, MEASURED_MAX, postMeasure, measureLine, canMeasure, countWords, editCostLine, keptWords, readEditCost, type EditCostRun, type VerifyRecord, type Measured } from "./review-desk";
 
 import { recipeLine, draftWords, approveWords, readRecipes, postRecipeDraft, postRecipeApprove, postRecipeWithdraw, type RecipeRow } from "./review-desk";
 
@@ -613,7 +613,8 @@ describe("edit cost (MA-8-1)", () => {
     expect(l).toContain("1 declined before (carried)");
     expect(l).toContain("1 not applied in Revit (unticked, or removed at commit)");
     expect(l).toContain("1 undone");
-    expect(l).toContain("8 kept (36 % changed)");
+    expect(l).toContain("8 of 11 kept as filed (4 not kept)"); // MA-8 nits (F-B5-2): share_changed 4/11 in its own terms
+    expect(l).not.toContain("% changed");
     expect(l).toContain("edits made after Apply, other than an Undo in Revit, are not seen");
   });
 
@@ -622,6 +623,13 @@ describe("edit cost (MA-8-1)", () => {
     expect(l).not.toContain("carried");
     expect(l).toContain("3 still pending");
     expect(l).not.toContain("% changed");
+  });
+
+  it("keptWords (F-B5-2): the drill's 1 of 14 says what share_changed counts - not kept as filed - in the run line and the recipe line alike", () => {
+    const drill = { ...run, filed: 14, web: 10, carried: 0, revit: 2, applied: 2, undone: 1, kept: 1, share_changed: 13 / 14 };
+    expect(keptWords(drill)).toBe("1 of 14 kept as filed (13 not kept)");
+    expect(editCostLine(drill)).toContain(" · 1 of 14 kept as filed (13 not kept) — ");
+    expect(keptWords({ ...drill, pending: 14, share_changed: null })).toBe("1 kept");
   });
 
   it("says withdrawn ghosts are not in the share", () => {
@@ -649,7 +657,7 @@ describe("recipes (MA-8-13, D13)", () => {
 
   it("recipeLine: the reader and planner, the standards it ran on, the run kept of filed and the share changed - then where the approvals stand", () => {
     const l = recipeLine(row());
-    expect(l).toBe("recipe@1 · project · Kladno storeys · sentinel-survey 0.6.0 → survey-planner 0.1.0 · guideline@7, type_catalog@3 · job-0013: 9 of 12 kept (25 % changed) · no approval yet — a lead's and an owner's, two different people, are owed");
+    expect(l).toBe("recipe@1 · project · Kladno storeys · sentinel-survey 0.6.0 → survey-planner 0.1.0 · guideline@7, type_catalog@3 · job-0013: 9 of 12 kept as filed (3 not kept) · no approval yet — a lead's and an owner's, two different people, are owed");
     expect(recipeLine(row({ approvals: [app(950, "lead")] }))).toContain("approved by a lead (#950); an owner's approval is owed");
     expect(recipeLine(row({ approvals: [app(951, "owner")] }))).toContain("approved by an owner (#951); a lead's approval is owed");
     const done = recipeLine(row({ state: "approved", approved: true, approvals: [app(950, "lead"), app(951, "owner")] }));
@@ -663,6 +671,9 @@ describe("recipes (MA-8-13, D13)", () => {
     expect(lapsed).toContain("#950 no longer counts (its approver is not a lead or owner any more)");
     expect(recipeLine(row({ scope: "office" }))).toContain("recipe@1 · office ·");
     expect(recipeLine(row({ body: { ...body, verified: { ...body.verified, edit_cost: { ...body.verified.edit_cost, share_changed: null } } } }))).not.toContain("% changed");
+    // MA-8 nits (F-B5-2): the drill's run, in the same words as the run line
+    expect(recipeLine(row({ body: { ...body, verified: { ...body.verified, edit_cost: { filed: 14, web: 10, carried: 0, revit: 2, applied: 2, undone: 1, kept: 1, withdrawn: 0, share_changed: 13 / 14 } } } })))
+      .toContain("job-0013: 1 of 14 kept as filed (13 not kept) · ");
   });
   it("the words after a draft and after an approval", () => {
     expect(draftWords({ ref: "recipe@2", scope: "office" }, "job#900")).toBe("✓ Drafted recipe@2 (office) from job#900 — it runs once a lead and an owner (two different people) approve it; whoever runs it approved neither.");

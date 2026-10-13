@@ -534,8 +534,14 @@ export function editCostLine(r: EditCostRun): string {
   parts.push(`${r.revit} not applied in Revit (unticked, or removed at commit)`, `${r.applied} applied`, `${r.undone} undone`);
   if (r.pending) parts.push(`${r.pending} still pending`);
   if (r.withdrawn) parts.push(`${r.withdrawn} withdrawn (not in the share)`);
-  const kept = `${r.kept} kept` + (r.share_changed == null ? "" : ` (${Math.round(r.share_changed * 100)} % changed)`);
-  return `${parts.join(" · ")} · ${kept} — ${r.ceiling}`;
+  return `${parts.join(" · ")} · ${keptWords(r)} — ${r.ceiling}`;
+}
+
+/** MA-8 nits (F-B5-2): kept in 8-1's own terms — share_changed is (declined on the web + not applied in Revit + undone) over the decided ghosts
+ *  (filed − pending − carried), i.e. the share NOT kept as filed: "1 of 14 kept as filed (13 not kept)", never "% changed". Pure. */
+export function keptWords(r: { filed: number; kept: number; web: number; revit: number; undone: number; carried: number; pending?: number; share_changed: number | null }): string {
+  const decided = r.filed - (r.pending ?? 0) - r.carried;
+  return r.share_changed == null || decided <= 0 ? `${r.kept} kept` : `${r.kept} of ${decided} kept as filed (${r.web + r.revit + r.undone} not kept)`;
 }
 
 // ── MA-8-13 (C15, D13): the recipe registry — the method of a verified run, approved by a lead and an owner (two different people), run by a third. ──
@@ -543,7 +549,7 @@ export interface RecipeApproval { id: number; hash: string | null; role: string;
 export interface RecipeBody {
   name: string; reader: { name: string; version: string }; params: Record<string, number>; planner: { name: string; version: string };
   standards: { guideline: { label: string; sha256: string }; type_catalog: { label: string; sha256: string } };
-  verified: { project: string; run: string; job_id: string; edit_cost: { filed: number; kept: number; share_changed: number | null } };
+  verified: { project: string; run: string; job_id: string; edit_cost: { filed: number; web: number; carried: number; revit: number; undone: number; kept: number; share_changed: number | null } };
 }
 export interface RecipeRow { ref: string; version: number; scope: "project" | "office"; key: string; sha256: string; body: RecipeBody; state: "pending" | "approved" | "withdrawn" | "untrusted";
   approved: boolean; approvals: RecipeApproval[]; withdrawn: { id: number } | null; why: string | null; installed_by: string | null; }
@@ -573,12 +579,12 @@ export const postRecipeWithdraw = (base: string, key: string, r: RecipeRow) =>
 const refOnly = (label: string): string => label.split(" · ")[0];
 const roleWord = (role: string): string => (role === "lead" ? "a lead" : role === "owner" ? "an owner" : `a ${role}`);
 
-/** One recipe in one line: its reader and planner, the standards it ran on, the run it was verified on (kept of filed, the share changed) and where
+/** One recipe in one line: its reader and planner, the standards it ran on, the run it was verified on (kept as filed of the decided, keptWords) and where
  *  its approvals stand — who approved, who is owed, who no longer counts. Pure. */
 export function recipeLine(r: RecipeRow): string {
   const b = r.body, ec = b.verified.edit_cost;
   const head = `${r.ref} · ${r.scope} · ${b.name} · ${b.reader.name} ${b.reader.version} → ${b.planner.name} ${b.planner.version} · ${refOnly(b.standards.guideline.label)}, ${refOnly(b.standards.type_catalog.label)}`
-    + ` · ${b.verified.job_id}: ${ec.kept} of ${ec.filed} kept${ec.share_changed == null ? "" : ` (${Math.round(ec.share_changed * 100)} % changed)`}`;
+    + ` · ${b.verified.job_id}: ${keptWords(ec)}`;
   const counting = r.approvals.filter((a) => a.counts), lapsed = r.approvals.filter((a) => !a.counts);
   const by = counting.map((a) => `${roleWord(a.role)} (#${a.id})`).join(" and ");
   const stand = r.state === "withdrawn" ? `withdrawn (ledger #${r.withdrawn?.id ?? "?"}) — it runs no more`
