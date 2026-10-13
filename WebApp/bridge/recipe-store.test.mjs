@@ -96,6 +96,11 @@ describe("draftRecipe - a lead drafts recipe@n from a verified run", () => {
     expect(r.body.verified.planner_rows.map((x) => x.id)).toEqual([910, 930]);
     expect(r.body.verified.edit_cost.share_changed).toBe(0.9);
   });
+  it("MA-7-9: a run whose Propose carried a person's material choice by photo is not a recipe - a recipe does not repeat a person's choice", async () => {
+    ledgerRows = [planner(910, { materials: [{ cid: "scan-L00-wall-2", item: "ev-000C", copy_sha256: "e".repeat(64), material: "Concrete", chosen_by: "web" }] })];
+    await expect(draft()).rejects.toMatchObject({ status: 409, message: "a recipe does not repeat a person's choice by photo — run the job and choose by photo again; nothing was saved" });
+    expect(w.folds).toEqual([]);
+  });
   it("jsonb reorders keys: a published row with its numbers in another order is still the same numbers", async () => {
     published[0].new_value.numbers = Object.fromEntries(Object.entries(NUMBERS).reverse());
     published[0].new_value.rests_on = { reverted: 905, applied: RESTS.applied };

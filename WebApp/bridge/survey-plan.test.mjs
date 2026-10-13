@@ -26,7 +26,7 @@ describe("readProposeBody — the lead states two things; the bridge builds the 
     expect(readProposeBody({ frame: ZERO }, LEVELS)).toEqual({ frame: ZERO, levels: {} });
   });
   it("anything else is refused in words, never dropped", () => {
-    no(() => readProposeBody({ frame: ZERO, measured: {} }, LEVELS), 400, "measured is not a proposal field — the bridge builds every changeset from the job's own result; send {frame, levels?} — nothing was saved");
+    no(() => readProposeBody({ frame: ZERO, measured: {} }, LEVELS), 400, "measured is not a proposal field — the bridge builds every changeset from the job's own result; send {frame, levels?, materials?} — nothing was saved");
     no(() => readProposeBody({}, LEVELS), 400, "frame is required — where the scan sits in the model: {dx_mm, dy_mm, dz_mm, rotation_deg}, the move and turn from the model's internal origin to the scan's origin ({0, 0, 0, 0} when the scan is registered to the internal origin) — nothing was saved");
     no(() => readProposeBody({ frame: { ...ZERO, scale: 1 } }, LEVELS), 400, "frame.scale is not read — a frame is {dx_mm, dy_mm, dz_mm, rotation_deg} — nothing was saved");
     no(() => readProposeBody({ frame: { ...ZERO, dx_mm: 3e10 } }, LEVELS), 400, "frame.dx_mm must be a number of mm within ±20000000000 (where the frame puts the scan is checked when it is proposed) — nothing was saved");

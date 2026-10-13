@@ -18,7 +18,7 @@ import { firstTag, geometryCheck, linkedHash, linkedTag, sha256Hex, type Geometr
 import { saveAs } from "./audit-pack";
 import { mountMarker, markSummary, type Mark, type Marker, type MarkWhat } from "./photo-marker";
 import { readEvidence, readWebStatus, readNotice, noticeLine, webLine, type WebStatus, makePack, signAttestation, admitEvidence, recheckEvidence, setDeleteBy, draftRequest, kindOf, isImage, needsReport, itemLine, attestationLine, admitLine, recheckLine, requestLine, evidenceControls, ATTESTATION_CODES, ATTESTATION_TEXTS, datasetLine, PHOTO_SOURCES, MAP_SERVICES, photoProvider, type PhotoSource, markViewCopy, blurredLine, photoUrl, type EvidenceItem, type EvidenceRead, type EvidenceRequest,
-  startSurvey, readJobs, readJob, jobLine, candidateLine, surveyStartLine, surveyableScans, proposeBody, proposeFromJob, proposeLine, type SurveyJob, type Candidate,
+  startSurvey, readJobs, readJob, readFrameDraft, jobLine, candidateLine, surveyStartLine, surveyableScans, proposeBody, proposeFromJob, proposeLine, choosablePhotos, choiceLine, type PhotoChoice, type SurveyJob, type Candidate,
   startDrawing, drawingStartLine, readableDrawings, isDrawingJob, startIfc, ifcStartLine, readableIfc, isIfcJob, ifcHintLine, alignBody, alignPreview, drawingSvg, snapPaper, type AlignDraft } from "./evidence";
 
 /**
@@ -93,6 +93,10 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   // MA-4d: the done job a lead is proposing (its form open) and its storeys (read with the job).
   let proposing: string | null = null;
   let proposeLevels: Candidate[] | null = null;
+  // MA-7-9: "Choose by photo" - the scan's walls (read with the job), the choices added so far, and the row being filled in.
+  let proposeWalls: Candidate[] = [];
+  let proposeMats: PhotoChoice[] = [];
+  let matDraft: PhotoChoice = { cid: "", item: "", material: "" };
   let proposeHint = ""; // MA-6-8: an IFC job's own world position, as one line
   // MA-4d (final review): what the lead typed in the Propose form, kept across a refusal or a refresh (askDraft's precedent); cleared on a 201.
   let proposeDraft: { dx: string; dy: string; dz: string; rot: string; levels: Record<string, string> } | null = null;
@@ -338,7 +342,10 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
         const r = await readJob(base, pid(), id);
         if (mine !== seq) return;
         if (r.result_error) { status(`Not proposed — ${r.result_error}`); return; }
-        proposing = id; proposeHint = isIfcJob(r.job) ? ifcHintLine(r.receipt?.hint) : ""; proposeLevels = (r.candidates ?? []).filter((c) => c.kind === "level"); proposeDraft = { dx: "0", dy: "0", dz: "0", rot: "0", levels: {} };
+        const frame0 = isIfcJob(r.job) || isDrawingJob(r.job) ? {} : (await readFrameDraft(base, pid(), id)) ?? {};
+        if (mine !== seq) return;
+        proposing = id; proposeHint = isIfcJob(r.job) ? ifcHintLine(r.receipt?.hint) : ""; proposeLevels = (r.candidates ?? []).filter((c) => c.kind === "level"); proposeDraft = { dx: "0", dy: "0", dz: "0", rot: "0", levels: {}, ...frame0 }; // MA-7-9: a job already proposed keeps its frame
+        proposeWalls = (r.candidates ?? []).filter((c) => c.kind === "wall"); proposeMats = []; matDraft = { cid: "", item: "", material: "" };
         alignDraft = isDrawingJob(r.job) ? { item: (r.job.read ?? [])[0] ?? "", pa: "", ma: "", pb: "", mb: "", pc: "", mc: "", level: "", z: "0" } : null;
         alignView = alignDraft ? { cands: r.candidates ?? [], sizes: Object.fromEntries((r.receipt?.items ?? []).filter((i) => i.size_paper_mm).map((i) => [i.id, i.size_paper_mm!])) } : null;
         alignPick = alignDraft ? "pa" : null;
@@ -400,7 +407,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       btn.disabled = true; btn.textContent = "Proposing…";
       const v = (s: string) => (root.querySelector(s) as HTMLInputElement | null)?.value ?? "";
       const levels = [...root.querySelectorAll<HTMLInputElement>("[data-prlevel]")].map((i) => [i.dataset.prlevel!, i.value] as [string, string]);
-      const body = proposeBody({ dx: v("#fv-pr-dx"), dy: v("#fv-pr-dy"), dz: v("#fv-pr-dz"), rot: v("#fv-pr-rot"), levels });
+      const body = proposeBody({ dx: v("#fv-pr-dx"), dy: v("#fv-pr-dy"), dz: v("#fv-pr-dz"), rot: v("#fv-pr-rot"), levels, materials: proposeMats });
       const id = proposing!;
       void evAct(async () => {
         const r = await proposeFromJob(base, pid(), id, body);
@@ -416,6 +423,20 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
         levels: Object.fromEntries([...root.querySelectorAll<HTMLInputElement>("[data-prlevel]")].map((i) => [i.dataset.prlevel!, i.value])) };
     };
     root.querySelectorAll("#fv-pr-dx, #fv-pr-dy, #fv-pr-dz, #fv-pr-rot, [data-prlevel]").forEach((n) => n.addEventListener("input", syncPropose));
+    // MA-7-9: Choose by photo - a person picks a wall, a blurred photo and types the material; the bridge checks all three when it proposes.
+    const readMat = () => {
+      const v = (s: string) => (root.querySelector(s) as HTMLInputElement | HTMLSelectElement | null)?.value ?? "";
+      matDraft = { cid: v("#fv-pm-wall"), item: v("#fv-pm-item"), material: v("#fv-pm-mat") };
+    };
+    root.querySelector("#fv-pm-wall")?.addEventListener("change", () => { syncPropose(); readMat(); });
+    root.querySelector("#fv-pm-mat")?.addEventListener("input", readMat);
+    root.querySelector("#fv-pm-item")?.addEventListener("change", () => { syncPropose(); readMat(); render(); }); // the photo shown is the one picked
+    root.querySelector("#fv-pm-add")?.addEventListener("click", () => {
+      syncPropose(); readMat();
+      if (!matDraft.cid || !matDraft.item || !matDraft.material.trim()) { status("Choose by photo — pick a wall, a photo and type its material"); return; }
+      proposeMats = [...proposeMats.filter((c) => c.cid !== matDraft.cid), { ...matDraft }]; matDraft = { cid: "", item: matDraft.item, material: "" }; render();
+    });
+    root.querySelectorAll<HTMLElement>("[data-pmdel]").forEach((n) => n.addEventListener("click", () => { syncPropose(); proposeMats = proposeMats.filter((c) => c.cid !== n.dataset.pmdel); render(); }));
     root.querySelectorAll<HTMLElement>("[data-evdelby]").forEach((n) => n.addEventListener("click", () => void evAct(async () => {
       const id = n.dataset.evdelby!, date = ([...root.querySelectorAll<HTMLInputElement>("[data-evdate]")].find((x) => x.dataset.evdate === id)?.value ?? "").trim();
       if (!date) return "Pick a delete-by date first — nothing was saved";
@@ -725,11 +746,24 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     // MA-4d: the lead's two statements — where the scan sits in the model, and which existing level each scanned storey is (blank: matched from
     // a published IFC within 20 mm, or created). Everything else the bridge builds from the job.
     const pd = proposeDraft ?? { dx: "0", dy: "0", dz: "0", rot: "0", levels: {} };
+    // MA-7-9: a person names a wall's material from a blurred photo; the thickness stays the scan's, nothing is pre-ticked, no photo model is asked.
+    const chooseByPhoto = () => {
+      const photos = choosablePhotos(evidence?.pack.items ?? []);
+      if (!photos.length || !proposeWalls.length) return "";
+      const sel = photos.find((p) => p.id === matDraft.item) ?? photos[0];
+      return line("Choose by photo: for a wall no rule types, you name its material from a blurred photo of it (only a material the guideline's Walls rules name is taken). The thickness stays the scan's; the photo sets no size, and nothing is pre-ticked. The frame below is the one of the first proposal.", "#c4b5fd") +
+        proposeMats.map((c) => `<div style="font-size:11px;padding:.1rem .2rem">${esc(choiceLine(c))} <button data-pmdel="${esc(c.cid)}" style="${act}">remove</button></div>`).join("") +
+        `<div style="display:flex;gap:.3rem;flex-wrap:wrap;align-items:center;font-size:11px;padding:.15rem .2rem"><select id="fv-pm-wall" style="${inp}">${proposeWalls.map((w) => `<option value="${esc(w.cid)}"${w.cid === matDraft.cid ? " selected" : ""}>${esc(w.cid)}${w.measured?.thickness_mm != null ? ` (${esc(String(w.measured.thickness_mm))} mm)` : ""}</option>`).join("")}</select>` +
+        `<select id="fv-pm-item" style="${inp}">${photos.map((p) => `<option value="${esc(p.id)}"${p.id === sel.id ? " selected" : ""}>${esc(p.id)} ${esc(p.path.split("/").pop() ?? "")}</option>`).join("")}</select>` +
+        `<img data-evthumb="${esc(sel.id)}" alt="blurred copy of ${esc(sel.id)}" style="height:3.2rem;border-radius:.2rem;border:1px solid #2c2c34;background:#111"/>` +
+        `<input id="fv-pm-mat" value="${esc(matDraft.material)}" placeholder="material, e.g. Concrete" style="${inp};width:9rem"/><button id="fv-pm-add" style="${act}">Choose</button></div>`;
+    };
     const proposeForm = (levels: Candidate[], what: "scan" | "IFC" = "scan") =>
       line(`Where the ${what === "IFC" ? "concept" : "scan"} sits in the model: the move and turn from the model's internal origin to the ${what === "IFC" ? "IFC's" : "scan's"} origin (all 0 when ${what === "IFC" ? "the concept was exported from this model's own origin" : "the scan is registered to that origin"}). You state it; every ghost lands by it.`, "#9ca3af") +
       (what === "IFC" && proposeHint ? line(esc(proposeHint), "#c4b5fd") : "") +
       `<div style="display:flex;gap:.3rem;flex-wrap:wrap;align-items:center;font-size:11px;padding:.15rem .2rem">x <input id="fv-pr-dx" value="${esc(pd.dx)}" style="${inp};width:6rem"/> y <input id="fv-pr-dy" value="${esc(pd.dy)}" style="${inp};width:6rem"/> z <input id="fv-pr-dz" value="${esc(pd.dz)}" style="${inp};width:5rem"/> mm, turned <input id="fv-pr-rot" value="${esc(pd.rot)}" style="${inp};width:4rem"/> °</div>` +
       levels.map((c) => `<div style="display:flex;gap:.3rem;align-items:center;font-size:11px;padding:.1rem .2rem"><span>${esc(c.cid)} at ${esc(String(c.geometry.BaseElevation))} mm (scan) → existing level</span><input data-prlevel="${esc(c.cid)}" value="${esc(pd.levels[c.cid] ?? "")}" placeholder="blank: a published level within 20 mm, or a new one" style="${inp};flex:1"/></div>`).join("") +
+      (what === "scan" ? chooseByPhoto() : "") +
       `<div style="padding:.15rem .2rem"><button id="fv-pr-ok" style="${act};color:#c4b5fd">Propose</button></div>`;
     // MA-5a-4: a drawing job's statements — two marks far apart, each where it is on page 1 and where it is in the model, optionally a third to
     // check them, and the level with its height. The preview is this page's arithmetic; the bridge computes it again and decides.

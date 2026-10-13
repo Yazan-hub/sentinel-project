@@ -165,6 +165,8 @@ async function verifyRun(d, key, run) {
   const proposed = rows.filter((r) => String(r.action).endsWith(" · proposed") && r.new_value?.claimed === false && r.new_value?.planner === planner && r.new_value?.[rowKey]?.id === L)
     .sort((a, b) => a.id - b.id);
   if (!proposed.length) throw err(409, `job#${L} was never proposed — a recipe repeats a run whose changesets were reviewed; nothing was saved`);
+  // MA-7-9: a person's choice by photo is not repeated by a recipe - the photo is that person's, from this run
+  if (proposed.some((r) => r.new_value?.materials?.length)) throw err(409, "a recipe does not repeat a person's choice by photo — run the job and choose by photo again; nothing was saved");
   const sets = new Map();
   for (const r of proposed) { const v = r.new_value, k = [v.planner, v.version, v.guideline_sha256, v.catalog_sha256].join("|"); if (!sets.has(k)) sets.set(k, r); }
   if (sets.size > 1) throw err(409, `job#${L} was proposed under two sets of standards (${[...sets.values()].map((r) => `#${r.id}`).join(", ")}) — it is not one recipe; nothing was saved`);

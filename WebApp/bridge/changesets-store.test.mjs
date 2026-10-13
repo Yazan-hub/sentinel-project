@@ -1108,7 +1108,9 @@ describe("proposeFromJob (MA-4d): a lead turns a trusted survey job into changes
     // MA-5a-4: a drawing job's own trusted row reads a drawing's body — a scan's frame is refused in words
     await quiet({ trustedJob: vi.fn(async () => ({ ...TRUSTED, row: { ...TRUSTED.row, reader: "sentinel-drawing" } })) },
       "frame is not a proposal field — a drawing is proposed with {item?, points, check?, level?, elevation_mm, revises?}; the bridge builds every changeset from the job's own result — nothing was saved", 400);
-    await quiet({}, "pretick is not a proposal field — the bridge builds every changeset from the job's own result; send {frame, levels?} — nothing was saved", 400, { frame: FRAME, pretick: true });
+    await quiet({ trustedJob: vi.fn(async () => ({ ...TRUSTED, row: { ...TRUSTED.row, reader: "sentinel-drawing" } })) },
+      "materials is not a proposal field — a drawing is proposed with {item?, points, check?, level?, elevation_mm, revises?}; the bridge builds every changeset from the job's own result — nothing was saved", 400, { materials: {} });
+    await quiet({}, "pretick is not a proposal field — the bridge builds every changeset from the job's own result; send {frame, levels?, materials?} — nothing was saved", 400, { frame: FRAME, pretick: true });
     const pack = (items) => ({ readPack: vi.fn(async (_k, id) => (id === "evp-0001" ? { pack: { items } } : null)) }); // the ROW's pack id
     await quiet(pack([{ id: "ev-0001", sha256: EV, state: "changed" }]), "ev-0001 is not the bytes job-0002 read (Re-check flagged it changed) — survey the admitted scan again; nothing was saved");
     await quiet(pack([{ id: "ev-0001", sha256: "f".repeat(64), state: "admitted" }]), "ev-0001 is not the bytes job-0002 read (its sha256 in the pack is not the one the job read) — survey the admitted scan again; nothing was saved");
@@ -1142,6 +1144,67 @@ describe("proposeFromJob (MA-4d): a lead turns a trusted survey job into changes
     await reportResult("ma4c-drill", cs.id, { applied: cs.elements.map((e, i) => ({ proposal_guid: e.proposal_guid, revit_element_id: 900 + i, revit_unique_id: `u-${i}` })), rejected: [], review_rev: 0 }, "revit", deps);
     expect(deps.audit.mock.calls.at(-1)[6]).toMatchObject({ status: "applied", job: { id: "job-0002", ledger_id: 2201 }, evidence: [{ id: "ev-0001", sha256: EV }],
       from_job: [{ cid: "scan-L00-wall-1", evidence: ["ev-0001#slice-L00"], revit_unique_id: "u-0" }, { cid: "scan-L00-wall-2" }, { cid: "scan-L00-wall-3" }] });
+  });
+  it("(s) MA-7-9 (PT-1..PT-3): a person's material from a blurred photo types a wall the guideline would not; every other choice is refused in words, nothing saved", async () => {
+    const rule = (Material, typePattern) => ({ when: { params: { Material } }, use: { family: "Basic Wall", typePattern } });
+    const guide = (...rules) => ({ ...STD.guideline, elements: STD.guideline.elements.map((e) => (e.category === "Walls" ? { category: "Walls", rules } : e)) });
+    const G = guide(rule("Concrete", "BDS_EXT_STR_CONC_{thickness} mm"), rule("Block", "BDS_EXT_ARC_CMU_{thickness} mm"));
+    const copy = { sha256: "e".repeat(64), size_bytes: 10, width: 10, height: 10, areas: 0, method: "person-marked" };
+    const photo = (over = {}) => ({ id: "ev-000C", kind: "photo", state: "admitted", sha256: "f".repeat(64), view_copy: copy, ...over });
+    const std = (g = G) => ({ resolveArtefact: resolving({ guideline: g, type_catalog: STD.type_catalog }) });
+    const pack = (...more) => ({ readPack: vi.fn(async () => ({ pack: { items: [{ id: "ev-0001", sha256: EV, state: "admitted" }, ...more] } })) });
+    const body = (m) => ({ frame: FRAME, materials: m });
+    const W = "scan-L00-wall-2", ok = { [W]: { item: "ev-000C", material: "concrete" } };
+    // PT-1: no choice, no Material in the facts - no rule matches, so every wall is a type gap (nothing typed from the scan alone)
+    const gaps = sdeps({ ...std(), ...pack(photo()) });
+    expect((await propose(gaps)).gaps.elements).toBeGreaterThan(0);
+    expect([...gaps.saved.values()].flatMap((c) => c.elements).filter((e) => e.kind === "wall")).toEqual([]);
+    // PT-2: the lead's re-proposal files the wall typed from the person's material; the planner's row and the stored element say whose word it is
+    const deps = sdeps({ ...std(), ...pack(photo()) });
+    const r = await propose(deps, body(ok));
+    expect(r.materials).toEqual([{ cid: W, item: "ev-000C", copy_sha256: "e".repeat(64), material: "Concrete", chosen_by: "web" }]);
+    const wall = [...deps.saved.values()].flatMap((c) => c.elements).find((e) => e.cid === W);
+    expect(wall).toMatchObject({ kind: "wall", pretick: false, place: { TypeName: "BDS_EXT_STR_CONC_200 mm" },
+      typing: { typed_by: "bridge", material_from: { item: "ev-000C", copy_sha256: "e".repeat(64), read_by: "person", chosen_by: "web" } } });
+    expect(wall.reason.endsWith(" · material Concrete from photo ev-000C, chosen by web")).toBe(true);
+    expect(deps.audit.mock.calls.at(-1)[6]).toMatchObject({ materials: [{ cid: W, item: "ev-000C", material: "Concrete" }], claimed: false });
+    // PT-3 and the rest: refused before any write
+    const quiet = async (over, m, status, message) => {
+      const d = sdeps({ ...std(), ...pack(photo()), ...over });
+      await expect(propose(d, body(m))).rejects.toMatchObject({ status, message });
+      expect([d.docInsert.mock.calls.length, d.audit.mock.calls.length, d.adjudicateProposal.mock.calls.length]).toEqual([0, 0, 0]);
+    };
+    await quiet({}, { [W]: { item: "ev-000C", material: "Steel" } }, 400, expect.stringMatching(/^Steel is not a material of guideline@1 .*'s Walls rules — choose Concrete or Block; nothing was saved$/));
+    await quiet({}, { [W]: { item: "ev-000C", material: "Block", thickness_mm: 200 } }, 400, expect.stringMatching(/^a photo sets the material only — materials\.scan-L00-wall-2\.thickness_mm is not read/));
+    await quiet({}, { "scan-L00-floor": { item: "ev-000C", material: "Block" } }, 400, `materials names scan-L00-floor, which is not a wall of job-0002; nothing was saved`);
+    await quiet({}, { [W]: { item: "ev-0099", material: "Block" } }, 400, `materials.${W}.item ev-0099 is not an item of the evidence pack; nothing was saved`);
+    await quiet(pack(photo({ view_copy: undefined })), ok, 409, `ev-000C has no blurred copy yet — mark its faces and number plates first (Mark faces and plates); nothing was saved`);
+    await quiet(pack(photo({ state: "changed" })), ok, 409, expect.stringContaining("ev-000C changed since it was admitted"));
+    await quiet(pack(photo({ role: "context" })), ok, 409, expect.stringContaining("ev-000C is a web photo — context only"));
+    await quiet(pack({ id: "ev-000C", kind: "scan", state: "admitted", sha256: "f".repeat(64) }), ok, 409, expect.stringContaining("ev-000C is a scan, not a photo"));
+    await quiet(std(guide(rule("Concrete", "x"), rule("Concrete-Block", "y"))), ok, 400, expect.stringContaining(`"Concrete" and "Concrete-Block" — one material sits inside the other`));
+    await quiet(std(guide({ when: { params: { Location: "Exterior" } }, use: { family: "Basic Wall", typePattern: "BDS_EXT_ARC_CMU_{thickness} mm" } })), ok, 400, expect.stringContaining("so a photo cannot choose a type"));
+    // review: a wall this job filed already is named, not dropped
+    const filedAlready = sdeps({ ...std(), ...pack(photo()), docList: vi.fn(async () => [...deps.saved.values()]) });
+    await expect(propose(filedAlready, body(ok))).rejects.toMatchObject({ status: 409, message: `materials names ${W}, which job-0002 already filed (it is not proposed again); nothing was saved` });
+    await quiet({ myRole: vi.fn(async () => "service") }, ok, 403, expect.stringContaining("needs a person"));
+    await quiet({ requireMinRole: belowMin("contributor") }, ok, 403, expect.stringContaining("a lead's"));
+  });
+  it("(t) MA-7-9 (amendment 29): the re-proposal with the first frame files the gap wall; with another frame the existing 409", async () => {
+    const rule = (Material, typePattern) => ({ when: { params: { Material } }, use: { family: "Basic Wall", typePattern } });
+    const G = { ...STD.guideline, elements: STD.guideline.elements.map((e) => (e.category === "Walls" ? { category: "Walls", rules: [rule("Concrete", "BDS_EXT_STR_CONC_{thickness} mm"), { when: { level: "GR-FFL" }, use: { family: "Basic Wall", typePattern: "BDS_EXT_ARC_CMU_{thickness} mm" } }] } : e)) };
+    const copy = { sha256: "e".repeat(64) };
+    const base = { resolveArtefact: resolving({ guideline: G, type_catalog: STD.type_catalog }),
+      readPack: vi.fn(async () => ({ pack: { items: [{ id: "ev-0001", sha256: EV, state: "admitted" }, { id: "ev-000C", kind: "photo", state: "admitted", sha256: "f".repeat(64), view_copy: copy }] } })) };
+    const d0 = sdeps(base);
+    await propose(d0); // GR-FFL's walls type by their level rule; the new level's walls have no Material and are gaps
+    const docs = [...d0.saved.values()];
+    const body = (frame) => ({ frame, materials: { "scan-L01-wall-2": { item: "ev-000C", material: "Concrete" } } });
+    const again = sdeps({ ...base, docList: vi.fn(async () => docs) });
+    await propose(again, body(FRAME)); // only the gap wall is new: decision 19 skips what the first proposal filed
+    expect([...again.saved.values()].flatMap((c) => c.elements).map((e) => e.cid)).toContain("scan-L01-wall-2");
+    const other = sdeps({ ...base, docList: vi.fn(async () => docs) });
+    await expect(propose(other, body({ ...FRAME, dx_mm: 41000 }))).rejects.toMatchObject({ status: 409, message: expect.stringContaining("send that frame (one job is one frame)") });
   });
   it("(r) MA-8-13: a recipe job is checked again before anything is filed (the recipe body, the reader's version, the planner, the standards), and the planner's row carries the recipe", async () => {
     const stamp = { ref: "recipe@1", scope: "project", sha256: "ab".repeat(32), runner_user_id: "u-third", approvals: [{ id: 950, hash: "c1", role: "lead", user_id: "u-lead" }, { id: 951, hash: "c2", role: "owner", user_id: "u-owner" }], reader_version: "0.1.0", same_reader: true };

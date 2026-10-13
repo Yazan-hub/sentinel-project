@@ -320,12 +320,36 @@ export interface ProposeReply {
   gaps: { groups: number; elements: number; ledger: Ledger | null }; ledger: Ledger;
   /** Decision 19: candidates this job filed before (not proposed again); another job's placed changesets on the same scan bytes. */
   already_filed: number; overlaps: { changeset: string; job_id: string; evidence: string[] }[];
+  /** MA-7-9: walls typed by a material a person chose from a blurred photo (the photo, its copy's sha, the material, who chose). */
+  materials_unused?: string[];
+  materials?: { cid: string; item: string; copy_sha256: string; material: string; chosen_by: string }[];
 }
 /** The lead's form → the body: numbers as typed (a blank is 0; anything else the bridge refuses in words), a level only where one is named. Pure. */
-export function proposeBody(v: { dx: string; dy: string; dz: string; rot: string; levels: [string, string][] }) {
+export function proposeBody(v: { dx: string; dy: string; dz: string; rot: string; levels: [string, string][]; materials?: PhotoChoice[] }) {
   const n = (s: string) => (s.trim() === "" ? 0 : Number(s));
   const levels = Object.fromEntries(v.levels.filter(([, name]) => name.trim()).map(([cid, name]) => [cid, name.trim()]));
-  return { frame: { dx_mm: n(v.dx), dy_mm: n(v.dy), dz_mm: n(v.dz), rotation_deg: n(v.rot) }, ...(Object.keys(levels).length ? { levels } : {}) };
+  const materials = Object.fromEntries((v.materials ?? []).map((c) => [c.cid, { item: c.item, material: c.material.trim() }])); // MA-7-9: the material only - the bridge refuses any other key
+  return { frame: { dx_mm: n(v.dx), dy_mm: n(v.dy), dz_mm: n(v.dz), rotation_deg: n(v.rot) }, ...(Object.keys(levels).length ? { levels } : {}), ...(Object.keys(materials).length ? { materials } : {}) };
+}
+/** MA-7-9: a person's choice of a wall's material from a photo (no model chose it; no size comes from a photo). */
+export interface PhotoChoice { cid: string; item: string; material: string }
+/** The photos "Choose by photo" offers: an own photo with its blurred copy that was not retired, changed or expired (the bridge asks again: web photos are context only). */
+export const choosablePhotos = (items: EvidenceItem[]): EvidenceItem[] =>
+  items.filter((i) => i.kind === "photo" && !!i.view_copy && i.state !== "expired" && i.state !== "changed" && i.role !== "context");
+export const choiceLine = (c: PhotoChoice): string => `${c.cid}: ${c.material.trim()} from photo ${c.item}`;
+/** MA-7-9 (amendment 25): the frame a job's first proposal was filed with, read from its changesets (job.id, job.frame) so Choose by photo re-proposes with
+ *  the same one (one job is one frame). Pure: newest first wins; null when the job filed nothing. Levels are not stored on a changeset (its storey's name
+ *  only), so they are not prefilled - a storey filed already is matched by decision 19, a new one is named again. */
+export const frameDraft = (changesets: { status?: string; created_at?: string; job?: { id?: string; frame?: { dx_mm: number; dy_mm: number; dz_mm: number; rotation_deg: number } } }[], jobId: string) => {
+  const c = changesets.filter((x) => x.job?.id === jobId && x.job.frame && ["proposed", "applied", "partially_applied"].includes(x.status ?? ""))
+    .sort((a, b) => ((a.created_at ?? "") < (b.created_at ?? "") ? 1 : -1))[0];
+  const f = c?.job?.frame;
+  return f ? { dx: String(f.dx_mm), dy: String(f.dy_mm), dz: String(f.dz_mm), rot: String(f.rotation_deg) } : null;
+};
+/** GET /changesets/:key → the frame of job `id`'s first proposal, or null (also when the list is not read: the form then starts at 0 and the bridge says 409). */
+export async function readFrameDraft(base: string, key: string, id: string) {
+  try { const r = await bfetch(`${base.replace(/\/$/, "")}/changesets/${encodeURIComponent(key)}`); const j = await r.json(); return r.ok && Array.isArray(j) ? frameDraft(j, id) : null; }
+  catch { return null; }
 }
 /** Propose: the bridge builds the changesets from the job's own result — only the lead's statements go from here (a scan's frame and
  *  levels; a drawing's points, level and height). */
@@ -418,7 +442,9 @@ export function proposeLine(r: ProposeReply): string {
     + (revRows ? ` · ${revRows} revision row(s) — changed since, or no longer drawn — with nothing new to place: each on the planner's row (Sentinel never deletes)` : "");
   const once = r.storeys.reduce((s, x) => s + (x.doors_seen_once?.length ?? 0), 0);
   const seenOnce = once ? ` · ${once} door hole(s) seen on one face only — not proposed (a closed door or furniture reads the same; a person draws a door the scan missed)` : "";
-  const tail = `${r.gaps.groups} type-gap group(s), ${r.gaps.elements} element(s) in the Holding Area${held}${seenOnce} · ${levels}${again}${placed} · ${ledgerLine(r.ledger)} — Review ▸ ↻`;
+  const byPhoto = r.materials?.length ? ` · ${r.materials.length} wall(s) typed by a material a person chose from a photo (${r.materials.map((m) => `${m.cid}: ${m.material} from ${m.item}, chosen by ${m.chosen_by}`).join("; ")}) — not pre-ticked` : "";
+  const unusedMats = r.materials_unused?.length ? ` · ${r.materials_unused.length} choice(s) by photo placed nothing (${r.materials_unused.join(", ")}): the wall is still a type gap or off a placed storey` : "";
+  const tail = `${r.gaps.groups} type-gap group(s), ${r.gaps.elements} element(s) in the Holding Area${held}${seenOnce}${byPhoto}${unusedMats} · ${levels}${again}${placed} · ${ledgerLine(r.ledger)} — Review ▸ ↻`;
   // MA-5a-4: a drawing's ghosts are inferred — none is pre-ticked, the level it creates included
   const a = r.alignment, v = r.differences;
   // MA-5a-5: said only when the storey had a scan to compare with (or its topics could not be raised)

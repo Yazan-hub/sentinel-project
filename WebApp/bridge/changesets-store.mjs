@@ -10,7 +10,8 @@ import { validateChangeset, attachVerdicts, canWithdraw, deriveResultStatus, una
 import { makeTyper, makeCiter } from "./changesets-typing.mjs";
 import { resolveArtefact, refLabel, validateArtefact } from "./artefact-store.mjs";
 import { resolveActor } from "./bridge-auth.mjs";
-import { readProposeBody, planSurvey, PLANNER, PLANNER_VERSION, measurePlan, judge, measureRefusal, countWords, STATUSES, MIN_COVERAGE, DEVIATION_MM, FACE_SHARE_MIN, MEASURE_KNOBS,
+import { usable } from "./evidence-logic.mjs";
+import { readProposeBody, wallMaterials, planSurvey, PLANNER, PLANNER_VERSION, measurePlan, judge, measureRefusal, countWords, STATUSES, MIN_COVERAGE, DEVIATION_MM, FACE_SHARE_MIN, MEASURE_KNOBS,
   readMesh, meshFaces, REVIT, FILED as AS_FILED, toScan, toModel, scanBand, cloudRefusal, SCAN_CELL_MM, SCAN_MAX, groundCut, groundRefusal, beyond, GROUND_CELL_MM, GROUND_MAX } from "./survey-plan.mjs";
 import { stillAdmitted, pickItems, trustedJob as jobOf, measureJob as measureOf, TOLERANCES_MM, READER, DRAWING, IFC } from "./build-jobs.mjs";
 import { planIfc, PLANNER as IFC_PLANNER, PLANNER_VERSION as IFC_PLANNER_VERSION } from "./ifc-plan.mjs";
@@ -340,7 +341,8 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
     // (item) per proposal; a scan's with the lead's frame.
     const drawing = row.reader === DRAWING, ifc = row.reader === IFC;
     const align = drawing ? readAlignBody(b, row.read) : null;
-    const { frame, levels } = drawing ? {} : readProposeBody(b, result.candidates.filter((c) => c.kind === "level").map((c) => c.cid));
+    const { frame, levels, materials: asked } = drawing ? {} : readProposeBody(b, result.candidates.filter((c) => c.kind === "level").map((c) => c.cid));
+    if (asked && ifc) throw err(400, "a photo chooses the type of a scan wall — a concept IFC has its own types (materials is not read there); nothing was saved");
     // Every item the job read must still be the bytes it read: in the pack the ROW names (job.json is never the anchor), not flagged, with
     // the sha on its row (build-jobs stillAdmitted, shared with MA-4e's measure). A drawing is checked and named alone: another drawing of
     // the job changed does not stop this one (review).
@@ -393,6 +395,25 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
       throw err(409, `${drawing ? "a drawing's" : ifc ? "an IFC's" : "a survey's"} candidates are typed from the project's guideline and type catalogue (walls, floors and ceilings exactly, D16; doors and windows by size within 100 mm) — guideline: ${guideline.label}; type catalogue: ${catalog.label}; install both on the project or its office first. Nothing was saved`);
     const core = await import("./sentinel-core.mjs");
     const type = makeTyper({ guideline, catalog }, core);
+    // MA-7-9: a person's choice of material from a photo (no vision model - slice 7-8 is held): each wall is a wall of this job, each photo an item
+    // of its pack that may type (usable: admitted, not expired or changed, blurred, own), the material one the guideline's Walls rules name.
+    const materials = new Map();
+    if (asked) {
+      const chooser = resolveActor(actor, "web"), W = wallMaterials(guideline.body);
+      if (!W.values.length) throw err(400, `${guideline.label} has no Walls rule keyed on a Material, so a photo cannot choose a type — a lead adds rules with when.params.Material first; nothing was saved`);
+      if (W.clash) throw err(400, `${guideline.label}'s Walls rules name "${W.clash[0]}" and "${W.clash[1]}" — one material sits inside the other, and the typer matches by substring, so a photo could not tell them apart; rename one; nothing was saved`);
+      for (const a of asked) {
+        if (filed.cids.has(a.cid)) throw err(409, `materials names ${a.cid.slice(0, 64)}, which ${id} already filed (it is not proposed again); nothing was saved`);
+        if (!result.candidates.some((c) => c.cid === a.cid && c.kind === "wall")) throw err(400, `materials names ${a.cid.slice(0, 64)}, which is not a wall of ${id}; nothing was saved`);
+        const it = pack.items.find((x) => x.id === a.item);
+        if (!it) throw err(400, `materials.${a.cid}.item ${a.item} is not an item of the evidence pack; nothing was saved`);
+        const why = usable(it, "type");
+        if (why) throw err(409, why.replace(/; nothing was (read|shown)$/, "; nothing was saved"));
+        const m = W.values.find((v) => v.toLowerCase() === a.material.toLowerCase());
+        if (!m) throw err(400, `${a.material.slice(0, 64)} is not a material of ${guideline.label}'s Walls rules — choose ${W.values.join(" or ")}; nothing was saved`);
+        materials.set(a.cid, { item: it.id, copy_sha256: it.view_copy.sha256, material: m, chosen_by: chooser });
+      }
+    }
     let manifest;
     try { manifest = await levelsOf(key); }
     catch (e) { throw err(503, `the published models' levels could not be read (${e.message}) — nothing was saved; send it again`); }
@@ -406,7 +427,7 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
     const plan = drawing ? planDrawing({ job, candidates: result.candidates, align, manifest, type, filed, catalog: cat, sameCategory: core.sameCategory,
       scan: scanOnStorey(earlier, align.elevation_mm), drawingSha: evidence[0]?.sha256 ?? null, prior })
       : ifc ? planIfc({ job, candidates: result.candidates, frame, levels, manifest, type, filed, notRead: result.receipt?.not_read ?? [], catalog: cat, sameCategory: core.sameCategory, hint: result.receipt?.hint }) // MA-8-4: doors, windows and columns are typed from the catalogue
-      : planSurvey({ job, candidates: result.candidates, frame, levels, manifest, type, filed, catalog: cat, sameCategory: core.sameCategory });
+      : planSurvey({ job, candidates: result.candidates, frame, levels, manifest, type, filed, catalog: cat, sameCategory: core.sameCategory, materials });
     const by = resolveActor(actor, "web");
     // MA-5a-4: a drawing's changeset carries its alignment and who stated it (design: "confirmed by a person"), a scan's its frame.
     const said = drawing ? { alignment: { ...plan.alignment, confirmed_by: by } } : { frame: { ...frame, stated_by: by } };
@@ -473,9 +494,9 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
       done = await d.audit(proj.id, "build", null, `build:run ${id} · ${P} ${V} · proposed`, actor || "web", null, {
         job_id: id, planner: P, version: V, [rowKey]: row.ledger, result_sha256: row.result_sha256, ...said,
         storeys, changesets, gaps, already_filed: plan.already_filed, ...(plan.off_storey?.length ? { off_storey: plan.off_storey } : {}), overlaps, guideline: guideline.label, guideline_sha256: guideline.sha256,
-        catalog: catalog.label, catalog_sha256: catalog.sha256, ...(row.recipe ? { recipe: row.recipe } : {}), ...(differences ? { differences } : {}), ...(plan.revision ? { revision: plan.revision } : {}), model_calls: 0, tokens: 0, claimed: false });
+        catalog: catalog.label, catalog_sha256: catalog.sha256, ...(row.recipe ? { recipe: row.recipe } : {}), ...(plan.materials ? { materials: plan.materials } : {}), ...(differences ? { differences } : {}), ...(plan.revision ? { revision: plan.revision } : {}), model_calls: 0, tokens: 0, claimed: false });
     } catch (e) { throw await halfWay("the planner's build:run row was not written", e); }
-    return { job: id, [rowKey]: row.ledger, ...said, storeys, changesets, gaps, already_filed: plan.already_filed, overlaps, ...(plan.off_storey?.length ? { off_storey: plan.off_storey } : {}),
+    return { job: id, [rowKey]: row.ledger, ...said, storeys, changesets, gaps, already_filed: plan.already_filed, overlaps, ...(plan.off_storey?.length ? { off_storey: plan.off_storey } : {}), ...(plan.materials ? { materials: plan.materials } : {}), ...(plan.materials_unused ? { materials_unused: plan.materials_unused } : {}),
       ...(differences ? { differences } : {}), ...(plan.revision ? { revision: plan.revision } : {}), ledger: ledgerRef(done) };
   }
 }
