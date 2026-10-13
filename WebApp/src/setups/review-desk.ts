@@ -49,7 +49,7 @@ export interface Ghost {
   replaces?: { unique_id: string; box?: { min: number[]; max: number[] }; kind?: "directshape" | "generic"; category?: string } | null;
   /** MA-8-7: the bridge's judgement of a retype - its type is not one of the office's catalogue; null = no catalogue to judge by. */
   foreign?: boolean | null;
-  /** MA-8-14: the survey changeset a terrain's points came from (the bridge checked it exists and was built from a survey job; it read no scan for the points). */
+  /** MA-8-14: the survey changeset a terrain's points came from (the bridge checked it is a survey job's and the terrain's level, footprint and height band against its cut; it read no scan for the points). */
   from_scan?: { changeset: string } | null;
   /** MA-8-10: the stair flag a stair was proposed from. */
   from_flag?: { changeset: string; unique_id: string } | null;
@@ -144,10 +144,11 @@ export function ghostLine(el: Ghost): string {
   }
 }
 
-/** MA-8-14: a terrain says whose word its points are - the reading a signed-in member's Revit filed (the bridge refuses any other caller), not re-measured by the bridge - and that a person checks it. */
+/** MA-8-14: a terrain says whose word its points are - a signed-in member's filing (the bridge refuses the machine credential), tied to the scan's level, footprint and height band
+ *  but not re-measured (review round 1: only what the bridge checks is claimed) - and that a person checks it. */
 function terrainLine(el: Ghost): string {
   const n = el.place?.Points?.length;
-  return n ? ` · Toposolid from ${n} ground points, as Revit filed them from the survey changeset this was proposed from (not re-measured) — check it against the site survey` : "";
+  return n ? ` · Toposolid from ${n} ground points, filed by a signed-in member from the survey changeset this was proposed from (the bridge checked its level, footprint and height band, not the points) — check it against the site survey` : "";
 }
 
 /** MA-8-10: a stair says what it is - one straight run to the level above, and that the rest is a person's (Revit's row says the same). */

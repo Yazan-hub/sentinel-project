@@ -1915,6 +1915,7 @@ async function handleRequest(req, res) {
         if (flag != null && (flag === "" || flag.length > 64)) return send(res, 400, { message: "flag must be a stair flag's unique_id (1 to 64 characters)" });
         // MA-8-14: ?ground=1 answers the ground a terrain is made of (the lowest point per cell outside the storey's box), not the scan; not with a flag.
         const ground = url.searchParams.get("ground") === "1";
+        if (url.searchParams.has("ground") && !ground) return send(res, 400, { message: "ground must be 1 — send ?ground=1; nothing was read" });   // MA-8-14 review round 1: never the whole scan for a ground ask
         if (ground && flag != null) return send(res, 400, { message: "ground and flag are two different cuts of the scan — send one" });
         return send(res, 200, await ch.scanOverlay(key, p2, {}, { ...(flag != null ? { flag } : {}), ...(ground ? { ground } : {}) }));
       }

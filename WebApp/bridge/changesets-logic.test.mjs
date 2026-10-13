@@ -1744,6 +1744,16 @@ describe("checkFromScan (MA-8-14): the survey changeset a terrain starts from", 
     fails(() => checkFromScan(terrain(), [survey(), filed("proposed")]), 409, /^elements\[0\]: a terrain from "Survey job-0003 · GR-FFL"'s scan is already filed \("Terrain · L00 · from Survey job-0003 · GR-FFL"\) — withdraw it first; nothing was saved$/);
     expect(() => checkFromScan(terrain(), [survey(), filed("withdrawn")])).not.toThrow();
   });
+  it("MA-8-14 review round 1: an applied terrain still standing holds the scan (409); its newest Undo row an undo, or the terrain not the part applied, frees it", () => {
+    const t = { ...terrain()[0], proposal_guid: "g1" };
+    const built = (status, applied = ["g1"]) => ({ id: "other", name: "Terrain · L00 · from Survey job-0003 · GR-FFL", status, elements: [t], result: { applied: applied.map((g) => ({ proposal_guid: g })) } });
+    const row = (id, op) => ({ id, entity_id: "other", new_value: { op, guids: ["g1"] } });
+    for (const st of ["applied", "partially_applied"])
+      fails(() => checkFromScan(terrain(), [survey(), built(st)]), 409, /^elements\[0\]: a terrain from "Survey job-0003 · GR-FFL"'s scan is already built as "Terrain · L00 · from Survey job-0003 · GR-FFL" \(applied\) — undo it in Revit first; nothing was saved$/);
+    expect(() => checkFromScan(terrain(), [survey(), built("applied")], [row(1, "undo")])).not.toThrow();
+    fails(() => checkFromScan(terrain(), [survey(), built("applied")], [row(1, "undo"), row(2, "redo")]), 409, /undo it in Revit first/);   // the newest row decides
+    expect(() => checkFromScan(terrain(), [survey(), built("applied", ["x"])])).not.toThrow();
+  });
   it("404: the project holds no such changeset", () => {
     fails(() => checkFromScan(terrain(), []), 404, /^elements\[0\]: from_scan names changeset 5b1c6f3e-2a4d-4e8f-9c1a-7d2e3f4a5b6c, which this project does not hold — nothing was saved$/);
   });

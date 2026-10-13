@@ -39,6 +39,8 @@ namespace Sentinel.GhostBuilder
         /// passed to Commit. No warning is ever erased ([BP] P1-3, F-S2-3): the stair's scope sets this, and a warning at the stair's commit rolls the
         /// stair back with the warning's words (all-or-nothing) instead of being left behind a modal dialog. Off everywhere else.</summary>
         public bool RollBackOtherWarnings;
+        /// <summary>MA-8-14 review round 1: what the rolled-back warning was raised on, in its words ("the stair"; the terrain's transaction sets "the terrain").</summary>
+        public string WarningOn = "the stair";
 
         private readonly HashSet<string> _resolved = new HashSet<string>(); // failures already given Revit's resolution once
         private int _passes;
@@ -80,7 +82,7 @@ namespace Sentinel.GhostBuilder
                         : GhostFailurePolicy.Decide(severity, f.HasResolutions(), failing, additional, Ours, _resolved.Contains(key));
                     if (act == GhostFailurePolicy.Act.Count)
                     {
-                        if (RollBackOtherWarnings) return RollBack("Revit raised a warning on the stair: " + text, named); // MA-8-10: rolled back in words, never erased
+                        if (RollBackOtherWarnings) return RollBack("Revit raised a warning on " + WarningOn + ": " + text, named); // MA-8-10: rolled back in words, never erased
                         SeenWarnings.Add((key, text, named)); // counted after the commit; Revit keeps the warning
                         continue;
                     }

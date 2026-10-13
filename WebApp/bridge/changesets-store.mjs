@@ -141,10 +141,12 @@ export async function proposeChangeset(key, body, actor, deps) {
 
 /** MA-4d: the filing of a validated changeset — the earlier changesets read, the referee, the carried declines, the doc, ONE
  *  changeset_proposed row. proposeChangeset's second half, shared with proposeFromJob (whose body the bridge built). */
-const filingFlags = new Set(); // MA-8-10: (key, flag) pairs being filed - checkFromFlag's read-then-insert is not atomic
+const filingFlags = new Set(); // MA-8-10: (key, flag) pairs being filed - checkFromFlag's read-then-insert is not atomic (MA-8-14 review round 1: and (key, scan), checkFromScan's)
 async function fileValidated(d, key, v, body, actor) {
-  const held = v.elements.filter((e) => e.from_flag).map((e) => `${key}|${e.from_flag.changeset}|${e.from_flag.unique_id}`);
-  if (held.some((h) => filingFlags.has(h))) throw err(409, "a stair from this flag is being filed - try again when it ends");
+  const held = [...v.elements.filter((e) => e.from_flag).map((e) => `${key}|${e.from_flag.changeset}|${e.from_flag.unique_id}`),
+    ...v.elements.filter((e) => e.from_scan).map((e) => `${key}|scan|${e.from_scan.changeset}`)];
+  if (held.some((h) => filingFlags.has(h)))
+    throw err(409, v.elements.some((e) => e.from_scan) ? "a terrain from this scan is being filed - try again when it ends" : "a stair from this flag is being filed - try again when it ends");
   for (const h of held) filingFlags.add(h);
   try { return await fileValidatedInner(d, key, v, body, actor); } finally { for (const h of held) filingFlags.delete(h); }
 }
@@ -159,14 +161,16 @@ async function fileValidatedInner(d, key, v, body, actor) {
   catch (e) { throw err(503, `the project's earlier changesets could not be read (${e.message}) — nothing was filed: a decline made before could not be carried to this changeset; send it again`); }
   // MA-8-10: a stair starts from a stair flag of an earlier changeset - the flag must exist, the run lie in its box, and no other live stair come from it.
   // The ledger's Undo rows are read only for this (a flag whose stair was applied and then undone is free again).
-  if (v.elements.some((e) => e.from_flag)) {
-    let reverted;
+  // MA-8-14 review round 1: so is a terrain's scan (a scan whose terrain was applied and then undone is free again).
+  let reverted = [];
+  if (v.elements.some((e) => e.from_flag || e.from_scan)) {
     try { reverted = await d.auditAll(key, { entity_type: "changeset", action_prefix: "changeset_reverted" }); }
-    catch (e) { throw err(503, `the ledger could not be read (${e.message}) — an Undo in Revit of an earlier stair could be missed; nothing was filed, send it again`); }
+    catch (e) { throw err(503, `the ledger could not be read (${e.message}) — an Undo in Revit of an earlier ${v.elements.some((x) => x.from_scan) ? "terrain" : "stair"} could be missed; nothing was filed, send it again`); }
     checkFromFlag(v.elements, earlier, reverted);
   }
-  // MA-8-14: a terrain starts from a survey changeset the bridge built - the one whose scan its points came from (no ledger row is read)
-  checkFromScan(v.elements, earlier);
+  // MA-8-14: a terrain starts from a survey changeset the bridge built - the one whose scan its points came from
+  checkFromScan(v.elements, earlier, reverted);
+  for (const [i, e] of v.elements.entries()) if (e.from_scan) tieToScan(e, `elements[${i}]`, earlier);
 
   // Reuse the referee as-is: it resolves the project's installed IDS (artefact-store) and writes its own
   // proposal audit row — the changeset stores that audit_id as its adjudication receipt.
@@ -659,7 +663,7 @@ export async function scanOverlay(key, id, deps = {}, { flag = null, ground = fa
   const cut = ground ? groundCut(cs) : null;   // MA-8-14
   // MA-8-14 review: the ground is read under the job's lowest storey - on a higher one, podium roofs and the slab below would be read as ground
   if (cut) {
-    const lower = (await d.docList(STORE, proj.id)).find((o) => o.id !== cs.id && o.job?.id === cs.job.id && o.status !== "withdrawn" && (groundCut(o)?.band[0] ?? Infinity) < cut.band[0] - 1);
+    const lower = lowerStorey(await d.docList(STORE, proj.id), cs, cut);   // review round 1: the job's ledger row, not its id
     if (lower) throw err(409, `terrain is read under the lowest storey (${groundCut(lower).level ?? lower.name}, ${lower.name}); ${cs.name} is higher — nothing was read`);
   }
   const band = ground ? cut?.band : fl ? [fl.box.min[2], fl.box.max[2]] : scanBand(cs);
@@ -694,8 +698,45 @@ export async function scanOverlay(key, id, deps = {}, { flag = null, ground = fa
     ...(ground ? { ground: true, level: cut.level, footprint: cut.footprint } : {}),
     ...(fl ? { flag: fl.unique_id } : {}), ...(exactCrop ? {} : { crop: "axis-aligned square of a turned frame" }),
     // MA-8-14: a ground point rounded onto or into the footprint is dropped (more than 1 mm outside it stays), or the terrain's own check refuses them all
-    points: r.result.points.map(([x, y, z]) => [...M.xy([x, y]), M.z(z)].map(Math.round)).filter((p) => inBox(p) && (!cut || beyond(cut.footprint, p, 1))) };
+    points: lowestApart(r.result.points.map(([x, y, z]) => [...M.xy([x, y]), M.z(z)].map(Math.round)).filter((p) => inBox(p) && (!cut || beyond(cut.footprint, p, 1))), !!cut) };
 }
+
+/** MA-8-14 review round 1: the ground points with none within 1 mm of another in plan (the lower kept) - two cells' lowest points either side of a cell edge can
+ *  round onto one mm, and the terrain check refuses the whole body for it (Revit merges them); off (`on` false) for any other scan answer. */
+function lowestApart(points, on) {
+  if (!on) return points;
+  const kept = [];
+  for (const p of [...points].sort((a, b) => a[2] - b[2]))
+    if (!kept.some((q) => Math.abs(q[0] - p[0]) < 1 && Math.hypot(q[0] - p[0], q[1] - p[1]) < 1)) kept.push(p);   // ponytail: O(n²) over at most 2000 points
+  return points.filter((p) => kept.includes(p));
+}
+
+/** MA-8-14 review: a live survey changeset of `cs`'s job (its ledger row: a job id repeats across jobs folders) whose lowest storey is under `cut`'s, or undefined -
+ *  the ground is read under the job's lowest storey only (on a higher one, podium roofs and the slab below would be read as ground). */
+function lowerStorey(all, cs, cut) {
+  return all.find((o) => o.id !== cs.id && o.job?.ledger_id != null && o.job.ledger_id === cs.job.ledger_id && o.status !== "withdrawn"
+    && (groundCut(o)?.band[0] ?? Infinity) < cut.band[0] - 1);
+}
+
+/** MA-8-14 review round 1: a terrain is tied to the scan it names - the bridge read no scan for its points, but it checks what it can of them against that
+ *  changeset's ground cut (groundCut, the ground read's): a live survey changeset of the job's lowest storey (409), the cut's level, its footprint as the Boundary
+ *  corner for corner, every point in its height band and outside its footprint (400). checkFromScan ran first (the changeset exists and is a survey job's). */
+function tieToScan(el, at, earlier) {
+  const cs = earlier.find((c) => c.id === el.from_scan.changeset), cut = groundCut(cs);
+  if (cs.status === "withdrawn") throw err(409, `${at}: "${cs.name}" is withdrawn — no terrain is read from its scan; nothing was saved`);
+  if (!cut?.footprint) throw err(409, `${at}: "${cs.name}" has no wall — its scan has no ground cut to read a terrain from; nothing was saved`);
+  const lower = lowerStorey(earlier, cs, cut);
+  if (lower) throw err(409, `${at}: terrain is read under the lowest storey (${groundCut(lower).level ?? lower.name}, ${lower.name}); "${cs.name}" is higher — nothing was saved`);
+  const p = el.place, off = `— it is not the ground read off "${cs.name}"'s scan; nothing was saved`;
+  if (!cut.level || !same(String(p.LevelName), cut.level)) throw err(400, `${at}: the terrain is on ${p.LevelName}, the scan's lowest walls on ${cut.level ?? "no level"} ${off}`);
+  if (p.Boundary.length !== cut.footprint.length || p.Boundary.some((q, k) => Math.abs(q[0] - cut.footprint[k][0]) > 0.1 || Math.abs(q[1] - cut.footprint[k][1]) > 0.1))
+    throw err(400, `${at}: place.Boundary is not the scan's footprint (${cut.footprint.map((q) => `(${q.join(", ")})`).join(" ")}) ${off}`);
+  const k = p.Points.findIndex((q) => q[2] < cut.band[0] || q[2] > cut.band[1]);
+  if (k >= 0) throw err(400, `${at}: place.Points[${k}] is at ${Math.round(p.Points[k][2])} mm, outside the band the ground is read in (${cut.band[0]} to ${cut.band[1]} mm) ${off}`);
+  const j = p.Points.findIndex((q) => !beyond(cut.footprint, q, 1));
+  if (j >= 0) throw err(400, `${at}: place.Points[${j}] lies within 1 mm of the scan's footprint or inside it ${off}`);
+}
+const same = (a, b) => a.trim().toLowerCase() === b.trim().toLowerCase(); // a level name, case aside (changesets-logic's)
 
 export async function listChangesets(key, { status } = {}, deps) {
   const d = wire(deps);

@@ -60,9 +60,9 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
         "kept as they stand: " + KeptCount(new[] { cs }, kept) + " — " + string.Join("; ", kept.Take(5).Select(k => k.Why)) + (kept.Count > 5 ? $"; … and {kept.Count - 5} more" : "");
 
     /// <summary>MA-6 amendment 12: a changeset Promote (DD) plans again. A shell is filed as source promote too, but Shell a Mass plans it,
-    /// so "Run Promote (DD) again" is never said of one.</summary>
+    /// so "Run Promote (DD) again" is never said of one; nor of a stair or a terrain (MA-8-14 review round 1).</summary>
     internal static bool PromoteRun(ChangesetDto cs) => cs.Source == "promote" && !(cs.Name ?? "").StartsWith(ShellPlanner.Title, StringComparison.Ordinal)
-        && !(cs.Elements ?? new()).Any(e => e.Kind == "stair"); // a stair is re-proposed from its flag, not planned by Promote
+        && !(cs.Elements ?? new()).Any(e => e.Kind == "stair" || e.Kind == "terrain"); // a stair is re-proposed from its flag, a terrain from the scan - neither planned by Promote
 
     internal static string CarriedEdits(IEnumerable<ChangesetDto> fresh)
     {

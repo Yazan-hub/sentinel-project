@@ -763,6 +763,9 @@ public sealed class ChangesetExecutor
         // half-commit). Non-modal: the warnings Revit keeps are shown the ordinary, dismissable way. The global Doctor skips
         // this transaction (GhostFailurePolicy.DoctorSkips).
         var handler = GhostFailureHandler.AllOrNothingOn(t);
+        // MA-8-14 review round 1 (F-K1-1): a warning at a Toposolid's commit reaches the person as a modal dialog even under this handler, as a stair's does (S1) - so a
+        // terrain's transaction rolls back on any warning, with its words, as the stair's scope does. The bridge files a terrain alone in its changeset; nothing is erased.
+        if (toPlace.Any(e => IsCreate(e) && e.Kind == "terrain")) { handler.RollBackOtherWarnings = true; handler.WarningOn = "the terrain"; }
         try
         {
             // Levels first: walls/floors in the same changeset may target them by name.
@@ -982,8 +985,8 @@ public sealed class ChangesetExecutor
             }
 
             // MA-8-14: a terrain - the ground points the add-in read off a scan, one Toposolid of the office's type around the storey's footprint (Compat.CreateTerrain: the spike's
-            // CurveLoop overload, lift-then-offset). Inside this transaction: one Undo entry, the ordinary stamp and placement block below. A Revit warning at the commit is
-            // counted and left (GhostFailureHandler) - never erased here.
+            // CurveLoop overload, lift-then-offset). Inside this transaction: one Undo entry, the ordinary stamp and placement block below. A Revit warning at the commit rolls
+            // the terrain back in its words (RollBackOtherWarnings, set above - review round 1) - never erased here.
             foreach (var el in toPlace.Where(e => IsCreate(e) && e.Kind == "terrain"))
             {
                 at = Label(el);

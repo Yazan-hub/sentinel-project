@@ -195,12 +195,13 @@ static partial class Check
            "the overlay draws a wall with a TopLevel to that level (4 m storey, 4 m sheet); without one it is sketched 3000 mm as before");
 
         // The review: "Run Promote (DD) again" is never said of a shell (amendment 12); the overlay is given each wall's top.
-        Ok(Commands_PromoteRun("promote", "Promote (DD) · SH L1") && !Commands_PromoteRun("promote", "Shell (DD) · mass 41233") && !Commands_PromoteRun("agent", "Promote (DD) · SH L1"),
-           "a Promote changeset is planned again by Promote (DD); a shell (source promote, named Shell (DD)) and an agent's are not");
+        Ok(Commands_PromoteRun("promote", "Promote (DD) · SH L1") && !Commands_PromoteRun("promote", "Shell (DD) · mass 41233") && !Commands_PromoteRun("agent", "Promote (DD) · SH L1")
+           && !Commands_PromoteRun("promote", "Stair · L00 → L01", "stair") && !Commands_PromoteRun("promote", "Terrain · L00 · from Survey job-0003 · GR-FFL", "terrain"), // MA-8-14 review round 1
+           "a Promote changeset is planned again by Promote (DD); a shell (source promote, named Shell (DD)), a stair, a terrain and an agent's are not");
         string review = Src("Commands.ReviewChangesets.cs"), cmd = Src("Commands.ShellMass.cs"), reader = Src("GhostBuilder", "ShellReader.cs"), app = Src("App.cs");
         int Count(string s, string what) { int n = 0, i = 0; while ((i = s.IndexOf(what, i, StringComparison.Ordinal)) >= 0) { n++; i += what.Length; } return n; }
         Ok(review.Contains("internal static bool PromoteRun(ChangesetDto cs) => cs.Source == \"promote\" && !(cs.Name ?? \"\").StartsWith(ShellPlanner.Title, StringComparison.Ordinal)")
-           && review.Contains("!(cs.Elements ?? new()).Any(e => e.Kind == \"stair\")")
+           && review.Contains("!(cs.Elements ?? new()).Any(e => e.Kind == \"stair\" || e.Kind == \"terrain\")")
            && Count(review, "(PromoteRun(fresh[0]) ? CarriedEdits(fresh) + \"\\n\\n\" + RunPromoteAgain : \"\")") == 2 && !review.Contains("(fresh[0].Source == \"promote\" ?")
            && review.Contains("levelMm.TryGetValue(e.Place.TopLevel, out var mm) ? mm : (double?)null;")
            && review.Contains("GhostOverlayGeometry.Segments(e, true, false, LevelOf(e), TopOf(e), FrameOf(e))") && Count(review, "GhostOverlayGeometry.All(window.RowStates(), LevelOf, TopOf, FrameOf)") == 2
@@ -240,5 +241,6 @@ static partial class Check
     }
 
     // ReviewChangesetsCommand is a Revit command (not compiled here): its PromoteRun rule, word for word, checked against the source above.
-    static bool Commands_PromoteRun(string source, string name) => source == "promote" && !(name ?? "").StartsWith(ShellPlanner.Title, StringComparison.Ordinal);
+    static bool Commands_PromoteRun(string source, string name, params string[] kinds) => source == "promote" && !(name ?? "").StartsWith(ShellPlanner.Title, StringComparison.Ordinal)
+        && !kinds.Any(k => k == "stair" || k == "terrain");
 }

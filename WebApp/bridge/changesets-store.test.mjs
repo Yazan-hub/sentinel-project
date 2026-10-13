@@ -1710,6 +1710,20 @@ describe("verifyChangeset (MA-4e): a signed-in contributor measures a placed sur
     const plain = sdeps({}, cs);   // no ground asked: the request is as before
     await scanOverlay("ma4c-drill", ID, plain);
     expect(plain.measureJob.mock.calls[0][2].cloud).toEqual({ cell_mm: 100, z_mm: [300, 2500], max_points: 5000 });
+    // review round 1: a ledger row, not a job id, is a job - the same job id from another jobs folder (ledger row) does not hold this one
+    const other = sdeps({ measureJob: echo() }, cs);
+    other.saved.set("low", { ...higher.saved.get("low"), status: "proposed", job: { ...cs.job, ledger_id: (cs.job.ledger_id ?? 0) + 1000 } });
+    await expect(scanOverlay("ma4c-drill", ID, other, { ground: true })).resolves.toMatchObject({ ground: true });
+  });
+  it("(k2) MA-8-14 review round 1: two ground points that round onto one mm of the model (a turned frame) are sent as one - the lower; any other scan answer keeps both", async () => {
+    const wall = (e) => ({ ...e, place: { ...e.place, LevelName: "GR-FFL" } });
+    const cs = { ...CS, elements: CS.elements.map(wall), job: { ...CS.job, frame: { dx_mm: 40000, dy_mm: 0, dz_mm: 0, rotation_deg: 30 } } };
+    const pts = [[-3000, -1997, -300], [-3000, -1996, -310]];   // both land on (38400, -3229)
+    const echo = vi.fn(async (_k, _j, p) => ({ status: "done", version: "0.6.0", refused: [], result: { points: pts, derived: [],
+      receipt: { cloud: { cell_mm: p.cloud.cell_mm, z_mm: p.cloud.z_mm, of: 3, points: 3, ...(p.cloud.ground ? { ground: true, outside_mm: p.cloud.outside_mm } : {}) } } } }));
+    const r = await scanOverlay("ma4c-drill", ID, sdeps({ measureJob: echo }, cs), { ground: true });
+    expect(r.points).toEqual([[38400, -3229, -310]]);
+    expect((await scanOverlay("ma4c-drill", ID, sdeps({ measureJob: echo }, cs))).points).toHaveLength(2);
   });
 });
 
@@ -2110,6 +2124,7 @@ describe("flagChangeset (MA-8-9): a person's stair pick, appended to a changeset
     expect(src).toContain('if (p2 && p3 === "flags" && req.method === "POST") { const { actor: _who, ...pick } = body; return send(res, 201, await ch.flagChangeset(key, p2, pick, actor)); }');
     expect(src).toContain('await ch.scanOverlay(key, p2, {}, { ...(flag != null ? { flag } : {}), ...(ground ? { ground } : {}) })');
     expect(src).toContain('if (ground && flag != null) return send(res, 400, { message: "ground and flag are two different cuts of the scan — send one" });');   // MA-8-14
+    expect(src).toContain('if (url.searchParams.has("ground") && !ground) return send(res, 400, { message: "ground must be 1 — send ?ground=1; nothing was read" });');   // MA-8-14 review round 1
   });
 });
 
@@ -2216,16 +2231,19 @@ describe("proposeChangeset — a stair from a flag (MA-8-10)", () => {
 describe("proposeChangeset — a terrain from a scan (MA-8-14)", () => {
   const cases = JSON.parse(readFileSync(new URL("./fixtures/changeset-ops/terrain-cases.json", import.meta.url), "utf8"));
   const sc = cases.plan.changeset;
-  const surveyDoc = (over = {}) => ({ id: sc.id, name: sc.name, status: "proposed", claimed: false, job: { id: sc.job, reader: "sentinel-survey 0.6.0" }, elements: [], exceptions: [], ...over });
+  // review round 1: the survey storey's walls - 10 x 8 m on L00 at z 0, so its ground cut is the fixture's footprint (+ 1 m) and band (-5000 to 1500)
+  const wall = (a, b, z = 0, level = "L00") => ({ kind: "wall", place: { LevelName: level, LocationCurve: { start: [a[0], a[1], z], end: [b[0], b[1], z] } } });
+  const walls = (z = 0, level = "L00") => [wall([0, 0], [10000, 0], z, level), wall([10000, 0], [10000, 8000], z, level), wall([10000, 8000], [0, 8000], z, level), wall([0, 8000], [0, 0], z, level)];
+  const surveyDoc = (over = {}) => ({ id: sc.id, name: sc.name, status: "proposed", claimed: false, job: { id: sc.job, ledger_id: 41, reader: "sentinel-survey 0.6.0" }, elements: walls(), exceptions: [], ...over });
   const member = (over = {}) => baseDeps({ myRole: vi.fn(async () => "contributor"), requireMinRole: vi.fn(async () => "contributor"), auditAll: vi.fn(async () => []), ...over });
 
-  it("files the planner's body next to its survey changeset: the terrain keeps from_scan, is never pre-ticked, and no ledger is read", async () => {
+  it("files the planner's body next to its survey changeset: the terrain keeps from_scan, is never pre-ticked, and the Undo rows are read (review round 1)", async () => {
     const deps = member(); deps.saved.set(sc.id, surveyDoc());
     const cs = await proposeChangeset("demo", structuredClone(cases.good), "yazan", deps);
     expect(cs.status).toBe("proposed");
     expect(cs.elements).toHaveLength(1);
     expect(cs.elements[0]).toMatchObject({ kind: "terrain", from_scan: { changeset: sc.id }, pretick: false, typing: { typed_by: "caller" }, validate: { identity: { Class: "IFCGEOGRAPHICELEMENT" } }, place: { Points: cases.plan.points, Boundary: cases.plan.footprint } });
-    expect(deps.auditAll).not.toHaveBeenCalled();
+    expect(deps.auditAll).toHaveBeenCalledWith("demo", { entity_type: "changeset", action_prefix: "changeset_reverted" });
   });
   it("MA-8-14 review: the machine credential files no terrain (400, nothing written)", async () => {
     const svc = member({ myRole: vi.fn(async () => "service") }); svc.saved.set(sc.id, surveyDoc());
@@ -2237,6 +2255,45 @@ describe("proposeChangeset — a terrain from a scan (MA-8-14)", () => {
     const first = await proposeChangeset("demo", structuredClone(cases.good), "yazan", deps);
     await expect(proposeChangeset("demo", structuredClone(cases.good), "yazan", deps)).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/is already filed .* withdraw it first; nothing was saved$/) });
     await withdrawChangeset("demo", first.id, "yazan", deps);
+    await expect(proposeChangeset("demo", structuredClone(cases.good), "yazan", deps)).resolves.toMatchObject({ status: "proposed" });
+  });
+  it("MA-8-14 review round 1: an applied terrain from the scan holds it (409) until its newest Undo row says undo; a ledger that cannot be read is a 503", async () => {
+    const applied = (deps) => { const first = [...deps.saved.values()].find((c) => c.elements?.[0]?.kind === "terrain"); deps.saved.set(first.id, { ...first, status: "applied", result: { applied: [{ proposal_guid: first.elements[0].proposal_guid }] } }); return first; };
+    const deps = member(); deps.saved.set(sc.id, surveyDoc());
+    await proposeChangeset("demo", structuredClone(cases.good), "yazan", deps);
+    const first = applied(deps);
+    await expect(proposeChangeset("demo", structuredClone(cases.good), "yazan", deps)).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/is already built as "Terrain · L00 · from .*" \(applied\) — undo it in Revit first; nothing was saved$/) });
+    const rows = [{ id: 1, entity_id: first.id, new_value: { op: "undo", guids: [first.elements[0].proposal_guid] } }];
+    deps.auditAll = vi.fn(async () => rows);
+    await expect(proposeChangeset("demo", structuredClone(cases.good), "yazan", deps)).resolves.toMatchObject({ status: "proposed" });   // undone: free again
+    const broken = member({ auditAll: vi.fn(async () => { throw new Error("down"); }) }); broken.saved.set(sc.id, surveyDoc());
+    await expect(proposeChangeset("demo", structuredClone(cases.good), "yazan", broken)).rejects.toMatchObject({ status: 503, message: expect.stringMatching(/an Undo in Revit of an earlier terrain could be missed/) });
+  });
+  it("MA-8-14 review round 1: two filings from one scan at once give one 201 and one 409 (the read-then-insert is held per scan)", async () => {
+    const deps = member(); deps.saved.set(sc.id, surveyDoc());
+    const out = await Promise.allSettled([proposeChangeset("demo", structuredClone(cases.good), "yazan", deps), proposeChangeset("demo", structuredClone(cases.good), "yazan", deps)]);
+    expect(out.map((o) => o.status).sort()).toEqual(["fulfilled", "rejected"]);
+    expect(out.find((o) => o.status === "rejected").reason).toMatchObject({ status: 409 });
+    expect(deps.docInsert).toHaveBeenCalledTimes(1);
+  });
+  it("MA-8-14 review round 1: the terrain is tied to its scan's cut - level, footprint, band, outside the footprint (400); a withdrawn or higher survey changeset (409)", async () => {
+    const tried = async (patch, doc = surveyDoc(), extra = []) => {
+      const deps = member(); deps.saved.set(sc.id, doc); for (const x of extra) deps.saved.set(x.id, x);
+      const body = structuredClone(cases.good); Object.assign(body.elements[0].place, patch);
+      const r = proposeChangeset("demo", body, "yazan", deps);
+      await r.catch(() => {}); expect(deps.docInsert).not.toHaveBeenCalled(); return r;
+    };
+    await expect(tried({ LevelName: "L03" })).rejects.toMatchObject({ status: 400, message: expect.stringMatching(/^elements\[0\]: the terrain is on L03, the scan's lowest walls on L00 — it is not the ground read off "Survey job-0003 · GR-FFL"'s scan; nothing was saved$/) });
+    await expect(tried({ Boundary: [[20000, 20000], [22000, 20000], [22000, 22000], [20000, 22000]] })).rejects.toMatchObject({ status: 400, message: expect.stringMatching(/place\.Boundary is not the scan's footprint \(\(-1000, -1000\) \(11000, -1000\) \(11000, 9000\) \(-1000, 9000\)\)/) });
+    const high = structuredClone(cases.good.elements[0].place.Points); high[2] = [12000, 10000, 40000];
+    await expect(tried({ Points: high })).rejects.toMatchObject({ status: 400, message: expect.stringMatching(/^elements\[0\]: place\.Points\[2\] is at 40000 mm, outside the band the ground is read in \(-5000 to 1500 mm\)/) });
+    const edge = structuredClone(cases.good.elements[0].place.Points); edge[4] = [5000, -1000.5, -320];   // on the footprint's edge: within 1 mm
+    await expect(tried({ Points: edge })).rejects.toMatchObject({ status: 400, message: expect.stringMatching(/place\.Points\[4\] lies within 1 mm of the scan's footprint or inside it/) });
+    await expect(tried({}, surveyDoc({ status: "withdrawn" }))).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/is withdrawn — no terrain is read from its scan/) });
+    const lower = { id: "low", name: "Survey job-0003 · B1", status: "proposed", claimed: false, job: { id: sc.job, ledger_id: 41, reader: "sentinel-survey 0.6.0" }, elements: walls(-3000, "B1") };
+    await expect(tried({}, surveyDoc(), [lower])).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/terrain is read under the lowest storey \(B1, Survey job-0003 · B1\); "Survey job-0003 · GR-FFL" is higher/) });
+    // the same job id on another ledger row (another jobs folder) is another scan: it does not hold this one
+    const deps = member(); deps.saved.set(sc.id, surveyDoc()); deps.saved.set("low", { ...lower, job: { ...lower.job, ledger_id: 99 } });
     await expect(proposeChangeset("demo", structuredClone(cases.good), "yazan", deps)).resolves.toMatchObject({ status: "proposed" });
   });
   it("a scan the project does not hold (404), or a changeset that is no survey job's (400), is refused in words and nothing is written", async () => {

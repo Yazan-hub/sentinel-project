@@ -730,6 +730,8 @@ public sealed class ScanDto
 /// model's frame (whole mm, z absolute), with the level the lowest walls name and that box (the Toposolid's hole).</summary>
 public sealed class GroundDto
 {
+    /// <summary>MA-8-14 review round 1: true on a ground answer. A bridge from before ?ground=1 ignores it and answers the plain scan (no ground, level or footprint).</summary>
+    [JsonPropertyName("ground")] public bool? Ground { get; set; }
     [JsonPropertyName("job")] public string Job { get; set; }
     [JsonPropertyName("ledger_id")] public long? LedgerId { get; set; }
     [JsonPropertyName("level")] public string Level { get; set; }
@@ -829,6 +831,9 @@ internal static class ChangesetClient
         catch (Exception ex) { error = ChangesetTrust.BridgeWords(ex, (int)WriteHttp.Timeout.TotalSeconds); return null; }
     }
 
+    /// <summary>MA-8-14 review round 1: the words when the bridge's answer is not a ground answer.</summary>
+    internal const string NotGround = "this bridge does not read ground — restart or update it; nothing was proposed";
+
     /// <summary>MA-8-14: the ground a terrain is made of (GET …/scan?ground=1). A new overload beside FetchScan, which is unchanged: the bridge reads the job's scan on its
     /// one survey slot, so this waits as long as a write; off Revit's thread. Null with the bridge's words (ServiceToken falls back to the machine credential,
     /// which the bridge refuses in words).</summary>
@@ -840,7 +845,10 @@ internal static class ChangesetClient
             var url = $"{cfg.ServiceUrl.TrimEnd('/')}/changesets/{Uri.EscapeDataString(projectKey)}/{Uri.EscapeDataString(id)}/scan?ground=1";
             var (resp, body) = Send(WriteHttp, () => Req(HttpMethod.Get, url, cfg.ServiceToken));
             if (!resp.IsSuccessStatusCode) { error = $"Bridge {(int)resp.StatusCode}: {body}"; return null; }
-            return JsonSerializer.Deserialize<GroundDto>(body);
+            var ground = JsonSerializer.Deserialize<GroundDto>(body);
+            // MA-8-14 review round 1: fails closed - an older bridge answers the whole scan as a 200 (no ground, no footprint)
+            if (ground?.Ground != true || ground.Footprint == null) { error = NotGround; return null; }
+            return ground;
         }
         catch (Exception ex) { error = ChangesetTrust.BridgeWords(ex, (int)WriteHttp.Timeout.TotalSeconds); return null; }
     }

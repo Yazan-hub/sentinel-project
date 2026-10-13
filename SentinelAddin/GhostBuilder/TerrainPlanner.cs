@@ -4,7 +4,7 @@
 // person decides (D9). No Revit types, so tools/promote-check drives it offline; Commands.ReviewChangesets reads the facts and files the body.
 //
 // THE POINTS ARE THE ADD-IN'S WORD. The bridge cannot tie them to the scan (the ground read is a GET with no ledger row), so the element names the survey changeset it came from
-// (from_scan) and its reason says so: the desk shows "as Revit filed them from <changeset>'s scan (not re-measured) - check it against the site survey".
+// (from_scan) and its reason says so; the bridge ties its level, hole and height band to that changeset's ground cut (review round 1), and the desk says only that.
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -75,6 +75,37 @@ namespace Sentinel.GhostBuilder
         }
 
         static string Mm(double v) => Math.Round(v).ToString("0", CultureInfo.InvariantCulture);
+
+        /// <summary>MA-8-14 review round 1: the z (mm) of the ground point nearest (x, y) in plan - a Toposolid's loop vertex carries no point, so CreateTerrain gives it this.</summary>
+        public static double NearestZ(IReadOnlyList<double[]> ground, double x, double y)
+        {
+            double best = double.MaxValue, z = 0;
+            foreach (var p in ground) { double d = (p[0] - x) * (p[0] - x) + (p[1] - y) * (p[1] - y); if (d < best) { best = d; z = p[2]; } }
+            return z;
+        }
+
+        /// <summary>MA-8-14 review round 1: points along each edge of <paramref name="loop"/> (anticlockwise, [x, y] mm), every <paramref name="stepMm"/> or less and
+        /// <paramref name="insetMm"/> to its left (into the solid for the outer loop; pass a negative inset for the hole: to its right, out of it), each at the nearest ground
+        /// point's z. Without them a loop edge stays at the top face's height (the lowest point less 10 mm): a trench round the building and a sunken rim. Pure.</summary>
+        public static List<double[]> RimPoints(IReadOnlyList<double[]> loop, IReadOnlyList<double[]> ground, double insetMm, double stepMm = BaseCellMm)
+        {
+            var rim = new List<double[]>();
+            for (int i = 0; i < loop.Count; i++)
+            {
+                double[] a = loop[i], b = loop[(i + 1) % loop.Count];
+                double dx = b[0] - a[0], dy = b[1] - a[1], len = Math.Sqrt(dx * dx + dy * dy);
+                if (len < 1) continue;
+                double nx = -dy / len * insetMm, ny = dx / len * insetMm;
+                int n = Math.Max(1, (int)Math.Ceiling(len / stepMm));
+                for (int k = 0; k < n; k++)
+                {
+                    // the start sits inset along the edge too; the end is the next edge's start (a corner gets one point, not two on one spot)
+                    double t = (Math.Abs(insetMm) + k * (len - 2 * Math.Abs(insetMm)) / n) / len, x = a[0] + dx * t + nx, y = a[1] + dy * t + ny;
+                    rim.Add(new[] { x, y, NearestZ(ground, x, y) });
+                }
+            }
+            return rim;
+        }
 
         /// <summary>The line the review window reads beside a terrain row.</summary>
         public static string RowWords(int points, bool supported) =>

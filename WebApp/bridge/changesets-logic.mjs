@@ -794,10 +794,13 @@ export function checkFromFlag(elements, earlier, reverted = []) {
   }
 }
 
-/** MA-8-14: the survey changeset each terrain of `elements` starts from, checked against `earlier` (every stored changeset of the project). Pure; a
- *  failure is a 4xx in words: 404 - the project holds no such changeset; 400 - it was not built from a survey job the bridge ran (a posted body, an
- *  IFC or drawing job), so there is no scan behind the points. The points themselves are the add-in's word: the bridge read no scan for them. */
-export function checkFromScan(elements, earlier) {
+/** MA-8-14: the survey changeset each terrain of `elements` starts from, checked against `earlier` (every stored changeset of the project) and `reverted`
+ *  (its changeset_reverted ledger rows, any order). Pure; a failure is a 4xx in words: 404 - the project holds no such changeset; 400 - it was not built from
+ *  a survey job the bridge ran (a posted body, an IFC or drawing job), so there is no scan behind the points; 409 - another terrain from the same scan is
+ *  proposed ("withdraw it first") or applied and still standing ("undo it in Revit first"), as checkFromFlag's stair. The points themselves are the add-in's
+ *  word: the bridge read no scan for them (the store ties their level, hole and band to the scan's cut). */
+export function checkFromScan(elements, earlier, reverted = []) {
+  const rows = [...(reverted ?? [])].sort((x, y) => (y.id ?? 0) - (x.id ?? 0)); // newest first
   for (const [i, el] of (elements ?? []).entries()) {
     const f = el.from_scan;
     if (!f) continue;
@@ -809,6 +812,17 @@ export function checkFromScan(elements, earlier) {
     // MA-8-14 review: one live terrain per scan - a second press (or a retry after a slow reply) would stand two Toposolids on each other
     const twin = (earlier ?? []).find((c) => c.status === "proposed" && (c.elements ?? []).some((o) => o.kind === "terrain" && o.from_scan?.changeset === f.changeset));
     if (twin) throw err(409, `${at}: a terrain from "${cs.name}"'s scan is already filed ("${twin.name}") — withdraw it first; nothing was saved`);
+    // MA-8-14 review round 1: an applied one still standing holds the scan too (its newest changeset_reverted row for the guid is not an undo), as a stair's flag
+    for (const other of earlier ?? []) {
+      if (other.status !== "applied" && other.status !== "partially_applied") continue;
+      for (const o of other.elements ?? []) {
+        if (o.kind !== "terrain" || o.from_scan?.changeset !== f.changeset) continue;
+        if (!(other.result?.applied ?? []).some((a) => (a?.proposal_guid ?? a) === o.proposal_guid)) continue; // the terrain was not the part applied
+        const last = rows.find((y) => y.entity_id === other.id && (y.new_value?.guids ?? []).includes(o.proposal_guid));
+        if (last?.new_value?.op !== "undo")
+          throw err(409, `${at}: a terrain from "${cs.name}"'s scan is already built as "${other.name}" (applied) — undo it in Revit first; nothing was saved`);
+      }
+    }
   }
 }
 

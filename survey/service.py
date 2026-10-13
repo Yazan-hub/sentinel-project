@@ -224,8 +224,9 @@ def read_measure(b):
 
 def read_cloud(b):
     """MA-4f: POST /cloud's body — a job's (read_job: its own items, params and seed, so the cloud is the one its candidates came from) plus
-    cloud {cell_mm, z_mm: [low, high], max_points, xy_mm?: [[x0, y0], [x1, y1]]} (MA-8-9: a stair flag's slice crops to the box's plan first,
-    sentinel-survey stays 0.6.0 — an optional input, no existing output changes); or ValueError in words."""
+    cloud {cell_mm, z_mm: [low, high], max_points, xy_mm?: [[x0, y0], [x1, y1]], ground?: true, outside_mm?: a convex polygon of 3 to 8 [x, y]
+    (only with ground)} (MA-8-9: a stair flag's slice crops to the box's plan first; MA-8-14: ground keeps the lowest point per cell outside the polygon —
+    sentinel-survey stays 0.6.0 — optional inputs, no existing output changes); or ValueError in words."""
     m = read_job(b)
     c = b.get("cloud")
     num = lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and abs(v) <= 1e9  # a NaN fails the bound

@@ -148,7 +148,7 @@ static partial class Check
            && ex.Contains("Manage ▸ Transfer Project Standards (Stairs types) from the office template; Sentinel creates no types"),
            "NotLoaded asks the stair type of the model (family and name, element types of OST_Stairs); a legacy sketch type is refused in words; a type not loaded says how to bring it in (amendment 15)");
         Ok(ex.Contains("scopeHandler = new GhostFailureHandler { AllOrNothing = true, RollBackOtherWarnings = true };") && !body.Contains("DeletableWarnings") && !body.Contains("scopeHandler.Ours")
-           && fh.Contains("if (RollBackOtherWarnings) return RollBack(\"Revit raised a warning on the stair: \" + text, named);") && fh.Contains("SeenWarnings.Add((key, text, named));")
+           && fh.Contains("if (RollBackOtherWarnings) return RollBack(\"Revit raised a warning on \" + WarningOn + \": \" + text, named);") && fh.Contains("public string WarningOn = \"the stair\";") && fh.Contains("SeenWarnings.Add((key, text, named));")
            && !fh.Contains(".DeleteWarning(") && !fh.Contains("DeletableWarnings") && !fh.Contains("RemovedWarnings") && !ex.Contains("DeletableWarnings") && !ex.Contains("RemovedLine")
            && ex.Contains("stairs.ActualTreadDepth = going * MmToFeet;") && ex.Contains("innerHandler.SeenWarnings.Concat(scopeHandler.SeenWarnings)")
            && !src2("GhostBuilder", "GhostFailurePolicy.cs").Contains("RemovedLine") && !src2("GhostBuilder", "ChangesetPlacementEvent.cs").Contains("Removed") && !rv.Contains("res.Removed") && !rv.Contains("result.Removed"),

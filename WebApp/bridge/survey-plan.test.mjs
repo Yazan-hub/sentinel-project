@@ -521,6 +521,16 @@ describe("MA-8-14 — the ground read's cut", () => {
     expect(Math.round(area(box) / 1e6)).toBe(22 * 6); // 22 m x 6 m, not the axis box (~ 20.6 x 21.3 m)
     for (const p of pts) expect(Math.min(...box.map((q) => Math.hypot(q[0] - p[0], q[1] - p[1])))).toBeGreaterThan(900);
   });
+  it("MA-8-14 review: orientedBox puts a box within 0.5 degrees of a plan axis on it - wall ends 0.05 degrees off give exactly axis-aligned corners; 1 degree off keeps its own", () => {
+    const at = (deg) => { const r = (deg * Math.PI) / 180, c = Math.cos(r), s = Math.sin(r); return [[0, 0], [20000, 0], [20000, 8000], [0, 8000]].map(([x, y]) => [x * c - y * s, x * s + y * c]); };
+    for (const deg of [0.05, -0.05, 89.97]) {
+      const box = orientedBox(at(deg), 1000);
+      for (let i = 0; i < 4; i++) { const p = box[i], q = box[(i + 1) % 4]; expect(p[0] === q[0] || p[1] === q[1]).toBe(true); }   // every edge exactly on an axis
+      for (const p of at(deg)) expect(beyond(box, p, -900)).toBe(false);   // the walls stay at least 900 mm inside: the snap grows the box by length·sin, inside the 1 m pad
+    }
+    const turned = orientedBox(at(1), 1000);
+    expect(turned[0][1] === turned[1][1] || turned[0][0] === turned[1][0]).toBe(false);
+  });
   it("orientedBox: collinear and single points still give a box; none gives null", () => {
     expect(area(orientedBox([[0, 0], [5000, 0]], 1000))).toBeCloseTo(7000 * 2000, 0);
     expect(area(orientedBox([[0, 0]], 1000))).toBeCloseTo(2000 * 2000, 0);
