@@ -10,7 +10,7 @@ vi.mock("./bridge-fetch", () => ({ bfetch, bwrite }));
 import { ATTESTATION_CODES, ATTESTATION_TEXTS, kindOf, needsReport, itemLine, attestationLine, admitLine, recheckLine, readEvidence,
   signAttestation, evidenceControls, requestLine, isImage, jobLine, candidateLine, surveyStartLine, surveyableScans, startSurvey, readJobs,
   proposeBody, proposeFromJob, proposeLine, datasetLine, type ProposeReply, type EvidenceItem, type EvidencePack, type EvidenceRequest, type SurveyJob,
-  isDrawingJob, readableDrawings, drawingStartLine, startDrawing, isIfcJob, readableIfc, ifcStartLine, startIfc, ifcHintLine, alignBody, alignPreview, drawingSvg, snapPaper, type AlignDraft } from "./evidence";
+  isDrawingJob, readableDrawings, drawingStartLine, startDrawing, isIfcJob, readableIfc, ifcStartLine, startIfc, startRecipe, ifcHintLine, alignBody, alignPreview, drawingSvg, snapPaper, type AlignDraft } from "./evidence";
 
 const res = (status: number, body: unknown) => ({ ok: status < 400, status, json: async () => body }) as unknown as Response;
 const HASH = "ab".repeat(32);
@@ -392,5 +392,23 @@ describe("a concept IFC (MA-6-8) — Read IFC, the third reader", () => {
     expect(src).toContain("a concept model ifc</span>");
     expect(src).toContain("and (a) before a concept IFC");
     expect(src).toContain('(what === "IFC" && proposeHint ? line(esc(proposeHint), "#c4b5fd") : "")');
+  });
+});
+
+describe("recipe runs (MA-8-13, D13)", () => {
+  const JOB: SurveyJob = { id: "job-0001", status: "done", stage: "done", pct: 100, items: [{ id: "ev-0001", path: "scans/a.las", sha256: "a".repeat(64) }], read: ["ev-0001"], refused: [],
+    started_by: "contributor@example.test", started_at: "2026-10-13T10:00:00.000Z" };
+  it("startRecipe posts {pack, recipe: {version, scope}} - no reader, no params: the recipe names them; an item rides along for an IFC recipe", async () => {
+    bwrite.mockResolvedValue({ job: JOB });
+    await startRecipe("http://b", "demo", { version: 2, scope: "office" });
+    expect(bwrite).toHaveBeenLastCalledWith("http://b/cde/demo/build/jobs", expect.objectContaining({ method: "POST", body: JSON.stringify({ pack: "evp-0001", recipe: { version: 2, scope: "office" } }) }));
+    await startRecipe("http://b", "demo", { version: 1, scope: "project" }, "ev-0020");
+    expect(bwrite).toHaveBeenLastCalledWith("http://b/cde/demo/build/jobs", expect.objectContaining({ body: JSON.stringify({ pack: "evp-0001", recipe: { version: 1, scope: "project" }, item: "ev-0020" }) }));
+  });
+  it("jobLine names the recipe and the approvals that let it run (and nothing for a job without one)", () => {
+    const l = jobLine({ ...JOB, recipe: { ref: "recipe@1", approvals: [{ id: 950 }, { id: 951 }] } });
+    expect(l).toContain(" · from recipe@1 (approvals #950, #951) · by contributor@example.test");
+    expect(jobLine({ ...JOB, recipe: { ref: "recipe@3" } })).toContain(" · from recipe@3 · by ");
+    expect(jobLine(JOB)).not.toContain("from recipe");
   });
 });

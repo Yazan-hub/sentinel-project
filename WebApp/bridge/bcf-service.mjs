@@ -1440,7 +1440,8 @@ async function handleRequest(req, res) {
         const bimdocs = await import("./bimdocs-store.mjs");
         const ap = await import("./audit-pack.mjs");
         const pack = await ap.buildAuditPack(p1, {
-          kinds: art.KINDS, actor: resolveActor(null, "machine"),
+          // MA-8-13: a recipe is not a standard in force - it reaches the pack through its ledger part
+          kinds: art.KINDS.filter((k) => k !== "recipe"), actor: resolveActor(null, "machine"),
           project: async (key) => { const rows = await cde.listProjects(); const p = rows.find((x) => x.key === key); if (!p) throw new Error("project not listed"); return { key: p.key, name: p.name, kind: p.kind ?? "project", office_key: p.office_key ?? null }; },
           standards: (key, kind) => art.resolveArtefact(key, kind),
           documents: (key) => bimdocs.listDocs(key),
@@ -1712,6 +1713,17 @@ async function handleRequest(req, res) {
         if (!p4 && req.method === "POST") return send(res, 202, await bj.startJob(p1, (await readBody(req, { max: SMALL_JSON })) || {}));
         if (!p4 && req.method === "GET") return send(res, 200, await bj.listJobs(p1));
         if (p4 && req.method === "GET") return send(res, 200, await bj.readJob(p1, p4));
+      }
+      // MA-8-13 (C15, D13): the recipe registry (recipe-store.mjs). GET /cde/:key/recipes → {project, office} (any member); POST {run, name, scope?} → 201
+      //   (a signed-in lead drafts recipe@n from a verified run); POST /:n/approve {sha256, scope?} → 201 (a signed-in lead or owner - the second approval
+      //   is another person AND the other role; the machine credential never); POST /:n/withdraw {sha256, scope?} → 201. A run is POST …/build/jobs
+      //   {pack, recipe: {version, scope}} by a third person. `scope: "office"` names the office's recipe@n (its roles, its ledger).
+      if (p2 === "recipes") {
+        const rs = await import("./recipe-store.mjs");
+        if (!p3 && req.method === "GET") return send(res, 200, await rs.listRecipes(p1));
+        if (!p3 && req.method === "POST") return send(res, 201, await rs.draftRecipe(p1, (await readBody(req, { max: SMALL_JSON })) || {}, "web"));
+        if (p3 && p4 === "approve" && !seg[5] && req.method === "POST") return send(res, 201, await rs.approveRecipe(p1, p3, (await readBody(req, { max: SMALL_JSON })) || {}, "web"));
+        if (p3 && p4 === "withdraw" && !seg[5] && req.method === "POST") return send(res, 201, await rs.withdrawRecipe(p1, p3, (await readBody(req, { max: SMALL_JSON })) || {}, "web"));
       }
       // Manifests (Federation Gate inputs): GET /cde/:key/manifests · POST /cde/:key/manifests/:versionId (body = IFC bytes, backfill)
       if (p2 === "manifests") {

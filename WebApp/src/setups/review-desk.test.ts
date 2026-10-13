@@ -13,6 +13,8 @@ import { heldLines, proposalWords, storeyOf, groupDesk, ghostLine, reviewWords, 
   readDecided, readLedger, highlightPlan, type Ghost, decidedView, decidedCount, DECIDED_MAX, type LedgerRows,
   measureWords, verifiedView, readVerified, readMeasuredRecent, measuredView, MEASURED_MAX, postMeasure, measureLine, canMeasure, countWords, editCostLine, readEditCost, type EditCostRun, type VerifyRecord, type Measured } from "./review-desk";
 
+import { recipeLine, draftWords, approveWords, readRecipes, postRecipeDraft, postRecipeApprove, postRecipeWithdraw, type RecipeRow } from "./review-desk";
+
 const fx = JSON.parse(readFileSync(new URL("../../bridge/fixtures/changeset-ops/ma3a-review.json", import.meta.url), "utf8"));
 const after = fx.after as PendingChangeset;
 const res = (status: number, body: unknown) => ({ ok: status < 400, status, json: async () => body }) as unknown as Response;
@@ -259,7 +261,7 @@ describe("recently decided in Revit (MA-3b2b)", () => {
     expect(src).toContain('if (!pending.length) { body.replaceChildren(el("div", "Nothing waits for review in Revit on this project."), tail); return; }');
     expect(src).toContain("    body.append(tail);");
     expect(src.split("recent(decided, ledger, role.role, verified)").length - 1).toBe(1);
-    expect(src.split(/\btail\b/).length - 1).toBe(10); // declared, set twice, shown in each of the desk's three endings (+2 in MA-8-1: edit-cost section; +2 in MA-8-5c: measured section)
+    expect(src.split(/\btail\b/).length - 1).toBe(12); // declared, set twice, shown in each of the desk's three endings (+2 in MA-8-1: edit-cost section; +2 in MA-8-5c: measured section; +2 in MA-8-13: recipes section)
   });
 });
 
@@ -629,5 +631,60 @@ describe("edit cost (MA-8-1)", () => {
   it("readEditCost throws 'not read' on a failure, never an empty list", async () => {
     bfetch.mockResolvedValueOnce({ ok: false, status: 503, json: async () => ({ message: "ledger down" }) });
     await expect(readEditCost("http://b", "demo")).rejects.toThrow("not read — ledger down");
+  });
+});
+
+describe("recipes (MA-8-13, D13)", () => {
+  const body = JSON.parse(readFileSync(new URL("../../bridge/fixtures/recipe/good.json", import.meta.url), "utf8")) as RecipeRow["body"];
+  const app = (id: number, role: string, counts = true) => ({ id, hash: "h", role, user_id: `u-${id}`, by: "x@example.test", at: null, counts });
+  const row = (over: Partial<RecipeRow> = {}): RecipeRow => ({ ref: "recipe@1", version: 1, scope: "project", key: "demo", sha256: "ab".repeat(32), body, state: "pending", approved: false,
+    approvals: [], withdrawn: null, why: null, installed_by: "lead@example.test", ...over });
+
+  it("recipeLine: the reader and planner, the standards it ran on, the run kept of filed and the share changed - then where the approvals stand", () => {
+    const l = recipeLine(row());
+    expect(l).toBe("recipe@1 · project · Kladno storeys · sentinel-survey 0.6.0 → survey-planner 0.1.0 · guideline@7, type_catalog@3 · job-0013: 9 of 12 kept (25 % changed) · no approval yet — a lead's and an owner's, two different people, are owed");
+    expect(recipeLine(row({ approvals: [app(950, "lead")] }))).toContain("approved by a lead (#950); an owner's approval is owed");
+    expect(recipeLine(row({ approvals: [app(951, "owner")] }))).toContain("approved by an owner (#951); a lead's approval is owed");
+    const done = recipeLine(row({ state: "approved", approved: true, approvals: [app(950, "lead"), app(951, "owner")] }));
+    expect(done).toContain("approved by a lead (#950) and an owner (#951) — a third person, who approved neither, may run it");
+  });
+  it("recipeLine: a withdrawn recipe runs no more, an untrusted body says why, and an approver who no longer holds the role is named as not counting", () => {
+    expect(recipeLine(row({ state: "withdrawn", withdrawn: { id: 960 }, approvals: [app(950, "lead"), app(951, "owner")] }))).toContain("withdrawn (ledger #960) — it runs no more");
+    expect(recipeLine(row({ state: "untrusted", why: "its body does not hash to the sha256 it was installed with" }))).toContain("not trusted — its body does not hash");
+    const lapsed = recipeLine(row({ approvals: [app(950, "lead", false), app(951, "owner")] }));
+    expect(lapsed).toContain("approved by an owner (#951); a lead's approval is owed");
+    expect(lapsed).toContain("#950 no longer counts (its approver is not a lead or owner any more)");
+    expect(recipeLine(row({ scope: "office" }))).toContain("recipe@1 · office ·");
+    expect(recipeLine(row({ body: { ...body, verified: { ...body.verified, edit_cost: { ...body.verified.edit_cost, share_changed: null } } } }))).not.toContain("% changed");
+  });
+  it("the words after a draft and after an approval", () => {
+    expect(draftWords({ ref: "recipe@2", scope: "office" }, "job#900")).toBe("✓ Drafted recipe@2 (office) from job#900 — it runs once a lead and an owner (two different people) approve it; whoever runs it approved neither.");
+    expect(approveWords({ ref: "recipe@1", role: "lead", approved: false, ledger: { id: 7, hash: "h" } })).toBe("Approved recipe@1 as lead · ledger #7 — an owner's approval, from another person, is owed.");
+    expect(approveWords({ ref: "recipe@1", role: "owner", approved: true, ledger: null })).toContain("it is approved: a third person may run it");
+  });
+  it("readRecipes reads GET /cde/:key/recipes and throws 'not read' on a failure; the posts send the sha the desk shows and the scope", async () => {
+    bfetch.mockResolvedValueOnce(res(200, { project: [], office: null }));
+    expect(await readRecipes("http://b/", "demo")).toEqual({ project: [], office: null });
+    expect(bfetch.mock.lastCall![0]).toBe("http://b/cde/demo/recipes");
+    bfetch.mockResolvedValueOnce(res(503, { message: "ledger down" }));
+    await expect(readRecipes("http://b", "demo")).rejects.toThrow("not read — ledger down");
+    bfetch.mockResolvedValueOnce(res(200, {}));
+    await expect(readRecipes("http://b", "demo")).rejects.toThrow("not read — the bridge answered without recipes");
+    bwrite.mockResolvedValue({ ref: "recipe@1" });
+    await postRecipeDraft("http://b", "demo", "job#900", "Kladno", "office");
+    expect(bwrite).toHaveBeenLastCalledWith("http://b/cde/demo/recipes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ run: "job#900", name: "Kladno", scope: "office" }) });
+    await postRecipeApprove("http://b", "demo", row({ version: 3, scope: "office" }));
+    expect(bwrite).toHaveBeenLastCalledWith("http://b/cde/demo/recipes/3/approve", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sha256: "ab".repeat(32), scope: "office" }) });
+    await postRecipeWithdraw("http://b", "demo", row());
+    expect(bwrite.mock.lastCall![0]).toBe("http://b/cde/demo/recipes/1/withdraw");
+  });
+  it("the desk offers Draft to a lead on a complete job run with something kept, Approve while pending, and Run only once approved, to a contributor (source scan)", () => {
+    const src = readFileSync(new URL("./review-desk.ts", import.meta.url), "utf8");
+    expect(src).toContain('if (r.complete && r.kept >= 1 && /^job#\d+$/.test(r.run) && canReopen(role)) {');
+    expect(src).toContain('if (live && canReopen(role) && r.state === "pending")');
+    expect(src).toContain('if (r.state === "approved" && canDecide(role))');
+    expect(src).toContain("tail.append(recipesBox(recipes, role.role))");
+    // a recipe is not a standard in force: Settings lists no row (and so no Install JSON…) for it
+    expect(readFileSync(new URL("./project-settings-panel.ts", import.meta.url), "utf8")).toContain("Object.entries(pointers).filter(([kind]) => kind !== \"recipe\")");
   });
 });

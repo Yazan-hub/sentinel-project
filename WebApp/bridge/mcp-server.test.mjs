@@ -360,9 +360,13 @@ describe("MA-6-1 — agent reads, the bridge's class, Undo in the status", () =>
     expect(fetch.mock.calls[1][0]).toMatch(/\/cde\/demo\/artefacts\/ids$/);
     await callTool("sentinel_standards", { project: "demo", kind: "lod_matrix" }, { fetch });
     expect(fetch.mock.calls[2][0]).toMatch(/\/cde\/demo\/artefacts\/lod_matrix\/ids$/);
-    await expect(callTool("sentinel_standards", { project: "demo", kind: "naming" }, { fetch })).rejects.toThrow(/kind must be one of guideline, type_catalog, ids, lod_matrix/);
+    // MA-8-13: recipe reads the registry (with its approvals), not an artefact; still a read - no tool drafts, approves or runs one
+    await callTool("sentinel_standards", { project: "demo", kind: "recipe" }, { fetch });
+    expect(fetch.mock.calls[3][0]).toMatch(/\/cde\/demo\/recipes$/);
+    expect(fetch.mock.calls[3][1]?.method ?? "GET").toBe("GET");
+    await expect(callTool("sentinel_standards", { project: "demo", kind: "naming" }, { fetch })).rejects.toThrow(/kind must be one of guideline, type_catalog, ids, lod_matrix, recipe/);
     await expect(callTool("sentinel_standards", { project: "demo", kind: "../members" }, { fetch })).rejects.toThrow(/kind must be one of/);
-    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(fetch).toHaveBeenCalledTimes(4);
     expect(tool("sentinel_standards").inputSchema.required).toEqual(["project", "kind"]);
   });
 

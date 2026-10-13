@@ -30,7 +30,7 @@ export const DEFAULT_PARAMS = { voxel_mm: 20, storey_min_mm: 2000 };
 // [low, high, why]: a coarser voxel leaves a wall face too sparse for the survey's 20 mm cells (4 of the drill's 8 walls lost their
 // thickness at 200 mm, measured) — the service bounds it the same way (read_job).
 const BOUNDS = { voxel_mm: [5, 50, " (a wall face needs a point at least every 50 mm)"], storey_min_mm: [1500, 6000, ""] };
-const FIELDS = ["pack", "readers", "params", "item"]; // a body's whole vocabulary: the rest is the bridge's
+const FIELDS = ["pack", "readers", "params", "item", "recipe"]; // a body's whole vocabulary: the rest is the bridge's
 export const TOLERANCES_MM = [20, 50, 100, 200]; // the contract's (§6.9); deviation reads them from MA-4e; MA-5a-2: 20 is the per-face verdict's (survey-plan DEVIATION_MM) — the band stays 2 x 200
 /** The bridge's seed, never a body's: the same evidence and parameters give the same candidates (§6.9). */
 export const SEED = 1;
@@ -75,6 +75,7 @@ async function wire(deps = {}) {
     notSetUp: deps.notSetUp || svc.notSetUp,
     runDrawing: deps.runDrawing || drw.runDrawing,
     notSetUpDrawing: deps.notSetUpDrawing || drw.notSetUp,
+    recipeForRun: deps.recipeForRun || (async (...a) => (await import("./recipe-store.mjs")).recipeForRun(...a)), // MA-8-13: lazy (recipe-store reads trustedJob from here)
     runIfc: deps.runIfc || (async (...a) => (await import("./ifc-geometry.mjs")).runIfc(...a)), // lazy: web-ifc never loads with build-jobs
     root: deps.jobsRoot ?? jobsRoot(),
     now: deps.now || (() => new Date().toISOString()),
@@ -93,6 +94,15 @@ export function readStartBody(b = {}) {
     if (!FIELDS.includes(k)) throw bad(`${k} is not a survey job field — the bridge picks the items, the seed and who started it; send {pack, readers?, params?}`);
   }
   if (typeof b.pack !== "string" || !b.pack.trim()) throw bad("pack must name the evidence pack in force (evp-0001)");
+  // MA-8-13: a recipe names its reader and params - {pack, recipe: {version, scope}, item?}; startJob asks recipe-store and re-validates what it answers
+  if (b.recipe !== undefined) {
+    if (b.readers !== undefined || b.params !== undefined) throw bad("a recipe names its reader and params — send {pack, recipe, item?}");
+    const r = b.recipe;
+    if (!r || typeof r !== "object" || Array.isArray(r) || Object.keys(r).some((k) => k !== "version" && k !== "scope") || !Number.isInteger(r.version) || r.version < 1 || r.version > 1e6 || !["project", "office"].includes(r.scope))
+      throw bad('recipe must be {version, scope}: a whole number from 1 and "project" or "office"');
+    if (b.item !== undefined && (typeof b.item !== "string" || !/^ev-\d{4}$/.test(b.item))) throw bad(`item names the model ${IFC} reads, as ev-0003 — ${IFC} only`);
+    return { pack: b.pack.trim(), recipe: { version: r.version, scope: r.scope }, ...(b.item ? { item: b.item } : {}) };
+  }
   const readers = b.readers ?? [READER];
   if (!Array.isArray(readers) || readers.length !== 1 || !READERS.includes(readers[0])) throw bad(`readers must be ["${READER}"], ["${DRAWING}"] or ["${IFC}"] — one reader a job (or leave it out: ${READER})`);
   const reader = readers[0];
@@ -199,6 +209,8 @@ export function buildRunValue(job, receipt) {
     gaps: null, // typing — and so gaps — is MA-4d's
     ...(receipt.not_read ? { not_read: receipt.not_read.slice(0, 50), not_read_total: receipt.not_read.length } : {}), // MA-6-8: what the IFC reader left out, by GlobalId
     ...(receipt.not_read_by_class ? { not_read_by_class: receipt.not_read_by_class } : {}), // MA-8-4: and how many of each class
+    // MA-8-13: a recipe run names the recipe, its sha256, who ran it, both approvals and whether the reader was the version it was verified with
+    ...(job.recipe ? { recipe: { ...job.recipe, same_reader: job.reader.version === job.recipe.reader_version } } : {}),
     result_sha256: job.result_sha256 ?? null, claimed: false, ...(job.error ? { error: job.error } : {}), ...(job.notes ? { notes: job.notes } : {}),
   };
 }
@@ -209,7 +221,12 @@ export function buildRunValue(job, receipt) {
  *  folder and record; the run goes on after the answer (GET shows it). */
 export async function startJob(key, b = {}, deps = {}) {
   const d = await wire(deps);
-  const body = readStartBody(b);
+  let body = readStartBody(b), stamp = null;
+  if (body.recipe) { // MA-8-13 (D13): the recipe's checks come first (a person, not an approver, approved, still this bridge's planner and standards)
+    const r = await d.recipeForRun(key, body.recipe);
+    body = readStartBody({ pack: body.pack, readers: [r.reader], params: r.params, ...(body.item ? { item: body.item } : {}) });
+    stamp = r.stamp;
+  }
   const drawing = body.reader === DRAWING, ifc = body.reader === IFC;
   const { proj, pack, version, dir } = await d.surveyStart(key, body.pack);
   const { take, refused } = pickItems(pack, dir, body.reader, body.item);
@@ -233,7 +250,7 @@ export async function startJob(key, b = {}, deps = {}) {
   const job = {
     id, project: key, pack_id: body.pack, pack_version: version, reader: { name: body.reader, version: null }, status: "queued", stage: "queued", pct: 0,
     items: take.map((t) => ({ id: t.id, path: t.rel, sha256: t.sha256, ...(t.provider ? { provider: t.provider, licence: t.licence } : {}) })), refused, params: body.params, seed: SEED,
-    started_by: resolveActor(null, "machine"), started_at: d.now(),
+    started_by: resolveActor(null, "machine"), started_at: d.now(), ...(stamp ? { recipe: stamp } : {}),
   };
   save(d, key, job);
   const answer = { job: { ...job } };
@@ -377,7 +394,7 @@ export async function trustedJob(key, id, deps = {}) {
   if (new Set(cids).size !== cids.length) throw untrusted("its result names one cid twice");
   // The pack is the ROW's (buildRunValue writes pack_id), never job.json's: the hash-chained row is the anchor.
   return { job, row: { ledger: { id: row.id, hash: row.hash ?? null }, reader, version: v.version ?? null, pack_id: v.pack_id ?? null,
-    items, read, result_sha256: v.result_sha256, params: v.params ?? null, seed: Number.isInteger(v.seed) ? v.seed : null }, result };
+    items, read, result_sha256: v.result_sha256, params: v.params ?? null, seed: Number.isInteger(v.seed) ? v.seed : null, recipe: v.recipe ?? null }, result };
 }
 
 /** MA-4e: one measure (sentinel-survey's POST /measure, polled and read as a job) on the bridge's one survey slot — the `running` lock, so a

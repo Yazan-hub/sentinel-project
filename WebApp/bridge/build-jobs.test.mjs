@@ -336,7 +336,7 @@ describe("trustedJob (MA-4d) — decision 11: the row job.ledger.id names, the j
   it("(a) the job's own row: the result, the row's pack, items and read, its id and hash — the pack id is the ROW's, not job.json's", async () => {
     lay({ pack_id: "evp-9999" });
     const t = await trust(ROW());
-    expect(t.row).toEqual({ ledger: { id: 2201, hash: H }, reader: "sentinel-survey", version: "0.1.0", pack_id: "evp-0001", items: [{ id: "ev-0001", sha256: "1".repeat(64) }], read: ["ev-0001"], result_sha256: SHA, params: null, seed: null });
+    expect(t.row).toEqual({ ledger: { id: 2201, hash: H }, reader: "sentinel-survey", version: "0.1.0", pack_id: "evp-0001", items: [{ id: "ev-0001", sha256: "1".repeat(64) }], read: ["ev-0001"], result_sha256: SHA, params: null, seed: null, recipe: null });
     expect(t.result.candidates).toHaveLength(2);
   });
   it("(a2) MA-4e: the row's params and seed, never job.json's — the cloud the job measured is read again from the anchored row", async () => {
@@ -528,5 +528,71 @@ describe("IFC jobs (MA-6-8) — sentinel-ifc in this process on the newest admit
     PACK.items.find((x) => x.id === "ev-0020").state = "admitted";
     const row = { read: ["ev-0020"], items: [{ id: "ev-0020", sha256: sha(FIX) }], reader: "sentinel-ifc" };
     expect(stillAdmitted(row, PACK, "job-0001")).toEqual([{ id: "ev-0020", sha256: sha(FIX) }]);
+  });
+});
+
+describe("recipe runs (MA-8-13, D13) - a job started from recipe@n carries the recipe on its build:run row", () => {
+  const STAMP = { ref: "recipe@1", scope: "project", sha256: "ab".repeat(32), runner_user_id: "u-third", approvals: [{ id: 950, hash: "c1", role: "lead", user_id: "u-lead" }, { id: 951, hash: "c2", role: "owner", user_id: "u-owner" }], reader_version: "0.1.0" };
+  const ASKED = [];
+  const recipeDeps = (over = {}) => ({ recipeForRun: async (key, r) => { ASKED.push([key, r]); return { reader: "sentinel-survey", params: { voxel_mm: 25, storey_min_mm: 2500 }, stamp: STAMP }; }, ...over });
+  beforeEach(() => { ASKED.length = 0; });
+
+  it("(a) readStartBody: {pack, recipe: {version, scope}, item?} - no readers or params beside it, nothing else inside it", () => {
+    const no = (b) => { try { readStartBody(b); } catch (e) { return [e.status, e.message]; } return null; };
+    expect(readStartBody({ pack: " evp-0001 ", recipe: { version: 2, scope: "office" } })).toEqual({ pack: "evp-0001", recipe: { version: 2, scope: "office" } });
+    expect(readStartBody({ pack: "evp-0001", recipe: { version: 1, scope: "project" }, item: "ev-0003" })).toEqual({ pack: "evp-0001", recipe: { version: 1, scope: "project" }, item: "ev-0003" });
+    expect(no({ pack: "evp-0001", recipe: { version: 1, scope: "project" }, readers: ["sentinel-survey"] })).toEqual([400, "a recipe names its reader and params — send {pack, recipe, item?} — nothing was saved"]);
+    expect(no({ pack: "evp-0001", recipe: { version: 1, scope: "project" }, params: {} })[1]).toContain("a recipe names its reader and params");
+    const SHAPE = 'recipe must be {version, scope}: a whole number from 1 and "project" or "office" — nothing was saved';
+    for (const r of [{}, { version: 0, scope: "project" }, { version: 1.5, scope: "project" }, { version: 1, scope: "team" }, { version: 1, scope: "project", reader: "x" }, "recipe@1", null, [1]])
+      expect(no({ pack: "evp-0001", recipe: r })).toEqual([400, SHAPE]);
+    expect(no({ pack: "evp-0001", recipe: { version: 1, scope: "project" }, item: "x" })[1]).toContain("item names the model");
+  });
+
+  it("(b) startJob asks the recipe FIRST (before the pack), runs what it answers, and the job and its row carry the stamp; same_reader says the version matched", async () => {
+    const order = [];
+    const { job } = await start({ pack: "evp-0001", recipe: { version: 1, scope: "project" } }, recipeDeps({
+      recipeForRun: async (...a) => { order.push("recipe"); return recipeDeps().recipeForRun(...a); },
+      surveyStart: async (key, packId) => { order.push("pack"); return { proj: { id: "uuid-demo" }, pack: PACK, version: 9, dir: ev }; } }));
+    expect(order).toEqual(["recipe", "pack"]);
+    expect(ASKED).toEqual([["demo", { version: 1, scope: "project" }]]);
+    expect(job).toMatchObject({ params: { voxel_mm: 25, storey_min_mm: 2500 }, recipe: STAMP });
+    expect(runs[0].job.params).toMatchObject({ voxel_mm: 25, storey_min_mm: 2500 });
+    await finish({ status: "done", stage: "done", pct: 100, refused: [], result: RESULT, tools: TOOLS, version: "0.1.0" });
+    // the action is unchanged: trustedJob needs it to start build:run <id> · <reader> and end · done
+    expect(audits[0].action).toBe("build:run job-0001 · sentinel-survey 0.1.0 · done");
+    expect(audits[0].v.recipe).toEqual({ ...STAMP, same_reader: true });
+    expect(rec().recipe).toEqual(STAMP);
+    await start({ pack: "evp-0001", recipe: { version: 1, scope: "project" } }, recipeDeps());
+    await finish({ status: "done", stage: "done", pct: 100, refused: [], result: RESULT, tools: TOOLS, version: "0.1.1" });
+    expect(audits[1].v.recipe.same_reader).toBe(false); // the reader that ran is not the version the recipe was verified with
+    expect(audits[1].action).toMatch(/ · done$/);
+  });
+
+  it("(c) a recipe the run is refused: its words reach the caller, no job folder is made, no row is written, and the pack is never asked", async () => {
+    const refusal = Object.assign(new Error("you approved recipe@1 (ledger #950) - a recipe is run by someone who approved neither (D13); nothing was saved"), { status: 403 });
+    let packAsked = false;
+    await expect(start({ pack: "evp-0001", recipe: { version: 1, scope: "project" } }, { recipeForRun: async () => { throw refusal; }, surveyStart: async () => { packAsked = true; } }))
+      .rejects.toMatchObject({ status: 403, message: refusal.message });
+    expect(packAsked).toBe(false);
+    expect(existsSync(join(root, "demo"))).toBe(false);
+    expect(audits).toEqual([]);
+  });
+
+  it("(d) a recipe's item still needs the IFC reader: a survey recipe with an item is the reader's own 400", async () => {
+    await expect(start({ pack: "evp-0001", recipe: { version: 1, scope: "project" }, item: "ev-0003" }, recipeDeps())).rejects.toMatchObject({ status: 400, message: expect.stringContaining("item names the model sentinel-ifc reads") });
+  });
+
+  it("(e) trustedJob returns the row's recipe (null for a job that ran without one)", async () => {
+    const BYTES = Buffer.from(JSON.stringify(RESULT)), SHA = sha(BYTES), H = "13".repeat(32);
+    const dir = join(root, "demo", "job-0001");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "result.json"), BYTES);
+    writeFileSync(join(dir, "job.json"), JSON.stringify({ id: "job-0001", project: "demo", status: "done", pack_id: "evp-0001", result_sha256: SHA, ledger: { id: 2201, hash: H } }));
+    const row = (v) => ({ id: 2201, hash: H, entity_type: "build", action: "build:run job-0001 · sentinel-survey 0.1.0 · done",
+      new_value: { job_id: "job-0001", reader: "sentinel-survey", version: "0.1.0", status: "done", pack_id: "evp-0001", items: [{ id: "ev-0001", sha256: "1".repeat(64) }], read: ["ev-0001"], result_sha256: SHA, claimed: false, ...v } });
+    const trust = (r) => trustedJob("demo", "job-0001", deps({ getAuditEntry: async () => r }));
+    expect((await trust(row({ recipe: { ...STAMP, same_reader: true } }))).row.recipe).toEqual({ ...STAMP, same_reader: true });
+    expect((await trust(row({}))).row.recipe).toBeNull();
   });
 });

@@ -122,6 +122,8 @@ export interface SurveyJob {
   reader?: { name: string; version: string | null };
   /** MA-5a-3 (review): a drawing read with nothing found, and why (one line weight; nothing drawn on the page). */
   notes?: { id: string; why: string }[];
+  /** MA-8-13 (D13): a job started from a recipe - the recipe, who ran it and the two approvals that let it run (the bridge's stamp). */
+  recipe?: { ref: string; scope?: string; sha256?: string; runner_user_id?: string; approvals?: { id: number; hash?: string | null; role?: string; user_id?: string }[]; reader_version?: string };
 }
 /** An untyped candidate (design §6.9): whatever the reader measured, in mm (an area in m²). */
 export interface Candidate {
@@ -147,7 +149,8 @@ export function jobLine(j: SurveyJob): string {
   const refused = j.refused.length ? ` · refused ${j.refused.map((r) => `${r.id} (${r.reason})`).join("; ")}` : "";
   const found = j.counts ? ` · ${FOUND.filter(([k]) => k in j.counts!).map(([k, w]) => `${j.counts![k]} ${w}`).join(", ")}` : ""; // MA-5a: a 0.4.0 job never looked for doors or windows
   const notes = (j.notes ?? []).map((n) => ` · ${n.id}: ${n.why}`).join("");
-  return `${j.id}${isDrawingJob(j) ? ` · ${DRAWING_READER}` : isIfcJob(j) ? ` · ${IFC_READER}` : ""} · ${state} · ${what}${refused}${found}${notes}${j.error ? ` · ${j.error}` : ""}` +
+  const recipe = j.recipe ? ` · from ${j.recipe.ref}${j.recipe.approvals?.length ? ` (approvals ${j.recipe.approvals.map((a) => `#${a.id}`).join(", ")})` : ""}` : ""; // MA-8-13
+  return `${j.id}${isDrawingJob(j) ? ` · ${DRAWING_READER}` : isIfcJob(j) ? ` · ${IFC_READER}` : ""} · ${state} · ${what}${refused}${found}${notes}${j.error ? ` · ${j.error}` : ""}${recipe}` +
     ` · by ${j.started_by} · ${j.started_at.replace("T", " ").slice(0, 16)}${j.ledger ? ` · ${ledgerLine(j.ledger)}` : ""}`;
 }
 /** One untyped candidate in one line — generic over what it measured, its fit, the evidence it came from. Pure. */
@@ -193,6 +196,9 @@ export function ifcStartLine(j: SurveyJob): string {
 }
 /** Read IFC: the bridge picks the newest admitted IFC of the pack in force, or the `item` named (MA-8-3: when several models are admitted); no params from here. */
 export const startIfc = (base: string, key: string, item?: string) => post<{ job: SurveyJob }>(base, key, "build/jobs", { pack: PACK_ID, readers: [IFC_READER], ...(item ? { item } : {}) });
+/** MA-8-13 (D13): run an approved recipe on the pack in force - {pack, recipe: {version, scope}, item?}; the bridge names the reader and params from the recipe and refuses (in words) a runner who approved it, an unapproved recipe, a planner or standards that changed. */
+export const startRecipe = (base: string, key: string, recipe: { version: number; scope: "project" | "office" }, item?: string) =>
+  post<{ job: SurveyJob }>(base, key, "build/jobs", { pack: PACK_ID, recipe, ...(item ? { item } : {}) });
 /** MA-6-8: what the IFC says about where it sits in the world, as one line for the Propose form — a hint, never applied (D5). Pure. */
 export function ifcHintLine(h: IfcHint | undefined): string {
   if (!h) return "";
