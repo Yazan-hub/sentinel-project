@@ -680,7 +680,7 @@ describe("recipes (MA-8-13, D13)", () => {
   });
   it("the desk offers Draft to a lead on a complete job run with something kept, Approve while pending, and Run only once approved, to a contributor (source scan)", () => {
     const src = readFileSync(new URL("./review-desk.ts", import.meta.url), "utf8");
-    expect(src).toContain('if (r.complete && r.kept >= 1 && /^job#\d+$/.test(r.run) && canReopen(role)) {');
+    expect(src).toContain(String.raw`if (r.complete && r.kept >= 1 && /^job#\d+$/.test(r.run) && canReopen(role)) {`);
     expect(src).toContain('if (live && canReopen(role) && r.state === "pending")');
     expect(src).toContain('if (r.state === "approved" && canDecide(role))');
     expect(src).toContain("tail.append(recipesBox(recipes, role.role))");

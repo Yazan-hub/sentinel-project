@@ -438,7 +438,7 @@ const PLAIN_NAME = /^[A-Za-z0-9._@-]{1,100}$/;
 
 // MA-4a: two writes of one kind at once meet docInsert's create-only kind@n (the database's 409, or a test double's).
 const RACE = (kind) => `another change to ${kind} landed at the same moment — read it again and retry; nothing was saved`;
-const PROJECT_ONLY = ["evidence_pack"]; // MA-4a: a project never inherits its office's evidence
+const PROJECT_ONLY = ["evidence_pack", "recipe"]; // MA-4a: a project never inherits its office's evidence
 
 /** kind@n+1, the pointer and the artefact_installed row — putArtefact's and foldArtefact's one writer. */
 async function installVersion(d, proj, kind, body, prev, { actor, source }) {

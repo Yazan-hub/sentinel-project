@@ -129,7 +129,7 @@ export async function draftRecipe(key, b, actor, deps) {
   const at = await locate(d, key, scope);
   if (scope === "office") {
     try { await person(d, at.key, "lead", "drafting an office recipe", "draft"); }
-    catch (e) { throw err(403, `drafting an office recipe needs the lead role on ${at.key} — nothing was saved`); } // a stranger and a contributor are told alike
+    catch (e) { if (e.status !== 403 && e.status !== 404) throw e; throw err(403, `drafting an office recipe needs the lead role on ${at.key} — nothing was saved`); } // a stranger and a contributor are told alike; an outage is not a missing role
   }
   d.takeWriteBudget("recipes", { perUser: 10, all: 30 });
   if (drafting.has(at.key)) throw err(409, `a recipe is being drafted on ${at.key} — try again when it ends; nothing was saved`);
@@ -270,6 +270,7 @@ export async function recipeForRun(key, { version, scope }, deps) {
   const d = wire(deps);
   if ((await d.myRole(key)) === "service")
     throw err(403, "a recipe run is a person's — its build:run row names who ran it: sign in. Nothing was saved.");
+  await person(d, key, "contributor", "running a recipe", "run");
   const at = await locate(d, key, scope);
   const n = versionOf(version), ref = refOf(n);
   const { doc, sha } = await stored(d, scope, at.key, n);

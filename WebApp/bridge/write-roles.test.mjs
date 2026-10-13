@@ -1245,6 +1245,8 @@ describe("recipes (MA-8-13, D13): two approvals by two different people of diffe
 
     // nobody has approved: the contributor's run says so, in the bridge's words
     const asked = { pack: "evp-0001", recipe: { version: 1, scope: "project" } };
+    // MA-8-13 review: a viewer is refused in the role words before any recipe check
+    expect(await call("POST", JOBS, "viewer", asked)).toEqual({ status: 403, body: { message: "running a recipe requires the contributor role on demo (you are viewer) — nothing was saved" } });
     expect(await call("POST", JOBS, "contributor", asked))
       .toEqual({ status: 409, body: { message: "recipe@1 has no approval yet — it runs once a lead and an owner, two different people, have approved it; nothing was saved" } });
 

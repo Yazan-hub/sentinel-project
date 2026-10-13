@@ -788,7 +788,7 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
           catch (e) { say(`not published — ${(e as Error).message}`, true); }
         }));
       // MA-8-13 (C15): a job's complete run with something kept can become a recipe - a lead's; the bridge checks that it is verified (textContent only)
-      if (r.complete && r.kept >= 1 && /^job#d+$/.test(r.run) && canReopen(role)) {
+      if (r.complete && r.kept >= 1 && /^job#\d+$/.test(r.run) && canReopen(role)) {
         const name = el("input", "", "width:9rem;background:#111;color:#e5e7eb;border:1px solid #2c2c34;border-radius:.3rem;padding:.2rem .4rem;font:11px system-ui");
         name.placeholder = "Recipe name (one line)";
         const scope = hasOffice ? el("select", "", "background:#111;color:#e5e7eb;border:1px solid #2c2c34;border-radius:.3rem;font:11px system-ui") : null;
