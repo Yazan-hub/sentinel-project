@@ -1,7 +1,7 @@
 # MA-7 plan: photos + web evidence (after counsel)
 
 Source: `docs/strategy/2026-09-30-model-automation-design.md` §7 MA-7 (:1222-1237), §4.2 photos (:408-435), §4.4 web evidence (:481-503), §6.2 evidence pack (:636-674), §6.6 ledger rows (:826-866), §6.7-§6.11 (:867-978), That Open `SplatLoader` row (:572), packaging-spike line (:938), decisions D4-D8, D14 (:1371-1381), risks "Legal risk of web evidence", "Licence leakage", "Installing the Python service on Windows" (:1406-1408). Research: R2M §3.1, §3.8, §4.1-§4.6, §5.2-§5.4, §6.3, §6.6; TO §5.2, §6.
-Repo root: `C:/Users/yazan/Claude/Projects/Co BIM Assistant/sentinel-project`, master b43816d, web 1.0.86, survey 0.6.0. Paths are relative to `WebApp/` when they start `bridge/` or `src/`; otherwise relative to the repo root.
+Repo root: `<repo root>`, master b43816d, web 1.0.86, survey 0.6.0. Paths are relative to `WebApp/` when they start `bridge/` or `src/`; otherwise relative to the repo root.
 Claims were checked in the code on 2026-10-13 (file:line given). Claims marked "(map)" come from `scratchpad/ma7/map-*.md` and were not re-opened.
 Founder's instruction: **"go ahead with MA-7"**. **Counsel has not reviewed web evidence.** So this plan runs on the design's recommended defaults: web search off, no search for drawings, the RED list enforced. Everything that depends on counsel sits behind the founder's switch (default off) and is owed (§7). Every download waits for the founder's explicit OK, one item at a time, with its name, source and size (§6). Revit rows cannot run today (§8).
 

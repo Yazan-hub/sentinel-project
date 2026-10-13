@@ -23,6 +23,9 @@ describe("verdict", () => {
   it("bans a package by name whatever its field says", () => {
     expect(v("MIT", { name: "ultralytics" })).toBe("banned");
   });
+  it("reads a banned name in any PEP 503 spelling and under an npm scope", () => {
+    for (const name of ["diff_gaussian_rasterization", "Diff.Gaussian.Rasterization", "@scope/ultralytics"]) expect(v("MIT", { name })).toBe("banned");
+  });
 });
 
 describe("modelRefusal", () => {
@@ -34,6 +37,11 @@ describe("modelRefusal", () => {
     const m = modelRefusal("llama3.2-vision:latest", "6f2f9757ae97");
     expect(m).toContain("Llama-3.2-Community");
     expect(m).toContain("nothing was read");
+  });
+  it("refuses a listed name with no digest, a bad one, and takes a sha256: prefix", () => {
+    for (const d of [undefined, null, "", "xyz"]) expect(modelRefusal("qwen3.6", d)).toContain("not in Sentinel's weights table");
+    expect(modelRefusal("qwen3.6:latest")).toContain("not in Sentinel's weights table");
+    expect(modelRefusal("qwen3.6:latest", "sha256:3899b1c0e7c5aabbcc")).toBeNull();
   });
   it("refuses a digest mismatch and an unlisted model in the unknown words", () => {
     expect(modelRefusal("qwen3.6:latest", "000000000000")).toContain("not in Sentinel's weights table");
@@ -61,6 +69,10 @@ describe("checkAll", () => {
   it("lets allow.accepted clear an unknown but never a banned row", () => {
     expect(checkAll({ npm: [row({ licence: "weird" })], allow: { accepted: { a: {} } } }).code).toBe(0);
     expect(checkAll({ npm: [row({ licence: "GPL-3.0-only" })], allow: { accepted: { a: {} } } }).code).toBe(1);
+  });
+  it("lets accepted clear neither a banned row (process or not) nor an inherited Object key", () => {
+    expect(checkAll({ npm: [row({ licence: "GPL-3.0-only", process: "separate" })], allow: { accepted: { a: {} } } }).code).toBe(1);
+    expect(checkAll({ npm: [row({ name: "constructor", licence: "Commercial" })], allow: { accepted: {}, pending: {} } }).code).toBe(1);
   });
   it("reports a weights row the table refuses as information, and checks what a wheel carries", () => {
     const r = checkAll({ weights: [{ source: "weights", name: "llama3.2-vision:latest", version: "", licence: "Llama-3.2-Community" }] });

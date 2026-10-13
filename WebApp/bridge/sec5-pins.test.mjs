@@ -19,7 +19,7 @@ describe("SEC-5 one-liners", () => {
 
   it("S33: no install script runs with the npm token; its .npmrc is removed before the build; every action is pinned by SHA", () => {
     const ci = read("../../.github/workflows/ci.yml");
-    expect(ci).toContain("      - run: npm install --ignore-scripts\n        env:\n          NPM_TOKEN: ${{ secrets.THATOPEN_NPM_TOKEN }}\n      - run: rm -f .npmrc\n      - run: npm run prepare\n      - run: npm run test\n");
+    expect(ci).toContain("      - run: npm install --ignore-scripts\n        env:\n          NPM_TOKEN: ${{ secrets.THATOPEN_NPM_TOKEN }}\n      - run: rm -f .npmrc\n      - run: npm run prepare\n      # MA-7-1: banned or unknown licences fail here; pending ones warn (D-7-16). Runs after .npmrc is gone, so no token is in its environment.\n      - run: node ../tools/licence-check/check.mjs\n      - run: npm run test\n");
     expect(ci).not.toMatch(/run: npm (install|ci)\s*$/m);
     expect((ci.match(/NPM_TOKEN: \$\{\{ secrets\.THATOPEN_NPM_TOKEN \}\}/g) ?? []).length).toBe(2); // the login step and the install only
     const uses = ci.match(/uses: [^\n]+/g) ?? [];

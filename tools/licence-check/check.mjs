@@ -1,6 +1,6 @@
 // MA-7-1 — licence gate over npm, Python pins, NuGet and the model weights table. Exit 1 on a banned or unknown licence;
-// pending ones (the founder's decisions, D-7-16) warn. Reads tracked files only (git ls-files), so an untracked folder never
-// makes a local run differ from CI. Usage: node tools/licence-check/check.mjs [--lock <package-lock.json>] [--root <repo>]
+// pending ones (the founder's decisions, D-7-16) warn. The csproj and requirements files are taken from git ls-files; the lockfile and the named source
+// files (survey/las.py, ai-gateway.mjs, SettingsManager.cs) are read as they are on disk. Usage: node tools/licence-check/check.mjs [--lock <package-lock.json>] [--root <repo>]
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
@@ -51,18 +51,25 @@ export function readNpm(lock) {
 }
 
 function readPython() {
-  const pins = {};
+  const pins = {}, odd = [];
   const m = /PINS\s*=\s*\{([^}]*)\}/.exec(read("survey/las.py"));
-  for (const p of m ? m[1].matchAll(/"([^"]+)"\s*:\s*"([^"]+)"/g) : []) pins[p[1]] = p[2];
+  for (const p of m ? m[1].matchAll(/"([^"]+)"\s*:\s*"([^"]+)"/g) : []) pins[`${p[1]}@${p[2]}`] = p[2];
   for (const f of files.filter((f) => /^(survey|photo)\/requirements[^/]*\.txt$/.test(f)))
-    for (const l of read(f).matchAll(/^([A-Za-z0-9_.-]+)==([^\s;]+)/gm)) pins[l[1]] = l[2];
-  for (const n of allow.python_runtime || []) pins[n] ??= allow.python?.[n]?.version || "";
-  return Object.entries(pins).map(([name, version]) => {
+    for (const raw of read(f).split(/\r?\n/)) {
+      const t = raw.trim();
+      if (!t || t.startsWith("#") || t.startsWith("-")) continue;
+      const l = /^([A-Za-z0-9_.-]+)(?:\[[^\]]*\])?==([^\s;=]+)/.exec(t);
+      if (l) pins[`${l[1]}@${l[2]}`] = l[2]; else odd.push(t); // a shape the gate cannot read is UNKNOWN, never skipped
+    }
+  for (const n of allow.python_runtime || []) if (!Object.keys(pins).some((k) => k.startsWith(`${n}@`))) pins[`${n}@`] = allow.python?.[n]?.version || "";
+  const rows = Object.keys(pins).map((k) => {
+    const name = k.slice(0, k.indexOf("@")), version = pins[k];
     const a = allow.python?.[name];
     // a moved pin has not had its licence re-read
     const ok = a && (!version || a.version === version);
     return { source: "python", name, version, licence: ok ? a.licence : "", carries: ok ? a.carries : undefined };
   });
+  return [...rows, ...odd.map((raw) => ({ source: "python", name: raw, version: "", licence: "" }))];
 }
 
 function readNuget() {
@@ -70,7 +77,7 @@ function readNuget() {
   for (const f of files.filter((f) => /^(SentinelAddin|drawing|tools)\/.*\.csproj$/.test(f)))
     for (const r of read(f).matchAll(/<PackageReference\s+Include="([^"]+)"(?:\s+Version="([^"]*)")?/g)) {
       const a = allow.nuget?.[r[1]];
-      if (!seen.has(r[1])) seen.set(r[1], { source: "nuget", name: r[1], version: r[2] || a?.version || "", licence: a?.licence || "" });
+      if (!seen.has(r[1])) seen.set(r[1], { source: "nuget", name: r[1], version: String(r[2] || a?.version || "").includes("$(") ? "" : r[2] || a?.version || "", licence: a?.licence || "" });
     }
   return [...seen.values()];
 }

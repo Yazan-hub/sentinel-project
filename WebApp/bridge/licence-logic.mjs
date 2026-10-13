@@ -58,19 +58,21 @@ function balanced(s) {
 
 /** {v: "allowed"|"pending"|"banned"|"unknown", why}. OR takes the best part, AND the worst; a banned package name is banned whatever its field. */
 export function verdict(expr, row = {}) {
-  if (row.name && BANNED_NAMES.includes(String(row.name).toLowerCase())) return { v: "banned", why: `${row.name} is on the banned list (design §6.10)` };
+  // MA-7-1 review: PEP 503 spelling (- _ . alike) and the part after an npm @scope/ or a path
+  const nm = String(row.name ?? "").toLowerCase().replace(/[-_.]+/g, "-").split("/").pop();
+  if (nm && BANNED_NAMES.includes(nm)) return { v: "banned", why: `${row.name} is on the banned list (design §6.10)` };
   const s = String(expr ?? "").trim();
   if (!s || /^SEE LICENSE IN/i.test(s)) return { v: "unknown", why: "no licence is named; read its licence file" };
   if (s === "UNLICENSED") return { v: "banned", why: "not licensed for reuse" };
   return evalExpr(ALIAS[s] || s, row);
 }
 
-/** null, or the words that refuse a model. A bare name is `<name>:latest`; the digest is compared on its first 12 hex digits when given. */
+/** null, or the words that refuse a model. A bare name is `<name>:latest`; the digest (12 hex digits, optional `sha256:` prefix) is required: with none, the name alone never passes (amendment 23(ii)). */
 export function modelRefusal(name, digest12) {
   const n = String(name ?? "").includes(":") ? String(name) : `${name}:latest`;
-  const d = String(digest12 ?? "").slice(0, 12);
+  const d = String(digest12 ?? "").replace(/^sha256:/i, "").slice(0, 12).toLowerCase();
   const row = WEIGHTS[n];
-  if (!row || (d && d !== row.digest))
+  if (!row || !/^[0-9a-f]{12}$/.test(d) || d !== row.digest)
     return `${n}${d ? ` (${d})` : ""} is not in Sentinel's weights table — a model is used only once its licence is read and listed (tools/licence-check); nothing was read`;
   const v = verdict(row.licence);
   return v.v === "allowed" ? null : `${n} is licensed ${row.licence} — not on Sentinel's allow-list (design §6.10); nothing was read`;
@@ -91,9 +93,8 @@ export function checkAll({ npm = [], python = [], nuget = [], weights = [], mode
   };
   const judge = (r) => {
     let { v, why } = verdict(r.licence, r);
-    const lgplOk = r.process === "separate";
-    if (accepted[r.name] && (v !== "banned" || lgplOk)) v = "allowed";
-    else if (pend[r.name] && v === "unknown") v = "pending";
+    if (Object.hasOwn(accepted, r.name) && v !== "banned") v = "allowed";
+    else if (Object.hasOwn(pend, r.name) && v === "unknown") v = "pending";
     note(r, v, why);
   };
   for (const r of [...npm, ...python, ...nuget]) {
