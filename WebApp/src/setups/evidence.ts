@@ -22,7 +22,9 @@ export interface Dataset { provider: string; source_url: string; licence: string
 export type EvidenceKind = "scan" | "photo" | "drawing" | "model";
 export interface EvidenceItem {
   id: string; kind: EvidenceKind; format: string; sha256: string; size_bytes: number; path: string; surveyable: boolean;
-  admitted_by: string; admitted_at: string; state?: "changed"; changed_at?: string; registration?: { method: string; report_path?: string };
+  admitted_by: string; admitted_at: string; state?: "changed" | "expired"; changed_at?: string;
+  /** MA-7-5: the day after which no job reads it; once expired, when, and the Sentinel copies taken away (the office's own file is never touched). */
+  delete_by?: string; delete_why?: string; expired_at?: string; removed?: string[]; not_removed?: { path: string; why: string }[]; role?: string; registration?: { method: string; report_path?: string };
   provider?: string; request_id?: string;
   /** MA-8-3: a third party's model — commercial, with the order or contract it was bought under. */
   licence?: string; licence_ref?: string;
@@ -65,6 +67,11 @@ export function itemLine(i: EvidenceItem): string {
   return `${i.id} · ${i.path} · ${i.format} · ${size(i.size_bytes)} · sha ${i.sha256.slice(0, 12)}…` +
     (i.kind === "drawing" ? ` · drawing from the ${i.provider} under ${i.request_id}` : i.kind === "model" ? (i.provider && i.provider !== "own" ? ` · model from ${i.provider} (${i.licence ?? "commercial"}, ref ${i.licence_ref ?? "?"})` : " · concept model (own)") : i.surveyable ? "" : " · not surveyable (no ReCap here)") +
     (i.kind === "photo" && i.capture ? ` · ${[i.capture.make, i.capture.model].filter(Boolean).join(" ")} · taken ${i.capture.taken_at ?? "?"} · ${i.capture.gps ? "EXIF GPS block in the original (not copied)" : "no EXIF GPS block"}` : "") +
+    (i.delete_by && i.state !== "expired" ? ` · delete by ${i.delete_by}` : "") + // MA-7-5
+    (i.state === "expired" ? ` · EXPIRED ${(i.expired_at ?? "").slice(0, 10)} — ` + // review: the office-file clause follows the role, not whether a copy went
+      (i.removed?.length ? "Sentinel's copies removed; " : i.role === "context" ? "" : "not read by any job; ") +
+      (i.not_removed?.length ? `${i.not_removed.length} could not be deleted yet — the next sweep tries again; ` : "") +
+      "its record and sha stay" + (i.role === "context" ? "" : "; the office's file is not touched (delete it by hand if the owner asked)") : "") +
     (i.state === "changed" ? " · CHANGED since admitted — on hold; restore the file and Admit it again, or put the new file in under a new name" : "");
 }
 /** An attestation's state in one line. Pure. */
@@ -141,6 +148,9 @@ export const admitEvidence = (base: string, key: string, b: { path: string; kind
 /** MA-4b: draft an "ask the owner" letter (a lead's; the bridge sends nothing). */
 export const draftRequest = (base: string, key: string, b: { recipient_kind: EvidenceRequest["recipient_kind"]; recipient?: string; documents: string[]; purpose?: string }) =>
   post<{ request: EvidenceRequest; letter: string; ledger: Ledger }>(base, key, `evidence/${PACK_ID}/requests`, b);
+/** MA-7-5: a lead sets the day after which no job reads the item; today retires it now (its record and sha stay; the office's file is not deleted). */
+export const setDeleteBy = (base: string, key: string, item: string, date: string, why?: string) =>
+  post<{ item: EvidenceItem; pack_version: number; ledger: Ledger[]; note?: string }>(base, key, `evidence/${PACK_ID}/items/${encodeURIComponent(item)}/delete-by`, { date, ...(why ? { why } : {}) });
 export const recheckEvidence = (base: string, key: string) => post<RecheckReply>(base, key, `evidence/${PACK_ID}/recheck`, {});
 
 /** MA-4c: a survey job as the bridge keeps it (GET /cde/:key/build/jobs); its candidates are read on demand (readJob). */
@@ -168,7 +178,7 @@ export interface JobRead { job: SurveyJob; candidates?: Candidate[]; result_erro
   receipt?: { items?: { id: string; size_paper_mm?: [number, number] }[]; hint?: IfcHint }; }
 export interface IfcHint { site: { at_mm: number[]; rotation_deg: number } | null; map_conversion: { eastings: number; northings: number; height: number } | null; storey_elevation_mismatch: unknown[]; context_wcs_not_origin: boolean; true_north?: number[] | null; length_unit_assumed: boolean }
 /** The pack's scans a survey may read: admitted, surveyable, not changed. Which it can read is sentinel-survey's to say, per item, by the bytes (MA-4g). Pure. */
-export const surveyableScans = (pack: EvidencePack) => pack.items.filter((i) => i.kind === "scan" && i.surveyable && i.state !== "changed");
+export const surveyableScans = (pack: EvidencePack) => pack.items.filter((i) => i.kind === "scan" && i.surveyable && i.state !== "changed" && i.state !== "expired");
 const FOUND: [string, string][] = [["level", "level(s)"], ["wall", "wall(s)"], ["floor", "floor(s)"], ["ceiling", "ceiling(s)"], ["door", "door(s)"], ["window", "window(s)"], ["opening", "opening(s)"], ["column", "column(s)"], ["room", "room(s)"]]; // MA-5a: doors and windows; MA-5b-1: rooms; MA-8-4: an IFC job's openings and columns
 /** A job in one line: its state, what it read (a done job: only what its result was measured from; one running: what it is reading;
  *  else what it was given) and refused, what it found, who and when, its ledger row. Pure. */
@@ -207,7 +217,7 @@ export const startSurvey = (base: string, key: string) => post<{ job: SurveyJob 
 export const DRAWING_READER = "sentinel-drawing";
 export const isDrawingJob = (j: SurveyJob) => j.reader?.name === DRAWING_READER;
 /** The pack's drawings sentinel-drawing may read: admitted PDFs, not changed (a DWG or DXF is Ghost Builder's; a PNG or JPG raster, C10). Pure. */
-export const readableDrawings = (pack: EvidencePack) => pack.items.filter((i) => i.kind === "drawing" && i.format === "pdf" && i.state !== "changed");
+export const readableDrawings = (pack: EvidencePack) => pack.items.filter((i) => i.kind === "drawing" && i.format === "pdf" && i.state !== "changed" && i.state !== "expired");
 /** The status line after Read drawings. Pure. */
 export function drawingStartLine(j: SurveyJob): string {
   return `✓ Started ${j.id} — ${DRAWING_READER} reads ${j.items.map((i) => `${i.id} (${i.path})`).join(", ")}` +
@@ -219,7 +229,7 @@ export const startDrawing = (base: string, key: string) => post<{ job: SurveyJob
 export const IFC_READER = "sentinel-ifc";
 export const isIfcJob = (j: SurveyJob) => j.reader?.name === IFC_READER;
 /** The pack's concept IFCs: admitted, not changed. The bridge reads the newest and refuses an older one in words. Pure. */
-export const readableIfc = (pack: EvidencePack) => pack.items.filter((i) => i.kind === "model" && i.state !== "changed");
+export const readableIfc = (pack: EvidencePack) => pack.items.filter((i) => i.kind === "model" && i.state !== "changed" && i.state !== "expired");
 /** The status line after Read IFC. Pure. */
 export function ifcStartLine(j: SurveyJob): string {
   return `✓ Started ${j.id} — ${IFC_READER} reads ${j.items.map((i) => `${i.id} (${i.path})`).join(", ")}` +

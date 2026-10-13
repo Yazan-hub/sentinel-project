@@ -71,7 +71,8 @@ export const tableOf = (kind) => (kind === "drawing" ? DRAWINGS : FORMATS);
 export const USES = { view_reference: true, geometry_extraction: true, texture_embed: false, redistribute: false, ml_training: false };
 // MA-7-3: every field an item may carry — the bridge writes items, so an unknown field is never stored. Each slice that writes a new item field adds it here in the same commit (D-7-30).
 export const ITEM_FIELDS = ["id", "kind", "format", "sha256", "size_bytes", "path", "provider", "licence", "licence_ref", "request_id", "attestation_ids", "allowed_uses", "registration", "surveyable", "admitted_by", "admitted_at", "state", "changed_sha256", "changed_at",
-  "capture"]; // MA-7-4
+  "capture", // MA-7-4
+  "delete_by", "delete_why", "expired_at", "removed", "not_removed"]; // MA-7-5
 const PACK_FIELDS = ["kind", "pack_id", "project", "asset", "storage_root", "attestations", "items", "requests", "dataset"];
 /** MA-4b: who an "ask the owner" letter goes to; a drawing admitted under it carries this as its provider. */
 export const RECIPIENTS = ["owner", "architect", "municipality"];
@@ -93,6 +94,7 @@ export function readAdmitBody(b = {}) {
   const bad = (m) => err(400, `${m} — nothing was saved`);
   const path = typeof b.path === "string" ? b.path.trim().replace(/\\/g, "/") : "";
   if (!safeRel(path)) throw bad("path must name a file inside the project's evidence folder, relative to it (no drive, no leading slash, no ..)");
+  if (path.split("/")[0].toLowerCase() === ".sentinel") throw bad(".sentinel/ is Sentinel's own folder (blurred copies)"); // MA-7-5
   if (!["scan", "photo", "drawing", "model"].includes(b.kind)) throw bad("kind must be scan, photo, drawing or model");
   const provider = b.provider == null ? "own" : String(b.provider).trim().toLowerCase();
   if (!provider || provider.length > 100) throw bad("provider must be a name of at most 100 characters (own when left out)");
@@ -117,6 +119,39 @@ export function readAdmitBody(b = {}) {
   if (request_id !== null && !/^req-\d{4}$/.test(request_id)) throw bad("request_id must name a request of the pack, as req-0001");
   return { path, kind: b.kind, provider, ...(licence_ref ? { licence_ref } : {}), registration, request_id };
 }
+
+/** MA-7-5: a real calendar day "YYYY-MM-DD" → its UTC ms, else NaN (2026-02-30 is not a day). */
+export const realDay = (s) => (typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s) && new Date(`${s}T00:00:00Z`).toISOString().slice(0, 10) === s ? Date.parse(`${s}T00:00:00Z`) : NaN);
+/** MA-7-5: POST …/items/:id/delete-by's body → {delete_by "YYYY-MM-DD", why|null}, or a 400 in words. `today` ("YYYY-MM-DD") retires the item now. */
+export function readDeleteBy(b = {}, today) {
+  const bad = (m) => err(400, `${m} — nothing was saved`);
+  const day = realDay;
+  const t = day(today), d = day(b.date);
+  if (!(d >= t - 864e5 && d <= t + 3650 * 864e5)) throw bad("delete_by must be a date from today (today retires it now) to ten years ahead, as 2026-12-31");
+  let why = null;
+  if (b.why != null) {
+    why = typeof b.why === "string" ? b.why.trim() : "";
+    if (!str(why, 300) || /[ -]/.test(why)) throw bad("why must be one line of 1 to 300 characters");
+  }
+  return { delete_by: d < t ? today : b.date, why };
+}
+/** MA-7-5: the items whose delete-by day has come and that are not expired yet. */
+export const due = (pack, today) => pack.items.filter((i) => i.delete_by && i.delete_by <= today && (i.state !== "expired" || i.not_removed?.length > 0)); // review: an expired item whose copy would not delete is tried again
+/** MA-7-5: what Sentinel may delete when an item expires, as [{path, sha256}] (a file is deleted only if it still has that sha256): its blurred
+ *  copy (7-7) and a web item's own file (7-12) — never an own, drawing, dataset or vendor file, which are the office's. */
+export function removable(i) {
+  const out = [];
+  if (i.view_copy) out.push({ path: `.sentinel/view/${i.id}.jpg`, sha256: i.view_copy.sha256 });
+  if (i.role === "context") out.push({ path: i.path, sha256: i.sha256 });
+  return out;
+}
+/** The item once expired: its record and sha256 stay; `removed` = the Sentinel copies taken away. */
+export const expire = (i, at, removed) => ({ ...i, state: "expired", expired_at: i.expired_at ?? at, removed: [...(i.removed ?? []), ...removed] });
+/** The evidence:expired row's new_value. */
+export const expiredValue = (packId, i, packVersion) => ({
+  pack_id: packId, item_id: i.id, path: i.path, sha256: i.sha256, kind: i.kind, provider: i.provider, licence: i.licence, delete_by: i.delete_by, expired_at: i.expired_at, removed: i.removed,
+  kept: "hash and record", office_file: i.role === "context" ? null : "not touched — delete it by hand if the owner asked", pack_version: packVersion,
+});
 
 /** What a new item (not a flagged one coming back) must carry, as a 400's words, or null. */
 export function newItemRefusal({ path, kind, registration, request_id }) {
@@ -402,7 +437,13 @@ export function validatePack(p) {
         || !(c.taken_at === null || (typeof c.taken_at === "string" && c.taken_at.length <= 16)) || typeof c.gps !== "boolean")
         throw bad(`${at}.capture`, "is a photo's {make, model, taken_at, gps}: make or model set, taken_at text or null, gps true or false");
     }
-    if (x.state !== undefined && x.state !== "changed") throw bad(`${at}.state`, 'is "changed" or absent');
+    if (x.state !== undefined && x.state !== "changed" && x.state !== "expired") throw bad(`${at}.state`, 'is "changed", "expired" or absent');
+    if (x.state === "expired" && !(str(x.expired_at, 40) && Array.isArray(x.removed) && x.removed.length <= 2 && x.removed.every(safeRel))) // MA-7-5
+      throw bad(`${at}.removed`, "an expired item carries expired_at and removed, at most two paths");
+    if (x.delete_by !== undefined && Number.isNaN(realDay(x.delete_by))) throw bad(`${at}.delete_by`, "is a date, as 2026-12-31, or absent");
+    if (x.not_removed !== undefined && !(Array.isArray(x.not_removed) && x.not_removed.length <= 2 && x.not_removed.every((n) => n && safeRel(n.path) && str(n.why, 200)))) // MA-7-5 review
+      throw bad(`${at}.not_removed`, "is at most two {path, why} the sweep could not delete, or absent");
+    if (x.delete_why !== undefined && !str(x.delete_why, 300)) throw bad(`${at}.delete_why`, "is one line of at most 300 characters, or absent");
     ids.add(x.id); paths.add(x.path);
   });
   return true;

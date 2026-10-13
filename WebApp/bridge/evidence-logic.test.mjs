@@ -4,6 +4,7 @@ import {
   ATTESTATIONS, ADMIT_NEEDS, MAX_ITEMS, codesSaid, readAdmitBody, newItemRefusal, policyRefusals, magicRefusal,
   nextId, newPack, newItem, flagged, readmitted, validatePack, readRequestBody, letterText, newRequest, requestedValue,
   DATASET_LICENCES, readDataset, needsOf, sizeRefusal, USES, ITEM_FIELDS, cameraOf, photoRefusal,
+  readDeleteBy, due, removable, expire, expiredValue,
 } from "./evidence-logic.mjs";
 import { jpegWithExif } from "./fixtures/jpeg-exif.mjs";
 
@@ -328,7 +329,7 @@ describe("the item-field whitelist (MA-7-3)", () => {
       ["own concept IFC", packWith(["a"]), (p) => mk(p, { path: "model/c.ifc", kind: "model", provider: "own", registration: null }, "ifc")],
     ];
   };
-  it("lists the 19 fields the bridge wrote before MA-7, then capture (7-4)", () => { expect(ITEM_FIELDS).toEqual(["id", "kind", "format", "sha256", "size_bytes", "path", "provider", "licence", "licence_ref", "request_id", "attestation_ids", "allowed_uses", "registration", "surveyable", "admitted_by", "admitted_at", "state", "changed_sha256", "changed_at", "capture"]); });
+  it("lists the 19 fields the bridge wrote before MA-7, then capture (7-4)", () => { expect(ITEM_FIELDS).toEqual(["id", "kind", "format", "sha256", "size_bytes", "path", "provider", "licence", "licence_ref", "request_id", "attestation_ids", "allowed_uses", "registration", "surveyable", "admitted_by", "admitted_at", "state", "changed_sha256", "changed_at", "capture", "delete_by", "delete_why", "expired_at", "removed", "not_removed"]); });
   it.each(shapes().map((s) => [s[0], s]))("replay: %s validates unchanged", (_n, [, pack, make]) => {
     const item = make(pack);
     expect(Object.keys(item).every((k) => ITEM_FIELDS.includes(k))).toBe(true);
@@ -382,5 +383,48 @@ describe("cameraOf and photoRefusal (MA-7-4)", () => {
     const fails = (cap, over) => expect(() => validatePack({ ...pack, items: [item(cap, over)] })).toThrow(/items\[0\]\.capture is a photo's/);
     fails({ ...ok, lat: 1 }); fails({ ...ok, make: null }); fails({ ...ok, gps: "yes" }); fails({ ...ok, taken_at: "x".repeat(17) }); fails("A");
     expect(() => validatePack({ ...packWith(["a", "c"]), items: [{ ...scanItem(packWith(["a", "c"])), capture: ok }] })).toThrow(/capture is a photo's/);
+  });
+});
+
+describe("delete-by, expiry and retire (MA-7-5)", () => {
+  const TODAY = "2026-10-13";
+  const words = "delete_by must be a date from today (today retires it now) to ten years ahead, as 2026-12-31 — nothing was saved";
+  it("readDeleteBy: a real date from today to ten years ahead; why is one line of at most 300", () => {
+    expect(readDeleteBy({ date: "2026-12-31" }, TODAY)).toEqual({ delete_by: "2026-12-31", why: null });
+    expect(readDeleteBy({ date: TODAY, why: " owner asked " }, TODAY)).toEqual({ delete_by: TODAY, why: "owner asked" });
+    expect(readDeleteBy({ date: "2036-10-10" }, TODAY).delete_by).toBe("2036-10-10");
+    for (const date of ["31/12/2026", "2026-02-30", "2026-10-11", "2036-10-11", "", undefined, 20261231]) expect(() => readDeleteBy({ date }, TODAY), String(date)).toThrow(words);
+    expect(readDeleteBy({ date: "2026-10-12" }, TODAY).delete_by).toBe(TODAY); // review: a client one UTC day behind means today
+    expect(() => readDeleteBy({ date: TODAY, why: "x".repeat(301) }, TODAY)).toThrow(/why must be one line/);
+    expect(() => readDeleteBy({ date: TODAY, why: "a\nb" }, TODAY)).toThrow(/why must be one line/);
+  });
+  it("due: the dated items whose day has come and that are not expired", () => {
+    const items = [{ id: "a", delete_by: "2026-10-13" }, { id: "b", delete_by: "2026-10-14" }, { id: "c" }, { id: "d", delete_by: "2026-01-01", state: "expired" }, { id: "e", delete_by: "2026-01-01" }];
+    expect(due({ items }, TODAY).map((i) => i.id)).toEqual(["a", "e"]);
+  });
+  it("removable: never an own file — a blurred copy and a web item's own file only", () => {
+    const own = { id: "ev-0001", path: "photos/own.jpg", sha256: SHA };
+    expect(removable(own)).toEqual([]);
+    expect(removable({ ...own, view_copy: { sha256: "b".repeat(64) } })).toEqual([{ path: ".sentinel/view/ev-0001.jpg", sha256: "b".repeat(64) }]);
+    expect(removable({ ...own, role: "context", view_copy: { sha256: "b".repeat(64) } }).map((r) => r.path)).toEqual([".sentinel/view/ev-0001.jpg", "photos/own.jpg"]);
+    for (const kind of ["scan", "drawing", "model"]) expect(removable({ ...own, kind })).toEqual([]);
+  });
+  it("expire keeps the record and the sha; the row says the office's file is not touched; an expired item validates, a bad state or date does not", () => {
+    const pack = packWith(["a", "c"]), it0 = { ...scanItem(pack), delete_by: TODAY, delete_why: "owner asked" };
+    const gone = expire(it0, "2026-10-13T10:00:00.000Z", []);
+    expect(gone).toMatchObject({ state: "expired", sha256: it0.sha256, provider: "own", licence: "owner-supplied", removed: [] });
+    expect(validatePack({ ...pack, items: [gone] })).toBe(true);
+    expect(expiredValue("evp-0001", gone, 9)).toMatchObject({ item_id: "ev-0001", sha256: gone.sha256, delete_by: TODAY, removed: [], kept: "hash and record", office_file: "not touched — delete it by hand if the owner asked", pack_version: 9 });
+    expect(expiredValue("evp-0001", { ...gone, role: "context" }, 9).office_file).toBeNull();
+    expect(() => validatePack({ ...pack, items: [{ ...it0, state: "gone" }] })).toThrow(/state is "changed", "expired" or absent/);
+    expect(() => validatePack({ ...pack, items: [{ ...it0, delete_by: "31/12/2026" }] })).toThrow(/delete_by is a date/);
+    expect(() => validatePack({ ...pack, items: [{ ...it0, state: "expired" }] })).toThrow(/removed/);
+    expect(() => validatePack({ ...pack, items: [{ ...gone, removed: ["../x"] }] })).toThrow(/removed/);
+    expect(() => validatePack({ ...pack, items: [{ ...gone, removed: ["a", "b", "c"] }] })).toThrow(/removed/);
+  });
+  it("readAdmitBody: .sentinel/ is Sentinel's own folder", () => {
+    expect(() => readAdmitBody({ path: ".sentinel/view/x.jpg", kind: "photo" })).toThrow(".sentinel/ is Sentinel's own folder (blurred copies) — nothing was saved");
+    expect(() => readAdmitBody({ path: ".Sentinel/x.jpg", kind: "photo" })).toThrow(/own folder/);
+    expect(readAdmitBody({ path: "photos/.sentinel.jpg", kind: "photo" }).path).toBe("photos/.sentinel.jpg");
   });
 });

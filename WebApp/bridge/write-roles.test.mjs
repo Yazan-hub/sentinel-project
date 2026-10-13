@@ -1063,6 +1063,23 @@ describe("evidence intake (MA-4a): who makes, signs, admits and reads", () => {
     const again = await call("POST", `${E}/evp-0001/attest`, "lead", { code: "a" });
     expect(again.status).toBe(409); expect(again.body.message).toContain("was signed by lead@example.test");
   });
+  it("MA-7-5: a delete-by date is a lead's and a person's — a viewer, a contributor and the machine credential are refused; a lead's retires the item", async () => {
+    await call("POST", E, "lead", {});
+    for (const code of ["a", "c"]) await call("POST", `${E}/evp-0001/attest`, "lead", { code });
+    mkdirSync(join(DIR(), "scans"), { recursive: true });
+    writeFileSync(join(DIR(), "scans", "tiny.las"), LAS);
+    expect((await call("POST", `${E}/evp-0001/items`, "contributor", { path: "scans/tiny.las", kind: "scan", registration: { method: "registered in source" } })).status).toBe(201);
+    const U = `${E}/evp-0001/items/ev-0001/delete-by`, date = new Date().toISOString().slice(0, 10);
+    expect(await call("POST", U, "viewer", { date })).toEqual(refused("lead", "viewer"));
+    expect(await call("POST", U, "contributor", { date })).toEqual(refused("lead", "contributor"));
+    expect(await call("POST", U, "machine", { date })).toEqual({ status: 403, body: { message: "a delete-by date needs a person — it names who set it: sign in. Nothing was saved." } });
+    expect(rows("evidence:delete_by")).toHaveLength(0);
+    const r = await call("POST", U, "lead", { date });
+    expect(r.status).toBe(200);
+    expect(r.body.item).toMatchObject({ id: "ev-0001", state: "expired", removed: [] });
+    expect(rows("evidence:expired").map((x) => x.action)).toEqual(["evidence:expired ev-0001 scans/tiny.las"]);
+    expect(existsSync(join(DIR(), "scans", "tiny.las"))).toBe(true); // the office's file stays
+  });
   it("MA-7-2: GET …/web is a read — a viewer, a contributor, a lead and the machine credential all get the off state", async () => {
     await call("POST", E, "lead", {});
     for (const k of ["SENTINEL_WEB_EVIDENCE", "SENTINEL_WEB_COUNSEL_REF"]) vi.stubEnv(k, ""); // the founder's own switch must not leak in

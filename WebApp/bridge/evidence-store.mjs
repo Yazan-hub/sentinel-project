@@ -5,7 +5,7 @@
 // never taken from a body (design :166). Governed Intake's evidence branch: no delivery gate, no IDS, no upload (intake-logic.mjs
 // is the IFC path and stays as it is). Deps are injected (the artefact-store idiom), so the sequencing is unit-tested on a temp folder.
 import { createHash } from "node:crypto";
-import { createReadStream, existsSync, mkdirSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { createReadStream, existsSync, mkdirSync, readdirSync, realpathSync, statSync, unlinkSync } from "node:fs";
 import { open } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, relative, resolve, sep } from "node:path";
@@ -85,6 +85,7 @@ async function wire(deps = {}) {
     myRole: deps.myRole || members.myRole,
     requireMinRole: deps.requireMinRole || members.requireMinRole,
     root: deps.root ?? evidenceRoot(),
+    unlink: deps.unlink || unlinkSync, // review: injected by a test that needs an unlink to fail
     now: deps.now || (() => new Date().toISOString()),
   };
 }
@@ -136,7 +137,7 @@ function folderFiles(dir, pack) {
   for (const e of readdirSync(dir, { recursive: true, withFileTypes: true })) {
     if (!e.isFile()) continue;
     const rel = relative(dir, join(e.parentPath, e.name)).split(sep).join("/");
-    if (taken.has(rel)) continue;
+    if (taken.has(rel) || rel.startsWith(".sentinel/")) continue; // MA-7-5: Sentinel's own folder (blurred copies) is not the office's evidence; an expired path stays taken
     try { files.push({ path: rel, size_bytes: statSync(join(dir, rel)).size }); } catch { /* gone since the listing (a tool's temp file) */ }
   }
   files.sort((a, b) => a.path.localeCompare(b.path));
@@ -239,7 +240,12 @@ async function admitRun(d, proj, key, packId, b) {
   const dir = evidenceDir(key, d.root), full = insideFolder(dir, input.path), who = actor();
   if (!isFile(full)) throw err(404, `no file ${input.path} in the project's evidence folder (${dir}) — put it there first; nothing was saved`);
   input = { ...input, path: onDisk(dir, full) }; // the disk's spelling: "Photos/OWN.jpg" is photos/own.jpg, admitted or not
+  // review (MA-7-5): the .sentinel/ guard ran on the caller's spelling; the disk's spelling (8.3 short names) must not land in Sentinel's folder
+  const inSentinel = (x) => String(x).split("/")[0].toLowerCase() === ".sentinel";
+  if (inSentinel(input.path)) throw err(400, ".sentinel/ is Sentinel's own folder (blurred copies) — nothing was saved");
   const prev = pack.items.find((i) => i.path === input.path);
+  // MA-7-5: before the "already admitted" 409 (amendment 17) — an expired item is never read again; the file comes in under a new name
+  if (prev?.state === "expired") throw err(409, `${input.path} was ${prev.id}, expired on ${prev.expired_at.slice(0, 10)} (delete-by) — put the file in under a new name; nothing was saved`);
   if (prev && prev.state !== "changed") throw err(409, `${input.path} is already admitted as ${prev.id} (Re-check finds a changed file) — nothing was saved`);
   if (prev && prev.kind === "model" && input.provider !== "own" && input.provider !== prev.provider) throw err(409, `${input.path} comes back as first admitted (${prev.provider}) — put a re-classified file in under a new name; nothing was saved`);
   // it comes back as first admitted: a flagged photo is not re-read as a drawing, a flagged vendor model keeps its vendor and order (MA-8-3)
@@ -292,6 +298,7 @@ async function admitRun(d, proj, key, packId, b) {
       const rf = insideFolder(dir, input.registration.report_path);
       if (!isFile(rf)) throw err(404, `no registration report ${input.registration.report_path} in the project's evidence folder — put it there first; nothing was saved`);
       input = { ...input, registration: { ...input.registration, report_path: onDisk(dir, rf) } };
+      if (inSentinel(input.registration.report_path)) throw err(400, ".sentinel/ is Sentinel's own folder (blurred copies) — nothing was saved");
       report = await hashFile(rf);
     }
     item = L.newItem({ id: L.nextId("ev", pack.items), input: newPhoto ? { ...input, capture: cam } : input, format, sha256: f.sha256, size_bytes: f.size_bytes, report, pack, who, at: d.now(), request });
@@ -300,6 +307,111 @@ async function admitRun(d, proj, key, packId, b) {
   const pointer = await fold(d, key, { ...pack, items }, version, who);
   const ledger = await row(d, proj, "evidence", `evidence:admitted ${item.id} ${item.path}`, who, L.admittedValue(packId, item, pointer.version, !!prev));
   return { verdict: "admitted", item, pack_version: pointer.version, ledger };
+}
+
+/** MA-7-5: POST …/items/:id/delete-by {date, why?} → 200 {item, pack_version, ledger}: a signed-in lead sets the day after which no job reads the
+ *  item; today retires it now (the sweep runs at once). The machine credential is a 403 (the row names who set it). Refusals in this order:
+ *  403, 403, 429, 409 (an admission or sweep running), 404 (pack, item), 409 (already expired), 400 (the date). */
+export async function setDeleteBy(key, packId, itemId, b = {}, deps) {
+  const d = await wire(deps);
+  if ((await d.myRole(key)) === "service") throw err(403, "a delete-by date needs a person — it names who set it: sign in. Nothing was saved.");
+  const proj = await officeProject(d, key, "lead");
+  d.takeWriteBudget("evidence delete-by", { perUser: 20, all: 60 });
+  if (admitting.has(key)) throw err(409, `an admission to ${key} is already running — try again when it ends; nothing was saved`);
+  admitting.add(key);
+  try {
+    const { pack, version } = await packOf(d, key, packId);
+    const item = pack.items.find((i) => i.id === itemId);
+    if (!item) throw err(404, `no item ${itemId} in ${packId} — nothing was saved`);
+    if (item.state === "expired") throw err(409, `${itemId} expired on ${item.expired_at.slice(0, 10)} — its record stays and cannot change; nothing was saved`);
+    const today = d.now().slice(0, 10), { delete_by, why } = L.readDeleteBy(b, today);
+    // review: a third party's file (role context, 7-12) is only ever brought forward — its source's retention limit is its first date
+    if (item.role === "context" && item.delete_by && delete_by > item.delete_by) throw err(409, `${itemId} comes from a website: its delete-by ${item.delete_by} can be brought forward, not moved later; nothing was saved`);
+    const who = actor();
+    const { delete_why: _w, ...rest } = item;
+    const next = { ...rest, delete_by, ...(why ? { delete_why: why } : {}) };
+    const pointer = await fold(d, key, { ...pack, items: pack.items.map((i) => (i === item ? next : i)) }, version, who);
+    const ledger = [await row(d, proj, "evidence", `evidence:delete_by ${itemId} ${delete_by}`, who,
+      { pack_id: packId, item_id: itemId, path: item.path, sha256: item.sha256, delete_by, why, actor: who, pack_version: pointer.version })];
+    let note;
+    if (delete_by <= today) { // review: the date is saved; a failed sweep (409 fold) is said as such and the next sweep expires it
+      try { ledger.push(...await sweepRun(d, proj, key)); } catch (e) { note = "the delete-by date is saved; the item expires at the next sweep (within 6 hours)"; console.warn(`[bridge] evidence retire sweep ${key}: ${String(e.message ?? e).slice(0, 160)}`); }
+    }
+    const cur = await packOf(d, key, packId);
+    return { item: cur.pack.items.find((i) => i.id === itemId), pack_version: cur.version, ledger, ...(note ? { note } : {}) };
+  } finally { admitting.delete(key); }
+}
+
+/** MA-7-5: expire every due item of the project's pack — no lock of its own (the caller holds `admitting`). Records before it deletes
+ *  (amendment 15): one fold marks the items expired with the Sentinel copies that still have their admitted bytes; a 409 deletes nothing and
+ *  the next run retries; then each planned file is unlinked; then one evidence:expired row per item. The office's own file is never touched. → the rows. */
+// ponytail: sequential hashing of each removable file; a pack of many big copies takes minutes — hash in parallel if a NAS pack is slow.
+async function sweepRun(d, projOf, key) {
+  const { pack, version } = await packOf(d, key, L.PACK_ID);
+  const at = d.now(), dueNow = L.due(pack, at.slice(0, 10));
+  if (!dueNow.length) return [];
+  const proj = typeof projOf === "function" ? await projOf() : projOf; // review: a folder with nothing due never asks for its project
+  const who = "machine"; // review: the sweep's actor is the machine, also when a lead's request ran it
+  const dir = evidenceDir(key, d.root);
+  const plan = new Map(); // item id → {removed: [paths], not_removed: [{path, why}]}
+  for (const i of dueNow) {
+    const p = { removed: [], not_removed: [] };
+    // a retry (review: an unlink failed last time) tries only the paths still listed as not removed
+    for (const r of L.removable(i).filter((x) => i.state !== "expired" || (i.not_removed ?? []).some((n) => n.path === x.path))) {
+      let full;
+      try { full = insideFolder(dir, r.path); } catch { p.not_removed.push({ path: r.path, why: "not inside the evidence folder — left in place" }); continue; }
+      if (!isFile(full)) continue;
+      if ((await hashFile(full)).sha256 === r.sha256) p.removed.push(r.path); else p.not_removed.push({ path: r.path, why: "not the admitted bytes — left in place" });
+    }
+    plan.set(i.id, p);
+  }
+  const items = pack.items.map((i) => (plan.has(i.id) ? L.expire(i, at, [...plan.get(i.id).removed]) : i));
+  const pointer = await fold(d, key, { ...pack, items }, version, who); // a 409 here: nothing is deleted
+  const failed = new Map(); // item id → [{path, why}] the unlink could not delete
+  for (const i of items.filter((x) => plan.has(x.id))) {
+    const p = plan.get(i.id), f = [];
+    for (const rel of p.removed) {
+      try { d.unlink(insideFolder(dir, rel)); } catch (e) { f.push({ path: rel, why: `could not be deleted (${e.code ?? "error"})` }); }
+    }
+    failed.set(i.id, f);
+  }
+  // review: the pack and the row say what was really removed; a failed unlink stays in the item's not_removed and the next sweep retries it
+  let final = items, ver = pointer.version;
+  if (items.some((i) => plan.has(i.id) && (failed.get(i.id).length || i.not_removed))) {
+    final = items.map((i) => {
+      if (!plan.has(i.id)) return i;
+      const f = failed.get(i.id), { not_removed: _n, ...rest } = i;
+      return { ...rest, removed: i.removed.filter((r) => !f.some((x) => x.path === r)), ...(f.length ? { not_removed: f } : {}) };
+    });
+    ver = (await fold(d, key, { ...pack, items: final }, pointer.version, who)).version;
+  }
+  const rows = [];
+  for (const i of final.filter((x) => plan.has(x.id))) {
+    const nr = [...plan.get(i.id).not_removed, ...(failed.get(i.id) ?? [])];
+    rows.push(await row(d, proj, "evidence", `evidence:expired ${i.id} ${i.path}`, who, { ...L.expiredValue(L.PACK_ID, i, ver), ...(nr.length ? { not_removed: nr } : {}) }));
+  }
+  return rows;
+}
+
+/** MA-7-5: expire due items at start and every `every` ms, in each project folder under the evidence root that has a pack; a busy project
+ *  is skipped until the next run. Errors go to the log only. Off with SENTINEL_EXPIRY_SWEEP=off (a test bridge shares the evidence root). → the timer. */
+export function startExpirySweep({ every = 6 * 3600_000, deps, env = process.env } = {}) {
+  if (env.SENTINEL_EXPIRY_SWEEP === "off") { console.log("[bridge] evidence expiry sweep: off (SENTINEL_EXPIRY_SWEEP=off)"); return null; }
+  const run = async () => {
+    try {
+      const d = await wire(deps);
+      for (const e of existsSync(d.root) ? readdirSync(d.root, { withFileTypes: true }) : []) {
+        if (!e.isDirectory() || !/^[a-z0-9-]{1,128}$/.test(e.name) || admitting.has(e.name)) continue;
+        admitting.add(e.name);
+        try { await sweepRun(d, () => d.ensureProject(e.name), e.name); }
+        catch (x) { if (!x.noPack) console.warn(`[bridge] evidence expiry sweep ${e.name}: ${String(x.message ?? x).slice(0, 160)}`); }
+        finally { admitting.delete(e.name); }
+      }
+    } catch (x) { console.warn(`[bridge] evidence expiry sweep: ${String(x.message ?? x).slice(0, 160)}`); }
+  };
+  run();
+  console.log(`[bridge] evidence expiry sweep: on (every ${Math.round(every / 3600_000)} h)`);
+  return setInterval(run, every).unref();
 }
 
 /** POST /cde/:key/evidence/:pack/requests {recipient_kind, recipient?, documents[], purpose?} → 201 (MA-4b; design §4.1): a signed-in
@@ -338,7 +450,7 @@ async function recheckRun(d, proj, key, packId) {
   const dir = evidenceDir(key, d.root), who = actor();
   const changed = [], items = [];
   for (const i of pack.items) {
-    if (i.state === "changed") { items.push(i); continue; }
+    if (i.state === "changed" || i.state === "expired") { items.push(i); continue; } // MA-7-5: an expired item is not read again
     const now = await hashIfThere(dir, i.path);
     const rp = i.registration?.report_path;
     const reason = now === null ? "missing from the evidence folder" : now !== i.sha256 ? "changed since admitted"
@@ -349,8 +461,8 @@ async function recheckRun(d, proj, key, packId) {
   const pack_version = changed.length ? (await fold(d, key, { ...pack, items }, version, who)).version : version;
   const ledger = [];
   for (const c of changed) ledger.push(await row(d, proj, "evidence", `evidence:refused ${c.path}`, who, { pack_id: packId, item_id: c.item_id, path: c.path, sha256: c.sha256, reasons: [c.reason] }));
-  const still = pack.items.filter((i) => i.state === "changed").length;
-  return { checked: pack.items.length - still, changed, still_changed: still, pack_version, ledger };
+  const still = pack.items.filter((i) => i.state === "changed").length, gone = pack.items.filter((i) => i.state === "expired").length;
+  return { checked: pack.items.length - still - gone, changed, still_changed: still, pack_version, ledger };
 }
 
 /** MA-4c: the checks before a survey job starts (build-jobs.mjs), in this order: a person (the machine credential is a 403 — the job's
