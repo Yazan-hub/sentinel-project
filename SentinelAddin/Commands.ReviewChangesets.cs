@@ -793,7 +793,6 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                         if (result.Block != null) said = result.Block + (string.IsNullOrEmpty(said) ? "" : " | " + said); // MA-1a item 5
                         if (result.Ids != null) said = result.Ids + (string.IsNullOrEmpty(said) ? "" : " | " + said);     // MA-2b
                         if (res.MassAs != null) said = res.MassAs + (string.IsNullOrEmpty(said) ? "" : " | " + said);     // MA-6-6 (D13): on its own row
-                        if (res.Removed != null) said = res.Removed + (string.IsNullOrEmpty(said) ? "" : " | " + said);   // MA-8-10: the warnings a stair's scope removed, on its row
                         // MA-3a: the revision Apply re-checked. Remembered for the undo watcher under the Undo entry's name and the changeset's own.
                         records.Add(ResultOf(key, one, res.Applied, rejected, said, one.ReviewRev, here, new List<string> { undo, UndoWatcher.TxName(one.Name, one.Id) }, whys));
                     }
@@ -814,7 +813,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                     // MA-5b-4 review: a ticked wall Revit kept as it stands is said here, with why — not only on the ledger
                     var kept = result.Kept.Count == 0 ? "" : $"\n\nKept as they stand ({KeptCount(fresh, result.Kept)}):\n" + string.Join("\n", result.Kept.Take(10).Select(k => "• " + k.Why)) + (result.Kept.Count > 10 ? $"\n… and {result.Kept.Count - 10} more (each in its changeset's note)" : "");
                     var head = $"Applied {result.Applied.Count} element(s) from \"{cs.Name}\"." + kept +
-                        (warnings != null ? "\n\n" + warnings : "") + (result.Removed != null ? "\n\n" + result.Removed : "") + (result.Block != null ? "\n\n" + result.Block : "") +
+                        (warnings != null ? "\n\n" + warnings : "") + (result.Block != null ? "\n\n" + result.Block : "") +
                         (result.Ids != null ? "\n\n" + result.Ids : "") + (result.Placement != null ? "\n\n" + string.Join("\n", result.Placement) : "") + // MA-1a item 6
                         (unsaved.Count > 0 ? $"\n\n⚠ The result of {string.Join(", ", unsaved)} could not be saved on this PC ({UnreportedResults.Root}): if its report fails too, nothing on this PC remembers it — check the changeset's status on the bridge before reviewing it again." : "");
                     // MA-6-6 (MAS-1): a Photo Massing mass was applied — the next step is its shell, one storey per level.

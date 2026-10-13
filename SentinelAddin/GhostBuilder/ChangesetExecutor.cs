@@ -77,9 +77,6 @@ public sealed class ChangesetExecutor
         /// MA-6-6 (D13): said when this Revit refused a DirectShape in Mass and the mass was placed as a Generic Model instead;
         /// null otherwise. Carried by ChangesetPlacementEvent onto the placement lines, so the note and the dialog say it.
         public string MassAs { get; set; }
-        /// MA-8-10: the line saying which Revit warnings a stair's edit scope removed (GhostFailurePolicy.RemovedLine); null when none. Rides on the note and
-        /// the dialog like MassAs - the one place Sentinel erases a warning is always said.
-        public string Removed { get; set; }
     }
 
     /// F-S2-2: the ids of the walls that were in the model before the caller's build (a Ghost build of several changesets sets
@@ -1571,11 +1568,8 @@ public sealed class ChangesetExecutor
                 ProvenanceStamp.ForChangeset(Provenance, new[] { (el.ProposalGuid, el.Reason) }, cs.Adjudication?.LedgerRow));
             if (t.Commit() != TransactionStatus.Committed)
                 throw new InvalidOperationException("Revit did not commit the stair's transaction" + (innerHandler.RolledBack != null ? ": " + innerHandler.RolledBack : ""));
+            // MA-8-10: no warning is ever erased - one at the scope's commit (a modal dialog otherwise, spike S1) rolls the stair back with its words
             scopeHandler = new GhostFailureHandler { AllOrNothing = true, RollBackOtherWarnings = true };
-            scopeHandler.DeletableWarnings.Add(BuiltInFailures.StairRampFailures.StairsTopEndExceedsOrNotReachWarning.Guid); // the one warning the spike saw as harmless
-            // the elements a warning of this stair may name and still be removed: the stair, its runs, landings and supports (read inside the scope)
-            scopeHandler.Ours.Add(stairsId.IdValue());
-            foreach (var id in stairs.GetStairsRuns().Concat(stairs.GetStairsLandings()).Concat(stairs.GetStairsSupports())) scopeHandler.Ours.Add(id.IdValue());
             scope.Commit(scopeHandler);
 
             // what Revit holds now, read after the scope's commit: the type's railings appear only there. Rounded to 0.01 mm.
@@ -1591,7 +1585,6 @@ public sealed class ChangesetExecutor
                 Runs = runs.Count, Railings = made.GetAssociatedRailings().Count,
             };
             foreach (var kv in GhostFailurePolicy.CountWarnings(innerHandler.SeenWarnings.Concat(scopeHandler.SeenWarnings).ToList(), new HashSet<long>())) result.Warnings[kv.Key] = kv.Value;
-            result.Removed = GhostFailurePolicy.RemovedLine(scopeHandler.RemovedWarnings);
             return result;
         }
         catch (Exception ex)

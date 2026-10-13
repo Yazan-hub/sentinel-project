@@ -145,7 +145,6 @@ public sealed class ChangesetPlacementEvent : IExternalEventHandler
                 result.Kept.AddRange(res.Kept); // MA-5b-4
                 result.Turned.AddRange(res.Turned);
                 result.MassAs ??= res.MassAs; // MA-6-6 (D13)
-                result.Removed ??= res.Removed; // MA-8-10: the warnings a stair's scope removed, said
                 foreach (var kv in res.Warnings) result.Warnings[kv.Key] = (result.Warnings.TryGetValue(kv.Key, out var seen) ? seen : 0) + kv.Value;
             }
             // MA-2b (design §3.4 step 5): the DD IDS made from the matrix, judged on what this changeset applied — before the BLOCK

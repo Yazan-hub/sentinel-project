@@ -142,22 +142,17 @@ static partial class Check
         Ok(body.Contains("StairPlanner.Risers(f2f, maxRiser) != risers") && body.Contains("going < type.MinTreadDepth / MmToFeet - StairPlanner.TolMm") && body.Contains("width < type.MinRunWidth / MmToFeet - StairPlanner.TolMm")
            && body.Contains("the levels or the stair type changed since the plan — re-propose from the flag") && body.Contains("scopeHandler = new GhostFailureHandler { AllOrNothing = true, RollBackOtherWarnings = true };")
            && body.Contains("catch (Exception ex)") && body.Contains("scope.Cancel()") && body.Contains("if (ex is PlacementRefused) return new ExecutionResult { NotRun = true, Error = ex.Message };"),
-           "the executor re-checks the plan with the planner's own Risers() (amendment 1), commits the scope with a handler that deletes the warnings it raises (a modal dialog otherwise), and cancels it on a refusal: PlacementRefused keeps the changeset proposed");
+           "the executor re-checks the plan with the planner's own Risers() (amendment 1), commits the scope with an all-or-nothing handler that rolls back on any warning (a modal dialog otherwise), and cancels it on a refusal: PlacementRefused keeps the changeset proposed");
         Ok(ex.Contains("\"stair\" => () => StairsTypeOf(doc, p.FamilyName, p.TypeName), // MA-8-10") && ex.Contains("OfCategory(BuiltInCategory.OST_Stairs).WhereElementIsElementType()")
            && ex.Contains("if (!(hits[0] is Arch.StairsType)) throw new InvalidOperationException(") && ex.Contains("a sketch (legacy) stair type — Sentinel builds component stairs only")
            && ex.Contains("Manage ▸ Transfer Project Standards (Stairs types) from the office template; Sentinel creates no types"),
            "NotLoaded asks the stair type of the model (family and name, element types of OST_Stairs); a legacy sketch type is refused in words; a type not loaded says how to bring it in (amendment 15)");
-        Ok(fh.Contains("public readonly HashSet<Guid> DeletableWarnings") && fh.Contains("if (DeletableWarnings.Contains(f.GetFailureDefinitionId().Guid) && named.Count > 0 && named.All(Ours.Contains))") && fh.Contains("else if (RollBackOtherWarnings) return RollBack(")
-           && ex.Contains("DeletableWarnings.Add(BuiltInFailures.StairRampFailures.StairsTopEndExceedsOrNotReachWarning.Guid)") && ex.Contains("RollBackOtherWarnings = true")
-           && ex.Contains("stairs.ActualTreadDepth = going * MmToFeet;") && ex.Contains("innerHandler.SeenWarnings.Concat(scopeHandler.SeenWarnings)") && fh.Contains("RemovedWarnings.Add((key, text, named));")
-           && fh.Contains("else SeenWarnings.Add((key, text, named));") && ex.Contains("scopeHandler.Ours.Add(stairsId.IdValue());") && ex.Contains("stairs.GetStairsRuns().Concat(stairs.GetStairsLandings()).Concat(stairs.GetStairsSupports())")
-           && ex.Contains("result.Removed = GhostFailurePolicy.RemovedLine(scopeHandler.RemovedWarnings);") && src2("GhostBuilder", "ChangesetPlacementEvent.cs").Contains("result.Removed ??= res.Removed;")
-           && rv.Contains("if (res.Removed != null) said = res.Removed + ") && rv.Contains("(result.Removed != null ? \"\\n\\n\" + result.Removed : \"\")"),
-           "a stair scope's warning is removed only when its definition is the allowlisted top-end one and it names nothing but the stair's own elements, kept in RemovedWarnings, and said on the dialog and the ledger row; any other warning rolls the stair back with its words");
-        var one = new List<(string Key, string Text, IReadOnlyCollection<long> Ids)> { ("k1", "Stair top end exceeds the top elevation.", new long[] { 7 }), ("k2", "Stair top end exceeds the top elevation.", new long[] { 7, 8 }), ("k3", "Other.", new long[] { 7 }) };
-        Ok(GhostFailurePolicy.RemovedLine(new List<(string, string, IReadOnlyCollection<long>)>()) == null && GhostFailurePolicy.RemovedLine(null) == null
-           && GhostFailurePolicy.RemovedLine(one) == "Revit warnings Sentinel removed at the stair's commit: 3 — each named only the stair it built (a stair edit scope shows its warnings in a modal dialog): Stair top end exceeds the top elevation. ×2; Other.",
-           "RemovedLine counts the removed warnings by text and says why; none, no line");
+        Ok(ex.Contains("scopeHandler = new GhostFailureHandler { AllOrNothing = true, RollBackOtherWarnings = true };") && !body.Contains("DeletableWarnings") && !body.Contains("scopeHandler.Ours")
+           && fh.Contains("if (RollBackOtherWarnings) return RollBack(\"Revit raised a warning on the stair: \" + text, named);") && fh.Contains("SeenWarnings.Add((key, text, named));")
+           && !fh.Contains(".DeleteWarning(") && !fh.Contains("DeletableWarnings") && !fh.Contains("RemovedWarnings") && !ex.Contains("DeletableWarnings") && !ex.Contains("RemovedLine")
+           && ex.Contains("stairs.ActualTreadDepth = going * MmToFeet;") && ex.Contains("innerHandler.SeenWarnings.Concat(scopeHandler.SeenWarnings)")
+           && !src2("GhostBuilder", "GhostFailurePolicy.cs").Contains("RemovedLine") && !src2("GhostBuilder", "ChangesetPlacementEvent.cs").Contains("Removed") && !rv.Contains("res.Removed") && !rv.Contains("result.Removed"),
+           "no warning is ever erased at a stair's commit: the scope's handler is all-or-nothing with RollBackOtherWarnings, no allowlist, no DeleteWarning, no 'removed' line - a warning rolls the stair back with its words (F-S2-3)");
 
         // the propose hops (amendment 16): sign-in, the standards on a pool thread, Revit's thread for the type and the plan, the POST on a pool thread, the words
         int pr = At(rv, "window.ProposeStairRequested += uid =>");
