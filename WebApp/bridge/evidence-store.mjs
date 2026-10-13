@@ -225,7 +225,7 @@ export async function signAttestation(key, packId, b = {}, deps) {
   // MA-7-12 (amendment 4): (g) speaks for web photos — signed only while the founder's switch is drill (for this project) or on, and after (a)
   const sw = code === "g" ? W.webSwitch(d.env, key) : null;
   if (sw?.mode === "off") throw err(409, "(g) speaks for web photos — web evidence is off until counsel has reviewed it; nothing was signed");
-  if (sw && !pack.attestations.some((a) => a.code === "a")) throw err(409, W.NO_A);
+  if (sw && !pack.attestations.some((a) => a.code === "a")) throw err(409, "a lead signs (a), the owner's authority, before (g); nothing was signed"); // MA-7-12: not W.NO_A (that one is for a search or a save)
   const who = actor();
   const att = { id: L.nextId("att", pack.attestations), code, text_sha256: L.ATTESTATIONS[code].sha256, by: who, role, at: d.now() };
   const pointer = await fold(d, key, { ...pack, attestations: [...pack.attestations, att] }, version, who);
@@ -279,8 +279,9 @@ async function admitRun(d, proj, key, packId, b) {
   if (webPath) await d.requireMinRole(key, "lead").catch((e) => { throw e.status === 403 ? err(403, "a web photo is a lead's to admit (AMBER) — nothing was saved") : e; });
   // The signatures its kind needs — the flagged item's own kind when it comes back (review: a body's kind asked for the wrong ones).
   // MA-7-12: with the switch off a photo that is not own is refused in words (a row) - it is not our capture, so (c) is not asked (a map service's still asks (a), (d): the RED rule rests on (d)); with drill or on it asks (a), (d), (g)
-  const offWeb = !prev && !pack.dataset && input.kind === "photo" && input.provider !== "own" && webMode === "off";
-  const needFrom = input.kind !== "photo" ? input.provider : prev ? prev.provider : webAsk ? input.provider : "own";
+  // (g) is asked on the web path only, so a RED or unsupported source reaches its refused row whatever is signed
+  const offWeb = !prev && !pack.dataset && input.kind === "photo" && input.provider !== "own" && !webPath;
+  const needFrom = input.kind !== "photo" ? input.provider : prev ? prev.provider : webPath ? input.provider : "own";
   const missing = L.missingAttestations(pack, L.needsOf(pack, input.kind, needFrom).filter((c) => !(offWeb && c === "c")));
   if (missing.length) throw err(409, `a lead must sign ${L.codesSaid(missing)} first; nothing was saved`);
   let request = null;
@@ -357,7 +358,7 @@ async function admitWeb(d, { proj, key, packId, pack, version, input, wrec, boxe
   const terms = insideFolder(dir, wrec.terms_path);
   if (!isFile(terms)) throw err(404, `no saved page ${wrec.terms_path} in the project's evidence folder (${dir}) — save the photo's own page there first; nothing was saved`);
   const termsRel = onDisk(dir, terms);
-  if (String(termsRel).split("/")[0].toLowerCase() === ".sentinel" || termsRel === input.path) throw err(400, "web.terms_path must be the saved page, a file other than the photo and outside .sentinel/ — nothing was saved");
+  if (String(termsRel).split("/")[0].toLowerCase() === ".sentinel" || termsRel === input.path || pack.items.some((i) => i.path === termsRel || i.registration?.report_path === termsRel)) throw err(400, "web.terms_path must be the saved page, a file other than the photo and outside .sentinel/ — nothing was saved");
   if (statSync(terms).size > 2 * 1024 * 1024) throw err(400, "web.terms_path is a saved page of at most 2 MB — nothing was saved");
   const th = await hashFile(terms);
   const web = { ...wrec, terms_path: termsRel, terms_sha256: th.sha256 };
@@ -377,12 +378,12 @@ async function admitWeb(d, { proj, key, packId, pack, version, input, wrec, boxe
     copyFileSync(dst, tmp);
     const pointer = await fold(d, key, { ...pack, items: [...pack.items, item] }, version, who);
     made = false; // the pack names the copy now
-    try { d.rename(tmp, full); } catch { // the pack names the copy but the folder still holds the original: Re-check flags it
-      throw err(500, `${input.path} is admitted as ${id} (its blurred copy is ${`.sentinel/view/${id}.jpg`}), but the original could not be replaced — Re-check flags it; put the copy in its place or retire ${id}`);
-    }
+    let stuck = null; // the pack names the copy but the folder still holds the original: Re-check flags it; the rows are written all the same (review fix)
+    try { d.rename(tmp, full); } catch (re) { stuck = { path: input.path, why: String(re?.message ?? re).slice(0, 200) }; }
     const tools = (Array.isArray(r.tools) ? r.tools : []).slice(0, 30).map((t) => ({ name: String(t.name).slice(0, 100), version: String(t.version ?? "").slice(0, 40), licence: String(t.licence ?? "").slice(0, 100) }));
-    const ledger = await row(d, proj, "evidence", `evidence:admitted ${item.id} ${item.path}`, who, L.admittedValue(packId, item, pointer.version, false));
+    const ledger = await row(d, proj, "evidence", `evidence:admitted ${item.id} ${item.path}`, who, { ...L.admittedValue(packId, item, pointer.version, false), ...(stuck ? { not_replaced: stuck } : {}) });
     const ledger_blurred = await row(d, proj, "evidence", `evidence:blurred ${id} · ${vc.areas} area(s) · person-marked`, who, L.blurredValue(packId, { ...item, sha256: item.original_sha256 }, { ...vc, tools }, pointer.version));
+    if (stuck) throw err(500, `${input.path} is admitted as ${id} (its blurred copy is ${`.sentinel/view/${id}.jpg`}), but the original could not be replaced — Re-check flags it; put the copy in its place or retire ${id}`);
     return { verdict: "admitted", item, pack_version: pointer.version, ledger, ledger_blurred };
   } catch (e) {
     if (made) try { d.unlink(dst); } catch { /* the sweep or the next try replaces it */ }
@@ -458,7 +459,7 @@ export async function photoFile(key, packId, itemId, which, o = {}, deps) {
   const dir = evidenceDir(key, d.root);
   if (!orig) {
     const why = L.usable(item, "view", { webMode: W.webSwitch(deps?.env ?? process.env, key).mode });
-    if (why) throw err(409, why);
+    if (why) throw err(why.startsWith("web evidence is off") ? 403 : 409, why); // MA-7-12 amendment 11: off = 403
     const full = join(dir, ".sentinel", "view", `${itemId}.jpg`);
     // ponytail: the copy's bytes are not re-hashed per view (the row and the item hold its sha256 for anyone who checks); re-hash here if a copy is ever edited by hand
     if (!isFile(full)) throw err(404, `${itemId}'s blurred copy is missing from the evidence folder — retire the photo and admit the file again; nothing was shown`);

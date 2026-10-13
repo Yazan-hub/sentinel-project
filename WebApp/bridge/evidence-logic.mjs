@@ -152,7 +152,7 @@ export function readWebBody(w, today) {
   if (u.username || u.password) throw bad("web.source_url carries a user name or password — give the page's public address");
   if (!(realDay(w.retrieved_at) <= realDay(today))) throw bad("web.retrieved_at must be the day you saved the page, as 2026-10-13 (a real day, not in the future)");
   const terms_path = typeof w.terms_path === "string" ? w.terms_path.trim().replace(/\\/g, "/") : "";
-  if (!safeRel(terms_path) || terms_path.split("/")[0].toLowerCase() === ".sentinel") throw bad("web.terms_path must name the saved page (HTML) inside the project's evidence folder, relative to it");
+  if (!safeRel(terms_path) || !/.html?$/i.test(terms_path) || terms_path.split("/")[0].toLowerCase() === ".sentinel") throw bad("web.terms_path must name the saved page (HTML) inside the project's evidence folder, relative to it");
   if (w.delete_by != null && Number.isNaN(realDay(w.delete_by))) throw bad("web.delete_by must be a day, as 2026-12-31");
   return { licence, source_url: w.source_url, author, attribution_text, retrieved_at: w.retrieved_at, terms_path, delete_by: w.delete_by ?? null };
 }
