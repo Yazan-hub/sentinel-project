@@ -85,6 +85,7 @@ async function wire(deps = {}) {
     myRole: deps.myRole || members.myRole,
     requireMinRole: deps.requireMinRole || members.requireMinRole,
     root: deps.root ?? evidenceRoot(),
+    unlink: deps.unlink || unlinkSync, // review: injected by a test that needs an unlink to fail
     now: deps.now || (() => new Date().toISOString()),
   };
 }
@@ -239,6 +240,9 @@ async function admitRun(d, proj, key, packId, b) {
   const dir = evidenceDir(key, d.root), full = insideFolder(dir, input.path), who = actor();
   if (!isFile(full)) throw err(404, `no file ${input.path} in the project's evidence folder (${dir}) — put it there first; nothing was saved`);
   input = { ...input, path: onDisk(dir, full) }; // the disk's spelling: "Photos/OWN.jpg" is photos/own.jpg, admitted or not
+  // review (MA-7-5): the .sentinel/ guard ran on the caller's spelling; the disk's spelling (8.3 short names) must not land in Sentinel's folder
+  const inSentinel = (x) => String(x).split("/")[0].toLowerCase() === ".sentinel";
+  if (inSentinel(input.path)) throw err(400, ".sentinel/ is Sentinel's own folder (blurred copies) — nothing was saved");
   const prev = pack.items.find((i) => i.path === input.path);
   // MA-7-5: before the "already admitted" 409 (amendment 17) — an expired item is never read again; the file comes in under a new name
   if (prev?.state === "expired") throw err(409, `${input.path} was ${prev.id}, expired on ${prev.expired_at.slice(0, 10)} (delete-by) — put the file in under a new name; nothing was saved`);
@@ -294,6 +298,7 @@ async function admitRun(d, proj, key, packId, b) {
       const rf = insideFolder(dir, input.registration.report_path);
       if (!isFile(rf)) throw err(404, `no registration report ${input.registration.report_path} in the project's evidence folder — put it there first; nothing was saved`);
       input = { ...input, registration: { ...input.registration, report_path: onDisk(dir, rf) } };
+      if (inSentinel(input.registration.report_path)) throw err(400, ".sentinel/ is Sentinel's own folder (blurred copies) — nothing was saved");
       report = await hashFile(rf);
     }
     item = L.newItem({ id: L.nextId("ev", pack.items), input: newPhoto ? { ...input, capture: cam } : input, format, sha256: f.sha256, size_bytes: f.size_bytes, report, pack, who, at: d.now(), request });
@@ -320,15 +325,20 @@ export async function setDeleteBy(key, packId, itemId, b = {}, deps) {
     if (!item) throw err(404, `no item ${itemId} in ${packId} — nothing was saved`);
     if (item.state === "expired") throw err(409, `${itemId} expired on ${item.expired_at.slice(0, 10)} — its record stays and cannot change; nothing was saved`);
     const today = d.now().slice(0, 10), { delete_by, why } = L.readDeleteBy(b, today);
+    // review: a third party's file (role context, 7-12) is only ever brought forward — its source's retention limit is its first date
+    if (item.role === "context" && item.delete_by && delete_by > item.delete_by) throw err(409, `${itemId} comes from a website: its delete-by ${item.delete_by} can be brought forward, not moved later; nothing was saved`);
     const who = actor();
     const { delete_why: _w, ...rest } = item;
     const next = { ...rest, delete_by, ...(why ? { delete_why: why } : {}) };
     const pointer = await fold(d, key, { ...pack, items: pack.items.map((i) => (i === item ? next : i)) }, version, who);
     const ledger = [await row(d, proj, "evidence", `evidence:delete_by ${itemId} ${delete_by}`, who,
       { pack_id: packId, item_id: itemId, path: item.path, sha256: item.sha256, delete_by, why, actor: who, pack_version: pointer.version })];
-    if (delete_by <= today) ledger.push(...await sweepRun(d, proj, key));
+    let note;
+    if (delete_by <= today) { // review: the date is saved; a failed sweep (409 fold) is said as such and the next sweep expires it
+      try { ledger.push(...await sweepRun(d, proj, key)); } catch (e) { note = "the delete-by date is saved; the item expires at the next sweep (within 6 hours)"; console.warn(`[bridge] evidence retire sweep ${key}: ${String(e.message ?? e).slice(0, 160)}`); }
+    }
     const cur = await packOf(d, key, packId);
-    return { item: cur.pack.items.find((i) => i.id === itemId), pack_version: cur.version, ledger };
+    return { item: cur.pack.items.find((i) => i.id === itemId), pack_version: cur.version, ledger, ...(note ? { note } : {}) };
   } finally { admitting.delete(key); }
 }
 
@@ -336,15 +346,18 @@ export async function setDeleteBy(key, packId, itemId, b = {}, deps) {
  *  (amendment 15): one fold marks the items expired with the Sentinel copies that still have their admitted bytes; a 409 deletes nothing and
  *  the next run retries; then each planned file is unlinked; then one evidence:expired row per item. The office's own file is never touched. → the rows. */
 // ponytail: sequential hashing of each removable file; a pack of many big copies takes minutes — hash in parallel if a NAS pack is slow.
-async function sweepRun(d, proj, key) {
+async function sweepRun(d, projOf, key) {
   const { pack, version } = await packOf(d, key, L.PACK_ID);
   const at = d.now(), dueNow = L.due(pack, at.slice(0, 10));
   if (!dueNow.length) return [];
-  const dir = evidenceDir(key, d.root), who = actor();
+  const proj = typeof projOf === "function" ? await projOf() : projOf; // review: a folder with nothing due never asks for its project
+  const who = "machine"; // review: the sweep's actor is the machine, also when a lead's request ran it
+  const dir = evidenceDir(key, d.root);
   const plan = new Map(); // item id → {removed: [paths], not_removed: [{path, why}]}
   for (const i of dueNow) {
     const p = { removed: [], not_removed: [] };
-    for (const r of L.removable(i)) {
+    // a retry (review: an unlink failed last time) tries only the paths still listed as not removed
+    for (const r of L.removable(i).filter((x) => i.state !== "expired" || (i.not_removed ?? []).some((n) => n.path === x.path))) {
       let full;
       try { full = insideFolder(dir, r.path); } catch { p.not_removed.push({ path: r.path, why: "not inside the evidence folder — left in place" }); continue; }
       if (!isFile(full)) continue;
@@ -354,13 +367,28 @@ async function sweepRun(d, proj, key) {
   }
   const items = pack.items.map((i) => (plan.has(i.id) ? L.expire(i, at, [...plan.get(i.id).removed]) : i));
   const pointer = await fold(d, key, { ...pack, items }, version, who); // a 409 here: nothing is deleted
-  const rows = [];
+  const failed = new Map(); // item id → [{path, why}] the unlink could not delete
   for (const i of items.filter((x) => plan.has(x.id))) {
-    const p = plan.get(i.id);
-    for (const rel of [...p.removed]) {
-      try { unlinkSync(insideFolder(dir, rel)); } catch (e) { p.removed.splice(p.removed.indexOf(rel), 1); p.not_removed.push({ path: rel, why: `could not be deleted (${e.code ?? "error"})` }); }
+    const p = plan.get(i.id), f = [];
+    for (const rel of p.removed) {
+      try { d.unlink(insideFolder(dir, rel)); } catch (e) { f.push({ path: rel, why: `could not be deleted (${e.code ?? "error"})` }); }
     }
-    rows.push(await row(d, proj, "evidence", `evidence:expired ${i.id} ${i.path}`, who, { ...L.expiredValue(L.PACK_ID, i, pointer.version), ...(p.not_removed.length ? { not_removed: p.not_removed } : {}) }));
+    failed.set(i.id, f);
+  }
+  // review: the pack and the row say what was really removed; a failed unlink stays in the item's not_removed and the next sweep retries it
+  let final = items, ver = pointer.version;
+  if (items.some((i) => plan.has(i.id) && (failed.get(i.id).length || i.not_removed))) {
+    final = items.map((i) => {
+      if (!plan.has(i.id)) return i;
+      const f = failed.get(i.id), { not_removed: _n, ...rest } = i;
+      return { ...rest, removed: i.removed.filter((r) => !f.some((x) => x.path === r)), ...(f.length ? { not_removed: f } : {}) };
+    });
+    ver = (await fold(d, key, { ...pack, items: final }, pointer.version, who)).version;
+  }
+  const rows = [];
+  for (const i of final.filter((x) => plan.has(x.id))) {
+    const nr = [...plan.get(i.id).not_removed, ...(failed.get(i.id) ?? [])];
+    rows.push(await row(d, proj, "evidence", `evidence:expired ${i.id} ${i.path}`, who, { ...L.expiredValue(L.PACK_ID, i, ver), ...(nr.length ? { not_removed: nr } : {}) }));
   }
   return rows;
 }
@@ -375,7 +403,7 @@ export function startExpirySweep({ every = 6 * 3600_000, deps, env = process.env
       for (const e of existsSync(d.root) ? readdirSync(d.root, { withFileTypes: true }) : []) {
         if (!e.isDirectory() || !/^[a-z0-9-]{1,128}$/.test(e.name) || admitting.has(e.name)) continue;
         admitting.add(e.name);
-        try { await sweepRun(d, await d.ensureProject(e.name), e.name); }
+        try { await sweepRun(d, () => d.ensureProject(e.name), e.name); }
         catch (x) { if (!x.noPack) console.warn(`[bridge] evidence expiry sweep ${e.name}: ${String(x.message ?? x).slice(0, 160)}`); }
         finally { admitting.delete(e.name); }
       }

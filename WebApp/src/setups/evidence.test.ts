@@ -61,7 +61,9 @@ describe("the lines", () => {
     expect(itemLine({ ...ITEM, delete_by: "2026-12-31" })).toBe("ev-0001 · scans/tiny.las · las · 2 KB · sha 76c6b5e940d1… · delete by 2026-12-31");
     const gone: EvidenceItem = { ...ITEM, delete_by: "2026-10-13", state: "expired", expired_at: "2026-10-13T10:00:00.000Z", removed: [] };
     expect(itemLine(gone)).toBe("ev-0001 · scans/tiny.las · las · 2 KB · sha 76c6b5e940d1… · EXPIRED 2026-10-13 — not read by any job; its record and sha stay; the office's file is not touched (delete it by hand if the owner asked)");
-    expect(itemLine({ ...gone, removed: [".sentinel/view/ev-0001.jpg"] })).toBe("ev-0001 · scans/tiny.las · las · 2 KB · sha 76c6b5e940d1… · EXPIRED 2026-10-13 — Sentinel's copies removed; its record and sha stay");
+    expect(itemLine({ ...gone, removed: [".sentinel/view/ev-0001.jpg"] })).toBe("ev-0001 · scans/tiny.las · las · 2 KB · sha 76c6b5e940d1… · EXPIRED 2026-10-13 — Sentinel's copies removed; its record and sha stay; the office's file is not touched (delete it by hand if the owner asked)");
+    expect(itemLine({ ...gone, role: "context", removed: ["photos/web.jpg"] })).toBe("ev-0001 · scans/tiny.las · las · 2 KB · sha 76c6b5e940d1… · EXPIRED 2026-10-13 — Sentinel's copies removed; its record and sha stay");
+    expect(itemLine({ ...gone, not_removed: [{ path: ".sentinel/view/ev-0001.jpg", why: "x" }] })).toContain("1 could not be deleted yet — the next sweep tries again; its record and sha stay");
   });
   it("attestationLine: signed and not signed", () => {
     expect(attestationLine("a", PACK)).toBe("(a) signed by lead@example.test (lead) · 2026-10-08 10:00");

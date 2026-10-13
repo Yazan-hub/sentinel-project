@@ -24,7 +24,7 @@ export interface EvidenceItem {
   id: string; kind: EvidenceKind; format: string; sha256: string; size_bytes: number; path: string; surveyable: boolean;
   admitted_by: string; admitted_at: string; state?: "changed" | "expired"; changed_at?: string;
   /** MA-7-5: the day after which no job reads it; once expired, when, and the Sentinel copies taken away (the office's own file is never touched). */
-  delete_by?: string; delete_why?: string; expired_at?: string; removed?: string[]; registration?: { method: string; report_path?: string };
+  delete_by?: string; delete_why?: string; expired_at?: string; removed?: string[]; not_removed?: { path: string; why: string }[]; role?: string; registration?: { method: string; report_path?: string };
   provider?: string; request_id?: string;
   /** MA-8-3: a third party's model — commercial, with the order or contract it was bought under. */
   licence?: string; licence_ref?: string;
@@ -68,8 +68,10 @@ export function itemLine(i: EvidenceItem): string {
     (i.kind === "drawing" ? ` · drawing from the ${i.provider} under ${i.request_id}` : i.kind === "model" ? (i.provider && i.provider !== "own" ? ` · model from ${i.provider} (${i.licence ?? "commercial"}, ref ${i.licence_ref ?? "?"})` : " · concept model (own)") : i.surveyable ? "" : " · not surveyable (no ReCap here)") +
     (i.kind === "photo" && i.capture ? ` · ${[i.capture.make, i.capture.model].filter(Boolean).join(" ")} · taken ${i.capture.taken_at ?? "?"} · ${i.capture.gps ? "EXIF GPS block in the original (not copied)" : "no EXIF GPS block"}` : "") +
     (i.delete_by && i.state !== "expired" ? ` · delete by ${i.delete_by}` : "") + // MA-7-5
-    (i.state === "expired" ? ` · EXPIRED ${(i.expired_at ?? "").slice(0, 10)} — ` + (i.removed?.length ? "Sentinel's copies removed; its record and sha stay"
-      : "not read by any job; its record and sha stay; the office's file is not touched (delete it by hand if the owner asked)") : "") +
+    (i.state === "expired" ? ` · EXPIRED ${(i.expired_at ?? "").slice(0, 10)} — ` + // review: the office-file clause follows the role, not whether a copy went
+      (i.removed?.length ? "Sentinel's copies removed; " : i.role === "context" ? "" : "not read by any job; ") +
+      (i.not_removed?.length ? `${i.not_removed.length} could not be deleted yet — the next sweep tries again; ` : "") +
+      "its record and sha stay" + (i.role === "context" ? "" : "; the office's file is not touched (delete it by hand if the owner asked)") : "") +
     (i.state === "changed" ? " · CHANGED since admitted — on hold; restore the file and Admit it again, or put the new file in under a new name" : "");
 }
 /** An attestation's state in one line. Pure. */
@@ -148,7 +150,7 @@ export const draftRequest = (base: string, key: string, b: { recipient_kind: Evi
   post<{ request: EvidenceRequest; letter: string; ledger: Ledger }>(base, key, `evidence/${PACK_ID}/requests`, b);
 /** MA-7-5: a lead sets the day after which no job reads the item; today retires it now (its record and sha stay; the office's file is not deleted). */
 export const setDeleteBy = (base: string, key: string, item: string, date: string, why?: string) =>
-  post<{ item: EvidenceItem; pack_version: number; ledger: Ledger[] }>(base, key, `evidence/${PACK_ID}/items/${encodeURIComponent(item)}/delete-by`, { date, ...(why ? { why } : {}) });
+  post<{ item: EvidenceItem; pack_version: number; ledger: Ledger[]; note?: string }>(base, key, `evidence/${PACK_ID}/items/${encodeURIComponent(item)}/delete-by`, { date, ...(why ? { why } : {}) });
 export const recheckEvidence = (base: string, key: string) => post<RecheckReply>(base, key, `evidence/${PACK_ID}/recheck`, {});
 
 /** MA-4c: a survey job as the bridge keeps it (GET /cde/:key/build/jobs); its candidates are read on demand (readJob). */

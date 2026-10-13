@@ -72,7 +72,7 @@ export const USES = { view_reference: true, geometry_extraction: true, texture_e
 // MA-7-3: every field an item may carry — the bridge writes items, so an unknown field is never stored. Each slice that writes a new item field adds it here in the same commit (D-7-30).
 export const ITEM_FIELDS = ["id", "kind", "format", "sha256", "size_bytes", "path", "provider", "licence", "licence_ref", "request_id", "attestation_ids", "allowed_uses", "registration", "surveyable", "admitted_by", "admitted_at", "state", "changed_sha256", "changed_at",
   "capture", // MA-7-4
-  "delete_by", "delete_why", "expired_at", "removed"]; // MA-7-5
+  "delete_by", "delete_why", "expired_at", "removed", "not_removed"]; // MA-7-5
 const PACK_FIELDS = ["kind", "pack_id", "project", "asset", "storage_root", "attestations", "items", "requests", "dataset"];
 /** MA-4b: who an "ask the owner" letter goes to; a drawing admitted under it carries this as its provider. */
 export const RECIPIENTS = ["owner", "architect", "municipality"];
@@ -120,21 +120,23 @@ export function readAdmitBody(b = {}) {
   return { path, kind: b.kind, provider, ...(licence_ref ? { licence_ref } : {}), registration, request_id };
 }
 
+/** MA-7-5: a real calendar day "YYYY-MM-DD" → its UTC ms, else NaN (2026-02-30 is not a day). */
+export const realDay = (s) => (typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s) && new Date(`${s}T00:00:00Z`).toISOString().slice(0, 10) === s ? Date.parse(`${s}T00:00:00Z`) : NaN);
 /** MA-7-5: POST …/items/:id/delete-by's body → {delete_by "YYYY-MM-DD", why|null}, or a 400 in words. `today` ("YYYY-MM-DD") retires the item now. */
 export function readDeleteBy(b = {}, today) {
   const bad = (m) => err(400, `${m} — nothing was saved`);
-  const day = (s) => (typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s) && new Date(`${s}T00:00:00Z`).toISOString().slice(0, 10) === s ? Date.parse(`${s}T00:00:00Z`) : NaN);
+  const day = realDay;
   const t = day(today), d = day(b.date);
-  if (!(d >= t && d <= t + 3650 * 864e5)) throw bad("delete_by must be a date from today (today retires it now) to ten years ahead, as 2026-12-31");
+  if (!(d >= t - 864e5 && d <= t + 3650 * 864e5)) throw bad("delete_by must be a date from today (today retires it now) to ten years ahead, as 2026-12-31");
   let why = null;
   if (b.why != null) {
     why = typeof b.why === "string" ? b.why.trim() : "";
     if (!str(why, 300) || /[ -]/.test(why)) throw bad("why must be one line of 1 to 300 characters");
   }
-  return { delete_by: b.date, why };
+  return { delete_by: d < t ? today : b.date, why };
 }
 /** MA-7-5: the items whose delete-by day has come and that are not expired yet. */
-export const due = (pack, today) => pack.items.filter((i) => i.delete_by && i.delete_by <= today && i.state !== "expired");
+export const due = (pack, today) => pack.items.filter((i) => i.delete_by && i.delete_by <= today && (i.state !== "expired" || i.not_removed?.length > 0)); // review: an expired item whose copy would not delete is tried again
 /** MA-7-5: what Sentinel may delete when an item expires, as [{path, sha256}] (a file is deleted only if it still has that sha256): its blurred
  *  copy (7-7) and a web item's own file (7-12) — never an own, drawing, dataset or vendor file, which are the office's. */
 export function removable(i) {
@@ -144,7 +146,7 @@ export function removable(i) {
   return out;
 }
 /** The item once expired: its record and sha256 stay; `removed` = the Sentinel copies taken away. */
-export const expire = (i, at, removed) => ({ ...i, state: "expired", expired_at: at, removed });
+export const expire = (i, at, removed) => ({ ...i, state: "expired", expired_at: i.expired_at ?? at, removed: [...(i.removed ?? []), ...removed] });
 /** The evidence:expired row's new_value. */
 export const expiredValue = (packId, i, packVersion) => ({
   pack_id: packId, item_id: i.id, path: i.path, sha256: i.sha256, kind: i.kind, provider: i.provider, licence: i.licence, delete_by: i.delete_by, expired_at: i.expired_at, removed: i.removed,
@@ -438,7 +440,9 @@ export function validatePack(p) {
     if (x.state !== undefined && x.state !== "changed" && x.state !== "expired") throw bad(`${at}.state`, 'is "changed", "expired" or absent');
     if (x.state === "expired" && !(str(x.expired_at, 40) && Array.isArray(x.removed) && x.removed.length <= 2 && x.removed.every(safeRel))) // MA-7-5
       throw bad(`${at}.removed`, "an expired item carries expired_at and removed, at most two paths");
-    if (x.delete_by !== undefined && !(typeof x.delete_by === "string" && /^\d{4}-\d{2}-\d{2}$/.test(x.delete_by))) throw bad(`${at}.delete_by`, "is a date, as 2026-12-31, or absent");
+    if (x.delete_by !== undefined && Number.isNaN(realDay(x.delete_by))) throw bad(`${at}.delete_by`, "is a date, as 2026-12-31, or absent");
+    if (x.not_removed !== undefined && !(Array.isArray(x.not_removed) && x.not_removed.length <= 2 && x.not_removed.every((n) => n && safeRel(n.path) && str(n.why, 200)))) // MA-7-5 review
+      throw bad(`${at}.not_removed`, "is at most two {path, why} the sweep could not delete, or absent");
     if (x.delete_why !== undefined && !str(x.delete_why, 300)) throw bad(`${at}.delete_why`, "is one line of at most 300 characters, or absent");
     ids.add(x.id); paths.add(x.path);
   });

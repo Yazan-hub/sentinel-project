@@ -416,7 +416,8 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       if (!confirm(`Retire ${n.dataset.evpath} now? No job reads it again; its record and sha256 stay on the pack and the ledger. The office's own file is not deleted. This cannot be undone.`)) return;
       void evAct(async () => {
         const r = await setDeleteBy(base, pid(), n.dataset.evretire!, new Date().toISOString().slice(0, 10));
-        return `✓ Retired ${n.dataset.evretire} · ${r.ledger.map(ledgerLine).join(" · ")}`;
+        // review: "Retired" only when the item is expired; a bridge clock behind ours, or a busy sweep, leaves the date set
+        return `✓ ${r.item.state === "expired" ? `Retired ${n.dataset.evretire}` : `${n.dataset.evretire} delete-by set — it expires within 6 hours${r.note ? ` (${r.note})` : ""}`} · ${r.ledger.map(ledgerLine).join(" · ")}`;
       });
     }));
     root.querySelectorAll<HTMLElement>("[data-evsign]").forEach((n) => n.addEventListener("click", () => void evAct(async () => {

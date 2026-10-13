@@ -329,7 +329,7 @@ describe("the item-field whitelist (MA-7-3)", () => {
       ["own concept IFC", packWith(["a"]), (p) => mk(p, { path: "model/c.ifc", kind: "model", provider: "own", registration: null }, "ifc")],
     ];
   };
-  it("lists the 19 fields the bridge wrote before MA-7, then capture (7-4)", () => { expect(ITEM_FIELDS).toEqual(["id", "kind", "format", "sha256", "size_bytes", "path", "provider", "licence", "licence_ref", "request_id", "attestation_ids", "allowed_uses", "registration", "surveyable", "admitted_by", "admitted_at", "state", "changed_sha256", "changed_at", "capture", "delete_by", "delete_why", "expired_at", "removed"]); });
+  it("lists the 19 fields the bridge wrote before MA-7, then capture (7-4)", () => { expect(ITEM_FIELDS).toEqual(["id", "kind", "format", "sha256", "size_bytes", "path", "provider", "licence", "licence_ref", "request_id", "attestation_ids", "allowed_uses", "registration", "surveyable", "admitted_by", "admitted_at", "state", "changed_sha256", "changed_at", "capture", "delete_by", "delete_why", "expired_at", "removed", "not_removed"]); });
   it.each(shapes().map((s) => [s[0], s]))("replay: %s validates unchanged", (_n, [, pack, make]) => {
     const item = make(pack);
     expect(Object.keys(item).every((k) => ITEM_FIELDS.includes(k))).toBe(true);
@@ -393,7 +393,8 @@ describe("delete-by, expiry and retire (MA-7-5)", () => {
     expect(readDeleteBy({ date: "2026-12-31" }, TODAY)).toEqual({ delete_by: "2026-12-31", why: null });
     expect(readDeleteBy({ date: TODAY, why: " owner asked " }, TODAY)).toEqual({ delete_by: TODAY, why: "owner asked" });
     expect(readDeleteBy({ date: "2036-10-10" }, TODAY).delete_by).toBe("2036-10-10");
-    for (const date of ["31/12/2026", "2026-02-30", "2026-10-12", "2036-10-11", "", undefined, 20261231]) expect(() => readDeleteBy({ date }, TODAY), String(date)).toThrow(words);
+    for (const date of ["31/12/2026", "2026-02-30", "2026-10-11", "2036-10-11", "", undefined, 20261231]) expect(() => readDeleteBy({ date }, TODAY), String(date)).toThrow(words);
+    expect(readDeleteBy({ date: "2026-10-12" }, TODAY).delete_by).toBe(TODAY); // review: a client one UTC day behind means today
     expect(() => readDeleteBy({ date: TODAY, why: "x".repeat(301) }, TODAY)).toThrow(/why must be one line/);
     expect(() => readDeleteBy({ date: TODAY, why: "a\nb" }, TODAY)).toThrow(/why must be one line/);
   });

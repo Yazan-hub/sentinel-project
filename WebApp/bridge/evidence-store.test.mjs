@@ -7,7 +7,7 @@ import { dirname, join } from "node:path";
 import { makePack, readPack, signAttestation, runEvidenceIntake, recheckPack, draftRequest, surveyStart, webStatus, setDeleteBy, startExpirySweep } from "./evidence-store.mjs";
 import * as W from "./web-sources.mjs";
 import { jpegWithExif } from "./fixtures/jpeg-exif.mjs";
-import { ATTESTATIONS, USES, ITEM_FIELDS } from "./evidence-logic.mjs";
+import { ATTESTATIONS, USES, ITEM_FIELDS, realDay } from "./evidence-logic.mjs";
 
 let root, docs, audits, budgets, role;
 beforeEach(() => { root = mkdtempSync(join(tmpdir(), "sentinel-evidence-")); docs = new Map(); audits = []; budgets = []; role = "lead"; });
@@ -513,7 +513,7 @@ describe("delete-by, expiry and retire (MA-7-5)", () => {
     expect(rows("evidence:expired")).toHaveLength(0);
     expect(budgets).toContainEqual(["evidence delete-by", { perUser: 20, all: 60 }]);
     await expect(delBy("ev-0099", { date: "2026-12-31" })).rejects.toMatchObject({ status: 404 });
-    await expect(delBy("ev-0002", { date: "2026-10-07" })).rejects.toMatchObject({ status: 400 });
+    await expect(delBy("ev-0002", { date: "2026-10-06" })).rejects.toMatchObject({ status: 400 });
     expect((await delBy("ev-0002", { date: "2027-01-01" })).item.delete_why).toBeUndefined(); // a new date without a why drops the old why
   });
 
@@ -558,11 +558,46 @@ describe("delete-by, expiry and retire (MA-7-5)", () => {
     const d = deps(), ins = d.artDeps.docInsert;
     let n = 0; // fold 1 sets ev-0001's delete-by; fold 2 is the sweep's, and another write landed first
     d.artDeps.docInsert = async (...a) => { if (++n === 2) throw Object.assign(new Error("conflict"), { status: 409 }); return ins(...a); };
-    await expect(delBy("ev-0001", { date: TODAY }, d)).rejects.toMatchObject({ status: 409 });
+    const r = await delBy("ev-0001", { date: TODAY }, d); // review: the date is saved, so the lead is told so — not "nothing was saved"
+    expect(r.note).toMatch(/^the delete-by date is saved; the item expires at the next sweep/);
+    expect(r.item.delete_by).toBe(TODAY);
     expect(n).toBe(2);
     expect(existsSync(copy("ev-0002.jpg"))).toBe(true);
     expect(rows("evidence:expired")).toHaveLength(0);
     expect((await pack()).items.every((i) => i.state === undefined)).toBe(true);
+  });
+
+  it("(u) an unlink that fails: pack, row and reply say it was not removed, the first expiry date stays, and the next sweep removes it", async () => {
+    await setup();
+    const COPY = Buffer.from("blurred copy bytes");
+    edit("ev-0002", { view_copy: { sha256: sha(COPY) } });
+    put(".sentinel/view/ev-0002.jpg", COPY);
+    const bad = { ...deps(), unlink: () => { throw Object.assign(new Error("busy"), { code: "EBUSY" }); } };
+    const r = await delBy("ev-0002", { date: TODAY }, bad);
+    const why = [{ path: ".sentinel/view/ev-0002.jpg", why: "could not be deleted (EBUSY)" }];
+    expect(r.item).toMatchObject({ state: "expired", removed: [], not_removed: why });
+    expect(existsSync(copy("ev-0002.jpg"))).toBe(true);
+    expect(rows("evidence:expired")[0].newv).toMatchObject({ removed: [], not_removed: why });
+    // the next sweep (a working unlink) tries it again, on the same expired_at
+    const later = { ...deps(), now: () => "2026-10-10T10:00:00.000Z" };
+    const timer = startExpirySweep({ every: 3600_000, deps: later, env: {} });
+    await vi.waitFor(() => expect(rows("evidence:expired")).toHaveLength(2));
+    clearInterval(timer);
+    const it2 = (await pack()).items.find((i) => i.id === "ev-0002");
+    expect(it2).toMatchObject({ state: "expired", expired_at: "2026-10-08T10:00:00.000Z", removed: [".sentinel/view/ev-0002.jpg"] });
+    expect(it2.not_removed).toBeUndefined();
+    expect(existsSync(copy("ev-0002.jpg"))).toBe(false);
+    expect(rows("evidence:expired")[1].newv).toMatchObject({ removed: [".sentinel/view/ev-0002.jpg"] });
+    expect(rows("evidence:expired")[1].newv.not_removed).toBeUndefined();
+  });
+
+  it("(u2) a web item's delete-by can be brought forward, not moved later; yesterday's UTC day (a client behind) means today", async () => {
+    await setup();
+    edit("ev-0002", { role: "context", delete_by: "2026-11-01" });
+    await expect(delBy("ev-0002", { date: "2026-12-01" })).rejects.toMatchObject({ status: 409, message: expect.stringContaining("brought forward") });
+    expect((await delBy("ev-0002", { date: "2026-10-20" })).item.delete_by).toBe("2026-10-20");
+    expect((await delBy("ev-0001", { date: "2026-10-07" })).item).toMatchObject({ state: "expired", delete_by: TODAY });
+    await expect(delBy("ev-0002", { date: "2026-10-06" })).rejects.toMatchObject({ status: 400 });
   });
 
   it("(r3) a web item's own file is removed on its sha; the row has no office_file", async () => {
@@ -593,9 +628,7 @@ describe("delete-by, expiry and retire (MA-7-5)", () => {
     // a second project: the same pack with one due item
     const keyOf = (p) => `artefact|uuid-${p}|evidence_pack@`;
     mkdirSync(join(root, "other"), { recursive: true });
-    const base = [...docs.keys()].filter((x) => x.startsWith(keyOf("demo"))).sort((a, b) => Number(a.split("@")[1]) - Number(b.split("@")[1])).pop();
     for (const [k, v] of [...docs]) if (k.includes("|uuid-demo|evidence_pack")) docs.set(k.replace("uuid-demo", "uuid-other"), structuredClone(v.body ? { ...v, body: { ...v.body, project: "other" } } : v));
-    expect(base).toBeTruthy();
     const later = { ...deps(), now: () => "2026-10-10T10:00:00.000Z" };
     // hold "demo": a delete-by whose pack read waits
     let release; const gate = new Promise((ok) => { release = ok; }); let entered = false;
@@ -608,6 +641,13 @@ describe("delete-by, expiry and retire (MA-7-5)", () => {
     release(); await held;
     expect((await pack()).items[0].state).toBeUndefined(); // demo was busy: left for the next run
     expect(audits.filter((a) => a.action.startsWith("evidence:expired"))).toHaveLength(1);
+    const latest = (p) => [...docs.keys()].filter((x) => x.startsWith(keyOf(p))).sort((a, b) => Number(a.split("@")[1]) - Number(b.split("@")[1])).pop();
+    expect(docs.get(latest("other")).body.items[0].state).toBe("expired"); // review: the one row is other's, not demo's
+  });
+
+  it("(t3) realDay: a real calendar day only (a hand-edited pack's 2026-02-30 is refused by validatePack)", () => {
+    expect(realDay("2026-02-30")).toBeNaN();
+    expect(realDay("2026-02-28")).toBeGreaterThan(0);
   });
 
   it("(t2) SENTINEL_EXPIRY_SWEEP=off starts nothing", () => {
