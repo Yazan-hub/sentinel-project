@@ -1913,7 +1913,10 @@ async function handleRequest(req, res) {
       if (p2 && p3 === "scan" && req.method === "GET") {
         const flag = url.searchParams.get("flag");
         if (flag != null && (flag === "" || flag.length > 64)) return send(res, 400, { message: "flag must be a stair flag's unique_id (1 to 64 characters)" });
-        return send(res, 200, await ch.scanOverlay(key, p2, {}, flag != null ? { flag } : {}));
+        // MA-8-14: ?ground=1 answers the ground a terrain is made of (the lowest point per cell outside the storey's box), not the scan; not with a flag.
+        const ground = url.searchParams.get("ground") === "1";
+        if (ground && flag != null) return send(res, 400, { message: "ground and flag are two different cuts of the scan — send one" });
+        return send(res, 200, await ch.scanOverlay(key, p2, {}, { ...(flag != null ? { flag } : {}), ...(ground ? { ground } : {}) }));
       }
       // MA-8-9: a person's stair pick, appended to the changeset's exceptions (a signed-in contributor; the machine credential is a 403). The body is {kind, storey, box}.
       if (p2 && p3 === "flags" && req.method === "POST") { const { actor: _who, ...pick } = body; return send(res, 201, await ch.flagChangeset(key, p2, pick, actor)); }

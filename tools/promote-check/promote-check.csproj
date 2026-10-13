@@ -57,6 +57,7 @@
     <Compile Include="..\..\SentinelAddin\GhostBuilder\StairFlag.cs" />
     <!-- MA-8-10: a stair from a flag - the pure planner -->
     <Compile Include="..\..\SentinelAddin\GhostBuilder\StairPlanner.cs" />
+    <Compile Include="..\..\SentinelAddin\GhostBuilder\TerrainPlanner.cs" />
     <!-- MA-8-8: MEP Type Check judge -->
     <Compile Include="..\..\SentinelAddin\Engine\MepTypeCheck.cs" />
     <!-- MA-1a item 8: a local model's usage in one run, and the build:run receipt -->

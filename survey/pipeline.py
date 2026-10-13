@@ -152,6 +152,40 @@ def thin(P, z, mm, cap, xy=None):
     return np.round(T).astype(np.int64), mm, of
 
 
+def ground(P, z, mm, cap, outside=None):
+    """MA-8-14: the ground a terrain is made of — the cloud between heights z[0] and z[1] (mm, the scan's frame), outside the convex plan polygon
+    `outside` (a storey's oriented box: points inside it are the building's), the LOWEST point of each mm-sided plan cell, the cell doubled until
+    at most cap are left. → (whole-mm int64 rows, the cell used, how many the first cell kept). Same shape as thin; thin is untouched.
+    cap >= 8 (read_cloud): a cell larger than the cloud's plan extent keys at most 2 cells an axis, 4 in all, so the doubling ends."""
+    Q = P[(P[:, 2] >= z[0]) & (P[:, 2] <= z[1])]
+    if outside is not None and len(Q):
+        A = np.asarray(outside, float)
+        B = np.roll(A, -1, axis=0)
+        pos = np.ones(len(Q), bool)
+        neg = np.ones(len(Q), bool)
+        for a, b in zip(A, B):  # one edge at a time: no (points x edges) matrix at the 10 M cap
+            d = (b[0] - a[0]) * (Q[:, 1] - a[1]) - (b[1] - a[1]) * (Q[:, 0] - a[0])
+            pos &= d >= 0
+            neg &= d <= 0
+        Q = Q[~(pos | neg)]
+    if not len(Q):
+        return np.zeros((0, 3), np.int64), mm, 0
+    Q = Q[np.argsort(Q[:, 2], kind="stable")]  # lowest first, so np.unique's first hit in a cell is its lowest point
+
+    def lowest(cell):
+        k = np.floor(Q[:, :2] / cell).astype(np.int64)
+        k -= k.min(axis=0)
+        _, first = np.unique(k[:, 0] * (k[:, 1].max() + 1) + k[:, 1], return_index=True)
+        first.sort()
+        return Q[first]
+    T = lowest(float(mm))
+    of = len(T)
+    while len(T) > cap:
+        mm *= 2
+        T = lowest(float(mm))
+    return np.round(T).astype(np.int64), mm, of
+
+
 def surfaces(P):
     """Horizontal surfaces from the height histogram: [{z, band (mask), area_m2}], furniture-sized ones dropped."""
     z = P[:, 2]

@@ -594,3 +594,54 @@ export function cloudRefusal(res, cap) {
   if (!res.points.every((p) => Array.isArray(p) && p.length === 3 && p.every((v) => Number.isInteger(v) && Math.abs(v) <= 2e10))) return "a point is not three whole numbers of mm";
   return null;
 }
+
+// ── MA-8-14: the ground a terrain (a Toposolid) is made of. sentinel-survey finds the lowest point per plan cell outside the storey's box; the
+//    bridge states the cut and moves the points into the model's frame. ──
+
+/** The ground read: a cell of 500 mm, at most 2000 points (the spike's size: seconds in Revit, one Undo), a storey's box padded by 1 m. */
+export const GROUND_CELL_MM = 500, GROUND_MAX = 2000, GROUND_PAD_MM = 1000;
+
+/** The smallest rectangle (least area, by rotating calipers over the convex hull) around plan points, padded by `pad` mm on every side: four
+ *  [x, y] corners, anticlockwise, in whole 0.1 mm. A turned building keeps its own box (an axis-aligned one keeps only the scan's corners —
+ *  the spike, 887 cells of 17 267). null with no point. Pure. */
+export function orientedBox(points, pad) {
+  const P = [...new Map(points.map((p) => [p.join(","), p])).values()].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  if (!P.length) return null;
+  const turn = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const half = (list) => { const h = []; for (const p of list) { while (h.length > 1 && turn(h.at(-2), h.at(-1), p) <= 0) h.pop(); h.push(p); } return h.slice(0, -1); };
+  const hull = P.length < 3 ? P : [...half(P), ...half([...P].reverse())];
+  let best = null;
+  for (let i = 0; i < Math.max(hull.length, 1); i++) {
+    const a = hull[i], b = hull[(i + 1) % hull.length] ?? a;
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1, ux = hull.length > 1 ? (b[0] - a[0]) / len : 1, uy = hull.length > 1 ? (b[1] - a[1]) / len : 0;
+    const s = hull.map((p) => (p[0] - a[0]) * ux + (p[1] - a[1]) * uy), t = hull.map((p) => -(p[0] - a[0]) * uy + (p[1] - a[1]) * ux);
+    const box = { s0: Math.min(...s), s1: Math.max(...s), t0: Math.min(...t), t1: Math.max(...t), ux, uy, a };
+    box.area = (box.s1 - box.s0) * (box.t1 - box.t0);
+    if (!best || box.area < best.area - 1e-9) best = box;
+  }
+  const { s0, s1, t0, t1, ux, uy, a } = best;
+  const at = (s, t) => [r1(a[0] + s * ux - t * uy), r1(a[1] + s * uy + t * ux)];
+  return [at(s0 - pad, t0 - pad), at(s1 + pad, t0 - pad), at(s1 + pad, t1 + pad), at(s0 - pad, t1 + pad)];
+}
+
+/** What the ground read is cut by, from a survey changeset's walls (model frame): the band from 5 m under the lowest wall base to 1.5 m over it
+ *  (ponytail: a site rising more than 1.5 m above the floor is cut, and the answer says so), the level that wall names, and the footprint —
+ *  the oriented box of the lowest storey's wall ends (the walls whose base is within 300 mm of the lowest), padded by 1 m. null with no wall. Pure. */
+export function groundCut(cs) {
+  const w = (cs.elements ?? []).filter((e) => e.kind === "wall" && [e.place?.LocationCurve?.start, e.place?.LocationCurve?.end].every((p) => Array.isArray(p) && p.slice(0, 3).every(Number.isFinite)));
+  if (!w.length) return null;
+  const lo = Math.min(...w.map((e) => e.place.LocationCurve.start[2]));
+  const low = w.filter((e) => e.place.LocationCurve.start[2] - lo <= SCAN_MARGIN_MM);
+  const lowest = low.find((e) => e.place.LocationCurve.start[2] === lo);
+  const level = [lowest.place.LevelName, lowest.place.BaseLevel].find((s) => typeof s === "string" && s.trim()) ?? null;
+  return { band: [lo - 5000, lo + 1500], level: level?.trim() ?? null,
+    footprint: orientedBox(low.flatMap((e) => [e.place.LocationCurve.start, e.place.LocationCurve.end].map((p) => [p[0], p[1]])), GROUND_PAD_MM) };
+}
+
+/** null when the ground answer is a ground answer: the service echoed ground:true and the polygon it was given (a sentinel-survey that does not
+ *  read ground drops the keys it does not know and answers a thinned cloud that looks the same), else what is wrong. Pure. */
+export function groundRefusal(res, outside) {
+  const c = res?.receipt?.cloud;
+  if (c?.ground !== true || JSON.stringify(c.outside_mm) !== JSON.stringify(outside)) return "it did not read ground";
+  return null;
+}

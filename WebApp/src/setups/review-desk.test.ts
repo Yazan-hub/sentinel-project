@@ -64,6 +64,12 @@ describe("words", () => {
       place: { LevelName: "L00", TopLevel: "L01", FamilyName: "Assembled Stair", TypeName: "190mm max riser 250mm going", Risers: 16, Going: 250, Width: 1200 } } as Ghost;
     expect(ghostLine(stair)).toBe("Stair · L00 → L01 · Assembled Stair : 190mm max riser 250mm going · L00 · to L01 · 16 risers, going 250 mm, width 1200 mm — one straight run; landings, turns and railings are a person's");
     expect(ghostLine({ ...stair, place: { ...stair.place, Risers: undefined } } as Ghost)).toBe("Stair · L00 → L01 · Assembled Stair : 190mm max riser 250mm going · L00");
+    // MA-8-14: a terrain says whose word its points are (the add-in's reading of the scan, not re-measured) and that a person checks it against the site survey
+    const terrain = { proposal_guid: "g", kind: "terrain", validate: { identity: { Name: "Terrain · L00" } }, from_scan: { changeset: "5b1c6f3e-2a4d-4e8f-9c1a-7d2e3f4a5b6c" },
+      place: { LevelName: "L00", FamilyName: "Toposolid", TypeName: "Site Ground 300", Points: [[0, 0, -300], [1, 2, -300], [3, 4, -300]] } } as Ghost;
+    expect(ghostLine(terrain)).toBe("Terrain · L00 · Toposolid : Site Ground 300 · L00 · Toposolid from 3 ground points, as Revit filed them from changeset 5b1c6f3e's scan (not re-measured) — check it against the site survey");
+    expect(ghostLine({ ...terrain, from_scan: null } as Ghost)).toContain("as Revit filed them from a scan (not re-measured)");
+    expect(ghostLine({ ...terrain, place: { ...terrain.place, Points: undefined } } as Ghost)).toBe("Terrain · L00 · Toposolid : Site Ground 300 · L00");
   });
 
   it("a decline binds, an accept is advice, a re-open is said; nobody decided is waiting", () => {

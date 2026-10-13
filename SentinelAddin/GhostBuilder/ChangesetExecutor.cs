@@ -248,6 +248,18 @@ public sealed class ChangesetExecutor
         return hits[0];
     }
 
+    /// MA-8-14: the one loaded Toposolid type a terrain create names (Compat.TerrainTypes: the Toposolid token lives in Compat.cs, behind the 2024 guard). None: not
+    /// loaded (PlacementRefused - the model's state; Transfer Project Standards brings the office's types in; Sentinel creates no types); more than one: a person decides.
+    internal static ElementType ToposolidTypeOf(Document doc, string familyName, string typeName)
+    {
+        if (string.IsNullOrWhiteSpace(typeName)) throw new InvalidOperationException(NoTypeName);
+        var hits = Compat.TerrainTypes(doc, familyName, typeName);
+        var label = string.IsNullOrWhiteSpace(familyName) ? typeName : familyName + " : " + typeName;
+        if (hits.Count == 0) throw new PlacementRefused($"Toposolid type \"{label}\" does not exist in this model — Manage ▸ Transfer Project Standards (Toposolid types) from the office template; Sentinel creates no types");
+        if (hits.Count > 1) throw new InvalidOperationException($"{hits.Count} Toposolid types are named \"{label}\" in this model — a person decides");
+        return hits[0];
+    }
+
     /// MA-1: a roof's or ceiling's outline (mm; the bridge checked it is one simple loop) as lines at zFt; a closing point equal
     /// to the first is dropped, as the bridge's outlineProblem reads it.
     private static List<Curve> Outline(double[][] b, double zFt, string what)
@@ -638,6 +650,7 @@ public sealed class ChangesetExecutor
                     "furniture" => () => CreateType(doc, BuiltInCategory.OST_Furniture, "furniture", p.FamilyName, p.TypeName),
                     "beam" => () => CreateType(doc, BuiltInCategory.OST_StructuralFraming, "beam", p.FamilyName, p.TypeName),
                     "stair" => () => StairsTypeOf(doc, p.FamilyName, p.TypeName), // MA-8-10
+                    "terrain" => Compat.TerrainSupported ? () => ToposolidTypeOf(doc, p.FamilyName, p.TypeName) : null, // MA-8-14: before 2024 Execute's own words (TerrainPlanner.OldRevit), not "not loaded"
                     _ => null, // a level, grid, room, opening or mass (MA-6-6) names no type
                 };
             if (pick == null) continue;
@@ -739,6 +752,8 @@ public sealed class ChangesetExecutor
         // MA-8-10: a stair is built in Revit's own stair edit scope, which cannot start with a transaction open - so it branches off here, before the
         // changeset's transaction (RunChecked's TransactionGroup is open: one Undo entry). The bridge files a stair alone in its changeset.
         if (toPlace.Any(e => IsCreate(e) && e.Kind == "stair")) return ExecuteStair(doc, cs, toPlace);
+        // MA-8-14: a terrain is a Toposolid - Revit 2024 and later. Refused before the transaction, in the plan's words (the window shows the same on the row); the changeset stays proposed.
+        if (!Compat.TerrainSupported && toPlace.Any(e => IsCreate(e) && e.Kind == "terrain")) return new ExecutionResult { NotRun = true, Error = TerrainPlanner.OldRevit };
 
         string at = null; // the element being placed when something throws — the refusal names it
         using var t = new Transaction(doc, UndoWatcher.TxName(cs.Name, cs.Id)); // the undo watcher finds it by this name
@@ -964,6 +979,19 @@ public sealed class ChangesetExecutor
                 ds.SetShape(new List<GeometryObject> { solid });
                 ds.SetName(name);
                 Collect(result, el, ds);
+            }
+
+            // MA-8-14: a terrain - the ground points the add-in read off a scan, one Toposolid of the office's type around the storey's footprint (Compat.CreateTerrain: the spike's
+            // CurveLoop overload, lift-then-offset). Inside this transaction: one Undo entry, the ordinary stamp and placement block below. A Revit warning at the commit is
+            // counted and left (GhostFailureHandler) - never erased here.
+            foreach (var el in toPlace.Where(e => IsCreate(e) && e.Kind == "terrain"))
+            {
+                at = Label(el);
+                var level = ResolveLevel(doc, el.Place);
+                var type = ToposolidTypeOf(doc, el.Place.FamilyName, el.Place.TypeName);
+                if (el.Place.Points == null || el.Place.Points.Length < TerrainPlanner.MinPoints || el.Place.Boundary == null || el.Place.Boundary.Length < 3)
+                    throw new InvalidOperationException($"{at}: a terrain needs its ground Points and the storey's Boundary");
+                Collect(result, el, Compat.CreateTerrain(doc, el.Place.Points, el.Place.Boundary, type.Id, level));
             }
 
             // MA-1: a ceiling at its height above the level (place.Offset, required by the bridge).

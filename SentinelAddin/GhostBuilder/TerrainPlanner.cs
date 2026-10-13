@@ -1,0 +1,75 @@
+#nullable disable
+// MA-8-14: a terrain from a scan, the pure planner. Facts go in - the ground points the bridge read off the survey (lowest per cell, outside the storey's walls), the
+// storey's footprint, its level, the guideline's Toposolid rule and the survey changeset - and out comes either the POST /changesets/:key body of ONE terrain or the reason a
+// person decides (D9). No Revit types, so tools/promote-check drives it offline; Commands.ReviewChangesets reads the facts and files the body.
+//
+// THE POINTS ARE THE ADD-IN'S WORD. The bridge cannot tie them to the scan (the ground read is a GET with no ledger row), so the element names the survey changeset it came from
+// (from_scan) and its reason says so: the desk shows "as Revit filed them from <changeset>'s scan (not re-measured) - check it against the site survey".
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
+
+namespace Sentinel.GhostBuilder
+{
+    /// <summary>A plan: <see cref="Body"/> to file, or <see cref="Hold"/> (a whole sentence) when a person decides.</summary>
+    internal sealed class TerrainPlan
+    {
+        public object Body;
+        public string Hold;
+        /// <summary>The one-line account for the dialog ("412 ground points on L00 outside the walls, from job-0003").</summary>
+        public string Line;
+        public int Points;
+    }
+
+    internal static class TerrainPlanner
+    {
+        /// <summary>The bridge's own bounds (changesets-logic MIN/MAX_TERRAIN_POINTS): fewer than 3 points make no surface, more than 2000 are refused.</summary>
+        public const int MinPoints = 3, MaxPoints = 2000;
+        /// <summary>The refusal at Apply (and on the review row) on a Revit before 2024 - which has no Toposolid. Nothing was placed.</summary>
+        public const string OldRevit = "a terrain is a Toposolid — Revit 2024 and later; this Revit cannot apply it; nothing was placed";
+        /// <summary>The refusal at Propose on a Revit before 2024.</summary>
+        public static string NoProposal(string revitVersion) => $"a terrain is a Toposolid — Revit 2024 and later; this is Revit {revitVersion}. Nothing was proposed";
+
+        /// <param name="points">The ground points [x, y, z] mm, z the absolute model elevation (the bridge's answer).</param>
+        /// <param name="footprint">The storey's footprint [x, y] mm (the oriented box of the lowest walls, + 1 m) - the hole in the Toposolid.</param>
+        /// <param name="level">The level the lowest walls name.</param>
+        /// <param name="rule">The guideline's Toposolid rule (GuidelineMatcher.TerrainRule), or null when it names none.</param>
+        public static TerrainPlan Plan(double[][] points, double[][] footprint, string level, (string Family, string Type, string Source)? rule,
+                                       string csName, string csId, string jobId, string actor)
+        {
+            TerrainPlan Hold(string why) => new TerrainPlan { Hold = why };
+            if (string.IsNullOrWhiteSpace(level)) return Hold($"{csName}'s lowest walls name no level — the Toposolid is created on a level; a person decides");
+            if (rule == null || string.IsNullOrWhiteSpace(rule.Value.Type)) return Hold("the guideline names no Toposolid type — a person decides");
+            if (footprint == null || footprint.Length < 3) return Hold($"the scan's storey has no footprint (no wall on {level}) — a person decides");
+            int n = points?.Length ?? 0;
+            if (n < MinPoints) return Hold($"{n} ground point(s) outside the walls of {level} in the scan — a surface needs at least {MinPoints}; a person decides");
+            if (n > MaxPoints) return Hold($"{n} ground points — a terrain takes at most {MaxPoints}; a person decides");
+            string name = $"Terrain · {level}";
+            string reason = $"{n} ground points (lowest per cell, outside the storey's walls) from {jobId} — check it against the site survey";
+            var place = new Dictionary<string, object> { ["LevelName"] = level };
+            if (!string.IsNullOrWhiteSpace(rule.Value.Family)) place["FamilyName"] = rule.Value.Family;
+            place["TypeName"] = rule.Value.Type;
+            place["Points"] = points;
+            place["Boundary"] = footprint;
+            var element = new
+            {
+                kind = "terrain",
+                validate = new { identity = new { Class = "IFCGEOGRAPHICELEMENT", Name = name } },
+                reason,
+                place,
+                from_scan = new { changeset = csId },
+            };
+            return new TerrainPlan
+            {
+                Body = new { name = $"{name} · from {csName}", source = "promote", actor, elements = new[] { element } },
+                Points = n,
+                Line = $"{n} ground points on {level} outside the walls, {rule.Value.Type} ({rule.Value.Source}), from {jobId}",
+            };
+        }
+
+        /// <summary>The line the review window reads beside a terrain row.</summary>
+        public static string RowWords(int points, bool supported) =>
+            $"Toposolid from {points} ground points the add-in read off the scan (not re-measured) — check it against the site survey" + (supported ? "" : " — " + OldRevit);
+    }
+}

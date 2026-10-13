@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import {
   VOCABULARY, OPS, OP_KINDS, MAX_CHANGESET_ELEMENTS, TRUST_FIELDS, ADDIN_SOURCES, CREATE_ENTITY, PLACE_KEPT,
-  validateChangeset, foreignOf, checkStairFlag, checkFromFlag, keepBuilt, stairsOf, STAIR_FLAG_FIELDS, carryKey, outlineProblem, attachVerdicts, canWithdraw, deriveResultStatus, unattributedFailures, editCost, EDIT_COST_CEILING,
+  validateChangeset, foreignOf, checkStairFlag, checkFromFlag, checkFromScan, keepBuilt, stairsOf, STAIR_FLAG_FIELDS, carryKey, outlineProblem, attachVerdicts, canWithdraw, deriveResultStatus, unattributedFailures, editCost, EDIT_COST_CEILING,
 } from "./changesets-logic.mjs";
 import * as core from "./sentinel-core.mjs";
 import { makeTyper, makeCiter } from "./changesets-typing.mjs";
@@ -25,11 +25,11 @@ const status400 = (fn, re) => {
   catch (e) { expect(e.status).toBe(400); expect(e.message).toMatch(re); }
 };
 // MA-1a step 2 adds column and furniture (Ghost Builder's unhosted point families); MA-6-3 opening and beam (vocabulary v2); MA-6-6 mass.
-// MA-8-10 stair.
-const MA1 = ["wall", "floor", "level", "grid", "roof", "ceiling", "door", "window", "column", "furniture", "room", "opening", "beam", "mass", "stair"];
+// MA-8-10 stair. MA-8-14 terrain.
+const MA1 = ["wall", "floor", "level", "grid", "roof", "ceiling", "door", "window", "column", "furniture", "room", "opening", "beam", "mass", "stair", "terrain"];
 
 describe("VOCABULARY", () => {
-  it("is the MA-1 list, with MA-1a step 2's column and furniture, MA-5b-1's room, MA-6-3's opening and beam, MA-6-6's mass and MA-8-10's stair", () => expect(VOCABULARY).toEqual(MA1));
+  it("is the MA-1 list, with MA-1a step 2's column and furniture, MA-5b-1's room, MA-6-3's opening and beam, MA-6-6's mass, MA-8-10's stair and MA-8-14's terrain", () => expect(VOCABULARY).toEqual(MA1));
 });
 
 describe("validateChangeset — shape", () => {
@@ -1614,7 +1614,7 @@ describe("validateChangeset — stair (MA-8-10)", () => {
       typing: { typed_by: "caller" }, pretick: false, reason: cases.good.elements[0].reason });
     expect(v.elements[0].validate.identity.Class).toBe("IFCSTAIR");
     expect(CREATE_ENTITY.stair).toBe("IFCSTAIR");
-    expect(VOCABULARY.at(-1)).toBe("stair");
+    expect(VOCABULARY.at(-2)).toBe("stair"); // MA-8-14: terrain follows it
   });
 
   it.each(cases.refusals.map((c) => [c.name, c]))("refuses %s in words (400)", (_n, c) => status400(() => ok(body(c.place)), new RegExp(`^elements\\[0\\]: ${c.message.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`)));
@@ -1658,6 +1658,85 @@ describe("validateChangeset — stair (MA-8-10)", () => {
     const w = { kind: "wall", validate: { identity: { Class: "IFCWALL", Name: "W" } }, place: { TypeName: "T", LevelName: "L", LocationCurve: { start: [0, 0, 0], end: [1000, 0, 0] }, Risers: 16 } };
     status400(() => validateChangeset({ name: "n", elements: [w] }), /^elements\[0\]: a wall takes no place\.Risers$/);
     status400(() => validateChangeset({ name: "n", elements: [{ ...w, place: { ...w.place, Risers: undefined, Going: 250 } }] }), /a wall takes no place\.Going/);
+  });
+});
+
+// MA-8-14: a terrain from a scan - one Toposolid of points around the storey's footprint, alone in its changeset. The cases are shared with the add-in's planner
+// (tools/promote-check Ma8Terrain.cs: TerrainPlanner's body for `plan` equals `good`).
+describe("validateChangeset — terrain (MA-8-14)", () => {
+  const cases = JSON.parse(readFileSync(new URL("./fixtures/changeset-ops/terrain-cases.json", import.meta.url), "utf8"));
+  const body = (placePatch = {}, elPatch = {}) => {
+    const b = structuredClone(cases.good);
+    for (const [k, v] of Object.entries(placePatch)) { if (v === null) delete b.elements[0].place[k]; else b.elements[0].place[k] = v; }
+    Object.assign(b.elements[0], elPatch);
+    return b;
+  };
+  const ok = (b) => validateChangeset(b).elements[0];
+
+  it("the planner's good body is accepted: kind terrain, the bridge's IFCGEOGRAPHICELEMENT, place and from_scan kept as sent, caller-typed, never pre-ticked, nothing ignored", () => {
+    const v = validateChangeset(cases.good);
+    expect(v.ignored).toEqual([]);
+    expect(v.elements).toHaveLength(1);
+    expect(v.elements[0]).toMatchObject({ kind: "terrain", op: "create", place: cases.good.elements[0].place, from_scan: cases.good.elements[0].from_scan,
+      typing: { typed_by: "caller" }, pretick: false, reason: cases.good.elements[0].reason });
+    expect(v.elements[0].validate.identity.Class).toBe("IFCGEOGRAPHICELEMENT");
+    expect(CREATE_ENTITY.terrain).toBe("IFCGEOGRAPHICELEMENT");
+    expect(VOCABULARY.at(-1)).toBe("terrain");
+    expect(PLACE_KEPT).toContain("Points");
+  });
+
+  it.each(cases.refusals.map((c) => [c.name, c]))("refuses %s in words (400)", (_n, c) =>
+    status400(() => ok(body(c.place ?? {}, c.el ?? {})), new RegExp(`^elements\\[0\\]: ${c.message.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`)));
+
+  it("a terrain is alone in its changeset: with any other element it is a 400 in words, whichever comes first", () => {
+    const w = { kind: "wall", validate: { identity: { Class: "IFCWALL", Name: "W" } }, place: { TypeName: "Generic - 200mm", LevelName: "L00", LocationCurve: { start: [0, 0, 0], end: [5000, 0, 0] }, BaseElevation: 0, TopElevation: 3000 } };
+    for (const els of [[cases.good.elements[0], w], [w, cases.good.elements[0]]])
+      status400(() => validateChangeset({ ...cases.good, elements: els }), /^a terrain changeset holds its terrain and nothing else — file the rest apart$/);
+  });
+
+  it("a terrain is never typed from facts, the family is optional, and the bridge's class replaces a posted one (listed)", () => {
+    status400(() => ok(body({ TypeName: null }, { facts: { thickness_mm: 200 } })), /a terrain needs place\.TypeName/);
+    expect(ok(body({ FamilyName: null })).place.FamilyName).toBeUndefined();
+    status400(() => ok(body({ FamilyName: 7 })), /place\.FamilyName must be text/);
+    const el = body().elements[0]; el.validate.identity.Class = "IFCSLAB";
+    const v = validateChangeset({ ...cases.good, elements: [el] });
+    expect(v.elements[0].validate.identity.Class).toBe("IFCGEOGRAPHICELEMENT");
+    expect(v.ignored).toEqual([{ field: "elements[0].validate.identity.Class", why: "ignored: set by the bridge from kind" }]);
+  });
+
+  it("from_scan: {changeset: a uuid}; a stray key is listed and not kept; it belongs to a terrain create only; the id is kept lower case", () => {
+    const withScan = (f) => body({}, { from_scan: f });
+    status400(() => ok(withScan("x")), /^elements\[0\]: a terrain needs from_scan \{changeset\}/);
+    status400(() => ok(withScan({ changeset: "nope" })), /from_scan\.changeset must be the id \(a uuid\) of the survey changeset/);
+    const v = validateChangeset({ ...cases.good, elements: [{ ...cases.good.elements[0], from_scan: { changeset: cases.plan.changeset.id.toUpperCase(), why: "x" } }] });
+    expect(v.elements[0].from_scan).toEqual({ changeset: cases.plan.changeset.id });
+    expect(v.ignored).toEqual([{ field: "elements[0].from_scan.why", why: "ignored: not a field this bridge keeps" }]);
+    const w = { kind: "wall", validate: { identity: { Class: "IFCWALL", Name: "W" } }, place: { TypeName: "T", LevelName: "L", LocationCurve: { start: [0, 0, 0], end: [1000, 0, 0] } }, from_scan: { changeset: cases.plan.changeset.id } };
+    status400(() => validateChangeset({ name: "n", elements: [w] }), /^elements\[0\]: from_scan belongs to a terrain create only/);
+  });
+
+  it("Points belong to a terrain only: a wall carrying them is a 400", () => {
+    const w = { kind: "wall", validate: { identity: { Class: "IFCWALL", Name: "W" } }, place: { TypeName: "T", LevelName: "L", LocationCurve: { start: [0, 0, 0], end: [1000, 0, 0] }, Points: [[0, 0, 0]] } };
+    status400(() => validateChangeset({ name: "n", elements: [w] }), /^elements\[0\]: a wall takes no place\.Points$/);
+  });
+});
+
+describe("checkFromScan (MA-8-14): the survey changeset a terrain starts from", () => {
+  const cases = JSON.parse(readFileSync(new URL("./fixtures/changeset-ops/terrain-cases.json", import.meta.url), "utf8"));
+  const terrain = () => validateChangeset(structuredClone(cases.good)).elements;
+  const survey = (over = {}) => ({ id: cases.plan.changeset.id, name: cases.plan.changeset.name, status: "proposed", claimed: false, job: { id: "job-0003", reader: "sentinel-survey 0.6.0" }, elements: [], ...over });
+  const fails = (fn, status, re) => { try { fn(); throw new Error("no throw"); } catch (e) { expect(e.status).toBe(status); expect(e.message).toMatch(re); } };
+
+  it("passes with a survey changeset the bridge built; no from_scan checks nothing", () => {
+    expect(() => checkFromScan(terrain(), [survey()])).not.toThrow();
+    expect(() => checkFromScan([{ kind: "wall" }], [])).not.toThrow();
+  });
+  it("404: the project holds no such changeset", () => {
+    fails(() => checkFromScan(terrain(), []), 404, /^elements\[0\]: from_scan names changeset 5b1c6f3e-2a4d-4e8f-9c1a-7d2e3f4a5b6c, which this project does not hold — nothing was saved$/);
+  });
+  it("400: a posted body, an IFC job's or a drawing job's changeset has no scan behind it", () => {
+    for (const over of [{ claimed: true }, { job: null }, { job: { id: "job-0007", reader: "sentinel-ifc 0.2.1" } }, { job: { id: "job-0008", reader: "sentinel-drawing 0.1.0" } }])
+      fails(() => checkFromScan(terrain(), [survey(over)]), 400, /^elements\[0\]: changeset "Survey job-0003 · GR-FFL" was not built from a survey job the bridge ran — there is no scan behind a terrain from it; nothing was saved$/);
   });
 });
 

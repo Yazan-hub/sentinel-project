@@ -24,6 +24,67 @@ public static class Compat
         new ElementId((int)value);
 #endif
 
+    // ---------------- Terrain (MA-8-14) ----------------
+    // A Toposolid exists from Revit 2024. Every Toposolid, ToposolidType and OST_Toposolid token of the add-in lives here, under the guard: the rest of the code
+    // asks TerrainSupported and calls these, so the 2021-2023 builds never name a type they do not have.
+
+    /// MA-8-14: whether this Revit has the Toposolid (2024 and later).
+    public static bool TerrainSupported =>
+#if REVIT2024_OR_GREATER
+        true;
+#else
+        false;
+#endif
+
+    /// MA-8-14: the loaded Toposolid types named <paramref name="typeName"/> (case aside; <paramref name="familyName"/> too when given - a ToposolidType's family is
+    /// "Toposolid"). None before Revit 2024. The caller says none / more than one in words; Sentinel creates no types.
+    public static List<ElementType> TerrainTypes(Document doc, string? familyName, string typeName)
+    {
+#if REVIT2024_OR_GREATER
+        return new FilteredElementCollector(doc).OfClass(typeof(ToposolidType)).Cast<ElementType>()
+            .Where(t => string.Equals(t.Name, typeName, StringComparison.OrdinalIgnoreCase)
+                        && (string.IsNullOrWhiteSpace(familyName) || string.Equals(t.FamilyName, familyName, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+#else
+        return new List<ElementType>();
+#endif
+    }
+
+    /// MA-8-14 (the spike, K-1b): the ground as one Toposolid. Created with the CurveLoop overload - an outer axis-aligned rectangle around the points and the
+    /// footprint (+ 1 m), the inner loop the storey's footprint (the hole) - because the points-only overload spans the building. The points are lifted by -o and the
+    /// Toposolid's Height Offset From Level is then set to o (o = the lowest point less the level, less 10 mm, never above 0): the type's thickness never limits the relief
+    /// and no type is created. A point's z is the absolute model elevation (mm) at create. The caller's Transaction is the one Undo step.
+    public static Element CreateTerrain(Document doc, IReadOnlyList<double[]> pointsMm, IReadOnlyList<double[]> footprintMm, ElementId typeId, Level level)
+    {
+#if REVIT2024_OR_GREATER
+        const double mm = 1.0 / 304.8;
+        double o = Math.Min(0, pointsMm.Min(p => p[2]) * mm - level.Elevation - 10 * mm);
+        var lifted = pointsMm.Select(p => new XYZ(p[0] * mm, p[1] * mm, p[2] * mm - o)).ToList();
+        double x0 = Math.Min(pointsMm.Min(p => p[0]), footprintMm.Min(p => p[0])) * mm - 1000 * mm, x1 = Math.Max(pointsMm.Max(p => p[0]), footprintMm.Max(p => p[0])) * mm + 1000 * mm;
+        double y0 = Math.Min(pointsMm.Min(p => p[1]), footprintMm.Min(p => p[1])) * mm - 1000 * mm, y1 = Math.Max(pointsMm.Max(p => p[1]), footprintMm.Max(p => p[1])) * mm + 1000 * mm;
+        double z = level.Elevation;
+        var outer = CurveLoop.Create(new List<Curve>
+        {
+            Line.CreateBound(new XYZ(x0, y0, z), new XYZ(x1, y0, z)), Line.CreateBound(new XYZ(x1, y0, z), new XYZ(x1, y1, z)),
+            Line.CreateBound(new XYZ(x1, y1, z), new XYZ(x0, y1, z)), Line.CreateBound(new XYZ(x0, y1, z), new XYZ(x0, y0, z)),
+        });
+        // the hole, anticlockwise like the outer loop (the bridge checks the footprint is one simple loop, not which way it turns)
+        var ring = footprintMm.Select(p => new XYZ(p[0] * mm, p[1] * mm, z)).ToList();
+        if (ring.Count > 3 && ring[0].DistanceTo(ring[ring.Count - 1]) < 1e-9) ring.RemoveAt(ring.Count - 1);
+        double area2 = 0;
+        for (int i = 0; i < ring.Count; i++) area2 += ring[i].X * ring[(i + 1) % ring.Count].Y - ring[(i + 1) % ring.Count].X * ring[i].Y;
+        if (area2 < 0) ring.Reverse();
+        var inner = CurveLoop.Create(Enumerable.Range(0, ring.Count).Select(i => (Curve)Line.CreateBound(ring[i], ring[(i + 1) % ring.Count])).ToList());
+        var ts = Toposolid.Create(doc, new List<CurveLoop> { outer, inner }, lifted, typeId, level.Id);
+        var offset = ts.get_Parameter(BuiltInParameter.TOPOSOLID_HEIGHTABOVELEVEL_PARAM);
+        if (offset == null || offset.IsReadOnly) throw new InvalidOperationException("this Toposolid has no settable Height Offset From Level - the ground cannot be put at its own height; nothing was placed");
+        offset.Set(o);
+        return ts;
+#else
+        throw new NotSupportedException("a terrain is a Toposolid - Revit 2024 and later");
+#endif
+    }
+
     // ---------------- Localization resiliency ----------------
     // Ruleset JSON stores category scopes as ENGLISH keys; localized Revit
     // (German "Türen", French "Portes", ...) breaks Category.Name comparison.

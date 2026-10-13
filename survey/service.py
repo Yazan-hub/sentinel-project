@@ -128,11 +128,15 @@ def run(job):
         if "cloud" in job:  # MA-4f: the overlay's points (the bridge cuts the band and moves them into the model's frame)
             P, _, points_in = pipeline.load(ok, job["params"], job["seed"], progress)
             c = job["cloud"]
-            Q, cell, of = pipeline.thin(P, c["z_mm"], c["cell_mm"], c["max_points"], c.get("xy_mm"))
+            if c.get("ground"):  # MA-8-14: the lowest point per plan cell outside a storey's box, instead of the thinned cloud
+                Q, cell, of = pipeline.ground(P, c["z_mm"], c["cell_mm"], c["max_points"], c.get("outside_mm"))
+            else:
+                Q, cell, of = pipeline.thin(P, c["z_mm"], c["cell_mm"], c["max_points"], c.get("xy_mm"))
             out = {"points": Q.tolist(), "derived": []}
             stats = {"points_in": int(points_in), "points_used": int(len(P)),
                      "cloud": {"cell_mm": int(cell), "z_mm": c["z_mm"], "of": int(of), "points": int(len(Q)),
-                                **({"xy_mm": c["xy_mm"]} if "xy_mm" in c else {})}}
+                                **({"xy_mm": c["xy_mm"]} if "xy_mm" in c else {}),
+                                **({"ground": True, **({"outside_mm": c["outside_mm"]} if "outside_mm" in c else {})} if c.get("ground") else {})}}
         elif measuring:
             P, _, points_in = pipeline.load(ok, job["params"], job["seed"], progress)
             tol = job["params"]["tolerances_mm"]
@@ -233,7 +237,23 @@ def read_cloud(b):
     if xy is not None and not (isinstance(xy, list) and len(xy) == 2 and all(isinstance(q, list) and len(q) == 2 and all(num(v) for v in q) for q in xy)
                                and xy[0][0] < xy[1][0] and xy[0][1] < xy[1][1]):
         raise ValueError("cloud.xy_mm must be [[x0, y0], [x1, y1]] mm with x0 < x1 and y0 < y1")
-    return {**m, "cloud": {"cell_mm": c["cell_mm"], "z_mm": c["z_mm"], "max_points": c["max_points"], **({} if xy is None else {"xy_mm": xy})}}
+    # MA-8-14: ground — the lowest point per plan cell instead of the thinned cloud; outside_mm (only with ground) is a convex plan polygon of the scan's frame
+    ground, out = c.get("ground"), c.get("outside_mm")
+    if ground is not None and ground is not True:
+        raise ValueError("cloud.ground must be true when sent")
+    if ground and xy is not None:
+        raise ValueError("cloud.ground and cloud.xy_mm are two different cuts — send one")
+    if out is not None:
+        ok = (ground is True and isinstance(out, list) and 3 <= len(out) <= 8
+              and all(isinstance(q, list) and len(q) == 2 and all(num(v) for v in q) for q in out))
+        if ok:  # convex: every turn the same way (a zero turn is a straight edge)
+            turns = [(out[(i + 1) % len(out)][0] - out[i][0]) * (out[(i + 2) % len(out)][1] - out[(i + 1) % len(out)][1])
+                     - (out[(i + 1) % len(out)][1] - out[i][1]) * (out[(i + 2) % len(out)][0] - out[(i + 1) % len(out)][0]) for i in range(len(out))]
+            ok = all(t >= 0 for t in turns) or all(t <= 0 for t in turns)
+        if not ok:
+            raise ValueError("cloud.outside_mm must be a convex polygon of 3 to 8 [x, y] mm points, and only with cloud.ground")
+    return {**m, "cloud": {"cell_mm": c["cell_mm"], "z_mm": c["z_mm"], "max_points": c["max_points"], **({} if xy is None else {"xy_mm": xy}),
+                           **({"ground": True} if ground else {}), **({} if out is None else {"outside_mm": out})}}
 
 
 class Server(ThreadingHTTPServer):

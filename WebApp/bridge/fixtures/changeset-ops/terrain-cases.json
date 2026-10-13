@@ -1,0 +1,333 @@
+{
+  "comment": "MA-8-14: a terrain from a scan. Read by changesets-logic.test.mjs (the bridge validates `good` and refuses each of `refusals` in the exact words: `place` patches the element's place, null deletes a key; `el` patches the element) and by tools/promote-check Ma8Terrain.cs (TerrainPlanner's body for `plan` equals `good`, and its holds). example.test names only; the points are made up.",
+  "plan": {
+    "changeset": {
+      "id": "5b1c6f3e-2a4d-4e8f-9c1a-7d2e3f4a5b6c",
+      "name": "Survey job-0003 · GR-FFL",
+      "job": "job-0003"
+    },
+    "level": "L00",
+    "rule": {
+      "family": "Toposolid",
+      "type": "Site Ground 300",
+      "source": "guideline@2 default"
+    },
+    "points": [
+      [
+        -2000,
+        -2000,
+        -300
+      ],
+      [
+        12000,
+        -2000,
+        -250
+      ],
+      [
+        12000,
+        10000,
+        -280
+      ],
+      [
+        -2000,
+        10000,
+        -310
+      ],
+      [
+        5000,
+        -3000,
+        -320
+      ],
+      [
+        5000,
+        11000,
+        -290
+      ]
+    ],
+    "footprint": [
+      [
+        -1000,
+        -1000
+      ],
+      [
+        11000,
+        -1000
+      ],
+      [
+        11000,
+        9000
+      ],
+      [
+        -1000,
+        9000
+      ]
+    ],
+    "actor": "planner@example.test"
+  },
+  "good": {
+    "name": "Terrain · L00 · from Survey job-0003 · GR-FFL",
+    "source": "promote",
+    "actor": "planner@example.test",
+    "elements": [
+      {
+        "kind": "terrain",
+        "validate": {
+          "identity": {
+            "Class": "IFCGEOGRAPHICELEMENT",
+            "Name": "Terrain · L00"
+          }
+        },
+        "reason": "6 ground points (lowest per cell, outside the storey's walls) from job-0003 — check it against the site survey",
+        "place": {
+          "LevelName": "L00",
+          "FamilyName": "Toposolid",
+          "TypeName": "Site Ground 300",
+          "Points": [
+            [
+              -2000,
+              -2000,
+              -300
+            ],
+            [
+              12000,
+              -2000,
+              -250
+            ],
+            [
+              12000,
+              10000,
+              -280
+            ],
+            [
+              -2000,
+              10000,
+              -310
+            ],
+            [
+              5000,
+              -3000,
+              -320
+            ],
+            [
+              5000,
+              11000,
+              -290
+            ]
+          ],
+          "Boundary": [
+            [
+              -1000,
+              -1000
+            ],
+            [
+              11000,
+              -1000
+            ],
+            [
+              11000,
+              9000
+            ],
+            [
+              -1000,
+              9000
+            ]
+          ]
+        },
+        "from_scan": {
+          "changeset": "5b1c6f3e-2a4d-4e8f-9c1a-7d2e3f4a5b6c"
+        }
+      }
+    ]
+  },
+  "refusals": [
+    {
+      "name": "a place key a terrain does not take",
+      "place": {
+        "Location": [
+          0,
+          0,
+          0
+        ]
+      },
+      "message": "a terrain takes no place.Location — it is its Points around the storey's Boundary, of the office's Toposolid type"
+    },
+    {
+      "name": "no level",
+      "place": {
+        "LevelName": null
+      },
+      "message": "a terrain needs place.LevelName — the level the Toposolid is created on; Sentinel never picks its level"
+    },
+    {
+      "name": "no type",
+      "place": {
+        "TypeName": null
+      },
+      "message": "a terrain needs place.TypeName — the office's Toposolid type (the guideline's Toposolid rule); Sentinel never takes the model's first type"
+    },
+    {
+      "name": "two points make no surface",
+      "place": {
+        "Points": [
+          [
+            -2000,
+            -2000,
+            -300
+          ],
+          [
+            12000,
+            -2000,
+            -250
+          ]
+        ]
+      },
+      "message": "a terrain needs place.Points, 3 to 2000 finite [x,y,z] points"
+    },
+    {
+      "name": "points on one line",
+      "place": {
+        "Points": [
+          [
+            0,
+            0,
+            0
+          ],
+          [
+            1000,
+            0,
+            -5
+          ],
+          [
+            2000,
+            0,
+            -10
+          ]
+        ]
+      },
+      "message": "place.Points lie on one line in plan — Revit cannot make a surface of them; send points that are not in a line"
+    },
+    {
+      "name": "two points within 1 mm in plan",
+      "place": {
+        "Points": [
+          [
+            -2000,
+            -2000,
+            -300
+          ],
+          [
+            -2000,
+            -1999.5,
+            -300
+          ],
+          [
+            12000,
+            -2000,
+            -250
+          ],
+          [
+            12000,
+            10000,
+            -280
+          ]
+        ]
+      },
+      "message": "place.Points[0] and [1] lie within 1 mm of each other in plan — Revit merges them; send one"
+    },
+    {
+      "name": "a point inside the footprint",
+      "place": {
+        "Points": [
+          [
+            -2000,
+            -2000,
+            -300
+          ],
+          [
+            12000,
+            -2000,
+            -250
+          ],
+          [
+            12000,
+            10000,
+            -280
+          ],
+          [
+            -2000,
+            10000,
+            -310
+          ],
+          [
+            5000,
+            -3000,
+            -320
+          ],
+          [
+            5000,
+            11000,
+            -290
+          ],
+          [
+            5000,
+            4000,
+            -300
+          ]
+        ]
+      },
+      "message": "place.Points[6] lies inside the Boundary — ground is outside the storey's footprint"
+    },
+    {
+      "name": "points spread over more than 500 m",
+      "place": {
+        "Points": [
+          [
+            -2000,
+            -2000,
+            -300
+          ],
+          [
+            600000,
+            -2000,
+            -250
+          ],
+          [
+            12000,
+            10000,
+            -280
+          ],
+          [
+            -2000,
+            10000,
+            -310
+          ],
+          [
+            5000,
+            -3000,
+            -320
+          ],
+          [
+            5000,
+            11000,
+            -290
+          ]
+        ]
+      },
+      "message": "place.Points span 602 m in plan — a terrain is at most 500 m across"
+    },
+    {
+      "name": "no footprint",
+      "place": {
+        "Boundary": null
+      },
+      "message": "terrain place.Boundary must be 3 to 256 finite [x,y] points (the storey's footprint, the hole in the Toposolid)"
+    },
+    {
+      "name": "no scan behind it",
+      "el": {
+        "from_scan": null
+      },
+      "message": "a terrain needs from_scan {changeset} — the survey changeset whose scan its ground points came from"
+    }
+  ]
+}

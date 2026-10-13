@@ -6,7 +6,7 @@ import * as core from "./sentinel-core.mjs";
 import { makeTyper } from "./changesets-typing.mjs";
 import { validateChangeset } from "./changesets-logic.mjs";
 import { typeGapId, typeGapGroups } from "./holding-logic.mjs";
-import { readProposeBody, toModel, matchStoreys, trimEnds, planSurvey, toScan, facesOf, measurePlan, judge, measureRefusal, countWords, readMesh, meshFaces, REVIT, FILED, scanBand, cloudRefusal, placeRefusal, DEVIATION_MM, FACE_SHARE_MIN } from "./survey-plan.mjs";
+import { readProposeBody, toModel, matchStoreys, trimEnds, planSurvey, toScan, facesOf, measurePlan, judge, measureRefusal, countWords, readMesh, meshFaces, REVIT, FILED, scanBand, cloudRefusal, placeRefusal, orientedBox, groundCut, groundRefusal, DEVIATION_MM, FACE_SHARE_MIN } from "./survey-plan.mjs";
 import { boxMesh } from "./fixtures/box-mesh.mjs";
 
 const read = (p) => JSON.parse(readFileSync(new URL(p, import.meta.url), "utf8"));
@@ -506,5 +506,38 @@ describe("MA-4f — the scan overlay's cut and its answer", () => {
     expect(cloudRefusal({ ...ok, points: [[3e10, 0, 0]] }, 5000)).toBe("a point is not three whole numbers of mm");
     expect([cloudRefusal({ ...ok, receipt: {} }, 5000), cloudRefusal({ ...ok, points: [[1, 2, 3], [4, 5, 6]] }, 1), cloudRefusal({ ...ok, points: [[1, 2]] }, 5000), cloudRefusal({ ...ok, points: [[1, 2, 3.5]] }, 5000)])
       .toEqual(["receipt.cloud", "not at most 1 points", "a point is not three whole numbers of mm", "a point is not three whole numbers of mm"]);
+  });
+});
+
+describe("MA-8-14 — the ground read's cut", () => {
+  const wall = (a, b, z = 0, level = "L00") => ({ kind: "wall", place: { LocationCurve: { start: [a[0], a[1], z], end: [b[0], b[1], z] }, TopElevation: z + 2800, LevelName: level } });
+  const rect = (x0, y0, x1, y1, z, level) => [wall([x0, y0], [x1, y0], z, level), wall([x1, y0], [x1, y1], z, level), wall([x1, y1], [x0, y1], z, level), wall([x0, y1], [x0, y0], z, level)];
+  const area = (b) => Math.abs([0, 1, 2, 3].reduce((s, i) => s + b[i][0] * b[(i + 1) % 4][1] - b[(i + 1) % 4][0] * b[i][1], 0)) / 2;
+  it("orientedBox: an axis box padded; a turned rectangle keeps its own box, far smaller than the axis-aligned one", () => {
+    expect(orientedBox([[0, 0], [4000, 0], [4000, 3000], [0, 3000]], 1000).map((p) => p.map(Math.round)).sort()).toEqual([[-1000, -1000], [-1000, 4000], [5000, -1000], [5000, 4000]].sort());
+    const c = Math.cos(Math.PI / 6), s = Math.sin(Math.PI / 6), turn = ([x, y]) => [x * c - y * s, x * s + y * c];
+    const pts = [[0, 0], [20000, 0], [20000, 4000], [0, 4000]].map(turn);
+    const box = orientedBox(pts, 1000);
+    expect(Math.round(area(box) / 1e6)).toBe(22 * 6); // 22 m x 6 m, not the axis box (~ 20.6 x 21.3 m)
+    for (const p of pts) expect(Math.min(...box.map((q) => Math.hypot(q[0] - p[0], q[1] - p[1])))).toBeGreaterThan(900);
+  });
+  it("orientedBox: collinear and single points still give a box; none gives null", () => {
+    expect(area(orientedBox([[0, 0], [5000, 0]], 1000))).toBeCloseTo(7000 * 2000, 0);
+    expect(area(orientedBox([[0, 0]], 1000))).toBeCloseTo(2000 * 2000, 0);
+    expect(orientedBox([], 1000)).toBeNull();
+  });
+  it("groundCut: the band under and over the lowest base, its level, the lowest storey's footprint; none without a wall", () => {
+    const cut = groundCut({ elements: [...rect(0, 0, 8000, 6000, 100), ...rect(0, 0, 8000, 6000, 3100, "L01"), { kind: "level", place: { BaseElevation: 0 } }] });
+    expect(cut.band).toEqual([-4900, 1600]);
+    expect(cut.level).toBe("L00");
+    expect(Math.round(area(cut.footprint) / 1e6)).toBe(10 * 8); // 8 x 6 m padded by 1 m: 10 x 8 m (the upper storey adds nothing)
+    expect(groundCut({ elements: [] })).toBeNull();
+    expect(groundCut({ elements: [{ kind: "wall", place: { LocationCurve: { start: [0, 0, 0], end: [1, 0, 0] } } }] }).level).toBeNull();
+  });
+  it("groundRefusal: only an answer that says it read ground and echoes the polygon", () => {
+    const out = [[0, 0], [1, 0], [1, 1]];
+    expect(groundRefusal({ receipt: { cloud: { ground: true, outside_mm: out } } }, out)).toBeNull();
+    expect(groundRefusal({ receipt: { cloud: { cell_mm: 500 } } }, out)).toBe("it did not read ground");
+    expect(groundRefusal({ receipt: { cloud: { ground: true, outside_mm: [[0, 0]] } } }, out)).toBe("it did not read ground");
   });
 });

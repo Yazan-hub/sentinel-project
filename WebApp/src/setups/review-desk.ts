@@ -40,13 +40,17 @@ export interface Ghost {
   place?: { TypeName?: string; FamilyName?: string; LevelName?: string; BaseLevel?: string; TopLevel?: string; Name?: string; Location?: number[]; SillHeight?: number;
     Boundary?: number[][]; BaseElevation?: number; TopElevation?: number;
     /** MA-8-10: a stair - one straight run, its riser count, going and width (mm); TopLevel is the level it reaches. */
-    Risers?: number; Going?: number; Width?: number } | null;
+    Risers?: number; Going?: number; Width?: number;
+    /** MA-8-14: a terrain - the ground points [x, y, z] mm the add-in read off a scan; its Boundary is the storey's footprint. */
+    Points?: number[][] } | null;
   validate?: { identity?: { Name?: string } } | null;
   parameter?: string; from?: string; to?: string;
   /** MA-8-7 (D16): a wall or floor create that re-creates a DirectShape or Generic Model as an office type; the original is deleted in the same Undo. */
   replaces?: { unique_id: string; box?: { min: number[]; max: number[] }; kind?: "directshape" | "generic"; category?: string } | null;
   /** MA-8-7: the bridge's judgement of a retype - its type is not one of the office's catalogue; null = no catalogue to judge by. */
   foreign?: boolean | null;
+  /** MA-8-14: the survey changeset a terrain's points came from (the bridge checked it exists and was built from a survey job; it read no scan for the points). */
+  from_scan?: { changeset: string } | null;
   /** MA-8-10: the stair flag a stair was proposed from. */
   from_flag?: { changeset: string; unique_id: string } | null;
   review?: GhostReview | null;
@@ -135,8 +139,15 @@ export function ghostLine(el: Ghost): string {
     // MA-5b-1: a room reads its number, then its name (Revit's review row: room: 101 · OFFICE · its level)
     default: if (el.replaces) return replacesLine(el, name, type); // MA-8-7: a create is not a plain create when it deletes the original
       return `${name}${el.place?.Name && el.place.Name !== name ? " · " + el.place.Name : ""}${el.place?.TypeName ? " · " + type : ""}${el.place?.LevelName ? " · " + el.place.LevelName : ""}` +
-      (el.kind === "mass" ? massSize(el.place) : "") + (el.kind === "stair" ? stairLine(el.place) : "");
+      (el.kind === "mass" ? massSize(el.place) : "") + (el.kind === "stair" ? stairLine(el.place) : "") +
+      (el.kind === "terrain" ? terrainLine(el) : "");
   }
+}
+
+/** MA-8-14: a terrain says whose word its points are - the add-in's reading of the scan as Revit filed it, not re-measured by the bridge - and that a person checks it. */
+function terrainLine(el: Ghost): string {
+  const n = el.place?.Points?.length;
+  return n ? ` · Toposolid from ${n} ground points, as Revit filed them from ${el.from_scan?.changeset ? `changeset ${el.from_scan.changeset.slice(0, 8)}'s` : "a"} scan (not re-measured) — check it against the site survey` : "";
 }
 
 /** MA-8-10: a stair says what it is - one straight run to the level above, and that the rest is a person's (Revit's row says the same). */
