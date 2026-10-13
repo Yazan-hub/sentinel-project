@@ -15,7 +15,7 @@ static partial class Check
         using var cases = JsonDocument.Parse(File.ReadAllText(Repo("WebApp", "bridge", "fixtures", "changeset-ops", "stair-cases.json")));
         var root = cases.RootElement;
 
-        // the riser rule: ONE function (the planner, the executor's re-check, the fixture) - ceil((f2f - 0.5) / max)
+        // the riser rule: ONE function (the planner, the executor's re-check, the fixture) - ceil((f2f - 0.001) / max)
         bool rows = true;
         foreach (var r in root.GetProperty("risers").EnumerateArray())
             rows &= StairPlanner.Risers(r.GetProperty("f2fMm").GetDouble(), r.GetProperty("maxRiserMm").GetDouble()) == r.GetProperty("risers").GetInt32();
@@ -75,8 +75,11 @@ static partial class Check
         Ok(Plan(f: new StairTypeFacts { MaxRiserMm = 20, MinTreadMm = 250, MinRunWidthMm = 1000 }).Hold == "150 risers is outside 2 to 60 (3000 mm between L00 and L01, type maximum riser 20 mm) — a person decides",
            "a riser count outside 2 to 60 is held");
         var five = Plan(st: new List<LevelFact> { stories[0], new LevelFact { Name = "L01", ElevationMm = 3040, IsStory = true } }, f: new StairTypeFacts { MaxRiserMm = 190, MinTreadMm = 250.04, MinRunWidthMm = 1000 });
-        Ok(five.Hold == null && five.Risers == 16 && five.GoingMm == 250 && Place(five)["Risers"].GetValue<int>() == 16,
-           "3040 mm between the levels under a 190 mm maximum is 16 risers (the 0.5 mm slack), and a tread read as 250.04 mm is 250 mm");
+        Ok(five.Hold == null && five.Risers == 16 && five.GoingMm == 250.04 && Place(five)["Risers"].GetValue<int>() == 16,
+           "3040 mm between the levels under a 190 mm maximum is 16 risers (float-noise slack only), and a tread read as 250.04 mm stays 250.04 mm (no rounding: Apply sets the going itself)");
+        var band = Plan(st: new List<LevelFact> { stories[0], new LevelFact { Name = "L01", ElevationMm = 3040.3, IsStory = true } });
+        Ok(band.Hold == null && band.Risers == 17 && StairPlanner.Risers(3040.3, 190) == 17,
+           "3040.3 mm under a 190 mm maximum is 17 risers: a stair 0.02 mm over the maximum no longer passes on a 0.5 mm slack (review fix)");
         Ok(JsonSerializer.SerializeToNode(plan.Body)["elements"][0]["from_flag"]["unique_id"].GetValue<string>() == fl.GetProperty("unique_id").GetString()
            && StairPlanner.RowWords("L01", 16, 250, 1200) == "to L01 · 16 risers, going 250 mm, width 1200 mm — one straight run; landings, turns and railings are a person's",
            "the body names its flag (changeset and unique_id) and the row's words say one straight run, landings, turns and railings a person's");
@@ -106,7 +109,7 @@ static partial class Check
         Ok(absent == null && hAbs == "no Stairs rule in Placement check guideline — add a Stairs element (a stair type and params.width_mm) to the guideline; a person decides",
            "a guideline with no Stairs element holds the stair in words (no guideline at all: the same)");
         var missing = GuidelineMatcher.FromBodies(stairGuideline, "{\"types\":[{\"category\":\"Stairs\",\"family\":\"Assembled Stair\",\"type\":\"Other\"}]}", out _, out _);
-        Ok(missing.StairRule("L00", out var hMiss) == null && hMiss != null && hMiss.StartsWith("gap: Stairs on L00 — ") && hMiss.Contains("is not in "),
+        Ok(missing.StairRule("L00", out var hMiss) == null && hMiss != null && hMiss.StartsWith("Stairs on L00 — ") && !hMiss.Contains("gap:") && hMiss.Contains("is not in "),
            "a stair type the catalogue in force lacks is a gap (Sentinel creates no types), named with the catalogue");
 
         // the DTOs: a stair as the bridge stores it, and what Revit reports back
@@ -131,24 +134,26 @@ static partial class Check
         string body = es > 0 && esEnd > es ? ex.Substring(es, esEnd - es) : "";
         int sc = At(body, "scope = new StairsEditScope(doc, UndoWatcher.TxName(cs.Name, cs.Id));"), st = At(body, "scope.Start(level.Id, top.Id)"), tr = At(body, "t = new Transaction(doc, UndoWatcher.TxName(cs.Name, cs.Id));"),
             drn = At(body, "stairs.DesiredRisersNumber = risers;"), cr = At(body, "StairsRun.CreateStraightRun(doc, stairsId, Line.CreateBound(Pt(c.Start), Pt(c.End)), Arch.StairsRunJustification.Center)"),
-            reg = At(body, "doc.Regenerate();"), chk = At(body, "if (stairs.ActualRisersNumber != risers)"), hgt = At(body, "if (stairs.ActualRiserHeight > type.MaxRiserHeight + 0.5 * MmToFeet)"),
+            reg = At(body, "doc.Regenerate();"), chk = At(body, "if (stairs.ActualRisersNumber != risers)"), hgt = At(body, "if (stairs.ActualRiserHeight > type.MaxRiserHeight + 1e-6)"),
             app = At(body, "PlacementApply.Apply(Placement, new Element[] { stairs });"), stamp = At(body, "ProvenanceStamp.Write(stairs, cs.Id, cs.Source"), tc = At(body, "if (t.Commit() != TransactionStatus.Committed)"),
             scc = At(body, "scope.Commit(scopeHandler);"), read = At(body, "Railings = made.GetAssociatedRailings().Count");
         Ok(sc > 0 && sc < st && st < tr && tr < drn && drn < cr && cr < reg && reg < chk && chk < hgt && hgt < app && app < stamp && stamp < tc && tc < scc && scc < read,
            "ExecuteStair, in order: the scope named for the Undo - Start - the inner transaction - DesiredRisersNumber - CreateStraightRun (Center) - Regenerate - the risers and riser height refused BEFORE the commit - the placement block and the stamp - the transaction's commit - the scope's commit - the railings read AFTER it");
-        Ok(body.Contains("StairPlanner.Risers(f2f, maxRiser) != risers") && body.Contains("going < type.MinTreadDepth / MmToFeet - 0.5") && body.Contains("width < type.MinRunWidth / MmToFeet - 0.5")
-           && body.Contains("the levels or the stair type changed since the plan — re-propose from the flag") && body.Contains("scopeHandler = new GhostFailureHandler { AllOrNothing = true, DeleteWarnings = true };")
+        Ok(body.Contains("StairPlanner.Risers(f2f, maxRiser) != risers") && body.Contains("going < type.MinTreadDepth / MmToFeet - StairPlanner.TolMm") && body.Contains("width < type.MinRunWidth / MmToFeet - StairPlanner.TolMm")
+           && body.Contains("the levels or the stair type changed since the plan — re-propose from the flag") && body.Contains("scopeHandler = new GhostFailureHandler { AllOrNothing = true, RollBackOtherWarnings = true };")
            && body.Contains("catch (Exception ex)") && body.Contains("scope.Cancel()") && body.Contains("if (ex is PlacementRefused) return new ExecutionResult { NotRun = true, Error = ex.Message };"),
            "the executor re-checks the plan with the planner's own Risers() (amendment 1), commits the scope with a handler that deletes the warnings it raises (a modal dialog otherwise), and cancels it on a refusal: PlacementRefused keeps the changeset proposed");
         Ok(ex.Contains("\"stair\" => () => StairsTypeOf(doc, p.FamilyName, p.TypeName), // MA-8-10") && ex.Contains("OfCategory(BuiltInCategory.OST_Stairs).WhereElementIsElementType()")
            && ex.Contains("if (!(hits[0] is Arch.StairsType)) throw new InvalidOperationException(") && ex.Contains("a sketch (legacy) stair type — Sentinel builds component stairs only")
            && ex.Contains("Manage ▸ Transfer Project Standards (Stairs types) from the office template; Sentinel creates no types"),
            "NotLoaded asks the stair type of the model (family and name, element types of OST_Stairs); a legacy sketch type is refused in words; a type not loaded says how to bring it in (amendment 15)");
-        Ok(fh.Contains("public bool DeleteWarnings;") && fh.Contains("if (DeleteWarnings && named.Count > 0 && named.All(Ours.Contains))") && fh.Contains("RemovedWarnings.Add((key, text, named));")
+        Ok(fh.Contains("public readonly HashSet<Guid> DeletableWarnings") && fh.Contains("if (DeletableWarnings.Contains(f.GetFailureDefinitionId().Guid) && named.Count > 0 && named.All(Ours.Contains))") && fh.Contains("else if (RollBackOtherWarnings) return RollBack(")
+           && ex.Contains("DeletableWarnings.Add(BuiltInFailures.StairRampFailures.StairsTopEndExceedsOrNotReachWarning.Guid)") && ex.Contains("RollBackOtherWarnings = true")
+           && ex.Contains("stairs.ActualTreadDepth = going * MmToFeet;") && ex.Contains("innerHandler.SeenWarnings.Concat(scopeHandler.SeenWarnings)") && fh.Contains("RemovedWarnings.Add((key, text, named));")
            && fh.Contains("else SeenWarnings.Add((key, text, named));") && ex.Contains("scopeHandler.Ours.Add(stairsId.IdValue());") && ex.Contains("stairs.GetStairsRuns().Concat(stairs.GetStairsLandings()).Concat(stairs.GetStairsSupports())")
            && ex.Contains("result.Removed = GhostFailurePolicy.RemovedLine(scopeHandler.RemovedWarnings);") && src2("GhostBuilder", "ChangesetPlacementEvent.cs").Contains("result.Removed ??= res.Removed;")
            && rv.Contains("if (res.Removed != null) said = res.Removed + ") && rv.Contains("(result.Removed != null ? \"\\n\\n\" + result.Removed : \"\")"),
-           "a stair scope's warning is removed only when it names nothing but the stair's own elements (stair, runs, landings, supports), kept in RemovedWarnings, and said on the dialog and the ledger row; any other warning is counted and left");
+           "a stair scope's warning is removed only when its definition is the allowlisted top-end one and it names nothing but the stair's own elements, kept in RemovedWarnings, and said on the dialog and the ledger row; any other warning rolls the stair back with its words");
         var one = new List<(string Key, string Text, IReadOnlyCollection<long> Ids)> { ("k1", "Stair top end exceeds the top elevation.", new long[] { 7 }), ("k2", "Stair top end exceeds the top elevation.", new long[] { 7, 8 }), ("k3", "Other.", new long[] { 7 }) };
         Ok(GhostFailurePolicy.RemovedLine(new List<(string, string, IReadOnlyCollection<long>)>()) == null && GhostFailurePolicy.RemovedLine(null) == null
            && GhostFailurePolicy.RemovedLine(one) == "Revit warnings Sentinel removed at the stair's commit: 3 — each named only the stair it built (a stair edit scope shows its warnings in a modal dialog): Stair top end exceeds the top elevation. ×2; Other.",

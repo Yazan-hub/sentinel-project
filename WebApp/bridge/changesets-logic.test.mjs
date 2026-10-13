@@ -1619,9 +1619,9 @@ describe("validateChangeset — stair (MA-8-10)", () => {
 
   it.each(cases.refusals.map((c) => [c.name, c]))("refuses %s in words (400)", (_n, c) => status400(() => ok(body(c.place)), new RegExp(`^elements\\[0\\]: ${c.message.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`)));
 
-  it("the riser rule's fixture rows are the plain arithmetic (ceil((f2f − 0.5) / max)) — the add-in's StairPlanner.Risers answers the same rows", () => {
-    for (const r of cases.risers) expect(Math.ceil((r.f2fMm - 0.5) / r.maxRiserMm), JSON.stringify(r)).toBe(r.risers);
-    expect(Math.ceil(3000.0000001 / 187.5)).toBe(17); // a bare ceil is what the 0.5 mm slack guards against
+  it("fixture self-consistency: the riser rows agree with ceil((f2f − 0.001) / max); the real guard is promote-check's Risers() assertions on the same rows (incl. 3040.3 / 190 = 17, the band the old 0.5 mm slack let through)", () => {
+    for (const r of cases.risers) expect(Math.ceil((r.f2fMm - 0.001) / r.maxRiserMm), JSON.stringify(r)).toBe(r.risers);
+    expect(Math.ceil(3000.0000001 / 187.5)).toBe(17); // a bare ceil is what the float-noise slack guards against
   });
 
   it("a stair is alone in its changeset: with any other element it is a 400 in words, whichever comes first", () => {
@@ -1717,7 +1717,7 @@ describe("checkFromFlag (MA-8-10): the flag a stair starts from, and one live st
 describe("a built stair (MA-8-10): keepBuilt and the changeset_applied row's stairs", () => {
   const cases = JSON.parse(readFileSync(new URL("./fixtures/changeset-ops/stair-cases.json", import.meta.url), "utf8"));
   const built = { risers: 16, riser_mm: 187.5, going_mm: 250, width_mm: 1200, runs: 1, railings: 2 };
-  it("keepBuilt keeps the seven fields of a signed-in member's read; anything else out of range or missing is null; the machine credential's read is not trusted", () => {
+  it("keepBuilt keeps the six fields of a signed-in member's read; anything else out of range or missing is null; the machine credential's read is not trusted", () => {
     expect(keepBuilt({ ...built, extra: 1 }, true)).toEqual(built);
     for (const bad of [{ ...built, risers: 0 }, { ...built, risers: 16.5 }, { ...built, riser_mm: -1 }, { ...built, going_mm: 2001 }, { ...built, width_mm: "1200" }, { ...built, runs: 11 }, { ...built, railings: 21 }, { risers: 16 }, null, [], "x"])
       expect(keepBuilt(bad, true), JSON.stringify(bad)).toBeNull();

@@ -2107,6 +2107,13 @@ describe("proposeChangeset — a stair from a flag (MA-8-10)", () => {
     const third = await proposeChangeset("demo", structuredClone(cases.good), "y", deps);
     expect(third.elements[0].from_flag.unique_id).toBe(f.unique_id);
   });
+  it("review fix: two overlapping filings from one flag - the second is a 409 while the first is being filed, one stair stored", async () => {
+    const deps = withFlag(member());
+    const [a, b] = await Promise.allSettled([proposeChangeset("demo", structuredClone(cases.good), "y", deps), proposeChangeset("demo", structuredClone(cases.good), "y", deps)]);
+    expect([a.status, b.status].sort()).toEqual(["fulfilled", "rejected"]);
+    expect((a.status === "rejected" ? a : b).reason).toMatchObject({ status: 409, message: expect.stringMatching(/a stair from this flag is being filed/) });
+    await proposeChangeset("demo", structuredClone(cases.good), "y", deps).catch((e) => expect(e.status).toBe(409)); // the guard is released: this one meets the stored stair instead
+  });
   it("a ledger that cannot be read refuses the filing (503) - an Undo of an earlier stair could be missed", async () => {
     const deps = withFlag(member({ auditAll: vi.fn(async () => { throw new Error("db down"); }) }));
     await expect(proposeChangeset("demo", structuredClone(cases.good), "y", deps)).rejects.toMatchObject({ status: 503, message: expect.stringMatching(/the ledger could not be read \(db down\).*nothing was filed/) });

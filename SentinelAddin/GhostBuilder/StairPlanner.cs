@@ -33,12 +33,13 @@ namespace Sentinel.GhostBuilder
 
     internal static class StairPlanner
     {
-        /// <summary>The slack a riser rule allows (mm): the planner's 0.5 mm, as the executor reads a level's elevation.</summary>
-        public const double TolMm = 0.5;
+        /// <summary>The slack a riser rule allows (mm): float noise only (levels and the type's limits come from feet). Review fix: it was 0.5 mm, which let a stair
+        /// over the type's maximum riser (or under its minimum going / width) by up to 0.5 mm through every guard.</summary>
+        public const double TolMm = 0.001;
         /// <summary>How far (mm) the flag's box may start from its storey's elevation.</summary>
         public const double BoxBaseMm = 300;
 
-        /// <summary>The riser count for a floor-to-floor height under a maximum riser: ceil((f2f - 0.5) / max). The ONE rule - the planner, the
+        /// <summary>The riser count for a floor-to-floor height under a maximum riser: ceil((f2f - 0.001) / max). The ONE rule - the planner, the
         /// executor's re-check and the fixture share it (batch-4 amendment 1): levels and the type's maximum come from feet, so a plain ceil turns
         /// 3040.0000001 / 190 into 17 and the executor would refuse a plan it made itself. 3000/187.5 = 16, 3040/190 = 16, 3040.6/190 = 17.</summary>
         public static int Risers(double f2fMm, double maxRiserMm) => (int)Math.Ceiling((f2fMm - TolMm) / maxRiserMm);
@@ -72,7 +73,7 @@ namespace Sentinel.GhostBuilder
             double f2f = top.ElevationMm - bottom.ElevationMm;
             int n = Risers(f2f, type.MaxRiserMm);
             if (n < 2 || n > 60) return Hold($"{n} risers is outside 2 to 60 ({F(f2f)} mm between {storey} and {top.Name}, type maximum riser {F(type.MaxRiserMm)} mm) — a person decides");
-            double going = Math.Round(type.MinTreadMm, 1), width = rule.WidthMm, run = (n - 1) * going;
+            double going = type.MinTreadMm, width = rule.WidthMm, run = (n - 1) * going;
             double dx = max[0] - min[0], dy = max[1] - min[1];
             bool alongX = dx >= dy;
             double longSide = alongX ? dx : dy, shortSide = alongX ? dy : dx;
@@ -90,7 +91,7 @@ namespace Sentinel.GhostBuilder
             double[] P(double a) => alongX ? new[] { a, across, bottom.ElevationMm } : new[] { across, a, bottom.ElevationMm };
             double riser = f2f / n;
             string name = $"Stair · {storey} → {top.Name}";
-            string reason = $"{n} risers of {F(riser)} mm (type maximum {F(type.MaxRiserMm)} mm), going {F(going)} mm (type minimum), width {F(width)} mm (guideline {rule.Source}) — " +
+            string reason = $"{n} risers of {F(riser)} mm (type maximum {F(type.MaxRiserMm)} mm), going {F(going)} mm (type minimum), width {F(width)} mm (from {rule.Source}) — " +
                             $"one straight run between {storey} and {top.Name}; landings, turns, winders and railings are a person's";
             var element = new
             {

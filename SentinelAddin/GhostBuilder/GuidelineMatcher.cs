@@ -374,7 +374,7 @@ namespace Sentinel.GhostBuilder
                 hold = $"no Stairs rule in {Standard} — add a Stairs element (a stair type and params.width_mm) to the guideline; a person decides";
                 return null;
             }
-            if (r.Confidence == 0) { hold = Gap($"Stairs on {level}", r.Why); return null; }
+            if (r.Confidence == 0) { hold = $"Stairs on {level} — {r.Why} (type_catalog: {CatalogLabel})"; return null; }
             if (!(r.Params != null && r.Params.TryGetValue("width_mm", out var o) && o is JsonElement w && w.ValueKind == JsonValueKind.Number && w.TryGetDouble(out var mm) && mm >= 300 && mm <= 5000))
             {
                 hold = $"the Stairs rule in {Standard} has no params.width_mm (300 to 5000 mm) — the run's width; a person decides";

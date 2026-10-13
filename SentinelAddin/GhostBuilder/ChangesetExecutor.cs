@@ -1545,7 +1545,7 @@ public sealed class ChangesetExecutor
                 throw new InvalidOperationException($"{at}: the run's z is not {level.Name}'s elevation {Mm(level.Elevation / MmToFeet)} mm — a stair's run starts on its level");
             // the plan against the model it is applied in: the riser rule (one pure function, with the planner's), the going and the width the type allows
             double f2f = (top.Elevation - level.Elevation) / MmToFeet, maxRiser = type.MaxRiserHeight / MmToFeet;
-            if (StairPlanner.Risers(f2f, maxRiser) != risers || going < type.MinTreadDepth / MmToFeet - 0.5 || width < type.MinRunWidth / MmToFeet - 0.5)
+            if (StairPlanner.Risers(f2f, maxRiser) != risers || going < type.MinTreadDepth / MmToFeet - StairPlanner.TolMm || width < type.MinRunWidth / MmToFeet - StairPlanner.TolMm)
                 throw new PlacementRefused($"{at}: the levels or the stair type changed since the plan — re-propose from the flag; nothing was placed, and this one stays proposed");
 
             scope = new StairsEditScope(doc, UndoWatcher.TxName(cs.Name, cs.Id));
@@ -1556,13 +1556,14 @@ public sealed class ChangesetExecutor
             var stairs = (Arch.Stairs)doc.GetElement(stairsId);
             stairs.ChangeTypeId(type.Id);
             stairs.DesiredRisersNumber = risers;
+            stairs.ActualTreadDepth = going * MmToFeet; // review fix: the plan's going, not the instance's default (the type's minimum)
             var run = Arch.StairsRun.CreateStraightRun(doc, stairsId, Line.CreateBound(Pt(c.Start), Pt(c.End)), Arch.StairsRunJustification.Center);
             run.ActualRunWidth = width * MmToFeet;
             doc.Regenerate();
             // refused BEFORE the commit: Revit's warning for it would be a modal dialog at the scope's commit (spike S1)
             if (stairs.ActualRisersNumber != risers)
                 throw new PlacementRefused($"{at}: Revit made {stairs.ActualRisersNumber} risers, not the {risers} planned (the run is {Mm(Math.Sqrt((c.End[0] - c.Start[0]) * (c.End[0] - c.Start[0]) + (c.End[1] - c.Start[1]) * (c.End[1] - c.Start[1])))} mm) — nothing was placed; re-propose from the flag");
-            if (stairs.ActualRiserHeight > type.MaxRiserHeight + 0.5 * MmToFeet)
+            if (stairs.ActualRiserHeight > type.MaxRiserHeight + 1e-6)
                 throw new PlacementRefused($"{at}: the riser would be {Mm(stairs.ActualRiserHeight / MmToFeet)} mm, over the type's maximum {Mm(maxRiser)} mm — nothing was placed; re-propose from the flag");
             // MA-1a item 6: the workset and phase, and the stamp - inside the scope's transaction, so the one Ctrl+Z takes them with the stair
             PlacementApply.Apply(Placement, new Element[] { stairs });
@@ -1570,7 +1571,8 @@ public sealed class ChangesetExecutor
                 ProvenanceStamp.ForChangeset(Provenance, new[] { (el.ProposalGuid, el.Reason) }, cs.Adjudication?.LedgerRow));
             if (t.Commit() != TransactionStatus.Committed)
                 throw new InvalidOperationException("Revit did not commit the stair's transaction" + (innerHandler.RolledBack != null ? ": " + innerHandler.RolledBack : ""));
-            scopeHandler = new GhostFailureHandler { AllOrNothing = true, DeleteWarnings = true };
+            scopeHandler = new GhostFailureHandler { AllOrNothing = true, RollBackOtherWarnings = true };
+            scopeHandler.DeletableWarnings.Add(BuiltInFailures.StairRampFailures.StairsTopEndExceedsOrNotReachWarning.Guid); // the one warning the spike saw as harmless
             // the elements a warning of this stair may name and still be removed: the stair, its runs, landings and supports (read inside the scope)
             scopeHandler.Ours.Add(stairsId.IdValue());
             foreach (var id in stairs.GetStairsRuns().Concat(stairs.GetStairsLandings()).Concat(stairs.GetStairsSupports())) scopeHandler.Ours.Add(id.IdValue());
@@ -1588,7 +1590,7 @@ public sealed class ChangesetExecutor
                 WidthMm = runs.Count > 0 && doc.GetElement(runs.First()) is Arch.StairsRun r0 ? R(r0.ActualRunWidth) : 0,
                 Runs = runs.Count, Railings = made.GetAssociatedRailings().Count,
             };
-            foreach (var kv in GhostFailurePolicy.CountWarnings(scopeHandler.SeenWarnings, new HashSet<long>())) result.Warnings[kv.Key] = kv.Value;
+            foreach (var kv in GhostFailurePolicy.CountWarnings(innerHandler.SeenWarnings.Concat(scopeHandler.SeenWarnings).ToList(), new HashSet<long>())) result.Warnings[kv.Key] = kv.Value;
             result.Removed = GhostFailurePolicy.RemovedLine(scopeHandler.RemovedWarnings);
             return result;
         }

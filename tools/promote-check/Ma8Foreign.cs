@@ -271,7 +271,7 @@ static partial class Check
            && ex.Contains("return \"an in-place family - a person re-creates it\";"), "ReadShapes moves the box into the levels' frame (raw kept for the guard), the foreign read skips Sentinel's masses, one in-place words");
         var pcx = Src("GhostBuilder", "PromoteContext.cs");
         Ok(pcx.Contains("structure is outside the LOD matrix - the DD IDS judges no structure") && pcx.Contains("the DD IDS made from the LOD matrix has no class for this kind yet")
-           && pcx.Contains("NoDdClass = new HashSet<string>(StringComparer.Ordinal) { \"level\", \"grid\", \"room\", \"opening\", \"mass\", \"stair\" }"), "JudgeApplied says an applied column or beam is outside the LOD matrix; the NoDdClass kinds are unchanged");
+           && pcx.Contains("NoDdClass = new HashSet<string>(StringComparer.Ordinal) { \"level\", \"grid\", \"room\", \"opening\", \"mass\", \"stair\" }"), "JudgeApplied says an applied column or beam is outside the LOD matrix; the NoDdClass kinds now include stair");
         Ok(cmd.Contains("cat.CategoryType != CategoryType.Model || e.ViewSpecific") && cmd.Contains("fi?.SuperComponent != null") && cmd.Contains("\"OST_CurtainWallPanels\"") && cmd.Contains("\"OST_Lines\"")
            && cmd.Contains("if (type == null && shape != \"directshape\") continue;"), "the foreign collector leaves out view-specific elements, nested components, curtain parts, stair and railing parts, lines and typeless elements");
         Ok(cmd.Contains("if (kind == \"beam\") f.Level ??= LevelName(sfi.get_Parameter(BuiltInParameter.INSTANCE_REFERENCE_LEVEL_PARAM)?.AsElementId());") && cmd.Contains("ChangesetExecutor.StructureHold(sfi, kind)")

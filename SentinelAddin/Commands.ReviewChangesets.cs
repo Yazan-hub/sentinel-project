@@ -61,7 +61,8 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
 
     /// <summary>MA-6 amendment 12: a changeset Promote (DD) plans again. A shell is filed as source promote too, but Shell a Mass plans it,
     /// so "Run Promote (DD) again" is never said of one.</summary>
-    internal static bool PromoteRun(ChangesetDto cs) => cs.Source == "promote" && !(cs.Name ?? "").StartsWith(ShellPlanner.Title, StringComparison.Ordinal);
+    internal static bool PromoteRun(ChangesetDto cs) => cs.Source == "promote" && !(cs.Name ?? "").StartsWith(ShellPlanner.Title, StringComparison.Ordinal)
+        && !(cs.Elements ?? new()).Any(e => e.Kind == "stair"); // a stair is re-proposed from its flag, not planned by Promote
 
     internal static string CarriedEdits(IEnumerable<ChangesetDto> fresh)
     {

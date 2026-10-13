@@ -56,7 +56,7 @@ static partial class Check
            && DoctorPolicy.Lines(seen, null!).Count == 0, "nothing committed, nothing pending → no line, no throw");
 
         // "No DeleteWarning anywhere": the add-in never erases a Revit warning (F-S2-3, [BP] P1-3). MA-8-10, the one exception (spike S1: a warning at a
-        // stair edit scope's commit is a modal dialog): GhostFailureHandler, only when DeleteWarnings is set, only for a warning that names nothing but
+        // stair edit scope's commit is a modal dialog): GhostFailureHandler, only for an allowlisted definition (DeletableWarnings) that names nothing but
         // the stair's own elements (Ours), and always said (GhostFailurePolicy.RemovedLine) - pinned below.
         var addin = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "SentinelAddin"));
         var erasers = (Directory.Exists(addin) ? Directory.EnumerateFiles(addin, "*.cs", SearchOption.AllDirectories) : Enumerable.Empty<string>())
@@ -65,9 +65,10 @@ static partial class Check
                      && File.ReadAllText(f).Contains(".DeleteWarning(")).Select(Path.GetFileName).ToList();
         string handler = File.ReadAllText(Path.Combine(addin, "GhostBuilder", "GhostFailureHandler.cs")).Replace("\r\n", "\n");
         Ok(Directory.Exists(addin) && erasers.SequenceEqual(new[] { "GhostFailureHandler.cs" }) && erasers.Count == 1
-           && handler.Contains("if (DeleteWarnings && named.Count > 0 && named.All(Ours.Contains))\n                        {\n                            RemovedWarnings.Add((key, text, named));")
-           && handler.IndexOf(".DeleteWarning(", StringComparison.Ordinal) == handler.LastIndexOf(".DeleteWarning(", StringComparison.Ordinal) && !handler.Contains("DeleteWarnings = true"),
-           "one DeleteWarning call in the add-in: GhostFailureHandler's, behind DeleteWarnings and only for a warning that names nothing but this stair's own elements, recorded in RemovedWarnings" + (erasers.Count > 0 ? " (" + string.Join(", ", erasers) + ")" : ""));
+           && handler.Contains("if (DeletableWarnings.Contains(f.GetFailureDefinitionId().Guid) && named.Count > 0 && named.All(Ours.Contains))\n                        {\n                            RemovedWarnings.Add((key, text, named));")
+           && handler.IndexOf(".DeleteWarning(", StringComparison.Ordinal) == handler.LastIndexOf(".DeleteWarning(", StringComparison.Ordinal) && !handler.Contains("DeletableWarnings.Add(")
+           && File.ReadAllText(Path.Combine(addin, "GhostBuilder", "ChangesetExecutor.cs")).Split(new[] { "DeletableWarnings.Add(" }, StringSplitOptions.None).Length == 2,
+           "one DeleteWarning call in the add-in: GhostFailureHandler's, behind the DeletableWarnings allowlist (filled only in ExecuteStair) and only for a warning that names nothing but this stair's own elements, recorded in RemovedWarnings" + (erasers.Count > 0 ? " (" + string.Join(", ", erasers) + ")" : ""));
     }
 
     // ── the failure rule: a user's element is never deleted or resolved; warnings are counted, never erased ──

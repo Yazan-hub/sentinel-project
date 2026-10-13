@@ -141,7 +141,14 @@ export async function proposeChangeset(key, body, actor, deps) {
 
 /** MA-4d: the filing of a validated changeset — the earlier changesets read, the referee, the carried declines, the doc, ONE
  *  changeset_proposed row. proposeChangeset's second half, shared with proposeFromJob (whose body the bridge built). */
+const filingFlags = new Set(); // MA-8-10: (key, flag) pairs being filed - checkFromFlag's read-then-insert is not atomic
 async function fileValidated(d, key, v, body, actor) {
+  const held = v.elements.filter((e) => e.from_flag).map((e) => `${key}|${e.from_flag.changeset}|${e.from_flag.unique_id}`);
+  if (held.some((h) => filingFlags.has(h))) throw err(409, "a stair from this flag is being filed - try again when it ends");
+  for (const h of held) filingFlags.add(h);
+  try { return await fileValidatedInner(d, key, v, body, actor); } finally { for (const h of held) filingFlags.delete(h); }
+}
+async function fileValidatedInner(d, key, v, body, actor) {
   const proj = await d.ensureProject(key);
   // MA-3b3: every changeset the project holds, read before anything is written — a ghost declined before is filed already declined
   // (carryDeclines). A read that fails refuses the filing: filing it undecided would be a guess that nothing was declined.

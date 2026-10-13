@@ -4,6 +4,7 @@
     { "f2fMm": 3000, "maxRiserMm": 187.5, "risers": 16 },
     { "f2fMm": 3040, "maxRiserMm": 190, "risers": 16 },
     { "f2fMm": 3040.6, "maxRiserMm": 190, "risers": 17 },
+    { "f2fMm": 3040.3, "maxRiserMm": 190, "risers": 17 },
     { "f2fMm": 3000, "maxRiserMm": 190, "risers": 16 },
     { "f2fMm": 3500, "maxRiserMm": 190, "risers": 19 },
     { "f2fMm": 3000.0000001, "maxRiserMm": 187.5, "risers": 16 }
@@ -25,7 +26,7 @@
       {
         "kind": "stair",
         "validate": { "identity": { "Class": "IFCSTAIR", "Name": "Stair · L00 → L01" } },
-        "reason": "16 risers of 187.5 mm (type maximum 190 mm), going 250 mm (type minimum), width 1200 mm (guideline guideline@2 default) — one straight run between L00 and L01; landings, turns, winders and railings are a person's",
+        "reason": "16 risers of 187.5 mm (type maximum 190 mm), going 250 mm (type minimum), width 1200 mm (from guideline@2 default) — one straight run between L00 and L01; landings, turns, winders and railings are a person's",
         "place": {
           "LevelName": "L00", "TopLevel": "L01", "FamilyName": "Assembled Stair", "TypeName": "190mm max riser 250mm going",
           "LocationCurve": { "start": [1000, 2650, 0], "end": [4750, 2650, 0] },

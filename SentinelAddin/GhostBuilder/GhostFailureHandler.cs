@@ -36,11 +36,14 @@ namespace Sentinel.GhostBuilder
         public bool AllOrNothing;
 
         /// <summary>MA-8-10 (spike S1): a warning raised at a stair edit scope's commit reaches the person as a MODAL dialog even with this handler
-        /// passed to Commit, so the stair's scope deletes a warning that names ONLY elements of <see cref="Ours"/> (the stair, its runs, landings and
-        /// supports); it is kept in <see cref="RemovedWarnings"/> and said in the result and on the ledger row. A warning that names anything else, or
-        /// nothing, is counted and left in the model as before. Off everywhere else: no other changeset erases a warning ([BP] P1-3).</summary>
-        public bool DeleteWarnings;
-        /// <summary>MA-8-10: the warnings DeleteWarnings removed - (definition + named ids, text, named ids).</summary>
+        /// passed to Commit, so the stair's scope deletes a warning ONLY when its failure definition is in this allowlist (the one the spike saw as
+        /// harmless: the top-end warning) and it names nothing but elements of <see cref="Ours"/>. The riser, tread and width limit warnings are never on
+        /// it. Empty everywhere else: no other changeset erases a warning ([BP] P1-3).</summary>
+        public readonly HashSet<Guid> DeletableWarnings = new HashSet<Guid>();
+        /// <summary>MA-8-10: set with <see cref="DeletableWarnings"/> - any other warning rolls the stair back with its words (all-or-nothing) instead
+        /// of being left behind a modal dialog.</summary>
+        public bool RollBackOtherWarnings;
+        /// <summary>MA-8-10: the warnings DeletableWarnings removed - (definition + named ids, text, named ids).</summary>
         public readonly List<(string Key, string Text, IReadOnlyCollection<long> Ids)> RemovedWarnings =
             new List<(string Key, string Text, IReadOnlyCollection<long> Ids)>();
 
@@ -84,11 +87,12 @@ namespace Sentinel.GhostBuilder
                         : GhostFailurePolicy.Decide(severity, f.HasResolutions(), failing, additional, Ours, _resolved.Contains(key));
                     if (act == GhostFailurePolicy.Act.Count)
                     {
-                        if (DeleteWarnings && named.Count > 0 && named.All(Ours.Contains))
+                        if (DeletableWarnings.Contains(f.GetFailureDefinitionId().Guid) && named.Count > 0 && named.All(Ours.Contains))
                         {
-                            RemovedWarnings.Add((key, text, named)); // MA-8-10: the stair's own warning - removed, and said in the result
+                            RemovedWarnings.Add((key, text, named)); // MA-8-10: the stair's own allowlisted warning - removed, and said in the result
                             accessor.DeleteWarning(f);
                         }
+                        else if (RollBackOtherWarnings) return RollBack("Revit raised a warning on the stair: " + text, named);
                         else SeenWarnings.Add((key, text, named)); // counted after the commit; Revit keeps the warning
                         continue;
                     }
