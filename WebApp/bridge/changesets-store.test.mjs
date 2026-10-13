@@ -1726,7 +1726,11 @@ describe("verifyChangeset (MA-4e): a signed-in contributor measures a placed sur
       elements: cs.elements.map((e) => ({ ...e, place: { ...e.place, LevelName: "B1", LocationCurve: { ...e.place.LocationCurve, start: [...e.place.LocationCurve.start.slice(0, 2), -3000], end: [...e.place.LocationCurve.end.slice(0, 2), -3000] } } })) });
     await expect(scanOverlay("ma4c-drill", ID, higher, { ground: true })).rejects.toMatchObject({ status: 409, message: `terrain is read under the lowest storey (B1, Survey job-0002 · B1); ${cs.name} is higher — nothing was read` });
     expect(higher.measureJob).not.toHaveBeenCalled();
+    // final verification round 1: a withdrawn lower storey still holds - the scan's geometry decides, not the changeset's status (a podium withdrawn would let the tower's band read its floor)
     higher.saved.set("low", { ...higher.saved.get("low"), status: "withdrawn" });
+    await expect(scanOverlay("ma4c-drill", ID, higher, { ground: true })).rejects.toMatchObject({ status: 409, message: `terrain is read under the lowest storey (B1, Survey job-0002 · B1, withdrawn); ${cs.name} is higher — nothing was read` });
+    expect(higher.measureJob).not.toHaveBeenCalled();
+    higher.saved.delete("low");
     await expect(scanOverlay("ma4c-drill", ID, higher, { ground: true })).resolves.toMatchObject({ ground: true });
     const plain = sdeps({}, cs);   // no ground asked: the request is as before
     await scanOverlay("ma4c-drill", ID, plain);
@@ -2302,7 +2306,7 @@ describe("proposeChangeset — a terrain from a scan (MA-8-14)", () => {
     const deps = member(); deps.saved.set(sc.id, surveyDoc());
     await proposeChangeset("demo", structuredClone(cases.good), "yazan", deps);
     const first = applied(deps);
-    await expect(proposeChangeset("demo", structuredClone(cases.good), "yazan", deps)).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/is already built as "Terrain · L00 · from .*" \(applied\) — undo it in Revit first; nothing was saved$/) });
+    await expect(proposeChangeset("demo", structuredClone(cases.good), "yazan", deps)).rejects.toMatchObject({ status: 409, message: `elements[0]: a terrain from "${sc.name}"'s scan is already built as "${first.name}" (applied, changeset ${first.id}) — undo it in Revit first; nothing was saved` });   // final verification round 1: the blocker by id
     const rows = [{ id: 1, entity_id: first.id, new_value: { op: "undo", guids: [first.elements[0].proposal_guid] } }];
     deps.auditAll = vi.fn(async () => rows);
     await expect(proposeChangeset("demo", structuredClone(cases.good), "yazan", deps)).resolves.toMatchObject({ status: "proposed" });   // undone: free again
@@ -2342,6 +2346,7 @@ describe("proposeChangeset — a terrain from a scan (MA-8-14)", () => {
     await expect(tried({}, surveyDoc({ status: "withdrawn" }))).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/is withdrawn — no terrain is read from its scan/) });
     const lower = { id: "low", name: "Survey job-0003 · B1", status: "proposed", claimed: false, job: { id: sc.job, ledger_id: 41, reader: "sentinel-survey 0.6.0" }, elements: walls(-3000, "B1") };
     await expect(tried({}, surveyDoc(), [lower])).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/terrain is read under the lowest storey \(B1, Survey job-0003 · B1\); "Survey job-0003 · GR-FFL" is higher/) });
+    await expect(tried({}, surveyDoc(), [{ ...lower, status: "withdrawn" }])).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/the lowest storey \(B1, Survey job-0003 · B1, withdrawn\); "Survey job-0003 · GR-FFL" is higher/) });   // final verification round 1
     // the same job id on another ledger row (another jobs folder) is another scan: it does not hold this one
     const deps = member(); deps.saved.set(sc.id, surveyDoc()); deps.saved.set("low", { ...lower, job: { ...lower.job, ledger_id: 99 } });
     await expect(proposeChangeset("demo", structuredClone(cases.good), "yazan", deps)).resolves.toMatchObject({ status: "proposed" });

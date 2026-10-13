@@ -32,6 +32,8 @@ namespace Sentinel.GhostBuilder
         public const int BaseCellMm = 500;
         /// <summary>Review round 2: the bridge's span bound (changesets-logic MAX_TERRAIN_SPAN_MM) - points wider than this in plan are refused at filing, so the plan holds them first.</summary>
         public const double MaxSpanMm = 500000;
+        /// <summary>Final verification round 1: the bridge's bound on an element's reason (changesets-logic text(el.reason, 500)).</summary>
+        public const int MaxReason = 500;
         /// <summary>Review round 2 (D-B5-9, said): what Revit builds beyond the scan's points - the hole is the walls' box, not the walls, and CreateTerrain adds rim points.
         /// In the reason, the plan's line and the review row. Review round 3: one plain sentence; the web desk (review-desk.ts TERRAIN_SHAPE) holds it verbatim and
         /// "plus 1 m" is survey-plan's GROUND_PAD_MM (both pinned by Ma8Terrain).</summary>
@@ -64,8 +66,14 @@ namespace Sentinel.GhostBuilder
             string name = $"Terrain · {level}";
             // review: say what the read does not see - the cell it kept one point per, the band it cut to, and the walls' box it left out
             string widened = cellMm > BaseCellMm && of != null ? $" (widened from {BaseCellMm} mm, which kept {of})" : "";
-            string band = zMm is { Length: 2 } ? $", between {Mm(zMm[0])} and {Mm(zMm[1])} mm (5 m under to 1.5 m over {level}'s floor; ground outside that band is not read)" : "";
-            string reason = $"{n} ground points, lowest per {cellMm} mm cell{widened}{band}, outside the storey's walls, from {jobId}; {Shape} — check it against the site survey";
+            string Reason(string lv) => $"{n} ground points, lowest per {cellMm} mm cell{widened}"
+                + (zMm is { Length: 2 } ? $", between {Mm(zMm[0])} and {Mm(zMm[1])} mm (5 m under to 1.5 m over {lv}'s floor; ground outside that band is not read)" : "")
+                + $", outside the storey's walls, from {jobId}; {Shape} — check it against the site survey";
+            string reason = Reason(level);
+            // final verification round 1: the bridge takes a reason of at most 500 characters - a long level name is cut (marked …), as the stair flag's stairReason; Shape stays whole
+            int keep = level.Length - (reason.Length - MaxReason) - 1;
+            if (reason.Length > MaxReason && keep >= 1) reason = Reason(level.Substring(0, keep) + "…");
+            if (reason.Length > MaxReason) return Hold($"the terrain's reason would be {Reason(level).Length} characters — the bridge takes {MaxReason}; a person decides");
             var place = new Dictionary<string, object> { ["LevelName"] = level };
             if (!string.IsNullOrWhiteSpace(rule.Value.Family)) place["FamilyName"] = rule.Value.Family;
             place["TypeName"] = rule.Value.Type;
@@ -146,25 +154,39 @@ namespace Sentinel.GhostBuilder
             return ring;
         }
 
-        /// <summary>MA-8-14 review round 3: the applied terrains whose Toposolid this model no longer holds (<paramref name="standing"/>: is that UniqueId in the model) - deleted by
-        /// hand, or undone after a restart, neither of which posts the changeset_reverted row an in-session Ctrl+Z does, so the bridge would hold the scan ("undo it in Revit
-        /// first") for good. Each with the proposal_guids to report as undone (ChangesetClient.ReportReverted). Only an applied entry with a UniqueId is judged. Pure.</summary>
-        public static List<(string Id, string Name, List<string> Guids)> Gone(IEnumerable<ChangesetDto> all, Func<string, bool> standing)
+        /// <summary>Final verification round 1: the id of the applied terrain changeset the bridge's 409 names ("(applied, changeset &lt;id&gt;) — undo it in Revit first",
+        /// checkFromScan), or null for any other answer.</summary>
+        public static string Blocker(string error)
         {
-            var gone = new List<(string, string, List<string>)>();
-            foreach (var c in all ?? Enumerable.Empty<ChangesetDto>())
-            {
-                if (c.Status != "applied" && c.Status != "partially_applied") continue;
-                if (c.Result is not { ValueKind: JsonValueKind.Object } res || !res.TryGetProperty("applied", out var a) || a.ValueKind != JsonValueKind.Array) continue;
-                var terrains = new HashSet<string>((c.Elements ?? new()).Where(e => e.Kind == "terrain" && e.ProposalGuid != null).Select(e => e.ProposalGuid), StringComparer.Ordinal);
-                var guids = a.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.Object
-                        && x.TryGetProperty("proposal_guid", out var g) && g.ValueKind == JsonValueKind.String && terrains.Contains(g.GetString())
-                        && x.TryGetProperty("revit_unique_id", out var u) && u.ValueKind == JsonValueKind.String && !string.IsNullOrEmpty(u.GetString()) && !standing(u.GetString()))
-                    .Select(x => x.GetProperty("proposal_guid").GetString()).ToList();
-                if (guids.Count > 0) gone.Add((c.Id, c.Name, guids));
-            }
-            return gone;
+            var m = System.Text.RegularExpressions.Regex.Match(error ?? "", @"\(applied, changeset ([^)\s]+)\) — undo it in Revit first");
+            return m.Success ? m.Groups[1].Value : null;
         }
+
+        /// <summary>MA-8-14 review round 3: an applied terrain whose Toposolid this model does not hold (<paramref name="standing"/>: is that UniqueId in the model) - deleted by
+        /// hand, or undone after a restart, neither of which posts the changeset_reverted row an in-session Ctrl+Z does, so the bridge would hold the scan ("undo it in Revit
+        /// first") for good. Final verification round 1: only the changeset the bridge's 409 names (<paramref name="blocker"/>, <see cref="Blocker"/> - the bridge has already
+        /// judged its newest Undo row is not an undo), and only when every applied terrain entry of it carries a UniqueId this model does not hold; null otherwise. Absence here
+        /// is not proof it is gone (another model, a stale local): the caller asks the person before reporting it. With the proposal_guids to report as undone. Pure.</summary>
+        public static (string Id, string Name, List<string> Guids)? Gone(IEnumerable<ChangesetDto> all, string blocker, Func<string, bool> standing)
+        {
+            var c = (all ?? Enumerable.Empty<ChangesetDto>()).FirstOrDefault(x => blocker != null && x.Id == blocker);
+            if (c == null || (c.Status != "applied" && c.Status != "partially_applied")) return null;
+            if (c.Result is not { ValueKind: JsonValueKind.Object } res || !res.TryGetProperty("applied", out var a) || a.ValueKind != JsonValueKind.Array) return null;
+            var terrains = new HashSet<string>((c.Elements ?? new()).Where(e => e.Kind == "terrain" && e.ProposalGuid != null).Select(e => e.ProposalGuid), StringComparer.Ordinal);
+            var entries = a.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.Object && x.TryGetProperty("proposal_guid", out var g) && g.ValueKind == JsonValueKind.String && terrains.Contains(g.GetString())).ToList();
+            string Uid(JsonElement x) => x.TryGetProperty("revit_unique_id", out var u) && u.ValueKind == JsonValueKind.String ? u.GetString() : null;
+            if (entries.Count == 0 || entries.Any(x => string.IsNullOrEmpty(Uid(x)) || standing(Uid(x)))) return null;
+            return (c.Id, c.Name, entries.Select(x => x.GetProperty("proposal_guid").GetString()).ToList());
+        }
+
+        /// <summary>Final verification round 1: the question put to the person before an absent terrain is recorded as undone - the bridge cannot tell this model from another.</summary>
+        public static string GoneQuestion(string name, string model) =>
+            $"\"{name}\" was applied from this scan and the bridge holds the scan for it, but its Toposolid is not in this model ({model}).\n\n"
+            + "Was it applied in THIS model and then deleted, or undone after Revit was restarted? If it may stand in another model, a copy, or another person's local, answer No.\n\n"
+            + $"Yes records an Undo of \"{name}\" on the ledger in your name, on your word, and files the terrain again.";
+
+        /// <summary>Final verification round 1: a workshared local not up to date with central cannot say a terrain is gone - it may never have received it.</summary>
+        public const string StaleLocal = "this local is not up to date with central — Reload Latest, then press again; nothing was recorded";
 
         /// <summary>The line the review window reads beside a terrain row.</summary>
         public static string RowWords(int points, bool supported) =>

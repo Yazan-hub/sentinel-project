@@ -90,6 +90,15 @@ public static class Compat
             throw new InvalidOperationException($"the Toposolid's loop corners could not be read ({loopVerts.Count} of {outerMm.Count + ringMm.Count}) — the ground at the building and the rim would stand at the lowest point; nothing was placed");
         foreach (var v in loopVerts)
             editor.ModifySubElement(v, Sentinel.GhostBuilder.TerrainPlanner.NearestZ(pointsMm, v.Position.X / mm, v.Position.Y / mm) * mm + dz - top);
+        // final verification round 1: the raise's offset reference (the top face) is unspiked - every loop vertex is read back after a Regenerate and must stand within
+        // 5 mm of its ground point, or the transaction rolls back (fail closed: if Revit measures the offset otherwise, K-1c sees this refusal, never a wall round the edge)
+        doc.Regenerate();
+        foreach (var v in ts.GetSlabShapeEditor().SlabShapeVertices.Cast<SlabShapeVertex>().Where(v => v.VertexType != SlabShapeVertexType.Interior))
+        {
+            double want = Sentinel.GhostBuilder.TerrainPlanner.NearestZ(pointsMm, v.Position.X / mm, v.Position.Y / mm) * mm + dz, off = (v.Position.Z - want) / mm;
+            if (Math.Abs(off) > 5)
+                throw new InvalidOperationException($"the Toposolid's edge at ({v.Position.X / mm:0}, {v.Position.Y / mm:0}) mm read back {off:0} mm off its ground point — Revit did not take the raise; nothing was placed");
+        }
         return ts;
 #else
         throw new NotSupportedException("a terrain is a Toposolid — Revit 2024 and later");

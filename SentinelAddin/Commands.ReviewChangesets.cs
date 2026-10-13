@@ -640,27 +640,49 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                     catch (Exception ex) when (ex is PlacementRefused || ex is InvalidOperationException) { window.Shown("Held for a person — " + ex.Message); return; }
                     var plan = TerrainPlanner.Plan(ground.Points.ToArray(), ground.Footprint, ground.Level, rule, cs.Name, cs.Id, ground.Job, ground.CellMm, ground.ZMm, ground.Of, UserSession.Actor);
                     if (plan.Hold != null) { window.Shown("Held for a person — " + plan.Hold); return; }
-                    var gone = TerrainPlanner.Gone(all, uid => d.GetElement(uid) != null);
                     window.Shown("Filing the terrain on the bridge…");
                     // (d)
                     Task.Run(() =>
                     {
                         var filed = ChangesetClient.Propose(cfg, key, plan.Body, out var proposeErr);
-                        // review round 3: the scan is held by an applied terrain whose Toposolid this model no longer holds (deleted by hand, or undone after a restart - no Undo
-                        // row was posted, and "undo it in Revit first" cannot be done): it is recorded as undone (the Undo's own row) and the terrain filed again, once
-                        string freed = "";
-                        if (filed == null && gone.Count > 0 && (proposeErr ?? "").Contains("(applied) — undo it in Revit first"))
-                        {
-                            var undone = gone.Where(g => ChangesetClient.ReportReverted(cfg, key, g.Id, g.Guids, "undo", out _)).Select(g => $"\"{g.Name}\"").ToList();
-                            if (undone.Count > 0)
-                            {
-                                freed = $" The Toposolid of {string.Join(", ", undone)} is no longer in this model — the bridge took its Undo row, so the scan is free.";
-                                filed = ChangesetClient.Propose(cfg, key, plan.Body, out proposeErr);
-                            }
-                        }
+                        var blocker = filed == null ? TerrainPlanner.Blocker(proposeErr) : null;
                         // (e) a 409 (or any refusal) shows the bridge's message only
-                        window.Shown(filed == null ? "The terrain was not proposed — " + proposeErr + freed
-                            : $"Proposed {filed.Name}: {plan.Line}. Review it (Review AI Proposals); nothing was ticked or placed.{freed}");
+                        if (blocker == null)
+                        {
+                            window.Shown(filed == null ? "The terrain was not proposed — " + proposeErr
+                                : $"Proposed {filed.Name}: {plan.Line}. Review it (Review AI Proposals); nothing was ticked or placed.");
+                            return;
+                        }
+                        // review round 3, final verification round 1: the scan is held by an applied terrain (the one the 409 names) whose Toposolid this model does not hold -
+                        // deleted by hand, or undone after a restart, posts no Undo row, so "undo it in Revit first" cannot be done. Absence here is not proof (another model of
+                        // the project, a copy, a local not reloaded): on Revit's thread, a stale workshared local is refused, and the person is asked; only on Yes is the
+                        // Undo row posted (their word) and the terrain filed again, once.
+                        App.Events.Enqueue(doc, "free a scan", (ua2, d2) =>
+                        {
+                            if (window.Gone) return;
+                            var gone = TerrainPlanner.Gone(all, blocker, uid => d2.GetElement(uid) != null);
+                            if (gone == null) { window.Shown("The terrain was not proposed — " + proposeErr); return; }
+                            if (d2.IsWorkshared)
+                            {
+                                bool current;
+                                try { current = d2.HasAllChangesFromCentral(); }
+                                catch (Exception ex) { window.Shown($"The terrain was not proposed — {proposeErr} (whether this local is up to date could not be read: {ex.Message}; nothing was recorded)"); return; }
+                                if (!current) { window.Shown($"The terrain was not proposed — {proposeErr} ({TerrainPlanner.StaleLocal})"); return; }
+                            }
+                            var g = gone.Value;
+                            var ask = new TaskDialog(Title) { MainInstruction = "Is this terrain's Toposolid gone?", MainContent = TerrainPlanner.GoneQuestion(g.Name, DocOf(d2)),
+                                CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No, DefaultButton = TaskDialogResult.No };
+                            if (ask.Show() != TaskDialogResult.Yes) { window.Shown("The terrain was not proposed — " + proposeErr); return; }
+                            Task.Run(() =>
+                            {
+                                if (!ChangesetClient.ReportReverted(cfg, key, g.Id, g.Guids, "undo", out var revertErr))
+                                { window.Shown($"The terrain was not proposed — {proposeErr} (the Undo of \"{g.Name}\" was not recorded: {revertErr})"); return; }
+                                string word = $" The Undo of \"{g.Name}\" was recorded on your word that its Toposolid is gone.";
+                                var again = ChangesetClient.Propose(cfg, key, plan.Body, out var againErr);
+                                window.Shown(again == null ? "The terrain was not proposed — " + againErr + word
+                                    : $"Proposed {again.Name}: {plan.Line}. Review it (Review AI Proposals); nothing was ticked or placed.{word} The scan is free.");
+                            });
+                        }, refusal => window.Shown($"The terrain was not proposed — {proposeErr} (the scan could not be freed: {refusal})"));
                     });
                 }, refusal => window.Shown($"The terrain was not planned — {refusal}"));
             });

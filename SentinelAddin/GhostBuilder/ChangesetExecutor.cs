@@ -994,7 +994,10 @@ public sealed class ChangesetExecutor
                 var type = ToposolidTypeOf(doc, el.Place.FamilyName, el.Place.TypeName);
                 if (el.Place.Points == null || el.Place.Points.Length < TerrainPlanner.MinPoints || el.Place.Boundary == null || el.Place.Boundary.Length < 3)
                     throw new InvalidOperationException($"{at}: a terrain needs its ground Points and the storey's Boundary");
-                Collect(result, el, Compat.CreateTerrain(doc, el.Place.Points, el.Place.Boundary, type.Id, level));
+                // final verification round 1 (C5's rule, as the roof): Revit not building the terrain (CreateTerrain's own refusals, or a Revit exception in its unspiked
+                // rim steps) is this Revit's state, not a verdict - PlacementRefused rolls it back and the changeset stays proposed, never declined
+                try { Collect(result, el, Compat.CreateTerrain(doc, el.Place.Points, el.Place.Boundary, type.Id, level)); }
+                catch (Exception ex) when (!(ex is PlacementRefused)) { throw new PlacementRefused($"{at}: Revit did not build the terrain — {ex.Message}; it stays proposed"); }
             }
 
             // MA-1: a ceiling at its height above the level (place.Offset, required by the bridge).
