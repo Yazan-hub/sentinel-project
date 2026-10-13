@@ -8,7 +8,7 @@ const { bfetch, bwrite } = vi.hoisted(() => ({ bfetch: vi.fn(), bwrite: vi.fn() 
 vi.mock("./bridge-fetch", () => ({ bfetch, bwrite }));
 vi.mock("./active-project", () => ({ activePid: () => "demo", onActiveProjectChange: () => () => {} }));
 
-import { heldLines, proposalWords, storeyOf, groupDesk, ghostLine, reviewWords, declinedBy, canDecide, canReopen, readPending, postReview, postReopen, rowWords, postsFor, type PendingChangeset,
+import { heldLines, proposalWords, storeyOf, groupDesk, ghostLine, reviewWords, citesOf, declinedBy, canDecide, canReopen, readPending, postReview, postReopen, rowWords, postsFor, type PendingChangeset,
   trustWords, sourceWords, isDrawn,
   readDecided, readLedger, highlightPlan, type Ghost, decidedView, decidedCount, DECIDED_MAX, type LedgerRows,
   measureWords, verifiedView, readVerified, readMeasuredRecent, measuredView, MEASURED_MAX, postMeasure, measureLine, canMeasure, unmeasuredOlder, countWords, editCostLine, keptWords, readEditCost, type EditCostRun, type VerifyRecord, type Measured } from "./review-desk";
@@ -75,6 +75,11 @@ describe("words", () => {
 
   it("a decline binds, an accept is advice, a re-open is said; nobody decided is waiting", () => {
     const [g1, g2, g3] = after.elements;
+    // MA-7-10 (PC-1): an accept that cites a photo says so
+    expect(reviewWords({ ...g2, review: { ...g2.review!, evidence: ["ev-000C"], evidence_copies: { "ev-000C": "e".repeat(64) } } }))
+      .toBe("accepted by reviewer@example.com (contributor) · confirmed by photo ev-000C (person-linked, not registered) — advice: Revit still asks for the tick");
+    expect(citesOf(" ev-000C, ev-000D  ev-000C;")).toEqual(["ev-000C", "ev-000D"]);
+    expect(citesOf("  ")).toEqual([]);
     expect(reviewWords(g1)).toBe("declined by reviewer@example.com (contributor): wrong type: W 1 is a party wall — binds: Revit shows it unticked and refuses the tick");
     expect(reviewWords(g2)).toBe("accepted by reviewer@example.com (contributor) — advice: Revit still asks for the tick");
     expect(reviewWords(g3)).toBe("waiting — nobody decided on the web");
@@ -124,6 +129,13 @@ describe("the bridge calls", () => {
     bwrite.mockResolvedValueOnce({ ledger: null });
     await postReview("http://b", "demo", "cs-ma3a", "accept", ["g-2"], "");
     expect(JSON.parse(bwrite.mock.calls[1][1].body)).toEqual({ decisions: [{ proposal_guid: "g-2", decision: "accept" }] });
+    // MA-7-10: an accept sends the cited photos; a decline never does
+    bwrite.mockResolvedValueOnce({ ledger: null });
+    await postReview("http://b", "demo", "cs-ma3a", "accept", ["g-2"], "", ["ev-000C"]);
+    expect(JSON.parse(bwrite.mock.calls[2][1].body)).toEqual({ decisions: [{ proposal_guid: "g-2", decision: "accept", evidence: ["ev-000C"] }] });
+    bwrite.mockResolvedValueOnce({ ledger: null });
+    await postReview("http://b", "demo", "cs-ma3a", "decline", ["g-1"], "no", ["ev-000C"]);
+    expect(JSON.parse(bwrite.mock.calls[3][1].body).decisions[0]).not.toHaveProperty("evidence");
   });
 
   it("postReopen needs a reason and names the ghost", async () => {

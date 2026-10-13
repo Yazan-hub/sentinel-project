@@ -763,6 +763,66 @@ describe("MA-3a — reviewChangeset and reopenGhost: a signed-in person, contrib
     expect(after.decisions.map((d) => [d.proposal_guid, d.to, d.reason])).toEqual([["g-1", "declined", "wrong type: W 1 is a party wall"], ["g-2", "accepted", null], ["g-4", "declined", "no fire strategy issued yet"]]);
   });
 
+  // MA-7-10 (PC-1, PC-2): a photo confirms a ghost a scan already proposed - an accept cites own photos that have their blurred copy
+  describe("MA-7-10 - an accept cites photos", () => {
+    const SHA = "e".repeat(64);
+    const photo = (id, over = {}) => ({ id, kind: "photo", state: "admitted", role: "own", ...(id === "ev-000D" ? {} : { view_copy: { sha256: SHA } }), ...over });
+    const packWith = (...items) => ({ readPack: vi.fn(async () => ({ pack: { items } })) });
+    const accept = (evidence) => [{ proposal_guid: "g-2", decision: "accept", ...(evidence ? { evidence } : {}) }];
+    const run = (decisions, over = {}) => { const deps = seeded(fx.before, { myRole: as("contributor"), audit: vi.fn(async () => ({ id: 1301, hash: "ab".repeat(32) })), ...over }); return { deps, out: reviewChangeset("demo", "cs-ma3a", { decisions }, fx.who.by, deps) }; };
+
+    it("PC-1: the decision carries evidence and the copy's sha; the ledger row names the photo; the ghost's review keeps both", async () => {
+      const { deps, out } = run(accept(["ev-000C"]), packWith(photo("ev-000C")));
+      const r = await out;
+      const el = r.changeset.elements.find((e) => e.proposal_guid === "g-2");
+      expect(el.review).toMatchObject({ state: "accepted", evidence: ["ev-000C"], evidence_copies: { "ev-000C": SHA } });
+      const after = deps.audit.mock.calls[0][6];
+      expect(after.evidence).toEqual(["ev-000C"]);
+      expect(after.decisions[0]).toMatchObject({ proposal_guid: "g-2", to: "accepted", evidence: ["ev-000C"], evidence_copies: { "ev-000C": SHA } });
+      expect(deps.readPack).toHaveBeenCalledWith("demo", "evp-0001");
+    });
+    it("a decision with no cite is as before: no evidence field, the pack is not read", async () => {
+      const { deps, out } = run(accept(), packWith(photo("ev-000C")));
+      const r = await out;
+      expect(r.changeset.elements.find((e) => e.proposal_guid === "g-2").review).not.toHaveProperty("evidence");
+      expect(deps.audit.mock.calls[0][6]).not.toHaveProperty("evidence");
+      expect(deps.readPack).not.toHaveBeenCalled();
+    });
+    it("PC-2: a photo with no blurred copy is a 400 that says so; nothing is saved", async () => {
+      const { deps, out } = run(accept(["ev-000D"]), packWith(photo("ev-000D")));
+      await expect(out).rejects.toMatchObject({ status: 400, message: expect.stringMatching(/ev-000D has no blurred copy yet.*nothing was saved$/) });
+      expect(deps.docReplaceIfField).not.toHaveBeenCalled();
+      expect(deps.audit).not.toHaveBeenCalled();
+    });
+    it("an unknown item, an expired or changed photo, a scan, and a web photo are refused", async () => {
+      const bad = async (items, ev) => { const { out } = run(accept([ev]), packWith(...items)); return out.catch((e) => e); };
+      expect((await bad([], "ev-0099")).message).toMatch(/ev-0099 is not an item of the evidence pack/);
+      expect((await bad([photo("ev-000C", { state: "expired", expired_at: "2026-10-01T00:00:00Z" })], "ev-000C")).message).toMatch(/expired on 2026-10-01/);
+      expect((await bad([photo("ev-000C", { state: "changed" })], "ev-000C")).message).toMatch(/changed since it was admitted/);
+      expect((await bad([photo("ev-000C", { kind: "scan" })], "ev-000C")).message).toMatch(/is a scan, not a photo/);
+      const web = await bad([photo("ev-000C", { role: "context" })], "ev-000C");
+      expect([web.status, web.message]).toEqual([400, expect.stringMatching(/web photo - context only; it cannot confirm a ghost; nothing was saved$/)]);
+    });
+    it("the default path: no readPack dep (as the route calls it) reads the evidence store; its 409 ends 'nothing was saved'", async () => {
+      const readPack = vi.fn(async () => { throw Object.assign(new Error("no evidence pack for demo"), { status: 409 }); });
+      vi.resetModules(); vi.doMock("./evidence-store.mjs", () => ({ readPack }));
+      try {
+        const fresh = await import("./changesets-store.mjs");
+        const deps = seeded(fx.before, { myRole: as("contributor"), audit: vi.fn() });
+        await expect(fresh.reviewChangeset("demo", "cs-ma3a", { decisions: accept(["ev-000C"]) }, fx.who.by, deps))
+          .rejects.toMatchObject({ status: 409, message: "no evidence pack for demo; nothing was saved" });
+        expect(readPack).toHaveBeenCalledWith("demo", "evp-0001");
+      } finally { vi.doUnmock("./evidence-store.mjs"); vi.resetModules(); }
+    });
+    it("a decline cannot cite a photo, and a malformed list is a 400 before the pack is read", async () => {
+      for (const d of [[{ proposal_guid: "g-1", decision: "decline", reason: "no", evidence: ["ev-000C"] }], accept("ev-000C"), accept([]), accept(["ev-000C", "ev-000C"]), accept(["x"]), accept(["ev-1", "ev-2", "ev-3", "ev-4"])]) {
+        const { deps, out } = run(d, packWith(photo("ev-000C")));
+        await expect(out).rejects.toMatchObject({ status: 400, message: expect.stringMatching(/^decisions\[0\]\.evidence .*; nothing was saved$/) });
+        expect(deps.readPack).not.toHaveBeenCalled();
+      }
+    });
+  });
+
   it("a refused step writes nothing and no row (all or none)", async () => {
     const deps = seeded(fx.after, { myRole: as("lead") });
     await expect(reviewChangeset("demo", "cs-ma3a", { decisions: [{ proposal_guid: "g-3", decision: "accept" }, { proposal_guid: "g-1", decision: "accept" }] }, "l", deps))
