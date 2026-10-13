@@ -3254,3 +3254,14 @@ Findings closed by this slice: F-K1-2 (oriented footprint, G-1), F-B4-2, F-B4-3,
 | G-1, G-2, P-1…, D-1…, N-1, N-2, the Evidence panel rows | The imagery and photo-kind refusals, the photo intake form (own camera / map service refused / website waits for counsel), delete-by and the sweep, the NOTICE on a live project | **owed** — next session part (a signed-in person for the panel rows; loopback rows on the next run) |
 
 Notes: CI runs the licence check before the tests; LC-1's pending count is 12, not the plan's 10 (amendment 23(v)); amendment 23(iii)/(iv) (the C# ModelLicence twin and WEIGHTS DRIFT) moved to 7-8.
+
+## Session MA7 batch 2 — photos at work, part 1 (2026-10-14 local: the founder OK'd Pillow's MIT-CMU licence ("OK Pillow"); 7-7 blurred stored copies d56e1a7, 7-9 a person chooses the material from a photo 9a42b7f, 7-10 a photo confirms a ghost fb15bee; one review round each (trust opus, spec + compat sonnet), 12 confirmed findings fixed before the merges — among them the photo's orientation read the same way by the browser and the blur tool, MPO phone JPEGs, the 64 MB cap and a decompression-bomb test; web 1.0.88 published (d3e56d2); the 4100 bridge restarted on master; no add-in change, no download, no Revit; **7-8 (the closed-list vision reader) is held for spike M-0, which needs 12 of the founder's own wall photos of known material**)
+
+| Row | What happened | Result |
+|---|---|---|
+| G-3 again | Every real evidence pack through master's `validatePack` after batch 2: ma4a-drill ok (7), ma4c-drill ok (13), kladno-drill ok (1) | **pass** |
+| Unit + CI | Bridge 3 700+ passed, web 713+, survey 116 (7 new blur tests), licence gate banned 0 / unknown 0 (Pillow accepted) | **pass** |
+| B-1…B-6, PT-1…PT-3, PC-1, PC-2 | Marking faces and plates on an own photo, the blurred copy's bytes (no EXIF/XMP), the original only on this PC, "Choose by photo" typing a scanned wall's material, a photo-cited accept | **owed** — a signed-in person in the local app, with own camera photos |
+| M-0, 7-8 (VR-1…VR-4, MV-1), PT-R, MV-R | The vision spike and reader; the Revit rows | **held / owed** — the founder's 12 labelled wall photos; Revit |
+
+Ceilings recorded by the slices: the web marker has no DOM test (no jsdom; installs barred); a blur-only project's NOTICE does not yet credit Pillow/FreeType (toolsOf reads build:run rows only); amendment 29's frame lock relies on the existing "one job is one frame" 409.
