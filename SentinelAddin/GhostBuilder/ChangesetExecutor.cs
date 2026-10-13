@@ -302,7 +302,8 @@ public sealed class ChangesetExecutor
         var uid = el.Target?.UniqueId;
         if (string.IsNullOrWhiteSpace(uid)) throw new InvalidOperationException($"{el.Op} \"{el.Validate?.Identity?.Name ?? el.ProposalGuid}\" names no element");
         var e = doc.GetElement(uid) ?? throw new InvalidOperationException($"{el.Kind} {uid} is not in this model — re-run Promote");
-        if (el.Kind == null || !PromoteWallsPlanner.Classes.TryGetValue(el.Kind, out var cls) || e.Category == null
+        // MA-8-7 (batch-3 amendment 1): through TryClassOf - a column or beam is a structure kind, not one of Classes' six
+        if (el.Kind == null || !PromoteWallsPlanner.TryClassOf(el.Kind, out var cls) || e.Category == null
             || !e.Category.MatchesCategoryKey(cls.Category) || (el.Kind == "wall" && e is not Wall))
             throw new InvalidOperationException($"{uid} is not a {el.Kind} — re-run Promote");
         return e;
@@ -378,6 +379,20 @@ public sealed class ChangesetExecutor
         if (e.DesignOption != null) return what + " is in a design option — Sentinel does not edit design options";
         if (kind == "floor" && e.get_Parameter(BuiltInParameter.FLOOR_PARAM_IS_STRUCTURAL)?.AsInteger() == 1)
             return what + " is structural — Promote v1 does not retype structure; a person decides";
+        if (kind is "column" or "beam")
+        {
+            // MA-8-7: a structural retype never changes the section. The target's type name carries the section the plan measured
+            // (TrySection, 0.5 mm), or it is the type the element already has by name (a steel shape in another family).
+            if (!(e is FamilyInstance sfi)) return what + " is not a family instance — a person decides";
+            if (StructureHold(sfi, kind) is string hold) return $"{what} is {hold} — a person decides";
+            var (sw, sd, _) = SectionOf(sfi, kind);
+            bool byName = cur != null && string.Equals(nt.Name, cur.Name, StringComparison.OrdinalIgnoreCase);
+            bool bySection = sw.HasValue && sd.HasValue && TypeNameParse.TrySection(nt.Name, out var tw, out var td) && Math.Abs(tw - sw.Value) <= 0.5 && Math.Abs(td - sd.Value) <= 0.5;
+            if (!byName && !bySection)
+                return $"{what} reads {(sw.HasValue && sd.HasValue ? Mm(sw.Value) + " x " + Mm(sd.Value) + " mm" : "no rectangular section")}, \"{nt.Name}\" is " +
+                       $"{(TypeNameParse.TrySection(nt.Name, out var nw2, out var nh2) ? Mm(nw2) + " x " + Mm(nh2) + " mm by its name" : "not sized by its name")} — a retype would change its section; a person decides";
+            return null;
+        }
         if ((cur as HostObjAttributes)?.GetCompoundStructure() is CompoundStructure was)
         {
             var now = (nt as HostObjAttributes)?.GetCompoundStructure();
@@ -424,6 +439,116 @@ public sealed class ChangesetExecutor
     {
         var p = e.get_Parameter(bip);
         if (p == null || p.IsReadOnly || !p.Set(v)) throw new InvalidOperationException($"could not set {bip} on {kind} {e.UniqueId}");
+    }
+
+    /// <summary>MA-8-7 (batch-3 amendment 7): why a structural column or beam is not Sentinel's to retype - words, or null. Framing whose structural type is
+    /// not Beam (braces, purlins), a curved or unlocated member, a slanted column, a nested (truss) member and an in-place family. The plan's read
+    /// (Commands.PromoteWalls.OtherFact) and Unsafe (the preflight and Apply) judge alike.</summary>
+    internal static string StructureHold(FamilyInstance fi, string kind)
+    {
+        if (fi.SuperComponent != null) return "a nested component (a truss member) — its parent family decides its type";
+        if (fi.Symbol?.Family?.IsInPlace == true) return "an in-place family";
+        if (kind == "beam")
+        {
+            if (fi.StructuralType != StructuralType.Beam) return $"framing of structural type {fi.StructuralType} (a brace or purlin)";
+            if (!(fi.Location is LocationCurve lc) || lc.Curve == null || !(lc.Curve is Line)) return "a curved or unlocated member";
+        }
+        else if (fi.IsSlantedColumn) return "a slanted column";
+        return null;
+    }
+
+    /// <summary>MA-8-7 (amendment 7): a structural column's or beam's rectangular section in mm, read from its ORIGINAL geometry (before joins and cuts:
+    /// <c>FamilyInstance.GetOriginalGeometry</c>, Fine, every version - a joined or cut instance fails a volume test on its instance solids). A column's
+    /// W x D are its extents along the instance's own X and Y (GetTransform), a beam's across its axis (horizontal) and in Z, its length the solid's own
+    /// extent along the axis (a cutback or extension counts, not the LocationCurve's length). Why is set, and W and D null, when the solids are not one
+    /// rectangular prism (volume within 2 % of W x D x length) - a steel shape or a profile is typed by its name. ponytail: the solids' extents, not the
+    /// family's parameters (their names differ by family and language); verify live on the structural samples (F-2).</summary>
+    internal static (double? W, double? D, string Why) SectionOf(FamilyInstance fi, string kind)
+    {
+        const string notRect = "a section that is not a rectangle (a steel shape or a profile) — by its type name only";
+        try
+        {
+            var ge = fi.GetOriginalGeometry(new Options { DetailLevel = ViewDetailLevel.Fine });
+            if (ge == null) return (null, null, "no original geometry was read");
+            var solids = new List<Solid>();
+            foreach (var go in ge)
+            {
+                if (go is GeometryInstance gi) { foreach (var g2 in gi.GetInstanceGeometry()) if (g2 is Solid s2 && s2.Volume > 1e-9) solids.Add(s2); }
+                else if (go is Solid s && s.Volume > 1e-9) solids.Add(s);
+            }
+            if (solids.Count == 0) return (null, null, "no solid was read");
+            XYZ u, v, a; // the two section axes and the axis of the member (all unit)
+            if (kind == "beam")
+            {
+                var c = (fi.Location as LocationCurve)?.Curve;
+                if (c == null || !c.IsBound) return (null, null, "no location line");
+                a = (c.GetEndPoint(1) - c.GetEndPoint(0)).Normalize();
+                u = XYZ.BasisZ.CrossProduct(a);
+                if (u.GetLength() < 1e-6) return (null, null, "a vertical member"); // not a beam
+                u = u.Normalize();
+                v = a.CrossProduct(u).Normalize();
+            }
+            else
+            {
+                var tr = fi.GetTransform();
+                u = tr.BasisX.Normalize(); v = tr.BasisY.Normalize(); a = tr.BasisZ.Normalize();
+            }
+            double u0 = double.MaxValue, u1 = double.MinValue, v0 = double.MaxValue, v1 = double.MinValue, a0 = double.MaxValue, a1 = double.MinValue, vol = 0;
+            foreach (var s in solids)
+            {
+                vol += s.Volume;
+                foreach (Edge ed in s.Edges)
+                    foreach (var p in new[] { ed.AsCurve().GetEndPoint(0), ed.AsCurve().GetEndPoint(1) })
+                    {
+                        double pu = p.DotProduct(u), pv = p.DotProduct(v), pa = p.DotProduct(a);
+                        u0 = Math.Min(u0, pu); u1 = Math.Max(u1, pu); v0 = Math.Min(v0, pv); v1 = Math.Max(v1, pv); a0 = Math.Min(a0, pa); a1 = Math.Max(a1, pa);
+                    }
+            }
+            double w = u1 - u0, d = v1 - v0, len = a1 - a0;
+            if (!(w > 0 && d > 0 && len > 0) || Math.Abs(vol - w * d * len) > 0.02 * w * d * len) return (null, null, notRect);
+            return (w / MmToFeet, d / MmToFeet, null);
+        }
+        catch (Exception ex) { return (null, null, "the section could not be read: " + ex.Message); }
+    }
+
+    /// <summary>MA-8-7 (D16, R12): may a create that replaces <paramref name="uid"/> delete it? <c>Why</c> is null when it may, else the reason in words (no
+    /// subject - "the original ..."); <c>Refuse</c> is true when the element is not what Promote named (a DirectShape or a Generic Model instance, never
+    /// a mass) - Apply then refuses the whole changeset, which stays proposed - and false when it is the model's state (gone, moved or edited since the
+    /// plan read it, pinned or borrowed, or one whose delete takes more than itself and its tags) - Apply keeps it and says so. With
+    /// <paramref name="probe"/> the delete is tried in a rolled-back SubTransaction (inside the open transaction - Apply only): the elements it would take.
+    /// The planner's preflight does not probe (it has no transaction).</summary>
+    internal static (string Why, bool Refuse, Element Old, List<ElementId> Probe) ReplaceCheck(Document doc, string uid, double[] boxMin, double[] boxMax, bool probe)
+    {
+        var old = string.IsNullOrWhiteSpace(uid) ? null : doc.GetElement(uid);
+        if (old == null) return ("the original is no longer in this model", false, null, null);
+        bool direct = old is DirectShape;
+        bool generic = old is FamilyInstance gfi && gfi.SuperComponent == null && !(gfi.Symbol?.Family?.IsInPlace ?? false)
+                       && old.Category?.Id.IdValue() == (long)BuiltInCategory.OST_GenericModel;
+        if (!direct && !generic)
+            return ($"{uid} is {old.Category?.Name ?? "no category"} ({old.GetType().Name}), not a DirectShape or Generic Model - a create that replaces removes only those; re-run Promote", true, null, null);
+        if (Sentinel.Commands.MassOnly.Is(old))
+            return ($"{uid} is a mass (Sentinel's own, or in Mass) - Shell a Mass shells it, Promote never removes it; re-run Promote", true, null, null);
+        var bb = old.get_BoundingBox(null);
+        if (boxMin == null || boxMax == null || boxMin.Length < 3 || boxMax.Length < 3) return ($"{uid} was named with no box to compare - re-run Promote", true, null, null);
+        if (bb == null || new[] { bb.Min.X, bb.Min.Y, bb.Min.Z }.Select((q, i) => Math.Abs(q / MmToFeet - boxMin[i])).Concat(new[] { bb.Max.X, bb.Max.Y, bb.Max.Z }.Select((q, i) => Math.Abs(q / MmToFeet - boxMax[i]))).Any(x => x > ReshapeTolMm))
+            return ("the original was moved or edited since Promote read it", false, null, null);
+        if (HeldBy(doc, old) is string held) return ("the original " + held, false, null, null);
+        if (!probe) return (null, false, old, null);
+        ICollection<ElementId> ids;
+        try { using (var sub = new SubTransaction(doc)) { sub.Start(); ids = doc.Delete(old.Id); sub.RollBack(); } }
+        catch (Exception ex) when (!(ex is PlacementRefused)) { return ($"the original cannot be removed - Revit refused: {ex.Message}", false, null, null); }
+        var others = ids.Where(id => !id.Equals(old.Id) && !(doc.GetElement(id) is IndependentTag)).ToList();
+        if (others.Count > 0)
+            return ($"the original cannot be removed alone - removing it would also remove {others.Count} other element(s) (" +
+                    string.Join(", ", others.Take(3).Select(id => doc.GetElement(id)?.Category?.Name ?? "an element with no category")) + (others.Count > 3 ? ", ..." : "") + ")", false, null, null);
+        return (null, false, old, ids.ToList());
+    }
+
+    /// <summary>MA-8-7: the planner's preflight of a replacing create (no probe) - the reason a person decides, or null.</summary>
+    internal static string ReplaceRefusal(Document doc, string uid, double[] boxMin, double[] boxMax)
+    {
+        var (why, _, _, _) = ReplaceCheck(doc, uid, boxMin, boxMax, probe: false);
+        return why;
     }
 
     private static bool IsCreate(ChangesetElementDto e) => e.Op is null or "create";
@@ -616,8 +741,28 @@ public sealed class ChangesetExecutor
                 Collect(result, el, grid);
             }
 
+            // MA-8-7 (D16): a create that replaces a DirectShape or Generic Model. Before the creates, after the levels: each original is checked (ReplaceCheck - R12:
+            // only a DirectShape or Generic Model, the box it stood in, not held, and a probe delete in a rolled-back SubTransaction that takes only itself and its tags).
+            // What a person may have changed since Promote read it is KEPT as it stands and said - the create is not made, so no duplicate stands beside it; anything
+            // that is not a DirectShape or Generic Model refuses the whole changeset (PlacementRefused: it stays proposed).
+            var replaced = new Dictionary<string, (Element Old, string Uid, List<ElementId> Probe)>(StringComparer.Ordinal);
+            var notMade = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var el in toPlace.Where(e => IsCreate(e) && e.Replaces != null))
+            {
+                at = Label(el);
+                var (why, refuse, old, probe) = ReplaceCheck(doc, el.Replaces.UniqueId, el.Replaces.Box?.Min, el.Replaces.Box?.Max, probe: true);
+                if (refuse) throw new PlacementRefused($"{at}: {why}");
+                if (why != null)
+                {
+                    result.Kept.Add((el.ProposalGuid, $"{at}: {why} — not re-created; the original stays as it stands, a person decides"));
+                    notMade.Add(el.ProposalGuid);
+                    continue;
+                }
+                replaced[el.ProposalGuid] = (old, old.UniqueId, probe);
+            }
+
             // F-S2-2: read before this changeset's first wall exists — a level or grid above is no wall.
-            var wallCreates = toPlace.Where(e => IsCreate(e) && e.Kind == "wall").ToList();
+            var wallCreates = toPlace.Where(e => IsCreate(e) && e.Kind == "wall" && !notMade.Contains(e.ProposalGuid)).ToList();
             var existing = wallCreates.Count > 0 ? ExistingWalls(doc) : null;
             List<LevelFact> stories = null; // read once, when the first wall needs its top (after this changeset's levels exist)
             foreach (var el in wallCreates)
@@ -672,7 +817,7 @@ public sealed class ChangesetExecutor
                 Collect(result, el, wall);
             }
 
-            foreach (var el in toPlace.Where(e => IsCreate(e) && e.Kind == "floor"))
+            foreach (var el in toPlace.Where(e => IsCreate(e) && e.Kind == "floor" && !notMade.Contains(e.ProposalGuid)))
             {
                 at = Label(el);
                 var level = ResolveLevel(doc, el.Place);
@@ -699,6 +844,22 @@ public sealed class ChangesetExecutor
                 if (el.Place.Structural is bool st) Set(floor, BuiltInParameter.FLOOR_PARAM_IS_STRUCTURAL, st ? 1 : 0, "floor");
                 SetMark(floor, el);
                 Collect(result, el, floor);
+            }
+
+            // MA-8-7 (D16): the originals go, after the walls and floors that replace them exist, in the same transaction (one Undo restores each original and
+            // removes the new element). A delete that takes anything but what the probe counted refuses the whole changeset; Revit's report is the ledger's
+            // proof - RemovedUniqueId is set only now, after the count matched, and RemovedTags is the tags that went with it.
+            foreach (var el in toPlace.Where(e => replaced.ContainsKey(e.ProposalGuid)))
+            {
+                at = Label(el);
+                var (old, uid, probe) = replaced[el.ProposalGuid];
+                var oldId = old.Id;
+                var deleted = doc.Delete(oldId);
+                if (deleted.Count != probe.Count || deleted.Any(id => !probe.Contains(id)))
+                    throw new PlacementRefused($"{at}: deleting {uid} took {deleted.Count} element(s), its probe {probe.Count} - nothing was placed; re-run Promote");
+                var entry = result.Applied.First(a => a.ProposalGuid == el.ProposalGuid);
+                entry.RemovedTags = probe.Count - 1;
+                entry.RemovedUniqueId = uid;
             }
 
             // MA-1: a roof on its level — NewFootPrintRoof; flat unless it carries Slopes (MA-6-3).
@@ -1169,7 +1330,17 @@ public sealed class ChangesetExecutor
                 if (nt is FamilySymbol s && !s.IsActive) { s.Activate(); doc.Regenerate(); } // inside the transaction: Undo deactivates it too
                 if (!e.IsValidType(nt.Id)) throw new InvalidOperationException($"\"{TypeLabel(nt)}\" is not a valid type for {el.Kind} {e.UniqueId}");
                 var host = (e as FamilyInstance)?.Host?.Id;
+                // MA-8-7 (amendment 7): a retype into another family can move a structural member when the two families' origins differ - the box centre
+                // before and after must agree to 0.5 mm, or the changeset is declined inside the transaction.
+                var centre0 = el.Kind is "column" or "beam" ? CentreOf(e) : null;
                 if (e.ChangeTypeId(nt.Id) != ElementId.InvalidElementId) throw new InvalidOperationException($"Revit replaced the {el.Kind} on retype");
+                if (centre0 != null)
+                {
+                    doc.Regenerate();
+                    var centre1 = CentreOf(e);
+                    if (centre1 == null || (centre1 - centre0).GetLength() > TolFt)
+                        throw new InvalidOperationException($"{el.Kind} {e.UniqueId} moved on the retype ({(centre1 == null ? "no box after" : Mm((centre1 - centre0).GetLength() / MmToFeet) + " mm")}) — the two families' origins differ; a person retypes it");
+                }
                 if (host != null && !host.Equals((e as FamilyInstance)?.Host?.Id)) throw new InvalidOperationException($"{el.Kind} {e.UniqueId} lost its host on the swap");
                 Collect(result, el, e);
             }
@@ -1247,8 +1418,9 @@ public sealed class ChangesetExecutor
                 var error = "Revit did not commit the transaction (failure resolution rolled it back)" + (handler.RolledBack != null ? ": " + handler.RolledBack + GhostFailurePolicy.RolledBackNames(handler.RolledBackIds, labels) : "");
                 // MA-5b-5 (R8): a changeset that rehosts stays proposed (NotRun) — a commit-time refusal is this model's state, not a verdict
                 // on the changeset; the person unticks the rehost and applies again
-                return toPlace.Any(e => e.Op == "rehost")
-                    ? new ExecutionResult { NotRun = true, Error = error + " — it rehosts a door or window, so it stays proposed: untick the row(s) Revit named (a rehost among them, or another) and Apply again" }
+                // MA-8-7: a create that replaces removes an element too - the same rule
+                return toPlace.Any(e => e.Op == "rehost" || e.Replaces != null)
+                    ? new ExecutionResult { NotRun = true, Error = error + " — it " + (toPlace.Any(e => e.Op == "rehost") ? "rehosts a door or window" : "re-creates a DirectShape") + ", so it stays proposed: untick the row(s) Revit named (a removal among them, or another) and Apply again" }
                     : new ExecutionResult { Error = error };
             }
             // A6: Pending (or any other status) — Revit may still finish or drop it: nothing is reported, nothing recounted.
@@ -1306,6 +1478,8 @@ public sealed class ChangesetExecutor
             return new ExecutionResult { Error = ex is InvalidOperationException ? ex.Message : $"{at ?? "the changeset"}: {ex.GetType().Name}: {ex.Message}{Frame(ex)}" }; // fresh result: NOTHING was applied
         }
     }
+
+    private static XYZ CentreOf(Element e) { var bb = e.get_BoundingBox(null); return bb == null ? null : (bb.Min + bb.Max) / 2; }
 
     private static string Label(ChangesetElementDto el) => $"{el.Kind} \"{el.Validate?.Identity?.Name ?? el.ProposalGuid}\"";
 

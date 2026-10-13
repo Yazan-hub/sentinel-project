@@ -556,6 +556,15 @@ namespace Sentinel.GhostBuilder
         public bool CatalogHas(string category, string family, string type) =>
             _catalog.Any(c => SameCategory(c, category) && Norm(c.Family) == Norm(family) && Norm(c.Type) == Norm(type));
 
+        /// <summary>MA-8-7: does the catalogue hold a type of this name under the category, in any family? A system type (a wall, a floor) is judged by its
+        /// name alone - system family names are translated in a non-English Revit - as the bridge's foreignOf judges a bare "Type".</summary>
+        public bool CatalogHasType(string category, string type) =>
+            _catalog.Any(c => SameCategory(c, category) && Norm(c.Type) == Norm(type));
+
+        /// <summary>MA-8-7: every "Family : Type" of the catalogue under the category whose type carries exactly this name (a steel shape named alone).</summary>
+        public List<string> CatalogOfName(string category, string type) =>
+            _catalog.Where(c => SameCategory(c, category) && Norm(c.Type) == Norm(type)).Select(c => c.Family + " : " + c.Type).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
         /// <summary>MA-2c: the value set_parameter may write from the catalogue — the harvested parameter <paramref name="param"/> of
         /// exactly one row of the category with this type name (and this family, when given), filled; null otherwise (no row, two
         /// rows, no such parameter, empty). The bridge's makeCiter reads the same row the same way.</summary>

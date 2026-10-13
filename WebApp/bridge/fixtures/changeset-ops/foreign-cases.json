@@ -1,0 +1,26 @@
+{
+  "note": "MA-8-7: is a type the office's? One list read by the bridge (changesets-logic foreignOf, via kind + type_before) and by the add-in's ForeignTypes (promote-check, via category + family + type + system). example.test only; no third-party names.",
+  "catalog": [
+    { "category": "Walls", "family": "Basic Wall", "type": "BDS_EXT_ARC_CMU_200 mm", "system": true },
+    { "category": "Walls", "family": "Basic Wall", "type": "Generic - 200mm", "system": true },
+    { "category": "Floors", "family": "Floor", "type": "BDS_INT_STR_CONC_250 mm", "system": true },
+    { "category": "Doors", "family": "BDS_INT_1 PNL", "type": "BDS_INT_1 PNL_WOOD_900 x 2100 mm", "system": false },
+    { "category": "Doors", "family": "BDS_EXT_1 PNL", "type": "BDS_INT_1 PNL_WOOD_900 x 2100 mm", "system": false },
+    { "category": "Structural Columns", "family": "BDS_INT_STR_CONC_COL", "type": "300 x 600 mm", "system": false },
+    { "category": "Structural Framing", "family": "BDS_INT_STR_CONC_BEAM", "type": "300 x 450 mm", "system": false }
+  ],
+  "cases": [
+    { "name": "a system type that is a row", "kind": "wall", "category": "Walls", "family": "Basic Wall", "type": "Generic - 200mm", "type_before": "Generic - 200mm", "foreign": false },
+    { "name": "a system type of another office", "kind": "wall", "category": "Walls", "family": "Basic Wall", "type": "Aussenwand 36.5", "type_before": "Aussenwand 36.5", "foreign": true },
+    { "name": "case and padding are ignored", "kind": "wall", "category": "Walls", "family": "Basic Wall", "type": " generic - 200MM ", "type_before": " generic - 200MM ", "foreign": false },
+    { "name": "a row of another category is not this category's", "kind": "floor", "category": "Floors", "family": "Floor", "type": "Generic - 200mm", "type_before": "Generic - 200mm", "foreign": true },
+    { "name": "a floor row", "kind": "floor", "category": "Floors", "family": "Floor", "type": "BDS_INT_STR_CONC_250 mm", "type_before": "BDS_INT_STR_CONC_250 mm", "foreign": false },
+    { "name": "a door type in its family", "kind": "door", "category": "Doors", "family": "BDS_INT_1 PNL", "type": "BDS_INT_1 PNL_WOOD_900 x 2100 mm", "type_before": "BDS_INT_1 PNL : BDS_INT_1 PNL_WOOD_900 x 2100 mm", "foreign": false },
+    { "name": "the same door type name in a family the catalogue does not hold it under", "kind": "door", "category": "Doors", "family": "Single-Flush", "type": "BDS_INT_1 PNL_WOOD_900 x 2100 mm", "type_before": "Single-Flush : BDS_INT_1 PNL_WOOD_900 x 2100 mm", "foreign": true },
+    { "name": "a foreign door", "kind": "door", "category": "Doors", "family": "Single-Flush", "type": "0915 x 2134mm", "type_before": "Single-Flush : 0915 x 2134mm", "foreign": true },
+    { "name": "a structural column row", "kind": "column", "category": "Structural Columns", "family": "BDS_INT_STR_CONC_COL", "type": "300 x 600 mm", "type_before": "BDS_INT_STR_CONC_COL : 300 x 600 mm", "foreign": false },
+    { "name": "a structural column of another office", "kind": "column", "category": "Structural Columns", "family": "M_Concrete-Rectangular-Column", "type": "450 x 450mm", "type_before": "M_Concrete-Rectangular-Column : 450 x 450mm", "foreign": true },
+    { "name": "a beam row", "kind": "beam", "category": "Structural Framing", "family": "BDS_INT_STR_CONC_BEAM", "type": "300 x 450 mm", "type_before": "BDS_INT_STR_CONC_BEAM : 300 x 450 mm", "foreign": false },
+    { "name": "a column type is no beam's", "kind": "beam", "category": "Structural Framing", "family": "BDS_INT_STR_CONC_COL", "type": "300 x 600 mm", "type_before": "BDS_INT_STR_CONC_COL : 300 x 600 mm", "foreign": true }
+  ]
+}

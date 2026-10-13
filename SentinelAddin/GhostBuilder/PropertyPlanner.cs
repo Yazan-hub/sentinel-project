@@ -336,11 +336,13 @@ namespace Sentinel.GhostBuilder
         }
 
         private static IEnumerable<(string Category, string Family, string Type)> Landed(StoreyPlan p) =>
-            p.Settled.Concat(p.Ghosts.Where(g => g.Op is "retype" or "rehost").Select(g => (PromoteWallsPlanner.Classes[g.Kind ?? "wall"].Category, g.FamilyName, g.TypeName)));
+            // MA-8-7: a structure retype (column, beam) is outside the matrix (D-B3-3) - no DD properties are read on its type
+            p.Settled.Concat(p.Ghosts.Where(g => g.Op is "retype" or "rehost" && PromoteWallsPlanner.Classes.ContainsKey(g.Kind ?? "wall"))
+                .Select(g => (PromoteWallsPlanner.Classes[g.Kind ?? "wall"].Category, g.FamilyName, g.TypeName)));
 
         private static bool Same(string a, string b) => string.Equals(a ?? "", b ?? "", StringComparison.OrdinalIgnoreCase);
         private static bool Onto(PromoteGhost g, string category, string family, string type) =>
-            g.Op is "retype" or "rehost" && PromoteWallsPlanner.Classes[g.Kind ?? "wall"].Category == category && Same(g.FamilyName, family) && Same(g.TypeName, type);
+            g.Op is "retype" or "rehost" && PromoteWallsPlanner.Classes.TryGetValue(g.Kind ?? "wall", out var cls) && cls.Category == category && Same(g.FamilyName, family) && Same(g.TypeName, type); // MA-8-7: skips structure kinds
 
         /// <summary>Each DD type × matrix property that is empty on the type: a set_parameter ghost, or a row sent to a person
         /// (StoreyPlan.ToPerson). Review amendment C8: both ride on the first storey whose retypes land on the type (so the DD IDS

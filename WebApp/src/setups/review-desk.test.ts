@@ -167,6 +167,17 @@ describe("recently decided in Revit (MA-3b2b)", () => {
     expect(decidedView(kept, row(10)).declined[0].why).toEqual(["Revit kept it as it stands — its reason is in the note above"]);
   });
 
+  it("MA-8-7: a create that replaces says the original is deleted - in the ghost line and in a report's header", () => {
+    const rp = { kind: "wall", proposal_guid: "g-p", validate: { identity: { Name: "WALL-DS" } }, replaces: { unique_id: "u-ds", box: { min: [0, 0, 0], max: [6000, 300, 3000] } },
+      place: { LevelName: "Level 1", TypeName: "BDS_EXT_ARC_CMU_300 mm" } } as Ghost;
+    expect(ghostLine(rp)).toBe("WALL-DS · re-creates u-ds (DirectShape or Generic Model, 6000 x 300 x 3000 mm) as BDS_EXT_ARC_CMU_300 mm on Level 1; the original and any tags on it are removed in the same Undo (one Undo in Revit brings it back and removes the new element)");
+    expect(ghostLine({ ...rp, replaces: undefined })).toBe("WALL-DS · BDS_EXT_ARC_CMU_300 mm · Level 1"); // a plain create is as before
+    const done = { ...cs, status: "applied", elements: [...cs.elements, rp], result: { ...cs.result!, applied: [{ proposal_guid: "g-p" }], rejected: [] } };
+    expect(decidedView(done, row(11)).head).toContain(" · 1 applied (1 re-created — the original removed), 0 not applied · ledger #11");
+    const kept = { ...done, status: "declined", result: { ...done.result!, applied: [], rejected: ["g-p"], note: "kept as they stand: 1 not re-created", reasons: undefined, declined_on_web: undefined } };
+    expect(decidedView(kept, row(12)).declined[0].why).toEqual(["Revit kept it as it stands — its reason is in the note above"]);
+  });
+
   it("review C3: a report undone in Revit says so, with the ledger row that says it — never 'applied' alone", () => {
     const done = { ...cs, status: "applied" };
     expect(decidedView(done, { row: 1813, reverted: { id: 1814, op: "undo" } }).head).toMatch(/ · ledger #1813 · undone in Revit after the report \(ledger #1814\)$/);
