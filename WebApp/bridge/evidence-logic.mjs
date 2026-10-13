@@ -2,6 +2,7 @@
 // providers, the format table with its magic bytes, the allowed-uses policy, the admit body's shape and the pack's validator. No IO:
 // evidence-store.mjs does the reading and hashing; artefact-store.mjs calls validatePack on every evidence_pack@n it writes.
 import { createHash } from "node:crypto";
+import { SOURCES, classifyHost } from "./web-sources.mjs"; // MA-7-12: a pure table, no I/O
 
 const err = (status, message) => Object.assign(new Error(message), { status });
 const isObj = (v) => !!v && typeof v === "object" && !Array.isArray(v);
@@ -16,13 +17,15 @@ const TEXTS = {
   d: "None of these images are captures from Google, Apple or Azure/Bing map services.",
   e: "Our commercial licence covers this use and this deliverable.",
   f: "This published dataset's licence, recorded on this pack with its attribution, allows us to view it and to take geometry from it in our work; I checked its terms at its source.",
+  // MA-7-12 (D-7-10): a web photo's lead. Counsel-dependent text, and an attestation is append-only — if counsel rewords it, the new text is a new code.
+  g: "I opened each web photo's own page at its source, checked that its licence allows us to view it for this asset, and recorded its author, licence and attribution as the page gives them.",
 };
 export const ATTESTATIONS = Object.fromEntries(Object.entries(TEXTS).map(([code, text]) => [code, { text, sha256: createHash("sha256").update(text, "utf8").digest("hex") }]));
 /** Signed before an item of that kind is admitted: the owner's authority (a) and own capture (c); a photo also (d), that it is no
  *  Google/Apple/Azure capture — the RED rule (D:486) rests on the attestation, since a body may leave `provider` out. */
 export const ADMIT_NEEDS = { scan: ["a", "c"], photo: ["a", "c", "d"], drawing: ["a", "b"], model: ["a"] }; // MA-4b: a drawing, the owner's authority and the holder's permission; MA-6-8: the office's own concept model — the owner's authority
 /** MA-4h: the signatures an item needs — on a published dataset's pack, (f) alone (it has no owner here and is no one's own capture). */
-export const needsOf = (pack, kind, provider = "own") => (pack.dataset ? ["f"] : kind === "model" && provider !== "own" ? ["a", "e"] : ADMIT_NEEDS[kind]); // MA-8-3: a third party's model also needs (e), our commercial licence
+export const needsOf = (pack, kind, provider = "own") => (pack.dataset ? ["f"] : kind === "model" && provider !== "own" ? ["a", "e"] : kind === "photo" && provider !== "own" ? ["a", "d", "g"] : ADMIT_NEEDS[kind]); // MA-7-12: a web photo is a website's, not our own capture - (c) is for own capture only // MA-8-3: a third party's model also needs (e), our commercial licence
 /** MA-4h: the published-dataset licences (SPDX) whose terms allow viewing a scan and taking geometry from it in an office's commercial work.
  *  ponytail: an allow-list of two — NC, ND and SA terms are refused (commercial use, adaptation, a model's own licence); another licence is
  *  added when a dataset under it is needed and its terms are read. */
@@ -73,7 +76,8 @@ export const USES = { view_reference: true, geometry_extraction: true, texture_e
 export const ITEM_FIELDS = ["id", "kind", "format", "sha256", "size_bytes", "path", "provider", "licence", "licence_ref", "request_id", "attestation_ids", "allowed_uses", "registration", "surveyable", "admitted_by", "admitted_at", "state", "changed_sha256", "changed_at",
   "capture", // MA-7-4
   "delete_by", "delete_why", "expired_at", "removed", "not_removed", // MA-7-5
-  "view_copy"]; // MA-7-7
+  "view_copy", // MA-7-7
+  "role", "web", "original_sha256", "original_size_bytes"]; // MA-7-12
 const PACK_FIELDS = ["kind", "pack_id", "project", "asset", "storage_root", "attestations", "items", "requests", "dataset"];
 /** MA-4b: who an "ask the owner" letter goes to; a drawing admitted under it carries this as its provider. */
 export const RECIPIENTS = ["owner", "architect", "municipality"];
@@ -118,7 +122,84 @@ export function readAdmitBody(b = {}) {
   }
   const request_id = b.request_id == null ? null : String(b.request_id).trim();
   if (request_id !== null && !/^req-\d{4}$/.test(request_id)) throw bad("request_id must name a request of the pack, as req-0001");
-  return { path, kind: b.kind, provider, ...(licence_ref ? { licence_ref } : {}), registration, request_id };
+  // MA-7-12: a website photo's record and its blur boxes ride on the body; they are read (readWebBody, readBoxes) only once the switch is not off
+  for (const k of ["web", "blur"]) if (b[k] != null && (!isObj(b[k]) || b.kind !== "photo" || provider === "own")) throw bad(`${k} belongs to a website photo only (provider wikimedia-commons) and is an object`);
+  return { path, kind: b.kind, provider, ...(licence_ref ? { licence_ref } : {}), registration, request_id, ...(b.web != null ? { web: b.web } : {}), ...(b.blur != null ? { blur: b.blur } : {}) };
+}
+
+/** MA-7-12: the sources a web photo is admitted from now. Flickr and the GREEN street-level sources come with batch 7. */
+export const WEB_ADMITTED = ["wikimedia-commons"];
+/** MA-7-12 (D-7-13, amendment 6): freedom of panorama by the pack's asset.jurisdiction (ISO 3166-1 alpha-2, upper case). Only what has a statute behind it. */
+export const FOP = { yes: { GB: "CDPA s.62", US: "17 USC §120(a), buildings", DE: "§59 UrhG, views from public ground" }, no: ["JO", "FR", "IT"] };
+export function fopOf(jurisdiction) {
+  const j = typeof jurisdiction === "string" ? jurisdiction.trim() : "";
+  if (Object.hasOwn(FOP.yes, j)) return { fop: "yes", statute: FOP.yes[j], code: j };
+  return { fop: FOP.no.includes(j) ? "no" : "unknown", statute: null, code: j };
+}
+const WEB_KEYS = ["attribution_text", "author", "freedom_of_panorama", "retrieved_at", "source_url", "terms_path", "terms_sha256", "web_mode"];
+
+/** MA-7-12: a website photo's record from the body → {licence, source_url, author, attribution_text, retrieved_at, terms_path, delete_by|null}, or a 400 in words.
+ *  Shape only — the licence, the address and freedom of panorama are webPhotoRefusals', which become a refused row. Sentinel fetches nothing: the
+ *  person saved the file and its page into the evidence folder (terms_path), and says where and when. `today`: "YYYY-MM-DD". */
+export function readWebBody(w, today) {
+  const bad = (m) => err(400, `${m} — nothing was saved`);
+  if (!isObj(w)) throw bad("web must be {licence, source_url, author, attribution_text, retrieved_at, terms_path} — the record of the page the photo came from");
+  const one = (k, max) => { const v = typeof w[k] === "string" ? oneLine(w[k]) : ""; if (!v || v.length > max) throw bad(`web.${k} must be one line of 1 to ${max} characters`); return v; };
+  const licence = one("licence", 40), author = one("author", 200), attribution_text = one("attribution_text", 300);
+  let u = null;
+  try { u = new URL(w.source_url); } catch { /* said below */ }
+  if (!(typeof w.source_url === "string" && w.source_url.length <= 500 && /^https:\/\/\S+$/.test(w.source_url) && u)) throw bad("web.source_url must be the photo's page address, https:// (at most 500 characters)");
+  if (u.username || u.password) throw bad("web.source_url carries a user name or password — give the page's public address");
+  if (!(realDay(w.retrieved_at) <= realDay(today))) throw bad("web.retrieved_at must be the day you saved the page, as 2026-10-13 (a real day, not in the future)");
+  const terms_path = typeof w.terms_path === "string" ? w.terms_path.trim().replace(/\\/g, "/") : "";
+  if (!safeRel(terms_path) || !/.html?$/i.test(terms_path) || terms_path.split("/")[0].toLowerCase() === ".sentinel") throw bad("web.terms_path must name the saved page (HTML) inside the project's evidence folder, relative to it");
+  if (w.delete_by != null && Number.isNaN(realDay(w.delete_by))) throw bad("web.delete_by must be a day, as 2026-12-31");
+  return { licence, source_url: w.source_url, author, attribution_text, retrieved_at: w.retrieved_at, terms_path, delete_by: w.delete_by ?? null };
+}
+
+/** MA-7-12: why a website photo is refused (each becomes an evidence:refused row); [] = none. `web`: readWebBody's; `format` the file's. Licence (SA
+ *  held, NC/ND never), where the page is (Commons only; RED by label; English Wikipedia's non-free files), and freedom of panorama (a "no" or
+ *  an unknown refuses — not legal advice; counsel confirms). */
+export function webPhotoRefusals({ provider, web, jurisdiction, format }) {
+  const src = SOURCES.find((s) => s.id === provider), out = [];
+  if (!src || !WEB_ADMITTED.includes(provider)) return [`${provider} is not a source Sentinel admits photos from yet — Wikimedia Commons only (provider wikimedia-commons)`];
+  if (format !== "jpg") out.push("a web photo is admitted as a JPEG (.jpg) — save the Commons file as a JPEG");
+  if (!src.licences.includes(web.licence)) out.push(`${web.licence} is not admitted — a web photo's licence must allow commercial use: CC0, public domain or CC BY (CC BY-SA waits for counsel)`);
+  const host = new URL(web.source_url).hostname.toLowerCase(), c = classifyHost(web.source_url);
+  if (c?.list === "RED") out.push(`${host} is a RED source — imagery and data from Google, Apple and Azure/Bing map services are never admitted (attestation d says so for every photo)`);
+  else if (c?.id !== provider) {
+    out.push(c ? `${host} is ${SOURCES.find((s) => s.id === c.id).label}, not Wikimedia Commons — a lead admits Commons photos only for now`
+      : /(^|\.)upload\.wikimedia\.org$/.test(host) ? "that file is on English Wikipedia, not Wikimedia Commons — Commons files only (upload.wikimedia.org/wikipedia/commons/…)"
+        : `${host} is not Wikimedia Commons — a Commons photo's page is commons.wikimedia.org (its file on upload.wikimedia.org/wikipedia/commons/…)`);
+  }
+  const f = fopOf(jurisdiction);
+  if (f.fop === "no") out.push(`freedom of panorama does not cover ${f.code} — a photo of a building there may infringe its architect's copyright, so a web photo of this asset is not admitted (not legal advice; counsel confirms)`);
+  else if (f.fop === "unknown") out.push(`freedom of panorama is not known for ${f.code ? `"${f.code}"` : "this asset (the pack names no jurisdiction)"} — a web photo of it is not admitted until counsel gives the rule (not legal advice; counsel confirms). The pack's asset.jurisdiction is a two-letter capital code, as GB`);
+  return out;
+}
+
+/** MA-7-12 (amendment 11): a web item's delete-by — in a drill the day after (the sweep removes its copies next day); otherwise the day asked for, or the
+ *  source's limit (max_keep_days) — never later. A 400 in words for a day outside tomorrow … the limit. */
+export function webDeleteBy({ mode, today, source, asked }) {
+  const t = realDay(today), day = (n) => new Date(t + n * 864e5).toISOString().slice(0, 10);
+  if (mode === "drill") return day(1);
+  const max = day(source.max_keep_days);
+  if (asked == null) return max;
+  if (!(asked > today && asked <= max)) throw err(400, `web.delete_by must be after today and no later than ${max} (${source.label}'s ${source.max_keep_days}-day limit) — nothing was saved`);
+  return asked;
+}
+
+/** MA-7-12: a web photo as the pack keeps it — context only, its file the blurred copy (`copy`/`vc`), the original's sha256 and size kept as record.
+ *  `web` is readWebBody's plus terms_sha256 (the bridge hashed the saved page); every trust field is the bridge's. */
+export function newWebItem({ id, input, web, original, vc, delete_by, mode, pack, who, at }) {
+  return {
+    id, kind: "photo", format: "jpg", sha256: vc.sha256, size_bytes: vc.size_bytes, path: input.path, provider: input.provider, licence: web.licence,
+    attestation_ids: needsOf(pack, "photo", input.provider).map((c) => pack.attestations.find((a) => a.code === c).id),
+    allowed_uses: { ...USES, geometry_extraction: false }, surveyable: false, admitted_by: who, admitted_at: at,
+    role: "context",
+    web: { source_url: web.source_url, author: web.author, attribution_text: web.attribution_text, retrieved_at: web.retrieved_at, terms_path: web.terms_path, terms_sha256: web.terms_sha256, freedom_of_panorama: "yes", web_mode: mode },
+    original_sha256: original.sha256, original_size_bytes: original.size_bytes, delete_by, view_copy: vc,
+  };
 }
 
 /** MA-7-5: a real calendar day "YYYY-MM-DD" → its UTC ms, else NaN (2026-02-30 is not a day). */
@@ -278,8 +359,12 @@ export function policyRefusals({ kind, provider, path, dataset = false, webMode 
   // A drawing's provider is its request's recipient, stamped by the bridge — the body's is read for the RED rule only.
   // MA-4h: on a published dataset's pack the body's provider is read for the RED rule only (the pack's is stamped).
   // MA-7-4: a photo from a website waits for counsel (the founder's switch); 7-12 admits it through the web path when the switch is not off.
-  // Until 7-12 builds the web path every mode says the same words (the switch is not read here).
-  else if (provider !== "own" && kind === "photo" && !dataset) out.push("a third party's or a website's photo waits for counsel's review — web evidence is not admitted yet (the founder's switch SENTINEL_WEB_EVIDENCE); only your own photos (provider own) are admitted now");
+  // MA-7-12: with the switch off the words are counsel's; with drill or on only a Commons photo goes on to the web path (webPhotoRefusals).
+  else if (provider !== "own" && kind === "photo" && !dataset) {
+    // MA-7-12: switch off — counsel's words; drill or on — a photo from a source that is not built yet (Flickr, a bare "website") is refused naming Commons
+    if (webMode === "off") out.push("a photo from a website waits for counsel's review — web evidence is off (the founder's switch SENTINEL_WEB_EVIDENCE); only your own photos (provider own) are admitted now");
+    else if (!WEB_ADMITTED.includes(provider)) out.push(`${provider} is not a source Sentinel admits photos from yet — Wikimedia Commons only (provider wikimedia-commons)`);
+  }
   else if (provider !== "own" && kind !== "drawing" && kind !== "model" && !dataset) out.push("web and third-party items wait for a later stage — only your own scans and photos (provider own), drawings under a request and third-party models with (e) are admitted now");
   if (kind === "drawing") {
     if (!formatOf(path, kind)) out.push(`${extOf(path) ? `a .${extOf(path)}` : "a file with no extension"} is not admitted as a drawing — drawings are pdf, dwg, dxf, png or jpg`);
@@ -462,6 +547,9 @@ export const admittedValue = (packId, i, packVersion, again) => ({
   pack_id: packId, item_id: i.id, path: i.path, sha256: i.sha256, size_bytes: i.size_bytes, kind: i.kind, format: i.format,
   provider: i.provider, licence: i.licence, ...(i.licence_ref ? { licence_ref: i.licence_ref } : {}), allowed_uses: i.allowed_uses, attestation_ids: i.attestation_ids, surveyable: i.surveyable,
   ...(i.request_id ? { request_id: i.request_id } : {}), ...(i.capture ? { capture: i.capture } : {}), pack_version: packVersion, ...(again ? { readmitted: true } : {}),
+  // MA-7-12 (amendment 5): a web photo's author and attribution text stay in the pack (and the NOTICE) — the append-only ledger holds their sha256 only
+  ...(i.role === "context" ? { role: "context", web: { source_url: i.web.source_url, retrieved_at: i.web.retrieved_at, terms_sha256: i.web.terms_sha256, freedom_of_panorama: i.web.freedom_of_panorama,
+    delete_by: i.delete_by, web_mode: i.web.web_mode, attribution_sha256: shaOf(i.web.attribution_text) }, ...(i.web.web_mode === "drill" ? { counsel: "counsel has not reviewed web evidence" } : {}) } : {}),
 });
 
 /** validateArtefact's branch for evidence_pack: a 400 naming the path, so the bridge never writes a pack it could not trust. */
@@ -481,13 +569,13 @@ export function validatePack(p) {
     if (!d || !isObj(p.dataset) || Object.keys(p.dataset).length !== 4 || Object.keys(d).some((k) => d[k] !== p.dataset[k]))
       throw bad("dataset", `must be {provider, source_url, licence (${DATASET_LICENCES.join(" or ")}), attribution}, as the bridge reads it`);
   }
-  if (!Array.isArray(p.attestations) || p.attestations.length > 6) throw bad("attestations", "must be an array of at most 6 (a to f, once each)");
+  if (!Array.isArray(p.attestations) || p.attestations.length > 8) throw bad("attestations", "must be an array of at most 8 (a to h, once each)"); // MA-7-12: (g); (h) comes with 7-23
   const attIds = new Map(), codes = new Set(); // id → code
   p.attestations.forEach((a, i) => {
     const at = `attestations[${i}]`;
     if (!isObj(a)) throw bad(at, "must be an object");
     if (!/^att-\d{4}$/.test(a.id) || attIds.has(a.id)) throw bad(`${at}.id`, "must be a unique att-NNNN");
-    if (!ATTESTATIONS[a.code] || codes.has(a.code)) throw bad(`${at}.code`, "must be one of a to f, once per pack");
+    if (!ATTESTATIONS[a.code] || codes.has(a.code)) throw bad(`${at}.code`, "must be one of a to g, once per pack");
     // MA-4h: the attestation split, as signAttestation's 409 keeps it — checked here too, so no write path can store it otherwise
     if ((a.code === "f") !== !!p.dataset) throw bad(`${at}.code`, p.dataset ? "must be (f) on a published dataset's pack — (a) to (e) speak for an owner or one's own capture"
       : "must not be (f) on an own pack — (f) is signed on a published dataset's pack only");
@@ -526,13 +614,17 @@ export function validatePack(p) {
     if (p.dataset) { // MA-4h: a published dataset's pack holds its scans, under its provider and licence
       if (x.kind !== "scan" || x.provider !== p.dataset.provider || x.licence !== p.dataset.licence || x.request_id !== undefined)
         throw bad(at, "is the published dataset's scan: its provider and licence, no request");
+    } else if (x.role === "context") { // MA-7-12: a web photo — context only (the rest is checked below)
+      const src = SOURCES.find((s) => s.id === x.provider);
+      if (x.kind !== "photo" || x.format !== "jpg" || !src || !src.kinds.includes("photo") || !src.licences.includes(x.licence) || x.request_id !== undefined || x.licence_ref !== undefined)
+        throw bad(at, "is a web photo: a JPEG, its provider a source of the lists that holds photos, its licence one of that source's, no request, no licence_ref");
     } else if (x.kind === "drawing") {
       if (x.licence !== "holder-permission" || !reqs.has(x.request_id) || x.provider !== reqs.get(x.request_id))
         throw bad(at, "is a drawing: licence holder-permission, request_id naming a request of this pack, provider its recipient_kind");
     } else if (x.kind === "model" && x.provider !== "own") { // MA-8-3: a vendor's model — commercial, with the order it was bought under, no request
       if (redModel(x.provider) || !PLAIN_NAME.test(x.provider) || x.licence !== "commercial" || !str(x.licence_ref, 100) || x.request_id !== undefined)
         throw bad(at, "is a third party's model: a plain-name provider (not a RED source), licence commercial, licence_ref the order or contract, no request");
-    } else if (x.provider !== "own" || x.licence !== "owner-supplied" || x.request_id !== undefined || x.licence_ref !== undefined) throw bad(at, "is own (licence owner-supplied) — only a drawing comes from someone else, under a request, and a model from a vendor, under a licence_ref");
+    } else if (x.provider !== "own" || x.licence !== "owner-supplied" || x.request_id !== undefined || x.licence_ref !== undefined || x.role !== undefined || x.web !== undefined) throw bad(at, "is own (licence owner-supplied) — only a drawing comes from someone else, under a request, and a model from a vendor, under a licence_ref");
     if (!Array.isArray(x.attestation_ids) || !x.attestation_ids.every((a) => attIds.has(a))
       || !needsOf(p, x.kind, x.provider).every((c) => x.attestation_ids.some((a) => attIds.get(a) === c)))
       throw bad(`${at}.attestation_ids`, `must name attestations of this pack, ${codesSaid(needsOf(p, x.kind, x.provider))} at least for a ${x.kind}`);
@@ -541,7 +633,7 @@ export function validatePack(p) {
     if (u.texture_embed !== false || u.redistribute !== false) throw bad(`${at}.allowed_uses`, "texture_embed and redistribute are always false (policy)");
     if (x.kind === "scan" && !(isObj(x.registration) && str(x.registration.method, 300) && str(x.registration.confirmed_by, 320))) throw bad(`${at}.registration`, "a scan carries {method, confirmed_by}");
     if (x.format === "rcp" && !(safeRel(x.registration.report_path) && /^[0-9a-f]{64}$/.test(x.registration.report_sha256 ?? ""))) throw bad(`${at}.registration`, "an RCP carries its report's path and sha256");
-    if (x.surveyable !== f.surveyable) throw bad(`${at}.surveyable`, `must be ${f.surveyable} for a .${x.format}`);
+    if (x.surveyable !== (x.role === "context" ? false : f.surveyable)) throw bad(`${at}.surveyable`, `must be ${f.surveyable} for a .${x.format}`);
     if (!str(x.admitted_by, 320) || !str(x.admitted_at, 40)) throw bad(at, "needs admitted_by and admitted_at — stamped by the bridge");
     if (x.capture !== undefined) { // MA-7-4: a photo's camera record — exactly these four, no coordinates
       const c = x.capture, ok = (v) => v === null || (typeof v === "string" && v.length <= 64);
@@ -556,6 +648,17 @@ export function validatePack(p) {
         || (v.none_seen !== undefined && (v.none_seen !== true || v.areas !== 0)) || (v.areas === 0 && v.none_seen !== true) || Math.max(v.width, v.height) > 2048)
         throw bad(`${at}.view_copy`, "is a photo's blurred copy {sha256, size_bytes, width, height (long side at most 2048), areas = faces + plates, method person-marked, marked_by, marked_at, tool}; none_seen true exactly when no area was marked");
     }
+    if (x.role !== undefined && x.role !== "context") throw bad(`${at}.role`, 'is "context" or absent'); // MA-7-12
+    if (x.role === "context") { // MA-7-12: a web photo — the page's record exactly, no geometry, its file the blurred copy (amendment 18), a delete-by day
+      const w = x.web, hex = (v) => /^[0-9a-f]{64}$/.test(v ?? "");
+      if (!isObj(w) || Object.keys(w).sort().join() !== WEB_KEYS.join() || !/^https:\/\/\S+$/.test(w.source_url) || w.source_url.length > 500 || !str(w.author, 200) || !str(w.attribution_text, 300)
+        || Number.isNaN(realDay(w.retrieved_at)) || !safeRel(w.terms_path) || !hex(w.terms_sha256) || w.freedom_of_panorama !== "yes" || !["drill", "on"].includes(w.web_mode))
+        throw bad(`${at}.web`, "is the page's record exactly {source_url, author, attribution_text, retrieved_at, terms_path, terms_sha256, freedom_of_panorama yes, web_mode drill or on}");
+      if (x.allowed_uses?.geometry_extraction !== false || x.allowed_uses?.view_reference !== true) throw bad(`${at}.allowed_uses`, "a web photo is context only: geometry_extraction false, view_reference true");
+      if (!hex(x.original_sha256) || !Number.isSafeInteger(x.original_size_bytes) || x.original_size_bytes < 0) throw bad(`${at}.original_sha256`, "a web photo keeps its original's sha256 and size as record");
+      if (!x.view_copy || x.view_copy.sha256 !== x.sha256 || x.view_copy.size_bytes !== x.size_bytes) throw bad(`${at}.view_copy`, "a web photo's file is its blurred copy: view_copy.sha256 and size_bytes are the item's");
+      if (x.delete_by === undefined) throw bad(`${at}.delete_by`, "a web photo carries a delete-by day");
+    } else if (x.web !== undefined || x.original_sha256 !== undefined || x.original_size_bytes !== undefined) throw bad(`${at}.web`, "belongs to a web photo (role context) only");
     if (x.state !== undefined && x.state !== "changed" && x.state !== "expired") throw bad(`${at}.state`, 'is "changed", "expired" or absent');
     if (x.state === "expired" && !(str(x.expired_at, 40) && Array.isArray(x.removed) && x.removed.length <= 2 && x.removed.every(safeRel))) // MA-7-5
       throw bad(`${at}.removed`, "an expired item carries expired_at and removed, at most two paths");

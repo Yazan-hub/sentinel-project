@@ -16,6 +16,8 @@ export const ATTESTATION_TEXTS: Record<string, string> = {
   d: "None of these images are captures from Google, Apple or Azure/Bing map services.",
   e: "Our commercial licence covers this use and this deliverable.",
   f: "This published dataset's licence, recorded on this pack with its attribution, allows us to view it and to take geometry from it in our work; I checked its terms at its source.",
+  // MA-7-12: a web photo's lead - signed only while the founder's web switch is not off (the bridge says 409 otherwise)
+  g: "I opened each web photo's own page at its source, checked that its licence allows us to view it for this asset, and recorded its author, licence and attribution as the page gives them.",
 };
 export interface Attestation { id: string; code: string; text_sha256: string; by: string; role: string; at: string; }
 export interface Dataset { provider: string; source_url: string; licence: string; attribution: string; }
@@ -32,6 +34,8 @@ export interface EvidenceItem {
   capture?: { make: string | null; model: string | null; taken_at: string | null; gps: boolean };
   /** MA-7-7: a photo's blurred copy (survey/blur.py): counts only, never the boxes. Every view and read uses the copy; the original stays on the office PC. */
   view_copy?: ViewCopy;
+  /** MA-7-12: a Commons photo (role context): the page it came from; its file is the blurred copy. Context only - never read for geometry or a type. */
+  web?: { source_url: string; author: string; attribution_text: string; retrieved_at: string; terms_path: string; terms_sha256: string; freedom_of_panorama: "yes"; web_mode: "drill" | "on" };
 }
 export interface ViewCopy {
   sha256: string; size_bytes: number; width: number; height: number; areas: number; faces: number; plates: number; none_seen?: boolean;
@@ -72,6 +76,7 @@ export const photoProvider = (source: PhotoSource, service?: string): string | u
 export function itemLine(i: EvidenceItem): string {
   return `${i.id} · ${i.path} · ${i.format} · ${size(i.size_bytes)} · sha ${i.sha256.slice(0, 12)}…` +
     (i.kind === "drawing" ? ` · drawing from the ${i.provider} under ${i.request_id}` : i.kind === "model" ? (i.provider && i.provider !== "own" ? ` · model from ${i.provider} (${i.licence ?? "commercial"}, ref ${i.licence_ref ?? "?"})` : " · concept model (own)") : i.surveyable ? "" : " · not surveyable (no ReCap here)") +
+    (i.role === "context" && i.web ? ` · web photo, context only (assumed) · ${i.web.author} · ${i.licence} · ${i.web.source_url} · retrieved ${i.web.retrieved_at}${i.web.web_mode === "drill" ? " · drill: counsel has not reviewed web evidence" : ""}` : "") + // MA-7-12
     (i.kind === "photo" && i.capture ? ` · ${[i.capture.make, i.capture.model].filter(Boolean).join(" ")} · taken ${i.capture.taken_at ?? "?"} · ${i.capture.gps ? "EXIF GPS block in the original (not copied)" : "no EXIF GPS block"}` : "") +
     (i.kind === "photo" && i.state !== "expired" ? viewCopyLine(i) : "") + // MA-7-7
     (i.delete_by && i.state !== "expired" ? ` · delete by ${i.delete_by}` : "") + // MA-7-5

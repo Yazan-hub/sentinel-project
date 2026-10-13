@@ -33,6 +33,7 @@ describe("the attestations (pinned)", () => {
       d: "6b4631aec9b8969a9129837fe830943418c6d1a0bc580f3f3336347592920f4a",
       e: "71656072b4e5b61196fcacd3fdf1d3f5b5ca19043cfe124159dca0cc788bc217",
       f: "be54e04879d716b63add30ab9785ded25ffd6e83817a082489b4aa062be29022",
+      g: "c86b607f02f44de7217f197596b985e43369bd724148007d628865e88b4e6afc", // MA-7-12
     });
     expect(ATTESTATIONS.a.text).toBe("I am the owner, or authorised by the owner, of this asset.");
   });
@@ -66,11 +67,16 @@ describe("policyRefusals", () => {
   it("refuses RED, third-party, drawings and wrong formats", () => {
     expect(policyRefusals({ kind: "photo", provider: "google maps", path: "a.jpg" })).toEqual(["google maps is a RED source — imagery and data from Google, Apple and Azure/Bing map services are never admitted (attestation d says so for every photo)"]);
     expect(policyRefusals({ kind: "photo", provider: "azure", path: "a.jpg" })).toEqual(["azure is a RED source — imagery and data from Google, Apple and Azure/Bing map services are never admitted (attestation d says so for every photo)"]);
-    expect(policyRefusals({ kind: "photo", provider: "wikimedia-commons", path: "a.jpg" })).toEqual(["a third party's or a website's photo waits for counsel's review — web evidence is not admitted yet (the founder's switch SENTINEL_WEB_EVIDENCE); only your own photos (provider own) are admitted now"]); // MA-7-4
+    const OFF_WORDS = "a photo from a website waits for counsel's review — web evidence is off (the founder's switch SENTINEL_WEB_EVIDENCE); only your own photos (provider own) are admitted now";
+    expect(policyRefusals({ kind: "photo", provider: "wikimedia-commons", path: "a.jpg" })).toEqual([OFF_WORDS]); // MA-7-4, MA-7-12: switch off is the default
+    expect(policyRefusals({ kind: "photo", provider: "wikimedia-commons", path: "a.jpg", webMode: "off" })).toEqual([OFF_WORDS]);
+    expect(policyRefusals({ kind: "photo", provider: "wikimedia-commons", path: "a.jpg", webMode: "drill" })).toEqual([]); // MA-7-12: then the web path (webPhotoRefusals) decides
+    expect(policyRefusals({ kind: "photo", provider: "wikimedia-commons", path: "a.jpg", webMode: "on" })).toEqual([]);
+    expect(policyRefusals({ kind: "photo", provider: "flickr", path: "a.jpg", webMode: "drill" })).toEqual(["flickr is not a source Sentinel admits photos from yet — Wikimedia Commons only (provider wikimedia-commons)"]);
     expect(policyRefusals({ kind: "scan", provider: "wikimedia-commons", path: "a.las" })).toEqual(["web and third-party items wait for a later stage — only your own scans and photos (provider own), drawings under a request and third-party models with (e) are admitted now"]);
     expect(policyRefusals({ kind: "photo", provider: "street view", path: "a.jpg" })).toEqual(["street view is a RED source — imagery and data from Google, Apple and Azure/Bing map services are never admitted (attestation d says so for every photo)"]);
     expect(policyRefusals({ kind: "photo", provider: "google street view", path: "a.jpg" })[0]).toMatch(/^google street view is a RED source/);
-    expect(policyRefusals({ kind: "photo", provider: "website", path: "a.jpg", webMode: "drill" })[0]).toMatch(/^a third party's or a website's photo waits for counsel/);
+    expect(policyRefusals({ kind: "photo", provider: "website", path: "a.jpg", webMode: "drill" })[0]).toMatch(/^website is not a source Sentinel admits photos from yet/);
     expect(policyRefusals({ kind: "drawing", provider: "own", path: "A-101.pdf" })).toEqual([]); // MA-4b: under a request
     expect(policyRefusals({ kind: "drawing", provider: "owner", path: "scan.JPEG" })).toEqual([]);
     expect(policyRefusals({ kind: "drawing", provider: "own", path: "A-101.txt" })).toEqual(["a .txt is not admitted as a drawing — drawings are pdf, dwg, dxf, png or jpg"]);
@@ -335,7 +341,7 @@ describe("the item-field whitelist (MA-7-3)", () => {
       ["own concept IFC", packWith(["a"]), (p) => mk(p, { path: "model/c.ifc", kind: "model", provider: "own", registration: null }, "ifc")],
     ];
   };
-  it("lists the 19 fields the bridge wrote before MA-7, then capture (7-4), 7-5's four and view_copy (7-7)", () => { expect(ITEM_FIELDS).toEqual(["id", "kind", "format", "sha256", "size_bytes", "path", "provider", "licence", "licence_ref", "request_id", "attestation_ids", "allowed_uses", "registration", "surveyable", "admitted_by", "admitted_at", "state", "changed_sha256", "changed_at", "capture", "delete_by", "delete_why", "expired_at", "removed", "not_removed", "view_copy"]); });
+  it("lists the 19 fields the bridge wrote before MA-7, then capture (7-4), 7-5's four, view_copy (7-7) and 7-12's role, web and original record", () => { expect(ITEM_FIELDS).toEqual(["id", "kind", "format", "sha256", "size_bytes", "path", "provider", "licence", "licence_ref", "request_id", "attestation_ids", "allowed_uses", "registration", "surveyable", "admitted_by", "admitted_at", "state", "changed_sha256", "changed_at", "capture", "delete_by", "delete_why", "expired_at", "removed", "not_removed", "view_copy", "role", "web", "original_sha256", "original_size_bytes"]); });
   it.each(shapes().map((s) => [s[0], s]))("replay: %s validates unchanged", (_n, [, pack, make]) => {
     const item = make(pack);
     expect(Object.keys(item).every((k) => ITEM_FIELDS.includes(k))).toBe(true);
@@ -553,5 +559,148 @@ describe("MA-7-7: a photo's blurred copy", () => {
     expect(blurredValue("evp-0001", { ...i, capture: { ...i.capture, gps: false } }, VC(), 7).gps_removed).toBe(false);
     expect(blurredValue("evp-0001", { ...i, capture: undefined }, VC(), 7).gps_removed).toBe(null); // admitted before 7-4: never looked for, so not claimed
     expect(blurredValue("evp-0001", i, VC({ areas: 0, faces: 0, plates: 0, none_seen: true }), 7).none_seen).toBe(true);
+  });
+});
+
+// MA-7-12 — Wikimedia Commons admission behind the switch (pure rules)
+import { readWebBody, webPhotoRefusals, webDeleteBy, newWebItem, fopOf, WEB_ADMITTED, admittedValue, creditLines } from "./evidence-logic.mjs";
+import { SOURCES } from "./web-sources.mjs";
+
+describe("a web photo (MA-7-12)", () => {
+  const W = (over = {}) => ({ licence: "CC-BY-4.0", source_url: "https://commons.wikimedia.org/wiki/File:Example_building.jpg", author: "Example Author", attribution_text: "Photo: Example Author, CC BY 4.0", retrieved_at: "2026-10-08", terms_path: "web/commons-1.html", ...over });
+  const TODAY = "2026-10-08";
+  const refusals = (web = {}, over = {}) => webPhotoRefusals({ provider: "wikimedia-commons", web: W(web), jurisdiction: "GB", format: "jpg", ...over });
+  const webPack = (over = {}) => ({ ...newPack("p", "P", { jurisdiction: "GB" }, "C:/ev/p"), attestations: signed(["a", "c", "d", "g"]), ...over });
+  const webItem = (pack, over = {}) => {
+    const vc = { sha256: "b".repeat(64), size_bytes: 5000, width: 1024, height: 768, areas: 0, faces: 0, plates: 0, none_seen: true, method: "person-marked", marked_by: "lead@example.test", marked_at: "2026-10-08T10:00:00.000Z", tool: "sentinel-blur 0.1.0" };
+    return { ...newWebItem({ id: "ev-0001", input: { path: "web/commons-1.jpg", provider: "wikimedia-commons" }, web: { ...readWebBody(W(), TODAY), terms_sha256: "c".repeat(64) }, original: { sha256: SHA, size_bytes: 9000 }, vc, delete_by: "2026-10-09", mode: "drill", pack, who: "lead@example.test", at: "2026-10-08T10:01:00.000Z" }), ...over };
+  };
+
+  it("a web photo needs (a), (d) and (g) - not (c); an own photo still (a), (c), (d); a dataset pack (f) alone", () => {
+    expect(needsOf(packWith([]), "photo", "wikimedia-commons")).toEqual(["a", "d", "g"]);
+    expect(needsOf(packWith([]), "photo", "own")).toEqual(["a", "c", "d"]);
+    expect(needsOf(packWith([]), "photo")).toEqual(["a", "c", "d"]);
+    expect(needsOf({ dataset: {} }, "photo", "wikimedia-commons")).toEqual(["f"]);
+  });
+
+  it("readAdmitBody carries web and blur only for a website photo, as objects", () => {
+    const b = readAdmitBody({ path: "web/a.jpg", kind: "photo", provider: "Wikimedia-Commons", web: W(), blur: { none_seen: true } });
+    expect(b).toMatchObject({ provider: "wikimedia-commons", web: W(), blur: { none_seen: true } });
+    expect(readAdmitBody({ path: "web/a.jpg", kind: "photo" })).not.toHaveProperty("web");
+    for (const bad of [{ kind: "photo", web: W() }, { kind: "scan", provider: "x", web: W() }, { kind: "photo", provider: "wikimedia-commons", web: "x" }, { kind: "photo", provider: "wikimedia-commons", blur: [] }])
+      expect(() => readAdmitBody({ path: "web/a.jpg", ...bad })).toThrow(/belongs to a website photo only/);
+  });
+
+  it("readWebBody: the page's record, one line each; a 400 names the field", () => {
+    expect(readWebBody(W({ author: "  Example\n Author " }), TODAY)).toEqual({ ...W({ author: "Example Author" }), delete_by: null });
+    const bad = (web, re) => expect(() => readWebBody(web, TODAY)).toThrow(re);
+    bad(null, /^web must be/);
+    bad(W({ licence: "" }), /web\.licence must be one line/);
+    bad(W({ author: "x".repeat(201) }), /web\.author/);
+    bad(W({ attribution_text: 5 }), /web\.attribution_text/);
+    bad(W({ source_url: "http://commons.wikimedia.org/wiki/File:A.jpg" }), /web\.source_url must be the photo's page address/);
+    bad(W({ source_url: "https://user:pw@commons.wikimedia.org/wiki/File:A.jpg" }), /user name or password/);
+    bad(W({ retrieved_at: "2026-10-09" }), /web\.retrieved_at/); // tomorrow
+    bad(W({ retrieved_at: "2026-02-30" }), /web\.retrieved_at/);
+    bad(W({ terms_path: "../x.html" }), /web\.terms_path/);
+    bad(W({ terms_path: ".sentinel/view/a.html" }), /web\.terms_path/);
+    bad(W({ delete_by: "soon" }), /web\.delete_by/);
+    expect(readWebBody(W({ delete_by: "2026-12-31" }), TODAY).delete_by).toBe("2026-12-31");
+  });
+
+  it("webPhotoRefusals: CC0, PDM and CC BY pass; SA is held; NC and ND are never admitted (CM-3)", () => {
+    for (const l of ["CC0-1.0", "PDM-1.0", "CC-BY-2.0", "CC-BY-2.5", "CC-BY-3.0", "CC-BY-4.0"]) expect(refusals({ licence: l })).toEqual([]);
+    for (const l of ["CC-BY-NC-4.0", "CC-BY-SA-4.0", "CC-BY-ND-4.0", "All rights reserved"])
+      expect(refusals({ licence: l })).toEqual([`${l} is not admitted — a web photo's licence must allow commercial use: CC0, public domain or CC BY (CC BY-SA waits for counsel)`]);
+  });
+
+  it("webPhotoRefusals: only Commons (commons.wikimedia.org, upload.wikimedia.org/wikipedia/commons/); RED by label; English Wikipedia's files are not Commons", () => {
+    expect(refusals({ source_url: "https://upload.wikimedia.org/wikipedia/commons/a/ab/Example.jpg" })).toEqual([]);
+    expect(refusals({ source_url: "https://www.flickr.com/photos/x/1" })[0]).toBe("www.flickr.com is Flickr, not Wikimedia Commons — a lead admits Commons photos only for now");
+    expect(refusals({ source_url: "https://www.google.com/maps" })).toEqual(["www.google.com is a RED source — imagery and data from Google, Apple and Azure/Bing map services are never admitted (attestation d says so for every photo)"]);
+    expect(refusals({ source_url: "https://upload.wikimedia.org/wikipedia/en/a/ab/x.jpg" })).toEqual(["that file is on English Wikipedia, not Wikimedia Commons — Commons files only (upload.wikimedia.org/wikipedia/commons/…)"]);
+    expect(refusals({ source_url: "https://example.test/photo.jpg" })[0]).toMatch(/^example\.test is not Wikimedia Commons/);
+    expect(refusals({}, { provider: "flickr" })).toEqual(["flickr is not a source Sentinel admits photos from yet — Wikimedia Commons only (provider wikimedia-commons)"]);
+    expect(refusals({}, { format: "png" })).toEqual(["a web photo is admitted as a JPEG (.jpg) — save the Commons file as a JPEG"]);
+    expect(WEB_ADMITTED).toEqual(["wikimedia-commons"]);
+  });
+
+  it("freedom of panorama: yes only where a statute stands behind it; no and unknown refuse, in 'not legal advice' words (D-7-13, amendment 6)", () => {
+    expect(fopOf("GB")).toEqual({ fop: "yes", statute: "CDPA s.62", code: "GB" });
+    expect(fopOf("US").statute).toBe("17 USC §120(a), buildings");
+    expect(fopOf("DE").statute).toBe("§59 UrhG, views from public ground");
+    for (const j of ["JO", "FR", "IT"]) expect(fopOf(j).fop).toBe("no");
+    for (const j of ["SA", "AE", "EG", "Jordan", "gb", "", null, undefined, "constructor", "__proto__"]) expect(fopOf(j).fop).toBe("unknown");
+    expect(refusals({}, { jurisdiction: "JO" })).toEqual(["freedom of panorama does not cover JO — a photo of a building there may infringe its architect's copyright, so a web photo of this asset is not admitted (not legal advice; counsel confirms)"]);
+    expect(refusals({}, { jurisdiction: "AE" })[0]).toMatch(/^freedom of panorama is not known for "AE" .*not legal advice; counsel confirms/);
+    expect(refusals({}, { jurisdiction: null })[0]).toMatch(/^freedom of panorama is not known for this asset \(the pack names no jurisdiction\)/);
+    expect(refusals({ licence: "CC-BY-NC-4.0" }, { jurisdiction: "JO" })).toHaveLength(2); // every reason is said
+  });
+
+  it("webDeleteBy: a drill expires the next day; otherwise the day asked for, never past the source's limit (365 days for Commons)", () => {
+    const src = SOURCES.find((s) => s.id === "wikimedia-commons");
+    expect(webDeleteBy({ mode: "drill", today: TODAY, source: src, asked: "2027-01-01" })).toBe("2026-10-09");
+    expect(webDeleteBy({ mode: "on", today: TODAY, source: src, asked: null })).toBe("2027-10-08");
+    expect(webDeleteBy({ mode: "on", today: TODAY, source: src, asked: "2026-12-31" })).toBe("2026-12-31");
+    for (const asked of [TODAY, "2027-10-09", "2020-01-01"]) expect(() => webDeleteBy({ mode: "on", today: TODAY, source: src, asked })).toThrow(/web\.delete_by must be after today and no later than 2027-10-08/);
+  });
+
+  it("a web item validates: context only, the page's record exactly, the copy is the file (amendment 18)", () => {
+    const pack = webPack();
+    const item = webItem(pack);
+    expect(item).toMatchObject({ role: "context", provider: "wikimedia-commons", licence: "CC-BY-4.0", surveyable: false, format: "jpg", sha256: "b".repeat(64), original_sha256: SHA, delete_by: "2026-10-09" });
+    expect(item.allowed_uses).toEqual({ ...USES, geometry_extraction: false });
+    expect(item.attestation_ids).toEqual(["att-0001", "att-0003", "att-0004"]); // a, d, g
+    expect(Object.keys(item).every((k) => ITEM_FIELDS.includes(k))).toBe(true);
+    expect(validatePack({ ...pack, items: [item] })).toBe(true);
+    const no = (over, re) => expect(() => validatePack({ ...pack, items: [{ ...item, ...over }] })).toThrow(re);
+    no({ web: { ...item.web, extra: 1 } }, /items\[0\]\.web is the page's record exactly/);
+    no({ web: { ...item.web, freedom_of_panorama: "no" } }, /items\[0\]\.web/);
+    no({ web: { ...item.web, web_mode: "off" } }, /items\[0\]\.web/);
+    no({ web: { ...item.web, terms_sha256: "x" } }, /items\[0\]\.web/);
+    no({ allowed_uses: { ...item.allowed_uses, geometry_extraction: true } }, /context only: geometry_extraction false/);
+    no({ view_copy: { ...item.view_copy, sha256: "d".repeat(64) } }, /its blurred copy/);
+    no({ view_copy: undefined }, /its blurred copy/);
+    no({ delete_by: undefined }, /carries a delete-by day/);
+    no({ original_sha256: undefined }, /original's sha256/);
+    no({ licence: "CC-BY-SA-4.0" }, /is a web photo: a JPEG/);
+    no({ provider: "google" }, /is a web photo: a JPEG/);
+    no({ provider: "openverse" }, /is a web photo: a JPEG/); // a finder, never evidence
+    no({ format: "png", path: "web/a.png" }, /is a web photo: a JPEG|format/);
+    no({ request_id: "req-0001" }, /is a web photo/);
+    no({ surveyable: true }, /surveyable/);
+    no({ attestation_ids: ["att-0001", "att-0002", "att-0003"] }, /attestation_ids/); // (g) missing
+    no({ role: "other" }, /is own|role/);
+    expect(() => validatePack({ ...packWith(["a", "c", "d"], []), items: [{ ...photoItem(packWith(["a", "c", "d"])), web: item.web }] })).toThrow(/is own/);
+    expect(() => validatePack({ ...packWith(["a", "c", "d"]), items: [{ ...photoItem(packWith(["a", "c", "d"])), role: "context" }] })).toThrow(/is a web photo: a JPEG/);
+  });
+
+  it("(g) is signable on an own pack and never on a dataset pack; a pack holds up to 8 attestations", () => {
+    expect(() => validatePack(packWith(["a", "b", "c", "d", "e", "g"]))).not.toThrow();
+    expect(() => validatePack({ ...packWith(["g"]), dataset: { provider: "x", source_url: "https://example.test/d", licence: "CC0-1.0", attribution: "x" } })).toThrow(/must be \(f\) on a published dataset's pack/);
+  });
+
+  it("the ledger row holds the page's record and the author only as a sha256 of the attribution (amendment 5); a drill row says so", () => {
+    const pack = webPack(), item = webItem(pack);
+    const v = admittedValue("evp-0001", item, 6, false);
+    expect(v).toMatchObject({ role: "context", licence: "CC-BY-4.0", web: { source_url: item.web.source_url, retrieved_at: "2026-10-08", terms_sha256: "c".repeat(64), freedom_of_panorama: "yes", delete_by: "2026-10-09", web_mode: "drill",
+      attribution_sha256: createHash("sha256").update("Photo: Example Author, CC BY 4.0", "utf8").digest("hex") }, counsel: "counsel has not reviewed web evidence" });
+    expect(JSON.stringify(v)).not.toContain("Example Author");
+    const on = admittedValue("evp-0001", { ...item, web: { ...item.web, web_mode: "on" } }, 6, false);
+    expect(on.counsel).toBeUndefined();
+    expect(admittedValue("evp-0001", photoItem(packWith(["a", "c", "d"])), 3, false)).not.toHaveProperty("web"); // an own photo's row is unchanged
+  });
+
+  it("the NOTICE credits a web photo with author, licence, URL and retrieved date, and says it was a drill", () => {
+    const pack = webPack(), item = webItem(pack);
+    const { from } = creditLines({ ...pack, items: [item] });
+    expect(from).toEqual([`- ev-0001 photo · "Photo: Example Author, CC BY 4.0" · Example Author · CC-BY-4.0 · https://commons.wikimedia.org/wiki/File:Example_building.jpg · retrieved 2026-10-08 · drill: counsel has not reviewed web evidence`]);
+  });
+
+  it("every consumer refuses a web photo for read, type, train and register; it is viewed only while the switch is not off (amendments 11, 14)", () => {
+    const item = webItem(webPack());
+    for (const use of ["read", "type", "train", "register"]) expect(usable(item, use, { webMode: "drill" })).toMatch(/is a web photo — context only/);
+    expect(usable(item, "view", { webMode: "off" })).toBe("web evidence is off until counsel has reviewed it — this web photo is kept, not shown; nothing was shown");
+    expect(usable(item, "view", { webMode: "drill" })).toBe(null);
   });
 });

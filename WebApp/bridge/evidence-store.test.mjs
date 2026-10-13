@@ -7,7 +7,7 @@ import { dirname, join } from "node:path";
 import { makePack, readPack, signAttestation, runEvidenceIntake, recheckPack, draftRequest, surveyStart, webStatus, noticeOf, setDeleteBy, startExpirySweep, makeViewCopy, photoFile } from "./evidence-store.mjs";
 import * as W from "./web-sources.mjs";
 import { jpegWithExif } from "./fixtures/jpeg-exif.mjs";
-import { ATTESTATIONS, USES, ITEM_FIELDS, realDay } from "./evidence-logic.mjs";
+import { ATTESTATIONS, USES, realDay } from "./evidence-logic.mjs";
 
 let root, docs, audits, budgets, role;
 beforeEach(() => { root = mkdtempSync(join(tmpdir(), "sentinel-evidence-")); docs = new Map(); audits = []; budgets = []; role = "lead"; });
@@ -256,7 +256,7 @@ describe("evidence intake (MA-4a)", () => {
     // R19: RED reads the provider only — an Apple camera's own photo is admitted
     put("photos/iphone.jpg", jpegWithExif({ make: "Apple", model: "iPhone 15" }));
     expect(await admit({ path: "photos/iphone.jpg", kind: "photo" })).toMatchObject({ verdict: "admitted", item: { capture: { make: "Apple" } } });
-    expect((await admit({ path: "photos/cam.jpg", kind: "photo", provider: "website" })).reasons[0]).toMatch(/^a third party's or a website's photo waits for counsel's review/);
+    expect((await admit({ path: "photos/cam.jpg", kind: "photo", provider: "website" })).reasons[0]).toMatch(/^a photo from a website waits for counsel's review — web evidence is off/);
     // a photo admitted before 7-4 (a PNG, no capture), flagged by Re-check, comes back as first admitted — it is not re-checked for camera data
     const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(40)]);
     put("photos/old.png", png);
@@ -503,10 +503,18 @@ describe("delete-by, expiry and retire (MA-7-5)", () => {
   const copy = (rel) => join(root, "demo", ".sentinel", "view", rel);
   // role is 7-12's item field (it widens ITEM_FIELDS then); the sweep already reads it, so these tests plant it. view_copy is 7-7's (a full valid shape).
   const VC = (sha256) => ({ sha256, size_bytes: 18, width: 640, height: 480, areas: 0, faces: 0, plates: 0, none_seen: true, method: "person-marked", marked_by: "machine", marked_at: "2026-10-08T09:00:00.000Z", tool: "sentinel-blur 0.1.0" });
-  const FIELDS = ["role"];
-  beforeEach(() => { ITEM_FIELDS.push(...FIELDS); });
-  afterEach(() => { ITEM_FIELDS.splice(ITEM_FIELDS.length - FIELDS.length, FIELDS.length); });
-
+  // MA-7-12: a stored web item, planted whole (the sweep reads only the pack; validatePack checks it on the next fold) - (g) signed first, as an admission would have
+  const webEdit = async (id, over = {}) => {
+    await signAttestation("demo", "evp-0001", { code: "g" }, { ...deps(), env: { SENTINEL_WEB_EVIDENCE: "drill:demo" } });
+    const k = [...docs.keys()].filter((x) => x.startsWith("artefact|uuid-demo|evidence_pack@")).sort((a, b) => Number(a.split("@")[1]) - Number(b.split("@")[1])).pop();
+    const i = docs.get(k).body.items.find((x) => x.id === id), atts = docs.get(k).body.attestations;
+    const { capture: _c, ...rest } = i;
+    Object.assign(i, rest, { role: "context", provider: "wikimedia-commons", licence: "CC-BY-4.0", surveyable: false, allowed_uses: { ...USES, geometry_extraction: false },
+      attestation_ids: ["a", "d", "g"].map((c) => atts.find((a) => a.code === c).id), delete_by: "2026-11-01", original_sha256: "c".repeat(64), original_size_bytes: 99,
+      view_copy: { ...VC(i.sha256), size_bytes: i.size_bytes },
+      web: { source_url: "https://commons.wikimedia.org/wiki/File:A.jpg", author: "A", attribution_text: "A, CC BY 4.0", retrieved_at: "2026-10-01", terms_path: "web/a.html", terms_sha256: "d".repeat(64), freedom_of_panorama: "yes", web_mode: "drill" }, ...over });
+    delete i.capture;
+  };
   it("(p) roles: the machine credential 403 with the words, a contributor 403, a lead 200 with one delete_by row", async () => {
     await setup();
     role = "service";
@@ -604,7 +612,7 @@ describe("delete-by, expiry and retire (MA-7-5)", () => {
 
   it("(u2) a web item's delete-by can be brought forward, not moved later; yesterday's UTC day (a client behind) means today", async () => {
     await setup();
-    edit("ev-0002", { role: "context", delete_by: "2026-11-01" });
+    await webEdit("ev-0002");
     await expect(delBy("ev-0002", { date: "2026-12-01" })).rejects.toMatchObject({ status: 409, message: expect.stringContaining("brought forward") });
     expect((await delBy("ev-0002", { date: "2026-10-20" })).item.delete_by).toBe("2026-10-20");
     expect((await delBy("ev-0001", { date: "2026-10-07" })).item).toMatchObject({ state: "expired", delete_by: TODAY });
@@ -613,7 +621,7 @@ describe("delete-by, expiry and retire (MA-7-5)", () => {
 
   it("(r3) a web item's own file is removed on its sha; the row has no office_file", async () => {
     await setup();
-    edit("ev-0002", { role: "context" });
+    await webEdit("ev-0002");
     const r = await delBy("ev-0002", { date: TODAY });
     expect(r.item.removed).toEqual(["photos/own.jpg"]);
     expect(existsSync(join(root, "demo", "photos", "own.jpg"))).toBe(false);
@@ -799,5 +807,254 @@ describe("blurred copies (MA-7-7)", () => {
     role = "contributor";
     await expect(mark("ev-0001", { boxes: BOXES })).rejects.toMatchObject({ status: 409, message: expect.stringContaining("expired on 2026-10-08") });
     expect((await readPack("demo", "evp-0001", deps())).folder.files_not_admitted).toEqual([]); // .sentinel/ is never offered for admission
+  });
+});
+
+
+describe("Wikimedia Commons admission behind the switch (MA-7-12)", () => {
+  const DRILL = { env: { SENTINEL_WEB_EVIDENCE: "drill:demo" } };
+  const ON = { env: { SENTINEL_WEB_EVIDENCE: "on", SENTINEL_WEB_COUNSEL_REF: "ab".repeat(32) } };
+  const TOOLS = [{ name: "sentinel-blur", version: "0.1.0", licence: "LicenseRef-Sentinel" }, { name: "pillow", version: "12.3.0", licence: "MIT-CMU" }];
+  const BLURRED = Buffer.from("blurred commons jpeg stand-in");
+  const ORIG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.from("a third party's original, unblurred")]);
+  const PAGE = "<html><body>File:Example building.jpg - CC BY 4.0 - Example Author</body></html>";
+  let calls;
+  const blur = async (src, dst, boxes, shown) => { calls.push({ src, dst, boxes, shown }); writeFileSync(dst, BLURRED); return { ok: true, width: 1600, height: 1000, areas: boxes.length, source_sha256: sha(readFileSync(src)), version: "0.1.0", tools: TOOLS }; };
+  const WEB = (over = {}) => ({ licence: "CC-BY-4.0", source_url: "https://commons.wikimedia.org/wiki/File:Example_building.jpg", author: "Example Author", attribution_text: "Photo: Example Author, CC BY 4.0", retrieved_at: "2026-10-08", terms_path: "web/commons-1.html", ...over });
+  const body = (over = {}, web = {}) => ({ path: "web/commons-1.jpg", kind: "photo", provider: "wikimedia-commons", web: WEB(web), blur: { none_seen: true }, ...over });
+  const webAdmit = (b, extra = DRILL) => runEvidenceIntake("demo", "evp-0001", b, { ...deps(), blur, ...extra });
+  const signW = (codes, extra = DRILL) => { const was = role; role = "lead"; return (async () => { for (const code of codes) await signAttestation("demo", "evp-0001", { code }, { ...deps(), ...extra }); role = was; })(); };
+  const webReady = async (asset = { name: "Demo", jurisdiction: "GB" }) => {
+    calls = []; role = "lead"; await makePack("demo", { asset }, deps()); await signW(["a", "d", "g"]);
+    put("web/commons-1.jpg", ORIG); put("web/commons-1.html", PAGE);
+  };
+  const orig = () => readFileSync(join(root, "demo", "web", "commons-1.jpg"));
+
+  it("(CM-1) a lead admits a Commons photo: context only, the page's record on the item, the file replaced by its blurred copy, two rows", async () => {
+    await webReady();
+    const r = await webAdmit(body());
+    expect(r.verdict).toBe("admitted");
+    const it1 = r.item;
+    expect(it1).toMatchObject({ id: "ev-0001", kind: "photo", format: "jpg", provider: "wikimedia-commons", licence: "CC-BY-4.0", role: "context", surveyable: false, admitted_by: "machine",
+      sha256: sha(BLURRED), size_bytes: BLURRED.length, original_sha256: sha(ORIG), original_size_bytes: ORIG.length, delete_by: "2026-10-09",
+      allowed_uses: { ...USES, geometry_extraction: false }, attestation_ids: ["att-0001", "att-0002", "att-0003"] }); // a, d, g
+    expect(it1.web).toEqual({ source_url: "https://commons.wikimedia.org/wiki/File:Example_building.jpg", author: "Example Author", attribution_text: "Photo: Example Author, CC BY 4.0", retrieved_at: "2026-10-08",
+      terms_path: "web/commons-1.html", terms_sha256: sha(Buffer.from(PAGE)), freedom_of_panorama: "yes", web_mode: "drill" });
+    expect(it1.view_copy).toMatchObject({ sha256: sha(BLURRED), size_bytes: BLURRED.length, areas: 0, none_seen: true, method: "person-marked", tool: "sentinel-blur 0.1.0" });
+    expect(it1.capture).toBeUndefined(); // a web photo has no camera of ours
+    // the file IS the blurred copy now; the copy is also at .sentinel/view; no unblurred third-party bytes and no temp file remain
+    expect(orig()).toEqual(BLURRED);
+    expect(readFileSync(join(root, "demo", ".sentinel", "view", "ev-0001.jpg"))).toEqual(BLURRED);
+    expect(existsSync(join(root, "demo", "web", ".commons-1.jpg.sentinel-tmp"))).toBe(false);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].src).toBe(join(root, "demo", "web", "commons-1.jpg"));
+    expect(calls[0].dst).toBe(join(root, "demo", ".sentinel", "view", "ev-0001.jpg"));
+    // rows: admitted (no author / attribution text), then blurred with the original's sha
+    const adm = rows("evidence:admitted"), blr = rows("evidence:blurred");
+    expect(adm.map((a) => a.action)).toEqual(["evidence:admitted ev-0001 web/commons-1.jpg"]);
+    expect(adm[0].newv).toMatchObject({ licence: "CC-BY-4.0", role: "context", attestation_ids: ["att-0001", "att-0002", "att-0003"], counsel: "counsel has not reviewed web evidence",
+      web: { source_url: it1.web.source_url, retrieved_at: "2026-10-08", terms_sha256: sha(Buffer.from(PAGE)), freedom_of_panorama: "yes", delete_by: "2026-10-09", web_mode: "drill",
+        attribution_sha256: sha(Buffer.from("Photo: Example Author, CC BY 4.0")) } });
+    expect(JSON.stringify(adm[0].newv)).not.toContain("Example Author"); // CM-2 / amendment 5: the author stays in the pack, not on the append-only ledger
+    expect(blr[0].newv).toMatchObject({ item_id: "ev-0001", original_sha256: sha(ORIG), copy_sha256: sha(BLURRED), none_seen: true, metadata_removed: true });
+    expect(JSON.stringify(blr[0].newv)).not.toContain("Example Author");
+    expect(r.ledger_blurred).toMatchObject({ id: expect.any(Number) });
+    // the pack holds it, valid (the fold validated it), and Re-check finds nothing changed (amendment 18)
+    expect((await pack()).items[0]).toEqual(it1);
+    role = "contributor";
+    expect(await recheck()).toMatchObject({ checked: 1, changed: [] });
+    // the saved page is its record, not a file waiting to be admitted
+    expect((await readPack("demo", "evp-0001", deps())).folder.files_not_admitted).toEqual([]);
+  });
+
+  it("(CM-1b) switch on (counsel's ref): the web_mode is on, no drill note on the row, delete-by the source's limit (365 days) or a day asked for", async () => {
+    await webReady();
+    await signW([], ON);
+    const r = await webAdmit(body({}, { delete_by: "2026-12-31" }), ON);
+    expect(r.item.web.web_mode).toBe("on");
+    expect(r.item.delete_by).toBe("2026-12-31");
+    expect(rows("evidence:admitted")[0].newv.counsel).toBeUndefined();
+    put("web/commons-2.jpg", ORIG); put("web/commons-2.html", PAGE);
+    expect((await webAdmit(body({ path: "web/commons-2.jpg" }, { terms_path: "web/commons-2.html" }), ON)).item.delete_by).toBe("2027-10-08");
+    await expect(webAdmit(body({ path: "web/commons-2.jpg" }, { delete_by: "2028-01-01" }), ON)).rejects.toMatchObject({ status: 409 }); // already admitted
+    put("web/commons-3.jpg", ORIG);
+    await expect(webAdmit(body({ path: "web/commons-3.jpg" }, { delete_by: "2028-01-01" }), ON)).rejects.toMatchObject({ status: 400, message: expect.stringContaining("web.delete_by must be after today and no later than 2027-10-08") });
+  });
+
+  it("(CM-2, partial: not the design 6.2 comparison - still owed in the drill record) the item carries every field of design 6.2's example, and no row holds the author or the attribution text", async () => {
+    await webReady();
+    const r = await webAdmit(body());
+    const want = ["id", "kind", "format", "sha256", "path", "provider", "licence", "role", "delete_by", "admitted_by", "allowed_uses"]; // the example's own fields
+    for (const k of want) expect(r.item, k).toHaveProperty(k);
+    for (const k of ["source_url", "retrieved_at", "attribution_text", "freedom_of_panorama"]) expect(r.item.web, k).toHaveProperty(k); // the example's web fields (terms_path/sha, author, web_mode added)
+    for (const a of audits) { const s = JSON.stringify(a.newv); expect(s).not.toContain("Example Author"); expect(s).not.toContain("Photo: Example Author"); }
+  });
+
+  it("(CM-3) a licence that does not allow commercial use, SA (held), a Flickr or Google address and an English Wikipedia file are refused in words, with a row; the file is untouched", async () => {
+    await webReady();
+    const refused = async (web, re, over = {}) => {
+      const n = rows("evidence:refused").length, r = await webAdmit(body(over, web));
+      expect(r.verdict).toBe("refused");
+      expect(r.reasons[0]).toMatch(re);
+      expect(rows("evidence:refused")).toHaveLength(n + 1);
+      expect(orig()).toEqual(ORIG); // nothing replaced, no copy made
+      expect(existsSync(join(root, "demo", ".sentinel", "view", "ev-0001.jpg"))).toBe(false);
+      return r;
+    };
+    await refused({ licence: "CC-BY-NC-4.0" }, /^CC-BY-NC-4\.0 is not admitted — a web photo's licence must allow commercial use: CC0, public domain or CC BY \(CC BY-SA waits for counsel\)$/);
+    await refused({ licence: "CC-BY-SA-4.0" }, /^CC-BY-SA-4\.0 is not admitted/);
+    await refused({ source_url: "https://www.flickr.com/photos/x/1" }, /^www\.flickr\.com is Flickr, not Wikimedia Commons/);
+    await refused({ source_url: "https://maps.google.co.uk/x" }, /^maps\.google\.co\.uk is a RED source/);
+    await refused({ source_url: "https://upload.wikimedia.org/wikipedia/en/a/ab/x.jpg" }, /^that file is on English Wikipedia, not Wikimedia Commons — Commons files only/);
+    const gone = await webAdmit(body({ provider: "flickr" }));
+    expect(gone.reasons).toEqual(["flickr is not a source Sentinel admits photos from yet — Wikimedia Commons only (provider wikimedia-commons)"]);
+    const png = (await (async () => { put("web/c.png", Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(30)])); return webAdmit(body({ path: "web/c.png" })); })());
+    expect(png.reasons).toEqual(["a web photo is admitted as a JPEG (.jpg) — save the Commons file as a JPEG"]);
+    expect(audits.filter((a) => a.action.startsWith("evidence:admitted"))).toEqual([]);
+    expect((await pack()).items).toEqual([]);
+  });
+
+  it("(CM-3b) freedom of panorama: JO says no, an unknown or missing jurisdiction refuses; GB, US and DE pass; the words say 'not legal advice'", async () => {
+    for (const [j, ok, re] of [["JO", false, /^freedom of panorama does not cover JO.*not legal advice; counsel confirms/], ["SA", false, /^freedom of panorama is not known for "SA"/], [null, false, /pack names no jurisdiction/], ["US", true], ["DE", true]]) {
+      docs.clear(); audits.length = 0;
+      await webReady({ name: "Demo", jurisdiction: j });
+      const r = await webAdmit(body());
+      if (ok) expect(r.verdict, j).toBe("admitted"); else { expect(r.verdict, String(j)).toBe("refused"); expect(r.reasons[0]).toMatch(re); expect(orig()).toEqual(ORIG); }
+    }
+  });
+
+  it("(CM-4) switch off: counsel's words, a refused row and a hold, whoever asks and whatever the body says; (g) cannot be signed; bare 'drill' and another project's drill read off", async () => {
+    await webReady();
+    const words = "a photo from a website waits for counsel's review — web evidence is off (the founder's switch SENTINEL_WEB_EVIDENCE); only your own photos (provider own) are admitted now";
+    for (const env of [{}, { SENTINEL_WEB_EVIDENCE: "off" }, { SENTINEL_WEB_EVIDENCE: "drill" }, { SENTINEL_WEB_EVIDENCE: "drill:other-project" }, { SENTINEL_WEB_EVIDENCE: "on" }]) {
+      for (const who of ["lead", "contributor"]) {
+        role = who;
+        const n = rows("evidence:refused").length, r = await webAdmit(body(), { env });
+        expect(r, `${JSON.stringify(env)} ${who}`).toMatchObject({ verdict: "refused", reasons: [words] });
+        expect(rows("evidence:refused")).toHaveLength(n + 1);
+      }
+    }
+    expect(orig()).toEqual(ORIG); expect(calls).toEqual([]); expect((await pack()).items).toEqual([]);
+    // an off-switch pack cannot sign (g), and (g) needs (a)
+    docs.clear(); audits.length = 0; role = "lead";
+    await makePack("demo", { asset: { name: "Demo", jurisdiction: "GB" } }, deps());
+    const sg = (extra) => signAttestation("demo", "evp-0001", { code: "g" }, { ...deps(), ...extra });
+    await expect(sg({ env: {} })).rejects.toMatchObject({ status: 409, message: "(g) speaks for web photos — web evidence is off until counsel has reviewed it; nothing was signed" });
+    await expect(sg(DRILL)).rejects.toMatchObject({ status: 409, message: "a lead signs (a), the owner's authority, before (g); nothing was signed" });
+    await signW(["a"]);
+    const g = await sg(DRILL);
+    expect(g.attestation).toMatchObject({ code: "g", role: "lead" });
+    expect(rows("attestation:signed g")[0].newv).toMatchObject({ code: "g", web_mode: "drill", text_sha256: ATTESTATIONS.g.sha256 });
+    role = "service";
+    await expect(sg(DRILL)).rejects.toMatchObject({ status: 403 });
+    role = "lead";
+    await expect(signAttestation("demo", "evp-0001", { code: "h" }, deps())).rejects.toMatchObject({ status: 400, message: expect.stringContaining("a, b, c, d, e, f, g") });
+  });
+
+  it("(CM-4b) a Commons photo before (g) is signed is the usual 409 (it names (g)); a website with a name Sentinel does not admit is refused naming Commons", async () => {
+    docs.clear(); role = "lead"; calls = [];
+    await makePack("demo", { asset: { name: "Demo", jurisdiction: "GB" } }, deps());
+    await signW(["a", "d"]);
+    put("web/commons-1.jpg", ORIG); put("web/commons-1.html", PAGE);
+    await expect(webAdmit(body())).rejects.toMatchObject({ status: 409, message: "a lead must sign (g) first; nothing was saved" });
+    await signW(["g"]);
+    expect((await webAdmit(body({ provider: "website" }))).reasons).toEqual(["website is not a source Sentinel admits photos from yet — Wikimedia Commons only (provider wikimedia-commons)"]);
+  });
+
+  it("(CM-4c) review: a RED or unsupported source is refused with its row before (g) is asked; a terms page that is another pack item's file is a 400", async () => {
+    docs.clear(); role = "lead"; calls = [];
+    await makePack("demo", { asset: { name: "Demo", jurisdiction: "GB" } }, deps());
+    await signW(["a", "d"]); // (g) NOT signed
+    put("web/commons-1.jpg", ORIG); put("web/commons-1.html", PAGE);
+    const n = rows("evidence:refused").length;
+    const r = await webAdmit(body({ provider: "google street view" }));
+    expect(r.verdict).toBe("refused"); expect(r.reasons[0]).toContain("RED source");
+    expect(rows("evidence:refused")).toHaveLength(n + 1);
+    expect((await webAdmit(body({ provider: "website" }))).verdict).toBe("refused");
+    await expect(webAdmit(body())).rejects.toMatchObject({ status: 409, message: "a lead must sign (g) first; nothing was saved" }); // the Commons path still asks (g)
+  });
+
+  it("(CM-5) the NOTICE lists the photo with author, licence, URL and retrieved date, and the drill", async () => {
+    await webReady();
+    await webAdmit(body());
+    role = "viewer";
+    const n = await noticeOf("demo", "evp-0001", { ...deps(), auditAll: async () => [] });
+    expect(n.credits).toBe(1);
+    expect(n.text).toContain(`- ev-0001 photo · "Photo: Example Author, CC BY 4.0" · Example Author · CC-BY-4.0 · https://commons.wikimedia.org/wiki/File:Example_building.jpg · retrieved 2026-10-08 · drill: counsel has not reviewed web evidence`);
+  });
+
+  it("(CM-6) a contributor is a 403 (a web photo is a lead's, AMBER); the machine credential is a 403; a viewer too - nothing saved, no row", async () => {
+    await webReady();
+    const n = audits.length;
+    role = "contributor";
+    await expect(webAdmit(body())).rejects.toMatchObject({ status: 403, message: "a web photo is a lead's to admit (AMBER) — nothing was saved" });
+    role = "service";
+    await expect(webAdmit(body())).rejects.toMatchObject({ status: 403, message: expect.stringContaining("an admission needs a person") });
+    role = "viewer";
+    await expect(webAdmit(body())).rejects.toMatchObject({ status: 403 });
+    expect(audits.length).toBe(n); expect(orig()).toEqual(ORIG); expect(calls).toEqual([]);
+  });
+
+  it("(CM-7) after the switch goes back off: the item is kept, not shown; the next day's sweep expires it and removes both copies, the record and the saved page stay", async () => {
+    await webReady();
+    await webAdmit(body());
+    role = "viewer";
+    const file = (extra) => photoFile("demo", "evp-0001", "ev-0001", "view", {}, { ...deps(), ...extra });
+    expect((await file(DRILL)).full).toBe(join(root, "demo", ".sentinel", "view", "ev-0001.jpg"));
+    await expect(file({ env: {} })).rejects.toMatchObject({ status: 403, message: "web evidence is off until counsel has reviewed it — this web photo is kept, not shown; nothing was shown" });
+    // the sweep a day later (drill delete-by = tomorrow)
+    const later = { ...deps(), now: () => "2026-10-09T08:00:00.000Z" };
+    const t = startExpirySweep({ every: 1e9, deps: later, env: {} });
+    await new Promise((ok) => setTimeout(ok, 300)); clearInterval(t);
+    const p = await pack();
+    expect(p.items[0]).toMatchObject({ state: "expired", expired_at: "2026-10-09T08:00:00.000Z", removed: [".sentinel/view/ev-0001.jpg", "web/commons-1.jpg"], sha256: sha(BLURRED), original_sha256: sha(ORIG) });
+    expect(existsSync(join(root, "demo", "web", "commons-1.jpg"))).toBe(false);
+    expect(existsSync(join(root, "demo", ".sentinel", "view", "ev-0001.jpg"))).toBe(false);
+    expect(existsSync(join(root, "demo", "web", "commons-1.html"))).toBe(true);
+    expect(rows("evidence:expired").map((a) => a.action)).toEqual(["evidence:expired ev-0001 web/commons-1.jpg"]);
+    expect(rows("evidence:expired")[0].newv.office_file).toBeNull();
+  });
+
+  it("(CM-8) refusals before anything is written: a malformed record is a 400, a missing saved page a 404, no boxes a 400, no blur tool a 503, a changed file a refused row", async () => {
+    await webReady();
+    const n = audits.length;
+    await expect(webAdmit(body({ web: undefined }))).rejects.toMatchObject({ status: 400, message: expect.stringContaining("web must be {licence") });
+    await expect(webAdmit(body({}, { author: "" }))).rejects.toMatchObject({ status: 400, message: expect.stringContaining("web.author") });
+    await expect(webAdmit(body({}, { terms_path: "web/none.html" }))).rejects.toMatchObject({ status: 404, message: expect.stringContaining("no saved page web/none.html") });
+    await expect(webAdmit(body({}, { terms_path: "web/commons-1.jpg" }))).rejects.toMatchObject({ status: 400, message: expect.stringContaining("web.terms_path must name the saved page (HTML)") }); // MA-7-12: .html or .htm only
+    await expect(webAdmit(body({ blur: {} }))).rejects.toMatchObject({ status: 400, message: expect.stringContaining("mark the faces and number plates") });
+    await expect(runEvidenceIntake("demo", "evp-0001", body(), { ...deps(), ...DRILL })).rejects.toMatchObject({ status: 503, message: expect.stringContaining("the blur tool is not set up") });
+    expect(audits.length).toBe(n); expect(orig()).toEqual(ORIG); expect((await pack()).items).toEqual([]);
+    // the boxes go to the tool as fractions, and shown size follows
+    await webAdmit(body({ blur: { boxes: [{ x: 0.1, y: 0.1, w: 0.2, h: 0.2, what: "face" }], shown: { w: 1600, h: 1000 } } }));
+    expect(calls[0].boxes).toEqual([{ x: 0.1, y: 0.1, w: 0.2, h: 0.2 }]); expect(calls[0].shown).toEqual({ w: 1600, h: 1000 });
+    expect((await pack()).items[0].view_copy).toMatchObject({ areas: 1, faces: 1, plates: 0 });
+    expect(rows("evidence:blurred")[0].action).toBe("evidence:blurred ev-0001 · 1 area(s) · person-marked");
+  });
+
+  it("(CM-9) the pack names the copy before the original is replaced: a blur that answers for other bytes or a failed rename leaves no unblurred copy unrecorded and no temp file", async () => {
+    await webReady();
+    const lying = async (src, dst, boxes) => { writeFileSync(dst, BLURRED); return { ok: true, width: 10, height: 10, areas: boxes.length, source_sha256: "f".repeat(64), version: "0.1.0", tools: [] }; };
+    await expect(runEvidenceIntake("demo", "evp-0001", body(), { ...deps(), ...DRILL, blur: lying })).rejects.toMatchObject({ status: 409, message: expect.stringContaining("changed after it was read") });
+    expect(orig()).toEqual(ORIG); expect(existsSync(join(root, "demo", ".sentinel", "view", "ev-0001.jpg"))).toBe(false); expect((await pack()).items).toEqual([]);
+    // the rename fails after the pack names the copy: said in words; Re-check will flag the original, the copy at .sentinel/view stays
+    await expect(webAdmit(body(), { ...DRILL, rename: () => { throw new Error("locked"); } })).rejects.toMatchObject({ status: 500, message: expect.stringContaining("the original could not be replaced") });
+    expect((await pack()).items[0].id).toBe("ev-0001");
+    // review fix: the rows are written even though the rename failed, and the admitted row says the original was not replaced
+    expect(rows("evidence:admitted")).toHaveLength(1); expect(rows("evidence:blurred")).toHaveLength(1);
+    expect(rows("evidence:admitted")[0].newv.not_replaced).toMatchObject({ path: "web/commons-1.jpg", why: "locked" });
+    expect(existsSync(join(root, "demo", "web", ".commons-1.jpg.sentinel-tmp"))).toBe(false);
+    expect(readFileSync(join(root, "demo", ".sentinel", "view", "ev-0001.jpg"))).toEqual(BLURRED);
+    role = "contributor";
+    const rc = await recheck();
+    expect(rc.changed).toEqual([expect.objectContaining({ item_id: "ev-0001", reason: "changed since admitted" })]);
+  });
+
+  it("(CM-10) the saved page is part of the record: Re-check flags a changed page", async () => {
+    await webReady();
+    await webAdmit(body());
+    writeFileSync(join(root, "demo", "web", "commons-1.html"), "<html>edited</html>");
+    role = "contributor";
+    expect((await recheck()).changed).toEqual([expect.objectContaining({ item_id: "ev-0001", reason: "its saved terms page changed since admitted" })]);
   });
 });
