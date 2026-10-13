@@ -324,6 +324,88 @@ async function admitRun(d, proj, key, packId, b) {
   return { verdict: "admitted", item, pack_version: pointer.version, ledger };
 }
 
+/** MA-7-7: POST …/items/:id/view-copy {boxes: [{x, y, w, h, what}], none_seen?} → 201 {item, copy, pack_version, ledger}: a signed-in contributor says
+ *  what they saw in an own photo — boxes round faces and number plates, or "No faces or number plates in this photo" — and the bridge has
+ *  `deps.blur` (sentinel-blur, photo-store.runBlur) write `.sentinel/view/<id>.jpg` from the admitted bytes: the boxes filled with their mean
+ *  colour, the long side at most 2048, no EXIF/XMP/ICC. The bridge hashes the copy itself and writes one evidence:blurred row (counts, the
+ *  tools and the person; no box coordinates). From then on every view and read uses the copy; the original is no longer shown (photoFile).
+ *  Refusals in this order: 403 (the machine credential), 403 (role), 400 (body), 429, 409 (an admission running), 404 (pack, item, file),
+ *  409 (not a photo; expired or changed; already has a copy; the file changed since admitted), 503 (no blur tool), 422 (not an image). */
+export async function makeViewCopy(key, packId, itemId, b = {}, deps = {}) {
+  const d = await wire(deps);
+  if ((await d.myRole(key)) === "service") throw err(403, "a blurred copy needs a person — it names who marked the faces and number plates: sign in. Nothing was saved.");
+  const proj = await officeProject(d, key, "contributor");
+  const { boxes, none_seen, shown } = L.readBoxes(b);
+  d.takeWriteBudget("evidence blurred copies", { perUser: 20, all: 60 });
+  if (admitting.has(key)) throw err(409, `an admission to ${key} is already running — try again when it ends; nothing was saved`);
+  admitting.add(key);
+  let dst = null, made = false;
+  try {
+    const { pack, version } = await packOf(d, key, packId);
+    const item = pack.items.find((i) => i.id === itemId);
+    if (!item) throw err(404, `no item ${itemId} in ${packId} — nothing was saved`);
+    if (item.kind !== "photo") throw err(409, `${itemId} is a ${item.kind}, not a photo — only photos are blurred; nothing was saved`);
+    if (item.state === "expired" || item.state === "changed") throw err(409, `${L.usable(item, "view")}`.replace(/; nothing was (read|shown)$/, "; nothing was saved"));
+    if (item.view_copy) throw err(409, `${itemId} already has its blurred copy — a wrong blur is fixed by retiring the photo and admitting the file under a new name; nothing was saved`);
+    if (!deps.blur) throw err(503, "the blur tool is not set up on this PC (survey/blur.py with Pillow 12.3.0) — nothing was saved");
+    const dir = evidenceDir(key, d.root), full = insideFolder(dir, item.path), who = actor();
+    if (!isFile(full)) throw err(404, `${item.path} is missing from the project's evidence folder — nothing was saved`);
+    if ((await hashFile(full)).sha256 !== item.sha256) throw err(409, `${item.path} changed since it was admitted — Re-check, and put the same file back; nothing was saved`);
+    const outDir = join(dir, ".sentinel", "view");
+    mkdirSync(outDir, { recursive: true });
+    dst = join(outDir, `${itemId}.jpg`);
+    const r = await deps.blur(full, dst, boxes.map(({ what: _w, ...xywh }) => xywh), shown);
+    made = true;
+    if (!r || r.areas !== boxes.length || !Number.isSafeInteger(r.width) || !Number.isSafeInteger(r.height)) throw err(500, "the blur tool answered wrongly — nothing was saved");
+    if (r.source_sha256 !== item.sha256) throw err(409, `${item.path} changed after it was admitted and before it was blurred — Re-check, and put the same file back; nothing was saved`); // the tool hashes the bytes it decoded
+    const copy = await hashFile(dst);
+    const faces = boxes.filter((x) => x.what === "face").length;
+    const tool = `sentinel-blur ${String(r.version ?? "").slice(0, 20)}`;
+    const vc = { sha256: copy.sha256, size_bytes: copy.size_bytes, width: r.width, height: r.height, areas: boxes.length, faces, plates: boxes.length - faces,
+      ...(none_seen ? { none_seen: true } : {}), method: "person-marked", marked_by: who, marked_at: d.now(), tool };
+    const next = { ...item, view_copy: vc };
+    const pointer = await fold(d, key, { ...pack, items: pack.items.map((i) => (i === item ? next : i)) }, version, who);
+    made = false; // the pack names the file now
+    const tools = (Array.isArray(r.tools) ? r.tools : []).slice(0, 30).map((t) => ({ name: String(t.name).slice(0, 100), version: String(t.version ?? "").slice(0, 40), licence: String(t.licence ?? "").slice(0, 100) }));
+    const ledger = await row(d, proj, "evidence", `evidence:blurred ${itemId} · ${vc.areas} area(s) · person-marked`, who, L.blurredValue(packId, next, { ...vc, tools }, pointer.version));
+    return { item: next, copy: vc, pack_version: pointer.version, ledger };
+  } catch (e) {
+    if (made && dst) try { d.unlink(dst); } catch { /* the sweep or the next try replaces it */ } // a copy no pack names is not left behind
+    throw e;
+  } finally { admitting.delete(key); }
+}
+
+/** MA-7-7: GET …/items/:id/view | …/original → {full, type, noStore}: the file a byte route streams (photo-store.sendBytes). Any member sees a
+ *  photo's blurred copy (`view`; the machine credential too — a read). The unblurred original (`original`) goes only to a signed-in contributor,
+ *  on this PC (`o.thisPc`: the local app, never over the Funnel), only while no copy exists, `no-store`; a wrong or missing copy is fixed by
+ *  marking again under a new name. Refusals in order: 403 (original: the machine credential), 403/404 (role, project), 404 (pack, item),
+ *  409 (not a photo; expired or changed; no copy yet), 403 (the original, once the copy exists; off this PC), 404 (the file is gone). */
+export async function photoFile(key, packId, itemId, which, o = {}, deps) {
+  const d = await wire(deps);
+  const orig = which === "original", role = await d.myRole(key);
+  if (orig && role === "service") throw err(403, "the unblurred original is shown to a signed-in person only — mark faces and number plates as yourself; nothing was shown");
+  await officeProject(d, key, orig ? "contributor" : "viewer");
+  const { pack } = await packOf(d, key, packId);
+  const item = pack.items.find((i) => i.id === itemId);
+  if (!item) throw err(404, `no item ${itemId} in ${packId} — nothing was shown`);
+  const dir = evidenceDir(key, d.root);
+  if (!orig) {
+    const why = L.usable(item, "view", { webMode: W.webSwitch(deps?.env ?? process.env, key).mode });
+    if (why) throw err(409, why);
+    const full = join(dir, ".sentinel", "view", `${itemId}.jpg`);
+    // ponytail: the copy's bytes are not re-hashed per view (the row and the item hold its sha256 for anyone who checks); re-hash here if a copy is ever edited by hand
+    if (!isFile(full)) throw err(404, `${itemId}'s blurred copy is missing from the evidence folder — retire the photo and admit the file again; nothing was shown`);
+    return { full, type: "image/jpeg", noStore: false };
+  }
+  if (item.kind !== "photo") throw err(409, `${itemId} is a ${item.kind}, not a photo; nothing was shown`);
+  if (item.state === "expired" || item.state === "changed") throw err(409, L.usable(item, "view"));
+  if (item.view_copy) throw err(403, `${itemId} has its blurred copy — the original is not shown`);
+  if (!o.thisPc) throw err(403, "the unblurred original is shown on the office PC only (the local app) — mark faces and number plates there; nothing was shown");
+  const full = insideFolder(dir, item.path);
+  if (!isFile(full)) throw err(404, `${item.path} is missing from the project's evidence folder; nothing was shown`);
+  return { full, type: item.format === "png" ? "image/png" : "image/jpeg", noStore: true };
+}
+
 /** MA-7-5: POST …/items/:id/delete-by {date, why?} → 200 {item, pack_version, ledger}: a signed-in lead sets the day after which no job reads the
  *  item; today retires it now (the sweep runs at once). The machine credential is a 403 (the row names who set it). Refusals in this order:
  *  403, 403, 429, 409 (an admission or sweep running), 404 (pack, item), 409 (already expired), 400 (the date). */

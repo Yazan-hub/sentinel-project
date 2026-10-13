@@ -450,8 +450,8 @@ describe("photo source and capture (MA-7-4)", () => {
   });
   it("itemLine adds the camera, the time and the location note for a photo with capture", () => {
     const p: EvidenceItem = { ...ITEM, id: "ev-0002", kind: "photo", format: "jpg", path: "photos/a.jpg", surveyable: true, capture: { make: "Example", model: "Cam 1", taken_at: "2026-10-13 09:30", gps: true } };
-    expect(itemLine(p)).toMatch(/ · Example Cam 1 · taken 2026-10-13 09:30 · EXIF GPS block in the original \(not copied\)$/);
-    expect(itemLine({ ...p, capture: { make: "Example", model: null, taken_at: null, gps: false } })).toMatch(/ · Example · taken \? · no EXIF GPS block$/);
+    expect(itemLine(p)).toMatch(/ · Example Cam 1 · taken 2026-10-13 09:30 · EXIF GPS block in the original \(not copied\)/);
+    expect(itemLine({ ...p, capture: { make: "Example", model: null, taken_at: null, gps: false } })).toMatch(/ · Example · taken \? · no EXIF GPS block/);
     expect(itemLine({ ...p, capture: undefined })).not.toMatch(/taken/);
   });
 });
@@ -465,5 +465,65 @@ describe("MA-7-6: the NOTICE", () => {
     expect(String(bfetch.mock.calls[bfetch.mock.calls.length - 1][0])).toMatch(/\/cde\/demo\/evidence\/evp-0001\/notice$/);
     bfetch.mockResolvedValueOnce(res(503, { message: "the NOTICE needs the build:run rows and the ledger could not be read \u2014 nothing was made" }));
     await expect(readNotice("http://b", "demo")).rejects.toThrow(/^not read \u2014 the NOTICE needs/);
+  });
+});
+
+// MA-7-7 — the blurred copy: its line, the marker's boxes, the calls, and the panel's wiring.
+import { viewCopyLine, markViewCopy, blurredLine, photoUrl, type ViewCopy } from "./evidence";
+import { boxFromDrag, markSummary } from "./photo-marker";
+describe("blurred copy (MA-7-7)", () => {
+  const VC: ViewCopy = { sha256: "cd".repeat(32), size_bytes: 5000, width: 2048, height: 1365, areas: 2, faces: 1, plates: 1, method: "person-marked", marked_by: "lead@example.test", marked_at: "2026-10-13T10:00:00.000Z", tool: "sentinel-blur 0.1.0" };
+  const PH: EvidenceItem = { ...ITEM, id: "ev-0002", kind: "photo", format: "jpg", path: "photos/a.jpg", surveyable: true };
+  it("viewCopyLine / itemLine: no copy says where the original is shown; a copy says its areas; none seen says so; an expired photo says neither", () => {
+    expect(viewCopyLine(PH)).toBe(" · no blurred copy yet — the original is shown on the office PC only, to mark it");
+    expect(itemLine(PH)).toMatch(/ · no blurred copy yet/);
+    expect(itemLine({ ...PH, view_copy: VC })).toContain(" · blurred copy 2048×1365: 2 area(s) filled (1 face, 1 number plate) · marked by lead@example.test");
+    expect(viewCopyLine({ view_copy: { ...VC, areas: 0, faces: 0, plates: 0, none_seen: true } })).toContain("no faces or number plates seen");
+    expect(itemLine({ ...PH, state: "expired", expired_at: "2026-10-13T00:00:00.000Z" })).not.toMatch(/blurred copy/);
+    expect(itemLine(ITEM)).not.toMatch(/blurred copy/); // a scan has none
+  });
+  it("boxFromDrag: fractions of the shown photo, any drag direction, clamped; a click is no box", () => {
+    const near = (m: ReturnType<typeof boxFromDrag>) => JSON.parse(JSON.stringify(m, (_k, v) => (typeof v === "number" ? Math.round(v * 1e6) / 1e6 : v)));
+    expect(near(boxFromDrag(100, 50, 300, 150, 1000, 500, "face"))).toEqual({ x: 0.1, y: 0.1, w: 0.2, h: 0.2, what: "face" });
+    expect(near(boxFromDrag(300, 150, 100, 50, 1000, 500, "plate"))).toEqual({ x: 0.1, y: 0.1, w: 0.2, h: 0.2, what: "plate" });
+    expect(near(boxFromDrag(-50, 400, 2000, 900, 1000, 500, "face"))).toEqual({ x: 0, y: 0.8, w: 1, h: 0.2, what: "face" });
+    expect(boxFromDrag(100, 100, 102, 102, 1000, 500, "face")).toBeNull();
+    expect(boxFromDrag(0, 0, 10, 10, 0, 0, "face")).toBeNull();
+  });
+  it("markSummary: counts what is marked, or asks for a mark or the explicit answer", () => {
+    expect(markSummary([])).toMatch(/Nothing marked yet/);
+    expect(markSummary([{ x: 0, y: 0, w: .1, h: .1, what: "face" }, { x: 0, y: 0, w: .1, h: .1, what: "plate" }, { x: 0, y: 0, w: .1, h: .1, what: "plate" }])).toMatch(/^3 area\(s\) marked \(1 face, 2 number plate\)/);
+  });
+  it("markViewCopy posts the boxes (or the none answer) to the item's view-copy route; blurredLine is one line with the ledger", async () => {
+    bfetch.mockClear(); bwrite.mockClear();
+    bwrite.mockResolvedValueOnce({ item: { ...PH, view_copy: VC }, copy: VC, pack_version: 7, ledger: { id: 9, hash: HASH } });
+    const r = await markViewCopy("http://b", "demo", "ev-0002", { boxes: [{ x: 0.1, y: 0.1, w: 0.1, h: 0.1, what: "face" }] });
+    expect(String(bwrite.mock.calls[0][0])).toMatch(/\/cde\/demo\/evidence\/evp-0001\/items\/ev-0002\/view-copy$/);
+    expect(bwrite.mock.calls[0][1].method).toBe("POST");
+    expect(JSON.parse(bwrite.mock.calls[0][1].body)).toEqual({ boxes: [{ x: 0.1, y: 0.1, w: 0.1, h: 0.1, what: "face" }] });
+    bwrite.mockResolvedValueOnce({ item: { ...PH, view_copy: VC }, copy: VC, pack_version: 8, ledger: { id: 10, hash: HASH } });
+    await markViewCopy("http://b", "demo", "ev-0002", { none_seen: true, shown: { w: 400, h: 600 } }); // MA-7-7 review: the size the marker showed rides along
+    expect(JSON.parse(bwrite.mock.calls[1][1].body)).toEqual({ none_seen: true, shown: { w: 400, h: 600 } });
+    expect(blurredLine(r)).toBe(`✓ Blurred copy of ev-0002 · blurred copy 2048×1365: 2 area(s) filled (1 face, 1 number plate) · marked by lead@example.test · sha ${"cd".repeat(6)}… · ledger #9 · receipt abababababababab…`);
+  });
+  it("photoUrl: the copy or the original as an object URL; the bridge's own words come through when it refuses", async () => {
+    const make = vi.fn(() => "blob:copy");
+    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: make }));
+    bfetch.mockResolvedValueOnce({ ok: true, status: 200, blob: async () => new Blob(["x"]) } as unknown as Response);
+    expect(await photoUrl("http://b", "demo", "ev-0002", "view")).toBe("blob:copy");
+    expect(String(bfetch.mock.calls[bfetch.mock.calls.length - 1][0])).toMatch(/\/cde\/demo\/evidence\/evp-0001\/items\/ev-0002\/view$/);
+    bfetch.mockResolvedValueOnce(res(403, { message: "the unblurred original is shown on the office PC only (the local app) — mark faces and number plates there; nothing was shown" }));
+    await expect(photoUrl("http://b", "demo", "ev-0002", "original")).rejects.toThrow("the unblurred original is shown on the office PC only");
+    vi.unstubAllGlobals();
+  });
+  it("files-panel: Mark faces and plates for a contributor on a photo with no copy; the original loads through photoUrl; the explicit none answer is a button; a refresh never reloads under an open marker", () => {
+    const src = readFileSync(new URL("./files-panel.ts", import.meta.url), "utf8");
+    expect(src).toContain('can.survey && markFor !== i.id ? ` <button data-evmark=');
+    expect(src).toContain('photoUrl(base, pid(), id, "original")');
+    expect(src).toContain("No faces or number plates in this photo");
+    expect(src).toContain('saveMark({ none_seen: true })');
+    expect(src).toContain("marker?.shown()"); // the shown size is sent with the marks
+    expect(src).toContain("drawingFor || vendorFor || photoFor || markFor)) return;");
+    expect(src).toContain("{ markClose(); thumbsClear(); renaming = null;"); // a project or person switch drops the open marker and frees the thumbnails
   });
 });

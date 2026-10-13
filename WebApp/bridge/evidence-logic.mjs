@@ -50,8 +50,8 @@ export const FORMATS = {
   // ponytail: RCP is checked by extension only (a ReCap project is a folder index with no fixed magic here); a real one waits for an
   // owner's scan — until then any bytes named .rcp are admitted with their report.
   rcp: { kind: "scan", magic: null, surveyable: false },
-  jpg: { kind: "photo", magic: "ffd8ff", surveyable: true },
-  png: { kind: "photo", magic: "89504e470d0a1a0a", surveyable: true },
+  jpg: { kind: "photo", magic: "ffd8ff", surveyable: true, max_bytes: 64 * 1024 * 1024 }, // MA-7-7 (R18): 64 MB — a phone photo is 2 to 12 MB; the blur tool decodes it in memory
+  png: { kind: "photo", magic: "89504e470d0a1a0a", surveyable: true, max_bytes: 64 * 1024 * 1024 },
   // MA-6-8: the office's own concept model, read inside the bridge by web-ifc (so a size cap), never surveyed. "ISO-10303-21" is 12 bytes.
   ifc: { kind: "model", magic: "49534f2d31303330332d3231", surveyable: false, max_bytes: 64 * 1024 * 1024 }, // MA-8-3 (D3): 64 MB — a 25 MB Revit export reads in 1 s
 };
@@ -72,7 +72,8 @@ export const USES = { view_reference: true, geometry_extraction: true, texture_e
 // MA-7-3: every field an item may carry — the bridge writes items, so an unknown field is never stored. Each slice that writes a new item field adds it here in the same commit (D-7-30).
 export const ITEM_FIELDS = ["id", "kind", "format", "sha256", "size_bytes", "path", "provider", "licence", "licence_ref", "request_id", "attestation_ids", "allowed_uses", "registration", "surveyable", "admitted_by", "admitted_at", "state", "changed_sha256", "changed_at",
   "capture", // MA-7-4
-  "delete_by", "delete_why", "expired_at", "removed", "not_removed"]; // MA-7-5
+  "delete_by", "delete_why", "expired_at", "removed", "not_removed", // MA-7-5
+  "view_copy"]; // MA-7-7
 const PACK_FIELDS = ["kind", "pack_id", "project", "asset", "storage_root", "attestations", "items", "requests", "dataset"];
 /** MA-4b: who an "ask the owner" letter goes to; a drawing admitted under it carries this as its provider. */
 export const RECIPIENTS = ["owner", "architect", "municipality"];
@@ -137,6 +138,53 @@ export function readDeleteBy(b = {}, today) {
 }
 /** MA-7-5: the items whose delete-by day has come and that are not expired yet. */
 export const due = (pack, today) => pack.items.filter((i) => i.delete_by && i.delete_by <= today && (i.state !== "expired" || i.not_removed?.length > 0)); // review: an expired item whose copy would not delete is tried again
+/** MA-7-7 (amendment 14): may `use` be made of this item? null when it may, else the words (a 409's). One rule for every photo consumer — the
+ *  view route now; the reader, the type choice, the ghost citation, Photo Massing, registration and training as their slices land. `use`: view,
+ *  read, type, cite, train or register. `webMode` (the founder's switch for the project) matters to a web photo's view only (7-12). */
+export function usable(i, use, { webMode = "off" } = {}) {
+  if (!["view", "read", "type", "cite", "train", "register"].includes(use)) throw new Error(`usable: unknown use ${use}`);
+  if (i.state === "expired") return `${i.id} expired on ${String(i.expired_at).slice(0, 10)} (delete-by) — it is not used; nothing was read`;
+  if (i.state === "changed") return `${i.id} changed since it was admitted — Re-check and put the same file back first; nothing was read`;
+  if (i.kind !== "photo") return `${i.id} is a ${i.kind}, not a photo; nothing was read`;
+  if (i.role === "context" && use !== "view" && use !== "cite") return `${i.id} is a web photo — context only; it is not read by a model or used for geometry; nothing was read`;
+  if (i.role === "context" && use === "view" && webMode === "off") return "web evidence is off until counsel has reviewed it — this web photo is kept, not shown; nothing was shown";
+  if (!i.view_copy) return `${i.id} has no blurred copy yet — mark its faces and number plates first (Mark faces and plates); nothing was read`;
+  return null;
+}
+
+/** MA-7-7: the boxes of POST …/items/:id/view-copy — {boxes: [{x, y, w, h, what: "face"|"plate"}], none_seen?} → {boxes, none_seen}. The photo is
+ *  blurred only after a person has said what they saw: boxes, or the explicit answer that there is no face or number plate in it (never a
+ *  default). x, y, w, h are fractions of the photo as a viewer shows it. A 400 in words. */
+export function readBoxes(b = {}) {
+  const bad = (k, m) => err(400, `${k} ${m} — nothing was saved`);
+  const none = b.none_seen === true, raw = b.boxes ?? [];
+  if (b.none_seen !== undefined && typeof b.none_seen !== "boolean") throw bad("none_seen", "must be true or false");
+  if (!Array.isArray(raw) || raw.length > MAX_BOXES) throw bad("boxes", `must be a list of at most ${MAX_BOXES} boxes`);
+  if (none && raw.length) throw bad("none_seen", "cannot be true with boxes marked");
+  if (!none && !raw.length) throw bad("boxes", 'mark the faces and number plates, or answer "No faces or number plates in this photo"');
+  const boxes = raw.map((x, i) => {
+    const n = (k) => (typeof x?.[k] === "number" && Number.isFinite(x[k]) ? x[k] : NaN);
+    const [px, py, w, h] = [n("x"), n("y"), n("w"), n("h")];
+    if (!isObj(x) || ![px, py, w, h].every((v) => v >= 0 && v <= 1) || w <= 0 || h <= 0 || px + w > 1.0001 || py + h > 1.0001)
+      throw bad(`boxes[${i}]`, "needs numbers x, y, w, h inside the photo (fractions from 0 to 1, width and height above 0)");
+    const what = x.what ?? "face";
+    if (what !== "face" && what !== "plate") throw bad(`boxes[${i}].what`, "must be face or plate");
+    return { x: px, y: py, w, h, what };
+  });
+  const sh = b.shown; // the size the marker showed the photo at (naturalWidth × naturalHeight); blur.py refuses a photo whose upright size differs
+  if (sh !== undefined && !(isObj(sh) && [sh.w, sh.h].every((v) => Number.isInteger(v) && v >= 1 && v <= 100000))) throw bad("shown", "must be {w, h}, whole pixels");
+  return { boxes, none_seen: none, ...(sh ? { shown: { w: sh.w, h: sh.h } } : {}) };
+}
+export const MAX_BOXES = 200;
+
+/** The evidence:blurred row's new_value. `r`: blur.py's answer; `copy`: {sha256, size_bytes}. Counts only — the boxes are not kept on the ledger. */
+export const blurredValue = (packId, i, v, packVersion) => ({
+  pack_id: packId, item_id: i.id, path: i.path, original_sha256: i.sha256, copy_sha256: v.sha256, size_bytes: v.size_bytes, width: v.width, height: v.height,
+  areas: v.areas, faces: v.faces, plates: v.plates, ...(v.none_seen ? { none_seen: true } : {}), method: v.method, marked_by: v.marked_by,
+  gps_removed: i.capture ? i.capture.gps === true : null, // null: admitted before 7-4, so the original's GPS block was never looked for
+  metadata_removed: true, tool: v.tool, tools: v.tools, pack_version: packVersion,
+});
+
 /** MA-7-5: what Sentinel may delete when an item expires, as [{path, sha256}] (a file is deleted only if it still has that sha256): its blurred
  *  copy (7-7) and a web item's own file (7-12) — never an own, drawing, dataset or vendor file, which are the office's. */
 export function removable(i) {
@@ -296,7 +344,10 @@ export function photoRefusal({ format, camera }) {
 /** MA-6-8: an IFC is read inside the bridge, so it has a size cap; null when the size is allowed (or the format has no cap), else the words. */
 export function sizeRefusal(format, size, kind) {
   const max = tableOf(kind)[format]?.max_bytes;
-  return max && size > max ? `a .${format} is read inside the bridge — at most ${max / 1048576} MB (this one is ${(size / 1048576).toFixed(1) === (max / 1048576).toFixed(1) ? `${Math.ceil(size / 1024)} KB` : `${(size / 1048576).toFixed(1)} MB`}); export it without its site, links and furniture` : null;
+  if (!max || size <= max) return null;
+  const mb = max / 1048576, is = (size / 1048576).toFixed(1) === mb.toFixed(1) ? `${Math.ceil(size / 1024)} KB` : `${(size / 1048576).toFixed(1)} MB`;
+  return kind === "photo" ? `a .${format} photo is at most ${mb} MB (this one is ${is}) — it is not admitted; a camera's own file is smaller`
+    : `a .${format} is read inside the bridge — at most ${mb} MB (this one is ${is}); export it without its site, links and furniture`;
 }
 
 /** null when the file's first bytes are the format's; else the refusal's words. `head`: a Buffer of the file's first 16 bytes. */
@@ -497,6 +548,13 @@ export function validatePack(p) {
       if (x.kind !== "photo" || !isObj(c) || Object.keys(c).sort().join() !== "gps,make,model,taken_at" || !ok(c.make) || !ok(c.model) || (c.make === null && c.model === null)
         || !(c.taken_at === null || (typeof c.taken_at === "string" && c.taken_at.length <= 16)) || typeof c.gps !== "boolean")
         throw bad(`${at}.capture`, "is a photo's {make, model, taken_at, gps}: make or model set, taken_at text or null, gps true or false");
+    }
+    if (x.view_copy !== undefined) { // MA-7-7: a photo's blurred copy — counts, never the boxes
+      const v = x.view_copy, n = (k) => Number.isSafeInteger(v?.[k]) && v[k] >= 0;
+      if (x.kind !== "photo" || !isObj(v) || !/^[0-9a-f]{64}$/.test(v.sha256) || !n("size_bytes") || !n("width") || !n("height") || !n("areas") || !n("faces") || !n("plates")
+        || v.faces + v.plates !== v.areas || v.method !== "person-marked" || !str(v.marked_by, 320) || !str(v.marked_at, 40) || !str(v.tool, 100)
+        || (v.none_seen !== undefined && (v.none_seen !== true || v.areas !== 0)) || (v.areas === 0 && v.none_seen !== true) || Math.max(v.width, v.height) > 2048)
+        throw bad(`${at}.view_copy`, "is a photo's blurred copy {sha256, size_bytes, width, height (long side at most 2048), areas = faces + plates, method person-marked, marked_by, marked_at, tool}; none_seen true exactly when no area was marked");
     }
     if (x.state !== undefined && x.state !== "changed" && x.state !== "expired") throw bad(`${at}.state`, 'is "changed", "expired" or absent');
     if (x.state === "expired" && !(str(x.expired_at, 40) && Array.isArray(x.removed) && x.removed.length <= 2 && x.removed.every(safeRel))) // MA-7-5

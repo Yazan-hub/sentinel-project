@@ -1689,6 +1689,17 @@ async function handleRequest(req, res) {
         if (p3 && p4 === "recheck" && !seg[5] && req.method === "POST") return send(res, 200, await ev.recheckPack(p1, p3));
         // MA-7-5: POST …/:pack/items/:id/delete-by {date, why?} → 200 (a signed-in lead; today retires the item now — the record and sha stay).
         if (p3 && p4 === "items" && seg[5] && seg[6] === "delete-by" && !seg[7] && req.method === "POST") return send(res, 200, await ev.setDeleteBy(p1, p3, seg[5], await body()));
+        // MA-7-7: a photo's blurred copy. POST …/:pack/items/:id/view-copy {boxes[], none_seen?} → 201 (a signed-in contributor; the machine credential is a 403;
+        //   survey/blur.py writes .sentinel/view/<id>.jpg). GET …/items/:id/view → the blurred copy (any member). GET …/items/:id/original → the unblurred file:
+        //   a signed-in contributor on THIS PC only (fromThisPc), only while no copy exists, no-store (the Funnel never carries an original). Bytes: photo-store.mjs.
+        if (p3 && p4 === "items" && seg[5] && seg[6] === "view-copy" && !seg[7] && req.method === "POST") {
+          const photo = await import("./photo-store.mjs");
+          return send(res, 201, await ev.makeViewCopy(p1, p3, seg[5], await body(), { blur: photo.runBlur }));
+        }
+        if (p3 && p4 === "items" && seg[5] && (seg[6] === "view" || seg[6] === "original") && !seg[7] && req.method === "GET") {
+          const f = await ev.photoFile(p1, p3, seg[5], seg[6], { thisPc: fromThisPc(req) });
+          return (await import("./photo-store.mjs")).sendBytes(res, f.full, f.type, { "Cache-Control": f.noStore ? "no-store" : "private, no-cache", ...corsHeaders(res) });
+        }
         // MA-7-2: GET …/:pack/web → the founder's web switch (off/drill/on), the source lists and their sha256 (any member; a read).
         if (p3 && p4 === "web" && !seg[5] && req.method === "GET") return send(res, 200, await ev.webStatus(p1, p3));
         // MA-7-6: GET …/:pack/notice → the credits text and its sha256 (any member; a read).

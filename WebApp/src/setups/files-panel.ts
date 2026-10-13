@@ -16,7 +16,8 @@ import { escapeHtml as esc } from "./escape-html";
 import { unarchiveFile } from "./cde-transition";
 import { firstTag, geometryCheck, linkedHash, linkedTag, sha256Hex, type GeometryLinkRow } from "./geometry-check";
 import { saveAs } from "./audit-pack";
-import { readEvidence, readWebStatus, readNotice, noticeLine, webLine, type WebStatus, makePack, signAttestation, admitEvidence, recheckEvidence, setDeleteBy, draftRequest, kindOf, isImage, needsReport, itemLine, attestationLine, admitLine, recheckLine, requestLine, evidenceControls, ATTESTATION_CODES, ATTESTATION_TEXTS, datasetLine, PHOTO_SOURCES, MAP_SERVICES, photoProvider, type PhotoSource, type EvidenceRead, type EvidenceRequest,
+import { mountMarker, markSummary, type Mark, type Marker, type MarkWhat } from "./photo-marker";
+import { readEvidence, readWebStatus, readNotice, noticeLine, webLine, type WebStatus, makePack, signAttestation, admitEvidence, recheckEvidence, setDeleteBy, draftRequest, kindOf, isImage, needsReport, itemLine, attestationLine, admitLine, recheckLine, requestLine, evidenceControls, ATTESTATION_CODES, ATTESTATION_TEXTS, datasetLine, PHOTO_SOURCES, MAP_SERVICES, photoProvider, type PhotoSource, markViewCopy, blurredLine, photoUrl, type EvidenceItem, type EvidenceRead, type EvidenceRequest,
   startSurvey, readJobs, readJob, jobLine, candidateLine, surveyStartLine, surveyableScans, proposeBody, proposeFromJob, proposeLine, type SurveyJob, type Candidate,
   startDrawing, drawingStartLine, readableDrawings, isDrawingJob, startIfc, ifcStartLine, readableIfc, isIfcJob, ifcHintLine, alignBody, alignPreview, drawingSvg, snapPaper, type AlignDraft } from "./evidence";
 
@@ -105,6 +106,13 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   let drawingFor: string | null = null;
   let photoFor: string | null = null; // MA-7-4: the folder photo whose source form (own camera / map service / website) is open
   let photoSource: PhotoSource = "own"; let photoService: string = MAP_SERVICES[0];
+  // MA-7-7: the photo whose faces and number plates a person is marking, the original as an object URL (the bridge shows it on the office PC only),
+  // the boxes drawn so far (kept across a re-render), which kind the next box is, and a refusal in the bridge's words.
+  let markFor: string | null = null; let markUrl: string | null = null; let markMarks: Mark[] = []; let markWhat: MarkWhat = "face"; let markErr = ""; let marking = false;
+  let marker: Marker | null = null;
+  const thumbs = new Map<string, Promise<string>>(); // `${id}:${sha}` → the blurred copy as an object URL, in flight or ready (one fetch per copy)
+  function thumbsClear() { for (const p of thumbs.values()) p.then((u) => URL.revokeObjectURL(u), () => {}); thumbs.clear(); } // MA-7-7: a project or person switch frees them
+  function markClose() { if (markUrl) URL.revokeObjectURL(markUrl); markFor = null; markUrl = null; markMarks = []; markErr = ""; marker = null; }
   let vendorFor: string | null = null; // MA-8-3: the folder .ifc whose provider + licence-ref form is open (a third party's model)
   let drawingReq = ""; // the request picked for `drawingFor`, kept across a re-render
   let drafting = false; // a draft in flight: a second click drafts nothing
@@ -177,7 +185,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   async function load() {
     const mine = ++seq, key = pid();
     // A project or person switch drops the old scope's inline rename / armed confirm (dismissing is reset below).
-    if (loadScope(key) !== loadedScope) { renaming = null; armed = null; unarchiveAsk = null; askDraft = null; drawingFor = null; vendorFor = null; photoFor = null; lettersOpen.clear(); proposing = null; proposeLevels = null; proposeDraft = null; alignDraft = null; alignView = null; alignPick = null; }
+    if (loadScope(key) !== loadedScope) { markClose(); thumbsClear(); renaming = null; armed = null; unarchiveAsk = null; askDraft = null; drawingFor = null; vendorFor = null; photoFor = null; lettersOpen.clear(); proposing = null; proposeLevels = null; proposeDraft = null; alignDraft = null; alignView = null; alignPick = null; }
     loadedScope = loadScope(key);
     if (cmp.a || cmp.b) { cmp.a = cmp.b = cmp.fileId = undefined; el("fv-compare").style.display = "none"; }
     el("fv-proj").textContent = key;
@@ -487,6 +495,33 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       photoFor = null;
       void evAct(async () => admitLine(await admitEvidence(base, pid(), { path, kind: "photo", ...(provider ? { provider } : {}) })));
     });
+    // MA-7-7: mark faces and number plates on an own photo; the copy is made by the bridge (survey/blur.py).
+    const openMark = (id: string) => {
+      markClose(); markFor = id; markWhat = "face"; render();
+      photoUrl(base, pid(), id, "original").then((u) => { if (markFor !== id) { URL.revokeObjectURL(u); return; } markUrl = u; render(); })
+        .catch((e) => { if (markFor === id) { markErr = (e as Error).message; render(); } });
+    };
+    root.querySelectorAll<HTMLElement>("[data-evmark]").forEach((n) => n.addEventListener("click", () => openMark(n.dataset.evmark!)));
+    const mkHost = root.querySelector<HTMLElement>("#fv-mk-host");
+    if (markFor && markUrl && mkHost) marker = mountMarker(mkHost, markUrl, () => markWhat, markMarks, (m) => { markMarks = m; const s = root.querySelector("#fv-mk-sum"); if (s) s.textContent = markSummary(m); });
+    root.querySelectorAll<HTMLInputElement>("[name=fv-mk-what]").forEach((n) => n.addEventListener("change", () => { markWhat = n.value as MarkWhat; }));
+    root.querySelector("#fv-mk-undo")?.addEventListener("click", () => marker?.undo());
+    root.querySelector("#fv-mk-cancel")?.addEventListener("click", () => { markClose(); render(); });
+    const saveMark = (body: { boxes?: Mark[]; none_seen?: boolean }) => {
+      const id = markFor;
+      if (!id || marking) return;
+      marking = true; // MA-7-7: `shown` = the size the marker showed, so the bridge can refuse a mismatch
+      void evAct(async () => { const sh = marker?.shown(), r = await markViewCopy(base, pid(), id, sh ? { ...body, shown: sh } : body); markClose(); return blurredLine(r); }).finally(() => { marking = false; });
+    };
+    root.querySelector("#fv-mk-save")?.addEventListener("click", () => saveMark({ boxes: markMarks }));
+    root.querySelector("#fv-mk-none")?.addEventListener("click", () => saveMark({ none_seen: true }));
+    root.querySelectorAll<HTMLImageElement>("[data-evthumb]").forEach((n) => {
+      const it = evidence?.pack.items.find((x) => x.id === n.dataset.evthumb), k = it ? `${it.id}:${it.view_copy?.sha256}` : "";
+      if (!it) return;
+      let p = thumbs.get(k);
+      if (!p) { p = photoUrl(base, pid(), it.id, "view"); thumbs.set(k, p); p.catch(() => thumbs.delete(k)); }
+      p.then((u) => { n.src = u; }, (e) => { n.alt = `the blurred copy could not be shown — ${(e as Error).message}`; });
+    });
     root.querySelector("#fv-ev-cancel")?.addEventListener("click", () => { admitting = null; drawingFor = null; vendorFor = null; photoFor = null; render(); });
     root.querySelector("#fv-ev-ok")?.addEventListener("click", () => {
       const path = admitting;
@@ -669,10 +704,22 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     }).join("");
     // MA-7-5: a lead sets a delete-by day or retires an item now; an expired item is greyed, with no controls
     const today = new Date().toISOString().slice(0, 10);
-    const items = pack.items.map((i) => line(esc(itemLine(i)) + (can.sign && i.state !== "expired"
+    // MA-7-7: a photo with no blurred copy offers "Mark faces and plates" (a contributor, on the office PC); one with a copy shows its thumbnail.
+    const photoActs = (i: EvidenceItem) => i.kind !== "photo" || i.state ? "" :
+      i.view_copy ? ` <img data-evthumb="${esc(i.id)}" alt="blurred copy of ${esc(i.id)}" style="height:2.6rem;vertical-align:middle;border-radius:.2rem;border:1px solid #2c2c34;background:#111"/>`
+        : can.survey && markFor !== i.id ? ` <button data-evmark="${esc(i.id)}" style="${act};color:#c4b5fd">Mark faces and plates</button>` : "";
+    const markBlock = (i: EvidenceItem) => markFor !== i.id ? "" : `<div style="padding:.3rem .2rem;display:flex;flex-direction:column;gap:.3rem">` +
+      `<span style="color:#9ca3af;font-size:11px">Draw a box round every face and every number plate you can see. Each box is filled with its own colour in a copy that is shown and read from now on; the original stays in your folder and is no longer shown. Sentinel does not find faces itself yet. The original is shown on the office PC only (the local app).</span>` +
+      (markErr ? `<span style="color:#fca5a5;font-size:11px">${esc(markErr)}</span>` : "") +
+      (markUrl ? `<div id="fv-mk-host"></div>` : markErr ? "" : `<span style="color:#9ca3af;font-size:11px">Loading the photo…</span>`) +
+      `<div style="display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;font-size:11px"><label><input type="radio" name="fv-mk-what" value="face"${markWhat === "face" ? " checked" : ""}/> face</label>` +
+      `<label><input type="radio" name="fv-mk-what" value="plate"${markWhat === "plate" ? " checked" : ""}/> number plate</label><span id="fv-mk-sum" style="color:#c4b5fd">${esc(markSummary(markMarks))}</span></div>` +
+      `<div style="display:flex;gap:.4rem;flex-wrap:wrap"><button id="fv-mk-save" style="${act};color:#c4b5fd">Save blurred copy</button><button id="fv-mk-undo" style="${act}">Undo last box</button>` +
+      `<button id="fv-mk-none" style="${act}">No faces or number plates in this photo</button><button id="fv-mk-cancel" style="${act}">Cancel</button></div></div>`;
+    const items = pack.items.map((i) => line(esc(itemLine(i)) + photoActs(i) + (can.sign && i.state !== "expired"
       ? ` <input type="date" data-evdate="${esc(i.id)}" min="${esc(today)}" value="${esc(i.delete_by ?? "")}" style="background:#111;color:#eee;border:1px solid #2c2c34;border-radius:.25rem;font:11px system-ui"/>` +
         ` <button data-evdelby="${esc(i.id)}" style="${act}">Set delete-by</button> <button data-evretire="${esc(i.id)}" data-evpath="${esc(i.path)}" style="${act}">Retire now</button>` : ""),
-      i.state === "changed" ? "#fca5a5" : i.state === "expired" ? "#52525b" : "#cbd5e1")).join("") || line("none yet");
+      i.state === "changed" ? "#fca5a5" : i.state === "expired" ? "#52525b" : "#cbd5e1") + markBlock(i)).join("") || line("none yet");
     const requests = pack.requests ?? [];
     const inp = "background:#111;color:#eee;border:1px solid #2c2c34;border-radius:.25rem;padding:.2rem .4rem;font:12px system-ui";
     // MA-4d: the lead's two statements — where the scan sits in the model, and which existing level each scanned storey is (blank: matched from
@@ -1175,7 +1222,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   // A plain refresh (same project and person, e.g. the bridge came back) must not wipe an open dismiss reason, rename
   // input or armed confirm; a project or person switch always reloads (load() drops them).
   onActiveProjectChange(() => {
-    if (loadScope(pid()) === loadedScope && (dismissing != null || gapDismissing != null || renaming || armed || admitting || askDraft || drawingFor || vendorFor || photoFor)) return;
+    if (loadScope(pid()) === loadedScope && (dismissing != null || gapDismissing != null || renaming || armed || admitting || askDraft || drawingFor || vendorFor || photoFor || markFor)) return;
     void load();
   });
   void load();

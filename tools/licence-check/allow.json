@@ -1,9 +1,20 @@
 {
   "_": "MA-7-1: licences read from each package's own dist-info / nuget page. A row moves with its pin (version mismatch = unknown). Every new download adds its row here.",
-  "python_runtime": ["python", "numpy"],
+  "python_runtime": ["python", "numpy", "pillow"],
   "python": {
     "python": { "version": "", "licence": "PSF-2.0" },
     "numpy": { "version": "", "licence": "BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0" },
+    "pillow": {
+      "version": "12.3.0", "licence": "MIT-CMU",
+      "carries": [
+        { "name": "FreeType", "version": "2.14.3", "licence": "FTL" }, { "name": "HarfBuzz", "version": "14.2.1", "licence": "MIT" },
+        { "name": "libjpeg-turbo", "version": "3.1.4.1", "licence": "IJG AND BSD-3-Clause" }, { "name": "libwebp", "version": "1.6.0", "licence": "BSD-3-Clause" },
+        { "name": "libtiff", "version": "4.7.1", "licence": "libtiff" }, { "name": "Little CMS 2", "version": "2.19.1", "licence": "MIT" },
+        { "name": "OpenJPEG", "version": "2.5.4", "licence": "BSD-2-Clause" }, { "name": "libavif", "version": "1.4.2", "licence": "BSD-2-Clause" },
+        { "name": "libpng", "version": "1.6.58", "licence": "libpng-2.0" }, { "name": "zlib", "version": "2.3.3", "licence": "Zlib" },
+        { "name": "brotli", "version": "1.2.0", "licence": "MIT" }, { "name": "xz", "version": "5.8.3", "licence": "0BSD" }
+      ]
+    },
     "laspy": { "version": "2.7.0", "licence": "BSD-2-Clause" },
     "lazrs": { "version": "0.8.2", "licence": "MIT", "carries": [{ "name": "laz", "version": "0.12.2", "licence": "Apache-2.0" }] },
     "pye57": {
@@ -26,5 +37,11 @@
     "Nice3point.Revit.Api.RevitAPI": { "read": "compile-only reference assemblies, not shipped", "decision": "D-7-16" },
     "Nice3point.Revit.Api.RevitAPIUI": { "read": "compile-only reference assemblies, not shipped", "decision": "D-7-16" }
   },
-  "accepted": {}
+  "accepted": {
+    "pillow": "MIT-CMU: the founder OK'd it 2026-10-13 (D-7-2); the wheel's licence file was read for MA-7-7 and no GPL-only part is in process",
+    "FreeType": "FTL (BSD-style, credit required), the licence Pillow's wheel uses it under rather than the GPLv2 alternative; read in pillow-12.3.0.dist-info/licenses/LICENSE (MA-7-7)",
+    "libjpeg-turbo": "IJG AND BSD-3-Clause: permissive, credit required; read in Pillow's licence file (MA-7-7)",
+    "libtiff": "libtiff licence: permissive (BSD-like); read in Pillow's licence file (MA-7-7)",
+    "libpng": "libpng-2.0: permissive; read in Pillow's licence file (MA-7-7)"
+  }
 }

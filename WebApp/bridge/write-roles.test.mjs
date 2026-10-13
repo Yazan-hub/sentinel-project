@@ -17,6 +17,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { canonicalSha256 } from "./canonical.mjs";
 import { PLANNER_VERSION as SURVEY_PLANNER_VERSION } from "./survey-plan.mjs";
+import { jpegWithExif } from "./fixtures/jpeg-exif.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url)); // <repo>/WebApp/bridge
 const SECRET = "write-roles-test-secret";              // the fake project's HS256 secret — test-only
@@ -1080,7 +1081,39 @@ describe("evidence intake (MA-4a): who makes, signs, admits and reads", () => {
     expect(r.body.item).toMatchObject({ id: "ev-0001", state: "expired", removed: [] });
     expect(rows("evidence:expired").map((x) => x.action)).toEqual(["evidence:expired ev-0001 scans/tiny.las"]);
     expect(existsSync(join(DIR(), "scans", "tiny.las"))).toBe(true); // the office's file stays
-  });
+  }, 30_000);
+  it("MA-7-7: a blurred copy is a contributor's and a person's; its view is a read; the original is a contributor's, on this PC only (not over the Funnel), and never the machine credential's", async () => {
+    await call("POST", E, "lead", {});
+    for (const code of ["a", "c", "d"]) await call("POST", `${E}/evp-0001/attest`, "lead", { code });
+    const JPG = jpegWithExif({ make: "Example", model: "Test Cam 1", gps: true });
+    mkdirSync(join(DIR(), "photos"), { recursive: true });
+    writeFileSync(join(DIR(), "photos", "own.jpg"), JPG);
+    expect((await call("POST", `${E}/evp-0001/items`, "contributor", { path: "photos/own.jpg", kind: "photo" })).status).toBe(201);
+    const raw = async (path, as, headers = {}) => {
+      const r = await fetch(`http://127.0.0.1:${port}${path}`, { headers: { Authorization: `Bearer ${as === "machine" ? TOKEN : jwtFor(as)}`, ...headers } });
+      const buf = Buffer.from(await r.arrayBuffer());
+      return { status: r.status, type: r.headers.get("content-type"), cache: r.headers.get("cache-control"), acao: r.headers.get("access-control-allow-origin"), buf };
+    };
+    const U = `${E}/evp-0001/items/ev-0001`, boxes = [{ x: 0.1, y: 0.1, w: 0.1, h: 0.1 }];
+    // marking: a viewer, then the machine credential (the words), are refused; a contributor reaches the blur tool (none in this copy: a 503, no row)
+    expect(await call("POST", `${U}/view-copy`, "viewer", { boxes })).toEqual(refused("contributor", "viewer"));
+    expect(await call("POST", `${U}/view-copy`, "machine", { boxes })).toEqual({ status: 403, body: { message: "a blurred copy needs a person — it names who marked the faces and number plates: sign in. Nothing was saved." } });
+    const m = await call("POST", `${U}/view-copy`, "contributor", { boxes });
+    expect(m.status).toBe(503); expect(m.body.message).toContain("the blur tool is not set up on this PC");
+    expect((await call("POST", `${U}/view-copy`, "lead", { boxes })).status).toBe(503); // a lead reaches the tool too (none in this copy)
+    expect(rows("evidence:blurred")).toHaveLength(0);
+    // the view: a read: a read for every member, but there is no copy yet
+    for (const as of ["viewer", "contributor", "lead", "machine"]) { const v = await raw(`${U}/view`, as); expect(v.status, as).toBe(409); }
+    // the original: this PC only, a contributor's, no-store, no wildcard CORS
+    const own = await raw(`${U}/original`, "contributor");
+    expect(own.status).toBe(200); expect(own.type).toBe("image/jpeg"); expect(own.cache).toBe("no-store"); expect(own.acao).not.toBe("*"); expect(own.buf.equals(JPG)).toBe(true);
+    const funnel = await raw(`${U}/original`, "contributor", { "X-Forwarded-For": "203.0.113.9" });
+    expect(funnel.status).toBe(403); expect(JSON.parse(funnel.buf).message).toBe("the unblurred original is shown on the office PC only (the local app) — mark faces and number plates there; nothing was shown");
+    expect((await raw(`${U}/original`, "viewer")).status).toBe(403);
+    expect((await raw(`${U}/original`, "lead")).status).toBe(200); // MA-7-7 review: the lead is a contributor and above
+    const mach = await raw(`${U}/original`, "machine");
+    expect(mach.status).toBe(403); expect(JSON.parse(mach.buf).message).toContain("signed-in person only");
+  }, 30_000);
   it("MA-7-6: GET .../notice is a read - a viewer, a contributor, a lead and the machine credential are all let through, none is a 403", async () => {
     await call("POST", E, "lead", {});
     db.audit_log.push({ id: 9001, project_id: db.projects[0].id, entity_type: "build", action: "build:run", new_value: { claimed: true, tools: [{ name: "Ollama", licence: "MIT" }] } });
