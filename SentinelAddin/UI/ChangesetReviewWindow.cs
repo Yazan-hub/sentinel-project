@@ -168,7 +168,7 @@ public sealed class ChangesetReviewWindow : Window
         // MA-8-14: the ground of this survey as a Toposolid proposal (a survey changeset only: the bridge reads the job's scan again for it)
         var terrain = new Button { Content = "Propose terrain from the scan…", Padding = new Thickness(10, 4, 10, 4), Margin = new Thickness(0, 0, 12, 0),
                                    // review round 2: the shape Revit builds is said (TerrainPlanner.Shape)
-                                   ToolTip = "Read the ground off this survey's scan (the lowest point per cell outside the storey's walls) and propose it as one Toposolid of the office's type, as a changeset of its own - " + TerrainPlanner.Shape + " - nothing is ticked or placed",
+                                   ToolTip = "Read the ground off this survey's scan (the lowest point per cell outside the storey's walls) and propose it as one Toposolid of the office's type, as a changeset of its own — " + TerrainPlanner.Shape + " — nothing is ticked or placed",
                                    Visibility = SurveyChangeset && _cs.Status != "withdrawn" ? Visibility.Visible : Visibility.Collapsed };
         terrain.Click += (_, _) => ProposeTerrainRequested?.Invoke();
         buttons.Children.Add(terrain);

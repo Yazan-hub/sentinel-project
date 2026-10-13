@@ -994,7 +994,16 @@ public sealed class ChangesetExecutor
                 var type = ToposolidTypeOf(doc, el.Place.FamilyName, el.Place.TypeName);
                 if (el.Place.Points == null || el.Place.Points.Length < TerrainPlanner.MinPoints || el.Place.Boundary == null || el.Place.Boundary.Length < 3)
                     throw new InvalidOperationException($"{at}: a terrain needs its ground Points and the storey's Boundary");
-                Collect(result, el, Compat.CreateTerrain(doc, el.Place.Points, el.Place.Boundary, type.Id, level));
+                // final verification round 2: the bridge checks one terrain per scan only at filing - an Undo, a Propose, a Redo and an Apply would stand two; the model is
+                // where both are seen, so a Sentinel Toposolid of another changeset already in it refuses this one (rolled back, it stays proposed)
+                var standing = TerrainPlanner.StandingOther(Compat.TerrainStamps(doc), cs.Id);
+                if (standing != null) throw new PlacementRefused($"{at}: a Sentinel terrain (changeset {standing}) already stands in this model — undo or delete it first; it stays proposed");
+                // final verification round 1 (C5's rule, as the roof): Revit not building the terrain (CreateTerrain's own refusals, or a Revit exception in its unspiked
+                // rim steps) is this Revit's state, not a verdict - PlacementRefused rolls it back and the changeset stays proposed, never declined; round 2: a Revit
+                // exception keeps its type and first Sentinel frame (the generic path's words), so K-1c names the failing step
+                try { Collect(result, el, Compat.CreateTerrain(doc, el.Place.Points, el.Place.Boundary, type.Id, level)); }
+                catch (Exception ex) when (!(ex is PlacementRefused))
+                { throw new PlacementRefused($"{at}: Revit did not build the terrain — {(ex is InvalidOperationException ? ex.Message : ex.GetType().Name + ": " + ex.Message + Frame(ex))}; it stays proposed"); }
             }
 
             // MA-1: a ceiling at its height above the level (place.Offset, required by the bridge).
@@ -1482,6 +1491,10 @@ public sealed class ChangesetExecutor
                 var error = "Revit did not commit the transaction (failure resolution rolled it back)" + (handler.RolledBack != null ? ": " + handler.RolledBack + GhostFailurePolicy.RolledBackNames(handler.RolledBackIds, labels) : "");
                 // MA-5b-5 (R8): a changeset that rehosts stays proposed (NotRun) — a commit-time refusal is this model's state, not a verdict
                 // on the changeset; the person unticks the rehost and applies again
+                // MA-8-14 final verification round 2: a terrain Revit rolled back at the commit (a warning, or a failure of the unspiked rim or raise) is this Revit's state,
+                // not the person's decline - it stays proposed, as CreateTerrain's own refusals (PlacementRefused); the bridge files a terrain alone in its changeset
+                if (toPlace.Any(e => IsCreate(e) && e.Kind == "terrain"))
+                    return new ExecutionResult { NotRun = true, Error = error + " — a terrain Revit did not build stays proposed" };
                 // MA-8-7: a create that replaces removes an element too - the same rule
                 return toPlace.Any(e => e.Op == "rehost" || e.Replaces != null)
                     ? new ExecutionResult { NotRun = true, Error = error + " — it " + (toPlace.Any(e => e.Op == "rehost") ? "rehosts a door or window" : "re-creates a DirectShape") + ", so it stays proposed: untick the row(s) Revit named (a removal among them, or another) and Apply again" }

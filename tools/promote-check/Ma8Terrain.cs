@@ -58,6 +58,15 @@ static partial class Check
         var wideReason = JsonSerializer.SerializeToNode(wide.Body)["elements"][0]["reason"].GetValue<string>();
         Ok(wideReason.Contains("lowest per 2000 mm cell (widened from 500 mm, which kept 7000)") && wideReason.Contains("between -5000 and 1500 mm (5 m under to 1.5 m over L00's floor; ground outside that band is not read)")
            && wide.Line.Contains("lowest per 2000 mm cell (widened from 500 mm, which kept 7000), -5000 to 1500 mm"), "a widened cell is said with what the 500 mm cell kept; the height band and its limit are said");
+        // final verification round 1: the reason stays within the bridge's 500 characters - a 60-character level name with a widened cell is cut (marked …), Shape whole
+        string longLevel = new string('L', 60);
+        var longPlan = Plan(level: longLevel, cellMm: 2000, of: 31542);
+        string longReason = longPlan.Hold == null ? JsonSerializer.SerializeToNode(longPlan.Body)["elements"][0]["reason"].GetValue<string>() : "";
+        var hugeJob = TerrainPlanner.Plan(points, foot, longLevel, rule, "S", "id", new string('j', 400), 2000, new double[] { -5000, 1500 }, 31542, "a");
+        Ok(longReason.Length <= TerrainPlanner.MaxReason && longReason.Length > 480 && longReason.Contains("…'s floor;") && longReason.EndsWith("; " + TerrainPlanner.Shape + " — check it against the site survey")
+           && wideReason.Length < 500 && !wideReason.Contains("…") && hugeJob.Hold != null && hugeJob.Hold.StartsWith("the terrain's reason would be ") && hugeJob.Hold.EndsWith(" characters — the bridge takes 500; a person decides")
+           && File.ReadAllText(Repo("WebApp", "bridge", "changesets-logic.mjs")).Contains("if (el.reason != null && !text(el.reason, 500))"),
+           "final verification round 1: a long level name with a widened cell is cut (…) so the reason stays within the bridge's 500 characters with Shape whole; a reason that still cannot fit holds in words");
         var noFamily = JsonSerializer.SerializeToNode(Plan(ru: ("", rule.Type, rule.Source)).Body)["elements"][0]["place"].AsObject();
         Ok(!noFamily.ContainsKey("FamilyName") && noFamily["TypeName"].GetValue<string>() == rule.Type, "a rule with no family sends no FamilyName (a Toposolid type's family is the system's)");
 
@@ -100,10 +109,33 @@ static partial class Check
         ChangesetDto Cs(string status, string kind, string applied) => JsonSerializer.Deserialize<ChangesetDto>(
             "{\"id\":\"c-" + status + "\",\"name\":\"Terrain · L00 · from S\",\"status\":\"" + status + "\",\"elements\":[{\"proposal_guid\":\"g1\",\"kind\":\"" + kind + "\"}],\"result\":{\"applied\":[" + applied + "]}}");
         const string Uid = "{\"proposal_guid\":\"g1\",\"revit_unique_id\":\"u1\"}";
-        var goneOne = TerrainPlanner.Gone(new[] { Cs("applied", "terrain", Uid), Cs("partially_applied", "terrain", Uid), Cs("proposed", "terrain", Uid), Cs("applied", "wall", Uid), Cs("applied", "terrain", "{\"proposal_guid\":\"g1\"}") }, _ => false);
-        Ok(goneOne.Count == 2 && goneOne[0].Id == "c-applied" && goneOne[0].Guids.SequenceEqual(new[] { "g1" }) && goneOne[1].Id == "c-partially_applied"
-           && TerrainPlanner.Gone(new[] { Cs("applied", "terrain", Uid) }, u => u == "u1").Count == 0 && TerrainPlanner.Gone(null, _ => false).Count == 0,
-           "Gone: an applied (or partly applied) terrain whose UniqueId the model does not hold, with its guid; never a standing one, a proposed one, another kind, or an entry with no UniqueId");
+        // final verification round 1: only the changeset the bridge's 409 names, and only when every applied terrain entry of it is absent - a gone terrain of another scan is not reported
+        var cands = new[] { Cs("applied", "terrain", Uid), Cs("partially_applied", "terrain", Uid), Cs("proposed", "terrain", Uid) };
+        var named = TerrainPlanner.Gone(cands, "c-applied", _ => false);
+        Ok(named?.Id == "c-applied" && named.Value.Guids.SequenceEqual(new[] { "g1" }) && TerrainPlanner.Gone(cands, "c-partially_applied", _ => false)?.Id == "c-partially_applied"
+           && TerrainPlanner.Gone(cands, "c-other", _ => false) == null && TerrainPlanner.Gone(cands, null, _ => false) == null && TerrainPlanner.Gone(cands, "c-proposed", _ => false) == null
+           && TerrainPlanner.Gone(new[] { Cs("applied", "wall", Uid) }, "c-applied", _ => false) == null && TerrainPlanner.Gone(new[] { Cs("applied", "terrain", "{\"proposal_guid\":\"g1\"}") }, "c-applied", _ => false) == null
+           && TerrainPlanner.Gone(new[] { Cs("applied", "terrain", Uid) }, "c-applied", u => u == "u1") == null && TerrainPlanner.Gone(null, "c-applied", _ => false) == null,
+           "final verification round 1: Gone judges only the changeset the bridge's 409 names (an absent applied terrain of another scan is not reported), never a standing one, a proposed one, another kind, or an entry with no UniqueId");
+        // final verification round 2: the id leads the bridge's message - a level name of 100 characters (named three times) still leaves it inside Refusal's 400-character cut
+        string lvl = new string('L', 100), sv = "Survey job-0003 · " + lvl, held = "5b1c6f3e-2a4d-4e8f-9c1a-7d2e3f4a5b6c";
+        string said409 = ChangesetTrust.Refusal(409, JsonSerializer.Serialize(new { message = $"elements[0]: changeset {held} (applied) holds this scan — a terrain from \"{sv}\"'s scan is already built as \"Terrain · {lvl} · from {sv}\"; undo it in Revit first; nothing was saved" }));
+        Ok(said409.EndsWith("…") && TerrainPlanner.Blocker(said409) == held
+           && TerrainPlanner.Blocker("Bridge 409: elements[0]: a terrain from \"S\"'s scan is already built as \"T\" (applied, changeset " + held + ") — undo it in Revit first; nothing was saved") == null
+           && TerrainPlanner.Blocker("Bridge 400: elements[0]: changeset " + held + " (applied) holds this scan — x") == null
+           && TerrainPlanner.Blocker("elements[0]: this flag is already built as \"x\" (applied) — undo it in Revit first") == null && TerrainPlanner.Blocker(null) == null
+           && File.ReadAllText(Repo("WebApp", "bridge", "changesets-logic.mjs")).Contains("${at}: changeset ${other.id} (applied) holds this scan — a terrain from \"${cs.name}\"'s scan is already built as \"${other.name}\"; undo it in Revit first; nothing was saved`"),
+           "final verification round 1 (round 2: the id first): the bridge's terrain 409 names the blocking changeset's id ahead of the names (changesets-logic.mjs checkFromScan), and Blocker reads it back from a 409 cut at 400 characters (a 100-character level); any other answer frees nothing");
+        // final verification round 2: a Sentinel terrain of another changeset already in the model refuses an Apply (Undo, Propose, Redo, Apply would stand two)
+        string Stamp(string c) => Sentinel.Engine.ProvenanceStamp.Json(c, "promote", new[] { "g" }, "u");
+        Ok(TerrainPlanner.StandingOther(new[] { Stamp("c-new") }, "c-new") == null && TerrainPlanner.StandingOther(new[] { "not json", Stamp("c-old") }, "c-new") == "c-old"
+           && TerrainPlanner.StandingOther(new string[0], "c-new") == null && TerrainPlanner.StandingOther(null, "c-new") == null && TerrainPlanner.StandingOther(new[] { Stamp(null) }, "c-new") == null,
+           "final verification round 2: StandingOther names a Sentinel-stamped Toposolid of another changeset (never this one's, a stamp with no changeset, or one that is not JSON)");
+        // final verification round 2: the raise read-back's arithmetic on values - mm off, the Level.Elevation frame moved by dz (a Survey Point base), the 5 mm bound
+        Ok(Math.Abs(TerrainPlanner.RaiseOffMm(-300 / 304.8, -300, 0)) < 1e-9 && Math.Abs(TerrainPlanner.RaiseOffMm(-295.1 / 304.8, -300, 0) - 4.9) < 1e-9 && Math.Abs(TerrainPlanner.RaiseOffMm(-294.9 / 304.8, -300, 0) - 5.1) < 1e-9
+           && Math.Abs(TerrainPlanner.RaiseOffMm(-306 / 304.8, -300, 0) + 6) < 1e-9 && Math.Abs(TerrainPlanner.RaiseOffMm((-300 + 3000) / 304.8, -300, 3000 / 304.8)) < 1e-9
+           && Math.Abs(TerrainPlanner.RaiseOffMm(-300 / 304.8, -300, 3000 / 304.8) + 3000) < 1e-9 && TerrainPlanner.RaiseToleranceMm == 5,
+           "final verification round 2: RaiseOffMm - 0, 4.9, 5.1 and -6 mm off; a dz of 3000 mm (Survey Point base) moves the ground point and a vertex left in the old frame reads 3000 mm off; the bound is 5 mm");
 
         // the Revit 2021-2023 words, at Propose and at Apply
         Ok(TerrainPlanner.NoProposal("2023") == "a terrain is a Toposolid — Revit 2024 and later; this is Revit 2023. Nothing was proposed"
@@ -215,19 +247,48 @@ static partial class Check
            "a hold is said as one; a refusal (a 409 included) shows the bridge's message only; the proposal is not ticked or placed");
         Ok(win.Contains("public event Action ProposeTerrainRequested;") && win.Contains("Content = \"Propose terrain from the scan…\"") && win.Contains("terrain.Click += (_, _) => ProposeTerrainRequested?.Invoke();")
            && win.Contains("Visibility = SurveyChangeset && _cs.Status != \"withdrawn\" ? Visibility.Visible : Visibility.Collapsed") && win.Contains("TerrainPlanner.RowWords(p.Points.Length, Compat.TerrainSupported)")
-           && win.Contains("as a changeset of its own - \" + TerrainPlanner.Shape + \" - nothing is ticked or placed\""),
+           && win.Contains("as a changeset of its own — \" + TerrainPlanner.Shape + \" — nothing is ticked or placed\""),
            "the window: Propose terrain from the scan… on a live survey changeset; a terrain row says the points are the add-in's reading, and on a Revit before 2024 the refusal's words");
         Ok(cli.Contains("[JsonPropertyName(\"Points\")] public double[][] Points { get; set; }") && cli.Contains("[JsonPropertyName(\"from_scan\")]") && cli.Contains("/scan?ground=1")
            && cli.Contains("public static GroundDto FetchGround(") && cli.Contains("Send(WriteHttp, () => Req(HttpMethod.Get, url, cfg.ServiceToken))"),
            "the client: PlaceDto Points, the element's from_scan, and FetchGround - a new overload beside FetchScan, waiting as long as a write, with the person's token");
-        // review round 3 (Revit-only, source pin): a scan held by an applied terrain whose Toposolid is gone is freed - the changesets read with the ground, Gone on Revit's thread,
-        // and only on the bridge's "(applied) — undo it in Revit first" 409 the Undo's own row posted and the terrain filed again, once, said
-        int fa = At(rv, "var all = ChangesetClient.FetchAll(cfg, key, out _);", fg), gn = At(rv, "var gone = TerrainPlanner.Gone(all, uid => d.GetElement(uid) != null);", pn),
-            rr = At(rv, "if (filed == null && gone.Count > 0 && (proposeErr ?? \"\").Contains(\"(applied) — undo it in Revit first\"))", po),
-            rp = At(rv, "ChangesetClient.ReportReverted(cfg, key, g.Id, g.Guids, \"undo\", out _)", rr), again = At(rv, "filed = ChangesetClient.Propose(cfg, key, plan.Body, out proposeErr);", rp);
-        Ok(fa > fg && fa < eq && gn > pn && gn < tk && rr > po && rp > rr && again > rp && again < At(rv, "window.Shown(filed == null ?", po) && rv.Contains("is no longer in this model — the bridge took its Undo row, so the scan is free.")
-           && cli.Contains("public static List<ChangesetDto> FetchAll(BcfConfig cfg, string projectKey, out string error) => FetchList(cfg, projectKey, \"\", out error);"),
-           "review round 3 (Revit-only, source pin): Propose terrain reads the project's changesets with the ground, finds the applied terrains this model no longer holds (Gone), and on the bridge's \"undo it in Revit first\" 409 posts their Undo row and files once more, saying so");
+        // review round 3, final verification round 1 (Revit-only, source pin): a scan held by an applied terrain whose Toposolid this model does not hold is freed only on the
+        // person's word - the changesets read with the ground; after the 409, Revit's thread judges only the changeset it names, refuses a stale workshared local, asks Yes/No
+        // (default No) naming the changeset and this model; only on Yes the Undo row is posted and the terrain filed again, once
+        // final verification round 2: only the changeset the 409 names is read, after the 409 (no list before every filing); a failed read is said
+        int bl = At(rv, "var blocker = filed == null ? TerrainPlanner.Blocker(proposeErr) : null;", po), fa = At(rv, "var named = ChangesetClient.FetchOne(cfg, key, blocker, out var namedErr);", bl),
+            fq = At(rv, "App.Events.Enqueue(doc, \"free a scan\"", fa), gn = At(rv, "var gone = TerrainPlanner.Gone(new[] { named }, blocker, uid => d2.GetElement(uid) != null);", fq),
+            ws = At(rv, "try { current = d2.HasAllChangesFromCentral(); }", gn), stale = At(rv, "if (!current) { window.Shown($\"The terrain was not proposed — {proposeErr} ({TerrainPlanner.StaleLocal})\"); return; }", ws),
+            q = At(rv, "MainContent = TerrainPlanner.GoneQuestion(g.Name, DocOf(d2))", stale), yes = At(rv, "if (ask.Show() != TaskDialogResult.Yes) { window.Shown(\"The terrain was not proposed — \" + proposeErr); return; }", q),
+            rp = At(rv, "ChangesetClient.ReportReverted(cfg, key, g.Id, g.Guids, \"undo\", out var revertErr, basis: \"absent\")", yes), again = At(rv, "var again = ChangesetClient.Propose(cfg, key, plan.Body, out var againErr);", rp);
+        Ok(bl > po && fa > bl && fq > fa && gn > fq && !rv.Contains("ChangesetClient.FetchAll(cfg, key, out _)") && rv.Contains("if (named == null) { window.Shown($\"The terrain was not proposed — {proposeErr} (whether the applied terrain is still in this model could not be read: {namedErr}; nothing was recorded)\"); return; }")
+           && cli.Contains("JsonSerializer.Serialize(new { op, guids, actor = UserSession.Actor, basis }, WriteJson)") && ws > gn && stale > ws && q > stale && yes > q && rp > yes && again > rp
+           && rv.Split("ChangesetClient.ReportReverted(cfg, key, g.").Length == 2 && !rv.Contains("TerrainPlanner.Gone(all, uid =>") && rv.Contains("DefaultButton = TaskDialogResult.No")
+           && rv.Contains("if (gone == null) { window.Shown(\"The terrain was not proposed — \" + proposeErr); return; }") && rv.Contains("nothing was ticked or placed.{word} The scan is free.")
+           && TerrainPlanner.StaleLocal == "this local is not up to date with central — Reload Latest, then press again; nothing was recorded"
+           && TerrainPlanner.GoneQuestion("T", "C:\\m.rvt").Contains("its Toposolid is not in this model (C:\\m.rvt)") && TerrainPlanner.GoneQuestion("T", "m").Contains("If it may stand in another model, a copy, another person's local, or a closed workset, answer No."),
+           "final verification round 1 (Revit-only, source pin; round 2: the one changeset read after the 409, the Undo row marked basis absent): after the bridge's 409 Propose terrain judges only the changeset it names on Revit's thread, refuses a workshared local not up to date with central, asks Yes/No (default No) naming it and this model, and posts the Undo row and files again only on Yes - nothing is reported without the Yes; \"the scan is free\" is said only after the filing");
+        // final verification round 1 (Revit-only, source pin): the raise read back - after the ModifySubElement loop, a Regenerate and every loop vertex within 5 mm of its ground point, or a throw
+        int rbk = ctBody.IndexOf("Revit did not take the raise; nothing was placed", StringComparison.Ordinal), regen2 = ctBody.IndexOf("doc.Regenerate();", mod, StringComparison.Ordinal);
+        int bk = ctBody.IndexOf("var back = ts.GetSlabShapeEditor().SlabShapeVertices.Cast<SlabShapeVertex>().Where(v => v.VertexType != SlabShapeVertexType.Interior).ToList();", regen2, StringComparison.Ordinal),
+            bkg = ctBody.IndexOf("if (back.Count < outerMm.Count + ringMm.Count)", bk, StringComparison.Ordinal), bkl = ctBody.IndexOf("foreach (var v in back)", bkg, StringComparison.Ordinal);
+        Ok(regen2 > mod && bk > regen2 && bkg > bk && bkl > bkg && rbk > bkl && ctBody.Contains("could not be read back ({back.Count} of {outerMm.Count + ringMm.Count})")
+           && ctBody.Contains("double off = Sentinel.GhostBuilder.TerrainPlanner.RaiseOffMm(v.Position.Z, Sentinel.GhostBuilder.TerrainPlanner.NearestZ(pointsMm, v.Position.X / mm, v.Position.Y / mm), dz);")
+           && ctBody.Contains("if (Math.Abs(off) > Sentinel.GhostBuilder.TerrainPlanner.RaiseToleranceMm)") && ctBody.IndexOf("return ts;", rbk, StringComparison.Ordinal) > rbk,
+           "final verification round 1 (Revit-only, source pin; round 2: the read counted, the arithmetic RaiseOffMm's): after the raise CreateTerrain regenerates and reads the loop vertices back - fewer than the loops' corners, or one more than 5 mm off its ground point, throws in words, and the transaction rolls back");
+        // final verification round 1 (Revit-only, source pin): a failure inside CreateTerrain is PlacementRefused - rolled back, the changeset stays proposed (C5, as the roof), never declined
+        Ok(ex.Contains("try { Collect(result, el, Compat.CreateTerrain(doc, el.Place.Points, el.Place.Boundary, type.Id, level)); }")
+           && ex.Contains("{ throw new PlacementRefused($\"{at}: Revit did not build the terrain — {(ex is InvalidOperationException ? ex.Message : ex.GetType().Name + \": \" + ex.Message + Frame(ex))}; it stays proposed\"); }"),
+           "final verification round 1 (Revit-only, source pin; round 2: a Revit exception keeps its type and frame): Revit not building the terrain (CreateTerrain's refusals or a Revit exception in its rim steps) is PlacementRefused - rolled back, the changeset stays proposed, never reported declined");
+        // final verification round 2 (Revit-only, source pin): a Sentinel terrain of another changeset in the model refuses the Apply before CreateTerrain; a terrain rolled back at the commit stays proposed
+        int sto = At(ex, "var standing = TerrainPlanner.StandingOther(Compat.TerrainStamps(doc), cs.Id);", loop),
+            stw = At(ex, "if (standing != null) throw new PlacementRefused($\"{at}: a Sentinel terrain (changeset {standing}) already stands in this model — undo or delete it first; it stays proposed\");", sto);
+        int rbb = At(ex, "if (status == TransactionStatus.RolledBack)"), rbt = At(ex, "return new ExecutionResult { NotRun = true, Error = error + \" — a terrain Revit did not build stays proposed\" };", rbb),
+            rbe = At(ex, ": new ExecutionResult { Error = error };", rbb);
+        Ok(sto > loop && stw > sto && stw < made && rbb > 0 && rbt > rbb && rbe > rbt && ex.Substring(rbb, rbt - rbb).Contains("if (toPlace.Any(e => IsCreate(e) && e.Kind == \"terrain\"))")
+           && compat.Contains("new FilteredElementCollector(doc).OfClass(typeof(Toposolid)).Select(Sentinel.Engine.ProvenanceStamp.Read).Where(s => s != null).ToList();")
+           && At(compat, "#if REVIT2024_OR_GREATER", At(compat, "public static List<string> TerrainStamps(")) < At(compat, "OfClass(typeof(Toposolid))"),
+           "final verification round 2 (Revit-only, source pin): Apply refuses a terrain while a Sentinel Toposolid of another changeset stands in the model (PlacementRefused: rolled back, stays proposed); a terrain Revit rolls back at the commit is NotRun, never reported declined");
         // review round 3 (source pin): a pending stair or terrain (source promote) is not a Promote or Shell storey run - neither command opens it instead of planning
         string pw = Src("Commands.PromoteWalls.cs"), sm = Src("Commands.ShellMass.cs");
         Ok(rv.Contains("internal static bool PromoteRun(ChangesetDto cs) => StoreyRun(cs) && ") && rv.Contains("internal static bool StoreyRun(ChangesetDto cs) => cs.Source == \"promote\"")

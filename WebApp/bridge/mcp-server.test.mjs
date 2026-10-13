@@ -431,6 +431,13 @@ describe("MA-6-1 — agent reads, the bridge's class, Undo in the status", () =>
     expect(fetch.mock.calls[1][1].method).toBeUndefined();
   });
 
+  it("final verification round 2: an Undo recorded on a person's word (basis absent) reads undone with its basis and the account - never as a watched Undo alone", async () => {
+    const row = { ...undo(93, A, "undo", 1), actor: "yazan" }; row.new_value.basis = "absent";
+    const fetch = route({ "/audit?": { rows: [row], total: 1 }, [`/changesets/demo/${A}`]: { id: A, status: "applied" } });
+    expect((await callTool("sentinel_changeset_status", { project: "demo", changeset: A }, { fetch })).undone).toEqual({ ledger_id: 93, at: "2026-10-12T03:00:00Z", guids: 1, basis: "absent", by: "yazan" });
+    expect(tool("sentinel_changeset_status").description).toMatch(/with basis "absent" and by: the account, when it was recorded on that person's word/);
+  });
+
   it("status: a Redo after the Undo (the newest row) reads null; so does an applied changeset with no row", async () => {
     const fetch = route({ "/audit?": { rows: [undo(92, A, "redo"), undo(91, A, "undo")], total: 2 }, [`/changesets/demo/${A}`]: { id: A, status: "applied" } });
     expect((await callTool("sentinel_changeset_status", { project: "demo", changeset: A }, { fetch })).undone).toBeNull();

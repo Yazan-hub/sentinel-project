@@ -210,6 +210,10 @@ describe("recently decided in Revit (MA-3b2b)", () => {
     expect(decidedView(done, { row: 1813, reverted: { id: 1816, op: "redo" } }).head).toMatch(/ · ledger #1813 · undone, then redone in Revit \(ledger #1816\)$/);
     expect(decidedView(done, { row: 1813, reverted: { id: 1817, op: "" } }).head).toMatch(/ · ledger #1813 · a changeset_reverted row follows the report \(ledger #1817\)$/);
     expect(decidedView(done, { row: null, reverted: { id: 1814, op: "undo" } }).head).toMatch(/ · no ledger row found for it · undone in Revit after the report \(ledger #1814\)$/);
+    // final verification round 2: an undo recorded on a person's word (basis absent) is said apart - never "undone in Revit"
+    const said = decidedView(done, { row: 1813, reverted: { id: 1818, op: "undo", on_word: "yazan" } }).head;
+    expect(said).toMatch(/ · ledger #1813 · recorded as gone on yazan's word after the report, not an Undo seen in Revit \(ledger #1818\)$/);
+    expect(said).not.toMatch(/undone in Revit/);
   });
 
   it("review C4: an old or hand-written result (no lists, no reporter) is still said — the view never throws", () => {
@@ -251,6 +255,9 @@ describe("recently decided in Revit (MA-3b2b)", () => {
       { id: 1805, entity_id: A, action: "changeset_reviewed" }, { id: 1800, entity_id: A, action: "changeset_proposed" }], total: 6 }));
     expect([...(await readLedger("http://b/", "demo key", [A, B]))]).toEqual([[B, { row: 1813, reverted: { id: 1816, op: "redo" } }], [A, { row: 1811, reverted: null }]]);
     expect(bfetch.mock.calls[0][0]).toBe(`http://b/cde/demo%20key/audit?entity_type=changeset&action_prefix=changeset_&entity_id=${A},${B}&limit=1000`);
+    // final verification round 2: a row with basis "absent" carries the account it was recorded on the word of
+    bfetch.mockResolvedValueOnce(res(200, { rows: [{ id: 1820, entity_id: A, action: "changeset_reverted", actor: "yazan", new_value: { op: "undo", guids: ["g"], count: 1, basis: "absent" } }], total: 1 }));
+    expect((await readLedger("http://b", "demo", [A])).get(A)).toEqual({ row: null, reverted: { id: 1820, op: "undo", on_word: "yazan" } });
     bfetch.mockResolvedValueOnce(res(200, { rows: [{ id: 1811, entity_id: A, action: "changeset_applied" }], total: 1200 }));
     await expect(readLedger("http://b", "demo", [A])).rejects.toThrow("not read — the ledger holds more rows for these reports (1200) than one read returns");
     bfetch.mockResolvedValueOnce(res(400, { message: "entity_id must be a uuid or a comma list of uuids" }));

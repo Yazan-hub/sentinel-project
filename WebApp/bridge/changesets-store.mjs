@@ -666,7 +666,7 @@ export async function scanOverlay(key, id, deps = {}, { flag = null, ground = fa
   // MA-8-14 review: the ground is read under the job's lowest storey - on a higher one, podium roofs and the slab below would be read as ground
   if (cut) {
     const lower = lowerStorey(await d.docList(STORE, proj.id), cs, cut);   // review round 1: the job's ledger row, not its id
-    if (lower) throw err(409, `terrain is read under the lowest storey (${groundCut(lower).level ?? lower.name}, ${lower.name}); ${cs.name} is higher — nothing was read`);
+    if (lower) throw err(409, `terrain is read under the lowest storey (${lowerWords(lower)}); ${cs.name} is higher${again(lower)} — nothing was read`);
   }
   const band = ground ? cut?.band : fl ? [fl.box.min[2], fl.box.max[2]] : scanBand(cs);
   if (!band) throw err(409, `${cs.name} has no wall to show the ${ground ? "ground" : "scan"} against`);
@@ -676,7 +676,8 @@ export async function scanOverlay(key, id, deps = {}, { flag = null, ground = fa
   // The owner's allowed uses (evidence-logic USES): an overlay is viewing a scan as a reference. Fails closed, like pickItems — and this is
   // the first route whose answer (derived points) leaves the PC, over the Funnel to a member's Revit.
   const hidden = pack.items.find((i) => evidence.some((e) => e.id === i.id) && i.allowed_uses?.view_reference !== true);
-  if (hidden) throw err(409, `${hidden.id}'s allowed uses do not include viewing it as a reference — its scan is not shown`);  try { d.takeWriteBudget("survey jobs", { perUser: 6, all: 12 }); } catch (e) { throw shown(e); } // a run on the PC's CPU (MA-4e decision 13)
+  if (hidden) throw err(409, `${hidden.id}'s allowed uses do not include viewing it as a reference — its scan is not shown`);
+  try { d.takeWriteBudget("survey jobs", { perUser: 6, all: 12 }); } catch (e) { throw shown(e); } // a run on the PC's CPU (MA-4e decision 13)
   const S = toScan(cs.job.frame);
   // the box's four plan corners in the scan's frame, bounded (a turned frame makes the crop the larger axis-aligned box; the answer is cut back to the exact box below)
   const corners = fl ? [[fl.box.min[0], fl.box.min[1]], [fl.box.max[0], fl.box.min[1]], [fl.box.max[0], fl.box.max[1]], [fl.box.min[0], fl.box.max[1]]].map(S.xy) : null;
@@ -725,25 +726,30 @@ function lowestApart(points, on) {
   return points.filter((p) => kept.includes(p));
 }
 
-/** MA-8-14 review: a live survey changeset of `cs`'s job (its ledger row: a job id repeats across jobs folders) whose lowest storey is under `cut`'s, or undefined -
- *  the ground is read under the job's lowest storey only (on a higher one, podium roofs and the slab below would be read as ground). */
+/** MA-8-14 review: a survey changeset of `cs`'s job (its ledger row: a job id repeats across jobs folders) whose lowest storey is under `cut`'s, or undefined -
+ *  the ground is read under the job's lowest storey only (on a higher one, podium roofs and the slab below would be read as ground). Final verification round 1:
+ *  a withdrawn one too - the scan's geometry decides, not the changeset's status (withdrawing the podium must not let the tower's band reach down into it). */
 function lowerStorey(all, cs, cut) {
-  return all.find((o) => o.id !== cs.id && o.job?.ledger_id != null && o.job.ledger_id === cs.job.ledger_id && o.status !== "withdrawn"
+  return all.find((o) => o.id !== cs.id && o.job?.ledger_id != null && o.job.ledger_id === cs.job.ledger_id
     && (groundCut(o)?.band[0] ?? Infinity) < cut.band[0] - 1);
 }
+const lowerWords = (lower) => `${groundCut(lower).level ?? lower.name}, ${lower.name}${lower.status === "withdrawn" ? ", withdrawn" : ""}`;
+// final verification round 2: a withdrawn changeset of the job's lowest storey holds the ground and files none - the way out is said
+const AGAIN = "survey the scan again (a new job) to read its ground";
+const again = (lower) => (lower.status === "withdrawn" ? `; ${AGAIN}` : "");
 
 /** MA-8-14 review round 1: a terrain is tied to the scan it names - the bridge read no scan for its points, but it checks what it can of them against that
  *  changeset's ground cut (groundCut, the ground read's): a live survey changeset of the job's lowest storey (409), the cut's level, its footprint as the Boundary
  *  corner for corner, every point in its height band and outside its footprint, and (review round 3) a name ending " · from <that changeset's name>" (400). checkFromScan ran first (the changeset exists and is a survey job's). */
 function tieToScan(el, at, earlier, name) {
   const cs = earlier.find((c) => c.id === el.from_scan.changeset), cut = groundCut(cs);
-  if (cs.status === "withdrawn") throw err(409, `${at}: "${cs.name}" is withdrawn — no terrain is read from its scan; nothing was saved`);
+  if (cs.status === "withdrawn") throw err(409, `${at}: "${cs.name}" is withdrawn — no terrain is read from its scan; ${AGAIN}; nothing was saved`);
   // review round 3: the changeset's title is where a reviewer reads which scan it came from (amendment 8 amended) - it names from_scan's changeset, or it is refused
   if (!String(name).endsWith(` · from ${cs.name}`))
     throw err(400, `${at}: the changeset is named "${name}" — a terrain's name ends " · from ${cs.name}", the survey changeset its from_scan names; nothing was saved`);
   if (!cut?.footprint) throw err(409, `${at}: "${cs.name}" has no wall — its scan has no ground cut to read a terrain from; nothing was saved`);
   const lower = lowerStorey(earlier, cs, cut);
-  if (lower) throw err(409, `${at}: terrain is read under the lowest storey (${groundCut(lower).level ?? lower.name}, ${lower.name}); "${cs.name}" is higher — nothing was saved`);
+  if (lower) throw err(409, `${at}: terrain is read under the lowest storey (${lowerWords(lower)}); "${cs.name}" is higher${again(lower)} — nothing was saved`);
   const p = el.place, off = `— it is not the ground read off "${cs.name}"'s scan; nothing was saved`;
   if (!cut.level || !same(String(p.LevelName), cut.level)) throw err(400, `${at}: the terrain is on ${p.LevelName}, the scan's lowest walls on ${cut.level ?? "no level"} ${off}`);
   if (p.Boundary.length !== cut.footprint.length || p.Boundary.some((q, k) => Math.abs(q[0] - cut.footprint[k][0]) > 0.1 || Math.abs(q[1] - cut.footprint[k][1]) > 0.1))
@@ -1064,13 +1070,19 @@ export async function withdrawChangeset(key, id, actor, deps) {
 
 /** The add-in's report that a person pressed Undo (or Redo) on an applied changeset's transaction in Revit. The guids
  *  must be ones this changeset applied. v0 writes a changeset_reverted ledger row only — the doc's status is not
- *  changed (a Redo would otherwise need a status ping-pong). Answers the ledger row. */
-export async function reportReverted(key, id, { op, guids } = {}, actor, deps) {
+ *  changed (a Redo would otherwise need a status ping-pong). Answers the ledger row. Final verification round 2: `basis: "absent"` (an undo only) marks
+ *  one recorded on a person's word that the element is gone from their model (the add-in's freeing of a terrain's scan), not an Undo Revit was seen
+ *  doing - kept on the row, read as an undo everywhere, and said so by the MCP status and the desk. */
+export async function reportReverted(key, id, { op, guids, basis } = {}, actor, deps) {
   const d = wire(deps);
   await d.requireMinRole(key, "contributor"); // the machine credential and a signed-in contributor both pass
   if (!["undo", "redo"].includes(op)) throw err(400, 'op must be "undo" or "redo"');
   if (!Array.isArray(guids) || !guids.length || guids.length > 200 || !guids.every((g) => typeof g === "string") || new Set(guids).size !== guids.length)
     throw err(400, "guids must be 1–200 distinct proposal_guids");
+  if (basis !== undefined && (basis !== "absent" || op !== "undo")) throw err(400, 'basis is "absent" on an undo, or none');
+  // final verification round 3: "absent" is a person's word (the desk and MCP name them) - the machine credential's actor is only claimed
+  if (basis !== undefined && (await d.myRole(key)) === "service")
+    throw err(403, 'an Undo recorded as gone (basis "absent") is a signed-in person\'s word — the machine credential records none; nothing was saved');
   const proj = await d.ensureProject(key);
   const cs = await d.docGet(STORE, proj.id, id);
   if (!cs) throw err(404, "changeset not found");
@@ -1082,7 +1094,7 @@ export async function reportReverted(key, id, { op, guids } = {}, actor, deps) {
   // Its own budget, not "revit reports" (naming, family_heal): the undo watcher never retries, so a throttled row is lost
   // and the ledger disagrees with the model. Already bounded — only guids this changeset applied, only once applied.
   d.takeWriteBudget("changeset reverts", { perUser: 120, all: 300 });
-  return d.audit(proj.id, "changeset", id, "changeset_reverted", actor || "revit", { status: cs.status }, { op, guids, count: guids.length });
+  return d.audit(proj.id, "changeset", id, "changeset_reverted", actor || "revit", { status: cs.status }, { op, guids, count: guids.length, ...(basis ? { basis } : {}) });
 }
 
 /** MA-8-9: POST /changesets/:key/:id/flags {kind: "stair", storey, box} — a person's pick of a stair, appended to the changeset's exceptions as a

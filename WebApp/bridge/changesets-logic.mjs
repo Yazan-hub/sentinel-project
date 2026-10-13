@@ -823,8 +823,10 @@ export function checkFromScan(elements, earlier, reverted = []) {
         if (!onScan(o)) continue;
         if (!(other.result?.applied ?? []).some((a) => (a?.proposal_guid ?? a) === o.proposal_guid)) continue; // the terrain was not the part applied
         const last = rows.find((y) => y.entity_id === other.id && (y.new_value?.guids ?? []).includes(o.proposal_guid));
+        // final verification round 1: the 409 names the blocking changeset's id - the add-in frees that one only (TerrainPlanner.Blocker), on the person's word;
+        // round 2: the id first, so the add-in's 400-character cut (ChangesetTrust.Refusal) never takes it whatever the level names' length
         if (last?.new_value?.op !== "undo")
-          throw err(409, `${at}: a terrain from "${cs.name}"'s scan is already built as "${other.name}" (applied) — undo it in Revit first; nothing was saved`);
+          throw err(409, `${at}: changeset ${other.id} (applied) holds this scan — a terrain from "${cs.name}"'s scan is already built as "${other.name}"; undo it in Revit first; nothing was saved`);
       }
     }
   }

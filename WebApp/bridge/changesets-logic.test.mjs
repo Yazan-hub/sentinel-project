@@ -1749,7 +1749,7 @@ describe("checkFromScan (MA-8-14): the survey changeset a terrain starts from", 
     const built = (status, applied = ["g1"]) => ({ id: "other", name: "Terrain · L00 · from Survey job-0003 · GR-FFL", status, elements: [t], result: { applied: applied.map((g) => ({ proposal_guid: g })) } });
     const row = (id, op) => ({ id, entity_id: "other", new_value: { op, guids: ["g1"] } });
     for (const st of ["applied", "partially_applied"])
-      fails(() => checkFromScan(terrain(), [survey(), built(st)]), 409, /^elements\[0\]: a terrain from "Survey job-0003 · GR-FFL"'s scan is already built as "Terrain · L00 · from Survey job-0003 · GR-FFL" \(applied\) — undo it in Revit first; nothing was saved$/);
+      fails(() => checkFromScan(terrain(), [survey(), built(st)]), 409, /^elements\[0\]: changeset other \(applied\) holds this scan — a terrain from "Survey job-0003 · GR-FFL"'s scan is already built as "Terrain · L00 · from Survey job-0003 · GR-FFL"; undo it in Revit first; nothing was saved$/);   // final verification round 1: the blocker by id (round 2: first)
     expect(() => checkFromScan(terrain(), [survey(), built("applied")], [row(1, "undo")])).not.toThrow();
     fails(() => checkFromScan(terrain(), [survey(), built("applied")], [row(1, "undo"), row(2, "redo")]), 409, /undo it in Revit first/);   // the newest row decides
     expect(() => checkFromScan(terrain(), [survey(), built("applied", ["x"])])).not.toThrow();
@@ -1761,7 +1761,7 @@ describe("checkFromScan (MA-8-14): the survey changeset a terrain starts from", 
     const first = (job, over = {}) => ({ id: "first", name: "Survey job-0003 · GR-FFL (job-0003)", status: "proposed", claimed: false, job: { reader: "sentinel-survey 0.6.0", ...job }, elements: [], ...over });
     const filed = (status) => ({ id: "other", name: "Terrain · L00 · from job-0003", status, elements: [t], result: { applied: [{ proposal_guid: "g1" }] } });
     fails(() => checkFromScan(terrain(), [mine, first({ id: "job-0003", ledger_id: 41, evidence: ev("aa") }), filed("proposed")]), 409, /is already filed \("Terrain · L00 · from job-0003"\) — withdraw it first/);
-    fails(() => checkFromScan(terrain(), [mine, first({ id: "job-0003", ledger_id: 41, evidence: ev("aa") }), filed("applied")]), 409, /is already built as "Terrain · L00 · from job-0003" \(applied\) — undo it in Revit first/);
+    fails(() => checkFromScan(terrain(), [mine, first({ id: "job-0003", ledger_id: 41, evidence: ev("aa") }), filed("applied")]), 409, /^elements\[0\]: changeset other \(applied\) holds this scan — .* is already built as "Terrain · L00 · from job-0003"; undo it in Revit first/);
     fails(() => checkFromScan(terrain(), [mine, first({ id: "job-0004", ledger_id: 52 }), filed("proposed")]), 409, /withdraw it first/);   // the same job, another storey
     expect(() => checkFromScan(terrain(), [mine, first({ id: "job-0003", ledger_id: 41, evidence: ev("bb") }), filed("proposed")])).not.toThrow();   // other bytes: another scan
     expect(() => checkFromScan(terrain(), [mine, first({ id: "job-0003", ledger_id: 41, evidence: [{ id: "ev-scan" }] }), filed("proposed")])).not.toThrow();   // no sha: not matched
