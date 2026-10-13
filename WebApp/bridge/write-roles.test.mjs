@@ -15,6 +15,8 @@ import net from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { canonicalSha256 } from "./canonical.mjs";
+import { PLANNER_VERSION as SURVEY_PLANNER_VERSION } from "./survey-plan.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url)); // <repo>/WebApp/bridge
 const SECRET = "write-roles-test-secret";              // the fake project's HS256 secret — test-only
@@ -969,6 +971,7 @@ describe("audit pack (paperwork slice 5; renamed in MA-4a)", () => {
     expect(r.body).toMatchObject({ pack: "sentinel-audit-pack", project: { key: "demo", name: "Demo" }, generated_by: "lead@example.test" });
     expect(r.body.bundle_sha256).toMatch(/^[0-9a-f]{64}$/);
     expect(r.body.standards).toHaveProperty("ids");
+    expect(r.body.standards).not.toHaveProperty("recipe"); // MA-8-13: a recipe is not a standard in force - it reaches the pack through its ledger rows
     if (Array.isArray(r.body.ledger?.rows)) expect(r.body.ledger.rows.map((x) => x.id)).toEqual([1]); else { console.log("ledger part:", JSON.stringify(r.body.ledger)); expect(typeof r.body.ledger?.not_read).toBe("string"); }
     for (const k of ["documents", "reviews", "containers"]) expect(Array.isArray(r.body[k]) || typeof r.body[k]?.not_read === "string", k).toBe(true);   // the fake serves what it serves; nothing is dropped in silence
   }, 20_000); // the pack reads every part (~1 s idle): timed out at 5 s under a full suite's load
@@ -1192,4 +1195,119 @@ describe("flagging a stair (MA-8-9): a signed-in contributor's pick, never the m
   it("GET /changesets/demo/x/scan?flag= over 64 characters is a 400 before anything runs", async () => {
     expect(await call("GET", `/changesets/demo/x/scan?flag=${"s".repeat(65)}`, "contributor")).toEqual({ status: 400, body: { message: "flag must be a stair flag's unique_id (1 to 64 characters)" } });
   });
+});
+
+describe("recipes (MA-8-13, D13): two approvals by two different people of different roles, then a third person runs it - four distinct signed-in people", () => {
+  const REF = "recipe@1";
+  // seeded straight into the fake's bridge_docs at PID (seedDoc's project_id is "demo", which the artefact store never reads - it reads by the project's id)
+  const seedArtefact = (doc_id, data) => db.bridge_docs.push({ store: "artefact", project_id: PID, doc_id, data });
+  const GUIDELINE = { rules: [], note: "g" }, CATALOG = { types: [], note: "c" };
+  let recipe;
+  const seedRecipe = () => {
+    recipe = JSON.parse(readFileSync(join(here, "fixtures", "recipe", "good.json"), "utf8"));
+    recipe.verified.project = "demo";
+    recipe.planner.version = SURVEY_PLANNER_VERSION;
+    recipe.standards.guideline.sha256 = canonicalSha256(GUIDELINE);
+    recipe.standards.type_catalog.sha256 = canonicalSha256(CATALOG);
+    const sha256 = canonicalSha256(recipe);
+    seedArtefact(REF, { kind: "recipe", version: 1, sha256, installed_by: "lead@example.test", installed_at: "2026-10-13T10:00:00Z", source: null, body: recipe });
+    seedArtefact("recipe", { kind: "recipe", version: 1, sha256 });
+    for (const [kind, body] of [["guideline", GUIDELINE], ["type_catalog", CATALOG]]) {
+      seedArtefact(`${kind}@1`, { kind, version: 1, sha256: canonicalSha256(body), body });
+      seedArtefact(kind, { kind, version: 1, sha256: canonicalSha256(body) });
+    }
+    return sha256;
+  };
+  const R = "/cde/demo/recipes", JOBS = "/cde/demo/build/jobs";
+  const approvals = () => db.audit_log.filter((r) => r.entity_type === "recipe");
+  beforeEach(() => { db.projects[0].office_key = "office"; });
+
+  it("drafting: the machine credential, a viewer and a contributor are 403 in the bridge's words; a lead reaches the run's own checks (a 404 here - no such ledger row); nothing is written", async () => {
+    const body = { run: "job#900", name: "Kladno storeys" };
+    expect(await call("POST", R, "machine", body)).toEqual({ status: 403, body: { message: "drafting a recipe is a signed-in person's — the machine credential, the MCP agent and scripts never draft; nothing was saved" } });
+    expect(await call("POST", R, "viewer", body)).toEqual({ status: 403, body: { message: "drafting a recipe requires the lead role on demo (you are viewer) — nothing was saved" } });
+    expect(await call("POST", R, "contributor", body)).toEqual({ status: 403, body: { message: "drafting a recipe requires the lead role on demo (you are contributor) — nothing was saved" } });
+    expect(await call("POST", R, "lead", { run: "cs-0001", name: "x" })).toMatchObject({ status: 400 });
+    expect(await call("POST", R, "lead", body)).toEqual({ status: 404, body: { message: "ledger #900 on demo is not a job's build:run row — a recipe repeats a job's run; nothing was saved" } });
+    expect(approvals()).toEqual([]);
+    expect(writes("bridge_docs")).toEqual([]);
+  }, 60_000);
+
+  it("approving then running: the machine credential, a viewer and a contributor never approve; the owner and the lead each once (a lead and an owner); the two approvers may not run it; a third person (the contributor) passes the recipe check", async () => {
+    const sha256 = seedRecipe();
+    const ok = { sha256 };
+    expect(await call("POST", `${R}/1/approve`, "machine", ok)).toEqual({ status: 403, body: { message: "approving a recipe is a signed-in person's — the machine credential, the MCP agent and scripts never approve; nothing was saved" } });
+    expect(await call("POST", `${R}/1/approve`, "viewer", ok)).toEqual({ status: 403, body: { message: "approving a recipe requires the lead role on demo (you are viewer) — nothing was saved" } });
+    expect((await call("POST", `${R}/1/approve`, "contributor", ok)).status).toBe(403);
+    expect(await call("POST", `${R}/9/approve`, "owner", ok)).toMatchObject({ status: 404 });
+    expect(await call("POST", `${R}/1/approve`, "owner", { sha256: "f".repeat(64) })).toEqual({ status: 409, body: { message: "recipe@1 is not the body you read — read it again; nothing was saved" } });
+    expect(approvals()).toEqual([]);
+
+    // nobody has approved: the contributor's run says so, in the bridge's words
+    const asked = { pack: "evp-0001", recipe: { version: 1, scope: "project" } };
+    // MA-8-13 review: a viewer is refused in the role words before any recipe check
+    expect(await call("POST", JOBS, "viewer", asked)).toEqual({ status: 403, body: { message: "running a recipe requires the contributor role on demo (you are viewer) — nothing was saved" } });
+    expect(await call("POST", JOBS, "contributor", asked))
+      .toEqual({ status: 409, body: { message: "recipe@1 has no approval yet — it runs once a lead and an owner, two different people, have approved it; nothing was saved" } });
+
+    const first = await call("POST", `${R}/1/approve`, "owner", ok);
+    expect(first).toMatchObject({ status: 201, body: { ref: REF, role: "owner", approved: false } });
+    expect(approvals().map((r) => [r.action, r.new_value.user_id, r.new_value.role, r.new_value.sha256, r.actor])).toEqual([[`recipe:approved ${REF} · owner`, USERS.owner, "owner", sha256, "owner@example.test"]]);
+    expect(await call("POST", `${R}/1/approve`, "owner", ok)).toEqual({ status: 409, body: { message: `you approved recipe@1 already (ledger #${first.body.ledger.id}) — the second approval is another person's; nothing was saved` } });
+    expect((await call("POST", JOBS, "contributor", asked)).body.message)
+      .toBe(`recipe@1 has 1 approval (#${first.body.ledger.id}, an owner's) — it runs once a lead and an owner, two different people, have approved it; nothing was saved`);
+
+    // a forged second row, written straight into the table for a person who is no member (not through any route): it never counts
+    db.audit_log.push({ id: 900, project_id: PID, entity_type: "recipe", action: `recipe:approved ${REF} · lead`, actor: "ghost@example.test", hash: "cd".repeat(32),
+      new_value: { ref: REF, sha256, scope: "project", user_id: "u-ghost", role: "lead" } });
+    expect((await call("POST", JOBS, "contributor", asked)).body.message)
+      .toBe("recipe@1's approval #900 is by someone who is no longer a lead or owner of demo; it runs once a lead and an owner who still hold those roles have approved it; nothing was saved");
+
+    const second = await call("POST", `${R}/1/approve`, "lead", ok);
+    expect(second).toMatchObject({ status: 201, body: { role: "lead", approved: true } });
+    expect(approvals().map((r) => r.new_value.role)).toEqual(["owner", "lead", "lead"]); // the ghost's row sits in the ledger, counted by nobody
+
+    // D13: the runner approved neither. Both approvers are refused (before the count); the machine credential is too
+    expect(await call("POST", JOBS, "owner", asked)).toEqual({ status: 403, body: { message: `you approved recipe@1 (ledger #${first.body.ledger.id}) — a recipe is run by someone who approved neither (D13); nothing was saved` } });
+    const asLead = await call("POST", JOBS, "lead", asked);
+    expect(asLead.status).toBe(403);
+    expect(asLead.body.message).toContain("you approved recipe@1");
+    expect(await call("POST", JOBS, "machine", asked)).toEqual({ status: 403, body: { message: "a recipe run is a person's — its build:run row names who ran it: sign in. Nothing was saved." } });
+    // the contributor is a third person: the recipe's checks pass (planner, guideline, catalogue), the run stops at the pack - there is no evidence pack in this fake
+    const third = await call("POST", JOBS, "contributor", asked);
+    expect(third.status).toBe(404);
+    expect(third.body.message).toBe("demo has no evidence pack yet — a lead makes it (POST /cde/demo/evidence) — nothing was saved");
+    expect(db.audit_log.filter((r) => r.entity_type === "build")).toEqual([]);
+    // a recipe cannot be mixed with a reader or params, and a recipe key is {version, scope}
+    expect((await call("POST", JOBS, "contributor", { ...asked, readers: ["sentinel-survey"] })).body.message).toContain("a recipe names its reader and params");
+    expect((await call("POST", JOBS, "contributor", { pack: "evp-0001", recipe: { version: 1 } })).status).toBe(400);
+  }, 60_000);
+
+  it("a recipe stops running when an approver is demoted (read at run time) and when the guideline in force is no longer the one it ran on", async () => {
+    const sha256 = seedRecipe();
+    await call("POST", `${R}/1/approve`, "owner", { sha256 });
+    await call("POST", `${R}/1/approve`, "lead", { sha256 });
+    const asked = { pack: "evp-0001", recipe: { version: 1, scope: "project" } };
+    db.memberships.find((m) => m.user_id === USERS.lead).role = "contributor"; // demoted after approving
+    expect((await call("POST", JOBS, "contributor", asked)).body.message).toMatch(/^recipe@1's approval #\d+ is by someone who is no longer a lead or owner of demo/);
+    db.memberships.find((m) => m.user_id === USERS.lead).role = "lead";
+    db.bridge_docs.find((d) => d.doc_id === "guideline@1").data.body = { rules: [], note: "changed" };
+    const stale = await call("POST", JOBS, "contributor", asked);
+    expect(stale.status).toBe(409);
+    expect(stale.body.message).toMatch(/^the guideline in force on demo \(guideline@1 · project · [0-9a-f]{12}…\) is not the one recipe@1 ran on \(guideline@7 · project · 4cb2…\); nothing was saved$/);
+  }, 60_000);
+
+  it("the registry is any member's to read, and a withdrawn recipe is retired for good", async () => {
+    const sha256 = seedRecipe();
+    await call("POST", `${R}/1/approve`, "owner", { sha256 });
+    const listed = await call("GET", R, "viewer");
+    expect(listed.status).toBe(200);
+    expect(listed.body.project.map((r) => [r.ref, r.state, r.approvals.map((a) => a.role)])).toEqual([[REF, "pending", ["owner"]]]);
+    expect((await call("GET", R, "stranger")).status).not.toBe(200);
+    expect((await call("POST", `${R}/1/withdraw`, "contributor", { sha256 })).status).toBe(403);
+    expect((await call("POST", `${R}/1/withdraw`, "lead", { sha256 })).status).toBe(201);
+    expect(approvals().at(-1).action).toBe("recipe:withdrawn recipe@1");
+    expect((await call("POST", `${R}/1/approve`, "lead", { sha256 })).body.message).toMatch(/^recipe@1 was withdrawn \(ledger #\d+\)/);
+    expect((await call("GET", R, "viewer")).body.project[0].state).toBe("withdrawn");
+  }, 60_000);
 });

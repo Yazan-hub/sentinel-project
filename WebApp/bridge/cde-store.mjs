@@ -1210,8 +1210,9 @@ export async function audit(project_id, entity_type, entity_id, action, actor, o
 // The prefix comes after the two above, so `find` keeps their own words.
 // MA-4e: verify:measured is the bridge's measure of a placed changeset (changesets-store verifyChangeset) — the desk reads the newest one by entity_id as fact; no client posts a verify: row.
 // MA-8-1: edit_cost:published (entity_type edit_cost) is a lead's publish of a run's edit cost (changesets-store publishEditCost) — read back as the last published numbers.
-const RESERVED_ACTIONS = ["verdict:", "gate:", "roi:", "state:", "hold:", "review:", "changeset_reviewed", "changeset_reopened", "changeset_", "geometry linked", "evidence:", "attestation:", "verify:", "edit_cost:"];
-const RESERVED_TYPES = ["stage_gate", "hold", "delivery_gate", "review", "platform_gate", "evidence", "attestation", "edit_cost"];
+// MA-8-13 (D13): recipe:approved / recipe:withdrawn (entity_type recipe) are recipe-store's own - a run counts them as the two approvals, so a note may not pass for one.
+const RESERVED_ACTIONS = ["verdict:", "gate:", "roi:", "state:", "hold:", "review:", "changeset_reviewed", "changeset_reopened", "changeset_", "geometry linked", "evidence:", "attestation:", "verify:", "edit_cost:", "recipe:"];
+const RESERVED_TYPES = ["stage_gate", "hold", "delivery_gate", "review", "platform_gate", "evidence", "attestation", "edit_cost", "recipe"];
 
 /** Record an audit event by project KEY (golden thread) — the DB trigger hash-chains it (tamper-evident). A reserved
  *  row (an action starting with one of RESERVED_ACTIONS, or an entity_type in RESERVED_TYPES; case and surrounding

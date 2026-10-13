@@ -4,6 +4,8 @@ import { describe, it, expect, vi } from "vitest";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { canonical } from "./artefact-store.mjs";
+import { canonicalSha256 as canonicalSha } from "./canonical.mjs";
+import { officeArtefactAsService } from "./artefact-store.mjs";
 import { putArtefact, foldArtefact, getArtefact, getArtefactVersion, listArtefacts, resolveIdsSpec, resolveArtefact, refLabel, validateArtefact, KINDS, artefactReply, resolveContract } from "./artefact-store.mjs";
 import { runWithAuth } from "./bridge-auth.mjs";
 
@@ -11,6 +13,7 @@ import { runWithAuth } from "./bridge-auth.mjs";
 const cdeMock = vi.hoisted(() => ({
   ensureProject: vi.fn(async (key) => ({ id: `uuid-${key}`, key })), docGet: vi.fn(async () => null),
   docInsert: vi.fn(async () => {}), docUpsert: vi.fn(async () => {}), audit: vi.fn(async () => {}),
+  sb: vi.fn(async () => []), // MA-8-13: officeArtefactAsService's service reads
 }));
 vi.mock("./cde-store.mjs", () => cdeMock);
 
@@ -858,5 +861,33 @@ describe("validateArtefact — ifc_export (MA-8-6)", () => {
     const d = memDeps();
     const r = await putArtefact("p", "ifc_export", cases[0].body, { actor: "x" }, d);
     expect(r).toMatchObject({ kind: "ifc_export", version: 1 });
+  });
+});
+
+describe("recipe (MA-8-13, D13): the bridge's own kind - never a hand PUT, validated, readable by version from the office", () => {
+  const GOOD = () => JSON.parse(readFileSync(new URL("./fixtures/recipe/good.json", import.meta.url), "utf8"));
+  it("recipe is a kind (singular - the unknown-kind pins use the plural); a hand PUT is refused, a lead's included, and nothing is written", async () => {
+    expect(KINDS.at(-1)).toBe("recipe");
+    const d = memDeps();
+    await expect(putArtefact("p", "recipe", GOOD(), { actor: "x" }, d)).rejects.toMatchObject({ status: 400, message: "recipes change only through the recipe routes (draft, approve) — nothing was saved" });
+    expect(d.docs.size).toBe(0);
+  });
+  it("foldArtefact installs a valid recipe body and refuses a stray key, in words naming the path", async () => {
+    const d = memDeps({ role: "viewer" }); // the recipe route checked the person; fold has no role check
+    const p = await foldArtefact("p", "recipe", GOOD(), { actor: "x", expectVersion: 0 }, d);
+    expect(p).toMatchObject({ kind: "recipe", version: 1, sha256: canonicalSha(GOOD()) });
+    await expect(foldArtefact("p", "recipe", { ...GOOD(), extra: 1 }, { actor: "x", expectVersion: 1 }, d)).rejects.toMatchObject({ status: 400, message: expect.stringContaining("recipe: extra is not a recipe field") });
+    expect(validateArtefact("recipe", GOOD())).toBe(true);
+  });
+  it("officeArtefactAsService with a version reads that version's document, not the pointer's current one", async () => {
+    cdeMock.sb.mockReset();
+    cdeMock.sb.mockImplementation(async (path) => (path.startsWith("projects?") ? [{ id: "uuid-office" }] : [{ data: { version: 2, kind: "recipe" } }]));
+    expect(await officeArtefactAsService("office", "recipe", 2)).toEqual({ version: 2, kind: "recipe" });
+    const reads = cdeMock.sb.mock.calls.map((c) => c[0]);
+    expect(reads).toHaveLength(2);
+    expect(reads[1]).toContain("doc_id=eq.recipe%402");
+    cdeMock.sb.mockClear();
+    await officeArtefactAsService("office", "recipe"); // no version: pointer first, then its version
+    expect(cdeMock.sb.mock.calls.map((c) => c[0])).toHaveLength(3);
   });
 });

@@ -9,9 +9,10 @@ import { canonical, canonicalSha256 as sha256 } from "./canonical.mjs";
 import { resolveActor } from "./bridge-auth.mjs";
 import { parseLodMatrix } from "./sentinel-core.mjs"; // MA-2b: the one lod_matrix reader (src/sentinel-core/lod-matrix.ts)
 import { validatePack } from "./evidence-logic.mjs"; // MA-4a: the evidence_pack validator (pure, no cycle)
+import { validateRecipe } from "./recipe-logic.mjs"; // MA-8-13: the recipe validator (pure, no cycle)
 
 export const STORE = "artefact";
-export const KINDS = ["ids", "ruleset", "naming", "contract", "guideline", "layers", "type_catalog", "publish", "roi", "review", "carbon_factors", "lod_matrix", "evidence_pack", "ifc_export"];
+export const KINDS = ["ids", "ruleset", "naming", "contract", "guideline", "layers", "type_catalog", "publish", "roi", "review", "carbon_factors", "lod_matrix", "evidence_pack", "ifc_export", "recipe"];
 // MA-8-6 (P1-11): the data types the Revit 2027 IFC exporter's DefaultUserDefinedParameterSets.txt lists (read on this PC). The add-in
 // writes that file's format from an ifc_export body, so a type the exporter does not know never installs. SentinelAddin/Engine/IfcExportMapping.cs mirrors this.
 export const IFC_EXPORT_TYPES = ["Acceleration", "AngularVelocity", "Area", "AreaDensity", "Boolean", "ClassificationReference", "ColorTemperature", "Count", "Currency",
@@ -46,12 +47,13 @@ async function wire(deps = {}) {
 
 /** The office's current artefact, read with the SERVICE key: inheriting it is the point, and a member of the
  *  child project need not be a member of the office (ensureProject would 403, bridge_docs RLS would hide it). */
-async function officeArtefactAsService(officeKey, kind) {
+export async function officeArtefactAsService(officeKey, kind, version) {
   const { sb } = await import("./cde-store.mjs");
   const rows = await sb(`projects?key=eq.${encodeURIComponent(officeKey)}&select=id`, { service: true });
   const pid = rows?.[0]?.id;
   if (!pid) return null;
   const get = async (docId) => (await sb(`bridge_docs?store=eq.${STORE}&project_id=eq.${pid}&doc_id=eq.${encodeURIComponent(docId)}&select=data`, { service: true }))?.[0]?.data ?? null;
+  if (version !== undefined) return get(`${kind}@${version}`); // MA-8-13: one named version (a recipe is run by {version, scope})
   const pointer = await get(kind);
   return pointer ? get(`${kind}@${pointer.version}`) : null;
 }
@@ -393,6 +395,7 @@ export function validateArtefact(kind, body) {
     // MA-4a (design §6.2): the manifest only — the files stay in the project's evidence folder. Every write is the bridge's own fold.
     validatePack(body);
   }
+  if (kind === "recipe") validateRecipe(body); // MA-8-13
   if (kind === "ifc_export") {
     // MA-8-6 (P1-11): the office's property-set mapping for the IFC export. The add-in writes the exporter's tab-separated file from it at export
     // time, so a tab, CR or LF in any name would add psets to that file: refused here, as IfcExportMapping.cs refuses it.
@@ -435,7 +438,7 @@ const PLAIN_NAME = /^[A-Za-z0-9._@-]{1,100}$/;
 
 // MA-4a: two writes of one kind at once meet docInsert's create-only kind@n (the database's 409, or a test double's).
 const RACE = (kind) => `another change to ${kind} landed at the same moment — read it again and retry; nothing was saved`;
-const PROJECT_ONLY = ["evidence_pack"]; // MA-4a: a project never inherits its office's evidence
+const PROJECT_ONLY = ["evidence_pack", "recipe"]; // MA-4a: a project never inherits its office's evidence
 
 /** kind@n+1, the pointer and the artefact_installed row — putArtefact's and foldArtefact's one writer. */
 async function installVersion(d, proj, kind, body, prev, { actor, source }) {
@@ -458,6 +461,8 @@ export async function putArtefact(key, kind, body, { actor, source } = {}, deps)
   // MA-4a spec amendment S1: an evidence pack's items carry the bridge's hashes and attestations, so it changes only through the
   // evidence routes (evidence-store.mjs → foldArtefact) — never a hand PUT, a lead's included.
   if (kind === "evidence_pack") throw err(400, "evidence packs change only through the evidence routes; nothing was saved");
+  // MA-8-13 (D13): a recipe's body is a verified run's and its approvals are the bridge's rows — it changes only through the recipe routes.
+  if (kind === "recipe") throw err(400, "recipes change only through the recipe routes (draft, approve) — nothing was saved");
   validateArtefact(kind, body);
   if (kind === "contract" && !PLAIN_NAME.test(body.contract_key))
     throw bad(kind, "contract_key", "must be a plain name (letters, digits, . _ @ -), up to 100 characters");

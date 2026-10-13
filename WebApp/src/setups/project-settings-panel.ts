@@ -279,7 +279,8 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
       if (mine !== stdSeq) return;
       if (!r.ok) throw new Error((j as { message?: string })?.message || `HTTP ${r.status}`);
       const pointers = j as Record<string, { version: number; sha256: string; installed_by?: string; installed_at?: string } | null>;
-      const rows = await Promise.all(Object.entries(pointers).map(async ([kind, p]): Promise<[string, InForce | null]> =>
+      // MA-8-13: a recipe is not a standard in force (it is listed on the review desk) - no row here, and so no Install JSON… (the bridge refuses the PUT too)
+      const rows = await Promise.all(Object.entries(pointers).filter(([kind]) => kind !== "recipe").map(async ([kind, p]): Promise<[string, InForce | null]> =>
         [kind, p ? { body: null, ref: `${kind}@${p.version}`, source: "project", sha256: p.sha256, installed_by: p.installed_by, installed_at: p.installed_at }
                  : await artefactInForce(base, key, kind)]));
       if (mine !== stdSeq) return;

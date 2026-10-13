@@ -325,6 +325,9 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
   /** Everything before the first write: the job, the body, the scans, decision 19, the standards, the plan, each storey validated. */
   async function prepare() {
     const { row, result } = await trustedJob(key, id);
+    // MA-8-13 (D13): a recipe job still fits - the recipe body that ran, the reader's version, this bridge's planner and the standards in force
+    // (they can change between the run and this Propose). Proposing stays the usual lead's step (D-B5-4).
+    if (row.recipe) await (deps.recipeHolds ?? (await import("./recipe-store.mjs")).recipeHolds)(key, row.recipe);
     // MA-5a-4: a drawing's candidates are in paper millimetres — they land with the lead's 2-point alignment (drawing-plan), one drawing
     // (item) per proposal; a scan's with the lead's frame.
     const drawing = row.reader === DRAWING, ifc = row.reader === IFC;
@@ -462,7 +465,7 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
       done = await d.audit(proj.id, "build", null, `build:run ${id} · ${P} ${V} · proposed`, actor || "web", null, {
         job_id: id, planner: P, version: V, [rowKey]: row.ledger, result_sha256: row.result_sha256, ...said,
         storeys, changesets, gaps, already_filed: plan.already_filed, ...(plan.off_storey?.length ? { off_storey: plan.off_storey } : {}), overlaps, guideline: guideline.label, guideline_sha256: guideline.sha256,
-        catalog: catalog.label, catalog_sha256: catalog.sha256, ...(differences ? { differences } : {}), ...(plan.revision ? { revision: plan.revision } : {}), model_calls: 0, tokens: 0, claimed: false });
+        catalog: catalog.label, catalog_sha256: catalog.sha256, ...(row.recipe ? { recipe: row.recipe } : {}), ...(differences ? { differences } : {}), ...(plan.revision ? { revision: plan.revision } : {}), model_calls: 0, tokens: 0, claimed: false });
     } catch (e) { throw await halfWay("the planner's build:run row was not written", e); }
     return { job: id, [rowKey]: row.ledger, ...said, storeys, changesets, gaps, already_filed: plan.already_filed, overlaps, ...(plan.off_storey?.length ? { off_storey: plan.off_storey } : {}),
       ...(differences ? { differences } : {}), ...(plan.revision ? { revision: plan.revision } : {}), ledger: ledgerRef(done) };

@@ -1,0 +1,17 @@
+{
+  "name": "Kladno storeys",
+  "reader": { "name": "sentinel-survey", "version": "0.6.0" },
+  "params": { "voxel_mm": 20, "storey_min_mm": 2000 },
+  "planner": { "name": "survey-planner", "version": "0.1.0" },
+  "standards": {
+    "guideline": { "label": "guideline@7 · project · 4cb2…", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+    "type_catalog": { "label": "type_catalog@3 · office · 9f01…", "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }
+  },
+  "verified": {
+    "project": "ma4c-drill", "run": "job#900", "job_id": "job-0013",
+    "reader_row": { "id": 900, "hash": "h900" },
+    "planner_rows": [{ "id": 910, "hash": "h910" }],
+    "edit_cost_row": { "id": 920, "hash": "h920" },
+    "edit_cost": { "filed": 12, "web": 1, "carried": 0, "revit": 1, "applied": 10, "undone": 1, "kept": 9, "withdrawn": 0, "share_changed": 0.25 }
+  }
+}

@@ -1126,6 +1126,27 @@ describe("proposeFromJob (MA-4d): a lead turns a trusted survey job into changes
     expect(deps.audit.mock.calls.at(-1)[6]).toMatchObject({ status: "applied", job: { id: "job-0002", ledger_id: 2201 }, evidence: [{ id: "ev-0001", sha256: EV }],
       from_job: [{ cid: "scan-L00-wall-1", evidence: ["ev-0001#slice-L00"], revit_unique_id: "u-0" }, { cid: "scan-L00-wall-2" }, { cid: "scan-L00-wall-3" }] });
   });
+  it("(r) MA-8-13: a recipe job is checked again before anything is filed (the recipe body, the reader's version, the planner, the standards), and the planner's row carries the recipe", async () => {
+    const stamp = { ref: "recipe@1", scope: "project", sha256: "ab".repeat(32), runner_user_id: "u-third", approvals: [{ id: 950, hash: "c1", role: "lead", user_id: "u-lead" }, { id: 951, hash: "c2", role: "owner", user_id: "u-owner" }], reader_version: "0.1.0", same_reader: true };
+    const recipeJob = { ...TRUSTED, row: { ...TRUSTED.row, recipe: stamp } };
+    const held = vi.fn(async () => null);
+    const deps = sdeps({ trustedJob: vi.fn(async () => recipeJob), recipeHolds: held });
+    await propose(deps);
+    expect(held).toHaveBeenCalledWith("ma4c-drill", stamp);
+    expect(deps.audit.mock.calls.at(-1)[3]).toBe("build:run job-0002 · survey-planner 0.1.0 · proposed");
+    expect(deps.audit.mock.calls.at(-1)[6]).toMatchObject({ recipe: stamp });
+    // the recipe no longer fits (its words come from recipe-store): a 409 ending "nothing was saved", and not one write
+    const words = "this job ran sentinel-survey at a version other than 0.6.0, the one recipe@1 was verified with — run the recipe again; nothing was saved";
+    const stale = sdeps({ trustedJob: vi.fn(async () => recipeJob), recipeHolds: vi.fn(async () => { throw Object.assign(new Error(words), { status: 409 }); }) });
+    await expect(propose(stale)).rejects.toMatchObject({ status: 409, message: words });
+    expect([stale.docInsert.mock.calls.length, stale.audit.mock.calls.length, stale.adjudicateProposal.mock.calls.length]).toEqual([0, 0, 0]);
+    // a job that ran without a recipe asks nothing and its row carries none
+    const plain = sdeps({ recipeHolds: held });
+    held.mockClear();
+    await propose(plain);
+    expect(held).not.toHaveBeenCalled();
+    expect(plain.audit.mock.calls.at(-1)[6]).not.toHaveProperty("recipe");
+  });
   it("(f) a filing the store stops half way says what WAS filed (the store listed again) and what to do", async () => {
     const deps = sdeps(); let n = 0; const insert = deps.docInsert;
     deps.docInsert = vi.fn(async (...a) => { if (++n === 2) throw new Error("the store is down"); return insert(...a); });

@@ -12,6 +12,7 @@ import { myRoleRead, roleWords } from "./my-role";
 import { activePid, onActiveProjectChange } from "./active-project";
 import { SERVICE_URL } from "../config";
 import { loaWords } from "../sentinel-core/loa";
+import { jobLine, startRecipe, type SurveyJob } from "./evidence";
 import type * as OBC from "@thatopen/components";
 
 /** MA-3b3: where a carried decline was made — the earlier changeset, the ghost there, and "web" or "revit". */
@@ -522,6 +523,62 @@ export function editCostLine(r: EditCostRun): string {
   return `${parts.join(" · ")} · ${kept} — ${r.ceiling}`;
 }
 
+// ── MA-8-13 (C15, D13): the recipe registry — the method of a verified run, approved by a lead and an owner (two different people), run by a third. ──
+export interface RecipeApproval { id: number; hash: string | null; role: string; user_id: string; by: string | null; at: string | null; counts: boolean; }
+export interface RecipeBody {
+  name: string; reader: { name: string; version: string }; params: Record<string, number>; planner: { name: string; version: string };
+  standards: { guideline: { label: string; sha256: string }; type_catalog: { label: string; sha256: string } };
+  verified: { project: string; run: string; job_id: string; edit_cost: { filed: number; kept: number; share_changed: number | null } };
+}
+export interface RecipeRow { ref: string; version: number; scope: "project" | "office"; key: string; sha256: string; body: RecipeBody; state: "pending" | "approved" | "withdrawn" | "untrusted";
+  approved: boolean; approvals: RecipeApproval[]; withdrawn: { id: number } | null; why: string | null; installed_by: string | null; }
+export interface RecipeList { project: RecipeRow[]; office: { key: string; recipes: RecipeRow[] } | null; }
+
+const recipesAt = (base: string, key: string, path = "") => `${base.replace(/\/$/, "")}/cde/${encodeURIComponent(key)}/recipes${path}`;
+/** GET /cde/:key/recipes. Any failure throws "not read — <why>". */
+export async function readRecipes(base: string, key: string): Promise<RecipeList> {
+  let r: Response;
+  try { r = await bfetch(recipesAt(base, key)); }
+  catch (e) { throw new Error(`not read — ${(e as Error).message}`); }
+  const j = (await r.json().catch(() => null)) as (RecipeList & { message?: string }) | null;
+  if (!r.ok || !j || !Array.isArray(j.project)) throw new Error(`not read — ${j?.message || (r.ok ? "the bridge answered without recipes" : `HTTP ${r.status}`)}`);
+  return j;
+}
+const recipePost = <T>(url: string, body: unknown) => bwrite<T>(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+/** POST /cde/:key/recipes {run, name, scope?} — a lead's. A refusal throws the bridge's words. */
+export const postRecipeDraft = (base: string, key: string, run: string, name: string, scope: "project" | "office" = "project") =>
+  recipePost<{ ref: string; scope: string; key: string }>(recipesAt(base, key), { run, name, scope });
+/** POST /cde/:key/recipes/:n/approve {sha256, scope} — the sha the desk shows, so an approval names the body that was read. */
+export const postRecipeApprove = (base: string, key: string, r: RecipeRow) =>
+  recipePost<{ ref: string; role: string; approved: boolean; ledger: LedgerRef | null }>(recipesAt(base, key, `/${r.version}/approve`), { sha256: r.sha256, scope: r.scope });
+export const postRecipeWithdraw = (base: string, key: string, r: RecipeRow) =>
+  recipePost<{ ref: string; ledger: LedgerRef | null }>(recipesAt(base, key, `/${r.version}/withdraw`), { sha256: r.sha256, scope: r.scope });
+
+/** The standard a recipe names, without its sha: "guideline@7". */
+const refOnly = (label: string): string => label.split(" · ")[0];
+const roleWord = (role: string): string => (role === "lead" ? "a lead" : role === "owner" ? "an owner" : `a ${role}`);
+
+/** One recipe in one line: its reader and planner, the standards it ran on, the run it was verified on (kept of filed, the share changed) and where
+ *  its approvals stand — who approved, who is owed, who no longer counts. Pure. */
+export function recipeLine(r: RecipeRow): string {
+  const b = r.body, ec = b.verified.edit_cost;
+  const head = `${r.ref} · ${r.scope} · ${b.name} · ${b.reader.name} ${b.reader.version} → ${b.planner.name} ${b.planner.version} · ${refOnly(b.standards.guideline.label)}, ${refOnly(b.standards.type_catalog.label)}`
+    + ` · ${b.verified.job_id}: ${ec.kept} of ${ec.filed} kept${ec.share_changed == null ? "" : ` (${Math.round(ec.share_changed * 100)} % changed)`}`;
+  const counting = r.approvals.filter((a) => a.counts), lapsed = r.approvals.filter((a) => !a.counts);
+  const by = counting.map((a) => `${roleWord(a.role)} (#${a.id})`).join(" and ");
+  const stand = r.state === "withdrawn" ? `withdrawn (ledger #${r.withdrawn?.id ?? "?"}) — it runs no more`
+    : r.state === "untrusted" ? `not trusted — ${r.why ?? "its body does not hash to the sha256 it was installed with"}`
+    : r.state === "approved" ? `approved by ${by} — a third person, who approved neither, may run it`
+    : counting.length ? `approved by ${by}; ${counting[0].role === "lead" ? "an owner's" : "a lead's"} approval is owed`
+    : "no approval yet — a lead's and an owner's, two different people, are owed";
+  return `${head} · ${stand}${lapsed.length ? ` · ${lapsed.map((a) => `#${a.id}`).join(", ")} no longer counts (its approver is not a lead or owner any more)` : ""}`;
+}
+/** What the desk says after a draft and after an approval. Pure. */
+export const draftWords = (r: { ref: string; scope: string }, run: string): string =>
+  `✓ Drafted ${r.ref} (${r.scope}) from ${run} — it runs once a lead and an owner (two different people) approve it; whoever runs it approved neither.`;
+export const approveWords = (r: { ref: string; role: string; approved: boolean; ledger: LedgerRef | null }): string =>
+  `Approved ${r.ref} as ${r.role} · ${rowWords(r)} — ${r.approved ? "it is approved: a third person may run it" : `${r.role === "lead" ? "an owner's" : "a lead's"} approval, from another person, is owed`}.`;
+
 /** MA-3d: what Highlight in 3D does with a storey's ghosts and what each loaded model answered for their GlobalIds (null = not in it):
  *  the highlighter's map (modelId → the local ids found) and the words. Pure. */
 /** MA-3d: the distinct GlobalIds a storey's ghosts highlight: a retype's or an attach's element. A type edit (set_parameter) is left
@@ -717,7 +774,7 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
   };
 
   // MA-8-1: one line per run; a lead gets Publish on a complete one (textContent only).
-  const editCostBox = (data: EditCost | Error, role: string): HTMLElement => {
+  const editCostBox = (data: EditCost | Error, role: string, hasOffice = false): HTMLElement => {
     const box = el("div", "", "margin-top:.9rem;border-top:1px solid #2a2a30;padding-top:.5rem");
     box.append(el("div", "Edit cost per run", "font-weight:600"));
     if (data instanceof Error) { box.append(el("div", `Edit cost ${data.message}`, "color:#fca5a5")); return box; }
@@ -729,6 +786,50 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
         row.append(btn("Publish", async () => {
           try { say(`Published ${r.label} · ${rowWords(await postEditCostPublish(base, activePid(), r.run))}`); void show(); }
           catch (e) { say(`not published — ${(e as Error).message}`, true); }
+        }));
+      // MA-8-13 (C15): a job's complete run with something kept can become a recipe - a lead's; the bridge checks that it is verified (textContent only)
+      if (r.complete && r.kept >= 1 && /^job#\d+$/.test(r.run) && canReopen(role)) {
+        const name = el("input", "", "width:9rem;background:#111;color:#e5e7eb;border:1px solid #2c2c34;border-radius:.3rem;padding:.2rem .4rem;font:11px system-ui");
+        name.placeholder = "Recipe name (one line)";
+        const scope = hasOffice ? el("select", "", "background:#111;color:#e5e7eb;border:1px solid #2c2c34;border-radius:.3rem;font:11px system-ui") : null;
+        if (scope) for (const [v, w] of [["project", "this project"], ["office", "its office"]]) { const o = el("option", w); o.value = v; scope.append(o); }
+        row.append(name, ...(scope ? [scope] : []), btn("Draft a recipe…", async () => {
+          if (!name.value.trim()) return say("Name the recipe first (one line).", true);
+          try { say(draftWords(await postRecipeDraft(base, activePid(), r.run, name.value.trim(), (scope?.value as "project" | "office" | undefined) ?? "project"), r.run)); void show(); }
+          catch (e) { say(`not drafted — ${(e as Error).message}`, true); }
+        }));
+      }
+      box.append(row);
+    }
+    return box;
+  };
+
+  // MA-8-13 (D13): the registry under the edit cost - Approve (a lead or owner; the bridge counts two people of the two roles), Withdraw, and Run on the evidence pack
+  // for a contributor once approved (the bridge refuses a runner who approved it). textContent only.
+  const recipesBox = (data: RecipeList | Error, role: string): HTMLElement => {
+    const box = el("div", "", "margin-top:.9rem;border-top:1px solid #2a2a30;padding-top:.5rem");
+    box.append(el("div", "Recipes", "font-weight:600"));
+    if (data instanceof Error) { box.append(el("div", `Recipes ${data.message}`, "color:#fca5a5")); return box; }
+    const all = [...data.project, ...(data.office?.recipes ?? [])];
+    if (!all.length) { box.append(el("div", "No recipe yet — a lead drafts one from a complete run above (Draft a recipe…).", "color:#8b93a1")); return box; }
+    for (const r of all) {
+      const row = el("div", "", "display:flex;gap:.4rem;align-items:flex-start;padding:.2rem 0");
+      row.append(el("div", recipeLine(r), "flex:1"));
+      const live = r.state === "pending" || r.state === "approved";
+      if (live && canReopen(role) && r.state === "pending")
+        row.append(btn("Approve", async () => {
+          try { say(approveWords(await postRecipeApprove(base, activePid(), r))); void show(); }
+          catch (e) { say(`not approved — ${(e as Error).message}`, true); }
+        }));
+      if (live && canReopen(role))
+        row.append(btn("Withdraw", async () => {
+          try { say(`Withdrew ${r.ref} · ${rowWords(await postRecipeWithdraw(base, activePid(), r))} — it runs no more.`); void show(); }
+          catch (e) { say(`not withdrawn — ${(e as Error).message}`, true); }
+        }));
+      if (r.state === "approved" && canDecide(role))
+        row.append(btn("Run on the evidence pack", async () => {
+          try { const j = (await startRecipe(base, activePid(), { version: r.version, scope: r.scope })).job as SurveyJob; say(`✓ Started ${jobLine(j)} — Files ▸ Evidence ↻ shows its progress.`); }
+          catch (e) { say(`not started — ${(e as Error).message}`, true); }
         }));
       box.append(row);
     }
@@ -759,6 +860,7 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
     const ledger = decided instanceof Error ? new Map<string, LedgerRows>() : await readLedger(base, key, decided.slice(0, DECIDED_MAX).map((c) => c.id)).catch((e: Error) => e);
     if (mine !== seq) return;
     const cost = await readEditCost(base, key).catch((e: Error) => e); // MA-8-1: a read of its own; a failure is said in its section
+    const recipes = await readRecipes(base, key).catch((e: Error) => e); // MA-8-13: likewise
     if (mine !== seq) return;
     // MA-4e: the newest measure of each placed survey changeset shown — one read each; a failed one is said under its own report, never a guess.
     const shownMeasured = new Set(decided instanceof Error ? [] : decided.slice(0, DECIDED_MAX).filter((c) => c.job && !isDrawn(c)).map((c) => c.id));
@@ -771,7 +873,8 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
     let tail: HTMLElement;
     try { tail = recent(decided, ledger, role.role, verified); } catch (e) { tail = el("div", `Reports not shown — ${(e as Error).message}`, "color:#fca5a5"); }
     try { const mb = measuredBox(measuredAll, new Map(decided instanceof Error ? [] : decided.map((c) => [c.id, c]))); if (mb) tail.append(mb); } catch (e) { tail.append(el("div", `Measures not shown — ${(e as Error).message}`, "color:#fca5a5")); }
-    try { tail.append(editCostBox(cost, role.role)); } catch (e) { tail.append(el("div", `Edit cost not shown — ${(e as Error).message}`, "color:#fca5a5")); }
+    try { tail.append(editCostBox(cost, role.role, !(recipes instanceof Error) && recipes.office != null)); } catch (e) { tail.append(el("div", `Edit cost not shown — ${(e as Error).message}`, "color:#fca5a5")); }
+    try { tail.append(recipesBox(recipes, role.role)); } catch (e) { tail.append(el("div", `Recipes not shown — ${(e as Error).message}`, "color:#fca5a5")); }
     bar.replaceChildren(el("b", `Review desk · ${key}`), el("span", roleWords(role), "color:#8b93a1"), btn("↻ Refresh", () => void show()));
     if (canDecide(role.role)) bar.append(reason, btn("Accept ticked", () => void decide("accept")), btn("Decline ticked", () => void decide("decline")));
     else bar.append(el("span", role.role === "service" ? "· sign in to accept or decline — the machine credential never reviews" : "· read-only: accepting or declining needs contributor", "color:#fbbf24"));
