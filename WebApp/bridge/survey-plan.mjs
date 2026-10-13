@@ -40,7 +40,7 @@ const r1 = (v) => Math.round(v * 10) / 10 || 0; // 0.1 mm, never -0
 export function readProposeBody(b, levelCids) {
   if (!b || typeof b !== "object" || Array.isArray(b)) throw bad("the body is {frame, levels?}");
   for (const k of Object.keys(b))
-    if (k !== "frame" && k !== "levels") throw bad(`${k.slice(0, 64)} is not a proposal field — the bridge builds every changeset from the job's own result; send {frame, levels?}`);
+    if (k !== "frame" && k !== "levels" && k !== "materials") throw bad(`${k.slice(0, 64)} is not a proposal field — the bridge builds every changeset from the job's own result; send {frame, levels?, materials?}`);
   const f = b.frame;
   if (!f || typeof f !== "object" || Array.isArray(f))
     throw bad("frame is required — where the scan sits in the model: {dx_mm, dy_mm, dz_mm, rotation_deg}, the move and turn from the model's internal origin to the scan's origin ({0, 0, 0, 0} when the scan is registered to the internal origin)");
@@ -62,7 +62,39 @@ export function readProposeBody(b, levelCids) {
       levels[cid] = name.trim();
     }
   }
-  return { frame: { dx_mm: f.dx_mm, dy_mm: f.dy_mm, dz_mm: f.dz_mm, rotation_deg: f.rotation_deg }, levels };
+  const materials = b.materials == null ? null : readMaterials(b.materials);
+  return { frame: { dx_mm: f.dx_mm, dy_mm: f.dy_mm, dz_mm: f.dz_mm, rotation_deg: f.rotation_deg }, levels, ...(materials ? { materials } : {}) };
+}
+
+/** MA-7-9: the body's `materials` {cid: {item, material}} → [{cid, item, material}], its shape only (the wall, the photo and the guideline are
+ *  checked in the store). A photo sets a material and nothing else: any other key is refused by name, never dropped. */
+export function readMaterials(m) {
+  if (typeof m !== "object" || Array.isArray(m)) throw bad('materials is {"<wall cid>": {item: "ev-…", material: "<a material the guideline names>"}}');
+  const out = Object.entries(m);
+  if (!out.length) return null;
+  if (out.length > 500) throw bad("materials names more than 500 walls");
+  return out.map(([cid, v]) => {
+    if (!v || typeof v !== "object" || Array.isArray(v)) throw bad(`materials.${cid.slice(0, 64)} must be {item, material}`);
+    for (const k of Object.keys(v)) if (k !== "item" && k !== "material") throw bad(`a photo sets the material only — materials.${cid.slice(0, 64)}.${k.slice(0, 64)} is not read (no size, thickness or height comes from a photo)`);
+    if (typeof v.item !== "string" || !/^ev-\w{1,32}$/.test(v.item)) throw bad(`materials.${cid.slice(0, 64)}.item must be an evidence photo's id (ev-…)`);
+    if (typeof v.material !== "string" || !v.material.trim() || v.material.length > 64) throw bad(`materials.${cid.slice(0, 64)}.material must be a material name of at most 64 characters`);
+    return { cid, item: v.item, material: v.material.trim() };
+  });
+}
+
+/** MA-7-9 (D-7-29): the materials a guideline's Walls rules key on — every `when.params.Material` value, de-duplicated without regard to case.
+ *  The typer matches a rule's value as a SUBSTRING of the fact, so a list where one value sits inside another cannot tell them apart:
+ *  → {values} or {values, clash: [inner, outer]}. */
+export function wallMaterials(guideline) {
+  const seen = new Map();
+  for (const el of guideline?.elements ?? []) {
+    if (String(el.category ?? "").trim().toLowerCase() !== "walls") continue;
+    for (const r of el.rules ?? []) for (const [k, v] of Object.entries(r.when?.params ?? {}))
+      if (k.replace(/\s+/g, "").toLowerCase() === "material" && typeof v === "string" && v.trim()) seen.set(v.trim().toLowerCase(), v.trim());
+  }
+  const values = [...seen.values()], low = [...seen.keys()];
+  for (const a of low) for (const b of low) if (a !== b && b.includes(a)) return { values, clash: [seen.get(a), seen.get(b)] };
+  return { values };
 }
 
 /** The lead's frame as a point map, scan mm → model (Revit internal) mm: turned anticlockwise about the scan's origin, then moved.
@@ -261,8 +293,9 @@ export function groupGaps(gaps) {
  *  {types, label, sha256} and `sameCategory` (MA-5a): the type catalogue the typer reads and the bundle's category match, for a door or
  *  window no office rule types (typeBySize). Throws 400/413 in words; writes nothing. */
 export function planSurvey({ job, candidates, frame, levels: named = {}, manifest = [], type, filed = { cids: new Set(), storeys: new Map() },
-  catalog = { types: [] }, sameCategory }) {
+  catalog = { types: [] }, sameCategory, materials = new Map() }) {
   const M = toModel(frame);
+  const used = []; // MA-7-9: the person's material choices a wall actually carried
   const far = placeRefusal(candidates, frame); // MA-4h: before anything is typed or built
   if (far) throw bad(far);
   const ref = `${job.id} (ledger #${job.ledger.id})`;
@@ -308,7 +341,10 @@ export function planSurvey({ job, candidates, frame, levels: named = {}, manifes
         ? { gap: { category: "Walls", want: null, size: NOT_TRUSTED, key: "two faces too close for their fit scatter to trust a thickness", nearest: [] },
           apart: `its two faces ${c.measured.faces_apart_mm} mm apart against a ${c.fit?.rmse_mm} mm fit scatter` }
         : { gap: { category: "Walls", want: null, size: NOT_MEASURED, key: "one face seen", nearest: [] } };
-      const loc = locate(segs, i), facts = { thickness_mm: t, ...(loc.location ? { params: { Location: loc.location } } : {}) };
+      // MA-7-9: a person's material from a photo rides as params.Material (the rule keys on it); the thickness stays the scan's
+      const m = materials.get(c.cid), loc = locate(segs, i);
+      const params = { ...(loc.location ? { Location: loc.location } : {}), ...(m ? { Material: m.material } : {}) };
+      const facts = { thickness_mm: t, ...(Object.keys(params).length ? { params } : {}) };
       return { facts, loc, gap: gapOf(type, "wall", facts, c.cid, loc.why, s.level) };
     });
     walls.forEach((c, i) => {
@@ -317,12 +353,15 @@ export function planSurvey({ job, candidates, frame, levels: named = {}, manifes
       if (g) return gap(c, g, apart ? `its thickness is not trusted (${apart})` : null);
       const tr = trimmed[i].trim_mm;
       const toGap = trimmed[i].to.map((j, k) => (j != null && typed[j].gap ? `the ${k ? "end" : "start"} to ${walls[j].cid}'s centreline: a type gap, not placed` : null)).filter(Boolean);
+      const m = materials.get(c.cid), said = m ? ` · material ${m.material} from photo ${m.item}, chosen by ${m.chosen_by}` : "";
       elements.push({ op: "create", kind: "wall", cid: c.cid, evidence: c.evidence, facts, validate: { identity: { Class: KIND_ENTITY.wall, Name: c.cid } },
         place: { LevelName: s.level, LocationCurve: { start: [...M.xy(trimmed[i].start), E], end: [...M.xy(trimmed[i].end), E] }, TopElevation: M.z(c.geometry.TopElevation) },
         reason: (`scan wall ${c.cid}: ${facts.thickness_mm} mm thick, ${c.measured.height_mm} mm high, ${c.measured.length_mm} mm long as measured · ${fit(c)} · ` +
           `${loc.location ? `Location ${loc.location}` : `inside or outside not read (${loc.why})`} · ends ${tr.join(" / ")} mm to the corners` +
-          `${toGap.length ? ` (${toGap.join("; ")})` : ""} · ${ref}`).slice(0, 500) });
-      byCid.set(c.cid, trust(c, { trim_mm: tr }));
+          `${toGap.length ? ` (${toGap.join("; ")})` : ""} · ${ref}`).slice(0, 500 - said.length) + said });
+      // MA-7-9: typing.material_from - whose word the material is: a person's, from this photo's blurred copy (no vision model chose it)
+      byCid.set(c.cid, trust(c, { trim_mm: tr, ...(m ? { material_from: { item: m.item, copy_sha256: m.copy_sha256, read_by: "person", chosen_by: m.chosen_by } } : {}) }));
+      if (m) used.push({ cid: c.cid, item: m.item, copy_sha256: m.copy_sha256, material: m.material, chosen_by: m.chosen_by });
     });
     // MA-5a: a door or window found in a wall face, after the walls (the executor hosts it in the one wall under its point, after the same
     // changeset's walls). Typed by an office rule when one matches, else by its measured size from the catalogue (typeBySize), else a gap
@@ -389,7 +428,7 @@ export function planSurvey({ job, candidates, frame, levels: named = {}, manifes
       throw err(413, `${s.cid} would file ${elements.length} elements on ${s.level} — over the ${MAX_CHANGESET_ELEMENTS} one changeset (one Undo) holds; a storey is not split into changesets yet — survey a part of the building — nothing was saved`);
     return { storey: s, byCid, exceptions, once, body: { name: `Survey ${job.id} · ${s.level}`, contract: 2, source: `${job.reader} ${job.version}`, elements, exceptions } };
   });
-  return { storeys, groups: groupGaps(gaps), already_filed: already };
+  return { storeys, groups: groupGaps(gaps), already_filed: already, ...(used.length ? { materials: used } : {}) };
 }
 
 // ── MA-4e: deviation after placement (design §6.6 verify:measured, §6.9 POST /measure). The service measures; the bridge picks what is measured

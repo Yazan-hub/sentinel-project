@@ -1222,6 +1222,14 @@ describe("survey proposals (MA-4d): a signed-in lead only; every refusal before 
     expect(await call("POST", "/cde/demo/build/jobs/nope/propose", "lead", B)).toEqual({ status: 400, body: { message: "a survey job is named job-NNNN — nothing was saved" } });
     expect(db.audit_log.length).toBe(rows);
   });
+  it("MA-7-9: a proposal that chooses a material by photo is the same lead's act - the machine credential, a contributor and a viewer are 403; a lead meets the job's refusal", async () => {
+    const M = { ...B, materials: { "scan-L00-wall-2": { item: "ev-000C", material: "Concrete" } } }, rows = db.audit_log.length;
+    expect((await call("POST", P, "machine", M)).status).toBe(403);
+    expect((await call("POST", P, "contributor", M)).status).toBe(403);
+    expect((await call("POST", P, "viewer", M)).status).toBe(403);
+    expect(await call("POST", P, "lead", M)).toEqual({ status: 404, body: { message: "no survey job job-0001 on demo — nothing was saved" } });
+    expect(db.audit_log.length).toBe(rows);
+  });
   it("a changeset_ row is the bridge's: the machine credential cannot post a changeset_applied naming a job through the open route", async () => {
     const rows = db.audit_log.length;
     expect(await call("POST", "/cde/demo/audit", "machine", { entity_type: "changeset", entity_id: "c1", action: "changeset_applied", new_value: { job: { id: "job-0002" }, evidence: [{ id: "ev-0001", sha256: "e1".repeat(32) }] } }))

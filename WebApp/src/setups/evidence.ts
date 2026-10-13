@@ -320,13 +320,22 @@ export interface ProposeReply {
   gaps: { groups: number; elements: number; ledger: Ledger | null }; ledger: Ledger;
   /** Decision 19: candidates this job filed before (not proposed again); another job's placed changesets on the same scan bytes. */
   already_filed: number; overlaps: { changeset: string; job_id: string; evidence: string[] }[];
+  /** MA-7-9: walls typed by a material a person chose from a blurred photo (the photo, its copy's sha, the material, who chose). */
+  materials?: { cid: string; item: string; copy_sha256: string; material: string; chosen_by: string }[];
 }
 /** The lead's form → the body: numbers as typed (a blank is 0; anything else the bridge refuses in words), a level only where one is named. Pure. */
-export function proposeBody(v: { dx: string; dy: string; dz: string; rot: string; levels: [string, string][] }) {
+export function proposeBody(v: { dx: string; dy: string; dz: string; rot: string; levels: [string, string][]; materials?: PhotoChoice[] }) {
   const n = (s: string) => (s.trim() === "" ? 0 : Number(s));
   const levels = Object.fromEntries(v.levels.filter(([, name]) => name.trim()).map(([cid, name]) => [cid, name.trim()]));
-  return { frame: { dx_mm: n(v.dx), dy_mm: n(v.dy), dz_mm: n(v.dz), rotation_deg: n(v.rot) }, ...(Object.keys(levels).length ? { levels } : {}) };
+  const materials = Object.fromEntries((v.materials ?? []).map((c) => [c.cid, { item: c.item, material: c.material.trim() }])); // MA-7-9: the material only - the bridge refuses any other key
+  return { frame: { dx_mm: n(v.dx), dy_mm: n(v.dy), dz_mm: n(v.dz), rotation_deg: n(v.rot) }, ...(Object.keys(levels).length ? { levels } : {}), ...(Object.keys(materials).length ? { materials } : {}) };
 }
+/** MA-7-9: a person's choice of a wall's material from a photo (no model chose it; no size comes from a photo). */
+export interface PhotoChoice { cid: string; item: string; material: string }
+/** The photos "Choose by photo" offers: an own photo with its blurred copy that was not retired, changed or expired (the bridge asks again: web photos are context only). */
+export const choosablePhotos = (items: EvidenceItem[]): EvidenceItem[] =>
+  items.filter((i) => i.kind === "photo" && !!i.view_copy && i.state !== "expired" && i.state !== "changed" && i.role !== "context");
+export const choiceLine = (c: PhotoChoice): string => `${c.cid}: ${c.material.trim()} from photo ${c.item}`;
 /** Propose: the bridge builds the changesets from the job's own result — only the lead's statements go from here (a scan's frame and
  *  levels; a drawing's points, level and height). */
 export const proposeFromJob = (base: string, key: string, id: string, body: ReturnType<typeof proposeBody> | ReturnType<typeof alignBody>) =>
@@ -418,7 +427,8 @@ export function proposeLine(r: ProposeReply): string {
     + (revRows ? ` · ${revRows} revision row(s) — changed since, or no longer drawn — with nothing new to place: each on the planner's row (Sentinel never deletes)` : "");
   const once = r.storeys.reduce((s, x) => s + (x.doors_seen_once?.length ?? 0), 0);
   const seenOnce = once ? ` · ${once} door hole(s) seen on one face only — not proposed (a closed door or furniture reads the same; a person draws a door the scan missed)` : "";
-  const tail = `${r.gaps.groups} type-gap group(s), ${r.gaps.elements} element(s) in the Holding Area${held}${seenOnce} · ${levels}${again}${placed} · ${ledgerLine(r.ledger)} — Review ▸ ↻`;
+  const byPhoto = r.materials?.length ? ` · ${r.materials.length} wall(s) typed by a material a person chose from a photo (${r.materials.map((m) => `${m.cid}: ${m.material} from ${m.item}, chosen by ${m.chosen_by}`).join("; ")}) — not pre-ticked` : "";
+  const tail = `${r.gaps.groups} type-gap group(s), ${r.gaps.elements} element(s) in the Holding Area${held}${seenOnce}${byPhoto} · ${levels}${again}${placed} · ${ledgerLine(r.ledger)} — Review ▸ ↻`;
   // MA-5a-4: a drawing's ghosts are inferred — none is pre-ticked, the level it creates included
   const a = r.alignment, v = r.differences;
   // MA-5a-5: said only when the storey had a scan to compare with (or its topics could not be raised)

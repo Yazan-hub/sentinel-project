@@ -9,7 +9,7 @@ vi.mock("./bridge-fetch", () => ({ bfetch, bwrite }));
 
 import { ATTESTATION_CODES, ATTESTATION_TEXTS, kindOf, needsReport, itemLine, attestationLine, admitLine, recheckLine, readEvidence,
   signAttestation, evidenceControls, requestLine, isImage, jobLine, candidateLine, surveyStartLine, surveyableScans, startSurvey, readJobs,
-  photoProvider, MAP_SERVICES, PHOTO_SOURCES, proposeBody, proposeFromJob, proposeLine, datasetLine, type ProposeReply, type EvidenceItem, type EvidencePack, type EvidenceRequest, type SurveyJob,
+  photoProvider, MAP_SERVICES, PHOTO_SOURCES, proposeBody, proposeFromJob, proposeLine, choosablePhotos, choiceLine, datasetLine, type ProposeReply, type EvidenceItem, type EvidencePack, type EvidenceRequest, type SurveyJob,
   isDrawingJob, readableDrawings, drawingStartLine, startDrawing, isIfcJob, readableIfc, ifcStartLine, startIfc, startRecipe, webLine, noticeLine, readNotice, ifcHintLine, alignBody, alignPreview, drawingSvg, snapPaper, type AlignDraft } from "./evidence";
 
 const res = (status: number, body: unknown) => ({ ok: status < 400, status, json: async () => body }) as unknown as Response;
@@ -205,6 +205,24 @@ describe("survey proposals (MA-4d)", () => {
     expect(proposeBody({ dx: "40000", dy: "", dz: " 0 ", rot: "0", levels: [["scan-L00-level", " GR-FFL "], ["scan-L01-level", "  "]] }))
       .toEqual({ frame: FRAME, levels: { "scan-L00-level": "GR-FFL" } });
     expect(proposeBody({ dx: "4 m", dy: "0", dz: "0", rot: "0", levels: [] })).toEqual({ frame: { ...FRAME, dx_mm: NaN } });
+  });
+  it("MA-7-9: Choose by photo - the body carries the material only; only an own, blurred, live photo is offered; the line says whose word the material is", () => {
+    const body = proposeBody({ dx: "40000", dy: "0", dz: "0", rot: "0", levels: [], materials: [{ cid: "scan-L00-wall-2", item: "ev-000C", material: " Concrete " }] });
+    expect(body).toEqual({ frame: FRAME, materials: { "scan-L00-wall-2": { item: "ev-000C", material: "Concrete" } } }); // no thickness, no size
+    expect(proposeBody({ dx: "0", dy: "0", dz: "0", rot: "0", levels: [], materials: [] })).not.toHaveProperty("materials");
+    const copy = { sha256: "e".repeat(64), size_bytes: 1, width: 1, height: 1, areas: 0, faces: 0, plates: 0, method: "person-marked" as const, marked_by: "a", marked_at: "t", tool: "x" };
+    const ph = (id: string, over: Partial<EvidenceItem> = {}): EvidenceItem => ({ id, kind: "photo", format: "jpg", sha256: "f".repeat(64), size_bytes: 1, path: `p/${id}.jpg`, surveyable: false, admitted_by: "a", admitted_at: "t", view_copy: copy, ...over });
+    expect(choosablePhotos([ph("ev-1"), ph("ev-2", { view_copy: undefined }), ph("ev-3", { state: "changed" }), ph("ev-4", { state: "expired" }), ph("ev-5", { role: "context" }), ph("ev-6", { kind: "scan" })]).map((i) => i.id)).toEqual(["ev-1"]);
+    expect(choiceLine({ cid: "w1", item: "ev-000C", material: " Block " })).toBe("w1: Block from photo ev-000C");
+    expect(proposeLine({ ...REPLY, materials: [{ cid: "scan-L00-wall-2", item: "ev-000C", copy_sha256: "e".repeat(64), material: "Concrete", chosen_by: "lead@example.test" }] }))
+      .toContain(" · 1 wall(s) typed by a material a person chose from a photo (scan-L00-wall-2: Concrete from ev-000C, chosen by lead@example.test) — not pre-ticked · scan-L00-level");
+  });
+  it("MA-7-9: files-panel offers Choose by photo in the scan's Propose form only, sends the choices with the lead's frame, and asks no model", () => {
+    const src = readFileSync(new URL("./files-panel.ts", import.meta.url), "utf8");
+    expect(src).toContain(`(what === "scan" ? chooseByPhoto() : "")`);
+    expect(src).toContain(`levels, materials: proposeMats });`);
+    expect(src).toContain(`Choose by photo: for a wall no rule types, you name its material from a blurred photo of it`);
+    expect(src).toContain(`choosablePhotos(evidence?.pack.items ?? [])`);
   });
   it("Propose posts to …/build/jobs/:id/propose; the line counts what was filed, pre-ticked and held, and how each storey met its level", async () => {
     bwrite.mockResolvedValue(REPLY);
