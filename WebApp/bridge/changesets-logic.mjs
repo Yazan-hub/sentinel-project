@@ -413,7 +413,7 @@ const IMAGE_B64 = /^(\/9j\/|iVBORw0KGgo|UklGR|AAAAIGZ0eXBoZWlj)/; // JPEG, PNG, 
 export function imageryRefusal(body) {
   const SKIP = ["reason", "evidence", "validate", "name"];
   const hit = (v, path, depth = 0) => {
-    if (typeof v === "string") return v.startsWith("data:image/") || (v.length > 64 && IMAGE_B64.test(v)) ? path : null;
+    if (typeof v === "string") { const t = v.trim(); return /^data:[^,]*;base64,/i.test(t) || /^data:image\//i.test(t) || (t.length > 64 && IMAGE_B64.test(t)) ? path.slice(0, 200) : null; } // review: checkWrite stores the trimmed value
     if (depth > 8 || !v || typeof v !== "object") return null;
     for (const [k, x] of Object.entries(v)) { const h = hit(x, Array.isArray(v) ? `${path}[${k}]` : `${path}.${k}`, depth + 1); if (h) return h; }
     return null;
@@ -429,9 +429,9 @@ export function imageryRefusal(body) {
 }
 /** MA-7-3: a photo only confirms a ghost or chooses its type (design 4.2), so a source:"photo" changeset creates only a mass or a level. */
 export function photoKindRefusal(body, source) {
-  if (source !== "photo") return;
-  const el = body.elements.find((e) => e && typeof e === "object" && (e.op ?? "create") === "create" && !["mass", "level"].includes(e.kind));
-  if (el) throw err(400, `a photo never creates a ${el.kind} on its own — photos confirm a ghost or choose its type (design 4.2); nothing was filed`);
+  if (String(source).toLowerCase() !== "photo") return;
+  const el = body.elements.find((e) => e && typeof e === "object" && (e.op ?? "create") === "create" && OP_KINDS.create.includes(e.kind) && !["mass", "level"].includes(e.kind)); // an unknown kind falls through to the kind 400
+  if (el) throw err(400, `a photo never creates ${a(el.kind)} on its own — photos confirm a ghost or choose its type (design 4.2); nothing was filed`);
 }
 /** Validate + normalise a proposed changeset. Assigns proposal_guids (a posted one is ignored); a missing
  *  validate.identity.GlobalId is synced to the proposal_guid so adjudication failures (tagged by

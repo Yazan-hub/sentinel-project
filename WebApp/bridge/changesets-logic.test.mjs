@@ -1867,6 +1867,12 @@ describe("validateChangeset — guards (MA-7-3)", () => {
     imagery({ op: "set_parameter", kind: "wall", to: "/9j/" + "A".repeat(96) }, words("elements[0].to"));
     imagery({ op: "set_parameter", kind: "wall", to: "UklGR" + "A".repeat(96) }, words("elements[0].to"));
     imagery(wall({ facts: { params: { Comments: PNG64 } } }), words("elements[0].facts.params.Comments"));
+    // review: checkWrite stores the ASCII-trimmed value, so the check reads the trimmed, case-folded text
+    imagery({ op: "set_parameter", kind: "wall", to: " " + PNG64 }, words("elements[0].to"));
+    imagery({ op: "set_parameter", kind: "wall", to: PNG64.toUpperCase() }, words("elements[0].to"));
+    imagery({ op: "set_parameter", kind: "wall", to: "data:application/octet-stream;base64,iVBORw0KGgo" }, words("elements[0].to"));
+    imagery({ op: "set_parameter", kind: "wall", to: " iVBORw0KGgo" + "A".repeat(80) }, words("elements[0].to"));
+    expect(() => validateChangeset(CS([{ op: "set_parameter", kind: "wall", ["k".repeat(400)]: PNG64 }]))).toThrow(/^.{0,400}$/s);
   });
   it("passes names, not bytes: Image: a.jpg, a Comments value, a reason naming a photo, a short /9j/", () => {
     expect(validateChangeset(CS([wall({ facts: { params: { Image: "a.jpg" } } })])).elements).toHaveLength(1);
@@ -1881,6 +1887,14 @@ describe("validateChangeset — guards (MA-7-3)", () => {
     status400(() => validateChangeset(CS([level(), wall()], { source: "photo" })),
       /^a photo never creates a wall on its own — photos confirm a ghost or choose its type \(design 4\.2\); nothing was filed$/);
     status400(() => validateChangeset(CS([wall({ op: "set_parameter" })], { source: "photo" })), /^elements\[0\]: /); // not the photo words
+    status400(() => validateChangeset(CS([level(), wall()], { source: "Photo" })), /^a photo never creates a wall on/); // review: case-folded
+    status400(() => validateChangeset(CS([wall({ kind: "door" })], { source: "photo" })), /^a photo never creates a door on/);
+    status400(() => validateChangeset(CS([{ op: "create" }], { source: "photo" })), /^elements\[0\]: /); // no kind: the normal error, not "a undefined"
+    const vs = JSON.parse(readFileSync(new URL("./fixtures/changeset-ops/value-sources.json", import.meta.url), "utf8"));
+    const cite = makeCiter({ catalog: { body: vs.catalog, label: "type_catalog@1 · office · fedcba987654…", sha256: "cd".repeat(32) }, ids: { body: vs.ids, label: "ids@1 · project · 0a1b2c3d4e5f…", sha256: "ef".repeat(32) } }, core);
+    const sp = { op: "set_parameter", kind: "wall", target: { unique_id: "5a1c7e2b-3f4d-4c8a-9b1e-2d3c4b5a6f70-00000a01" }, place: { TypeName: "BDS_EXT_ARC_CMU_200 mm" },
+      parameter: "Pset_WallCommon.FireRating", revit_parameter: "Fire Rating", from: "", to: "60 min", value_source: { kind: "catalogue" }, reason: "r", validate: { identity: { Class: "IfcWall", Name: "type BDS_EXT_ARC_CMU_200 mm" } } };
+    expect(validateChangeset(CS([sp], { source: "photo" }), { cite }).elements).toHaveLength(1); // a valid photo set_parameter is accepted
     expect(validateChangeset(CS([wall()], { source: "dwg" })).elements).toHaveLength(1);
   });
 });

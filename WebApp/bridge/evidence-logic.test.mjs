@@ -322,7 +322,7 @@ describe("the item-field whitelist (MA-7-3)", () => {
       ["own concept IFC", packWith(["a"]), (p) => mk(p, { path: "model/c.ifc", kind: "model", provider: "own", registration: null }, "ifc")],
     ];
   };
-  it("lists exactly the 19 fields the bridge writes today", () => { expect(ITEM_FIELDS).toHaveLength(19); });
+  it("lists exactly the 19 fields the bridge writes today", () => { expect(ITEM_FIELDS).toEqual(["id", "kind", "format", "sha256", "size_bytes", "path", "provider", "licence", "licence_ref", "request_id", "attestation_ids", "allowed_uses", "registration", "surveyable", "admitted_by", "admitted_at", "state", "changed_sha256", "changed_at"]); });
   it.each(shapes().map((s) => [s[0], s]))("replay: %s validates unchanged", (_n, [, pack, make]) => {
     const item = make(pack);
     expect(Object.keys(item).every((k) => ITEM_FIELDS.includes(k))).toBe(true);
