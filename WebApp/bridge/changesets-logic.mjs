@@ -1098,9 +1098,20 @@ const proposedOnly = (cs) => {
   if (cs.status !== "proposed") throw err(409, `changeset is ${cs.status} — the web desk decides only while it is proposed`);
 };
 
+/** MA-7-10: the evidence photos a desk decision cites — `evidence: ["ev-000C"]` on an ACCEPT, at most 3 distinct item ids; [] when none. A photo
+ *  confirms a ghost a scan or drawing already proposed; it never creates one and a decline cites nothing. A 400 in words. */
+export function citedPhotos(x, i) {
+  if (x?.evidence === undefined) return [];
+  const bad = (m) => err(400, `decisions[${i}].evidence ${m}; nothing was saved`);
+  if (!Array.isArray(x.evidence) || x.evidence.length < 1 || x.evidence.length > 3 || !x.evidence.every((e) => typeof e === "string" && /^ev-[0-9A-Za-z]{1,12}$/.test(e)) || new Set(x.evidence).size !== x.evidence.length)
+    throw bad("must be 1 to 3 distinct evidence item ids (ev-…)");
+  if (x.decision !== "accept") throw bad("is for an accept only - a photo confirms a ghost, it does not decline one");
+  return x.evidence;
+}
+
 /** The web desk's decisions on one changeset — [{proposal_guid, decision: accept | decline, reason}] — all or none. `who` is {by, role,
  *  at}. Answers the changeset as it is to be stored (each decided ghost's review, the revision bumped) and one ledger entry per ghost. */
-export function applyDecisions(cs, decisions, who) {
+export function applyDecisions(cs, decisions, who, copies = new Map()) {
   proposedOnly(cs);
   if (!Array.isArray(decisions) || !decisions.length || decisions.length > MAX_CHANGESET_ELEMENTS)
     throw err(400, `decisions must be 1–${MAX_CHANGESET_ELEMENTS} entries`);
@@ -1118,8 +1129,11 @@ export function applyDecisions(cs, decisions, who) {
     let to;
     try { to = reviewNext(from, x.decision); } catch (e) { throw err(e.status, `${ghostName(el)}: ${e.message}`); }
     const reason = reasonOf(x.reason, x.decision === "decline", "a decline");
-    next.set(g, { state: to, action: x.decision, reason, by: who.by, role: who.role, at: who.at, rev });
-    rows.push({ proposal_guid: g, name: ghostName(el), from, to, reason });
+    // MA-7-10: the photos this accept cites, each with the sha of the blurred copy the person saw (the store checked them against the pack)
+    const cite = citedPhotos(x, i), shas = Object.fromEntries(cite.map((e) => [e, copies.get(e)]));
+    if (cite.some((e) => !copies.get(e))) throw err(400, `decisions[${i}].evidence: ${cite.find((e) => !copies.get(e))} was not checked against the evidence pack; nothing was saved`);
+    next.set(g, { state: to, action: x.decision, reason, by: who.by, role: who.role, at: who.at, rev, ...(cite.length ? { evidence: cite, evidence_copies: shas } : {}) });
+    rows.push({ proposal_guid: g, name: ghostName(el), from, to, reason, ...(cite.length ? { evidence: cite, evidence_copies: shas } : {}) });
   }
   const elements = cs.elements.map((e) => (next.has(e.proposal_guid) ? { ...e, review: next.get(e.proposal_guid) } : e));
   return { updated: { ...cs, updated_at: who.at, review_rev: rev, elements }, rows };

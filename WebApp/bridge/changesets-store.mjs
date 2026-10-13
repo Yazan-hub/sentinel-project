@@ -6,11 +6,11 @@ import * as cde from "./cde-store.mjs";
 import { canonical } from "./canonical.mjs";
 import * as members from "./members-store.mjs";
 import { validateChangeset, attachVerdicts, canWithdraw, deriveResultStatus, unattributedFailures,
-  reviewRev, editCost, checkStairFlag, stairReason, checkFromFlag, checkFromScan, keepBuilt, stairsOf, MAX_CHANGESET_EXCEPTIONS, applyDecisions, reopenDecline, resultConflicts, resultReasons, carryDeclines, declineWords, UNTYPED } from "./changesets-logic.mjs";
+  reviewRev, editCost, checkStairFlag, stairReason, checkFromFlag, checkFromScan, keepBuilt, stairsOf, MAX_CHANGESET_EXCEPTIONS, applyDecisions, citedPhotos, reopenDecline, resultConflicts, resultReasons, carryDeclines, declineWords, UNTYPED } from "./changesets-logic.mjs";
 import { makeTyper, makeCiter } from "./changesets-typing.mjs";
 import { resolveArtefact, refLabel, validateArtefact } from "./artefact-store.mjs";
 import { resolveActor } from "./bridge-auth.mjs";
-import { usable } from "./evidence-logic.mjs";
+import { usable, PACK_ID } from "./evidence-logic.mjs";
 import { readProposeBody, wallMaterials, planSurvey, PLANNER, PLANNER_VERSION, measurePlan, judge, measureRefusal, countWords, STATUSES, MIN_COVERAGE, DEVIATION_MM, FACE_SHARE_MIN, MEASURE_KNOBS,
   readMesh, meshFaces, REVIT, FILED as AS_FILED, toScan, toModel, scanBand, cloudRefusal, SCAN_CELL_MM, SCAN_MAX, groundCut, groundRefusal, beyond, GROUND_CELL_MM, GROUND_MAX } from "./survey-plan.mjs";
 import { stillAdmitted, pickItems, trustedJob as jobOf, measureJob as measureOf, TOLERANCES_MM, READER, DRAWING, IFC } from "./build-jobs.mjs";
@@ -1158,11 +1158,25 @@ export async function reviewChangeset(key, id, { decisions } = {}, actor, deps) 
   const d = wire(deps);
   const role = await reviewer(d, key, "contributor", "accepting or declining a ghost");
   d.takeWriteBudget("changeset reviews", { perUser: 60, all: 300 });
+  const cited = new Set(Array.isArray(decisions) ? decisions.flatMap((x, i) => citedPhotos(x, i)) : []); // MA-7-10: a bad cite is a 400 before anything is read
   const proj = await d.ensureProject(key);
   const who = { by: resolveActor(actor, "web"), role, at: new Date().toISOString() };
-  const { before, updated, rows } = await rewrite(d, proj.id, id, (cs) => applyDecisions(cs, decisions, who));
+  // MA-7-10: a photo confirms a ghost - an accept may cite own photos of the pack, each with its blurred copy (usable), never a web photo; the copy's
+  // sha is read here and stored with the decision. Nothing about a photo creates or moves a ghost.
+  const copies = new Map();
+  if (cited.size) {
+    const { pack } = await (deps.readPack ?? (await import("./evidence-store.mjs")).readPack)(key, PACK_ID);
+    for (const e of cited) {
+      const it = pack.items.find((x) => x.id === e);
+      if (!it) throw err(400, `evidence ${e} is not an item of the evidence pack; nothing was saved`);
+      const why = usable(it, "cite") ?? (it.role === "context" ? `${e} is a web photo - context only; it cannot confirm a ghost; nothing was read` : null);
+      if (why) throw err(400, why.replace(/; nothing was (read|shown)$/, "; nothing was saved"));
+      copies.set(e, it.view_copy.sha256);
+    }
+  }
+  const { before, updated, rows } = await rewrite(d, proj.id, id, (cs) => applyDecisions(cs, decisions, who, copies));
   const row = await recorded(d, proj.id, id, before, updated, "decision", () => d.audit(proj.id, "changeset", id, "changeset_reviewed", actor || "web",
-    { review_rev: reviewRev(before) }, { review_rev: updated.review_rev, reviewer: who.by, role, decisions: rows }));
+    { review_rev: reviewRev(before) }, { review_rev: updated.review_rev, reviewer: who.by, role, decisions: rows, ...(cited.size ? { evidence: [...cited] } : {}) }));
   return { changeset: updated, ledger: ledgerRef(row) };
 }
 

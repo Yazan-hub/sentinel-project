@@ -20,6 +20,9 @@ static partial class Check
            "the changeset's review_rev and each ghost's review are read as the bridge stores them; a ghost nobody decided reads null");
         var old = JsonSerializer.Deserialize<ChangesetDto>("{\"id\":\"c\",\"elements\":[{\"proposal_guid\":\"g\",\"op\":\"attach\"}]}");
         Ok(old.ReviewRev == null && old.Elements[0].Review == null, "a changeset from a bridge before MA-3a reads with no review_rev and no review");
+        // MA-7-10 (R20): an accept that cites a photo carries evidence and evidence_copies on its review; the add-in ignores both and reads the rest
+        var cited = JsonSerializer.Deserialize<ReviewDto>("{\"state\":\"accepted\",\"action\":\"accept\",\"reason\":null,\"by\":\"r@example.test\",\"role\":\"contributor\",\"at\":\"2026-10-13T10:00:00.000Z\",\"rev\":1,\"evidence\":[\"ev-000C\"],\"evidence_copies\":{\"ev-000C\":\"abc\"}}");
+        Ok(cited.State == "accepted" && cited.By == "r@example.test" && cited.Rev == 1, "MA-7-10: a review that cites a photo (evidence, evidence_copies) still reads - the add-in ignores the unknown fields");
 
         Ok(ChangesetTrust.PreTick(before, G(before, "g-1")) && !ChangesetTrust.PreTick(after, G(after, "g-1")) && !ChangesetTrust.PreTick(after, G(after, "g-4")),
            "a web decline binds: the retype the bridge pre-ticked opens unticked once it is declined");

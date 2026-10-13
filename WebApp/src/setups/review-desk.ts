@@ -19,7 +19,7 @@ import type * as OBC from "@thatopen/components";
 export interface CarriedFrom { changeset: string; name: string; proposal_guid: string; origin: string; }
 /** `carried_from` is set when the bridge filed the ghost already declined; a decline carried from Revit holds the reporter's role as
  *  the bridge read it (review C1). `role` may be null on a review whose role the desk was not given — it is then left out, never printed. */
-export interface GhostReview { state: "proposed" | "accepted" | "declined"; action: "accept" | "decline" | "reopen"; reason: string | null; by: string; role: string | null; at: string; rev: number; carried_from?: CarriedFrom | null; }
+export interface GhostReview { state: "proposed" | "accepted" | "declined"; action: "accept" | "decline" | "reopen"; reason: string | null; by: string; role: string | null; at: string; rev: number; carried_from?: CarriedFrom | null; evidence?: string[]; evidence_copies?: Record<string, string>; }
 /** MA-4d: the survey job a changeset was built from by the bridge (its `job` field; the source stays a string). */
 export interface DeskJob {
   id: string; ledger_id: number | null;
@@ -196,7 +196,9 @@ export function reviewWords(el: Ghost): string {
   if (!r || (r.state === "proposed" && r.action !== "reopen")) return "waiting — nobody decided on the web";
   const who = r.role ? `${r.by} (${r.role})` : r.by; // C16: a role the desk was not given is left out (declinedBy's rule), never "(null)"
   if (r.state === "declined") return `${declinedBy(r)}: ${r.reason} — binds: Revit shows it unticked and refuses the tick`;
-  if (r.state === "accepted") return `accepted by ${who}${r.reason ? ": " + r.reason : ""} — advice: Revit still asks for the tick`;
+  // MA-7-10: a photo cited on the accept confirms the ghost a scan already proposed - a person linked it, nothing registered it to the model
+  const photo = r.evidence?.length ? ` · confirmed by photo ${r.evidence.join(", ")} (person-linked, not registered)` : "";
+  if (r.state === "accepted") return `accepted by ${who}${r.reason ? ": " + r.reason : ""}${photo} — advice: Revit still asks for the tick`;
   return `re-opened by ${who}: ${r.reason}`;
 }
 
@@ -344,14 +346,17 @@ export function decidedView(cs: PendingChangeset, ledger: LedgerRows | null | Er
   };
 }
 
+/** MA-7-10: the photo ids typed on the desk ("ev-000C, ev-000D") as the list the bridge reads; blanks and repeats dropped. */
+export const citesOf = (text: string): string[] => [...new Set(text.split(/[\s,;]+/).filter(Boolean))];
+
 /** POST /changesets/:key/:id/review {decisions}. A decline with a blank reason is never sent; a refusal throws the bridge's words. */
-export async function postReview(base: string, key: string, id: string, decision: "accept" | "decline", guids: string[], reason: string): Promise<{ ledger: LedgerRef | null }> {
+export async function postReview(base: string, key: string, id: string, decision: "accept" | "decline", guids: string[], reason: string, cites: string[] = []): Promise<{ ledger: LedgerRef | null }> {
   const why = reason.trim();
   if (!guids.length) throw new Error("tick a ghost first");
   if (decision === "decline" && !why) throw new Error("a decline needs a reason — the ledger records it and Revit shows it");
   return bwrite(at(base, key, `/${encodeURIComponent(id)}/review`), {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ decisions: guids.map((g) => ({ proposal_guid: g, decision, ...(why ? { reason: why } : {}) })) }),
+    body: JSON.stringify({ decisions: guids.map((g) => ({ proposal_guid: g, decision, ...(why ? { reason: why } : {}), ...(decision === "accept" && cites.length ? { evidence: cites } : {}) })) }),
   });
 }
 
@@ -676,6 +681,8 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
   const btn = (label: string, onClick: () => void) => { const b = el("button", label, "border:1px solid #2c2c34;background:#1f1f27;color:#c9cfda;border-radius:.35rem;padding:.25rem .55rem;font:600 11px system-ui;cursor:pointer"); b.onclick = onClick; return b; };
   const reason = el("input", "", "flex:1;min-width:10rem;background:#111;color:#e5e7eb;border:1px solid #2c2c34;border-radius:.3rem;padding:.25rem .4rem;font:11px system-ui");
   reason.placeholder = "Reason (a decline needs one; one line)";
+  const photos = el("input", "", "width:9rem;background:#111;color:#e5e7eb;border:1px solid #2c2c34;border-radius:.3rem;padding:.25rem .4rem;font:11px system-ui");
+  photos.placeholder = "Photo ev-… (accept only)";
   const ticked = new Map<string, { cs: PendingChangeset; el: Ghost }>();
   const say = (text: string, bad = false) => { status.textContent = text; status.style.color = bad ? "#fca5a5" : "#93c5fd"; };
   // MA-3d: Highlight in 3D — a storey's ghosts in the viewer's loaded models, by each element's IFC GlobalId. No model is loaded here:
@@ -896,8 +903,8 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
     if (!posts.size) return say(skipped ? skipped + "." : "Tick a ghost first.", true);
     const done: string[] = [];
     try {
-      for (const [id, guids] of posts) done.push(`${guids.length} ${decision === "accept" ? "accepted" : "declined"} · ${rowWords(await postReview(base, activePid(), id, decision, guids, reason.value))}`);
-      reason.value = "";
+      for (const [id, guids] of posts) done.push(`${guids.length} ${decision === "accept" ? "accepted" : "declined"} · ${rowWords(await postReview(base, activePid(), id, decision, guids, reason.value, decision === "accept" ? citesOf(photos.value) : []))}`);
+      reason.value = ""; photos.value = "";
       say([...done, ...(skipped ? [skipped] : [])].join("; ") + (decision === "decline" ? " — Revit now shows them unticked with the reason and refuses the tick." : " — advice: Revit still asks for the tick."));
     } catch (e) { say(`${done.length ? done.join("; ") + "; then " : ""}not recorded — ${(e as Error).message}`, true); }
     void show();
@@ -929,7 +936,7 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
     try { tail.append(editCostBox(cost, role.role, !(recipes instanceof Error) && recipes.office != null)); } catch (e) { tail.append(el("div", `Edit cost not shown — ${(e as Error).message}`, "color:#fca5a5")); }
     try { tail.append(recipesBox(recipes, role.role)); } catch (e) { tail.append(el("div", `Recipes not shown — ${(e as Error).message}`, "color:#fca5a5")); }
     bar.replaceChildren(el("b", `Review desk · ${key}`), el("span", roleWords(role), "color:#8b93a1"), btn("↻ Refresh", () => void show()));
-    if (canDecide(role.role)) bar.append(reason, btn("Accept ticked", () => void decide("accept")), btn("Decline ticked", () => void decide("decline")));
+    if (canDecide(role.role)) bar.append(reason, photos, btn("Accept ticked", () => void decide("accept")), btn("Decline ticked", () => void decide("decline")));
     else bar.append(el("span", role.role === "service" ? "· sign in to accept or decline — the machine credential never reviews" : "· read-only: accepting or declining needs contributor", "color:#fbbf24"));
     if (pending instanceof Error) { body.replaceChildren(el("div", `Proposals ${pending.message}`, "color:#fca5a5"), tail); return; }
     if (!pending.length) { body.replaceChildren(el("div", "Nothing waits for review in Revit on this project."), tail); return; }
