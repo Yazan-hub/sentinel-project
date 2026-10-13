@@ -801,10 +801,12 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
     if (data instanceof Error) { box.append(el("div", `Edit cost ${data.message}`, "color:#fca5a5")); return box; }
     if (!data.runs.length) { box.append(el("div", "No run has been filed on this project.", "color:#8b93a1")); return box; }
     for (const r of data.runs) {
-      const row = el("div", "", "display:flex;gap:.4rem;align-items:flex-start;padding:.2rem 0");
-      row.append(el("div", editCostLine(r), "flex:1"));
+      // MA-8 nits (F-B5-1): the run's line on its own row, its controls on a row under it - beside the recipe controls the line was one word wide
+      const row = el("div", "", "padding:.2rem 0");
+      const controls = el("div", "", "display:flex;flex-wrap:wrap;gap:.4rem;align-items:center;margin-top:.2rem");
+      row.append(el("div", editCostLine(r)));
       if (r.complete && canReopen(role))
-        row.append(btn("Publish", async () => {
+        controls.append(btn("Publish", async () => {
           try { say(`Published ${r.label} · ${rowWords(await postEditCostPublish(base, activePid(), r.run))}`); void show(); }
           catch (e) { say(`not published — ${(e as Error).message}`, true); }
         }));
@@ -814,12 +816,13 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
         name.placeholder = "Recipe name (one line)";
         const scope = hasOffice ? el("select", "", "background:#111;color:#e5e7eb;border:1px solid #2c2c34;border-radius:.3rem;font:11px system-ui") : null;
         if (scope) for (const [v, w] of [["project", "this project"], ["office", "its office"]]) { const o = el("option", w); o.value = v; scope.append(o); }
-        row.append(name, ...(scope ? [scope] : []), btn("Draft a recipe…", async () => {
+        controls.append(name, ...(scope ? [scope] : []), btn("Draft a recipe…", async () => {
           if (!name.value.trim()) return say("Name the recipe first (one line).", true);
           try { say(draftWords(await postRecipeDraft(base, activePid(), r.run, name.value.trim(), (scope?.value as "project" | "office" | undefined) ?? "project"), r.run)); void show(); }
           catch (e) { say(`not drafted — ${(e as Error).message}`, true); }
         }));
       }
+      if (controls.childElementCount) row.append(controls);
       box.append(row);
     }
     return box;

@@ -643,6 +643,20 @@ describe("edit cost (MA-8-1)", () => {
     expect(src).toContain("rowWords(await postEditCostPublish(base, activePid(), r.run))}`); void show(); }");
   });
 
+  it("F-B5-1: the run's line is a row of its own and Publish + the recipe controls sit on a wrapping row under it (source scan: no DOM here)", () => {
+    const src = readFileSync(new URL("./review-desk.ts", import.meta.url), "utf8");
+    const box = src.slice(src.indexOf("const editCostBox = "), src.indexOf("const recipesBox = "));
+    expect(box).toContain('const row = el("div", "", "padding:.2rem 0");');
+    expect(box).toContain('const controls = el("div", "", "display:flex;flex-wrap:wrap;gap:.4rem;align-items:center;margin-top:.2rem");');
+    expect(box).toContain("row.append(el(\"div\", editCostLine(r)));");
+    expect(box).toContain('controls.append(btn("Publish"');
+    expect(box).toContain("controls.append(name, ...(scope ? [scope] : []), btn(\"Draft a recipe…\"");
+    expect(box).toContain("if (controls.childElementCount) row.append(controls);");
+    expect(box).not.toContain("row.append(btn(");
+    expect(box).not.toContain('"flex:1"');
+    expect(box).not.toContain("innerHTML");
+  });
+
   it("readEditCost throws 'not read' on a failure, never an empty list", async () => {
     bfetch.mockResolvedValueOnce({ ok: false, status: 503, json: async () => ({ message: "ledger down" }) });
     await expect(readEditCost("http://b", "demo")).rejects.toThrow("not read — ledger down");
