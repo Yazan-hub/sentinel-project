@@ -904,6 +904,13 @@ export function checkStairFlag(x, at) {
   return { kind: "stair", storey: x.storey.trim(), box: { min, max } };
 }
 
+/** MA-8 nits (F-B4-4 review): a stair flag's reason in `max` characters — only the storey name is cut (marked "…"), so the words, box and
+ *  coordinates before it and the ref after it stay whole. Pure. */
+export const stairReason = (head, storey, tail = "", max = 300) => {
+  const room = max - head.length - tail.length;
+  return (head + (storey.length > room ? `${storey.slice(0, Math.max(0, room - 1))}…` : storey) + tail).slice(0, max);
+};
+
 /** The elements a planner sent to a person instead of proposing a change: optional, at most 1000 rows of
  *  {unique_id (≤64), name?, reason (≤300)}. They ride on the changeset for the reviewer; a bad row is a 400.
  *  MA-8-9: a row with `kind` is a stair flag — checkStairFlag, plus `source` (`flagSource`: "ifc" | "posted", the bridge's; null = a job that is

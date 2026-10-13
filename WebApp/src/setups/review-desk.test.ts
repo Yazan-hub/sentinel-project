@@ -11,7 +11,7 @@ vi.mock("./active-project", () => ({ activePid: () => "demo", onActiveProjectCha
 import { heldLines, proposalWords, storeyOf, groupDesk, ghostLine, reviewWords, declinedBy, canDecide, canReopen, readPending, postReview, postReopen, rowWords, postsFor, type PendingChangeset,
   trustWords, sourceWords, isDrawn,
   readDecided, readLedger, highlightPlan, type Ghost, decidedView, decidedCount, DECIDED_MAX, type LedgerRows,
-  measureWords, verifiedView, readVerified, readMeasuredRecent, measuredView, MEASURED_MAX, postMeasure, measureLine, canMeasure, countWords, editCostLine, readEditCost, type EditCostRun, type VerifyRecord, type Measured } from "./review-desk";
+  measureWords, verifiedView, readVerified, readMeasuredRecent, measuredView, MEASURED_MAX, postMeasure, measureLine, canMeasure, unmeasuredOlder, countWords, editCostLine, keptWords, readEditCost, type EditCostRun, type VerifyRecord, type Measured } from "./review-desk";
 
 import { recipeLine, draftWords, approveWords, readRecipes, postRecipeDraft, postRecipeApprove, postRecipeWithdraw, type RecipeRow } from "./review-desk";
 
@@ -594,6 +594,30 @@ describe("measured against the scan (MA-4e)", () => {
     expect(canMeasure(cs, "contributor", new Error("not read"))).toBe(true); // the bridge reads the Undo rows itself
     expect([canMeasure({ ...cs, job: null }, "lead", null), canMeasure({ ...cs, status: "declined" }, "lead", null)]).toEqual([false, false]);
   });
+  it("F-B3-4: an 11th placed survey changeset never measured gets Measure under \"Measured against the scan\"; a drawing's or an IFC's never does; one measured, declined or in the newest 10 is not listed", () => {
+    const cs = (i: number, over: Partial<PendingChangeset> = {}) => ({ id: `cs-${i}`, name: `Survey job-0002 · S${i}`, source: "s", status: "applied", created_at: "", elements: [],
+      job: { id: "job-0002", ledger_id: 2201, reader: "sentinel-survey 0.6.0" }, ...over }) as PendingChangeset;
+    const newest = Array.from({ length: DECIDED_MAX }, (_, i) => cs(i));
+    const decided = [...newest, cs(10), cs(11, { status: "partially_applied" }), cs(12, { job: { id: "job-0004", ledger_id: 2202, reader: "sentinel-drawing 0.2.0" } } as Partial<PendingChangeset>),
+      cs(13, { job: { id: "job-0007", ledger_id: 3301, reader: "sentinel-ifc 0.2.0" } } as Partial<PendingChangeset>), cs(14), cs(15, { status: "declined" }), cs(16, { job: null } as Partial<PendingChangeset>)];
+    const rec = { id: 1, at: "", actor: "", status: "done", elements: [] } as unknown as VerifyRecord;
+    const measured = { items: [{ id: "cs-14", name: "n", rec }], capped: false };
+    const older = unmeasuredOlder(decided, measured);
+    expect(older.map((c) => c.id)).toEqual(["cs-10", "cs-11"]);
+    expect(older.map((c) => canMeasure(c, "contributor", null))).toEqual([true, true]);   // the button
+    expect(canMeasure(decided[12], "lead", null) || canMeasure(decided[13], "lead", null)).toBe(false);   // MA-5a-4 / MA-6-8: never a drawing's or an IFC's
+    expect(unmeasuredOlder(newest, measured)).toEqual([]);   // the newest 10 have their own Measure
+    expect(unmeasuredOlder(decided, new Error("not read — down"))).toEqual([]);   // never a guess
+    // review: a failed or refused measure is no measure — the bridge takes a new one, so the desk offers it
+    const failed = { items: [{ id: "cs-14", name: "n", rec }, { id: "cs-10", name: "n", rec: { ...rec, status: "failed" } }, { id: "cs-11", name: "n", rec: { ...rec, status: "refused" } }], capped: false };
+    expect(unmeasuredOlder(decided, failed).map((c) => c.id)).toEqual(["cs-10", "cs-11"]);
+    const src = readFileSync(new URL("./review-desk.ts", import.meta.url), "utf8");
+    expect(src).toContain("const v = measuredView(data, byId), older = unmeasuredOlder(decided, data);");
+    expect(src).toContain('if (canMeasure(cs, role, null)) row.append(measureBtn(cs.id, "Measure against the scan"));');
+    // review: the heading says an Undo in Revit is not read for these (canMeasure has no ledger rows here)
+    expect(src).toContain("Placed as reported, no finished measure (older than the newest ${DECIDED_MAX} reports; an Undo in Revit since is not read here — the bridge refuses an undone one");
+    expect(src).toContain("decided instanceof Error ? [] : decided, role.role); if (mb) tail.append(mb);");
+  });
   it("the desk reads the newest measure after the ledger rows, and Measure sits behind canMeasure with one press, one run (source scan)", () => {
     const src = readFileSync(new URL("./review-desk.ts", import.meta.url), "utf8");
     expect(src).toContain("const verified = decided instanceof Error ? new Map<string, VerifyRecord | Error | null>() : await readVerified(base, key, decided.slice(0, DECIDED_MAX).filter((c) => c.job && !isDrawn(c)).map((c) => c.id));");
@@ -613,7 +637,8 @@ describe("edit cost (MA-8-1)", () => {
     expect(l).toContain("1 declined before (carried)");
     expect(l).toContain("1 not applied in Revit (unticked, or removed at commit)");
     expect(l).toContain("1 undone");
-    expect(l).toContain("8 kept (36 % changed)");
+    expect(l).toContain("8 of 11 kept as filed (4 not kept)"); // MA-8 nits (F-B5-2): share_changed 4/11 in its own terms
+    expect(l).not.toContain("% changed");
     expect(l).toContain("edits made after Apply, other than an Undo in Revit, are not seen");
   });
 
@@ -622,6 +647,13 @@ describe("edit cost (MA-8-1)", () => {
     expect(l).not.toContain("carried");
     expect(l).toContain("3 still pending");
     expect(l).not.toContain("% changed");
+  });
+
+  it("keptWords (F-B5-2): the drill's 1 of 14 says what share_changed counts - not kept as filed - in the run line and the recipe line alike", () => {
+    const drill = { ...run, filed: 14, web: 10, carried: 0, revit: 2, applied: 2, undone: 1, kept: 1, share_changed: 13 / 14 };
+    expect(keptWords(drill)).toBe("1 of 14 kept as filed (13 not kept)");
+    expect(editCostLine(drill)).toContain(" · 1 of 14 kept as filed (13 not kept) — ");
+    expect(keptWords({ ...drill, pending: 14, share_changed: null })).toBe("1 kept");
   });
 
   it("says withdrawn ghosts are not in the share", () => {
@@ -633,6 +665,20 @@ describe("edit cost (MA-8-1)", () => {
     const src = readFileSync(new URL("./review-desk.ts", import.meta.url), "utf8");
     expect(src).toContain("if (r.complete && canReopen(role))");
     expect(src).toContain("rowWords(await postEditCostPublish(base, activePid(), r.run))}`); void show(); }");
+  });
+
+  it("F-B5-1: the run's line is a row of its own and Publish + the recipe controls sit on a wrapping row under it (source scan: no DOM here)", () => {
+    const src = readFileSync(new URL("./review-desk.ts", import.meta.url), "utf8");
+    const box = src.slice(src.indexOf("const editCostBox = "), src.indexOf("const recipesBox = "));
+    expect(box).toContain('const row = el("div", "", "padding:.2rem 0");');
+    expect(box).toContain('const controls = el("div", "", "display:flex;flex-wrap:wrap;gap:.4rem;align-items:center;margin-top:.2rem");');
+    expect(box).toContain("row.append(el(\"div\", editCostLine(r)));");
+    expect(box).toContain('controls.append(btn("Publish"');
+    expect(box).toContain("controls.append(name, ...(scope ? [scope] : []), btn(\"Draft a recipe…\"");
+    expect(box).toContain("if (controls.childElementCount) row.append(controls);");
+    expect(box).not.toContain("row.append(btn(");
+    expect(box).not.toContain('"flex:1"');
+    expect(box).not.toContain("innerHTML");
   });
 
   it("readEditCost throws 'not read' on a failure, never an empty list", async () => {
@@ -649,7 +695,7 @@ describe("recipes (MA-8-13, D13)", () => {
 
   it("recipeLine: the reader and planner, the standards it ran on, the run kept of filed and the share changed - then where the approvals stand", () => {
     const l = recipeLine(row());
-    expect(l).toBe("recipe@1 · project · Kladno storeys · sentinel-survey 0.6.0 → survey-planner 0.1.0 · guideline@7, type_catalog@3 · job-0013: 9 of 12 kept (25 % changed) · no approval yet — a lead's and an owner's, two different people, are owed");
+    expect(l).toBe("recipe@1 · project · Kladno storeys · sentinel-survey 0.6.0 → survey-planner 0.1.0 · guideline@7, type_catalog@3 · job-0013: 9 of 12 kept as filed (3 not kept) · no approval yet — a lead's and an owner's, two different people, are owed");
     expect(recipeLine(row({ approvals: [app(950, "lead")] }))).toContain("approved by a lead (#950); an owner's approval is owed");
     expect(recipeLine(row({ approvals: [app(951, "owner")] }))).toContain("approved by an owner (#951); a lead's approval is owed");
     const done = recipeLine(row({ state: "approved", approved: true, approvals: [app(950, "lead"), app(951, "owner")] }));
@@ -663,6 +709,9 @@ describe("recipes (MA-8-13, D13)", () => {
     expect(lapsed).toContain("#950 no longer counts (its approver is not a lead or owner any more)");
     expect(recipeLine(row({ scope: "office" }))).toContain("recipe@1 · office ·");
     expect(recipeLine(row({ body: { ...body, verified: { ...body.verified, edit_cost: { ...body.verified.edit_cost, share_changed: null } } } }))).not.toContain("% changed");
+    // MA-8 nits (F-B5-2): the drill's run, in the same words as the run line
+    expect(recipeLine(row({ body: { ...body, verified: { ...body.verified, edit_cost: { filed: 14, web: 10, carried: 0, revit: 2, undone: 1, kept: 1, share_changed: 13 / 14 } } } })))
+      .toContain("job-0013: 1 of 14 kept as filed (13 not kept) · ");
   });
   it("the words after a draft and after an approval", () => {
     expect(draftWords({ ref: "recipe@2", scope: "office" }, "job#900")).toBe("✓ Drafted recipe@2 (office) from job#900 — it runs once a lead and an owner (two different people) approve it; whoever runs it approved neither.");

@@ -6,7 +6,7 @@ import * as cde from "./cde-store.mjs";
 import { canonical } from "./canonical.mjs";
 import * as members from "./members-store.mjs";
 import { validateChangeset, attachVerdicts, canWithdraw, deriveResultStatus, unattributedFailures,
-  reviewRev, editCost, checkStairFlag, checkFromFlag, checkFromScan, keepBuilt, stairsOf, MAX_CHANGESET_EXCEPTIONS, applyDecisions, reopenDecline, resultConflicts, resultReasons, carryDeclines, declineWords, UNTYPED } from "./changesets-logic.mjs";
+  reviewRev, editCost, checkStairFlag, stairReason, checkFromFlag, checkFromScan, keepBuilt, stairsOf, MAX_CHANGESET_EXCEPTIONS, applyDecisions, reopenDecline, resultConflicts, resultReasons, carryDeclines, declineWords, UNTYPED } from "./changesets-logic.mjs";
 import { makeTyper, makeCiter } from "./changesets-typing.mjs";
 import { resolveArtefact, refLabel, validateArtefact } from "./artefact-store.mjs";
 import { resolveActor } from "./bridge-auth.mjs";
@@ -1102,7 +1102,7 @@ export async function flagChangeset(key, id, b, actor, deps) {
   const proj = await d.ensureProject(key);
   const [w, dp, h] = f.box.max.map((v, k) => v - f.box.min[k]);
   const flag = { unique_id: `stair:pick-${randomUUID().slice(0, 8)}`, name: `Stair picked on ${f.storey}`.slice(0, 256), ...f, source: "pick",
-    reason: `a stair picked by ${resolveActor(actor, "web")} — Sentinel does not place stairs yet; a person adds it; box ${w} × ${dp} mm in plan, ${h} mm tall, from (${f.box.min.join(", ")}) on ${f.storey}`.slice(0, 300) };
+    reason: stairReason(`a stair picked by ${resolveActor(actor, "web")} — a person proposes it from this flag (Propose a stair…, Revit 2021+), or adds it; box ${w} × ${dp} mm in plan, ${h} mm tall, from (${f.box.min.join(", ")}) on `, f.storey) };
   const { before, updated } = await rewrite(d, proj.id, id, (cs) => {
     if (cs.status === "withdrawn") throw err(409, `${cs.name} is withdrawn — flag the stair on a changeset that is still live; nothing was saved`);
     const have = cs.exceptions ?? [];

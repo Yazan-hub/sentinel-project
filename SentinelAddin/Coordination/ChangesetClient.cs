@@ -463,6 +463,20 @@ public static class ChangesetTrust
             ? $"the bridge did not answer within {seconds} s"
         : err;
 
+    /// <summary>MA-8 nits (F-B4-2): a refusal's words — "Bridge &lt;code&gt;: &lt;message&gt;", the message alone when the body is the bridge's
+    /// {"message": "…"}, else the body as sent (trimmed, capped at 400). The "Bridge &lt;code&gt;" prefix is what callers read (UnreportedResults.Outcome).</summary>
+    public static string Refusal(int code, string body)
+    {
+        var said = (body ?? "").Trim();
+        try
+        {
+            using var doc = JsonDocument.Parse(said);
+            if (doc.RootElement.ValueKind == JsonValueKind.Object && doc.RootElement.TryGetProperty("message", out var m) && m.ValueKind == JsonValueKind.String) said = m.GetString().Trim();
+        }
+        catch (JsonException) { /* not JSON: the body as sent */ }
+        return $"Bridge {code}: {(said.Length > 400 ? said.Substring(0, 400) + "…" : said)}";
+    }
+
     /// <summary>…and of the exception itself: a cancelled request is the timeout; a request that never connected names its cause (the
     /// innermost message: "No connection could be made because the target machine actively refused it …"), not "An error occurred
     /// while sending the request." Review C1: any other exception (the session's, a reply that is not JSON) keeps its own message —
@@ -788,7 +802,7 @@ internal static class ChangesetClient
         {
             var url = $"{cfg.ServiceUrl.TrimEnd('/')}/changesets/{Uri.EscapeDataString(projectKey)}{query}";
             var (resp, body) = Send(ReadHttp, () => Req(HttpMethod.Get, url, cfg.ServiceToken));
-            if (!resp.IsSuccessStatusCode) { error = $"Bridge {(int)resp.StatusCode}: {body}"; return null; }
+            if (!resp.IsSuccessStatusCode) { error = ChangesetTrust.Refusal((int)resp.StatusCode, body); return null; }
             var list = JsonSerializer.Deserialize<List<ChangesetDto>>(body) ?? new List<ChangesetDto>();
             return list.OrderBy(c => c.CreatedAt, StringComparer.Ordinal).ToList(); // FIFO — oldest first
         }
@@ -802,7 +816,7 @@ internal static class ChangesetClient
         {
             var url = $"{cfg.ServiceUrl.TrimEnd('/')}/changesets/{Uri.EscapeDataString(projectKey)}/{Uri.EscapeDataString(id)}";
             var (resp, body) = Send(ReadHttp, () => Req(HttpMethod.Get, url, cfg.ServiceToken));
-            if (!resp.IsSuccessStatusCode) { error = $"Bridge {(int)resp.StatusCode}: {body}"; return null; }
+            if (!resp.IsSuccessStatusCode) { error = ChangesetTrust.Refusal((int)resp.StatusCode, body); return null; }
             return JsonSerializer.Deserialize<ChangesetDto>(body);
         }
         catch (Exception ex) { error = ChangesetTrust.BridgeWords(ex, (int)ReadHttp.Timeout.TotalSeconds); return null; }
@@ -817,7 +831,7 @@ internal static class ChangesetClient
         {
             var url = $"{cfg.ServiceUrl.TrimEnd('/')}/changesets/{Uri.EscapeDataString(projectKey)}/{Uri.EscapeDataString(id)}/scan";
             var (resp, body) = Send(WriteHttp, () => Req(HttpMethod.Get, url, cfg.ServiceToken));
-            if (!resp.IsSuccessStatusCode) { error = $"Bridge {(int)resp.StatusCode}: {body}"; return null; }
+            if (!resp.IsSuccessStatusCode) { error = ChangesetTrust.Refusal((int)resp.StatusCode, body); return null; }
             return JsonSerializer.Deserialize<ScanDto>(body);
         }
         catch (Exception ex) { error = ChangesetTrust.BridgeWords(ex, (int)WriteHttp.Timeout.TotalSeconds); return null; }
@@ -831,7 +845,7 @@ internal static class ChangesetClient
         {
             var url = $"{cfg.ServiceUrl.TrimEnd('/')}/changesets/{Uri.EscapeDataString(projectKey)}/{Uri.EscapeDataString(id)}/scan?flag={Uri.EscapeDataString(flag)}";
             var (resp, body) = Send(WriteHttp, () => Req(HttpMethod.Get, url, cfg.ServiceToken));
-            if (!resp.IsSuccessStatusCode) { error = $"Bridge {(int)resp.StatusCode}: {body}"; return null; }
+            if (!resp.IsSuccessStatusCode) { error = ChangesetTrust.Refusal((int)resp.StatusCode, body); return null; }
             return JsonSerializer.Deserialize<ScanDto>(body);
         }
         catch (Exception ex) { error = ChangesetTrust.BridgeWords(ex, (int)WriteHttp.Timeout.TotalSeconds); return null; }
@@ -850,7 +864,7 @@ internal static class ChangesetClient
         {
             var url = $"{cfg.ServiceUrl.TrimEnd('/')}/changesets/{Uri.EscapeDataString(projectKey)}/{Uri.EscapeDataString(id)}/scan?ground=1";
             var (resp, body) = Send(WriteHttp, () => Req(HttpMethod.Get, url, cfg.ServiceToken));
-            if (!resp.IsSuccessStatusCode) { error = $"Bridge {(int)resp.StatusCode}: {body}"; return null; }
+            if (!resp.IsSuccessStatusCode) { error = ChangesetTrust.Refusal((int)resp.StatusCode, body); return null; }
             var ground = JsonSerializer.Deserialize<GroundDto>(body);
             // MA-8-14 review round 1: fails closed - an older bridge answers the whole scan as a 200 (no ground, no footprint)
             if (ground?.Ground != true || ground.Footprint == null) { error = NotGround; return null; }
@@ -890,7 +904,7 @@ internal static class ChangesetClient
             // Review C1: the request — its token and its body — is built inside Send's pool thread; payload was serialized here.
             HttpResponseMessage resp;
             (resp, body) = Send(http ?? WriteHttp, () => Req(HttpMethod.Post, $"{cfg.ServiceUrl.TrimEnd('/')}{path}", cfg.ServiceToken, payload));
-            if ((int)resp.StatusCode != expect) { error = $"Bridge {(int)resp.StatusCode}: {body}"; return false; }
+            if ((int)resp.StatusCode != expect) { error = ChangesetTrust.Refusal((int)resp.StatusCode, body); return false; }
             return true;
         }
         catch (Exception ex) { error = ChangesetTrust.BridgeWords(ex, (int)(http ?? WriteHttp).Timeout.TotalSeconds); return false; }
@@ -905,7 +919,7 @@ internal static class ChangesetClient
         {
             var url = $"{cfg.ServiceUrl.TrimEnd('/')}/cde/{Uri.EscapeDataString(projectKey)}/members/me";
             var (resp, body) = Send(ReadHttp, () => Req(HttpMethod.Get, url, cfg.ServiceToken));
-            if (!resp.IsSuccessStatusCode) { error = $"Bridge {(int)resp.StatusCode}: {body}"; return null; }
+            if (!resp.IsSuccessStatusCode) { error = ChangesetTrust.Refusal((int)resp.StatusCode, body); return null; }
             using var doc = JsonDocument.Parse(body);
             return doc.RootElement.TryGetProperty("role", out var r) && r.ValueKind == JsonValueKind.String ? r.GetString() : "";
         }

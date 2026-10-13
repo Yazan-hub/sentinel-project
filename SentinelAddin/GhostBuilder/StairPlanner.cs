@@ -44,6 +44,19 @@ namespace Sentinel.GhostBuilder
         /// 3040.0000001 / 190 into 17 and the executor would refuse a plan it made itself. 3000/187.5 = 16, 3040/190 = 16, 3040.6/190 = 17.</summary>
         public static int Risers(double f2fMm, double maxRiserMm) => (int)Math.Ceiling((f2fMm - TolMm) / maxRiserMm);
 
+        /// <summary>MA-8 nits (F-B4-3): a type's limit (feet) in mm, its float noise snapped to 0.1 mm (0.8202099737532808 ft reads 249.99999999999997 → 250),
+        /// so the plan, the body, the ledger's planned and the desk all carry 250. Only noise (within TolMm) is snapped: a real 250.04 stays, so the executor's
+        /// re-check on the type's raw values agrees with the plan.</summary>
+        public static double TypeMm(double ft)
+        {
+            double mm = ft * 304.8, r = Math.Round(mm, 1);
+            return Math.Abs(r - mm) <= TolMm ? r : mm;
+        }
+
+        /// <summary>MA-8 nits (F-B4-3): the StairsType's facts from its feet (MaxRiserHeight, MinTreadDepth, MinRunWidth), each through TypeMm.</summary>
+        public static StairTypeFacts Facts(double maxRiserFt, double minTreadFt, double minRunWidthFt) =>
+            new StairTypeFacts { MaxRiserMm = TypeMm(maxRiserFt), MinTreadMm = TypeMm(minTreadFt), MinRunWidthMm = TypeMm(minRunWidthFt) };
+
         private static string F(double v) => v.ToString("0.#", CultureInfo.InvariantCulture);
 
         /// <summary>The two ends of the box's long plan side, by compass: ("west", "east", x at west, x at east) when it runs along x, else

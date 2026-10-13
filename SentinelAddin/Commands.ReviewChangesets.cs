@@ -578,8 +578,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                     try
                     {
                         var type = (Autodesk.Revit.DB.Architecture.StairsType)ChangesetExecutor.StairsTypeOf(d, rule.Value.Family, rule.Value.Type);
-                        const double ft = 304.8;
-                        facts = new StairTypeFacts { MaxRiserMm = type.MaxRiserHeight * ft, MinTreadMm = type.MinTreadDepth * ft, MinRunWidthMm = type.MinRunWidth * ft };
+                        facts = StairPlanner.Facts(type.MaxRiserHeight, type.MinTreadDepth, type.MinRunWidth); // MA-8 nits (F-B4-3): float noise snapped to 0.1 mm
                     }
                     catch (Exception ex) when (ex is PlacementRefused || ex is InvalidOperationException) { window.Shown("Held for a person — " + ex.Message); return; }
                     // the box does not say which end the stair rises from: a person does (reading the IFC flight's first riser is not built)

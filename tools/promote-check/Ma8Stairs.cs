@@ -77,6 +77,14 @@ static partial class Check
         var five = Plan(st: new List<LevelFact> { stories[0], new LevelFact { Name = "L01", ElevationMm = 3040, IsStory = true } }, f: new StairTypeFacts { MaxRiserMm = 190, MinTreadMm = 250.04, MinRunWidthMm = 1000 });
         Ok(five.Hold == null && five.Risers == 16 && five.GoingMm == 250.04 && Place(five)["Risers"].GetValue<int>() == 16,
            "3040 mm between the levels under a 190 mm maximum is 16 risers (float-noise slack only), and a tread read as 250.04 mm stays 250.04 mm (no rounding: Apply sets the going itself)");
+        // MA-8 nits (F-B4-3): the type's feet carry float noise (249.99999999999997 mm going); the facts snap it, so the body (the ledger's planned) says 250
+        var noisy = StairPlanner.Facts(187.5 / 304.8, 0.8202099737532808, 1000 / 304.8);
+        var snapped = Plan(f: noisy);
+        Ok(0.8202099737532808 * 304.8 == 249.99999999999997 && noisy.MinTreadMm == 250 && noisy.MaxRiserMm == 187.5 && noisy.MinRunWidthMm == 1000
+           && snapped.Hold == null && snapped.GoingMm == 250 && Place(snapped)["Going"].GetValue<double>() == 250 && snapped.Line == "16 risers of 187.5 mm, going 250 mm, width 1200 mm, run 3750 mm"
+           && StairPlanner.TypeMm(250.04 / 304.8) is var real && Math.Abs(real - 250.04) < 1e-9 && real != 250
+           && Src("Commands.ReviewChangesets.cs") is var rvF && rvF.Contains("facts = StairPlanner.Facts(type.MaxRiserHeight, type.MinTreadDepth, type.MinRunWidth);") && !rvF.Contains("MinTreadMm = type.MinTreadDepth * ft"),
+           "F-B4-3: a type going read as 249.99999999999997 mm plans going 250 (the body, the ledger's planned, the desk), a real 250.04 stays 250.04, and Propose a stair… reads the type through StairPlanner.Facts");
         var band = Plan(st: new List<LevelFact> { stories[0], new LevelFact { Name = "L01", ElevationMm = 3040.3, IsStory = true } });
         Ok(band.Hold == null && band.Risers == 17 && StairPlanner.Risers(3040.3, 190) == 17,
            "3040.3 mm under a 190 mm maximum is 17 risers: a stair 0.02 mm over the maximum no longer passes on a 0.5 mm slack (review fix)");
