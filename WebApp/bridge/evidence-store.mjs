@@ -197,11 +197,11 @@ export async function noticeOf(key, packId, deps) {
   const d = await wire(deps);
   const { pack, version } = await packOf(d, key, packId);
   let rows;
-  try { rows = await d.auditAll(key, { entity_type: "build", action_prefix: "build:run " }); }
+  try { rows = (await d.auditAll(key, { entity_type: "build", action_prefix: "build:run" })).filter((r) => r.action === "build:run" || String(r.action).startsWith("build:run ")); } // the add-in writes exactly "build:run", the bridge "build:run <job> · …"
   catch { throw err(503, "the NOTICE needs the build:run rows and the ledger could not be read — nothing was made"); }
   const text = L.noticeText({ pack, version, rows, today: d.now().slice(0, 10) });
   const tools = L.toolsOf(rows).length;
-  return { text, sha256: createHash("sha256").update(text, "utf8").digest("hex"), pack_version: version, credits: text.split("\n").filter((l) => /^- /.test(l)).length - tools, tools };
+  return { text, sha256: createHash("sha256").update(text, "utf8").digest("hex"), pack_version: version, credits: L.creditCount(pack), tools };
 }
 
 /** POST /cde/:key/evidence/:pack/attest {code} → 201: a signed-in lead or owner signs one of (a)-(f), once per pack. The machine

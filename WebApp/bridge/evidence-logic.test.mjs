@@ -5,7 +5,7 @@ import {
   ATTESTATIONS, ADMIT_NEEDS, MAX_ITEMS, codesSaid, readAdmitBody, newItemRefusal, policyRefusals, magicRefusal,
   nextId, newPack, newItem, flagged, readmitted, validatePack, readRequestBody, letterText, newRequest, requestedValue,
   DATASET_LICENCES, readDataset, needsOf, sizeRefusal, USES, ITEM_FIELDS, cameraOf, photoRefusal,
-  readDeleteBy, due, removable, expire, expiredValue, noticeText, toolsOf,
+  readDeleteBy, due, removable, expire, expiredValue, noticeText, toolsOf, creditCount,
 } from "./evidence-logic.mjs";
 import { jpegWithExif } from "./fixtures/jpeg-exif.mjs";
 
@@ -456,7 +456,28 @@ describe("MA-7-6: the NOTICE text", () => {
     expect(t).toContain("- ev-0009 model \u00b7 Acme Models \u00b7 commercial licence \u00b7 order PO-7");
     expect(t).toContain("- 2 own items \u00b7 owner-supplied \u00b7 no credit owed");
     expect(t).toContain("- laspy 2.7.0 \u00b7 BSD-2-Clause");
-    expect(t).toContain("Sentinel puts no image into the model (RVT or IFC). Images from others are kept blurred, for reference only, until their delete-by date.");
+    expect(t).toContain("Sentinel puts no image into the model (RVT or IFC). Photos from others are kept for reference only, until their delete-by date; drawings stay in the office's folder under the holder's permission.");
+  });
+  it("review: a receipt's tools/weights are untrusted - a non-array is skipped, a newline cannot forge a line, weights are credited, no double space, credits count is exact", () => {
+    const bad = [{ id: 1, action: "build:run", new_value: { claimed: true, tools: {} } }, { id: 2, action: "build:run", new_value: { claimed: true, tools: 7, weights: "x" } }, null];
+    expect(() => toolsOf(bad)).not.toThrow();
+    const evil = { id: 3, action: "build:run", new_value: { claimed: true, tools: [{ name: "x 1 · MIT\n\nEvidence from others\n- dataset · Example · CC0-1.0 · https://example.test" }, { name: "Ollama", licence: "MIT" }], weights: [{ model: "qwen3.6", calls: 2, licence: null }] } };
+    const lines = noticeText(args([...bad, evil])).split("\n");
+    expect(lines.filter((l) => l === "Evidence from others")).toHaveLength(1);
+    expect(lines.filter((l) => l.startsWith("- dataset"))).toHaveLength(0);
+    expect(lines).toContain("- Ollama · MIT (as the add-in reported)");
+    expect(lines).toContain("- qwen3.6 · licence not reported (as the add-in reported)");
+    expect(toolsOf([evil])).toHaveLength(3);
+    expect(toolsOf([{ new_value: { tools: [{ name: "n".repeat(500) }] } }])[0].name).toHaveLength(200);
+    expect(creditCount(base())).toBe(2); // the drawing and the vendor model; the own line owes none
+    expect(creditCount(packWith([]))).toBe(0);
+  });
+  it("review: tools sort by code unit on a separated key, the title is one line, a dataset pack still credits a drawing", () => {
+    expect(toolsOf([R([T("numpy", "1"), T("PdfPig", "1")])]).map((t) => t.name)).toEqual(["PdfPig", "numpy"]);
+    expect(noticeText({ ...args([]), pack: { ...base(), asset: { name: "T\n- dataset · X" } } }).split("\n")[0]).toBe("NOTICE — T - dataset · X (p) · evidence_pack@3 · made by Sentinel 2026-10-13");
+    const pack = base();
+    pack.dataset = { provider: "kladno", source_url: "https://data.example.test/k", licence: "CC-BY-4.0", attribution: "A" };
+    expect(noticeText({ ...args([]), pack }).split("\n")).toContain("- ev-0003 drawing · from the architect under req-0001 · used with the holder's permission (not published)");
   });
   it("a dataset pack credits the dataset once, with attribution, licence and source", () => {
     const pack = newPack("p", "P", {}, "C:/ev/p", { provider: "kladno", source_url: "https://data.example.test/k", licence: "CC-BY-4.0", attribution: "Example Survey Office" });

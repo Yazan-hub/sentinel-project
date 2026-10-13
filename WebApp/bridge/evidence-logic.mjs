@@ -78,7 +78,7 @@ const PACK_FIELDS = ["kind", "pack_id", "project", "asset", "storage_root", "att
 export const RECIPIENTS = ["owner", "architect", "municipality"];
 export const MAX_REQUESTS = 50;
 const shaOf = (s) => createHash("sha256").update(s, "utf8").digest("hex");
-const oneLine = (s) => s.replace(/\s+/g, " ").trim();
+const oneLine = (s) => s.replace(/[\u0000-\u001f\u007f\s]+/g, " ").trim();
 
 /** A path relative to the evidence folder, written with "/": no ":" anywhere (a drive, or an NTFS alternate stream "a.jpg:x.las" the
  *  folder list never shows), no leading slash, no "", "." or ".." segment. */
@@ -150,46 +150,60 @@ export const expire = (i, at, removed) => ({ ...i, state: "expired", expired_at:
 /** MA-7-6: the tools of a project's build:run rows, distinct by name, version and licence, sorted. A row the add-in wrote (claimed not false)
  *  gives a tool its "(as the add-in reported)" mark unless a bridge-run row names the same tool. */
 export function toolsOf(rows) {
-  const m = new Map();
-  for (const r of rows ?? []) for (const t of r?.new_value?.tools ?? []) {
-    if (!isObj(t) || typeof t.name !== "string") continue;
-    const licence = typeof t.licence === "string" && t.licence.trim() ? t.licence : null, claimed = r.new_value.claimed !== false;
-    const k = JSON.stringify([t.name, t.version ?? "", licence ?? ""]);
-    if (!m.has(k) || (m.get(k).claimed && !claimed)) m.set(k, { name: t.name, version: t.version == null ? "" : String(t.version), licence, claimed });
+  const m = new Map(), cap = (x) => oneLine(String(x)).slice(0, 200); // review: the rows are the add-in's (open route, unvalidated) - one line each, 200 characters
+  for (const r of rows ?? []) {
+    const nv = r?.new_value, claimed = nv?.claimed !== false;
+    // MA-7-6: the add-in's receipts name the tools they ran (tools[]) and the models they called (weights[])
+    const got = [];
+    if (Array.isArray(nv?.tools)) for (const t of nv.tools) if (isObj(t) && typeof t.name === "string") got.push([t.name, t.version, t.licence]);
+    if (Array.isArray(nv?.weights)) for (const w of nv.weights) if (isObj(w) && typeof w.model === "string") got.push([w.model, "", w.licence]);
+    for (const [n, v, l] of got) {
+      const name = cap(n), version = v == null ? "" : cap(v), licence = typeof l === "string" && cap(l) ? cap(l) : null;
+      if (!name || m.size >= 500) continue;
+      const k = JSON.stringify([name, version, licence ?? ""]);
+      if (!m.has(k) || (m.get(k).claimed && !claimed)) m.set(k, { name, version, licence, claimed });
+    }
   }
-  return [...m.values()].sort((a, b) => (a.name + a.version + (a.licence ?? "")).localeCompare(b.name + b.version + (b.licence ?? "")));
+  return [...m.entries()].sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0)).map(([, t]) => t); // by code unit on a separated key: the same ledger, the same sha256 on any runtime
 }
+
+/** MA-7-6: the evidence credit lines of a pack, sorted, and how many are "own" (no credit owed). */
+export function creditLines(pack) {
+  const from = [], line = (x) => oneLine(String(x));
+  let own = 0;
+  if (pack.dataset) from.push(`- dataset · ${line(pack.dataset.attribution)} · ${line(pack.dataset.licence)} · ${line(pack.dataset.source_url)}`);
+  for (const i of [...pack.items].sort((a, b) => a.id.localeCompare(b.id))) {
+    if (pack.dataset && (i.kind === "scan" || i.provider === pack.dataset.provider)) continue; // its scans are the dataset's, credited once above; a drawing or vendor model in the pack still is credited
+    if (i.kind === "drawing") from.push(`- ${i.id} drawing · from the ${line(i.provider)} under ${line(i.request_id)} · used with the holder's permission (not published)`);
+    else if (i.role === "context") {
+      const w = i.web ?? {};
+      from.push(`- ${i.id} photo · "${line(w.attribution_text ?? "")}" · ${line(w.author ?? "")} · ${line(i.licence)} · ${line(w.source_url ?? "")} · retrieved ${String(w.retrieved_at ?? "").slice(0, 10)}`
+        + (w.web_mode === "drill" ? " · drill: counsel has not reviewed web evidence" : "") + (i.state === "expired" ? ` · expired ${String(i.expired_at ?? "").slice(0, 10)}` : ""));
+    } else if (i.provider !== "own") from.push(`- ${i.id} ${i.kind} · ${line(i.provider)} · commercial licence · order ${line(i.licence_ref ?? "")}`);
+    else own++;
+  }
+  if (own) from.push(`- ${own} own item${own === 1 ? "" : "s"} · owner-supplied · no credit owed`);
+  return { from: from.sort(), own };
+}
+/** MA-7-6: how many credits the NOTICE owes (the own-items line is none). */
+export const creditCount = (pack) => { const { from, own } = creditLines(pack); return from.length - (own ? 1 : 0); };
 
 /** MA-7-6 (design §6.11): the credits text — every credit owed for the evidence and the tools a project's model was built from. Pure and
  *  deterministic: lines sorted, LF endings, nothing from the clock but `today`. `rows`: the project's build:run ledger rows. The sha256 of
  *  the text is the caller's (shaOf). Expired items stay credited; a web photo's author and attribution come from the pack (they are never on the ledger). */
 export function noticeText({ pack, version, rows, today }) {
-  const from = [], line = (x) => oneLine(String(x));
-  let own = 0;
-  if (pack.dataset) from.push(`- dataset · ${line(pack.dataset.attribution)} · ${pack.dataset.licence} · ${pack.dataset.source_url}`);
-  for (const i of [...pack.items].sort((a, b) => a.id.localeCompare(b.id))) {
-    if (pack.dataset) continue; // its scans are the dataset's, credited once above
-    if (i.kind === "drawing") from.push(`- ${i.id} drawing · from the ${i.provider} under ${i.request_id} · used with the holder's permission (not published)`);
-    else if (i.role === "context") {
-      const w = i.web ?? {};
-      from.push(`- ${i.id} photo · "${line(w.attribution_text ?? "")}" · ${line(w.author ?? "")} · ${i.licence} · ${w.source_url} · retrieved ${String(w.retrieved_at ?? "").slice(0, 10)}`
-        + (w.web_mode === "drill" ? " · drill: counsel has not reviewed web evidence" : "") + (i.state === "expired" ? ` · expired ${String(i.expired_at ?? "").slice(0, 10)}` : ""));
-    } else if (i.provider !== "own") from.push(`- ${i.id} ${i.kind} · ${i.provider} · commercial licence · order ${line(i.licence_ref ?? "")}`);
-    else own++;
-  }
-  if (own) from.push(`- ${own} own item${own === 1 ? "" : "s"} · owner-supplied · no credit owed`);
-  from.sort();
-  const tools = toolsOf(rows).map((t) => `- ${t.name} ${t.version} · ${t.licence ?? "licence not reported"}${t.claimed ? " (as the add-in reported)" : ""}`);
+  const { from } = creditLines(pack), line = (x) => oneLine(String(x));
+  const tools = toolsOf(rows).map((t) => `- ${t.name}${t.version ? " " + t.version : ""} · ${t.licence ?? "licence not reported"}${t.claimed ? " (as the add-in reported)" : ""}`);
   const none = (a) => (a.length ? a : ["(none yet)"]);
   return [
-    `NOTICE — ${pack.asset.name} (${pack.project}) · evidence_pack@${version} · made by Sentinel ${today}`,
+    `NOTICE — ${line(pack.asset.name)} (${line(pack.project)}) · evidence_pack@${version} · made by Sentinel ${today}`,
     "Every credit owed for the evidence and the tools this project's model was built from.",
     "",
     "Evidence from others", ...none(from),
     "",
     "Tools and weights (from this project's build:run rows)", ...none(tools),
     "",
-    "Sentinel puts no image into the model (RVT or IFC). Images from others are kept blurred, for reference only, until their delete-by date.",
+    "Sentinel puts no image into the model (RVT or IFC). Photos from others are kept for reference only, until their delete-by date; drawings stay in the office's folder under the holder's permission.",
     "",
   ].join("\n");
 }

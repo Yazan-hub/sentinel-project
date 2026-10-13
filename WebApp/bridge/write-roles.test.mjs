@@ -71,6 +71,7 @@ function serveFake(req, res) {
     if (table === "projects" && !service)
       hits = hits.filter((r) => roleOf(r.id) && (req.method !== "DELETE" || (roleOf(r.id) === "owner" && !fake.refuseDelete)));
     const back = /return=representation/.test(String(req.headers.prefer || ""));
+    if (req.method === "GET" && table === "audit_log") { res.setHeader("Content-Range", `${hits.length ? `0-${hits.length - 1}` : "*"}/${hits.length}`); return reply(200, hits); } // MA-7-6: the ledger read counts its rows
     if (req.method === "GET") return reply(200, hits);
     if (req.method === "PATCH") { for (const r of hits) Object.assign(r, body); return back ? reply(200, hits) : reply(204); }
     if (req.method === "DELETE") {
@@ -1082,12 +1083,13 @@ describe("evidence intake (MA-4a): who makes, signs, admits and reads", () => {
   });
   it("MA-7-6: GET .../notice is a read - a viewer, a contributor, a lead and the machine credential are all let through, none is a 403", async () => {
     await call("POST", E, "lead", {});
+    db.audit_log.push({ id: 9001, project_id: db.projects[0].id, entity_type: "build", action: "build:run", new_value: { claimed: true, tools: [{ name: "Ollama", licence: "MIT" }] } });
     for (const as of ["viewer", "contributor", "lead", "machine"]) {
       const r = await call("GET", `${E}/evp-0001/notice`, as);
-      // the fake serves no ledger count, so the NOTICE says so in words (a 503) - what matters is that no role is refused (never a 403)
-      expect([200, 503], as).toContain(r.status);
-      expect(r.status === 200 ? r.body.text : r.body.message).toMatch(/^(NOTICE — |the NOTICE needs the build:run rows)/);
-      if (r.status === 200) expect(r.body.sha256).toMatch(/^[0-9a-f]{64}$/);
+      expect(r.status, as).toBe(200);
+      expect(r.body.text, as).toMatch(/^NOTICE — /);
+      expect(r.body.text).toContain("- Ollama · MIT (as the add-in reported)");
+      expect(r.body.sha256).toMatch(/^[0-9a-f]{64}$/);
     }
   });
   it("MA-7-2: GET …/web is a read — a viewer, a contributor, a lead and the machine credential all get the off state", async () => {
