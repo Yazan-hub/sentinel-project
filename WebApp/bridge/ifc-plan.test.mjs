@@ -380,6 +380,13 @@ describe("planIfc — MA-8-4 (0.2.0): openings, doors, windows, columns and curt
       expect(turned.box.max[0] - turned.box.min[0]).toBeGreaterThan(2800);   // (1000 + 3000) / sqrt 2
       expect(turned.reason).toMatch(/box 2828 × 2828 mm in plan \(the larger axis-aligned box of a turned frame\)/);
     });
+    it("F-B4-4 review: a turned frame, far coordinates and a long level name cut only the level (marked …) — the ref stays whole within 300", () => {
+      const far = { min: [1250400, -830200, 45000], max: [1251400, -827200, 48500] }, LONG = `Level 03 - Second Floor FFL +7.200 (Architectural) ${"x".repeat(80)}`;
+      const f = s02(withStairs([stair(G(1), far)], { frame: { ...ZERO, rotation_deg: 30 }, levels: { L02: LONG } })).exceptions.find((e) => e.kind === "stair");
+      expect(f.storey).toBe(LONG);   // the flag's own field keeps it whole
+      expect(f.reason).toMatch(/turned frame.+ on Level 03 - Second Floor .+… · job-0007 \(ledger #3301\)$/);
+      expect(f.reason.length).toBe(300);
+    });
     it("a stair already flagged on a changeset of this job is not flagged again, nor does it fall into the class row", () => {
       const p = withStairs([stair(G(1), BOX), stair(G(2), BOX)], { filed: { cids: new Set(), storeys: new Map(), stairs: new Set([`stair:${G(1)}`]) } });
       expect(s02(p).exceptions.filter((e) => e.kind === "stair").map((e) => e.global_id)).toEqual([G(2)]);

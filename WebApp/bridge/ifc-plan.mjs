@@ -7,7 +7,7 @@
 // opening or column is pre-checked against what the executor will refuse (one basic wall under its point, a storey whose level is known, a
 // curtain wall not in the way) so one bad opening never costs the storey's changeset; what fails is a held exception, in words.
 // ponytail: the IFC's axes already meet — no trimEnds; level-bound wall tops (Promote DD attaches them) and curved walls are MA-8's.
-import { MAX_CHANGESET_ELEMENTS, CREATE_ENTITY, outlineProblem, checkStairFlag } from "./changesets-logic.mjs";
+import { MAX_CHANGESET_ELEMENTS, CREATE_ENTITY, outlineProblem, checkStairFlag, stairReason } from "./changesets-logic.mjs";
 import { KIND_CATEGORY } from "./changesets-typing.mjs";
 import { toModel, placeRefusal, matchStoreys, gapOf, groupGaps, NOT_MEASURED, typeOpening, pointAlong, nominal } from "./survey-plan.mjs";
 import { SIZE_BAND_MM, typeByDiameter, typeBySize, sectionOf, diameterOf } from "./holding-logic.mjs";
@@ -304,7 +304,7 @@ export function planIfc({ job, candidates, frame, levels: named = {}, manifest =
       try { checkStairFlag({ kind: "stair", storey: s.level, box }, "stair"); } catch { continue; }   // a box the bridge would refuse stays in the class row
       const [w, dp, h] = box.max.map((v, k) => v - box.min[k]);
       exceptions.push({ unique_id: `stair:${n.global_id}`.slice(0, 64), name: `Stair ${n.global_id}`, kind: "stair", storey: s.level, box, global_id: n.global_id,
-        reason: `a stair — a person proposes it from this flag (Propose a stair…, Revit 2021+), or adds it; box ${w} × ${dp} mm in plan${turned ? " (the larger axis-aligned box of a turned frame)" : ""}, ${h} mm tall, from (${box.min.join(", ")}) on ${s.level} · ${ref}`.slice(0, 300) });
+        reason: stairReason(`a stair — a person proposes it from this flag (Propose a stair…, Revit 2021+), or adds it; box ${w} × ${dp} mm in plan${turned ? " (the larger axis-aligned box of a turned frame)" : ""}, ${h} mm tall, from (${box.min.join(", ")}) on `, s.level, ` · ${ref}`) });
       flagged.add(n);
     }
     // what was not read: one exception per IFC class on the storey (a 64 MB file can hold thousands), the first GlobalIds named

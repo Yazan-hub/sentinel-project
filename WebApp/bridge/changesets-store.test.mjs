@@ -2113,6 +2113,10 @@ describe("flagChangeset (MA-8-9): a person's stair pick, appended to a changeset
     expect(deps.audit.mock.calls).toHaveLength(1);
     expect(deps.audit.mock.calls[0].slice(1, 6)).toEqual(["changeset", cs.id, `changeset_flagged ${cs.name} · stair on L01`, "yazan", { review_rev: 0 }]);
     expect(deps.audit.mock.calls[0][6]).toMatchObject({ review_rev: 1, changeset: cs.id, flag: out.flag });
+    // F-B4-4 review: a 256-character storey is cut (marked …) after the coordinates, never through them; the flag's storey field stays whole
+    const long = await flagChangeset("demo", cs.id, { ...PICK, storey: "S".repeat(256) }, "yazan", deps);
+    expect([long.flag.storey.length, long.flag.reason.length]).toEqual([256, 300]);
+    expect(long.flag.reason).toMatch(/from \(0, 0, 0\) on S+…$/);
   });
   it("the same storey and box picked twice is a 409 naming the first flag - a lost reply never makes two flags", async () => {
     const deps = person();

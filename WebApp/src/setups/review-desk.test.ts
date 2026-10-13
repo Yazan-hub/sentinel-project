@@ -608,10 +608,14 @@ describe("measured against the scan (MA-4e)", () => {
     expect(canMeasure(decided[12], "lead", null) || canMeasure(decided[13], "lead", null)).toBe(false);   // MA-5a-4 / MA-6-8: never a drawing's or an IFC's
     expect(unmeasuredOlder(newest, measured)).toEqual([]);   // the newest 10 have their own Measure
     expect(unmeasuredOlder(decided, new Error("not read — down"))).toEqual([]);   // never a guess
+    // review: a failed or refused measure is no measure — the bridge takes a new one, so the desk offers it
+    const failed = { items: [{ id: "cs-14", name: "n", rec }, { id: "cs-10", name: "n", rec: { ...rec, status: "failed" } }, { id: "cs-11", name: "n", rec: { ...rec, status: "refused" } }], capped: false };
+    expect(unmeasuredOlder(decided, failed).map((c) => c.id)).toEqual(["cs-10", "cs-11"]);
     const src = readFileSync(new URL("./review-desk.ts", import.meta.url), "utf8");
     expect(src).toContain("const v = measuredView(data, byId), older = unmeasuredOlder(decided, data);");
     expect(src).toContain('if (canMeasure(cs, role, null)) row.append(measureBtn(cs.id, "Measure against the scan"));');
-    expect(src).toContain("Placed and never measured (older than the newest ${DECIDED_MAX} reports");
+    // review: the heading says an Undo in Revit is not read for these (canMeasure has no ledger rows here)
+    expect(src).toContain("Placed as reported, no finished measure (older than the newest ${DECIDED_MAX} reports; an Undo in Revit since is not read here — the bridge refuses an undone one");
     expect(src).toContain("decided instanceof Error ? [] : decided, role.role); if (mb) tail.append(mb);");
   });
   it("the desk reads the newest measure after the ledger rows, and Measure sits behind canMeasure with one press, one run (source scan)", () => {

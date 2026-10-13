@@ -495,10 +495,11 @@ export function measuredView(data: Awaited<ReturnType<typeof readMeasuredRecent>
 
 /** MA-8 nits (F-B3-4): the placed survey changesets older than the DECIDED_MAX newest reports with no verify:measured row in the read above — the
  *  decided list shows no Measure for them, so "Measured against the scan" does. From the desk's own list (readDecided, every reported changeset): no new
- *  route. A drawing's or an IFC's never (isDrawn: MA-5a-4 / MA-6-8). [] when the measures were not read — never a guess. Pure. */
+ *  route. A drawing's or an IFC's never (isDrawn: MA-5a-4 / MA-6-8). [] when the measures were not read — never a guess. Only a done measure counts
+ *  (review: a failed or refused run's row leaves it unmeasured — the bridge takes a new measure after one). Pure. */
 export function unmeasuredOlder(decided: PendingChangeset[], measured: Awaited<ReturnType<typeof readMeasuredRecent>> | Error): PendingChangeset[] {
   if (measured instanceof Error) return [];
-  const seen = new Set(measured.items.map((m) => m.id));
+  const seen = new Set(measured.items.filter((m) => m.rec.status === "done").map((m) => m.id));
   return decided.slice(DECIDED_MAX).filter((cs) => !!cs.job && !isDrawn(cs) && (cs.status === "applied" || cs.status === "partially_applied") && !seen.has(cs.id));
 }
 
@@ -800,7 +801,7 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
     // MA-8 nits (F-B3-4): an older placed survey changeset with no measure gets Measure here (the ledger's Undo rows are the bridge's to read: canMeasure with none)
     if (older.length) {
       const capped = !(data instanceof Error) && data.capped;
-      box.append(el("div", `Placed and never measured (older than the newest ${DECIDED_MAX} reports${capped ? `; a measure older than the newest ${MEASURED_MAX} is not seen here` : ""}):`, "color:#8b93a1"));
+      box.append(el("div", `Placed as reported, no finished measure (older than the newest ${DECIDED_MAX} reports; an Undo in Revit since is not read here — the bridge refuses an undone one${capped ? `; a measure older than the newest ${MEASURED_MAX} is not seen here` : ""}):`, "color:#8b93a1"));
       for (const cs of older) {
         const row = el("div", "", "display:flex;flex-wrap:wrap;gap:.4rem;align-items:center;padding:.15rem 0");
         row.append(el("span", cs.name || cs.id));
