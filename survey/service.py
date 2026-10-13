@@ -243,9 +243,10 @@ def read_cloud(b):
         raise ValueError("cloud.ground must be true when sent")
     if ground and xy is not None:
         raise ValueError("cloud.ground and cloud.xy_mm are two different cuts — send one")
-    if out is not None:
+    if out is not None:  # MA-8-14: within 2e10 mm, as the bridge's cloudRefusal - a national grid's plan coordinates pass 1e9 (Kladno's y is ~1.04e9 mm)
+        grid = lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and abs(v) <= 2e10
         ok = (ground is True and isinstance(out, list) and 3 <= len(out) <= 8
-              and all(isinstance(q, list) and len(q) == 2 and all(num(v) for v in q) for q in out))
+              and all(isinstance(q, list) and len(q) == 2 and all(grid(v) for v in q) for q in out))
         if ok:  # convex: every turn the same way (a zero turn is a straight edge)
             turns = [(out[(i + 1) % len(out)][0] - out[i][0]) * (out[(i + 2) % len(out)][1] - out[(i + 1) % len(out)][1])
                      - (out[(i + 1) % len(out)][1] - out[i][1]) * (out[(i + 2) % len(out)][0] - out[(i + 1) % len(out)][0]) for i in range(len(out))]

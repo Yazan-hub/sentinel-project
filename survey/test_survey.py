@@ -1363,6 +1363,8 @@ class InProcess(unittest.TestCase):
         self.assertEqual(service.read_cloud(good)["cloud"], good["cloud"])  # without ground: the answer is as it was
         self.assertEqual(service.read_cloud({**good, "cloud": {**good["cloud"], "ground": True}})["cloud"], {**good["cloud"], "ground": True})
         self.assertEqual(service.read_cloud({**good, "cloud": {**good["cloud"], "ground": True, "outside_mm": box}})["cloud"]["outside_mm"], box)
+        grid = [[-763971000.5, -1035486000.25], [-763961000.5, -1035486000.25], [-763961000.5, -1035476000.25], [-763971000.5, -1035476000.25]]
+        self.assertEqual(service.read_cloud({**good, "cloud": {**good["cloud"], "ground": True, "outside_mm": grid}})["cloud"]["outside_mm"], grid)  # a national grid's box
         with self.assertRaisesRegex(ValueError, r"cloud\.outside_mm must be a convex polygon .* only with cloud\.ground"):
             service.read_cloud({**good, "cloud": {**good["cloud"], "outside_mm": box}})  # outside_mm alone
         for bad in ([[0, 0], [1, 1]], [[0, 0], [10, 0], [10, 20], [5, 5], [0, 20]], [[0, 0], [10, 0], [10, "a"]], "box", [[0, 0]] * 9):

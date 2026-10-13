@@ -1683,16 +1683,17 @@ describe("verifyChangeset (MA-4e): a signed-in contributor measures a placed sur
   it("(k) MA-8-14: the ground - the band under and over the lowest wall, the storey's oriented box as outside_mm in the scan's frame, 500 mm cells, 2000 points; the answer carries the level and the box; it fails closed on a service that does not read ground", async () => {
     const wall = (e, level) => ({ ...e, place: { ...e.place, LevelName: level } });
     const cs = { ...CS, elements: CS.elements.map((e) => wall(e, "GR-FFL")) };
-    const echo = (over = {}) => vi.fn(async (_k, _j, p) => ({ status: "done", version: "0.6.0", refused: [], result: { points: [[125, -900, -300], [9000, 100, -250]], derived: [],
-      receipt: { cloud: { cell_mm: 500, z_mm: p.cloud.z_mm, of: 2, points: 2, ground: true, outside_mm: p.cloud.outside_mm, ...over } } } }));
+    const echo = (over = {}) => vi.fn(async (_k, _j, p) => ({ status: "done", version: "0.6.0", refused: [], result: { points: [[125, -900, -300], [9000, 100, -250], [4000, 3000, -300], [-876, 3000, -300], [-877, 3000, -290]], derived: [],
+      receipt: { cloud: { cell_mm: 500, z_mm: p.cloud.z_mm, of: 5, points: 5, ground: true, outside_mm: p.cloud.outside_mm, ...over } } } }));
     const deps = sdeps({ measureJob: echo() }, cs);
     const r = await scanOverlay("ma4c-drill", ID, deps, { ground: true });
     const sent = deps.measureJob.mock.calls[0][2].cloud;
     expect([sent.cell_mm, sent.max_points, sent.ground, sent.z_mm, sent.xy_mm]).toEqual([500, 2000, true, [-5000, 1500], undefined]);   // the model's z 0, less dz 0 in the scan's frame (CS's frame)
     expect(sent.outside_mm).toHaveLength(4);
     expect(deps.measureJob.mock.calls[0][4]).toEqual({ path: "/cloud", what: "a scan overlay" });
-    expect([r.ground, r.level, r.footprint.length, r.z_mm, r.of, r.cell_mm]).toEqual([true, "GR-FFL", 4, [-5000, 1500], 2, 500]);
-    expect(r.points).toHaveLength(2);
+    expect([r.ground, r.level, r.footprint.length, r.z_mm, r.of, r.cell_mm]).toEqual([true, "GR-FFL", 4, [-5000, 1500], 5, 500]);
+    // frame dx 40000, the box x 39125..48850: inside (44000) and 1 mm out (39124: a turned frame's rounding can put a point there) are dropped; 2 mm out (39123) stays
+    expect(r.points).toEqual([[40125, -900, -300], [49000, 100, -250], [39123, 3000, -290]]);
     expect([deps.audit.mock.calls.length, deps.docInsert.mock.calls.length]).toEqual([0, 0]);
     const old = sdeps({ measureJob: echo({ ground: undefined }) }, cs);   // a sentinel-survey that drops keys it does not know
     await expect(scanOverlay("ma4c-drill", ID, old, { ground: true })).rejects.toMatchObject({ status: 502, message: "this sentinel-survey does not read ground — its scan is not shown" });

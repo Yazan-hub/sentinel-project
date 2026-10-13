@@ -638,6 +638,16 @@ export function groundCut(cs) {
     footprint: orientedBox(low.flatMap((e) => [e.place.LocationCurve.start, e.place.LocationCurve.end].map((p) => [p[0], p[1]])), GROUND_PAD_MM) };
 }
 
+/** MA-8-14: whether plan point p lies more than `mm` outside the box (orientedBox's: convex, anticlockwise). The ground comes back rounded to whole
+ *  mm in the model's frame, so a point sentinel-survey kept just outside the box can land on or in it, and the bridge's own terrain check would refuse
+ *  the whole terrain for it ("lies inside the Boundary"). Pure. */
+export function beyond(box, p, mm) {
+  return box.some((a, i) => {
+    const b = box[(i + 1) % box.length];
+    return ((b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0])) / Math.hypot(b[0] - a[0], b[1] - a[1]) < -mm;
+  });
+}
+
 /** null when the ground answer is a ground answer: the service echoed ground:true and the polygon it was given (a sentinel-survey that does not
  *  read ground drops the keys it does not know and answers a thinned cloud that looks the same), else what is wrong. Pure. */
 export function groundRefusal(res, outside) {

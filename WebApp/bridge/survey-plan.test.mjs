@@ -6,7 +6,7 @@ import * as core from "./sentinel-core.mjs";
 import { makeTyper } from "./changesets-typing.mjs";
 import { validateChangeset } from "./changesets-logic.mjs";
 import { typeGapId, typeGapGroups } from "./holding-logic.mjs";
-import { readProposeBody, toModel, matchStoreys, trimEnds, planSurvey, toScan, facesOf, measurePlan, judge, measureRefusal, countWords, readMesh, meshFaces, REVIT, FILED, scanBand, cloudRefusal, placeRefusal, orientedBox, groundCut, groundRefusal, DEVIATION_MM, FACE_SHARE_MIN } from "./survey-plan.mjs";
+import { readProposeBody, toModel, matchStoreys, trimEnds, planSurvey, toScan, facesOf, measurePlan, judge, measureRefusal, countWords, readMesh, meshFaces, REVIT, FILED, scanBand, cloudRefusal, placeRefusal, orientedBox, groundCut, groundRefusal, beyond, DEVIATION_MM, FACE_SHARE_MIN } from "./survey-plan.mjs";
 import { boxMesh } from "./fixtures/box-mesh.mjs";
 
 const read = (p) => JSON.parse(readFileSync(new URL(p, import.meta.url), "utf8"));
@@ -533,6 +533,10 @@ describe("MA-8-14 — the ground read's cut", () => {
     expect(Math.round(area(cut.footprint) / 1e6)).toBe(10 * 8); // 8 x 6 m padded by 1 m: 10 x 8 m (the upper storey adds nothing)
     expect(groundCut({ elements: [] })).toBeNull();
     expect(groundCut({ elements: [{ kind: "wall", place: { LocationCurve: { start: [0, 0, 0], end: [1, 0, 0] } } }] }).level).toBeNull();
+  });
+  it("beyond: more than mm outside the box on any side; inside, on the edge or within mm of it is not", () => {
+    const box = orientedBox([[0, 0], [4000, 0], [4000, 3000], [0, 3000]], 1000);
+    expect([[2000, 1500], [-1000, 0], [-1001, 0], [-1001.5, 0], [6000, 6000], [2000, 4002]].map((p) => beyond(box, p, 1))).toEqual([false, false, false, true, true, true]);
   });
   it("groundRefusal: only an answer that says it read ground and echoes the polygon", () => {
     const out = [[0, 0], [1, 0], [1, 1]];
