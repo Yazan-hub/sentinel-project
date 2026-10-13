@@ -121,6 +121,17 @@ static partial class Check
            && unreported.Contains("var err = ChangesetTrust.BridgeWords(error, 120);")
            && client.Contains("ResultBody(applied, rejected, note, reviewRev, reasons), 200, out reply, out error);"),
            "every read (the pending list, the re-check, the role) and every write of the changeset client says its failure in those words, with its own timeout; the result is posted with ResultBody");
+        // MA-8 nits (F-B4-2): a refusal says the bridge's message, not its JSON; the "Bridge <code>" prefix Outcome reads is kept.
+        int refusalSites = 0;
+        for (int i = 0; (i = client.IndexOf("error = ChangesetTrust.Refusal((int)resp.StatusCode, body);", i, StringComparison.Ordinal)) >= 0; i++) refusalSites++;
+        Ok(ChangesetTrust.Refusal(409, "{\"message\":\"changeset is declined — a result can be reported exactly once, from proposed\"}") == "Bridge 409: changeset is declined — a result can be reported exactly once, from proposed"
+           && ChangesetTrust.Refusal(502, " <html>Bad Gateway</html>\n") == "Bridge 502: <html>Bad Gateway</html>"
+           && ChangesetTrust.Refusal(404, "") == "Bridge 404: " && ChangesetTrust.Refusal(404, null) == "Bridge 404: "
+           && ChangesetTrust.Refusal(400, "{\"error\":\"x\"}") == "Bridge 400: {\"error\":\"x\"}"
+           && ChangesetTrust.Refusal(500, new string('x', 500)) == "Bridge 500: " + new string('x', 400) + "…"
+           && UnreportedResults.Outcome(ChangesetTrust.Refusal(409, "{\"message\":\"no\"}"), 0) is var refusedWords && refusedWords.Drop && refusedWords.Words == "the bridge refused it (retrying cannot fix this): Bridge 409: no"
+           && refusalSites == 7 && !client.Contains("error = $\"Bridge {(int)resp.StatusCode}: {body}\";"),
+           "F-B4-2: a refusal reads \"Bridge 409: <the message>\" (a non-JSON body as sent, an empty one empty, a long one capped), Outcome still drops a 4xx, and all 7 client calls say it so");
 
         // Zoom to row: the rectangle a create's row shows, from its place (mm, with a margin); none when the place has no point.
         var wall = ChangesetTrust.PlaceBox(new PlaceDto { LocationCurve = new CurveDto { Start = new double[] { 0, 0, 3000 }, End = new double[] { 5000, 0, 3000 } } });
