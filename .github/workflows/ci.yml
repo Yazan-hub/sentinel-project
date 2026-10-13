@@ -42,6 +42,8 @@ jobs:
           NPM_TOKEN: ${{ secrets.THATOPEN_NPM_TOKEN }}
       - run: rm -f .npmrc
       - run: npm run prepare
+      # MA-7-1: banned or unknown licences fail here; pending ones warn (D-7-16). Runs after .npmrc is gone, so no token is in its environment.
+      - run: node ../tools/licence-check/check.mjs
       - run: npm run test
       - run: npm run build
 

@@ -1,0 +1,30 @@
+{
+  "_": "MA-7-1: licences read from each package's own dist-info / nuget page. A row moves with its pin (version mismatch = unknown). Every new download adds its row here.",
+  "python_runtime": ["python", "numpy"],
+  "python": {
+    "python": { "version": "", "licence": "PSF-2.0" },
+    "numpy": { "version": "", "licence": "BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0" },
+    "laspy": { "version": "2.7.0", "licence": "BSD-2-Clause" },
+    "lazrs": { "version": "0.8.2", "licence": "MIT", "carries": [{ "name": "laz", "version": "0.12.2", "licence": "Apache-2.0" }] },
+    "pye57": {
+      "version": "0.4.19", "licence": "MIT",
+      "carries": [{ "name": "libE57Format", "licence": "BSL-1.0" }, { "name": "Xerces-C++", "version": "3.2.3", "licence": "Apache-2.0" }]
+    },
+    "pyquaternion": { "version": "0.9.9", "licence": "MIT" }
+  },
+  "nuget": {
+    "PdfPig": { "licence": "Apache-2.0" },
+    "System.Security.Cryptography.ProtectedData": { "licence": "MIT" },
+    "System.Text.Json": { "licence": "MIT" },
+    "Nice3point.Revit.Api.RevitAPI": { "licence": "compile-time reference assemblies of Autodesk's Revit API (not shipped)" },
+    "Nice3point.Revit.Api.RevitAPIUI": { "licence": "compile-time reference assemblies of Autodesk's Revit API (not shipped)" }
+  },
+  "pending": {
+    "@markerjs/markerjs3": { "read": "SEE LICENSE IN LICENSE (Linkware: show its credit link, buy, or drop it; imported in src/main.ts only)", "decision": "D-7-16" },
+    "fast-sha256": { "read": "Unlicense: accept, or swap for Web Crypto", "decision": "D-7-16" },
+    "duck": { "read": "BSD: read its text", "decision": "D-7-16" },
+    "Nice3point.Revit.Api.RevitAPI": { "read": "compile-only reference assemblies, not shipped", "decision": "D-7-16" },
+    "Nice3point.Revit.Api.RevitAPIUI": { "read": "compile-only reference assemblies, not shipped", "decision": "D-7-16" }
+  },
+  "accepted": {}
+}
