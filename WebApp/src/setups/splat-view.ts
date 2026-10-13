@@ -35,27 +35,32 @@ export function tinySplatPly(n = 1): Uint8Array {
 export interface SparkProbe { SplatMesh: new (o: { fileBytes: Uint8Array }) => { initialized: Promise<unknown>; dispose?: () => void } }
 export type ProbeResult = { ok: true } | { ok: false; why: string };
 
-/** Start Spark on a one-gaussian splat: ok when it initialised within `ms`, else why not (the words for the button). Not memoised - probeSpark is. */
-export async function probeSparkWith(load: () => Promise<SparkProbe>, ms = SPLAT_PROBE_MS): Promise<ProbeResult> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
+/** MA-7-11 review: the published view is the opaque-origin iframe (D-7-25); only there are the local-app words true. */
+const isPublishedView = (): boolean => typeof window !== "undefined" && window.origin === "null";
+/** Start Spark on a one-gaussian splat: ok when it initialised within `ms` of the chunk loading (amendment 32: the bound is for the worker, not the download), else why not
+ *  (the words for the button: local-app-only in the published view, else a try-again naming the cause). Not memoised - probeSpark is. */
+export async function probeSparkWith(load: () => Promise<SparkProbe>, ms = SPLAT_PROBE_MS, published: boolean = isPublishedView()): Promise<ProbeResult> {
+  let timer: ReturnType<typeof setTimeout> | undefined, cause = "";
   try {
-    const run = (async () => {
-      const { SplatMesh } = await load();
-      const mesh = new SplatMesh({ fileBytes: tinySplatPly(1) });
-      await mesh.initialized;
-      try { mesh.dispose?.(); } catch { /* the probe is thrown away */ }
-    })();
-    run.catch(() => {}); // a late failure after the timeout is not unhandled
+    const { SplatMesh } = await load();
+    const mesh = new SplatMesh({ fileBytes: tinySplatPly(1) });
     const late = new Promise<never>((_, no) => { timer = setTimeout(() => no(new Error("timeout")), ms); });
-    await Promise.race([run, late]);
+    mesh.initialized.catch(() => {}); // a late failure after the timeout is not unhandled
+    await Promise.race([mesh.initialized, late]);
+    try { mesh.dispose?.(); } catch { /* the probe is thrown away */ }
     return { ok: true };
-  } catch {
-    return { ok: false, why: LOCAL_ONLY_WORDS };
+  } catch (e) {
+    cause = (e as Error)?.message || "unknown";
+    return { ok: false, why: published ? LOCAL_ONLY_WORDS : `Spark did not start within ${Math.round(ms / 1000)} s (${cause}) — nothing was loaded; try again` };
   } finally { if (timer) clearTimeout(timer); }
 }
 let probed: Promise<ProbeResult> | null = null;
-/** The probe against the installed Spark, once per page (the answer does not change while the page lives). */
-export const probeSpark = (): Promise<ProbeResult> => (probed ??= probeSparkWith(() => import("@sparkjsdev/spark") as unknown as Promise<SparkProbe>));
+/** The probe against the installed Spark. Only a success is kept for the page; a failure (a slow first start) is tried again on the next press. */
+export const probeSpark = (): Promise<ProbeResult> => {
+  const p = probed ??= probeSparkWith(() => import("@sparkjsdev/spark") as unknown as Promise<SparkProbe>);
+  void p.then((r) => { if (!r.ok && probed === p) probed = null; });
+  return p;
+};
 
 export interface SplatShown {
   /** The placement now: the outer group's 4x4, column-major (three.js Matrix4 elements). */

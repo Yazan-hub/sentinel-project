@@ -246,7 +246,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       admitting = null; drawingFor = null; vendorFor = null; photoFor = null; splatFor = null;
       try { const ev = await readEvidence(base, key); if (mine !== seq) return; evidence = ev; evidenceError = null; }
       catch (e) { if (mine !== seq) return; evidence = null; evidenceError = (e as Error).message; }
-      if (splat && !evidence?.pack.items.some((x) => x.id === splat!.id && x.kind === "splat" && !x.state)) splatClose(); // MA-7-11: a retired or changed splat leaves the scene
+      if (splat && evidence && !evidence.pack.items.some((x) => x.id === splat!.id && x.kind === "splat" && !x.state)) splatClose(); // MA-7-11: a retired or changed splat leaves the scene
       // MA-7-2: the web switch is its own read; a failure leaves the line unsaid, never "off" guessed
       try { const w = evidence ? await readWebStatus(base, key) : null; if (mine !== seq) return; webState = w; } catch { if (mine !== seq) return; webState = null; }
       jobOpen = null; jobCands = null; // the Propose form stays open with its draft: a refusal never loses what the lead typed

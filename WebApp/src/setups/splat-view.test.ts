@@ -41,14 +41,25 @@ describe("probeSparkWith (amendment 32)", () => {
   it("not ok, in the local-app words, when the worker never starts within the bound (the published view)", async () => {
     vi.useFakeTimers();
     class Hang { initialized = new Promise<never>(() => {}); }
-    const p = probeSparkWith(async () => ({ SplatMesh: Hang }));
+    const p = probeSparkWith(async () => ({ SplatMesh: Hang }), SPLAT_PROBE_MS, true);
     await vi.advanceTimersByTimeAsync(SPLAT_PROBE_MS + 1);
     expect(await p).toEqual({ ok: false, why: "splats show in the local app on this PC (this published view cannot start Spark's worker) — nothing was loaded" });
     expect(LOCAL_ONLY_WORDS).toBe("splats show in the local app on this PC (this published view cannot start Spark's worker) — nothing was loaded");
   });
   it("not ok when Spark cannot be loaded or its mesh refuses", async () => {
-    expect(await probeSparkWith(async () => { throw new Error("blocked"); })).toEqual({ ok: false, why: LOCAL_ONLY_WORDS });
+    expect(await probeSparkWith(async () => { throw new Error("blocked"); }, SPLAT_PROBE_MS, true)).toEqual({ ok: false, why: LOCAL_ONLY_WORDS });
     class Bad { initialized = Promise.reject(new Error("worker blocked")); }
-    expect(await probeSparkWith(async () => ({ SplatMesh: Bad }))).toEqual({ ok: false, why: LOCAL_ONLY_WORDS });
+    expect(await probeSparkWith(async () => ({ SplatMesh: Bad }), SPLAT_PROBE_MS, true)).toEqual({ ok: false, why: LOCAL_ONLY_WORDS });
+  });
+  it("MA-7-11 review: in the local app a failure says try again with the cause, not local-app-only; the bound starts after the chunk loads", async () => {
+    vi.useFakeTimers();
+    const r = await probeSparkWith(async () => { throw new Error("blocked"); }, SPLAT_PROBE_MS, false);
+    expect(r).toEqual({ ok: false, why: "Spark did not start within 5 s (blocked) — nothing was loaded; try again" });
+    // a slow download (10 s) does not count against the 5 s worker bound
+    class Quick { initialized = Promise.resolve(); }
+    const p = probeSparkWith(() => new Promise((res) => setTimeout(() => res({ SplatMesh: Quick }), 10000)), SPLAT_PROBE_MS, false);
+    await vi.advanceTimersByTimeAsync(10001);
+    expect(await p).toEqual({ ok: true });
+    vi.useRealTimers();
   });
 });

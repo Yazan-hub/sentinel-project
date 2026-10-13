@@ -74,7 +74,7 @@ describe("policyRefusals", () => {
     expect(policyRefusals({ kind: "photo", provider: "wikimedia-commons", path: "a.jpg", webMode: "drill" })).toEqual([]); // MA-7-12: then the web path (webPhotoRefusals) decides
     expect(policyRefusals({ kind: "photo", provider: "wikimedia-commons", path: "a.jpg", webMode: "on" })).toEqual([]);
     expect(policyRefusals({ kind: "photo", provider: "flickr", path: "a.jpg", webMode: "drill" })).toEqual(["flickr is not a source Sentinel admits photos from yet — Wikimedia Commons only (provider wikimedia-commons)"]);
-    expect(policyRefusals({ kind: "scan", provider: "wikimedia-commons", path: "a.las" })).toEqual(["web and third-party items wait for a later stage — only your own scans and photos (provider own), drawings under a request and third-party models with (e) are admitted now"]);
+    expect(policyRefusals({ kind: "scan", provider: "wikimedia-commons", path: "a.las" })).toEqual(["web and third-party items wait for a later stage — only your own scans, photos and splats (provider own), drawings under a request and third-party models with (e) are admitted now"]);
     expect(policyRefusals({ kind: "photo", provider: "street view", path: "a.jpg" })).toEqual(["street view is a RED source — imagery and data from Google, Apple and Azure/Bing map services are never admitted (attestation d says so for every photo)"]);
     expect(policyRefusals({ kind: "photo", provider: "google street view", path: "a.jpg" })[0]).toMatch(/^google street view is a RED source/);
     expect(policyRefusals({ kind: "photo", provider: "website", path: "a.jpg", webMode: "drill" })[0]).toMatch(/^website is not a source Sentinel admits photos from yet/);

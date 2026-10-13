@@ -372,6 +372,9 @@ export function readPlacement(b = {}) {
   if (!Array.isArray(m) || m.length !== 16 || !m.every((v) => typeof v === "number" && Number.isFinite(v) && Math.abs(v) <= 1e9)) throw bad("matrix must be 16 finite numbers (a 4×4, column-major), none past 1e9");
   const eq = (v, w) => Math.abs(v - w) <= 1e-9;
   if (!(eq(m[3], 0) && eq(m[7], 0) && eq(m[11], 0) && eq(m[15], 1))) throw bad("matrix is not a placement: its bottom row must be 0 0 0 1 (move, turn, scale - no skew to a point)");
+  // MA-7-11 review: no shear - the three columns of the 3x3 are mutually orthogonal, so only translate·rotate·scale passes (what the gizmo makes and Matrix4.decompose keeps)
+  const col = [[m[0], m[1], m[2]], [m[4], m[5], m[6]], [m[8], m[9], m[10]]], dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  for (const [i, j] of [[0, 1], [0, 2], [1, 2]]) if (Math.abs(dot(col[i], col[j])) > 1e-6 * Math.sqrt(dot(col[i], col[i]) * dot(col[j], col[j]))) throw bad("matrix shears the splat — a placement moves, turns and scales, no shear");
   const det = m[0] * (m[5] * m[10] - m[9] * m[6]) - m[4] * (m[1] * m[10] - m[9] * m[2]) + m[8] * (m[1] * m[6] - m[5] * m[2]);
   if (!(det > 1e-12)) throw bad(det < 0 ? "matrix mirrors the splat (its determinant is below zero) — a placement moves, turns and scales" : "matrix flattens the splat (its determinant is zero) — a placement keeps it solid");
   return { matrix: m };
@@ -403,7 +406,7 @@ export function policyRefusals({ kind, provider, path, dataset = false, webMode 
     if (webMode === "off") out.push("a photo from a website waits for counsel's review — web evidence is off (the founder's switch SENTINEL_WEB_EVIDENCE); only your own photos (provider own) are admitted now");
     else if (!WEB_ADMITTED.includes(provider)) out.push(`${provider} is not a source Sentinel admits photos from yet — Wikimedia Commons only (provider wikimedia-commons)`);
   }
-  else if (provider !== "own" && kind !== "drawing" && kind !== "model" && !dataset) out.push("web and third-party items wait for a later stage — only your own scans and photos (provider own), drawings under a request and third-party models with (e) are admitted now");
+  else if (provider !== "own" && kind !== "drawing" && kind !== "model" && !dataset) out.push("web and third-party items wait for a later stage — only your own scans, photos and splats (provider own), drawings under a request and third-party models with (e) are admitted now");
   if (kind === "drawing") {
     if (!formatOf(path, kind)) out.push(`${extOf(path) ? `a .${extOf(path)}` : "a file with no extension"} is not admitted as a drawing — drawings are pdf, dwg, dxf, png or jpg`);
     return out;

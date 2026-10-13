@@ -465,8 +465,9 @@ export async function photoFile(key, packId, itemId, which, o = {}, deps) {
     const why = L.splatUsable(item, "shown");
     if (why) throw err(409, why);
     const full = insideFolder(dir, item.path);
-    // ponytail: the splat's bytes are not re-hashed per view (Re-check flags a changed file; the placement row names the sha256) - up to 256 MB
     if (!isFile(full)) throw err(404, `${item.path} is missing from the project's evidence folder; nothing was shown`);
+    // MA-7-11 review: the answer "no faces or plates" covers these bytes only - hashed per view (up to 256 MB, about a second), a swapped file is never streamed
+    if ((await hashFile(full)).sha256 !== item.sha256) throw err(409, `${item.path} changed since it was admitted — Re-check, and put the same file back; nothing was shown`);
     return { full, type: "application/octet-stream", noStore: false };
   }
   if (!orig) {

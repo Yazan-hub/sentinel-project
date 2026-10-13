@@ -1159,6 +1159,15 @@ describe("a Gaussian splat (MA-7-11)", () => {
     await expect(readSplatPlacement("demo", "evp-0001", "ev-0009", dp())).rejects.toMatchObject({ status: 404 });
     await expect(readSplatPlacement("demo", "evp-0001", "ev-0001", dp({ auditAll: async () => { throw new Error("down"); } }))).rejects.toMatchObject({ status: 503 });
   });
+  it("(SP-2b) MA-7-11 review: swapped bytes after admission are never streamed (409), and a sheared matrix is refused with no row", async () => {
+    await ready();
+    put("splats/drill.ply", PLY);
+    await admit(withAnswer("splats/drill.ply"));
+    await expect(place("ev-0001", [1, 0, 0, 0, 0.5, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1])).rejects.toMatchObject({ status: 400, message: expect.stringContaining("shears the splat") });
+    expect(rows("splat:placed")).toEqual([]);
+    put("splats/drill.ply", Buffer.concat([PLY, Buffer.from("swapped")]));
+    await expect(photoFile("demo", "evp-0001", "ev-0001", "view", {}, deps())).rejects.toMatchObject({ status: 409, message: expect.stringContaining("changed since it was admitted") });
+  });
   it("(SP-2) the view streams a splat's own file to any member; the original route and an expired or changed splat are refused", async () => {
     await ready();
     put("splats/drill.ply", PLY);
