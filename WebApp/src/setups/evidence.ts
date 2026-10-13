@@ -26,6 +26,8 @@ export interface EvidenceItem {
   provider?: string; request_id?: string;
   /** MA-8-3: a third party's model — commercial, with the order or contract it was bought under. */
   licence?: string; licence_ref?: string;
+  /** MA-7-4: a photo's camera record (EXIF make/model, taken, whether the original holds a location); coordinates are never copied. */
+  capture?: { make: string | null; model: string | null; taken_at: string | null; gps: boolean };
 }
 /** MA-4b: an "ask the owner" request as the pack keeps it — the letter is what was drafted (Sentinel sends nothing). */
 export interface EvidenceRequest {
@@ -46,10 +48,23 @@ export const isImage = (path: string): boolean => PHOTO.test(path);
 export const needsReport = (path: string): boolean => /\.rcp$/i.test(path);
 const size = (b: number) => (b < 1048576 ? `${Math.max(1, Math.round(b / 1024))} KB` : `${(b / 1048576).toFixed(1)} MB`);
 
+/** MA-7-4: where a photo came from — asked before Admit. A map service is refused by the bridge (RED); a website waits for counsel. */
+export const PHOTO_SOURCES = [
+  { id: "own", label: "My own camera (the camera's original file)" },
+  { id: "map", label: "A map service" },
+  { id: "web", label: "A website (Wikimedia Commons, Flickr …)" },
+] as const;
+export type PhotoSource = (typeof PHOTO_SOURCES)[number]["id"];
+export const MAP_SERVICES = ["Google Street View", "Google Maps", "Google Earth", "Apple Maps", "Bing Maps", "Azure Maps"] as const;
+/** The provider the admit body carries for a photo's source (own: none — the bridge's default). Pure. */
+export const photoProvider = (source: PhotoSource, service?: string): string | undefined =>
+  source === "own" ? undefined : source === "map" ? (service ?? MAP_SERVICES[0]).toLowerCase() : "website";
+
 /** One admitted item in one line. Pure. */
 export function itemLine(i: EvidenceItem): string {
   return `${i.id} · ${i.path} · ${i.format} · ${size(i.size_bytes)} · sha ${i.sha256.slice(0, 12)}…` +
     (i.kind === "drawing" ? ` · drawing from the ${i.provider} under ${i.request_id}` : i.kind === "model" ? (i.provider && i.provider !== "own" ? ` · model from ${i.provider} (${i.licence ?? "commercial"}, ref ${i.licence_ref ?? "?"})` : " · concept model (own)") : i.surveyable ? "" : " · not surveyable (no ReCap here)") +
+    (i.kind === "photo" && i.capture ? ` · ${[i.capture.make, i.capture.model].filter(Boolean).join(" ")} · taken ${i.capture.taken_at ?? "?"} · ${i.capture.gps ? "location in the original only (not copied)" : "no location recorded"}` : "") +
     (i.state === "changed" ? " · CHANGED since admitted — on hold; restore the file and Admit it again, or put the new file in under a new name" : "");
 }
 /** An attestation's state in one line. Pure. */
