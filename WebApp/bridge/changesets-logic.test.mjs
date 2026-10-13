@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import {
   VOCABULARY, OPS, OP_KINDS, MAX_CHANGESET_ELEMENTS, TRUST_FIELDS, ADDIN_SOURCES, CREATE_ENTITY, PLACE_KEPT,
-  validateChangeset, checkStairFlag, STAIR_FLAG_FIELDS, carryKey, outlineProblem, attachVerdicts, canWithdraw, deriveResultStatus, unattributedFailures, editCost, EDIT_COST_CEILING,
+  validateChangeset, foreignOf, checkStairFlag, STAIR_FLAG_FIELDS, carryKey, outlineProblem, attachVerdicts, canWithdraw, deriveResultStatus, unattributedFailures, editCost, EDIT_COST_CEILING,
 } from "./changesets-logic.mjs";
 import * as core from "./sentinel-core.mjs";
 import { makeTyper, makeCiter } from "./changesets-typing.mjs";
@@ -233,7 +233,7 @@ describe("validateChangeset — ops, TypeName and exceptions (MA-0)", () => {
 
   it("OP_KINDS: create takes the vocabulary, retype and set_parameter six element kinds, attach walls only, rehost doors and windows", () => {
     const SIX = ["wall", "floor", "roof", "ceiling", "door", "window"];
-    expect(OP_KINDS).toEqual({ create: VOCABULARY, retype: SIX, attach: ["wall"], set_parameter: SIX, reshape: ["wall"], rehost: ["door", "window"] });
+    expect(OP_KINDS).toEqual({ create: VOCABULARY, retype: [...SIX, "column", "beam"], attach: ["wall"], set_parameter: SIX, reshape: ["wall"], rehost: ["door", "window"] });
   });
 
   it("op defaults to create and is echoed back, with no target, no reason and no exceptions", () => {
@@ -510,9 +510,13 @@ describe("validateChangeset — MA-1a step 2 (Ghost Builder: column, furniture, 
       for (const f of ["SillHeight", "FlipFacing", "FlipHand", "Rotation", "Mirrored", "Boundary", "Offset"]) status400(() => ok(b({ [f]: 1 })), new RegExp(`takes no place\\.${f}`));
   });
 
-  it("column and furniture are create-only", () => {
+  it("furniture is create-only; a column retypes (MA-8-7, by section) and then needs its family", () => {
     const UID = "5a1c2b3d-1111-2222-3333-444455556666-0004c3f8";
-    for (const kind of ["column", "furniture"])
+    status400(() => ok({ op: "retype", kind: "column", target: { unique_id: UID }, place: { TypeName: "T" }, validate: { identity: { Class: "IfcColumn", Name: "C" } } }),
+      /^elements\[0\]: a column retype needs place\.FamilyName/);
+    expect(ok({ op: "retype", kind: "column", target: { unique_id: UID, type_before: "F : T0" }, place: { FamilyName: "F", TypeName: "T" }, validate: { identity: { Class: "IfcColumn", Name: "C" } } }))
+      .toMatchObject({ op: "retype", kind: "column", pretick: false, foreign: null, validate: { identity: { Class: "IfcColumn" } } });
+    for (const kind of ["furniture"])
       status400(() => ok({ op: "retype", kind, target: { unique_id: UID }, place: { FamilyName: "F", TypeName: "T" }, validate: { identity: { Class: "IfcColumn", Name: "C" } } }),
         new RegExp(`kind "${kind}" is not supported for retype`));
   });
@@ -711,7 +715,7 @@ describe("validateChangeset — contract 2's trust rules (MA-1a item 8)", () => 
   });
 
   it("each trust field is ignored and listed back, on the body and on an element", () => {
-    const trust = { pretick: true, accuracy: { status: "within_tolerance" }, confidence: 0.99, typing: { by: "rule" }, claimed: false, proposal_guid: "mine" };
+    const trust = { pretick: true, accuracy: { status: "within_tolerance" }, confidence: 0.99, typing: { by: "rule" }, claimed: false, proposal_guid: "mine", foreign: false };
     const v = validateChangeset(CS([wall(trust)], trust));
     expect(v.ignored).toEqual([
       ...TRUST_FIELDS.map((f) => ({ field: f, why: SET })),
@@ -734,7 +738,11 @@ describe("validateChangeset — contract 2's trust rules (MA-1a item 8)", () => 
       change("attach", { BaseLevel: "L1", TopLevel: "L2" }),
       change("retype", { TypeName: "T2" }, { unique_id: UID, type_before: "T1" }),
     ];
-    expect(validateChangeset(CS(ops, { source: "promote" }), MEMBER).elements.map((e) => e.pretick)).toEqual([true, true]);
+    // MA-8-7 (amendment 16): a retype is pre-ticked only when the bridge judged its type a catalogue row; with no catalogue it is unjudged and not
+    const CAT = { types: [{ category: "Walls", family: "Basic Wall", type: "T1" }] };
+    expect(validateChangeset(CS(ops, { source: "promote" }), MEMBER).elements.map((e) => e.pretick)).toEqual([true, false]);
+    expect(validateChangeset(CS(ops, { source: "promote" }), { ...MEMBER, catalog: CAT, sameCategory: core.sameCategory }).elements.map((e) => [e.pretick, e.foreign]))
+      .toEqual([[true, undefined], [true, false]]);
     expect(validateChangeset(CS(ops, { source: "promote" })).elements.map((e) => e.pretick)).toEqual([false, false]);
     expect(validateChangeset(CS(ops, { source: { reader: " promote " } })).elements.map((e) => e.pretick)).toEqual([false, false]);
     expect(validateChangeset(CS(ops, { source: "agent" }), MEMBER).elements.map((e) => e.pretick)).toEqual([false, false]);
@@ -861,7 +869,7 @@ describe("validateChangeset — contract 2's trust rules (MA-1a item 8)", () => 
 
   it("the add-in's sources are named, so the MCP tool can refuse to file as one", () => {
     expect(ADDIN_SOURCES).toEqual(["dwg", "promote", "photo"]); // MA-6-6: Photo Massing's
-    expect(TRUST_FIELDS).toEqual(["pretick", "accuracy", "confidence", "typing", "claimed", "proposal_guid"]);
+    expect(TRUST_FIELDS).toEqual(["pretick", "accuracy", "confidence", "typing", "claimed", "proposal_guid", "foreign"]);
   });
 });
 
@@ -943,7 +951,8 @@ describe("validateChangeset — bridge typing (MA-2a, full contract 2)", () => {
   });
 
   it("a retype without TypeName is typed from its facts, and is never pre-ticked for that — even a signed-in Promote's", () => {
-    const v = validateChangeset(CS([retype({}, FACTS), retype({ TypeName: "T2" }, null, UID.replace(/f8$/, "f9"))], { source: "promote" }), { member: true, type: typer });
+    const v = validateChangeset(CS([retype({}, FACTS), retype({ TypeName: "T2" }, null, UID.replace(/f8$/, "f9"))], { source: "promote" }),
+      { member: true, type: typer, catalog: { types: [{ category: "Walls", family: "Basic Wall", type: "T1" }] }, sameCategory: core.sameCategory });
     expect(v.elements[0]).toMatchObject({ place: { TypeName: "T200" }, typing: { typed_by: "bridge" }, pretick: false });
     expect(v.elements[1]).toMatchObject({ place: { TypeName: "T2" }, typing: { typed_by: "caller" }, pretick: true });
   });
@@ -1245,7 +1254,7 @@ describe("validateChangeset — vocabulary v2 (MA-6-3)", () => {
     const UID = "5a1c2b3d-1111-2222-3333-444455556666-0004c3f8";
     const retype = (place) => ({ op: "retype", kind: "roof", target: { unique_id: UID }, place: { TypeName: "T", ...place }, validate: { identity: { Class: "IFCROOF", Name: "R" } } });
     for (const f of ["Width", "Height", "Slopes"]) status400(() => ok(retype({ [f]: [1] })), new RegExp(`retype takes no place\\.${f} — only a create sets it`));
-    status400(() => ok({ ...beam(), op: "retype", target: { unique_id: UID } }), /kind "beam" is not supported for retype/);
+    status400(() => ok({ ...beam(), op: "retype", target: { unique_id: UID }, place: { TypeName: "T" } }), /^elements\[0\]: a beam retype needs place\.FamilyName/); // MA-8-7: a beam retypes now (by section)
   });
 
   // Risk R14: a place field the bridge keeps that the add-in's PlaceDto does not read would be stored, and dropped in Revit unread.
@@ -1495,5 +1504,90 @@ describe("stair flags (MA-8-9)", () => {
     expect(v.exceptions).toEqual([{ unique_id: "u", name: null, reason: "r" }]);
     expect(v.ignored.map((i) => i.field)).toEqual(["exceptions[0].source", "exceptions[0].box"]);
     expect(v.ignored.every((i) => i.why === "ignored: not a field this bridge keeps")).toBe(true);
+  });
+});
+
+// ── MA-8-7: foreign types (amendment 16) and a create that replaces (D16).
+describe("MA-8-7 foreignOf: the shared cases (fixtures/changeset-ops/foreign-cases.json, also read by promote-check)", () => {
+  const FX = JSON.parse(readFileSync(new URL("./fixtures/changeset-ops/foreign-cases.json", import.meta.url), "utf8"));
+  const cat = { types: FX.catalog };
+  for (const c of FX.cases) it(c.name, () => expect(foreignOf(c.kind, c.type_before, cat, core.sameCategory)).toBe(c.foreign));
+  it("no catalogue, an empty one or no type_before judges nothing (null) - and a retype with null is not pre-ticked", () => {
+    expect(foreignOf("wall", "Generic - 200mm", null, core.sameCategory)).toBeNull();
+    expect(foreignOf("wall", "Generic - 200mm", { types: [] }, core.sameCategory)).toBeNull();
+    expect(foreignOf("wall", null, cat, core.sameCategory)).toBeNull();
+  });
+});
+
+describe("MA-8-7: a foreign retype is never pre-ticked; a column or beam retype never is; a posted foreign is ignored", () => {
+  const FX = JSON.parse(readFileSync(new URL("./fixtures/changeset-ops/foreign-cases.json", import.meta.url), "utf8"));
+  const UID = "5a1c2b3d-1111-2222-3333-444455556666-0004c3f8";
+  const opts = { member: true, catalog: { types: FX.catalog }, sameCategory: core.sameCategory };
+  const retype = (kind, before, place, over = {}) => ({ op: "retype", kind, target: { unique_id: UID, type_before: before }, place, validate: { identity: { Class: "Ifc" + kind, Name: "X" } }, ...over });
+  const one = (el, o = opts) => validateChangeset({ name: "Promote", source: "promote", elements: [el] }, o).elements[0];
+  it("a catalogue row is pre-ticked (foreign false); another office's type is not (foreign true)", () => {
+    expect(one(retype("wall", "Generic - 200mm", { TypeName: "BDS_EXT_ARC_CMU_200 mm" }))).toMatchObject({ pretick: true, foreign: false });
+    expect(one(retype("wall", "Aussenwand 36.5", { TypeName: "BDS_EXT_ARC_CMU_200 mm" }))).toMatchObject({ pretick: false, foreign: true });
+  });
+  it("a column or beam retype is never pre-ticked, even from a catalogue row", () => {
+    expect(one(retype("column", "BDS_INT_STR_CONC_COL : 300 x 600 mm", { FamilyName: "BDS_INT_STR_CONC_COL", TypeName: "300 x 600 mm" }))).toMatchObject({ pretick: false, foreign: false });
+    expect(one(retype("beam", "M : B", { FamilyName: "BDS_INT_STR_CONC_BEAM", TypeName: "300 x 450 mm" }))).toMatchObject({ pretick: false, foreign: true });
+  });
+  it("no catalogue: foreign is null and nothing is pre-ticked; a posted foreign is listed as set by the bridge", () => {
+    const e = one(retype("wall", "Generic - 200mm", { TypeName: "T" }), { member: true });
+    expect(e).toMatchObject({ pretick: false, foreign: null });
+    const v = validateChangeset({ name: "n", source: "promote", elements: [retype("wall", "Aussenwand", { TypeName: "T" }, { foreign: false })] }, opts);
+    expect(v.elements[0]).toMatchObject({ foreign: true, pretick: false });
+    expect(v.ignored).toEqual([{ field: "elements[0].foreign", why: "ignored: set by the bridge" }]);
+  });
+  it("an attach and a create carry no foreign", () => {
+    expect(one({ op: "attach", kind: "wall", target: { unique_id: UID }, place: { BaseLevel: "L1", TopLevel: "L2" }, validate: { identity: { Class: "IfcWall", Name: "W" } } }).foreign).toBeUndefined();
+  });
+});
+
+describe("MA-8-7 (D16): a wall or floor create that replaces a DirectShape", () => {
+  const UID = "5a1c2b3d-1111-2222-3333-444455556666-0004c3f8", UID2 = "5a1c2b3d-1111-2222-3333-444455556666-0004c3f9";
+  const BOX = { min: [0, 0, 0], max: [6000, 300, 3000] };
+  const make = (over = {}) => ({ ...wall(), replaces: { unique_id: UID, box: BOX }, ...over });
+  const file = (els, o = { member: true }) => validateChangeset({ name: "Promote · L01", source: "promote", elements: els }, o);
+  const floor = () => ({ kind: "floor", validate: { identity: { Class: "IFCSLAB", Name: "F" } }, place: { TypeName: "BDS_INT_STR_CONC_250 mm", LevelName: "Level 1", LocationLoop: [[0, 0, 0], [4000, 0, 0], [4000, 4000, 0], [0, 4000, 0]] } });
+
+  it("is stored as {unique_id, box} on a create that is never pre-ticked, has no target, no foreign", () => {
+    const e = file([make()]).elements[0];
+    expect(e).toMatchObject({ op: "create", kind: "wall", replaces: { unique_id: UID, box: BOX }, pretick: false, target: null });
+    expect(e).not.toHaveProperty("foreign");
+    expect(file([{ ...floor(), replaces: { unique_id: UID, box: BOX } }]).elements[0].replaces.unique_id).toBe(UID);
+  });
+  it("is refused in words: a signed-out caller, another kind, another op, a bad uid or box", () => {
+    status400(() => file([make()], { member: false }), /^elements\[0\]: a create that replaces removes an element — only a signed-in member files one/);
+    status400(() => file([{ ...level(), replaces: { unique_id: UID, box: BOX } }]), /^elements\[0\]: only a wall or floor create replaces an element/);
+    status400(() => file([{ op: "retype", kind: "wall", target: { unique_id: UID, type_before: "T" }, place: { TypeName: "T2" }, replaces: { unique_id: UID2, box: BOX }, validate: { identity: { Class: "IfcWall", Name: "W" } } }]), /^elements\[0\]: retype takes no replaces/);
+    status400(() => file([make({ replaces: { unique_id: "nope", box: BOX } })]), /replaces\.unique_id must be a Revit UniqueId/);
+    status400(() => file([make({ replaces: { unique_id: UID } })]), /replaces\.box must be/);
+    status400(() => file([make({ replaces: { unique_id: UID, box: { min: [0, 0, 0], max: [0, 5, 5] } } })]), /box\.min must be below box\.max/);
+    status400(() => file([make({ replaces: "x" })]), /replaces must be \{unique_id, box\}/);
+  });
+  it("review: replaces keeps the original's kind and category when sent, and 400s a bad one", () => {
+    expect(file([make({ replaces: { unique_id: UID, box: BOX, kind: "generic", category: " Floors " } })]).elements[0].replaces).toEqual({ unique_id: UID, box: BOX, kind: "generic", category: "Floors" });
+    status400(() => file([make({ replaces: { unique_id: UID, box: BOX, kind: "mass" } })]), /replaces\.kind must be/);
+    status400(() => file([make({ replaces: { unique_id: UID, box: BOX, category: 5 } })]), /replaces\.category must be a short text/);
+  });
+  it("lists a stray key inside replaces and keeps nothing of it", () => {
+    const v = file([make({ replaces: { unique_id: UID, box: BOX, why: "x" } })]);
+    expect(v.ignored).toEqual([{ field: "elements[0].replaces.why", why: "ignored: not a field this bridge keeps" }]);
+    expect(Object.keys(v.elements[0].replaces)).toEqual(["unique_id", "box"]);
+  });
+  it("one element is replaced once and carries no other ghost, in either order; two different elements are fine", () => {
+    const retype = { op: "retype", kind: "wall", target: { unique_id: UID, type_before: "T" }, place: { TypeName: "T2" }, validate: { identity: { Class: "IfcWall", Name: "W" } } };
+    status400(() => file([make(), make()]), /which another ghost of this changeset also names — a replaced element carries no other ghost, and two creates cannot replace one/);
+    status400(() => file([make(), retype]), /a rehost replaces its element — it carries no other ghost/);
+    status400(() => file([retype, make()]), /replaces .* which another ghost of this changeset also names/);
+    expect(file([make(), make({ replaces: { unique_id: UID2, box: BOX } })]).elements).toHaveLength(2);
+  });
+  it("carryKey: the same element re-created as the same type is the same change (a decline is carried); another type is not", () => {
+    const a = file([make()]).elements[0];
+    expect(carryKey(a)).toBe(carryKey(file([make()]).elements[0]));
+    expect(carryKey(a)).not.toBe(carryKey(file([make({ place: { ...wall().place, TypeName: "Other" } })]).elements[0]));
+    expect(carryKey(file([wall()]).elements[0])).toBeNull(); // a plain create names no element
   });
 });

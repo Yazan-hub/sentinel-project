@@ -75,6 +75,13 @@ namespace Sentinel.GhostBuilder
         public double[] AtMm, LocationMm;
         public string LevelName;
         public double? SillHeightMm;
+        /// <summary>MA-8-7 (D16), a "create" that replaces: the DirectShape or Generic Model it re-creates as an office wall or floor (its
+        /// UniqueId and its box in model mm when it was read: the executor's stale guard) and its place — a wall's location line (start,
+        /// end; LevelName with TopLevel, or TopElevationMm), a floor's loop (LevelName). TypeName is the office type. Null ReplacesUid = no replace.</summary>
+        public string ReplacesUid, ReplacesKind, ReplacesCategory; // kind: "directshape" | "generic"; the original's category (review: the reviewer reads what is removed)
+        public double[] ReplacesMin, ReplacesMax, StartMm, EndMm;
+        public List<double[]> LoopMm;
+        public double? TopElevationMm;
     }
 
     public sealed class PromoteHeld
@@ -135,6 +142,26 @@ namespace Sentinel.GhostBuilder
                 ["wall"] = ("Walls", "IfcWall", "W"), ["floor"] = ("Floors", "IfcSlab", "Floor"), ["roof"] = ("Roofs", "IfcRoof", "Roof"),
                 ["ceiling"] = ("Ceilings", "IfcCovering", "Ceiling"), ["door"] = ("Doors", "IfcDoor", "Door"), ["window"] = ("Windows", "IfcWindow", "Window"),
             };
+
+        /// <summary>MA-8-7: the structure kinds Promote retypes by section - NOT in <see cref="Classes"/> (the LOD matrix has no structure rows; Classes is held 1:1 to the
+        /// bridge's KIND_ENTITY by promote-check), counted apart (D-B3-3).</summary>
+        public static readonly IReadOnlyDictionary<string, (string Category, string Ifc, string Word)> Structure =
+            new Dictionary<string, (string, string, string)>(StringComparer.Ordinal)
+            {
+                ["column"] = ("Structural Columns", "IfcColumn", "Column"), ["beam"] = ("Structural Framing", "IfcBeam", "Beam"),
+            };
+
+        /// <summary>MA-8-7 (batch-3 amendment 1): the class of a changeset kind - Promote's six, else the structure kinds. Every lookup of a ghost's kind goes
+        /// through this (a bare Classes[...] throws on a column); throws KeyNotFoundException for any other kind.</summary>
+        public static (string Category, string Ifc, string Word) ClassOf(string kind) =>
+            Classes.TryGetValue(kind, out var c) ? c : Structure[kind];
+
+        /// <summary>As <see cref="ClassOf"/>, false for a kind that is in neither table.</summary>
+        public static bool TryClassOf(string kind, out (string Category, string Ifc, string Word) cls)
+        {
+            cls = default;
+            return kind != null && (Classes.TryGetValue(kind, out cls) || Structure.TryGetValue(kind, out cls));
+        }
 
         /// <summary>The story level a wall based at <paramref name="baseMm"/> rises to: the lowest Building Story more than 0.5 mm
         /// above it, or null. Promote's attach rule (MA-0), and since MA-1a item 3 the executor's wall top for every source.</summary>
@@ -406,17 +433,32 @@ namespace Sentinel.GhostBuilder
             target = new { unique_id = g.UniqueId, type_before = g.TypeBefore, ifc_guid = g.IfcGuid, at = g.AtMm },
             place = new { g.LevelName, Location = g.LocationMm, g.FamilyName, g.TypeName, SillHeight = g.SillHeightMm },
             reason = Clip(g.Reason, 500),
-            validate = new { identity = new { Class = Classes[g.Kind].Ifc, Name = g.Label } },
+            validate = new { identity = new { Class = ClassOf(g.Kind).Ifc, Name = g.Label } },
         };
 
-        private static object Element(PromoteGhost g) => g.Op == "set_parameter" ? SetParameter(g) : g.Op == "rehost" ? Rehost(g) : new
+        // MA-8-7 (D16): a wall or floor create that replaces a DirectShape or Generic Model - the bridge's `replaces` {unique_id, box} (the
+        // original's stale guard) and the place of an ordinary create; a wall's TopLevel or TopElevation is null (left out of the body) when
+        // the other is sent. The executor deletes the original in the same Undo; the reviewer is told so (ghostLine, Revit's row).
+        private static object Replace(PromoteGhost g) => new
+        {
+            op = "create",
+            kind = g.Kind,
+            replaces = new { unique_id = g.ReplacesUid, box = new { min = g.ReplacesMin, max = g.ReplacesMax }, kind = g.ReplacesKind, category = g.ReplacesCategory },
+            place = g.Kind == "floor"
+                ? (object)new { g.LevelName, LocationLoop = g.LoopMm, g.TypeName }
+                : new { g.LevelName, LocationCurve = new { start = g.StartMm, end = g.EndMm }, g.TopLevel, TopElevation = g.TopElevationMm, g.TypeName },
+            reason = Clip(g.Reason, 500),
+            validate = new { identity = new { Class = ClassOf(g.Kind).Ifc, Name = g.Label } },
+        };
+
+        private static object Element(PromoteGhost g) => g.ReplacesUid != null ? Replace(g) : g.Op == "set_parameter" ? SetParameter(g) : g.Op == "rehost" ? Rehost(g) : new
         {
             op = g.Op,
             kind = g.Kind ?? "wall",
             target = new { unique_id = g.UniqueId, type_before = g.TypeBefore, ifc_guid = g.IfcGuid },
             place = g.Op == "retype" ? (object)new { g.TypeName, g.FamilyName } : new { g.BaseLevel, g.TopLevel },
             reason = Clip(g.Reason, 500),
-            validate = new { identity = new { Class = Classes[g.Kind ?? "wall"].Ifc, Name = g.Label } },
+            validate = new { identity = new { Class = ClassOf(g.Kind ?? "wall").Ifc, Name = g.Label } },
         };
 
         // MA-2c: a type edit — the type it writes, the property, the value read and the value to write, and its source's kind (the
@@ -434,7 +476,7 @@ namespace Sentinel.GhostBuilder
             to = g.To,
             value_source = new { kind = g.SourceKind },
             reason = Clip(g.Reason, 500),
-            validate = new { identity = new { Class = Classes[g.Kind ?? "wall"].Ifc, Name = g.Label } },
+            validate = new { identity = new { Class = ClassOf(g.Kind ?? "wall").Ifc, Name = g.Label } },
         };
 
         // The bridge refuses a reason over its cap (exceptions 300, ghosts 500) and an exception name over 256; a gap text naming

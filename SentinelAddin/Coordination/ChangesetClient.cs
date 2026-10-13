@@ -172,6 +172,22 @@ public sealed class ChangesetElementDto
     /// (proposed) and from a bridge before MA-3a. A decline binds (ChangesetTrust.PreTick, the window, Apply's re-check); an accept is
     /// advice.</summary>
     [JsonPropertyName("review")] public ReviewDto Review { get; set; }
+    /// <summary>MA-8-7 (D16): a wall or floor create that re-creates a DirectShape or Generic Model as an office type - the original's UniqueId and the box
+    /// it stood in when Promote read it (the executor's stale guard). The executor deletes it in the same Undo step. Null on every other element.</summary>
+    [JsonPropertyName("replaces")] [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ReplacesDto Replaces { get; set; }
+    /// <summary>MA-8-7 (amendment 16): the bridge's judgement of a retype - its type is not one of the office's catalogue (true), is (false), or could
+    /// not be judged (null: no catalogue, or an older bridge). A foreign retype is never pre-ticked.</summary>
+    [JsonPropertyName("foreign")] [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public bool? Foreign { get; set; }
+}
+
+/// <summary>MA-8-7: a create's `replaces` - the element it removes (UniqueId) and where it stood (box, model mm).</summary>
+public sealed class ReplacesDto
+{
+    [JsonPropertyName("unique_id")] public string UniqueId { get; set; }
+    [JsonPropertyName("box")] public BoxDto Box { get; set; }
+    /// <summary>"directshape" | "generic", and the original's Revit category - both optional (an older body sends neither).</summary>
+    [JsonPropertyName("kind")] public string Kind { get; set; }
+    [JsonPropertyName("category")] public string Category { get; set; }
 }
 
 /// <summary>MA-3a: one web desk decision on a ghost (changesets-logic.mjs applyDecisions / reopenDecline).</summary>
@@ -258,6 +274,20 @@ public static class ChangesetTrust
                "the unhosted instance and any tags on it are removed (one Undo brings them back); its Mark, Comments, workset and phase carry over, its other values do not; hinge and swing: the office family's default — compare with the placeholder";
     }
 
+    /// <summary>MA-8-7 (D16): a replacing create's words - which element it re-creates, that the original (and its tags) is removed in the same Undo step
+    /// and that one Undo brings it back and removes the new element. The reviewer is told what Apply deletes. Null for any other element.</summary>
+    public static string ReplacesWords(ChangesetElementDto el)
+    {
+        var r = el.Replaces;
+        if (r == null) return null;
+        string F(double v) => v.ToString("0", System.Globalization.CultureInfo.InvariantCulture);
+        var b = r.Box;
+        var size = b?.Min != null && b.Max != null && b.Min.Length == 3 && b.Max.Length == 3
+            ? $", {F(b.Max[0] - b.Min[0])} x {F(b.Max[1] - b.Min[1])} x {F(b.Max[2] - b.Min[2])} mm" : "";
+        var cls = r.Kind == "generic" ? "Generic Model" : r.Kind == "directshape" ? "DirectShape" : "DirectShape or Generic Model";
+        return $"re-creates {r.UniqueId} ({(string.IsNullOrWhiteSpace(r.Category) ? "" : r.Category + " ")}{cls}{size}) — the original and any tags on it are removed in the same Undo (one Undo brings it back and removes the new {el.Kind})";
+    }
+
     public static string ReshapeWords(ChangesetElementDto el)
     {
         var was = el.Target?.Placed; var c = el.Place?.LocationCurve;
@@ -290,8 +320,17 @@ public static class ChangesetTrust
         // MA-2c: a set_parameter is a TYPE edit — it reaches every element on the type — so it is never pre-ticked (founder decision F1).
         // MA-5b-5: a rehost removes an element — a person ticks each, never pre-ticked.
         if (el.Op is "set_parameter" or "rehost") return false;
+        // MA-8-7 (amendment 16, batch-3 amendment 13): a foreign type's retype, and any column or beam retype (structure is a person's), is never ticked -
+        // whatever the bridge answered, and whatever the window's own rule would say from a bridge before this slice.
+        if (el.Foreign == true || (el.Op == "retype" && (el.Kind == "column" || el.Kind == "beam"))) return false;
         return el.Pretick ?? (cs.Source == "promote" && (el.Op == "attach" || (el.Op == "retype" && el.Target?.TypeBefore != null)));
     }
+
+    /// <summary>MA-8-7 review: why a retype is not pre-ticked, in a few words (a foreign type, structure, or the bridge could not judge it); null otherwise.</summary>
+    public static string UntickedWords(ChangesetElementDto el) => el.Op != "retype" ? null
+        : el.Foreign == true ? "not pre-ticked: a type that is not the office's"
+        : el.Kind == "column" || el.Kind == "beam" ? "not pre-ticked: structure is a person's"
+        : el.Foreign == null && el.Pretick == false ? "not pre-ticked: not judged, no type catalogue" : null;
 
     /// <summary>The element's accuracy in words ("not measured"); null when the bridge sent none.</summary>
     public static string Accuracy(ChangesetElementDto el) => el.Accuracy?.Status?.Replace('_', ' ');
@@ -625,6 +664,9 @@ public sealed class AppliedEntry
     /// <summary>MA-5b-5: a rehost's — the tags Revit removed with the old instance (counted by the probe before the delete); null, and left
     /// out of the body, for every other entry.</summary>
     [JsonPropertyName("removed_tags")] [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? RemovedTags { get; set; }
+    /// <summary>MA-8-7 (batch-3 amendment 3): a replacing create's - the UniqueId of the element Revit deleted, set ONLY after the delete's count matched
+    /// the probe's. The bridge lists in the ledger's `removed` only what is reported here; null (left out of the body) for every other entry.</summary>
+    [JsonPropertyName("removed_unique_id")] [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string RemovedUniqueId { get; set; }
     /// <summary>MA-6-2 (design §4.6 step 3): Revit's re-read of the wall, floor, roof, ceiling, door, window, column or beam this entry applied,
     /// as the IDS reads it (GovernedElementExtractor), inside the open group before it is kept (PromoteContext.ReadAsBuilt). The add-in's claim:
     /// the bridge keeps its identity and psets field by field, judges them against the installed ids@n and stores the verdict (result.as_built).

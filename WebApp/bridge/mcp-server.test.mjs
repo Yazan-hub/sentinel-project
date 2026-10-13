@@ -300,7 +300,7 @@ describe("agent provenance + receipt tools", () => {
 describe("sentinel_propose_changeset — contract 2's trust rules (MA-1a item 8)", () => {
   it("the description says what the bridge sets and what an agent's ghost is", () => {
     const t = TOOLS.find((x) => x.name === "sentinel_propose_changeset");
-    expect(t.description).toMatch(/pretick, accuracy, confidence, typing, claimed and proposal_guid/);
+    expect(t.description).toMatch(/pretick, accuracy, confidence, typing, claimed, foreign and proposal_guid/);
     expect(t.description).toMatch(/ignored: set by the bridge/);
     expect(t.description).toMatch(/never pre-ticked/);
     expect(t.description).toMatch(/not_measured/);

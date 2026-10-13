@@ -40,6 +40,10 @@ export interface Ghost {
     Boundary?: number[][]; BaseElevation?: number; TopElevation?: number } | null;
   validate?: { identity?: { Name?: string } } | null;
   parameter?: string; from?: string; to?: string;
+  /** MA-8-7 (D16): a wall or floor create that re-creates a DirectShape or Generic Model as an office type; the original is deleted in the same Undo. */
+  replaces?: { unique_id: string; box?: { min: number[]; max: number[] }; kind?: "directshape" | "generic"; category?: string } | null;
+  /** MA-8-7: the bridge's judgement of a retype - its type is not one of the office's catalogue; null = no catalogue to judge by. */
+  foreign?: boolean | null;
   review?: GhostReview | null;
   // MA-4d: a survey ghost's trust record, stamped by the bridge (never the caller's).
   cid?: string; evidence?: string[]; pretick?: boolean; trim_mm?: number[]; measured?: Record<string, number>;
@@ -47,7 +51,7 @@ export interface Ghost {
 }
 /** What Revit reported on a changeset (bridge reportResult). `reasons` — Revit's reason per ghost — is there only when one was sent. */
 export interface DeskResult {
-  applied: { proposal_guid: string }[]; rejected: string[]; note: string | null; reported_at: string; reported_by: string;
+  applied: { proposal_guid: string; removed_unique_id?: string }[]; rejected: string[]; note: string | null; reported_at: string; reported_by: string;
   declined_on_web?: { proposal_guid: string; by: string; role: string | null; reason: string; carried_from?: CarriedFrom | null }[];
   reasons?: Record<string, string>;
 }
@@ -115,7 +119,7 @@ export function ghostLine(el: Ghost): string {
   const name = el.validate?.identity?.Name ?? el.proposal_guid;
   const type = (el.place?.FamilyName ? el.place.FamilyName + " : " : "") + (el.place?.TypeName ?? "?");
   switch (el.op) {
-    case "retype": return `${name} · ${el.target?.type_before ?? "?"} → ${type}`;
+    case "retype": return `${name} · ${el.target?.type_before ?? "?"} → ${type}${unticked(el)}`;
     case "attach": return `${name} · ${el.place?.BaseLevel ?? "?"} → top ${el.place?.TopLevel ?? "?"}`;
     // MA-5b-4: a placed wall moved to the revised drawing's line — Revit keeps one a person edited since it was placed
     case "reshape": return `${name} · reshape ${el.target?.unique_id ?? "?"} to the revised drawing's line (kept as it stands if edited by hand since placed)`;
@@ -124,9 +128,27 @@ export function ghostLine(el: Ghost): string {
       `${el.place?.SillHeight != null ? `, sill ${Math.round(el.place.SillHeight)} mm` : ""}; the unhosted instance and any tags on it are removed (one Undo in Revit brings them back); its Mark, Comments, workset and phase carry over`;
     case "set_parameter": return `${type} · ${el.parameter} "${el.from ?? ""}" → "${el.to ?? ""}" (a type edit: it reaches every element of the type)`;
     // MA-5b-1: a room reads its number, then its name (Revit's review row: room: 101 · OFFICE · its level)
-    default: return `${name}${el.place?.Name && el.place.Name !== name ? " · " + el.place.Name : ""}${el.place?.TypeName ? " · " + type : ""}${el.place?.LevelName ? " · " + el.place.LevelName : ""}` +
+    default: if (el.replaces) return replacesLine(el, name, type); // MA-8-7: a create is not a plain create when it deletes the original
+      return `${name}${el.place?.Name && el.place.Name !== name ? " · " + el.place.Name : ""}${el.place?.TypeName ? " · " + type : ""}${el.place?.LevelName ? " · " + el.place.LevelName : ""}` +
       (el.kind === "mass" ? massSize(el.place) : "");
   }
+}
+
+/** MA-8-7 review: why a retype is not pre-ticked, in a few words (Revit never ticks a foreign one, nor a column or beam; no catalogue = not judged). */
+function unticked(el: Ghost): string {
+  return el.foreign === true ? " — not pre-ticked: a type that is not the office's"
+    : el.kind === "column" || el.kind === "beam" ? " — not pre-ticked: structure is a person's"
+    : el.foreign === null && el.pretick === false ? " — not pre-ticked: not judged, no type catalogue" : "";
+}
+
+/** MA-8-7 (D16): a create that replaces an element, in Revit's row's words - the reviewer is told the original is deleted. */
+function replacesLine(el: Ghost, name: string, type: string): string {
+  const b = el.replaces?.box;
+  const cls = el.replaces?.kind === "generic" ? "Generic Model" : el.replaces?.kind === "directshape" ? "DirectShape" : "DirectShape or Generic Model";
+  const what = el.replaces?.category ? `${el.replaces.category} ${cls}` : cls;
+  const size = b ? `, ${[0, 1, 2].map((i) => Math.round(b.max[i] - b.min[i])).join(" x ")} mm` : "";
+  return `${name} · re-creates ${el.replaces?.unique_id ?? "?"} (${what}${size}) as ${type}${el.place?.LevelName ? " on " + el.place.LevelName : ""}; ` +
+    "the original and any tags on it are removed in the same Undo (one Undo in Revit brings it back and removes the new element)";
 }
 
 /** MA-6-6 review fix: a mass's size as Revit's row says it — its footprint's plan extent, then its two elevations. */
@@ -273,17 +295,21 @@ export function decidedView(cs: PendingChangeset, ledger: LedgerRows | null | Er
       : ` · a changeset_reverted row follows the report (ledger #${rev.id})`);
   const byGuid = new Map((cs.elements ?? []).map((e) => [e.proposal_guid, e]));
   const rehosted = applied.filter((a) => byGuid.get(a.proposal_guid)?.op === "rehost").length; // MA-5b-5
+  // MA-8-7 (amendment 3): only what Revit reported removed counts as removed; a replacing create without a matching removed_unique_id is said apart
+  const replacing = applied.filter((a) => byGuid.get(a.proposal_guid)?.replaces);
+  const replaced = replacing.filter((a) => a.removed_unique_id?.toLowerCase() === byGuid.get(a.proposal_guid)?.replaces?.unique_id.toLowerCase()).length;
+  const notReported = replacing.length - replaced;
   const web = new Map((r.declined_on_web ?? []).map((d) => [d.proposal_guid, d]));
   const revit = (g: string): string | null => (r.reasons && Object.prototype.hasOwnProperty.call(r.reasons, g) ? r.reasons[g] : null);
   return {
-    head: `${cs.name} — ${DECIDED[cs.status] ?? cs.status} in Revit by ${r.reported_by || "an unknown account"} · ${at} · ${applied.length} applied${rehosted ? ` (${rehosted} rehosted — the unhosted instance removed)` : ""}, ${rejected.length} not applied · ${row}`,
+    head: `${cs.name} — ${DECIDED[cs.status] ?? cs.status} in Revit by ${r.reported_by || "an unknown account"} · ${at} · ${applied.length} applied${rehosted ? ` (${rehosted} rehosted — the unhosted instance removed)` : ""}${replaced ? ` (${replaced} re-created — the original removed)` : ""}${notReported ? ` (${notReported} placed, the original not reported removed — check the model)` : ""}, ${rejected.length} not applied · ${row}`,
     note: r.note ?? null,
     declined: rejected.map((g) => {
       const el = byGuid.get(g), w = web.get(g), why: string[] = [];
       if (revit(g)) why.push(`Revit: ${revit(g)}`);
       if (w) why.push(w.carried_from ? `${declinedBy(w)}: ${w.reason}` : `web, ${w.by} (${w.role}): ${w.reason}`); // MA-3b3: a carried decline names its origin
       // MA-5b-5 review (R10): a ghost Revit kept as it stands carries its reason on the note, not per ghost
-      const kept = !why.length && /kept as they stand/.test(r.note ?? "") && (el?.op === "rehost" || el?.op === "reshape");
+      const kept = !why.length && /kept as they stand/.test(r.note ?? "") && (el?.op === "rehost" || el?.op === "reshape" || !!el?.replaces);
       return { line: el ? ghostLine(el) : g, why: why.length ? why : [kept ? "Revit kept it as it stands — its reason is in the note above" : "no reason given for this ghost"] };
     }),
   };

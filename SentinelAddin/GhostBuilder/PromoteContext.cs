@@ -94,7 +94,9 @@ namespace Sentinel.GhostBuilder
                 if (StageIds.Line(label, spec.Name, v) is string line) fails.Add(line);
                 notRead.AddRange(v.NotRead);
             }
-            notJudged.AddRange(noClass.GroupBy(k => k, StringComparer.Ordinal).Select(g => $"{g.Count()} {g.Key}(s): the DD IDS made from the LOD matrix has no class for this kind yet"));
+            notJudged.AddRange(noClass.GroupBy(k => k, StringComparer.Ordinal).Select(g => PromoteWallsPlanner.Structure.ContainsKey(g.Key ?? "") // MA-8-7: said as it is - structure is not a matrix class (D-B3-3)
+                ? $"{g.Count()} {g.Key}(s): structure is outside the LOD matrix - the DD IDS judges no structure"
+                : $"{g.Count()} {g.Key}(s): the DD IDS made from the LOD matrix has no class for this kind yet"));
             return (fails, notRead, notJudged, outOfScope, judged);
         }
 

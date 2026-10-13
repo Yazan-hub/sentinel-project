@@ -47,10 +47,11 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
     /// <summary>MA-5b-5: how many ghosts Revit kept, by op — "1 wall(s) not reshaped, 2 door/window(s) not rehosted".</summary>
     private static string KeptCount(IEnumerable<ChangesetDto> changesets, IEnumerable<(string ProposalGuid, string Why)> kept)
     {
-        var ops = changesets.SelectMany(c => c.Elements ?? new List<ChangesetElementDto>()).GroupBy(e => e.ProposalGuid).ToDictionary(g => g.Key, g => g.First().Op);
+        var ops = changesets.SelectMany(c => c.Elements ?? new List<ChangesetElementDto>()).GroupBy(e => e.ProposalGuid).ToDictionary(g => g.Key, g => g.First().Replaces != null ? "replaces" : g.First().Op); // MA-8-7: a create that replaces
         var by = kept.GroupBy(k => ops.TryGetValue(k.ProposalGuid, out var op) ? op : null).ToList();
         return string.Join(", ", by.Select(g => g.Key == "rehost" ? $"{g.Count()} door/window(s) not rehosted — the unhosted instance stays"
-                                                : g.Key == "reshape" ? $"{g.Count()} wall(s) not reshaped" : $"{g.Count()} kept"));
+                                                : g.Key == "reshape" ? $"{g.Count()} wall(s) not reshaped"
+                                                : g.Key == "replaces" ? $"{g.Count()} DirectShape/Generic Model(s) not re-created — the original stays" : $"{g.Count()} kept"));
     }
 
     /// <summary>MA-5b-5 (R10): a changeset's note line for the ghosts Revit kept — the count by op and each one's reason (the ledger reads the
@@ -631,9 +632,9 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
 
                 // MA-5b-5 (R11): a rehost removes an element — its Apply is a signed-in member's, never the machine credential's (the bridge
                 // refuses that result too; asked here, before anything changes, so no model edit goes unreported)
-                if (role == "service" && fresh.SelectMany(f => f.Elements ?? new List<ChangesetElementDto>()).Any(e => e.Op == "rehost" && ticked.Contains(e.ProposalGuid)))
+                if (role == "service" && fresh.SelectMany(f => f.Elements ?? new List<ChangesetElementDto>()).Any(e => (e.Op == "rehost" || e.Replaces != null) && ticked.Contains(e.ProposalGuid))) // MA-8-7 review: a re-creation removes an element too
                 {
-                    window.Refused("A rehost removes an element — sign in (Standards ▸ Sign in) as a contributor to apply it.\n\nNothing was changed.");
+                    window.Refused("A rehost or a re-creation removes an element — sign in (Standards ▸ Sign in) as a contributor to apply it.\n\nNothing was changed.");
                     return;
                 }
 

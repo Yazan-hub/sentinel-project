@@ -32,6 +32,8 @@ public sealed class PromoteWallsCommand : IExternalCommand
     {
         ("floor", BuiltInCategory.OST_Floors), ("roof", BuiltInCategory.OST_Roofs), ("ceiling", BuiltInCategory.OST_Ceilings),
         ("door", BuiltInCategory.OST_Doors), ("window", BuiltInCategory.OST_Windows),
+        // MA-8-7: structure, retyped by section - outside the LOD matrix (counted apart); added to the run's classes only when the catalogue holds rows for it
+        ("column", BuiltInCategory.OST_StructuralColumns), ("beam", BuiltInCategory.OST_StructuralFraming),
     };
 
     public Result Execute(ExternalCommandData c, ref string msg, ElementSet els)
@@ -121,21 +123,39 @@ public sealed class PromoteWallsCommand : IExternalCommand
         // MA-1a item 6, the office-template check: Promote retypes onto office types, so a model that holds none of them
         // was not made from the office template — said before anything is planned.
         var (officeHave, officeAll) = standards.Guideline.OfficeTypesIn(GhostBuilderCommand.HeldTypes(doc)); // F-MA2a-4: every type the model holds
+        // MA-8-7: the foreign classifier - every model-category instance whose type is not the office's - read once on this (the API) thread, before the
+        // template refusal: a third-party model is classified (no plan yet) and said, and the ledger row is sent on every run, the refused one too.
+        List<ForeignFact> foreignFacts = null;
+        string foreignErr = null;
+        try { foreignFacts = ReadForeign(doc); }
+        catch (Exception ex) { foreignErr = ex.Message; }
         if (PlacementPolicy.TemplateRefuses(officeHave, officeAll))
         {
-            TaskDialog.Show(Title, PlacementPolicy.TemplateRefusal(officeAll, standards.CatalogSource.Label));
+            var refusedForeign = foreignFacts == null ? null : ForeignTypes.Classify(foreignFacts, null, standards.Guideline);
+            if (refusedForeign != null) GovernedNotify.Report("Foreign types", CommandReports.ForeignTypes(refusedForeign, standards.CatalogSource.Label, UserSession.Actor), key);
+            TaskDialog.Show(Title, PlacementPolicy.TemplateRefusal(officeAll, standards.CatalogSource.Label) + ForeignRefusal(refusedForeign, foreignErr));
             return false;
         }
         LodMatrix mx = pc.Mx;
         var notRun = pc.NotRun.ToList();
-        var classes = pc.Classes;
+        var classes = new List<string>(pc.Classes);
+        // MA-8-7: structure (Structural Columns, Structural Framing) is retyped by section when the matrix is read and the catalogue holds rows for it - outside
+        // the LOD matrix (D-B3-3), counted apart; with no matrix Promote stays walls only (GN-3).
+        var structure = mx == null ? new List<string>()
+            : PromoteWallsPlanner.Structure.Values.Select(s => s.Category).Where(cat => standards.Guideline.CatalogCount(cat) > 0).ToList();
+        classes.AddRange(structure);
         // With no matrix the header says "walls only"; otherwise each class left out is named below the plan.
         var header = standards.Header + "\n" + (mx == null ? notRun[0] : "LOD matrix: " + pc.MxLabel + (mx.Draft ? " (DRAFT)" : ""));
         if (mx == null) notRun.Clear();
         header += "\n" + PlacementPolicy.TemplateLine(standards.Guideline.HasCatalog, officeHave, officeAll, standards.CatalogSource.Label);
+        if (structure.Count > 0) header += $"\nStructure: by section from {standards.CatalogSource.Label} — not in the LOD matrix (Promote counts it apart), never pre-ticked";
 
         var (walls, others, docTypes, classTypes, levels) = ReadFacts(doc, classes);
-        if ((classes.Contains("Walls") ? walls.Count : 0) + others.Count == 0)
+        // MA-8-7 (D16): DirectShapes, Generic Models and in-place families - a wall- or floor-like one is re-created as an office type (the original removed in the same Undo)
+        var shapes = new List<ShapeFact>();
+        try { if (classes.Contains("Walls") || classes.Contains("Floors")) shapes = ReadShapes(doc); }
+        catch (Exception ex) { foreignErr = (foreignErr == null ? "" : foreignErr + "; ") + "DirectShapes not read: " + ex.Message; }
+        if ((classes.Contains("Walls") ? walls.Count : 0) + others.Count + shapes.Count == 0)
         {
             TaskDialog.Show(Title, "Nothing to promote in this model." + (notRun.Count > 0 ? "\n\n" + string.Join("\n", notRun) : ""));
             return false;
@@ -143,7 +163,7 @@ public sealed class PromoteWallsCommand : IExternalCommand
 
         var plannerClock = System.Diagnostics.Stopwatch.StartNew(); // MA-1a item 8: the planner's own time, for the receipt
         // MA-5b-5 (R11): a rehost removes an element — proposed only signed in (the bridge refuses one the machine credential files)
-        var plans = PromotePlanner.Plan(classes, walls, others, levels, docTypes, classTypes, standards.Guideline, UserSession.IsSignedIn);
+        var plans = PromotePlanner.Plan(classes, walls, others, levels, docTypes, classTypes, standards.Guideline, UserSession.IsSignedIn, shapes);
         // Preflight: Revit's own answer on every retype before anything is filed — a refused ghost is held with the reason.
         PromotePlanner.Refuse(plans, g =>
         {
@@ -151,6 +171,8 @@ public sealed class PromoteWallsCommand : IExternalCommand
             {
                 var e = doc.GetElement(g.UniqueId);
                 if (e == null) return $"{g.Label} is not in this model — re-run Promote";
+                // MA-8-7 (R12): a create that replaces - what Apply refuses or keeps, held now (the delete's probe needs a transaction: Apply's)
+                if (g.ReplacesUid != null) return ChangesetExecutor.ReplaceRefusal(doc, g.ReplacesUid, g.ReplacesMin, g.ReplacesMax) is string rwhy ? $"{g.Label}: {rwhy}" : null;
                 // MA-5b-5 (R5): a rehost's type must be loaded exactly and wall-hosted — what Apply refuses, held now
                 if (g.Op == "rehost") return ChangesetExecutor.RehostRefusal(doc, g.Kind, g.FamilyName, g.TypeName);
                 var nt = ChangesetExecutor.RetypeTarget(doc, e, g.Kind ?? "wall", g.FamilyName, g.TypeName);
@@ -183,11 +205,17 @@ public sealed class PromoteWallsCommand : IExternalCommand
         var gapText = gaps.Count == 0 ? ""
             : $"\n\nType gaps (sent to the ledger — the Holding Area lists them; the pane's Doctor log says whether it was recorded): {gaps.Count} group(s), {gaps.Sum(g => g.Elements)} element(s)\n" +
               string.Join("\n", gaps.Take(8).Select(TypeGaps.Line)) + (gaps.Count > 8 ? $"\n… and {gaps.Count - 8} more" : "");
-        var bodies = PromoteWallsPlanner.Bodies(plans, actor, title: classes.Count == 1 && classes[0] == "Walls" ? "Promote walls (DD)" : "Promote (DD)");
+        // MA-8-7: the foreign classifier again, now with the plans (a ghost covers an element; a hold says why not) - one foreign_types row per run, the read-only one too.
+        var foreign = foreignFacts == null ? null : ForeignTypes.Classify(foreignFacts, plans, standards.Guideline);
+        if (foreign != null) GovernedNotify.Report("Foreign types", CommandReports.ForeignTypes(foreign, standards.CatalogSource.Label, actor), key);
+        var foreignText = foreign != null ? "\n\n" + foreign.Line + (foreign.NotChecked == null && foreign.Foreign > 0 ? " (sent to the ledger; the pane's Doctor log says whether it was recorded)" : "")
+            : foreignErr != null ? "\n\nForeign types: not read — " + foreignErr : "";
+        var bodies = PromoteWallsPlanner.Bodies(plans, actor, title: pc.Classes.Count == 1 && pc.Classes[0] == "Walls" ? "Promote walls (DD)" : "Promote (DD)");
 
         // Elements, not reasons: one wall can be held for its type and for its top. DD now counts concept and settled
         // elements; those on the office's other types are left out of it and named on their own.
-        var kindOf = others.ToDictionary(o => o.UniqueId, o => PromoteWallsPlanner.Classes[o.Kind].Category, StringComparer.Ordinal);
+        var kindOf = others.ToDictionary(o => o.UniqueId, o => PromoteWallsPlanner.ClassOf(o.Kind).Category, StringComparer.Ordinal);
+        foreach (var s in shapes) kindOf[s.UniqueId] = "DirectShape"; // MA-8-7: their held rows are counted on their own line, never as a wall's
         string Cat(string uid) => uid != null && kindOf.TryGetValue(uid, out var k) ? k : "Walls";
         var lines = new List<string>();
         foreach (var p in plans)
@@ -205,6 +233,18 @@ public sealed class PromoteWallsCommand : IExternalCommand
                           $"{p.Held.Where(h => Cat(h.UniqueId) == cat).Select(h => h.UniqueId).Distinct().Count()} sent to a person · DD now {n.DdNow}/{n.Total}" +
                           (n.OfficeTyped > 0 ? $" · {n.OfficeTyped} on other office types, left as is" : "") + $" · stamped by Promote {n.Stamped}");
             }
+            // MA-8-7: structure by section - never pre-ticked, outside the LOD matrix
+            foreach (var cat in structure.Where(p.Others.ContainsKey))
+            {
+                var n = p.Others[cat];
+                lines.Add($"{p.Storey} · {cat} (by section, outside the LOD matrix): {p.Ghosts.Count(g => g.Kind != null && g.Op == "retype" && Cat(g.UniqueId) == cat)} retype (never pre-ticked) · " +
+                          $"{p.Held.Where(h => Cat(h.UniqueId) == cat).Select(h => h.UniqueId).Distinct().Count()} sent to a person · settled {n.DdNow}/{n.Total}" +
+                          (n.OfficeTyped > 0 ? $" · {n.OfficeTyped} on other office types, left as is" : "") + $" · stamped by Promote {n.Stamped}");
+            }
+            // MA-8-7 (D16): shapes re-created as office types - each removes its original in the same Undo, said apart
+            int recreated = p.Ghosts.Count(g => g.ReplacesUid != null), shapeHeld = p.Held.Where(h => Cat(h.UniqueId) == "DirectShape").Select(h => h.UniqueId).Distinct().Count();
+            if (recreated + shapeHeld > 0)
+                lines.Add($"{p.Storey} · DirectShape/Generic Model: {recreated} re-created as office walls/floors (the original removed in the same Undo) · {shapeHeld} sent to a person");
         }
         var ddNow = "DD now — " + string.Join(" · ", LodMatrix.Order.Where(classes.Contains).Select(cat => cat == "Walls"
             ? $"Walls {plans.Sum(p => p.DdNow)}/{plans.Sum(p => p.Walls)}"
@@ -230,7 +270,7 @@ public sealed class PromoteWallsCommand : IExternalCommand
                 MainInstruction = bodies.Count == 0 ? "Nothing to file: no element needs a change Sentinel can propose."
                                                     : PropertyPlanner.FileQuestion(toFile.Count, skipped),
                 MainContent = header + (standards.Guideline.IsDraft ? "\nDRAFT rules: install them on a throwaway project only." : "") +
-                              "\n\n" + string.Join("\n", lines) + "\n\n" + ddNow + "\n" + lodText + propText + gapText + (declinedBefore != null ? "\n\n" + declinedBefore : "") +
+                              "\n\n" + string.Join("\n", lines) + "\n\n" + ddNow + "\n" + lodText + propText + gapText + (declinedBefore != null ? "\n\n" + declinedBefore : "") + foreignText +
                               (asks.Count > 0 ? "\n\nDD also asks (the DD IDS: counted in the LOD state, checked again before commit" + (mx.Draft ? "; DRAFT, decision LM-1" : "") + "):\n" + string.Join("\n", asks) +
                                                 (pc.Ids == null ? "\nDD IDS: not read — " + pc.IdsWhy : pc.Ids.Unmatched.Count > 0 ? "\nNot in the DD IDS: " + string.Join("; ", pc.Ids.Unmatched) : "") : "") +
                               (notRun.Count > 0 ? "\n\n" + string.Join("\n", notRun) : "") +
@@ -241,6 +281,8 @@ public sealed class PromoteWallsCommand : IExternalCommand
             };
             if (held.Count > 0)
                 dlg.ExpandedContent = "Sent to a person:\n" + string.Join("\n", held.Take(40)) + (held.Count > 40 ? $"\n… and {held.Count - 40} more" : "");
+            if (foreign != null && foreign.Foreign > 0) // MA-8-7: the top 20 foreign groups, by category
+                dlg.ExpandedContent = (dlg.ExpandedContent == null ? "" : dlg.ExpandedContent + "\n\n") + "Foreign types (top 20):\n" + string.Join("\n", foreign.Lines(20));
             if (dlg.Show() != TaskDialogResult.Yes) return false; // read-only run (with nothing to file the button is Ok)
 
             // MA-3b5 (XC-3): the filing runs off Revit's thread — Revit stays usable, and the guard stays held until the bridge has answered the
@@ -348,12 +390,12 @@ public sealed class PromoteWallsCommand : IExternalCommand
         foreach (var t in new FilteredElementCollector(doc).OfClass(typeof(WallType)).Cast<WallType>().Where(t => t.Kind == WallKind.Basic))
             docTypes[t.Name] = t.Function.ToString();
         var classTypes = new Dictionary<string, IReadOnlyDictionary<string, double?>>(StringComparer.Ordinal);
-        foreach (var (kind, bic) in Others.Where(o => classes.Contains(PromoteWallsPlanner.Classes[o.Kind].Category)))
+        foreach (var (kind, bic) in Others.Where(o => classes.Contains(PromoteWallsPlanner.ClassOf(o.Kind).Category)))
         {
             var d = new Dictionary<string, double?>(StringComparer.OrdinalIgnoreCase);
             foreach (var t in new FilteredElementCollector(doc).OfCategory(bic).WhereElementIsElementType().Cast<ElementType>())
                 d[ChangesetExecutor.TypeLabel(t)] = (t as HostObjAttributes)?.GetCompoundStructure() is CompoundStructure cs ? cs.GetWidth() * FtToMm : (double?)null;
-            classTypes[PromoteWallsPlanner.Classes[kind].Category] = d;
+            classTypes[PromoteWallsPlanner.ClassOf(kind).Category] = d;
         }
         var levels = ChangesetExecutor.Stories(doc); // the one projection of the model's levels (MA-1a review amendment C6)
         var walls = classes.Contains("Walls") || classes.Contains("Doors")
@@ -367,10 +409,149 @@ public sealed class PromoteWallsCommand : IExternalCommand
                 try { foreach (Reference r in d.References) s.Add(r.ElementId.IdValue()); } catch (Exception) { }
             return s;
         });
-        var others = Others.Where(o => classes.Contains(PromoteWallsPlanner.Classes[o.Kind].Category))
-            .SelectMany(o => new FilteredElementCollector(doc).OfCategory(o.Bic).WhereElementIsNotElementType().Select(e => OtherFact(doc, e, o.Kind, dimRefs)))
+        // MA-8-7 (batch-3 amendment 6): a DirectShape and an in-place family are read once, as shapes (ReadShapes) - never as a floor or a door whose
+        // "not a family instance" hold would also stand beside the create that replaces it
+        var others = Others.Where(o => classes.Contains(PromoteWallsPlanner.ClassOf(o.Kind).Category))
+            .SelectMany(o => new FilteredElementCollector(doc).OfCategory(o.Bic).WhereElementIsNotElementType()
+                .Where(e => !(e is DirectShape) && !(e is FamilyInstance sfi && sfi.Symbol?.Family?.IsInPlace == true))
+                .Select(e => OtherFact(doc, e, o.Kind, dimRefs)))
             .ToList();
         return (walls, others, docTypes, classTypes, levels);
+    }
+
+    /// <summary>MA-8-7: what the refusal dialog adds about a third-party model - how many elements sit on types that are not the office's, the top categories,
+    /// and what to do. Empty when nothing was judged (no catalogue, a failed read) or nothing is foreign.</summary>
+    internal static string ForeignRefusal(ForeignReport r, string err)
+    {
+        if (r == null) return err == null ? "" : "\n\nForeign types: not read — " + err;
+        if (r.NotChecked != null || r.Foreign == 0) return "";
+        var top = string.Join(", ", r.TopCategories().Take(4).Select(c => $"{c.Category} {c.Count}"));
+        return $"\n\nThis model holds {r.Foreign} element(s) on {r.Types} type(s) that are not the office's — {top}. Load the office's types (Manage ▸ Transfer Project Standards " +
+               "from the office template; families by Load Family), then run Promote again. The foreign types were sent to the ledger (the pane's Doctor log says whether it was recorded).";
+    }
+
+    // Category parts (curtain panels and mullions, stair runs, landings and supports, railing parts), lines and the spatial and system elements are no type the
+    // office chooses by element - the foreign classifier leaves them out (batch-3 amendment 16).
+    private static readonly HashSet<long> ForeignSkip = new[] { "OST_CurtainWallPanels", "OST_CurtainWallMullions", "OST_StairsRuns", "OST_StairsLandings", "OST_StairsSupports",
+        "OST_StairsRailingBaluster", "OST_StairsRailingHandRail", "OST_StairsRailingTopRail", "OST_Lines", "OST_Levels", "OST_Grids", "OST_Rooms", "OST_Areas", "OST_MEPSpaces",
+        "OST_RvtLinks", "OST_PipingSystem", "OST_DuctSystem", "OST_ElectricalCircuit", "OST_Cameras", "OST_Sections", "OST_Elev", "OST_Viewers" }
+        .Select(n => Enum.TryParse<BuiltInCategory>(n, out var b) ? (long)(int)b : 0L).Where(v => v != 0).ToHashSet();
+
+    /// <summary>MA-8-7: every model-category instance with a type, as a ForeignFact (API thread, read-only): its guideline category (the English key, else the
+    /// display name), family and type, whether the type is a system type (judged by its type name alone), and - for a DirectShape, a Generic Model instance or
+    /// an in-place family - its shape. Levels, grids, rooms, areas, spaces, MEP systems, links, imports, view-specific elements, nested components, curtain
+    /// panels and mullions, stair and railing parts and lines are left out; an element with no type is left out unless it is a DirectShape.
+    /// ponytail: one pass over the model's instances; a category filter per class if a very large model makes the dialog slow.</summary>
+    internal static List<ForeignFact> ReadForeign(Document doc)
+    {
+        var list = new List<ForeignFact>();
+        foreach (var e in new FilteredElementCollector(doc).WhereElementIsNotElementType())
+        {
+            var cat = e.Category;
+            if (cat == null || cat.CategoryType != CategoryType.Model || e.ViewSpecific) continue;
+            long cid = cat.Id.IdValue();
+            if (ForeignSkip.Contains(cid)) continue;
+            if (MassOnly.Is(e)) continue; // review: Sentinel's own masses are no third party's type
+            if (e is Level || e is Grid || e is SpatialElement || e is MEPSystem || e is RevitLinkInstance || e is ImportInstance) continue;
+            var fi = e as FamilyInstance;
+            if (fi?.SuperComponent != null) continue;
+            var type = doc.GetElement(e.GetTypeId()) as ElementType;
+            string shape = e is DirectShape ? "directshape" : fi?.Symbol?.Family?.IsInPlace == true ? "inplace" : fi != null && cid == (long)BuiltInCategory.OST_GenericModel ? "generic" : null;
+            if (type == null && shape != "directshape") continue;
+            list.Add(new ForeignFact
+            {
+                UniqueId = e.UniqueId, Label = cat.Name + " " + e.Id.IdValue(), Category = Compat.CategoryKeyOf(cat),
+                Family = type?.FamilyName, Type = type?.Name, System = !(type is FamilySymbol), Shape = shape,
+                Level = (doc.GetElement(e.LevelId) as Level)?.Name,
+            });
+        }
+        return list;
+    }
+
+    /// <summary>MA-8-7 (D16): the DirectShapes, Generic Model instances and in-place families of the model as ShapeFacts (API thread, read-only): the box, and -
+    /// for a DirectShape or a Generic Model - whether it is ONE upright prism (one solid; every face planar, the top and bottom horizontal and the rest
+    /// vertical) and its bottom face's outer loop (straight edges). An in-place family is held without reading its geometry (deleting its last instance
+    /// would delete its family). Anything not a prism carries PrismWhy.</summary>
+    internal static List<ShapeFact> ReadShapes(Document doc)
+    {
+        var list = new List<ShapeFact>();
+        // review: the box is read in Revit's internal frame; the levels (storey, a wall's top) are in the Level.Elevation frame - the nearest level's
+        // (Elevation - ProjectElevation) takes the box z there, as ReviewChangesets does. RawMin/RawMax keep the internal box for the stale guard.
+        var lvls = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().ToList();
+        foreach (var e in new FilteredElementCollector(doc).WhereElementIsNotElementType())
+        {
+            var fi = e as FamilyInstance;
+            bool inPlace = fi?.Symbol?.Family?.IsInPlace == true;
+            bool generic = fi != null && !inPlace && e.Category?.Id.IdValue() == (long)BuiltInCategory.OST_GenericModel;
+            if (!(e is DirectShape) && !inPlace && !generic) continue;
+            if (fi?.SuperComponent != null) continue;
+            var s = new ShapeFact
+            {
+                UniqueId = e.UniqueId, Label = "Shape " + e.Id.IdValue(), Category = e.Category == null ? "no category" : Compat.CategoryKeyOf(e.Category),
+                Kind = e is DirectShape ? "directshape" : inPlace ? "inplace" : "generic", Sentinel = MassOnly.Is(e),
+                Pinned = e.Pinned, InGroup = e.GroupId != ElementId.InvalidElementId, InOption = e.DesignOption != null,
+            };
+            if (s.Kind == "generic") { s.Family = fi?.Symbol?.FamilyName; s.Type = fi?.Symbol?.Name; }
+            list.Add(s);
+            if (s.Kind == "inplace") continue;
+            try
+            {
+                ReadPrism(e, s);
+                if (s.BoxMin != null && lvls.Count > 0)
+                {
+                    s.RawMin = (double[])s.BoxMin.Clone(); s.RawMax = (double[])s.BoxMax.Clone();
+                    double mid = (s.RawMin[2] + s.RawMax[2]) / 2 / FtToMm;
+                    var near = lvls.OrderBy(l => Math.Abs(l.ProjectElevation - mid)).First();
+                    double shift = (near.Elevation - near.ProjectElevation) * FtToMm;
+                    s.BoxMin[2] += shift; s.BoxMax[2] += shift;
+                }
+            }
+            catch (Exception ex) { s.PrismWhy = "its geometry could not be read: " + ex.Message; }
+        }
+        return list;
+    }
+
+    private static void ReadPrism(Element e, ShapeFact s)
+    {
+        var bb = e.get_BoundingBox(null);
+        if (bb == null) { s.PrismWhy = "no bounding box"; return; }
+        s.BoxMin = new[] { bb.Min.X * FtToMm, bb.Min.Y * FtToMm, bb.Min.Z * FtToMm };
+        s.BoxMax = new[] { bb.Max.X * FtToMm, bb.Max.Y * FtToMm, bb.Max.Z * FtToMm };
+        var solids = new List<Solid>();
+        void Add(GeometryElement ge)
+        {
+            if (ge == null) return;
+            foreach (var go in ge)
+            {
+                if (go is GeometryInstance gi) Add(gi.GetInstanceGeometry());
+                else if (go is Solid sol && sol.Volume > 1e-9) solids.Add(sol);
+            }
+        }
+        Add(e.get_Geometry(new Options { DetailLevel = ViewDetailLevel.Fine }));
+        if (solids.Count != 1) { s.PrismWhy = solids.Count == 0 ? "no solid" : solids.Count + " solids"; return; }
+        PlanarFace bottom = null, top = null;
+        foreach (Face face in solids[0].Faces)
+        {
+            if (!(face is PlanarFace pf)) { s.PrismWhy = "a curved face"; return; }
+            double nz = pf.FaceNormal.Z;
+            if (Math.Abs(nz) > 0.9999)
+            {
+                if (nz < 0) { if (bottom != null) { s.PrismWhy = "more than one bottom face"; return; } bottom = pf; }
+                else { if (top != null) { s.PrismWhy = "more than one top face"; return; } top = pf; }
+            }
+            else if (Math.Abs(nz) > 1e-4) { s.PrismWhy = "a sloped face"; return; }
+        }
+        if (bottom == null || top == null) { s.PrismWhy = "no horizontal top and bottom face"; return; }
+        var loops = bottom.GetEdgesAsCurveLoops();
+        if (loops.Count != 1) { s.PrismWhy = "a bottom face with holes"; return; }
+        var pts = new List<double[]>();
+        foreach (Curve c in loops[0])
+        {
+            if (!(c is Line)) { s.PrismWhy = "a curved edge"; return; }
+            var p = c.GetEndPoint(0);
+            pts.Add(new[] { p.X * FtToMm, p.Y * FtToMm, p.Z * FtToMm });
+        }
+        s.Loop = pts;
     }
 
     /// <summary>MA-2b (design §3.4 steps 2 and 10): the LOD state of these plans — the DD stage IDS judged, on the API thread and
@@ -426,7 +607,7 @@ public sealed class PromoteWallsCommand : IExternalCommand
         }
         foreach (var (cat, family, type) in types)
         {
-            var bic = cat == "Walls" ? BuiltInCategory.OST_Walls : Others.First(o => PromoteWallsPlanner.Classes[o.Kind].Category == cat).Bic;
+            var bic = cat == "Walls" ? BuiltInCategory.OST_Walls : Others.First(o => PromoteWallsPlanner.ClassOf(o.Kind).Category == cat).Bic;
             var hits = new FilteredElementCollector(doc).OfCategory(bic).WhereElementIsElementType().Cast<ElementType>()
                 .Where(t => string.Equals(t.Name, type, StringComparison.OrdinalIgnoreCase)
                             && (family == null || string.Equals((t as FamilySymbol)?.FamilyName, family, StringComparison.OrdinalIgnoreCase)))
@@ -523,7 +704,7 @@ public sealed class PromoteWallsCommand : IExternalCommand
         var f = new ElementFact
         {
             Kind = kind, UniqueId = e.UniqueId, IfcGuid = IfcGuidOf(doc, e),
-            Label = PromoteWallsPlanner.Classes[kind].Word + " " + e.Id.IdValue() + (string.IsNullOrWhiteSpace(mark) ? "" : " (" + mark + ")"),
+            Label = PromoteWallsPlanner.ClassOf(kind).Word + " " + e.Id.IdValue() + (string.IsNullOrWhiteSpace(mark) ? "" : " (" + mark + ")"),
             Family = type?.FamilyName, TypeName = type?.Name,
             // An extrusion roof has no LevelId: its reference level (verify live, B35-10).
             Level = LevelName(e.LevelId) ?? LevelName(e.get_Parameter(BuiltInParameter.ROOF_CONSTRAINT_LEVEL_PARAM)?.AsElementId()),
@@ -531,9 +712,19 @@ public sealed class PromoteWallsCommand : IExternalCommand
             Stamp = ProvenanceStamp.Read(e),
             NotEditable = type == null ? "no type Sentinel can read" : null,
         };
+        if (kind is "column" or "beam")
+        {
+            // MA-8-7: a structural member - held in words for a brace, purlin, curved, slanted, nested or in-place one (ChangesetExecutor.StructureHold), else
+            // its rectangular section from the ORIGINAL geometry (SectionOf: before joins and cuts). A beam's level is its reference level (verify live, F-2).
+            if (e is not FamilyInstance sfi) { f.NotEditable ??= "not a family instance"; return f; }
+            if (kind == "beam") f.Level ??= LevelName(sfi.get_Parameter(BuiltInParameter.INSTANCE_REFERENCE_LEVEL_PARAM)?.AsElementId());
+            f.NotEditable ??= ChangesetExecutor.StructureHold(sfi, kind);
+            if (f.NotEditable == null) (f.SectionWMm, f.SectionDMm, f.SectionWhy) = ChangesetExecutor.SectionOf(sfi, kind);
+            return f;
+        }
         if (kind is "floor" or "roof" or "ceiling")
         {
-            if (e is not HostObject || type is not HostObjAttributes h) f.NotEditable ??= "an in-place family";
+            if (e is not HostObject || type is not HostObjAttributes h) f.NotEditable ??= "an in-place family - a person re-creates it";
             else f.ThicknessMm = h.GetCompoundStructure() is CompoundStructure cs ? cs.GetWidth() * FtToMm : (double?)null;
             if (kind == "floor")
             {

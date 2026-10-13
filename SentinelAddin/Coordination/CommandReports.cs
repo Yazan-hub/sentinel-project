@@ -93,6 +93,21 @@ namespace Sentinel.Coordination
                 source = "revit",
             });
 
+        /// <summary>MA-8-7: one Promote run's foreign types - the elements whose type is not the office's, counted by bin, and the top groups (category,
+        /// family, type, bin, count, a reason) beside their true total. Sent on every run, the read-only and the refused ones too. Nothing reads it.</summary>
+        public static object ForeignTypes(ForeignReport r, string catalog, string actor) =>
+            Row("foreign_types", actor, r.NotChecked != null ? $"foreign_types:run · not judged - {r.NotChecked}"
+                : $"foreign_types:run · {r.Foreign} element(s) on {r.Types} type(s) not the office's", new
+            {
+                catalog,
+                totals = new { settled = r.NSettled, retype = r.NRetype, gap = r.NGap, directshape = r.NDirectShape },
+                rows = r.Rows.Where(x => x.Bin != ForeignReport.Settled).OrderByDescending(x => x.Count).ThenBy(x => x.Category, StringComparer.Ordinal).ThenBy(x => x.Type, StringComparer.Ordinal)
+                    .Take(MaxNames).Select(x => new { category = x.Category, family = x.Family, type = x.Type, bin = x.Bin, count = x.Count, why = x.Why }).ToArray(),
+                rows_total = r.Rows.Count(x => x.Bin != ForeignReport.Settled),
+                not_checked = r.NotChecked,
+                source = "revit",
+            });
+
         /// <summary>One click of Fix that Revit committed.</summary>
         public static object AutoFix(string ruleId, string category, string oldName, string newName, long elementId, string actor) =>
             Row("auto_fix", actor, $"Auto-fix {ruleId}: 1 {category} renamed",

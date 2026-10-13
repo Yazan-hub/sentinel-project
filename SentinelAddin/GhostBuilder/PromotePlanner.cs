@@ -23,7 +23,8 @@ namespace Sentinel.GhostBuilder
     {
         /// <summary>MA-3d: the element's IFC GlobalId (ExportUtils.GetExportId, as the IFC export and the BCF viewpoints name it); null when Revit gave none.</summary>
         public string IfcGuid;
-        /// <summary>"floor" | "roof" | "ceiling" | "door" | "window" (a key of PromoteWallsPlanner.Classes).</summary>
+        /// <summary>"floor" | "roof" | "ceiling" | "door" | "window" (a key of PromoteWallsPlanner.Classes), or MA-8-7's "column" | "beam" (a key of
+        /// PromoteWallsPlanner.Structure).</summary>
         public string Kind, UniqueId, Label, Family, TypeName, Level, Stamp;
         /// <summary>Floors, roofs, ceilings: the type's build-up (mm); null = none (a Basic Ceiling, sloped glazing).</summary>
         public double? ThicknessMm;
@@ -39,6 +40,14 @@ namespace Sentinel.GhostBuilder
         /// <summary>Why Sentinel cannot retype it ("an in-place family", "a nested shared component"), or null.</summary>
         public string NotEditable;
         public bool InGroup, InOption, Structural;
+
+        // ── MA-8-7: a structural column or beam (retyped by its section) ──
+        /// <summary>The instance's rectangular section in millimetres, read from its original geometry (before joins and cuts): W x D
+        /// in the instance's own frame (a column: its X and Y; a beam: across its axis, horizontal then vertical). Null with
+        /// <see cref="SectionWhy"/> when it is not a rectangle (a steel shape, a profile), by its type name only.</summary>
+        public double? SectionWMm, SectionDMm;
+        /// <summary>Why the section is not a rectangle Sentinel can name a type by ("a section that is not a rectangle ..."), or null.</summary>
+        public string SectionWhy;
 
         // ── MA-5b-5: a door or window no wall hosts (rehost) ──
         /// <summary>No wall hosts it: its Host is none, a Level, a reference plane or a sketch plane (ChangesetExecutor.NoWallHost) — a
@@ -265,11 +274,14 @@ namespace Sentinel.GhostBuilder
         /// <param name="docBasicWallTypes">As PromoteWallsPlanner.Plan: the document's basic wall types → their Function.</param>
         /// <param name="docTypes">Category → the document's types of it ("Family : Type" for doors and windows, the type name
         /// otherwise; case-insensitive) → build-up mm (null for a loadable family or none). Never across categories.</param>
+        /// <param name="shapes">MA-8-7 (D16): the DirectShapes, Generic Model instances and in-place families of the model - a wall- or floor-like one becomes a
+        /// create that replaces it (ReplacePlanner), the rest a held row; null = none read. They are never counted in the LOD state.</param>
         /// <param name="signedIn">MA-5b-5: a rehost removes an element — proposed only when a person is signed in (the bridge refuses one
         /// the machine credential files); signed out, each is a held row. Off unless said.</param>
         public static List<StoreyPlan> Plan(IReadOnlyCollection<string> classes, IReadOnlyList<WallFact> walls, IReadOnlyList<ElementFact> others,
             IReadOnlyList<LevelFact> levels, IReadOnlyDictionary<string, string> docBasicWallTypes,
-            IReadOnlyDictionary<string, IReadOnlyDictionary<string, double?>> docTypes, GuidelineMatcher m, bool signedIn = false)
+            IReadOnlyDictionary<string, IReadOnlyDictionary<string, double?>> docTypes, GuidelineMatcher m, bool signedIn = false,
+            IReadOnlyList<ShapeFact> shapes = null)
         {
             // The walls are planned even when Walls do not run: a door's location reads its host storey's one-type verdict.
             var wallPlans = PromoteWallsPlanner.Plan(walls ?? new List<WallFact>(), levels, docBasicWallTypes, m);
@@ -282,7 +294,8 @@ namespace Sentinel.GhostBuilder
 
             foreach (var e in others ?? new List<ElementFact>())
             {
-                if (e?.Kind == null || e.Kind == "wall" || !PromoteWallsPlanner.Classes.TryGetValue(e.Kind, out var cls) || !classes.Contains(cls.Category)) continue;
+                if (e?.Kind == null || e.Kind == "wall" || !PromoteWallsPlanner.TryClassOf(e.Kind, out var cls) || !classes.Contains(cls.Category)) continue;
+                bool structure = PromoteWallsPlanner.Structure.ContainsKey(e.Kind); // MA-8-7: outside the LOD matrix - never in p.Lod or p.Settled
                 string storey = e.Level ?? "";
                 var p = plans.FirstOrDefault(x => x.Storey == storey);
                 if (p == null) plans.Add(p = new StoreyPlan { Storey = storey });
@@ -293,12 +306,22 @@ namespace Sentinel.GhostBuilder
                 int ddWas = c.DdNow, officeWas = c.OfficeTyped;
                 var reason = Plan1(e, cls.Category, cls.Word.ToLowerInvariant(), level, oneType, office, docTypes, m, c, signedIn, out var g, out var blocked, out var gap);
                 // MA-2b: the element's DD verdict for the LOD state — the same counters "DD now" reads; an office-typed one is not counted.
-                if (c.OfficeTyped == officeWas) p.Lod.Add(new LodFact { UniqueId = e.UniqueId, Category = cls.Category, RulesOk = c.DdNow > ddWas, Blocked = blocked });
+                if (!structure && c.OfficeTyped == officeWas) p.Lod.Add(new LodFact { UniqueId = e.UniqueId, Category = cls.Category, RulesOk = c.DdNow > ddWas, Blocked = blocked });
                 // MA-2c: an element that stays on its DD type (no reason, no ghost, not office-typed) — its type's properties are read.
-                if (reason == null && g == null && c.OfficeTyped == officeWas)
+                if (!structure && reason == null && g == null && c.OfficeTyped == officeWas)
                     p.Settled.Add((cls.Category, e.Kind == "door" || e.Kind == "window" ? e.Family : null, e.TypeName));
                 if (reason != null) p.Held.Add(new PromoteHeld { UniqueId = e.UniqueId, Label = e.Label, Reason = reason, Gap = gap });
                 else if (g != null) p.Ghosts.Add(g); // after the walls' ghosts; Bodies puts every retype before the attaches
+            }
+
+            // MA-8-7 (D16): a DirectShape that is wall- or floor-like re-created as an office type, the rest held with their reason. After the
+            // other classes; never counted in the LOD state (a third-party model's shapes are not a matrix class).
+            foreach (var r in ReplacePlanner.Plan(shapes, levels, walls, docBasicWallTypes, docTypes, m, signedIn, classes))
+            {
+                var p = plans.FirstOrDefault(x => x.Storey == r.Storey);
+                if (p == null) plans.Add(p = new StoreyPlan { Storey = r.Storey });
+                if (r.Held != null) p.Held.Add(new PromoteHeld { UniqueId = r.Fact.UniqueId, Label = r.Fact.Label, Reason = r.Held, Gap = r.Gap });
+                else p.Ghosts.Add(r.Ghost);
             }
 
             double Elev(string level) => level != null && byName.TryGetValue(level, out var l) ? l.ElevationMm : double.MaxValue;
@@ -309,7 +332,7 @@ namespace Sentinel.GhostBuilder
         public static void Refuse(IEnumerable<StoreyPlan> plans, Func<PromoteGhost, string> why)
         {
             foreach (var p in plans)
-                foreach (var g in p.Ghosts.Where(x => x.Op is "retype" or "rehost").ToList()) // MA-5b-5: a rehost Apply would refuse is held too
+                foreach (var g in p.Ghosts.Where(x => x.Op is "retype" or "rehost" || x.ReplacesUid != null).ToList()) // MA-5b-5: a rehost Apply would refuse is held too; MA-8-7: so is a replacing create
                 {
                     var r = why(g);
                     if (r == null) continue;
@@ -334,6 +357,7 @@ namespace Sentinel.GhostBuilder
             if (e.InOption) return "in a design option — Sentinel does not edit design options";
             if (level == null || !level.IsStory) return $"level {e.Level} is not a Building Story — Promote plans storey by storey";
             blocked = false;
+            if (e.Kind is "column" or "beam") return Section(e, cat, office, docTypes, m, c, out g, out gap); // MA-8-7
             // MA-5b-5 (design review R5): a door or window no wall hosts is a level-based family — it cannot stay as it is and be DD, whatever
             // its type: replaced by the office type of its size in the one wall it stands in (rehost), or a person's. Before the settled and
             // office checks, so no placeholder drops out of every count.
@@ -445,7 +469,7 @@ namespace Sentinel.GhostBuilder
                            (have.Count > 1 ? "; which one is office policy" : ", but no DD rule names it (office policy)");
                 if (faults?.Count > 0)
                     return $"the catalogue's {string.Join(", ", faults)} (named at {size}) read another Width x Height in the template — a template fault (WN-3); a person decides";
-                gap = new TypeGap { Category = cat, Size = size, Key = what };
+                gap = new TypeGap { Category = cat, Size = size, Want = size == null ? e.TypeName : null, Key = what };
                 return m.Gap($"{e.Label} ({e.Family} : {e.TypeName})", $"no {cat} type named at {size} in the catalogue");
             }
             if (string.IsNullOrWhiteSpace(res.Type)) return "the DD rule names no type — a person decides";
@@ -519,6 +543,65 @@ namespace Sentinel.GhostBuilder
             if (w.AlongMm - half < -0.5 || w.AlongMm + half > w.LengthMm + 0.5)
             { why = $"no wall hosts it; at {Mm(w.AlongMm, "0")} mm along {w.Label} ({Mm(w.LengthMm, "0")} mm long) a {Mm(2 * half, "0")} mm {word} runs past its end — a person places it"; return null; }
             return w;
+        }
+
+        // MA-8-7 (exact or a person, D16): a structural column or beam retyped by its SECTION. Settled = already a catalogue row; the office's own
+        // prefix = left as is (not counted); else the catalogue row whose type name carries exactly the element's W x D (TypeNameParse.TrySection,
+        // exact order - a turned frame is a person's), or - a steel shape the name carries (W310X21) - the one catalogue type of that exact name.
+        // None = a type gap; the target must be loaded (Sentinel creates no types). The section is the instance's own (ElementFact.SectionWMm).
+        private static string Section(ElementFact e, string cat, string office, IReadOnlyDictionary<string, IReadOnlyDictionary<string, double?>> docTypes,
+            GuidelineMatcher m, ClassCount c, out PromoteGhost g, out TypeGap gap)
+        {
+            g = null;
+            gap = null;
+            string word = e.Kind == "beam" ? "beam" : "column";
+            if (m.CatalogHas(cat, e.Family, e.TypeName)) { c.DdNow++; return null; } // settled: a catalogue row of its category
+            if (office != null && ((e.Family ?? "").StartsWith(office, StringComparison.OrdinalIgnoreCase) || (e.TypeName ?? "").StartsWith(office, StringComparison.OrdinalIgnoreCase)))
+            { c.OfficeTyped++; c.Total--; return null; }
+            if (!m.HasCatalog) return NoCatalog(m);
+            string from = e.Family + " : " + e.TypeName, how = null, target = null, size = null;
+            string label = $"{e.Label} ({from})";
+            if (e.SectionWMm.HasValue && e.SectionDMm.HasValue)
+            {
+                double w = Math.Round(e.SectionWMm.Value), d = Math.Round(e.SectionDMm.Value);
+                if (Math.Abs(e.SectionWMm.Value - w) > 0.5 || Math.Abs(e.SectionDMm.Value - d) > 0.5) // the original geometry is read to 0.5 mm
+                    return $"section {Mm(e.SectionWMm.Value, "0.###")} x {Mm(e.SectionDMm.Value, "0.###")} mm is not a whole millimetre — exact match only (D16)";
+                var have = m.CatalogOfSize(cat, w, d);
+                size = $"{Mm(w, "0")} x {Mm(d, "0")} mm";
+                if (have.Count > 1) return $"the catalogue has {string.Join(", ", have)} at {size} — which one is office policy";
+                if (have.Count == 1) { target = have[0]; how = $"by section {size}"; }
+                else
+                {
+                    var turned = m.CatalogOfSize(cat, d, w);
+                    if (turned.Count > 0)
+                        return $"the catalogue names {string.Join(", ", turned)} ({Mm(d, "0")} x {Mm(w, "0")}); it reads {size} in its own frame — turned; a person decides";
+                    // not named by its size: a steel shape is named alone - below
+                }
+            }
+            if (target == null)
+            {
+                // MA-8-7 review: the name is for steel shapes (no rectangle read). A measured rectangle that no row carries is a gap - a generic name
+                // ("C1", "Type 1") must not retype a 300 x 300 into an office row of another size.
+                var named = size != null ? new List<string>() : m.CatalogOfName(cat, e.TypeName);
+                if (named.Count > 1) return $"the catalogue holds \"{e.TypeName}\" under {string.Join(", ", named.Select(x => x.Substring(0, x.IndexOf(" : ", StringComparison.Ordinal))))} — which family is office policy";
+                if (named.Count == 1) { target = named[0]; how = "by its type name"; }
+                else
+                {
+                    gap = new TypeGap { Category = cat, Size = size, Want = size == null ? e.TypeName : null, Key = $"{word} {from}", Nearest = new List<string>() };
+                    return m.Gap(label, size != null ? $"no {cat} type named at {size} in the catalogue" : $"no {cat} type of this name in the catalogue — {e.SectionWhy ?? "no section was read"}");
+                }
+            }
+            if (string.Equals(target, from, StringComparison.OrdinalIgnoreCase)) { c.DdNow++; return null; }
+            if (docTypes == null || !docTypes.TryGetValue(cat, out var types) || types == null || !types.ContainsKey(target))
+                return $"\"{target}\" is in the catalogue but not loaded in this model — Sentinel creates no types";
+            var cut = target.IndexOf(" : ", StringComparison.Ordinal);
+            g = new PromoteGhost
+            {
+                Op = "retype", IfcGuid = e.IfcGuid, Kind = e.Kind, UniqueId = e.UniqueId, Label = e.Label, TypeBefore = from,
+                FamilyName = target.Substring(0, cut), TypeName = target.Substring(cut + 3),
+                Reason = $"structure {how}: {from} → {target} (catalogue row, exact)",
+            };
+            return null;
         }
 
         // DR-1 (confirmed by the founder 2026-10-01): a door is sized by the target's type NAME, so after the swap its Width x

@@ -30,7 +30,7 @@ export const CREATE_ENTITY = { ...KIND_ENTITY, level: "IFCBUILDINGSTOREY", grid:
  *  instance is removed in the same Undo step (the first element Sentinel removes): a signed-in member's (Promote), never pre-ticked. */
 export const OPS = ["create", "retype", "attach", "set_parameter", "reshape", "rehost"];
 /** The kinds each op takes. */
-export const OP_KINDS = { create: VOCABULARY, retype: ["wall", "floor", "roof", "ceiling", "door", "window"], attach: ["wall"],
+export const OP_KINDS = { create: VOCABULARY, retype: ["wall", "floor", "roof", "ceiling", "door", "window", "column", "beam"], attach: ["wall"], // MA-8-7: a structural column and a beam (by section)
   set_parameter: ["wall", "floor", "roof", "ceiling", "door", "window"], reshape: ["wall"], rehost: ["door", "window"] };
 /** MA-5b-5: the place fields a rehost takes — where its new instance goes (a point on its host wall's location line, on its level) and
  *  the office type it becomes; a window's sill. Its Mark is copied from the old instance; it is never turned (the office family's default). */
@@ -56,7 +56,7 @@ const SHA256_HEX = /^[0-9a-f]{64}$/;
 // Review amendment C1: no control character (a newline, a tab) in a provenance text — each is one line wherever it is shown.
 const CONTROL_CHAR = /[\u0000-\u001f]/;
 // MA-1a item 8 (contract 2's trust rules): the fields the bridge sets itself. A posted one is ignored and listed back.
-export const TRUST_FIELDS = ["pretick", "accuracy", "confidence", "typing", "claimed", "proposal_guid"];
+export const TRUST_FIELDS = ["pretick", "accuracy", "confidence", "typing", "claimed", "proposal_guid", "foreign"]; // MA-8-7: foreign — the bridge judges a retype's type against the catalogue
 /** The sources the Revit add-in files under (GhostFiling, PromoteWallsPlanner). The bridge cannot tell the add-in from
  *  another caller holding the same credential, so every changeset's source is a claim (claimed: true); the MCP tool never
  *  files as one of these. */
@@ -67,7 +67,7 @@ const BODY_FIELDS = ["name", "source", "elements", "exceptions", "actor", "agent
 // MA-2c: a set_parameter's parameter, the Revit parameter's name, the value the plan read (from), the value to write (to) and
 // where it comes from (value_source — the bridge checks it and writes its own record).
 const ELEMENT_FIELDS = ["kind", "op", "target", "reason", "validate", "place", "provenance", "cid", "evidence", "facts",
-  "parameter", "revit_parameter", "from", "to", "value_source"]; // what an element is rebuilt from
+  "parameter", "revit_parameter", "from", "to", "value_source", "replaces"]; // what an element is rebuilt from
 // Review amendment C3: what an element's blocks are rebuilt from. PLACE_KEPT is the add-in's PlaceDto (ChangesetClient.cs),
 // name for name; a key added to one must be added to the other, or it is listed under `ignored` and not kept.
 export const PLACE_KEPT = ["TypeName", "LevelName", "LocationCurve", "LocationLoop", "BaseElevation", "TopElevation", "Name", "BaseLevel", "TopLevel",
@@ -276,8 +276,24 @@ function sourceOf(s, note) {
  *  member filed it (review amendment C2): the source is the caller's own text, so the machine credential, which the
  *  bridge cannot tell from any other holder of the token, earns no pre-tick by writing "promote". MA-2c: a set_parameter is
  *  never pre-ticked — a type edit reaches every element on the type (founder decision F1). */
-const pretickOf = (op, source, target, member) =>
-  member === true && source === "promote" && (op === "attach" || (op === "retype" && target?.type_before != null));
+const pretickOf = (op, source, target, member, foreign = null, kind = null) =>
+  member === true && source === "promote" && (op === "attach" || (op === "retype" && target?.type_before != null && foreign === false && kind !== "column" && kind !== "beam"));
+
+// MA-8-7 (amendment 16): a retype of an element whose type is NOT one of the office's is never pre-ticked. The category names a kind's type
+// catalogue rows are filed under; a structural column is a "Structural Columns" row (or a "Columns" one).
+const KIND_CATEGORIES = { wall: ["Walls"], floor: ["Floors"], roof: ["Roofs"], ceiling: ["Ceilings"], door: ["Doors"], window: ["Windows"],
+  column: ["Structural Columns"], beam: ["Structural Framing"] };
+/** Is the type a retype names ("Family : Type", or a bare type name for a system type) a type of the office's catalogue? `catalog` is the
+ *  type_catalog body ({types: [{category, family, type, bic?}]}); `same` is sentinel-core's sameCategory. true = foreign (no catalogue row
+ *  of the kind's category), false = a catalogue row, null = no catalogue to judge by. Pure. */
+export function foreignOf(kind, typeBefore, catalog, same) {
+  if (!catalog || !Array.isArray(catalog.types) || catalog.types.length === 0 || typeof same !== "function" || !text(typeBefore, 256)) return null;
+  const norm = (x) => (x ?? "").trim().toLowerCase();
+  const cut = typeBefore.indexOf(" : ");
+  const family = cut < 0 ? null : norm(typeBefore.slice(0, cut)), type = norm(cut < 0 ? typeBefore : typeBefore.slice(cut + 3));
+  const cats = KIND_CATEGORIES[kind] ?? [];
+  return !catalog.types.some((t) => norm(t.type) === type && (family === null || norm(t.family) === family) && cats.some((c) => same(t, c)));
+}
 
 const PSET_KEY = /^Pset_[A-Za-z0-9_]+\.[A-Za-z0-9_]+$/;
 const VALUE_SOURCES = ["catalogue", "clause"];
@@ -328,7 +344,7 @@ function checkWrite(el, place, at, cite) {
  *  MA-4d: with `job` — {record, byCid}, built by changesets-store proposeFromJob from a job trustedJob accepted, never from a body (the
  *  route calls proposeChangeset, which passes none) — each element takes the job's measured block, its trims, accuracy and pre-tick from the
  *  bridge's record by cid, and the changeset is not claimed and carries the job as `job`. */
-export function validateChangeset(body, { member = false, type = null, cite = null, job = null } = {}) {
+export function validateChangeset(body, { member = false, type = null, cite = null, job = null, catalog = null, sameCategory = null } = {}) {
   if (!body || typeof body !== "object" || Array.isArray(body)) throw err(400, "a changeset must be an object");
   const name = typeof body.name === "string" ? body.name.trim() : "";
   if (!name) throw err(400, "name is required — a changeset is reviewed by humans and needs a human-readable name");
@@ -410,8 +426,12 @@ export function validateChangeset(body, { member = false, type = null, cite = nu
       }
     };
     let target = null;
+    let foreign = null; // MA-8-7: a retype's type is not the office's (null: no catalogue to judge by)
+    let replaces = null; // MA-8-7 (D16): a wall or floor create that replaces a DirectShape or Generic Model with an office type
+    if (el.replaces !== undefined && op !== "create") throw err(400, `${at}: ${op} takes no replaces — only a wall or floor create replaces an element`);
     if (op === "create") {
       checkPlace(el.kind, el.place, at);
+      if (el.replaces !== undefined) replaces = checkReplaces(el, at, member, nested, rehosted, touched);
       // After checkPlace, so a geometry error still reads as one. The Revit executor refuses an empty type too.
       if (!UNTYPED.includes(el.kind) && !text(place.TypeName, 256)) {
         if (!type) throw err(400, `${at}: a ${el.kind} needs place.TypeName — Sentinel never takes the model's first type`);
@@ -501,7 +521,7 @@ export function validateChangeset(body, { member = false, type = null, cite = nu
         if (!type) throw err(400, `${at}: retype needs place.TypeName`);
         typeIt();
       }
-      if (op === "retype" && (el.kind === "door" || el.kind === "window") && !text(place.FamilyName, 256))
+      if (op === "retype" && FAMILY_KINDS.includes(el.kind) && !text(place.FamilyName, 256))
         throw err(400, `${at}: a ${el.kind} retype needs place.FamilyName — a type name alone is not one type`);
       if (op === "attach" && (!text(p.BaseLevel, 256) || !text(p.TopLevel, 256) || p.BaseLevel === p.TopLevel))
         throw err(400, `${at}: attach needs two different levels, place.BaseLevel and place.TopLevel`);
@@ -512,12 +532,14 @@ export function validateChangeset(body, { member = false, type = null, cite = nu
       // MA-5b-5: a rehost removes its element — no other ghost may edit it in the same changeset (it would fail on a removed element)
       const u = uid.toLowerCase();
       if (op === "rehost" ? touched.has(u) : rehosted.has(u))
-        throw err(400, `${at}: a rehost replaces its element — it carries no other ghost (this changeset has a ${op === "rehost" ? "retype, attach or set_parameter" : "rehost"} of it too)`);
+        throw err(400, `${at}: a rehost replaces its element — it carries no other ghost (this changeset has a ${op === "rehost" ? "retype, attach or set_parameter" : "rehost or a replacing create"} of it too)`);
+      if (op === "rehost" && rehosted.has(u)) throw err(400, `${at}: a rehost replaces its element — a create of this changeset replaces it too`); // MA-8-7
       (op === "rehost" ? rehosted : touched).add(u);
       // MA-3d: the element's IFC GlobalId, when the add-in sends it — the web desk highlights the ghost's element in the loaded model by it.
       // Optional (a changeset filed by an older add-in has none); a malformed one is a 400 in words; it is kept as sent, never derived.
       const guid = el.target.ifc_guid ?? null;
       if (guid !== null && (typeof guid !== "string" || !IFC_GUID.test(guid))) throw err(400, `${at}: target.ifc_guid must be an IFC GlobalId — 22 characters of its alphabet — when it is sent`);
+      if (op === "retype") foreign = foreignOf(el.kind, before, catalog, sameCategory);
       target = { unique_id: uid, type_before: before, ...(guid ? { ifc_guid: guid } : {}),
         ...(op === "reshape" ? { placed: { start: el.target.placed.start, end: el.target.placed.end } } : {}),
         ...(op === "rehost" ? { at: el.target.at } : {}) };
@@ -559,6 +581,8 @@ export function validateChangeset(body, { member = false, type = null, cite = nu
       proposal_guid,
       kind: el.kind,
       op, target, reason: el.reason ?? null,
+      ...(op === "retype" ? { foreign } : {}), // MA-8-7 (amendment 16): the bridge's judgement; a foreign retype is never pre-ticked
+      ...(replaces ? { replaces } : {}),
       validate: written ? { identity, psets: [{ name: pset, rows: [{ name: prop, value: written.to }] }], quantities: [] }
         : { identity, psets: entries(validate.psets, "psets"), quantities: entries(validate.quantities, "quantities") },
       place,
@@ -576,7 +600,7 @@ export function validateChangeset(body, { member = false, type = null, cite = nu
       // MA-1a item 8: the bridge's own trust decisions; a body's element is never measured. MA-2a: an element the bridge typed from
       // POSTED facts is never pre-ticked for that (the poster's claim). MA-4d: one it built from a job carries the job's decision — its
       // facts are the measurement the bridge re-hashed (survey-plan's trust record).
-      pretick: fromJob ? fromJob.pretick : typed ? false : pretickOf(op, source, target, member),
+      pretick: fromJob ? fromJob.pretick : typed ? false : pretickOf(op, source, target, member, foreign, el.kind),
       accuracy: fromJob ? fromJob.accuracy : { status: "not_measured" },
     };
   });
@@ -594,6 +618,34 @@ export function validateChangeset(body, { member = false, type = null, cite = nu
     ...(job ? { job: job.record } : {}),
     ...(body.contract != null ? { contract: body.contract } : {}),
   };
+}
+
+/** MA-8-7 (D16): a create's `replaces` — {unique_id, box}: the DirectShape or Generic Model instance a wall or floor create re-creates as an
+ *  office type; the add-in deletes it in the same Undo step (the second op that removes an element, after rehost). A signed-in member's only;
+ *  its UniqueId joins `rehosted`, so no other ghost may name it (and two creates cannot replace one element). The box is where the original
+ *  stood when it was read, in whole mm of the model's frame (the add-in's stale guard). Stored as {unique_id, box: {min, max}}. */
+function checkReplaces(el, at, member, nested, rehosted, touched) {
+  const r = el.replaces;
+  if (el.kind !== "wall" && el.kind !== "floor")
+    throw err(400, `${at}: only a wall or floor create replaces an element (a DirectShape or Generic Model re-created as an office type), not ${a(el.kind)}`);
+  if (!r || typeof r !== "object" || Array.isArray(r)) throw err(400, `${at}: replaces must be {unique_id, box}`);
+  nested(r, ["unique_id", "box", "kind", "category"], `${at}.replaces`);
+  if (!member) throw err(400, `${at}: a create that replaces removes an element — only a signed-in member files one (Promote in Revit, signed in); nothing was saved`);
+  if (typeof r.unique_id !== "string" || !UNIQUE_ID.test(r.unique_id)) throw err(400, `${at}: replaces.unique_id must be a Revit UniqueId`);
+  const b = r.box, v3 = (x) => point(x);
+  if (!b || typeof b !== "object" || !v3(b.min) || !v3(b.max)) throw err(400, `${at}: replaces.box must be {min: [x, y, z], max: [x, y, z]} — three finite numbers each, in mm (where the original stood)`);
+  const min = b.min.map((n) => Math.round(n) || 0), max = b.max.map((n) => Math.round(n) || 0);
+  if ([...min, ...max].some((n) => Math.abs(n) > FLAG_REACH_MM)) throw err(400, `${at}: replaces.box values must lie within ${FLAG_REACH_MM / 1000} m of the origin`);
+  if (min.some((n, k) => n >= max[k])) throw err(400, `${at}: replaces.box.min must be below box.max on every axis`);
+  const u = r.unique_id.toLowerCase();
+  if (touched.has(u) || rehosted.has(u))
+    throw err(400, `${at}: replaces ${r.unique_id}, which another ghost of this changeset also names — a replaced element carries no other ghost, and two creates cannot replace one`);
+  rehosted.add(u);
+  // review: what the original is (its class and category), so the reviewer's row and the ledger say what is removed; both optional
+  if (r.kind !== undefined && r.kind !== "directshape" && r.kind !== "generic") throw err(400, `${at}: replaces.kind must be "directshape" or "generic"`);
+  if (r.category !== undefined && (typeof r.category !== "string" || !r.category.trim() || r.category.length > 80 || /[ -]/.test(r.category)))
+    throw err(400, `${at}: replaces.category must be a short text (the original's Revit category)`);
+  return { unique_id: r.unique_id, box: { min, max }, ...(r.kind ? { kind: r.kind } : {}), ...(r.category ? { category: r.category.trim() } : {}) };
 }
 
 /** MA-1a item 4: where an element came from, as its placer knows it — the CAD layer, the rule that typed it and the source
@@ -892,7 +944,7 @@ export function resultReasons(rejectedGuids, reasons) {
  *  "bds_ext_arc_cmu_200 MM" IS the declined type in Revit); a value as stored. Null for a create (it names no existing element) and
  *  for anything not whole: such a ghost is never matched, so never carried. */
 export function carryKey(el) {
-  const uid = el?.target?.unique_id, p = el?.place ?? {};
+  const uid = el?.target?.unique_id ?? el?.replaces?.unique_id, p = el?.place ?? {}; // MA-8-7: a create that replaces names the element it removes
   if (typeof uid !== "string" || uid === "") return null;
   const one = (s) => (typeof s === "string" && s.trim() !== "" ? s.trim() : null);
   const name = (s) => one(s)?.toLowerCase() ?? null;
@@ -900,6 +952,8 @@ export function carryKey(el) {
   if (el.op === "retype") return name(p.TypeName) ? JSON.stringify([...head, name(p.TypeName), name(p.FamilyName)]) : null;
   if (el.op === "attach") return name(p.BaseLevel) && name(p.TopLevel) ? JSON.stringify([...head, name(p.BaseLevel), name(p.TopLevel)]) : null;
   if (el.op === "set_parameter") return one(el.parameter) && typeof el.to === "string" ? JSON.stringify([...head, name(el.parameter), el.to]) : null;
+  // MA-8-7: a replacing create is the same change when it re-creates the same element as the same kind of type
+  if (el.op === "create") return el.replaces && name(p.TypeName) ? JSON.stringify([...head, name(p.TypeName)]) : null;
   const mm = (q) => (Array.isArray(q) && q.length === 3 && q.every(Number.isFinite) ? q.map(Math.round) : null);
   // MA-5b-4 review: a reshape is the same change when it moves the same wall from the same placed line to the same line (to the mm)
   if (el.op === "reshape") {

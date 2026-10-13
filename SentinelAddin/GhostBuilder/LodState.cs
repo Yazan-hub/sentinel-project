@@ -248,7 +248,7 @@ namespace Sentinel.GhostBuilder
                                           IReadOnlyDictionary<string, StageIds.Verdict> props, IEnumerable<string> notRun)
         {
             var r = new LodStateReport { ProjectStage = mx.StageMap["DD"], NotRun = (notRun ?? Enumerable.Empty<string>()).ToList(),
-                                         OfficeTyped = plans.Sum(p => p.OfficeTyped + p.Others.Values.Sum(c => c.OfficeTyped)) };
+                                         OfficeTyped = plans.Sum(p => p.OfficeTyped + p.Others.Where(kv => Array.IndexOf(LodMatrix.Order, kv.Key) >= 0).Sum(kv => kv.Value.OfficeTyped)) }; // MA-8-7: structure is counted apart
             foreach (var p in plans)
                 foreach (var cat in LodMatrix.Order)
                 {

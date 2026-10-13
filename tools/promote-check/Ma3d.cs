@@ -28,7 +28,7 @@ static partial class Check
         string promote = Src("Commands.PromoteWalls.cs"), pp = Src("GhostBuilder", "PromotePlanner.cs"), pw = Src("GhostBuilder", "PromoteWallsPlanner.cs");
         int Count(string s, string what) => (s.Length - s.Replace(what, "").Length) / what.Length;
         Ok(promote.Contains("private static string IfcGuidOf(Document doc, Element e)") && promote.Contains("IfcGuid = IfcGuidOf(doc, w)") && promote.Contains("IfcGuid = IfcGuidOf(doc, e)")
-           && Count(pp, "IfcGuid = e.IfcGuid") == 2 && pw.Contains("IfcGuid = w.IfcGuid") && Count(pw, "ifc_guid = g.IfcGuid") == 3,
+           && Count(pp, "IfcGuid = e.IfcGuid") == 3 && pw.Contains("IfcGuid = w.IfcGuid") && Count(pw, "ifc_guid = g.IfcGuid") == 3,
            "MA-3d wiring: the facts read the GlobalId on the API thread, every ghost copies it, every body sends it (MA-5b-5: the rehost body too)");
         Ok(promote.Contains("IfcGuid = IfcGuidOf(doc, hits[0])") && Src("GhostBuilder", "PropertyPlanner.cs").Contains("IfcGuid = v.IfcGuid"),
            "MA-3d wiring: a type edit (set_parameter) carries its type's GlobalId too (the desk does not highlight it — a type has no geometry)");

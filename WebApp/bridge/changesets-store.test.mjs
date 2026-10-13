@@ -197,6 +197,48 @@ describe("result + withdraw lifecycle", () => {
     expect((await reportResult("demo", cs.id, { applied: [], rejected: [g] }, "revit", deps)).status).toBe("declined");
   });
 
+  // MA-8-7 (D16): a create that replaces removes a DirectShape - Revit's report decides what the ledger says was removed
+  const REPLACED = "5a1c2b3d-1111-2222-3333-444455556666-0004c3fa";
+  const REPLACES = { name: "Promote · L01", source: "promote", elements: [{ ...wall(), replaces: { unique_id: REPLACED, box: { min: [0, 0, 0], max: [5000, 200, 3000] } } }] };
+  it("MA-8-7: an applied replacing create's row lists in `removed` only what Revit reported deleted; otherwise `not_removed` says so", async () => {
+    for (const reported of [REPLACED, undefined, "5a1c2b3d-1111-2222-3333-444455556666-0004c3ff"]) {
+      const deps = baseDeps({ myRole: async () => "contributor" });
+      const cs = await proposeChangeset("demo", REPLACES, "lead@office.example", deps);
+      const g = cs.elements[0].proposal_guid;
+      const out = await reportResult("demo", cs.id, { applied: [{ proposal_guid: g, revit_element_id: 9001, revit_unique_id: "new-uid", removed_tags: 1, removed_unique_id: reported }], rejected: [] }, "lead@office.example", deps);
+      const row = deps.audit.mock.calls.find((c) => c[3] === "changeset_applied")[6];
+      if (reported === REPLACED) {
+        expect(row.removed).toEqual([{ proposal_guid: g, unique_id: REPLACED, type_before: "DirectShape or Generic Model", replaced_by: "new-uid", tags: 1 }]);
+        expect(row).not.toHaveProperty("not_removed");
+        expect(out.result.applied[0]).toMatchObject({ removed_tags: 1, removed_unique_id: REPLACED });
+      } else {
+        expect(row).not.toHaveProperty("removed");
+        expect(row.not_removed).toEqual([{ proposal_guid: g, unique_id: REPLACED, why: expect.stringMatching(/did not report the original deleted/) }]);
+      }
+    }
+  });
+  it("MA-8-7 review: the removed row names the original's class (replaces.kind); none sent says both; a report naming the removed element as its replacement is not kept", async () => {
+    for (const [kind, want] of [["directshape", "DirectShape"], ["generic", "Generic Model"], [undefined, "DirectShape or Generic Model"]]) {
+      const deps = baseDeps({ myRole: async () => "contributor" });
+      const cs = await proposeChangeset("demo", { ...REPLACES, elements: [{ ...REPLACES.elements[0], replaces: { ...REPLACES.elements[0].replaces, ...(kind ? { kind, category: "Floors" } : {}) } }] }, "lead@office.example", deps);
+      const g = cs.elements[0].proposal_guid;
+      await reportResult("demo", cs.id, { applied: [{ proposal_guid: g, revit_element_id: 9001, revit_unique_id: REPLACED.toUpperCase(), removed_unique_id: REPLACED }], rejected: [] }, "lead@office.example", deps);
+      const r = deps.audit.mock.calls.find((c) => c[3] === "changeset_applied")[6].removed[0];
+      expect(r).toMatchObject({ type_before: want, replaced_by: null });
+    }
+  });
+  it("MA-8-7: the machine credential reports no replacing create applied - a 403, nothing recorded", async () => {
+    const roles = ["contributor", "service"];
+    const deps = baseDeps({ myRole: vi.fn(async () => roles.shift() ?? "service") });
+    const cs = await proposeChangeset("demo", REPLACES, "lead@office.example", deps);
+    await expect(reportResult("demo", cs.id, { applied: [{ proposal_guid: cs.elements[0].proposal_guid, revit_element_id: 9001 }], rejected: [] }, "revit", deps))
+      .rejects.toMatchObject({ status: 403, message: expect.stringMatching(/a create that replaces removes one too/) });
+    expect(deps.audit.mock.calls.some((c) => c[3] === "changeset_applied")).toBe(false);
+  });
+  it("MA-8-7: a replacing create from the machine credential is a 400 (a member files it)", async () => {
+    await expect(proposeChangeset("demo", REPLACES, "agent", baseDeps({ myRole: async () => "service" }))).rejects.toMatchObject({ status: 400, message: expect.stringMatching(/only a signed-in member files one/) });
+  });
+
   it("MA-3b: a result answers the changeset_applied row it wrote, so Revit says \"reported (ledger #n)\" — the stored doc does not keep it", async () => {
     const deps = baseDeps({ audit: vi.fn(async () => ({ id: 1731, hash: "cd".repeat(32) })) });
     const cs = await propose(deps);
@@ -509,6 +551,31 @@ describe("proposeChangeset — contract 2's trust rules (MA-1a item 8)", () => {
     const machine = await proposeChangeset("demo", body, "agent", baseDeps({ myRole: async () => "service" }));
     expect(machine.elements[0].pretick).toBe(false);
     expect(machine.claimed).toBe(true);
+  });
+});
+
+// MA-8-7 (amendment 16): a retype is judged foreign against type_catalog@n; read only with a retype
+describe("proposeChangeset - foreign retype (MA-8-7)", () => {
+  const catalog = { types: [{ category: "Walls", family: "Basic Wall", type: "Generic - 200mm" }] };
+  const resolving = (have) => vi.fn(async (key, kind) => (have[kind] ? installed(kind, have[kind]) : NONE));
+  const retype = (before) => ({ name: "Promote", source: "promote", elements: [{ op: "retype", kind: "wall", target: { unique_id: "5a1c2b3d-1111-2222-3333-444455556666-0004c3f8", type_before: before },
+    place: { TypeName: "Generic - 200mm" }, validate: { identity: { Class: "IfcWall", Name: "W 1" } } }] });
+  it("reads the catalogue only for a post with a retype; a catalogue row is pre-ticked, another office's type is not and is stored foreign", async () => {
+    const none = baseDeps({ resolveArtefact: resolving({ type_catalog: catalog }), myRole: async () => "contributor" });
+    await proposeChangeset("demo", BODY, "agent", none);
+    expect(none.resolveArtefact).not.toHaveBeenCalled();
+    const deps = baseDeps({ resolveArtefact: resolving({ type_catalog: catalog }), myRole: async () => "contributor" });
+    const mine = await proposeChangeset("demo", retype("Generic - 200mm"), "lead@office.example", deps);
+    expect(deps.resolveArtefact.mock.calls.map((c) => c.slice(0, 2))).toEqual([["demo", "type_catalog"]]);
+    expect(mine.elements[0]).toMatchObject({ pretick: true, foreign: false });
+    const theirs = await proposeChangeset("demo", retype("Aussenwand 36.5"), "lead@office.example", baseDeps({ resolveArtefact: resolving({ type_catalog: catalog }), myRole: async () => "contributor" }));
+    expect(theirs.elements[0]).toMatchObject({ pretick: false, foreign: true });
+  });
+  it("a read that throws, or no catalogue, files the retype unjudged and not pre-ticked - never a refused filing", async () => {
+    const boom = baseDeps({ resolveArtefact: vi.fn(async () => { throw new Error("db down"); }), myRole: async () => "contributor" });
+    expect((await proposeChangeset("demo", retype("Generic - 200mm"), "lead@office.example", boom)).elements[0]).toMatchObject({ pretick: false, foreign: null });
+    const none = baseDeps({ resolveArtefact: resolving({}), myRole: async () => "contributor" });
+    expect((await proposeChangeset("demo", retype("Generic - 200mm"), "lead@office.example", none)).elements[0]).toMatchObject({ pretick: false, foreign: null });
   });
 });
 
