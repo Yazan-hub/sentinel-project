@@ -1691,6 +1691,8 @@ async function handleRequest(req, res) {
         if (p3 && p4 === "items" && seg[5] && seg[6] === "delete-by" && !seg[7] && req.method === "POST") return send(res, 200, await ev.setDeleteBy(p1, p3, seg[5], await body()));
         // MA-7-2: GET …/:pack/web → the founder's web switch (off/drill/on), the source lists and their sha256 (any member; a read).
         if (p3 && p4 === "web" && !seg[5] && req.method === "GET") return send(res, 200, await ev.webStatus(p1, p3));
+        // MA-7-6: GET …/:pack/notice → the credits text and its sha256 (any member; a read).
+        if (p3 && p4 === "notice" && !seg[5] && req.method === "GET") return send(res, 200, await ev.noticeOf(p1, p3));
         // MA-4b: POST …/:pack/requests {recipient_kind, recipient?, documents[], purpose?} → 201 the drafted letter (a signed-in lead;
         //   Sentinel sends nothing).
         if (p3 && p4 === "requests" && !seg[5] && req.method === "POST") return send(res, 201, await ev.draftRequest(p1, p3, await body()));

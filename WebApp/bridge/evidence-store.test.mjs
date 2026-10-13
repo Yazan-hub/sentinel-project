@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { makePack, readPack, signAttestation, runEvidenceIntake, recheckPack, draftRequest, surveyStart, webStatus, setDeleteBy, startExpirySweep } from "./evidence-store.mjs";
+import { makePack, readPack, signAttestation, runEvidenceIntake, recheckPack, draftRequest, surveyStart, webStatus, noticeOf, setDeleteBy, startExpirySweep } from "./evidence-store.mjs";
 import * as W from "./web-sources.mjs";
 import { jpegWithExif } from "./fixtures/jpeg-exif.mjs";
 import { ATTESTATIONS, USES, ITEM_FIELDS, realDay } from "./evidence-logic.mjs";
@@ -658,5 +658,21 @@ describe("delete-by, expiry and retire (MA-7-5)", () => {
     await ready();
     put("scans/tiny.las", LAS); put(".sentinel/view/ev-0009.jpg", "x");
     expect((await readPack("demo", "evp-0001", deps())).folder.files_not_admitted.map((f) => f.path)).toEqual(["scans/tiny.las"]);
+  });
+  it("(x) MA-7-6: noticeOf - a viewer reads it; the tools come from the injected build:run rows; a ledger failure is a 503 in words and makes nothing", async () => {
+    await ready();
+    role = "viewer";
+    const seen = [];
+    const rowsOf = [{ id: 1, action: "build:run job-1 \u00b7 done", new_value: { claimed: false, tools: [{ name: "numpy", version: "2.4.6", licence: "BSD-3-Clause" }] } }];
+    const n = await noticeOf("demo", "evp-0001", { ...deps(), auditAll: async (k, f) => { seen.push([k, f]); return rowsOf; } });
+    expect(seen).toEqual([["demo", { entity_type: "build", action_prefix: "build:run " }]]);
+    expect(n).toMatchObject({ tools: 1, credits: 0 });
+    expect(n.text).toContain("- numpy 2.4.6 \u00b7 BSD-3-Clause");
+    expect(n.text).toContain("made by Sentinel 2026-10-08");
+    expect(n.sha256).toBe(createHash("sha256").update(n.text, "utf8").digest("hex"));
+    const before = audits.length;
+    await expect(noticeOf("demo", "evp-0001", { ...deps(), auditAll: async () => { throw new Error("db down"); } })).rejects.toMatchObject({ status: 503, message: "the NOTICE needs the build:run rows and the ledger could not be read \u2014 nothing was made" });
+    await expect(noticeOf("demo", "evp-0009", { ...deps(), auditAll: async () => [] })).rejects.toMatchObject({ status: 404 });
+    expect(audits.length).toBe(before); // a read: no row
   });
 });

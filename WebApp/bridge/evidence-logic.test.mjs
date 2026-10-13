@@ -1,10 +1,11 @@
 // MA-4a — the evidence rules, pure: the pinned texts, the body, the policy, the magic bytes, the validator.
 import { describe, it, expect } from "vitest";
+import { createHash } from "node:crypto";
 import {
   ATTESTATIONS, ADMIT_NEEDS, MAX_ITEMS, codesSaid, readAdmitBody, newItemRefusal, policyRefusals, magicRefusal,
   nextId, newPack, newItem, flagged, readmitted, validatePack, readRequestBody, letterText, newRequest, requestedValue,
   DATASET_LICENCES, readDataset, needsOf, sizeRefusal, USES, ITEM_FIELDS, cameraOf, photoRefusal,
-  readDeleteBy, due, removable, expire, expiredValue,
+  readDeleteBy, due, removable, expire, expiredValue, noticeText, toolsOf,
 } from "./evidence-logic.mjs";
 import { jpegWithExif } from "./fixtures/jpeg-exif.mjs";
 
@@ -426,5 +427,55 @@ describe("delete-by, expiry and retire (MA-7-5)", () => {
     expect(() => readAdmitBody({ path: ".sentinel/view/x.jpg", kind: "photo" })).toThrow(".sentinel/ is Sentinel's own folder (blurred copies) — nothing was saved");
     expect(() => readAdmitBody({ path: ".Sentinel/x.jpg", kind: "photo" })).toThrow(/own folder/);
     expect(readAdmitBody({ path: "photos/.sentinel.jpg", kind: "photo" }).path).toBe("photos/.sentinel.jpg");
+  });
+});
+
+describe("MA-7-6: the NOTICE text", () => {
+  const T = (name, version, licence) => ({ name, version, ...(licence ? { licence } : {}) });
+  const R = (tools, claimed = false) => ({ id: 1, action: "build:run job-1 \u00b7 done", new_value: { claimed, tools } });
+  const base = () => {
+    const pack = packWith(["a", "b", "c"]);
+    pack.requests = [{ id: "req-0001", recipient_kind: "architect", recipient: "Name", documents: ["plans"], purpose: null, letter: "L", letter_sha256: createHash("sha256").update("L", "utf8").digest("hex"), drafted_by: "x@example.test", drafted_at: "2026-10-08T10:00:00.000Z" }];
+    const own = scanItem(pack), own2 = { ...scanItem(pack, { id: "ev-0002" }), path: "scans/b.las" };
+    const dwg = newItem({ id: "ev-0003", input: { path: "d/a.pdf", kind: "drawing", provider: "own" }, format: "pdf", sha256: SHA, size_bytes: 9, report: null, pack, who: "c@example.test", at: "2026-10-08T10:01:00.000Z", request: pack.requests[0] });
+    const ven = { ...own, id: "ev-0009", kind: "model", format: "ifc", path: "m/v.ifc", provider: "Acme Models", licence: "commercial", licence_ref: "PO-7" };
+    return { ...pack, items: [own, own2, dwg, ven] };
+  };
+  const args = (rows) => ({ pack: base(), version: 3, rows, today: "2026-10-13" });
+  const rowsA = [R([T("numpy", "2.4.6", "BSD-3-Clause"), T("sentinel-survey", "0.6.0", "LicenseRef-Sentinel")]), R([T("numpy", "2.4.6", "BSD-3-Clause"), T("laspy", "2.7.0", "BSD-2-Clause")])];
+  it("same input, same text; rows in another order, the same text; LF only", () => {
+    const t = noticeText(args(rowsA));
+    expect(noticeText(args(rowsA))).toBe(t);
+    expect(noticeText(args([...rowsA].reverse()))).toBe(t);
+    expect(t).not.toContain("\r");
+  });
+  it("the title, drawing, vendor, own count, tools and the closing line all appear", () => {
+    const t = noticeText(args(rowsA)).split("\n");
+    expect(t[0]).toBe("NOTICE \u2014 P (p) \u00b7 evidence_pack@3 \u00b7 made by Sentinel 2026-10-13");
+    expect(t).toContain("- ev-0003 drawing \u00b7 from the architect under req-0001 \u00b7 used with the holder's permission (not published)");
+    expect(t).toContain("- ev-0009 model \u00b7 Acme Models \u00b7 commercial licence \u00b7 order PO-7");
+    expect(t).toContain("- 2 own items \u00b7 owner-supplied \u00b7 no credit owed");
+    expect(t).toContain("- laspy 2.7.0 \u00b7 BSD-2-Clause");
+    expect(t).toContain("Sentinel puts no image into the model (RVT or IFC). Images from others are kept blurred, for reference only, until their delete-by date.");
+  });
+  it("a dataset pack credits the dataset once, with attribution, licence and source", () => {
+    const pack = newPack("p", "P", {}, "C:/ev/p", { provider: "kladno", source_url: "https://data.example.test/k", licence: "CC-BY-4.0", attribution: "Example Survey Office" });
+    expect(noticeText({ pack, version: 1, rows: [], today: "2026-10-13" })).toContain("- dataset \u00b7 Example Survey Office \u00b7 CC-BY-4.0 \u00b7 https://data.example.test/k");
+  });
+  it("tools are de-duplicated; a claimed row is marked unless a bridge row names the same tool; a missing licence is said", () => {
+    expect(toolsOf(rowsA).map((t) => t.name)).toEqual(["laspy", "numpy", "sentinel-survey"]);
+    const t = noticeText(args([R([T("revit-addin", "1.0.0", "proprietary")], true), R([T("numpy", "2.4.6")], true), R([T("numpy", "2.4.6")]), R([T("nolicence", "1")])]));
+    expect(t).toContain("- revit-addin 1.0.0 \u00b7 proprietary (as the add-in reported)");
+    expect(t).toContain("- numpy 2.4.6 \u00b7 licence not reported\n");
+    expect(t).toContain("- nolicence 1 \u00b7 licence not reported\n");
+  });
+  it("an empty section says (none yet); an expired item stays credited; a web photo's credit carries its author and the drill words", () => {
+    const empty = noticeText({ pack: packWith([]), version: 1, rows: [], today: "2026-10-13" });
+    expect(empty.match(/\(none yet\)/g)).toHaveLength(2);
+    const pack = base();
+    const gone = expire({ ...pack.items[2] }, "2026-10-12T10:00:00.000Z", []);
+    expect(noticeText({ ...args([]), pack: { ...pack, items: [gone] } })).toContain("(not published)");
+    const web = { ...pack.items[0], id: "ev-0010", role: "context", licence: "CC-BY-4.0", state: "expired", expired_at: "2026-10-13T00:00:00.000Z", web: { source_url: "https://commons.example.test/x", author: "A. Author", attribution_text: "Photo by A", retrieved_at: "2026-10-12T08:00:00.000Z", web_mode: "drill" } };
+    expect(noticeText({ ...args([]), pack: { ...pack, items: [web] } })).toContain('- ev-0010 photo \u00b7 "Photo by A" \u00b7 A. Author \u00b7 CC-BY-4.0 \u00b7 https://commons.example.test/x \u00b7 retrieved 2026-10-12 \u00b7 drill: counsel has not reviewed web evidence \u00b7 expired 2026-10-13');
   });
 });

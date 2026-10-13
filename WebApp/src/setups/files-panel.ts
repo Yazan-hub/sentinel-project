@@ -15,7 +15,8 @@ import { readDeleted, restoreDeleted, deletedItemLine, restoredLine, archivable,
 import { escapeHtml as esc } from "./escape-html";
 import { unarchiveFile } from "./cde-transition";
 import { firstTag, geometryCheck, linkedHash, linkedTag, sha256Hex, type GeometryLinkRow } from "./geometry-check";
-import { readEvidence, readWebStatus, webLine, type WebStatus, makePack, signAttestation, admitEvidence, recheckEvidence, setDeleteBy, draftRequest, kindOf, isImage, needsReport, itemLine, attestationLine, admitLine, recheckLine, requestLine, evidenceControls, ATTESTATION_CODES, ATTESTATION_TEXTS, datasetLine, PHOTO_SOURCES, MAP_SERVICES, photoProvider, type PhotoSource, type EvidenceRead, type EvidenceRequest,
+import { saveAs } from "./audit-pack";
+import { readEvidence, readWebStatus, readNotice, noticeLine, webLine, type WebStatus, makePack, signAttestation, admitEvidence, recheckEvidence, setDeleteBy, draftRequest, kindOf, isImage, needsReport, itemLine, attestationLine, admitLine, recheckLine, requestLine, evidenceControls, ATTESTATION_CODES, ATTESTATION_TEXTS, datasetLine, PHOTO_SOURCES, MAP_SERVICES, photoProvider, type PhotoSource, type EvidenceRead, type EvidenceRequest,
   startSurvey, readJobs, readJob, jobLine, candidateLine, surveyStartLine, surveyableScans, proposeBody, proposeFromJob, proposeLine, type SurveyJob, type Candidate,
   startDrawing, drawingStartLine, readableDrawings, isDrawingJob, startIfc, ifcStartLine, readableIfc, isIfcJob, ifcHintLine, alignBody, alignPreview, drawingSvg, snapPaper, type AlignDraft } from "./evidence";
 
@@ -305,6 +306,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     root.querySelector("#fv-ev-toggle")?.addEventListener("click", () => { showEvidence = !showEvidence; render(); });
     root.querySelector("#fv-ev-make")?.addEventListener("click", () => void evAct(async () => { await makePack(base, pid()); return "✓ Made the evidence pack evp-0001 — a lead signs (a) and (c); then put files in the folder it names and Admit them."; }));
     root.querySelector("#fv-ev-recheck")?.addEventListener("click", () => void evAct(async () => recheckLine(await recheckEvidence(base, pid()))));
+    root.querySelector("#fv-ev-notice")?.addEventListener("click", () => void evAct(async () => { const n = await readNotice(base, pid()); saveAs(new Blob([n.text], { type: "text/plain" }), `${pid()}-NOTICE.txt`); return noticeLine(n); })); // MA-7-6
     root.querySelector("#fv-ev-survey")?.addEventListener("click", () => void evAct(async () => surveyStartLine((await startSurvey(base, pid())).job)));
     root.querySelector("#fv-ev-drawing")?.addEventListener("click", () => void evAct(async () => drawingStartLine((await startDrawing(base, pid())).job)));
     root.querySelector("#fv-ev-ifc")?.addEventListener("click", () => void evAct(async () => ifcStartLine((await startIfc(base, pid())).job))); // MA-6-8
@@ -765,6 +767,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       line(`Ask the owner (${requests.length}) — Sentinel drafts the letter and sends nothing: you send it; the drawings that come back are admitted under it`, "#9ca3af") + asks + askForm +
       line(`Admitted (${pack.items.length})`, "#9ca3af") + items +
       line(`In the folder, not yet admitted (${folder.files_not_admitted.length}${folder.truncated ? ", the list stops at 1000" : ""}) — put files there on the office PC`, "#9ca3af") + files +
+      `<div style="margin-top:.35rem"><button id="fv-ev-notice" style="${act}" title="Save the credits text for this project's evidence and tools (NOTICE.txt)">NOTICE</button></div>` + // MA-7-6: any member
       (edit ? `<div style="margin-top:.35rem"><button id="fv-ev-recheck" style="${act}" title="Re-hash every admitted file; a changed one goes on hold">Re-check</button></div>`
         : line(`A contributor or above admits and re-checks — ${esc(roleSaid)}.`)) + survey + "</div>";
   }

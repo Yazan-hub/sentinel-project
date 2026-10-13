@@ -147,6 +147,53 @@ export function removable(i) {
 }
 /** The item once expired: its record and sha256 stay; `removed` = the Sentinel copies taken away. */
 export const expire = (i, at, removed) => ({ ...i, state: "expired", expired_at: i.expired_at ?? at, removed: [...(i.removed ?? []), ...removed] });
+/** MA-7-6: the tools of a project's build:run rows, distinct by name, version and licence, sorted. A row the add-in wrote (claimed not false)
+ *  gives a tool its "(as the add-in reported)" mark unless a bridge-run row names the same tool. */
+export function toolsOf(rows) {
+  const m = new Map();
+  for (const r of rows ?? []) for (const t of r?.new_value?.tools ?? []) {
+    if (!isObj(t) || typeof t.name !== "string") continue;
+    const licence = typeof t.licence === "string" && t.licence.trim() ? t.licence : null, claimed = r.new_value.claimed !== false;
+    const k = JSON.stringify([t.name, t.version ?? "", licence ?? ""]);
+    if (!m.has(k) || (m.get(k).claimed && !claimed)) m.set(k, { name: t.name, version: t.version == null ? "" : String(t.version), licence, claimed });
+  }
+  return [...m.values()].sort((a, b) => (a.name + a.version + (a.licence ?? "")).localeCompare(b.name + b.version + (b.licence ?? "")));
+}
+
+/** MA-7-6 (design §6.11): the credits text — every credit owed for the evidence and the tools a project's model was built from. Pure and
+ *  deterministic: lines sorted, LF endings, nothing from the clock but `today`. `rows`: the project's build:run ledger rows. The sha256 of
+ *  the text is the caller's (shaOf). Expired items stay credited; a web photo's author and attribution come from the pack (they are never on the ledger). */
+export function noticeText({ pack, version, rows, today }) {
+  const from = [], line = (x) => oneLine(String(x));
+  let own = 0;
+  if (pack.dataset) from.push(`- dataset · ${line(pack.dataset.attribution)} · ${pack.dataset.licence} · ${pack.dataset.source_url}`);
+  for (const i of [...pack.items].sort((a, b) => a.id.localeCompare(b.id))) {
+    if (pack.dataset) continue; // its scans are the dataset's, credited once above
+    if (i.kind === "drawing") from.push(`- ${i.id} drawing · from the ${i.provider} under ${i.request_id} · used with the holder's permission (not published)`);
+    else if (i.role === "context") {
+      const w = i.web ?? {};
+      from.push(`- ${i.id} photo · "${line(w.attribution_text ?? "")}" · ${line(w.author ?? "")} · ${i.licence} · ${w.source_url} · retrieved ${String(w.retrieved_at ?? "").slice(0, 10)}`
+        + (w.web_mode === "drill" ? " · drill: counsel has not reviewed web evidence" : "") + (i.state === "expired" ? ` · expired ${String(i.expired_at ?? "").slice(0, 10)}` : ""));
+    } else if (i.provider !== "own") from.push(`- ${i.id} ${i.kind} · ${i.provider} · commercial licence · order ${line(i.licence_ref ?? "")}`);
+    else own++;
+  }
+  if (own) from.push(`- ${own} own item${own === 1 ? "" : "s"} · owner-supplied · no credit owed`);
+  from.sort();
+  const tools = toolsOf(rows).map((t) => `- ${t.name} ${t.version} · ${t.licence ?? "licence not reported"}${t.claimed ? " (as the add-in reported)" : ""}`);
+  const none = (a) => (a.length ? a : ["(none yet)"]);
+  return [
+    `NOTICE — ${pack.asset.name} (${pack.project}) · evidence_pack@${version} · made by Sentinel ${today}`,
+    "Every credit owed for the evidence and the tools this project's model was built from.",
+    "",
+    "Evidence from others", ...none(from),
+    "",
+    "Tools and weights (from this project's build:run rows)", ...none(tools),
+    "",
+    "Sentinel puts no image into the model (RVT or IFC). Images from others are kept blurred, for reference only, until their delete-by date.",
+    "",
+  ].join("\n");
+}
+
 /** The evidence:expired row's new_value. */
 export const expiredValue = (packId, i, packVersion) => ({
   pack_id: packId, item_id: i.id, path: i.path, sha256: i.sha256, kind: i.kind, provider: i.provider, licence: i.licence, delete_by: i.delete_by, expired_at: i.expired_at, removed: i.removed,

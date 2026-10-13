@@ -10,7 +10,7 @@ vi.mock("./bridge-fetch", () => ({ bfetch, bwrite }));
 import { ATTESTATION_CODES, ATTESTATION_TEXTS, kindOf, needsReport, itemLine, attestationLine, admitLine, recheckLine, readEvidence,
   signAttestation, evidenceControls, requestLine, isImage, jobLine, candidateLine, surveyStartLine, surveyableScans, startSurvey, readJobs,
   photoProvider, MAP_SERVICES, PHOTO_SOURCES, proposeBody, proposeFromJob, proposeLine, datasetLine, type ProposeReply, type EvidenceItem, type EvidencePack, type EvidenceRequest, type SurveyJob,
-  isDrawingJob, readableDrawings, drawingStartLine, startDrawing, isIfcJob, readableIfc, ifcStartLine, startIfc, startRecipe, webLine, ifcHintLine, alignBody, alignPreview, drawingSvg, snapPaper, type AlignDraft } from "./evidence";
+  isDrawingJob, readableDrawings, drawingStartLine, startDrawing, isIfcJob, readableIfc, ifcStartLine, startIfc, startRecipe, webLine, noticeLine, readNotice, ifcHintLine, alignBody, alignPreview, drawingSvg, snapPaper, type AlignDraft } from "./evidence";
 
 const res = (status: number, body: unknown) => ({ ok: status < 400, status, json: async () => body }) as unknown as Response;
 const HASH = "ab".repeat(32);
@@ -453,5 +453,17 @@ describe("photo source and capture (MA-7-4)", () => {
     expect(itemLine(p)).toMatch(/ · Example Cam 1 · taken 2026-10-13 09:30 · EXIF GPS block in the original \(not copied\)$/);
     expect(itemLine({ ...p, capture: { make: "Example", model: null, taken_at: null, gps: false } })).toMatch(/ · Example · taken \? · no EXIF GPS block$/);
     expect(itemLine({ ...p, capture: undefined })).not.toMatch(/taken/);
+  });
+});
+
+describe("MA-7-6: the NOTICE", () => {
+  it("noticeLine says what was saved; readNotice returns the bridge's text or throws not read", async () => {
+    expect(noticeLine({ credits: 2, tools: 7, sha256: "ab".repeat(32) })).toBe("NOTICE saved \u00b7 2 credit(s) \u00b7 7 tool(s) \u00b7 sha abababababab\u2026");
+    const n = { text: "NOTICE", sha256: HASH, pack_version: 1, credits: 0, tools: 0 };
+    bfetch.mockResolvedValueOnce(res(200, n));
+    expect(await readNotice("http://b", "demo")).toEqual(n);
+    expect(String(bfetch.mock.calls[bfetch.mock.calls.length - 1][0])).toMatch(/\/cde\/demo\/evidence\/evp-0001\/notice$/);
+    bfetch.mockResolvedValueOnce(res(503, { message: "the NOTICE needs the build:run rows and the ledger could not be read \u2014 nothing was made" }));
+    await expect(readNotice("http://b", "demo")).rejects.toThrow(/^not read \u2014 the NOTICE needs/);
   });
 });

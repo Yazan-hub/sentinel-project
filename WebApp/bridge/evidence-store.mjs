@@ -81,6 +81,7 @@ async function wire(deps = {}) {
     art: await import("./artefact-store.mjs"), artDeps: deps.artDeps,
     ensureProject: deps.ensureProject || cde.ensureProject,
     audit: deps.audit || cde.audit,
+    auditAll: deps.auditAll || (async (...a) => (await import("./cde-store.mjs")).auditAll(...a)), // MA-7-6: the NOTICE reads the build:run rows
     takeWriteBudget: deps.takeWriteBudget || cde.takeWriteBudget,
     myRole: deps.myRole || members.myRole,
     requireMinRole: deps.requireMinRole || members.requireMinRole,
@@ -187,6 +188,20 @@ export async function webStatus(key, packId, deps) {
     sources: W.SOURCES.map(({ id, list, label, licences, held_for_counsel, share_alike }) => ({ id, list, label, licences, held_for_counsel, share_alike })),
     red: { labels: W.RED_LABELS, hosts: W.RED_HOSTS }, sources_sha256: W.SOURCES_SHA256,
   };
+}
+
+/** MA-7-6: GET /cde/:key/evidence/:pack/notice → {text, sha256, pack_version, credits, tools}: the credits text for the project's model — its evidence
+ *  from others and every tool in its build:run rows. Any member; a read, no row. A ledger that cannot be read is a 503: a NOTICE with tools left out
+ *  would be a wrong credit. */
+export async function noticeOf(key, packId, deps) {
+  const d = await wire(deps);
+  const { pack, version } = await packOf(d, key, packId);
+  let rows;
+  try { rows = await d.auditAll(key, { entity_type: "build", action_prefix: "build:run " }); }
+  catch { throw err(503, "the NOTICE needs the build:run rows and the ledger could not be read — nothing was made"); }
+  const text = L.noticeText({ pack, version, rows, today: d.now().slice(0, 10) });
+  const tools = L.toolsOf(rows).length;
+  return { text, sha256: createHash("sha256").update(text, "utf8").digest("hex"), pack_version: version, credits: text.split("\n").filter((l) => /^- /.test(l)).length - tools, tools };
 }
 
 /** POST /cde/:key/evidence/:pack/attest {code} → 201: a signed-in lead or owner signs one of (a)-(f), once per pack. The machine
