@@ -37,6 +37,7 @@ describe("the attestation texts — the bridge's pins", () => {
     expect([...ATTESTATION_CODES]).toEqual(["a", "b", "c", "d", "e"]);
     for (const c of ATTESTATION_CODES) expect(createHash("sha256").update(ATTESTATION_TEXTS[c]).digest("hex")).toBe(pins[c]);
     expect(createHash("sha256").update(ATTESTATION_TEXTS.f).digest("hex")).toBe("be54e04879d716b63add30ab9785ded25ffd6e83817a082489b4aa062be29022"); // MA-4h
+    expect(createHash("sha256").update(ATTESTATION_TEXTS.g).digest("hex")).toBe("c86b607f02f44de7217f197596b985e43369bd724148007d628865e88b4e6afc"); // MA-7-12
   });
 });
 
@@ -64,6 +65,14 @@ describe("the lines", () => {
     expect(itemLine({ ...gone, removed: [".sentinel/view/ev-0001.jpg"] })).toBe("ev-0001 · scans/tiny.las · las · 2 KB · sha 76c6b5e940d1… · EXPIRED 2026-10-13 — Sentinel's copies removed; its record and sha stay; the office's file is not touched (delete it by hand if the owner asked)");
     expect(itemLine({ ...gone, role: "context", removed: ["photos/web.jpg"] })).toBe("ev-0001 · scans/tiny.las · las · 2 KB · sha 76c6b5e940d1… · EXPIRED 2026-10-13 — Sentinel's copies removed; its record and sha stay");
     expect(itemLine({ ...gone, not_removed: [{ path: ".sentinel/view/ev-0001.jpg", why: "x" }] })).toContain("1 could not be deleted yet — the next sweep tries again; its record and sha stay");
+  });
+  it("itemLine (MA-7-12): a Commons photo is a web photo, context only, with its author, licence, page and the drill note", () => {
+    const web: EvidenceItem = { ...ITEM, kind: "photo", format: "jpg", path: "web/commons-1.jpg", role: "context", provider: "wikimedia-commons", licence: "CC-BY-4.0", delete_by: "2026-10-09",
+      web: { source_url: "https://commons.wikimedia.org/wiki/File:A.jpg", author: "A. Author", attribution_text: "Photo: A. Author, CC BY 4.0", retrieved_at: "2026-10-08", terms_path: "web/commons-1.html", terms_sha256: "d".repeat(64), freedom_of_panorama: "yes", web_mode: "drill" } };
+    const line = itemLine(web);
+    expect(line).toContain(" · web photo, context only (assumed) · A. Author · CC-BY-4.0 · https://commons.wikimedia.org/wiki/File:A.jpg · retrieved 2026-10-08 · drill: counsel has not reviewed web evidence");
+    expect(line).toContain(" · delete by 2026-10-09");
+    expect(itemLine({ ...web, web: { ...web.web!, web_mode: "on" } })).not.toContain("drill");
   });
   it("attestationLine: signed and not signed", () => {
     expect(attestationLine("a", PACK)).toBe("(a) signed by lead@example.test (lead) · 2026-10-08 10:00");

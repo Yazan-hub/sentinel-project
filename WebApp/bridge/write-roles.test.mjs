@@ -1165,6 +1165,25 @@ describe("evidence intake (MA-4a): who makes, signs, admits and reads", () => {
     expect((await call("GET", `${E}/evp-0002`, "viewer")).status).toBe(404);
     expect(await call("POST", "/cde/demo/audit", "lead", { action: "evidence:admitted ev-0002 scans/forged.las" })).toEqual({ status: 400, body: { message: "evidence: rows are written by Sentinel, not through this route" } });
   });
+
+  it("MA-7-12: a Commons photo with the web switch at its default (off) is a refused row for a lead and a contributor, a 403 for the machine credential, a 409 signing (g)", async () => {
+    await call("POST", E, "lead", { asset: { name: "Demo", jurisdiction: "GB" } });
+    for (const code of ["a", "d"]) await call("POST", `${E}/evp-0001/attest`, "lead", { code });
+    vi.stubEnv("SENTINEL_WEB_EVIDENCE", ""); // the founder's own switch must not leak in
+    mkdirSync(join(DIR(), "web"), { recursive: true }); writeFileSync(join(DIR(), "web", "commons-1.jpg"), Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2]));
+    const web = { path: "web/commons-1.jpg", kind: "photo", provider: "wikimedia-commons", web: { licence: "CC-BY-4.0", source_url: "https://commons.wikimedia.org/wiki/File:A.jpg", author: "A", attribution_text: "A, CC BY 4.0", retrieved_at: "2026-10-08", terms_path: "web/commons-1.html" }, blur: { none_seen: true } };
+    const words = "a photo from a website waits for counsel's review — web evidence is off (the founder's switch SENTINEL_WEB_EVIDENCE); only your own photos (provider own) are admitted now";
+    for (const who of ["lead", "contributor"]) {
+      const r = await call("POST", `${E}/evp-0001/items`, who, web);
+      expect([r.status, r.body.verdict, r.body.reasons, r.body.message]).toEqual([200, "refused", [words], undefined]);
+    }
+    expect(rows("evidence:refused")).toHaveLength(2);
+    expect((await call("POST", `${E}/evp-0001/items`, "machine", web)).status).toBe(403);
+    expect((await call("POST", `${E}/evp-0001/items`, "viewer", web)).status).toBe(403);
+    expect(await call("POST", `${E}/evp-0001/attest`, "lead", { code: "g" })).toEqual({ status: 409, body: { message: "(g) speaks for web photos — web evidence is off until counsel has reviewed it; nothing was signed" } });
+    expect((await call("GET", `${E}/evp-0001`, "viewer")).body.pack.items).toEqual([]);
+    vi.unstubAllEnvs();
+  });
 });
 
 describe("survey jobs (MA-4c): who starts and reads; every refusal before anything is written", () => {

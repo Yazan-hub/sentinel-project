@@ -5,10 +5,10 @@
 // never taken from a body (design :166). Governed Intake's evidence branch: no delivery gate, no IDS, no upload (intake-logic.mjs
 // is the IFC path and stays as it is). Deps are injected (the artefact-store idiom), so the sequencing is unit-tested on a temp folder.
 import { createHash } from "node:crypto";
-import { createReadStream, existsSync, mkdirSync, readdirSync, realpathSync, statSync, unlinkSync } from "node:fs";
+import { copyFileSync, createReadStream, existsSync, mkdirSync, readdirSync, realpathSync, renameSync, statSync, unlinkSync } from "node:fs";
 import { open } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join, relative, resolve, sep } from "node:path";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { resolveActor } from "./bridge-auth.mjs";
 import * as L from "./evidence-logic.mjs";
 import * as W from "./web-sources.mjs"; // MA-7-2: a pure table, no I/O
@@ -87,6 +87,9 @@ async function wire(deps = {}) {
     requireMinRole: deps.requireMinRole || members.requireMinRole,
     root: deps.root ?? evidenceRoot(),
     unlink: deps.unlink || unlinkSync, // review: injected by a test that needs an unlink to fail
+    rename: deps.rename || renameSync, // MA-7-12: a web photo's file is replaced by its blurred copy
+    blur: deps.blur, // MA-7-12: photo-store.runBlur, passed by the route (a web photo is blurred in the step that admits it)
+    env: deps.env ?? process.env, // MA-7-12: the founder's web switch, read from here (a test injects it)
     now: deps.now || (() => new Date().toISOString()),
   };
 }
@@ -133,7 +136,7 @@ const actor = () => resolveActor(null, "machine");
 // ponytail: walks the whole folder on each GET (the list stops at MAX_LISTED); cache it per project if a NAS folder of 10k+ files is slow.
 function folderFiles(dir, pack) {
   if (!existsSync(dir)) return { files_not_admitted: [], truncated: false };
-  const taken = new Set(pack.items.flatMap((i) => [i.state === "changed" ? null : i.path, i.registration?.report_path].filter(Boolean)));
+  const taken = new Set(pack.items.flatMap((i) => [i.state === "changed" ? null : i.path, i.registration?.report_path, i.web?.terms_path].filter(Boolean))); // MA-7-12: a web photo's saved page
   const files = [];
   for (const e of readdirSync(dir, { recursive: true, withFileTypes: true })) {
     if (!e.isFile()) continue;
@@ -211,7 +214,7 @@ export async function signAttestation(key, packId, b = {}, deps) {
   if ((await d.myRole(key)) === "service") throw err(403, "an attestation needs a person: sign in. Nothing was saved.");
   const role = await d.requireMinRole(key, "lead");
   const code = typeof b.code === "string" ? b.code.trim().toLowerCase() : "";
-  if (!L.ATTESTATIONS[code]) throw err(400, "code must be one of a, b, c, d, e, f — the attestation to sign; nothing was saved");
+  if (!L.ATTESTATIONS[code]) throw err(400, "code must be one of a, b, c, d, e, f, g — the attestation to sign; nothing was saved");
   const { pack, version } = await packOf(d, key, packId);
   // MA-4h: a published dataset's pack is signed (f) alone — (a) to (e) speak for an owner or one's own capture; an own pack never signs (f)
   if ((code === "f") !== !!pack.dataset)
@@ -219,11 +222,15 @@ export async function signAttestation(key, packId, b = {}, deps) {
       : `a published dataset's pack is signed (f) only — (${code}) speaks for the asset's owner or your own capture; nothing was saved`);
   const done = pack.attestations.find((a) => a.code === code);
   if (done) throw err(409, `attestation (${code}) on ${packId} was signed by ${done.by} at ${done.at} — each is signed once per pack; nothing was saved`);
+  // MA-7-12 (amendment 4): (g) speaks for web photos — signed only while the founder's switch is drill (for this project) or on, and after (a)
+  const sw = code === "g" ? W.webSwitch(d.env, key) : null;
+  if (sw?.mode === "off") throw err(409, "(g) speaks for web photos — web evidence is off until counsel has reviewed it; nothing was signed");
+  if (sw && !pack.attestations.some((a) => a.code === "a")) throw err(409, W.NO_A);
   const who = actor();
   const att = { id: L.nextId("att", pack.attestations), code, text_sha256: L.ATTESTATIONS[code].sha256, by: who, role, at: d.now() };
   const pointer = await fold(d, key, { ...pack, attestations: [...pack.attestations, att] }, version, who);
   const ledger = await row(d, await d.ensureProject(key), "attestation", `attestation:signed ${code} ${packId}`, who,
-    { pack_id: packId, id: att.id, code, text_sha256: att.text_sha256, actor: who, role });
+    { pack_id: packId, id: att.id, code, text_sha256: att.text_sha256, actor: who, role, ...(sw?.mode === "drill" ? { web_mode: "drill" } : {}) });
   return { attestation: att, text: L.ATTESTATIONS[code].text, pack_version: pointer.version, ledger };
 }
 
@@ -252,7 +259,7 @@ async function admitRun(d, proj, key, packId, b) {
     if (input.kind !== "scan") throw err(400, "a published dataset's pack admits its scans only — nothing was saved");
     await d.requireMinRole(key, "lead");
   }
-  const dir = evidenceDir(key, d.root), full = insideFolder(dir, input.path), who = actor();
+  const dir = evidenceDir(key, d.root), full = insideFolder(dir, input.path), who = actor(), webMode = W.webSwitch(d.env, key).mode;
   if (!isFile(full)) throw err(404, `no file ${input.path} in the project's evidence folder (${dir}) — put it there first; nothing was saved`);
   input = { ...input, path: onDisk(dir, full) }; // the disk's spelling: "Photos/OWN.jpg" is photos/own.jpg, admitted or not
   // review (MA-7-5): the .sentinel/ guard ran on the caller's spelling; the disk's spelling (8.3 short names) must not land in Sentinel's folder
@@ -264,11 +271,17 @@ async function admitRun(d, proj, key, packId, b) {
   if (prev && prev.state !== "changed") throw err(409, `${input.path} is already admitted as ${prev.id} (Re-check finds a changed file) — nothing was saved`);
   if (prev && prev.kind === "model" && input.provider !== "own" && input.provider !== prev.provider) throw err(409, `${input.path} comes back as first admitted (${prev.provider}) — put a re-classified file in under a new name; nothing was saved`);
   // it comes back as first admitted: a flagged photo is not re-read as a drawing, a flagged vendor model keeps its vendor and order (MA-8-3)
-  if (prev) input = { ...input, kind: prev.kind, ...(prev.kind === "model" ? { provider: prev.provider, licence_ref: prev.licence_ref } : {}) };
+  if (prev) input = { ...input, kind: prev.kind, ...(prev.kind === "model" ? { provider: prev.provider, licence_ref: prev.licence_ref } : {}), ...(prev.role === "context" ? { provider: prev.provider } : {}) };
   // MA-8-3: (e) is signed once for the pack, so who brings in a vendor's model is a lead's call (as an AMBER dataset item is)
   if (input.kind === "model" && input.provider !== "own") await d.requireMinRole(key, "lead");
+  // MA-7-12: a web photo (AMBER) is a lead's to admit, once the switch is not off; with it off the admission is a refused row (amendment 10), whoever asks
+  const webAsk = !prev && !pack.dataset && input.kind === "photo" && input.provider !== "own" && webMode !== "off", webPath = webAsk && L.WEB_ADMITTED.includes(input.provider);
+  if (webPath) await d.requireMinRole(key, "lead").catch((e) => { throw e.status === 403 ? err(403, "a web photo is a lead's to admit (AMBER) — nothing was saved") : e; });
   // The signatures its kind needs — the flagged item's own kind when it comes back (review: a body's kind asked for the wrong ones).
-  const missing = L.missingAttestations(pack, L.needsOf(pack, input.kind, input.provider));
+  // MA-7-12: with the switch off a photo that is not own is refused in words (a row) - it is not our capture, so (c) is not asked (a map service's still asks (a), (d): the RED rule rests on (d)); with drill or on it asks (a), (d), (g)
+  const offWeb = !prev && !pack.dataset && input.kind === "photo" && input.provider !== "own" && webMode === "off";
+  const needFrom = input.kind !== "photo" ? input.provider : prev ? prev.provider : webAsk ? input.provider : "own";
+  const missing = L.missingAttestations(pack, L.needsOf(pack, input.kind, needFrom).filter((c) => !(offWeb && c === "c")));
   if (missing.length) throw err(409, `a lead must sign ${L.codesSaid(missing)} first; nothing was saved`);
   let request = null;
   if (!prev) {
@@ -282,15 +295,23 @@ async function admitRun(d, proj, key, packId, b) {
   }
   const refuse = async (reasons, sha256 = null) => ({ verdict: "refused", path: input.path, sha256, reasons,
     ledger: await row(d, proj, "evidence", `evidence:refused ${input.path}`, who, { pack_id: packId, path: input.path, sha256, reasons }) });
-  const policy = L.policyRefusals({ ...input, dataset: !!pack.dataset, webMode: W.webSwitch(d.env ?? process.env, key).mode });
+  const policy = L.policyRefusals({ ...input, dataset: !!pack.dataset, webMode });
   if (policy.length) return refuse(policy);
+  let wrec = null, boxes = null;
+  if (webPath) { // MA-7-12: the page's record (a 400 in words if malformed), the boxes, then the licence / address / freedom of panorama as a refused row
+    wrec = L.readWebBody(input.web, d.now().slice(0, 10));
+    boxes = L.readBoxes(input.blur ?? {});
+    const why = L.webPhotoRefusals({ provider: input.provider, web: wrec, jurisdiction: pack.asset.jurisdiction, format: L.formatOf(input.path, "photo") });
+    if (why.length) return refuse(why);
+    if (!d.blur) throw err(503, "the blur tool is not set up on this PC (survey/blur.py with Pillow 12.3.0) — nothing was saved");
+  }
   const format = L.formatOf(input.path, input.kind);
   const bad0 = L.magicRefusal(format, await readHead(full), input.kind);
   if (bad0) return refuse([bad0]); // before any byte is hashed
   const tooBig = L.sizeRefusal(format, statSync(full).size, input.kind); // MA-6-8: an IFC is read in the bridge — over its cap, nothing is hashed
   if (tooBig) return refuse([tooBig]);
   // MA-7-4 (a deliberate change to MA-4a): a NEW photo must be a camera's JPEG — EXIF make/model, read from the same first 128 KB that is hashed
-  const newPhoto = !prev && input.kind === "photo";
+  const newPhoto = !prev && input.kind === "photo" && !webPath; // MA-7-12: a web photo has no camera data to read; it is blurred instead
   const cam = newPhoto ? L.cameraOf(await readHead(full, 131072)) : null;
   if (newPhoto) { const pr = L.photoRefusal({ format, camera: cam }); if (pr) return refuse([pr]); }
   const f = await hashFile(full, newPhoto ? 131072 : 16);
@@ -300,12 +321,14 @@ async function admitRun(d, proj, key, packId, b) {
   const tooBig2 = L.sizeRefusal(format, f.size_bytes, input.kind); // the hashed size, as the magic is checked again
   if (tooBig2) return refuse([tooBig2], f.sha256);
   if (prev && prev.sha256 !== f.sha256) return refuse(["changed since admitted"], f.sha256); // flagged already (Re-check)
+  if (webPath) return admitWeb(d, { proj, key, packId, pack, version, input, wrec, boxes, f, full, dir, who, mode: webMode });
   let item;
   if (prev) {
     // The restored file: the item comes back as first admitted (its registration and report too; the body's are not read) — if its
     // report still matches.
     const rp = prev.registration?.report_path;
     if (rp && (await hashIfThere(dir, rp)) !== prev.registration.report_sha256) return refuse(["its registration report changed since admitted"], f.sha256);
+    if (prev.web && (await hashIfThere(dir, prev.web.terms_path)) !== prev.web.terms_sha256) return refuse(["its saved terms page changed since admitted"], f.sha256); // MA-7-12
     item = L.readmitted(prev);
   } else {
     let report = null;
@@ -322,6 +345,50 @@ async function admitRun(d, proj, key, packId, b) {
   const pointer = await fold(d, key, { ...pack, items }, version, who);
   const ledger = await row(d, proj, "evidence", `evidence:admitted ${item.id} ${item.path}`, who, L.admittedValue(packId, item, pointer.version, !!prev));
   return { verdict: "admitted", item, pack_version: pointer.version, ledger };
+}
+
+/** MA-7-12: a Commons photo, admitted by a lead while the switch is drill or on. Sentinel fetches nothing: the lead saved the file and its page
+ *  (wikimedia terms/licence page, `web.terms_path`) into the evidence folder. In this one step the photo is blurred from the boxes the lead
+ *  marked (or "none seen"), the blurred copy is written to .sentinel/view/<id>.jpg AND replaces the file itself (a temp name beside it, then a rename,
+ *  after the pack names the copy), so no unblurred third-party copy stays; the item's sha256 is the copy's and the original's is kept as record
+ *  (amendment 18). Two rows: evidence:admitted (the page's record, the author only as a sha256 of the attribution) and evidence:blurred.
+ *  A fold that throws 409 deletes nothing of the lead's: the original is replaced only after the pack names the copy. */
+async function admitWeb(d, { proj, key, packId, pack, version, input, wrec, boxes, f, full, dir, who, mode }) {
+  const terms = insideFolder(dir, wrec.terms_path);
+  if (!isFile(terms)) throw err(404, `no saved page ${wrec.terms_path} in the project's evidence folder (${dir}) — save the photo's own page there first; nothing was saved`);
+  const termsRel = onDisk(dir, terms);
+  if (String(termsRel).split("/")[0].toLowerCase() === ".sentinel" || termsRel === input.path) throw err(400, "web.terms_path must be the saved page, a file other than the photo and outside .sentinel/ — nothing was saved");
+  if (statSync(terms).size > 2 * 1024 * 1024) throw err(400, "web.terms_path is a saved page of at most 2 MB — nothing was saved");
+  const th = await hashFile(terms);
+  const web = { ...wrec, terms_path: termsRel, terms_sha256: th.sha256 };
+  const delete_by = L.webDeleteBy({ mode, today: d.now().slice(0, 10), source: W.SOURCES.find((s) => s.id === input.provider), asked: wrec.delete_by }); // a 400 before anything is made
+  const id = L.nextId("ev", pack.items), outDir = join(dir, ".sentinel", "view"), dst = join(outDir, `${id}.jpg`), tmp = join(dirname(full), `.${basename(full)}.sentinel-tmp`);
+  mkdirSync(outDir, { recursive: true });
+  let made = false;
+  try {
+    const r = await d.blur(full, dst, boxes.boxes.map(({ what: _w, ...xywh }) => xywh), boxes.shown);
+    made = true;
+    if (!r || r.areas !== boxes.boxes.length || !Number.isSafeInteger(r.width) || !Number.isSafeInteger(r.height)) throw err(500, "the blur tool answered wrongly — nothing was saved");
+    if (r.source_sha256 !== f.sha256) throw err(409, `${input.path} changed after it was read and before it was blurred — nothing was saved`);
+    const copy = await hashFile(dst), faces = boxes.boxes.filter((x) => x.what === "face").length;
+    const vc = { sha256: copy.sha256, size_bytes: copy.size_bytes, width: r.width, height: r.height, areas: boxes.boxes.length, faces, plates: boxes.boxes.length - faces,
+      ...(boxes.none_seen ? { none_seen: true } : {}), method: "person-marked", marked_by: who, marked_at: d.now(), tool: `sentinel-blur ${String(r.version ?? "").slice(0, 20)}` };
+    const item = L.newWebItem({ id, input, web, original: f, vc, delete_by, mode, pack, who, at: d.now() });
+    copyFileSync(dst, tmp);
+    const pointer = await fold(d, key, { ...pack, items: [...pack.items, item] }, version, who);
+    made = false; // the pack names the copy now
+    try { d.rename(tmp, full); } catch { // the pack names the copy but the folder still holds the original: Re-check flags it
+      throw err(500, `${input.path} is admitted as ${id} (its blurred copy is ${`.sentinel/view/${id}.jpg`}), but the original could not be replaced — Re-check flags it; put the copy in its place or retire ${id}`);
+    }
+    const tools = (Array.isArray(r.tools) ? r.tools : []).slice(0, 30).map((t) => ({ name: String(t.name).slice(0, 100), version: String(t.version ?? "").slice(0, 40), licence: String(t.licence ?? "").slice(0, 100) }));
+    const ledger = await row(d, proj, "evidence", `evidence:admitted ${item.id} ${item.path}`, who, L.admittedValue(packId, item, pointer.version, false));
+    const ledger_blurred = await row(d, proj, "evidence", `evidence:blurred ${id} · ${vc.areas} area(s) · person-marked`, who, L.blurredValue(packId, { ...item, sha256: item.original_sha256 }, { ...vc, tools }, pointer.version));
+    return { verdict: "admitted", item, pack_version: pointer.version, ledger, ledger_blurred };
+  } catch (e) {
+    if (made) try { d.unlink(dst); } catch { /* the sweep or the next try replaces it */ }
+    try { d.unlink(tmp); } catch { /* none was made */ }
+    throw e;
+  }
 }
 
 /** MA-7-7: POST …/items/:id/view-copy {boxes: [{x, y, w, h, what}], none_seen?} → 201 {item, copy, pack_version, ledger}: a signed-in contributor says
@@ -551,7 +618,8 @@ async function recheckRun(d, proj, key, packId) {
     const now = await hashIfThere(dir, i.path);
     const rp = i.registration?.report_path;
     const reason = now === null ? "missing from the evidence folder" : now !== i.sha256 ? "changed since admitted"
-      : rp && (await hashIfThere(dir, rp)) !== i.registration.report_sha256 ? "its registration report changed since admitted" : null;
+      : rp && (await hashIfThere(dir, rp)) !== i.registration.report_sha256 ? "its registration report changed since admitted"
+        : i.web && (await hashIfThere(dir, i.web.terms_path)) !== i.web.terms_sha256 ? "its saved terms page changed since admitted" : null; // MA-7-12
     items.push(reason ? L.flagged(i, now, d.now()) : i);
     if (reason) changed.push({ item_id: i.id, path: i.path, sha256: now, reason });
   }

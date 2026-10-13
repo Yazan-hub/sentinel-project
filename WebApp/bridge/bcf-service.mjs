@@ -1676,6 +1676,8 @@ async function handleRequest(req, res) {
       //   200 refused, with its ledger row (a contributor of an office project). POST …/:pack/recheck → 200. Small JSON only: the files are
       //   in the project's evidence folder on this PC and are hashed there (evidence-store.mjs); no evidence byte crosses this route.
       //   MA-7-2: GET …/:pack/web → the web switch state and the source lists (a read).
+      //   MA-7-12: …/items also takes a Commons photo {provider:"wikimedia-commons", web:{licence, source_url, author, attribution_text, retrieved_at, terms_path},
+      //   blur:{boxes|none_seen}} from a lead while SENTINEL_WEB_EVIDENCE is drill:<this project> or on; off, it is a refused row. POST …/attest {code:"g"} likewise.
       if (p2 === "evidence") {
         const ev = await import("./evidence-store.mjs");
         const body = async () => (await readBody(req, { max: SMALL_JSON })) || {};
@@ -1683,7 +1685,8 @@ async function handleRequest(req, res) {
         if (p3 && !p4 && req.method === "GET") return send(res, 200, await ev.readPack(p1, p3));
         if (p3 && p4 === "attest" && !seg[5] && req.method === "POST") return send(res, 201, await ev.signAttestation(p1, p3, await body()));
         if (p3 && p4 === "items" && !seg[5] && req.method === "POST") {
-          const r = await ev.runEvidenceIntake(p1, p3, await body());
+          // MA-7-12: a Commons photo (switch drill/on, a lead) is blurred in the step that admits it, so the route hands over the blur tool
+          const r = await ev.runEvidenceIntake(p1, p3, await body(), { blur: (await import("./photo-store.mjs")).runBlur });
           return send(res, r.verdict === "admitted" ? 201 : 200, r);
         }
         if (p3 && p4 === "recheck" && !seg[5] && req.method === "POST") return send(res, 200, await ev.recheckPack(p1, p3));

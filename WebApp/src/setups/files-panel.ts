@@ -717,7 +717,8 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       : line(`No evidence pack yet — a lead or owner makes it (${esc(roleSaid)}).`));
     const { pack, folder, ref } = evidence;
     const signer = can.sign, edit = can.admit;
-    const codes: string[] = pack.dataset ? ["f"] : [...ATTESTATION_CODES]; // MA-4h: a published dataset's pack is signed (f) alone
+    // MA-4h: a published dataset's pack is signed (f) alone. MA-7-12: (g), for web photos, is offered only while the founder's web switch is not off.
+    const codes: string[] = pack.dataset ? ["f"] : [...ATTESTATION_CODES, ...(webState && webState.mode !== "off" ? ["g"] : [])];
     const atts = codes.map((c) => {
       const done = pack.attestations.some((a) => a.code === c);
       return line(`<span style="color:${done ? "#4ade80" : "#9ca3af"}">${esc(attestationLine(c, pack))}</span> “${esc(ATTESTATION_TEXTS[c])}”` +
