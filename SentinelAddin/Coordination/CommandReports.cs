@@ -56,13 +56,42 @@ namespace Sentinel.Coordination
         /// with a reason), the views no Project Browser parameter routed, and the guideline and the ruleset that planned and named them.</summary>
         public static object Annotate(IReadOnlyList<string> views, int levels, int skippedExisting, int refused, int failed, int unrouted,
                                       int pinnedLevels, int pinnedGrids, int warnings, int storyLevels, IReadOnlyList<long> pinnedIds,
-                                      string pinnedNow, bool undoGroupKept, string guideline, string ruleset, string actor) =>
-            Row("annotate", actor, $"Annotate created {views.Count} view(s) and pinned {pinnedLevels + pinnedGrids} datum(s) across {levels} level(s)", new
+                                      string pinnedNow, bool undoGroupKept, string guideline, string ruleset, string actor, AnnotateMore more = null)
+        {
+            var value = new Dictionary<string, object>
             {
-                views_created = views.Count, views = views.Take(MaxRecord).ToArray(), skipped_existing = skippedExisting, refused, failed, unrouted,
-                pinned_levels = pinnedLevels, pinned_grids = pinnedGrids, pinned_ids = pinnedIds.Take(MaxRecord).ToArray(), pinned_now = pinnedNow,
-                undo_group_kept = undoGroupKept, warnings, story_levels = storyLevels, guideline, ruleset, source = "revit",
-            });
+                ["views_created"] = views.Count, ["views"] = views.Take(MaxRecord).ToArray(), ["skipped_existing"] = skippedExisting, ["refused"] = refused,
+                ["failed"] = failed, ["unrouted"] = unrouted, ["pinned_levels"] = pinnedLevels, ["pinned_grids"] = pinnedGrids,
+                ["pinned_ids"] = pinnedIds.Take(MaxRecord).ToArray(), ["pinned_now"] = pinnedNow, ["undo_group_kept"] = undoGroupKept,
+                ["warnings"] = warnings, ["story_levels"] = storyLevels, ["guideline"] = guideline, ["ruleset"] = ruleset, ["source"] = "revit",
+            };
+            string action = $"Annotate created {views.Count} view(s) and pinned {pinnedLevels + pinnedGrids} datum(s) across {levels} level(s)";
+            if (more != null)
+            {
+                // MA-8-11: what Revit holds after the group (the caller reads it back), never the workstation path (V2).
+                value["template_file"] = new
+                {
+                    name = more.FileName, title = more.Title, sha256 = more.Sha256, format = more.Format,
+                    opened = more.Opened ? "background" : "already open", seconds = Math.Round(more.Seconds, 1),
+                    note = more.Opened ? null : "copied from the open document; sha256 is the file on disk and may not match unsaved edits",
+                };
+                value["templates_copied"] = more.Copied.Take(MaxRecord).ToArray();
+                value["templates_not_copied"] = more.NotCopied.Take(MaxRecord).Select(n => new { name = n.Name, why = n.Why }).ToArray();
+                if (more.Copied.Count > 0) action += $"; copied {more.Copied.Count} view template(s) from {more.FileName}";
+            }
+            return Row("annotate", actor, action, value);
+        }
+
+        /// <summary>MA-8-11 (ANV-3): the office template file an Annotate run copied view templates from, and what it did with each name.</summary>
+        public sealed class AnnotateMore
+        {
+            public string FileName, Title, Sha256, Format;
+            public bool Opened;
+            public double Seconds;
+            /// <summary>The templates present in the model after the group that this run ticked and copied (amendment 6).</summary>
+            public IReadOnlyList<string> Copied = new string[0];
+            public IReadOnlyList<(string Name, string Why)> NotCopied = new (string, string)[0];
+        }
 
         /// <summary>Apply Standard's model half (its ruleset install writes its own artefact row).</summary>
         public static object ApplyStandard(IReadOnlyList<string> created, IReadOnlyList<string> skipped, IReadOnlyList<string> failed, string actor) =>

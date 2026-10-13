@@ -203,6 +203,53 @@ Check("review C10: with no guideline (or no views section) Annotate refuses befo
     nothingAt > 0 && nothingAt < ann.IndexOf("new AnnotatePreviewWindow(") && annN.Contains("TaskDialog.Show(Title, nothing);\n            return Result.Cancelled;"));
 Check("F3: Datum's result names Annotate as the next step", Src("Commands.Datum.cs").Contains("Next: 3 · Annotate Views"));
 
+// ── MA-8-11 (ANV-3): templates from the office file — the pure half, then the wiring by source scan (Revit-bound; drill C-1) ──
+{
+    var rowsT = new List<PlannedView>
+    {
+        new() { Name = "a", Template = "T_FLOOR" }, new() { Name = "b", Template = "T_FLOOR" }, new() { Name = "c", Template = "T_RCP" },
+        new() { Name = "d", Template = "T_HAVE" }, new() { Name = "e", Template = "T_REFUSED", Refusal = "x" }, new() { Name = "f", Template = " " }, new() { Name = "g" },
+    };
+    var miss = ViewPlanner.Missing(rowsT, new HashSet<string> { "T_HAVE" });
+    Check("MA-8-11: Missing = the distinct templates the creatable rows name that the model lacks (not a refused row's, not a blank)", miss.SequenceEqual(new[] { "T_FLOOR", "T_RCP" }));
+    Check("MA-8-11: nothing missing when all are present", ViewPlanner.Missing(rowsT, new HashSet<string> { "T_HAVE", "T_FLOOR", "T_RCP" }).Count == 0 && ViewPlanner.Missing(null, null).Count == 0);
+    var tr = ViewPlanner.TemplateRows(new[] { "T_FLOOR", "T_RCP", "T_SEC", "T_VIEW" }, new Dictionary<string, string> { ["T_FLOOR"] = "FloorPlan", ["T_SEC"] = "Section", ["T_VIEW"] = "FloorPlan" },
+        "office.rte", new HashSet<string> { "T_VIEW" });
+    Check("MA-8-11: a template in the file as a plan template has no refusal", tr[0].Refusal == null);
+    Check("MA-8-11: not in the file either -> its views are created without it", tr[1].Refusal == "not in office.rte either — its views are created without it");
+    Check("MA-8-11: a Section template cannot be used by a plan", tr[2].Refusal == "in office.rte as a Section template — a plan view cannot use it");
+    Check("MA-8-11: a view in this model already holds the name", tr[3].Refusal == "a view in this model already holds the name");
+    Check("MA-8-11 (amendment 16): nothing is pre-ticked", tr.All(r => !r.PreTicked));
+    var line = ViewPlanner.TemplateFileLine("office.rte", "0123456789abcdef", "BDS_Other", "BDS_Project", "2024", 3.24, true);
+    Check("MA-8-11: the file line names the file, 12 sha characters, the title, the format, the seconds and warns on a title mismatch",
+        line.Contains("office.rte (sha256 0123456789ab…;") && line.Contains("title 'BDS_Other'") && line.Contains("WARNING: not the catalogue's 'BDS_Project'") && line.Contains("saved in Revit 2024") && line.Contains("3.2 s") && line.EndsWith("It is never saved."));
+    Check("...no warning when the titles agree; 'already open' when it was",
+        !ViewPlanner.TemplateFileLine("o.rte", "ab", "T", "t", "2024", 0, false).Contains("WARNING") && ViewPlanner.TemplateFileLine("o.rte", "ab", "T", "t", "2024", 0, false).Contains("already open in this session"));
+
+    var off = Src("Engine", "OfficeTemplate.cs");
+    int pickAt = ann.IndexOf("OfficeTemplate.Open(");
+    int copyAt = ann.IndexOf("ElementTransformUtils.CopyElements(");
+    int finAt = ann.LastIndexOf("finally");
+    Check("MA-8-11: the file is picked and opened before the preview, and a refusal is a dialog and Cancelled with nothing written",
+        pickAt > 0 && pickAt < ann.IndexOf("new AnnotatePreviewWindow(") && annN.Contains("TaskDialog.Show(Title, why); return Result.Cancelled;"));
+    Check("MA-8-11: one Close(false), in a finally, and only for a document this run opened",
+        CountOf(ann, ".Close(false)") == 1 && finAt > ann.IndexOf("TaskDialog.Show(Title, sb.ToString())") && ann.IndexOf(".Close(false)") > finAt && ann.Contains("if (src != null && src.Opened) src.Doc.Close(false);"));
+    Check("MA-8-11: the office file is never saved - no Save( / SaveAs( in either file",
+        !off.Contains(".Save(") && !off.Contains("SaveAs(") && !ann.Contains(".Save(") && !ann.Contains("SaveAs(") && !ann.Contains("SaveAsOptions"));
+    int detach = off.IndexOf("DetachFromCentralOption"), shared = off.IndexOf("if (info.IsWorkshared)");
+    Check("MA-8-11: detached only when workshared, with every workset closed", shared > 0 && detach > shared && off.Contains("WorksetConfigurationOption.CloseAllWorksets") && CountOf(off, "DetachFromCentralOption") == 2);
+    Check("MA-8-11: an already-open document is used (not linked) and flagged not-opened; the hash is read with FileShare.ReadWrite",
+        off.Contains("!d.IsLinked && string.Equals(d.PathName, path") && off.Contains("Opened = false") && off.Contains("FileShare.ReadWrite"));
+    Check("MA-8-11: the copy is a SubTransaction inside the one Transaction, after the group starts and before the views loop, with UseDestinationTypes; a renamed copy rolls back",
+        copyAt > run && copyAt < ann.IndexOf("foreach (var p in pick.Views)") && copyAt > ann.IndexOf("new Transaction(") && ann.Contains("new StandardsBuilder.UseDestinationTypes()")
+        && ann.Contains("Revit renamed it to") && CountOf(ann, "new Transaction(") == 1);
+    Check("MA-8-11 (amendment 5): templates count in the guard, the keep and the nothing-created exit",
+        ann.Contains("pick.Views.Count + pick.Pins.Count + pick.Templates.Count == 0") && ann.Contains("created.Count + claimedPins + copiedNames.Count > 0")
+        && ann.Contains("present.Count + pinnedNow.Count + templatesNow.Count == 0"));
+    Check("MA-8-11 (amendment 6): the row's copied names are read back from the model, and the path is never sent",
+        ann.Contains("v.IsTemplate && copiedNames.Contains(v.Name)") && ann.Contains("Copied = templatesNow") && ann.Contains("FileName = src.FileName") && off.Contains("string name = Path.GetFileName(path);") && off.Contains("FileName = name"));
+}
+
 Console.WriteLine($"{total - failed}/{total} checks pass");
 Console.WriteLine(failed == 0 ? "ALL PASS" : $"{failed} FAILED");
 return failed == 0 ? 0 : 1;
