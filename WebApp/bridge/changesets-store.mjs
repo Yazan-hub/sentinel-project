@@ -407,6 +407,7 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
         if (!result.candidates.some((c) => c.cid === a.cid && c.kind === "wall")) throw err(400, `materials names ${a.cid.slice(0, 64)}, which is not a wall of ${id}; nothing was saved`);
         const it = pack.items.find((x) => x.id === a.item);
         if (!it) throw err(400, `materials.${a.cid}.item ${a.item} is not an item of the evidence pack; nothing was saved`);
+        if (it.role === "context") throw err(400, `${it.id} is a web photo — context only; it chooses no type; nothing was saved`); // MA-7-13 (CX-1)
         const why = usable(it, "type");
         if (why) throw err(409, why.replace(/; nothing was (read|shown)$/, "; nothing was saved"));
         const m = W.values.find((v) => v.toLowerCase() === a.material.toLowerCase());
@@ -1170,7 +1171,7 @@ export async function reviewChangeset(key, id, { decisions } = {}, actor, deps =
     for (const e of cited) {
       const it = pack.items.find((x) => x.id === e);
       if (!it) throw err(400, `evidence ${e} is not an item of the evidence pack; nothing was saved`);
-      const why = usable(it, "cite") ?? (it.role === "context" ? `${e} is a web photo - context only; it cannot confirm a ghost; nothing was read` : null);
+      const why = usable(it, "cite") ?? (it.role === "context" ? `${e} is a web photo — context only; it cannot confirm a ghost; nothing was read` : null);
       if (why) throw err(400, why.replace(/; nothing was (read|shown)$/, "; nothing was saved"));
       copies.set(e, it.view_copy.sha256);
     }

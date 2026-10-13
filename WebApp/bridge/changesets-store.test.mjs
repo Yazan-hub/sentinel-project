@@ -801,7 +801,7 @@ describe("MA-3a — reviewChangeset and reopenGhost: a signed-in person, contrib
       expect((await bad([photo("ev-000C", { state: "changed" })], "ev-000C")).message).toMatch(/changed since it was admitted/);
       expect((await bad([photo("ev-000C", { kind: "scan" })], "ev-000C")).message).toMatch(/is a scan, not a photo/);
       const web = await bad([photo("ev-000C", { role: "context" })], "ev-000C");
-      expect([web.status, web.message]).toEqual([400, expect.stringMatching(/web photo - context only; it cannot confirm a ghost; nothing was saved$/)]);
+      expect([web.status, web.message]).toEqual([400, expect.stringMatching(/web photo — context only; it cannot confirm a ghost; nothing was saved$/)]);
     });
     it("the default path: no readPack dep (as the route calls it) reads the evidence store; its 409 ends 'nothing was saved'", async () => {
       const readPack = vi.fn(async () => { throw Object.assign(new Error("no evidence pack for demo"), { status: 409 }); });
@@ -1240,7 +1240,9 @@ describe("proposeFromJob (MA-4d): a lead turns a trusted survey job into changes
     await quiet({}, { [W]: { item: "ev-0099", material: "Block" } }, 400, `materials.${W}.item ev-0099 is not an item of the evidence pack; nothing was saved`);
     await quiet(pack(photo({ view_copy: undefined })), ok, 409, `ev-000C has no blurred copy yet — mark its faces and number plates first (Mark faces and plates); nothing was saved`);
     await quiet(pack(photo({ state: "changed" })), ok, 409, expect.stringContaining("ev-000C changed since it was admitted"));
-    await quiet(pack(photo({ role: "context" })), ok, 409, expect.stringContaining("ev-000C is a web photo — context only"));
+    await quiet(pack(photo({ role: "context" })), ok, 400, "ev-000C is a web photo — context only; it chooses no type; nothing was saved"); // MA-7-13 CX-1
+    await quiet(pack(photo({ role: "context", view_copy: undefined })), ok, 400, "ev-000C is a web photo — context only; it chooses no type; nothing was saved"); // 7-13: role check runs before usable()
+    await quiet(pack(photo({ role: "context", state: "expired", expired_at: "2026-10-01T00:00:00Z" })), ok, 400, "ev-000C is a web photo — context only; it chooses no type; nothing was saved");
     await quiet(pack({ id: "ev-000C", kind: "scan", state: "admitted", sha256: "f".repeat(64) }), ok, 409, expect.stringContaining("ev-000C is a scan, not a photo"));
     await quiet(std(guide(rule("Concrete", "x"), rule("Concrete-Block", "y"))), ok, 400, expect.stringContaining(`"Concrete" and "Concrete-Block" — one material sits inside the other`));
     await quiet(std(guide({ when: { params: { Location: "Exterior" } }, use: { family: "Basic Wall", typePattern: "BDS_EXT_ARC_CMU_{thickness} mm" } })), ok, 400, expect.stringContaining("so a photo cannot choose a type"));
