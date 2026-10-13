@@ -142,6 +142,16 @@ export const webLine = (s: Pick<WebStatus, "mode" | "counsel_ref"> & { why?: str
     : s.mode === "drill" ? "Web evidence: DRILL — the founder's switch; counsel has not reviewed web evidence."
       : s.why && /SENTINEL_WEB_EVIDENCE=/.test(s.why) ? `Web evidence: off — ${s.why}`
         : "Web evidence: off — counsel has not reviewed it yet (D5). Your own photos and scans are admitted as before.";
+/** MA-7-6: the NOTICE (GET …/evidence/evp-0001/notice) — the credits text, its sha256 and the counts; throws "not read — …". */
+export interface Notice { text: string; sha256: string; pack_version: number; credits: number; tools: number; }
+export async function readNotice(base: string, key: string): Promise<Notice> {
+  let r: Response;
+  try { r = await bfetch(at(base, key, `evidence/${PACK_ID}/notice`)); } catch (e) { throw new Error(`not read — ${(e as Error).message}`); }
+  const j = (await r.json().catch(() => null)) as (Notice & { message?: string }) | null;
+  if (!r.ok || typeof j?.text !== "string") throw new Error(`not read — ${j?.message || `HTTP ${r.status}`}`);
+  return j;
+}
+export const noticeLine = (r: Pick<Notice, "credits" | "tools" | "sha256">): string => `NOTICE saved · ${r.credits} credit(s) · ${r.tools} tool(s) · sha ${r.sha256.slice(0, 12)}…`;
 export const makePack = (base: string, key: string) => post<{ pack: EvidencePack }>(base, key, "evidence", {});
 export const signAttestation = (base: string, key: string, code: string) => post<{ attestation: Attestation; ledger: Ledger }>(base, key, `evidence/${PACK_ID}/attest`, { code });
 export const admitEvidence = (base: string, key: string, b: { path: string; kind: EvidenceKind; registration?: { method: string; report_path?: string }; request_id?: string; provider?: string; licence_ref?: string }) => post<AdmitReply>(base, key, `evidence/${PACK_ID}/items`, b);
