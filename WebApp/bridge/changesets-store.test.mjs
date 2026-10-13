@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { proposeChangeset, getChangeset, reportResult, withdrawChangeset, listChangesets, reportReverted, needsTyping, needsCiting,
-  reviewChangeset, reopenGhost, previewChangesets, proposeFromJob, verifyChangeset, scanOverlay, editCostOf, publishEditCost, flagChangeset } from "./changesets-store.mjs";
+  reviewChangeset, reopenGhost, previewChangesets, proposeFromJob, verifyChangeset, scanOverlay, scanQuery, editCostOf, publishEditCost, flagChangeset } from "./changesets-store.mjs";
 import { meshFaces } from "./survey-plan.mjs";
 import { boxMesh } from "./fixtures/box-mesh.mjs";
 
@@ -1694,6 +1694,10 @@ describe("verifyChangeset (MA-4e): a signed-in contributor measures a placed sur
     expect([r.ground, r.level, r.footprint.length, r.z_mm, r.of, r.cell_mm]).toEqual([true, "GR-FFL", 4, [-5000, 1500], 5, 500]);
     // frame dx 40000, the box x 39125..48850: inside (44000) and 1 mm out (39124: a turned frame's rounding can put a point there) are dropped; 2 mm out (39123) stays
     expect(r.points).toEqual([[40125, -900, -300], [49000, 100, -250], [39123, 3000, -290]]);
+    // review round 2: the answer is the shared fixture's ground_answer key for key and type (Ma8Terrain reads that sample into GroundDto - the drift guard)
+    const sample = JSON.parse(readFileSync(new URL("./fixtures/changeset-ops/terrain-cases.json", import.meta.url), "utf8")).ground_answer;
+    const shape = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, Array.isArray(v) ? "array" : v === null ? "null" : typeof v]));
+    expect(shape(r)).toEqual(shape(sample));
     expect([deps.audit.mock.calls.length, deps.docInsert.mock.calls.length]).toEqual([0, 0]);
     const old = sdeps({ measureJob: echo({ ground: undefined }) }, cs);   // a sentinel-survey that drops keys it does not know
     await expect(scanOverlay("ma4c-drill", ID, old, { ground: true })).rejects.toMatchObject({ status: 502, message: "this sentinel-survey does not read ground — its scan is not shown" });
@@ -1724,6 +1728,19 @@ describe("verifyChangeset (MA-4e): a signed-in contributor measures a placed sur
     const r = await scanOverlay("ma4c-drill", ID, sdeps({ measureJob: echo }, cs), { ground: true });
     expect(r.points).toEqual([[38400, -3229, -310]]);
     expect((await scanOverlay("ma4c-drill", ID, sdeps({ measureJob: echo }, cs))).points).toHaveLength(2);
+  });
+  it("(k3) MA-8-14 review round 2: a ground point rounded out of the band (-5000 to 1500 here) is dropped from the answer, as one on the footprint is", async () => {
+    const cs = { ...CS, elements: CS.elements.map((e) => ({ ...e, place: { ...e.place, LevelName: "GR-FFL" } })) };
+    const echo = vi.fn(async (_k, _j, p) => ({ status: "done", version: "0.6.0", refused: [], result: { points: [[9000, 2000, -5001], [9000, 3000, -5000], [9000, 4000, 1501], [9000, 5000, 1500]], derived: [],
+      receipt: { cloud: { cell_mm: 500, z_mm: p.cloud.z_mm, of: 4, points: 4, ground: true, outside_mm: p.cloud.outside_mm } } } }));
+    expect((await scanOverlay("ma4c-drill", ID, sdeps({ measureJob: echo }, cs), { ground: true })).points).toEqual([[49000, 3000, -5000], [49000, 5000, 1500]]);
+  });
+  it("MA-8-14 review round 2: scanQuery - ?flag= (1 to 64 characters) or ?ground=1, never both; any other ground is a 400 (never the whole scan for a ground ask)", () => {
+    const q = (s) => scanQuery(new URLSearchParams(s));
+    expect([q(""), q("flag=stair:a"), q("ground=1")]).toEqual([{}, { flag: "stair:a" }, { ground: true }]);
+    for (const [s, m] of [["ground=0", "ground must be 1 — send ?ground=1; nothing was read"], ["ground=true", "ground must be 1"], ["ground", "ground must be 1"],
+      ["ground=1&flag=stair:a", "ground and flag are two different cuts of the scan — send one"], ["flag=", "flag must be a stair flag's unique_id (1 to 64 characters)"], [`flag=${"x".repeat(65)}`, "flag must be"]])
+      expect(() => q(s)).toThrow(expect.objectContaining({ status: 400, message: expect.stringContaining(m) }));
   });
 });
 
@@ -2122,9 +2139,8 @@ describe("flagChangeset (MA-8-9): a person's stair pick, appended to a changeset
   it("the routes: POST /flags (201, the body without actor) and GET /scan?flag= reach the store", () => {
     const src = readFileSync(new URL("./bcf-service.mjs", import.meta.url), "utf8");
     expect(src).toContain('if (p2 && p3 === "flags" && req.method === "POST") { const { actor: _who, ...pick } = body; return send(res, 201, await ch.flagChangeset(key, p2, pick, actor)); }');
-    expect(src).toContain('await ch.scanOverlay(key, p2, {}, { ...(flag != null ? { flag } : {}), ...(ground ? { ground } : {}) })');
-    expect(src).toContain('if (ground && flag != null) return send(res, 400, { message: "ground and flag are two different cuts of the scan — send one" });');   // MA-8-14
-    expect(src).toContain('if (url.searchParams.has("ground") && !ground) return send(res, 400, { message: "ground must be 1 — send ?ground=1; nothing was read" });');   // MA-8-14 review round 1
+    expect(src).toContain('if (p2 && p3 === "scan" && req.method === "GET") return send(res, 200, await ch.scanOverlay(key, p2, {}, ch.scanQuery(url.searchParams)));');   // MA-8-14 review round 2: scanQuery is unit-tested
+    expect(src).toContain("GET /changesets/:key/:id/scan?flag=<stair flag uid> | ?ground=1 (MA-8-14)");
   });
 });
 
@@ -2287,6 +2303,8 @@ describe("proposeChangeset — a terrain from a scan (MA-8-14)", () => {
     await expect(tried({ Boundary: [[20000, 20000], [22000, 20000], [22000, 22000], [20000, 22000]] })).rejects.toMatchObject({ status: 400, message: expect.stringMatching(/place\.Boundary is not the scan's footprint \(\(-1000, -1000\) \(11000, -1000\) \(11000, 9000\) \(-1000, 9000\)\)/) });
     const high = structuredClone(cases.good.elements[0].place.Points); high[2] = [12000, 10000, 40000];
     await expect(tried({ Points: high })).rejects.toMatchObject({ status: 400, message: expect.stringMatching(/^elements\[0\]: place\.Points\[2\] is at 40000 mm, outside the band the ground is read in \(-5000 to 1500 mm\)/) });
+    const under = structuredClone(cases.good.elements[0].place.Points); under[0] = [-2000, -2000, -5000.4];   // review round 2: 0.4 mm under the band's floor (the read now drops it)
+    await expect(tried({ Points: under })).rejects.toMatchObject({ status: 400, message: expect.stringMatching(/^elements\[0\]: place\.Points\[0\] is at -5000 mm, outside the band the ground is read in/) });
     const edge = structuredClone(cases.good.elements[0].place.Points); edge[4] = [5000, -1000.5, -320];   // on the footprint's edge: within 1 mm
     await expect(tried({ Points: edge })).rejects.toMatchObject({ status: 400, message: expect.stringMatching(/place\.Points\[4\] lies within 1 mm of the scan's footprint or inside it/) });
     await expect(tried({}, surveyDoc({ status: "withdrawn" }))).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/is withdrawn — no terrain is read from its scan/) });

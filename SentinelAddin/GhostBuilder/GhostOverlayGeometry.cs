@@ -190,6 +190,9 @@ namespace Sentinel.GhostBuilder
             return new[] { new[] { pts.Min(q => q[0]), pts.Min(q => q[1]), pts.Min(q => q[2]) }, new[] { pts.Max(q => q[0]), pts.Max(q => q[1]), pts.Max(q => q[2]) } };
         }
 
+        /// <summary>MA-8-14 review round 2: the overlay's line for a terrain changeset (a terrain is alone in its changeset, and a create Line(0, 0) would call none).</summary>
+        public const string TerrainLine = "No ghost to draw: a terrain is a Toposolid made from points; it has no ghost drawing — Show zooms to its footprint.";
+
         /// <summary>The overlay's line for the window: <paramref name="drawn"/> of the <paramref name="creates"/> drawable creates outlined.</summary>
         public static string Line(int creates, int drawn) => creates == 0
             ? "No ghost to draw: this review proposes no create (a retype, attach, reshape or rehost changes an element that exists — Show selects it)."

@@ -437,7 +437,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                 }
             }, refusal => window.Shown($"The ghost overlay was not drawn — {refusal}"));
         if (outlined > 0) OverlayDraw(GhostOverlayGeometry.All(window.RowStates(), LevelOf, TopOf, FrameOf), GhostOverlayGeometry.AllTris(window.RowStates(), LevelOf, TopOf, FrameOf));
-        else window.Shown(GhostOverlayGeometry.Line(creates, 0));
+        else window.Shown(creates == 0 && (cs.Elements ?? new()).Any(e => GhostOverlayGeometry.IsCreate(e) && e.Kind == "terrain") ? GhostOverlayGeometry.TerrainLine : GhostOverlayGeometry.Line(creates, 0)); // MA-8-14 review round 2
         window.TicksChanged += states =>
         {
             if (outlined == 0) return;

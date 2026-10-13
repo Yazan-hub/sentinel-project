@@ -49,8 +49,6 @@ export interface Ghost {
   replaces?: { unique_id: string; box?: { min: number[]; max: number[] }; kind?: "directshape" | "generic"; category?: string } | null;
   /** MA-8-7: the bridge's judgement of a retype - its type is not one of the office's catalogue; null = no catalogue to judge by. */
   foreign?: boolean | null;
-  /** MA-8-14: the survey changeset a terrain's points came from (the bridge checked it is a survey job's and the terrain's level, footprint and height band against its cut; it read no scan for the points). */
-  from_scan?: { changeset: string } | null;
   /** MA-8-10: the stair flag a stair was proposed from. */
   from_flag?: { changeset: string; unique_id: string } | null;
   review?: GhostReview | null;
@@ -145,10 +143,12 @@ export function ghostLine(el: Ghost): string {
 }
 
 /** MA-8-14: a terrain says whose word its points are - a signed-in member's filing (the bridge refuses the machine credential), tied to the scan's level, footprint and height band
- *  but not re-measured (review round 1: only what the bridge checks is claimed) - and that a person checks it. */
+ *  but not re-measured (review round 1: only what the bridge checks is claimed) - and that a person checks it. Review round 2: what Revit builds beyond the points is said
+ *  (TerrainPlanner.Shape, Revit's row); the scan's changeset is named in the terrain changeset's own title (plan amendment 8 amended: no from_scan read here). */
 function terrainLine(el: Ghost): string {
   const n = el.place?.Points?.length;
-  return n ? ` · Toposolid from ${n} ground points, filed by a signed-in member from the survey changeset this was proposed from (the bridge checked its level, footprint and height band, not the points) — check it against the site survey` : "";
+  return n ? ` · Toposolid from ${n} ground points, filed by a signed-in member from the survey changeset this was proposed from (the bridge checked its level, footprint and height band, not the points; not re-measured); ` +
+    "the hole is the walls' box plus 1 m (a notch or courtyard inside it gets no ground); rim points at the nearest ground point's height line both edges — check it against the site survey" : "";
 }
 
 /** MA-8-10: a stair says what it is - one straight run to the level above, and that the rest is a person's (Revit's row says the same). */

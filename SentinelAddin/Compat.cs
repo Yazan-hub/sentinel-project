@@ -49,6 +49,10 @@ public static class Compat
 #endif
     }
 
+    /// MA-8-14 review round 2: the rim points and the loop-vertex raise (review round 1) are not spiked - K-1c reads them back. false is the spike's proven route
+    /// (lift, offset, CurveLoop) alone: a one-line revert if K-1c fails them (then TerrainPlanner.Shape's rim clause goes too).
+    public static readonly bool TerrainRim = true;
+
     /// MA-8-14 (the spike, K-1b): the ground as one Toposolid. Created with the CurveLoop overload - an outer axis-aligned rectangle around the points and the
     /// footprint (+ 1 m), the inner loop the storey's footprint (the hole) - because the points-only overload spans the building. The points are lifted by -o and the
     /// Toposolid's Height Offset From Level is then set to o (o = the lowest point less the level, less 10 mm, never above 0): the type's thickness never limits the relief
@@ -74,16 +78,23 @@ public static class Compat
         CurveLoop Loop(List<double[]> l) => CurveLoop.Create(Enumerable.Range(0, l.Count)
             .Select(i => (Curve)Line.CreateBound(new XYZ(l[i][0] * mm, l[i][1] * mm, z), new XYZ(l[(i + 1) % l.Count][0] * mm, l[(i + 1) % l.Count][1] * mm, z))).ToList());
         // review round 1: the rim - 50 mm inside the outer loop and 50 mm outside the hole, each at its nearest ground point's z
-        var rim = Sentinel.GhostBuilder.TerrainPlanner.RimPoints(outerMm, pointsMm, 50).Concat(Sentinel.GhostBuilder.TerrainPlanner.RimPoints(ringMm, pointsMm, -50));
+        var rim = !TerrainRim ? Enumerable.Empty<double[]>()
+            : Sentinel.GhostBuilder.TerrainPlanner.RimPoints(outerMm, pointsMm, 50).Concat(Sentinel.GhostBuilder.TerrainPlanner.RimPoints(ringMm, pointsMm, -50));
         var lifted = pointsMm.Concat(rim).Select(p => new XYZ(p[0] * mm, p[1] * mm, p[2] * mm + dz - o)).ToList();
         var ts = Toposolid.Create(doc, new List<CurveLoop> { Loop(outerMm), Loop(ringMm) }, lifted, typeId, level.Id);
         var offset = ts.get_Parameter(BuiltInParameter.TOPOSOLID_HEIGHTABOVELEVEL_PARAM);
         if (offset == null || offset.IsReadOnly) throw new InvalidOperationException("this Toposolid has no settable Height Offset From Level - the ground cannot be put at its own height; nothing was placed");
         if (!offset.Set(o)) throw new InvalidOperationException($"the Toposolid's Height Offset From Level could not be set to {o * 304.8:0} mm - the ground would stand that far off the scan; nothing was placed");
+        if (!TerrainRim) return ts;
         // review round 1: each loop vertex (no point on it) raised from the top face (level + o, internal) to its nearest ground point's z
+        // review round 2: regenerated first (the spike read the editor's vertices only after a Regenerate), and fail closed - every loop corner is found, or nothing is placed
+        doc.Regenerate();
         var editor = ts.GetSlabShapeEditor();
         double top = level.ProjectElevation + o;
-        foreach (var v in editor.SlabShapeVertices.Cast<SlabShapeVertex>().Where(v => v.VertexType != SlabShapeVertexType.Interior).ToList())
+        var loopVerts = editor.IsEnabled ? editor.SlabShapeVertices.Cast<SlabShapeVertex>().Where(v => v.VertexType != SlabShapeVertexType.Interior).ToList() : new List<SlabShapeVertex>();
+        if (loopVerts.Count < outerMm.Count + ringMm.Count)
+            throw new InvalidOperationException($"the Toposolid's loop corners could not be read ({loopVerts.Count} of {outerMm.Count + ringMm.Count}) - the ground at the building and the rim would stand at the lowest point; nothing was placed");
+        foreach (var v in loopVerts)
             editor.ModifySubElement(v, Sentinel.GhostBuilder.TerrainPlanner.NearestZ(pointsMm, v.Position.X / mm, v.Position.Y / mm) * mm + dz - top);
         return ts;
 #else

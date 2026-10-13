@@ -1,5 +1,7 @@
 {
-  "comment": "MA-8-14: a terrain from a scan. Read by changesets-logic.test.mjs (the bridge validates `good` and refuses each of `refusals` in the exact words: `place` patches the element's place, null deletes a key; `el` patches the element) and by tools/promote-check Ma8Terrain.cs (TerrainPlanner's body for `plan` equals `good`, and its holds). example.test names only; the points are made up.",
+  "comment": "MA-8-14: a terrain from a scan. Read by changesets-logic.test.mjs (the bridge validates `good` and refuses each of `refusals` in the exact words: `place` patches the element's place, null deletes a key; `el` patches the element) and by tools/promote-check Ma8Terrain.cs (TerrainPlanner's body for `plan` equals `good`, and its holds). `ground_answer` is the shape of GET /changesets/:key/:id/scan?ground=1 (review round 2): changesets-store.test.mjs (k) checks scanOverlay answers exactly these keys and types, and Ma8Terrain reads it into GroundDto. example.test names only; the points are made up.",
+  "ground_answer": {"changeset": {"id": "5b1c6f3e-2a4d-4e8f-9c1a-7d2e3f4a5b6c", "name": "Survey job-0003 · GR-FFL"}, "job": "job-0003", "ledger_id": 7, "version": "0.6.0", "cell_mm": 500, "z_mm": [-5000, 1500], "of": 3,
+    "ground": true, "level": "L00", "footprint": [[-1000, -1000], [11000, -1000], [11000, 9000], [-1000, 9000]], "points": [[-2000, -2000, -300], [12000, -2000, -250], [5000, 11000, -290]]},
   "plan": {
     "changeset": {
       "id": "5b1c6f3e-2a4d-4e8f-9c1a-7d2e3f4a5b6c",
@@ -80,7 +82,7 @@
             "Name": "Terrain · L00"
           }
         },
-        "reason": "6 ground points, lowest per 500 mm cell, between -5000 and 1500 mm (5 m under to 1.5 m over L00's floor; ground outside that band is not read), outside the storey's walls, from job-0003 — check it against the site survey",
+        "reason": "6 ground points, lowest per 500 mm cell, between -5000 and 1500 mm (5 m under to 1.5 m over L00's floor; ground outside that band is not read), outside the storey's walls, from job-0003; the hole is the walls' box plus 1 m (a notch or courtyard inside it gets no ground); rim points at the nearest ground point's height line both edges — check it against the site survey",
         "place": {
           "LevelName": "L00",
           "FamilyName": "Toposolid",

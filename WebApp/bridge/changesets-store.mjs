@@ -144,9 +144,11 @@ export async function proposeChangeset(key, body, actor, deps) {
 const filingFlags = new Set(); // MA-8-10: (key, flag) pairs being filed - checkFromFlag's read-then-insert is not atomic (MA-8-14 review round 1: and (key, scan), checkFromScan's)
 async function fileValidated(d, key, v, body, actor) {
   const held = [...v.elements.filter((e) => e.from_flag).map((e) => `${key}|${e.from_flag.changeset}|${e.from_flag.unique_id}`),
-    ...v.elements.filter((e) => e.from_scan).map((e) => `${key}|scan|${e.from_scan.changeset}`)];
+    // MA-8-14 review round 2: one terrain filing per project at a time - checkFromScan matches a scan across changesets and jobs (sameScan), which is not known before the read
+    // ponytail: two terrains from different scans of one project filed in the same moment, one is told to try again; key on the scan's evidence shas if that is ever felt
+    ...(v.elements.some((e) => e.from_scan) ? [`${key}|scan`] : [])];
   if (held.some((h) => filingFlags.has(h)))
-    throw err(409, v.elements.some((e) => e.from_scan) ? "a terrain from this scan is being filed - try again when it ends" : "a stair from this flag is being filed - try again when it ends");
+    throw err(409, v.elements.some((e) => e.from_scan) ? "a terrain on this project is being filed - try again when it ends" : "a stair from this flag is being filed - try again when it ends");
   for (const h of held) filingFlags.add(h);
   try { return await fileValidatedInner(d, key, v, body, actor); } finally { for (const h of held) filingFlags.delete(h); }
 }
@@ -697,8 +699,21 @@ export async function scanOverlay(key, id, deps = {}, { flag = null, ground = fa
   return { changeset: { id: cs.id, name: cs.name }, job: cs.job.id, ledger_id: row.ledger.id, version: r.version ?? null, cell_mm: c.cell_mm, z_mm: band, of: exactCrop ? c.of : null,
     ...(ground ? { ground: true, level: cut.level, footprint: cut.footprint } : {}),
     ...(fl ? { flag: fl.unique_id } : {}), ...(exactCrop ? {} : { crop: "axis-aligned square of a turned frame" }),
-    // MA-8-14: a ground point rounded onto or into the footprint is dropped (more than 1 mm outside it stays), or the terrain's own check refuses them all
-    points: lowestApart(r.result.points.map(([x, y, z]) => [...M.xy([x, y]), M.z(z)].map(Math.round)).filter((p) => inBox(p) && (!cut || beyond(cut.footprint, p, 1))), !!cut) };
+    // MA-8-14: a ground point rounded onto or into the footprint is dropped (more than 1 mm outside it stays), or the terrain's own check refuses them all;
+    // review round 2: so is one rounded out of the band (a fractional band floor: the read keeps z >= it, whole mm can land under it)
+    points: lowestApart(r.result.points.map(([x, y, z]) => [...M.xy([x, y]), M.z(z)].map(Math.round))
+      .filter((p) => inBox(p) && (!cut || (beyond(cut.footprint, p, 1) && p[2] >= cut.band[0] && p[2] <= cut.band[1]))), !!cut) };
+}
+
+/** MA-8-14 review round 2: GET /changesets/:key/:id/scan's query - ?flag=<a stair flag's unique_id> (1 to 64 characters, MA-8-9) or ?ground=1 (MA-8-14), never both;
+ *  anything else is a 400 in words (never the whole scan for a ground ask). → scanOverlay's options. */
+export function scanQuery(q) {
+  const flag = q.get("flag");
+  if (flag != null && (flag === "" || flag.length > 64)) throw err(400, "flag must be a stair flag's unique_id (1 to 64 characters)");
+  const ground = q.get("ground") === "1";
+  if (q.has("ground") && !ground) throw err(400, "ground must be 1 — send ?ground=1; nothing was read");
+  if (ground && flag != null) throw err(400, "ground and flag are two different cuts of the scan — send one");
+  return { ...(flag != null ? { flag } : {}), ...(ground ? { ground } : {}) };
 }
 
 /** MA-8-14 review round 1: the ground points with none within 1 mm of another in plan (the lower kept) - two cells' lowest points either side of a cell edge can

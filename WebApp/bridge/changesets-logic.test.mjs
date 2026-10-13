@@ -1754,6 +1754,18 @@ describe("checkFromScan (MA-8-14): the survey changeset a terrain starts from", 
     fails(() => checkFromScan(terrain(), [survey(), built("applied")], [row(1, "undo"), row(2, "redo")]), 409, /undo it in Revit first/);   // the newest row decides
     expect(() => checkFromScan(terrain(), [survey(), built("applied", ["x"])])).not.toThrow();
   });
+  it("MA-8-14 review round 2: one terrain per scan, not per changeset - another job's survey changeset sharing an evidence sha (a re-run), or another storey of the same job, holds it", () => {
+    const ev = (sha) => [{ id: "ev-scan", sha256: sha }];
+    const mine = survey({ job: { id: "job-0004", ledger_id: 52, reader: "sentinel-survey 0.6.0", evidence: ev("aa") } });
+    const t = { ...terrain()[0], proposal_guid: "g1", from_scan: { changeset: "first" } };
+    const first = (job, over = {}) => ({ id: "first", name: "Survey job-0003 · GR-FFL (job-0003)", status: "proposed", claimed: false, job: { reader: "sentinel-survey 0.6.0", ...job }, elements: [], ...over });
+    const filed = (status) => ({ id: "other", name: "Terrain · L00 · from job-0003", status, elements: [t], result: { applied: [{ proposal_guid: "g1" }] } });
+    fails(() => checkFromScan(terrain(), [mine, first({ id: "job-0003", ledger_id: 41, evidence: ev("aa") }), filed("proposed")]), 409, /is already filed \("Terrain · L00 · from job-0003"\) — withdraw it first/);
+    fails(() => checkFromScan(terrain(), [mine, first({ id: "job-0003", ledger_id: 41, evidence: ev("aa") }), filed("applied")]), 409, /is already built as "Terrain · L00 · from job-0003" \(applied\) — undo it in Revit first/);
+    fails(() => checkFromScan(terrain(), [mine, first({ id: "job-0004", ledger_id: 52 }), filed("proposed")]), 409, /withdraw it first/);   // the same job, another storey
+    expect(() => checkFromScan(terrain(), [mine, first({ id: "job-0003", ledger_id: 41, evidence: ev("bb") }), filed("proposed")])).not.toThrow();   // other bytes: another scan
+    expect(() => checkFromScan(terrain(), [mine, first({ id: "job-0003", ledger_id: 41, evidence: [{ id: "ev-scan" }] }), filed("proposed")])).not.toThrow();   // no sha: not matched
+  });
   it("404: the project holds no such changeset", () => {
     fails(() => checkFromScan(terrain(), []), 404, /^elements\[0\]: from_scan names changeset 5b1c6f3e-2a4d-4e8f-9c1a-7d2e3f4a5b6c, which this project does not hold — nothing was saved$/);
   });

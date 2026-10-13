@@ -28,6 +28,11 @@ namespace Sentinel.GhostBuilder
         public const int MinPoints = 3, MaxPoints = 2000;
         /// <summary>The bridge's ground cell (survey-plan GROUND_CELL_MM); a wider one means the cell doubled to stay under <see cref="MaxPoints"/>.</summary>
         public const int BaseCellMm = 500;
+        /// <summary>Review round 2: the bridge's span bound (changesets-logic MAX_TERRAIN_SPAN_MM) - points wider than this in plan are refused at filing, so the plan holds them first.</summary>
+        public const double MaxSpanMm = 500000;
+        /// <summary>Review round 2 (D-B5-9, said): what Revit builds beyond the scan's points - the hole is the walls' box, not the walls, and CreateTerrain adds rim points.
+        /// In the reason, the plan's line and the review row.</summary>
+        public const string Shape = "the hole is the walls' box plus 1 m (a notch or courtyard inside it gets no ground); rim points at the nearest ground point's height line both edges";
         /// <summary>The refusal at Apply (and on the review row) on a Revit before 2024 - which has no Toposolid. Nothing was placed.</summary>
         public const string OldRevit = "a terrain is a Toposolid — Revit 2024 and later; this Revit cannot apply it; nothing was placed";
         /// <summary>The refusal at Propose on a Revit before 2024.</summary>
@@ -48,11 +53,14 @@ namespace Sentinel.GhostBuilder
             int n = points?.Length ?? 0;
             if (n < MinPoints) return Hold($"{n} ground point(s) outside the walls of {level} in the scan — a surface needs at least {MinPoints}; a person decides");
             if (n > MaxPoints) return Hold($"{n} ground points — a terrain takes at most {MaxPoints}; a person decides");
+            // review round 2: the bridge's span bound, said here before the filing refuses it (the span as the bridge measures it: the wider of the x and y ranges)
+            double span = Math.Max(points.Max(p => p[0]) - points.Min(p => p[0]), points.Max(p => p[1]) - points.Min(p => p[1]));
+            if (span > MaxSpanMm) return Hold($"the ground spans {Math.Round(span / 1000)} m in plan — a terrain is at most {MaxSpanMm / 1000} m across; a person decides");
             string name = $"Terrain · {level}";
             // review: say what the read does not see - the cell it kept one point per, the band it cut to, and the walls' box it left out
             string widened = cellMm > BaseCellMm && of != null ? $" (widened from {BaseCellMm} mm, which kept {of})" : "";
             string band = zMm is { Length: 2 } ? $", between {Mm(zMm[0])} and {Mm(zMm[1])} mm (5 m under to 1.5 m over {level}'s floor; ground outside that band is not read)" : "";
-            string reason = $"{n} ground points, lowest per {cellMm} mm cell{widened}{band}, outside the storey's walls, from {jobId} — check it against the site survey";
+            string reason = $"{n} ground points, lowest per {cellMm} mm cell{widened}{band}, outside the storey's walls, from {jobId}; {Shape} — check it against the site survey";
             var place = new Dictionary<string, object> { ["LevelName"] = level };
             if (!string.IsNullOrWhiteSpace(rule.Value.Family)) place["FamilyName"] = rule.Value.Family;
             place["TypeName"] = rule.Value.Type;
@@ -70,7 +78,7 @@ namespace Sentinel.GhostBuilder
             {
                 Body = new { name = $"{name} · from {csName}", source = "promote", actor, elements = new[] { element } },
                 Points = n,
-                Line = $"{n} ground points on {level} outside the walls, lowest per {cellMm} mm cell{widened}{(zMm is { Length: 2 } ? $", {Mm(zMm[0])} to {Mm(zMm[1])} mm" : "")}, {rule.Value.Type} ({rule.Value.Source}), from {jobId}",
+                Line = $"{n} ground points on {level} outside the walls, lowest per {cellMm} mm cell{widened}{(zMm is { Length: 2 } ? $", {Mm(zMm[0])} to {Mm(zMm[1])} mm" : "")}, {rule.Value.Type} ({rule.Value.Source}), from {jobId}; {Shape}",
             };
         }
 
@@ -109,6 +117,7 @@ namespace Sentinel.GhostBuilder
 
         /// <summary>The line the review window reads beside a terrain row.</summary>
         public static string RowWords(int points, bool supported) =>
-            $"Toposolid from {points} ground points the add-in read off the scan (not re-measured) — check it against the site survey" + (supported ? "" : " — " + OldRevit);
+            // review round 2: only what the bridge checks is claimed (as the desk) - a member's filing, not "read off the scan"
+            $"Toposolid from {points} ground points filed by a signed-in member from the survey changeset (the bridge checked its level, footprint and height band, not the points; not re-measured); {Shape} — check it against the site survey" + (supported ? "" : " — " + OldRevit);
     }
 }

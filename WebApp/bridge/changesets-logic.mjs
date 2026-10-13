@@ -809,14 +809,16 @@ export function checkFromScan(elements, earlier, reverted = []) {
     if (!cs) throw err(404, `${at}: from_scan names changeset ${f.changeset}, which this project does not hold — nothing was saved`);
     if (!cs.job || cs.claimed !== false || !String(cs.job.reader ?? "").startsWith("sentinel-survey "))
       throw err(400, `${at}: changeset "${cs.name}" was not built from a survey job the bridge ran — there is no scan behind a terrain from it; nothing was saved`);
+    // MA-8-14 review round 2: a terrain from the same scan, not the same changeset - another storey of the job, or another job's survey changeset on the same scan bytes
+    const onScan = (o) => o.kind === "terrain" && o.from_scan && sameScan(cs, (earlier ?? []).find((c) => c.id === o.from_scan.changeset) ?? { id: o.from_scan.changeset });
     // MA-8-14 review: one live terrain per scan - a second press (or a retry after a slow reply) would stand two Toposolids on each other
-    const twin = (earlier ?? []).find((c) => c.status === "proposed" && (c.elements ?? []).some((o) => o.kind === "terrain" && o.from_scan?.changeset === f.changeset));
+    const twin = (earlier ?? []).find((c) => c.status === "proposed" && (c.elements ?? []).some(onScan));
     if (twin) throw err(409, `${at}: a terrain from "${cs.name}"'s scan is already filed ("${twin.name}") — withdraw it first; nothing was saved`);
     // MA-8-14 review round 1: an applied one still standing holds the scan too (its newest changeset_reverted row for the guid is not an undo), as a stair's flag
     for (const other of earlier ?? []) {
       if (other.status !== "applied" && other.status !== "partially_applied") continue;
       for (const o of other.elements ?? []) {
-        if (o.kind !== "terrain" || o.from_scan?.changeset !== f.changeset) continue;
+        if (!onScan(o)) continue;
         if (!(other.result?.applied ?? []).some((a) => (a?.proposal_guid ?? a) === o.proposal_guid)) continue; // the terrain was not the part applied
         const last = rows.find((y) => y.entity_id === other.id && (y.new_value?.guids ?? []).includes(o.proposal_guid));
         if (last?.new_value?.op !== "undo")
@@ -825,6 +827,10 @@ export function checkFromScan(elements, earlier, reverted = []) {
     }
   }
 }
+/** MA-8-14 review round 2: two survey changesets read the same scan - the same changeset, the same job (its ledger row), or a job of the same evidence (an id and sha256
+ *  in both): a survey re-run (a new planner version) files the scan's walls again under a new job, and its terrain would stand on the first. */
+const sameScan = (a, b) => a.id === b.id || (a.job?.ledger_id != null && a.job.ledger_id === b.job?.ledger_id)
+  || (a.job?.evidence ?? []).some((e) => e?.sha256 && (b.job?.evidence ?? []).some((x) => x?.id === e.id && x?.sha256 === e.sha256));
 
 /** MA-8-10: what Revit says it built for a stair - field by field, anything else is null. Revit's read, kept for the ledger; the bridge does not
  *  judge it. A reader that is not a signed-in member's (the machine credential: the bridge cannot tell the add-in from any holder of the
