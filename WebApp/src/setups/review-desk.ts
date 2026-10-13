@@ -493,6 +493,15 @@ export function measuredView(data: Awaited<ReturnType<typeof readMeasuredRecent>
   return { notes, items };
 }
 
+/** MA-8 nits (F-B3-4): the placed survey changesets older than the DECIDED_MAX newest reports with no verify:measured row in the read above — the
+ *  decided list shows no Measure for them, so "Measured against the scan" does. From the desk's own list (readDecided, every reported changeset): no new
+ *  route. A drawing's or an IFC's never (isDrawn: MA-5a-4 / MA-6-8). [] when the measures were not read — never a guess. Pure. */
+export function unmeasuredOlder(decided: PendingChangeset[], measured: Awaited<ReturnType<typeof readMeasuredRecent>> | Error): PendingChangeset[] {
+  if (measured instanceof Error) return [];
+  const seen = new Set(measured.items.map((m) => m.id));
+  return decided.slice(DECIDED_MAX).filter((cs) => !!cs.job && !isDrawn(cs) && (cs.status === "applied" || cs.status === "partially_applied") && !seen.has(cs.id));
+}
+
 /** Who sees Measure on a report: a placed survey changeset (its job; applied or partially), a signed-in contributor or above (never the
  *  machine credential), not undone in Revit since (its newest changeset_reverted row). The bridge holds the same rules. Pure. */
 export const canMeasure = (cs: PendingChangeset, role: string, rows: LedgerRows | null | Error): boolean =>
@@ -736,6 +745,18 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
   };
   let seq = 0;
 
+  // MA-4e: Measure — one press, one run (the service may start cold). MA-8 nits (F-B3-4): shared by a report and an older never-measured changeset.
+  const measureBtn = (id: string, label: string): HTMLElement => {
+    const go = btn(label, async () => {
+      if (go.disabled) return;
+      go.disabled = true; go.textContent = "Measuring…";
+      try { say(measureLine(await postMeasure(base, activePid(), id))); }
+      catch (e) { say(`Not measured — ${(e as Error).message}`, true); }
+      void show();
+    });
+    return go;
+  };
+
   // MA-3b2b: what Revit reported, under the proposed list. Every node is made by el() — textContent, never markup (C13).
   const recent = (decided: PendingChangeset[] | Error, ledger: Map<string, LedgerRows> | Error, role: string, verified: Map<string, VerifyRecord | Error | null>): HTMLElement => {
     const box = el("div", "", "margin-top:.9rem;border-top:1px solid #2a2a30;padding-top:.5rem");
@@ -762,14 +783,7 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
           for (const m of mv.lines) one.append(el("div", m.line), el("div", m.words, "color:#8b93a1;font-size:11px"));
         }
         if (canMeasure(cs, role, ledger instanceof Error ? ledger : ledger.get(cs.id) ?? null)) {
-          const go = btn(mv?.lines.length ? "Measure again" : "Measure against the scan", async () => {
-            if (go.disabled) return;
-            go.disabled = true; go.textContent = "Measuring…";
-            try { say(measureLine(await postMeasure(base, activePid(), cs.id))); }
-            catch (e) { say(`Not measured — ${(e as Error).message}`, true); }
-            void show();
-          });
-          one.append(go);
+          one.append(measureBtn(cs.id, mv?.lines.length ? "Measure again" : "Measure against the scan"));
         }
       }
       box.append(one);
@@ -778,13 +792,24 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
   };
 
   // MA-8-5c: the measured changesets the decided list above does not show (older than its newest DECIDED_MAX). textContent only; nothing to say = no box.
-  const measuredBox = (data: Awaited<ReturnType<typeof readMeasuredRecent>> | Error, byId: Map<string, PendingChangeset>): HTMLElement | null => {
-    const v = measuredView(data, byId);
-    if (!v) return null;
+  const measuredBox = (data: Awaited<ReturnType<typeof readMeasuredRecent>> | Error, byId: Map<string, PendingChangeset>, decided: PendingChangeset[], role: string): HTMLElement | null => {
+    const v = measuredView(data, byId), older = unmeasuredOlder(decided, data);
+    if (!v && !older.length) return null;
     const box = el("div", "", "margin-top:.9rem;border-top:1px solid #2a2a30;padding-top:.5rem");
     box.append(el("div", "Measured against the scan", "font-weight:600"));
-    for (const n of v.notes) box.append(el("div", n.text, `color:${n.warn ? "#fca5a5" : "#8b93a1"}`));
-    for (const m of v.items) {
+    // MA-8 nits (F-B3-4): an older placed survey changeset with no measure gets Measure here (the ledger's Undo rows are the bridge's to read: canMeasure with none)
+    if (older.length) {
+      const capped = !(data instanceof Error) && data.capped;
+      box.append(el("div", `Placed and never measured (older than the newest ${DECIDED_MAX} reports${capped ? `; a measure older than the newest ${MEASURED_MAX} is not seen here` : ""}):`, "color:#8b93a1"));
+      for (const cs of older) {
+        const row = el("div", "", "display:flex;flex-wrap:wrap;gap:.4rem;align-items:center;padding:.15rem 0");
+        row.append(el("span", cs.name || cs.id));
+        if (canMeasure(cs, role, null)) row.append(measureBtn(cs.id, "Measure against the scan"));
+        box.append(row);
+      }
+    }
+    for (const n of v?.notes ?? []) box.append(el("div", n.text, `color:${n.warn ? "#fca5a5" : "#8b93a1"}`));
+    for (const m of v?.items ?? []) {
       const one = el("details", "", "margin:.4rem 0;border:1px solid #2a2a30;border-radius:.35rem;padding:.3rem .5rem");
       one.append(el("summary", m.summary, "cursor:pointer"));
       if (m.head) one.append(el("div", m.head, "margin:.3rem 0 .1rem;color:#8b93a1"));
@@ -896,7 +921,7 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
     // Review C4: built once, and a throw in it is said — it never leaves the desk at "Reading…" or takes the proposed list with it.
     let tail: HTMLElement;
     try { tail = recent(decided, ledger, role.role, verified); } catch (e) { tail = el("div", `Reports not shown — ${(e as Error).message}`, "color:#fca5a5"); }
-    try { const mb = measuredBox(measuredAll, new Map(decided instanceof Error ? [] : decided.map((c) => [c.id, c]))); if (mb) tail.append(mb); } catch (e) { tail.append(el("div", `Measures not shown — ${(e as Error).message}`, "color:#fca5a5")); }
+    try { const mb = measuredBox(measuredAll, new Map(decided instanceof Error ? [] : decided.map((c) => [c.id, c])), decided instanceof Error ? [] : decided, role.role); if (mb) tail.append(mb); } catch (e) { tail.append(el("div", `Measures not shown — ${(e as Error).message}`, "color:#fca5a5")); }
     try { tail.append(editCostBox(cost, role.role, !(recipes instanceof Error) && recipes.office != null)); } catch (e) { tail.append(el("div", `Edit cost not shown — ${(e as Error).message}`, "color:#fca5a5")); }
     try { tail.append(recipesBox(recipes, role.role)); } catch (e) { tail.append(el("div", `Recipes not shown — ${(e as Error).message}`, "color:#fca5a5")); }
     bar.replaceChildren(el("b", `Review desk · ${key}`), el("span", roleWords(role), "color:#8b93a1"), btn("↻ Refresh", () => void show()));

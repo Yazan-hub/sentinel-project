@@ -11,7 +11,7 @@ vi.mock("./active-project", () => ({ activePid: () => "demo", onActiveProjectCha
 import { heldLines, proposalWords, storeyOf, groupDesk, ghostLine, reviewWords, declinedBy, canDecide, canReopen, readPending, postReview, postReopen, rowWords, postsFor, type PendingChangeset,
   trustWords, sourceWords, isDrawn,
   readDecided, readLedger, highlightPlan, type Ghost, decidedView, decidedCount, DECIDED_MAX, type LedgerRows,
-  measureWords, verifiedView, readVerified, readMeasuredRecent, measuredView, MEASURED_MAX, postMeasure, measureLine, canMeasure, countWords, editCostLine, keptWords, readEditCost, type EditCostRun, type VerifyRecord, type Measured } from "./review-desk";
+  measureWords, verifiedView, readVerified, readMeasuredRecent, measuredView, MEASURED_MAX, postMeasure, measureLine, canMeasure, unmeasuredOlder, countWords, editCostLine, keptWords, readEditCost, type EditCostRun, type VerifyRecord, type Measured } from "./review-desk";
 
 import { recipeLine, draftWords, approveWords, readRecipes, postRecipeDraft, postRecipeApprove, postRecipeWithdraw, type RecipeRow } from "./review-desk";
 
@@ -594,6 +594,26 @@ describe("measured against the scan (MA-4e)", () => {
     expect(canMeasure(cs, "contributor", new Error("not read"))).toBe(true); // the bridge reads the Undo rows itself
     expect([canMeasure({ ...cs, job: null }, "lead", null), canMeasure({ ...cs, status: "declined" }, "lead", null)]).toEqual([false, false]);
   });
+  it("F-B3-4: an 11th placed survey changeset never measured gets Measure under \"Measured against the scan\"; a drawing's or an IFC's never does; one measured, declined or in the newest 10 is not listed", () => {
+    const cs = (i: number, over: Partial<PendingChangeset> = {}) => ({ id: `cs-${i}`, name: `Survey job-0002 · S${i}`, source: "s", status: "applied", created_at: "", elements: [],
+      job: { id: "job-0002", ledger_id: 2201, reader: "sentinel-survey 0.6.0" }, ...over }) as PendingChangeset;
+    const newest = Array.from({ length: DECIDED_MAX }, (_, i) => cs(i));
+    const decided = [...newest, cs(10), cs(11, { status: "partially_applied" }), cs(12, { job: { id: "job-0004", ledger_id: 2202, reader: "sentinel-drawing 0.2.0" } } as Partial<PendingChangeset>),
+      cs(13, { job: { id: "job-0007", ledger_id: 3301, reader: "sentinel-ifc 0.2.0" } } as Partial<PendingChangeset>), cs(14), cs(15, { status: "declined" }), cs(16, { job: null } as Partial<PendingChangeset>)];
+    const rec = { id: 1, at: "", actor: "", status: "done", elements: [] } as unknown as VerifyRecord;
+    const measured = { items: [{ id: "cs-14", name: "n", rec }], capped: false };
+    const older = unmeasuredOlder(decided, measured);
+    expect(older.map((c) => c.id)).toEqual(["cs-10", "cs-11"]);
+    expect(older.map((c) => canMeasure(c, "contributor", null))).toEqual([true, true]);   // the button
+    expect(canMeasure(decided[12], "lead", null) || canMeasure(decided[13], "lead", null)).toBe(false);   // MA-5a-4 / MA-6-8: never a drawing's or an IFC's
+    expect(unmeasuredOlder(newest, measured)).toEqual([]);   // the newest 10 have their own Measure
+    expect(unmeasuredOlder(decided, new Error("not read — down"))).toEqual([]);   // never a guess
+    const src = readFileSync(new URL("./review-desk.ts", import.meta.url), "utf8");
+    expect(src).toContain("const v = measuredView(data, byId), older = unmeasuredOlder(decided, data);");
+    expect(src).toContain('if (canMeasure(cs, role, null)) row.append(measureBtn(cs.id, "Measure against the scan"));');
+    expect(src).toContain("Placed and never measured (older than the newest ${DECIDED_MAX} reports");
+    expect(src).toContain("decided instanceof Error ? [] : decided, role.role); if (mb) tail.append(mb);");
+  });
   it("the desk reads the newest measure after the ledger rows, and Measure sits behind canMeasure with one press, one run (source scan)", () => {
     const src = readFileSync(new URL("./review-desk.ts", import.meta.url), "utf8");
     expect(src).toContain("const verified = decided instanceof Error ? new Map<string, VerifyRecord | Error | null>() : await readVerified(base, key, decided.slice(0, DECIDED_MAX).filter((c) => c.job && !isDrawn(c)).map((c) => c.id));");
@@ -686,7 +706,7 @@ describe("recipes (MA-8-13, D13)", () => {
     expect(recipeLine(row({ scope: "office" }))).toContain("recipe@1 · office ·");
     expect(recipeLine(row({ body: { ...body, verified: { ...body.verified, edit_cost: { ...body.verified.edit_cost, share_changed: null } } } }))).not.toContain("% changed");
     // MA-8 nits (F-B5-2): the drill's run, in the same words as the run line
-    expect(recipeLine(row({ body: { ...body, verified: { ...body.verified, edit_cost: { filed: 14, web: 10, carried: 0, revit: 2, applied: 2, undone: 1, kept: 1, withdrawn: 0, share_changed: 13 / 14 } } } })))
+    expect(recipeLine(row({ body: { ...body, verified: { ...body.verified, edit_cost: { filed: 14, web: 10, carried: 0, revit: 2, undone: 1, kept: 1, share_changed: 13 / 14 } } } })))
       .toContain("job-0013: 1 of 14 kept as filed (13 not kept) · ");
   });
   it("the words after a draft and after an approval", () => {
