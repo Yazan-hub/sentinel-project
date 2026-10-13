@@ -1,6 +1,6 @@
 {
   "_": "MA-7-1: licences read from each package's own dist-info / nuget page. A row moves with its pin (version mismatch = unknown). Every new download adds its row here.",
-  "python_runtime": ["python", "numpy", "pillow"],
+  "python_runtime": ["python", "numpy", "pillow", "onnxruntime"],
   "python": {
     "python": { "version": "", "licence": "PSF-2.0" },
     "numpy": { "version": "", "licence": "BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0" },
@@ -14,6 +14,10 @@
         { "name": "libpng", "version": "1.6.58", "licence": "libpng-2.0" }, { "name": "zlib", "version": "2.3.3", "licence": "Zlib" },
         { "name": "brotli", "version": "1.2.0", "licence": "MIT" }, { "name": "xz", "version": "5.8.3", "licence": "0BSD" }
       ]
+    },
+    "onnxruntime": {
+      "version": "1.26.0", "licence": "MIT",
+      "carries": [{ "name": "Eigen", "licence": "MPL-2.0" }, { "name": "Intel MKL (named in ThirdPartyNotices.txt)", "licence": "Intel Simplified Software License" }]
     },
     "laspy": { "version": "2.7.0", "licence": "BSD-2-Clause" },
     "lazrs": { "version": "0.8.2", "licence": "MIT", "carries": [{ "name": "laz", "version": "0.12.2", "licence": "Apache-2.0" }] },
@@ -31,6 +35,7 @@
     "Nice3point.Revit.Api.RevitAPIUI": { "licence": "compile-time reference assemblies of Autodesk's Revit API (not shipped)" }
   },
   "pending": {
+    "Intel MKL (named in ThirdPartyNotices.txt)": { "read": "Intel Simplified Software License: named in onnxruntime 1.26.0's notices, no MKL library is in the CPU wheel; the founder confirms", "decision": "D-7-16" },
     "@markerjs/markerjs3": { "read": "SEE LICENSE IN LICENSE (Linkware: show its credit link, buy, or drop it; imported in src/main.ts only)", "decision": "D-7-16" },
     "fast-sha256": { "read": "Unlicense: accept, or swap for Web Crypto", "decision": "D-7-16" },
     "duck": { "read": "BSD: read its text", "decision": "D-7-16" },
@@ -38,6 +43,7 @@
     "Nice3point.Revit.Api.RevitAPIUI": { "read": "compile-only reference assemblies, not shipped", "decision": "D-7-16" }
   },
   "accepted": {
+    "onnxruntime": "MIT (its LICENSE); ThirdPartyNotices.txt read for MA-7-16: no GPL/LGPL part, Eigen is MPL-2.0 (file-level copyleft, unmodified), Intel MKL is named in the notices but the CPU wheel ships only onnxruntime.dll and onnxruntime_providers_shared.dll",
     "pillow": "MIT-CMU: the founder OK'd it 2026-10-13 (D-7-2); the wheel's licence file was read for MA-7-7 and no GPL-only part is in process",
     "FreeType": "FTL (BSD-style, credit required), the licence Pillow's wheel uses it under rather than the GPLv2 alternative; read in pillow-12.3.0.dist-info/licenses/LICENSE (MA-7-7)",
     "libjpeg-turbo": "IJG AND BSD-3-Clause: permissive, credit required; read in Pillow's licence file (MA-7-7)",

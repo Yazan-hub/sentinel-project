@@ -23,18 +23,37 @@ export function blurNotSetUp({ python = pythonPath(), script = BLUR_SCRIPT } = {
 /** Run sentinel-blur (survey/blur.py) on `src`, writing `dst` (`shown`: {w, h} the marker showed, or undefined); → its answer {width, height, areas, version, tools}. The child gets an allow-listed
  *  environment (config/.env is merged into process.env — a plain spawn would hand it every secret), no shell, no network use, and is killed at
  *  BLUR_MS. A 422 in words when the file is not an image; a 503 when the tool is not set up; the child's stderr goes to the log only. */
-export function runBlur(src, dst, boxes, shown, { python = pythonPath(), script = BLUR_SCRIPT, env = process.env, execFileFn = execFile, ms = BLUR_MS } = {}) {
+export function runBlur(src, dst, boxes, shown, { python = pythonPath(), script = BLUR_SCRIPT, env = process.env, execFileFn = execFile, ms = BLUR_MS, detected = false } = {}) {
   const off = blurNotSetUp({ python, script });
   if (off) return Promise.reject(Object.assign(new Error(off), { status: 503 }));
   const childEnv = Object.fromEntries(Object.entries({ SYSTEMROOT: env.SYSTEMROOT ?? env.SystemRoot, APPDATA: env.APPDATA, TEMP: env.TEMP, TMP: env.TMP }).filter(([, v]) => v));
   return new Promise((ok, no) => {
-    execFileFn(python, ["-B", script, src, dst, JSON.stringify(boxes), ...(shown ? [`${shown.w}x${shown.h}`] : [])], { env: childEnv, timeout: ms, windowsHide: true, maxBuffer: 64 * 1024 }, (e, stdout, stderr) => {
+    execFileFn(python, ["-B", script, src, dst, JSON.stringify(boxes), ...(shown ? [`${shown.w}x${shown.h}`] : []), ...(detected ? ["--detected"] : [])], { env: childEnv, timeout: ms, windowsHide: true, maxBuffer: 64 * 1024 }, (e, stdout, stderr) => {
       let r = null;
       try { r = JSON.parse(String(stdout).trim().split("\n").pop()); } catch { /* not JSON: the tool died */ }
       if (r?.ok) return ok(r);
       if (r && r.ok === false) return no(Object.assign(new Error(`this photo could not be blurred (${String(r.error).slice(0, 160)}) — nothing was saved`), { status: 422 }));
       if (stderr) console.warn(`[blur] ${String(stderr).trim().slice(-600)}`);
       no(Object.assign(new Error(e?.killed ? "the blur tool took too long and was stopped — nothing was saved" : "the blur tool failed — nothing was saved"), { status: 500 }));
+    });
+  });
+}
+
+/** MA-7-16: ask sentinel-blur (`--detect`) for face boxes in `src`; → {width, height, faces: [{x, y, w, h, score}], source_sha256, method: "detector+person", version, tools}. A proposal only:
+ *  nothing is written, and the person confirms, removes and adds boxes (plates are theirs) before runBlur. The model is found by path (USERPROFILE is handed to the child for that,
+ *  nothing else) and checked by sha256 inside the tool; a 503 in words when it is missing or not the approved file, so the person marks by hand. */
+export function runDetect(src, { python = pythonPath(), script = BLUR_SCRIPT, env = process.env, execFileFn = execFile, ms = BLUR_MS } = {}) {
+  const off = blurNotSetUp({ python, script });
+  if (off) return Promise.reject(Object.assign(new Error(off.replace("the blur tool", "the face detector").replace("nothing was saved", "nothing was proposed")), { status: 503 }));
+  const childEnv = Object.fromEntries(Object.entries({ SYSTEMROOT: env.SYSTEMROOT ?? env.SystemRoot, APPDATA: env.APPDATA, TEMP: env.TEMP, TMP: env.TMP, USERPROFILE: env.USERPROFILE }).filter(([, v]) => v));
+  return new Promise((ok, no) => {
+    execFileFn(python, ["-B", script, "--detect", src], { env: childEnv, timeout: ms, windowsHide: true, maxBuffer: 256 * 1024 }, (e, stdout, stderr) => {
+      let r = null;
+      try { r = JSON.parse(String(stdout).trim().split("\n").pop()); } catch { /* not JSON: the tool died */ }
+      if (r?.ok && Array.isArray(r.faces)) return ok(r);
+      if (r && r.ok === false) return no(Object.assign(new Error(String(r.error).slice(0, 160)), { status: /not set up|approved/.test(String(r.error)) ? 503 : 422 }));
+      if (stderr) console.warn(`[blur --detect] ${String(stderr).trim().slice(-600)}`);
+      no(Object.assign(new Error(e?.killed ? "the face detector took too long and was stopped — nothing was proposed" : "the face detector failed — nothing was proposed"), { status: 500 }));
     });
   });
 }

@@ -407,7 +407,7 @@ export async function makeViewCopy(key, packId, itemId, b = {}, deps = {}) {
   const d = await wire(deps);
   if ((await d.myRole(key)) === "service") throw err(403, "a blurred copy needs a person — it names who marked the faces and number plates: sign in. Nothing was saved.");
   const proj = await officeProject(d, key, "contributor");
-  const { boxes, none_seen, shown } = L.readBoxes(b);
+  const { boxes, none_seen, shown, detected } = L.readBoxes(b);
   d.takeWriteBudget("evidence blurred copies", { perUser: 20, all: 60 });
   if (admitting.has(key)) throw err(409, `an admission to ${key} is already running — try again when it ends; nothing was saved`);
   admitting.add(key);
@@ -426,20 +426,20 @@ export async function makeViewCopy(key, packId, itemId, b = {}, deps = {}) {
     const outDir = join(dir, ".sentinel", "view");
     mkdirSync(outDir, { recursive: true });
     dst = join(outDir, `${itemId}.jpg`);
-    const r = await deps.blur(full, dst, boxes.map(({ what: _w, ...xywh }) => xywh), shown);
+    const r = await deps.blur(full, dst, boxes.map(({ what: _w, ...xywh }) => xywh), shown, ...(detected ? [{ detected: true }] : [])); // MA-7-16
     made = true;
     if (!r || r.areas !== boxes.length || !Number.isSafeInteger(r.width) || !Number.isSafeInteger(r.height)) throw err(500, "the blur tool answered wrongly — nothing was saved");
     if (r.source_sha256 !== item.sha256) throw err(409, `${item.path} changed after it was admitted and before it was blurred — Re-check, and put the same file back; nothing was saved`); // the tool hashes the bytes it decoded
     const copy = await hashFile(dst);
     const faces = boxes.filter((x) => x.what === "face").length;
-    const tool = `sentinel-blur ${String(r.version ?? "").slice(0, 20)}`;
+    const tool = `sentinel-blur ${String(r.version ?? "").slice(0, 20)}`, method = detected ? "detector+person" : "person-marked"; // MA-7-16
     const vc = { sha256: copy.sha256, size_bytes: copy.size_bytes, width: r.width, height: r.height, areas: boxes.length, faces, plates: boxes.length - faces,
-      ...(none_seen ? { none_seen: true } : {}), method: "person-marked", marked_by: who, marked_at: d.now(), tool };
+      ...(none_seen ? { none_seen: true } : {}), method, marked_by: who, marked_at: d.now(), tool };
     const next = { ...item, view_copy: vc };
     const pointer = await fold(d, key, { ...pack, items: pack.items.map((i) => (i === item ? next : i)) }, version, who);
     made = false; // the pack names the file now
     const tools = (Array.isArray(r.tools) ? r.tools : []).slice(0, 30).map((t) => ({ name: String(t.name).slice(0, 100), version: String(t.version ?? "").slice(0, 40), licence: String(t.licence ?? "").slice(0, 100) }));
-    const ledger = await row(d, proj, "evidence", `evidence:blurred ${itemId} · ${vc.areas} area(s) · person-marked`, who, L.blurredValue(packId, next, { ...vc, tools }, pointer.version));
+    const ledger = await row(d, proj, "evidence", `evidence:blurred ${itemId} · ${vc.areas} area(s) · ${method}`, who, L.blurredValue(packId, next, { ...vc, tools }, pointer.version));
     return { item: next, copy: vc, pack_version: pointer.version, ledger };
   } catch (e) {
     if (made && dst) try { d.unlink(dst); } catch { /* the sweep or the next try replaces it */ } // a copy no pack names is not left behind

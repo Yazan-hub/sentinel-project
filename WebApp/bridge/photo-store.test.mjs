@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runBlur, sendBytes, blurNotSetUp, BLUR_SCRIPT } from "./photo-store.mjs";
+import { runBlur, runDetect, sendBytes, blurNotSetUp, BLUR_SCRIPT } from "./photo-store.mjs";
 import { DEFAULT_PYTHON } from "./survey-service.mjs";
 
 const PY = process.env.SENTINEL_PYTHON || DEFAULT_PYTHON;
@@ -24,6 +24,20 @@ describe("runBlur (MA-7-7)", () => {
     expect(stub.seen.opts).toMatchObject({ windowsHide: true, timeout: 60_000, env: { SYSTEMROOT: "C:\\Windows", APPDATA: "C:\\a", TEMP: "C:\\t", TMP: "C:\\t" } });
     expect(Object.keys(stub.seen.opts.env)).toHaveLength(4);
     expect(stub.seen.opts.shell).toBeUndefined();
+  });
+
+  it("MA-7-16 runDetect: --detect with USERPROFILE (and no secret) handed over; the tool's answer back; a missing model is a 503 in words; a dead child a 500", async () => {
+    const det = { ok: true, width: 10, height: 8, faces: [{ x: 0.1, y: 0.1, w: 0.2, h: 0.2, score: 0.9 }], method: "detector+person", version: "0.1.0", tools: [] };
+    const env = { SYSTEMROOT: "C:/Windows", USERPROFILE: "C:/Users/u", SUPABASE_SERVICE_KEY: "secret" };
+    expect(await runDetect("in.jpg", { ...here, env, execFileFn: stub(JSON.stringify(det)) })).toEqual(det);
+    expect(stub.seen.args).toEqual(["-B", BLUR_SCRIPT, "--detect", "in.jpg"]);
+    expect(stub.seen.opts.env).toEqual({ SYSTEMROOT: "C:/Windows", USERPROFILE: "C:/Users/u" });
+    const miss = JSON.stringify({ ok: false, error: "ValueError: the face detector is not set up on this PC (YuNet 2023mar model not found) - nothing was proposed; mark the faces by hand" });
+    await expect(runDetect("a", { ...here, execFileFn: stub(miss, new Error("exit 2")) })).rejects.toMatchObject({ status: 503, message: expect.stringContaining("mark the faces by hand") });
+    await expect(runDetect("a", { ...here, execFileFn: stub("", new Error("boom")) })).rejects.toMatchObject({ status: 500, message: "the face detector failed — nothing was proposed" });
+    await expect(runDetect("a", { python: "relative.exe", execFileFn: () => {} })).rejects.toMatchObject({ status: 503, message: expect.stringContaining("face detector") });
+    await expect(runBlur("a", "b", [], undefined, { ...here, detected: true, execFileFn: stub(JSON.stringify(ok)) })).resolves.toEqual(ok);
+    expect(stub.seen.args.at(-1)).toBe("--detected");
   });
 
   it("a refusal from the tool is a 422 in words; a dead or stuck child is a 500; a missing tool is a 503 before anything runs", async () => {

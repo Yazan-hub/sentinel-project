@@ -43,6 +43,11 @@ describe("modelRefusal", () => {
     expect(modelRefusal("qwen3.6:latest")).toContain("not in Sentinel's weights table");
     expect(modelRefusal("qwen3.6:latest", "sha256:3899b1c0e7c5aabbcc")).toBeNull();
   });
+  it("MA-7-16: YuNet 2023mar (MIT) is in the weights table, by its digest; a changed file is not", () => {
+    expect(modelRefusal("yunet:2023mar", "8f2383e4dd3c")).toBeNull();
+    expect(modelRefusal("yunet:2023mar", "sha256:8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4")).toBeNull();
+    expect(modelRefusal("yunet:2023mar", "000000000000")).toContain("not in Sentinel's weights table");
+  });
   it("refuses a digest mismatch and an unlisted model in the unknown words", () => {
     expect(modelRefusal("qwen3.6:latest", "000000000000")).toContain("not in Sentinel's weights table");
     expect(modelRefusal("foo:1")).toContain("not in Sentinel's weights table");
