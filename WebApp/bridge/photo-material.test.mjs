@@ -84,6 +84,17 @@ describe("planSurvey with materials - PT-1 / PT-2", () => {
     expect(f.typing.input.params.Material).toBe("Concrete");
     expect(f.measured.thickness_mm).toBe(200); // no size came from a photo
   });
+  it("review: a photo is not credited when another Walls rule typed the wall - 400, nothing saved", () => {
+    const loc = (Location, typePattern) => ({ when: { params: { Location } }, use: { family: "Basic Wall", typePattern } });
+    const G = GUIDE(loc("Exterior", "BDS_EXT_ARC_CMU_{thickness} mm"), loc("Interior", "BDS_EXT_ARC_CMU_{thickness} mm"), rule("Concrete", "BDS_EXT_STR_CONC_{thickness} mm"));
+    no(() => plan(new Map([[WALL, choice]]), G), 400, /scan-L00-wall-2 is typed by the guideline's .*rule without its material — a photo does not choose its type — nothing was saved/);
+    expect(() => plan(null, G)).not.toThrow(); // with no choice the same guideline files the wall by its Location rule
+  });
+  it("materials_unused names a choice that placed nothing", () => {
+    const p = plan(new Map([[WALL, { ...choice, material: "Block" }]]), GUIDE(rule("Concrete", "BDS_EXT_STR_CONC_{thickness} mm")));
+    expect(p.materials_unused).toEqual([WALL]);
+    expect(p.materials).toBeUndefined();
+  });
   it("a choice no rule answers stays a gap: nothing is guessed", () => {
     const p = plan(new Map([[WALL, { ...choice, material: "Block" }]]), GUIDE(rule("Concrete", "BDS_EXT_STR_CONC_{thickness} mm")));
     expect(gapped(p, WALL)).toBeDefined();

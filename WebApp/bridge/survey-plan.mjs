@@ -345,7 +345,14 @@ export function planSurvey({ job, candidates, frame, levels: named = {}, manifes
       const m = materials.get(c.cid), loc = locate(segs, i);
       const params = { ...(loc.location ? { Location: loc.location } : {}), ...(m ? { Material: m.material } : {}) };
       const facts = { thickness_mm: t, ...(Object.keys(params).length ? { params } : {}) };
-      return { facts, loc, gap: gapOf(type, "wall", facts, c.cid, loc.why, s.level) };
+      const gap = gapOf(type, "wall", facts, c.cid, loc.why, s.level);
+      // MA-7-9 (review): a photo is named as the source only when the material decided the type - the typer takes the most specific rule, ties to document order
+      if (m && !gap && !filed.cids.has(c.cid)) {
+        const t = type("wall", facts, c.cid, s.level).typing;
+        if (!t.matched.some((x) => x.toLowerCase() === "param:material"))
+          throw bad(`${c.cid} is typed by the guideline's ${t.rule ?? t.matched.join(", ")} rule without its material — a photo does not choose its type`);
+      }
+      return { facts, loc, gap };
     });
     walls.forEach((c, i) => {
       if (again(c)) return;
@@ -428,7 +435,9 @@ export function planSurvey({ job, candidates, frame, levels: named = {}, manifes
       throw err(413, `${s.cid} would file ${elements.length} elements on ${s.level} — over the ${MAX_CHANGESET_ELEMENTS} one changeset (one Undo) holds; a storey is not split into changesets yet — survey a part of the building — nothing was saved`);
     return { storey: s, byCid, exceptions, once, body: { name: `Survey ${job.id} · ${s.level}`, contract: 2, source: `${job.reader} ${job.version}`, elements, exceptions } };
   });
-  return { storeys, groups: groupGaps(gaps), already_filed: already, ...(used.length ? { materials: used } : {}) };
+  return { storeys, groups: groupGaps(gaps), already_filed: already, ...(used.length ? { materials: used } : {}),
+    // MA-7-9 (review): a choice that placed nothing (the wall stays a type gap, is off a placed storey, or its rule is not completed) is said, not dropped
+    ...([...materials.keys()].some((k) => !used.some((u) => u.cid === k)) ? { materials_unused: [...materials.keys()].filter((k) => !used.some((u) => u.cid === k)) } : {}) };
 }
 
 // ── MA-4e: deviation after placement (design §6.6 verify:measured, §6.9 POST /measure). The service measures; the bridge picks what is measured

@@ -18,7 +18,7 @@ import { firstTag, geometryCheck, linkedHash, linkedTag, sha256Hex, type Geometr
 import { saveAs } from "./audit-pack";
 import { mountMarker, markSummary, type Mark, type Marker, type MarkWhat } from "./photo-marker";
 import { readEvidence, readWebStatus, readNotice, noticeLine, webLine, type WebStatus, makePack, signAttestation, admitEvidence, recheckEvidence, setDeleteBy, draftRequest, kindOf, isImage, needsReport, itemLine, attestationLine, admitLine, recheckLine, requestLine, evidenceControls, ATTESTATION_CODES, ATTESTATION_TEXTS, datasetLine, PHOTO_SOURCES, MAP_SERVICES, photoProvider, type PhotoSource, markViewCopy, blurredLine, photoUrl, type EvidenceItem, type EvidenceRead, type EvidenceRequest,
-  startSurvey, readJobs, readJob, jobLine, candidateLine, surveyStartLine, surveyableScans, proposeBody, proposeFromJob, proposeLine, choosablePhotos, choiceLine, type PhotoChoice, type SurveyJob, type Candidate,
+  startSurvey, readJobs, readJob, readFrameDraft, jobLine, candidateLine, surveyStartLine, surveyableScans, proposeBody, proposeFromJob, proposeLine, choosablePhotos, choiceLine, type PhotoChoice, type SurveyJob, type Candidate,
   startDrawing, drawingStartLine, readableDrawings, isDrawingJob, startIfc, ifcStartLine, readableIfc, isIfcJob, ifcHintLine, alignBody, alignPreview, drawingSvg, snapPaper, type AlignDraft } from "./evidence";
 
 /**
@@ -342,7 +342,9 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
         const r = await readJob(base, pid(), id);
         if (mine !== seq) return;
         if (r.result_error) { status(`Not proposed — ${r.result_error}`); return; }
-        proposing = id; proposeHint = isIfcJob(r.job) ? ifcHintLine(r.receipt?.hint) : ""; proposeLevels = (r.candidates ?? []).filter((c) => c.kind === "level"); proposeDraft = { dx: "0", dy: "0", dz: "0", rot: "0", levels: {} };
+        const frame0 = isIfcJob(r.job) || isDrawingJob(r.job) ? {} : (await readFrameDraft(base, pid(), id)) ?? {};
+        if (mine !== seq) return;
+        proposing = id; proposeHint = isIfcJob(r.job) ? ifcHintLine(r.receipt?.hint) : ""; proposeLevels = (r.candidates ?? []).filter((c) => c.kind === "level"); proposeDraft = { dx: "0", dy: "0", dz: "0", rot: "0", levels: {}, ...frame0 }; // MA-7-9: a job already proposed keeps its frame
         proposeWalls = (r.candidates ?? []).filter((c) => c.kind === "wall"); proposeMats = []; matDraft = { cid: "", item: "", material: "" };
         alignDraft = isDrawingJob(r.job) ? { item: (r.job.read ?? [])[0] ?? "", pa: "", ma: "", pb: "", mb: "", pc: "", mc: "", level: "", z: "0" } : null;
         alignView = alignDraft ? { cands: r.candidates ?? [], sizes: Object.fromEntries((r.receipt?.items ?? []).filter((i) => i.size_paper_mm).map((i) => [i.id, i.size_paper_mm!])) } : null;
@@ -749,7 +751,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       const photos = choosablePhotos(evidence?.pack.items ?? []);
       if (!photos.length || !proposeWalls.length) return "";
       const sel = photos.find((p) => p.id === matDraft.item) ?? photos[0];
-      return line("Choose by photo: for a wall no rule types, you name its material from a blurred photo of it (only a material the guideline's Walls rules name is taken). The thickness stays the scan's; the photo sets no size, and nothing is pre-ticked. Propose with the same frame as the first proposal.", "#c4b5fd") +
+      return line("Choose by photo: for a wall no rule types, you name its material from a blurred photo of it (only a material the guideline's Walls rules name is taken). The thickness stays the scan's; the photo sets no size, and nothing is pre-ticked. The frame below is the one of the first proposal.", "#c4b5fd") +
         proposeMats.map((c) => `<div style="font-size:11px;padding:.1rem .2rem">${esc(choiceLine(c))} <button data-pmdel="${esc(c.cid)}" style="${act}">remove</button></div>`).join("") +
         `<div style="display:flex;gap:.3rem;flex-wrap:wrap;align-items:center;font-size:11px;padding:.15rem .2rem"><select id="fv-pm-wall" style="${inp}">${proposeWalls.map((w) => `<option value="${esc(w.cid)}"${w.cid === matDraft.cid ? " selected" : ""}>${esc(w.cid)}${w.measured?.thickness_mm != null ? ` (${esc(String(w.measured.thickness_mm))} mm)` : ""}</option>`).join("")}</select>` +
         `<select id="fv-pm-item" style="${inp}">${photos.map((p) => `<option value="${esc(p.id)}"${p.id === sel.id ? " selected" : ""}>${esc(p.id)} ${esc(p.path.split("/").pop() ?? "")}</option>`).join("")}</select>` +

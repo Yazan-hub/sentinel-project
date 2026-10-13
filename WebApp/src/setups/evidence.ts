@@ -321,6 +321,7 @@ export interface ProposeReply {
   /** Decision 19: candidates this job filed before (not proposed again); another job's placed changesets on the same scan bytes. */
   already_filed: number; overlaps: { changeset: string; job_id: string; evidence: string[] }[];
   /** MA-7-9: walls typed by a material a person chose from a blurred photo (the photo, its copy's sha, the material, who chose). */
+  materials_unused?: string[];
   materials?: { cid: string; item: string; copy_sha256: string; material: string; chosen_by: string }[];
 }
 /** The lead's form → the body: numbers as typed (a blank is 0; anything else the bridge refuses in words), a level only where one is named. Pure. */
@@ -336,6 +337,20 @@ export interface PhotoChoice { cid: string; item: string; material: string }
 export const choosablePhotos = (items: EvidenceItem[]): EvidenceItem[] =>
   items.filter((i) => i.kind === "photo" && !!i.view_copy && i.state !== "expired" && i.state !== "changed" && i.role !== "context");
 export const choiceLine = (c: PhotoChoice): string => `${c.cid}: ${c.material.trim()} from photo ${c.item}`;
+/** MA-7-9 (amendment 25): the frame a job's first proposal was filed with, read from its changesets (job.id, job.frame) so Choose by photo re-proposes with
+ *  the same one (one job is one frame). Pure: newest first wins; null when the job filed nothing. Levels are not stored on a changeset (its storey's name
+ *  only), so they are not prefilled - a storey filed already is matched by decision 19, a new one is named again. */
+export const frameDraft = (changesets: { status?: string; created_at?: string; job?: { id?: string; frame?: { dx_mm: number; dy_mm: number; dz_mm: number; rotation_deg: number } } }[], jobId: string) => {
+  const c = changesets.filter((x) => x.job?.id === jobId && x.job.frame && ["proposed", "applied", "partially_applied"].includes(x.status ?? ""))
+    .sort((a, b) => ((a.created_at ?? "") < (b.created_at ?? "") ? 1 : -1))[0];
+  const f = c?.job?.frame;
+  return f ? { dx: String(f.dx_mm), dy: String(f.dy_mm), dz: String(f.dz_mm), rot: String(f.rotation_deg) } : null;
+};
+/** GET /changesets/:key → the frame of job `id`'s first proposal, or null (also when the list is not read: the form then starts at 0 and the bridge says 409). */
+export async function readFrameDraft(base: string, key: string, id: string) {
+  try { const r = await bfetch(`${base.replace(/\/$/, "")}/changesets/${encodeURIComponent(key)}`); const j = await r.json(); return r.ok && Array.isArray(j) ? frameDraft(j, id) : null; }
+  catch { return null; }
+}
 /** Propose: the bridge builds the changesets from the job's own result — only the lead's statements go from here (a scan's frame and
  *  levels; a drawing's points, level and height). */
 export const proposeFromJob = (base: string, key: string, id: string, body: ReturnType<typeof proposeBody> | ReturnType<typeof alignBody>) =>
@@ -428,7 +443,8 @@ export function proposeLine(r: ProposeReply): string {
   const once = r.storeys.reduce((s, x) => s + (x.doors_seen_once?.length ?? 0), 0);
   const seenOnce = once ? ` · ${once} door hole(s) seen on one face only — not proposed (a closed door or furniture reads the same; a person draws a door the scan missed)` : "";
   const byPhoto = r.materials?.length ? ` · ${r.materials.length} wall(s) typed by a material a person chose from a photo (${r.materials.map((m) => `${m.cid}: ${m.material} from ${m.item}, chosen by ${m.chosen_by}`).join("; ")}) — not pre-ticked` : "";
-  const tail = `${r.gaps.groups} type-gap group(s), ${r.gaps.elements} element(s) in the Holding Area${held}${seenOnce}${byPhoto} · ${levels}${again}${placed} · ${ledgerLine(r.ledger)} — Review ▸ ↻`;
+  const unusedMats = r.materials_unused?.length ? ` · ${r.materials_unused.length} choice(s) by photo placed nothing (${r.materials_unused.join(", ")}): the wall is still a type gap or off a placed storey` : "";
+  const tail = `${r.gaps.groups} type-gap group(s), ${r.gaps.elements} element(s) in the Holding Area${held}${seenOnce}${byPhoto}${unusedMats} · ${levels}${again}${placed} · ${ledgerLine(r.ledger)} — Review ▸ ↻`;
   // MA-5a-4: a drawing's ghosts are inferred — none is pre-ticked, the level it creates included
   const a = r.alignment, v = r.differences;
   // MA-5a-5: said only when the storey had a scan to compare with (or its topics could not be raised)

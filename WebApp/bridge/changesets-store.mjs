@@ -342,7 +342,7 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
     const drawing = row.reader === DRAWING, ifc = row.reader === IFC;
     const align = drawing ? readAlignBody(b, row.read) : null;
     const { frame, levels, materials: asked } = drawing ? {} : readProposeBody(b, result.candidates.filter((c) => c.kind === "level").map((c) => c.cid));
-    if (asked && ifc) throw err(400, "a photo chooses the type of a scan wall - a concept IFC has its own types (materials is not read there); nothing was saved");
+    if (asked && ifc) throw err(400, "a photo chooses the type of a scan wall — a concept IFC has its own types (materials is not read there); nothing was saved");
     // Every item the job read must still be the bytes it read: in the pack the ROW names (job.json is never the anchor), not flagged, with
     // the sha on its row (build-jobs stillAdmitted, shared with MA-4e's measure). A drawing is checked and named alone: another drawing of
     // the job changed does not stop this one (review).
@@ -400,16 +400,17 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
     const materials = new Map();
     if (asked) {
       const chooser = resolveActor(actor, "web"), W = wallMaterials(guideline.body);
-      if (!W.values.length) throw err(400, `${guideline.label} has no Walls rule keyed on a Material, so a photo cannot choose a type - a lead adds rules with when.params.Material first; nothing was saved`);
-      if (W.clash) throw err(400, `${guideline.label}'s Walls rules name "${W.clash[0]}" and "${W.clash[1]}" - one material sits inside the other, and the typer matches by substring, so a photo could not tell them apart; rename one; nothing was saved`);
+      if (!W.values.length) throw err(400, `${guideline.label} has no Walls rule keyed on a Material, so a photo cannot choose a type — a lead adds rules with when.params.Material first; nothing was saved`);
+      if (W.clash) throw err(400, `${guideline.label}'s Walls rules name "${W.clash[0]}" and "${W.clash[1]}" — one material sits inside the other, and the typer matches by substring, so a photo could not tell them apart; rename one; nothing was saved`);
       for (const a of asked) {
+        if (filed.cids.has(a.cid)) throw err(409, `materials names ${a.cid.slice(0, 64)}, which ${id} already filed (it is not proposed again); nothing was saved`);
         if (!result.candidates.some((c) => c.cid === a.cid && c.kind === "wall")) throw err(400, `materials names ${a.cid.slice(0, 64)}, which is not a wall of ${id}; nothing was saved`);
         const it = pack.items.find((x) => x.id === a.item);
         if (!it) throw err(400, `materials.${a.cid}.item ${a.item} is not an item of the evidence pack; nothing was saved`);
         const why = usable(it, "type");
         if (why) throw err(409, why.replace(/; nothing was (read|shown)$/, "; nothing was saved"));
         const m = W.values.find((v) => v.toLowerCase() === a.material.toLowerCase());
-        if (!m) throw err(400, `${a.material.slice(0, 64)} is not a material of ${guideline.label}'s Walls rules - choose ${W.values.join(" or ")}; nothing was saved`);
+        if (!m) throw err(400, `${a.material.slice(0, 64)} is not a material of ${guideline.label}'s Walls rules — choose ${W.values.join(" or ")}; nothing was saved`);
         materials.set(a.cid, { item: it.id, copy_sha256: it.view_copy.sha256, material: m, chosen_by: chooser });
       }
     }
@@ -495,7 +496,7 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
         storeys, changesets, gaps, already_filed: plan.already_filed, ...(plan.off_storey?.length ? { off_storey: plan.off_storey } : {}), overlaps, guideline: guideline.label, guideline_sha256: guideline.sha256,
         catalog: catalog.label, catalog_sha256: catalog.sha256, ...(row.recipe ? { recipe: row.recipe } : {}), ...(plan.materials ? { materials: plan.materials } : {}), ...(differences ? { differences } : {}), ...(plan.revision ? { revision: plan.revision } : {}), model_calls: 0, tokens: 0, claimed: false });
     } catch (e) { throw await halfWay("the planner's build:run row was not written", e); }
-    return { job: id, [rowKey]: row.ledger, ...said, storeys, changesets, gaps, already_filed: plan.already_filed, overlaps, ...(plan.off_storey?.length ? { off_storey: plan.off_storey } : {}), ...(plan.materials ? { materials: plan.materials } : {}),
+    return { job: id, [rowKey]: row.ledger, ...said, storeys, changesets, gaps, already_filed: plan.already_filed, overlaps, ...(plan.off_storey?.length ? { off_storey: plan.off_storey } : {}), ...(plan.materials ? { materials: plan.materials } : {}), ...(plan.materials_unused ? { materials_unused: plan.materials_unused } : {}),
       ...(differences ? { differences } : {}), ...(plan.revision ? { revision: plan.revision } : {}), ledger: ledgerRef(done) };
   }
 }

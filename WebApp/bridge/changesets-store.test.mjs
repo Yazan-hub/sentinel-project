@@ -1108,6 +1108,8 @@ describe("proposeFromJob (MA-4d): a lead turns a trusted survey job into changes
     // MA-5a-4: a drawing job's own trusted row reads a drawing's body — a scan's frame is refused in words
     await quiet({ trustedJob: vi.fn(async () => ({ ...TRUSTED, row: { ...TRUSTED.row, reader: "sentinel-drawing" } })) },
       "frame is not a proposal field — a drawing is proposed with {item?, points, check?, level?, elevation_mm, revises?}; the bridge builds every changeset from the job's own result — nothing was saved", 400);
+    await quiet({ trustedJob: vi.fn(async () => ({ ...TRUSTED, row: { ...TRUSTED.row, reader: "sentinel-drawing" } })) },
+      "materials is not a proposal field — a drawing is proposed with {item?, points, check?, level?, elevation_mm, revises?}; the bridge builds every changeset from the job's own result — nothing was saved", 400, { materials: {} });
     await quiet({}, "pretick is not a proposal field — the bridge builds every changeset from the job's own result; send {frame, levels?, materials?} — nothing was saved", 400, { frame: FRAME, pretick: true });
     const pack = (items) => ({ readPack: vi.fn(async (_k, id) => (id === "evp-0001" ? { pack: { items } } : null)) }); // the ROW's pack id
     await quiet(pack([{ id: "ev-0001", sha256: EV, state: "changed" }]), "ev-0001 is not the bytes job-0002 read (Re-check flagged it changed) — survey the admitted scan again; nothing was saved");
@@ -1155,7 +1157,7 @@ describe("proposeFromJob (MA-4d): a lead turns a trusted survey job into changes
     const W = "scan-L00-wall-2", ok = { [W]: { item: "ev-000C", material: "concrete" } };
     // PT-1: no choice, no Material in the facts - no rule matches, so every wall is a type gap (nothing typed from the scan alone)
     const gaps = sdeps({ ...std(), ...pack(photo()) });
-    expect((await propose(gaps)).changesets.flatMap((c) => c.elements)).not.toContain(undefined);
+    expect((await propose(gaps)).gaps.elements).toBeGreaterThan(0);
     expect([...gaps.saved.values()].flatMap((c) => c.elements).filter((e) => e.kind === "wall")).toEqual([]);
     // PT-2: the lead's re-proposal files the wall typed from the person's material; the planner's row and the stored element say whose word it is
     const deps = sdeps({ ...std(), ...pack(photo()) });
@@ -1172,7 +1174,7 @@ describe("proposeFromJob (MA-4d): a lead turns a trusted survey job into changes
       await expect(propose(d, body(m))).rejects.toMatchObject({ status, message });
       expect([d.docInsert.mock.calls.length, d.audit.mock.calls.length, d.adjudicateProposal.mock.calls.length]).toEqual([0, 0, 0]);
     };
-    await quiet({}, { [W]: { item: "ev-000C", material: "Steel" } }, 400, expect.stringMatching(/^Steel is not a material of guideline@1 .*'s Walls rules - choose Concrete or Block; nothing was saved$/));
+    await quiet({}, { [W]: { item: "ev-000C", material: "Steel" } }, 400, expect.stringMatching(/^Steel is not a material of guideline@1 .*'s Walls rules — choose Concrete or Block; nothing was saved$/));
     await quiet({}, { [W]: { item: "ev-000C", material: "Block", thickness_mm: 200 } }, 400, expect.stringMatching(/^a photo sets the material only — materials\.scan-L00-wall-2\.thickness_mm is not read/));
     await quiet({}, { "scan-L00-floor": { item: "ev-000C", material: "Block" } }, 400, `materials names scan-L00-floor, which is not a wall of job-0002; nothing was saved`);
     await quiet({}, { [W]: { item: "ev-0099", material: "Block" } }, 400, `materials.${W}.item ev-0099 is not an item of the evidence pack; nothing was saved`);
@@ -1180,8 +1182,11 @@ describe("proposeFromJob (MA-4d): a lead turns a trusted survey job into changes
     await quiet(pack(photo({ state: "changed" })), ok, 409, expect.stringContaining("ev-000C changed since it was admitted"));
     await quiet(pack(photo({ role: "context" })), ok, 409, expect.stringContaining("ev-000C is a web photo — context only"));
     await quiet(pack({ id: "ev-000C", kind: "scan", state: "admitted", sha256: "f".repeat(64) }), ok, 409, expect.stringContaining("ev-000C is a scan, not a photo"));
-    await quiet(std(guide(rule("Concrete", "x"), rule("Concrete-Block", "y"))), ok, 400, expect.stringContaining(`"Concrete" and "Concrete-Block" - one material sits inside the other`));
+    await quiet(std(guide(rule("Concrete", "x"), rule("Concrete-Block", "y"))), ok, 400, expect.stringContaining(`"Concrete" and "Concrete-Block" — one material sits inside the other`));
     await quiet(std(guide({ when: { params: { Location: "Exterior" } }, use: { family: "Basic Wall", typePattern: "BDS_EXT_ARC_CMU_{thickness} mm" } })), ok, 400, expect.stringContaining("so a photo cannot choose a type"));
+    // review: a wall this job filed already is named, not dropped
+    const filedAlready = sdeps({ ...std(), ...pack(photo()), docList: vi.fn(async () => [...deps.saved.values()]) });
+    await expect(propose(filedAlready, body(ok))).rejects.toMatchObject({ status: 409, message: `materials names ${W}, which job-0002 already filed (it is not proposed again); nothing was saved` });
     await quiet({ myRole: vi.fn(async () => "service") }, ok, 403, expect.stringContaining("needs a person"));
     await quiet({ requireMinRole: belowMin("contributor") }, ok, 403, expect.stringContaining("a lead's"));
   });

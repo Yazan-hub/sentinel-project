@@ -9,7 +9,7 @@ vi.mock("./bridge-fetch", () => ({ bfetch, bwrite }));
 
 import { ATTESTATION_CODES, ATTESTATION_TEXTS, kindOf, needsReport, itemLine, attestationLine, admitLine, recheckLine, readEvidence,
   signAttestation, evidenceControls, requestLine, isImage, jobLine, candidateLine, surveyStartLine, surveyableScans, startSurvey, readJobs,
-  photoProvider, MAP_SERVICES, PHOTO_SOURCES, proposeBody, proposeFromJob, proposeLine, choosablePhotos, choiceLine, datasetLine, type ProposeReply, type EvidenceItem, type EvidencePack, type EvidenceRequest, type SurveyJob,
+  photoProvider, MAP_SERVICES, PHOTO_SOURCES, proposeBody, frameDraft, proposeFromJob, proposeLine, choosablePhotos, choiceLine, datasetLine, type ProposeReply, type EvidenceItem, type EvidencePack, type EvidenceRequest, type SurveyJob,
   isDrawingJob, readableDrawings, drawingStartLine, startDrawing, isIfcJob, readableIfc, ifcStartLine, startIfc, startRecipe, webLine, noticeLine, readNotice, ifcHintLine, alignBody, alignPreview, drawingSvg, snapPaper, type AlignDraft } from "./evidence";
 
 const res = (status: number, body: unknown) => ({ ok: status < 400, status, json: async () => body }) as unknown as Response;
@@ -217,12 +217,13 @@ describe("survey proposals (MA-4d)", () => {
     expect(proposeLine({ ...REPLY, materials: [{ cid: "scan-L00-wall-2", item: "ev-000C", copy_sha256: "e".repeat(64), material: "Concrete", chosen_by: "lead@example.test" }] }))
       .toContain(" · 1 wall(s) typed by a material a person chose from a photo (scan-L00-wall-2: Concrete from ev-000C, chosen by lead@example.test) — not pre-ticked · scan-L00-level");
   });
-  it("MA-7-9: files-panel offers Choose by photo in the scan's Propose form only, sends the choices with the lead's frame, and asks no model", () => {
-    const src = readFileSync(new URL("./files-panel.ts", import.meta.url), "utf8");
-    expect(src).toContain(`(what === "scan" ? chooseByPhoto() : "")`);
-    expect(src).toContain(`levels, materials: proposeMats });`);
-    expect(src).toContain(`Choose by photo: for a wall no rule types, you name its material from a blurred photo of it`);
-    expect(src).toContain(`choosablePhotos(evidence?.pack.items ?? [])`);
+  it("MA-7-9 (amendment 25): Choose by photo opens with the frame of the job's first proposal; a choice that placed nothing is said", () => {
+    const f = { dx_mm: 40000, dy_mm: 0, dz_mm: 0, rotation_deg: 90 };
+    const cs = [{ status: "withdrawn", created_at: "3", job: { id: "job-0002", frame: { ...f, dx_mm: 1 } } }, { status: "proposed", created_at: "2", job: { id: "job-0002", frame: f } },
+      { status: "applied", created_at: "1", job: { id: "job-0009", frame: { ...f, dx_mm: 7 } } }, { status: "proposed", created_at: "4" }];
+    expect(frameDraft(cs, "job-0002")).toEqual({ dx: "40000", dy: "0", dz: "0", rot: "90" });
+    expect(frameDraft(cs, "job-0003")).toBeNull();
+    expect(proposeLine({ ...REPLY, materials_unused: ["scan-L00-wall-3"] })).toContain(" · 1 choice(s) by photo placed nothing (scan-L00-wall-3)");
   });
   it("Propose posts to …/build/jobs/:id/propose; the line counts what was filed, pre-ticked and held, and how each storey met its level", async () => {
     bwrite.mockResolvedValue(REPLY);

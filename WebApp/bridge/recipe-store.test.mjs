@@ -98,7 +98,7 @@ describe("draftRecipe - a lead drafts recipe@n from a verified run", () => {
   });
   it("MA-7-9: a run whose Propose carried a person's material choice by photo is not a recipe - a recipe does not repeat a person's choice", async () => {
     ledgerRows = [planner(910, { materials: [{ cid: "scan-L00-wall-2", item: "ev-000C", copy_sha256: "e".repeat(64), material: "Concrete", chosen_by: "web" }] })];
-    await expect(draft()).rejects.toMatchObject({ status: 409, message: "a recipe does not repeat a person's choice by photo - run the job and choose by photo again; nothing was saved" });
+    await expect(draft()).rejects.toMatchObject({ status: 409, message: "a recipe does not repeat a person's choice by photo — run the job and choose by photo again; nothing was saved" });
     expect(w.folds).toEqual([]);
   });
   it("jsonb reorders keys: a published row with its numbers in another order is still the same numbers", async () => {
