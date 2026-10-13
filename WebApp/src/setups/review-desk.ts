@@ -73,7 +73,7 @@ export function heldLines(cs: PendingChangeset, max = 50): string[] {
 }
 export interface DecidedView { head: string; note: string | null; declined: { line: string; why: string[] }[]; }
 /** A report's ledger rows: its changeset_applied row, and the newest changeset_reverted row after it (an Undo or a Redo in Revit). */
-export interface LedgerRows { row: number | null; reverted: { id: number; op: string } | null; }
+export interface LedgerRows { row: number | null; reverted: { id: number; op: string; on_word?: string } | null; }   // on_word: the account an undo was recorded on the word of (basis "absent")
 export interface DeskGroup { what: string; ghosts: { cs: PendingChangeset; el: Ghost }[]; }
 export interface DeskStorey { storey: string; changesets: PendingChangeset[]; groups: DeskGroup[]; }
 export interface LedgerRef { id: number | null; hash: string | null; }
@@ -290,14 +290,15 @@ async function auditRows<T>(url: string): Promise<{ rows: T[]; total: number }> 
  *  ledger holding more changeset_* rows for these reports than one read returns (1000): a cut read could miss a report's row. */
 export async function readLedger(base: string, key: string, ids: string[]): Promise<Map<string, LedgerRows>> {
   if (!ids.length) return new Map();
-  const j = await auditRows<{ id: number; entity_id: string; action: string; new_value?: { op?: unknown } | null }>(`${base.replace(/\/$/, "")}/cde/${encodeURIComponent(key)}/audit?entity_type=changeset&action_prefix=changeset_&entity_id=${ids.map(encodeURIComponent).join(",")}&limit=1000`);
+  const j = await auditRows<{ id: number; entity_id: string; action: string; actor?: string; new_value?: { op?: unknown; basis?: unknown } | null }>(`${base.replace(/\/$/, "")}/cde/${encodeURIComponent(key)}/audit?entity_type=changeset&action_prefix=changeset_&entity_id=${ids.map(encodeURIComponent).join(",")}&limit=1000`);
   if (j.total > j.rows.length) throw new Error(`not read — the ledger holds more rows for these reports (${j.total}) than one read returns`);
   const out = new Map<string, LedgerRows>();
   for (const x of j.rows) {
     if (x.action !== "changeset_applied" && x.action !== "changeset_reverted") continue;
     const e = out.get(x.entity_id) ?? { row: null, reverted: null };
     if (x.action === "changeset_applied") e.row = x.id;
-    else if (!e.reverted) e.reverted = { id: x.id, op: typeof x.new_value?.op === "string" ? x.new_value.op : "" };
+    else if (!e.reverted) e.reverted = { id: x.id, op: typeof x.new_value?.op === "string" ? x.new_value.op : "",
+      ...(x.new_value?.basis === "absent" ? { on_word: x.actor || "an unknown account" } : {}) };   // final verification round 2
     out.set(x.entity_id, e);
   }
   return out;
@@ -317,7 +318,9 @@ export function decidedView(cs: PendingChangeset, ledger: LedgerRows | null | Er
   const at = /^\d{4}-\d\d-\d\dT\d\d:\d\d/.test(when) ? `${when.slice(0, 10)} ${when.slice(11, 16)} UTC` : "an unknown time";
   const rev = ledger instanceof Error ? null : ledger?.reverted ?? null;
   const row = (ledger instanceof Error ? `ledger row ${ledger.message}` : ledger?.row != null ? `ledger #${ledger.row}` : "no ledger row found for it")
-    + (!rev ? "" : rev.op === "undo" ? ` · undone in Revit after the report (ledger #${rev.id})` : rev.op === "redo" ? ` · undone, then redone in Revit (ledger #${rev.id})`
+    // final verification round 2: an undo recorded on a person's word that the element is gone is not an Undo Revit was seen doing
+    + (!rev ? "" : rev.op === "undo" && rev.on_word ? ` · recorded as gone on ${rev.on_word}'s word after the report, not an Undo seen in Revit (ledger #${rev.id})`
+      : rev.op === "undo" ? ` · undone in Revit after the report (ledger #${rev.id})` : rev.op === "redo" ? ` · undone, then redone in Revit (ledger #${rev.id})`
       : ` · a changeset_reverted row follows the report (ledger #${rev.id})`);
   const byGuid = new Map((cs.elements ?? []).map((e) => [e.proposal_guid, e]));
   const rehosted = applied.filter((a) => byGuid.get(a.proposal_guid)?.op === "rehost").length; // MA-5b-5

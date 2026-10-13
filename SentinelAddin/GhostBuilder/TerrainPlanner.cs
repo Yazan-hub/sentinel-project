@@ -154,13 +154,37 @@ namespace Sentinel.GhostBuilder
             return ring;
         }
 
-        /// <summary>Final verification round 1: the id of the applied terrain changeset the bridge's 409 names ("(applied, changeset &lt;id&gt;) — undo it in Revit first",
-        /// checkFromScan), or null for any other answer.</summary>
+        /// <summary>Final verification round 1: the id of the applied terrain changeset the bridge's 409 names ("changeset &lt;id&gt; (applied) holds this scan", checkFromScan),
+        /// or null for any other answer. Round 2: the id leads the message, so ChangesetTrust.Refusal's 400-character cut never takes it, however long the level names.</summary>
         public static string Blocker(string error)
         {
-            var m = System.Text.RegularExpressions.Regex.Match(error ?? "", @"\(applied, changeset ([^)\s]+)\) — undo it in Revit first");
+            var m = System.Text.RegularExpressions.Regex.Match(error ?? "", @"^Bridge 409: elements\[\d+\]: changeset (\S+) \(applied\) holds this scan — ");
             return m.Success ? m.Groups[1].Value : null;
         }
+
+        /// <summary>Final verification round 2: the bridge's one-terrain-per-scan rule is checked only when a terrain is filed - an Undo, a Propose, a Redo and an Apply would stand
+        /// two. At Apply the model is the only place both are seen: the changeset id of a Sentinel-stamped Toposolid already in it (<paramref name="stamps"/>: each Toposolid's
+        /// provenance stamp JSON, ProvenanceStamp.Read) placed by another changeset than <paramref name="changesetId"/>, or null. Pure; a stamp that is not JSON is skipped.
+        /// ponytail: any Sentinel terrain in the model holds, not only one of the same scan (the model does not say which scan a Toposolid came from) - a second site in one model is refused in words.</summary>
+        public static string StandingOther(IEnumerable<string> stamps, string changesetId)
+        {
+            foreach (var s in stamps ?? Enumerable.Empty<string>())
+            {
+                try
+                {
+                    using var d = JsonDocument.Parse(s ?? "null");
+                    if (d.RootElement.ValueKind == JsonValueKind.Object && d.RootElement.TryGetProperty("changeset_id", out var c) && c.ValueKind == JsonValueKind.String && c.GetString() != changesetId)
+                        return c.GetString();
+                }
+                catch (JsonException) { /* not a stamp */ }
+            }
+            return null;
+        }
+
+        /// <summary>Final verification round 2: how far (mm) a raised loop vertex read back at <paramref name="positionZFt"/> (internal feet) stands off its ground point
+        /// <paramref name="groundZMm"/> (the Level.Elevation frame, mm), <paramref name="dzFt"/> the level's ProjectElevation less its Elevation (feet). Pure; Compat refuses more than <see cref="RaiseToleranceMm"/>.</summary>
+        public static double RaiseOffMm(double positionZFt, double groundZMm, double dzFt) => (positionZFt - (groundZMm / 304.8 + dzFt)) * 304.8;
+        public const double RaiseToleranceMm = 5;
 
         /// <summary>MA-8-14 review round 3: an applied terrain whose Toposolid this model does not hold (<paramref name="standing"/>: is that UniqueId in the model) - deleted by
         /// hand, or undone after a restart, neither of which posts the changeset_reverted row an in-session Ctrl+Z does, so the bridge would hold the scan ("undo it in Revit
@@ -182,7 +206,7 @@ namespace Sentinel.GhostBuilder
         /// <summary>Final verification round 1: the question put to the person before an absent terrain is recorded as undone - the bridge cannot tell this model from another.</summary>
         public static string GoneQuestion(string name, string model) =>
             $"\"{name}\" was applied from this scan and the bridge holds the scan for it, but its Toposolid is not in this model ({model}).\n\n"
-            + "Was it applied in THIS model and then deleted, or undone after Revit was restarted? If it may stand in another model, a copy, or another person's local, answer No.\n\n"
+            + "Was it applied in THIS model and then deleted, or undone after Revit was restarted? If it may stand in another model, a copy, another person's local, or a closed workset, answer No.\n\n"
             + $"Yes records an Undo of \"{name}\" on the ledger in your name, on your word, and files the terrain again.";
 
         /// <summary>Final verification round 1: a workshared local not up to date with central cannot say a terrain is gone - it may never have received it.</summary>

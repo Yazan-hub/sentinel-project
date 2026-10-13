@@ -965,8 +965,9 @@ internal static class ChangesetClient
              JsonSerializer.Serialize(new { actor = UserSession.Actor }, WriteJson), 200, out _, out error);
 
     /// <summary>A person undid or redid an applied changeset in Revit: one changeset_reverted ledger row
-    /// (POST /changesets/:key/:id/reverted → 201). Off Revit's thread (the undo watcher's Task.Run).</summary>
-    public static bool ReportReverted(BcfConfig cfg, string projectKey, string id, List<string> guids, string op, out string error) =>
+    /// (POST /changesets/:key/:id/reverted → 201). Off Revit's thread (the undo watcher's Task.Run). Final verification round 2: <paramref name="basis"/> "absent"
+    /// (the freeing of a terrain's scan only) marks an undo recorded on the person's word that the element is gone, not one Revit was seen doing; null sends none.</summary>
+    public static bool ReportReverted(BcfConfig cfg, string projectKey, string id, List<string> guids, string op, out string error, string basis = null) =>
         Post(cfg, $"/changesets/{Uri.EscapeDataString(projectKey)}/{Uri.EscapeDataString(id)}/reverted",
-             JsonSerializer.Serialize(new { op, guids, actor = UserSession.Actor }, WriteJson), 201, out _, out error);
+             JsonSerializer.Serialize(new { op, guids, actor = UserSession.Actor, basis }, WriteJson), 201, out _, out error);
 }

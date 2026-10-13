@@ -53,6 +53,16 @@ public static class Compat
     /// (lift, offset, CurveLoop) alone: a one-line revert if K-1c fails them (then TerrainPlanner.Shape's rim clause goes too).
     public static readonly bool TerrainRim = true;
 
+    /// MA-8-14 final verification round 2: the provenance stamp JSON of every Toposolid in the model that carries one (TerrainPlanner.StandingOther reads them). None before 2024.
+    public static List<string> TerrainStamps(Document doc)
+    {
+#if REVIT2024_OR_GREATER
+        return new FilteredElementCollector(doc).OfClass(typeof(Toposolid)).Select(Sentinel.Engine.ProvenanceStamp.Read).Where(s => s != null).ToList();
+#else
+        return new List<string>();
+#endif
+    }
+
     /// MA-8-14 (the spike, K-1b): the ground as one Toposolid. Created with the CurveLoop overload - an outer axis-aligned rectangle around the points and the
     /// footprint (+ 1 m), the inner loop the storey's footprint (the hole) - because the points-only overload spans the building. The points are lifted by -o and the
     /// Toposolid's Height Offset From Level is then set to o (o = the lowest point less the level, less 10 mm, never above 0: TerrainPlanner.OffsetMm): the type's thickness never limits the relief
@@ -93,10 +103,14 @@ public static class Compat
         // final verification round 1: the raise's offset reference (the top face) is unspiked - every loop vertex is read back after a Regenerate and must stand within
         // 5 mm of its ground point, or the transaction rolls back (fail closed: if Revit measures the offset otherwise, K-1c sees this refusal, never a wall round the edge)
         doc.Regenerate();
-        foreach (var v in ts.GetSlabShapeEditor().SlabShapeVertices.Cast<SlabShapeVertex>().Where(v => v.VertexType != SlabShapeVertexType.Interior))
+        // final verification round 2: the read is counted as the first was - an editor that reports no loop corners would otherwise pass with nothing checked
+        var back = ts.GetSlabShapeEditor().SlabShapeVertices.Cast<SlabShapeVertex>().Where(v => v.VertexType != SlabShapeVertexType.Interior).ToList();
+        if (back.Count < outerMm.Count + ringMm.Count)
+            throw new InvalidOperationException($"the Toposolid's loop corners could not be read back ({back.Count} of {outerMm.Count + ringMm.Count}) — whether its edge took the raise is unknown; nothing was placed");
+        foreach (var v in back)
         {
-            double want = Sentinel.GhostBuilder.TerrainPlanner.NearestZ(pointsMm, v.Position.X / mm, v.Position.Y / mm) * mm + dz, off = (v.Position.Z - want) / mm;
-            if (Math.Abs(off) > 5)
+            double off = Sentinel.GhostBuilder.TerrainPlanner.RaiseOffMm(v.Position.Z, Sentinel.GhostBuilder.TerrainPlanner.NearestZ(pointsMm, v.Position.X / mm, v.Position.Y / mm), dz);
+            if (Math.Abs(off) > Sentinel.GhostBuilder.TerrainPlanner.RaiseToleranceMm)
                 throw new InvalidOperationException($"the Toposolid's edge at ({v.Position.X / mm:0}, {v.Position.Y / mm:0}) mm read back {off:0} mm off its ground point — Revit did not take the raise; nothing was placed");
         }
         return ts;

@@ -621,8 +621,6 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                 // (b)
                 var ground = ChangesetClient.FetchGround(cfg, key, cs.Id, out var groundErr);
                 if (ground == null) { window.Shown("The terrain was not planned — " + groundErr); return; }
-                // review round 3: the project's changesets, for an applied terrain this model no longer holds (unread: nothing is freed, the bridge's 409 stands)
-                var all = ChangesetClient.FetchAll(cfg, key, out _);
                 (string Family, string Type, string Source)? rule;
                 string hold;
                 try
@@ -656,11 +654,14 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                         // review round 3, final verification round 1: the scan is held by an applied terrain (the one the 409 names) whose Toposolid this model does not hold -
                         // deleted by hand, or undone after a restart, posts no Undo row, so "undo it in Revit first" cannot be done. Absence here is not proof (another model of
                         // the project, a copy, a local not reloaded): on Revit's thread, a stale workshared local is refused, and the person is asked; only on Yes is the
-                        // Undo row posted (their word) and the terrain filed again, once.
+                        // Undo row posted (their word) and the terrain filed again, once. Final verification round 2: only the changeset the 409 names is read, here, after
+                        // the 409 (not the project's whole list before every filing); a failed read is said
+                        var named = ChangesetClient.FetchOne(cfg, key, blocker, out var namedErr);
+                        if (named == null) { window.Shown($"The terrain was not proposed — {proposeErr} (whether the applied terrain is still in this model could not be read: {namedErr}; nothing was recorded)"); return; }
                         App.Events.Enqueue(doc, "free a scan", (ua2, d2) =>
                         {
                             if (window.Gone) return;
-                            var gone = TerrainPlanner.Gone(all, blocker, uid => d2.GetElement(uid) != null);
+                            var gone = TerrainPlanner.Gone(new[] { named }, blocker, uid => d2.GetElement(uid) != null);
                             if (gone == null) { window.Shown("The terrain was not proposed — " + proposeErr); return; }
                             if (d2.IsWorkshared)
                             {
@@ -675,7 +676,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                             if (ask.Show() != TaskDialogResult.Yes) { window.Shown("The terrain was not proposed — " + proposeErr); return; }
                             Task.Run(() =>
                             {
-                                if (!ChangesetClient.ReportReverted(cfg, key, g.Id, g.Guids, "undo", out var revertErr))
+                                if (!ChangesetClient.ReportReverted(cfg, key, g.Id, g.Guids, "undo", out var revertErr, basis: "absent"))   // round 2: on the person's word, kept on the row
                                 { window.Shown($"The terrain was not proposed — {proposeErr} (the Undo of \"{g.Name}\" was not recorded: {revertErr})"); return; }
                                 string word = $" The Undo of \"{g.Name}\" was recorded on your word that its Toposolid is gone.";
                                 var again = ChangesetClient.Propose(cfg, key, plan.Body, out var againErr);

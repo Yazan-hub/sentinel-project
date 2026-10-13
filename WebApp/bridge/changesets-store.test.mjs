@@ -467,6 +467,17 @@ describe("reportReverted", () => {
     expect(deps.docReplaceIfField).not.toHaveBeenCalled();
   });
 
+  it("final verification round 2: an undo recorded on a person's word keeps basis \"absent\" on its row; any other basis, or one on a redo, is a 400 and writes nothing", async () => {
+    const deps = baseDeps({ takeWriteBudget: vi.fn() });
+    const { cs, a } = await appliedChangeset(deps);
+    await reportReverted("demo", cs.id, { op: "undo", guids: [a], basis: "absent" }, "yazan", deps);
+    expect(deps.audit.mock.calls[0][6]).toEqual({ op: "undo", guids: [a], count: 1, basis: "absent" });
+    deps.audit.mockClear();
+    for (const body of [{ op: "undo", guids: [a], basis: "deleted" }, { op: "undo", guids: [a], basis: true }, { op: "undo", guids: [a], basis: null }, { op: "redo", guids: [a], basis: "absent" }])
+      await expect(reportReverted("demo", cs.id, body, "yazan", deps)).rejects.toMatchObject({ status: 400, message: 'basis is "absent" on an undo, or none' });
+    expect(deps.audit).not.toHaveBeenCalled();
+  });
+
   it("a viewer is a 403 before the changeset is read", async () => {
     const deps = baseDeps({ takeWriteBudget: vi.fn() });
     const { cs, a } = await appliedChangeset(deps);
@@ -1728,7 +1739,7 @@ describe("verifyChangeset (MA-4e): a signed-in contributor measures a placed sur
     expect(higher.measureJob).not.toHaveBeenCalled();
     // final verification round 1: a withdrawn lower storey still holds - the scan's geometry decides, not the changeset's status (a podium withdrawn would let the tower's band read its floor)
     higher.saved.set("low", { ...higher.saved.get("low"), status: "withdrawn" });
-    await expect(scanOverlay("ma4c-drill", ID, higher, { ground: true })).rejects.toMatchObject({ status: 409, message: `terrain is read under the lowest storey (B1, Survey job-0002 · B1, withdrawn); ${cs.name} is higher — nothing was read` });
+    await expect(scanOverlay("ma4c-drill", ID, higher, { ground: true })).rejects.toMatchObject({ status: 409, message: `terrain is read under the lowest storey (B1, Survey job-0002 · B1, withdrawn); ${cs.name} is higher; survey the scan again (a new job) to read its ground — nothing was read` });
     expect(higher.measureJob).not.toHaveBeenCalled();
     higher.saved.delete("low");
     await expect(scanOverlay("ma4c-drill", ID, higher, { ground: true })).resolves.toMatchObject({ ground: true });
@@ -2306,7 +2317,7 @@ describe("proposeChangeset — a terrain from a scan (MA-8-14)", () => {
     const deps = member(); deps.saved.set(sc.id, surveyDoc());
     await proposeChangeset("demo", structuredClone(cases.good), "yazan", deps);
     const first = applied(deps);
-    await expect(proposeChangeset("demo", structuredClone(cases.good), "yazan", deps)).rejects.toMatchObject({ status: 409, message: `elements[0]: a terrain from "${sc.name}"'s scan is already built as "${first.name}" (applied, changeset ${first.id}) — undo it in Revit first; nothing was saved` });   // final verification round 1: the blocker by id
+    await expect(proposeChangeset("demo", structuredClone(cases.good), "yazan", deps)).rejects.toMatchObject({ status: 409, message: `elements[0]: changeset ${first.id} (applied) holds this scan — a terrain from "${sc.name}"'s scan is already built as "${first.name}"; undo it in Revit first; nothing was saved` });   // final verification round 1: the blocker by id (round 2: first)
     const rows = [{ id: 1, entity_id: first.id, new_value: { op: "undo", guids: [first.elements[0].proposal_guid] } }];
     deps.auditAll = vi.fn(async () => rows);
     await expect(proposeChangeset("demo", structuredClone(cases.good), "yazan", deps)).resolves.toMatchObject({ status: "proposed" });   // undone: free again
@@ -2343,10 +2354,11 @@ describe("proposeChangeset — a terrain from a scan (MA-8-14)", () => {
     await expect(proposeChangeset("demo", { ...structuredClone(cases.good), name: "Terrain · L00 · from Survey A L00" }, "yazan", named)).rejects.toMatchObject({ status: 400,
       message: `elements[0]: the changeset is named "Terrain · L00 · from Survey A L00" — a terrain's name ends " · from ${sc.name}", the survey changeset its from_scan names; nothing was saved` });
     expect(named.docInsert).not.toHaveBeenCalled();
-    await expect(tried({}, surveyDoc({ status: "withdrawn" }))).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/is withdrawn — no terrain is read from its scan/) });
+    // final verification round 2: both withdrawn refusals name the way out (a new survey of the scan)
+    await expect(tried({}, surveyDoc({ status: "withdrawn" }))).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/is withdrawn — no terrain is read from its scan; survey the scan again \(a new job\) to read its ground; nothing was saved$/) });
     const lower = { id: "low", name: "Survey job-0003 · B1", status: "proposed", claimed: false, job: { id: sc.job, ledger_id: 41, reader: "sentinel-survey 0.6.0" }, elements: walls(-3000, "B1") };
     await expect(tried({}, surveyDoc(), [lower])).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/terrain is read under the lowest storey \(B1, Survey job-0003 · B1\); "Survey job-0003 · GR-FFL" is higher/) });
-    await expect(tried({}, surveyDoc(), [{ ...lower, status: "withdrawn" }])).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/the lowest storey \(B1, Survey job-0003 · B1, withdrawn\); "Survey job-0003 · GR-FFL" is higher/) });   // final verification round 1
+    await expect(tried({}, surveyDoc(), [{ ...lower, status: "withdrawn" }])).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/the lowest storey \(B1, Survey job-0003 · B1, withdrawn\); "Survey job-0003 · GR-FFL" is higher; survey the scan again \(a new job\) to read its ground — nothing was saved$/) });   // final verification round 1 (round 2: the way out)
     // the same job id on another ledger row (another jobs folder) is another scan: it does not hold this one
     const deps = member(); deps.saved.set(sc.id, surveyDoc()); deps.saved.set("low", { ...lower, job: { ...lower.job, ledger_id: 99 } });
     await expect(proposeChangeset("demo", structuredClone(cases.good), "yazan", deps)).resolves.toMatchObject({ status: "proposed" });
