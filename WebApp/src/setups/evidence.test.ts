@@ -70,7 +70,7 @@ describe("the lines", () => {
     const web: EvidenceItem = { ...ITEM, kind: "photo", format: "jpg", path: "web/commons-1.jpg", role: "context", provider: "wikimedia-commons", licence: "CC-BY-4.0", delete_by: "2026-10-09",
       web: { source_url: "https://commons.wikimedia.org/wiki/File:A.jpg", author: "A. Author", attribution_text: "Photo: A. Author, CC BY 4.0", retrieved_at: "2026-10-08", terms_path: "web/commons-1.html", terms_sha256: "d".repeat(64), freedom_of_panorama: "yes", web_mode: "drill" } };
     const line = itemLine(web);
-    expect(line).toContain(" · web photo, context only (assumed) · A. Author · CC-BY-4.0 · https://commons.wikimedia.org/wiki/File:A.jpg · retrieved 2026-10-08 · drill: counsel has not reviewed web evidence");
+    expect(line).toContain(" · web photo, context (assumed, web) · A. Author · CC-BY-4.0 · https://commons.wikimedia.org/wiki/File:A.jpg · retrieved 2026-10-08 · drill: counsel has not reviewed web evidence");
     expect(line).toContain(" · delete by 2026-10-09");
     expect(itemLine({ ...web, web: { ...web.web!, web_mode: "on" } })).not.toContain("drill");
   });

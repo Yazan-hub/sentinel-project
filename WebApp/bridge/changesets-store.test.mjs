@@ -1240,7 +1240,7 @@ describe("proposeFromJob (MA-4d): a lead turns a trusted survey job into changes
     await quiet({}, { [W]: { item: "ev-0099", material: "Block" } }, 400, `materials.${W}.item ev-0099 is not an item of the evidence pack; nothing was saved`);
     await quiet(pack(photo({ view_copy: undefined })), ok, 409, `ev-000C has no blurred copy yet — mark its faces and number plates first (Mark faces and plates); nothing was saved`);
     await quiet(pack(photo({ state: "changed" })), ok, 409, expect.stringContaining("ev-000C changed since it was admitted"));
-    await quiet(pack(photo({ role: "context" })), ok, 409, expect.stringContaining("ev-000C is a web photo — context only"));
+    await quiet(pack(photo({ role: "context" })), ok, 400, "ev-000C is a web photo — context only; it chooses no type; nothing was saved"); // MA-7-13 CX-1
     await quiet(pack({ id: "ev-000C", kind: "scan", state: "admitted", sha256: "f".repeat(64) }), ok, 409, expect.stringContaining("ev-000C is a scan, not a photo"));
     await quiet(std(guide(rule("Concrete", "x"), rule("Concrete-Block", "y"))), ok, 400, expect.stringContaining(`"Concrete" and "Concrete-Block" — one material sits inside the other`));
     await quiet(std(guide({ when: { params: { Location: "Exterior" } }, use: { family: "Basic Wall", typePattern: "BDS_EXT_ARC_CMU_{thickness} mm" } })), ok, 400, expect.stringContaining("so a photo cannot choose a type"));

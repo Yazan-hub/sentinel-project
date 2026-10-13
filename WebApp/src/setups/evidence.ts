@@ -76,7 +76,7 @@ export const photoProvider = (source: PhotoSource, service?: string): string | u
 export function itemLine(i: EvidenceItem): string {
   return `${i.id} · ${i.path} · ${i.format} · ${size(i.size_bytes)} · sha ${i.sha256.slice(0, 12)}…` +
     (i.kind === "drawing" ? ` · drawing from the ${i.provider} under ${i.request_id}` : i.kind === "model" ? (i.provider && i.provider !== "own" ? ` · model from ${i.provider} (${i.licence ?? "commercial"}, ref ${i.licence_ref ?? "?"})` : " · concept model (own)") : i.surveyable ? "" : " · not surveyable (no ReCap here)") +
-    (i.role === "context" && i.web ? ` · web photo, context only (assumed) · ${i.web.author} · ${i.licence} · ${i.web.source_url} · retrieved ${i.web.retrieved_at}${i.web.web_mode === "drill" ? " · drill: counsel has not reviewed web evidence" : ""}` : "") + // MA-7-12
+    (i.role === "context" && i.web ? ` · web photo, context (assumed, web) · ${i.web.author} · ${i.licence} · ${i.web.source_url} · retrieved ${i.web.retrieved_at}${i.web.web_mode === "drill" ? " · drill: counsel has not reviewed web evidence" : ""}` : "") + // MA-7-12
     (i.kind === "photo" && i.capture ? ` · ${[i.capture.make, i.capture.model].filter(Boolean).join(" ")} · taken ${i.capture.taken_at ?? "?"} · ${i.capture.gps ? "EXIF GPS block in the original (not copied)" : "no EXIF GPS block"}` : "") +
     (i.kind === "photo" && i.state !== "expired" ? viewCopyLine(i) : "") + // MA-7-7
     (i.delete_by && i.state !== "expired" ? ` · delete by ${i.delete_by}` : "") + // MA-7-5
