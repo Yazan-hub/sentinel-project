@@ -1850,6 +1850,8 @@ describe("a built stair (MA-8-10): keepBuilt and the changeset_applied row's sta
     expect(run({ ...built, risers: 17 })[0].as_planned).toBe(false);
     expect(run({ ...built, going_mm: 251.5 })[0].as_planned).toBe(false);
     expect(run({ ...built, width_mm: 1200.9 })[0].as_planned).toBe(true);
+    // MA-8 nits (F-B4-3): the plan now says 250 (StairPlanner.Facts snaps the type's noise); a stair Revit reads back as 249.99999999999997 is still as planned
+    expect(run({ ...built, going_mm: 249.99999999999997 })[0].as_planned).toBe(true);
     expect(run(null)).toEqual([{ proposal_guid: e.proposal_guid, planned, built: null, as_planned: null, note: "Revit sent no read of what it built — check the model" }]);
     expect(run({ why: "reported with the machine credential — sign in in Revit" })[0]).toMatchObject({ built: { why: expect.any(String) }, as_planned: null });
   });
