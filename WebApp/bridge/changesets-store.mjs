@@ -1171,7 +1171,7 @@ export async function reviewChangeset(key, id, { decisions } = {}, actor, deps =
     for (const e of cited) {
       const it = pack.items.find((x) => x.id === e);
       if (!it) throw err(400, `evidence ${e} is not an item of the evidence pack; nothing was saved`);
-      const why = usable(it, "cite") ?? (it.role === "context" ? `${e} is a web photo - context only; it cannot confirm a ghost; nothing was read` : null);
+      const why = usable(it, "cite") ?? (it.role === "context" ? `${e} is a web photo — context only; it cannot confirm a ghost; nothing was read` : null);
       if (why) throw err(400, why.replace(/; nothing was (read|shown)$/, "; nothing was saved"));
       copies.set(e, it.view_copy.sha256);
     }
