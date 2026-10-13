@@ -32,3 +32,13 @@ describe("licence-check pin readers", () => {
     expect(r.out).toMatch(/UNKNOWN transformers@4\.1/);
   });
 });
+
+// MA-7-3 (amendment 20): the add-in has no image-import API — a SentinelAddin .cs naming one fails the run, naming the line.
+describe("licence-check imagery scan (MA-7-3)", () => {
+  it("prints 0 hits on clean code; a Revit image import fails and names file:line", () => {
+    expect(run({ "SentinelAddin/A.cs": "class A { }\n" }).out).toContain("imagery: 0 hits");
+    const r = run({ "SentinelAddin/A.cs": "class A {\n  void M() { ImageType.Create(d, o); }\n}\n" });
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("IMAGERY SentinelAddin/A.cs:2 — imagery is never put into the model (design 4.4); nothing ships with it");
+  });
+});
