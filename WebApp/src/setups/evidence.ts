@@ -30,6 +30,12 @@ export interface EvidenceItem {
   licence?: string; licence_ref?: string;
   /** MA-7-4: a photo's camera record (EXIF make/model, taken, whether the original holds a location); coordinates are never copied. */
   capture?: { make: string | null; model: string | null; taken_at: string | null; gps: boolean };
+  /** MA-7-7: a photo's blurred copy (survey/blur.py): counts only, never the boxes. Every view and read uses the copy; the original stays on the office PC. */
+  view_copy?: ViewCopy;
+}
+export interface ViewCopy {
+  sha256: string; size_bytes: number; width: number; height: number; areas: number; faces: number; plates: number; none_seen?: boolean;
+  method: "person-marked"; marked_by: string; marked_at: string; tool: string;
 }
 /** MA-4b: an "ask the owner" request as the pack keeps it — the letter is what was drafted (Sentinel sends nothing). */
 export interface EvidenceRequest {
@@ -67,6 +73,7 @@ export function itemLine(i: EvidenceItem): string {
   return `${i.id} · ${i.path} · ${i.format} · ${size(i.size_bytes)} · sha ${i.sha256.slice(0, 12)}…` +
     (i.kind === "drawing" ? ` · drawing from the ${i.provider} under ${i.request_id}` : i.kind === "model" ? (i.provider && i.provider !== "own" ? ` · model from ${i.provider} (${i.licence ?? "commercial"}, ref ${i.licence_ref ?? "?"})` : " · concept model (own)") : i.surveyable ? "" : " · not surveyable (no ReCap here)") +
     (i.kind === "photo" && i.capture ? ` · ${[i.capture.make, i.capture.model].filter(Boolean).join(" ")} · taken ${i.capture.taken_at ?? "?"} · ${i.capture.gps ? "EXIF GPS block in the original (not copied)" : "no EXIF GPS block"}` : "") +
+    (i.kind === "photo" && i.state !== "expired" ? viewCopyLine(i) : "") + // MA-7-7
     (i.delete_by && i.state !== "expired" ? ` · delete by ${i.delete_by}` : "") + // MA-7-5
     (i.state === "expired" ? ` · EXPIRED ${(i.expired_at ?? "").slice(0, 10)} — ` + // review: the office-file clause follows the role, not whether a copy went
       (i.removed?.length ? "Sentinel's copies removed; " : i.role === "context" ? "" : "not read by any job; ") +
@@ -74,6 +81,12 @@ export function itemLine(i: EvidenceItem): string {
       "its record and sha stay" + (i.role === "context" ? "" : "; the office's file is not touched (delete it by hand if the owner asked)") : "") +
     (i.state === "changed" ? " · CHANGED since admitted — on hold; restore the file and Admit it again, or put the new file in under a new name" : "");
 }
+/** MA-7-7: a photo's blurred copy in a few words — or that it has none yet (until it has, only a contributor on the office PC can see the original). Pure. */
+export const viewCopyLine = (i: Pick<EvidenceItem, "view_copy">): string => {
+  const v = i.view_copy;
+  return !v ? " · no blurred copy yet — the original is shown on the office PC only, to mark it"
+    : ` · blurred copy ${v.width}×${v.height}: ${v.areas ? `${v.areas} area(s) filled (${v.faces} face, ${v.plates} number plate)` : "no faces or number plates seen"} · marked by ${v.marked_by}`;
+};
 /** An attestation's state in one line. Pure. */
 export function attestationLine(code: string, pack: EvidencePack): string {
   const a = pack.attestations.find((x) => x.code === code);
@@ -161,6 +174,19 @@ export const draftRequest = (base: string, key: string, b: { recipient_kind: Evi
 /** MA-7-5: a lead sets the day after which no job reads the item; today retires it now (its record and sha stay; the office's file is not deleted). */
 export const setDeleteBy = (base: string, key: string, item: string, date: string, why?: string) =>
   post<{ item: EvidenceItem; pack_version: number; ledger: Ledger[]; note?: string }>(base, key, `evidence/${PACK_ID}/items/${encodeURIComponent(item)}/delete-by`, { date, ...(why ? { why } : {}) });
+/** MA-7-7: a contributor's marks on an own photo — boxes (fractions of the photo as shown, each a face or a number plate), or the explicit answer that there are none. */
+export const markViewCopy = (base: string, key: string, item: string, b: { boxes?: { x: number; y: number; w: number; h: number; what: "face" | "plate" }[]; none_seen?: boolean }) =>
+  post<{ item: EvidenceItem; copy: ViewCopy; pack_version: number; ledger: Ledger }>(base, key, `evidence/${PACK_ID}/items/${encodeURIComponent(item)}/view-copy`, b);
+/** The status line after a blurred copy is made. Pure. */
+export const blurredLine = (r: { item: EvidenceItem; copy: ViewCopy; ledger: Ledger }): string =>
+  `✓ Blurred copy of ${r.item.id}${viewCopyLine({ view_copy: r.copy })} · sha ${r.copy.sha256.slice(0, 12)}… · ${ledgerLine(r.ledger)}`;
+/** MA-7-7: a photo's bytes as an object URL, with the Authorization header (a plain <img src> carries none): the blurred copy ("view") for any member, or the
+ *  original ("original", a contributor on the office PC, only while there is no copy). The bridge's own words come through when it refuses. The caller revokes it. */
+export async function photoUrl(base: string, key: string, item: string, which: "view" | "original"): Promise<string> {
+  const r = await bfetch(at(base, key, `evidence/${PACK_ID}/items/${encodeURIComponent(item)}/${which}`));
+  if (!r.ok) throw new Error(((await r.json().catch(() => null)) as { message?: string } | null)?.message || `HTTP ${r.status}`);
+  return URL.createObjectURL(await r.blob());
+}
 export const recheckEvidence = (base: string, key: string) => post<RecheckReply>(base, key, `evidence/${PACK_ID}/recheck`, {});
 
 /** MA-4c: a survey job as the bridge keeps it (GET /cde/:key/build/jobs); its candidates are read on demand (readJob). */

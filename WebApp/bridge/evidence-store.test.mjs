@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { makePack, readPack, signAttestation, runEvidenceIntake, recheckPack, draftRequest, surveyStart, webStatus, noticeOf, setDeleteBy, startExpirySweep } from "./evidence-store.mjs";
+import { makePack, readPack, signAttestation, runEvidenceIntake, recheckPack, draftRequest, surveyStart, webStatus, noticeOf, setDeleteBy, startExpirySweep, makeViewCopy, photoFile } from "./evidence-store.mjs";
 import * as W from "./web-sources.mjs";
 import { jpegWithExif } from "./fixtures/jpeg-exif.mjs";
 import { ATTESTATIONS, USES, ITEM_FIELDS, realDay } from "./evidence-logic.mjs";
@@ -492,8 +492,9 @@ describe("delete-by, expiry and retire (MA-7-5)", () => {
     Object.assign(docs.get(k).body.items.find((i) => i.id === id), f);
   };
   const copy = (rel) => join(root, "demo", ".sentinel", "view", rel);
-  // view_copy and role are 7-7's and 7-12's item fields (they widen ITEM_FIELDS then); the sweep already reads them, so these tests plant them
-  const FIELDS = ["view_copy", "role"];
+  // role is 7-12's item field (it widens ITEM_FIELDS then); the sweep already reads it, so these tests plant it. view_copy is 7-7's (a full valid shape).
+  const VC = (sha256) => ({ sha256, size_bytes: 18, width: 640, height: 480, areas: 0, faces: 0, plates: 0, none_seen: true, method: "person-marked", marked_by: "machine", marked_at: "2026-10-08T09:00:00.000Z", tool: "sentinel-blur 0.1.0" });
+  const FIELDS = ["role"];
   beforeEach(() => { ITEM_FIELDS.push(...FIELDS); });
   afterEach(() => { ITEM_FIELDS.splice(ITEM_FIELDS.length - FIELDS.length, FIELDS.length); });
 
@@ -534,7 +535,7 @@ describe("delete-by, expiry and retire (MA-7-5)", () => {
   it("(r) a Sentinel copy with the admitted bytes is removed, one with other bytes is left (and said); a fold that fails deletes nothing", async () => {
     await setup();
     const COPY = Buffer.from("blurred copy bytes");
-    edit("ev-0002", { view_copy: { sha256: sha(COPY) } });
+    edit("ev-0002", { view_copy: VC(sha(COPY)) });
     put(".sentinel/view/ev-0002.jpg", COPY);
     const r = await delBy("ev-0002", { date: TODAY });
     expect(r.item.removed).toEqual([".sentinel/view/ev-0002.jpg"]);
@@ -542,18 +543,19 @@ describe("delete-by, expiry and retire (MA-7-5)", () => {
     expect(existsSync(join(root, "demo", "photos", "own.jpg"))).toBe(true); // an own photo is the office's
     expect(rows("evidence:expired")[0].newv).toMatchObject({ removed: [".sentinel/view/ev-0002.jpg"] });
     // other bytes: left in place, said on the row
-    edit("ev-0001", { view_copy: { sha256: sha(COPY) } });
-    put(".sentinel/view/ev-0001.jpg", "someone else's bytes");
-    const r2 = await delBy("ev-0001", { date: TODAY });
+    put("photos/own2.jpg", JPG); role = "contributor"; await admit({ path: "photos/own2.jpg", kind: "photo" }); role = "lead"; // a second photo: a scan has no blurred copy
+    edit("ev-0003", { view_copy: VC(sha(COPY)) });
+    put(".sentinel/view/ev-0003.jpg", "someone else's bytes");
+    const r2 = await delBy("ev-0003", { date: TODAY });
     expect(r2.item.removed).toEqual([]);
-    expect(existsSync(copy("ev-0001.jpg"))).toBe(true);
-    expect(rows("evidence:expired")[1].newv.not_removed).toEqual([{ path: ".sentinel/view/ev-0001.jpg", why: "not the admitted bytes — left in place" }]);
+    expect(existsSync(copy("ev-0003.jpg"))).toBe(true);
+    expect(rows("evidence:expired")[1].newv.not_removed).toEqual([{ path: ".sentinel/view/ev-0003.jpg", why: "not the admitted bytes — left in place" }]);
   });
 
   it("(r2) the record comes first: a fold that throws 409 leaves the copy where it is", async () => {
     await setup();
     const COPY = Buffer.from("blurred copy bytes");
-    edit("ev-0002", { view_copy: { sha256: sha(COPY) }, delete_by: TODAY });
+    edit("ev-0002", { view_copy: VC(sha(COPY)), delete_by: TODAY });
     put(".sentinel/view/ev-0002.jpg", COPY);
     const d = deps(), ins = d.artDeps.docInsert;
     let n = 0; // fold 1 sets ev-0001's delete-by; fold 2 is the sweep's, and another write landed first
@@ -570,7 +572,7 @@ describe("delete-by, expiry and retire (MA-7-5)", () => {
   it("(u) an unlink that fails: pack, row and reply say it was not removed, the first expiry date stays, and the next sweep removes it", async () => {
     await setup();
     const COPY = Buffer.from("blurred copy bytes");
-    edit("ev-0002", { view_copy: { sha256: sha(COPY) } });
+    edit("ev-0002", { view_copy: VC(sha(COPY)) });
     put(".sentinel/view/ev-0002.jpg", COPY);
     const bad = { ...deps(), unlink: () => { throw Object.assign(new Error("busy"), { code: "EBUSY" }); } };
     const r = await delBy("ev-0002", { date: TODAY }, bad);
@@ -682,5 +684,105 @@ describe("delete-by, expiry and retire (MA-7-5)", () => {
     await expect(noticeOf("demo", "evp-0001", { ...deps(), auditAll: async () => { throw new Error("db down"); } })).rejects.toMatchObject({ status: 503, message: "the NOTICE needs the build:run rows and the ledger could not be read \u2014 nothing was made" });
     await expect(noticeOf("demo", "evp-0009", { ...deps(), auditAll: async () => [] })).rejects.toMatchObject({ status: 404 });
     expect(audits.length).toBe(before); // a read: no row
+  });
+});
+
+describe("blurred copies (MA-7-7)", () => {
+  const BLURRED = Buffer.from("blurred jpeg stand-in");
+  const TOOLS = [{ name: "sentinel-blur", version: "0.1.0", licence: "LicenseRef-Sentinel" }, { name: "pillow", version: "12.3.0", licence: "MIT-CMU" }];
+  let calls;
+  const blur = async (src, dst, boxes) => { calls.push({ src, dst, boxes }); writeFileSync(dst, BLURRED); return { ok: true, width: 2048, height: 1365, areas: boxes.length, version: "0.1.0", tools: TOOLS }; };
+  const mark = (id, b, extra = {}) => makeViewCopy("demo", "evp-0001", id, b, { ...deps(), blur, ...extra });
+  const file = (id, which, o = {}) => photoFile("demo", "evp-0001", id, which, o, deps());
+  const BOXES = [{ x: 0.1, y: 0.2, w: 0.1, h: 0.1, what: "face" }, { x: 0.6, y: 0.6, w: 0.2, h: 0.1, what: "plate" }];
+  const setup = async () => { calls = []; await ready(); put("photos/own.jpg", JPG); put("scans/tiny.las", LAS); await admit({ path: "photos/own.jpg", kind: "photo" }); await admit({ path: "scans/tiny.las", kind: "scan", registration: REG }); };
+
+  it("(y) a contributor marks two areas: the copy is written from the admitted bytes, hashed by the bridge, and one evidence:blurred row (counts, tools, the person; no coordinates)", async () => {
+    await setup();
+    const r = await mark("ev-0001", { boxes: BOXES });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].src).toBe(join(root, "demo", "photos", "own.jpg"));
+    expect(calls[0].boxes).toEqual([{ x: 0.1, y: 0.2, w: 0.1, h: 0.1 }, { x: 0.6, y: 0.6, w: 0.2, h: 0.1 }]);
+    expect(r.copy).toMatchObject({ sha256: sha(BLURRED), size_bytes: BLURRED.length, width: 2048, height: 1365, areas: 2, faces: 1, plates: 1, method: "person-marked", marked_by: "machine", tool: "sentinel-blur 0.1.0" });
+    expect(r.copy.none_seen).toBeUndefined();
+    expect(readFileSync(join(root, "demo", ".sentinel", "view", "ev-0001.jpg"))).toEqual(BLURRED);
+    expect((await pack()).items[0].view_copy).toEqual(r.copy);
+    expect((await pack()).items[0].sha256).toBe(sha(JPG)); // the original's record is unchanged
+    const x = rows("evidence:blurred");
+    expect(x.map((a) => a.action)).toEqual(["evidence:blurred ev-0001 · 2 area(s) · person-marked"]);
+    expect(x[0].newv).toMatchObject({ item_id: "ev-0001", original_sha256: sha(JPG), copy_sha256: sha(BLURRED), areas: 2, faces: 1, plates: 1, gps_removed: true, metadata_removed: true });
+    expect(x[0].newv.tools.map((t) => `${t.name} ${t.version} ${t.licence}`)).toEqual(["sentinel-blur 0.1.0 LicenseRef-Sentinel", "pillow 12.3.0 MIT-CMU"]);
+    expect(JSON.stringify(x[0].newv)).not.toMatch(/"(x|y|w|h|boxes)"/); // counts only: the boxes are not kept
+    expect(budgets).toContainEqual(["evidence blurred copies", { perUser: 20, all: 60 }]);
+  });
+
+  it("(z) 'No faces or number plates in this photo' is an explicit answer: 0 areas, none_seen; neither boxes nor the answer is a 400", async () => {
+    await setup();
+    await expect(mark("ev-0001", {})).rejects.toMatchObject({ status: 400, message: expect.stringContaining('answer "No faces or number plates in this photo"') });
+    expect(calls).toEqual([]);
+    const r = await mark("ev-0001", { none_seen: true });
+    expect(r.copy).toMatchObject({ areas: 0, faces: 0, plates: 0, none_seen: true });
+    expect(rows("evidence:blurred").map((a) => a.action)).toEqual(["evidence:blurred ev-0001 · 0 area(s) · person-marked"]);
+    expect(rows("evidence:blurred")[0].newv.none_seen).toBe(true);
+  });
+
+  it("(z2) refusals: the machine credential (the words), a viewer, an unknown item, a scan, a second copy, a changed file, a missing tool — none leaves a row or a stray copy", async () => {
+    await setup();
+    role = "service";
+    await expect(mark("ev-0001", { boxes: BOXES })).rejects.toMatchObject({ status: 403, message: "a blurred copy needs a person — it names who marked the faces and number plates: sign in. Nothing was saved." });
+    role = "viewer";
+    await expect(mark("ev-0001", { boxes: BOXES })).rejects.toMatchObject({ status: 403 });
+    role = "contributor";
+    await expect(mark("ev-0099", { boxes: BOXES })).rejects.toMatchObject({ status: 404 });
+    await expect(mark("ev-0002", { boxes: BOXES })).rejects.toMatchObject({ status: 409, message: "ev-0002 is a scan, not a photo — only photos are blurred; nothing was saved" });
+    await expect(makeViewCopy("demo", "evp-0001", "ev-0001", { boxes: BOXES }, deps())).rejects.toMatchObject({ status: 503 }); // no blur injected
+    put("photos/own.jpg", Buffer.concat([JPG, Buffer.from("x")]));
+    await expect(mark("ev-0001", { boxes: BOXES })).rejects.toMatchObject({ status: 409, message: expect.stringContaining("changed since it was admitted") });
+    put("photos/own.jpg", JPG);
+    await expect(mark("ev-0001", { boxes: BOXES }, { blur: async () => { throw Object.assign(new Error("this photo could not be blurred (x)"), { status: 422 }); } })).rejects.toMatchObject({ status: 422 });
+    await expect(mark("ev-0001", { boxes: BOXES }, { blur: async (_s, dst, b) => { writeFileSync(dst, "x"); return { width: 10, height: 10, areas: b.length + 1, version: "0.1.0", tools: [] }; } })).rejects.toMatchObject({ status: 500 });
+    expect(existsSync(join(root, "demo", ".sentinel", "view", "ev-0001.jpg"))).toBe(false); // a copy no pack names is not left behind
+    expect(rows("evidence:blurred")).toEqual([]);
+    expect((await pack()).items[0].view_copy).toBeUndefined();
+    await mark("ev-0001", { boxes: BOXES });
+    await expect(mark("ev-0001", { boxes: BOXES })).rejects.toMatchObject({ status: 409, message: expect.stringContaining("already has its blurred copy") });
+    expect(rows("evidence:blurred")).toHaveLength(1);
+  });
+
+  it("(z3) the bytes: the copy is viewable by any member (the machine credential too); the original goes only to a contributor on this PC, and only while no copy exists", async () => {
+    await setup();
+    await expect(file("ev-0001", "view")).rejects.toMatchObject({ status: 409, message: expect.stringContaining("has no blurred copy yet") });
+    role = "service";
+    await expect(file("ev-0001", "original", { thisPc: true })).rejects.toMatchObject({ status: 403, message: expect.stringContaining("signed-in person only") });
+    role = "viewer";
+    await expect(file("ev-0001", "original", { thisPc: true })).rejects.toMatchObject({ status: 403 });
+    role = "contributor";
+    await expect(file("ev-0001", "original", { thisPc: false })).rejects.toMatchObject({ status: 403, message: "the unblurred original is shown on the office PC only (the local app) — mark faces and number plates there; nothing was shown" });
+    await expect(file("ev-0002", "original", { thisPc: true })).rejects.toMatchObject({ status: 409 });
+    expect(await file("ev-0001", "original", { thisPc: true })).toEqual({ full: join(root, "demo", "photos", "own.jpg"), type: "image/jpeg", noStore: true });
+    await mark("ev-0001", { boxes: BOXES });
+    await expect(file("ev-0001", "original", { thisPc: true })).rejects.toMatchObject({ status: 403, message: "ev-0001 has its blurred copy — the original is not shown" });
+    await expect(file("ev-0001", "original", { thisPc: false })).rejects.toMatchObject({ status: 403, message: "ev-0001 has its blurred copy — the original is not shown" });
+    for (const r of ["viewer", "contributor", "lead", "service"]) {
+      role = r;
+      expect(await file("ev-0001", "view"), r).toEqual({ full: join(root, "demo", ".sentinel", "view", "ev-0001.jpg"), type: "image/jpeg", noStore: false });
+    }
+    await expect(file("ev-0002", "view")).rejects.toMatchObject({ status: 409, message: expect.stringContaining("is a scan, not a photo") });
+    rmSync(join(root, "demo", ".sentinel", "view", "ev-0001.jpg"));
+    await expect(file("ev-0001", "view")).rejects.toMatchObject({ status: 404, message: expect.stringContaining("blurred copy is missing") });
+  });
+
+  it("(z4) the copy follows its photo: retiring it removes the copy (sha-checked) and keeps the office's original; an expired photo is neither viewed nor marked", async () => {
+    await setup();
+    await mark("ev-0001", { boxes: BOXES });
+    role = "lead";
+    const r = await setDeleteBy("demo", "evp-0001", "ev-0001", { date: "2026-10-08" }, deps());
+    expect(r.item).toMatchObject({ state: "expired", removed: [".sentinel/view/ev-0001.jpg"] });
+    expect(existsSync(join(root, "demo", ".sentinel", "view", "ev-0001.jpg"))).toBe(false);
+    expect(existsSync(join(root, "demo", "photos", "own.jpg"))).toBe(true);
+    await expect(file("ev-0001", "view")).rejects.toMatchObject({ status: 409, message: expect.stringContaining("expired on 2026-10-08") });
+    role = "contributor";
+    await expect(mark("ev-0001", { boxes: BOXES })).rejects.toMatchObject({ status: 409, message: expect.stringContaining("expired on 2026-10-08") });
+    expect((await readPack("demo", "evp-0001", deps())).folder.files_not_admitted).toEqual([]); // .sentinel/ is never offered for admission
   });
 });

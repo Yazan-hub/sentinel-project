@@ -8,6 +8,8 @@ import {
   readDeleteBy, due, removable, expire, expiredValue, noticeText, toolsOf, creditCount,
 } from "./evidence-logic.mjs";
 import { jpegWithExif } from "./fixtures/jpeg-exif.mjs";
+import { usable, readBoxes, blurredValue } from "./evidence-logic.mjs";
+const VC = (over = {}) => ({ sha256: "b".repeat(64), size_bytes: 5000, width: 2048, height: 1365, areas: 2, faces: 1, plates: 1, method: "person-marked", marked_by: "contributor@example.test", marked_at: "2026-10-13T10:00:00.000Z", tool: "sentinel-blur 0.1.0", ...over });
 
 const PATH_WORDS = "path must name a file inside the project's evidence folder, relative to it (no drive, no leading slash, no ..) — nothing was saved";
 const SHA = "a".repeat(64);
@@ -324,13 +326,14 @@ describe("the item-field whitelist (MA-7-3)", () => {
       ["RCP with report path + sha", rcpPack, () => rcp],
       ["flagged photo", photoPack, (p) => flagged(mk(p, { path: "photos/a.jpg", kind: "photo", provider: "own", registration: null }, "jpg"), SHA, "2026-10-09T10:00:00.000Z")],
       ["photo with capture (7-4)", photoPack, (p) => mk(p, { path: "photos/c.jpg", kind: "photo", provider: "own", registration: null, capture: { make: "Example", model: "Cam", taken_at: null, gps: false } }, "jpg")],
+      ["photo with blurred copy (7-7)", photoPack, (p) => ({ ...mk(p, { path: "photos/b.jpg", kind: "photo", provider: "own", registration: null }, "jpg"), view_copy: VC() })],
       ["drawing under a request", drawPack, (p) => mk(p, { path: "drawings/A.pdf", kind: "drawing", provider: "own", registration: null, request_id: "req-0001" }, "pdf", { request: p.requests[0] })],
       ["dataset scan", dsPack, (p) => mk(p, { path: "scans/d.las", kind: "scan", provider: "own", registration: REG }, "las")],
       ["vendor model with licence_ref", vendPack, (p) => mk(p, { path: "model/v.ifc", kind: "model", provider: "acme", licence_ref: "PO-1", registration: null }, "ifc")],
       ["own concept IFC", packWith(["a"]), (p) => mk(p, { path: "model/c.ifc", kind: "model", provider: "own", registration: null }, "ifc")],
     ];
   };
-  it("lists the 19 fields the bridge wrote before MA-7, then capture (7-4)", () => { expect(ITEM_FIELDS).toEqual(["id", "kind", "format", "sha256", "size_bytes", "path", "provider", "licence", "licence_ref", "request_id", "attestation_ids", "allowed_uses", "registration", "surveyable", "admitted_by", "admitted_at", "state", "changed_sha256", "changed_at", "capture", "delete_by", "delete_why", "expired_at", "removed", "not_removed"]); });
+  it("lists the 19 fields the bridge wrote before MA-7, then capture (7-4), 7-5's four and view_copy (7-7)", () => { expect(ITEM_FIELDS).toEqual(["id", "kind", "format", "sha256", "size_bytes", "path", "provider", "licence", "licence_ref", "request_id", "attestation_ids", "allowed_uses", "registration", "surveyable", "admitted_by", "admitted_at", "state", "changed_sha256", "changed_at", "capture", "delete_by", "delete_why", "expired_at", "removed", "not_removed", "view_copy"]); });
   it.each(shapes().map((s) => [s[0], s]))("replay: %s validates unchanged", (_n, [, pack, make]) => {
     const item = make(pack);
     expect(Object.keys(item).every((k) => ITEM_FIELDS.includes(k))).toBe(true);
@@ -498,5 +501,52 @@ describe("MA-7-6: the NOTICE text", () => {
     expect(noticeText({ ...args([]), pack: { ...pack, items: [gone] } })).toContain("(not published)");
     const web = { ...pack.items[0], id: "ev-0010", role: "context", licence: "CC-BY-4.0", state: "expired", expired_at: "2026-10-13T00:00:00.000Z", web: { source_url: "https://commons.example.test/x", author: "A. Author", attribution_text: "Photo by A", retrieved_at: "2026-10-12T08:00:00.000Z", web_mode: "drill" } };
     expect(noticeText({ ...args([]), pack: { ...pack, items: [web] } })).toContain('- ev-0010 photo \u00b7 "Photo by A" \u00b7 A. Author \u00b7 CC-BY-4.0 \u00b7 https://commons.example.test/x \u00b7 retrieved 2026-10-12 \u00b7 drill: counsel has not reviewed web evidence \u00b7 expired 2026-10-13');
+  });
+});
+
+describe("MA-7-7: a photo's blurred copy", () => {
+  const ph = (over = {}) => ({ id: "ev-0004", kind: "photo", state: undefined, view_copy: VC(), ...over });
+  it("usable(): a copy-bearing own photo is usable for every use; each refusal says why", () => {
+    for (const u of ["view", "read", "type", "cite", "train", "register"]) expect(usable(ph(), u)).toBeNull();
+    expect(usable(ph({ state: "expired", expired_at: "2026-10-12T00:00:00.000Z" }), "read")).toBe("ev-0004 expired on 2026-10-12 (delete-by) — it is not used; nothing was read");
+    expect(usable(ph({ state: "changed" }), "view")).toContain("ev-0004 changed since it was admitted");
+    expect(usable({ id: "ev-0001", kind: "scan" }, "read")).toBe("ev-0001 is a scan, not a photo; nothing was read");
+    expect(usable(ph({ view_copy: undefined }), "read")).toBe("ev-0004 has no blurred copy yet — mark its faces and number plates first (Mark faces and plates); nothing was read");
+    expect(usable(ph({ view_copy: undefined }), "view")).toContain("has no blurred copy yet");
+    expect(() => usable(ph(), "edit")).toThrow("unknown use");
+  });
+  it("usable(): a web (context) photo is viewable only with the switch on, and never read, typed, trained or registered", () => {
+    const web = ph({ role: "context" });
+    for (const u of ["read", "type", "train", "register"]) expect(usable(web, u)).toContain("web photo — context only");
+    expect(usable(web, "view")).toBe("web evidence is off until counsel has reviewed it — this web photo is kept, not shown; nothing was shown");
+    expect(usable(web, "view", { webMode: "drill" })).toBeNull();
+    expect(usable(web, "cite")).toBeNull();
+  });
+  it("readBoxes(): boxes, or the explicit none answer — never a default; fractions inside the photo", () => {
+    expect(readBoxes({ boxes: [{ x: 0.1, y: 0.2, w: 0.1, h: 0.1 }, { x: 0.5, y: 0.5, w: 0.5, h: 0.5, what: "plate" }] }))
+      .toEqual({ boxes: [{ x: 0.1, y: 0.2, w: 0.1, h: 0.1, what: "face" }, { x: 0.5, y: 0.5, w: 0.5, h: 0.5, what: "plate" }], none_seen: false });
+    expect(readBoxes({ none_seen: true })).toEqual({ boxes: [], none_seen: true });
+    expect(() => readBoxes({})).toThrow('mark the faces and number plates, or answer "No faces or number plates in this photo" — nothing was saved');
+    expect(() => readBoxes({ none_seen: true, boxes: [{ x: 0, y: 0, w: 1, h: 1 }] })).toThrow("cannot be true with boxes marked");
+    for (const bad of [{ x: 0.9, y: 0, w: 0.3, h: 0.1 }, { x: 0, y: 0, w: 0, h: 0.1 }, { x: "0", y: 0, w: 1, h: 1 }, { x: 0, y: 0, w: 1, h: 1, what: "car" }, null])
+      expect(() => readBoxes({ boxes: [bad] }), JSON.stringify(bad)).toThrow(/boxes\[0\]/);
+    expect(() => readBoxes({ boxes: Array(201).fill({ x: 0, y: 0, w: 1, h: 1 }) })).toThrow("at most 200");
+  });
+  it("validatePack: view_copy is a photo's, with its counts agreeing; none_seen exactly when no area was marked", () => {
+    const pack = packWith(["a", "c", "d"]);
+    const item = photoItem(pack), ok = (vc, it = item) => validatePack({ ...pack, items: [{ ...it, view_copy: vc }] });
+    expect(ok(VC())).toBe(true);
+    expect(ok(VC({ areas: 0, faces: 0, plates: 0, none_seen: true }))).toBe(true);
+    for (const [why, vc] of [["areas != faces + plates", VC({ areas: 3 })], ["no areas without none_seen", VC({ areas: 0, faces: 0, plates: 0 })], ["none_seen with areas", VC({ none_seen: true })],
+      ["a long side over 2048", VC({ width: 4000 })], ["a bad sha", VC({ sha256: "x" })], ["another method", VC({ method: "detector" })]]) expect(() => ok(vc), why).toThrow(/view_copy/);
+    expect(() => validatePack({ ...pack, items: [{ ...scanItem(pack), view_copy: VC() }] })).toThrow(/view_copy/);
+  });
+  it("blurredValue(): counts and tools only — no coordinates; gps_removed follows the camera record", () => {
+    const i = { id: "ev-0004", path: "photos/a.jpg", sha256: SHA, capture: { make: "E", model: "C", taken_at: null, gps: true } };
+    const v = blurredValue("evp-0001", i, { ...VC(), tools: [{ name: "pillow", version: "12.3.0", licence: "MIT-CMU" }] }, 7);
+    expect(v).toMatchObject({ item_id: "ev-0004", original_sha256: SHA, copy_sha256: "b".repeat(64), areas: 2, faces: 1, plates: 1, gps_removed: true, metadata_removed: true, pack_version: 7 });
+    expect(JSON.stringify(v)).not.toMatch(/"(x|y|w|h|boxes)"/);
+    expect(blurredValue("evp-0001", { ...i, capture: { ...i.capture, gps: false } }, VC(), 7).gps_removed).toBe(false);
+    expect(blurredValue("evp-0001", i, VC({ areas: 0, faces: 0, plates: 0, none_seen: true }), 7).none_seen).toBe(true);
   });
 });
