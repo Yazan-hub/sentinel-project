@@ -414,6 +414,9 @@ static partial class Check
                    "MA-7-28: hints are made only from the pack photos whose copy came (a copy-less photo is not sent), named by item id - never a file name");
                 string none = vr.ReadPackAsync(null, p => (null, null)).GetAwaiter().GetResult();
                 Ok(none == "", "MA-7-28: no pack photo -> no hint, text-only");
+                using var gb = new LocalGhostBuilder("");
+                gb.AppendHints("[ev-0001] external walls and a door");
+                Ok(!gb.HasEvidence, "MA-7-28 review: photo hints alone are not document evidence - HasEvidence stays false, so no enrichment call is made");
             }
             fake.Stop();
             try { served.GetAwaiter().GetResult(); } catch { }

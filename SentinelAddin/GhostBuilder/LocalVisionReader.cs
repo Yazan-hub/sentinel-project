@@ -2,7 +2,7 @@
 // P2 SENSE (slice 2) / MA-7-28: turn the evidence pack's admitted, BLURRED photos into short text "hints" via a LOCAL vision model
 // (Ollama), so the interpreter can use what a photo DEPICTS - not just layer names. The pack is the only source (never a folder): a photo is
 // read only as the blurred copy the bridge serves, sha-checked against the pack. Drawings are not read here - the bridge reads them with
-// sentinel-drawing. Hints are text for DWG layer mapping, never geometry (that stays DWG). Best-effort (no VLM / no photo -> "", build proceeds
+// sentinel-drawing. Hints are text for DWG layer mapping ONLY (not parameter enrichment), never geometry (that stays DWG). Best-effort (no VLM / no photo -> "", build proceeds
 // text-only). No Revit API, so it's safe on the background thread like the mapping call.
 using System;
 using System.Collections.Generic;
@@ -18,7 +18,7 @@ namespace Sentinel.GhostBuilder
     public sealed class LocalVisionReader : IDisposable
     {
         private const string HintPrompt =
-            "This is an architectural drawing or sketch. In ONE short sentence, list the building elements " +
+            "This is a photo of a building or its site. In ONE short sentence, list the building elements " +
             "you can see (e.g. external walls, internal partitions, doors, windows, columns, a room layout). " +
             "Be concise; no preamble.";
 
@@ -38,7 +38,7 @@ namespace Sentinel.GhostBuilder
 
         /// <summary>MA-7-28: describe each of the evidence pack's admitted, blurred photos (up to <paramref name="maxImages"/>) as a short hint. The pack is
         /// the only source - <paramref name="copyOf"/> gives a photo's blurred copy (already sha-checked against the pack), never a file of a folder.
-        /// <paramref name="onRead"/> is told each photo a hint came from. Never throws except on cancel; "" when no photo gave a hint, so the build proceeds text-only.</summary>
+        /// <paramref name="onRead"/> is told each photo whose copy was sent to the model. Never throws except on cancel; "" when no photo gave a hint, so the build proceeds text-only.</summary>
         public async Task<string> ReadPackAsync(IReadOnlyList<PackPhoto> photos, Func<PackPhoto, (byte[] Jpeg, string Error)> copyOf, Action<PackPhoto> onRead = null, int maxImages = 4, CancellationToken ct = default)
         {
             var sb = new StringBuilder();
@@ -47,9 +47,9 @@ namespace Sentinel.GhostBuilder
                 ct.ThrowIfCancellationRequested();
                 var (jpeg, _) = copyOf(p);
                 if (jpeg == null) continue; // not fetched, or not the copy the pack names: not read
+                onRead?.Invoke(p); // MA-7-28: told once the copy is sent, so the receipt lists every photo sent (even one that gave no hint)
                 string hint = await DescribeAsync(jpeg, ct).ConfigureAwait(false);
                 if (string.IsNullOrWhiteSpace(hint)) continue;
-                onRead?.Invoke(p);
                 sb.Append('[').Append(p.Id).Append("] ").Append(hint.Trim()).Append('\n');
             }
             return sb.ToString().Trim();

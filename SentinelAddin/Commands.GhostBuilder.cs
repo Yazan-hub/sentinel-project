@@ -395,13 +395,14 @@ public sealed class GhostBuilderCommand : IExternalCommand
                         if (packPhotos.Count > 0)
                         {
                             progress.SetStatus($"Reading {packPhotos.Count} evidence photo(s) with the vision model {LocalOnly.Where(settings.OllamaUrl)}…");
-                            using var vision = new LocalVisionReader(settings.GhostVisionModel, settings.OllamaUrl, settings.GhostCloudOptIn);
+                            using var vision = new LocalVisionReader(settings.GhostVisionModel, settings.OllamaUrl, cloudOptIn: false); // MA-7-28: the reader itself refuses off this PC too
                             string hints = await vision.ReadPackAsync(packPhotos, p => MassingFromImagesCommand.CopyOf(cfg, key, p), onRead: p => hintPhotos.Add(p), ct: progress.Token).ConfigureAwait(false);
-                            if (!string.IsNullOrWhiteSpace(hints)) llm.AppendEvidence(hints);
+                            if (!string.IsNullOrWhiteSpace(hints)) llm.AppendHints(hints); // MA-7-28: layer mapping only, not enrichment
                             visionUsage = vision.Usage;
                         }
                     }
                 }
+                else LogOnUi(progress, "Ghost Builder: no project bound - no evidence photo hints"); // MA-7-28
 
                 progress.SetStatus(evidence.IsEmpty
                     ? $"Mapping CAD layers with the model {LocalOnly.Where(settings.OllamaUrl)}…"
@@ -411,7 +412,7 @@ public sealed class GhostBuilderCommand : IExternalCommand
                 // user aborted; window already closing — review (MA-5b-2): released, so the import this run made goes too
                 if (progress.Token.IsCancellationRequested) { CloseOnUi(progress, Release); return; }
 
-                // P2 (task 4/5): one more local call — read the project documents for parameter values that
+                // P2 (task 4/5) / MA-7-28: only DOCUMENTS of the scoped folder trigger this call (photo hints never do). One more local call — read the project documents for parameter values that
                 // belong on the mapped elements (a spec's "FR60" -> the wall's Fire Rating). Runs over the
                 // FINAL mapping set, so layers the deterministic BDS pass resolved get seeded too. No
                 // documents in the scoped folder -> no call, no change.

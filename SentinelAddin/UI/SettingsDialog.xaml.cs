@@ -135,7 +135,7 @@ public partial class SettingsDialog : Window
         // message here instead of a picker (simulation 3.9, F47).
         using var dlg = new System.Windows.Forms.FolderBrowserDialog
         {
-            Description = "Select the Ghost source folder (DWGs, specs, sketches)",
+            Description = "Select the Ghost source folder (DWGs, specs)",
             SelectedPath = GhostFolderBox.Text,
             ShowNewFolderButton = false,
         };

@@ -43,7 +43,7 @@ public sealed class SentinelSettings
     [JsonPropertyName("ghost_model")] public string GhostModel { get; set; } = "qwen2.5:7b-instruct";          // local Ollama model for the unknown-layer gaps
     [JsonPropertyName("ollama_url")] public string OllamaUrl { get; set; } = LocalOnly.DefaultModelUrl;
     [JsonPropertyName("ghost_cloud_opt_in")] public bool GhostCloudOptIn { get; set; } = false;                 // OFF: no drawing leaves the machine
-    // P2 SENSE: a SCOPED folder of supporting docs (PDF/specs/sketches) the agent may read — and ONLY this
+    // P2 SENSE: a SCOPED folder of supporting docs (PDF/specs; MA-7-28: no images - photos come from the evidence pack) the agent may read — and ONLY this
     // folder. Empty -> no document context (P1 behaviour). Read locally; nothing leaves the machine.
     [JsonPropertyName("ghost_source_folder")] public string GhostSourceFolder { get; set; } = string.Empty;
     // SEC-2: set by Merge — the source folder is the model's own (checked as one: no share path), not this PC's.
@@ -53,7 +53,7 @@ public sealed class SentinelSettings
     // (Project Setup, project scope), honoured only when the document is bound to a web project. OFF: the Doctor only logs.
     [JsonPropertyName("doctor_axis_fix")] public bool DoctorAxisFix { get; set; } = false;
 
-    [JsonPropertyName("ghost_vision_model")] public string GhostVisionModel { get; set; } = "llava"; // local VLM for sketches/renders (llava = widely-supported arch)
+    [JsonPropertyName("ghost_vision_model")] public string GhostVisionModel { get; set; } = "llava"; // local VLM that reads evidence-pack photos (MA-7-28) (llava = widely-supported arch)
 
     // An old payload's "master_ruleset_path" (the ruleset comes from the web project) and its template path (SEC-3: read by no
     // code) are ignored on read, so an

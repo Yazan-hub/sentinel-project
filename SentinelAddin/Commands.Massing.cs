@@ -132,7 +132,7 @@ public sealed class MassingFromImagesCommand : IExternalCommand
             try
             {
                 progress.SetStatus($"Reading the project images with the vision model {LocalOnly.Where(settings.OllamaUrl)}…");
-                using var reader = new MassingVisionReader(settings.GhostVisionModel, settings.OllamaUrl, settings.GhostCloudOptIn);
+                using var reader = new MassingVisionReader(settings.GhostVisionModel, settings.OllamaUrl, cloudOptIn: false); // MA-7-28: the reader itself refuses off this PC too
                 readerClock.Start();
                 MassingEstimate estimate = await reader.EstimateAsync(packPhotos, p => CopyOf(cfg, key, p), onRead: p => { lock (readOk) readOk.Add(p); }, ct: progress.Token, progress: new Progress<string>(progress.SetStatus)).ConfigureAwait(false); // MA-6-9: "Reading photo i of n…"
                 readerClock.Stop();
