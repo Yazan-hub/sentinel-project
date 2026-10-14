@@ -9,11 +9,17 @@
   "python": {
     "python": {
       "version": "",
-      "licence": "PSF-2.0"
+      "licence": "PSF-2.0",
+      "versions": [
+        "3.10.11"
+      ]
     },
     "numpy": {
       "version": "",
-      "licence": "BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0"
+      "licence": "BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0",
+      "versions": [
+        "1.26.4"
+      ]
     },
     "pillow": {
       "version": "12.3.0",
@@ -189,7 +195,10 @@
     },
     "filelock": {
       "version": "4.1.1",
-      "licence": "MIT"
+      "licence": "MIT",
+      "versions": [
+        "4.1.0"
+      ]
     },
     "fsspec": {
       "version": "2026.9.0",
@@ -241,7 +250,10 @@
     },
     "networkx": {
       "version": "3.7",
-      "licence": "BSD-3-Clause"
+      "licence": "BSD-3-Clause",
+      "versions": [
+        "3.4.2"
+      ]
     },
     "packaging": {
       "version": "26.3",
@@ -290,7 +302,14 @@
         {
           "name": "NVIDIA CUDA 13 runtime, cuBLAS, cuDNN 9, cuFFT, cuSPARSE, NVRTC (bundled DLLs)",
           "licence": "NVIDIA-Software-Licence"
+        },
+        {
+          "name": "NVIDIA CUDA 12.4 runtime, cuBLAS, cuDNN 9 (bundled DLLs, cu124 wheel)",
+          "licence": "NVIDIA-Software-Licence"
         }
+      ],
+      "versions": [
+        "2.4.1+cu124"
       ]
     },
     "tqdm": {
@@ -312,6 +331,28 @@
     "typing_extensions": {
       "version": "4.16.0",
       "licence": "PSF-2.0"
+    },
+    "gsplat": {
+      "version": "1.5.3+pt24cu124",
+      "licence": "Apache-2.0",
+      "carries": [
+        {
+          "name": "gsplat CUDA kernels (csrc.pyd, built against torch 2.4 / CUDA 12.4)",
+          "licence": "Apache-2.0"
+        }
+      ]
+    },
+    "jaxtyping": {
+      "version": "0.3.7",
+      "licence": "MIT"
+    },
+    "ninja": {
+      "version": "1.13.2",
+      "licence": "Apache-2.0"
+    },
+    "wadler_lindig": {
+      "version": "0.1.7",
+      "licence": "Apache-2.0"
     }
   },
   "nuget": {
@@ -351,10 +392,6 @@
     "Nice3point.Revit.Api.RevitAPIUI": {
       "read": "compile-only reference assemblies, not shipped",
       "decision": "D-7-16"
-    },
-    "NVIDIA CUDA runtime in the torch wheel": {
-      "read": "cudart/cublas/cudnn/cufft/cusparse/nvrtc DLLs bundled in torch 2.14.1+cu130 under NVIDIA's redistributable runtime terms (torch LICENSE.txt + third_party notices, read 2026-10-14). They run on the office PC only (photo-lib); accept if nothing of torch is ever shipped",
-      "decision": "D-7-16"
     }
   },
   "accepted": {
@@ -365,6 +402,8 @@
     "FreeType": "FTL (BSD-style, credit required), the licence Pillow's wheel uses it under rather than the GPLv2 alternative; read in pillow-12.3.0.dist-info/licenses/LICENSE (MA-7-7)",
     "libjpeg-turbo": "IJG AND BSD-3-Clause: permissive, credit required; read in Pillow's licence file (MA-7-7)",
     "libtiff": "libtiff licence: permissive (BSD-like); read in Pillow's licence file (MA-7-7)",
-    "libpng": "libpng-2.0: permissive; read in Pillow's licence file (MA-7-7)"
+    "libpng": "libpng-2.0: permissive; read in Pillow's licence file (MA-7-7)",
+    "NVIDIA CUDA 13 runtime, cuBLAS, cuDNN 9, cuFFT, cuSPARSE, NVRTC (bundled DLLs)": "NVIDIA-Software-Licence: the CUDA/cuDNN runtime DLLs bundled in torch 2.14.1+cu130 (and the cu124 build for the private Python 3.10, path A) under NVIDIA's redistributable runtime terms, read in torch's LICENSE.txt and third_party notices 2026-10-14. The founder accepted it 2026-10-14 (\"accept NVIDIA\", D-7-16) for the office PC's photo-lib only; nothing of torch is shipped, bundled or served",
+    "NVIDIA CUDA 12.4 runtime, cuBLAS, cuDNN 9 (bundled DLLs, cu124 wheel)": "NVIDIA-Software-Licence: the CUDA/cuDNN runtime DLLs bundled in torch 2.14.1+cu130 (and the cu124 build for the private Python 3.10, path A) under NVIDIA's redistributable runtime terms, read in torch's LICENSE.txt and third_party notices 2026-10-14. The founder accepted it 2026-10-14 (\"accept NVIDIA\", D-7-16) for the office PC's photo-lib only; nothing of torch is shipped, bundled or served"
   }
 }
