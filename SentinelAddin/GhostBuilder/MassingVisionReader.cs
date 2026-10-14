@@ -20,7 +20,7 @@ namespace Sentinel.GhostBuilder
 {
     public sealed class MassingVisionReader : IDisposable
     {
-                // MA-6-9: the prompt and schema p1_measure.py measured (row P-1) — verbatim.
+            // MA-6-9: the prompt and schema p1_measure.py measured (row P-1) — verbatim.
         private const string Prompt =
             "Look at the tallest building in this photo. Count its storeys: the horizontal floor bands from the ground to the roof, " +
             "the ground storey included. Set full_height true only if both its base and its roof are inside the photo. " +
@@ -61,7 +61,7 @@ namespace Sentinel.GhostBuilder
         /// <paramref name="copyOf"/> gives a photo's blurred copy (bytes, or why not): the pack's copy is the only thing read, never a file of a folder.
         /// NOT validated: widths and heights stay assumed until a known dimension is given, and a count of 300 must reach ScaleRefusal, not be capped
         /// first. An all-assumed estimate when vision or the copies are unavailable.</summary>
-        public async Task<MassingEstimate> EstimateAsync(IReadOnlyList<PackPhoto> photos, Func<PackPhoto, (byte[] Jpeg, string Error)> copyOf, int maxImages = MaxImages, CancellationToken ct = default, IProgress<string> progress = null)
+        public async Task<MassingEstimate> EstimateAsync(IReadOnlyList<PackPhoto> photos, Func<PackPhoto, (byte[] Jpeg, string Error)> copyOf, int maxImages = MaxImages, CancellationToken ct = default, IProgress<string> progress = null, Action<PackPhoto> onRead = null)
         {
             var views = new List<ViewReading>();
             var images = (photos ?? new List<PackPhoto>()).Take(maxImages).ToList();
@@ -70,7 +70,9 @@ namespace Sentinel.GhostBuilder
                 ct.ThrowIfCancellationRequested();
                 progress?.Report($"Reading photo {i + 1} of {images.Count}…");
                 var (jpeg, why) = copyOf(images[i]);
-                views.Add(jpeg == null ? new ViewReading { Photo = images[i].Id, Error = why ?? "its blurred copy could not be read" } : await ReadViewAsync(images[i].Id, jpeg, ct).ConfigureAwait(false));
+                var reading = jpeg == null ? new ViewReading { Photo = images[i].Id, Error = why ?? "its blurred copy could not be read" } : await ReadViewAsync(images[i].Id, jpeg, ct).ConfigureAwait(false);
+                if (reading.Error == null) onRead?.Invoke(images[i]); // MA-7-14 review: a photo is "read" only when the model gave a reading of it
+                views.Add(reading);
             }
             return MassingPlanner.FromViews(views);
         }

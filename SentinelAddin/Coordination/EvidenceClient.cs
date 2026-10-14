@@ -14,17 +14,19 @@ namespace Sentinel.Coordination;
 internal static class EvidenceClient
 {
     private static readonly HttpClient Http = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
+    // MA-7-14 review: Timeout spans the body read, and a blurred copy is a full-size JPEG of several MB over the Funnel - the pack keeps 8 s, a copy gets ChangesetClient.WriteHttp's 120 s.
+    private static readonly HttpClient CopyHttp = new HttpClient { Timeout = TimeSpan.FromSeconds(120) };
 
     private static string Url(BcfConfig cfg, string projectKey, string packId, string tail = "") =>
         $"{cfg.ServiceUrl.TrimEnd('/')}/cde/{Uri.EscapeDataString(projectKey)}/evidence/{Uri.EscapeDataString(packId)}{tail}";
 
-    private static (HttpResponseMessage Resp, byte[] Body) Get(BcfConfig cfg, string url) =>
+    private static (HttpResponseMessage Resp, byte[] Body) Get(BcfConfig cfg, string url, HttpClient http = null) =>
         Task.Run(async () =>
         {
             var msg = new HttpRequestMessage(HttpMethod.Get, url);
             var token = cfg.ServiceToken; // read here: a sign-in refresh is a network call
             if (!string.IsNullOrWhiteSpace(token)) msg.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            var resp = await Http.SendAsync(msg).ConfigureAwait(false);
+            var resp = await (http ?? Http).SendAsync(msg).ConfigureAwait(false);
             return (resp, await resp.Content.ReadAsByteArrayAsync().ConfigureAwait(false));
         }).GetAwaiter().GetResult();
 
@@ -48,10 +50,10 @@ internal static class EvidenceClient
         error = null;
         try
         {
-            var (resp, body) = Get(cfg, Url(cfg, projectKey, packId, $"/items/{Uri.EscapeDataString(itemId)}/view"));
+            var (resp, body) = Get(cfg, Url(cfg, projectKey, packId, $"/items/{Uri.EscapeDataString(itemId)}/view"), CopyHttp);
             if (!resp.IsSuccessStatusCode) { error = ChangesetTrust.Refusal((int)resp.StatusCode, Encoding.UTF8.GetString(body)); return null; }
             return body;
         }
-        catch (Exception ex) { error = ChangesetTrust.BridgeWords(ex, (int)Http.Timeout.TotalSeconds); return null; }
+        catch (Exception ex) { error = ChangesetTrust.BridgeWords(ex, (int)CopyHttp.Timeout.TotalSeconds); return null; }
     }
 }

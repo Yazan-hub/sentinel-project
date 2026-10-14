@@ -228,6 +228,20 @@ static partial class Check
         int massingOption = massingCmd.IndexOf("PlacementApply.DesignOptionRefusal(doc, \"run Photo Massing\")", StringComparison.Ordinal);
         Ok(massingOption > 0 && massingCmd.IndexOf("EvidenceClient.FetchPack(", StringComparison.Ordinal) > massingOption,
            "Photo Massing refuses a design option before an image is read");
+        // MA-7-14 review (amendment 27): the cloud refusal (literal cloudOptIn: false) comes before the pack is fetched; the comments name 7-28; the copy has its own long timeout.
+        int cloudRef = massingCmd.IndexOf("LocalOnly.ModelUrlRefusal(settings.OllamaUrl, cloudOptIn: false)", StringComparison.Ordinal);
+        Ok(cloudRef > 0 && cloudRef < massingCmd.IndexOf("EvidenceClient.FetchPack(", StringComparison.Ordinal),
+           "MA-7-14: Photo Massing refuses a cloud model (cloudOptIn: false) before the pack is fetched or any image read");
+        Ok(massingCmd.Contains("LocalVisionReader") && massingCmd.Contains("7-28") && Src("GhostBuilder", "PackPhotos.cs").Contains("7-28"),
+           "MA-7-14 (amendment 27): the words name the open path - Ghost Builder's LocalVisionReader folder read, owed as 7-28");
+        Ok(Src("App.cs").Contains("from the evidence pack's admitted, blurred photos (Files ▸ Evidence)") && !Src("App.cs").Contains("in the scoped folder - they give"),
+           "MA-7-14: the 2b tooltip names the evidence pack's photos, not a folder");
+        string evc = Src("Coordination", "EvidenceClient.cs");
+        Ok(evc.Contains("CopyHttp = new HttpClient { Timeout = TimeSpan.FromSeconds(120)") && evc.Contains("Url(cfg, projectKey, packId, $\"/items/{Uri.EscapeDataString(itemId)}/view\"), CopyHttp)"),
+           "MA-7-14: a blurred copy downloads on the 120 s client, the pack on the 8 s one");
+        Ok(massingCmd.Contains("onRead: p =>") && massingCmd.Contains("photosRead.Count == 0") && massingCmd.Contains("an older Photo Massing changeset read outside the evidence pack")
+           && massingCmd.Contains("receipt.Parameters[\"model_values\"]") && !massingCmd.Contains("? photosRead.Select"),
+           "MA-7-14 review: a photo is named only when the model read it; nothing read is said before the review; an older evidence-less photo changeset is declined, not opened; the receipt always names the photos");
 
         // The office-template check: the two commands that load the catalogue count, refuse at none, and say the count (MA-6-6: Photo
         // Massing files untyped levels and a mass, and reads no catalogue).

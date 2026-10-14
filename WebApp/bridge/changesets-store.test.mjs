@@ -2587,6 +2587,12 @@ describe("MA-7-14 Photo Massing reads the pack", () => {
     expect(cs.source).toBe("photo");
     expect(cs.elements[0].evidence).toEqual([F.evidence]);
     expect(d.readPack).toHaveBeenCalledWith("demo", "evp-0001");
+    // MA-7-14 review (amendment 28 deviation): the compound entry lives on the stored mass only; the ledger row is well-formed and lists no evidence id
+    const row = d.audit.mock.calls.find((c) => c[3] === "changeset_proposed");
+    expect(row[6]).toMatchObject({ source: "photo", elements: 1 });
+    expect(JSON.stringify(row)).not.toContain("sha256:");
+    expect(row[6].evidence).toBeUndefined();
+    expect(row[6].from_job).toBeUndefined();
   });
   it("refuses a sha the pack does not hold, an unknown item, a malformed entry and an empty list, in the PM-1 words", async () => {
     const other = "ab".repeat(32);

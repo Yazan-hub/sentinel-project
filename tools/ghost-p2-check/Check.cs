@@ -466,5 +466,9 @@ static partial class Check
         var extParams = byLayer.TryGetValue("A-WALL-EXT", out var e2) ? e2.Params : null;
         Ok(extParams != null && extParams.Any(p => p.Value != null && p.Value.Contains("60")),
            "the external walls carry the spec's FR60 rating");
+        // MA-7-14 review (amendment 27): Photo Massing's pack photos go to a model on this PC only - a cloud endpoint is refused with cloudOptIn: false.
+        Ok(Sentinel.Engine.LocalOnly.ModelUrlRefusal("https://models.example.test/api", cloudOptIn: false) != null
+           && Sentinel.Engine.LocalOnly.ModelUrlRefusal("http://localhost:11434/api/generate", cloudOptIn: false) == null,
+           "MA-7-14: a cloud model endpoint is refused for Photo Massing's pack photos; this PC's is not");
     }
 }

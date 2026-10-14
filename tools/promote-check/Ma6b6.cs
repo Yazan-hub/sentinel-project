@@ -72,9 +72,9 @@ static partial class Check
            && cmd.Contains("ReviewChangesetsCommand.Open(u, d, cfg, key, new[] { cs });"),
            "the key re-checked, the levels read and the body planned when the person files (not when the review opened), filed under the guard with the person's token or none, then the review opens on it");
         Ok(cmd.Contains("receipt.Parameters[\"openings_seen\"] = MassingPlanner.OpeningsSeen(corrected);")
-           && cmd.Contains("receipt.Parameters[\"photos\"] = MassingPlanner.HasModelValue(corrected) ? photosRead.Select(x => new { item = x.Id, copy_sha256 = x.CopySha256 }).ToList() : null;")
+           && cmd.Contains("receipt.Parameters[\"photos\"] = photosRead.Select(x => new { item = x.Id, copy_sha256 = x.CopySha256 }).ToList();") && cmd.Contains("receipt.Parameters[\"model_values\"] = MassingPlanner.HasModelValue(corrected);")
            && cmd.Contains("BuildReceipt.Run(\"photo-massing\", BuildReceipt.AddinSha256, receipt, 0, new List<string> { cs.Id }, actor)"),
-           "the build:run receipt carries the openings seen (D12), the photos (item id + copy sha) only while a number is the model's (E7), and the filed changeset");
+           "the build:run receipt carries the openings seen (D12), the photos (item id + copy sha, always the ones the mass names) with model_values (E7), and the filed changeset");
         // MA-6-9 (C14): the receipt names the views and the known dimension; the progress line counts photos; the reader sends p1_measure.py's
         // prompt and schema, one call per photo, counted per call (Trust.cs pins the Usage literals).
         string reader = Src("GhostBuilder", "MassingVisionReader.cs");

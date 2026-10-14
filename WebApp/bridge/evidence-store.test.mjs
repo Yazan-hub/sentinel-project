@@ -735,7 +735,7 @@ describe("blurred copies (MA-7-7)", () => {
     expect(budgets).toContainEqual(["evidence blurred copies", { perUser: 20, all: 60 }]);
   });
 
-  it("(7-14) the machine credential READS a blurred copy (Photo Massing's bridge read) and nothing else: the original, the marking and the detector stay a person's", async () => {
+  it("(7-14) the machine credential READS a blurred copy (Photo Massing's bridge read) and nothing else: the original and the marking stay a person's (a pin: the route already allowed service)", async () => {
     await setup();
     await mark("ev-0001", { boxes: BOXES });
     role = "service";
