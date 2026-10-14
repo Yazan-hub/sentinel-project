@@ -1,0 +1,2152 @@
+{
+ "Sentinel_ShowPanel": {
+  "summary": "Opens the dockable Sentinel pane, which shows the model's live rule results, the project's journey from the web, and the Doctor log.",
+  "overview": [
+   "Show Panel opens (or brings forward) the pane titled \"Sentinel — Live Coordination\". It first appears docked on the right of the Revit window. The button itself does nothing else: it does not scan, sign in or contact the web project.",
+   "The pane has four parts. At the top, the Next strip shows where the model's web project stands: the project key and kind, the standards line, the next step the project suggests, the LOD state, the auto-publish line and the line saying which ruleset judged this model. A small \"↻\" button beside it re-reads all of that from the web (read-only). Below it, a large score line (\"Rule pass rate 97.5%\", or \"Not scored — no ruleset judged this model\") sits over a short status line. At the bottom an expandable \"Doctor\" section holds the running log of what Sentinel did and said. In the middle is the rule grid.",
+   "The rule grid lists every rule violation found in the active model, with the columns (first to last) a \"⚡ Fix\" button, \"Rule\", \"Mode\", \"Element\", \"Message\" and \"Ref\". Rows are tinted by enforcement mode: BLOCK (red), REQUEST (orange) and WARN (yellow); BLOCK rows are listed first because they are the ones that stop a sync. Double-click a row to select and zoom to that element in Revit. \"⚡ Fix\" appears only on naming-rule rows that Sentinel can propose a name for; it opens a \"Sentinel — Review Fix\" dialog showing the \"Current value\" and an editable \"Proposed value\", and nothing is changed until you press \"Execute fix\". On a REQUEST rule the fix does not rename the element: it files a proposal that a coordinator approves in Change Requests.",
+   "The pane fills itself automatically when a project document is opened or synchronised, and again when you press Scan Now or run IFC Pre-Flight; between those it updates live as elements change. Keep it open while you work: it is where the other Sentinel commands report their results (for example the Doctor log carries the confirmation lines that publish, auto-heal and AI-proposal reports leave there)."
+  ],
+  "prerequisites": [
+   "No document is needed to open the pane, but it only shows results once a project (not family) document is open and its ruleset has loaded; until then the status says it is loading its ruleset, or the score reads \"Not scored — no ruleset judged this model\".",
+   "For the Next strip to show anything, the model must be bound to a web project (Sentinel ▸ Project Setup). Unbound, the strip reads \"Journey — not bound — Sentinel ▸ Project Setup\".",
+   "The Next strip needs the Sentinel bridge to be reachable; if it is not, the strip says \"Journey unavailable\" with the reason."
+  ],
+  "inputs": [
+   {
+    "name": "↻ (refresh button on the Next strip)",
+    "desc": "Re-reads the project's journey and publish policy from the web. Read-only; the Doctor log records what it read."
+   },
+   {
+    "name": "Row double-click",
+    "desc": "Selects and zooms to the element in the rule grid row."
+   },
+   {
+    "name": "⚡ Fix",
+    "desc": "Opens the Review Fix dialog: check or edit the \"Proposed value\", then press \"Execute fix\" (or \"Cancel\")."
+   },
+   {
+    "name": "Doctor",
+    "desc": "Expand the section at the bottom of the pane to read the log (newest line first). Its header counts the warnings Revit's Doctor auto-resolved this session and the lines logged."
+   }
+  ],
+  "steps": [
+   "On the Sentinel tab, in the Coordinate panel, click \"Show Panel\".",
+   "Read the Next strip at the top to see the project, standards, next step and publish state; press \"↻\" to refresh it.",
+   "Read the score and status lines under it.",
+   "Scan the rule grid; BLOCK rows come first. Double-click a row to jump to the element in Revit.",
+   "To correct a naming violation, press \"⚡ Fix\" on its row, edit the \"Proposed value\" if needed, and press \"Execute fix\".",
+   "Expand \"Doctor\" at the bottom when you need to see what Sentinel did or why something was refused."
+  ],
+  "results": [
+   "The pane appears docked in Revit. Nothing is written to the model or the web by opening it.",
+   "A ⚡ Fix on a WARN or BLOCK row renames the element and removes the row; on a REQUEST row it files a proposal for a coordinator (the row stays until it is approved). The status line says which happened.",
+   "The Doctor log keeps the last 200 lines for the session."
+  ],
+  "tips": [
+   "If the pane is clipped in a narrow dock, the lines wrap to the dock width and the grid scrolls sideways.",
+   "A type-level naming violation has no ⚡ Fix; type renames go through the Naming Manager.",
+   "Rows with no real element (for example workset findings) cannot be zoomed to and have no ⚡ Fix.",
+   "If the status says \"Journey unavailable\", the model is bound but the bridge did not answer; the rule grid still works."
+  ],
+  "related": [
+   "Sentinel_ScanNow",
+   "Sentinel_Requests",
+   "Sentinel_NamingManager",
+   "Sentinel_Setup",
+   "Sentinel_Rules",
+   "Sentinel_Scorecard"
+  ],
+  "sources": [
+   "SentinelAddin/Commands.cs:8-15",
+   "SentinelAddin/UI/SentinelPanel.xaml",
+   "SentinelAddin/UI/SentinelPanel.xaml.cs",
+   "SentinelAddin/UI/SentinelPanelViewModel.cs",
+   "SentinelAddin/UI/FixReviewDialog.xaml",
+   "SentinelAddin/App.cs:50"
+  ]
+ },
+ "Sentinel_Requests": {
+  "summary": "Lists the change requests waiting for a coordinator and lets a lead or owner approve or reject each one.",
+  "overview": [
+   "Change Requests opens a window titled \"Sentinel — Change Requests\" with one card per pending request. Each card shows the category of the element, the rule that raised it, the old value struck through next to the new value, who asked and when. Requests come from naming rules in REQUEST mode: when someone renames an element in a way the rule wants reviewed, or files a \"⚡ Fix\" proposal from the Sentinel pane, it waits here for a decision.",
+   "Only a lead or owner of the model's web project can decide. Anyone else (including a signed-out user) sees the list but it is read-only, and the header says why.",
+   "\"Approve\" keeps a change that was already made, or, for a proposal (nothing was applied yet), applies the proposed name. \"Reject\" puts back the old value for a change that was made, or simply drops a proposal. Each verdict is its own Revit transaction (\"Sentinel: Approve request\" or \"Sentinel: Reject request\"), so it can be undone in Revit like any other edit, and the card leaves the list only once the verdict has been written."
+  ],
+  "prerequisites": [
+   "A project document must be open (the command quietly does nothing without one).",
+   "To approve or reject you must be a lead or owner on the model's web project; the model must be bound to it (Sentinel ▸ Project Setup) and you must be signed in (Sentinel ▸ Sign in). Without that the window opens read-only.",
+   "Requests live inside the model, so the document must be the one the requests were raised in."
+  ],
+  "inputs": [
+   {
+    "name": "Show",
+    "desc": "Previews the request on the element: it is painted with a green fill and isolated in the active view. For views and sheets it opens or selects them instead. Closing the window restores the original graphics."
+   },
+   {
+    "name": "✓ Approve",
+    "desc": "Accepts the request (keeps the change, or applies the proposal)."
+   },
+   {
+    "name": "✕ Reject",
+    "desc": "Refuses the request (reverts the change, or drops the proposal)."
+   }
+  ],
+  "steps": [
+   "On the Sentinel tab, in the Coordinate panel, click \"Change Requests\".",
+   "Read the header: it says how many are pending and whether you can decide (\"approve keeps a change (or applies a ⚡ proposal); reject reverts it (or drops the proposal)\") or are read-only and why.",
+   "For a card, click \"Show\" to see the element highlighted in the active view.",
+   "Click \"✓ Approve\" or \"✕ Reject\".",
+   "Check the header: the pending count drops when the verdict is written; a red \"✕\" message appears if it was not."
+  ],
+  "results": [
+   "The element's name (or number, for a sheet) is changed or reverted inside a Revit transaction, and the review flag on the element is cleared.",
+   "The request leaves the list and its status in the model becomes Approved, Rejected or Reverted, with the deciding person and time recorded.",
+   "Closing the window clears the Show highlight."
+  ],
+  "tips": [
+   "If you sign in as someone else while the window is open, further verdicts are refused with \"read-only — the signed-in person changed since this window opened\"; close and reopen the window.",
+   "An approval of a proposal can fail with \"'<name>' is already in use — reject this proposal or rename by hand.\" The request then stays pending.",
+   "If Revit does not save the verdict (another user owns the element) the card stays and the header says so.",
+   "The read-only header messages include: not bound to a web project, your role could not be read, signed out (sign in as a lead or owner), not a member, or the role you hold.",
+   "If you reject a proposal after someone had already renamed the element by hand, Sentinel keeps the hand rename when it passes the rule and reverts it when it still breaks the rule."
+  ],
+  "related": [
+   "Sentinel_ShowPanel",
+   "Sentinel_ReviewFlag",
+   "Sentinel_NamingManager",
+   "Sentinel_SignIn",
+   "Sentinel_Setup"
+  ],
+  "sources": [
+   "SentinelAddin/Commands.Workflow.cs:11-23",
+   "SentinelAddin/UI/RequestsWindow.xaml",
+   "SentinelAddin/UI/RequestsWindow.xaml.cs",
+   "SentinelAddin/Workflow/RequestManager.cs:27-33,133-193",
+   "SentinelAddin/Coordination/ChangesetClient.cs:933-941",
+   "SentinelAddin/Workflow/ShowPendingChangeCommand.cs",
+   "SentinelAddin/App.cs:438-439"
+  ]
+ },
+ "Sentinel_BcfIssues": {
+  "summary": "Shows the coordination issues raised on the web (BCF), jumps Revit to each issue's element and camera, and lets you raise new issues from your Revit selection.",
+  "overview": [
+   "BCF Issues opens a window titled \"Sentinel — Coordination Issues (BCF)\" listing the open issues of the model's web project. Issues are raised by people who do not use Revit (in the web viewer) and by you, and the list stays live: when someone raises or changes an issue on the web it appears within seconds without pressing anything. Select an issue to read its details: title, type, status, priority, who it is assigned to, due date, labels, author, how many elements it is linked to, the description, the comments and the history.",
+   "To act on an issue, double-click it (or press \"Zoom to issue (or double-click)\"): Revit applies the issue's first saved viewpoint, taking you to the linked element and camera. \"Isolate ALL issue elements\" isolates every element linked to any open issue in the list. \"Issues for my Revit selection\" answers the reverse question: select elements in Revit, press it, and the issues those elements belong to are highlighted in the list.",
+   "\"＋ New issue from my Revit selection\" raises an issue from Revit: select the element(s), optionally be in a 3D view so the camera travels with it, and describe the issue in the \"Sentinel — New issue\" dialog. It lands on the web board linked to those elements.",
+   "\"Fix in Revit (referee-raised IDS issues only)\" is for the issues Sentinel's referee raised itself (their titles read \"IDS: … — … (N failing)\"). It opens a \"Sentinel — Fix in Revit\" window where you enter the missing values, have the referee check them, apply them in one Revit transaction and re-check. Evidence is posted on the issue, and it is marked Resolved only when every listed element passes; closing it stays a human decision on the web."
+  ],
+  "prerequisites": [
+   "A document must be open and bound to a web project (Sentinel ▸ Project Setup). Otherwise you get: \"This model is not bound to a web project — Sentinel ▸ Project Setup.\"",
+   "The Sentinel bridge must be running and reachable. If not, the status line reads \"Could not reach the BCF service at <address>\" followed by the reason.",
+   "You should be signed in (Sentinel ▸ Sign in); if the session cannot be used, a dialog or the status line says so in words and the list is not loaded.",
+   "Fix in Revit also needs the model that the window was opened on to be the active one, and an IDS (requirements spec) installed on the web project or its office to check against; without one, applying is allowed but nothing can be checked, certified or resolved.",
+   "A new issue needs at least one selected element that has an IFC identity."
+  ],
+  "inputs": [
+   {
+    "name": "Issues (list)",
+    "desc": "Select one issue to read it; select several to isolate or compare. Double-click zooms to the first one."
+   },
+   {
+    "name": "Revit selection",
+    "desc": "For \"Issues for my Revit selection\" and \"＋ New issue from my Revit selection\": select elements in the model first. For a new issue, working in a 3D view also sends the camera (an isometric view is sent as a 60° perspective); in any other view there is no camera."
+   },
+   {
+    "name": "Title",
+    "desc": "New issue dialog. Required; at most 600 characters. \"Create issue\" stays disabled until there is a title."
+   },
+   {
+    "name": "Description",
+    "desc": "New issue dialog. Pre-filled with what you selected (for example how many of each category) and the model name; edit freely."
+   },
+   {
+    "name": "Type",
+    "desc": "New issue dialog: Issue, Clash, Fault, Info or Request (default Issue)."
+   },
+   {
+    "name": "Priority",
+    "desc": "New issue dialog: Low, Normal, High or Critical (default Normal)."
+   },
+   {
+    "name": "Assigned to (e-mail or name)",
+    "desc": "New issue dialog. Optional."
+   },
+   {
+    "name": "Due date (optional)",
+    "desc": "New issue dialog. Optional date picker."
+   },
+   {
+    "name": "Set all ticked to / Set / Zoom / Untick all / Show only ticked / Check / Apply ticked / Re-check",
+    "desc": "Fix in Revit window. Tick the rows to fix, type a value per row (or one value in \"Set all ticked to\" and press \"Set\"), then Check, Apply ticked, Re-check."
+   }
+  ],
+  "steps": [
+   "On the Sentinel tab, in the Coordinate panel, click \"BCF Issues\".",
+   "Wait for the status line to say how many open issues were found (\"Double-click to zoom in Revit.\"). Press \"Refresh\" to reload by hand.",
+   "Click an issue to read its details. Double-click it to zoom Revit to its element and camera.",
+   "To see everything affected, press \"Isolate ALL issue elements\".",
+   "To check whether what you have selected is already reported, select elements in Revit and press \"Issues for my Revit selection\".",
+   "To raise an issue, select the element(s) in Revit (be in a 3D view if you want a camera), press \"＋ New issue from my Revit selection\", fill in the dialog and press \"Create issue\". The status line then reports what the bridge answered.",
+   "To fix a referee-raised issue, select it and press \"Fix in Revit (referee-raised IDS issues only)\". In the window, tick the rows, enter values, press \"Check\" (nothing is written yet), then \"Apply ticked\", then read the result of the automatic re-check."
+  ],
+  "results": [
+   "Zooming and isolating change only the view; the status line reports what was done.",
+   "A new issue is created on the web board with the label \"revit\", status Open, linked to the selected elements; it then appears in the list.",
+   "Fix in Revit writes the ticked values in a single Revit transaction. After a re-check, an evidence comment is posted on the issue (who fixed it, how many elements now pass, the IDS used and the ledger row). Only when every listed element passes is the status set to Resolved; otherwise the issue stays as it was.",
+   "Applying and checking add rows to the project's audit ledger."
+  ],
+  "tips": [
+   "\"This issue has no viewpoint.\" means there is nothing for Revit to zoom to.",
+   "\"Only referee-raised IDS issues can be fixed here.\" appears for any other kind of issue; the Fix button is greyed out unless the selected issue's title has the IDS form.",
+   "\"Select the element(s) the issue is about first — nothing was sent.\" means the selection had no usable elements. \"A title, please — nothing was sent.\" means the title was empty.",
+   "\"switch back to the model the Issues window was opened on — nothing was sent\": the window belongs to the model it was opened in; make that model active again.",
+   "In Fix in Revit, a message that the referee response is not conclusive means some elements were missing from the model or the failure list was cut off; nothing is certified in that case.",
+   "If the issue names more failing elements than it lists, the unlisted ones are never examined, and the issue stays open until you re-publish to raise a fresh, complete one.",
+   "Only one Fix window can be open per issue.",
+   "Closing the Issues window closes any open Fix windows and stops the live updates."
+  ],
+  "related": [
+   "Sentinel_ClashManager",
+   "Sentinel_ClashRegister",
+   "Sentinel_Publish",
+   "Sentinel_GovernedPublish",
+   "Sentinel_Setup",
+   "Sentinel_SignIn"
+  ],
+  "sources": [
+   "SentinelAddin/Commands.BcfIssues.cs:28-437",
+   "SentinelAddin/UI/BcfIssuesWindow.cs",
+   "SentinelAddin/UI/NewIssueDialog.cs",
+   "SentinelAddin/UI/FixInPlaceWindow.cs:35-100",
+   "SentinelAddin/Coordination/IssueDraft.cs",
+   "SentinelAddin/Engine/ProjectContext.cs:18",
+   "SentinelAddin/App.cs:440-441"
+  ]
+ },
+ "Sentinel_Clash": {
+  "summary": "A drop-down group holding the two clash tools: Clash Manager (run clash detection in this model) and Clash Register (read the team-wide clash register from the web).",
+  "overview": [
+   "The Clash button on the Coordinate panel is a pull-down with two commands that cover the two halves of clash work. \"Clash Manager\" is the authoring tool: it runs native clash detection inside the open model, grades each clash by severity, and lets you create a 3D clash view or export the clashes as BCF. \"Clash Register\" is the review tool: it shows the team-wide clash register recorded on the web, read-only.",
+   "Use Clash Manager when you are the modeller who wants to find and fix interferences between your structure and linked MEP or IFC models. Use Clash Register when you want to see the coordination picture agreed on the web (how many clashes are open and in which status) without leaving Revit. The register is filled by running Coordination ▸ Clash ▸ Run on the web with two or more models loaded."
+  ],
+  "prerequisites": [
+   "Clash Manager needs loaded links in the open model; Clash Register needs the model bound to a web project and the bridge reachable. See each command."
+  ],
+  "inputs": [],
+  "steps": [
+   "On the Sentinel tab, in the Coordinate panel, open the \"Clash\" drop-down.",
+   "Choose \"Clash Manager\" to detect clashes in this model, or \"Clash Register\" to read the web register."
+  ],
+  "results": [
+   "Each choice opens its own dialog; the group itself does nothing."
+  ],
+  "tips": [
+   "Clash Manager shows a Federation Gate line so you know whether the web's data gate has passed before you rely on the result."
+  ],
+  "related": [
+   "Sentinel_ClashManager",
+   "Sentinel_ClashRegister",
+   "Sentinel_BcfIssues"
+  ],
+  "sources": [
+   "SentinelAddin/App.cs:442-447"
+  ]
+ },
+ "Sentinel_ClashManager": {
+  "summary": "Detects clashes between linked MEP/IFC models and your native structure, grades them by severity, and lets you open a coloured 3D clash view or export them to BCF.",
+  "overview": [
+   "Clash Manager compares the elements of every loaded Revit link and IFC link against the open model's walls, floors, structural framing and structural columns. On the link side it looks at ducts, pipes, cable trays and conduits, plus the generic shapes an IFC link brings in. Each overlap is graded: Hard (the two solids share more than a litre of volume), Medium (the solids intersect with a smaller shared volume) and Soft (the bounding boxes overlap but the solids do not, a proximity clash). Detection is read-only; it never changes the model.",
+   "When clashes are found, a window titled \"Sentinel — Clash Manager\" lists them worst first, with the columns \"Severity\", \"Host element\", \"Category\", \"Host ID\", \"MEP element\", \"Link\", \"Location\" and \"Vol m³\". The header counts clashes by severity and appends the Federation Gate status for the model's web project, so you can see whether the project's data gate has passed (PASS, FAIL, NOT RUN or NOT CHECKABLE), how many models were read, and whether it is stale.",
+   "From the window you can select a clash and press \"Show element\" to select and zoom to the host element, press \"Create 3D clash view\" to build a dedicated 3D view with a section box around the clashes and the host elements coloured by their worst severity, or press \"Export BCF\" to write the clashes to a BCF file for BIMcollab, Solibri or Navisworks. If you select rows, the view and the export use only those rows; with nothing selected they use all clashes."
+  ],
+  "prerequisites": [
+   "An open project document with at least one loaded Revit link or IFC link that contains MEP elements or IFC shapes. With no walls, floors, structural framing or columns in the open model, or no matching link content, there is nothing to find.",
+   "Links must be loaded (not unloaded) in the model; an unloaded link is skipped.",
+   "To see the Federation Gate status the model must be bound to a web project (otherwise the header says \"Federation Gate: not checked\" with the Project Setup hint) and the bridge must be reachable (otherwise \"Federation Gate: bridge unreachable\").",
+   "Large models with many link elements can take a while because every candidate pair is checked in turn."
+  ],
+  "inputs": [
+   {
+    "name": "Clash rows (selection)",
+    "desc": "Select one or more rows (Ctrl/Shift-click) to restrict \"Create 3D clash view\" and \"Export BCF\" to them; select none to use all."
+   },
+   {
+    "name": "Show element",
+    "desc": "Acts on the single selected row."
+   },
+   {
+    "name": "Choose BCF output folder (file name is auto-generated)",
+    "desc": "A save dialog that appears when you press \"Export BCF\". Pick the folder; the file name is generated for you."
+   }
+  ],
+  "steps": [
+   "On the Sentinel tab, in the Coordinate panel, open the \"Clash\" drop-down and click \"Clash Manager\".",
+   "Wait for detection to finish; if nothing is found a dialog says \"No clashes found between linked MEP/IFC elements and native structure.\" with the Federation Gate line, and the command ends.",
+   "Read the header counts and the Federation Gate status; review the list (coloured Hard, Medium, Soft).",
+   "Select a row and press \"Show element\" to see it in the model.",
+   "Select the rows you care about (or none for all) and press \"Create 3D clash view\" to get a new 3D view that Revit switches to.",
+   "Press \"Export BCF\", choose the output folder, and note the path in the \"✓ Exported\" confirmation."
+  ],
+  "results": [
+   "Clash detection writes nothing to the model.",
+   "\"Create 3D clash view\" adds a 3D view named \"CO_MEP-CLASH_<date>_<time>\" with a section box around the clashes (1 m margin) and Fine detail, and colours the host elements red, orange or yellow by their worst severity. Sentinel tries to file it under the browser group \"05_COORDINATION & QA/QC\" and \"05.3_MEP COORDINATION\" using your office's browser parameters; if those parameters are not present it falls back to the Coordination discipline and the Doctor log in the Sentinel pane says so. A confirmation dialog names the view.",
+   "\"Export BCF\" writes one BCF issue titled \"MEP clashes (<count>)\", type Clash, status Active, authored by the signed-in person, whose description lists up to the first 25 clashes and which links up to 100 of the host elements. A dialog shows the file path, or the error if it failed."
+  ],
+  "tips": [
+   "Link elements cannot be coloured individually in the host view; the host element is coloured and the section box brings you to the link element.",
+   "If the solid intersection cannot be computed for a pair, that clash stays graded Soft.",
+   "A Soft clash only means the bounding boxes overlap; check it before acting.",
+   "If the Federation Gate says NOT RUN or FAIL, run or fix it on the web before relying on the clash result.",
+   "The clash list is a snapshot from the moment you pressed the button; reopen Clash Manager after changing the model or the links.",
+   "To track clashes as a team, raise them as issues (BCF Issues) or run the web clash and read it back with Clash Register."
+  ],
+  "related": [
+   "Sentinel_ClashRegister",
+   "Sentinel_BcfIssues",
+   "Sentinel_MepVoids",
+   "Sentinel_MepTypeCheck",
+   "Sentinel_ShowPanel"
+  ],
+  "sources": [
+   "SentinelAddin/Commands.Phase2.cs:164-187",
+   "SentinelAddin/Engine/ClashManager.cs",
+   "SentinelAddin/Engine/ViewGenerator.cs:22-90",
+   "SentinelAddin/UI/ClashManagerDialog.xaml",
+   "SentinelAddin/UI/ClashManagerDialog.xaml.cs",
+   "SentinelAddin/Coordination/GovernedQuery.cs:45-80",
+   "SentinelAddin/App.cs:444-445"
+  ]
+ },
+ "Sentinel_ClashRegister": {
+  "summary": "Shows, read-only, the project's team-wide clash register recorded on the web: how many clashes there are, their status counts, and the biggest by volume.",
+  "overview": [
+   "Clash Register brings the web's clash picture into Revit. The clashes are recorded on the web when someone runs Coordination ▸ Clash ▸ Run with two or more models loaded; the register tracks each clash through the status lifecycle raised, reviewed, approved and resolved. The button reads that register for the model's web project and shows it in a dialog titled \"Sentinel — Clash Register\".",
+   "The dialog gives the total number of clashes recorded, a one-line count by status (for example \"3 raised  ·  1 reviewed\"), and a list of up to the 12 biggest clashes by shared volume, each as \"[status] label — volume m³\". It is purely informational: it never changes the model or the register, and the web side owns the clash lifecycle."
+  ],
+  "prerequisites": [
+   "The open model must be bound to a web project (Sentinel ▸ Project Setup). Otherwise: \"This model is not bound to a web project — Sentinel ▸ Project Setup.\"",
+   "You must be signed in; if the bridge refuses the call you see \"The bridge refused this call for project '<key>': signed out — Sentinel ▸ Sign in.\"",
+   "The Sentinel bridge must be running. If not: \"Couldn't reach the Sentinel bridge / CDE for project '<key>'\" with a hint to start it.",
+   "Clashes must already have been run and recorded on the web; otherwise there is nothing to show."
+  ],
+  "inputs": [],
+  "steps": [
+   "On the Sentinel tab, in the Coordinate panel, open the \"Clash\" drop-down and click \"Clash Register\".",
+   "Read the dialog: the total, the status counts, and the biggest clashes by volume.",
+   "Close the dialog; go to the web (Coordination ▸ Clash) to review or change a clash's status."
+  ],
+  "results": [
+   "A single information dialog. Nothing is written to the model, the web or the ledger.",
+   "If the register is empty the dialog says \"No clashes recorded for this project yet.\" and explains how to populate it (load 2 or more models on the web and run Coordination ▸ Clash ▸ Run)."
+  ],
+  "tips": [
+   "Volumes under 0.01 m³ are shown in scientific notation.",
+   "Only the 12 biggest clashes are listed; the web shows the full register.",
+   "A clash with no status is counted as \"unknown\" in the status line and shown as \"?\" in the list.",
+   "This is not the same as Clash Manager: Clash Manager detects clashes live in this Revit model; Clash Register reads what the team has recorded on the web."
+  ],
+  "related": [
+   "Sentinel_ClashManager",
+   "Sentinel_BcfIssues",
+   "Sentinel_Setup",
+   "Sentinel_SignIn"
+  ],
+  "sources": [
+   "SentinelAddin/Commands.ClashRegister.cs:18-78",
+   "SentinelAddin/Coordination/GovernedQuery.cs:287-315",
+   "SentinelAddin/Engine/ProjectContext.cs:18",
+   "SentinelAddin/App.cs:446-447"
+  ]
+ },
+ "Sentinel_ReviewFlag": {
+  "summary": "One-time project setup: creates the ZZZ_ReviewStatus flag parameter on Views, Sheets, Levels and Grids so pending changes can be grouped in the Project Browser.",
+  "overview": [
+   "Review Flag adds a text project parameter named ZZZ_ReviewStatus to the model and binds it to Views, Sheets, Levels and Grids. Sentinel writes into this parameter to flag items that have a pending change request, so you can see them at a glance. The parameter is not user-editable (its description reads \"Do not edit manually\").",
+   "Run it once per project (or per template). Revit's API cannot create a Project Browser organisation scheme, so after running it you make one final manual step: View tab ▸ User Interface ▸ Browser Organization ▸ New scheme grouping by ZZZ_ReviewStatus. Pending items then appear in their own group in the browser.",
+   "Only a coordinator can run it: a lead or owner of the model's web project."
+  ],
+  "prerequisites": [
+   "An open document.",
+   "The model must be bound to a web project (Sentinel ▸ Project Setup) and you must be a lead or owner on it (sign in via Sentinel ▸ Sign in). Otherwise a dialog says \"Only a lead or owner of the web project can run project setup — <reason>.\"",
+   "The document must not already contain the parameter."
+  ],
+  "inputs": [],
+  "steps": [
+   "Sign in as a lead or owner and make sure the model is bound to its web project.",
+   "On the Sentinel tab, in the Coordinate panel, click \"Review Flag\".",
+   "Read the confirmation dialog: \"'ZZZ_ReviewStatus' created and bound to Views, Sheets, Levels and Grids.\"",
+   "Do the final manual step it describes: View tab ▸ User Interface ▸ Browser Organization ▸ New scheme grouping by ZZZ_ReviewStatus."
+  ],
+  "results": [
+   "A project parameter ZZZ_ReviewStatus (text, instance, in the Identity Data group, bound to Views, Sheets, Levels and Grids) is added in one Revit transaction named \"Sentinel: Setup workflow parameter\".",
+   "Sentinel uses a temporary shared parameter file in the Windows temp folder for the definition and puts your own shared parameter file setting back afterwards.",
+   "If the parameter already exists you get \"'ZZZ_ReviewStatus' already exists in this project.\" and nothing is changed."
+  ],
+  "tips": [
+   "The Browser Organization scheme must be created by hand once; it is best done in the project template so every project inherits it.",
+   "If you are not a lead or owner, ask one to run it.",
+   "The \"signed out\" reason appears if you are not signed in; sign in first.",
+   "It is one Revit transaction and can be undone, but undoing it removes the flag Sentinel uses for pending requests."
+  ],
+  "related": [
+   "Sentinel_Requests",
+   "Sentinel_ShowPanel",
+   "Sentinel_Setup",
+   "Sentinel_SignIn"
+  ],
+  "sources": [
+   "SentinelAddin/Commands.Workflow.cs:51-135",
+   "SentinelAddin/Coordination/ChangesetClient.cs:933-941",
+   "SentinelAddin/App.cs:448-449"
+  ]
+ },
+ "Sentinel_ReviewChangesets": {
+  "summary": "Lets you review AI-proposed model changes: see the referee's verdict per element, tick what you accept, and apply exactly that to the model in one Undo step.",
+  "overview": [
+   "AI agents, and Sentinel's own tools such as Promote, survey, drawing readers and Ghost Builder, do not edit your model directly. They file proposals (changesets) on the web project, where an automatic referee checks each proposed element against the project's requirements (IDS). Review AI Proposals is the Revit-side human gate: you decide what actually enters the model.",
+   "The command opens a picker titled \"Sentinel — AI proposals waiting: <project>\" that lists every proposal waiting for review, oldest first, each with its age, source, and its elements by referee verdict and web declines. A Promote storey is shown as one entry. Choose one and press \"Review\" (or double-click). A window \"Sentinel — Review AI proposal: <name>\" opens showing who proposed it, the referee's adjudication and the spec used, and one row per proposed element grouped by what it does (for example retype, create, reshape, rehost, type edit), each with a checkbox, a verdict badge and a \"Show\" button. Rows the referee accepted are pre-ticked; you can tick a rejected row to overrule it, with the failures on screen, and the result records that you did.",
+   "While the window is open, proposed new elements are drawn as a coloured ghost overlay in the model's 3D views; ticking and unticking recolours it, and it is removed on Apply or when you close the window. Survey proposals also offer \"Show the scan\" (the point cloud as crosses), and extra buttons to flag a stair or propose terrain from the scan.",
+   "The main button at the bottom reads \"Apply N ticked in Revit\". With nothing ticked it reads \"Decline all (needs a reason)\" and records a decline instead, which needs a reviewer note. Everything is reported back to the bridge and recorded on the audit ledger; what Revit applied is held on this PC until the bridge acknowledges it, so a result is never lost or applied twice."
+  ],
+  "prerequisites": [
+   "An open project document bound to a web project (Sentinel ▸ Project Setup); otherwise \"This model is not bound to a web project — Sentinel ▸ Project Setup.\"",
+   "The Sentinel bridge must be reachable to list proposals; otherwise the picker says \"Couldn't reach the bridge\" with the reason.",
+   "To apply or decline you must hold contributor role or above on the project, signed in (Sentinel ▸ Sign in). A viewer, a non-member, or a signed-out user is refused before anything changes: \"You are <role> on '<project>' — applying or declining needs contributor or above.\"",
+   "A rehost or a re-creation (replacing an element) needs a signed-in person, not the machine credential.",
+   "Only one review at a time: while a picker or review window is open, a result is still being reported, or Promote, Shell a Mass or Ghost Builder is working, the command shows a message that says to finish or close the window and run it again.",
+   "Proposals that create elements need the project's guideline (placement rules) to be readable; if it cannot be read, nothing runs and the proposals stay pending.",
+   "Each element's family and type must be loaded in the model; rows whose type is missing are marked, start unticked, and Apply refuses a ticked one."
+  ],
+  "inputs": [
+   {
+    "name": "Review (picker)",
+    "desc": "Choose a proposal from the picker list and press \"Review\", or double-click it. Entries with an orange warning cannot be opened because a result for them waits on this PC."
+   },
+   {
+    "name": "Row checkbox",
+    "desc": "Tick to apply that element. Rows the web desk has declined are locked unticked and cannot be ticked here."
+   },
+   {
+    "name": "Show (per row)",
+    "desc": "Selects and zooms to the element, or zooms the active view to where a new element would be placed. Disabled for type edits, which have no place in the model."
+   },
+   {
+    "name": "Tick group / Untick group",
+    "desc": "Ticks or unticks every allowed row in that group."
+   },
+   {
+    "name": "Reason for the unticked here",
+    "desc": "Optional one line per group: why the unticked rows in that group are declined. Recorded for each of them with the result."
+   },
+   {
+    "name": "Reviewer note (recorded with the result; Decline all needs one)",
+    "desc": "Free text recorded with the result. Required when you decline everything."
+   },
+   {
+    "name": "Tick suggested",
+    "desc": "Restores the suggested ticks."
+   },
+   {
+    "name": "Untick all",
+    "desc": "Clears every tick."
+   },
+   {
+    "name": "Show the scan",
+    "desc": "Survey proposals only. Draws the survey's scan as crosses in 3D views, plans and sections; stays after Apply so you can compare the placed walls to the scan."
+   },
+   {
+    "name": "Flag a stair…",
+    "desc": "Pick the stair's two plan corners on the plan of a Building Story; the box is saved on the proposal as a flag for a person. Nothing is placed. Needs sign-in."
+   },
+   {
+    "name": "Propose terrain from the scan…",
+    "desc": "Survey proposals only. Reads the ground off the scan and files it as a separate proposal for one Toposolid of the office's type. Needs sign-in and Revit 2024 or later."
+   },
+   {
+    "name": "Retry report",
+    "desc": "Appears when a result could not be reported to the bridge; checks the model and sends it again."
+   }
+  ],
+  "steps": [
+   "Sign in (Sentinel ▸ Sign in) as a contributor or above, and open the bound model.",
+   "On the Sentinel tab, in the Coordinate panel, click \"Review AI Proposals\".",
+   "In the picker, read the list of waiting proposals and the line above it. Select one and press \"Review\".",
+   "Read the header (who proposed it, adjudication verdict and spec) and any warnings above the rows.",
+   "Go through the groups. Use \"Show\" on a row to look at it in the model, and the ghost overlay in a 3D view.",
+   "Tick the rows you accept (or press \"Tick suggested\"). For rows you leave unticked, optionally type a reason for the group.",
+   "Optionally write a reviewer note.",
+   "Press \"Apply N ticked in Revit\". Or, to refuse everything, untick all, write the reason in the reviewer note and press \"Decline all\".",
+   "Read the status and the dialog that follows: it states how many elements were applied, which were kept as they stand, any warnings, and what the bridge recorded (ledger row). If a report did not land, press \"Retry report\"."
+  ],
+  "results": [
+   "Apply creates, retypes, reshapes, rehosts or edits the ticked elements in the model inside one Undo step (a Promote storey is one Undo step for the whole storey). Elements Revit removed at commit, and ones it kept because the model had changed since they were read, are reported as rejected with the reason.",
+   "Unticked elements are reported to the bridge as rejected, with your per-group reasons; each changeset gets its own ledger row. A declined proposal changes nothing in the model.",
+   "After an apply that qualifies, Sentinel also sends a \"LOD state after\" row to the ledger. After applying a Photo Massing mass the dialog suggests the next step: select the mass and run Model from Drawings ▸ 2c · Shell a Mass.",
+   "Applied elements carry a provenance stamp so Sentinel can recognise them later. The result is saved on this PC until the bridge confirms it.",
+   "The pane's Doctor log records the outcome lines, especially if you closed the window before they arrived."
+  ],
+  "tips": [
+   "If someone changes a proposal while your window is open, Apply re-reads it first. A proposal that is no longer \"proposed\" creates nothing; a ticked row that was declined on the web refuses the whole Apply and locks that row so you can press Apply again for the rest.",
+   "If Revit's transaction fails, the whole change set is rolled back and reported as declined with the reason; the model holds none of it.",
+   "If Revit does not finish the transaction in time, nothing is reported and the proposal stays proposed; check the model before reviewing again, because a second Apply could duplicate what Revit finishes.",
+   "A result that Revit applied but the bridge has not taken is kept on this PC and the proposal cannot be reopened until it is reported; the next Review AI Proposals checks the model and sends it. Results applied in another model wait for you to run the command in that model. Reports are also sent automatically when you open the model, provided you are signed in.",
+   "A Promote proposal may be offered alone with a note when another part of its storey is missing or waiting twice; applying it is then its own Undo entry. If a storey with type edits is declined, the dialog tells you to decline related storeys before running Promote again.",
+   "The ghost overlay is a display aid only; if it cannot be drawn the review still works and Show still zooms to a row.",
+   "Proposing a stair or terrain files a new proposal of its own for review; nothing is ticked or placed until you review it.",
+   "Closing the review window while a decline has not been reported loses that decline; the Doctor log says so."
+  ],
+  "related": [
+   "Sentinel_PromoteWalls",
+   "Sentinel_GhostBuilder",
+   "Sentinel_Provenance",
+   "Sentinel_ShellMass",
+   "Sentinel_SignIn",
+   "Sentinel_Setup",
+   "Sentinel_ShowPanel"
+  ],
+  "sources": [
+   "SentinelAddin/Commands.ReviewChangesets.cs:26-122,740-952",
+   "SentinelAddin/UI/ChangesetPickerWindow.cs",
+   "SentinelAddin/UI/ChangesetReviewWindow.cs",
+   "SentinelAddin/Engine/ProjectContext.cs:18",
+   "SentinelAddin/App.cs:450-451"
+  ]
+ },
+ "Sentinel_ScanNow": {
+  "summary": "Re-reads the ruleset that judges this model and runs a full compliance scan, showing the result in the Sentinel pane.",
+  "overview": [
+   "Scan Now checks the active project against the ruleset installed on the model's web project (or, failing that, its office). It first refreshes the ruleset from the web, so a rule your standards manager changed a minute ago is applied. An unchanged ruleset is a quick check, not a full download.",
+   "The command itself shows no result dialog. It opens the Sentinel pane and the scan result lands there: the compliance strip and the list of issues. Use it after a batch of modelling work, after the ruleset has been updated on the web, or when you want a fresh result.",
+   "Scan Now is read-only. It changes nothing in the model. Fixes are made from the issue list in the pane, or with Naming Manager for family and type names."
+  ],
+  "prerequisites": [
+   "A project document must be open and active. A family (.rfa) document is not scanned: Sentinel says only project documents are judged by their project's ruleset.",
+   "Sentinel's rule engine must be running (it starts with Revit). If it is not, the button does nothing.",
+   "To be judged by your project's rules, the model must be bound to its web project with Project Setup."
+  ],
+  "inputs": [],
+  "steps": [
+   "Open the project model you want to check and make it the active document.",
+   "On the Sentinel tab, in the Validate panel, click \"Scan Now\".",
+   "The Sentinel pane opens (or comes to the front). Wait a moment while the ruleset is re-read and the scan runs.",
+   "Read the compliance strip and the issue list in the pane."
+  ],
+  "results": [
+   "The Sentinel pane refreshes with the new scan: the score strip and the issues.",
+   "If the ruleset load produced a note, it appears in the pane's Doctor log.",
+   "Nothing is written to the model."
+  ],
+  "tips": [
+   "A family document gives the message \"A family document is not scanned — only project documents are judged by their project's ruleset.\"",
+   "If you switch to another project while the ruleset is loading, the new ruleset is kept for the project it belongs to and shown when you return to that project.",
+   "For a weighted score and a per-domain breakdown use Health Scorecard; to see which rules apply use Rule Set."
+  ],
+  "related": [
+   "Sentinel_ShowPanel",
+   "Sentinel_Scorecard",
+   "Sentinel_Rules",
+   "Sentinel_NamingManager",
+   "Sentinel_Setup"
+  ],
+  "sources": [
+   "Commands.cs:18-34",
+   "App.cs:187-207"
+  ]
+ },
+ "Sentinel_Scorecard": {
+  "summary": "Shows a weighted compliance score and a per-domain breakdown of the issues in the active model.",
+  "overview": [
+   "Health Scorecard runs a full scan of the active model and turns the list of issues into one executive number: a weighted rule score with a letter grade (A to F), the rule pass rate, and a list of issues by rule domain (the letters before the dash in a rule id, for example NAM or IFC).",
+   "The weighting follows how strict each rule is: a BLOCK issue counts 8, REQUEST 4, WARN 2 and MONITOR 0.5. One blocking issue therefore hurts the score far more than several informational ones. The dialog also prints the formula, so the number can be explained to a project manager.",
+   "The dialog opens with \"Judged by\" followed by the name of the ruleset that was used. If no ruleset judged the model, it says the model is \"Not scored\" and gives no grade, rather than showing a misleading 100."
+  ],
+  "prerequisites": [
+   "A document must be open and active.",
+   "Sentinel's rule engine must be running.",
+   "For a real score, the model's web project (or office) needs an installed ruleset, and the model must be bound via Project Setup."
+  ],
+  "inputs": [],
+  "steps": [
+   "Make the model you want to measure the active document.",
+   "On the Sentinel tab, in the Validate panel, click \"Health Scorecard\".",
+   "Read the dialog \"Sentinel — Health Scorecard\" and click Close."
+  ],
+  "results": [
+   "A dialog with: the ruleset that judged the model, the model name and time, the headline (weighted rule score, grade, rule pass rate, number of open issues and domains), the scoring formula, and one line per domain with its issue count and penalty.",
+   "Nothing is written to the model."
+  ],
+  "tips": [
+   "The two figures differ on purpose: the weighted score reflects severity; the rule pass rate is simply checks passed divided by checks run. MONITOR rules are not scored in the pass rate.",
+   "\"Not scored\" means no ruleset judged the model, or no rule was left to evaluate. Install or fix the ruleset, then run it again.",
+   "The scorecard takes a fresh scan each time you click it."
+  ],
+  "related": [
+   "Sentinel_ScanNow",
+   "Sentinel_Rules",
+   "Sentinel_ShowPanel",
+   "Sentinel_Roi",
+   "Sentinel_Setup"
+  ],
+  "sources": [
+   "Commands.cs:84-96",
+   "Engine/HealthScorecard.cs"
+  ]
+ },
+ "Sentinel_Rules": {
+  "summary": "Lists the rules this model is judged by, with the ruleset's name, version and where it came from.",
+  "overview": [
+   "Rule Set opens a window showing the ruleset that applies to the active document: the one installed on its web project, or its office's if the project has none. The header names the source, and the sub-header gives the model name, the standard and version, and how many rules it has.",
+   "Each rule is a card showing its enforcement mode (MONITOR, WARN, REQUEST or BLOCK), its id, what it applies to (for example type or family), its reference to a standard document, the message in English (and Arabic when the rule has one), the naming pattern with its tokens, and extra notes such as whitelists, the categories it is limited to, the parameter it checks and any exclusions.",
+   "Use it to find out why Sentinel is flagging something, or to confirm which version of the standard you are being checked against before a scan."
+  ],
+  "prerequisites": [
+   "A project document must be open. Without one, Sentinel says \"Open a project document first — each document is judged by its own project's ruleset.\"",
+   "Sentinel's rule engine must be running.",
+   "A ruleset must be installed on the web project or office for rules to appear. With none, the window says \"no rules, nothing is scored\"."
+  ],
+  "inputs": [],
+  "steps": [
+   "Make the model you want to inspect the active document.",
+   "On the Sentinel tab, in the Validate panel, click \"Rule Set\".",
+   "Scroll through the rule cards. The legend at the top explains the four enforcement modes.",
+   "Close the window when finished."
+  ],
+  "results": [
+   "A read-only window listing the rules. Nothing is changed or sent anywhere."
+  ],
+  "tips": [
+   "The window shows the ruleset Sentinel currently holds for the model. If the standard was changed on the web a moment ago, run Scan Now first, which re-reads it.",
+   "Rules are managed on the web project, not here."
+  ],
+  "related": [
+   "Sentinel_ScanNow",
+   "Sentinel_Scorecard",
+   "Sentinel_Standards",
+   "Sentinel_Setup",
+   "Sentinel_NamingManager"
+  ],
+  "sources": [
+   "Commands.cs:98-113",
+   "UI/RulesetWindow.xaml.cs:76-95"
+  ]
+ },
+ "Sentinel_IfcGate": {
+  "summary": "Group of two IFC deliverable checks: Pre-Flight before you export, and Delivery Gate to certify the IFC file.",
+  "overview": [
+   "IFC Gate is a drop-down on the Validate panel holding two tools that belong together. IFC Pre-Flight audits the Revit model before export, so you can fix missing IFC mappings and missing required properties while it is still cheap. IFC Delivery Gate exports (or opens) an IFC file and certifies it against the delivery contract.",
+   "Both judge against the delivery contract installed on the model's web project, or on its office. The contract names the IFC schema to export and the required properties and property sets. If no contract is installed, nothing is judged, and the tools say so instead of reporting a pass.",
+   "A typical sequence: run IFC Pre-Flight and fix what it lists, run IFC Delivery Gate to certify the export, and upload to the common data environment only when the gate does not say FAIL. The one-step governed route that also registers a version is Governed Publish."
+  ],
+  "prerequisites": [
+   "See the individual tools: IFC Pre-Flight and IFC Delivery Gate."
+  ],
+  "inputs": [],
+  "steps": [
+   "On the Sentinel tab, in the Validate panel, open the \"IFC Gate\" drop-down.",
+   "Choose \"IFC Pre-Flight\" or \"IFC Delivery Gate\"."
+  ],
+  "results": [],
+  "tips": [],
+  "related": [
+   "Sentinel_IfcPreflight",
+   "Sentinel_IfcGateCmd",
+   "Sentinel_GovernedPublish",
+   "Sentinel_Setup"
+  ],
+  "sources": [
+   "App.cs:437-442"
+  ]
+ },
+ "Sentinel_IfcPreflight": {
+  "summary": "Audits the model before IFC export for missing 'Export to IFC As' mappings and for the properties the delivery contract requires.",
+  "overview": [
+   "IFC Pre-Flight looks at the exportable elements of the model (walls, floors, roofs, ceilings, doors, windows, stairs, columns, structural framing and foundations, curtain-wall panels and mullions, and generic models) and checks two things. IFC-01: does the element or its type carry an explicit 'Export to IFC As' mapping? IFC-02: for the properties the delivery contract requires, is each one present and filled on the elements it applies to?",
+   "Severity is sensible rather than noisy. A missing mapping on a wall or door is only a MONITOR note, because Revit has a sound default (IfcWall, IfcDoor). A missing mapping on a Generic Model or Specialty Equipment is a WARN, because it will export as a generic building element proxy, which degrades a coordination deliverable. A required property that is missing or empty is a WARN.",
+   "Some contract requirements cannot be tested inside Revit, for example whole property sets, or properties Sentinel has no Revit mapping for. These are listed as \"not checked here\" notes. They are neither counted as issues nor treated as clean: the IFC Delivery Gate checks them in the IFC file itself.",
+   "The check is read-only, so run it as often as you like before exporting."
+  ],
+  "prerequisites": [
+   "A model with placed elements open and active. An empty template shows \"No placed model elements found in IFC-exportable categories\" and no report.",
+   "For the IFC-02 check, a delivery contract installed on the web project or office, and the model bound through Project Setup. Without one the IFC-01 mapping audit still runs and the dialog says required properties were not checked (no contract)."
+  ],
+  "inputs": [],
+  "steps": [
+   "Open the model and make it the active document.",
+   "On the Sentinel tab, in the Validate panel, open \"IFC Gate\" and click \"IFC Pre-Flight\".",
+   "Read the dialog \"Sentinel — IFC Pre-Flight\": either a clean message or the number of issues across the number of elements checked.",
+   "Open the Sentinel pane for the detailed list under rules IFC-01 and IFC-02 and fix them in the model (set 'Export to IFC As' on the type, fill the missing parameters).",
+   "Run it again until it is clean, then run IFC Delivery Gate."
+  ],
+  "results": [
+   "A summary dialog with the counts, the time taken, and a line about any requirements not checked here.",
+   "The Sentinel pane opens and lists the findings as issues under IFC-01 and IFC-02.",
+   "Nothing is changed in the model."
+  ],
+  "tips": [
+   "If the dialog says required properties are not checked, the contract line tells you why: model not bound, nothing installed, or the contract could not be fetched.",
+   "A clean pre-flight is not a certificate. Only the IFC Delivery Gate or Governed Publish judges the exported file."
+  ],
+  "related": [
+   "Sentinel_IfcGateCmd",
+   "Sentinel_GovernedPublish",
+   "Sentinel_ShowPanel",
+   "Sentinel_Setup"
+  ],
+  "sources": [
+   "Commands.cs:38-82",
+   "Engine/IfcPreFlightScanner.cs:1-140"
+  ]
+ },
+ "Sentinel_IfcGateCmd": {
+  "summary": "Exports the model to IFC (or opens an existing IFC) and certifies it against the delivery contract, recording the verdict on the project ledger.",
+  "overview": [
+   "IFC Delivery Gate checks an IFC file against the delivery contract installed on the model's web project (or its office). The result is a certificate with a clear verdict: pass, FAIL (do not upload this file to the common data environment) or NOT CHECKED when no contract applies. NOT CHECKED is never shown as a pass.",
+   "You choose one of two routes. \"Export the whole model to IFC, then certify\" runs Revit's IFC exporter on the whole model, using the contract's schema (IFC4 Reference View, or IFC 2x3 CV2), then validates the file. \"Certify an existing IFC file\" validates a file exported by anyone, from any source.",
+   "The verdict and the contract that judged are posted to the project ledger as a check. A check holds nothing on the web: it does not create a version or upload anything. For that, use Governed Publish."
+  ],
+  "prerequisites": [
+   "A document must be open.",
+   "For a pass or fail verdict, a delivery contract must be installed on the web project or office and the model bound to its project via Project Setup. Without one the file is only fingerprinted and the certificate says nothing was judged.",
+   "For the export route: the model must have exportable geometry. If an office IFC export mapping is installed it is used for property sets; otherwise Revit's defaults are used. A saved Revit IFC export setup is not used.",
+   "For the ledger record: the Sentinel service must be reachable. If not, the dialog says it was not recorded or not confirmed."
+  ],
+  "inputs": [
+   {
+    "name": "Certify an IFC deliverable (choice)",
+    "desc": "\"Export the whole model to IFC, then certify\" for a fresh export, or \"Certify an existing IFC file\" for a file you already have. The dialog's first lines name the contract and the IFC schema the export will use."
+   },
+   {
+    "name": "Export IFC deliverable (save dialog)",
+    "desc": "Where to save the exported .ifc. The name defaults to the model title. The file type follows the contract (IFC4 or IFC 2x3)."
+   },
+   {
+    "name": "Select IFC file (open dialog)",
+    "desc": "For the existing-file route: the .ifc file to certify."
+   }
+  ],
+  "steps": [
+   "Make active the model you want to deliver (for the export route).",
+   "On the Sentinel tab, in the Validate panel, open \"IFC Gate\" and click \"IFC Delivery Gate\".",
+   "In the dialog \"Certify an IFC deliverable\", read the contract line, then choose an export or an existing file. Choose Cancel to leave.",
+   "Pick the save location (export) or the file (existing). For an export, Revit pauses until the export finishes.",
+   "Read the result dialog: verdict, contract, schema, entity counts, coverage per requirement, failures and warnings, the certificate location, and the file's SHA-256 fingerprint.",
+   "Read the last line: \"Recorded: ledger #… · receipt …\" means the verdict is on the project ledger."
+  ],
+  "results": [
+   "The exported .ifc at the place you chose (export route).",
+   "A certificate file whose path is shown in the result dialog, with the start of the file's SHA-256.",
+   "A result dialog that begins with a pass, FAIL or NOT CHECKED line. A pass reminds you that IDS is not checked here; Governed Publish judges that.",
+   "One ledger row for the check, with the contract used. The dialog says whether it was recorded, not confirmed, not recorded, or not sent because the model is not bound."
+  ],
+  "tips": [
+   "FAIL means do not upload the file. Fix the failures listed, re-export and run the gate again.",
+   "\"IFC export contained no geometry — nothing to certify\" means nothing exportable came out; check the model's IFC mappings (Export to IFC As).",
+   "If an installed office IFC export mapping does not parse or could not be confirmed, the export is stopped with a message and nothing is exported.",
+   "The export runs when Revit is next free. If you switch to another open model before it runs, Sentinel asks you to switch back and exports nothing.",
+   "An unbound model is still certified locally, but nothing is recorded on the web."
+  ],
+  "related": [
+   "Sentinel_IfcPreflight",
+   "Sentinel_GovernedPublish",
+   "Sentinel_Setup",
+   "Sentinel_SignIn",
+   "Sentinel_BcfIssues"
+  ],
+  "sources": [
+   "Commands.IfcGate.cs:17-113",
+   "Engine/GateLines.cs:41-68"
+  ]
+ },
+ "Sentinel_FamilyHealth": {
+  "summary": "Group of two family hygiene tools: audit an .rfa before it enters the project, or heal families already loaded.",
+  "overview": [
+   "Family Health is a drop-down on the Validate panel. \"Sanitize .rfa\" audits a family file on disk and loads it into the project only if it passes. \"Heal Loaded Families\" scans the families already in the project and automatically fixes what can be fixed safely.",
+   "Both look for the same problems: heavy geometry, nested CAD imports, a missing required shared parameter and unnamed family types. Anything that needs a human decision about geometry or CAD is reported and left untouched.",
+   "Use Sanitize .rfa as a gate on incoming content, and Heal Loaded Families as a clean-up of what is already in the model."
+  ],
+  "prerequisites": [
+   "See the individual tools."
+  ],
+  "inputs": [],
+  "steps": [
+   "On the Sentinel tab, in the Validate panel, open the \"Family Health\" drop-down.",
+   "Choose \"Sanitize .rfa\" or \"Heal Loaded Families\"."
+  ],
+  "results": [],
+  "tips": [],
+  "related": [
+   "Sentinel_SanitizeFamily",
+   "Sentinel_SanitizeLoaded",
+   "Sentinel_NamingManager",
+   "Sentinel_BuildOfficeSystem"
+  ],
+  "sources": [
+   "App.cs:443-448",
+   "Workflow/FamilySanitizer.cs"
+  ]
+ },
+ "Sentinel_SanitizeFamily": {
+  "summary": "Audits a family file (.rfa) for heavy geometry, nested CAD, missing shared parameters and unnamed types, and loads it into the project only if it passes.",
+  "overview": [
+   "Sanitize .rfa opens the family file you choose, in the background, and runs four checks. Heavy geometry: more than 150 solids is a fail. Nested CAD: any imported CAD in the family is a fail, with advice to explode and redraw it. Required shared parameter: the office's description parameter must be present in the family. Type sanity: every family type must have a real name (not blank, not a single character).",
+   "If the family passes and a project is open, it is loaded into that project, replacing a family of the same name already there. If it fails, it is not loaded and the dialog lists every issue.",
+   "If the model's ruleset has no office code, the shared parameter check is skipped and a note is written to the pane's Doctor log. The other three checks still run."
+  ],
+  "prerequisites": [
+   "A project document should be active to load into. If none is (or a family document is active), the family is only scanned, not loaded: the result then says it passed with no target document to load into.",
+   "The file must be a Revit family (.rfa).",
+   "For the shared parameter check, the ruleset must carry an office code."
+  ],
+  "inputs": [
+   {
+    "name": "Select family to sanitize and load (file dialog)",
+    "desc": "Pick one .rfa file. The file must exist."
+   }
+  ],
+  "steps": [
+   "Make the project that should receive the family the active document.",
+   "On the Sentinel tab, in the Validate panel, open \"Family Health\" and click \"Sanitize .rfa\".",
+   "Choose the .rfa file in the dialog \"Select family to sanitize and load\".",
+   "Wait for the audit; the family is opened and closed in the background.",
+   "Read the dialog \"Sentinel — Family Sanitation\" and click Close."
+  ],
+  "results": [
+   "A dialog headed \"Family passed and was loaded\", \"Family passed (no target document to load into)\" or \"Family failed sanitation — NOT loaded\". Below it: the file name, the solid count against the budget of 150, the number of nested CAD imports, and the list of issues.",
+   "On a pass, the family is loaded into the project.",
+   "Nothing is sent to the web ledger by this tool."
+  ],
+  "tips": [
+   "Fix geometry and CAD problems in the Family Editor; Sentinel will not do these for you.",
+   "A missing shared parameter is reported here; Heal Loaded Families can add it once the family is in the project.",
+   "If the project in front is not the one you started on when the job runs, Sentinel asks you to switch back and loads nothing."
+  ],
+  "related": [
+   "Sentinel_SanitizeLoaded",
+   "Sentinel_NamingManager",
+   "Sentinel_ShowPanel"
+  ],
+  "sources": [
+   "Commands.Phase2.cs:10-37",
+   "Workflow/FamilySanitizer.cs:27-135"
+  ]
+ },
+ "Sentinel_SanitizeLoaded": {
+  "summary": "Scans the model families already in the project, auto-fixes a missing shared parameter and reports what needs a person.",
+  "overview": [
+   "Heal Loaded Families opens each editable, loadable model family in the active project (in-place families and families Revit cannot edit are skipped), runs the same checks as Sanitize .rfa, and sorts each into one of four results: clean, auto-healed, requires human interaction, or failed.",
+   "Auto-healing is deliberately narrow. If a family only lacks the required shared parameter, Sentinel adds it and reloads the family into the project. If a family has heavy geometry or nested CAD imports, it is never touched: it goes to the human list with the reason.",
+   "Every run is one row on the project's ledger (a family heal), with the counts and the names of the healed, human-needed and failed families, so the clean-up is traceable."
+  ],
+  "prerequisites": [
+   "A project document must be active, with model families loaded.",
+   "An office code in the model's ruleset is needed for the shared parameter check; without one that check is skipped and nothing is healed for it.",
+   "Binding to a web project through Project Setup, for the ledger row. An unbound model is healed locally and the report says nothing was sent."
+  ],
+  "inputs": [],
+  "steps": [
+   "Make the project the active document.",
+   "On the Sentinel tab, in the Validate panel, open \"Family Health\" and click \"Heal Loaded Families\".",
+   "Wait. Each family is opened and closed in the background, so a large project takes time.",
+   "Read the dialog \"Sentinel — Family Auto-Heal\"."
+  ],
+  "results": [
+   "A dialog with: families scanned, clean, auto-healed (shared parameters injected and reloaded), requires human interaction (geometry or CAD), failed. Up to 12 families that need attention are listed with their notes.",
+   "Healed families are reloaded into the project.",
+   "One ledger row for the run. The last line of the dialog says whether it was recorded, not confirmed, not recorded, or not sent because the model is not bound."
+  ],
+  "tips": [
+   "\"Requires human interaction\" is by design: geometry, CAD and reference fixes are never automated.",
+   "The command works on the model that was active when you clicked it, so a heal never lands on whichever model has focus by the time it runs."
+  ],
+  "related": [
+   "Sentinel_SanitizeFamily",
+   "Sentinel_NamingManager",
+   "Sentinel_Roi",
+   "Sentinel_Setup"
+  ],
+  "sources": [
+   "Commands.Phase2.cs:195-235",
+   "Workflow/FamilyProcessor.cs:28-93"
+  ]
+ },
+ "Sentinel_MepVoids": {
+  "summary": "Finds where linked MEP crosses native walls, floors and structural framing and offers to place tracked provision-for-void markers or export a BCF.",
+  "overview": [
+   "MEP Openings looks for intersections between MEP in linked models (IFC drops and Revit MEP links) and the native walls, floors and structural framing of your model. Several crossings within about 150 mm of each other on the same host are merged into one candidate, so a bundle of pipes through one wall zone becomes a single opening.",
+   "Before offering new candidates it reconciles the voids it has placed before, against the current link: voids whose MEP moved are relocated, voids whose MEP has gone are marked Orphaned, and voids already marked Cut are left alone because the opening physically exists. The dialog reports how many were relocated, orphaned and unchanged.",
+   "For the new candidates you choose to place tracked provision-for-void families, or to export a BCF topic to send to the MEP engineers."
+  ],
+  "prerequisites": [
+   "Linked MEP or IFC models must be loaded in the project. If no intersection is found, the dialog says \"No intersections found\" and asks you to check that the IFC/MEP links are loaded.",
+   "To place voids: a Generic Model family with \"Void\" or \"Provision\" in its name loaded in the project, and an office code in the ruleset, because the tracking parameters are named from it. Without the office code, placement is unavailable and the message \"No office code configured (ruleset 'org' is empty)...\" is shown.",
+   "The model must be the active document when the job runs; if not, Sentinel tells you to switch back."
+  ],
+  "inputs": [
+   {
+    "name": "Place tracked provision-for-void families",
+    "desc": "Places one instance per merged candidate, setting its void id and a status of Pending."
+   },
+   {
+    "name": "Export to BCF (send to MEP engineers)",
+    "desc": "Choose an output folder in a save dialog; the file name is generated. One topic is made for the affected hosts."
+   }
+  ],
+  "steps": [
+   "Load the MEP or IFC links and make your model the active document.",
+   "On the Sentinel tab, in the Validate panel, click \"MEP Openings\".",
+   "Read the dialog: the number of new candidates and how many existing voids were relocated, orphaned and unchanged.",
+   "Click \"Place tracked provision-for-void families\" or \"Export to BCF (send to MEP engineers)\", or Cancel.",
+   "For BCF, choose a folder in the dialog \"Choose BCF output folder\"; the file name is automatic."
+  ],
+  "results": [
+   "Placing: voids are placed in the model in one step. A dialog reports how many were placed and how many were skipped (no family or bad point).",
+   "The reconcile pass has already moved or flagged existing voids before the dialog appears.",
+   "BCF: a .bcfzip with a topic titled \"Provision for void required\", listing up to 20 candidates and up to 100 host elements, with camera and snapshot. Open it in BIMcollab, Solibri or Navisworks. The dialog shows the file path.",
+   "Nothing is posted to the web ledger by this tool."
+  ],
+  "tips": [
+   "Cancelling the dialog does not undo the reconcile pass that ran first.",
+   "If no matching family is loaded, zero are placed and all candidates are reported as skipped.",
+   "BCF only lists host elements from your model; linked element ids cannot be addressed in your model."
+  ],
+  "related": [
+   "Sentinel_Clash",
+   "Sentinel_ClashManager",
+   "Sentinel_BcfIssues",
+   "Sentinel_MepTypeCheck",
+   "Sentinel_Setup"
+  ],
+  "sources": [
+   "Commands.Phase2.cs:64-165",
+   "Engine/MepVoidManager.cs:20-300"
+  ]
+ },
+ "Sentinel_MepTypeCheck": {
+  "summary": "Checks every duct, pipe, cable tray and conduit in this model against the office type catalogue: the type, and the system type for ducts and pipes.",
+  "overview": [
+   "MEP Type Check reads the ducts, pipes, cable trays and conduits of the active model (not its links) and compares each one's type with the type catalogue installed on the model's web project or office. For ducts and pipes it also compares the system type against the office's.",
+   "The result groups elements by category and verdict: matched, type not the office's, system not the office's, or no system. Systems are judged only on elements that already have the office's type. Categories the catalogue has no rows for are counted as not checkable.",
+   "It is strictly read-only: nothing in the model changes. It does not check sizes, because the office has no size list, and it does not retype. It does not read flex ducts and pipes, placeholders, fabrication parts, fittings or accessories."
+  ],
+  "prerequisites": [
+   "A project document (not a family) open and active.",
+   "The model must be bound to its web project via Project Setup. If not, you see: \"This model is not bound to a web project — Sentinel ▸ Project Setup.\"",
+   "A type catalogue installed on the web project or office. If none, the message is \"No type catalogue installed (...) — nothing to check against; nothing was sent.\"",
+   "The catalogue's category names must be in English (Ducts, Pipes, Cable Trays, Conduits)."
+  ],
+  "inputs": [
+   {
+    "name": "Export a BCF topic… (button, only when something does not match)",
+    "desc": "Opens a folder choice; the file name is generated."
+   }
+  ],
+  "steps": [
+   "Make the MEP model the active document.",
+   "On the Sentinel tab, in the Validate panel, click \"MEP Type Check\". The catalogue is fetched first; allow up to 20 seconds.",
+   "Read the dialog \"Sentinel — MEP Type Check\": the headline counts and up to 12 findings.",
+   "If elements do not match, optionally click \"Export a BCF topic…\" and choose a folder, then Close."
+  ],
+  "results": [
+   "A dialog with the counts (checked, matched, type not the office's, system not the office's, no system, not checkable, without a type) and the first 12 findings.",
+   "One MEP check row sent to the project ledger. The dialog notes that the pane's Doctor log says whether it landed.",
+   "Optional .bcfzip of the unmatched elements, with up to 100 element ids; nothing is raised on the web.",
+   "The model is not changed."
+  ],
+  "tips": [
+   "\"No ducts, pipes, cable trays or conduits in this model\" is shown when there is nothing to check.",
+   "Elements with no type are counted separately and not judged.",
+   "The BCF is a local file only."
+  ],
+  "related": [
+   "Sentinel_MepVoids",
+   "Sentinel_Clash",
+   "Sentinel_BcfIssues",
+   "Sentinel_Setup",
+   "Sentinel_Standards"
+  ],
+  "sources": [
+   "Commands.MepTypeCheck.cs:21-122",
+   "Engine/MepTypeCheck.cs:65"
+  ]
+ },
+ "Sentinel_NamingManager": {
+  "summary": "Reviews family and type names against the office naming rules, proposes compliant names and renames only the rows you tick.",
+  "overview": [
+   "Naming Manager scans the families and types the naming rules apply to and gives each a verdict. Conforming: the name already follows the rule. Proposed: Sentinel has built a compliant name from the model's facts (for example a wall's thickness, function or layer materials) and shows it for you to accept or edit. Needs a human: it cannot complete the name and shows its best guess for you to complete. Blocked: the proposed name would duplicate an existing one, which is a human decision, so it is never renamed here.",
+   "Nothing is renamed until you tick it. You can tick all proposed rows at once, edit any proposed name, or use the \"Fix\" button on a row to open a review dialog for that one element. For Needs a human rows, a live line shows whether your name matches the rule and what is wrong.",
+   "A batch is applied in one Revit transaction. Each rename is re-checked against the rule and for uniqueness at the moment of writing, the change is added to the audit trail, and the whole batch is posted as one ledger row. The status line tells you whether the ledger accepted it."
+  ],
+  "prerequisites": [
+   "A project document open and active.",
+   "The Sentinel rule engine running (otherwise the message tells you to restart Revit).",
+   "A ruleset installed on the web project or office containing at least one family or type naming rule. If not, the message says the ruleset has no family or type naming rule and to install one first.",
+   "An office code in the ruleset for rules that use it; otherwise those rows read as needs a human.",
+   "Binding via Project Setup for the ledger row. An unbound model still renames locally; the status says the row was not sent.",
+   "Only one Naming Manager window can be open at a time (\"The Naming Manager is already open.\")."
+  ],
+  "inputs": [
+   {
+    "name": "Rule / Category / Verdict / Search",
+    "desc": "Filters for the list. Search matches the current or proposed name."
+   },
+   {
+    "name": "Proposed name (text box per row)",
+    "desc": "The name to apply. Editable on Proposed and Needs a human rows. A good value matches the rule's pattern."
+   },
+   {
+    "name": "Tick box (per row)",
+    "desc": "Only ticked rows are renamed."
+   },
+   {
+    "name": "Tick all proposed",
+    "desc": "Ticks every visible Proposed row."
+   },
+   {
+    "name": "Untick all",
+    "desc": "Clears the ticks."
+   },
+   {
+    "name": "Select instances",
+    "desc": "Selects and shows the instances of the first ticked row's type or family in the model. Says \"Tick a row first.\" if none are ticked, and \"No instances of that type in the model.\" when there are none."
+   },
+   {
+    "name": "Rescan",
+    "desc": "Re-reads the model. Unsaved edits to proposed names are discarded."
+   },
+   {
+    "name": "Rename ticked",
+    "desc": "Applies the ticked rows. Says \"Tick at least one row with a name to rename.\" if nothing qualifies."
+   },
+   {
+    "name": "Fix (per row)",
+    "desc": "Opens the review dialog for one element and renames it when you confirm."
+   }
+  ],
+  "steps": [
+   "Make the model the active document.",
+   "On the Sentinel tab, in the Validate panel, click \"Naming Manager\".",
+   "Use Rule, Category, Verdict and Search to narrow the list. The status line shows counts: shown, conforming, proposed, needs human, blocked.",
+   "Review each row: category and family, current name, proposed name, verdict and the number of instances.",
+   "Edit proposed names where needed. Click \"Tick all proposed\" or tick rows individually.",
+   "Click \"Rename ticked\". The buttons are disabled while it runs.",
+   "Read the status line: \"Renamed n/m\", any rows not renamed with the reason, then the ledger line once the bridge answers.",
+   "Click \"Rescan\" to confirm the list is now clean."
+  ],
+  "results": [
+   "Families and types are renamed in the model in one transaction.",
+   "Each rename is recorded in the model's audit trail and the batch is one ledger row on the project, with the old and new names and the rule. The status line says Recorded with a ledger number and receipt, or not confirmed or not recorded and why.",
+   "The list refreshes after a rename."
+  ],
+  "tips": [
+   "Rows are refused with a reason when the name no longer matches the rule, is empty, or is now taken in that family or category; or \"element no longer exists\" if it was deleted meanwhile.",
+   "If the audit store cannot take the batch, or the transaction does not commit, nothing is renamed.",
+   "If you switch to another model while the window is open, actions stop with \"switch back to the model the Naming Manager was opened on — nothing was done\".",
+   "Blocked rows are never renamed from here. Merge or resolve duplicates by hand."
+  ],
+  "related": [
+   "Sentinel_ScanNow",
+   "Sentinel_Rules",
+   "Sentinel_SanitizeLoaded",
+   "Sentinel_Roi",
+   "Sentinel_Setup"
+  ],
+  "sources": [
+   "Commands.NamingManager.cs:18-128",
+   "Workflow/NamingManagerService.cs",
+   "UI/NamingManagerWindow.cs",
+   "Standards/NamingProposer.cs:120-135"
+  ]
+ },
+ "Sentinel_GovernedPublish": {
+  "summary": "Publishes the whole model to the web project through the one governed path: IFC export, delivery gate, IDS and naming check, then a registered version on the ledger.",
+  "overview": [
+   "Governed Publish exports the entire model (no view filter) to IFC in the schema the project's delivery contract asks for (IFC2X3 when no contract is installed), checks that file against the delivery gate, and then asks the Sentinel bridge to judge the model's elements against the project's IDS and the model's file name against the project's naming standard. Each step is recorded on the project's ledger.",
+   "If the verdict is accepted (or recorded, meaning nothing could be judged because no IDS applies), the bridge registers one new version of the model container, and the exported IFC is queued in the upload outbox so its geometry attaches to that version. If the verdict is rejected, nothing is registered or uploaded, the failure is held on the web under Project Files > On hold, and each failing requirement opens as a BCF issue on the failing elements, which syncs to the web Issues panel and back into Revit.",
+   "The container name comes from the central model's file name for a workshared model, otherwise from the model's own file name, with the .rvt/.rte extension replaced by .ifc. A final dialog names the container, the revision, the ledger rows written and what judged the model. Use it whenever a model is ready to go to the project; it is the only manual publish path for the model itself (Auto-publish on save uses the same steps when the project's publish standard says so).",
+   "While the referee is judging, Revit is free to use; only the IFC export itself keeps Revit busy."
+  ],
+  "prerequisites": [
+   "A Revit project (not a family) must be the active document.",
+   "The model must be bound to a web project: Sentinel > Standards > Project Setup. Otherwise the dialog says the model is not bound and nothing is exported.",
+   "The Sentinel bridge must be running and reachable. If it is not, the export and the gate still run, but the final dialog says the bridge returned no verdict and nothing is registered or uploaded.",
+   "No other publish may be running in this Revit session (Governed Publish waiting for the referee, or Auto-publish). Otherwise a dialog asks you to run it again after that one finishes.",
+   "For a real verdict the project (or its office) should have an IDS and a naming standard installed; with no IDS the verdict is recorded, not accepted, and the dialog says the model was not judged. A delivery contract is optional; without one the gate reads NOT CHECKED.",
+   "If the office has an IFC export mapping installed, the export uses it; if it is installed but cannot be read, the run is refused before the export. With none installed Revit's default property sets are used and the dialog says so.",
+   "The active ruleset should carry an office code (\"org\"); without it, office property sets are not read and the referee reports them missing. The final dialog warns about this."
+  ],
+  "inputs": [
+   {
+    "name": "Cancel (on the progress window)",
+    "desc": "The progress window shows four steps: Export, Delivery gate, Referee and Register. Cancel stops the run at the next safe point. During the export Revit may not honour it, in which case the export finishes and Sentinel then stops; nothing is published."
+   }
+  ],
+  "steps": [
+   "Open the model you want to publish and make sure it is bound to its web project (Project Setup).",
+   "Click Sentinel > Publish > Governed Publish.",
+   "A progress window appears. Step 1 exports the whole model to IFC; Revit is busy until it ends.",
+   "Step 2 checks the IFC against the delivery contract and records the gate row on the ledger, then reads the model's elements for the referee.",
+   "Step 3 sends the elements and the file name to the bridge to judge (up to 120 seconds). Revit is free to use meanwhile.",
+   "Step 4 registers the version and stages the IFC for upload. The progress window closes and one result dialog appears.",
+   "Read the dialog. \"ACCEPTED\" means the version is registered and the IFC is queued for upload. \"REJECTED\" lists the naming or element failures; fix them (the BCF issues point at the elements) and run Governed Publish again."
+  ],
+  "results": [
+   "One result dialog: accepted, published-but-not-judged, or rejected, with the project key, IDS line, naming line, delivery gate line, export line, the start of the file's SHA-256, the gate ledger row, the verdict ledger row and the version (container name, revision, state).",
+   "On accept or record: a new version of the container on the web project and the IFC placed in the upload outbox (%AppData%\\Sentinel\\outbox) for the bridge to attach as geometry.",
+   "On a delivery-gate fail: the dialog lists up to 12 failures, the gate row, and where it was held on the web; nothing goes to the referee.",
+   "On a rejection: no version, no upload; the failure is held on the web (Project Files > On hold) when the bridge records it, and BCF issues are opened on failing elements.",
+   "The Sentinel pane's Doctor log gets a line saying how many progress updates Revit reported during the export and whether Cancel reached it."
+  ],
+  "tips": [
+   "\"This model is not bound to a web project\" means Project Setup has not been saved for this model. Nothing was exported.",
+   "\"A publish of this session is still running\" means another publish is waiting on the referee; wait for its dialog, then run again.",
+   "\"IFC export contained no geometry\" means the export produced nothing; check the model's IFC mappings (Export to IFC As).",
+   "\"The Sentinel bridge did not return a verdict\" means the bridge was not reached; start it and run again. Nothing was registered.",
+   "A \"Recorded\" result (not \"Accepted\") means no IDS applied or nothing was in its scope; the version exists but carries no verdict badge, and publishing it on the web needs the lead's reason.",
+   "If the version registered but the IFC could not be moved to the outbox, the dialog says so and names where the IFC was kept; run Governed Publish again.",
+   "Cancelling while the referee is judging stops Sentinel waiting, but the bridge may still finish and write its rows."
+  ],
+  "related": [
+   "Sentinel_IfcGate",
+   "Sentinel_Setup",
+   "Sentinel_SignIn",
+   "Sentinel_BcfIssues",
+   "Sentinel_Scorecard",
+   "Sentinel_PublishSheets"
+  ],
+  "sources": [
+   "SentinelAddin/Commands.GovernedPublish.cs:30-110",
+   "SentinelAddin/Engine/Publisher.cs:158-259,331-470",
+   "SentinelAddin/Engine/GateLines.cs:72"
+  ]
+ },
+ "Sentinel_Publish": {
+  "summary": "A drop-down group holding Publish Sheets and Publish Views, which send drawing images to the web app outside the governed IFC path.",
+  "overview": [
+   "The Publish drop-down holds two tools that push what IFC cannot carry: Publish Sheets renders every Revit sheet, and Publish Views renders the views you tick. Both write images and a manifest under %AppData%\\Sentinel, keyed by the model's name, for the Sentinel bridge to serve to the web app's Sheets and Views tabs.",
+   "These are not the governed model publish. The model itself goes to the project only through Governed Publish (or on save when the project's publish standard says auto). Publish Sheets additionally proposes each sheet's PDF to the project's document register; Publish Views does not touch the ledger.",
+   "Use the group when reviewers need to see the actual drawings or saved views in the web app next to the 3D model."
+  ],
+  "prerequisites": [
+   "See the individual tools: both need an open project bound to a web project via Project Setup."
+  ],
+  "inputs": [],
+  "steps": [
+   "Click the Publish drop-down arrow under Sentinel > Publish.",
+   "Choose Publish Sheets to render every sheet, or Publish Views to pick which views to render."
+  ],
+  "results": [
+   "Images and a manifest under %AppData%\\Sentinel\\sheets or %AppData%\\Sentinel\\views, in a folder named after the model, served by the bridge to the web app."
+  ],
+  "tips": [
+   "Each run replaces the model's previous folder, so sheets or views that were deleted, renamed or unticked disappear from the web app.",
+   "The images are keyed by model name, not by web project."
+  ],
+  "related": [
+   "Sentinel_PublishSheets",
+   "Sentinel_PublishViews",
+   "Sentinel_GovernedPublish"
+  ],
+  "sources": [
+   "SentinelAddin/App.cs:482-491",
+   "SentinelAddin/Engine/SheetExporter.cs",
+   "SentinelAddin/Engine/ViewExporter.cs"
+  ]
+ },
+ "Sentinel_PublishSheets": {
+  "summary": "Renders every Revit sheet to an image and a PDF for the web app's Sheets tab, and proposes each PDF to the project's document register.",
+  "overview": [
+   "Sheets do not survive IFC export, so this tool renders them itself. For every non-placeholder sheet it writes a PNG (about 2400 pixels wide, for the web Sheets viewer) and, on Revit 2022 or later, a PDF. It also records each sheet's viewports (view name, type, level and where they sit on the sheet) so the web app can link a drawing to its level in 3D.",
+   "Each PDF is then proposed to the project: it is named after the sheet number (for example A-101.pdf), judged by the project's naming standard, and registered as a version carrying the sheet's current revision when the bridge accepts it. The bridge also reports whether the sheet is planned in the project's information delivery plan (MIDP). One proposal row per sheet goes on the ledger. A sheet whose name is refused is held on the web and is never renamed.",
+   "The model itself is not changed. Run it when drawings are ready for review or issue; the result dialog lists every sheet with what happened to it."
+  ],
+  "prerequisites": [
+   "An open project bound to a web project (Sentinel > Standards > Project Setup). Otherwise a dialog says the model is not bound.",
+   "At least one sheet in the project. Otherwise the dialog says no sheets were found and asks you to create sheets (View > Sheet).",
+   "The Sentinel bridge running to serve the images and to take the PDF proposals. If it is not reached, each sheet reads \"not proposed\" with the reason, but the images are still written.",
+   "Revit 2022 or later for the PDFs. On earlier versions sheets are exported as images only and read \"image only (not proposed)\"."
+  ],
+  "inputs": [],
+  "steps": [
+   "Open the model and make sure it is bound to its web project.",
+   "Click Sentinel > Publish > Publish Sheets (in the Publish drop-down).",
+   "Wait while each sheet is rendered and proposed. There is no selection dialog; all sheets are processed. Revit is busy during this, and large sheet sets take longer.",
+   "Read the result dialog."
+  ],
+  "results": [
+   "A dialog says how many sheets were exported and how many were registered, then one line per sheet (the first 25): refused with the reason, registered with revision, verdict and MIDP answer, image only, not exported with the reason, or not proposed with the reason. A \"... and N more\" line covers the rest.",
+   "Files written to %AppData%\\Sentinel\\sheets\\<model name>: one PNG and one PDF per sheet, plus manifest.json. The folder is rebuilt on every run. The dialog prints the folder path.",
+   "The web app's Sheets tab (BIM Tools) shows the sheets once the bridge is running.",
+   "One proposal row per sheet on the web project's ledger, and a registered version of each accepted PDF."
+  ],
+  "tips": [
+   "\"No sheets found to export\" means the project has no sheets (placeholder sheets are skipped).",
+   "\"Sheet export failed\" means the whole run failed; the reason is shown. A single bad sheet does not stop the run; it is named in the result with its reason.",
+   "A refused sheet (\"refused - ...\") failed the naming standard or another check; it is held on the web for a lead to deal with, and the sheet number is not changed for you.",
+   "The sheet's revision is taken from its current revision parameter; if it is empty or longer than 16 characters, the register numbers the version itself.",
+   "Output is keyed by model name, so two models with the same title overwrite each other's folder."
+  ],
+  "related": [
+   "Sentinel_PublishViews",
+   "Sentinel_GovernedPublish",
+   "Sentinel_NamingManager",
+   "Sentinel_Setup"
+  ],
+  "sources": [
+   "SentinelAddin/Commands.PublishSheets.cs:22-95",
+   "SentinelAddin/Engine/SheetExporter.cs:52-110,164-183"
+  ]
+ },
+ "Sentinel_PublishViews": {
+  "summary": "Lets you tick which Revit views to render as images for the web app's Views tab.",
+  "overview": [
+   "Views do not survive IFC export, so this tool renders the views you choose to PNG images (about 2400 pixels) and writes a manifest listing them, with each plan view's level. The Sentinel bridge serves them to the web app's Views tab (BIM Tools).",
+   "A picker lists every publishable view grouped by type (Floor Plans, Ceiling Plans, Sections, Elevations, 3D Views, Drafting Views and so on), with one checkbox per view. Only ticked views are published; republishing with a view unticked removes it from the web app. The ticks from your last publish are remembered and pre-ticked next time.",
+   "It reads the model only. It does not touch the ledger or the governed IFC path."
+  ],
+  "prerequisites": [
+   "An open project bound to a web project (Project Setup). Otherwise a dialog says the model is not bound.",
+   "At least one publishable view. View templates, legends, sheets and Revit's internal views are not offered; if none remain the dialog says no publishable views were found.",
+   "The Sentinel bridge running, so the web app can fetch the images."
+  ],
+  "inputs": [
+   {
+    "name": "View tree (checkboxes)",
+    "desc": "Tick each view to publish. Groups are expanded by default; plan views show their level after the name. Views ticked on the last publish are pre-ticked."
+   },
+   {
+    "name": "Select All / Select None",
+    "desc": "Tick or clear every view at once."
+   },
+   {
+    "name": "Publish",
+    "desc": "Renders the ticked views. The footer shows how many views are available and how many were pre-ticked from the last publish."
+   },
+   {
+    "name": "Cancel",
+    "desc": "Closes the picker and publishes nothing."
+   }
+  ],
+  "steps": [
+   "Open the model and make sure it is bound to its web project.",
+   "Click Sentinel > Publish > Publish Views (in the Publish drop-down).",
+   "In the \"Sentinel - Publish Views\" window, tick the views you want in the web app, or use Select All.",
+   "Click Publish.",
+   "Read the confirmation dialog, then open the web app's BIM Tools > Views tab and refresh."
+  ],
+  "results": [
+   "A dialog says how many views were published and the folder, %AppData%\\Sentinel\\views\\<model name>, with a reminder that the bridge must be running.",
+   "One PNG per view, a manifest.json and a selection.json (the remembered ticks) in that folder. The folder is rebuilt on every run."
+  ],
+  "tips": [
+   "Clicking Publish with nothing ticked gives \"Nothing selected - nothing published\" and changes nothing.",
+   "\"View export failed\" means the whole run failed; the reason is shown. A single view that cannot be rendered is left out of the web app rather than stopping the run, so the published count can be lower than the number you ticked.",
+   "Unticking a view and republishing removes it from the web app, because the folder is replaced each time.",
+   "Output is keyed by the model's name, not by the web project."
+  ],
+  "related": [
+   "Sentinel_PublishSheets",
+   "Sentinel_GovernedPublish",
+   "Sentinel_Setup"
+  ],
+  "sources": [
+   "SentinelAddin/Commands.PublishViews.cs:25-70",
+   "SentinelAddin/UI/ViewPickWindow.cs",
+   "SentinelAddin/Engine/ViewExporter.cs:34-90"
+  ]
+ },
+ "Sentinel_Standards": {
+  "summary": "A drop-down group for binding a model to its web project, signing in, and building, applying or ingesting office standards.",
+  "overview": [
+   "The Standards drop-down gathers the setup and standards tools. Project Setup binds the open model to its web project, which is where its ruleset, IDS and naming come from. Sign in attaches your own Sentinel account to everything Revit sends. Build Office System extracts the office standard from a \"golden\" model, Apply Standard builds a saved standards pack into the open model, and Ingest Docs reads a written standard with a local language model.",
+   "Typical order for a new model: Project Setup, then Sign in, then Apply Standard to bring in the office worksets and shared parameters. A standards lead uses Build Office System on the golden template and Ingest Docs on written standards to create packs for the others."
+  ],
+  "prerequisites": [
+   "See the individual tools. Almost everything downstream in the Sentinel tab depends on Project Setup having bound the model to a web project."
+  ],
+  "inputs": [],
+  "steps": [
+   "Click the Standards drop-down arrow under Sentinel > Standards & Build.",
+   "Choose Project Setup, Sign in, Build Office System, Apply Standard or Ingest Docs."
+  ],
+  "results": [],
+  "tips": [
+   "Project Setup and Sign in need no special permission; the build tools change the model and are normally used by the standards lead."
+  ],
+  "related": [
+   "Sentinel_Setup",
+   "Sentinel_SignIn",
+   "Sentinel_BuildOfficeSystem",
+   "Sentinel_LoadOfficeSystem",
+   "Sentinel_IngestDocs",
+   "Sentinel_Roi"
+  ],
+  "sources": [
+   "SentinelAddin/App.cs:496-508"
+  ]
+ },
+ "Sentinel_Setup": {
+  "summary": "Binds the open model to its web project and sets the project code, ghost source folder and Revit Doctor option.",
+  "overview": [
+   "Project Setup is where a model is told which web project it belongs to, like picking an ACC or Forma project. The project's ruleset, IDS and naming standard all come from that web project (or its office), so most Sentinel tools refuse to do anything until this is saved.",
+   "Settings can be saved at two scopes. \"Current project\" stores them inside the Revit model (Extensible Storage), so they travel with the model and sync with central to the whole team. \"This machine only\" stores paths and defaults in %AppData%\\Sentinel\\config.json for this PC; at machine scope the web project, project code and Doctor option are switched off because they belong to a model.",
+   "Saving the web project at project scope also confirms, on this PC, that this model publishes into that project. Until a PC has confirmed the project for a model, Auto-publish and scan posts are paused on that PC (a copy or Save As of a model asks again). After saving, the ruleset for the chosen project is reloaded."
+  ],
+  "prerequisites": [
+   "For project scope, a model must be open; with no model open only machine scope is available.",
+   "The Sentinel bridge should be running so the project list can load. If it is not, the Web project box is a plain text field and you type the project key (the hint says \"Bridge unreachable - type the project key\").",
+   "If you are signed out, the project list may not load (\"Signed out - Sentinel > Sign in, or type the project key\"). Typing the key still works."
+  ],
+  "inputs": [
+   {
+    "name": "Project code (optional - tightens the CDE file-name check, e.g. BDS20268)",
+    "desc": "Your office's project code. It is saved in upper case and tightens the file-name check against the naming standard. Leave blank if you do not use one."
+   },
+   {
+    "name": "Web project - where this model publishes",
+    "desc": "Pick a project from the list, or type its key (for example demo). The list shows each project's name and key, with its office. This is what binds the model."
+   },
+   {
+    "name": "Ghost source folder (DWGs, specs - drives Datum & Ghost Builder)",
+    "desc": "A full local folder path where the source DWGs and specifications live; use Browse... to pick it. A share typed as a share path is refused for project scope; use a full path (a mapped drive is fine)."
+   },
+   {
+    "name": "Revit Doctor checkbox",
+    "desc": "When ticked, Revit straightens slightly off-axis lines in this model using its own fix in every transaction. Off by default; when off, the Doctor only logs the warnings it sees and never removes one. Bound models only."
+   },
+   {
+    "name": "Save scope",
+    "desc": "\"Current project (Extensible Storage - syncs with central, whole team)\" or \"This machine only (%AppData%\\Sentinel\\config.json - paths and defaults; never the web project)\"."
+   },
+   {
+    "name": "Save / Cancel",
+    "desc": "Save writes the settings and closes; Cancel closes without saving."
+   }
+  ],
+  "steps": [
+   "Open the model, then click Sentinel > Standards > Project Setup.",
+   "Choose the Web project from the list, or type its key.",
+   "Optionally enter the Project code and set the Ghost source folder with Browse....",
+   "Leave Save scope on \"Current project\" to bind the model, then click Save.",
+   "The dialog closes; the settings are written to the model and the project's ruleset reloads. If the model has never been saved to a file, save it and run Project Setup > Save again so this PC can confirm the project (the Doctor log says so)."
+  ],
+  "results": [
+   "At project scope: the web project key, project code, ghost folder and Doctor option are stored in the model as a Revit change named \"Sentinel: Save project settings\", and this PC records that it confirmed that project for this model.",
+   "At machine scope: the ghost source folder is written to %AppData%\\Sentinel\\config.json, and the dialog shows \"Saved as machine default\".",
+   "The Sentinel pane refreshes its ruleset and Next strip for the new project."
+  ],
+  "tips": [
+   "A line under the Web project box says what Save confirms: that this model, on this PC, publishes into the named project.",
+   "The footer shows who the bridge will see: \"Signed in as ...\" or \"Signed out\"; use Sign in to change it.",
+   "A folder that cannot be used from a model (for example a share path rather than a full local path) shows a message and is not saved.",
+   "If the Web project hint says the bridge address is refused, the configured bridge address is not allowed and no token is sent to it; fix the Sentinel configuration.",
+   "Machine scope never binds a model; if tools say \"not bound\", save at project scope."
+  ],
+  "related": [
+   "Sentinel_SignIn",
+   "Sentinel_GovernedPublish",
+   "Sentinel_LoadOfficeSystem",
+   "Sentinel_Datum",
+   "Sentinel_GhostBuilder",
+   "Sentinel_ShowPanel"
+  ],
+  "sources": [
+   "SentinelAddin/Commands.Workflow.cs:27-35",
+   "SentinelAddin/UI/SettingsDialog.xaml",
+   "SentinelAddin/UI/SettingsDialog.xaml.cs:18-204",
+   "SentinelAddin/Engine/ModelBindings.cs",
+   "SentinelAddin/Engine/ProjectContext.cs:18"
+  ]
+ },
+ "Sentinel_SignIn": {
+  "summary": "Signs you in with your Sentinel account so everything Revit sends to the project carries your name.",
+  "overview": [
+   "Sign in uses the same e-mail and password as the Sentinel web app. Once signed in, every governed call from Revit (publishing, review, fixes, snapshots) is sent under your own session and the ledger records your e-mail. Signed out, Revit either uses this PC's shared machine token, in which case the ledger records the Windows user name rather than you, or, if no token is set, governed calls are refused.",
+   "The session is kept on this PC (encrypted for your Windows account) and survives restarting Revit. Sign out forgets it on this PC only; it does not sign you out of the web app. The password is used once to sign in and is not kept.",
+   "Some actions, such as installing a catalogue on the office, require you to be signed in as yourself because the bridge checks your role."
+  ],
+  "prerequisites": [
+   "The PC's Sentinel configuration (%AppData%\\Sentinel\\bcf-config.json) must contain the Supabase address and key. Without them the dialog says sign-in is not possible on this PC and the Sign in button is disabled.",
+   "You need an existing Sentinel account; there is no sign-up here.",
+   "The bridge address in the configuration must be one Sentinel accepts; if it is refused the dialog shows the reason."
+  ],
+  "inputs": [
+   {
+    "name": "E-mail",
+    "desc": "Your Sentinel account e-mail."
+   },
+   {
+    "name": "Password",
+    "desc": "Your Sentinel account password. Press Enter or click Sign in."
+   },
+   {
+    "name": "Sign in / Sign out / Close",
+    "desc": "Sign in is shown when signed out; Sign out replaces it when signed in. Close just closes the dialog."
+   }
+  ],
+  "steps": [
+   "Click Sentinel > Standards > Sign in.",
+   "Type your E-mail and Password.",
+   "Click Sign in (or press Enter). The dialog shows \"Signing in...\" for up to about 8 seconds.",
+   "On success the top line reads \"Signed in as <your e-mail> - the ledger records your e-mail.\" Click Close.",
+   "To forget the session on this PC, open the dialog again and click Sign out."
+  ],
+  "results": [
+   "Your session is stored on this PC and used for every governed call from Revit; ledger rows show your e-mail.",
+   "Sign out removes the stored session on this PC only."
+  ],
+  "tips": [
+   "Before signing in the top line reads either \"Signed out - governed calls are refused until you sign in\" or \"Signed out - this PC's shared machine token is used, and the ledger records ... not you\".",
+   "Failed sign-ins show Supabase's message (or \"Supabase not reached\") under the form.",
+   "If a stored session can no longer be refreshed, Sentinel signs you out and asks you to use Standards > Sign in again.",
+   "The dialog's footer shows which address it signs in at and which bridge it uses."
+  ],
+  "related": [
+   "Sentinel_Setup",
+   "Sentinel_GovernedPublish",
+   "Sentinel_BuildOfficeSystem",
+   "Sentinel_ReviewChangesets"
+  ],
+  "sources": [
+   "SentinelAddin/Commands.Workflow.cs:40-49",
+   "SentinelAddin/UI/SignInDialog.xaml",
+   "SentinelAddin/UI/SignInDialog.xaml.cs:18-60",
+   "SentinelAddin/Coordination/UserSession.cs:15-145"
+  ]
+ },
+ "Sentinel_BuildOfficeSystem": {
+  "summary": "Reads the office standard out of the open \"golden\" model, lets you review and tick it, then builds it into this model and into the project's ruleset.",
+  "overview": [
+   "Run this on the office's golden model or template. It reads, without changing anything, the user worksets, the shared-parameter bindings, the view templates, the Project Browser organisation schemes and the full catalogue of family and element types in that model. They appear in a review window, grouped, each with a confidence badge, and the items it is certain of are pre-ticked.",
+   "From the review window you can build the ticked items into the model, save them as a standards pack for other models, run an ISO 19650 gap check, send an office snapshot to the web project, or install the type catalogue on the office. Building also installs the ticked worksets and naming rules into the web project's ruleset so the scanner enforces them.",
+   "The type catalogue (\"Families & Types\") is reference only: nothing to tick or build. It is exported to a file at the start of the command, and a lead can install it on the office from the window so Ghost Builder, Photo Massing and Promote read the office's real types."
+  ],
+  "prerequisites": [
+   "A Revit model open; it is the model the standard is read from, and the Build button writes into the model the window was opened on.",
+   "For the ruleset part of a build, the model must be bound to a web project (Project Setup); otherwise the model is built but the ruleset line says it was not installed because there is no project.",
+   "Workset items need a workshared model; on a model that is not workshared they are skipped with a message to enable worksharing.",
+   "View templates and browser organisation schemes are copied from the golden model, so it must be open in the same Revit session when you build into another model; otherwise they are skipped with a message to open the golden model.",
+   "Send office snapshot needs the model bound to a web project and a pack that came from a model. Install catalogue on office needs you signed in, a pack with a harvested catalogue, and a project that belongs to an office; the bridge checks that you are a lead on that office.",
+   "While the build runs, the model the window was opened on must still be open and active; if you switch to another model the build refuses and says nothing was changed."
+  ],
+  "inputs": [
+   {
+    "name": "Tree of items (checkboxes)",
+    "desc": "Groups: Worksets, Shared Parameters, Naming Rules, View Templates, Browser Organization. Each row has a confidence badge (green high, amber medium, red low) and its provenance. Items from the golden model start ticked. Untick anything the office should not standardise."
+   },
+   {
+    "name": "Families & Types",
+    "desc": "A read-only list of the types in the model by category, for reference. Nothing here is built."
+   },
+   {
+    "name": "Build ticked items",
+    "desc": "Builds the ticked worksets, shared parameters, view templates and browser schemes into the model, and installs worksets and naming rules into the project's ruleset. If nothing is ticked it says so."
+   },
+   {
+    "name": "Save pack",
+    "desc": "Saves the ticked items as a standards pack file, named after the source model and version, in %AppData%\\Sentinel\\packs."
+   },
+   {
+    "name": "ISO 19650 check",
+    "desc": "Grades the whole proposed standard (not only the ticked part) against ISO 19650 fundamentals and shows the gaps."
+   },
+   {
+    "name": "Send office snapshot to Sentinel",
+    "desc": "Sends this pack's worksets, shared parameters, type catalogue and current ruleset to the web project's Documents > READINESS view so the office standard can be measured."
+   },
+   {
+    "name": "Install catalogue on office",
+    "desc": "Installs the harvested type catalogue as the office's type catalogue on the web app (a lead's action)."
+   }
+  ],
+  "steps": [
+   "Open the golden model or template and click Sentinel > Standards > Build Office System.",
+   "Wait for the extraction (it is read-only). The review window \"Sentinel - Build Office System\" opens, and a dialog reports that the type catalogue was exported and where.",
+   "Tick the items you want, and untick the rest.",
+   "Optionally click ISO 19650 to see the gaps, and Save pack to keep the pack for other models.",
+   "To build into a model, make that model the active document first, then click Build ticked items. (To build into a different, blank model, use Apply Standard there instead.)",
+   "Read the report in the window: created, skipped and failed items, followed by the \"Ruleset install\" outcome.",
+   "Optionally click Send office snapshot to Sentinel, or (as a lead, signed in) Install catalogue on office."
+  ],
+  "results": [
+   "The window shows Created, Skipped and Failed lists, then the ruleset install result and a status line such as \"Done - N created, N skipped, N failed\".",
+   "The whole build is one Undo entry in Revit named \"Apply standard\"; if a step fails the build is rolled back.",
+   "Items that already exist are skipped, so rebuilding only adds what is missing.",
+   "Shared parameters are bound to the categories that exist in the model. They use the model's shared-parameter file if one is set; otherwise a file is created under %AppData%\\Sentinel\\shared.",
+   "When the model is bound and worksets or naming rules were ticked, the project's ruleset gains a new version containing them and the scanner reloads it. If the project was inheriting the office's ruleset, it now has its own and stops inheriting later office changes (the window warns).",
+   "If Revit kept the build and something was created, one \"Apply Standard\" row is written to the project ledger.",
+   "The type catalogue is exported to %AppData%\\Sentinel\\exports."
+  ],
+  "tips": [
+   "The window title reads \"Build Office System\" for all three standards tools.",
+   "A cached copy of the ruleset is never used as the base for an install: if the bridge did not answer, the model is built but the ruleset is not installed, and the report says to run Apply again when the bridge is up.",
+   "Naming rules usually come from Ingest Docs; a golden model supplies worksets, parameters, view templates, browser schemes and the type catalogue.",
+   "Only one build can run at a time; pressing Build again while one is running says so."
+  ],
+  "related": [
+   "Sentinel_LoadOfficeSystem",
+   "Sentinel_IngestDocs",
+   "Sentinel_Setup",
+   "Sentinel_SignIn",
+   "Sentinel_Rules",
+   "Sentinel_GhostBuilder"
+  ],
+  "sources": [
+   "SentinelAddin/Commands.Standards.cs:26-57,161-309,315-377",
+   "SentinelAddin/UI/StandardsReviewWindow.cs:42-300",
+   "SentinelAddin/Standards/StandardsBuilder.cs:29-393",
+   "SentinelAddin/Standards/GoldenModelExtractor.cs:19-34",
+   "SentinelAddin/Standards/TypeCatalogExport.cs:55-102"
+  ]
+ },
+ "Sentinel_LoadOfficeSystem": {
+  "summary": "Loads a saved standards pack from disk and lets you build it into the open model, the golden-to-blank round trip.",
+  "overview": [
+   "Apply Standard opens a standards pack file (the kind Build Office System or the review window's Save pack writes), shows its contents in the same review window, and builds the ticked items into the model that is active when you start. Use it to bring the office worksets, shared parameters and rules into a new or blank model.",
+   "The build is the same as in Build Office System: items that already exist are skipped, the whole build is one Undo entry, and ticked worksets and naming rules are installed into the web project's ruleset when the model is bound."
+  ],
+  "prerequisites": [
+   "A Revit model open (the target).",
+   "A standards pack file (.json), normally in %AppData%\\Sentinel\\packs.",
+   "For the ruleset install, the model must be bound to a web project (Project Setup); otherwise the model is still built and the report says no ruleset was installed.",
+   "Worksets need a workshared target model; otherwise they are skipped with a message.",
+   "View templates and browser schemes in the pack are copied from the pack's source model, which must be open in the same Revit session; otherwise they are skipped with a message naming the model to open."
+  ],
+  "inputs": [
+   {
+    "name": "Load Sentinel Standards Pack (file dialog)",
+    "desc": "Choose a .json standards pack. The dialog opens in %AppData%\\Sentinel\\packs when that folder exists."
+   },
+   {
+    "name": "Review window tree and buttons",
+    "desc": "Tick the items to build, then Build ticked items; the window also offers Save pack, ISO 19650 check, Send office snapshot to Sentinel and Install catalogue on office (see Build Office System)."
+   }
+  ],
+  "steps": [
+   "Open or create the target model and bind it to its web project (Project Setup) if you want the ruleset installed.",
+   "Click Sentinel > Standards > Apply Standard.",
+   "Pick the pack file in the \"Load Sentinel Standards Pack\" dialog.",
+   "In the review window, tick or untick items. The status line reads \"N item(s) from '<file>'. Tick items, then Build into '<model>'.\"",
+   "Click Build ticked items and read the Created, Skipped and Failed report and the ruleset install result."
+  ],
+  "results": [
+   "Worksets, shared-parameter bindings, view templates and browser schemes added to the active model as one Undo entry named \"Apply standard\".",
+   "Existing items are listed as skipped.",
+   "The project's ruleset gets a new version with the pack's worksets and naming rules when the model is bound and the bridge answers.",
+   "One \"Apply Standard\" row on the project ledger when Revit kept the build and something was created."
+  ],
+  "tips": [
+   "\"Could not read the standards pack\" means the file is not valid pack JSON; the reason is shown.",
+   "\"The selected file is not a valid standards pack\" means the file was empty or not a pack.",
+   "The type catalogue shown in the window is reference only; nothing in it is built.",
+   "The Send office snapshot button needs a pack that came from a model; a pack with no source model says to extract from a template first.",
+   "If you switch to another model before pressing Build, the build refuses and changes nothing."
+  ],
+  "related": [
+   "Sentinel_BuildOfficeSystem",
+   "Sentinel_IngestDocs",
+   "Sentinel_Setup",
+   "Sentinel_Rules",
+   "Sentinel_NamingManager"
+  ],
+  "sources": [
+   "SentinelAddin/Commands.Standards.cs:66-100,315-377",
+   "SentinelAddin/Standards/StandardsBuilder.cs:29-393",
+   "SentinelAddin/UI/StandardsReviewWindow.cs"
+  ]
+ },
+ "Sentinel_IngestDocs": {
+  "summary": "Reads office-standards documents with a local language model and proposes worksets, shared parameters and naming rules for you to review.",
+  "overview": [
+   "Ingest Docs turns a written standard (a PDF, text, Markdown or CSV file) into a reviewable standards pack. You pick one or more documents; a local language model (Ollama, running on your PC) reads them in chunks and extracts workset names, required shared parameters (with data type, instance or type binding, and categories) and naming conventions for views, sheets, families, levels and grids.",
+   "The results open in the same review window as Build Office System, with the source file and page recorded for each item. Items found in documents are never pre-ticked: you decide what is real. Nothing is invented on purpose, but a language model can misread, so review each row.",
+   "From there you can build the ticked items into the open model, save them as a pack, or run the ISO 19650 check. Ticked worksets and naming rules also go into the web project's ruleset when you build. The documents are read on your own machine; by default nothing is sent to a cloud service."
+  ],
+  "prerequisites": [
+   "Ollama running locally with a model pulled. The default is the model llama3 at http://localhost:11434; the PC can override the address and model with the SENTINEL_OLLAMA_URL and SENTINEL_LLM_MODEL settings. An address on another machine is refused unless this PC's configuration explicitly allows it.",
+   "A Revit model open (it is the model the pack would be built into).",
+   "Readable documents: .pdf, .txt, .md or .csv.",
+   "To build the results into a model: the same requirements as Build Office System (bound to a web project for the ruleset install; workshared for worksets)."
+  ],
+  "inputs": [
+   {
+    "name": "Ingest office-standards documents (file dialog)",
+    "desc": "Select one or more documents. Multiple files are allowed. The filter shows pdf, txt, md and csv; All files is also available."
+   },
+   {
+    "name": "Review window",
+    "desc": "Tick items to keep, then Build ticked items or Save pack. A pack made from documents has no source model, so Send office snapshot and Install catalogue on office will say to extract from a template first."
+   }
+  ],
+  "steps": [
+   "Start Ollama and make sure the model is available.",
+   "Click Sentinel > Standards > Ingest Docs.",
+   "Select the standards document(s) and click Open.",
+   "The review window opens at once with a status like \"Reading N document(s) and querying the local LLM...\". The first run loads the model and can take a minute or more; large documents take longer.",
+   "When extraction finishes the tree fills in. Tick only what is correct (nothing is pre-ticked).",
+   "Click Build ticked items to create the worksets and shared parameters in the model and add the worksets and naming rules to the ruleset, or Save pack to keep the pack for Apply Standard."
+  ],
+  "results": [
+   "A review window with Worksets, Shared Parameters and Naming Rules extracted from the documents, each tagged with its file and page.",
+   "On build: the same Created, Skipped and Failed report, one Undo entry, ruleset install and ledger row as the other standards tools.",
+   "Saving writes a pack to %AppData%\\Sentinel\\packs, named after the first document.",
+   "Naming rules are given stable ids (NM-01, NM-02, ...) so re-running replaces rather than duplicates them."
+  ],
+  "tips": [
+   "\"The local LLM could not be reached ... Start Ollama and pull the model\" means Ollama is not running or the model is not installed.",
+   "If one chunk of a document fails, the rest still produce results.",
+   "A message about the endpoint being refused means the configured model address is not local and this PC has not opted in to a remote one.",
+   "Document items carry a confidence below the golden-model level on purpose, which is why they start unticked.",
+   "\"No worksets, shared parameters or naming rules were found in the document(s)\" means the model found nothing it could extract; check the document actually contains readable text."
+  ],
+  "related": [
+   "Sentinel_BuildOfficeSystem",
+   "Sentinel_LoadOfficeSystem",
+   "Sentinel_Setup",
+   "Sentinel_NamingManager",
+   "Sentinel_Rules"
+  ],
+  "sources": [
+   "SentinelAddin/Commands.Standards.cs:112-159",
+   "SentinelAddin/Standards/DocumentExtractor.cs:21-135",
+   "SentinelAddin/UI/StandardsReviewWindow.cs:144-165"
+  ]
+ },
+ "Sentinel_Roi": {
+  "summary": "Shows the web project's ledger counts for delivery gate runs, naming renames and family heals, and prices them if the project has an ROI standard.",
+  "overview": [
+   "ROI Dashboard reads the open model's web project ledger and counts what Sentinel has done: delivery gate runs, naming renames and family heals. If the project (or its office) has an ROI standard installed (currency, hourly rate, minutes per action), each count is priced and a total is shown; without one it says money is not shown.",
+   "It also counts fixes that write ledger rows (auto-fixes, fix-in-place values written, Doctor resolutions) but does not price them, and it lists what it cannot count, such as CDE intercepts, MEP voids, BCF export and clash views, because those write no ledger row.",
+   "Every number is a count of ledger rows, so it reflects what happened on the web project, not just this model or session."
+  ],
+  "prerequisites": [
+   "The model must be bound to a web project (Project Setup). Otherwise the window reads \"ROI - not bound\" and nothing is read.",
+   "The Sentinel bridge must be reachable. If it cannot be read the window says nothing was counted and gives the reason; a failed read is never shown as zero.",
+   "An ROI standard installed on the project or its office to see any money figures."
+  ],
+  "inputs": [],
+  "steps": [
+   "Open the model bound to its web project.",
+   "Click Sentinel > Standards & Build > ROI Dashboard.",
+   "Revit pauses briefly while the ledger is read, then the \"Return on investment\" window opens.",
+   "Read the lines and close the window."
+  ],
+  "results": [
+   "A window headed \"Return on investment\" whose first line states the project and how many ledger rows were read (and if only the newest were read because the ledger holds more).",
+   "Lines for: Delivery gate runs, Naming renames, Family heals (each with minutes and amount if priced), Money (total, currency and hourly rate, or why it is not shown), Fixes on the ledger (not priced), and Not counted.",
+   "Nothing is written to the model or the ledger."
+  ],
+  "tips": [
+   "\"Money: not shown - roi: ...\" means no ROI standard is installed for the project or its office.",
+   "A count shown as \"not priced - the roi sets no minutes for it\" means the ROI standard has no minutes for that action.",
+   "If the ledger is large, only the newest rows are counted and the header says so.",
+   "The window is read-only and non-modal; you can keep it open while working."
+  ],
+  "related": [
+   "Sentinel_Setup",
+   "Sentinel_IfcGate",
+   "Sentinel_NamingManager",
+   "Sentinel_SanitizeLoaded",
+   "Sentinel_Scorecard"
+  ],
+  "sources": [
+   "SentinelAddin/Commands.Phase2.cs:47-60",
+   "SentinelAddin/UI/RoiDashboard.cs:14-76",
+   "SentinelAddin/Engine/RoiReport.cs:127-170"
+  ]
+ },
+ "Sentinel_Chain": {
+  "summary": "The Model from Drawings pulldown groups the seven tools that take a project from drawings or photos to a governed Revit model, in the order they are meant to be run.",
+  "overview": [
+   "Model from Drawings is a pulldown, not a command of its own. Its seven entries are numbered in the order of the chain: 1 · Datum from Drawings, 2 · Ghost Builder, 2b · Photo Massing, 2c · Shell a Mass, 3 · Annotate Views, 4 · Promote (DD) and 5 · Provenance. The idea is datum first, then geometry, then views, then promotion to design-development (DD) types, with a stamp on everything Sentinel touches so you can always ask where an element came from.",
+   "Datum comes first because everything else hangs on it: real levels and a real grid, measured off your section and plan drawings, mean that walls built afterwards host to real floors and sit on a real column grid. Then you model geometry in one of two ways. Ghost Builder builds LOD 200 geometry from a 2D DWG plan. Photo Massing works from the project's evidence-pack photos instead: it estimates a building envelope (storeys, proportions) that you scale with one known dimension, and files a mass for review. Shell a Mass then turns a mass (yours, or the one Photo Massing made) into typed walls, floors and a roof, one storey at a time.",
+   "Annotate Views then creates the work-in-progress plan views, pins the datum and, if the guideline asks for it, makes sheets and tags. Promote (DD) retypes what is in the model to the office's exact DD types. Provenance reads back the stamp on any element.",
+   "How the tools are governed: Datum and Ghost Builder show you a review window and write only what you tick. Photo Massing, Shell a Mass and Promote (DD) do not write to the model themselves; they file their proposal as a changeset on the project's web ledger and open Review AI Proposals, where a person ticks and applies it. The standards that drive the chain (the layers standard, the office modelling guideline, the type catalogue, the LOD matrix) are installed on the project's web workspace or on the office. A standard that is not installed is shown as \"none\", and the tool says so instead of falling back on something else."
+  ],
+  "prerequisites": [
+   "A Revit project open and active (Shell a Mass and Promote (DD) refuse to run in a family document).",
+   "For the changeset-based tools (Photo Massing, Shell a Mass, Promote (DD)) the model must be bound to a web project: use Project Setup first. Without it they stop with \"This model is not bound to a web project\".",
+   "The standards the chain reads must be installed on the project or its office: a layers standard (with a datum section) for Datum and Ghost Builder, a guideline for Ghost Builder, Shell a Mass, Annotate Views and Promote (DD), and a type catalogue for Shell a Mass and Promote (DD).",
+   "The Sentinel bridge must be running for the tools that file changesets or read the standards.",
+   "Ghost Builder and Photo Massing use a language or vision model that runs on your own PC (Ollama)."
+  ],
+  "inputs": [],
+  "steps": [
+   "Open the Sentinel tab and the Model from Drawings pulldown.",
+   "Run 1 · Datum from Drawings to create the levels and grids from your section and plan drawings.",
+   "Model the geometry: run 2 · Ghost Builder on a 2D DWG plan, or 2b · Photo Massing on the evidence-pack photos followed by 2c · Shell a Mass. You can use both, and model by hand in between.",
+   "Run 3 · Annotate Views to create the plan views (and sheets, if the guideline has them) and to pin the levels and grids.",
+   "Run 4 · Promote (DD) to retype walls, floors, roofs, ceilings, doors and windows to the office's DD types and open the result for review.",
+   "Use 5 · Provenance at any point to read where a single element came from."
+  ],
+  "results": [
+   "Each tool reports in its own dialog. Datum and Ghost Builder write to the model after you press their own create or build button. Photo Massing, Shell a Mass and Promote (DD) put changesets into Review AI Proposals; nothing is placed until a person applies them.",
+   "Elements Sentinel places or changes carry a provenance stamp (source, source file, layer, rule, approver, ledger row, time)."
+  ],
+  "tips": [
+   "You do not have to run every step. The numbers are the recommended order, not a requirement; for example Annotate Views only needs levels in the model, wherever they came from.",
+   "Each tool that writes to the model does so as one Undo entry. Revit sometimes empties its Undo list afterwards; the tool's dialog and the ledger row then tell you what was made.",
+   "Sentinel never places into a design option. Switch to the Main Model first."
+  ],
+  "related": [
+   "Sentinel_Datum",
+   "Sentinel_GhostBuilder",
+   "Sentinel_Massing",
+   "Sentinel_ShellMass",
+   "Sentinel_Annotate",
+   "Sentinel_PromoteWalls",
+   "Sentinel_Provenance",
+   "Sentinel_Setup",
+   "Sentinel_ReviewChangesets",
+   "Sentinel_Standards"
+  ],
+  "sources": [
+   "SentinelAddin/App.cs:505-521"
+  ]
+ },
+ "Sentinel_Datum": {
+  "summary": "Reads the levels from a section drawing and the grids from a plan drawing and creates them in the model, so that everything modelled afterwards sits on real heights and a real column grid.",
+  "overview": [
+   "Datum from Drawings is the first step of the chain. It reads a DWG or DXF and finds the level lines and the grid lines on the layers that the project's layers standard names in its datum section. The heights and grid positions are measured straight off the drawing geometry; nothing is estimated and no language model is involved.",
+   "You see everything it found before anything is created. A review window lists every level and every grid with a tick box and a name, and for levels an elevation in millimetres from the zero level and a Building Story box. You untick lines that are not really levels or grids (a parapet line, a section mark), type your office's names, and say which level is zero. Only then does it create them.",
+   "A level at a height already in the model, or a grid on a line already in it, is kept and not duplicated, so you can run it again on another sheet. Each drawing has its own origin, so read the section for levels and the plan for grids as separate runs. When the run creates something, it also sends a datum row and a build receipt to the project's ledger."
+  ],
+  "prerequisites": [
+   "A Revit project open. It must not be in a design option; if one is being edited the tool stops and asks you to switch to the Main Model.",
+   "Set the project base point and survey point first, as usual: the drawings are read origin to origin.",
+   "Drawings to read: either a Ghost source folder set in Project Setup that holds the project's DWG or DXF files, or a DWG already imported into the model. With neither, you get \"No drawings to read\".",
+   "A layers standard installed on the project or its office that has a datum section naming the layers for levels and grids. If the guideline cannot be read, the tool refuses rather than guess. If the standard has no datum section, the run finds nothing and lists the layers it saw so you can fix the standard or the drawing.",
+   "The Ghost source folder must be one this PC accepts; if it does not, the tool stops before reading anything.",
+   "If the guideline's placement block names a workset for Levels or Grids, the model must have that workset; otherwise the run is refused before anything is created."
+  ],
+  "inputs": [
+   {
+    "name": "Drawing list (\"Sentinel — Datum: choose ONE drawing\")",
+    "desc": "Shown when a Ghost source folder is set. Pick the one drawing to read, then press \"Use selected drawing ▶\" (or double-click it). Use the section for levels and the plan for grids; run again for the other."
+   },
+   {
+    "name": "The drawing's units:",
+    "desc": "\"as the file says\" by default. Choose millimetres, centimetres, metres, inches or feet if the drawing's own header is wrong."
+   },
+   {
+    "name": "Create (tick box)",
+    "desc": "One per level and grid. Untick anything that is not a real level or grid."
+   },
+   {
+    "name": "Name",
+    "desc": "The name the level or grid will get. Type your office's own labels."
+   },
+   {
+    "name": "±0.00 at:",
+    "desc": "Which level is the zero of the building. Levels below it read negative."
+   },
+   {
+    "name": "Elevation (mm from ±0.00)",
+    "desc": "Editable height of each level."
+   },
+   {
+    "name": "Building Story",
+    "desc": "Tick for levels that are storeys. Annotate Views and Promote rely on this."
+   },
+   {
+    "name": "Runs (mm)",
+    "desc": "Shown for each grid so you can recognise it. Not editable."
+   }
+  ],
+  "steps": [
+   "Open the project and click Model from Drawings, then \"1 · Datum from Drawings\".",
+   "If a Ghost source folder is set, choose a drawing in the list, set \"The drawing's units:\" if needed and press \"Use selected drawing ▶\". If no folder is set, the DWG already imported into the model is read directly.",
+   "Wait for the read. If nothing is found you get \"Found no level or grid lines\" with the layers the drawing holds.",
+   "In the review window untick lines that are not levels or grids, rename them, set \"±0.00 at:\" and the Building Story boxes.",
+   "Press \"Create ▶\". Cancel creates nothing.",
+   "Read the result dialog, rename in the Project Browser if needed, and continue with Ghost Builder or Annotate Views."
+  ],
+  "results": [
+   "Levels and grids are created in the model, each stamped with where it came from.",
+   "A dialog reports how many levels and grids were created, what the placement block did, and any notes. It also suggests Annotate Views as the next step.",
+   "One datum row and one build receipt are sent to the project's ledger (the pane's log says what the ledger answered)."
+  ],
+  "tips": [
+   "Run once per drawing: sheets have different origins.",
+   "If \"Nothing was created\" appears, Revit did not commit; an element it needs may be owned by another user. The model is unchanged.",
+   "If the read finds nothing, check the datum section of the layers standard against the actual layer names in the drawing.",
+   "The unit setting matters: a drawing in metres read as millimetres gives levels at the wrong heights."
+  ],
+  "related": [
+   "Sentinel_GhostBuilder",
+   "Sentinel_Annotate",
+   "Sentinel_Setup",
+   "Sentinel_Standards",
+   "Sentinel_Provenance"
+  ],
+  "sources": [
+   "SentinelAddin/Commands.Datum.cs:27-175",
+   "SentinelAddin/UI/DwgPickWindow.cs:17-90",
+   "SentinelAddin/UI/DatumReviewWindow.cs:30-110"
+  ]
+ },
+ "Sentinel_GhostBuilder": {
+  "summary": "Builds LOD 200 Revit geometry (walls, floors, doors, windows and more) from a 2D DWG plan, mapping CAD layers to Revit types by the project's standards, after you review and tick what to build.",
+  "overview": [
+   "Ghost Builder takes a 2D plan drawing and proposes a model from it. It first imports the drawing for the run, reads the CAD layers and maps each layer to what it represents (walls, doors, windows, floors and so on). The mapping follows the project's layers standard first, then what it remembered for this project, then labelled heuristics, and only for what is left a language model that runs on your own PC. Nothing the model suggests is pre-ticked.",
+   "You then get a review window that lists the proposal by layer, with how many elements each layer holds, a type drop-down where the proposal is wrong, an option to ignore a layer, and a \"Build on level:\" box. Nothing has been built at that point. When you press \"Build ticked layers ▶\" the build is filed on the project's ledger as changesets from the drawing and placed in one step, with every element stamped with its source drawing and checksum. Walls are typed by the project's guideline and type catalogue; a type that is not installed is reported as a gap.",
+   "Revit stays usable while it works: the language model call and the reading of the standards run in the background, with a progress window you can cancel. Photos in the project's evidence pack, if any, and documents in the Ghost source folder are used as extra hints for the layer mapping only."
+  ],
+  "prerequisites": [
+   "A Revit project open, in a plan view of the level you build on. Section, elevation, 3D and drafting views are refused because the imported drawing would lie in the wrong plane. Open a floor plan and run again.",
+   "A 2D DWG: either DWG or DXF files in the Ghost source folder (Project Setup), or a DWG import already in the model, which you pick on screen (\"Select a 2D CAD (DWG) import to build from.\").",
+   "The layers standard, guideline and type catalogue installed on the web project or its office, with the model bound via Project Setup. If the guideline cannot be read, the run stops. A standard that is not installed reads \"none\" in the review header. A model not bound to a project runs the build as a local changeset with no ledger.",
+   "The model should come from the office template: if it holds none of the office types in the installed catalogue, the run is refused and says so.",
+   "Ollama running on this PC with the Ghost model pulled. If it cannot be reached you are told to start Ollama and pull the model. Evidence photos are read by a vision model only if the model runs on this PC.",
+   "Not in a design option. If the mapping schema or family library folder named in this PC's config cannot be found, the tool tells you which one to fix or clear."
+  ],
+  "inputs": [
+   {
+    "name": "Choose a drawing (\"Sentinel — Ghost Builder: choose a drawing\")",
+    "desc": "Shown when the Ghost source folder holds DWG/DXF files. Pick one and press \"Use selected drawing ▶\", or \"Pick from model…\" to use an import already in the model."
+   },
+   {
+    "name": "The drawing's units:",
+    "desc": "\"as the file says\", millimetres, centimetres, metres, inches or feet. Set it if the file header is wrong."
+   },
+   {
+    "name": "Layer rows (tick boxes)",
+    "desc": "One per mapped CAD layer. Tick the layers to build. Each row shows how it was mapped and a confidence score."
+   },
+   {
+    "name": "Type drop-down / (ignore)",
+    "desc": "Change the type for a layer or set it to (ignore) where the proposal is wrong. Your picks are remembered for this project's next run."
+   },
+   {
+    "name": "Build on level:",
+    "desc": "The level the elements are placed on. It opens on the level at the drawing's elevation, else the active plan's level, else the lowest."
+   }
+  ],
+  "steps": [
+   "Open a floor plan of the level you build on.",
+   "Click Model from Drawings, then \"2 · Ghost Builder\".",
+   "If drawings are listed, select one, set \"The drawing's units:\" and press \"Use selected drawing ▶\". Otherwise select the CAD import in the view.",
+   "Wait while the standards are read, any photos and documents are used as hints, and the layers are mapped. Press Esc or Cancel in the progress window to stop.",
+   "In \"Sentinel — Ghost Builder: review the build proposal\", tick the layers to build, change types or choose (ignore) where the proposal is wrong, and check \"Build on level:\".",
+   "Press \"Build ticked layers ▶\".",
+   "If the build would add elements that your sync-blocking rules would stop, you are asked whether to place it anyway; going back keeps the review open and places nothing.",
+   "Read the summary dialog."
+  ],
+  "results": [
+   "Elements are placed on the chosen level in one Undo entry, each stamped as from the source drawing. The imported DWG made for the run is removed again inside that Undo; an import you picked from the model is kept.",
+   "The summary names the standards used, how many elements were placed, how walls were typed (by the guideline, by the layer mapping, by you, or left as a gap), what was skipped and why, any types or families added, Revit warnings and the ledger line.",
+   "The build is also filed as changesets with source dwg on the project's ledger."
+  ],
+  "tips": [
+   "Cancel, or closing the review without building, writes nothing and removes the imported drawing.",
+   "Doors and windows are only placed on a wall of the same build; the summary counts those skipped because no single straight wall was close enough, and those where the wall line stops short of the opening.",
+   "Run Datum from Drawings first so the build has real levels to host on.",
+   "Ghost Builder places directly after your Build click. Use Provenance on a built element to see the drawing and layer it came from."
+  ],
+  "related": [
+   "Sentinel_Datum",
+   "Sentinel_ShellMass",
+   "Sentinel_Annotate",
+   "Sentinel_PromoteWalls",
+   "Sentinel_Provenance",
+   "Sentinel_Standards",
+   "Sentinel_Setup"
+  ],
+  "sources": [
+   "SentinelAddin/Commands.GhostBuilder.cs:36-345",
+   "SentinelAddin/GhostBuilder/GhostChangesetBuild.cs:1-30,780-795",
+   "SentinelAddin/UI/GhostReviewWindow.cs:110-155",
+   "SentinelAddin/UI/DwgPickWindow.cs"
+  ]
+ },
+ "Sentinel_Massing": {
+  "summary": "Estimates a building's storeys and proportions from the project's evidence-pack photos, lets you scale and correct the numbers, and files the missing levels and a mass for review.",
+  "overview": [
+   "Photo Massing is for projects where you only have photos of the building. A vision model that runs on your own PC reads the admitted, blurred photos from the project's evidence pack and estimates storey count, height-to-width ratio, storey height, footprint and any openings it can see. These are an estimate: photos give counts and ratios, not lengths.",
+   "You supply one known dimension (the building's height or a facade's width, in metres) and press \"Scale ▶\"; the storey height and width are then worked out from it, while the depth is only assumed. You review every number in a window (amber fields are low confidence) and press \"File for review ▶\". That files one changeset on the project's ledger containing the Building Story levels the mass needs that the model lacks and one untyped mass between them.",
+   "Nothing is placed in the model by this tool. Review AI Proposals opens on the changeset and a person applies it there. After that, 2c · Shell a Mass turns the mass into typed walls, floors and a roof."
+  ],
+  "prerequisites": [
+   "A Revit project open, bound to a web project (Project Setup), in a plan view. In any other view you are asked to open a plan view first.",
+   "Not in a design option.",
+   "Photos in the project's evidence pack that have been admitted and blurred (Files ▸ Evidence in the web app). With none, the tool says so and stops. Photos whose blurred copy cannot be fetched or does not match are skipped with a reason in the pane's log.",
+   "The Sentinel bridge running, so the evidence pack can be read and the changeset filed.",
+   "A vision model on this PC (Ollama). Photos are never sent to a model off this PC; the tool refuses before reading anything.",
+   "No review window open and no other filing in progress; otherwise the tool tells you to finish or wait."
+  ],
+  "inputs": [
+   {
+    "name": "Where does the mass stand?",
+    "desc": "First choice. \"Pick its footprint\" uses a closed CAD polyline, a property line or model lines you selected first. \"Width × depth from the photos\" centres a box on a point you click."
+   },
+   {
+    "name": "Known height (m) / Known width (m)",
+    "desc": "Type exactly one known dimension. With a picked footprint only the height row is offered."
+   },
+   {
+    "name": "Scale ▶",
+    "desc": "Works out the storey height and width from the known dimension."
+   },
+   {
+    "name": "Storeys, Height : width, Storey height (mm), Footprint width/depth (mm)",
+    "desc": "The estimate. Correct any value that is wrong; amber fields need your attention."
+   },
+   {
+    "name": "Rotation (°)",
+    "desc": "Turns the footprint counter-clockwise about its centre; 0 leaves it."
+   },
+   {
+    "name": "Opening rows",
+    "desc": "Windows and doors the model saw, with width and height. They are counted but not placed."
+   }
+  ],
+  "steps": [
+   "Open a plan view of the model and click Model from Drawings, then \"2b · Photo Massing\".",
+   "In \"Where does the mass stand?\" choose the footprint option or the width-and-depth option. For the footprint option pick the outline; then pick a point for the centre if asked.",
+   "Wait while the photos are read (\"Reading photo i of n\" in the progress window).",
+   "In \"Sentinel — Massing: review the estimate before filing\" type one known dimension and press \"Scale ▶\".",
+   "Check and correct the numbers and compare the storey count with the photos.",
+   "Press \"File for review ▶\"."
+  ],
+  "results": [
+   "One changeset with the missing Building Story levels and a mass is filed on the project's ledger. Review AI Proposals opens on it by itself; a person ticks and applies it.",
+   "A receipt for the vision run is sent to the ledger. If a Photo Massing changeset is already waiting, that one opens instead of a second being filed.",
+   "If filing fails, a dialog says nothing was placed and nothing in the model changed."
+  ],
+  "tips": [
+   "If no photo gives a reading, you get \"Nothing was read\" with each photo's reason.",
+   "A picked footprint must be one closed outline with at least three corners; otherwise the tool says why it cannot be used.",
+   "An older Photo Massing changeset that was read outside the evidence pack must be declined in Review AI Proposals before you run it again.",
+   "A model's storey count can be wrong in the same way on every photo; check it against the photos."
+  ],
+  "related": [
+   "Sentinel_ShellMass",
+   "Sentinel_ReviewChangesets",
+   "Sentinel_Datum",
+   "Sentinel_Setup",
+   "Sentinel_Annotate"
+  ],
+  "sources": [
+   "SentinelAddin/Commands.Massing.cs:34-276",
+   "SentinelAddin/UI/MassingReviewWindow.cs:40-130"
+  ]
+ },
+ "Sentinel_ShellMass": {
+  "summary": "Turns a selected mass into typed walls, a floor per level and a flat roof, one storey at a time, filed for review as changesets.",
+  "overview": [
+   "Shell a Mass takes a mass in the model and cuts it at each Building Story level. For every storey it plans walls from that level to the next, with the exterior face on the mass face, a floor for the level and a flat roof on top. The types come from the office modelling guideline and the type catalogue installed on the project or its office. A curtain wall is used where a facade rule in the guideline says so, with the facade judged against True North.",
+   "It first shows you the plan in a dialog. Yes files it; No is a read-only run that changes nothing. Nothing is pre-ticked in the review that follows, and nothing is placed until a person applies it in Review AI Proposals.",
+   "A storey that leans or is not a single loop with straight edges is not planned; it is sent to a person with the reason shown in the dialog."
+  ],
+  "prerequisites": [
+   "A Revit project open (not a family), bound to a web project through Project Setup.",
+   "A mass in the model: an in-place mass, a mass family, a mass made as a direct shape, or the mass from Photo Massing once its changeset has been applied. Select it first or pick it when asked. With no mass at all you are told to model one, place a mass family or run Photo Massing. If no mass shows in the current view you are told to turn on Show Mass or select the mass first.",
+   "Building Story levels in the model that the mass crosses (Datum from Drawings can create them).",
+   "A guideline and a type catalogue installed on the project or its office. With no guideline, or no catalogue, the tool says so and plans nothing.",
+   "The Sentinel bridge running.",
+   "No other review window or filing in progress."
+  ],
+  "inputs": [
+   {
+    "name": "The mass",
+    "desc": "Select one mass before clicking, or pick it when prompted (\"Pick the mass to shell\")."
+   },
+   {
+    "name": "Yes / No in the plan dialog",
+    "desc": "Yes files the shell for review. No is a read-only run."
+   }
+  ],
+  "steps": [
+   "Select the mass (or leave nothing selected and pick it when asked).",
+   "Click Model from Drawings, then \"2c · Shell a Mass\".",
+   "Wait while the bridge is read in the background. Revit stays usable and the dialog opens by itself.",
+   "Read the dialog: it names the standards used, lists the plan, says how many elements go into how many changesets, and lists the rows sent to a person (expand for details).",
+   "Press Yes to file, or No to stop with nothing filed.",
+   "Review AI Proposals opens on the first changeset. Tick the elements you want and apply."
+  ],
+  "results": [
+   "One changeset up to 200 elements (one review, one Undo), or one changeset per storey above that. The first opens for review; the rest are listed in Review AI Proposals.",
+   "A receipt for the planning is sent to the ledger.",
+   "Rows sent to a person ride on the first changeset filed."
+  ],
+  "tips": [
+   "If a Promote or Shell changeset is still waiting for review, it opens instead; apply or decline it, then run Shell a Mass again.",
+   "Once one storey is applied, walls stand inside the mass and Shell a Mass will not plan the rest of it. If only some storey changesets were filed, decline them and run it again.",
+   "If the mass cannot be shelled, the dialog says why and nothing is planned or filed.",
+   "Show Mass in the Massing & Site tab makes in-place masses visible so you can pick them."
+  ],
+  "related": [
+   "Sentinel_Massing",
+   "Sentinel_ReviewChangesets",
+   "Sentinel_Annotate",
+   "Sentinel_PromoteWalls",
+   "Sentinel_Setup",
+   "Sentinel_Standards"
+  ],
+  "sources": [
+   "SentinelAddin/Commands.ShellMass.cs:28-233"
+  ]
+ },
+ "Sentinel_Annotate": {
+  "summary": "Creates the work-in-progress plan views the guideline prescribes for each level, pins levels and grids, and optionally copies view templates and makes sheets with tags.",
+  "overview": [
+   "Annotate Views is the third step of the chain. It reads the views section of the office modelling guideline installed on the project or its office and plans the floor plan and ceiling plan views for each level. Each view name comes from the project's view-naming rule, or a fixed WIP name, and is checked against Scan Now's naming rule before anything is created.",
+   "A preview window shows everything first. Story levels get the guideline's first floor plan and first ceiling plan entry pre-ticked; other views are listed unticked; a row that cannot be made is greyed with its reason. The same window lists every unpinned level and grid (story levels and grids are pre-ticked) so you can pin them in the same run.",
+   "If the guideline has a sheets block, you can also choose one level for which to make sheets and tags: sheets on the guideline's title block with the view placed on them, and tags for categories such as rooms. Those rows are never pre-ticked. If the guideline names view templates the model lacks, you are offered to copy them from an office template file you pick; the file is opened in the background and is never saved or changed."
+  ],
+  "prerequisites": [
+   "A Revit project open with levels in it; with none you are told to run Datum from Drawings first.",
+   "The project's ruleset must be loaded: run Scan Now once, otherwise the tool refuses because it cannot judge the view names.",
+   "A guideline with a views section installed on the project or its office. Without it, there is nothing to plan and the tool says so.",
+   "At least one level should be a Building Story; otherwise no view or level is pre-ticked (unpinned grids still are).",
+   "For sheets: a sheets block in the guideline and its title block family loaded in the model. For tags: the tag families loaded. Sentinel loads no families; a row that needs a missing family is refused with the family name.",
+   "The model needs default floor plan and ceiling plan view types."
+  ],
+  "inputs": [
+   {
+    "name": "View rows (tick boxes)",
+    "desc": "Grouped by level. Each shows name, use and template. Tick the views to create."
+   },
+   {
+    "name": "Pin rows",
+    "desc": "Unpinned levels and grids to pin. A level or grid that another user owns, or that changed in central, is listed unticked with the reason."
+   },
+   {
+    "name": "Sheets and tags for:",
+    "desc": "Choose one level to plan sheets and tags for, or leave it unset. Tick a sheet row to enable its tag rows."
+   },
+   {
+    "name": "Pick the office template file…",
+    "desc": "Offered when view templates named by the guideline are missing. Choose an .rte or .rvt file, or \"Continue without them\"."
+   }
+  ],
+  "steps": [
+   "Click Model from Drawings, then \"3 · Annotate Views\".",
+   "If asked about missing view templates, pick the office template file or continue without them.",
+   "In \"Sentinel — Annotate: views and pins\" read the lines at the top, then tick or untick views and pins. Optionally choose a level in \"Sheets and tags for:\" and tick sheets and tags.",
+   "Press \"Create ▶\". Cancel writes nothing.",
+   "Read the result dialog."
+  ],
+  "results": [
+   "Views, pins, copied view templates, sheets with viewports and tags are created in one Undo entry named Annotate views. Each view is made on its own: one that fails is rolled back and named, and the rest are kept.",
+   "The dialog lists what was created and pinned, what was not created and why, failures and warnings.",
+   "One annotate row goes to the ledger naming the views and datums the model holds."
+  ],
+  "tips": [
+   "Revit may empty its Undo list after views are named. If Edit ▸ Undo does not list Annotate views, the ledger row is the record of which views to delete and which datums to unpin by hand.",
+   "Views already in the model are skipped, not duplicated.",
+   "If every ticked row fails, the dialog says nothing was created and the model is as it was.",
+   "Scan Now judges the new view names by the same rule, so names that pass here pass there."
+  ],
+  "related": [
+   "Sentinel_Datum",
+   "Sentinel_ScanNow",
+   "Sentinel_PromoteWalls",
+   "Sentinel_Standards",
+   "Sentinel_PublishSheets"
+  ],
+  "sources": [
+   "SentinelAddin/Commands.Annotate.cs:38-551",
+   "SentinelAddin/UI/AnnotatePreviewWindow.cs:40-200",
+   "SentinelAddin/GhostBuilder/ViewPlanner.cs:258-270"
+  ]
+ },
+ "Sentinel_PromoteWalls": {
+  "summary": "Promotes the model's walls, floors, roofs, ceilings, doors and windows to design-development types by the office guideline, type catalogue and LOD matrix, filing the changes for review.",
+  "overview": [
+   "Promote (DD) looks at what is in the model and plans how to bring it to the office's DD standard. It retypes walls, floors, roofs, ceilings, doors and windows to the exact catalogue type already loaded in the model, swaps doors and windows to an office family type keeping their host, attaches wall tops to story levels, and re-creates wall-like and floor-like direct shapes as office types. Structural columns and beams are retyped by section when the catalogue has rows for them; these are never pre-ticked and sit outside the LOD matrix.",
+   "Anything ambiguous is not guessed: it is sent to a person with its reason. A dialog shows the plan per storey and per element class, the DD state now, the type gaps (elements for which the office has no type), and the foreign types found. Yes files the plan; No is a read-only run.",
+   "Filing creates one changeset per storey on the project's ledger, and Review AI Proposals opens on the first. Nothing is written to the model until a person ticks the elements and applies the changeset. No type is ever created, each change is stamped, and an Undo of it is recorded on the ledger."
+  ],
+  "prerequisites": [
+   "A Revit project open (not a family), bound to a web project through Project Setup.",
+   "The Sentinel bridge running; otherwise you get \"Couldn't reach the bridge\".",
+   "An office modelling guideline (the DD rule file) installed on the project or its office. Without it, nothing is planned.",
+   "A type catalogue installed, and a model made from the office template: if the model holds none of the office types, the tool refuses and says so. Foreign types are still classified and reported.",
+   "An LOD matrix installed to cover floors, roofs, ceilings, doors and windows. With no matrix, Promote handles walls only.",
+   "To rehost a door or window you must be signed in; a rehost is only proposed when signed in.",
+   "No review window open and no other filing in progress."
+  ],
+  "inputs": [
+   {
+    "name": "Yes / No in the plan dialog",
+    "desc": "Yes files one changeset per storey. No is a read-only run: nothing is filed, but the LOD state and type-gap rows are still sent to the ledger."
+   },
+   {
+    "name": "Sent to a person (expanded section)",
+    "desc": "Expand it to read, per storey and element, why Sentinel would not decide."
+   }
+  ],
+  "steps": [
+   "Make sure nothing from a previous Promote or Shell run is still waiting in Review AI Proposals.",
+   "Click Model from Drawings, then \"4 · Promote (DD)\". Revit stays usable while the bridge is read.",
+   "Read the dialog: the standards used, the plan lines per storey and class, the DD now counts, the LOD state, type gaps and foreign types.",
+   "Press Yes to file, or No to leave without filing. A storey whose every change was declined in an earlier review is not filed again.",
+   "Review AI Proposals opens on the first storey. Tick the changes and apply."
+  ],
+  "results": [
+   "Changesets, one per storey, on the project's ledger and opened for review. Applying retypes or swaps elements in the model, each stamped by Promote.",
+   "Ledger rows for the LOD state now, the type gaps, the foreign types and a run receipt.",
+   "A type edit whose source the bridge cannot confirm is not filed with the retypes; it is listed as sent to a person."
+  ],
+  "tips": [
+   "If a previous Promote or Shell changeset is still waiting, it opens instead of a new plan. Apply or decline it, then run Promote again.",
+   "Revit is asked first whether each retype is valid; a refused one is held with the reason, so one bad swap does not roll back a storey.",
+   "Elements already on other office types are left as is and counted apart.",
+   "If the model is re-bound to another project during the run, nothing is filed; run Promote again.",
+   "Use Provenance on a promoted element to see its stamp."
+  ],
+  "related": [
+   "Sentinel_ReviewChangesets",
+   "Sentinel_Provenance",
+   "Sentinel_Annotate",
+   "Sentinel_Standards",
+   "Sentinel_Setup",
+   "Sentinel_ShellMass"
+  ],
+  "sources": [
+   "SentinelAddin/Commands.PromoteWalls.cs:31-420"
+  ]
+ },
+ "Sentinel_Provenance": {
+  "summary": "Shows where the selected element came from: Sentinel's provenance stamp in plain words.",
+  "overview": [
+   "Provenance reads the stamp that Sentinel puts on elements it places or changes (Datum from Drawings, Ghost Builder, Shell a Mass, Promote and others) and describes it in a dialog. It only reads; nothing in the model changes and nothing goes over the network.",
+   "The dialog names the element (category, id and name) and then says whether Sentinel placed or changed it, the source, the checksum (sha256) of the source file, the CAD layer, the rule that typed it, the approver, the ledger row of the proposal and the time. A stamp that came along with a copy reads \"Copied, not placed by Sentinel\" and shows that the lines below belong to the original element."
+  ],
+  "prerequisites": [
+   "A Revit project open.",
+   "An element to read: select exactly one element before clicking, or pick one when asked."
+  ],
+  "inputs": [
+   {
+    "name": "Element",
+    "desc": "Select one element first. With no selection or several elements selected you pick one at the prompt \"Pick an element to read its Sentinel provenance stamp\"."
+   }
+  ],
+  "steps": [
+   "Select one element in the model.",
+   "Click Model from Drawings, then \"5 · Provenance\". If you did not select exactly one element, pick one when prompted; Esc cancels.",
+   "Read the dialog."
+  ],
+  "results": [
+   "A dialog \"Sentinel — Provenance\" with the stamp. If there is no stamp it says Sentinel did not place or change this element."
+  ],
+  "tips": [
+   "Fields a stamp did not record are said so, for example no source file for an element that came from a drawing already imported in the model, or an approver shown as unsigned (sign in so your name is recorded).",
+   "Older stamps read \"not recorded\" for the newer fields.",
+   "Copying an element copies its stamp, so check the first line of the dialog."
+  ],
+  "related": [
+   "Sentinel_Datum",
+   "Sentinel_GhostBuilder",
+   "Sentinel_PromoteWalls",
+   "Sentinel_ReviewChangesets",
+   "Sentinel_SignIn"
+  ],
+  "sources": [
+   "SentinelAddin/Commands.Provenance.cs:1-34",
+   "SentinelAddin/Engine/ProvenanceStamp.cs:130-170"
+  ]
+ }
+}

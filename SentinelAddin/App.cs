@@ -526,10 +526,15 @@ public sealed class App : IExternalApplication
     private static string _asm = "";
     private static string _resDir = "";
 
+    // F1 help: Resources\help\<button name>.html, built by tools/help/build.py from this ribbon + content.json.
+    private static ContextualHelp Help(string name) =>
+        new(ContextualHelpType.Url, new Uri(Path.Combine(_resDir, "help", name + ".html")).AbsoluteUri);
+
     // Build a push-button's data + its distinct icon (32 large / 16 small) from Resources by icon base name.
     private static PushButtonData Data(string name, string text, string className, string icon, string tooltip)
     {
         var data = new PushButtonData(name, text, _asm, className) { ToolTip = tooltip };
+        data.SetContextualHelp(Help(name));
         var large = Path.Combine(_resDir, icon + "32.png");
         var small = Path.Combine(_resDir, icon + "16.png");
         if (File.Exists(large)) data.LargeImage = LoadPng(large);
@@ -545,6 +550,7 @@ public sealed class App : IExternalApplication
     private static PulldownButton Pull(RibbonPanel panel, string name, string text, string icon, string tooltip)
     {
         var pd = new PulldownButtonData(name, text) { ToolTip = tooltip };
+        pd.SetContextualHelp(Help(name));
         var large = Path.Combine(_resDir, icon + "32.png");
         var small = Path.Combine(_resDir, icon + "16.png");
         if (File.Exists(large)) pd.LargeImage = LoadPng(large);
