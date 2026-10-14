@@ -1113,6 +1113,14 @@ describe("evidence intake (MA-4a): who makes, signs, admits and reads", () => {
     expect((await raw(`${U}/original`, "lead")).status).toBe(200); // MA-7-7 review: the lead is a contributor and above
     const mach = await raw(`${U}/original`, "machine");
     expect(mach.status).toBe(403); expect(JSON.parse(mach.buf).message).toContain("signed-in person only");
+    // MA-7-16b: POST .../detect-faces - a contributor on this PC reaches the detector (200 if this PC has the model, else a 503 in words); off this PC, a viewer and the machine credential are a 403; no row
+    const det = async (as, headers = {}) => { const r = await fetch(`http://127.0.0.1:${port}${U}/detect-faces`, { method: "POST", headers: { Authorization: `Bearer ${as === "machine" ? TOKEN : jwtFor(as)}`, "Content-Type": "application/json", ...headers }, body: "{}" }); return { status: r.status, body: await r.json().catch(() => ({})) }; };
+    const here = await det("contributor");
+    if (here.status === 503) expect(here.body.message).toContain("face detector"); else expect(here.status).toBe(200);
+    expect((await det("contributor", { "X-Forwarded-For": "203.0.113.9" })).status).toBe(403);
+    expect((await det("viewer")).status).toBe(403);
+    const dm = await det("machine"); expect(dm.status).toBe(403); expect(dm.body.message).toContain("signed-in person only");
+    expect(rows("evidence:blurred")).toHaveLength(0);
   }, 30_000);
   it("MA-7-6: GET .../notice is a read - a viewer, a contributor, a lead and the machine credential are all let through, none is a 403", async () => {
     await call("POST", E, "lead", {});

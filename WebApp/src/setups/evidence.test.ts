@@ -556,6 +556,34 @@ describe("blurred copy (MA-7-7)", () => {
   });
 });
 
+// MA-7-16b - Find faces: the call and the panel's wiring.
+import { detectFaces, proposedMarks } from "./evidence";
+describe("Find faces (MA-7-16b)", () => {
+  it("detectFaces posts to the item's detect-faces route and carries the bridge's words on a refusal", async () => {
+    bwrite.mockResolvedValueOnce({ faces: [{ x: 0.1, y: 0.2, w: 0.1, h: 0.1, score: 0.9 }], source_sha256: HASH });
+    const r = await detectFaces("http://b", "demo", "ev-0002");
+    expect(r.faces).toHaveLength(1);
+    expect(String(bwrite.mock.calls[bwrite.mock.calls.length - 1][0])).toMatch(/\/cde\/demo\/evidence\/evp-0001\/items\/ev-0002\/detect-faces$/);
+    bwrite.mockRejectedValueOnce(new Error("the face detector is not set up on this PC (YuNet 2023mar and onnxruntime 1.26.0) — nothing was proposed; mark the faces by hand"));
+    await expect(detectFaces("http://b", "demo", "ev-0002")).rejects.toThrow("mark the faces by hand");
+  });
+  it("proposedMarks: faces after the drawn boxes, plates untouched, capped at 200; the line says the person decides", () => {
+    const plate = { x: 0.5, y: 0.5, w: 0.1, h: 0.05, what: "plate" as const };
+    const p = proposedMarks([{ x: 0.1, y: 0.1, w: 0.1, h: 0.1 }], [plate]);
+    expect(p.marks).toEqual([plate, { x: 0.1, y: 0.1, w: 0.1, h: 0.1, what: "face" }]);
+    expect(p.line).toContain("keep, move or delete");
+    expect(proposedMarks([], []).line).toContain("found no faces");
+    expect(proposedMarks(Array(300).fill({ x: 0, y: 0, w: 0.1, h: 0.1 }), []).marks).toHaveLength(200);
+  });
+  it("files-panel: the Find faces button calls detectFaces, pre-draws the proposals, shows the notes as text only", () => {
+    const src = readFileSync(new URL("./files-panel.ts", import.meta.url), "utf8");
+    expect(src).toContain('id="fv-mk-find"');
+    expect(src).toContain("detectFaces(base, pid(), id)");
+    expect(src).toContain("proposedMarks(r.faces");
+    expect(src).toContain("${esc(markNote)}");
+  });
+});
+
 // MA-7-11 - a Gaussian splat: its kind, its words, its three calls and the panel's wiring.
 import { SPLAT_LOOK, canPlaceSplat, splatBytes, readSplatPlacement, saveSplatPlacement, placementLine, splatShownLine, admitEvidence, type SplatPlacement } from "./evidence";
 describe("a Gaussian splat (MA-7-11)", () => {

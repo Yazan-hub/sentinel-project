@@ -18,7 +18,7 @@ import { firstTag, geometryCheck, linkedHash, linkedTag, sha256Hex, type Geometr
 import { saveAs } from "./audit-pack";
 import { mountMarker, markSummary, type Mark, type Marker, type MarkWhat } from "./photo-marker";
 import type { SplatShown } from "./splat-view"; // MA-7-11: type only - Spark and the viewer load when "Show in 3D" is pressed
-import { readEvidence, readWebStatus, readNotice, noticeLine, webLine, type WebStatus, makePack, signAttestation, admitEvidence, recheckEvidence, setDeleteBy, draftRequest, kindOf, isImage, needsReport, itemLine, attestationLine, admitLine, recheckLine, requestLine, evidenceControls, ATTESTATION_CODES, ATTESTATION_TEXTS, datasetLine, PHOTO_SOURCES, MAP_SERVICES, photoProvider, type PhotoSource, markViewCopy, blurredLine, photoUrl, readSplatPlacement, saveSplatPlacement, splatBytes, placementLine, splatShownLine, canPlaceSplat, SPLAT_LOOK, type SplatPlacement, type EvidenceItem, type EvidenceRead, type EvidenceRequest,
+import { readEvidence, readWebStatus, readNotice, noticeLine, webLine, type WebStatus, makePack, signAttestation, admitEvidence, recheckEvidence, setDeleteBy, draftRequest, kindOf, isImage, needsReport, itemLine, attestationLine, admitLine, recheckLine, requestLine, evidenceControls, ATTESTATION_CODES, ATTESTATION_TEXTS, datasetLine, PHOTO_SOURCES, MAP_SERVICES, photoProvider, type PhotoSource, markViewCopy, detectFaces, proposedMarks, blurredLine, photoUrl, readSplatPlacement, saveSplatPlacement, splatBytes, placementLine, splatShownLine, canPlaceSplat, SPLAT_LOOK, type SplatPlacement, type EvidenceItem, type EvidenceRead, type EvidenceRequest,
   startSurvey, readJobs, readJob, readFrameDraft, jobLine, candidateLine, surveyStartLine, surveyableScans, proposeBody, proposeFromJob, proposeLine, choosablePhotos, choiceLine, type PhotoChoice, type SurveyJob, type Candidate,
   startDrawing, drawingStartLine, readableDrawings, isDrawingJob, startIfc, ifcStartLine, readableIfc, isIfcJob, ifcHintLine, alignBody, alignPreview, drawingSvg, snapPaper, type AlignDraft } from "./evidence";
 
@@ -113,11 +113,11 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   let photoSource: PhotoSource = "own"; let photoService: string = MAP_SERVICES[0];
   // MA-7-7: the photo whose faces and number plates a person is marking, the original as an object URL (the bridge shows it on the office PC only),
   // the boxes drawn so far (kept across a re-render), which kind the next box is, and a refusal in the bridge's words.
-  let markFor: string | null = null; let markUrl: string | null = null; let markMarks: Mark[] = []; let markWhat: MarkWhat = "face"; let markErr = ""; let marking = false;
+  let markFor: string | null = null; let markUrl: string | null = null; let markMarks: Mark[] = []; let markWhat: MarkWhat = "face"; let markErr = ""; let markNote = ""; let marking = false;
   let marker: Marker | null = null;
   const thumbs = new Map<string, Promise<string>>(); // `${id}:${sha}` → the blurred copy as an object URL, in flight or ready (one fetch per copy)
   function thumbsClear() { for (const p of thumbs.values()) p.then((u) => URL.revokeObjectURL(u), () => {}); thumbs.clear(); } // MA-7-7: a project or person switch frees them
-  function markClose() { if (markUrl) URL.revokeObjectURL(markUrl); markFor = null; markUrl = null; markMarks = []; markErr = ""; marker = null; }
+  function markClose() { if (markUrl) URL.revokeObjectURL(markUrl); markFor = null; markUrl = null; markMarks = []; markErr = ""; markNote = ""; marker = null; }
   // MA-7-11: a folder .ply whose answer form is open (an uploaded splat cannot be blurred, so a person says no face or number plate is in it), and the splat
   // shown in the 3D world (one at a time) with the placement the ledger held when it was shown; `splatBusy` = the item being loaded.
   let splatFor: string | null = null; let splatAnswer = false;
@@ -534,6 +534,15 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     const mkHost = root.querySelector<HTMLElement>("#fv-mk-host");
     if (markFor && markUrl && mkHost) marker = mountMarker(mkHost, markUrl, () => markWhat, markMarks, (m) => { markMarks = m; const s = root.querySelector("#fv-mk-sum"); if (s) s.textContent = markSummary(m); });
     root.querySelectorAll<HTMLInputElement>("[name=fv-mk-what]").forEach((n) => n.addEventListener("change", () => { markWhat = n.value as MarkWhat; }));
+    // MA-7-16b: Find faces asks the bridge's detector (the office PC only) and pre-draws its proposals; the person keeps, moves, deletes or adds. Plates are always theirs.
+    root.querySelector("#fv-mk-find")?.addEventListener("click", () => {
+      const id = markFor;
+      if (!id || marking) return;
+      marking = true; markErr = ""; markNote = "Looking for faces…"; render();
+      detectFaces(base, pid(), id).then((r) => { if (markFor !== id) return; const p = proposedMarks(r.faces, marker?.marks() ?? markMarks); markMarks = p.marks; markNote = p.line; })
+        .catch((e) => { if (markFor === id) { markNote = ""; markErr = (e as Error).message; } })
+        .finally(() => { marking = false; if (markFor === id) render(); });
+    });
     root.querySelector("#fv-mk-undo")?.addEventListener("click", () => marker?.undo());
     root.querySelector("#fv-mk-cancel")?.addEventListener("click", () => { markClose(); render(); });
     const saveMark = (body: { boxes?: Mark[]; none_seen?: boolean }) => {
@@ -780,12 +789,13 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       : ` <button data-evshow="${esc(i.id)}" style="${act}"${splatBusy ? " disabled" : ""} title="${esc(SPLAT_LOOK)}">${splatBusy === i.id ? "Loading…" : "Show in 3D"}</button>`;
     const splatBlock = (i: EvidenceItem) => splat?.id !== i.id ? "" : line(esc(splatShownLine(splat.placed)) + (canPlaceSplat(role) ? "" : ` A contributor or above saves the placement — ${roleSaid}.`), "#c4b5fd");
     const markBlock = (i: EvidenceItem) => markFor !== i.id ? "" : `<div style="padding:.3rem .2rem;display:flex;flex-direction:column;gap:.3rem">` +
-      `<span style="color:#9ca3af;font-size:11px">Draw a box round every face and every number plate you can see. Each box is filled with its own colour in a copy that is shown and read from now on; the original stays in your folder and is no longer shown. Sentinel does not find faces itself yet. The original is shown on the office PC only (the local app).</span>` +
+      `<span style="color:#9ca3af;font-size:11px">Draw a box round every face and every number plate you can see. Each box is filled with its own colour in a copy that is shown and read from now on; the original stays in your folder and is no longer shown. Find faces proposes boxes for you to check; it never replaces you, and number plates are always yours. The original is shown on the office PC only (the local app).</span>` +
       (markErr ? `<span style="color:#fca5a5;font-size:11px">${esc(markErr)}</span>` : "") +
+      (markNote ? `<span style="color:#9ca3af;font-size:11px">${esc(markNote)}</span>` : "") +
       (markUrl ? `<div id="fv-mk-host"></div>` : markErr ? "" : `<span style="color:#9ca3af;font-size:11px">Loading the photo…</span>`) +
       `<div style="display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;font-size:11px"><label><input type="radio" name="fv-mk-what" value="face"${markWhat === "face" ? " checked" : ""}/> face</label>` +
       `<label><input type="radio" name="fv-mk-what" value="plate"${markWhat === "plate" ? " checked" : ""}/> number plate</label><span id="fv-mk-sum" style="color:#c4b5fd">${esc(markSummary(markMarks))}</span></div>` +
-      `<div style="display:flex;gap:.4rem;flex-wrap:wrap"><button id="fv-mk-save" style="${act};color:#c4b5fd">Save blurred copy</button><button id="fv-mk-undo" style="${act}">Undo last box</button>` +
+      `<div style="display:flex;gap:.4rem;flex-wrap:wrap"><button id="fv-mk-save" style="${act};color:#c4b5fd">Save blurred copy</button><button id="fv-mk-find" style="${act}">Find faces</button><button id="fv-mk-undo" style="${act}">Undo last box</button>` +
       `<button id="fv-mk-none" style="${act}">No faces or number plates in this photo</button><button id="fv-mk-cancel" style="${act}">Cancel</button></div></div>`;
     const items = pack.items.map((i) => line(esc(itemLine(i)) + photoActs(i) + splatActs(i) + (can.sign && i.state !== "expired"
       ? ` <input type="date" data-evdate="${esc(i.id)}" min="${esc(today)}" value="${esc(i.delete_by ?? "")}" style="background:#111;color:#eee;border:1px solid #2c2c34;border-radius:.25rem;font:11px system-ui"/>` +

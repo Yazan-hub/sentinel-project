@@ -189,6 +189,14 @@ export const setDeleteBy = (base: string, key: string, item: string, date: strin
 /** MA-7-7: a contributor's marks on an own photo — boxes (fractions of the photo as shown, each a face or a number plate), or the explicit answer that there are none. */
 export const markViewCopy = (base: string, key: string, item: string, b: { boxes?: { x: number; y: number; w: number; h: number; what: "face" | "plate" }[]; none_seen?: boolean; shown?: { w: number; h: number } }) =>
   post<{ item: EvidenceItem; copy: ViewCopy; pack_version: number; ledger: Ledger }>(base, key, `evidence/${PACK_ID}/items/${encodeURIComponent(item)}/view-copy`, b);
+/** MA-7-16b: the detector's proposed face boxes for an own photo (the bridge refuses off the office PC, in words; it writes nothing). The person keeps, moves, deletes or adds to them. */
+export const detectFaces = (base: string, key: string, item: string) =>
+  post<{ faces: { x: number; y: number; w: number; h: number; score: number }[]; source_sha256: string }>(base, key, `evidence/${PACK_ID}/items/${encodeURIComponent(item)}/detect-faces`, {});
+/** MA-7-16b: the proposals as face marks after the boxes already drawn (at most 200 in all); the line says how many and that the person decides. Pure. */
+export function proposedMarks(faces: { x: number; y: number; w: number; h: number }[], drawn: { x: number; y: number; w: number; h: number; what: "face" | "plate" }[]) {
+  const room = Math.max(0, 200 - drawn.length), add = faces.slice(0, room).map(({ x, y, w, h }) => ({ x, y, w, h, what: "face" as const }));
+  return { marks: [...drawn, ...add], line: faces.length ? `Sentinel proposed ${add.length} face box(es) — keep, move or delete each, and add the number plates yourself.` : "Sentinel found no faces — look yourself, and add any number plate." };
+}
 /** The status line after a blurred copy is made. Pure. */
 export const blurredLine = (r: { item: EvidenceItem; copy: ViewCopy; ledger: Ledger }): string =>
   `✓ Blurred copy of ${r.item.id}${viewCopyLine({ view_copy: r.copy })} · sha ${r.copy.sha256.slice(0, 12)}… · ${ledgerLine(r.ledger)}`;
