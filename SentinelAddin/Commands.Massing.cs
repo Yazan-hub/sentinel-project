@@ -14,12 +14,13 @@ using Sentinel.UI;
 namespace Sentinel.Commands;
 
 /// <summary>
-/// Photo → Massing: estimate a building's envelope from the project images (renders, photos, elevations)
-/// in the scoped folder, let the user CORRECT the numbers, then (MA-6-6, MAS-2) file them as ONE reviewed changeset —
+/// Photo → Massing: estimate a building's envelope from the project's evidence-pack photos (MA-7-14: the admitted, blurred
+/// copies, read through the bridge, never a folder), let the user CORRECT the numbers, then (MA-6-6, MAS-2) file them as ONE reviewed changeset —
 /// the Building Story levels the massing needs that the model lacks, and one untyped mass between them
 /// (MassingPlanner.Changeset). Nothing is placed until a person ticks and applies it in Review AI Proposals, which opens
 /// on it; Shell a Mass (2c) then turns the mass into typed walls, floors and a roof, one storey per level (MAS-1). A mass
 /// and levels are untyped, so no guideline or type catalogue is read here.
+/// MA-7-14 closes Photo Massing's folder only: Ghost Builder's LocalVisionReader still reads GhostSourceFolder (sketches and renders, as layer hints, no geometry) outside the pack - owed as 7-28.
 /// The governed answer to the Geopogo demo: the estimate is an explicit, reviewable input, not silent geometry
 /// that drifts.
 ///
@@ -62,14 +63,26 @@ public sealed class MassingFromImagesCommand : IExternalCommand
             TaskDialog.Show(Title, notLocal);
             return Result.Cancelled;
         }
-        string folder = settings.GhostSourceFolder;
-        if (string.IsNullOrWhiteSpace(folder) || MassingVisionReader.CountImages(folder) == 0)
+        // MA-7-14 (amendment 27): the pack's photos are read by a model on this PC only - checked before any image is read or fetched.
+        if (LocalOnly.ModelUrlRefusal(settings.OllamaUrl, cloudOptIn: false) != null)
         {
-            TaskDialog.Show(Title,
-                "No images found. Set the Ghost source folder (Project Setup) to a folder containing the " +
-                "project's photos / renders / elevations, then run again.");
+            TaskDialog.Show(Title, "Photo Massing: evidence photos are read by a model on this PC only — nothing was sent");
             return Result.Cancelled;
         }
+        // MA-7-14 (D-7-27): the photos are the evidence pack's admitted, blurred ones, listed by the bridge - not a free folder. The read waits on a
+        // pool thread like every client call here (MA-2d).
+        var cfg = BcfConfig.Load();
+        // (a slow bridge holds Revit for at most FetchPack's 8 s bound before this answer)
+        string packJson = EvidenceClient.FetchPack(cfg, ctx.Key, PackPhotos.PackId, out string packErr);
+        if (packJson == null) { TaskDialog.Show(Title, "Photo Massing could not read the project's evidence pack — " + packErr + "\n\nNothing was read."); return Result.Cancelled; }
+        var (packPhotos, packSkipped, packBad) = PackPhotos.Usable(packJson);
+        if (packBad != null) { TaskDialog.Show(Title, "Photo Massing could not read the project's evidence pack — " + packBad + "\n\nNothing was read."); return Result.Cancelled; }
+        if (packPhotos.Count == 0)
+        {
+            TaskDialog.Show(Title, PackPhotos.NoneWords(packSkipped));
+            return Result.Cancelled;
+        }
+        foreach (var why in packSkipped) App.PanelVm?.LogDoctor("Photo Massing: " + why);
 
         // MA-6-10 review: both picks work on the active view's plane - a section, sheet or 3D view would file the mass at the wrong place.
         if (uidoc.ActiveView is not ViewPlan)
@@ -105,11 +118,11 @@ public sealed class MassingFromImagesCommand : IExternalCommand
         if (centre != null) (fp ??= new Footprint { From = "width × depth from the photos" }).At = centre; // Esc: where it lies / the internal origin, as before
 
         string key = ctx.Key;
-        var cfg = BcfConfig.Load();
         // MA-1a item 8: the vision reader's time and usage, for the filing's receipt.
         var readerClock = new System.Diagnostics.Stopwatch();
         ModelUsage visionUsage = null;
 
+        var readOk = new List<PackPhoto>(); // the photos whose blurred copy came, matched its sha AND the model gave a reading of (no Error) - what the mass will name
         var progress = new GhostBuilderProgressWindow(Title);
         new System.Windows.Interop.WindowInteropHelper(progress) { Owner = c.Application.MainWindowHandle };
 
@@ -121,13 +134,20 @@ public sealed class MassingFromImagesCommand : IExternalCommand
                 progress.SetStatus($"Reading the project images with the vision model {LocalOnly.Where(settings.OllamaUrl)}…");
                 using var reader = new MassingVisionReader(settings.GhostVisionModel, settings.OllamaUrl, settings.GhostCloudOptIn);
                 readerClock.Start();
-                MassingEstimate estimate = await reader.EstimateAsync(folder, ct: progress.Token, progress: new Progress<string>(progress.SetStatus)).ConfigureAwait(false); // MA-6-9: "Reading photo i of n…"
+                MassingEstimate estimate = await reader.EstimateAsync(packPhotos, p => CopyOf(cfg, key, p), onRead: p => { lock (readOk) readOk.Add(p); }, ct: progress.Token, progress: new Progress<string>(progress.SetStatus)).ConfigureAwait(false); // MA-6-9: "Reading photo i of n…"
                 readerClock.Stop();
                 visionUsage = reader.Usage;
-                // MA-1a item 4 (founder decision F6): one sha256 over the images the vision model read. MA-6-6: it rides on the receipt —
-                // the executor never reads a changeset's provenance (C1), so it is not stamped on the mass.
-                string imagesSha = ProvenanceStamp.FilesSha256(MassingVisionReader.Images(folder).Take(MassingVisionReader.MaxImages));
+                // MA-7-14 (replaces MA-1a item 4's folder hash): the pack photos the model read - each item id and its copy's sha256 - ride on the
+                // receipt and, as evidence, on the mass the bridge checks. The executor never reads a changeset's provenance (C1).
+                var photosRead = readOk.OrderBy(x => x.Id, StringComparer.Ordinal).ToList();
+                var evidence = photosRead.Select(PackPhotos.Evidence).ToList();
                 if (progress.Token.IsCancellationRequested) return;
+                // MA-7-14 review: nothing readable -> said now with each photo's reason, before the person types a number the bridge would refuse at File.
+                if (photosRead.Count == 0)
+                {
+                    progress.Dispatcher.Invoke(() => { progress.Close(); TaskDialog.Show(Title, "Photo Massing: Nothing was read.\n\n" + string.Join("\n", estimate.ViewLines)); });
+                    return;
+                }
 
                 progress.Dispatcher.Invoke(() =>
                 {
@@ -139,16 +159,17 @@ public sealed class MassingFromImagesCommand : IExternalCommand
                     {
                         var receipt = new BuildReceipt.Facts { Seconds = readerClock.Elapsed.TotalSeconds };
                         receipt.Models.Add(visionUsage);
-                        receipt.Parameters["images_read"] = Math.Min(MassingVisionReader.CountImages(folder), MassingVisionReader.MaxImages);
+                        receipt.Parameters["images_read"] = photosRead.Count;
                         // Final review (E7): the images are the source only while the numbers still hold one the vision model gave.
-                        receipt.Parameters["images_sha256"] = MassingPlanner.HasModelValue(corrected) ? imagesSha : null;
+                        receipt.Parameters["photos"] = photosRead.Select(x => new { item = x.Id, copy_sha256 = x.CopySha256 }).ToList(); // MA-7-14 review: the same photos the filed mass names, always
+                        receipt.Parameters["model_values"] = MassingPlanner.HasModelValue(corrected); // Final review (E7): false when the person replaced every number the model gave
                         receipt.Parameters["openings_seen"] = MassingPlanner.OpeningsSeen(corrected); // D12: counted, never placed
                         receipt.Parameters["views"] = corrected.ViewLines; // MA-6-9: one line per photo read (counts and ratio, never a length)
                         receipt.Parameters["known_dimension"] = MassingPlanner.KnownWords(corrected); // MA-6-9: the one length a person gave
                         // SEC-7, amendment 4: planned on Revit's thread in this model when the person files — the levels read then, not when
                         // the review opened (a level added since would give a duplicate name, and Apply would decline the changeset for good).
                         if (App.Events is null) { review.Reopen(MassingPlanner.NotStarted("Sentinel's event hub is not running — restart Revit")); return; }
-                        App.Events.Enqueue(doc, "plan Photo Massing", (u, d) => PlanAndFile(d, cfg, key, corrected, fp, review, receipt),
+                        App.Events.Enqueue(doc, "plan Photo Massing", (u, d) => PlanAndFile(d, cfg, key, corrected, fp, review, receipt, evidence),
                             why => review.Reopen(MassingPlanner.NotStarted(why)));
                     };
                     review.Show();
@@ -165,17 +186,28 @@ public sealed class MassingFromImagesCommand : IExternalCommand
         return Result.Succeeded;
     }
 
+    // MA-7-14: a pack photo's blurred copy through the bridge (a pool-thread read), accepted only when it is the copy the pack names (its sha256).
+    private static (byte[] Jpeg, string Error) CopyOf(BcfConfig cfg, string key, PackPhoto p)
+    {
+        var bytes = EvidenceClient.FetchCopy(cfg, key, PackPhotos.PackId, p.Id, out string err);
+        if (bytes == null) return (null, $"its blurred copy could not be read ({err}) — {p.Id} not read");
+        if (!PackPhotos.IsCopy(bytes, p)) return (null, $"its blurred copy is not the one the pack names (sha256 differs) — {p.Id} not read");
+        return (bytes, null);
+    }
+
     // MA-6-6: on Revit's thread in the model the command started from (DocPin) — the key and the guard asked again, the levels read, the
     // body planned (MassingPlanner.Changeset), then filed off Revit's thread as Shell a Mass files (review C11: signed in, the person's token
     // or none, never the PC's), the review guard held until the bridge has answered. Filed: the receipt, the review closes and Review AI
     // Proposals opens on the changeset. Not filed: the review reopens with why. A Photo Massing changeset already waiting is opened instead.
-    private static void PlanAndFile(Document doc, BcfConfig cfg, string key, MassingEstimate corrected, Footprint fp, MassingReviewWindow review, BuildReceipt.Facts receipt)
+    private static void PlanAndFile(Document doc, BcfConfig cfg, string key, MassingEstimate corrected, Footprint fp, MassingReviewWindow review, BuildReceipt.Facts receipt, List<string> evidence)
     {
         if (ProjectContext.For(doc).Key != key) { review.Reopen(MassingPlanner.NotStarted($"this model's project changed since the images were read (was {key}) — run Photo Massing again")); return; }
         if (ReviewChangesetsCommand.Held) { review.Reopen(MassingPlanner.NotStarted(ReviewChangesetsCommand.Busy)); return; }
         var levels = ChangesetExecutor.Stories(doc).Select(l => (l.Name, l.ElevationMm, l.IsStory)).ToList();
         var actor = UserSession.Actor;
-        var (body, refusal) = MassingPlanner.Changeset(corrected, levels, actor, fp);
+        // MA-7-14: a mass is filed only with the pack photos it was read from; none could be read -> nothing to file (the bridge would refuse it)
+        if (evidence.Count == 0) { review.Reopen(MassingPlanner.NotStarted("no photo could be read from the evidence pack — see Files ▸ Evidence")); return; }
+        var (body, refusal) = MassingPlanner.Changeset(corrected, levels, actor, fp, evidence);
         if (refusal != null) { review.Reopen(MassingPlanner.NotStarted(refusal)); return; }
 
         ReviewChangesetsCommand.Hold(); // released once the bridge has answered
@@ -193,7 +225,13 @@ public sealed class MassingFromImagesCommand : IExternalCommand
                 // second would create the same "Massing Lnn" levels (its Apply declined for good, D16) and a second mass on the first.
                 var pending = ChangesetClient.FetchProposed(cfg, key, out err);
                 waiting = pending?.FirstOrDefault(p => p.Source == "photo");
-                if (pending != null && waiting == null) cs = ChangesetClient.Propose(fileCfg, key, body, out err);
+                // MA-7-14 review: one filed before 7-14 (no evidence on its mass) was read outside the pack - it is declined, not opened to apply.
+                if (waiting != null && waiting.Elements?.Any(e => e.Evidence != null && e.Evidence.Count > 0) != true)
+                {
+                    err = $"\"{waiting.Name}\", an older Photo Massing changeset read outside the evidence pack, waits - decline it in Review AI Proposals, then run Photo Massing again";
+                    waiting = null;
+                }
+                else if (pending != null && waiting == null) cs = ChangesetClient.Propose(fileCfg, key, body, out err);
             }
             catch (Exception ex) { err = $"{ex.GetType().Name}: {ex.Message}"; }
             finally { ReviewChangesetsCommand.Release(); }

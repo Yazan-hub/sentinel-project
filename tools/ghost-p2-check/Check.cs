@@ -339,8 +339,13 @@ static partial class Check
             // The reader itself, no model: a folder of photos and nothing to answer → every photo a row with its reason, never a throw.
             using var offline = new MassingVisionReader("llava", "http://127.0.0.1:1/api/generate");
             var seen = new List<string>();
-            var est = offline.EstimateAsync(pics, progress: new Progress<string>(seen.Add)).GetAwaiter().GetResult();
+            // MA-7-14: the photos are the pack's (an id and its blurred copy), read through copyOf - never a folder
+            var packed = new[] { "big.png", "small.png" }.Select(n => new PackPhoto { Id = n, CopySha256 = "x" }).ToList();
+            var est = offline.EstimateAsync(packed, p => (File.ReadAllBytes(Path.Combine(pics, p.Id)), null), progress: new Progress<string>(seen.Add)).GetAwaiter().GetResult();
             System.Threading.Thread.Sleep(200); // Progress<T> posts to the pool
+            var noCopy = offline.EstimateAsync(packed.Take(1).ToList(), p => (null, "its blurred copy could not be read — big.png not read")).GetAwaiter().GetResult();
+            Ok(noCopy.ViewLines.Count == 1 && noCopy.ViewLines[0] == "big.png: not read — its blurred copy could not be read — big.png not read" && offline.Usage.Calls == 2,
+               "MA-7-14: a pack photo whose blurred copy cannot be had is a row with its reason and is not sent to the model (no call is counted)");
             Ok(est.ViewLines.Count == 2 && est.ViewLines.All(l => l.Contains("not read")) && est.Storeys.Source == "assumed" && est.KnownField == null
                && offline.Usage.Calls == 2 && offline.Usage.Answered == 0 && seen.Contains("Reading photo 1 of 2…") && seen.Contains("Reading photo 2 of 2…"),
                "MA-6-9: with no model to answer, each photo is a row (counted as asked, not answered), the progress reads \"Reading photo i of n…\", and the estimate is all-assumed");
@@ -461,5 +466,9 @@ static partial class Check
         var extParams = byLayer.TryGetValue("A-WALL-EXT", out var e2) ? e2.Params : null;
         Ok(extParams != null && extParams.Any(p => p.Value != null && p.Value.Contains("60")),
            "the external walls carry the spec's FR60 rating");
+        // MA-7-14 review (amendment 27): Photo Massing's pack photos go to a model on this PC only - a cloud endpoint is refused with cloudOptIn: false.
+        Ok(Sentinel.Engine.LocalOnly.ModelUrlRefusal("https://models.example.test/api", cloudOptIn: false) != null
+           && Sentinel.Engine.LocalOnly.ModelUrlRefusal("http://localhost:11434/api/generate", cloudOptIn: false) == null,
+           "MA-7-14: a cloud model endpoint is refused for Photo Massing's pack photos; this PC's is not");
     }
 }

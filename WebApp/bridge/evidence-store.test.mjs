@@ -735,6 +735,17 @@ describe("blurred copies (MA-7-7)", () => {
     expect(budgets).toContainEqual(["evidence blurred copies", { perUser: 20, all: 60 }]);
   });
 
+  it("(7-14) the machine credential READS a blurred copy (Photo Massing's bridge read) and nothing else: the original and the marking stay a person's (a pin: the route already allowed service)", async () => {
+    await setup();
+    await mark("ev-0001", { boxes: BOXES });
+    role = "service";
+    expect((await file("ev-0001", "view")).full).toBe(join(root, "demo", ".sentinel", "view", "ev-0001.jpg"));
+    expect(readFileSync((await file("ev-0001", "view")).full)).toEqual(BLURRED);
+    await expect(file("ev-0001", "original", { thisPc: true })).rejects.toMatchObject({ status: 403 });
+    await expect(mark("ev-0001", { boxes: BOXES })).rejects.toMatchObject({ status: 403 });
+    await expect(file("ev-0002", "view")).rejects.toMatchObject({ status: 409, message: expect.stringContaining("not a photo") }); // a scan is not served as a photo
+  });
+
   it("(7-16) the request cannot claim a detector run: `detected` is a 400 on the blur route and the web-photo path; the pack and ledger stay person-marked", async () => {
     await setup();
     await expect(mark("ev-0001", { boxes: BOXES, detected: true })).rejects.toMatchObject({ status: 400, message: expect.stringContaining("detected") });
