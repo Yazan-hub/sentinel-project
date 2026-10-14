@@ -82,7 +82,7 @@
             "Name": "Terrain · L00"
           }
         },
-        "reason": "6 ground points, lowest per 500 mm cell, between -5000 and 1500 mm (5 m under to 1.5 m over L00's floor; ground outside that band is not read), outside the storey's walls, from job-0003; the hole is the walls' box plus 1 m (a notch or courtyard inside it gets no ground); Sentinel adds points along the outer edge and the hole's edge, each at the nearest ground point's height — check it against the site survey",
+        "reason": "6 ground points, lowest per 500 mm cell, between -5000 and 1500 mm (5 m under to 1.5 m over L00's floor; ground outside that band is not read), outside the storey's walls, from job-0003; the hole is the box of all the storey's scanned walls plus 1 m (typed or not; a notch or courtyard inside it gets no ground); Sentinel adds points along the outer edge and the hole's edge, each at the nearest ground point's height — check it against the site survey",
         "place": {
           "LevelName": "L00",
           "FamilyName": "Toposolid",

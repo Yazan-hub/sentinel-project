@@ -34,10 +34,10 @@ namespace Sentinel.GhostBuilder
         public const double MaxSpanMm = 500000;
         /// <summary>Final verification round 1: the bridge's bound on an element's reason (changesets-logic text(el.reason, 500)).</summary>
         public const int MaxReason = 500;
-        /// <summary>Review round 2 (D-B5-9, said): what Revit builds beyond the scan's points - the hole is the walls' box, not the walls, and CreateTerrain adds rim points.
+        /// <summary>Review round 2 (D-B5-9, said): what Revit builds beyond the scan's points - the hole is the box of all the storey's scanned walls (typed or not), not the walls, and CreateTerrain adds rim points.
         /// In the reason, the plan's line and the review row. Review round 3: one plain sentence; the web desk (review-desk.ts TERRAIN_SHAPE) holds it verbatim and
         /// "plus 1 m" is survey-plan's GROUND_PAD_MM (both pinned by Ma8Terrain).</summary>
-        public const string Shape = "the hole is the walls' box plus 1 m (a notch or courtyard inside it gets no ground); Sentinel adds points along the outer edge and the hole's edge, each at the nearest ground point's height";
+        public const string Shape = "the hole is the box of all the storey's scanned walls plus 1 m (typed or not; a notch or courtyard inside it gets no ground); Sentinel adds points along the outer edge and the hole's edge, each at the nearest ground point's height";
         /// <summary>The refusal at Apply (and on the review row) on a Revit before 2024 - which has no Toposolid. Nothing was placed.</summary>
         public const string OldRevit = "a terrain is a Toposolid — Revit 2024 and later; this Revit cannot apply it; nothing was placed";
         /// <summary>The refusal at Propose on a Revit before 2024.</summary>
@@ -64,7 +64,7 @@ namespace Sentinel.GhostBuilder
             double span = Math.Max(plan.Max(p => p[0]) - plan.Min(p => p[0]), plan.Max(p => p[1]) - plan.Min(p => p[1]));
             if (span > MaxSpanMm) return Hold($"the ground spans {Math.Round(span / 1000)} m in plan — a terrain is at most {MaxSpanMm / 1000} m across; a person decides");
             string name = $"Terrain · {level}";
-            // review: say what the read does not see - the cell it kept one point per, the band it cut to, and the walls' box it left out
+            // review: say what the read does not see - the cell it kept one point per, the band it cut to, and the storey's scanned walls' box it left out
             string widened = cellMm > BaseCellMm && of != null ? $" (widened from {BaseCellMm} mm, which kept {of})" : "";
             string Reason(string lv) => $"{n} ground points, lowest per {cellMm} mm cell{widened}"
                 + (zMm is { Length: 2 } ? $", between {Mm(zMm[0])} and {Mm(zMm[1])} mm (5 m under to 1.5 m over {lv}'s floor; ground outside that band is not read)" : "")

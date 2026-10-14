@@ -12,7 +12,7 @@ import { resolveArtefact, refLabel, validateArtefact } from "./artefact-store.mj
 import { resolveActor } from "./bridge-auth.mjs";
 import { usable, PACK_ID } from "./evidence-logic.mjs";
 import { readProposeBody, wallMaterials, planSurvey, PLANNER, PLANNER_VERSION, measurePlan, judge, measureRefusal, countWords, STATUSES, MIN_COVERAGE, DEVIATION_MM, FACE_SHARE_MIN, MEASURE_KNOBS,
-  readMesh, meshFaces, REVIT, FILED as AS_FILED, toScan, toModel, scanBand, cloudRefusal, SCAN_CELL_MM, SCAN_MAX, groundCut, groundRefusal, beyond, GROUND_CELL_MM, GROUND_MAX } from "./survey-plan.mjs";
+  readMesh, meshFaces, REVIT, FILED as AS_FILED, toScan, toModel, scanBand, cloudRefusal, SCAN_CELL_MM, SCAN_MAX, groundCut, storeyFootprint, groundRefusal, beyond, GROUND_CELL_MM, GROUND_MAX } from "./survey-plan.mjs";
 import { stillAdmitted, pickItems, trustedJob as jobOf, measureJob as measureOf, TOLERANCES_MM, READER, DRAWING, IFC } from "./build-jobs.mjs";
 import { planIfc, PLANNER as IFC_PLANNER, PLANNER_VERSION as IFC_PLANNER_VERSION } from "./ifc-plan.mjs";
 import { readAlignBody, planDrawing, scanOnStorey, priorOf, PLANNER as DRAWING_PLANNER, PLANNER_VERSION as DRAWING_PLANNER_VERSION } from "./drawing-plan.mjs";
@@ -38,6 +38,7 @@ const wire = (deps = {}) => ({
   bcfCreateTopic: deps.bcfCreateTopic || cde.bcfCreateTopic,
   newTopicObject: deps.newTopicObject || cde.newTopicObject,
   broadcast: deps.broadcast || (() => {}),
+  trustedJob: deps.trustedJob || jobOf,   // MA-8-14 fix: a terrain's footprint is read from its survey job's result
 });
 
 /** MA-3a (gotcha 1): every write of a changeset doc is read → decided → swapped on review_rev, which each write bumps — a web
@@ -173,7 +174,7 @@ async function fileValidatedInner(d, key, v, body, actor) {
   }
   // MA-8-14: a terrain starts from a survey changeset the bridge built - the one whose scan its points came from
   checkFromScan(v.elements, earlier, reverted);
-  for (const [i, e] of v.elements.entries()) if (e.from_scan) tieToScan(e, `elements[${i}]`, earlier, v.name);
+  for (const [i, e] of v.elements.entries()) if (e.from_scan) await tieToScan(e, `elements[${i}]`, earlier, v.name, d, key);   // MA-8-14 fix: async - the footprint is read from the job
 
   // Reuse the referee as-is: it resolves the project's installed IDS (artefact-store) and writes its own
   // proposal audit row — the changeset stores that audit_id as its adjudication receipt.
@@ -660,7 +661,7 @@ export async function verifyChangeset(key, b, actor, deps = {}) {
  *  are held in memory and answered, never logged. The run takes the bridge's one survey slot and the survey jobs' budget. Its refusals say what
  *  is not shown (one from the shared chain, the budget or the slot says "nothing was saved": re-worded).
  *  MA-8-14: with `ground`, the answer is the ground a terrain is made of instead — the lowest point per 500 mm plan cell, at most 2000, outside
- *  the changeset's lowest storey's oriented box (groundCut), with that level and the box (model frame) for the add-in's TerrainPlanner; it fails closed
+ *  the box of all the job's wall candidates of the changeset's storey (groundOf), with that level and the box (model frame) for the add-in's TerrainPlanner; it fails closed
  *  on a sentinel-survey that does not read ground.
  *  ponytail: cold, no cache — each tick of "Show the scan" reads the scan again (MA-4h, Kladno: ~21 s; Revit waits up to 120 s); a cache keyed
  *  on (the row, the evidence shas, the frame, the cut) if a read nears that. */
@@ -684,7 +685,7 @@ export async function scanOverlay(key, id, deps = {}, { flag = null, ground = fa
   if (!cs.job || cs.claimed !== false) throw err(409, `${cs.name} was not built from a survey job — it has no scan to show`);
   if (isDrawn(cs)) throw err(409, `${cs.name} was built from ${ifcOf(cs) ? "an IFC" : "a drawing"} (${cs.job.id}) — it has no scan to show${noSlice}`);
   const exactCrop = !fl || Math.abs((((cs.job.frame.rotation_deg ?? 0) % 90) + 90) % 90) < 1e-9;   // a turned frame crops the larger axis-aligned square
-  const cut = ground ? groundCut(cs) : null;   // MA-8-14
+  const cut = ground ? await groundOf(key, cs, trustedJob, "nothing was read") : null;   // MA-8-14 (fix: the footprint is the job's whole lowest storey)
   // MA-8-14 review: the ground is read under the job's lowest storey - on a higher one, podium roofs and the slab below would be read as ground
   if (cut) {
     const lower = lowerStorey(await d.docList(STORE, proj.id), cs, cut);   // review round 1: the job's ledger row, not its id
@@ -748,6 +749,32 @@ function lowestApart(points, on) {
   return points.filter((p) => kept.includes(p));
 }
 
+/** MA-8-14 fix (F-K1c-1): the ground cut of a survey changeset - groundCut's band and level (its lowest filed wall) and the footprint of ALL the job's walls of its
+ *  storey (storeyFootprint over the job's own trusted result - never the posted body, and never the changeset's walls, most of which are type gaps on a real scan).
+ *  The ground read and tieToScan both come here, so they cannot disagree. null with no wall; a job whose result cannot be read fails closed (409, in words). */
+async function groundOf(key, cs, trustedJob, outcome) {
+  const base = groundCut(cs);
+  if (!base) return null;
+  const words = "the survey job's walls could not be read — the terrain's footprint is the whole storey";
+  let footprint = null, lowerCid = null;
+  try {
+    const { row, result } = await trustedJob(key, cs.job.id);
+    if (row.ledger.id === cs.job.ledger_id && row.result_sha256 === cs.job.result_sha256) {
+      footprint = storeyFootprint(result.candidates, cs.job.storey?.cid, cs.job.frame);
+      // MA-8-14 fix: a storey of the job with walls but no changeset (all type gaps) is not in the changesets' lowerStorey - the job's own levels say it is lower
+      const z = new Map((result.candidates ?? []).filter((c) => c.kind === "level").map((c) => [c.cid, c.geometry?.BaseElevation]));
+      const mine = z.get(cs.job.storey?.cid);
+      lowerCid = Number.isFinite(mine) ? (result.candidates ?? []).find((c) => c.kind === "wall" && c.geometry?.storey !== cs.job.storey.cid && z.get(c.geometry?.storey) < mine - 1)?.geometry.storey : null;
+    }
+  } catch (e) {   // MA-8-14 fix: a refusal of the shared chain is the lasting 409 with its reason; anything else (a ledger read failing, a bug) is not "cannot be read"
+    if (![400, 404, 409].includes(e?.status)) throw e?.status ? e : err(503, `the survey job could not be read just now (${e?.message ?? e}); ${outcome} - try again`);
+    throw err(409, `${words} (${e.message}); ${outcome}`);
+  }
+  if (!footprint) throw err(409, `${words}; ${outcome}`);
+  if (lowerCid) throw err(409, `terrain is read under the lowest storey (${lowerCid}, a storey of the job with no changeset); ${cs.name} is higher; ${AGAIN} — ${outcome}`);
+  return { ...base, footprint };
+}
+
 /** MA-8-14 review: a survey changeset of `cs`'s job (its ledger row: a job id repeats across jobs folders) whose lowest storey is under `cut`'s, or undefined -
  *  the ground is read under the job's lowest storey only (on a higher one, podium roofs and the slab below would be read as ground). Final verification round 1:
  *  a withdrawn one too - the scan's geometry decides, not the changeset's status (withdrawing the podium must not let the tower's band reach down into it). */
@@ -761,14 +788,15 @@ const AGAIN = "survey the scan again (a new job) to read its ground";
 const again = (lower) => (lower.status === "withdrawn" ? `; ${AGAIN}` : "");
 
 /** MA-8-14 review round 1: a terrain is tied to the scan it names - the bridge read no scan for its points, but it checks what it can of them against that
- *  changeset's ground cut (groundCut, the ground read's): a live survey changeset of the job's lowest storey (409), the cut's level, its footprint as the Boundary
+ *  changeset's ground cut (groundOf: groundCut's band and level, storeyFootprint's footprint over the job's trusted result - the ground read's): a live survey changeset of the job's lowest storey (409), the cut's level, its footprint as the Boundary
  *  corner for corner, every point in its height band and outside its footprint, and (review round 3) a name ending " · from <that changeset's name>" (400). checkFromScan ran first (the changeset exists and is a survey job's). */
-function tieToScan(el, at, earlier, name) {
-  const cs = earlier.find((c) => c.id === el.from_scan.changeset), cut = groundCut(cs);
+async function tieToScan(el, at, earlier, name, d, key) {
+  const cs = earlier.find((c) => c.id === el.from_scan.changeset);
   if (cs.status === "withdrawn") throw err(409, `${at}: "${cs.name}" is withdrawn — no terrain is read from its scan; ${AGAIN}; nothing was saved`);
   // review round 3: the changeset's title is where a reviewer reads which scan it came from (amendment 8 amended) - it names from_scan's changeset, or it is refused
   if (!String(name).endsWith(` · from ${cs.name}`))
     throw err(400, `${at}: the changeset is named "${name}" — a terrain's name ends " · from ${cs.name}", the survey changeset its from_scan names; nothing was saved`);
+  const cut = await groundOf(key, cs, d.trustedJob, "nothing was saved");   // MA-8-14 fix: the same function as the ground read's, so they cannot disagree
   if (!cut?.footprint) throw err(409, `${at}: "${cs.name}" has no wall — its scan has no ground cut to read a terrain from; nothing was saved`);
   const lower = lowerStorey(earlier, cs, cut);
   if (lower) throw err(409, `${at}: terrain is read under the lowest storey (${lowerWords(lower)}); "${cs.name}" is higher${again(lower)} — nothing was saved`);
