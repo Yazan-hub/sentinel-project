@@ -3308,3 +3308,13 @@ Ceilings: the Holding Area still holds 195 Kladno elements (most scanned walls h
 |---|---|---|
 | S-5 (2027) | Review AI Proposals ▸ `Stair · Massing L00 → L01 · from Stair picked on Massing L00` (the changeset left proposed by S-6) ▸ tick ▸ Apply → `Applied 1 element(s)`; no modal; `DD IDS: not asked of 1 stair(s): the DD IDS has no class for them`; ledger #2743 `stairs[0] {built {runs 1, risers 19, riser_mm 184.21, going_mm 250, width_mm 1200, railings 2}, planned {risers 19, going_mm 249.99999999999997, width_mm 1200}, as_planned true}` — the same `built` as Revit 2024's S-3b (#2698); the plan's float noise predates the F-B4-3 fix (that changeset was planned before it) | **pass** |
 | S-5 (2021) | Revit 2021 is not installed on this PC; Revit 2023 is not granted to this session's computer use | **owed** |
+
+## Session MA7 batch 4 — Photo Massing behind the pack (2026-10-14 local ~03:55: the founder's "go next"; 7-14 merged 0499a19 — one review round, 5 confirmed findings fixed before the merge (the owed 7-28 free-folder path named in the words; a photo counts as read only when the model read it; the one-line `evidence` strings recorded as a deviation from amendment 28; the copy download given its own 120 s client); the add-in deployed 2021–2027 at 03:51 with every Revit closed (D-7-27: the bridge refusal lands with the add-in that obeys it); the 4100 bridge restarted on master; no web change; CI watched; Claude driving)
+
+| Row | What happened | Result |
+|---|---|---|
+| PM-1 | Machine credential `POST /changesets/ma4c-drill` with the fixture's `source:"photo"` mass naming `ev-000C sha256:c0ffee…` → 409 `Photo Massing read photos that are not admitted, blurred evidence (c0ffee000000…) — admit them in Files ▸ Evidence and blur them; nothing was filed`; with an empty evidence list → 409 `… (none named) …`; nothing filed either time | **pass** |
+| PM-2, PM-3, PM-4 | Photo Massing in Revit listing the pack's blurred photos (not a folder), the receipt naming each item id and copy sha, the cloud opt-in refused | **owed** — needs own photos admitted and blurred in the local app first (a person's rows) |
+| K-1d (Revit 2023) | Revit 2023 was granted and started, but fails at launch: `Missing schema folder: C:\Program Files\Common Files\Autodesk Shared\Revit Schemas 2023. Repair your installation` — a broken install, not Sentinel; it exited by itself | **blocked** — the founder repairs the 2023 install |
+
+Open after 7-14 (named in its words): Ghost Builder's `LocalVisionReader` still reads sketches/renders from `GhostSourceFolder` as layer-mapping text hints (never geometry) — **7-28** (MA-7 Next).
