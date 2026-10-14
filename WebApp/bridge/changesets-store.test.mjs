@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { proposeChangeset, getChangeset, reportResult, withdrawChangeset, listChangesets, reportReverted, needsTyping, needsCiting,
   reviewChangeset, reopenGhost, previewChangesets, proposeFromJob, verifyChangeset, scanOverlay, scanQuery, editCostOf, publishEditCost, flagChangeset } from "./changesets-store.mjs";
-import { meshFaces } from "./survey-plan.mjs";
+import { meshFaces, toScan } from "./survey-plan.mjs";
 import { boxMesh } from "./fixtures/box-mesh.mjs";
 
 const wall = () => ({
@@ -1759,7 +1759,10 @@ describe("verifyChangeset (MA-4e): a signed-in contributor measures a placed sur
     receipt: { cloud: { cell_mm: 100, z_mm: [300, 2500], of: 2, points: 2 } } } }));
   // The scan as MA-4a stores it: every USES key set (evidence-logic :266-268), viewing allowed. vdeps' SCAN (MA-4e) names geometry_extraction only.
   const SEEN = { ...SCAN, allowed_uses: { view_reference: true, geometry_extraction: true, texture_embed: false, redistribute: false, ml_training: false } };
-  const sdeps = (over = {}, cs = CS) => vdeps({ readPack: vi.fn(async () => ({ pack: { items: [SEEN] }, folder: { path: DIR } })), measureJob: CLOUD(), ...over }, cs);
+  // MA-8-14 fix: the ground's footprint is read from the job's own result - here every filed wall of CS also a wall candidate of its storey, in the scan's frame
+  const groundJob = (cs, extra = []) => vi.fn(async () => ({ row: ROW, result: { candidates: [...cs.elements.filter((e) => e.kind === "wall").map((e, i) => { const S = toScan(cs.job.frame), at = (q) => [...S.xy([q[0], q[1]]), S.z(q[2])];
+    return { cid: `w${i}`, kind: "wall", geometry: { storey: cs.job.storey.cid, LocationCurve: { start: at(e.place.LocationCurve.start), end: at(e.place.LocationCurve.end) } } }; }), ...extra] } }));
+  const sdeps = (over = {}, cs = CS) => vdeps({ trustedJob: groundJob(cs), readPack: vi.fn(async () => ({ pack: { items: [SEEN] }, folder: { path: DIR } })), measureJob: CLOUD(), ...over }, cs);
   it("(h) MA-4f: the scan around a survey changeset's storey for Revit's overlay — a signed-in contributor; the job's own cloud on the survey slot, the walls' height less 300 mm, in the model's frame; no row, no write", async () => {
     const deps = sdeps();
     const r = await scanOverlay("ma4c-drill", ID, deps);
@@ -1881,6 +1884,24 @@ describe("verifyChangeset (MA-4e): a signed-in contributor measures a placed sur
     const other = sdeps({ measureJob: echo() }, cs);
     other.saved.set("low", { ...higher.saved.get("low"), status: "proposed", job: { ...cs.job, ledger_id: (cs.job.ledger_id ?? 0) + 1000 } });
     await expect(scanOverlay("ma4c-drill", ID, other, { ground: true })).resolves.toMatchObject({ ground: true });
+  });
+  it("(k1) MA-8-14 fix (F-K1c-1): the ground's footprint is the box of ALL the job's wall candidates of the storey (typed or not), not the changeset's filed walls; an unreadable job refuses in words", async () => {
+    const echo = vi.fn(async (_k, _j, p) => ({ status: "done", version: "0.6.0", refused: [], result: { points: [], derived: [], receipt: { cloud: { cell_mm: 500, z_mm: p.cloud.z_mm, of: 0, points: 0, ground: true, outside_mm: p.cloud.outside_mm } } } }));
+    const cs = { ...CS, elements: CS.elements.map((e) => ({ ...e, place: { ...e.place, LevelName: "GR-FFL" } })) };
+    // three more wall candidates in the scan's frame (type gaps: not on the changeset) reach 10 m further in x and 2 m in y: the hole follows the storey, not the 3 filed walls
+    const gaps = ["g1", "g2", "g3"].map((cid, i) => ({ cid, kind: "wall", geometry: { storey: cs.job.storey.cid, LocationCurve: { start: [125 + i, 150, 0], end: [-9875 + i, 5900 + 2000, 0] } } }));
+    const deps = sdeps({ measureJob: echo, trustedJob: groundJob(cs, gaps) }, cs);
+    const r = await scanOverlay("ma4c-drill", ID, deps, { ground: true });
+    const filedOnly = await scanOverlay("ma4c-drill", ID, sdeps({ measureJob: echo }, cs), { ground: true });
+    const xs = (box) => [Math.min(...box.map((q) => q[0])), Math.max(...box.map((q) => q[0]))];
+    expect(xs(filedOnly.footprint)).toEqual([39125, 48850]);
+    expect(xs(r.footprint)[0]).toBeLessThan(31000);   // the type gaps are inside the hole
+    expect(deps.measureJob.mock.calls[0][2].cloud.outside_mm).not.toEqual(filedOnly.footprint);
+    // the job's result cannot be read (not trusted, moved): the ground read refuses, never the filed walls' box
+    for (const trustedJob of [vi.fn(async () => { throw Object.assign(new Error("not trusted"), { status: 409 }); }), vi.fn(async () => ({ row: { ...ROW, result_sha256: "ff".repeat(32) }, result: { candidates: gaps } }))]) {
+      const bad = sdeps({ measureJob: echo, trustedJob }, cs);
+      await expect(scanOverlay("ma4c-drill", ID, bad, { ground: true })).rejects.toMatchObject({ status: 409, message: "the survey job's walls could not be read — the terrain's footprint is the whole storey; nothing was read" });
+    }
   });
   it("(k2) MA-8-14 review round 1: two ground points that round onto one mm of the model (a turned frame) are sent as one - the lower; any other scan answer keeps both", async () => {
     const wall = (e) => ({ ...e, place: { ...e.place, LevelName: "GR-FFL" } });
@@ -2420,8 +2441,11 @@ describe("proposeChangeset — a terrain from a scan (MA-8-14)", () => {
   // review round 1: the survey storey's walls - 10 x 8 m on L00 at z 0, so its ground cut is the fixture's footprint (+ 1 m) and band (-5000 to 1500)
   const wall = (a, b, z = 0, level = "L00") => ({ kind: "wall", place: { LevelName: level, LocationCurve: { start: [a[0], a[1], z], end: [b[0], b[1], z] } } });
   const walls = (z = 0, level = "L00") => [wall([0, 0], [10000, 0], z, level), wall([10000, 0], [10000, 8000], z, level), wall([10000, 8000], [0, 8000], z, level), wall([0, 8000], [0, 0], z, level)];
-  const surveyDoc = (over = {}) => ({ id: sc.id, name: sc.name, status: "proposed", claimed: false, job: { id: sc.job, ledger_id: 41, reader: "sentinel-survey 0.6.0" }, elements: walls(), exceptions: [], ...over });
-  const member = (over = {}) => baseDeps({ myRole: vi.fn(async () => "contributor"), requireMinRole: vi.fn(async () => "contributor"), auditAll: vi.fn(async () => []), ...over });
+  const surveyDoc = (over = {}) => ({ id: sc.id, name: sc.name, status: "proposed", claimed: false, job: { id: sc.job, ledger_id: 41, result_sha256: "aa".repeat(32), reader: "sentinel-survey 0.6.0", storey: { cid: "L00-level" }, frame: { dx_mm: 0, dy_mm: 0, dz_mm: 0, rotation_deg: 0 } }, elements: walls(), exceptions: [], ...over });
+  // MA-8-14 fix (F-K1c-1): the footprint is read from the job's own result - every wall candidate of the storey (the four of walls() unless `cands` says more), typed or not
+  const cand = (a, b, storey = "L00-level") => ({ cid: `c-${a}-${b}`, kind: "wall", geometry: { storey, LocationCurve: { start: [a[0], a[1], 0], end: [b[0], b[1], 0] } } });
+  const jobCands = [cand([0, 0], [10000, 0]), cand([10000, 0], [10000, 8000]), cand([10000, 8000], [0, 8000]), cand([0, 8000], [0, 0])];
+  const member = (over = {}) => baseDeps({ trustedJob: vi.fn(async () => ({ row: { ledger: { id: 41 }, result_sha256: "aa".repeat(32) }, result: { candidates: jobCands } })), myRole: vi.fn(async () => "contributor"), requireMinRole: vi.fn(async () => "contributor"), auditAll: vi.fn(async () => []), ...over });
 
   it("files the planner's body next to its survey changeset: the terrain keeps from_scan, is never pre-ticked, and the Undo rows are read (review round 1)", async () => {
     const deps = member(); deps.saved.set(sc.id, surveyDoc());
@@ -2430,6 +2454,29 @@ describe("proposeChangeset — a terrain from a scan (MA-8-14)", () => {
     expect(cs.elements).toHaveLength(1);
     expect(cs.elements[0]).toMatchObject({ kind: "terrain", from_scan: { changeset: sc.id }, pretick: false, typing: { typed_by: "caller" }, validate: { identity: { Class: "IFCGEOGRAPHICELEMENT" } }, place: { Points: cases.plan.points, Boundary: cases.plan.footprint } });
     expect(deps.auditAll).toHaveBeenCalledWith("demo", { entity_type: "changeset", action_prefix: "changeset_reverted" });
+  });
+  it("MA-8-14 fix (F-K1c-1): the Boundary is the box of ALL the job's wall candidates of the storey, not of the 2 filed walls; an unreadable job is a 409 (no fallback to the filed walls)", async () => {
+    // 2 filed walls (a strip) of a storey whose job result holds 6 wall candidates of the building: the strip's own box is 12 x 2 m
+    const filed = [wall([0, 0], [10000, 0]), wall([0, 0], [5000, 0])];
+    const six = [...jobCands, cand([5000, 0], [5000, 8000]), cand([0, 4000], [10000, 4000]), cand([0, 0], [1, 1], "L01-level")];   // the last is another storey's: not counted
+    const deps = member({ trustedJob: vi.fn(async () => ({ row: { ledger: { id: 41 }, result_sha256: "aa".repeat(32) }, result: { candidates: six } })) });
+    deps.saved.set(sc.id, surveyDoc({ elements: filed }));
+    const cs = await proposeChangeset("demo", structuredClone(cases.good), "yazan", deps);   // cases.good's Boundary = the 6-wall box (10 x 8 m + 1 m)
+    expect(cs.elements[0].place.Boundary).toEqual(cases.plan.footprint);
+    expect(deps.trustedJob).toHaveBeenCalledWith("demo", sc.job);
+    // the 2-wall box (what the filed walls alone would give) is refused as the Boundary
+    const strip = structuredClone(cases.good); strip.elements[0].place.Boundary = [[-1000, -1000], [11000, -1000], [11000, 1000], [-1000, 1000]];
+    const d2 = member(); d2.saved.set(sc.id, surveyDoc({ elements: filed }));
+    await expect(proposeChangeset("demo", strip, "yazan", d2)).rejects.toMatchObject({ status: 400, message: expect.stringMatching(/place\.Boundary is not the scan's footprint \(\(-1000, -1000\) \(11000, -1000\) \(11000, 9000\) \(-1000, 9000\)\)/) });
+    // the job moved (another result), refused or gone: fail closed in words, never the filed walls' box
+    for (const trustedJob of [vi.fn(async () => { throw Object.assign(new Error("not trusted"), { status: 409 }); }),
+      vi.fn(async () => ({ row: { ledger: { id: 99 }, result_sha256: "aa".repeat(32) }, result: { candidates: jobCands } })),
+      vi.fn(async () => ({ row: { ledger: { id: 41 }, result_sha256: "bb".repeat(32) }, result: { candidates: jobCands } })),
+      vi.fn(async () => ({ row: { ledger: { id: 41 }, result_sha256: "aa".repeat(32) }, result: { candidates: [] } }))]) {
+      const bad = member({ trustedJob }); bad.saved.set(sc.id, surveyDoc());
+      await expect(proposeChangeset("demo", structuredClone(cases.good), "yazan", bad)).rejects.toMatchObject({ status: 409, message: "the survey job's walls could not be read — the terrain's footprint is the whole storey; nothing was saved" });
+      expect(bad.docInsert).not.toHaveBeenCalled();
+    }
   });
   it("MA-8-14 review: the machine credential files no terrain (400, nothing written)", async () => {
     const svc = member({ myRole: vi.fn(async () => "service") }); svc.saved.set(sc.id, surveyDoc());

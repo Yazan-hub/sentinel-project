@@ -33,14 +33,14 @@ static partial class Check
         if (!same) Console.WriteLine("        got: " + (plan.Hold ?? got.ToJsonString(new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping })));
         Ok(plan.Points == 6 && plan.Line == "6 ground points on L00 outside the walls, lowest per 500 mm cell, -5000 to 1500 mm, Site Ground 300 (guideline@2 default), from job-0003; " + TerrainPlanner.Shape,
            "the plan's account: 6 ground points on the level, outside the walls, the cell and the height band read, the rule's type and where it came from, the job, the shape Revit builds");
-        // review round 2 (D-B5-9, said): the hole is the walls' box plus 1 m and the rim points are Sentinel's - in the reason, the line, the row and the button's tooltip
+        // review round 2 (D-B5-9, said): the hole is the box of all the storey's scanned walls plus 1 m and the rim points are Sentinel's - in the reason, the line, the row and the button's tooltip
         string goodReason = JsonSerializer.SerializeToNode(plan.Body)["elements"][0]["reason"].GetValue<string>();
-        Ok(TerrainPlanner.Shape == "the hole is the walls' box plus 1 m (a notch or courtyard inside it gets no ground); Sentinel adds points along the outer edge and the hole's edge, each at the nearest ground point's height"
+        Ok(TerrainPlanner.Shape == "the hole is the box of all the storey's scanned walls plus 1 m (typed or not; a notch or courtyard inside it gets no ground); Sentinel adds points along the outer edge and the hole's edge, each at the nearest ground point's height"
            && goodReason.EndsWith("; " + TerrainPlanner.Shape + " — check it against the site survey") && TerrainPlanner.RowWords(6, true).Contains("; " + TerrainPlanner.Shape + " — check it against the site survey"),
-           "review round 2 (round 3: one plain sentence): the reason, the plan's line and the review row say the hole is the walls' box plus 1 m (a notch or courtyard gets no ground) and that Sentinel adds points along both loops at the nearest ground height");
+           "review round 2 (round 3: one plain sentence): the reason, the plan's line and the review row say the hole is the box of all the storey's scanned walls plus 1 m (typed or not; a notch or courtyard gets no ground) and that Sentinel adds points along both loops at the nearest ground height");
         // review round 3: the drift guard on "plus 1 m" and on the desk's copy - survey-plan's pad is 1000 mm, and review-desk.ts holds Shape verbatim
         string surveySrc = File.ReadAllText(Repo("WebApp", "bridge", "survey-plan.mjs")), desk = File.ReadAllText(Repo("WebApp", "src", "setups", "review-desk.ts"));
-        Ok(surveySrc.Contains("GROUND_MAX = 2000, GROUND_PAD_MM = 1000;") && TerrainPlanner.Shape.Contains("the walls' box plus 1 m ")
+        Ok(surveySrc.Contains("GROUND_MAX = 2000, GROUND_PAD_MM = 1000;") && TerrainPlanner.Shape.Contains("scanned walls plus 1 m ")
            && desk.Contains("export const TERRAIN_SHAPE = \"" + TerrainPlanner.Shape + "\";") && goodReason.Length <= 500,
            "review round 3: \"plus 1 m\" is survey-plan.mjs's GROUND_PAD_MM (1000), the web desk's TERRAIN_SHAPE is TerrainPlanner.Shape verbatim, and the fixture's reason is within the bridge's 500 characters");
         // review round 2: the row claims only what the bridge checks (as the desk), never that the add-in read the points off the scan

@@ -6,7 +6,7 @@ import * as core from "./sentinel-core.mjs";
 import { makeTyper } from "./changesets-typing.mjs";
 import { validateChangeset } from "./changesets-logic.mjs";
 import { typeGapId, typeGapGroups } from "./holding-logic.mjs";
-import { readProposeBody, toModel, matchStoreys, trimEnds, planSurvey, toScan, facesOf, measurePlan, judge, measureRefusal, countWords, readMesh, meshFaces, REVIT, FILED, scanBand, cloudRefusal, placeRefusal, orientedBox, groundCut, groundRefusal, beyond, DEVIATION_MM, FACE_SHARE_MIN } from "./survey-plan.mjs";
+import { readProposeBody, toModel, matchStoreys, trimEnds, planSurvey, toScan, facesOf, measurePlan, judge, measureRefusal, countWords, readMesh, meshFaces, REVIT, FILED, scanBand, cloudRefusal, placeRefusal, orientedBox, groundCut, storeyFootprint, groundRefusal, beyond, DEVIATION_MM, FACE_SHARE_MIN } from "./survey-plan.mjs";
 import { boxMesh } from "./fixtures/box-mesh.mjs";
 
 const read = (p) => JSON.parse(readFileSync(new URL(p, import.meta.url), "utf8"));
@@ -536,13 +536,23 @@ describe("MA-8-14 — the ground read's cut", () => {
     expect(area(orientedBox([[0, 0]], 1000))).toBeCloseTo(2000 * 2000, 0);
     expect(orientedBox([], 1000)).toBeNull();
   });
-  it("groundCut: the band under and over the lowest base, its level, the lowest storey's footprint; none without a wall", () => {
+  it("groundCut: the band under and over the lowest base and its level; the footprint is the caller's (storeyFootprint), none without a wall", () => {
     const cut = groundCut({ elements: [...rect(0, 0, 8000, 6000, 100), ...rect(0, 0, 8000, 6000, 3100, "L01"), { kind: "level", place: { BaseElevation: 0 } }] });
     expect(cut.band).toEqual([-4900, 1600]);
     expect(cut.level).toBe("L00");
-    expect(Math.round(area(cut.footprint) / 1e6)).toBe(10 * 8); // 8 x 6 m padded by 1 m: 10 x 8 m (the upper storey adds nothing)
+    expect(cut.footprint).toBeNull();   // MA-8-14 fix: never the filed walls' box
     expect(groundCut({ elements: [] })).toBeNull();
     expect(groundCut({ elements: [{ kind: "wall", place: { LocationCurve: { start: [0, 0, 0], end: [1, 0, 0] } } }] }).level).toBeNull();
+  });
+  it("storeyFootprint (MA-8-14 fix, F-K1c-1): the box (+1 m) of every wall candidate of the storey in the model's frame - typed or not; another storey's and a non-wall do not count", () => {
+    const w = (cid, a, b, storey = "L00") => ({ cid, kind: "wall", geometry: { storey, LocationCurve: { start: [...a, 0], end: [...b, 0] } } });
+    const F0 = { dx_mm: 0, dy_mm: 0, dz_mm: 0, rotation_deg: 0 };
+    const cands = [w("a", [0, 0], [8000, 0]), w("b", [8000, 0], [8000, 6000]), w("c", [8000, 6000], [0, 6000]), w("d", [0, 6000], [0, 0]), w("e", [0, 3000], [8000, 3000]), w("f", [4000, 0], [4000, 6000]),
+      w("x", [0, 0], [50000, 0], "L01"), { cid: "dr", kind: "door", geometry: { storey: "L00", LocationCurve: { start: [0, 0, 0], end: [90000, 0, 0] } } }];
+    expect(Math.round(area(storeyFootprint(cands, "L00", F0)) / 1e6)).toBe(10 * 8);   // 6 walls: 8 x 6 m padded by 1 m
+    expect(Math.round(area(storeyFootprint(cands.slice(0, 1), "L00", F0)) / 1e6)).toBe(10 * 2);   // a part of them (the filed ones) would give a strip
+    expect(storeyFootprint(cands, "L00", { ...F0, dx_mm: 1000, dy_mm: 2000 })[0]).toEqual([0, 1000]);   // the lead's frame, as the filed walls are
+    expect(storeyFootprint(cands, "L09", F0)).toBeNull();
   });
   it("beyond: more than mm outside the box on any side; inside, on the edge or within mm of it is not", () => {
     const box = orientedBox([[0, 0], [4000, 0], [4000, 3000], [0, 3000]], 1000);

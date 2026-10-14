@@ -152,7 +152,7 @@ function terrainLine(el: Ghost): string {
     TERRAIN_SHAPE + " — check it against the site survey" : "";
 }
 /** Review round 3: TerrainPlanner.Shape verbatim (tools/promote-check Ma8Terrain reads this line and compares it; "plus 1 m" is survey-plan's GROUND_PAD_MM). */
-export const TERRAIN_SHAPE = "the hole is the walls' box plus 1 m (a notch or courtyard inside it gets no ground); Sentinel adds points along the outer edge and the hole's edge, each at the nearest ground point's height";
+export const TERRAIN_SHAPE = "the hole is the box of all the storey's scanned walls plus 1 m (typed or not; a notch or courtyard inside it gets no ground); Sentinel adds points along the outer edge and the hole's edge, each at the nearest ground point's height";
 
 /** MA-8-10: a stair says what it is - one straight run to the level above, and that the rest is a person's (Revit's row says the same). */
 function stairLine(p: Ghost["place"]): string {

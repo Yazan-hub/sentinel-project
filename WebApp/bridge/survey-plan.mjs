@@ -682,17 +682,26 @@ export function orientedBox(points, pad) {
 }
 
 /** What the ground read is cut by, from a survey changeset's walls (model frame): the band from 5 m under the lowest wall base to 1.5 m over it
- *  (ponytail: a site rising more than 1.5 m above the floor is cut, and the answer says so), the level that wall names, and the footprint —
- *  the oriented box of the lowest storey's wall ends (the walls whose base is within 300 mm of the lowest), padded by 1 m. null with no wall. Pure. */
-export function groundCut(cs) {
+ *  (ponytail: a site rising more than 1.5 m above the floor is cut, and the answer says so) and the level that wall names. null with no wall. Pure.
+ *  MA-8-14 fix (F-K1c-1): the footprint is NOT the filed walls' box - most walls of a real scan are type gaps, so their box is a part of the building;
+ *  it is `footprint`, storeyFootprint's over every wall candidate of the storey in the job's own result (null until the caller reads it). */
+export function groundCut(cs, footprint = null) {
   const w = (cs.elements ?? []).filter((e) => e.kind === "wall" && [e.place?.LocationCurve?.start, e.place?.LocationCurve?.end].every((p) => Array.isArray(p) && p.slice(0, 3).every(Number.isFinite)));
   if (!w.length) return null;
   const lo = Math.min(...w.map((e) => e.place.LocationCurve.start[2]));
   const low = w.filter((e) => e.place.LocationCurve.start[2] - lo <= SCAN_MARGIN_MM);
   const lowest = low.find((e) => e.place.LocationCurve.start[2] === lo);
   const level = [lowest.place.LevelName, lowest.place.BaseLevel].find((s) => typeof s === "string" && s.trim()) ?? null;
-  return { band: [lo - 5000, lo + 1500], level: level?.trim() ?? null,
-    footprint: orientedBox(low.flatMap((e) => [e.place.LocationCurve.start, e.place.LocationCurve.end].map((p) => [p[0], p[1]])), GROUND_PAD_MM) };
+  return { band: [lo - 5000, lo + 1500], level: level?.trim() ?? null, footprint };
+}
+
+/** MA-8-14 fix (F-K1c-1): the terrain's hole - the oriented box (+1 m) of every wall candidate of storey `cid` in the job's own result, typed or not, filed,
+ *  a type gap, held or withdrawn - the whole storey the scan saw, in the model's frame (the lead's frame, as the filed walls are). null with no wall. Pure. */
+export function storeyFootprint(candidates, cid, frame) {
+  const M = toModel(frame);
+  const ends = (candidates ?? []).filter((c) => c.kind === "wall" && c.geometry?.storey === cid)
+    .flatMap((c) => [c.geometry.LocationCurve?.start, c.geometry.LocationCurve?.end]).filter((p) => Array.isArray(p) && p.slice(0, 2).every(Number.isFinite)).map((p) => M.xy([p[0], p[1]]));
+  return orientedBox(ends, GROUND_PAD_MM);
 }
 
 /** MA-8-14: whether plan point p lies more than `mm` outside the box (orientedBox's: convex, anticlockwise). The ground comes back rounded to whole
