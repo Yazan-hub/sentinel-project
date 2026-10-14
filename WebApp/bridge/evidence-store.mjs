@@ -396,6 +396,41 @@ async function admitWeb(d, { proj, key, packId, pack, version, input, wrec, boxe
   }
 }
 
+// MA-7-16b: the detector runs this process has made, newest per item: {sha256 of the original, faces[{x,y,w,h}], tools, at}. In memory only (a restart forgets them: the copy is then person-marked), 30 minutes.
+const detections = new Map(), DETECT_TTL_MS = 30 * 60_000, detKey = (k, p, i) => `${k}|${p}|${i}`;
+const iou = (a, b) => { const w = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x), h = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y), i = w > 0 && h > 0 ? w * h : 0; return i / (a.w * a.h + b.w * b.h - i); };
+
+/** MA-7-16b: POST …/items/:id/detect-faces → 200 {faces: [{x, y, w, h, score}], source_sha256}: the detector's proposed face boxes (fractions of the upright photo) for a signed-in contributor,
+ *  on THIS PC only (`o.thisPc`: the detector reads the unblurred original). A proposal only: no ledger row, no pack change — the run is remembered here and the row says "detector+person" when
+ *  the person saves the copy (makeViewCopy). Never for the machine credential, a web/context photo, or a photo that already has its copy. Refusals in order: 403 (machine credential), 403/404 (role,
+ *  project), 404 (pack, item), 409 (not a photo; context; expired or changed; has its copy), 403 (off this PC), 404 (file), 503 (no detector; `deps.detect` is photo-store.runDetect), 422, 500. */
+export async function proposeFaces(key, packId, itemId, o = {}, deps = {}) {
+  const d = await wire(deps);
+  if ((await d.myRole(key)) === "service") throw err(403, "the face detector reads the unblurred original, so it is for a signed-in person only — sign in; nothing was proposed");
+  await officeProject(d, key, "contributor");
+  d.takeWriteBudget("evidence face detections", { perUser: 20, all: 60 }); // MA-7-16b review: each press starts a Python + onnxruntime child
+  const { pack } = await packOf(d, key, packId);
+  const item = pack.items.find((i) => i.id === itemId);
+  if (!item) throw err(404, `no item ${itemId} in ${packId} — nothing was proposed`);
+  if (item.kind !== "photo") throw err(409, `${itemId} is a ${item.kind}, not a photo — nothing was proposed`);
+  if (item.role === "context") throw err(409, `${itemId} is a web photo — context only; it was blurred when it was admitted; nothing was proposed`);
+  if (item.state === "expired" || item.state === "changed") throw err(409, `${L.usable(item, "view")}`.replace(/; nothing was (read|shown)$/, "; nothing was proposed"));
+  if (item.view_copy) throw err(409, `${itemId} already has its blurred copy — nothing was proposed`);
+  if (!o.thisPc) throw err(403, "the face detector runs on the office PC only (the local app), where the unblurred original is; mark the faces by hand here — nothing was proposed");
+  if (!deps.detect) throw err(503, "the face detector is not set up on this PC (YuNet 2023mar and onnxruntime 1.26.0) — nothing was proposed; mark the faces by hand");
+  const full = insideFolder(evidenceDir(key, d.root), item.path);
+  if (!isFile(full)) throw err(404, `${item.path} is missing from the project's evidence folder — nothing was proposed`);
+  if ((await hashFile(full)).sha256 !== item.sha256) throw err(409, `${item.path} changed since it was admitted — Re-check, and put the same file back; nothing was proposed`);
+  const r = await deps.detect(full);
+  if (r.source_sha256 !== item.sha256) throw err(409, `${item.path} changed after it was admitted and before it was read — Re-check, and put the same file back; nothing was proposed`);
+  const num = (v) => typeof v === "number" && Number.isFinite(v);
+  const faces = (Array.isArray(r.faces) ? r.faces : []).filter((f) => [f?.x, f?.y, f?.w, f?.h].every(num) && f.w > 0 && f.h > 0).slice(0, L.MAX_BOXES)
+    .map((f) => ({ x: f.x, y: f.y, w: f.w, h: f.h, score: num(f.score) ? f.score : 0 }));
+  if (detections.size > 200) for (const [k, v] of detections) if (Date.parse(d.now()) - v.at >= DETECT_TTL_MS) detections.delete(k);
+  detections.set(detKey(key, packId, itemId), { sha256: item.sha256, by: actor(), faces, tools: Array.isArray(r.tools) ? r.tools.slice(0, 30) : [], at: Date.parse(d.now()) });
+  return { faces, source_sha256: item.sha256 };
+}
+
 /** MA-7-7: POST …/items/:id/view-copy {boxes: [{x, y, w, h, what}], none_seen?} → 201 {item, copy, pack_version, ledger}: a signed-in contributor says
  *  what they saw in an own photo — boxes round faces and number plates, or "No faces or number plates in this photo" — and the bridge has
  *  `deps.blur` (sentinel-blur, photo-store.runBlur) write `.sentinel/view/<id>.jpg` from the admitted bytes: the boxes filled with their mean
@@ -432,14 +467,18 @@ export async function makeViewCopy(key, packId, itemId, b = {}, deps = {}) {
     if (r.source_sha256 !== item.sha256) throw err(409, `${item.path} changed after it was admitted and before it was blurred — Re-check, and put the same file back; nothing was saved`); // the tool hashes the bytes it decoded
     const copy = await hashFile(dst);
     const faces = boxes.filter((x) => x.what === "face").length;
-    const tool = `sentinel-blur ${String(r.version ?? "").slice(0, 20)}`, method = "person-marked"; // MA-7-16: "detector+person" waits for a detect route that records the run (the request body cannot claim it)
+    // MA-7-16b: "detector+person" only when the bridge itself recorded a detect run for this item and sha and a saved face box is one of its proposals (or the person's move of one); the body cannot claim it
+    const det0 = detections.get(detKey(key, packId, itemId)), det = det0 && det0.sha256 === item.sha256 && det0.by === who && Date.parse(d.now()) - det0.at < DETECT_TTL_MS ? det0 : null, // the same person who ran it (MA-7-16b review)
+      fromRun = det && boxes.some((x) => x.what === "face" && det.faces.some((f) => iou(x, f) >= 0.3));
+    const tool = `sentinel-blur ${String(r.version ?? "").slice(0, 20)}`, method = fromRun ? "detector+person" : "person-marked";
     const vc = { sha256: copy.sha256, size_bytes: copy.size_bytes, width: r.width, height: r.height, areas: boxes.length, faces, plates: boxes.length - faces,
       ...(none_seen ? { none_seen: true } : {}), method, marked_by: who, marked_at: d.now(), tool };
     const next = { ...item, view_copy: vc };
     const pointer = await fold(d, key, { ...pack, items: pack.items.map((i) => (i === item ? next : i)) }, version, who);
     made = false; // the pack names the file now
-    const tools = (Array.isArray(r.tools) ? r.tools : []).slice(0, 30).map((t) => ({ name: String(t.name).slice(0, 100), version: String(t.version ?? "").slice(0, 40), licence: String(t.licence ?? "").slice(0, 100) }));
-    const ledger = await row(d, proj, "evidence", `evidence:blurred ${itemId} · ${vc.areas} area(s) · ${method}`, who, L.blurredValue(packId, next, { ...vc, tools }, pointer.version));
+    const tools = [...(Array.isArray(r.tools) ? r.tools : []), ...(fromRun ? det.tools.filter((t) => !(r.tools ?? []).some((u) => u.name === t.name && u.version === t.version)) : [])].slice(0, 30).map((t) => ({ name: String(t.name).slice(0, 100), version: String(t.version ?? "").slice(0, 40), licence: String(t.licence ?? "").slice(0, 100) }));
+    const ledger = await row(d, proj, "evidence", `evidence:blurred ${itemId} · ${vc.areas} area(s) · ${method}`, who, L.blurredValue(packId, next, { ...vc, tools, ...(none_seen && det?.faces.length ? { detector_proposed: det.faces.length } : {}) }, pointer.version));
+    detections.delete(detKey(key, packId, itemId));
     return { item: next, copy: vc, pack_version: pointer.version, ledger };
   } catch (e) {
     if (made && dst) try { d.unlink(dst); } catch { /* the sweep or the next try replaces it */ } // a copy no pack names is not left behind

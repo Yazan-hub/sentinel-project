@@ -1699,6 +1699,11 @@ async function handleRequest(req, res) {
           const photo = await import("./photo-store.mjs");
           return send(res, 201, await ev.makeViewCopy(p1, p3, seg[5], await body(), { blur: photo.runBlur }));
         }
+        // MA-7-16b: POST …/items/:id/detect-faces → 200 {faces[], source_sha256}: proposed face boxes (a signed-in contributor on THIS PC only; the machine credential is a 403; no row, the run is remembered for view-copy).
+        if (p3 && p4 === "items" && seg[5] && seg[6] === "detect-faces" && !seg[7] && req.method === "POST") {
+          const photo = await import("./photo-store.mjs");
+          return send(res, 200, await ev.proposeFaces(p1, p3, seg[5], { thisPc: fromThisPc(req) }, { detect: photo.runDetect }));
+        }
         if (p3 && p4 === "items" && seg[5] && (seg[6] === "view" || seg[6] === "original") && !seg[7] && req.method === "GET") {
           const f = await ev.photoFile(p1, p3, seg[5], seg[6], { thisPc: fromThisPc(req) });
           return (await import("./photo-store.mjs")).sendBytes(res, f.full, f.type, { "Cache-Control": f.noStore ? "no-store" : "private, no-cache", ...corsHeaders(res) });

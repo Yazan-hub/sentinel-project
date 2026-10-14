@@ -4,8 +4,9 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { makePack, readPack, signAttestation, runEvidenceIntake, recheckPack, draftRequest, surveyStart, webStatus, noticeOf, setDeleteBy, startExpirySweep, makeViewCopy, photoFile, placeSplat, readSplatPlacement } from "./evidence-store.mjs";
+import { makePack, readPack, signAttestation, runEvidenceIntake, recheckPack, draftRequest, surveyStart, webStatus, noticeOf, setDeleteBy, startExpirySweep, makeViewCopy, proposeFaces, photoFile, placeSplat, readSplatPlacement } from "./evidence-store.mjs";
 import * as W from "./web-sources.mjs";
+import { runWithAuth } from "./bridge-auth.mjs";
 import { jpegWithExif } from "./fixtures/jpeg-exif.mjs";
 import { ATTESTATIONS, USES, realDay } from "./evidence-logic.mjs";
 
@@ -746,6 +747,80 @@ describe("blurred copies (MA-7-7)", () => {
     expect(x[0].newv.tools.map((t) => t.name)).not.toEqual(expect.arrayContaining(["yunet"]));
   });
 
+  it("(7-16b) proposeFaces: roles, this PC, words for a missing detector, no row; the copy is detector+person only after a recorded run for the same sha with a matching face box", async () => {
+    await setup();
+    const DTOOLS = [...TOOLS, { name: "yunet", version: "2023mar", licence: "MIT" }, { name: "onnxruntime", version: "1.26.0", licence: "MIT" }];
+    const F = { x: 0.1, y: 0.2, w: 0.1, h: 0.1, score: 0.9 };
+    const detect = async (src) => ({ ok: true, faces: [F], source_sha256: sha(readFileSync(src)), tools: DTOOLS });
+    const find = (o = { thisPc: true }, extra = {}) => proposeFaces("demo", "evp-0001", "ev-0001", o, { ...deps(), detect, ...extra });
+    role = "service";
+    await expect(find()).rejects.toMatchObject({ status: 403, message: expect.stringContaining("signed-in person only") });
+    role = "viewer";
+    await expect(find()).rejects.toMatchObject({ status: 403 });
+    role = "contributor";
+    await expect(find({ thisPc: false })).rejects.toMatchObject({ status: 403, message: expect.stringContaining("office PC only") });
+    await expect(find({ thisPc: true }, { detect: undefined })).rejects.toMatchObject({ status: 503, message: expect.stringContaining("the face detector is not set up on this PC") });
+    await expect(find({ thisPc: true }, { detect: async () => { throw Object.assign(new Error("the face detector is not set up on this PC (YuNet 2023mar model not found) - nothing was proposed; mark the faces by hand"), { status: 503 }); } })).rejects.toMatchObject({ status: 503, message: expect.stringContaining("mark the faces by hand") });
+    await expect(proposeFaces("demo", "evp-0001", "ev-0002", { thisPc: true }, { ...deps(), detect })).rejects.toMatchObject({ status: 409, message: expect.stringContaining("not a photo") });
+    const n0 = audits.length;
+    const r = await find();
+    expect(r).toEqual({ faces: [F], source_sha256: sha(JPG) });
+    expect(audits.length).toBe(n0); // no row of any type
+    expect(budgets).toContainEqual(["evidence face detections", { perUser: 20, all: 60 }]);
+    expect(rows("evidence:blurred")).toEqual([]);
+    // a forged claim is still a 400
+    await expect(mark("ev-0001", { boxes: BOXES, detected: true })).rejects.toMatchObject({ status: 400 });
+    // a saved copy with no face box near the proposal stays person-marked
+    const far = await mark("ev-0001", { boxes: [{ x: 0.7, y: 0.7, w: 0.1, h: 0.1, what: "face" }, { x: 0.1, y: 0.2, w: 0.1, h: 0.1, what: "plate" }] });
+    expect(far.copy.method).toBe("person-marked");
+    expect(rows("evidence:blurred")[0].action).toContain("person-marked");
+  });
+
+  it("(7-16b) a run older than 30 minutes counts for nothing: the copy is person-marked", async () => {
+    await setup();
+    const detect = async (src) => ({ ok: true, faces: [{ x: 0.1, y: 0.2, w: 0.1, h: 0.1, score: 0.9 }], source_sha256: sha(readFileSync(src)), tools: [] });
+    await proposeFaces("demo", "evp-0001", "ev-0001", { thisPc: true }, { ...deps(), detect });
+    await expect(mark("ev-0001", { boxes: BOXES }, { now: () => new Date(Date.now() + 31 * 60_000).toISOString() })).resolves.toMatchObject({ copy: { method: "person-marked" } });
+  });
+
+  it("(7-16b) detector+person: a moved box still counts; tools[] and the row say so; the record is dropped after the save; the copied photo is refused", async () => {
+    await setup();
+    const DTOOLS = [...TOOLS, { name: "yunet", version: "2023mar", licence: "MIT" }, { name: "onnxruntime", version: "1.26.0", licence: "MIT" }];
+    const detect = async (src) => ({ ok: true, faces: [{ x: 0.1, y: 0.2, w: 0.1, h: 0.1, score: 0.9 }], source_sha256: sha(readFileSync(src)), tools: DTOOLS });
+    await proposeFaces("demo", "evp-0001", "ev-0001", { thisPc: true }, { ...deps(), detect });
+    const moved = [{ x: 0.11, y: 0.21, w: 0.1, h: 0.1, what: "face" }, { x: 0.6, y: 0.6, w: 0.2, h: 0.1, what: "plate" }];
+    const r = await mark("ev-0001", { boxes: moved });
+    expect(r.copy.method).toBe("detector+person");
+    const x = rows("evidence:blurred");
+    expect(x.map((a) => a.action)).toEqual(["evidence:blurred ev-0001 · 2 area(s) · detector+person"]);
+    expect(x[0].newv.tools.map((t) => t.name)).toEqual(expect.arrayContaining(["sentinel-blur", "pillow", "yunet", "onnxruntime"]));
+    expect(x[0].newv.tools.filter((t) => t.name === "pillow")).toHaveLength(1);
+    await expect(proposeFaces("demo", "evp-0001", "ev-0001", { thisPc: true }, { ...deps(), detect })).rejects.toMatchObject({ status: 409, message: expect.stringContaining("already has its blurred copy") });
+  });
+
+  it("(7-16b) the run belongs to one item and one person: another item, or another person's save, stays person-marked; 'none seen' after proposals keeps the count on the row", async () => {
+    await setup();
+    put("photos/two.jpg", Buffer.concat([JPG, Buffer.from("two")]));
+    await admit({ path: "photos/two.jpg", kind: "photo" });
+    const detect = async (src) => ({ ok: true, faces: [{ x: 0.1, y: 0.2, w: 0.1, h: 0.1, score: 0.9 }], source_sha256: sha(readFileSync(src)), tools: [] });
+    await proposeFaces("demo", "evp-0001", "ev-0001", { thisPc: true }, { ...deps(), detect });
+    const two = (await pack()).items.find((i) => i.path === "photos/two.jpg").id;
+    expect((await mark(two, { boxes: BOXES })).copy.method).toBe("person-marked"); // the run was for ev-0001, not this one
+    const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
+    const other = `${b64({ alg: "none" })}.${b64({ email: "b@example.test" })}.x`;
+    const bySecond = await runWithAuth(other, () => mark("ev-0001", { boxes: BOXES })); // the run was the first person's
+    expect(bySecond.copy.method).toBe("person-marked");
+    expect(bySecond.copy.marked_by).toBe("b@example.test");
+    // the same person says "none seen" after the detector proposed a face: the row carries the count
+    put("photos/three.jpg", Buffer.concat([JPG, Buffer.from("three")]));
+    await admit({ path: "photos/three.jpg", kind: "photo" });
+    const three = (await pack()).items.find((i) => i.path === "photos/three.jpg").id;
+    await proposeFaces("demo", "evp-0001", three, { thisPc: true }, { ...deps(), detect });
+    const none = await mark(three, { none_seen: true });
+    expect(none.copy.method).toBe("person-marked");
+    expect(rows("evidence:blurred").at(-1).newv).toMatchObject({ none_seen: true, detector_proposed: 1 });
+  });
+
   it("(z) 'No faces or number plates in this photo' is an explicit answer: 0 areas, none_seen; neither boxes nor the answer is a 400", async () => {
     await setup();
     await expect(mark("ev-0001", {})).rejects.toMatchObject({ status: 400, message: expect.stringContaining('answer "No faces or number plates in this photo"') });
@@ -993,6 +1068,13 @@ describe("Wikimedia Commons admission behind the switch (MA-7-12)", () => {
     const n = await noticeOf("demo", "evp-0001", { ...deps(), auditAll: async () => [] });
     expect(n.credits).toBe(1);
     expect(n.text).toContain(`- ev-0001 photo · "Photo: Example Author, CC BY 4.0" · Example Author · CC-BY-4.0 · https://commons.wikimedia.org/wiki/File:Example_building.jpg · retrieved 2026-10-08 · drill: counsel has not reviewed web evidence`);
+  });
+
+  it("(7-16b) a web (context) photo is never offered to the detector", async () => {
+    await webReady();
+    await webAdmit(body());
+    role = "contributor";
+    await expect(proposeFaces("demo", "evp-0001", "ev-0001", { thisPc: true }, { ...deps(), detect: async () => { throw new Error("must not run"); } })).rejects.toMatchObject({ status: 409, message: expect.stringContaining("web photo") });
   });
 
   it("(CM-6) a contributor is a 403 (a web photo is a lead's, AMBER); the machine credential is a 403; a viewer too - nothing saved, no row", async () => {

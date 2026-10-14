@@ -38,6 +38,8 @@ describe("runBlur (MA-7-7)", () => {
     await expect(runDetect("a", { ...here, execFileFn: stub(pin, new Error("exit 2")) })).rejects.toMatchObject({ status: 503 }); // a missing or different onnxruntime is "not set up", not "bad photo"
     await expect(runDetect("a", { ...here, execFileFn: stub("", new Error("boom")) })).rejects.toMatchObject({ status: 500, message: "the face detector failed — nothing was proposed" });
     await expect(runDetect("a", { python: "relative.exe", execFileFn: () => {} })).rejects.toMatchObject({ status: 503, message: expect.stringContaining("face detector") });
+    await expect(runDetect("a", { python: "relative.exe", execFileFn: () => {} })).rejects.toMatchObject({ message: expect.stringContaining("mark the faces by hand") }); // MA-7-16b: the hand-marking hint on every 503
+    await expect(runDetect("a", { ...here, execFileFn: stub(miss, new Error("exit 2")) })).rejects.toMatchObject({ message: expect.not.stringContaining("ValueError") });
     await expect(runBlur("a", "b", [], undefined, { ...here, execFileFn: stub(JSON.stringify(ok)) })).resolves.toEqual(ok);
     expect(stub.seen.args).not.toContain("--detected"); // MA-7-16: the blur form has no way to claim a detector run
   });

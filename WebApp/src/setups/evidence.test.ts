@@ -498,7 +498,7 @@ describe("MA-7-6: the NOTICE", () => {
 
 // MA-7-7 — the blurred copy: its line, the marker's boxes, the calls, and the panel's wiring.
 import { viewCopyLine, markViewCopy, blurredLine, photoUrl, type ViewCopy } from "./evidence";
-import { boxFromDrag, markSummary } from "./photo-marker";
+import { boxFromDrag, markSummary, hitMark } from "./photo-marker";
 describe("blurred copy (MA-7-7)", () => {
   const VC: ViewCopy = { sha256: "cd".repeat(32), size_bytes: 5000, width: 2048, height: 1365, areas: 2, faces: 1, plates: 1, method: "person-marked", marked_by: "lead@example.test", marked_at: "2026-10-13T10:00:00.000Z", tool: "sentinel-blur 0.1.0" };
   const PH: EvidenceItem = { ...ITEM, id: "ev-0002", kind: "photo", format: "jpg", path: "photos/a.jpg", surveyable: true };
@@ -509,6 +509,13 @@ describe("blurred copy (MA-7-7)", () => {
     expect(viewCopyLine({ view_copy: { ...VC, areas: 0, faces: 0, plates: 0, none_seen: true } })).toContain("no faces or number plates seen");
     expect(itemLine({ ...PH, state: "expired", expired_at: "2026-10-13T00:00:00.000Z" })).not.toMatch(/blurred copy/);
     expect(itemLine(ITEM)).not.toMatch(/blurred copy/); // a scan has none
+  });
+  it("hitMark (MA-7-16b): a click inside a box picks the topmost one; outside any box picks none", () => {
+    const m = [{ x: 0.1, y: 0.1, w: 0.4, h: 0.4, what: "face" as const }, { x: 0.2, y: 0.2, w: 0.1, h: 0.1, what: "plate" as const }];
+    expect(hitMark(m, 0.25, 0.25)).toBe(1);
+    expect(hitMark(m, 0.4, 0.4)).toBe(0);
+    expect(hitMark(m, 0.9, 0.9)).toBe(-1);
+    expect(hitMark([], 0.5, 0.5)).toBe(-1);
   });
   it("boxFromDrag: fractions of the shown photo, any drag direction, clamped; a click is no box", () => {
     const near = (m: ReturnType<typeof boxFromDrag>) => JSON.parse(JSON.stringify(m, (_k, v) => (typeof v === "number" ? Math.round(v * 1e6) / 1e6 : v)));
@@ -553,6 +560,37 @@ describe("blurred copy (MA-7-7)", () => {
     expect(src).toContain("marker?.shown()"); // the shown size is sent with the marks
     expect(src).toContain("drawingFor || vendorFor || photoFor || markFor || splatFor)) return;"); // MA-7-11: an open splat form too
     expect(src).toContain("{ markClose(); splatClose(); splatFor = null; thumbsClear(); renaming = null;"); // a project or person switch drops the open marker and frees the thumbnails
+  });
+});
+
+// MA-7-16b - Find faces: the call and the panel's wiring.
+import { detectFaces, proposedMarks } from "./evidence";
+describe("Find faces (MA-7-16b)", () => {
+  it("detectFaces posts to the item's detect-faces route and carries the bridge's words on a refusal", async () => {
+    bwrite.mockResolvedValueOnce({ faces: [{ x: 0.1, y: 0.2, w: 0.1, h: 0.1, score: 0.9 }], source_sha256: HASH });
+    const r = await detectFaces("http://b", "demo", "ev-0002");
+    expect(r.faces).toHaveLength(1);
+    expect(String(bwrite.mock.calls[bwrite.mock.calls.length - 1][0])).toMatch(/\/cde\/demo\/evidence\/evp-0001\/items\/ev-0002\/detect-faces$/);
+    bwrite.mockRejectedValueOnce(new Error("the face detector is not set up on this PC (YuNet 2023mar and onnxruntime 1.26.0) — nothing was proposed; mark the faces by hand"));
+    await expect(detectFaces("http://b", "demo", "ev-0002")).rejects.toThrow("mark the faces by hand");
+  });
+  it("proposedMarks: faces after the drawn boxes, plates untouched, capped at 200; the line says the person decides", () => {
+    const plate = { x: 0.5, y: 0.5, w: 0.1, h: 0.05, what: "plate" as const };
+    const p = proposedMarks([{ x: 0.1, y: 0.1, w: 0.1, h: 0.1 }], [plate]);
+    expect(p.marks).toEqual([plate, { x: 0.1, y: 0.1, w: 0.1, h: 0.1, what: "face" }]);
+    expect(p.line).toContain("click a box to delete it");
+    const again = proposedMarks([{ x: 0.1, y: 0.1, w: 0.1, h: 0.1 }, { x: 0.5, y: 0.5, w: 0.1, h: 0.1 }], p.marks); // a second press adds only what is not there yet
+    expect(again.marks).toHaveLength(3);
+    expect(proposedMarks([{ x: 0.1, y: 0.1, w: 0.1, h: 0.1 }], p.marks).marks).toEqual(p.marks);
+    expect(proposedMarks([], []).line).toContain("found no faces");
+    expect(proposedMarks(Array(300).fill({ x: 0, y: 0, w: 0.1, h: 0.1 }), []).marks).toHaveLength(200);
+  });
+  it("files-panel: the Find faces button calls detectFaces, pre-draws the proposals, shows the notes as text only", () => {
+    const src = readFileSync(new URL("./files-panel.ts", import.meta.url), "utf8");
+    expect(src).toContain('id="fv-mk-find"');
+    expect(src).toContain("detectFaces(base, pid(), id)");
+    expect(src).toContain("proposedMarks(r.faces");
+    expect(src).toContain("${esc(markNote)}");
   });
 });
 
