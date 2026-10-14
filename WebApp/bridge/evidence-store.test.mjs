@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { makePack, readPack, signAttestation, runEvidenceIntake, recheckPack, draftRequest, surveyStart, webStatus, noticeOf, setDeleteBy, startExpirySweep, makeViewCopy, proposeFaces, photoFile, placeSplat, readSplatPlacement } from "./evidence-store.mjs";
 import * as W from "./web-sources.mjs";
+import { runWithAuth } from "./bridge-auth.mjs";
 import { jpegWithExif } from "./fixtures/jpeg-exif.mjs";
 import { ATTESTATIONS, USES, realDay } from "./evidence-logic.mjs";
 
@@ -761,8 +762,11 @@ describe("blurred copies (MA-7-7)", () => {
     await expect(find({ thisPc: true }, { detect: undefined })).rejects.toMatchObject({ status: 503, message: expect.stringContaining("the face detector is not set up on this PC") });
     await expect(find({ thisPc: true }, { detect: async () => { throw Object.assign(new Error("the face detector is not set up on this PC (YuNet 2023mar model not found) - nothing was proposed; mark the faces by hand"), { status: 503 }); } })).rejects.toMatchObject({ status: 503, message: expect.stringContaining("mark the faces by hand") });
     await expect(proposeFaces("demo", "evp-0001", "ev-0002", { thisPc: true }, { ...deps(), detect })).rejects.toMatchObject({ status: 409, message: expect.stringContaining("not a photo") });
+    const n0 = audits.length;
     const r = await find();
     expect(r).toEqual({ faces: [F], source_sha256: sha(JPG) });
+    expect(audits.length).toBe(n0); // no row of any type
+    expect(budgets).toContainEqual(["evidence face detections", { perUser: 20, all: 60 }]);
     expect(rows("evidence:blurred")).toEqual([]);
     // a forged claim is still a 400
     await expect(mark("ev-0001", { boxes: BOXES, detected: true })).rejects.toMatchObject({ status: 400 });
@@ -779,7 +783,7 @@ describe("blurred copies (MA-7-7)", () => {
     await expect(mark("ev-0001", { boxes: BOXES }, { now: () => new Date(Date.now() + 31 * 60_000).toISOString() })).resolves.toMatchObject({ copy: { method: "person-marked" } });
   });
 
-  it("(7-16b) detector+person: a moved box still counts; tools[] and the row say so; the run is used once; the copied photo and a web photo are refused", async () => {
+  it("(7-16b) detector+person: a moved box still counts; tools[] and the row say so; the record is dropped after the save; the copied photo is refused", async () => {
     await setup();
     const DTOOLS = [...TOOLS, { name: "yunet", version: "2023mar", licence: "MIT" }, { name: "onnxruntime", version: "1.26.0", licence: "MIT" }];
     const detect = async (src) => ({ ok: true, faces: [{ x: 0.1, y: 0.2, w: 0.1, h: 0.1, score: 0.9 }], source_sha256: sha(readFileSync(src)), tools: DTOOLS });
@@ -792,6 +796,29 @@ describe("blurred copies (MA-7-7)", () => {
     expect(x[0].newv.tools.map((t) => t.name)).toEqual(expect.arrayContaining(["sentinel-blur", "pillow", "yunet", "onnxruntime"]));
     expect(x[0].newv.tools.filter((t) => t.name === "pillow")).toHaveLength(1);
     await expect(proposeFaces("demo", "evp-0001", "ev-0001", { thisPc: true }, { ...deps(), detect })).rejects.toMatchObject({ status: 409, message: expect.stringContaining("already has its blurred copy") });
+  });
+
+  it("(7-16b) the run belongs to one item and one person: another item, or another person's save, stays person-marked; 'none seen' after proposals keeps the count on the row", async () => {
+    await setup();
+    put("photos/two.jpg", Buffer.concat([JPG, Buffer.from("two")]));
+    await admit({ path: "photos/two.jpg", kind: "photo" });
+    const detect = async (src) => ({ ok: true, faces: [{ x: 0.1, y: 0.2, w: 0.1, h: 0.1, score: 0.9 }], source_sha256: sha(readFileSync(src)), tools: [] });
+    await proposeFaces("demo", "evp-0001", "ev-0001", { thisPc: true }, { ...deps(), detect });
+    const two = (await pack()).items.find((i) => i.path === "photos/two.jpg").id;
+    expect((await mark(two, { boxes: BOXES })).copy.method).toBe("person-marked"); // the run was for ev-0001, not this one
+    const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
+    const other = `${b64({ alg: "none" })}.${b64({ email: "b@example.test" })}.x`;
+    const bySecond = await runWithAuth(other, () => mark("ev-0001", { boxes: BOXES })); // the run was the first person's
+    expect(bySecond.copy.method).toBe("person-marked");
+    expect(bySecond.copy.marked_by).toBe("b@example.test");
+    // the same person says "none seen" after the detector proposed a face: the row carries the count
+    put("photos/three.jpg", Buffer.concat([JPG, Buffer.from("three")]));
+    await admit({ path: "photos/three.jpg", kind: "photo" });
+    const three = (await pack()).items.find((i) => i.path === "photos/three.jpg").id;
+    await proposeFaces("demo", "evp-0001", three, { thisPc: true }, { ...deps(), detect });
+    const none = await mark(three, { none_seen: true });
+    expect(none.copy.method).toBe("person-marked");
+    expect(rows("evidence:blurred").at(-1).newv).toMatchObject({ none_seen: true, detector_proposed: 1 });
   });
 
   it("(z) 'No faces or number plates in this photo' is an explicit answer: 0 areas, none_seen; neither boxes nor the answer is a 400", async () => {

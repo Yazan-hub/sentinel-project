@@ -267,7 +267,7 @@ export const MAX_BOXES = 200;
 /** The evidence:blurred row's new_value. `r`: blur.py's answer; `copy`: {sha256, size_bytes}. Counts only — the boxes are not kept on the ledger. */
 export const blurredValue = (packId, i, v, packVersion) => ({
   pack_id: packId, item_id: i.id, path: i.path, original_sha256: i.sha256, copy_sha256: v.sha256, size_bytes: v.size_bytes, width: v.width, height: v.height,
-  areas: v.areas, faces: v.faces, plates: v.plates, ...(v.none_seen ? { none_seen: true } : {}), method: v.method, marked_by: v.marked_by,
+  areas: v.areas, faces: v.faces, plates: v.plates, ...(v.none_seen ? { none_seen: true } : {}), ...(v.detector_proposed ? { detector_proposed: v.detector_proposed } : {}), method: v.method, marked_by: v.marked_by,
   gps_removed: i.capture ? i.capture.gps === true : null, // null: admitted before 7-4, so the original's GPS block was never looked for
   metadata_removed: true, tool: v.tool, tools: v.tools, pack_version: packVersion,
 });

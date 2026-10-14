@@ -1116,7 +1116,7 @@ describe("evidence intake (MA-4a): who makes, signs, admits and reads", () => {
     // MA-7-16b: POST .../detect-faces - a contributor on this PC reaches the detector (200 if this PC has the model, else a 503 in words); off this PC, a viewer and the machine credential are a 403; no row
     const det = async (as, headers = {}) => { const r = await fetch(`http://127.0.0.1:${port}${U}/detect-faces`, { method: "POST", headers: { Authorization: `Bearer ${as === "machine" ? TOKEN : jwtFor(as)}`, "Content-Type": "application/json", ...headers }, body: "{}" }); return { status: r.status, body: await r.json().catch(() => ({})) }; };
     const here = await det("contributor");
-    if (here.status === 503) expect(here.body.message).toContain("face detector"); else expect(here.status).toBe(200);
+    if (here.status === 503) { expect(here.body.message).toContain("face detector"); expect(here.body.message).toContain("mark the faces by hand"); } else expect([200, 422]).toContain(here.status); // this PC may have the model, and the fixture is not a real photo
     expect((await det("contributor", { "X-Forwarded-For": "203.0.113.9" })).status).toBe(403);
     expect((await det("viewer")).status).toBe(403);
     const dm = await det("machine"); expect(dm.status).toBe(403); expect(dm.body.message).toContain("signed-in person only");

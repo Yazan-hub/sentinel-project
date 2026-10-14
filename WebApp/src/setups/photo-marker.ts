@@ -15,6 +15,8 @@ export function boxFromDrag(x0: number, y0: number, x1: number, y1: number, W: n
   const w = bx - ax, h = by - ay;
   return w < MIN_FRAC || h < MIN_FRAC ? null : { x: ax, y: ay, w, h, what };
 }
+/** MA-7-16b: the index of the topmost mark that holds the point (fx, fy), in fractions of the photo, or -1. A click on a box deletes that one box. Pure. */
+export const hitMark = (m: Mark[], fx: number, fy: number): number => { for (let i = m.length - 1; i >= 0; i--) if (fx >= m[i].x && fx <= m[i].x + m[i].w && fy >= m[i].y && fy <= m[i].y + m[i].h) return i; return -1; };
 /** What the person has marked, in words, and what Save will do. Pure. */
 export const markSummary = (m: Mark[]): string => {
   const f = m.filter((x) => x.what === "face").length, p = m.length - f;
@@ -46,6 +48,7 @@ export function mountMarker(host: HTMLElement, url: string, what: () => MarkWhat
     const [W, H] = size(), p = at(e), m = boxFromDrag(from[0], from[1], p[0], p[1], W, H, what());
     from = null;
     if (m) { marks = [...marks, m]; onChange(marks); }
+    else { const [W, H] = size(), i = hitMark(marks, p[0] / W, p[1] / H); if (i >= 0) { marks = marks.filter((_, j) => j !== i); onChange(marks); } } // MA-7-16b: a click on a box deletes it
     draw();
   });
   draw();

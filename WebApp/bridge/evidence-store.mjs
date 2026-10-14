@@ -408,6 +408,7 @@ export async function proposeFaces(key, packId, itemId, o = {}, deps = {}) {
   const d = await wire(deps);
   if ((await d.myRole(key)) === "service") throw err(403, "the face detector reads the unblurred original, so it is for a signed-in person only — sign in; nothing was proposed");
   await officeProject(d, key, "contributor");
+  d.takeWriteBudget("evidence face detections", { perUser: 20, all: 60 }); // MA-7-16b review: each press starts a Python + onnxruntime child
   const { pack } = await packOf(d, key, packId);
   const item = pack.items.find((i) => i.id === itemId);
   if (!item) throw err(404, `no item ${itemId} in ${packId} — nothing was proposed`);
@@ -426,7 +427,7 @@ export async function proposeFaces(key, packId, itemId, o = {}, deps = {}) {
   const faces = (Array.isArray(r.faces) ? r.faces : []).filter((f) => [f?.x, f?.y, f?.w, f?.h].every(num) && f.w > 0 && f.h > 0).slice(0, L.MAX_BOXES)
     .map((f) => ({ x: f.x, y: f.y, w: f.w, h: f.h, score: num(f.score) ? f.score : 0 }));
   if (detections.size > 200) for (const [k, v] of detections) if (Date.parse(d.now()) - v.at >= DETECT_TTL_MS) detections.delete(k);
-  detections.set(detKey(key, packId, itemId), { sha256: item.sha256, faces, tools: Array.isArray(r.tools) ? r.tools.slice(0, 30) : [], at: Date.parse(d.now()) });
+  detections.set(detKey(key, packId, itemId), { sha256: item.sha256, by: actor(), faces, tools: Array.isArray(r.tools) ? r.tools.slice(0, 30) : [], at: Date.parse(d.now()) });
   return { faces, source_sha256: item.sha256 };
 }
 
@@ -467,7 +468,8 @@ export async function makeViewCopy(key, packId, itemId, b = {}, deps = {}) {
     const copy = await hashFile(dst);
     const faces = boxes.filter((x) => x.what === "face").length;
     // MA-7-16b: "detector+person" only when the bridge itself recorded a detect run for this item and sha and a saved face box is one of its proposals (or the person's move of one); the body cannot claim it
-    const det = detections.get(detKey(key, packId, itemId)), fromRun = det && det.sha256 === item.sha256 && Date.parse(d.now()) - det.at < DETECT_TTL_MS && boxes.some((x) => x.what === "face" && det.faces.some((f) => iou(x, f) >= 0.3));
+    const det0 = detections.get(detKey(key, packId, itemId)), det = det0 && det0.sha256 === item.sha256 && det0.by === who && Date.parse(d.now()) - det0.at < DETECT_TTL_MS ? det0 : null, // the same person who ran it (MA-7-16b review)
+      fromRun = det && boxes.some((x) => x.what === "face" && det.faces.some((f) => iou(x, f) >= 0.3));
     const tool = `sentinel-blur ${String(r.version ?? "").slice(0, 20)}`, method = fromRun ? "detector+person" : "person-marked";
     const vc = { sha256: copy.sha256, size_bytes: copy.size_bytes, width: r.width, height: r.height, areas: boxes.length, faces, plates: boxes.length - faces,
       ...(none_seen ? { none_seen: true } : {}), method, marked_by: who, marked_at: d.now(), tool };
@@ -475,7 +477,7 @@ export async function makeViewCopy(key, packId, itemId, b = {}, deps = {}) {
     const pointer = await fold(d, key, { ...pack, items: pack.items.map((i) => (i === item ? next : i)) }, version, who);
     made = false; // the pack names the file now
     const tools = [...(Array.isArray(r.tools) ? r.tools : []), ...(fromRun ? det.tools.filter((t) => !(r.tools ?? []).some((u) => u.name === t.name && u.version === t.version)) : [])].slice(0, 30).map((t) => ({ name: String(t.name).slice(0, 100), version: String(t.version ?? "").slice(0, 40), licence: String(t.licence ?? "").slice(0, 100) }));
-    const ledger = await row(d, proj, "evidence", `evidence:blurred ${itemId} · ${vc.areas} area(s) · ${method}`, who, L.blurredValue(packId, next, { ...vc, tools }, pointer.version));
+    const ledger = await row(d, proj, "evidence", `evidence:blurred ${itemId} · ${vc.areas} area(s) · ${method}`, who, L.blurredValue(packId, next, { ...vc, tools, ...(none_seen && det?.faces.length ? { detector_proposed: det.faces.length } : {}) }, pointer.version));
     detections.delete(detKey(key, packId, itemId));
     return { item: next, copy: vc, pack_version: pointer.version, ledger };
   } catch (e) {

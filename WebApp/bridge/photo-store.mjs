@@ -44,14 +44,14 @@ export function runBlur(src, dst, boxes, shown, { python = pythonPath(), script 
  *  nothing else) and checked by sha256 inside the tool; a 503 in words when it is missing or not the approved file, so the person marks by hand. */
 export function runDetect(src, { python = pythonPath(), script = BLUR_SCRIPT, env = process.env, execFileFn = execFile, ms = BLUR_MS } = {}) {
   const off = blurNotSetUp({ python, script });
-  if (off) return Promise.reject(Object.assign(new Error(off.replace("the blur tool", "the face detector").replace("nothing was saved", "nothing was proposed")), { status: 503 }));
+  if (off) return Promise.reject(Object.assign(new Error(off.replace("the blur tool", "the face detector").replace("nothing was saved", "nothing was proposed; mark the faces by hand")), { status: 503 }));
   const childEnv = Object.fromEntries(Object.entries({ SYSTEMROOT: env.SYSTEMROOT ?? env.SystemRoot, APPDATA: env.APPDATA, TEMP: env.TEMP, TMP: env.TMP, USERPROFILE: env.USERPROFILE }).filter(([, v]) => v));
   return new Promise((ok, no) => {
     execFileFn(python, ["-B", script, "--detect", src], { env: childEnv, timeout: ms, windowsHide: true, maxBuffer: 256 * 1024 }, (e, stdout, stderr) => {
       let r = null;
       try { r = JSON.parse(String(stdout).trim().split("\n").pop()); } catch { /* not JSON: the tool died */ }
       if (r?.ok && Array.isArray(r.faces)) return ok(r);
-      if (r && r.ok === false) return no(Object.assign(new Error(String(r.error).slice(0, 160)), { status: /not set up|approved/.test(String(r.error)) ? 503 : 422 }));
+      if (r && r.ok === false) return no(Object.assign(new Error(String(r.error).replace(/^ValueError: /, "").slice(0, 160)), { status: /not set up|approved/.test(String(r.error)) ? 503 : 422 }));
       if (stderr) console.warn(`[blur --detect] ${String(stderr).trim().slice(-600)}`);
       no(Object.assign(new Error(e?.killed ? "the face detector took too long and was stopped — nothing was proposed" : "the face detector failed — nothing was proposed"), { status: 500 }));
     });

@@ -795,8 +795,8 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       (markUrl ? `<div id="fv-mk-host"></div>` : markErr ? "" : `<span style="color:#9ca3af;font-size:11px">Loading the photo…</span>`) +
       `<div style="display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;font-size:11px"><label><input type="radio" name="fv-mk-what" value="face"${markWhat === "face" ? " checked" : ""}/> face</label>` +
       `<label><input type="radio" name="fv-mk-what" value="plate"${markWhat === "plate" ? " checked" : ""}/> number plate</label><span id="fv-mk-sum" style="color:#c4b5fd">${esc(markSummary(markMarks))}</span></div>` +
-      `<div style="display:flex;gap:.4rem;flex-wrap:wrap"><button id="fv-mk-save" style="${act};color:#c4b5fd">Save blurred copy</button><button id="fv-mk-find" style="${act}">Find faces</button><button id="fv-mk-undo" style="${act}">Undo last box</button>` +
-      `<button id="fv-mk-none" style="${act}">No faces or number plates in this photo</button><button id="fv-mk-cancel" style="${act}">Cancel</button></div></div>`;
+      `<div style="display:flex;gap:.4rem;flex-wrap:wrap"><button id="fv-mk-save"${marking ? " disabled" : ""} style="${act};color:#c4b5fd">Save blurred copy</button><button id="fv-mk-find"${marking ? " disabled" : ""} style="${act}">Find faces</button><button id="fv-mk-undo" style="${act}">Undo last box</button>` +
+      `<button id="fv-mk-none"${marking ? " disabled" : ""} style="${act}">No faces or number plates in this photo</button><button id="fv-mk-cancel" style="${act}">Cancel</button></div></div>`;
     const items = pack.items.map((i) => line(esc(itemLine(i)) + photoActs(i) + splatActs(i) + (can.sign && i.state !== "expired"
       ? ` <input type="date" data-evdate="${esc(i.id)}" min="${esc(today)}" value="${esc(i.delete_by ?? "")}" style="background:#111;color:#eee;border:1px solid #2c2c34;border-radius:.25rem;font:11px system-ui"/>` +
         ` <button data-evdelby="${esc(i.id)}" style="${act}">Set delete-by</button> <button data-evretire="${esc(i.id)}" data-evpath="${esc(i.path)}" style="${act}">Retire now</button>` : ""),

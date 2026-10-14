@@ -192,10 +192,11 @@ export const markViewCopy = (base: string, key: string, item: string, b: { boxes
 /** MA-7-16b: the detector's proposed face boxes for an own photo (the bridge refuses off the office PC, in words; it writes nothing). The person keeps, moves, deletes or adds to them. */
 export const detectFaces = (base: string, key: string, item: string) =>
   post<{ faces: { x: number; y: number; w: number; h: number; score: number }[]; source_sha256: string }>(base, key, `evidence/${PACK_ID}/items/${encodeURIComponent(item)}/detect-faces`, {});
-/** MA-7-16b: the proposals as face marks after the boxes already drawn (at most 200 in all); the line says how many and that the person decides. Pure. */
+/** MA-7-16b: the proposals as face marks after the boxes already drawn (at most 200 in all), skipping a proposal that overlaps a face already there (IoU 0.5), so a second press adds nothing twice; the line says how many and that the person decides. Pure. */
 export function proposedMarks(faces: { x: number; y: number; w: number; h: number }[], drawn: { x: number; y: number; w: number; h: number; what: "face" | "plate" }[]) {
-  const room = Math.max(0, 200 - drawn.length), add = faces.slice(0, room).map(({ x, y, w, h }) => ({ x, y, w, h, what: "face" as const }));
-  return { marks: [...drawn, ...add], line: faces.length ? `Sentinel proposed ${add.length} face box(es) — keep, move or delete each, and add the number plates yourself.` : "Sentinel found no faces — look yourself, and add any number plate." };
+  const iou = (a: { x: number; y: number; w: number; h: number }, b: { x: number; y: number; w: number; h: number }) => { const w = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x), h = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y), i = w > 0 && h > 0 ? w * h : 0; return i / (a.w * a.h + b.w * b.h - i); };
+  const fresh = faces.filter((f) => !drawn.some((d) => d.what === "face" && iou(d, f) >= 0.5)), room = Math.max(0, 200 - drawn.length), add = fresh.slice(0, room).map(({ x, y, w, h }) => ({ x, y, w, h, what: "face" as const }));
+  return { marks: [...drawn, ...add], line: faces.length ? `Sentinel proposed ${add.length} new face box(es) — keep them, click a box to delete it, and draw any face it missed and the number plates yourself.` : "Sentinel found no faces — look yourself, and add any number plate." };
 }
 /** The status line after a blurred copy is made. Pure. */
 export const blurredLine = (r: { item: EvidenceItem; copy: ViewCopy; ledger: Ledger }): string =>
