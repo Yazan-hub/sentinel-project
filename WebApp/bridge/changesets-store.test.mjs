@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { proposeChangeset, getChangeset, reportResult, withdrawChangeset, listChangesets, reportReverted, needsTyping, needsCiting,
   reviewChangeset, reopenGhost, previewChangesets, proposeFromJob, verifyChangeset, scanOverlay, scanQuery, editCostOf, publishEditCost, flagChangeset } from "./changesets-store.mjs";
-import { meshFaces, toScan } from "./survey-plan.mjs";
+import { meshFaces, toScan, toModel, storeyFootprint } from "./survey-plan.mjs";
 import { boxMesh } from "./fixtures/box-mesh.mjs";
 
 const wall = () => ({
@@ -1896,12 +1896,31 @@ describe("verifyChangeset (MA-4e): a signed-in contributor measures a placed sur
     const xs = (box) => [Math.min(...box.map((q) => q[0])), Math.max(...box.map((q) => q[0]))];
     expect(xs(filedOnly.footprint)).toEqual([39125, 48850]);
     expect(xs(r.footprint)[0]).toBeLessThan(31000);   // the type gaps are inside the hole
-    expect(deps.measureJob.mock.calls[0][2].cloud.outside_mm).not.toEqual(filedOnly.footprint);
+    // MA-8-14 fix (review): exactly the box of every wall candidate (the filed walls' and the gaps', all of the storey), and the cloud is read outside that box in the scan's frame
+    const all = (await deps.trustedJob()).result.candidates;
+    expect(r.footprint).toEqual(storeyFootprint(all, cs.job.storey.cid, cs.job.frame));
+    expect(deps.measureJob.mock.calls[0][2].cloud.outside_mm).toEqual(r.footprint.map(toScan(cs.job.frame).xy));
     // the job's result cannot be read (not trusted, moved): the ground read refuses, never the filed walls' box
-    for (const trustedJob of [vi.fn(async () => { throw Object.assign(new Error("not trusted"), { status: 409 }); }), vi.fn(async () => ({ row: { ...ROW, result_sha256: "ff".repeat(32) }, result: { candidates: gaps } }))]) {
+    const words = "the survey job's walls could not be read — the terrain's footprint is the whole storey";
+    for (const [trustedJob, said] of [[vi.fn(async () => { throw Object.assign(new Error("not trusted"), { status: 409 }); }), `${words} (not trusted); nothing was read`],   // MA-8-14 fix (review): the chain's own reason is kept
+      [vi.fn(async () => ({ row: { ...ROW, result_sha256: "ff".repeat(32) }, result: { candidates: gaps } })), `${words}; nothing was read`],
+      [vi.fn(async () => ({ row: { ...ROW, ledger: { id: (ROW.ledger?.id ?? 0) + 1000 } }, result: { candidates: gaps } })), `${words}; nothing was read`],
+      [vi.fn(async () => ({ row: ROW, result: { candidates: [] } })), `${words}; nothing was read`]]) {
       const bad = sdeps({ measureJob: echo, trustedJob }, cs);
-      await expect(scanOverlay("ma4c-drill", ID, bad, { ground: true })).rejects.toMatchObject({ status: 409, message: "the survey job's walls could not be read — the terrain's footprint is the whole storey; nothing was read" });
+      await expect(scanOverlay("ma4c-drill", ID, bad, { ground: true })).rejects.toMatchObject({ status: 409, message: said });
     }
+    // MA-8-14 fix (review): a failing ledger read or a bug is not "cannot be read" - it keeps its own status, or is a 503 (try again)
+    await expect(scanOverlay("ma4c-drill", ID, sdeps({ measureJob: echo, trustedJob: vi.fn(async () => { throw Object.assign(new Error("db down"), { status: 502 }); }) }, cs), { ground: true })).rejects.toMatchObject({ status: 502 });
+    await expect(scanOverlay("ma4c-drill", ID, sdeps({ measureJob: echo, trustedJob: vi.fn(async () => { throw new TypeError("boom"); }) }, cs), { ground: true })).rejects.toMatchObject({ status: 503, message: expect.stringContaining("try again") });
+    // MA-8-14 fix (review): a storey of the job with walls but no changeset (all type gaps) that lies lower than this one: refused, never read as ground
+    const lvl = (cid, z) => ({ cid, kind: "level", geometry: { BaseElevation: z } });
+    const podium = { cid: "pw", kind: "wall", geometry: { storey: "L-1-level", LocationCurve: { start: [0, 0, -3000], end: [1000, 0, -3000] } } };
+    const reads = echo.mock.calls.length;
+    const low = sdeps({ measureJob: echo, trustedJob: groundJob(cs, [lvl(cs.job.storey.cid, 0), lvl("L-1-level", -3000), podium]) }, cs);
+    await expect(scanOverlay("ma4c-drill", ID, low, { ground: true })).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/^terrain is read under the lowest storey \(L-1-level, .*\); .* is higher; .* — nothing was read$/) });
+    expect(echo.mock.calls.length).toBe(reads);   // nothing was read
+    // a higher storey's walls do not refuse
+    await expect(scanOverlay("ma4c-drill", ID, sdeps({ measureJob: echo, trustedJob: groundJob(cs, [lvl(cs.job.storey.cid, 0), lvl("L01-level", 3000), { ...podium, geometry: { ...podium.geometry, storey: "L01-level" } }]) }, cs), { ground: true })).resolves.toMatchObject({ ground: true });
   });
   it("(k2) MA-8-14 review round 1: two ground points that round onto one mm of the model (a turned frame) are sent as one - the lower; any other scan answer keeps both", async () => {
     const wall = (e) => ({ ...e, place: { ...e.place, LevelName: "GR-FFL" } });
@@ -2474,7 +2493,7 @@ describe("proposeChangeset — a terrain from a scan (MA-8-14)", () => {
       vi.fn(async () => ({ row: { ledger: { id: 41 }, result_sha256: "bb".repeat(32) }, result: { candidates: jobCands } })),
       vi.fn(async () => ({ row: { ledger: { id: 41 }, result_sha256: "aa".repeat(32) }, result: { candidates: [] } }))]) {
       const bad = member({ trustedJob }); bad.saved.set(sc.id, surveyDoc());
-      await expect(proposeChangeset("demo", structuredClone(cases.good), "yazan", bad)).rejects.toMatchObject({ status: 409, message: "the survey job's walls could not be read — the terrain's footprint is the whole storey; nothing was saved" });
+      await expect(proposeChangeset("demo", structuredClone(cases.good), "yazan", bad)).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/^the survey job's walls could not be read — the terrain's footprint is the whole storey( \(not trusted\))?; nothing was saved$/) });
       expect(bad.docInsert).not.toHaveBeenCalled();
     }
   });

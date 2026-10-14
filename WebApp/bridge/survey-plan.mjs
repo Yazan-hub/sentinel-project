@@ -684,15 +684,15 @@ export function orientedBox(points, pad) {
 /** What the ground read is cut by, from a survey changeset's walls (model frame): the band from 5 m under the lowest wall base to 1.5 m over it
  *  (ponytail: a site rising more than 1.5 m above the floor is cut, and the answer says so) and the level that wall names. null with no wall. Pure.
  *  MA-8-14 fix (F-K1c-1): the footprint is NOT the filed walls' box - most walls of a real scan are type gaps, so their box is a part of the building;
- *  it is `footprint`, storeyFootprint's over every wall candidate of the storey in the job's own result (null until the caller reads it). */
-export function groundCut(cs, footprint = null) {
+ *  its `footprint` is null: groundOf (changesets-store) fills it from storeyFootprint over every wall candidate of the storey in the job's own result. */
+export function groundCut(cs) {
   const w = (cs.elements ?? []).filter((e) => e.kind === "wall" && [e.place?.LocationCurve?.start, e.place?.LocationCurve?.end].every((p) => Array.isArray(p) && p.slice(0, 3).every(Number.isFinite)));
   if (!w.length) return null;
   const lo = Math.min(...w.map((e) => e.place.LocationCurve.start[2]));
   const low = w.filter((e) => e.place.LocationCurve.start[2] - lo <= SCAN_MARGIN_MM);
   const lowest = low.find((e) => e.place.LocationCurve.start[2] === lo);
   const level = [lowest.place.LevelName, lowest.place.BaseLevel].find((s) => typeof s === "string" && s.trim()) ?? null;
-  return { band: [lo - 5000, lo + 1500], level: level?.trim() ?? null, footprint };
+  return { band: [lo - 5000, lo + 1500], level: level?.trim() ?? null, footprint: null };
 }
 
 /** MA-8-14 fix (F-K1c-1): the terrain's hole - the oriented box (+1 m) of every wall candidate of storey `cid` in the job's own result, typed or not, filed,

@@ -661,7 +661,7 @@ export async function verifyChangeset(key, b, actor, deps = {}) {
  *  are held in memory and answered, never logged. The run takes the bridge's one survey slot and the survey jobs' budget. Its refusals say what
  *  is not shown (one from the shared chain, the budget or the slot says "nothing was saved": re-worded).
  *  MA-8-14: with `ground`, the answer is the ground a terrain is made of instead — the lowest point per 500 mm plan cell, at most 2000, outside
- *  the changeset's lowest storey's oriented box (groundCut), with that level and the box (model frame) for the add-in's TerrainPlanner; it fails closed
+ *  the box of all the job's wall candidates of the changeset's storey (groundOf), with that level and the box (model frame) for the add-in's TerrainPlanner; it fails closed
  *  on a sentinel-survey that does not read ground.
  *  ponytail: cold, no cache — each tick of "Show the scan" reads the scan again (MA-4h, Kladno: ~21 s; Revit waits up to 120 s); a cache keyed
  *  on (the row, the evidence shas, the frame, the cut) if a read nears that. */
@@ -755,12 +755,23 @@ function lowestApart(points, on) {
 async function groundOf(key, cs, trustedJob, outcome) {
   const base = groundCut(cs);
   if (!base) return null;
-  let footprint = null;
+  const words = "the survey job's walls could not be read — the terrain's footprint is the whole storey";
+  let footprint = null, lowerCid = null;
   try {
     const { row, result } = await trustedJob(key, cs.job.id);
-    if (row.ledger.id === cs.job.ledger_id && row.result_sha256 === cs.job.result_sha256) footprint = storeyFootprint(result.candidates, cs.job.storey?.cid, cs.job.frame);
-  } catch { /* said below */ }
-  if (!footprint) throw err(409, `the survey job's walls could not be read — the terrain's footprint is the whole storey; ${outcome}`);
+    if (row.ledger.id === cs.job.ledger_id && row.result_sha256 === cs.job.result_sha256) {
+      footprint = storeyFootprint(result.candidates, cs.job.storey?.cid, cs.job.frame);
+      // MA-8-14 fix: a storey of the job with walls but no changeset (all type gaps) is not in the changesets' lowerStorey - the job's own levels say it is lower
+      const z = new Map((result.candidates ?? []).filter((c) => c.kind === "level").map((c) => [c.cid, c.geometry?.BaseElevation]));
+      const mine = z.get(cs.job.storey?.cid);
+      lowerCid = Number.isFinite(mine) ? (result.candidates ?? []).find((c) => c.kind === "wall" && c.geometry?.storey !== cs.job.storey.cid && z.get(c.geometry?.storey) < mine - 1)?.geometry.storey : null;
+    }
+  } catch (e) {   // MA-8-14 fix: a refusal of the shared chain is the lasting 409 with its reason; anything else (a ledger read failing, a bug) is not "cannot be read"
+    if (![400, 404, 409].includes(e?.status)) throw e?.status ? e : err(503, `the survey job could not be read just now (${e?.message ?? e}); ${outcome} - try again`);
+    throw err(409, `${words} (${e.message}); ${outcome}`);
+  }
+  if (!footprint) throw err(409, `${words}; ${outcome}`);
+  if (lowerCid) throw err(409, `terrain is read under the lowest storey (${lowerCid}, a storey of the job with no changeset); ${cs.name} is higher; ${AGAIN} — ${outcome}`);
   return { ...base, footprint };
 }
 
@@ -777,7 +788,7 @@ const AGAIN = "survey the scan again (a new job) to read its ground";
 const again = (lower) => (lower.status === "withdrawn" ? `; ${AGAIN}` : "");
 
 /** MA-8-14 review round 1: a terrain is tied to the scan it names - the bridge read no scan for its points, but it checks what it can of them against that
- *  changeset's ground cut (groundCut, the ground read's): a live survey changeset of the job's lowest storey (409), the cut's level, its footprint as the Boundary
+ *  changeset's ground cut (groundOf: groundCut's band and level, storeyFootprint's footprint over the job's trusted result - the ground read's): a live survey changeset of the job's lowest storey (409), the cut's level, its footprint as the Boundary
  *  corner for corner, every point in its height band and outside its footprint, and (review round 3) a name ending " · from <that changeset's name>" (400). checkFromScan ran first (the changeset exists and is a survey job's). */
 async function tieToScan(el, at, earlier, name, d, key) {
   const cs = earlier.find((c) => c.id === el.from_scan.changeset);
