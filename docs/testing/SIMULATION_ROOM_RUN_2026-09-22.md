@@ -3375,3 +3375,17 @@ Findings:
 Owed: the 100-character level repeat of K-1c-4 live (it needs a survey proposal at a 100-character level, which only a signed-in person files on the web desk; the recognition itself is pinned in `tools/promote-check/Ma8Terrain.cs`); K-1c-5 (a workshared stale local: two locals); K-1d (Revit 2021 to 2023 refusal: Revit 2023 is broken); K-1c-6 on Revit 2025 and 2026 (2027 passed).
 
 Closing list: Project1.rvt closed unsaved, the MCP switch off, Revit 2024 left open at its Home screen. kladno-drill: terrains c95def51, d98f826c and 72f35b1b applied then undone; e12c38f3 freed on the person's word; walls 55e386ed and level e143d30b still proposed.
+
+## Session MA7 — NVIDIA accepted and gsplat path A (2026-10-14 local ~21:00–21:40: the founder's "accept NVIDIA, go with A"; every file hashed against its source; Claude driving, no Revit)
+
+| Row | What happened | Result |
+|---|---|---|
+| D-NVIDIA | The torch wheels' bundled CUDA/cuDNN runtime (cu130 for Python 3.14, cu124 for the private 3.10) moved from `pending` to `accepted` in `allow.json` with the founder's words and the office-PC-only condition; the gate's pending count 14 → 13 | **accepted** (D-7-16) |
+| K-4a Python 3.10 | NuGet `python` 3.10.11 (16.3 MB, PSF-2.0, its LICENSE.txt read) unpacked to `%APPDATA%\Sentinel\py310`, pip 23.0.1 bootstrapped with ensurepip; nothing touches the system Pythons or the user site | **GO** |
+| K-4b torch cu124 | `torch-2.4.1+cu124-cp310-cp310-win_amd64.whl` · download.pytorch.org/whl/cu124 · 2 506 MB · sha256 `db873d7c…b147` equals the index · BSD-3 + the NVIDIA runtime (accepted above) | **GO** |
+| K-4c gsplat | `gsplat-1.5.3+pt24cu124-cp310-cp310-win_amd64.whl` · github.com/nerfstudio-project/gsplat release v1.5.3 (the docs.gsplat.studio index points there) · 21.9 MB · Apache-2.0 (its LICENSE file; no metadata field) · ships `csrc.pyd` built against torch 2.4 / CUDA 12.4 — no nvcc needed · deps ninja 1.13.2 Apache-2.0, numpy 1.26.4 BSD-3, jaxtyping 0.3.7 MIT (+ wadler_lindig 0.1.7 Apache-2.0), rich 15.0.0 MIT; `packaging` 26.3 is an undeclared import (`gsplat/cuda/_backend.py`), reused from `wheels-ma7` | **GO** |
+| K-4d install | 19 wheels, hash-pinned (`survey/requirements-ma7-py310.txt`), installed offline into `%APPDATA%\Sentinel\photo-lib310` (separate from `photo-lib`, which stays Python 3.14 for 7-20) | **pass** |
+| K-4e smoke | `torch 2.4.1+cu124 · cuda True · 12.4 · NVIDIA GeForce RTX 4060 Laptop GPU · gsplat 1.5.3+pt24cu124`; `gsplat.rasterization` of 2 000 random Gaussians at 320 × 240 → image `(1, 240, 320, 3)`, 48 710 covered pixels, 2.3 s for the first call (kernel load), peak 2 MB | **pass** — 7-19's Stage B (Sentinel's own short trainer, T-0 spike) can be built; it still needs RG's 20 registered copies, i.e. the founder's photos |
+| Gate | `check.mjs` now accepts a `versions` list beside `version` on a python row (torch, numpy, networkx, filelock are pinned twice, once per stack); python 3.10.11 listed under `python.versions`; 0 unknown, 0 banned | **pass** |
+
+Owed: T-0 (7 000 steps at half resolution on 20 registered photos) and GS-1…GS-3 — the founder's own photos; `photo/` has no trainer yet (7-19 Stage B).

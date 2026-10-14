@@ -68,7 +68,8 @@ function readPython() {
     const norm = (s) => s.toLowerCase().replace(/[-_.]+/g, "-");
     const a = allow.python?.[name] ?? Object.entries(allow.python || {}).find(([k]) => norm(k) === norm(name))?.[1];
     // a moved pin has not had its licence re-read
-    const ok = a && (!version || a.version === version);
+    // MA-7 path A: one package may be pinned at two versions (torch 2.14 for Python 3.14, torch 2.4 for the private 3.10) — `versions` lists every read one
+    const ok = a && (!version || a.version === version || (Array.isArray(a.versions) && a.versions.includes(version)));
     return { source: "python", name, version, licence: ok ? a.licence : "", carries: ok ? a.carries : undefined };
   });
   return [...rows, ...odd.map((raw) => ({ source: "python", name: raw, version: "", licence: "" }))];
