@@ -56,6 +56,8 @@
          IDS, naming, contract, layers, guideline and type catalogue are its web project's artefacts (or its
          office's); the pilot's copies are seed data in demo/bds-pilot/. -->
     <Content Include="Resources\*.png" CopyToOutputDirectory="PreserveNewest" />
+    <!-- F1 help walkthrough clips (App.WriteHelp): Resources\help\<button name>.webp|gif|mp4, overview.* for the index. -->
+    <Content Include="Resources\help\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(TargetFramework)' == 'net48'">

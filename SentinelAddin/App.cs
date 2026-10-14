@@ -521,15 +521,61 @@ public sealed class App : IExternalApplication
             "Read where the selected (or picked) element came from — Sentinel's provenance stamp: source, source file sha256, CAD layer, the rule that typed it, the approver, the ledger row and the time. A stamp that came with a copy reads \"copied, not placed by Sentinel\". Reads only.");
         Push(st, "Sentinel_Roi", "ROI\nDashboard", "Sentinel.Commands.RoiDashboardCommand", "roi",
             "Counts from this document's web project ledger — delivery gate runs, naming renames, family heals — priced only by the roi standard installed on the project (or its office); what writes no ledger row is listed as not counted.");
+        WriteHelp();
     }
 
     private static string _asm = "";
     private static string _resDir = "";
 
+    // ── F1 help: every button's page is written from its own tooltip (no second copy to drift), under
+    // %AppData%\Sentinel\help, one page per button (a file URL's #fragment is not kept by every browser
+    // launch). A walkthrough clip in Resources\help\<name>.webp|gif|mp4 shows on its page; overview.* on the index.
+    private static readonly string _helpDir = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Sentinel", "help");
+    private static readonly List<(string Name, string Text, string Tooltip)> _help = new();
+
+    private static ContextualHelp Help(string name, string text, string tooltip)
+    {
+        _help.Add((name, text.Replace('\n', ' '), tooltip));
+        return new ContextualHelp(ContextualHelpType.Url, new Uri(Path.Combine(_helpDir, name + ".html")).AbsoluteUri);
+    }
+
+    private static string Clip(string name)
+    {
+        foreach (var ext in new[] { ".mp4", ".webp", ".gif" })
+        {
+            var p = Path.Combine(_resDir, "help", name + ext);
+            if (!File.Exists(p)) continue;
+            var src = new Uri(p).AbsoluteUri;
+            return ext == ".mp4"
+                ? $"<video src=\"{src}\" controls autoplay muted loop></video>"
+                : $"<img src=\"{src}\" alt=\"Walkthrough\">";
+        }
+        return "";
+    }
+
+    internal static void WriteHelp()
+    {
+        try
+        {
+            Directory.CreateDirectory(_helpDir);
+            const string css = "<meta charset=\"utf-8\"><style>body{font:15px/1.55 Segoe UI,sans-serif;max-width:860px;margin:32px auto;padding:0 16px;color:#1d2330;background:#fff}h1{font-size:22px}a{color:#2456c8}video,img{max-width:100%;border:1px solid #d5d9e2;border-radius:6px;margin:12px 0}li{margin:6px 0}.k{color:#6b7385;font-size:13px}</style>";
+            string E(string s) => System.Net.WebUtility.HtmlEncode(s);
+            foreach (var h in _help)
+                File.WriteAllText(Path.Combine(_helpDir, h.Name + ".html"),
+                    $"<!doctype html><title>Sentinel · {E(h.Text)}</title>{css}<p class=\"k\"><a href=\"index.html\">Sentinel help</a></p><h1>{E(h.Text)}</h1>{Clip(h.Name)}<p>{E(h.Tooltip)}</p>");
+            var list = string.Concat(_help.Select(h => $"<li><a href=\"{h.Name}.html\">{E(h.Text)}</a> <span class=\"k\">— {E(h.Tooltip.Length > 140 ? h.Tooltip.Substring(0, 140) + "…" : h.Tooltip)}</span></li>"));
+            File.WriteAllText(Path.Combine(_helpDir, "index.html"),
+                $"<!doctype html><title>Sentinel help</title>{css}<h1>Sentinel for Revit</h1>{Clip("overview")}<p>Hover any Sentinel button and press <b>F1</b> to open its page.</p><ul>{list}</ul>");
+        }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine("Sentinel help not written: " + ex.Message); }
+    }
+
     // Build a push-button's data + its distinct icon (32 large / 16 small) from Resources by icon base name.
     private static PushButtonData Data(string name, string text, string className, string icon, string tooltip)
     {
         var data = new PushButtonData(name, text, _asm, className) { ToolTip = tooltip };
+        data.SetContextualHelp(Help(name, text, tooltip));
         var large = Path.Combine(_resDir, icon + "32.png");
         var small = Path.Combine(_resDir, icon + "16.png");
         if (File.Exists(large)) data.LargeImage = LoadPng(large);
@@ -545,6 +591,7 @@ public sealed class App : IExternalApplication
     private static PulldownButton Pull(RibbonPanel panel, string name, string text, string icon, string tooltip)
     {
         var pd = new PulldownButtonData(name, text) { ToolTip = tooltip };
+        pd.SetContextualHelp(Help(name, text, tooltip));
         var large = Path.Combine(_resDir, icon + "32.png");
         var small = Path.Combine(_resDir, icon + "16.png");
         if (File.Exists(large)) pd.LargeImage = LoadPng(large);
