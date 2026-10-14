@@ -3301,3 +3301,10 @@ Ceilings: no web form yet for a Commons admission (a lead uses the items route; 
 | K-1c-3, K-1c-3b, K-1c-4 | dz ≠ 0 (Survey Point base), ground wholly above the floor, a forced commit warning, Undo-Propose-Redo-Apply, freeing a gone terrain on a person's word | **owed** |
 
 Ceilings: the Holding Area still holds 195 Kladno elements (most scanned walls have untrusted thickness or unread inside/outside); the drill rows in kladno-drill's catalogue are labelled and project-only.
+
+## Session MA8 batch 4 owed row — S-5 on Revit 2027 (2026-10-14 local 03:00: the staged copy `Documents/Sentinel drills/ma8-b3/s1-spike-2027.rvt` (s1-spike.rvt saved at 11:54, bound to ma4c-drill) upgraded on open in Revit 2027 (12 family-upgrade warnings, accepted); the add-in from master deployed 02:29; Claude driving)
+
+| Row | What happened | Result |
+|---|---|---|
+| S-5 (2027) | Review AI Proposals ▸ `Stair · Massing L00 → L01 · from Stair picked on Massing L00` (the changeset left proposed by S-6) ▸ tick ▸ Apply → `Applied 1 element(s)`; no modal; `DD IDS: not asked of 1 stair(s): the DD IDS has no class for them`; ledger #2743 `stairs[0] {built {runs 1, risers 19, riser_mm 184.21, going_mm 250, width_mm 1200, railings 2}, planned {risers 19, going_mm 249.99999999999997, width_mm 1200}, as_planned true}` — the same `built` as Revit 2024's S-3b (#2698); the plan's float noise predates the F-B4-3 fix (that changeset was planned before it) | **pass** |
+| S-5 (2021) | Revit 2021 is not installed on this PC; Revit 2023 is not granted to this session's computer use | **owed** |
