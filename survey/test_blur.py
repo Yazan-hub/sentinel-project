@@ -1,6 +1,9 @@
 # MA-7-7 — sentinel-blur 0.1.0's self-checks, run from the repo root: C:\Python314\python.exe -B -m unittest discover -s survey -v.
 # Synthetic photos only (random noise made here, with planted EXIF/GPS/ICC): a marked box is one flat colour, nothing else is touched,
 # the long side is cut to 2048, and the copy carries no EXIF/XMP/ICC/thumbnail. Skipped, with why, where Pillow 12.3.0 is not installed.
+# MA-7-16 (FD-1, FD-2): the YuNet face proposer - decoded from a STUBBED session on a synthetic photo (CI has no model and no onnxruntime);
+# the real model is run only where it is on this PC (skipped otherwise).
+import importlib.metadata
 import importlib.util
 import json
 import os
@@ -9,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 spec = importlib.util.spec_from_file_location("blur", os.path.join(HERE, "blur.py"))
@@ -171,6 +175,121 @@ class Blur(unittest.TestCase):
             with self.assertRaises(Exception):
                 blur.blur(p, os.path.join(d, "o.jpg"), [])
             self.assertFalse(os.path.exists(os.path.join(d, "o.jpg")))
+
+
+def fake_outputs(cells):
+    """YuNet's 12 outputs with score ~0.9 at the given (stride, row, col, log_w, log_h) cells and zero elsewhere."""
+    import numpy as np
+    outs = [np.zeros((1, (640 // st) ** 2, 1), np.float32) for st in (8, 16, 32)] * 2 + [np.zeros((1, (640 // st) ** 2, 4), np.float32) for st in (8, 16, 32)]         + [np.zeros((1, (640 // st) ** 2, 10), np.float32) for st in (8, 16, 32)]
+    for st, r, c, lw, lh in cells:
+        k, i = (8, 16, 32).index(st), r * (640 // st) + c
+        outs[k][0, i, 0] = outs[3 + k][0, i, 0] = 0.9
+        outs[6 + k][0, i, 2], outs[6 + k][0, i, 3] = lw, lh
+    return outs
+
+
+class Stub:
+    def __init__(self, cells):
+        self.cells, self.fed = cells, None
+
+    def run(self, names, feeds):
+        self.fed = feeds["input"]
+        return fake_outputs(self.cells)
+
+
+@unittest.skipUnless(HAVE, "Pillow 12.3.0 is not installed")
+class Detect(unittest.TestCase):
+    """MA-7-16: the model file is checked by sha256, then a stubbed session stands in for onnxruntime."""
+    def setUp(self):
+        try:
+            import numpy  # noqa: F401
+        except ImportError:
+            self.skipTest("numpy is not installed")
+        self.d = tempfile.TemporaryDirectory()
+        self.addCleanup(self.d.cleanup)
+        self.model = os.path.join(self.d.name, "m.onnx")
+        with open(self.model, "wb") as f:
+            f.write(b"stand-in model bytes")
+        self.real_sha = blur.YUNET_SHA
+        blur.YUNET_SHA = __import__("hashlib").sha256(b"stand-in model bytes").hexdigest()
+        self.addCleanup(setattr, blur, "YUNET_SHA", self.real_sha)
+        rnd = random.Random(3)
+        from PIL import Image
+        self.src = os.path.join(self.d.name, "p.jpg")
+        Image.frombytes("RGB", (3000, 2000), bytes(rnd.randrange(256) for _ in range(3000 * 2000 * 3))).save(self.src, "JPEG", quality=60)
+
+    def test_a_stubbed_session_gives_padded_fractions_and_a_letterboxed_bgr_input(self):
+        stub = Stub([(8, 20, 30, 1.3862944, 1.3862944)])  # a 32 px box at (224, 144)-(256, 176) on the 640 canvas
+        r = blur.detect(self.src, self.model, lambda data: stub)
+        self.assertEqual((r["width"], r["height"], r["method"]), (3000, 2000, "detector+person"))
+        self.assertEqual(len(r["faces"]), 1)
+        f, k = r["faces"][0], 640 / 3000
+        x0, x1 = 224 / k, 256 / k
+        pad = (x1 - x0) * blur.YUNET_PAD
+        self.assertAlmostEqual(f["x"], (x0 - pad) / 3000, places=3)
+        self.assertAlmostEqual(f["w"], (x1 - x0 + 2 * pad) / 3000, places=3)
+        self.assertAlmostEqual(f["score"], 0.9, places=2)
+        self.assertEqual(stub.fed.shape, (1, 3, 640, 640))
+        self.assertEqual(str(stub.fed.dtype), "float32")
+        self.assertEqual(float(stub.fed[0, :, 430:, :].max()), 0.0, "the bottom of the canvas below the 427-row photo is black padding")
+        blur.read_boxes([{k2: f[k2] for k2 in "xywh"}])  # a proposal is a valid blur box as it stands
+
+    def test_overlapping_cells_are_suppressed_and_far_ones_kept(self):
+        stub = Stub([(8, 20, 30, 1.3862944, 1.3862944), (8, 20, 31, 1.3862944, 1.3862944), (16, 5, 5, 1.3862944, 1.3862944)])
+        self.assertEqual(len(blur.detect(self.src, self.model, lambda data: stub)["faces"]), 2)
+
+    def test_no_face_is_an_empty_list_not_an_error(self):
+        self.assertEqual(blur.detect(self.src, self.model, lambda data: Stub([]))["faces"], [])
+
+    def test_a_missing_or_wrong_model_is_refused_in_words_and_no_session_is_made(self):
+        made = []
+        mk = lambda data: made.append(1)
+        with self.assertRaisesRegex(ValueError, "not set up on this PC"):
+            blur.detect(self.src, os.path.join(self.d.name, "none.onnx"), mk)
+        with open(self.model, "wb") as f:
+            f.write(b"another file")
+        with self.assertRaisesRegex(ValueError, "not the approved"):
+            blur.detect(self.src, self.model, mk)
+        self.assertEqual(made, [])
+
+    def test_the_cli_refuses_a_missing_model_and_names_no_path(self):
+        env = {**os.environ, "USERPROFILE": self.d.name}
+        r = subprocess.run([sys.executable, "-B", os.path.join(HERE, "blur.py"), "--detect", self.src], capture_output=True, text=True, env=env)
+        j = json.loads(r.stdout)
+        self.assertEqual((r.returncode, j["ok"]), (2, False))
+        self.assertIn("mark the faces by hand", j["error"])
+        self.assertNotIn(self.d.name, r.stdout)
+
+    def test_detected_tools_name_yunet_onnxruntime_and_what_it_carries_but_only_for_detect(self):
+        self.assertFalse({"yunet", "onnxruntime"} & {t["name"] for t in blur.tools()})
+        got = {t["name"]: t for t in blur.tools(True)}
+        self.assertEqual((got["yunet"]["version"], got["yunet"]["licence"]), ("2023mar", "MIT"))
+        self.assertEqual((got["onnxruntime"]["version"], got["onnxruntime"]["licence"]), ("1.26.0", "MIT"))
+        self.assertEqual(got["Eigen (in onnxruntime)"]["licence"], "MPL-2.0")  # amendment 33
+        out = os.path.join(self.d.name, "o.jpg")
+        r = subprocess.run([sys.executable, "-B", os.path.join(HERE, "blur.py"), self.src, out, json.dumps([{"x": .1, "y": .1, "w": .1, "h": .1}]), "--detected"], capture_output=True, text=True)
+        self.assertEqual(json.loads(r.stdout)["ok"], False)  # the blur form no longer takes --detected: a flag cannot name a detector that did not run
+        r = subprocess.run([sys.executable, "-B", os.path.join(HERE, "blur.py"), self.src, out, json.dumps([{"x": .1, "y": .1, "w": .1, "h": .1}])], capture_output=True, text=True)
+        self.assertNotIn("yunet", {t["name"] for t in json.loads(r.stdout)["tools"]})
+
+    def test_a_missing_or_different_onnxruntime_is_not_set_up_in_words(self):
+        for have in (None, "1.27.0"):
+            def ver(name, have=have):
+                if have is None:
+                    raise importlib.metadata.PackageNotFoundError(name)
+                return have
+            with mock.patch.object(importlib.metadata, "version", ver):
+                with self.assertRaises(ValueError) as c:
+                    blur._yunet_session(self.model)
+            self.assertIn("not set up", str(c.exception))
+            self.assertIn("mark the faces by hand", str(c.exception))
+
+    @unittest.skipUnless(os.path.isfile(blur.yunet_path()), "the YuNet model is not on this PC")
+    def test_the_real_model_runs_on_a_noise_photo(self):
+        blur.YUNET_SHA = self.real_sha
+        r = blur.detect(self.src)
+        self.assertEqual(r["method"], "detector+person")
+        self.assertIsInstance(r["faces"], list)
 
 
 if __name__ == "__main__":

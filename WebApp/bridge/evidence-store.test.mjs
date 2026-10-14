@@ -734,6 +734,18 @@ describe("blurred copies (MA-7-7)", () => {
     expect(budgets).toContainEqual(["evidence blurred copies", { perUser: 20, all: 60 }]);
   });
 
+  it("(7-16) the request cannot claim a detector run: `detected` is a 400 on the blur route and the web-photo path; the pack and ledger stay person-marked", async () => {
+    await setup();
+    await expect(mark("ev-0001", { boxes: BOXES, detected: true })).rejects.toMatchObject({ status: 400, message: expect.stringContaining("detected") });
+    await expect(mark("ev-0001", { boxes: BOXES, detected: false })).rejects.toMatchObject({ status: 400 });
+    expect(calls).toEqual([]);
+    const r = await mark("ev-0001", { boxes: BOXES });
+    expect(r.copy.method).toBe("person-marked");
+    const x = rows("evidence:blurred");
+    expect(x.map((a) => a.action)).toEqual(["evidence:blurred ev-0001 · 2 area(s) · person-marked"]);
+    expect(x[0].newv.tools.map((t) => t.name)).not.toEqual(expect.arrayContaining(["yunet"]));
+  });
+
   it("(z) 'No faces or number plates in this photo' is an explicit answer: 0 areas, none_seen; neither boxes nor the answer is a 400", async () => {
     await setup();
     await expect(mark("ev-0001", {})).rejects.toMatchObject({ status: 400, message: expect.stringContaining('answer "No faces or number plates in this photo"') });

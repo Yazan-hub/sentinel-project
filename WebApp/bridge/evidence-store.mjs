@@ -432,14 +432,14 @@ export async function makeViewCopy(key, packId, itemId, b = {}, deps = {}) {
     if (r.source_sha256 !== item.sha256) throw err(409, `${item.path} changed after it was admitted and before it was blurred — Re-check, and put the same file back; nothing was saved`); // the tool hashes the bytes it decoded
     const copy = await hashFile(dst);
     const faces = boxes.filter((x) => x.what === "face").length;
-    const tool = `sentinel-blur ${String(r.version ?? "").slice(0, 20)}`;
+    const tool = `sentinel-blur ${String(r.version ?? "").slice(0, 20)}`, method = "person-marked"; // MA-7-16: "detector+person" waits for a detect route that records the run (the request body cannot claim it)
     const vc = { sha256: copy.sha256, size_bytes: copy.size_bytes, width: r.width, height: r.height, areas: boxes.length, faces, plates: boxes.length - faces,
-      ...(none_seen ? { none_seen: true } : {}), method: "person-marked", marked_by: who, marked_at: d.now(), tool };
+      ...(none_seen ? { none_seen: true } : {}), method, marked_by: who, marked_at: d.now(), tool };
     const next = { ...item, view_copy: vc };
     const pointer = await fold(d, key, { ...pack, items: pack.items.map((i) => (i === item ? next : i)) }, version, who);
     made = false; // the pack names the file now
     const tools = (Array.isArray(r.tools) ? r.tools : []).slice(0, 30).map((t) => ({ name: String(t.name).slice(0, 100), version: String(t.version ?? "").slice(0, 40), licence: String(t.licence ?? "").slice(0, 100) }));
-    const ledger = await row(d, proj, "evidence", `evidence:blurred ${itemId} · ${vc.areas} area(s) · person-marked`, who, L.blurredValue(packId, next, { ...vc, tools }, pointer.version));
+    const ledger = await row(d, proj, "evidence", `evidence:blurred ${itemId} · ${vc.areas} area(s) · ${method}`, who, L.blurredValue(packId, next, { ...vc, tools }, pointer.version));
     return { item: next, copy: vc, pack_version: pointer.version, ledger };
   } catch (e) {
     if (made && dst) try { d.unlink(dst); } catch { /* the sweep or the next try replaces it */ } // a copy no pack names is not left behind

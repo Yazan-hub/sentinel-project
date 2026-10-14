@@ -259,6 +259,7 @@ export function readBoxes(b = {}) {
   });
   const sh = b.shown; // the size the marker showed the photo at (naturalWidth × naturalHeight); blur.py refuses a photo whose upright size differs
   if (sh !== undefined && !(isObj(sh) && [sh.w, sh.h].every((v) => Number.isInteger(v) && v >= 1 && v <= 100000))) throw bad("shown", "must be {w, h}, whole pixels");
+  if (b.detected !== undefined) throw bad("detected", "is not accepted: the bridge records a face-detector run itself, a request cannot claim one"); // MA-7-16
   return { boxes, none_seen: none, ...(sh ? { shown: { w: sh.w, h: sh.h } } : {}) };
 }
 export const MAX_BOXES = 200;
@@ -687,9 +688,9 @@ export function validatePack(p) {
     if (x.view_copy !== undefined) { // MA-7-7: a photo's blurred copy — counts, never the boxes
       const v = x.view_copy, n = (k) => Number.isSafeInteger(v?.[k]) && v[k] >= 0;
       if (x.kind !== "photo" || !isObj(v) || !/^[0-9a-f]{64}$/.test(v.sha256) || !n("size_bytes") || !n("width") || !n("height") || !n("areas") || !n("faces") || !n("plates")
-        || v.faces + v.plates !== v.areas || v.method !== "person-marked" || !str(v.marked_by, 320) || !str(v.marked_at, 40) || !str(v.tool, 100)
+        || v.faces + v.plates !== v.areas || !["person-marked", "detector+person"].includes(v.method) || !str(v.marked_by, 320) || !str(v.marked_at, 40) || !str(v.tool, 100)
         || (v.none_seen !== undefined && (v.none_seen !== true || v.areas !== 0)) || (v.areas === 0 && v.none_seen !== true) || Math.max(v.width, v.height) > 2048)
-        throw bad(`${at}.view_copy`, "is a photo's blurred copy {sha256, size_bytes, width, height (long side at most 2048), areas = faces + plates, method person-marked, marked_by, marked_at, tool}; none_seen true exactly when no area was marked");
+        throw bad(`${at}.view_copy`, "is a photo's blurred copy {sha256, size_bytes, width, height (long side at most 2048), areas = faces + plates, method person-marked or detector+person, marked_by, marked_at, tool}; none_seen true exactly when no area was marked");
     }
     if (x.role !== undefined && x.role !== "context") throw bad(`${at}.role`, 'is "context" or absent'); // MA-7-12
     if (x.role === "context") { // MA-7-12: a web photo — the page's record exactly, no geometry, its file the blurred copy (amendment 18), a delete-by day

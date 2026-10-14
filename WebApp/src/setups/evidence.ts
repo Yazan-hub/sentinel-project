@@ -41,7 +41,7 @@ export interface EvidenceItem {
 }
 export interface ViewCopy {
   sha256: string; size_bytes: number; width: number; height: number; areas: number; faces: number; plates: number; none_seen?: boolean;
-  method: "person-marked"; marked_by: string; marked_at: string; tool: string;
+  method: "person-marked" | "detector+person"; marked_by: string; marked_at: string; tool: string;
 }
 /** MA-4b: an "ask the owner" request as the pack keeps it — the letter is what was drafted (Sentinel sends nothing). */
 export interface EvidenceRequest {

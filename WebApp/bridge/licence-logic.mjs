@@ -15,6 +15,8 @@ export const WEIGHTS = {
   "qwen3.6:latest": { digest: "3899b1c0e7c5", licence: "Apache-2.0" },
   "llava:latest": { digest: "8dd30f6b0cb1", licence: "Apache-2.0" },
   "llama3.2-vision:latest": { digest: "6f2f9757ae97", licence: "Llama-3.2-Community" },
+  // MA-7-16: YuNet 2023mar (opencv_zoo, MIT), face_detection_yunet_2023mar.onnx; digest = the first 12 hex of its sha256 (full: survey/blur.py YUNET_SHA)
+  "yunet:2023mar": { digest: "8f2383e4dd3c", licence: "MIT" },
 };
 
 const RANK = { allowed: 0, pending: 1, unknown: 2, banned: 3 };
