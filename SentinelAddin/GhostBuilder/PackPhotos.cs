@@ -1,6 +1,6 @@
 #nullable disable
-// MA-7-14: the photos Photo Massing may read - the project's evidence pack (GET /cde/:key/evidence/evp-0001), never a folder. Closes Photo Massing only:
-// Ghost Builder's LocalVisionReader still reads GhostSourceFolder for layer hints (no geometry) - owed as 7-28. A photo is read only
+// MA-7-14: the photos Photo Massing may read - the project's evidence pack (GET /cde/:key/evidence/evp-0001), never a folder. Photo Massing reads it (MA-7-14) and so do Ghost Builder's
+// layer hints (MA-7-28, LocalVisionReader.ReadPackAsync) - the pack is the only source of a photo. A photo is read only
 // as the pack's blurred copy (GET .../items/:id/view), and a changeset names each one as "ev-NNNN sha256:<copy sha256>" on its mass. Pure
 // (System.Text.Json only): tools/massing-check compiles it alone. The rule mirrors the bridge's usable(item, "read") (evidence-logic.mjs);
 // the bridge applies it again at filing (changesets-store photoPackRefusal), so this side only decides what to offer and say.

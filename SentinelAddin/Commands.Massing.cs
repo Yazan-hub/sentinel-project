@@ -20,7 +20,7 @@ namespace Sentinel.Commands;
 /// (MassingPlanner.Changeset). Nothing is placed until a person ticks and applies it in Review AI Proposals, which opens
 /// on it; Shell a Mass (2c) then turns the mass into typed walls, floors and a roof, one storey per level (MAS-1). A mass
 /// and levels are untyped, so no guideline or type catalogue is read here.
-/// MA-7-14 closes Photo Massing's folder only: Ghost Builder's LocalVisionReader still reads GhostSourceFolder (sketches and renders, as layer hints, no geometry) outside the pack - owed as 7-28.
+/// MA-7-14 closed Photo Massing's folder; MA-7-28 closed Ghost Builder's: its layer hints come from the same pack photos, never a folder.
 /// The governed answer to the Geopogo demo: the estimate is an explicit, reviewable input, not silent geometry
 /// that drifts.
 ///
@@ -187,7 +187,7 @@ public sealed class MassingFromImagesCommand : IExternalCommand
     }
 
     // MA-7-14: a pack photo's blurred copy through the bridge (a pool-thread read), accepted only when it is the copy the pack names (its sha256).
-    private static (byte[] Jpeg, string Error) CopyOf(BcfConfig cfg, string key, PackPhoto p)
+    internal static (byte[] Jpeg, string Error) CopyOf(BcfConfig cfg, string key, PackPhoto p)
     {
         var bytes = EvidenceClient.FetchCopy(cfg, key, PackPhotos.PackId, p.Id, out string err);
         if (bytes == null) return (null, $"its blurred copy could not be read ({err}) — {p.Id} not read");

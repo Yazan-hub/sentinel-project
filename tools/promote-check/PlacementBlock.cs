@@ -232,8 +232,15 @@ static partial class Check
         int cloudRef = massingCmd.IndexOf("LocalOnly.ModelUrlRefusal(settings.OllamaUrl, cloudOptIn: false)", StringComparison.Ordinal);
         Ok(cloudRef > 0 && cloudRef < massingCmd.IndexOf("EvidenceClient.FetchPack(", StringComparison.Ordinal),
            "MA-7-14: Photo Massing refuses a cloud model (cloudOptIn: false) before the pack is fetched or any image read");
-        Ok(massingCmd.Contains("LocalVisionReader") && massingCmd.Contains("7-28") && Src("GhostBuilder", "PackPhotos.cs").Contains("7-28"),
-           "MA-7-14 (amendment 27): the words name the open path - Ghost Builder's LocalVisionReader folder read, owed as 7-28");
+        // MA-7-28: Ghost Builder's photo hints are the pack's too - the folder image read is gone; the cloud refusal and the pack fetch come before any read; the receipt names the photos.
+        string lvr = Src("GhostBuilder", "LocalVisionReader.cs");
+        int ghostCloud = ghostCmd.IndexOf("LocalOnly.ModelUrlRefusal(settings.OllamaUrl, cloudOptIn: false)", StringComparison.Ordinal);
+        int ghostFetch = ghostCmd.IndexOf("EvidenceClient.FetchPack(", StringComparison.Ordinal);
+        Ok(ghostCloud > 0 && ghostFetch > ghostCloud && ghostCmd.IndexOf("vision.ReadPackAsync(packPhotos,", StringComparison.Ordinal) > ghostFetch
+           && !ghostCmd.Contains("CountImages") && !ghostCmd.Contains("ReadFolderAsync") && !lvr.Contains("Directory.") && !lvr.Contains("File.Read"),
+           "MA-7-28: Ghost Builder reads photo hints from the evidence pack only - refused off this PC before the pack is fetched; no folder image read remains");
+        Ok(ghostCmd.Contains("reader.Parameters[\"photos\"] = hintPhotos") && ghostCmd.Contains("copy_sha256 = x.CopySha256") && !ghostCmd.Contains("owed as 7-28") && !massingCmd.Contains("owed as 7-28"),
+           "MA-7-28: the Ghost Builder receipt names each hint photo (item id + copy sha256), as Photo Massing's does");
         Ok(Src("App.cs").Contains("from the evidence pack's admitted, blurred photos (Files ▸ Evidence)") && !Src("App.cs").Contains("in the scoped folder - they give"),
            "MA-7-14: the 2b tooltip names the evidence pack's photos, not a folder");
         string evc = Src("Coordination", "EvidenceClient.cs");

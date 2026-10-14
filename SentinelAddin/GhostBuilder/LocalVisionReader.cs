@@ -1,12 +1,11 @@
 #nullable disable
-// P2 SENSE (slice 2): read sketch/render IMAGES from the SCOPED folder and turn each into a short text
-// "hint" via a LOCAL vision model (Ollama), so the interpreter can use what a drawing DEPICTS — not just
-// layer names — to disambiguate. Images are HINTS, never dimensioned geometry (that stays DWG). Local +
-// offline; reads only inside the configured folder; best-effort (no VLM / no images -> "", build proceeds
+// P2 SENSE (slice 2) / MA-7-28: turn the evidence pack's admitted, BLURRED photos into short text "hints" via a LOCAL vision model
+// (Ollama), so the interpreter can use what a photo DEPICTS - not just layer names. The pack is the only source (never a folder): a photo is
+// read only as the blurred copy the bridge serves, sha-checked against the pack. Drawings are not read here - the bridge reads them with
+// sentinel-drawing. Hints are text for DWG layer mapping, never geometry (that stays DWG). Best-effort (no VLM / no photo -> "", build proceeds
 // text-only). No Revit API, so it's safe on the background thread like the mapping call.
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Text;
@@ -18,7 +17,6 @@ namespace Sentinel.GhostBuilder
 {
     public sealed class LocalVisionReader : IDisposable
     {
-        private static readonly string[] ImageExtensions = { ".png", ".jpg", ".jpeg", ".webp" };
         private const string HintPrompt =
             "This is an architectural drawing or sketch. In ONE short sentence, list the building elements " +
             "you can see (e.g. external walls, internal partitions, doors, windows, columns, a room layout). " +
@@ -38,50 +36,30 @@ namespace Sentinel.GhostBuilder
             _http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromMinutes(5) }; // local vision inference is slow
         }
 
-        /// <summary>Count image files in the scoped folder (so the caller can show a status only when there
-        /// is vision work to do). Never throws.</summary>
-        public static int CountImages(string folder)
+        /// <summary>MA-7-28: describe each of the evidence pack's admitted, blurred photos (up to <paramref name="maxImages"/>) as a short hint. The pack is
+        /// the only source - <paramref name="copyOf"/> gives a photo's blurred copy (already sha-checked against the pack), never a file of a folder.
+        /// <paramref name="onRead"/> is told each photo a hint came from. Never throws except on cancel; "" when no photo gave a hint, so the build proceeds text-only.</summary>
+        public async Task<string> ReadPackAsync(IReadOnlyList<PackPhoto> photos, Func<PackPhoto, (byte[] Jpeg, string Error)> copyOf, Action<PackPhoto> onRead = null, int maxImages = 4, CancellationToken ct = default)
         {
-            try { return string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder) ? 0 : Images(folder).Count; }
-            catch { return 0; }
-        }
-
-        /// <summary>Describe each image in the scoped folder as a short hint. Never throws; returns "" when
-        /// there are no images or the vision model is unavailable, so the build proceeds text-only.</summary>
-        public async Task<string> ReadFolderAsync(string folder, int maxImages = 4, CancellationToken ct = default)
-        {
-            if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder)) return string.Empty;
-
-            List<string> images;
-            try { images = Images(folder).Take(maxImages).ToList(); }
-            catch { return string.Empty; }
-            if (images.Count == 0) return string.Empty;
-
             var sb = new StringBuilder();
-            foreach (string img in images)
+            foreach (PackPhoto p in (photos ?? new List<PackPhoto>()).Take(maxImages))
             {
                 ct.ThrowIfCancellationRequested();
-                string hint = await DescribeAsync(img, ct).ConfigureAwait(false);
-                if (!string.IsNullOrWhiteSpace(hint))
-                    sb.Append('[').Append(Path.GetFileName(img)).Append("] ").Append(hint.Trim()).Append('\n');
+                var (jpeg, _) = copyOf(p);
+                if (jpeg == null) continue; // not fetched, or not the copy the pack names: not read
+                string hint = await DescribeAsync(jpeg, ct).ConfigureAwait(false);
+                if (string.IsNullOrWhiteSpace(hint)) continue;
+                onRead?.Invoke(p);
+                sb.Append('[').Append(p.Id).Append("] ").Append(hint.Trim()).Append('\n');
             }
             return sb.ToString().Trim();
         }
 
-        private static List<string> Images(string folder)
-        {
-            string root = Path.GetFullPath(folder);
-            return Directory.EnumerateFiles(folder, "*.*", SearchOption.AllDirectories)
-                .Where(f => Array.IndexOf(ImageExtensions, Path.GetExtension(f).ToLowerInvariant()) >= 0)
-                .Where(f => { try { return Path.GetFullPath(f).StartsWith(root, StringComparison.OrdinalIgnoreCase); } catch { return false; } })
-                .ToList();
-        }
-
-        private async Task<string> DescribeAsync(string imagePath, CancellationToken ct)
+        private async Task<string> DescribeAsync(byte[] copy, CancellationToken ct)
         {
             try
             {
-                string b64 = Convert.ToBase64String(File.ReadAllBytes(imagePath));
+                string b64 = Convert.ToBase64String(copy);
                 string payload = JsonSerializer.Serialize(new
                 {
                     model = _model,

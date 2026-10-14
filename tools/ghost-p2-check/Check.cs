@@ -377,6 +377,48 @@ static partial class Check
            && !Refused(() => new MassingVisionReader("llava", "https://models.example.com/api", cloudOptIn: true).Dispose()),
            "SEC-2: this PC's model is called, and a host elsewhere when this PC opted in");
 
+        // MA-7-28: Ghost Builder's layer hints come from the evidence pack's photos only - never from an image of a folder.
+        {
+            string vsrc = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "SentinelAddin", "GhostBuilder", "LocalVisionReader.cs"));
+            Ok(!vsrc.Contains("Directory.") && !vsrc.Contains("File.Read") && !vsrc.Contains("CountImages") && !vsrc.Contains("ReadFolderAsync") && !vsrc.Contains("using System.IO;"),
+               "MA-7-28: LocalVisionReader holds no folder or file read (no Directory/File, CountImages, ReadFolderAsync)");
+            using var fake = new System.Net.HttpListener();
+            int port = 0;
+            for (int tries = 0; tries < 20 && !fake.IsListening; tries++)
+            {
+                port = 20000 + new Random().Next(30000);
+                fake.Prefixes.Clear(); fake.Prefixes.Add($"http://127.0.0.1:{port}/");
+                try { fake.Start(); } catch (System.Net.HttpListenerException) { }
+            }
+            var served = Task.Run(async () =>
+            {
+                while (fake.IsListening)
+                {
+                    try
+                    {
+                        var ctx = await fake.GetContextAsync();
+                        var reply = System.Text.Encoding.UTF8.GetBytes("{\"response\":\"external walls and a door\"}");
+                        ctx.Response.OutputStream.Write(reply, 0, reply.Length); ctx.Response.Close();
+                    }
+                    catch { break; }
+                }
+            });
+            var pack = new[] { "ev-0001", "ev-0002", "ev-0003" }.Select(i => new PackPhoto { Id = i, CopySha256 = "x" }).ToList();
+            var asked = new List<string>();
+            var read = new List<string>();
+            using (var vr = new LocalVisionReader("llava", $"http://127.0.0.1:{port}/api/generate"))
+            {
+                string packHints = vr.ReadPackAsync(pack, p => { asked.Add(p.Id); return p.Id == "ev-0002" ? (null, "no copy") : (new byte[] { 1, 2, 3 }, null); }, p => read.Add(p.Id)).GetAwaiter().GetResult();
+                Ok(asked.Count == 3 && read.SequenceEqual(new[] { "ev-0001", "ev-0003" }) && vr.Usage.Calls == 2
+                   && packHints == "[ev-0001] external walls and a door\n[ev-0003] external walls and a door",
+                   "MA-7-28: hints are made only from the pack photos whose copy came (a copy-less photo is not sent), named by item id - never a file name");
+                string none = vr.ReadPackAsync(null, p => (null, null)).GetAwaiter().GetResult();
+                Ok(none == "", "MA-7-28: no pack photo -> no hint, text-only");
+            }
+            fake.Stop();
+            try { served.GetAwaiter().GetResult(); } catch { }
+        }
+
         Honest(); // MA-1a step 1: failure rule, family-type pick, review drop-down (Honest.cs)
 
         if (Environment.GetCommandLineArgs().Contains("--live")) LiveDryRun().GetAwaiter().GetResult();
