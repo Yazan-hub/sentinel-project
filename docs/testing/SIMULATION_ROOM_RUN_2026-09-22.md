@@ -3318,3 +3318,13 @@ Ceilings: the Holding Area still holds 195 Kladno elements (most scanned walls h
 | K-1d (Revit 2023) | Revit 2023 was granted and started, but fails at launch: `Missing schema folder: C:\Program Files\Common Files\Autodesk Shared\Revit Schemas 2023. Repair your installation` — a broken install, not Sentinel; it exited by itself | **blocked** — the founder repairs the 2023 install |
 
 Open after 7-14 (named in its words): Ghost Builder's `LocalVisionReader` still reads sketches/renders from `GhostSourceFolder` as layer-mapping text hints (never geometry) — **7-28** (MA-7 Next).
+
+## Session MA7 Next — 7-28 Ghost Builder hints from the pack only (2026-10-14 local ~10:40: the founder's "go"; merged eb3e0e3 — one review round, no serious findings, 9 minors fixed (hints kept in their own field so a photo alone starts no enrichment call; both vision readers built with cloudOptIn false; the receipt lists every photo sent); the add-in deployed 2021–2027 at 10:36 with every Revit closed; no bridge change, no web change; CI watched; Claude driving)
+
+| Row | What happened | Result |
+|---|---|---|
+| Code | `LocalVisionReader` no longer reads images from `GhostSourceFolder` (`CountImages`, `ReadFolderAsync` and the folder enumeration deleted); `ReadPackAsync` reads the pack's blurred photo copies through the bridge (sha-checked, via 7-14's `CopyOf`), hints named by item id; the Ghost Builder receipt carries `photos [{item, copy_sha256}]`; an off-PC/cloud model skips the photo hints before any fetch (logged); an unbound project logs "no project bound — no evidence photo hints"; DWG pickup from the folder unchanged; drawings are not read here (sentinel-drawing on the bridge already reads them) | **built** |
+| Pins | ghost-p2-check 136/136 (no Directory/File read in LocalVisionReader; a photo without a copy is never sent; hints by item id; empty pack → empty hints; AppendHints alone leaves HasEvidence false), promote-check 1237/1237, session-check 47/47, massing-check 69/69; builds 2021/2024/2025/2027 0 errors | **pass** |
+| GH-R | Revit: a Ghost Builder run with an image left in `GhostSourceFolder` reads nothing from it; with a blurred pack photo the hint is made and the receipt names it | **owed** — needs an own photo blurred in the local app first |
+
+With 7-28 every photo path in Sentinel goes through the evidence pack: Photo Massing (7-14), Ghost Builder hints (7-28), Choose by photo (7-9), confirm by photo (7-10).
