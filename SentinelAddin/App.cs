@@ -519,6 +519,8 @@ public sealed class App : IExternalApplication
             "Promote this model's walls, floors, roofs, ceilings, doors and windows to DD by the guideline, type catalogue and LOD matrix installed on its web project (or its office): retype to the exact catalogue type already loaded here, swap doors and windows to an office family type keeping their host, attach wall tops to story levels, and send every ambiguous element to a person with its reason. With no LOD matrix, walls only. Shows the plan first (No = read-only); files one reviewed changeset per storey. No type is ever created; each change is stamped, and an Undo of it is recorded on the ledger.");
         Sub(chain, "Sentinel_Provenance", "5 · Provenance", "Sentinel.Commands.ProvenanceCommand", "ghost",
             "Read where the selected (or picked) element came from — Sentinel's provenance stamp: source, source file sha256, CAD layer, the rule that typed it, the approver, the ledger row and the time. A stamp that came with a copy reads \"copied, not placed by Sentinel\". Reads only.");
+        Push(st, "Sentinel_Help", "Sentinel\nHelp", "Sentinel.Commands.HelpCommand", "help",
+            "Open the Sentinel help: every tool with steps and a short video. Hover any Sentinel button and press F1 to jump to its page.");
         Push(st, "Sentinel_Roi", "ROI\nDashboard", "Sentinel.Commands.RoiDashboardCommand", "roi",
             "Counts from this document's web project ledger — delivery gate runs, naming renames, family heals — priced only by the roi standard installed on the project (or its office); what writes no ledger row is listed as not counted.");
     }
@@ -529,7 +531,8 @@ public sealed class App : IExternalApplication
     // Build a push-button's data + its distinct icon (32 large / 16 small) from Resources by icon base name.
     private static PushButtonData Data(string name, string text, string className, string icon, string tooltip)
     {
-        var data = new PushButtonData(name, text, _asm, className) { ToolTip = tooltip };
+        var data = new PushButtonData(name, text, _asm, className) { ToolTip = tooltip, LongDescription = F1Hint };
+        data.SetContextualHelp(HelpFor(name));
         var large = Path.Combine(_resDir, icon + "32.png");
         var small = Path.Combine(_resDir, icon + "16.png");
         if (File.Exists(large)) data.LargeImage = LoadPng(large);
@@ -544,7 +547,8 @@ public sealed class App : IExternalApplication
     // A pulldown button (its dropdown groups related sub-commands via Sub()).
     private static PulldownButton Pull(RibbonPanel panel, string name, string text, string icon, string tooltip)
     {
-        var pd = new PulldownButtonData(name, text) { ToolTip = tooltip };
+        var pd = new PulldownButtonData(name, text) { ToolTip = tooltip, LongDescription = F1Hint };
+        pd.SetContextualHelp(HelpFor(name));
         var large = Path.Combine(_resDir, icon + "32.png");
         var small = Path.Combine(_resDir, icon + "16.png");
         if (File.Exists(large)) pd.LargeImage = LoadPng(large);
@@ -555,6 +559,19 @@ public sealed class App : IExternalApplication
     // A command inside a pulldown's dropdown.
     private static void Sub(PulldownButton parent, string name, string text, string className, string icon, string tooltip)
         => parent.AddPushButton(Data(name, text, className, icon, tooltip));
+
+    private const string F1Hint = "Press F1 for this tool's help page and short video.";
+
+    /// The deployed Help folder (next to the DLL); its pages are built by tools/help-gen.
+    internal static string HelpDir => Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)!, "Help");
+
+    // F1 on a button opens Help/<button name>.html, like Revit's own F1; a pulldown or a missing page opens the index.
+    private static ContextualHelp HelpFor(string name)
+    {
+        var page = Path.Combine(HelpDir, name + ".html");
+        if (!File.Exists(page)) page = Path.Combine(HelpDir, "index.html");
+        return new ContextualHelp(ContextualHelpType.Url, new Uri(page).AbsoluteUri);
+    }
 
     private static BitmapImage LoadPng(string path)
     {

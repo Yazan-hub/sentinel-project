@@ -112,3 +112,20 @@ public sealed class ShowRulesetCommand : IExternalCommand
         return Result.Succeeded;
     }
 }
+
+/// Opens the Sentinel help index (the per-tool pages open from F1 on each button).
+[Transaction(TransactionMode.ReadOnly)]
+public sealed class HelpCommand : IExternalCommand
+{
+    public Result Execute(ExternalCommandData c, ref string msg, ElementSet els)
+    {
+        var index = System.IO.Path.Combine(App.HelpDir, "index.html");
+        if (!System.IO.File.Exists(index))
+        {
+            TaskDialog.Show("Sentinel — Help", $"The help pages are not installed:\n{index}\n\nRebuild the add-in to deploy them.");
+            return Result.Failed;
+        }
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(index) { UseShellExecute = true });
+        return Result.Succeeded;
+    }
+}
