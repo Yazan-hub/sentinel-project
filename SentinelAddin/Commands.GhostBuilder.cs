@@ -189,7 +189,7 @@ public sealed class GhostBuilderCommand : IExternalCommand
         // model (settings.GhostModel) for what is left. The model is this PC's, or an https host this PC's config.json opts
         // in to (LocalOnly).
         string key = ProjectContext.For(doc).Key; // "" when unbound: every standard then reads "none — not bound"
-        // P2 SENSE (slice 1): read supporting docs (PDF/specs) from the SCOPED folder → context for the model.
+        // P2 SENSE (slice 1): read supporting docs (PDF/specs) from the scoped folder (documents only; photos come from the evidence pack) → context for the model.
         var evidence = GhostEvidence.FromFolder(settings.GhostSourceFolder);
         var llm = new LocalGhostBuilder(schemaJson, settings.GhostModel, settings.OllamaUrl, evidence.Context, settings.GhostCloudOptIn);
         GhostBuilderOrchestrator.Inputs inputs;
@@ -263,6 +263,7 @@ public sealed class GhostBuilderCommand : IExternalCommand
         // MA-1a item 8: the reader's own time and the sketch reader's usage, for the build:run receipt.
         var readerClock = new System.Diagnostics.Stopwatch();
         ModelUsage? visionUsage = null;
+        var hintPhotos = new List<PackPhoto>(); // MA-7-28: the pack photos a layer hint was read from (item id + blurred copy sha256), for the receipt; filled on the background thread, read at Build
 
         review.BuildRequested += (approved, levelId) =>
         {
@@ -277,6 +278,7 @@ public sealed class GhostBuilderCommand : IExternalCommand
             reader.Parameters["layers_read"] = inputs.Layers.Count;
             reader.Parameters["layers_ticked"] = approved.Mappings?.Count ?? 0;
             reader.Parameters["evidence_docs"] = evidence.Sources.Count;
+            reader.Parameters["photos"] = hintPhotos.OrderBy(x => x.Id, System.StringComparer.Ordinal).Select(x => new { item = x.Id, copy_sha256 = x.CopySha256 }).ToList(); // MA-7-28: the pack photos the layer hints came from
             reader.Parameters["layers_standard"] = standards!.LayersSource.Label;
             reader.Parameters["guideline"] = standards!.GuidelineSource.Label;
             reader.Parameters["type_catalogue"] = standards!.CatalogSource.Label;
@@ -376,17 +378,31 @@ public sealed class GhostBuilderCommand : IExternalCommand
                 orchestrator = new GhostBuilderOrchestrator(doc, mapper, minConfidence: 0, familyLibraryDir: libraryDir,
                                                             guideline: resolved.Guideline);
 
-                // P2 slice 2: read sketch/render images with the local vision model and fold their hints into
-                // the model's context. Best-effort + offline; no images / no VLM pulled -> silently skipped.
-                int imgCount = LocalVisionReader.CountImages(settings.GhostSourceFolder);
-                if (imgCount > 0)
+                // P2 slice 2 / MA-7-28: hints from the project's EVIDENCE PACK photos only (admitted, blurred copies through the bridge, sha-checked) -
+                // never an image of GhostSourceFolder. Drawings are not read here: the bridge reads them with sentinel-drawing. Best-effort: no pack /
+                // no photo / no VLM pulled -> text-only. A model off this PC reads no photo (refused before the pack is fetched, as Photo Massing does).
+                if (LocalOnly.ModelUrlRefusal(settings.OllamaUrl, cloudOptIn: false) != null)
+                    LogOnUi(progress, "Ghost Builder: evidence photos are read by a model on this PC only - no photo was read or sent");
+                else if (key.Length > 0)
                 {
-                    progress.SetStatus($"Reading {imgCount} sketch(es) with the vision model {LocalOnly.Where(settings.OllamaUrl)}…");
-                    using var vision = new LocalVisionReader(settings.GhostVisionModel, settings.OllamaUrl, settings.GhostCloudOptIn);
-                    string hints = await vision.ReadFolderAsync(settings.GhostSourceFolder, ct: progress.Token).ConfigureAwait(false);
-                    if (!string.IsNullOrWhiteSpace(hints)) llm.AppendEvidence(hints);
-                    visionUsage = vision.Usage;
+                    var cfg = BcfConfig.Load();
+                    string packJson = EvidenceClient.FetchPack(cfg, key, PackPhotos.PackId, out string packErr);
+                    var (packPhotos, packSkipped, packBad) = PackPhotos.Usable(packJson);
+                    if (packJson == null || packBad != null) LogOnUi(progress, "Ghost Builder: the evidence pack could not be read - " + (packErr ?? packBad) + " - no photo hints");
+                    else
+                    {
+                        foreach (var why in packSkipped) LogOnUi(progress, "Ghost Builder: " + why);
+                        if (packPhotos.Count > 0)
+                        {
+                            progress.SetStatus($"Reading {packPhotos.Count} evidence photo(s) with the vision model {LocalOnly.Where(settings.OllamaUrl)}…");
+                            using var vision = new LocalVisionReader(settings.GhostVisionModel, settings.OllamaUrl, cloudOptIn: false); // MA-7-28: the reader itself refuses off this PC too
+                            string hints = await vision.ReadPackAsync(packPhotos, p => MassingFromImagesCommand.CopyOf(cfg, key, p), onRead: p => hintPhotos.Add(p), ct: progress.Token).ConfigureAwait(false);
+                            if (!string.IsNullOrWhiteSpace(hints)) llm.AppendHints(hints); // MA-7-28: layer mapping only, not enrichment
+                            visionUsage = vision.Usage;
+                        }
+                    }
                 }
+                else LogOnUi(progress, "Ghost Builder: no project bound - no evidence photo hints"); // MA-7-28
 
                 progress.SetStatus(evidence.IsEmpty
                     ? $"Mapping CAD layers with the model {LocalOnly.Where(settings.OllamaUrl)}…"
@@ -396,7 +412,7 @@ public sealed class GhostBuilderCommand : IExternalCommand
                 // user aborted; window already closing — review (MA-5b-2): released, so the import this run made goes too
                 if (progress.Token.IsCancellationRequested) { CloseOnUi(progress, Release); return; }
 
-                // P2 (task 4/5): one more local call — read the project documents for parameter values that
+                // P2 (task 4/5) / MA-7-28: only DOCUMENTS of the scoped folder trigger this call (photo hints never do). One more local call — read the project documents for parameter values that
                 // belong on the mapped elements (a spec's "FR60" -> the wall's Fire Rating). Runs over the
                 // FINAL mapping set, so layers the deterministic BDS pass resolved get seeded too. No
                 // documents in the scoped folder -> no call, no change.
@@ -491,6 +507,9 @@ public sealed class GhostBuilderCommand : IExternalCommand
         GhostChangesetBuild.DropImport(doc, id);
         t.Commit();
     }
+
+    // MA-7-28: a line for the Doctor log from the background thread (the panel's list belongs to the UI thread).
+    private static void LogOnUi(GhostBuilderProgressWindow w, string line) => w.Dispatcher.Invoke(() => App.PanelVm?.LogDoctor(line));
 
     private static void CloseOnUi(GhostBuilderProgressWindow w, System.Action release) =>
         w.Dispatcher.Invoke(() => { release(); w.Close(); });

@@ -94,7 +94,8 @@ namespace Sentinel.GhostBuilder
         // with no code change. Data never leaves the machine on this path.
         private readonly string _ollamaUrl;
         private readonly string _model;
-        private string _evidence; // P2: scoped-folder document + vision context (empty -> none); appendable
+        private string _evidence; // P2: scoped-folder DOCUMENT context (empty -> none); feeds layer mapping AND parameter enrichment
+        private string _hints;    // MA-7-28: evidence-pack photo hints; layer mapping ONLY - never HasEvidence, never EnrichParamsAsync
 
         private readonly HttpClient _http;
         private readonly string _schema; // optional caller-supplied JSON schema; empty -> DefaultSchema
@@ -140,15 +141,15 @@ namespace Sentinel.GhostBuilder
             _http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromMinutes(5) }; // local inference is slow
         }
 
-        /// <summary>P2 slice 2: add vision-model hints (from LocalVisionReader) to the document context on the
-        /// background thread, before the mapping call. Safe to call once between construction and MapLayersAsync.</summary>
-        public void AppendEvidence(string more)
+        /// <summary>MA-7-28: add the evidence pack's photo hints (from LocalVisionReader.ReadPackAsync) for the LAYER MAPPING prompt only, on the
+        /// background thread, before the mapping call. They never count as document evidence, so a photo alone starts no parameter-enrichment call.</summary>
+        public void AppendHints(string more)
         {
             if (string.IsNullOrWhiteSpace(more)) return;
-            _evidence = string.IsNullOrWhiteSpace(_evidence) ? more : _evidence + "\n\n" + more;
+            _hints = string.IsNullOrWhiteSpace(_hints) ? more : _hints + "\n\n" + more;
         }
 
-        /// <summary>True when the scoped folder yielded document/vision context — i.e. there is something
+        /// <summary>True when the scoped folder yielded DOCUMENT context (photo hints do not count, MA-7-28) — i.e. there is something
         /// for EnrichParamsAsync to read parameters out of.</summary>
         public bool HasEvidence => !string.IsNullOrWhiteSpace(_evidence);
 
@@ -170,9 +171,10 @@ namespace Sentinel.GhostBuilder
 
             // P2: prepend scoped-folder document context so the model can disambiguate messy layer names
             // (and, later, seed parameters) from the project's own specs/schedules.
-            if (!string.IsNullOrWhiteSpace(_evidence))
+            string context = string.Join("\n\n", new[] { _evidence, _hints }.Where(x => !string.IsNullOrWhiteSpace(x))); // MA-7-28: documents + evidence-pack photo hints
+            if (context.Length > 0)
                 prompt = "PROJECT DOCUMENTS (context to interpret ambiguous layer names and their category):\n"
-                         + _evidence + "\n\n" + prompt;
+                         + context + "\n\n" + prompt;
 
             // Send the schema in Ollama's `format` field so decoding is constrained to our shape.
             // A caller-supplied schema (from settings) wins; otherwise the built-in default is used.

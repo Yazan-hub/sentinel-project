@@ -3,7 +3,7 @@
 // compact text "evidence" blob that enriches the model's layer interpretation — e.g. a spec's "FR60 external
 // walls" helps categorise an ambiguous layer. Reads ONLY within the configured folder (path-scoped); never
 // touches the rest of the disk, never the network. Local + offline (DocumentTextReader / PdfPig). No Revit
-// API, so it's safe to run off the API thread. Images (sketches/renders) are P2 slice 2 (local vision).
+// API, so it's safe to run off the API thread. Photos come from the evidence pack (LocalVisionReader.ReadPackAsync, MA-7-28), never from this folder.
 using System;
 using System.Collections.Generic;
 using System.IO;
