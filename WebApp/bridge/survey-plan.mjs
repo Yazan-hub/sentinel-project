@@ -670,9 +670,12 @@ export function orientedBox(points, pad) {
   }
   // MA-8-14 review: a box within SNAP_DEG of a plan axis is put on it (re-measured over the hull, growing by at most length·sin 0.5° - inside the pad): scan-fitted
   // walls leave a skew of hundredths of a degree, and a hole line that far off axis is Revit's "slightly off axis" warning, which the spike saw come up modal (F-K1-1)
-  const q = Math.atan2(best.uy, best.ux), k = Math.round(q / (Math.PI / 2)) * (Math.PI / 2);
+  // MA-8-14 fix (F-K1c-2): the 45-degree diagonals count too - Revit's off-axis check also fired on lines at 44.8 (41 warnings on Kladno's walls) and on the hole
+  // at 45.1616/134.8383 (commit refused), so the snap goes to the nearest multiple of 45 degrees; the box is re-measured at the snapped angle, as before
+  const q = Math.atan2(best.uy, best.ux), n = Math.round(q / (Math.PI / 4)), k = n * (Math.PI / 4);
   if (Math.abs(q - k) < SNAP_DEG * Math.PI / 180) {
-    const ux = Math.round(Math.cos(k)), uy = Math.round(Math.sin(k)), a = hull[0];
+    const c = n % 2 === 0 ? [Math.round(Math.cos(k)), Math.round(Math.sin(k))] : [Math.sign(Math.cos(k)) * Math.SQRT1_2, Math.sign(Math.sin(k)) * Math.SQRT1_2];
+    const [ux, uy] = c, a = hull[0];
     const s = hull.map((p) => (p[0] - a[0]) * ux + (p[1] - a[1]) * uy), t = hull.map((p) => -(p[0] - a[0]) * uy + (p[1] - a[1]) * ux);
     best = { s0: Math.min(...s), s1: Math.max(...s), t0: Math.min(...t), t1: Math.max(...t), ux, uy, a };
   }
