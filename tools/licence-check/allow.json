@@ -35,7 +35,6 @@
     "Nice3point.Revit.Api.RevitAPIUI": { "licence": "compile-time reference assemblies of Autodesk's Revit API (not shipped)" }
   },
   "pending": {
-    "Intel MKL (named in ThirdPartyNotices.txt)": { "read": "Intel Simplified Software License: named in onnxruntime 1.26.0's notices, no MKL library is in the CPU wheel; the founder confirms", "decision": "D-7-16" },
     "@markerjs/markerjs3": { "read": "SEE LICENSE IN LICENSE (Linkware: show its credit link, buy, or drop it; imported in src/main.ts only)", "decision": "D-7-16" },
     "fast-sha256": { "read": "Unlicense: accept, or swap for Web Crypto", "decision": "D-7-16" },
     "duck": { "read": "BSD: read its text", "decision": "D-7-16" },
@@ -43,6 +42,7 @@
     "Nice3point.Revit.Api.RevitAPIUI": { "read": "compile-only reference assemblies, not shipped", "decision": "D-7-16" }
   },
   "accepted": {
+    "Intel MKL (named in ThirdPartyNotices.txt)": "Intel Simplified Software License: named in onnxruntime 1.26.0's notices; no MKL library is in the CPU wheel (only onnxruntime.dll and onnxruntime_providers_shared.dll). The founder accepted it 2026-10-14 (\"accept MKL\", D-7-16)",
     "onnxruntime": "MIT (its LICENSE); ThirdPartyNotices.txt read for MA-7-16: no GPL/LGPL part, Eigen is MPL-2.0 (file-level copyleft, unmodified), Intel MKL is named in the notices but the CPU wheel ships only onnxruntime.dll and onnxruntime_providers_shared.dll",
     "pillow": "MIT-CMU: the founder OK'd it 2026-10-13 (D-7-2); the wheel's licence file was read for MA-7-7 and no GPL-only part is in process",
     "FreeType": "FTL (BSD-style, credit required), the licence Pillow's wheel uses it under rather than the GPLv2 alternative; read in pillow-12.3.0.dist-info/licenses/LICENSE (MA-7-7)",
