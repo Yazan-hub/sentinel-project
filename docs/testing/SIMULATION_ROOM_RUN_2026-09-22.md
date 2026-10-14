@@ -3328,3 +3328,10 @@ Open after 7-14 (named in its words): Ghost Builder's `LocalVisionReader` still 
 | GH-R | Revit: a Ghost Builder run with an image left in `GhostSourceFolder` reads nothing from it; with a blurred pack photo the hint is made and the receipt names it | **owed** — needs an own photo blurred in the local app first |
 
 With 7-28 every photo path in Sentinel goes through the evidence pack: Photo Massing (7-14), Ghost Builder hints (7-28), Choose by photo (7-9), confirm by photo (7-10).
+
+## Session MA7 — the two founder-free checks (2026-10-14 local ~11:00: the founder's "both"; read-only on the installed wheel and the YuNet model; no download, no Revit, no server; Claude driving)
+
+| Row | What happened | Result |
+|---|---|---|
+| K-2b pycolmap licence (7-15, 7-17 gate) | The bundled `cholmod-*.dll` in `%APPDATA%\Sentinel\photo-lib\pycolmap.libs` exports 288 `cholmod_*` symbols, 19 of them from the **Supernodal** (`cholmod_super_numeric`, `cholmod_super_symbolic`, `cholmod_super_solve` …) and **MatrixOps** (`cholmod_ssmult`, `cholmod_sdmult`, `cholmod_horzcat` …) modules — GPL-2.0+ in SuiteSparse (Core/Check/Cholesky/Partition are LGPL); `spqr-*.dll` (SPQR) is GPL-2.0+ entirely; `amd/camd/colamd/ccolamd` are BSD-3. No licence text inside the DLLs. So the wheel links GPL code (ceres' sparse solvers). pycolmap entered in the gate's `pending` with the read; it runs on the office PC only and nothing of it is shipped | **read — founder decides** (D-7-16); 7-17 held |
+| FD-0 YuNet decode (7-16) | Two synthetic face-like images (skin oval, eyes, brows, nose, mouth; no real photo) at known places on a 1000 × 700 canvas → `blur.detect`: one box each, centred within ~15 px of the drawn face, scores 0.824 / 0.869; the box moved with the face. The 12-tensor order and the grid/exp decode are right | **pass** |

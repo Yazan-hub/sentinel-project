@@ -39,7 +39,8 @@
     "fast-sha256": { "read": "Unlicense: accept, or swap for Web Crypto", "decision": "D-7-16" },
     "duck": { "read": "BSD: read its text", "decision": "D-7-16" },
     "Nice3point.Revit.Api.RevitAPI": { "read": "compile-only reference assemblies, not shipped", "decision": "D-7-16" },
-    "Nice3point.Revit.Api.RevitAPIUI": { "read": "compile-only reference assemblies, not shipped", "decision": "D-7-16" }
+    "Nice3point.Revit.Api.RevitAPIUI": { "read": "compile-only reference assemblies, not shipped", "decision": "D-7-16" },
+    "pycolmap": { "read": "4.2.1 cp314 wheel, BSD-3-Clause itself; read 2026-10-14 (MA-7-15): its bundled cholmod DLL exports the SuiteSparse Supernodal and MatrixOps modules (GPL-2.0+; only Core/Check/Cholesky/Partition are LGPL) and spqr is GPL-2.0+, so the wheel links GPL code via ceres. Installed in %APPDATA%\\Sentinel\\photo-lib for the office PC only; nothing of it is shipped. 7-17 does not ship until the founder decides", "decision": "D-7-16" }
   },
   "accepted": {
     "Intel MKL (named in ThirdPartyNotices.txt)": "Intel Simplified Software License: named in onnxruntime 1.26.0's notices; no MKL library is in the CPU wheel (only onnxruntime.dll and onnxruntime_providers_shared.dll). The founder accepted it 2026-10-14 (\"accept MKL\", D-7-16)",
