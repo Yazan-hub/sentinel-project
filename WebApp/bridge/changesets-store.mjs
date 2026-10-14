@@ -138,7 +138,27 @@ export async function proposeChangeset(key, body, actor, deps) {
     ? (await standardOf(key, "type_catalog", d).catch(() => ({ body: null }))).body : null;
   const core = catalog ? await import("./sentinel-core.mjs") : null;
   const v = validateChangeset(body, { member: role != null && role !== "service", type, cite, catalog, sameCategory: core?.sameCategory }); // 400/413 before any changeset is stored
+  if (String(v.source).toLowerCase() === "photo") await photoPackRefusal(v.elements, key, deps); // MA-7-14: Photo Massing read the pack's blurred copies, nothing else
   return fileValidated(d, key, v, body, actor);
+}
+
+/** MA-7-14 (D-7-27, amendment 28): a source:"photo" changeset names the photos it read - each element's evidence is "ev-NNNN sha256:<copy sha>" - and each must be
+ *  an item of the pack that usable(i, "read") accepts (admitted, own, blurred; a web photo never) with that copy's sha. Otherwise a 409, nothing filed.
+ *  ponytail: the claim is the add-in's own (the bridge cannot tell it from another holder of the credential); it keeps a free folder from being walked into the filing by mistake. */
+export async function photoPackRefusal(elements, key, deps = {}) {
+  const words = (what) => `Photo Massing read photos that are not admitted, blurred evidence (${what}…) — admit them in Files ▸ Evidence and blur them; nothing was filed`;
+  const named = [...new Set(elements.flatMap((e) => e.evidence ?? []))];
+  if (!named.length) throw err(409, words("none named").replace("…)", ")"));
+  const readPack = deps.readPack ?? (await import("./evidence-store.mjs")).readPack;
+  const { pack } = await readPack(key, PACK_ID).catch((e) => { if (e.status === 404 || e.status === 409) e.message += "; nothing was filed"; throw e; });
+  for (const n of named) {
+    const m = /^(ev-[0-9A-Za-z]+) sha256:([0-9a-f]{64})$/.exec(n);
+    const it = m && pack.items.find((x) => x.id === m[1]);
+    if (!it) throw err(409, words(m ? m[2].slice(0, 12) : String(n).slice(0, 12)));
+    const why = usable(it, "read");
+    if (why) throw err(409, why.replace(/; nothing was read$/, "; nothing was filed"));
+    if (it.view_copy.sha256 !== m[2]) throw err(409, words(m[2].slice(0, 12)));
+  }
 }
 
 /** MA-4d: the filing of a validated changeset — the earlier changesets read, the referee, the carried declines, the doc, ONE

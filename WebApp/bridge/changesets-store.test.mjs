@@ -2570,3 +2570,41 @@ describe("proposeChangeset — a terrain from a scan (MA-8-14)", () => {
     expect(posted.docInsert).not.toHaveBeenCalled();
   });
 });
+
+describe("MA-7-14 Photo Massing reads the pack", () => {
+  const F = JSON.parse(readFileSync(new URL("./fixtures/changeset-ops/photo-massing-evidence.json", import.meta.url), "utf8"));
+  const item = (over = {}) => ({ id: F.item, kind: "photo", state: "admitted", role: "own", view_copy: { sha256: F.copy_sha256 }, ...over });
+  const withPack = (...items) => ({ ...baseDeps(), readPack: vi.fn(async () => ({ pack: { items } })) });
+  const body = (evidence) => { const b = structuredClone(F.body); if (evidence === undefined) delete b.elements[0].evidence; else b.elements[0].evidence = evidence; return b; };
+  const NOT = (what) => `Photo Massing read photos that are not admitted, blurred evidence (${what}…) — admit them in Files ▸ Evidence and blur them; nothing was filed`;
+  const refused = async (d, b, message) => {
+    await expect(proposeChangeset("demo", b, "agent", d)).rejects.toMatchObject({ status: 409, message });
+    expect([d.docInsert.mock.calls.length, d.audit.mock.calls.length, d.adjudicateProposal.mock.calls.length]).toEqual([0, 0, 0]);
+  };
+  it("files a photo changeset whose photos are admitted, blurred items, and keeps the evidence on the mass (PM-1)", async () => {
+    const d = withPack(item());
+    const cs = await proposeChangeset("demo", body([F.evidence]), "agent", d);
+    expect(cs.source).toBe("photo");
+    expect(cs.elements[0].evidence).toEqual([F.evidence]);
+    expect(d.readPack).toHaveBeenCalledWith("demo", "evp-0001");
+  });
+  it("refuses a sha the pack does not hold, an unknown item, a malformed entry and an empty list, in the PM-1 words", async () => {
+    const other = "ab".repeat(32);
+    await refused(withPack(item()), body([`ev-000C sha256:${other}`]), NOT("abababababab"));
+    await refused(withPack(item()), body([`ev-0099 sha256:${F.copy_sha256}`]), NOT(F.copy_sha256.slice(0, 12)));
+    await refused(withPack(item()), body(["ev-000C"]), NOT("ev-000C"));
+    await refused(withPack(item()), body([]), NOT("none named").replace("…)", ")"));
+    await refused(withPack(item()), body(undefined), NOT("none named").replace("…)", ")"));
+  });
+  it("refuses a photo that is not usable to read: no blurred copy, expired, changed, a web (context) photo — nothing is filed", async () => {
+    await refused(withPack(item({ view_copy: undefined })), body([F.evidence]), `${F.item} has no blurred copy yet — mark its faces and number plates first (Mark faces and plates); nothing was filed`);
+    await refused(withPack(item({ state: "changed" })), body([F.evidence]), expect.stringContaining(`${F.item} changed since it was admitted`));
+    await refused(withPack(item({ state: "expired", expired_at: "2026-10-01T00:00:00Z" })), body([F.evidence]), expect.stringContaining("expired on 2026-10-01"));
+    await refused(withPack(item({ role: "context" })), body([F.evidence]), `${F.item} is a web photo — context only; it is not read by a model or used for geometry; nothing was filed`);
+  });
+  it("a changeset of another source does not read the pack", async () => {
+    const d = withPack();
+    await proposeChangeset("demo", { name: "x", source: "agent", elements: [structuredClone(F.body.elements[0])] }, "agent", d);
+    expect(d.readPack).not.toHaveBeenCalled();
+  });
+});

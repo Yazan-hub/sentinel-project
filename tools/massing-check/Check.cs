@@ -238,7 +238,7 @@ static class Check
         foreach (var v in new[] { m.FootprintWidthMm, m.FootprintDepthMm, m.Storeys, m.StoreyHeightMm }.Concat(m.Openings.SelectMany(o => new[] { o.WidthMm, o.HeightMm })))
             v.Source = "user"; // the reviewer replaced every number
         Ok(before && !MassingPlanner.HasModelValue(empty) && !MassingPlanner.HasModelValue(MassingPlanner.Validate(m)) && !MassingPlanner.HasModelValue(null),
-           "an estimate the vision model gave nothing for (Ollama down), or one the reviewer replaced, names no images (MA-6-6: the receipt's images_sha256 is null then)");
+           "an estimate the vision model gave nothing for (Ollama down), or one the reviewer replaced, names no images (MA-6-6: the receipt's photos is null then)");
         Ok(Body(new List<(string, double, bool)>()).GetProperty("elements").EnumerateArray().Last().GetProperty("reason").GetString()
               == "Photo Massing: 12.0 × 8.0 m, 3 storeys of 3200 mm — width given, depth given, storeys given, storey height given",
            "the mass's reason says in the marks where a number came from (review fix: not the source code \"user\"; MA-6-9: given)");
@@ -321,6 +321,41 @@ static class Check
         var lonely = JsonDocument.Parse(JsonSerializer.Serialize(MassingPlanner.Changeset(mf, new List<(string, double, bool)>(), "a@example.test", new Footprint { Loop = L, From = "x" }).Body)).RootElement;
         Ok(lonely.GetProperty("elements").EnumerateArray().Last().GetProperty("reason").GetString().Contains("centre at (15000, 10000) mm"), "a footprint with no picked point: the pivot is the outline's own centre");
         Ok(MassingPlanner.CadName("A\nB" + new string('x', 100)).Length == 64 && !MassingPlanner.CadName("A\nB").Contains('\n'), "a CAD layer name is one line, at most 64 characters");
+
+        // MA-7-14: Photo Massing reads the evidence pack's admitted, blurred photos (never a folder), and the mass names each by id + copy sha256.
+        var fx = JsonDocument.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "photo-massing-evidence.json"))).RootElement;
+        string fxSha = fx.GetProperty("copy_sha256").GetString(), fxEvidence = fx.GetProperty("evidence").GetString();
+        string PackItem(string id, string kind, string extra) => "{\"id\":\"" + id + "\",\"kind\":\"" + kind + "\"" + extra + "}";
+        string vcopy(string sha) => ",\"view_copy\":{\"sha256\":\"" + sha + "\"}";
+        string packJson = "{\"pack\":{\"items\":[" + string.Join(",",
+            PackItem("ev-000C", "photo", ",\"state\":\"admitted\",\"role\":\"own\"" + vcopy(fxSha)),
+            PackItem("ev-000A", "photo", ",\"state\":\"admitted\""),
+            PackItem("ev-000B", "photo", ",\"role\":\"context\"" + vcopy(fxSha)),
+            PackItem("ev-0009", "photo", ",\"state\":\"expired\"" + vcopy(fxSha)),
+            PackItem("ev-000D", "photo", ",\"state\":\"changed\"" + vcopy(fxSha)),
+            PackItem("ev-0001", "scan", vcopy(fxSha))) + "]}}";
+        var usable = PackPhotos.Usable(packJson);
+        Ok(usable.Error == null && usable.Read.Select(x => x.Id).SequenceEqual(new[] { "ev-000C" }) && usable.Read[0].CopySha256 == fxSha,
+           "PM-2: only the pack's admitted, own photo with a blurred copy is offered (a scan, a changed or expired photo, a web photo, a copy-less photo are not)");
+        Ok(usable.Skipped.Contains("ev-000A has no blurred copy — blur it in Files ▸ Evidence; not read")
+           && usable.Skipped.Contains("ev-000B is a web photo — context only; not read") && usable.Skipped.Count == 4,
+           "PM-3: a photo with no blurred copy is named in the exact words; a web, expired and changed photo are named too");
+        Ok(PackPhotos.Evidence(usable.Read[0]) == fxEvidence && PackPhotos.Usable("{}").Error != null && PackPhotos.Usable("nope").Error == "the answer was not JSON",
+           "the evidence a mass names is the shared fixture's \"ev-NNNN sha256:<copy sha>\"; an answer that is not a pack is an error, not an empty pack");
+        var photoBytes = new byte[] { 1, 2, 3 };
+        string photoSha;
+        using (var h = System.Security.Cryptography.SHA256.Create()) photoSha = BitConverter.ToString(h.ComputeHash(photoBytes)).Replace("-", "").ToLowerInvariant();
+        Ok(PackPhotos.IsCopy(photoBytes, new PackPhoto { Id = "ev-1", CopySha256 = photoSha }) && !PackPhotos.IsCopy(photoBytes, new PackPhoto { Id = "ev-1", CopySha256 = fxSha }) && !PackPhotos.IsCopy(null, usable.Read[0]),
+           "PM-2: the bytes the bridge sends are used only when they hash to the copy the pack names");
+        Ok(PackPhotos.NoneWords(new List<string>()).StartsWith("The project's evidence pack holds no admitted, blurred photo — admit photos in Files ▸ Evidence and blur them")
+           && PackPhotos.NoneWords(usable.Skipped).EndsWith("Nothing was read.") && PackPhotos.NoneWords(usable.Skipped).Contains("ev-000A has no blurred copy"),
+           "nothing to read is said in words, with each photo's reason");
+        var withEv = JsonDocument.Parse(JsonSerializer.Serialize(MassingPlanner.Changeset(m, new List<(string, double, bool)>(), "a@example.test", null, new[] { fxEvidence }).Body)).RootElement;
+        var withEls = withEv.GetProperty("elements").EnumerateArray().ToList();
+        Ok(withEls.Last().GetProperty("evidence").EnumerateArray().Select(e => e.GetString()).SequenceEqual(new[] { fxEvidence })
+           && withEls.Where(e => e.GetProperty("kind").GetString() == "level").All(e => !e.TryGetProperty("evidence", out _))
+           && fx.GetProperty("body").GetProperty("elements")[0].GetProperty("evidence")[0].GetString() == fxEvidence,
+           "PM-2: the mass element carries evidence [\"ev-NNNN sha256:<copy sha>\"] (the bridge test posts the same string from the shared fixture); levels carry none");
 
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;

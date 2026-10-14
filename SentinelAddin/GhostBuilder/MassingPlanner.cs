@@ -349,8 +349,8 @@ namespace Sentinel.GhostBuilder
         /// Level.Elevation mm, IsStory) within ±LevelTolMm; otherwise it is a level create named "Massing Lii" — " (2)", " (3)"… while
         /// any level holds the name, case aside (a duplicate name fails the changeset, D16). Then one mass: the W × D rectangle centred on
         /// 0,0 from e(0) to e(n), in the same frame (amendment 3). Source photo, never a pre-tick (the bridge pre-ticks no create). Over
-        /// MaxElements, a mass over MaxMassMm, or a Building Story level between two of its storeys (the shell would cut it) is refused. Anonymous objects only: massing-check and ghost-p2-check compile this file alone (amendment 4).</summary>
-        public static (object Body, string Refusal) Changeset(MassingEstimate m, IReadOnlyList<(string Name, double ElevationMm, bool IsStory)> levels, string actor, Footprint fp = null)
+        /// MaxElements, a mass over MaxMassMm, or a Building Story level between two of its storeys (the shell would cut it) is refused. MA-7-14: the mass carries <paramref name="evidence"/> - the pack photos it was read from (PackPhotos.Evidence), which the bridge checks. Anonymous objects only: massing-check and ghost-p2-check compile this file alone (amendment 4).</summary>
+        public static (object Body, string Refusal) Changeset(MassingEstimate m, IReadOnlyList<(string Name, double ElevationMm, bool IsStory)> levels, string actor, Footprint fp = null, IReadOnlyList<string> evidence = null)
         {
             double W = m.FootprintWidthMm.Value, D = m.FootprintDepthMm.Value, h = m.StoreyHeightMm.Value;
             int n = Math.Max(1, (int)Math.Round(m.Storeys.Value));
@@ -418,6 +418,7 @@ namespace Sentinel.GhostBuilder
                     ? $"Photo Massing: {where}; {StoreyCount(n)} of {Mm(h)} mm — storeys {From(m.Storeys)}, storey height {From(m.StoreyHeightMm)}"
                     : $"Photo Massing: {size}, {StoreyCount(n)} of {Mm(h)} mm — width {From(m.FootprintWidthMm)}, depth {From(m.FootprintDepthMm)}, storeys {From(m.Storeys)}, storey height {From(m.StoreyHeightMm)}" + (where == "" ? "" : "; " + where),
                 validate = new { identity = new { Class = "IFCBUILDINGELEMENTPROXY", Name = "Photo mass" } },
+                evidence, // MA-7-14
             });
             return (new { name = $"Photo Massing · {StoreyCount(n)} · {size}", source = "photo", actor, elements }, null);
         }

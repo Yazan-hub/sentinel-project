@@ -226,7 +226,7 @@ static partial class Check
         Ok(ghostOption > 0 && ghostCmd.IndexOf("new DwgPickWindow(", StringComparison.Ordinal) > ghostOption,
            "Ghost Builder refuses a design option before a drawing is picked or imported");
         int massingOption = massingCmd.IndexOf("PlacementApply.DesignOptionRefusal(doc, \"run Photo Massing\")", StringComparison.Ordinal);
-        Ok(massingOption > 0 && massingCmd.IndexOf("string folder = settings.GhostSourceFolder;", StringComparison.Ordinal) > massingOption,
+        Ok(massingOption > 0 && massingCmd.IndexOf("EvidenceClient.FetchPack(", StringComparison.Ordinal) > massingOption,
            "Photo Massing refuses a design option before an image is read");
 
         // The office-template check: the two commands that load the catalogue count, refuse at none, and say the count (MA-6-6: Photo

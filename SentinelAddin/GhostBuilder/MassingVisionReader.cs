@@ -20,9 +20,7 @@ namespace Sentinel.GhostBuilder
 {
     public sealed class MassingVisionReader : IDisposable
     {
-        private static readonly string[] ImageExtensions = { ".png", ".jpg", ".jpeg", ".webp" };
-
-        // MA-6-9: the prompt and schema p1_measure.py measured (row P-1) — verbatim.
+                // MA-6-9: the prompt and schema p1_measure.py measured (row P-1) — verbatim.
         private const string Prompt =
             "Look at the tallest building in this photo. Count its storeys: the horizontal floor bands from the ground to the roof, " +
             "the ground storey included. Set full_height true only if both its base and its roof are inside the photo. " +
@@ -56,40 +54,33 @@ namespace Sentinel.GhostBuilder
         /// <summary>MA-1a item 8: this model's calls, answers and token counts in this run, for the build:run receipt.</summary>
         public ModelUsage Usage { get; }
 
-        /// <summary>How many of the folder's images the vision model reads (the first ones Images lists).</summary>
+        /// <summary>How many of the pack's photos the vision model reads (the first ones PackPhotos.Usable lists).</summary>
         public const int MaxImages = 6;
 
-        public static int CountImages(string folder)
-        {
-            try { return string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder) ? 0 : Images(folder).Count; }
-            catch { return 0; }
-        }
-
-        /// <summary>Read up to <paramref name="maxImages"/> images in the scoped folder, one call each, and fuse the readings
-        /// (MassingPlanner.FromViews). NOT validated: widths and heights stay assumed until a known dimension is given, and a count of
-        /// 300 must reach ScaleRefusal, not be capped first. An all-assumed estimate when vision or the images are unavailable.</summary>
-        public async Task<MassingEstimate> EstimateAsync(string folder, int maxImages = MaxImages, CancellationToken ct = default, IProgress<string> progress = null)
+        /// <summary>MA-7-14: read up to <paramref name="maxImages"/> of the pack's photos, one call each, and fuse the readings (MassingPlanner.FromViews).
+        /// <paramref name="copyOf"/> gives a photo's blurred copy (bytes, or why not): the pack's copy is the only thing read, never a file of a folder.
+        /// NOT validated: widths and heights stay assumed until a known dimension is given, and a count of 300 must reach ScaleRefusal, not be capped
+        /// first. An all-assumed estimate when vision or the copies are unavailable.</summary>
+        public async Task<MassingEstimate> EstimateAsync(IReadOnlyList<PackPhoto> photos, Func<PackPhoto, (byte[] Jpeg, string Error)> copyOf, int maxImages = MaxImages, CancellationToken ct = default, IProgress<string> progress = null)
         {
             var views = new List<ViewReading>();
-            List<string> images;
-            try { images = string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder) ? new List<string>() : Images(folder).Take(maxImages).ToList(); }
-            catch { images = new List<string>(); }
+            var images = (photos ?? new List<PackPhoto>()).Take(maxImages).ToList();
             for (int i = 0; i < images.Count; i++)
             {
                 ct.ThrowIfCancellationRequested();
                 progress?.Report($"Reading photo {i + 1} of {images.Count}…");
-                views.Add(await ReadViewAsync(images[i], ct).ConfigureAwait(false));
+                var (jpeg, why) = copyOf(images[i]);
+                views.Add(jpeg == null ? new ViewReading { Photo = images[i].Id, Error = why ?? "its blurred copy could not be read" } : await ReadViewAsync(images[i].Id, jpeg, ct).ConfigureAwait(false));
             }
             return MassingPlanner.FromViews(views);
         }
 
         // One photo, one call. Any failure is that photo's row, never a stop (cancellation excepted).
-        private async Task<ViewReading> ReadViewAsync(string path, CancellationToken ct)
+        private async Task<ViewReading> ReadViewAsync(string name, byte[] copy, CancellationToken ct)
         {
-            string name = Path.GetFileName(path);
             try
             {
-                string b64 = Convert.ToBase64String(Jpeg1024(path));
+                string b64 = Convert.ToBase64String(Jpeg1024(copy));
                 JsonElement format = JsonSerializer.Deserialize<JsonElement>(Schema);
                 var req = new Dictionary<string, object>
                 {
@@ -140,10 +131,12 @@ namespace Sentinel.GhostBuilder
 
         /// <summary>The photo as a JPEG (quality 85) with its long side at most 1024 px, EXIF-rotated. WPF imaging, created, frozen and used
         /// on the calling thread — safe on a worker (ghost-p2-check proves it).</summary>
-        internal static byte[] Jpeg1024(string path)
+        internal static byte[] Jpeg1024(string path) => Jpeg1024(File.ReadAllBytes(path));
+
+        internal static byte[] Jpeg1024(byte[] data)
         {
             BitmapSource frame;
-            using (var fs = File.OpenRead(path)) frame = BitmapDecoder.Create(fs, BitmapCreateOptions.None, BitmapCacheOption.OnLoad).Frames[0];
+            using (var fs = new MemoryStream(data)) frame = BitmapDecoder.Create(fs, BitmapCreateOptions.None, BitmapCacheOption.OnLoad).Frames[0];
             int turn = 0; // EXIF orientation 3, 6, 8 → 180, 90, 270 degrees (mirrored ones are left)
             try
             {
@@ -162,16 +155,6 @@ namespace Sentinel.GhostBuilder
             using var ms = new MemoryStream();
             enc.Save(ms);
             return ms.ToArray();
-        }
-
-        // Internal: Photo Massing's command hashes the images read for the stamp (MA-1a item 4).
-        internal static List<string> Images(string folder)
-        {
-            string root = Path.GetFullPath(folder);
-            return Directory.EnumerateFiles(folder, "*.*", SearchOption.AllDirectories)
-                .Where(f => Array.IndexOf(ImageExtensions, Path.GetExtension(f).ToLowerInvariant()) >= 0)
-                .Where(f => { try { return Path.GetFullPath(f).StartsWith(root, StringComparison.OrdinalIgnoreCase); } catch { return false; } })
-                .ToList();
         }
 
         public void Dispose() => _http.Dispose();

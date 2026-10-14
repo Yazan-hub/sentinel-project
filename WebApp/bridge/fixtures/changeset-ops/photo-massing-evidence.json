@@ -1,0 +1,15 @@
+{
+  "_doc": "MA-7-14: the body Photo Massing files. The mass names each photo it read as 'ev-NNNN sha256:<the blurred copy's sha256>'. The bridge test (changesets-store.test.mjs) and the add-in's PackPhotos.Evidence (tools/massing-check) read this one file.",
+  "copy_sha256": "c0ffee0000000000000000000000000000000000000000000000000000c0ffee",
+  "item": "ev-000C",
+  "evidence": "ev-000C sha256:c0ffee0000000000000000000000000000000000000000000000000000c0ffee",
+  "body": {
+    "name": "Photo Massing",
+    "source": "photo",
+    "elements": [
+      { "kind": "mass", "validate": { "identity": { "Class": "IFCBUILDINGELEMENTPROXY", "Name": "Photo mass" }, "psets": [], "quantities": [] },
+        "place": { "Boundary": [[-6000, -4000], [6000, -4000], [6000, 4000], [-6000, 4000]], "BaseElevation": 0, "TopElevation": 9600 },
+        "evidence": ["ev-000C sha256:c0ffee0000000000000000000000000000000000000000000000000000c0ffee"] }
+    ]
+  }
+}

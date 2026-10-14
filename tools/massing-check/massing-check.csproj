@@ -8,6 +8,8 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\..\SentinelAddin\GhostBuilder\MassingPlanner.cs" />
+    <Compile Include="..\..\SentinelAddin\GhostBuilder\PackPhotos.cs" /> <!-- MA-7-14: the pack photos Photo Massing reads -->
+    <None Include="..\..\WebApp\bridge\fixtures\changeset-ops\photo-massing-evidence.json" Link="photo-massing-evidence.json" CopyToOutputDirectory="PreserveNewest" /> <!-- MA-7-14: the shape both sides pin -->
     <None Include="p1-views.json" CopyToOutputDirectory="PreserveNewest" /> <!-- MA-6-9: row P-1, the measured readings -->
   </ItemGroup>
 </Project>

@@ -60,21 +60,21 @@ static partial class Check
         // thread through the hub when the person files; filed off it under the guard, the person's token or none; the review opened on it.
         string cmd = Src("Commands.Massing.cs");
         int bound = cmd.IndexOf("if (!ctx.IsBound)", StringComparison.Ordinal), held = cmd.IndexOf("if (ReviewChangesetsCommand.Held)", StringComparison.Ordinal);
-        int images = cmd.IndexOf("MassingVisionReader.CountImages(folder) == 0", StringComparison.Ordinal);
+        int images = cmd.IndexOf("packPhotos.Count == 0", StringComparison.Ordinal);
         int plan = cmd.IndexOf("private static void PlanAndFile(", StringComparison.Ordinal);
         Ok(bound > 0 && held > bound && images > held && cmd.Contains("TaskDialog.Show(Title, ProjectContext.NotBound);") && cmd.Contains("TaskDialog.Show(Title, ReviewChangesetsCommand.Busy);"),
            "Photo Massing says an unbound model and a busy review before an image is read (amendment 4)");
         Ok(plan > 0 && cmd.IndexOf("if (ProjectContext.For(doc).Key != key)", plan, StringComparison.Ordinal) > plan
            && cmd.IndexOf("var levels = ChangesetExecutor.Stories(doc).Select(l => (l.Name, l.ElevationMm, l.IsStory)).ToList();", plan, StringComparison.Ordinal) > plan
-           && cmd.Contains("var (body, refusal) = MassingPlanner.Changeset(corrected, levels, actor, fp);")
+           && cmd.Contains("var (body, refusal) = MassingPlanner.Changeset(corrected, levels, actor, fp, evidence);")
            && cmd.IndexOf("ReviewChangesetsCommand.Hold();", StringComparison.Ordinal) > cmd.IndexOf("if (refusal != null)", StringComparison.Ordinal)
            && cmd.Contains("if (UserSession.IsSignedIn) fileCfg.FileToken = \"\";") && cmd.Contains("finally { ReviewChangesetsCommand.Release(); }")
            && cmd.Contains("ReviewChangesetsCommand.Open(u, d, cfg, key, new[] { cs });"),
            "the key re-checked, the levels read and the body planned when the person files (not when the review opened), filed under the guard with the person's token or none, then the review opens on it");
         Ok(cmd.Contains("receipt.Parameters[\"openings_seen\"] = MassingPlanner.OpeningsSeen(corrected);")
-           && cmd.Contains("receipt.Parameters[\"images_sha256\"] = MassingPlanner.HasModelValue(corrected) ? imagesSha : null;")
+           && cmd.Contains("receipt.Parameters[\"photos\"] = MassingPlanner.HasModelValue(corrected) ? photosRead.Select(x => new { item = x.Id, copy_sha256 = x.CopySha256 }).ToList() : null;")
            && cmd.Contains("BuildReceipt.Run(\"photo-massing\", BuildReceipt.AddinSha256, receipt, 0, new List<string> { cs.Id }, actor)"),
-           "the build:run receipt carries the openings seen (D12), the images' sha only while a number is the model's (E7), and the filed changeset");
+           "the build:run receipt carries the openings seen (D12), the photos (item id + copy sha) only while a number is the model's (E7), and the filed changeset");
         // MA-6-9 (C14): the receipt names the views and the known dimension; the progress line counts photos; the reader sends p1_measure.py's
         // prompt and schema, one call per photo, counted per call (Trust.cs pins the Usage literals).
         string reader = Src("GhostBuilder", "MassingVisionReader.cs");
@@ -102,7 +102,7 @@ static partial class Check
            && StageIds.OutOfScope(new[] { "level", "level", "mass" }) == "DD IDS: not asked of 2 level(s), 1 mass(es): the DD IDS has no class for them",
            "a mass row reads its footprint extent and its two elevations (not only the poster's reason); the DD line says \"1 mass(es)\"");
         string planner = Src("GhostBuilder", "MassingPlanner.cs");
-        Ok(planner.Contains("public static (object Body, string Refusal) Changeset(MassingEstimate m, IReadOnlyList<(string Name, double ElevationMm, bool IsStory)> levels, string actor, Footprint fp = null)")
+        Ok(planner.Contains("public static (object Body, string Refusal) Changeset(MassingEstimate m, IReadOnlyList<(string Name, double ElevationMm, bool IsStory)> levels, string actor, Footprint fp = null, IReadOnlyList<string> evidence = null)")
            && !planner.Contains("LevelFact") && planner.Contains("source = \"photo\""),
            "MassingPlanner.Changeset is self-contained (amendment 4): tuples in, anonymous objects out — massing-check and ghost-p2-check compile it alone");
         Ok(Src("App.cs").Contains("then file one changeset — the missing levels and a mass — for review; nothing is placed until a person applies it in Review AI Proposals; then Shell it (2c · Shell a Mass)"),
@@ -111,9 +111,9 @@ static partial class Check
         // MA-6-10 (MAS-3): the footprint pick - asked after the guards and before the images are read; the picker's traps (Esc, view-specific imports).
         string picker = Src("GhostBuilder", "FootprintPicker.cs");
         int ask = cmd.IndexOf("Where does the mass stand?", StringComparison.Ordinal);
-        Ok(ask > cmd.IndexOf("MassingVisionReader.CountImages(folder) == 0", StringComparison.Ordinal) && ask < cmd.IndexOf("Task.Run(async () =>", StringComparison.Ordinal)
+        Ok(ask > cmd.IndexOf("packPhotos.Count == 0", StringComparison.Ordinal) && ask < cmd.IndexOf("Task.Run(async () =>", StringComparison.Ordinal)
            && ask < cmd.IndexOf("reader.EstimateAsync(", StringComparison.Ordinal)
-           && cmd.Contains("MassingPlanner.Changeset(corrected, levels, actor, fp);") && cmd.Contains("FootprintPicker.Centre(uidoc, out string centreWhy)")
+           && cmd.Contains("MassingPlanner.Changeset(corrected, levels, actor, fp, evidence);") && cmd.Contains("FootprintPicker.Centre(uidoc, out string centreWhy)")
            && cmd.Contains("estimate.Footprint = fp;"),
            "MA-6-10: Photo Massing asks where the mass stands after the guards and before an image is read, and files the footprint it was given");
         Ok(picker.Contains("ObjectType.PointOnElement") && picker.Contains("public bool AllowReference(Reference r, XYZ p) => true;")
