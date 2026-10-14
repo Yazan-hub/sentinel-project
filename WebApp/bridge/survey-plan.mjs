@@ -673,7 +673,8 @@ export function orientedBox(points, pad) {
   // MA-8-14 fix (F-K1c-2): the 45-degree diagonals count too - Revit's off-axis check also fired on lines at 44.8 (41 warnings on Kladno's walls) and on the hole
   // at 45.1616/134.8383 (commit refused), so the snap goes to the nearest multiple of 45 degrees; the box is re-measured at the snapped angle, as before
   const q = Math.atan2(best.uy, best.ux), n = Math.round(q / (Math.PI / 4)), k = n * (Math.PI / 4);
-  if (Math.abs(q - k) < SNAP_DEG * Math.PI / 180) {
+  const snapped = Math.abs(q - k) < SNAP_DEG * Math.PI / 180;
+  if (snapped) {
     const c = n % 2 === 0 ? [Math.round(Math.cos(k)), Math.round(Math.sin(k))] : [Math.sign(Math.cos(k)) * Math.SQRT1_2, Math.sign(Math.sin(k)) * Math.SQRT1_2];
     const [ux, uy] = c, a = hull[0];
     const s = hull.map((p) => (p[0] - a[0]) * ux + (p[1] - a[1]) * uy), t = hull.map((p) => -(p[0] - a[0]) * uy + (p[1] - a[1]) * ux);
@@ -681,6 +682,13 @@ export function orientedBox(points, pad) {
   }
   const { s0, s1, t0, t1, ux, uy, a } = best;
   const at = (s, t) => [r1(a[0] + s * ux - t * uy), r1(a[1] + s * uy + t * ux)];
+  // MA-8-14 fix (F-K1c-2): on a diagonal the rounded corners would drift off 45 by up to 0.1 mm per edge, so build them from one corner and whole 0.1 mm legs
+  // (|dx| == |dy| exactly; the leg is rounded up, so no wall end leaves the box)
+  if (snapped && n % 2 !== 0) {
+    const sx = Math.sign(ux), sy = Math.sign(uy), W = Math.ceil((s1 - s0 + 2 * pad) * Math.SQRT1_2 * 10) / 10, H = Math.ceil((t1 - t0 + 2 * pad) * Math.SQRT1_2 * 10) / 10;
+    const c0 = at(s0 - pad, t0 - pad), mv = (c, x, y) => [r1(c[0] + x), r1(c[1] + y)], c1 = mv(c0, W * sx, W * sy), c3 = mv(c0, -H * sy, H * sx);
+    return [c0, c1, mv(c1, c3[0] - c0[0], c3[1] - c0[1]), c3];
+  }
   return [at(s0 - pad, t0 - pad), at(s1 + pad, t0 - pad), at(s1 + pad, t1 + pad), at(s0 - pad, t1 + pad)];
 }
 

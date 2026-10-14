@@ -531,15 +531,17 @@ describe("MA-8-14 — the ground read's cut", () => {
     const turned = orientedBox(at(1), 1000);
     expect(turned[0][1] === turned[1][1] || turned[0][0] === turned[1][0]).toBe(false);
   });
-  it("MA-8-14 fix F-K1c-2: a box 0.16 degrees off 45 snaps to exact diagonals and covers every wall end; 2 degrees off does not snap", () => {
-    const rect = (deg) => { const r = deg * Math.PI / 180, c = Math.cos(r), s = Math.sin(r); return [[0, 0], [20000 * c, 20000 * s], [20000 * c - 8000 * s, 20000 * s + 8000 * c], [-8000 * s, 8000 * c]].map((p) => p.map(Math.round)); };
-    for (const deg of [45.1616, 44.84, 134.8383]) {
+  it("MA-8-14 fix F-K1c-2: a box 0.16 degrees off 45 (either sign, points on the 0.1 mm grid) snaps to exact diagonals and covers every wall end; 0.6 and 2 degrees off do not snap", () => {
+    const rect = (deg, L = 20000) => { const r = deg * Math.PI / 180, c = Math.cos(r), s = Math.sin(r); return [[0, 0], [L * c, L * s], [L * c - 8000 * s, L * s + 8000 * c], [-8000 * s, 8000 * c]].map((p) => p.map((v) => Math.round(v * 10) / 10)); };
+    const skew = (box, i, j) => { const dx = box[j][0] - box[i][0], dy = box[j][1] - box[i][1]; return Math.abs(Math.abs(dx) - Math.abs(dy)) / Math.hypot(dx, dy); };
+    for (const deg of [45.1616, 44.84, 134.8383, -45.1616, 225.16, -134.84]) {
       const pts = rect(deg), box = orientedBox(pts, 1000);
-      for (const [i, j] of [[0, 1], [1, 2]]) { const dx = box[j][0] - box[i][0], dy = box[j][1] - box[i][1]; expect(Math.abs(Math.abs(dx) - Math.abs(dy)) / Math.hypot(dx, dy)).toBeLessThan(1e-4); }
+      for (const [i, j] of [[0, 1], [1, 2], [2, 3], [3, 0]]) expect(skew(box, i, j)).toBeLessThan(1e-9);
       for (const p of pts) expect(beyond(box, p, -900)).toBe(false);
     }
-    const turned = orientedBox(rect(47), 1000), dx = turned[1][0] - turned[0][0], dy = turned[1][1] - turned[0][1];
-    expect(Math.abs(Math.abs(dx) - Math.abs(dy)) / Math.hypot(dx, dy)).toBeGreaterThan(0.01);
+    for (const deg of [44.84, 45.1616]) for (const L of [150000]) { const pts = rect(deg, L), box = orientedBox(pts, 1000); for (const p of pts) expect(beyond(box, p, 0)).toBe(false); }   // a 150 m hull: the snap's growth still keeps every end inside the box
+    for (const deg of [45.6, 47]) expect(skew(orientedBox(rect(deg), 1000), 0, 1)).toBeGreaterThan(0.005);
+    expect(skew(orientedBox(rect(45.4), 1000), 0, 1)).toBeLessThan(1e-9);
   });
   it("orientedBox: collinear and single points still give a box; none gives null", () => {
     expect(area(orientedBox([[0, 0], [5000, 0]], 1000))).toBeCloseTo(7000 * 2000, 0);
