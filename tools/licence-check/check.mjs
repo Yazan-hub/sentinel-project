@@ -64,7 +64,9 @@ function readPython() {
   for (const n of allow.python_runtime || []) if (!Object.keys(pins).some((k) => k.startsWith(`${n}@`))) pins[`${n}@`] = allow.python?.[n]?.version || "";
   const rows = Object.keys(pins).map((k) => {
     const name = k.slice(0, k.indexOf("@")), version = pins[k];
-    const a = allow.python?.[name];
+    // PEP 503: a pin may spell the name as the wheel file does (markdown_it_py) while allow.json has the METADATA name (markdown-it-py)
+    const norm = (s) => s.toLowerCase().replace(/[-_.]+/g, "-");
+    const a = allow.python?.[name] ?? Object.entries(allow.python || {}).find(([k]) => norm(k) === norm(name))?.[1];
     // a moved pin has not had its licence re-read
     const ok = a && (!version || a.version === version);
     return { source: "python", name, version, licence: ok ? a.licence : "", carries: ok ? a.carries : undefined };

@@ -1,55 +1,361 @@
 {
   "_": "MA-7-1: licences read from each package's own dist-info / nuget page. A row moves with its pin (version mismatch = unknown). Every new download adds its row here.",
-  "python_runtime": ["python", "numpy", "pillow", "onnxruntime"],
+  "python_runtime": [
+    "python",
+    "numpy",
+    "pillow",
+    "onnxruntime"
+  ],
   "python": {
-    "python": { "version": "", "licence": "PSF-2.0" },
-    "numpy": { "version": "", "licence": "BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0" },
+    "python": {
+      "version": "",
+      "licence": "PSF-2.0"
+    },
+    "numpy": {
+      "version": "",
+      "licence": "BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0"
+    },
     "pillow": {
-      "version": "12.3.0", "licence": "MIT-CMU",
+      "version": "12.3.0",
+      "licence": "MIT-CMU",
       "carries": [
-        { "name": "FreeType", "version": "2.14.3", "licence": "FTL" }, { "name": "HarfBuzz", "version": "14.2.1", "licence": "MIT" },
-        { "name": "libjpeg-turbo", "version": "3.1.4.1", "licence": "IJG AND BSD-3-Clause" }, { "name": "libwebp", "version": "1.6.0", "licence": "BSD-3-Clause" },
-        { "name": "libtiff", "version": "4.7.1", "licence": "libtiff" }, { "name": "Little CMS 2", "version": "2.19.1", "licence": "MIT" },
-        { "name": "OpenJPEG", "version": "2.5.4", "licence": "BSD-2-Clause" }, { "name": "libavif", "version": "1.4.2", "licence": "BSD-2-Clause" },
-        { "name": "libpng", "version": "1.6.58", "licence": "libpng-2.0" }, { "name": "zlib", "version": "2.3.3", "licence": "Zlib" },
-        { "name": "brotli", "version": "1.2.0", "licence": "MIT" }, { "name": "xz", "version": "5.8.3", "licence": "0BSD" }
+        {
+          "name": "FreeType",
+          "version": "2.14.3",
+          "licence": "FTL"
+        },
+        {
+          "name": "HarfBuzz",
+          "version": "14.2.1",
+          "licence": "MIT"
+        },
+        {
+          "name": "libjpeg-turbo",
+          "version": "3.1.4.1",
+          "licence": "IJG AND BSD-3-Clause"
+        },
+        {
+          "name": "libwebp",
+          "version": "1.6.0",
+          "licence": "BSD-3-Clause"
+        },
+        {
+          "name": "libtiff",
+          "version": "4.7.1",
+          "licence": "libtiff"
+        },
+        {
+          "name": "Little CMS 2",
+          "version": "2.19.1",
+          "licence": "MIT"
+        },
+        {
+          "name": "OpenJPEG",
+          "version": "2.5.4",
+          "licence": "BSD-2-Clause"
+        },
+        {
+          "name": "libavif",
+          "version": "1.4.2",
+          "licence": "BSD-2-Clause"
+        },
+        {
+          "name": "libpng",
+          "version": "1.6.58",
+          "licence": "libpng-2.0"
+        },
+        {
+          "name": "zlib",
+          "version": "2.3.3",
+          "licence": "Zlib"
+        },
+        {
+          "name": "brotli",
+          "version": "1.2.0",
+          "licence": "MIT"
+        },
+        {
+          "name": "xz",
+          "version": "5.8.3",
+          "licence": "0BSD"
+        }
       ]
     },
     "onnxruntime": {
-      "version": "1.26.0", "licence": "MIT",
-      "carries": [{ "name": "Eigen", "licence": "MPL-2.0" }, { "name": "Intel MKL (named in ThirdPartyNotices.txt)", "licence": "Intel Simplified Software License" }]
-    },
-    "laspy": { "version": "2.7.0", "licence": "BSD-2-Clause" },
-    "lazrs": { "version": "0.8.2", "licence": "MIT", "carries": [{ "name": "laz", "version": "0.12.2", "licence": "Apache-2.0" }] },
-    "pye57": {
-      "version": "0.4.19", "licence": "MIT",
-      "carries": [{ "name": "libE57Format", "licence": "BSL-1.0" }, { "name": "Xerces-C++", "version": "3.2.3", "licence": "Apache-2.0" }]
-    },
-    "pyquaternion": { "version": "0.9.9", "licence": "MIT" },
-    "pycolmap": {
-      "version": "4.2.1", "licence": "BSD-3-Clause",
+      "version": "1.26.0",
+      "licence": "MIT",
       "carries": [
-        { "name": "Ceres Solver", "licence": "BSD-3-Clause" }, { "name": "SuiteSparse CHOLMOD (Supernodal, MatrixOps)", "licence": "GPL-2.0-or-later" },
-        { "name": "SuiteSparse SPQR", "licence": "GPL-2.0-or-later" }, { "name": "SuiteSparse AMD/CAMD/COLAMD/CCOLAMD", "licence": "BSD-3-Clause" },
-        { "name": "glog/gflags", "licence": "BSD-3-Clause" }, { "name": "Boost", "licence": "BSL-1.0" },
-        { "name": "OpenImageIO/OpenEXR", "licence": "Apache-2.0 AND BSD-3-Clause" }, { "name": "OpenSSL", "licence": "Apache-2.0" },
-        { "name": "MinGW GCC runtime (libgfortran, libgcc_s, libwinpthread)", "licence": "GPL-3.0-or-later WITH GCC-exception-3.1" }
+        {
+          "name": "Eigen",
+          "licence": "MPL-2.0"
+        },
+        {
+          "name": "Intel MKL (named in ThirdPartyNotices.txt)",
+          "licence": "Intel Simplified Software License"
+        }
       ]
+    },
+    "laspy": {
+      "version": "2.7.0",
+      "licence": "BSD-2-Clause"
+    },
+    "lazrs": {
+      "version": "0.8.2",
+      "licence": "MIT",
+      "carries": [
+        {
+          "name": "laz",
+          "version": "0.12.2",
+          "licence": "Apache-2.0"
+        }
+      ]
+    },
+    "pye57": {
+      "version": "0.4.19",
+      "licence": "MIT",
+      "carries": [
+        {
+          "name": "libE57Format",
+          "licence": "BSL-1.0"
+        },
+        {
+          "name": "Xerces-C++",
+          "version": "3.2.3",
+          "licence": "Apache-2.0"
+        }
+      ]
+    },
+    "pyquaternion": {
+      "version": "0.9.9",
+      "licence": "MIT"
+    },
+    "pycolmap": {
+      "version": "4.2.1",
+      "licence": "BSD-3-Clause",
+      "carries": [
+        {
+          "name": "Ceres Solver",
+          "licence": "BSD-3-Clause"
+        },
+        {
+          "name": "SuiteSparse CHOLMOD (Supernodal, MatrixOps)",
+          "licence": "GPL-2.0-or-later"
+        },
+        {
+          "name": "SuiteSparse SPQR",
+          "licence": "GPL-2.0-or-later"
+        },
+        {
+          "name": "SuiteSparse AMD/CAMD/COLAMD/CCOLAMD",
+          "licence": "BSD-3-Clause"
+        },
+        {
+          "name": "glog/gflags",
+          "licence": "BSD-3-Clause"
+        },
+        {
+          "name": "Boost",
+          "licence": "BSL-1.0"
+        },
+        {
+          "name": "OpenImageIO/OpenEXR",
+          "licence": "Apache-2.0 AND BSD-3-Clause"
+        },
+        {
+          "name": "OpenSSL",
+          "licence": "Apache-2.0"
+        },
+        {
+          "name": "MinGW GCC runtime (libgfortran, libgcc_s, libwinpthread)",
+          "licence": "GPL-3.0-or-later WITH GCC-exception-3.1"
+        }
+      ]
+    },
+    "annotated-doc": {
+      "version": "0.0.5",
+      "licence": "MIT"
+    },
+    "anyio": {
+      "version": "4.15.1",
+      "licence": "MIT"
+    },
+    "click": {
+      "version": "8.5.0",
+      "licence": "BSD-3-Clause"
+    },
+    "colorama": {
+      "version": "0.4.6",
+      "licence": "BSD-3-Clause"
+    },
+    "filelock": {
+      "version": "4.1.1",
+      "licence": "MIT"
+    },
+    "fsspec": {
+      "version": "2026.9.0",
+      "licence": "BSD-3-Clause"
+    },
+    "h11": {
+      "version": "0.16.0",
+      "licence": "MIT"
+    },
+    "hf-xet": {
+      "version": "1.7.0",
+      "licence": "Apache-2.0"
+    },
+    "httpcore2": {
+      "version": "2.13.1",
+      "licence": "BSD-3-Clause"
+    },
+    "httpx2": {
+      "version": "2.13.1",
+      "licence": "BSD-3-Clause"
+    },
+    "huggingface_hub": {
+      "version": "2.2.0",
+      "licence": "Apache-2.0"
+    },
+    "idna": {
+      "version": "3.20",
+      "licence": "BSD-3-Clause"
+    },
+    "Jinja2": {
+      "version": "3.1.6",
+      "licence": "BSD-3-Clause"
+    },
+    "markdown-it-py": {
+      "version": "4.2.0",
+      "licence": "MIT"
+    },
+    "MarkupSafe": {
+      "version": "3.0.4",
+      "licence": "BSD-3-Clause"
+    },
+    "mdurl": {
+      "version": "0.1.2",
+      "licence": "MIT"
+    },
+    "mpmath": {
+      "version": "1.3.0",
+      "licence": "BSD-3-Clause"
+    },
+    "networkx": {
+      "version": "3.7",
+      "licence": "BSD-3-Clause"
+    },
+    "packaging": {
+      "version": "26.3",
+      "licence": "Apache-2.0 OR BSD-2-Clause"
+    },
+    "Pygments": {
+      "version": "2.21.0",
+      "licence": "BSD-2-Clause"
+    },
+    "PyYAML": {
+      "version": "6.0.3",
+      "licence": "MIT"
+    },
+    "regex": {
+      "version": "2026.9.29",
+      "licence": "Apache-2.0 AND CNRI-Python"
+    },
+    "rich": {
+      "version": "15.0.0",
+      "licence": "MIT"
+    },
+    "safetensors": {
+      "version": "0.8.0",
+      "licence": "Apache-2.0"
+    },
+    "setuptools": {
+      "version": "84.0.0",
+      "licence": "MIT"
+    },
+    "shellingham": {
+      "version": "1.5.4",
+      "licence": "ISC"
+    },
+    "sympy": {
+      "version": "1.14.0",
+      "licence": "BSD-3-Clause"
+    },
+    "tokenizers": {
+      "version": "0.23.3",
+      "licence": "Apache-2.0"
+    },
+    "torch": {
+      "version": "2.14.1+cu130",
+      "licence": "Apache-2.0 AND Apache-2.0 WITH LLVM-exception AND BSD-2-Clause AND BSD-3-Clause AND BSL-1.0 AND MIT",
+      "carries": [
+        {
+          "name": "NVIDIA CUDA 13 runtime, cuBLAS, cuDNN 9, cuFFT, cuSPARSE, NVRTC (bundled DLLs)",
+          "licence": "NVIDIA-Software-Licence"
+        }
+      ]
+    },
+    "tqdm": {
+      "version": "4.70.1",
+      "licence": "MPL-2.0 AND MIT"
+    },
+    "transformers": {
+      "version": "5.19.0",
+      "licence": "Apache-2.0"
+    },
+    "truststore": {
+      "version": "0.10.5",
+      "licence": "MIT"
+    },
+    "typer": {
+      "version": "0.27.3",
+      "licence": "MIT"
+    },
+    "typing_extensions": {
+      "version": "4.16.0",
+      "licence": "PSF-2.0"
     }
   },
   "nuget": {
-    "PdfPig": { "licence": "Apache-2.0" },
-    "System.Security.Cryptography.ProtectedData": { "licence": "MIT" },
-    "System.Text.Json": { "licence": "MIT" },
-    "Nice3point.Revit.Api.RevitAPI": { "licence": "compile-time reference assemblies of Autodesk's Revit API (not shipped)" },
-    "Nice3point.Revit.Api.RevitAPIUI": { "licence": "compile-time reference assemblies of Autodesk's Revit API (not shipped)" }
+    "PdfPig": {
+      "licence": "Apache-2.0"
+    },
+    "System.Security.Cryptography.ProtectedData": {
+      "licence": "MIT"
+    },
+    "System.Text.Json": {
+      "licence": "MIT"
+    },
+    "Nice3point.Revit.Api.RevitAPI": {
+      "licence": "compile-time reference assemblies of Autodesk's Revit API (not shipped)"
+    },
+    "Nice3point.Revit.Api.RevitAPIUI": {
+      "licence": "compile-time reference assemblies of Autodesk's Revit API (not shipped)"
+    }
   },
   "pending": {
-    "@markerjs/markerjs3": { "read": "SEE LICENSE IN LICENSE (Linkware: show its credit link, buy, or drop it; imported in src/main.ts only)", "decision": "D-7-16" },
-    "fast-sha256": { "read": "Unlicense: accept, or swap for Web Crypto", "decision": "D-7-16" },
-    "duck": { "read": "BSD: read its text", "decision": "D-7-16" },
-    "Nice3point.Revit.Api.RevitAPI": { "read": "compile-only reference assemblies, not shipped", "decision": "D-7-16" },
-    "Nice3point.Revit.Api.RevitAPIUI": { "read": "compile-only reference assemblies, not shipped", "decision": "D-7-16" }
+    "@markerjs/markerjs3": {
+      "read": "SEE LICENSE IN LICENSE (Linkware: show its credit link, buy, or drop it; imported in src/main.ts only)",
+      "decision": "D-7-16"
+    },
+    "fast-sha256": {
+      "read": "Unlicense: accept, or swap for Web Crypto",
+      "decision": "D-7-16"
+    },
+    "duck": {
+      "read": "BSD: read its text",
+      "decision": "D-7-16"
+    },
+    "Nice3point.Revit.Api.RevitAPI": {
+      "read": "compile-only reference assemblies, not shipped",
+      "decision": "D-7-16"
+    },
+    "Nice3point.Revit.Api.RevitAPIUI": {
+      "read": "compile-only reference assemblies, not shipped",
+      "decision": "D-7-16"
+    },
+    "NVIDIA CUDA runtime in the torch wheel": {
+      "read": "cudart/cublas/cudnn/cufft/cusparse/nvrtc DLLs bundled in torch 2.14.1+cu130 under NVIDIA's redistributable runtime terms (torch LICENSE.txt + third_party notices, read 2026-10-14). They run on the office PC only (photo-lib); accept if nothing of torch is ever shipped",
+      "decision": "D-7-16"
+    }
   },
   "accepted": {
     "pycolmap": "BSD-3-Clause itself; its bundled CHOLMOD DLL links the GPL-2.0+ Supernodal and MatrixOps modules and SPQR is GPL-2.0+ (read 2026-10-14, K-2b). Accepted 2026-10-14 on the founder's \"do them all\" for ONE use only: it runs on the office PC inside %APPDATA%\\Sentinel\\photo-lib and is never bundled, copied into an installer or served to a client; the GPL's conditions start at distribution and Sentinel distributes nothing of it. Shipping it in any package needs a new decision (D-7-16)",
