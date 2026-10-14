@@ -259,9 +259,8 @@ export function readBoxes(b = {}) {
   });
   const sh = b.shown; // the size the marker showed the photo at (naturalWidth × naturalHeight); blur.py refuses a photo whose upright size differs
   if (sh !== undefined && !(isObj(sh) && [sh.w, sh.h].every((v) => Number.isInteger(v) && v >= 1 && v <= 100000))) throw bad("shown", "must be {w, h}, whole pixels");
-  if (b.detected !== undefined && typeof b.detected !== "boolean") throw bad("detected", "must be true or false");
-  if (b.detected && none) throw bad("detected", "cannot be true when the answer is that nothing was seen");
-  return { boxes, none_seen: none, ...(b.detected ? { detected: true } : {}), ...(sh ? { shown: { w: sh.w, h: sh.h } } : {}) }; // MA-7-16: detected = the boxes began as YuNet's proposals; the person still confirmed them
+  if (b.detected !== undefined) throw bad("detected", "is not accepted: the bridge records a face-detector run itself, a request cannot claim one"); // MA-7-16
+  return { boxes, none_seen: none, ...(sh ? { shown: { w: sh.w, h: sh.h } } : {}) };
 }
 export const MAX_BOXES = 200;
 

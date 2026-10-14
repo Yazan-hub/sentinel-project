@@ -3,6 +3,7 @@
 # the long side is cut to 2048, and the copy carries no EXIF/XMP/ICC/thumbnail. Skipped, with why, where Pillow 12.3.0 is not installed.
 # MA-7-16 (FD-1, FD-2): the YuNet face proposer - decoded from a STUBBED session on a synthetic photo (CI has no model and no onnxruntime);
 # the real model is run only where it is on this PC (skipped otherwise).
+import importlib.metadata
 import importlib.util
 import json
 import os
@@ -11,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 spec = importlib.util.spec_from_file_location("blur", os.path.join(HERE, "blur.py"))
@@ -258,15 +260,29 @@ class Detect(unittest.TestCase):
         self.assertIn("mark the faces by hand", j["error"])
         self.assertNotIn(self.d.name, r.stdout)
 
-    def test_detected_boxes_name_yunet_and_onnxruntime_in_the_tools(self):
+    def test_detected_tools_name_yunet_onnxruntime_and_what_it_carries_but_only_for_detect(self):
         self.assertFalse({"yunet", "onnxruntime"} & {t["name"] for t in blur.tools()})
         got = {t["name"]: t for t in blur.tools(True)}
         self.assertEqual((got["yunet"]["version"], got["yunet"]["licence"]), ("2023mar", "MIT"))
         self.assertEqual((got["onnxruntime"]["version"], got["onnxruntime"]["licence"]), ("1.26.0", "MIT"))
+        self.assertEqual(got["Eigen (in onnxruntime)"]["licence"], "MPL-2.0")  # amendment 33
         out = os.path.join(self.d.name, "o.jpg")
         r = subprocess.run([sys.executable, "-B", os.path.join(HERE, "blur.py"), self.src, out, json.dumps([{"x": .1, "y": .1, "w": .1, "h": .1}]), "--detected"], capture_output=True, text=True)
-        self.assertIn("yunet", {t["name"] for t in json.loads(r.stdout)["tools"]})
-        self.assertNotIn("pillow_heif", [m for m in sys.modules if sys.modules[m] is not None])
+        self.assertEqual(json.loads(r.stdout)["ok"], False)  # the blur form no longer takes --detected: a flag cannot name a detector that did not run
+        r = subprocess.run([sys.executable, "-B", os.path.join(HERE, "blur.py"), self.src, out, json.dumps([{"x": .1, "y": .1, "w": .1, "h": .1}])], capture_output=True, text=True)
+        self.assertNotIn("yunet", {t["name"] for t in json.loads(r.stdout)["tools"]})
+
+    def test_a_missing_or_different_onnxruntime_is_not_set_up_in_words(self):
+        for have in (None, "1.27.0"):
+            def ver(name, have=have):
+                if have is None:
+                    raise importlib.metadata.PackageNotFoundError(name)
+                return have
+            with mock.patch.object(importlib.metadata, "version", ver):
+                with self.assertRaises(ValueError) as c:
+                    blur._yunet_session(self.model)
+            self.assertIn("not set up", str(c.exception))
+            self.assertIn("mark the faces by hand", str(c.exception))
 
     @unittest.skipUnless(os.path.isfile(blur.yunet_path()), "the YuNet model is not on this PC")
     def test_the_real_model_runs_on_a_noise_photo(self):

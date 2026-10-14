@@ -23,12 +23,12 @@ export function blurNotSetUp({ python = pythonPath(), script = BLUR_SCRIPT } = {
 /** Run sentinel-blur (survey/blur.py) on `src`, writing `dst` (`shown`: {w, h} the marker showed, or undefined); → its answer {width, height, areas, version, tools}. The child gets an allow-listed
  *  environment (config/.env is merged into process.env — a plain spawn would hand it every secret), no shell, no network use, and is killed at
  *  BLUR_MS. A 422 in words when the file is not an image; a 503 when the tool is not set up; the child's stderr goes to the log only. */
-export function runBlur(src, dst, boxes, shown, { python = pythonPath(), script = BLUR_SCRIPT, env = process.env, execFileFn = execFile, ms = BLUR_MS, detected = false } = {}) {
+export function runBlur(src, dst, boxes, shown, { python = pythonPath(), script = BLUR_SCRIPT, env = process.env, execFileFn = execFile, ms = BLUR_MS } = {}) {
   const off = blurNotSetUp({ python, script });
   if (off) return Promise.reject(Object.assign(new Error(off), { status: 503 }));
   const childEnv = Object.fromEntries(Object.entries({ SYSTEMROOT: env.SYSTEMROOT ?? env.SystemRoot, APPDATA: env.APPDATA, TEMP: env.TEMP, TMP: env.TMP }).filter(([, v]) => v));
   return new Promise((ok, no) => {
-    execFileFn(python, ["-B", script, src, dst, JSON.stringify(boxes), ...(shown ? [`${shown.w}x${shown.h}`] : []), ...(detected ? ["--detected"] : [])], { env: childEnv, timeout: ms, windowsHide: true, maxBuffer: 64 * 1024 }, (e, stdout, stderr) => {
+    execFileFn(python, ["-B", script, src, dst, JSON.stringify(boxes), ...(shown ? [`${shown.w}x${shown.h}`] : [])], { env: childEnv, timeout: ms, windowsHide: true, maxBuffer: 64 * 1024 }, (e, stdout, stderr) => {
       let r = null;
       try { r = JSON.parse(String(stdout).trim().split("\n").pop()); } catch { /* not JSON: the tool died */ }
       if (r?.ok) return ok(r);

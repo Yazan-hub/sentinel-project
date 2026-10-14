@@ -734,20 +734,16 @@ describe("blurred copies (MA-7-7)", () => {
     expect(budgets).toContainEqual(["evidence blurred copies", { perUser: 20, all: 60 }]);
   });
 
-  it("(7-16) boxes that began as YuNet's proposals are marked detector+person: the copy, the row and the tools say so; detected with a 'none seen' answer is a 400", async () => {
+  it("(7-16) the request cannot claim a detector run: `detected` is a 400 on the blur route and the web-photo path; the pack and ledger stay person-marked", async () => {
     await setup();
-    const blurD = async (src, dst, boxes, shown, o) => { calls.push({ o }); const r = await blur(src, dst, boxes, shown); return o?.detected ? { ...r, tools: [...TOOLS, { name: "yunet", version: "2023mar", licence: "MIT" }, { name: "onnxruntime", version: "1.26.0", licence: "MIT" }] } : r; };
-    await expect(mark("ev-0001", { boxes: [], none_seen: true, detected: true }, { blur: blurD })).rejects.toMatchObject({ status: 400 });
-    await expect(mark("ev-0001", { boxes: BOXES, detected: "yes" }, { blur: blurD })).rejects.toMatchObject({ status: 400 });
-    calls.length = 0;
-    const r = await mark("ev-0001", { boxes: BOXES, detected: true }, { blur: blurD });
-    expect(calls[0].o).toEqual({ detected: true });
-    expect(r.copy.method).toBe("detector+person");
+    await expect(mark("ev-0001", { boxes: BOXES, detected: true })).rejects.toMatchObject({ status: 400, message: expect.stringContaining("detected") });
+    await expect(mark("ev-0001", { boxes: BOXES, detected: false })).rejects.toMatchObject({ status: 400 });
+    expect(calls).toEqual([]);
+    const r = await mark("ev-0001", { boxes: BOXES });
+    expect(r.copy.method).toBe("person-marked");
     const x = rows("evidence:blurred");
-    expect(x.map((a) => a.action)).toEqual(["evidence:blurred ev-0001 · 2 area(s) · detector+person"]);
-    expect(x[0].newv.method).toBe("detector+person");
-    expect(x[0].newv.tools.map((t) => `${t.name} ${t.version} ${t.licence}`)).toEqual(expect.arrayContaining(["yunet 2023mar MIT", "onnxruntime 1.26.0 MIT"]));
-    expect((await pack()).items[0].view_copy.method).toBe("detector+person"); // the pack validator accepts it
+    expect(x.map((a) => a.action)).toEqual(["evidence:blurred ev-0001 · 2 area(s) · person-marked"]);
+    expect(x[0].newv.tools.map((t) => t.name)).not.toEqual(expect.arrayContaining(["yunet"]));
   });
 
   it("(z) 'No faces or number plates in this photo' is an explicit answer: 0 areas, none_seen; neither boxes nor the answer is a 400", async () => {

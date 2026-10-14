@@ -407,7 +407,7 @@ export async function makeViewCopy(key, packId, itemId, b = {}, deps = {}) {
   const d = await wire(deps);
   if ((await d.myRole(key)) === "service") throw err(403, "a blurred copy needs a person — it names who marked the faces and number plates: sign in. Nothing was saved.");
   const proj = await officeProject(d, key, "contributor");
-  const { boxes, none_seen, shown, detected } = L.readBoxes(b);
+  const { boxes, none_seen, shown } = L.readBoxes(b);
   d.takeWriteBudget("evidence blurred copies", { perUser: 20, all: 60 });
   if (admitting.has(key)) throw err(409, `an admission to ${key} is already running — try again when it ends; nothing was saved`);
   admitting.add(key);
@@ -426,13 +426,13 @@ export async function makeViewCopy(key, packId, itemId, b = {}, deps = {}) {
     const outDir = join(dir, ".sentinel", "view");
     mkdirSync(outDir, { recursive: true });
     dst = join(outDir, `${itemId}.jpg`);
-    const r = await deps.blur(full, dst, boxes.map(({ what: _w, ...xywh }) => xywh), shown, ...(detected ? [{ detected: true }] : [])); // MA-7-16
+    const r = await deps.blur(full, dst, boxes.map(({ what: _w, ...xywh }) => xywh), shown);
     made = true;
     if (!r || r.areas !== boxes.length || !Number.isSafeInteger(r.width) || !Number.isSafeInteger(r.height)) throw err(500, "the blur tool answered wrongly — nothing was saved");
     if (r.source_sha256 !== item.sha256) throw err(409, `${item.path} changed after it was admitted and before it was blurred — Re-check, and put the same file back; nothing was saved`); // the tool hashes the bytes it decoded
     const copy = await hashFile(dst);
     const faces = boxes.filter((x) => x.what === "face").length;
-    const tool = `sentinel-blur ${String(r.version ?? "").slice(0, 20)}`, method = detected ? "detector+person" : "person-marked"; // MA-7-16
+    const tool = `sentinel-blur ${String(r.version ?? "").slice(0, 20)}`, method = "person-marked"; // MA-7-16: "detector+person" waits for a detect route that records the run (the request body cannot claim it)
     const vc = { sha256: copy.sha256, size_bytes: copy.size_bytes, width: r.width, height: r.height, areas: boxes.length, faces, plates: boxes.length - faces,
       ...(none_seen ? { none_seen: true } : {}), method, marked_by: who, marked_at: d.now(), tool };
     const next = { ...item, view_copy: vc };

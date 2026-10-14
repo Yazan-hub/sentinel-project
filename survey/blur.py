@@ -9,7 +9,6 @@ is carried (the camera's make, time and GPS stay in the original only). Pillow i
     python blur.py <source.jpg> <copy.jpg> '<[{"x":0.1,"y":0.2,"w":0.05,"h":0.07}, ...]>' [<shown width>x<shown height>]
 
     python blur.py --detect <source.jpg>        (MA-7-16: propose face boxes; blurs nothing, writes nothing)
-    ... a trailing --detected on the blur form says the boxes began as YuNet's proposals (the tools list then names YuNet and onnxruntime)
 
 x, y, w, h are fractions (0 to 1) of the photo AS A VIEWER SHOWS IT (EXIF APP1 orientation applied, as a browser does). Prints one JSON line:
 {"ok": true, "width", "height", "areas", "tools": [...]} or {"ok": false, "error": "..."} (exit 2). No pixel or path is ever echoed.
@@ -56,6 +55,9 @@ INSIDE = [("FreeType", "2.14.3", "FTL"), ("HarfBuzz", "14.2.1", "MIT"), ("libjpe
           ("zlib", "2.3.3", "Zlib"), ("brotli", "1.2.0", "MIT"), ("xz", "5.8.3", "0BSD")]
 
 
+ORT_INSIDE = [("Eigen", "", "MPL-2.0")]  # MA-7-16 (amendment 33): what onnxruntime 1.26.0's ThirdPartyNotices.txt names that runs in process; MKL is named there but not shipped in the CPU wheel
+
+
 def _pillow():
     got = importlib.metadata.version("pillow")
     if got != PILLOW:
@@ -71,8 +73,9 @@ def tools(detected=False):
            {"name": "pillow", "version": md["Version"], "licence": md.get("License-Expression") or md.get("License") or "not declared"}]
     if md["Version"] == PILLOW:
         out += [{"name": f"{n} (in pillow)", "version": v, "licence": lic} for n, v, lic in INSIDE]
-    if detected:  # MA-7-16: the licences are the ones read for the pins (tools/licence-check/allow.json)
+    if detected:  # MA-7-16: only --detect passes True (the model sha and the onnxruntime pin were checked first); licences as read for the pins (tools/licence-check/allow.json)
         out += [{"name": "yunet", "version": "2023mar", "licence": "MIT"}, {"name": "onnxruntime", "version": ONNXRUNTIME, "licence": "MIT"}]
+        out += [{"name": f"{n} (in onnxruntime)", "version": v, "licence": lic} for n, v, lic in ORT_INSIDE]
     return out
 
 
@@ -172,9 +175,12 @@ def _yunet_session(model, make_session=None):
         raise ValueError("the YuNet file is not the approved 2023mar (sha256 differs) - not used; nothing was proposed; mark the faces by hand")
     if make_session:
         return make_session(data)
-    got = importlib.metadata.version("onnxruntime")
-    if got != ONNXRUNTIME:
-        raise RuntimeError(f"sentinel-blur {VERSION} is built for onnxruntime {ONNXRUNTIME} (this PC has {got}) - a new onnxruntime is a new licence read")
+    try:
+        got = importlib.metadata.version("onnxruntime")
+    except importlib.metadata.PackageNotFoundError:
+        got = "none"
+    if got != ONNXRUNTIME:  # a ValueError "not set up" so the bridge answers 503, not 422
+        raise ValueError(f"the face detector is not set up on this PC (onnxruntime {ONNXRUNTIME} is needed, this PC has {got}) - nothing was proposed; mark the faces by hand")
     import onnxruntime  # noqa: E402 (after the pin)
     so = onnxruntime.SessionOptions()
     so.log_severity_level = 3
@@ -252,11 +258,8 @@ def main(argv):
         if len(argv) == 3 and argv[1] == "--detect":
             print(json.dumps({"ok": True, **detect(argv[2]), "version": VERSION, "tools": tools(True)}))
             return 0
-        detected = argv[-1] == "--detected"  # MA-7-16: the boxes began as YuNet's proposals
-        if detected:
-            argv = argv[:-1]
         if len(argv) not in (4, 5):
-            raise ValueError("usage: blur.py <source> <copy.jpg> <boxes json> [<shown width>x<shown height>] [--detected] | blur.py --detect <source>")
+            raise ValueError("usage: blur.py <source> <copy.jpg> <boxes json> [<shown width>x<shown height>] | blur.py --detect <source>")
         shown = None
         if len(argv) == 5:
             try:
@@ -265,7 +268,7 @@ def main(argv):
             except (ValueError, AssertionError):
                 raise ValueError("the shown size must be <width>x<height> in pixels")
         r = blur(argv[1], argv[2], read_boxes(json.loads(argv[3])), shown)
-        print(json.dumps({"ok": True, **r, "version": VERSION, "tools": tools(detected)}))
+        print(json.dumps({"ok": True, **r, "version": VERSION, "tools": tools()}))
         return 0
     except Exception as e:  # the bridge turns this into one sentence; no path or pixel is echoed
         msg = f"{type(e).__name__}: {e}"

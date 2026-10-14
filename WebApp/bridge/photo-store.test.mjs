@@ -34,10 +34,12 @@ describe("runBlur (MA-7-7)", () => {
     expect(stub.seen.opts.env).toEqual({ SYSTEMROOT: "C:/Windows", USERPROFILE: "C:/Users/u" });
     const miss = JSON.stringify({ ok: false, error: "ValueError: the face detector is not set up on this PC (YuNet 2023mar model not found) - nothing was proposed; mark the faces by hand" });
     await expect(runDetect("a", { ...here, execFileFn: stub(miss, new Error("exit 2")) })).rejects.toMatchObject({ status: 503, message: expect.stringContaining("mark the faces by hand") });
+    const pin = JSON.stringify({ ok: false, error: "ValueError: the face detector is not set up on this PC (onnxruntime 1.26.0 is needed, this PC has none) - nothing was proposed; mark the faces by hand" });
+    await expect(runDetect("a", { ...here, execFileFn: stub(pin, new Error("exit 2")) })).rejects.toMatchObject({ status: 503 }); // a missing or different onnxruntime is "not set up", not "bad photo"
     await expect(runDetect("a", { ...here, execFileFn: stub("", new Error("boom")) })).rejects.toMatchObject({ status: 500, message: "the face detector failed — nothing was proposed" });
     await expect(runDetect("a", { python: "relative.exe", execFileFn: () => {} })).rejects.toMatchObject({ status: 503, message: expect.stringContaining("face detector") });
-    await expect(runBlur("a", "b", [], undefined, { ...here, detected: true, execFileFn: stub(JSON.stringify(ok)) })).resolves.toEqual(ok);
-    expect(stub.seen.args.at(-1)).toBe("--detected");
+    await expect(runBlur("a", "b", [], undefined, { ...here, execFileFn: stub(JSON.stringify(ok)) })).resolves.toEqual(ok);
+    expect(stub.seen.args).not.toContain("--detected"); // MA-7-16: the blur form has no way to claim a detector run
   });
 
   it("a refusal from the tool is a 422 in words; a dead or stuck child is a 500; a missing tool is a 503 before anything runs", async () => {
