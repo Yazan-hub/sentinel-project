@@ -1,9 +1,13 @@
 // MA-7-1 — the licence gate, pure: SPDX verdicts, banned names, the weights table and the model refusal (design §6.10).
 // Used by tools/licence-check/check.mjs and, from 7-8, by the photo reader before any image is sent. No file is read here.
 
-export const ALLOWED = ["MIT", "BSD-2-Clause", "BSD-3-Clause", "Apache-2.0", "BSL-1.0", "MPL-2.0", "0BSD", "Zlib", "CC0-1.0", "PSF-2.0"];
+export const ALLOWED = ["MIT", "BSD-2-Clause", "BSD-3-Clause", "Apache-2.0", "BSL-1.0", "MPL-2.0", "0BSD", "Zlib", "CC0-1.0", "PSF-2.0",
+  // MA-7 batch 6 (2026-10-14): torch's LLVM-exception clause only loosens Apache-2.0; CNRI-Python is the permissive Python 1.6 licence regex carries
+  "Apache-2.0 WITH LLVM-exception", "CNRI-Python"];
 // Waiting for the founder's decision (D-7-16): warns, never fails.
-export const PENDING = ["ISC", "MIT-CMU", "Unlicense", "BSD"];
+export const PENDING = ["ISC", "MIT-CMU", "Unlicense", "BSD",
+  // the CUDA/cuDNN runtime DLLs inside the torch wheel: NVIDIA's redistributable runtime terms, not an open licence — the founder decides (D-7-16)
+  "NVIDIA-Software-Licence"];
 const ALIAS = { "MIT License": "MIT", "Apache 2.0": "Apache-2.0", "Apache Software License": "Apache-2.0", "BSD License": "BSD" };
 export const BANNED_NAMES = [
   "cloudcompare", "libredwg", "openmvs", "opendronemap", "odm", "pymupdf", "fitz", "ultralytics", "bonsai", "dust3r", "mast3r",
@@ -17,6 +21,9 @@ export const WEIGHTS = {
   "llama3.2-vision:latest": { digest: "6f2f9757ae97", licence: "Llama-3.2-Community" },
   // MA-7-16: YuNet 2023mar (opencv_zoo, MIT), face_detection_yunet_2023mar.onnx; digest = the first 12 hex of its sha256 (full: survey/blur.py YUNET_SHA)
   "yunet:2023mar": { digest: "8f2383e4dd3c", licence: "MIT" },
+  // MA-7-20 (downloads #5, #6, 2026-10-14): Hugging Face safetensors, digest = the first 12 hex of model.safetensors' sha256 (equal to the Hub's LFS sha)
+  "grounding-dino-tiny:main": { digest: "1a2412ef99bd", licence: "Apache-2.0" },
+  "sam2.1-hiera-small:main": { digest: "0a4067b11ce1", licence: "Apache-2.0" },
 };
 
 const RANK = { allowed: 0, pending: 1, unknown: 2, banned: 3 };
