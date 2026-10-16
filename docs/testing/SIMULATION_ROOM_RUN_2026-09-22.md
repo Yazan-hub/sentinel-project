@@ -3390,6 +3390,18 @@ Closing list: Project1.rvt closed unsaved, the MCP switch off, Revit 2024 left o
 
 Owed: T-0 (7 000 steps at half resolution on 20 registered photos) and GS-1…GS-3 — the founder's own photos; `photo/` has no trainer yet (7-19 Stage B).
 
+## Session MA7 7-19 Stage B — Sentinel's own short gsplat trainer (2026-10-16; branch feature/ma7-19-splat-trainer, commit 195ae536; no Revit, no bridge change, no web change; Claude driving)
+
+| Row | What happened | Result |
+|---|---|---|
+| S-0 | `%APPDATA%\Sentinel\py310\python.exe photo/splat_train.py` synthetic self-check on the RTX 4060 Laptop GPU: 400 known Gaussians, 12 ring cameras, trained on 10 from random init (2000 Gaussians, 3000 steps, 128x128, SH degree 0, L1, Adam, one view per step, fixed count — densify via gsplat DefaultStrategy is the upgrade): 7.8 s, peak VRAM 6.1 MB (torch allocated), held-out PSNR on 2 views 11.02 -> 40.58 dB (bar: >6 dB gain), loss 0.0858 -> 0.0049 (bar: halves), PLY 136,414 bytes = 414-byte header + 2000x17x4 | **PASSED** |
+| S-1 | The PLY header passes `evidence-logic.mjs` `splatHeaderRefusal` (null), both the full file and the committed fixture `photo/fixtures/selfcheck-head.ply`; vitest case added in `WebApp/bridge/evidence-logic.test.mjs` | **PASSED** |
+| S-2 | Receipt `tools()` lists sentinel-splat-train 0.1.0, python 3.10.11 PSF-2.0, every library in `photo-lib310` with its version from its own metadata and its licence from `tools/licence-check/allow.json` (gsplat 1.5.3+pt24cu124 Apache-2.0 + its CUDA kernels; torch 2.4.1+cu124 with allow.json's expression, which includes BSD-3-Clause; the bundled NVIDIA CUDA 12.4 runtime row; CUDA 12.4 as torch reports it); a library not in allow.json stops the job | **PASSED** |
+| T-0 | 7,000 steps at half resolution on 20 registered photos (minutes, peak VRAM, PLY MB) — waits for 7-17 registration (pycolmap) and the founder's 20 photos | **OWED** |
+| GS-1 | Bridge job -> PLY admitted as splat with made_with "gsplat job-…" stamped by the bridge — the job wiring waits for registration (`train()` and `write_ply()` are the interface) | **OWED** |
+| GS-2 | (live half) The job's receipt on the admitted row; the tool list itself is proven by S-2 | **OWED** |
+| GS-3 | A NOTICE listing gsplat, torch, pycolmap — no NOTICE file exists in the repo yet; lands with the job | **OWED** |
+
 ## Session MA7 7-20 core — openings by Grounding DINO + SAM 2.1, advice only (2026-10-16 local: built offline on the RTX 4060; no download, no Revit, no bridge or web change; registration (7-17) is not built, so no photo has a pose and the job wiring waits; Claude driving)
 
 | Row | What happened | Result |
