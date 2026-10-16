@@ -1699,6 +1699,10 @@ async function handleRequest(req, res) {
           const photo = await import("./photo-store.mjs");
           return send(res, 201, await ev.makeViewCopy(p1, p3, seg[5], await body(), { blur: photo.runBlur }));
         }
+        // MA-7-18: POST …/items/:id/panoramas → 201 {admitted[], refused[]}: an E57 scan's panoramas as photos posed by the scanner (a signed-in contributor; the machine credential is a 403).
+        if (p3 && p4 === "items" && seg[5] && seg[6] === "panoramas" && !seg[7] && req.method === "POST") {
+          return send(res, 201, await ev.extractPanoramas(p1, p3, seg[5], { e57Images: (await import("./photo-store.mjs")).runE57Images }));
+        }
         // MA-7-16b: POST …/items/:id/detect-faces → 200 {faces[], source_sha256}: proposed face boxes (a signed-in contributor on THIS PC only; the machine credential is a 403; no row, the run is remembered for view-copy).
         if (p3 && p4 === "items" && seg[5] && seg[6] === "detect-faces" && !seg[7] && req.method === "POST") {
           const photo = await import("./photo-store.mjs");

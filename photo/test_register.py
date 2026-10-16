@@ -1,4 +1,4 @@
-# MA-7-17/7-18 core - registration maths and the panorama cut, run from the repo root: py -3.14 -B -m unittest discover -s photo -v.
+# MA-7-17/7-18 core - registration maths and the panorama cut (panorama_views.py), run from the repo root: py -3.14 -B -m unittest discover -s photo -v.
 # Exact numbers on synthetic data (numpy only): Umeyama recovers a known similarity, refuses collinear points and never returns a reflection;
 # the RMSE and the held-out check distance; a pinhole view cut from a panorama projects a world point back where the panorama has it.
 import importlib.util
@@ -70,9 +70,9 @@ class Umeyama(unittest.TestCase):
 class Cut(unittest.TestCase):
     def setUp(self):
         try:
-            self.ei = load("e57_images")
+            self.ei = load("panorama_views")
         except Exception as e:  # noqa: BLE001  (survey's las / pye57 helpers are not importable here)
-            self.skipTest(f"photo/e57_images.py needs survey/: {e}")
+            self.skipTest(f"photo/panorama_views.py: {e}")
 
     def spec(self, R=np.eye(3), t=(0, 0, 0)):
         W = 3600
@@ -94,6 +94,12 @@ class Cut(unittest.TestCase):
             self.assertLessEqual(abs(got[0] - int(col) % 256), 2)  # the view's pixel is the panorama's pixel on that ray
             self.assertLessEqual(abs(got[1] - int(row) % 256), 2)
         np.testing.assert_allclose((w2c @ np.r_[sp["t_mm"], 1])[:3], 0, atol=1e-9)  # the camera centre is the panorama's
+
+    def test_spec_from_a_reader_record(self):
+        sp = self.ei.spec({"rotation": [np.cos(np.pi / 8), 0, 0, np.sin(np.pi / 8)], "translation": [1.5, -2, 0.25], "width": 40, "height": 20,
+                           "pixel_width": 0.1, "pixel_height": 0.1})  # 45 degrees about z
+        np.testing.assert_allclose(sp["R"], rot(2, 45), atol=1e-12)
+        np.testing.assert_allclose(sp["t_mm"], [1500, -2000, 250])
 
     def test_view_centre_is_the_yaw(self):
         sp = self.spec()

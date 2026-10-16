@@ -1,23 +1,12 @@
-"""MA-7-18: an E57's panoramas as posed photos. Reads images2D (name, guid, the scan it belongs to, pose, sphericalRepresentation and its
-jpeg/png blob) with pye57 at survey's pin, after survey's own XML check (survey/e57.py xml_refusal: no DTD, entity or schema location, so the
-bundled Xerces parser fetches nothing). survey 0.6.0 is untouched; this only imports its checks.
+"""MA-7-17/7-18: pinhole views of an E57 panorama, so a panorama goes wherever a photo goes (openings.judge for 7-20, register.sfm for 7-17).
+The panoramas come out of the E57 with photo/e57_images.py (sentinel-e57-images); spec() turns one of its image records into what cut() needs.
 
-cut() makes a pinhole view of a panorama with an exact K and world-to-camera (mm), so a view goes where any photo goes: openings.judge
-(7-20) and the SfM check (register.py, 7-17). Pose: the standard's pose maps the image's local frame to the file's (p_file = R p_local + t,
-metres -> mm here), as for a scan. Local frame z up; azimuth counter-clockwise from +x about +z (the standard's spherical coordinates).
-Pixel convention: AZ_CENTRE_COL / AZ_SIGN / EL_SIGN below - checked against SfM on the manitou file (register.py, the Session MA7
-7-17/7-18 rows); an E57 from another scanner is checked the same way before its poses are trusted.
+Pose: the standard's pose maps the image's local frame to the file's (p_file = R p_local + t, metres -> mm here), as for a scan. Local frame
+z up; azimuth counter-clockwise from +x about +z. The pixel convention below is NOT settled by the standard's text; it is the best of 10 tried
+by SfM against the manitou file's poses (Session MA7 7-17/7-18 rows) and is not confirmed, so no panorama pose is written as a registration.
 """
-import os
-import sys
-
 import numpy as np
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "survey"))
-import e57 as survey_e57  # noqa: E402  (survey's XML check and pin)
-import las  # noqa: E402
-
-MAX_IMAGE_BYTES = 64 * 1024 * 1024  # as blur.py's cap: a bigger blob is refused before it is read
 AZ_SIGN = -1   # columns run clockwise: azimuth falls left to right, as a panorama is seen from inside
 EL_SIGN = -1   # rows run down: elevation falls top to bottom
 AZ_CENTRE_COL = 0.75  # the azimuth-0 column, as a fraction of the width: the best of 10 conventions tried by SfM on the manitou file
@@ -25,49 +14,14 @@ AZ_CENTRE_COL = 0.75  # the azimuth-0 column, as a fraction of the width: the be
 CONVENTION_CONFIRMED = False  # until a run confirms it, a panorama's pose is NOT written as a registration (7-18 E5-1 owed)
 
 
-def _node(L, n):
-    return L.StructureNode(n) if type(n) is L.Node else n
-
-
-def read_images(path):
-    """[{index, name, guid, scan_guid, R, t_mm, width, height, pixel_w, pixel_h, format, data}] for every spherical image of the file.
-    Refused in words: an unsafe XML, no pye57, an image with no pose, a blob over MAX_IMAGE_BYTES. Pinhole/cylindrical images are skipped
-    (none in the files seen so far)."""
-    survey_e57.xml_refusal(path)
-    pye57 = las.lib("pye57")
-    from pyquaternion import Quaternion
-    from pye57 import libe57 as L
-    out = []
-    with las.damaged("E57"), pye57.E57(path) as e:
-        root = e.image_file.root()
-        if not root.isDefined("images2D"):
-            return out
-        ims = root["images2D"]
-        for k in range(ims.childCount()):
-            n = _node(L, ims.get(k))
-            if not n.isDefined("sphericalRepresentation"):
-                continue
-            if not n.isDefined("pose"):
-                raise las.Refused(f"image {k + 1}: it has no pose - not read")
-            p = n["pose"]
-            q = [p["rotation"][c].value() for c in "wxyz"]
-            t = [p["translation"][c].value() for c in "xyz"]
-            sp = n["sphericalRepresentation"]
-            fmt = next((f for f in ("jpegImage", "pngImage") if sp.isDefined(f)), None)
-            if not fmt:
-                continue
-            b = sp[fmt]
-            if b.byteCount() > MAX_IMAGE_BYTES:
-                raise las.Refused(f"image {k + 1}: {b.byteCount()} bytes is over the {MAX_IMAGE_BYTES} cap - not read")
-            buf = np.zeros(b.byteCount(), np.uint8)
-            b.read(buf, 0, b.byteCount())
-            text = lambda f: n[f].value() if n.isDefined(f) else None  # noqa: E731
-            out.append({"index": k, "name": text("name"), "guid": text("guid"), "scan_guid": text("associatedData3DGuid"),
-                        "R": Quaternion(q).rotation_matrix, "t_mm": np.array(t) * 1000.0,
-                        "width": sp["imageWidth"].value(), "height": sp["imageHeight"].value(),
-                        "pixel_w": sp["pixelWidth"].value(), "pixel_h": sp["pixelHeight"].value(),
-                        "format": fmt[:-5], "data": buf.tobytes()})
-    return out
+def spec(rec):
+    """An e57_images.py image record (rotation [w,x,y,z], translation m, width, height, pixel_width, pixel_height) -> cut()'s spec."""
+    w, x, y, z = rec["rotation"]
+    R = np.array([[1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+                  [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+                  [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)]])
+    return {"width": rec["width"], "height": rec["height"], "pixel_w": rec["pixel_width"], "pixel_h": rec["pixel_height"],
+            "R": R, "t_mm": np.array(rec["translation"], float) * 1000.0}
 
 
 def _cam_axes(yaw, pitch):

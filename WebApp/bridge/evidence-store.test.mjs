@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { makePack, readPack, signAttestation, runEvidenceIntake, recheckPack, draftRequest, surveyStart, webStatus, noticeOf, setDeleteBy, startExpirySweep, makeViewCopy, proposeFaces, photoFile, placeSplat, readSplatPlacement } from "./evidence-store.mjs";
+import { makePack, readPack, signAttestation, runEvidenceIntake, recheckPack, draftRequest, surveyStart, webStatus, noticeOf, setDeleteBy, startExpirySweep, makeViewCopy, proposeFaces, photoFile, placeSplat, readSplatPlacement, extractPanoramas } from "./evidence-store.mjs";
 import * as W from "./web-sources.mjs";
 import { runWithAuth } from "./bridge-auth.mjs";
 import { jpegWithExif } from "./fixtures/jpeg-exif.mjs";
@@ -702,6 +702,55 @@ describe("delete-by, expiry and retire (MA-7-5)", () => {
     await expect(noticeOf("demo", "evp-0001", { ...deps(), auditAll: async () => { throw new Error("db down"); } })).rejects.toMatchObject({ status: 503, message: "the NOTICE needs the build:run rows and the ledger could not be read \u2014 nothing was made" });
     await expect(noticeOf("demo", "evp-0009", { ...deps(), auditAll: async () => [] })).rejects.toMatchObject({ status: 404 });
     expect(audits.length).toBe(before); // a read: no row
+  });
+});
+
+describe("E57 panoramas as posed photos (MA-7-18)", () => {
+  const E57 = Buffer.concat([Buffer.from("ASTM-E57"), Buffer.alloc(40)]);
+  const IMG = (n) => ({ file: `0${n}.jpg`, guid: `g${n}`, name: `sp${n}`, scan_guid: "s1", representation: "sphericalRepresentation", width: 40, height: 20, rotation: [1, 0, 0, 0], translation: [n, 0, 0.5] });
+  let calls;
+  const tool = (count = 2) => async (src, out) => { // a stand-in for sentinel-e57-images: no-EXIF JPEGs, as a scanner's panoramas are
+    calls.push({ src, out }); mkdirSync(out, { recursive: true });
+    const images = [];
+    for (let n = 1; n <= count; n++) { const b = Buffer.concat([SHOT, Buffer.from([n])]); writeFileSync(join(out, `0${n}.jpg`), b); images.push({ ...IMG(n), sha256: sha(b) }); }
+    return { ok: true, version: "0.1.0", images, tools: [{ name: "sentinel-e57-images", version: "0.1.0", licence: "LicenseRef-Sentinel" }] };
+  };
+  const pano = (id, extra = {}) => extractPanoramas("demo", "evp-0001", id, { ...deps(), e57Images: tool(), ...extra });
+  const setup = async () => { calls = []; await ready(); put("scans/s.e57", E57); put("scans/tiny.las", LAS); await admit({ path: "scans/s.e57", kind: "scan", registration: REG }); await admit({ path: "scans/tiny.las", kind: "scan", registration: REG }); };
+
+  it("(p1) each panorama is admitted as an own photo with the scanner's pose as its registration; no camera EXIF is asked of it; the pack validates", async () => {
+    await setup();
+    const r = await pano("ev-0001");
+    expect(calls[0]).toEqual({ src: join(root, "demo", "scans", "s.e57"), out: join(root, "demo", "panoramas", "ev-0001") });
+    expect(r).toMatchObject({ scan_item_id: "ev-0001", refused: [], admitted: [{ item_id: "ev-0003", path: "panoramas/ev-0001/01.jpg", name: "sp1" }, { item_id: "ev-0004", path: "panoramas/ev-0001/02.jpg", name: "sp2" }] });
+    const items = (await pack()).items;
+    expect(items[2]).toMatchObject({ kind: "photo", format: "jpg", provider: "own", registration: { method: "E57 scanner pose", scan_item_id: "ev-0001", image_guid: "g1", representation: "sphericalRepresentation", rotation: [1, 0, 0, 0], translation: [1, 0, 0.5], confirmed_by: "machine" } });
+    expect(items[2].capture).toBeUndefined();
+    expect(rows("evidence:admitted")).toHaveLength(4);
+    put("photos/shot.jpg", SHOT); // the same no-EXIF bytes put in by hand are still refused: the exemption is the bridge's, not the body's
+    expect((await admit({ path: "photos/shot.jpg", kind: "photo", registration: { method: "E57 scanner pose", scan_item_id: "ev-0001" } })).verdict).toBe("refused");
+    expect((await pack()).items).toHaveLength(4);
+  });
+
+  it("(p2) refused before any file is written: not an E57 scan, no item, no tool, the machine credential, taken out before", async () => {
+    await setup();
+    await expect(pano("ev-0002")).rejects.toMatchObject({ status: 409, message: expect.stringContaining("not an E57 scan") });
+    await expect(pano("ev-0009")).rejects.toMatchObject({ status: 404 });
+    await expect(pano("ev-0001", { e57Images: undefined })).rejects.toMatchObject({ status: 503 });
+    role = "service"; await expect(pano("ev-0001")).rejects.toMatchObject({ status: 403 });
+    role = "contributor"; await pano("ev-0001");
+    await expect(pano("ev-0001")).rejects.toMatchObject({ status: 409, message: expect.stringContaining("taken out before") });
+    expect(calls).toHaveLength(1);
+  });
+
+  it("(p3) a panorama whose bytes change between extraction and admission is refused by name; a scan changed since admitted is a 409", async () => {
+    await setup();
+    const swap = async (src, out) => { const r = await tool(1)(src, out); writeFileSync(join(out, "01.jpg"), Buffer.concat([SHOT, Buffer.from([9, 9])])); return r; };
+    const r = await pano("ev-0001", { e57Images: swap });
+    expect(r.admitted).toEqual([]);
+    expect(r.refused).toEqual([{ path: "panoramas/ev-0001/01.jpg", reasons: ["changed between taken out of its E57 and admitted"] }]);
+    put("scans/s.e57", Buffer.concat([E57, Buffer.from([1])]));
+    await expect(pano("ev-0001")).rejects.toMatchObject({ status: 409, message: expect.stringContaining("changed since it was admitted") });
   });
 });
 

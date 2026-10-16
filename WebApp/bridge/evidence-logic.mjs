@@ -563,6 +563,19 @@ export const newRequest = ({ id, input, letter, who, at }) => ({ id, ...input, l
 /** The evidence:requested row's new_value — the recipient's name is not put on the append-only ledger (it stays in the pack). */
 export const requestedValue = (packId, r) => ({ pack_id: packId, request_id: r.id, recipient_kind: r.recipient_kind, documents: r.documents.length, letter_sha256: r.letter_sha256, actor: r.drafted_by });
 
+/** MA-7-18: an E57 panorama's registration, from sentinel-e57-images' record of it and the scan it came out of — the scanner's pose, never a body's. */
+export const SCAN_POSE = "E57 scanner pose";
+const REPRESENTATIONS = ["sphericalRepresentation", "pinholeRepresentation", "cylindricalRepresentation"];
+export const scanPoseRegistration = (scan, img) => ({ method: SCAN_POSE, scan_item_id: scan.id, image_guid: img.guid ?? null, representation: img.representation, rotation: img.rotation, translation: img.translation });
+/** Why a photo's registration is not an E57 scanner pose this pack can trust, or null (a photo's only registration until 7-17). */
+export function scanPoseRefusal(r, items) {
+  const nums = (a, n) => Array.isArray(a) && a.length === n && a.every((v) => typeof v === "number" && Number.isFinite(v));
+  if (!isObj(r) || r.method !== SCAN_POSE) return `a photo's registration is "${SCAN_POSE}" (MA-7-18) only`;
+  if (!items.some((i) => i.id === r.scan_item_id && i.kind === "scan" && i.format === "e57")) return "names the E57 scan of this pack it came out of (scan_item_id)";
+  if (!REPRESENTATIONS.includes(r.representation) || !nums(r.rotation, 4) || !nums(r.translation, 3) || !(r.image_guid === null || str(r.image_guid, 100))) return "carries the image's representation, rotation [w,x,y,z] and translation [x,y,z] as numbers";
+  return str(r.confirmed_by, 320) ? null : "names who admitted it (confirmed_by)";
+}
+
 /** An admitted item; every field from the bridge (the trust rule). `report`: {sha256} of the registration report, or null. A drawing
  *  (MA-4b) comes from its `request`'s recipient, with the holder's permission (b); every other item is own. */
 export function newItem({ id, input, format, sha256, size_bytes, report, pack, who, at, request = null }) {
@@ -577,7 +590,7 @@ export function newItem({ id, input, format, sha256, size_bytes, report, pack, w
     attestation_ids: needsOf(pack, input.kind, input.provider).map((c) => pack.attestations.find((a) => a.code === c).id), // a photo's names (d) too
     allowed_uses: input.kind === "splat" ? { ...USES, geometry_extraction: false } : { ...USES }, // MA-7-11: a splat is for looking only - dimensions come from scans
     ...(input.kind === "splat" && input.no_people_or_plates === true ? { no_people_or_plates: true } : {}),
-    ...(reg ? { registration: { method: reg.method, ...(reg.report_path ? { report_path: reg.report_path, report_sha256: report.sha256 } : {}), confirmed_by: who } } : {}),
+    ...(reg ? { registration: { method: reg.method, ...(reg.report_path ? { report_path: reg.report_path, report_sha256: report.sha256 } : {}), ...(reg.scan_item_id ? { scan_item_id: reg.scan_item_id, image_guid: reg.image_guid, representation: reg.representation, rotation: reg.rotation, translation: reg.translation } : {}), confirmed_by: who } } : {}),
     ...(input.capture ? { capture: input.capture } : {}), // MA-7-4: a photo's camera record
     surveyable: tableOf(input.kind)[format].surveyable, admitted_by: who, admitted_at: at,
   };
@@ -676,6 +689,7 @@ export function validatePack(p) {
     if (!isObj(u) || Object.keys(u).length !== Object.keys(USES).length || Object.keys(USES).some((k) => typeof u[k] !== "boolean")) throw bad(`${at}.allowed_uses`, `must be exactly {${Object.keys(USES).join(", ")}}, each true or false`);
     if (u.texture_embed !== false || u.redistribute !== false) throw bad(`${at}.allowed_uses`, "texture_embed and redistribute are always false (policy)");
     if (x.kind === "scan" && !(isObj(x.registration) && str(x.registration.method, 300) && str(x.registration.confirmed_by, 320))) throw bad(`${at}.registration`, "a scan carries {method, confirmed_by}");
+    if (x.kind === "photo" && x.registration !== undefined && scanPoseRefusal(x.registration, p.items)) throw bad(`${at}.registration`, scanPoseRefusal(x.registration, p.items)); // MA-7-18
     if (x.format === "rcp" && !(safeRel(x.registration.report_path) && /^[0-9a-f]{64}$/.test(x.registration.report_sha256 ?? ""))) throw bad(`${at}.registration`, "an RCP carries its report's path and sha256");
     if (x.surveyable !== (x.role === "context" ? false : f.surveyable)) throw bad(`${at}.surveyable`, `must be ${f.surveyable} for a .${x.format}`);
     if (!str(x.admitted_by, 320) || !str(x.admitted_at, 40)) throw bad(at, "needs admitted_by and admitted_at — stamped by the bridge");
