@@ -3424,3 +3424,10 @@ Owed: the job wiring (bridge → `openings.py` per registered photo → advice r
 | E5-1 (tests) | vitest: evidence-store (p1) pose + no EXIF + a hand-made "E57 scanner pose" body still refused; (p2) not an E57, 404, 503, the machine credential 403, taken out before; (p3) a panorama swapped between extraction and admission refused by name, a changed scan 409; web `itemLine` + `panoramasLine`. Full WebApp suite 3,810 passed | **PASSED** |
 | E5-1 (live) | Files ▸ Evidence ▸ **Take out panoramas** on an admitted E57 in the local app against the bridge on this branch, signed in; then mark faces/plates on each panorama | **OWED** (web publish + bridge restart; the founder's session) |
 | E5-2 | A ghost wall projected into one panorama lands on the wall (screenshot) — needs a projection view in the viewer | **OWED** (next slice) |
+
+## Session MA7 7-19 GS-3 — the NOTICE half (2026-10-17; the founder's "do GS-3"; same branch; no Revit)
+
+| Row | What happened | Result |
+|---|---|---|
+| GS-3 (offline) | The pack's NOTICE is built from the ledger's build:run rows (`noticeText`), so no separate NOTICE file is needed. vitest feeds it the trainer's real receipt (`photo/fixtures/splat-tools.json`, from `splat_train.tools()` under the private Python 3.10) as a training job's row and a registration job's pycolmap row: the NOTICE carries `- gsplat 1.5.3+pt24cu124 · Apache-2.0`, `- torch 2.4.1+cu124 · Apache-2.0 AND … BSD-3-Clause …`, `- pycolmap 4.2.1 · BSD-3-Clause` | **PASSED** |
+| GS-3 (live) | The NOTICE downloaded from a pack whose training job really ran (Files ▸ Evidence ▸ NOTICE) | **OWED** (with GS-1: needs 7-17 registration + the founder's photos) |

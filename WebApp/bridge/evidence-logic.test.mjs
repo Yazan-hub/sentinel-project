@@ -505,6 +505,17 @@ describe("MA-7-6: the NOTICE text", () => {
     expect(t).toContain("- numpy 2.4.6 \u00b7 licence not reported\n");
     expect(t).toContain("- nolicence 1 \u00b7 licence not reported\n");
   });
+  it("MA-7-19 GS-3: a training job's receipt and a registration job's pycolmap row put gsplat, torch and pycolmap in the NOTICE", () => {
+    const fx = JSON.parse(readFileSync(new URL("../../photo/fixtures/splat-tools.json", import.meta.url), "utf8"));
+    const t = noticeText(args([
+      { ...R(fx), action: "build:run job-0001 \u00b7 sentinel-splat-train 0.1.0" },
+      { ...R([T("sentinel-photo", "0.1.0", "LicenseRef-Sentinel"), T("pycolmap", "4.2.1", "BSD-3-Clause")]), id: 2, action: "build:run job-0002 \u00b7 sentinel-photo 0.1.0" },
+    ])).split("\n");
+    const torch = fx.find((x) => x.name === "torch");
+    expect(t).toContain("- gsplat 1.5.3+pt24cu124 \u00b7 Apache-2.0");
+    expect(t).toContain(`- torch ${torch.version} \u00b7 ${torch.licence}`);
+    expect(t).toContain("- pycolmap 4.2.1 \u00b7 BSD-3-Clause");
+  });
   it("an empty section says (none yet); an expired item stays credited; a web photo's credit carries its author and the drill words", () => {
     const empty = noticeText({ pack: packWith([]), version: 1, rows: [], today: "2026-10-13" });
     expect(empty.match(/\(none yet\)/g)).toHaveLength(2);
