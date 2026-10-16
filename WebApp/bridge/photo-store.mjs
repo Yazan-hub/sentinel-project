@@ -58,6 +58,28 @@ export function runDetect(src, { python = pythonPath(), script = BLUR_SCRIPT, en
   });
 }
 
+export const OPENINGS_SCRIPT = fileURLToPath(new URL("../../photo/openings.py", import.meta.url));
+export const OPENINGS_MS = 300_000; // two models load from disk (R29, offline) and run on one photo; this only bounds a stuck child
+
+/** MA-7-20: run photo/openings.py --judge on a job file; → its answer {verdicts, unmatched, tools, version, ms}. ADVICE: the caller records it, nothing here changes a ghost. The child gets an
+ *  allow-listed environment (no config/.env secrets): the photo-lib on PYTHONPATH, USERPROFILE for the local model folders, and the offline switches (R29) set here as well as in the script. */
+export function runJudge(jobFile, { python = pythonPath(), script = OPENINGS_SCRIPT, env = process.env, execFileFn = execFile, ms = OPENINGS_MS } = {}) {
+  if (!isAbsolute(python) || !existsSync(python) || !existsSync(script)) return Promise.reject(Object.assign(new Error("the openings tool is not set up on this PC (Python 3.14 with the photo-lib, photo/openings.py) — nothing was advised"), { status: 503 }));
+  const lib = env.APPDATA ? `${env.APPDATA}\\Sentinel\\photo-lib` : undefined;
+  const childEnv = Object.fromEntries(Object.entries({ SYSTEMROOT: env.SYSTEMROOT ?? env.SystemRoot, APPDATA: env.APPDATA, TEMP: env.TEMP, TMP: env.TMP, USERPROFILE: env.USERPROFILE,
+    SENTINEL_MA7_MODELS: env.SENTINEL_MA7_MODELS, PYTHONPATH: lib, HF_HUB_OFFLINE: "1", TRANSFORMERS_OFFLINE: "1" }).filter(([, v]) => v));
+  return new Promise((ok, no) => {
+    execFileFn(python, ["-B", script, "--judge", jobFile], { env: childEnv, timeout: ms, windowsHide: true, maxBuffer: 1024 * 1024 }, (e, stdout, stderr) => {
+      let r = null;
+      try { r = JSON.parse(String(stdout).trim().split("\n").pop()); } catch { /* not JSON: the tool died */ }
+      if (r?.ok && Array.isArray(r.verdicts)) return ok(r);
+      if (r && r.ok === false) return no(Object.assign(new Error(String(r.error).slice(0, 160)), { status: /not set up|approved|sha256/.test(String(r.error)) ? 503 : 422 }));
+      if (stderr) console.warn(`[openings --judge] ${String(stderr).trim().slice(-600)}`);
+      no(Object.assign(new Error(e?.killed ? "the openings tool took too long and was stopped — nothing was advised" : "the openings tool failed — nothing was advised"), { status: 500 }));
+    });
+  });
+}
+
 /** Stream `file` as `type`. `headers`: the caller's Cache-Control and its corsHeaders(res). */
 export function sendBytes(res, file, type, headers = {}) {
   res.writeHead(200, { "Content-Type": type, "Content-Length": statSync(file).size, "X-Content-Type-Options": "nosniff", ...headers });

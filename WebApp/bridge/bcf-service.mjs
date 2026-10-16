@@ -1953,6 +1953,8 @@ async function handleRequest(req, res) {
       // MA-3a: the web desk — a signed-in contributor's decisions; a signed-in lead's re-open of a decline (changesets-store).
       if (p2 && p3 === "review" && req.method === "POST") return send(res, 200, await ch.reviewChangeset(key, p2, body, actor));
       if (p2 && p3 === "reopen" && req.method === "POST") return send(res, 200, await ch.reopenGhost(key, p2, body, actor));
+      // MA-7-20: POST /changesets/:key/:id/openings-advice → 200 {advice, ledger}: are the ghost doors and windows seen in the registered photos? ADVICE ONLY (one evidence:openings row; nothing is filed or changed).
+      if (p2 && p3 === "openings-advice" && req.method === "POST") return send(res, 200, await (await import("./openings-store.mjs")).adviseOpenings(key, p2, actor, { judge: (await import("./photo-store.mjs")).runJudge }));
       return send(res, 404, { message: "changesets route not found" });
     } catch (e) {
       if (!(e?.status === 401 || e?.status === 403)) console.error(`[changesets] ${req.method} ${url.pathname} → ${e?.status || 500}:`, e?.message || e);
