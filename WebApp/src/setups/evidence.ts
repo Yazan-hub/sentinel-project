@@ -26,7 +26,7 @@ export interface EvidenceItem {
   id: string; kind: EvidenceKind; format: string; sha256: string; size_bytes: number; path: string; surveyable: boolean;
   admitted_by: string; admitted_at: string; state?: "changed" | "expired"; changed_at?: string;
   /** MA-7-5: the day after which no job reads it; once expired, when, and the Sentinel copies taken away (the office's own file is never touched). */
-  delete_by?: string; delete_why?: string; expired_at?: string; removed?: string[]; not_removed?: { path: string; why: string }[]; role?: string; registration?: { method: string; report_path?: string };
+  delete_by?: string; delete_why?: string; expired_at?: string; removed?: string[]; not_removed?: { path: string; why: string }[]; role?: string; registration?: { method: string; report_path?: string; scan_item_id?: string; image_guid?: string | null; representation?: string; rotation?: number[]; translation?: number[] };
   provider?: string; request_id?: string;
   /** MA-8-3: a third party's model — commercial, with the order or contract it was bought under. */
   licence?: string; licence_ref?: string;
@@ -85,6 +85,7 @@ export function itemLine(i: EvidenceItem): string {
     (i.kind === "splat" ? splatLine(i) : i.kind === "drawing" ? ` · drawing from the ${i.provider} under ${i.request_id}` : i.kind === "model" ? (i.provider && i.provider !== "own" ? ` · model from ${i.provider} (${i.licence ?? "commercial"}, ref ${i.licence_ref ?? "?"})` : " · concept model (own)") : i.surveyable ? "" : " · not surveyable (no ReCap here)") +
     (i.role === "context" && i.web ? ` · web photo, context (assumed, web) · ${i.web.author} · ${i.licence} · ${i.web.source_url} · retrieved ${i.web.retrieved_at}${i.web.web_mode === "drill" ? " · drill: counsel has not reviewed web evidence" : ""}` : "") + // MA-7-12
     (i.kind === "photo" && i.capture ? ` · ${[i.capture.make, i.capture.model].filter(Boolean).join(" ")} · taken ${i.capture.taken_at ?? "?"} · ${i.capture.gps ? "EXIF GPS block in the original (not copied)" : "no EXIF GPS block"}` : "") +
+    (i.kind === "photo" && i.registration?.scan_item_id ? ` · panorama from ${i.registration.scan_item_id}, posed by the scanner at (${(i.registration.translation ?? []).map((v) => v.toFixed(2)).join(", ")}) m` : "") + // MA-7-18
     (i.kind === "photo" && i.state !== "expired" ? viewCopyLine(i) : "") + // MA-7-7
     (i.delete_by && i.state !== "expired" ? ` · delete by ${i.delete_by}` : "") + // MA-7-5
     (i.state === "expired" ? ` · EXPIRED ${(i.expired_at ?? "").slice(0, 10)} — ` + // review: the office-file clause follows the role, not whether a copy went
@@ -189,6 +190,13 @@ export const setDeleteBy = (base: string, key: string, item: string, date: strin
 /** MA-7-7: a contributor's marks on an own photo — boxes (fractions of the photo as shown, each a face or a number plate), or the explicit answer that there are none. */
 export const markViewCopy = (base: string, key: string, item: string, b: { boxes?: { x: number; y: number; w: number; h: number; what: "face" | "plate" }[]; none_seen?: boolean; shown?: { w: number; h: number } }) =>
   post<{ item: EvidenceItem; copy: ViewCopy; pack_version: number; ledger: Ledger }>(base, key, `evidence/${PACK_ID}/items/${encodeURIComponent(item)}/view-copy`, b);
+/** MA-7-18: an admitted E57 scan's panoramas, each admitted as a photo posed by the scanner (then blurred like any photo before use). */
+export const takePanoramas = (base: string, key: string, item: string) =>
+  post<{ scan_item_id: string; admitted: { item_id: string; path: string; name: string | null }[]; refused: { path: string; reasons: string[] }[] }>(base, key, `evidence/${PACK_ID}/items/${encodeURIComponent(item)}/panoramas`, {});
+/** MA-7-18: the reply as one line. Pure. */
+export const panoramasLine = (r: { scan_item_id: string; admitted: { item_id: string }[]; refused: { path: string; reasons: string[] }[] }) =>
+  `${r.admitted.length ? "✓" : "✗"} ${r.admitted.length} panorama(s) of ${r.scan_item_id} admitted as photos posed by the scanner${r.admitted.length ? ` (${r.admitted.map((a) => a.item_id).join(", ")}) — mark faces and number plates on each before it is shown or read` : ""}` +
+  (r.refused.length ? ` · refused: ${r.refused.map((x) => `${x.path} (${x.reasons.join("; ")})`).join(" · ")}` : "");
 /** MA-7-16b: the detector's proposed face boxes for an own photo (the bridge refuses off the office PC, in words; it writes nothing). The person keeps, moves, deletes or adds to them. */
 export const detectFaces = (base: string, key: string, item: string) =>
   post<{ faces: { x: number; y: number; w: number; h: number; score: number }[]; source_sha256: string }>(base, key, `evidence/${PACK_ID}/items/${encodeURIComponent(item)}/detect-faces`, {});

@@ -252,8 +252,48 @@ export async function runEvidenceIntake(key, packId, b = {}, deps) {
   admitting.add(key);
   try { return await admitRun(d, proj, key, packId, b); } finally { admitting.delete(key); }
 }
-async function admitRun(d, proj, key, packId, b) {
+/** MA-7-18: POST …/:pack/items/:id/panoramas → 201 {scan_item_id, admitted[], refused[], tools}: an admitted E57 scan's panoramas (images2D) taken out
+ *  by sentinel-e57-images into panoramas/<id>/ of the evidence folder, each admitted as a photo with registration "E57 scanner pose" (the scanner's
+ *  rotation and translation, from the file, never the body). A signed-in contributor (the machine credential is a 403). Refusals before any file is
+ *  written: 403, 429, 404 (pack, item, file), 409 (not an E57 scan; not usable; changed since admitted; taken out before; the photo signatures (a)(c)(d)
+ *  not signed), 400 (a dataset's pack), 503 (no tool). Each photo then goes through admission as any photo does, and is blurred before any use (7-7). */
+export async function extractPanoramas(key, packId, itemId, deps = {}) {
+  const d = await wire(deps);
+  if ((await d.myRole(key)) === "service") throw err(403, "taking panoramas out of a scan needs a person — it names who admitted each photo: sign in. Nothing was saved.");
+  const proj = await officeProject(d, key, "contributor");
+  d.takeWriteBudget("evidence panoramas", { perUser: 5, all: 15 });
+  if (admitting.has(key)) throw err(409, `an admission to ${key} is already running — try again when it ends; nothing was saved`);
+  admitting.add(key);
+  try {
+    const { pack } = await packOf(d, key, packId);
+    if (pack.dataset) throw err(400, "a published dataset's pack admits its scans only — its panoramas are not taken out; nothing was saved");
+    const scan = pack.items.find((i) => i.id === itemId);
+    if (!scan) throw err(404, `no item ${itemId} in ${packId} — nothing was saved`);
+    if (scan.kind !== "scan" || scan.format !== "e57") throw err(409, `${itemId} is not an E57 scan — panoramas come out of an E57 only; nothing was saved`);
+    if (scan.state === "expired" || scan.state === "changed") throw err(409, `${L.usable(scan, "view")}`.replace(/; nothing was (read|shown)$/, "; nothing was saved"));
+    if (pack.items.some((i) => i.registration?.scan_item_id === itemId)) throw err(409, `${itemId}'s panoramas were taken out before — they are in the pack; nothing was saved`);
+    const missing = L.missingAttestations(pack, L.needsOf(pack, "photo", "own"));
+    if (missing.length) throw err(409, `a lead must sign ${L.codesSaid(missing)} first (each panorama is admitted as a photo); nothing was saved`);
+    if (!deps.e57Images) throw err(503, "the panorama tool is not set up on this PC (photo/e57_images.py) — nothing was saved");
+    const dir = evidenceDir(key, d.root), full = insideFolder(dir, scan.path);
+    if (!isFile(full)) throw err(404, `${scan.path} is missing from the project's evidence folder — nothing was saved`);
+    if ((await hashFile(full)).sha256 !== scan.sha256) throw err(409, `${scan.path} changed since it was admitted — Re-check, and put the same file back; nothing was saved`);
+    const r = await deps.e57Images(full, join(dir, "panoramas", itemId));
+    const admitted = [], refused = [];
+    for (const img of r.images) {
+      const path = `panoramas/${itemId}/${img.file}`;
+      try {
+        const a = await admitRun(d, proj, key, packId, { path, kind: "photo" }, { scan, img });
+        if (a.verdict === "admitted") admitted.push({ item_id: a.item.id, path, name: img.name });
+        else refused.push({ path, reasons: a.reasons });
+      } catch (e) { refused.push({ path, reasons: [e.message] }); } // the cap, a race: the rest are named, the admitted stay
+    }
+    return { scan_item_id: itemId, admitted, refused, tools: r.tools };
+  } finally { admitting.delete(key); }
+}
+async function admitRun(d, proj, key, packId, b, scanPose = null) {
   let input = L.readAdmitBody(b);
+  if (scanPose) input = { ...input, registration: L.scanPoseRegistration(scanPose.scan, scanPose.img) }; // MA-7-18: the bridge's, never the body's
   const { pack, version } = await packOf(d, key, packId);
   if (pack.dataset) { // MA-4h: a published dataset's pack — its scans only, admitted by a lead (design: an AMBER item is a lead's)
     if (input.kind !== "scan") throw err(400, "a published dataset's pack admits its scans only — nothing was saved");
@@ -315,7 +355,7 @@ async function admitRun(d, proj, key, packId, b) {
   const splat = input.kind === "splat";
   if (splat) { const sr = L.splatHeaderRefusal(await readHead(full, 4096)); if (sr) return refuse([sr]); }
   // MA-7-4 (a deliberate change to MA-4a): a NEW photo must be a camera's JPEG — EXIF make/model, read from the same first 128 KB that is hashed
-  const newPhoto = !prev && input.kind === "photo" && !webPath; // MA-7-12: a web photo has no camera data to read; it is blurred instead
+  const newPhoto = !prev && input.kind === "photo" && !webPath && !scanPose; // MA-7-12: a web photo has no camera data to read; it is blurred instead. MA-7-18: nor a scanner's panorama — its scan is the camera record
   const cam = newPhoto ? L.cameraOf(await readHead(full, 131072)) : null;
   if (newPhoto) { const pr = L.photoRefusal({ format, camera: cam }); if (pr) return refuse([pr]); }
   const f = await hashFile(full, newPhoto ? 131072 : splat ? 4096 : 16);
@@ -326,6 +366,7 @@ async function admitRun(d, proj, key, packId, b) {
   if (tooBig2) return refuse([tooBig2], f.sha256);
   if (splat) { const sr2 = L.splatHeaderRefusal(f.head); if (sr2) return refuse([sr2], f.sha256); } // MA-7-11
   if (prev && prev.sha256 !== f.sha256) return refuse(["changed since admitted"], f.sha256); // flagged already (Re-check)
+  if (scanPose && scanPose.img.sha256 !== f.sha256) return refuse(["changed between taken out of its E57 and admitted"], f.sha256); // MA-7-18
   if (webPath) return admitWeb(d, { proj, key, packId, pack, version, input, wrec, boxes, f, full, dir, who, mode: webMode });
   let item;
   if (prev) {

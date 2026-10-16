@@ -667,3 +667,15 @@ describe("a Gaussian splat (MA-7-11)", () => {
     expect(view).toContain('import("@sparkjsdev/spark")');
   });
 });
+
+describe("E57 panoramas (MA-7-18)", () => {
+  it("a panorama's line names its scan and the scanner's position; the reply line names each admitted photo and each refusal", async () => {
+    const { panoramasLine } = await import("./evidence");
+    const pano = { ...ITEM, id: "ev-0003", kind: "photo", format: "jpg", path: "panoramas/ev-0001/01.jpg", registration: { method: "E57 scanner pose", scan_item_id: "ev-0001", rotation: [1, 0, 0, 0], translation: [15.816, -8.602, -0.019] } } as EvidenceItem;
+    expect(itemLine(pano)).toContain(" · panorama from ev-0001, posed by the scanner at (15.82, -8.60, -0.02) m");
+    expect(panoramasLine({ scan_item_id: "ev-0001", admitted: [{ item_id: "ev-0003" }, { item_id: "ev-0004" }], refused: [] }))
+      .toBe("✓ 2 panorama(s) of ev-0001 admitted as photos posed by the scanner (ev-0003, ev-0004) — mark faces and number plates on each before it is shown or read");
+    expect(panoramasLine({ scan_item_id: "ev-0001", admitted: [], refused: [{ path: "panoramas/ev-0001/01.jpg", reasons: ["changed between taken out of its E57 and admitted"] }] }))
+      .toBe("✗ 0 panorama(s) of ev-0001 admitted as photos posed by the scanner · refused: panoramas/ev-0001/01.jpg (changed between taken out of its E57 and admitted)");
+  });
+});
