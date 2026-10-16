@@ -38,6 +38,10 @@ describe("openings-logic", () => {
     expect(a.unmatched[0].words).toBe("no ghost — not filed");
     expect(a.tools).toEqual([{ name: "grounding-dino-tiny", version: "main", licence: "Apache-2.0" }, { name: "transformers", version: "5.0", licence: "licence not reported" }]);
   });
+  it("a ghost no asked photo has in view is not asked, not 'not seen'", () => {
+    const a = adviseFrom(ghostOpenings(cs), [{ evidence: "ev-1", answer: { verdicts: [{ ghost: "g-door", state: "not seen" }], unmatched: [] } }]);
+    expect(a.ghosts.map((g) => g.words)).toEqual(["not seen", "no registered photo sees it — not asked"]);
+  });
   it("the job names the blurred copy and the camera", () => {
     const j = buildJob(photo("ev-1"), "C:/x/ev-1.jpg", ghostOpenings(cs));
     expect(j.photo).toBe("C:/x/ev-1.jpg");
@@ -52,7 +56,8 @@ describe("adviseOpenings", () => {
     audit: async (...a) => { rows.push(a); return { id: 7, hash: "h" }; },
     getChangeset: async () => cs, readPack: async () => ({ pack: { items: [photo("ev-1"), photo("ev-2", { registration: undefined })] } }),
     dir: "C:/ev/p", exists: () => true,
-    judge: async (jobFile) => { const j = JSON.parse(readFileSync(jobFile, "utf8")); return { ok: true, verdicts: j.ghosts.map((g) => ({ ghost: g.id, state: g.id === "g-door" ? "seen" : "not seen" })), unmatched: [{ label: "door", score: 0.5 }], tools: [{ name: "sam2.1-hiera-small", version: "main", licence: "Apache-2.0" }] }; },
+    judge: async (jobFile) => { const jobs = JSON.parse(readFileSync(jobFile, "utf8")); return { ok: true, tools: [{ name: "sam2.1-hiera-small", version: "main", licence: "Apache-2.0" }],
+      answers: jobs.map((j) => ({ evidence: j.evidence, verdicts: j.ghosts.map((g) => ({ ghost: g.id, state: g.id === "g-door" ? "seen" : "not seen" })), unmatched: [{ label: "door", score: 0.5 }] })) }; },
     ...over,
   });
   it("runs per registered photo, records ONE evidence:openings row, changes nothing else", async () => {

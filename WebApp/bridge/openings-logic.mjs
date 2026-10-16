@@ -45,17 +45,22 @@ const oneLine = (s, n = 100) => String(s ?? "").replace(/[\r\n\u2028\u2029]+/g, 
 export const toolRows = (tools) => (Array.isArray(tools) ? tools : []).slice(0, 30).map((t) => ({ name: oneLine(t?.name), version: oneLine(t?.version, 40), licence: oneLine(t?.licence) || "licence not reported" }));
 
 /** Per-photo tool answers [{evidence, answer}] + the ghosts → the advice: {ghosts: [{ghost, label, seen_in[], words}], unmatched: [{evidence, label, words}], tools[]}.
- *  A ghost is "seen in ev-… (detector, advice)" when any asked photo says seen, else "not seen"; a detection no ghost meets is "no ghost — not filed". */
+ *  A ghost is "seen in ev-… (detector, advice)" when any asked photo says seen, "not seen" when photos see it but none found it, and
+ *  "no registered photo sees it — not asked" when no photo has it in view; a detection no ghost meets is "no ghost — not filed". */
 export function adviseFrom(ghosts, answers) {
   const seen = new Map(ghosts.map((g) => [g.id, []]));
-  const unmatched = [], tools = new Map();
+  const asked = new Set(), unmatched = [], tools = new Map();
   for (const { evidence, answer } of answers) {
-    for (const v of answer.verdicts ?? []) if (v.state === "seen" && seen.has(v.ghost)) seen.get(v.ghost).push(evidence);
+    for (const v of answer.verdicts ?? []) {
+      if (!seen.has(v.ghost)) continue;
+      asked.add(v.ghost); // the tool returns a verdict only for a ghost the photo sees (in frame, in front)
+      if (v.state === "seen") seen.get(v.ghost).push(evidence);
+    }
     for (const u of answer.unmatched ?? []) unmatched.push({ evidence, label: oneLine(u.label, 40), words: "no ghost — not filed" });
     for (const t of toolRows(answer.tools)) tools.set(JSON.stringify(t), t);
   }
   return {
-    ghosts: ghosts.map((g) => { const ev = seen.get(g.id); return { ghost: g.id, label: g.label, seen_in: ev, words: ev.length ? `seen in ${ev.join(", ")} (detector, advice)` : "not seen" }; }),
+    ghosts: ghosts.map((g) => { const ev = seen.get(g.id); return { ghost: g.id, label: g.label, seen_in: ev, words: ev.length ? `seen in ${ev.join(", ")} (detector, advice)` : asked.has(g.id) ? "not seen" : "no registered photo sees it — not asked" }; }),
     unmatched, tools: [...tools.values()],
   };
 }

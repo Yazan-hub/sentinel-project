@@ -31,14 +31,19 @@ export async function adviseOpenings(key, changesetId, actor, deps = {}) {
   if (!ask.length) throw err(409, `no registered photo in the evidence pack${skipped.length ? ` (${skipped.map((s) => `${s.evidence}: ${s.words}`).join("; ").slice(0, 400)})` : ""} — nothing was advised`);
   const dir = deps.dir || ev.evidenceDir(key, deps.root);
   const tmp = mkdtempSync(join(tmpdir(), "sentinel-openings-"));
-  const answers = [];
+  let answers = [];
   try {
+    const jobs = [];
     for (const item of ask) {
       const photo = join(dir, ".sentinel", "view", `${item.id}.jpg`);
       if (!(deps.exists ?? existsSync)(photo)) { skipped.push({ evidence: item.id, words: "its blurred copy is missing from the evidence folder — not asked" }); continue; }
-      const jobFile = join(tmp, `${item.id}.json`);
-      writeFileSync(jobFile, JSON.stringify(L.buildJob(item, photo, ghosts)));
-      answers.push({ evidence: item.id, answer: await deps.judge(jobFile) });
+      jobs.push(L.buildJob(item, photo, ghosts));
+    }
+    if (jobs.length) { // one child for every photo: the two models load once (~15 s), each photo then takes ~1 s on the GPU
+      const jobFile = join(tmp, "jobs.json");
+      writeFileSync(jobFile, JSON.stringify(jobs));
+      const r = await deps.judge(jobFile);
+      answers = (r.answers ?? []).map((a) => ({ evidence: a.evidence, answer: { ...a, tools: r.tools } }));
     }
   } finally { rmSync(tmp, { recursive: true, force: true }); }
   if (!answers.length) throw err(409, "no registered photo had its blurred copy — nothing was advised");
