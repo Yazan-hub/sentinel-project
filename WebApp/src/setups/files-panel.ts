@@ -18,7 +18,7 @@ import { firstTag, geometryCheck, linkedHash, linkedTag, sha256Hex, type Geometr
 import { saveAs } from "./audit-pack";
 import { mountMarker, markSummary, type Mark, type Marker, type MarkWhat } from "./photo-marker";
 import type { SplatShown } from "./splat-view"; // MA-7-11: type only - Spark and the viewer load when "Show in 3D" is pressed
-import { readEvidence, readWebStatus, readNotice, noticeLine, webLine, type WebStatus, makePack, signAttestation, admitEvidence, recheckEvidence, setDeleteBy, draftRequest, kindOf, isImage, needsReport, itemLine, attestationLine, admitLine, recheckLine, requestLine, evidenceControls, ATTESTATION_CODES, ATTESTATION_TEXTS, datasetLine, PHOTO_SOURCES, MAP_SERVICES, photoProvider, type PhotoSource, markViewCopy, detectFaces, proposedMarks, blurredLine, photoUrl, readSplatPlacement, saveSplatPlacement, splatBytes, placementLine, splatShownLine, canPlaceSplat, SPLAT_LOOK, type SplatPlacement, type EvidenceItem, type EvidenceRead, type EvidenceRequest,
+import { readEvidence, readWebStatus, readNotice, noticeLine, webLine, type WebStatus, makePack, signAttestation, admitEvidence, recheckEvidence, setDeleteBy, draftRequest, kindOf, isImage, needsReport, itemLine, attestationLine, admitLine, recheckLine, requestLine, evidenceControls, ATTESTATION_CODES, ATTESTATION_TEXTS, datasetLine, PHOTO_SOURCES, MAP_SERVICES, photoProvider, type PhotoSource, markViewCopy, detectFaces, proposedMarks, takePanoramas, panoramasLine, blurredLine, photoUrl, readSplatPlacement, saveSplatPlacement, splatBytes, placementLine, splatShownLine, canPlaceSplat, SPLAT_LOOK, type SplatPlacement, type EvidenceItem, type EvidenceRead, type EvidenceRequest,
   startSurvey, readJobs, readJob, readFrameDraft, jobLine, candidateLine, surveyStartLine, surveyableScans, proposeBody, proposeFromJob, proposeLine, choosablePhotos, choiceLine, type PhotoChoice, type SurveyJob, type Candidate,
   startDrawing, drawingStartLine, readableDrawings, isDrawingJob, startIfc, ifcStartLine, readableIfc, isIfcJob, ifcHintLine, alignBody, alignPreview, drawingSvg, snapPaper, type AlignDraft } from "./evidence";
 
@@ -444,6 +444,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       proposeMats = [...proposeMats.filter((c) => c.cid !== matDraft.cid), { ...matDraft }]; matDraft = { cid: "", item: matDraft.item, material: "" }; render();
     });
     root.querySelectorAll<HTMLElement>("[data-pmdel]").forEach((n) => n.addEventListener("click", () => { syncPropose(); proposeMats = proposeMats.filter((c) => c.cid !== n.dataset.pmdel); render(); }));
+    root.querySelectorAll<HTMLElement>("[data-evpano]").forEach((n) => n.addEventListener("click", () => void evAct(async () => panoramasLine(await takePanoramas(base, pid(), n.dataset.evpano!))))); // MA-7-18
     root.querySelectorAll<HTMLElement>("[data-evdelby]").forEach((n) => n.addEventListener("click", () => void evAct(async () => {
       const id = n.dataset.evdelby!, date = ([...root.querySelectorAll<HTMLInputElement>("[data-evdate]")].find((x) => x.dataset.evdate === id)?.value ?? "").trim();
       if (!date) return "Pick a delete-by date first — nothing was saved";
@@ -797,7 +798,10 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       `<label><input type="radio" name="fv-mk-what" value="plate"${markWhat === "plate" ? " checked" : ""}/> number plate</label><span id="fv-mk-sum" style="color:#c4b5fd">${esc(markSummary(markMarks))}</span></div>` +
       `<div style="display:flex;gap:.4rem;flex-wrap:wrap"><button id="fv-mk-save"${marking ? " disabled" : ""} style="${act};color:#c4b5fd">Save blurred copy</button><button id="fv-mk-find"${marking ? " disabled" : ""} style="${act}">Find faces</button><button id="fv-mk-undo" style="${act}">Undo last box</button>` +
       `<button id="fv-mk-none"${marking ? " disabled" : ""} style="${act}">No faces or number plates in this photo</button><button id="fv-mk-cancel" style="${act}">Cancel</button></div></div>`;
-    const items = pack.items.map((i) => line(esc(itemLine(i)) + photoActs(i) + splatActs(i) + (can.sign && i.state !== "expired"
+    // MA-7-18: an admitted E57 scan whose panoramas are not in the pack yet
+    const panoActs = (i: EvidenceItem) => !edit || i.kind !== "scan" || i.format !== "e57" || i.state || pack.items.some((x) => x.registration?.scan_item_id === i.id) ? ""
+      : ` <button data-evpano="${esc(i.id)}" style="${act}">Take out panoramas</button>`;
+    const items = pack.items.map((i) => line(esc(itemLine(i)) + photoActs(i) + splatActs(i) + panoActs(i) + (can.sign && i.state !== "expired"
       ? ` <input type="date" data-evdate="${esc(i.id)}" min="${esc(today)}" value="${esc(i.delete_by ?? "")}" style="background:#111;color:#eee;border:1px solid #2c2c34;border-radius:.25rem;font:11px system-ui"/>` +
         ` <button data-evdelby="${esc(i.id)}" style="${act}">Set delete-by</button> <button data-evretire="${esc(i.id)}" data-evpath="${esc(i.path)}" style="${act}">Retire now</button>` : ""),
       i.state === "changed" ? "#fca5a5" : i.state === "expired" ? "#52525b" : "#cbd5e1") + markBlock(i) + splatBlock(i)).join("") || line("none yet");

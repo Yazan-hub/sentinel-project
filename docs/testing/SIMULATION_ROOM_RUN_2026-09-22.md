@@ -3414,3 +3414,20 @@ Owed: T-0 (7 000 steps at half resolution on 20 registered photos) and GS-1…GS
 | OD-R Revit row | Needs OD-1 | **owed — 7-17 registration** |
 
 Owed: the job wiring (bridge → `openings.py` per registered photo → advice rows) after 7-17; a door-recall check on a photo with plain doors (the founder's own photos).
+
+## Session MA7 7-18 — E57 panoramas as posed photos (2026-10-17; branch feature/ma7-18-e57-panoramas; the founder's "build now"; test-kit E57 `manitouNoInvalidPoints.e57` (5 spherical panoramas + 5 posed scans); no Revit; Claude driving)
+
+| Row | What happened | Result |
+|---|---|---|
+| X-0 | `photo/e57_images.py` "sentinel-e57-images 0.1.0" (stdlib only: XML read with struct, page checksums skipped, a DTD/entity/schema location refused before parsing, as `survey/e57.py`; survey 0.6.0 untouched). `--self-check` (an E57 built in the test, a blob header across a page checksum, a second run and a DTD refused, no half folder) ok. On manitou: 5 JPEGs out at their exact blob lengths (672,215 … 505,102 bytes), names sp2_1 … sp26_2, 5387×678 … 1829×677, translations (0.007, −0.012, 0.177) … (43.248, −24.854, −0.501) m; 03.jpg looked at — the right street panorama, a person on a bench (so the blur step matters). `pumpAVisualReferenceImage.e57` refused in words: "this E57's images carry no JPEG or PNG panorama" (a visual reference image only) | **PASSED** |
+| E5-1 (store) | `extractPanoramas` with the real tool on the real E57 in a temporary evidence folder (deps injected, no Supabase): 5 photo items ev-0002 … ev-0006, each `registration {method "E57 scanner pose", scan_item_id ev-0001, image_guid, representation, rotation, translation, confirmed_by}`, no camera EXIF asked of them; 5 `evidence:admitted` rows; 0.2 s; a second press 409 "ev-0001's panoramas were taken out before". `survey/blur.py` takes a panorama: 5394 wide → copy 2048×257 | **PASSED** |
+| E5-1 (tests) | vitest: evidence-store (p1) pose + no EXIF + a hand-made "E57 scanner pose" body still refused; (p2) not an E57, 404, 503, the machine credential 403, taken out before; (p3) a panorama swapped between extraction and admission refused by name, a changed scan 409; web `itemLine` + `panoramasLine`. Full WebApp suite 3,810 passed | **PASSED** |
+| E5-1 (live) | Files ▸ Evidence ▸ **Take out panoramas** on an admitted E57 in the local app against the bridge on this branch, signed in; then mark faces/plates on each panorama | **OWED** (web publish + bridge restart; the founder's session) |
+| E5-2 | A ghost wall projected into one panorama lands on the wall (screenshot) — needs a projection view in the viewer | **OWED** (next slice) |
+
+## Session MA7 7-19 GS-3 — the NOTICE half (2026-10-17; the founder's "do GS-3"; same branch; no Revit)
+
+| Row | What happened | Result |
+|---|---|---|
+| GS-3 (offline) | The pack's NOTICE is built from the ledger's build:run rows (`noticeText`), so no separate NOTICE file is needed. vitest feeds it the trainer's real receipt (`photo/fixtures/splat-tools.json`, from `splat_train.tools()` under the private Python 3.10) as a training job's row and a registration job's pycolmap row: the NOTICE carries `- gsplat 1.5.3+pt24cu124 · Apache-2.0`, `- torch 2.4.1+cu124 · Apache-2.0 AND … BSD-3-Clause …`, `- pycolmap 4.2.1 · BSD-3-Clause` | **PASSED** |
+| GS-3 (live) | The NOTICE downloaded from a pack whose training job really ran (Files ▸ Evidence ▸ NOTICE) | **OWED** (with GS-1: needs 7-17 registration + the founder's photos) |

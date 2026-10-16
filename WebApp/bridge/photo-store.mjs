@@ -58,6 +58,27 @@ export function runDetect(src, { python = pythonPath(), script = BLUR_SCRIPT, en
   });
 }
 
+export const E57_SCRIPT = fileURLToPath(new URL("../../photo/e57_images.py", import.meta.url));
+export const E57_MS = 180_000; // a 2 GB E57's panoramas: a read of their blobs only, never the points
+
+/** MA-7-18: run sentinel-e57-images (photo/e57_images.py, stdlib only) on `src`, writing `outDir`; → {version, images[], tools}. The same allow-listed
+ *  environment, no shell, no network use, killed at E57_MS. A 422 in words when the E57 holds no readable panorama; a 503 when the tool is not set up. */
+export function runE57Images(src, outDir, { python = pythonPath(), script = E57_SCRIPT, env = process.env, execFileFn = execFile, ms = E57_MS } = {}) {
+  const off = blurNotSetUp({ python, script });
+  if (off) return Promise.reject(Object.assign(new Error(off.replace("the blur tool", "the panorama tool").replace("survey/blur.py", "photo/e57_images.py")), { status: 503 }));
+  const childEnv = Object.fromEntries(Object.entries({ SYSTEMROOT: env.SYSTEMROOT ?? env.SystemRoot, TEMP: env.TEMP, TMP: env.TMP }).filter(([, v]) => v));
+  return new Promise((ok, no) => {
+    execFileFn(python, ["-B", "-I", script, src, outDir], { env: childEnv, timeout: ms, windowsHide: true, maxBuffer: 256 * 1024 }, (e, stdout, stderr) => {
+      let r = null;
+      try { r = JSON.parse(String(stdout).trim().split("\n").pop()); } catch { /* not JSON: the tool died */ }
+      if (r?.ok && Array.isArray(r.images)) return ok(r);
+      if (r && r.ok === false) return no(Object.assign(new Error(`no panorama was taken out (${String(r.error).slice(0, 200)}) — nothing was saved`), { status: 422 }));
+      if (stderr) console.warn(`[e57-images] ${String(stderr).trim().slice(-600)}`);
+      no(Object.assign(new Error(e?.killed ? "the panorama tool took too long and was stopped — nothing was saved" : "the panorama tool failed — nothing was saved"), { status: 500 }));
+    });
+  });
+}
+
 /** Stream `file` as `type`. `headers`: the caller's Cache-Control and its corsHeaders(res). */
 export function sendBytes(res, file, type, headers = {}) {
   res.writeHead(200, { "Content-Type": type, "Content-Length": statSync(file).size, "X-Content-Type-Options": "nosniff", ...headers });
