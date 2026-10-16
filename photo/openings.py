@@ -183,9 +183,11 @@ def judge_job(job):
 
 def main(argv):
     try:
-        if len(argv) == 3 and argv[1] == "--judge":
+        if len(argv) == 3 and argv[1] == "--judge":  # one job, or a list of jobs (one child loads the models once for every photo)
             with open(argv[2], encoding="utf-8") as f:
-                print(json.dumps({"ok": True, **judge_job(json.load(f)), "version": VERSION, "tools": tools()}))
+                job = json.load(f)
+            body = {"answers": [{"evidence": j["evidence"], **judge_job(j)} for j in job]} if isinstance(job, list) else judge_job(job)
+            print(json.dumps({"ok": True, **body, "version": VERSION, "tools": tools()}))
             return 0
         if len(argv) != 3 or argv[1] != "--detect":
             raise ValueError("usage: openings.py --detect <photo.jpg> | --judge <job.json>")
