@@ -1,6 +1,7 @@
 // MA-4a — the evidence rules, pure: the pinned texts, the body, the policy, the magic bytes, the validator.
 import { describe, it, expect } from "vitest";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import {
   ATTESTATIONS, ADMIT_NEEDS, MAX_ITEMS, codesSaid, readAdmitBody, newItemRefusal, policyRefusals, magicRefusal,
   nextId, newPack, newItem, flagged, readmitted, validatePack, readRequestBody, letterText, newRequest, requestedValue,
@@ -745,6 +746,9 @@ describe("a Gaussian splat (MA-7-11)", () => {
     expect(splatHeaderRefusal(Buffer.from("ply\nformat binary_little_endian 1.0\nproperty float opacity\n"))).toMatch(/^this \.ply has no header Sentinel can read/);
     expect(splatHeaderRefusal(Buffer.from("PK\x03\x04"))).toMatch(/^this \.ply has no header/);
     expect(splatHeaderRefusal(Buffer.from(plyHead(GS).toString("latin1").replace(/\n/g, "\r\n"), "latin1"))).toBe(null); // CRLF header lines
+  });
+  it("MA-7-19: the header photo/splat_train.py writes (its self-check output, cut at end_header) passes splatHeaderRefusal", () => {
+    expect(splatHeaderRefusal(readFileSync(new URL("../../photo/fixtures/selfcheck-head.ply", import.meta.url)))).toBe(null);
   });
   it("newItem and validatePack: looked at only (geometry_extraction false), the answer on the item and the row; made_with is the bridge's", () => {
     const pack = splatPack(), item = splatItem(pack);
