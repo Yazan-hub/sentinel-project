@@ -8,6 +8,7 @@ imported (R29), so nothing touches the network at load. Runs on the Python 3.14 
 transformers, no ONNX conversions). The job wiring waits for registration (7-17): no photo has a camera pose yet.
 
     python openings.py --detect <photo.jpg>     prints one JSON line {"ok", "detections", "ms", "vram_mb", "tools"}
+    python openings.py --judge <job.json>       prints one JSON line {"ok", "verdicts", "unmatched", "ms", "tools"} (see judge_job)
 
 Units: corners in mm in the model's world frame; the world-to-camera matrix maps mm to camera mm (x right, y down, z forward, OpenCV);
 K in pixels. Numpy only for the geometry, so the projection is testable without torch.
@@ -167,10 +168,29 @@ def tools():
     return out
 
 
+def judge_job(job):
+    """The bridge's call (MA-7-20 wiring): {"photo": path, "evidence": "ev-...", "camera": {"K", "world_to_cam", "size"}, "ghosts": [...]}
+    -> {"verdicts", "unmatched", "ms"}. The camera must describe the photo as stored (the blurred copy's own size), else refused."""
+    from PIL import Image
+    img = Image.open(job["photo"]).convert("RGB")
+    if list(img.size) != list(job["camera"]["size"]):
+        raise ValueError(f"the camera is for a {job['camera']['size'][0]} x {job['camera']['size'][1]} photo, this one is "
+                         f"{img.size[0]} x {img.size[1]} - not judged")
+    t0 = time.perf_counter()
+    verdicts, unmatched = judge(job["ghosts"], job["camera"], detect(img), job["evidence"])
+    return {"verdicts": verdicts, "unmatched": unmatched, "ms": round((time.perf_counter() - t0) * 1000)}
+
+
 def main(argv):
     try:
+        if len(argv) == 3 and argv[1] == "--judge":  # one job, or a list of jobs (one child loads the models once for every photo)
+            with open(argv[2], encoding="utf-8") as f:
+                job = json.load(f)
+            body = {"answers": [{"evidence": j["evidence"], **judge_job(j)} for j in job]} if isinstance(job, list) else judge_job(job)
+            print(json.dumps({"ok": True, **body, "version": VERSION, "tools": tools()}))
+            return 0
         if len(argv) != 3 or argv[1] != "--detect":
-            raise ValueError("usage: openings.py --detect <photo.jpg>")
+            raise ValueError("usage: openings.py --detect <photo.jpg> | --judge <job.json>")
         from PIL import Image
         img = Image.open(argv[2]).convert("RGB")
         t0 = time.perf_counter()

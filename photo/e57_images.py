@@ -8,7 +8,7 @@ survey 0.6.0 is untouched.
     python e57_images.py <scan.e57> <out folder>     (the folder must be empty or absent; writes 01.jpg, 02.png, ...)
     python e57_images.py --self-check
 
-Prints one JSON line: {"ok": true, "version", "images": [{file, guid, name, scan_guid, representation, width, height, rotation [w,x,y,z],
+Prints one JSON line: {"ok": true, "version", "images": [{file, guid, name, scan_guid, representation, width, height, pixel_width, pixel_height, rotation [w,x,y,z],
 translation [x,y,z] (metres, the E57's frame), sha256}], "tools"} or {"ok": false, "error"} (exit 2). No path is echoed.
 """
 import hashlib
@@ -122,6 +122,7 @@ def extract(src, out):
                 raise Refused(f"image {k} of {len(kids)}: its {ext.upper()} bytes do not start as one (damaged)")
             found.append((data, ext, {"guid": _text(im, "guid"), "name": _text(im, "name"), "scan_guid": _text(im, "associatedData3DGuid"),
                                       "representation": rep_name, "width": int(_num(rep, "imageWidth", 0)), "height": int(_num(rep, "imageHeight", 0)),
+                                      "pixel_width": _num(rep, "pixelWidth"), "pixel_height": _num(rep, "pixelHeight"),  # radians (spherical); MA-7-17 panorama_views.cut needs them
                                       "rotation": [v / nq for v in q], "translation": t, "sha256": hashlib.sha256(data).hexdigest()}))
     if not found:
         raise Refused("this E57's images carry no JPEG or PNG panorama")
