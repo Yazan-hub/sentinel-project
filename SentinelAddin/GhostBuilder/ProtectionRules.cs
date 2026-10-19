@@ -60,6 +60,35 @@ namespace Sentinel.GhostBuilder
             return StructuralHosts && structural ? $"is structural, protected by {Label}" : null;
         }
 
+        /// <summary>What the Protection window offers, in a person's words — never a Revit category code on screen. A code a saved policy
+        /// holds that is not here is kept as it is when the window saves.</summary>
+        public static readonly (string Code, string Label)[] Catalog =
+        {
+            ("OST_Grids", "Grids"), ("OST_Levels", "Levels"),
+            ("OST_ProjectBasePoint", "Project base point"), ("OST_SharedBasePoint", "Survey point"),
+            ("OST_StructuralColumns", "Structural columns"), ("OST_StructuralFraming", "Structural framing (beams, braces)"),
+            ("OST_StructuralFoundation", "Structural foundations"),
+        };
+
+        /// <summary>The body the bridge validates (protection@n): every field, categories sorted so the same choice saves the same sha.</summary>
+        public string ToJson() => JsonSerializer.Serialize(new
+        {
+            categories = Categories.OrderBy(c => c, StringComparer.Ordinal).ToArray(),
+            worksets = Worksets.Where(w => !string.IsNullOrWhiteSpace(w)).Select(w => w.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
+            structural_hosts = StructuralHosts,
+        });
+
+        /// <summary>The window's two workset views of one list: a saved name that is one of this model's worksets is a tick on it; anything
+        /// else (a pattern, another model's workset) is a line in the "also protect" box.</summary>
+        public static (HashSet<string> Ticked, List<string> Other) SplitWorksets(IEnumerable<string> saved, IEnumerable<string> modelWorksets)
+        {
+            var model = new HashSet<string>(modelWorksets ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+            var ticked = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var other = new List<string>();
+            foreach (var w in saved ?? Enumerable.Empty<string>()) if (model.Contains(w)) ticked.Add(w); else other.Add(w);
+            return (ticked, other);
+        }
+
         public static bool Glob(string pattern, string name) =>
             Regex.IsMatch(name ?? "", "^" + Regex.Escape(pattern ?? "").Replace("\\*", ".*") + "$", RegexOptions.IgnoreCase | RegexOptions.Singleline);
     }

@@ -502,6 +502,8 @@ public sealed class App : IExternalApplication
             "Load a saved standards pack and build it into the active model — the golden→blank round-trip.");
         Sub(std, "Sentinel_IngestDocs", "Ingest Docs", "Sentinel.Commands.IngestDocumentsCommand", "ingest",
             "Read office-standards documents (PDF/text/CSV) with a local LLM and extract worksets + shared parameters into a reviewable standards pack. Requires Ollama.");
+        Push(st, "Sentinel_Protection", "Protection", "Sentinel.Commands.ProtectionCommand", "govern",
+            "What no changeset may edit: grids, levels, structure and the worksets you tick. A row that would change one is kept as it stands, with the reason, and the rest of the changeset is applied. Shows the policy in force for this model's web project (or its office, or the built-in default); a lead or owner changes it here and saves it for the project or the whole office — recorded in the ledger.");
         var chain = Pull(st, "Sentinel_Chain", "Model from\nDrawings", "ghost",
             "The datum -> model -> annotate chain: read the datum from the drawings, build LOD 200 geometry (from DWG or photos), then create the WIP views of the guideline installed on this document's web project (or its office).");
         Sub(chain, "Sentinel_Datum", "1 · Datum from Drawings", "Sentinel.Commands.DatumFromDrawingsCommand", "ghost",
