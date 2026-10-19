@@ -76,6 +76,10 @@ static partial class Check
                && !SavedCheck.Remember(new UnreportedResults.Record { Key = "k", ChangesetId = "c-3", Path = @"C:\m\a.rvt" }),
                "a model never saved, or a result that applied nothing, is not remembered");
             Ok(SavedCheck.ForPath(@"C:\m\b.rvt").Count == 0, "another file's records are not its");
+            Ok(SavedCheck.Repath(@"C:\M\A.rvt", @"C:\m\REV_ARC_ZZ_XX_M3_A_0001.rvt") == 1 && SavedCheck.ForPath(@"C:\m\a.rvt").Count == 0
+               && SavedCheck.ForPath(@"C:\m\REV_ARC_ZZ_XX_M3_A_0001.rvt").Single().ChangesetId == "c-1"
+               && SavedCheck.Repath("", @"C:\m\x.rvt") == 0 && SavedCheck.Repath(@"C:\m\x.rvt", @"C:\m\x.rvt") == 0,
+               "Save As (drill REV WS-4): the records follow the model to its new file; a never-saved model or the same path moves none");
             SavedCheck.Forget("k", "c-1");
             Ok(SavedCheck.ForPath(@"C:\m\a.rvt").Count == 0, "a record goes once posted");
 

@@ -91,6 +91,7 @@ public sealed class App : IExternalApplication
                 app.ControlledApplication.DocumentSynchronizingWithCentral += OnSynchronizing; // BLOCK stops the sync
                 app.ControlledApplication.DocumentSynchronizedWithCentral += OnSynchronized;
                 app.ControlledApplication.DocumentSaved += OnSaved; // push-on-save → auto-publish
+                app.ControlledApplication.DocumentSavedAs += OnSavedAs; // the saved check follows the model to its new file
                 app.ControlledApplication.DocumentChanged += UndoWatcher.OnChanged; // MA-0: an Undo of a Sentinel changeset → a ledger row
                 app.ControlledApplication.DocumentChanged += SentinelUpdater.OnDocumentChanged; // the pane drops rows of deleted, undone or rolled-back elements
                 app.ViewActivated += OnViewActivated; // the pane follows the active document
@@ -124,6 +125,7 @@ public sealed class App : IExternalApplication
         app.ControlledApplication.DocumentSynchronizingWithCentral -= OnSynchronizing;
         app.ControlledApplication.DocumentSynchronizedWithCentral -= OnSynchronized;
         app.ControlledApplication.DocumentSaved -= OnSaved;
+        app.ControlledApplication.DocumentSavedAs -= OnSavedAs;
         app.ControlledApplication.DocumentChanged -= UndoWatcher.OnChanged;
         app.ControlledApplication.DocumentChanged -= SentinelUpdater.OnDocumentChanged;
         app.ViewActivated -= OnViewActivated;
@@ -428,6 +430,15 @@ public sealed class App : IExternalApplication
     {
         if (e.Status == RevitAPIEventStatus.Succeeded) Sentinel.Engine.SavedCheck.On(e.Document, "saved");
         Sentinel.Engine.AutoPublish.Trigger(e.Document);
+    }
+
+    // Drill REV (WS-4): Save As raises no DocumentSaved — the waiting records move to the new file, which now holds the model, and are checked there.
+    private static void OnSavedAs(object? sender, DocumentSavedAsEventArgs e)
+    {
+        if (e.Status != RevitAPIEventStatus.Succeeded || e.Document is not { IsFamilyDocument: false } doc) return;
+        var moved = Sentinel.Engine.SavedCheck.Repath(e.OriginalPath, doc.PathName);
+        if (moved > 0) PanelVm?.LogDoctor($"Saved check: {moved} changeset(s) waiting for \"{e.OriginalPath}\" now follow it to \"{doc.PathName}\".");
+        Sentinel.Engine.SavedCheck.On(doc, "saved");
     }
 
     private static void BuildRibbon(UIControlledApplication app)

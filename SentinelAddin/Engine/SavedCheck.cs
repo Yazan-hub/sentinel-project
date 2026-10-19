@@ -5,7 +5,7 @@
 // in. On that file's next save, sync or opening, each applied element is looked for with a provenance stamp naming the changeset
 // (ProvenanceStamp.Holds — Undo removes it, a file never saved never had it), and one changeset_confirmed or changeset_lost row is posted.
 // A workshared local save confirms "saved locally" and the record waits for the sync. Records and decisions are pure (tools/promote-check);
-// SENTINEL_CHECK hides the Revit half. ponytail: Save As moves the model to a path no record names — its records wait for the old file.
+// SENTINEL_CHECK hides the Revit half. Save As carries the records to the new path (Repath, App.OnSavedAs) and confirms them there.
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -98,6 +98,16 @@ namespace Sentinel.Engine
                 return r != null && string.Equals(PathFor(r.Key, r.ChangesetId), file, StringComparison.OrdinalIgnoreCase) ? r : null;
             }
             catch (Exception) { return null; }
+        }
+
+        /// <summary>Save As (drill REV WS-4): the records of <paramref name="oldPath"/> follow the model to <paramref name="newPath"/>, so the new
+        /// file's saves confirm them. How many moved; none for a model never saved, or the same path.</summary>
+        public static int Repath(string oldPath, string newPath)
+        {
+            if (string.IsNullOrEmpty(oldPath) || string.IsNullOrEmpty(newPath) || string.Equals(oldPath, newPath, StringComparison.OrdinalIgnoreCase)) return 0;
+            var moved = 0;
+            foreach (var r in ForPath(oldPath)) { r.Path = newPath; if (Write(r)) moved++; }
+            return moved;
         }
 
         /// <summary>What an event means for a record: the <c>how</c> to post (null = post nothing) and whether the record goes once posted.
