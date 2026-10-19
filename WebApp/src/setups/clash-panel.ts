@@ -457,7 +457,7 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
       `<button id="cl-imp" style="${btn};padding:.15rem .4rem;font-size:11px" title="Add open Clash Issues that came in as BCF (Navisworks, ACC) to these groups">＋ Imported BCF</button></div>`;
     if (!groups.length) { host.innerHTML = top + '<div style="color:#9ca3af;font-size:12px;padding:.6rem">No new clashes to group. Run clash (or add imported BCF clashes).</div>'; wireGroups([]); return; }
     const disciplines = [...new Set(groups.map((g) => g.discipline))].sort();
-    const pick = (cls: string, data: string, cur: string) => `<select class="${cls}" data-k="${esc(data)}" style="background:#111;color:#eee;border:1px solid #333;border-radius:.25rem;font:11px system-ui;padding:.1rem .2rem;max-width:12rem">` +
+    const pick = (cls: string, data: string, cur: string) => `<select class="${esc(cls)}" data-k="${esc(data)}" style="background:#111;color:#eee;border:1px solid #333;border-radius:.25rem;font:11px system-ui;padding:.1rem .2rem;max-width:12rem">` +
       `<option value="">— nobody —</option>` + [...new Set([...memberEmails, ...(cur ? [cur] : [])])].map((e) => `<option value="${esc(e)}"${e === cur ? " selected" : ""}>${esc(e)}</option>`).join("") + `</select>`;
     host.innerHTML = top +
       `<div style="border:1px solid #2a2a30;border-radius:.35rem;padding:.4rem .5rem;margin-bottom:.4rem;font-size:11px;color:#9ca3af" title="Who owns each discipline's clash groups — a lead's to set, for the whole team">` +
@@ -471,7 +471,7 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
           : `<button class="cl-g-raise" data-i="${i}" style="${btn};padding:.15rem .4rem;font-size:11px;background:#3a1f1f;border-color:#7f1d1d;color:#fca5a5" title="One Issue for the whole group, assigned to its owner">⚑ Raise group</button>`;
         return `<div style="border:1px solid #2a2a30;background:#1b1b20;border-radius:.35rem;margin-bottom:.3rem;padding:.4rem .5rem;font-size:12px">` +
           `<div style="display:flex;gap:.5rem;align-items:center"><span style="width:.5rem;height:.5rem;border-radius:50%;background:${col};flex:none"></span>` +
-          `<span style="flex:1;color:#e5e7eb">${esc(groupTitle(g))}</span><span style="color:#e5e7eb;font-weight:600">${g.hits.length}</span>` +
+          `<span style="flex:1;color:#e5e7eb">${esc(groupTitle(g))}</span><span style="color:#e5e7eb;font-weight:600">${esc(String(g.hits.length))}</span>` +
           `<span style="color:#9ca3af;font:11px ui-monospace,Consolas,monospace">${vol}</span></div>` +
           `<div style="color:#9ca3af;font-size:11px;margin:.25rem 0 .3rem">${esc(groupInstruction(g))}</div>` +
           `<div style="display:flex;gap:.4rem;align-items:center;font-size:11px;color:#9ca3af">Owner ${pick("cl-own-g", g.key, groupOwner.get(g.key) ?? owners[g.discipline] ?? "")}` +
