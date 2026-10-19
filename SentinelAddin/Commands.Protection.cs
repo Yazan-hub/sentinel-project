@@ -51,7 +51,7 @@ public sealed class ProtectionWindow : Window
     private readonly RadioButton _toProject = new() { IsChecked = true, Margin = new Thickness(0, 0, 14, 0) };
     private readonly RadioButton _toOffice = new() { IsEnabled = false };
     private readonly TextBlock _inForce = new() { TextWrapping = TextWrapping.Wrap, FontWeight = FontWeights.SemiBold };
-    private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0) };
+    private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0), MinHeight = 34 };
     private readonly Button _save = new() { Content = "Save", Padding = new Thickness(14, 4, 14, 4), FontWeight = FontWeights.Bold, IsEnabled = false };
     private readonly Button _reset = new() { Content = "Reset to the built-in default", Padding = new Thickness(10, 4, 10, 4), Margin = new Thickness(0, 0, 8, 0) };
     private HashSet<string> _otherCodes = new(StringComparer.Ordinal); // codes a saved policy holds that the window does not show: kept on save
@@ -107,6 +107,21 @@ public sealed class ProtectionWindow : Window
     /// <summary>The policy in force, the office and this person's role — off the API thread; the window fills itself.</summary>
     public void Load() => Task.Run(() =>
     {
+        try { Read(); }
+        catch (Exception e)
+        {
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                Fill(ProtectionRules.Default("not read: " + e.Message));
+                _inForce.Text = "In force now: not read — " + e.Message;
+                _save.IsEnabled = false;
+                Say("Read-only: the policy in force could not be read — " + e.Message, true);
+            }));
+        }
+    });
+
+    private void Read()
+    {
         var a = ArtefactClient.Resolve(_key, "protection");
         var scope = GovernedNotify.ProjectScope(_key);
         string office = null, officeWhy = scope.Error;
@@ -125,7 +140,7 @@ public sealed class ProtectionWindow : Window
             _save.IsEnabled = lead;
             Say(lead ? null : "Read-only: only a lead or owner of the web project can change protection — " + why + ".", !lead);
         }));
-    });
+    }
 
     private void Fill(ProtectionRules r)
     {
@@ -150,12 +165,18 @@ public sealed class ProtectionWindow : Window
     private void Save()
     {
         var target = _toOffice.IsChecked == true && _office != null ? _office : _key;
-        var body = FromForm().ToJson();
+        var form = FromForm();
+        var tooLong = form.Worksets.FirstOrDefault(w => w.Trim().Length > 120);
+        if (tooLong != null) { Say($"Not saved: the workset name \"{tooLong.Trim().Substring(0, 40)}…\" is longer than 120 characters.", true); return; }
+        var body = form.ToJson();
+        string actor;
+        try { actor = UserSession.Actor; }
+        catch (Exception e) { Say("Not saved: " + e.Message, true); return; }
         _save.IsEnabled = false;
         Say($"Saving on {target}…", false);
         Task.Run(() =>
         {
-            var put = GovernedNotify.InstallArtefact(target, "protection", body, UserSession.Actor);
+            var put = GovernedNotify.InstallArtefact(target, "protection", body, actor);
             Dispatcher.BeginInvoke(new Action(() =>
             {
                 _save.IsEnabled = true;
