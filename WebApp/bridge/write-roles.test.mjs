@@ -459,6 +459,54 @@ describe("BCF topics (topics-1): a contributor's work; closing or renaming a gov
   });
 });
 
+describe("BCF files (work alongside): import is a contributor's, export a member's; GUIDs merge; governed rules hold", () => {
+  const P = "/bcf/3.0/projects/demo";
+  const sample = readFileSync(join(here, "fixtures", "bcf-xml", "v2.1 - Markup - MaximumInformation.bcf"));
+  const raw = async (method, path, as, bytes) => {
+    const r = await fetch(`http://127.0.0.1:${port}${path}`, { method, headers: { Authorization: `Bearer ${as === "machine" ? TOKEN : jwtFor(as)}` }, body: bytes });
+    return { status: r.status, headers: r.headers, bytes: new Uint8Array(await r.arrayBuffer()) };
+  };
+  const json = (r) => JSON.parse(Buffer.from(r.bytes).toString("utf8"));
+
+  it("a viewer imports nothing; a file that is not BCF is a 400 in words; neither writes a topic", async () => {
+    expect(json(await raw("POST", `${P}/import`, "viewer", sample))).toEqual(refused("contributor", "viewer").body);
+    const r = await raw("POST", `${P}/import`, "contributor", Buffer.from("not a zip"));
+    expect([r.status, json(r).message]).toEqual([400, "this file is not a BCF package (a .bcf or .bcfzip is a zip) — nothing was imported"]);
+    expect(writes("bcf_topics")).toEqual([]);
+  });
+
+  it("a contributor imports the buildingSMART sample; a second import changes nothing; a viewer exports it back with every GUID and comment", async () => {
+    const { readBcfZip } = await import("./bcf-xml.mjs");
+    const first = json(await raw("POST", `${P}/import`, "contributor", sample));
+    expect(first).toMatchObject({ version: "2.1", created: 2, updated: 0, skipped: [] });
+    expect(writes("bcf_topics").map((c) => c.service)).toEqual([true, true]);
+    expect(json(await raw("POST", `${P}/import`, "contributor", sample))).toMatchObject({ created: 0, updated: 0, unchanged: 2 });
+    const stored = db.bcf_topics.find((r) => r.guid === "7ddc3ef0-0ab7-43f1-918a-45e38b42369c").data;
+    expect(stored.history).toEqual([expect.objectContaining({ author: "contributor@example.test", action: "Imported from a BCF file" })]);
+    const out = await raw("GET", `${P}/export?version=3.0`, "viewer");
+    expect(out.status).toBe(200);
+    expect(JSON.parse(out.headers.get("x-sentinel-export"))).toMatchObject({ version: "3.0", topics: 2, lost_total: 0 });
+    const back = readBcfZip(out.bytes), src = readBcfZip(sample);
+    const ids = (p) => p.topics.flatMap((t) => [t.guid, ...t.comments.map((c) => `${c.guid}:${c.comment}`), ...t.viewpoints.map((v) => v.guid)]).sort();
+    expect(ids(back)).toEqual(ids(src));
+    expect([403, 404]).toContain((await raw("GET", `${P}/export`, "stranger")).status); // absent and not-yours answer alike
+  });
+
+  it("a newer copy of a governed topic cannot close it for a contributor (skipped in words); a lead's import closes it and adds the comment", async () => {
+    const { writeBcfZip } = await import("./bcf-xml.mjs");
+    const guid = "5b1a1d2e-3c4f-4a5b-8c6d-7e8f9a0b1c2d";
+    db.bcf_topics.push({ guid, project_id: "demo", topic_status: "Open", model: "", data: { guid, project_id: "demo", title: "IDS: Doors — FireRating (3 failing)", topic_type: "Issue",
+      topic_status: "Open", creation_date: "2026-10-01T00:00:00.000Z", modified_date: "2026-10-01T00:00:00.000Z", comments: [], viewpoints: [], history: [] } });
+    const file = writeBcfZip([{ guid, title: "IDS: Doors — FireRating (3 failing)", topic_type: "Issue", topic_status: "Closed", creation_date: "2026-10-01T00:00:00.000Z",
+      modified_date: "2026-10-18T00:00:00.000Z", comments: [{ guid: "6c2b2e3f-4d5a-4b6c-9d7e-8f9a0b1c2d3e", date: "2026-10-18T00:00:00.000Z", author: "acc@x.test", comment: "Fixed in ACC" }], viewpoints: [] }]).bytes;
+    expect(json(await raw("POST", `${P}/import`, "contributor", file))).toMatchObject({ updated: 0, skipped: [{ guid, why: "this action requires the lead role (you are contributor)" }] });
+    expect(writes("bcf_topics")).toEqual([]);
+    expect(json(await raw("POST", `${P}/import`, "lead", file))).toMatchObject({ updated: 1, skipped: [] });
+    const t = db.bcf_topics.find((r) => r.guid === guid).data;
+    expect([t.topic_status, t.comments.map((c) => c.comment), t.history.at(-1).action]).toEqual(["Closed", ["Fixed in ACC"], "Imported from a BCF file: 1 comment, Status: Open → Closed"]);
+  });
+});
+
 describe("Members (W-2 G2): changing a role or removing a member is a lead's; an owner's row and the owner role an owner's", () => {
   const M = (who) => `/cde/demo/members/${USERS[who]}`;
   const roleOf = (who) => db.memberships.find((m) => m.user_id === USERS[who])?.role;
