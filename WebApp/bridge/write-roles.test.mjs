@@ -574,6 +574,25 @@ describe("BCF files (work alongside): import is a contributor's, export a member
     expect([403, 404]).toContain((await raw("GET", `${P}/export`, "stranger")).status); // absent and not-yours answer alike
   });
 
+  it("for ACC: 101 issues come out as two files of at most 100 (ACC's import limit), each issue with a status", async () => {
+    const { readBcfZip } = await import("./bcf-xml.mjs");
+    for (let i = 0; i < 101; i++) {
+      const guid = `${String(i).padStart(8, "0")}-0000-4000-8000-000000000000`;
+      db.bcf_topics.push({ guid, project_id: "demo", topic_status: null, model: "", data: { guid, project_id: "demo", title: `T${i}`, comments: [], viewpoints: [] } });
+    }
+    const one = await raw("GET", `${P}/export?for=acc`, "viewer");
+    const info1 = JSON.parse(one.headers.get("x-sentinel-export"));
+    expect([one.status, info1.for, info1.part, info1.parts, info1.topics, info1.version]).toEqual([200, "acc", 1, 2, 100, "2.1"]);
+    expect(one.headers.get("content-disposition")).toBe('attachment; filename="demo-for-acc-1-of-2.bcfzip"');
+    const two = await raw("GET", `${P}/export?for=acc&part=2`, "viewer");
+    expect(JSON.parse(two.headers.get("x-sentinel-export"))).toMatchObject({ part: 2, parts: 2, topics: 1 });
+    const all = [...readBcfZip(one.bytes).topics, ...readBcfZip(two.bytes).topics];
+    expect(all).toHaveLength(101);
+    expect(all.every((t) => t.topic_status === "Open" && t.topic_type === "Issue")).toBe(true);
+    const plain = await raw("GET", `${P}/export?version=2.1`, "viewer"); // not for ACC: one file, as the topics are
+    expect(JSON.parse(plain.headers.get("x-sentinel-export"))).toMatchObject({ parts: 1, topics: 101 });
+  });
+
   it("a newer copy of a governed topic cannot close it for a contributor (skipped in words); a lead's import closes it and adds the comment", async () => {
     const { writeBcfZip } = await import("./bcf-xml.mjs");
     const guid = "5b1a1d2e-3c4f-4a5b-8c6d-7e8f9a0b1c2d";

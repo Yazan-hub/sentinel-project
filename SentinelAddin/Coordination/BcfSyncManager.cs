@@ -186,30 +186,35 @@ public sealed class BcfSyncManager : IDisposable
         catch (Exception e) { return $"Not imported — could not reach the bridge ({e.Message})"; }
     }
 
-    /// <summary>The project's issues as a .bcfzip in <paramref name="version"/> ("2.1" for ACC, or "3.0"). → (bytes or null, words).
+    /// <summary>The project's issues as a .bcfzip in <paramref name="version"/> ("acc" = BCF 2.1 for ACC, "2.1" or "3.0"), one
+    /// <paramref name="part"/> of <c>Parts</c> (ACC imports at most 100 issues a file). → (bytes or null, words, parts).
     /// Network only — call off the API thread. Never throws.</summary>
-    public async Task<(byte[]? File, string Said)> ExportBcfAsync(string projectId, string version, Func<string>? bearer = null, CancellationToken ct = default)
+    public async Task<(byte[]? File, string Said, int Parts)> ExportBcfAsync(string projectId, string version, int part = 1, Func<string>? bearer = null, CancellationToken ct = default)
     {
         try
         {
-            using var msg = new HttpRequestMessage(HttpMethod.Get, $"{_base}/bcf/3.0/projects/{Uri.EscapeDataString(projectId)}/export?version={Uri.EscapeDataString(version)}");
+            var q = version == "acc" ? "for=acc" : $"version={Uri.EscapeDataString(version)}";
+            using var msg = new HttpRequestMessage(HttpMethod.Get, $"{_base}/bcf/3.0/projects/{Uri.EscapeDataString(projectId)}/export?{q}&part={part}");
             Authorize(msg, bearer);
             using HttpResponseMessage resp = await _files.SendAsync(msg, ct).ConfigureAwait(false);
             if (!resp.IsSuccessStatusCode)
-                return (null, $"Not exported — {Or(MessageOf(await resp.Content.ReadAsStringAsync().ConfigureAwait(false)), $"the bridge answered {(int)resp.StatusCode}")}");
+                return (null, $"Not exported — {Or(MessageOf(await resp.Content.ReadAsStringAsync().ConfigureAwait(false)), $"the bridge answered {(int)resp.StatusCode}")}", 0);
             var bytes = await resp.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
-            var said = $"BCF {version}";
+            var label = version == "acc" ? "ACC (BCF 2.1)" : $"BCF {version}";
+            var said = label;
+            var parts = 1;
             if (resp.Headers.TryGetValues("X-Sentinel-Export", out var info))
             {
                 using var doc = JsonDocument.Parse(info.First());
                 var r = doc.RootElement;
-                said = $"{r.GetProperty("topics").GetInt32()} issue(s) as BCF {version}";
+                said = $"{r.GetProperty("topics").GetInt32()} issue(s) for {label}";
+                if (r.TryGetProperty("parts", out var p) && p.ValueKind == JsonValueKind.Number) parts = p.GetInt32();
                 var lost = r.GetProperty("lost").EnumerateArray().Select(x => x.GetString()).Take(3).ToList();
-                if (lost.Count > 0) said += $". Not carried by BCF {version}: {string.Join("; ", lost)}";
+                if (lost.Count > 0) said += $". Not carried: {string.Join("; ", lost)}";
             }
-            return (bytes, said);
+            return (bytes, said, parts);
         }
-        catch (Exception e) { return (null, $"Not exported — could not reach the bridge ({e.Message})"); }
+        catch (Exception e) { return (null, $"Not exported — could not reach the bridge ({e.Message})", 0); }
     }
 
     private static string Or(string s, string fallback) => string.IsNullOrWhiteSpace(s) ? fallback : s;
