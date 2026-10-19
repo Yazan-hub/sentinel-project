@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
-import { proposeChangeset, getChangeset, reportResult, withdrawChangeset, listChangesets, reportReverted, reportPersisted, needsTyping, needsCiting,
+import { proposeChangeset, getChangeset, reportResult, withdrawChangeset, listChangesets, reportReverted, reportPersisted, needsTyping, needsCiting, claimChangeset, unclaimChangeset, CLAIM_TTL_MS,
   reviewChangeset, reopenGhost, previewChangesets, proposeFromJob, verifyChangeset, scanOverlay, scanQuery, editCostOf, publishEditCost, flagChangeset } from "./changesets-store.mjs";
 import { meshFaces, toScan, toModel, storeyFootprint } from "./survey-plan.mjs";
 import { boxMesh } from "./fixtures/box-mesh.mjs";
@@ -1029,7 +1029,7 @@ describe("MA-3a — the routes", () => {
     const src = readFileSync(new URL("./bcf-service.mjs", import.meta.url), "utf8");
     expect(src).toContain('if (p2 && p3 === "review" && req.method === "POST") return send(res, 200, await ch.reviewChangeset(key, p2, body, actor));');
     expect(src).toContain('if (p2 && p3 === "reopen" && req.method === "POST") return send(res, 200, await ch.reopenGhost(key, p2, body, actor));');
-    expect(src).toContain('const actor = body.actor || (["result", "reverted", "persisted"].includes(p3) ? "revit" : ["review", "reopen", "flags"].includes(p3) ? "web" : "agent");');
+    expect(src).toContain('const actor = body.actor || (["result", "reverted", "persisted", "claim", "unclaim"].includes(p3) ? "revit" : ["review", "reopen", "flags"].includes(p3) ? "web" : "agent");');
   });
 });
 
@@ -2697,5 +2697,111 @@ describe("MA-7-14 Photo Massing reads the pack", () => {
     const d = withPack();
     await proposeChangeset("demo", { name: "x", source: "agent", elements: [structuredClone(F.body.elements[0])] }, "agent", d);
     expect(d.readPack).not.toHaveBeenCalled();
+  });
+});
+
+describe("apply claim and retry-safe result (2026-10-20, spec 2026-10-20-apply-claim-isolation-revert-saved-design.md)", () => {
+  const S1 = "aaaaaaaa-1111", S2 = "bbbbbbbb-2222";
+  const setup = async () => {
+    const deps = baseDeps({ takeWriteBudget: vi.fn() });
+    const cs = await proposeChangeset("demo", BODY, "agent", deps);
+    return { deps, cs, g: cs.elements.map((e) => e.proposal_guid) };
+  };
+  it("one session claims a proposed changeset; another is refused in words, and nothing changes", async () => {
+    const { deps, cs } = await setup();
+    const held = await claimChangeset("demo", cs.id, { session: S1, pc: "DESK-01" }, "ana@office.example", deps);
+    expect(held.claim).toMatchObject({ session: S1, by: "ana@office.example", pc: "DESK-01" });
+    expect(Date.parse(held.claim.until) - Date.parse(held.claim.at)).toBe(CLAIM_TTL_MS);
+    expect(held.review_rev).toBe((cs.review_rev ?? 0) + 1);
+    await expect(claimChangeset("demo", cs.id, { session: S2, pc: "DESK-02" }, "ben", deps))
+      .rejects.toMatchObject({ status: 409, message: expect.stringMatching(/^"Core walls" is being applied by ana@office\.example on DESK-01 \(since \d\d:\d\d UTC\) — nothing was changed; try again when they finish, or after \d\d:\d\d UTC$/) });
+    expect(deps.saved.get(cs.id).claim.session).toBe(S1);
+    expect((await claimChangeset("demo", cs.id, { session: S1 }, "ana", deps)).claim.session).toBe(S1); // the same session refreshes it
+  });
+  it("an expired claim is no claim; a bad session is a 400; only a proposed changeset is claimed", async () => {
+    const { deps, cs, g } = await setup();
+    await claimChangeset("demo", cs.id, { session: S1 }, "ana", deps);
+    deps.saved.get(cs.id).claim.until = new Date(Date.now() - 1000).toISOString();
+    expect((await claimChangeset("demo", cs.id, { session: S2 }, "ben", deps)).claim.session).toBe(S2);
+    for (const session of [undefined, "short", "x".repeat(65), "has space 123"])
+      await expect(claimChangeset("demo", cs.id, { session }, "ben", deps)).rejects.toMatchObject({ status: 400 });
+    await reportResult("demo", cs.id, { applied: [], rejected: g, note: "no", session: S2 }, "ben", deps);
+    await expect(claimChangeset("demo", cs.id, { session: S2 }, "ben", deps)).rejects.toMatchObject({ status: 409, message: expect.stringContaining("is declined — only a proposed changeset is applied") });
+  });
+  it("a result or a withdraw under another session's live claim is refused; the holder's result lands and releases it", async () => {
+    const { deps, cs, g } = await setup();
+    await claimChangeset("demo", cs.id, { session: S1, pc: "DESK-01" }, "ana", deps);
+    await expect(reportResult("demo", cs.id, { applied: [], rejected: g, note: "decline all", session: S2 }, "ben", deps))
+      .rejects.toMatchObject({ status: 409, message: expect.stringContaining("this result was not recorded; the changeset stays proposed") });
+    await expect(reportResult("demo", cs.id, { applied: [], rejected: g, note: "no session" }, "agent", deps)).rejects.toMatchObject({ status: 409 });
+    await expect(withdrawChangeset("demo", cs.id, "agent", deps)).rejects.toMatchObject({ status: 409, message: expect.stringContaining("it was not withdrawn") });
+    expect(deps.audit.mock.calls.filter((c) => c[3] !== "changeset_proposed")).toHaveLength(0);
+    const out = await reportResult("demo", cs.id, { applied: [{ proposal_guid: g[0], revit_element_id: 5 }], rejected: [g[1]], session: S1 }, "ana", deps);
+    expect(out.status).toBe("partially_applied");
+    expect(out.claim).toBeNull();
+  });
+  it("unclaim drops only the caller's own claim", async () => {
+    const { deps, cs } = await setup();
+    await claimChangeset("demo", cs.id, { session: S1 }, "ana", deps);
+    deps.docReplaceIfField.mockClear();
+    expect((await unclaimChangeset("demo", cs.id, { session: S2 }, "ben", deps)).claim.session).toBe(S1);
+    expect(deps.docReplaceIfField).not.toHaveBeenCalled();
+    expect((await unclaimChangeset("demo", cs.id, { session: S1 }, "ana", deps)).claim).toBeNull();
+    expect((await claimChangeset("demo", cs.id, { session: S2 }, "ben", deps)).claim.session).toBe(S2);
+  });
+  it("a retried result with the same attempt key answers the stored result and its ledger row — no second record; another key is the 409", async () => {
+    const { deps, cs, g } = await setup();
+    const body = { applied: [{ proposal_guid: g[0], revit_element_id: 5 }, { proposal_guid: g[1], revit_element_id: 6 }], rejected: [], attempt_key: "k-12345678" };
+    await reportResult("demo", cs.id, body, "ana", deps);
+    expect(deps.saved.get(cs.id).result.attempt_key).toBe("k-12345678");
+    deps.audit.mockClear(); deps.docReplaceIfField.mockClear();
+    deps.auditAll = vi.fn(async () => [{ id: 4242, hash: "hh", action: "changeset_applied" }]);
+    const again = await reportResult("demo", cs.id, body, "ana", deps);
+    expect(again).toMatchObject({ status: "applied", replayed: true, ledger: { id: 4242, hash: "hh" } });
+    expect(deps.auditAll).toHaveBeenCalledWith("demo", { entity_type: "changeset", entity_id: cs.id, action_prefix: "changeset_applied" });
+    expect(deps.audit).not.toHaveBeenCalled();
+    expect(deps.docReplaceIfField).not.toHaveBeenCalled();
+    await expect(reportResult("demo", cs.id, { ...body, attempt_key: "k-other-999" }, "ana", deps)).rejects.toMatchObject({ status: 409 });
+    await expect(reportResult("demo", cs.id, { ...body, attempt_key: "bad key" }, "ana", deps)).rejects.toMatchObject({ status: 400 });
+  });
+});
+
+describe("a revert's own save (2026-10-20, spec §4): POST /persisted {of: revert}", () => {
+  const setup = async () => {
+    const deps = baseDeps({ takeWriteBudget: vi.fn(), myRole: vi.fn(async () => "contributor") });
+    const cs = await proposeChangeset("demo", BODY, "agent", deps);
+    const [a, b] = cs.elements.map((e) => e.proposal_guid);
+    await reportResult("demo", cs.id, { applied: [{ proposal_guid: a, revit_element_id: 11 }, { proposal_guid: b, revit_element_id: 12 }], rejected: [] }, "ana", deps);
+    return { deps, cs, a, b };
+  };
+  it("the revert keeps its rows; confirmed then lost write their rows and the doc's reverted.persisted", async () => {
+    const { deps, cs, a, b } = await setup();
+    await expect(reportPersisted("demo", cs.id, { of: "revert", how: "saved", held: [a], missing: [] }, "ana", deps))
+      .rejects.toMatchObject({ status: 409, message: expect.stringContaining("holds no revert") });
+    await reportReverted("demo", cs.id, { op: "undo", guids: [a], basis: "revert", reason: "wrong storey", kept: [{ proposal_guid: b, why: "held" }] }, "ana", deps);
+    expect(deps.saved.get(cs.id).reverted.rows).toEqual([a]);
+    deps.audit.mockClear();
+    deps.audit.mockResolvedValueOnce({ id: 3001, hash: "r" });
+    const out = await reportPersisted("demo", cs.id, { of: "revert", how: "saved", held: [a], missing: [] }, undefined, deps);
+    expect(out.ledger).toEqual({ id: 3001, hash: "r" });
+    const [, , , action, actor, oldv, newv] = deps.audit.mock.calls[0];
+    expect([action, actor, oldv, newv]).toEqual(["changeset_revert_confirmed", "revit", { persisted: null }, { how: "saved", held: 1, missing: [] }]);
+    expect(deps.saved.get(cs.id).reverted.persisted).toMatchObject({ state: "confirmed", how: "saved", missing: 0 });
+    expect(deps.saved.get(cs.id).persisted).toBeUndefined(); // the changeset's own check is untouched
+    await reportPersisted("demo", cs.id, { of: "revert", how: "reopened", held: [], missing: [a] }, "ana", deps);
+    expect(deps.audit.mock.calls[1][3]).toBe("changeset_revert_lost");
+    expect(deps.saved.get(cs.id).reverted.persisted).toMatchObject({ state: "lost", how: "reopened", missing: 1 });
+  });
+  it("refuses a set that is not the revert's rows, an unknown `of`, a revert recorded before its rows were kept, and one Ctrl+Z took back", async () => {
+    const { deps, cs, a, b } = await setup();
+    await reportReverted("demo", cs.id, { op: "undo", guids: [a], basis: "revert", reason: "x" }, "ana", deps);
+    for (const body of [{ held: [a, b], missing: [] }, { held: [], missing: [] }, { held: [b], missing: [] }])
+      await expect(reportPersisted("demo", cs.id, { of: "revert", how: "saved", ...body }, "ana", deps)).rejects.toMatchObject({ status: 400 });
+    await expect(reportPersisted("demo", cs.id, { of: "changeset", how: "saved", held: [a], missing: [] }, "ana", deps)).rejects.toMatchObject({ status: 400 });
+    delete deps.saved.get(cs.id).reverted.rows;
+    await expect(reportPersisted("demo", cs.id, { of: "revert", how: "saved", held: [a], missing: [] }, "ana", deps))
+      .rejects.toMatchObject({ status: 409, message: expect.stringContaining("recorded before its rows were kept") });
+    await reportReverted("demo", cs.id, { op: "redo", guids: [a] }, "ana", deps);
+    await expect(reportPersisted("demo", cs.id, { of: "revert", how: "saved", held: [a], missing: [] }, "ana", deps)).rejects.toMatchObject({ status: 409 });
   });
 });

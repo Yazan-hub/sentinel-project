@@ -65,7 +65,7 @@ public static class ChangesetReverter
                 };
                 if (why != null) { Keep(el, why); continue; }
                 if (el.Op is null or "create") creates.Add((el, e));
-                else o.Reverted.Add(el.ProposalGuid);
+                else { ProvenanceStamp.WriteReverted(e, cs.Id, el.ProposalGuid); o.Reverted.Add(el.ProposalGuid); } // spec 2026-10-20 §4: its save is checked by this mark
             }
 
             // Creates: removed together, each only when removing it takes nothing but its tags and other creates of this revert — repeated until

@@ -40,6 +40,7 @@
     "web-ifc": "^0.0.77"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.10",
     "@types/three": "^0.182.0",
     "esbuild": "^0.28.2",
     "typescript": "^5.2.0",

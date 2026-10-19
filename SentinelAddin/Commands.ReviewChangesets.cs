@@ -183,7 +183,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
         new UnreportedResults.Record
         {
             Key = key, ChangesetId = cs.Id, Name = cs.Name, Doc = doc, Applied = applied, Rejected = rejected, Note = note, ReviewRev = reviewRev,
-            Undo = undo ?? new List<string>(), At = ProvenanceStamp.Now(), Reasons = reasons,
+            Undo = undo ?? new List<string>(), At = ProvenanceStamp.Now(), Reasons = reasons, AttemptKey = Guid.NewGuid().ToString(),
         };
 
     /// <summary>MA-3b (AI-2): what a round of reports did — one paragraph per result, the ones the bridge took (with its reply) and the ones
@@ -264,7 +264,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                 foreach (var r in records)
                 {
                     if (stalled) { rep.Left.Add(r); rep.Words.Add($"\"{r.Name}\": {UnreportedResults.NotSent(r.Applied.Count)}"); continue; }
-                    var landed = ChangesetClient.ReportResult(cfg, r.Key, r.ChangesetId, r.Applied, r.Rejected, r.Note, r.ReviewRev, out var reply, out var err, r.Reasons);
+                    var landed = ChangesetClient.ReportResult(cfg, r.Key, r.ChangesetId, r.Applied, r.Rejected, r.Note, r.ReviewRev, out var reply, out var err, r.Reasons, r.AttemptKey);
                     // Review C1: the bridge writes the doc before its audit row, and a reply can be lost — a 409 whose stored result applied
                     // exactly these ghosts is this result, landed earlier (re-read here, on this pool thread; FetchOne is an existing request).
                     // MA-3b2b: a decline too (it applied nothing) — one the bridge holds with the same rejected ghosts and note is taken.
@@ -827,6 +827,31 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                     placement = standards.Guideline.Placement;
                 }
 
+                // Apply claim (2026-10-20, spec 2026-10-20-apply-claim-isolation-revert-saved-design.md §1): every changeset of the batch is claimed
+                // for this Revit before its transaction — one another PC is applying is refused in the bridge's words and nothing runs. The
+                // claim's reply is the latest copy (its review_rev): the web's declines are checked on it once more.
+                var claimed = new List<ChangesetDto>();
+                foreach (var f in fresh)
+                {
+                    var c = ChangesetClient.Claim(cfg, key, f.Id, out var claimErr);
+                    if (c == null)
+                    {
+                        foreach (var k in claimed) ChangesetClient.Unclaim(cfg, key, k.Id);
+                        window.Refused(ChangesetTrust.ClaimRefused(claimErr));
+                        return;
+                    }
+                    claimed.Add(c);
+                }
+                fresh = claimed;
+                void Unclaim() { foreach (var k in claimed) ChangesetClient.Unclaim(cfg, key, k.Id); }
+                if (ChangesetTrust.DeclinedTicked(fresh, ticked) is { } declinedLate)
+                {
+                    Unclaim();
+                    window.Lock(fresh.SelectMany(f => f.Elements ?? new List<ChangesetElementDto>()).Where(e => ticked.Contains(e.ProposalGuid) && ChangesetTrust.DeclinedOnWeb(e)).Select(e => e.ProposalGuid).ToList());
+                    window.Refused(declinedLate);
+                    return;
+                }
+
                 Action<ChangesetExecutor.ExecutionResult> onDone = null;
                 onDone = result =>
                 {
@@ -834,6 +859,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                     handler.Completed -= onDone;
                     if (result.NotRun)
                     {
+                        Task.Run(Unclaim); // apply claim: nothing was placed — another PC may apply it now
                         // Review C3: nothing was placed (a "Go back", a DocPin refusal, a missing workset) — Apply comes back in this window.
                         if (window.Gone) Tell(result.Error + "\n\nNothing was placed; the proposals are still pending.");
                         else window.Reopen(result.Error + "\n\nNothing was placed; the proposals are still pending — change the ticks or press Apply again.");
@@ -927,13 +953,13 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                     });
                 };
                 // Review C2: × pressed while the re-check, the role or the standards were read is a cancel — nothing is raised.
-                if (window.Gone) { App.PanelVm?.LogDoctor("Review AI Proposals: the window was closed before Apply ran — nothing was placed."); return; }
+                if (window.Gone) { App.PanelVm?.LogDoctor("Review AI Proposals: the window was closed before Apply ran — nothing was placed."); Unclaim(); return; }
                 window.Applying("Applying in Revit…");
                 // Enqueued from the window's thread (Revit's) — the hub raises on it, as every modeless window here does.
                 _ = window.Dispatcher.BeginInvoke(new Action(() =>
                 {
                     // Review C12: × between the check above and this raise is a cancel too — the window's hold is already released.
-                    if (window.Gone) { App.PanelVm?.LogDoctor("Review AI Proposals: the window was closed before Apply ran — nothing was placed."); return; }
+                    if (window.Gone) { App.PanelVm?.LogDoctor("Review AI Proposals: the window was closed before Apply ran — nothing was placed."); Task.Run(Unclaim); return; }
                     try
                     {
                         handler.Completed += onDone;
@@ -946,6 +972,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                     catch (Exception ex)
                     {
                         handler.Completed -= onDone;
+                        Task.Run(Unclaim);
                         window.Reopen($"Apply could not be started — {ex.GetType().Name}: {ex.Message}\n\nNothing was placed; press Apply again.");
                     }
                 }));

@@ -71,6 +71,7 @@ namespace Sentinel.Engine
         {
             var ids = new List<string>();
             var guids = new List<string>();
+            var reverted = new List<string>(); // 2026-10-20: a later stamp keeps the revert marks (a revert's own saved check reads them)
             string layer = null, sha = null;
             try
             {
@@ -83,6 +84,8 @@ namespace Sentinel.Engine
                     if (r.TryGetProperty("proposal_guids", out var g) && g.ValueKind == JsonValueKind.Array) guids.AddRange(g.EnumerateArray().Select(x => x.ToString()));
                     layer = Str(r, "layer");
                     sha = Str(r, "source_sha256");
+                    if (r.TryGetProperty("reverted", out var rv) && rv.ValueKind == JsonValueKind.Array)
+                        reverted.AddRange(rv.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()));
                 }
             }
             catch (Exception) { /* not a stamp: start afresh */ }
@@ -91,7 +94,7 @@ namespace Sentinel.Engine
             // C2: the placer's own rule, else the element's own reason — marked, so the reader never shows it as an office rule.
             var rule = string.IsNullOrWhiteSpace(facts?.Rule) ? null : facts.Rule;
             var reason = rule != null || string.IsNullOrWhiteSpace(facts?.Reason) ? null : facts.Reason;
-            return JsonSerializer.Serialize(new
+            var json = JsonSerializer.Serialize(new
             {
                 v = 2,
                 changeset_id = changesetId,
@@ -107,6 +110,10 @@ namespace Sentinel.Engine
                 ledger_row = facts?.LedgerRow,
                 placed_at = placedAt,
             });
+            if (reverted.Count == 0) return json;
+            var o = (System.Text.Json.Nodes.JsonObject)System.Text.Json.Nodes.JsonNode.Parse(json);
+            o["reverted"] = new System.Text.Json.Nodes.JsonArray(reverted.Select(x => (System.Text.Json.Nodes.JsonNode)x).ToArray());
+            return o.ToJsonString();
         }
 
         /// <summary>MA-3b (AI-2): whether the stamp lists changeset <paramref name="changesetId"/> and proposal <paramref name="guid"/> — what a
@@ -121,6 +128,37 @@ namespace Sentinel.Engine
                 bool Lists(string name, string value) => r.TryGetProperty(name, out var a) && a.ValueKind == JsonValueKind.Array
                     && a.EnumerateArray().Any(x => x.ValueKind == JsonValueKind.String && x.GetString() == value);
                 return r.ValueKind == JsonValueKind.Object && changesetId != null && guid != null && Lists("changeset_ids", changesetId) && Lists("proposal_guids", guid);
+            }
+            catch (Exception) { return false; }
+        }
+
+        /// <summary>A revert's own save (2026-10-20, spec 2026-10-20-apply-claim-isolation-revert-saved-design.md §4): the stamp with
+        /// "&lt;changeset&gt;/&lt;guid&gt;" added to its `reverted` list — written inside the revert's own transaction, so an Undo of the revert,
+        /// or closing the model without saving, takes it away. Every other field is kept as it was. Pure; an unreadable stamp is answered as is.</summary>
+        public static string MarkReverted(string json, string changesetId, string guid)
+        {
+            try
+            {
+                var o = System.Text.Json.Nodes.JsonNode.Parse(json ?? "null") as System.Text.Json.Nodes.JsonObject;
+                if (o == null) return json;
+                var list = o["reverted"] as System.Text.Json.Nodes.JsonArray ?? new System.Text.Json.Nodes.JsonArray();
+                var mark = changesetId + "/" + guid;
+                if (!list.Any(x => x is System.Text.Json.Nodes.JsonValue v && v.TryGetValue<string>(out var str) && str == mark)) list.Add(mark);
+                o["reverted"] = list.DeepClone();
+                return o.ToJsonString();
+            }
+            catch (Exception) { return json; }
+        }
+
+        /// <summary>Whether the stamp carries the revert mark of changeset <paramref name="changesetId"/>'s proposal <paramref name="guid"/>. Pure; never throws.</summary>
+        public static bool IsReverted(string json, string changesetId, string guid)
+        {
+            try
+            {
+                using var d = JsonDocument.Parse(json ?? "null");
+                var mark = changesetId + "/" + guid;
+                return d.RootElement.ValueKind == JsonValueKind.Object && d.RootElement.TryGetProperty("reverted", out var a) && a.ValueKind == JsonValueKind.Array
+                       && a.EnumerateArray().Any(x => x.ValueKind == JsonValueKind.String && x.GetString() == mark);
             }
             catch (Exception) { return false; }
         }
@@ -241,6 +279,17 @@ namespace Sentinel.Engine
         {
             var entity = new Entity(GetSchema());
             entity.Set(Field, Json(changesetId, source, proposalGuids, e.UniqueId, Read(e), facts, UserSession.Actor, Now()));
+            e.SetEntity(entity);
+        }
+
+        /// <summary>2026-10-20: marks the stamp of <paramref name="e"/> reverted for this changeset's proposal (MarkReverted). The CALLER holds
+        /// the open transaction (the revert's). An element with no stamp is left as it is. API thread.</summary>
+        public static void WriteReverted(Element e, string changesetId, string guid)
+        {
+            var now = Read(e);
+            if (now == null) return;
+            var entity = new Entity(GetSchema());
+            entity.Set(Field, MarkReverted(now, changesetId, guid));
             e.SetEntity(entity);
         }
 
