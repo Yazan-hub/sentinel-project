@@ -7,7 +7,8 @@ import * as OBF from "@thatopen/components-front";
 import * as FRAGS from "@thatopen/fragments";
 import { runClash, confirmOnSolids } from "../sentinel-core/adapter/model-clash";
 import { confirm, runSentence, type ClashMode, type ConfirmResult } from "../sentinel-core/clash-confirm";
-import type { Clash } from "../sentinel-core/clash";
+import { clashSignature, type Clash } from "../sentinel-core/clash";
+import { groupHits, groupTitle, groupInstruction, plainCategory, type TriageHit, type TriageGroup, type TriageSide } from "../sentinel-core/clash-triage";
 import { getAppManager } from "../app";
 import { escapeHtml as esc } from "./escape-html";
 
@@ -43,9 +44,9 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
   // Per-element provenance captured at raise-time (immutable): what the two clashing elements WERE when
   // flagged, keyed on the revision-stable IFC GlobalId. A recorded clash carries these + a status lifecycle.
   type ClashElement = { guid: string | null; category: string | null; name: string | null; model_id: string; local_id: number };
-  type ClashRecord = { signature: string; status: string; volume?: number; label?: string; bcf_guid?: string | null; elements?: ClashElement[]; overlap?: number[]; created_at?: string; updated_at?: string };
+  type ClashRecord = { signature: string; status: string; reason?: string | null; group?: string | null; volume?: number; label?: string; bcf_guid?: string | null; elements?: ClashElement[]; overlap?: number[]; created_at?: string; updated_at?: string };
   let register: ClashRecord[] = []; // the recorded clashes (server store), shown in the Register view
-  let view: "new" | "register" = "new";
+  let view: "new" | "register" | "groups" = "new";
 
   // `gen` is bumped on each project or person change: an answer read before it is dropped, so the previous project's
   // register never lands in (or is persisted under) this one's key.
@@ -85,6 +86,7 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
     '<span style="font-weight:600">✸ Clash</span>' +
     `<button id="cl-view-new" style="${btn};padding:.25rem .5rem;font-size:11px;background:#22303a">New</button>` +
     `<button id="cl-view-reg" style="${btn};padding:.25rem .5rem;font-size:11px" title="Recorded clashes: status lifecycle + element provenance">Register</button>` +
+    `<button id="cl-view-grp" style="${btn};padding:.25rem .5rem;font-size:11px" title="Triage: the new clashes grouped by element pair, level and the discipline that gives way — one owner and one Issue per group">Groups</button>` +
     '<span style="flex:1"></span>' +
     `<button id="cl-run" style="${btn};background:#22303a;border-color:#2f6d8a;color:#bfe3f2">Run clash</button>` +
     "</div>" +
@@ -186,13 +188,15 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
 
   // ── Register: recorded clashes with a status lifecycle + raise-time element provenance ────────────────
   const CLASH_STATUSES = ["raised", "reviewed", "approved", "resolved"];
-  const statusColor = (s: string) => (({ raised: "#f87171", reviewed: "#eab308", approved: "#60a5fa", resolved: "#4ade80" } as Record<string, string>)[s] ?? "#9ca3af");
+  const statusColor = (s: string) => (({ raised: "#f87171", reviewed: "#eab308", approved: "#60a5fa", resolved: "#4ade80", not_a_clash: "#9ca3af" } as Record<string, string>)[s] ?? "#9ca3af");
+  const statusWord = (s: string) => (s === "not_a_clash" ? "not a clash" : s);
 
-  const setView = (v: "new" | "register") => {
+  const setView = (v: "new" | "register" | "groups") => {
     view = v;
     el("cl-view-new").style.background = v === "new" ? "#22303a" : "#1f1f27";
     el("cl-view-reg").style.background = v === "register" ? "#22303a" : "#1f1f27";
-    if (v === "register") { renderRegister(); loadRegister(); } else renderList();
+    el("cl-view-grp").style.background = v === "groups" ? "#22303a" : "#1f1f27";
+    if (v === "register") { renderRegister(); loadRegister(); } else if (v === "groups") void openGroups(); else renderList();
   };
   const loadRegister = async () => { await loadKnownFromServer(); if (view === "register") renderRegister(); };
 
@@ -218,15 +222,17 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
     const host = el("cl-list");
     if (registerError) { host.innerHTML = `<div style="color:#fbbf24;font-size:12px;padding:.6rem">Register not read — ${esc(registerError)}</div>`; return; }
     if (!register.length) { host.innerHTML = '<div style="color:#9ca3af;font-size:12px;padding:.6rem">No recorded clashes yet. Run clash → <b>⚑ Raise</b> to record them here (status + element provenance).</div>'; return; }
-    const counts = CLASH_STATUSES.map((s) => `${register.filter((r) => r.status === s).length} ${s}`).join(" · ");
-    const sorted = [...register].sort((a, b) => CLASH_STATUSES.indexOf(a.status) - CLASH_STATUSES.indexOf(b.status) || (b.volume ?? 0) - (a.volume ?? 0));
+    const ALL = [...CLASH_STATUSES, "not_a_clash"];
+    const counts = ALL.map((s) => `${register.filter((r) => r.status === s).length} ${statusWord(s)}`).join(" · ");
+    const sorted = [...register].sort((a, b) => ALL.indexOf(a.status) - ALL.indexOf(b.status) || (b.volume ?? 0) - (a.volume ?? 0));
     host.innerHTML =
       `<div style="color:#9ca3af;font-size:11px;padding:.2rem .4rem .4rem">${register.length} recorded · ${esc(counts)}</div>` +
       sorted.map((rec, i) => {
         const col = statusColor(rec.status);
         const prov = (rec.elements ?? []).map((e) => `${esc((e.category ?? "?").replace(/^IFC/i, ""))}${e.name ? ` '${esc(e.name)}'` : ""}<span style="color:#6b7280"> ${e.guid ? esc(String(e.guid).slice(0, 8)) : "no-guid"}</span>`).join(' <span style="color:#6b7280">↔</span> ');
         const vol = rec.volume != null ? (rec.volume < 0.01 ? rec.volume.toExponential(1) : rec.volume.toFixed(2)) + " m³" : "";
-        const opts = CLASH_STATUSES.map((s) => `<option value="${esc(s)}"${s === rec.status ? " selected" : ""}>${s}</option>`).join("");
+        // "not a clash" is set from Groups with its reason; here it is shown, and a clash can be moved back out of it.
+        const opts = [...CLASH_STATUSES, ...(rec.status === "not_a_clash" ? ["not_a_clash"] : [])].map((s) => `<option value="${esc(s)}"${s === rec.status ? " selected" : ""}>${statusWord(s)}</option>`).join("");
         return `<div style="border:1px solid #2a2a30;background:#1b1b20;border-radius:.35rem;margin-bottom:.3rem;padding:.4rem .5rem;font-size:12px">` +
           `<div style="display:flex;gap:.5rem;align-items:center">` +
             `<span style="width:.5rem;height:.5rem;border-radius:50%;background:${col};flex:none"></span>` +
@@ -234,6 +240,7 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
             `<span style="color:#9ca3af;font:11px ui-monospace,Consolas,monospace">${vol}</span>` +
           `</div>` +
           `<div style="color:#9ca3af;font-size:11px;margin:.25rem 0 .3rem">${prov || '<span style="color:#6b7280">no provenance recorded</span>'}${rec.bcf_guid ? ' <span style="color:#60a5fa" title="Linked BCF topic">⚑</span>' : ""}</div>` +
+          (rec.reason || rec.group ? `<div style="color:#6b7280;font-size:11px;margin-bottom:.3rem">${rec.reason ? `Not a clash: ${esc(rec.reason)}` : ""}${rec.reason && rec.group ? " · " : ""}${rec.group ? `Group: ${esc(rec.group.split("|").slice(1).join(" · "))}` : ""}</div>` : "") +
           `<div style="display:flex;gap:.4rem;align-items:center">` +
             `<select class="cl-reg-status" data-i="${i}" style="background:#111;color:${col};border:1px solid #333;border-radius:.25rem;font:600 11px system-ui;padding:.15rem .25rem;cursor:pointer">${opts}</select>` +
             `<button class="cl-reg-focus" data-i="${i}" style="${btn};padding:.15rem .4rem;font-size:11px">show</button>` +
@@ -299,21 +306,24 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
   }
 
   // Fetch each element's IFC identity at raise-time (GlobalId + category + name) for provenance + the viewpoint.
-  async function elemInfoFor(items: { modelId: string; localId: number }[]): Promise<Map<string, { guid?: string; category?: string; name?: string }>> {
+  type ElemInfo = { guid?: string; category?: string; name?: string; level?: string };
+  async function elemInfoFor(items: { modelId: string; localId: number }[]): Promise<Map<string, ElemInfo>> {
     const byModel: Record<string, number[]> = {};
     for (const i of items) (byModel[i.modelId] ??= []).push(i.localId);
-    const out = new Map<string, { guid?: string; category?: string; name?: string }>();
+    const out = new Map<string, ElemInfo>();
     for (const [mid, ids] of Object.entries(byModel)) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const model = [...fragments.list.values()].find((m: any) => m.modelId === mid) as any;
       if (!model) continue;
-      const data = await model.getItemsData(ids, { attributesDefault: true, relationsDefault: { attributes: false, relations: false } });
+      // The storey is read for triage's level (fragments flattens containment: ContainedInStructure is the storey list).
+      const data = await model.getItemsData(ids, { attributesDefault: true, relationsDefault: { attributes: false, relations: false }, relations: { ContainedInStructure: { attributes: true, relations: false } } });
       for (let i = 0; i < ids.length; i++) {
         const d = data[i];
         out.set(`${mid}:${ids[i]}`, {
           guid: val(d?.["_guid"]) ?? val(d?.["GlobalId"]),
           category: val(d?.["_category"]),
           name: val(d?.["Name"]),
+          level: val((Array.isArray(d?.["ContainedInStructure"]) ? d["ContainedInStructure"][0] : d?.["ContainedInStructure"])?.["Name"]),
         });
       }
     }
@@ -393,8 +403,198 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
     status(`Raised ${raised} clash(es) → Issues + Revit; provenance recorded in the clash register and on the ledger. They won't re-surface on the next run.`);
   }
 
+  // ── Groups (clash triage, spec 2026-10-20): the new clashes grouped by pair × level × the discipline that gives way.
+  // One owner per discipline (a lead's, team-wide), one Issue per group, touching pairs recorded "not a clash" with a
+  // reason. Nothing is moved and nothing is deleted: a duplicate is routed to its owner as an Issue.
+  let triageOf: Clash[] | null = null; // the `clashes` array the hits below were read for
+  let runHits: TriageHit[] = [];
+  let imported: TriageHit[] = []; // Navisworks/ACC clashes that arrived as BCF (the optional door)
+  let owners: Record<string, string> = {};
+  let memberEmails: string[] = [];
+  const groupOwner = new Map<string, string>(); // a per-group owner chosen before raising
+  const NAC_REASON = "touching faces, no overlap volume";
+  const sideOf = (c: Clash, s: "a" | "b", info: Map<string, ElemInfo>): TriageSide => {
+    const i = info.get(`${c[s].modelId}:${c[s].localId}`);
+    return { modelId: c[s].modelId, localId: c[s].localId, guid: i?.guid ?? c[s].guid ?? null, category: i?.category, name: i?.name, level: i?.level, box: c[s].box };
+  };
+  const sideLabel = (x: TriageSide) => `${plainCategory(x.category, x.name)}${x.name ? ` '${x.name}'` : ""}`;
+  const hitLabel = (h: TriageHit) => `${sideLabel(h.a)} ↔ ${sideLabel(h.b)}`;
+  const elementsOf = (h: TriageHit): ClashElement[] => [h.a, h.b].map((x) => ({ guid: x.guid ?? null, category: x.category ?? null, name: x.name ?? null, model_id: x.modelId, local_id: x.localId ?? -1 }));
+
+  async function loadOwners() {
+    const mine = gen;
+    try {
+      const [o, m] = await Promise.all([bfetch(`${base}/clash/${encodeURIComponent(pid())}/owners`), bfetch(`${base}/cde/${encodeURIComponent(pid())}/members`)]);
+      if (mine !== gen) return;
+      owners = o.ok ? ((await o.json())?.disciplines ?? {}) : {};
+      memberEmails = m.ok ? ((await m.json()) as { email?: string }[]).map((x) => String(x.email || "")).filter((e) => e.includes("@")) : [];
+    } catch { /* owners stay empty — said by the empty selects */ }
+  }
+
+  async function openGroups() {
+    const host = el("cl-list");
+    if (triageOf !== clashes) {
+      host.innerHTML = '<div style="color:#9ca3af;font-size:12px;padding:.6rem">Reading element types and levels…</div>';
+      const forClashes = clashes, mine = gen;
+      try {
+        const info = await elemInfoFor(forClashes.flatMap((c) => [c.a, c.b]));
+        if (mine !== gen || forClashes !== clashes) return;
+        runHits = forClashes.map((c) => ({ id: c.id, a: sideOf(c, "a", info), b: sideOf(c, "b", info), volume: c.volume, touching: c.touching, distance: c.distance }));
+        triageOf = forClashes;
+      } catch (e) { status(`Groups not built — ${(e as Error).message}`); return; }
+    }
+    await loadOwners();
+    if (view === "groups") renderGroups();
+  }
+
+  const currentGroups = () => groupHits([...runHits, ...imported.filter((h) => !runHits.some((r) => r.id === h.id))]);
+
+  function renderGroups() {
+    const host = el("cl-list");
+    const groups = currentGroups();
+    const top = `<div style="display:flex;gap:.4rem;align-items:center;padding:.2rem .4rem .45rem;font-size:11px;color:#9ca3af">` +
+      `<span style="flex:1">${groups.length ? `${groups.length} group(s) · ${groups.reduce((n, g) => n + g.hits.length, 0)} clash(es)` : ""}</span>` +
+      `<button id="cl-imp" style="${btn};padding:.15rem .4rem;font-size:11px" title="Add open Clash Issues that came in as BCF (Navisworks, ACC) to these groups">＋ Imported BCF</button></div>`;
+    if (!groups.length) { host.innerHTML = top + '<div style="color:#9ca3af;font-size:12px;padding:.6rem">No new clashes to group. Run clash (or add imported BCF clashes).</div>'; wireGroups([]); return; }
+    const disciplines = [...new Set(groups.map((g) => g.discipline))].sort();
+    const pick = (cls: string, data: string, cur: string) => `<select class="${cls}" data-k="${esc(data)}" style="background:#111;color:#eee;border:1px solid #333;border-radius:.25rem;font:11px system-ui;padding:.1rem .2rem;max-width:12rem">` +
+      `<option value="">— nobody —</option>` + [...new Set([...memberEmails, ...(cur ? [cur] : [])])].map((e) => `<option value="${esc(e)}"${e === cur ? " selected" : ""}>${esc(e)}</option>`).join("") + `</select>`;
+    host.innerHTML = top +
+      `<div style="border:1px solid #2a2a30;border-radius:.35rem;padding:.4rem .5rem;margin-bottom:.4rem;font-size:11px;color:#9ca3af" title="Who owns each discipline's clash groups — a lead's to set, for the whole team">` +
+      `<div style="margin-bottom:.25rem;color:#e5e7eb;font-weight:600">Discipline owners</div>` +
+      disciplines.map((d) => `<label style="display:inline-flex;gap:.3rem;align-items:center;margin:0 .6rem .25rem 0">${esc(d)} ${pick("cl-own-d", d, owners[d] ?? "")}</label>`).join("") + `</div>` +
+      groups.map((g, i) => {
+        const col = g.kind === "duplicate" ? "#eab308" : g.kind === "touching" ? "#9ca3af" : "#f87171";
+        const vol = g.volume ? (g.volume < 0.01 ? g.volume.toExponential(1) : g.volume.toFixed(2)) + " m³" : "";
+        const act = g.kind === "touching"
+          ? `<button class="cl-g-nac" data-i="${i}" style="${btn};padding:.15rem .4rem;font-size:11px" title="Record these as not a clash, with the reason, on the register and the ledger">Mark not a clash</button>`
+          : `<button class="cl-g-raise" data-i="${i}" style="${btn};padding:.15rem .4rem;font-size:11px;background:#3a1f1f;border-color:#7f1d1d;color:#fca5a5" title="One Issue for the whole group, assigned to its owner">⚑ Raise group</button>`;
+        return `<div style="border:1px solid #2a2a30;background:#1b1b20;border-radius:.35rem;margin-bottom:.3rem;padding:.4rem .5rem;font-size:12px">` +
+          `<div style="display:flex;gap:.5rem;align-items:center"><span style="width:.5rem;height:.5rem;border-radius:50%;background:${col};flex:none"></span>` +
+          `<span style="flex:1;color:#e5e7eb">${esc(groupTitle(g))}</span><span style="color:#e5e7eb;font-weight:600">${g.hits.length}</span>` +
+          `<span style="color:#9ca3af;font:11px ui-monospace,Consolas,monospace">${vol}</span></div>` +
+          `<div style="color:#9ca3af;font-size:11px;margin:.25rem 0 .3rem">${esc(groupInstruction(g))}</div>` +
+          `<div style="display:flex;gap:.4rem;align-items:center;font-size:11px;color:#9ca3af">Owner ${pick("cl-own-g", g.key, groupOwner.get(g.key) ?? owners[g.discipline] ?? "")}` +
+          `<span style="flex:1"></span><button class="cl-g-show" data-i="${i}" style="${btn};padding:.15rem .4rem;font-size:11px">show</button>${act}</div></div>`;
+      }).join("");
+    wireGroups(groups);
+  }
+
+  function wireGroups(groups: TriageGroup[]) {
+    const host = el("cl-list");
+    host.querySelector<HTMLElement>("#cl-imp")?.addEventListener("click", addImported);
+    host.querySelectorAll<HTMLSelectElement>(".cl-own-d").forEach((s) => s.addEventListener("change", () => saveOwners(s.dataset.k!, s.value)));
+    host.querySelectorAll<HTMLSelectElement>(".cl-own-g").forEach((s) => s.addEventListener("change", () => { groupOwner.set(s.dataset.k!, s.value); }));
+    host.querySelectorAll<HTMLElement>(".cl-g-show").forEach((b) => b.addEventListener("click", () => showGroup(groups[Number(b.dataset.i)])));
+    host.querySelectorAll<HTMLElement>(".cl-g-raise").forEach((b) => b.addEventListener("click", () => raiseGroup(groups[Number(b.dataset.i)])));
+    host.querySelectorAll<HTMLElement>(".cl-g-nac").forEach((b) => b.addEventListener("click", () => markNotAClash(groups[Number(b.dataset.i)])));
+  }
+
+  // Setting who owns a discipline is a lead's (the bridge refuses below lead and says so); the whole map is sent.
+  async function saveOwners(discipline: string, email: string) {
+    const next = { ...owners, [discipline]: email };
+    try {
+      const r = await bwrite<{ disciplines?: Record<string, string> } | null>(`${base}/clash/${encodeURIComponent(pid())}/owners`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ disciplines: next }) });
+      owners = r?.disciplines ?? next;
+      status(email ? `${discipline} clash groups are owned by ${email} (team-wide, on the ledger).` : `${discipline} has no owner now.`);
+    } catch (e) { status(`Owner not saved — ${(e as Error).message}`); }
+    renderGroups();
+  }
+
+  async function showGroup(g: TriageGroup) {
+    const map: OBC.ModelIdMap = {};
+    for (const h of g.hits) for (const x of [h.a, h.b]) if (x.localId != null && x.localId >= 0) (map[x.modelId] ??= new Set<number>()).add(x.localId);
+    if (!Object.keys(map).length) { status("No loaded elements to show for this group."); return; }
+    try { await hider.isolate(map); await refreshView(); status(`Isolated ${groupTitle(g)} — ${g.hits.length} clash(es). Show all in Visibility to restore.`); }
+    catch (e) { status("Isolate failed: " + ((e as Error)?.message ?? String(e))); }
+  }
+
+  // Records a group's hits on the register (the bridge takes at most 500 a request), then drops them from the lists.
+  async function recordHits(key: string, items: Parameters<typeof pushKnownToServer>[0]) {
+    for (let i = 0; i < items.length; i += 500) await pushKnownToServer(items.slice(i, i + 500), key);
+  }
+  const dropHits = (ids: Set<string>) => {
+    for (const id of ids) known.add(id);
+    persistKnown();
+    clashes = clashes.filter((c) => !ids.has(c.id)); triageOf = clashes;
+    runHits = runHits.filter((h) => !ids.has(h.id)); imported = imported.filter((h) => !ids.has(h.id));
+  };
+
+  async function raiseGroup(g: TriageGroup) {
+    const key = pid();
+    const gate = await gateAllowsRaise();
+    if (!gate.ok) { status(`Not raised — ${gate.why}. Nothing was sent.`); void loadFederation(); return; }
+    const owner = groupOwner.get(g.key) ?? owners[g.discipline] ?? "";
+    const guids = [...new Set(g.hits.flatMap((h) => [h.a.guid, h.b.guid]).filter(Boolean) as string[])].slice(0, 500);
+    const lines = g.hits.slice(0, 50).map((h) => `- ${hitLabel(h)}${h.volume ? ` (${h.volume.toFixed(3)} m³)` : ""}`).join("\n") + (g.hits.length > 50 ? `\n…and ${g.hits.length - 50} more (on the clash register)` : "");
+    status(`Raising ${groupTitle(g)} as one Issue…`);
+    let topic: { guid?: string } | null;
+    try {
+      topic = await bwrite<{ guid?: string } | null>(`${base}/bcf/3.0/projects/${encodeURIComponent(key)}/topics`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+        title: `Clash group: ${groupTitle(g)} (${g.hits.length})`, topic_type: "Clash", priority: g.kind === "duplicate" ? "Normal" : "High",
+        creation_author: "Clash", assigned_to: owner, labels: ["clash-group"], description: `${groupInstruction(g)}\n\n${lines}`,
+      }) });
+    } catch (e) { status(`Not raised — ${(e as Error).message}`); return; }
+    if (topic?.guid && guids.length)
+      await bwrite(`${base}/bcf/3.0/projects/${encodeURIComponent(key)}/topics/${topic.guid}/viewpoints`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ components: { selection: guids.map((ifc_guid) => ({ ifc_guid })) } }) }).catch(() => {});
+    const overlapOf = new Map(clashes.map((c) => [c.id, c.overlap]));
+    try {
+      await recordHits(key, g.hits.map((h) => ({ signature: h.id, status: "raised", volume: h.volume, label: hitLabel(h), bcf_guid: topic?.guid ?? null, elements: elementsOf(h), overlap: overlapOf.get(h.id), group: g.key })));
+    } catch (e) { status(`The Issue was raised, but the clash register did not record its ${g.hits.length} clash(es) — ${(e as Error).message}. They will re-surface on the next run.`); return; }
+    if (pid() !== key) return;
+    dropHits(new Set(g.hits.map((h) => h.id)));
+    renderGroups(); void loadKnownFromServer();
+    status(`Raised ${groupTitle(g)} as one Issue${owner ? ` assigned to ${owner}` : " (no owner yet)"}; ${g.hits.length} clash(es) on the register and the ledger.`);
+  }
+
+  async function markNotAClash(g: TriageGroup) {
+    const key = pid();
+    const gate = await gateAllowsRaise();
+    if (!gate.ok) { status(`Not recorded — ${gate.why}. Nothing was sent.`); void loadFederation(); return; }
+    try { await recordHits(key, g.hits.map((h) => ({ signature: h.id, status: "not_a_clash", reason: NAC_REASON, volume: h.volume, label: hitLabel(h), elements: elementsOf(h), group: g.key }))); }
+    catch (e) { status(`Not recorded — ${(e as Error).message}`); return; }
+    if (pid() !== key) return;
+    dropHits(new Set(g.hits.map((h) => h.id)));
+    renderGroups(); void loadKnownFromServer();
+    status(`${g.hits.length} touching pair(s) recorded as not a clash (${NAC_REASON}) — on the register and the ledger; the Register can move one back.`);
+  }
+
+  // The optional door: open Clash Issues no register record links to (they came in as BCF from Navisworks or ACC) are
+  // matched to the loaded models by their first two element GUIDs and joined to the same groups.
+  async function addImported() {
+    const key = pid();
+    type Topic = { guid: string; topic_type?: string; topic_status?: string; viewpoints?: { components?: { selection?: { ifc_guid: string }[] } }[] };
+    let topics: Topic[];
+    try {
+      const r = await bfetch(`${base}/bcf/3.0/projects/${encodeURIComponent(key)}/topics`);
+      if (!r.ok) { status(`Imported clashes not read — ${(await r.json().catch(() => null))?.message || `HTTP ${r.status}`}`); return; }
+      topics = await r.json();
+    } catch (e) { status(`Imported clashes not read — ${(e as Error).message}`); return; }
+    const linked = new Set(register.map((x) => x.bcf_guid).filter(Boolean));
+    const pairs = topics.filter((t) => /clash/i.test(t.topic_type ?? "") && !/closed|resolved/i.test(t.topic_status ?? "") && !linked.has(t.guid))
+      .map((t) => ({ t, g: (t.viewpoints ?? []).map((v) => v.components?.selection ?? []).find((s) => s.length >= 2)?.slice(0, 2).map((s) => s.ifc_guid) }))
+      .filter((p): p is { t: Topic; g: string[] } => !!p.g);
+    if (!pairs.length) { status("No open imported Clash Issues with two elements to group."); return; }
+    const where = new Map<string, { modelId: string; localId: number }>();
+    const all = [...new Set(pairs.flatMap((p) => p.g))];
+    for (const model of fragments.list.values()) {
+      const m = model as unknown as { modelId: string; getLocalIdsByGuids(g: string[]): Promise<(number | null)[]> };
+      try { (await m.getLocalIdsByGuids(all)).forEach((id, i) => { if (id != null && !where.has(all[i])) where.set(all[i], { modelId: m.modelId, localId: id }); }); } catch { /* a model without the lookup */ }
+    }
+    const found = pairs.filter((p) => p.g.every((g) => where.has(g)));
+    const info = await elemInfoFor(found.flatMap((p) => p.g.map((g) => where.get(g)!)));
+    const side = (g: string): TriageSide => { const w = where.get(g)!, i = info.get(`${w.modelId}:${w.localId}`); return { ...w, guid: g, category: i?.category, name: i?.name, level: i?.level }; };
+    if (pid() !== key) return;
+    const box = { min: [0, 0, 0], max: [0, 0, 0] } as Clash["a"]["box"]; // the signature reads only the GUIDs
+    imported = found.map((p) => ({ id: clashSignature({ modelId: "", localId: 0, guid: p.g[0], box }, { modelId: "", localId: 0, guid: p.g[1], box }), a: side(p.g[0]), b: side(p.g[1]), volume: 0, bcf_guid: p.t.guid }))
+      .filter((h) => !known.has(h.id));
+    renderGroups();
+    status(`${imported.length} imported clash(es) added to the groups${found.length < pairs.length ? ` · ${pairs.length - found.length} not in the loaded models` : ""}.`);
+  }
+
   el("cl-view-new").addEventListener("click", () => setView("new"));
   el("cl-view-reg").addEventListener("click", () => setView("register"));
+  el("cl-view-grp").addEventListener("click", () => setView("groups"));
   el("cl-run").addEventListener("click", run);
   el("cl-colour").addEventListener("click", colourAll);
   el("cl-raise").addEventListener("click", raise);
@@ -421,9 +621,10 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
     }
     const mine = ++gen;
     known = readKnownLocal(); register = []; registerError = null;
+    imported = []; owners = {}; memberEmails = []; groupOwner.clear();
     knownReady = loadKnownFromServer();
     void loadFederation();
-    void knownReady.then(() => { if (mine === gen && view === "register") renderRegister(); });
+    void knownReady.then(() => { if (mine === gen && view === "register") renderRegister(); else if (mine === gen && view === "groups") void openGroups(); });
   });
   return root;
 }

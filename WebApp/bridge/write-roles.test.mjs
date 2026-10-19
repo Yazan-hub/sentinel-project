@@ -288,6 +288,32 @@ describe("Clash register (clash-1): recording and moving a clash is a contributo
     expect(clashWrites.every((c) => c.service)).toBe(true);
   });
 
+  // Clash triage (spec 2026-10-20): a touching pair is recorded "not a clash" only with a reason, said on the ledger; a group tag stays.
+  it("triage: not a clash needs a reason; the record keeps it and its group, and the ledger says it", async () => {
+    gatePassed();
+    const nac = { ...item, status: "not_a_clash", group: "touching|Slab × Wall|L1|Architecture" };
+    expect(await call("POST", "/clash/demo", "contributor", { items: [nac] }))
+      .toEqual({ status: 400, body: { message: "a clash marked not a clash needs a reason (1-300 characters) — nothing was saved" } });
+    expect(writes("bridge_docs")).toEqual([]);
+    expect((await call("POST", "/clash/demo", "contributor", { items: [{ ...nac, reason: "touching faces, no overlap volume" }] })).status).toBe(201);
+    const rec = db.bridge_docs.find((d) => d.store === "clash").data;
+    expect(rec).toMatchObject({ status: "not_a_clash", reason: "touching faces, no overlap volume", group: nac.group });
+    expect(db.audit_log.map((r) => r.action)).toEqual(["Clash marked not a clash: Wall ↔ Beam — touching faces, no overlap volume"]);
+    expect(await call("PUT", "/clash/demo", "contributor", { signature: "a|b", status: "not_a_clash" }))
+      .toEqual({ status: 400, body: { message: "a clash marked not a clash needs a reason (1-300 characters) — nothing changed" } });
+  });
+
+  it("triage: discipline owners are a lead's to set, read by any member, and the setting is on the ledger", async () => {
+    const owners = { disciplines: { Mechanical: "contributor@example.test", Structure: " " } };
+    expect(await call("PUT", "/clash/demo/owners", "contributor", owners)).toEqual(refused("lead", "contributor"));
+    expect((await call("GET", "/clash/demo/owners", "viewer")).body).toEqual({ disciplines: {} });
+    expect((await call("PUT", "/clash/demo/owners", "lead", { disciplines: ["x"] })).status).toBe(400);
+    expect((await call("PUT", "/clash/demo/owners", "lead", owners)).status).toBe(200);
+    expect((await call("GET", "/clash/demo/owners", "viewer")).body.disciplines).toEqual({ Mechanical: "contributor@example.test" });
+    expect(db.audit_log.map((r) => [r.action, r.actor])).toEqual([["Clash discipline owners set: Mechanical → contributor@example.test", "lead@example.test"]]);
+    expect(writes("bridge_docs").every((c) => c.service)).toBe(true);
+  });
+
   it("a Clash Issue is refused while the gate has not passed (the register's lock, asked per Issue); other Issues are not", async () => {
     const topics = "/bcf/3.0/projects/demo/topics";
     expect(await call("POST", topics, "contributor", { title: "Clash: Wall ↔ Beam", topic_type: "Clash" }))
@@ -300,7 +326,7 @@ describe("Clash register (clash-1): recording and moving a clash is a contributo
 
   it("a PUT that moves nothing says so: an unknown status is a 400, a clash not on the register a 404, the same status no ledger row", async () => {
     seedDoc("clash", "a|b", { ...item, project: "demo" });
-    expect(await call("PUT", "/clash/demo", "contributor", { signature: "a|b", status: "done" })).toEqual({ status: 400, body: { message: "a clash status is one of raised, reviewed, approved, resolved — nothing changed" } });
+    expect(await call("PUT", "/clash/demo", "contributor", { signature: "a|b", status: "done" })).toEqual({ status: 400, body: { message: "a clash status is one of raised, reviewed, approved, resolved, not_a_clash — nothing changed" } });
     expect(await call("PUT", "/clash/demo", "contributor", { signature: "x|y", status: "reviewed" })).toEqual({ status: 404, body: { message: "no clash x|y on the register — nothing changed" } });
     expect(await call("PUT", "/clash/demo", "contributor", { signature: "a|b", status: "raised" })).toEqual({ status: 200, body: { ok: true } });
     expect(db.audit_log).toEqual([]);
