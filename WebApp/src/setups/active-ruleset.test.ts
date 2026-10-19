@@ -6,7 +6,7 @@ vi.mock("./bridge-fetch", () => ({ bfetch }));
 vi.mock("./active-project", () => ({ activePid: () => "aster-villa" }));
 
 import { readFileSync } from "node:fs";
-import { activeRuleset, installArtefact, installArtefactFile, canInstallArtefacts, refLabel, NO_RULESET } from "./active-ruleset";
+import { activeRuleset, installArtefact, installArtefactFile, canInstallArtefacts, refLabel, NO_RULESET, STANDARD_INSTALLED } from "./active-ruleset";
 
 const res = (status: number, body: unknown) => ({ ok: status < 400, status, json: async () => body }) as unknown as Response;
 const rs = { standard_key: "house", semver: "1.0.0", rules: [{ id: "SN-01", target: "sheet", mode: "request" }] };
@@ -69,6 +69,20 @@ describe("installArtefact", () => {
   it("throws the bridge's refusal (validation or role)", async () => {
     bfetch.mockResolvedValue(res(400, { message: "rules[3].mode must be warn | request | monitor | reject" }));
     await expect(installArtefact("http://b", "k", "ruleset", {}, "web")).rejects.toThrow("rules[3].mode");
+  });
+
+  it("STD-F: an install fires sentinel:standard-installed on this window (Settings and the Next strip re-read); a refusal fires nothing", async () => {
+    const seen: Array<{ type: string; detail: unknown }> = [];
+    vi.stubGlobal("dispatchEvent", (e: CustomEvent) => { seen.push({ type: e.type, detail: e.detail }); return true; });
+    try {
+      bfetch.mockResolvedValue(res(201, { kind: "naming", version: 3, sha256: "cd" }));
+      await installArtefact("http://b", "aster-office", "naming", { title: "t" }, "lead@x");
+      expect(seen).toEqual([{ type: STANDARD_INSTALLED, detail: { key: "aster-office", kind: "naming", version: 3 } }]);
+      expect(STANDARD_INSTALLED).toBe("sentinel:standard-installed");
+      bfetch.mockResolvedValue(res(403, { message: "lead or owner only" }));
+      await expect(installArtefact("http://b", "aster-office", "naming", {}, "web")).rejects.toThrow("lead or owner only");
+      expect(seen).toHaveLength(1);
+    } finally { vi.unstubAllGlobals(); }
   });
 });
 

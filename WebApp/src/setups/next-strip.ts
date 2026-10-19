@@ -1,5 +1,6 @@
 import { bfetch } from "./bridge-fetch";
 import { activePid, onActiveProjectChange } from "./active-project";
+import { STANDARD_INSTALLED } from "./active-ruleset";
 
 /**
  * The Next strip (spec 2026-09-24 §3): which standards are in force here, where the project is, and what is
@@ -118,6 +119,7 @@ export function nextStrip(opts: { baseUrl: string; onOpenTab: (label: string) =>
   el("ns-journey").addEventListener("click", () => opts.onOpenGuide());
   el("ns-refresh").addEventListener("click", () => void load());
   onActiveProjectChange(() => void load());
+  window.addEventListener(STANDARD_INSTALLED, () => void load()); // a standard installed anywhere
   void load();
   return root;
 }

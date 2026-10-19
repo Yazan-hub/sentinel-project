@@ -5,7 +5,7 @@ import { getAppManager } from "../app";
 import { publishContractToPlatform, mirrorLine, type ContractClient } from "./platform-contract";
 import { myRole, myRoleRead, roleWords, canGovernRole, canDeleteProjectRole, grantableRoles } from "./my-role";
 import { loadScope } from "./load-scope";
-import { artefactInForce, refLabel, installArtefact, installArtefactFile, canInstallArtefacts, type InForce } from "./active-ruleset";
+import { artefactInForce, refLabel, installArtefact, installArtefactFile, canInstallArtefacts, STANDARD_INSTALLED, type InForce } from "./active-ruleset";
 import { currentUser } from "./auth";
 import { escapeHtml as esc } from "./escape-html";
 import { packFilename, packWords, saveAs } from "./audit-pack";
@@ -357,12 +357,12 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
    *  2026-09-27 platform-delivery-gate Decision 7). The ledger row is the record; this is a mirror, and a copy that
    *  could not be made is said, never hidden. Only into the platform project `key` is linked to: the one the app runs
    *  in may belong to another Sentinel project, whose gate would then judge by this contract. → " · <words>" or "". */
-  async function mirrorWords(kind: string, key: string, body: object, ref: string): Promise<string> {
+  async function mirrorWords(kind: string, key: string, body: object, ref: string, sha: string): Promise<string> {
     if (kind !== "contract") return "";
     const here = platformProjectId();
     const linked = current?.key === key ? current.settings?.platform_project_id ?? null : null;
     if (here && linked !== here) return ` · not copied to the platform — ${key} is not linked to this platform project (Settings ▸ Platform project)`;
-    return ` · ${mirrorLine(await publishContractToPlatform(getAppManager().client as unknown as ContractClient | undefined, here, body, ref))}`;
+    return ` · ${mirrorLine(await publishContractToPlatform(getAppManager().client as unknown as ContractClient | undefined, here, body, ref, sha))}`;
   }
 
   /** Advanced ▸ Import a file from another office: pick a .json, install it as `kind@n+1` on the project in view,
@@ -378,7 +378,7 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
       try {
         const text = await file.text();
         const p = await installArtefactFile(base, key, kind, file.name, text, await who());
-        const mirror = await mirrorWords(kind, key, JSON.parse(text), `${kind}@${p.version}`);
+        const mirror = await mirrorWords(kind, key, JSON.parse(text), `${kind}@${p.version}`, String(p.sha256));
         await loadStandards({ text: `✓ ${kind}@${p.version} installed on ${key} from ${file.name} (sha ${String(p.sha256).slice(0, 12)}…)${mirror}.` });
       } catch (e) {
         await loadStandards({ text: `${kind} not installed on ${key}: ${(e as Error)?.message ?? String(e)}`, bad: true });
@@ -417,7 +417,7 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
             let p: { version: number; sha256: string };
             try { p = await installArtefact(base, key, kind, { ...body, source: { form: "project-settings", edited_at: new Date().toISOString() } }, await who()); }
             catch (e) { throw new Error(`Not saved — ${(e as Error)?.message ?? String(e)}`); }
-            const mirror = await mirrorWords(kind, key, body, `${kind}@${p.version}`);
+            const mirror = await mirrorWords(kind, key, body, `${kind}@${p.version}`, String(p.sha256));
             if (formEl.isConnected) box.replaceChildren(); // another Edit… opened meanwhile keeps its form
             await loadStandards({ text: `✓ ${kind}@${p.version} saved on ${key} (sha ${String(p.sha256).slice(0, 12)}…)${mirror}.` });
           } catch (e) {
@@ -576,6 +576,9 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
     if (loadScope(pid()) === loadedScope && snapshot() !== loadedSnap) return;
     void load();
   });
+  // An install from anywhere (Packs, Documents, Carbon, this panel) re-reads the list; this panel's own outcome note
+  // comes from its later loadStandards(note), which wins (stdSeq). An open Edit… form stays; its save guard catches a stale start.
+  window.addEventListener(STANDARD_INSTALLED, () => void loadStandards());
   void load();
   return root;
 }

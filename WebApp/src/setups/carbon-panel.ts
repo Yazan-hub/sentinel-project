@@ -1,6 +1,7 @@
 import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
 import { bfetch, bwrite } from "./bridge-fetch";
+import { installArtefact } from "./active-ruleset";
 import { activePid, onActiveProjectChange } from "./active-project";
 import * as OBF from "@thatopen/components-front";
 import { quantityTakeoff } from "../sentinel-core/adapter/fragments-quantities";
@@ -251,10 +252,8 @@ export function carbonPanel(components: OBC.Components, opts: { baseUrl?: string
     const label = window.prompt?.("Name the factors' source (EPD, EC3, ICE …) — it is printed on every carbon figure:", factors.source) ?? factors.source;
     if (!label || !label.trim()) { msg("Factor pack not installed — it needs a source name.", "#eab308"); return false; }
     try {
-      const a = await bwrite<{ version?: number }>(`${base}/cde/${encodeURIComponent(pid())}/artefacts/carbon_factors`, {
-        method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ label: label.trim(), unit_label: factors.unit_label, factors: factors.factors }),
-      });
+      // actor "web": what the bridge recorded for this install before it went through installArtefact
+      const a = await installArtefact(base, pid(), "carbon_factors", { label: label.trim(), unit_label: factors.unit_label, factors: factors.factors }, "web");
       msg(`Installed as carbon_factors@${a?.version ?? "?"} — on the ledger; every carbon figure now names it.`, "#22c55e");
       await loadFactors(seq);
       return true;
