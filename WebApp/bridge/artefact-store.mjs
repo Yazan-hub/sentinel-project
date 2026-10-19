@@ -12,7 +12,7 @@ import { validatePack } from "./evidence-logic.mjs"; // MA-4a: the evidence_pack
 import { validateRecipe } from "./recipe-logic.mjs"; // MA-8-13: the recipe validator (pure, no cycle)
 
 export const STORE = "artefact";
-export const KINDS = ["ids", "ruleset", "naming", "contract", "guideline", "layers", "type_catalog", "publish", "roi", "review", "carbon_factors", "lod_matrix", "evidence_pack", "ifc_export", "recipe"];
+export const KINDS = ["ids", "ruleset", "naming", "contract", "guideline", "layers", "type_catalog", "publish", "roi", "review", "carbon_factors", "lod_matrix", "evidence_pack", "ifc_export", "recipe", "protection"];
 // MA-8-6 (P1-11): the data types the Revit 2027 IFC exporter's DefaultUserDefinedParameterSets.txt lists (read on this PC). The add-in
 // writes that file's format from an ifc_export body, so a type the exporter does not know never installs. SentinelAddin/Engine/IfcExportMapping.cs mirrors this.
 export const IFC_EXPORT_TYPES = ["Acceleration", "AngularVelocity", "Area", "AreaDensity", "Boolean", "ClassificationReference", "ColorTemperature", "Count", "Currency",
@@ -338,6 +338,17 @@ export function validateArtefact(kind, body) {
     const stray = Object.keys(body).find((k) => k !== "auto");
     if (stray !== undefined) throw bad(kind, stray, "is not a publish field — the body is exactly {auto: true} or {auto: false}");
     if (typeof body.auto !== "boolean") throw bad(kind, "auto", "must be true or false");
+  }
+  if (kind === "protection") {
+    // Roadmap item 1, slice B: what no changeset may edit in Revit — the add-in keeps such a row as it stands and says why. Every field is
+    // required, so a policy says what it protects in full (the add-in's built-in default applies only when none is installed or read).
+    const stray = Object.keys(body).find((k) => !["categories", "worksets", "structural_hosts"].includes(k));
+    if (stray !== undefined) throw bad(kind, stray, "is not a protection field — the body is {categories, worksets, structural_hosts}");
+    if (!Array.isArray(body.categories)) throw bad(kind, "categories", "must be a list (empty protects no category)");
+    body.categories.forEach((c, i) => { if (typeof c !== "string" || !/^OST_[A-Za-z]+$/.test(c)) throw bad(kind, `categories[${i}]`, "must be a Revit category name such as OST_Levels"); });
+    if (!Array.isArray(body.worksets)) throw bad(kind, "worksets", "must be a list (empty protects no workset)");
+    body.worksets.forEach((w, i) => { if (typeof w !== "string" || !w.trim() || w.length > 120) throw bad(kind, `worksets[${i}]`, "must be a workset name or pattern (* matches any run of characters) of 1 to 120 characters"); });
+    if (typeof body.structural_hosts !== "boolean") throw bad(kind, "structural_hosts", "must be true or false");
   }
   if (kind === "carbon_factors") {
     // The project's embodied-carbon factors (item 6, 6D): what every carbon figure multiplies by, and named on it —
