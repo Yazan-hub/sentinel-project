@@ -49,6 +49,16 @@ export async function artefactInForce<T = unknown>(baseUrl: string, key: string,
  *  listeners re-read whatever key the install named. */
 export const STANDARD_INSTALLED = "sentinel:standard-installed";
 
+/** One line of the project's live feed (GET /events): the bridge's {type: "standard"} after any install — a Revit window's,
+ *  another tab's — becomes STANDARD_INSTALLED here. True when it was one (the caller leaves topic handling to the rest). */
+export function relayStandardEvent(data: string): boolean {
+  let p: { type?: string; key?: string; kind?: string; version?: number } | null = null;
+  try { p = JSON.parse(data); } catch { return false; }
+  if (p?.type !== "standard") return false;
+  globalThis.dispatchEvent?.(new CustomEvent(STANDARD_INSTALLED, { detail: { key: p.key, kind: p.kind, version: p.version } }));
+  return true;
+}
+
 /** PUT /cde/:key/artefacts/:kind — installs `kind@n+1` (lead/owner; the bridge refuses anyone else and
  *  validates the body). Returns the new pointer and fires STANDARD_INSTALLED; throws with the bridge's message. */
 export async function installArtefact(baseUrl: string, key: string, kind: string, body: object, actor: string): Promise<{ kind: string; version: number; sha256: string }> {
