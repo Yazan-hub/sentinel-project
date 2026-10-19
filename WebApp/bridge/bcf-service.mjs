@@ -2338,7 +2338,10 @@ async function handleRequest(req, res) {
         const pkg = bx.readBcfZip(await readRaw(req, { max: Math.min(uploadCap(), 100 * 1024 * 1024) })); // a BCF package, not a model
         const actor = resolveActor(url.searchParams.get("actor"), "web");
         const now = new Date().toISOString();
-        const out = { version: pkg.version, created: 0, updated: 0, unchanged: 0, topics: [], skipped: [] };
+        // A model embedded in the file for its issues is not kept with them (models live in the CDE): said, once per file.
+        const notes = [...new Map(bx.embeddedModels(pkg).map((m) => [m.filename, m])).values()]
+          .map((m) => `the model file "${m.filename}" (${Math.max(1, Math.round(m.bytes / 1024))} KB) inside this BCF file is not kept — Sentinel keeps models in its CDE; the issues still name it`);
+        const out = { version: pkg.version, created: 0, updated: 0, unchanged: 0, topics: [], skipped: [], notes };
         for (const inc of pkg.topics) {
           try {
             if (inc.guid == null || inc.guid === "") throw Object.assign(new Error("this topic has no Guid in the file — nothing was saved"), { status: 400 });
