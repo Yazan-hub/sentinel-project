@@ -230,13 +230,20 @@ function readTopic(markupXml, folder, read, docs) {
   });
 }
 
-function Markup(t, v3, put, docs, lost, fill = v3) {
+function Markup(t, v3, put, docs, lost, fill = v3, has = () => true) {
   const folder = t.x_folder ?? t.guid;
   const where = `topic ${t.guid}`;
   const L = (cond, what) => { if (cond) lost.add(`${where}: ${what}`); };
   const ext = v3 ? "IsExternal" : "isExternal";
-  const files = (t.files || []).map((f) => E("File", { IfcProject: f.ifc_project, IfcSpatialStructureElement: f.ifc_spatial_structure_element, [ext]: f.is_external },
-    [T("Filename", f.filename), T("Date", f.date), T("Reference", f.reference)]));
+  // A model file the issue says is inside the package (isExternal false) is written so only when it is: Sentinel keeps models in
+  // its CDE, not inside an issue, so a model embedded in an imported file is written as a reference (and said) — a reader that
+  // trusts the flag would otherwise look for a file that is not there.
+  const files = (t.files || []).map((f) => {
+    const inside = f.is_external === false && f.reference != null && has(posix.normalize(posix.join(folder, f.reference)));
+    if (f.is_external === false && !inside) L(true, `the model file "${f.filename ?? f.reference}" (Sentinel keeps models in its CDE, not inside an issue — written as a reference)`);
+    return E("File", { IfcProject: f.ifc_project, IfcSpatialStructureElement: f.ifc_spatial_structure_element, [ext]: f.is_external === false && !inside ? true : f.is_external },
+      [T("Filename", f.filename), T("Date", f.date), T("Reference", f.reference)]);
+  });
   const header = files.length ? E("Header", {}, v3 ? [E("Files", {}, files)] : files) : null;
   const putFile = (x) => { if (x?.data != null) put(x.path, Buffer.from(x.data, "base64")); };
   if (t.bim_snippet) putFile(t.bim_snippet.x_file);
@@ -334,6 +341,16 @@ export function readBcfZip(bytes, { maxBytes = UNZIP_MAX_BYTES } = {}) {
   return clean({ version: ver?.attrs.VersionId || "2.1", detailed_version: txt(ver, "DetailedVersion"), project, topics, extra_files });
 }
 
+/** The model files a package carries inside it for its issues (Header File, isExternal false, found in the zip) — Sentinel does not
+ *  keep them with an issue (models live in the CDE), so an import says which. → [{ guid, filename, bytes }]. Pure. */
+export function embeddedModels(pkg) {
+  const sizes = Object.fromEntries(Object.entries(pkg.extra_files || {}).map(([p, b64]) => [p, Math.floor((b64.length * 3) / 4)]));
+  return (pkg.topics || []).flatMap((t) => (t.files || [])
+    .filter((f) => f.is_external === false && f.reference != null)
+    .map((f) => ({ guid: t.guid, filename: f.filename ?? f.reference, bytes: sizes[posix.normalize(posix.join(t.x_folder ?? t.guid, f.reference))] }))
+    .filter((m) => m.bytes != null));
+}
+
 const uniq = (xs) => [...new Set(xs.filter((x) => x != null && x !== ""))];
 /** ACC's Issues import takes at most this many issues a file (Autodesk Build help, "Import Issues from BCF File"). */
 export const ACC_ISSUES_PER_FILE = 100;
@@ -358,7 +375,7 @@ export function writeBcfZip(topics, { version = "2.1", project, extra_files = {}
   if (project && (proj || !v3)) put("project.bcfp", strToU8(doc(v3
     ? E("ProjectInfo", XSI, [proj])
     : E("ProjectExtension", XSI, [proj, E("ExtensionSchema", {}, [], project.extension_schema ?? "")]))));
-  for (const t of topics) put(`${t.x_folder ?? t.guid}/markup.bcf`, strToU8(doc(Markup(t, v3, put, docs, lost, v3 || forAcc))));
+  for (const t of topics) put(`${t.x_folder ?? t.guid}/markup.bcf`, strToU8(doc(Markup(t, v3, put, docs, lost, v3 || forAcc, (p) => p in out))));
   if (v3) {
     if (Object.keys(docs).length) { // merged into a documents.xml the package already had
       const had = out["documents.xml"] ? kids(kid(parseXml(strFromU8(out["documents.xml"])), "Documents"), "Document") : [];

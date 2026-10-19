@@ -567,11 +567,31 @@ describe("BCF files (work alongside): import is a contributor's, export a member
     expect(stored.history).toEqual([expect.objectContaining({ author: "contributor@example.test", action: "Imported from a BCF file" })]);
     const out = await raw("GET", `${P}/export?version=3.0`, "viewer");
     expect(out.status).toBe(200);
-    expect(JSON.parse(out.headers.get("x-sentinel-export"))).toMatchObject({ version: "3.0", topics: 2, lost_total: 0 });
+    const info = JSON.parse(out.headers.get("x-sentinel-export"));
+    expect(info).toMatchObject({ version: "3.0", topics: 2 });
+    // the one thing not carried: the sample's model file it says is inside (it is not — Sentinel keeps models in its CDE)
+    expect(info.lost).toEqual(['topic 7ddc3ef0-0ab7-43f1-918a-45e38b42369c: the model file "IfcPile_01.ifc" (Sentinel keeps models in its CDE, not inside an issue — written as a reference)']);
     const back = readBcfZip(out.bytes), src = readBcfZip(sample);
     const ids = (p) => p.topics.flatMap((t) => [t.guid, ...t.comments.map((c) => `${c.guid}:${c.comment}`), ...t.viewpoints.map((v) => v.guid)]).sort();
     expect(ids(back)).toEqual(ids(src));
     expect([403, 404]).toContain((await raw("GET", `${P}/export`, "stranger")).status); // absent and not-yours answer alike
+  });
+
+  it("a model embedded in the file is said as not kept, and the export writes it as a reference — never a missing inside file (IfcOpenShell crashed on that)", async () => {
+    const { readBcfZip } = await import("./bcf-xml.mjs");
+    const { unzipSync } = await import("fflate");
+    const sample = readFileSync(join(here, "fixtures", "bcf-xml", "v2.1 - Visualization - Component Selection.bcf"));
+    const r = json(await raw("POST", `${P}/import`, "contributor", sample));
+    expect(r).toMatchObject({ created: 1 });
+    expect(r.notes).toEqual([expect.stringMatching(/^the model file "Estructura\.ifc" \(\d+ KB\) inside this BCF file is not kept/)]);
+    for (const q of ["for=acc", "version=3.0"]) {
+      const out = await raw("GET", `${P}/export?${q}`, "viewer");
+      const files = unzipSync(out.bytes);
+      const t = readBcfZip(out.bytes).topics.find((x) => x.guid === "5ed97d64-f1be-487e-9f80-5ad19576f51a");
+      expect(t.files[0]).toMatchObject({ filename: "Estructura.ifc", is_external: true });
+      expect(Object.keys(files).some((p) => /Estructura\.ifc$/.test(p))).toBe(false);
+      expect(JSON.parse(out.headers.get("x-sentinel-export")).lost).toEqual(expect.arrayContaining([expect.stringMatching(/the model file "Estructura\.ifc"/)]));
+    }
   });
 
   it("for ACC: 101 issues come out as two files of at most 100 (ACC's import limit), each issue with a status", async () => {

@@ -180,6 +180,8 @@ public sealed class BcfSyncManager : IDisposable
             if (skipped.Count > 0)
                 said += $" {skipped.Count} skipped — " + string.Join("; ", skipped.Take(3).Select(x => $"\u201c{x.GetProperty("title").GetString()}\u201d: {x.GetProperty("why").GetString()}"))
                     + (skipped.Count > 3 ? $" (and {skipped.Count - 3} more)." : ".");
+            if (r.TryGetProperty("notes", out var notes) && notes.ValueKind == JsonValueKind.Array && notes.GetArrayLength() > 0)
+                said += " Not kept: " + string.Join("; ", notes.EnumerateArray().Select(x => x.GetString())) + ".";
             return said;
         }
         catch (TaskCanceledException) { return "Not imported in 10 minutes — the bridge may still be reading the file; press Refresh in a minute to see what arrived"; }
