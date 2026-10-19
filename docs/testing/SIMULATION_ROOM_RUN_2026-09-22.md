@@ -3685,3 +3685,14 @@ Not run live (owed): **Power BI Desktop and Excel reading the feed** and **the w
 | RV-4 XSD | both Revit-made files (23 XML files) validated against buildingSMART's release_2_1 / release_3_0 XSDs (lxml) — 0 errors | **pass** |
 
 Not run: **KUBUS BCF Manager 7.1 (BIMcollab)** — its panel is a CefSharp web view that does not take automated clicks (the toolbar's New, Add, Open and the warning icon did nothing; its Settings dialog opened and was cancelled unchanged), so making an issue there and re-opening Sentinel's export there is the founder's (steps in the session answer). The imported sample issue stays on `ma4c-drill` (a drill project). Files kept in `Documents\Sentinel drills\bcf\` for the BCF Manager step.
+
+## Session BCF-IOS — an independent BCF engine (IfcOpenShell bcf-client 0.9.0) against Sentinel's files (2026-10-20 local; master 73c74d3c, web 1.0.102, 4100 on it, add-in deployed 2021–2027; the founder has no BIMcollab account, so KUBUS BCF Manager is out; bcf-client — the BCF engine inside Bonsai/BlenderBIM — downloaded from PyPI on the founder's "Yes, download it" into a throwaway environment, deleted after)
+
+| Row | What happened | Result |
+|---|---|---|
+| IOS-A read | bcf-client loads Sentinel's live exports of `ma4c-drill` (for ACC 2.1 and 3.0): 7 topics each, every one with a status; "Component Selection" has 1 viewpoint, 3 components and its snapshot | **pass** |
+| IOS-B write → Sentinel | bcf-client writes a new topic as 2.1 and as 3.0 (a comment pointing at a viewpoint with a camera and 3 components); Sentinel reads both completely (title, status, author, comment → viewpoint, 3 GUIDs, camera) and the live route imports each: "1 new" (Revit's Issues window showed them by live sync) | **pass** |
+| IOS-C re-save | bcf-client loads Sentinel's for-ACC export and saves it with its own writer; Sentinel's XML diff of the two: **0 differences** | **pass** |
+| IOS-F found + fixed | the first IOS-C run crashed in bcf-client: the buildingSMART sample embeds its IFC (`Estructura.ifc`, isExternal=false); Sentinel keeps models in its CDE, not inside an issue, but the export still said the model was inside. Fixed 49be7a1e: the export writes such a model as a reference and says so in its "not carried" list; the import reply says "the model file … (565 KB) inside this BCF file is not kept". Re-run above is after the fix | **fixed** |
+
+Owed: BCF Manager / BIMcollab (needs a BIMcollab account the founder does not have) and an ACC Issues import (needs ACC); the "for ACC" export follows Autodesk's documented rules (status on every issue, ≤100 a file). vitest 201 files, 4140 passed.
