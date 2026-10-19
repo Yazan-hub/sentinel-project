@@ -237,7 +237,7 @@ public abstract class StandardEditorWindow : Window
     /// <summary>A label over its control, side by side with others in a wrap panel.</summary>
     public static FrameworkElement Field(string label, FrameworkElement control, double width)
     {
-        var p = new StackPanel { Width = width, Margin = new Thickness(0, 2, 10, 4) };
+        var p = new StackPanel { Width = width, Margin = new Thickness(0, 2, 10, 4), HorizontalAlignment = HorizontalAlignment.Left }; // a fixed width is not centred
         p.Children.Add(new TextBlock { Text = label, Foreground = Brushes.DimGray, FontSize = 11, Margin = new Thickness(0, 0, 0, 1) });
         control.HorizontalAlignment = HorizontalAlignment.Stretch;
         p.Children.Add(control);
