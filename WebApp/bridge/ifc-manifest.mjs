@@ -8,10 +8,12 @@ import * as WebIFC from "web-ifc";
 const here = dirname(fileURLToPath(import.meta.url));
 const WASM_DIR = resolve(here, "../node_modules/web-ifc") + "/";
 
-/** The extractor's classes plus the members and plates the delivery gate counts as building elements. */
+/** The extractor's classes plus the members and plates the delivery gate counts as building elements, and MEP:
+ *  IfcDistributionElement takes every duct, pipe, fitting, terminal, device and control element in both schemas
+ *  (large-model benchmark 2026-10: an MEP model's manifest read 0 elements, so FG-01/FG-02 never saw its services). */
 export const MANIFEST_CLASSES = [
   "IFCWALL", "IFCSLAB", "IFCROOF", "IFCCOVERING", "IFCDOOR", "IFCWINDOW", "IFCSTAIR", "IFCCOLUMN", "IFCBEAM",
-  "IFCFOOTING", "IFCSPACE", "IFCCURTAINWALL", "IFCRAILING", "IFCMEMBER", "IFCPLATE",
+  "IFCFOOTING", "IFCSPACE", "IFCCURTAINWALL", "IFCRAILING", "IFCMEMBER", "IFCPLATE", "IFCDISTRIBUTIONELEMENT",
 ];
 
 export const val = (o) => (o == null ? null : typeof o === "object" && !Array.isArray(o) && "value" in o ? o.value : o);

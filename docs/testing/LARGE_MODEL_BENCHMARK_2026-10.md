@@ -131,11 +131,19 @@ Also: Open 3D now says how long a model took (download / open), and when the pla
 5. **The sample set is not co-located across years.** The 2019 Architecture/Mechanical exports and the 2016
    Structural/MEP exports sit apart in space, so cross-year pairs do not clash. A data issue of the sample, noted
    so nobody reads it as a viewer fault.
-6. **Upload is slower than conversion.** 91 s for the Architecture upload, of which ~23 s is conversion: the rest is
-   element extraction done twice (once for the checks, once for the COBie hand-over measure in the manifest step — follow-up), and the
-   platform upload of the .frag and the 77 MB IFC.
-7. **The federation manifest counts architecture and structure only.** MEP models show 0 elements in it (the
-   viewer and clash see all of them). Follow-up.
+6. **Upload is slower than conversion.** 91 s for the Architecture upload. Measured in isolation on this PC: the
+   checks' element read 9–30 s, conversion 12–24 s, the federation manifest 0.9 s, the COBie measure 1.9 s and the
+   wall read 3.8 s; the rest is the platform upload of the .frag and the 77 MB IFC and the database writes (not timed
+   apart). The checks and COBie read the file separately, but mostly different classes (only doors and windows
+   overlap): reading once would save about 1–2 s (~2%), so it was left as it is.
+7. **Fixed after this run: the federation manifest now counts MEP.** It used to count architecture and structure only,
+   so an MEP model's manifest read 0 elements and the Federation Gate never compared its services. It now takes every
+   IfcDistributionElement (ducts, pipes, fittings, terminals, devices, controls): Mechanical 17,424, Sprinkler
+   13,490, Plumbing 8,539, Electrical 1,673, Fire alarm 861 elements, at most 1.4 s per model. On this hospital the
+   gate's verdict is unchanged (FAIL, from type-name drift that was already there); FG-01 now checks 57k elements for
+   GlobalIds shared between models instead of 15k (still none), and FG-02 reports 15 drift findings instead of 10.
+   Manifests captured before the change keep their old element list until the model is published again or its
+   manifest is backfilled.
 
 ## How to repeat
 

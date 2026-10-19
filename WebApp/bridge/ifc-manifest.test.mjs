@@ -48,6 +48,17 @@ describe("extractManifest", () => {
     expect(m.elements[0].type_name).toBe("Wall 1");
     for (const c of ["IFCWALL", "IFCSLAB", "IFCDOOR", "IFCWINDOW", "IFCBEAM", "IFCCOLUMN", "IFCMEMBER", "IFCPLATE", "IFCSPACE"]) expect(MANIFEST_CLASSES).toContain(c);
   });
+  it("carries MEP elements (benchmark 2026-10: an MEP model's manifest read 0 elements)", async () => {
+    // IfcDistributionElement's family: a concrete IFC4 segment and the generic flow terminal both schemas write.
+    const text = fx("fed-a.ifc").toString("utf8").replace("ENDSEC;\nEND-ISO",
+      "#9100=IFCPIPESEGMENT('3vB2YO$MX4xv5uCqZZG05x',$,'Pipe-1',$,'Pipe Types: Standard',$,$,$,.RIGIDSEGMENT.);\n" +
+      "#9101=IFCFLOWTERMINAL('1kTvXnbbzCWw8lcMd1dR4o',$,'Sprinkler-1',$,'Pendent',$,$,$);\nENDSEC;\nEND-ISO");
+    const m = await extractManifest(Buffer.from(text, "utf8"));
+    const by = Object.fromEntries(m.elements.map((e) => [e.guid, e]));
+    expect(by["3vB2YO$MX4xv5uCqZZG05x"]).toMatchObject({ class: "IFCPIPESEGMENT", type_name: "Pipe Types: Standard" });
+    expect(by["1kTvXnbbzCWw8lcMd1dR4o"]).toMatchObject({ class: "IFCFLOWTERMINAL", type_name: "Pendent" });
+    expect(MANIFEST_CLASSES).toContain("IFCDISTRIBUTIONELEMENT");
+  });
   it("converts metre-unit elevations to millimetres", async () => {
     const text = fx("fed-a.ifc").toString("utf8").replace("IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.)", "IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.)").replace(".ELEMENT.,3300.)", ".ELEMENT.,3.3)");
     const m = await extractManifest(Buffer.from(text, "utf8"));
