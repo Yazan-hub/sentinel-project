@@ -13,7 +13,11 @@ BCF-XML sample files may be downloaded as fixtures.
 
 **Build.**
 - `WebApp/bridge/bcf-xml.mjs` (pure): `readBcfZip(bytes) → { version, project, topics[], files }` and
-  `writeBcfZip(topics, { version: "2.1" | "3.0" }) → bytes`. It reads BCF-XML 2.0, 2.1 and 3.0 and writes 2.1 and 3.0.
+  `writeBcfZip(topics, { version: "2.1" | "3.0" }) → bytes`. It reads BCF-XML 2.1 and 3.0 (a 2.0 file is refused in words:
+  2.0's shapes differ enough that a half read would lose data silently) and writes 2.1 and 3.0, each to its own XSD (what a
+  version requires and a topic lacks is filled: 2.1 Visibility, 3.0 AspectRatio/TopicType/TopicStatus/Title; a 3.0 viewpoint
+  without a camera keeps its snapshot only, and the export says so). A snapshot is stored as a data URL, related topics as GUIDs —
+  the store's own shapes.
   Topics use the BCF-API JSON shape Sentinel already stores (`guid`, `topic_type`, `topic_status`, `title`, `priority`,
   `labels`, `comments[]`, `viewpoints[]`, …) plus the fields BCF-XML has and the API has not (header files, BIM snippet,
   document references, bitmaps, viewpoint index). Embedded files (snapshots, bitmaps, internal documents, snippets) travel

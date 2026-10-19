@@ -1,7 +1,9 @@
 // BCF-XML files (.bcf / .bcfzip) in and out — the file half of the "work alongside" round trip (spec
 // docs/superpowers/specs/2026-10-19-work-alongside-connectors.md). Pure: bytes in, topics out, and back.
 //
-// Reads BCF-XML 2.0, 2.1 and 3.0; writes 2.1 (what ACC's Issues import takes) and 3.0. Topics come out in the BCF-API JSON
+// Reads BCF-XML 2.1 and 3.0 (a 2.0 file is refused in words); writes 2.1 (what ACC's Issues import takes) and 3.0. A written
+// file follows its version's schema: what one version requires and the topic lacks is filled with the value Sentinel means
+// (2.1 Visibility shown, 3.0 AspectRatio, TopicType/Status, Title), and what it cannot carry is listed in `lost`. Topics come out in the BCF-API JSON
 // shape the store, the web Issues panel and Revit's BcfSyncManager already use, plus the fields BCF-XML has and the API has
 // not. Field names that start with x_ carry what the file needs to be written back as it came (file names, a
 // VisualizationInfo guid that differs from its viewpoint's, elements this reader does not know). Embedded files (snapshots,
@@ -70,11 +72,21 @@ function readCamera(n) {
   return clean({ camera_view_point: xyz(kid(n, "CameraViewPoint")), camera_direction: xyz(kid(n, "CameraDirection")), camera_up_vector: xyz(kid(n, "CameraUpVector")),
     field_of_view: num(txt(n, "FieldOfView")), view_to_world_scale: num(txt(n, "ViewToWorldScale")), aspect_ratio: num(txt(n, "AspectRatio")) });
 }
+// ponytail: 3.0 requires a camera's aspect ratio; one that never had it (a 2.1 file's, an older Sentinel viewpoint's) gets a
+// common screen's. The web viewer now records its own.
+const DEFAULT_ASPECT = 16 / 9;
 function Camera(name, c, v3, lost, where) {
   if (!c) return null;
   if (!v3 && c.aspect_ratio != null) lost.add(`${where}: camera aspect ratio (BCF 2.1 has none)`);
+  let fov = c.field_of_view;
+  if (!v3 && name === "PerspectiveCamera" && fov != null && (fov < 45 || fov > 60)) { // 2.1's schema allows 45–60°
+    lost.add(`${where}: a field of view of ${Math.round(fov * 10) / 10}° (BCF 2.1 allows 45–60°; written as ${fov < 45 ? 45 : 60}°)`);
+    fov = fov < 45 ? 45 : 60;
+  }
   return E(name, {}, [XYZ("CameraViewPoint", c.camera_view_point), XYZ("CameraDirection", c.camera_direction), XYZ("CameraUpVector", c.camera_up_vector),
-    T("FieldOfView", c.field_of_view), T("ViewToWorldScale", c.view_to_world_scale), v3 ? T("AspectRatio", c.aspect_ratio) : null]);
+    // A perspective camera has a field of view, an orthogonal one a scale — never the other's.
+    name === "PerspectiveCamera" ? T("FieldOfView", fov) : T("ViewToWorldScale", c.view_to_world_scale),
+    v3 ? T("AspectRatio", c.aspect_ratio ?? DEFAULT_ASPECT) : null]);
 }
 
 /** A .bcfv → the viewpoint's visual fields (BCF-API names). `file(ref)` returns an embedded file's bytes or undefined. */
@@ -86,25 +98,28 @@ export function readVisualization(xml, file = () => undefined) {
   if (comps) {
     const c = {};
     const sel = kid(comps, "Selection");
-    if (sel) c.selection = kids(sel, "Component").map(readComp);
+    const nonEmpty = (xs) => (xs.length ? xs : undefined); // an empty list is no list: 2.1 allows none, 3.0 writes them freely
+    c.selection = nonEmpty(kids(sel, "Component").map(readComp));
     const vis = kid(comps, "Visibility");
     const hints = readHints(kid(vis, "ViewSetupHints") || kid(comps, "ViewSetupHints"));
     if (vis || hints) {
       c.visibility = clean({ default_visibility: bool(vis?.attrs.DefaultVisibility), view_setup_hints: hints,
-        exceptions: kid(vis, "Exceptions") ? kids(kid(vis, "Exceptions"), "Component").map(readComp) : undefined });
+        exceptions: nonEmpty(kids(kid(vis, "Exceptions"), "Component").map(readComp)) });
       if (!vis) c.x_no_visibility = true;
     }
     const col = kid(comps, "Coloring");
-    if (col) c.coloring = kids(col, "Color").map((k) => ({ color: k.attrs.Color, components: kids(k, "Component").map(readComp) }));
+    c.coloring = nonEmpty(kids(col, "Color").map((k) => ({ color: k.attrs.Color, components: kids(kid(k, "Components") ?? k, "Component").map(readComp) }))); // 3.0 wraps them
     c.x_xml = unknown(comps, ["Selection", "Visibility", "Coloring", "ViewSetupHints"]);
     v.components = clean(c);
   }
   v.orthogonal_camera = readCamera(kid(n, "OrthogonalCamera"));
   v.perspective_camera = readCamera(kid(n, "PerspectiveCamera"));
   const lines = kid(n, "Lines");
-  if (lines) v.lines = kids(lines, "Line").map((l) => ({ start_point: xyz(kid(l, "StartPoint")), end_point: xyz(kid(l, "EndPoint")) }));
+  const ls = kids(lines, "Line").map((l) => ({ start_point: xyz(kid(l, "StartPoint")), end_point: xyz(kid(l, "EndPoint")) }));
+  if (ls.length) v.lines = ls;
   const planes = kid(n, "ClippingPlanes");
-  if (planes) v.clipping_planes = kids(planes, "ClippingPlane").map((p) => ({ location: xyz(kid(p, "Location")), direction: xyz(kid(p, "Direction")) }));
+  const ps = kids(planes, "ClippingPlane").map((p) => ({ location: xyz(kid(p, "Location")), direction: xyz(kid(p, "Direction")) }));
+  if (ps.length) v.clipping_planes = ps;
   const bms = kid(n, "Bitmaps") ? kids(kid(n, "Bitmaps"), "Bitmap") : kids(n, "Bitmap"); // 3.0 wraps them; 2.1 lists them
   if (bms.length || kid(n, "Bitmaps")) v.bitmaps = bms.map((b) => {
     const ref = txt(b, "Reference"); const data = file(ref);
@@ -119,13 +134,13 @@ function Visualization(vp, v3, put, folder, lost, where) {
   const c = vp.components;
   const exc = c?.visibility?.exceptions;
   const vis = c?.visibility && !c.x_no_visibility
-    ? E("Visibility", { DefaultVisibility: c.visibility.default_visibility }, [v3 ? Hints(c.visibility.view_setup_hints) : null, exc ? E("Exceptions", {}, exc.map(Comp)) : null])
+    ? E("Visibility", { DefaultVisibility: c.visibility.default_visibility }, [v3 ? Hints(c.visibility.view_setup_hints) : null, exc?.length ? E("Exceptions", {}, exc.map(Comp)) : null])
     : null;
   const comps = c ? E("Components", {}, [
     v3 ? null : Hints(c.visibility?.view_setup_hints),
-    c.selection ? E("Selection", {}, c.selection.map(Comp)) : null,
-    vis,
-    c.coloring ? E("Coloring", {}, c.coloring.map((k) => E("Color", { Color: k.color }, k.components.map(Comp)))) : null,
+    c.selection?.length ? E("Selection", {}, c.selection.map(Comp)) : null,
+    vis ?? (v3 ? null : E("Visibility", { DefaultVisibility: true })), // 2.1 requires it: Sentinel's viewpoints show the model, the selection lit
+    c.coloring?.length ? E("Coloring", {}, c.coloring.map((k) => E("Color", { Color: k.color }, v3 ? [E("Components", {}, k.components.map(Comp))] : k.components.map(Comp)))) : null,
     ...(c.x_xml || [])]) : null;
   const bitmaps = (vp.bitmaps || []).map((b, i) => {
     const ref = b.x_file || `bitmap_${vp.guid}_${i}.${b.bitmap_type || "png"}`;
@@ -137,10 +152,13 @@ function Visualization(vp, v3, put, folder, lost, where) {
   const plane = (p) => E("ClippingPlane", {}, [XYZ("Location", p.location), XYZ("Direction", p.direction)]);
   return E("VisualizationInfo", { ...XSI, Guid: vp.x_vi_guid || vp.guid }, [
     comps,
-    Camera("OrthogonalCamera", vp.orthogonal_camera, v3, lost, where),
+    // 3.0 holds exactly one camera (Markup leaves out a viewpoint file that has none); a 2.1 viewpoint with both keeps its perspective one.
+    v3 && vp.perspective_camera && vp.orthogonal_camera ? (lost.add(`${where}: viewpoint ${vp.guid}'s orthogonal camera (BCF 3.0 holds one camera; the perspective one was kept)`), null)
+      : Camera("OrthogonalCamera", vp.orthogonal_camera, v3, lost, where),
     Camera("PerspectiveCamera", vp.perspective_camera, v3, lost, where),
-    vp.lines ? E("Lines", {}, vp.lines.map(line)) : null,
-    vp.clipping_planes ? E("ClippingPlanes", {}, vp.clipping_planes.map(plane)) : null,
+    // No empty list: 2.1 wants at least one entry, and in 3.0 an empty list says nothing.
+    vp.lines?.length ? E("Lines", {}, vp.lines.map(line)) : null,
+    vp.clipping_planes?.length ? E("ClippingPlanes", {}, vp.clipping_planes.map(plane)) : null,
     ...(v3 ? [vp.bitmaps ? E("Bitmaps", {}, bitmaps) : null] : bitmaps),
     ...(vp.x_xml || [])]);
 }
@@ -155,7 +173,7 @@ function readComment(c) {
     viewpoint_guid: kid(c, "Viewpoint")?.attrs.Guid, modified_date: txt(c, "ModifiedDate"), modified_author: txt(c, "ModifiedAuthor"),
     x_xml: unknown(c, COMMENT_KNOWN) });
 }
-const Comment = (c) => E("Comment", { Guid: c.guid }, [T("Date", c.date), T("Author", c.author), E("Comment", {}, [], c.comment ?? ""),
+const Comment = (c, v3) => E("Comment", { Guid: c.guid }, [T("Date", c.date), T("Author", c.author), v3 ? T("Comment", c.comment) : E("Comment", {}, [], c.comment ?? ""),
   c.viewpoint_guid ? E("Viewpoint", { Guid: c.viewpoint_guid }) : null, T("ModifiedDate", c.modified_date), T("ModifiedAuthor", c.modified_author), ...(c.x_xml || [])]);
 
 /** One topic folder → a topic. `read(path)` returns a zip entry's bytes (paths from the zip root) or undefined. */
@@ -186,15 +204,17 @@ function readTopic(markupXml, folder, read, docs) {
     const file = txt(vn, "Viewpoint"), snap = txt(vn, "Snapshot");
     const vxml = file != null && read(rel(file));
     const vis = vxml ? readVisualization(strFromU8(vxml), (ref) => read(rel(ref))) : {};
-    const vp = clean({ guid: vn.attrs.Guid, index: num(txt(vn, "Index")), x_file: file, ...vis,
-      snapshot: snap != null ? clean({ snapshot_type: /\.jpe?g$/i.test(snap) ? "jpg" : "png", snapshot_data: b64(rel(snap)), x_file: snap }) : undefined });
+    const sdata = snap != null ? b64(rel(snap)) : undefined;
+    // The store, the web and openCDE keep a snapshot as a data URL; the file's own name rides beside it.
+    const vp = clean({ guid: vn.attrs.Guid, index: num(txt(vn, "Index")), x_file: file, ...vis, x_snapshot_file: snap,
+      snapshot: sdata != null ? `data:${/\.jpe?g$/i.test(snap) ? "image/jpeg" : "image/png"};base64,${sdata}` : undefined });
     if (vp.x_vi_guid === vp.guid) delete vp.x_vi_guid;
     return vp;
   });
   const labelsWrap = kid(t, "Labels") && kid(kid(t, "Labels"), "Label");
   const labels = labelsWrap ? kids(kid(t, "Labels"), "Label").map((l) => l.text) : kids(t, "Labels").map((l) => l.text).filter((s) => s !== "");
   const links = kid(t, "ReferenceLinks") ? kids(kid(t, "ReferenceLinks"), "ReferenceLink").map((l) => l.text) : kids(t, "ReferenceLink").map((l) => l.text);
-  const related = (kid(t, "RelatedTopics") ? kids(kid(t, "RelatedTopics"), "RelatedTopic") : kids(t, "RelatedTopic")).map((r) => ({ related_topic_guid: r.attrs.Guid }));
+  const related = (kid(t, "RelatedTopics") ? kids(kid(t, "RelatedTopics"), "RelatedTopic") : kids(t, "RelatedTopic")).map((r) => r.attrs.Guid); // the store's shape: GUIDs
   const commentNodes = kid(t, "Comments") ? kids(kid(t, "Comments"), "Comment") : kids(m, "Comment");
   return clean({
     guid: t.attrs.Guid, server_assigned_id: t.attrs.ServerAssignedId, topic_type: t.attrs.TopicType, topic_status: t.attrs.TopicStatus,
@@ -239,18 +259,26 @@ function Markup(t, v3, put, docs, lost) {
   });
   L(!v3 && t.server_assigned_id != null, "server-assigned id (BCF 2.1 has none)");
   const vps = (t.viewpoints || []).map((vp) => {
-    const vfile = vp.x_file ?? `Viewpoint_${vp.guid}.bcfv`;
-    put(posix.join(folder, vfile), strToU8(doc(Visualization(vp, v3, put, folder, lost, where))));
-    const sfile = vp.snapshot ? (vp.snapshot.x_file ?? `Snapshot_${vp.guid}.${vp.snapshot.snapshot_type === "jpg" ? "jpg" : "png"}`) : undefined;
-    if (vp.snapshot?.snapshot_data != null) put(posix.join(folder, sfile), bytesOf(vp.snapshot.snapshot_data));
+    // A 3.0 viewpoint file needs a camera: one without (an IDS raise, a Revit plan view) keeps its snapshot, not its file.
+    const noCamera = v3 && !vp.perspective_camera && !vp.orthogonal_camera;
+    L(noCamera && (vp.components || vp.lines || vp.clipping_planes || vp.bitmaps), `viewpoint ${vp.guid}'s elements and markup (BCF 3.0 needs a camera for them — export as 2.1 to keep them)`);
+    const vfile = noCamera ? undefined : vp.x_file ?? `Viewpoint_${vp.guid}.bcfv`;
+    if (vfile) put(posix.join(folder, vfile), strToU8(doc(Visualization(vp, v3, put, folder, lost, where))));
+    const s = vp.snapshot; // a data URL (the store's), bare base64, or { snapshot_type, snapshot_data, x_file }
+    const sdata = typeof s === "string" ? s : s?.snapshot_data;
+    const jpg = typeof s === "string" ? /^data:image\/jpe?g/i.test(s) : s?.snapshot_type === "jpg";
+    const sfile = vp.x_snapshot_file ?? (typeof s === "object" ? s?.x_file : undefined) ?? (sdata ? `Snapshot_${vp.guid}.${jpg ? "jpg" : "png"}` : undefined);
+    if (sdata) put(posix.join(folder, sfile), bytesOf(sdata));
     return E(v3 ? "ViewPoint" : "Viewpoints", { Guid: vp.guid }, [T("Viewpoint", vfile), T("Snapshot", sfile), T("Index", vp.index)]);
   });
-  const comments = (t.comments || []).map(Comment);
+  const comments = (t.comments || []).map((c) => Comment(c, v3));
   const wrap = (name, list) => (list.length ? E(name, {}, list) : null);
-  const related = (t.related_topics || []).map((r) => E("RelatedTopic", { Guid: r.related_topic_guid }));
-  const topic = E("Topic", { Guid: t.guid, ServerAssignedId: v3 ? t.server_assigned_id : undefined, TopicType: t.topic_type, TopicStatus: t.topic_status }, [
+  const related = (t.related_topics || []).map((r) => E("RelatedTopic", { Guid: typeof r === "string" ? r : r.related_topic_guid }));
+  // 3.0 requires a type, a status and a title that is not blank: the topic's, else what Sentinel gives a new topic.
+  const topic = E("Topic", { Guid: t.guid, ServerAssignedId: v3 ? t.server_assigned_id : undefined,
+    TopicType: v3 ? t.topic_type || "Issue" : t.topic_type, TopicStatus: v3 ? t.topic_status || "Open" : t.topic_status }, [
     ...(v3 ? [wrap("ReferenceLinks", (t.reference_links || []).map((l) => T("ReferenceLink", l)))] : (t.reference_links || []).map((l) => T("ReferenceLink", l))),
-    E("Title", {}, [], t.title ?? ""), T("Priority", t.priority), T("Index", t.index),
+    E("Title", {}, [], v3 && !String(t.title ?? "").trim() ? "Untitled" : t.title ?? ""), T("Priority", t.priority), T("Index", t.index),
     ...(v3 ? [wrap("Labels", (t.labels || []).map((l) => T("Label", l)))] : (t.labels || []).map((l) => T("Labels", l))),
     T("CreationDate", t.creation_date), T("CreationAuthor", t.creation_author), T("ModifiedDate", t.modified_date), T("ModifiedAuthor", t.modified_author),
     T("DueDate", t.due_date), T("AssignedTo", t.assigned_to), T("Stage", t.stage), T("Description", t.description), snip,
@@ -270,13 +298,13 @@ export const UNZIP_MAX_BYTES = 256 * 1024 * 1024, UNZIP_MAX_ENTRIES = 5000;
 
 /** .bcf/.bcfzip bytes → { version, detailed_version, project, topics, extra_files }. A 400 in words on a file that is not BCF,
  *  a 413 on one that unpacks past the cap, a 400 on an entry whose path leaves the package. */
-export function readBcfZip(bytes) {
+export function readBcfZip(bytes, { maxBytes = UNZIP_MAX_BYTES } = {}) {
   let z, total = 0, n = 0, over = false;
   try {
     z = unzipSync(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes), {
-      filter: (f) => { total += f.originalSize; n++; if (total > UNZIP_MAX_BYTES || n > UNZIP_MAX_ENTRIES) over = true; return !over; } });
+      filter: (f) => { total += f.originalSize; n++; if (total > maxBytes || n > UNZIP_MAX_ENTRIES) over = true; return !over; } });
   } catch { throw Object.assign(new Error("this file is not a BCF package (a .bcf or .bcfzip is a zip) — nothing was imported"), { status: 400 }); }
-  if (over) throw Object.assign(new Error(`this BCF package unpacks to more than ${UNZIP_MAX_BYTES / 1048576} MB or ${UNZIP_MAX_ENTRIES} files — nothing was imported`), { status: 413 });
+  if (over) throw Object.assign(new Error(`this BCF package unpacks to more than ${Math.round(maxBytes / 1048576)} MB or ${UNZIP_MAX_ENTRIES} files — nothing was imported`), { status: 413 });
   const bad = Object.keys(z).find((p) => !safeZipPath(p.replace(/\\/g, "/").replace(/\/$/, ""))); // a Windows tool may write \ for /
   if (bad != null) throw Object.assign(new Error(`this BCF package has a file path that leaves the package ("${bad.slice(0, 80)}") — nothing was imported`), { status: 400 });
   const entries = new Map(Object.entries(z).filter(([p]) => !p.endsWith("/")).map(([p, d]) => [p.replace(/\\/g, "/"), d]));
@@ -284,6 +312,8 @@ export function readBcfZip(bytes) {
   const read = (p) => { if (p == null || !entries.has(p)) return undefined; used.add(p); return entries.get(p); };
   const verXml = read("bcf.version");
   const ver = verXml ? parseXml(strFromU8(verXml)) : null;
+  if (/^(1|2\.0)/.test(ver?.attrs.VersionId ?? ""))
+    throw Object.assign(new Error(`this is a BCF ${ver.attrs.VersionId} file, which Sentinel does not read — export the issues again as BCF 2.1 or 3.0 from the tool they came from; nothing was imported`), { status: 400 });
   const docs = {};
   // documents.xml stays in extra_files (it can list documents no topic references); a referenced document's file goes with its topic.
   const docXml = entries.get("documents.xml");
@@ -319,9 +349,11 @@ export function writeBcfZip(topics, { version = "2.1", project, extra_files = {}
   const docs = {};
   for (const [p, b64] of Object.entries(extra_files)) put(p, Buffer.from(b64, "base64"));
   put("bcf.version", strToU8(doc(E("Version", { ...XSI, VersionId: version }, [v3 ? null : T("DetailedVersion", detailed_version ?? version)]))));
-  if (project) put("project.bcfp", strToU8(doc(v3
-    ? E("ProjectInfo", XSI, [E("Project", { ProjectId: project.project_id }, [T("Name", project.name)])])
-    : E("ProjectExtension", XSI, [E("Project", { ProjectId: project.project_id }, [T("Name", project.name)]), T("ExtensionSchema", project.extension_schema ?? "")]))));
+  // A project element only when the package named one (2.1: optional; 3.0: the whole file is optional, its Project needs an id).
+  const proj = project && project.project_id != null ? E("Project", { ProjectId: project.project_id }, [T("Name", project.name)]) : null;
+  if (project && (proj || !v3)) put("project.bcfp", strToU8(doc(v3
+    ? E("ProjectInfo", XSI, [proj])
+    : E("ProjectExtension", XSI, [proj, E("ExtensionSchema", {}, [], project.extension_schema ?? "")]))));
   for (const t of topics) put(`${t.x_folder ?? t.guid}/markup.bcf`, strToU8(doc(Markup(t, v3, put, docs, lost))));
   if (v3) {
     if (Object.keys(docs).length) { // merged into a documents.xml the package already had
@@ -399,10 +431,10 @@ const when = (t) => Date.parse(t?.modified_date ?? t?.creation_date ?? "") || 0;
  *  GUID, never replaced; the topic's own fields are taken from the file only when the file's copy is newer. Sentinel's own fields
  *  (project, model, history, resolved_by_version) are kept. → { topic, created, changed, fieldChanges } — fieldChanges is what
  *  the governed-topic rule is asked about. */
-export function mergeImported(existing, incoming, { pid, now = new Date().toISOString(), actor = "web" } = {}) {
+export function mergeImported(existing, incoming, { pid, now = new Date().toISOString(), actor = "web", model = "" } = {}) {
   const inc = structuredClone(incoming);
   inc.comments ??= []; inc.viewpoints ??= [];
-  if (!existing) return { topic: { ...inc, project_id: pid, model: "", history: [{ date: now, author: actor, action: "Imported from a BCF file" }] }, created: true, changed: true, fieldChanges: {} };
+  if (!existing) return { topic: { ...inc, project_id: pid, model, history: [{ date: now, author: actor, action: "Imported from a BCF file" }] }, created: true, changed: true, fieldChanges: {} };
   const t = structuredClone(existing);
   t.comments ??= []; t.viewpoints ??= []; t.history ??= [];
   const said = [];
@@ -415,6 +447,7 @@ export function mergeImported(existing, incoming, { pid, now = new Date().toISOS
   if (when(inc) > when(existing)) for (const k of MERGED) {
     if (JSON.stringify(inc[k]) === JSON.stringify(existing[k])) continue;
     if (inc[k] === undefined && (existing[k] === "" || existing[k] === null)) continue; // "" and unset are the same to a file
+    if (inc[k] === undefined && (k === "topic_status" || k === "topic_type" || k === "title")) continue; // optional in a file: not stated, not cleared
     fieldChanges[k] = inc[k];
     if (SAID[k]) said.push(`${SAID[k]}: ${existing[k] || "—"} → ${inc[k] || "—"}`);
     if (inc[k] === undefined) delete t[k]; else t[k] = inc[k];

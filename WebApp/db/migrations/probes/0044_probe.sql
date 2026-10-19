@@ -29,8 +29,8 @@ begin
   insert into public.element_snapshots(revision_id, project_id, guid, category, count) values (r, p, 'probe-guid', 'IFCWALL', 1);
   insert into public.feed_keys(user_id, key_hash, label) values (u, encode(sha256(convert_to(k, 'UTF8')), 'hex'), 'probe');
   set local role anon;
-  select count(*) into n from public.feed_rows(k, 'probe-0044-a', 'latest'); if n = 1 then ok := ok + 1; end if;           -- 1 the key reads its project
-  select count(*) into n from public.feed_revisions(k, 'probe-0044-a'); if n = 1 then ok := ok + 1; end if;                -- 2 and its revisions
+  n := json_array_length(public.feed_rows(k, 'probe-0044-a', 'latest')); if n = 1 then ok := ok + 1; end if;           -- 1 the key reads its project
+  n := json_array_length(public.feed_revisions(k, 'probe-0044-a')); if n = 1 then ok := ok + 1; end if;                -- 2 and its revisions
   begin perform public.feed_rows(k, 'probe-0044-b', 'latest'); exception when others then if sqlerrm like 'not a member%' then ok := ok + 1; end if; end; -- 3 not another project
   begin perform public.feed_rows('sfk_wrong', 'probe-0044-a', 'latest'); exception when others then if sqlerrm like 'feed key not valid%' then ok := ok + 1; end if; end; -- 4 not a wrong key
   begin perform count(*) from public.feed_keys; exception when others then if sqlerrm like 'permission denied%' then ok := ok + 1; end if; end; -- 5 anon reads no keys

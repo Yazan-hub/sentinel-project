@@ -2343,6 +2343,7 @@ export async function feedRpc(fn, args) {
   const m = String(data?.message || "");
   if (/feed key not valid/.test(m)) throw feedErr(401, "this feed key is not valid or was revoked — make a new one on the Data feed screen");
   if (/not a member of this project/.test(m)) throw feedErr(403, "the feed key's owner is not a member of this project, or there is no such project");
+  if (/no such revision/.test(m)) throw feedErr(404, "this project has no revision with that code or id — revisions.csv lists them");
   if (data?.code === "PGRST202") throw feedErr(503, "the data feed is not set up in the database yet (migration 0044) — nothing was read");
   throw new Error(`Supabase ${r.status}: ${m}`);
 }

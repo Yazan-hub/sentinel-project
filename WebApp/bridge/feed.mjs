@@ -71,10 +71,10 @@ export async function answerFeed(route, { req, res, url, cde, send, isMachine })
     return send(res, 429, { message: "too many feed reads in a minute — try the refresh again shortly" }, { "Retry-After": "60" });
   try {
     if (route.what === "revisions.csv") {
-      const rows = await cde.feedRpc("feed_revisions", { p_key: key, p_project_key: route.key });
+      const rows = (await cde.feedRpc("feed_revisions", { p_key: key, p_project_key: route.key })) ?? [];
       return sendText(res, toCsv(rows, REVISION_COLUMNS), "text/csv; charset=utf-8", `${route.key}-revisions.csv`);
     }
-    const rows = await cde.feedRpc("feed_rows", { p_key: key, p_project_key: route.key, p_rev: url.searchParams.get("rev") || "latest" });
+    const rows = (await cde.feedRpc("feed_rows", { p_key: key, p_project_key: route.key, p_rev: url.searchParams.get("rev") || "latest" })) ?? [];
     if (route.what === "elements.json") return sendText(res, JSON.stringify(rows), "application/json; charset=utf-8");
     return sendText(res, toCsv(rows, ELEMENT_COLUMNS), "text/csv; charset=utf-8", `${route.key}-elements.csv`);
   } catch (e) {
@@ -105,6 +105,10 @@ export async function answerFeedKeys(req, res, url, { cde, send, readBody, signe
       send(res, 201, { ...row, key }); // the key itself: this once, never again
     } else if (req.method === "DELETE" && m[1]) send(res, 200, await cde.revokeFeedKey(m[1]));
     else send(res, 405, { message: "Method not allowed" });
-  } catch (e) { send(res, e?.status || 500, { message: String(e?.message || e) }); }
+  } catch (e) {
+    // Before 0044 is applied the table is not there: say so, as the feed routes do.
+    if (["PGRST205", "42P01"].includes(e?.body?.code)) send(res, 503, { message: "the data feed is not set up in the database yet (migration 0044) — nothing was read or made" });
+    else send(res, e?.status || 500, { message: String(e?.message || e) });
+  }
   return true;
 }

@@ -81,7 +81,8 @@ export function issuePanel(components: OBC.Components, opts: { bcfBaseUrl?: stri
     const d = dir.clone().transformDirection(inv).normalize();
     const u = up.clone().transformDirection(inv).normalize();
     const zUp = (v: THREE.Vector3) => ({ x: v.x, y: -v.z, z: v.y }); // Three.js Y-up → BCF Z-up
-    return { perspective_camera: { camera_view_point: zUp(p), camera_direction: zUp(d), camera_up_vector: zUp(u), field_of_view: fov } };
+    const aspect = (cam.three as THREE.PerspectiveCamera).aspect; // BCF 3.0 asks for it
+    return { perspective_camera: { camera_view_point: zUp(p), camera_direction: zUp(d), camera_up_vector: zUp(u), field_of_view: fov, ...(aspect > 0 ? { aspect_ratio: aspect } : {}) } };
   }
 
   async function createIssue(f: {

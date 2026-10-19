@@ -275,9 +275,18 @@ describe("the data feed (0044): a feed key reads its owner's projects only, whil
   });
 
   it("A's key reads project A's latest revision as anon (what the bridge sends) — control", async () => {
-    const r = await call(anon, `select * from public.feed_rows($1, $2, 'latest')`, [KA, T.A.projKey]);
-    expect(r.rows.map((x) => [x.revision, x.guid])).toEqual([["P01", "guid-1"]]);
-    expect((await call(anon, `select * from public.feed_revisions($1, $2)`, [KA, T.A.projKey])).rows.map((x) => [x.revision, Number(x.element_count)])).toEqual([["P01", 1]]);
+    const r = await call(anon, `select public.feed_rows($1, $2, 'latest') j`, [KA, T.A.projKey]);
+    expect(r.rows[0].j.map((x) => [x.revision, x.guid])).toEqual([["P01", "guid-1"]]); // one json array: no 1000-row cut
+    expect((await call(anon, `select public.feed_revisions($1, $2) j`, [KA, T.A.projKey])).rows[0].j.map((x) => [x.revision, Number(x.element_count)])).toEqual([["P01", 1]]);
+    expect((await call(anon, `select public.feed_rows($1, $2, 'P01') j`, [KA, T.A.projKey])).rows[0].j).toHaveLength(1);
+    expect((await call(anon, `select public.feed_rows($1, $2, 'P99') j`, [KA, T.A.projKey])).error).toMatch(/no such revision/);
+  });
+  it("a project's 1500 elements come back whole (PostgREST's max-rows would cut a set at 1000)", async () => {
+    await as(db, "service", async (tx) => {
+      await tx.query(`insert into public.element_snapshots(revision_id, project_id, guid) select $1, $2, 'bulk-' || g from generate_series(1, 1499) g`, [T.A.revision, T.A.proj]);
+      await tx.exec("set local role anon");
+      expect((await attempt(tx, `select json_array_length(public.feed_rows($1, $2, 'latest')) n`, [KA, T.A.projKey])).rows[0].n).toBe(1500);
+    });
   });
   it("A's key on project B or office B, and B's key on project A, are refused in the same words as a project that does not exist", async () => {
     for (const [k, p] of [[KA, T.B.projKey], [KA, T.B.officeKey], [KB, T.A.projKey], [KA, "no-such-project"]]) {

@@ -48,32 +48,44 @@ begin
   return v_user;
 end $$;
 
--- 2 · the feed: one revision's element rows ('latest', a revision code, or a revision id).
+-- 2 · the feed: one revision's element rows ('latest', a revision code, or a revision id), as ONE json array — PostgREST's max-rows
+--     cuts a returned set at 1000 rows without saying so, and a model has tens of thousands of elements. 'latest' is the newest
+--     revision whose rows are all written (its element_count, where recorded, matches); a code or id that is not the project's
+--     raises 'no such revision' (P0002).
 create or replace function public.feed_rows(p_key text, p_project_key text, p_rev text default 'latest')
-  returns table (revision text, revision_date timestamptz, guid text, category text, type_name text,
-                 count numeric, length numeric, area numeric, volume numeric, weight numeric)
+  returns json
   language plpgsql security definer set search_path = public as $$
-declare v_user uuid := public.feed_key_owner(p_key); v_proj uuid; v_rev uuid;
+declare v_user uuid := public.feed_key_owner(p_key); v_proj uuid; v_rev uuid; v_out json;
 begin
   select p.id into v_proj from public.projects p join public.memberships m on m.project_id = p.id and m.user_id = v_user where p.key = p_project_key;
   if v_proj is null then raise exception 'not a member of this project' using errcode = '42501'; end if;
-  select r.id into v_rev from public.model_revisions r
-    where r.project_id = v_proj and (coalesce(p_rev, 'latest') = 'latest' or r.rev_code = p_rev or r.id::text = p_rev)
-    order by r.uploaded_at desc limit 1;
-  return query select r.rev_code, r.uploaded_at, s.guid, s.category, s.type_name, s.count, s.length, s.area, s.volume, s.weight
-    from public.element_snapshots s join public.model_revisions r on r.id = s.revision_id
-    where s.revision_id = v_rev order by s.guid;
+  if coalesce(p_rev, 'latest') = 'latest' then
+    select r.id into v_rev from public.model_revisions r
+      where r.project_id = v_proj and (r.element_count is null or r.element_count = (select count(*) from public.element_snapshots s where s.revision_id = r.id))
+      order by r.uploaded_at desc limit 1;
+  else
+    select r.id into v_rev from public.model_revisions r where r.project_id = v_proj and (r.rev_code = p_rev or r.id::text = p_rev)
+      order by r.uploaded_at desc limit 1;
+    if v_rev is null then raise exception 'no such revision' using errcode = 'P0002'; end if;
+  end if;
+  select coalesce(json_agg(t order by t.guid), '[]'::json) into v_out from (
+    select r.rev_code as revision, r.uploaded_at as revision_date, s.guid, s.category, s.type_name, s.count, s.length, s.area, s.volume, s.weight
+    from public.element_snapshots s join public.model_revisions r on r.id = s.revision_id where s.revision_id = v_rev) t;
+  return v_out;
 end $$;
 
 create or replace function public.feed_revisions(p_key text, p_project_key text)
-  returns table (id uuid, revision text, revision_date timestamptz, uploaded_by text, element_count bigint)
+  returns json
   language plpgsql security definer set search_path = public as $$
-declare v_user uuid := public.feed_key_owner(p_key); v_proj uuid;
+declare v_user uuid := public.feed_key_owner(p_key); v_proj uuid; v_out json;
 begin
   select p.id into v_proj from public.projects p join public.memberships m on m.project_id = p.id and m.user_id = v_user where p.key = p_project_key;
   if v_proj is null then raise exception 'not a member of this project' using errcode = '42501'; end if;
-  return query select r.id, r.rev_code, r.uploaded_at, r.uploaded_by, (select count(*) from public.element_snapshots s where s.revision_id = r.id)
-    from public.model_revisions r where r.project_id = v_proj order by r.uploaded_at desc;
+  select coalesce(json_agg(t order by t.revision_date desc), '[]'::json) into v_out from (
+    select r.id, r.rev_code as revision, r.uploaded_at as revision_date, r.uploaded_by,
+           (select count(*) from public.element_snapshots s where s.revision_id = r.id) as element_count
+    from public.model_revisions r where r.project_id = v_proj) t;
+  return v_out;
 end $$;
 
 revoke all on function public.feed_key_owner(text) from public, anon, authenticated;

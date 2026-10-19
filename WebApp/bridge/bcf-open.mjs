@@ -126,14 +126,19 @@ export const topicEvents = (topic) => (topic.history ?? []).map((h) => ({ topic_
 
 // openCDE slice 3: the spec's shapes on the way out — additive on a topic and a comment (the web and Revit keep every field they read).
 /** topic_GET wants `server_assigned_id` (a string a person can quote): the guid, which Sentinel assigns. */
-export const bcfTopic = (t) => (t ? { ...t, server_assigned_id: t.server_assigned_id ?? t.guid } : t);
+// A BCF file's own bookkeeping (x_… : file names, unknown XML) stays in the store; the API serves the topic without it.
+const noX = (o) => (o && typeof o === "object" ? Object.fromEntries(Object.entries(o).filter(([k]) => !k.startsWith("x_"))) : o);
+export const bcfTopic = (t) => (t ? { ...noX(t), ...(t.bim_snippet ? { bim_snippet: noX(t.bim_snippet) } : {}), server_assigned_id: t.server_assigned_id ?? t.guid } : t);
+/** A stored document reference in the spec's shape: a 2.1 file's path becomes its url when external; its embedded file stays in the store. */
+export const bcfDocumentReference = (d, topic, i) => ({ guid: d.guid ?? `${topic.guid}:${i}`, document_guid: d.document_guid ?? null,
+  url: d.url ?? (d.is_external ? d.referenced_document ?? null : null), description: d.description ?? null });
 /** comment_GET wants the comment's `topic_guid`. */
 export const bcfComment = (c, topic) => (c ? { ...c, topic_guid: c.topic_guid ?? topic?.guid ?? null } : c);
 /** viewpoint_GET's `snapshot` is `{ snapshot_type }` (the bytes come from `…/snapshot`); Sentinel stores the image itself. */
 export const bcfViewpoint = (v) => {
   if (!v) return v;
   const snap = snapshotBytes(v.snapshot);
-  return { ...v, snapshot: snap ? { snapshot_type: snap.mime === "image/jpeg" ? "jpg" : "png" } : null };
+  return { ...noX(v), ...(v.components ? { components: noX(v.components) } : {}), snapshot: snap ? { snapshot_type: snap.mime === "image/jpeg" ? "jpg" : "png" } : null };
 };
 
 /** The methods each open kind takes; anything else is a 405 in words. */
@@ -310,7 +315,7 @@ export async function answerOpen(route, ctx) {
         await saveTopic(topic); return send(res, 200, topic.related_topics.map((g) => ({ related_topic_guid: g })));
       }
       if (route.kind === "topic_document_references") {
-        if (method === "GET") return send(res, 200, topic.document_references ?? []);
+        if (method === "GET") return send(res, 200, (topic.document_references ?? []).map((d, i) => bcfDocumentReference(d, topic, i)));
         const b = await ctx.readBody(req);
         const has = (k) => typeof b?.[k] === "string" && b[k].length > 0 && b[k].length <= 2000;
         if (!b || (has("url") === has("document_guid"))) return send(res, 400, { message: "a document reference names exactly one of url or document_guid — nothing was added" });

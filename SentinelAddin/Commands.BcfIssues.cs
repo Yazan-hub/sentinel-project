@@ -151,7 +151,7 @@ public sealed class BcfIssuesCommand : IExternalCommand
             Task.Run(async () =>
             {
                 string said;
-                try { var bearer = BcfConfig.Load().ServiceToken; said = await sync.ImportBcfAsync(bcfKey, File.ReadAllBytes(path), () => bearer).ConfigureAwait(false); }
+                try { var bearer = BcfConfig.Load().ServiceToken; said = await sync.ImportBcfAsync(bcfKey, File.ReadAllBytes(path), cfg.ModelId, () => bearer).ConfigureAwait(false); }
                 catch (Exception e) { said = $"Not imported — {e.Message}"; }
                 window.SetOutcome(said);
                 try { window.Dispatcher.BeginInvoke(new Action(Refresh)); } catch { /* window closed */ }

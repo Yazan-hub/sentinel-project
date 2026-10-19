@@ -53,6 +53,7 @@ export function dataFeedPanel(opts: { baseUrl?: string } = {}): HTMLElement {
         '<div style="font-weight:600;margin-bottom:.3rem">Excel</div>' +
         "<ol style=\"margin:0 0 .5rem 1.1rem;padding:0\"><li>Data ▸ <b>From Web</b>, paste the address, OK.</li><li>Choose <b>Basic</b>: your email and your feed key, then <b>Connect</b> and <b>Load</b>.</li>" +
         "<li>Data ▸ <b>Refresh All</b> brings the newest revision.</li></ol>" +
+        '<div style="margin-bottom:.4rem"><b>Windows with a decimal comma</b> (German, French, Czech…): the quantities use a decimal point. In Power BI choose <b>Transform data</b>, select count, length, area, volume and weight, then <b>Change type ▸ Using locale… ▸ Decimal number, English (United States)</b>. In Excel the same step is in Power Query (<b>Transform Data</b>).</div>' +
         '<div style="color:#9ca3af">A fixed revision: add <code>?rev=P02</code> (its revision code) to the elements address. If a refresh says the sign-in failed, the key was revoked or you left the project — make a new key.</div>' +
       "</div></div>" +
     '<div id="df-msg" style="padding:.4rem .6rem;border-top:1px solid #2a2a30;color:#9ca3af;font-size:12px;min-height:1rem"></div>';
@@ -93,12 +94,14 @@ export function dataFeedPanel(opts: { baseUrl?: string } = {}): HTMLElement {
     }
   };
 
+  let shownId: string | null = null; // the key on screen now (shown once): cleared only when that key is revoked
   const make = async () => {
     const b = el("df-make") as HTMLButtonElement; b.disabled = true; msg("Making a feed key…");
     try {
       const k = await bwrite<FeedKey & { key: string }>(`${base}/feed/keys`, { method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ label: (el("df-label") as HTMLInputElement).value }) });
       (el("df-label") as HTMLInputElement).value = "";
+      shownId = k.id;
       el("df-new").innerHTML = '<div style="border:1px solid #6528d7;border-radius:.3rem;padding:.45rem;margin-bottom:.4rem">' +
         '<div style="font-size:12px;margin-bottom:.3rem"><b>Your new feed key.</b> Copy it now and paste it as the password in Power BI or Excel — it is shown this once and never again.</div>' +
         `<div style="display:flex;gap:.35rem"><input readonly value="${esc(k.key)}" style="${inp};flex:1;font-family:Consolas,monospace"/>` +
@@ -113,13 +116,13 @@ export function dataFeedPanel(opts: { baseUrl?: string } = {}): HTMLElement {
   const revoke = async (id: string, b: HTMLButtonElement) => {
     if (!confirm("Revoke this feed key? Every report that uses it stops refreshing until you give it a new key.")) return;
     b.disabled = true;
-    try { await bwrite(`${base}/feed/keys/${encodeURIComponent(id)}`, { method: "DELETE" }); msg("✅ Key revoked — it reads nothing from now on.", "#22c55e"); el("df-new").innerHTML = ""; await loadKeys(); }
+    try { await bwrite(`${base}/feed/keys/${encodeURIComponent(id)}`, { method: "DELETE" }); msg("✅ Key revoked — it reads nothing from now on.", "#22c55e"); if (id === shownId) { el("df-new").innerHTML = ""; shownId = null; } await loadKeys(); }
     catch (e) { msg("❌ " + ((e as Error)?.message ?? String(e)), "#ef4444"); b.disabled = false; }
   };
 
   el("df-make").addEventListener("click", () => void make());
   renderUrls();
   void loadKeys();
-  onActiveProjectChange(() => { renderUrls(); el("df-new").innerHTML = ""; void loadKeys(); });
+  onActiveProjectChange(() => { renderUrls(); void loadKeys(); }); // a key is the person's, not the project's: one just made stays on screen
   return root;
 }

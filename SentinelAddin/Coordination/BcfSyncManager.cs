@@ -160,15 +160,16 @@ public sealed class BcfSyncManager : IDisposable
 
     /// <summary>Send a .bcf/.bcfzip to the bridge's import (the one BCF reader the web uses too). → the bridge's answer in
     /// words: what was added, updated and skipped, and why. Network only — call off the API thread. Never throws.</summary>
-    public async Task<string> ImportBcfAsync(string projectId, byte[] file, Func<string>? bearer = null, CancellationToken ct = default)
+    public async Task<string> ImportBcfAsync(string projectId, byte[] file, string modelId, Func<string>? bearer = null, CancellationToken ct = default)
     {
         try
         {
-            using var msg = new HttpRequestMessage(HttpMethod.Post, $"{_base}/bcf/3.0/projects/{Uri.EscapeDataString(projectId)}/import")
+            // The new topics carry this Revit's model id, so the Issues list (filtered by it) shows what was just imported.
+            using var msg = new HttpRequestMessage(HttpMethod.Post, $"{_base}/bcf/3.0/projects/{Uri.EscapeDataString(projectId)}/import?model={Uri.EscapeDataString(modelId ?? "")}")
             { Content = new ByteArrayContent(file) };
             msg.Content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
             Authorize(msg, bearer);
-            using HttpResponseMessage resp = await _http.SendAsync(msg, ct).ConfigureAwait(false);
+            using HttpResponseMessage resp = await _files.SendAsync(msg, ct).ConfigureAwait(false);
             var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
             if (!resp.IsSuccessStatusCode) return $"Not imported — {Or(MessageOf(body), $"the bridge answered {(int)resp.StatusCode}")}";
             using var doc = JsonDocument.Parse(body);
@@ -181,6 +182,7 @@ public sealed class BcfSyncManager : IDisposable
                     + (skipped.Count > 3 ? $" (and {skipped.Count - 3} more)." : ".");
             return said;
         }
+        catch (TaskCanceledException) { return "Not imported in 10 minutes — the bridge may still be reading the file; press Refresh in a minute to see what arrived"; }
         catch (Exception e) { return $"Not imported — could not reach the bridge ({e.Message})"; }
     }
 
@@ -192,7 +194,7 @@ public sealed class BcfSyncManager : IDisposable
         {
             using var msg = new HttpRequestMessage(HttpMethod.Get, $"{_base}/bcf/3.0/projects/{Uri.EscapeDataString(projectId)}/export?version={Uri.EscapeDataString(version)}");
             Authorize(msg, bearer);
-            using HttpResponseMessage resp = await _http.SendAsync(msg, ct).ConfigureAwait(false);
+            using HttpResponseMessage resp = await _files.SendAsync(msg, ct).ConfigureAwait(false);
             if (!resp.IsSuccessStatusCode)
                 return (null, $"Not exported — {Or(MessageOf(await resp.Content.ReadAsStringAsync().ConfigureAwait(false)), $"the bridge answered {(int)resp.StatusCode}")}");
             var bytes = await resp.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
@@ -211,6 +213,8 @@ public sealed class BcfSyncManager : IDisposable
     }
 
     private static string Or(string s, string fallback) => string.IsNullOrWhiteSpace(s) ? fallback : s;
+    // A BCF package with snapshots can take longer than the 30 s the other calls get.
+    private readonly HttpClient _files = new() { Timeout = TimeSpan.FromMinutes(10) };
 
     private static string MessageOf(string body)
     {
@@ -240,5 +244,5 @@ public sealed class BcfSyncManager : IDisposable
         if (!string.IsNullOrWhiteSpace(token)) msg.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
     }
 
-    public void Dispose() { _http.Dispose(); _sse.Dispose(); }
+    public void Dispose() { _http.Dispose(); _sse.Dispose(); _files.Dispose(); }
 }

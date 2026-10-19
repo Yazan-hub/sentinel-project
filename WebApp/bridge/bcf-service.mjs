@@ -2334,16 +2334,17 @@ async function handleRequest(req, res) {
         const out = { version: pkg.version, created: 0, updated: 0, unchanged: 0, topics: [], skipped: [] };
         for (const inc of pkg.topics) {
           try {
+            if (inc.guid == null || inc.guid === "") throw Object.assign(new Error("this topic has no Guid in the file — nothing was saved"), { status: 400 });
             cde.guidOrNew(inc.guid); // a topic GUID is a UUID (0039), else this topic is skipped in words
             cde.checkTopicTitle(inc.title);
             const existing = useCde ? await cde.bcfGetTopic(pid, inc.guid) : mine().find((t) => t.guid === inc.guid);
             if (!existing && !useCde && db.topics.some((t) => t.guid === inc.guid)) throw Object.assign(new Error("its GUID is a topic of another project (topic GUIDs are global)"), { status: 409 });
-            const r = bx.mergeImported(existing, inc, { pid, now, actor });
+            const r = bx.mergeImported(existing, inc, { pid, now, actor, model: String(url.searchParams.get("model") || "").slice(0, 200) });
             if (!r.changed) { out.unchanged++; continue; }
             // The governed-topic rules hold for a file as for the Issues panel: closing or renaming an IDS/Federation topic is a lead's.
             if (existing ? governedEditNeedsLead(existing, r.fieldChanges) : (isGovernedTitle(inc.title) && isClosed(inc.topic_status))) await requireMinRole(pid, "lead");
             if (useCde) await (existing ? cde.bcfSaveTopic(r.topic) : cde.bcfCreateTopic(r.topic));
-            else if (existing) Object.assign(existing, r.topic); else db.topics.push(r.topic);
+            else if (existing) db.topics[db.topics.indexOf(existing)] = r.topic; else db.topics.push(r.topic); // the merged topic in its place: a cleared field stays cleared
             out[existing ? "updated" : "created"]++;
             out.topics.push(inc.guid);
           } catch (e) {
