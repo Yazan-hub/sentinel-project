@@ -153,6 +153,79 @@ public sealed class IfcExportMapping
         return sb.ToString();
     }
 
+    // ── Standards & Build ▸ Standards ▸ IFC Export Mapping (batch 3 of the no-JSON work, spec 2026-10-19-standards-batch3-design.md) ──
+
+    /// <summary>The window's data-type list: the common ones first, then the rest of the exporter's list in its order.</summary>
+    public static readonly IReadOnlyList<string> TypeChoices = new[] { "Text", "Label", "Identifier", "Boolean", "Logical", "Integer", "Real", "Count", "Length", "Area", "Volume" }
+        .Concat(Types.OrderBy(t => t, StringComparer.Ordinal)).Distinct().ToList();
+
+    /// <summary>The IFC classes the window offers as ticks, in the exporter's spelling; any other is typed in the window's box.</summary>
+    public static readonly IReadOnlyList<string> CommonClasses = new[] { "IfcWall", "IfcWallStandardCase", "IfcCurtainWall", "IfcSlab", "IfcRoof", "IfcCovering",
+        "IfcDoor", "IfcWindow", "IfcColumn", "IfcBeam", "IfcMember", "IfcPlate", "IfcStair", "IfcRamp", "IfcRailing", "IfcFooting", "IfcSpace",
+        "IfcFurnishingElement", "IfcBuildingElementProxy" };
+
+    /// <summary>The body the bridge validates: exactly {label, psets, common_psets?} — the mapping is the whole body (the bridge admits no other key).</summary>
+    public string ToJson()
+    {
+        var o = new System.Text.Json.Nodes.JsonObject { ["label"] = Label };
+        var sets = new System.Text.Json.Nodes.JsonArray();
+        foreach (var s in Psets)
+        {
+            var props = new System.Text.Json.Nodes.JsonArray();
+            foreach (var p in s.Properties)
+            {
+                var q = new System.Text.Json.Nodes.JsonObject { ["name"] = p.Name, ["type"] = p.Type };
+                if (p.RevitParameter.Length > 0) q["revit_parameter"] = p.RevitParameter;
+                props.Add(q);
+            }
+            var classes = new System.Text.Json.Nodes.JsonArray();
+            foreach (var c in s.Classes.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries)) classes.Add(c);
+            sets.Add(new System.Text.Json.Nodes.JsonObject { ["name"] = s.Name, ["level"] = s.Level, ["classes"] = classes, ["properties"] = props });
+        }
+        o["psets"] = sets;
+        if (CommonPsets is { } cp) o["common_psets"] = cp;
+        return o.ToJsonString();
+    }
+
+    /// <summary>What the window would send, said in a person's words — or null. The window trims what was typed first; the
+    /// bridge (and <see cref="FromBody"/>, its twin) stays the judge.</summary>
+    public string? Problem()
+    {
+        if (!Filled(Label)) return "Name this mapping (for example: Client EIR 2026 property sets).";
+        if (Label.Length > 300) return "The mapping's name is longer than 300 characters.";
+        if (Psets.Count == 0) return "Add at least one property set.";
+        if (Psets.Count > 64) return "A mapping holds at most 64 property sets.";
+        var setNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (int i = 0; i < Psets.Count; i++)
+        {
+            var s = Psets[i];
+            var what = s.Name.Length > 0 ? $"Property set “{s.Name}”" : $"Property set {i + 1}";
+            if (s.Name.Length == 0) return $"{what} needs a name.";
+            if (!PsetName.IsMatch(s.Name)) return $"{what}: a set name is letters, digits and _ only, starts with a letter and is at most 64 characters (no spaces).";
+            if (!setNames.Add(s.Name)) return $"{what} is named twice — each set name is used once (capitals ignored).";
+            if (s.Level is not ("instance" or "type")) return $"{what}: choose for each element or for its type.";
+            var classes = s.Classes.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+            if (classes.Length == 0) return $"{what}: tick at least one IFC class it applies to.";
+            if (classes.Length > 32) return $"{what} applies to more than 32 IFC classes.";
+            var odd = classes.FirstOrDefault(c => !IfcClass.IsMatch(c));
+            if (odd != null) return $"{what}: “{odd}” is not an IFC class in the exporter's spelling — write it like IfcWall.";
+            if (s.Properties.Count == 0) return $"{what} needs at least one property.";
+            if (s.Properties.Count > 64) return $"{what} holds more than 64 properties.";
+            var propNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (int j = 0; j < s.Properties.Count; j++)
+            {
+                var p = s.Properties[j];
+                var pw = p.Name.Length > 0 ? $"{what}, property “{p.Name}”" : $"{what}, property {j + 1}";
+                if (p.Name.Length == 0) return $"{pw} needs a name.";
+                if (!PropName.IsMatch(p.Name)) return $"{pw}: a property name is letters, digits, _ and spaces, starts with a letter and is at most 64 characters.";
+                if (!propNames.Add(p.Name)) return $"{pw} is named twice in this set (capitals ignored).";
+                if (!Types.Contains(p.Type)) return $"{pw}: choose its data type from the list.";
+                if (p.RevitParameter.Length > 256 || p.RevitParameter.IndexOfAny(new[] { '\t', '\r', '\n' }) >= 0) return $"{pw}: the Revit parameter is one line of at most 256 characters.";
+            }
+        }
+        return null;
+    }
+
     /// <summary>The one-line description the dialog prints: "ifc_export@2 · 3f07a1b2c3d4… (2 property sets)".</summary>
     public string Describe() => (Ref.Length > 0 ? Ref : "ifc_export") + (Sha256.Length >= 12 ? " · " + Sha256.Substring(0, 12) + "…" : "") +
         (CachedAt is { } at ? $" (cached {at.ToLocalTime():HH:mm})" : "") +

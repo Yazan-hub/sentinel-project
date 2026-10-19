@@ -14,5 +14,7 @@
   <ItemGroup>
     <Compile Include="..\..\SentinelAddin\GhostBuilder\GuidelineMatcher.cs" />
     <Compile Include="..\..\SentinelAddin\GhostBuilder\TypeNameParse.cs" />
+    <!-- Batch 3 of the no-JSON work: the Modelling Guideline window's model (Edit.cs) -->
+    <Compile Include="..\..\SentinelAddin\GhostBuilder\GuidelineEdit.cs" />
   </ItemGroup>
 </Project>

@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Sentinel.GhostBuilder;
 
-static class Check
+static partial class Check
 {
     static int _pass, _fail;
     static void Ok(bool c, string name)
@@ -77,6 +77,8 @@ static class Check
         var unchecked275 = noCatalog.Resolve(new GuidelineInput { Category = "Walls", Layer = "A-WALL-EXT", ThicknessMm = 275 });
         Ok(noCatalog.HasGuideline && !noCatalog.HasCatalog && unchecked275.Type == "BDS_EXT_ARC_CMU_275 mm" && unchecked275.Available == null,
            "type catalogue none: the guideline's type is left for the open document to confirm, no alternatives invented");
+
+        EditChecks(root);
 
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;

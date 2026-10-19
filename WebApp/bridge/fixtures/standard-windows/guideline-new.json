@@ -1,0 +1,64 @@
+{
+  "standard": "Office Modelling Guideline v1",
+  "elements": [
+    {
+      "category": "Walls",
+      "rules": [
+        {
+          "when": {
+            "layer": "A-WALL-EXT",
+            "params": {
+              "Material": "STONE"
+            }
+          },
+          "use": {
+            "family": "Basic Wall",
+            "type": "EXT_STONE_300"
+          },
+          "why": "Stone cladding outside."
+        },
+        {
+          "when": {
+            "level": "Level 1"
+          },
+          "use": {
+            "family": "Basic Wall",
+            "typePattern": "INT_GYPS_{thickness} mm"
+          }
+        }
+      ],
+      "default": {
+        "family": "Basic Wall",
+        "type": "Generic - 200mm"
+      }
+    },
+    {
+      "category": "Stairs",
+      "rules": [
+        {
+          "when": {
+            "discipline": "Architecture"
+          },
+          "use": {
+            "family": "Assembled Stair",
+            "type": "Office Stair",
+            "params": {
+              "width_mm": 1200
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "sheets": {
+    "titleBlock": "A1 metric : A1",
+    "number": "A-{level}-{n}",
+    "name": "{level} {use}"
+  },
+  "placement": {
+    "worksets": {
+      "Walls": "Architecture"
+    },
+    "phase": "view"
+  }
+}
