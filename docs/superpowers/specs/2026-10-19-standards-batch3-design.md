@@ -79,10 +79,12 @@ and keys; a `when` field the card leaves blank is removed from that rule (blank 
 
 - vitest `standard-forms.test.ts`: the pilot LOD matrix round-trips and installs; a new matrix filled by hand installs; the
   plain-word checks fire; every select value installs.
-- Cross-language: `tools/promote-check` builds the windows' bodies through the pure edit models (`GuidelineEdit`,
-  `IfcExportMapping.ToJson`) from the repository's guidelines and the ifc-export fixture, checks them with the add-in's twins,
-  and compares them with `WebApp/bridge/fixtures/standard-windows/*.json`; vitest runs those same files through
-  `validateArtefact` (the promote-body.json idiom).
+- Cross-language: `tools/guideline-check` (GuidelineEdit) and `tools/publish-check` (`IfcExportMapping.ToJson`/`Problem`) read
+  every repository guideline and every accepted ifc-export fixture case and write it back unchanged (deep-equal), check the
+  plain-word refusals, and build a new body each that must equal `WebApp/bridge/fixtures/standard-windows/*.json`; vitest runs
+  those same files through `validateArtefact` (the promote-body.json idiom). `SENTINEL_WRITE_FIXTURES=1` rewrites them.
+- The windows refuse to save over a version saved since they opened (the sha read is checked again before the PUT), and a
+  copy read from the machine cache or a none the bridge did not confirm is read-only.
 - The add-in builds for 2021–2027.
 
 ## Drill (Session STD-3)

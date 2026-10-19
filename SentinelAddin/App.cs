@@ -502,6 +502,10 @@ public sealed class App : IExternalApplication
             "Load a saved standards pack and build it into the active model — the golden→blank round-trip.");
         Sub(std, "Sentinel_IngestDocs", "Ingest Docs", "Sentinel.Commands.IngestDocumentsCommand", "ingest",
             "Read office-standards documents (PDF/text/CSV) with a local LLM and extract worksets + shared parameters into a reviewable standards pack. Requires Ollama.");
+        Sub(std, "Sentinel_GuidelineEditor", "Modelling Guideline", "Sentinel.Commands.GuidelineEditorCommand", "rules",
+            "The office's modelling guideline, in a window: for each category, the rules that type what Sentinel builds and promotes (when a CAD layer, level, discipline or parameter matches, use this family and type) in order, and a default; the sheets Annotate makes; the worksets new elements go on. Families, types, levels, title blocks and worksets are picked from this model. A lead or owner saves it for the project or the office — the next guideline version, recorded in the ledger.");
+        Sub(std, "Sentinel_IfcExportEditor", "IFC Export Mapping", "Sentinel.Commands.IfcExportEditorCommand", "ifcgate",
+            "The property sets Governed Publish asks Revit's IFC exporter to write, in a window: each set's name, the IFC classes it goes on and its properties, each read from a Revit parameter picked from this model. A lead or owner saves it for the project or the office — the next ifc_export version, recorded in the ledger.");
         Push(st, "Sentinel_Protection", "Protection", "Sentinel.Commands.ProtectionCommand", "govern",
             "What no changeset may edit: grids, levels, structure and the worksets you tick. A row that would change one is kept as it stands, with the reason, and the rest of the changeset is applied. Shows the policy in force for this model's web project (or its office, or the built-in default); a lead or owner changes it here and saves it for the project or the whole office — recorded in the ledger.");
         var chain = Pull(st, "Sentinel_Chain", "Model from\nDrawings", "ghost",

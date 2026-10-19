@@ -2183,5 +2183,75 @@
    "SentinelAddin/Commands.Protection.cs",
    "SentinelAddin/GhostBuilder/ProtectionRules.cs"
   ]
+ },
+ "Sentinel_GuidelineEditor": {
+  "summary": "Set the office's modelling guideline in a window: the rules that type what Sentinel builds and promotes, the sheets Annotate makes and the worksets new elements go on.",
+  "overview": [
+   "The modelling guideline tells Sentinel which family and type to use. For each category (walls, floors, doors, stairs …) it holds rules in order — when a CAD layer, a level, a discipline or a parameter matches, use this family and this type (or a type pattern such as EXT_{thickness} mm) — and a default for when no rule matches. The first rule that matches an element wins. Ghost Builder, Shell a Mass and Promote read it.",
+   "The window shows the guideline in force for this model's web project: the project's own, or its office's. Families, types, levels, title blocks and worksets are offered from this model; you can type a name that is not in it. What the window does not show (view standards, graphics and any other part of the guideline) is kept as it is when you save."
+  ],
+  "prerequisites": [
+   "The model is bound to its web project (Standards ▸ Project Setup).",
+   "To save a change you must be a lead or owner of that web project; everyone else sees the guideline read-only."
+  ],
+  "inputs": [],
+  "steps": [
+   "Click Standards ▸ Modelling Guideline under Sentinel > Standards & Build.",
+   "Pick a category, or add one. Change its rules: the condition (CAD layer, level, discipline, parameters such as Material = STONE) and what to use (family, type or type pattern; the run width for stairs). Use ↑ and ↓ to order them, and fill the default.",
+   "Optionally set the sheets (title block, number and name patterns with {level}, {use}, {prefix}, {n}) and the workset for each category's new elements.",
+   "Choose This project, or Every project in the office, and press Save. The window names the version saved; it is recorded in the ledger."
+  ],
+  "results": [
+   "A new version of the guideline on the project or its office, with a ledger row naming who saved it. Sentinel uses it from the next command you run."
+  ],
+  "tips": [
+   "A blank field is not a condition. A rule with no condition at all is refused: make it the category's default instead.",
+   "If someone saved a newer guideline while the window was open, Save refuses and asks you to reopen the window, so nothing is overwritten unseen.",
+   "In the web app, Project Settings ▸ Standards in force names this window on the guideline row."
+  ],
+  "related": [
+   "Sentinel_GhostBuilder",
+   "Sentinel_PromoteWalls",
+   "Sentinel_Annotate",
+   "Sentinel_Setup"
+  ],
+  "sources": [
+   "SentinelAddin/Commands.StandardsEditors.cs",
+   "SentinelAddin/GhostBuilder/GuidelineEdit.cs"
+  ]
+ },
+ "Sentinel_IfcExportEditor": {
+  "summary": "Set the property sets Governed Publish asks Revit's IFC exporter to write, with each property read from a Revit parameter of this model.",
+  "overview": [
+   "A client's EIR often asks for property sets of its own in the IFC. The IFC export mapping lists them: each set's name, whether it is written for each element or for its type, the IFC classes it goes on (IfcWall, IfcDoor …) and its properties — each with a data type and the Revit parameter it is read from. Governed Publish hands it to Revit's IFC exporter for every export.",
+   "The window shows the mapping in force for this model's web project: the project's own, or its office's. Revit parameter names are offered from this model; you can type another."
+  ],
+  "prerequisites": [
+   "The model is bound to its web project (Standards ▸ Project Setup).",
+   "To save a change you must be a lead or owner of that web project; everyone else sees the mapping read-only."
+  ],
+  "inputs": [],
+  "steps": [
+   "Click Standards ▸ IFC Export Mapping under Sentinel > Standards & Build.",
+   "Name the mapping and choose whether the exporter also writes the IFC common property sets.",
+   "Add or pick a property set: its name (letters, digits and _), for each element or for its type, the IFC classes it goes on, and its properties (name, data type, Revit parameter).",
+   "Choose This project, or Every project in the office, and press Save. The window names the version saved; it is recorded in the ledger."
+  ],
+  "results": [
+   "A new version of the IFC export mapping on the project or its office, with a ledger row naming who saved it. The next Governed Publish uses it."
+  ],
+  "tips": [
+   "A blank Revit parameter means the parameter with the property's own name.",
+   "If someone saved a newer mapping while the window was open, Save refuses and asks you to reopen the window.",
+   "In the web app, Project Settings ▸ Standards in force names this window on the ifc_export row."
+  ],
+  "related": [
+   "Sentinel_GovernedPublish",
+   "Sentinel_Setup"
+  ],
+  "sources": [
+   "SentinelAddin/Commands.StandardsEditors.cs",
+   "SentinelAddin/Engine/IfcExportMapping.cs"
+  ]
  }
 }
