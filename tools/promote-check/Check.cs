@@ -83,6 +83,7 @@ static partial class Check
         FSec51WiringChecks();
         Sec7HubChecks();
         ProtectionChecks();
+        PcSettingsChecks();
         Ma4fChecks();
         Ma5b1Checks();
         Ma5b4Checks();

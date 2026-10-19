@@ -75,7 +75,7 @@ public static class UserSession
     public static (bool Ok, string Message) SignIn(string supabaseUrl, string anonKey, string email, string password)
     {
         if (string.IsNullOrWhiteSpace(supabaseUrl) || string.IsNullOrWhiteSpace(anonKey))
-            return (false, "no Supabase address in bcf-config.json (supabaseUrl, supabaseAnonKey)");
+            return (false, "no sign-in address and key on this PC — set them in Standards ▸ PC Settings");
         var body = JsonSerializer.Serialize(new { email = email.Trim(), password });
         var r = Token(supabaseUrl, anonKey, "password", body);
         if (r.Session is null) return (false, r.Error);

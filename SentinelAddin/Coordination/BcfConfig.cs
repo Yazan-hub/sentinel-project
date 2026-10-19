@@ -49,10 +49,13 @@ internal sealed class BcfConfig
     [JsonIgnore]
     public string ServiceToken => global::Sentinel.Coordination.UserSession.AccessToken(SupabaseUrl, SupabaseAnonKey) ?? FileToken;
 
+    /// <summary>This PC's file; Standards ▸ PC Settings edits it.</summary>
+    public static string FilePath => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Sentinel", "bcf-config.json");
+
     public static BcfConfig Load()
     {
-        string path = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Sentinel", "bcf-config.json");
+        string path = FilePath;
         BcfConfig cfg;
         try
         {

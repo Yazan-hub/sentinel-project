@@ -18,6 +18,6 @@ internal static class UrlRule
                       || (uri.Scheme == Uri.UriSchemeHttp && (uri.IsLoopback || uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase))));
         return ok ? null
             : $"The {what} address \"{u}\" is not https and not on this PC — Sentinel sends a token or a sign-in to another PC over https only; "
-              + "set an https address in %AppData%\\Sentinel\\bcf-config.json. Nothing was sent.";
+              + "set an https address in Standards ▸ PC Settings. Nothing was sent.";
     }
 }

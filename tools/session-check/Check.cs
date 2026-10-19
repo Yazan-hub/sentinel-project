@@ -110,7 +110,7 @@ static class Check
         Ok(!bad.Ok && bad.Message == "Invalid login credentials", "a wrong password is refused in Supabase's words: " + bad.Message);
         Ok(!UserSession.IsSignedIn && !File.Exists(file), "a refused sign-in leaves no session and no file");
         var none = UserSession.SignIn("", "", "a@b", "x");
-        Ok(!none.Ok && none.Message.Contains("supabaseUrl"), "no Supabase address: refused in words, no call made");
+        Ok(!none.Ok && none.Message.Contains("PC Settings"), "no Supabase address: refused in words, no call made");
         var ok = UserSession.SignIn(_url, Anon, "lead@office.example", "correct horse");
         Ok(ok.Ok && ok.Message == "Signed in as lead@office.example", "the right password signs in: " + ok.Message);
         Ok(UserSession.Email == "lead@office.example", "Email names the person");

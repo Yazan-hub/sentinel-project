@@ -61,7 +61,7 @@ public sealed class GhostBuilderCommand : IExternalCommand
             {
                 TaskDialog.Show("Sentinel — Ghost Builder",
                     $"Mapping schema not found:\n{settings.GhostMappingSchemaPath}\n\n" +
-                    "Fix ghost_mapping_schema_path in this PC's Sentinel config.json, or clear it to run without a schema.");
+                    "Fix the layer mapping file in Standards ▸ PC Settings, or clear it to run without one.");
                 return Result.Cancelled;
             }
             schemaJson = File.ReadAllText(settings.GhostMappingSchemaPath);
@@ -71,7 +71,7 @@ public sealed class GhostBuilderCommand : IExternalCommand
         {
             TaskDialog.Show("Sentinel — Ghost Builder",
                 $"Family library folder not found:\n{libraryDir}\n\n" +
-                "Fix ghost_family_library_dir in this PC's Sentinel config.json, or clear it to run without family preload.");
+                "Fix the family library folder in Standards ▸ PC Settings, or clear it to run without family preload.");
             return Result.Cancelled;
         }
 
