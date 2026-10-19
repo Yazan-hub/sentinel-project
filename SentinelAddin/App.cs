@@ -496,6 +496,8 @@ public sealed class App : IExternalApplication
             "Bind this model to its web project (its ruleset, IDS and naming come from there), plus the template path.");
         Sub(std, "Sentinel_SignIn", "Sign in", "Sentinel.Commands.SignInCommand", "setup",
             "Sign in with your Sentinel account (the same as on the web): every governed call from Revit then carries your name on the ledger instead of this PC's shared token. Sign out forgets it on this PC only.");
+        Sub(std, "Sentinel_PcSettings", "PC Settings", "Sentinel.Commands.PcSettingsCommand", "setup",
+            "This PC's own settings in a window: the bridge address, this PC's shared token, the sign-in address and key, the local AI address and models, the cloud opt-in, and Ghost Builder's family library and layer mapping file. A Test per connection says in words whether it answers. Save writes only what changed and keeps a backup of the old file; tokens and keys are never shown.");
         Sub(std, "Sentinel_BuildOfficeSystem", "Build Office System", "Sentinel.Commands.BuildOfficeSystemCommand", "office",
             "Extract worksets + shared parameters from the active 'golden' model, review them, then build them into this model and enforce them in the ruleset.");
         Sub(std, "Sentinel_LoadOfficeSystem", "Apply Standard", "Sentinel.Commands.LoadOfficeSystemCommand", "apply",

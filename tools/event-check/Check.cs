@@ -220,7 +220,7 @@ static class Check
 
         // SEC-5: the ledger POST carries the bearer — https, or http to this PC, as the bridge address itself (UrlRule).
         var plain = LedgerResult.Post("http://bridge.example.test", "tok", "demo", "/audit", payload, TimeSpan.FromSeconds(5));
-        Is(LedgerLine.Sentence(plain), "Not recorded — The bridge address \"http://bridge.example.test\" is not https and not on this PC — Sentinel sends a token or a sign-in to another PC over https only; set an https address in %AppData%\\Sentinel\\bcf-config.json. Nothing was sent.",
+        Is(LedgerLine.Sentence(plain), "Not recorded — The bridge address \"http://bridge.example.test\" is not https and not on this PC — Sentinel sends a token or a sign-in to another PC over https only; set an https address in Standards ▸ PC Settings. Nothing was sent.",
            "SEC-5: a plain-http bridge on another PC → not recorded, in the URL rule's words, nothing sent");
 
         var silent = new TcpListener(IPAddress.Loopback, 0);

@@ -1366,7 +1366,7 @@
    "Some actions, such as installing a catalogue on the office, require you to be signed in as yourself because the bridge checks your role."
   ],
   "prerequisites": [
-   "The PC's Sentinel configuration (%AppData%\\Sentinel\\bcf-config.json) must contain the Supabase address and key. Without them the dialog says sign-in is not possible on this PC and the Sign in button is disabled.",
+   "This PC must have the sign-in address and key (Standards ▸ PC Settings). Without them the dialog says sign-in is not possible on this PC and the Sign in button is disabled.",
    "You need an existing Sentinel account; there is no sign-up here.",
    "The bridge address in the configuration must be one Sentinel accepts; if it is refused the dialog shows the reason."
   ],
@@ -1412,6 +1412,73 @@
    "SentinelAddin/UI/SignInDialog.xaml",
    "SentinelAddin/UI/SignInDialog.xaml.cs:18-60",
    "SentinelAddin/Coordination/UserSession.cs:15-145"
+  ]
+ },
+ "Sentinel_PcSettings": {
+  "summary": "Set this PC's own Sentinel settings in a window — the bridge, the sign-in, the local AI and Ghost Builder's folders — and test each connection.",
+  "overview": [
+   "Some settings belong to a PC, not to a project: where this PC finds the Sentinel bridge, how it signs in, which local AI model it uses and where Ghost Builder finds its family library and layer mapping file. PC Settings shows them as plain fields. A model never carries them, and nobody needs to edit a file.",
+   "Save changes only the fields you changed and keeps a copy of the old settings beside them, so nothing else on this PC is lost. This PC's shared token and the sign-in key are never shown: the window only says whether one is set."
+  ],
+  "prerequisites": [
+   "None. The window opens with or without a model."
+  ],
+  "inputs": [
+   {
+    "name": "Bridge address",
+    "desc": "Where this PC finds the Sentinel bridge. On the PC that runs the bridge it is http://localhost:4100; elsewhere an https address. Test says whether a bridge answers."
+   },
+   {
+    "name": "This PC's shared token",
+    "desc": "The bridge's machine credential. Leave blank to keep the saved one, type a new one to replace it, or tick Remove it. It works only with the bridge on this PC; people elsewhere sign in instead."
+   },
+   {
+    "name": "Sign-in address and Sign-in key",
+    "desc": "Where Revit signs people in (the same account as the web app). Test says whether you are signed in and the sign-in is still valid. The key is never shown; leave it blank to keep it."
+   },
+   {
+    "name": "Issues: only model id",
+    "desc": "Lists only one model's issues in the Issues window; blank lists every model's."
+   },
+   {
+    "name": "Local AI address",
+    "desc": "The Ollama address Ghost Builder, Photo Massing and Ingest Docs use. Test says whether it answers and whether Ghost Builder's model and the photo model are installed on it."
+   },
+   {
+    "name": "Allow a model off this PC",
+    "desc": "Off by default: drawings and photos stay on this PC. Tick it only to use a model at an https address elsewhere."
+   },
+   {
+    "name": "Ghost Builder model and Photo model",
+    "desc": "The model names Ghost Builder and Photo Massing ask for."
+   },
+   {
+    "name": "Family library folder and Layer mapping file",
+    "desc": "Optional. Browse… picks them. The layer mapping file must sit in the add-in's folder or in Sentinel's schemas folder."
+   }
+  ],
+  "steps": [
+   "Click Standards ▸ PC Settings under Sentinel > Standards & Build.",
+   "Change the fields you need. Press Test beside a connection to check it; the answer appears under the field.",
+   "Press Save. The window says which settings were saved and where the old ones were kept."
+  ],
+  "results": [
+   "This PC's settings are saved; Sentinel's tools use them from their next run.",
+   "A copy of the previous settings is kept beside them, named with the date and time."
+  ],
+  "tips": [
+   "If Save is refused, the window says why in words — for example a plain http address on another PC, or a shared token with a bridge that is not on this PC.",
+   "The drawings folder Ghost Builder reads is set per model in Standards ▸ Project Setup.",
+   "An Issues window that is already open keeps the old bridge address until you open it again."
+  ],
+  "related": [
+   "Sentinel_SignIn",
+   "Sentinel_Setup",
+   "Sentinel_GhostBuilder"
+  ],
+  "sources": [
+   "SentinelAddin/Commands.PcSettings.cs",
+   "SentinelAddin/Engine/PcSettings.cs"
   ]
  },
  "Sentinel_BuildOfficeSystem": {

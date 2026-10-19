@@ -3518,3 +3518,23 @@ Follow-ups (not this change): the platform mirror treats any `contract@n` tag al
 | N-1 side effect | Ctrl+S on the scratch model (to close Revit without a prompt) ran the scratch project's auto-publish — publish@1 {auto: true} from STD-F D-3: gate PASS, proposal rejected (naming hold), two IDS issues raised on std-f-drill-standards-forms (#2796–#2800). The product as designed, on scratch data; left as they are | noted |
 
 Driving notes: in Revit 2024 the first click on a newly shown Sentinel window only activates it (its X and Save need a second click); a window can be closed by a WM_CLOSE to the foreground window when its X does not take. Revit's ribbon tab row needs the mouse wheel (one notch = one tab). A new add-in DLL brings Revit's unsigned add-in prompt: Load Once (Always Load would change a standing trust setting).
+
+## Session PCS — PC Settings: this PC's settings without JSON (2026-10-19 local; branch claude/blissful-hawking-70c532, started from session local_e3b5d027 with the founder's rule "no JSON or CLI for users"; Revit 2024.3 on a scratch copy `Documents\Sentinel drills\pcs-scratch.rvt` of std-3-scratch.rvt; the 4100 bridge on master, not restarted; signed in as the founder in Revit; Claude driving)
+
+The keys a PC holds, found from SentinelAddin: config.json (SettingsManager.PcOnlyKeys) — `ollama_url` (default http://localhost:11434/api/generate), `ghost_model` (qwen2.5:7b-instruct), `ghost_vision_model` (llava), `ghost_cloud_opt_in` (false), `ghost_family_library_dir` and `ghost_mapping_schema_path` (blank: not used); `ghost_source_folder` stays in Project Setup (This machine). bcf-config.json (BcfConfig) — `serviceUrl` (http://localhost:4100, else BCF_SERVICE_URL), `modelId` (blank: every model's issues), `serviceToken` (the machine credential; blank on an external install, else BCF_TOKEN when there is no file), `supabaseUrl` and `supabaseAnonKey` (else SUPABASE_URL / SUPABASE_ANON_KEY). Any other key (legacy `projectId`, `master_ruleset_path`, …) is kept as it is.
+
+| Row | What happened | Result |
+|---|---|---|
+| R-0 ribbon | Sentinel ▸ Standards & Build ▸ Standards lists PC Settings after Sign in | **pass** |
+| W-0 window | Opens at once from the two files: bridge http://127.0.0.1:4100, sign-in address shown; shared token "None — people sign in instead", sign-in key "Set (hidden)" — no secret on screen | **pass** |
+| T-1 tests, first run | Test → "✗ The calling thread cannot access this object because a different thread owns it." | **F-PCS-1** |
+| F-PCS-1 | Each Test read its text box on a pool thread | **fixed**: the form is read on the UI thread, only the call runs off it (promote-check row); redeployed, re-run below |
+| T-1 bridge | "✓ The bridge at http://127.0.0.1:4100 answers." | **pass** |
+| T-2 sign-in | "✓ Signed in as <the founder's e-mail>; the sign-in is valid." | **pass** |
+| T-3 local AI | "✓ Ollama answers on this PC. Ghost Builder's model qwen2.5:7b-instruct is installed. The photo model llava is installed." | **pass** |
+| S-1 refusal | Bridge http://bridge.example.test → Save → "Not saved: The bridge address … is not https and not on this PC — … set an https address in Standards ▸ PC Settings." Nothing written | **pass** |
+| S-2 save | Bridge typed back, photo model llava → llava-drill, Save → "✓ Saved — config.json: ghost_vision_model (old file kept as config.json.bak-20261019-181055)". On disk: the same 13 keys in the same order, only ghost_vision_model changed; bcf-config.json untouched (sha a2354dc337d1 before and after) — the bridge address typed back to what was shown is not written | **pass** |
+| S-3 reopen | Close, Standards ▸ PC Settings again → Photo model reads llava-drill | **pass** |
+| S-4 restore | llava typed back, Save → saved with a backup; config.json byte-identical to before the drill (raw sha a976682da0f0); the drill's two backups deleted | **pass** |
+
+Revit closed without saving the scratch copy. Revit-free: promote-check 1290/1290 (PC Settings rows: round-trip keeps unknown and nested keys, case variant dropped, backup first, the add-in's own readers read the result, PR-1 token refusal, words name PC Settings, wiring), session-check 47/47, event-check 56/56, project-context-check 135/136 (the one failure, "every model client is built with this PC's opt-in", predates this branch: MA-7-28's vision readers pass `cloudOptIn: false`).

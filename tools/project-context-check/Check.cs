@@ -163,7 +163,7 @@ static class Check
             Ok(ask > resolve && use.Success && ask < resolve + use.Index, t.Path + " asks ToolRefusal before it reads a setting");
         }
         var h5 = Hits(@"\.(OllamaUrl|GhostMappingSchemaPath|GhostFamilyLibraryDir|GhostCloudOptIn)\b")
-            .Except(new[] { Path.Combine("Engine", "SettingsManager.cs"), "Commands.GhostBuilder.cs", "Commands.Massing.cs" }).ToArray();
+            .Except(new[] { Path.Combine("Engine", "SettingsManager.cs"), "Commands.GhostBuilder.cs", "Commands.Massing.cs", "Commands.PcSettings.cs" }).ToArray();
         Ok(h5.Length == 0, "only the settings and the two model tools touch the PC-only fields" + (h5.Length > 0 ? ": " + string.Join(", ", h5) : ""));
         var h6 = Hits(@"\.GhostSourceFolder\b")
             .Except(new[] { Path.Combine("Engine", "SettingsManager.cs"), "Commands.GhostBuilder.cs", "Commands.Massing.cs", "Commands.Datum.cs",

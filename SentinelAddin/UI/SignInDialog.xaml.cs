@@ -21,7 +21,7 @@ public partial class SignInDialog : Window
         Refresh(null);
         if (string.IsNullOrWhiteSpace(_cfg.SupabaseUrl) || string.IsNullOrWhiteSpace(_cfg.SupabaseAnonKey))
         {
-            StatusText.Text = "No Supabase address in %AppData%\\Sentinel\\bcf-config.json (supabaseUrl, supabaseAnonKey) — sign-in is not possible on this PC.";
+            StatusText.Text = "No sign-in address and key on this PC — set them in Standards ▸ PC Settings, then sign in.";
             SignInButton.IsEnabled = false;
         }
         WhereText.Text = string.IsNullOrWhiteSpace(_cfg.SupabaseUrl) ? "" : "Signs in at " + _cfg.SupabaseUrl + " · bridge " + _cfg.ServiceUrl;
