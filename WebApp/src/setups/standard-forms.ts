@@ -6,6 +6,8 @@
  * validateArtefact stays the judge. `renderStandardForm` draws any of them as plain DOM (iframe-safe, no prompt/confirm).
  */
 
+import { DEFAULT_STAGE_MAP, LOD_CATEGORIES, MATRIX_STAGES, MAX_SNAP_MM, STAGES } from "../sentinel-core/lod-matrix";
+
 export type Cell = string | boolean;
 export interface Row { v: Record<string, Cell>; orig: Record<string, unknown> }
 export type Model = Record<string, Cell | Row[]>;
@@ -350,8 +352,76 @@ const layers: StandardForm = {
   },
 };
 
-/** The kinds Standards in force edits with a form (spec batch 1 + 2). */
-export const STANDARD_FORMS: Record<string, StandardForm> = { naming, contract, layers, review, publish, roi };
+// Batch 3 (spec 2026-10-19-standards-batch3-design.md): the office's LOD matrix. parseLodMatrix is the judge; the DD rules
+// are one fixed value each, so they are ticks, and type is always guideline_rule (DD means typed by a guideline rule).
+const STAGE_NAMES: [string, string][] = [["tender", "Tender"], ["design", "Design"], ["coord", "Coordination"], ["constr", "Construction"], ["hand", "Handover"], ["oper", "Operate"]];
+const MATRIX_STAGE_NAMES: Record<string, string> = { concept: "Concept", SD: "Schematic design (SD)", DD: "Design development (DD)", CD: "Construction documents (CD)" };
+const LOD_TICKS: [string, string, string][] = [["level", "story_level", "On its storey level"], ["top", "next_story_level", "Top attached to the next storey level"], ["host", "wall", "Hosted in a wall"]];
+const lodMatrix: StandardForm = {
+  kind: "lod_matrix", title: "LOD matrix",
+  intro: "What DD means for each class when Promote checks a model: typed by a guideline rule, plus what is ticked here. The stage map ties the matrix's stages to the project's.",
+  fields: [
+    { key: "status", label: "Status", type: "select", options: [["approved", "Approved"], ["draft", "Draft (Promote marks it DRAFT)"]] },
+    ...MATRIX_STAGES.map((s): Scalar => ({ key: `stage_${s}`, label: `${MATRIX_STAGE_NAMES[s]} is the project's`, type: "select", options: STAGE_NAMES })),
+    {
+      key: "rows", label: "Classes at DD", type: "rows", add: "Add a class", item: "Class", max: LOD_CATEGORIES.length, blank: { category: "Walls", level: true, snap: "0" },
+      hint: "One card per class. Type snap: how far a size may be from a catalogue type and still take it, in mm (0 = the exact match; doors and windows are always 0).",
+      columns: [
+        { key: "category", label: "Class", type: "select", options: LOD_CATEGORIES.map((c) => [c, c]) },
+        ...LOD_TICKS.map(([key, , label]): Scalar => ({ key, label, type: "check", width: "9rem" })),
+        { key: "properties", label: "Properties DD asks for (optional)", type: "list", hint: "e.g. Pset_WallCommon.FireRating" },
+        { key: "snap", label: "Type snap, mm", type: "number", width: "5rem" },
+      ],
+    },
+  ],
+  fromBody: (b) => {
+    const map = { ...DEFAULT_STAGE_MAP, ...((b?.stage_map ?? {}) as Record<string, string>) };
+    return {
+      status: b?.status === "draft" ? "draft" : "approved",
+      ...Object.fromEntries(MATRIX_STAGES.map((s) => [`stage_${s}`, text(map[s])])),
+      rows: (Array.isArray(b?.rows) ? b.rows : []).map((r: Body) => {
+        const dd = (r.DD ?? {}) as Body;
+        return row(r, { category: text(r.category), ...Object.fromEntries(LOD_TICKS.map(([k, v]) => [k, dd[k] === v])), properties: joinList(dd.properties), snap: text(dd.type_snap_mm ?? 0) });
+      }),
+    };
+  },
+  toBody: (m, prev, { projectKey }) => {
+    const map = Object.fromEntries(MATRIX_STAGES.map((s) => [s, str(m, `stage_${s}`) || DEFAULT_STAGE_MAP[s]]));
+    for (let i = 1; i < MATRIX_STAGES.length; i++) {
+      const [a, b] = [MATRIX_STAGES[i - 1], MATRIX_STAGES[i]];
+      if (STAGES.indexOf(map[b]) < STAGES.indexOf(map[a])) throw new Error(`${MATRIX_STAGE_NAMES[b]} cannot come before ${MATRIX_STAGE_NAMES[a]}: it is mapped to an earlier project stage`);
+    }
+    // Only a stage that differs from the default, or that the body already named, is written (D18 fills the rest).
+    const named = (prev?.stage_map ?? {}) as Body;
+    const stage_map = Object.fromEntries(MATRIX_STAGES.filter((s) => s in named || map[s] !== DEFAULT_STAGE_MAP[s]).map((s) => [s, map[s]]));
+    const list = rows(m, "rows");
+    if (!list.length) throw new Error("Add at least one class");
+    const seen = new Set<string>();
+    const out: Body = {
+      ...(prev ?? {}), standard_key: (prev?.standard_key as string) || `${projectKey}-lod`, semver: bump(prev?.semver),
+      rows: list.map((r) => {
+        const category = str(r.v, "category") || "Walls";
+        if (seen.has(category)) throw new Error(`${category} appears twice — one card per class`);
+        seen.add(category);
+        const orig = (r.orig.DD ?? {}) as Body;
+        const dd: Body = { type: "guideline_rule" };
+        for (const [k, v] of LOD_TICKS) if (r.v[k] === true) dd[k] = v;
+        const props = listOf(str(r.v, "properties"));
+        if (props.length || "properties" in orig) dd.properties = props;
+        const snap = whole(str(r.v, "snap") || "0", `Type snap for ${category}`, 0, MAX_SNAP_MM);
+        if (snap > 0 && (category === "Doors" || category === "Windows")) throw new Error(`Type snap for ${category} must be 0 — a door or window is matched by its type name's width x height, never snapped`);
+        if (snap > 0 || "type_snap_mm" in orig) dd.type_snap_mm = snap;
+        return { ...r.orig, category, DD: dd };
+      }),
+    };
+    if (str(m, "status") === "draft") out.status = "draft"; else if (prev?.status != null) out.status = "approved"; else delete out.status;
+    if (Object.keys(stage_map).length) out.stage_map = stage_map; else delete out.stage_map;
+    return out;
+  },
+};
+
+/** The kinds Standards in force edits with a form (spec batch 1 + 2, lod_matrix batch 3). */
+export const STANDARD_FORMS: Record<string, StandardForm> = { naming, contract, layers, review, publish, roi, lod_matrix: lodMatrix };
 
 /** Where a kind with no web form is changed — a tab the panel opens, or words naming the place in Revit. */
 export type StandardLink = { open: "docs" | "standards" | "carbon"; label: string } | { text: string };
@@ -361,9 +431,8 @@ export const STANDARD_LINKS: Record<string, StandardLink> = {
   carbon_factors: { open: "carbon", label: "Edit in Carbon" },
   type_catalog: { text: "Edit in Revit ▸ Standards & Build ▸ Standards ▸ Build Office System" },
   protection: { text: "Edit in Revit ▸ Standards & Build ▸ Protection" },
-  guideline: { text: "No editor yet — import a file under Advanced" },
-  ifc_export: { text: "No editor yet — import a file under Advanced" },
-  lod_matrix: { text: "No editor yet — import a file under Advanced" },
+  guideline: { text: "Edit in Revit ▸ Standards & Build ▸ Standards ▸ Modelling Guideline" },
+  ifc_export: { text: "Edit in Revit ▸ Standards & Build ▸ Standards ▸ IFC Export Mapping" },
 };
 
 // ── the renderer ───────────────────────────────────────────────────────────────────────────────────────────

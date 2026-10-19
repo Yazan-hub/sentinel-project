@@ -192,6 +192,56 @@ static class Check
         var evilLines = evil.FileText().Split("\r\n");
         Ok(!evilLines.Any(l => l.StartsWith("PropertySet:\tEvil")), "a Ref carrying a line break adds no property set to the exporter's file");
         Ok(evilLines.TakeWhile(l => !l.StartsWith("PropertySet:")).Count(l => l.StartsWith("#")) == 2, "…and the header stays exactly two # lines");
+        ExportMappingWindow(dir!);
+    }
+
+    // ── Batch 3 of the no-JSON work: Standards & Build ▸ Standards ▸ IFC Export Mapping. The window's model is IfcExportMapping itself
+    // (the body admits no other key); its new-mapping body is WebApp/bridge/fixtures/standard-windows/ifc-export-new.json, which vitest runs
+    // through the bridge's validateArtefact (SENTINEL_WRITE_FIXTURES=1 rewrites the file).
+    static void ExportMappingWindow(string root)
+    {
+        Console.WriteLine("\nBatch 3 — the IFC Export Mapping window: what it reads it writes back, what it changes installs");
+        using var cases = JsonDocument.Parse(File.ReadAllText(Path.Combine(root, "WebApp", "bridge", "fixtures", "ifc-export", "cases.json")));
+        foreach (var c in cases.RootElement.EnumerateArray().Where(c => c.GetProperty("error").ValueKind == JsonValueKind.Null))
+        {
+            var body = c.GetProperty("body").GetRawText();
+            var m = IfcExportMapping.FromBody(body, out _)!;
+            Ok(System.Text.Json.Nodes.JsonNode.DeepEquals(System.Text.Json.Nodes.JsonNode.Parse(m.ToJson()), System.Text.Json.Nodes.JsonNode.Parse(body)) && m.Problem() == null,
+               "an unchanged save writes the same body — " + c.GetProperty("name").GetString());
+        }
+        var n = new IfcExportMapping { Label = "Client EIR 2026 property sets", CommonPsets = true };
+        n.Psets.Add(new IfcExportMapping.Pset { Name = "Pset_ClientWall", Level = "instance", Classes = "IfcWall,IfcCurtainWall",
+            Properties = { new IfcExportMapping.Prop { Name = "Fire Rating", Type = "Label", RevitParameter = "Fire Rating" }, new IfcExportMapping.Prop { Name = "Acoustic Rating", Type = "Text" } } });
+        n.Psets.Add(new IfcExportMapping.Pset { Name = "Pset_ClientDoorType", Level = "type", Classes = "IfcDoor", Properties = { new IfcExportMapping.Prop { Name = "Manufacturer", Type = "Text", RevitParameter = "Manufacturer" } } });
+        Ok(n.Problem() == null && IfcExportMapping.FromBody(n.ToJson(), out var e) != null && e == null, "a new mapping filled in the window reads back by the add-in's twin of the bridge check");
+        var fixture = Path.Combine(root, "WebApp", "bridge", "fixtures", "standard-windows", "ifc-export-new.json");
+        if (Environment.GetEnvironmentVariable("SENTINEL_WRITE_FIXTURES") == "1")
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(fixture)!);
+            File.WriteAllText(fixture, System.Text.Json.Nodes.JsonNode.Parse(n.ToJson())!.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n");
+        }
+        Ok(File.Exists(fixture) && System.Text.Json.Nodes.JsonNode.DeepEquals(System.Text.Json.Nodes.JsonNode.Parse(n.ToJson()), System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(fixture))),
+           "it is the body the bridge's validateArtefact passes (fixtures/standard-windows/ifc-export-new.json, read by vitest)");
+        Ok(new IfcExportMapping { Label = "x", Psets = n.Psets }.ToJson().IndexOf("common_psets", StringComparison.Ordinal) < 0, "the exporter's default writes no common_psets");
+
+        string? Says(Action<IfcExportMapping> change)
+        {
+            var m = IfcExportMapping.FromBody(n.ToJson(), out _)!;
+            change(m);
+            return m.Problem();
+        }
+        Is(Says(m => m.Label = " ") ?? "null", "Name this mapping (for example: Client EIR 2026 property sets).", "a mapping needs a name");
+        Is(Says(m => m.Psets.Clear()) ?? "null", "Add at least one property set.", "a mapping needs a set");
+        Is(Says(m => m.Psets[0].Name = "Client Wall") ?? "null", "Property set “Client Wall”: a set name is letters, digits and _ only, starts with a letter and is at most 64 characters (no spaces).", "a set name has no spaces");
+        Is(Says(m => m.Psets[1].Name = "PSET_CLIENTWALL") ?? "null", "Property set “PSET_CLIENTWALL” is named twice — each set name is used once (capitals ignored).", "set names are used once, capitals ignored");
+        Is(Says(m => m.Psets[0].Classes = "") ?? "null", "Property set “Pset_ClientWall”: tick at least one IFC class it applies to.", "a set applies to a class");
+        Is(Says(m => m.Psets[0].Classes = "IFCWALL") ?? "null", "Property set “Pset_ClientWall”: “IFCWALL” is not an IFC class in the exporter's spelling — write it like IfcWall.", "a class is in the exporter's spelling");
+        Is(Says(m => m.Psets[0].Properties.Clear()) ?? "null", "Property set “Pset_ClientWall” needs at least one property.", "a set needs a property");
+        Is(Says(m => m.Psets[0].Properties[1].Name = "fire rating") ?? "null", "Property set “Pset_ClientWall”, property “fire rating” is named twice in this set (capitals ignored).", "property names are used once per set");
+        Is(Says(m => m.Psets[0].Properties[0].Type = "Words") ?? "null", "Property set “Pset_ClientWall”, property “Fire Rating”: choose its data type from the list.", "a data type is one the exporter knows");
+        Ok(IfcExportMapping.TypeChoices[0] == "Text" && IfcExportMapping.TypeChoices.Distinct().Count() == IfcExportMapping.TypeChoices.Count && IfcExportMapping.TypeChoices.Count == 66,
+           "the window lists all 66 of the exporter's types once, Text first");
+        Ok(IfcExportMapping.CommonClasses.All(c => System.Text.RegularExpressions.Regex.IsMatch(c, "^Ifc[A-Z][A-Za-z0-9]*$")), "every class the window ticks is in the exporter's spelling");
     }
 
     // ── 3. PublishOutcome: what the answer allows ─────────────────────────────────────────────────────

@@ -1,0 +1,39 @@
+{
+  "label": "Client EIR 2026 property sets",
+  "psets": [
+    {
+      "name": "Pset_ClientWall",
+      "level": "instance",
+      "classes": [
+        "IfcWall",
+        "IfcCurtainWall"
+      ],
+      "properties": [
+        {
+          "name": "Fire Rating",
+          "type": "Label",
+          "revit_parameter": "Fire Rating"
+        },
+        {
+          "name": "Acoustic Rating",
+          "type": "Text"
+        }
+      ]
+    },
+    {
+      "name": "Pset_ClientDoorType",
+      "level": "type",
+      "classes": [
+        "IfcDoor"
+      ],
+      "properties": [
+        {
+          "name": "Manufacturer",
+          "type": "Text",
+          "revit_parameter": "Manufacturer"
+        }
+      ]
+    }
+  ],
+  "common_psets": true
+}

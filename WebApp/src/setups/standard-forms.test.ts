@@ -161,6 +161,62 @@ describe("standard forms — the review and drill findings (STD-F)", () => {
   });
 });
 
+describe("standard forms — the LOD matrix (batch 3)", () => {
+  const pilot = () => repo("demo/bds-pilot/bds-lod-matrix-dd-ma2b.json");
+  it("the pilot matrix round-trips, installs and keeps every key (semver moves on by one patch)", () => {
+    const body = pilot();
+    const out = roundTrip("lod_matrix", body);
+    expect(validateArtefact("lod_matrix", out)).toBe(true);
+    for (const k of Object.keys(body)) if (k !== "semver") expect(out[k], k).toEqual(body[k]);
+    expect(out.semver).toBe("0.2.1");
+  });
+
+  it("a new matrix filled by hand installs: ticks become the one DD value, blanks stay out, the default stage map is not written", () => {
+    const f = STANDARD_FORMS.lod_matrix;
+    const m = f.fromBody(null);
+    m.rows = [r({ category: "Walls", level: true, top: true, properties: "Pset_WallCommon.FireRating", snap: "5" }), r({ category: "Doors", level: true, host: true, snap: "0" })];
+    const out = f.toBody(m, null, ctx);
+    expect(validateArtefact("lod_matrix", out)).toBe(true);
+    expect(out).toEqual({
+      standard_key: "std-f-lod", semver: "1.0.0",
+      rows: [
+        { category: "Walls", DD: { type: "guideline_rule", level: "story_level", top: "next_story_level", properties: ["Pset_WallCommon.FireRating"], type_snap_mm: 5 } },
+        { category: "Doors", DD: { type: "guideline_rule", level: "story_level", host: "wall" } },
+      ],
+    });
+    m.status = "draft"; m.stage_CD = "constr";
+    expect(f.toBody(m, null, ctx)).toMatchObject({ status: "draft", stage_map: { CD: "constr" } });
+  });
+
+  it("says the mistakes in plain words", () => {
+    const f = STANDARD_FORMS.lod_matrix;
+    const base = () => ({ ...f.fromBody(null), rows: [r({ category: "Walls" })] });
+    expect(() => f.toBody({ ...f.fromBody(null), rows: [] }, null, ctx)).toThrow(/at least one class/);
+    expect(() => f.toBody({ ...base(), rows: [r({ category: "Walls" }), r({ category: "Walls" })] }, null, ctx)).toThrow(/Walls appears twice/);
+    expect(() => f.toBody({ ...base(), rows: [r({ category: "Doors", snap: "10" })] }, null, ctx)).toThrow(/Type snap for Doors must be 0/);
+    expect(() => f.toBody({ ...base(), rows: [r({ category: "Walls", snap: "60" })] }, null, ctx)).toThrow(/Type snap for Walls must be a whole number from 0 to 50/);
+    expect(() => f.toBody({ ...base(), stage_SD: "coord", stage_DD: "design" }, null, ctx)).toThrow(/Design development \(DD\) cannot come before Schematic design \(SD\)/);
+  });
+
+  it("every class and project stage the form offers installs", () => {
+    for (const category of ["Walls", "Floors", "Roofs", "Ceilings", "Doors", "Windows"])
+      expect(validateArtefact("lod_matrix", { standard_key: "k", semver: "1.0.0", rows: [{ category, DD: { type: "guideline_rule" } }] })).toBe(true);
+    for (const stage of ["tender", "design", "coord", "constr", "hand", "oper"])
+      expect(validateArtefact("lod_matrix", { standard_key: "k", semver: "1.0.0", stage_map: { concept: stage, SD: stage, DD: stage, CD: stage }, rows: [{ category: "Walls", DD: { type: "guideline_rule" } }] })).toBe(true);
+  });
+});
+
+describe("the Revit windows (batch 3) — what they save installs on the bridge", () => {
+  // Written and compared by tools/guideline-check (GuidelineEdit) and tools/publish-check (IfcExportMapping.ToJson) — the same bytes.
+  for (const [kind, file] of [["guideline", "guideline-new.json"], ["ifc_export", "ifc-export-new.json"]] as const)
+    it(`${kind} ← fixtures/standard-windows/${file}`, () => expect(validateArtefact(kind, repo(`WebApp/bridge/fixtures/standard-windows/${file}`))).toBe(true));
+  it("the guideline and ifc_export rows name the Revit window", () => {
+    expect(STANDARD_LINKS.guideline).toEqual({ text: "Edit in Revit ▸ Standards & Build ▸ Standards ▸ Modelling Guideline" });
+    expect(STANDARD_LINKS.ifc_export).toEqual({ text: "Edit in Revit ▸ Standards & Build ▸ Standards ▸ IFC Export Mapping" });
+    expect(Object.values(STANDARD_LINKS).some((l) => "text" in l && /No editor yet/.test(l.text))).toBe(false);
+  });
+});
+
 describe("standard forms — every kind in Standards in force has a form or a named place", () => {
   it("covers the bridge's kinds (evidence_pack and recipe have their own routes)", async () => {
     // @ts-ignore
