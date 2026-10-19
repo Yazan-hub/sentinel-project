@@ -2187,7 +2187,7 @@
  "Sentinel_GuidelineEditor": {
   "summary": "Set the office's modelling guideline in a window: the rules that type what Sentinel builds and promotes, the sheets Annotate makes and the worksets new elements go on.",
   "overview": [
-   "The modelling guideline tells Sentinel which family and type to use. For each category (walls, floors, doors, stairs …) it holds rules in order — when a CAD layer, a level, a discipline or a parameter matches, use this family and this type (or a type pattern such as EXT_{thickness} mm) — and a default for when no rule matches. The first rule that matches an element wins. Ghost Builder, Shell a Mass and Promote read it.",
+   "The modelling guideline tells Sentinel which family and type to use. For each category (walls, floors, doors, stairs …) it holds rules in order — when a CAD layer, a level, a discipline or a parameter matches, use this family and this type (or a type pattern such as EXT_{thickness} mm) — and a default for when no rule matches. A rule with more conditions is tried before one with fewer; between rules with as many conditions, the higher one wins. Ghost Builder, Shell a Mass and Promote read it.",
    "The window shows the guideline in force for this model's web project: the project's own, or its office's. Families, types, levels, title blocks and worksets are offered from this model; you can type a name that is not in it. What the window does not show (view standards, graphics and any other part of the guideline) is kept as it is when you save."
   ],
   "prerequisites": [
@@ -2197,7 +2197,7 @@
   "inputs": [],
   "steps": [
    "Click Standards ▸ Modelling Guideline under Sentinel > Standards & Build.",
-   "Pick a category, or add one. Change its rules: the condition (CAD layer, level, discipline, parameters such as Material = STONE) and what to use (family, type or type pattern; the run width for stairs). Use ↑ and ↓ to order them, and fill the default.",
+   "Pick a category, or add one. Change its rules: the condition (CAD layer, level, discipline, parameters such as Material = STONE) and what to use (family, type or type pattern; the run width for stairs). Use ↑ and ↓ to order rules with as many conditions, and fill the default.",
    "Optionally set the sheets (title block, number and name patterns with {level}, {use}, {prefix}, {n}) and the workset for each category's new elements.",
    "Choose This project, or Every project in the office, and press Save. The window names the version saved; it is recorded in the ledger."
   ],

@@ -91,6 +91,13 @@ static partial class Check
         Ok(Fails(e => e.TitleBlock = "A1 metric") == "The guideline would not install: sheets.titleBlock must be \"Family : Type\"",
            "what the window does not word itself is the add-in's check, in the bridge's words");
         Ok(Fails(e => e.Elements.Clear()) == "Add at least one category and its rules.", "a guideline needs a category");
+        Ok(Fails(e => e.Elements[1].Rules[0].Use.WidthMm = "NaN") == "Stairs, rule 1: the stair's run width is a number of millimetres from 300 to 5000.",
+           "NaN is not a width (it compares false both ways) — refused in words, never an exception on save");
+        // Review finding 2: a blank condition installed before MA-2a is taken out on save, even when the card left it as it was.
+        var old = GuidelineEdit.From("{\"standard\":\"Old\",\"elements\":[{\"category\":\"Walls\",\"rules\":[{\"when\":{\"layer\":\"\",\"level\":\"Level 1\"},\"use\":{\"family\":\"Basic Wall\"}}]}]}");
+        var oldJson = old.ToJson(out var oldProblem);
+        Ok(oldJson != null && JsonNode.Parse(oldJson)["elements"][0]["rules"][0]["when"].ToJsonString() == "{\"level\":\"Level 1\"}",
+           "an old guideline's blank layer is dropped on an unchanged save, so the bridge takes it" + (oldProblem == null ? "" : " — " + oldProblem));
 
         var cleared2 = GuidelineEdit.From(fresh);
         cleared2.TitleBlock = cleared2.SheetNumber = cleared2.SheetName = ""; cleared2.Worksets.Clear(); cleared2.PhaseView = false;

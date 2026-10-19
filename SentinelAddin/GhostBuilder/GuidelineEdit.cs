@@ -139,6 +139,10 @@ namespace Sentinel.GhostBuilder
             Set(when, "layer", r.Layer, read.Layer);
             Set(when, "level", r.Level, read.Level);
             Set(when, "discipline", r.Discipline, read.Discipline);
+            // A condition present but blank (or not text) in a body installed before MA-2a is refused by the bridge — taken out even when
+            // the card left it as it was, so an old guideline can be saved from the window.
+            foreach (var k in new[] { "layer", "level", "discipline" })
+                if (when.ContainsKey(k) && Str(when, k).Trim().Length == 0) when.Remove(k);
             if (r.Params != read.Params)
             {
                 var p = ParseParams(r.Params, where);
@@ -166,7 +170,7 @@ namespace Sentinel.GhostBuilder
                 var p = Clone(o["params"] as JsonObject);
                 var t = (u.WidthMm ?? "").Trim().Replace(',', '.');
                 if (t.Length == 0 && !stairs) p.Remove("width_mm");
-                else if (!double.TryParse(t, NumberStyles.Float, CultureInfo.InvariantCulture, out var mm) || mm < 300 || mm > 5000)
+                else if (!double.TryParse(t, NumberStyles.Float, CultureInfo.InvariantCulture, out var mm) || !(mm >= 300 && mm <= 5000)) // NaN fails too
                     throw new Say($"{where}: the stair's run width is a number of millimetres from 300 to 5000.");
                 else p["width_mm"] = mm;
                 if (p.Count == 0) o.Remove("params"); else o["params"] = p;

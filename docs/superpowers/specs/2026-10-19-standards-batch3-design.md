@@ -56,7 +56,7 @@ default?}], sheets?, placement?, …}`. The window shows and edits:
 - **Name of the guideline** (`standard`).
 - **Rules for a category:** a category picker (the guideline's categories, plus *Add a category* from the ones Sentinel
   types: Walls, Floors, Roofs, Ceilings, Doors, Windows, Columns, Furniture, Stairs, Structural Framing). The category's rules
-  are cards in order — the first that matches wins — with ↑ ↓ and Remove. A card: **when** layer, level (this model's levels),
+  are cards with ↑ ↓ and Remove (the resolvers try a rule with more conditions first; ↑ ↓ orders rules with as many). A card: **when** layer, level (this model's levels),
   discipline, parameters (`Material = STONE; Fire = 60`); **use** family (this model's families of that category), type (that
   family's types), or a type pattern (`BDS_EXT_{thickness} mm`), and the stair run width in mm for Stairs; **why** (optional).
   A rule with no condition is refused in words (*use the default*). Then the category's **default** (family, type or
@@ -66,7 +66,7 @@ default?}], sheets?, placement?, …}`. The window shows and edits:
 - **Placement** (optional): for each category Sentinel places, the workset (this model's worksets; blank = the active
   workset); *place in the phase of the view* (`phase: view`).
 
-Kept as they are: views, viewNaming, graphics, office, status, references and any other key; a rule's other `use.params`
+A blank condition read from an old body (before MA-2a) is taken out on save, as the bridge refuses it. Kept as they are: views, viewNaming, graphics, office, status, references and any other key; a rule's other `use.params`
 and keys; a `when` field the card leaves blank is removed from that rule (blank is never written: the bridge refuses it).
 
 ## Settings rows (`STANDARD_LINKS`)
@@ -83,7 +83,8 @@ and keys; a `when` field the card leaves blank is removed from that rule (blank 
   every repository guideline and every accepted ifc-export fixture case and write it back unchanged (deep-equal), check the
   plain-word refusals, and build a new body each that must equal `WebApp/bridge/fixtures/standard-windows/*.json`; vitest runs
   those same files through `validateArtefact` (the promote-body.json idiom). `SENTINEL_WRITE_FIXTURES=1` rewrites them.
-- The windows refuse to save over a version saved since they opened (the sha read is checked again before the PUT), and a
+- The windows refuse to save over a version saved since they opened (the target's sha — the project's, or the office's for an office
+  save — is read again before the PUT), and a
   copy read from the machine cache or a none the bridge did not confirm is read-only.
 - The add-in builds for 2021–2027.
 

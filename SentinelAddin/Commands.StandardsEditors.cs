@@ -104,7 +104,7 @@ public abstract class StandardEditorWindow : Window
     private readonly TextBlock _inForce = new() { TextWrapping = TextWrapping.Wrap, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 6) };
     private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0), MinHeight = 34 };
     private readonly Button _save = new() { Content = "Save", Padding = new Thickness(14, 4, 14, 4), FontWeight = FontWeights.Bold, IsEnabled = false };
-    private string _office, _readSha;
+    private string _office, _readSha, _officeSha;
     private bool _projectHasOwn;
 
     protected StandardEditorWindow(string key, string kind, string title, string intro)
@@ -156,6 +156,8 @@ public abstract class StandardEditorWindow : Window
         var scope = GovernedNotify.ProjectScope(Key);
         string office = null, officeWhy = scope.Error;
         if (scope.Error is null) office = TypeCatalogExport.OfficeKeyFrom(scope.Json, Key, out officeWhy);
+        // The office's own version, for a save for the office: the project's in force may be its own copy, not the office's.
+        var o = office != null ? ArtefactClient.Resolve(office, Kind) : null;
         var role = ChangesetClient.MyRole(BcfConfig.Load(), Key, out var roleError);
         var (lead, why) = ChangesetClient.CoordinatorFrom(Key, role, roleError);
         Dispatcher.BeginInvoke(new Action(() =>
@@ -167,6 +169,7 @@ public abstract class StandardEditorWindow : Window
             try { Fill(a.Origin != "none" ? a.BodyJson : null); }
             catch (Exception e) { blocked ??= $"{a.Label} did not read ({e.Message})"; }
             _readSha = a.Origin == "bridge" ? a.Sha256 : null;
+            _officeSha = o?.Origin == "bridge" ? o.Sha256 : null;
             _projectHasOwn = a.Origin != "none" && string.Equals(a.Source, "project", StringComparison.OrdinalIgnoreCase);
             _office = office;
             _toOffice.IsEnabled = lead && office != null && blocked == null;
@@ -180,17 +183,19 @@ public abstract class StandardEditorWindow : Window
     private void Save()
     {
         var target = _toOffice.IsChecked == true && _office != null ? _office : Key;
-        var body = BodyJson(out var problem);
+        string body, problem;
+        try { body = BodyJson(out problem); }
+        catch (Exception e) { Say("Not saved: " + e.Message, true); return; }
         if (body == null) { Say("Not saved: " + problem, true); return; }
         string actor;
         try { actor = UserSession.Actor; }
         catch (Exception e) { Say("Not saved: " + e.Message, true); return; }
         _save.IsEnabled = false;
         Say($"Saving on {target}…", false);
-        var readSha = _readSha;
+        var readSha = target == Key ? _readSha : _officeSha;
         Task.Run(() =>
         {
-            var now = ArtefactClient.Resolve(Key, Kind);
+            var now = ArtefactClient.Resolve(target, Kind);
             string stale = now.Origin == "bridge" ? (now.Sha256 == readSha ? null : $"{now.Label} was saved since this window opened — close it and open it again to see it; nothing was saved")
                          : now.NotInstalled || now.NoProject ? (readSha == null ? null : $"the {Kind} this window opened with is no longer in force — close it and open it again; nothing was saved")
                          : "the bridge was not reached (" + now.Reason + "); nothing was saved";
@@ -200,6 +205,7 @@ public abstract class StandardEditorWindow : Window
                 _save.IsEnabled = true;
                 if (put.Error != null) { Say($"Not saved on {target}: {put.Error}", true); return; }
                 Say($"✓ Saved as {Kind}@{put.Version} on {target}, recorded in the ledger. Sentinel uses it from the next command you run.", false);
+                if (target != Key) _officeSha = put.Sha256;
                 if (target == Key || !_projectHasOwn) { _readSha = put.Sha256; _inForce.Text = $"In force now: {Kind}@{put.Version} · " + (target == Key ? "project" : "office"); }
                 if (target == Key) _projectHasOwn = true;
             }));
@@ -269,7 +275,7 @@ public sealed class GuidelineWindow : StandardEditorWindow
     private readonly StackPanel _standard = new();
 
     public GuidelineWindow(string key, Picks picks) : base(key, "guideline", "Modelling Guideline",
-        "How Sentinel types what it builds and promotes: for each category, rules in order — the first that matches an element wins — and a default. Also the sheets Annotate makes and the worksets new elements go on. Names come from this model; type another if it is not here.")
+        "How Sentinel types what it builds and promotes: for each category, rules and a default. A rule with more conditions is tried before one with fewer; between rules with as many conditions, the higher one wins (↑ ↓). Also the sheets Annotate makes and the worksets new elements go on. Names come from this model; type another if it is not here.")
     {
         _p = picks;
         Body.Children.Add(_standard);
@@ -376,7 +382,15 @@ public sealed class GuidelineWindow : StandardEditorWindow
         fams ??= new SortedDictionary<string, List<string>>();
         ComboBox type = null;
         List<string> TypesOf(string family) => fams.TryGetValue((family ?? "").Trim(), out var t) ? t : new List<string>();
-        var family = Pick(fams.Keys, u.Family, v => { u.Family = v; if (type != null) type.ItemsSource = TypesOf(v); });
+        var family = Pick(fams.Keys, u.Family, v =>
+        {
+            if (v == u.Family) return;
+            u.Family = v;
+            if (type == null) return;
+            var keep = type.Text; // swapping the list may clear an editable box's text; the type stays as the person left it
+            type.ItemsSource = TypesOf(v);
+            type.Text = keep;
+        });
         type = Pick(TypesOf(u.Family), u.Type, v => u.Type = v);
         into.Children.Add(Field("Use — family", family, 170));
         into.Children.Add(Field("type", type, 200));
