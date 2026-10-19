@@ -5,10 +5,11 @@ import { getAppManager } from "../app";
 import { publishContractToPlatform, mirrorLine, type ContractClient } from "./platform-contract";
 import { myRole, myRoleRead, roleWords, canGovernRole, canDeleteProjectRole, grantableRoles } from "./my-role";
 import { loadScope } from "./load-scope";
-import { artefactInForce, refLabel, installArtefactFile, canInstallArtefacts, type InForce } from "./active-ruleset";
+import { artefactInForce, refLabel, installArtefact, installArtefactFile, canInstallArtefacts, type InForce } from "./active-ruleset";
 import { currentUser } from "./auth";
 import { escapeHtml as esc } from "./escape-html";
 import { packFilename, packWords, saveAs } from "./audit-pack";
+import { STANDARD_FORMS, STANDARD_LINKS, renderStandardForm } from "./standard-forms";
 
 /**
  * Project Settings (Forma-style) — the admin page inside a project's space. General (name, owner,
@@ -29,7 +30,7 @@ interface ProjectRow {
   office_key?: string | null;
 }
 
-export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () => void } = {}): HTMLElement {
+export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () => void; onOpen?: (place: "docs" | "standards" | "carbon") => void } = {}): HTMLElement {
   const base = (opts.baseUrl ?? SERVICE_URL).replace(/\/$/, "");
   const pid = () => activePid();
 
@@ -67,6 +68,7 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
     `<div><label style="${lbl}">Created</label><input id="ps-created" style="${inp};color:#71717a" disabled/></div>` +
     "</div>" +
     '<div id="ps-standards" style="margin-top:1.2rem"></div>' +
+    '<div id="ps-std-edit"></div>' +
     '<div id="ps-members" style="margin-top:1.2rem"></div>' +
     '<div style="border:1px solid #7f1d1d;border-radius:.45rem;margin-top:1.6rem;padding:.7rem .8rem;background:#1c1214">' +
     '<div style="color:#fca5a5;font-weight:600;font-size:12px">Danger zone</div>' +
@@ -263,10 +265,11 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
 
   // ── Standards in force: each artefact kind's ref · source · sha · installer · date. The list route answers the
   // project's own pointers; a kind it lacks is asked of the resolving route, which falls back to the office — so
-  // an inherited standard shows as `· office`, and "none" means none anywhere. A lead or owner gets "Install
-  // JSON…" on every row (spec 2026-09-25 standards 4b, decision 11): the bridge validates the body and refuses
-  // below lead; its message is shown as it came, and the row then names the new `kind@n · project · sha`. A key
-  // the bridge does not know fails the list call, so no row (and no control) renders for it.
+  // an inherited standard shows as `· office`, and "none" means none anywhere. A lead or owner changes a standard
+  // without JSON (spec 2026-10-19 standards-forms, the founder's rule): "Edit…" opens its form, or the row names
+  // where it is edited (Documents, Standards, Carbon, Revit). A file from another office is imported under Advanced
+  // only. The bridge validates every body and refuses below lead; its message is shown as it came, and the row
+  // then names the new `kind@n · project · sha`. A key the bridge does not know fails the list call, so no row renders.
   let stdSeq = 0; // a slower standards read for the previous project/person never lands last
   async function loadStandards(note?: { text: string; bad?: boolean }) {
     const mine = ++stdSeq, key = pid();
@@ -285,16 +288,37 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
                  : await artefactInForce(base, key, kind)]));
       if (mine !== stdSeq) return;
       const canInstall = canInstallArtefacts(role, key);
-      // MA-4a: no Install JSON… for evidence_pack — the evidence routes write it (the bridge refuses a PUT: MA-4a spec amendment S1).
+      // A lead's or owner's control per kind: its form, the place it is edited, or (evidence_pack) none — the evidence routes write it.
+      const control = (kind: string) => {
+        if (!canInstall) return "";
+        const small = `${btn};padding:.2rem .5rem;font-size:11px;white-space:nowrap`;
+        if (STANDARD_FORMS[kind]) return `<button class="ps-edit" data-kind="${esc(kind)}" style="${small}">Edit…</button>`;
+        const l = STANDARD_LINKS[kind];
+        if (!l) return "";
+        return "open" in l ? `<button class="ps-open" data-open="${esc(l.open)}" style="${small}">${esc(l.label)}</button>`
+          : `<span style="color:#71717a;font-size:10.5px;max-width:13rem;text-align:right">${esc(l.text)}</span>`;
+      };
       host.innerHTML += rows.map(([kind, a]) =>
         `<div style="display:flex;align-items:center;gap:.6rem;padding:.25rem 0;font-size:12px;border-bottom:1px solid #2a2a30">` +
         `<span style="width:6.5rem;color:#9ca3af">${esc(kind)}</span>` +
         (a ? `<span style="flex:1;color:#e5e7eb;font-family:ui-monospace,Consolas,monospace;font-size:11px">${esc(refLabel(a))}</span>` +
              `<span style="color:#71717a;font-size:11px">${esc(a.installed_by ?? "—")} · ${esc((a.installed_at ?? "").slice(0, 10) || "—")}</span>`
            : `<span style="flex:1;color:#71717a">none installed</span>`) +
-        (canInstall && kind !== "evidence_pack" ? `<button class="ps-install" data-kind="${esc(kind)}" style="${btn};padding:.2rem .5rem;font-size:11px">Install JSON…</button>` : "") +
+        control(kind) +
         "</div>").join("");
-      host.querySelectorAll<HTMLButtonElement>(".ps-install").forEach((b) => b.addEventListener("click", () => pickAndInstall(b.dataset.kind!)));
+      host.querySelectorAll<HTMLButtonElement>(".ps-edit").forEach((b) => b.addEventListener("click", () => void openEditor(b.dataset.kind!)));
+      host.querySelectorAll<HTMLButtonElement>(".ps-open").forEach((b) => b.addEventListener("click", () => opts.onOpen?.(b.dataset.open as "docs" | "standards" | "carbon")));
+      // Advanced: a standard exported by another office, imported as a file — the one place a .json is picked (packs exchange).
+      if (canInstall) {
+        host.insertAdjacentHTML("beforeend",
+          `<details id="ps-adv" style="margin-top:.5rem;font-size:11.5px"><summary style="cursor:pointer;color:#9ca3af">Advanced ▸ Import a file from another office</summary>` +
+          `<div style="display:flex;align-items:center;gap:.5rem;padding:.4rem 0;flex-wrap:wrap">` +
+          `<span style="color:#71717a;flex:1 1 14rem">A standard another Sentinel office exported (.json), installed as this project's next version of its kind.</span>` +
+          `<select id="ps-adv-kind" aria-label="Kind of standard" style="background:#111;color:#eee;border:1px solid #333;border-radius:.3rem;padding:.25rem;font:11.5px system-ui">` +
+          rows.filter(([k]) => k !== "evidence_pack").map(([k]) => `<option value="${esc(k)}">${esc(k)}</option>`).join("") + `</select>` +
+          `<button id="ps-adv-pick" style="${btn};padding:.2rem .5rem;font-size:11px">Choose file…</button></div></details>`);
+        host.querySelector("#ps-adv-pick")!.addEventListener("click", () => pickAndInstall((host.querySelector("#ps-adv-kind") as HTMLSelectElement).value));
+      }
       // Paperwork slice 5 (the audit pack since MA-4a): the Kitemark audit's day-one file — a lead's or an owner's to download.
       if (canGovernRole(role)) {
         host.insertAdjacentHTML("beforeend",
@@ -328,8 +352,21 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
     }
   }
 
-  /** Install JSON… on one row: pick a .json, install it as `kind@n+1` on the project the row belongs to, re-render
-   *  the section with the outcome. The key is taken at the click, not after the file dialog closes. */
+  const who = () => currentUser().then((u) => u?.email || "web", () => "web");
+  /** A contract also travels to the linked platform project, where the platform's Sentinel gate reads it (spec
+   *  2026-09-27 platform-delivery-gate Decision 7). The ledger row is the record; this is a mirror, and a copy that
+   *  could not be made is said, never hidden. Only into the platform project `key` is linked to: the one the app runs
+   *  in may belong to another Sentinel project, whose gate would then judge by this contract. → " · <words>" or "". */
+  async function mirrorWords(kind: string, key: string, body: object, ref: string): Promise<string> {
+    if (kind !== "contract") return "";
+    const here = platformProjectId();
+    const linked = current?.key === key ? current.settings?.platform_project_id ?? null : null;
+    if (here && linked !== here) return ` · not copied to the platform — ${key} is not linked to this platform project (Settings ▸ Platform project)`;
+    return ` · ${mirrorLine(await publishContractToPlatform(getAppManager().client as unknown as ContractClient | undefined, here, body, ref))}`;
+  }
+
+  /** Advanced ▸ Import a file from another office: pick a .json, install it as `kind@n+1` on the project in view,
+   *  re-render the section with the outcome. The key is taken at the click, not after the file dialog closes. */
   function pickAndInstall(kind: string) {
     const key = pid();
     const input = document.createElement("input");
@@ -339,21 +376,63 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
       const file = input.files?.[0];
       if (!file) return;
       try {
-        const who = await currentUser().then((u) => u?.email || "web", () => "web");
         const text = await file.text();
-        const p = await installArtefactFile(base, key, kind, file.name, text, who);
-        // A contract also travels to the linked platform project, where the platform's Sentinel gate reads it (spec
-        // 2026-09-27 platform-delivery-gate Decision 7). The ledger row above is the record; this is a mirror, and a
-        // copy that could not be made is said, never hidden.
-        const mirror = kind === "contract"
-          ? ` · ${mirrorLine(await publishContractToPlatform(getAppManager().client as unknown as ContractClient | undefined, platformProjectId(), JSON.parse(text), `${kind}@${p.version}`))}`
-          : "";
+        const p = await installArtefactFile(base, key, kind, file.name, text, await who());
+        const mirror = await mirrorWords(kind, key, JSON.parse(text), `${kind}@${p.version}`);
         await loadStandards({ text: `✓ ${kind}@${p.version} installed on ${key} from ${file.name} (sha ${String(p.sha256).slice(0, 12)}…)${mirror}.` });
       } catch (e) {
         await loadStandards({ text: `${kind} not installed on ${key}: ${(e as Error)?.message ?? String(e)}`, bad: true });
       }
     });
     input.click(); // detached: a cancelled pick fires no change event and leaves nothing in the page
+  }
+
+  /** Edit… on one row: the kind's form under the list, filled from the standard in force (the project's, else the
+   *  office's). Saving installs `kind@n+1` on the project the form was opened for — never the office's — and
+   *  re-renders the section with the outcome; a refusal (the form's own words, or the bridge's) keeps the form open. */
+  let editSeq = 0, editScope = ""; // the project + person an open form was filled for: another one closes it (load())
+  async function openEditor(kind: string) {
+    const mine = ++editSeq, key = pid(), form = STANDARD_FORMS[kind];
+    editScope = loadScope(key);
+    const box = el("ps-std-edit");
+    box.innerHTML = `<div style="color:#9ca3af;font-size:11.5px;padding:.4rem 0">Reading the ${esc(kind)} standard in force…</div>`;
+    try {
+      const a = await artefactInForce<Record<string, unknown>>(base, key, kind);
+      if (mine !== editSeq || key !== pid()) return;
+      const prev = a?.body ?? null;
+      const from = !a ? `Nothing installed yet on ${key} or its office — saving installs ${kind}@1 on ${key}.`
+        : a.source === "office" ? `Starts from the office's ${refLabel(a)}. Saving installs ${key}'s own version; the office's stays as it is.`
+        : `Starts from ${refLabel(a)}. Saving installs the next version on ${key}.`;
+      const formEl: HTMLElement = renderStandardForm(form, form.fromBody(prev), {
+        from,
+        onCancel: () => box.replaceChildren(),
+        onSave: async (m) => {
+          try {
+            if (key !== pid()) throw new Error(`The project in view is no longer ${key} — open the form again`);
+            const body = form.toBody(m, prev, { projectKey: key });
+            // Saved on what the form was filled from, never over a version installed since (an import, another lead, another tab).
+            const now = await artefactInForce(base, key, kind);
+            if ((now?.ref ?? "") !== (a?.ref ?? "") || (now?.source ?? "") !== (a?.source ?? "") || (now?.sha256 ?? "") !== (a?.sha256 ?? ""))
+              throw new Error(`Not saved — the ${kind} standard changed since this form opened (now ${now ? refLabel(now) : "none"}); open the form again to start from it`);
+            let p: { version: number; sha256: string };
+            try { p = await installArtefact(base, key, kind, { ...body, source: { form: "project-settings", edited_at: new Date().toISOString() } }, await who()); }
+            catch (e) { throw new Error(`Not saved — ${(e as Error)?.message ?? String(e)}`); }
+            const mirror = await mirrorWords(kind, key, body, `${kind}@${p.version}`);
+            if (formEl.isConnected) box.replaceChildren(); // another Edit… opened meanwhile keeps its form
+            await loadStandards({ text: `✓ ${kind}@${p.version} saved on ${key} (sha ${String(p.sha256).slice(0, 12)}…)${mirror}.` });
+          } catch (e) {
+            // A form replaced while it saved shows its words nowhere: the section says them instead.
+            if (!formEl.isConnected) await loadStandards({ text: `${kind} not saved on ${key} — ${(e as Error)?.message ?? String(e)}`, bad: true });
+            throw e;
+          }
+        },
+      });
+      box.replaceChildren(formEl);
+      box.scrollIntoView?.({ block: "nearest" });
+    } catch (e) {
+      if (mine !== editSeq) return;
+      box.innerHTML = `<div style="color:#fca5a5;font-size:11.5px;padding:.4rem 0">The ${esc(kind)} standard in force was not read — ${esc((e as Error)?.message ?? String(e))}. Nothing was changed.</div>`;
+    }
   }
 
   let seq = 0; // a slower settings read for the previous project/person never lands last
@@ -364,6 +443,7 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
     lockControls(true); // fail closed until the role is read
     status("Loading…");
     el("pset-key").textContent = key;
+    if (editScope !== scope) { editSeq++; editScope = ""; el("ps-std-edit").replaceChildren(); } // a form filled for another project or person never saves here
     void loadMembers();
     void loadStandards();
     try {
