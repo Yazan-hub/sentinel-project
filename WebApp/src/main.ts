@@ -295,7 +295,16 @@ async function main() {
   const deliverablesEl = deliverablesPanel(components, { baseUrl: SERVICE_URL });
 
   // ── The project space (Forma-style): hub grid ⇄ per-project Dashboard | Project Files | Settings ──
-  const projectSettingsEl = projectSettingsPanel({ baseUrl: SERVICE_URL, onDeleted: () => showHub() });
+  // Standards in force names where a standard with no Settings form is edited (spec 2026-10-19 standards-forms): the
+  // Documents tab beside it, the Standards sidebar, or Lifecycle ▸ Carbon 6D.
+  const projectSettingsEl = projectSettingsPanel({
+    baseUrl: SERVICE_URL, onDeleted: () => showHub(),
+    onOpen: (place) => {
+      if (place === "docs") (spaceTabsEl as unknown as { showTab: (i: number) => void }).showTab(tabIndex(spaceTabs.map((t) => t.label), "Documents"));
+      else if (place === "standards") app.layout = "Standards";
+      else { app.layout = "Lifecycle"; (lifecycleEl as unknown as { showTab: (i: number) => void }).showTab(1); } // Carbon 6D
+    },
+  });
   const spaceTabs = [
     { label: "Dashboard", el: projectEl },
     { label: "Project Files", el: filesEl },
