@@ -29,6 +29,7 @@ import { timelinePanel } from "./setups/timeline-panel";
 import { carbonPanel } from "./setups/carbon-panel";
 import { cobiePanel } from "./setups/cobie-panel";
 import { ownerPanel } from "./setups/owner-panel";
+import { dataFeedPanel } from "./setups/data-feed-panel";
 import { tenderPanel } from "./setups/tender-panel";
 import { rfiPanel } from "./setups/rfi-panel";
 import { issuePanel } from "./setups/issue-panel";
@@ -263,6 +264,7 @@ async function main() {
   const cobieEl = cobiePanel(components, { baseUrl: SERVICE_URL });
   // Owner / FM portal — read-only stakeholder view; the golden thread (Phase 3).
   const ownerEl = ownerPanel(components, { baseUrl: SERVICE_URL });
+  const feedEl = dataFeedPanel({ baseUrl: SERVICE_URL }); // the no-toll feed for Power BI / Excel
   // Tender module — BoQ-driven tendering + bid comparison; front of the lifecycle (Phase 4).
   const tenderEl = tenderPanel(components, { baseUrl: SERVICE_URL });
   // RFIs / approvals — coordination objects beside BCF issues (Phase 2).
@@ -403,6 +405,7 @@ async function main() {
     { label: "COBie 7D", el: cobieEl },
     { label: "Tender", el: tenderEl },
     { label: "Owner", el: ownerEl },
+    { label: "Data feed", el: feedEl },
   ]);
 
   app.elements = {

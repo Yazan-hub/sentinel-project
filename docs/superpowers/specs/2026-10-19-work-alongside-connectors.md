@@ -65,13 +65,17 @@ unmodified, under `WebApp/bridge/fixtures/bcf-xml/` with the CC BY-ND 4.0 notice
 **Sign-in (founder's choice: feed key over Basic).**
 - A signed-in user makes a personal feed key on the Data feed screen. It is shown once, stored only as its SHA-256, and can
   be revoked. Power BI / Excel use **Basic**: user name = anything (the email), password = the key. The key is never in the
-  URL. A sign-in JWT also works (Bearer) for scripts. The machine credential is refused on `/feed/*`.
+  URL. The machine credential is refused on the feed routes. (A sign-in JWT is not accepted there: it expires hourly, and
+  scripts can use a feed key too.) Keys are made, listed and revoked at `/feed/keys` by a signed-in person only.
 - Migration `0044_feed_keys.sql`: table `feed_keys (id, user_id, key_hash unique, label, created_at, last_used_at,
   revoked_at)`; RLS: a user reads, inserts and revokes only their own rows. Function `feed_rows(key_hash, project_key, rev)`
   (security definer, executable by `anon`): resolves a live key to its user, checks that user is a member of the project, and
   returns that revision's rows. The bridge calls it with the anon key, so membership is enforced in the database, not in
   bridge code. Removing a member stops their feed at the next refresh.
 - Rate limit: 60 requests a minute per key, 600 a minute in all (the limiter the public receipt check uses).
+
+**Built as:** `bridge/feed.mjs` (routes, Basic, CSV), `cde-store.mjs` `feedRpc` (anon key), `db/migrations/0044_feed_keys.sql`,
+`src/setups/data-feed-panel.ts` (Lifecycle ▸ Data feed).
 
 **Two-office isolation.** The suite gains: office B's key returns nothing for office A's project; a revoked key returns
 nothing; a removed member's key returns nothing; user A cannot read or revoke user B's keys. `feed_keys` is user-scoped, so

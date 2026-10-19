@@ -59,6 +59,15 @@ function serveFake(req, res) {
     const reply = (status, body) => { res.writeHead(status, { "Content-Type": "application/json" }); res.end(body === undefined ? undefined : JSON.stringify(body)); };
     if (u.pathname.startsWith("/auth/v1/")) { log.push({ method: req.method, table: "gotrue", service: true, search: u.search }); return reply(404, { message: "not in the fake" }); }
     const table = u.pathname.replace(/^\/rest\/v1\//, "");
+    // 0044's feed functions, played as the database plays them: a live key of a member answers, else the function's words.
+    if (table.startsWith("rpc/feed_")) {
+      const a = JSON.parse(text || "{}");
+      log.push({ method: req.method, table, apikey: req.headers.apikey, bearer: String(req.headers.authorization || ""), body: a });
+      const k = (fake.feedKeys || {})[a.p_key];
+      if (!k) return reply(400, { code: "28000", message: "feed key not valid" });
+      if (a.p_project_key !== k.project) return reply(403, { code: "42501", message: "not a member of this project" });
+      return reply(200, table === "rpc/feed_rows" ? (fake.feedRows || []) : [{ id: "r1", revision: "P01", revision_date: "2026-10-19T10:00:00+00:00", uploaded_by: "x", element_count: 2 }]);
+    }
     const bearer = String(req.headers.authorization || "").replace(/^Bearer /, "");
     const service = bearer === SERVICE;
     const sub = service ? null : JSON.parse(Buffer.from(bearer.split(".")[1] || "", "base64url").toString() || "{}").sub;
@@ -456,6 +465,60 @@ describe("BCF topics (topics-1): a contributor's work; closing or renaming a gov
     expect((await call("POST", T, "contributor", { title: "IDS: Doors — FireRating (3 failing)" })).status).toBe(201);
     expect((await call("PUT", `${T}/G1`, "lead", { title: "IDS: Doors — FireRating (3 failing)" })).status).toBe(200);
     expect((await call("POST", T, "lead", { title: "Federation: FG-01 Levels (2)", topic_status: "Closed" })).status).toBe(201);
+  });
+});
+
+describe("the data feed (0044): a feed key over Basic, never the machine credential; keys are a signed-in person's", () => {
+  const basic = (key) => `Basic ${Buffer.from(`me@x.test:${key}`).toString("base64")}`;
+  const get = async (path, authorization) => {
+    const r = await fetch(`http://127.0.0.1:${port}${path}`, { headers: authorization ? { Authorization: authorization } : {} });
+    return { status: r.status, type: r.headers.get("content-type"), www: r.headers.get("www-authenticate"), text: new TextDecoder("utf-8", { ignoreBOM: true }).decode(await r.arrayBuffer()) };
+  };
+  beforeEach(() => {
+    fake.feedKeys = { "sfk_good": { project: "demo" } };
+    fake.feedRows = [{ revision: "P01", revision_date: "2026-10-19T10:00:00+00:00", guid: "=HYPERLINK(1)", category: "IFCWALL", type_name: "Wall, 200", count: 1, length: -2.5, area: null, volume: 3, weight: null }];
+  });
+
+  it("no credential is a 401 that asks for Basic; the machine credential is a 403 in words; neither reaches the database", async () => {
+    const none = await get("/feed/demo/elements.csv");
+    expect([none.status, none.www]).toEqual([401, 'Basic realm="Sentinel data feed", charset="UTF-8"']);
+    const machine = await get("/feed/demo/elements.csv", `Bearer ${TOKEN}`);
+    expect([machine.status, JSON.parse(machine.text).message]).toEqual([403, "the data feed is a person's: sign in with your own feed key (Data feed screen), not the machine credential"]);
+    expect(log.filter((c) => c.table.startsWith("rpc/"))).toEqual([]);
+  });
+
+  it("a live key reads CSV (BOM, formula cells defused, numbers as numbers) and JSON; the database is asked with the anon key, never the service key", async () => {
+    const csv = await get("/feed/demo/elements.csv?rev=P01", basic("sfk_good"));
+    expect([csv.status, csv.type]).toEqual([200, "text/csv; charset=utf-8"]);
+    expect(csv.text).toBe("﻿revision,revision_date,guid,category,type_name,count,length,area,volume,weight\r\nP01,2026-10-19T10:00:00+00:00,'=HYPERLINK(1),IFCWALL,\"Wall, 200\",1,-2.5,,3,\r\n");
+    expect(JSON.parse((await get("/feed/demo/elements.json", basic("sfk_good"))).text)).toEqual(fake.feedRows);
+    expect((await get("/feed/demo/revisions.csv", basic("sfk_good"))).text).toContain("r1,P01,2026-10-19T10:00:00+00:00,x,2");
+    const calls = log.filter((c) => c.table.startsWith("rpc/"));
+    expect(calls.map((c) => [c.table, c.apikey, c.bearer])).toEqual([["rpc/feed_rows", "fake-anon-key", "Bearer fake-anon-key"], ["rpc/feed_rows", "fake-anon-key", "Bearer fake-anon-key"], ["rpc/feed_revisions", "fake-anon-key", "Bearer fake-anon-key"]]);
+    expect(calls[0].body).toEqual({ p_key: "sfk_good", p_project_key: "demo", p_rev: "P01" });
+    expect(calls[1].body.p_rev).toBe("latest");
+  });
+
+  it("a revoked or unknown key is a 401 that asks again; another project is a 403 — both in words", async () => {
+    const bad = await get("/feed/demo/elements.csv", basic("sfk_revoked"));
+    expect([bad.status, bad.www, JSON.parse(bad.text).message]).toEqual([401, 'Basic realm="Sentinel data feed", charset="UTF-8"', "this feed key is not valid or was revoked — make a new one on the Data feed screen"]);
+    const other = await get("/feed/other-project/elements.csv", basic("sfk_good"));
+    expect([other.status, JSON.parse(other.text).message]).toEqual([403, "the feed key's owner is not a member of this project, or there is no such project"]);
+  });
+
+  it("keys: the machine credential makes none; a person makes one (shown once, only its hash sent to the database, under their sign-in), lists and revokes it", async () => {
+    expect(await call("POST", "/feed/keys", "machine", { label: "x" })).toEqual({ status: 403, body: { message: "feed keys are a signed-in person's — sign in on the web app; nothing was read or made" } });
+    const made = await call("POST", "/feed/keys", "viewer", { label: "Power BI" });
+    expect(made.status).toBe(201);
+    expect(made.body.key).toMatch(/^sfk_[A-Za-z0-9_-]{43}$/);
+    const ins = writes("feed_keys")[0];
+    expect([ins.service, Object.keys(ins.body).sort(), ins.body.label]).toEqual([false, ["key_hash", "label"], "Power BI"]);
+    expect(ins.body.key_hash).toBe(createHash("sha256").update(made.body.key).digest("hex"));
+    expect(JSON.stringify(log)).not.toContain(made.body.key);
+    expect((await call("GET", "/feed/keys", "viewer")).status).toBe(200);
+    const id = db.feed_keys[0].id;
+    expect((await call("DELETE", `/feed/keys/${id}`, "viewer")).status).toBe(200);
+    expect(writes("feed_keys").at(-1)).toMatchObject({ method: "PATCH", service: false });
   });
 });
 

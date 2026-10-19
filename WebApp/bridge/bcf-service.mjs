@@ -717,7 +717,10 @@ async function handleRequest(req, res) {
   if (TOKEN) {
     // openCDE slice 2: a BCF client reaches the versions, the auth document, the consent page and the token endpoint before it holds
     // a bearer (BCF-API 3.0 §3) — those four are public, like /health; everything else keeps the gate.
-    const exempt = (url.pathname === "/health" && req.method === "GET") || (await import("./bcf-open.mjs")).isPublicOpenRoute(req.method, url.pathname);
+    // The data feed's reads sign in with a person's feed key over Basic (feed.mjs, 0044) — the database checks the key; the
+    // machine credential is refused there in words.
+    const exempt = (url.pathname === "/health" && req.method === "GET") || (await import("./bcf-open.mjs")).isPublicOpenRoute(req.method, url.pathname)
+      || !!(await import("./feed.mjs")).parseFeed(req.method, url.pathname);
     if (!exempt && !credentialOk) {
       // Why-log for rejected calls: no secrets, just the credential's shape.
       const why = !bearer ? "no-bearer"
@@ -747,6 +750,15 @@ async function handleRequest(req, res) {
     const cdeMod = await import("./cde-store.mjs");
     if (cdeMod.cdeConfigured() && !cdeMod.forwardingConfigured())
       return send(res, 503, { message: "this bridge does not forward sign-ins (SUPABASE_ANON_KEY) — a signed-in user cannot be served; nothing was read or saved" });
+  }
+
+  // The no-toll data feed (spec 2026-10-19-work-alongside-connectors §2): reads with a feed key, the keys with a sign-in.
+  if (url.pathname.startsWith("/feed/")) {
+    const feed = await import("./feed.mjs");
+    const cdeMod = await import("./cde-store.mjs");
+    const route = feed.parseFeed(req.method, url.pathname);
+    if (route) return feed.answerFeed(route, { req, res, url, cde: cdeMod, send, isMachine: isToken(bearer) });
+    if (await feed.answerFeedKeys(req, res, url, { cde: cdeMod, send, readBody, signedIn: !!currentUserToken() })) return;
   }
 
   // Health (no secrets, no posture): up, CDE configured. The bind host and the CORS allowlist are in the
