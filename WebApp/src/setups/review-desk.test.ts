@@ -176,6 +176,16 @@ describe("recently decided in Revit (MA-3b2b)", () => {
     ]);
   });
 
+  it("revert + saved check (drill REV): a revert is said with who and why; the saved check in Revit's words, 'as applied:' once reverted", () => {
+    const saved = { ...cs, persisted: { state: "confirmed", how: "saved", at: "2026-10-19T18:23:10Z", missing: 0 } } as PendingChangeset;
+    expect(decidedView(saved, row(5)).head).toMatch(/ · ledger #5 · saved in the model$/);
+    const reverted: LedgerRows = { row: 5, reverted: { id: 9, op: "undo", revert: { by: "lead@example.test", reason: "not wanted", kept: 1 } } };
+    expect(decidedView(saved, reverted).head).toMatch(/ · reverted in Revit by lead@example.test: "not wanted" \(ledger #9\) — 1 row\(s\) kept as they stood · as applied: saved in the model$/);
+    const lost = { ...cs, persisted: { state: "lost", how: "reopened", at: "2026-10-19T18:26:11Z", missing: 1 } } as PendingChangeset;
+    expect(decidedView(lost, row(6)).head).toMatch(/ · NOT in the saved model — closed without saving, or Revit stopped \(1 row\(s\)\)$/);
+    expect(decidedView({ ...cs, persisted: { state: "confirmed", how: "synced", at: "", missing: 0 } } as PendingChangeset, row(7)).head).toMatch(/ · synchronised with central$/);
+  });
+
   it("claimed vs verified: a ledger row that was not found or not read is said, never a made-up id; a ghost with no reason says so", () => {
     expect(decidedView(cs, null).head).toMatch(/ · no ledger row found for it · not yet seen saved$/);
     expect(decidedView(cs, new Error("not read — HTTP 500")).head).toMatch(/ · ledger row not read — HTTP 500 · not yet seen saved$/);

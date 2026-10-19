@@ -328,8 +328,10 @@ export function decidedView(cs: PendingChangeset, ledger: LedgerRows | null | Er
       : rev.op === "undo" ? ` · undone in Revit after the report (ledger #${rev.id})` : rev.op === "redo" ? ` · undone, then redone in Revit (ledger #${rev.id})`
       : ` · a changeset_reverted row follows the report (ledger #${rev.id})`)
     // Persisted (2026-10-20): did the saved model keep it? (the add-in's check; absent = not yet seen saved)
-    + (cs.persisted?.state === "confirmed" ? ` · saved in the model (${({ synced: "synced", saved: "saved", saved_locally: "saved locally", reopened: "seen on reopening" } as Record<string, string>)[cs.persisted.how] ?? cs.persisted.how})`
-      : cs.persisted?.state === "lost" ? ` · NOT in the saved model — closed without saving, or Revit stopped (${cs.persisted.missing} row(s))` : cs.status === "applied" || cs.status === "partially_applied" ? " · not yet seen saved" : "");
+    // drill REV (F-REV-2): after a revert the check is about the change as applied (Revit's RevertPlan.State words)
+    + (cs.persisted || cs.status === "applied" || cs.status === "partially_applied" ? " · " + (rev?.revert ? "as applied: " : "") : "")
+    + (cs.persisted?.state === "confirmed" ? (({ synced: "synchronised with central", saved: "saved in the model", saved_locally: "saved locally, not synced yet", reopened: "found in the model when it was reopened" } as Record<string, string>)[cs.persisted.how] ?? `saved in the model (${cs.persisted.how})`)
+      : cs.persisted?.state === "lost" ? `NOT in the saved model — closed without saving, or Revit stopped (${cs.persisted.missing} row(s))` : cs.status === "applied" || cs.status === "partially_applied" ? "not yet seen saved" : "");
   const byGuid = new Map((cs.elements ?? []).map((e) => [e.proposal_guid, e]));
   const rehosted = applied.filter((a) => byGuid.get(a.proposal_guid)?.op === "rehost").length; // MA-5b-5
   // MA-8-7 (amendment 3): only what Revit reported removed counts as removed; a replacing create without a matching removed_unique_id is said apart
