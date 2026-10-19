@@ -43,14 +43,21 @@ export async function artefactInForce<T = unknown>(baseUrl: string, key: string,
   };
 }
 
+/** Fired on this window (never the parent: the app runs in the platform's sandboxed iframe) after every install, with
+ *  detail {key, kind, version}. Project Settings ▸ Standards in force and the Next strip re-read on it, so an install
+ *  made from Packs, Documents or Carbon shows there without a reload. An office install changes its projects too, so
+ *  listeners re-read whatever key the install named. */
+export const STANDARD_INSTALLED = "sentinel:standard-installed";
+
 /** PUT /cde/:key/artefacts/:kind — installs `kind@n+1` (lead/owner; the bridge refuses anyone else and
- *  validates the body). Returns the new pointer; throws with the bridge's message. */
+ *  validates the body). Returns the new pointer and fires STANDARD_INSTALLED; throws with the bridge's message. */
 export async function installArtefact(baseUrl: string, key: string, kind: string, body: object, actor: string): Promise<{ kind: string; version: number; sha256: string }> {
   const r = await bfetch(`${baseUrl.replace(/\/$/, "")}/cde/${encodeURIComponent(key)}/artefacts/${kind}?actor=${encodeURIComponent(actor)}`, {
     method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
   });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j?.message || `HTTP ${r.status}`);
+  globalThis.dispatchEvent?.(new CustomEvent(STANDARD_INSTALLED, { detail: { key, kind, version: j?.version } }));
   return j;
 }
 

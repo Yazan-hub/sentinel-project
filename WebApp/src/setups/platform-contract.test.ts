@@ -4,41 +4,71 @@ import { publishContractToPlatform, mirrorLine, CONTRACT_ITEM } from "./platform
 
 const body = { contract_key: "contract@2", ifc_schema: "IFC4", required_entities: [], forbidden_entities: [], required_psets: [], required_properties: [], require_georeference: false };
 type Created = { file: File; name: string; versionTag: string; projectId: string };
-const client = (items: Array<{ _id: string; name: string; versions?: Array<{ tag: string }> }>, fail?: string) => ({
+const SHA = "3f0737600a1b2c3d4e5f";
+// `held` is the body the platform serves for any version tag (undefined: the download answers 404).
+const client = (items: Array<{ _id: string; name: string; versions?: Array<{ tag: string }> }>, fail?: string, held?: unknown) => ({
   listFiles: vi.fn(async () => { if (fail === "list") throw new Error("403 STORAGE:READ"); return items; }),
   createFile: vi.fn(async (_p: Created) => { if (fail === "write") throw new Error("403 STORAGE:CREATE"); return {}; }),
   createVersion: vi.fn(async (_id: string, _b: Blob, _tag: string) => { if (fail === "write") throw new Error("403 STORAGE:CREATE"); return {}; }),
+  downloadFile: vi.fn(async (_id: string, _o: { versionTag: string }) => {
+    if (fail === "read") throw new Error("network");
+    return { ok: held !== undefined, status: held !== undefined ? 200 : 404, json: async () => held } as unknown as Response;
+  }),
 });
 
 describe("publishContractToPlatform", () => {
   it("creates sentinel-contract.json the first time, with the ref as its version tag, in the platform project", async () => {
     const c = client([]);
-    expect(await publishContractToPlatform(c, "p1", body, "contract@2")).toEqual({ status: "created", ref: "contract@2" });
+    expect(await publishContractToPlatform(c, "p1", body, "contract@2", SHA)).toEqual({ status: "created", ref: "contract@2" });
     const call = c.createFile.mock.calls[0][0];
     expect([call.name, call.versionTag, call.projectId, call.file.name]).toEqual([CONTRACT_ITEM, "contract@2", "p1", CONTRACT_ITEM]);
     expect(JSON.parse(await call.file.text())).toEqual(body);
     expect(c.createVersion).not.toHaveBeenCalled();
   });
 
-  it("adds a version when the item exists, and writes nothing when that ref is already there", async () => {
+  it("adds a version when the item exists, and writes nothing when that ref already holds this body", async () => {
     const c = client([{ _id: "c1", name: CONTRACT_ITEM, versions: [{ tag: "contract@1" }] }]);
-    expect(await publishContractToPlatform(c, "p1", body, "contract@2")).toEqual({ status: "versioned", ref: "contract@2" });
+    expect(await publishContractToPlatform(c, "p1", body, "contract@2", SHA)).toEqual({ status: "versioned", ref: "contract@2" });
     expect(c.createVersion.mock.calls[0][0]).toBe("c1");
     expect(c.createVersion.mock.calls[0][2]).toBe("contract@2");
-    const d = client([{ _id: "c1", name: CONTRACT_ITEM, versions: [{ tag: "contract@2" }] }]);
-    expect(await publishContractToPlatform(d, "p1", body, "contract@2")).toEqual({ status: "already", ref: "contract@2" });
+    expect(c.downloadFile).not.toHaveBeenCalled();
+    // The same body with its keys in another order is the same contract.
+    const reordered = Object.fromEntries(Object.entries(body).reverse());
+    const d = client([{ _id: "c1", name: CONTRACT_ITEM, versions: [{ tag: "contract@2" }] }], undefined, reordered);
+    expect(await publishContractToPlatform(d, "p1", body, "contract@2", SHA)).toEqual({ status: "already", ref: "contract@2" });
+    expect(d.downloadFile).toHaveBeenCalledWith("c1", { versionTag: "contract@2" });
     expect(d.createVersion).not.toHaveBeenCalled();
   });
 
+  it("STD-F: the ref's tag holding another body (another project's contract@2, a re-numbered install) gets a version named by the sha", async () => {
+    const other = { ...body, ifc_schema: "IFC2X3" };
+    const c = client([{ _id: "c1", name: CONTRACT_ITEM, versions: [{ tag: "contract@2" }] }], undefined, other);
+    expect(await publishContractToPlatform(c, "p1", body, "contract@2", SHA)).toEqual({ status: "versioned", ref: "contract@2.3f0737600a1b" });
+    expect(c.createVersion.mock.calls[0][2]).toBe("contract@2.3f0737600a1b");
+    expect(JSON.parse(await c.createVersion.mock.calls[0][1].text())).toEqual(body);
+    expect(mirrorLine({ status: "versioned", ref: "contract@2.3f0737600a1b" })).toBe("also on the platform as sentinel-contract.json contract@2.3f0737600a1b");
+  });
+
+  it("a named tag already there is 'already' without a download; an unreadable ref is not taken as this body", async () => {
+    const c = client([{ _id: "c1", name: CONTRACT_ITEM, versions: [{ tag: "contract@2" }, { tag: "contract@2.3f0737600a1b" }] }]);
+    expect(await publishContractToPlatform(c, "p1", body, "contract@2", SHA)).toEqual({ status: "already", ref: "contract@2.3f0737600a1b" });
+    expect(c.downloadFile).not.toHaveBeenCalled();
+    expect(c.createVersion).not.toHaveBeenCalled();
+    for (const fail of [undefined, "read"]) { // a 404 answer, a thrown read
+      const d = client([{ _id: "c1", name: CONTRACT_ITEM, versions: [{ tag: "contract@2" }] }], fail);
+      expect(await publishContractToPlatform(d, "p1", body, "contract@2", SHA)).toEqual({ status: "versioned", ref: "contract@2.3f0737600a1b" });
+    }
+  });
+
   it("a platform refusal is 'refused' with the platform's words — never a throw, never 'created'", async () => {
-    expect(await publishContractToPlatform(client([], "list"), "p1", body, "contract@2")).toEqual({ status: "refused", ref: "contract@2", why: "403 STORAGE:READ" });
-    expect(await publishContractToPlatform(client([], "write"), "p1", body, "contract@2")).toEqual({ status: "refused", ref: "contract@2", why: "403 STORAGE:CREATE" });
+    expect(await publishContractToPlatform(client([], "list"), "p1", body, "contract@2", SHA)).toEqual({ status: "refused", ref: "contract@2", why: "403 STORAGE:READ" });
+    expect(await publishContractToPlatform(client([], "write"), "p1", body, "contract@2", SHA)).toEqual({ status: "refused", ref: "contract@2", why: "403 STORAGE:CREATE" });
   });
 
   it("no client or no linked platform project: 'no-platform', nothing called", async () => {
     const c = client([]);
-    expect(await publishContractToPlatform(c, undefined, body, "contract@2")).toEqual({ status: "no-platform", ref: "contract@2" });
-    expect(await publishContractToPlatform(undefined, "p1", body, "contract@2")).toEqual({ status: "no-platform", ref: "contract@2" });
+    expect(await publishContractToPlatform(c, undefined, body, "contract@2", SHA)).toEqual({ status: "no-platform", ref: "contract@2" });
+    expect(await publishContractToPlatform(undefined, "p1", body, "contract@2", SHA)).toEqual({ status: "no-platform", ref: "contract@2" });
     expect(c.listFiles).not.toHaveBeenCalled();
   });
 
