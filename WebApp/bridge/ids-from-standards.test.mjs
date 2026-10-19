@@ -1,9 +1,9 @@
 // Q5 (2026-10-19): the IDS made from the installed contract and naming rules — standardsToIds, idsToXml and the route
 // GET /cde/:key/artefacts/ids/generated (generatedIds). The independent proof (IfcTester on a real IFC) is tools/ids-proof.
 import { describe, it, expect } from "vitest";
-import { standardsToIds, idsToXml, toXsdPattern, rulePatternOf, commonSetClass } from "./ids-compile.mjs";
+import { standardsToIds, idsToXml, toXsdPattern, rulePatternOf, commonSetClass, eirToIds, compileIds, GENERATED_ORIGINS } from "./ids-compile.mjs";
 import { validateElement, RuleEngine } from "./sentinel-core.mjs";
-import { generatedIds, putArtefact, validateArtefact } from "./artefact-store.mjs";
+import { generatedIds, eirIds, putArtefact, validateArtefact } from "./artefact-store.mjs";
 
 const CONTRACT = {
   contract_key: "q5-proof", ifc_schema: "IFC4", schema_version: 1, require_georeference: true, min_coverage: 0.9,
@@ -86,6 +86,53 @@ describe("standardsToIds — contract and naming rules → the IDS (Q5)", () => 
   });
 });
 
+// Documents ▸ Compile to IDS ▸ Install used to install the compile as a whole new ids@n, dropping the generated checks and generated_from.
+const EIR = "All walls shall have Pset_WallCommon.FireRating.\n\nEvery window shall have Pset_WindowCommon.ThermalTransmittance.";
+const generatedOf = (ids) => ids.specifications.filter((s) => GENERATED_ORIGINS.includes(s.origin));
+const names = (ids) => ids.specifications.map((s) => s.name).sort();
+
+describe("eirToIds — an EIR compile installed beside the IDS made from the standards", () => {
+  it("generate, then install an EIR: the generated checks, generated_from and enforce stay; a requirement they make is skipped; a later compile replaces its own", () => {
+    const g = run().ids;
+    const e = eirToIds(compileIds(EIR), { current: g });
+    expect(generatedOf(e.ids)).toEqual(g.specifications);
+    expect(e.ids.generated_from).toEqual(g.generated_from);
+    expect(e.ids.enforce).toBe("warn");
+    expect(e.ids.title).toBe(g.title);
+    expect(e.skipped).toMatchObject([{ name: "WALL — FireRating", reason: "already required by the IDS in force ('Walls · contract q5-proof')" }]);
+    expect(e.ids.specifications.filter((s) => s.origin === "eir").map((s) => s.name)).toEqual(["WINDOW — ThermalTransmittance"]);
+    const e2 = eirToIds(compileIds("Doors shall have Pset_DoorCommon.AcousticRating."), { current: e.ids });
+    expect(e2.ids.specifications.filter((s) => s.origin === "eir").map((s) => s.name)).toEqual(["DOOR — AcousticRating"]);
+    expect(e2.kept).toBe(g.specifications.length);
+    expect(names(run({ current: e2.ids }).ids)).toEqual(names(e2.ids)); // and a regenerate keeps the EIR's
+  });
+
+  it("install an EIR, then generate: the EIR's checks stay, the generator does not repeat them, and installing the EIR again keeps the generated ones", () => {
+    const e = eirToIds(compileIds(EIR), { current: null });
+    expect("enforce" in e.ids).toBe(false); // a first EIR install as before: no enforce, which the judge reads as reject
+    expect("generated_from" in e.ids).toBe(false);
+    expect(e.ids.specifications.every((s) => s.origin === "eir")).toBe(true);
+    const g = run({ current: e.ids });
+    expect(g.ids.specifications.filter((s) => s.origin === "eir")).toEqual(e.ids.specifications);
+    expect(g.unmatched).toContainEqual({ from: "contract", item: "Pset_WallCommon.FireRating", reason: "already required by the IDS in force ('WALL — FireRating')", checked_by: "the IDS in force" });
+    const e2 = eirToIds(compileIds(EIR), { current: g.ids });
+    expect(generatedOf(e2.ids)).toEqual(generatedOf(g.ids));
+    expect(e2.ids.generated_from).toEqual(g.ids.generated_from);
+    expect(e2.skipped).toEqual([]);
+    expect(names(e2.ids)).toEqual(names(g.ids));
+  });
+
+  it("keeps enforce exactly as the IDS in force has it, and replaces an EIR install from before origins", () => {
+    const legacy = { title: "EIR", specifications: compileIds(EIR).specifications }; // untagged, no enforce
+    const hand = { name: "Hand-written", applicability: { entity: "IFCSLAB" }, requirements: { properties: [{ pset: "Pset_SlabCommon", name: "LoadBearing", cardinality: "required" }] } };
+    const e = eirToIds(compileIds("Doors shall have Pset_DoorCommon.AcousticRating."), { current: { ...legacy, specifications: [...legacy.specifications, hand] } });
+    expect(e.ids.specifications.map((s) => s.name)).toEqual(["Hand-written", "DOOR — AcousticRating"]);
+    expect("enforce" in e.ids).toBe(false);
+    expect(eirToIds(compileIds(EIR), { current: { ...legacy, enforce: "reject" } }).ids.enforce).toBe("reject");
+    expect(eirToIds(compileIds(EIR), { current: { ...legacy, enforce: "off" } }).ids.enforce).toBe("off");
+  });
+});
+
 describe("idsToXml — the same IDS as buildingSMART IDS 1.0", () => {
   it("writes a plain class with its standard-case subtypes, a property set or any set, and a name pattern in XSD form", () => {
     const { xml, skipped } = idsToXml(run().ids, { ifcSchema: "IFC4" });
@@ -151,6 +198,23 @@ describe("generatedIds — GET /cde/:key/artefacts/ids/generated", () => {
     expect(later.current).toMatch(/^ids@1 · project/);
     expect(later.ids.specifications.map((s) => s.name)).toContain("Floors · contract q5-proof");
     expect(later.ids.specifications.map((s) => s.name)).not.toContain("Walls · contract q5-proof"); // its own specs replaced, not piled up
+  });
+  it("POST …/ids/eir merges into the IDS in force, installs nothing, and the out-of-date line still reads the standards after its install", async () => {
+    const d = mem();
+    await putArtefact("q5e", "contract", CONTRACT, { actor: "lead" }, d);
+    await putArtefact("q5e", "ids", (await generatedIds("q5e", d)).ids, { actor: "lead" }, d);
+    const r = await eirIds("q5e", { text: EIR, title: "EIR — compiled IDS" }, d);
+    expect(r.current).toMatch(/^ids@1 · project/);
+    expect(r.stats.compiled).toBe(2);
+    expect([r.added, r.skipped.length]).toEqual([1, 1]);
+    expect((await d.docGet("artefact", "uuid-q5e", "ids")).version).toBe(1);
+    expect(() => validateArtefact("ids", r.ids)).not.toThrow();
+    await putArtefact("q5e", "ids", r.ids, { actor: "lead" }, d);
+    expect((await generatedIds("q5e", d)).up_to_date).toBe(true);
+    await putArtefact("q5e", "contract", { ...CONTRACT, required_properties: ["Pset_SlabCommon.LoadBearing"] }, { actor: "lead" }, d);
+    const later = await generatedIds("q5e", d);
+    expect(later.up_to_date).toBe(false);
+    expect(later.ids.specifications.filter((s) => s.origin === "eir").map((s) => s.name)).toEqual(["WINDOW — ThermalTransmittance"]);
   });
   it("a standard that no longer parses is said, never half-read", async () => {
     const d = mem();

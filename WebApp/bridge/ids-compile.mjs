@@ -277,6 +277,13 @@ export function entityClasses(entity) {
 }
 
 const facetKey = (entity, f) => [entityClasses(entity)?.sort().join(",") ?? entity, f.pset === undefined ? "@" : f.pset ?? "*", f.name, f.cardinality, f.value ?? "", f.pattern ?? ""].join("|").toLowerCase();
+/** Every requirement the kept specifications make (facetKey → the spec's name) — what a merge must not repeat. */
+const keptFacets = (kept) => {
+  const already = new Map();
+  for (const s of kept) for (const [k, list] of [["properties", s.requirements?.properties], ["attributes", s.requirements?.attributes]])
+    for (const f of list ?? []) already.set(facetKey(s.applicability?.entity ?? "", k === "attributes" ? { ...f, pset: undefined } : f), s.name);
+  return already;
+};
 const RULE_ELSEWHERE = {
   type: "a type's name is written on the IFC type object, and Sentinel's IDS judges placed elements",
   grid: "a grid line is not an element Sentinel's IDS judges",
@@ -293,9 +300,7 @@ export function standardsToIds({ contract = null, ruleset = null, naming = null 
   const unmatched = [], made = new Map();
   const say = (from, item, reason, checked_by) => unmatched.push({ from, item, reason, ...(checked_by ? { checked_by } : {}) });
   const kept = (current?.specifications ?? []).filter((s) => !GENERATED_ORIGINS.includes(s?.origin));
-  const already = new Map();
-  for (const s of kept) for (const [k, list] of [["properties", s.requirements?.properties], ["attributes", s.requirements?.attributes]])
-    for (const f of list ?? []) already.set(facetKey(s.applicability?.entity ?? "", k === "attributes" ? { ...f, pset: undefined } : f), s.name);
+  const already = keptFacets(kept);
   const add = (origin, id, cls, list, facet, from, item) => {
     const entity = classEntity(cls);
     const dup = already.get(facetKey(entity, list === "attributes" ? { ...facet, pset: undefined } : facet));
@@ -360,6 +365,30 @@ export function standardsToIds({ contract = null, ruleset = null, naming = null 
       generated_from: { contract: from(contract), ruleset: from(ruleset), naming: from(naming) },
     },
     added: generated.length, kept: kept.length, unmatched,
+  };
+}
+
+/** An EIR compile installed on a project (Documents ▸ Compile to IDS ▸ Install) merges as standardsToIds does, the other way round:
+ *  its specifications carry origin "eir" and replace the last compile's; the generated ones, generated_from and enforce stay as the
+ *  IDS in force has them (an absent enforce is reject to the judge — never added); a requirement a kept spec makes is not repeated.
+ *  `compiled`: compileIds's answer; `current`: the IDS in force's body, or null.
+ *  → {ids: {title, enforce?, specifications, generated_from?}, added, kept, skipped: [{name, source_sentence, reason}]}. */
+export function eirToIds(compiled, { current = null } = {}) {
+  // An install before origins (2026-10-19) left its specs untagged; only compileIds writes source_sentence, so those are an EIR's too.
+  const own = (s) => s?.origin === "eir" || (s?.origin == null && typeof s?.source_sentence === "string");
+  const kept = (current?.specifications ?? []).filter((s) => !own(s));
+  const already = keptFacets(kept), added = [], skipped = [];
+  for (const s of compiled.specifications) {
+    const dup = (s.requirements?.properties ?? []).map((f) => already.get(facetKey(s.applicability?.entity ?? "", f))).find(Boolean);
+    if (dup) skipped.push({ name: s.name, source_sentence: s.source_sentence, reason: `already required by the IDS in force ('${dup}')` });
+    else added.push({ ...s, origin: "eir" });
+  }
+  return {
+    ids: {
+      title: current?.title ?? compiled.title, ...(current && "enforce" in current ? { enforce: current.enforce } : {}),
+      specifications: [...kept, ...added], ...(current?.generated_from ? { generated_from: current.generated_from } : {}),
+    },
+    added: added.length, kept: kept.length, skipped,
   };
 }
 

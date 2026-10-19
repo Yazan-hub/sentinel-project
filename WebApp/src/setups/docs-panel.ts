@@ -1172,15 +1172,26 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
         // MA-2c C23 (context): the title and every heading go in with the bodies — a heading ("Doors to protected stairs") narrows
         // the sentences under it, and compileIds marks a clause source_alone only when the document said nothing else.
         const text = [doc.title, ...doc.sections.flatMap((s) => [s.heading, s.body])].filter(Boolean).join("\n\n");
-        const r: { title: string; specifications: { name?: string; entity?: string; property?: string; source_sentence?: string }[]; unmatched: { sentence: string; reason: string }[]; stats: Record<string, number>; note: string } =
-          await api(`/compile-ids`, { method: "POST", body: JSON.stringify({ text, title: `${doc.title} — compiled IDS` }) });
+        // Compiled and merged into the IDS in force by the bridge (eirToIds): the standards' generated checks stay, the last compile's are
+        // replaced, and a requirement the IDS in force already makes is listed as skipped rather than repeated.
+        const res = await bfetch(`${base}/cde/${encodeURIComponent(pid())}/artefacts/ids/eir`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, title: `${doc.title} — compiled IDS` }) });
+        const r: { title: string; specifications: { name?: string; entity?: string; property?: string; source_sentence?: string }[]; unmatched: { sentence: string; reason: string }[]; stats: Record<string, number>; note: string;
+          ids: object; kept: number; current: string | null; skipped: { name: string; source_sentence?: string; reason: string }[] } = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error((r as { message?: string }).message || `HTTP ${res.status}`);
         const box = document.createElement("div");
         box.style.cssText = "border:1px solid #2a2a30;border-radius:.4rem;padding:.6rem;margin:.4rem 0;background:#141418;color:#c9cfda;font:12px system-ui";
         const h = document.createElement("div"); h.style.cssText = "font:600 12px system-ui;color:#eee;margin-bottom:.3rem";
         h.textContent = `Proposed IDS — ${r.stats.compiled} specification(s) from ${r.stats.requirement_sentences} requirement sentence(s), ${r.stats.unmatched} not compiled`;
         const note = document.createElement("div"); note.style.cssText = "color:#eab308;font:11px system-ui;margin-bottom:.4rem"; note.textContent = r.note;
-        box.append(h, note);
-        for (const sp of r.specifications) {
+        const keeps = document.createElement("div"); keeps.style.cssText = "color:#9ca3af;font:11px system-ui;margin-bottom:.4rem";
+        keeps.textContent = r.current ? `Installing keeps ${r.kept} specification(s) of ${r.current} that did not come from a compile — the checks made from the contract and naming rules stay — and replaces the last compile's.` : "No IDS is installed on this project yet.";
+        box.append(h, note, keeps);
+        for (const sk of r.skipped) {
+          const row = document.createElement("div"); row.style.cssText = "padding:.2rem 0;border-top:1px solid #2a2a30";
+          const t = document.createElement("div"); t.textContent = `Skipped: ${sk.name} — ${sk.reason}`; t.style.color = "#eab308";
+          row.append(t); box.append(row);
+        }
+        for (const sp of r.specifications.filter((s) => !r.skipped.some((k) => k.name === s.name && k.source_sentence === s.source_sentence))) {
           const row = document.createElement("div"); row.style.cssText = "padding:.2rem 0;border-top:1px solid #2a2a30";
           const t = document.createElement("div"); t.textContent = sp.name || `${sp.entity || "?"} — ${sp.property || "?"}`; t.style.color = "#22c55e";
           const src = document.createElement("div"); src.textContent = sp.source_sentence ? `from: “${sp.source_sentence}”` : ""; src.style.cssText = "color:#9ca3af;font:11px system-ui";
@@ -1205,7 +1216,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
         install.onclick = async () => {
           install.disabled = true; install.textContent = "Installing…";
           try {
-            const p = await installArtefact(base, pid(), "ids", { title: r.title, specifications: r.specifications, source: { document_id: doc.id, compiled_at: new Date().toISOString() } }, await actor());
+            const p = await installArtefact(base, pid(), "ids", { ...r.ids, source: { document_id: doc.id, compiled_at: new Date().toISOString() } }, await actor());
             install.textContent = `Installed ids@${p.version}`;
             msg(`✓ ids@${p.version} installed on ${pid()} (sha ${String(p.sha256).slice(0, 12)}…) — Governed Publish, intake and AI proposals now judge by it.`);
           } catch (e) {

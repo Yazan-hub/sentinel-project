@@ -630,6 +630,16 @@ export async function generatedIds(key, deps) {
   return { ...out, unmatched: [...broken, ...out.unmatched], current: current.ref ? refLabel(current) : null, up_to_date, xml, xml_skipped: skipped };
 }
 
+/** POST /cde/:key/artefacts/ids/eir {text, title} — an EIR's requirement prose compiled (compileIds) and merged into the IDS in force
+ *  (eirToIds): the generated specifications and generated_from stay, the last compile's are replaced. A proposal, as generatedIds:
+ *  a lead installs `ids` through PUT …/artefacts/ids. → compileIds's answer + {ids, added, kept, skipped, current}. */
+export async function eirIds(key, { text, title } = {}, deps) {
+  const { compileIds, eirToIds } = await import("./ids-compile.mjs");
+  const compiled = compileIds(text, { title });
+  const current = await resolveArtefact(key, "ids", deps);
+  return { ...compiled, ...eirToIds(compiled, { current: current.body }), current: current.ref ? refLabel(current) : null };
+}
+
 /**
  * The IDS a judge must use for `key`: project → office (resolveArtefact) → client → none. Returns the spec
  * and its provenance; `client_ids_ignored` is true when a client sent one but an installed artefact outranked it.
