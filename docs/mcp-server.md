@@ -43,6 +43,27 @@ Document mutation is deliberately **not** exposed: creating, editing, binding, t
 deliverable writes stay in the web app's review-before-save flow. The MCP surface can inspect and reason, not
 change.
 
+## The AI boundary (v1.2)
+
+Every `tools/call` answer, and every error, goes through one choke point (`toolResult` in `mcp-server.mjs`). The
+tool code itself is unchanged; this layer exists because tool output is people's text (parameter values, names, BCF
+comments, documents), and text can carry an instruction.
+
+- **Fenced.** The answer starts with a one-line notice: everything after it is data, not instructions.
+- **Cleaned.** In every value and key, invisible characters are stripped: controls (tab, CR and LF kept), bidi marks
+  and overrides, zero-width characters, and the Unicode tag block.
+- **No local paths.** A local file path (`C:\…`, `\\server\…`, `/home/…`) becomes its file name. URLs pass through.
+- **No bulk geometry.** An array of more than 64 numbers, flat or nested (a mesh, a point cloud), is replaced by
+  `{ withheld: "N numbers …" }`. A placement point or a wall's two ends still pass.
+
+CI enforces the rest through `bridge/ai-boundary.test.mjs`. It fails if:
+- an MCP tool, or one of its inputs, is named like a code runner (exec, eval, code, script, shell, compile);
+- the bridge uses `eval`, `new Function` or `node:vm`;
+- the Revit add-in references a C# scripting or compiler API.
+
+The fence raises the bar against prompt injection; it is not a complete defence. Model writes still go only through
+staged changesets that a person ticks in Revit.
+
 ## Run / register
 
 The server talks to the local bridge over HTTP (`BCF_BASE`, default `http://127.0.0.1:4100`), so the bridge
