@@ -48,21 +48,23 @@ jobs:
       - run: npm run build
 
   addin:
-    name: SentinelAddin — build (net8 targets)
+    name: SentinelAddin — build
     runs-on: windows-latest
     strategy:
       fail-fast: false
       matrix:
-        # net8 targets build on the plain .NET SDK. 2021–2024 (net48) and 2027 (net10)
-        # need extra SDK/reference setup — add them here once the runner is provisioned.
-        revit: [2025, 2026]
+        # Every version the add-in deploys to (2026-10-19 evaluation): 2021–2024 build net48 against the runner's
+        # .NET Framework 4.8 targeting pack, 2025–2026 net8, 2027 net10. The Revit API comes from NuGet stubs.
+        revit: [2021, 2022, 2023, 2024, 2025, 2026, 2027]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
         with:
-          dotnet-version: "8.0.x"
+          dotnet-version: |
+            8.0.x
+            10.0.x
       - run: dotnet build SentinelAddin -c Release -p:RevitVersion=${{ matrix.revit }} -p:DeployToRevit=false
       - name: Revit-free checks (fix-in-place + naming + org + snapshot + gate + ghost standards + guideline + ledger events + heal + publish + roi + docpin + promote + session)
         if: matrix.revit == 2026
