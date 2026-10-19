@@ -1192,6 +1192,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     try {
       const tDownload = performance.now();
       const resp = await client.downloadFile(v.platform_item_id, tag ? { versionTag: tag } : undefined);
+      if (resp.status === 429) throw new Error("the platform is limiting requests right now (HTTP 429) — wait a minute and press Open 3D again");
       if (!resp.ok) throw new Error(tag ? `the platform did not serve version tag "${tag}" of this item (HTTP ${resp.status})` : `platform download HTTP ${resp.status}`);
       const buf = await resp.arrayBuffer();
       const downloadMs = performance.now() - tDownload;
@@ -1200,16 +1201,18 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       const core = coreOf();
       const modelId = modelIdOf(f, v);
       if (modelList()?.has?.(modelId)) await core.disposeModel(modelId); // reloading the same version → replace
+      const bytes = buf.byteLength; // read first: the engine hands the buffer to its worker (it is empty after load)
       const tOpen = performance.now();
       await core.load(buf, { modelId });
-      const took = loadLine({ downloadMs, openMs: performance.now() - tOpen, bytes: buf.byteLength });
+      const took = loadLine({ downloadMs, openMs: performance.now() - tOpen, bytes });
       // eslint-disable-next-line no-console
       console.log(`[Sentinel] load ${modelId} ${took}`); // the sandboxed iframe's console is where a benchmark reads it
       hiddenModels.delete(modelId); // a fresh load is always visible
       render(); // surface the Hide/Show toggle on the row
       status(`Loaded ${v.revision} into the viewer ✓ (model "${modelId}") ${took} — ${check.line}.`);
     } catch (e) {
-      status(`Couldn't load ${v.revision}: ${(e as Error).message}. The platform may store this item as IFC (needs conversion) — share the console error to refine.`);
+      const m = (e as Error).message;
+      status(`Couldn't load ${v.revision}: ${m}.${/HTTP 429/.test(m) ? "" : " The platform may store this item as IFC (needs conversion) — share the console error to refine."}`);
     }
   }
 
