@@ -632,12 +632,15 @@ export async function generatedIds(key, deps) {
 
 /** POST /cde/:key/artefacts/ids/eir {text, title} — an EIR's requirement prose compiled (compileIds) and merged into the IDS in force
  *  (eirToIds): the generated specifications and generated_from stay, the last compile's are replaced. A proposal, as generatedIds:
- *  a lead installs `ids` through PUT …/artefacts/ids. → compileIds's answer + {ids, added, kept, skipped, current}. */
+ *  a lead installs `ids` through PUT …/artefacts/ids. `xml`: that IDS as buildingSMART IDS 1.0 (Download .ids), `xml_skipped` what
+ *  it lacks. → compileIds's answer + {ids, added, kept, skipped, current, xml, xml_skipped}. */
 export async function eirIds(key, { text, title } = {}, deps) {
-  const { compileIds, eirToIds } = await import("./ids-compile.mjs");
+  const { compileIds, eirToIds, idsToXml } = await import("./ids-compile.mjs");
   const compiled = compileIds(text, { title });
   const current = await resolveArtefact(key, "ids", deps);
-  return { ...compiled, ...eirToIds(compiled, { current: current.body }), current: current.ref ? refLabel(current) : null };
+  const out = eirToIds(compiled, { current: current.body });
+  const { xml, skipped } = idsToXml(out.ids, { ifcSchema: (await resolveArtefact(key, "contract", deps)).body?.ifc_schema });
+  return { ...compiled, ...out, current: current.ref ? refLabel(current) : null, xml, xml_skipped: skipped };
 }
 
 /**

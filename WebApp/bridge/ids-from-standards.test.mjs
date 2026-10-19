@@ -92,34 +92,55 @@ const generatedOf = (ids) => ids.specifications.filter((s) => GENERATED_ORIGINS.
 const names = (ids) => ids.specifications.map((s) => s.name).sort();
 
 describe("eirToIds — an EIR compile installed beside the IDS made from the standards", () => {
-  it("generate, then install an EIR: the generated checks, generated_from and enforce stay; a requirement they make is skipped; a later compile replaces its own", () => {
+  it("generate, then install an EIR: the generated checks, generated_from and enforce stay; a requirement they make is held back; a later compile replaces its own", () => {
     const g = run().ids;
     const e = eirToIds(compileIds(EIR), { current: g });
     expect(generatedOf(e.ids)).toEqual(g.specifications);
     expect(e.ids.generated_from).toEqual(g.generated_from);
     expect(e.ids.enforce).toBe("warn");
     expect(e.ids.title).toBe(g.title);
-    expect(e.skipped).toMatchObject([{ name: "WALL — FireRating", reason: "already required by the IDS in force ('Walls · contract q5-proof')" }]);
+    expect(e.skipped).toMatchObject([{ name: "WALL — FireRating", reason: "already checked by 'Walls · contract q5-proof' — held back so it is not checked twice, and put back if that check goes" }]);
     expect(e.ids.specifications.filter((s) => s.origin === "eir").map((s) => s.name)).toEqual(["WINDOW — ThermalTransmittance"]);
+    expect(e.ids.eir_skipped.map((s) => [s.name, s.origin])).toEqual([["WALL — FireRating", "eir"]]);
+    expect(() => validateArtefact("ids", e.ids)).not.toThrow();
     const e2 = eirToIds(compileIds("Doors shall have Pset_DoorCommon.AcousticRating."), { current: e.ids });
     expect(e2.ids.specifications.filter((s) => s.origin === "eir").map((s) => s.name)).toEqual(["DOOR — AcousticRating"]);
+    expect("eir_skipped" in e2.ids).toBe(false); // the last compile's held ones go with it
     expect(e2.kept).toBe(g.specifications.length);
     expect(names(run({ current: e2.ids }).ids)).toEqual(names(e2.ids)); // and a regenerate keeps the EIR's
   });
 
-  it("install an EIR, then generate: the EIR's checks stay, the generator does not repeat them, and installing the EIR again keeps the generated ones", () => {
+  it("install an EIR, then generate: the EIR's checks stay; a contract requirement the EIR also makes stays the contract's, the EIR's is held back", () => {
     const e = eirToIds(compileIds(EIR), { current: null });
     expect("enforce" in e.ids).toBe(false); // a first EIR install as before: no enforce, which the judge reads as reject
     expect("generated_from" in e.ids).toBe(false);
     expect(e.ids.specifications.every((s) => s.origin === "eir")).toBe(true);
     const g = run({ current: e.ids });
-    expect(g.ids.specifications.filter((s) => s.origin === "eir")).toEqual(e.ids.specifications);
-    expect(g.unmatched).toContainEqual({ from: "contract", item: "Pset_WallCommon.FireRating", reason: "already required by the IDS in force ('WALL — FireRating')", checked_by: "the IDS in force" });
+    expect(g.ids.specifications.map((s) => s.name)).toContain("Walls · contract q5-proof");
+    expect(g.ids.specifications.filter((s) => s.origin === "eir").map((s) => s.name)).toEqual(["WINDOW — ThermalTransmittance"]);
+    expect(g.ids.eir_skipped.map((s) => s.name)).toEqual(["WALL — FireRating"]);
+    expect(g.eir_held).toMatchObject([{ name: "WALL — FireRating" }]);
+    expect(g.eir_restored).toEqual([]);
     const e2 = eirToIds(compileIds(EIR), { current: g.ids });
     expect(generatedOf(e2.ids)).toEqual(generatedOf(g.ids));
     expect(e2.ids.generated_from).toEqual(g.ids.generated_from);
-    expect(e2.skipped).toEqual([]);
     expect(names(e2.ids)).toEqual(names(g.ids));
+    expect(e2.ids.eir_skipped).toEqual(g.ids.eir_skipped);
+  });
+
+  it("nothing is lost either way: the standards dropping a requirement put the EIR's back; the EIR dropping one leaves the contract's in force", () => {
+    const e = eirToIds(compileIds(EIR), { current: run().ids }); // the EIR's wall requirement held back behind the contract's
+    const contract = { ...CONTRACT, required_properties: ["Pset_DoorCommon.FireRating"] }; // the contract stops asking for walls
+    const g = standardsToIds({ contract: src(contract, "contract@2"), ruleset: src(RULESET, "ruleset@1") }, { current: e.ids });
+    expect(g.eir_restored).toEqual(["WALL — FireRating"]);
+    expect(g.ids.specifications.filter((s) => s.origin === "eir").map((s) => s.name).sort()).toEqual(["WALL — FireRating", "WINDOW — ThermalTransmittance"]);
+    expect("eir_skipped" in g.ids).toBe(false);
+    expect(validateElement(g.ids, { identity: { Class: "IFCWALL", Name: "w" }, psets: [] }).failures.map((f) => f.requirement)).toContain("Pset_WallCommon.FireRating");
+    // The other way: the contract's wall requirement in force, the EIR compiled again without walls — the contract's stays.
+    const g2 = run({ current: eirToIds(compileIds(EIR), { current: null }).ids });
+    const e2 = eirToIds(compileIds("Every window shall have Pset_WindowCommon.ThermalTransmittance."), { current: g2.ids });
+    expect(e2.ids.specifications.map((s) => s.name)).toContain("Walls · contract q5-proof");
+    expect("eir_skipped" in e2.ids).toBe(false);
   });
 
   it("keeps enforce exactly as the IDS in force has it, and replaces an EIR install from before origins", () => {
@@ -214,7 +235,11 @@ describe("generatedIds — GET /cde/:key/artefacts/ids/generated", () => {
     await putArtefact("q5e", "contract", { ...CONTRACT, required_properties: ["Pset_SlabCommon.LoadBearing"] }, { actor: "lead" }, d);
     const later = await generatedIds("q5e", d);
     expect(later.up_to_date).toBe(false);
-    expect(later.ids.specifications.filter((s) => s.origin === "eir").map((s) => s.name)).toEqual(["WINDOW — ThermalTransmittance"]);
+    // The contract stopped asking for walls: the EIR's wall requirement, held back at its install, is in force again.
+    expect(later.ids.specifications.filter((s) => s.origin === "eir").map((s) => s.name)).toEqual(["WINDOW — ThermalTransmittance", "WALL — FireRating"]);
+    expect(later.eir_restored).toEqual(["WALL — FireRating"]);
+    expect(r.xml).toContain("Pset_WindowCommon");
+    expect(r.xml_skipped).toEqual([]);
   });
   it("a standard that no longer parses is said, never half-read", async () => {
     const d = mem();

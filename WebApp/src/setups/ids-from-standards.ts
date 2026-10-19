@@ -11,6 +11,8 @@ export interface GeneratedIds {
   added: number; kept: number; current: string | null; up_to_date: boolean | null; xml: string;
   unmatched: { from: string; item: string; reason: string; checked_by?: string }[];
   xml_skipped: { specification: string; requirement: string; reason: string }[];
+  /** An installed EIR's requirements this IDS puts back (the standards stopped checking them) / holds back (they now check the same). */
+  eir_restored?: string[]; eir_held?: { name: string; reason: string }[];
 }
 
 const MUST: Record<string, string> = { required: "must have", prohibited: "must not have", optional: "may have" };
@@ -42,6 +44,8 @@ export function renderIdsPreview(g: GeneratedIds, opts: { canInstall: boolean; o
     `<div style="font-weight:600">IDS from the standards in force</div>` +
     `<div style="color:#9ca3af;font-size:11px">Made from ${from.length ? esc(from.join(" · ")) : "no contract or naming rules — none is installed"}. ` +
     (g.current ? `Keeps ${g.kept} specification${g.kept === 1 ? "" : "s"} of ${esc(g.current)} that did not come from these standards.` : "No IDS is installed yet.") + `</div>` +
+    (g.eir_restored?.length ? `<div style="color:#22c55e;font-size:11px">Puts back from the EIR: ${esc(g.eir_restored.join(", "))} — these standards no longer check it.</div>` : "") +
+    (g.eir_held?.length ? `<div style="color:#9ca3af;font-size:11px">Holds back from the EIR, so nothing is checked twice: ${esc(g.eir_held.map((x) => x.name).join(", "))} — these standards now check the same, and it comes back if they stop.</div>` : "") +
     (made.length ? `<div>It checks:</div><ul style="margin:0;padding-left:1.1rem">${made.flatMap(specWords).map(li).join("")}</ul>`
       : `<div style="color:#fbbf24">Nothing in these standards can be checked as an IDS — see below.</div>`) +
     (g.unmatched.length ? `<details${made.length ? "" : " open"}><summary style="cursor:pointer;color:#9ca3af">Not in the IDS (${g.unmatched.length}) — still checked elsewhere or needs a change to the standard</summary>` +

@@ -1173,22 +1173,24 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
         // the sentences under it, and compileIds marks a clause source_alone only when the document said nothing else.
         const text = [doc.title, ...doc.sections.flatMap((s) => [s.heading, s.body])].filter(Boolean).join("\n\n");
         // Compiled and merged into the IDS in force by the bridge (eirToIds): the standards' generated checks stay, the last compile's are
-        // replaced, and a requirement the IDS in force already makes is listed as skipped rather than repeated.
+        // replaced, and a requirement another check already makes is held back (put back when that check goes), never repeated.
         const res = await bfetch(`${base}/cde/${encodeURIComponent(pid())}/artefacts/ids/eir`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, title: `${doc.title} — compiled IDS` }) });
-        const r: { title: string; specifications: { name?: string; entity?: string; property?: string; source_sentence?: string }[]; unmatched: { sentence: string; reason: string }[]; stats: Record<string, number>; note: string;
-          ids: object; kept: number; current: string | null; skipped: { name: string; source_sentence?: string; reason: string }[] } = await res.json().catch(() => ({}));
+        const r: { title: string; specifications: { name?: string; entity?: string; property?: string; source_sentence?: string }[]; unmatched: { sentence: string; reason: string }[]; stats: Record<string, number>;
+          ids: object; kept: number; current: string | null; skipped: { name: string; source_sentence?: string; reason: string }[]; xml: string; xml_skipped: unknown[] } = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error((r as { message?: string }).message || `HTTP ${res.status}`);
         const box = document.createElement("div");
         box.style.cssText = "border:1px solid #2a2a30;border-radius:.4rem;padding:.6rem;margin:.4rem 0;background:#141418;color:#c9cfda;font:12px system-ui";
         const h = document.createElement("div"); h.style.cssText = "font:600 12px system-ui;color:#eee;margin-bottom:.3rem";
-        h.textContent = `Proposed IDS — ${r.stats.compiled} specification(s) from ${r.stats.requirement_sentences} requirement sentence(s), ${r.stats.unmatched} not compiled`;
-        const note = document.createElement("div"); note.style.cssText = "color:#eab308;font:11px system-ui;margin-bottom:.4rem"; note.textContent = r.note;
+        h.textContent = `Checks from this EIR — ${r.stats.compiled} of ${r.stats.requirement_sentences} requirement sentence(s) read`;
+        // compileIds's own note names its fields (source_sentence, `unmatched`) — said here in the words this screen uses.
+        const note = document.createElement("div"); note.style.cssText = "color:#eab308;font:11px system-ui;margin-bottom:.4rem";
+        note.textContent = "A proposal: check each line against the sentence it came from. A sentence in red is in the EIR but not in the IDS — reword it, or it is not checked.";
         const keeps = document.createElement("div"); keeps.style.cssText = "color:#9ca3af;font:11px system-ui;margin-bottom:.4rem";
-        keeps.textContent = r.current ? `Installing keeps ${r.kept} specification(s) of ${r.current} that did not come from a compile — the checks made from the contract and naming rules stay — and replaces the last compile's.` : "No IDS is installed on this project yet.";
+        keeps.textContent = r.current ? `Installing keeps ${r.kept} check(s) of ${r.current} — the ones made from the contract and naming rules among them — and replaces what an earlier EIR compile added.` : "No IDS is installed on this project yet.";
         box.append(h, note, keeps);
         for (const sk of r.skipped) {
           const row = document.createElement("div"); row.style.cssText = "padding:.2rem 0;border-top:1px solid #2a2a30";
-          const t = document.createElement("div"); t.textContent = `Skipped: ${sk.name} — ${sk.reason}`; t.style.color = "#eab308";
+          const t = document.createElement("div"); t.textContent = `${sk.name}: ${sk.reason}`; t.style.color = "#eab308";
           row.append(t); box.append(row);
         }
         for (const sp of r.specifications.filter((s) => !r.skipped.some((k) => k.name === s.name && k.source_sentence === s.source_sentence))) {
@@ -1199,13 +1201,19 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
         }
         for (const u of r.unmatched) {
           const row = document.createElement("div"); row.style.cssText = "padding:.2rem 0;border-top:1px solid #2a2a30";
-          const t = document.createElement("div"); t.textContent = `NOT compiled: “${u.sentence}”`; t.style.color = "#f87171";
+          const t = document.createElement("div"); t.textContent = `Not in the IDS: “${u.sentence}”`; t.style.color = "#f87171";
           const why = document.createElement("div"); why.textContent = u.reason; why.style.cssText = "color:#9ca3af;font:11px system-ui";
           row.append(t, why); box.append(row);
         }
-        const dl = btn("Download IDS (.json)", true);
+        if (r.xml_skipped.length) {
+          const d = document.createElement("div"); d.style.cssText = "color:#eab308;font:11px system-ui;margin-top:.4rem";
+          d.textContent = `The .ids file leaves out ${r.xml_skipped.length} check(s) its format cannot hold. Sentinel still checks them.`; box.append(d);
+        }
+        // The IDS as it will be installed (this EIR merged into the one in force), as the buildingSMART .ids file a consultant or IfcTester
+        // reads — not JSON (founder 2026-10-19: no JSON for users).
+        const dl = btn("Download .ids", true);
         dl.onclick = () => {
-          const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([JSON.stringify(r, null, 2)], { type: "application/json" })), download: `${doc.title.replace(/[^\w-]+/g, "_")}-ids.json` });
+          const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([r.xml], { type: "application/xml" })), download: `${doc.title.replace(/[^\w-]+/g, "_")}.ids` });
           a.click(); URL.revokeObjectURL(a.href);
         };
         dl.style.marginTop = ".5rem"; box.append(dl);

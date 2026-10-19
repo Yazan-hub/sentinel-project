@@ -293,13 +293,16 @@ const RULE_ELSEWHERE = {
 
 /**
  * `contract`, `ruleset`, `naming`: the standard in force as {body, label, sha256}, or null. `current`: the IDS in force's body,
- * or null — its specifications this compiler did not make are kept, and a requirement one of them already makes is not repeated.
- * → {ids: {title, enforce, specifications, generated_from}, added, kept, unmatched: [{from, item, reason, checked_by?}]}.
+ * or null — its specifications this compiler did not make are kept, and a requirement one of them already makes is not repeated
+ * (an EIR's are placed after, placeEir). → {ids: {title, enforce, specifications, eir_skipped?, generated_from}, added, kept,
+ * unmatched: [{from, item, reason, checked_by?}], eir_restored: [name], eir_held: [{name, source_sentence, reason}]}.
  */
 export function standardsToIds({ contract = null, ruleset = null, naming = null } = {}, { current = null } = {}) {
   const unmatched = [], made = new Map();
   const say = (from, item, reason, checked_by) => unmatched.push({ from, item, reason, ...(checked_by ? { checked_by } : {}) });
-  const kept = (current?.specifications ?? []).filter((s) => !GENERATED_ORIGINS.includes(s?.origin));
+  // The EIR's specifications are placed after the generated ones (placeEir), not used to thin them: a contract requirement an EIR
+  // also makes stays the contract's, so an EIR compiled again without it cannot drop it.
+  const kept = (current?.specifications ?? []).filter((s) => !GENERATED_ORIGINS.includes(s?.origin) && !isEir(s));
   const already = keptFacets(kept);
   const add = (origin, id, cls, list, facet, from, item) => {
     const entity = classEntity(cls);
@@ -356,39 +359,56 @@ export function standardsToIds({ contract = null, ruleset = null, naming = null 
 
   const generated = [...made.values()].filter((s) => s.requirements.properties.length || s.requirements.attributes.length);
   const from = (s) => (s ? { label: s.label, sha256: s.sha256 } : null);
+  const wasHeld = new Set(current?.eir_skipped ?? []);
+  const eir = placeEir([...(current?.specifications ?? []).filter(isEir), ...wasHeld], [...kept, ...generated]);
   return {
     ids: {
       // Review: the IDS in force's enforcement stays exactly as it is — an absent one is reject to the judge (cde-store), so
       // writing "warn" over it would loosen the gate unasked. "warn" only for a project's first IDS, as matrixToIds.
       title: current?.title ?? "Sentinel standards IDS", ...(current ? ("enforce" in current ? { enforce: current.enforce } : {}) : { enforce: "warn" }),
-      specifications: [...kept, ...generated],
+      specifications: [...kept, ...eir.kept, ...generated], ...(eir.held.length ? { eir_skipped: eir.held } : {}),
       generated_from: { contract: from(contract), ruleset: from(ruleset), naming: from(naming) },
     },
-    added: generated.length, kept: kept.length, unmatched,
+    added: generated.length, kept: kept.length + eir.kept.length, unmatched,
+    // The EIR's requirements this IDS puts back (the standards stopped making them) and holds back (the standards now make them).
+    eir_restored: eir.kept.filter((s) => wasHeld.has(s)).map((s) => s.name),
+    eir_held: eir.said.filter((_, i) => !wasHeld.has(eir.held[i])),
   };
 }
 
-/** An EIR compile installed on a project (Documents ▸ Compile to IDS ▸ Install) merges as standardsToIds does, the other way round:
- *  its specifications carry origin "eir" and replace the last compile's; the generated ones, generated_from and enforce stay as the
- *  IDS in force has them (an absent enforce is reject to the judge — never added); a requirement a kept spec makes is not repeated.
- *  `compiled`: compileIds's answer; `current`: the IDS in force's body, or null.
- *  → {ids: {title, enforce?, specifications, generated_from?}, added, kept, skipped: [{name, source_sentence, reason}]}. */
-export function eirToIds(compiled, { current = null } = {}) {
-  // An install before origins (2026-10-19) left its specs untagged; only compileIds writes source_sentence, so those are an EIR's too.
-  const own = (s) => s?.origin === "eir" || (s?.origin == null && typeof s?.source_sentence === "string");
-  const kept = (current?.specifications ?? []).filter((s) => !own(s));
-  const already = keptFacets(kept), added = [], skipped = [];
-  for (const s of compiled.specifications) {
+/** An EIR's specification (Documents ▸ Compile to IDS). An install before origins (2026-10-19) left them untagged; only compileIds
+ *  writes source_sentence, so an untagged one with it is an EIR's too. */
+export const isEir = (s) => s?.origin === "eir" || (s?.origin == null && typeof s?.source_sentence === "string");
+
+/** The EIR's specifications placed beside `others`: one whose requirement another check already makes is held in `eir_skipped`
+ *  (judged once, not twice) and placed again at every install from either side — so when the standards stop making it, or the
+ *  check holding it goes, the EIR's requirement is back in force. → {kept, held, said: [{name, source_sentence, reason}]}. */
+function placeEir(specs, others) {
+  const already = keptFacets(others), kept = [], held = [], said = [];
+  for (const s of specs) {
     const dup = (s.requirements?.properties ?? []).map((f) => already.get(facetKey(s.applicability?.entity ?? "", f))).find(Boolean);
-    if (dup) skipped.push({ name: s.name, source_sentence: s.source_sentence, reason: `already required by the IDS in force ('${dup}')` });
-    else added.push({ ...s, origin: "eir" });
+    if (!dup) { kept.push(s); continue; }
+    held.push(s);
+    said.push({ name: s.name, source_sentence: s.source_sentence, reason: `already checked by '${dup}' — held back so it is not checked twice, and put back if that check goes` });
   }
+  return { kept, held, said };
+}
+
+/** An EIR compile installed on a project (Documents ▸ Compile to IDS ▸ Install) merges as standardsToIds does, the other way round:
+ *  its specifications carry origin "eir" and replace the last compile's (held ones too); the generated ones, generated_from and
+ *  enforce stay as the IDS in force has them (an absent enforce is reject to the judge — never added); a requirement another
+ *  check makes is held (placeEir). `compiled`: compileIds's answer; `current`: the IDS in force's body, or null.
+ *  → {ids: {title, enforce?, specifications, eir_skipped?, generated_from?}, added, kept, skipped: [{name, source_sentence, reason}]}. */
+export function eirToIds(compiled, { current = null } = {}) {
+  const kept = (current?.specifications ?? []).filter((s) => !isEir(s));
+  const eir = placeEir(compiled.specifications.map((s) => ({ ...s, origin: "eir" })), kept);
   return {
     ids: {
       title: current?.title ?? compiled.title, ...(current && "enforce" in current ? { enforce: current.enforce } : {}),
-      specifications: [...kept, ...added], ...(current?.generated_from ? { generated_from: current.generated_from } : {}),
+      specifications: [...kept, ...eir.kept], ...(eir.held.length ? { eir_skipped: eir.held } : {}),
+      ...(current?.generated_from ? { generated_from: current.generated_from } : {}),
     },
-    added: added.length, kept: kept.length, skipped,
+    added: eir.kept.length, kept: kept.length, skipped: eir.said,
   };
 }
 
