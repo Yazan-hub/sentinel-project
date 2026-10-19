@@ -10,6 +10,7 @@ import { currentUser } from "./auth";
 import { escapeHtml as esc } from "./escape-html";
 import { packFilename, packWords, saveAs } from "./audit-pack";
 import { STANDARD_FORMS, STANDARD_LINKS, renderStandardForm } from "./standard-forms";
+import { renderIdsPreview, staleWords, type GeneratedIds } from "./ids-from-standards";
 
 /**
  * Project Settings (Forma-style) — the admin page inside a project's space. General (name, owner,
@@ -276,7 +277,8 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
     const host = el("ps-standards");
     host.innerHTML = '<div style="color:#a1a1aa;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:.4rem">Standards in force</div>';
     try {
-      const [r, role] = await Promise.all([bfetch(`${base}/cde/${encodeURIComponent(key)}/artefacts`), myRole(base, key)]);
+      // Q5: the IDS the standards in force make — read for the out-of-date line only, so a failure is no line, never an error.
+      const [r, role, gen] = await Promise.all([bfetch(`${base}/cde/${encodeURIComponent(key)}/artefacts`), myRole(base, key), generatedIds(key).catch(() => null)]);
       if (mine !== stdSeq) return;
       const j = await r.json().catch(() => ({}));
       if (mine !== stdSeq) return;
@@ -295,7 +297,8 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
         if (STANDARD_FORMS[kind]) return `<button class="ps-edit" data-kind="${esc(kind)}" style="${small}">Edit…</button>`;
         const l = STANDARD_LINKS[kind];
         if (!l) return "";
-        return "open" in l ? `<button class="ps-open" data-open="${esc(l.open)}" style="${small}">${esc(l.label)}</button>`
+        const gen = kind === "ids" ? `<button id="ps-ids-gen" style="${small}">Generate from standards…</button>` : "";
+        return "open" in l ? `${gen}<button class="ps-open" data-open="${esc(l.open)}" style="${small}">${esc(l.label)}</button>`
           : `<span style="color:#71717a;font-size:10.5px;max-width:13rem;text-align:right">${esc(l.text)}</span>`;
       };
       host.innerHTML += rows.map(([kind, a]) =>
@@ -305,8 +308,10 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
              `<span style="color:#71717a;font-size:11px">${esc(a.installed_by ?? "—")} · ${esc((a.installed_at ?? "").slice(0, 10) || "—")}</span>`
            : `<span style="flex:1;color:#71717a">none installed</span>`) +
         control(kind) +
-        "</div>").join("");
+        "</div>" +
+        (kind === "ids" && staleWords(gen) ? `<div style="color:#fbbf24;font-size:11px;padding:.15rem 0 .25rem 7.1rem">${esc(staleWords(gen))}</div>` : "")).join("");
       host.querySelectorAll<HTMLButtonElement>(".ps-edit").forEach((b) => b.addEventListener("click", () => void openEditor(b.dataset.kind!)));
+      host.querySelector<HTMLButtonElement>("#ps-ids-gen")?.addEventListener("click", () => void openIdsGenerator());
       host.querySelectorAll<HTMLButtonElement>(".ps-open").forEach((b) => b.addEventListener("click", () => opts.onOpen?.(b.dataset.open as "docs" | "standards" | "carbon")));
       // Advanced: a standard exported by another office, imported as a file — the one place a .json is picked (packs exchange).
       if (canInstall) {
@@ -432,6 +437,49 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
     } catch (e) {
       if (mine !== editSeq) return;
       box.innerHTML = `<div style="color:#fca5a5;font-size:11.5px;padding:.4rem 0">The ${esc(kind)} standard in force was not read — ${esc((e as Error)?.message ?? String(e))}. Nothing was changed.</div>`;
+    }
+  }
+
+  /** GET /cde/:key/artefacts/ids/generated — the IDS the contract and naming rules in force make (a proposal; nothing installed). */
+  async function generatedIds(key: string): Promise<GeneratedIds> {
+    const r = await bfetch(`${base}/cde/${encodeURIComponent(key)}/artefacts/ids/generated`);
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error((j as { message?: string })?.message || `HTTP ${r.status}`);
+    return j as GeneratedIds;
+  }
+
+  /** Q5: ids ▸ Generate from standards… — the preview under the list (the editors' box). Install puts it in as ids@n+1 on the
+   *  project in view through the usual PUT, only when neither the IDS in force nor the standards changed since the preview. */
+  async function openIdsGenerator() {
+    const mine = ++editSeq, key = pid();
+    editScope = loadScope(key);
+    const box = el("ps-std-edit");
+    box.innerHTML = `<div style="color:#9ca3af;font-size:11.5px;padding:.4rem 0">Making the IDS from the contract and naming rules in force…</div>`;
+    try {
+      const g = await generatedIds(key);
+      if (mine !== editSeq || key !== pid()) return;
+      const close = () => box.replaceChildren();
+      box.replaceChildren(renderIdsPreview(g, {
+        canInstall: canInstallArtefacts(await myRole(base, key), key),
+        onCancel: close,
+        onDownload: () => saveAs(new Blob([g.xml], { type: "application/xml" }), `${key}-ids.ids`),
+        onInstall: async () => {
+          if (key !== pid()) throw new Error(`Not installed — the project in view is no longer ${key}`);
+          const now = await generatedIds(key);
+          if (JSON.stringify(now.ids) !== JSON.stringify(g.ids) || now.current !== g.current)
+            throw new Error(`Not installed — the IDS or the standards changed since this preview (the IDS in force is now ${now.current ?? "none"}); generate it again`);
+          const from = Object.values(g.ids.generated_from).filter(Boolean).map((f) => f!.label);
+          let p: { version: number; sha256: string };
+          try { p = await installArtefact(base, key, "ids", { ...g.ids, source: { generated_from: from, generated_at: new Date().toISOString() } }, await who()); }
+          catch (e) { throw new Error(`Not installed — ${(e as Error)?.message ?? String(e)}`); }
+          close();
+          await loadStandards({ text: `✓ ids@${p.version} installed on ${key}, made from ${from.join(" · ")} (sha ${String(p.sha256).slice(0, 12)}…).` });
+        },
+      }));
+      box.scrollIntoView?.({ block: "nearest" });
+    } catch (e) {
+      if (mine !== editSeq) return;
+      box.innerHTML = `<div style="color:#fca5a5;font-size:11.5px;padding:.4rem 0">The IDS was not made — ${esc((e as Error)?.message ?? String(e))}. Nothing was changed.</div>`;
     }
   }
 

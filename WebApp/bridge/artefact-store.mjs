@@ -608,6 +608,29 @@ export async function lodMatrixIds(key, deps) {
   return { matrix: refLabel(a), sha256: a.sha256, stage: "DD", project_stage: m.stage_map.DD, ids, unmatched };
 }
 
+/** Q5 (2026-10-19): GET /cde/:key/artefacts/ids/generated — the IDS made from the standards in force (contract, ruleset, naming;
+ *  project → office) by standardsToIds, with the IDS in force's other specifications kept. A proposal: never installed here — a
+ *  lead installs it through PUT …/artefacts/ids (validated, ledger row). `up_to_date`: the IDS in force was made from these very
+ *  standards (true/false), or was not generated (null). `xml`: the same IDS as buildingSMART IDS 1.0, `xml_skipped` what it lacks. */
+export async function generatedIds(key, deps) {
+  const { standardsToIds, idsToXml } = await import("./ids-compile.mjs");
+  const { SUBTYPES } = await import("./delivery-gate.mjs");
+  const broken = [];
+  const read = async (kind) => {
+    const a = await resolveArtefact(key, kind, deps);
+    if (a.source === "none") return null;
+    try { validateArtefact(kind, a.body); } catch (e) { broken.push({ from: kind, item: refLabel(a), reason: `did not parse, so nothing of it is in the IDS: ${e.message}` }); return null; }
+    return { body: a.body, label: refLabel(a), sha256: a.sha256 };
+  };
+  const [contract, ruleset, naming] = [await read("contract"), await read("ruleset"), await read("naming")];
+  const current = await resolveArtefact(key, "ids", deps);
+  const out = standardsToIds({ contract, ruleset, naming }, { current: current.body });
+  const was = current.body?.generated_from;
+  const up_to_date = was ? ["contract", "ruleset", "naming"].every((k) => (was[k]?.sha256 ?? null) === (out.ids.generated_from[k]?.sha256 ?? null)) : null;
+  const { xml, skipped } = idsToXml(out.ids, { ifcSchema: contract?.body.ifc_schema, subtypes: SUBTYPES });
+  return { ...out, unmatched: [...broken, ...out.unmatched], current: current.ref ? refLabel(current) : null, up_to_date, xml, xml_skipped: skipped };
+}
+
 /**
  * The IDS a judge must use for `key`: project → office (resolveArtefact) → client → none. Returns the spec
  * and its provenance; `client_ids_ignored` is true when a client sent one but an installed artefact outranked it.

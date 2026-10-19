@@ -1,0 +1,151 @@
+// Q5 (2026-10-19): the IDS made from the installed contract and naming rules — standardsToIds, idsToXml and the route
+// GET /cde/:key/artefacts/ids/generated (generatedIds). The independent proof (IfcTester on a real IFC) is tools/ids-proof.
+import { describe, it, expect } from "vitest";
+import { standardsToIds, idsToXml, toXsdPattern, rulePatternOf, commonSetClass } from "./ids-compile.mjs";
+import { validateElement, RuleEngine } from "./sentinel-core.mjs";
+import { generatedIds, putArtefact, validateArtefact } from "./artefact-store.mjs";
+import { SUBTYPES } from "./delivery-gate.mjs";
+
+const CONTRACT = {
+  contract_key: "q5-proof", ifc_schema: "IFC4", schema_version: 1, require_georeference: true, min_coverage: 0.9,
+  required_entities: [{ entity: "IFCWALL", min_count: 1 }], required_psets: ["Pset_WallCommon"],
+  required_properties: ["Pset_WallCommon.FireRating", "Pset_DoorCommon.FireRating", "pset_wallcommon.firerating", "FireRating", "Pset_BDS.Discipline"],
+  forbidden_entities: [{ entity: "IFCBUILDINGELEMENTPROXY", max_count: 0, max_ratio: 0.2 }],
+};
+const RULESET = {
+  standard_key: "q5", semver: "1.0.0", rules: [
+    { id: "LV-01", target: "level", mode: "monitor", tokens: ["L"], token_defs: { L: "L\\d{2}_(FFL|SSL)" }, whitelist: ["STREET LEVEL"], separator: "_", message_en: "Level {name}" },
+    { id: "LV-02", target: "level", mode: "warn", tokens: ["L"], token_defs: { L: "{org}-L\\d{2}" } },
+    { id: "PR-01", target: "parameter", mode: "warn", parameter_name: "Mark", categories: ["Doors", "Windows"] },
+    { id: "VP-01", target: "parameter", mode: "warn", parameter_name: "View Status" },
+    { id: "SN-01", target: "sheet", mode: "request", tokens: ["N"] },
+    { id: "TY-01", target: "type", mode: "warn", tokens: ["T"] },
+  ],
+};
+const NAMING = { standard_key: "q5-naming", semver: "1.0.0", title: "Q5 container naming", separator: "_", fields: [{ key: "p", label: "Project", pattern: "^[A-Z]{3}$" }] };
+const src = (body, label) => ({ body, label, sha256: `sha-${label}` });
+const run = (opts = {}) => standardsToIds({ contract: src(CONTRACT, "contract@1"), ruleset: src(RULESET, "ruleset@1"), naming: src(NAMING, "naming@1") }, opts);
+
+describe("standardsToIds — contract and naming rules → the IDS (Q5)", () => {
+  it("makes one specification per class from the contract's named properties and one per level rule, each tagged with its origin", () => {
+    const { ids, added, kept } = run();
+    expect(kept).toBe(0);
+    expect(added).toBe(5); // Walls, Doors (contract) · Levels LV-01 · Doors, Windows (PR-01)
+    const by = Object.fromEntries(ids.specifications.map((s) => [s.name, s]));
+    expect(by["Walls · contract q5-proof"]).toEqual({ name: "Walls · contract q5-proof", origin: "contract", applicability: { entity: "IFCWALL" },
+      requirements: { properties: [{ pset: "Pset_WallCommon", name: "FireRating", cardinality: "required" }], attributes: [] } }); // the lower-case twin is one requirement
+    expect(by["Doors · contract q5-proof"].requirements.properties).toEqual([{ pset: "Pset_DoorCommon", name: "FireRating", cardinality: "required" }]);
+    expect(by["Levels · naming LV-01"].requirements.attributes).toEqual([{ name: "Name", pattern: "^(?:(?:L\\d{2}_(FFL|SSL))|STREET LEVEL)$", cardinality: "required" }]);
+    expect(by["Windows · naming PR-01"].requirements.properties).toEqual([{ pset: null, name: "Mark", cardinality: "required" }]);
+    expect(ids.enforce).toBe("warn");
+    expect(ids.generated_from).toEqual({ contract: { label: "contract@1", sha256: "sha-contract@1" }, ruleset: { label: "ruleset@1", sha256: "sha-ruleset@1" }, naming: { label: "naming@1", sha256: "sha-naming@1" } });
+    expect(() => validateArtefact("ids", ids)).not.toThrow(); // the bridge installs it as it stands
+  });
+
+  it("drops nothing silently: every rule an IDS cannot say, or Sentinel's IDS does not judge, is in unmatched with its reason and its check", () => {
+    const items = run().unmatched.map((u) => `${u.from}:${u.item}`);
+    expect(items).toEqual([
+      "contract:FireRating", "contract:Pset_BDS.Discipline", "contract:Pset_WallCommon", "contract:IFC schema IFC4",
+      "contract:IFCWALL: at least 1", "contract:IFCBUILDINGELEMENTPROXY: at most 0, at most 20% of building elements", "contract:georeference", "contract:coverage 90%",
+      "ruleset:LV-02 (level)", "ruleset:VP-01 (parameter)", "ruleset:SN-01 (sheet)", "ruleset:TY-01 (type)", "naming:Q5 container naming",
+    ]);
+    for (const u of run().unmatched) { expect(u.reason.length).toBeGreaterThan(10); expect(u.checked_by).toBeTruthy(); }
+  });
+
+  it("keeps the IDS in force's own specifications and does not repeat a requirement one of them already makes; a regenerate replaces its own", () => {
+    const eir = { name: "Doors carry a fire rating", applicability: { entity: "IFCDOOR" }, requirements: { properties: [{ pset: "pset_doorcommon", name: "FireRating", cardinality: "required" }], attributes: [] } };
+    const first = run({ current: { title: "Project IDS", enforce: "reject", specifications: [eir] } });
+    expect(first.ids.title).toBe("Project IDS");
+    expect(first.ids.enforce).toBe("reject");
+    expect(first.ids.specifications[0]).toBe(eir);
+    expect(first.ids.specifications.some((s) => s.name === "Doors · contract q5-proof")).toBe(false);
+    expect(first.unmatched).toContainEqual({ from: "contract", item: "Pset_DoorCommon.FireRating", reason: "already required by the IDS in force ('Doors carry a fire rating')", checked_by: "the IDS in force" });
+    const again = run({ current: first.ids });
+    expect(again.ids.specifications).toEqual(first.ids.specifications);
+    expect(again.kept).toBe(1);
+  });
+
+  it("is judged by Sentinel's validator as the contract and the naming engine judge (one element each way)", () => {
+    const { ids } = run();
+    const wall = (v) => ({ identity: { Class: "IFCWALLSTANDARDCASE" }, psets: [{ name: "Pset_WallCommon", rows: v == null ? [] : [{ name: "FireRating", value: v }] }] });
+    expect(validateElement(ids, wall("60")).pass).toBe(true);
+    expect(validateElement(ids, wall("")).failures.map((f) => f.requirement)).toEqual(["Pset_WallCommon.FireRating"]);
+    const engine = new RuleEngine(), rule = RULESET.rules[0];
+    for (const name of ["L01_FFL", "STREET LEVEL", "Level 1", "L1_FFL"]) {
+      const storey = { identity: { Class: "IFCBUILDINGSTOREY", Name: name }, psets: [] };
+      expect(validateElement(ids, storey).pass).toBe(engine.checkName(rule, 1, name) === null);
+    }
+  });
+});
+
+describe("idsToXml — the same IDS as buildingSMART IDS 1.0", () => {
+  it("writes a plain class with its standard-case subtypes, a property set or any set, and a name pattern in XSD form", () => {
+    const { xml, skipped } = idsToXml(run().ids, { ifcSchema: "IFC4", subtypes: SUBTYPES });
+    expect(skipped).toEqual([]);
+    expect(xml).toContain('<specification name="Walls · contract q5-proof" ifcVersion="IFC4">');
+    expect(xml).toContain('<xs:enumeration value="IFCWALL"/><xs:enumeration value="IFCWALLSTANDARDCASE"/><xs:enumeration value="IFCWALLELEMENTEDCASE"/>');
+    expect(xml).toContain('<propertySet><xs:restriction base="xs:string"><xs:pattern value=".+"/></xs:restriction></propertySet><baseName><simpleValue>Mark</simpleValue></baseName>');
+    expect(xml).toContain('<xs:pattern value="((L\\d{2}_(FFL|SSL))|STREET LEVEL)"/>');
+  });
+  it("says what XSD cannot hold instead of writing a different rule", () => {
+    const ids = { title: "t", specifications: [{ name: "lazy", applicability: { entity: "IFCWALL" }, requirements: { properties: [], attributes: [{ name: "Name", pattern: "^A.*?B$", cardinality: "required" }] } }] };
+    const { xml, skipped } = idsToXml(ids);
+    expect(skipped).toEqual([{ specification: "lazy", requirement: "@Name", reason: "the pattern /^A.*?B$/ has no XSD form" }]);
+    expect(xml).not.toContain("<attribute");
+  });
+  it("toXsdPattern keeps the JS meaning: unanchored becomes .*…*, anchors and (?: go, lookarounds and inner anchors are refused", () => {
+    expect(toXsdPattern("^L\\d{2}$")).toBe("L\\d{2}");
+    expect(toXsdPattern("FD")).toBe(".*FD.*");
+    expect(toXsdPattern("^(?:a|b)$")).toBe("(a|b)");
+    expect(toXsdPattern("[$^]x$")).toBe(".*[$^]x");
+    for (const bad of ["^(?=a)b$", "\\bA", "(a)\\1", "a^b", "a+?"]) expect(toXsdPattern(bad)).toBeNull();
+  });
+  it("the helpers: a rule's pattern is the naming engine's; a common set names its class", () => {
+    expect(rulePatternOf({ tokens: ["A", "B"], token_defs: { A: "X" }, separator: "-" })).toBe("^(?:(?:X)-[A-Za-z0-9\\-]+)$");
+    expect(rulePatternOf({ tokens: [] })).toBeNull();
+    expect(commonSetClass("Pset_AirTerminalTypeCommon")).toBe("IFCAIRTERMINAL");
+    expect(commonSetClass("Pset_BDS")).toBeNull();
+  });
+});
+
+describe("generatedIds — GET /cde/:key/artefacts/ids/generated", () => {
+  const mem = (parentKey = null) => {
+    const docs = new Map(), k = (s, p, d) => `${s}|${p}|${d}`;
+    return {
+      ensureProject: async (key) => ({ id: `uuid-${key}`, key }),
+      docGet: async (s, p, d) => docs.get(k(s, p, d)) ?? null,
+      docInsert: async (s, p, d, data) => { docs.set(k(s, p, d), data); },
+      docUpsert: async (s, p, d, data) => { docs.set(k(s, p, d), data); },
+      audit: async () => {}, requireMinRole: async () => {},
+      officeKeyOf: async () => parentKey,
+      officeArtefact: async (key, kind) => { const p = docs.get(k("artefact", `uuid-${key}`, kind)); return p ? docs.get(k("artefact", `uuid-${key}`, `${kind}@${p.version}`)) ?? null : null; },
+    };
+  };
+  it("compiles from the standards in force (project → office), installs nothing, and says when the installed IDS is out of date", async () => {
+    const d = mem("q5-office");
+    await putArtefact("q5-office", "contract", CONTRACT, { actor: "lead" }, d);
+    await putArtefact("q5", "ruleset", RULESET, { actor: "lead" }, d);
+    const r = await generatedIds("q5", d);
+    expect(r.current).toBeNull();
+    expect(r.up_to_date).toBeNull();
+    expect(r.ids.generated_from.contract.label).toMatch(/^contract@1 · office · /);
+    expect(r.xml).toContain("<ids xmlns=\"http://standards.buildingsmart.org/IDS\"");
+    expect(await d.docGet("artefact", "uuid-q5", "ids")).toBeNull();
+    await putArtefact("q5", "ids", r.ids, { actor: "lead" }, d);
+    expect((await generatedIds("q5", d)).up_to_date).toBe(true);
+    await putArtefact("q5", "contract", { ...CONTRACT, required_properties: ["Pset_SlabCommon.LoadBearing"] }, { actor: "lead" }, d);
+    const later = await generatedIds("q5", d);
+    expect(later.up_to_date).toBe(false);
+    expect(later.current).toMatch(/^ids@1 · project/);
+    expect(later.ids.specifications.map((s) => s.name)).toContain("Floors · contract q5-proof");
+    expect(later.ids.specifications.map((s) => s.name)).not.toContain("Walls · contract q5-proof"); // its own specs replaced, not piled up
+  });
+  it("a standard that no longer parses is said, never half-read", async () => {
+    const d = mem();
+    await d.docInsert("artefact", "uuid-q5b", "ruleset@1", { version: 1, sha256: "x", body: { standard_key: "q5" } });
+    await d.docUpsert("artefact", "uuid-q5b", "ruleset", { version: 1, sha256: "x" });
+    const r = await generatedIds("q5b", d);
+    expect(r.unmatched[0]).toMatchObject({ from: "ruleset", item: expect.stringMatching(/^ruleset@1/), reason: expect.stringMatching(/^did not parse/) });
+    expect(r.added).toBe(0);
+  });
+});

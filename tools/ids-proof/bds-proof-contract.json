@@ -1,0 +1,40 @@
+{
+ "schema_version": 1,
+ "contract_key": "bds-ids-proof",
+ "ifc_schema": "IFC2X3",
+ "required_entities": [
+  {
+   "entity": "IFCWALL",
+   "min_count": 1
+  },
+  {
+   "entity": "IFCDOOR",
+   "min_count": 1
+  },
+  {
+   "entity": "IFCCOLUMN",
+   "min_count": 1
+  }
+ ],
+ "required_psets": [
+  "Pset_WallCommon"
+ ],
+ "required_properties": [
+  "Pset_WallCommon.IsExternal",
+  "Pset_WallCommon.LoadBearing",
+  "Pset_WallCommon.FireRating",
+  "Pset_DoorCommon.FireRating",
+  "Pset_DoorCommon.IsExternal",
+  "Pset_SlabCommon.LoadBearing",
+  "FireRating",
+  "Pset_ConcreteElementGeneral.ConstructionMethod"
+ ],
+ "forbidden_entities": [
+  {
+   "entity": "IFCBUILDINGELEMENTPROXY",
+   "max_count": 0,
+   "max_ratio": 0.2
+  }
+ ],
+ "require_georeference": false
+}

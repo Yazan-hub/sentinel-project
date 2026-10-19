@@ -1590,6 +1590,8 @@ async function handleRequest(req, res) {
         // MA-2b: GET /cde/:key/artefacts/lod_matrix/ids — the DD stage IDS made from the matrix in force (never installed as ids@n).
         // Before the version GET, so "ids" is never read as a version. Any member, as every artefact read.
         if (p3 === "lod_matrix" && p4 === "ids" && req.method === "GET") return send(res, 200, await art.lodMatrixIds(p1));
+        // Q5: GET /cde/:key/artefacts/ids/generated — the IDS made from the contract and naming rules in force (a proposal; PUT …/ids installs it).
+        if (p3 === "ids" && p4 === "generated" && req.method === "GET") return send(res, 200, await art.generatedIds(p1));
         if (p3 && !p4 && req.method === "GET") {
           const r = await art.artefactReply(p1, p3, req.headers["if-none-match"]);
           return send(res, r.status, r.body, r.etag && { ETag: r.etag });
