@@ -15,6 +15,7 @@
 //     gate that looks complete and enforces half the EIR — the worst possible failure here.
 
 import { notAValue } from "./changesets-typing.mjs";
+import { SUBTYPES, BUILDING_ELEMENTS } from "./delivery-gate.mjs";
 
 /** IFC entity for the nouns a requirement actually uses. Extend as a project's vocabulary demands. */
 export const ENTITY_VOCAB = [
@@ -256,7 +257,26 @@ export function rulePatternOf(r) {
  *  IFCWALL, Pset_AirTerminalTypeCommon → IFCAIRTERMINAL; any other set names no class → null. */
 export const commonSetClass = (pset) => { const m = /^Pset_(.+)Common$/i.exec(pset); return m ? `IFC${m[1].toUpperCase().replace(/TYPE$/, "")}` : null; };
 
-const facetKey = (entity, f) => [entity, f.pset === undefined ? "@" : f.pset ?? "*", f.name, f.cardinality, f.value ?? "", f.pattern ?? ""].join("|").toLowerCase();
+/** The classes a generated specification may target: where the contract gate judges the same exact class (and its standard-case
+ *  subtypes). Review: a "Pset_AsterCommon" names IFCASTER, which no element is — said in unmatched, never a check that always passes. */
+const IDS_CLASSES = new Set([...Object.keys(STANDARD_PSETS), ...BUILDING_ELEMENTS, ...Object.values(SUBTYPES).flat(),
+  "IFCSPACE", "IFCBUILDING", "IFCBUILDINGSTOREY", "IFCSITE", "IFCOPENINGELEMENT", "IFCFURNISHINGELEMENT", "IFCRAMP", "IFCRAMPFLIGHT"]);
+const PLAIN_CLASS = /^IFC[A-Z0-9]+$/i;
+
+/** A generated specification's entity: the class and its standard-case subtypes, anchored — ids.ts matches an entity unanchored, so a
+ *  bare "IFCBUILDING" would also judge every IFCBUILDINGSTOREY (review). No "?:": the add-in's EntityPattern reads ^ $ | ( ) only. */
+export const classEntity = (cls) => { const all = [cls, ...(SUBTYPES[cls] ?? [])]; return all.length === 1 ? `^${cls}$` : `^(${all.join("|")})$`; };
+
+/** The exact classes an entity names — a plain class with its standard-case subtypes (as ids.ts's unanchored match reaches them),
+ *  or a classEntity list — else null (a pattern, taken as written). */
+export function entityClasses(entity) {
+  const e = String(entity ?? "");
+  if (PLAIN_CLASS.test(e)) { const c = e.toUpperCase(); return [c, ...(SUBTYPES[c] ?? [])]; }
+  const m = /^\^\((IFC[A-Z0-9]+(?:\|IFC[A-Z0-9]+)*)\)\$$/i.exec(e) ?? /^\^(IFC[A-Z0-9]+)\$$/i.exec(e);
+  return m ? m[1].toUpperCase().split("|") : null;
+}
+
+const facetKey = (entity, f) => [entityClasses(entity)?.sort().join(",") ?? entity, f.pset === undefined ? "@" : f.pset ?? "*", f.name, f.cardinality, f.value ?? "", f.pattern ?? ""].join("|").toLowerCase();
 const RULE_ELSEWHERE = {
   type: "a type's name is written on the IFC type object, and Sentinel's IDS judges placed elements",
   grid: "a grid line is not an element Sentinel's IDS judges",
@@ -276,11 +296,12 @@ export function standardsToIds({ contract = null, ruleset = null, naming = null 
   const already = new Map();
   for (const s of kept) for (const [k, list] of [["properties", s.requirements?.properties], ["attributes", s.requirements?.attributes]])
     for (const f of list ?? []) already.set(facetKey(s.applicability?.entity ?? "", k === "attributes" ? { ...f, pset: undefined } : f), s.name);
-  const add = (origin, id, entity, list, facet, from, item) => {
+  const add = (origin, id, cls, list, facet, from, item) => {
+    const entity = classEntity(cls);
     const dup = already.get(facetKey(entity, list === "attributes" ? { ...facet, pset: undefined } : facet));
     if (dup) return say(from, item, `already required by the IDS in force ('${dup}')`, "the IDS in force");
-    const k = `${origin}|${id}|${entity}`;
-    if (!made.has(k)) made.set(k, { name: `${ENTITY_LABEL[entity] ?? entity} · ${origin === "contract" ? `contract ${id}` : `naming ${id}`}`, origin, applicability: { entity }, requirements: { properties: [], attributes: [] } });
+    const k = `${origin}|${id}|${cls}`;
+    if (!made.has(k)) made.set(k, { name: `${ENTITY_LABEL[cls] ?? cls} · ${origin === "contract" ? `contract ${id}` : `naming ${id}`}`, origin, applicability: { entity }, requirements: { properties: [], attributes: [] } });
     const reqs = made.get(k).requirements[list];
     if (!reqs.some((f) => facetKey(entity, f) === facetKey(entity, facet))) reqs.push(facet);
   };
@@ -293,6 +314,7 @@ export function standardsToIds({ contract = null, ruleset = null, naming = null 
       if (!(dot > 0 && dot < p.length - 1)) { say("contract", p, `names no property set: the contract checks it on whichever classes carry it, and an IDS must name the class — write it as Pset_WallCommon.${p}`, by); continue; }
       const pset = p.slice(0, dot), name = p.slice(dot + 1), entity = commonSetClass(pset);
       if (!entity) { say("contract", p, `${pset} is not a buildingSMART common set (Pset_<Class>Common), so it names no class: the contract checks it on whichever classes carry it`, by); continue; }
+      if (!IDS_CLASSES.has(entity)) { say("contract", p, `${pset} names ${entity}, which is not a class Sentinel's IDS targets — the contract checks it on whichever classes carry it`, by); continue; }
       add("contract", c.contract_key, entity, "properties", { pset, name, cardinality: "required" }, "contract", p);
     }
     for (const p of c.required_psets) say("contract", p, `a property set with no property named — Sentinel's IDS checks named properties; name the ones you need (e.g. ${p}.Reference) under required properties`, by);
@@ -320,6 +342,7 @@ export function standardsToIds({ contract = null, ruleset = null, naming = null 
         if (!r.parameter_name || r.parameter_name.includes("{org}")) { say("ruleset", item, "the parameter is named with {org}, which Revit fills with the office's code at check time — an IDS needs the name written out", by); continue; }
         if (!cats.length || ents.some((e) => !e)) { say("ruleset", item, `applies to ${cats.length ? cats.filter((x, i) => !ents[i]).join(", ") : "views or items"} — not a category Sentinel's IDS judges (${Object.keys(CATEGORY_ENTITY).join(", ")})`, by); continue; }
         for (const e of ents) add("ruleset", r.id, e, "properties", { pset: null, name: r.parameter_name, cardinality: "required" }, "ruleset", item);
+        if (r.exclusions?.length) say("ruleset", `${item} exclusions`, "the elements a rule skips by name cannot be said in an IDS — the IDS checks every one, so it is stricter", by);
       } else say("ruleset", item, RULE_ELSEWHERE[r.target] ?? `target '${r.target}' is not in an IFC model`, by);
     }
   }
@@ -330,7 +353,9 @@ export function standardsToIds({ contract = null, ruleset = null, naming = null 
   const from = (s) => (s ? { label: s.label, sha256: s.sha256 } : null);
   return {
     ids: {
-      title: current?.title ?? "Sentinel standards IDS", enforce: current?.enforce ?? "warn",
+      // Review: the IDS in force's enforcement stays exactly as it is — an absent one is reject to the judge (cde-store), so
+      // writing "warn" over it would loosen the gate unasked. "warn" only for a project's first IDS, as matrixToIds.
+      title: current?.title ?? "Sentinel standards IDS", ...(current ? ("enforce" in current ? { enforce: current.enforce } : {}) : { enforce: "warn" }),
       specifications: [...kept, ...generated],
       generated_from: { contract: from(contract), ruleset: from(ruleset), naming: from(naming) },
     },
@@ -342,37 +367,54 @@ export function standardsToIds({ contract = null, ruleset = null, naming = null 
 const xmlEsc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 /** A JS pattern (unanchored, as ids.ts tests it) → the XSD pattern IDS uses (always whole-string), or null when it uses what
- *  XSD has no word for (lookarounds, \b, back-references, lazy quantifiers, an anchor inside). */
+ *  XSD has no word for (lookarounds, \b, back-references, lazy quantifiers, \D \W \S, an anchor inside, an anchor beside a
+ *  top-level "|", class subtraction). Review: \d and \w mean other things in XSD (any Unicode digit; no "_") — written out as
+ *  [0-9] and [A-Za-z0-9_]; a top-level "|" is grouped before ".*" wraps it; a literal { or } is escaped (XSD reads it as a quantifier). */
 export function toXsdPattern(js) {
   let s = String(js);
-  if (/\(\?(?!:)|\\[bB1-9]|[*+?}]\?/.test(s)) return null;
+  if (/\(\?(?!:)|\\[bBDWS1-9]|[*+?}]\?/.test(s)) return null;
   const start = s.startsWith("^"), end = /(^|[^\\])\$$/.test(s);
   s = s.slice(start ? 1 : 0, end ? -1 : undefined);
-  let inClass = false;
+  let out = "", inClass = false, depth = 0, topAlt = false;
   for (let i = 0; i < s.length; i++) {
-    if (s[i] === "\\") { i++; continue; }
-    if (s[i] === "[") inClass = true;
-    else if (s[i] === "]") inClass = false;
-    else if (!inClass && (s[i] === "^" || s[i] === "$")) return null;
+    const ch = s[i];
+    if (ch === "\\") {
+      const nx = s[++i] ?? "";
+      out += nx === "d" ? (inClass ? "0-9" : "[0-9]") : nx === "w" ? (inClass ? "A-Za-z0-9_" : "[A-Za-z0-9_]") : `\\${nx}`;
+      continue;
+    }
+    if (inClass) {
+      if (ch === "-" && s[i + 1] === "[") return null;
+      if (ch === "]") inClass = false;
+      out += ch;
+      continue;
+    }
+    if (ch === "[") { inClass = true; out += ch; continue; }
+    if (ch === "^" || ch === "$") return null;
+    if (ch === "(") { depth++; if (s.startsWith("?:", i + 1)) i += 2; out += "("; continue; }
+    if (ch === ")") { depth--; out += ch; continue; }
+    if (ch === "|" && depth === 0) topAlt = true;
+    if (ch === "{") { const q = /^\{\d+(,\d*)?\}/.exec(s.slice(i)); if (q) { out += q[0]; i += q[0].length - 1; } else out += "\\{"; continue; }
+    if (ch === "}") { out += "\\}"; continue; }
+    out += ch;
   }
-  s = s.replace(/\(\?:/g, "(");
-  return `${start ? "" : ".*"}${s}${end ? "" : ".*"}`;
+  if (topAlt && (start || end)) return null; // ^a|b$ is "starts with a, or ends with b" — not one whole-string pattern
+  const core = topAlt ? `(${out})` : out;
+  return `${start ? "" : ".*"}${core}${end ? "" : ".*"}`;
 }
 
 const IFC_VERSION = { IFC2X3: "IFC2X3", IFC4: "IFC4", IFC4X3: "IFC4X3_ADD2" };
-const PLAIN_CLASS = /^IFC[A-Z0-9]+$/i;
 
-/** → {xml, skipped: [{specification, requirement, reason}]}. A plain class applies with its standard-case subtypes (as the
- *  contract counts it, and as ids.ts's unanchored match reaches them); a regex class becomes an XSD pattern. */
-export function idsToXml(ids, { ifcSchema = null, subtypes = {} } = {}) {
+/** → {xml, skipped: [{specification, requirement, reason}]}. A plain class, or a classEntity list, applies to exactly those
+ *  classes (a plain one with its standard-case subtypes, as ids.ts's unanchored match reaches them); a regex class becomes an XSD pattern. */
+export function idsToXml(ids, { ifcSchema = null } = {}) {
   const skipped = [];
   const value = (v, pattern) => (pattern != null
     ? `<xs:restriction base="xs:string"><xs:pattern value="${xmlEsc(pattern)}"/></xs:restriction>`
     : `<simpleValue>${xmlEsc(v)}</simpleValue>`);
   const versions = IFC_VERSION[ifcSchema] ?? "IFC2X3 IFC4";
   const specs = (ids.specifications ?? []).map((s) => {
-    const raw = String(s.applicability?.entity ?? "IFC.*"), ent = PLAIN_CLASS.test(raw) ? raw.toUpperCase() : raw; // never upper-case a regex (\d → \D)
-    const names = PLAIN_CLASS.test(ent) ? [ent, ...(subtypes[ent] ?? [])] : null;
+    const ent = String(s.applicability?.entity ?? "IFC.*"), names = entityClasses(ent); // never upper-case a regex (\d → \D)
     const entPattern = names ? null : toXsdPattern(ent);
     if (!names && !entPattern) { skipped.push({ specification: s.name, requirement: "(applicability)", reason: `the class pattern /${ent}/ has no XSD form` }); return ""; }
     const entityXml = names?.length === 1 ? value(names[0])

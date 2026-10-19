@@ -456,11 +456,12 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
     const box = el("ps-std-edit");
     box.innerHTML = `<div style="color:#9ca3af;font-size:11.5px;padding:.4rem 0">Making the IDS from the contract and naming rules in force…</div>`;
     try {
-      const g = await generatedIds(key);
+      const [g, role] = await Promise.all([generatedIds(key), myRole(base, key)]);
       if (mine !== editSeq || key !== pid()) return;
-      const close = () => box.replaceChildren();
-      box.replaceChildren(renderIdsPreview(g, {
-        canInstall: canInstallArtefacts(await myRole(base, key), key),
+      // Review: only this preview is closed — an Edit… opened while an install ran keeps its form and what was typed in it.
+      const close = () => { if (box.contains(view)) box.replaceChildren(); };
+      const view: HTMLElement = renderIdsPreview(g, {
+        canInstall: canInstallArtefacts(role, key),
         onCancel: close,
         onDownload: () => saveAs(new Blob([g.xml], { type: "application/xml" }), `${key}-ids.ids`),
         onInstall: async () => {
@@ -475,7 +476,8 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
           close();
           await loadStandards({ text: `✓ ids@${p.version} installed on ${key}, made from ${from.join(" · ")} (sha ${String(p.sha256).slice(0, 12)}…).` });
         },
-      }));
+      });
+      box.replaceChildren(view);
       box.scrollIntoView?.({ block: "nearest" });
     } catch (e) {
       if (mine !== editSeq) return;

@@ -29,7 +29,7 @@ export function specWords(s: Spec): string[] {
 export const staleWords = (g: Pick<GeneratedIds, "up_to_date" | "current"> | null): string =>
   g?.up_to_date === false ? `${g.current ?? "The IDS"} was generated from an earlier contract or naming rules — generate it again to bring it up to date` : "";
 
-const BTN = "border:1px solid #2c2c34;background:#1f1f27;color:#e5e7eb;border-radius:.35rem;padding:.3rem .6rem;font:600 11.5px system-ui;cursor:pointer";
+const btn = "border:1px solid #2c2c34;background:#1f1f27;color:#e5e7eb;border-radius:.35rem;padding:.3rem .6rem;font:600 11.5px system-ui;cursor:pointer";
 
 /** The preview: what the IDS will check, what it keeps, what it leaves to other checks; Install / Download .ids / Cancel. */
 export function renderIdsPreview(g: GeneratedIds, opts: { canInstall: boolean; onInstall: () => Promise<void>; onDownload: () => void; onCancel: () => void }): HTMLElement {
@@ -47,10 +47,12 @@ export function renderIdsPreview(g: GeneratedIds, opts: { canInstall: boolean; o
     (g.unmatched.length ? `<details${made.length ? "" : " open"}><summary style="cursor:pointer;color:#9ca3af">Not in the IDS (${g.unmatched.length}) — still checked elsewhere or needs a change to the standard</summary>` +
       `<ul style="margin:.3rem 0 0;padding-left:1.1rem;color:#a1a1aa">${g.unmatched.map((u) => li(`${u.item} (${u.from}): ${u.reason}${u.checked_by ? ` — checked by ${u.checked_by}` : ""}`)).join("")}</ul></details>` : "") +
     (g.xml_skipped.length ? `<div style="color:#fbbf24;font-size:11px">The .ids file leaves out ${g.xml_skipped.length} check${g.xml_skipped.length === 1 ? "" : "s"} its format cannot hold: ${esc(g.xml_skipped.map((x) => `${x.specification} ${x.requirement}`).join(", "))}. Sentinel still checks them.</div>` : "") +
+    // Review: an IDS needs one check at least (the bridge refuses an empty one, and so does the IDS 1.0 schema) — said, never a dead button.
+    (g.ids.specifications.length ? "" : `<div style="color:#fbbf24;font-size:11px">Nothing to install: an IDS needs at least one check, and neither these standards nor ${esc(g.current ?? "an IDS in force")} give one. ${g.current ? `${esc(g.current)} stays in force as it is.` : ""}</div>`) +
     `<div class="ids-gen-msg" style="font-size:11px"></div>` +
     `<div style="display:flex;gap:.5rem;flex-wrap:wrap">` +
-    (opts.canInstall && g.ids.specifications.length ? `<button class="ids-gen-install" style="${BTN};background:#1d4ed8;border-color:#1d4ed8">Install as the project's IDS</button>` : "") +
-    `<button class="ids-gen-download" style="${BTN}">Download .ids</button><button class="ids-gen-cancel" style="${BTN}">Cancel</button></div>`;
+    (opts.canInstall && g.ids.specifications.length ? `<button class="ids-gen-install" style="${btn};background:#1d4ed8;border-color:#1d4ed8">Install as the project's IDS</button>` : "") +
+    (g.ids.specifications.length ? `<button class="ids-gen-download" style="${btn}">Download .ids</button>` : "") + `<button class="ids-gen-cancel" style="${btn}">Cancel</button></div>`;
   const msg = box.querySelector<HTMLElement>(".ids-gen-msg")!;
   const install = box.querySelector<HTMLButtonElement>(".ids-gen-install");
   install?.addEventListener("click", async () => {
@@ -60,7 +62,7 @@ export function renderIdsPreview(g: GeneratedIds, opts: { canInstall: boolean; o
       install.disabled = false; install.textContent = "Install as the project's IDS";
     }
   });
-  box.querySelector(".ids-gen-download")!.addEventListener("click", opts.onDownload);
+  box.querySelector(".ids-gen-download")?.addEventListener("click", opts.onDownload);
   box.querySelector(".ids-gen-cancel")!.addEventListener("click", opts.onCancel);
   return box;
 }

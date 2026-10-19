@@ -614,7 +614,6 @@ export async function lodMatrixIds(key, deps) {
  *  standards (true/false), or was not generated (null). `xml`: the same IDS as buildingSMART IDS 1.0, `xml_skipped` what it lacks. */
 export async function generatedIds(key, deps) {
   const { standardsToIds, idsToXml } = await import("./ids-compile.mjs");
-  const { SUBTYPES } = await import("./delivery-gate.mjs");
   const broken = [];
   const read = async (kind) => {
     const a = await resolveArtefact(key, kind, deps);
@@ -627,7 +626,7 @@ export async function generatedIds(key, deps) {
   const out = standardsToIds({ contract, ruleset, naming }, { current: current.body });
   const was = current.body?.generated_from;
   const up_to_date = was ? ["contract", "ruleset", "naming"].every((k) => (was[k]?.sha256 ?? null) === (out.ids.generated_from[k]?.sha256 ?? null)) : null;
-  const { xml, skipped } = idsToXml(out.ids, { ifcSchema: contract?.body.ifc_schema, subtypes: SUBTYPES });
+  const { xml, skipped } = idsToXml(out.ids, { ifcSchema: contract?.body.ifc_schema });
   return { ...out, unmatched: [...broken, ...out.unmatched], current: current.ref ? refLabel(current) : null, up_to_date, xml, xml_skipped: skipped };
 }
 

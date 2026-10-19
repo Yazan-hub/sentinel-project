@@ -4,15 +4,15 @@
 // Step 2 (check.py) runs IfcTester on the XML and compares. Usage:
 //   node tools/ids-proof/compile.mjs <contract.json> <ruleset.json> <file.ifc> <outdir>
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { standardsToIds, idsToXml } from "../../WebApp/bridge/ids-compile.mjs";
-import { checkDelivery, countWithSubtypes, SUBTYPES, stepArgs } from "../../WebApp/bridge/delivery-gate.mjs";
+import { standardsToIds, idsToXml, entityClasses } from "../../WebApp/bridge/ids-compile.mjs";
+import { checkDelivery, stepArgs } from "../../WebApp/bridge/delivery-gate.mjs";
 import { RuleEngine } from "../../WebApp/bridge/sentinel-core.mjs";
 
 const [contractPath, rulesetPath, ifcPath, out] = process.argv.slice(2);
 mkdirSync(out, { recursive: true });
 const contract = JSON.parse(readFileSync(contractPath, "utf8")), ruleset = JSON.parse(readFileSync(rulesetPath, "utf8"));
 const g = standardsToIds({ contract: { body: contract, label: contractPath, sha256: "-" }, ruleset: { body: ruleset, label: rulesetPath, sha256: "-" } });
-const { xml, skipped } = idsToXml(g.ids, { ifcSchema: contract.ifc_schema, subtypes: SUBTYPES });
+const { xml, skipped } = idsToXml(g.ids, { ifcSchema: contract.ifc_schema });
 writeFileSync(`${out}/generated.json`, JSON.stringify(g, null, 1));
 writeFileSync(`${out}/generated.ids`, xml);
 
@@ -30,7 +30,7 @@ for (const s of g.ids.specifications) {
     const rows = gate.coverage.filter((c) => c.requirement === req);
     // The gate's "not found in the file" (no element of any class carries it) has no per-class row: every element of the class fails.
     const notFound = gate.failures.includes(`Required property '${req}' not found in the file.`);
-    const total = notFound ? countWithSubtypes(gate.entity_counts, s.applicability.entity) : rows.reduce((n, r) => n + r.total, 0);
+    const total = notFound ? entityClasses(s.applicability.entity).reduce((n, c) => n + (gate.entity_counts[c] || 0), 0) : rows.reduce((n, r) => n + r.total, 0);
     const covered = notFound ? 0 : rows.reduce((n, r) => n + r.covered, 0);
     sentinel.properties.push({ specification: s.name, requirement: req, classes: notFound ? ["not found in the file"] : rows.map((r) => `${r.entity} ${r.covered}/${r.total}`), passed: covered, failed: total - covered });
   }

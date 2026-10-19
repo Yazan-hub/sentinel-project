@@ -34,9 +34,24 @@ It is deterministic, has no model in it, and works the same way as `matrixToIds`
 ## Install safety
 Install re-reads the generated IDS and refuses if it or the IDS in force changed since the preview ("generate it again").
 
+## Review fixes (a Sonnet review read the diff; all 8 findings taken)
+* **Enforcement:** the IDS in force's `enforce` is kept exactly; an absent one means reject to the judge (`cde-store`). Only a project's first IDS gets `warn`.
+* **Anchored class:** generated entities are written as `^(IFCWALL|IFCWALLSTANDARDCASE|IFCWALLELEMENTEDCASE)$` (with no `?:`, because the add-in's EntityPattern reads only `^ $ | ( )`).
+  * `ids.ts` matches entities unanchored, so a bare `IFCBUILDING` would also have judged every storey and proxy.
+  * The dedupe and the XML read the class list back with `entityClasses`.
+* **Known classes only:** a `Pset_<X>Common` whose X is not a class Sentinel's IDS targets (`Pset_AsterCommon` → IFCASTER) goes to `unmatched`.
+* **`toXsdPattern`:**
+  * `\d` is written as `[0-9]` and `\w` as `[A-Za-z0-9_]`, because XSD gives them other meanings;
+  * a top-level `|` is grouped before `.*` wraps it, and is refused when it sits beside an anchor;
+  * a literal `{ }` is escaped;
+  * `\D \W \S` and class subtraction are refused.
+* **Exclusions:** a parameter rule's exclusions are said in `unmatched`.
+* **Panel:** the preview re-checks it is still wanted after the role read, and closes only itself. An empty IDS says "Nothing to install" and offers neither Install nor Download.
+
 ## Known differences from IDS semantics
 * Sentinel's `value` compare ignores case; IDS `simpleValue` does not. Generated specs carry no values.
-* Sentinel's entity match is an unanchored, case-insensitive regex. Generated specs use plain class names, and the .ids file lists the subtypes explicitly.
+* Sentinel's entity match is a case-insensitive regex. Generated specs anchor it, and the .ids file lists the same classes.
+* Not covered by this feature: Documents ▸ "compile requirements, install as IDS" installs an EIR compile as a whole new ids@n. That drops the generated specs and their `generated_from`, so no out-of-date line shows. Merging there is a follow-up.
 
 ## Proof
 `tools/ids-proof/compile.mjs` and `check.py` run IfcTester (IfcOpenShell 0.9.0.post1, venv `%APPDATA%\Sentinel\ifctester-venv`) against Sentinel's contract gate and naming engine on real IFCs. The results are in `docs/testing/SIMULATION_ROOM_RUN_2026-09-22.md` § Session IDS-G.
