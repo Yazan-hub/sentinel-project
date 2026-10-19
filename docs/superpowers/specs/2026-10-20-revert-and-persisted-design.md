@@ -61,6 +61,8 @@ or `{height_mm}`); the bridge keeps it field by field. Attaches applied before t
 - **DocumentOpened:** a file still waiting for this model means the last session never saved it (closed without saving, or Revit
   stopped) — the opened file is checked the same way, `how: "reopened"`. This is what catches the crash and the "No" to Save.
 - A revert drops the file (the change is no longer meant to be there).
+- **Save As** (added after drill REV, row WS-4): Revit raises no DocumentSaved, so DocumentSavedAs moves the waiting files from the
+  old path to the new one and checks them there — a central saved under a standard name confirms its changesets.
 
 **Bridge:** `POST /changesets/:key/:id/persisted {how, held, missing}` → one ledger row, and the changeset doc gets
 `persisted: {state, how, at, ledger_id}`. The machine credential may post it (an observation, like the undo watcher).
