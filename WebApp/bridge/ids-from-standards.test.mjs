@@ -10,7 +10,7 @@ const CONTRACT = {
   contract_key: "q5-proof", ifc_schema: "IFC4", schema_version: 1, require_georeference: true, min_coverage: 0.9,
   required_entities: [{ entity: "IFCWALL", min_count: 1 }], required_psets: ["Pset_WallCommon"],
   required_properties: ["Pset_WallCommon.FireRating", "Pset_DoorCommon.FireRating", "pset_wallcommon.firerating", "FireRating", "Pset_BDS.Discipline"],
-  forbidden_entities: [{ entity: "IFCBUILDINGELEMENTPROXY", max_count: 0, max_ratio: 0.2 }],
+  forbidden_entities: [{ entity: "IFCBUILDINGELEMENTPROXY", max_count: 0, max_ratio: 0.2 }, { entity: "IFCSPACE", max_count: 2147483647, max_ratio: 0.5 }],
 };
 const RULESET = {
   standard_key: "q5", semver: "1.0.0", rules: [
@@ -46,7 +46,7 @@ describe("standardsToIds — contract and naming rules → the IDS (Q5)", () => 
     const items = run().unmatched.map((u) => `${u.from}:${u.item}`);
     expect(items).toEqual([
       "contract:FireRating", "contract:Pset_BDS.Discipline", "contract:Pset_WallCommon", "contract:IFC schema IFC4",
-      "contract:IFCWALL: at least 1", "contract:IFCBUILDINGELEMENTPROXY: at most 0, at most 20% of building elements", "contract:georeference", "contract:coverage 90%",
+      "contract:IFCWALL: at least 1", "contract:IFCBUILDINGELEMENTPROXY: at most 0, at most 20% of building elements", "contract:IFCSPACE: at most 50% of building elements", "contract:georeference", "contract:coverage 90%",
       "ruleset:LV-02 (level)", "ruleset:VP-01 (parameter)", "ruleset:SN-01 (sheet)", "ruleset:TY-01 (type)", "naming:Q5 container naming",
     ]);
     for (const u of run().unmatched) { expect(u.reason.length).toBeGreaterThan(10); expect(u.checked_by).toBeTruthy(); }

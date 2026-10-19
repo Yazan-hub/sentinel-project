@@ -298,7 +298,8 @@ export function standardsToIds({ contract = null, ruleset = null, naming = null 
     for (const p of c.required_psets) say("contract", p, `a property set with no property named — Sentinel's IDS checks named properties; name the ones you need (e.g. ${p}.Reference) under required properties`, by);
     say("contract", `IFC schema ${c.ifc_schema}`, whole, by);
     for (const e of c.required_entities) say("contract", `${e.entity}: at least ${e.min_count}`, whole, by);
-    for (const e of c.forbidden_entities) say("contract", `${e.entity}: at most ${e.max_count}, at most ${Math.round(e.max_ratio * 100)}% of building elements`, whole, by);
+    // 2147483647 is the forms' "no count limit" (a C# int's top): only the share is said then.
+    for (const e of c.forbidden_entities) say("contract", `${e.entity}: ${e.max_count < 2147483647 ? `at most ${e.max_count}, ` : ""}at most ${Math.round(e.max_ratio * 100)}% of building elements`, whole, by);
     if (c.require_georeference) say("contract", "georeference", whole, by);
     if (c.min_coverage != null && c.min_coverage < 1 && c.required_properties.length)
       say("contract", `coverage ${Math.round(c.min_coverage * 100)}%`, "the contract passes a class when that share of its elements carry each property; an IDS asks it of every element, so the IDS is stricter", by);
