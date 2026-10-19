@@ -16,6 +16,12 @@ const WASM_DIR = resolve(here, "../node_modules/web-ifc") + "/";
  * the viewer loads it instantly. Shared by the file + one-shot (bridge upload) paths.
  */
 export async function ifcBytesToFrag(bytes) {
+  const { runIfcJob } = await import("./ifc-worker.mjs"); // off the bridge's thread (large-model benchmark 2026-10)
+  return runIfcJob("frag", bytes);
+}
+
+/** The conversion itself, on the calling thread — ifc-worker.mjs runs it. */
+export async function convertHere(bytes) {
   const importer = new IfcImporter();
   importer.wasm = { absolute: true, path: WASM_DIR };
   const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
