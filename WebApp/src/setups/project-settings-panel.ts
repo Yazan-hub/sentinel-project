@@ -355,9 +355,15 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
   const who = () => currentUser().then((u) => u?.email || "web", () => "web");
   /** A contract also travels to the linked platform project, where the platform's Sentinel gate reads it (spec
    *  2026-09-27 platform-delivery-gate Decision 7). The ledger row is the record; this is a mirror, and a copy that
-   *  could not be made is said, never hidden. → " · <mirror words>" for a contract, "" otherwise. */
-  const mirrorWords = async (kind: string, body: object, ref: string) => kind !== "contract" ? ""
-    : ` · ${mirrorLine(await publishContractToPlatform(getAppManager().client as unknown as ContractClient | undefined, platformProjectId(), body, ref))}`;
+   *  could not be made is said, never hidden. Only into the platform project `key` is linked to: the one the app runs
+   *  in may belong to another Sentinel project, whose gate would then judge by this contract. → " · <words>" or "". */
+  async function mirrorWords(kind: string, key: string, body: object, ref: string): Promise<string> {
+    if (kind !== "contract") return "";
+    const here = platformProjectId();
+    const linked = current?.key === key ? current.settings?.platform_project_id ?? null : null;
+    if (here && linked !== here) return ` · not copied to the platform — ${key} is not linked to this platform project (Settings ▸ Platform project)`;
+    return ` · ${mirrorLine(await publishContractToPlatform(getAppManager().client as unknown as ContractClient | undefined, here, body, ref))}`;
+  }
 
   /** Advanced ▸ Import a file from another office: pick a .json, install it as `kind@n+1` on the project in view,
    *  re-render the section with the outcome. The key is taken at the click, not after the file dialog closes. */
@@ -372,7 +378,7 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
       try {
         const text = await file.text();
         const p = await installArtefactFile(base, key, kind, file.name, text, await who());
-        const mirror = await mirrorWords(kind, JSON.parse(text), `${kind}@${p.version}`);
+        const mirror = await mirrorWords(kind, key, JSON.parse(text), `${kind}@${p.version}`);
         await loadStandards({ text: `✓ ${kind}@${p.version} installed on ${key} from ${file.name} (sha ${String(p.sha256).slice(0, 12)}…)${mirror}.` });
       } catch (e) {
         await loadStandards({ text: `${kind} not installed on ${key}: ${(e as Error)?.message ?? String(e)}`, bad: true });
@@ -397,20 +403,31 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
       const from = !a ? `Nothing installed yet on ${key} or its office — saving installs ${kind}@1 on ${key}.`
         : a.source === "office" ? `Starts from the office's ${refLabel(a)}. Saving installs ${key}'s own version; the office's stays as it is.`
         : `Starts from ${refLabel(a)}. Saving installs the next version on ${key}.`;
-      box.replaceChildren(renderStandardForm(form, form.fromBody(prev), {
+      const formEl: HTMLElement = renderStandardForm(form, form.fromBody(prev), {
         from,
         onCancel: () => box.replaceChildren(),
         onSave: async (m) => {
-          if (key !== pid()) throw new Error(`The project in view is no longer ${key} — open the form again`);
-          const body = form.toBody(m, prev, { projectKey: key });
-          let p: { version: number; sha256: string };
-          try { p = await installArtefact(base, key, kind, { ...body, source: { form: "project-settings", edited_at: new Date().toISOString() } }, await who()); }
-          catch (e) { throw new Error(`Not saved — ${(e as Error)?.message ?? String(e)}`); }
-          const mirror = await mirrorWords(kind, body, `${kind}@${p.version}`);
-          box.replaceChildren();
-          await loadStandards({ text: `✓ ${kind}@${p.version} saved on ${key} (sha ${String(p.sha256).slice(0, 12)}…)${mirror}.` });
+          try {
+            if (key !== pid()) throw new Error(`The project in view is no longer ${key} — open the form again`);
+            const body = form.toBody(m, prev, { projectKey: key });
+            // Saved on what the form was filled from, never over a version installed since (an import, another lead, another tab).
+            const now = await artefactInForce(base, key, kind);
+            if ((now?.ref ?? "") !== (a?.ref ?? "") || (now?.source ?? "") !== (a?.source ?? "") || (now?.sha256 ?? "") !== (a?.sha256 ?? ""))
+              throw new Error(`Not saved — the ${kind} standard changed since this form opened (now ${now ? refLabel(now) : "none"}); open the form again to start from it`);
+            let p: { version: number; sha256: string };
+            try { p = await installArtefact(base, key, kind, { ...body, source: { form: "project-settings", edited_at: new Date().toISOString() } }, await who()); }
+            catch (e) { throw new Error(`Not saved — ${(e as Error)?.message ?? String(e)}`); }
+            const mirror = await mirrorWords(kind, key, body, `${kind}@${p.version}`);
+            if (formEl.isConnected) box.replaceChildren(); // another Edit… opened meanwhile keeps its form
+            await loadStandards({ text: `✓ ${kind}@${p.version} saved on ${key} (sha ${String(p.sha256).slice(0, 12)}…)${mirror}.` });
+          } catch (e) {
+            // A form replaced while it saved shows its words nowhere: the section says them instead.
+            if (!formEl.isConnected) await loadStandards({ text: `${kind} not saved on ${key} — ${(e as Error)?.message ?? String(e)}`, bad: true });
+            throw e;
+          }
         },
-      }));
+      });
+      box.replaceChildren(formEl);
       box.scrollIntoView?.({ block: "nearest" });
     } catch (e) {
       if (mine !== editSeq) return;

@@ -114,6 +114,53 @@ describe("standard forms — the common mistakes, said in plain words before any
   });
 });
 
+describe("standard forms — the review and drill findings (STD-F)", () => {
+  const contractWith = (forbidden: Row[]) => ({ contract_key: "c", ifc_schema: "IFC4", forbidden_entities: forbidden });
+  it("a blank contract limit is no limit on that side, never 0 — and a new class with no limit at all is refused", () => {
+    const f = STANDARD_FORMS.contract;
+    const out = f.toBody(contractWith([r({ entity: "IFCBUILDINGELEMENTPROXY", max_ratio: "5" }), r({ entity: "IFCSPACE", max_count: "10" })]), null, ctx);
+    expect(validateArtefact("contract", out)).toBe(true);
+    expect(out.forbidden_entities).toEqual([
+      { entity: "IFCBUILDINGELEMENTPROXY", max_count: 2147483647, max_ratio: 0.05 },
+      { entity: "IFCSPACE", max_count: 10, max_ratio: 1 },
+    ]);
+    expect(() => f.toBody(contractWith([r({ entity: "IFCSPACE" })]), null, ctx)).toThrow(/give the most allowed — a count, a share in %, or both/);
+    // The base contract's "no count limit" is shown blank and written back as it was.
+    const base = repo("config/base-standard/delivery-contract.json");
+    expect((f.fromBody(base).forbidden_entities as Row[])[0].v).toMatchObject({ max_count: "", max_ratio: "25" });
+    const both = { ...base, forbidden_entities: [{ entity: "IFCSPACE", max_count: 2147483647, max_ratio: 1 }] };
+    expect(roundTrip("contract", both).forbidden_entities).toEqual(both.forbidden_entities);
+  });
+
+  it("a thousands separator is refused, never read as a decimal comma; one decimal comma is read", () => {
+    const roi = (hourly_rate: string) => STANDARD_FORMS.roi.toBody({ currency: "JPY", hourly_rate, delivery_gate: "30" }, null, ctx);
+    expect(() => roi("1,250")).toThrow(/could be read two ways/);
+    expect(() => roi("1.250,5")).toThrow(/could be read two ways/);
+    expect(roi("65,5").hourly_rate).toBe(65.5);
+    expect(roi("6500").hourly_rate).toBe(6500);
+    expect(() => STANDARD_FORMS.contract.toBody({ contract_key: "c", ifc_schema: "IFC4", required_entities: [r({ entity: "IFCSPACE", min_count: "1,000" })] }, null, ctx)).toThrow(/could be read two ways/);
+  });
+
+  it("a naming pattern that does not compile is said by the part's name, before the bridge", () => {
+    expect(() => STANDARD_FORMS.naming.toBody({ title: "N", separator: "-", fields: [r({ label: "Number", pattern: "[0-9" })] }, null, ctx))
+      .toThrow(/Part “Number”: “\[0-9” is not a valid pattern/);
+    expect(() => STANDARD_FORMS.naming.toBody({ title: "N", separator: "-", fields: [r({ label: "Code", pattern: "{org}-[0-9]{2}" })] }, null, ctx)).not.toThrow();
+  });
+
+  it("layers: an explicit 'skip no grid letter' survives an unchanged save, 'none' writes it, blank is the I/O default", () => {
+    const body = { standard: "L", layers: [{ layer: "A", category: "Walls" }], datum: { grids: ["S-GRID"], skip_letters: [] } };
+    expect(STANDARD_FORMS.layers.fromBody(body).skip_letters).toBe("none");
+    expect(roundTrip("layers", body).datum).toEqual({ grids: ["S-GRID"], skip_letters: [] });
+    const m = STANDARD_FORMS.layers.fromBody(body);
+    m.skip_letters = "";
+    expect(STANDARD_FORMS.layers.toBody(m, body, ctx).datum).toEqual({ grids: ["S-GRID"] });
+  });
+
+  it("layers: a name with more than 3 * is refused in words, as the bridge would refuse it", () => {
+    expect(() => STANDARD_FORMS.layers.toBody({ standard: "L", layers: [r({ layer: "A", category: "Walls" })], ignore: "*-*-*-*" }, null, ctx)).toThrow(/at most 3 \*/);
+  });
+});
+
 describe("standard forms — every kind in Standards in force has a form or a named place", () => {
   it("covers the bridge's kinds (evidence_pack and recipe have their own routes)", async () => {
     // @ts-ignore

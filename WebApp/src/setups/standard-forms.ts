@@ -12,7 +12,8 @@ export type Model = Record<string, Cell | Row[]>;
 type Body = Record<string, unknown>;
 
 interface Scalar { key: string; label: string; type: "text" | "number" | "list" | "check" | "select"; options?: [string, string][]; hint?: string; width?: string }
-interface Rows { key: string; label: string; type: "rows"; columns: Scalar[]; add: string; max?: number; hint?: string }
+/** A list of rows drawn as cards (they fit a narrow panel): `item` names one ("Step 2"), `blank` fills a new one. */
+interface Rows { key: string; label: string; type: "rows"; columns: Scalar[]; add: string; item: string; blank?: Record<string, Cell>; max?: number; hint?: string }
 export type Field = Scalar | Rows;
 
 export interface StandardForm {
@@ -36,10 +37,13 @@ export const listOf = (s: string) => s.split(/[,\n]/).map((x) => x.trim()).filte
 const joinList = (v: unknown) => (Array.isArray(v) ? v.filter((x) => typeof x === "string").join(", ") : "");
 const text = (v: unknown) => (v == null ? "" : String(v));
 const row = (orig: unknown, v: Record<string, Cell>): Row => ({ v, orig: orig && typeof orig === "object" && !Array.isArray(orig) ? (orig as Body) : {} });
-/** A number typed in a field, or null when blank; anything else is said in words. */
+/** A number typed in a field, or null when blank; anything else is said in words. One comma is a decimal comma ("65,5"),
+ *  but "1,250" could be 1250 or 1.25 and two separators ("1,250.5") are a thousands separator: both refused, never guessed. */
 function num(s: string, what: string): number | null {
-  if (!s) return null;
-  const n = Number(s.replace(",", "."));
+  const t = s.replace(/\s/g, "");
+  if (!t) return null;
+  if ((t.match(/[,.]/g) ?? []).length > 1 || /^-?\d+,\d{3}$/.test(t)) throw new Error(`${what}: “${s}” could be read two ways — write it without a thousands separator, e.g. 1250 or 12.5`);
+  const n = Number(t.replace(",", "."));
   if (!Number.isFinite(n)) throw new Error(`${what}: “${s}” is not a number`);
   return n;
 }
@@ -57,6 +61,18 @@ const bump = (semver: unknown) => {
   const m = typeof semver === "string" ? /^(\d+)\.(\d+)\.(\d+)$/.exec(semver) : null;
   return m ? `${m[1]}.${m[2]}.${Number(m[3]) + 1}` : "1.0.0";
 };
+/** A name pattern the naming judges compile ({org} stands in for the office code, as the bridge's rulePattern reads it). */
+function pattern(p: string, what: string) {
+  let ok = p.length <= 512;
+  try { new RegExp(p.split("{org}").join("ORG")); } catch { ok = false; }
+  if (!ok) throw new Error(`${what}: “${p}” is not a valid pattern — e.g. [0-9]{4} = four digits, [A-Z]{2,6} = 2 to 6 capital letters`);
+}
+/** Layer names with * wildcards, bounded as the bridge bounds them (at most 64, 3 * each, 512 characters). */
+function globs(list: string[], what: string): string[] {
+  if (list.length > 64) throw new Error(`${what}: at most 64 names`);
+  for (const g of list) if (g.length > 512 || g.split("*").length - 1 > 3) throw new Error(`${what}: “${g}” — at most 3 * and 512 characters in one name`);
+  return list;
+}
 const IFC_CLASS = /^IFC[A-Z0-9_]+$/;
 function ifcClass(s: string, what: string): string {
   const c = s.trim().toUpperCase().replace(/\s+/g, "");
@@ -73,12 +89,13 @@ const publish: StandardForm = {
   toBody: (m) => ({ auto: m.auto === true }),
 };
 
-const REVIEW_ROLES: [string, string][] = [["contributor", "Any member"], ["lead", "A lead or the owner"], ["owner", "The owner"]];
+// What the chain enforces (0032 review_decide: has_min_role) — a viewer is a member but never approves a step.
+const REVIEW_ROLES: [string, string][] = [["contributor", "A contributor, lead or owner (not viewers)"], ["lead", "A lead or the owner"], ["owner", "The owner"]];
 const review: StandardForm = {
   kind: "review", title: "Review chain",
   intro: "The sign-offs a shared container needs before it is published, in order. No steps: no review chain.",
   fields: [{
-    key: "steps", label: "Steps", type: "rows", add: "Add a step", max: 6,
+    key: "steps", label: "Steps", type: "rows", add: "Add a step", item: "Step", max: 6, blank: { role: "lead", approvals: "1" },
     columns: [
       { key: "name", label: "Step", type: "text", width: "12rem" },
       { key: "role", label: "Who may approve", type: "select", options: REVIEW_ROLES },
@@ -140,7 +157,7 @@ const naming: StandardForm = {
     { key: "title", label: "Name of the standard", type: "text" },
     { key: "separator", label: "Separator between parts (one character)", type: "text", width: "4rem" },
     {
-      key: "fields", label: "Parts, in order", type: "rows", add: "Add a part", max: 64,
+      key: "fields", label: "Parts, in order", type: "rows", add: "Add a part", item: "Part", max: 64,
       hint: "Give each part its allowed values (comma-separated), or a pattern for free codes, e.g. [0-9]{4} = four digits.",
       columns: [
         { key: "label", label: "Part", type: "text", width: "9rem" },
@@ -170,11 +187,12 @@ const naming: StandardForm = {
       const key = str(r.v, "key") || label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || `part_${i + 1}`;
       if (used.has(key)) throw new Error(`Two parts have the key “${key}” — give one another key`);
       used.add(key);
-      const values = listOf(str(r.v, "values")), pattern = str(r.v, "pattern");
-      if (!values.length && !pattern) throw new Error(`Part “${label}” needs its allowed values or a pattern`);
+      const values = listOf(str(r.v, "values")), pat = str(r.v, "pattern");
+      if (!values.length && !pat) throw new Error(`Part “${label}” needs its allowed values or a pattern`);
+      if (pat) pattern(pat, `Part “${label}”`);
       const f: Body = { ...r.orig, key, label };
       put(f, "enum", values);
-      put(f, "pattern", pattern);
+      put(f, "pattern", pat);
       return f;
     });
     const out: Body = { ...(prev ?? {}), standard_key: (prev?.standard_key as string) || `${projectKey}-naming`, semver: bump(prev?.semver), title, separator, fields, enforce: str(m, "enforce") || "reject" };
@@ -183,6 +201,7 @@ const naming: StandardForm = {
   },
 };
 
+const NO_COUNT_LIMIT = 2147483647; // a C# int's maximum: what the Revit gate reads as "no count limit"
 const contract: StandardForm = {
   kind: "contract", title: "Delivery contract",
   intro: "What a delivered IFC must hold to pass the delivery gate (intake, Governed Publish and the platform gate read it).",
@@ -190,18 +209,18 @@ const contract: StandardForm = {
     { key: "contract_key", label: "Contract name (letters, digits, . _ @ -)", type: "text" },
     { key: "ifc_schema", label: "IFC schema", type: "select", options: IFC_SCHEMAS.map((s) => [s, s]) },
     {
-      key: "required_entities", label: "Classes the model must hold", type: "rows", add: "Add a class",
+      key: "required_entities", label: "Classes the model must hold", type: "rows", add: "Add a class", item: "Class", blank: { min_count: "1" },
       columns: [{ key: "entity", label: "IFC class, e.g. IFCWALL", type: "text", width: "12rem" }, { key: "min_count", label: "At least", type: "number", width: "6rem" }],
     },
     { key: "required_psets", label: "Property sets every element must carry", type: "list", hint: "e.g. Pset_WallCommon" },
     { key: "required_properties", label: "Properties every element must carry", type: "list", hint: "e.g. Pset_WallCommon.FireRating" },
     {
-      key: "forbidden_entities", label: "Classes allowed only up to a limit", type: "rows", add: "Add a class",
-      hint: "e.g. IFCBUILDINGELEMENTPROXY at most 0, or at most 5 % of the elements.",
+      key: "forbidden_entities", label: "Classes allowed only up to a limit", type: "rows", add: "Add a class", item: "Class",
+      hint: "A model fails when it holds more than either limit. e.g. IFCBUILDINGELEMENTPROXY at most 0 (none allowed), or at most 5 % of the elements.",
       columns: [
         { key: "entity", label: "IFC class", type: "text", width: "12rem" },
-        { key: "max_count", label: "At most (count)", type: "number", width: "6rem" },
-        { key: "max_ratio", label: "At most (% of elements)", type: "number", width: "6rem" },
+        { key: "max_count", label: "At most, count (blank = no limit)", type: "number", width: "7rem" },
+        { key: "max_ratio", label: "At most, % of elements (blank = no limit)", type: "number", width: "7rem" },
       ],
     },
     { key: "require_georeference", label: "The model must be georeferenced", type: "check" },
@@ -212,8 +231,10 @@ const contract: StandardForm = {
     contract_key: text(b?.contract_key), ifc_schema: text(b?.ifc_schema || "IFC4"),
     required_entities: (Array.isArray(b?.required_entities) ? b.required_entities : []).map((e: Body) => row(e, { entity: text(e.entity), min_count: text(e.min_count) })),
     required_psets: joinList(b?.required_psets), required_properties: joinList(b?.required_properties),
+    // No limit on a side is shown blank: the count's C# int maximum (the base contract's "no count limit") and a share of 100 %.
     forbidden_entities: (Array.isArray(b?.forbidden_entities) ? b.forbidden_entities : []).map((e: Body) =>
-      row(e, { entity: text(e.entity), max_count: text(e.max_count), max_ratio: typeof e.max_ratio === "number" ? String(+(e.max_ratio * 100).toFixed(4)) : "" })),
+      row(e, { entity: text(e.entity), max_count: e.max_count === NO_COUNT_LIMIT ? "" : text(e.max_count),
+        max_ratio: typeof e.max_ratio === "number" && e.max_ratio < 1 ? String(+(e.max_ratio * 100).toFixed(4)) : "" })),
     require_georeference: b?.require_georeference === true,
     min_coverage: typeof b?.min_coverage === "number" ? String(+(b.min_coverage * 100).toFixed(4)) : "",
     tolerance_mm: text(b?.tolerance_mm),
@@ -236,10 +257,13 @@ const contract: StandardForm = {
       required_properties: listOf(str(m, "required_properties")),
       forbidden_entities: rows(m, "forbidden_entities").map((r, i) => {
         const what = `Limited class ${i + 1}`;
+        const count = str(r.v, "max_count"), share = str(r.v, "max_ratio");
+        // Both gates fail a model over EITHER limit (IfcDeliveryGate.cs, delivery-gate.mjs): a blank side is no limit, never 0.
+        if (!count && !share && !("max_count" in r.orig)) throw new Error(`${what}: give the most allowed — a count, a share in %, or both (0 = none allowed)`);
         return {
           ...r.orig, entity: ifcClass(str(r.v, "entity"), what),
-          max_count: whole(str(r.v, "max_count") || "0", `${what}'s count`, 0, 2147483647),
-          max_ratio: pct(str(r.v, "max_ratio"), `${what}'s share`) ?? 0,
+          max_count: count ? whole(count, `${what}'s count`, 0, NO_COUNT_LIMIT) : NO_COUNT_LIMIT,
+          max_ratio: pct(share, `${what}'s share`) ?? 1,
         };
       }),
       require_georeference: m.require_georeference === true,
@@ -259,7 +283,7 @@ const layers: StandardForm = {
   fields: [
     { key: "standard", label: "Name of the standard", type: "text" },
     {
-      key: "layers", label: "Layers", type: "rows", add: "Add a layer",
+      key: "layers", label: "Layers", type: "rows", add: "Add a layer", item: "Layer",
       columns: [
         { key: "layer", label: "Layer", type: "text", width: "10rem" },
         { key: "category", label: "Is", type: "select", options: LAYER_CATEGORIES.map((c) => [c, c]) },
@@ -270,7 +294,7 @@ const layers: StandardForm = {
     { key: "ignore", label: "Layers to skip (optional, * matches any text)", type: "list", hint: "e.g. *-TEXT, DEFPOINTS" },
     { key: "datum_levels", label: "Layers where levels are drawn (optional)", type: "list" },
     { key: "datum_grids", label: "Layers where grids are drawn (optional)", type: "list" },
-    { key: "skip_letters", label: "Grid letters not used (optional)", type: "list", hint: "e.g. I, O" },
+    { key: "skip_letters", label: "Grid letters not used (blank = I and O, as Revit reads it; none = every letter is used)", type: "list", hint: "e.g. I, O" },
     { key: "level_merge_mm", label: "Levels closer than this are one level, in mm (optional)", type: "number", width: "6rem" },
     { key: "grid_merge_mm", label: "Grids closer than this are one grid, in mm (optional)", type: "number", width: "6rem" },
   ],
@@ -279,7 +303,9 @@ const layers: StandardForm = {
     return {
       standard: text(b?.standard), ignore: joinList(b?.ignore),
       layers: (Array.isArray(b?.layers) ? b.layers : []).map((l: Body) => row(l, { layer: text(l.layer), category: text(l.category || "Walls"), family: text(l.family), aliases: joinList(l.aliases) })),
-      datum_levels: joinList(d.levels), datum_grids: joinList(d.grids), skip_letters: joinList(d.skip_letters),
+      // An explicit [] (every letter used) is said as "none" — blank means the add-in's default, I and O (LayerRulesetMatcher.cs).
+      datum_levels: joinList(d.levels), datum_grids: joinList(d.grids),
+      skip_letters: Array.isArray(d.skip_letters) && !d.skip_letters.length ? "none" : joinList(d.skip_letters),
       level_merge_mm: text(d.level_merge_mm), grid_merge_mm: text(d.grid_merge_mm),
     };
   },
@@ -299,9 +325,10 @@ const layers: StandardForm = {
         return l;
       }),
     };
-    put(out, "ignore", listOf(str(m, "ignore")));
-    const levels = listOf(str(m, "datum_levels")), grids = listOf(str(m, "datum_grids"));
-    const skip = listOf(str(m, "skip_letters")).map((s) => s.toUpperCase());
+    put(out, "ignore", globs(listOf(str(m, "ignore")), "Layers to skip"));
+    const levels = globs(listOf(str(m, "datum_levels")), "Level layers"), grids = globs(listOf(str(m, "datum_grids")), "Grid layers");
+    const skipText = str(m, "skip_letters"), none = /^none$/i.test(skipText);
+    const skip = none ? [] : listOf(skipText).map((s) => s.toUpperCase());
     const mm = (k: string, what: string) => {
       const n = num(str(m, k), what);
       if (n !== null && (n < 1 || n > 1000)) throw new Error(`${what} is from 1 to 1000 mm`);
@@ -309,12 +336,13 @@ const layers: StandardForm = {
     };
     const lm = mm("level_merge_mm", "The level merge distance"), gm = mm("grid_merge_mm", "The grid merge distance");
     if (!levels.length && !grids.length) {
-      if (skip.length || lm !== null || gm !== null) throw new Error("Name the layers where levels or grids are drawn first");
+      if (skipText || lm !== null || gm !== null) throw new Error("Name the layers where levels or grids are drawn first");
       delete out.datum;
     } else {
-      if (skip.some((s) => !/^[A-Z]$/.test(s))) throw new Error("Grid letters not used are single letters A to Z, e.g. I, O");
+      if (skip.some((s) => !/^[A-Z]$/.test(s))) throw new Error("Grid letters not used are single letters A to Z, e.g. I, O — or none");
       const d: Body = { ...((prev?.datum as Body) ?? {}) };
-      put(d, "levels", levels); put(d, "grids", grids); put(d, "skip_letters", skip);
+      put(d, "levels", levels); put(d, "grids", grids);
+      if (none) d.skip_letters = []; else put(d, "skip_letters", skip);
       put(d, "level_merge_mm", lm); put(d, "grid_merge_mm", gm);
       out.datum = d;
     }
@@ -360,46 +388,48 @@ function control(f: Scalar, get: () => Cell, set: (v: Cell) => void): HTMLElemen
     s.addEventListener("change", () => set(s.value));
     return s;
   }
-  const i = document.createElement("input");
-  i.type = "text"; // numbers too: "1,5" and blanks are read by toBody, never silently dropped by the browser
-  if (f.type === "number") i.inputMode = "decimal";
+  // A list is a text box: values pasted one per line keep their line breaks (a one-line input would turn them into spaces).
+  const i = document.createElement(f.type === "list" ? "textarea" : "input");
+  if (i instanceof HTMLTextAreaElement) { i.rows = 2; i.style.resize = "vertical"; }
+  else { i.type = "text"; if (f.type === "number") i.inputMode = "decimal"; } // numbers too: "1,5" and blanks are read by toBody, never dropped by the browser
   i.value = String(get() ?? "");
-  i.style.cssText = `${INP};width:${f.width ?? "100%"}`;
+  i.style.cssText += `;${INP};width:100%;max-width:${f.width ?? "100%"};font-family:system-ui`;
   i.setAttribute("aria-label", f.label);
   if (f.hint) i.placeholder = f.hint;
   i.addEventListener("input", () => set(i.value));
   return i;
 }
 
-function rowsTable(f: Rows, list: Row[]): HTMLElement {
+/** The rows as cards — "Step 2", its fields side by side where the panel is wide enough, stacked where it is not. */
+function rowCards(f: Rows, list: Row[]): HTMLElement {
   const box = document.createElement("div");
   const draw = () => {
     box.replaceChildren();
-    const t = document.createElement("table");
-    t.style.cssText = "border-collapse:collapse;width:100%;font-size:11.5px";
-    const head = t.createTHead().insertRow();
-    for (const c of f.columns) { const th = document.createElement("th"); th.textContent = c.label; th.style.cssText = "text-align:left;color:#9ca3af;font-weight:500;padding:.15rem .25rem"; head.append(th); }
-    head.append(document.createElement("th"));
-    const body = t.createTBody();
     list.forEach((r, i) => {
-      const tr = body.insertRow();
-      for (const c of f.columns) {
-        const td = tr.insertCell(); td.style.padding = ".15rem .25rem";
-        td.append(control({ ...c, width: c.width ?? "100%" }, () => r.v[c.key] ?? "", (v) => { r.v[c.key] = v; }));
-      }
-      const td = tr.insertCell();
+      const card = document.createElement("div");
+      card.style.cssText = "border:1px solid #2a2a30;border-radius:.35rem;padding:.35rem .45rem;margin-bottom:.35rem;background:#16161a";
+      const head = document.createElement("div"); head.style.cssText = "display:flex;align-items:center;gap:.4rem;margin-bottom:.2rem";
+      const name = document.createElement("span"); name.textContent = `${f.item} ${i + 1}`; name.style.cssText = "flex:1;color:#9ca3af;font:600 11px system-ui";
       const rm = document.createElement("button");
-      rm.textContent = "✕"; rm.title = "Remove this row"; rm.setAttribute("aria-label", `Remove row ${i + 1}`);
-      rm.style.cssText = `${BTN};padding:.15rem .4rem`;
+      rm.textContent = "Remove"; rm.setAttribute("aria-label", `Remove ${f.item.toLowerCase()} ${i + 1}`);
+      rm.style.cssText = `${BTN};padding:.1rem .45rem;font-size:10.5px`;
       rm.addEventListener("click", () => { list.splice(i, 1); draw(); });
-      td.append(rm);
+      head.append(name, rm);
+      const grid = document.createElement("div"); grid.style.cssText = "display:flex;flex-wrap:wrap;gap:.3rem .5rem";
+      for (const c of f.columns) {
+        const cell = document.createElement("label");
+        cell.style.cssText = `display:flex;flex-direction:column;gap:.15rem;flex:1 1 ${c.width ?? "12rem"};min-width:6rem;color:#9ca3af;font-size:10.5px`;
+        cell.append(c.label, control({ ...c, width: "100%" }, () => r.v[c.key] ?? "", (v) => { r.v[c.key] = v; }));
+        grid.append(cell);
+      }
+      card.append(head, grid);
+      box.append(card);
     });
-    box.append(t);
-    if (!list.length) { const e = document.createElement("div"); e.textContent = "None."; e.style.cssText = "color:#71717a;font-size:11px;padding:.2rem .25rem"; box.append(e); }
+    if (!list.length) { const e = document.createElement("div"); e.textContent = "None."; e.style.cssText = "color:#71717a;font-size:11px;padding:.2rem 0"; box.append(e); }
     if (f.max === undefined || list.length < f.max) {
       const add = document.createElement("button");
-      add.textContent = `+ ${f.add}`; add.style.cssText = `${BTN};margin-top:.3rem`;
-      add.addEventListener("click", () => { list.push({ v: {}, orig: {} }); draw(); });
+      add.textContent = `+ ${f.add}`; add.style.cssText = BTN;
+      add.addEventListener("click", () => { list.push({ v: { ...(f.blank ?? {}) }, orig: {} }); draw(); });
       box.append(add);
     }
   };
@@ -425,7 +455,7 @@ export function renderStandardForm(form: StandardForm, model: Model, opts: { fro
       if (!Array.isArray(model[f.key])) model[f.key] = [];
       wrap.append(l);
       if (f.hint) { const hn = document.createElement("div"); hn.textContent = f.hint; hn.style.cssText = "color:#71717a;font-size:11px;margin-bottom:.2rem"; wrap.append(hn); }
-      wrap.append(rowsTable(f, model[f.key] as Row[]));
+      wrap.append(rowCards(f, model[f.key] as Row[]));
     } else if (f.type === "check") {
       const c = control(f, () => model[f.key] as Cell, (v) => { model[f.key] = v; });
       l.style.cssText = "display:flex;align-items:center;gap:.45rem;color:#c9cfda;font-size:11.5px;cursor:pointer";
