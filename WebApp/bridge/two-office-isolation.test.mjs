@@ -1,8 +1,8 @@
 // Standing guard: two offices, two projects, two signed-in users — under row level security, each sees none of the other's rows.
 // Runs the real db/migrations/*.sql on an in-memory PGlite (see pglite-harness.mjs for the Supabase shim). Nothing here
 // touches a real database. If this fails after a migration, the migration opened a hole (or added a table without a rule).
-import { describe, it, expect } from "vitest";
-import { randomUUID as uuid } from "node:crypto";
+import { describe, it, expect, beforeAll } from "vitest";
+import { randomUUID as uuid, createHash } from "node:crypto";
 import { buildDb, as } from "./pglite-harness.mjs";
 
 let db;
@@ -21,7 +21,8 @@ const CHILD_OF = {
   bim_document_versions: ["document_id", "select id from public.bim_documents where project_id = any($1::uuid[])"],
 };
 // Tables intentionally without a tenant. platform_admins: global list of operators; 0033 revokes it from every signed-in role.
-const NOT_SCOPED = { platform_admins: "0033_trust_boundaries: global operator list, RLS on with no policy, all privileges revoked from the API roles" };
+const NOT_SCOPED = { platform_admins: "0033_trust_boundaries: global operator list, RLS on with no policy, all privileges revoked from the API roles",
+  feed_keys: "0044_feed_keys: a person's own feed keys (user-scoped, not project-scoped); the feed answers per project through feed_rows, tested below" };
 // Tables intentionally WITHOUT row level security on live: none. A new table without RLS fails the RLS test.
 const NO_RLS_ALLOWED = {};
 
@@ -261,5 +262,57 @@ describe("security-definer functions answer a stranger as if the project did not
   it("is_platform_admin: false for user A and user B, true for the operator", async () => {
     for (const me of [userA, userB]) expect((await call(me, `select public.is_platform_admin() v`)).rows[0].v).toBe(false);
     expect((await call({ sub: admin }, `select public.is_platform_admin() v`)).rows[0].v).toBe(true);
+  });
+});
+
+describe("the data feed (0044): a feed key reads its owner's projects only, while it is live and they are a member", () => {
+  const sha = (k) => createHash("sha256").update(k).digest("hex");
+  const KA = "sfk_feed_key_of_user_a", KB = "sfk_feed_key_of_user_b", REVOKED = "sfk_revoked_key_of_user_a";
+  const call = (me, sql, params) => as(db, me, (tx) => attempt(tx, sql, params));
+  beforeAll(async () => {
+    await db.query(`insert into public.feed_keys(user_id, key_hash, label) values ($1, $2, 'A'), ($3, $4, 'B'), ($1, $5, 'old')`, [userA.sub, sha(KA), userB.sub, sha(KB), sha(REVOKED)]);
+    await db.query(`update public.feed_keys set revoked_at = now() where key_hash = $1`, [sha(REVOKED)]);
+  });
+
+  it("A's key reads project A's latest revision as anon (what the bridge sends) — control", async () => {
+    const r = await call(anon, `select public.feed_rows($1, $2, 'latest') j`, [KA, T.A.projKey]);
+    expect(r.rows[0].j.map((x) => [x.revision, x.guid])).toEqual([["P01", "guid-1"]]); // one json array: no 1000-row cut
+    expect((await call(anon, `select public.feed_revisions($1, $2) j`, [KA, T.A.projKey])).rows[0].j.map((x) => [x.revision, Number(x.element_count)])).toEqual([["P01", 1]]);
+    expect((await call(anon, `select public.feed_rows($1, $2, 'P01') j`, [KA, T.A.projKey])).rows[0].j).toHaveLength(1);
+    expect((await call(anon, `select public.feed_rows($1, $2, 'P99') j`, [KA, T.A.projKey])).error).toMatch(/no such revision/);
+  });
+  it("a project's 1500 elements come back whole (PostgREST's max-rows would cut a set at 1000)", async () => {
+    await as(db, "service", async (tx) => {
+      await tx.query(`insert into public.element_snapshots(revision_id, project_id, guid) select $1, $2, 'bulk-' || g from generate_series(1, 1499) g`, [T.A.revision, T.A.proj]);
+      await tx.exec("set local role anon");
+      expect((await attempt(tx, `select json_array_length(public.feed_rows($1, $2, 'latest')) n`, [KA, T.A.projKey])).rows[0].n).toBe(1500);
+    });
+  });
+  it("A's key on project B or office B, and B's key on project A, are refused in the same words as a project that does not exist", async () => {
+    for (const [k, p] of [[KA, T.B.projKey], [KA, T.B.officeKey], [KB, T.A.projKey], [KA, "no-such-project"]]) {
+      expect((await call(anon, `select * from public.feed_rows($1, $2, 'latest')`, [k, p])).error, `${p}`).toMatch(/not a member of this project/);
+      expect((await call(anon, `select * from public.feed_revisions($1, $2)`, [k, p])).error).toMatch(/not a member of this project/);
+    }
+  });
+  it("a revoked key, an unknown key, an empty key and a key's stored hash are refused", async () => {
+    for (const k of [REVOKED, "sfk_never_made", "", sha(KA)])
+      expect((await call(anon, `select * from public.feed_rows($1, $2, 'latest')`, [k, T.A.projKey])).error, k).toMatch(/feed key not valid/);
+  });
+  it("a member removed from project A: their key reads nothing there any more", async () => {
+    await as(db, "service", async (tx) => {
+      await tx.query(`delete from public.memberships where project_id = $1 and user_id = $2`, [T.A.proj, userA.sub]);
+      await tx.exec("set local role anon");
+      expect((await attempt(tx, `select * from public.feed_rows($1, $2, 'latest')`, [KA, T.A.projKey])).error).toMatch(/not a member of this project/);
+    });
+  });
+  it("user A sees only their own keys, cannot make one for user B, and cannot revoke, re-point or delete user B's", async () => {
+    expect((await call(userA, `select label from public.feed_keys order by label`)).rows.map((x) => x.label)).toEqual(["A", "old"]);
+    expect((await call(userA, `insert into public.feed_keys(user_id, key_hash) values ($1, $2)`, [userB.sub, sha("x")])).error).toMatch(/row-level security|permission/);
+    expect((await call(userA, `insert into public.feed_keys(key_hash) values ($1)`, [sha("mine")])).n).toBe(1); // their own: yes
+    expect((await call(userA, `update public.feed_keys set revoked_at = now() where key_hash = $1`, [sha(KB)])).n).toBe(0);
+    expect((await call(userA, `update public.feed_keys set user_id = $1 where key_hash = $2`, [userA.sub, sha(KA)])).error).toMatch(/permission denied/);
+    expect((await call(userA, `delete from public.feed_keys where key_hash = $1`, [sha(KA)])).error).toMatch(/permission denied/);
+    expect((await call(anon, `select count(*) n from public.feed_keys`)).error).toMatch(/permission denied/);
+    expect((await call(userA, `select public.feed_key_owner($1)`, [KA])).error).toMatch(/permission denied/);
   });
 });

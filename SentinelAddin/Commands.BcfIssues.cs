@@ -141,6 +141,46 @@ public sealed class BcfIssuesCommand : IExternalCommand
         }
         window.RefreshRequested += Refresh;
 
+        // BCF files (work alongside ACC/BIMcollab): the person picks the file in Windows' own dialogs; the bridge reads and writes it.
+        window.ImportRequested += () =>
+        {
+            var pick = new Microsoft.Win32.OpenFileDialog { Title = "Import a BCF file", Filter = "BCF files (*.bcf;*.bcfzip)|*.bcf;*.bcfzip" };
+            if (pick.ShowDialog(window) != true) return;
+            var path = pick.FileName;
+            window.SetStatus($"Importing {Path.GetFileName(path)}…");
+            Task.Run(async () =>
+            {
+                string said;
+                try { var bearer = BcfConfig.Load().ServiceToken; said = await sync.ImportBcfAsync(bcfKey, File.ReadAllBytes(path), cfg.ModelId, () => bearer).ConfigureAwait(false); }
+                catch (Exception e) { said = $"Not imported — {e.Message}"; }
+                window.SetOutcome(said);
+                try { window.Dispatcher.BeginInvoke(new Action(Refresh)); } catch { /* window closed */ }
+            });
+        };
+        window.ExportRequested += () =>
+        {
+            var save = new Microsoft.Win32.SaveFileDialog
+            {
+                Title = "Export this project's issues as BCF", FileName = $"{bcfKey}-issues.bcfzip", DefaultExt = ".bcfzip",
+                Filter = "BCF 2.1 — for ACC (*.bcfzip)|*.bcfzip|BCF 3.0 (*.bcfzip)|*.bcfzip",
+            };
+            if (save.ShowDialog(window) != true) return;
+            var version = save.FilterIndex == 2 ? "3.0" : "2.1";
+            var path = save.FileName;
+            window.SetStatus("Exporting…");
+            Task.Run(async () =>
+            {
+                try
+                {
+                    var bearer = BcfConfig.Load().ServiceToken;
+                    var (file, said) = await sync.ExportBcfAsync(bcfKey, version, () => bearer).ConfigureAwait(false);
+                    if (file != null) { File.WriteAllBytes(path, file); said = $"Saved {Path.GetFileName(path)} — {said}."; }
+                    window.SetOutcome(said);
+                }
+                catch (Exception e) { window.SetOutcome($"Not exported — {e.Message}"); }
+            });
+        };
+
         // Live BCF loop: subscribe to the bridge's SSE stream and refresh (debounced) on every push, so an
         // issue raised on the web appears in this active Revit session within seconds — no manual refresh.
         var liveCts = new System.Threading.CancellationTokenSource();

@@ -717,7 +717,10 @@ async function handleRequest(req, res) {
   if (TOKEN) {
     // openCDE slice 2: a BCF client reaches the versions, the auth document, the consent page and the token endpoint before it holds
     // a bearer (BCF-API 3.0 §3) — those four are public, like /health; everything else keeps the gate.
-    const exempt = (url.pathname === "/health" && req.method === "GET") || (await import("./bcf-open.mjs")).isPublicOpenRoute(req.method, url.pathname);
+    // The data feed's reads sign in with a person's feed key over Basic (feed.mjs, 0044) — the database checks the key; the
+    // machine credential is refused there in words.
+    const exempt = (url.pathname === "/health" && req.method === "GET") || (await import("./bcf-open.mjs")).isPublicOpenRoute(req.method, url.pathname)
+      || !!(await import("./feed.mjs")).parseFeed(req.method, url.pathname);
     if (!exempt && !credentialOk) {
       // Why-log for rejected calls: no secrets, just the credential's shape.
       const why = !bearer ? "no-bearer"
@@ -747,6 +750,15 @@ async function handleRequest(req, res) {
     const cdeMod = await import("./cde-store.mjs");
     if (cdeMod.cdeConfigured() && !cdeMod.forwardingConfigured())
       return send(res, 503, { message: "this bridge does not forward sign-ins (SUPABASE_ANON_KEY) — a signed-in user cannot be served; nothing was read or saved" });
+  }
+
+  // The no-toll data feed (spec 2026-10-19-work-alongside-connectors §2): reads with a feed key, the keys with a sign-in.
+  if (url.pathname.startsWith("/feed/")) {
+    const feed = await import("./feed.mjs");
+    const cdeMod = await import("./cde-store.mjs");
+    const route = feed.parseFeed(req.method, url.pathname);
+    if (route) return feed.answerFeed(route, { req, res, url, cde: cdeMod, send, isMachine: isToken(bearer) });
+    if (await feed.answerFeedKeys(req, res, url, { cde: cdeMod, send, readBody, signedIn: !!currentUserToken() })) return;
   }
 
   // Health (no secrets, no posture): up, CDE configured. The bind host and the CORS allowlist are in the
@@ -2288,6 +2300,70 @@ async function handleRequest(req, res) {
     } catch (e) { return send(res, e?.status || 500, { message: String(e?.message || e) }); }
   }
 
+  // BCF files (work alongside ACC and BIMcollab, files only — spec 2026-10-19-work-alongside-connectors):
+  //   POST /bcf/3.0/projects/:pid/import  (body: a .bcf/.bcfzip) → { version, created, updated, unchanged, topics, skipped:[{guid,title,why}] }
+  //   GET  /bcf/3.0/projects/:pid/export?version=2.1|3.0[&status=open] → the .bcfzip; X-Sentinel-Export says what this version cannot carry.
+  // A topic whose GUID is already here is merged (bcf-xml mergeImported); one GUID in another project is skipped in words.
+  const io = url.pathname.match(/^\/bcf\/3\.0\/projects\/([^/]+)\/(import|export)$/);
+  if (io) {
+    const [, pid, what] = io;
+    try {
+      const cde = await import("./cde-store.mjs");
+      const useCde = cde.cdeConfigured();
+      const { requireMinRole } = await import("./members-store.mjs");
+      const bx = await import("./bcf-xml.mjs");
+      const mine = () => db.topics.filter((t) => t.project_id === pid);
+      if (what === "export" && req.method === "GET") {
+        await requireMinRole(pid, "viewer");
+        const version = url.searchParams.get("version") || "2.1";
+        const all = useCde ? await cde.bcfListTopics(pid, { status: "all" }, mine()) : mine();
+        const topics = url.searchParams.get("status") === "open" ? all.filter((t) => !isClosed(t.topic_status)) : all;
+        const { bytes, lost } = bx.writeBcfZip(topics, { version, project: { project_id: pid, name: pid } });
+        const info = JSON.stringify({ version, topics: topics.length, lost: lost.slice(0, 20), lost_total: lost.length })
+          .replace(/[\u007f-￿]/g, (c) => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0"));
+        res.writeHead(200, { "Content-Type": "application/octet-stream", "Content-Disposition": `attachment; filename="${pid}-bcf${version}.bcfzip"`, "Cache-Control": "no-cache",
+          "X-Sentinel-Export": info, "Access-Control-Expose-Headers": "X-Sentinel-Export, Content-Disposition", ...corsHeaders(res) });
+        return res.end(Buffer.from(bytes));
+      }
+      if (what === "import" && req.method === "POST") {
+        await requireMinRole(pid, "contributor");
+        if (useCde) cde.takeWriteBudget("BCF imports", { perUser: 20, all: 60 });
+        const pkg = bx.readBcfZip(await readRaw(req, { max: Math.min(uploadCap(), 100 * 1024 * 1024) })); // a BCF package, not a model
+        const actor = resolveActor(url.searchParams.get("actor"), "web");
+        const now = new Date().toISOString();
+        const out = { version: pkg.version, created: 0, updated: 0, unchanged: 0, topics: [], skipped: [] };
+        for (const inc of pkg.topics) {
+          try {
+            if (inc.guid == null || inc.guid === "") throw Object.assign(new Error("this topic has no Guid in the file — nothing was saved"), { status: 400 });
+            cde.guidOrNew(inc.guid); // a topic GUID is a UUID (0039), else this topic is skipped in words
+            cde.checkTopicTitle(inc.title);
+            const existing = useCde ? await cde.bcfGetTopic(pid, inc.guid) : mine().find((t) => t.guid === inc.guid);
+            if (!existing && !useCde && db.topics.some((t) => t.guid === inc.guid)) throw Object.assign(new Error("its GUID is a topic of another project (topic GUIDs are global)"), { status: 409 });
+            const r = bx.mergeImported(existing, inc, { pid, now, actor, model: String(url.searchParams.get("model") || "").slice(0, 200) });
+            if (!r.changed) { out.unchanged++; continue; }
+            // The governed-topic rules hold for a file as for the Issues panel: closing or renaming an IDS/Federation topic is a lead's.
+            if (existing ? governedEditNeedsLead(existing, r.fieldChanges) : (isGovernedTitle(inc.title) && isClosed(inc.topic_status))) await requireMinRole(pid, "lead");
+            if (useCde) await (existing ? cde.bcfSaveTopic(r.topic) : cde.bcfCreateTopic(r.topic));
+            else if (existing) db.topics[db.topics.indexOf(existing)] = r.topic; else db.topics.push(r.topic); // the merged topic in its place: a cleared field stays cleared
+            out[existing ? "updated" : "created"]++;
+            out.topics.push(inc.guid);
+          } catch (e) {
+            const m = String(e?.message || e);
+            const why = !e?.status && /duplicate|23505|409/i.test(m) ? "its GUID is a topic of another project (topic GUIDs are global)"
+              : e?.status && e.status < 500 ? m : "not saved — see the bridge log";
+            if (why.startsWith("not saved")) console.warn(`[bcf] import ${pid} topic ${inc.guid}: ${m}`);
+            out.skipped.push({ guid: inc.guid, title: String(inc.title ?? "").slice(0, 120), why });
+          }
+        }
+        if (!useCde && out.topics.length) persist();
+        if (out.topics.length) broadcast(pid, { type: "topic", action: "imported", count: out.topics.length });
+        return send(res, 200, out);
+      }
+      return send(res, 405, { message: "Method not allowed" });
+    } catch (e) {
+      return send(res, e?.status || 500, { message: String(e?.message || e) });
+    }
+  }
   // openCDE slice 1: the BCF-API 3.0 reads a stock client expects (bcf-open.mjs) — asked before the topic block, GET only.
   const open = await import("./bcf-open.mjs");
   const openRoute = open.parseOpen(url.pathname, req.method);

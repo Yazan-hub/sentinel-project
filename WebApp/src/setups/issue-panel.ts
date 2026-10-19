@@ -9,6 +9,8 @@ import * as OBC from "@thatopen/components";
 import * as OBF from "@thatopen/components-front";
 import { getAppManager } from "../app";
 import { escapeHtml as esc, fmtDate } from "./escape-html";
+import { importSummary, exportSummary, type ImportReply, type ExportInfo } from "./bcf-files";
+import { saveAs } from "./audit-pack";
 
 /**
  * Issue Management panel — the single, docked home for BCF coordination in the app sidebar.
@@ -79,7 +81,8 @@ export function issuePanel(components: OBC.Components, opts: { bcfBaseUrl?: stri
     const d = dir.clone().transformDirection(inv).normalize();
     const u = up.clone().transformDirection(inv).normalize();
     const zUp = (v: THREE.Vector3) => ({ x: v.x, y: -v.z, z: v.y }); // Three.js Y-up → BCF Z-up
-    return { perspective_camera: { camera_view_point: zUp(p), camera_direction: zUp(d), camera_up_vector: zUp(u), field_of_view: fov } };
+    const aspect = (cam.three as THREE.PerspectiveCamera).aspect; // BCF 3.0 asks for it
+    return { perspective_camera: { camera_view_point: zUp(p), camera_direction: zUp(d), camera_up_vector: zUp(u), field_of_view: fov, ...(aspect > 0 ? { aspect_ratio: aspect } : {}) } };
   }
 
   async function createIssue(f: {
@@ -127,6 +130,14 @@ export function issuePanel(components: OBC.Components, opts: { bcfBaseUrl?: stri
       `<select id="ip-ftype" style="${inp};flex:1">${optH(["All", "Issue", "Clash", "Fault", "Info", "Request"])}</select>` +
       `<select id="ip-fprio" style="${inp};flex:1">${optH(["All", "Low", "Normal", "High", "Critical"])}</select>` +
     "</div>" +
+    // BCF files: work alongside ACC and BIMcollab — a file in, a file out, no Autodesk cloud API (spec 2026-10-19-work-alongside-connectors)
+    '<div id="ip-bcf" style="display:flex;gap:.3rem;align-items:center;padding:.4rem .6rem;border-bottom:1px solid #2a2a30">' +
+      `<button id="ip-import" title="Add or update issues from a .bcf/.bcfzip exported by ACC, BIMcollab or another BCF tool" style="${btn};background:#2a2a30;color:#eee">Import BCF…</button>` +
+      '<input id="ip-file" type="file" accept=".bcf,.bcfzip" style="display:none"/>' +
+      '<span style="flex:1"></span>' +
+      `<select id="ip-ver" title="BCF version of the exported file" style="${inp}"><option value="2.1">for ACC (BCF 2.1)</option><option value="3.0">BCF 3.0</option></select>` +
+      `<button id="ip-export" title="Save every issue of this project as a .bcfzip" style="${btn};background:#2a2a30;color:#eee">Export BCF</button>` +
+    "</div>" +
     '<div id="ip-content" style="flex:1;overflow:auto;padding:.5rem .6rem">' +
       '<div id="ip-list"></div>' +
       // CREATE form
@@ -157,6 +168,7 @@ export function issuePanel(components: OBC.Components, opts: { bcfBaseUrl?: stri
   type Mode = "list" | "create" | "detail";
   const setMode = (m: Mode) => {
     el("ip-filters").style.display = m === "list" ? "flex" : "none";
+    el("ip-bcf").style.display = m === "list" ? "flex" : "none";
     el("ip-list").style.display = m === "list" ? "block" : "none";
     el("ip-create").style.display = m === "create" ? "block" : "none";
     el("ip-detail").style.display = m === "detail" ? "block" : "none";
@@ -252,7 +264,37 @@ export function issuePanel(components: OBC.Components, opts: { bcfBaseUrl?: stri
     }
   };
 
+  const bcfUrl = (what: string) => `${base}/bcf/3.0/projects/${encodeURIComponent(projectId())}/${what}`;
+  const importBcf = async (file: File) => {
+    const b = el("ip-import") as HTMLButtonElement; b.disabled = true; msg(`Importing ${file.name}…`);
+    try {
+      const r = await bwrite<ImportReply>(bcfUrl("import"), { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: file });
+      const s = importSummary(r); msg((s.bad ? "⚠ " : "✅ ") + s.text, s.bad ? "#eab308" : "#22c55e");
+      await fetchAll();
+    } catch (e) { msg("❌ " + ((e as Error)?.message ?? String(e)), "#ef4444"); }
+    finally { b.disabled = false; }
+  };
+  const exportBcf = async () => {
+    const b = el("ip-export") as HTMLButtonElement; b.disabled = true; msg("Exporting…");
+    try {
+      const r = await bfetch(bcfUrl(`export?version=${encodeURIComponent(val("ip-ver"))}`));
+      if (!r.ok) throw new Error((await r.json().catch(() => null))?.message || `HTTP ${r.status}`);
+      const name = /filename="([^"]+)"/.exec(r.headers.get("Content-Disposition") || "")?.[1] || `${projectId()}.bcfzip`;
+      let info: ExportInfo | null = null;
+      try { info = JSON.parse(r.headers.get("X-Sentinel-Export") || "null"); } catch { /* an older bridge says nothing */ }
+      saveAs(await r.blob(), name);
+      const s = exportSummary(name, info); msg((s.bad ? "⚠ " : "✅ ") + s.text, s.bad ? "#eab308" : "#22c55e");
+    } catch (e) { msg("❌ " + ((e as Error)?.message ?? String(e)), "#ef4444"); }
+    finally { b.disabled = false; }
+  };
+
   // wiring
+  el("ip-import").addEventListener("click", () => (el("ip-file") as HTMLInputElement).click());
+  el("ip-file").addEventListener("change", () => {
+    const f = el("ip-file") as HTMLInputElement; const file = f.files?.[0]; f.value = "";
+    if (file) void importBcf(file);
+  });
+  el("ip-export").addEventListener("click", () => void exportBcf());
   el("ip-new").addEventListener("click", () => { setMode("create"); msg(""); });
   el("ip-cancel").addEventListener("click", () => setMode("list"));
   el("ip-refresh").addEventListener("click", fetchAll);

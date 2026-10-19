@@ -158,6 +158,64 @@ public sealed class BcfSyncManager : IDisposable
         return r;
     }
 
+    /// <summary>Send a .bcf/.bcfzip to the bridge's import (the one BCF reader the web uses too). → the bridge's answer in
+    /// words: what was added, updated and skipped, and why. Network only — call off the API thread. Never throws.</summary>
+    public async Task<string> ImportBcfAsync(string projectId, byte[] file, string modelId, Func<string>? bearer = null, CancellationToken ct = default)
+    {
+        try
+        {
+            // The new topics carry this Revit's model id, so the Issues list (filtered by it) shows what was just imported.
+            using var msg = new HttpRequestMessage(HttpMethod.Post, $"{_base}/bcf/3.0/projects/{Uri.EscapeDataString(projectId)}/import?model={Uri.EscapeDataString(modelId ?? "")}")
+            { Content = new ByteArrayContent(file) };
+            msg.Content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+            Authorize(msg, bearer);
+            using HttpResponseMessage resp = await _files.SendAsync(msg, ct).ConfigureAwait(false);
+            var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+            if (!resp.IsSuccessStatusCode) return $"Not imported — {Or(MessageOf(body), $"the bridge answered {(int)resp.StatusCode}")}";
+            using var doc = JsonDocument.Parse(body);
+            var r = doc.RootElement;
+            int N(string k) => r.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : 0;
+            var said = $"BCF {r.GetProperty("version").GetString()} file: {N("created")} new, {N("updated")} updated" + (N("unchanged") > 0 ? $", {N("unchanged")} already up to date." : ".");
+            var skipped = r.TryGetProperty("skipped", out var s) ? s.EnumerateArray().ToList() : new List<JsonElement>();
+            if (skipped.Count > 0)
+                said += $" {skipped.Count} skipped — " + string.Join("; ", skipped.Take(3).Select(x => $"\u201c{x.GetProperty("title").GetString()}\u201d: {x.GetProperty("why").GetString()}"))
+                    + (skipped.Count > 3 ? $" (and {skipped.Count - 3} more)." : ".");
+            return said;
+        }
+        catch (TaskCanceledException) { return "Not imported in 10 minutes — the bridge may still be reading the file; press Refresh in a minute to see what arrived"; }
+        catch (Exception e) { return $"Not imported — could not reach the bridge ({e.Message})"; }
+    }
+
+    /// <summary>The project's issues as a .bcfzip in <paramref name="version"/> ("2.1" for ACC, or "3.0"). → (bytes or null, words).
+    /// Network only — call off the API thread. Never throws.</summary>
+    public async Task<(byte[]? File, string Said)> ExportBcfAsync(string projectId, string version, Func<string>? bearer = null, CancellationToken ct = default)
+    {
+        try
+        {
+            using var msg = new HttpRequestMessage(HttpMethod.Get, $"{_base}/bcf/3.0/projects/{Uri.EscapeDataString(projectId)}/export?version={Uri.EscapeDataString(version)}");
+            Authorize(msg, bearer);
+            using HttpResponseMessage resp = await _files.SendAsync(msg, ct).ConfigureAwait(false);
+            if (!resp.IsSuccessStatusCode)
+                return (null, $"Not exported — {Or(MessageOf(await resp.Content.ReadAsStringAsync().ConfigureAwait(false)), $"the bridge answered {(int)resp.StatusCode}")}");
+            var bytes = await resp.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
+            var said = $"BCF {version}";
+            if (resp.Headers.TryGetValues("X-Sentinel-Export", out var info))
+            {
+                using var doc = JsonDocument.Parse(info.First());
+                var r = doc.RootElement;
+                said = $"{r.GetProperty("topics").GetInt32()} issue(s) as BCF {version}";
+                var lost = r.GetProperty("lost").EnumerateArray().Select(x => x.GetString()).Take(3).ToList();
+                if (lost.Count > 0) said += $". Not carried by BCF {version}: {string.Join("; ", lost)}";
+            }
+            return (bytes, said);
+        }
+        catch (Exception e) { return (null, $"Not exported — could not reach the bridge ({e.Message})"); }
+    }
+
+    private static string Or(string s, string fallback) => string.IsNullOrWhiteSpace(s) ? fallback : s;
+    // A BCF package with snapshots can take longer than the 30 s the other calls get.
+    private readonly HttpClient _files = new() { Timeout = TimeSpan.FromMinutes(10) };
+
     private static string MessageOf(string body)
     {
         try { using var doc = JsonDocument.Parse(body); return doc.RootElement.TryGetProperty("message", out var m) ? m.GetString() ?? "" : ""; }
@@ -186,5 +244,5 @@ public sealed class BcfSyncManager : IDisposable
         if (!string.IsNullOrWhiteSpace(token)) msg.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
     }
 
-    public void Dispose() { _http.Dispose(); _sse.Dispose(); }
+    public void Dispose() { _http.Dispose(); _sse.Dispose(); _files.Dispose(); }
 }

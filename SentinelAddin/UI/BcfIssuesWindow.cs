@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using Sentinel.Coordination;
 
@@ -28,6 +29,8 @@ public sealed class BcfIssuesWindow : Window
     public event Action? IssuesForSelectionRequested;
     public event Action<BcfTopic>? FixRequested;
     public event Action? NewIssueRequested;
+    public event Action? ImportRequested;
+    public event Action? ExportRequested;
     private readonly Button _fix;
 
     /// <summary>Current topics (for the command's isolate-all / selection-lookup requests).</summary>
@@ -75,6 +78,17 @@ public sealed class BcfIssuesWindow : Window
         _fix.IsEnabled = false;
         _fix.ToolTip = "Only issues the referee raised (title “IDS: … — … (N failing)”) can be fixed in place.";
 
+        // Work alongside ACC and BIMcollab: a BCF file in, a BCF file out (spec 2026-10-19-work-alongside-connectors).
+        var files = new UniformGrid { Columns = 2, Margin = new Thickness(0, 4, 0, 0) };
+        var import = Btn("Import BCF file…", () => ImportRequested?.Invoke());
+        import.ToolTip = "Add or update issues from a .bcf/.bcfzip exported by ACC, BIMcollab or another BCF tool.";
+        import.Margin = new Thickness(0, 0, 2, 0);
+        var export = Btn("Export BCF file…", () => ExportRequested?.Invoke());
+        export.ToolTip = "Save this project's issues as a .bcfzip — BCF 2.1 for ACC, or BCF 3.0.";
+        export.Margin = new Thickness(2, 0, 0, 0);
+        files.Children.Add(import);
+        files.Children.Add(export);
+
         _status = new TextBlock { Text = "…", Margin = new Thickness(0, 6, 0, 0), TextWrapping = TextWrapping.Wrap, Foreground = Brushes.Gray };
 
         var listLabel = new TextBlock { Text = "Issues", FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 4) };
@@ -83,7 +97,7 @@ public sealed class BcfIssuesWindow : Window
         var root = new DockPanel { Margin = new Thickness(12) };
         foreach (var (el, dock) in new (UIElement, Dock)[]
         {
-            (_status, Dock.Bottom), (_fix, Dock.Bottom), (refresh, Dock.Bottom), (raise, Dock.Bottom), (forSel, Dock.Bottom),
+            (_status, Dock.Bottom), (_fix, Dock.Bottom), (files, Dock.Bottom), (refresh, Dock.Bottom), (raise, Dock.Bottom), (forSel, Dock.Bottom),
             (isolateAll, Dock.Bottom), (zoom, Dock.Bottom), (detailScroll, Dock.Bottom),
             (listLabel, Dock.Top),
         })

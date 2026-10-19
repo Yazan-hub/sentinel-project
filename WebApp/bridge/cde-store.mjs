@@ -2330,3 +2330,39 @@ export async function createTransmittal(key, b = {}) {
     { reference: row.reference ?? null, purpose: row.purpose ?? null, suitability: row.suitability ?? null, recipients: row.recipients ?? [], version_ids: ids });
   return row;
 }
+
+// ── the no-toll data feed (0044, spec 2026-10-19-work-alongside-connectors §2) ──
+const feedErr = (status, message) => Object.assign(new Error(message), { status });
+/** A feed function, called with the anon key and no sign-in: the database hashes the key, checks it is live and that its owner
+ *  is a member, and answers — the bridge decides nothing about who may read. Its refusals come back in words. */
+export async function feedRpc(fn, args) {
+  if (!URL || !ANON) throw feedErr(503, "the data feed is not set up on this bridge (SUPABASE_URL + SUPABASE_ANON_KEY) — nothing was read");
+  const ask = async () => {
+    const r = await fetch(`${URL}/rest/v1/rpc/${fn}`, { method: "POST", headers: { apikey: ANON, Authorization: `Bearer ${ANON}`, "Content-Type": "application/json" }, body: JSON.stringify(args) });
+    return { r, data: await r.json().catch(() => null) };
+  };
+  // ponytail: anon's statement timeout is 3 s (≈100k elements a revision at the measured 64 ms per 12.7k). The drill saw two slow first
+  // calls right after the schema changed; one retry covers that. A model past the ceiling needs a paged feed.
+  let { r, data } = await ask();
+  if (!r.ok && /statement timeout/.test(String(data?.message || ""))) ({ r, data } = await ask());
+  if (r.ok) return data;
+  const m = String(data?.message || "");
+  if (/feed key not valid/.test(m)) throw feedErr(401, "this feed key is not valid or was revoked — make a new one on the Data feed screen");
+  if (/not a member of this project/.test(m)) throw feedErr(403, "the feed key's owner is not a member of this project, or there is no such project");
+  if (/no such revision/.test(m)) throw feedErr(404, "this project has no revision with that code or id — revisions.csv lists them");
+  if (data?.code === "PGRST202") throw feedErr(503, "the data feed is not set up in the database yet (migration 0044) — nothing was read");
+  throw new Error(`Supabase ${r.status}: ${m}`);
+}
+/** The signed-in person's own feed keys (RLS: their rows only), newest first. Never the hashes. */
+export const listFeedKeys = () => sb(`feed_keys?select=id,label,created_at,last_used_at,revoked_at&order=created_at.desc`);
+/** A new feed key row for the signed-in person (RLS: user_id defaults to them). The key itself is never stored. */
+export async function addFeedKey(keyHash, label) {
+  const rows = await sb(`feed_keys?select=id,label,created_at`, { method: "POST", body: { key_hash: keyHash, label }, prefer: "return=representation" });
+  return requireRows(rows, "a feed key is made by a signed-in person")[0];
+}
+/** Revoke one of the signed-in person's live keys; someone else's, or one already revoked, changes nothing → a 404 in words. */
+export async function revokeFeedKey(id) {
+  const rows = await sb(`feed_keys?id=eq.${encodeURIComponent(id)}&revoked_at=is.null&select=id,revoked_at`, { method: "PATCH", body: { revoked_at: new Date().toISOString() }, prefer: "return=representation" });
+  if (!Array.isArray(rows) || !rows.length) throw feedErr(404, "no live feed key of yours with that id — nothing was revoked");
+  return rows[0];
+}
