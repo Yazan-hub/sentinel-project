@@ -536,13 +536,22 @@ These are not optional:
 
 ---
 
-## Trigger questions for the founder
+## Trigger questions: the founder's answers (2026-10-19)
 
-1. Is "changes the model *and* proves it" the line Sentinel sells? If yes, scan, photo and 4D–7D are supporting features, not the headline.
-2. Coexist with Autodesk (connector plus write-governance partner) or compete with Forma head-on? The roadmap above assumes coexist.
-3. Pen test, hosting and SSO all cost money. Which comes first? The recommended order is hosting, then pen test, then SSO.
-4. Remove the community code-exec Revit MCP from the everyday Claude profile, starting today?
-5. Which dimension to concede on purpose? The recommendation is raw clash detection and IDS *authoring* UX (use BIMcollab's for authoring), while owning fixing and proof.
+1. **What Sentinel sells.** The line is: *"Sentinel turns drawings, scans and standards into Revit changes that a person approves and an auditor can verify."*
+   - Scan, photo and drawing tools are inputs that create proposals.
+   - 4D–7D, COBie and the audit pack are outputs of a model you can trust.
+2. **Autodesk.** Work alongside ACC now, and build Sentinel's CDE so it can replace ACC's Docs and coordination parts later.
+   - The founder's office is the first test: models stay in ACC; approvals, gates and the record run in Sentinel.
+   - Revit cloud worksharing can only be hosted by Autodesk, so offices that co-author in the cloud keep that part of ACC.
+3. **Money.** Hosting, the pen test and SSO wait until Sentinel is published, and the bridge stays on the founder's PC until then. The pen test moves with hosting, so it tests the hosted version.
+   - Free steps still recommended before any outside user: 2FA for leads and owners, BitLocker on the bridge PC, and leaked-password protection back on.
+4. **Code-running MCP.** Done the same day: `~/.claude/settings.json` now denies `mcp__mcp-server-for-revit__send_code_to_revit` and `…__delete_element`.
+   - The server stays for its read and annotate tools.
+   - The Claude desktop chat tab needs the same two tools switched off in its connector settings.
+5. **What to concede.** The founder rejected "use other tools for clash and IDS", because it lengthens the workflow. The revised answer: **the whole loop stays in Sentinel** (check → propose fix → approve → record). Only depth at the extreme ends is conceded.
+   - **Clash:** the Collider runs inside Sentinel and feeds triage directly. That means grouping, assigning owners, and auto-proposing fixes for trivial classes. Importing Navisworks/ACC clashes is an optional door, not a step. Sentinel does not race Navisworks on huge federations.
+   - **IDS:** generated from the installed standards, so nobody writes IDS by hand. Already built: EIR prose → proposed IDS (`WebApp/bridge/ids-compile.mjs`, `compileIds`) and the LOD matrix → DD IDS (`matrixToIds`). **Missing:** the contract's required property sets per IFC class, plus the naming rules → IDS. Uploading a hand-written IDS still works; a full manual IDS editor is not built.
 
 ---
 
