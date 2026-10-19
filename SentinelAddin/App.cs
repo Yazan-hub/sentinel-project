@@ -141,6 +141,7 @@ public sealed class App : IExternalApplication
         // on this PC, said.
         try { Commands.ReviewChangesetsCommand.SendOnOpen(doc); }
         catch (Exception ex) { PanelVm?.LogDoctor($"Review AI Proposals (on opening \"{doc.Title}\"): the results waiting on this PC were not checked — {ex.GetType().Name}: {ex.Message}. They are kept; run Review AI Proposals in this model to send them."); }
+        Sentinel.Engine.SavedCheck.On(doc, "opened"); // "applied, then saved": a record still waiting means the last session never saved it
         SentinelUpdater.RegisterFor(doc, Engine!, PanelVm!);
         CdeSyncGuard.Prefetch(ProjectContext.For(doc)); // CDE-01's naming@n, off Revit's thread
         Workflow.RequestManager.RefreshSnapshot(doc); // old-value capture baseline
@@ -359,6 +360,7 @@ public sealed class App : IExternalApplication
         // Revit raises this after a CANCELLED or failed sync too (OnSynchronizing cancels for BLOCK): nothing below —
         // rescan, CDE-01, auto-publish, the office scan post — may run for a sync that did not happen.
         if (e.Status != RevitAPIEventStatus.Succeeded || e.Document is null || e.Document.IsFamilyDocument) return;
+        Sentinel.Engine.SavedCheck.On(e.Document, "synced"); // "applied, then saved" (2026-10-20): central now holds what the stamps say
         // Delta scan at sync time (Decision 1: link-proximity checks live here too)
         Workflow.RequestManager.RefreshSnapshot(e.Document);
         var report = Engine!.ScanFull(e.Document);
@@ -421,8 +423,12 @@ public sealed class App : IExternalApplication
     }
 
     // Local save (non-workshared, or a local save before sync) → auto-publish, when the project's publish@n says so.
+    // "Applied, then saved" (2026-10-20): a save confirms what the file now holds of each changeset waiting on this PC.
     private static void OnSaved(object? sender, DocumentSavedEventArgs e)
-        => Sentinel.Engine.AutoPublish.Trigger(e.Document);
+    {
+        if (e.Status == RevitAPIEventStatus.Succeeded) Sentinel.Engine.SavedCheck.On(e.Document, "saved");
+        Sentinel.Engine.AutoPublish.Trigger(e.Document);
+    }
 
     private static void BuildRibbon(UIControlledApplication app)
     {
@@ -449,6 +455,8 @@ public sealed class App : IExternalApplication
             "One-time: creates the ZZZ_ReviewStatus flag parameter (coordinator only).");
         Push(co, "Sentinel_ReviewChangesets", "Review AI\nProposals", "Sentinel.Commands.ReviewChangesetsCommand", "gate",
             "Review staged AI element proposals: the referee's verdict per element, your tick decides what enters the model. Everything is audit-chained.");
+        Push(co, "Sentinel_AppliedChanges", "Applied AI\nChanges", "Sentinel.Commands.AppliedChangesCommand", "apply",
+            "See every applied AI changeset and whether the saved model kept it; revert one days later, row by row, with your reason on the ledger.");
 
         // ── Validate — compliance, IFC readiness, family hygiene ─────────────────────────────
         var va = app.CreateRibbonPanel(tab, "Validate");

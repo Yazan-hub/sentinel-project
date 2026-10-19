@@ -35,7 +35,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
     internal static void Hold() => Interlocked.Increment(ref _holds);
     internal static void Release() => Interlocked.Decrement(ref _holds);
     private const string Title = "Sentinel — AI proposals";
-    internal const string Busy = "A review window is open, a result is still being reported to the bridge, or Promote (DD) or Shell a Mass is reading or filing, or Ghost Builder is filing or withdrawing a build — finish or close the window, or wait until the pane's Doctor log says the report, Promote's filing or Shell a Mass's filing is done (a Promote or a Shell a Mass that files nothing is done when its dialog closes), or until the Ghost build's dialog shows (and, after one that was not placed, the Doctor log says its withdrawals), then run the command again.";
+    internal const string Busy = "A review window is open, a result is still being reported to the bridge, or Promote (DD) or Shell a Mass is reading or filing, or Ghost Builder is filing or withdrawing a build — finish or close the window, or wait until the pane's Doctor log says the report, Promote's filing or Shell a Mass's filing is done (a Promote or a Shell a Mass that files nothing is done when its dialog closes), or until the Ghost build's dialog shows (and, after one that was not placed, the Doctor log says its withdrawals), then run the command again. Applied AI Changes holds it too while its window is open — close that window first.";
     // The roles POST /changesets/:key/:id/result accepts (changesets-store.mjs reportResult: contributor or above; the
     // machine credential reads as service).
     private static readonly string[] Reporters = { "service", "contributor", "lead", "owner" };
@@ -288,7 +288,9 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                         // Only a result the bridge holds is watched: an Undo then posts changeset_reverted for these guids — remembered under
                         // the Undo entry's name (the group's) and the changeset's own, whichever Revit reports (GhostChangesetBuild's rule).
                         // Review C8: an Undo that came while this report was in flight is posted here, once.
-                        if (UndoWatcher.Land(r.Undo, r.Key, r.ChangesetId, r.Applied.Select(a => a.ProposalGuid)))
+                        if (!UndoWatcher.Land(r.Undo, r.Key, r.ChangesetId, r.Applied.Select(a => a.ProposalGuid)))
+                            SavedCheck.Remember(r); // "applied, then saved" (2026-10-20): checked at this file's next save, sync or opening
+                        else
                         {
                             ChangesetClient.ReportReverted(cfg, r.Key, r.ChangesetId, r.Applied.Select(a => a.ProposalGuid).ToList(), "undo", out var undoErr);
                             rep.Words.Add(UnreportedResults.UndoneInFlight(r, undoErr));

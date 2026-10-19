@@ -62,7 +62,7 @@ export interface DeskResult {
   declined_on_web?: { proposal_guid: string; by: string; role: string | null; reason: string; carried_from?: CarriedFrom | null }[];
   reasons?: Record<string, string>;
 }
-export interface PendingChangeset { id: string; name: string; source: string; claimed?: boolean; status: string; created_at: string; review_rev?: number; elements: Ghost[]; result?: DeskResult | null; job?: DeskJob | null;
+export interface PendingChangeset { id: string; name: string; source: string; claimed?: boolean; status: string; created_at: string; review_rev?: number; elements: Ghost[]; result?: DeskResult | null; persisted?: { state: "confirmed" | "lost"; how: string; at: string; missing: number } | null; job?: DeskJob | null;
   /** The changeset's review rows — what is held for a person and why (a type gap, a difference, MA-5b-3: what an earlier drawing placed and this
    *  one no longer draws). Revit shows them untickable; the desk lists them. */
   exceptions?: { unique_id: string; name: string; reason: string }[]; }
@@ -73,7 +73,7 @@ export function heldLines(cs: PendingChangeset, max = 50): string[] {
 }
 export interface DecidedView { head: string; note: string | null; declined: { line: string; why: string[] }[]; }
 /** A report's ledger rows: its changeset_applied row, and the newest changeset_reverted row after it (an Undo or a Redo in Revit). */
-export interface LedgerRows { row: number | null; reverted: { id: number; op: string; on_word?: string } | null; }   // on_word: the account an undo was recorded on the word of (basis "absent")
+export interface LedgerRows { row: number | null; reverted: { id: number; op: string; on_word?: string; revert?: { by: string; reason: string; kept: number } } | null; }   // on_word: the account an undo was recorded on the word of (basis "absent")
 export interface DeskGroup { what: string; ghosts: { cs: PendingChangeset; el: Ghost }[]; }
 export interface DeskStorey { storey: string; changesets: PendingChangeset[]; groups: DeskGroup[]; }
 export interface LedgerRef { id: number | null; hash: string | null; }
@@ -292,7 +292,7 @@ async function auditRows<T>(url: string): Promise<{ rows: T[]; total: number }> 
  *  ledger holding more changeset_* rows for these reports than one read returns (1000): a cut read could miss a report's row. */
 export async function readLedger(base: string, key: string, ids: string[]): Promise<Map<string, LedgerRows>> {
   if (!ids.length) return new Map();
-  const j = await auditRows<{ id: number; entity_id: string; action: string; actor?: string; new_value?: { op?: unknown; basis?: unknown } | null }>(`${base.replace(/\/$/, "")}/cde/${encodeURIComponent(key)}/audit?entity_type=changeset&action_prefix=changeset_&entity_id=${ids.map(encodeURIComponent).join(",")}&limit=1000`);
+  const j = await auditRows<{ id: number; entity_id: string; action: string; actor?: string; new_value?: { op?: unknown; basis?: unknown; by?: unknown; reason?: unknown; kept?: unknown } | null }>(`${base.replace(/\/$/, "")}/cde/${encodeURIComponent(key)}/audit?entity_type=changeset&action_prefix=changeset_&entity_id=${ids.map(encodeURIComponent).join(",")}&limit=1000`);
   if (j.total > j.rows.length) throw new Error(`not read — the ledger holds more rows for these reports (${j.total}) than one read returns`);
   const out = new Map<string, LedgerRows>();
   for (const x of j.rows) {
@@ -300,7 +300,9 @@ export async function readLedger(base: string, key: string, ids: string[]): Prom
     const e = out.get(x.entity_id) ?? { row: null, reverted: null };
     if (x.action === "changeset_applied") e.row = x.id;
     else if (!e.reverted) e.reverted = { id: x.id, op: typeof x.new_value?.op === "string" ? x.new_value.op : "",
-      ...(x.new_value?.basis === "absent" ? { on_word: x.actor || "an unknown account" } : {}) };   // final verification round 2
+      ...(x.new_value?.basis === "absent" ? { on_word: x.actor || "an unknown account" } : {}),
+      // Revert (2026-10-20): a person's compensating change in Revit - who, why, how many rows were kept
+      ...(x.new_value?.basis === "revert" ? { revert: { by: String(x.new_value.by ?? x.actor ?? "an unknown account"), reason: String(x.new_value.reason ?? ""), kept: Array.isArray(x.new_value.kept) ? x.new_value.kept.length : 0 } } : {}) };   // final verification round 2
     out.set(x.entity_id, e);
   }
   return out;
@@ -321,9 +323,13 @@ export function decidedView(cs: PendingChangeset, ledger: LedgerRows | null | Er
   const rev = ledger instanceof Error ? null : ledger?.reverted ?? null;
   const row = (ledger instanceof Error ? `ledger row ${ledger.message}` : ledger?.row != null ? `ledger #${ledger.row}` : "no ledger row found for it")
     // final verification round 2: an undo recorded on a person's word that the element is gone is not an Undo Revit was seen doing
-    + (!rev ? "" : rev.op === "undo" && rev.on_word ? ` · recorded as gone on ${rev.on_word}'s word after the report, not an Undo seen in Revit (ledger #${rev.id})`
+    + (!rev ? "" : rev.revert ? ` · reverted in Revit by ${rev.revert.by}: "${rev.revert.reason}" (ledger #${rev.id})${rev.revert.kept > 0 ? ` — ${rev.revert.kept} row(s) kept as they stood` : ""}`
+      : rev.op === "undo" && rev.on_word ? ` · recorded as gone on ${rev.on_word}'s word after the report, not an Undo seen in Revit (ledger #${rev.id})`
       : rev.op === "undo" ? ` · undone in Revit after the report (ledger #${rev.id})` : rev.op === "redo" ? ` · undone, then redone in Revit (ledger #${rev.id})`
-      : ` · a changeset_reverted row follows the report (ledger #${rev.id})`);
+      : ` · a changeset_reverted row follows the report (ledger #${rev.id})`)
+    // Persisted (2026-10-20): did the saved model keep it? (the add-in's check; absent = not yet seen saved)
+    + (cs.persisted?.state === "confirmed" ? ` · saved in the model (${({ synced: "synced", saved: "saved", saved_locally: "saved locally", reopened: "seen on reopening" } as Record<string, string>)[cs.persisted.how] ?? cs.persisted.how})`
+      : cs.persisted?.state === "lost" ? ` · NOT in the saved model — closed without saving, or Revit stopped (${cs.persisted.missing} row(s))` : cs.status === "applied" || cs.status === "partially_applied" ? " · not yet seen saved" : "");
   const byGuid = new Map((cs.elements ?? []).map((e) => [e.proposal_guid, e]));
   const rehosted = applied.filter((a) => byGuid.get(a.proposal_guid)?.op === "rehost").length; // MA-5b-5
   // MA-8-7 (amendment 3): only what Revit reported removed counts as removed; a replacing create without a matching removed_unique_id is said apart

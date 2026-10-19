@@ -1471,11 +1471,16 @@ public sealed class ChangesetExecutor
                     : b.Elevation + baseOff + (w.get_Parameter(BuiltInParameter.WALL_USER_HEIGHT_PARAM)?.AsDouble() ?? 0);
                 if (topNow > top.Elevation + TolFt)
                     throw new InvalidOperationException($"wall {w.UniqueId} rises above {top.Name} — attaching would cut it down; re-run Promote");
+                // Revert (2026-10-20): the top as it stood, read before the write - what Revert puts back
+                var before = doc.GetElement(w.get_Parameter(BuiltInParameter.WALL_HEIGHT_TYPE)?.AsElementId() ?? ElementId.InvalidElementId) is Level was
+                    ? new AttachBeforeDto { TopLevel = was.Name, TopOffsetMm = (w.get_Parameter(BuiltInParameter.WALL_TOP_OFFSET)?.AsDouble() ?? 0) / MmToFeet }
+                    : new AttachBeforeDto { HeightMm = (w.get_Parameter(BuiltInParameter.WALL_USER_HEIGHT_PARAM)?.AsDouble() ?? 0) / MmToFeet };
                 Set(w, BuiltInParameter.WALL_BASE_CONSTRAINT, b.Id);
                 Set(w, BuiltInParameter.WALL_BASE_OFFSET, 0.0);
                 Set(w, BuiltInParameter.WALL_HEIGHT_TYPE, top.Id);
                 Set(w, BuiltInParameter.WALL_TOP_OFFSET, 0.0);
                 Collect(result, el, w);
+                result.Applied[result.Applied.Count - 1].Before = before;
             }
 
             // MA-2c: set_parameter after every retype and attach, so a value lands on the type the retype just set (drill MA2b I-1: a

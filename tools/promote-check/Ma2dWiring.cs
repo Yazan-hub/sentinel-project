@@ -66,7 +66,8 @@ static partial class Check
         // by ReportAll on a pool thread; the undo watcher remembers it only once the bridge took it.
         int reported = At(review, "var landed = ChangesetClient.ReportResult(cfg, r.Key, r.ChangesetId, r.Applied, r.Rejected, r.Note, r.ReviewRev, out var reply, out var err, r.Reasons);"); // MA-3b2: and the reasons
         Ok(review.Contains("foreach (var (one, res) in result.Each)") && reported > 0
-           && At(review, "if (UndoWatcher.Land(r.Undo, r.Key, r.ChangesetId, r.Applied.Select(a => a.ProposalGuid)))") > reported // review C8: Land remembers it
+           && At(review, "if (!UndoWatcher.Land(r.Undo, r.Key, r.ChangesetId, r.Applied.Select(a => a.ProposalGuid)))") > reported // review C8: Land remembers it
+           && review.Contains("SavedCheck.Remember(r); // \"applied, then saved\"") // 2026-10-20: a landed result waits for its file's save
            && review.Contains("new List<string> { undo, UndoWatcher.TxName(one.Name, one.Id) }")
            // Review C15: the LOD state after names only the changesets the bridge holds as applied; the words count the rejected rows it took.
            && review.Contains("var held = rep.Landed.Where(x => x.R.Applied.Count > 0).Select(x => x.R.ChangesetId).ToList();") && review.Contains("CommandReports.LodState(lod, held, UserSession.Actor)")
