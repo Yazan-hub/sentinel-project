@@ -16,6 +16,7 @@ import { escapeHtml as esc } from "./escape-html";
 import { unarchiveFile } from "./cde-transition";
 import { firstTag, geometryCheck, linkedHash, linkedTag, sha256Hex, type GeometryLinkRow } from "./geometry-check";
 import { saveAs } from "./audit-pack";
+import { loadLine } from "../sentinel-core/perf-stats";
 import { mountMarker, markSummary, type Mark, type Marker, type MarkWhat } from "./photo-marker";
 import type { SplatShown } from "./splat-view"; // MA-7-11: type only - Spark and the viewer load when "Show in 3D" is pressed
 import { readEvidence, readWebStatus, readNotice, noticeLine, webLine, type WebStatus, makePack, signAttestation, admitEvidence, recheckEvidence, setDeleteBy, draftRequest, kindOf, isImage, needsReport, itemLine, attestationLine, admitLine, recheckLine, requestLine, evidenceControls, ATTESTATION_CODES, ATTESTATION_TEXTS, datasetLine, PHOTO_SOURCES, MAP_SERVICES, photoProvider, type PhotoSource, markViewCopy, detectFaces, proposedMarks, takePanoramas, panoramasLine, blurredLine, photoUrl, readSplatPlacement, saveSplatPlacement, splatBytes, placementLine, splatShownLine, canPlaceSplat, SPLAT_LOOK, type SplatPlacement, type EvidenceItem, type EvidenceRead, type EvidenceRequest,
@@ -1189,20 +1190,29 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     // (founder decision B-a: a tag the platform does not serve is said, never the item's newest version instead).
     const tag = linkedTag(link) ?? first;
     try {
+      const tDownload = performance.now();
       const resp = await client.downloadFile(v.platform_item_id, tag ? { versionTag: tag } : undefined);
+      if (resp.status === 429) throw new Error("the platform is limiting requests right now (HTTP 429) — wait a minute and press Open 3D again");
       if (!resp.ok) throw new Error(tag ? `the platform did not serve version tag "${tag}" of this item (HTTP ${resp.status})` : `platform download HTTP ${resp.status}`);
       const buf = await resp.arrayBuffer();
+      const downloadMs = performance.now() - tDownload;
       const check = geometryCheck(await sha256Hex(buf), v.platform_item_id, link, first);
       if (!check.load) { status(`${f.iso_name} ${v.revision}: ${check.line}.`); return; }
       const core = coreOf();
       const modelId = modelIdOf(f, v);
       if (modelList()?.has?.(modelId)) await core.disposeModel(modelId); // reloading the same version → replace
+      const bytes = buf.byteLength; // read first: the engine hands the buffer to its worker (it is empty after load)
+      const tOpen = performance.now();
       await core.load(buf, { modelId });
+      const took = loadLine({ downloadMs, openMs: performance.now() - tOpen, bytes });
+      // eslint-disable-next-line no-console
+      console.log(`[Sentinel] load ${modelId} ${took}`); // the sandboxed iframe's console is where a benchmark reads it
       hiddenModels.delete(modelId); // a fresh load is always visible
       render(); // surface the Hide/Show toggle on the row
-      status(`Loaded ${v.revision} into the viewer ✓ (model "${modelId}") — ${check.line}.`);
+      status(`Loaded ${v.revision} into the viewer ✓ (model "${modelId}") ${took} — ${check.line}.`);
     } catch (e) {
-      status(`Couldn't load ${v.revision}: ${(e as Error).message}. The platform may store this item as IFC (needs conversion) — share the console error to refine.`);
+      const m = (e as Error).message;
+      status(`Couldn't load ${v.revision}: ${m}.${/HTTP 429/.test(m) ? "" : " The platform may store this item as IFC (needs conversion) — share the console error to refine."}`);
     }
   }
 

@@ -193,7 +193,10 @@ const CLASH_STORE = process.env.SENTINEL_CLASH_STORE
 /** @type {{clashes: any[]}} */
 let cldb = loadJson(CLASH_STORE, { clashes: [] });
 const persistClash = () => writeJsonAtomic(CLASH_STORE, cldb);
-const CLASH_STATUSES = ["raised", "reviewed", "approved", "resolved"]; // new→raised→reviewed→approved→resolved
+const CLASH_STATUSES = ["raised", "reviewed", "approved", "resolved", "not_a_clash"]; // new→raised→reviewed→approved→resolved; not_a_clash (triage) carries a reason
+// Clash triage (spec 2026-10-20): a record may be born "not_a_clash" (a touching pair) — only with a reason, said on the ledger.
+const clashReason = (r) => (typeof r === "string" && r.trim().length >= 1 && r.length <= 300 ? r.trim() : null);
+const bornStatus = (it) => (it.status === "not_a_clash" && clashReason(it.reason) ? "not_a_clash" : "raised");
 const MAX_CLASH_ITEMS = 500; // one POST /clash/:pid; the web raises at most 100 at a time (clash-panel.ts raise)
 const clashItems = (pid) => cldb.clashes.filter((c) => c.project === pid);
 /** Upsert a batch of clash records (raise-time). Merge by signature. A POST records clashes and moves none (H0 clash-1): a
@@ -205,24 +208,26 @@ const upsertClashes = (pid, items) => {
     if (!it || !it.signature) continue;
     let rec = cldb.clashes.find((c) => c.project === pid && c.signature === it.signature);
     if (!rec) {
-      cldb.clashes.push({ project: pid, signature: it.signature, status: "raised", volume: it.volume ?? null, label: it.label ?? null, bcf_guid: it.bcf_guid ?? null, elements: it.elements ?? null, overlap: it.overlap ?? null, created_at: now, updated_at: now });
+      cldb.clashes.push({ project: pid, signature: it.signature, status: bornStatus(it), reason: bornStatus(it) === "not_a_clash" ? clashReason(it.reason) : null, group: it.group ?? null, volume: it.volume ?? null, label: it.label ?? null, bcf_guid: it.bcf_guid ?? null, elements: it.elements ?? null, overlap: it.overlap ?? null, created_at: now, updated_at: now });
     } else {
       if (it.bcf_guid) rec.bcf_guid = it.bcf_guid;
       if (it.volume != null) rec.volume = it.volume;
       if (it.label) rec.label = it.label;
       if (it.elements) rec.elements = it.elements; // provenance (captured once at raise; preserved on status updates)
       if (it.overlap) rec.overlap = it.overlap;
+      if (it.group) rec.group = it.group;
       rec.updated_at = now;
     }
   }
   persistClash();
 };
-const updateClashStatus = (pid, signature, status) => {
+const updateClashStatus = (pid, signature, status, reason = null) => {
   if (!signature || !CLASH_STATUSES.includes(status)) return false;
   const rec = cldb.clashes.find((c) => c.project === pid && c.signature === signature);
   if (!rec) return false;
-  rec.status = status; rec.updated_at = new Date().toISOString(); persistClash();
-  return true;
+  const from = rec.status;
+  rec.status = status; rec.reason = status === "not_a_clash" ? reason : null; rec.updated_at = new Date().toISOString(); persistClash();
+  return { from, label: rec.label ?? null };
 };
 // Supabase-backed twins (migration 0009) — identical merge semantics over bridge_docs (store="clash"), status rule included.
 async function upsertClashesCde(cde, pid, items) {
@@ -235,8 +240,8 @@ async function upsertClashesCde(cde, pid, items) {
     if (!it || !it.signature) continue;
     const prev = touched.get(it.signature) || bySig.get(it.signature);
     touched.set(it.signature, prev
-      ? { ...prev, bcf_guid: it.bcf_guid || prev.bcf_guid, volume: it.volume != null ? it.volume : prev.volume, label: it.label || prev.label, elements: it.elements || prev.elements, overlap: it.overlap || prev.overlap, updated_at: now }
-      : { project: pid, signature: it.signature, status: "raised", volume: it.volume ?? null, label: it.label ?? null, bcf_guid: it.bcf_guid ?? null, elements: it.elements ?? null, overlap: it.overlap ?? null, created_at: now, updated_at: now });
+      ? { ...prev, bcf_guid: it.bcf_guid || prev.bcf_guid, volume: it.volume != null ? it.volume : prev.volume, label: it.label || prev.label, elements: it.elements || prev.elements, overlap: it.overlap || prev.overlap, group: it.group || prev.group || null, updated_at: now }
+      : { project: pid, signature: it.signature, status: bornStatus(it), reason: bornStatus(it) === "not_a_clash" ? clashReason(it.reason) : null, group: it.group ?? null, volume: it.volume ?? null, label: it.label ?? null, bcf_guid: it.bcf_guid ?? null, elements: it.elements ?? null, overlap: it.overlap ?? null, created_at: now, updated_at: now });
   }
   // The service key: the register is the bridge's alone (migration 0034 closes the direct write), and this runs only
   // after the route's role check and the Federation Gate's lock.
@@ -244,12 +249,12 @@ async function upsertClashesCde(cde, pid, items) {
   // The records this call added (their signature was not on the register): each gets a "Clash raised" ledger row.
   return [...touched].filter(([sig]) => !bySig.has(sig)).map(([, rec]) => rec);
 }
-async function updateClashStatusCde(cde, pid, signature, status) {
+async function updateClashStatusCde(cde, pid, signature, status, reason = null) {
   if (!signature || !CLASH_STATUSES.includes(status)) return false;
   const rec = await cde.docGet("clash", pid, signature);
   if (!rec) return false;
   const from = rec.status;
-  rec.status = status; rec.updated_at = new Date().toISOString();
+  rec.status = status; rec.reason = status === "not_a_clash" ? reason : null; rec.updated_at = new Date().toISOString();
   await cde.docUpsert("clash", pid, signature, rec, { service: true }); // after the route's contributor check (0034)
   return { from, label: rec.label ?? null }; // what moved, for its ledger row
 }
@@ -2209,7 +2214,8 @@ async function handleRequest(req, res) {
   //   GET  → { items:[{signature,status,volume,label,bcf_guid,...}] }  (the team-wide "known" set)
   //   POST → upsert body { items:[...] } (raise-time; records, never moves)   ·   PUT → body { signature, status } (lifecycle)
   //   POST /clash/:pid/reset → clear this project's records (re-surface all)
-  const cm = url.pathname.match(/^\/clash\/([^/]+)(?:\/(reset))?$/);
+  //   GET/PUT /clash/:pid/owners → clash triage's discipline owners { disciplines: { [discipline]: email } } (PUT: a lead's)
+  const cm = url.pathname.match(/^\/clash\/([^/]+)(?:\/(reset|owners))?$/);
   if (cm) {
     const [, cpid, sub] = cm;
     try {
@@ -2222,7 +2228,9 @@ async function handleRequest(req, res) {
       // the machine credential passes as service. Each change is on the ledger, by the verified identity: the web wrote
       // these rows itself through POST /cde/:key/audit, which is a lead's notes since D11. A row that fails to write is
       // logged — the register write it records already stands.
-      if (req.method === "POST" || req.method === "PUT") await (await import("./members-store.mjs")).requireMinRole(cpid, sub === "reset" ? "lead" : "contributor");
+      if (req.method === "GET" && sub === "owners")
+        return send(res, 200, (useCde ? await cde.docGet("clash_triage", cpid, "owners") : cldb.owners?.[cpid]) || { disciplines: {} });
+      if (req.method === "POST" || req.method === "PUT") await (await import("./members-store.mjs")).requireMinRole(cpid, sub === "reset" || sub === "owners" ? "lead" : "contributor");
       const ledger = async (action, value) => {
         if (!useCde) return;
         try { await cde.recordAudit(cpid, { entity_type: "clash", actor: "Clash", action, new_value: value }); }
@@ -2233,9 +2241,21 @@ async function handleRequest(req, res) {
         await ledger("Clash register reset — every clash re-surfaces on the next run", null);
         return send(res, 200, { ok: true });
       }
+      // Assigning work to people is a lead's: who owns each discipline's clash groups. Replaces the whole map; one ledger row.
+      if (req.method === "PUT" && sub === "owners") {
+        const d = (await readBody(req))?.disciplines;
+        const entries = d && typeof d === "object" && !Array.isArray(d) ? Object.entries(d) : null;
+        if (!entries || entries.length > 40 || entries.some(([k, v]) => !k || k.length > 60 || typeof v !== "string" || v.length > 200))
+          return send(res, 400, { message: "discipline owners are { disciplines: { <discipline>: <member e-mail> } }, at most 40 — nothing changed" });
+        const doc = { disciplines: Object.fromEntries(entries.filter(([, v]) => v.trim()).map(([k, v]) => [k, v.trim()])), updated_at: new Date().toISOString() };
+        if (useCde) await cde.docUpsert("clash_triage", cpid, "owners", doc, { service: true }); else { (cldb.owners ??= {})[cpid] = doc; persistClash(); } // after the lead check
+        await ledger(`Clash discipline owners set: ${Object.entries(doc.disciplines).map(([k, v]) => `${k} → ${v}`).join(", ") || "none"}`, doc.disciplines);
+        return send(res, 200, doc);
+      }
       if (req.method === "POST" && !sub) {
         const items = (await readBody(req)).items;
         if (Array.isArray(items) && items.length > MAX_CLASH_ITEMS) return send(res, 400, { message: `at most ${MAX_CLASH_ITEMS} clash records a request — nothing was saved` });
+        if (Array.isArray(items) && items.some((it) => it?.status === "not_a_clash" && !clashReason(it.reason))) return send(res, 400, { message: "a clash marked not a clash needs a reason (1-300 characters) — nothing was saved" });
         // The lock (3D spec Decision 4, founder 2026-09-28): the register takes new clashes only when the Federation Gate
         // passed on the whole live set now — asked of the gate itself. The bridge writes the register with the service key
         // after this; migration 0034 takes the direct PostgREST write away from signed-in callers (until it is applied, a
@@ -2251,15 +2271,17 @@ async function handleRequest(req, res) {
         // written, never a partial write and a ledger row over nothing.
         if (Array.isArray(items) && items.length) cde.takeWriteBudget("clash raises", { perUser: 30, all: 120 });
         const added = useCde ? await upsertClashesCde(cde, cpid, items) : (upsertClashes(cpid, items), []);
-        for (const it of added) await ledger(`Clash raised: ${it.label ?? it.signature}`, { signature: it.signature, volume: it.volume, overlap: it.overlap, elements: it.elements, bcf_guid: it.bcf_guid });
+        for (const it of added) await ledger(it.status === "not_a_clash" ? `Clash marked not a clash: ${it.label ?? it.signature} — ${it.reason}` : `Clash raised: ${it.label ?? it.signature}`, { signature: it.signature, volume: it.volume, overlap: it.overlap, elements: it.elements, bcf_guid: it.bcf_guid, ...(it.group ? { group: it.group } : {}), ...(it.reason ? { reason: it.reason } : {}) });
         return send(res, 201, { items: useCde ? await cde.docList("clash", cpid) : clashItems(cpid) });
       }
       if (req.method === "PUT" && !sub) {
         const b = await readBody(req);
         if (!CLASH_STATUSES.includes(b.status)) return send(res, 400, { message: `a clash status is one of ${CLASH_STATUSES.join(", ")} — nothing changed` });
-        const moved = useCde ? await updateClashStatusCde(cde, cpid, b.signature, b.status) : updateClashStatus(cpid, b.signature, b.status);
+        const reason = clashReason(b.reason);
+        if (b.status === "not_a_clash" && !reason) return send(res, 400, { message: "a clash marked not a clash needs a reason (1-300 characters) — nothing changed" });
+        const moved = useCde ? await updateClashStatusCde(cde, cpid, b.signature, b.status, reason) : updateClashStatus(cpid, b.signature, b.status, reason);
         if (!moved) return send(res, 404, { message: `no clash ${b.signature} on the register — nothing changed` });
-        if (moved.from && moved.from !== b.status) await ledger(`Clash ${moved.from} → ${b.status}: ${moved.label ?? b.signature}`, { signature: b.signature, status: b.status });
+        if (moved.from && moved.from !== b.status) await ledger(`Clash ${moved.from} → ${b.status}: ${moved.label ?? b.signature}${b.status === "not_a_clash" ? ` — ${reason}` : ""}`, { signature: b.signature, status: b.status, reason: b.status === "not_a_clash" ? reason : undefined });
         return send(res, 200, { ok: !!moved });
       }
       return send(res, 405, { message: "method not allowed" });

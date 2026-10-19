@@ -76,6 +76,13 @@ export function perfLines(s: PerfSnapshot): string[] {
   return lines;
 }
 
+/** How long one Open 3D took, split where the time went: the platform download, then the engine opening the bytes
+ *  (parse + first geometry on the GPU). Large-model benchmark 2026-10: a buyer asks "how long does it take to open". */
+export function loadLine(t: { downloadMs: number; openMs: number; bytes: number }): string {
+  const s = (x: number) => `${(x / 1000).toFixed(1)} s`;
+  return `in ${s(t.downloadMs + t.openMs)} (download ${s(t.downloadMs)} · ${(t.bytes / 2 ** 20).toFixed(1)} MB, open ${s(t.openMs)})`;
+}
+
 /** The one fact the streaming decision hangs on, said plainly (null when every model reports a bound camera). */
 export function cameraFinding(models: readonly PerfModel[]): string | null {
   const unbound = models.filter((m) => m.cameraBound === false).length;

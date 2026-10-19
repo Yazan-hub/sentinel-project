@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { percentile, perfLines, cameraFinding, type PerfSnapshot } from "./perf-stats";
+import { percentile, perfLines, cameraFinding, loadLine, type PerfSnapshot } from "./perf-stats";
 
 const snap = (over: Partial<PerfSnapshot> = {}): PerfSnapshot => ({
   api: "webgl", rendererClass: "PostproductionRenderer", mode: "AUTO (draws every frame)", gpu: "ANGLE (NVIDIA)",
@@ -8,6 +8,12 @@ const snap = (over: Partial<PerfSnapshot> = {}): PerfSnapshot => ({
   models: [{ modelId: "ARC@v4", items: 602, cameraBound: true }, { modelId: "STR@v2", items: 1200, cameraBound: false }],
   settings: { graphicsQuality: 0, maxUpdateRate: 100 },
   ...over,
+});
+
+describe("loadLine", () => {
+  it("says the total and where it went", () => {
+    expect(loadLine({ downloadMs: 1240, openMs: 2010, bytes: 5743620 })).toBe("in 3.3 s (download 1.2 s · 5.5 MB, open 2.0 s)");
+  });
 });
 
 describe("percentile", () => {

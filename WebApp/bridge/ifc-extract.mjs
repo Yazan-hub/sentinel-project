@@ -87,7 +87,13 @@ export async function elementPsets(api, mid, id) {
   return el;
 }
 
-export async function extractElements(bytes, { classes = DEFAULT_CLASSES, modelId = "intake" } = {}) {
+export async function extractElements(bytes, opts) {
+  const { runIfcJob } = await import("./ifc-worker.mjs"); // off the bridge's thread (large-model benchmark 2026-10)
+  return runIfcJob("extract", bytes, opts);
+}
+
+/** The extraction itself, on the calling thread — ifc-worker.mjs runs it. */
+export async function extractHere(bytes, { classes = DEFAULT_CLASSES, modelId = "intake" } = {}) {
   const api = new WebIFC.IfcAPI();
   api.SetWasmPath(WASM_DIR, true);
   await api.Init();
