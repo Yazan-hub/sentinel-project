@@ -2148,5 +2148,40 @@
    "SentinelAddin/Commands.Provenance.cs:1-34",
    "SentinelAddin/Engine/ProvenanceStamp.cs:130-170"
   ]
+ },
+ "Sentinel_Protection": {
+  "summary": "Choose what no changeset may edit — grids, levels, structure and chosen worksets — for this project or the whole office.",
+  "overview": [
+   "Protection is the list of things Sentinel never changes on its own. When a changeset — from an AI agent, the web or Promote — would edit an existing grid, level, structural element or an element on a protected workset, that row is kept as it stands and the reason is shown; the rest of the changeset is still applied. New elements are not affected.",
+   "The window shows the policy in force: one saved for this project, one saved for its office, or Sentinel's built-in default when none is saved. The built-in default protects grids, levels, the project base point and survey point, structural columns, framing and foundations, walls and floors marked Structural, and the Shared Levels and Grids workset."
+  ],
+  "prerequisites": [
+   "The model is bound to its web project (Standards ▸ Project Setup).",
+   "To save a change you must be a lead or owner of that web project; everyone else sees the policy read-only."
+  ],
+  "inputs": [],
+  "steps": [
+   "Click Protection under Sentinel > Standards & Build.",
+   "Tick what must never be edited by a changeset; tick this model's worksets, or type other workset names in the box (one per line; * means anything).",
+   "Choose This project, or Every project in the office.",
+   "Press Save. The window says which version was saved; it is recorded in the ledger and used for the next changeset you apply."
+  ],
+  "results": [
+   "A new version of the protection policy on the project or its office, with a ledger row naming who saved it."
+  ],
+  "tips": [
+   "A project's own policy wins over the office's. The window says so when you save for the office while this project has its own.",
+   "Reset to the built-in default fills the form with the default; nothing changes until you press Save.",
+   "To change a protected element, edit it by hand in Revit, or save a looser policy first."
+  ],
+  "related": [
+   "Sentinel_Standards",
+   "Sentinel_ReviewChangesets",
+   "Sentinel_Setup"
+  ],
+  "sources": [
+   "SentinelAddin/Commands.Protection.cs",
+   "SentinelAddin/GhostBuilder/ProtectionRules.cs"
+  ]
  }
 }

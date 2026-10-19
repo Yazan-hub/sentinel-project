@@ -3458,3 +3458,13 @@ Owed: the founder confirms the blur boxes (00157); E57 convention confirmation (
 | PB-4 installed policy | 4100 restarted on master (edb8969d, auth gate ARMED; the founder refreshes the Funnel). protection@1 · project (19b1654c…) installed by `artefact-import.mjs`: levels and grids only, `structural_hosts: false`. Changeset `0b3ecdc7…` retyping the same structural wall 1625663: the check before commit judged it, "Applied 1 element(s)", no kept line, ledger #2767 — the installed policy was read, not the default. Then protection@2 · project (95847ebb…) installed with the default values, so ma4c-drill is protected again | **pass** |
 
 Revit closed without saving the scratch copy.
+
+## Session PROT-W — the Protection window (2026-10-19 local; branch feature/protection-window; the founder's "in Revit next to the Standards button"; Revit 2024 on `prot-b-drill.rvt` (ma4c-drill), signed in as the founder; Claude driving; a Sonnet reviewer read the code)
+
+| Row | What happened | Result |
+|---|---|---|
+| PW-1 open | Sentinel ▸ Standards & Build ▸ **Protection** (right after Standards) opens at once and fills itself: "In force now: protection@2 · project · 95847ebb…", every category ticked by name (no Revit code on screen), "This model is not workshared", the pattern `*Shared Levels and Grids*` in the box, "Every project in the office (ma2e-office)" offered, Save enabled for a lead/owner | **pass** |
+| PW-2 save | Unticked Survey point and "Walls and floors marked Structural" → Save (this project): "✓ Saved as protection@3 on ma4c-drill, recorded in the ledger"; the bridge holds exactly those categories and `structural_hosts: false`; ledger #2770 `artefact_installed protection@3` by the signed-in founder (not "cli") | **pass** |
+| PW-3 reset | Reset to the built-in default → Save → protection@4 (the default values) — ma4c-drill protected as before | **pass** |
+| PW-F1 | The window grew and shrank with the status line, so the buttons moved under the pointer (a missed Save click) | **fixed**: the status line keeps two lines' height |
+| Review | Sonnet reviewer: a throw while reading (signed-out `BcfConfig.Load`) would leave the window on "Reading…" forever; the same on Save (`UserSession.Actor`); a workset name over 120 characters got the bridge's indexed refusal | **fixed** (read wrapped, read-only with the reason; actor read before the pool thread; the long name said by name) — not re-run live |
