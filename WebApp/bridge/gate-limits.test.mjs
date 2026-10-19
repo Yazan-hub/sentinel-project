@@ -419,8 +419,13 @@ describe("the local stores — the single desktop's only, never a signed-in call
       expect(r.status, JSON.stringify(body)).toBe(400);
       expect((await r.json()).message).toBe(words);
     }
-    expect((await post("/packs", { key: "sec4-pack", version: "1.0.0", name: "SEC-4 pack" })).status).toBe(201);
-    const again = await post("/packs", { key: "sec4-pack", version: "1.0.0", name: "changed" });
+    // A pack must install as published (the July stub bds-house@1.4.1 did not): its ruleset passes the install's validator.
+    const ruleset = { standard_key: "sec4", semver: "1.0.0", rules: [{ id: "SN-01", target: "sheet", mode: "request" }] };
+    const stub = await post("/packs", { key: "sec4-stub", version: "1.0.0", ruleset: { ...ruleset, rules: [{ id: "WS-01" }] } });
+    expect(stub.status).toBe(400);
+    expect((await stub.json()).message).toMatch(/^ruleset: rules\[0\]\.target must be workset \| .* — a pack must install as published; nothing was published$/);
+    expect((await post("/packs", { key: "sec4-pack", version: "1.0.0", name: "SEC-4 pack", ruleset })).status).toBe(201);
+    const again = await post("/packs", { key: "sec4-pack", version: "1.0.0", name: "changed", ruleset });
     expect(again.status).toBe(409);
     expect((await again.json()).message).toBe("pack sec4-pack@1.0.0 is already published — publish a new version; nothing was published");
     expect((await post("/packs/sec4-pack@1.0.0/fork", { key: 'f" x' })).status).toBe(400);

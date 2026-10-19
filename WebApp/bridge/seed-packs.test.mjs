@@ -3,7 +3,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { validateArtefact } from "./artefact-store.mjs";
+import { validateArtefact, packRefusal } from "./artefact-store.mjs";
 
 const dir = fileURLToPath(new URL("../packs/", import.meta.url));
 const packs = readdirSync(dir).filter((f) => f.endsWith(".json")).map((f) => JSON.parse(readFileSync(dir + f, "utf8")));
@@ -15,11 +15,17 @@ describe("seed packs (WebApp/packs/*.json)", () => {
     for (const p of packs) for (const k of ["key", "version", "name", "ruleset"]) expect(p[k], `${p.key}.${k}`).toBeTruthy();
   });
   it("every standard a pack carries passes the artefact validator of its kind", () => {
-    for (const p of packs) {
-      expect(() => validateArtefact("ruleset", p.ruleset), p.key).not.toThrow();
-      for (const kind of ["naming", "ids", "layers", "contract"]) if (p[kind]) expect(() => validateArtefact(kind, p[kind]), `${p.key}.${kind}`).not.toThrow();
-    }
+    for (const p of packs) expect(packRefusal(p), p.key).toBeNull();
     expect(packs.filter((p) => p.naming).map((p) => p.key).sort()).toEqual(["base-standard", "bds-house"]);
+  });
+  // The registry's July stub (bds-house@1.4.1 and its fork acme-arch@1.0.0, seeded before validation): Packs ▸ Install was
+  // refused at the ruleset. Publish and fork now refuse such a pack with these words; the stored rows were rebuilt from the seed file.
+  it("a pack whose standard the install would refuse is named, with the validator's words", () => {
+    const stub = { key: "bds-house", version: "1.4.1", ruleset: { standard_key: "bds", semver: "1.4.1", rules: [{ id: "WS-01" }] } };
+    expect(packRefusal(stub)).toMatch(/^ruleset: rules\[0\]\.target must be workset \| view/);
+    const bds = packs.find((p) => p.key === "bds-house");
+    expect(packRefusal({ ...bds, naming: { ...bds.naming, fields: "x" } })).toMatch(/^naming: /);
+    expect(packRefusal({ key: "x", version: "1" })).toBe("artefact body must be a JSON object"); // no ruleset at all
   });
   it("the ISO lite pack is SN-01 alone", () => {
     expect(packs.find((p) => p.key === "iso-19650-lite").ruleset.rules.map((r) => r.id)).toEqual(["SN-01"]);

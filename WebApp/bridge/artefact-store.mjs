@@ -442,6 +442,18 @@ export function validateArtefact(kind, body) {
   return true;
 }
 
+/** The standards a pack installs (Packs ▸ Install: the ruleset, then each of these it carries). */
+export const PACK_KINDS = ["naming", "ids", "layers", "contract"];
+/** Each standard a pack carries through its kind's validator, as an install would: null, or the first refusal's words.
+ *  The registry takes no pack its install would refuse (a broken offer — the July stub bds-house@1.4.1 was one). */
+export function packRefusal(pack) {
+  try {
+    validateArtefact("ruleset", pack?.ruleset);
+    for (const kind of PACK_KINDS) if (pack?.[kind]) validateArtefact(kind, pack[kind]);
+    return null;
+  } catch (e) { return e?.message || String(e); }
+}
+
 // SEC-4: a contract installs under a plain name — the rule the delivery-gate component (1.0.7) reads a mirrored contract by,
 // so a contract Sentinel installs is never "Not checked" on the platform for its name. Install only: a contract installed
 // before this rule still judges intake and Revit (resolveContract reads it through validateArtefact).

@@ -1063,6 +1063,7 @@ async function handleRequest(req, res) {
     if (req.method === "POST" && currentUserToken()) return send(res, 403, { message: "the standards-pack registry is written by the bridge's machine credential — a signed-in publish, fork or install count is not open yet; nothing was published" });
     try {
       const cde = await import("./cde-store.mjs");
+      const { packRefusal } = await import("./artefact-store.mjs");
       const useCde = cde.cdeConfigured();
       // Global store (project_id=""). One list call (which also lazy-migrates) gives the current set to find in.
       const packs = useCde ? await cde.docListLazy("pack", "", pkdb.packs, (p) => p.id) : pkdb.packs;
@@ -1083,6 +1084,8 @@ async function handleRequest(req, res) {
         if (why) return send(res, 400, { message: why });
         const id = `${b.key}@${b.version}`;
         if (packs.some((p) => p.id === id)) return send(res, 409, { message: packTaken(id) });
+        const refused = packRefusal(b);
+        if (refused) return send(res, 400, { message: `${refused} — a pack must install as published; nothing was published` });
         const pack = packRecord(b, null, resolveActor(b.author, "anon"));
         if (useCde) await cde.docUpsert("pack", "", id, pack); else { pkdb.packs.push(pack); persistPack(); }
         return send(res, 201, pack);
@@ -1097,6 +1100,8 @@ async function handleRequest(req, res) {
         if (why) return send(res, 400, { message: why });
         const nid = `${b.key || pack.key}@${b.version || "fork"}`;
         if (packs.some((p) => p.id === nid)) return send(res, 409, { message: packTaken(nid) });
+        const refused = packRefusal(pack);
+        if (refused) return send(res, 400, { message: `${pack.id} cannot be installed (${refused}) — nothing was forked` });
         const fork = { ...pack, id: nid, key: b.key || pack.key, version: b.version || "fork", name: b.name || pack.name + " (fork)", author: resolveActor(b.author, "anon"), installs: 0, forks: 0, forked_from: pack.id, created_at: now };
         pack.forks = (pack.forks || 0) + 1;
         if (useCde) { await cde.docUpsert("pack", "", pack.id, pack); await cde.docUpsert("pack", "", fork.id, fork); } else { pkdb.packs.push(fork); persistPack(); }
