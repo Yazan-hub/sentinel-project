@@ -69,6 +69,11 @@ async function reviewer(d, key, min, what) {
   return role;
 }
 
+const keepTop = (b) => b && typeof b === "object" ? {
+  top_level: typeof b.top_level === "string" && b.top_level.length <= 256 ? b.top_level : null,
+  top_offset_mm: Number.isFinite(b.top_offset_mm) ? b.top_offset_mm : null,
+  height_mm: Number.isFinite(b.height_mm) && b.height_mm > 0 ? b.height_mm : null } : null;
+
 const ledgerRef = (row) => (row ? { id: row.id ?? null, hash: row.hash ?? null } : null);
 
 /** Review amendment C7: a web decision is swapped onto the doc, then written to the ledger. A row the ledger does not take is
@@ -1054,6 +1059,8 @@ export async function reportResult(key, id, { applied, rejected, note, review_re
             ...(cs.job && el?.kind === "wall" && a.mesh != null ? { reread: reread(a.mesh, el, role) } : {}),
             // MA-5b-5 (R1): the tags Revit removed with a rehost's old instance — Revit's count, kept for the ledger
             // MA-8-10 (amendment 13): what Revit read back of the stair it built - kept field by field, and only a signed-in member's is trusted
+            // Revert (2026-10-20): the wall's top before an attach, field by field (anything else is null) - a revert needs it to go back
+            ...(el?.op === "attach" ? { before: keepTop(a.before) } : {}),
             ...(el?.kind === "stair" ? { built: keepBuilt(a.built, role != null && role !== "service") } : {}),
             ...(el?.op === "rehost" || el?.replaces ? { removed_tags: Number.isInteger(a.removed_tags) && a.removed_tags >= 0 && a.removed_tags <= 10000 ? a.removed_tags : null } : {}),
             // MA-8-7 (amendment 3): the UniqueId of the element Revit reports it deleted for a replacing create - kept as reported, one line
@@ -1143,28 +1150,73 @@ export async function withdrawChangeset(key, id, actor, deps) {
  *  changed (a Redo would otherwise need a status ping-pong). Answers the ledger row. Final verification round 2: `basis: "absent"` (an undo only) marks
  *  one recorded on a person's word that the element is gone from their model (the add-in's freeing of a terrain's scan), not an Undo Revit was seen
  *  doing - kept on the row, read as an undo everywhere, and said so by the MCP status and the desk. */
-export async function reportReverted(key, id, { op, guids, basis } = {}, actor, deps) {
+export async function reportReverted(key, id, { op, guids, basis, kept, reason } = {}, actor, deps) {
   const d = wire(deps);
   await d.requireMinRole(key, "contributor"); // the machine credential and a signed-in contributor both pass
   if (!["undo", "redo"].includes(op)) throw err(400, 'op must be "undo" or "redo"');
   if (!Array.isArray(guids) || !guids.length || guids.length > 200 || !guids.every((g) => typeof g === "string") || new Set(guids).size !== guids.length)
     throw err(400, "guids must be 1–200 distinct proposal_guids");
-  if (basis !== undefined && (basis !== "absent" || op !== "undo")) throw err(400, 'basis is "absent" on an undo, or none');
+  if (basis !== undefined && (!["absent", "revert"].includes(basis) || op !== "undo")) throw err(400, 'basis is "absent" or "revert" on an undo, or none');
+  // Revert (2026-10-20): basis "revert" is a person's compensating change made in Revit - it needs their reason, and kept/reason mean nothing without it.
+  if (basis !== "revert" && (kept !== undefined || reason !== undefined)) throw err(400, 'kept and reason belong to basis "revert" only; nothing was saved');
+  if (basis === "revert") {
+    if (typeof reason !== "string" || reason.trim().length < 1 || reason.trim().length > 500 || /[\u0000-\u001f\u007f]/.test(reason.trim()))
+      throw err(400, "a revert needs its reason: 1–500 characters on one line; nothing was saved");
+    if (kept !== undefined) {
+      if (!Array.isArray(kept) || kept.length > 200 || !kept.every((k) => k && typeof k.proposal_guid === "string" && typeof k.why === "string" && k.why.trim().length >= 1 && k.why.trim().length <= 300))
+        throw err(400, "kept must be up to 200 of {proposal_guid, why} (why 1–300 characters); nothing was saved");
+      const ks = kept.map((k) => k.proposal_guid);
+      if (new Set(ks).size !== ks.length || ks.some((g) => guids.includes(g))) throw err(400, "a kept row is listed once and is not also reverted; nothing was saved");
+    }
+  }
   // final verification round 3: "absent" is a person's word (the desk and MCP name them) - the machine credential's actor is only claimed
   if (basis !== undefined && (await d.myRole(key)) === "service")
-    throw err(403, 'an Undo recorded as gone (basis "absent") is a signed-in person\'s word — the machine credential records none; nothing was saved');
+    throw err(403, basis === "revert" ? "a revert is a signed-in person's act — sign in in Revit; nothing was saved"
+      : 'an Undo recorded as gone (basis "absent") is a signed-in person\'s word — the machine credential records none; nothing was saved');
   const proj = await d.ensureProject(key);
   const cs = await d.docGet(STORE, proj.id, id);
   if (!cs) throw err(404, "changeset not found");
   if (cs.status !== "applied" && cs.status !== "partially_applied")
     throw err(409, `changeset is ${cs.status} — only an applied changeset can be undone`);
   const applied = new Set((cs.result?.applied || []).map((a) => a.proposal_guid));
-  const stray = guids.find((g) => !applied.has(g));
+  const stray = [...guids, ...(basis === "revert" ? (kept ?? []).map((k) => k.proposal_guid) : [])].find((g) => !applied.has(g));
   if (stray) throw err(400, `"${stray}" was not applied by this changeset`);
   // Its own budget, not "revit reports" (naming, family_heal): the undo watcher never retries, so a throttled row is lost
   // and the ledger disagrees with the model. Already bounded — only guids this changeset applied, only once applied.
   d.takeWriteBudget("changeset reverts", { perUser: 120, all: 300 });
-  return d.audit(proj.id, "changeset", id, "changeset_reverted", actor || "revit", { status: cs.status }, { op, guids, count: guids.length, ...(basis ? { basis } : {}) });
+  const newv = { op, guids, count: guids.length, ...(basis ? { basis } : {}),
+    ...(basis === "revert" ? { ...(kept?.length ? { kept: kept.map((k) => ({ proposal_guid: k.proposal_guid, why: k.why.trim() })) } : {}), reason: reason.trim(), by: resolveActor(actor, "revit") } : {}) };
+  const write = () => d.audit(proj.id, "changeset", id, "changeset_reverted", actor || "revit", { status: cs.status }, newv);
+  // Revert (2026-10-20): the doc also says it (the Revit list cannot read the ledger); a plain redo of a reverted doc (Ctrl+Z of the revert) clears it.
+  // The ledger row stays the source of truth; every other undo/redo writes the row only.
+  if (basis !== "revert" && !(op === "redo" && !basis && cs.reverted)) return write();
+  const { before, updated } = await rewrite(d, proj.id, id, (c) => ({ updated: { ...c, updated_at: new Date().toISOString(), review_rev: reviewRev(c) + 1,
+    reverted: basis === "revert" ? { at: new Date().toISOString(), by: newv.by, guids: guids.length, kept: kept?.length ?? 0, reason: newv.reason } : null } }));
+  return recorded(d, proj.id, id, before, updated, "revert", write);
+}
+
+/** Persisted (2026-10-20): POST /changesets/:key/:id/persisted {how, held, missing} - the add-in's observation that an applied changeset's rows are
+ *  (held) or are not (missing) in the saved model. held + missing are exactly the guids this changeset applied. One changeset_confirmed (nothing
+ *  missing) or changeset_lost row, and the doc's `persisted` (the ledger id rides on the reply, not the doc: the doc is swapped first). */
+export async function reportPersisted(key, id, { how, held, missing } = {}, actor, deps) {
+  const d = wire(deps);
+  await d.requireMinRole(key, "contributor"); // an observation: the machine credential passes, like the undo watcher
+  if (!["saved", "saved_locally", "synced", "reopened"].includes(how)) throw err(400, 'how must be "saved", "saved_locally", "synced" or "reopened"; nothing was saved');
+  const strs = (a) => Array.isArray(a) && a.length <= 200 && a.every((g) => typeof g === "string") && new Set(a).size === a.length;
+  if (!strs(held) || !strs(missing)) throw err(400, "held and missing must be lists of distinct proposal_guids; nothing was saved");
+  d.takeWriteBudget("changeset persisted", { perUser: 120, all: 300 });
+  const proj = await d.ensureProject(key);
+  const { before, updated } = await rewrite(d, proj.id, id, (cs) => {
+    if (cs.status !== "applied" && cs.status !== "partially_applied") throw err(409, `changeset is ${cs.status} — only an applied changeset can be confirmed saved; nothing was saved`);
+    const applied = (cs.result?.applied || []).map((a) => a.proposal_guid), all = [...held, ...missing];
+    if (all.length !== applied.length || new Set(all).size !== all.length || !applied.every((g) => all.includes(g)))
+      throw err(400, "held and missing together must be exactly the guids this changeset applied; nothing was saved");
+    return { updated: { ...cs, persisted: { state: missing.length ? "lost" : "confirmed", how, at: new Date().toISOString(), missing: missing.length },
+      updated_at: new Date().toISOString(), review_rev: reviewRev(cs) + 1 } };
+  });
+  const row = await recorded(d, proj.id, id, before, updated, "saved check", () => d.audit(proj.id, "changeset", id, missing.length ? "changeset_lost" : "changeset_confirmed",
+    actor || "revit", { persisted: before.persisted ?? null }, { how, held: held.length, missing }));
+  return { changeset: updated, ledger: ledgerRef(row) };
 }
 
 /** MA-8-9: POST /changesets/:key/:id/flags {kind: "stair", storey, box} — a person's pick of a stair, appended to the changeset's exceptions as a

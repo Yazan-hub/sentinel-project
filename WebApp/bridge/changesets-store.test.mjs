@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
-import { proposeChangeset, getChangeset, reportResult, withdrawChangeset, listChangesets, reportReverted, needsTyping, needsCiting,
+import { proposeChangeset, getChangeset, reportResult, withdrawChangeset, listChangesets, reportReverted, reportPersisted, needsTyping, needsCiting,
   reviewChangeset, reopenGhost, previewChangesets, proposeFromJob, verifyChangeset, scanOverlay, scanQuery, editCostOf, publishEditCost, flagChangeset } from "./changesets-store.mjs";
 import { meshFaces, toScan, toModel, storeyFootprint } from "./survey-plan.mjs";
 import { boxMesh } from "./fixtures/box-mesh.mjs";
@@ -480,8 +480,52 @@ describe("reportReverted", () => {
     expect(deps.audit.mock.calls[0][6]).toEqual({ op: "undo", guids: [a], count: 1, basis: "absent" });
     deps.audit.mockClear();
     for (const body of [{ op: "undo", guids: [a], basis: "deleted" }, { op: "undo", guids: [a], basis: true }, { op: "undo", guids: [a], basis: null }, { op: "redo", guids: [a], basis: "absent" }])
-      await expect(reportReverted("demo", cs.id, body, "yazan", deps)).rejects.toMatchObject({ status: 400, message: 'basis is "absent" on an undo, or none' });
+      await expect(reportReverted("demo", cs.id, body, "yazan", deps)).rejects.toMatchObject({ status: 400, message: 'basis is "absent" or "revert" on an undo, or none' });
     expect(deps.audit).not.toHaveBeenCalled();
+  });
+
+  it("Revert (2026-10-20): basis \"revert\" is a person's act with a reason; the row keeps op undo, kept, reason and by; the doc says reverted until a plain redo", async () => {
+    const deps = baseDeps({ takeWriteBudget: vi.fn() });
+    const { cs, a, b } = await appliedChangeset(deps);
+    const rv = (extra) => ({ op: "undo", guids: [a], basis: "revert", reason: "wrong storey", ...extra });
+    deps.myRole = vi.fn(async () => "service");
+    await expect(reportReverted("demo", cs.id, rv(), "yazan", deps)).rejects.toMatchObject({ status: 403, message: "a revert is a signed-in person's act — sign in in Revit; nothing was saved" });
+    deps.myRole = vi.fn(async () => "contributor");
+    for (const bad of [{ reason: undefined }, { reason: "  " }, { reason: "x".repeat(501) }, { reason: "two\nlines" },
+      { kept: [{ proposal_guid: a, why: "held" }] }, { kept: [{ proposal_guid: b, why: "" }] }, { kept: [{ proposal_guid: b, why: "x" }, { proposal_guid: b, why: "y" }] }, { kept: [{ proposal_guid: "g-none", why: "x" }] }, { kept: "b" }])
+      await expect(reportReverted("demo", cs.id, rv(bad), "yazan", deps)).rejects.toMatchObject({ status: 400 });
+    await expect(reportReverted("demo", cs.id, { op: "undo", guids: [a], kept: [{ proposal_guid: b, why: "x" }] }, "yazan", deps)).rejects.toMatchObject({ status: 400 });
+    await expect(reportReverted("demo", cs.id, { op: "undo", guids: [a], reason: "x" }, "yazan", deps)).rejects.toMatchObject({ status: 400 });
+    await expect(reportReverted("demo", cs.id, { op: "redo", guids: [a], basis: "revert", reason: "x" }, "yazan", deps)).rejects.toMatchObject({ status: 400 });
+    expect(deps.audit).not.toHaveBeenCalled();
+    expect(deps.saved.get(cs.id).reverted).toBeUndefined();
+    await reportReverted("demo", cs.id, rv({ reason: " wrong storey ", kept: [{ proposal_guid: b, why: "edited by hand" }] }), "yazan", deps);
+    expect(deps.audit.mock.calls[0][6]).toEqual({ op: "undo", guids: [a], count: 1, basis: "revert", kept: [{ proposal_guid: b, why: "edited by hand" }], reason: "wrong storey", by: "yazan" });
+    expect(deps.saved.get(cs.id).reverted).toMatchObject({ by: "yazan", guids: 1, kept: 1, reason: "wrong storey" });
+    await reportReverted("demo", cs.id, { op: "redo", guids: [a] }, "yazan", deps); // Ctrl+Z of a revert: a plain redo
+    expect(deps.audit.mock.calls[1][6]).toEqual({ op: "redo", guids: [a], count: 1 });
+    expect(deps.saved.get(cs.id).reverted).toBeNull();
+    deps.docReplaceIfField.mockClear();
+    await reportReverted("demo", cs.id, { op: "redo", guids: [a] }, "yazan", deps); // nothing reverted: the row only
+    expect(deps.docReplaceIfField).not.toHaveBeenCalled();
+  });
+
+  it("Revert (2026-10-20): an attach row keeps `before` field by field; other rows carry none", async () => {
+    const deps = baseDeps();
+    const UID = "5a1c2b3d-1111-2222-3333-444455556666-0004c3f8";
+    const idn = { identity: { Class: "IfcWall", Name: "W 1" } };
+    const cs = await proposeChangeset("demo", { name: "P", source: "promote", elements: [
+      { op: "attach", kind: "wall", target: { unique_id: UID }, place: { BaseLevel: "Level 1", TopLevel: "Level 2" }, validate: idn },
+      { op: "attach", kind: "wall", target: { unique_id: UID.replace("c3f8", "c3f9") }, place: { BaseLevel: "Level 1", TopLevel: "Level 2" }, validate: idn },
+      wall()] }, "yazan", deps);
+    const [g1, g2, g3] = cs.elements.map((e) => e.proposal_guid);
+    const out = await reportResult("demo", cs.id, { applied: [
+      { proposal_guid: g1, revit_element_id: 1, before: { top_level: "Level 2", top_offset_mm: -150.5, height_mm: 3000, junk: 1 } },
+      { proposal_guid: g2, revit_element_id: 2, before: { top_level: 7, top_offset_mm: "x", height_mm: -1 } },
+      { proposal_guid: g3, revit_element_id: 3, before: { top_level: "Level 2" } }], rejected: [] }, "yazan", deps);
+    expect(out.result.applied[0].before).toEqual({ top_level: "Level 2", top_offset_mm: -150.5, height_mm: 3000 });
+    expect(out.result.applied[1].before).toEqual({ top_level: null, top_offset_mm: null, height_mm: null });
+    expect("before" in out.result.applied[2]).toBe(false);
   });
 
   it("a viewer is a 403 before the changeset is read", async () => {
@@ -537,6 +581,47 @@ describe("reportReverted", () => {
 });
 
 // MA-1a item 8: the stored changeset — and so the 201 reply — carries the bridge's trust decisions and what it ignored.
+describe("reportPersisted (2026-10-20): applied, then seen in (or gone from) the saved model", () => {
+  const setup = async (applyBoth = true) => {
+    const deps = baseDeps({ takeWriteBudget: vi.fn() });
+    const cs = await proposeChangeset("demo", BODY, "agent", deps);
+    const [a, b] = cs.elements.map((e) => e.proposal_guid);
+    if (applyBoth) await reportResult("demo", cs.id, { applied: [{ proposal_guid: a, revit_element_id: 11 }, { proposal_guid: b, revit_element_id: 12 }], rejected: [] }, "revit", deps);
+    deps.audit.mockClear();
+    return { deps, cs, a, b };
+  };
+  it("confirmed: one changeset_confirmed row, and the doc says persisted", async () => {
+    const { deps, cs, a, b } = await setup();
+    deps.audit.mockResolvedValueOnce({ id: 2001, hash: "h" });
+    const out = await reportPersisted("demo", cs.id, { how: "saved", held: [a, b], missing: [] }, undefined, deps);
+    const [, type, id, action, actor, oldv, newv] = deps.audit.mock.calls[0];
+    expect([type, id, action, actor, oldv, newv]).toEqual(["changeset", cs.id, "changeset_confirmed", "revit", { persisted: null }, { how: "saved", held: 2, missing: [] }]);
+    expect(out.ledger).toEqual({ id: 2001, hash: "h" });
+    expect(deps.saved.get(cs.id).persisted).toMatchObject({ state: "confirmed", how: "saved", missing: 0 });
+    expect(deps.takeWriteBudget).toHaveBeenCalledWith("changeset persisted", { perUser: 120, all: 300 });
+  });
+  it("lost: a changeset_lost row naming the missing guids; the old value is the previous persisted", async () => {
+    const { deps, cs, a, b } = await setup();
+    await reportPersisted("demo", cs.id, { how: "saved_locally", held: [a, b], missing: [] }, "yazan", deps);
+    deps.audit.mockClear();
+    await reportPersisted("demo", cs.id, { how: "reopened", held: [a], missing: [b] }, "yazan", deps);
+    const call = deps.audit.mock.calls[0];
+    expect([call[3], call[4], call[6]]).toEqual(["changeset_lost", "yazan", { how: "reopened", held: 1, missing: [b] }]);
+    expect(call[5].persisted).toMatchObject({ state: "confirmed", how: "saved_locally" });
+    expect(deps.saved.get(cs.id).persisted).toMatchObject({ state: "lost", how: "reopened", missing: 1 });
+  });
+  it("refuses a wrong set, a bad how, and a changeset that is not applied - and writes nothing", async () => {
+    const { deps, cs, a, b } = await setup();
+    for (const body of [{ how: "saved", held: [a], missing: [] }, { how: "saved", held: [a, b], missing: [b] }, { how: "saved", held: [a, b, "x"], missing: [] },
+      { how: "saved", held: [a, a], missing: [b] }, { how: "nope", held: [a, b], missing: [] }, { how: "saved", held: [a, b] }])
+      await expect(reportPersisted("demo", cs.id, body, "yazan", deps)).rejects.toMatchObject({ status: 400 });
+    const p = await setup(false);
+    await expect(reportPersisted("demo", p.cs.id, { how: "saved", held: [], missing: [] }, "yazan", p.deps)).rejects.toMatchObject({ status: 409 });
+    expect(deps.audit).not.toHaveBeenCalled();
+    expect(deps.saved.get(cs.id).persisted).toBeUndefined();
+  });
+});
+
 describe("proposeChangeset — contract 2's trust rules (MA-1a item 8)", () => {
   it("an agent's pretick and accuracy are ignored: the reply lists them, the ghost is not pre-ticked and is not_measured", async () => {
     const deps = baseDeps();
@@ -944,7 +1029,7 @@ describe("MA-3a — the routes", () => {
     const src = readFileSync(new URL("./bcf-service.mjs", import.meta.url), "utf8");
     expect(src).toContain('if (p2 && p3 === "review" && req.method === "POST") return send(res, 200, await ch.reviewChangeset(key, p2, body, actor));');
     expect(src).toContain('if (p2 && p3 === "reopen" && req.method === "POST") return send(res, 200, await ch.reopenGhost(key, p2, body, actor));');
-    expect(src).toContain('const actor = body.actor || (["result", "reverted"].includes(p3) ? "revit" : ["review", "reopen", "flags"].includes(p3) ? "web" : "agent");');
+    expect(src).toContain('const actor = body.actor || (["result", "reverted", "persisted"].includes(p3) ? "revit" : ["review", "reopen", "flags"].includes(p3) ? "web" : "agent");');
   });
 });
 

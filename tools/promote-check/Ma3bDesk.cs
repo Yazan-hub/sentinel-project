@@ -218,7 +218,7 @@ static partial class Check
         // Review C15: the whole statement — a record is written for every result with applied elements, before the report is sent.
         int write = At(review, "var unsaved = records.Where(r => r.Applied.Count > 0 && !UnreportedResults.Write(r)).Select(r => $\"\\\"{r.Name}\\\"\").ToList();"), send = At(review, "Send(ReportAll(cfg, records), rep =>");
         Ok(write > At(review, "onDone = result =>") && send > write && review.Contains("UnreportedResults.Delete(r.Key, r.ChangesetId);")
-           && At(review, "if (UndoWatcher.Land(r.Undo, r.Key, r.ChangesetId, r.Applied.Select(a => a.ProposalGuid)))") > At(review, "var landed = ChangesetClient.ReportResult(cfg, r.Key"),
+           && At(review, "if (!UndoWatcher.Land(r.Undo, r.Key, r.ChangesetId, r.Applied.Select(a => a.ProposalGuid)))") > At(review, "var landed = ChangesetClient.ReportResult(cfg, r.Key"),
            "AI-2: the result is written on this PC before its report is sent, deleted when the bridge takes it, and only then remembered for the undo watcher");
         int expect = At(review, "foreach (var r in records.Where(x => x.Applied.Count > 0)) UndoWatcher.Expect(r.Undo, r.ChangesetId);");
         string watcher = Src("Engine", "UndoWatcher.cs");

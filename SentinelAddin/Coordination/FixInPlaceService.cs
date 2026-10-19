@@ -210,6 +210,24 @@ public static class FixInPlaceService
             throw new InvalidOperationException($"{p.Definition.Name} on type {t.Name} reads back \"{back}\", not \"{to}\" — not written");
     }
 
+    /// <summary>Revert (2026-10-20): set_parameter's compensating write — the type's value emptied again, only while the IDS still reads what
+    /// the changeset wrote (<paramref name="expect"/>), read back empty. Null when emptied; else why it is kept as it stands. Inside the caller's
+    /// transaction; a write Revit refuses throws (the revert fails whole).</summary>
+    internal static string? ClearOnType(Document doc, ElementType t, string key, string? expect, string? org)
+    {
+        var entry = PsetMap.Find(org, key);
+        if (entry == null) return $"no parameter mapping for {key} — Sentinel does not know where this value lives";
+        var (p, current, noWriter) = OnType(t, doc, entry);
+        if (p == null) return $"type {t.Name} holds no parameter for {key} now";
+        if (noWriter != null) return $"type {t.Name}: {noWriter}";
+        if (!string.Equals(current ?? "", expect ?? "", StringComparison.Ordinal))
+            return $"{key} on type {t.Name} reads \"{current}\" now, not \"{expect}\" — changed since the changeset; kept as it stands";
+        if (!p.Set("")) throw new InvalidOperationException($"Revit refused to empty {p.Definition.Name} on type {t.Name}");
+        var back = GovernedElementExtractor.ReadEntry(t, doc, entry) ?? "";
+        if (back.Length != 0) throw new InvalidOperationException($"{p.Definition.Name} on type {t.Name} reads back \"{back}\" after emptying it — not reverted");
+        return null;
+    }
+
     /// `get_Parameter(BuiltInParameter)` can hand back a parameter the element does not actually own — a door
     /// instance answers FIRE_RATING with a writable String parameter whose Set() returns true and whose value
     /// then reads back empty (found live, 2026-09-16). A real parameter is one in the element's own set.

@@ -513,6 +513,59 @@
    "SentinelAddin/App.cs:450-451"
   ]
  },
+ "Sentinel_AppliedChanges": {
+  "summary": "Lists every AI changeset applied on the project, says whether the saved model kept it, and lets you revert one, days later, without Revit's Undo.",
+  "overview": [
+   "Revit's Undo only works until the model is closed or synchronised. Applied AI Changes gives you a revert that works any time: Sentinel puts back each row of the changeset you choose (the old type, the old line, the old wall top, an emptied type value, or removes an element it created) and records it on the ledger as a new change with your name and reason.",
+   "A row only goes back when the element still holds exactly what the changeset set. If someone has changed it since, if it is pinned, grouped, borrowed or protected by the project's protection policy, or if removing it would also remove other elements, it is kept as it stands and the window says why.",
+   "Each changeset also shows whether the saved model kept it: Sentinel checks after every save, sync or reopening and records \"saved in the model\" or \"NOT in the saved model\" (for example when the model was closed without saving)."
+  ],
+  "prerequisites": [
+   "The model must be bound to a web project (Sentinel ▸ Project Setup).",
+   "To revert you must be signed in (Standards ▸ Sign in) as a contributor, lead or owner of the project. Anyone can read the list."
+  ],
+  "inputs": [
+   {
+    "name": "The changeset",
+    "desc": "Select one applied changeset in the list. Its line says what it is, how many rows it applied and whether the saved model kept it."
+   },
+   {
+    "name": "Check revert",
+    "desc": "Tries the revert in the model and takes it back at once, then shows what would go back and what would be kept, with why. Nothing changes."
+   },
+   {
+    "name": "Your reason",
+    "desc": "Why you revert it, up to 500 characters. Required; it is recorded on the ledger with your name."
+   },
+   {
+    "name": "Revert",
+    "desc": "Offered after Check revert when at least one row would go back. Asks you to confirm, then reverts in one Undo step."
+   }
+  ],
+  "steps": [
+   "Click Coordinate ▸ Applied AI Changes. The list fills in by itself.",
+   "Select a changeset and press Check revert. Nothing changes yet: Sentinel tries the revert and undoes it at once, then shows how many rows would go back and each row it would keep, with why.",
+   "Type why you revert it.",
+   "Press Revert and confirm. The revert is one Undo step in Revit."
+  ],
+  "results": [
+   "The rows go back in the model, and one ledger row records what was reverted, what was kept and your reason. The web review desk and the MCP status show it.",
+   "If the bridge cannot be reached, the revert is kept on this PC and sent again the next time you open Applied AI Changes."
+  ],
+  "tips": [
+   "Ctrl+Z right after a revert puts the changes back; Sentinel records that too.",
+   "Save or synchronise after a revert, like any other change.",
+   "A rehost, or a create that replaced a DirectShape, is never reverted: the original element was removed, and Sentinel cannot bring it back."
+  ],
+  "related": [
+   "Sentinel_ReviewChangesets"
+  ],
+  "sources": [
+   "SentinelAddin/Commands.AppliedChanges.cs",
+   "SentinelAddin/GhostBuilder/ChangesetReverter.cs",
+   "SentinelAddin/Engine/SavedCheck.cs"
+  ]
+ },
  "Sentinel_ScanNow": {
   "summary": "Re-reads the ruleset that judges this model and runs a full compliance scan, showing the result in the Sentinel pane.",
   "overview": [

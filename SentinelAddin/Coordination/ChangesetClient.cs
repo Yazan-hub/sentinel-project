@@ -685,6 +685,31 @@ public sealed class ChangesetDto
     /// <summary>MA-3b3: what the bridge carried when it filed this changeset; null when there was nothing to say, and from a bridge
     /// before MA-3b3.</summary>
     [JsonPropertyName("carry")] public CarryDto Carry { get; set; }
+    /// <summary>"Applied, then saved" (2026-10-20): what the last saved model held of it (POST …/persisted); null while never seen saved.</summary>
+    [JsonPropertyName("persisted")] public PersistedDto Persisted { get; set; }
+    /// <summary>Revert (2026-10-20): the last revert made in Revit (basis "revert"); null when none, or when Ctrl+Z took it back.</summary>
+    [JsonPropertyName("reverted")] public RevertedDto Reverted { get; set; }
+}
+
+/// <summary>"Applied, then saved" (2026-10-20): state "confirmed" or "lost", how it was seen (saved, saved_locally, synced, reopened), the rows missing.</summary>
+public sealed class PersistedDto
+{
+    [JsonPropertyName("state")] public string State { get; set; }
+    [JsonPropertyName("how")] public string How { get; set; }
+    [JsonPropertyName("at")] public string At { get; set; }
+    [JsonPropertyName("missing")] public int? Missing { get; set; }
+    [JsonPropertyName("ledger_id")] public long? LedgerId { get; set; }
+}
+
+/// <summary>Revert (2026-10-20): who reverted it, when, why, how many rows went back and how many were kept.</summary>
+public sealed class RevertedDto
+{
+    [JsonPropertyName("at")] public string At { get; set; }
+    [JsonPropertyName("by")] public string By { get; set; }
+    [JsonPropertyName("guids")] public int? Guids { get; set; }
+    [JsonPropertyName("kept")] public int? Kept { get; set; }
+    [JsonPropertyName("reason")] public string Reason { get; set; }
+    [JsonPropertyName("ledger_id")] public long? LedgerId { get; set; }
 }
 
 public sealed class AppliedEntry
@@ -714,6 +739,24 @@ public sealed class AppliedEntry
     /// <summary>MA-6-2 (risk R4): the requirement keys Sentinel has a Revit reader for on that element's class (PsetMap.Readable) — the bridge
     /// says "not read", never "fails", of an ids@n requirement outside them. Null with AsBuilt.</summary>
     [JsonPropertyName("readable")] [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public List<string> Readable { get; set; }
+    /// <summary>Revert (2026-10-20): an attach's wall top as it stood before the attach - what Revert puts back. Null, and left out of the body,
+    /// for every other entry; an attach applied before this field has none, and Revert keeps it ("the old top was not recorded").</summary>
+    [JsonPropertyName("before")] [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public AttachBeforeDto Before { get; set; }
+}
+
+/// <summary>Revert (2026-10-20): a row Revert left as it stands, and why (the executor's Kept pattern).</summary>
+public sealed class KeptRow
+{
+    [JsonPropertyName("proposal_guid")] public string ProposalGuid { get; set; }
+    [JsonPropertyName("why")] public string Why { get; set; }
+}
+
+/// <summary>Revert (2026-10-20): a wall's top before an attach - a level and its offset (mm), or an unconnected height (mm).</summary>
+public sealed class AttachBeforeDto
+{
+    [JsonPropertyName("top_level")] public string TopLevel { get; set; }
+    [JsonPropertyName("top_offset_mm")] public double? TopOffsetMm { get; set; }
+    [JsonPropertyName("height_mm")] public double? HeightMm { get; set; }
 }
 
 /// <summary>MA-8-10: a built stair as Revit reads it back - risers, riser height, tread depth and run width (mm), runs and railings.</summary>
@@ -967,7 +1010,16 @@ internal static class ChangesetClient
     /// <summary>A person undid or redid an applied changeset in Revit: one changeset_reverted ledger row
     /// (POST /changesets/:key/:id/reverted → 201). Off Revit's thread (the undo watcher's Task.Run). Final verification round 2: <paramref name="basis"/> "absent"
     /// (the freeing of a terrain's scan only) marks an undo recorded on the person's word that the element is gone, not one Revit was seen doing; null sends none.</summary>
-    public static bool ReportReverted(BcfConfig cfg, string projectKey, string id, List<string> guids, string op, out string error, string basis = null) =>
+    /// Revert (2026-10-20): basis "revert" (a person's compensating change, ChangesetReverter) carries their <paramref name="reason"/> and the rows
+    /// <paramref name="kept"/> as they stood, each with why.
+    public static bool ReportReverted(BcfConfig cfg, string projectKey, string id, List<string> guids, string op, out string error, string basis = null,
+                                      string reason = null, List<KeptRow> kept = null) =>
         Post(cfg, $"/changesets/{Uri.EscapeDataString(projectKey)}/{Uri.EscapeDataString(id)}/reverted",
-             JsonSerializer.Serialize(new { op, guids, actor = UserSession.Actor, basis }, WriteJson), 201, out _, out error);
+             JsonSerializer.Serialize(new { op, guids, actor = UserSession.Actor, basis, reason, kept = kept is { Count: > 0 } ? kept : null }, WriteJson), 201, out _, out error);
+
+    /// <summary>"Applied, then saved" (2026-10-20): what the saved model holds of an applied changeset — held and missing proposal_guids, by its
+    /// provenance stamps (SavedCheck). One changeset_confirmed or changeset_lost row (POST /changesets/:key/:id/persisted → 201). Off Revit's thread.</summary>
+    public static bool ReportPersisted(BcfConfig cfg, string projectKey, string id, string how, List<string> held, List<string> missing, out string reply, out string error) =>
+        Post(cfg, $"/changesets/{Uri.EscapeDataString(projectKey)}/{Uri.EscapeDataString(id)}/persisted",
+             JsonSerializer.Serialize(new { how, held, missing, actor = UserSession.Actor }, WriteJson), 201, out reply, out error);
 }

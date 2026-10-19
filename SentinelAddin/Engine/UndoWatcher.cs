@@ -9,11 +9,11 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using Sentinel.Coordination;
 #if !SENTINEL_CHECK
 using System.Threading.Tasks;
 using Autodesk.Revit.DB.Events;
 using Sentinel.Commands;
-using Sentinel.Coordination;
 #endif
 
 namespace Sentinel.Engine
@@ -24,7 +24,21 @@ namespace Sentinel.Engine
         {
             public string Key, ChangesetId;
             public List<string> Guids;
+            /// <summary>Revert (2026-10-20): the entry is a revert's transaction — its Undo puts the change back (a redo row), its Redo reverts
+            /// again (an undo row, basis "revert", with the person's reason and the rows kept).</summary>
+            public bool Inverse;
+            public string Reason;
+            public List<KeptRow> Kept;
         }
+
+        /// <summary>Revert (2026-10-20): the revert's transaction name — one Undo entry, found by this name.</summary>
+        public static string RevertTxName(string name, string id) =>
+            $"Sentinel revert: {name} [{(id ?? "").Substring(0, Math.Min(8, (id ?? "").Length))}]";
+
+        /// <summary>Revert (2026-10-20): what to post for a seen Undo/Redo of <paramref name="e"/> — (op, basis). A revert's Undo is a redo of
+        /// the changeset; its Redo is the revert again.</summary>
+        public static (string Op, string Basis) PostFor(Entry e, string op) =>
+            !e.Inverse ? (op, null) : op == "undo" ? ("redo", null) : ("undo", "revert");
 
         // MA-1a step 2: one Undo name may cover several changesets — a Ghost build over 200 elements is several changesets run
         // inside one TransactionGroup, assimilated into one Undo entry named as the first changeset.
@@ -36,11 +50,11 @@ namespace Sentinel.Engine
 
         /// <summary>Remember a changeset whose result the bridge accepted, under the Undo name that removes it. Remembering the
         /// same changeset again under the same name replaces it; another changeset under that name is added beside it.</summary>
-        public static void Remember(string tx, string key, string changesetId, IEnumerable<string> guids)
+        public static void Remember(string tx, string key, string changesetId, IEnumerable<string> guids, string reason = null, List<KeptRow> kept = null, bool inverse = false)
         {
             var list = (guids ?? Enumerable.Empty<string>()).Where(g => !string.IsNullOrEmpty(g)).Distinct().ToList();
             if (string.IsNullOrEmpty(tx) || list.Count == 0) return;
-            var entry = new Entry { Key = key, ChangesetId = changesetId, Guids = list };
+            var entry = new Entry { Key = key, ChangesetId = changesetId, Guids = list, Inverse = inverse, Reason = reason, Kept = kept };
             Registry.AddOrUpdate(tx, _ => new List<Entry> { entry },
                 (_, old) => old.Where(o => o.ChangesetId != changesetId).Concat(new[] { entry }).ToList());
         }
@@ -117,12 +131,15 @@ namespace Sentinel.Engine
                 foreach (var hit in Seen(e.GetTransactionNames(), op))
                 {
                     var h = hit;
+                    var (post, basis) = PostFor(h, op); // Revert (2026-10-20): a revert's Undo puts the change back
+                    if (post == "undo") SavedCheck.Forget(h.Key, h.ChangesetId); // no longer meant to be in the model: no saved check for it
                     Task.Run(() =>
                     {
-                        var ok = ChangesetClient.ReportReverted(BcfConfig.Load(), h.Key, h.ChangesetId, h.Guids, op, out var error);
+                        var ok = ChangesetClient.ReportReverted(BcfConfig.Load(), h.Key, h.ChangesetId, h.Guids, post, out var error, basis, basis == null ? null : h.Reason, basis == null ? null : h.Kept);
+                        var what = h.Inverse ? $"{op} of the revert of changeset {Short(h.ChangesetId)}" : $"{op} of changeset {Short(h.ChangesetId)}";
                         App.PanelVm?.LogDoctor(ok
-                            ? $"Undo watcher: {op} of changeset {Short(h.ChangesetId)} — changeset_reverted row posted ({h.Guids.Count} guid(s))"
-                            : $"Undo watcher: {op} of changeset {Short(h.ChangesetId)} — changeset_reverted row NOT posted: {error}");
+                            ? $"Undo watcher: {what} — changeset_reverted row posted ({post}, {h.Guids.Count} guid(s))"
+                            : $"Undo watcher: {what} — changeset_reverted row NOT posted: {error}");
                     });
                 }
             }

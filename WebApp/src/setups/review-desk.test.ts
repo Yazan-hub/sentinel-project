@@ -167,7 +167,7 @@ describe("recently decided in Revit (MA-3b2b)", () => {
 
   it("a reported changeset in words: who, when, the counts, the ledger row, the note, and each ghost not applied with Revit's reason and the web's", () => {
     const v = decidedView(cs, row(1811));
-    expect(v.head).toBe("Promote (DD) · GR-FFL — partially applied in Revit by modeller@example.com · 2026-10-04 13:44 UTC · 1 applied, 3 not applied · ledger #1811");
+    expect(v.head).toBe("Promote (DD) · GR-FFL — partially applied in Revit by modeller@example.com · 2026-10-04 13:44 UTC · 1 applied, 3 not applied · ledger #1811 · not yet seen saved");
     expect(v.note).toBe("GR-FFL reviewed in Revit");
     expect(v.declined).toEqual([
       { line: "W 1 · Generic - 200mm → BDS_EXT_ARC_CMU_200 mm", why: ["Revit: a party wall, as the web desk said", "web, reviewer@example.com (contributor): wrong type: W 1 is a party wall"] },
@@ -177,8 +177,8 @@ describe("recently decided in Revit (MA-3b2b)", () => {
   });
 
   it("claimed vs verified: a ledger row that was not found or not read is said, never a made-up id; a ghost with no reason says so", () => {
-    expect(decidedView(cs, null).head).toMatch(/ · no ledger row found for it$/);
-    expect(decidedView(cs, new Error("not read — HTTP 500")).head).toMatch(/ · ledger row not read — HTTP 500$/);
+    expect(decidedView(cs, null).head).toMatch(/ · no ledger row found for it · not yet seen saved$/);
+    expect(decidedView(cs, new Error("not read — HTTP 500")).head).toMatch(/ · ledger row not read — HTTP 500 · not yet seen saved$/);
     const bare = decidedView({ ...cs, status: "declined", result: { ...cs.result!, applied: [], rejected: ["g-2", "constructor"], note: null, reported_at: "", declined_on_web: undefined, reasons: undefined } }, row(7));
     expect(bare.head).toBe("Promote (DD) · GR-FFL — declined in Revit by modeller@example.com · an unknown time · 0 applied, 2 not applied · ledger #7");
     expect(bare.note).toBeNull();
@@ -218,19 +218,19 @@ describe("recently decided in Revit (MA-3b2b)", () => {
 
   it("review C3: a report undone in Revit says so, with the ledger row that says it — never 'applied' alone", () => {
     const done = { ...cs, status: "applied" };
-    expect(decidedView(done, { row: 1813, reverted: { id: 1814, op: "undo" } }).head).toMatch(/ · ledger #1813 · undone in Revit after the report \(ledger #1814\)$/);
-    expect(decidedView(done, { row: 1813, reverted: { id: 1816, op: "redo" } }).head).toMatch(/ · ledger #1813 · undone, then redone in Revit \(ledger #1816\)$/);
-    expect(decidedView(done, { row: 1813, reverted: { id: 1817, op: "" } }).head).toMatch(/ · ledger #1813 · a changeset_reverted row follows the report \(ledger #1817\)$/);
-    expect(decidedView(done, { row: null, reverted: { id: 1814, op: "undo" } }).head).toMatch(/ · no ledger row found for it · undone in Revit after the report \(ledger #1814\)$/);
+    expect(decidedView(done, { row: 1813, reverted: { id: 1814, op: "undo" } }).head).toMatch(/ · ledger #1813 · undone in Revit after the report \(ledger #1814\) · not yet seen saved$/);
+    expect(decidedView(done, { row: 1813, reverted: { id: 1816, op: "redo" } }).head).toMatch(/ · ledger #1813 · undone, then redone in Revit \(ledger #1816\) · not yet seen saved$/);
+    expect(decidedView(done, { row: 1813, reverted: { id: 1817, op: "" } }).head).toMatch(/ · ledger #1813 · a changeset_reverted row follows the report \(ledger #1817\) · not yet seen saved$/);
+    expect(decidedView(done, { row: null, reverted: { id: 1814, op: "undo" } }).head).toMatch(/ · no ledger row found for it · undone in Revit after the report \(ledger #1814\) · not yet seen saved$/);
     // final verification round 2: an undo recorded on a person's word (basis absent) is said apart - never "undone in Revit"
     const said = decidedView(done, { row: 1813, reverted: { id: 1818, op: "undo", on_word: "yazan" } }).head;
-    expect(said).toMatch(/ · ledger #1813 · recorded as gone on yazan's word after the report, not an Undo seen in Revit \(ledger #1818\)$/);
+    expect(said).toMatch(/ · ledger #1813 · recorded as gone on yazan's word after the report, not an Undo seen in Revit \(ledger #1818\) · not yet seen saved$/);
     expect(said).not.toMatch(/undone in Revit/);
   });
 
   it("review C4: an old or hand-written result (no lists, no reporter) is still said — the view never throws", () => {
     const v = decidedView({ ...cs, result: { note: null } as never }, null);
-    expect(v.head).toBe("Promote (DD) · GR-FFL — partially applied in Revit by an unknown account · an unknown time · 0 applied, 0 not applied · no ledger row found for it");
+    expect(v.head).toBe("Promote (DD) · GR-FFL — partially applied in Revit by an unknown account · an unknown time · 0 applied, 0 not applied · no ledger row found for it · not yet seen saved");
     expect(v.note).toBeNull();
     expect(v.declined).toEqual([]);
   });

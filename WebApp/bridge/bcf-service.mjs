@@ -1921,7 +1921,7 @@ async function handleRequest(req, res) {
       const seg = url.pathname.split("/").filter(Boolean); // ['changesets', key, id?, action?]
       const [, key, p2, p3] = seg;
       const body = req.method === "POST" ? await readBody(req) : {};
-      const actor = body.actor || (["result", "reverted"].includes(p3) ? "revit" : ["review", "reopen", "flags"].includes(p3) ? "web" : "agent");
+      const actor = body.actor || (["result", "reverted", "persisted"].includes(p3) ? "revit" : ["review", "reopen", "flags"].includes(p3) ? "web" : "agent");
       if (!key) return send(res, 404, { message: "changesets route not found" });
 
       if (!p2 && req.method === "GET") return send(res, 200, await ch.listChangesets(key, { status: url.searchParams.get("status") || undefined }));
@@ -1967,6 +1967,8 @@ async function handleRequest(req, res) {
       if (p2 && p3 === "result" && req.method === "POST") return send(res, 200, await ch.reportResult(key, p2, body, actor));
       if (p2 && p3 === "withdraw" && req.method === "POST") return send(res, 200, await ch.withdrawChangeset(key, p2, actor));
       if (p2 && p3 === "reverted" && req.method === "POST") return send(res, 201, await ch.reportReverted(key, p2, body, actor));
+      // Persisted (2026-10-20): the add-in saw the applied rows in (or gone from) the saved model - an observation, the machine credential passes.
+      if (p2 && p3 === "persisted" && req.method === "POST") return send(res, 201, await ch.reportPersisted(key, p2, body, actor));
       // MA-3a: the web desk — a signed-in contributor's decisions; a signed-in lead's re-open of a decline (changesets-store).
       if (p2 && p3 === "review" && req.method === "POST") return send(res, 200, await ch.reviewChangeset(key, p2, body, actor));
       if (p2 && p3 === "reopen" && req.method === "POST") return send(res, 200, await ch.reopenGhost(key, p2, body, actor));
