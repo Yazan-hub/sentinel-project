@@ -9,7 +9,7 @@
 //
 // Who may read is the database's answer (0044 feed_rows): the key must be live and its owner a member of the project.
 import { createHash, randomBytes } from "node:crypto";
-import { createLimiter, createKeyedLimiter } from "./public-verify.mjs";
+import { createLimiter, createKeyedLimiter, clientAddress, callerKey } from "./public-verify.mjs";
 
 export const ELEMENT_COLUMNS = ["revision", "revision_date", "guid", "category", "type_name", "count", "length", "area", "volume", "weight"];
 export const REVISION_COLUMNS = ["id", "revision", "revision_date", "uploaded_by", "element_count"];
@@ -52,6 +52,9 @@ export function newFeedKey() {
   return { key, hash: createHash("sha256").update(key, "utf8").digest("hex") };
 }
 
+/** The shape newFeedKey makes. Anything else is refused before the database is asked. Pure. */
+export const isFeedKeyShape = (k) => /^sfk_[A-Za-z0-9_-]{43}$/.test(String(k));
+const perCaller = createKeyedLimiter({ max: 120, windowMs: 60000 }); // one address cannot use up everyone's window
 const perKey = createKeyedLimiter({ max: 60, windowMs: 60000 });
 const allFeeds = createLimiter({ max: 600, windowMs: 60000 });
 
@@ -61,7 +64,9 @@ export async function answerFeed(route, { req, res, url, cde, send, isMachine })
   if (isMachine) return deny(403, "the data feed is a person's: sign in with your own feed key (Data feed screen), not the machine credential");
   const key = feedKeyOf(req.headers.authorization);
   if (!key) return deny(401, "sign in with Basic: any user name, and your feed key as the password (make one on the Data feed screen)");
-  if (key.length > 200) return deny(401, "this feed key is not valid or was revoked — make a new one on the Data feed screen");
+  if (!perCaller.take(callerKey(clientAddress(req))))
+    return send(res, 429, { message: "too many feed reads in a minute from this address — try the refresh again shortly" }, { "Retry-After": "60" });
+  if (!isFeedKeyShape(key)) return deny(401, "this feed key is not valid or was revoked — make a new one on the Data feed screen");
   if (!perKey.take(createHash("sha256").update(key).digest("hex")) || !allFeeds.take())
     return send(res, 429, { message: "too many feed reads in a minute — try the refresh again shortly" }, { "Retry-After": "60" });
   try {
@@ -73,7 +78,9 @@ export async function answerFeed(route, { req, res, url, cde, send, isMachine })
     if (route.what === "elements.json") return sendText(res, JSON.stringify(rows), "application/json; charset=utf-8");
     return sendText(res, toCsv(rows, ELEMENT_COLUMNS), "text/csv; charset=utf-8", `${route.key}-elements.csv`);
   } catch (e) {
-    return e?.status ? deny(e.status, e.message) : send(res, 500, { message: String(e?.message || e) });
+    if (e?.status) return deny(e.status, e.message);
+    console.warn(`[feed] ${route.key}/${route.what}: ${e?.message || e}`);
+    return send(res, 502, { message: "the feed could not be read from the database just now — try the refresh again shortly" });
   }
 }
 

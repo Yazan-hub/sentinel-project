@@ -2,6 +2,7 @@
 import { describe, it, expect } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
 import { readBcfZip, writeBcfZip, diffBcfZip } from "./bcf-xml.mjs";
+import { zipSync, unzipSync } from "fflate";
 
 const DIR = new URL("./fixtures/bcf-xml/", import.meta.url);
 const cases = readdirSync(DIR).filter((f) => f.endsWith(".bcf"));
@@ -56,6 +57,29 @@ describe("BCF-XML round trip — buildingSMART test cases", () => {
       expect([back.assigned_to, back.due_date, back.history, back.project_id]).toEqual([undefined, undefined, undefined, undefined]);
       expect(back.viewpoints[0].snapshot.snapshot_data).toBe(png);
       expect(back.viewpoints[0].components.selection).toEqual([{ ifc_guid: "2O2Fr$t4X7Zf8NOew3FLOH" }]);
+    }
+  });
+
+  it("a zip bomb is refused before it is unpacked (413), and a package path that leaves the package is refused (400)", () => {
+    // 300 entries that each unpack to 1 MB of zeros: tiny on the wire, 300 MB unpacked — over the 256 MB cap.
+    const zeros = new Uint8Array(1024 * 1024);
+    const bomb = zipSync(Object.fromEntries(Array.from({ length: 300 }, (_, i) => [`t${i}/markup.bcf`, zeros])), { level: 9 });
+    expect(bomb.length).toBeLessThan(2 * 1024 * 1024);
+    expect(() => readBcfZip(bomb)).toThrow(expect.objectContaining({ status: 413 }));
+    for (const p of ["../evil.bat", "a/../../evil.bat", "/abs.bcf", "C:/x.bcf", "a\\..\\..\\x"]) {
+      const z = zipSync({ "bcf.version": new TextEncoder().encode('<Version VersionId="2.1"/>'), [p]: new Uint8Array([1]) });
+      expect(() => readBcfZip(z), p).toThrow(expect.objectContaining({ status: 400, message: expect.stringMatching(/leaves the package/) }));
+    }
+  });
+
+  it("a stored reference that leaves the package is not written on export, and the export says so", () => {
+    const t = { guid: "0b6b3c3e-1f2a-4c5d-8e9f-0a1b2c3d4e5f", title: "x", topic_status: "Open", creation_date: "2026-10-19T10:00:00Z", creation_author: "a",
+      comments: [], viewpoints: [{ guid: "2b6b3c3e-1f2a-4c5d-8e9f-0a1b2c3d4e5f", x_file: "../../evil.bcfv", snapshot: { snapshot_type: "png", snapshot_data: "AQ==", x_file: "../../evil.bat" } }],
+      document_references: [{ guid: "3b6b3c3e-1f2a-4c5d-8e9f-0a1b2c3d4e5f", x_document: { filename: "../../x.bat", data: "AQ==" } }] };
+    for (const version of ["2.1", "3.0"]) {
+      const { bytes, lost } = writeBcfZip([t], { version });
+      expect(Object.keys(unzipSync(bytes)).filter((p) => p.includes(".."))).toEqual([]);
+      expect(lost.some((l) => /leaves the package/.test(l))).toBe(true);
     }
   });
 

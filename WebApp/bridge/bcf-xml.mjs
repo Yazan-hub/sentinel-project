@@ -262,11 +262,23 @@ function Markup(t, v3, put, docs, lost) {
 }
 
 // ---------- the package ----------
-/** .bcf/.bcfzip bytes → { version, detailed_version, project, topics, extra_files }. A 400 in words on a file that is not BCF. */
+/** A path inside a package that stays inside it: relative, no drive or backslash, no ".." part. Pure. */
+export const safeZipPath = (p) => typeof p === "string" && p !== "" && !/^[/\\]|[\\:]|^\.\.?$/.test(p) && !posix.normalize(p).split("/").includes("..");
+// ponytail: the whole package is unpacked in memory; a cap on what the entries say they unpack to keeps a zip bomb from taking
+// the bridge down. Stream entries if real packages ever pass 256 MB.
+export const UNZIP_MAX_BYTES = 256 * 1024 * 1024, UNZIP_MAX_ENTRIES = 5000;
+
+/** .bcf/.bcfzip bytes → { version, detailed_version, project, topics, extra_files }. A 400 in words on a file that is not BCF,
+ *  a 413 on one that unpacks past the cap, a 400 on an entry whose path leaves the package. */
 export function readBcfZip(bytes) {
-  let z;
-  try { z = unzipSync(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)); }
-  catch { throw Object.assign(new Error("this file is not a BCF package (a .bcf or .bcfzip is a zip) — nothing was imported"), { status: 400 }); }
+  let z, total = 0, n = 0, over = false;
+  try {
+    z = unzipSync(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes), {
+      filter: (f) => { total += f.originalSize; n++; if (total > UNZIP_MAX_BYTES || n > UNZIP_MAX_ENTRIES) over = true; return !over; } });
+  } catch { throw Object.assign(new Error("this file is not a BCF package (a .bcf or .bcfzip is a zip) — nothing was imported"), { status: 400 }); }
+  if (over) throw Object.assign(new Error(`this BCF package unpacks to more than ${UNZIP_MAX_BYTES / 1048576} MB or ${UNZIP_MAX_ENTRIES} files — nothing was imported`), { status: 413 });
+  const bad = Object.keys(z).find((p) => !safeZipPath(p.replace(/\\/g, "/").replace(/\/$/, ""))); // a Windows tool may write \ for /
+  if (bad != null) throw Object.assign(new Error(`this BCF package has a file path that leaves the package ("${bad.slice(0, 80)}") — nothing was imported`), { status: 400 });
   const entries = new Map(Object.entries(z).filter(([p]) => !p.endsWith("/")).map(([p, d]) => [p.replace(/\\/g, "/"), d]));
   const used = new Set();
   const read = (p) => { if (p == null || !entries.has(p)) return undefined; used.add(p); return entries.get(p); };
@@ -298,8 +310,12 @@ export function writeBcfZip(topics, { version = "2.1", project, extra_files = {}
   if (version !== "2.1" && version !== "3.0") throw Object.assign(new Error('a BCF export is version "2.1" or "3.0"'), { status: 400 });
   const v3 = version === "3.0";
   const out = {};
-  const put = (p, d) => { out[p] = d instanceof Uint8Array ? d : new Uint8Array(d); };
   const lost = new Set();
+  // Every file goes through here: a path that would leave the package (a stored reference such as "../../x") is not written.
+  const put = (p, d) => {
+    if (!safeZipPath(p)) { lost.add(`a file at "${String(p).slice(0, 80)}" (its path leaves the package, so it is not written)`); return; }
+    out[p] = d instanceof Uint8Array ? d : new Uint8Array(d);
+  };
   const docs = {};
   for (const [p, b64] of Object.entries(extra_files)) put(p, Buffer.from(b64, "base64"));
   put("bcf.version", strToU8(doc(E("Version", { ...XSI, VersionId: version }, [v3 ? null : T("DetailedVersion", detailed_version ?? version)]))));

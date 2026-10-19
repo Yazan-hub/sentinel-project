@@ -2328,7 +2328,7 @@ async function handleRequest(req, res) {
       if (what === "import" && req.method === "POST") {
         await requireMinRole(pid, "contributor");
         if (useCde) cde.takeWriteBudget("BCF imports", { perUser: 20, all: 60 });
-        const pkg = bx.readBcfZip(await readRaw(req, { max: uploadCap() }));
+        const pkg = bx.readBcfZip(await readRaw(req, { max: Math.min(uploadCap(), 100 * 1024 * 1024) })); // a BCF package, not a model
         const actor = resolveActor(url.searchParams.get("actor"), "web");
         const now = new Date().toISOString();
         const out = { version: pkg.version, created: 0, updated: 0, unchanged: 0, topics: [], skipped: [] };

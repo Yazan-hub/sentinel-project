@@ -31,7 +31,6 @@ export function dataFeedPanel(opts: { baseUrl?: string } = {}): HTMLElement {
   const base = (opts.baseUrl ?? SERVICE_URL).replace(/\/$/, "");
   const btn = "border:0;border-radius:.3rem;padding:.3rem .6rem;font:600 12px system-ui;cursor:pointer";
   const inp = "background:#111;color:#eee;border:1px solid #333;border-radius:.3rem;padding:.3rem;font:12px system-ui;box-sizing:border-box";
-  const box = "border:1px solid #2a2a30;border-radius:.4rem;padding:.55rem;margin-bottom:.6rem";
   const root = document.createElement("div");
   root.style.cssText = "display:flex;flex-direction:column;height:100%;background:#16161a;color:#eee;font:13px system-ui;overflow:hidden;border-radius:.5rem";
   root.innerHTML =
@@ -40,13 +39,13 @@ export function dataFeedPanel(opts: { baseUrl?: string } = {}): HTMLElement {
     '<div style="flex:1;overflow:auto;padding:.6rem">' +
       '<div style="color:#9ca3af;font-size:12px;margin-bottom:.6rem">Your project\'s element quantities, per model revision, at a web address Power BI and Excel read and refresh. ' +
         "The data comes from Sentinel, so there is no data-out charge. You sign in with your own feed key; it works only while you are a member of the project.</div>" +
-      `<div style="${box}"><div style="font-weight:600;margin-bottom:.4rem">1 · The address</div><div id="df-urls"></div></div>` +
-      `<div style="${box}"><div style="font-weight:600;margin-bottom:.4rem">2 · Your feed key</div>` +
+      `<div style="border:1px solid #2a2a30;border-radius:.4rem;padding:.55rem;margin-bottom:.6rem"><div style="font-weight:600;margin-bottom:.4rem">1 · The address</div><div id="df-urls"></div></div>` +
+      `<div style="border:1px solid #2a2a30;border-radius:.4rem;padding:.55rem;margin-bottom:.6rem"><div style="font-weight:600;margin-bottom:.4rem">2 · Your feed key</div>` +
         '<div style="display:flex;gap:.35rem;margin-bottom:.4rem">' +
           `<input id="df-label" maxlength="80" placeholder="What it is for, e.g. Power BI on my laptop" style="${inp};flex:1"/>` +
           `<button id="df-make" style="${btn};background:#6528d7;color:#fff">Make a feed key</button></div>` +
         '<div id="df-new"></div><div id="df-keys"></div></div>' +
-      `<div style="${box};font-size:12px;line-height:1.55">` +
+      `<div style="border:1px solid #2a2a30;border-radius:.4rem;padding:.55rem;margin-bottom:.6rem;font-size:12px;line-height:1.55">` +
         '<div style="font-weight:600;margin-bottom:.3rem">3 · Power BI Desktop</div>' +
         "<ol style=\"margin:0 0 .5rem 1.1rem;padding:0\"><li>Home ▸ <b>Get data</b> ▸ <b>Web</b>.</li><li>Paste the elements address from step 1 and press OK.</li>" +
         "<li>In the sign-in window choose <b>Basic</b>. User name: your email. Password: your feed key. Apply it to the address shown, then <b>Connect</b>.</li>" +

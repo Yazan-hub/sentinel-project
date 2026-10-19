@@ -475,7 +475,7 @@ describe("the data feed (0044): a feed key over Basic, never the machine credent
     return { status: r.status, type: r.headers.get("content-type"), www: r.headers.get("www-authenticate"), text: new TextDecoder("utf-8", { ignoreBOM: true }).decode(await r.arrayBuffer()) };
   };
   beforeEach(() => {
-    fake.feedKeys = { "sfk_good": { project: "demo" } };
+    fake.feedKeys = { "sfk_ggggggggggggggggggggggggggggggggggggggggggg": { project: "demo" } };
     fake.feedRows = [{ revision: "P01", revision_date: "2026-10-19T10:00:00+00:00", guid: "=HYPERLINK(1)", category: "IFCWALL", type_name: "Wall, 200", count: 1, length: -2.5, area: null, volume: 3, weight: null }];
   });
 
@@ -488,22 +488,30 @@ describe("the data feed (0044): a feed key over Basic, never the machine credent
   });
 
   it("a live key reads CSV (BOM, formula cells defused, numbers as numbers) and JSON; the database is asked with the anon key, never the service key", async () => {
-    const csv = await get("/feed/demo/elements.csv?rev=P01", basic("sfk_good"));
+    const csv = await get("/feed/demo/elements.csv?rev=P01", basic("sfk_ggggggggggggggggggggggggggggggggggggggggggg"));
     expect([csv.status, csv.type]).toEqual([200, "text/csv; charset=utf-8"]);
     expect(csv.text).toBe("﻿revision,revision_date,guid,category,type_name,count,length,area,volume,weight\r\nP01,2026-10-19T10:00:00+00:00,'=HYPERLINK(1),IFCWALL,\"Wall, 200\",1,-2.5,,3,\r\n");
-    expect(JSON.parse((await get("/feed/demo/elements.json", basic("sfk_good"))).text)).toEqual(fake.feedRows);
-    expect((await get("/feed/demo/revisions.csv", basic("sfk_good"))).text).toContain("r1,P01,2026-10-19T10:00:00+00:00,x,2");
+    expect(JSON.parse((await get("/feed/demo/elements.json", basic("sfk_ggggggggggggggggggggggggggggggggggggggggggg"))).text)).toEqual(fake.feedRows);
+    expect((await get("/feed/demo/revisions.csv", basic("sfk_ggggggggggggggggggggggggggggggggggggggggggg"))).text).toContain("r1,P01,2026-10-19T10:00:00+00:00,x,2");
     const calls = log.filter((c) => c.table.startsWith("rpc/"));
     expect(calls.map((c) => [c.table, c.apikey, c.bearer])).toEqual([["rpc/feed_rows", "fake-anon-key", "Bearer fake-anon-key"], ["rpc/feed_rows", "fake-anon-key", "Bearer fake-anon-key"], ["rpc/feed_revisions", "fake-anon-key", "Bearer fake-anon-key"]]);
-    expect(calls[0].body).toEqual({ p_key: "sfk_good", p_project_key: "demo", p_rev: "P01" });
+    expect(calls[0].body).toEqual({ p_key: "sfk_ggggggggggggggggggggggggggggggggggggggggggg", p_project_key: "demo", p_rev: "P01" });
     expect(calls[1].body.p_rev).toBe("latest");
   });
 
   it("a revoked or unknown key is a 401 that asks again; another project is a 403 — both in words", async () => {
-    const bad = await get("/feed/demo/elements.csv", basic("sfk_revoked"));
+    const bad = await get("/feed/demo/elements.csv", basic("sfk_rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr"));
     expect([bad.status, bad.www, JSON.parse(bad.text).message]).toEqual([401, 'Basic realm="Sentinel data feed", charset="UTF-8"', "this feed key is not valid or was revoked — make a new one on the Data feed screen"]);
-    const other = await get("/feed/other-project/elements.csv", basic("sfk_good"));
+    const other = await get("/feed/other-project/elements.csv", basic("sfk_ggggggggggggggggggggggggggggggggggggggggggg"));
     expect([other.status, JSON.parse(other.text).message]).toEqual([403, "the feed key's owner is not a member of this project, or there is no such project"]);
+  });
+
+  it("a password that is not a feed key's shape (junk, NUL, too long) is a 401 that never reaches the database", async () => {
+    for (const k of ["guess", "sfk_short", `sfk_${"a".repeat(42)}\u0000`, `sfk_${"a".repeat(500)}`]) {
+      const r = await get("/feed/demo/elements.csv", basic(k));
+      expect([r.status, JSON.parse(r.text).message], k).toEqual([401, "this feed key is not valid or was revoked — make a new one on the Data feed screen"]);
+    }
+    expect(log.filter((c) => c.table.startsWith("rpc/"))).toEqual([]);
   });
 
   it("keys: the machine credential makes none; a person makes one (shown once, only its hash sent to the database, under their sign-in), lists and revokes it", async () => {
