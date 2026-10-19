@@ -59,7 +59,7 @@ cd WebApp && npm run bcf:serve         # :4100 — logs its security posture at 
 npm run build:bridge-core              # regenerate bridge/sentinel-core.mjs after editing sentinel-core
 npm run mcp:serve                      # the MCP server (talks to the bridge)
 npm run dev                            # the SPA (thatopen serve)
-npm test                               # 46 vitest tests
+npm test                               # the whole vitest suite (web + bridge; about 3,800 tests on 2026-10-19)
 ```
 
 ## Security posture

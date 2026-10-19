@@ -37,7 +37,7 @@ The heart. Pure TypeScript with **no DOM, no Node, no platform** dependencies �
 - `validateContainerName(name, ruleset)` — the ISO 19650 naming gate.
 - `groupFailuresForBcf(failures, openReqs)` — turn failures into coordination issues.
 
-Backed by **✅ 99 passing tests**.
+Backed by **✅ its own unit tests**, part of the vitest suite CI runs on every push (about 3,800 tests on 2026-10-19).
 
 ### Supporting: `WebApp/db/migrations/` — the schema
 Supabase/PostgreSQL: the ISO 19650 CDE tables, row-level security policies, and the immutable hash-chained audit ledger. Migrations `0001`→`0016`.
