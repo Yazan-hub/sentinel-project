@@ -9,8 +9,9 @@
 --       A key that is not live raises 'feed key not valid' (28000); a project the key's owner is not a member of, or that
 --       does not exist, raises 'not a member of this project' (42501) — the two answer alike, as RLS does.
 --
--- NOT APPLIED. Before the apply: the 4100 bridge may run either side (the feed routes answer "not set up" in words until the
--- table exists). After it: probes/0044_probe.sql parts 1 and 2.
+-- APPLIED 2026-10-20 local on the founder's "Apply it" (migration 0044_feed_keys, project autqqtwhxqrfjaztablm), BEFORE the 4100
+-- bridge runs the branch (the feed routes answer "not set up" in words until the table exists, either side is safe); probes/0044_probe.sql
+-- part 0 "0" before it, part 1 6 of 6 true, part 2 "PROBE 0044: 7 of 7 as expected." (rolled back; 0 keys, 0 probe projects after).
 --
 -- ROLLBACK (if needed): drop function public.feed_rows(text, text, text); drop function public.feed_revisions(text, text);
 -- drop function public.feed_key_owner(text); drop table public.feed_keys.

@@ -66,6 +66,7 @@ function serveFake(req, res) {
       const k = (fake.feedKeys || {})[a.p_key];
       if (!k) return reply(400, { code: "28000", message: "feed key not valid" });
       if (a.p_project_key !== k.project) return reply(403, { code: "42501", message: "not a member of this project" });
+      if (fake.feedTimeouts > 0) { fake.feedTimeouts--; return reply(500, { code: "57014", message: "canceling statement due to statement timeout" }); }
       return reply(200, table === "rpc/feed_rows" ? (fake.feedRows || []) : [{ id: "r1", revision: "P01", revision_date: "2026-10-19T10:00:00+00:00", uploaded_by: "x", element_count: 2 }]);
     }
     const bearer = String(req.headers.authorization || "").replace(/^Bearer /, "");
@@ -504,6 +505,16 @@ describe("the data feed (0044): a feed key over Basic, never the machine credent
     expect([bad.status, bad.www, JSON.parse(bad.text).message]).toEqual([401, 'Basic realm="Sentinel data feed", charset="UTF-8"', "this feed key is not valid or was revoked — make a new one on the Data feed screen"]);
     const other = await get("/feed/other-project/elements.csv", basic("sfk_ggggggggggggggggggggggggggggggggggggggggggg"));
     expect([other.status, JSON.parse(other.text).message]).toEqual([403, "the feed key's owner is not a member of this project, or there is no such project"]);
+  });
+
+  it("one statement timeout is asked again and answered; two in a row are a 502 in words, no database text", async () => {
+    const k = Object.keys(fake.feedKeys)[0];
+    fake.feedTimeouts = 1;
+    expect((await get("/feed/demo/elements.csv", basic(k))).status).toBe(200);
+    fake.feedTimeouts = 2;
+    const r = await get("/feed/demo/elements.csv", basic(k));
+    expect([r.status, JSON.parse(r.text).message]).toEqual([502, "the feed could not be read from the database just now — try the refresh again shortly"]);
+    fake.feedTimeouts = 0;
   });
 
   it("a password that is not a feed key's shape (junk, NUL, too long) is a 401 that never reaches the database", async () => {

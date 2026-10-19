@@ -2337,8 +2337,14 @@ const feedErr = (status, message) => Object.assign(new Error(message), { status 
  *  is a member, and answers — the bridge decides nothing about who may read. Its refusals come back in words. */
 export async function feedRpc(fn, args) {
   if (!URL || !ANON) throw feedErr(503, "the data feed is not set up on this bridge (SUPABASE_URL + SUPABASE_ANON_KEY) — nothing was read");
-  const r = await fetch(`${URL}/rest/v1/rpc/${fn}`, { method: "POST", headers: { apikey: ANON, Authorization: `Bearer ${ANON}`, "Content-Type": "application/json" }, body: JSON.stringify(args) });
-  const data = await r.json().catch(() => null);
+  const ask = async () => {
+    const r = await fetch(`${URL}/rest/v1/rpc/${fn}`, { method: "POST", headers: { apikey: ANON, Authorization: `Bearer ${ANON}`, "Content-Type": "application/json" }, body: JSON.stringify(args) });
+    return { r, data: await r.json().catch(() => null) };
+  };
+  // ponytail: anon's statement timeout is 3 s (≈100k elements a revision at the measured 64 ms per 12.7k). The drill saw two slow first
+  // calls right after the schema changed; one retry covers that. A model past the ceiling needs a paged feed.
+  let { r, data } = await ask();
+  if (!r.ok && /statement timeout/.test(String(data?.message || ""))) ({ r, data } = await ask());
   if (r.ok) return data;
   const m = String(data?.message || "");
   if (/feed key not valid/.test(m)) throw feedErr(401, "this feed key is not valid or was revoked — make a new one on the Data feed screen");
