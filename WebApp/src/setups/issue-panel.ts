@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { SERVICE_URL } from "../config";
 import { bfetch, bwrite, bridgeEvents } from "./bridge-fetch";
+import { relayStandardEvent } from "./active-ruleset";
 import { activePid, onActiveProjectChange } from "./active-project";
 import { loadScope } from "./load-scope";
 import { myRole, canGovernRole } from "./my-role";
@@ -282,7 +283,10 @@ export function issuePanel(components: OBC.Components, opts: { bcfBaseUrl?: stri
   // refetch instantly so an issue raised in Revit appears here in seconds, and vice-versa.
   // Read as a fetch stream (bridgeEvents) so the feed carries the Authorization header EventSource cannot.
   // The feed is per project: on a project or person change, stop it and start one for the current key, then re-read.
-  const feed = () => bridgeEvents(`${base}/events?project=${encodeURIComponent(projectId())}`, () => {
+  // It is the app's one live feed for the project in view: a standard installed anywhere (a Revit window, another tab) is handed to
+  // Standards in force and the Next strip as STANDARD_INSTALLED, not read as a topic change.
+  const feed = () => bridgeEvents(`${base}/events?project=${encodeURIComponent(projectId())}`, (data) => {
+    if (relayStandardEvent(data)) return;
     if (Date.now() - lastLoad > 400) { lastLoad = Date.now(); void fetchAll(); }
   });
   let stopFeed = feed();

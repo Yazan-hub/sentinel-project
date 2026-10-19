@@ -6,7 +6,7 @@ vi.mock("./bridge-fetch", () => ({ bfetch }));
 vi.mock("./active-project", () => ({ activePid: () => "aster-villa" }));
 
 import { readFileSync } from "node:fs";
-import { activeRuleset, installArtefact, installArtefactFile, canInstallArtefacts, refLabel, NO_RULESET, STANDARD_INSTALLED } from "./active-ruleset";
+import { activeRuleset, installArtefact, installArtefactFile, canInstallArtefacts, refLabel, NO_RULESET, STANDARD_INSTALLED, relayStandardEvent } from "./active-ruleset";
 
 const res = (status: number, body: unknown) => ({ ok: status < 400, status, json: async () => body }) as unknown as Response;
 const rs = { standard_key: "house", semver: "1.0.0", rules: [{ id: "SN-01", target: "sheet", mode: "request" }] };
@@ -81,6 +81,18 @@ describe("installArtefact", () => {
       expect(STANDARD_INSTALLED).toBe("sentinel:standard-installed");
       bfetch.mockResolvedValue(res(403, { message: "lead or owner only" }));
       await expect(installArtefact("http://b", "aster-office", "naming", {}, "web")).rejects.toThrow("lead or owner only");
+      expect(seen).toHaveLength(1);
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  it("an install made elsewhere (a Revit window, another tab) arrives on the live feed and fires the same event; a topic line does not", () => {
+    const seen: Array<{ type: string; detail: unknown }> = [];
+    vi.stubGlobal("dispatchEvent", (e: CustomEvent) => { seen.push({ type: e.type, detail: e.detail }); return true; });
+    try {
+      expect(relayStandardEvent(JSON.stringify({ type: "standard", action: "installed", key: "std-f", kind: "guideline", version: 3 }))).toBe(true);
+      expect(seen).toEqual([{ type: STANDARD_INSTALLED, detail: { key: "std-f", kind: "guideline", version: 3 } }]);
+      expect(relayStandardEvent(JSON.stringify({ type: "topic", action: "created", guid: "g" }))).toBe(false);
+      expect(relayStandardEvent("not json")).toBe(false);
       expect(seen).toHaveLength(1);
     } finally { vi.unstubAllGlobals(); }
   });

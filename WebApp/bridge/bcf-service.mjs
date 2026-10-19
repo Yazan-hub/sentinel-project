@@ -1624,6 +1624,14 @@ async function handleRequest(req, res) {
             }
             catch (e) { pointer.superseded_error = String(e?.message || e); }
           }
+          // Every open Standards in force list and Next strip re-reads — an install from a Revit window too, not only from the web
+          // page that made it. An office install goes to each of its projects (their lists show the office's standard). After the
+          // answer, best-effort: a failed scope read still tells the project itself.
+          void (async () => {
+            const { projectScope } = await import("./office-scope.mjs");
+            const keys = (await projectScope(p1).catch(() => null))?.keys ?? [p1];
+            for (const k of keys) broadcast(k, { type: "standard", action: "installed", key: p1, kind: p3, version: pointer.version });
+          })().catch(() => {});
           return send(res, 201, pointer);
         }
       }

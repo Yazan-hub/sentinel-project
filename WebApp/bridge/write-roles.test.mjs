@@ -1467,3 +1467,54 @@ describe("recipes (MA-8-13, D13): two approvals by two different people of diffe
     expect((await call("GET", R, "viewer")).body.project[0].state).toBe("withdrawn");
   }, 60_000);
 });
+
+describe("an artefact install reaches the live feed — Settings and the Next strip re-read, whoever installed (STD-3 W-1)", () => {
+  /** GET /events?project=<project> as `as`; every data line lands in `lines` until close(). */
+  async function feed(project, as) {
+    const ctrl = new AbortController();
+    const r = await fetch(`http://127.0.0.1:${port}/events?project=${project}`, { headers: { Authorization: `Bearer ${jwtFor(as)}`, Accept: "text/event-stream" }, signal: ctrl.signal });
+    const lines = [];
+    void (async () => {
+      const reader = r.body.getReader(), dec = new TextDecoder();
+      let buf = "";
+      try {
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) return;
+          buf += dec.decode(value, { stream: true });
+          for (let i; (i = buf.indexOf("\n\n")) >= 0; buf = buf.slice(i + 2))
+            for (const l of buf.slice(0, i).split("\n")) if (l.startsWith("data: ")) lines.push(JSON.parse(l.slice(6)));
+        }
+      } catch { /* closed */ }
+    })();
+    return { status: r.status, lines, close: () => ctrl.abort() };
+  }
+  const standard = async (f) => {
+    for (const end = Date.now() + 5000; Date.now() < end; await new Promise((r) => setTimeout(r, 50))) {
+      const hit = f.lines.find((l) => l.type === "standard");
+      if (hit) return hit;
+    }
+    return null;
+  };
+
+  it("a lead's install on the project is pushed to the project's feed", async () => {
+    const f = await feed("demo", "viewer");
+    try {
+      expect(f.status).toBe(200);
+      expect((await call("PUT", "/cde/demo/artefacts/publish", "lead", { auto: true })).status).toBe(201);
+      expect(await standard(f)).toEqual({ type: "standard", action: "installed", key: "demo", kind: "publish", version: 1 });
+    } finally { f.close(); }
+  });
+
+  it("an office install is pushed to each of its projects' feeds", async () => {
+    const OFFICE = "22222222-2222-4222-8222-222222222222";
+    db.projects.push({ id: OFFICE, key: "office", name: "Office", kind: "office", office_key: null, metadata: {} });
+    db.projects[0].office_key = "office";
+    db.memberships.push({ project_id: OFFICE, user_id: USERS.lead, role: "lead" });
+    const f = await feed("demo", "viewer");
+    try {
+      expect((await call("PUT", "/cde/office/artefacts/publish", "lead", { auto: false })).status).toBe(201);
+      expect(await standard(f)).toEqual({ type: "standard", action: "installed", key: "office", kind: "publish", version: 1 });
+    } finally { f.close(); }
+  });
+});
