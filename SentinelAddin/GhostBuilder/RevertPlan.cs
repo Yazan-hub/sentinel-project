@@ -63,7 +63,11 @@ namespace Sentinel.GhostBuilder
         {
             var parts = new List<string>();
             if (cs.Reverted != null)
-                parts.Add($"reverted by {cs.Reverted.By ?? "?"}" + (cs.Reverted.Kept is > 0 ? $" ({cs.Reverted.Kept} row(s) kept as they stood)" : "") + Ledger(cs.Reverted.LedgerId));
+                parts.Add($"reverted by {cs.Reverted.By ?? "?"}" + (cs.Reverted.Kept is > 0 ? $" ({cs.Reverted.Kept} row(s) kept as they stood)" : "") + Ledger(cs.Reverted.LedgerId)
+                          // 2026-10-20 (spec §4): the revert's own save
+                          + (cs.Reverted.Persisted is not { } rp ? " — revert not yet seen saved"
+                             : rp.State == "confirmed" ? " — revert " + (rp.How switch { "synced" => "synchronised with central", "saved_locally" => "saved locally, not synced yet", "reopened" => "found in the model when it was reopened", _ => "saved in the model" })
+                             : $" — revert NOT in the saved model ({rp.Missing ?? 0} row(s) back) — closed without saving, or Revit stopped"));
             var p = cs.Persisted;
             // drill REV (F-REV-2): after a revert the saved check is about the change as applied — said so, never read as the revert's
             parts.Add((cs.Reverted != null ? "as applied: " : "") + (p == null ? "not yet seen saved"

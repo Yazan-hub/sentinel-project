@@ -6,6 +6,9 @@
 // (ProvenanceStamp.Holds — Undo removes it, a file never saved never had it), and one changeset_confirmed or changeset_lost row is posted.
 // A workshared local save confirms "saved locally" and the record waits for the sync. Records and decisions are pure (tools/promote-check);
 // SENTINEL_CHECK hides the Revit half. Save As carries the records to the new path (Repath, App.OnSavedAs) and confirms them there.
+// A revert's own save (2026-10-20, spec 2026-10-20-apply-claim-isolation-revert-saved-design.md §4): a revert is remembered the same way
+// (<id>.revert.json, Revert true); each reverted row is held when its element is gone (a create deleted) or its stamp carries the revert's
+// mark (ProvenanceStamp.IsReverted — the revert's transaction wrote it), and posted with of "revert".
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -40,12 +43,15 @@ namespace Sentinel.Engine
             /// <summary>A workshared local save confirmed it already; the record waits for a sync.</summary>
             [JsonPropertyName("saved_locally")] public bool SavedLocally { get; set; }
             [JsonPropertyName("at")] public string At { get; set; }
+            /// <summary>2026-10-20: a revert's record (its rows are the ones reverted), not the changeset's.</summary>
+            [JsonPropertyName("revert")] public bool Revert { get; set; }
         }
 
         /// <summary>The root. The check points it at a temp folder; nothing else sets it.</summary>
         internal static string Root = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Sentinel", "unsaved");
 
-        public static string PathFor(string key, string id) => System.IO.Path.Combine(Root, ArtefactCache.Safe(key), ArtefactCache.Safe(id) + ".json");
+        public static string PathFor(string key, string id, bool revert = false) =>
+            System.IO.Path.Combine(Root, ArtefactCache.Safe(key), ArtefactCache.Safe(id) + (revert ? ".revert" : "") + ".json");
 
         /// <summary>A result the bridge took: remembered until its file is saved. A model never saved (no path) or one that applied nothing is
         /// not — a title cannot tell two copies apart (UnreportedResults.Elsewhere's reason). False when it was not written.</summary>
@@ -59,11 +65,19 @@ namespace Sentinel.Engine
             });
         }
 
+        /// <summary>2026-10-20: a revert this PC made in a saved model — remembered until its file is saved (as <see cref="Remember"/>).</summary>
+        public static bool RememberRevert(string key, string id, string name, string path, IEnumerable<Row> rows)
+        {
+            var list = rows?.ToList() ?? new List<Row>();
+            if (string.IsNullOrEmpty(path) || list.Count == 0) return false;
+            return Write(new Record { Key = key, ChangesetId = id, Name = name, Path = path, At = ProvenanceStamp.Now(), Applied = list, Revert = true });
+        }
+
         public static bool Write(Record r)
         {
             try
             {
-                var path = PathFor(r.Key, r.ChangesetId);
+                var path = PathFor(r.Key, r.ChangesetId, r.Revert);
                 Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path));
                 File.WriteAllText(path, JsonSerializer.Serialize(r));
                 return true;
@@ -71,9 +85,9 @@ namespace Sentinel.Engine
             catch (Exception) { return false; }
         }
 
-        public static void Forget(string key, string id)
+        public static void Forget(string key, string id, bool revert = false)
         {
-            try { File.Delete(PathFor(key, id)); } catch (Exception) { /* nothing to delete */ }
+            try { File.Delete(PathFor(key, id, revert)); } catch (Exception) { /* nothing to delete */ }
         }
 
         /// <summary>Every record applied in <paramref name="path"/> (case ignored: Revit's casing depends on how the file was opened), oldest first.</summary>
@@ -95,7 +109,7 @@ namespace Sentinel.Engine
             {
                 var r = JsonSerializer.Deserialize<Record>(File.ReadAllText(file));
                 // only under its own file name (UnreportedResults.ForKey's rule)
-                return r != null && string.Equals(PathFor(r.Key, r.ChangesetId), file, StringComparison.OrdinalIgnoreCase) ? r : null;
+                return r != null && string.Equals(PathFor(r.Key, r.ChangesetId, r.Revert), file, StringComparison.OrdinalIgnoreCase) ? r : null;
             }
             catch (Exception) { return null; }
         }
@@ -134,7 +148,12 @@ namespace Sentinel.Engine
         public static string Words(Record r, string how, int held, int missing, string ledger, string error)
         {
             var when = how switch { "saved" => "saved", "saved_locally" => "saved locally (not synced yet)", "synced" => "synchronised with central", _ => "reopened" };
-            if (error != null) return $"Saved check: \"{r.Name}\" ({when}) — NOT recorded: {error}. Kept on this PC; checked again at the next save, sync or opening.";
+            if (error != null) return $"Saved check: {(r.Revert ? "the revert of " : "")}\"{r.Name}\" ({when}) — NOT recorded: {error}. Kept on this PC; checked again at the next save, sync or opening.";
+            if (r.Revert)
+                return missing == 0
+                    ? $"Saved check: the revert of \"{r.Name}\" — all {held} row(s) are still reverted in the model as {when}: changeset_revert_confirmed ({ledger})."
+                    : $"Saved check: the revert of \"{r.Name}\" — {missing} of {held + missing} row(s) are back as the changeset set them in the model as {when}"
+                      + (how == "reopened" ? " (it was closed without saving, or Revit stopped)" : " (the revert was undone before the save)") + $": changeset_revert_lost ({ledger}).";
             return missing == 0
                 ? $"Saved check: \"{r.Name}\" — all {held} element(s) are in the model as {when}: changeset_confirmed ({ledger})."
                 : $"Saved check: \"{r.Name}\" — {missing} of {held + missing} element(s) are NOT in the model as {when}"
@@ -157,13 +176,15 @@ namespace Sentinel.Engine
                 {
                     var (how, drop) = Decide(ev, doc.IsWorkshared, r);
                     if (how == null) continue;
-                    var (held, missing) = Split(r, a => doc.GetElement(a.RevitUniqueId ?? "") is Element e
-                                                        && ProvenanceStamp.Holds(ProvenanceStamp.Read(e), r.ChangesetId, a.ProposalGuid));
+                    // A revert's row is held when its element is gone (a create the revert deleted) or carries the revert's mark (2026-10-20).
+                    var (held, missing) = Split(r, a => doc.GetElement(a.RevitUniqueId ?? "") is not Element e ? r.Revert
+                                                        : r.Revert ? ProvenanceStamp.IsReverted(ProvenanceStamp.Read(e), r.ChangesetId, a.ProposalGuid)
+                                                        : ProvenanceStamp.Holds(ProvenanceStamp.Read(e), r.ChangesetId, a.ProposalGuid));
                     Task.Run(() =>
                     {
-                        var ok = ChangesetClient.ReportPersisted(BcfConfig.Load(), r.Key, r.ChangesetId, how, held, missing, out var reply, out var error);
+                        var ok = ChangesetClient.ReportPersisted(BcfConfig.Load(), r.Key, r.ChangesetId, how, held, missing, out var reply, out var error, r.Revert ? "revert" : null);
                         var gone = !ok && ForGood(error);
-                        if (ok && drop || gone) Forget(r.Key, r.ChangesetId);
+                        if (ok && drop || gone) Forget(r.Key, r.ChangesetId, r.Revert);
                         else if (ok) { r.SavedLocally = true; Write(r); }
                         App.PanelVm?.LogDoctor(Words(r, how, held.Count, missing.Count, ok ? ChangesetTrust.LedgerOf(reply) : null, ok ? null : error)
                                                + (gone ? " The bridge will not take it, so this PC's record is removed." : ""));

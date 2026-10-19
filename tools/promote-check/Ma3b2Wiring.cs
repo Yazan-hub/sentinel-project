@@ -37,7 +37,7 @@ static partial class Check
            && !review.Contains("null, here, null, null)")
            && review.Contains("Undo = undo ?? new List<string>(), At = ProvenanceStamp.Now(), Reasons = reasons,"),
            "a partial Apply, a Decline all and a rolled-back storey carry each changeset's own reasons (the unticked rows') on its result and its record");
-        Ok(review.Contains("var landed = ChangesetClient.ReportResult(cfg, r.Key, r.ChangesetId, r.Applied, r.Rejected, r.Note, r.ReviewRev, out var reply, out var err, r.Reasons);")
+        Ok(review.Contains("var landed = ChangesetClient.ReportResult(cfg, r.Key, r.ChangesetId, r.Applied, r.Rejected, r.Note, r.ReviewRev, out var reply, out var err, r.Reasons, r.AttemptKey);")
            && review.Contains("+ ChangesetTrust.ReasonsLine(reply, r.Reasons?.Count ?? 0) +")
            // Review C15: a result the bridge had already taken says it too — the words are parenthesised (+ binds tighter than ??).
            && review.Contains("if (taken != null) reply = UnreportedResults.StoredReply(stored);")

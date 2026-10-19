@@ -40,6 +40,9 @@ namespace Sentinel.Engine
             /// <summary>The Undo entry names the undo watcher remembers it under once the bridge takes it.</summary>
             [JsonPropertyName("undo")] public List<string> Undo { get; set; } = new List<string>();
             [JsonPropertyName("at")] public string At { get; set; }
+            /// <summary>Apply claim (2026-10-20): one key per result, made when it is recorded and kept with it, so every retry — after a lost
+            /// reply or a restart — sends the same one and the bridge answers the stored result; null on a record written before this field.</summary>
+            [JsonPropertyName("attempt_key")] public string AttemptKey { get; set; }
         }
 
         /// <summary>The root. The check points it at a temp folder; nothing else sets it.</summary>

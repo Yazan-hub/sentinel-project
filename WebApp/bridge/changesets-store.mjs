@@ -997,7 +997,7 @@ function asBuiltOf(cs, applied, role, judge) {
 
 /** The add-in's report: which proposals a human ticked (with the created Revit ids) and which they
  *  didn't. Writable exactly once, only from `proposed`. Status is DERIVED from the counts. */
-export async function reportResult(key, id, { applied, rejected, note, review_rev, reasons } = {}, actor, deps) {
+export async function reportResult(key, id, { applied, rejected, note, review_rev, reasons, session, attempt_key } = {}, actor, deps) {
   const d = wire(deps);
   // A result says what a human ticked in Revit and is written once. H4: Revit signs in per user, so it is that user's
   // contributor check (the machine credential still passes as service); a viewer reports nothing, before any read.
@@ -1005,7 +1005,18 @@ export async function reportResult(key, id, { applied, rejected, note, review_re
   // MA-3b3 (C1): the role the bridge reads for this caller — a member's, or "service" for the machine credential (whose `actor` is
   // the caller's claim). Stored with the result: only a member's reason is a decline that is carried to the next filing.
   const role = await d.myRole(key);
+  // Idempotency (2026-10-20, spec §2): the add-in's attempt key — one per result, kept on its PC, so a retry sends the same one.
+  if (attempt_key != null && (typeof attempt_key !== "string" || !/^[A-Za-z0-9-]{8,64}$/.test(attempt_key)))
+    throw err(400, "attempt_key must be 8–64 letters, digits or dashes; nothing was recorded");
   const proj = await d.ensureProject(key);
+  // A retry of a result this changeset already holds (the same attempt key) answers the stored result — never a second record.
+  if (attempt_key) {
+    const prior = await d.docGet(STORE, proj.id, id);
+    if (prior && prior.status !== "proposed" && prior.result?.attempt_key === attempt_key) {
+      const row = (await d.auditAll(key, { entity_type: "changeset", entity_id: id, action_prefix: "changeset_applied" }).catch(() => []))[0];
+      return { ...prior, ledger: ledgerRef(row), replayed: true };
+    }
+  }
   const appliedArr = Array.isArray(applied) ? applied : [];
   const rejectedArr = Array.isArray(rejected) ? rejected : [];
   // MA-6-2 (review amendment 4b, 4c): the ids@n that judges Revit's as-built re-read is read here, before the swap (decide is synchronous);
@@ -1019,6 +1030,9 @@ export async function reportResult(key, id, { applied, rejected, note, review_re
   // 409s, with no audit row — and a web decision written in between is kept, and judged.
   const { before: cs, updated, conflicts, why } = await rewrite(d, proj.id, id, (cs) => {
     if (cs.status !== "proposed") throw err(409, `changeset is ${cs.status} — a result can be reported exactly once, from proposed`);
+    // Apply claim (2026-10-20, spec §1): another Revit session is applying it — this result is not recorded over its placement.
+    const held = claimRefusal(cs, typeof session === "string" ? session : null);
+    if (held) throw err(409, held.replace("nothing was changed", "this result was not recorded; the changeset stays proposed"));
     for (const [i, a] of appliedArr.entries()) {
       if (!a || typeof a.proposal_guid !== "string" || !Number.isInteger(a.revit_element_id) || a.revit_element_id <= 0)
         throw err(400, `applied[${i}] must be {proposal_guid, revit_element_id}`);
@@ -1049,8 +1063,9 @@ export async function reportResult(key, id, { applied, rejected, note, review_re
     const status = deriveResultStatus(appliedArr.length, rejectedArr.length, cs.elements.length);
     const as_built = asBuiltOf(cs, appliedArr, role, judge); // MA-6-2
     return { conflicts, why, updated: {
-      ...cs, status, updated_at: new Date().toISOString(), review_rev: reviewRev(cs) + 1,
+      ...cs, status, updated_at: new Date().toISOString(), review_rev: reviewRev(cs) + 1, claim: null, // the result releases the claim
       result: {
+        ...(attempt_key ? { attempt_key } : {}),
         applied: appliedArr.map((a) => {
           const el = cs.elements.find((e) => e.proposal_guid === a.proposal_guid);
           // Built field by field: a posted reread is never kept. MA-4f: Revit's re-read of a wall a survey changeset placed (a claimed
@@ -1132,6 +1147,53 @@ export async function reportResult(key, id, { applied, rejected, note, review_re
   return { ...updated, ledger: ledgerRef(row) };
 }
 
+/** Apply claim (2026-10-20, docs/superpowers/specs/2026-10-20-apply-claim-isolation-revert-saved-design.md §1): a Revit session's single-use
+ *  hold on a proposed changeset while it applies it. One compare-and-set (rewrite, on review_rev): two sessions cannot both hold it. A claim
+ *  whose `until` has passed is no claim. `claimRefusal` is the words for a claim held by another session (null when there is none). */
+export const CLAIM_TTL_MS = 30 * 60 * 1000;
+const hhmm = (iso) => String(iso ?? "").slice(11, 16) + " UTC";
+const liveClaim = (cs, now = Date.now()) => (cs.claim && Date.parse(cs.claim.until) > now ? cs.claim : null);
+export const claimRefusal = (cs, session, now = Date.now()) => {
+  const c = liveClaim(cs, now);
+  return c && c.session !== session ? `"${cs.name}" is being applied by ${c.by ?? "someone"} on ${c.pc ?? "another PC"} (since ${hhmm(c.at)}) — nothing was changed; try again when they finish, or after ${hhmm(c.until)}` : null;
+};
+const sessionOf = (s) => {
+  if (typeof s !== "string" || !/^[A-Za-z0-9-]{8,64}$/.test(s)) throw err(400, "session must be 8–64 letters, digits or dashes; nothing was saved");
+  return s;
+};
+
+/** POST /changesets/:key/:id/claim {session, pc} — a contributor or above (the machine credential passes, as for the result). Answers the doc. */
+export async function claimChangeset(key, id, { session, pc } = {}, actor, deps) {
+  const d = wire(deps);
+  await d.requireMinRole(key, "contributor");
+  sessionOf(session);
+  const where = typeof pc === "string" && pc.trim() && pc.length <= 64 && !/[\u0000-\u001f\u007f]/.test(pc) ? pc.trim() : null;
+  const proj = await d.ensureProject(key);
+  const { updated } = await rewrite(d, proj.id, id, (cs) => {
+    if (cs.status !== "proposed") throw err(409, `"${cs.name}" is ${String(cs.status).replace("_", " ")} — only a proposed changeset is applied; nothing was changed`);
+    const no = claimRefusal(cs, session);
+    if (no) throw err(409, no);
+    const now = new Date();
+    return { updated: { ...cs, claim: { session, by: resolveActor(actor, "revit"), pc: where, at: now.toISOString(), until: new Date(now.getTime() + CLAIM_TTL_MS).toISOString() },
+      updated_at: now.toISOString(), review_rev: reviewRev(cs) + 1 } };
+  });
+  return updated;
+}
+
+/** POST /changesets/:key/:id/unclaim {session} — drops the caller's own claim (nothing was placed). Another session's claim, or none, is left
+ *  as it is (answered unchanged, no write). */
+export async function unclaimChangeset(key, id, { session } = {}, actor, deps) {
+  const d = wire(deps);
+  await d.requireMinRole(key, "contributor");
+  sessionOf(session);
+  const proj = await d.ensureProject(key);
+  const cs = await d.docGet(STORE, proj.id, id);
+  if (!cs) throw err(404, "changeset not found");
+  if (cs.claim?.session !== session) return cs;
+  const { updated } = await rewrite(d, proj.id, id, (c) => (c.claim?.session !== session ? { updated: c } : { updated: { ...c, claim: null, updated_at: new Date().toISOString(), review_rev: reviewRev(c) + 1 } }));
+  return updated;
+}
+
 export async function withdrawChangeset(key, id, actor, deps) {
   const d = wire(deps);
   await d.requireMinRole(key, "contributor"); // H0 (D4): a viewer withdraws nothing
@@ -1139,6 +1201,8 @@ export async function withdrawChangeset(key, id, actor, deps) {
   // CAS: same guard as reportResult (rewrite, on review_rev) — a concurrent report/withdraw can't both land.
   const { updated } = await rewrite(d, proj.id, id, (cs) => {
     if (!canWithdraw(cs.status)) throw err(409, `changeset is ${cs.status} — only a proposed changeset can be withdrawn`);
+    const held = claimRefusal(cs, null); // apply claim (2026-10-20): never withdrawn under a Revit session applying it
+    if (held) throw err(409, held.replace("nothing was changed", "it was not withdrawn"));
     return { updated: { ...cs, status: "withdrawn", updated_at: new Date().toISOString(), review_rev: reviewRev(cs) + 1 } };
   });
   await d.audit(proj.id, "changeset", id, "changeset_withdrawn", actor || "agent", { status: "proposed" }, { status: "withdrawn" });
@@ -1191,28 +1255,44 @@ export async function reportReverted(key, id, { op, guids, basis, kept, reason }
   // The ledger row stays the source of truth; every other undo/redo writes the row only.
   if (basis !== "revert" && !(op === "redo" && !basis && cs.reverted)) return write();
   const { before, updated } = await rewrite(d, proj.id, id, (c) => ({ updated: { ...c, updated_at: new Date().toISOString(), review_rev: reviewRev(c) + 1,
-    reverted: basis === "revert" ? { at: new Date().toISOString(), by: newv.by, guids: guids.length, kept: kept?.length ?? 0, reason: newv.reason } : null } }));
+    reverted: basis === "revert" ? { at: new Date().toISOString(), by: newv.by, guids: guids.length, rows: guids, kept: kept?.length ?? 0, reason: newv.reason } : null } }));
   return recorded(d, proj.id, id, before, updated, "revert", write);
 }
 
 /** Persisted (2026-10-20): POST /changesets/:key/:id/persisted {how, held, missing} - the add-in's observation that an applied changeset's rows are
  *  (held) or are not (missing) in the saved model. held + missing are exactly the guids this changeset applied. One changeset_confirmed (nothing
  *  missing) or changeset_lost row, and the doc's `persisted` (the ledger id rides on the reply, not the doc: the doc is swapped first). */
-export async function reportPersisted(key, id, { how, held, missing } = {}, actor, deps) {
+export async function reportPersisted(key, id, { how, held, missing, of } = {}, actor, deps) {
   const d = wire(deps);
   await d.requireMinRole(key, "contributor"); // an observation: the machine credential passes, like the undo watcher
   if (!["saved", "saved_locally", "synced", "reopened"].includes(how)) throw err(400, 'how must be "saved", "saved_locally", "synced" or "reopened"; nothing was saved');
+  if (of !== undefined && of !== "revert") throw err(400, `of is "revert" (a revert's own save) or absent (the changeset's); nothing was saved`);
   const strs = (a) => Array.isArray(a) && a.length <= 200 && a.every((g) => typeof g === "string") && new Set(a).size === a.length;
   if (!strs(held) || !strs(missing)) throw err(400, "held and missing must be lists of distinct proposal_guids; nothing was saved");
   d.takeWriteBudget("changeset persisted", { perUser: 120, all: 300 });
   const proj = await d.ensureProject(key);
+  const exactly = (want, what) => {
+    const all = [...held, ...missing];
+    if (all.length !== want.length || new Set(all).size !== all.length || !want.every((g) => all.includes(g)))
+      throw err(400, `held and missing together must be exactly the guids ${what}; nothing was saved`);
+  };
+  const seen = { state: missing.length ? "lost" : "confirmed", how, at: new Date().toISOString(), missing: missing.length };
+  // A revert's own save (2026-10-20, spec §4): held = the row is still reverted in the saved model, missing = the change came back.
+  if (of === "revert") {
+    const { before, updated } = await rewrite(d, proj.id, id, (cs) => {
+      if (!cs.reverted) throw err(409, `${cs.name} holds no revert (none was recorded, or Ctrl+Z took it back) — nothing was saved`);
+      if (!Array.isArray(cs.reverted.rows)) throw err(409, `${cs.name}'s revert was recorded before its rows were kept — its save cannot be checked; nothing was saved`);
+      exactly(cs.reverted.rows, "this revert reverted");
+      return { updated: { ...cs, reverted: { ...cs.reverted, persisted: seen }, updated_at: new Date().toISOString(), review_rev: reviewRev(cs) + 1 } };
+    });
+    const row = await recorded(d, proj.id, id, before, updated, "revert's saved check", () => d.audit(proj.id, "changeset", id,
+      missing.length ? "changeset_revert_lost" : "changeset_revert_confirmed", actor || "revit", { persisted: before.reverted?.persisted ?? null }, { how, held: held.length, missing }));
+    return { changeset: updated, ledger: ledgerRef(row) };
+  }
   const { before, updated } = await rewrite(d, proj.id, id, (cs) => {
     if (cs.status !== "applied" && cs.status !== "partially_applied") throw err(409, `changeset is ${cs.status} — only an applied changeset can be confirmed saved; nothing was saved`);
-    const applied = (cs.result?.applied || []).map((a) => a.proposal_guid), all = [...held, ...missing];
-    if (all.length !== applied.length || new Set(all).size !== all.length || !applied.every((g) => all.includes(g)))
-      throw err(400, "held and missing together must be exactly the guids this changeset applied; nothing was saved");
-    return { updated: { ...cs, persisted: { state: missing.length ? "lost" : "confirmed", how, at: new Date().toISOString(), missing: missing.length },
-      updated_at: new Date().toISOString(), review_rev: reviewRev(cs) + 1 } };
+    exactly((cs.result?.applied || []).map((a) => a.proposal_guid), "this changeset applied");
+    return { updated: { ...cs, persisted: seen, updated_at: new Date().toISOString(), review_rev: reviewRev(cs) + 1 } };
   });
   const row = await recorded(d, proj.id, id, before, updated, "saved check", () => d.audit(proj.id, "changeset", id, missing.length ? "changeset_lost" : "changeset_confirmed",
     actor || "revit", { persisted: before.persisted ?? null }, { how, held: held.length, missing }));

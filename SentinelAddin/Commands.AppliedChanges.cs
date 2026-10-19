@@ -53,6 +53,9 @@ public sealed class AppliedChangesCommand : IExternalCommand
             // written before the post (UnreportedResults' rule): a revert the bridge never hears of is sent again, never lost
             var kept = RevertPlan.Write(r);
             SavedCheck.Forget(key, cs.Id); // no longer meant to be in the model: no saved check for it
+            // a revert's own save (2026-10-20, spec §4): checked at this file's next save, sync or opening, as a changeset's is
+            var rows = RevertPlan.Applied(cs).Where(a => o.Reverted.Contains(a.ProposalGuid)).GroupBy(a => a.ProposalGuid).Select(g => new SavedCheck.Row { ProposalGuid = g.Key, RevitUniqueId = g.First().RevitUniqueId });
+            SavedCheck.RememberRevert(key, cs.Id, cs.Name, d.PathName, rows);
             Task.Run(() =>
             {
                 var words = $"Reverted in this model: {o.Reverted.Count} row(s) back, {o.Kept.Count} kept (one Undo step: \"{o.Tx}\").\n" + RevertPlan.Send(BcfConfig.Load(), r)

@@ -38,7 +38,25 @@ static partial class Check
         Ok(RevertPlan.State(cs).StartsWith("NOT in the saved model (4 element(s)) — closed without saving"), "a lost changeset says it is not in the saved model, and why it may be");
         cs.Persisted = new PersistedDto { State = "confirmed", How = "synced" };
         cs.Reverted = new RevertedDto { By = "lead@office", Kept = 2 };
-        Ok(RevertPlan.State(cs) == "reverted by lead@office (2 row(s) kept as they stood) · as applied: synchronised with central", "a revert and the sync are both said");
+        Ok(RevertPlan.State(cs) == "reverted by lead@office (2 row(s) kept as they stood) — revert not yet seen saved · as applied: synchronised with central", "a revert and the sync are both said");
+        // a revert's own save (2026-10-20, spec 2026-10-20-apply-claim-isolation-revert-saved-design.md §4)
+        cs.Reverted.Persisted = new PersistedDto { State = "confirmed", How = "saved" };
+        Ok(RevertPlan.State(cs).StartsWith("reverted by lead@office (2 row(s) kept as they stood) — revert saved in the model ·"), "a revert seen saved says so");
+        cs.Reverted.Persisted = new PersistedDto { State = "lost", How = "reopened", Missing = 1 };
+        Ok(RevertPlan.State(cs).Contains("— revert NOT in the saved model (1 row(s) back) — closed without saving, or Revit stopped"), "a revert lost by an unsaved close says so");
+        var stamp = ProvenanceStamp.Json("c-1", "promote", new[] { "g1", "g2" }, "u1");
+        var marked = ProvenanceStamp.MarkReverted(stamp, "c-1", "g1");
+        Ok(ProvenanceStamp.IsReverted(marked, "c-1", "g1") && !ProvenanceStamp.IsReverted(marked, "c-1", "g2") && !ProvenanceStamp.IsReverted(stamp, "c-1", "g1")
+           && !ProvenanceStamp.IsReverted(marked, "c-2", "g1") && ProvenanceStamp.Holds(marked, "c-1", "g1"),
+           "the revert mark names its changeset and row only; the stamp still holds the changeset");
+        Ok(ProvenanceStamp.MarkReverted(marked, "c-1", "g1") == marked && ProvenanceStamp.MarkReverted("not json", "c-1", "g1") == "not json" && ProvenanceStamp.MarkReverted(null, "c-1", "g1") == null,
+           "marking twice is one mark; an unreadable stamp is left as it is");
+        Ok(ProvenanceStamp.IsReverted(ProvenanceStamp.Json("c-3", "agent", new[] { "x" }, "u1", marked), "c-1", "g1")
+           && !ProvenanceStamp.IsReverted(ProvenanceStamp.Json("c-3", "agent", new[] { "x" }, "u9", marked), "c-1", "g1"),
+           "a later changeset's stamp keeps the revert mark (a copy's stamp, another UniqueId, starts afresh)");
+        Ok(ChangesetTrust.ClaimRefused("Bridge 409: \"L1\" is being applied by ana on DESK-01 (since 10:02 UTC) — nothing was changed; try again when they finish, or after 10:32 UTC")
+           == "Not applied — \"L1\" is being applied by ana on DESK-01 (since 10:02 UTC) — nothing was changed; try again when they finish, or after 10:32 UTC\n\nNothing was changed in the model; the proposals are still pending.",
+           "a refused apply claim says who is applying it and where, in the bridge's words");
         Ok(RevertPlan.Preview(3, new List<(string, string)> { ("create wall \"W1\"", "was moved by hand") }) == "3 row(s) go back to how they were before this changeset. 1 kept as they stand:\n• create wall \"W1\": was moved by hand",
            "the preview counts what goes back and names each row kept, with why");
         Ok(RevertPlan.Preview(0, new List<(string, string)>()).StartsWith("Nothing would go back"), "a preview where nothing goes back says so");
@@ -82,6 +100,19 @@ static partial class Check
                "Save As (drill REV WS-4): the records follow the model to its new file; a never-saved model or the same path moves none");
             SavedCheck.Forget("k", "c-1");
             Ok(SavedCheck.ForPath(@"C:\m\a.rvt").Count == 0, "a record goes once posted");
+            // a revert's own save (2026-10-20): its own record beside the changeset's, posted with of "revert"
+            Ok(SavedCheck.RememberRevert("k", "c-1", "A", @"C:\m\a.rvt", new[] { new SavedCheck.Row { ProposalGuid = "g1", RevitUniqueId = "u1" } })
+               && SavedCheck.Remember(u) && SavedCheck.ForPath(@"C:\m\a.rvt").Count(x => x.Revert) == 1 && SavedCheck.ForPath(@"C:\m\a.rvt").Count == 2
+               && File.Exists(SavedCheck.PathFor("k", "c-1", true)),
+               "a revert is remembered as its own record (<id>.revert.json), beside the changeset's");
+            Ok(!SavedCheck.RememberRevert("k", "c-4", "B", "", new[] { new SavedCheck.Row { ProposalGuid = "g1" } }) && !SavedCheck.RememberRevert("k", "c-4", "B", @"C:\m\a.rvt", new SavedCheck.Row[0]),
+               "a revert in a model never saved, or of no row, is not remembered");
+            var rv = SavedCheck.ForPath(@"C:\m\a.rvt").Single(x => x.Revert);
+            Ok(SavedCheck.Words(rv, "saved", 1, 0, "ledger #7", null) == "Saved check: the revert of \"A\" — all 1 row(s) are still reverted in the model as saved: changeset_revert_confirmed (ledger #7)."
+               && SavedCheck.Words(rv, "reopened", 0, 1, "ledger #8", null).Contains("1 of 1 row(s) are back as the changeset set them in the model as reopened (it was closed without saving, or Revit stopped): changeset_revert_lost (ledger #8)"),
+               "a revert's saved check is said as the revert's");
+            SavedCheck.Forget("k", "c-1", true); SavedCheck.Forget("k", "c-1");
+            Ok(SavedCheck.ForPath(@"C:\m\a.rvt").Count == 0, "each record goes on its own");
 
             var rr = new RevertPlan.Record { Key = "k", ChangesetId = "c-1", Name = "A", Guids = { "g1" }, Kept = { new KeptRow { ProposalGuid = "g2", Why = "moved" } }, Reason = "wrong storey", Tx = "Sentinel revert: A [c-1]" };
             Ok(RevertPlan.Write(rr) && RevertPlan.ForKey("k").Single().Kept.Single().Why == "moved" && RevertPlan.ForKey("other").Count == 0,

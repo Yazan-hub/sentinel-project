@@ -463,6 +463,11 @@ public static class ChangesetTrust
             ? $"the bridge did not answer within {seconds} s"
         : err;
 
+    /// <summary>Apply claim (2026-10-20): a refused claim for the Apply window — the bridge's own words ("… is being applied by &lt;who&gt; on
+    /// &lt;PC&gt; …") without the "Bridge 409:" prefix, and that nothing ran. Pure.</summary>
+    public static string ClaimRefused(string error) =>
+        $"Not applied — {System.Text.RegularExpressions.Regex.Replace(error ?? "the bridge did not answer", @"^Bridge \d{3}: ", "")}\n\nNothing was changed in the model; the proposals are still pending.";
+
     /// <summary>MA-8 nits (F-B4-2): a refusal's words — "Bridge &lt;code&gt;: &lt;message&gt;", the message alone when the body is the bridge's
     /// {"message": "…"}, else the body as sent (trimmed, capped at 400). The "Bridge &lt;code&gt;" prefix is what callers read (UnreportedResults.Outcome).</summary>
     public static string Refusal(int code, string body)
@@ -710,6 +715,8 @@ public sealed class RevertedDto
     [JsonPropertyName("kept")] public int? Kept { get; set; }
     [JsonPropertyName("reason")] public string Reason { get; set; }
     [JsonPropertyName("ledger_id")] public long? LedgerId { get; set; }
+    /// <summary>A revert's own save (2026-10-20, spec 2026-10-20-apply-claim-isolation-revert-saved-design.md §4): null until seen.</summary>
+    [JsonPropertyName("persisted")] public PersistedDto Persisted { get; set; }
 }
 
 public sealed class AppliedEntry
@@ -930,14 +937,29 @@ internal static class ChangesetClient
     /// <paramref name="reply"/> is the bridge's answer, the stored changeset (ChangesetTrust.LateDeclines reads it). MA-3b2:
     /// <paramref name="reasons"/> is the reviewer's reason per rejected ghost ({proposal_guid: one line}); null sends none.</summary>
     public static bool ReportResult(BcfConfig cfg, string projectKey, string id,
-        List<AppliedEntry> applied, List<string> rejected, string note, int? reviewRev, out string reply, out string error, Dictionary<string, string> reasons = null) =>
+        List<AppliedEntry> applied, List<string> rejected, string note, int? reviewRev, out string reply, out string error, Dictionary<string, string> reasons = null, string attemptKey = null) =>
         Post(cfg, $"/changesets/{Uri.EscapeDataString(projectKey)}/{Uri.EscapeDataString(id)}/result",
-             ResultBody(applied, rejected, note, reviewRev, reasons), 200, out reply, out error);
+             ResultBody(applied, rejected, note, reviewRev, reasons, attemptKey), 200, out reply, out error);
 
     /// <summary>The result's body (tools/promote-check reads it). `reasons` is written as null when there is none: the bridge reads
-    /// null as none, and a bridge before MA-3b2 ignores the field.</summary>
-    internal static string ResultBody(List<AppliedEntry> applied, List<string> rejected, string note, int? reviewRev, Dictionary<string, string> reasons) =>
-        JsonSerializer.Serialize(new { applied, rejected, note, actor = UserSession.Actor, review_rev = reviewRev, reasons });
+    /// null as none, and a bridge before MA-3b2 ignores the field. Apply claim (2026-10-20): `session` is this Revit's, and `attempt_key`
+    /// the record's own (a retry of one result sends the same key, so the bridge answers the stored result — never a second record).</summary>
+    internal static string ResultBody(List<AppliedEntry> applied, List<string> rejected, string note, int? reviewRev, Dictionary<string, string> reasons, string attemptKey = null) =>
+        JsonSerializer.Serialize(new { applied, rejected, note, actor = UserSession.Actor, review_rev = reviewRev, reasons, session = Session, attempt_key = attemptKey });
+
+    /// <summary>Apply claim (2026-10-20, spec 2026-10-20-apply-claim-isolation-revert-saved-design.md §1): this Revit's session — one per process.</summary>
+    public static readonly string Session = Guid.NewGuid().ToString();
+
+    /// <summary>Claims a proposed changeset for this Revit before its transaction — null with the bridge's words when another PC is applying
+    /// it (or it is no longer proposed); the claimed changeset (its latest review_rev) otherwise.</summary>
+    public static ChangesetDto Claim(BcfConfig cfg, string projectKey, string id, out string error) =>
+        Post(cfg, $"/changesets/{Uri.EscapeDataString(projectKey)}/{Uri.EscapeDataString(id)}/claim",
+             JsonSerializer.Serialize(new { session = Session, pc = Environment.MachineName, actor = UserSession.Actor }), 200, out var reply, out error)
+            ? JsonSerializer.Deserialize<ChangesetDto>(reply) : null;
+
+    /// <summary>Drops this Revit's claim (nothing was placed). Best effort: a claim not dropped expires by itself.</summary>
+    public static void Unclaim(BcfConfig cfg, string projectKey, string id) =>
+        Post(cfg, $"/changesets/{Uri.EscapeDataString(projectKey)}/{Uri.EscapeDataString(id)}/unclaim", JsonSerializer.Serialize(new { session = Session }), 200, out _, out _);
 
     private static bool Post(BcfConfig cfg, string path, string payload, int expect, out string body, out string error, HttpClient http = null)
     {
@@ -1019,7 +1041,7 @@ internal static class ChangesetClient
 
     /// <summary>"Applied, then saved" (2026-10-20): what the saved model holds of an applied changeset — held and missing proposal_guids, by its
     /// provenance stamps (SavedCheck). One changeset_confirmed or changeset_lost row (POST /changesets/:key/:id/persisted → 201). Off Revit's thread.</summary>
-    public static bool ReportPersisted(BcfConfig cfg, string projectKey, string id, string how, List<string> held, List<string> missing, out string reply, out string error) =>
+    public static bool ReportPersisted(BcfConfig cfg, string projectKey, string id, string how, List<string> held, List<string> missing, out string reply, out string error, string of = null) =>
         Post(cfg, $"/changesets/{Uri.EscapeDataString(projectKey)}/{Uri.EscapeDataString(id)}/persisted",
-             JsonSerializer.Serialize(new { how, held, missing, actor = UserSession.Actor }, WriteJson), 201, out reply, out error);
+             JsonSerializer.Serialize(new { how, held, missing, of, actor = UserSession.Actor }, WriteJson), 201, out reply, out error);
 }

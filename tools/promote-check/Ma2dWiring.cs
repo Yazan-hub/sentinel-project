@@ -64,7 +64,7 @@ static partial class Check
            "Review AI Proposals and Promote open a Promote storey's changesets in one window, each re-checked before anything runs; a part reviewed alone is said; a type edit's row says whose retypes it counts");
         // MA-3b (AI-2): each result is built on the API thread with the revision Apply re-checked (MA-3a) and the Undo names, and reported
         // by ReportAll on a pool thread; the undo watcher remembers it only once the bridge took it.
-        int reported = At(review, "var landed = ChangesetClient.ReportResult(cfg, r.Key, r.ChangesetId, r.Applied, r.Rejected, r.Note, r.ReviewRev, out var reply, out var err, r.Reasons);"); // MA-3b2: and the reasons
+        int reported = At(review, "var landed = ChangesetClient.ReportResult(cfg, r.Key, r.ChangesetId, r.Applied, r.Rejected, r.Note, r.ReviewRev, out var reply, out var err, r.Reasons, r.AttemptKey);"); // MA-3b2: and the reasons
         Ok(review.Contains("foreach (var (one, res) in result.Each)") && reported > 0
            && At(review, "if (!UndoWatcher.Land(r.Undo, r.Key, r.ChangesetId, r.Applied.Select(a => a.ProposalGuid)))") > reported // review C8: Land remembers it
            && review.Contains("SavedCheck.Remember(r); // \"applied, then saved\"") // 2026-10-20: a landed result waits for its file's save

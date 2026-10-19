@@ -1911,6 +1911,7 @@ async function handleRequest(req, res) {
   //   POST /changesets/:key            · GET /changesets/:key?status=proposed
   //   GET  /changesets/:key/:id        · POST /changesets/:key/:id/result { applied, rejected, note }
   //   POST /changesets/:key/:id/withdraw · POST /changesets/:key/:id/reverted { op: undo|redo, guids } → a ledger row
+  //   POST /changesets/:key/:id/claim { session, pc } · POST /changesets/:key/:id/unclaim { session }   (apply claim, 2026-10-20)
   //   GET  /changesets/:key/edit-cost · POST /changesets/:key/edit-cost/publish { run }   (MA-8-1)
   //   POST /changesets/:key/:id/flags { kind: "stair", storey, box } (MA-8-9) · GET /changesets/:key/:id/scan?flag=<stair flag uid> | ?ground=1 (MA-8-14)
   //   POST /changesets/:key/:id/review { decisions: [{proposal_guid, decision, reason}] } · POST /changesets/:key/:id/reopen { proposal_guid, reason }
@@ -1923,7 +1924,7 @@ async function handleRequest(req, res) {
       const seg = url.pathname.split("/").filter(Boolean); // ['changesets', key, id?, action?]
       const [, key, p2, p3] = seg;
       const body = req.method === "POST" ? await readBody(req) : {};
-      const actor = body.actor || (["result", "reverted", "persisted"].includes(p3) ? "revit" : ["review", "reopen", "flags"].includes(p3) ? "web" : "agent");
+      const actor = body.actor || (["result", "reverted", "persisted", "claim", "unclaim"].includes(p3) ? "revit" : ["review", "reopen", "flags"].includes(p3) ? "web" : "agent");
       if (!key) return send(res, 404, { message: "changesets route not found" });
 
       if (!p2 && req.method === "GET") return send(res, 200, await ch.listChangesets(key, { status: url.searchParams.get("status") || undefined }));
@@ -1966,7 +1967,11 @@ async function handleRequest(req, res) {
       // MA-8-9: a person's stair pick, appended to the changeset's exceptions (a signed-in contributor; the machine credential is a 403). The body is {kind, storey, box}.
       if (p2 && p3 === "flags" && req.method === "POST") { const { actor: _who, ...pick } = body; return send(res, 201, await ch.flagChangeset(key, p2, pick, actor)); }
       if (p2 && !p3 && req.method === "GET") return send(res, 200, await ch.getChangeset(key, p2));
-      if (p2 && p3 === "result" && req.method === "POST") return send(res, 200, await ch.reportResult(key, p2, body, actor));
+      // Idempotency (2026-10-20): the Idempotency-Key header, when sent, is the result's attempt key (a retry answers the stored result).
+      if (p2 && p3 === "result" && req.method === "POST") return send(res, 200, await ch.reportResult(key, p2, { ...body, attempt_key: body.attempt_key ?? req.headers["idempotency-key"] }, actor));
+      // Apply claim (2026-10-20): a Revit session's single-use hold while it applies; unclaim drops its own (nothing placed).
+      if (p2 && p3 === "claim" && req.method === "POST") return send(res, 200, await ch.claimChangeset(key, p2, body, actor));
+      if (p2 && p3 === "unclaim" && req.method === "POST") return send(res, 200, await ch.unclaimChangeset(key, p2, body, actor));
       if (p2 && p3 === "withdraw" && req.method === "POST") return send(res, 200, await ch.withdrawChangeset(key, p2, actor));
       if (p2 && p3 === "reverted" && req.method === "POST") return send(res, 201, await ch.reportReverted(key, p2, body, actor));
       // Persisted (2026-10-20): the add-in saw the applied rows in (or gone from) the saved model - an observation, the machine credential passes.
