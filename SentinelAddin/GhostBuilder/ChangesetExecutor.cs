@@ -95,6 +95,34 @@ public sealed class ChangesetExecutor
     /// (a changeset that creates nothing). A design option being edited is refused here whatever this holds.
     public PlacementPlan Placement { get; set; }
 
+    /// Roadmap item 1, slice B: the project's protection@n, fetched by the caller off the API thread (PromoteContext); null = the built-in
+    /// default (ProtectionRules.Default), never "nothing protected".
+    public ProtectionRules Protection { get; set; }
+
+    /// <summary>The ticked rows that edit an existing protected element, with the words the person reads. A row whose target is gone is not
+    /// held here: its op's own loop says what is missing, as before.</summary>
+    internal static List<(string ProposalGuid, string Why)> Protected(Document doc, IEnumerable<ChangesetElementDto> rows, ProtectionRules rules)
+    {
+        var held = new List<(string, string)>();
+        foreach (var el in rows.Where(e => !IsCreate(e)))
+        {
+            var e = string.IsNullOrWhiteSpace(el.Target?.UniqueId) ? null : doc.GetElement(el.Target.UniqueId);
+            if (e != null && ProtectionWhy(doc, e, rules) is string why)
+                held.Add((el.ProposalGuid, $"{el.Kind} {e.UniqueId}: {why} — kept as it stands; a lead edits it by hand or installs a looser protection policy"));
+        }
+        return held;
+    }
+
+    internal static string ProtectionWhy(Document doc, Element e, ProtectionRules rules)
+    {
+        var cat = e.Category;
+        var bic = cat == null ? null : Enum.GetName(typeof(BuiltInCategory), (int)cat.Id.IdValue());
+        var ws = doc.IsWorkshared && e.WorksetId != WorksetId.InvalidWorksetId ? doc.GetWorksetTable().GetWorkset(e.WorksetId)?.Name : null;
+        var structural = (e is Wall && e.get_Parameter(BuiltInParameter.WALL_STRUCTURAL_SIGNIFICANT)?.AsInteger() == 1)
+                      || (e is Floor && e.get_Parameter(BuiltInParameter.FLOOR_PARAM_IS_STRUCTURAL)?.AsInteger() == 1);
+        return rules.Why(bic, cat?.Name, ws, structural);
+    }
+
     private static XYZ Pt(double[] p) => new XYZ(p[0] * MmToFeet, p[1] * MmToFeet, p[2] * MmToFeet);
 
     /// MA-1a item 3: the model's levels as the next-story rule reads them — the one projection (review amendment C6): the
@@ -748,6 +776,12 @@ public sealed class ChangesetExecutor
         var notLoaded = NotLoaded(doc, toPlace);
         if (notLoaded.Count > 0)
             return new ExecutionResult { NotRun = true, Error = ChangesetTrust.NotLoadedRefusal(toPlace.Where(e => notLoaded.Contains(e.ProposalGuid))) };
+        // Roadmap item 1, slice B: a row that edits an existing protected element (a level, a grid, structure, a protected workset) is kept as
+        // it stands and said — never applied, whatever its source; the rest of the changeset goes ahead. New elements are not held here.
+        var guarded = Protected(doc, toPlace, Protection ?? ProtectionRules.Default("not read"));
+        foreach (var h in guarded) result.Kept.Add(h);
+        toPlace.RemoveAll(e => guarded.Any(h => h.Item1 == e.ProposalGuid));
+        if (!toPlace.Any()) return result;
 
         // MA-8-10: a stair is built in Revit's own stair edit scope, which cannot start with a transaction open - so it branches off here, before the
         // changeset's transaction (RunChecked's TransactionGroup is open: one Undo entry). The bridge files a stair alone in its changeset.
@@ -1460,7 +1494,7 @@ public sealed class ChangesetExecutor
             // inside the transaction, instead of surfacing as a 400 after elements already exist.
             // MA-6-3 review fix: the add-in's version is this session's state, not a verdict on the changeset (C5's rule) — PlacementRefused
             // keeps it proposed, to apply once the add-in that reads the kind is deployed.
-            if (result.Applied.Count + result.Kept.Count != toPlace.Count)
+            if (result.Applied.Count + result.Kept.Count != toPlace.Count + guarded.Count)
                 throw new PlacementRefused($"{toPlace.Count - result.Applied.Count} ticked element(s) of unsupported kind or op were not placed — the add-in is older than the bridge's vocabulary; nothing was placed, and this one stays proposed until the add-in is updated");
             // MA-1a item 6: each element this changeset CREATED goes to the workset its category names and to the view's
             // phase — inside this transaction, so Ctrl+Z takes them back with the element. A retype or attach target keeps

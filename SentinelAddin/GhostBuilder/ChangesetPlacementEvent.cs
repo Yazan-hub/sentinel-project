@@ -68,7 +68,7 @@ public sealed class ChangesetPlacementEvent : IExternalEventHandler
             // MA-2d (design §3.4 step 8; review C10): every changeset — one alone or a Promote storey's several — runs in the checked
             // group: one Undo, all or nothing. The executor bare left two Undo entries for a create with a Rotation (TurnToBlocks is a
             // second transaction; its comment says every caller runs the executor inside a group — now true).
-            result = RunChecked(doc, batch, ticked, before, plan, promote?.Ids);
+            result = RunChecked(doc, batch, ticked, before, plan, promote?.Ids, promote?.Protection);
             if (before == null && !result.NotRun) result.Block = note; // "not checked — the ruleset has not loaded yet", or null: no BLOCK rule can fire
             // A Promote changeset whose DD IDS could not be read is placed as before, and the result says it was not checked.
             // MA-6-2: every source's (the review fetches the context for each); an as-built line RunChecked set stays after it.
@@ -117,7 +117,7 @@ public sealed class ChangesetPlacementEvent : IExternalEventHandler
     /// — so a type edit in the first changeset is seen by the retypes onto its type in a later one (MA-2c F11, within the storey;
     /// across storeys its ceiling stays — review C2) — the BLOCK check runs
     /// once, and the group is kept: one Undo entry. Any changeset that fails rolls the whole storey back (S4).
-    private static ChangesetExecutor.ExecutionResult RunChecked(Document doc, IReadOnlyList<ChangesetDto> batch, HashSet<string> ticked, ScanReport before, PlacementPlan plan, StageIds ids = null)
+    private static ChangesetExecutor.ExecutionResult RunChecked(Document doc, IReadOnlyList<ChangesetDto> batch, HashSet<string> ticked, ScanReport before, PlacementPlan plan, StageIds ids = null, ProtectionRules protection = null)
     {
         var what = batch.Count == 1 ? $"changeset \"{batch[0].Name}\"" : $"storey \"{StoreyBatch.StoreyOf(batch[0].Name)}\" ({batch.Count} changesets)";
         using var group = new TransactionGroup(doc, StoreyBatch.UndoName(batch));
@@ -129,7 +129,7 @@ public sealed class ChangesetPlacementEvent : IExternalEventHandler
             var result = new ChangesetExecutor.ExecutionResult();
             foreach (var cs in batch)
             {
-                var res = new ChangesetExecutor { Placement = plan }.Execute(doc, cs, ticked);
+                var res = new ChangesetExecutor { Placement = plan, Protection = protection }.Execute(doc, cs, ticked); // null: the built-in default
                 if (res.Error != null || res.NotFinished != null)
                 {
                     // ponytail: a Pending commit (NotFinished) is disposed with the group, as Ghost's build does; the executor's

@@ -30,6 +30,8 @@ namespace Sentinel.GhostBuilder
         /// <summary>MA-2c: the clauses of the project's installed ids@n (project → office) a DD property's value may be cited from —
         /// none, with why, when it is not installed or does not parse.</summary>
         public Clauses Clauses;
+        /// <summary>Roadmap item 1, slice B: what no changeset may edit (protection@n, else the built-in default).</summary>
+        public ProtectionRules Protection;
 
         /// <summary>The reads side by side. Blocking (the guideline and catalogue have their own caps, the matrix, the DD IDS and the
         /// ids@n 4 s); never throws. Call it OFF the API thread: Task.Run(() => PromoteContext.Fetch(key)).</summary>
@@ -38,6 +40,7 @@ namespace Sentinel.GhostBuilder
             var mxTask = Task.Run(() => ArtefactClient.Resolve(key, "lod_matrix"));
             var idsTask = Task.Run(() => { var json = ArtefactClient.StageIds(key, out var why); return (json, why); });
             var clauseTask = Task.Run(() => ArtefactClient.Resolve(key, "ids"));
+            var protTask = Task.Run(() => ArtefactClient.Resolve(key, "protection"));
             var pc = new PromoteContext { Standards = GhostStandards.Load(key, layers: false) };
             var src = mxTask.GetAwaiter().GetResult();
             if (src.Origin != "none")
@@ -56,6 +59,10 @@ namespace Sentinel.GhostBuilder
             pc.IdsWhy = idsWhy;
             var ids = clauseTask.GetAwaiter().GetResult();
             pc.Clauses = ids.Origin == "none" ? Clauses.None(ids.Label) : Clauses.FromIds(ids.BodyJson, ids.Label, out _);
+            // Roadmap item 1, slice B: none installed, or none read (no bridge, no cached copy), is the built-in default — never nothing.
+            var prot = protTask.GetAwaiter().GetResult();
+            pc.Protection = prot.Origin != "none" ? ProtectionRules.From(prot.BodyJson, prot.Label)
+                          : ProtectionRules.Default(prot.NotInstalled ? "none installed" : prot.Label);
             return pc;
         }
 

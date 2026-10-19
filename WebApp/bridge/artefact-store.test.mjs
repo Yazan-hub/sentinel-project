@@ -867,7 +867,7 @@ describe("validateArtefact — ifc_export (MA-8-6)", () => {
 describe("recipe (MA-8-13, D13): the bridge's own kind - never a hand PUT, validated, readable by version from the office", () => {
   const GOOD = () => JSON.parse(readFileSync(new URL("./fixtures/recipe/good.json", import.meta.url), "utf8"));
   it("recipe is a kind (singular - the unknown-kind pins use the plural); a hand PUT is refused, a lead's included, and nothing is written", async () => {
-    expect(KINDS.at(-1)).toBe("recipe");
+    expect(KINDS).toContain("recipe");
     const d = memDeps();
     await expect(putArtefact("p", "recipe", GOOD(), { actor: "x" }, d)).rejects.toMatchObject({ status: 400, message: "recipes change only through the recipe routes (draft, approve) — nothing was saved" });
     expect(d.docs.size).toBe(0);
@@ -889,5 +889,24 @@ describe("recipe (MA-8-13, D13): the bridge's own kind - never a hand PUT, valid
     cdeMock.sb.mockClear();
     await officeArtefactAsService("office", "recipe"); // no version: pointer first, then its version
     expect(cdeMock.sb.mock.calls.map((c) => c[0])).toHaveLength(3);
+  });
+});
+
+describe("validateArtefact — protection (roadmap item 1, slice B)", () => {
+  const ok = { categories: ["OST_Grids", "OST_Levels"], worksets: ["*Shared Levels and Grids*"], structural_hosts: true };
+  it("a policy of categories, workset patterns and the structural switch installs; an empty one (nothing protected) too", () => {
+    expect(fails("protection", ok)).toBeNull();
+    expect(fails("protection", { categories: [], worksets: [], structural_hosts: false })).toBeNull();
+    expect(KINDS).toContain("protection");
+  });
+  it.each([
+    [{ ...ok, categories: ["Levels"] }, "protection: categories[0] must be a Revit category name such as OST_Levels"],
+    [{ ...ok, categories: "OST_Levels" }, "protection: categories must be a list (empty protects no category)"],
+    [{ ...ok, worksets: [""] }, "protection: worksets[0] must be a workset name or pattern (* matches any run of characters) of 1 to 120 characters"],
+    [{ ...ok, structural_hosts: "yes" }, "protection: structural_hosts must be true or false"],
+    [{ categories: [], worksets: [] }, "protection: structural_hosts must be true or false"],
+    [{ ...ok, deletes: true }, "protection: deletes is not a protection field — the body is {categories, worksets, structural_hosts}"],
+  ])("a policy Revit could not read the same way is refused in words (%#)", (body, message) => {
+    expect(fails("protection", body)).toMatchObject({ status: 400, message });
   });
 });

@@ -3446,3 +3446,15 @@ Owed: the job wiring (bridge → `openings.py` per registered photo → advice r
 | OD-R Revit row | Needs a registered photo of a modelled site | **owed** |
 
 Owed: the founder confirms the blur boxes (00157); E57 convention confirmation (E5-1/E5-2); 7-17 Stage B (service, control-point picking, `evidence:registered` writing `registration`); the registration's frame must be the model's frame (a changeset's Location mm); OD-1/OD-R on a real changeset; NOTICE pickup of the openings receipt.
+
+## Session PROT-B — protection policy, roadmap item 1 slice B (2026-10-19 local; branch feature/protection-policy; the founder's "go"; Revit 2024 on a scratch copy `Documents\Sentinel drills\prot-b-drill.rvt` of ma5b-b2.rvt, bound to ma4c-drill; the 4100 bridge NOT restarted (still master, so it does not know the kind yet); Claude driving)
+
+| Row | What happened | Result |
+|---|---|---|
+| PB-0 setup | Add-in 2024 deployed from the branch (02:44). Wall A 1625663 `BDS_INT_STR_CONC_200 mm`: Structural ticked (Bearing) as found. Wall B 1625328 `BDS_INT_ARC_CMU_200 mm`: not structural. Changeset `a028b86f…` filed by `POST /changesets/ma4c-drill` (source agent): two wall retypes at the same width (to `BDS_EXT_STR_CONC_200 mm` / `BDS_EXT_ARC_CMU_200 mm`) | pass |
+| PB-1 kept | Review AI Proposals → both ticked → Apply. The check before commit judged 1 element (only B reached the transaction); Place anyway. Result: "Applied 1 element(s)"; "Kept as they stand (1 kept): wall …0018ce3f: is structural, protected by the built-in protection policy (none — the bridge does not know the kind 'protection') — kept as it stands; a lead edits it by hand or installs a looser protection policy" | **pass** |
+| PB-2 fail closed | The bridge answered the add-in's `protection` read with an unknown-kind refusal (it runs master); the add-in used the built-in default and named why, never "nothing protected" | **pass** |
+| PB-3 ledger | Changeset `partially_applied`; ledger #2762 `changeset_applied` carries the kept line; B (6f17ade3…) in `applied`, A (8ff53aa0…) in `rejected` | **pass** |
+| PB-4 installed policy | Install protection@1 through `artefact-import.mjs` after the bridge restart, then a retype of a structural wall with `structural_hosts: false` applies | **owed** (needs the 4100 restart on master) |
+
+Revit closed without saving the scratch copy.

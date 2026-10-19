@@ -42,7 +42,7 @@ static partial class Check
            && At(place, "BlockCheck.AddedSince(doc, before)") > judge && At(place, "group.Assimilate()") > judge
            && place.Contains("batch.SelectMany(c => c.Elements ?? new List<ChangesetElementDto>()).Where(e => e.Op != \"set_parameter\")")
            // Review C10: no lone path — every changeset, one or a storey's several, runs in the checked group.
-           && !place.Contains("if (before == null && promote?.Ids == null") && place.Contains("result = RunChecked(doc, batch, ticked, before, plan, promote?.Ids);"),
+           && !place.Contains("if (before == null && promote?.Ids == null") && place.Contains("result = RunChecked(doc, batch, ticked, before, plan, promote?.Ids, promote?.Protection);"),
            "every changeset runs in ONE group named as its Undo entry — a storey's each through the executor in order, then the DD IDS on everything the storey applied (F11 within the storey), the BLOCK check once, then the group is kept");
         // Review C16: the loop stops at the failed changeset — the first "return res;" after the rollback comes before the next is kept.
         int rolled = At(place, "if (res.NotFinished == null) SentinelUndo.RollBack(group, doc);");
