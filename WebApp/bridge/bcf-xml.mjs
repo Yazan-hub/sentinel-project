@@ -230,7 +230,7 @@ function readTopic(markupXml, folder, read, docs) {
   });
 }
 
-function Markup(t, v3, put, docs, lost) {
+function Markup(t, v3, put, docs, lost, fill = v3) {
   const folder = t.x_folder ?? t.guid;
   const where = `topic ${t.guid}`;
   const L = (cond, what) => { if (cond) lost.add(`${where}: ${what}`); };
@@ -276,9 +276,9 @@ function Markup(t, v3, put, docs, lost) {
   const related = (t.related_topics || []).map((r) => E("RelatedTopic", { Guid: typeof r === "string" ? r : r.related_topic_guid }));
   // 3.0 requires a type, a status and a title that is not blank: the topic's, else what Sentinel gives a new topic.
   const topic = E("Topic", { Guid: t.guid, ServerAssignedId: v3 ? t.server_assigned_id : undefined,
-    TopicType: v3 ? t.topic_type || "Issue" : t.topic_type, TopicStatus: v3 ? t.topic_status || "Open" : t.topic_status }, [
+    TopicType: fill ? t.topic_type || "Issue" : t.topic_type, TopicStatus: fill ? t.topic_status || "Open" : t.topic_status }, [
     ...(v3 ? [wrap("ReferenceLinks", (t.reference_links || []).map((l) => T("ReferenceLink", l)))] : (t.reference_links || []).map((l) => T("ReferenceLink", l))),
-    E("Title", {}, [], v3 && !String(t.title ?? "").trim() ? "Untitled" : t.title ?? ""), T("Priority", t.priority), T("Index", t.index),
+    E("Title", {}, [], fill && !String(t.title ?? "").trim() ? "Untitled" : t.title ?? ""), T("Priority", t.priority), T("Index", t.index),
     ...(v3 ? [wrap("Labels", (t.labels || []).map((l) => T("Label", l)))] : (t.labels || []).map((l) => T("Labels", l))),
     T("CreationDate", t.creation_date), T("CreationAuthor", t.creation_author), T("ModifiedDate", t.modified_date), T("ModifiedAuthor", t.modified_author),
     T("DueDate", t.due_date), T("AssignedTo", t.assigned_to), T("Stage", t.stage), T("Description", t.description), snip,
@@ -335,8 +335,12 @@ export function readBcfZip(bytes, { maxBytes = UNZIP_MAX_BYTES } = {}) {
 }
 
 const uniq = (xs) => [...new Set(xs.filter((x) => x != null && x !== ""))];
-/** Topics → { bytes, lost } as BCF-XML `version` ("2.1" | "3.0"). `lost` lists, in words, what this version cannot carry. */
-export function writeBcfZip(topics, { version = "2.1", project, extra_files = {}, detailed_version } = {}) {
+/** ACC's Issues import takes at most this many issues a file (Autodesk Build help, "Import Issues from BCF File"). */
+export const ACC_ISSUES_PER_FILE = 100;
+/** Topics → { bytes, lost } as BCF-XML `version` ("2.1" | "3.0"). `lost` lists, in words, what this version cannot carry.
+ *  `forAcc`: a 2.1 file for ACC's Issues import, which refuses an issue without a status — every topic gets a type, a status and a
+ *  title (what Sentinel gives a new topic), as 3.0 always does. Valid 2.1 either way. */
+export function writeBcfZip(topics, { version = "2.1", project, extra_files = {}, detailed_version, forAcc = false } = {}) {
   if (version !== "2.1" && version !== "3.0") throw Object.assign(new Error('a BCF export is version "2.1" or "3.0"'), { status: 400 });
   const v3 = version === "3.0";
   const out = {};
@@ -354,7 +358,7 @@ export function writeBcfZip(topics, { version = "2.1", project, extra_files = {}
   if (project && (proj || !v3)) put("project.bcfp", strToU8(doc(v3
     ? E("ProjectInfo", XSI, [proj])
     : E("ProjectExtension", XSI, [proj, E("ExtensionSchema", {}, [], project.extension_schema ?? "")]))));
-  for (const t of topics) put(`${t.x_folder ?? t.guid}/markup.bcf`, strToU8(doc(Markup(t, v3, put, docs, lost))));
+  for (const t of topics) put(`${t.x_folder ?? t.guid}/markup.bcf`, strToU8(doc(Markup(t, v3, put, docs, lost, v3 || forAcc))));
   if (v3) {
     if (Object.keys(docs).length) { // merged into a documents.xml the package already had
       const had = out["documents.xml"] ? kids(kid(parseXml(strFromU8(out["documents.xml"])), "Documents"), "Document") : [];

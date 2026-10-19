@@ -2,7 +2,7 @@
 // The bridge does the reading and writing (bridge/bcf-xml.mjs); spec 2026-10-19-work-alongside-connectors.
 
 export type ImportReply = { version: string; created: number; updated: number; unchanged: number; skipped: { guid: string; title: string; why: string }[] };
-export type ExportInfo = { version: string; topics: number; lost: string[]; lost_total: number };
+export type ExportInfo = { version: string; topics: number; lost: string[]; lost_total: number; for?: string; part?: number; parts?: number };
 
 /** "BCF 2.1 file: 3 new, 1 updated, 2 already up to date. 1 skipped — “Door clash”: its GUID is …" → { text, bad }. */
 export function importSummary(r: ImportReply): { text: string; bad: boolean } {
@@ -13,9 +13,17 @@ export function importSummary(r: ImportReply): { text: string; bad: boolean } {
   return { text: `BCF ${r.version} file: ${parts.join(", ")}.${r.skipped.length ? ` ${r.skipped.length} skipped — ${skipped}${more}.` : ""}`, bad: r.skipped.length > 0 };
 }
 
-/** "Saved demo-bcf2.1.bcfzip — 12 issues as BCF 2.1." plus what that version cannot carry, said, never hidden. */
-export function exportSummary(filename: string, info: ExportInfo | null): { text: string; bad: boolean } {
-  if (!info) return { text: `Saved ${filename}.`, bad: false };
+/** "Saved demo-bcf2.1.bcfzip — 12 issues as BCF 2.1." plus what that version cannot carry, said, never hidden. For ACC, a project
+ *  past 100 issues is several files (ACC imports at most 100 a file): `names` are all of them, `info` the totals. */
+export function exportSummary(filename: string | string[], info: ExportInfo | null): { text: string; bad: boolean } {
+  const names = Array.isArray(filename) ? filename : [filename];
+  if (!info) return { text: `Saved ${names.join(", ")}.`, bad: false };
+  if (info.for === "acc") {
+    const lost = info.lost_total ? ` Not carried by BCF 2.1: ${info.lost.slice(0, 3).join("; ")}${info.lost_total > 3 ? ` (and ${info.lost_total - 3} more)` : ""}.` : "";
+    const files = names.length > 1 ? `${names.length} files (${names.join(", ")}) — ACC imports at most 100 issues a file, so import each one` : names[0];
+    return { text: `Saved ${files} — ${info.topics} issue${info.topics === 1 ? "" : "s"} for ACC (BCF 2.1).${lost}`, bad: info.lost_total > 0 };
+  }
+  const filename1 = names[0];
   const lost = info.lost_total ? ` Not carried by BCF ${info.version}: ${info.lost.slice(0, 3).join("; ")}${info.lost_total > 3 ? ` (and ${info.lost_total - 3} more)` : ""}.` : "";
-  return { text: `Saved ${filename} — ${info.topics} issue${info.topics === 1 ? "" : "s"} as BCF ${info.version}.${lost}`, bad: info.lost_total > 0 };
+  return { text: `Saved ${filename1} — ${info.topics} issue${info.topics === 1 ? "" : "s"} as BCF ${info.version}.${lost}`, bad: info.lost_total > 0 };
 }

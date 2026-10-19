@@ -162,10 +162,10 @@ public sealed class BcfIssuesCommand : IExternalCommand
             var save = new Microsoft.Win32.SaveFileDialog
             {
                 Title = "Export this project's issues as BCF", FileName = $"{bcfKey}-issues.bcfzip", DefaultExt = ".bcfzip",
-                Filter = "BCF 2.1 — for ACC (*.bcfzip)|*.bcfzip|BCF 3.0 (*.bcfzip)|*.bcfzip",
+                Filter = "BCF 2.1 — for ACC (*.bcfzip)|*.bcfzip|BCF 2.1 (*.bcfzip)|*.bcfzip|BCF 3.0 (*.bcfzip)|*.bcfzip",
             };
             if (save.ShowDialog(window) != true) return;
-            var version = save.FilterIndex == 2 ? "3.0" : "2.1";
+            var version = save.FilterIndex switch { 2 => "2.1", 3 => "3.0", _ => "acc" };
             var path = save.FileName;
             window.SetStatus("Exporting…");
             Task.Run(async () =>
@@ -173,8 +173,20 @@ public sealed class BcfIssuesCommand : IExternalCommand
                 try
                 {
                     var bearer = BcfConfig.Load().ServiceToken;
-                    var (file, said) = await sync.ExportBcfAsync(bcfKey, version, () => bearer).ConfigureAwait(false);
-                    if (file != null) { File.WriteAllBytes(path, file); said = $"Saved {Path.GetFileName(path)} — {said}."; }
+                    // For ACC a project past 100 issues comes as parts (ACC imports at most 100 a file): name-1-of-3.bcfzip, …
+                    var saved = new List<string>();
+                    string said = "";
+                    for (int part = 1, parts = 1; part <= parts; part++)
+                    {
+                        var (file, words, n) = await sync.ExportBcfAsync(bcfKey, version, part, () => bearer).ConfigureAwait(false);
+                        said = words;
+                        if (file == null) break;
+                        parts = Math.Max(1, n);
+                        var target = parts == 1 ? path : Path.Combine(Path.GetDirectoryName(path) ?? "", $"{Path.GetFileNameWithoutExtension(path)}-{part}-of-{parts}.bcfzip");
+                        File.WriteAllBytes(target, file);
+                        saved.Add(Path.GetFileName(target));
+                    }
+                    if (saved.Count > 0) said = $"Saved {string.Join(", ", saved)} — {said}{(saved.Count > 1 ? " (the last file's count; ACC imports at most 100 issues a file — import each file)" : "")}.";
                     window.SetOutcome(said);
                 }
                 catch (Exception e) { window.SetOutcome($"Not exported — {e.Message}"); }

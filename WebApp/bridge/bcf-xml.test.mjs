@@ -90,6 +90,14 @@ describe("BCF-XML round trip — buildingSMART test cases", () => {
     expect(b.back.viewpoints[0].components.coloring).toEqual(t.viewpoints[0].components.coloring); // read back through the 3.0 wrapper
   });
 
+  it("for ACC: every 2.1 topic carries a status, a type and a title (ACC refuses an issue without a status); plain 2.1 writes only what the topic has", () => {
+    const t = { guid: "5b6b3c3e-1f2a-4c5d-8e9f-0a1b2c3d4e5f", title: "", comments: [], viewpoints: [] };
+    const markup = (opts) => new TextDecoder().decode(unzipSync(writeBcfZip([t], { version: "2.1", ...opts }).bytes)[`${t.guid}/markup.bcf`]);
+    expect(markup({ forAcc: true })).toMatch(/TopicType="Issue" TopicStatus="Open"/);
+    expect(markup({ forAcc: true })).toMatch(/<Title>Untitled<\/Title>/);
+    expect(markup({})).not.toMatch(/TopicStatus/);
+  });
+
   it("a BCF 2.0 file is refused in words, not half read", () => {
     const z = zipSync({ "bcf.version": new TextEncoder().encode('<Version VersionId="2.0"><DetailedVersion>2.0</DetailedVersion></Version>') });
     expect(() => readBcfZip(z)).toThrow(/BCF 2\.0 file, which Sentinel does not read/);

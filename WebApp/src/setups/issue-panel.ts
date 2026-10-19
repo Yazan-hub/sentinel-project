@@ -135,7 +135,7 @@ export function issuePanel(components: OBC.Components, opts: { bcfBaseUrl?: stri
       `<button id="ip-import" title="Add or update issues from a .bcf/.bcfzip exported by ACC, BIMcollab or another BCF tool" style="${btn};background:#2a2a30;color:#eee">Import BCF…</button>` +
       '<input id="ip-file" type="file" accept=".bcf,.bcfzip" style="display:none"/>' +
       '<span style="flex:1"></span>' +
-      `<select id="ip-ver" title="BCF version of the exported file" style="${inp}"><option value="2.1">for ACC (BCF 2.1)</option><option value="3.0">BCF 3.0</option></select>` +
+      `<select id="ip-ver" title="BCF version of the exported file" style="${inp}"><option value="acc">for ACC (BCF 2.1)</option><option value="2.1">BCF 2.1</option><option value="3.0">BCF 3.0</option></select>` +
       `<button id="ip-export" title="Save every issue of this project as a .bcfzip" style="${btn};background:#2a2a30;color:#eee">Export BCF</button>` +
     "</div>" +
     '<div id="ip-content" style="flex:1;overflow:auto;padding:.5rem .6rem">' +
@@ -277,13 +277,21 @@ export function issuePanel(components: OBC.Components, opts: { bcfBaseUrl?: stri
   const exportBcf = async () => {
     const b = el("ip-export") as HTMLButtonElement; b.disabled = true; msg("Exporting…");
     try {
-      const r = await bfetch(bcfUrl(`export?version=${encodeURIComponent(val("ip-ver"))}`));
-      if (!r.ok) throw new Error((await r.json().catch(() => null))?.message || `HTTP ${r.status}`);
-      const name = /filename="([^"]+)"/.exec(r.headers.get("Content-Disposition") || "")?.[1] || `${projectId()}.bcfzip`;
-      let info: ExportInfo | null = null;
-      try { info = JSON.parse(r.headers.get("X-Sentinel-Export") || "null"); } catch { /* an older bridge says nothing */ }
-      saveAs(await r.blob(), name);
-      const s = exportSummary(name, info); msg((s.bad ? "⚠ " : "✅ ") + s.text, s.bad ? "#eab308" : "#22c55e");
+      const v = val("ip-ver");
+      const q = v === "acc" ? "for=acc" : `version=${encodeURIComponent(v)}`;
+      // For ACC a project past 100 issues comes as parts: each one is fetched and saved, and the totals said once.
+      const names: string[] = [];
+      let info: ExportInfo | null = null, total = 0, lostAll: string[] = [], lostTotal = 0;
+      for (let part = 1, parts = 1; part <= parts; part++) {
+        const r = await bfetch(bcfUrl(`export?${q}&part=${part}`));
+        if (!r.ok) throw new Error((await r.json().catch(() => null))?.message || `HTTP ${r.status}`);
+        const name = /filename="([^"]+)"/.exec(r.headers.get("Content-Disposition") || "")?.[1] || `${projectId()}.bcfzip`;
+        try { info = JSON.parse(r.headers.get("X-Sentinel-Export") || "null"); } catch { info = null; /* an older bridge says nothing */ }
+        parts = info?.parts ?? 1; total += info?.topics ?? 0; lostAll = lostAll.concat(info?.lost ?? []); lostTotal += info?.lost_total ?? 0;
+        saveAs(await r.blob(), name);
+        names.push(name);
+      }
+      const s = exportSummary(names, info ? { ...info, topics: total, lost: lostAll, lost_total: lostTotal } : null); msg((s.bad ? "⚠ " : "✅ ") + s.text, s.bad ? "#eab308" : "#22c55e");
     } catch (e) { msg("❌ " + ((e as Error)?.message ?? String(e)), "#ef4444"); }
     finally { b.disabled = false; }
   };

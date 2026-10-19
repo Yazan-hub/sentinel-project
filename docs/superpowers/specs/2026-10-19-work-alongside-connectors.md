@@ -51,6 +51,14 @@ BCF-XML sample files may be downloaded as fixtures.
 Fixtures: the zipped `.bcf` files from `buildingSMART/BCF-XML` `Test Cases/v2.1` and `v3.0` (commit `bc48611`),
 unmodified, under `WebApp/bridge/fixtures/bcf-xml/` with the CC BY-ND 4.0 notice.
 
+**For ACC (no ACC account to test with — built to Autodesk's documented import rules).** No ACC/BIM 360 BCF export is published
+anywhere public (web, open-source BCF libraries, GitHub code search, 2026-10-20), and the founder has no ACC export to give. So
+"for ACC" follows Autodesk Build help ("Import Issues from BCF File", "About BCF File Format"): `GET …/export?for=acc` writes BCF
+2.1 in which every issue has a status, a type and a title (ACC rejects a file with missing status information), and at most
+**100 issues a file** (ACC's import limit; `&part=k`, the screens fetch every part: `<pid>-for-acc-1-of-3.bcfzip`, …). On import
+ACC opens every issue that is not closed and asks for a default assignee — Sentinel's statuses beyond Open/Closed arrive as Open.
+A real ACC import stays owed to whoever has ACC.
+
 **Screens.**
 - Web, Coordination ▸ Issues: "Import BCF…" (a file picker) and "Export BCF" with a choice "for ACC (2.1)" / "BCF 3.0".
   The import result is shown in words (created, updated, skipped and why).

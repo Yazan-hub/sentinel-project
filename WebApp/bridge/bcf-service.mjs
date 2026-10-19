@@ -2315,13 +2315,20 @@ async function handleRequest(req, res) {
       const mine = () => db.topics.filter((t) => t.project_id === pid);
       if (what === "export" && req.method === "GET") {
         await requireMinRole(pid, "viewer");
-        const version = url.searchParams.get("version") || "2.1";
+        // for=acc: BCF 2.1 to ACC's documented import rules — every issue has a status, and at most 100 issues a file, so a larger
+        // project comes out as parts (?part=1..parts; the screens fetch each one).
+        const forAcc = url.searchParams.get("for") === "acc";
+        const version = forAcc ? "2.1" : url.searchParams.get("version") || "2.1";
         const all = useCde ? await cde.bcfListTopics(pid, { status: "all" }, mine()) : mine();
-        const topics = url.searchParams.get("status") === "open" ? all.filter((t) => !isClosed(t.topic_status)) : all;
-        const { bytes, lost } = bx.writeBcfZip(topics, { version, project: { project_id: pid, name: pid } });
-        const info = JSON.stringify({ version, topics: topics.length, lost: lost.slice(0, 20), lost_total: lost.length })
+        const chosen = url.searchParams.get("status") === "open" ? all.filter((t) => !isClosed(t.topic_status)) : all;
+        const parts = forAcc ? Math.max(1, Math.ceil(chosen.length / bx.ACC_ISSUES_PER_FILE)) : 1;
+        const part = Math.min(parts, Math.max(1, Math.trunc(Number(url.searchParams.get("part"))) || 1));
+        const topics = forAcc ? chosen.slice((part - 1) * bx.ACC_ISSUES_PER_FILE, part * bx.ACC_ISSUES_PER_FILE) : chosen;
+        const { bytes, lost } = bx.writeBcfZip(topics, { version, project: { project_id: pid, name: pid }, forAcc });
+        const filename = forAcc ? `${pid}-for-acc${parts > 1 ? `-${part}-of-${parts}` : ""}.bcfzip` : `${pid}-bcf${version}.bcfzip`;
+        const info = JSON.stringify({ version, for: forAcc ? "acc" : undefined, part, parts, topics: topics.length, lost: lost.slice(0, 20), lost_total: lost.length })
           .replace(/[\u007f-￿]/g, (c) => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0"));
-        res.writeHead(200, { "Content-Type": "application/octet-stream", "Content-Disposition": `attachment; filename="${pid}-bcf${version}.bcfzip"`, "Cache-Control": "no-cache",
+        res.writeHead(200, { "Content-Type": "application/octet-stream", "Content-Disposition": `attachment; filename="${filename}"`, "Cache-Control": "no-cache",
           "X-Sentinel-Export": info, "Access-Control-Expose-Headers": "X-Sentinel-Export, Content-Disposition", ...corsHeaders(res) });
         return res.end(Buffer.from(bytes));
       }
