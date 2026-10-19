@@ -3696,3 +3696,15 @@ Not run: **KUBUS BCF Manager 7.1 (BIMcollab)** — its panel is a CefSharp web v
 | IOS-F found + fixed | the first IOS-C run crashed in bcf-client: the buildingSMART sample embeds its IFC (`Estructura.ifc`, isExternal=false); Sentinel keeps models in its CDE, not inside an issue, but the export still said the model was inside. Fixed 49be7a1e: the export writes such a model as a reference and says so in its "not carried" list; the import reply says "the model file … (564 KB) inside this BCF file is not kept". Re-run above is after the fix | **fixed** |
 
 Owed: BCF Manager / BIMcollab (needs a BIMcollab account the founder does not have) and an ACC Issues import (needs ACC); the "for ACC" export follows Autodesk's documented rules (status on every issue, ≤100 a file). vitest 201 files, 4140 passed.
+
+## Session PBI — Power BI Desktop reads the data feed (2026-10-20 local; master c72899ac, web 1.0.102, 4100 on it, through the Funnel; Power BI Desktop 2.140 on this PC; Claude driving on the founder's "do it yourself", the founder pasting the key — a key is typed into another company's app by its owner only)
+
+| Row | What happened | Result |
+|---|---|---|
+| PBI-0 key from the screen | the founder made a key on Lifecycle ▸ Data feed (label "Power BI", 23:12:54 UTC) — the screen's Make a feed key, live, under his sign-in (RLS insert of his own row) | **pass** |
+| PBI-1 connect | Power BI ▸ Get data ▸ Web ▸ `https://4374ga.tailfae508.ts.net/feed/benchmark-hospital/elements.csv` → Power BI got the 401 + `WWW-Authenticate: Basic` and opened "Access Web content" → Basic, user name `feed`, the key pasted by the founder → Connect → preview: UTF-8, comma, the documented columns, `revision_date` read as a date | **pass** |
+| PBI-2 load | Load → "Table: elements (12,670 rows)" — the newest complete revision, no 1000-row cut | **pass** |
+| PBI-3 refresh | Home ▸ Refresh, twice: no error; Supabase's edge log shows each refresh as 3 `POST /rpc/feed_rows` 200s; the key's `last_used_at` follows (23:26:25) | **pass** |
+| PBI-4 revoke | a revoked key → 401 through the Funnel (Claude's own test key, revoked after). The founder's "Power BI" key stays live and in use, so Power BI's own revoke message was not shown | **pass (route)** |
+
+Note: Claude's separate test key (put on the clipboard) went unused — the founder had already copied his own key from the screen, which is the real user flow. Power BI was left open with the loaded table (unsaved).
