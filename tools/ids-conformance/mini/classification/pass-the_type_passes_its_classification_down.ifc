@@ -1,0 +1,17 @@
+ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('ViewDefinition[DesignTransferView]'),'2;1');
+FILE_NAME('/dev/null','2026-10-20T19:04:45+02:00',(''),(''),'IfcOpenShell 0.9.0.post1','IfcOpenShell 0.9.0.post1','Nobody');
+FILE_SCHEMA(('IFC4'));
+ENDSEC;
+DATA;
+#1=IFCPROJECT('3Ty4WJefD5JellhDdKd4dd',$,'Mini',$,$,$,$,$,$);
+#2=IFCWALLTYPE('3VkQQr0TT69hryH9EM2NO6',$,'WT1',$,$,$,$,$,$,.SOLIDWALL.);
+#3=IFCWALL('248Gt4_Qr3yeh_t9P4iAGq',$,'W1',$,$,$,$,$,$);
+#4=IFCRELDEFINESBYTYPE('0sQ2DMHbPFeAa7syQ63gjJ',$,$,$,(#3),#2);
+#5=IFCCLASSIFICATION($,$,$,'Uniclass',$,$,$);
+#6=IFCRELASSOCIATESCLASSIFICATION('0SpQ2qwYf2j8JRZGFm2eDU',$,$,$,(#1),#5);
+#7=IFCCLASSIFICATIONREFERENCE($,'EF_25_10','EF_25_10',#5,$,$);
+#8=IFCRELASSOCIATESCLASSIFICATION('2K8ftyInn5cg6kh$DokdNw',$,$,$,(#2),#7);
+ENDSEC;
+END-ISO-10303-21;

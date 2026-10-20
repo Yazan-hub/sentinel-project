@@ -1445,6 +1445,8 @@ function applies(spec, el) {
   const unmet = [];
   for (const a of spec.applicability.attributes ?? []) checkFacet({ ...a, cardinality: "required" }, attrValues(el, a), spec, attrLabel(a), unmet);
   for (const p of spec.applicability.properties ?? []) checkFacet({ ...p, cardinality: "required" }, propRows(el, p, spec.ids10), spec, propLabel(p), unmet);
+  for (const c of spec.applicability.classifications ?? []) checkClassification({ ...c, cardinality: "required" }, el, spec, unmet);
+  for (const m of spec.applicability.materials ?? []) checkMaterial({ ...m, cardinality: "required" }, el, spec, unmet);
   return unmet.length === 0;
 }
 function isEntity(a, el, ids10) {
@@ -1493,8 +1495,15 @@ function validateElement(spec, el) {
     }
     for (const a of s.requirements?.attributes ?? []) checkFacet(a, attrValues(el, a), s, attrLabel(a), failures);
     for (const p of s.requirements?.properties ?? []) checkFacet(p, propRows(el, p, s.ids10), s, propLabel(p), failures);
+    for (const c of s.requirements?.classifications ?? []) checkClassification(c, el, s, failures);
+    for (const m of s.requirements?.materials ?? []) checkMaterial(m, el, s, failures);
   }
   return { inScope, pass: failures.length === 0, failures };
+}
+function unreadFacets(spec, els) {
+  const has = (s, k) => !!(s.applicability[k]?.length || s.requirements[k]?.length);
+  const carried = { classifications: els.some((e) => e.classifications), materials: els.some((e) => e.material !== void 0) };
+  return (spec.specifications ?? []).map((s) => ({ specification: s, facets: ["classifications", "materials"].filter((k) => has(s, k) && !carried[k]).map((k) => k === "classifications" ? "classification" : "material") })).filter((x) => x.facets.length);
 }
 function checkFacet(f, actuals, s, label, out) {
   const present = actuals.filter((a) => a?.value != null && a.value !== "");
@@ -1515,6 +1524,32 @@ function checkFacet(f, actuals, s, label, out) {
   }
   for (const w of wrong) push(w);
 }
+function checkClassification(f, el, s, out) {
+  const refs = el.classifications ?? [];
+  const ok = (!stated(f) || refs.some((r) => r.value != null && fits(f, r.value, s.ids10))) && refs.some((r) => r.system != null && fits(f.system, r.system, s.ids10));
+  const label = `classification ${says(f.system)}${stated(f) ? ` ${says(f)}` : ""}`;
+  const actual = refs.map((r) => `${r.system ?? "no system"} ${r.value ?? ""}`.trim()).join(", ");
+  judgeHas(f.cardinality, refs.length > 0, ok, label, actual, s, out);
+}
+function checkMaterial(f, el, s, out) {
+  const m = el.material ?? null;
+  judgeHas(f.cardinality, m != null, m != null && (!stated(f) || m.some((v) => fits(f, v, s.ids10))), `material${stated(f) ? ` ${says(f)}` : ""}`, (m ?? []).join(", ") || "unnamed", s, out);
+}
+function judgeHas(card, present, ok, label, actual, s, out) {
+  const push = (reason) => out.push({ specification: s.name, requirement: label, reason });
+  if (card === "prohibited") {
+    if (ok) push(`is ${actual}, which it must not be`);
+    return;
+  }
+  if (!present) {
+    if (card === "required") push("REQUIRED but missing");
+    return;
+  }
+  if (!ok) push(`is ${actual}, required ${label}`);
+}
+var stated = (v) => v.value != null || v.pattern != null || !!v.enumeration || !!v.bounds || !!v.length;
+var fits = (v, actual, ids10) => !mismatches({ ...v, name: "", cardinality: "required" }, actual, void 0, ids10).length;
+var says = (v) => v.value != null ? `"${v.value}"` : v.pattern != null ? `/${v.pattern}/` : v.enumeration ? `one of ${v.enumeration.join(", ")}` : "a restricted value";
 var attrLabel = (a) => `@${a.namePattern ? `/${a.namePattern}/` : a.name}`;
 var propLabel = (p) => `${p.psetPattern ? `/${p.psetPattern}/` : p.pset}.${p.namePattern ? `/${p.namePattern}/` : p.name}`;
 function safeRe(p) {
@@ -1738,6 +1773,7 @@ function parseIds(xml) {
     const facets = (parent, where) => {
       const sayHere = say(where);
       const attributes = [], properties = [];
+      const classifications = [], materials = [];
       let entity;
       for (const f of parent ? kids(parent) : []) {
         const card = where === "applicability" ? "required" : cardinalityOf(f);
@@ -1759,19 +1795,27 @@ function parseIds(xml) {
             ...value,
             cardinality: card
           });
-        } else if (["classification", "material", "partOf"].includes(f.localName)) sayHere(`the ${f.localName} facet \u2014 Sentinel does not read it yet`);
+        } else if (f.localName === "classification") {
+          const sys = readValue(kid(f, "system"));
+          if (!sys) sayHere("a classification facet with no system");
+          if (sys?.other.length) sayHere(`a classification system restricted by ${sys.other.join(", ")}`);
+          const { other: _, ...system } = sys ?? { other: [] };
+          classifications.push({ ...value, system, cardinality: card });
+        } else if (f.localName === "material") materials.push({ ...value, cardinality: card });
+        else if (f.localName === "partOf") sayHere("the partOf facet \u2014 Sentinel does not read it yet");
       }
-      return { entity, attributes, properties };
+      return { entity, attributes, properties, classifications, materials };
     };
     const appl = facets(applEl, "applicability");
     const req = facets(reqEl, "requirements");
     const min = Number(applEl?.getAttribute("minOccurs") || specEl.getAttribute("minOccurs") || (applEl ? 1 : 0));
     const max = applEl?.getAttribute("maxOccurs") || specEl.getAttribute("maxOccurs") || "unbounded";
     const cardinality = max === "0" ? "prohibited" : min >= 1 ? "required" : void 0;
+    const some = (x, k) => x[k].length ? { [k]: x[k] } : {};
     specifications.push({
       name,
-      applicability: { ...appl.entity ?? {}, ...appl.attributes.length ? { attributes: appl.attributes } : {}, ...appl.properties.length ? { properties: appl.properties } : {} },
-      requirements: { properties: req.properties, attributes: req.attributes, ...req.entity ? { entity: req.entity } : {} },
+      applicability: { ...appl.entity ?? {}, ...some(appl, "attributes"), ...some(appl, "properties"), ...some(appl, "classifications"), ...some(appl, "materials") },
+      requirements: { properties: req.properties, attributes: req.attributes, ...req.entity ? { entity: req.entity } : {}, ...some(req, "classifications"), ...some(req, "materials") },
       ...cardinality ? { cardinality } : {},
       ids10: true
     });
@@ -1807,9 +1851,23 @@ var QTY_TYPES = {
 };
 var PROPERTY_DATA_CONFIG = {
   attributesDefault: true,
-  relations: PSET_RELATIONS,
+  relations: {
+    ...PSET_RELATIONS,
+    AssociatedTo: { attributes: false, relations: false },
+    ...Object.fromEntries(["HasAssociations", "ForLayerSet", "ForProfileSet", "MaterialLayers", "MaterialProfiles", "MaterialConstituents", "Materials", "Material"].map((k) => [k, { attributes: true, relations: true }]))
+  },
   relationsDefault: { attributes: false, relations: false }
 };
+function materialValues(m) {
+  const all = (x) => Array.isArray(x) ? x : x && typeof x === "object" ? [x] : [];
+  const cls = String(val(m?._category) ?? "").toUpperCase();
+  if (cls === "IFCMATERIALLAYERSETUSAGE") return materialValues(all(m.ForLayerSet)[0]);
+  if (/^IFCMATERIALPROFILESETUSAGE/.test(cls)) return materialValues(all(m.ForProfileSet)[0]);
+  const own = (x) => [val(x?.Name), val(x?.Category)];
+  const items = all(m?.MaterialLayers ?? m?.MaterialProfiles ?? m?.MaterialConstituents);
+  const vs = cls === "IFCMATERIALLIST" ? all(m.Materials).flatMap(own) : /SET$/.test(cls) ? [cls === "IFCMATERIALLAYERSET" ? val(m.LayerSetName) : val(m.Name), ...items.flatMap((i) => [...own(i), ...own(all(i.Material)[0])])] : own(m);
+  return [...new Set(vs.filter((v) => v != null))];
+}
 function parseElementProperties(data, modelId, localId) {
   const identity = {
     GlobalId: val(data?.["_guid"]) ?? val(data?.["GlobalId"]),
@@ -1863,7 +1921,9 @@ function parseElementProperties(data, modelId, localId) {
   }
   psets.sort((a, b) => a.name.localeCompare(b.name));
   quantities.sort((a, b) => a.name.localeCompare(b.name));
-  return type ? { modelId, localId, identity, psets, quantities, type } : { modelId, localId, identity, psets, quantities };
+  const matOf = (x) => arr(x?.["HasAssociations"]).find((a) => /^IFCMATERIAL/.test(String(val(a?.["_category"]) ?? "").toUpperCase()));
+  const m = matOf(data) ?? matOf(typeItem);
+  return { modelId, localId, identity, psets, quantities, ...type ? { type } : {}, material: m ? materialValues(m) : null };
 }
 
 // src/sentinel-core/layers.ts
@@ -2306,6 +2366,7 @@ export {
   levelSequence,
   loaBand,
   mapLayer,
+  materialValues,
   missingFields,
   missingRequired,
   nameShape,
@@ -2328,6 +2389,7 @@ export {
   taskInformation,
   toCobieCsv,
   toElementGraph,
+  unreadFacets,
   validateAgainstCatalog,
   validateContainerName,
   validateElement,

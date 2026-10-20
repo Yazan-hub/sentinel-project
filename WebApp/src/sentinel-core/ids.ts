@@ -35,19 +35,29 @@ export interface IdsAttributeFacet extends IdsValueRestrictions {
   cardinality: Cardinality;
   namePattern?: string; // attributes named by a pattern or a list (parseIds): every matching one is judged
 }
+/** One IDS value: a simpleValue or the restrictions (parseIds). */
+export type IdsValue = IdsValueRestrictions & { value?: string; pattern?: string };
+/** An IDS 1.0 classification facet (parseIds): a reference whose Identification (IFC2X3: ItemReference) meets `value`, if
+ *  given, and one whose system's Name meets `system` — each judged on its own over every reference, as IfcTester does. */
+export interface IdsClassificationFacet extends IdsValue { system: IdsValue; cardinality: Cardinality }
+/** An IDS 1.0 material facet (parseIds): any material; with a value, one of its names or categories (ElementProperties.material). */
+export interface IdsMaterialFacet extends IdsValue { cardinality: Cardinality }
 export interface IdsApplicability {
   entity?: string; // IFC class (regex, case-insensitive), e.g. "IFCWALL"
   predefinedType?: string;
   predefinedTypePattern?: string; // a predefined type given as a pattern or a list (parseIds: an anchored regex)
-  /** IDS 1.0 lets applicability hold attribute and property facets too: an element applies only when it meets each. */
+  /** IDS 1.0 lets applicability hold attribute, property, classification and material facets too: an element applies only when it meets each. */
   attributes?: IdsAttributeFacet[];
   properties?: IdsPropertyFacet[];
+  classifications?: IdsClassificationFacet[];
+  materials?: IdsMaterialFacet[];
 }
 export interface IdsSpecification {
   name: string;
   applicability: IdsApplicability;
   /** `entity`: an entity facet among the requirements — the element must be that class. */
-  requirements: { properties: IdsPropertyFacet[]; attributes: IdsAttributeFacet[]; entity?: IdsApplicability };
+  requirements: { properties: IdsPropertyFacet[]; attributes: IdsAttributeFacet[]; entity?: IdsApplicability;
+    classifications?: IdsClassificationFacet[]; materials?: IdsMaterialFacet[] };
   /** IDS 1.0 specification cardinality (applicability minOccurs/maxOccurs): "required" = at least one element must apply (judged
    *  on a whole model only, judgeModel); "prohibited" = no element may apply. Absent = optional. */
   cardinality?: Cardinality;
@@ -84,6 +94,8 @@ export function applies(spec: IdsSpecification, el: ElementProperties): boolean 
   const unmet: Failure[] = [];
   for (const a of spec.applicability.attributes ?? []) checkFacet({ ...a, cardinality: "required" }, attrValues(el, a), spec, attrLabel(a), unmet);
   for (const p of spec.applicability.properties ?? []) checkFacet({ ...p, cardinality: "required" }, propRows(el, p, spec.ids10), spec, propLabel(p), unmet);
+  for (const c of spec.applicability.classifications ?? []) checkClassification({ ...c, cardinality: "required" }, el, spec, unmet);
+  for (const m of spec.applicability.materials ?? []) checkMaterial({ ...m, cardinality: "required" }, el, spec, unmet);
   return unmet.length === 0;
 }
 
@@ -136,8 +148,19 @@ export function validateElement(spec: IdsSpec, el: ElementProperties): ElementRe
     }
     for (const a of s.requirements?.attributes ?? []) checkFacet(a, attrValues(el, a), s, attrLabel(a), failures);
     for (const p of s.requirements?.properties ?? []) checkFacet(p, propRows(el, p, s.ids10), s, propLabel(p), failures);
+    for (const c of s.requirements?.classifications ?? []) checkClassification(c, el, s, failures);
+    for (const m of s.requirements?.materials ?? []) checkMaterial(m, el, s, failures);
   }
   return { inScope, pass: failures.length === 0, failures };
+}
+
+/** The specifications that name a facet this model's reader carries for no element (the viewer's fragments model drops
+ *  classifications): judging them would read every element as unclassified, so they are said as "not checked" instead. */
+export function unreadFacets(spec: IdsSpec, els: ElementProperties[]): { specification: IdsSpecification; facets: string[] }[] {
+  const has = (s: IdsSpecification, k: "classifications" | "materials") => !!(s.applicability[k]?.length || s.requirements[k]?.length);
+  const carried = { classifications: els.some((e) => e.classifications), materials: els.some((e) => e.material !== undefined) };
+  return (spec.specifications ?? []).map((s) => ({ specification: s, facets: (["classifications", "materials"] as const)
+    .filter((k) => has(s, k) && !carried[k]).map((k) => (k === "classifications" ? "classification" : "material")) })).filter((x) => x.facets.length);
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -164,6 +187,33 @@ function checkFacet(f: Facet, actuals: Actual[], s: IdsSpecification, label: str
   }
   for (const w of wrong) push(w); // present → value / pattern / restriction checks (apply to required and optional-present)
 }
+
+/** IfcTester's classification facet: some reference (own, else the type's per system; with every reference above it) meets the
+ *  value, if given, and some reference's system meets the system. Optional and none → fine; prohibited fails where required passes. */
+function checkClassification(f: IdsClassificationFacet, el: ElementProperties, s: IdsSpecification, out: Failure[]): void {
+  const refs = el.classifications ?? [];
+  const ok = (!stated(f) || refs.some((r) => r.value != null && fits(f, r.value, s.ids10))) && refs.some((r) => r.system != null && fits(f.system, r.system, s.ids10));
+  const label = `classification ${says(f.system)}${stated(f) ? ` ${says(f)}` : ""}`;
+  const actual = refs.map((r) => `${r.system ?? "no system"} ${r.value ?? ""}`.trim()).join(", ");
+  judgeHas(f.cardinality, refs.length > 0, ok, label, actual, s, out);
+}
+
+/** IfcTester's material facet: the element's material (own, else its type's); with a value, one of its names or categories. */
+function checkMaterial(f: IdsMaterialFacet, el: ElementProperties, s: IdsSpecification, out: Failure[]): void {
+  const m = el.material ?? null;
+  judgeHas(f.cardinality, m != null, m != null && (!stated(f) || m.some((v) => fits(f, v, s.ids10))), `material${stated(f) ? ` ${says(f)}` : ""}`, (m ?? []).join(", ") || "unnamed", s, out);
+}
+
+function judgeHas(card: Cardinality, present: boolean, ok: boolean, label: string, actual: string, s: IdsSpecification, out: Failure[]): void {
+  const push = (reason: string) => out.push({ specification: s.name, requirement: label, reason });
+  if (card === "prohibited") { if (ok) push(`is ${actual}, which it must not be`); return; }
+  if (!present) { if (card === "required") push("REQUIRED but missing"); return; }
+  if (!ok) push(`is ${actual}, required ${label}`);
+}
+
+const stated = (v: IdsValue) => v.value != null || v.pattern != null || !!v.enumeration || !!v.bounds || !!v.length;
+const fits = (v: IdsValue, actual: string, ids10?: boolean) => !mismatches({ ...v, name: "", cardinality: "required" }, actual, undefined, ids10).length;
+const says = (v: IdsValue) => (v.value != null ? `"${v.value}"` : v.pattern != null ? `/${v.pattern}/` : v.enumeration ? `one of ${v.enumeration.join(", ")}` : "a restricted value");
 
 const attrLabel = (a: IdsAttributeFacet) => `@${a.namePattern ? `/${a.namePattern}/` : a.name}`;
 const propLabel = (p: IdsPropertyFacet) => `${p.psetPattern ? `/${p.psetPattern}/` : p.pset}.${p.namePattern ? `/${p.namePattern}/` : p.name}`;

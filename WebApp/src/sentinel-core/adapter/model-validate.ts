@@ -4,7 +4,7 @@
 
 import type * as OBC from "@thatopen/components";
 import { parseElementProperties, PROPERTY_DATA_CONFIG, type ElementProperties } from "./element-properties";
-import { validateElement, missingRequired, type IdsSpec, type ElementResult, type Failure } from "../ids";
+import { validateElement, missingRequired, unreadFacets, type IdsSpec, type ElementResult, type Failure } from "../ids";
 
 export interface ModelValidation {
   modelId: string;
@@ -34,13 +34,15 @@ export async function validateModels(
     const data = await model.getItemsData(ids, PROPERTY_DATA_CONFIG as any);
     const results: { localId: number; guid?: string; result: ElementResult }[] = [];
     const failuresByRequirement: Record<string, number> = {};
-    const els: ElementProperties[] = [];
+    const els: ElementProperties[] = ids.map((id, i) => parseElementProperties(data[i], model.modelId, id));
+    // A specification naming a facet this model's reader does not carry (classification, in the viewer) is not judged: said instead.
+    const unread = unreadFacets(spec, els);
+    const judged: IdsSpec = { ...spec, specifications: spec.specifications.filter((s) => !unread.some((u) => u.specification === s)) };
     let compliant = 0, failing = 0, total = 0;
 
     for (let i = 0; i < ids.length; i++) {
-      const el = parseElementProperties(data[i], model.modelId, ids[i]);
-      els.push(el);
-      const r = validateElement(spec, el);
+      const el = els[i];
+      const r = validateElement(judged, el);
       if (!r.inScope) continue;
       total++;
       if (r.pass) { compliant++; } else {
@@ -56,7 +58,8 @@ export async function validateModels(
     const typed = spec.specifications.flatMap((s) => (s.ids10 ? s.requirements.properties.map((p) => p.datatype).filter(Boolean) : []));
     const notChecked = typed.length && !els.some((e) => [...e.psets, ...e.quantities].some((g) => g.rows.some((r) => r.type)))
       ? [`dataType (${[...new Set(typed)].join(", ")}): this model's properties carry no value types`] : [];
-    out.push({ modelId: model.modelId, scanned: ids.length, total, compliant, failing, failuresByRequirement, results, specFailures: missingRequired(spec, els), notChecked });
+    for (const u of unread) notChecked.push(`${u.specification.name}: the ${u.facets.join(" and ")} facet — the viewer's model does not carry it`);
+    out.push({ modelId: model.modelId, scanned: ids.length, total, compliant, failing, failuresByRequirement, results, specFailures: missingRequired(judged, els), notChecked });
   }
   return out;
 }

@@ -31,6 +31,11 @@ export interface ElementProperties {
   quantities: PropGroup[]; // Qto_* quantity sets
   /** The element's type object, where the reader relates it: an IDS predefinedType is inherited from it. */
   type?: { Class?: string; PredefinedType?: string; ElementType?: string; ProcessType?: string };
+  /** IDS classification: every reference (own, else the type's per system), and every reference above each, with its system's
+   *  Name. Unset = this reader does not read classifications (the viewer's fragments model drops them); [] = none. */
+  classifications?: { value?: string; system?: string }[];
+  /** IDS material: materialValues of the element's material, else its type's. Unset = not read; null = none. */
+  material?: string[] | null;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -64,12 +69,37 @@ export const PSET_RELATIONS = {
 const QTY_TYPES = { LengthValue: "IFCLENGTHMEASURE", AreaValue: "IFCAREAMEASURE", VolumeValue: "IFCVOLUMEMEASURE",
   CountValue: "IFCCOUNTMEASURE", WeightValue: "IFCMASSMEASURE" } as const;
 
-/** getItemsData options that pull attributes + Pset/Qto sets (shared by single + bulk paths). */
+/** getItemsData options that pull attributes + Pset/Qto sets, and the material (the IDS checker and the Properties palette;
+ *  the bulk readers keep PSET_RELATIONS). Fragments relate an element's material straight under HasAssociations, with its
+ *  layers, profiles, constituents and materials below, each relation named (an unnamed one takes relationsDefault and its
+ *  attributes are lost); AssociatedTo, the material's link back to every element, is cut. */
 export const PROPERTY_DATA_CONFIG = {
   attributesDefault: true,
-  relations: PSET_RELATIONS,
+  relations: { ...PSET_RELATIONS, AssociatedTo: { attributes: false, relations: false },
+    ...Object.fromEntries(["HasAssociations", "ForLayerSet", "ForProfileSet", "MaterialLayers", "MaterialProfiles", "MaterialConstituents", "Materials", "Material"]
+      .map((k) => [k, { attributes: true, relations: true }])) },
   relationsDefault: { attributes: false, relations: false },
 };
+
+/** An IDS material facet's values, as IfcTester reads them (ifcopenshell get_material, a set usage read as its set): a material's
+ *  Name and Category; a list's materials'; a layer, profile or constituent set's own name and each item's Name, Category and
+ *  material's Name and Category. `m` is a material item as either reader holds it: attributes wrapped as {value}, its class in
+ *  `_category`, a reference one item or a list. [] = a material with no names. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function materialValues(m: any): string[] {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const all = (x: any): any[] => (Array.isArray(x) ? x : x && typeof x === "object" ? [x] : []);
+  const cls = String(val(m?._category) ?? "").toUpperCase();
+  if (cls === "IFCMATERIALLAYERSETUSAGE") return materialValues(all(m.ForLayerSet)[0]);
+  if (/^IFCMATERIALPROFILESETUSAGE/.test(cls)) return materialValues(all(m.ForProfileSet)[0]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const own = (x: any) => [val(x?.Name), val(x?.Category)];
+  const items = all(m?.MaterialLayers ?? m?.MaterialProfiles ?? m?.MaterialConstituents);
+  const vs = cls === "IFCMATERIALLIST" ? all(m.Materials).flatMap(own)
+    : /SET$/.test(cls) ? [cls === "IFCMATERIALLAYERSET" ? val(m.LayerSetName) : val(m.Name), ...items.flatMap((i) => [...own(i), ...own(all(i.Material)[0])])]
+    : own(m);
+  return [...new Set(vs.filter((v): v is string => v != null))];
+}
 
 /** Extract a single element's identity + all property/quantity sets from a fragments model. */
 export async function extractElementProperties(
@@ -147,5 +177,10 @@ export function parseElementProperties(data: any, modelId: string, localId: numb
 
   psets.sort((a, b) => a.name.localeCompare(b.name));
   quantities.sort((a, b) => a.name.localeCompare(b.name));
-  return type ? { modelId, localId, identity, psets, quantities, type } : { modelId, localId, identity, psets, quantities };
+  // The material, own else the type's (every caller fetches with PROPERTY_DATA_CONFIG, which asks for HasAssociations).
+  // Classifications stay unset: That Open's fragments importer keeps no IfcClassificationReference (seen 2026-10-20).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const matOf = (x: any) => arr(x?.["HasAssociations"]).find((a) => /^IFCMATERIAL/.test(String(val(a?.["_category"]) ?? "").toUpperCase()));
+  const m = matOf(data) ?? matOf(typeItem);
+  return { modelId, localId, identity, psets, quantities, ...(type ? { type } : {}), material: m ? materialValues(m) : null };
 }

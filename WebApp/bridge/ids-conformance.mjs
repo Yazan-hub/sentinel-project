@@ -65,6 +65,8 @@ export async function runCase(c, reader = "viewer") {
   if (spec.unsupported?.length) return { ...row, got: "not checked", why: spec.unsupported.join("; ") };
   let elements;
   try { elements = await readModel(readFileSync(c.ifc), reader); } catch (e) { return { ...row, got: "refused", why: `the ${reader} reader could not read the IFC (${e.message})` }; }
+  const unread = core.unreadFacets(spec, elements); // a facet this reader does not carry (the viewer: classification) is said, never judged
+  if (unread.length) return { ...row, got: "not checked", why: unread.map((u) => `${u.specification.name}: the ${u.facets.join(" and ")} facet — the ${reader} reader does not carry it`).join("; ") };
   const r = core.judgeModel(spec, elements);
   return { ...row, got: r.pass ? "pass" : "fail", why: r.failures.slice(0, 3).map((f) => `${f.requirement}: ${f.reason}`).join("; ") };
 }
