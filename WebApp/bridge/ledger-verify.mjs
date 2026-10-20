@@ -297,7 +297,10 @@ export function verifyPack(pack, opts = {}) {
   }
   if (from > 1) note(`${late ? "the other rows" : "every row"} up to seq ${from - 1} ${late ? "were" : "was"} fixed in time within a day of being written`);
   if (!anchors.length) note("the chain holds no external timestamp yet: it is checked, but not fixed in time by a third party");
-  else if (last && c.head && last.project_seq + 1 < c.head.project_seq) note(`seq ${last.project_seq + 2} to ${c.head.project_seq} are newer than the last external timestamp (chained, not yet fixed in time)`);
+  else if (last && c.head && last.project_seq + 1 < c.head.project_seq) {
+    const from = last.project_seq + 2, to = c.head.project_seq;
+    note(`${from === to ? `seq ${to} is` : `seq ${from} to ${to} are`} newer than the last external timestamp (chained, not yet fixed in time)`);
+  }
   if (anchors.length) note("certificate revocation is not checked offline");
   note("the strongest check: keep each pack you are sent and pass its head with --expect <seq>:<hash> next time — a rewritten history cannot extend it");
   return { ok, lines, last_timestamp: last };

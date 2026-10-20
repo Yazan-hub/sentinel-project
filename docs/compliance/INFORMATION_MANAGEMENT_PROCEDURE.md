@@ -76,7 +76,9 @@ functions are the ones in `docs/handbook/04-core-workflows.md` and `05-capabilit
 2. **The record:** the ledger is append-only and hash-chained at the database (migrations 0002, 0015); the project's
    **audit pack** (`GET /cde/:key/audit-pack`, a lead's; named the evidence pack until MA-4a) gathers the standards in force, the documents, the
    containers and versions, the review chains and every ledger row with its hashes into one JSON sealed by sha256 — the
-   file to hand an assessor.
+   file to hand an assessor. Since 2026-10-20 it also carries the project's own hash chain and its external (RFC 3161)
+   timestamps: Project Settings ▸ audit pack shows *Last external timestamp: <date>, verified*; a lead can press *Timestamp
+   now*; *Download the verifier* gives the one file the assessor runs (`node ledger-verify.mjs <pack>`) to check it all offline.
 
 ## Security (ISO 19650-5 questions)
 

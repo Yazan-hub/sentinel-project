@@ -111,7 +111,7 @@ describe("a whole pack, as the auditor runs it", () => {
     expect(r.last_timestamp).toMatchObject({ project_seq: 2, tsa: "Sentinel Test TSA RSA" });
     expect(r.lines.join("\n")).toMatch(/PASS {2}the project chain: 4 row\(s\)/);
     expect(r.lines.join("\n")).toMatch(/PASS {2}seq 2 was fixed in time by Sentinel Test TSA RSA/);
-    expect(r.lines.join("\n")).toMatch(/NOTE {2}seq 4 to 4 are newer than the last external timestamp/);
+    expect(r.lines.join("\n")).toMatch(/NOTE {2}seq 4 is newer than the last external timestamp/);
     expect(r.lines.join("\n")).toMatch(/revocation is not checked/);
   });
 
