@@ -8,8 +8,10 @@
 --   platform admin or hold the lead role on the OLD office. The service key (no auth.uid()) is unchanged, as in 0033.
 --   The bridge refuses the same change first, in the same words (cde-store.mjs updateProject).
 --
--- NOT YET APPLIED — the founder applies it. Dry-run: on PGlite with every migration (bridge/migration-0046.test.mjs).
--- Probe: probes/0046_probe.sql (part 1 after the apply: its summary line is the pass).
+-- APPLIED 2026-10-20 local on the founder's "Apply 0046" (migration 0046_office_leave_guard, project autqqtwhxqrfjaztablm, after
+-- 0045_project_chain); the live function body was 0033's before it. probes/0046_probe.sql part 0 "true, false" before the apply and
+-- "true, true" after (still security definer, search_path public, auth); part 1 "PROBE 0046: 5 of 5 as expected." (rolled back; 0
+-- probe projects, 0 probe users after). Dry-run: on PGlite with every migration (bridge/migration-0046.test.mjs).
 --
 -- ROLLBACK (if needed): re-run 0033_trust_boundaries.sql's section 2 (create or replace function public.projects_office_guard …).
 

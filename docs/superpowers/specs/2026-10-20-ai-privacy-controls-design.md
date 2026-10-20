@@ -74,7 +74,7 @@ lock AI to this network (local-only), and show that the bridge and the add-in ph
 - **H2** A project lead could leave the office (detach, or move to another office they lead) and so drop its lock. Leaving
   an office now needs a lead of that office, a platform admin or the machine credential: in the bridge (`updateProject`)
   and in the database (migration `0046_office_leave_guard.sql`, PGlite dry-run in `bridge/migration-0046.test.mjs`, live
-  probe `probes/0046_probe.sql`). **Until 0046 is applied, a lead can still detach straight through the database API.**
+  probe `probes/0046_probe.sql`). **Applied 2026-10-20 on the founder's OK; the live probe passed 5 of 5.**
 - **M1** `GET /ai/policy?terms=1` (every name and e-mail of the project and its office) answers the machine credential only.
 - **M2** The e-mail pattern is bounded (a megabyte of letters scanned in milliseconds, not minutes); terms over 200
   characters are dropped.
