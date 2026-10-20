@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { validateElement, applies, adjudicate, groupFailuresForBcf, raisedIdsTitleKey, DEMO_IDS, type IdsSpec, type Failure } from "./ids";
+import { validateElement, applies, adjudicate, judgeModel, groupFailuresForBcf, raisedIdsTitleKey, DEMO_IDS, type IdsSpec, type Failure } from "./ids";
 import type { ElementProperties } from "./adapter/element-properties";
 
 const elem = (cls: string, name: string | undefined, psets: { name: string; rows: { name: string; value: string }[] }[] = [], guid = "G"): ElementProperties => ({
@@ -169,5 +169,70 @@ describe("groupFailuresForBcf (governed reject → one issue per requirement)", 
       fail("A", "r1", "e3"),
     ]);
     expect(groups[0]).toMatchObject({ count: 3, guids: ["e3"] });
+  });
+});
+
+// IDS 1.0's rules as IfcTester reads them, for a specification read from an .ids file (ids10). The end-to-end proof is
+// bridge/ids-conformance.test.mjs on tools/ids-conformance/mini (labels stamped by IfcTester); these pin the judge itself.
+describe("IDS 1.0 rules (ids10)", () => {
+  const wall = (rows: { name: string; value: string; type?: string }[], name = "W") => elem("IFCWALL", name, [{ name: "Pset_WallCommon", rows }]);
+  const one = (req: Partial<IdsSpec["specifications"][0]["requirements"]>, extra: object = {}): IdsSpec => ({
+    title: "t", specifications: [{ name: "s", applicability: { entity: "^IFCWALL$" }, requirements: { attributes: [], properties: [], ...req }, ids10: true, ...extra }],
+  });
+  const prop = (f: object) => one({ properties: [{ pset: "Pset_WallCommon", name: "FireRating", cardinality: "required", ...f }] });
+
+  it("text is case-sensitive, a number matches within 1e-6 — Sentinel's own IDS stays case-insensitive", () => {
+    expect(validateElement(prop({ value: "REI60" }), wall([{ name: "FireRating", value: "rei60" }])).pass).toBe(false);
+    expect(validateElement({ ...prop({ value: "REI60" }), specifications: [{ ...prop({ value: "REI60" }).specifications[0], ids10: undefined }] }, wall([{ name: "FireRating", value: "rei60" }])).pass).toBe(true);
+    expect(validateElement(prop({ value: "0.25" }), wall([{ name: "FireRating", value: "0.2500000001" }])).pass).toBe(true);
+    expect(validateElement(prop({ value: "0.25" }), wall([{ name: "FireRating", value: "0.2501" }])).pass).toBe(false);
+  });
+
+  it("property set and property names are case-sensitive", () => {
+    expect(validateElement(prop({}), elem("IFCWALL", "W", [{ name: "pset_wallcommon", rows: [{ name: "FireRating", value: "REI60" }] }])).failures[0].reason).toBe("REQUIRED but missing");
+  });
+
+  it("a prohibited facet with a value fails that value only", () => {
+    const no = prop({ value: "REI30", cardinality: "prohibited" });
+    expect(validateElement(no, wall([{ name: "FireRating", value: "REI60" }])).pass).toBe(true);
+    expect(validateElement(no, wall([{ name: "FireRating", value: "REI30" }])).failures[0].reason).toBe('is "REI30", which it must not be');
+    expect(validateElement(prop({ cardinality: "prohibited" }), wall([{ name: "FireRating", value: "REI30" }])).failures[0].reason).toBe('must be ABSENT but is "REI30"');
+  });
+
+  it("enumeration, bounds and length, with reasons that say the rule", () => {
+    expect(validateElement(prop({ enumeration: ["REI60", "REI90"] }), wall([{ name: "FireRating", value: "REI30" }])).failures[0].reason).toBe('is "REI30", required one of "REI60", "REI90"');
+    expect(validateElement(prop({ bounds: { minInclusive: 0.1, maxInclusive: 0.3 } }), wall([{ name: "FireRating", value: "0.5" }])).failures[0].reason).toBe('is "0.5", required a number ≥ 0.1 and ≤ 0.3');
+    expect(validateElement(prop({ bounds: { minExclusive: 0 } }), wall([{ name: "FireRating", value: "n/a" }])).pass).toBe(false);
+    expect(validateElement(prop({ length: { maxLength: 4 } }), wall([{ name: "FireRating", value: "REI60" }])).failures[0].reason).toBe("is 5 character(s) long, required at most 4");
+  });
+
+  it("dataType is judged where the reader carried the value's type, and never invented where it did not", () => {
+    expect(validateElement(prop({ datatype: "IFCLABEL" }), wall([{ name: "FireRating", value: "true", type: "IFCBOOLEAN" }])).failures[0].reason).toBe("is a IFCBOOLEAN, required IFCLABEL");
+    expect(validateElement(prop({ datatype: "IFCLABEL" }), wall([{ name: "FireRating", value: "REI60", type: "IFCLABEL" }])).pass).toBe(true);
+    expect(validateElement(prop({ datatype: "IFCLABEL" }), wall([{ name: "FireRating", value: "REI60" }])).pass).toBe(true);
+  });
+
+  it("a property in applicability narrows the scope; an entity in requirements must match", () => {
+    const ext = { ...one({ properties: [{ pset: "Pset_WallCommon", name: "FireRating", cardinality: "required" }] }) };
+    ext.specifications[0].applicability.properties = [{ pset: "Pset_WallCommon", name: "IsExternal", value: "true", cardinality: "required" }];
+    expect(validateElement(ext, wall([{ name: "IsExternal", value: "false" }])).inScope).toBe(false);
+    expect(validateElement(ext, wall([{ name: "IsExternal", value: "true" }])).pass).toBe(false);
+    const isSlab = one({ entity: { entity: "^IFCSLAB$" } });
+    expect(validateElement(isSlab, wall([])).failures[0]).toMatchObject({ requirement: "@class", reason: "is IFCWALL, required /^IFCSLAB$/" });
+  });
+
+  it("a USERDEFINED predefined type is read from ObjectType", () => {
+    const s: IdsSpec = { title: "t", specifications: [{ name: "s", applicability: { entity: "^IFCWALL$", predefinedType: "BLASTWALL" }, requirements: { attributes: [{ name: "Name", cardinality: "required" }], properties: [] }, ids10: true }] };
+    const el = { ...elem("IFCWALL", undefined), identity: { Class: "IFCWALL", PredefinedType: "USERDEFINED", ObjectType: "BLASTWALL" } };
+    expect(validateElement(s, el)).toMatchObject({ inScope: true, pass: false });
+  });
+
+  it("specification cardinality: prohibited fails each applicable element; required fails a whole model with none", () => {
+    const door: IdsSpec = { title: "t", specifications: [{ name: "no doors", applicability: { entity: "^IFCDOOR$" }, requirements: { attributes: [], properties: [] }, cardinality: "prohibited", ids10: true }] };
+    expect(validateElement(door, elem("IFCDOOR", "D")).failures[0].reason).toBe("the specification is PROHIBITED: no element may match it");
+    const need: IdsSpec = { title: "t", specifications: [{ ...door.specifications[0], name: "a door", cardinality: "required" }] };
+    expect(adjudicate(need, [elem("IFCWALL", "W")]).verdict).toBe("accepted"); // a changeset cannot lack an element
+    expect(judgeModel(need, [elem("IFCWALL", "W")])).toMatchObject({ pass: false, failures: [{ element: null, specification: "a door", requirement: "(applicability)" }] });
+    expect(judgeModel(need, [elem("IFCDOOR", "D")]).pass).toBe(true);
   });
 });

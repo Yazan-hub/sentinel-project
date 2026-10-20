@@ -1441,18 +1441,27 @@ function checkFederation(models, opts = {}) {
 
 // src/sentinel-core/ids.ts
 function applies(spec, el) {
+  if (!isEntity(spec.applicability, el, spec.ids10)) return false;
+  const unmet = [];
+  for (const a of spec.applicability.attributes ?? []) checkFacet({ ...a, cardinality: "required" }, attrValue(el, a.name), spec, `@${a.name}`, unmet);
+  for (const p of spec.applicability.properties ?? []) checkFacet({ ...p, cardinality: "required" }, propRow(el, p.pset, p.name, spec.ids10), spec, `${p.pset}.${p.name}`, unmet);
+  return unmet.length === 0;
+}
+function isEntity(a, el, ids10) {
   const cls = (el.identity?.Class ?? "").toUpperCase();
-  if (spec.applicability.entity) {
+  if (a.entity) {
     let re;
     try {
-      re = new RegExp(spec.applicability.entity, "i");
+      re = new RegExp(a.entity, "i");
     } catch {
-      re = new RegExp(escapeRe(spec.applicability.entity), "i");
+      re = new RegExp(escapeRe(a.entity), "i");
     }
     if (!re.test(cls)) return false;
   }
-  if (spec.applicability.predefinedType && (el.identity.PredefinedType ?? "").toUpperCase() !== spec.applicability.predefinedType.toUpperCase()) {
-    return false;
+  if (a.predefinedType) {
+    const pt = el.identity?.PredefinedType ?? "";
+    if (!ids10) return pt.toUpperCase() === a.predefinedType.toUpperCase();
+    return (pt === "USERDEFINED" && a.predefinedType !== "USERDEFINED" ? el.identity?.ObjectType ?? "" : pt) === a.predefinedType;
   }
   return true;
 }
@@ -1462,50 +1471,85 @@ function validateElement(spec, el) {
   for (const s of spec.specifications ?? []) {
     if (!applies(s, el)) continue;
     inScope = true;
-    for (const a of s.requirements?.attributes ?? []) {
-      const actual = attrValue(el, a.name);
-      checkFacet(a.cardinality, a.value, a.pattern, actual, s.name, `@${a.name}`, failures);
+    if (s.cardinality === "prohibited") {
+      failures.push({ specification: s.name, requirement: "(applicability)", reason: "the specification is PROHIBITED: no element may match it" });
+      continue;
     }
-    for (const p of s.requirements?.properties ?? []) {
-      const actual = propValue(el, p.pset, p.name);
-      checkFacet(p.cardinality, p.value, p.pattern, actual, s.name, `${p.pset}.${p.name}`, failures);
+    const ent = s.requirements?.entity;
+    if (ent && !isEntity(ent, el, s.ids10)) {
+      failures.push({ specification: s.name, requirement: "@class", reason: `is ${el.identity?.Class ?? "no class"}${el.identity?.PredefinedType ? ` (${el.identity.PredefinedType})` : ""}, required /${ent.entity}/${ent.predefinedType ? ` (${ent.predefinedType})` : ""}` });
     }
+    for (const a of s.requirements?.attributes ?? []) checkFacet(a, attrValue(el, a.name), s, `@${a.name}`, failures);
+    for (const p of s.requirements?.properties ?? []) checkFacet(p, propRow(el, p.pset, p.name, s.ids10), s, `${p.pset}.${p.name}`, failures);
   }
   return { inScope, pass: failures.length === 0, failures };
 }
-function checkFacet(card, wantValue, wantPattern, actual, specName, label, out) {
-  const present = actual != null && actual !== "";
-  if (card === "prohibited") {
-    if (present) out.push({ specification: specName, requirement: label, reason: `must be ABSENT but is "${actual}"` });
+function checkFacet(f, actual, s, label, out) {
+  const v = actual?.value;
+  const present = v != null && v !== "";
+  const push = (reason) => out.push({ specification: s.name, requirement: label, reason });
+  const wrong = present ? mismatches(f, String(v), actual?.type, s.ids10) : [];
+  if (f.cardinality === "prohibited") {
+    if (present && !wrong.length) push(f.value != null || f.pattern != null || f.enumeration || f.bounds || f.length ? `is "${v}", which it must not be` : `must be ABSENT but is "${v}"`);
     return;
   }
   if (!present) {
-    if (card === "required") out.push({ specification: specName, requirement: label, reason: "REQUIRED but missing" });
+    if (f.cardinality === "required") push("REQUIRED but missing");
     return;
   }
-  if (wantValue != null && String(actual).toLowerCase() !== wantValue.toLowerCase()) {
-    out.push({ specification: specName, requirement: label, reason: `is "${actual}", required "${wantValue}"` });
-  }
-  if (wantPattern != null) {
+  for (const w of wrong) push(w);
+}
+function mismatches(f, v, type, ids10) {
+  const out = [];
+  if (ids10 && f.datatype && type && type.toUpperCase() !== f.datatype.toUpperCase()) out.push(`is a ${type}, required ${f.datatype}`);
+  if (f.value != null && !same(v, f.value, ids10)) out.push(`is "${v}", required "${f.value}"`);
+  if (f.pattern != null) {
     let ok = false, broken = false;
     try {
-      ok = new RegExp(wantPattern).test(String(actual));
+      ok = new RegExp(f.pattern).test(v);
     } catch {
       broken = true;
     }
-    if (!ok) out.push({ specification: specName, requirement: label, reason: broken ? `the requirement's pattern /${wantPattern}/ does not compile \u2014 not a pass` : `is "${actual}", must match /${wantPattern}/` });
+    if (!ok) out.push(broken ? `the requirement's pattern /${f.pattern}/ does not compile \u2014 not a pass` : `is "${v}", must match /${f.pattern}/`);
   }
+  if (f.enumeration && !f.enumeration.some((e) => same(v, e, ids10))) out.push(`is "${v}", required one of ${f.enumeration.map((e) => `"${e}"`).join(", ")}`);
+  const b = f.bounds;
+  if (b) {
+    const n = num(v);
+    const ok = n != null && !(b.minInclusive != null && n < b.minInclusive) && !(b.maxInclusive != null && n > b.maxInclusive) && !(b.minExclusive != null && n <= b.minExclusive) && !(b.maxExclusive != null && n >= b.maxExclusive);
+    const words = [
+      b.minInclusive != null && `\u2265 ${b.minInclusive}`,
+      b.minExclusive != null && `> ${b.minExclusive}`,
+      b.maxInclusive != null && `\u2264 ${b.maxInclusive}`,
+      b.maxExclusive != null && `< ${b.maxExclusive}`
+    ].filter(Boolean).join(" and ");
+    if (!ok) out.push(`is "${v}", required a number ${words}`);
+  }
+  const l = f.length;
+  if (l) {
+    const n = [...v].length;
+    if (l.length != null && n !== l.length || l.minLength != null && n < l.minLength || l.maxLength != null && n > l.maxLength)
+      out.push(`is ${n} character(s) long, required ${[l.length != null && `exactly ${l.length}`, l.minLength != null && `at least ${l.minLength}`, l.maxLength != null && `at most ${l.maxLength}`].filter(Boolean).join(" and ")}`);
+  }
+  return out;
+}
+var num = (s) => s.trim() !== "" && Number.isFinite(Number(s)) ? Number(s) : null;
+function same(actual, want, ids10) {
+  if (!ids10) return actual.toLowerCase() === want.toLowerCase();
+  if (actual === want) return true;
+  const a = num(actual), w = num(want);
+  return a != null && w != null && Math.abs(a - w) <= Math.abs(w) * 1e-6;
 }
 function attrValue(el, name) {
-  const key2 = name;
-  return el.identity?.[key2];
+  return { value: el.identity?.[name] };
 }
-function propValue(el, pset, name) {
+function propRow(el, pset, name, ids10) {
   const groups = [...el.psets ?? [], ...el.quantities ?? []];
-  const candidates = pset ? groups.filter((x) => (x?.name ?? "").toLowerCase() === String(pset).toLowerCase()) : groups;
+  const eq = (a, b) => ids10 ? (a ?? "") === b : (a ?? "").toLowerCase() === b.toLowerCase();
+  const candidates = pset ? groups.filter((x) => eq(x?.name, String(pset))) : groups;
   for (const g of candidates) {
-    const row = g?.rows?.find((r) => (r?.name ?? "").toLowerCase() === name.toLowerCase());
-    if (row) return row.value;
+    const row = g?.rows?.find((r) => eq(r?.name, name));
+    if (row) return row;
   }
   return void 0;
 }
@@ -1529,6 +1573,13 @@ function adjudicate(spec, elements) {
     summary: { elements: elements.length, in_scope: inScope, passing, failing: inScope - passing, ids: spec?.title ?? null },
     failures
   };
+}
+function missingRequired(spec, elements) {
+  return (spec.specifications ?? []).filter((s) => s.cardinality === "required" && !elements.some((el) => applies(s, el))).map((s) => ({ specification: s.name, requirement: "(applicability)", reason: "REQUIRED: at least one element must match it, and none in the model does" }));
+}
+function judgeModel(spec, elements) {
+  const failures = [...adjudicate(spec, elements).failures, ...missingRequired(spec, elements).map((f) => ({ element: null, ...f }))];
+  return { pass: failures.length === 0, failures };
 }
 function raisedIdsTitleKey(title) {
   return String(title).replace(/^IDS:\s*/, "").trimEnd().replace(/\(\d+ failing\)$/, "").trimEnd();
@@ -1576,17 +1627,34 @@ var DEMO_IDS = {
 };
 
 // src/sentinel-core/ids-parse.ts
-var nsTags = (root, name) => Array.from(root.getElementsByTagNameNS("*", name));
-var firstTag = (root, name) => root.getElementsByTagNameNS("*", name)[0] ?? void 0;
-function facetOf(parent, childName) {
-  if (!parent) return {};
-  const c = firstTag(parent, childName);
-  if (!c) return {};
-  const sv = firstTag(c, "simpleValue");
-  if (sv?.textContent) return { value: sv.textContent.trim() };
-  const pat = firstTag(c, "pattern");
-  if (pat) return { pattern: pat.getAttribute("value") ?? void 0 };
-  return {};
+var isEl = (n) => n.nodeType === 1;
+var kids = (el, name) => Array.from(el.childNodes).filter(isEl).filter((c) => !name || c.localName === name);
+var kid = (el, name) => el ? kids(el, name)[0] : void 0;
+var escapeRe2 = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function readValue(c) {
+  if (!c) return null;
+  const sv = kid(c, "simpleValue");
+  if (sv) return { value: (sv.textContent ?? "").trim(), other: [] };
+  const r = kid(c, "restriction");
+  const out = { other: [] };
+  const patterns = [];
+  for (const x of r ? kids(r) : []) {
+    const v = x.getAttribute("value") || "";
+    const n = x.localName;
+    if (n === "enumeration") (out.enumeration ??= []).push(v);
+    else if (n === "pattern") patterns.push(v);
+    else if (/^(min|max)(In|Ex)clusive$/.test(n) && Number.isFinite(Number(v))) (out.bounds ??= {})[n] = Number(v);
+    else if (/^(length|minLength|maxLength)$/.test(n) && Number.isInteger(Number(v))) (out.length ??= {})[n] = Number(v);
+    else if (n !== "annotation") out.other.push(n);
+  }
+  if (patterns.length) out.pattern = patterns.length === 1 ? `^(?:${patterns[0]})$` : `^${patterns.map((p) => `(?=(?:${p})$)`).join("")}`;
+  return out;
+}
+function plainName(c, what, say) {
+  const r = readValue(c);
+  if (r?.value != null) return r.value;
+  say(`${what} given as ${r && (r.enumeration || r.pattern) ? "a list or a pattern" : "no plain value"}`);
+  return "";
 }
 function cardinalityOf(el) {
   const c = (el.getAttribute("cardinality") || "").toLowerCase();
@@ -1594,46 +1662,68 @@ function cardinalityOf(el) {
   const min = el.getAttribute("minOccurs");
   const max = el.getAttribute("maxOccurs");
   if (max === "0") return "prohibited";
-  if (min && Number(min) >= 1) return "required";
+  if (min === "0") return "optional";
   return "required";
 }
 function parseIds(xml) {
   const doc = new DOMParser().parseFromString(xml, "application/xml");
   if (doc.getElementsByTagName("parsererror").length) throw new Error("Invalid IDS XML (parse error).");
-  const title = firstTag(doc, "title")?.textContent?.trim() || "IDS";
+  const title = doc.getElementsByTagNameNS("*", "title")[0]?.textContent?.trim() || "IDS";
   const specifications = [];
-  for (const specEl of nsTags(doc, "specification")) {
+  const unsupported = [];
+  for (const specEl of Array.from(doc.getElementsByTagNameNS("*", "specification"))) {
     const name = specEl.getAttribute("name") || "Specification";
-    const applEl = firstTag(specEl, "applicability");
-    const reqEl = firstTag(specEl, "requirements");
-    const entityEl = applEl ? firstTag(applEl, "entity") : void 0;
-    const entity = facetOf(entityEl, "name").value ?? facetOf(entityEl, "name").pattern;
-    const predefinedType = facetOf(entityEl, "predefinedType").value;
-    const properties = [];
-    const attributes = [];
-    if (reqEl) {
-      for (const p of nsTags(reqEl, "property")) {
-        const pset = facetOf(p, "propertySet");
-        const base = facetOf(p, "baseName").value ? facetOf(p, "baseName") : facetOf(p, "name");
-        const v = facetOf(p, "value");
-        properties.push({
-          pset: pset.value ?? "",
-          name: base.value ?? "",
-          datatype: p.getAttribute("dataType") ?? void 0,
-          value: v.value,
-          pattern: v.pattern,
-          cardinality: cardinalityOf(p)
+    const say = (where) => (s) => unsupported.push(`${name}: ${s} (${where})`);
+    const applEl = kid(specEl, "applicability");
+    const reqEl = kid(specEl, "requirements");
+    const entityOf = (e, sayHere) => {
+      const n = readValue(kid(e, "name"));
+      const out = {};
+      if (n?.value != null) out.entity = `^${escapeRe2(n.value)}$`;
+      else if (n?.enumeration && !n.pattern && !n.bounds && !n.length) out.entity = `^(?:${n.enumeration.map(escapeRe2).join("|")})$`;
+      else if (n?.pattern && !n.enumeration && !n.bounds && !n.length) out.entity = n.pattern;
+      else sayHere("an entity name Sentinel cannot read");
+      if (n?.other.length) sayHere(`an entity name restricted by ${n.other.join(", ")}`);
+      const pdt = kid(e, "predefinedType");
+      if (pdt) out.predefinedType = plainName(pdt, "a predefined type", sayHere);
+      return out;
+    };
+    const facets = (parent, where) => {
+      const sayHere = say(where);
+      const attributes = [], properties = [];
+      let entity;
+      for (const f of parent ? kids(parent) : []) {
+        const card = where === "applicability" ? "required" : cardinalityOf(f);
+        const v = readValue(kid(f, "value"));
+        if (v?.other.length) sayHere(`a value restricted by ${v.other.join(", ")}`);
+        const value = v ? { value: v.value, pattern: v.pattern, enumeration: v.enumeration, bounds: v.bounds, length: v.length } : {};
+        if (f.localName === "entity") entity = entityOf(f, sayHere);
+        else if (f.localName === "attribute") attributes.push({ name: plainName(kid(f, "name"), "an attribute name", sayHere), ...value, cardinality: card });
+        else if (f.localName === "property") properties.push({
+          pset: plainName(kid(f, "propertySet"), "a property set name", sayHere),
+          name: plainName(kid(f, "baseName") ?? kid(f, "name"), "a property name", sayHere),
+          datatype: f.getAttribute("dataType") || void 0,
+          ...value,
+          cardinality: card
         });
+        else if (["classification", "material", "partOf"].includes(f.localName)) sayHere(`the ${f.localName} facet \u2014 Sentinel does not read it yet`);
       }
-      for (const a of nsTags(reqEl, "attribute")) {
-        const nm = facetOf(a, "name");
-        const v = facetOf(a, "value");
-        attributes.push({ name: nm.value ?? "", value: v.value, pattern: v.pattern, cardinality: cardinalityOf(a) });
-      }
-    }
-    specifications.push({ name, applicability: { entity, predefinedType }, requirements: { properties, attributes } });
+      return { entity, attributes, properties };
+    };
+    const appl = facets(applEl, "applicability");
+    const req = facets(reqEl, "requirements");
+    const min = Number(applEl?.getAttribute("minOccurs") || specEl.getAttribute("minOccurs") || 0);
+    const max = applEl?.getAttribute("maxOccurs") || specEl.getAttribute("maxOccurs") || "unbounded";
+    const cardinality = max === "0" ? "prohibited" : min >= 1 ? "required" : void 0;
+    specifications.push({
+      name,
+      applicability: { ...appl.entity ?? {}, ...appl.attributes.length ? { attributes: appl.attributes } : {}, ...appl.properties.length ? { properties: appl.properties } : {} },
+      requirements: { properties: req.properties, attributes: req.attributes, ...req.entity ? { entity: req.entity } : {} },
+      ...cardinality ? { cardinality } : {},
+      ids10: true
+    });
   }
-  return { title, specifications };
+  return { title, specifications, ...unsupported.length ? { unsupported } : {} };
 }
 
 // src/sentinel-core/layers.ts
@@ -2071,10 +2161,12 @@ export {
   fieldsNeedingReview,
   firstOf,
   groupFailuresForBcf,
+  judgeModel,
   levelSequence,
   loaBand,
   mapLayer,
   missingFields,
+  missingRequired,
   nameShape,
   netDelta,
   parseIds,

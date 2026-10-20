@@ -214,7 +214,11 @@ export function visibilityPanel(components: OBC.Components, opts: { baseUrl?: st
     const rows = Object.entries(byReq).sort((a, b) => b[1] - a[1]);
     const pct = total ? Math.round((compliant / total) * 100) : 100;
     let html = `<div style="font-weight:600;margin-bottom:.4rem">IDS “${esc(idsSpec.title)}” — <span style="color:#22c55e">${compliant}</span>/${total} (${pct}%) · <span style="color:#ef4444">${failing} failing</span></div>`;
-    if (!rows.length) html += '<div style="color:#22c55e;font-size:12px">All in-scope elements compliant ✓</div>';
+    // IDS 1.0: a required specification nothing in a model matches fails that model; what Sentinel cannot judge is said here.
+    for (const m of lastRes) for (const f of m.specFailures) html += `<div style="color:#ef4444;font-size:12px;margin-bottom:.2rem">✗ ${esc(f.specification)}: ${esc(f.reason)}${lastRes.length > 1 ? ` (${esc(m.modelId)})` : ""}</div>`;
+    const notChecked = [...new Set([...(idsSpec.unsupported ?? []), ...lastRes.flatMap((m) => m.notChecked)])];
+    if (notChecked.length) html += `<div style="color:#f59e0b;font-size:12px;margin-bottom:.35rem">Not checked by Sentinel — neither passed nor failed: ${notChecked.map(esc).join("; ")}</div>`;
+    if (!rows.length && !lastRes.some((m) => m.specFailures.length)) html += '<div style="color:#22c55e;font-size:12px">All in-scope elements compliant ✓</div>';
     else {
       html += `<button id="vg-raise" style="${btn};background:#3a1f1f;border-color:#7f1d1d;color:#fca5a5;margin-bottom:.45rem" title="Create a BCF issue per requirement + an immutable CDE audit record">⚑ Raise ${rows.length} BCF issue(s) + record in CDE</button>`;
       html += '<div style="color:#9ca3af;font-size:11px;margin-bottom:.3rem">Click a requirement to isolate its failing elements:</div>';
@@ -302,7 +306,11 @@ export function visibilityPanel(components: OBC.Components, opts: { baseUrl?: st
   el("vg-idsfile").addEventListener("change", async (e) => {
     const f = (e.target as HTMLInputElement).files?.[0];
     if (!f) return;
-    try { idsSpec = parseIds(await f.text()); idsFrom = `file ${f.name}`; status(`Loaded IDS “${idsSpec.title}” (${idsSpec.specifications.length} spec). Press “IDS ✓” to run.`); }
+    try {
+      idsSpec = parseIds(await f.text()); idsFrom = `file ${f.name}`;
+      const n = idsSpec.unsupported?.length ?? 0;
+      status(`Loaded IDS “${idsSpec.title}” (${idsSpec.specifications.length} spec)${n ? ` — ${n} part(s) Sentinel cannot check, listed with the results` : ""}. Press “IDS ✓” to run.`);
+    }
     catch (err) { status("IDS parse failed: " + ((err as Error)?.message ?? String(err))); }
   });
 

@@ -3,8 +3,8 @@
 // and validates. Returns per-model pass/fail + a failure histogram. B1 = logic; the caller logs it.
 
 import type * as OBC from "@thatopen/components";
-import { parseElementProperties, PROPERTY_DATA_CONFIG } from "./element-properties";
-import { validateElement, type IdsSpec, type ElementResult } from "../ids";
+import { parseElementProperties, PROPERTY_DATA_CONFIG, type ElementProperties } from "./element-properties";
+import { validateElement, missingRequired, type IdsSpec, type ElementResult, type Failure } from "../ids";
 
 export interface ModelValidation {
   modelId: string;
@@ -14,6 +14,10 @@ export interface ModelValidation {
   failing: number;
   failuresByRequirement: Record<string, number>;
   results: { localId: number; guid?: string; result: ElementResult }[]; // in-scope elements only (drives B2 colour + B3 BCF)
+  /** IDS 1.0 "required" specifications nothing in this model matches (missingRequired): the model fails each. */
+  specFailures: Failure[];
+  /** What this run could not judge, said beside the verdict, never passed silently. */
+  notChecked: string[];
 }
 
 export async function validateModels(
@@ -30,10 +34,12 @@ export async function validateModels(
     const data = await model.getItemsData(ids, PROPERTY_DATA_CONFIG as any);
     const results: { localId: number; guid?: string; result: ElementResult }[] = [];
     const failuresByRequirement: Record<string, number> = {};
+    const els: ElementProperties[] = [];
     let compliant = 0, failing = 0, total = 0;
 
     for (let i = 0; i < ids.length; i++) {
       const el = parseElementProperties(data[i], model.modelId, ids[i]);
+      els.push(el);
       const r = validateElement(spec, el);
       if (!r.inScope) continue;
       total++;
@@ -46,7 +52,11 @@ export async function validateModels(
       }
       results.push({ localId: ids[i], guid: el.identity.GlobalId, result: r });
     }
-    out.push({ modelId: model.modelId, scanned: ids.length, total, compliant, failing, failuresByRequirement, results });
+    // An .ids dataType is judged against the value's IFC type; where this model's reader carried none, it is said, not passed.
+    const typed = spec.specifications.flatMap((s) => (s.ids10 ? s.requirements.properties.map((p) => p.datatype).filter(Boolean) : []));
+    const notChecked = typed.length && !els.some((e) => [...e.psets, ...e.quantities].some((g) => g.rows.some((r) => r.type)))
+      ? [`dataType (${[...new Set(typed)].join(", ")}): this model's properties carry no value types`] : [];
+    out.push({ modelId: model.modelId, scanned: ids.length, total, compliant, failing, failuresByRequirement, results, specFailures: missingRequired(spec, els), notChecked });
   }
   return out;
 }

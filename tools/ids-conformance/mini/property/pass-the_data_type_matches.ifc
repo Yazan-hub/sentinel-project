@@ -1,0 +1,14 @@
+ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('ViewDefinition[DesignTransferView]'),'2;1');
+FILE_NAME('/dev/null','2026-10-20T01:47:14+02:00',(''),(''),'IfcOpenShell 0.9.0.post1','IfcOpenShell 0.9.0.post1','Nobody');
+FILE_SCHEMA(('IFC4'));
+ENDSEC;
+DATA;
+#1=IFCPROJECT('3$kI0ehn5BgOACECNks7hL',$,'Mini',$,$,$,$,$,$);
+#2=IFCWALL('2CUpIU2nr5vByjPqaSeARb',$,$,$,$,$,$,$,$);
+#3=IFCPROPERTYSET('26jB$FL7f3F9rl0TIpfwOi',$,'Pset_WallCommon',$,(#5));
+#4=IFCRELDEFINESBYPROPERTIES('085NN_RGrDSxHSxTxvMzOp',$,$,$,(#2),#3);
+#5=IFCPROPERTYSINGLEVALUE('FireRating',$,IFCLABEL('REI60'),$);
+ENDSEC;
+END-ISO-10303-21;

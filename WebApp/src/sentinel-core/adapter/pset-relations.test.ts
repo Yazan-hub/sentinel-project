@@ -34,8 +34,9 @@ describe("Pset/Qto values reach the readers through PSET_RELATIONS", () => {
   it("the Properties palette shows the wall's own set with its values", async () => {
     const p = await extractElementProperties(model as never, await idOf(/^IFCWALLSTANDARDCASE$/i));
     const wall = p.psets.find((g) => g.name === "Pset_WallCommon");
-    expect(wall?.rows).toEqual(expect.arrayContaining([{ name: "FireRating", value: "REI 60" }]));
-    expect(p.quantities.find((g) => g.name === "Qto_WallBaseQuantities")?.rows).toEqual([{ name: "Length", value: "3500" }]);
+    expect(wall?.rows).toEqual(expect.arrayContaining([{ name: "FireRating", value: "REI 60", type: "IFCLABEL" }]));
+    expect(wall?.rows.find((r) => r.name === "IsExternal")?.type).toBe("IFCBOOLEAN"); // the viewer carries value types too: an IDS dataType is judged there
+    expect(p.quantities.find((g) => g.name === "Qto_WallBaseQuantities")?.rows).toEqual([{ name: "Length", value: "3500", type: "IFCLENGTHMEASURE" }]);
   });
 
   it("COBie reads the door's four hand-over facts: the asset is complete", async () => {

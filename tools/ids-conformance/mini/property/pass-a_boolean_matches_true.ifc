@@ -1,0 +1,14 @@
+ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('ViewDefinition[DesignTransferView]'),'2;1');
+FILE_NAME('/dev/null','2026-10-20T01:47:14+02:00',(''),(''),'IfcOpenShell 0.9.0.post1','IfcOpenShell 0.9.0.post1','Nobody');
+FILE_SCHEMA(('IFC4'));
+ENDSEC;
+DATA;
+#1=IFCPROJECT('2PyjG5d5D1N87OX_I6sbFb',$,'Mini',$,$,$,$,$,$);
+#2=IFCWALL('0_p25Kzh554hWvouyTZI__',$,$,$,$,$,$,$,$);
+#3=IFCPROPERTYSET('2x$4f4l25EGAAlqqtTIxKO',$,'Pset_WallCommon',$,(#5));
+#4=IFCRELDEFINESBYPROPERTIES('3_4dKs9rfADRALzTmwNiNw',$,$,$,(#2),#3);
+#5=IFCPROPERTYSINGLEVALUE('IsExternal',$,IFCBOOLEAN(.T.),$);
+ENDSEC;
+END-ISO-10303-21;

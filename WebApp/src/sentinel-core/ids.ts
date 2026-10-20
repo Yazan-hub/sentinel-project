@@ -7,17 +7,24 @@ import type { ElementProperties } from "./adapter/element-properties";
 
 export type Cardinality = "required" | "optional" | "prohibited";
 
+/** The value restrictions an .ids file can state beyond one value or one pattern (parseIds): the value is one of `enumeration`,
+ *  within `bounds` (a number), of `length` characters. Judged in either mode; only parseIds writes them. */
+interface IdsValueRestrictions {
+  enumeration?: string[];
+  bounds?: { minInclusive?: number; maxInclusive?: number; minExclusive?: number; maxExclusive?: number };
+  length?: { length?: number; minLength?: number; maxLength?: number };
+}
 /** A required/prohibited PROPERTY in a property set (Pset_ or Qto_). */
-export interface IdsPropertyFacet {
+export interface IdsPropertyFacet extends IdsValueRestrictions {
   pset: string | null; // property-set name, e.g. "Pset_WallCommon"; null = search every group (a compiled requirement that named none)
   name: string; // property name, e.g. "IsExternal"
-  datatype?: string; // e.g. "IFCBOOLEAN" (informational for now)
-  value?: string; // exact required value (case-insensitive)
+  datatype?: string; // e.g. "IFCBOOLEAN": judged in an ids10 specification when the reader carried the value's type
+  value?: string; // exact required value (case-insensitive; ids10: case-sensitive, a number within 1e-6)
   pattern?: string; // regex the value must match
   cardinality: Cardinality;
 }
 /** A required/prohibited ATTRIBUTE (Name, Tag, ObjectType, …). */
-export interface IdsAttributeFacet {
+export interface IdsAttributeFacet extends IdsValueRestrictions {
   name: string;
   value?: string;
   pattern?: string;
@@ -26,11 +33,21 @@ export interface IdsAttributeFacet {
 export interface IdsApplicability {
   entity?: string; // IFC class (regex, case-insensitive), e.g. "IFCWALL"
   predefinedType?: string;
+  /** IDS 1.0 lets applicability hold attribute and property facets too: an element applies only when it meets each. */
+  attributes?: IdsAttributeFacet[];
+  properties?: IdsPropertyFacet[];
 }
 export interface IdsSpecification {
   name: string;
   applicability: IdsApplicability;
-  requirements: { properties: IdsPropertyFacet[]; attributes: IdsAttributeFacet[] };
+  /** `entity`: an entity facet among the requirements — the element must be that class. */
+  requirements: { properties: IdsPropertyFacet[]; attributes: IdsAttributeFacet[]; entity?: IdsApplicability };
+  /** IDS 1.0 specification cardinality (applicability minOccurs/maxOccurs): "required" = at least one element must apply (judged
+   *  on a whole model only, judgeModel); "prohibited" = no element may apply. Absent = optional. */
+  cardinality?: Cardinality;
+  /** Read from an .ids file (parseIds): judged by IDS 1.0's rules as IfcTester reads them — names and text case-sensitive, a
+   *  number within 1e-6, the dataType, a USERDEFINED predefined type read from ObjectType. Sentinel's own IDS keeps its looser rules. */
+  ids10?: boolean;
 }
 export interface IdsSpec {
   title: string;
@@ -39,6 +56,9 @@ export interface IdsSpec {
    *  as tracked issues; "off" ignores them. Lets a pilot loosen data checks at early schematic, then tighten. */
   enforce?: "reject" | "warn" | "off";
   specifications: IdsSpecification[];
+  /** What parseIds read but Sentinel cannot judge ("Walls: the classification facet in requirements"): said on screen, and a
+   *  verdict on such an IDS is not a full IDS 1.0 verdict. */
+  unsupported?: string[];
 }
 
 export interface Failure {
@@ -52,17 +72,27 @@ export interface ElementResult {
   failures: Failure[];
 }
 
-/** Does a specification's applicability target this element? */
+/** Does a specification's applicability target this element? Its entity, and every attribute/property facet it holds. */
 export function applies(spec: IdsSpecification, el: ElementProperties): boolean {
+  if (!isEntity(spec.applicability, el, spec.ids10)) return false;
+  const unmet: Failure[] = [];
+  for (const a of spec.applicability.attributes ?? []) checkFacet({ ...a, cardinality: "required" }, attrValue(el, a.name), spec, `@${a.name}`, unmet);
+  for (const p of spec.applicability.properties ?? []) checkFacet({ ...p, cardinality: "required" }, propRow(el, p.pset, p.name, spec.ids10), spec, `${p.pset}.${p.name}`, unmet);
+  return unmet.length === 0;
+}
+
+function isEntity(a: IdsApplicability, el: ElementProperties, ids10?: boolean): boolean {
   const cls = (el.identity?.Class ?? "").toUpperCase();
-  if (spec.applicability.entity) {
+  if (a.entity) {
     let re: RegExp;
-    try { re = new RegExp(spec.applicability.entity, "i"); } catch { re = new RegExp(escapeRe(spec.applicability.entity), "i"); }
+    try { re = new RegExp(a.entity, "i"); } catch { re = new RegExp(escapeRe(a.entity), "i"); }
     if (!re.test(cls)) return false;
   }
-  if (spec.applicability.predefinedType &&
-      (el.identity.PredefinedType ?? "").toUpperCase() !== spec.applicability.predefinedType.toUpperCase()) {
-    return false;
+  if (a.predefinedType) {
+    const pt = el.identity?.PredefinedType ?? "";
+    if (!ids10) return pt.toUpperCase() === a.predefinedType.toUpperCase();
+    // IDS 1.0 (IfcTester's get_predefined_type): a USERDEFINED element's type is its ObjectType, compared as written.
+    return (pt === "USERDEFINED" && a.predefinedType !== "USERDEFINED" ? el.identity?.ObjectType ?? "" : pt) === a.predefinedType;
   }
   return true;
 }
@@ -75,62 +105,99 @@ export function validateElement(spec: IdsSpec, el: ElementProperties): ElementRe
   for (const s of spec.specifications ?? []) {
     if (!applies(s, el)) continue;
     inScope = true;
-
-    for (const a of s.requirements?.attributes ?? []) {
-      const actual = attrValue(el, a.name);
-      checkFacet(a.cardinality, a.value, a.pattern, actual, s.name, `@${a.name}`, failures);
+    if (s.cardinality === "prohibited") { // IDS 1.0: a prohibited specification's requirements are not judged — matching it fails
+      failures.push({ specification: s.name, requirement: "(applicability)", reason: "the specification is PROHIBITED: no element may match it" });
+      continue;
     }
-    for (const p of s.requirements?.properties ?? []) {
-      const actual = propValue(el, p.pset, p.name);
-      checkFacet(p.cardinality, p.value, p.pattern, actual, s.name, `${p.pset}.${p.name}`, failures);
+    const ent = s.requirements?.entity;
+    if (ent && !isEntity(ent, el, s.ids10)) {
+      failures.push({ specification: s.name, requirement: "@class", reason: `is ${el.identity?.Class ?? "no class"}${el.identity?.PredefinedType ? ` (${el.identity.PredefinedType})` : ""}, required /${ent.entity}/${ent.predefinedType ? ` (${ent.predefinedType})` : ""}` });
     }
+    for (const a of s.requirements?.attributes ?? []) checkFacet(a, attrValue(el, a.name), s, `@${a.name}`, failures);
+    for (const p of s.requirements?.properties ?? []) checkFacet(p, propRow(el, p.pset, p.name, s.ids10), s, `${p.pset}.${p.name}`, failures);
   }
   return { inScope, pass: failures.length === 0, failures };
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
-function checkFacet(
-  card: Cardinality, wantValue: string | undefined, wantPattern: string | undefined,
-  actual: string | undefined, specName: string, label: string, out: Failure[],
-): void {
-  const present = actual != null && actual !== "";
-  if (card === "prohibited") {
-    if (present) out.push({ specification: specName, requirement: label, reason: `must be ABSENT but is "${actual}"` });
+type Actual = { value?: string; type?: string } | undefined;
+type Facet = IdsAttributeFacet & { datatype?: string };
+
+function checkFacet(f: Facet, actual: Actual, s: IdsSpecification, label: string, out: Failure[]): void {
+  const v = actual?.value;
+  const present = v != null && v !== "";
+  const push = (reason: string) => out.push({ specification: s.name, requirement: label, reason });
+  const wrong = present ? mismatches(f, String(v), actual?.type, s.ids10) : [];
+  if (f.cardinality === "prohibited") {
+    // IDS 1.0: a prohibited facet fails only where the required one would pass — "shall not be X" allows every other value.
+    if (present && !wrong.length) push(f.value != null || f.pattern != null || f.enumeration || f.bounds || f.length ? `is "${v}", which it must not be` : `must be ABSENT but is "${v}"`);
     return;
   }
   if (!present) {
-    if (card === "required") out.push({ specification: specName, requirement: label, reason: "REQUIRED but missing" });
+    if (f.cardinality === "required") push("REQUIRED but missing");
     return; // optional + absent → fine
   }
-  // present → value / pattern checks (apply to required and optional-present)
-  if (wantValue != null && String(actual).toLowerCase() !== wantValue.toLowerCase()) {
-    out.push({ specification: specName, requirement: label, reason: `is "${actual}", required "${wantValue}"` });
-  }
-  if (wantPattern != null) {
-    // SEC-5: a pattern that does not compile is never a pass (the bridge refuses one on install since SEC-5).
-    let ok = false, broken = false;
-    try { ok = new RegExp(wantPattern).test(String(actual)); } catch { broken = true; }
-    if (!ok) out.push({ specification: specName, requirement: label, reason: broken ? `the requirement's pattern /${wantPattern}/ does not compile — not a pass` : `is "${actual}", must match /${wantPattern}/` });
-  }
+  for (const w of wrong) push(w); // present → value / pattern / restriction checks (apply to required and optional-present)
 }
 
-function attrValue(el: ElementProperties, name: string): string | undefined {
-  const key = name as keyof ElementProperties["identity"];
-  return el.identity?.[key];
+/** Why a present value does not meet the facet; [] when it does. */
+function mismatches(f: Facet, v: string, type: string | undefined, ids10?: boolean): string[] {
+  const out: string[] = [];
+  // dataType is judged where the reader carried the value's IFC type (the bridge's web-ifc reader does).
+  if (ids10 && f.datatype && type && type.toUpperCase() !== f.datatype.toUpperCase()) out.push(`is a ${type}, required ${f.datatype}`);
+  if (f.value != null && !same(v, f.value, ids10)) out.push(`is "${v}", required "${f.value}"`);
+  if (f.pattern != null) {
+    // SEC-5: a pattern that does not compile is never a pass (the bridge refuses one on install since SEC-5).
+    let ok = false, broken = false;
+    try { ok = new RegExp(f.pattern).test(v); } catch { broken = true; }
+    if (!ok) out.push(broken ? `the requirement's pattern /${f.pattern}/ does not compile — not a pass` : `is "${v}", must match /${f.pattern}/`);
+  }
+  if (f.enumeration && !f.enumeration.some((e) => same(v, e, ids10))) out.push(`is "${v}", required one of ${f.enumeration.map((e) => `"${e}"`).join(", ")}`);
+  const b = f.bounds;
+  if (b) {
+    const n = num(v);
+    const ok = n != null && !(b.minInclusive != null && n < b.minInclusive) && !(b.maxInclusive != null && n > b.maxInclusive)
+      && !(b.minExclusive != null && n <= b.minExclusive) && !(b.maxExclusive != null && n >= b.maxExclusive);
+    const words = [b.minInclusive != null && `≥ ${b.minInclusive}`, b.minExclusive != null && `> ${b.minExclusive}`,
+      b.maxInclusive != null && `≤ ${b.maxInclusive}`, b.maxExclusive != null && `< ${b.maxExclusive}`].filter(Boolean).join(" and ");
+    if (!ok) out.push(`is "${v}", required a number ${words}`);
+  }
+  const l = f.length;
+  if (l) {
+    const n = [...v].length; // characters, as IDS (and Python's len) count them — not UTF-16 units
+    if ((l.length != null && n !== l.length) || (l.minLength != null && n < l.minLength) || (l.maxLength != null && n > l.maxLength))
+      out.push(`is ${n} character(s) long, required ${[l.length != null && `exactly ${l.length}`, l.minLength != null && `at least ${l.minLength}`, l.maxLength != null && `at most ${l.maxLength}`].filter(Boolean).join(" and ")}`);
+  }
+  return out;
+}
+
+const num = (s: string): number | null => (s.trim() !== "" && Number.isFinite(Number(s)) ? Number(s) : null);
+
+/** Sentinel's own IDS: text case-insensitive. IDS 1.0 (IfcTester's is_x): text exact; two numbers within a relative 1e-6. */
+function same(actual: string, want: string, ids10?: boolean): boolean {
+  if (!ids10) return actual.toLowerCase() === want.toLowerCase();
+  if (actual === want) return true;
+  const a = num(actual), w = num(want);
+  return a != null && w != null && Math.abs(a - w) <= Math.abs(w) * 1e-6;
+}
+
+function attrValue(el: ElementProperties, name: string): Actual {
+  return { value: el.identity?.[name] };
 }
 
 // Null-safe throughout: a proposed element from any producer may carry a malformed pset/quantity group (no
 // name, no rows) — the referee must treat that as "property absent", never throw. A crash here would 500 the
 // whole propose call on one bad element (which is exactly what a real Revit payload did).
-function propValue(el: ElementProperties, pset: string | null | undefined, name: string): string | undefined {
+function propRow(el: ElementProperties, pset: string | null | undefined, name: string, ids10?: boolean): Actual {
   const groups = [...(el.psets ?? []), ...(el.quantities ?? [])];
+  const eq = (a: string | undefined, b: string) => (ids10 ? (a ?? "") === b : (a ?? "").toLowerCase() === b.toLowerCase()); // IDS 1.0 names are case-sensitive
   // No pset named (a compiled requirement the prose did not locate): the property is searched in every
   // group rather than throwing on null — a requirement must yield a verdict or a reason, never a crash.
   // (Ported from the bridge bundle, fix a738e1d, which had been applied to the bundle only — F27.)
-  const candidates = pset ? groups.filter((x) => (x?.name ?? "").toLowerCase() === String(pset).toLowerCase()) : groups;
+  const candidates = pset ? groups.filter((x) => eq(x?.name, String(pset))) : groups;
   for (const g of candidates) {
-    const row = g?.rows?.find((r) => (r?.name ?? "").toLowerCase() === name.toLowerCase());
-    if (row) return row.value;
+    const row = g?.rows?.find((r) => eq(r?.name, name));
+    if (row) return row;
   }
   return undefined;
 }
@@ -170,6 +237,20 @@ export function adjudicate(spec: IdsSpec | null, elements: ElementProperties[]):
     summary: { elements: elements.length, in_scope: inScope, passing, failing: inScope - passing, ids: spec?.title ?? null },
     failures,
   };
+}
+
+/** The "required" specifications (IDS 1.0 minOccurs ≥ 1) no element of a WHOLE model applies to — the model fails each. Only a
+ *  whole model can lack an element (a file checked on its own, a model loaded in the viewer); a changeset or an intake's class
+ *  subset cannot, so adjudicate never asks this. */
+export function missingRequired(spec: IdsSpec, elements: ElementProperties[]): Failure[] {
+  return (spec.specifications ?? []).filter((s) => s.cardinality === "required" && !elements.some((el) => applies(s, el)))
+    .map((s) => ({ specification: s.name, requirement: "(applicability)", reason: "REQUIRED: at least one element must match it, and none in the model does" }));
+}
+
+/** A whole model judged by an IDS: every element (adjudicate) and every required specification (missingRequired). */
+export function judgeModel(spec: IdsSpec, elements: ElementProperties[]): { pass: boolean; failures: Adjudication["failures"] } {
+  const failures = [...adjudicate(spec, elements).failures, ...missingRequired(spec, elements).map((f) => ({ element: null, ...f }))];
+  return { pass: failures.length === 0, failures };
 }
 
 /** The dedup key of an already-raised `IDS: <requirement> (N failing)` BCF topic title — the inverse of the

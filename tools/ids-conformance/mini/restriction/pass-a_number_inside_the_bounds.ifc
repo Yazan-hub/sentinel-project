@@ -1,0 +1,14 @@
+ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('ViewDefinition[DesignTransferView]'),'2;1');
+FILE_NAME('/dev/null','2026-10-20T01:47:14+02:00',(''),(''),'IfcOpenShell 0.9.0.post1','IfcOpenShell 0.9.0.post1','Nobody');
+FILE_SCHEMA(('IFC4'));
+ENDSEC;
+DATA;
+#1=IFCPROJECT('28KZdZBwX6oPseBdhOeOz6',$,'Mini',$,$,$,$,$,$);
+#2=IFCWALL('16mMSPPhL3GRU1ek4cv92c',$,$,$,$,$,$,$,$);
+#3=IFCPROPERTYSET('1huixGM0HA29JSMo9UPGWx',$,'Pset_WallCommon',$,(#5));
+#4=IFCRELDEFINESBYPROPERTIES('2WSsAmJqL1bRs$VG72jtVC',$,$,$,(#2),#3);
+#5=IFCPROPERTYSINGLEVALUE('ThermalTransmittance',$,IFCTHERMALTRANSMITTANCEMEASURE(0.25),$);
+ENDSEC;
+END-ISO-10303-21;

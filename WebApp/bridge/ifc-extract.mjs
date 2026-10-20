@@ -28,6 +28,9 @@ const val = (o) => {
 const bool = (o) => (o && typeof o === "object" && "value" in o && typeof o.value === "boolean") ? String(o.value) : val(o);
 
 const QTY_KEYS = ["LengthValue", "AreaValue", "VolumeValue", "CountValue", "WeightValue", "TimeValue"];
+// A quantity's IFC measure type, as IfcTester reads it off the schema (an IDS dataType on a Qto_ property).
+const QTY_TYPES = { LengthValue: "IFCLENGTHMEASURE", AreaValue: "IFCAREAMEASURE", VolumeValue: "IFCVOLUMEMEASURE",
+  CountValue: "IFCCOUNTMEASURE", WeightValue: "IFCMASSMEASURE", TimeValue: "IFCTIMEMEASURE" };
 
 function groupsOf(defs, target) {
   // defs: IfcPropertySet | IfcElementQuantity lines (recursive: true expands HasProperties/Quantities)
@@ -39,7 +42,8 @@ function groupsOf(defs, target) {
       for (const p of d.HasProperties) {
         const n = val(p?.Name); if (!n) continue;
         const v = p?.NominalValue !== undefined ? bool(p.NominalValue) : undefined;
-        rows.push({ name: n, value: v ?? "" });
+        const type = typeof p?.NominalValue?.name === "string" ? p.NominalValue.name.toUpperCase() : null; // web-ifc's "IFCLABEL": an IDS dataType
+        rows.push(type ? { name: n, value: v ?? "", type } : { name: n, value: v ?? "" });
       }
       target.psets.push({ name, rows });
     } else if (Array.isArray(d.Quantities)) {
@@ -47,7 +51,7 @@ function groupsOf(defs, target) {
       for (const q of d.Quantities) {
         const n = val(q?.Name); if (!n) continue;
         const key = QTY_KEYS.find((k) => q?.[k] !== undefined);
-        rows.push({ name: n, value: key ? (val(q[key]) ?? "") : "" });
+        rows.push(key ? { name: n, value: val(q[key]) ?? "", type: QTY_TYPES[key] } : { name: n, value: "" });
       }
       target.quantities.push({ name, rows });
     }
@@ -122,6 +126,12 @@ export async function extractHere(bytes, { classes = DEFAULT_CLASSES, modelId = 
             },
             psets: [], quantities: [],
           };
+          // Every other direct attribute with a plain value (Description, LongName, …) — an IDS attribute facet may name any.
+          // References (type 5) and lists are left out: present-but-not-a-value, as Sentinel cannot compare them.
+          for (const [k, v] of Object.entries(line)) {
+            if (!(k in el.identity) && v && typeof v === "object" && !Array.isArray(v) && v.type !== 5 && v.value != null && typeof v.value !== "object")
+              el.identity[k] = String(v.value);
+          }
           Object.assign(el, await elementPsets(api, mid, id));
           out.elements.push(el);
           out.counts.elements++;

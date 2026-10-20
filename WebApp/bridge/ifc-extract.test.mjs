@@ -23,7 +23,8 @@ describe("extractElements", () => {
     expect(row(wall, "Pset_WallCommon", "FireRating")).toBe("REI 60");      // instance wins over the type's REI 30
     expect(row(wall, "Pset_WallCommon", "IsExternal")).toBe("true");
     expect(row(wall, "Pset_WallCommon", "LoadBearing")).toBe("false");      // only on the type — still present
-    expect(wall.quantities.find((g) => g.name === "Qto_WallBaseQuantities").rows).toEqual([{ name: "Length", value: "3500" }]);
+    expect(wall.quantities.find((g) => g.name === "Qto_WallBaseQuantities").rows).toEqual([{ name: "Length", value: "3500", type: "IFCLENGTHMEASURE" }]); // the measure type: an IDS dataType
+    expect(wall.psets.find((g) => g.name === "Pset_WallCommon").rows.find((r) => r.name === "IsExternal").type).toBe("IFCBOOLEAN");
     const door = elements.find((e) => e.identity.Class === "IFCDOOR");
     expect(row(door, "Pset_DoorCommon", "Reference")).toBe("D-01");
     expect(elements.every((e) => typeof e.localId === "number" && e.modelId)).toBe(true);

@@ -9,6 +9,7 @@ import type * as FRAGS from "@thatopen/fragments";
 export interface PropRow {
   name: string;
   value: string;
+  type?: string; // the value's IFC type ("IFCLABEL"), where the reader carries it — an IDS dataType is judged against it
 }
 export interface PropGroup {
   name: string; // pset / quantity-set name, e.g. "Pset_WallCommon"
@@ -24,6 +25,7 @@ export interface ElementProperties {
     ObjectType?: string;
     PredefinedType?: string;
     Tag?: string;
+    [attribute: string]: string | undefined; // any other direct attribute with a plain value (Description, LongName, …)
   };
   psets: PropGroup[]; // Pset_* property sets
   quantities: PropGroup[]; // Qto_* quantity sets
@@ -56,6 +58,10 @@ export const PSET_RELATIONS = {
   HasAssociations: { attributes: false, relations: false },
 };
 
+// A quantity's IFC measure type, as IfcTester reads it off the schema (an IDS dataType on a Qto_ property); bridge/ifc-extract.mjs has the same.
+const QTY_TYPES = { LengthValue: "IFCLENGTHMEASURE", AreaValue: "IFCAREAMEASURE", VolumeValue: "IFCVOLUMEMEASURE",
+  CountValue: "IFCCOUNTMEASURE", WeightValue: "IFCMASSMEASURE" } as const;
+
 /** getItemsData options that pull attributes + Pset/Qto sets (shared by single + bulk paths). */
 export const PROPERTY_DATA_CONFIG = {
   attributesDefault: true,
@@ -75,7 +81,7 @@ export async function extractElementProperties(
 /** Pure parse of one raw ItemData record → ElementProperties. Lets the model validator bulk-fetch once. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function parseElementProperties(data: any, modelId: string, localId: number): ElementProperties {
-  const identity = {
+  const identity: ElementProperties["identity"] = {
     GlobalId: val(data?.["_guid"]) ?? val(data?.["GlobalId"]),
     Name: val(data?.["Name"]),
     Class: val(data?.["_category"]) ?? val(data?.["category"]),
@@ -83,6 +89,13 @@ export function parseElementProperties(data: any, modelId: string, localId: numb
     PredefinedType: val(data?.["PredefinedType"]),
     Tag: val(data?.["Tag"]),
   };
+  // Every other direct attribute with a plain value, so an IDS attribute facet can name any (Description, LongName, …).
+  for (const [k, v] of Object.entries(data ?? {})) {
+    if (!(k in identity) && !k.startsWith("_") && v && typeof v === "object" && !Array.isArray(v) && "value" in v
+        && v.value != null && typeof v.value !== "object") identity[k] = String(v.value);
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const typeOf = (o: any): string | undefined => (typeof o?.type === "string" && /^IFC/i.test(o.type) ? o.type.toUpperCase() : undefined); // only an IFC type name
 
   const psets: PropGroup[] = [];
   const quantities: PropGroup[] = [];
@@ -99,7 +112,8 @@ export function parseElementProperties(data: any, modelId: string, localId: numb
         for (const p of hasProps) {
           const name = val(p?.["Name"]);
           const value = val(p?.["NominalValue"]) ?? val(p?.["Value"]);
-          if (name && value != null) rows.push({ name, value });
+          const type = typeOf(p?.["NominalValue"]);
+          if (name && value != null) rows.push(type ? { name, value, type } : { name, value });
         }
         if (rows.length) psets.push({ name: setName, rows });
       }
@@ -108,10 +122,9 @@ export function parseElementProperties(data: any, modelId: string, localId: numb
         const rows: PropRow[] = [];
         for (const q of qtys) {
           const name = val(q?.["Name"]);
-          const value =
-            val(q?.["LengthValue"]) ?? val(q?.["AreaValue"]) ?? val(q?.["VolumeValue"]) ??
-            val(q?.["CountValue"]) ?? val(q?.["WeightValue"]) ?? val(q?.["Value"]);
-          if (name && value != null) rows.push({ name, value });
+          const key = (Object.keys(QTY_TYPES) as (keyof typeof QTY_TYPES)[]).find((k) => val(q?.[k]) != null);
+          const value = key ? val(q[key]) : val(q?.["Value"]);
+          if (name && value != null) rows.push(key ? { name, value, type: QTY_TYPES[key] } : { name, value });
         }
         if (rows.length) quantities.push({ name: setName, rows });
       }
