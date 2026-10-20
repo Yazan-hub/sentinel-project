@@ -15,6 +15,7 @@ import { pathToFileURL } from "node:url";
 import { loadEnv } from "./load-env.mjs";
 import { ADDIN_SOURCES } from "./changesets-logic.mjs";
 import { loaBand, LOA_SPEC } from "./sentinel-core.mjs";
+import { redactor } from "./redact.mjs";
 
 // Merge config/.env without mutating process.env (the ai-gateway/cde-store idiom): importing this
 // module from a test must not copy secrets into the test runner's environment.
@@ -62,11 +63,63 @@ export function guard(v) {
   if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [cleanText(k), guard(x)]));
   return v;
 }
-const fence = (o) => `${NOTICE}\n${typeof o === "string" ? guard(o) : JSON.stringify(guard(o), null, 2)}`;
-/** tools/call's answer: the tool's result, or its error (bridge errors can quote people's text), fenced and cleaned. */
-export async function toolResult(name, args, deps) {
-  try { return asText(fence(await callTool(name, args, deps))); }
-  catch (e) { return { content: [{ type: "text", text: fence("ERROR: " + (e?.message || e)) }], isError: true }; }
+export const MASKED = "[Sentinel privacy] Names in this answer are masked by the office's AI policy (PROJECT_…, CLIENT_…, ADDRESS_…, PERSON_…, [e-mail]). Pass a token back as it is: Sentinel maps it to what it stands for.";
+const fence = (o, r = null) => {
+  const g = guard(o);
+  const body = r ? r.maskDeep(g) : g;
+  return `${NOTICE}\n${r ? `${MASKED}\n` : ""}${typeof body === "string" ? body : JSON.stringify(body, null, 2)}`;
+};
+
+// AI privacy (spec docs/superpowers/specs/2026-10-20-ai-privacy-controls-design.md §2-3): every answer is about a project, all
+// of the caller's projects, or none. A project whose AI policy keeps AI on this network gets no answer here — an MCP client
+// such as Claude Desktop sends what it reads to a cloud model — and a masking one is masked. A policy not read refuses.
+const NO_PROJECT = new Set(["sentinel_list_checks"]);                      // the check registry: no project data
+const ALL_PROJECTS = new Set(["sentinel_list_projects", "sentinel_ask_app"]); // an answer that can name any of them
+const POLICY_CHUNK = 100;                                                   // keys per read: under the bridge's 16 KiB request line
+const LOCKED_HERE = "Sentinel's MCP tools do not answer about it: an MCP client such as Claude Desktop sends what it reads to a cloud model. Use Sentinel's own AI panel with Local (Ollama) instead.";
+async function policiesOf(keys, getJson) {
+  const out = {};
+  for (let i = 0; i < keys.length; i += POLICY_CHUNK)
+    Object.assign(out, (await getJson(`/ai/policy?project=${keys.slice(i, i + POLICY_CHUNK).map(enc).join(",")}&terms=1`)).policies);
+  return out;
+}
+const refused = (text, r) => ({ content: [{ type: "text", text: fence(text, r) }], isError: true });
+
+/** tools/call's answer: the tool's result, or its error (bridge errors can quote people's text), fenced and cleaned — after
+ *  the AI policy of what it is about was read and applied. */
+export async function toolResult(name, args, deps = {}) {
+  let r = null;
+  try {
+    const getJson = bridgeGet(deps);
+    let call = args;
+    if (ALL_PROJECTS.has(name)) {
+      const listed = name === "sentinel_list_projects" ? await callTool(name, args, deps) : await getJson("/cde/projects");
+      if (!Array.isArray(listed)) return refused("The list of your projects was not read as a list, so their AI policies were not read — nothing was answered.", null); // review L6: never as "none locked"
+      const rows = listed;
+      const pols = rows.length ? await policiesOf([...new Set(rows.map((p) => p.key))], getJson) : {};
+      const locked = new Set(rows.filter((p) => pols[p.key]?.local_only !== false).map((p) => p.key)); // not read = locked
+      const masking = Object.values(pols).filter((p) => p?.redact);
+      if (masking.length) r = redactor(masking.flatMap((p) => p.terms ?? []));
+      if (name === "sentinel_list_projects") {
+        if (!locked.size) return asText(fence(rows, r));
+        return asText(fence({ projects: rows.filter((p) => !locked.has(p.key)),
+          not_listed: `${locked.size} project(s) keep AI on their network, or their AI policy was not read: Sentinel's MCP tools do not list them.` }, r));
+      }
+      if (locked.size) return refused(`sentinel_ask_app is off: ${locked.size} of your projects keep AI on their network (or their AI policy was not read), and the open app's answer can name any of them. ${LOCKED_HERE}`, r);
+    } else if (!NO_PROJECT.has(name) && TOOLS.some((t) => t.name === name)) {
+      // Deny by default (review H1): every other tool is about one project, named as text — a list or an object would reach
+      // the bridge's URL without its policy being read.
+      if (typeof args?.project !== "string" || !args.project.trim()) return refused(`${name} needs project: one project key, as text — nothing was answered.`, null);
+      const pol = (await policiesOf([args.project], getJson))[args.project];
+      if (!pol || pol.error) return refused(`The AI policy of ${args.project} was not read (${pol?.error ?? "no answer"}) — nothing was answered.`, null);
+      if (pol.local_only) return refused(`${pol.words} ${LOCKED_HERE}`, pol.redact ? redactor(pol.terms) : null);
+      if (pol.redact) r = redactor(pol.terms);
+      // A model holding a masked answer passes tokens back: each is mapped to what it stands for before the bridge sees it.
+      call = { ...(r ? r.unmaskDeep(args) : args), project: pol.key };
+    }
+    return asText(fence(await callTool(name, call, deps), r));
+  }
+  catch (e) { return { content: [{ type: "text", text: fence("ERROR: " + (e?.message || e), r) }], isError: true }; }
 }
 
 /** MA-6-1: the standards an agent may read (sentinel_standards). */
@@ -308,24 +361,26 @@ async function markMeasured(project, list, getJson) {
   }
 }
 
+// DELIBERATE change from v1.0 for list_projects/audit: they previously .json()'d any response with
+// no ok-check, so a bridge 404/500 surfaced as a confusing parsed error body. All GET tools now
+// throw the same "bridge <status>: <text>" error the other tools always used.
+const bridgeGet = (deps = {}) => async (path) => {
+  const r = await (deps.fetch || fetch)(`${BASE}${path}`, { headers: authHeaders });
+  if (!r.ok) throw Object.assign(new Error(`bridge ${r.status}: ${await r.text()}`), { status: r.status });
+  return await r.json();
+};
+
 export async function callTool(name, args = {}, deps = {}) {
   const f = deps.fetch || fetch;
-  // DELIBERATE change from v1.0 for list_projects/audit: they previously .json()'d any response with
-  // no ok-check, so a bridge 404/500 surfaced as a confusing parsed error body. All GET tools now
-  // throw the same "bridge <status>: <text>" error the other tools always used.
-  const getJson = async (path) => {
-    const r = await f(`${BASE}${path}`, { headers: authHeaders });
-    if (!r.ok) throw Object.assign(new Error(`bridge ${r.status}: ${await r.text()}`), { status: r.status });
-    return await r.json();
-  };
+  const getJson = bridgeGet(deps);
 
   if (name === "sentinel_list_projects") return await getJson("/cde/projects");
   if (name === "sentinel_propose") {
     // Only the declared fields reach the referee: an MCP client can neither stamp a verdict on a version (version_id),
     // register one (register) nor override anything.
-    const { project, source, ids, elements, agent, note } = args;
+    const { source, ids, elements, agent, note } = args;
+    const project = need(args, "project");
     const body = { source, ids, elements, agent, note };
-    if (!project) throw new Error("project is required");
     const r = await f(`${BASE}/cde/${enc(project)}/propose`, { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders }, body: JSON.stringify(body) });
     if (!r.ok) throw new Error(`bridge ${r.status}: ${await r.text()}`);
     return await r.json();
@@ -445,7 +500,7 @@ if (isMain) {
     try { msg = JSON.parse(line); } catch { return; }
     const { id, method, params } = msg;
     try {
-      if (method === "initialize") return ok(id, { protocolVersion: PROTO, capabilities: { tools: {} }, serverInfo: { name: "sentinel", version: "1.2" } });
+      if (method === "initialize") return ok(id, { protocolVersion: PROTO, capabilities: { tools: {} }, serverInfo: { name: "sentinel", version: "1.3" } });
       if (method === "notifications/initialized" || method === "notifications/cancelled") return; // notifications: no reply
       if (method === "tools/list") return ok(id, { tools: TOOLS });
       if (method === "ping") return ok(id, {});

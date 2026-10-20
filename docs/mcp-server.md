@@ -64,6 +64,22 @@ CI enforces the rest through `bridge/ai-boundary.test.mjs`. It fails if:
 The fence raises the bar against prompt injection; it is not a complete defence. Model writes still go only through
 staged changesets that a person ticks in Revit.
 
+## AI privacy (v1.3)
+
+Before a tool runs, the same choke point reads the AI policy of the project it is about (`GET /ai/policy`, the
+`ai_policy` standard a lead or owner sets in Project settings ▸ AI privacy, on the office or the project). Spec:
+`docs/superpowers/specs/2026-10-20-ai-privacy-controls-design.md`.
+
+- **AI stays on this network.** A locked project gets no answer, only the policy's words: an MCP client such as
+  Claude Desktop sends what it reads to a cloud model. `sentinel_list_projects` leaves locked projects out and says how
+  many; `sentinel_ask_app` is off while any of the caller's projects is locked. A policy that is not read refuses.
+- **Names masked.** With masking on, the project's name and key, its client, its address and the people of the
+  project and its office become stable tokens (`PROJECT_7Q2MXK4D`, `CLIENT_…`, `ADDRESS_…`, `PERSON_…`), and any other
+  e-mail address becomes `[e-mail]`. The answer says so on its second line. A token passed back as an argument
+  (`project: "PROJECT_7Q2MXK4D"`) is mapped to what it stands for before the bridge sees it.
+- **Limits.** Only names Sentinel holds are masked; a name typed in free text that Sentinel has no record of goes
+  through. `sentinel_list_checks` (the check registry) reads no policy: it holds no project data.
+
 ## Run / register
 
 The server talks to the local bridge over HTTP (`BCF_BASE`, default `http://127.0.0.1:4100`), so the bridge

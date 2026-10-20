@@ -76,7 +76,7 @@ export async function draftSection(key, docId, sectionId, { provider, model } = 
   const grounding = await assembleGrounding(key, docId, d);
   const { system, user } = buildDraftPrompt(grounding, doc, section);
   assertPromptWithinCap(system, user, "draft");
-  const reply = await d.chat({ provider, model, system, messages: [{ role: "user", content: user }], format: "json" });
+  const reply = await d.chat({ provider, model, system, messages: [{ role: "user", content: user }], format: "json", project: key }); // AI privacy: the project's AI policy judges a cloud call
   // A refusal is not a parse failure — surface the real reason, not "unusable output".
   if (reply.refused) throw err(502, "model declined to draft this section — rephrase the section guidance or switch model");
   const parsed = parseDraft(reply.text);
@@ -97,7 +97,7 @@ export async function integrityReport(key, docId, { provider, model } = {}, deps
   const grounding = await assembleGrounding(key, docId, d);
   const { system, user } = buildIntegrityPrompt(grounding, doc);
   assertPromptWithinCap(system, user, "integrity"); // the real prompt, doc + fact block — not doc chars alone
-  const reply = await d.chat({ provider, model, system, messages: [{ role: "user", content: user }], format: "json" });
+  const reply = await d.chat({ provider, model, system, messages: [{ role: "user", content: user }], format: "json", project: key }); // AI privacy: the project's AI policy judges a cloud call
   if (reply.refused) throw err(502, "model declined to analyse this document — try again or switch model");
   const parsed = parseFindings(reply.text, doc, grounding.facts.length);
   if (parsed.unparsed) throw err(502, "model returned unusable output — try again or switch model");

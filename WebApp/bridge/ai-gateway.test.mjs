@@ -33,7 +33,7 @@ describe("ai-gateway connection-level failures", () => {
     const { chat } = await import("./ai-gateway.mjs");
     try {
       await expect(
-        chat({ provider: "gemini", system: "s", messages: [{ role: "user", content: "hi" }] })
+        chat({ provider: "gemini", system: "s", messages: [{ role: "user", content: "hi" }], project: "p1" }, { policy: async () => ({ local_only: false, redact: false }) })
       ).rejects.toMatchObject({ status: 503, message: expect.stringContaining("Gemini") });
     } finally {
       delete process.env.GEMINI_API_KEY;

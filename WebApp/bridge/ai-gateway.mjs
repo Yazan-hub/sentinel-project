@@ -14,6 +14,7 @@ import { readdirSync } from "node:fs";
 import { loadEnv } from "./thatopen-client.mjs";
 import { createLimiter, createKeyedLimiter } from "./public-verify.mjs";
 import { currentSub } from "./bridge-auth.mjs";
+import { redactor } from "./redact.mjs";
 
 // config/.env is NOT loaded into process.env by this project — `loadEnv()` parses it and each module
 // merges it (same pattern as cde-store.mjs), with the file authoritative over a stale shell var.
@@ -176,7 +177,7 @@ export async function listModels(id) {
  * Tools are what makes agent mode possible: the model returns a STRUCTURED PROPOSAL (toolCalls)
  * rather than prose, and the caller decides whether to run any of it. Nothing here executes anything.
  */
-export async function chat({ provider = "local", model, system, messages = [], tools = [], format } = {}, { budget = true } = {}) {
+export async function chat({ provider = "local", model, system, messages = [], tools = [], format, project } = {}, { budget = true, policy } = {}) {
   const blocked = blockedReason(provider);
   if (blocked) throw Object.assign(new Error(blocked), { status: 400 });
 
@@ -197,10 +198,25 @@ export async function chat({ provider = "local", model, system, messages = [], t
     const may = await (await import("./members-store.mjs")).canUseCloudAi();
     if (!may.ok) throw Object.assign(new Error(may.why), { status: 403 });
   }
+  // AI privacy (spec 2026-10-20): the project's AI policy, before anything is sent. A cloud call names its project; a project
+  // whose office (or itself) keeps AI on this network is refused in words, and a masking one has its prompt masked and the
+  // reply mapped back for the person reading it. Local AI sends nothing off this network: neither applies.
+  let r = null;
+  if (p.cloud) {
+    if (typeof project !== "string" || !project.trim())
+      throw Object.assign(new Error("A cloud AI call names its project, so Sentinel can check that project's AI policy — nothing was sent."), { status: 400 });
+    const pol = await (policy || (await import("./ai-policy.mjs")).policyFor)(project.trim(), { terms: true });
+    if (pol.local_only) throw Object.assign(new Error(`${pol.words} Use Local (Ollama) — nothing was sent.`), { status: 403 });
+    if (pol.redact) r = redactor(pol.terms);
+  }
+  const sys = r ? r.maskDeep(system) : system; // any shape: a string, or the SDK's list of blocks (review L2)
+  const msgs = r ? messages.map((m) => ({ ...m, content: r.maskDeep(m.content) })) : messages;
   const out =
-    provider === "local"  ? await viaOllama(chosen, system, messages, tools, format)
-  : provider === "claude" ? await viaClaude(chosen, system, messages, tools, format)
-                          : await viaOpenAiCompatible(provider, chosen, system, messages, tools, format);
+    provider === "local"  ? await viaOllama(chosen, sys, msgs, tools, format)
+  : provider === "claude" ? await viaClaude(chosen, sys, msgs, tools, format)
+                          : await viaOpenAiCompatible(provider, chosen, sys, msgs, tools, format);
+  // A JSON reply (Docs ▸ Draft, Integrity) is parsed after this: its names go back JSON-escaped, so none adds structure (review M4).
+  if (r) Object.assign(out, { text: r.unmask(out.text, { json: format === "json" }), toolCalls: out.toolCalls.map((c) => ({ ...c, input: r.unmaskDeep(c.input) })), masked: r.size });
   return { ...out, provider, model: chosen };
 }
 

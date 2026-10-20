@@ -40,7 +40,8 @@ describe("standard forms — a body in force, read and written back, still insta
   it("review, publish and roi round-trip exactly", () => {
     const review = { steps: [{ name: "Lead check", role: "lead", approvals: 1 }, { name: "Client sign-off", role: "owner", approvals: 2 }] };
     const roi = { currency: "EUR", hourly_rate: 65, minutes: { delivery_gate: 30, naming: 2 }, basis: "office timesheets 2026" };
-    for (const [kind, body] of [["review", review], ["publish", { auto: true }], ["publish", { auto: false }], ["roi", roi], ["review", { steps: [] }]] as const) {
+    for (const [kind, body] of [["review", review], ["publish", { auto: true }], ["publish", { auto: false }], ["roi", roi], ["review", { steps: [] }],
+      ["ai_policy", { local_only: true, redact: false }], ["ai_policy", { local_only: false, redact: true }]] as const) {
       const out = roundTrip(kind, body);
       expect(out).toEqual(body);
       expect(validateArtefact(kind, out)).toBe(true);

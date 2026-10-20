@@ -91,6 +91,18 @@ const publish: StandardForm = {
   toBody: (m) => ({ auto: m.auto === true }),
 };
 
+// AI privacy (spec 2026-10-20): the office's or project's two switches. The bridge ORs the office's with the project's.
+const aiPolicy: StandardForm = {
+  kind: "ai_policy", title: "AI privacy",
+  intro: "What Sentinel's AI may do with this project's data. Set on the office, a switch holds for every project in it: a project can add one, never take the office's back.",
+  fields: [
+    { key: "local_only", label: "AI stays on this network: no cloud AI", type: "check", hint: "Cloud AI (Claude, Gemini, Kimi, NVIDIA) is refused, and Sentinel's MCP tools do not answer about the project (Claude Desktop is a cloud AI). Local AI (Ollama) still works." },
+    { key: "redact", label: "Mask names in what cloud AI reads", type: "check", hint: "The project's name, client, address and the people on it are replaced by tokens such as CLIENT_7Q2MXK4D before a cloud AI or an MCP client reads them, and put back in the answer you see." },
+  ],
+  fromBody: (b) => ({ local_only: b?.local_only === true, redact: b?.redact === true }),
+  toBody: (m) => ({ local_only: m.local_only === true, redact: m.redact === true }),
+};
+
 // What the chain enforces (0032 review_decide: has_min_role) — a viewer is a member but never approves a step.
 const REVIEW_ROLES: [string, string][] = [["contributor", "A contributor, lead or owner (not viewers)"], ["lead", "A lead or the owner"], ["owner", "The owner"]];
 const review: StandardForm = {
@@ -421,7 +433,7 @@ const lodMatrix: StandardForm = {
 };
 
 /** The kinds Standards in force edits with a form (spec batch 1 + 2, lod_matrix batch 3). */
-export const STANDARD_FORMS: Record<string, StandardForm> = { naming, contract, layers, review, publish, roi, lod_matrix: lodMatrix };
+export const STANDARD_FORMS: Record<string, StandardForm> = { naming, contract, layers, review, publish, roi, lod_matrix: lodMatrix, ai_policy: aiPolicy };
 
 /** Where a kind with no web form is changed — a tab the panel opens, or words naming the place in Revit. */
 export type StandardLink = { open: "docs" | "standards" | "carbon"; label: string } | { text: string };

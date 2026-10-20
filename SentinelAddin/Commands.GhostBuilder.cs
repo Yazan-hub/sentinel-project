@@ -50,6 +50,13 @@ public sealed class GhostBuilderCommand : IExternalCommand
             TaskDialog.Show("Sentinel — Ghost Builder", notLocal);
             return Result.Cancelled;
         }
+        // AI privacy controls: a project locked to this network refuses a model off this PC (the opt-in does not override it) — asked before the
+        // schema, a folder or a drawing is read. A model on this PC, or a model bound to no project, never reaches the bridge.
+        if (AiPolicyClient.Refusal(ProjectContext.For(doc).Key, LocalOnly.Where(settings.OllamaUrl)) is { } locked)
+        {
+            TaskDialog.Show("Sentinel — Ghost Builder", locked);
+            return Result.Cancelled;
+        }
         string? libraryDir = string.IsNullOrWhiteSpace(settings.GhostFamilyLibraryDir)
             ? null
             : settings.GhostFamilyLibraryDir;

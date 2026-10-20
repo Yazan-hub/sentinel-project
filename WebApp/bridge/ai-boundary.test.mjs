@@ -39,7 +39,8 @@ describe("guard: text from the model and the project is cleaned", () => {
 
 describe("toolResult: every answer and every error is fenced", () => {
   it("puts the data notice first and the cleaned answer after it", async () => {
-    const fetch = async () => okJson([{ id: "p1", name: "Aster\u200B Tower" }]);
+    const fetch = async (u) => okJson(String(u).includes("/ai/policy") ? { policies: { aster: { key: "aster", local_only: false, redact: false } } }
+      : [{ id: "p1", key: "aster", name: "Aster\u200B Tower" }]);
     const r = await toolResult("sentinel_list_projects", {}, { fetch });
     expect(r.isError).toBeUndefined();
     expect(r.content[0].text.startsWith(NOTICE)).toBe(true);

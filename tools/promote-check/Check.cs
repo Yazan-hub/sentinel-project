@@ -85,6 +85,7 @@ static partial class Check
         ProtectionChecks();
         RevertChecks();
         PcSettingsChecks();
+        AiPolicyChecks();
         Ma4fChecks();
         Ma5b1Checks();
         Ma5b4Checks();

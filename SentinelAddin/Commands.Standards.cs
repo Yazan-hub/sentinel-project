@@ -131,6 +131,13 @@ public sealed class IngestDocumentsCommand : IExternalCommand
         DocumentExtractor extractor;
         try { extractor = new DocumentExtractor(Sentinel.Engine.SettingsManager.MachineCloudOptIn()); }
         catch (ArgumentException ex) { TaskDialog.Show("Sentinel — Standards", ex.Message); return Result.Cancelled; }
+        // AI privacy controls: this model's project locked to this network refuses a model off this PC — before any document is read or sent.
+        if (AiPolicyClient.Refusal(Sentinel.Engine.ProjectContext.For(doc).Key, extractor.Where) is { } locked)
+        {
+            extractor.Dispose();
+            TaskDialog.Show("Sentinel — Standards", locked);
+            return Result.Cancelled;
+        }
         var window = StandardsReview.Create(uiapp);
         window.Closed += (_, __) => extractor.Dispose();
         window.Show();

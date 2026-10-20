@@ -181,7 +181,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
 
   let aiProvider = "local";
   let aiModel = ""; // "" = the provider's own default
-  let aiProviders: { id: string; label: string; available: boolean; blocked?: string; note?: string }[] | null = null;
+  let aiProviders: { key: string; list: { id: string; label: string; available: boolean; blocked?: string; note?: string }[] } | null = null;
   const aiBody = () => JSON.stringify(aiModel ? { provider: aiProvider, model: aiModel } : { provider: aiProvider });
   /** A fresh picker instance for a view's bar; all instances read/write the shared selection. */
   const aiPicker = (): HTMLElement => {
@@ -206,8 +206,9 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
     };
     void (async () => {
       try {
-        if (!aiProviders) aiProviders = (await (await bfetch(`${base}/ai/providers`)).json()).providers;
-        for (const p of aiProviders!) {
+        // Per project: its AI policy can make the cloud rows unavailable (spec 2026-10-20), said in each row's title.
+        if (aiProviders?.key !== pid()) aiProviders = { key: pid(), list: (await (await bfetch(`${base}/ai/providers?project=${encodeURIComponent(pid())}`)).json()).providers };
+        for (const p of aiProviders.list) {
           const o = new Option(p.available ? p.label : `${p.label} — unavailable`, p.id);
           o.disabled = !p.available;
           if (p.blocked || p.note) o.title = p.blocked || p.note || "";

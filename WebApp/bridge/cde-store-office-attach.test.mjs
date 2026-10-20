@@ -118,12 +118,22 @@ describe("updateProject — PATCH /cde/projects/:key", () => {
     expect(patches).toEqual([]);
   });
 
-  it("does not ask about an office_key the project already has, nor about detaching", async () => {
+  it("does not ask about an office_key the project already has", async () => {
     project.office_key = "office-a";
     await runWithAuth(jwt(STRANGER), () => updateProject("tower", { office_key: "office-a", name: "Tower B" }, "web"));
-    await runWithAuth(jwt(STRANGER), () => updateProject("tower", { office_key: "  " }, "web"));
-    expect(patches).toEqual([{ name: "Tower B", office_key: "office-a" }, { office_key: null }]);
+    expect(patches).toEqual([{ name: "Tower B", office_key: "office-a" }]);
     expect(rpcCalls).toBe(0);
+  });
+
+  // AI privacy review H2 (migration 0046 in the database): leaving an office drops its AI lock and its standards, so it is that
+  // office's lead's, as joining is — no longer the project lead's alone.
+  it("detaching from an office, or moving out of it, is a lead of that office's; the office's lead detaches it", async () => {
+    project.office_key = "office-a";
+    for (const office_key of ["  ", null]) await expect(runWithAuth(jwt(STRANGER), () => updateProject("tower", { office_key }, "web")))
+      .rejects.toMatchObject({ status: 403, message: "a project leaves its office (office-a) only through a lead of that office — nothing was saved" });
+    expect(patches).toEqual([]);
+    await runWithAuth(jwt(LEAD), () => updateProject("tower", { office_key: null }, "web"));
+    expect(patches).toEqual([{ office_key: null }]);
   });
 
   it("refuses turning a project into an office to a caller who is not a platform admin", async () => {

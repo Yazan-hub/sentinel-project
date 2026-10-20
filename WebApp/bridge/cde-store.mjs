@@ -438,6 +438,10 @@ export async function updateProject(key, patch = {}, actor) {
   const members = await import("./members-store.mjs");
   if (body.kind === "office" && proj.kind !== "office" && !(await members.isPlatformAdmin())) throw Object.assign(new Error(OFFICE_BY_ADMIN), { status: 403 });
   if (body.office_key && body.office_key !== (proj.office_key ?? null)) await members.requireOfficeLead(body.office_key);
+  // AI privacy review H2 (migration 0046 in the database): leaving an office, detached or moved, is that office's lead's too —
+  // a project lead could otherwise drop the office's AI lock and every office standard by detaching their project.
+  if (proj.office_key && body.office_key !== undefined && body.office_key !== proj.office_key)
+    await members.requireOfficeLead(proj.office_key, undefined, `a project leaves its office (${proj.office_key}) only through a lead of that office — nothing was saved`);
 
   let rows;
   try {
