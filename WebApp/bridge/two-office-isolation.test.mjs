@@ -22,7 +22,8 @@ const CHILD_OF = {
 };
 // Tables intentionally without a tenant. platform_admins: global list of operators; 0033 revokes it from every signed-in role.
 const NOT_SCOPED = { platform_admins: "0033_trust_boundaries: global operator list, RLS on with no policy, all privileges revoked from the API roles",
-  feed_keys: "0044_feed_keys: a person's own feed keys (user-scoped, not project-scoped); the feed answers per project through feed_rows, tested below" };
+  feed_keys: "0044_feed_keys: a person's own feed keys (user-scoped, not project-scoped); the feed answers per project through feed_rows, tested below",
+  audit_chain_tip: "0047_chain_tip: one row, the global ledger chain's tip (an id and a hash, no content); RLS on with no policy, read by service_role only" };
 // Tables intentionally WITHOUT row level security on live: none. A new table without RLS fails the RLS test.
 const NO_RLS_ALLOWED = {};
 
