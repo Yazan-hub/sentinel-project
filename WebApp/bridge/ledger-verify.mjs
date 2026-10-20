@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 // Sentinel ledger verifier — for an auditor, offline, on a project's downloaded audit pack. One file, Node 18 or later, nothing to
 // install (node:crypto and node:tls only). Run:
 //
