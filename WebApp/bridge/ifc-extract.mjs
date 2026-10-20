@@ -7,7 +7,7 @@
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import * as WebIFC from "web-ifc";
-import { materialValues, projectUnits, siValue, partOfChains } from "./sentinel-core.mjs";
+import { materialValues, projectUnits, siValue, partOfChains, multiValues, classificationsOf } from "./sentinel-core.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const WASM_DIR = resolve(here, "../node_modules/web-ifc") + "/";
@@ -47,8 +47,8 @@ function groupsOf(defs, target, si) {
         const n = val(p?.Name); if (!n) continue;
         const v = p?.NominalValue !== undefined ? bool(p.NominalValue) : undefined;
         const type = typeof p?.NominalValue?.name === "string" ? p.NominalValue.name.toUpperCase() : null; // web-ifc's "IFCLABEL": an IDS dataType
-        const values = multiValues(p, si);
-        if (values) rows.push({ name: n, value: values.map((x) => x.value).join(", "), ...(values[0]?.type && !values[0].column ? { type: (p.UpperBoundValue !== undefined ? values.at(-1) : values[0]).type } : {}), values });
+        const mv = multiValues(p, si);
+        if (mv) rows.push({ name: n, value: mv.values.map((x) => x.value).join(", "), ...(mv.type ? { type: mv.type } : {}), values: mv.values });
         else rows.push(withSi(type ? { name: n, value: v ?? "", type } : { name: n, value: v ?? "" }, p?.Unit));
       }
       target.psets.push({ name, rows });
@@ -76,21 +76,6 @@ function typePsetDefs(api, mid, typeDefs) {
     }
   }
   return out;
-}
-
-/** An enumerated, list, bounded or table property's values (PropRow.values), as IfcTester reads them: each value with its IFC type
- *  and SI form (a list's and a bound's from the property's unit, a table column's from its own); a bound in IfcTester's order
- *  (upper, lower, set point), so the last is the one whose type is the property's. undefined = a single value. */
-function multiValues(p, si) {
-  const one = (x, unit, column) => {
-    const type = typeof x?.name === "string" ? x.name.toUpperCase() : undefined, value = bool(x) ?? "", s = si?.(value, type, unit);
-    return { value, ...(type ? { type } : {}), ...(s !== undefined ? { si: s } : {}), ...(column ? { column } : {}) };
-  };
-  if (Array.isArray(p?.EnumerationValues)) return p.EnumerationValues.map((x) => one(x)); // IfcTester converts no enumerated value
-  if (Array.isArray(p?.ListValues)) return p.ListValues.map((x) => one(x, p.Unit));
-  if (p && "UpperBoundValue" in p) return [p.UpperBoundValue, p.LowerBoundValue, p.SetPointValue].filter((x) => x != null).map((x) => one(x, p.Unit));
-  if (p && "DefiningValues" in p) return [...(p.DefiningValues ?? []).map((x) => one(x, p.DefiningUnit, "Defining")), ...(p.DefinedValues ?? []).map((x) => one(x, p.DefinedUnit, "Defined"))];
-  return undefined;
 }
 
 /** Instance groups first, then the type's; a row already present by (pset, name) is not overridden. */
@@ -126,7 +111,7 @@ export async function elementPsets(api, mid, id, si) {
 function associations(api, mid) {
   const lines = (cls) => { const ids = api.GetLineIDsWithType(mid, WebIFC[cls], true), out = []; for (let i = 0; i < ids.size(); i++) out.push(api.GetLine(mid, ids.get(i))); return out; };
   const name = (line) => String(api.GetNameFromTypeCode(line?.type) || "").toUpperCase();
-  const typeOf = new Map(), refs = new Map(), mats = new Map(), sys = new Map(), matCache = new Map();
+  const typeOf = new Map(), refs = new Map(), mats = new Map(), refLines = new Map(), matCache = new Map();
   for (const r of lines("IFCRELDEFINESBYTYPE")) for (const o of r.RelatedObjects ?? []) typeOf.set(o.value, r.RelatingType?.value);
   for (const r of lines("IFCRELASSOCIATESCLASSIFICATION")) for (const o of r.RelatedObjects ?? []) refs.set(o.value, [...(refs.get(o.value) ?? []), r.RelatingClassification?.value]);
   for (const r of lines("IFCRELASSOCIATESMATERIAL")) for (const o of r.RelatedObjects ?? []) if (!mats.has(o.value)) mats.set(o.value, r.RelatingMaterial?.value);
@@ -136,24 +121,14 @@ function associations(api, mid) {
     ["IFCRELFILLSELEMENT", "fills", "RelatedBuildingElement", "RelatingOpeningElement"], ["IFCRELVOIDSELEMENT", "voids", "RelatedOpeningElement", "RelatingBuildingElement"]])
     for (const r of lines(cls)) for (const o of [r[from]].flat()) if (o?.value != null) link(o.value, k, r[to]?.value);
   const NONE = { aggregate: null, nest: null, container: null, group: null, fills: null, voids: null };
-  // A reference and every reference above it (ReferencedSource), up to its IfcClassification: [{value, system}], and the system's id.
-  const chain = (id) => {
-    if (sys.has(id)) return sys.get(id);
-    const rows = []; let line = api.GetLine(mid, id);
-    for (let n = 0; line && name(line) !== "IFCCLASSIFICATION" && n < 64; n++) { rows.push(line); line = line.ReferencedSource?.value ? api.GetLine(mid, line.ReferencedSource.value) : null; }
-    const root = line && name(line) === "IFCCLASSIFICATION" ? line : null, system = val(root?.Name);
-    const got = { key: root?.expressID ?? null, rows: rows.length ? rows.map((r) => ({ value: val(r.Identification) ?? val(r.ItemReference), system })) : [{ system }] };
-    sys.set(id, got);
-    return got;
-  };
+  // Each relating classification as one flattened line (its ReferencedSource chain inside), cached: classificationsOf reads it.
+  const refLine = (id) => { if (!refLines.has(id)) refLines.set(id, tagged(api, api.GetLine(mid, id, true))); return refLines.get(id); };
+  const refsOf = (id) => (refs.get(id) ?? []).filter((r) => r != null).map(refLine);
   return (id) => {
-    const own = (refs.get(id) ?? []).filter((r) => r != null), type = typeOf.get(id);
-    const bySystem = new Map();
-    for (const r of type != null ? (refs.get(type) ?? []).filter((x) => x != null) : []) bySystem.set(chain(r).key, [...(bySystem.get(chain(r).key) ?? []), r]);
-    for (const k of new Set(own.map((r) => chain(r).key))) bySystem.set(k, own.filter((r) => chain(r).key === k));
+    const type = typeOf.get(id);
     const m = mats.get(id) ?? (type != null ? mats.get(type) : undefined);
     if (m != null && !matCache.has(m)) matCache.set(m, materialValues(tagged(api, api.GetLine(mid, m, true))));
-    return { classifications: [...bySystem.values()].flat().flatMap((r) => chain(r).rows), material: m == null ? null : matCache.get(m), parents: { ...NONE, ...parents.get(id) } };
+    return { classifications: classificationsOf(refsOf(id), type != null ? refsOf(type) : []), material: m == null ? null : matCache.get(m), parents: { ...NONE, ...parents.get(id) } };
   };
 }
 

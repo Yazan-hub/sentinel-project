@@ -15,6 +15,8 @@ describe("isBrowsable", () => {
   it("keeps building elements and spatial containers, drops the project record, units, type objects and relationships", () => {
     expect(["IFCWALL", "IFCDOOR", "IFCBUILDINGELEMENTPROXY", "IFCBUILDINGSTOREY", "IFCSITE", "IFCBUILDING", "IFCSPACE"].filter(isBrowsable)).toHaveLength(7);
     expect(["IFCPROJECT", "IFCDERIVEDUNIT", "IFCSIUNIT", "IFCWALLTYPE", "IFCSLABTYPE", "IFCBUILDINGELEMENTPROXYTYPE", "IFCRELAGGREGATES", "IFCPROPERTYSET"].filter(isBrowsable)).toEqual([]);
+    // What the converter keeps as data for IDS (openings, classification, groups) has no geometry: not browsable — matched whole.
+    expect(["IFCOPENINGELEMENT", "IFCCLASSIFICATIONREFERENCE", "IFCMEASUREWITHUNIT", "IFCSYSTEM", "IFCZONE", "IFCSYSTEMFURNITUREELEMENT"].filter(isBrowsable)).toEqual(["IFCSYSTEMFURNITUREELEMENT"]);
   });
 });
 

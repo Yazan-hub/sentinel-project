@@ -184,23 +184,31 @@ export function partOfChains(els: ElementProperties[]): void {
     return out;
   };
   const chain = (xs: (ElementProperties | undefined)[]) => xs.filter((x): x is ElementProperties => !!x).map((a) => ({ Class: (a.identity?.Class ?? "").toUpperCase(), PredefinedType: predefinedOf(a) }));
-  // Without fills and voids (the viewer), an element found in no container may still be in one through an opening it fills — unless
-  // the top of its walk is spatial or a type, which fills nothing: then "none" is known; else this element's containment is unknown.
+  // A walk that stops where a relation this model's reader does not carry may go on is "open" (partOfOpen): what it found is known,
+  // what it did not find is unknown. Without fills and voids (a .frag with no opening), an element may still reach a container or a
+  // parent through an opening it fills — unless the top of its walk is spatial or a type, which fills nothing; without groups, any
+  // element but the project may still have a group above it.
   const fillsNothing = (x: ElementProperties) => /^IFC(PROJECT|PROJECTLIBRARY|SITE|BUILDING|BUILDINGSTOREY|SPACE|EXTERNALSPATIALELEMENT|SPATIALZONE|FACILITY|FACILITYPART|BRIDGE|BRIDGEPART|ROAD|ROADPART|RAILWAY|RAILWAYPART|MARINEFACILITY|MARINEPART|TUNNEL|TUNNELPART)$|(TYPE|STYLE)$/i.test(x.identity?.Class ?? "");
   const containment = (e: ElementProperties) => {
     const path = [e, ...walk(e, parentOf)], c = path.map((x) => up(x, "container")).find(Boolean);
-    return c ? chain([c]) : carried("fills", "voids") || fillsNothing(path[path.length - 1]) ? [] : undefined;
+    return { chain: chain([c]), open: !c && !carried("fills", "voids") && !fillsNothing(path[path.length - 1]) };
+  };
+  const anyRelation = (e: ElementProperties) => {
+    const path = [e, ...walk(e, (x) => parentOf(x) ?? up(x, "group"))], top = path[path.length - 1];
+    return { chain: chain(path.slice(1)), open: !/^IFCPROJECT$/i.test(top.identity?.Class ?? "") && (!carried("group") || (!carried("fills", "voids") && !fillsNothing(top))) };
   };
   for (const e of els) {
     const voided = /^IFCOPENING(ELEMENT|STANDARDCASE)$/i.test(e.identity?.Class ?? "") ? up(e, "voids") : up(up(e, "fills"), "voids");
+    const walks = carried("container", "aggregate", "nest") ? { IFCRELCONTAINEDINSPATIALSTRUCTURE: containment(e), "": anyRelation(e) } : {};
     e.partOf = {
       ...(carried("aggregate") ? { IFCRELAGGREGATES: chain(walk(e, (x) => up(x, "aggregate"))) } : {}),
       ...(carried("nest") ? { IFCRELNESTS: chain(walk(e, (x) => up(x, "nest"))) } : {}),
-      ...(carried("container", "aggregate", "nest") ? { IFCRELCONTAINEDINSPATIALSTRUCTURE: containment(e) } : {}),
+      ...Object.fromEntries(Object.entries(walks).map(([k, w]) => [k, w.chain])),
       ...(carried("group") ? { IFCRELASSIGNSTOGROUP: chain([up(e, "group")]) } : {}),
       ...(carried("fills", "voids") ? { "IFCRELVOIDSELEMENT IFCRELFILLSELEMENT": chain([voided]) } : {}),
-      ...(carried("container", "aggregate", "nest", "fills", "voids", "group") ? { "": chain(walk(e, (x) => parentOf(x) ?? up(x, "group"))) } : {}),
     };
+    const open = Object.entries(walks).filter(([, w]) => w.open).map(([k]) => k);
+    if (open.length) e.partOfOpen = open;
   }
 }
 
@@ -214,7 +222,8 @@ export function unreadFacets(spec: IdsSpec, els: ElementProperties[]): { specifi
     ...(["classifications", "materials"] as const).filter((k) => has(s, k) && !carried[k]).map((k) => `the ${k === "classifications" ? "classification" : "material"} facet`),
     // partOf: unknown for an element in scope (for an applicability facet, for any element: its scope is what is unknown).
     ...[...(s.applicability.partOfs ?? []).map((p) => [p, true] as const), ...(s.requirements.partOfs ?? []).map((p) => [p, false] as const)]
-      .filter(([p, inAppl]) => els.some((e) => e.partOf?.[p.relation] === undefined && (inAppl || applies(s, e))))
+      .filter(([p, inAppl]) => els.some((e) => (e.partOf?.[p.relation] === undefined || (e.partOfOpen?.includes(p.relation) && !partOfHit(p, e.partOf[p.relation]!).hit))
+        && (inAppl || applies(s, e))))
       .map(([p]) => `the partOf facet through ${p.relation || "any relation"}`),
     ...(s.ids10 ? [...(s.applicability.properties ?? []), ...(s.requirements.properties ?? [])] : [])
       .filter((p) => stated(p) && els.some((e) => propRows(e, p, true, true).some((r) => r?.si === null || r?.values?.some((v) => v.si === null))))
@@ -273,13 +282,17 @@ function checkMaterial(f: IdsMaterialFacet, el: ElementProperties, s: IdsSpecifi
 
 /** IfcTester's partOf facet: the first ancestor through the relation of the entity's class, and its predefined type. */
 function checkPartOf(f: IdsPartOfFacet, el: ElementProperties, s: IdsSpecification, out: Failure[]): void {
-  const chain = el.partOf?.[f.relation] ?? [];
-  const as = (a: { Class: string; PredefinedType: string }) => ({ identity: { Class: a.Class, PredefinedType: a.PredefinedType } }) as ElementProperties;
-  const hit = f.entity?.entity ? chain.find((a) => isEntity({ entity: f.entity!.entity }, as(a), true)) : chain[0];
-  const ok = !!hit && (!f.entity || isEntity({ ...f.entity, entity: undefined }, as(hit), true));
+  const chain = el.partOf?.[f.relation] ?? [], { ok } = partOfHit(f, chain);
   const want = [f.entity?.entity && `/${f.entity.entity}/`, f.entity?.predefinedType ?? (f.entity?.predefinedTypePattern && `/${f.entity.predefinedTypePattern}/`)].filter(Boolean).join(" ");
   judgeHas(f.cardinality, chain.length > 0, ok, `partOf ${f.relation || "any relation"}${want ? ` ${want}` : ""}`,
     chain.map((a) => (a.PredefinedType ? `${a.Class}.${a.PredefinedType}` : a.Class)).join(" < ") || "none", s, out);
+}
+
+/** The first ancestor of the facet's class (any ancestor when it names none), and whether its predefined type meets the facet. */
+function partOfHit(f: IdsPartOfFacet, chain: { Class: string; PredefinedType: string }[]) {
+  const as = (a: { Class: string; PredefinedType: string }) => ({ identity: { Class: a.Class, PredefinedType: a.PredefinedType } }) as ElementProperties;
+  const hit = f.entity?.entity ? chain.find((a) => isEntity({ entity: f.entity!.entity }, as(a), true)) : chain[0];
+  return { hit, ok: !!hit && (!f.entity || isEntity({ ...f.entity, entity: undefined }, as(hit), true)) };
 }
 
 function judgeHas(card: Cardinality, present: boolean, ok: boolean, label: string, actual: string, s: IdsSpecification, out: Failure[]): void {

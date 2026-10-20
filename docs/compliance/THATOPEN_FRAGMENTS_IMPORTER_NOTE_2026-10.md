@@ -28,6 +28,18 @@ We added `WEBIFC.IFCPROPERTYENUMERATEDVALUE` to `importer.classes.abstract`. The
 `EnumerationValues: { value: ["EXISTING", "DEMOLISH"], type: "IFCLABEL" }`, with its `EnumerationReference`. So the data
 is there to keep.
 
+We now widen both lists ourselves:
+- **Classes:** all of the classes above go into `classes.abstract`.
+- **Relations:** IfcRelAssignsToGroup, IfcRelVoidsElement and IfcRelFillsElement with the names in `ifcRelationsMap`.
+  IfcRelAssociatesClassification goes under the element's `HasAssociations`.
+
+The result:
+- Every item with geometry is unchanged: Aster Tower 602, and the 7 West Riverside Hospital models 63,182.
+- Openings come through as data with no mesh.
+- The `.frag` grows by 5% (Aster Tower) to 8.7% (hospital).
+- Conversion time does not change.
+- Our viewer now gets 286 of the 313 official IDS cases right, against IfcTester's 288.
+
 ## What we would like to ask
 
 1. **Could the defaults include the property-value classes and the conversion-based units?**
@@ -38,8 +50,12 @@ is there to keep.
    are missing.
 2. **Could classification be kept by default, or behind one documented switch?** That covers IfcClassification,
    IfcClassificationReference and IfcRelAssociatesClassification. Classification is common in real IDS files.
-3. **Is there a supported way to keep IfcRelVoidsElement and IfcRelFillsElement without rendering opening elements as
-   geometry?**
+3. **Is keeping IfcOpeningElement in `classes.abstract` the supported way to keep voids and fills without rendering
+   openings?** It works for us (no mesh), but we would like to know that it stays so.
+   - A related point: `ifcRelationsMap` names IfcRelAssociatesClassification `forRelating: "HasReferences"`,
+     `forRelated: "ClassificationRefForObjects"`.
+   - IFC puts `HasAssociations` on the object and `ClassificationRefForObjects` on the reference, so the pair looks the
+     wrong way round.
 4. **Could a left-out class be marked, not stubbed?** An item with `_category: null` and no attributes is easy to read
    as "no property here". We now treat it as "could not read", but other readers will not know to. An explicit marker,
    or leaving the item out, would be safer.
