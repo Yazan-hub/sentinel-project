@@ -25,11 +25,13 @@ describe("buildAuditPack", () => {
     documents: async () => [{ id: "d1", doc_type: "BEP", title: "B", status: "draft", updated_at: "t", bim_document_versions: [{ count: 2 }] }],
     containers: async () => [{ id: "c1", iso_name: "A.ifc", container_versions: [{ id: "v1", revision: "P01", state: "published", sha256: "s", is_live: true }], deleted_versions: 1 }],
     reviews: async () => ({ items: [{ version_id: "v1", step: 1 }] }),
+    chainPage: async (_k, { offset }) => ({ total: 3, rows: offset === 0 ? [{ project_seq: 1, audit_id: 1 }, { project_seq: 2, audit_id: 2 }] : [{ project_seq: 3, audit_id: 3 }] }),
+    verifier: { file: "ledger-verify.mjs", sha256: "f".repeat(64) },
     ledgerPage: async (_k, { offset }) => ({ total: 3, rows: offset === 0 ? [{ id: 3, at: "t3", entity_type: "file_version", entity_id: "v1", action: "verdict: accepted", actor: "a", hash: "h3", prev_hash: "h2" }, { id: 2, at: "t2", entity_type: "x", action: "y", actor: "a", hash: "h2", prev_hash: "h1" }] : [{ id: 1, at: "t1", entity_type: "x", action: "z", actor: "a", hash: "h1", prev_hash: null }] }),
   };
   it("gathers every part, seals the bundle, and the seal re-checks", async () => {
     const p = await buildAuditPack("demo", deps);
-    expect(p).toMatchObject({ pack: "sentinel-audit-pack", version: 1, generated_at: "2026-10-08T00:00:00.000Z", generated_by: "lead@example.test", project: { key: "demo", office_key: "office" } });
+    expect(p).toMatchObject({ pack: "sentinel-audit-pack", version: 2, generated_at: "2026-10-08T00:00:00.000Z", generated_by: "lead@example.test", project: { key: "demo", office_key: "office" } });
     expect(p.standards).toEqual({ ids: { ref: "ids@2", source: "project", sha256: "ab" }, naming: { ref: "naming@2", source: "office", sha256: "ab", pointer_sha_mismatch: true }, roi: null });
     expect(p.documents).toEqual([{ id: "d1", doc_type: "BEP", title: "B", status: "draft", updated_at: "t", versions: 2 }]);
     expect(p.containers[0]).toMatchObject({ iso_name: "A.ifc", deleted_versions: 1, versions: [{ id: "v1", revision: "P01", state: "published", is_live: true, superseded: false }] });
@@ -38,6 +40,14 @@ describe("buildAuditPack", () => {
     expect(p.ledger.rows[2]).toMatchObject({ hash: "h3", prev_hash: "h2", action: "verdict: accepted" });
     expect(sealed(p)).toBe(true);
     expect(LEDGER_MAX).toBe(5000);
+  });
+  it("v2: carries the project chain oldest first, page after page, and names the verifier", async () => {
+    const p = await buildAuditPack("demo", deps);
+    expect(p.chain).toMatchObject({ length: 3, truncated: false, verifier: { file: "ledger-verify.mjs" } });
+    expect(p.chain.rows.map((r) => r.project_seq)).toEqual([1, 2, 3]);
+    expect(p.chain.how).toMatch(/node ledger-verify\.mjs/);
+    const none = await buildAuditPack("demo", { ...deps, chainPage: async () => { throw new Error("the project chain is not set up on this database yet (migration 0045)"); } });
+    expect(none.chain).toEqual({ not_read: "the project chain is not set up on this database yet (migration 0045)" });
   });
   it("a part that cannot be read is said so in its place; the rest of the pack stands and is sealed", async () => {
     const p = await buildAuditPack("demo", { ...deps, documents: async () => { throw Object.assign(new Error("forbidden"), { status: 403 }); }, reviews: async () => { throw new Error("no such table"); } });

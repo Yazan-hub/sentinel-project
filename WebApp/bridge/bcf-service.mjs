@@ -552,6 +552,7 @@ server.listen(PORT, HOST, () => {
   console.log(`[bridge] bind: ${HOST} · auth gate: ARMED (JWT or BCF_TOKEN required; BCF_TOKEN from this PC only; GET /health exempt; POST /receipt/:key/verify answers anyone hash-only)`);
   if (CORS_WILDCARD) console.warn("[bridge] WARNING: BCF_CORS_ORIGIN=* disables CSRF protection — set it to your app origin(s) for production.");
   if (TOKEN && !JWT_SECRET) console.warn("[bridge] WARNING: BCF_TOKEN set without SUPABASE_JWT_SECRET — no sign-in is accepted, so every signed-in web user gets 401. Set SUPABASE_JWT_SECRET.");
+  import("./ledger-anchor.mjs").then((a) => a.startDaily()).catch((e) => console.error(`[anchor] not started: ${e.message}`));
   import("./cde-store.mjs").then((cde) => console.log(`[bridge] JWT-forwarding: ${cde.forwardingConfigured() ? "armed (forwards a caller's Supabase JWT → RLS)" : "off (service key; set SUPABASE_ANON_KEY to arm)"}`)).catch(() => {});
   // Platform API-token health-check: one cheap authenticated read at startup so a revoked/rotated
   // THATOPEN_API_KEY is caught LOUDLY here instead of as a confusing 401 "Token not found" on the first
@@ -588,6 +589,10 @@ for (const signal of ["SIGTERM", "SIGINT"]) process.once(signal, () => {
 // IPv4 address, an IPv6 /64): anonymous callers never hold more than 32 of the server's 256 sockets, and filling
 // those 32 takes 16 sources, not one.
 const publicPerCaller = createKeyedLimiter({ max: 60, windowMs: 60000 });
+// Ledger verification: "Timestamp now" sends one request to the timestamp service per project per minute at most.
+const anchorPerProject = createKeyedLimiter({ max: 1, windowMs: 60000 });
+/** The auditor's verifier as this bridge serves it: its name, its sha256 (the pack names it) and its text. */
+const verifierFile = () => { const source = readFileSync(new URL("./ledger-verify.mjs", import.meta.url), "utf8"); return { file: "ledger-verify.mjs", sha256: createHash("sha256").update(source, "utf8").digest("hex"), source }; };
 const publicLimiter = createLimiter({ max: 600, windowMs: 60000 });
 const MAX_PUBLIC_READS = 32, MAX_PUBLIC_READS_PER_CALLER = 2;
 let publicReads = 0;
@@ -1456,6 +1461,20 @@ async function handleRequest(req, res) {
       // credential as service): standards in force, documents, containers and versions, review chains, the ledger with its hashes,
       // sealed by sha256. "evidence-pack" is the same export under its old name.
       // ponytail: the old path answers for one release, so web 1.0.61's button does not 404 — drop it after 1.0.62 is published.
+      // Ledger verification (2026-10-20), a lead's or an owner's: GET /cde/:key/audit-pack/verifier → { file, sha256, source } — the
+      // auditor's offline verifier (ledger-verify.mjs); GET /cde/:key/anchor → the project's last external timestamp, checked now;
+      // POST /cde/:key/anchor → "Timestamp now" (ledger-anchor.mjs: nothing is sent unless LEDGER_TSA_URL is set).
+      if (p2 === "audit-pack" && p3 === "verifier" && req.method === "GET") {
+        await (await import("./members-store.mjs")).requireMinRole(p1, "lead");
+        return send(res, 200, verifierFile());
+      }
+      if (p2 === "anchor" && !p3 && (req.method === "GET" || req.method === "POST")) {
+        await (await import("./members-store.mjs")).requireMinRole(p1, "lead");
+        const anchor = await import("./ledger-anchor.mjs");
+        if (req.method === "GET") return send(res, 200, await anchor.anchorStatus(p1));
+        if (!anchorPerProject.take(p1)) return send(res, 429, { message: "One timestamp request a minute per project — try again shortly. Nothing was sent." });
+        return send(res, 200, await anchor.anchorProject(p1, resolveActor(null, "machine")));
+      }
       if ((p2 === "audit-pack" || p2 === "evidence-pack") && !p3 && req.method === "GET") {
         const members = await import("./members-store.mjs");
         await members.requireMinRole(p1, "lead");
@@ -1465,12 +1484,14 @@ async function handleRequest(req, res) {
         const pack = await ap.buildAuditPack(p1, {
           // MA-8-13: a recipe is not a standard in force - it reaches the pack through its ledger part
           kinds: art.KINDS.filter((k) => k !== "recipe"), actor: resolveActor(null, "machine"),
-          project: async (key) => { const rows = await cde.listProjects(); const p = rows.find((x) => x.key === key); if (!p) throw new Error("project not listed"); return { key: p.key, name: p.name, kind: p.kind ?? "project", office_key: p.office_key ?? null }; },
+          project: async (key) => { const rows = await cde.listProjects(); const p = rows.find((x) => x.key === key); if (!p) throw new Error("project not listed"); return { id: p.id, key: p.key, name: p.name, kind: p.kind ?? "project", office_key: p.office_key ?? null }; },
           standards: (key, kind) => art.resolveArtefact(key, kind),
           documents: (key) => bimdocs.listDocs(key),
           containers: (key) => cde.listContainers(key),
           reviews: (key) => cde.readReviews(key),
           ledgerPage: (key, q) => cde.listAudit(key, q),
+          chainPage: (key, q) => cde.listChain(key, q),
+          verifier: (({ file, sha256 }) => ({ file, sha256, run: `node ${file} <this pack>`, get: "Project Settings ▸ audit pack ▸ Download the verifier — or WebApp/bridge/ledger-verify.mjs in github.com/Yazan-hub/sentinel-project" }))(verifierFile()),
         });
         return send(res, 200, pack, { "Content-Disposition": `attachment; filename="${p1.replace(/[^A-Za-z0-9_-]/g, "_")}-audit-pack-${pack.generated_at.slice(0, 10)}.json"` });
       }
