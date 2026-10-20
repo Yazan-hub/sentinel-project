@@ -86,7 +86,10 @@ export async function anchorGlobal(actor, deps = {}) {
   const url = deps.url ?? tsaUrl();
   if (!url) throw err(409, "external timestamps are not switched on for this bridge — nothing was sent");
   const cde = await store();
-  const h = (await cde.sb(`audit_log?select=id,hash,project_id,entity_type&order=id.desc&limit=1`, { service: true }))?.[0];
+  // The chain's tip as the database keeps it (0047); before 0047, the highest id.
+  const tip = await cde.sb(`audit_chain_tip?select=audit_id`, { service: true }).then((r) => r?.[0] ?? null, () => null);
+  const h = (await cde.sb(tip ? `audit_log?id=eq.${Number(tip.audit_id)}&select=id,hash,project_id,entity_type`
+    : `audit_log?select=id,hash,project_id,entity_type&order=id.desc&limit=1`, { service: true }))?.[0];
   if (!h?.hash) return { status: "empty" };
   if (h.project_id == null && h.entity_type === "ledger_anchor") return { status: "current", audit_id: h.id };
   const { token, check } = await stamp(h.hash, url, deps);
