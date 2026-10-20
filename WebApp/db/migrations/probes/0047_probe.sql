@@ -6,16 +6,21 @@
 -- Part 0 (before the apply)
 select 'a table named audit_chain_tip already (expect 0)' as what, count(*)::text as n from pg_tables where schemaname = 'public' and tablename = 'audit_chain_tip'
 union all select 'chain ends — rows no row names as prev_hash (expect 1)', count(*)::text from public.audit_log a where not exists (select 1 from public.audit_log b where b.prev_hash = a.hash)
-union all select 'forks — prev_hash named by two rows or more (expect 0)', count(*)::text from (select prev_hash from public.audit_log where prev_hash is not null group by prev_hash having count(*) > 1) f;
+union all select 'forks — prev_hash named by two rows or more (expect 0)', count(*)::text from (select prev_hash from public.audit_log where prev_hash is not null group by prev_hash having count(*) > 1) f
+union all select 'session DateStyle / TimeZone (expect ISO, MDY / UTC — what the trigger pins)', current_setting('DateStyle') || ' / ' || current_setting('TimeZone')
+union all select 'the trigger function''s owner (expect the applier, or a role that bypasses RLS)', (select r.rolname || ' bypassrls=' || r.rolbypassrls from pg_proc p join pg_roles r on r.oid = p.proowner where p.oid = 'public.cde_audit_chain()'::regprocedure);
 
 -- Part 1 (after the apply)
 select 'the tip holds one row' as what, (select count(*) from public.audit_chain_tip) = 1 as ok
 union all select 'the tip is the chain''s one end', (select t.hash from public.audit_chain_tip t) = (select a.hash from public.audit_log a where not exists (select 1 from public.audit_log b where b.prev_hash = a.hash))
 union all select 'no fork', not exists (select 1 from public.audit_log where prev_hash is not null group by prev_hash having count(*) > 1)
 union all select 'every hash still recomputes (the formula unchanged)', not exists (select 1 from public.audit_log a where a.hash is distinct from encode(extensions.digest(coalesce(a.prev_hash,'') || a.entity_type || coalesce(a.entity_id::text,'') || a.action || coalesce(a.actor,'') || coalesce(a.old_value::text,'') || coalesce(a.new_value::text,'') || coalesce(a.at::text,''), 'sha256'), 'hex'))
-union all select 'the trigger function is security definer with an empty search_path', (select p.prosecdef and p.proconfig = array['search_path=""'] from pg_proc p where p.oid = 'public.cde_audit_chain()'::regprocedure)
+union all select 'the trigger function is security definer: empty search_path, UTC, ISO dates', (select p.prosecdef and p.proconfig @> array['search_path=""', 'TimeZone=UTC', 'DateStyle=ISO, MDY'] from pg_proc p where p.oid = 'public.cde_audit_chain()'::regprocedure)
+union all select 'the chain trigger is the last BEFORE INSERT row trigger on audit_log', (select t.tgname from pg_trigger t where t.tgrelid = 'public.audit_log'::regclass and not t.tgisinternal and (t.tgtype & 2) <> 0 and (t.tgtype & 4) <> 0 and (t.tgtype & 1) <> 0 order by t.tgname desc limit 1) = 'trg_audit_chain'
 union all select 'no API role may write the tip; only service_role reads it', not (has_table_privilege('service_role', 'public.audit_chain_tip', 'insert') or has_table_privilege('service_role', 'public.audit_chain_tip', 'update')
-  or has_table_privilege('service_role', 'public.audit_chain_tip', 'delete') or has_table_privilege('authenticated', 'public.audit_chain_tip', 'select') or has_table_privilege('anon', 'public.audit_chain_tip', 'select'))
+  or has_table_privilege('service_role', 'public.audit_chain_tip', 'delete') or has_table_privilege('service_role', 'public.audit_chain_tip', 'truncate')
+  or has_table_privilege('authenticated', 'public.audit_chain_tip', 'select') or has_table_privilege('authenticated', 'public.audit_chain_tip', 'update') or has_table_privilege('authenticated', 'public.audit_chain_tip', 'truncate')
+  or has_table_privilege('anon', 'public.audit_chain_tip', 'select') or has_table_privilege('anon', 'public.audit_chain_tip', 'update') or has_table_privilege('anon', 'public.audit_chain_tip', 'truncate'))
   and has_table_privilege('service_role', 'public.audit_chain_tip', 'select');
 
 -- Part 2 (after the apply): the race, rolled back.

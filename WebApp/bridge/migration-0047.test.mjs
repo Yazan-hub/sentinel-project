@@ -17,7 +17,8 @@ const race = async (db, base, pid = null) => {
   return { a, b, c };
 };
 const forks = async (db) => (await db.query("select count(*)::int n from (select prev_hash from public.audit_log where prev_hash is not null group by prev_hash having count(*) > 1) f")).rows[0].n;
-const recompute = async (db) => (await db.query(`select count(*)::int n from public.audit_log a where a.hash is distinct from encode(extensions.digest(coalesce(a.prev_hash,'') || a.entity_type || coalesce(a.entity_id::text,'') || a.action || coalesce(a.actor,'') || coalesce(a.old_value::text,'') || coalesce(a.new_value::text,'') || coalesce(a.at::text,''), 'sha256'), 'hex')`)).rows[0].n;
+// Recomputed as the trigger renders since 0047: UTC, ISO dates (PGlite's own session zone is not UTC).
+const recompute = async (db) => (await db.exec("set timezone = 'UTC'; set datestyle = 'ISO, MDY'"), await db.query(`select count(*)::int n from public.audit_log a where a.hash is distinct from encode(extensions.digest(coalesce(a.prev_hash,'') || a.entity_type || coalesce(a.entity_id::text,'') || a.action || coalesce(a.actor,'') || coalesce(a.old_value::text,'') || coalesce(a.new_value::text,'') || coalesce(a.at::text,''), 'sha256'), 'hex')`)).rows[0].n;
 
 describe("migration 0047 — one line, whatever order the ids were drawn in", () => {
   let before, after;
@@ -68,17 +69,27 @@ describe("migration 0047 — one line, whatever order the ids were drawn in", ()
     expect((await db.query("select audit_id, hash from public.audit_chain_tip")).rows[0]).toEqual({ audit_id: last.id, hash: last.hash });
     const next = (await db.query("insert into public.audit_log(entity_type, action) values ('event', 'four') returning prev_hash")).rows[0];
     expect(next.prev_hash).toBe(last.hash);
-    for (const sql of ["update public.audit_chain_tip set hash = repeat('0', 64)", "delete from public.audit_chain_tip"]) {
+    for (const sql of ["update public.audit_chain_tip set hash = repeat('0', 64)", "delete from public.audit_chain_tip", "truncate public.audit_chain_tip"]) {
       await db.exec("begin; set local role service_role");
       await expect(db.exec(sql)).rejects.toThrow(/permission denied/);
       await db.exec("rollback");
     }
   });
 
-  it("the probe passes on PGlite: part 1 every row true (6), part 2 'PROBE 0047: 5 of 5 as expected.' (rolled back)", async () => {
+  it("the chain trigger is the last BEFORE INSERT row trigger, and pins UTC and ISO dates (a session elsewhere hashes the same bytes)", async () => {
+    const t = (await after.query(`select tgname from pg_trigger where tgrelid = 'public.audit_log'::regclass and not tgisinternal
+      and (tgtype & 1) <> 0 and (tgtype & 2) <> 0 and (tgtype & 4) <> 0 order by tgname`)).rows.map((r) => r.tgname);
+    expect(t.at(-1)).toBe("trg_audit_chain");
+    await after.exec("set timezone = 'Asia/Dubai'; set datestyle = 'SQL, DMY'");
+    await after.query("insert into public.audit_log(entity_type, action) values ('event', 'dubai')");
+    await after.exec("reset datestyle; set timezone = 'UTC'");
+    expect(await recompute(after)).toBe(0); // recomputed in UTC/ISO: the Dubai session's row is the same bytes
+  });
+
+  it("the probe passes on PGlite: part 1 every row true (7), part 2 'PROBE 0047: 5 of 5 as expected.' (rolled back)", async () => {
     const part = (n) => PROBE.slice(PROBE.indexOf(`-- Part ${n} (after`), n === 1 ? PROBE.indexOf("-- Part 2 (after") : undefined);
     const rows = (await after.query(part(1))).rows;
-    expect(rows.length).toBe(6);
+    expect(rows.length).toBe(7);
     expect(rows.filter((r) => r.ok !== true).map((r) => r.what)).toEqual([]);
     const n = (await after.query("select count(*)::int n from public.audit_log")).rows[0].n;
     await expect(after.exec(part(2))).rejects.toThrow("PROBE 0047: 5 of 5 as expected.");

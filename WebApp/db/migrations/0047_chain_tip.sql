@@ -13,13 +13,22 @@
 -- The hash formula is unchanged byte for byte (every existing hash still recomputes; nothing is rehashed or updated). The tip is
 -- seeded from the existing chain's one end (the row whose hash no row names as its prev_hash); the apply refuses if the chain
 -- has more or fewer than one end. The trigger becomes SECURITY DEFINER with an empty search_path, so it — and only it — moves
--- the tip; no API role may write the tip.
+-- the tip; no API role may write the tip. It also pins TimeZone UTC and DateStyle 'ISO, MDY' — the live sessions' own settings
+-- (checked 2026-10-20), so every hash so far is the same bytes, and a session in another zone can no longer change how `at`
+-- is rendered into a hash. The apply checks, before it commits, that the trigger's owner owns the tip (or bypasses RLS).
+-- The trigger must stay the last BEFORE INSERT row trigger on audit_log (a later one returning NULL would move the tip with no
+-- row written): bridge/migration-0047.test.mjs pins it.
 --
--- NOT YET APPLIED. Apply on the founder's OK only; probes/0047_probe.sql part 0 before, parts 1 and 2 after. Either order with
--- the bridge is safe: the bridge reads the tip only for the daily global timestamp, and falls back to the highest id without it.
+-- APPLIED 2026-10-20 ~13:10 UTC on the founder's OK ("Yes, apply + drill"), project autqqtwhxqrfjaztablm. probes/0047_probe.sql
+-- part 0: no tip table, 1 end, 0 forks, sessions ISO, MDY / UTC, owner postgres (bypassrls); part 1: 7 of 7 true; part 2:
+-- "PROBE 0047: 5 of 5 as expected." (rolled back). Live two-session drill: the database tool ran the two sessions one after the
+-- other, so the race itself did not occur live — the three drill rows (#3056–#3058, project ledger-drill-2026-10-20) form one
+-- line, 0 forks, tip #3058. Either order with the bridge is safe: the bridge reads the tip only for the daily global timestamp,
+-- and falls back to the highest id without it.
 --
--- ROLLBACK (if needed): create or replace 0006's cde_audit_chain() body with `set search_path = public, extensions` (0012),
--- then drop table public.audit_chain_tip.
+-- ROLLBACK (if needed), only while audit_chain_tip.audit_id = max(audit_log.id) (else the old body's "highest id" forks the
+-- chain at once): under the same lock, create or replace 0006's cde_audit_chain() body with `set search_path = public,
+-- extensions` (0012), then drop table public.audit_chain_tip.
 
 begin;
 
@@ -47,7 +56,7 @@ begin
 end $$;
 
 create or replace function public.cde_audit_chain() returns trigger
-  language plpgsql security definer set search_path = '' as $$
+  language plpgsql security definer set search_path = '' set timezone = 'UTC' set datestyle = 'ISO, MDY' as $$
 declare last_hash text;
 begin
   -- Serialize concurrent audit inserts (0006's key), then chain onto the kept tip — never onto "the highest id".
@@ -70,5 +79,15 @@ alter table public.audit_chain_tip enable row level security;
 revoke all on public.audit_chain_tip from public, anon, authenticated, service_role;
 grant select on public.audit_chain_tip to service_role;
 revoke execute on function public.cde_audit_chain() from public, anon, authenticated, service_role;
+
+-- The trigger writes the tip as its owner: refuse to commit a ledger that could not write a row.
+do $$
+begin
+  if not exists (select 1 from pg_proc p join pg_class c on c.oid = 'public.audit_chain_tip'::regclass
+                 join pg_roles r on r.oid = p.proowner
+                 where p.oid = 'public.cde_audit_chain()'::regprocedure and (p.proowner = c.relowner or r.rolsuper or r.rolbypassrls)) then
+    raise exception '0047: the chain trigger''s owner could not write the tip (row level security) — nothing was changed';
+  end if;
+end $$;
 
 commit;
