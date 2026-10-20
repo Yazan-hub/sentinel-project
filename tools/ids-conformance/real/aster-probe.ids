@@ -293,5 +293,68 @@
                 </property>
             </requirements>
         </specification>
+        <specification name="S15 walls carry a material" ifcVersion="IFC2X3">
+            <applicability minOccurs="0" maxOccurs="unbounded">
+                <entity>
+                    <name>
+                        <simpleValue>IFCWALLSTANDARDCASE</simpleValue>
+                    </name>
+                </entity>
+            </applicability>
+            <requirements>
+                <material cardinality="required" />
+            </requirements>
+        </specification>
+        <specification name="S16 walls have a Gypsum Wall Board layer" ifcVersion="IFC2X3">
+            <applicability minOccurs="0" maxOccurs="unbounded">
+                <entity>
+                    <name>
+                        <simpleValue>IFCWALLSTANDARDCASE</simpleValue>
+                    </name>
+                </entity>
+            </applicability>
+            <requirements>
+                <material cardinality="required">
+                    <value>
+                        <simpleValue>Gypsum Wall Board</simpleValue>
+                    </value>
+                </material>
+            </requirements>
+        </specification>
+        <specification name="S17 walls are classified in Uniformat (from their type)" ifcVersion="IFC2X3">
+            <applicability minOccurs="0" maxOccurs="unbounded">
+                <entity>
+                    <name>
+                        <simpleValue>IFCWALLSTANDARDCASE</simpleValue>
+                    </name>
+                </entity>
+            </applicability>
+            <requirements>
+                <classification cardinality="required">
+                    <system>
+                        <simpleValue>Uniformat</simpleValue>
+                    </system>
+                </classification>
+            </requirements>
+        </specification>
+        <specification name="S18 walls are Uniformat B2010 exterior walls" ifcVersion="IFC2X3">
+            <applicability minOccurs="0" maxOccurs="unbounded">
+                <entity>
+                    <name>
+                        <simpleValue>IFCWALLSTANDARDCASE</simpleValue>
+                    </name>
+                </entity>
+            </applicability>
+            <requirements>
+                <classification cardinality="required">
+                    <value>
+                        <simpleValue>B2010</simpleValue>
+                    </value>
+                    <system>
+                        <simpleValue>Uniformat</simpleValue>
+                    </system>
+                </classification>
+            </requirements>
+        </specification>
     </specifications>
 </ids>

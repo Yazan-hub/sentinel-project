@@ -1,11 +1,12 @@
 // sentinel-core/ids-parse — buildingSMART IDS 1.0 (.ids XML) → IdsSpec, every specification judged by IDS 1.0's rules (ids10).
 // Uses the browser DOMParser and namespace-agnostic localName traversal so it tolerates the ids:/xs: prefixes real IDS files
-// carry. Reads entity facets (name + predefinedType) in applicability or requirements, attribute and property facets in either,
-// values as simpleValue or xs:restriction (enumeration, pattern, bounds, length), facet cardinality, and specification
-// cardinality (applicability minOccurs/maxOccurs). What it cannot judge — classification, material and partOf facets, a name
-// given as a restriction, other restriction kinds — it names in `unsupported`, never drops: a dropped facet reads as a pass.
+// carry. Reads entity facets (name + predefinedType) in applicability or requirements, attribute, property, classification and
+// material facets in either, values as simpleValue or xs:restriction (enumeration, pattern, bounds, length), facet cardinality,
+// and specification cardinality (applicability minOccurs/maxOccurs). What it cannot judge — the partOf facet, a name given as a
+// restriction, other restriction kinds — it names in `unsupported`, never drops: a dropped facet reads as a pass. (A facet the
+// model's reader does not carry is said by unreadFacets, per model.)
 
-import type { IdsSpec, IdsSpecification, IdsPropertyFacet, IdsAttributeFacet, IdsApplicability, Cardinality } from "./ids";
+import type { IdsSpec, IdsSpecification, IdsPropertyFacet, IdsAttributeFacet, IdsApplicability, IdsClassificationFacet, IdsMaterialFacet, Cardinality } from "./ids";
 
 const isEl = (n: Node): n is Element => n.nodeType === 1;
 const kids = (el: Element, name?: string): Element[] => Array.from(el.childNodes).filter(isEl).filter((c) => !name || c.localName === name);
@@ -91,6 +92,7 @@ export function parseIds(xml: string): IdsSpec {
     const facets = (parent: Element | undefined, where: "applicability" | "requirements") => {
       const sayHere = say(where);
       const attributes: IdsAttributeFacet[] = [], properties: IdsPropertyFacet[] = [];
+      const classifications: IdsClassificationFacet[] = [], materials: IdsMaterialFacet[] = [];
       let entity: IdsApplicability | undefined;
       for (const f of parent ? kids(parent) : []) {
         const card: Cardinality = where === "applicability" ? "required" : cardinalityOf(f);
@@ -107,10 +109,16 @@ export function parseIds(xml: string): IdsSpec {
             pset: set.value, name: n.value, ...(set.pattern ? { psetPattern: set.pattern } : {}), ...(n.pattern ? { namePattern: n.pattern } : {}),
             datatype: f.getAttribute("dataType") || undefined, ...value, cardinality: card,
           });
-        }
-        else if (["classification", "material", "partOf"].includes(f.localName)) sayHere(`the ${f.localName} facet — Sentinel does not read it yet`);
+        } else if (f.localName === "classification") {
+          const sys = readValue(kid(f, "system"));
+          if (!sys) sayHere("a classification facet with no system"); // the IDS 1.0 XSD requires one
+          if (sys?.other.length) sayHere(`a classification system restricted by ${sys.other.join(", ")}`);
+          const { other: _, ...system } = sys ?? { other: [] };
+          classifications.push({ ...value, system, cardinality: card });
+        } else if (f.localName === "material") materials.push({ ...value, cardinality: card });
+        else if (f.localName === "partOf") sayHere("the partOf facet — Sentinel does not read it yet");
       }
-      return { entity, attributes, properties };
+      return { entity, attributes, properties, classifications, materials };
     };
 
     const appl = facets(applEl, "applicability");
@@ -120,10 +128,11 @@ export function parseIds(xml: string): IdsSpec {
     const min = Number(applEl?.getAttribute("minOccurs") || specEl.getAttribute("minOccurs") || (applEl ? 1 : 0));
     const max = applEl?.getAttribute("maxOccurs") || specEl.getAttribute("maxOccurs") || "unbounded";
     const cardinality: Cardinality | undefined = max === "0" ? "prohibited" : min >= 1 ? "required" : undefined;
+    const some = <K extends "attributes" | "properties" | "classifications" | "materials">(x: typeof appl, k: K) => (x[k].length ? { [k]: x[k] } : {});
     specifications.push({
       name,
-      applicability: { ...(appl.entity ?? {}), ...(appl.attributes.length ? { attributes: appl.attributes } : {}), ...(appl.properties.length ? { properties: appl.properties } : {}) },
-      requirements: { properties: req.properties, attributes: req.attributes, ...(req.entity ? { entity: req.entity } : {}) },
+      applicability: { ...(appl.entity ?? {}), ...some(appl, "attributes"), ...some(appl, "properties"), ...some(appl, "classifications"), ...some(appl, "materials") },
+      requirements: { properties: req.properties, attributes: req.attributes, ...(req.entity ? { entity: req.entity } : {}), ...some(req, "classifications"), ...some(req, "materials") },
       ...(cardinality ? { cardinality } : {}),
       ids10: true,
     });

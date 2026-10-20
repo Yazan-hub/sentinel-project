@@ -1,0 +1,16 @@
+ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('ViewDefinition[DesignTransferView]'),'2;1');
+FILE_NAME('/dev/null','2026-10-20T19:05:04+02:00',(''),(''),'IfcOpenShell 0.9.0.post1','IfcOpenShell 0.9.0.post1','Nobody');
+FILE_SCHEMA(('IFC4'));
+ENDSEC;
+DATA;
+#1=IFCPROJECT('1asKAOPbzBLxsjQ3VpR1nC',$,'Mini',$,$,$,$,$,$);
+#2=IFCWALL('3RuxAB$M972f_za40$z77c',$,'W1',$,$,$,$,$,$);
+#3=IFCMATERIALLAYERSET((#5),'Brick cavity',$);
+#4=IFCMATERIAL('Brick',$,$);
+#5=IFCMATERIALLAYER(#4,0.1,$,$,$,$,$);
+#6=IFCMATERIALLAYERSETUSAGE(#3,.AXIS2.,.POSITIVE.,0.,$);
+#7=IFCRELASSOCIATESMATERIAL('18UGtBVZ9AOAAuQRIy9tQN',$,$,$,(#2),#6);
+ENDSEC;
+END-ISO-10303-21;

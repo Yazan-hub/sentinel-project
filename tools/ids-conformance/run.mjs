@@ -20,16 +20,18 @@ if (args[0].endsWith(".ids")) { // one real model, per specification
   const theirs = opt("--ifctester") ? JSON.parse(readFileSync(opt("--ifctester"), "utf8")).specifications : [];
   const cell = (s, els) => {
     const one = { ...spec, specifications: [s] };
+    if (core.unreadFacets(one, els).length) return { unread: true }; // a facet this reader does not carry: not checked, never judged
     const applicable = els.filter((el) => core.applies(s, el));
     const failing = applicable.filter((el) => !core.validateElement(one, el).pass).length;
     return { applicable: applicable.length, failed: failing, status: failing === 0 && core.missingRequired(one, els).length === 0 };
   };
-  const say = (c) => (c ? `${c.applicable} / ${c.failed} / ${c.status ? "pass" : "fail"}` : "—");
+  const say = (c) => (!c ? "—" : c.unread ? "not checked" : `${c.applicable} / ${c.failed} / ${c.status ? "pass" : "fail"}`);
   const lines = ["| specification | viewer (in scope / failing / verdict) | bridge | IfcTester | same as IfcTester |", "|---|---|---|---|---|"];
   for (const [i, s] of spec.specifications.entries()) {
     const v = cell(s, read.viewer), b = cell(s, read.bridge), t = theirs[i];
     const same = (c) => t && c.applicable === t.applicable && c.failed === t.failed && c.status === t.status;
-    lines.push(`| ${s.name} | ${say(v)} | ${say(b)} | ${say(t)} | ${!t ? "—" : same(v) && same(b) ? "yes" : `**no** (${[same(v) ? null : "viewer", same(b) ? null : "bridge"].filter(Boolean).join(", ")})`} |`);
+    const differ = [v, b].map((c, j) => (c.unread || same(c) ? null : READERS[j])).filter(Boolean), unread = [v, b].map((c, j) => (c.unread ? READERS[j] : null)).filter(Boolean);
+    lines.push(`| ${s.name} | ${say(v)} | ${say(b)} | ${say(t)} | ${!t ? "—" : differ.length ? `**no** (${differ.join(", ")})` : unread.length ? `yes (${unread.join(", ")}: not checked)` : "yes"} |`);
   }
   if (spec.unsupported?.length) lines.push("", `Not checked by Sentinel: ${spec.unsupported.join("; ")}`);
   console.log(lines.join("\n"));

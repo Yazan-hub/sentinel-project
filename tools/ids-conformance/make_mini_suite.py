@@ -1,20 +1,28 @@
 # Sentinel's own IDS 1.0 mini suite: small IFC + .ids pairs in the buildingSMART test-case layout (<facet>/<pass|fail>-<name>.ids
 # + .ifc), built with IfcOpenShell. IfcTester stamps every expected verdict: a case whose IfcTester verdict differs from its name
-# stops the build, so the labels are IfcTester's, not ours. Written once and committed (IfcOpenShell writes fresh GUIDs and dates).
+# stops the build, so the labels are IfcTester's, not ours. Written once and committed (IfcOpenShell writes fresh GUIDs and dates):
+# a case already on disk is not rewritten, only checked again.
 #   %APPDATA%\Sentinel\ifctester-venv\Scripts\python.exe -I tools/ids-conformance/make_mini_suite.py tools/ids-conformance/mini
 import os, sys
 import ifcopenshell, ifcopenshell.api as api
-import ifcopenshell.api.project, ifcopenshell.api.root, ifcopenshell.api.pset, ifcopenshell.api.classification, ifcopenshell.api.material
+import ifcopenshell.api.project, ifcopenshell.api.root, ifcopenshell.api.pset, ifcopenshell.api.classification, ifcopenshell.api.material, ifcopenshell.api.type
+import ifcopenshell.api.owner, ifcopenshell.api.owner.settings
 from ifctester import ids
 
 OUT = sys.argv[1]
 R = ids.Restriction
+NO_USER = (api.owner.settings.get_user, api.owner.settings.get_application)
 
 
-def model(build):
-    f = api.project.create_file(version="IFC4")
+def model(build, version="IFC4"):
+    f = api.project.create_file(version=version)
+    if version == "IFC2X3":  # IFC2X3 needs an owner history on every rooted entity
+        po = api.owner.add_person_and_organisation(f, person=api.owner.add_person(f), organisation=api.owner.add_organisation(f))
+        app = api.owner.add_application(f)
+        api.owner.settings.get_user, api.owner.settings.get_application = (lambda _: po), (lambda _: app)
     api.root.create_entity(f, ifc_class="IfcProject", name="Mini")
     build(f)
+    api.owner.settings.get_user, api.owner.settings.get_application = NO_USER
     return f
 
 
@@ -27,8 +35,8 @@ def el(f, cls, name=None, pdt=None, psets=None, **attrs):
     return e
 
 
-def spec(applicability, requirements, minOccurs=0, maxOccurs="unbounded"):
-    s = ids.Specification(name="Mini", minOccurs=minOccurs, maxOccurs=maxOccurs, ifcVersion=["IFC4"])
+def spec(applicability, requirements, minOccurs=0, maxOccurs="unbounded", version="IFC4"):
+    s = ids.Specification(name="Mini", minOccurs=minOccurs, maxOccurs=maxOccurs, ifcVersion=[version])
     s.applicability.extend(applicability)
     s.requirements.extend(requirements)
     return s
@@ -48,6 +56,29 @@ def classified(f):
 def with_material(f):
     w = el(f, "IfcWall", "W1")
     api.material.assign_material(f, products=[w], material=api.material.add_material(f, name="Concrete"))
+
+
+def ref(f, products, code, system="Uniclass"):
+    c = next((x for x in f.by_type("IfcClassification") if x.Name == system), None) or api.classification.add_classification(f, classification=system)
+    api.classification.add_reference(f, products=products, identification=code, name=code, classification=c)
+
+
+def typed(f, material=None, code=None):
+    t = api.root.create_entity(f, ifc_class="IfcWallType", name="WT1", predefined_type="SOLIDWALL")
+    w = el(f, "IfcWall", "W1")
+    api.type.assign_type(f, related_objects=[w], relating_type=t)
+    if material:
+        api.material.assign_material(f, products=[t], material=api.material.add_material(f, name=material))
+    if code:
+        ref(f, [t], code)
+    return w
+
+
+def layer_set_usage(f):
+    w = el(f, "IfcWall", "W1")
+    s = api.material.add_material_set(f, name="Brick cavity", set_type="IfcMaterialLayerSet")
+    api.material.add_layer(f, layer_set=s, material=api.material.add_material(f, name="Brick"))
+    api.material.assign_material(f, products=[w], type="IfcMaterialLayerSetUsage", material=s)
 
 
 CASES = [
@@ -112,17 +143,28 @@ CASES = [
     ("classification", "fail", "a_missing_classification_fails", lambda f: el(f, "IfcWall", "W1"), spec([W()], [ids.Classification(system="Uniclass")])),
     ("material", "pass", "an_assigned_material_is_found", with_material, spec([W()], [ids.Material()])),
     ("material", "fail", "a_missing_material_fails", lambda f: el(f, "IfcWall", "W1"), spec([W()], [ids.Material()])),
+    # classification and material as IfcTester reads them: through the type, per system, a set usage, IFC2X3's ItemReference
+    ("classification", "pass", "a_classification_in_applicability_narrows_the_scope",
+     lambda f: (ref(f, [el(f, "IfcWall", "W1")], "EF_25_10"), el(f, "IfcWall")), spec([W(), ids.Classification(system="Uniclass")], [NAME()])),
+    ("classification", "pass", "the_type_passes_its_classification_down", lambda f: typed(f, code="EF_25_10"),
+     spec([W()], [ids.Classification(system="Uniclass", value="EF_25_10")])),
+    ("classification", "fail", "the_occurrence_overrides_the_type_per_system", lambda f: ref(f, [typed(f, code="EF_25_10")], "EF_25_20"),
+     spec([W()], [ids.Classification(system="Uniclass", value="EF_25_10")])),
+    ("classification", "pass", "ifc2x3_reads_the_item_reference", lambda f: ref(f, [el(f, "IfcWall", "W1")], "EF_25_10"),
+     spec([W()], [ids.Classification(system="Uniclass", value="EF_25_10")], version="IFC2X3"), "IFC2X3"),
+    ("material", "pass", "a_layer_set_usage_is_read_as_its_set", layer_set_usage, spec([W()], [ids.Material(value="Brick")])),
+    ("material", "pass", "the_type_passes_its_material_down", lambda f: typed(f, material="Concrete"), spec([W()], [ids.Material(value="Concrete")])),
 ]
 
 wrong = 0
-for facet, label, slug, build, s in CASES:
+for facet, label, slug, build, s, *version in CASES:
     os.makedirs(f"{OUT}/{facet}", exist_ok=True)
     base = f"{OUT}/{facet}/{label}-{slug}"
-    f = model(build)
-    f.write(base + ".ifc")
-    doc = ids.Ids(title=slug.replace("_", " "))
-    doc.specifications.append(s)
-    assert doc.to_xml(base + ".ids"), f"{base}.ids fails the IDS 1.0 XSD"
+    if not os.path.exists(base + ".ifc"):
+        model(build, *version).write(base + ".ifc")
+        doc = ids.Ids(title=slug.replace("_", " "))
+        doc.specifications.append(s)
+        assert doc.to_xml(base + ".ids"), f"{base}.ids fails the IDS 1.0 XSD"
     check = ids.open(base + ".ids", validate=True)
     m = ifcopenshell.open(base + ".ifc")  # kept alive while IfcTester reads its entities
     check.validate(m)
