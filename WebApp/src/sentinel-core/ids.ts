@@ -22,6 +22,10 @@ export interface IdsPropertyFacet extends IdsValueRestrictions {
   value?: string; // exact required value (case-insensitive; ids10: case-sensitive, a number within 1e-6)
   pattern?: string; // regex the value must match
   cardinality: Cardinality;
+  /** An .ids set or property named by a pattern or a list (parseIds: an anchored regex, in place of `pset` / `name`): every
+   *  matching set must hold a matching property, and every matching value must meet the facet (IfcTester's reading). */
+  psetPattern?: string;
+  namePattern?: string;
 }
 /** A required/prohibited ATTRIBUTE (Name, Tag, ObjectType, …). */
 export interface IdsAttributeFacet extends IdsValueRestrictions {
@@ -29,10 +33,12 @@ export interface IdsAttributeFacet extends IdsValueRestrictions {
   value?: string;
   pattern?: string;
   cardinality: Cardinality;
+  namePattern?: string; // attributes named by a pattern or a list (parseIds): every matching one is judged
 }
 export interface IdsApplicability {
   entity?: string; // IFC class (regex, case-insensitive), e.g. "IFCWALL"
   predefinedType?: string;
+  predefinedTypePattern?: string; // a predefined type given as a pattern or a list (parseIds: an anchored regex)
   /** IDS 1.0 lets applicability hold attribute and property facets too: an element applies only when it meets each. */
   attributes?: IdsAttributeFacet[];
   properties?: IdsPropertyFacet[];
@@ -76,25 +82,40 @@ export interface ElementResult {
 export function applies(spec: IdsSpecification, el: ElementProperties): boolean {
   if (!isEntity(spec.applicability, el, spec.ids10)) return false;
   const unmet: Failure[] = [];
-  for (const a of spec.applicability.attributes ?? []) checkFacet({ ...a, cardinality: "required" }, attrValue(el, a.name), spec, `@${a.name}`, unmet);
-  for (const p of spec.applicability.properties ?? []) checkFacet({ ...p, cardinality: "required" }, propRow(el, p.pset, p.name, spec.ids10), spec, `${p.pset}.${p.name}`, unmet);
+  for (const a of spec.applicability.attributes ?? []) checkFacet({ ...a, cardinality: "required" }, attrValues(el, a), spec, attrLabel(a), unmet);
+  for (const p of spec.applicability.properties ?? []) checkFacet({ ...p, cardinality: "required" }, propRows(el, p, spec.ids10), spec, propLabel(p), unmet);
   return unmet.length === 0;
 }
 
 function isEntity(a: IdsApplicability, el: ElementProperties, ids10?: boolean): boolean {
   const cls = (el.identity?.Class ?? "").toUpperCase();
   if (a.entity) {
+    const flags = ids10 ? "" : "i"; // IDS 1.0 names classes in upper case: "IfcWall" matches nothing (entities_must_be_specified_as_uppercase_strings)
     let re: RegExp;
-    try { re = new RegExp(a.entity, "i"); } catch { re = new RegExp(escapeRe(a.entity), "i"); }
+    try { re = new RegExp(a.entity, flags); } catch { re = new RegExp(escapeRe(a.entity), flags); }
     if (!re.test(cls)) return false;
   }
   if (a.predefinedType) {
     const pt = el.identity?.PredefinedType ?? "";
     if (!ids10) return pt.toUpperCase() === a.predefinedType.toUpperCase();
-    // IDS 1.0 (IfcTester's get_predefined_type): a USERDEFINED element's type is its ObjectType, compared as written.
-    return (pt === "USERDEFINED" && a.predefinedType !== "USERDEFINED" ? el.identity?.ObjectType ?? "" : pt) === a.predefinedType;
+    if (a.predefinedType === "USERDEFINED") return pt === "USERDEFINED" || el.type?.PredefinedType === "USERDEFINED";
+    return predefinedOf(el) === a.predefinedType; // compared as written
   }
+  if (a.predefinedTypePattern) return safeRe(a.predefinedTypePattern).test(predefinedOf(el));
   return true;
+}
+
+/** IDS 1.0's predefined type, as IfcOpenShell's get_predefined_type reads it: the type object's when it states one (inherited —
+ *  entity/pass-inherited_predefined_types_should_pass), else the element's own; a USERDEFINED or unstated one is named by
+ *  ElementType or ProcessType (a type object) or ObjectType (an occurrence). */
+function predefinedOf(el: ElementProperties): string {
+  const t = el.type;
+  if (t) {
+    const p = t.PredefinedType && t.PredefinedType !== "USERDEFINED" ? t.PredefinedType : t.ElementType ?? t.ProcessType;
+    if (p && p !== "NOTDEFINED") return p;
+  }
+  const own = el.identity?.PredefinedType;
+  return (own && own !== "USERDEFINED" ? own : el.identity?.ObjectType ?? el.identity?.ElementType ?? el.identity?.ProcessType) ?? "";
 }
 
 /** Validate one element against every applicable specification. */
@@ -113,8 +134,8 @@ export function validateElement(spec: IdsSpec, el: ElementProperties): ElementRe
     if (ent && !isEntity(ent, el, s.ids10)) {
       failures.push({ specification: s.name, requirement: "@class", reason: `is ${el.identity?.Class ?? "no class"}${el.identity?.PredefinedType ? ` (${el.identity.PredefinedType})` : ""}, required /${ent.entity}/${ent.predefinedType ? ` (${ent.predefinedType})` : ""}` });
     }
-    for (const a of s.requirements?.attributes ?? []) checkFacet(a, attrValue(el, a.name), s, `@${a.name}`, failures);
-    for (const p of s.requirements?.properties ?? []) checkFacet(p, propRow(el, p.pset, p.name, s.ids10), s, `${p.pset}.${p.name}`, failures);
+    for (const a of s.requirements?.attributes ?? []) checkFacet(a, attrValues(el, a), s, attrLabel(a), failures);
+    for (const p of s.requirements?.properties ?? []) checkFacet(p, propRows(el, p, s.ids10), s, propLabel(p), failures);
   }
   return { inScope, pass: failures.length === 0, failures };
 }
@@ -123,22 +144,30 @@ export function validateElement(spec: IdsSpec, el: ElementProperties): ElementRe
 type Actual = { value?: string; type?: string } | undefined;
 type Facet = IdsAttributeFacet & { datatype?: string };
 
-function checkFacet(f: Facet, actual: Actual, s: IdsSpecification, label: string, out: Failure[]): void {
-  const v = actual?.value;
-  const present = v != null && v !== "";
+/** `actuals`: every value the facet names on the element (one, unless its names are a pattern); none = absent. */
+function checkFacet(f: Facet, actuals: Actual[], s: IdsSpecification, label: string, out: Failure[]): void {
+  const present = actuals.filter((a): a is { value: string; type?: string } => a?.value != null && a.value !== "");
   const push = (reason: string) => out.push({ specification: s.name, requirement: label, reason });
-  const wrong = present ? mismatches(f, String(v), actual?.type, s.ids10) : [];
+  // IDS 1.0: an attribute that exists but holds "" fails, optional or not (an_optional_attribute_fails_if_empty); an empty
+  // property counts as absent. (An attribute facet is the one without a property set.)
+  if (s.ids10 && !present.length && actuals.some((a) => a?.value === "") && !("pset" in f)) { if (f.cardinality !== "prohibited") push("is empty"); return; }
+  const wrong = present.flatMap((a) => mismatches(f, a.value, a.type, s.ids10));
+  const v = present[0]?.value;
   if (f.cardinality === "prohibited") {
     // IDS 1.0: a prohibited facet fails only where the required one would pass — "shall not be X" allows every other value.
-    if (present && !wrong.length) push(f.value != null || f.pattern != null || f.enumeration || f.bounds || f.length ? `is "${v}", which it must not be` : `must be ABSENT but is "${v}"`);
+    if (present.length && !wrong.length) push(f.value != null || f.pattern != null || f.enumeration || f.bounds || f.length ? `is "${v}", which it must not be` : `must be ABSENT but is "${v}"`);
     return;
   }
-  if (!present) {
+  if (!present.length) {
     if (f.cardinality === "required") push("REQUIRED but missing");
     return; // optional + absent → fine
   }
   for (const w of wrong) push(w); // present → value / pattern / restriction checks (apply to required and optional-present)
 }
+
+const attrLabel = (a: IdsAttributeFacet) => `@${a.namePattern ? `/${a.namePattern}/` : a.name}`;
+const propLabel = (p: IdsPropertyFacet) => `${p.psetPattern ? `/${p.psetPattern}/` : p.pset}.${p.namePattern ? `/${p.namePattern}/` : p.name}`;
+function safeRe(p: string): RegExp { try { return new RegExp(p); } catch { return /(?!)/; } } // a pattern that does not compile matches nothing
 
 /** Why a present value does not meet the facet; [] when it does. */
 function mismatches(f: Facet, v: string, type: string | undefined, ids10?: boolean): string[] {
@@ -156,8 +185,12 @@ function mismatches(f: Facet, v: string, type: string | undefined, ids10?: boole
   const b = f.bounds;
   if (b) {
     const n = num(v);
-    const ok = n != null && !(b.minInclusive != null && n < b.minInclusive) && !(b.maxInclusive != null && n > b.maxInclusive)
-      && !(b.minExclusive != null && n <= b.minExclusive) && !(b.maxExclusive != null && n >= b.maxExclusive);
+    // ids10: a bound takes IDS 1.0's tolerance (tolerance/*_range_*): an inclusive bound loosens by it, an exclusive one tightens
+    // by it — a value exactly one tolerance past an exclusive bound passes (the float slack is given the permissive way each time).
+    const loose = (x: number) => (ids10 ? band(x) * (1 + FLOAT_SLACK) : 0), tight = (x: number) => band(x) * (1 - FLOAT_SLACK);
+    const ok = n != null && !(b.minInclusive != null && n < b.minInclusive - loose(b.minInclusive)) && !(b.maxInclusive != null && n > b.maxInclusive + loose(b.maxInclusive))
+      && !(b.minExclusive != null && (ids10 ? n < b.minExclusive + tight(b.minExclusive) : n <= b.minExclusive))
+      && !(b.maxExclusive != null && (ids10 ? n > b.maxExclusive - tight(b.maxExclusive) : n >= b.maxExclusive));
     const words = [b.minInclusive != null && `≥ ${b.minInclusive}`, b.minExclusive != null && `> ${b.minExclusive}`,
       b.maxInclusive != null && `≤ ${b.maxInclusive}`, b.maxExclusive != null && `< ${b.maxExclusive}`].filter(Boolean).join(" and ");
     if (!ok) out.push(`is "${v}", required a number ${words}`);
@@ -173,33 +206,53 @@ function mismatches(f: Facet, v: string, type: string | undefined, ids10?: boole
 
 const num = (s: string): number | null => (s.trim() !== "" && Number.isFinite(Number(s)) ? Number(s) : null);
 
-/** Sentinel's own IDS: text case-insensitive. IDS 1.0 (IfcTester's is_x): text exact; two numbers within a relative 1e-6. */
+/** IDS 1.0's numeric tolerance, as its tolerance test cases pin it: 1e-6 relative plus 1e-6 absolute (|a − w| ≤ |w|·1e-6 + 1e-6).
+ *  The cases sit exactly on that edge, so each comparison gives binary floating point a billionth of the band. */
+const band = (w: number): number => Math.abs(w) * 1e-6 + 1e-6;
+const FLOAT_SLACK = 1e-9;
+
+/** Sentinel's own IDS: text case-insensitive. IDS 1.0: text exact; two numbers within the tolerance. */
 function same(actual: string, want: string, ids10?: boolean): boolean {
   if (!ids10) return actual.toLowerCase() === want.toLowerCase();
   if (actual === want) return true;
   const a = num(actual), w = num(want);
-  return a != null && w != null && Math.abs(a - w) <= Math.abs(w) * 1e-6;
+  return a != null && w != null && Math.abs(a - w) <= band(w) * (1 + FLOAT_SLACK);
 }
 
-function attrValue(el: ElementProperties, name: string): Actual {
-  return { value: el.identity?.[name] };
+function attrValues(el: ElementProperties, a: IdsAttributeFacet): Actual[] {
+  if (!a.namePattern) return [{ value: el.identity?.[a.name] }];
+  const re = safeRe(a.namePattern); // every attribute the pattern names ("Class" is Sentinel's, not an IFC attribute)
+  return Object.entries(el.identity ?? {}).filter(([k, v]) => k !== "Class" && v != null && re.test(k)).map(([, v]) => ({ value: v }));
 }
 
 // Null-safe throughout: a proposed element from any producer may carry a malformed pset/quantity group (no
 // name, no rows) — the referee must treat that as "property absent", never throw. A crash here would 500 the
 // whole propose call on one bad element (which is exactly what a real Revit payload did).
-function propRow(el: ElementProperties, pset: string | null | undefined, name: string, ids10?: boolean): Actual {
+function propRows(el: ElementProperties, p: IdsPropertyFacet, ids10?: boolean): Actual[] {
   const groups = [...(el.psets ?? []), ...(el.quantities ?? [])];
   const eq = (a: string | undefined, b: string) => (ids10 ? (a ?? "") === b : (a ?? "").toLowerCase() === b.toLowerCase()); // IDS 1.0 names are case-sensitive
+  if (p.psetPattern || p.namePattern) {
+    // IfcTester's reading of a set or property named by a pattern: every matching set must hold a matching property (one that
+    // does not makes the property missing), and every matching property's value is judged.
+    const setOk = p.psetPattern ? ((n: string) => safeRe(p.psetPattern!).test(n)) : (n: string) => eq(n, String(p.pset ?? ""));
+    const nameOk = p.namePattern ? ((n: string) => safeRe(p.namePattern!).test(n)) : (n: string) => eq(n, p.name);
+    const rows: Actual[] = [];
+    for (const g of groups.filter((x) => setOk(x?.name ?? ""))) {
+      const r = (g?.rows ?? []).filter((x) => nameOk(x?.name ?? ""));
+      if (!r.length) return [];
+      rows.push(...r);
+    }
+    return rows;
+  }
   // No pset named (a compiled requirement the prose did not locate): the property is searched in every
   // group rather than throwing on null — a requirement must yield a verdict or a reason, never a crash.
   // (Ported from the bridge bundle, fix a738e1d, which had been applied to the bundle only — F27.)
-  const candidates = pset ? groups.filter((x) => eq(x?.name, String(pset))) : groups;
+  const candidates = p.pset ? groups.filter((x) => eq(x?.name, String(p.pset))) : groups;
   for (const g of candidates) {
-    const row = g?.rows?.find((r) => eq(r?.name, name));
-    if (row) return row;
+    const row = g?.rows?.find((r) => eq(r?.name, p.name));
+    if (row) return [row];
   }
-  return undefined;
+  return [];
 }
 
 function escapeRe(s: string): string { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }

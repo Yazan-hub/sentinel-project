@@ -236,3 +236,45 @@ describe("IDS 1.0 rules (ids10)", () => {
     expect(judgeModel(need, [elem("IFCDOOR", "D")]).pass).toBe(true);
   });
 });
+
+// Round 2, from buildingSMART's official v1.0.0 cases (tools/ids-conformance/official): the rules they pinned beyond IfcTester 0.9.
+describe("IDS 1.0 rules the official cases pin (ids10)", () => {
+  const spec = (req: object, appl: object = { entity: "^IFCWALL$" }): IdsSpec => ({ title: "t", specifications: [{ name: "s", applicability: appl, requirements: { attributes: [], properties: [], ...req }, ids10: true }] });
+  const real = (v: string) => elem("IFCWALL", "W", [{ name: "P", rows: [{ name: "Foo", value: v, type: "IFCREAL" }] }]);
+  const foo = (f: object) => spec({ properties: [{ pset: "P", name: "Foo", cardinality: "required", ...f }] });
+
+  it("numbers match within 1e-6 relative plus 1e-6 absolute, edges included (tolerance/*)", () => {
+    expect(validateElement(foo({ value: "1." }), real("1.000002")).pass).toBe(true);
+    expect(validateElement(foo({ value: "1." }), real("1.0000021")).pass).toBe(false);
+    expect(validateElement(foo({ value: "100000." }), real("99999.899999")).pass).toBe(true);
+    expect(validateElement(foo({ value: "0." }), real("0.0000011")).pass).toBe(false);
+  });
+
+  it("an exclusive bound tightens by the tolerance, an inclusive one loosens (tolerance/*_range_*)", () => {
+    expect(validateElement(foo({ bounds: { minExclusive: 0 } }), real("0.000001")).pass).toBe(true);
+    expect(validateElement(foo({ bounds: { minExclusive: 0 } }), real("0.0000009")).pass).toBe(false);
+    expect(validateElement(foo({ bounds: { minInclusive: 0 } }), real("-0.000001")).pass).toBe(true);
+    expect(validateElement(foo({ bounds: { minInclusive: 0 } }), real("-0.0000011")).pass).toBe(false);
+  });
+
+  it("class names are case-sensitive; a predefined type is inherited from the type object, or named by ElementType", () => {
+    expect(validateElement(spec({ attributes: [{ name: "Name", cardinality: "required" }] }, { entity: "^IfcWall$" }), elem("IFCWALL", undefined)).inScope).toBe(false);
+    const x = spec({ attributes: [{ name: "Name", cardinality: "required" }] }, { entity: "^IFCWALL$", predefinedType: "X" });
+    expect(validateElement(x, { ...elem("IFCWALL", undefined), type: { Class: "IFCWALLTYPE", PredefinedType: "X" } }).inScope).toBe(true);
+    const waldo = spec({}, { entity: "^IFCWALLTYPE$", predefinedType: "WALDO" });
+    expect(validateElement(waldo, { ...elem("IFCWALLTYPE", "T"), identity: { Class: "IFCWALLTYPE", PredefinedType: "USERDEFINED", ElementType: "WALDO" } }).inScope).toBe(true);
+  });
+
+  it("an attribute holding \"\" fails even when optional; an empty property counts as absent", () => {
+    const opt = spec({ attributes: [{ name: "Name", value: "Foobar", cardinality: "optional" }] });
+    expect(validateElement(opt, elem("IFCWALL", "")).failures[0]?.reason).toBe("is empty");
+    expect(validateElement(foo({ cardinality: "optional" }), real("")).pass).toBe(true);
+  });
+
+  it("a property set named by a pattern: every matching set must hold the property", () => {
+    const any = spec({ properties: [{ pset: "", psetPattern: "^Foo_.*$", name: "Bar", cardinality: "required" }] });
+    const sets = (...g: string[]) => elem("IFCWALL", "W", g.map((name) => ({ name, rows: name === "Foo_B" ? [] : [{ name: "Bar", value: "1" }] })));
+    expect(validateElement(any, sets("Foo_A", "Other")).pass).toBe(true);
+    expect(validateElement(any, sets("Foo_A", "Foo_B")).failures[0]?.reason).toBe("REQUIRED but missing");
+  });
+});

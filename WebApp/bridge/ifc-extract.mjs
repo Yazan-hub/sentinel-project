@@ -87,7 +87,14 @@ function mergeTypeGroups(el, psetDefs) {
 export async function elementPsets(api, mid, id) {
   const el = { psets: [], quantities: [] };
   groupsOf(await api.properties.getPropertySets(mid, id, true, false), el);
-  mergeTypeGroups(el, typePsetDefs(api, mid, await api.properties.getTypeProperties(mid, id, true)));
+  // A type object's own sets hang off its HasPropertySets attribute, which getPropertySets (IsDefinedBy) does not read.
+  const own = api.GetLine(mid, id)?.HasPropertySets;
+  if (Array.isArray(own)) groupsOf(own.map((r) => (r && typeof r === "object" && "expressID" in r ? r : api.GetLine(mid, r?.value, true))), el);
+  const typeDefs = await api.properties.getTypeProperties(mid, id, true);
+  mergeTypeGroups(el, typePsetDefs(api, mid, typeDefs));
+  // The type object's own predefined type (an IDS predefinedType is inherited from it — entity/pass-inherited_predefined_types).
+  const t = typeDefs?.[0];
+  if (t && typeof t === "object") el.type = { Class: String(api.GetNameFromTypeCode(t.type) || "").toUpperCase(), PredefinedType: val(t.PredefinedType), ElementType: val(t.ElementType), ProcessType: val(t.ProcessType) };
   return el;
 }
 

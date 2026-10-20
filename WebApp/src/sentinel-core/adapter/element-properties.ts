@@ -29,6 +29,8 @@ export interface ElementProperties {
   };
   psets: PropGroup[]; // Pset_* property sets
   quantities: PropGroup[]; // Qto_* quantity sets
+  /** The element's type object, where the reader relates it: an IDS predefinedType is inherited from it. */
+  type?: { Class?: string; PredefinedType?: string; ElementType?: string; ProcessType?: string };
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -100,8 +102,20 @@ export function parseElementProperties(data: any, modelId: string, localId: numb
   const psets: PropGroup[] = [];
   const quantities: PropGroup[] = [];
 
-  const definedBy = data?.["IsDefinedBy"];
-  if (Array.isArray(definedBy)) {
+  // An occurrence's own sets come through IsDefinedBy, and so does its type object (fragments relate it there), carrying the
+  // type's sets under HasPropertySets; a type object's own sets come through HasPropertySets. Own rows first: a type's row never
+  // overrides one, as on the bridge (ifc-extract mergeTypeGroups) — properties_can_be_inherited_from_the_type.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const arr = (x: any): any[] => (Array.isArray(x) ? x : []);
+  const typeItem = arr(data?.["IsDefinedBy"]).find((s) => /(TYPE|STYLE)$/.test(String(val(s?.["_category"]) ?? "").toUpperCase()) || Array.isArray(s?.["HasPropertySets"]));
+  const definedBy = [...arr(data?.["IsDefinedBy"]).filter((s) => s !== typeItem), ...arr(data?.["HasPropertySets"]), ...arr(typeItem?.["HasPropertySets"])];
+  const type = typeItem ? { Class: val(typeItem["_category"]), PredefinedType: val(typeItem["PredefinedType"]), ElementType: val(typeItem["ElementType"]), ProcessType: val(typeItem["ProcessType"]) } : undefined;
+  const add = (list: PropGroup[], name: string, rows: PropRow[]) => {
+    const g = list.find((x) => x.name === name);
+    if (!g) list.push({ name, rows });
+    else for (const r of rows) if (!g.rows.some((x) => x.name === r.name)) g.rows.push(r);
+  };
+  if (definedBy.length) {
     for (const set of definedBy) {
       const setName = val(set?.["Name"]) ?? "Property Set";
       const hasProps = set?.["HasProperties"];
@@ -115,7 +129,7 @@ export function parseElementProperties(data: any, modelId: string, localId: numb
           const type = typeOf(p?.["NominalValue"]);
           if (name && value != null) rows.push(type ? { name, value, type } : { name, value });
         }
-        if (rows.length) psets.push({ name: setName, rows });
+        if (rows.length) add(psets, setName, rows);
       }
 
       if (Array.isArray(qtys)) {
@@ -126,12 +140,12 @@ export function parseElementProperties(data: any, modelId: string, localId: numb
           const value = key ? val(q[key]) : val(q?.["Value"]);
           if (name && value != null) rows.push(key ? { name, value, type: QTY_TYPES[key] } : { name, value });
         }
-        if (rows.length) quantities.push({ name: setName, rows });
+        if (rows.length) add(quantities, setName, rows);
       }
     }
   }
 
   psets.sort((a, b) => a.name.localeCompare(b.name));
   quantities.sort((a, b) => a.name.localeCompare(b.name));
-  return { modelId, localId, identity, psets, quantities };
+  return type ? { modelId, localId, identity, psets, quantities, type } : { modelId, localId, identity, psets, quantities };
 }

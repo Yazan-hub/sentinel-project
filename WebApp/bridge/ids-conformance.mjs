@@ -1,12 +1,14 @@
 // IDS 1.0 conformance: a folder of IDS test cases in buildingSMART's layout (<facet>/<pass|fail|invalid>-<name>.ids + .ifc)
-// through the judge the bridge runs (sentinel-core.mjs, the build of src/sentinel-core) on the IFC as the bridge reads it
-// (ifc-extract, every object and type). Each case gets one of: right, wrong, or "not checked" — Sentinel said it cannot judge
+// through Sentinel's judge (sentinel-core.mjs, the build of src/sentinel-core) on the IFC as each product path reads it
+// (readModel: the viewer's, the bridge's). Each case gets one of: right, wrong, or "not checked" — Sentinel said it cannot judge
 // part of the IDS, which is an honest no-answer and never counted as right. tools/ids-conformance/run.mjs prints the tables.
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { DOMParser as XmlDomParser } from "@xmldom/xmldom";
+import { SingleThreadedFragmentsModel } from "@thatopen/fragments";
 import * as core from "./sentinel-core.mjs";
 import { extractHere } from "./ifc-extract.mjs";
+import { ifcBytesToFrag } from "./ifc-to-frag.mjs";
 
 // parseIds runs on the browser's DOMParser; in Node, xmldom stands in, and a file that is not XML throws as the browser's would.
 globalThis.DOMParser ??= class {
@@ -21,7 +23,7 @@ export function listCases(dir) {
   const out = [];
   for (const facet of readdirSync(dir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort()) {
     for (const f of readdirSync(join(dir, facet)).filter((f) => f.endsWith(".ids")).sort()) {
-      const m = /^(pass|fail|invalid)-(.+)\.ids$/.exec(f);
+      const m = /^(pass|fail|invalid)[-_](.+)\.ids$/.exec(f); // v1.0.0 names a few tolerance cases fail_… / pass_…
       const ifc = join(dir, facet, f.replace(/\.ids$/, ".ifc"));
       if (m && existsSync(ifc)) out.push({ facet, name: m[2], expected: m[1], ids: join(dir, facet, f), ifc });
     }
@@ -43,21 +45,34 @@ export function tagsOf(xml) {
   return [...t];
 }
 
-/** One case through Sentinel: got = pass | fail | not checked | refused, with why. */
-export async function runCase(c) {
+/** The IFC as each product path reads it. "viewer": the browser's — IFC → .frag (the bridge's converter), every IFC item of
+ *  the fragments model, getItemsData with the viewer's relations, parseElementProperties (model-validate.ts does the same).
+ *  "bridge": intake's web-ifc reader, every IfcObjectDefinition. */
+export async function readModel(bytes, reader) {
+  if (reader === "bridge") return (await extractHere(bytes, { classes: ["IFCOBJECTDEFINITION"] })).elements;
+  const model = new SingleThreadedFragmentsModel("m", await ifcBytesToFrag(bytes));
+  const ids = Object.values(await model.getItemsOfCategories([/^IFC/i])).flat();
+  const data = ids.length ? await model.getItemsData(ids, core.PROPERTY_DATA_CONFIG) : [];
+  return ids.map((id, i) => core.parseElementProperties(data[i], "m", id));
+}
+
+/** One case through Sentinel, read by `reader`: got = pass | fail | not checked | refused, with why. */
+export async function runCase(c, reader = "viewer") {
   const xml = readFileSync(c.ids, "utf8");
   const row = { facet: c.facet, name: c.name, expected: c.expected, tags: tagsOf(xml) };
   let spec;
   try { spec = core.parseIds(xml); } catch (e) { return { ...row, got: "refused", why: e.message }; }
   if (spec.unsupported?.length) return { ...row, got: "not checked", why: spec.unsupported.join("; ") };
-  const { elements } = await extractHere(readFileSync(c.ifc), { classes: ["IFCOBJECTDEFINITION"] });
+  let elements;
+  try { elements = await readModel(readFileSync(c.ifc), reader); } catch (e) { return { ...row, got: "refused", why: `the ${reader} reader could not read the IFC (${e.message})` }; }
   const r = core.judgeModel(spec, elements);
   return { ...row, got: r.pass ? "pass" : "fail", why: r.failures.slice(0, 3).map((f) => `${f.requirement}: ${f.reason}`).join("; ") };
 }
 
-/** right: the verdict the case names (an invalid IDS is right when refused); "not checked" is its own column, never right. */
+/** right: the verdict the case names. An invalid- case is an IDS that breaks an IDS 1.0 rule ("invalid entities always fail"): a
+ *  checker must not pass it, so fail or refused is right. "not checked" is its own column, never right. */
 export const outcome = (r) => (r.got === "not checked" ? "not checked"
-  : (r.expected === "invalid" ? r.got === "refused" : r.got === r.expected) ? "right" : "wrong");
+  : (r.expected === "invalid" ? r.got === "fail" || r.got === "refused" : r.got === r.expected) ? "right" : "wrong");
 
 /** Rows → {by facet, by tag, total}: {cases, right, wrong, "not checked"}. */
 export function summarize(rows) {

@@ -46,6 +46,3 @@ __pycache__/
 *.las
 *.laz
 *.e57
-
-# buildingSMART IDS 1.0 test cases (CC BY-ND 4.0): fetched on the founder's OK; commit them unchanged only if the founder chooses to vendor them
-tools/ids-conformance/official/

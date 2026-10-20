@@ -17,7 +17,7 @@ src, out = sys.argv[1], sys.argv[2]
 rows = []
 for facet in sorted(d for d in os.listdir(src) if os.path.isdir(os.path.join(src, d))):
     for f in sorted(os.listdir(os.path.join(src, facet))):
-        m = re.match(r"^(pass|fail|invalid)-(.+)\.ids$", f)
+        m = re.match(r"^(pass|fail|invalid)[-_](.+)\.ids$", f)  # v1.0.0 names a few tolerance cases fail_… / pass_…
         ifc = os.path.join(src, facet, f[:-4] + ".ifc")
         if not m or not os.path.exists(ifc):
             continue
@@ -34,5 +34,5 @@ for facet in sorted(d for d in os.listdir(src) if os.path.isdir(os.path.join(src
         except Exception as e:
             rows.append({**row, "got": "refused", "why": f"{type(e).__name__}: {str(e)[:200]}"})
 json.dump({"ifctester": ifcopenshell.version, "rows": rows}, open(out, "w", encoding="utf-8"), indent=1)
-right = sum(r["got"] == r["expected"] or (r["expected"] == "invalid" and r["got"] == "refused") for r in rows)
+right = sum(r["got"] == r["expected"] or (r["expected"] == "invalid" and r["got"] in ("fail", "refused")) for r in rows)  # invalid: must not pass
 print(f"IfcTester {ifcopenshell.version}: {right}/{len(rows)} cases right")

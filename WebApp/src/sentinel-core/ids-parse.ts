@@ -36,12 +36,17 @@ function readValue(c: Element | undefined): Read | null {
   return out;
 }
 
-/** A name (property set, property, attribute, predefined type) that must be one plain value; else what it was, for `unsupported`. */
-function plainName(c: Element | undefined, what: string, say: (s: string) => void): string {
+/** A name (property set, property, attribute, predefined type): one plain value, or a list / pattern as an anchored regex (a list
+ *  and a pattern together must both hold); bounds or length on a name, or no value, go to `unsupported`. */
+function nameOf(c: Element | undefined, what: string, say: (s: string) => void): { value: string; pattern?: string } {
   const r = readValue(c);
-  if (r?.value != null) return r.value;
-  say(`${what} given as ${r && (r.enumeration || r.pattern) ? "a list or a pattern" : "no plain value"}`);
-  return "";
+  if (r?.value != null) return { value: r.value };
+  if (r && (r.enumeration || r.pattern) && !r.bounds && !r.length && !r.other.length) {
+    const list = r.enumeration ? `^(?:${r.enumeration.map(escapeRe).join("|")})$` : null;
+    return { value: "", pattern: list && r.pattern ? `(?=${list})${r.pattern}` : list ?? r.pattern };
+  }
+  say(`${what} given as ${r ? "a restriction Sentinel cannot read" : "no plain value"}`);
+  return { value: "" };
 }
 
 function cardinalityOf(el: Element): Cardinality {
@@ -78,7 +83,9 @@ export function parseIds(xml: string): IdsSpec {
       else sayHere("an entity name Sentinel cannot read");
       if (n?.other.length) sayHere(`an entity name restricted by ${n.other.join(", ")}`);
       const pdt = kid(e, "predefinedType");
-      if (pdt) out.predefinedType = plainName(pdt, "a predefined type", sayHere);
+      const p = pdt ? nameOf(pdt, "a predefined type", sayHere) : null;
+      if (p?.pattern) out.predefinedTypePattern = p.pattern;
+      else if (p) out.predefinedType = p.value;
       return out;
     };
     const facets = (parent: Element | undefined, where: "applicability" | "requirements") => {
@@ -91,12 +98,16 @@ export function parseIds(xml: string): IdsSpec {
         if (v?.other.length) sayHere(`a value restricted by ${v.other.join(", ")}`);
         const value = v ? { value: v.value, pattern: v.pattern, enumeration: v.enumeration, bounds: v.bounds, length: v.length } : {};
         if (f.localName === "entity") entity = entityOf(f, sayHere);
-        else if (f.localName === "attribute") attributes.push({ name: plainName(kid(f, "name"), "an attribute name", sayHere), ...value, cardinality: card });
-        else if (f.localName === "property") properties.push({
-          pset: plainName(kid(f, "propertySet"), "a property set name", sayHere),
-          name: plainName(kid(f, "baseName") ?? kid(f, "name"), "a property name", sayHere),
-          datatype: f.getAttribute("dataType") || undefined, ...value, cardinality: card,
-        });
+        else if (f.localName === "attribute") {
+          const n = nameOf(kid(f, "name"), "an attribute name", sayHere);
+          attributes.push({ name: n.value, ...(n.pattern ? { namePattern: n.pattern } : {}), ...value, cardinality: card });
+        } else if (f.localName === "property") {
+          const set = nameOf(kid(f, "propertySet"), "a property set name", sayHere), n = nameOf(kid(f, "baseName") ?? kid(f, "name"), "a property name", sayHere);
+          properties.push({
+            pset: set.value, name: n.value, ...(set.pattern ? { psetPattern: set.pattern } : {}), ...(n.pattern ? { namePattern: n.pattern } : {}),
+            datatype: f.getAttribute("dataType") || undefined, ...value, cardinality: card,
+          });
+        }
         else if (["classification", "material", "partOf"].includes(f.localName)) sayHere(`the ${f.localName} facet — Sentinel does not read it yet`);
       }
       return { entity, attributes, properties };
@@ -104,8 +115,9 @@ export function parseIds(xml: string): IdsSpec {
 
     const appl = facets(applEl, "applicability");
     const req = facets(reqEl, "requirements");
-    // IDS 1.0 puts them on applicability; IDS 0.9 drafts, still in circulation, on the specification.
-    const min = Number(applEl?.getAttribute("minOccurs") || specEl.getAttribute("minOccurs") || 0);
+    // IDS 1.0 puts them on applicability, where the XSD's xs:occurs makes an unstated minOccurs 1 — a REQUIRED specification
+    // (ids/fail-required_specifications_need_at_least_one_applicable_entity_2_2); IDS 0.9 drafts put them on the specification.
+    const min = Number(applEl?.getAttribute("minOccurs") || specEl.getAttribute("minOccurs") || (applEl ? 1 : 0));
     const max = applEl?.getAttribute("maxOccurs") || specEl.getAttribute("maxOccurs") || "unbounded";
     const cardinality: Cardinality | undefined = max === "0" ? "prohibited" : min >= 1 ? "required" : undefined;
     specifications.push({

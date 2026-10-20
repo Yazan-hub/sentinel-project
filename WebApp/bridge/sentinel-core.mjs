@@ -1443,27 +1443,39 @@ function checkFederation(models, opts = {}) {
 function applies(spec, el) {
   if (!isEntity(spec.applicability, el, spec.ids10)) return false;
   const unmet = [];
-  for (const a of spec.applicability.attributes ?? []) checkFacet({ ...a, cardinality: "required" }, attrValue(el, a.name), spec, `@${a.name}`, unmet);
-  for (const p of spec.applicability.properties ?? []) checkFacet({ ...p, cardinality: "required" }, propRow(el, p.pset, p.name, spec.ids10), spec, `${p.pset}.${p.name}`, unmet);
+  for (const a of spec.applicability.attributes ?? []) checkFacet({ ...a, cardinality: "required" }, attrValues(el, a), spec, attrLabel(a), unmet);
+  for (const p of spec.applicability.properties ?? []) checkFacet({ ...p, cardinality: "required" }, propRows(el, p, spec.ids10), spec, propLabel(p), unmet);
   return unmet.length === 0;
 }
 function isEntity(a, el, ids10) {
   const cls = (el.identity?.Class ?? "").toUpperCase();
   if (a.entity) {
+    const flags = ids10 ? "" : "i";
     let re;
     try {
-      re = new RegExp(a.entity, "i");
+      re = new RegExp(a.entity, flags);
     } catch {
-      re = new RegExp(escapeRe(a.entity), "i");
+      re = new RegExp(escapeRe(a.entity), flags);
     }
     if (!re.test(cls)) return false;
   }
   if (a.predefinedType) {
     const pt = el.identity?.PredefinedType ?? "";
     if (!ids10) return pt.toUpperCase() === a.predefinedType.toUpperCase();
-    return (pt === "USERDEFINED" && a.predefinedType !== "USERDEFINED" ? el.identity?.ObjectType ?? "" : pt) === a.predefinedType;
+    if (a.predefinedType === "USERDEFINED") return pt === "USERDEFINED" || el.type?.PredefinedType === "USERDEFINED";
+    return predefinedOf(el) === a.predefinedType;
   }
+  if (a.predefinedTypePattern) return safeRe(a.predefinedTypePattern).test(predefinedOf(el));
   return true;
+}
+function predefinedOf(el) {
+  const t = el.type;
+  if (t) {
+    const p = t.PredefinedType && t.PredefinedType !== "USERDEFINED" ? t.PredefinedType : t.ElementType ?? t.ProcessType;
+    if (p && p !== "NOTDEFINED") return p;
+  }
+  const own = el.identity?.PredefinedType;
+  return (own && own !== "USERDEFINED" ? own : el.identity?.ObjectType ?? el.identity?.ElementType ?? el.identity?.ProcessType) ?? "";
 }
 function validateElement(spec, el) {
   const failures = [];
@@ -1479,25 +1491,38 @@ function validateElement(spec, el) {
     if (ent && !isEntity(ent, el, s.ids10)) {
       failures.push({ specification: s.name, requirement: "@class", reason: `is ${el.identity?.Class ?? "no class"}${el.identity?.PredefinedType ? ` (${el.identity.PredefinedType})` : ""}, required /${ent.entity}/${ent.predefinedType ? ` (${ent.predefinedType})` : ""}` });
     }
-    for (const a of s.requirements?.attributes ?? []) checkFacet(a, attrValue(el, a.name), s, `@${a.name}`, failures);
-    for (const p of s.requirements?.properties ?? []) checkFacet(p, propRow(el, p.pset, p.name, s.ids10), s, `${p.pset}.${p.name}`, failures);
+    for (const a of s.requirements?.attributes ?? []) checkFacet(a, attrValues(el, a), s, attrLabel(a), failures);
+    for (const p of s.requirements?.properties ?? []) checkFacet(p, propRows(el, p, s.ids10), s, propLabel(p), failures);
   }
   return { inScope, pass: failures.length === 0, failures };
 }
-function checkFacet(f, actual, s, label, out) {
-  const v = actual?.value;
-  const present = v != null && v !== "";
+function checkFacet(f, actuals, s, label, out) {
+  const present = actuals.filter((a) => a?.value != null && a.value !== "");
   const push = (reason) => out.push({ specification: s.name, requirement: label, reason });
-  const wrong = present ? mismatches(f, String(v), actual?.type, s.ids10) : [];
-  if (f.cardinality === "prohibited") {
-    if (present && !wrong.length) push(f.value != null || f.pattern != null || f.enumeration || f.bounds || f.length ? `is "${v}", which it must not be` : `must be ABSENT but is "${v}"`);
+  if (s.ids10 && !present.length && actuals.some((a) => a?.value === "") && !("pset" in f)) {
+    if (f.cardinality !== "prohibited") push("is empty");
     return;
   }
-  if (!present) {
+  const wrong = present.flatMap((a) => mismatches(f, a.value, a.type, s.ids10));
+  const v = present[0]?.value;
+  if (f.cardinality === "prohibited") {
+    if (present.length && !wrong.length) push(f.value != null || f.pattern != null || f.enumeration || f.bounds || f.length ? `is "${v}", which it must not be` : `must be ABSENT but is "${v}"`);
+    return;
+  }
+  if (!present.length) {
     if (f.cardinality === "required") push("REQUIRED but missing");
     return;
   }
   for (const w of wrong) push(w);
+}
+var attrLabel = (a) => `@${a.namePattern ? `/${a.namePattern}/` : a.name}`;
+var propLabel = (p) => `${p.psetPattern ? `/${p.psetPattern}/` : p.pset}.${p.namePattern ? `/${p.namePattern}/` : p.name}`;
+function safeRe(p) {
+  try {
+    return new RegExp(p);
+  } catch {
+    return /(?!)/;
+  }
 }
 function mismatches(f, v, type, ids10) {
   const out = [];
@@ -1516,7 +1541,8 @@ function mismatches(f, v, type, ids10) {
   const b = f.bounds;
   if (b) {
     const n = num(v);
-    const ok = n != null && !(b.minInclusive != null && n < b.minInclusive) && !(b.maxInclusive != null && n > b.maxInclusive) && !(b.minExclusive != null && n <= b.minExclusive) && !(b.maxExclusive != null && n >= b.maxExclusive);
+    const loose = (x) => ids10 ? band(x) * (1 + FLOAT_SLACK) : 0, tight = (x) => band(x) * (1 - FLOAT_SLACK);
+    const ok = n != null && !(b.minInclusive != null && n < b.minInclusive - loose(b.minInclusive)) && !(b.maxInclusive != null && n > b.maxInclusive + loose(b.maxInclusive)) && !(b.minExclusive != null && (ids10 ? n < b.minExclusive + tight(b.minExclusive) : n <= b.minExclusive)) && !(b.maxExclusive != null && (ids10 ? n > b.maxExclusive - tight(b.maxExclusive) : n >= b.maxExclusive));
     const words = [
       b.minInclusive != null && `\u2265 ${b.minInclusive}`,
       b.minExclusive != null && `> ${b.minExclusive}`,
@@ -1534,24 +1560,39 @@ function mismatches(f, v, type, ids10) {
   return out;
 }
 var num = (s) => s.trim() !== "" && Number.isFinite(Number(s)) ? Number(s) : null;
+var band = (w) => Math.abs(w) * 1e-6 + 1e-6;
+var FLOAT_SLACK = 1e-9;
 function same(actual, want, ids10) {
   if (!ids10) return actual.toLowerCase() === want.toLowerCase();
   if (actual === want) return true;
   const a = num(actual), w = num(want);
-  return a != null && w != null && Math.abs(a - w) <= Math.abs(w) * 1e-6;
+  return a != null && w != null && Math.abs(a - w) <= band(w) * (1 + FLOAT_SLACK);
 }
-function attrValue(el, name) {
-  return { value: el.identity?.[name] };
+function attrValues(el, a) {
+  if (!a.namePattern) return [{ value: el.identity?.[a.name] }];
+  const re = safeRe(a.namePattern);
+  return Object.entries(el.identity ?? {}).filter(([k, v]) => k !== "Class" && v != null && re.test(k)).map(([, v]) => ({ value: v }));
 }
-function propRow(el, pset, name, ids10) {
+function propRows(el, p, ids10) {
   const groups = [...el.psets ?? [], ...el.quantities ?? []];
   const eq = (a, b) => ids10 ? (a ?? "") === b : (a ?? "").toLowerCase() === b.toLowerCase();
-  const candidates = pset ? groups.filter((x) => eq(x?.name, String(pset))) : groups;
-  for (const g of candidates) {
-    const row = g?.rows?.find((r) => eq(r?.name, name));
-    if (row) return row;
+  if (p.psetPattern || p.namePattern) {
+    const setOk = p.psetPattern ? ((n) => safeRe(p.psetPattern).test(n)) : (n) => eq(n, String(p.pset ?? ""));
+    const nameOk = p.namePattern ? ((n) => safeRe(p.namePattern).test(n)) : (n) => eq(n, p.name);
+    const rows = [];
+    for (const g of groups.filter((x) => setOk(x?.name ?? ""))) {
+      const r = (g?.rows ?? []).filter((x) => nameOk(x?.name ?? ""));
+      if (!r.length) return [];
+      rows.push(...r);
+    }
+    return rows;
   }
-  return void 0;
+  const candidates = p.pset ? groups.filter((x) => eq(x?.name, String(p.pset))) : groups;
+  for (const g of candidates) {
+    const row = g?.rows?.find((r) => eq(r?.name, p.name));
+    if (row) return [row];
+  }
+  return [];
 }
 function escapeRe(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -1650,11 +1691,15 @@ function readValue(c) {
   if (patterns.length) out.pattern = patterns.length === 1 ? `^(?:${patterns[0]})$` : `^${patterns.map((p) => `(?=(?:${p})$)`).join("")}`;
   return out;
 }
-function plainName(c, what, say) {
+function nameOf(c, what, say) {
   const r = readValue(c);
-  if (r?.value != null) return r.value;
-  say(`${what} given as ${r && (r.enumeration || r.pattern) ? "a list or a pattern" : "no plain value"}`);
-  return "";
+  if (r?.value != null) return { value: r.value };
+  if (r && (r.enumeration || r.pattern) && !r.bounds && !r.length && !r.other.length) {
+    const list = r.enumeration ? `^(?:${r.enumeration.map(escapeRe2).join("|")})$` : null;
+    return { value: "", pattern: list && r.pattern ? `(?=${list})${r.pattern}` : list ?? r.pattern };
+  }
+  say(`${what} given as ${r ? "a restriction Sentinel cannot read" : "no plain value"}`);
+  return { value: "" };
 }
 function cardinalityOf(el) {
   const c = (el.getAttribute("cardinality") || "").toLowerCase();
@@ -1685,7 +1730,9 @@ function parseIds(xml) {
       else sayHere("an entity name Sentinel cannot read");
       if (n?.other.length) sayHere(`an entity name restricted by ${n.other.join(", ")}`);
       const pdt = kid(e, "predefinedType");
-      if (pdt) out.predefinedType = plainName(pdt, "a predefined type", sayHere);
+      const p = pdt ? nameOf(pdt, "a predefined type", sayHere) : null;
+      if (p?.pattern) out.predefinedTypePattern = p.pattern;
+      else if (p) out.predefinedType = p.value;
       return out;
     };
     const facets = (parent, where) => {
@@ -1698,21 +1745,27 @@ function parseIds(xml) {
         if (v?.other.length) sayHere(`a value restricted by ${v.other.join(", ")}`);
         const value = v ? { value: v.value, pattern: v.pattern, enumeration: v.enumeration, bounds: v.bounds, length: v.length } : {};
         if (f.localName === "entity") entity = entityOf(f, sayHere);
-        else if (f.localName === "attribute") attributes.push({ name: plainName(kid(f, "name"), "an attribute name", sayHere), ...value, cardinality: card });
-        else if (f.localName === "property") properties.push({
-          pset: plainName(kid(f, "propertySet"), "a property set name", sayHere),
-          name: plainName(kid(f, "baseName") ?? kid(f, "name"), "a property name", sayHere),
-          datatype: f.getAttribute("dataType") || void 0,
-          ...value,
-          cardinality: card
-        });
-        else if (["classification", "material", "partOf"].includes(f.localName)) sayHere(`the ${f.localName} facet \u2014 Sentinel does not read it yet`);
+        else if (f.localName === "attribute") {
+          const n = nameOf(kid(f, "name"), "an attribute name", sayHere);
+          attributes.push({ name: n.value, ...n.pattern ? { namePattern: n.pattern } : {}, ...value, cardinality: card });
+        } else if (f.localName === "property") {
+          const set = nameOf(kid(f, "propertySet"), "a property set name", sayHere), n = nameOf(kid(f, "baseName") ?? kid(f, "name"), "a property name", sayHere);
+          properties.push({
+            pset: set.value,
+            name: n.value,
+            ...set.pattern ? { psetPattern: set.pattern } : {},
+            ...n.pattern ? { namePattern: n.pattern } : {},
+            datatype: f.getAttribute("dataType") || void 0,
+            ...value,
+            cardinality: card
+          });
+        } else if (["classification", "material", "partOf"].includes(f.localName)) sayHere(`the ${f.localName} facet \u2014 Sentinel does not read it yet`);
       }
       return { entity, attributes, properties };
     };
     const appl = facets(applEl, "applicability");
     const req = facets(reqEl, "requirements");
-    const min = Number(applEl?.getAttribute("minOccurs") || specEl.getAttribute("minOccurs") || 0);
+    const min = Number(applEl?.getAttribute("minOccurs") || specEl.getAttribute("minOccurs") || (applEl ? 1 : 0));
     const max = applEl?.getAttribute("maxOccurs") || specEl.getAttribute("maxOccurs") || "unbounded";
     const cardinality = max === "0" ? "prohibited" : min >= 1 ? "required" : void 0;
     specifications.push({
@@ -1724,6 +1777,93 @@ function parseIds(xml) {
     });
   }
   return { title, specifications, ...unsupported.length ? { unsupported } : {} };
+}
+
+// src/sentinel-core/adapter/element-properties.ts
+var val = (o) => {
+  if (o == null) return void 0;
+  if (!Array.isArray(o) && typeof o === "object" && "value" in o) {
+    return o.value == null ? void 0 : String(o.value);
+  }
+  return void 0;
+};
+var PSET_RELATIONS = {
+  IsDefinedBy: { attributes: true, relations: true },
+  IsTypedBy: { attributes: true, relations: true },
+  HasPropertySets: { attributes: true, relations: true },
+  HasProperties: { attributes: true, relations: false },
+  Quantities: { attributes: true, relations: false },
+  DefinesOccurrence: { attributes: false, relations: false },
+  ObjectTypeOf: { attributes: false, relations: false },
+  Types: { attributes: false, relations: false },
+  HasAssociations: { attributes: false, relations: false }
+};
+var QTY_TYPES = {
+  LengthValue: "IFCLENGTHMEASURE",
+  AreaValue: "IFCAREAMEASURE",
+  VolumeValue: "IFCVOLUMEMEASURE",
+  CountValue: "IFCCOUNTMEASURE",
+  WeightValue: "IFCMASSMEASURE"
+};
+var PROPERTY_DATA_CONFIG = {
+  attributesDefault: true,
+  relations: PSET_RELATIONS,
+  relationsDefault: { attributes: false, relations: false }
+};
+function parseElementProperties(data, modelId, localId) {
+  const identity = {
+    GlobalId: val(data?.["_guid"]) ?? val(data?.["GlobalId"]),
+    Name: val(data?.["Name"]),
+    Class: val(data?.["_category"]) ?? val(data?.["category"]),
+    ObjectType: val(data?.["ObjectType"]),
+    PredefinedType: val(data?.["PredefinedType"]),
+    Tag: val(data?.["Tag"])
+  };
+  for (const [k, v] of Object.entries(data ?? {})) {
+    if (!(k in identity) && !k.startsWith("_") && v && typeof v === "object" && !Array.isArray(v) && "value" in v && v.value != null && typeof v.value !== "object") identity[k] = String(v.value);
+  }
+  const typeOf = (o) => typeof o?.type === "string" && /^IFC/i.test(o.type) ? o.type.toUpperCase() : void 0;
+  const psets = [];
+  const quantities = [];
+  const arr = (x) => Array.isArray(x) ? x : [];
+  const typeItem = arr(data?.["IsDefinedBy"]).find((s) => /(TYPE|STYLE)$/.test(String(val(s?.["_category"]) ?? "").toUpperCase()) || Array.isArray(s?.["HasPropertySets"]));
+  const definedBy = [...arr(data?.["IsDefinedBy"]).filter((s) => s !== typeItem), ...arr(data?.["HasPropertySets"]), ...arr(typeItem?.["HasPropertySets"])];
+  const type = typeItem ? { Class: val(typeItem["_category"]), PredefinedType: val(typeItem["PredefinedType"]), ElementType: val(typeItem["ElementType"]), ProcessType: val(typeItem["ProcessType"]) } : void 0;
+  const add = (list, name, rows) => {
+    const g = list.find((x) => x.name === name);
+    if (!g) list.push({ name, rows });
+    else for (const r of rows) if (!g.rows.some((x) => x.name === r.name)) g.rows.push(r);
+  };
+  if (definedBy.length) {
+    for (const set of definedBy) {
+      const setName = val(set?.["Name"]) ?? "Property Set";
+      const hasProps = set?.["HasProperties"];
+      const qtys = set?.["Quantities"];
+      if (Array.isArray(hasProps)) {
+        const rows = [];
+        for (const p of hasProps) {
+          const name = val(p?.["Name"]);
+          const value = val(p?.["NominalValue"]) ?? val(p?.["Value"]);
+          const type2 = typeOf(p?.["NominalValue"]);
+          if (name && value != null) rows.push(type2 ? { name, value, type: type2 } : { name, value });
+        }
+        if (rows.length) add(psets, setName, rows);
+      }
+      if (Array.isArray(qtys)) {
+        const rows = [];
+        for (const q of qtys) {
+          const name = val(q?.["Name"]);
+          const key2 = Object.keys(QTY_TYPES).find((k) => val(q?.[k]) != null);
+          const value = key2 ? val(q[key2]) : val(q?.["Value"]);
+          if (name && value != null) rows.push(key2 ? { name, value, type: QTY_TYPES[key2] } : { name, value });
+        }
+        if (rows.length) add(quantities, setName, rows);
+      }
+    }
+  }
+  psets.sort((a, b) => a.name.localeCompare(b.name));
+  quantities.sort((a, b) => a.name.localeCompare(b.name));
+  return type ? { modelId, localId, identity, psets, quantities, type } : { modelId, localId, identity, psets, quantities };
 }
 
 // src/sentinel-core/layers.ts
@@ -2134,6 +2274,7 @@ export {
   MAINTAINABLE_CLASSES,
   MASSING_SCHEMA,
   MATRIX_STAGES,
+  PROPERTY_DATA_CONFIG,
   REQUIRED_FIELDS,
   RuleEngine,
   SCHEMA_VERSION,
@@ -2169,6 +2310,7 @@ export {
   missingRequired,
   nameShape,
   netDelta,
+  parseElementProperties,
   parseIds,
   parseLodMatrix,
   priceSnapshot,

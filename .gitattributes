@@ -21,3 +21,6 @@ WebApp/src/sentinel-core/fixtures/*.json text eol=lf
 WebApp/bridge/fixtures/*.json            text eol=lf
 # `npm run build:bridge-core` writes the bundle with LF; pinned so a rebuild on a CRLF checkout is no change.
 WebApp/bridge/sentinel-core.mjs text eol=lf
+
+# buildingSMART's IDS 1.0 test cases are kept byte-for-byte (CC BY-ND 4.0: no changed copies) — never rewrite their line endings.
+tools/ids-conformance/official/** -text
