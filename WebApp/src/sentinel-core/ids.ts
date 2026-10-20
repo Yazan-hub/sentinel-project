@@ -154,27 +154,31 @@ export function validateElement(spec: IdsSpec, el: ElementProperties): ElementRe
   return { inScope, pass: failures.length === 0, failures };
 }
 
-/** The specifications that name a facet this model's reader carries for no element (the viewer's fragments model drops
- *  classifications): judging them would read every element as unclassified, so they are said as "not checked" instead. */
+/** The specifications that name what this model's reader cannot read: a facet it carries for no element (the viewer's fragments
+ *  model drops classifications), or a value compared in SI units whose unit it cannot read (it drops IfcConversionBasedUnit:
+ *  feet). Judging them would read every element as unclassified, or a length in feet as metres, so they are said as "not checked". */
 export function unreadFacets(spec: IdsSpec, els: ElementProperties[]): { specification: IdsSpecification; facets: string[] }[] {
   const has = (s: IdsSpecification, k: "classifications" | "materials") => !!(s.applicability[k]?.length || s.requirements[k]?.length);
   const carried = { classifications: els.some((e) => e.classifications), materials: els.some((e) => e.material !== undefined) };
-  return (spec.specifications ?? []).map((s) => ({ specification: s, facets: (["classifications", "materials"] as const)
-    .filter((k) => has(s, k) && !carried[k]).map((k) => (k === "classifications" ? "classification" : "material")) })).filter((x) => x.facets.length);
+  return (spec.specifications ?? []).map((s) => ({ specification: s, facets: [
+    ...(["classifications", "materials"] as const).filter((k) => has(s, k) && !carried[k]).map((k) => `the ${k === "classifications" ? "classification" : "material"} facet`),
+    ...(s.ids10 ? [...(s.applicability.properties ?? []), ...(s.requirements.properties ?? [])] : [])
+      .filter((p) => stated(p) && els.some((e) => propRows(e, p, true, true).some((r) => r?.si === null))).map((p) => `the unit of ${propLabel(p)} (IDS compares in SI units)`),
+  ] })).filter((x) => x.facets.length);
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
-type Actual = { value?: string; type?: string } | undefined;
+type Actual = { value?: string; type?: string; si?: string | null; written?: string } | undefined; // written: the value before SI conversion
 type Facet = IdsAttributeFacet & { datatype?: string };
 
 /** `actuals`: every value the facet names on the element (one, unless its names are a pattern); none = absent. */
 function checkFacet(f: Facet, actuals: Actual[], s: IdsSpecification, label: string, out: Failure[]): void {
-  const present = actuals.filter((a): a is { value: string; type?: string } => a?.value != null && a.value !== "");
+  const present = actuals.filter((a): a is { value: string; type?: string; written?: string } => a?.value != null && a.value !== "");
   const push = (reason: string) => out.push({ specification: s.name, requirement: label, reason });
   // IDS 1.0: an attribute that exists but holds "" fails, optional or not (an_optional_attribute_fails_if_empty); an empty
   // property counts as absent. (An attribute facet is the one without a property set.)
   if (s.ids10 && !present.length && actuals.some((a) => a?.value === "") && !("pset" in f)) { if (f.cardinality !== "prohibited") push("is empty"); return; }
-  const wrong = present.flatMap((a) => mismatches(f, a.value, a.type, s.ids10));
+  const wrong = present.flatMap((a) => mismatches(f, a.value, a.type, s.ids10).map((m) => (a.written != null ? `${m} (in SI units; "${a.written}" as written)` : m)));
   const v = present[0]?.value;
   if (f.cardinality === "prohibited") {
     // IDS 1.0: a prohibited facet fails only where the required one would pass — "shall not be X" allows every other value.
@@ -278,7 +282,9 @@ function attrValues(el: ElementProperties, a: IdsAttributeFacet): Actual[] {
 // Null-safe throughout: a proposed element from any producer may carry a malformed pset/quantity group (no
 // name, no rows) — the referee must treat that as "property absent", never throw. A crash here would 500 the
 // whole propose call on one bad element (which is exactly what a real Revit payload did).
-function propRows(el: ElementProperties, p: IdsPropertyFacet, ids10?: boolean): Actual[] {
+function propRows(el: ElementProperties, p: IdsPropertyFacet, ids10?: boolean, raw?: boolean): Actual[] {
+  // IDS 1.0 compares a value in SI units (PropRow.si, where the file's unit is not SI); `raw` keeps the rows as read.
+  if (ids10 && !raw) return propRows(el, p, true, true).map((r) => (r && "si" in r && r.si != null ? { ...r, value: r.si, written: r.value } : r));
   const groups = [...(el.psets ?? []), ...(el.quantities ?? [])];
   const eq = (a: string | undefined, b: string) => (ids10 ? (a ?? "") === b : (a ?? "").toLowerCase() === b.toLowerCase()); // IDS 1.0 names are case-sensitive
   if (p.psetPattern || p.namePattern) {

@@ -6,6 +6,7 @@
 import os, sys
 import ifcopenshell, ifcopenshell.api as api
 import ifcopenshell.api.project, ifcopenshell.api.root, ifcopenshell.api.pset, ifcopenshell.api.classification, ifcopenshell.api.material, ifcopenshell.api.type
+import ifcopenshell.api.unit
 import ifcopenshell.api.owner, ifcopenshell.api.owner.settings
 from ifctester import ids
 
@@ -72,6 +73,24 @@ def typed(f, material=None, code=None):
     if code:
         ref(f, [t], code)
     return w
+
+
+def measured(f, units, props=None, qtos=None, own_unit=None):
+    # units: project units; props: {name: (measure, value)} in a Sentinel_Mini set; own_unit: (property, unit) set on that property
+    api.unit.assign_unit(f, units=units(f))
+    w = el(f, "IfcWall", "W1")
+    if props:
+        pset = api.pset.add_pset(f, product=w, name="Sentinel_Mini")
+        api.pset.edit_pset(f, pset=pset, properties={k: f.create_entity(t, v) for k, (t, v) in props.items()})
+        if own_unit:
+            next(p for p in pset.HasProperties if p.Name == own_unit[0]).Unit = own_unit[1](f)
+    if qtos:
+        api.pset.edit_qto(f, qto=api.pset.add_qto(f, product=w, name="Qto_WallBaseQuantities"), properties=qtos)
+    return w
+
+
+MM = lambda f: [api.unit.add_si_unit(f, unit_type="LENGTHUNIT", prefix="MILLI")]
+WIDTH = lambda: ids.Property(propertySet="Sentinel_Mini", baseName="Width", value=R(options={"minInclusive": 0.8, "maxInclusive": 1.2}, base="double"))
 
 
 def layer_set_usage(f):
@@ -154,6 +173,19 @@ CASES = [
      spec([W()], [ids.Classification(system="Uniclass", value="EF_25_10")], version="IFC2X3"), "IFC2X3"),
     ("material", "pass", "a_layer_set_usage_is_read_as_its_set", layer_set_usage, spec([W()], [ids.Material(value="Brick")])),
     ("material", "pass", "the_type_passes_its_material_down", lambda f: typed(f, material="Concrete"), spec([W()], [ids.Material(value="Concrete")])),
+    # units: IDS values are SI; a value is converted from the property's own unit, else the project's
+    ("property", "pass", "a_length_in_millimetres_is_compared_in_metres", lambda f: measured(f, MM, {"Width": ("IfcLengthMeasure", 914.4)}), spec([W()], [WIDTH()])),
+    ("property", "fail", "a_length_in_millimetres_is_not_its_number_in_metres", lambda f: measured(f, MM, {"Width": ("IfcLengthMeasure", 1.0)}), spec([W()], [WIDTH()])),
+    ("property", "pass", "a_length_in_feet_is_compared_in_metres",
+     lambda f: measured(f, lambda f: [api.unit.add_conversion_based_unit(f, name="foot")], {"Width": ("IfcLengthMeasure", 3.0)}), spec([W()], [WIDTH()])),
+    ("property", "pass", "a_property_unit_wins_over_the_project_unit",
+     lambda f: measured(f, MM, {"Width": ("IfcLengthMeasure", 1.0)}, own_unit=("Width", lambda f: api.unit.add_si_unit(f, unit_type="LENGTHUNIT"))), spec([W()], [WIDTH()])),
+    ("property", "pass", "an_area_quantity_in_square_millimetres_is_compared_in_square_metres",
+     lambda f: measured(f, lambda f: [api.unit.add_si_unit(f, unit_type="AREAUNIT", prefix="MILLI")], qtos={"NetSideArea": 2000000.0}),
+     spec([W()], [ids.Property(propertySet="Qto_WallBaseQuantities", baseName="NetSideArea", value=R(options={"minInclusive": 1.9, "maxInclusive": 2.1}, base="double"))])),
+    ("property", "pass", "a_mass_in_grams_is_compared_in_kilograms",
+     lambda f: measured(f, lambda f: [api.unit.add_si_unit(f, unit_type="MASSUNIT")], {"Mass": ("IfcMassMeasure", 2500.0)}),
+     spec([W()], [ids.Property(propertySet="Sentinel_Mini", baseName="Mass", value=R(options={"minInclusive": 2.4, "maxInclusive": 2.6}, base="double"))])),
 ]
 
 wrong = 0

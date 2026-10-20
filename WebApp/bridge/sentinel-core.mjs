@@ -1503,7 +1503,10 @@ function validateElement(spec, el) {
 function unreadFacets(spec, els) {
   const has = (s, k) => !!(s.applicability[k]?.length || s.requirements[k]?.length);
   const carried = { classifications: els.some((e) => e.classifications), materials: els.some((e) => e.material !== void 0) };
-  return (spec.specifications ?? []).map((s) => ({ specification: s, facets: ["classifications", "materials"].filter((k) => has(s, k) && !carried[k]).map((k) => k === "classifications" ? "classification" : "material") })).filter((x) => x.facets.length);
+  return (spec.specifications ?? []).map((s) => ({ specification: s, facets: [
+    ...["classifications", "materials"].filter((k) => has(s, k) && !carried[k]).map((k) => `the ${k === "classifications" ? "classification" : "material"} facet`),
+    ...(s.ids10 ? [...s.applicability.properties ?? [], ...s.requirements.properties ?? []] : []).filter((p) => stated(p) && els.some((e) => propRows(e, p, true, true).some((r) => r?.si === null))).map((p) => `the unit of ${propLabel(p)} (IDS compares in SI units)`)
+  ] })).filter((x) => x.facets.length);
 }
 function checkFacet(f, actuals, s, label, out) {
   const present = actuals.filter((a) => a?.value != null && a.value !== "");
@@ -1512,7 +1515,7 @@ function checkFacet(f, actuals, s, label, out) {
     if (f.cardinality !== "prohibited") push("is empty");
     return;
   }
-  const wrong = present.flatMap((a) => mismatches(f, a.value, a.type, s.ids10));
+  const wrong = present.flatMap((a) => mismatches(f, a.value, a.type, s.ids10).map((m) => a.written != null ? `${m} (in SI units; "${a.written}" as written)` : m));
   const v = present[0]?.value;
   if (f.cardinality === "prohibited") {
     if (present.length && !wrong.length) push(f.value != null || f.pattern != null || f.enumeration || f.bounds || f.length ? `is "${v}", which it must not be` : `must be ABSENT but is "${v}"`);
@@ -1608,7 +1611,8 @@ function attrValues(el, a) {
   const re = safeRe(a.namePattern);
   return Object.entries(el.identity ?? {}).filter(([k, v]) => k !== "Class" && v != null && re.test(k)).map(([, v]) => ({ value: v }));
 }
-function propRows(el, p, ids10) {
+function propRows(el, p, ids10, raw) {
+  if (ids10 && !raw) return propRows(el, p, true, true).map((r) => r && "si" in r && r.si != null ? { ...r, value: r.si, written: r.value } : r);
   const groups = [...el.psets ?? [], ...el.quantities ?? []];
   const eq = (a, b) => ids10 ? (a ?? "") === b : (a ?? "").toLowerCase() === b.toLowerCase();
   if (p.psetPattern || p.namePattern) {
@@ -1853,13 +1857,78 @@ var PROPERTY_DATA_CONFIG = {
   attributesDefault: true,
   relations: {
     ...PSET_RELATIONS,
-    AssociatedTo: { attributes: false, relations: false },
-    ...Object.fromEntries(["HasAssociations", "ForLayerSet", "ForProfileSet", "MaterialLayers", "MaterialProfiles", "MaterialConstituents", "Materials", "Material"].map((k) => [k, { attributes: true, relations: true }]))
+    ...Object.fromEntries(["AssociatedTo", "PartOfPset", "Dimensions", "Elements"].map((k) => [k, { attributes: false, relations: false }])),
+    ...Object.fromEntries([
+      "HasAssociations",
+      "ForLayerSet",
+      "ForProfileSet",
+      "MaterialLayers",
+      "MaterialProfiles",
+      "MaterialConstituents",
+      "Materials",
+      "Material",
+      "HasProperties",
+      "Quantities",
+      "Unit",
+      "UnitsInContext",
+      "Units",
+      "ConversionFactor",
+      "UnitComponent"
+    ].map((k) => [k, { attributes: true, relations: true }]))
   },
   relationsDefault: { attributes: false, relations: false }
 };
+var all = (x) => Array.isArray(x) ? x : x && typeof x === "object" ? [x] : [];
+var PREFIX = {
+  EXA: 1e18,
+  PETA: 1e15,
+  TERA: 1e12,
+  GIGA: 1e9,
+  MEGA: 1e6,
+  KILO: 1e3,
+  HECTO: 100,
+  DECA: 10,
+  DECI: 0.1,
+  CENTI: 0.01,
+  MILLI: 1e-3,
+  MICRO: 1e-6,
+  NANO: 1e-9,
+  PICO: 1e-12,
+  FEMTO: 1e-15,
+  ATTO: 1e-18
+};
+var NAMED_UNIT = /^(ABSORBEDDOSE|AMOUNTOFSUBSTANCE|AREA|DOSEEQUIVALENT|ELECTRIC(CAPACITANCE|CHARGE|CONDUCTANCE|CURRENT|RESISTANCE|VOLTAGE)|ENERGY|FORCE|FREQUENCY|ILLUMINANCE|INDUCTANCE|LENGTH|LUMINOUS(FLUX|INTENSITY)|MAGNETICFLUX(DENSITY)?|MASS|PLANEANGLE|POWER|PRESSURE|RADIOACTIVITY|SOLIDANGLE|TIME|VOLUME)UNIT$/;
+var unitTypeOf = (measure) => (measure ?? "").toUpperCase().replace(/^IFC/, "").replace(/MEASURE$/, "").replace(/^NON/, "").replace(/^(POSITIVE|NEGATIVE)/, "") + "UNIT";
+function unitScale(u) {
+  const cls = String(val(u?._category) ?? "").toUpperCase(), name = String(val(u?.Name) ?? "").toUpperCase();
+  if (cls === "IFCSIUNIT") {
+    const p = PREFIX[String(val(u.Prefix) ?? "").toUpperCase()] ?? 1;
+    return (name.startsWith("SQUARE") ? p ** 2 : name.startsWith("CUBIC") ? p ** 3 : p) * (name === "GRAM" ? 1e-3 : 1);
+  }
+  if (cls !== "IFCCONVERSIONBASEDUNIT") return void 0;
+  const f = all(u.ConversionFactor)[0], v = Number(val(f?.ValueComponent)), s = unitScale(all(f?.UnitComponent)[0]);
+  return Number.isFinite(v) && s != null ? v * s : void 0;
+}
+function projectUnits(assignment) {
+  const out = { scale: {}, unread: false };
+  for (const u of all(assignment?.Units)) {
+    const t = String(val(u?.UnitType) ?? "").toUpperCase();
+    if (!t) out.unread = true;
+    else if (NAMED_UNIT.test(t)) out.scale[t] = unitScale(u) ?? null;
+  }
+  return out;
+}
+var modelUnits = (items) => {
+  const p = items.find((d) => String(val(d?._category) ?? "").toUpperCase() === "IFCPROJECT");
+  return p ? projectUnits(all(p.UnitsInContext)[0]) : void 0;
+};
+function siValue(value, measure, own, units) {
+  const t = unitTypeOf(measure), n = Number(value);
+  if (!NAMED_UNIT.test(t) || value.trim() === "" || !Number.isFinite(n)) return void 0;
+  const s = own ? unitScale(own) ?? null : units && t in units.scale ? units.scale[t] : units?.unread ? null : 1;
+  return s == null ? null : s === 1 ? void 0 : String(n * s);
+}
 function materialValues(m) {
-  const all = (x) => Array.isArray(x) ? x : x && typeof x === "object" ? [x] : [];
   const cls = String(val(m?._category) ?? "").toUpperCase();
   if (cls === "IFCMATERIALLAYERSETUSAGE") return materialValues(all(m.ForLayerSet)[0]);
   if (/^IFCMATERIALPROFILESETUSAGE/.test(cls)) return materialValues(all(m.ForProfileSet)[0]);
@@ -1868,7 +1937,7 @@ function materialValues(m) {
   const vs = cls === "IFCMATERIALLIST" ? all(m.Materials).flatMap(own) : /SET$/.test(cls) ? [cls === "IFCMATERIALLAYERSET" ? val(m.LayerSetName) : val(m.Name), ...items.flatMap((i) => [...own(i), ...own(all(i.Material)[0])])] : own(m);
   return [...new Set(vs.filter((v) => v != null))];
 }
-function parseElementProperties(data, modelId, localId) {
+function parseElementProperties(data, modelId, localId, units) {
   const identity = {
     GlobalId: val(data?.["_guid"]) ?? val(data?.["GlobalId"]),
     Name: val(data?.["Name"]),
@@ -1903,7 +1972,8 @@ function parseElementProperties(data, modelId, localId) {
           const name = val(p?.["Name"]);
           const value = val(p?.["NominalValue"]) ?? val(p?.["Value"]);
           const type2 = typeOf(p?.["NominalValue"]);
-          if (name && value != null) rows.push(type2 ? { name, value, type: type2 } : { name, value });
+          const si = value != null ? siValue(value, type2, all(p?.["Unit"])[0], units) : void 0;
+          if (name && value != null) rows.push({ name, value, ...type2 ? { type: type2 } : {}, ...si !== void 0 ? { si } : {} });
         }
         if (rows.length) add(psets, setName, rows);
       }
@@ -1913,7 +1983,8 @@ function parseElementProperties(data, modelId, localId) {
           const name = val(q?.["Name"]);
           const key2 = Object.keys(QTY_TYPES).find((k) => val(q?.[k]) != null);
           const value = key2 ? val(q[key2]) : val(q?.["Value"]);
-          if (name && value != null) rows.push(key2 ? { name, value, type: QTY_TYPES[key2] } : { name, value });
+          const si = key2 && value != null ? siValue(value, QTY_TYPES[key2], all(q?.["Unit"])[0], units) : void 0;
+          if (name && value != null) rows.push({ name, value, ...key2 ? { type: QTY_TYPES[key2] } : {}, ...si !== void 0 ? { si } : {} });
         }
         if (rows.length) add(quantities, setName, rows);
       }
@@ -2369,12 +2440,14 @@ export {
   materialValues,
   missingFields,
   missingRequired,
+  modelUnits,
   nameShape,
   netDelta,
   parseElementProperties,
   parseIds,
   parseLodMatrix,
   priceSnapshot,
+  projectUnits,
   raisedFederationTitleKey,
   raisedIdsTitleKey,
   resolveFactor,
@@ -2384,6 +2457,7 @@ export {
   sameCategory,
   scan,
   scheduleRange,
+  siValue,
   snapshotFromQuantities,
   summarizeDiff,
   taskInformation,

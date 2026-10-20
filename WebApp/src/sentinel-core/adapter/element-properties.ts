@@ -10,6 +10,9 @@ export interface PropRow {
   name: string;
   value: string;
   type?: string; // the value's IFC type ("IFCLABEL"), where the reader carries it — an IDS dataType is judged against it
+  /** The value in SI units, where the file's unit for it is not SI (siValue): an IDS 1.0 value is compared with this. null = the
+   *  reader cannot read that unit (said as "not checked", unreadFacets). Unset = the value is SI as written. */
+  si?: string | null;
 }
 export interface PropGroup {
   name: string; // pset / quantity-set name, e.g. "Pset_WallCommon"
@@ -69,17 +72,74 @@ export const PSET_RELATIONS = {
 const QTY_TYPES = { LengthValue: "IFCLENGTHMEASURE", AreaValue: "IFCAREAMEASURE", VolumeValue: "IFCVOLUMEMEASURE",
   CountValue: "IFCCOUNTMEASURE", WeightValue: "IFCMASSMEASURE" } as const;
 
-/** getItemsData options that pull attributes + Pset/Qto sets, and the material (the IDS checker and the Properties palette;
- *  the bulk readers keep PSET_RELATIONS). Fragments relate an element's material straight under HasAssociations, with its
- *  layers, profiles, constituents and materials below, each relation named (an unnamed one takes relationsDefault and its
- *  attributes are lost); AssociatedTo, the material's link back to every element, is cut. */
+/** getItemsData options that pull attributes + Pset/Qto sets with each value's own unit, the material, and (on the project)
+ *  the units (the IDS checker and the Properties palette; the bulk readers keep PSET_RELATIONS). Fragments relate an element's
+ *  material straight under HasAssociations, with its layers, profiles, constituents and materials below, each relation named
+ *  (an unnamed one takes relationsDefault and its attributes are lost); AssociatedTo, PartOfPset, a unit's Dimensions and a
+ *  derived unit's Elements are cut. */
 export const PROPERTY_DATA_CONFIG = {
   attributesDefault: true,
-  relations: { ...PSET_RELATIONS, AssociatedTo: { attributes: false, relations: false },
-    ...Object.fromEntries(["HasAssociations", "ForLayerSet", "ForProfileSet", "MaterialLayers", "MaterialProfiles", "MaterialConstituents", "Materials", "Material"]
-      .map((k) => [k, { attributes: true, relations: true }])) },
+  relations: { ...PSET_RELATIONS,
+    ...Object.fromEntries(["AssociatedTo", "PartOfPset", "Dimensions", "Elements"].map((k) => [k, { attributes: false, relations: false }])),
+    ...Object.fromEntries(["HasAssociations", "ForLayerSet", "ForProfileSet", "MaterialLayers", "MaterialProfiles", "MaterialConstituents", "Materials", "Material",
+      "HasProperties", "Quantities", "Unit", "UnitsInContext", "Units", "ConversionFactor", "UnitComponent"].map((k) => [k, { attributes: true, relations: true }])) },
   relationsDefault: { attributes: false, relations: false },
 };
+
+// ── SI units. IDS 1.0 values are SI; IfcTester converts a value of a named unit (ifcopenshell.util.unit), the property's own unit
+// else the project's for its measure. A derived unit (a U-value's) and a temperature are compared as written, as IfcTester does. ──
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const all = (x: any): any[] => (Array.isArray(x) ? x : x && typeof x === "object" ? [x] : []);
+const PREFIX: Record<string, number> = { EXA: 1e18, PETA: 1e15, TERA: 1e12, GIGA: 1e9, MEGA: 1e6, KILO: 1e3, HECTO: 1e2, DECA: 1e1,
+  DECI: 1e-1, CENTI: 1e-2, MILLI: 1e-3, MICRO: 1e-6, NANO: 1e-9, PICO: 1e-12, FEMTO: 1e-15, ATTO: 1e-18 };
+const NAMED_UNIT = /^(ABSORBEDDOSE|AMOUNTOFSUBSTANCE|AREA|DOSEEQUIVALENT|ELECTRIC(CAPACITANCE|CHARGE|CONDUCTANCE|CURRENT|RESISTANCE|VOLTAGE)|ENERGY|FORCE|FREQUENCY|ILLUMINANCE|INDUCTANCE|LENGTH|LUMINOUS(FLUX|INTENSITY)|MAGNETICFLUX(DENSITY)?|MASS|PLANEANGLE|POWER|PRESSURE|RADIOACTIVITY|SOLIDANGLE|TIME|VOLUME)UNIT$/;
+/** A measure's unit type, as ifcopenshell's get_measure_unit_type reads it: IFCPOSITIVELENGTHMEASURE → LENGTHUNIT. */
+const unitTypeOf = (measure?: string) => (measure ?? "").toUpperCase().replace(/^IFC/, "").replace(/MEASURE$/, "").replace(/^NON/, "").replace(/^(POSITIVE|NEGATIVE)/, "") + "UNIT";
+
+/** A unit's scale to SI from either reader's item: an IfcSIUnit's prefix (squared for SQUARE_, cubed for CUBIC_; a gram is 1e-3 kg),
+ *  an IfcConversionBasedUnit's factor (ValueComponent × its unit's scale). undefined = not readable here. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function unitScale(u: any): number | undefined {
+  const cls = String(val(u?._category) ?? "").toUpperCase(), name = String(val(u?.Name) ?? "").toUpperCase();
+  if (cls === "IFCSIUNIT") {
+    const p = PREFIX[String(val(u.Prefix) ?? "").toUpperCase()] ?? 1;
+    return (name.startsWith("SQUARE") ? p ** 2 : name.startsWith("CUBIC") ? p ** 3 : p) * (name === "GRAM" ? 1e-3 : 1);
+  }
+  if (cls !== "IFCCONVERSIONBASEDUNIT") return undefined; // with an offset (°F), or an item the reader left empty (fragments: any conversion-based unit)
+  const f = all(u.ConversionFactor)[0], v = Number(val(f?.ValueComponent)), s = unitScale(all(f?.UnitComponent)[0]);
+  return Number.isFinite(v) && s != null ? v * s : undefined;
+}
+
+/** The project's units (an IfcUnitAssignment item): each named unit type's scale, null where the unit cannot be read; `unread` =
+ *  some unit came through with no type at all (That Open's fragments importer keeps an IfcConversionBasedUnit as an empty item). */
+export interface ModelUnits { scale: Record<string, number | null>; unread: boolean }
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function projectUnits(assignment: any): ModelUnits {
+  const out: ModelUnits = { scale: {}, unread: false };
+  for (const u of all(assignment?.Units)) {
+    const t = String(val(u?.UnitType) ?? "").toUpperCase();
+    if (!t) out.unread = true;
+    else if (NAMED_UNIT.test(t)) out.scale[t] = unitScale(u) ?? null;
+  }
+  return out;
+}
+
+/** The viewer's project units: the IFCPROJECT among a model's items, fetched with PROPERTY_DATA_CONFIG. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const modelUnits = (items: any[]): ModelUnits | undefined => {
+  const p = items.find((d) => String(val(d?._category) ?? "").toUpperCase() === "IFCPROJECT");
+  return p ? projectUnits(all(p.UnitsInContext)[0]) : undefined;
+};
+
+/** A value in SI units (PropRow.si): undefined = SI as written, or not a named unit's measure; null = its unit cannot be read. `own`
+ *  is the property's or quantity's own unit, which wins over the project's. A unit the file does not assign is SI. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function siValue(value: string, measure: string | undefined, own: any, units: ModelUnits | undefined): string | null | undefined {
+  const t = unitTypeOf(measure), n = Number(value);
+  if (!NAMED_UNIT.test(t) || value.trim() === "" || !Number.isFinite(n)) return undefined;
+  const s = own ? unitScale(own) ?? null : units && t in units.scale ? units.scale[t] : units?.unread ? null : 1;
+  return s == null ? null : s === 1 ? undefined : String(n * s);
+}
 
 /** An IDS material facet's values, as IfcTester reads them (ifcopenshell get_material, a set usage read as its set): a material's
  *  Name and Category; a list's materials'; a layer, profile or constituent set's own name and each item's Name, Category and
@@ -87,8 +147,6 @@ export const PROPERTY_DATA_CONFIG = {
  *  `_category`, a reference one item or a list. [] = a material with no names. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function materialValues(m: any): string[] {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const all = (x: any): any[] => (Array.isArray(x) ? x : x && typeof x === "object" ? [x] : []);
   const cls = String(val(m?._category) ?? "").toUpperCase();
   if (cls === "IFCMATERIALLAYERSETUSAGE") return materialValues(all(m.ForLayerSet)[0]);
   if (/^IFCMATERIALPROFILESETUSAGE/.test(cls)) return materialValues(all(m.ForProfileSet)[0]);
@@ -110,9 +168,10 @@ export async function extractElementProperties(
   return parseElementProperties(results?.[0], model.modelId, localId);
 }
 
-/** Pure parse of one raw ItemData record → ElementProperties. Lets the model validator bulk-fetch once. */
+/** Pure parse of one raw ItemData record → ElementProperties. Lets the model validator bulk-fetch once. `units`: the model's
+ *  (modelUnits), for each value's SI form. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function parseElementProperties(data: any, modelId: string, localId: number): ElementProperties {
+export function parseElementProperties(data: any, modelId: string, localId: number, units?: ModelUnits): ElementProperties {
   const identity: ElementProperties["identity"] = {
     GlobalId: val(data?.["_guid"]) ?? val(data?.["GlobalId"]),
     Name: val(data?.["Name"]),
@@ -157,7 +216,8 @@ export function parseElementProperties(data: any, modelId: string, localId: numb
           const name = val(p?.["Name"]);
           const value = val(p?.["NominalValue"]) ?? val(p?.["Value"]);
           const type = typeOf(p?.["NominalValue"]);
-          if (name && value != null) rows.push(type ? { name, value, type } : { name, value });
+          const si = value != null ? siValue(value, type, all(p?.["Unit"])[0], units) : undefined;
+          if (name && value != null) rows.push({ name, value, ...(type ? { type } : {}), ...(si !== undefined ? { si } : {}) });
         }
         if (rows.length) add(psets, setName, rows);
       }
@@ -168,7 +228,8 @@ export function parseElementProperties(data: any, modelId: string, localId: numb
           const name = val(q?.["Name"]);
           const key = (Object.keys(QTY_TYPES) as (keyof typeof QTY_TYPES)[]).find((k) => val(q?.[k]) != null);
           const value = key ? val(q[key]) : val(q?.["Value"]);
-          if (name && value != null) rows.push(key ? { name, value, type: QTY_TYPES[key] } : { name, value });
+          const si = key && value != null ? siValue(value, QTY_TYPES[key], all(q?.["Unit"])[0], units) : undefined;
+          if (name && value != null) rows.push({ name, value, ...(key ? { type: QTY_TYPES[key] } : {}), ...(si !== undefined ? { si } : {}) });
         }
         if (rows.length) add(quantities, setName, rows);
       }
