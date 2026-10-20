@@ -42,6 +42,9 @@ public sealed class DocumentExtractor : IDisposable
         _model = Env("SENTINEL_LLM_MODEL", DefaultModel);
     }
 
+    /// Where the model is (<see cref="LocalOnly.Where"/>): "on this PC", or "at host" for an https host this PC opted in to.
+    public string Where => LocalOnly.Where(_url);
+
     /// Ollama constrains decoding to this exact shape (its `format` field), so the model can't drift.
     private const string Schema = @"{
   ""type"":""object"",

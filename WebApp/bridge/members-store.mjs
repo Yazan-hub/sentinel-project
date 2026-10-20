@@ -54,6 +54,25 @@ export async function listMembers(key, deps) {
   }));
 }
 
+/** AI privacy (spec 2026-10-20 §3): the people of these projects — {user_id, email, name} once each — for ai-policy's
+ *  redaction list, read with the service key (the office's members too, whom a project member cannot list). Unlike
+ *  listMembers it never degrades to an id: a person not read would go out unmasked, so a GoTrue failure throws. */
+export async function identitiesOf(projectIds, deps) {
+  const d = wire(deps);
+  if (!projectIds?.length) return [];
+  const rows = (await d.sb(`memberships?project_id=in.(${projectIds.map(enc).join(",")})&select=user_id`, { service: true })) || [];
+  const ids = [...new Set(rows.map((m) => m.user_id))], out = [];
+  for (let i = 0; i < ids.length; i += 8) // 8 GoTrue reads at a time: a large office must not meet GoTrue's rate limit (review L5)
+    out.push(...await Promise.all(ids.slice(i, i + 8).map(async (id) => {
+      let u;
+      try { u = await d.adminFetch(`/admin/users/${enc(id)}`); }
+      catch (e) { throw err(502, `the people on this project were not read for name masking (${String(e?.message || e).slice(0, 120)}) — nothing was sent`); }
+      const meta = u?.user_metadata ?? {};
+      return { user_id: id, email: u?.email || null, name: [meta.full_name, meta.name].find((x) => typeof x === "string" && x.trim()) ?? null };
+    })));
+  return out;
+}
+
 /** The membership rows alone ({ user_id, role }) — no GoTrue e-mail lookup per member (listMembers does one
  *  each). The journey reads this on every strip refresh (Next strip spec §2). */
 export async function listMemberRows(key, deps) {
@@ -211,7 +230,7 @@ export async function isPlatformAdmin(deps) {
  *  OFFICE, a platform admin, or the machine credential. The office row is read with the service key rather than
  *  through requireMinRole's ensureProject, whose 404 would tell a stranger which office keys exist: "no such office"
  *  and "not yours" get the same words, the words 0033's projects_office_guard gives a direct PostgREST write. */
-export async function requireOfficeLead(officeKey, deps) {
+export async function requireOfficeLead(officeKey, deps, words = "attaching a project to an office needs the lead role on that office — nothing was saved") {
   const d = wire(deps);
   const sub = subOf(d);
   if (sub) {
@@ -220,5 +239,5 @@ export async function requireOfficeLead(officeKey, deps) {
     if ((ROLE_RANK[role] || 0) >= ROLE_RANK.lead) return;
   }
   if (await isPlatformAdmin(deps)) return;
-  throw err(403, "attaching a project to an office needs the lead role on that office — nothing was saved");
+  throw err(403, words);
 }

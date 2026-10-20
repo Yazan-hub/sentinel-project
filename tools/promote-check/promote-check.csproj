@@ -76,6 +76,9 @@
     <Compile Include="..\..\SentinelAddin\Engine\PcSettings.cs" />
     <Compile Include="..\..\SentinelAddin\Engine\LocalOnly.cs" />
     <Compile Include="..\..\SentinelAddin\Engine\SettingsManager.cs" />
+    <!-- AI privacy controls (2026-10-20): the policy the bridge writes in words, its one read, and the off-PC model refusal -->
+    <Compile Include="..\..\SentinelAddin\Engine\AiPolicy.cs" />
+    <Compile Include="..\..\SentinelAddin\Coordination\AiPolicyClient.cs" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.*" />

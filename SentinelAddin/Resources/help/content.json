@@ -1502,6 +1502,10 @@
     "desc": "Off by default: drawings and photos stay on this PC. Tick it only to use a model at an https address elsewhere."
    },
    {
+    "name": "AI policy (this model's project)",
+    "desc": "Read only: what the office or project lead set in the web app (Project settings ▸ AI privacy) for the open model's project. When it keeps AI on this network, Ghost Builder, Photo Massing and Ingest Docs use this PC's own model only, even with Allow a model off this PC ticked. No model open, or one bound to no project: it says so."
+   },
+   {
     "name": "Ghost Builder model and Photo model",
     "desc": "The model names Ghost Builder and Photo Massing ask for."
    },

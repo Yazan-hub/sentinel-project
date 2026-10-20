@@ -63,6 +63,12 @@ public sealed class MassingFromImagesCommand : IExternalCommand
             TaskDialog.Show(Title, notLocal);
             return Result.Cancelled;
         }
+        // AI privacy controls: a project locked to this network refuses a model off this PC, said before the pack or an image is read.
+        if (AiPolicyClient.Refusal(ctx.Key, LocalOnly.Where(settings.OllamaUrl)) is { } locked)
+        {
+            TaskDialog.Show(Title, locked);
+            return Result.Cancelled;
+        }
         // MA-7-14 (amendment 27): the pack's photos are read by a model on this PC only - checked before any image is read or fetched.
         if (LocalOnly.ModelUrlRefusal(settings.OllamaUrl, cloudOptIn: false) != null)
         {

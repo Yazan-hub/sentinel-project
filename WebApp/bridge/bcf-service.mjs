@@ -829,7 +829,28 @@ async function handleRequest(req, res) {
     let may;
     try { may = await (await import("./members-store.mjs")).canUseCloudAi(); }
     catch (e) { may = { ok: false, why: `Cloud AI unavailable — the office check failed: ${String(e?.message || e).slice(0, 120)}` }; }
-    return send(res, 200, { providers: ai.listProviders({ cloudRefusal: may.ok ? null : may.why }) });
+    // AI privacy (spec 2026-10-20): ?project=k — a project whose AI policy keeps AI on this network shows its cloud rows
+    // unavailable in the policy's words, and the answer carries the policy for the panel's line. A policy not read is
+    // said the same way (chat() refuses then too).
+    const key = url.searchParams.get("project");
+    let policy = null;
+    if (key) {
+      try { const p = await (await import("./ai-policy.mjs")).policyFor(key); policy = { local_only: p.local_only, redact: p.redact, words: p.words, refs: p.refs }; }
+      catch (e) { policy = { local_only: true, redact: false, words: `Cloud AI is off: ${key}'s AI policy was not read (${String(e?.message || e).slice(0, 120)}).`, unread: true }; }
+    }
+    const refusal = !may.ok ? may.why : policy?.local_only ? policy.words : null;
+    return send(res, 200, { providers: ai.listProviders({ cloudRefusal: refusal }), ...(policy ? { policy } : {}) });
+  }
+  // AI privacy: the effective AI policy of one or more projects (a member's read) — the MCP server, Revit and the web read it.
+  // ?terms=1 adds the redaction list where masking is on: the names and e-mails of everyone in the project and its office, so it
+  // is the machine credential's only (this PC's MCP server, loopback since PR-1) — a signed-in person, viewers included, is
+  // refused rather than handed the office's staff list (review M1). chat() reads the list in-process.
+  if (url.pathname === "/ai/policy" && req.method === "GET") {
+    const keys = String(url.searchParams.get("project") || "").split(",").map((k) => k.trim()).filter(Boolean);
+    const terms = url.searchParams.get("terms") === "1";
+    if (terms && currentUserToken()) return send(res, 403, { message: "The redaction list is read only with this PC's machine credential (Sentinel's MCP server) — ask without terms=1 for the policy itself." });
+    try { return send(res, 200, await (await import("./ai-policy.mjs")).policies(keys, { terms })); }
+    catch (e) { return send(res, e?.status || 500, { message: String(e?.message || e) }); }
   }
   // What the AI is allowed to do, and which of those need a human tick. The UI renders the gate from
   // this, so a tool added to the registry shows up in both the agent and the MCP server with no

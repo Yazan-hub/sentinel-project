@@ -73,6 +73,8 @@ export function copilotPanel(components: OBC.Components, opts: { baseUrl?: strin
       `<select id="co-model" title="Model" style="flex:1 1 92px;min-width:0;max-width:150px;background:#14141a;color:#c9cfda;border:1px solid #2c2c34;border-radius:.3rem;font:11px system-ui;padding:.2rem"></select>` +
       `<button id="co-refresh" style="${btn};background:#2a2a30;color:#eee" title="Reload project context">↻</button>` +
     "</div>" +
+    // AI privacy: the project's AI policy, said where AI is picked (empty and hidden when nothing is switched on).
+    '<div id="co-policy" style="display:none;padding:.35rem .6rem;font-size:11.5px;color:#fbbf24;border-bottom:1px solid #2a2a30"></div>' +
     '<div id="co-log" style="flex:1;overflow:auto;padding:.6rem;display:flex;flex-direction:column;gap:.5rem"></div>' +
     '<div id="co-chips" style="display:flex;flex-wrap:wrap;gap:.3rem;padding:.4rem .6rem;border-top:1px solid #2a2a30"></div>' +
     '<div style="display:flex;gap:.4rem;padding:.5rem .6rem;border-top:1px solid #2a2a30">' +
@@ -155,7 +157,8 @@ export function copilotPanel(components: OBC.Components, opts: { baseUrl?: strin
     const r = await bfetch(`${base}/ai/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ provider, model, system, messages: [{ role: "user", content: q }], tools }),
+      // project: the bridge checks its AI policy (spec 2026-10-20) — a cloud call is refused or masked by it.
+      body: JSON.stringify({ provider, model, system, messages: [{ role: "user", content: q }], tools, project: pid() }),
     });
     const j = await r.json();
     if (!r.ok) throw new Error(j?.message || `AI error ${r.status}`);
@@ -296,7 +299,10 @@ export function copilotPanel(components: OBC.Components, opts: { baseUrl?: strin
   const loadPickers = async () => {
     const sel = el("co-provider") as HTMLSelectElement;
     try {
-      const [pr, tl] = await Promise.all([readJson(`${base}/ai/providers`), readJson(`${base}/ai/tools`)]);
+      const [pr, tl] = await Promise.all([readJson(`${base}/ai/providers?project=${encodeURIComponent(pid())}`), readJson(`${base}/ai/tools`)]);
+      const pol = pr.policy, line = el("co-policy");
+      line.textContent = !pol ? "" : [pol.local_only ? `🔒 ${pol.words}` : "", pol.redact ? "Names are masked before a cloud AI reads them." : ""].filter(Boolean).join(" ");
+      line.style.display = line.textContent ? "" : "none";
       sel.innerHTML = "";
       for (const p of pr.providers) {
         const o = new Option(p.available ? p.label : `${p.label} — unavailable`, p.id);
@@ -311,7 +317,7 @@ export function copilotPanel(components: OBC.Components, opts: { baseUrl?: strin
       await loadModels();
     } catch (e) {
       // Said in the picker, not left empty. Ask mode still works off the deterministic engine.
-      sel.innerHTML = ""; aiTools = []; toolPolicy.clear();
+      sel.innerHTML = ""; aiTools = []; toolPolicy.clear(); el("co-policy").style.display = "none";
       const o = new Option(`AI providers not read — ${(e as Error)?.message ?? String(e)}`, "", true, true);
       o.disabled = true;
       sel.appendChild(o);

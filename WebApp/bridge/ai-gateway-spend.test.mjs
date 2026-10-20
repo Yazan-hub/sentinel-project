@@ -43,7 +43,7 @@ describe("cloud calls (D2)", () => {
   });
 
   it("a trusted caller's call goes out with max_tokens, as the Claude path does", async () => {
-    const out = await as("u1", () => ai.chat({ provider: "gemini", model: "gemini-flash-latest", messages: hi }));
+    const out = await as("u1", () => ai.chat({ provider: "gemini", model: "gemini-flash-latest", messages: hi, project: "p1" }, { policy: async () => ({ local_only: false, redact: false }) }));
     expect(out.text).toBe("ok");
     expect(JSON.parse(fetchStub.mock.calls[0][1].body)).toMatchObject({ model: "gemini-flash-latest", max_tokens: 4096 });
   });

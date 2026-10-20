@@ -12,7 +12,7 @@ import { validatePack } from "./evidence-logic.mjs"; // MA-4a: the evidence_pack
 import { validateRecipe } from "./recipe-logic.mjs"; // MA-8-13: the recipe validator (pure, no cycle)
 
 export const STORE = "artefact";
-export const KINDS = ["ids", "ruleset", "naming", "contract", "guideline", "layers", "type_catalog", "publish", "roi", "review", "carbon_factors", "lod_matrix", "evidence_pack", "ifc_export", "recipe", "protection"];
+export const KINDS = ["ids", "ruleset", "naming", "contract", "guideline", "layers", "type_catalog", "publish", "roi", "review", "carbon_factors", "lod_matrix", "evidence_pack", "ifc_export", "recipe", "protection", "ai_policy"];
 // MA-8-6 (P1-11): the data types the Revit 2027 IFC exporter's DefaultUserDefinedParameterSets.txt lists (read on this PC). The add-in
 // writes that file's format from an ifc_export body, so a type the exporter does not know never installs. SentinelAddin/Engine/IfcExportMapping.cs mirrors this.
 export const IFC_EXPORT_TYPES = ["Acceleration", "AngularVelocity", "Area", "AreaDensity", "Boolean", "ClassificationReference", "ColorTemperature", "Count", "Currency",
@@ -350,6 +350,13 @@ export function validateArtefact(kind, body) {
     body.worksets.forEach((w, i) => { if (typeof w !== "string" || !w.trim() || w.length > 120) throw bad(kind, `worksets[${i}]`, "must be a workset name or pattern (* matches any run of characters) of 1 to 120 characters"); });
     if (typeof body.structural_hosts !== "boolean") throw bad(kind, "structural_hosts", "must be true or false");
   }
+  if (kind === "ai_policy") {
+    // AI privacy (spec 2026-10-20): an office's or project's two switches, read by ai-policy.mjs (office OR project). Exactly
+    // two booleans: a stray key is refused, not kept — a reader that skipped it would enforce a policy nobody can see.
+    const stray = Object.keys(body).find((k) => k !== "local_only" && k !== "redact");
+    if (stray !== undefined) throw bad(kind, stray, "is not an AI policy field — the body is exactly {local_only, redact}");
+    for (const k of ["local_only", "redact"]) if (typeof body[k] !== "boolean") throw bad(kind, k, "must be true or false");
+  }
   if (kind === "carbon_factors") {
     // The project's embodied-carbon factors (item 6, 6D): what every carbon figure multiplies by, and named on it —
     // installed like any standard (versioned, sha'd, on the ledger), resolved project → office.
@@ -476,7 +483,8 @@ async function installVersion(d, proj, kind, body, prev, { actor, source }) {
   try { await d.docInsert(STORE, proj.id, `${kind}@${version}`, { ...pointer, body }); }
   catch (e) { if (e?.status === 409 || e?.body?.code === "23505") throw err(409, RACE(kind)); throw e; }
   await d.docUpsert(STORE, proj.id, kind, pointer);
-  await d.audit(proj.id, "artefact", null, `artefact_installed ${kind}@${version}`, pointer.installed_by, prev, pointer);
+  // AI privacy: the ledger row of a switch says what was switched (two booleans), not only its hash.
+  await d.audit(proj.id, "artefact", null, `artefact_installed ${kind}@${version}`, pointer.installed_by, prev, kind === "ai_policy" ? { ...pointer, body } : pointer);
   return pointer;
 }
 

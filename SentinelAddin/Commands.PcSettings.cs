@@ -14,6 +14,7 @@ using System.Windows.Controls;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
+using Sentinel.Coordination;
 using Sentinel.Engine;
 using Grid = System.Windows.Controls.Grid;
 using TextBox = System.Windows.Controls.TextBox;
@@ -25,7 +26,9 @@ public sealed class PcSettingsCommand : IExternalCommand
 {
     public Result Execute(ExternalCommandData c, ref string msg, ElementSet els)
     {
-        var win = new PcSettingsWindow();
+        // AI privacy controls: the open model's project (no model, or an unbound one: "") - its AI policy is shown in the window.
+        var doc = c.Application.ActiveUIDocument?.Document;
+        var win = new PcSettingsWindow(doc is null ? "" : ProjectContext.For(doc).Key);
         new System.Windows.Interop.WindowInteropHelper(win) { Owner = c.Application.MainWindowHandle };
         win.Show();
         return Result.Succeeded;
@@ -48,9 +51,14 @@ public sealed class PcSettingsWindow : Window
     private string _bcfError, _cfgError;
     private Dictionary<string, string> _shown = new(); // key → the text the form showed: only a change is written
     private bool _hasToken, _hasAnon;
+    private readonly string _projectKey;     // the open model's web project ("" when none)
+    private readonly TextBlock _policyText = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 4), Foreground = System.Windows.Media.Brushes.DimGray };
+    private (bool LocalOnly, bool Redact, string Words, string Error) _policy;
+    private bool _policyRead;
 
-    public PcSettingsWindow()
+    public PcSettingsWindow(string projectKey)
     {
+        _projectKey = projectKey ?? "";
         Title = "Sentinel — PC Settings";
         Width = 600; SizeToContent = SizeToContent.Height; WindowStartupLocation = WindowStartupLocation.CenterScreen;
         var root = new StackPanel { Margin = new Thickness(12) };
@@ -80,6 +88,9 @@ public sealed class PcSettingsWindow : Window
         root.Children.Add(Row("Layer mapping file", _schemaPath, Browse(PickSchema)));
         root.Children.Add(Hint("Blank folders are not used. The drawings folder belongs to Project Setup."));
 
+        root.Children.Add(Heading("AI policy (this model's project)"));
+        root.Children.Add(_policyText);
+
         root.Children.Add(_status);
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 10, 0, 0) };
         var close = new Button { Content = "Close", Padding = new Thickness(14, 4, 14, 4), Margin = new Thickness(0, 0, 8, 0) };
@@ -91,6 +102,8 @@ public sealed class PcSettingsWindow : Window
         _removeToken.Checked += (_, _) => { _token.Clear(); _token.IsEnabled = false; };
         _removeToken.Unchecked += (_, _) => _token.IsEnabled = true;
         Fill();
+        _cloudOptIn.Checked += (_, _) => ShowPolicy(); _cloudOptIn.Unchecked += (_, _) => ShowPolicy(); // the line about the opt-in follows the box
+        LoadPolicy();
     }
 
     private static TextBox Box() => new() { Padding = new Thickness(3), VerticalContentAlignment = VerticalAlignment.Center };
@@ -137,6 +150,31 @@ public sealed class PcSettingsWindow : Window
                 })));
         };
         return b;
+    }
+
+    /// <summary>AI privacy controls: the open model's project's AI policy, read off the UI thread (a Test's way) and shown in words. Nothing about it is
+    /// ever written to a file - it is read each time this window opens.</summary>
+    private void LoadPolicy()
+    {
+        if (_projectKey.Length == 0) { ShowPolicy(); return; }
+        _policyText.Text = "Reading the AI policy…";
+        var key = _projectKey;
+        Task.Run(() => ReadPolicy(key))
+            .ContinueWith(t => Dispatcher.BeginInvoke(new Action(() => { _policy = t.Result; _policyRead = true; ShowPolicy(); })));
+    }
+
+    private static (bool LocalOnly, bool Redact, string Words, string Error) ReadPolicy(string key)
+    {
+        try { return AiPolicyClient.Fetch(BcfConfig.Load(), key); }
+        catch (Exception e) { return (false, false, "", e.Message); }
+    }
+
+    private void ShowPolicy()
+    {
+        if (_projectKey.Length > 0 && !_policyRead) return; // still reading
+        _policyText.Text = AiPolicy.SettingsLine(_projectKey, _policy, _cloudOptIn.IsChecked == true);
+        _policyText.Foreground = _projectKey.Length == 0 ? System.Windows.Media.Brushes.DimGray
+            : _policy.Error != null || _policy.LocalOnly ? System.Windows.Media.Brushes.Firebrick : System.Windows.Media.Brushes.DarkGreen;
     }
 
     /// <summary>The sign-in key a Test uses: the one typed, else the saved one (never shown).</summary>
