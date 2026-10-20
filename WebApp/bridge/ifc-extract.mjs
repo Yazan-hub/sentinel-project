@@ -7,7 +7,7 @@
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import * as WebIFC from "web-ifc";
-import { materialValues } from "./sentinel-core.mjs";
+import { materialValues, projectUnits, siValue } from "./sentinel-core.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const WASM_DIR = resolve(here, "../node_modules/web-ifc") + "/";
@@ -34,8 +34,10 @@ const QTY_KEYS = ["LengthValue", "AreaValue", "VolumeValue", "CountValue", "Weig
 const QTY_TYPES = { LengthValue: "IFCLENGTHMEASURE", AreaValue: "IFCAREAMEASURE", VolumeValue: "IFCVOLUMEMEASURE",
   CountValue: "IFCCOUNTMEASURE", WeightValue: "IFCMASSMEASURE", TimeValue: "IFCTIMEMEASURE" };
 
-function groupsOf(defs, target) {
+// `si(value, measure, ownUnit)`: the value in SI units (PropRow.si), from extractHere's project units; none = rows as read.
+function groupsOf(defs, target, si) {
   // defs: IfcPropertySet | IfcElementQuantity lines (recursive: true expands HasProperties/Quantities)
+  const withSi = (row, unit) => { const v = si?.(row.value, row.type, unit); return v === undefined ? row : { ...row, si: v }; };
   for (const d of defs || []) {
     const name = val(d?.Name);
     if (!name) continue;
@@ -45,7 +47,7 @@ function groupsOf(defs, target) {
         const n = val(p?.Name); if (!n) continue;
         const v = p?.NominalValue !== undefined ? bool(p.NominalValue) : undefined;
         const type = typeof p?.NominalValue?.name === "string" ? p.NominalValue.name.toUpperCase() : null; // web-ifc's "IFCLABEL": an IDS dataType
-        rows.push(type ? { name: n, value: v ?? "", type } : { name: n, value: v ?? "" });
+        rows.push(withSi(type ? { name: n, value: v ?? "", type } : { name: n, value: v ?? "" }, p?.Unit));
       }
       target.psets.push({ name, rows });
     } else if (Array.isArray(d.Quantities)) {
@@ -53,7 +55,7 @@ function groupsOf(defs, target) {
       for (const q of d.Quantities) {
         const n = val(q?.Name); if (!n) continue;
         const key = QTY_KEYS.find((k) => q?.[k] !== undefined);
-        rows.push(key ? { name: n, value: val(q[key]) ?? "", type: QTY_TYPES[key] } : { name: n, value: "" });
+        rows.push(key ? withSi({ name: n, value: val(q[key]) ?? "", type: QTY_TYPES[key] }, q?.Unit) : { name: n, value: "" });
       }
       target.quantities.push({ name, rows });
     }
@@ -75,9 +77,9 @@ function typePsetDefs(api, mid, typeDefs) {
 }
 
 /** Instance groups first, then the type's; a row already present by (pset, name) is not overridden. */
-function mergeTypeGroups(el, psetDefs) {
+function mergeTypeGroups(el, psetDefs, si) {
   const tmp = { psets: [], quantities: [] };
-  groupsOf(psetDefs, tmp);
+  groupsOf(psetDefs, tmp, si);
   for (const g of tmp.psets) {
     let mine = el.psets.find((x) => x.name === g.name);
     if (!mine) { mine = { name: g.name, rows: [] }; el.psets.push(mine); }
@@ -86,14 +88,14 @@ function mergeTypeGroups(el, psetDefs) {
 }
 
 /** MA-6-7: one element's property sets and quantities — its own, then its type's (a row already present is not overridden). */
-export async function elementPsets(api, mid, id) {
+export async function elementPsets(api, mid, id, si) {
   const el = { psets: [], quantities: [] };
-  groupsOf(await api.properties.getPropertySets(mid, id, true, false), el);
+  groupsOf(await api.properties.getPropertySets(mid, id, true, false), el, si);
   // A type object's own sets hang off its HasPropertySets attribute, which getPropertySets (IsDefinedBy) does not read.
   const own = api.GetLine(mid, id)?.HasPropertySets;
-  if (Array.isArray(own)) groupsOf(own.map((r) => (r && typeof r === "object" && "expressID" in r ? r : api.GetLine(mid, r?.value, true))), el);
+  if (Array.isArray(own)) groupsOf(own.map((r) => (r && typeof r === "object" && "expressID" in r ? r : api.GetLine(mid, r?.value, true))), el, si);
   const typeDefs = await api.properties.getTypeProperties(mid, id, true);
-  mergeTypeGroups(el, typePsetDefs(api, mid, typeDefs));
+  mergeTypeGroups(el, typePsetDefs(api, mid, typeDefs), si);
   // The type object's own predefined type (an IDS predefinedType is inherited from it — entity/pass-inherited_predefined_types).
   const t = typeDefs?.[0];
   if (t && typeof t === "object") el.type = { Class: String(api.GetNameFromTypeCode(t.type) || "").toUpperCase(), PredefinedType: val(t.PredefinedType), ElementType: val(t.ElementType), ProcessType: val(t.ProcessType) };
@@ -159,6 +161,11 @@ export async function extractHere(bytes, { classes = DEFAULT_CLASSES, modelId = 
     try { out.schema = String(api.GetModelSchema(mid) || "").toUpperCase(); } catch { out.schema = ""; }
     const seen = new Set();
     const assoc = associations(api, mid);
+    // IDS 1.0 compares values in SI units: the project's units (IfcUnitAssignment), else a property's own unit.
+    const line = (r) => (r && typeof r === "object" && "expressID" in r ? r : r?.value ? api.GetLine(mid, r.value, true) : undefined);
+    const projects = api.GetLineIDsWithType(mid, WebIFC.IFCPROJECT, true);
+    const units = projects.size() ? projectUnits(tagged(api, line(api.GetLine(mid, projects.get(0)).UnitsInContext))) : undefined;
+    const si = (value, measure, unit) => siValue(value, measure, unit ? tagged(api, line(unit)) : undefined, units);
     for (const cls of classes) {
       const typeCode = WebIFC[cls.toUpperCase()];
       if (typeof typeCode !== "number") { out.counts.unknown_classes.push(cls); continue; } // said, never silently skipped
@@ -184,7 +191,7 @@ export async function extractHere(bytes, { classes = DEFAULT_CLASSES, modelId = 
             if (!(k in el.identity) && v && typeof v === "object" && !Array.isArray(v) && v.type !== 5 && v.value != null && typeof v.value !== "object")
               el.identity[k] = String(v.value);
           }
-          Object.assign(el, await elementPsets(api, mid, id), assoc(id));
+          Object.assign(el, await elementPsets(api, mid, id, si), assoc(id));
           out.elements.push(el);
           out.counts.elements++;
           out.counts.by_class[concrete] = (out.counts.by_class[concrete] || 0) + 1;

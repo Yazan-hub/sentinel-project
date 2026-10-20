@@ -1,0 +1,16 @@
+ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('ViewDefinition[DesignTransferView]'),'2;1');
+FILE_NAME('/dev/null','2026-10-20T19:26:44+02:00',(''),(''),'IfcOpenShell 0.9.0.post1','IfcOpenShell 0.9.0.post1','Nobody');
+FILE_SCHEMA(('IFC4'));
+ENDSEC;
+DATA;
+#1=IFCPROJECT('2kxNnLPanCtAKZijqprcwJ',$,'Mini',$,$,$,$,$,#3);
+#2=IFCSIUNIT(*,.AREAUNIT.,.MILLI.,.SQUARE_METRE.);
+#3=IFCUNITASSIGNMENT((#2));
+#4=IFCWALL('2Ua8SYB4HBg8$izxikrGu7',$,'W1',$,$,$,$,$,$);
+#5=IFCELEMENTQUANTITY('0SgW1uUnP9Lxl8fzt3vL75',$,'Qto_WallBaseQuantities',$,'BaseQuantities',(#7));
+#6=IFCRELDEFINESBYPROPERTIES('0RP8ZTv3jC7Pr7QgKXoa9a',$,$,$,(#4),#5);
+#7=IFCQUANTITYAREA('NetSideArea',$,$,2.E+06,$);
+ENDSEC;
+END-ISO-10303-21;

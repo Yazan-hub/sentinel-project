@@ -53,7 +53,8 @@ export async function readModel(bytes, reader) {
   const model = new SingleThreadedFragmentsModel("m", await ifcBytesToFrag(bytes));
   const ids = Object.values(await model.getItemsOfCategories([/^IFC/i])).flat();
   const data = ids.length ? await model.getItemsData(ids, core.PROPERTY_DATA_CONFIG) : [];
-  return ids.map((id, i) => core.parseElementProperties(data[i], "m", id));
+  const units = core.modelUnits(data);
+  return ids.map((id, i) => core.parseElementProperties(data[i], "m", id, units));
 }
 
 /** One case through Sentinel, read by `reader`: got = pass | fail | not checked | refused, with why. */
@@ -66,7 +67,7 @@ export async function runCase(c, reader = "viewer") {
   let elements;
   try { elements = await readModel(readFileSync(c.ifc), reader); } catch (e) { return { ...row, got: "refused", why: `the ${reader} reader could not read the IFC (${e.message})` }; }
   const unread = core.unreadFacets(spec, elements); // a facet this reader does not carry (the viewer: classification) is said, never judged
-  if (unread.length) return { ...row, got: "not checked", why: unread.map((u) => `${u.specification.name}: the ${u.facets.join(" and ")} facet — the ${reader} reader does not carry it`).join("; ") };
+  if (unread.length) return { ...row, got: "not checked", why: unread.map((u) => `${u.specification.name}: ${u.facets.join(" and ")} — the ${reader} reader does not carry it`).join("; ") };
   const r = core.judgeModel(spec, elements);
   return { ...row, got: r.pass ? "pass" : "fail", why: r.failures.slice(0, 3).map((f) => `${f.requirement}: ${f.reason}`).join("; ") };
 }

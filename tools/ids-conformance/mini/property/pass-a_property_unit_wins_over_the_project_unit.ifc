@@ -1,0 +1,17 @@
+ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('ViewDefinition[DesignTransferView]'),'2;1');
+FILE_NAME('/dev/null','2026-10-20T19:26:44+02:00',(''),(''),'IfcOpenShell 0.9.0.post1','IfcOpenShell 0.9.0.post1','Nobody');
+FILE_SCHEMA(('IFC4'));
+ENDSEC;
+DATA;
+#1=IFCPROJECT('3fxZa$HLrD5wXtfEOLLeHa',$,'Mini',$,$,$,$,$,#3);
+#2=IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.);
+#3=IFCUNITASSIGNMENT((#2));
+#4=IFCWALL('0_z7ChrID5wuYLcO5rN1fx',$,'W1',$,$,$,$,$,$);
+#5=IFCPROPERTYSET('1DIz8kbUv1hPou_S5hXo4i',$,'Sentinel_Mini',$,(#7));
+#6=IFCRELDEFINESBYPROPERTIES('1dVw665QT9uQDuzzXDwWDW',$,$,$,(#4),#5);
+#7=IFCPROPERTYSINGLEVALUE('Width',$,IFCLENGTHMEASURE(1.),#8);
+#8=IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.);
+ENDSEC;
+END-ISO-10303-21;
