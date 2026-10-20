@@ -4,7 +4,7 @@
 
 import type * as OBC from "@thatopen/components";
 import { parseElementProperties, modelUnits, PROPERTY_DATA_CONFIG, type ElementProperties } from "./element-properties";
-import { validateElement, missingRequired, unreadFacets, type IdsSpec, type ElementResult, type Failure } from "../ids";
+import { validateElement, missingRequired, unreadFacets, partOfChains, type IdsSpec, type ElementResult, type Failure } from "../ids";
 
 export interface ModelValidation {
   modelId: string;
@@ -36,6 +36,7 @@ export async function validateModels(
     const failuresByRequirement: Record<string, number> = {};
     const units = modelUnits(data);
     const els: ElementProperties[] = ids.map((id, i) => parseElementProperties(data[i], model.modelId, id, units));
+    partOfChains(els);
     // A specification naming a facet this model's reader does not carry (classification, a conversion-based unit) is not judged: said instead.
     const unread = unreadFacets(spec, els);
     const judged: IdsSpec = { ...spec, specifications: spec.specifications.filter((s) => !unread.some((u) => u.specification === s)) };

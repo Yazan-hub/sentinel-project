@@ -7,7 +7,7 @@
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import * as WebIFC from "web-ifc";
-import { materialValues, projectUnits, siValue } from "./sentinel-core.mjs";
+import { materialValues, projectUnits, siValue, partOfChains } from "./sentinel-core.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const WASM_DIR = resolve(here, "../node_modules/web-ifc") + "/";
@@ -102,9 +102,10 @@ export async function elementPsets(api, mid, id, si) {
   return el;
 }
 
-/** IDS classification and material for every element, as IfcTester reads them, from the model's relationship lines (read once).
- *  Classification: the element's references, the type's kept for a system the element does not reference (IfcTester's
- *  get_references), each with every reference above it and its system's Name. Material: the element's first, else its type's. */
+/** IDS classification, material and partOf parents for every element, as IfcTester reads them, from the model's relationship lines
+ *  (read once). Classification: the element's references, the type's kept for a system the element does not reference (IfcTester's
+ *  get_references), each with every reference above it and its system's Name. Material: the element's first, else its type's.
+ *  Parents: the first relating object of each relation partOf reads (partOfChains walks them). */
 function associations(api, mid) {
   const lines = (cls) => { const ids = api.GetLineIDsWithType(mid, WebIFC[cls], true), out = []; for (let i = 0; i < ids.size(); i++) out.push(api.GetLine(mid, ids.get(i))); return out; };
   const name = (line) => String(api.GetNameFromTypeCode(line?.type) || "").toUpperCase();
@@ -112,6 +113,12 @@ function associations(api, mid) {
   for (const r of lines("IFCRELDEFINESBYTYPE")) for (const o of r.RelatedObjects ?? []) typeOf.set(o.value, r.RelatingType?.value);
   for (const r of lines("IFCRELASSOCIATESCLASSIFICATION")) for (const o of r.RelatedObjects ?? []) refs.set(o.value, [...(refs.get(o.value) ?? []), r.RelatingClassification?.value]);
   for (const r of lines("IFCRELASSOCIATESMATERIAL")) for (const o of r.RelatedObjects ?? []) if (!mats.has(o.value)) mats.set(o.value, r.RelatingMaterial?.value);
+  const parents = new Map(), link = (child, k, parent) => { const p = parents.get(child) ?? {}; p[k] ??= parent ?? null; parents.set(child, p); };
+  for (const [cls, k, from, to] of [["IFCRELAGGREGATES", "aggregate", "RelatedObjects", "RelatingObject"], ["IFCRELNESTS", "nest", "RelatedObjects", "RelatingObject"],
+    ["IFCRELCONTAINEDINSPATIALSTRUCTURE", "container", "RelatedElements", "RelatingStructure"], ["IFCRELASSIGNSTOGROUP", "group", "RelatedObjects", "RelatingGroup"],
+    ["IFCRELFILLSELEMENT", "fills", "RelatedBuildingElement", "RelatingOpeningElement"], ["IFCRELVOIDSELEMENT", "voids", "RelatedOpeningElement", "RelatingBuildingElement"]])
+    for (const r of lines(cls)) for (const o of [r[from]].flat()) if (o?.value != null) link(o.value, k, r[to]?.value);
+  const NONE = { aggregate: null, nest: null, container: null, group: null, fills: null, voids: null };
   // A reference and every reference above it (ReferencedSource), up to its IfcClassification: [{value, system}], and the system's id.
   const chain = (id) => {
     if (sys.has(id)) return sys.get(id);
@@ -129,7 +136,7 @@ function associations(api, mid) {
     for (const k of new Set(own.map((r) => chain(r).key))) bySystem.set(k, own.filter((r) => chain(r).key === k));
     const m = mats.get(id) ?? (type != null ? mats.get(type) : undefined);
     if (m != null && !matCache.has(m)) matCache.set(m, materialValues(tagged(api, api.GetLine(mid, m, true))));
-    return { classifications: [...bySystem.values()].flat().flatMap((r) => chain(r).rows), material: m == null ? null : matCache.get(m) };
+    return { classifications: [...bySystem.values()].flat().flatMap((r) => chain(r).rows), material: m == null ? null : matCache.get(m), parents: { ...NONE, ...parents.get(id) } };
   };
 }
 
@@ -200,6 +207,7 @@ export async function extractHere(bytes, { classes = DEFAULT_CLASSES, modelId = 
         }
       }
     }
+    partOfChains(out.elements);
   } finally {
     api.CloseModel(mid);
   }

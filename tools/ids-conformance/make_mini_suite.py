@@ -6,7 +6,7 @@
 import os, sys
 import ifcopenshell, ifcopenshell.api as api
 import ifcopenshell.api.project, ifcopenshell.api.root, ifcopenshell.api.pset, ifcopenshell.api.classification, ifcopenshell.api.material, ifcopenshell.api.type
-import ifcopenshell.api.unit
+import ifcopenshell.api.unit, ifcopenshell.api.aggregate, ifcopenshell.api.spatial, ifcopenshell.api.feature
 import ifcopenshell.api.owner, ifcopenshell.api.owner.settings
 from ifctester import ids
 
@@ -91,6 +91,34 @@ def measured(f, units, props=None, qtos=None, own_unit=None):
 
 MM = lambda f: [api.unit.add_si_unit(f, unit_type="LENGTHUNIT", prefix="MILLI")]
 WIDTH = lambda: ids.Property(propertySet="Sentinel_Mini", baseName="Width", value=R(options={"minInclusive": 0.8, "maxInclusive": 1.2}, base="double"))
+
+
+def storey(f):
+    # project > site > building > storey, by aggregation; the storey
+    parent = f.by_type("IfcProject")[0]
+    for cls in ("IfcSite", "IfcBuilding", "IfcBuildingStorey"):
+        e = api.root.create_entity(f, ifc_class=cls, name=cls[3:])
+        api.aggregate.assign_object(f, products=[e], relating_object=parent)
+        parent = e
+    return parent
+
+
+def in_opening(f, fill=True):
+    # a wall and a window in a storey; the window fills an opening in the wall
+    st = storey(f)
+    w, win = el(f, "IfcWall", "W1"), el(f, "IfcWindow", "WIN1")
+    api.spatial.assign_container(f, products=[w, win], relating_structure=st)
+    if fill:
+        o = api.root.create_entity(f, ifc_class="IfcOpeningElement")
+        api.feature.add_feature(f, feature=o, element=w)
+        api.feature.add_filling(f, opening=o, element=win)
+
+
+def part_of_assembly(f):
+    # a beam aggregated into an assembly that is contained in a storey (the beam itself is not contained)
+    a = el(f, "IfcElementAssembly", "A1")
+    api.spatial.assign_container(f, products=[a], relating_structure=storey(f))
+    api.aggregate.assign_object(f, products=[el(f, "IfcBeam", "B1")], relating_object=a)
 
 
 def layer_set_usage(f):
@@ -183,6 +211,16 @@ CASES = [
     ("property", "pass", "an_area_quantity_in_square_millimetres_is_compared_in_square_metres",
      lambda f: measured(f, lambda f: [api.unit.add_si_unit(f, unit_type="AREAUNIT", prefix="MILLI")], qtos={"NetSideArea": 2000000.0}),
      spec([W()], [ids.Property(propertySet="Qto_WallBaseQuantities", baseName="NetSideArea", value=R(options={"minInclusive": 1.9, "maxInclusive": 2.1}, base="double"))])),
+    # partOf: voids and fills, containment through an aggregate, any relation, prohibited
+    ("partof", "pass", "a_window_in_a_walls_opening_passes_voids_and_fills", in_opening,
+     spec([ids.Entity(name="IFCWINDOW")], [ids.PartOf(name="IFCWALL", relation="IFCRELVOIDSELEMENT IFCRELFILLSELEMENT")])),
+    ("partof", "fail", "a_window_in_no_opening_fails_voids_and_fills", lambda f: in_opening(f, fill=False),
+     spec([ids.Entity(name="IFCWINDOW")], [ids.PartOf(name="IFCWALL", relation="IFCRELVOIDSELEMENT IFCRELFILLSELEMENT")])),
+    ("partof", "pass", "a_part_of_a_contained_assembly_is_contained", part_of_assembly,
+     spec([ids.Entity(name="IFCBEAM")], [ids.PartOf(name="IFCBUILDINGSTOREY", relation="IFCRELCONTAINEDINSPATIALSTRUCTURE")])),
+    ("partof", "pass", "any_relation_walks_up_to_the_building", in_opening, spec([ids.Entity(name="IFCWINDOW")], [ids.PartOf(name="IFCBUILDING")])),
+    ("partof", "fail", "a_prohibited_partof_fails_the_part", part_of_assembly,
+     spec([ids.Entity(name="IFCBEAM")], [ids.PartOf(name="IFCELEMENTASSEMBLY", relation="IFCRELAGGREGATES", cardinality="prohibited")])),
     ("property", "pass", "a_mass_in_grams_is_compared_in_kilograms",
      lambda f: measured(f, lambda f: [api.unit.add_si_unit(f, unit_type="MASSUNIT")], {"Mass": ("IfcMassMeasure", 2500.0)}),
      spec([W()], [ids.Property(propertySet="Sentinel_Mini", baseName="Mass", value=R(options={"minInclusive": 2.4, "maxInclusive": 2.6}, base="double"))])),
