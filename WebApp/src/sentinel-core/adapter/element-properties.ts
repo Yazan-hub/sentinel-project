@@ -13,10 +13,15 @@ export interface PropRow {
   /** The value in SI units, where the file's unit for it is not SI (siValue): an IDS 1.0 value is compared with this. null = the
    *  reader cannot read that unit (said as "not checked", unreadFacets). Unset = the value is SI as written. */
   si?: string | null;
+  /** An enumerated, list, bounded or table property's values (`value` joins them): an IDS value is met by any one of them. A
+   *  table's carry their column. Read by the bridge; That Open's fragments importer keeps these properties as empty items. */
+  values?: { value: string; type?: string; si?: string | null; column?: "Defining" | "Defined" }[];
 }
 export interface PropGroup {
   name: string; // pset / quantity-set name, e.g. "Pset_WallCommon"
   rows: PropRow[];
+  /** Properties the reader saw in the set but could not read (fragments: an item with no class and no attributes). */
+  unread?: number;
 }
 export interface ElementProperties {
   modelId: string;
@@ -32,6 +37,8 @@ export interface ElementProperties {
   };
   psets: PropGroup[]; // Pset_* property sets
   quantities: PropGroup[]; // Qto_* quantity sets
+  /** The model's IFC schema ("IFC2X3"): in IFC2X3 an IDS entity also matches the class the type names (IfcTester). */
+  schema?: string;
   /** The element's type object, where the reader relates it: an IDS predefinedType is inherited from it. */
   type?: { Class?: string; PredefinedType?: string; ElementType?: string; ProcessType?: string };
   /** IDS classification: every reference (own, else the type's per system), and every reference above each, with its system's
@@ -178,9 +185,9 @@ export async function extractElementProperties(
 }
 
 /** Pure parse of one raw ItemData record → ElementProperties. Lets the model validator bulk-fetch once. `units`: the model's
- *  (modelUnits), for each value's SI form. */
+ *  (modelUnits), for each value's SI form; `schema`: the model's (getMetadata). */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function parseElementProperties(data: any, modelId: string, localId: number, units?: ModelUnits): ElementProperties {
+export function parseElementProperties(data: any, modelId: string, localId: number, units?: ModelUnits, schema?: string): ElementProperties {
   const identity: ElementProperties["identity"] = {
     GlobalId: val(data?.["_guid"]) ?? val(data?.["GlobalId"]),
     Name: val(data?.["Name"]),
@@ -208,10 +215,11 @@ export function parseElementProperties(data: any, modelId: string, localId: numb
   const typeItem = arr(data?.["IsDefinedBy"]).find((s) => /(TYPE|STYLE)$/.test(String(val(s?.["_category"]) ?? "").toUpperCase()) || Array.isArray(s?.["HasPropertySets"]));
   const definedBy = [...arr(data?.["IsDefinedBy"]).filter((s) => s !== typeItem), ...arr(data?.["HasPropertySets"]), ...arr(typeItem?.["HasPropertySets"])];
   const type = typeItem ? { Class: val(typeItem["_category"]), PredefinedType: val(typeItem["PredefinedType"]), ElementType: val(typeItem["ElementType"]), ProcessType: val(typeItem["ProcessType"]) } : undefined;
-  const add = (list: PropGroup[], name: string, rows: PropRow[]) => {
-    const g = list.find((x) => x.name === name);
-    if (!g) list.push({ name, rows });
-    else for (const r of rows) if (!g.rows.some((x) => x.name === r.name)) g.rows.push(r);
+  const add = (list: PropGroup[], name: string, rows: PropRow[], unread: number) => {
+    let g = list.find((x) => x.name === name);
+    if (!g) list.push((g = { name, rows: [] }));
+    for (const r of rows) if (!g.rows.some((x) => x.name === r.name)) g.rows.push(r);
+    if (unread) g.unread = (g.unread ?? 0) + unread;
   };
   if (definedBy.length) {
     for (const set of definedBy) {
@@ -221,14 +229,16 @@ export function parseElementProperties(data: any, modelId: string, localId: numb
 
       if (Array.isArray(hasProps)) {
         const rows: PropRow[] = [];
+        let unread = 0;
         for (const p of hasProps) {
           const name = val(p?.["Name"]);
+          if (!name && !val(p?.["_category"])) unread++; // an enumerated, list, bounded or table value: fragments keeps no class, name or value
           const value = val(p?.["NominalValue"]) ?? val(p?.["Value"]);
           const type = typeOf(p?.["NominalValue"]);
           const si = value != null ? siValue(value, type, all(p?.["Unit"])[0], units) : undefined;
           if (name && value != null) rows.push({ name, value, ...(type ? { type } : {}), ...(si !== undefined ? { si } : {}) });
         }
-        if (rows.length) add(psets, setName, rows);
+        if (rows.length || unread) add(psets, setName, rows, unread);
       }
 
       if (Array.isArray(qtys)) {
@@ -240,7 +250,7 @@ export function parseElementProperties(data: any, modelId: string, localId: numb
           const si = key && value != null ? siValue(value, QTY_TYPES[key], all(q?.["Unit"])[0], units) : undefined;
           if (name && value != null) rows.push({ name, value, ...(key ? { type: QTY_TYPES[key] } : {}), ...(si !== undefined ? { si } : {}) });
         }
-        if (rows.length) add(quantities, setName, rows);
+        if (rows.length) add(quantities, setName, rows, 0);
       }
     }
   }
@@ -255,5 +265,5 @@ export function parseElementProperties(data: any, modelId: string, localId: numb
   // partOf's direct parents: aggregation, nesting and containment come through; groups, voids and fills do not (left unset).
   const first = (k: string) => { const id = Number(val(arr(data?.[k])[0]?.["_localId"])); return Number.isFinite(id) ? id : null; };
   const parents = { aggregate: first("Decomposes"), nest: first("Nests"), container: first("ContainedInStructure") };
-  return { modelId, localId, identity, psets, quantities, ...(type ? { type } : {}), material: m ? materialValues(m) : null, parents };
+  return { modelId, localId, identity, psets, quantities, ...(type ? { type } : {}), material: m ? materialValues(m) : null, parents, ...(schema ? { schema } : {}) };
 }

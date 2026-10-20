@@ -4,7 +4,7 @@
 
 import type * as OBC from "@thatopen/components";
 import { parseElementProperties, modelUnits, PROPERTY_DATA_CONFIG, type ElementProperties } from "./element-properties";
-import { validateElement, missingRequired, unreadFacets, partOfChains, type IdsSpec, type ElementResult, type Failure } from "../ids";
+import { validateElement, missingRequired, unreadFacets, partOfChains, versionNotes, type IdsSpec, type ElementResult, type Failure } from "../ids";
 
 export interface ModelValidation {
   modelId: string;
@@ -18,6 +18,8 @@ export interface ModelValidation {
   specFailures: Failure[];
   /** What this run could not judge, said beside the verdict, never passed silently. */
   notChecked: string[];
+  /** Said beside the verdict, which they do not change: a specification written for another IFC schema (versionNotes). */
+  notes: string[];
 }
 
 export async function validateModels(
@@ -35,7 +37,8 @@ export async function validateModels(
     const results: { localId: number; guid?: string; result: ElementResult }[] = [];
     const failuresByRequirement: Record<string, number> = {};
     const units = modelUnits(data);
-    const els: ElementProperties[] = ids.map((id, i) => parseElementProperties(data[i], model.modelId, id, units));
+    const schema = String((await model.getMetadata())?.schema ?? "").toUpperCase() || undefined;
+    const els: ElementProperties[] = ids.map((id, i) => parseElementProperties(data[i], model.modelId, id, units, schema));
     partOfChains(els);
     // A specification naming a facet this model's reader does not carry (classification, a conversion-based unit) is not judged: said instead.
     const unread = unreadFacets(spec, els);
@@ -61,7 +64,7 @@ export async function validateModels(
     const notChecked = typed.length && !els.some((e) => [...e.psets, ...e.quantities].some((g) => g.rows.some((r) => r.type)))
       ? [`dataType (${[...new Set(typed)].join(", ")}): this model's properties carry no value types`] : [];
     for (const u of unread) notChecked.push(`${u.specification.name}: ${u.facets.join(" and ")} — the viewer's model does not carry it`);
-    out.push({ modelId: model.modelId, scanned: ids.length, total, compliant, failing, failuresByRequirement, results, specFailures: missingRequired(judged, els), notChecked });
+    out.push({ modelId: model.modelId, scanned: ids.length, total, compliant, failing, failuresByRequirement, results, specFailures: missingRequired(judged, els), notChecked, notes: versionNotes(spec, schema) });
   }
   return out;
 }

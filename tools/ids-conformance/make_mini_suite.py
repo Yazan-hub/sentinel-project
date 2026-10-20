@@ -121,6 +121,17 @@ def part_of_assembly(f):
     api.aggregate.assign_object(f, products=[el(f, "IfcBeam", "B1")], relating_object=a)
 
 
+def typed_2x3(f):
+    # IFC2X3: an IfcWallStandardCase typed by an IfcWallType
+    t = api.root.create_entity(f, ifc_class="IfcWallType", name="WT1", predefined_type="STANDARD")
+    api.type.assign_type(f, related_objects=[el(f, "IfcWallStandardCase", "W1")], relating_type=t)
+
+
+def with_prop(f, make):
+    # a wall whose Sentinel_Mini set holds one property made by make(f): an enumerated, list, bounded or table value
+    api.pset.add_pset(f, product=el(f, "IfcWall", "W1"), name="Sentinel_Mini").HasProperties = [make(f)]
+
+
 def layer_set_usage(f):
     w = el(f, "IfcWall", "W1")
     s = api.material.add_material_set(f, name="Brick cavity", set_type="IfcMaterialLayerSet")
@@ -211,6 +222,15 @@ CASES = [
     ("property", "pass", "an_area_quantity_in_square_millimetres_is_compared_in_square_metres",
      lambda f: measured(f, lambda f: [api.unit.add_si_unit(f, unit_type="AREAUNIT", prefix="MILLI")], qtos={"NetSideArea": 2000000.0}),
      spec([W()], [ids.Property(propertySet="Qto_WallBaseQuantities", baseName="NetSideArea", value=R(options={"minInclusive": 1.9, "maxInclusive": 2.1}, base="double"))])),
+    # IFC2X3 takes an occurrence's class from its type; multi-value properties: any one value meets the IDS value
+    ("entity", "fail", "ifc2x3_an_occurrence_is_also_the_class_its_type_names", typed_2x3,
+     spec([ids.Entity(name="IFCWALL")], [ids.Attribute(name="Description")], version="IFC2X3"), "IFC2X3"),
+    ("property", "pass", "any_value_of_a_list_property_meets_the_value",
+     lambda f: with_prop(f, lambda f: f.createIfcPropertyListValue("Foo", None, [f.createIfcLabel("X"), f.createIfcLabel("Y")], None)),
+     spec([W()], [ids.Property(propertySet="Sentinel_Mini", baseName="Foo", value="Y")])),
+    ("property", "fail", "no_value_of_an_enumerated_property_meets_the_value",
+     lambda f: with_prop(f, lambda f: f.createIfcPropertyEnumeratedValue("Status", None, [f.createIfcLabel("EXISTING")], None)),
+     spec([W()], [ids.Property(propertySet="Sentinel_Mini", baseName="Status", value="NEW")])),
     # partOf: voids and fills, containment through an aggregate, any relation, prohibited
     ("partof", "pass", "a_window_in_a_walls_opening_passes_voids_and_fills", in_opening,
      spec([ids.Entity(name="IFCWINDOW")], [ids.PartOf(name="IFCWALL", relation="IFCRELVOIDSELEMENT IFCRELFILLSELEMENT")])),

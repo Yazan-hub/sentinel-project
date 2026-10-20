@@ -47,7 +47,9 @@ function groupsOf(defs, target, si) {
         const n = val(p?.Name); if (!n) continue;
         const v = p?.NominalValue !== undefined ? bool(p.NominalValue) : undefined;
         const type = typeof p?.NominalValue?.name === "string" ? p.NominalValue.name.toUpperCase() : null; // web-ifc's "IFCLABEL": an IDS dataType
-        rows.push(withSi(type ? { name: n, value: v ?? "", type } : { name: n, value: v ?? "" }, p?.Unit));
+        const values = multiValues(p, si);
+        if (values) rows.push({ name: n, value: values.map((x) => x.value).join(", "), ...(values[0]?.type && !values[0].column ? { type: (p.UpperBoundValue !== undefined ? values.at(-1) : values[0]).type } : {}), values });
+        else rows.push(withSi(type ? { name: n, value: v ?? "", type } : { name: n, value: v ?? "" }, p?.Unit));
       }
       target.psets.push({ name, rows });
     } else if (Array.isArray(d.Quantities)) {
@@ -74,6 +76,21 @@ function typePsetDefs(api, mid, typeDefs) {
     }
   }
   return out;
+}
+
+/** An enumerated, list, bounded or table property's values (PropRow.values), as IfcTester reads them: each value with its IFC type
+ *  and SI form (a list's and a bound's from the property's unit, a table column's from its own); a bound in IfcTester's order
+ *  (upper, lower, set point), so the last is the one whose type is the property's. undefined = a single value. */
+function multiValues(p, si) {
+  const one = (x, unit, column) => {
+    const type = typeof x?.name === "string" ? x.name.toUpperCase() : undefined, value = bool(x) ?? "", s = si?.(value, type, unit);
+    return { value, ...(type ? { type } : {}), ...(s !== undefined ? { si: s } : {}), ...(column ? { column } : {}) };
+  };
+  if (Array.isArray(p?.EnumerationValues)) return p.EnumerationValues.map((x) => one(x)); // IfcTester converts no enumerated value
+  if (Array.isArray(p?.ListValues)) return p.ListValues.map((x) => one(x, p.Unit));
+  if (p && "UpperBoundValue" in p) return [p.UpperBoundValue, p.LowerBoundValue, p.SetPointValue].filter((x) => x != null).map((x) => one(x, p.Unit));
+  if (p && "DefiningValues" in p) return [...(p.DefiningValues ?? []).map((x) => one(x, p.DefiningUnit, "Defining")), ...(p.DefinedValues ?? []).map((x) => one(x, p.DefinedUnit, "Defined"))];
+  return undefined;
 }
 
 /** Instance groups first, then the type's; a row already present by (pset, name) is not overridden. */
@@ -186,6 +203,7 @@ export async function extractHere(bytes, { classes = DEFAULT_CLASSES, modelId = 
           const concrete = String(api.GetNameFromTypeCode(line.type) || cls).toUpperCase();
           const el = {
             modelId, localId: id,
+            schema: out.schema,
             identity: {
               GlobalId: val(line.GlobalId), Name: val(line.Name), Class: concrete,
               ObjectType: val(line.ObjectType), PredefinedType: val(line.PredefinedType), Tag: val(line.Tag),
