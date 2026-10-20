@@ -67,7 +67,7 @@ static partial class Check
            && AiPolicy.SettingsLine("  ", locked, true).StartsWith("No Sentinel project is open"), "no project open: said, whatever was read");
         Ok(AiPolicy.SettingsLine("aster-tower", locked, false) == locked.Words + " Names are masked in AI answers (CLIENT_…, PERSON_…).",
            "a redacting policy says names are masked");
-        Ok(AiPolicy.SettingsLine("aster-tower", locked, true).EndsWith(" The office lock overrides \"Allow a model off this PC\" for this project."),
+        Ok(AiPolicy.SettingsLine("aster-tower", locked, true).EndsWith(" This lock overrides \"Allow a model off this PC\" for this project."),
            "a lock with the PC's opt-in ticked says the lock wins");
         Ok(AiPolicy.SettingsLine("demo", open, true) == "No AI policy is set for demo.", "an open policy adds nothing, ticked or not");
         Ok(AiPolicy.SettingsLine("aster-tower", (false, false, "", "the connection failed — No connection could be made."), false)

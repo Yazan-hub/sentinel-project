@@ -73,6 +73,6 @@ public static class AiPolicy
         if (p.Error != null) return $"AI policy not read — {p.Error.TrimEnd('.', ' ')}.";
         return p.Words
              + (p.Redact ? " Names are masked in AI answers (CLIENT_…, PERSON_…)." : "")
-             + (p.LocalOnly && pcOptIn ? " The office lock overrides \"Allow a model off this PC\" for this project." : "");
+             + (p.LocalOnly && pcOptIn ? " This lock overrides \"Allow a model off this PC\" for this project." : ""); // the words say whose lock (office or project)
     }
 }
