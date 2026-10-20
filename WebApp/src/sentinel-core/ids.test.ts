@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { validateElement, applies, adjudicate, judgeModel, groupFailuresForBcf, raisedIdsTitleKey, DEMO_IDS, type IdsSpec, type Failure } from "./ids";
+import { validateElement, applies, adjudicate, judgeModel, versionNotes, groupFailuresForBcf, raisedIdsTitleKey, DEMO_IDS, type IdsSpec, type Failure } from "./ids";
 import type { ElementProperties } from "./adapter/element-properties";
 
 const elem = (cls: string, name: string | undefined, psets: { name: string; rows: { name: string; value: string }[] }[] = [], guid = "G"): ElementProperties => ({
@@ -276,5 +276,15 @@ describe("IDS 1.0 rules the official cases pin (ids10)", () => {
     const sets = (...g: string[]) => elem("IFCWALL", "W", g.map((name) => ({ name, rows: name === "Foo_B" ? [] : [{ name: "Bar", value: "1" }] })));
     expect(validateElement(any, sets("Foo_A", "Other")).pass).toBe(true);
     expect(validateElement(any, sets("Foo_A", "Foo_B")).failures[0]?.reason).toBe("REQUIRED but missing");
+  });
+});
+
+describe("ifcVersion is metadata (IDS 1.0 v1.0.0)", () => {
+  it("judges a specification written for another schema, and says so beside the verdict", () => {
+    const spec: IdsSpec = { title: "v", specifications: [{ name: "IFC2X3 walls", ifcVersion: ["IFC2X3"], ids10: true, applicability: { entity: "^IFCWALL$" },
+      requirements: { attributes: [{ name: "Name", value: "Waldo", cardinality: "required" }], properties: [] } }] };
+    expect(judgeModel(spec, [elem("IFCWALL", "Waldo")]).pass).toBe(true);
+    expect(versionNotes(spec, "IFC4")).toEqual(["IFC2X3 walls: written for IFC2X3, the model is IFC4 — judged anyway (IDS 1.0: the version is metadata)"]);
+    expect(versionNotes(spec, "IFC2X3")).toEqual([]);
   });
 });

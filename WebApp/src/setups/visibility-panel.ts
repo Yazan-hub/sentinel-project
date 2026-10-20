@@ -218,6 +218,8 @@ export function visibilityPanel(components: OBC.Components, opts: { baseUrl?: st
     for (const m of lastRes) for (const f of m.specFailures) html += `<div style="color:#ef4444;font-size:12px;margin-bottom:.2rem">✗ ${esc(f.specification)}: ${esc(f.reason)}${lastRes.length > 1 ? ` (${esc(m.modelId)})` : ""}</div>`;
     const notChecked = [...new Set([...(idsSpec.unsupported ?? []), ...lastRes.flatMap((m) => m.notChecked)])];
     if (notChecked.length) html += `<div style="color:#f59e0b;font-size:12px;margin-bottom:.35rem">Not checked by Sentinel — neither passed nor failed: ${notChecked.map(esc).join("; ")}</div>`;
+    const notes = [...new Set(lastRes.flatMap((m) => m.notes))];
+    if (notes.length) html += `<div style="color:#9ca3af;font-size:12px;margin-bottom:.35rem">Note: ${notes.map(esc).join("; ")}</div>`;
     if (!rows.length && !lastRes.some((m) => m.specFailures.length)) html += '<div style="color:#22c55e;font-size:12px">All in-scope elements compliant ✓</div>';
     else {
       html += `<button id="vg-raise" style="${btn};background:#3a1f1f;border-color:#7f1d1d;color:#fca5a5;margin-bottom:.45rem" title="Create a BCF issue per requirement + an immutable CDE audit record">⚑ Raise ${rows.length} BCF issue(s) + record in CDE</button>`;

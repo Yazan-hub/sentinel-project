@@ -134,12 +134,14 @@ export function parseIds(xml: string): IdsSpec {
     const min = Number(applEl?.getAttribute("minOccurs") || specEl.getAttribute("minOccurs") || (applEl ? 1 : 0));
     const max = applEl?.getAttribute("maxOccurs") || specEl.getAttribute("maxOccurs") || "unbounded";
     const cardinality: Cardinality | undefined = max === "0" ? "prohibited" : min >= 1 ? "required" : undefined;
+    const ifcVersion = (specEl.getAttribute("ifcVersion") || "").split(/\s+/).filter(Boolean);
     const some = <K extends "attributes" | "properties" | "classifications" | "materials" | "partOfs">(x: typeof appl, k: K) => (x[k].length ? { [k]: x[k] } : {});
     specifications.push({
       name,
       applicability: { ...(appl.entity ?? {}), ...some(appl, "attributes"), ...some(appl, "properties"), ...some(appl, "classifications"), ...some(appl, "materials"), ...some(appl, "partOfs") },
       requirements: { properties: req.properties, attributes: req.attributes, ...(req.entity ? { entity: req.entity } : {}), ...some(req, "classifications"), ...some(req, "materials"), ...some(req, "partOfs") },
       ...(cardinality ? { cardinality } : {}),
+      ...(ifcVersion.length ? { ifcVersion } : {}),
       ids10: true,
     });
   }

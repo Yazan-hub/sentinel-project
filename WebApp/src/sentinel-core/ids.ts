@@ -65,6 +65,9 @@ export interface IdsSpecification {
   /** IDS 1.0 specification cardinality (applicability minOccurs/maxOccurs): "required" = at least one element must apply (judged
    *  on a whole model only, judgeModel); "prohibited" = no element may apply. Absent = optional. */
   cardinality?: Cardinality;
+  /** The IFC schemas the specification names (ifcVersion). Metadata only: it never changes a verdict (IDS 1.0 v1.0.0,
+   *  ids/pass-specification_version_is_purely_metadata_…); versionNotes says when a model's schema is not among them. */
+  ifcVersion?: string[];
   /** Read from an .ids file (parseIds): judged by IDS 1.0's rules as IfcTester reads them — names and text case-sensitive, a
    *  number within 1e-6, the dataType, a USERDEFINED predefined type read from ObjectType. Sentinel's own IDS keeps its looser rules. */
   ids10?: boolean;
@@ -110,7 +113,9 @@ function isEntity(a: IdsApplicability, el: ElementProperties, ids10?: boolean): 
     const flags = ids10 ? "" : "i"; // IDS 1.0 names classes in upper case: "IfcWall" matches nothing (entities_must_be_specified_as_uppercase_strings)
     let re: RegExp;
     try { re = new RegExp(a.entity, flags); } catch { re = new RegExp(escapeRe(a.entity), flags); }
-    if (!re.test(cls)) return false;
+    // IFC2X3 (IfcTester): an occurrence is also the class its type names — an IfcWallStandardCase typed by an IfcWallType is an IFCWALL.
+    const fromType = ids10 && el.schema === "IFC2X3" && el.type?.Class ? el.type.Class.toUpperCase().replace(/(TYPE|STYLE)$/, "") : "";
+    if (!re.test(cls) && !(fromType && re.test(fromType))) return false;
   }
   if (a.predefinedType) {
     const pt = el.identity?.PredefinedType ?? "";
@@ -212,22 +217,31 @@ export function unreadFacets(spec: IdsSpec, els: ElementProperties[]): { specifi
       .filter(([p, inAppl]) => els.some((e) => e.partOf?.[p.relation] === undefined && (inAppl || applies(s, e))))
       .map(([p]) => `the partOf facet through ${p.relation || "any relation"}`),
     ...(s.ids10 ? [...(s.applicability.properties ?? []), ...(s.requirements.properties ?? [])] : [])
-      .filter((p) => stated(p) && els.some((e) => propRows(e, p, true, true).some((r) => r?.si === null))).map((p) => `the unit of ${propLabel(p)} (IDS compares in SI units)`),
+      .filter((p) => stated(p) && els.some((e) => propRows(e, p, true, true).some((r) => r?.si === null || r?.values?.some((v) => v.si === null))))
+      .map((p) => `the unit of ${propLabel(p)} (IDS compares in SI units)`),
+    // A property the reader saw but could not read (That Open's fragments importer keeps an enumerated, list, bounded or table
+    // value as an empty item, name and all): where the facet's property is not among the readable rows of a set that holds one.
+    ...(s.ids10 ? [...(s.applicability.properties ?? []), ...(s.requirements.properties ?? [])] : [])
+      .filter((p) => els.some((e) => !propRows(e, p, true, true).length && [...(e.psets ?? []), ...(e.quantities ?? [])]
+        .some((g) => g?.unread && (p.psetPattern ? safeRe(p.psetPattern).test(g.name ?? "") : p.pset == null || g.name === p.pset))))
+      .map((p) => `${propLabel(p)}: its set holds a property value this reader cannot read`),
   ] })).filter((x) => x.facets.length);
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
-type Actual = { value?: string; type?: string; si?: string | null; written?: string } | undefined; // written: the value before SI conversion
+// written: the value before SI conversion; values: a multi-value property's (PropRow.values)
+type Actual = { value?: string; type?: string; si?: string | null; written?: string; values?: { value: string; type?: string; si?: string | null; column?: string }[] } | undefined;
 type Facet = IdsAttributeFacet & { datatype?: string };
 
 /** `actuals`: every value the facet names on the element (one, unless its names are a pattern); none = absent. */
 function checkFacet(f: Facet, actuals: Actual[], s: IdsSpecification, label: string, out: Failure[]): void {
-  const present = actuals.filter((a): a is { value: string; type?: string; written?: string } => a?.value != null && a.value !== "");
+  const present = actuals.filter((a): a is NonNullable<Actual> & { value: string } => a?.value != null && a.value !== "");
   const push = (reason: string) => out.push({ specification: s.name, requirement: label, reason });
   // IDS 1.0: an attribute that exists but holds "" fails, optional or not (an_optional_attribute_fails_if_empty); an empty
   // property counts as absent. (An attribute facet is the one without a property set.)
   if (s.ids10 && !present.length && actuals.some((a) => a?.value === "") && !("pset" in f)) { if (f.cardinality !== "prohibited") push("is empty"); return; }
-  const wrong = present.flatMap((a) => mismatches(f, a.value, a.type, s.ids10).map((m) => (a.written != null ? `${m} (in SI units; "${a.written}" as written)` : m)));
+  const wrong = present.flatMap((a) => (a.values ? multiMismatches(f, a, s.ids10)
+    : mismatches(f, a.value, a.type, s.ids10).map((m) => (a.written != null ? `${m} (in SI units; "${a.written}" as written)` : m))));
   const v = present[0]?.value;
   if (f.cardinality === "prohibited") {
     // IDS 1.0: a prohibited facet fails only where the required one would pass — "shall not be X" allows every other value.
@@ -278,6 +292,17 @@ function judgeHas(card: Cardinality, present: boolean, ok: boolean, label: strin
 const stated = (v: IdsValue) => v.value != null || v.pattern != null || !!v.enumeration || !!v.bounds || !!v.length;
 const fits = (v: IdsValue, actual: string, ids10?: boolean) => !mismatches({ ...v, name: "", cardinality: "required" }, actual, undefined, ids10).length;
 const says = (v: IdsValue) => (v.value != null ? `"${v.value}"` : v.pattern != null ? `/${v.pattern}/` : v.enumeration ? `one of ${v.enumeration.join(", ")}` : "a restricted value");
+
+/** An enumerated, list, bounded or table property (PropRow.values), as IfcTester reads it: the dataType against its value type
+ *  (a table: only the columns of that type are compared, and none is a failure); the value met by any one value, in SI units. */
+function multiMismatches(f: Facet, a: NonNullable<Actual>, ids10?: boolean): string[] {
+  const values = a.values ?? [], table = values.some((v) => v.column), dt = ids10 ? f.datatype?.toUpperCase() : undefined;
+  if (dt && !table && a.type && a.type.toUpperCase() !== dt) return [`is a ${a.type}, required ${f.datatype}`];
+  const vs = table && dt ? values.filter((v) => v.type?.toUpperCase() === dt) : values;
+  if (!vs.length) return [`has no ${f.datatype} value (a table of ${[...new Set(values.map((v) => v.type))].join(", ")})`];
+  const each = vs.map((v) => mismatches({ ...f, datatype: undefined }, ids10 && v.si != null ? v.si : v.value, v.type, ids10));
+  return each.some((m) => !m.length) ? [] : [`none of its values (${vs.map((v) => v.value).join(", ")}) meets it: ${each[0].join("; ")}`];
+}
 
 const attrLabel = (a: IdsAttributeFacet) => `@${a.namePattern ? `/${a.namePattern}/` : a.name}`;
 const propLabel = (p: IdsPropertyFacet) => `${p.psetPattern ? `/${p.psetPattern}/` : p.pset}.${p.namePattern ? `/${p.namePattern}/` : p.name}`;
@@ -406,6 +431,14 @@ export function adjudicate(spec: IdsSpec | null, elements: ElementProperties[]):
     summary: { elements: elements.length, in_scope: inScope, passing, failing: inScope - passing, ids: spec?.title ?? null },
     failures,
   };
+}
+
+/** The specifications written for other IFC schemas than the model's (ifcVersion), said beside the verdict — never a verdict:
+ *  IDS 1.0 v1.0.0 treats the version as metadata (ids/pass-specification_version_is_purely_metadata_…), as IfcTester does. */
+export function versionNotes(spec: IdsSpec, schema: string | undefined): string[] {
+  const s = (schema ?? "").toUpperCase();
+  return s ? (spec.specifications ?? []).filter((x) => x.ifcVersion?.length && !x.ifcVersion.includes(s))
+    .map((x) => `${x.name}: written for ${x.ifcVersion!.join(", ")}, the model is ${s} — judged anyway (IDS 1.0: the version is metadata)`) : [];
 }
 
 /** The "required" specifications (IDS 1.0 minOccurs ≥ 1) no element of a WHOLE model applies to — the model fails each. Only a

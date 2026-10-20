@@ -53,8 +53,8 @@ export async function readModel(bytes, reader) {
   const model = new SingleThreadedFragmentsModel("m", await ifcBytesToFrag(bytes));
   const ids = Object.values(await model.getItemsOfCategories([/^IFC/i])).flat();
   const data = ids.length ? await model.getItemsData(ids, core.PROPERTY_DATA_CONFIG) : [];
-  const units = core.modelUnits(data);
-  const els = ids.map((id, i) => core.parseElementProperties(data[i], "m", id, units));
+  const units = core.modelUnits(data), schema = String((await model.getMetadata())?.schema ?? "").toUpperCase() || undefined;
+  const els = ids.map((id, i) => core.parseElementProperties(data[i], "m", id, units, schema));
   core.partOfChains(els);
   return els;
 }

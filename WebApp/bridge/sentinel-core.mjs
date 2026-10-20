@@ -1460,7 +1460,8 @@ function isEntity(a, el, ids10) {
     } catch {
       re = new RegExp(escapeRe(a.entity), flags);
     }
-    if (!re.test(cls)) return false;
+    const fromType = ids10 && el.schema === "IFC2X3" && el.type?.Class ? el.type.Class.toUpperCase().replace(/(TYPE|STYLE)$/, "") : "";
+    if (!re.test(cls) && !(fromType && re.test(fromType))) return false;
   }
   if (a.predefinedType) {
     const pt = el.identity?.PredefinedType ?? "";
@@ -1545,7 +1546,10 @@ function unreadFacets(spec, els) {
     ...["classifications", "materials"].filter((k) => has(s, k) && !carried[k]).map((k) => `the ${k === "classifications" ? "classification" : "material"} facet`),
     // partOf: unknown for an element in scope (for an applicability facet, for any element: its scope is what is unknown).
     ...[...(s.applicability.partOfs ?? []).map((p) => [p, true]), ...(s.requirements.partOfs ?? []).map((p) => [p, false])].filter(([p, inAppl]) => els.some((e) => e.partOf?.[p.relation] === void 0 && (inAppl || applies(s, e)))).map(([p]) => `the partOf facet through ${p.relation || "any relation"}`),
-    ...(s.ids10 ? [...s.applicability.properties ?? [], ...s.requirements.properties ?? []] : []).filter((p) => stated(p) && els.some((e) => propRows(e, p, true, true).some((r) => r?.si === null))).map((p) => `the unit of ${propLabel(p)} (IDS compares in SI units)`)
+    ...(s.ids10 ? [...s.applicability.properties ?? [], ...s.requirements.properties ?? []] : []).filter((p) => stated(p) && els.some((e) => propRows(e, p, true, true).some((r) => r?.si === null || r?.values?.some((v) => v.si === null)))).map((p) => `the unit of ${propLabel(p)} (IDS compares in SI units)`),
+    // A property the reader saw but could not read (That Open's fragments importer keeps an enumerated, list, bounded or table
+    // value as an empty item, name and all): where the facet's property is not among the readable rows of a set that holds one.
+    ...(s.ids10 ? [...s.applicability.properties ?? [], ...s.requirements.properties ?? []] : []).filter((p) => els.some((e) => !propRows(e, p, true, true).length && [...e.psets ?? [], ...e.quantities ?? []].some((g) => g?.unread && (p.psetPattern ? safeRe(p.psetPattern).test(g.name ?? "") : p.pset == null || g.name === p.pset)))).map((p) => `${propLabel(p)}: its set holds a property value this reader cannot read`)
   ] })).filter((x) => x.facets.length);
 }
 function checkFacet(f, actuals, s, label, out) {
@@ -1555,7 +1559,7 @@ function checkFacet(f, actuals, s, label, out) {
     if (f.cardinality !== "prohibited") push("is empty");
     return;
   }
-  const wrong = present.flatMap((a) => mismatches(f, a.value, a.type, s.ids10).map((m) => a.written != null ? `${m} (in SI units; "${a.written}" as written)` : m));
+  const wrong = present.flatMap((a) => a.values ? multiMismatches(f, a, s.ids10) : mismatches(f, a.value, a.type, s.ids10).map((m) => a.written != null ? `${m} (in SI units; "${a.written}" as written)` : m));
   const v = present[0]?.value;
   if (f.cardinality === "prohibited") {
     if (present.length && !wrong.length) push(f.value != null || f.pattern != null || f.enumeration || f.bounds || f.length ? `is "${v}", which it must not be` : `must be ABSENT but is "${v}"`);
@@ -1609,6 +1613,14 @@ function judgeHas(card, present, ok, label, actual, s, out) {
 var stated = (v) => v.value != null || v.pattern != null || !!v.enumeration || !!v.bounds || !!v.length;
 var fits = (v, actual, ids10) => !mismatches({ ...v, name: "", cardinality: "required" }, actual, void 0, ids10).length;
 var says = (v) => v.value != null ? `"${v.value}"` : v.pattern != null ? `/${v.pattern}/` : v.enumeration ? `one of ${v.enumeration.join(", ")}` : "a restricted value";
+function multiMismatches(f, a, ids10) {
+  const values = a.values ?? [], table = values.some((v) => v.column), dt = ids10 ? f.datatype?.toUpperCase() : void 0;
+  if (dt && !table && a.type && a.type.toUpperCase() !== dt) return [`is a ${a.type}, required ${f.datatype}`];
+  const vs = table && dt ? values.filter((v) => v.type?.toUpperCase() === dt) : values;
+  if (!vs.length) return [`has no ${f.datatype} value (a table of ${[...new Set(values.map((v) => v.type))].join(", ")})`];
+  const each = vs.map((v) => mismatches({ ...f, datatype: void 0 }, ids10 && v.si != null ? v.si : v.value, v.type, ids10));
+  return each.some((m) => !m.length) ? [] : [`none of its values (${vs.map((v) => v.value).join(", ")}) meets it: ${each[0].join("; ")}`];
+}
 var attrLabel = (a) => `@${a.namePattern ? `/${a.namePattern}/` : a.name}`;
 var propLabel = (p) => `${p.psetPattern ? `/${p.psetPattern}/` : p.pset}.${p.namePattern ? `/${p.namePattern}/` : p.name}`;
 function safeRe(p) {
@@ -1709,6 +1721,10 @@ function adjudicate(spec, elements) {
     summary: { elements: elements.length, in_scope: inScope, passing, failing: inScope - passing, ids: spec?.title ?? null },
     failures
   };
+}
+function versionNotes(spec, schema) {
+  const s = (schema ?? "").toUpperCase();
+  return s ? (spec.specifications ?? []).filter((x) => x.ifcVersion?.length && !x.ifcVersion.includes(s)).map((x) => `${x.name}: written for ${x.ifcVersion.join(", ")}, the model is ${s} \u2014 judged anyway (IDS 1.0: the version is metadata)`) : [];
 }
 function missingRequired(spec, elements) {
   return (spec.specifications ?? []).filter((s) => s.cardinality === "required" && !elements.some((el) => applies(s, el))).map((s) => ({ specification: s.name, requirement: "(applicability)", reason: "REQUIRED: at least one element must match it, and none in the model does" }));
@@ -1876,12 +1892,14 @@ function parseIds(xml) {
     const min = Number(applEl?.getAttribute("minOccurs") || specEl.getAttribute("minOccurs") || (applEl ? 1 : 0));
     const max = applEl?.getAttribute("maxOccurs") || specEl.getAttribute("maxOccurs") || "unbounded";
     const cardinality = max === "0" ? "prohibited" : min >= 1 ? "required" : void 0;
+    const ifcVersion = (specEl.getAttribute("ifcVersion") || "").split(/\s+/).filter(Boolean);
     const some = (x, k) => x[k].length ? { [k]: x[k] } : {};
     specifications.push({
       name,
       applicability: { ...appl.entity ?? {}, ...some(appl, "attributes"), ...some(appl, "properties"), ...some(appl, "classifications"), ...some(appl, "materials"), ...some(appl, "partOfs") },
       requirements: { properties: req.properties, attributes: req.attributes, ...req.entity ? { entity: req.entity } : {}, ...some(req, "classifications"), ...some(req, "materials"), ...some(req, "partOfs") },
       ...cardinality ? { cardinality } : {},
+      ...ifcVersion.length ? { ifcVersion } : {},
       ids10: true
     });
   }
@@ -2001,7 +2019,7 @@ function materialValues(m) {
   const vs = cls === "IFCMATERIALLIST" ? all(m.Materials).flatMap(own) : /SET$/.test(cls) ? [cls === "IFCMATERIALLAYERSET" ? val(m.LayerSetName) : val(m.Name), ...items.flatMap((i) => [...own(i), ...own(all(i.Material)[0])])] : own(m);
   return [...new Set(vs.filter((v) => v != null))];
 }
-function parseElementProperties(data, modelId, localId, units) {
+function parseElementProperties(data, modelId, localId, units, schema) {
   const identity = {
     GlobalId: val(data?.["_guid"]) ?? val(data?.["GlobalId"]),
     Name: val(data?.["Name"]),
@@ -2020,10 +2038,11 @@ function parseElementProperties(data, modelId, localId, units) {
   const typeItem = arr(data?.["IsDefinedBy"]).find((s) => /(TYPE|STYLE)$/.test(String(val(s?.["_category"]) ?? "").toUpperCase()) || Array.isArray(s?.["HasPropertySets"]));
   const definedBy = [...arr(data?.["IsDefinedBy"]).filter((s) => s !== typeItem), ...arr(data?.["HasPropertySets"]), ...arr(typeItem?.["HasPropertySets"])];
   const type = typeItem ? { Class: val(typeItem["_category"]), PredefinedType: val(typeItem["PredefinedType"]), ElementType: val(typeItem["ElementType"]), ProcessType: val(typeItem["ProcessType"]) } : void 0;
-  const add = (list, name, rows) => {
-    const g = list.find((x) => x.name === name);
-    if (!g) list.push({ name, rows });
-    else for (const r of rows) if (!g.rows.some((x) => x.name === r.name)) g.rows.push(r);
+  const add = (list, name, rows, unread) => {
+    let g = list.find((x) => x.name === name);
+    if (!g) list.push(g = { name, rows: [] });
+    for (const r of rows) if (!g.rows.some((x) => x.name === r.name)) g.rows.push(r);
+    if (unread) g.unread = (g.unread ?? 0) + unread;
   };
   if (definedBy.length) {
     for (const set of definedBy) {
@@ -2032,14 +2051,16 @@ function parseElementProperties(data, modelId, localId, units) {
       const qtys = set?.["Quantities"];
       if (Array.isArray(hasProps)) {
         const rows = [];
+        let unread = 0;
         for (const p of hasProps) {
           const name = val(p?.["Name"]);
+          if (!name && !val(p?.["_category"])) unread++;
           const value = val(p?.["NominalValue"]) ?? val(p?.["Value"]);
           const type2 = typeOf(p?.["NominalValue"]);
           const si = value != null ? siValue(value, type2, all(p?.["Unit"])[0], units) : void 0;
           if (name && value != null) rows.push({ name, value, ...type2 ? { type: type2 } : {}, ...si !== void 0 ? { si } : {} });
         }
-        if (rows.length) add(psets, setName, rows);
+        if (rows.length || unread) add(psets, setName, rows, unread);
       }
       if (Array.isArray(qtys)) {
         const rows = [];
@@ -2050,7 +2071,7 @@ function parseElementProperties(data, modelId, localId, units) {
           const si = key2 && value != null ? siValue(value, QTY_TYPES[key2], all(q?.["Unit"])[0], units) : void 0;
           if (name && value != null) rows.push({ name, value, ...key2 ? { type: QTY_TYPES[key2] } : {}, ...si !== void 0 ? { si } : {} });
         }
-        if (rows.length) add(quantities, setName, rows);
+        if (rows.length) add(quantities, setName, rows, 0);
       }
     }
   }
@@ -2063,7 +2084,7 @@ function parseElementProperties(data, modelId, localId, units) {
     return Number.isFinite(id) ? id : null;
   };
   const parents = { aggregate: first("Decomposes"), nest: first("Nests"), container: first("ContainedInStructure") };
-  return { modelId, localId, identity, psets, quantities, ...type ? { type } : {}, material: m ? materialValues(m) : null, parents };
+  return { modelId, localId, identity, psets, quantities, ...type ? { type } : {}, material: m ? materialValues(m) : null, parents, ...schema ? { schema } : {} };
 }
 
 // src/sentinel-core/layers.ts
@@ -2539,5 +2560,6 @@ export {
   validateElement,
   validateGuideline,
   validateLayers,
-  validateMassing
+  validateMassing,
+  versionNotes
 };
