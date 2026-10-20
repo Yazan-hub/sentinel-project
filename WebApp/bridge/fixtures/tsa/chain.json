@@ -1,0 +1,67 @@
+{
+ "about": "synthetic project chain (bridge/ledger-verify.test.mjs); seq 2 timestamped by a throwaway test TSA whose root is ca.crt",
+ "nonce": "1122334455667788",
+ "head2": "8992cc553d93678822e933dbdbcb35e8b3102175f1c94376dd65d632410fd7f6",
+ "rows": [
+  {
+   "audit_id": 101,
+   "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "prev_hash": null,
+   "entity_type": "container",
+   "entity_id": "0b1e4f2a-1111-4c1a-9a51-3c7e2d5b9a10",
+   "action": "state: wip → shared",
+   "actor": "lead@example.test",
+   "old_text": null,
+   "new_text": "{\"state\": \"shared\"}",
+   "at_utc": "2026-10-20T08:41:39.575000Z",
+   "project_id": "6f1f6d2e-0b8e-4c1a-9a51-3c7e2d5b9a10",
+   "project_seq": 1,
+   "project_hash": "412a2dd2073c62868960a139e751915ccdbd2c88e234939cd494c13bca5c7741"
+  },
+  {
+   "audit_id": 205,
+   "hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "prev_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+   "entity_type": "event",
+   "entity_id": null,
+   "action": "note",
+   "actor": "Zoë Ångström",
+   "old_text": "{\"a\": 1}",
+   "new_text": "{\"x\": \"naïve — 日本\n\", \"big\": 12345678901234567890.50}",
+   "at_utc": "2026-10-20T08:46:39.575000Z",
+   "project_id": "6f1f6d2e-0b8e-4c1a-9a51-3c7e2d5b9a10",
+   "project_seq": 2,
+   "project_hash": "8992cc553d93678822e933dbdbcb35e8b3102175f1c94376dd65d632410fd7f6"
+  },
+  {
+   "audit_id": 230,
+   "hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+   "prev_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "entity_type": "ledger_anchor",
+   "entity_id": null,
+   "action": "anchor:timestamped",
+   "actor": "sentinel (daily timestamp)",
+   "old_text": null,
+   "at_utc": "2026-10-20T08:51:40.500000Z",
+   "new_text": "{\"tsa\": \"http://tsa.test\", \"scope\": \"project\", \"token\": \"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\", \"project_seq\": 2, \"project_hash\": \"8992cc553d93678822e933dbdbcb35e8b3102175f1c94376dd65d632410fd7f6\"}",
+   "project_id": "6f1f6d2e-0b8e-4c1a-9a51-3c7e2d5b9a10",
+   "project_seq": 3,
+   "project_hash": "48f74b9e9cf37630ca399bc08b3f720122f5fe9b9c37c10ba4834767cabdfe83"
+  },
+  {
+   "audit_id": 231,
+   "hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+   "prev_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+   "entity_type": "event",
+   "entity_id": null,
+   "action": "note",
+   "actor": "lead@example.test",
+   "old_text": null,
+   "new_text": null,
+   "at_utc": "2026-10-21T08:51:39.000000Z",
+   "project_id": "6f1f6d2e-0b8e-4c1a-9a51-3c7e2d5b9a10",
+   "project_seq": 4,
+   "project_hash": "2cc90858d505e9b3b7085cbbcf71de2e7abb4d27393a521812df6df1612851a4"
+  }
+ ]
+}

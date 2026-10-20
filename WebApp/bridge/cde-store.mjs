@@ -1167,6 +1167,19 @@ export async function listAudit(key, filters = {}) {
   return { rows: data, total, limit, offset };
 }
 
+/** The project's own hash chain (migration 0045), oldest first: { rows, total } — each row with the exact texts that were hashed
+ *  (audit_project_chain_v). The caller's own RLS applies when a JWT is forwarded. A database without 0045 is a 503 in words. */
+export async function listChain(key, { limit = AUDIT_MAX, offset = 0 } = {}) {
+  const proj = await ensureProject(key);
+  try {
+    const { data, total } = await sb(`audit_project_chain_v?project_id=eq.${proj.id}&select=*&order=project_seq.asc&limit=${Math.min(limit, AUDIT_MAX)}&offset=${offset}`, { count: true });
+    return { rows: data, total };
+  } catch (e) {
+    if (/audit_project_chain/.test(String(e?.message))) throw Object.assign(new Error("the project chain is not set up on this database yet (migration 0045)"), { status: 503 });
+    throw e;
+  }
+}
+
 /** Every ledger row of `key` matching `filters` (auditQuery's), newest first: listAudit read page after page (AUDIT_MAX
  *  each) to the exact total. The pages are read by offset, newest first, so a row written between two reads pushes a
  *  row into the next page a second time: each id is kept once (the ledger is append-only, so none is skipped). */
@@ -1212,8 +1225,9 @@ export async function audit(project_id, entity_type, entity_id, action, actor, o
 // MA-8-1: edit_cost:published (entity_type edit_cost) is a lead's publish of a run's edit cost (changesets-store publishEditCost) — read back as the last published numbers.
 // MA-8-13 (D13): recipe:approved / recipe:withdrawn (entity_type recipe) are recipe-store's own - a run counts them as the two approvals, so a note may not pass for one.
 // MA-7-11: splat:placed (entity_type splat) is evidence-store placeSplat's - the newest row is where the web desk puts the splat again, so a note may not pass for one.
-const RESERVED_ACTIONS = ["verdict:", "gate:", "roi:", "state:", "hold:", "review:", "changeset_reviewed", "changeset_reopened", "changeset_", "geometry linked", "evidence:", "attestation:", "verify:", "edit_cost:", "recipe:", "splat:"];
-const RESERVED_TYPES = ["stage_gate", "hold", "delivery_gate", "review", "platform_gate", "evidence", "attestation", "edit_cost", "recipe", "splat"];
+// Ledger verification (2026-10-20): anchor:timestamped (entity_type ledger_anchor) is ledger-anchor.mjs's — an external timestamp a note may not pass for.
+const RESERVED_ACTIONS = ["verdict:", "gate:", "roi:", "state:", "hold:", "review:", "changeset_reviewed", "changeset_reopened", "changeset_", "geometry linked", "evidence:", "attestation:", "verify:", "edit_cost:", "recipe:", "splat:", "anchor:"];
+const RESERVED_TYPES = ["stage_gate", "hold", "delivery_gate", "review", "platform_gate", "evidence", "attestation", "edit_cost", "recipe", "splat", "ledger_anchor"];
 
 /** Record an audit event by project KEY (golden thread) — the DB trigger hash-chains it (tamper-evident). A reserved
  *  row (an action starting with one of RESERVED_ACTIONS, or an entity_type in RESERVED_TYPES; case and surrounding

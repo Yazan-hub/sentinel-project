@@ -8,7 +8,7 @@ import { loadScope } from "./load-scope";
 import { artefactInForce, refLabel, installArtefact, installArtefactFile, canInstallArtefacts, STANDARD_INSTALLED, type InForce } from "./active-ruleset";
 import { currentUser } from "./auth";
 import { escapeHtml as esc } from "./escape-html";
-import { packFilename, packWords, saveAs } from "./audit-pack";
+import { packFilename, packWords, saveAs, anchorWords, type AnchorStatus } from "./audit-pack";
 import { STANDARD_FORMS, STANDARD_LINKS, renderStandardForm } from "./standard-forms";
 import { renderIdsPreview, staleWords, type GeneratedIds } from "./ids-from-standards";
 
@@ -343,6 +343,48 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
             const w = packWords(JSON.parse(text), filename);
             await loadStandards({ text: w.text, bad: w.bad });
           } catch (e) { await loadStandards({ text: `Audit pack not read — ${(e as Error)?.message ?? String(e)}`, bad: true }); }
+        });
+        // Ledger verification (2026-10-20): the project's last external timestamp, checked by the bridge now; "Timestamp now" sends
+        // the project's latest ledger hash (only the hash) to the timestamp service; the verifier is the auditor's offline check.
+        host.insertAdjacentHTML("beforeend",
+          `<div style="display:flex;align-items:center;gap:.6rem;padding:.1rem 0 .35rem;font-size:12px;flex-wrap:wrap">` +
+          `<span style="width:6.5rem;color:#9ca3af">timestamp</span>` +
+          `<span id="ps-anchor-text" style="flex:1 1 14rem;color:#71717a;font-size:11px">Reading the last external timestamp…</span>` +
+          `<button id="ps-anchor-now" disabled style="${btn};padding:.2rem .5rem;font-size:11px">Timestamp now</button>` +
+          `<button id="ps-verifier" style="${btn};padding:.2rem .5rem;font-size:11px">Download the verifier</button></div>`);
+        const said = host.querySelector<HTMLSpanElement>("#ps-anchor-text")!, stampNow = host.querySelector<HTMLButtonElement>("#ps-anchor-now")!;
+        const say = (text: string, bad = false) => { said.textContent = text; said.style.color = bad ? "#fca5a5" : "#71717a"; };
+        const anchorUrl = `${base}/cde/${encodeURIComponent(key)}/anchor`;
+        const showAnchor = async (lead = "") => {
+          try {
+            const r = await bfetch(anchorUrl);
+            const j = (await r.json().catch(() => null)) as (AnchorStatus & { message?: string }) | null;
+            if (!r.ok || !j) throw new Error(j?.message || `the bridge answered HTTP ${r.status}`);
+            const w = anchorWords(j);
+            say(`${lead}${w.text}`, w.bad);
+            stampNow.disabled = !j.configured;
+            stampNow.title = j.configured ? "Sends this project's latest ledger hash — only the hash — to the timestamp service" : "Not switched on for this bridge";
+          } catch (e) { say(`${lead}Last external timestamp not read — ${(e as Error)?.message ?? String(e)}`, true); }
+        };
+        void showAnchor();
+        stampNow.addEventListener("click", async () => {
+          stampNow.disabled = true; stampNow.textContent = "Timestamping…";
+          try {
+            const r = await bfetch(anchorUrl, { method: "POST" });
+            const j = (await r.json().catch(() => null)) as { status?: string; message?: string } | null;
+            if (!r.ok) throw new Error(j?.message || `the bridge answered HTTP ${r.status}`);
+            await showAnchor(j?.status === "stamped" ? "Timestamped. " : j?.message ? `${j.message.charAt(0).toUpperCase()}${j.message.slice(1)}. ` : "");
+          } catch (e) { say(`Not timestamped — ${(e as Error)?.message ?? String(e)}`, true); stampNow.disabled = false; }
+          finally { stampNow.textContent = "Timestamp now"; }
+        });
+        host.querySelector("#ps-verifier")!.addEventListener("click", async () => {
+          try {
+            const r = await bfetch(`${base}/cde/${encodeURIComponent(key)}/audit-pack/verifier`);
+            const j = (await r.json().catch(() => null)) as { file?: string; sha256?: string; source?: string; message?: string } | null;
+            if (!r.ok || !j?.source || !j.file) throw new Error(j?.message || `the bridge answered HTTP ${r.status}`);
+            saveAs(new Blob([j.source], { type: "text/javascript" }), j.file);
+            say(`Saved ${j.file} (sha256 ${String(j.sha256).slice(0, 12)}…) — give it to the auditor with the audit pack; it checks the pack offline with Node, nothing to install.`);
+          } catch (e) { say(`Verifier not saved — ${(e as Error)?.message ?? String(e)}`, true); }
         });
       }
     } catch (e) {

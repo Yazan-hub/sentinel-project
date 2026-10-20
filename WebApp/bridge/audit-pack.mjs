@@ -5,26 +5,19 @@
 // the `hash` and `prev_hash` the database chained them with — the chain is global and verified where it is written, migration 0002;
 // a single row is checked by `GET /receipt/:key/:id`). A part the caller cannot read, or a store that is not there, is reported as
 // `{ not_read: <why> }` in its place, never dropped in silence. Nothing is stored: the pack is computed when asked.
-import { createHash } from "node:crypto";
-
-/** Deterministic JSON (keys sorted at every level) — the bytes the pack's sha256 is taken over. Pure. */
-export const canonical = (v) => JSON.stringify(v, (_, x) => (x && typeof x === "object" && !Array.isArray(x)) ? Object.fromEntries(Object.keys(x).sort().map((k) => [k, x[k]])) : x);
-
-/** The bundle with its sha256: `bundle_sha256` is over the canonical body without that field. Pure. */
-export function seal(body) {
-  const { bundle_sha256: _drop, ...rest } = body ?? {};
-  return { ...rest, bundle_sha256: createHash("sha256").update(canonical(rest)).digest("hex") };
-}
-
-/** True when a sealed pack's sha256 matches its body (a reader's re-check, offline). Pure.
- *  MA-4a: name-blind on purpose — a pack saved under its pre-MA-4a name (the 2026-10-07 drill file) still verifies. */
-export const sealed = (pack) => !!pack?.bundle_sha256 && seal(pack).bundle_sha256 === pack.bundle_sha256;
+// Version 2 (ledger verification, 2026-10-20): `chain` — the project's own hash chain (migration 0045), every row with the exact texts
+// that were hashed, its external timestamps among them — which ledger-verify.mjs (the auditor's file, named in `chain.verifier`)
+// checks offline with nothing but this pack.
+// The seal is ledger-verify.mjs's, so the auditor's file and the bridge seal and check the same bytes.
+// MA-4a: sealed() is name-blind on purpose — a pack saved under its pre-MA-4a name (the 2026-10-07 drill file) still verifies.
+export { canonical, seal, sealed } from "./ledger-verify.mjs";
+import { seal } from "./ledger-verify.mjs";
 
 const part = async (fn) => { try { return await fn(); } catch (e) { return { not_read: String(e?.message || e) }; } };
 
 export const LEDGER_MAX = 5000;
 
-/** Builds the pack for `key`. deps: { project, standards, documents, containers, reviews, ledgerPage, kinds, now, actor }. */
+/** Builds the pack for `key`. deps: { project, standards, documents, containers, reviews, ledgerPage, chainPage, verifier, kinds, now, actor }. */
 export async function buildAuditPack(key, deps) {
   const generated_at = deps.now ? deps.now() : new Date().toISOString();
   const standards = await part(async () => {
@@ -54,5 +47,16 @@ export async function buildAuditPack(key, deps) {
     const rows = [...byId.values()].sort((a, b) => a.id - b.id);
     return { total, rows, truncated: rows.length < total, chain: "each row's hash and prev_hash as the database chained them (migration 0002, global chain, verified at the write); a row's receipt: GET /receipt/:key/:id" };
   });
-  return seal({ pack: "sentinel-audit-pack", version: 1, generated_at, generated_by: deps.actor ?? null, project: await part(() => deps.project(key)), standards, documents, containers, reviews, ledger });
+  // Read by seq, oldest first: a row written while the pack is read lands after the last page, so no page shifts.
+  const chain = await part(async () => {
+    const rows = []; let length = 0;
+    for (let offset = 0; ;) {
+      const page = await deps.chainPage(key, { limit: 1000, offset });
+      length = page.total; rows.push(...page.rows); offset += page.rows.length;
+      if (!page.rows.length || offset >= page.total || rows.length >= LEDGER_MAX) break;
+    }
+    return { length, rows, truncated: rows.length < length, verifier: deps.verifier ?? null,
+      how: "each row's project_hash is sha256 of its text (ledger-verify.mjs chainPreimage) and the hash before it; anchor:timestamped rows hold RFC 3161 tokens over the project_hash at the seq they name — run: node ledger-verify.mjs <this file>" };
+  });
+  return seal({ pack: "sentinel-audit-pack", version: 2, generated_at, generated_by: deps.actor ?? null, project: await part(() => deps.project(key)), standards, documents, containers, reviews, ledger, chain });
 }

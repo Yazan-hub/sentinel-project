@@ -38,10 +38,11 @@ alter default privileges in schema public grant all on functions to anon, authen
 alter default privileges in schema public grant all on sequences to anon, authenticated, service_role;
 `;
 
-export async function buildDb() {
+// `before` (a file name): stop at the migrations sorting before it — to seed rows a later migration must carry over (0045's backfill).
+export async function buildDb({ before } = {}) {
   const db = new PGlite({ extensions: { pgcrypto } });
   await db.exec(SHIM);
-  const files = readdirSync(MIGRATIONS).filter((f) => f.endsWith(".sql")).sort();
+  const files = readdirSync(MIGRATIONS).filter((f) => f.endsWith(".sql") && (!before || f < before)).sort();
   for (const f of files) {
     try { await db.exec(readFileSync(join(MIGRATIONS, f), "utf8")); }
     catch (e) { throw new Error(`migration ${f} failed on PGlite: ${e.message}`); }
