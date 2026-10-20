@@ -42,6 +42,9 @@ export type IdsValue = IdsValueRestrictions & { value?: string; pattern?: string
 export interface IdsClassificationFacet extends IdsValue { system: IdsValue; cardinality: Cardinality }
 /** An IDS 1.0 material facet (parseIds): any material; with a value, one of its names or categories (ElementProperties.material). */
 export interface IdsMaterialFacet extends IdsValue { cardinality: Cardinality }
+/** An IDS 1.0 partOf facet (parseIds): an ancestor through `relation` ("" = any, IfcTester's get_parent walk) of the entity, if
+ *  given, judged on the first ancestor of that class (ElementProperties.partOf). */
+export interface IdsPartOfFacet { relation: string; entity?: IdsApplicability; cardinality: Cardinality }
 export interface IdsApplicability {
   entity?: string; // IFC class (regex, case-insensitive), e.g. "IFCWALL"
   predefinedType?: string;
@@ -51,13 +54,14 @@ export interface IdsApplicability {
   properties?: IdsPropertyFacet[];
   classifications?: IdsClassificationFacet[];
   materials?: IdsMaterialFacet[];
+  partOfs?: IdsPartOfFacet[];
 }
 export interface IdsSpecification {
   name: string;
   applicability: IdsApplicability;
   /** `entity`: an entity facet among the requirements — the element must be that class. */
   requirements: { properties: IdsPropertyFacet[]; attributes: IdsAttributeFacet[]; entity?: IdsApplicability;
-    classifications?: IdsClassificationFacet[]; materials?: IdsMaterialFacet[] };
+    classifications?: IdsClassificationFacet[]; materials?: IdsMaterialFacet[]; partOfs?: IdsPartOfFacet[] };
   /** IDS 1.0 specification cardinality (applicability minOccurs/maxOccurs): "required" = at least one element must apply (judged
    *  on a whole model only, judgeModel); "prohibited" = no element may apply. Absent = optional. */
   cardinality?: Cardinality;
@@ -96,6 +100,7 @@ export function applies(spec: IdsSpecification, el: ElementProperties): boolean 
   for (const p of spec.applicability.properties ?? []) checkFacet({ ...p, cardinality: "required" }, propRows(el, p, spec.ids10), spec, propLabel(p), unmet);
   for (const c of spec.applicability.classifications ?? []) checkClassification({ ...c, cardinality: "required" }, el, spec, unmet);
   for (const m of spec.applicability.materials ?? []) checkMaterial({ ...m, cardinality: "required" }, el, spec, unmet);
+  for (const p of spec.applicability.partOfs ?? []) checkPartOf({ ...p, cardinality: "required" }, el, spec, unmet);
   return unmet.length === 0;
 }
 
@@ -150,8 +155,48 @@ export function validateElement(spec: IdsSpec, el: ElementProperties): ElementRe
     for (const p of s.requirements?.properties ?? []) checkFacet(p, propRows(el, p, s.ids10), s, propLabel(p), failures);
     for (const c of s.requirements?.classifications ?? []) checkClassification(c, el, s, failures);
     for (const m of s.requirements?.materials ?? []) checkMaterial(m, el, s, failures);
+    for (const p of s.requirements?.partOfs ?? []) checkPartOf(p, el, s, failures);
   }
   return { inScope, pass: failures.length === 0, failures };
+}
+
+/** IDS partOf as IfcTester reads it (ifcopenshell.util.element): for each element, its ancestors per relation, from every element's
+ *  direct parents (`parents`, localIds in `els`) — aggregates and nests walked up; the container, direct else the container of its
+ *  parent; the group; an opening's voided element, or the voided element of the opening an element fills; any relation (""): the
+ *  get_parent walk, a group where nothing else is. A relation no element's reader carries stays unset (unreadFacets says so). A
+ *  parent outside `els` ends a chain (ponytail: intake reads 13 classes, and judges no partOf). */
+export function partOfChains(els: ElementProperties[]): void {
+  type Link = keyof NonNullable<ElementProperties["parents"]>;
+  const byId = new Map(els.map((e) => [e.localId, e]));
+  const links: Link[] = ["aggregate", "nest", "container", "group", "fills", "voids"];
+  const has = Object.fromEntries(links.map((k) => [k, els.some((e) => e.parents?.[k] !== undefined)])) as Record<Link, boolean>; // once: not per element
+  const carried = (...ks: Link[]) => ks.every((k) => has[k]);
+  const up = (e: ElementProperties | undefined, k: Link) => { const id = e?.parents?.[k]; return id == null ? undefined : byId.get(id); };
+  const parentOf = (e: ElementProperties) => up(e, "container") ?? up(e, "aggregate") ?? up(e, "nest") ?? up(e, "fills") ?? up(e, "voids");
+  const walk = (e: ElementProperties, step: (x: ElementProperties) => ElementProperties | undefined) => {
+    const out: ElementProperties[] = [], seen = new Set([e]);
+    for (let p = step(e); p && !seen.has(p); p = step(p)) { seen.add(p); out.push(p); }
+    return out;
+  };
+  const chain = (xs: (ElementProperties | undefined)[]) => xs.filter((x): x is ElementProperties => !!x).map((a) => ({ Class: (a.identity?.Class ?? "").toUpperCase(), PredefinedType: predefinedOf(a) }));
+  // Without fills and voids (the viewer), an element found in no container may still be in one through an opening it fills — unless
+  // the top of its walk is spatial or a type, which fills nothing: then "none" is known; else this element's containment is unknown.
+  const fillsNothing = (x: ElementProperties) => /^IFC(PROJECT|PROJECTLIBRARY|SITE|BUILDING|BUILDINGSTOREY|SPACE|EXTERNALSPATIALELEMENT|SPATIALZONE|FACILITY|FACILITYPART|BRIDGE|BRIDGEPART|ROAD|ROADPART|RAILWAY|RAILWAYPART|MARINEFACILITY|MARINEPART|TUNNEL|TUNNELPART)$|(TYPE|STYLE)$/i.test(x.identity?.Class ?? "");
+  const containment = (e: ElementProperties) => {
+    const path = [e, ...walk(e, parentOf)], c = path.map((x) => up(x, "container")).find(Boolean);
+    return c ? chain([c]) : carried("fills", "voids") || fillsNothing(path[path.length - 1]) ? [] : undefined;
+  };
+  for (const e of els) {
+    const voided = /^IFCOPENING(ELEMENT|STANDARDCASE)$/i.test(e.identity?.Class ?? "") ? up(e, "voids") : up(up(e, "fills"), "voids");
+    e.partOf = {
+      ...(carried("aggregate") ? { IFCRELAGGREGATES: chain(walk(e, (x) => up(x, "aggregate"))) } : {}),
+      ...(carried("nest") ? { IFCRELNESTS: chain(walk(e, (x) => up(x, "nest"))) } : {}),
+      ...(carried("container", "aggregate", "nest") ? { IFCRELCONTAINEDINSPATIALSTRUCTURE: containment(e) } : {}),
+      ...(carried("group") ? { IFCRELASSIGNSTOGROUP: chain([up(e, "group")]) } : {}),
+      ...(carried("fills", "voids") ? { "IFCRELVOIDSELEMENT IFCRELFILLSELEMENT": chain([voided]) } : {}),
+      ...(carried("container", "aggregate", "nest", "fills", "voids", "group") ? { "": chain(walk(e, (x) => parentOf(x) ?? up(x, "group"))) } : {}),
+    };
+  }
 }
 
 /** The specifications that name what this model's reader cannot read: a facet it carries for no element (the viewer's fragments
@@ -162,6 +207,10 @@ export function unreadFacets(spec: IdsSpec, els: ElementProperties[]): { specifi
   const carried = { classifications: els.some((e) => e.classifications), materials: els.some((e) => e.material !== undefined) };
   return (spec.specifications ?? []).map((s) => ({ specification: s, facets: [
     ...(["classifications", "materials"] as const).filter((k) => has(s, k) && !carried[k]).map((k) => `the ${k === "classifications" ? "classification" : "material"} facet`),
+    // partOf: unknown for an element in scope (for an applicability facet, for any element: its scope is what is unknown).
+    ...[...(s.applicability.partOfs ?? []).map((p) => [p, true] as const), ...(s.requirements.partOfs ?? []).map((p) => [p, false] as const)]
+      .filter(([p, inAppl]) => els.some((e) => e.partOf?.[p.relation] === undefined && (inAppl || applies(s, e))))
+      .map(([p]) => `the partOf facet through ${p.relation || "any relation"}`),
     ...(s.ids10 ? [...(s.applicability.properties ?? []), ...(s.requirements.properties ?? [])] : [])
       .filter((p) => stated(p) && els.some((e) => propRows(e, p, true, true).some((r) => r?.si === null))).map((p) => `the unit of ${propLabel(p)} (IDS compares in SI units)`),
   ] })).filter((x) => x.facets.length);
@@ -206,6 +255,17 @@ function checkClassification(f: IdsClassificationFacet, el: ElementProperties, s
 function checkMaterial(f: IdsMaterialFacet, el: ElementProperties, s: IdsSpecification, out: Failure[]): void {
   const m = el.material ?? null;
   judgeHas(f.cardinality, m != null, m != null && (!stated(f) || m.some((v) => fits(f, v, s.ids10))), `material${stated(f) ? ` ${says(f)}` : ""}`, (m ?? []).join(", ") || "unnamed", s, out);
+}
+
+/** IfcTester's partOf facet: the first ancestor through the relation of the entity's class, and its predefined type. */
+function checkPartOf(f: IdsPartOfFacet, el: ElementProperties, s: IdsSpecification, out: Failure[]): void {
+  const chain = el.partOf?.[f.relation] ?? [];
+  const as = (a: { Class: string; PredefinedType: string }) => ({ identity: { Class: a.Class, PredefinedType: a.PredefinedType } }) as ElementProperties;
+  const hit = f.entity?.entity ? chain.find((a) => isEntity({ entity: f.entity!.entity }, as(a), true)) : chain[0];
+  const ok = !!hit && (!f.entity || isEntity({ ...f.entity, entity: undefined }, as(hit), true));
+  const want = [f.entity?.entity && `/${f.entity.entity}/`, f.entity?.predefinedType ?? (f.entity?.predefinedTypePattern && `/${f.entity.predefinedTypePattern}/`)].filter(Boolean).join(" ");
+  judgeHas(f.cardinality, chain.length > 0, ok, `partOf ${f.relation || "any relation"}${want ? ` ${want}` : ""}`,
+    chain.map((a) => (a.PredefinedType ? `${a.Class}.${a.PredefinedType}` : a.Class)).join(" < ") || "none", s, out);
 }
 
 function judgeHas(card: Cardinality, present: boolean, ok: boolean, label: string, actual: string, s: IdsSpecification, out: Failure[]): void {

@@ -54,7 +54,9 @@ export async function readModel(bytes, reader) {
   const ids = Object.values(await model.getItemsOfCategories([/^IFC/i])).flat();
   const data = ids.length ? await model.getItemsData(ids, core.PROPERTY_DATA_CONFIG) : [];
   const units = core.modelUnits(data);
-  return ids.map((id, i) => core.parseElementProperties(data[i], "m", id, units));
+  const els = ids.map((id, i) => core.parseElementProperties(data[i], "m", id, units));
+  core.partOfChains(els);
+  return els;
 }
 
 /** One case through Sentinel, read by `reader`: got = pass | fail | not checked | refused, with why. */

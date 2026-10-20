@@ -39,6 +39,12 @@ export interface ElementProperties {
   classifications?: { value?: string; system?: string }[];
   /** IDS material: materialValues of the element's material, else its type's. Unset = not read; null = none. */
   material?: string[] | null;
+  /** IDS partOf: the element's direct parent per relation, a localId in the same model (null = none; unset = this reader does not
+   *  carry the relation: the viewer's fragments model drops groups, voids and fills). fills: the opening it fills; voids: the
+   *  element an opening voids. */
+  parents?: { aggregate?: number | null; nest?: number | null; container?: number | null; group?: number | null; fills?: number | null; voids?: number | null };
+  /** partOfChains' ancestors per IDS relation ("" = any), each its class and IDS predefined type. Unset = not known here. */
+  partOf?: Record<string, { Class: string; PredefinedType: string }[] | undefined>;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -72,8 +78,10 @@ export const PSET_RELATIONS = {
 const QTY_TYPES = { LengthValue: "IFCLENGTHMEASURE", AreaValue: "IFCAREAMEASURE", VolumeValue: "IFCVOLUMEMEASURE",
   CountValue: "IFCCOUNTMEASURE", WeightValue: "IFCMASSMEASURE" } as const;
 
-/** getItemsData options that pull attributes + Pset/Qto sets with each value's own unit, the material, and (on the project)
- *  the units (the IDS checker and the Properties palette; the bulk readers keep PSET_RELATIONS). Fragments relate an element's
+/** getItemsData options that pull attributes + Pset/Qto sets with each value's own unit, the material, the parents an IDS
+ *  partOf reads, and (on the project) the units (the IDS checker and the Properties palette; the bulk readers keep PSET_RELATIONS).
+ *  Fragments keep one node per item, made with the first relation entry that reaches it, so each of these is {attributes, relations}
+ *  like the top level: a parent first reached with relations off loses its own links everywhere (seen 2026-10-20). Fragments relate an element's
  *  material straight under HasAssociations, with its layers, profiles, constituents and materials below, each relation named
  *  (an unnamed one takes relationsDefault and its attributes are lost); AssociatedTo, PartOfPset, a unit's Dimensions and a
  *  derived unit's Elements are cut. */
@@ -82,7 +90,8 @@ export const PROPERTY_DATA_CONFIG = {
   relations: { ...PSET_RELATIONS,
     ...Object.fromEntries(["AssociatedTo", "PartOfPset", "Dimensions", "Elements"].map((k) => [k, { attributes: false, relations: false }])),
     ...Object.fromEntries(["HasAssociations", "ForLayerSet", "ForProfileSet", "MaterialLayers", "MaterialProfiles", "MaterialConstituents", "Materials", "Material",
-      "HasProperties", "Quantities", "Unit", "UnitsInContext", "Units", "ConversionFactor", "UnitComponent"].map((k) => [k, { attributes: true, relations: true }])) },
+      "HasProperties", "Quantities", "Unit", "UnitsInContext", "Units", "ConversionFactor", "UnitComponent", "Decomposes", "Nests", "ContainedInStructure"]
+      .map((k) => [k, { attributes: true, relations: true }])) },
   relationsDefault: { attributes: false, relations: false },
 };
 
@@ -243,5 +252,8 @@ export function parseElementProperties(data: any, modelId: string, localId: numb
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const matOf = (x: any) => arr(x?.["HasAssociations"]).find((a) => /^IFCMATERIAL/.test(String(val(a?.["_category"]) ?? "").toUpperCase()));
   const m = matOf(data) ?? matOf(typeItem);
-  return { modelId, localId, identity, psets, quantities, ...(type ? { type } : {}), material: m ? materialValues(m) : null };
+  // partOf's direct parents: aggregation, nesting and containment come through; groups, voids and fills do not (left unset).
+  const first = (k: string) => { const id = Number(val(arr(data?.[k])[0]?.["_localId"])); return Number.isFinite(id) ? id : null; };
+  const parents = { aggregate: first("Decomposes"), nest: first("Nests"), container: first("ContainedInStructure") };
+  return { modelId, localId, identity, psets, quantities, ...(type ? { type } : {}), material: m ? materialValues(m) : null, parents };
 }

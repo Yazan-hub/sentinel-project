@@ -1447,6 +1447,7 @@ function applies(spec, el) {
   for (const p of spec.applicability.properties ?? []) checkFacet({ ...p, cardinality: "required" }, propRows(el, p, spec.ids10), spec, propLabel(p), unmet);
   for (const c of spec.applicability.classifications ?? []) checkClassification({ ...c, cardinality: "required" }, el, spec, unmet);
   for (const m of spec.applicability.materials ?? []) checkMaterial({ ...m, cardinality: "required" }, el, spec, unmet);
+  for (const p of spec.applicability.partOfs ?? []) checkPartOf({ ...p, cardinality: "required" }, el, spec, unmet);
   return unmet.length === 0;
 }
 function isEntity(a, el, ids10) {
@@ -1497,14 +1498,53 @@ function validateElement(spec, el) {
     for (const p of s.requirements?.properties ?? []) checkFacet(p, propRows(el, p, s.ids10), s, propLabel(p), failures);
     for (const c of s.requirements?.classifications ?? []) checkClassification(c, el, s, failures);
     for (const m of s.requirements?.materials ?? []) checkMaterial(m, el, s, failures);
+    for (const p of s.requirements?.partOfs ?? []) checkPartOf(p, el, s, failures);
   }
   return { inScope, pass: failures.length === 0, failures };
+}
+function partOfChains(els) {
+  const byId = new Map(els.map((e) => [e.localId, e]));
+  const links = ["aggregate", "nest", "container", "group", "fills", "voids"];
+  const has = Object.fromEntries(links.map((k) => [k, els.some((e) => e.parents?.[k] !== void 0)]));
+  const carried = (...ks) => ks.every((k) => has[k]);
+  const up = (e, k) => {
+    const id = e?.parents?.[k];
+    return id == null ? void 0 : byId.get(id);
+  };
+  const parentOf = (e) => up(e, "container") ?? up(e, "aggregate") ?? up(e, "nest") ?? up(e, "fills") ?? up(e, "voids");
+  const walk = (e, step) => {
+    const out = [], seen = /* @__PURE__ */ new Set([e]);
+    for (let p = step(e); p && !seen.has(p); p = step(p)) {
+      seen.add(p);
+      out.push(p);
+    }
+    return out;
+  };
+  const chain = (xs) => xs.filter((x) => !!x).map((a) => ({ Class: (a.identity?.Class ?? "").toUpperCase(), PredefinedType: predefinedOf(a) }));
+  const fillsNothing = (x) => /^IFC(PROJECT|PROJECTLIBRARY|SITE|BUILDING|BUILDINGSTOREY|SPACE|EXTERNALSPATIALELEMENT|SPATIALZONE|FACILITY|FACILITYPART|BRIDGE|BRIDGEPART|ROAD|ROADPART|RAILWAY|RAILWAYPART|MARINEFACILITY|MARINEPART|TUNNEL|TUNNELPART)$|(TYPE|STYLE)$/i.test(x.identity?.Class ?? "");
+  const containment = (e) => {
+    const path = [e, ...walk(e, parentOf)], c = path.map((x) => up(x, "container")).find(Boolean);
+    return c ? chain([c]) : carried("fills", "voids") || fillsNothing(path[path.length - 1]) ? [] : void 0;
+  };
+  for (const e of els) {
+    const voided = /^IFCOPENING(ELEMENT|STANDARDCASE)$/i.test(e.identity?.Class ?? "") ? up(e, "voids") : up(up(e, "fills"), "voids");
+    e.partOf = {
+      ...carried("aggregate") ? { IFCRELAGGREGATES: chain(walk(e, (x) => up(x, "aggregate"))) } : {},
+      ...carried("nest") ? { IFCRELNESTS: chain(walk(e, (x) => up(x, "nest"))) } : {},
+      ...carried("container", "aggregate", "nest") ? { IFCRELCONTAINEDINSPATIALSTRUCTURE: containment(e) } : {},
+      ...carried("group") ? { IFCRELASSIGNSTOGROUP: chain([up(e, "group")]) } : {},
+      ...carried("fills", "voids") ? { "IFCRELVOIDSELEMENT IFCRELFILLSELEMENT": chain([voided]) } : {},
+      ...carried("container", "aggregate", "nest", "fills", "voids", "group") ? { "": chain(walk(e, (x) => parentOf(x) ?? up(x, "group"))) } : {}
+    };
+  }
 }
 function unreadFacets(spec, els) {
   const has = (s, k) => !!(s.applicability[k]?.length || s.requirements[k]?.length);
   const carried = { classifications: els.some((e) => e.classifications), materials: els.some((e) => e.material !== void 0) };
   return (spec.specifications ?? []).map((s) => ({ specification: s, facets: [
     ...["classifications", "materials"].filter((k) => has(s, k) && !carried[k]).map((k) => `the ${k === "classifications" ? "classification" : "material"} facet`),
+    // partOf: unknown for an element in scope (for an applicability facet, for any element: its scope is what is unknown).
+    ...[...(s.applicability.partOfs ?? []).map((p) => [p, true]), ...(s.requirements.partOfs ?? []).map((p) => [p, false])].filter(([p, inAppl]) => els.some((e) => e.partOf?.[p.relation] === void 0 && (inAppl || applies(s, e)))).map(([p]) => `the partOf facet through ${p.relation || "any relation"}`),
     ...(s.ids10 ? [...s.applicability.properties ?? [], ...s.requirements.properties ?? []] : []).filter((p) => stated(p) && els.some((e) => propRows(e, p, true, true).some((r) => r?.si === null))).map((p) => `the unit of ${propLabel(p)} (IDS compares in SI units)`)
   ] })).filter((x) => x.facets.length);
 }
@@ -1537,6 +1577,22 @@ function checkClassification(f, el, s, out) {
 function checkMaterial(f, el, s, out) {
   const m = el.material ?? null;
   judgeHas(f.cardinality, m != null, m != null && (!stated(f) || m.some((v) => fits(f, v, s.ids10))), `material${stated(f) ? ` ${says(f)}` : ""}`, (m ?? []).join(", ") || "unnamed", s, out);
+}
+function checkPartOf(f, el, s, out) {
+  const chain = el.partOf?.[f.relation] ?? [];
+  const as = (a) => ({ identity: { Class: a.Class, PredefinedType: a.PredefinedType } });
+  const hit = f.entity?.entity ? chain.find((a) => isEntity({ entity: f.entity.entity }, as(a), true)) : chain[0];
+  const ok = !!hit && (!f.entity || isEntity({ ...f.entity, entity: void 0 }, as(hit), true));
+  const want = [f.entity?.entity && `/${f.entity.entity}/`, f.entity?.predefinedType ?? (f.entity?.predefinedTypePattern && `/${f.entity.predefinedTypePattern}/`)].filter(Boolean).join(" ");
+  judgeHas(
+    f.cardinality,
+    chain.length > 0,
+    ok,
+    `partOf ${f.relation || "any relation"}${want ? ` ${want}` : ""}`,
+    chain.map((a) => a.PredefinedType ? `${a.Class}.${a.PredefinedType}` : a.Class).join(" < ") || "none",
+    s,
+    out
+  );
 }
 function judgeHas(card, present, ok, label, actual, s, out) {
   const push = (reason) => out.push({ specification: s.name, requirement: label, reason });
@@ -1707,6 +1763,7 @@ var DEMO_IDS = {
 };
 
 // src/sentinel-core/ids-parse.ts
+var PART_OF_RELATIONS = ["IFCRELAGGREGATES", "IFCRELASSIGNSTOGROUP", "IFCRELCONTAINEDINSPATIALSTRUCTURE", "IFCRELNESTS", "IFCRELVOIDSELEMENT IFCRELFILLSELEMENT"];
 var isEl = (n) => n.nodeType === 1;
 var kids = (el, name) => Array.from(el.childNodes).filter(isEl).filter((c) => !name || c.localName === name);
 var kid = (el, name) => el ? kids(el, name)[0] : void 0;
@@ -1777,7 +1834,7 @@ function parseIds(xml) {
     const facets = (parent, where) => {
       const sayHere = say(where);
       const attributes = [], properties = [];
-      const classifications = [], materials = [];
+      const classifications = [], materials = [], partOfs = [];
       let entity;
       for (const f of parent ? kids(parent) : []) {
         const card = where === "applicability" ? "required" : cardinalityOf(f);
@@ -1806,9 +1863,13 @@ function parseIds(xml) {
           const { other: _, ...system } = sys ?? { other: [] };
           classifications.push({ ...value, system, cardinality: card });
         } else if (f.localName === "material") materials.push({ ...value, cardinality: card });
-        else if (f.localName === "partOf") sayHere("the partOf facet \u2014 Sentinel does not read it yet");
+        else if (f.localName === "partOf") {
+          const relation = f.getAttribute("relation") || "", e = kid(f, "entity");
+          if (relation && !PART_OF_RELATIONS.includes(relation)) sayHere(`a partOf relation IDS 1.0 does not name (${relation})`);
+          partOfs.push({ relation, ...e ? { entity: entityOf(e, sayHere) } : {}, cardinality: card });
+        }
       }
-      return { entity, attributes, properties, classifications, materials };
+      return { entity, attributes, properties, classifications, materials, partOfs };
     };
     const appl = facets(applEl, "applicability");
     const req = facets(reqEl, "requirements");
@@ -1818,8 +1879,8 @@ function parseIds(xml) {
     const some = (x, k) => x[k].length ? { [k]: x[k] } : {};
     specifications.push({
       name,
-      applicability: { ...appl.entity ?? {}, ...some(appl, "attributes"), ...some(appl, "properties"), ...some(appl, "classifications"), ...some(appl, "materials") },
-      requirements: { properties: req.properties, attributes: req.attributes, ...req.entity ? { entity: req.entity } : {}, ...some(req, "classifications"), ...some(req, "materials") },
+      applicability: { ...appl.entity ?? {}, ...some(appl, "attributes"), ...some(appl, "properties"), ...some(appl, "classifications"), ...some(appl, "materials"), ...some(appl, "partOfs") },
+      requirements: { properties: req.properties, attributes: req.attributes, ...req.entity ? { entity: req.entity } : {}, ...some(req, "classifications"), ...some(req, "materials"), ...some(req, "partOfs") },
       ...cardinality ? { cardinality } : {},
       ids10: true
     });
@@ -1873,7 +1934,10 @@ var PROPERTY_DATA_CONFIG = {
       "UnitsInContext",
       "Units",
       "ConversionFactor",
-      "UnitComponent"
+      "UnitComponent",
+      "Decomposes",
+      "Nests",
+      "ContainedInStructure"
     ].map((k) => [k, { attributes: true, relations: true }]))
   },
   relationsDefault: { attributes: false, relations: false }
@@ -1994,7 +2058,12 @@ function parseElementProperties(data, modelId, localId, units) {
   quantities.sort((a, b) => a.name.localeCompare(b.name));
   const matOf = (x) => arr(x?.["HasAssociations"]).find((a) => /^IFCMATERIAL/.test(String(val(a?.["_category"]) ?? "").toUpperCase()));
   const m = matOf(data) ?? matOf(typeItem);
-  return { modelId, localId, identity, psets, quantities, ...type ? { type } : {}, material: m ? materialValues(m) : null };
+  const first = (k) => {
+    const id = Number(val(arr(data?.[k])[0]?.["_localId"]));
+    return Number.isFinite(id) ? id : null;
+  };
+  const parents = { aggregate: first("Decomposes"), nest: first("Nests"), container: first("ContainedInStructure") };
+  return { modelId, localId, identity, psets, quantities, ...type ? { type } : {}, material: m ? materialValues(m) : null, parents };
 }
 
 // src/sentinel-core/layers.ts
@@ -2446,6 +2515,7 @@ export {
   parseElementProperties,
   parseIds,
   parseLodMatrix,
+  partOfChains,
   priceSnapshot,
   projectUnits,
   raisedFederationTitleKey,
