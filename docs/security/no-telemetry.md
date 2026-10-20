@@ -17,6 +17,7 @@ There is no Sentinel server to send it to: the bridge runs on the office's own P
 | the bridge address in this PC's settings | add-in | every Sentinel call from Revit |
 | `platform.thatopen.com` (or `THATOPEN_API_BASE_URL`) | bridge | uploads, gate reads, the app channel |
 | `generativelanguage.googleapis.com`, `api.moonshot.ai`, `integrate.api.nvidia.com`, Anthropic's API (through its SDK) | bridge | only a cloud AI call: its key set, `SENTINEL_AI_CLOUD=1`, a trusted caller, and a project whose AI policy allows cloud AI |
+| the timestamp authority in `LEDGER_TSA_URL` (an RFC 3161 service, for example DigiCert's) | bridge | the ledger's daily stamp and a lead's "Timestamp now" (ledger-anchor.mjs): only a 32-byte ledger hash and a random nonce leave; nothing is sent while `LEDGER_TSA_URL` is unset (unset on the founder's bridge on 2026-10-20) |
 | the web evidence sources in `WebApp/bridge/web-sources.mjs` | bridge | MA-7 web evidence: off until the founder's `SENTINEL_WEB_EVIDENCE` switch, then only on a lead's request, only from that list |
 | a model off this PC | add-in | only when this PC opted in ("Allow a model off this PC", https only) and the open model's project is not locked to this network |
 
@@ -49,6 +50,8 @@ settings (Standards ▸ PC Settings).
   packet or a child process's own connections are not in its log. The readers the bridge runs on this PC as child processes
   (the Python survey and drawing readers in `survey/` and `drawing/`) are outside both proofs: proof 1 reads the bridge's
   own code only.
+- An address taken from configuration (`SUPABASE_URL`, `THATOPEN_API_BASE_URL`, `OLLAMA_URL`, `LEDGER_TSA_URL`) is no code
+  literal, so proof 1 cannot see it: the table above lists every one, and a new one belongs in it.
 - The runtime proof covers boot and the routes listed above. A route that is not exercised is covered by proof 1
   (every host it could name is filed), not by a run.
 - The add-in is proven statically only: CI has no Revit. Its HTTP clients take their address from this PC's settings
