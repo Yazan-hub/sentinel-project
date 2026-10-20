@@ -52,6 +52,9 @@ export interface ElementProperties {
   parents?: { aggregate?: number | null; nest?: number | null; container?: number | null; group?: number | null; fills?: number | null; voids?: number | null };
   /** partOfChains' ancestors per IDS relation ("" = any), each its class and IDS predefined type. Unset = not known here. */
   partOf?: Record<string, { Class: string; PredefinedType: string }[] | undefined>;
+  /** The relations whose walk stopped where a relation this reader does not carry may go on: what it found is known, what it did
+   *  not find is "not checked" (partOfChains). */
+  partOfOpen?: string[];
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -95,9 +98,11 @@ const QTY_TYPES = { LengthValue: "IFCLENGTHMEASURE", AreaValue: "IFCAREAMEASURE"
 export const PROPERTY_DATA_CONFIG = {
   attributesDefault: true,
   relations: { ...PSET_RELATIONS,
-    ...Object.fromEntries(["AssociatedTo", "PartOfPset", "Dimensions", "Elements"].map((k) => [k, { attributes: false, relations: false }])),
+    ...Object.fromEntries(["AssociatedTo", "PartOfPset", "Dimensions", "Elements", "ClassificationRefForObjects", "IsGroupedBy", "HasOpenings", "HasFillings"]
+      .map((k) => [k, { attributes: false, relations: false }])),
     ...Object.fromEntries(["HasAssociations", "ForLayerSet", "ForProfileSet", "MaterialLayers", "MaterialProfiles", "MaterialConstituents", "Materials", "Material",
-      "HasProperties", "Quantities", "Unit", "UnitsInContext", "Units", "ConversionFactor", "UnitComponent", "Decomposes", "Nests", "ContainedInStructure"]
+      "HasProperties", "Quantities", "Unit", "DefiningUnit", "DefinedUnit", "UnitsInContext", "Units", "ConversionFactor", "UnitComponent",
+      "ReferencedSource", "Decomposes", "Nests", "ContainedInStructure", "HasAssignments", "FillsVoids", "VoidsElements"]
       .map((k) => [k, { attributes: true, relations: true }])) },
   relationsDefault: { attributes: false, relations: false },
 };
@@ -157,6 +162,66 @@ export function siValue(value: string, measure: string | undefined, own: any, un
   return s == null ? null : s === 1 ? undefined : String(n * s);
 }
 
+/** What a viewer model holds, for parseElementProperties: its units, its schema, and whether its .frag carries any classification,
+ *  group or opening at all. A .frag converted before 2026-10-20 (bridge/ifc-to-frag.mjs IDS_CLASSES) has none, and neither has a model
+ *  without them: the viewer cannot tell "none" from "left out", so a facet on them is "not checked" there (unreadFacets). */
+export interface ModelContext { units?: ModelUnits; schema?: string; carries?: { classification: boolean; groups: boolean; openings: boolean } }
+const GROUP_CLASS = /^IFC(GROUP|SYSTEM|ZONE|DISTRIBUTIONSYSTEM|DISTRIBUTIONCIRCUIT|BUILDINGSYSTEM|BUILTSYSTEM|INVENTORY|ASSET|STRUCTURAL(ANALYSISMODEL|LOADGROUP|LOADCASE|RESULTGROUP))$/;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function modelContext(items: any[], schema?: string): ModelContext {
+  const cats = [...new Set(items.map((d) => String(val(d?._category) ?? "").toUpperCase()))], has = (re: RegExp) => cats.some((c) => re.test(c));
+  return { units: modelUnits(items), schema, carries: { classification: has(/^IFCCLASSIFICATION(REFERENCE)?$/), groups: has(GROUP_CLASS), openings: has(/^IFCOPENING(ELEMENT|STANDARDCASE)$/) } };
+}
+
+/** An enumerated, list, bounded or table property's values (PropRow.values) and its IDS value type, as IfcTester reads them, from
+ *  either reader's item: a web-ifc list holds typed values ({value, name}); a fragments list is one typed value holding the list
+ *  ({value: [...], type}). `si(value, measure, unit)`: a list's or a bound's value in SI units (from the property's unit), a table
+ *  column's from its own unit; an enumerated value is not converted (IfcTester). The type: a list's first value's, a bound's last
+ *  one's (upper, lower, set point), none for a table (its columns carry theirs). undefined = a single-value property. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function multiValues(p: any, si?: (value: string, measure: string | undefined, unit: any) => string | null | undefined): { values: NonNullable<PropRow["values"]>; type?: string } | undefined {
+  const ifc = (t: unknown) => (typeof t === "string" && /^IFC/i.test(t) ? t.toUpperCase() : undefined);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const items = (x: any): { value: string; type?: string }[] => (Array.isArray(x) ? x.map((v) => ({ value: v?.value == null ? "" : String(v.value), type: ifc(v?.name) ?? ifc(v?.type) }))
+    : Array.isArray(x?.value) ? x.value.map((v: unknown) => ({ value: String(v), type: ifc(x.type) }))
+    : x?.value != null ? [{ value: String(x.value), type: ifc(x.name) ?? ifc(x.type) }] : []);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const conv = (vs: { value: string; type?: string }[], unit: any, column?: "Defining" | "Defined") => vs.map((v) => {
+    const s = si?.(v.value, v.type, unit);
+    return { ...v, ...(s !== undefined ? { si: s } : {}), ...(column ? { column } : {}) };
+  });
+  const bounds = ["UpperBoundValue", "LowerBoundValue", "SetPointValue"];
+  let values: NonNullable<PropRow["values"]> | undefined, type: string | undefined;
+  if (p && "EnumerationValues" in p) type = (values = items(p.EnumerationValues))[0]?.type;
+  else if (p && "ListValues" in p) type = (values = conv(items(p.ListValues), p.Unit))[0]?.type;
+  else if (p && bounds.some((k) => k in p)) { values = conv(bounds.flatMap((k) => items(p[k])), p.Unit); type = values[values.length - 1]?.type; }
+  else if (p && ("DefiningValues" in p || "DefinedValues" in p))
+    values = [...conv(items(p.DefiningValues), p.DefiningUnit, "Defining"), ...conv(items(p.DefinedValues), p.DefinedUnit, "Defined")];
+  return values ? { values, ...(type ? { type } : {}) } : undefined;
+}
+
+/** IfcTester's classification references (ifcopenshell get_references, get_inherited_references) from either reader's items: the
+ *  element's own; the type's, kept for a system the element does not reference; each with every reference above it (ReferencedSource)
+ *  and its IfcClassification's Name. A classification assigned directly counts, with no value. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function classificationsOf(own: any[], type: any[]): NonNullable<ElementProperties["classifications"]> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const cls = (x: any) => String(val(x?._category) ?? "").toUpperCase();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const chain = (r: any) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rows: any[] = [];
+    let x = r;
+    for (let n = 0; x && cls(x) !== "IFCCLASSIFICATION" && n < 64; n++) { rows.push(x); x = all(x.ReferencedSource)[0]; }
+    const root = cls(x) === "IFCCLASSIFICATION" ? x : undefined, system = val(root?.Name);
+    return { key: root ? val(root._localId) ?? root.expressID ?? root : null, rows: rows.length ? rows.map((y) => ({ value: val(y.Identification) ?? val(y.ItemReference), system })) : [{ system }] };
+  };
+  const bySystem = new Map<unknown, unknown[]>();
+  for (const r of type) bySystem.set(chain(r).key, [...(bySystem.get(chain(r).key) ?? []), r]);
+  for (const k of new Set(own.map((r) => chain(r).key))) bySystem.set(k, own.filter((r) => chain(r).key === k));
+  return [...bySystem.values()].flat().flatMap((r) => chain(r).rows);
+}
+
 /** An IDS material facet's values, as IfcTester reads them (ifcopenshell get_material, a set usage read as its set): a material's
  *  Name and Category; a list's materials'; a layer, profile or constituent set's own name and each item's Name, Category and
  *  material's Name and Category. `m` is a material item as either reader holds it: attributes wrapped as {value}, its class in
@@ -184,10 +249,12 @@ export async function extractElementProperties(
   return parseElementProperties(results?.[0], model.modelId, localId);
 }
 
-/** Pure parse of one raw ItemData record → ElementProperties. Lets the model validator bulk-fetch once. `units`: the model's
- *  (modelUnits), for each value's SI form; `schema`: the model's (getMetadata). */
+/** Pure parse of one raw ItemData record → ElementProperties. Lets the model validator bulk-fetch once. `model`: what the whole
+ *  model holds (modelContext): its units, for each value's SI form; its schema; whether its .frag carries classification, groups
+ *  and openings at all. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function parseElementProperties(data: any, modelId: string, localId: number, units?: ModelUnits, schema?: string): ElementProperties {
+export function parseElementProperties(data: any, modelId: string, localId: number, model?: ModelContext): ElementProperties {
+  const units = model?.units, schema = model?.schema;
   const identity: ElementProperties["identity"] = {
     GlobalId: val(data?.["_guid"]) ?? val(data?.["GlobalId"]),
     Name: val(data?.["Name"]),
@@ -232,7 +299,9 @@ export function parseElementProperties(data: any, modelId: string, localId: numb
         let unread = 0;
         for (const p of hasProps) {
           const name = val(p?.["Name"]);
-          if (!name && !val(p?.["_category"])) unread++; // an enumerated, list, bounded or table value: fragments keeps no class, name or value
+          if (!name && !val(p?.["_category"])) unread++; // a class the .frag left out (before 2026-10-20: every multi-value property)
+          const mv = name ? multiValues(p, (v, t, u) => siValue(v, t, all(u)[0], units)) : undefined;
+          if (mv) { rows.push({ name: name!, value: mv.values.map((x) => x.value).join(", "), ...(mv.type ? { type: mv.type } : {}), values: mv.values }); continue; }
           const value = val(p?.["NominalValue"]) ?? val(p?.["Value"]);
           const type = typeOf(p?.["NominalValue"]);
           const si = value != null ? siValue(value, type, all(p?.["Unit"])[0], units) : undefined;
@@ -257,13 +326,18 @@ export function parseElementProperties(data: any, modelId: string, localId: numb
 
   psets.sort((a, b) => a.name.localeCompare(b.name));
   quantities.sort((a, b) => a.name.localeCompare(b.name));
-  // The material, own else the type's (every caller fetches with PROPERTY_DATA_CONFIG, which asks for HasAssociations).
-  // Classifications stay unset: That Open's fragments importer keeps no IfcClassificationReference (seen 2026-10-20).
+  // The material, own else the type's (every caller fetches with PROPERTY_DATA_CONFIG, which asks for HasAssociations), and the
+  // classification references beside it, where the .frag carries classification at all (modelContext).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const matOf = (x: any) => arr(x?.["HasAssociations"]).find((a) => /^IFCMATERIAL/.test(String(val(a?.["_category"]) ?? "").toUpperCase()));
   const m = matOf(data) ?? matOf(typeItem);
-  // partOf's direct parents: aggregation, nesting and containment come through; groups, voids and fills do not (left unset).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const refsOf = (x: any) => arr(x?.["HasAssociations"]).filter((a) => /^IFCCLASSIFICATION(REFERENCE)?$/.test(String(val(a?.["_category"]) ?? "").toUpperCase()));
+  const classifications = model?.carries?.classification ? { classifications: classificationsOf(refsOf(data), refsOf(typeItem)) } : {};
+  // partOf's direct parents: aggregation, nesting and containment always come through; groups, voids and fills where the .frag
+  // carries them at all (else left unset: unreadFacets says "not checked").
   const first = (k: string) => { const id = Number(val(arr(data?.[k])[0]?.["_localId"])); return Number.isFinite(id) ? id : null; };
-  const parents = { aggregate: first("Decomposes"), nest: first("Nests"), container: first("ContainedInStructure") };
-  return { modelId, localId, identity, psets, quantities, ...(type ? { type } : {}), material: m ? materialValues(m) : null, parents, ...(schema ? { schema } : {}) };
+  const parents = { aggregate: first("Decomposes"), nest: first("Nests"), container: first("ContainedInStructure"),
+    ...(model?.carries?.groups ? { group: first("HasAssignments") } : {}), ...(model?.carries?.openings ? { fills: first("FillsVoids"), voids: first("VoidsElements") } : {}) };
+  return { modelId, localId, identity, psets, quantities, ...(type ? { type } : {}), material: m ? materialValues(m) : null, ...classifications, parents, ...(schema ? { schema } : {}) };
 }

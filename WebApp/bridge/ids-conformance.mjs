@@ -3,9 +3,10 @@
 // (readModel: the viewer's, the bridge's). Each case gets one of: right, wrong, or "not checked" — Sentinel said it cannot judge
 // part of the IDS, which is an honest no-answer and never counted as right. tools/ids-conformance/run.mjs prints the tables.
 import { readFileSync, readdirSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { DOMParser as XmlDomParser } from "@xmldom/xmldom";
-import { SingleThreadedFragmentsModel } from "@thatopen/fragments";
+import { SingleThreadedFragmentsModel, IfcImporter } from "@thatopen/fragments";
 import * as core from "./sentinel-core.mjs";
 import { extractHere } from "./ifc-extract.mjs";
 import { ifcBytesToFrag } from "./ifc-to-frag.mjs";
@@ -47,16 +48,23 @@ export function tagsOf(xml) {
 
 /** The IFC as each product path reads it. "viewer": the browser's — IFC → .frag (the bridge's converter), every IFC item of
  *  the fragments model, getItemsData with the viewer's relations, parseElementProperties (model-validate.ts does the same).
- *  "bridge": intake's web-ifc reader, every IfcObjectDefinition. */
+ *  "viewer-defaults": the same, from a .frag converted at the importer's default lists, as every .frag was before 2026-10-20 — one
+ *  already published still is. "bridge": intake's web-ifc reader, every IfcObjectDefinition. */
 export async function readModel(bytes, reader) {
   if (reader === "bridge") return (await extractHere(bytes, { classes: ["IFCOBJECTDEFINITION"] })).elements;
-  const model = new SingleThreadedFragmentsModel("m", await ifcBytesToFrag(bytes));
+  const model = new SingleThreadedFragmentsModel("m", reader === "viewer-defaults" ? await defaultsFrag(bytes) : await ifcBytesToFrag(bytes));
   const ids = Object.values(await model.getItemsOfCategories([/^IFC/i])).flat();
   const data = ids.length ? await model.getItemsData(ids, core.PROPERTY_DATA_CONFIG) : [];
-  const units = core.modelUnits(data), schema = String((await model.getMetadata())?.schema ?? "").toUpperCase() || undefined;
-  const els = ids.map((id, i) => core.parseElementProperties(data[i], "m", id, units, schema));
+  const ctx = core.modelContext(data, String((await model.getMetadata())?.schema ?? "").toUpperCase() || undefined);
+  const els = ids.map((id, i) => core.parseElementProperties(data[i], "m", id, ctx));
   core.partOfChains(els);
   return els;
+}
+
+async function defaultsFrag(bytes) {
+  const importer = new IfcImporter();
+  importer.wasm = { absolute: true, path: resolve(dirname(fileURLToPath(import.meta.url)), "../node_modules/web-ifc") + "/" };
+  return importer.process({ bytes: new Uint8Array(bytes) });
 }
 
 /** One case through Sentinel, read by `reader`: got = pass | fail | not checked | refused, with why. */

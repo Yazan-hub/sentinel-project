@@ -31,8 +31,13 @@ const SKIP = /^IFC(REL|PROPERTY|QUANTITY|ELEMENTQUANTITY|MATERIAL|STYLED?|PRESEN
  *  seen live on aster-tower (2026-09-28), where PROJECT, DERIVEDUNIT, WALLTYPE and SLABTYPE showed as categories. */
 export function isBrowsable(category: string): boolean {
   const c = category.toUpperCase();
-  return !SKIP.test(c) && !/^IFC(PROJECT|DERIVEDUNIT|[A-Z]*UNIT|PROJECTEDCRS|MAPCONVERSION|GEOMETRICREPRESENTATIONCONTEXT)$/.test(c) && !/TYPE$/.test(c);
+  return !SKIP.test(c) && !/^IFC(PROJECT|DERIVEDUNIT|[A-Z]*UNIT|PROJECTEDCRS|MAPCONVERSION|GEOMETRICREPRESENTATIONCONTEXT)$/.test(c) && !/TYPE$/.test(c)
+    && !DATA_ONLY.test(c);
 }
+
+/** What the IFC → .frag converter keeps as data for an IDS check, with no geometry (bridge/ifc-to-frag.mjs IDS_CLASSES): openings,
+ *  classification, unit factors and groups. Matched whole, so IFCSYSTEMFURNITUREELEMENT stays browsable. */
+const DATA_ONLY = /^IFC(OPENINGELEMENT|OPENINGSTANDARDCASE|MEASUREWITHUNIT|CLASSIFICATION|CLASSIFICATIONREFERENCE|GROUP|SYSTEM|ZONE|DISTRIBUTIONSYSTEM|DISTRIBUTIONCIRCUIT|BUILDINGSYSTEM|BUILTSYSTEM|INVENTORY|ASSET|STRUCTURALANALYSISMODEL|STRUCTURALLOADGROUP|STRUCTURALLOADCASE|STRUCTURALRESULTGROUP)$/;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const val = (o: any): string | undefined => {

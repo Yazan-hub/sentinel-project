@@ -1525,18 +1525,24 @@ function partOfChains(els) {
   const fillsNothing = (x) => /^IFC(PROJECT|PROJECTLIBRARY|SITE|BUILDING|BUILDINGSTOREY|SPACE|EXTERNALSPATIALELEMENT|SPATIALZONE|FACILITY|FACILITYPART|BRIDGE|BRIDGEPART|ROAD|ROADPART|RAILWAY|RAILWAYPART|MARINEFACILITY|MARINEPART|TUNNEL|TUNNELPART)$|(TYPE|STYLE)$/i.test(x.identity?.Class ?? "");
   const containment = (e) => {
     const path = [e, ...walk(e, parentOf)], c = path.map((x) => up(x, "container")).find(Boolean);
-    return c ? chain([c]) : carried("fills", "voids") || fillsNothing(path[path.length - 1]) ? [] : void 0;
+    return { chain: chain([c]), open: !c && !carried("fills", "voids") && !fillsNothing(path[path.length - 1]) };
+  };
+  const anyRelation = (e) => {
+    const path = [e, ...walk(e, (x) => parentOf(x) ?? up(x, "group"))], top = path[path.length - 1];
+    return { chain: chain(path.slice(1)), open: !/^IFCPROJECT$/i.test(top.identity?.Class ?? "") && (!carried("group") || !carried("fills", "voids") && !fillsNothing(top)) };
   };
   for (const e of els) {
     const voided = /^IFCOPENING(ELEMENT|STANDARDCASE)$/i.test(e.identity?.Class ?? "") ? up(e, "voids") : up(up(e, "fills"), "voids");
+    const walks = carried("container", "aggregate", "nest") ? { IFCRELCONTAINEDINSPATIALSTRUCTURE: containment(e), "": anyRelation(e) } : {};
     e.partOf = {
       ...carried("aggregate") ? { IFCRELAGGREGATES: chain(walk(e, (x) => up(x, "aggregate"))) } : {},
       ...carried("nest") ? { IFCRELNESTS: chain(walk(e, (x) => up(x, "nest"))) } : {},
-      ...carried("container", "aggregate", "nest") ? { IFCRELCONTAINEDINSPATIALSTRUCTURE: containment(e) } : {},
+      ...Object.fromEntries(Object.entries(walks).map(([k, w]) => [k, w.chain])),
       ...carried("group") ? { IFCRELASSIGNSTOGROUP: chain([up(e, "group")]) } : {},
-      ...carried("fills", "voids") ? { "IFCRELVOIDSELEMENT IFCRELFILLSELEMENT": chain([voided]) } : {},
-      ...carried("container", "aggregate", "nest", "fills", "voids", "group") ? { "": chain(walk(e, (x) => parentOf(x) ?? up(x, "group"))) } : {}
+      ...carried("fills", "voids") ? { "IFCRELVOIDSELEMENT IFCRELFILLSELEMENT": chain([voided]) } : {}
     };
+    const open = Object.entries(walks).filter(([, w]) => w.open).map(([k]) => k);
+    if (open.length) e.partOfOpen = open;
   }
 }
 function unreadFacets(spec, els) {
@@ -1545,7 +1551,7 @@ function unreadFacets(spec, els) {
   return (spec.specifications ?? []).map((s) => ({ specification: s, facets: [
     ...["classifications", "materials"].filter((k) => has(s, k) && !carried[k]).map((k) => `the ${k === "classifications" ? "classification" : "material"} facet`),
     // partOf: unknown for an element in scope (for an applicability facet, for any element: its scope is what is unknown).
-    ...[...(s.applicability.partOfs ?? []).map((p) => [p, true]), ...(s.requirements.partOfs ?? []).map((p) => [p, false])].filter(([p, inAppl]) => els.some((e) => e.partOf?.[p.relation] === void 0 && (inAppl || applies(s, e)))).map(([p]) => `the partOf facet through ${p.relation || "any relation"}`),
+    ...[...(s.applicability.partOfs ?? []).map((p) => [p, true]), ...(s.requirements.partOfs ?? []).map((p) => [p, false])].filter(([p, inAppl]) => els.some((e) => (e.partOf?.[p.relation] === void 0 || e.partOfOpen?.includes(p.relation) && !partOfHit(p, e.partOf[p.relation]).hit) && (inAppl || applies(s, e)))).map(([p]) => `the partOf facet through ${p.relation || "any relation"}`),
     ...(s.ids10 ? [...s.applicability.properties ?? [], ...s.requirements.properties ?? []] : []).filter((p) => stated(p) && els.some((e) => propRows(e, p, true, true).some((r) => r?.si === null || r?.values?.some((v) => v.si === null)))).map((p) => `the unit of ${propLabel(p)} (IDS compares in SI units)`),
     // A property the reader saw but could not read (That Open's fragments importer keeps an enumerated, list, bounded or table
     // value as an empty item, name and all): where the facet's property is not among the readable rows of a set that holds one.
@@ -1583,10 +1589,7 @@ function checkMaterial(f, el, s, out) {
   judgeHas(f.cardinality, m != null, m != null && (!stated(f) || m.some((v) => fits(f, v, s.ids10))), `material${stated(f) ? ` ${says(f)}` : ""}`, (m ?? []).join(", ") || "unnamed", s, out);
 }
 function checkPartOf(f, el, s, out) {
-  const chain = el.partOf?.[f.relation] ?? [];
-  const as = (a) => ({ identity: { Class: a.Class, PredefinedType: a.PredefinedType } });
-  const hit = f.entity?.entity ? chain.find((a) => isEntity({ entity: f.entity.entity }, as(a), true)) : chain[0];
-  const ok = !!hit && (!f.entity || isEntity({ ...f.entity, entity: void 0 }, as(hit), true));
+  const chain = el.partOf?.[f.relation] ?? [], { ok } = partOfHit(f, chain);
   const want = [f.entity?.entity && `/${f.entity.entity}/`, f.entity?.predefinedType ?? (f.entity?.predefinedTypePattern && `/${f.entity.predefinedTypePattern}/`)].filter(Boolean).join(" ");
   judgeHas(
     f.cardinality,
@@ -1597,6 +1600,11 @@ function checkPartOf(f, el, s, out) {
     s,
     out
   );
+}
+function partOfHit(f, chain) {
+  const as = (a) => ({ identity: { Class: a.Class, PredefinedType: a.PredefinedType } });
+  const hit = f.entity?.entity ? chain.find((a) => isEntity({ entity: f.entity.entity }, as(a), true)) : chain[0];
+  return { hit, ok: !!hit && (!f.entity || isEntity({ ...f.entity, entity: void 0 }, as(hit), true)) };
 }
 function judgeHas(card, present, ok, label, actual, s, out) {
   const push = (reason) => out.push({ specification: s.name, requirement: label, reason });
@@ -1936,7 +1944,7 @@ var PROPERTY_DATA_CONFIG = {
   attributesDefault: true,
   relations: {
     ...PSET_RELATIONS,
-    ...Object.fromEntries(["AssociatedTo", "PartOfPset", "Dimensions", "Elements"].map((k) => [k, { attributes: false, relations: false }])),
+    ...Object.fromEntries(["AssociatedTo", "PartOfPset", "Dimensions", "Elements", "ClassificationRefForObjects", "IsGroupedBy", "HasOpenings", "HasFillings"].map((k) => [k, { attributes: false, relations: false }])),
     ...Object.fromEntries([
       "HasAssociations",
       "ForLayerSet",
@@ -1949,13 +1957,19 @@ var PROPERTY_DATA_CONFIG = {
       "HasProperties",
       "Quantities",
       "Unit",
+      "DefiningUnit",
+      "DefinedUnit",
       "UnitsInContext",
       "Units",
       "ConversionFactor",
       "UnitComponent",
+      "ReferencedSource",
       "Decomposes",
       "Nests",
-      "ContainedInStructure"
+      "ContainedInStructure",
+      "HasAssignments",
+      "FillsVoids",
+      "VoidsElements"
     ].map((k) => [k, { attributes: true, relations: true }]))
   },
   relationsDefault: { attributes: false, relations: false }
@@ -2010,6 +2024,46 @@ function siValue(value, measure, own, units) {
   const s = own ? unitScale(own) ?? null : units && t in units.scale ? units.scale[t] : units?.unread ? null : 1;
   return s == null ? null : s === 1 ? void 0 : String(n * s);
 }
+var GROUP_CLASS = /^IFC(GROUP|SYSTEM|ZONE|DISTRIBUTIONSYSTEM|DISTRIBUTIONCIRCUIT|BUILDINGSYSTEM|BUILTSYSTEM|INVENTORY|ASSET|STRUCTURAL(ANALYSISMODEL|LOADGROUP|LOADCASE|RESULTGROUP))$/;
+function modelContext(items, schema) {
+  const cats = [...new Set(items.map((d) => String(val(d?._category) ?? "").toUpperCase()))], has = (re) => cats.some((c) => re.test(c));
+  return { units: modelUnits(items), schema, carries: { classification: has(/^IFCCLASSIFICATION(REFERENCE)?$/), groups: has(GROUP_CLASS), openings: has(/^IFCOPENING(ELEMENT|STANDARDCASE)$/) } };
+}
+function multiValues(p, si) {
+  const ifc = (t) => typeof t === "string" && /^IFC/i.test(t) ? t.toUpperCase() : void 0;
+  const items = (x) => Array.isArray(x) ? x.map((v) => ({ value: v?.value == null ? "" : String(v.value), type: ifc(v?.name) ?? ifc(v?.type) })) : Array.isArray(x?.value) ? x.value.map((v) => ({ value: String(v), type: ifc(x.type) })) : x?.value != null ? [{ value: String(x.value), type: ifc(x.name) ?? ifc(x.type) }] : [];
+  const conv = (vs, unit, column) => vs.map((v) => {
+    const s = si?.(v.value, v.type, unit);
+    return { ...v, ...s !== void 0 ? { si: s } : {}, ...column ? { column } : {} };
+  });
+  const bounds = ["UpperBoundValue", "LowerBoundValue", "SetPointValue"];
+  let values, type;
+  if (p && "EnumerationValues" in p) type = (values = items(p.EnumerationValues))[0]?.type;
+  else if (p && "ListValues" in p) type = (values = conv(items(p.ListValues), p.Unit))[0]?.type;
+  else if (p && bounds.some((k) => k in p)) {
+    values = conv(bounds.flatMap((k) => items(p[k])), p.Unit);
+    type = values[values.length - 1]?.type;
+  } else if (p && ("DefiningValues" in p || "DefinedValues" in p))
+    values = [...conv(items(p.DefiningValues), p.DefiningUnit, "Defining"), ...conv(items(p.DefinedValues), p.DefinedUnit, "Defined")];
+  return values ? { values, ...type ? { type } : {} } : void 0;
+}
+function classificationsOf(own, type) {
+  const cls = (x) => String(val(x?._category) ?? "").toUpperCase();
+  const chain = (r) => {
+    const rows = [];
+    let x = r;
+    for (let n = 0; x && cls(x) !== "IFCCLASSIFICATION" && n < 64; n++) {
+      rows.push(x);
+      x = all(x.ReferencedSource)[0];
+    }
+    const root = cls(x) === "IFCCLASSIFICATION" ? x : void 0, system = val(root?.Name);
+    return { key: root ? val(root._localId) ?? root.expressID ?? root : null, rows: rows.length ? rows.map((y) => ({ value: val(y.Identification) ?? val(y.ItemReference), system })) : [{ system }] };
+  };
+  const bySystem = /* @__PURE__ */ new Map();
+  for (const r of type) bySystem.set(chain(r).key, [...bySystem.get(chain(r).key) ?? [], r]);
+  for (const k of new Set(own.map((r) => chain(r).key))) bySystem.set(k, own.filter((r) => chain(r).key === k));
+  return [...bySystem.values()].flat().flatMap((r) => chain(r).rows);
+}
 function materialValues(m) {
   const cls = String(val(m?._category) ?? "").toUpperCase();
   if (cls === "IFCMATERIALLAYERSETUSAGE") return materialValues(all(m.ForLayerSet)[0]);
@@ -2019,7 +2073,8 @@ function materialValues(m) {
   const vs = cls === "IFCMATERIALLIST" ? all(m.Materials).flatMap(own) : /SET$/.test(cls) ? [cls === "IFCMATERIALLAYERSET" ? val(m.LayerSetName) : val(m.Name), ...items.flatMap((i) => [...own(i), ...own(all(i.Material)[0])])] : own(m);
   return [...new Set(vs.filter((v) => v != null))];
 }
-function parseElementProperties(data, modelId, localId, units, schema) {
+function parseElementProperties(data, modelId, localId, model) {
+  const units = model?.units, schema = model?.schema;
   const identity = {
     GlobalId: val(data?.["_guid"]) ?? val(data?.["GlobalId"]),
     Name: val(data?.["Name"]),
@@ -2055,6 +2110,11 @@ function parseElementProperties(data, modelId, localId, units, schema) {
         for (const p of hasProps) {
           const name = val(p?.["Name"]);
           if (!name && !val(p?.["_category"])) unread++;
+          const mv = name ? multiValues(p, (v, t, u) => siValue(v, t, all(u)[0], units)) : void 0;
+          if (mv) {
+            rows.push({ name, value: mv.values.map((x) => x.value).join(", "), ...mv.type ? { type: mv.type } : {}, values: mv.values });
+            continue;
+          }
           const value = val(p?.["NominalValue"]) ?? val(p?.["Value"]);
           const type2 = typeOf(p?.["NominalValue"]);
           const si = value != null ? siValue(value, type2, all(p?.["Unit"])[0], units) : void 0;
@@ -2079,12 +2139,20 @@ function parseElementProperties(data, modelId, localId, units, schema) {
   quantities.sort((a, b) => a.name.localeCompare(b.name));
   const matOf = (x) => arr(x?.["HasAssociations"]).find((a) => /^IFCMATERIAL/.test(String(val(a?.["_category"]) ?? "").toUpperCase()));
   const m = matOf(data) ?? matOf(typeItem);
+  const refsOf = (x) => arr(x?.["HasAssociations"]).filter((a) => /^IFCCLASSIFICATION(REFERENCE)?$/.test(String(val(a?.["_category"]) ?? "").toUpperCase()));
+  const classifications = model?.carries?.classification ? { classifications: classificationsOf(refsOf(data), refsOf(typeItem)) } : {};
   const first = (k) => {
     const id = Number(val(arr(data?.[k])[0]?.["_localId"]));
     return Number.isFinite(id) ? id : null;
   };
-  const parents = { aggregate: first("Decomposes"), nest: first("Nests"), container: first("ContainedInStructure") };
-  return { modelId, localId, identity, psets, quantities, ...type ? { type } : {}, material: m ? materialValues(m) : null, parents, ...schema ? { schema } : {} };
+  const parents = {
+    aggregate: first("Decomposes"),
+    nest: first("Nests"),
+    container: first("ContainedInStructure"),
+    ...model?.carries?.groups ? { group: first("HasAssignments") } : {},
+    ...model?.carries?.openings ? { fills: first("FillsVoids"), voids: first("VoidsElements") } : {}
+  };
+  return { modelId, localId, identity, psets, quantities, ...type ? { type } : {}, material: m ? materialValues(m) : null, ...classifications, parents, ...schema ? { schema } : {} };
 }
 
 // src/sentinel-core/layers.ts
@@ -2511,6 +2579,7 @@ export {
   carbonDiff,
   carbonOfSnapshot,
   checkFederation,
+  classificationsOf,
   costDiff,
   coverageGaps,
   csvToSchedule,
@@ -2530,7 +2599,9 @@ export {
   materialValues,
   missingFields,
   missingRequired,
+  modelContext,
   modelUnits,
+  multiValues,
   nameShape,
   netDelta,
   parseElementProperties,

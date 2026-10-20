@@ -14,14 +14,21 @@ const BASELINE = here("../../tools/ids-conformance/official-baseline.json");
 const key = (r) => `${r.facet}/${r.expected}-${r.name}`;
 const run = async (dir, reader) => { const rows = []; for (const c of listCases(dir)) rows.push(await runCase(c, reader)); return rows; };
 
+// Every .frag converted before 2026-10-20 (at the importer's default lists) lacks classification, groups, openings, multi-value
+// properties and conversion-based units: the viewer must say "not checked" there, never give a wrong verdict.
+it("a .frag converted at the importer's defaults: Sentinel's mini suite has no wrong verdict", async () => {
+  const rows = await run(MINI, "viewer-defaults");
+  expect(rows.filter((r) => outcome(r) === "wrong").map((r) => `${key(r)}: ${r.got} — ${r.why}`)).toEqual([]);
+  expect(rows.filter((r) => outcome(r) === "not checked").length).toBeGreaterThan(10);
+}, 300_000);
+
 describe.each(["viewer", "bridge"])("IDS 1.0 conformance, the %s reader", (reader) => {
-  it("Sentinel's mini suite: every case right, or said not checked (the viewer: classification, groups, voids and fills, a unit in feet, multi-value properties) — never a wrong verdict", async () => {
+  it("Sentinel's mini suite: every case right, or said not checked (the viewer: a model with no classification, or no opening, at all) — never a wrong verdict", async () => {
     const rows = await run(MINI, reader);
     expect(rows.length).toBe(53);
     expect(rows.filter((r) => outcome(r) === "wrong").map((r) => `${key(r)}: ${r.got} — ${r.why}`)).toEqual([]);
-    // That Open's fragments importer keeps no classification reference, group, opening fill, IfcConversionBasedUnit or multi-value property, so the viewer says so; the
-    // bridge reads them all.
-    expect(rows.filter((r) => outcome(r) === "not checked").map((r) => r.facet)).toEqual(reader === "viewer" ? [...Array(6).fill("classification"), ...Array(3).fill("partof"), ...Array(3).fill("property")] : []);
+    // A model with no classification, or no opening, at all: the viewer cannot tell "none" from "left out by an older converter".
+    expect(rows.filter((r) => outcome(r) === "not checked").map((r) => r.facet)).toEqual(reader === "viewer" ? ["classification", "partof"] : []);
   }, 300_000);
 
   it.skipIf(!existsSync(OFFICIAL))("buildingSMART's official cases: no case Sentinel had right goes wrong (official-baseline.json)", async () => {

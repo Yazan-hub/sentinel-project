@@ -7,7 +7,7 @@ export { validateElement, applies, adjudicate, judgeModel, missingRequired, unre
 export type { IdsSpec, IdsSpecification, IdsApplicability, ElementResult, Failure, Adjudication, RequirementGroup } from "./ids";
 export { parseIds } from "./ids-parse";
 // The viewer's reader (pure: its fragments import is a type), for the IDS conformance harness's viewer path.
-export { parseElementProperties, PROPERTY_DATA_CONFIG, materialValues, modelUnits, projectUnits, siValue } from "./adapter/element-properties";
+export { parseElementProperties, PROPERTY_DATA_CONFIG, materialValues, modelUnits, modelContext, projectUnits, siValue, multiValues, classificationsOf } from "./adapter/element-properties";
 export { validateContainerName } from "./naming";
 export type { NamingRuleset, NamingField, NamingResult, NamingFailure, NamingEnforce } from "./naming";
 export { mapLayer, validateLayers } from "./layers";

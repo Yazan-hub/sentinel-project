@@ -47,8 +47,10 @@ The suite is `tools/ids-conformance/official/`: `Documentation/testcases` of `gi
 | + SI units, bridge reader | 242 | 37 | 34 |
 | + partOf, viewer reader | 244 | 35 | 34 |
 | + partOf, bridge reader | 276 | 37 | 0 |
-| + multi-value properties, IFC2X3 class from the type, viewer reader | **239** | **26** | 48 |
+| + multi-value properties, IFC2X3 class from the type, viewer reader | 239 | 26 | 48 |
 | + multi-value properties, IFC2X3 class from the type, bridge reader | **285** | **28** | 0 |
+| + the converter keeps IDS data, viewer reader | **286** | **26** | 1 |
+| the same, a viewer `.frag` converted before 2026-10-20 | 239 | 26 | 48 |
 | IfcTester 0.9.0.post1 | 288 | 25 | — |
 
 **Before:** Sentinel answered every case and was wrong on 39% of them. 56 of its 190 "right" answers were
@@ -116,8 +118,8 @@ It is wrong on 14% of what it answers (35 of 279). The bridge is wrong on 12% (3
   says so, and IfcTester does not filter by version either. Filtering would make Sentinel wrong, so the version never
   changes a verdict. The viewer panel adds a note when a specification was written for another schema than the model's.
 
-**Why the viewer cannot see some data: Sentinel's converter settings.** Sentinel converts IFC to `.frag` with
-`IfcImporter` (`@thatopen/fragments` 3.4.7) at its default class and relation lists.
+**Why the viewer could not see some data: Sentinel's converter settings.** Until this change, Sentinel converted IFC to
+`.frag` with `IfcImporter` (`@thatopen/fragments` 3.4.7) at its default class and relation lists.
 
 The default classes leave out:
 - the enumerated, list, bounded, table and reference property values;
@@ -129,19 +131,41 @@ The default classes leave out:
 The default relations leave out classification, group, voids and fills.
 
 Adding IFCPROPERTYENUMERATEDVALUE to `classes.abstract` brought the enumerated values back in full (tried
-2026-10-20). So the data is not lost: the converter is not asked to keep it. Widening `WebApp/bridge/ifc-to-frag.mjs`
-and teaching the viewer reader the shapes is a follow-up. A `.frag` already converted keeps its gaps, which the viewer
-keeps saying. `docs/compliance/THATOPEN_FRAGMENTS_IMPORTER_NOTE_2026-10.md` is a note the founder can send to That Open.
+2026-10-20). So the data was not lost: the converter was not asked to keep it.
+`docs/compliance/THATOPEN_FRAGMENTS_IMPORTER_NOTE_2026-10.md` is a note the founder can send to That Open.
+
+**+ the converter keeps IDS data.** `WebApp/bridge/ifc-to-frag.mjs` now adds those classes to `classes.abstract`, so they
+are kept as data with no geometry. It adds the classification relation under the element's `HasAssociations` (beside its
+material, as IFC names it), and the group, voids and fills relations with That Open's names. The viewer reader reads the
+new shapes through the same functions as the bridge (`multiValues`, `classificationsOf`).
+- **Viewer: 286 right, 26 wrong, 1 not checked**, against IfcTester's 288 right. Its 26 wrong are the bridge's 28 less
+  two entity-kind differences.
+- **The one not checked:** an uncontained assembly in a model with no opening. The viewer cannot tell "no opening" from
+  "an opening left out by an older converter", so its "no container" stays unknown.
+- **A `.frag` converted before 2026-10-20** (every model already published) keeps its gaps. The viewer says "not
+  checked" there: 239 / 26 / 48, exactly as before, and CI holds it to no wrong verdict on the mini suite. A model whose
+  `.frag` holds no classification, group or opening at all is treated the same way, for the same reason.
+- **No geometry changes.** On every model measured, the items with geometry are the same: Aster Tower 602; the hospital's
+  7 models 63,182. Openings come through as data with no mesh (Aster Tower 168, the hospital 735).
+
+| model | IFC | `.frag` at the defaults | `.frag` keeping IDS data | change |
+|---|---:|---:|---:|---:|
+| Aster Tower (Revit, IFC2X3) | 1.4 MB | 206 KB | 216 KB | +5% |
+| West Riverside Hospital, 7 IFC4 models | 225.5 MB | 13.4 MB | 14.5 MB | +8.7% (the MEP models +14–18%) |
+
+Conversion time showed no slowdown. The hospital's 7 models took 41.9 s at the defaults and 38.6 s keeping IDS data,
+converted one after the other on this PC.
+
 
 | facet | cases | viewer right / wrong / not checked | bridge right / wrong / not checked | IfcTester right |
 |---|---:|---|---|---:|
-| attribute | 56 | 39 / 17 / 0 | 38 / 18 / 0 | 54 |
-| classification | 27 | 0 / 0 / 27 | **26** / 1 / 0 | 27 |
+| attribute | 56 | 40 / 16 / 0 | 38 / 18 / 0 | 54 |
+| classification | 27 | **26** / 1 / 0 | **26** / 1 / 0 | 27 |
 | entity | 24 | **24** / 0 / 0 | **24** / 0 / 0 | 24 |
 | ids (specification cardinality) | 12 | **12** / 0 / 0 | **12** / 0 / 0 | 11 |
 | material | 28 | **28** / 0 / 0 | **28** / 0 / 0 | 28 |
-| partof | 34 | **27** / 0 / 7 | **34** / 0 / 0 | 34 |
-| property | 74 | 57 / 3 / 14 | **71** / 3 / 0 | 72 |
+| partof | 34 | **33** / 0 / 1 | **34** / 0 / 0 | 34 |
+| property | 74 | **71** / 3 / 0 | **71** / 3 / 0 | 72 |
 | restriction | 22 | 17 / 5 / 0 | 17 / 5 / 0 | 22 |
 | tolerance | 36 | **35** / 1 / 0 | **35** / 1 / 0 | 16 |
 
@@ -149,11 +173,11 @@ By value restriction, viewer then bridge:
 - length 6 / 0 / 0 and 6 / 0 / 0
 - enumeration 14 / 1 / 0 and 14 / 1 / 0
 - bounds 11 / 5 / 0 and 11 / 5 / 0
-- pattern 29 / 1 / 21 and 48 / 3 / 0. The viewer's not-checked ones sit in the classification and partOf folders.
+- pattern 48 / 2 / 1 and 48 / 3 / 0. The viewer's one not checked is the partOf case above.
 
 By cardinality, viewer then bridge:
-- facet prohibited 4 / 0 / 2 and 6 / 0 / 0
-- facet optional 9 / 0 / 3 and 12 / 0 / 0
+- facet prohibited 6 / 0 / 0 and 6 / 0 / 0
+- facet optional 12 / 0 / 0 and 12 / 0 / 0
 - specification prohibited 3 / 0 / 0 and 3 / 0 / 0
 
 Every `entity/` and `ids/` case is right.
@@ -163,17 +187,20 @@ relative only. The v1.0.0 cases need 1e-6 relative **plus** 1e-6 absolute, and o
 that tolerance while an inclusive one loosens by it.
 
 **What the 26 wrong cases are (viewer).**
-- **22:** the IDS asks about IFC entities that are not building objects or types: IfcSurfaceStyleRefraction (12),
-  IfcTaskTime (4), IfcTask (2), IfcSurfaceStyleRendering (2), IfcClassification (1), IfcStairFlight's NumberOfRisers
-  (1). Sentinel's readers read objects and types, so the IDS finds nothing and a required specification fails.
+- **22:** the IDS asks about IFC entities that are not building objects or types, and Sentinel's readers read objects
+  and types, so the IDS finds nothing and a required specification fails:
+  - IfcSurfaceStyleRefraction (12), IfcTaskTime (4), IfcTask (2), IfcSurfaceStyleRendering (2);
+  - IfcStairFlight's NumberOfRisers (1);
+  - an IfcMaterial's classification (1).
+
+  The IfcClassification case among them is right now: the converter keeps that entity.
 - **2:** `invalid-integer_values_cannot_be_stored_with_decimal`. IfcTester passes them too.
 - **1:** a predefined property set (IfcDoorPanelProperties).
 - **1:** `tolerance/fail-…negative_high_number_lower_bound` differs from its pass twin by 1e-11. That is below what a
   double can hold near 10⁶, so the two are the same number to Sentinel, which reads it as a pass.
 
 The bridge reader's 28 differ from these by which entity kinds each reader holds: the fragments model also carries
-IfcQuantityCount and one more resource, the bridge reads IfcTask, and the bridge is wrong on the classification of an
-IfcMaterial (above), which the viewer says it cannot check.
+IfcQuantityCount, IfcClassification and one more resource, and the bridge reads IfcTask.
 
 ## 2. Sentinel's mini suite: 53 cases, every label stamped by IfcTester
 
@@ -219,6 +246,8 @@ The 3 cases added with multi-value properties and IFC2X3 cover:
 | + partOf, 50 cases, bridge | 50 | **0** | 0 |
 | + multi-value, IFC2X3, 53 cases, viewer | 41 | **0** | 12 (classification; groups, voids and fills; the length in feet; 2 multi-value properties) |
 | + multi-value, IFC2X3, 53 cases, bridge | **53** | **0** | 0 |
+| + the converter keeps IDS data, 53 cases, viewer | **51** | **0** | 2 (a model with no classification, or no opening, at all) |
+| the same, a viewer `.frag` converted before 2026-10-20 | 42 | **0** | 11 |
 
 ## 3. A real model: Aster Tower (Revit 2024, IFC2X3, imperial units, 799 objects and types)
 
@@ -229,8 +258,8 @@ The 3 cases added with multi-value properties and IFC2X3 cover:
 - 14 containments, and 168 doors and windows filling openings.
 
 - **Bridge:** 20 of 21 agree exactly with IfcTester (elements in scope, failing, verdict).
-- **Viewer:** 16 of 21 agree. It says "not checked" for S12 (a unit in feet), for S17 and S18 (classification) and for
-  S20 (voids and fills).
+- **Viewer:** 20 of 21 agree, as the bridge does. Before the converter kept IDS data, it said "not checked" for S12 (a
+  unit in feet), for S17 and S18 (classification) and for S20 (voids and fills).
 - **Both readers:** S10 differs only in how failing elements are counted (below).
 
 S1 to S14:
@@ -244,18 +273,17 @@ S1 to S14:
   prohibited specification, while Sentinel names all 224.
 - **S12 door width 0.8–1.2 m:** this used to differ: Sentinel compared 3.0 and failed every door.
   - Now the bridge converts the doors' 3 ft to 0.9144 m and gives 56 / 0 / pass, as IfcTester does.
-  - The viewer says "not checked": the model's foot is an IfcConversionBasedUnit, which the fragments model does not
-    carry.
+  - The viewer now does the same. The model's foot is an IfcConversionBasedUnit, which the converter now keeps.
 
 S15 to S18, added with classification and material:
 - **S15 walls carry a material:** 196 / 0 / pass for both readers and IfcTester.
 - **S16 a Gypsum Wall Board layer:** 196 / 32 / fail for both readers and IfcTester, read through the layer-set usages.
-- **S17 Uniformat, from the type:** the bridge and IfcTester give 196 / 0 / pass. The viewer says "not checked".
-- **S18 Uniformat B2010:** the bridge and IfcTester give 196 / 164 / fail. The viewer says "not checked".
+- **S17 Uniformat, from the type:** 196 / 0 / pass for both readers and IfcTester.
+- **S18 Uniformat B2010:** 196 / 164 / fail for both readers and IfcTester.
 
 S19 to S21, added with partOf:
 - **S19 walls are contained in a building storey:** 196 / 0 / pass for both readers and IfcTester.
-- **S20 windows fill an opening in a wall:** the bridge and IfcTester give 112 / 0 / pass. The viewer says "not checked".
+- **S20 windows fill an opening in a wall:** 112 / 0 / pass for both readers and IfcTester.
 - **S21 storeys are part of a building:** 15 / 0 / pass for both readers and IfcTester.
 
 ## What Sentinel judges, and what it does not
@@ -264,10 +292,10 @@ S19 to S21, added with partOf:
 |---|---|
 | entity (applicability or requirements) | the class written, upper case, never a subtype; a class list or pattern; predefinedType as one value, a list or a pattern, inherited from the type object, a USERDEFINED type named by ObjectType, ElementType or ProcessType. in IFC2X3, also the class its type names (IfcTester) |
 | attribute | any direct attribute with a plain value; a name given as a list or pattern; `""` fails even when optional. **Not:** attributes of entities that are not objects or types |
-| property | case-sensitive set and property names, or lists and patterns of them; dataType against the value's IFC type; single values and quantities; the type object's sets, inherited. values compared in SI units, from the property's own unit else the project's, for every named unit (an IfcConversionBasedUnit: bridge only; the viewer says "not checked"). enumerated, list, bounded and table values, met by any one value (a table's: the columns of the IDS dataType); **bridge only:** the viewer says "not checked" where a set holds a value its converter left unread. **Not:** predefined property sets; reference properties; derived units and temperatures, compared as written, as IfcTester does |
-| classification | the reference's Identification (IFC2X3: ItemReference) and every reference above it, against the value; the IfcClassification's Name against the system; each judged over all of the element's references, as IfcTester does; the type's references kept for a system the occurrence does not reference. **Bridge only:** the viewer's fragments model carries no classification, so the viewer says "not checked" for any specification that names one. **Not:** classifications of resources that are not objects or types (an IfcMaterial's) |
+| property | case-sensitive set and property names, or lists and patterns of them; dataType against the value's IFC type; single values and quantities; the type object's sets, inherited. values compared in SI units, from the property's own unit else the project's, for every named unit (both readers; a viewer `.frag` converted before 2026-10-20 has no IfcConversionBasedUnit, and says "not checked"). enumerated, list, bounded and table values, met by any one value (a table's: the columns of the IDS dataType); both readers; a viewer `.frag` converted before 2026-10-20 left these values out, and says "not checked" where a set holds one. **Not:** predefined property sets; reference properties; derived units and temperatures, compared as written, as IfcTester does |
+| classification | the reference's Identification (IFC2X3: ItemReference) and every reference above it, against the value; the IfcClassification's Name against the system; each judged over all of the element's references, as IfcTester does; the type's references kept for a system the occurrence does not reference. Both readers; a viewer `.frag` with no classification at all (converted before 2026-10-20, or a model without any) says "not checked". **Not:** classifications of resources that are not objects or types (an IfcMaterial's) |
 | material | the element's material, else its type's: a material's Name and Category; a list's materials'; a layer, profile or constituent set's own name and each item's Name, Category and material; a set usage read as its set. Both readers |
-| partOf | all five relations, as IfcTester reads them: aggregation and nesting walked up; containment, direct else the parent's container; the group; voids and fills; no relation: the get_parent walk with a group fallback. The entity and predefined type are judged on the first ancestor of that class. **Bridge only:** groups, voids and fills, and the no-relation walk; the viewer says "not checked" for them, and for an element whose container could be reached through an opening |
+| partOf | all five relations, as IfcTester reads them: aggregation and nesting walked up; containment, direct else the parent's container; the group; voids and fills; no relation: the get_parent walk with a group fallback. The entity and predefined type are judged on the first ancestor of that class. Both readers; a viewer `.frag` with no group or opening at all (converted before 2026-10-20, or a model without any) says "not checked" where the answer could lie beyond them |
 | value restrictions | simpleValue (text exact, numbers within 1e-6 relative + 1e-6 absolute), enumeration, pattern on the whole value, bounds with the same tolerance, length. **Not:** totalDigits, fractionDigits, whiteSpace (said); XSD-only regex syntax (`\i`, `\c`, class subtraction) runs as JavaScript regex |
 | facet cardinality | required, optional, prohibited ("shall not be X" fails X only) |
 | specification cardinality | an unstated `minOccurs` is 1 (the XSD's default): required. Prohibited everywhere; required on a whole model only (the viewer, a file judged on its own), never on a changeset or an intake's class subset |
@@ -285,17 +313,13 @@ S19 to S21, added with partOf:
   equal to `validateElement` on `WebApp/bridge/fixtures/lod-matrix/ids-cases.json`, which is unchanged by this work.
 
 ## Known gaps, most harmful first
-1. **The viewer cannot see some IFC data.** Sentinel's IFC → `.frag` converter runs That Open's importer at its
-   default class and relation lists (above), which leave out:
-   - classification (27 official cases);
-   - multi-value and reference properties (14 official cases);
-   - groups, and voids and fills (7 official partOf cases);
-   - conversion-based units, such as feet, inches and degrees (Aster S12).
-
-   The viewer says "not checked" for each and never guesses. The bridge reads them all. Widening the converter is the
-   follow-up. Derived units and temperatures are compared as written by both readers, and by IfcTester.
-2. **IDS about entities that are not objects or types:** tasks, styles, classifications as entities (22). An
-   IfcMaterial's classification is 1 more on the bridge. That's outside what Sentinel reads.
+1. **Every model already published has a `.frag` converted before 2026-10-20.** Those files lack classification,
+   multi-value properties, groups, openings and conversion-based units. The viewer says "not checked" for each, and
+   never guesses (official suite 239 / 26 / 48). Converting the IFC again gives the full read. A model with no
+   classification, group or opening at all is "not checked" for those facets too, as the viewer cannot tell it from an
+   older file. Derived units and temperatures are compared as written by both readers, and by IfcTester.
+2. **IDS about entities that are not objects or types:** tasks, styles, an IfcStairFlight's NumberOfRisers (21), and an
+   IfcMaterial's classification (1). That's outside what Sentinel reads.
 3. **Small ones:**
    - a predefined property set (IfcDoorPanelProperties, 1);
    - integers written with a decimal (2, which IfcTester passes too);
@@ -313,8 +337,10 @@ node tools/ids-conformance/run.mjs <file.ids> <file.ifc> --ifctester ift.json
 - On this PC Windows long paths are off, so run IfcTester from the main checkout or a short copy. A worktree path plus
   the longest case name passes 260 characters. Node and git handle it.
 - In CI, `WebApp/bridge/ids-conformance.test.mjs` runs both readers on both suites in about a minute, with no network:
-  - The mini suite fails on any wrong verdict, and on any "not checked" other than the viewer's classification, group,
-    voids-and-fills, any-relation and multi-value cases and its length in feet.
-  - The official suite fails if any case in `official-baseline.json` (239 viewer, 285 bridge) stops being right.
+  - The mini suite fails on any wrong verdict, and on any "not checked" other than the viewer's 2 (a model with no
+    classification, or no opening, at all).
+  - A viewer `.frag` converted at the importer's defaults, as before 2026-10-20, must give no wrong verdict on the mini
+    suite.
+  - The official suite fails if any case in `official-baseline.json` (286 viewer, 285 bridge) stops being right.
     The 5 viewer cases that were right only by luck left the baseline with the multi-value step.
 - After a fix, rerun with `--baseline` to raise the bar.
