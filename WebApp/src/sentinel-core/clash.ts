@@ -37,27 +37,37 @@ export function boxesClash(a: Aabb, b: Aabb, tol: number): { overlap: [number, n
 }
 
 /**
- * Broad-phase clashes between two item sets. Sort both by min-x, sweep a start pointer past boxes that can
- * no longer overlap, and AABB-test the remaining X-overlapping candidates. `tol` = min penetration (m);
- * `cap` bounds the result set (very dense models can produce huge counts).
+ * Broad-phase clashes between two item sets. Sort both by min-x and sweep: each a is tested against the b-items
+ * that started at or left of it and still reach it (the active list), then the b-items that start inside it.
+ * `tol` = min penetration (m); `cap` bounds the result set (very dense models can produce huge counts).
+ *
+ * The active list drops each expired item on its own. A single start pointer (the sweep before 2026-10-21) could
+ * only skip a contiguous prefix, so it stalled behind the first long element (a slab across the building) and every
+ * later a re-scanned all b after it: 7.5 s for the hospital's 40k elements. Same pairs, same order.
  */
 export function findClashes(setA: ClashItem[], setB: ClashItem[], tol = 0.02, cap = 20000): Clash[] {
   const a = [...setA].sort((p, q) => p.box.min[0] - q.box.min[0]);
   const b = [...setB].sort((p, q) => p.box.min[0] - q.box.min[0]);
   const out: Clash[] = [];
-  let start = 0;
+  const active: ClashItem[] = []; // b-items with min-x ≤ this a's, in min-x order
+  let next = 0;
+  const test = (ia: ClashItem, ib: ClashItem) => {
+    const r = boxesClash(ia.box, ib.box, tol);
+    if (!r) return false;
+    out.push({ id: clashSignature(ia, ib), a: ia, b: ib, overlap: r.overlap, volume: r.volume });
+    return out.length >= cap;
+  };
   for (const ia of a) {
-    // Advance the sweep front past b-items whose max-x is already left of this (and every later) a.
-    while (start < b.length && b[start].box.max[0] <= ia.box.min[0] + tol) start++;
-    for (let j = start; j < b.length; j++) {
-      const ib = b[j];
-      if (ib.box.min[0] >= ia.box.max[0] - tol) break; // sorted by min-x → no further X overlap
-      const r = boxesClash(ia.box, ib.box, tol);
-      if (r) {
-        out.push({ id: clashSignature(ia, ib), a: ia, b: ib, overlap: r.overlap, volume: r.volume });
-        if (out.length >= cap) return out;
-      }
+    while (next < b.length && b[next].box.min[0] <= ia.box.min[0]) active.push(b[next++]);
+    let keep = 0;
+    for (const ib of active) {
+      if (ib.box.max[0] <= ia.box.min[0] + tol) continue; // left of this a, so of every later a too: dropped
+      active[keep++] = ib;
+      if (test(ia, ib)) return out;
     }
+    active.length = keep;
+    for (let j = next; j < b.length && b[j].box.min[0] < ia.box.max[0] - tol; j++) // sorted by min-x → no further X overlap
+      if (test(ia, b[j])) return out;
   }
   return out;
 }

@@ -17,7 +17,7 @@
 import { computeClashRun, type ClashItem, type ClashComputation } from "../clash";
 
 // ---- inline worker source (faithful copy of ../clash.ts core) --------------------------------------------
-const WORKER_SRC = `
+export const WORKER_SRC = `
 function boxesClash(a, b, tol) {
   var ox = Math.min(a.max[0], b.max[0]) - Math.max(a.min[0], b.min[0]);
   var oy = Math.min(a.max[1], b.max[1]) - Math.max(a.min[1], b.min[1]);
@@ -36,19 +36,27 @@ function findClashes(setA, setB, tol, cap) {
   var a = setA.slice().sort(function (p, q) { return p.box.min[0] - q.box.min[0]; });
   var b = setB.slice().sort(function (p, q) { return p.box.min[0] - q.box.min[0]; });
   var out = [];
-  var start = 0;
+  var active = [];
+  var next = 0;
+  function test(ia, ib) {
+    var r = boxesClash(ia.box, ib.box, tol);
+    if (!r) return false;
+    out.push({ id: clashSignature(ia, ib), a: ia, b: ib, overlap: r.overlap, volume: r.volume });
+    return out.length >= cap;
+  }
   for (var ai = 0; ai < a.length; ai++) {
     var ia = a[ai];
-    while (start < b.length && b[start].box.max[0] <= ia.box.min[0] + tol) start++;
-    for (var j = start; j < b.length; j++) {
-      var ib = b[j];
-      if (ib.box.min[0] >= ia.box.max[0] - tol) break;
-      var r = boxesClash(ia.box, ib.box, tol);
-      if (r) {
-        out.push({ id: clashSignature(ia, ib), a: ia, b: ib, overlap: r.overlap, volume: r.volume });
-        if (out.length >= cap) return out;
-      }
+    while (next < b.length && b[next].box.min[0] <= ia.box.min[0]) active.push(b[next++]);
+    var keep = 0;
+    for (var k = 0; k < active.length; k++) {
+      var ib = active[k];
+      if (ib.box.max[0] <= ia.box.min[0] + tol) continue;
+      active[keep++] = ib;
+      if (test(ia, ib)) return out;
     }
+    active.length = keep;
+    for (var j = next; j < b.length && b[j].box.min[0] < ia.box.max[0] - tol; j++)
+      if (test(ia, b[j])) return out;
   }
   return out;
 }

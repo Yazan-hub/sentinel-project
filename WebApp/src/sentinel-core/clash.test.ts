@@ -109,3 +109,48 @@ describe("computeClashRun (the off-thread orchestration)", () => {
     expect(computeClashRun([[item(1, box([0, 0, 0], [1, 1, 1]))]]).clashes).toHaveLength(0);
   });
 });
+
+describe("findClashes with long elements (large-model benchmark 2026-10-21)", () => {
+  // The single-pointer sweep it replaced: the same pairs, but it stalled behind the first long element.
+  const prefixSweep = (setA: ClashItem[], setB: ClashItem[], tol = 0.02, cap = 20000) => {
+    const a = [...setA].sort((p, q) => p.box.min[0] - q.box.min[0]);
+    const b = [...setB].sort((p, q) => p.box.min[0] - q.box.min[0]);
+    const out: string[] = [];
+    let start = 0;
+    for (const ia of a) {
+      while (start < b.length && b[start].box.max[0] <= ia.box.min[0] + tol) start++;
+      for (let j = start; j < b.length; j++) {
+        if (b[j].box.min[0] >= ia.box.max[0] - tol) break;
+        if (boxesClash(ia.box, b[j].box, tol)) { out.push(clashSignature(ia, b[j])); if (out.length >= cap) return out; }
+      }
+    }
+    return out;
+  };
+  let seed = 7;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  // Mostly short elements along 100 m, one in twenty a long one (a slab, a main duct) across most of it.
+  const scene = (modelId: string, n: number) => Array.from({ length: n }, (_, i) => {
+    const x = rnd() * 100, y = rnd() * 10, z = rnd() * 10, long = rnd() < 0.05;
+    return mItem(modelId, i, box([x, y, z], [x + (long ? 60 : rnd() * 3), y + rnd() * 3, z + rnd() * 3]));
+  });
+  const A = scene("A", 800), B = scene("B", 800);
+  const ids = (cs: { id: string }[]) => cs.map((c) => c.id);
+
+  it("finds exactly the pairs of the single-pointer sweep, in the same order, also when capped and against itself", () => {
+    const want = prefixSweep(A, B);
+    expect(want.length).toBeGreaterThan(1000);
+    expect(ids(findClashes(A, B))).toEqual(want);
+    expect(ids(findClashes(A, B, 0.02, 137))).toEqual(prefixSweep(A, B, 0.02, 137));
+    expect(ids(findClashes(A, A))).toEqual(prefixSweep(A, A));
+  });
+
+  it("the worker's copy finds the same as clash.ts (the two are kept in lock-step by hand)", async () => {
+    const { WORKER_SRC } = await import("./adapter/clash-worker");
+    const blob = new Function("self", `${WORKER_SRC}; return { findClashes, computeClashRun };`)({}) as
+      { findClashes: typeof findClashes; computeClashRun: (s: ClashItem[][], k: Set<string>, t: number) => { total: number; clashes: { id: string }[] } };
+    expect(ids(blob.findClashes(A, B, 0.02, 20000))).toEqual(ids(findClashes(A, B)));
+    const sets = [A, B, scene("C", 300)];
+    const run = computeClashRun(sets), wrk = blob.computeClashRun(sets, new Set(), 0.02);
+    expect([wrk.total, ids(wrk.clashes)]).toEqual([run.total, ids(run.clashes)]);
+  });
+});
