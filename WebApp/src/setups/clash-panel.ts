@@ -8,7 +8,7 @@ import * as FRAGS from "@thatopen/fragments";
 import { runClash, confirmOnSolids } from "../sentinel-core/adapter/model-clash";
 import { confirm, runSentence, type ClashMode, type ConfirmResult } from "../sentinel-core/clash-confirm";
 import { clashSignature, type Clash } from "../sentinel-core/clash";
-import { groupHits, groupTitle, groupInstruction, plainCategory, type TriageHit, type TriageGroup, type TriageSide } from "../sentinel-core/clash-triage";
+import { groupHits, groupTitle, groupInstruction, plainCategory, disciplinesOf, type TriageHit, type TriageGroup, type TriageSide } from "../sentinel-core/clash-triage";
 import { getAppManager } from "../app";
 import { escapeHtml as esc } from "./escape-html";
 
@@ -412,6 +412,7 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
   let owners: Record<string, string> = {};
   let memberEmails: string[] = [];
   const groupOwner = new Map<string, string>(); // a per-group owner chosen before raising
+  let groupBy: "full" | "pair" = "full"; // "pair" = one group per element pair (levels and disciplines folded in)
   const NAC_REASON = "touching faces, no overlap volume";
   const sideOf = (c: Clash, s: "a" | "b", info: Map<string, ElemInfo>): TriageSide => {
     const i = info.get(`${c[s].modelId}:${c[s].localId}`);
@@ -447,16 +448,18 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
     if (view === "groups") renderGroups();
   }
 
-  const currentGroups = () => groupHits([...runHits, ...imported.filter((h) => !runHits.some((r) => r.id === h.id))]);
+  const currentGroups = () => groupHits([...runHits, ...imported.filter((h) => !runHits.some((r) => r.id === h.id))], groupBy);
 
   function renderGroups() {
     const host = el("cl-list");
     const groups = currentGroups();
     const top = `<div style="display:flex;gap:.4rem;align-items:center;padding:.2rem .4rem .45rem;font-size:11px;color:#9ca3af">` +
       `<span style="flex:1">${groups.length ? `${groups.length} group(s) · ${groups.reduce((n, g) => n + g.hits.length, 0)} clash(es)` : ""}</span>` +
+      ([["full", "Pair · level · discipline", "Groups by element pair, level and the discipline that gives way"], ["pair", "Pair only", "One group per element pair — levels and disciplines folded in"]] as const)
+        .map(([b, label, tip]) => `<button class="cl-by" data-b="${esc(b)}" style="${btn};padding:.15rem .4rem;font-size:11px;background:${groupBy === b ? "#22303a" : "#1f1f27"}" title="${esc(tip)}">${esc(label)}</button>`).join("") +
       `<button id="cl-imp" style="${btn};padding:.15rem .4rem;font-size:11px" title="Add open Clash Issues that came in as BCF (Navisworks, ACC) to these groups">＋ Imported BCF</button></div>`;
     if (!groups.length) { host.innerHTML = top + '<div style="color:#9ca3af;font-size:12px;padding:.6rem">No new clashes to group. Run clash (or add imported BCF clashes).</div>'; wireGroups([]); return; }
-    const disciplines = [...new Set(groups.map((g) => g.discipline))].sort();
+    const disciplines = [...new Set(groups.flatMap(disciplinesOf))].sort();
     const pick = (cls: string, data: string, cur: string) => `<select class="${esc(cls)}" data-k="${esc(data)}" style="background:#111;color:#eee;border:1px solid #333;border-radius:.25rem;font:11px system-ui;padding:.1rem .2rem;max-width:12rem">` +
       `<option value="">— nobody —</option>` + [...new Set([...memberEmails, ...(cur ? [cur] : [])])].map((e) => `<option value="${esc(e)}"${e === cur ? " selected" : ""}>${esc(e)}</option>`).join("") + `</select>`;
     host.innerHTML = top +
@@ -483,6 +486,7 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
   function wireGroups(groups: TriageGroup[]) {
     const host = el("cl-list");
     host.querySelector<HTMLElement>("#cl-imp")?.addEventListener("click", addImported);
+    host.querySelectorAll<HTMLElement>(".cl-by").forEach((b) => b.addEventListener("click", () => { groupBy = b.dataset.b as "full" | "pair"; renderGroups(); }));
     host.querySelectorAll<HTMLSelectElement>(".cl-own-d").forEach((s) => s.addEventListener("change", () => saveOwners(s.dataset.k!, s.value)));
     host.querySelectorAll<HTMLSelectElement>(".cl-own-g").forEach((s) => s.addEventListener("change", () => { groupOwner.set(s.dataset.k!, s.value); }));
     host.querySelectorAll<HTMLElement>(".cl-g-show").forEach((b) => b.addEventListener("click", () => showGroup(groups[Number(b.dataset.i)])));

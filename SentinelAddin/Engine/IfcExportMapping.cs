@@ -20,8 +20,11 @@ public sealed class IfcExportMapping
 {
     public sealed class Prop { public string Name = "", Type = "", RevitParameter = ""; }
     public sealed class Pset { public string Name = "", Level = "", Classes = ""; public List<Prop> Properties = new(); }
+    /// <summary>export_as (2026-10-21): the IFC class a family's types export as; Type "" = every type of the family, PredefinedType "" = none.</summary>
+    public sealed class ExportAsRow { public string Family = "", Type = "", IfcClass = "", PredefinedType = ""; }
 
     public string Label = "";
+    public List<ExportAsRow> ExportAs = new();
     /// <summary>common_psets when the body states it (ExportIFCCommonPropertySets), else null — the exporter's own default stands.</summary>
     public bool? CommonPsets;
     public List<Pset> Psets = new();
@@ -34,6 +37,8 @@ public sealed class IfcExportMapping
     private static readonly Regex PsetName = new(@"\A[A-Za-z][A-Za-z0-9_]{0,63}\z");
     private static readonly Regex PropName = new(@"\A[A-Za-z][A-Za-z0-9_ ]{0,63}\z");
     private static readonly Regex IfcClass = new(@"\AIfc[A-Z][A-Za-z0-9]*\z");
+    private static readonly Regex Predefined = new(@"\A[A-Z][A-Z0-9_]{0,63}\z");
+    private static bool OneLine(string s) => Filled(s) && s.Length <= 256 && s.IndexOfAny(new[] { '\t', '\r', '\n' }) < 0;
 
     // The Revit 2027 exporter's data-type list (DefaultUserDefinedParameterSets.txt); WebApp/bridge/artefact-store.mjs IFC_EXPORT_TYPES is the same list.
     private static readonly HashSet<string> Types = new(("Acceleration AngularVelocity Area AreaDensity Boolean ClassificationReference ColorTemperature Count Currency " +
@@ -73,14 +78,45 @@ public sealed class IfcExportMapping
             var o = doc.RootElement;
             if (o.ValueKind != JsonValueKind.Object) throw Bad("body", "must be an object");
             foreach (var p in o.EnumerateObject())
-                if (p.Name != "label" && p.Name != "psets" && p.Name != "common_psets")
-                    throw Bad(p.Name, "is not an ifc_export field — the body is {label, psets, common_psets?}");
+                if (p.Name != "label" && p.Name != "psets" && p.Name != "common_psets" && p.Name != "export_as")
+                    throw Bad(p.Name, "is not an ifc_export field — the body is {label, psets, common_psets?, export_as?}");
             var m = new IfcExportMapping();
             if (!o.TryGetProperty("label", out var lb) || lb.ValueKind != JsonValueKind.String || !Filled(lb.GetString()!) || lb.GetString()!.Length > 300) throw Bad("label", "must be 1 to 300 characters");
             m.Label = lb.GetString()!;
             if (o.TryGetProperty("common_psets", out var cp) && cp.ValueKind != JsonValueKind.Null)
                 m.CommonPsets = cp.ValueKind is JsonValueKind.True or JsonValueKind.False ? cp.GetBoolean() : throw Bad("common_psets", "must be true or false");
-            if (!o.TryGetProperty("psets", out var ps) || ps.ValueKind != JsonValueKind.Array || ps.GetArrayLength() is 0 or > 64) throw Bad("psets", "must be an array of 1 to 64 property sets");
+            if (o.TryGetProperty("export_as", out var ea) && ea.ValueKind != JsonValueKind.Null)
+            {
+                if (ea.ValueKind != JsonValueKind.Array || ea.GetArrayLength() > 256) throw Bad("export_as", "must be an array of at most 256 rows");
+                int k = 0;
+                var rowKeys = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var r in ea.EnumerateArray())
+                {
+                    var at = $"export_as[{k++}]";
+                    if (r.ValueKind != JsonValueKind.Object) throw Bad(at, "must be an object");
+                    foreach (var p in r.EnumerateObject())
+                        if (p.Name is not ("family" or "type" or "ifc_class" or "predefined_type"))
+                            throw Bad($"{at}.{p.Name}", "is not an export_as field — a row is exactly {family, type?, ifc_class, predefined_type?}");
+                    var row = new ExportAsRow();
+                    if (!r.TryGetProperty("family", out var f) || f.ValueKind != JsonValueKind.String || !OneLine(f.GetString()!)) throw Bad(at + ".family", "must be one line of 1 to 256 characters with no tab or line break");
+                    row.Family = f.GetString()!;
+                    if (r.TryGetProperty("type", out var ty) && ty.ValueKind != JsonValueKind.Null)
+                    {
+                        if (ty.ValueKind != JsonValueKind.String || !OneLine(ty.GetString()!)) throw Bad(at + ".type", "must be one line of 1 to 256 characters with no tab or line break, or left out (every type of the family)");
+                        row.Type = ty.GetString()!;
+                    }
+                    if (!r.TryGetProperty("ifc_class", out var ic) || ic.ValueKind != JsonValueKind.String || !IfcClass.IsMatch(ic.GetString()!)) throw Bad(at + ".ifc_class", "must be an IFC class in the exporter's spelling (IfcMember, not IFCMEMBER)");
+                    row.IfcClass = ic.GetString()!;
+                    if (r.TryGetProperty("predefined_type", out var pd) && pd.ValueKind != JsonValueKind.Null)
+                    {
+                        if (pd.ValueKind != JsonValueKind.String || !Predefined.IsMatch(pd.GetString()!)) throw Bad(at + ".predefined_type", "must be an IFC predefined type in capitals (MULLION, USERDEFINED), or left out");
+                        row.PredefinedType = pd.GetString()!;
+                    }
+                    if (!rowKeys.Add(row.Family.ToLowerInvariant() + "\t" + row.Type.ToLowerInvariant())) throw Bad(at, "repeats another row's family and type — each family (and type) is mapped once (compared without case)");
+                    m.ExportAs.Add(row);
+                }
+            }
+            if (!o.TryGetProperty("psets", out var ps) || ps.ValueKind != JsonValueKind.Array || (ps.GetArrayLength() == 0 && m.ExportAs.Count == 0) || ps.GetArrayLength() > 64) throw Bad("psets", "must be an array of 1 to 64 property sets");
             int i = 0;
             var setNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var s in ps.EnumerateArray())
@@ -184,8 +220,30 @@ public sealed class IfcExportMapping
         }
         o["psets"] = sets;
         if (CommonPsets is { } cp) o["common_psets"] = cp;
+        if (ExportAs.Count > 0)
+        {
+            var rows = new System.Text.Json.Nodes.JsonArray();
+            foreach (var r in ExportAs)
+            {
+                var q = new System.Text.Json.Nodes.JsonObject { ["family"] = r.Family };
+                if (r.Type.Length > 0) q["type"] = r.Type;
+                q["ifc_class"] = r.IfcClass;
+                if (r.PredefinedType.Length > 0) q["predefined_type"] = r.PredefinedType;
+                rows.Add(q);
+            }
+            o["export_as"] = rows;
+        }
         return o.ToJsonString();
     }
+
+    /// <summary>The export_as row for one Revit type: the row naming its family and type, else its family's row with no type; null = the exporter's own class.</summary>
+    public ExportAsRow? RowFor(string family, string type) =>
+        ExportAs.FirstOrDefault(r => Same(r.Family, family) && r.Type.Length > 0 && Same(r.Type, type))
+        ?? ExportAs.FirstOrDefault(r => Same(r.Family, family) && r.Type.Length == 0);
+    private static bool Same(string a, string b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>What Revit's "Export Type to IFC As" holds for a row: "IfcMember.MULLION", or the class alone.</summary>
+    public static string ExportAsValue(ExportAsRow r) => r.PredefinedType.Length > 0 ? r.IfcClass + "." + r.PredefinedType : r.IfcClass;
 
     /// <summary>What the window would send, said in a person's words — or null. The window trims what was typed first; the
     /// bridge (and <see cref="FromBody"/>, its twin) stays the judge.</summary>
@@ -193,7 +251,19 @@ public sealed class IfcExportMapping
     {
         if (!Filled(Label)) return "Name this mapping (for example: Client EIR 2026 property sets).";
         if (Label.Length > 300) return "The mapping's name is longer than 300 characters.";
-        if (Psets.Count == 0) return "Add at least one property set.";
+        if (Psets.Count == 0 && ExportAs.Count == 0) return "Add at least one property set or one export-as row.";
+        if (ExportAs.Count > 256) return "A mapping holds at most 256 export-as rows.";
+        var rowKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (int i = 0; i < ExportAs.Count; i++)
+        {
+            var r = ExportAs[i];
+            var what = r.Family.Length > 0 ? $"Export-as row “{r.Family}{(r.Type.Length > 0 ? " : " + r.Type : "")}”" : $"Export-as row {i + 1}";
+            if (!OneLine(r.Family)) return $"{what}: choose the family (one line, at most 256 characters).";
+            if (r.Type.Length > 0 && !OneLine(r.Type)) return $"{what}: the type is one line of at most 256 characters, or blank for every type.";
+            if (!IfcClass.IsMatch(r.IfcClass)) return $"{what}: choose the IFC class it exports as, written like IfcMember.";
+            if (r.PredefinedType.Length > 0 && !Predefined.IsMatch(r.PredefinedType)) return $"{what}: a predefined type is capitals, digits and _ (MULLION, USERDEFINED), or blank.";
+            if (!rowKeys.Add(r.Family + "\t" + r.Type)) return $"{what} is mapped twice (capitals ignored).";
+        }
         if (Psets.Count > 64) return "A mapping holds at most 64 property sets.";
         var setNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         for (int i = 0; i < Psets.Count; i++)
@@ -229,5 +299,6 @@ public sealed class IfcExportMapping
     /// <summary>The one-line description the dialog prints: "ifc_export@2 · 3f07a1b2c3d4… (2 property sets)".</summary>
     public string Describe() => (Ref.Length > 0 ? Ref : "ifc_export") + (Sha256.Length >= 12 ? " · " + Sha256.Substring(0, 12) + "…" : "") +
         (CachedAt is { } at ? $" (cached {at.ToLocalTime():HH:mm})" : "") +
-        " (" + Psets.Count + " property set" + (Psets.Count == 1 ? "" : "s") + ")";
+        " (" + Psets.Count + " property set" + (Psets.Count == 1 ? "" : "s") +
+        (ExportAs.Count > 0 ? ", " + ExportAs.Count + " export-as row" + (ExportAs.Count == 1 ? "" : "s") : "") + ")";
 }

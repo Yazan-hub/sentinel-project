@@ -417,11 +417,29 @@ export function validateArtefact(kind, body) {
   if (kind === "ifc_export") {
     // MA-8-6 (P1-11): the office's property-set mapping for the IFC export. The add-in writes the exporter's tab-separated file from it at export
     // time, so a tab, CR or LF in any name would add psets to that file: refused here, as IfcExportMapping.cs refuses it.
-    const stray = Object.keys(body).find((k) => !["label", "psets", "common_psets"].includes(k));
-    if (stray !== undefined) throw bad(kind, stray, "is not an ifc_export field — the body is {label, psets, common_psets?}");
+    const stray = Object.keys(body).find((k) => !["label", "psets", "common_psets", "export_as"].includes(k));
+    if (stray !== undefined) throw bad(kind, stray, "is not an ifc_export field — the body is {label, psets, common_psets?, export_as?}");
     if (!filled(body.label) || body.label.length > 300) throw bad(kind, "label", "must be 1 to 300 characters");
     if (body.common_psets != null && typeof body.common_psets !== "boolean") throw bad(kind, "common_psets", "must be true or false");
-    if (!Array.isArray(body.psets) || !body.psets.length || body.psets.length > 64) throw bad(kind, "psets", "must be an array of 1 to 64 property sets");
+    // export_as (2026-10-21): the IFC class a Revit family's types export as. The add-in writes Revit's own "Export Type to IFC As" (and "Type IFC
+    // Predefined Type") inside the export's rolled-back transaction, so the model is never changed. A row is {family, type?, ifc_class, predefined_type?}.
+    if (body.export_as != null && (!Array.isArray(body.export_as) || body.export_as.length > 256)) throw bad(kind, "export_as", "must be an array of at most 256 rows");
+    const exportAs = body.export_as ?? [];
+    const line = (v) => typeof v === "string" && filled(v) && v.length <= 256 && !/[\t\r\n]/.test(v);
+    const rowKeys = new Set();
+    objects(kind, "export_as", exportAs, (r, at) => {
+      const strayR = Object.keys(r).find((k) => !["family", "type", "ifc_class", "predefined_type"].includes(k));
+      if (strayR !== undefined) throw bad(kind, `${at}.${strayR}`, "is not an export_as field — a row is exactly {family, type?, ifc_class, predefined_type?}");
+      if (!line(r.family)) throw bad(kind, `${at}.family`, "must be one line of 1 to 256 characters with no tab or line break");
+      if (r.type != null && !line(r.type)) throw bad(kind, `${at}.type`, "must be one line of 1 to 256 characters with no tab or line break, or left out (every type of the family)");
+      if (typeof r.ifc_class !== "string" || !/^Ifc[A-Z][A-Za-z0-9]*$/.test(r.ifc_class)) throw bad(kind, `${at}.ifc_class`, "must be an IFC class in the exporter's spelling (IfcMember, not IFCMEMBER)");
+      if (r.predefined_type != null && !(typeof r.predefined_type === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(r.predefined_type)))
+        throw bad(kind, `${at}.predefined_type`, "must be an IFC predefined type in capitals (MULLION, USERDEFINED), or left out");
+      const k = `${r.family.toLowerCase()}\t${(r.type ?? "").toLowerCase()}`;
+      if (rowKeys.has(k)) throw bad(kind, at, "repeats another row's family and type — each family (and type) is mapped once (compared without case)");
+      rowKeys.add(k);
+    });
+    if (!Array.isArray(body.psets) || (!body.psets.length && !exportAs.length) || body.psets.length > 64) throw bad(kind, "psets", "must be an array of 1 to 64 property sets");
     const setNames = new Set();
     objects(kind, "psets", body.psets, (ps, at) => {
       const strayPs = Object.keys(ps).find((k) => !["name", "level", "classes", "properties"].includes(k));

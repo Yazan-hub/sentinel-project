@@ -85,7 +85,10 @@ public sealed class IfcExportEditorCommand : IExternalCommand
                 if (el != null)
                     foreach (Parameter p in el.Parameters)
                         if (!string.IsNullOrWhiteSpace(p.Definition?.Name)) names.Add(p.Definition.Name);
-        var win = new IfcExportWindow(ctx.Key, names.ToList());
+        // export_as rows pick a family by the name Revit gives its types (ElementType.FamilyName: loadable and system families alike).
+        var families = new FilteredElementCollector(doc).WhereElementIsElementType().Cast<ElementType>().Select(t => t.FamilyName)
+            .Where(f => !string.IsNullOrWhiteSpace(f)).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(f => f, StringComparer.OrdinalIgnoreCase).ToList();
+        var win = new IfcExportWindow(ctx.Key, names.ToList(), families);
         new System.Windows.Interop.WindowInteropHelper(win) { Owner = c.Application.MainWindowHandle };
         win.Show();
         win.Load();
@@ -444,12 +447,15 @@ public sealed class IfcExportWindow : StandardEditorWindow
     private readonly ComboBox _common = new() { Width = 320, ItemsSource = new[] { "The exporter's default", "Yes — also export them", "No" } };
     private readonly ListBox _sets = new() { Width = 200, MinHeight = 240 };
     private readonly StackPanel _set = new() { Margin = new Thickness(12, 0, 0, 0) };
+    private readonly List<string> _families;
+    private readonly StackPanel _rows = new();
     private bool _quiet;
 
-    public IfcExportWindow(string key, List<string> parameterNames) : base(key, "ifc_export", "IFC Export Mapping",
-        "The property sets Governed Publish asks Revit's IFC exporter to write: each set's name, the IFC classes it goes on and its properties, each read from a Revit parameter of this model (blank = the parameter of the property's name).")
+    public IfcExportWindow(string key, List<string> parameterNames, List<string> families) : base(key, "ifc_export", "IFC Export Mapping",
+        "The property sets Governed Publish asks Revit's IFC exporter to write: each set's name, the IFC classes it goes on and its properties, each read from a Revit parameter of this model (blank = the parameter of the property's name). Below them, the IFC class chosen families export as.")
     {
         _params = parameterNames;
+        _families = families;
         Body.Children.Add(Field("Name of this mapping, e.g. Client EIR 2026 property sets", _label, 520));
         Body.Children.Add(Field("IFC common property sets (Pset_WallCommon …)", _common, 320));
         Body.Children.Add(Heading("Property sets"));
@@ -464,6 +470,10 @@ public sealed class IfcExportWindow : StandardEditorWindow
         row.Children.Add(left);
         row.Children.Add(_set);
         Body.Children.Add(row);
+        Body.Children.Add(Heading("Export as"));
+        Body.Children.Add(new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = Brushes.DimGray, Margin = new Thickness(0, 0, 0, 4),
+            Text = "The IFC class a family's types export as (for example a family Revit exports as IfcBuildingElementProxy). Sentinel sets Revit's own “Export Type to IFC As” for the export only — the model is put back as it was. Type blank = every type of the family." });
+        Body.Children.Add(_rows);
         _label.TextChanged += (_, _) => _m.Label = _label.Text.Trim();
         _common.SelectionChanged += (_, _) => _m.CommonPsets = _common.SelectedIndex switch { 1 => true, 2 => false, _ => null };
         _sets.SelectionChanged += (_, _) => { if (!_quiet) DrawSet(); };
@@ -475,6 +485,7 @@ public sealed class IfcExportWindow : StandardEditorWindow
         _label.Text = _m.Label;
         _common.SelectedIndex = _m.CommonPsets switch { true => 1, false => 2, _ => 0 };
         RefreshSets(0);
+        DrawRows();
     }
 
     protected override string BodyJson(out string problem)
@@ -509,6 +520,24 @@ public sealed class IfcExportWindow : StandardEditorWindow
         if (i < 0 || i >= _m.Psets.Count) return;
         _m.Psets.RemoveAt(i);
         RefreshSets(i);
+    }
+
+    private void DrawRows()
+    {
+        _rows.Children.Clear();
+        foreach (var r in _m.ExportAs.ToList())
+        {
+            var line = new WrapPanel();
+            line.Children.Add(Field("Family", Pick(_families, r.Family, v => r.Family = v.Trim()), 230));
+            line.Children.Add(Field("Type (blank = every type)", Text(r.Type, v => r.Type = v.Trim()), 170));
+            line.Children.Add(Field("IFC class", Pick(IfcExportMapping.CommonClasses, r.IfcClass, v => r.IfcClass = v.Trim()), 170));
+            line.Children.Add(Field("Predefined type (capitals, optional)", Text(r.PredefinedType, v => r.PredefinedType = v.Trim()), 170));
+            var rm = Small("Remove", () => { _m.ExportAs.Remove(r); DrawRows(); });
+            rm.VerticalAlignment = VerticalAlignment.Bottom; rm.Margin = new Thickness(0, 0, 0, 5);
+            line.Children.Add(rm);
+            _rows.Children.Add(Card(line));
+        }
+        _rows.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Children = { Small("+ Add a row", () => { _m.ExportAs.Add(new IfcExportMapping.ExportAsRow()); DrawRows(); }) } });
     }
 
     private void DrawSet()

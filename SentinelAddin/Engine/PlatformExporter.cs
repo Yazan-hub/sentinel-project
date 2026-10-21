@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using Autodesk.Revit.DB;
 
 namespace Sentinel.Engine;
@@ -64,7 +66,7 @@ public static class PlatformExporter
             };
             // MA-8-6: the property-set file lives in a folder of this export's own under %TEMP% (never the outbox, never the person's chosen folder) and goes after it.
             string? psetsDir = null;
-            if (mapping is not null)
+            if (mapping is { Psets.Count: > 0 })
             {
                 // The user-defined property-set settings are exporter options, not IFCExportOptions members (no named export setup: that is the exporter UI's,
                 // version-specific). An exporter that does not know a key ignores it silently: what the published IFC holds is the proof, never this call.
@@ -80,7 +82,11 @@ public static class PlatformExporter
             bool finished;
             using var t = new Transaction(doc, "Sentinel: IFC export");
             t.Start();
-            try { finished = doc.Export(dir, ifcName, opts); }
+            try
+            {
+                if (mapping is { ExportAs.Count: > 0 }) Log(ApplyExportAs(doc, mapping)); // rolled back with the transaction below
+                finished = doc.Export(dir, ifcName, opts);
+            }
             finally
             {
                 if (t.GetStatus() == TransactionStatus.Started) t.RollBack(); // the file is written; the model is not touched
@@ -96,6 +102,40 @@ public static class PlatformExporter
 
         return Inspect(ifcPath);
     }
+
+    /// <summary>
+    /// ifc_export's export_as rows: Revit's own "Export Type to IFC As" (and "Type IFC Predefined Type") written on each mapped type,
+    /// inside the export's open transaction — the caller rolls it back once the file is written, so the model never keeps the values.
+    /// Before Revit 2023 the exporter's shared parameter (IfcExportType, else IfcExportAs) takes "IfcClass.PREDEFINED". An instance's
+    /// own "Export to IFC As" still wins, as in Revit. Returns the publish.log line; the published IFC is the proof.
+    /// </summary>
+    internal static string ApplyExportAs(Document doc, IfcExportMapping m)
+    {
+        var set = new List<string>();
+        var notSet = new List<string>();
+        var used = new HashSet<IfcExportMapping.ExportAsRow>();
+        foreach (var t in new FilteredElementCollector(doc).WhereElementIsElementType().Cast<ElementType>())
+        {
+            var row = m.RowFor(t.FamilyName ?? "", t.Name ?? "");
+            if (row is null) continue;
+            used.Add(row);
+            var label = (t.FamilyName ?? "") + " : " + t.Name;
+#if REVIT2023_OR_GREATER
+            bool ok = SetText(t.get_Parameter(BuiltInParameter.IFC_EXPORT_ELEMENT_TYPE_AS), row.IfcClass)
+                      && (row.PredefinedType.Length == 0 || SetText(t.get_Parameter(BuiltInParameter.IFC_EXPORT_PREDEFINEDTYPE_TYPE), row.PredefinedType));
+#else
+            bool ok = SetText(t.LookupParameter("IfcExportType") ?? t.LookupParameter("IfcExportAs"), IfcExportMapping.ExportAsValue(row));
+#endif
+            (ok ? set : notSet).Add(label + " → " + IfcExportMapping.ExportAsValue(row));
+        }
+        var missing = m.ExportAs.Where(r => !used.Contains(r)).Select(r => r.Family + (r.Type.Length > 0 ? " : " + r.Type : "")).ToList();
+        return $"export_as ({m.Ref}): {set.Count} type(s) set" + (set.Count > 0 ? " — " + string.Join("; ", set) : "") +
+               (notSet.Count > 0 ? $"; {notSet.Count} not writable — " + string.Join("; ", notSet) : "") +
+               (missing.Count > 0 ? $"; not in this model — " + string.Join("; ", missing) : "");
+    }
+
+    private static bool SetText(Parameter? p, string value) =>
+        p is { IsReadOnly: false, StorageType: StorageType.String } && p.Set(value);
 
     /// <summary>Export must exist, be non-empty (0 KB == no geometry), and be readable (not locked).</summary>
     private static (State, string, long, string?) Inspect(string path)
