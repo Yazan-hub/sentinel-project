@@ -3888,3 +3888,25 @@ Driving: the Chrome Remote Desktop host overlay (`remoting_desktop`, "Unidentifi
 Not run live: the web rows (Coordination ▸ Issues detail: snapshot, quick edit, quick comment) — `topicChanges` is unit-tested and the PUT/POST routes are the Revit window's.
 
 Not built (said to the founder): Paint markup, visible/hidden viewpoint modes, notify, offline mode, delete, milestones/areas/approval. The bridge did not change (no 4100 restart).
+
+## Session ILG — issue sign-offs on the ledger (2026-10-22 local, ~00:05; branch claude/festive-chaplygin-f5fa61; the audit gap of 2026-10-21: Aster's door issues 04c3afb1 and bd320d2c were closed with only the topic's own history to show for it)
+
+Build: `bridge/topic-ledger.mjs` — every status, assignee or priority change on a BCF topic (topic PUT from the web and Revit's Issues window, topic POST, the openCDE DELETE close, a BCF file import, the lead's close-all-superseded) is one `audit_log` row, `entity_type bcf_topic`, written by the bridge BEFORE the topic is saved: no row back → nothing saved; a save that fails after the row → a second row `issue_change_not_saved` voiding it. A comment may ride with the PUT (Save changes with the comment box filled, web and Revit) and is in the same row. `bcf_topic` is reserved (the open audit route cannot write one). History lines carry `ledger_id` → "recorded in the ledger #N" in both history panels. Nothing backfilled: a project's first row is a coverage marker saying so.
+
+Test bridge 127.0.0.1:4101 on the branch against the live database (daily timestamp, platform poller and event feed off in its copy of the env); scratch project `ma4c-drill`; Claude driving with curl as the add-in and a BCF-API client would (the machine credential, author "Revit").
+
+| Row | What happened | Result |
+|---|---|---|
+| D-0 marker | The project's first bcf_topic row: #3239 `issue_ledger_coverage_started` — "From this row on, every change to an issue's status, assignee or priority on this project is one bcf_topic row in this ledger. Changes made before it are in each issue's own history only — they were not backfilled." | **pass** |
+| D-1 raise | POST topic "ILG drill: door D-12 fire rating" (guid 0f76e370…) → #3240 `issue_opened` {topic_status Open, priority Normal, assigned_to null}; history "Created" carries ledger_id 3240 | **pass** |
+| D-2 close + comment | PUT {topic_status Closed, comment "FD30 set on site — ILG drill"} → #3241 `issue_closed` old {Open} new {Closed, comment}; the comment is on the topic; "Status: Open → Closed" and "Comment added" both carry 3241 | **pass** |
+| D-3..D-5 | Reopen → #3242 `issue_reopened`; assign the founder → #3243 `issue_assigned` (old null); priority High → #3244 `issue_priority_changed` | **pass** |
+| D-6 no row | A due-date-only PUT → history line, no ledger_id, no row | **pass** |
+| D-7 BCF-API delete | DELETE topic (the governed close) → #3245 `issue_closed` via "BCF-API delete" | **pass** |
+| D-8 file import | A BCF 3.0 file (Sentinel's own writer, newer modified date) reopening it → import `updated: 1`; #3246 `issue_reopened` via "BCF file import", the importer as actor | **pass** |
+| D-9 forge | POST /cde/ma4c-drill/audit {entity_type bcf_topic, action issue_closed} with the machine credential → 400 "bcf_topic rows are written by Sentinel, not through this route" | **pass** |
+| D-10 restart | Test bridge restarted (empty cache), Resolve with a comment → #3247 `issue_resolved` with the comment; still ONE coverage marker (#3239) — the marker is looked for with the service key (fix b467bccf, found while reviewing: a caller whose RLS hides the ledger would have written it again after every restart) | **pass** |
+| D-11 chain | Audit pack of ma4c-drill → `node bridge/ledger-verify.mjs` → "RESULT: everything checked passed"; the rows sit at project_seq 582–589 (consecutive, #3239–#3246), in the tail "newer than the last external timestamp" — the live bridge's next daily DigiCert round fixes them in time | **pass** |
+
+Every machine-credential row says `actor_verified: false` and the label it sent ("Revit"; the BCF-API delete, which sends no author, "web"). A signed-in caller's verified identity outranks the body's claim (route test: a contributor's close with `author: "Someone else"` is recorded as contributor@example.test, `actor_verified: true`).
+Not covered (said): topics raised by Sentinel itself (the AI's raise_issue, a changeset rejection, IDS/Federation raises) get no `issue_opened` row — the IDS and Federation raises keep their own ledger rows; every later change to them is recorded.
