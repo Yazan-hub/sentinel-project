@@ -1451,7 +1451,7 @@
    ],
    "extra": 1
   },
-  "error": "extra is not an ifc_export field — the body is {label, psets, common_psets?}"
+  "error": "extra is not an ifc_export field — the body is {label, psets, common_psets?, export_as?}"
  },
  {
   "name": "a set name with a trailing newline",
@@ -2105,5 +2105,188 @@
    ]
   },
   "error": "psets[0].classes must be 1 to 32 IFC classes in the exporter's spelling (IfcWall, not IFCWALL)"
+ },
+ {
+  "name": "export_as alone (no property sets) installs",
+  "body": {
+   "label": "Example Office export",
+   "psets": [],
+   "export_as": [
+    {
+     "family": "Muntin Pattern_2x2",
+     "ifc_class": "IfcMember",
+     "predefined_type": "MULLION"
+    }
+   ]
+  },
+  "error": null
+ },
+ {
+  "name": "export_as beside a property set, one row per type",
+  "body": {
+   "label": "Example Office export",
+   "psets": [
+    {
+     "name": "Pset_Office",
+     "level": "instance",
+     "classes": [
+      "IfcWall",
+      "IfcWallStandardCase"
+     ],
+     "properties": [
+      {
+       "name": "Fire Rating",
+       "type": "Label",
+       "revit_parameter": "Fire Rating"
+      },
+      {
+       "name": "IsLoadBearing",
+       "type": "Boolean"
+      }
+     ]
+    }
+   ],
+   "export_as": [
+    {
+     "family": "Muntin Pattern_2x2",
+     "type": "Muntin Pattern_2x2",
+     "ifc_class": "IfcMember"
+    },
+    {
+     "family": "Generic Panel",
+     "ifc_class": "IfcPlate",
+     "predefined_type": "USERDEFINED"
+    }
+   ]
+  },
+  "error": null
+ },
+ {
+  "name": "no property set and no export_as row",
+  "body": {
+   "label": "Example Office export",
+   "psets": [],
+   "export_as": []
+  },
+  "error": "psets must be an array of 1 to 64 property sets"
+ },
+ {
+  "name": "export_as is not an array",
+  "body": {
+   "label": "Example Office export",
+   "psets": [],
+   "export_as": {
+    "family": "X"
+   }
+  },
+  "error": "export_as must be an array of at most 256 rows"
+ },
+ {
+  "name": "an export_as class in capitals",
+  "body": {
+   "label": "Example Office export",
+   "psets": [],
+   "export_as": [
+    {
+     "family": "Muntin Pattern_2x2",
+     "ifc_class": "IFCMEMBER",
+     "predefined_type": "MULLION"
+    }
+   ]
+  },
+  "error": "export_as[0].ifc_class must be an IFC class in the exporter's spelling (IfcMember, not IFCMEMBER)"
+ },
+ {
+  "name": "a lower-case predefined type",
+  "body": {
+   "label": "Example Office export",
+   "psets": [],
+   "export_as": [
+    {
+     "family": "Muntin Pattern_2x2",
+     "ifc_class": "IfcMember",
+     "predefined_type": "mullion"
+    }
+   ]
+  },
+  "error": "export_as[0].predefined_type must be an IFC predefined type in capitals (MULLION, USERDEFINED), or left out"
+ },
+ {
+  "name": "a tab in an export_as family",
+  "body": {
+   "label": "Example Office export",
+   "psets": [],
+   "export_as": [
+    {
+     "family": "a\tb",
+     "ifc_class": "IfcMember",
+     "predefined_type": "MULLION"
+    }
+   ]
+  },
+  "error": "export_as[0].family must be one line of 1 to 256 characters with no tab or line break"
+ },
+ {
+  "name": "a blank export_as type",
+  "body": {
+   "label": "Example Office export",
+   "psets": [],
+   "export_as": [
+    {
+     "family": "Muntin Pattern_2x2",
+     "ifc_class": "IfcMember",
+     "predefined_type": "MULLION",
+     "type": " "
+    }
+   ]
+  },
+  "error": "export_as[0].type must be one line of 1 to 256 characters with no tab or line break, or left out (every type of the family)"
+ },
+ {
+  "name": "an export_as row twice (case differs)",
+  "body": {
+   "label": "Example Office export",
+   "psets": [],
+   "export_as": [
+    {
+     "family": "Muntin Pattern_2x2",
+     "ifc_class": "IfcMember",
+     "predefined_type": "MULLION"
+    },
+    {
+     "family": "MUNTIN PATTERN_2X2",
+     "ifc_class": "IfcMember",
+     "predefined_type": "MULLION"
+    }
+   ]
+  },
+  "error": "export_as[1] repeats another row's family and type — each family (and type) is mapped once (compared without case)"
+ },
+ {
+  "name": "a stray export_as field",
+  "body": {
+   "label": "Example Office export",
+   "psets": [],
+   "export_as": [
+    {
+     "family": "Muntin Pattern_2x2",
+     "ifc_class": "IfcMember",
+     "predefined_type": "MULLION",
+     "category": "Windows"
+    }
+   ]
+  },
+  "error": "export_as[0].category is not an export_as field — a row is exactly {family, type?, ifc_class, predefined_type?}"
+ },
+ {
+  "name": "an export_as row that is not an object",
+  "body": {
+   "label": "Example Office export",
+   "psets": [],
+   "export_as": [
+    "Muntin"
+   ]
+  },
+  "error": "export_as[0] must be an object"
  }
 ]

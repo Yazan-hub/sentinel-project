@@ -231,7 +231,25 @@ static class Check
             return m.Problem();
         }
         Is(Says(m => m.Label = " ") ?? "null", "Name this mapping (for example: Client EIR 2026 property sets).", "a mapping needs a name");
-        Is(Says(m => m.Psets.Clear()) ?? "null", "Add at least one property set.", "a mapping needs a set");
+        Is(Says(m => m.Psets.Clear()) ?? "null", "Add at least one property set or one export-as row.", "a mapping needs a set (or an export-as row)");
+        Ok(Says(m => { m.Psets.Clear(); m.ExportAs.Add(new IfcExportMapping.ExportAsRow { Family = "Muntin Pattern_2x2", IfcClass = "IfcMember", PredefinedType = "MULLION" }); }) == null,
+           "export-as rows alone are a mapping");
+        Is(Says(m => m.ExportAs.Add(new IfcExportMapping.ExportAsRow { Family = "Muntin Pattern_2x2", IfcClass = "IFCMEMBER" })) ?? "null",
+           "Export-as row “Muntin Pattern_2x2”: choose the IFC class it exports as, written like IfcMember.", "an export-as class is in the exporter's spelling");
+        Is(Says(m => m.ExportAs.Add(new IfcExportMapping.ExportAsRow { Family = "Muntin Pattern_2x2", IfcClass = "IfcMember", PredefinedType = "mullion" })) ?? "null",
+           "Export-as row “Muntin Pattern_2x2”: a predefined type is capitals, digits and _ (MULLION, USERDEFINED), or blank.", "a predefined type is in capitals");
+        Is(Says(m => { m.ExportAs.Add(new IfcExportMapping.ExportAsRow { Family = "Muntin", IfcClass = "IfcMember" }); m.ExportAs.Add(new IfcExportMapping.ExportAsRow { Family = "MUNTIN", IfcClass = "IfcPlate" }); }) ?? "null",
+           "Export-as row “MUNTIN” is mapped twice (capitals ignored).", "a family (and type) is mapped once");
+        Is(Says(m => m.ExportAs.Add(new IfcExportMapping.ExportAsRow { IfcClass = "IfcMember" })) ?? "null",
+           "Export-as row 1: choose the family (one line, at most 256 characters).", "an export-as row names its family");
+
+        // The row for one Revit type: its family and type, else its family's every-type row; never another family's.
+        var rows = new IfcExportMapping { ExportAs = {
+            new IfcExportMapping.ExportAsRow { Family = "Muntin Pattern_2x2", IfcClass = "IfcMember", PredefinedType = "MULLION" },
+            new IfcExportMapping.ExportAsRow { Family = "Muntin Pattern_2x2", Type = "Wide", IfcClass = "IfcPlate" } } };
+        Is(IfcExportMapping.ExportAsValue(rows.RowFor("muntin pattern_2x2", "Muntin Pattern_2x2")!), "IfcMember.MULLION", "a family's every-type row maps its types (capitals ignored), with the predefined type");
+        Is(IfcExportMapping.ExportAsValue(rows.RowFor("Muntin Pattern_2x2", "WIDE")!), "IfcPlate", "a row naming the type wins over the family's every-type row");
+        Ok(rows.RowFor("Window_Casement", "Muntin Pattern_2x2") == null, "another family keeps the exporter's own class");
         Is(Says(m => m.Psets[0].Name = "Client Wall") ?? "null", "Property set “Client Wall”: a set name is letters, digits and _ only, starts with a letter and is at most 64 characters (no spaces).", "a set name has no spaces");
         Is(Says(m => m.Psets[1].Name = "PSET_CLIENTWALL") ?? "null", "Property set “PSET_CLIENTWALL” is named twice — each set name is used once (capitals ignored).", "set names are used once, capitals ignored");
         Is(Says(m => m.Psets[0].Classes = "") ?? "null", "Property set “Pset_ClientWall”: tick at least one IFC class it applies to.", "a set applies to a class");

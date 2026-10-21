@@ -2348,6 +2348,7 @@
   "summary": "Set the property sets Governed Publish asks Revit's IFC exporter to write, with each property read from a Revit parameter of this model.",
   "overview": [
    "A client's EIR often asks for property sets of its own in the IFC. The IFC export mapping lists them: each set's name, whether it is written for each element or for its type, the IFC classes it goes on (IfcWall, IfcDoor …) and its properties — each with a data type and the Revit parameter it is read from. Governed Publish hands it to Revit's IFC exporter for every export.",
+   "It can also set the IFC class a family's types export as (Export as): for example a nested window muntin that Revit exports as IfcBuildingElementProxy, exported as IfcMember. Sentinel writes Revit's own “Export Type to IFC As” (and “Type IFC Predefined Type”) for the export only and rolls it back, so the model is never changed.",
    "The window shows the mapping in force for this model's web project: the project's own, or its office's. Revit parameter names are offered from this model; you can type another."
   ],
   "prerequisites": [
@@ -2359,6 +2360,7 @@
    "Click Standards ▸ IFC Export Mapping under Sentinel > Standards & Build.",
    "Name the mapping and choose whether the exporter also writes the IFC common property sets.",
    "Add or pick a property set: its name (letters, digits and _), for each element or for its type, the IFC classes it goes on, and its properties (name, data type, Revit parameter).",
+   "Under Export as, + Add a row: the family (picked from this model), the type (blank = every type), the IFC class and, if wanted, a predefined type in capitals (MULLION, USERDEFINED).",
    "Choose This project, or Every project in the office, and press Save. The window names the version saved; it is recorded in the ledger."
   ],
   "results": [
@@ -2366,6 +2368,7 @@
   ],
   "tips": [
    "A blank Revit parameter means the parameter with the property's own name.",
+   "An element's own “Export to IFC As” still wins over an Export as row, as in Revit. %AppData%\\Sentinel\\publish.log lists the types each export set.",
    "If someone saved a newer mapping while the window was open, Save refuses and asks you to reopen the window.",
    "In the web app, Project Settings ▸ Standards in force names this window on the ifc_export row."
   ],
