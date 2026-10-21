@@ -160,7 +160,7 @@ public static class GovernedElementExtractor
                 // inline read this replaced looked at the instance only, so the referee never saw a type-level
                 // value and reported every such door as missing (found live, 2026-09-16). The fix-in-place
                 // writer resolves instance-then-type too; read and write now agree.
-                var b = ReadBip(e, bip) ?? (doc.GetElement(e.GetTypeId()) is { } bt ? ReadBip(bt, bip) : null);
+                var b = ReadBip(e, bip, entry.ValueKind) ?? (doc.GetElement(e.GetTypeId()) is { } bt ? ReadBip(bt, bip, entry.ValueKind) : null);
                 if (b != null) return b;
             }
             else if (c.Kind == ParamKind.WallFunction)
@@ -219,9 +219,10 @@ public static class GovernedElementExtractor
         return null;
     }
 
-    private static string? ReadBip(Element e, BuiltInParameter bip)
+    private static string? ReadBip(Element e, BuiltInParameter bip, ValueKind kind = ValueKind.Text)
     {
         var p = e.get_Parameter(bip);
+        if (kind == ValueKind.YesNo) return p is { HasValue: true, StorageType: StorageType.Integer } ? (p.AsInteger() == 1 ? "TRUE" : "FALSE") : null;
         if (p is { HasValue: true })
         {
             var v = p.StorageType == StorageType.String ? p.AsString() : p.AsValueString();

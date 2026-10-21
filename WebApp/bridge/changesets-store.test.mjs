@@ -2075,29 +2075,29 @@ describe("MA-6-2 — Revit's as-built re-read, judged by the bridge against the 
   it("risk R4: a requirement outside Revit's readable keys is \"not read\", never a failure — and with no readable list a missing value fails", async () => {
     const spec = FX.ids.specifications[0];
     const ids = { ...FX.ids, specifications: [{ ...spec, requirements: { properties: [...spec.requirements.properties,
-      { pset: "Pset_WallCommon", name: "LoadBearing", cardinality: "required" }], attributes: [] } }] };
+      { pset: "Pset_WallCommon", name: "AcousticRating", cardinality: "required" }], attributes: [] } }] };
     const { out, row } = await report({ ids });
     expect(out.result.as_built).toMatchObject({ judged: 2, passed: 0, failed: 1, not_read: 1 });
     const [rated, unrated] = out.result.as_built.elements;
-    expect(rated).toMatchObject({ verdict: "not read", not_read: ["Pset_WallCommon.LoadBearing"] });
+    expect(rated).toMatchObject({ verdict: "not read", not_read: ["Pset_WallCommon.AcousticRating"] });
     expect(rated.failures).toBeUndefined();
-    expect(unrated).toMatchObject({ verdict: "fails", not_read: ["Pset_WallCommon.LoadBearing"], failures: [{ requirement: "Pset_WallCommon.FireRating" }] });
+    expect(unrated).toMatchObject({ verdict: "fails", not_read: ["Pset_WallCommon.AcousticRating"], failures: [{ requirement: "Pset_WallCommon.FireRating" }] });
     expect(row.as_built).toMatchObject({ judged: 2, passed: 0, failed: 1, not_read: 1 });
     const bare = await report({ ids, edit: (a) => { delete a.readable; return a; } });
     expect(bare.out.result.as_built).toMatchObject({ judged: 2, passed: 0, failed: 2, not_read: 0 });
     // The readable keys are compared as the IDS compares a pset and a property: case aside.
-    const shout = await report({ ids, edit: (a) => (a.readable ? { ...a, readable: [...a.readable.map((k) => k.toUpperCase()), "PSET_WALLCOMMON.LOADBEARING"] } : a) });
+    const shout = await report({ ids, edit: (a) => (a.readable ? { ...a, readable: [...a.readable.map((k) => k.toUpperCase()), "PSET_WALLCOMMON.ACOUSTICRATING"] } : a) });
     expect(shout.out.result.as_built).toMatchObject({ passed: 0, failed: 2, not_read: 0 });
     // MA-6-2 review: a prohibited requirement, or an optional one with a value, on a key Revit cannot read is never seen absent — "not read",
     // never "passes"; one Revit did send is judged (a wrong value fails); an optional one that asks nothing cannot fail and is not listed.
     const asks = (props) => ({ ...FX.ids, specifications: [{ ...spec, requirements: { properties: [...spec.requirements.properties, ...props], attributes: [] } }] });
-    const banned = await report({ ids: asks([{ pset: "Pset_WallCommon", name: "LoadBearing", cardinality: "prohibited" },
+    const banned = await report({ ids: asks([{ pset: "Pset_WallCommon", name: "AcousticRating", cardinality: "prohibited" },
       { pset: "Pset_WallCommon", name: "Combustible", cardinality: "optional", value: "FALSE" }, { pset: "Pset_WallCommon", name: "Status", cardinality: "optional" }]) });
     expect(banned.out.result.as_built).toMatchObject({ judged: 2, passed: 0, failed: 1, not_read: 1 });
-    expect(banned.out.result.as_built.elements[0]).toMatchObject({ verdict: "not read", not_read: ["Pset_WallCommon.LoadBearing", "Pset_WallCommon.Combustible"] });
-    const seen = await report({ ids: asks([{ pset: "Pset_WallCommon", name: "LoadBearing", cardinality: "prohibited" }]),
-      edit: (a) => (a.as_built ? { ...a, as_built: { ...a.as_built, psets: [{ ...a.as_built.psets[0], rows: [...(a.as_built.psets[0]?.rows ?? []), { name: "LoadBearing", value: "TRUE" }] }] } } : a) });
-    expect(seen.out.result.as_built.elements[0]).toMatchObject({ verdict: "fails", failures: [{ requirement: "Pset_WallCommon.LoadBearing", reason: 'must be ABSENT but is "TRUE"' }] });
+    expect(banned.out.result.as_built.elements[0]).toMatchObject({ verdict: "not read", not_read: ["Pset_WallCommon.AcousticRating", "Pset_WallCommon.Combustible"] });
+    const seen = await report({ ids: asks([{ pset: "Pset_WallCommon", name: "AcousticRating", cardinality: "prohibited" }]),
+      edit: (a) => (a.as_built ? { ...a, as_built: { ...a.as_built, psets: [{ ...a.as_built.psets[0], rows: [...(a.as_built.psets[0]?.rows ?? []), { name: "AcousticRating", value: "TRUE" }] }] } } : a) });
+    expect(seen.out.result.as_built.elements[0]).toMatchObject({ verdict: "fails", failures: [{ requirement: "Pset_WallCommon.AcousticRating", reason: 'must be ABSENT but is "TRUE"' }] });
     expect(seen.out.result.as_built.elements[0].not_read).toBeUndefined();
   });
 

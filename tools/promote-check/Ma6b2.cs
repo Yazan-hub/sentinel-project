@@ -27,9 +27,9 @@ static partial class Check
         Ok(read.Count == 3 && read.All(Same),
            "the fixture's as_built entries are GovElement's JSON, sent as they are, and each readable list is PsetMap.Readable for the element's class");
         var wall = PsetMap.Readable("", "IFCWALL");
-        Ok(wall.Contains("Pset_WallCommon.FireRating") && wall.Contains("Pset_WallCommon.IsExternal") && !wall.Contains("Pset_WallCommon.LoadBearing")
+        Ok(wall.Contains("Pset_WallCommon.FireRating") && wall.Contains("Pset_WallCommon.IsExternal") && wall.Contains("Pset_WallCommon.LoadBearing") && !wall.Contains("Pset_WallCommon.AcousticRating")
            && !wall.Contains("Pset_DoorCommon.FireRating") && PsetMap.Readable("BDS", "IFCDOOR").Contains("Pset_BDS.Discipline"),
-           "risk R4: a wall's readable keys are the ones Sentinel reads (FireRating, IsExternal — not LoadBearing, no door's): an ids@n requirement outside them is \"not read\" on the bridge, never a failure");
+           "risk R4: a wall's readable keys are the ones Sentinel reads (FireRating, IsExternal, LoadBearing — not AcousticRating, no door's): an ids@n requirement outside them is \"not read\" on the bridge, never a failure");
         var plain = new AppliedEntry { ProposalGuid = "g1", RevitElementId = 901, RevitUniqueId = "u1" };
         Ok(ChangesetClient.ResultBody(new List<AppliedEntry> { plain }, new List<string>(), null, null, null).Contains("\"applied\":[{\"proposal_guid\":\"g1\",\"revit_element_id\":901,\"revit_unique_id\":\"u1\"}]"),
            "an entry with no as-built read writes neither key: every other result body stays byte-identical");

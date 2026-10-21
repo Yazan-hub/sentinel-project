@@ -28,7 +28,11 @@ static class Check
            "IsExternal's lookup is instance-only (type pass skipped); FireRating's is not");
         var doorCands = PsetMap.Find("XXX", "Pset_DoorCommon.FireRating")!.Candidates.Where(c => c.Kind == ParamKind.BuiltIn).Select(c => c.Name).ToList();
         Ok(doorCands.SequenceEqual(new[] { "DOOR_FIRE_RATING", "FIRE_RATING" }), "door FireRating reads the door-specific built-in before the generic one (found live: the type's rating was invisible)");
-        foreach (var key in new[] { "Pset_WallCommon.IsExternal", "Pset_WallCommon.FireRating", "Pset_DoorCommon.FireRating", "Pset_WindowCommon.ThermalTransmittance" })
+        var lb = PsetMap.Find("XXX", "Pset_WallCommon.LoadBearing");
+        Ok(lb?.ValueKind == ValueKind.YesNo && lb.Classes.SequenceEqual(new[] { "IFCWALL" })
+           && lb.Candidates.Select(c => (c.Kind, c.Name)).SequenceEqual(new[] { (ParamKind.Lookup, "LoadBearing"), (ParamKind.BuiltIn, "WALL_STRUCTURAL_SIGNIFICANT") }),
+           "LoadBearing is read where Revit's IFC exporter reads it: a LoadBearing parameter, else the wall's Structural flag (yes/no)");
+        foreach (var key in new[] { "Pset_WallCommon.IsExternal", "Pset_WallCommon.LoadBearing", "Pset_WallCommon.FireRating", "Pset_DoorCommon.FireRating", "Pset_WindowCommon.ThermalTransmittance" })
             Ok(PsetMap.Find("XXX", key) != null, "extractor requirement present: " + key);
         Ok(PsetMap.Find("XXX", "Pset_WindowCommon.ThermalTransmittance")!.Candidates.Any(c => c.Name == "XXX_UValue"), "office U-value alias derives from org");
         Ok(PsetMap.Find("XXX", "Pset_Nope.Thing") == null, "unknown requirement → null (caller says 'no mapping')");

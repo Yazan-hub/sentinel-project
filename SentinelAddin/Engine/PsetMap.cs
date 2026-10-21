@@ -52,6 +52,13 @@ public static class PsetMap
         });
         list.Add(new PsetEntry
         {
+            Pset = "Pset_WallCommon", Prop = "LoadBearing", Classes = new[] { "IFCWALL" }, ValueKind = ValueKind.YesNo,
+            // Where Revit's IFC exporter takes it: a "LoadBearing" parameter when the model has one, else the wall's Structural flag
+            // (found live 2026-10-21: the IFC said FALSE on all 196 Aster walls while the referee, with no reader, said "missing").
+            Candidates = { new(ParamKind.Lookup, "LoadBearing"), new(ParamKind.BuiltIn, "WALL_STRUCTURAL_SIGNIFICANT") },
+        });
+        list.Add(new PsetEntry
+        {
             Pset = "Pset_WallCommon", Prop = "FireRating", Classes = new[] { "IFCWALL" },
             Candidates = { new(ParamKind.Lookup, "FireRating"), new(ParamKind.BuiltIn, "FIRE_RATING") },
         });
