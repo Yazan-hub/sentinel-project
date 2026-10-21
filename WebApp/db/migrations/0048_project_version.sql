@@ -9,7 +9,10 @@
 --   metadata.snapshot (the numbers the web panels compute and auto-save: open issues, health, cost, carbon…) and metadata.updated_at
 --   are not a person's edit: an update that changes only those keeps the version, so a panel's save never makes a lead's form stale.
 --
--- NOT YET APPLIED. Dry-run: on PGlite with every migration (bridge/migration-0048.test.mjs). probes/0048_probe.sql is the live drill.
+-- APPLIED 2026-10-21 ~21:15 local on the founder's "apply 0048" (migration 0048_project_version, project autqqtwhxqrfjaztablm, after
+-- 0047_chain_tip): probes/0048_probe.sql part 0 "0 columns, 69 projects, triggers projects_office_guard + trg_project_key_frozen" before;
+-- part 1 all true and part 2 "PROBE 0048: 7 of 7 as expected." after (rolled back: 0 probe names, every project at version 1).
+-- Dry-run: on PGlite with every migration (bridge/migration-0048.test.mjs).
 --
 -- ROLLBACK (if needed): drop trigger trg_projects_version on public.projects; drop function public.projects_version();
 --   alter table public.projects drop column version, drop column updated_at, drop column updated_by;
