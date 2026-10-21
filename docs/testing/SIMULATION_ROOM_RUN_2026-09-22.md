@@ -3801,3 +3801,5 @@ Owed — the founder's:
 4. The Funnel refresh after the 4100 restart.
 
 Holds #3067, #3207 and #3210 stay until a publish passes.
+
+DTA addendum (20:43, the founder's "do it urself"): **owed item 1 done**. The Aster central was opened detached (preserve worksets) and saved as a new central `Desktop\Sentinel Test Folder\Demo\aster-iso\ASTR26-AST-ZZ-XX-M3-A-0001.rvt`. The old central and the old `ASTR26-…-0001.rvt` are untouched (30 Sep, 22 Sep). The model kept `aster-tower` in its settings. Project Setup ▸ Save confirmed it on this PC (bound-models.json). Governed Publish now names the container `ASTR26-AST-ZZ-XX-M3-A-0001.ifc`. Not re-run: the 42 doors without FireRating would still refuse it. Driving note: computer-use cannot type in Revit's own file dialogs. A click on an existing file of the wanted name sets File name, and it survives folder navigation.
