@@ -11,39 +11,27 @@ import { candidateGroups, type ClashMode, type SolidHit } from "../clash-confirm
 // Solid building elements worth clashing (discipline-agnostic); skip spaces/openings/grids/annotation.
 const CLASHABLE = /^IFC(WALL|WALLSTANDARDCASE|SLAB|ROOF|COLUMN|BEAM|MEMBER|PLATE|DOOR|WINDOW|STAIR|STAIRFLIGHT|RAMP|RAILING|CURTAINWALL|COVERING|FOOTING|PILE|REINFORCINGBAR|FLOWSEGMENT|FLOWFITTING|FLOWTERMINAL|DUCTSEGMENT|PIPESEGMENT|CABLECARRIERSEGMENT|BUILDINGELEMENTPROXY)/i;
 
-// Unwrap a fragments attribute ({value} | scalar) and pull the IFC GlobalId (`_guid` or `GlobalId`).
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const attrVal = (a: any) => (a && typeof a === "object" && "value" in a ? a.value : a);
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function pickGuid(d: any): string | undefined {
-  const g = attrVal(d?.["_guid"]) ?? attrVal(d?.["GlobalId"]);
-  return g == null ? undefined : String(g);
-}
-
-async function itemsFor(model: {
+export async function itemsFor(model: {
   modelId: string;
   getItemsOfCategories: (r: RegExp[]) => Promise<Record<string, number[]>>;
   getBoxes: (ids: number[]) => Promise<{ min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number }; isEmpty: () => boolean }[]>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  getItemsData: (ids: number[], config: unknown) => Promise<any[]>;
+  getGuidsByLocalIds: (ids: number[]) => Promise<(string | null)[]>;
 }): Promise<ClashItem[]> {
   const byCat = await model.getItemsOfCategories([CLASHABLE]);
   const ids = Object.values(byCat).flat();
   if (!ids.length) return [];
   const boxes = await model.getBoxes(ids);
-  // Fetch each element's IFC GlobalId so the clash signature is revision-stable (see clash.ts::keyOf).
-  // Same call shape as clash-panel's raise-time guid lookup; degrade gracefully to localId if unavailable.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let data: any[] = [];
-  try {
-    data = await model.getItemsData(ids, { attributesDefault: true, relationsDefault: { attributes: false, relations: false } });
-  } catch { /* no guids → keyOf falls back to modelId:localId */ }
+  // Each element's IFC GlobalId, so the clash signature is revision-stable (see clash.ts::keyOf), and nothing else: every
+  // attribute of every element, read only for this one, cost the engine ~40× more (123 ms vs 3 ms for the hospital's 15,557
+  // architecture elements, large-model benchmark 2026-10-21). Degrade gracefully to localId if unavailable.
+  let guids: (string | null)[] = [];
+  try { guids = await model.getGuidsByLocalIds(ids); } catch { /* no guids → keyOf falls back to modelId:localId */ }
   const items: ClashItem[] = [];
   for (let i = 0; i < ids.length; i++) {
     const b = boxes[i];
     if (!b || b.isEmpty()) continue;
     items.push({
-      modelId: model.modelId, localId: ids[i], guid: pickGuid(data[i]),
+      modelId: model.modelId, localId: ids[i], guid: guids[i] ?? undefined,
       box: { min: [b.min.x, b.min.y, b.min.z], max: [b.max.x, b.max.y, b.max.z] },
     });
   }
@@ -59,10 +47,14 @@ export async function runClash(
 ): Promise<ClashRun> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const models = [...fragments.list.values()] as any[];
+  const t0 = performance.now();
   const sets = await Promise.all(models.map(itemsFor)); // gather boxes on the main thread (fragments-backed)
   const scanned = sets.reduce((a, s) => a + s.length, 0);
+  const t1 = performance.now();
   // The O(n²) compare + dedup + sort runs OFF the main thread (falls back to sync when no Worker) — see clash-worker.
   const { total, clashes } = await runClashInWorker(sets, known, tol);
+  // eslint-disable-next-line no-console
+  console.log(`[Sentinel] clash boxes ${scanned} element(s) of ${models.length} model(s): read ${ms(t1 - t0)}, compare ${ms(performance.now() - t1)}`); // a string: the sandboxed console is where a benchmark reads it
   return { modelCount: models.length, scanned, total, clashes };
 }
 
@@ -81,6 +73,7 @@ export async function confirmOnSolids(
   const opts: OBC.ClashOptions = mode.type === "hard" ? { type: "hard", calculateVolume: true } : { type: "clearance", tolerance: mode.distance };
   const hits: SolidHit[] = [];
   const groups = candidateGroups(cands);
+  const t0 = performance.now();
   let done = 0;
   for (const g of groups) {
     const setA: OBC.ModelIdMap = { [g.modelA]: g.idsA };
@@ -93,5 +86,9 @@ export async function confirmOnSolids(
     }
     onProgress?.(++done, groups.length);
   }
+  // eslint-disable-next-line no-console
+  console.log(`[Sentinel] clash solids ${cands.length} candidate(s) in ${groups.length} model pair(s): ${ms(performance.now() - t0)}`);
   return hits;
 }
+
+const ms = (t: number) => `${(t / 1000).toFixed(1)} s`;
