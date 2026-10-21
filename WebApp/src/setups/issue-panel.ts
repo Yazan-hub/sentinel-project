@@ -238,7 +238,7 @@ export function issuePanel(components: OBC.Components, opts: { bcfBaseUrl?: stri
     h += "</div>";
     // The snapshot Revit (or a BCF file) attached: a data URL the bridge stores on the viewpoint.
     const snap = t.viewpoints?.find((v) => v.snapshot)?.snapshot;
-    if (snap && /^data:image\//.test(snap)) h += `<img src="${snap.replace(/"/g, "")}" alt="snapshot" style="max-width:100%;max-height:180px;border:1px solid #2a2a30;border-radius:.3rem;margin-top:.4rem"/>`;
+    if (snap && /^data:image\//.test(snap)) h += `<img src="${esc(snap)}" alt="snapshot" style="max-width:100%;max-height:180px;border:1px solid #2a2a30;border-radius:.3rem;margin-top:.4rem"/>`;
     // Quick edit + quick comment, the same two the Revit window has (BCF Manager's pencil and "Quick comment"); the bridge keeps the
     // roles (a viewer writes nothing, a lead closes a referee-raised issue) and logs each change to the history.
     const due = t.due_date ? new Date(t.due_date).toISOString().slice(0, 10) : "";
@@ -246,7 +246,7 @@ export function issuePanel(components: OBC.Components, opts: { bcfBaseUrl?: stri
       `<select id="ip-estatus" style="${inp}">${optH(STATUSES.includes(t.topic_status) ? STATUSES : [t.topic_status, ...STATUSES], t.topic_status)}</select>` +
       `<select id="ip-eprio" style="${inp}">${optH(["Low", "Normal", "High", "Critical"], t.priority || "Normal")}</select>` +
       `<input id="ip-eassignee" placeholder="Assignee" value="${esc(t.assigned_to || "")}" style="${inp};width:9rem"/>` +
-      `<input id="ip-edue" type="date" value="${due}" style="${inp}"/>` +
+      `<input id="ip-edue" type="date" value="${esc(due)}" style="${inp}"/>` +
       `<button id="ip-esave" style="${btn};background:#2a2a30;color:#eee">Save changes</button></div>` +
       `<div style="display:flex;gap:.3rem;margin-top:.4rem"><input id="ip-ctext" placeholder="Quick comment" style="${inp};flex:1"/>` +
       `<button id="ip-csend" style="${btn};background:#6528d7;color:#fff">Send</button></div>`;
