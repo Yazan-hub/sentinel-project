@@ -62,6 +62,14 @@ Copy `.env.example` → `.env`:
 Data persists as JSON under `%AppData%\Sentinel\` (bcf-store, project-store, rfi-store, tender-store,
 pack-store). Back up that folder to keep a pilot's coordination data.
 
+**Private beta engine (`npm install` 404s).** The viewer uses That Open's private `@thatopen-platform/*-beta`
+packages. `npm install` reads them with That Open's shared Founders npm token, kept in `WebApp/.npmrc`
+(git-ignored) and, for CI, in the repository secret `THATOPEN_NPM_TOKEN`. That Open rotates this token on their
+side. When they do, installs and the CI "WebApp — test + build" job fail with a bare **404** on the beta
+tarballs, and `npm whoami` in `WebApp` answers 401. To fix it, sign in once with `npx thatopen login`, then run
+`node scripts/refresh-beta-npmrc.mjs` in `WebApp`. It writes the new token to `WebApp/.npmrc` and never prints it.
+Put the same token in the `THATOPEN_NPM_TOKEN` secret, then re-run CI.
+
 ---
 
 ## How it fits together
