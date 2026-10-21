@@ -66,7 +66,7 @@ public sealed class BcfIssuesCommand : IExternalCommand
         else draft.CameraNote = "no camera (the active view is not 3D)";
         // The active view as the issue's snapshot (BCF Manager adds one by default). ExportImage renders the view to a file and
         // changes nothing in the model; a view that cannot be rendered (a schedule) simply leaves the issue without one.
-        if (uidoc.ActiveView is { IsTemplate: false } view && view.ViewType is not (ViewType.Schedule or ViewType.PanelSchedule or ViewType.ColumnSchedule or ViewType.Report or ViewType.CostReport or ViewType.LoadsReport or ViewType.PresureLossReport or ViewType.Internal or ViewType.ProjectBrowser or ViewType.SystemBrowser))
+        if (uidoc.ActiveView is { IsTemplate: false } view && view.ViewType is not (ViewType.Schedule or ViewType.PanelSchedule or ViewType.ColumnSchedule or ViewType.Report or ViewType.CostReport or ViewType.LoadsReport or ViewType.Internal or ViewType.ProjectBrowser or ViewType.SystemBrowser))
         {
             var dir = Path.Combine(Path.GetTempPath(), "sentinel-issue-" + Guid.NewGuid().ToString("N"));
             try
