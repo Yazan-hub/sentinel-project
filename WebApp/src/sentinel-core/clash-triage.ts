@@ -66,29 +66,36 @@ export function kindOf(h: TriageHit): TriageKind {
 
 const KIND_ORDER: TriageKind[] = ["clash", "duplicate", "touching"];
 
-export function groupHits(hits: readonly TriageHit[]): TriageGroup[] {
-  const groups = new Map<string, TriageGroup>();
+/** "full" = kind × pair × level × yielding discipline; "pair" = kind × pair only (levels counted, disciplines joined " / "). */
+export function groupHits(hits: readonly TriageHit[], by: "full" | "pair" = "full"): TriageGroup[] {
+  const groups = new Map<string, TriageGroup & { levels: Set<string>; disciplines: Set<string> }>();
   for (const h of hits) {
     const kind = kindOf(h);
     const y = yieldingSide(h), other = y === "a" ? "b" : "a";
     const pair = [plainCategory(h.a.category, h.a.name), plainCategory(h.b.category, h.b.name)].sort().join(" × ");
     const level = h[y].level || h[other].level || "No level";
     const discipline = disciplineOf(h[y]);
-    const key = `${kind}|${pair}|${level}|${discipline}`;
+    const key = by === "pair" ? `${kind}|${pair}` : `${kind}|${pair}|${level}|${discipline}`;
     let g = groups.get(key);
-    if (!g) groups.set(key, (g = { key, kind, pair, level, discipline, hits: [], volume: 0 }));
-    g.hits.push(h); g.volume += h.volume || 0;
+    if (!g) groups.set(key, (g = { key, kind, pair, level, discipline, hits: [], volume: 0, levels: new Set(), disciplines: new Set() }));
+    g.hits.push(h); g.volume += h.volume || 0; g.levels.add(level); g.disciplines.add(discipline);
   }
-  return [...groups.values()].sort((p, q) => KIND_ORDER.indexOf(p.kind) - KIND_ORDER.indexOf(q.kind) || q.hits.length - p.hits.length || q.volume - p.volume);
+  return [...groups.values()]
+    .map(({ levels, disciplines, ...g }) => ({ ...g, level: levels.size > 1 ? `${levels.size} levels` : g.level, discipline: [...disciplines].sort().join(" / ") }))
+    .sort((p, q) => KIND_ORDER.indexOf(p.kind) - KIND_ORDER.indexOf(q.kind) || q.hits.length - p.hits.length || q.volume - p.volume);
 }
+
+/** The disciplines a group's hits yield to ("Mechanical / Structure" in the pair-only view). */
+export const disciplinesOf = (g: TriageGroup) => g.discipline.split(" / ");
 
 /** The one-line title of a group: "Beam × Duct · Level 03 · Mechanical". */
 export const groupTitle = (g: TriageGroup) => `${g.kind === "duplicate" ? "Duplicate " : g.kind === "touching" ? "Touching " : ""}${g.pair} · ${g.level} · ${g.discipline}`;
 
 /** What a group's owner is asked to do — the text of its BCF topic. Never asks to move or remove structure. */
 export function groupInstruction(g: TriageGroup): string {
+  const st = disciplinesOf(g).includes("Structure");
   if (g.kind === "duplicate")
-    return `The same element is modelled twice. Remove the copy in the ${g.discipline} model${g.discipline === "Structure" ? " (both copies are structural — check which one the structural engineer keeps)" : " — never the structural copy"}. Sentinel does not delete elements: a person removes it in Revit.`;
+    return `The same element is modelled twice. Remove the copy in the ${g.discipline} model${g.discipline === "Structure" ? " (both copies are structural — check which one the structural engineer keeps)" : st ? " (where both copies are structural, check which one the structural engineer keeps)" : " — never the structural copy"}. Sentinel does not delete elements: a person removes it in Revit.`;
   if (g.kind === "touching") return "The solids meet with no overlap volume — usually not a clash (touching faces).";
-  return `Coordinate these ${g.hits.length} clash(es): the ${g.discipline} elements give way${g.discipline === "Structure" ? " — structure is never moved without the structural engineer" : "; structure is not moved"}.`;
+  return `Coordinate these ${g.hits.length} clash(es): the ${g.discipline} elements give way${st ? " — structure is never moved without the structural engineer" : "; structure is not moved"}.`;
 }

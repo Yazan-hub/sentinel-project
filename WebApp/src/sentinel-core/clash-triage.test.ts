@@ -58,4 +58,20 @@ describe("clash triage", () => {
     expect(g.discipline).toBe("Architecture");
     expect(groupInstruction(g)).toMatch(/Remove the copy in the Architecture model — never the structural copy/);
   });
+
+  it("pair only: one group per kind × pair, levels counted, every yielding discipline named", () => {
+    const hits = [
+      hit("1", { category: "IFCDUCTSEGMENT", level: "Level 03" }, { category: "IFCBEAM" }),
+      hit("2", { category: "IFCDUCTSEGMENT", level: "Level 04" }, { category: "IFCBEAM" }),
+      hit("3", { category: "IFCBEAM", modelId: STR, level: "Level 04" }, { category: "IFCDUCTSEGMENT", modelId: STR }), // structure yields
+      hit("4", { category: "IFCWALL", modelId: ARC }, { category: "IFCSLAB" }, { touching: true, volume: 0 }),
+    ];
+    const g = groupHits(hits, "pair");
+    expect(g.map((x) => [x.key, groupTitle(x), x.hits.length])).toEqual([
+      ["clash|Beam × Duct", "Beam × Duct · 2 levels · Mechanical / Structure", 3],
+      ["touching|Slab × Wall", "Touching Slab × Wall · No level · Architecture", 1],
+    ]);
+    expect(groupInstruction(g[0])).toMatch(/structure is never moved without the structural engineer/);
+    expect(groupHits(hits).length).toBe(4); // the full view is unchanged
+  });
 });
