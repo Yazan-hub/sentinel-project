@@ -39,7 +39,7 @@ public sealed class AppliedChangesCommand : IExternalCommand
         win.CheckRequested += cs => App.Events.Enqueue(doc, "check a revert", (_, d) =>
         {
             var o = ChangesetReverter.Run(d, cs, rules, commit: false);
-            win.ShowPreview(cs, o.Error ?? RevertPlan.Preview(o.Reverted.Count, o.Kept.Select(k => (k.Label, k.Why)).ToList()), o.Error == null && o.Reverted.Count > 0);
+            win.ShowPreview(cs, o.Error ?? RevertPlan.Preview(o.Reverted.Count, o.Kept.Select(k => (k.Label, k.Why)).ToList()) + Recreated(o), o.Error == null && o.Reverted.Count > 0);
         }, refusal => win.Say(refusal));
         win.RevertRequested += (cs, reason) => App.Events.Enqueue(doc, "revert a changeset", (_, d) =>
         {
@@ -58,7 +58,7 @@ public sealed class AppliedChangesCommand : IExternalCommand
             SavedCheck.RememberRevert(key, cs.Id, cs.Name, d.PathName, rows);
             Task.Run(() =>
             {
-                var words = $"Reverted in this model: {o.Reverted.Count} row(s) back, {o.Kept.Count} kept (one Undo step: \"{o.Tx}\").\n" + RevertPlan.Send(BcfConfig.Load(), r)
+                var words = $"Reverted in this model: {o.Reverted.Count} row(s) back, {o.Kept.Count} kept (one Undo step: \"{o.Tx}\").{Recreated(o)}\n" + RevertPlan.Send(BcfConfig.Load(), r)
                             + (kept ? "" : "\nThis PC could not keep a record of it — if the line above says NOT posted, tell the project lead.");
                 App.PanelVm?.LogDoctor("Applied AI Changes: " + words.Replace('\n', ' '));
                 Load(win, key, null, words);
@@ -68,6 +68,9 @@ public sealed class AppliedChangesCommand : IExternalCommand
         Load(win, key, rr => rules = rr, null);
         return Result.Succeeded;
     }
+
+    /// <summary>Human-error guards §3 (drill GUARD-B2): a delete's copy is not the same element when it comes back — said with what Revert does.</summary>
+    private static string Recreated(ChangesetReverter.Outcome o) => o.Recreated.Count == 0 ? "" : $"\n{o.Recreated.Count} deleted copy(ies) {RevertPlan.Recreated}.";
 
     /// <summary>Off Revit's thread: send waiting reverts, then read the role, the protection policy and the applied changesets into the window;
     /// <paramref name="after"/> (a revert's outcome) stays in the preview box.</summary>
