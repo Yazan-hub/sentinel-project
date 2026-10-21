@@ -95,7 +95,46 @@ export const groupTitle = (g: TriageGroup) => `${g.kind === "duplicate" ? "Dupli
 export function groupInstruction(g: TriageGroup): string {
   const st = disciplinesOf(g).includes("Structure");
   if (g.kind === "duplicate")
-    return `The same element is modelled twice. Remove the copy in the ${g.discipline} model${g.discipline === "Structure" ? " (both copies are structural — check which one the structural engineer keeps)" : st ? " (where both copies are structural, check which one the structural engineer keeps)" : " — never the structural copy"}. Sentinel does not delete elements: a person removes it in Revit.`;
+    return `The same element is modelled twice. Remove the copy in the ${g.discipline} model${g.discipline === "Structure" ? " (both copies are structural — check which one the structural engineer keeps)" : st ? " (where both copies are structural, check which one the structural engineer keeps)" : " — never the structural copy"}. A lead can propose deleting the copies: Revit removes one only when a person ticks it with a reason and finds it exactly the same as the one kept.`;
   if (g.kind === "touching") return "The solids meet with no overlap volume — usually not a clash (touching faces).";
   return `Coordinate these ${g.hits.length} clash(es): the ${g.discipline} elements give way${st ? " — structure is never moved without the structural engineer" : "; structure is not moved"}.`;
+}
+
+// ── Human-error guards §3 (spec docs/superpowers/specs/2026-10-21-human-error-guards-design.md): a duplicate group as deletes ──
+
+/** The changeset op's kind for each plain category Sentinel deletes a copy of (the bridge's OP_KINDS.delete), and the IFC class the bridge
+ *  sets from it (changesets-logic CREATE_ENTITY) — sent as is, so the reply lists nothing as ignored. */
+const DELETE_KIND: Record<string, [string, string]> = { Wall: ["wall", "IFCWALL"], Slab: ["floor", "IFCSLAB"], Roof: ["roof", "IFCROOF"],
+  "Ceiling/covering": ["ceiling", "IFCCOVERING"], Door: ["door", "IFCDOOR"], Window: ["window", "IFCWINDOW"], Column: ["column", "IFCCOLUMN"],
+  Beam: ["beam", "IFCBEAM"], Furniture: ["furniture", "IFCFURNITURE"] };
+/** The bridge's limit on one changeset (MAX_CHANGESET_ELEMENTS). */
+const MAX_DELETES = 200;
+
+export interface DeleteElement { op: "delete"; kind: string; validate: { identity: { Class: string; Name?: string } }; target: { ifc_guid: string; keeper_ifc_guid: string }; reason: string }
+export interface DeleteProposal { body: { name: string; source: "clash"; elements: DeleteElement[] } | null; hits: TriageHit[]; held: { hit: TriageHit; why: string }[] }
+
+/** A duplicate group as one changeset of deletes (POST /changesets/:key — a lead's; the bridge checks each pair against the clash register).
+ *  One delete per pair whose two sides are one model's (Revit proves a copy only when it holds both); the copy is the side drawn later (the
+ *  higher local id). A copy is deleted once and never one pair's original as well. The rest is held, with why — it stays an Issue. Nothing is
+ *  deleted here: Revit removes a copy only when a person ticks it with a reason and finds it the same type, level, place and size. */
+export function deleteProposal(g: TriageGroup): DeleteProposal {
+  const out: DeleteProposal = { body: null, hits: [], held: [] };
+  if (g.kind !== "duplicate") { out.held = g.hits.map((hit) => ({ hit, why: "not a duplicate" })); return out; }
+  const copies = new Set<string>(), keepers = new Set<string>(), elements: DeleteElement[] = [];
+  for (const hit of g.hits) {
+    const hold = (why: string) => out.held.push({ hit, why });
+    if (hit.a.modelId !== hit.b.modelId) { hold("the two are in different models — remove the copy in its own model (raise the group as an Issue)"); continue; }
+    if (!hit.a.guid || !hit.b.guid) { hold("an element has no IFC GlobalId — Revit could not find it"); continue; }
+    const [copy, keep] = (hit.a.localId ?? 0) > (hit.b.localId ?? 0) ? [hit.a, hit.b] : [hit.b, hit.a];
+    const [kind, cls] = DELETE_KIND[plainCategory(copy.category, copy.name)] ?? [];
+    if (!kind) { hold(`Sentinel deletes a copy of a wall, floor, roof, ceiling, door, window, column, beam or furniture — not of a ${plainCategory(copy.category, copy.name).toLowerCase()}`); continue; }
+    if (copies.has(copy.guid!) || keepers.has(copy.guid!) || copies.has(keep.guid!)) { hold("one of the two is already in this proposal — propose the rest after it is applied"); continue; }
+    if (elements.length >= MAX_DELETES) { hold(`over ${MAX_DELETES} in one changeset — propose the rest after these are applied`); continue; }
+    copies.add(copy.guid!); keepers.add(keep.guid!); out.hits.push(hit);
+    elements.push({ op: "delete", kind, validate: { identity: { Class: cls!, ...(copy.name ? { Name: copy.name } : {}) } },
+      target: { ifc_guid: copy.guid!, keeper_ifc_guid: keep.guid! },
+      reason: `${plainCategory(copy.category, copy.name)}${copy.name ? ` '${copy.name}'` : ""} modelled twice on ${g.level} (clash triage) — the copy goes, the one drawn first stays` });
+  }
+  if (elements.length) out.body = { name: `Clash duplicates · ${g.pair} · ${g.level}`, source: "clash", elements };
+  return out;
 }

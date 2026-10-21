@@ -71,17 +71,17 @@ static partial class Check
         string window = Src("UI", "ChangesetReviewWindow.cs"), review = Src("Commands.ReviewChangesets.cs"), client = Src("Coordination", "ChangesetClient.cs"),
                ghost = Src("GhostBuilder", "GhostChangesetBuild.cs");
         int At(string s, string what) => s.IndexOf(what, StringComparison.Ordinal);
-        Ok(window.Contains("box.IsEnabled = !ChangesetTrust.DeclinedOnWeb(el);") && At(window, "box.IsEnabled = !ChangesetTrust.DeclinedOnWeb(el);") > At(window, "IsChecked = ChangesetTrust.PreTick(_cs, el, _notLoaded)")
+        Ok(window.Contains("box.IsEnabled = !ChangesetTrust.DeclinedOnWeb(el) && tierOf != ChangesetTrust.Tier.Protected;") && At(window, "box.IsEnabled = !ChangesetTrust.DeclinedOnWeb(el) && tierOf != ChangesetTrust.Tier.Protected;") > At(window, "IsChecked = tierOf == ChangesetTrust.Tier.Safe && ChangesetTrust.PreTick(_cs, el, _notLoaded)")
            && window.Contains("if (ChangesetTrust.ReviewLine(el) is string reviewLine)") && window.Contains("if (ChangesetTrust.DeclinedHeader(_cs) is string declinedLine)"),
            "the window shows a declined row unticked and disabled, every row's web decision, and the declines' header");
         int freshDone = At(review, "fresh.Add(f);"), refuse = At(review, "if (ChangesetTrust.DeclinedTicked(fresh, ticked) is { } declinedTicked)");
         Ok(freshDone > 0 && refuse > freshDone && refuse < At(review, "var role = ChangesetClient.MyRole(cfg, key, out var roleErr);")
            && refuse < At(review, "handler.SetRequest(") && review.IndexOf("return;", refuse, StringComparison.Ordinal) < At(review, "var role = ChangesetClient.MyRole(cfg, key, out var roleErr);"),
            "Apply re-checks the declines on the fresh copies before anything runs, and a declined tick refuses it all (it returns)");
-        Ok(review.Contains("records.Add(ResultOf(key, one, res.Applied, rejected, said, one.ReviewRev, here, new List<string> { undo, UndoWatcher.TxName(one.Name, one.Id) }, whys));") && review.Contains("var whys = StoreyBatch.Own(one, reasons);") // MA-3b: sent by ReportAll; MA-3b2: with its reasons
+        Ok(review.Contains("records.Add(ResultOf(key, one, res.Applied, rejected, said, one.ReviewRev, here, new List<string> { undo, UndoWatcher.TxName(one.Name, one.Id) }, whys,") && review.Contains("var whys = StoreyBatch.Own(one, reasons);") // MA-3b: sent by ReportAll; MA-3b2: with its reasons
            && !review.Contains("internal static bool Report(") // MA-3b4: Report and its dialogs are gone — Ghost Builder reports through ReportAll too
            && review.Contains("(ChangesetTrust.LateDeclines(reply) is { } late ? \"\\n\" + late : \"\")")
-           && client.Contains("JsonSerializer.Serialize(new { applied, rejected, note, actor = UserSession.Actor, review_rev = reviewRev, reasons, session = Session, attempt_key = attemptKey })") // MA-3b2: and the reasons
+           && client.Contains("JsonSerializer.Serialize(new { applied, rejected, note, actor = UserSession.Actor, review_rev = reviewRev, reasons, session = Session, attempt_key = attemptKey,") // MA-3b2: and the reasons
            && ghost.Contains("res.Gone.Select(g => g.ProposalGuid).ToList(), Note(r, level, report, blockLine), cs.ReviewRev,"),
            "the result carries the review_rev Apply re-checked (Ghost Builder's, the one its filing reply carried — C2), and a late or unchecked decline the bridge recorded is said");
     }

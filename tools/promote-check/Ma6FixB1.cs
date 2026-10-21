@@ -71,11 +71,11 @@ static partial class Check
            "…and the review gives Apply back with the ticks kept; nothing reports the changeset declined (the missing-level case's path)");
 
         // The review: read on the API thread before the window shows; the row says it after its label and opens unticked; the footer counts.
-        int read = At(review, "var notLoaded = ChangesetExecutor.NotLoaded(doc, cs.Elements);"), open = At(review, "var window = new ChangesetReviewWindow(cs, reach, notLoaded);");
+        int read = At(review, "var notLoaded = ChangesetExecutor.NotLoaded(doc, cs.Elements);"), open = At(review, "var window = new ChangesetReviewWindow(cs, reach, notLoaded, guards);");
         int mark = At(win, "var notHere = new TextBlock { Text = ChangesetTrust.NotLoadedMark"), label = At(win, "row.Children.Add(label);");
         Ok(read > 0 && open > read && mark > At(win, "row.Children.Add(show);") && label > mark && win.Contains("DockPanel.SetDock(notHere, Dock.Right);")
            && win.Contains("if (ChangesetTrust.NotLoadedLine(_notLoaded.Count) is string notLoadedLine)")
-           && win.Contains("IsChecked = ChangesetTrust.PreTick(_cs, el, _notLoaded)") && win.Contains("r.Box.IsChecked = ChangesetTrust.PreTick(_cs, r.El, _notLoaded)"),
+           && win.Contains("IsChecked = tierOf == ChangesetTrust.Tier.Safe && ChangesetTrust.PreTick(_cs, el, _notLoaded)") && win.Contains("r.Box.IsChecked = TierOf(r.El) == ChangesetTrust.Tier.Safe && ChangesetTrust.PreTick(_cs, r.El, _notLoaded)"),
            "F-3: the review reads the rows whose type is not loaded before the window shows; each says so after its label (never trimmed), opens unticked, Tick suggested leaves it; the footer counts them");
 
         // Pure: the pre-tick and the words.

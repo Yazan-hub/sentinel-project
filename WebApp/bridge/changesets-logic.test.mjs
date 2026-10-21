@@ -228,13 +228,14 @@ describe("validateChangeset — ops, TypeName and exceptions (MA-0)", () => {
   });
 
   it("OPS is create, retype, attach, set_parameter (MA-2c), reshape (MA-5b-4), rehost (MA-5b-5); VOCABULARY is the MA-1 list", () => {
-    expect(OPS).toEqual(["create", "retype", "attach", "set_parameter", "reshape", "rehost"]);
+    expect(OPS).toEqual(["create", "retype", "attach", "set_parameter", "reshape", "rehost", "delete"]);
     expect(VOCABULARY).toEqual(MA1);
   });
 
   it("OP_KINDS: create takes the vocabulary, retype and set_parameter six element kinds, attach walls only, rehost doors and windows", () => {
     const SIX = ["wall", "floor", "roof", "ceiling", "door", "window"];
-    expect(OP_KINDS).toEqual({ create: VOCABULARY, retype: [...SIX, "column", "beam"], attach: ["wall"], set_parameter: SIX, reshape: ["wall"], rehost: ["door", "window"] });
+    expect(OP_KINDS).toEqual({ create: VOCABULARY, retype: [...SIX, "column", "beam"], attach: ["wall"], set_parameter: SIX, reshape: ["wall"], rehost: ["door", "window"],
+      delete: [...SIX, "column", "beam", "furniture"] }); // human-error guards §3
   });
 
   it("op defaults to create and is echoed back, with no target, no reason and no exceptions", () => {
@@ -244,7 +245,7 @@ describe("validateChangeset — ops, TypeName and exceptions (MA-0)", () => {
   });
 
   it("an unknown op is a 400 that names the element index and the allowed ops", () => {
-    status400(() => validateChangeset(CS([wall(), { ...wall(), op: "delete" }])), /elements\[1\].*"delete".*create, retype, attach/);
+    status400(() => validateChangeset(CS([wall(), { ...wall(), op: "erase" }])), /elements\[1\].*"erase".*create, retype, attach/);
   });
 
   it("retype needs a UniqueId-shaped target and a TypeName, and no LocationCurve", () => {

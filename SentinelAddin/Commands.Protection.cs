@@ -55,7 +55,7 @@ public sealed class ProtectionWindow : Window
     private readonly Button _save = new() { Content = "Save", Padding = new Thickness(14, 4, 14, 4), FontWeight = FontWeights.Bold, IsEnabled = false };
     private readonly Button _reset = new() { Content = "Reset to the built-in default", Padding = new Thickness(10, 4, 10, 4), Margin = new Thickness(0, 0, 8, 0) };
     private HashSet<string> _otherCodes = new(StringComparer.Ordinal); // codes a saved policy holds that the window does not show: kept on save
-    private string _office;
+    private string _office, _readSha, _officeSha; // human-error guards §2: what Save sends as If-Match for the project, for the office
     private bool _projectHasOwn;
 
     public ProtectionWindow(string key, List<string> modelWorksets)
@@ -126,12 +126,15 @@ public sealed class ProtectionWindow : Window
         var scope = GovernedNotify.ProjectScope(_key);
         string office = null, officeWhy = scope.Error;
         if (scope.Error is null) office = TypeCatalogExport.OfficeKeyFrom(scope.Json, _key, out officeWhy);
+        var o = office != null ? ArtefactClient.Resolve(office, "protection") : null; // the office's own, for a save for the office
         var role = ChangesetClient.MyRole(BcfConfig.Load(), _key, out var roleError);
         var (lead, why) = ChangesetClient.CoordinatorFrom(_key, role, roleError);
         Dispatcher.BeginInvoke(new Action(() =>
         {
             var rules = a.Origin != "none" ? ProtectionRules.From(a.BodyJson, a.Label) : ProtectionRules.Default(a.NotInstalled ? "none saved yet" : a.Label);
             _projectHasOwn = a.Origin != "none" && string.Equals(a.Source, "project", StringComparison.OrdinalIgnoreCase);
+            _readSha = a.Origin != "none" ? a.Sha256 : null;
+            _officeSha = o != null && o.Origin != "none" ? o.Sha256 : null;
             _inForce.Text = "In force now: " + (a.Origin != "none" && !rules.Label.StartsWith("the built-in") ? a.Label : rules.Label);
             Fill(rules);
             _office = office;
@@ -174,14 +177,18 @@ public sealed class ProtectionWindow : Window
         catch (Exception e) { Say("Not saved: " + e.Message, true); return; }
         _save.IsEnabled = false;
         Say($"Saving on {target}…", false);
+        var readSha = target == _key ? _readSha : _officeSha;
         Task.Run(() =>
         {
-            var put = GovernedNotify.InstallArtefact(target, "protection", body, actor);
+            // Human-error guards §2: saved only on what this window opened with — another lead's save since is refused in the bridge's words.
+            var put = GovernedNotify.InstallArtefact(target, "protection", body, actor, readSha ?? "none");
             Dispatcher.BeginInvoke(new Action(() =>
             {
                 _save.IsEnabled = true;
                 if (put.Error != null) { Say($"Not saved on {target}: {put.Error}", true); return; }
                 Say($"✓ Saved as protection@{put.Version} on {target}, recorded in the ledger. Revit uses it for the next changeset you apply.", false);
+                if (target != _key) _officeSha = put.Sha256;
+                if (target == _key || !_projectHasOwn) _readSha = put.Sha256;
                 if (target == _key) { _projectHasOwn = true; _inForce.Text = $"In force now: protection@{put.Version} · project"; }
                 else if (!_projectHasOwn) _inForce.Text = $"In force now: protection@{put.Version} · office";
             }));

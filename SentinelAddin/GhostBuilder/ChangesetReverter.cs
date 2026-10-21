@@ -27,6 +27,8 @@ public static class ChangesetReverter
         /// <summary>Nothing changed: the revert threw or Revit rolled it back — said in Revit's words.</summary>
         public string Error { get; set; }
         public string Tx { get; set; }
+        /// <summary>Human-error guards §3: each delete's re-created copy, by proposal — its UniqueId is new; the revert's saved check looks for it.</summary>
+        public Dictionary<string, string> Recreated { get; } = new(StringComparer.Ordinal);
     }
 
     public static Outcome Run(Document doc, ChangesetDto cs, ProtectionRules rules, bool commit)
@@ -48,6 +50,8 @@ public static class ChangesetReverter
                 at = ChangesetTrust.GhostName(el);
                 var a = applied[el.ProposalGuid];
                 if (RevertPlan.NeverWhy(el, a) is string never) { Keep(el, never); continue; }
+                // Human-error guards §3: a delete's copy is gone by design — it comes back as a copy of the element it duplicated, or is kept in words.
+                if (el.Op == "delete") { if (Recreate(doc, cs, el, a, o, rules) is string no) Keep(el, no); else o.Reverted.Add(el.ProposalGuid); continue; }
                 var e = doc.GetElement(a.RevitUniqueId);
                 if (e == null) { Keep(el, "is no longer in this model — nothing to revert"); continue; }
                 if (!ProvenanceStamp.Holds(ProvenanceStamp.Read(e), cs.Id, el.ProposalGuid))
@@ -108,6 +112,53 @@ public static class ChangesetReverter
             o.Error = "Revit did not commit the revert" + (handler.RolledBack != null ? ": " + handler.RolledBack : "") + " — nothing was reverted";
         }
         return o;
+    }
+
+    /// <summary>Human-error guards §3: a deleted copy re-created — the element it duplicated copied in place (no move), the copy's own stored values
+    /// written back, its own IfcGUID or none (never the kept element's: one GlobalId twice breaks FG-01), and a fresh stamp marked reverted. Null when
+    /// done; the words when it cannot be exact: the copy is back already, or the element kept is gone, no longer where it was, held or protected, or
+    /// copying it makes more than one element. Inside the revert's transaction; a value Revit refuses is left as the copy of the kept element holds it.</summary>
+    private static string Recreate(Document doc, ChangesetDto cs, ChangesetElementDto el, RevertPlan.AppliedRow a, Outcome o, ProtectionRules rules)
+    {
+        if (doc.GetElement(a.RevitUniqueId ?? "") != null) return "the copy is in this model again (an Undo, or another copy of the model) — nothing to re-create";
+        var keeper = doc.GetElement(a.Deleted.KeeperUniqueId);
+        if (keeper == null) return "the element it duplicated is no longer in this model — Sentinel cannot re-create the copy exactly; a person decides";
+        if (ChangesetExecutor.HeldBy(doc, keeper) is string held) return $"the element it duplicated {held} — a person decides";
+        if (ChangesetExecutor.ProtectionWhy(doc, keeper, rules ?? ProtectionRules.Default("not read")) is string prot) return $"the element it duplicated {prot} — a lead re-creates it by hand";
+        ICollection<ElementId> made;
+        try { made = ElementTransformUtils.CopyElement(doc, keeper.Id, XYZ.Zero); }
+        catch (Exception ex) { return $"Revit refused to copy the element it duplicated ({ex.Message}) — a person decides"; }
+        if (made.Count != 1)
+        {
+            if (made.Count > 0) doc.Delete(made);
+            return $"copying the element it duplicated makes {made.Count} elements, not one — a person decides";
+        }
+        var e = doc.GetElement(made.First());
+        doc.Regenerate();
+        if (ChangesetExecutor.DuplicateWhyNot(doc, e, keeper) is string notSame) { doc.Delete(e.Id); return $"the copy Revit made {notSame} — a person decides"; }
+        foreach (var v in a.Deleted.Values ?? new List<ParamValueDto>())
+        {
+            var p = v.Id < 0 ? e.get_Parameter((BuiltInParameter)(int)v.Id) : e.Parameters.Cast<Parameter>().FirstOrDefault(x => x.Id.IdValue() == v.Id);
+            if (p == null || p.IsReadOnly || p.StorageType.ToString() != v.Storage) continue;
+            try
+            {
+                var inv = System.Globalization.CultureInfo.InvariantCulture;
+                switch (p.StorageType)
+                {
+                    case StorageType.String: if (p.AsString() != v.Value) p.Set(v.Value ?? ""); break;
+                    case StorageType.Integer: if (int.TryParse(v.Value, System.Globalization.NumberStyles.Integer, inv, out var n) && p.AsInteger() != n) p.Set(n); break;
+                    case StorageType.Double: if (double.TryParse(v.Value, System.Globalization.NumberStyles.Float, inv, out var d) && p.AsDouble() != d) p.Set(d); break;
+                    case StorageType.ElementId: if (long.TryParse(v.Value, System.Globalization.NumberStyles.Integer, inv, out var id) && p.AsElementId().IdValue() != id) p.Set(Compat.ToElementId(id)); break;
+                }
+            }
+            catch (Exception) { /* ponytail: a value Revit refuses (one that only fits the old element) stays as copied; the row still goes back */ }
+        }
+        // the kept element's IfcGUID, copied with it, would be one GlobalId twice — the copy gets its own stored one back, else none (the exporter makes one)
+        var guid = e.get_Parameter(BuiltInParameter.IFC_GUID);
+        if (guid != null && !guid.IsReadOnly && !string.IsNullOrEmpty(guid.AsString()) && guid.AsString() == keeper.get_Parameter(BuiltInParameter.IFC_GUID)?.AsString()) guid.Set("");
+        ProvenanceStamp.WriteRecreated(e, cs.Id, cs.Source, el.ProposalGuid);
+        o.Recreated[el.ProposalGuid] = e.UniqueId;
+        return null;
     }
 
     private static string Retype(Document doc, ChangesetElementDto el, Element e)

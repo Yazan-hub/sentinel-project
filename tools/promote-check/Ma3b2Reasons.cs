@@ -119,7 +119,7 @@ static partial class Check
         for (int i = 0; (i = client.IndexOf("error = ChangesetTrust.BridgeWords(ex, (int)ReadHttp.Timeout.TotalSeconds);", i, StringComparison.Ordinal)) >= 0; i++) reads++;
         Ok(reads == 3 && client.Contains("catch (Exception ex) { error = ChangesetTrust.BridgeWords(ex, (int)(http ?? WriteHttp).Timeout.TotalSeconds); return false; }")
            && unreported.Contains("var err = ChangesetTrust.BridgeWords(error, 120);")
-           && client.Contains("ResultBody(applied, rejected, note, reviewRev, reasons, attemptKey), 200, out reply, out error);"),
+           && client.Contains("ResultBody(applied, rejected, note, reviewRev, reasons, attemptKey, tickReasons, batchReason), 200, out reply, out error);"),
            "every read (the pending list, the re-check, the role) and every write of the changeset client says its failure in those words, with its own timeout; the result is posted with ResultBody");
         // MA-8 nits (F-B4-2): a refusal says the bridge's message, not its JSON; the "Bridge <code>" prefix Outcome reads is kept.
         int refusalSites = 0;

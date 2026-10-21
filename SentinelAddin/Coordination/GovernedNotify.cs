@@ -32,10 +32,11 @@ namespace Sentinel.Coordination
         /// <summary>Send a governed request, attaching the bridge auth-gate bearer (F2) when the bridge requires
         /// one (BcfConfig.ServiceToken non-empty). Blocking; the caller owns/reads the response.</summary>
         private static HttpResponseMessage Send(HttpClient client, HttpMethod method, string url, HttpContent? content, BcfConfig cfg,
-                                                System.Threading.CancellationToken ct = default)
+                                                System.Threading.CancellationToken ct = default, string? ifMatch = null)
         {
             var msg = new HttpRequestMessage(method, url);
             if (content != null) msg.Content = content;
+            if (ifMatch != null) msg.Headers.TryAddWithoutValidation("If-Match", "\"" + ifMatch + "\"");
             if (!string.IsNullOrWhiteSpace(cfg.ServiceToken))
                 msg.Headers.Authorization = new AuthenticationHeaderValue("Bearer", cfg.ServiceToken);
             return client.SendAsync(msg, ct).GetAwaiter().GetResult();
@@ -205,8 +206,10 @@ namespace Sentinel.Coordination
         /// Install <paramref name="kind"/>@n+1 on the project: <c>PUT /cde/{key}/artefacts/{kind}?actor=…</c>. The
         /// route lifts a top-level <c>source</c> object out of the body into the pointer's provenance. Blocking
         /// (120 s cap) — call it OFF the API thread. Returns the new version and the bridge's sha, or a reason.
+        /// Human-error guards §2: <paramref name="ifMatch"/> is the sha of the artefact in force the window opened with, or "none" — the bridge
+        /// refuses a save over one installed since (412, in its words: who and when); null sends none (a build that is not a form's edit).
         /// </summary>
-        public static (int Version, string? Sha256, string? Error) InstallArtefact(string projectKey, string kind, string bodyJson, string actor)
+        public static (int Version, string? Sha256, string? Error) InstallArtefact(string projectKey, string kind, string bodyJson, string actor, string? ifMatch = null)
         {
             if (string.IsNullOrWhiteSpace(projectKey)) return (0, null, "this model is not bound to a web project");
             try
@@ -214,7 +217,7 @@ namespace Sentinel.Coordination
                 var cfg = BcfConfig.Load();
                 var url = cfg.ServiceUrl.TrimEnd('/') + "/cde/" + Uri.EscapeDataString(projectKey.Trim()) + "/artefacts/" +
                           Uri.EscapeDataString(kind) + "?actor=" + Uri.EscapeDataString(actor);
-                var resp = Send(GovHttp, HttpMethod.Put, url, new StringContent(bodyJson, Encoding.UTF8, "application/json"), cfg);
+                var resp = Send(GovHttp, HttpMethod.Put, url, new StringContent(bodyJson, Encoding.UTF8, "application/json"), cfg, ifMatch: ifMatch);
                 var json = resp.Content.ReadAsStringAsync().GetAwaiter().GetResult();
                 JsonDocument? d = null;
                 try { d = JsonDocument.Parse(json); } catch { /* not JSON: report the status alone */ }

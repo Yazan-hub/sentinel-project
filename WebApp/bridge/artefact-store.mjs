@@ -25,6 +25,11 @@ export const IFC_EXPORT_TYPES = ["Acceleration", "AngularVelocity", "Area", "Are
 const CARBON_MEASURES = ["count", "length", "area", "volume", "weight"];
 
 const err = (status, message) => Object.assign(new Error(message), { status });
+/** Human-error guards §2 (spec 2026-10-21): a write whose If-Match names what the client read, when another write landed first — a 412
+ *  in words: "<what> changed by <who> at 2026-10-21 14:02 UTC — reload; nothing was saved". `what` carries its verb ("protection was"). */
+export const staleChange = (what, by, iso) => err(412, `${what} changed by ${by || "someone"} at ${iso ? `${String(iso).slice(0, 10)} ${String(iso).slice(11, 16)} UTC` : "a time not recorded"} — reload to see it; nothing was saved`);
+/** An If-Match value as sent — the quotes and a weak W/ taken off; null when none was sent. */
+export const ifMatchValue = (h) => (h == null || String(h).trim() === "" ? null : String(h).trim().replace(/^W\//, "").replace(/^"(.*)"$/, "$1"));
 /** Canonical JSON (keys sorted recursively) and its sha256 live in canonical.mjs, shared with the delivery-gate component. */
 export { canonical };
 
@@ -506,7 +511,7 @@ async function installVersion(d, proj, kind, body, prev, { actor, source }) {
   return pointer;
 }
 
-export async function putArtefact(key, kind, body, { actor, source } = {}, deps) {
+export async function putArtefact(key, kind, body, { actor, source, ifMatch } = {}, deps) {
   // MA-4a spec amendment S1: an evidence pack's items carry the bridge's hashes and attestations, so it changes only through the
   // evidence routes (evidence-store.mjs → foldArtefact) — never a hand PUT, a lead's included.
   if (kind === "evidence_pack") throw err(400, "evidence packs change only through the evidence routes; nothing was saved");
@@ -522,6 +527,17 @@ export async function putArtefact(key, kind, body, { actor, source } = {}, deps)
   const d = await wire(deps);
   await d.requireMinRole(key, "lead");
   const proj = await d.ensureProject(key);
+  // Human-error guards §2: If-Match is the sha of the artefact in force for `key` as the client read it, or "none" — another install
+  // since (here or on its office) is a 412 naming who and when. None sent is written as before (scripts, the MCP server, older add-ins).
+  const want = ifMatchValue(ifMatch);
+  if (want != null) {
+    const now = await resolveArtefact(key, kind, deps);
+    if (want !== (now.sha256 ?? "none")) {
+      if (now.source === "none") throw err(412, `the ${kind} this was read from is no longer in force on ${key} — reload to see it; nothing was saved`);
+      const doc = now.source === "project" ? await getArtefact(key, kind, deps) : await d.officeArtefact(await d.officeKeyOf(key), kind);
+      throw staleChange(`${kind} was`, doc?.installed_by, doc?.installed_at);
+    }
+  }
   const prev = await d.docGet(STORE, proj.id, kind);
   return installVersion(d, proj, kind, body, prev, { actor, source });
 }

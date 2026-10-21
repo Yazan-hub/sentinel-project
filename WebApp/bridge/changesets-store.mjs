@@ -6,7 +6,8 @@ import * as cde from "./cde-store.mjs";
 import { canonical } from "./canonical.mjs";
 import * as members from "./members-store.mjs";
 import { validateChangeset, attachVerdicts, canWithdraw, deriveResultStatus, unattributedFailures,
-  reviewRev, editCost, checkStairFlag, stairReason, checkFromFlag, checkFromScan, keepBuilt, stairsOf, MAX_CHANGESET_EXCEPTIONS, applyDecisions, citedPhotos, reopenDecline, resultConflicts, resultReasons, carryDeclines, declineWords, UNTYPED } from "./changesets-logic.mjs";
+  reviewRev, editCost, checkStairFlag, stairReason, checkFromFlag, checkFromScan, keepBuilt, stairsOf, MAX_CHANGESET_EXCEPTIONS, applyDecisions, citedPhotos, reopenDecline, resultConflicts, resultReasons, carryDeclines, declineWords, UNTYPED,
+  riskyByOp, resultTickReasons, batchReasonOf, keepDeleted } from "./changesets-logic.mjs";
 import { makeTyper, makeCiter } from "./changesets-typing.mjs";
 import { resolveArtefact, refLabel, validateArtefact } from "./artefact-store.mjs";
 import { resolveActor } from "./bridge-auth.mjs";
@@ -95,7 +96,7 @@ const UNCHECKED_WHY = "the reporting client sent no review_rev — the bridge ca
  *  grid, never an attach or a set_parameter) that names no place.TypeName? Only then are the standards read. MA-6-3: the untyped kinds
  *  are changesets-logic's own list (an opening, too). */
 export const needsTyping = (body) => Array.isArray(body?.elements) && body.elements.some((e) => e && typeof e === "object"
-  && !["attach", "set_parameter"].includes(e.op ?? "create") && !UNTYPED.includes(e.kind)
+  && !["attach", "set_parameter", "delete"].includes(e.op ?? "create") && !UNTYPED.includes(e.kind)
   && !(e.place && typeof e.place === "object" && typeof e.place.TypeName === "string" && e.place.TypeName.trim() !== ""));
 
 /** MA-2c: does a posted body hold a set_parameter? Only then are the type catalogue and the ids@n read, to check its source. */
@@ -144,7 +145,27 @@ export async function proposeChangeset(key, body, actor, deps) {
   const core = catalog ? await import("./sentinel-core.mjs") : null;
   const v = validateChangeset(body, { member: role != null && role !== "service", type, cite, catalog, sameCategory: core?.sameCategory }); // 400/413 before any changeset is stored
   if (String(v.source).toLowerCase() === "photo") await photoPackRefusal(v.elements, key, deps); // MA-7-14: Photo Massing read the pack's blurred copies, nothing else
+  if (v.elements.some((e) => e.op === "delete")) await deleteRefusal(v, key, role, d);
   return fileValidated(d, key, v, body, actor);
+}
+
+/** Human-error guards §3 (spec 2026-10-21): a delete is a lead's (deletes are default-deny for agents and scripts — validateChangeset refused the
+ *  machine credential already), filed from clash triage (source "clash"), and each one proved by the project's clash register: a hit of a
+ *  "duplicate|…" group naming exactly its copy and the element it keeps, both in one model. Otherwise a 403 or 409 in words; nothing is filed. */
+async function deleteRefusal(v, key, role, d) {
+  if ((members.ROLE_RANK[role] || 0) < members.ROLE_RANK.lead) throw err(403, `a delete removes an element — it is a lead's or owner's to propose (you are ${role || "not a member"}); nothing was saved`);
+  if (String(v.source) !== "clash") throw err(400, `a delete is proposed from clash triage only (source "clash"), not "${v.source}"; nothing was saved`);
+  let register;
+  try { register = await d.docList("clash", key); }
+  catch (e) { throw err(503, `the clash register could not be read (${e.message}) — nothing proves these copies; nothing was saved`); }
+  const pairs = new Set();
+  for (const r of register || []) {
+    const els = Array.isArray(r?.elements) ? r.elements : [];
+    if (!String(r?.group ?? "").startsWith("duplicate|") || els.length !== 2 || !els[0]?.guid || !els[1]?.guid || els[0].model_id !== els[1].model_id) continue;
+    pairs.add(`${els[0].guid}|${els[1].guid}`); pairs.add(`${els[1].guid}|${els[0].guid}`);
+  }
+  const unproved = v.elements.filter((e) => !pairs.has(`${e.target.ifc_guid}|${e.target.keeper_ifc_guid}`));
+  if (unproved.length) throw err(409, `${unproved.length} delete(s) name a pair the clash register does not hold as one element modelled twice in one model (${unproved.slice(0, 3).map((e) => e.target.ifc_guid).join(", ")}${unproved.length > 3 ? ", …" : ""}) — run clash triage and record the duplicate group first; nothing was saved`);
 }
 
 /** MA-7-14 (D-7-27, amendment 28): a source:"photo" changeset names the photos it read - each element's evidence is "ev-NNNN sha256:<copy sha>" - and each must be
@@ -997,7 +1018,7 @@ function asBuiltOf(cs, applied, role, judge) {
 
 /** The add-in's report: which proposals a human ticked (with the created Revit ids) and which they
  *  didn't. Writable exactly once, only from `proposed`. Status is DERIVED from the counts. */
-export async function reportResult(key, id, { applied, rejected, note, review_rev, reasons, session, attempt_key } = {}, actor, deps) {
+export async function reportResult(key, id, { applied, rejected, note, review_rev, reasons, session, attempt_key, tick_reasons, batch_reason } = {}, actor, deps) {
   const d = wire(deps);
   // A result says what a human ticked in Revit and is written once. H4: Revit signs in per user, so it is that user's
   // contributor check (the machine credential still passes as service); a viewer reports nothing, before any read.
@@ -1028,7 +1049,7 @@ export async function reportResult(key, id, { applied, rejected, note, review_re
 
   // CAS (MA-3a: on review_rev, rewrite): a concurrent withdraw or report can't both land — the loser reads the winner's status and
   // 409s, with no audit row — and a web decision written in between is kept, and judged.
-  const { before: cs, updated, conflicts, why } = await rewrite(d, proj.id, id, (cs) => {
+  const { before: cs, updated, conflicts, why, ticks, batch } = await rewrite(d, proj.id, id, (cs) => {
     if (cs.status !== "proposed") throw err(409, `changeset is ${cs.status} — a result can be reported exactly once, from proposed`);
     // Apply claim (2026-10-20, spec §1): another Revit session is applying it — this result is not recorded over its placement.
     const held = claimRefusal(cs, typeof session === "string" ? session : null);
@@ -1039,7 +1060,7 @@ export async function reportResult(key, id, { applied, rejected, note, review_re
     }
     // MA-5b-5 (design review R11): an applied rehost removed an element — its result is a signed-in member's, never the machine credential's
     // MA-8-7: so is an applied create that replaces (it deletes the DirectShape or Generic Model it re-created)
-    const rehosts = new Set(cs.elements.filter((e) => e.op === "rehost" || e.replaces).map((e) => e.proposal_guid));
+    const rehosts = new Set(cs.elements.filter((e) => e.op === "rehost" || e.op === "delete" || e.replaces).map((e) => e.proposal_guid)); // human-error guards §3: a delete too
     if (role === "service" && appliedArr.some((a) => rehosts.has(a.proposal_guid)))
       throw err(403, "a rehost removes an element — its result is a signed-in member's (sign in in Revit); nothing was recorded and the changeset stays proposed" +
         " (a create that replaces removes one too)");
@@ -1060,9 +1081,12 @@ export async function reportResult(key, id, { applied, rejected, note, review_re
         "; Revit refuses that tick, so this result is refused. Nothing was recorded; the changeset stays proposed");
     // MA-3b2: Revit's reason per declined ghost — validated before anything is written, stored beside the web's declines.
     const why = resultReasons(rejectedArr, reasons);
+    // Human-error guards §1: the person's reason per ticked row of the "Needs a reason" tier, and the batch's — validated before anything is written.
+    const ticks = resultTickReasons(appliedArr.map((a) => a.proposal_guid), tick_reasons);
+    const batch = batchReasonOf(batch_reason);
     const status = deriveResultStatus(appliedArr.length, rejectedArr.length, cs.elements.length);
     const as_built = asBuiltOf(cs, appliedArr, role, judge); // MA-6-2
-    return { conflicts, why, updated: {
+    return { conflicts, why, ticks, batch, updated: {
       ...cs, status, updated_at: new Date().toISOString(), review_rev: reviewRev(cs) + 1, claim: null, // the result releases the claim
       result: {
         ...(attempt_key ? { attempt_key } : {}),
@@ -1077,7 +1101,9 @@ export async function reportResult(key, id, { applied, rejected, note, review_re
             // Revert (2026-10-20): the wall's top before an attach, field by field (anything else is null) - a revert needs it to go back
             ...(el?.op === "attach" ? { before: keepTop(a.before) } : {}),
             ...(el?.kind === "stair" ? { built: keepBuilt(a.built, role != null && role !== "service") } : {}),
-            ...(el?.op === "rehost" || el?.replaces ? { removed_tags: Number.isInteger(a.removed_tags) && a.removed_tags >= 0 && a.removed_tags <= 10000 ? a.removed_tags : null } : {}),
+            ...(el?.op === "rehost" || el?.op === "delete" || el?.replaces ? { removed_tags: Number.isInteger(a.removed_tags) && a.removed_tags >= 0 && a.removed_tags <= 10000 ? a.removed_tags : null } : {}),
+            // Human-error guards §3: what Revit read of the copy before it deleted it - the element kept and its values - field by field (Revert's record)
+            ...(el?.op === "delete" ? { deleted: keepDeleted(a.deleted) } : {}),
             // MA-8-7 (amendment 3): the UniqueId of the element Revit reports it deleted for a replacing create - kept as reported, one line
             ...(el?.replaces ? { removed_unique_id: typeof a.removed_unique_id === "string" && a.removed_unique_id.length > 0 && a.removed_unique_id.length <= 256 && !/[\u0000-\u001f]/.test(a.removed_unique_id) ? a.removed_unique_id : null } : {}) };
         }),
@@ -1088,6 +1114,7 @@ export async function reportResult(key, id, { applied, rejected, note, review_re
         review_rev_seen: review_rev == null ? null : { value: review_rev, claimed: true },
         declined_on_web: conflicts.declined_on_web, applied_over_late_decline: conflicts.late, applied_over_decline_unchecked: conflicts.unchecked,
         ...(why ? { reasons: why } : {}),
+        ...(ticks ? { tick_reasons: ticks } : {}), ...(batch ? { batch_reason: batch } : {}), // human-error guards §1
         ...(as_built ? { as_built } : {}), // MA-6-2: Revit's re-read, judged by the bridge (never a posted verdict)
       },
     } };
@@ -1116,6 +1143,8 @@ export async function reportResult(key, id, { applied, rejected, note, review_re
       const done = typeof a.removed_unique_id === "string" && a.removed_unique_id.toLowerCase() === e.replaces.unique_id.toLowerCase();
       return done ? [{ proposal_guid: a.proposal_guid, unique_id: a.removed_unique_id, type_before: e.replaces.kind === "generic" ? "Generic Model" : e.replaces.kind === "directshape" ? "DirectShape" : "DirectShape or Generic Model", replaced_by: by, tags: a.removed_tags ?? null }] : [];
     }
+    // Human-error guards §3: a delete removed its copy (Revit's UniqueId of it), the element it duplicated stays
+    if (e?.op === "delete") return [{ proposal_guid: a.proposal_guid, unique_id: a.revit_unique_id ?? null, ifc_guid: e.target.ifc_guid, kept: e.target.keeper_ifc_guid, tags: a.removed_tags ?? null }];
     return e?.op === "rehost" ? [{ proposal_guid: a.proposal_guid, unique_id: e.target?.unique_id ?? null, type_before: e.target?.type_before ?? null,
       replaced_by: by, tags: a.removed_tags ?? null }] : [];
   });
@@ -1136,6 +1165,10 @@ export async function reportResult(key, id, { applied, rejected, note, review_re
         from_job: updated.result.applied.map((a) => { const e = cs.elements.find((x) => x.proposal_guid === a.proposal_guid);
           return { proposal_guid: a.proposal_guid, revit_unique_id: a.revit_unique_id, cid: e?.cid ?? null, evidence: e?.evidence ?? [] }; }) } : {}),
       ...(why ? { reasons: why } : {}), // MA-3b2: Revit's reason per declined ghost, as stored
+      // Human-error guards §1: the reasons a person typed to apply the risky rows, the batch's, and any risky row applied with none (an older add-in)
+      ...(ticks ? { tick_reasons: ticks } : {}), ...(batch ? { batch_reason: batch } : {}),
+      ...((() => { const u = updated.result.applied.filter((a) => riskyByOp(cs.elements.find((x) => x.proposal_guid === a.proposal_guid)) && !ticks?.[a.proposal_guid]).map((a) => a.proposal_guid);
+        return u.length ? { unreasoned: u } : {}; })()),
       // MA-6-2: the as-built verdict's counts (the elements are on the changeset's result) — which ids@n judged, and who reported the values
       ...(updated.result.as_built ? { as_built: (({ elements, out_of_scope, ids_sha256, ...counts }) => counts)(updated.result.as_built) } : {}),
       // MA-3a: the web's declines the result rejected (counted), and any ghost applied over a decline Revit could not see (named).

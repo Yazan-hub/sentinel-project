@@ -36,7 +36,7 @@ export interface DeskJob {
 }
 export interface Ghost {
   proposal_guid: string; kind: string; op?: string | null;
-  target?: { unique_id?: string; type_before?: string; ifc_guid?: string | null; placed?: { start: number[]; end: number[] }; at?: number[] } | null;
+  target?: { unique_id?: string; type_before?: string; ifc_guid?: string | null; keeper_ifc_guid?: string; placed?: { start: number[]; end: number[] }; at?: number[] } | null;
   place?: { TypeName?: string; FamilyName?: string; LevelName?: string; BaseLevel?: string; TopLevel?: string; Name?: string; Location?: number[]; SillHeight?: number;
     Boundary?: number[][]; BaseElevation?: number; TopElevation?: number;
     /** MA-8-10: a stair - one straight run, its riser count, going and width (mm); TopLevel is the level it reaches. */
@@ -133,6 +133,8 @@ export function ghostLine(el: Ghost): string {
     // MA-5b-5: a door or window no wall hosts, replaced by the office type in the one wall it stands in (Revit's row, shortened)
     case "rehost": return `${name} · rehost ${el.target?.type_before ?? "?"} at ${xy(el.target?.at)} → ${type} in the wall at ${xy(el.place?.Location)} on ${el.place?.LevelName ?? "?"}` +
       `${el.place?.SillHeight != null ? `, sill ${Math.round(el.place.SillHeight)} mm` : ""}; the unhosted instance and any tags on it are removed (one Undo in Revit brings them back); its Mark, Comments, workset and phase carry over`;
+    // human-error guards §3: a copy clash triage found modelled twice — Revit removes it only when it is the same as the one kept
+    case "delete": return `${name} · delete the copy ${el.target?.ifc_guid ?? "?"} of ${el.target?.keeper_ifc_guid ?? "?"} (clash triage) — removed in Revit only with a person's tick and reason, and only if it is the same type, level, place and size as the one kept`;
     case "set_parameter": return `${type} · ${el.parameter} "${el.from ?? ""}" → "${el.to ?? ""}" (a type edit: it reaches every element of the type)`;
     // MA-5b-1: a room reads its number, then its name (Revit's review row: room: 101 · OFFICE · its level)
     default: if (el.replaces) return replacesLine(el, name, type); // MA-8-7: a create is not a plain create when it deletes the original

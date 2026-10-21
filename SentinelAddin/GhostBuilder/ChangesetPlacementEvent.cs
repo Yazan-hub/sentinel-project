@@ -151,7 +151,7 @@ public sealed class ChangesetPlacementEvent : IExternalEventHandler
             // check and before the group is kept. Going back rolls everything back; the changeset stays proposed.
             // MA-2c: a set_parameter's applied entry is a TYPE — the IDS judges the elements, so it is left out (its value is
             // judged on the elements this changeset retyped onto the type). MA-6-2: the as-built read below leaves it out too.
-            var kindOf = batch.SelectMany(c => c.Elements ?? new List<ChangesetElementDto>()).Where(e => e.Op != "set_parameter").ToDictionary(e => e.ProposalGuid, e => e.Kind ?? "wall");
+            var kindOf = batch.SelectMany(c => c.Elements ?? new List<ChangesetElementDto>()).Where(e => e.Op != "set_parameter" && e.Op != "delete").ToDictionary(e => e.ProposalGuid, e => e.Kind ?? "wall"); // human-error guards §3: a deleted copy is judged by nothing
             string idsLine = null;
             if (ids != null)
             {

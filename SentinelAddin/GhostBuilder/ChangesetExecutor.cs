@@ -113,6 +113,137 @@ public sealed class ChangesetExecutor
         return held;
     }
 
+    /// <summary>Human-error guards §1 (spec 2026-10-21): the rows a protected element touches, for the review window's tiers — Own when the row's own
+    /// element is protected (the executor keeps it as it stands), else near: its element, or a create's planned outline (its curve, loop, boundary or
+    /// point, from its level to 3 m above), within 50 mm of a protected element, or a type edit with protected elements on the type. API thread,
+    /// read when the window opens; `rules` is this PC's cached policy or the built-in default — Apply re-reads the policy in force.</summary>
+    internal static Dictionary<string, (bool Own, string Why)> Guarded(Document doc, IEnumerable<ChangesetElementDto> rows, ProtectionRules rules)
+    {
+        var outD = new Dictionary<string, (bool Own, string Why)>(StringComparer.Ordinal);
+        var list = (rows ?? Enumerable.Empty<ChangesetElementDto>()).Where(r => r?.ProposalGuid != null).ToList();
+        if (list.Count == 0) return outD;
+        rules ??= ProtectionRules.Default("not read");
+        // The protected elements, once: the policy's categories, then walls and floors (structural hosts) and anything on a protected workset.
+        var cats = rules.Categories.Select(c => Enum.TryParse<BuiltInCategory>(c, out var b) ? (BuiltInCategory?)b : null).Where(b => b != null).Select(b => b.Value).ToList();
+        var seen = new HashSet<long>();
+        var prot = new List<(Element E, BoundingBoxXYZ B, string Why)>();
+        void Add(IEnumerable<Element> es)
+        {
+            foreach (var e in es)
+                if (seen.Add(e.Id.IdValue()) && ProtectionWhy(doc, e, rules) is string why && e.get_BoundingBox(null) is BoundingBoxXYZ b) prot.Add((e, b, why));
+        }
+        if (cats.Count > 0) Add(new FilteredElementCollector(doc).WhereElementIsNotElementType().WherePasses(new ElementMulticategoryFilter(cats)));
+        if (rules.StructuralHosts) Add(new FilteredElementCollector(doc).WhereElementIsNotElementType().WherePasses(new LogicalOrFilter(new ElementClassFilter(typeof(Wall)), new ElementClassFilter(typeof(Floor)))));
+        if (doc.IsWorkshared && rules.Worksets.Count > 0)
+            foreach (var ws in new FilteredWorksetCollector(doc).OfKind(WorksetKind.UserWorkset).Where(w => rules.Worksets.Any(p => ProtectionRules.Glob(p, w.Name))))
+                Add(new FilteredElementCollector(doc).WhereElementIsNotElementType().WherePasses(new ElementWorksetFilter(ws.Id)));
+        var gap = 50 * MmToFeet;
+        string Near(XYZ min, XYZ max, ElementId self)
+        {
+            foreach (var p in prot)
+                if (!p.E.Id.Equals(self) && p.B.Min.X <= max.X + gap && p.B.Max.X >= min.X - gap && p.B.Min.Y <= max.Y + gap && p.B.Max.Y >= min.Y - gap
+                    && p.B.Min.Z <= max.Z + gap && p.B.Max.Z >= min.Z - gap)
+                    return $"within 50 mm of {p.E.Category?.Name ?? "an element"} {p.E.Id.IdValue()}, which {p.Why}";
+            return null;
+        }
+        var deleteIds = BcfApplyEvent.MapByIfcGuid(doc, new HashSet<string>(list.Where(r => r.Op == "delete" && !string.IsNullOrEmpty(r.Target?.IfcGuid)).Select(r => r.Target.IfcGuid), StringComparer.Ordinal));
+        foreach (var el in list)
+        {
+            if (IsCreate(el))
+            {
+                if (PlannedBox(doc, el.Place) is var (min, max) && min != null && Near(min, max, ElementId.InvalidElementId) is string n) outD[el.ProposalGuid] = (false, n);
+                continue;
+            }
+            var e = el.Op == "delete" ? (deleteIds.TryGetValue(el.Target?.IfcGuid ?? "", out var did) ? doc.GetElement(did) : null)
+                  : string.IsNullOrWhiteSpace(el.Target?.UniqueId) ? null : doc.GetElement(el.Target.UniqueId);
+            if (e == null) continue;
+            if (e is ElementType et)
+            {
+                var on = prot.Count(p => p.E.GetTypeId().Equals(et.Id));
+                if (on > 0) outD[el.ProposalGuid] = (false, $"reaches {on} protected element(s) on its type");
+                continue;
+            }
+            if (ProtectionWhy(doc, e, rules) is string own) { outD[el.ProposalGuid] = (true, own); continue; }
+            if (e.get_BoundingBox(null) is BoundingBoxXYZ bb && Near(bb.Min, bb.Max, e.Id) is string near) outD[el.ProposalGuid] = (false, near);
+        }
+        return outD;
+    }
+
+    /// <summary>A create's planned box (internal units): its curve, loop, boundary, points or point in plan; from its base (BaseElevation, else its
+    /// level's elevation) to its top (TopElevation, else 3 m above). (null, null) when the place names no point.</summary>
+    private static (XYZ Min, XYZ Max) PlannedBox(Document doc, PlaceDto p)
+    {
+        if (p == null) return (null, null);
+        var pts = new List<double[]>();
+        if (p.LocationCurve is CurveDto c) pts.AddRange(new[] { c.Start, c.End, c.Mid }.Where(q => q is { Length: >= 2 }));
+        foreach (var arr in new[] { p.LocationLoop, p.Boundary, p.Points }) if (arr != null) pts.AddRange(arr.Where(q => q is { Length: >= 2 }));
+        if (p.Location is { Length: >= 2 }) pts.Add(p.Location);
+        if (pts.Count == 0) return (null, null);
+        var levelName = p.LevelName ?? p.BaseLevel;
+        var level = string.IsNullOrEmpty(levelName) ? null : new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().FirstOrDefault(l => string.Equals(l.Name, levelName, StringComparison.OrdinalIgnoreCase));
+        double baseMm = p.BaseElevation ?? (level != null ? level.Elevation / MmToFeet : pts.Min(q => q.Length >= 3 ? q[2] : 0));
+        double topMm = p.TopElevation ?? baseMm + 3000;
+        return (new XYZ(pts.Min(q => q[0]) * MmToFeet, pts.Min(q => q[1]) * MmToFeet, Math.Min(baseMm, topMm) * MmToFeet),
+                new XYZ(pts.Max(q => q[0]) * MmToFeet, pts.Max(q => q[1]) * MmToFeet, Math.Max(baseMm, topMm) * MmToFeet));
+    }
+
+    /// <summary>Human-error guards §3: why <paramref name="copy"/> is not <paramref name="keeper"/> modelled twice, in words — or null. Same category,
+    /// type and level; a curve's two ends (either way round) or a point within 5 mm and the same turn; boxes within 5 mm; and, where Revit computes
+    /// them, the same area and volume (0.5 %).</summary>
+    internal static string DuplicateWhyNot(Document doc, Element copy, Element keeper)
+    {
+        const double tol = 5 * MmToFeet;
+        if (copy.Category == null || keeper.Category == null || copy.Category.Id.IdValue() != keeper.Category.Id.IdValue())
+            return $"is {copy.Category?.Name ?? "no category"}, the element kept {keeper.Category?.Name ?? "no category"} — not the same element twice";
+        if (!copy.GetTypeId().Equals(keeper.GetTypeId()))
+            return $"is \"{TypeLabel(doc.GetElement(copy.GetTypeId()) as ElementType)}\", the element kept \"{TypeLabel(doc.GetElement(keeper.GetTypeId()) as ElementType)}\" — not the same type";
+        if (!copy.LevelId.Equals(keeper.LevelId)) return "is on another level than the element kept";
+        if (copy.Location is LocationCurve ca && keeper.Location is LocationCurve kb)
+        {
+            XYZ a0 = ca.Curve.GetEndPoint(0), a1 = ca.Curve.GetEndPoint(1), b0 = kb.Curve.GetEndPoint(0), b1 = kb.Curve.GetEndPoint(1);
+            if (!(a0.IsAlmostEqualTo(b0, tol) && a1.IsAlmostEqualTo(b1, tol) || a0.IsAlmostEqualTo(b1, tol) && a1.IsAlmostEqualTo(b0, tol)))
+                return "does not run on the element kept's line (5 mm)";
+        }
+        else if (copy.Location is LocationPoint pa && keeper.Location is LocationPoint pb)
+        {
+            if (!pa.Point.IsAlmostEqualTo(pb.Point, tol)) return "does not stand where the element kept stands (5 mm)";
+            if (Math.Abs(pa.Rotation - pb.Rotation) > 1e-3) return "is turned another way than the element kept";
+        }
+        else if (copy.Location is LocationCurve || copy.Location is LocationPoint || keeper.Location is LocationCurve || keeper.Location is LocationPoint)
+            return "is placed another way than the element kept";
+        var ba = copy.get_BoundingBox(null); var bb = keeper.get_BoundingBox(null);
+        if (ba == null || bb == null) return "has no size Revit can read";
+        if (!ba.Min.IsAlmostEqualTo(bb.Min, tol) || !ba.Max.IsAlmostEqualTo(bb.Max, tol)) return "is not the same size or place as the element kept (5 mm)";
+        foreach (var bip in new[] { BuiltInParameter.HOST_AREA_COMPUTED, BuiltInParameter.HOST_VOLUME_COMPUTED })
+        {
+            double? x = copy.get_Parameter(bip)?.AsDouble(), y = keeper.get_Parameter(bip)?.AsDouble();
+            if (x is double xa && y is double ya && Math.Abs(xa - ya) > 0.005 * Math.Max(Math.Abs(xa), Math.Abs(ya)))
+                return $"is not the same {(bip == BuiltInParameter.HOST_AREA_COMPUTED ? "area" : "volume")} as the element kept";
+        }
+        return null;
+    }
+
+    /// <summary>Human-error guards §3: an element's writable instance values, as Revert writes them back on the copy it re-creates (at most 300).</summary>
+    internal static List<ParamValueDto> Writable(Element e)
+    {
+        var list = new List<ParamValueDto>();
+        foreach (Parameter p in e.Parameters)
+        {
+            if (list.Count >= 300) break;
+            if (p == null || p.IsReadOnly || !p.HasValue || p.Definition == null) continue;
+            var v = p.StorageType switch
+            {
+                StorageType.String => p.AsString(),
+                StorageType.Integer => p.AsInteger().ToString(System.Globalization.CultureInfo.InvariantCulture),
+                StorageType.Double => p.AsDouble().ToString("R", System.Globalization.CultureInfo.InvariantCulture),
+                StorageType.ElementId => p.AsElementId().IdValue().ToString(System.Globalization.CultureInfo.InvariantCulture),
+                _ => null,
+            };
+            if (v != null) list.Add(new ParamValueDto { Id = p.Id.IdValue(), Name = p.Definition.Name, Storage = p.StorageType.ToString(), Value = v });
+        }
+        return list;
+    }
+
     internal static string ProtectionWhy(Document doc, Element e, ProtectionRules rules)
     {
         var cat = e.Category;
@@ -768,7 +899,7 @@ public sealed class ChangesetExecutor
         // ceiling, door or window that is in an option is refused by Unsafe; a wall's is not (Unsafe keeps MA-0's checks
         // for walls — Promote's planner holds a wall in an option, an agent's changeset is not held: see Risks). MA-5b-5 (R7): a
         // rehost creates an element (and removes one from the main model), so it is refused like a create.
-        if (toPlace.Any(e => IsCreate(e) || e.Op == "rehost") && PlacementApply.DesignOptionRefusal(doc, "apply it") is { } inOption)
+        if (toPlace.Any(e => IsCreate(e) || e.Op == "rehost" || e.Op == "delete") && PlacementApply.DesignOptionRefusal(doc, "apply it") is { } inOption) // human-error guards §3: a delete too
             return new ExecutionResult { NotRun = true, Error = inOption };
         // MA-6 fix-b1 (F-2): a ticked row naming a type this model does not hold is the model's state, not a verdict on the changeset (C5's
         // rule, as a missing level) — refused before the transaction, every such row named, and the changeset stays proposed (NotRun). The
@@ -1494,6 +1625,50 @@ public sealed class ChangesetExecutor
                 Collect(result, el, type);
             }
 
+            // Human-error guards §3 (spec 2026-10-21): a delete removes a copy clash triage found modelled twice — only when this model holds both
+            // (by IFC GlobalId) and they are one element twice (DuplicateWhyNot: category, type, level, line or point, box, area and volume); the copy
+            // not held and not protected (a protected element is never deleted, no override); and a probe delete (rolled back) that takes only it
+            // and its tags. Anything else is KEPT as it stands, with why. Its writable values and the keeper's UniqueId are read before the delete:
+            // what Revert re-creates it from.
+            var deletes = toPlace.Where(e => e.Op == "delete").ToList();
+            if (deletes.Count > 0)
+            {
+                doc.Regenerate();
+                var found = BcfApplyEvent.MapByIfcGuid(doc, new HashSet<string>(deletes.SelectMany(e => new[] { e.Target?.IfcGuid, e.Target?.KeeperIfcGuid })
+                                                                                   .Where(g => !string.IsNullOrEmpty(g)), StringComparer.Ordinal));
+                var removed = new HashSet<long>(); // a copy two rows name, or one row's keeper another row deletes, is not removed twice
+                foreach (var el in deletes)
+                {
+                    at = Label(el);
+                    void Keep(string why) => result.Kept.Add((el.ProposalGuid, $"{at} {why} — not deleted; it stays as it stands, a person decides"));
+                    var copy = found.TryGetValue(el.Target?.IfcGuid ?? "", out var cid) ? doc.GetElement(cid) : null;
+                    var keeper = found.TryGetValue(el.Target?.KeeperIfcGuid ?? "", out var kid) ? doc.GetElement(kid) : null;
+                    if (copy == null || removed.Contains(copy.Id.IdValue())) { Keep($"(the copy {el.Target?.IfcGuid}) is not in this model"); continue; }
+                    if (keeper == null || removed.Contains(keeper.Id.IdValue())) { Keep($"— the element it copies ({el.Target?.KeeperIfcGuid}) is not in this model, so nothing proves it a copy"); continue; }
+                    if (copy.Id.Equals(keeper.Id)) { Keep("— the copy and the element kept are one element"); continue; }
+                    if (DuplicateWhyNot(doc, copy, keeper) is string notTwice) { Keep(notTwice); continue; }
+                    if (HeldBy(doc, copy) is string held) { Keep(held); continue; }
+                    if (ProtectionWhy(doc, copy, Protection ?? ProtectionRules.Default("not read")) is string prot) { Keep(prot + " — a protected element is never deleted"); continue; }
+                    ICollection<ElementId> probe;
+                    try { using (var st = new SubTransaction(doc)) { st.Start(); probe = doc.Delete(copy.Id); st.RollBack(); } }
+                    catch (Exception ex) when (!(ex is PlacementRefused)) { Keep($"cannot be removed — Revit refused: {ex.Message}"); continue; }
+                    var others = probe.Where(id => !id.Equals(copy.Id) && !(doc.GetElement(id) is IndependentTag)).ToList();
+                    if (others.Count > 0)
+                    {
+                        Keep($"cannot be removed alone — removing it would also remove {others.Count} other element(s) (" +
+                             string.Join(", ", others.Take(3).Select(id => doc.GetElement(id)?.Category?.Name ?? "an element with no category")) + (others.Count > 3 ? ", …" : "") + ")");
+                        continue;
+                    }
+                    var snapshot = new DeletedDto { KeeperUniqueId = keeper.UniqueId, Values = Writable(copy) };
+                    var (eid, uid) = (copy.Id, copy.UniqueId);
+                    var deleted = doc.Delete(eid);
+                    if (deleted.Count != probe.Count || deleted.Any(id => !probe.Contains(id)))
+                        throw new PlacementRefused($"{at}: Revit's delete took {deleted.Count} element(s), its probe {probe.Count} — nothing was applied; untick it and Apply again");
+                    removed.Add(eid.IdValue());
+                    result.Applied.Add(new AppliedEntry { ProposalGuid = el.ProposalGuid, RevitElementId = eid.IdValue(), RevitUniqueId = uid, RemovedTags = probe.Count - 1, Deleted = snapshot });
+                }
+            }
+
             // Every ticked element must have been handled by a loop above — if the bridge's
             // vocabulary ever grows past the executor's, the mismatch fails the changeset HERE,
             // inside the transaction, instead of surfacing as a 400 after elements already exist.
@@ -1515,7 +1690,7 @@ public sealed class ChangesetExecutor
             // (Provenance) — never el.Provenance, which came back from the bridge. C2: the element's own reason goes with them,
             // and is the stamp's rule, marked as the proposer's, when the caller gave none.
             var ledgerRow = cs.Adjudication?.LedgerRow;
-            foreach (var g in result.Applied.GroupBy(a => a.RevitUniqueId))
+            foreach (var g in result.Applied.Where(a => a.Deleted == null).GroupBy(a => a.RevitUniqueId)) // a delete's element is gone: its record is the result's
                 ProvenanceStamp.Write(doc.GetElement(g.Key), cs.Id, cs.Source, g.Select(a => a.ProposalGuid),
                     ProvenanceStamp.ForChangeset(Provenance, g.Select(a => (a.ProposalGuid, toPlace.First(e => e.ProposalGuid == a.ProposalGuid).Reason)), ledgerRow));
             // Revit's failure resolution can roll a transaction back WITHOUT throwing — reporting
@@ -1535,8 +1710,9 @@ public sealed class ChangesetExecutor
                 if (toPlace.Any(e => IsCreate(e) && e.Kind == "terrain"))
                     return new ExecutionResult { NotRun = true, Error = error + " — a terrain Revit did not build stays proposed" };
                 // MA-8-7: a create that replaces removes an element too - the same rule
-                return toPlace.Any(e => e.Op == "rehost" || e.Replaces != null)
-                    ? new ExecutionResult { NotRun = true, Error = error + " — it " + (toPlace.Any(e => e.Op == "rehost") ? "rehosts a door or window" : "re-creates a DirectShape") + ", so it stays proposed: untick the row(s) Revit named (a removal among them, or another) and Apply again" }
+                // human-error guards §3: a delete removes an element too - the same rule
+                return toPlace.Any(e => e.Op == "rehost" || e.Op == "delete" || e.Replaces != null)
+                    ? new ExecutionResult { NotRun = true, Error = error + " — it " + (toPlace.Any(e => e.Op == "rehost") ? "rehosts a door or window" : toPlace.Any(e => e.Op == "delete") ? "deletes a copy" : "re-creates a DirectShape") + ", so it stays proposed: untick the row(s) Revit named (a removal among them, or another) and Apply again" }
                     : new ExecutionResult { Error = error };
             }
             // A6: Pending (or any other status) — Revit may still finish or drop it: nothing is reported, nothing recounted.
@@ -1545,7 +1721,7 @@ public sealed class ChangesetExecutor
             // MA-1a step 2: the recount — an element Revit no longer holds after the commit is reported as rejected, never
             // as applied; a warning that named it went with it. The rest are counted, left in the model, never erased.
             var gone = new HashSet<long>();
-            foreach (var a in result.Applied.Where(a => doc.GetElement(a.RevitUniqueId) == null).ToList())
+            foreach (var a in result.Applied.Where(a => a.Deleted == null && doc.GetElement(a.RevitUniqueId) == null).ToList()) // a delete's element is meant to be gone
             {
                 result.Applied.Remove(a);
                 result.Gone.Add(a);

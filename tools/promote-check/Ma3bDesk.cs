@@ -207,12 +207,12 @@ static partial class Check
         string picker = File.Exists(Repo("SentinelAddin", "UI", "ChangesetPickerWindow.cs")) ? Src("UI", "ChangesetPickerWindow.cs") : ""; // new in MA-3b
         int At(string s, string what) => s.IndexOf(what, StringComparison.Ordinal);
         int Count(string s, string what) { int n = 0, i = 0; while ((i = s.IndexOf(what, i, StringComparison.Ordinal)) >= 0) { n++; i += what.Length; } return n; }
-        Ok(!review.Contains("GetAwaiter().GetResult()") && !review.Contains(".Wait(") && review.Contains("window.DecideRequested += (ticked, unticked, note, reasons) => Task.Run(() => Decide(ticked, unticked, note, reasons));") // MA-3b2: and the reasons
+        Ok(!review.Contains("GetAwaiter().GetResult()") && !review.Contains(".Wait(") && review.Contains("window.DecideRequested += (ticked, unticked, note, reasons, tickReasons, batchReason) => Task.Run(() => Decide(ticked, unticked, note, reasons, tickReasons, batchReason));") // MA-3b2: and the reasons
            && At(review, "var f = ChangesetClient.FetchOne(cfg, key, one.Id, out var oneErr);") > At(review, "async Task Decide(")
            && review.Contains("await Task.Run(() => PromoteContext.Fetch(key))") && review.Contains("await Task.Run(() => GhostStandards.Load(key, layers: false, catalog: false))"),
            "AI-2: Apply's re-check, the role, the DD IDS and the guideline are read on a pool thread — the review never waits on Revit's thread");
         int reportAll = At(review, "internal static Task<Reported> ReportAll("), pool = reportAll < 0 ? -1 : review.IndexOf("return Task.Run(() =>", reportAll, StringComparison.Ordinal);
-        Ok(reportAll > 0 && pool > reportAll && At(review, "var landed = ChangesetClient.ReportResult(cfg, r.Key, r.ChangesetId, r.Applied, r.Rejected, r.Note, r.ReviewRev, out var reply, out var err, r.Reasons, r.AttemptKey);") > pool
+        Ok(reportAll > 0 && pool > reportAll && At(review, "var landed = ChangesetClient.ReportResult(cfg, r.Key, r.ChangesetId, r.Applied, r.Rejected, r.Note, r.ReviewRev, out var reply, out var err, r.Reasons, r.AttemptKey, r.TickReasons, r.BatchReason);") > pool
            && Count(review, "ReportAll(cfg, ") == 4 && !review.Contains("if (!Report(") && !review.Contains("if (Report("),
            "AI-2: every report of the review — applied, declined, rolled back, sent again — goes through ReportAll on a pool thread (MA-3b4: Ghost Builder's too; Report's retry dialog is gone)");
         // Review C15: the whole statement — a record is written for every result with applied elements, before the report is sent.
@@ -227,7 +227,7 @@ static partial class Check
            && watcher.Contains("foreach (var hit in Seen(e.GetTransactionNames(), op))") && !watcher.Contains("Registry.IsEmpty) return;"),
            "review C8: a report's results are expected by the undo watcher before the report leaves Revit's thread; an Undo noted while it was in flight is posted (changeset_reverted) once it lands, said");
         int open = At(review, "internal static bool Open(UIApplication ui,"), refuse = At(review, "if (waiting.Count > 0) { TaskDialog.Show(Title, UnreportedResults.Blocked(waiting)); return false; }");
-        Ok(open > 0 && refuse > open && refuse < At(review, "var window = new ChangesetReviewWindow(cs, reach, notLoaded);")
+        Ok(open > 0 && refuse > open && refuse < At(review, "var window = new ChangesetReviewWindow(cs, reach, notLoaded, guards);")
            && Src("Commands.PromoteWalls.cs").Contains("ReviewChangesetsCommand.Open(ui, doc, cfg, key, StoreyBatch.Of(pending, unreviewed));") // MA-3b5: Promote's Open is the UIApplication one
            && review.Contains("StoreyBatch.Entries(pending).Select(e => (StoreyBatch.Line(e, DateTime.UtcNow), Waiting(key, e), e))"),
            "AI-2: a changeset whose result waits on this PC is never opened for review again — by the picker (listed, not openable) or by Promote (Open refuses it)");
@@ -248,7 +248,7 @@ static partial class Check
            && window.Contains("public void Applying(string words) => Ui(() => { _applied = true; Ticks(); _go.IsEnabled = false; Reasons(true); Say(words); });")
            && window.Contains("if (Dispatcher.CheckAccess()) a();"),
            "the window stays open: a refusal keeps the ticks and the note and Apply comes back; once Apply ran it never comes back; its words arrive from any thread");
-        Ok(window.Contains("GroupBy(ChangesetTrust.GroupOf)") && window.Contains("foreach (var b in boxes.Where(x => x.IsEnabled)) b.IsChecked = true;")
+        Ok(window.Contains("_ => ChangesetTrust.GroupOf(e) };") && window.Contains("foreach (var b in boxes.Where(x => x.IsEnabled)) b.IsChecked = true;")
            && window.Contains("$\"{what} ({boxes.Count}) · {boxes.Count(b => b.IsChecked == true)} ticked\"")
            && window.Contains("_go.Content = n == 0 ? DeclineLabel() : $\"Apply {n} ticked in Revit\";")
            && window.Contains("ChangesetTrust.Blank(_note.Text) ? \"Decline all (needs a reason)\" : \"Decline all\"")
@@ -277,7 +277,7 @@ static partial class Check
         Ok(window.Contains("public void Reopen(string words) => Ui(() => { _applied = false; _go.IsEnabled = true; Reasons(false); Say(words); Ticks(); });") && window.Contains("public void Lock(IEnumerable<string> guids)")
            && At(review, "window.Lock(") > At(review, "if (ChangesetTrust.DeclinedTicked(fresh, ticked) is { } declinedTicked)") && At(review, "window.Lock(") < At(review, "window.Refused(declinedTicked);")
            && review.Contains("else window.Reopen(result.Error + ") && !review.Contains("— run Review AI Proposals again.")
-           && window.Contains("foreach (var r in _rows.Where(x => x.Box.IsEnabled)) r.Box.IsChecked = ChangesetTrust.PreTick(_cs, r.El, _notLoaded);"),
+           && window.Contains("foreach (var r in _rows.Where(x => x.Box.IsEnabled)) r.Box.IsChecked = TierOf(r.El) == ChangesetTrust.Tier.Safe && ChangesetTrust.PreTick(_cs, r.El, _notLoaded);"),
            "review C3: a 'Go back' (nothing placed) gives Apply back; a decline that landed after the window opened is unticked and locked here (Tick suggested never re-ticks it); no words send the person to a second Review while this window holds the guard");
         int early = At(window, "if (ticked.Count == 0 && ChangesetTrust.Blank(_note.Text)) { Say(ChangesetTrust.DeclineNeedsReason); return; }");
         int status = At(review, "if (mine.Count > 0) picker.SetEntries(");

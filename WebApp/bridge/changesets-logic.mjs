@@ -34,10 +34,12 @@ export const CREATE_ENTITY = { ...KIND_ENTITY, level: "IFCBUILDINGSTOREY", grid:
  *  UniqueId, from a cited source the bridge checks (value_source) — [BP] P2-7's item, built once. MA-5b-5: rehost replaces a door or
  *  window no wall hosts (a level-based placeholder) with the office's wall-hosted type of its size in the wall it stands in — the old
  *  instance is removed in the same Undo step (the first element Sentinel removes): a signed-in member's (Promote), never pre-ticked. */
-export const OPS = ["create", "retype", "attach", "set_parameter", "reshape", "rehost"];
+export const OPS = ["create", "retype", "attach", "set_parameter", "reshape", "rehost", "delete"];
 /** The kinds each op takes. */
 export const OP_KINDS = { create: VOCABULARY, retype: ["wall", "floor", "roof", "ceiling", "door", "window", "column", "beam"], attach: ["wall"], // MA-8-7: a structural column and a beam (by section)
-  set_parameter: ["wall", "floor", "roof", "ceiling", "door", "window"], reshape: ["wall"], rehost: ["door", "window"] };
+  set_parameter: ["wall", "floor", "roof", "ceiling", "door", "window"], reshape: ["wall"], rehost: ["door", "window"],
+  // Human-error guards §3 (spec 2026-10-21): a copy clash triage found modelled twice, removed in Revit only when it is the same as the one kept
+  delete: ["wall", "floor", "roof", "ceiling", "door", "window", "column", "beam", "furniture"] };
 /** MA-5b-5: the place fields a rehost takes — where its new instance goes (a point on its host wall's location line, on its level) and
  *  the office type it becomes; a window's sill. Its Mark is copied from the old instance; it is never turned (the office family's default). */
 const REHOST_PLACE = ["LevelName", "Location", "FamilyName", "TypeName", "SillHeight"];
@@ -82,7 +84,7 @@ export const PLACE_KEPT = ["TypeName", "LevelName", "LocationCurve", "LocationLo
   "Width", "Height", "Slopes", // MA-6-3: a wall opening's size; a roof's slope per edge
   "Risers", "Going", // MA-8-10: a stair's riser count and going (mm); its width is Width
   "Points"]; // MA-8-14: a terrain's ground points, [x, y, z] mm (z = the absolute model elevation); its footprint is Boundary
-const TARGET_KEPT = ["unique_id", "type_before", "placed", "at"];
+const TARGET_KEPT = ["unique_id", "type_before", "placed", "at", "ifc_guid", "keeper_ifc_guid"]; // MA-3d: ifc_guid; human-error guards §3: a delete's keeper
 const VALIDATE_KEPT = ["identity", "psets", "quantities"];
 const MAX_EVIDENCE = 50; // review amendment C4: contract 2's evidence ids on one element
 const SET_BY_BRIDGE = "ignored: set by the bridge";
@@ -509,7 +511,7 @@ export function validateChangeset(body, { member = false, type = null, cite = nu
     const place = Object.fromEntries(Object.entries(isBlock(el.place) ? el.place : {}).filter(([k]) => PLACE_KEPT.includes(k)));
     // MA-2a: the poster's facts, checked and kept name for name; an attach types nothing, so it takes none.
     const facts = checkFacts(el.facts, at);
-    if (facts && (op === "attach" || op === "set_parameter")) throw err(400, `${at}: ${op} takes no facts — nothing is typed`);
+    if (facts && (op === "attach" || op === "set_parameter" || op === "delete")) throw err(400, `${at}: ${op} takes no facts — nothing is typed`);
     // MA-2c: a set_parameter's own fields ride on no other op — each would be dropped silently.
     if (op !== "set_parameter")
       for (const f of ["parameter", "revit_parameter", "from", "to", "value_source"])
@@ -601,6 +603,20 @@ export function validateChangeset(body, { member = false, type = null, cite = nu
             throw err(400, `${at}: place.TopLevel is the wall's own base level — name the level its top reaches`);
         }
       }
+    } else if (op === "delete") {
+      // Human-error guards §3 (spec 2026-10-21): a delete removes a copy clash triage found modelled twice — named by IFC GlobalId (the web
+      // knows those, not UniqueIds): the copy and the element that stays. A signed-in member's only here (the store asks for a lead and the
+      // clash register's proof); its stale guard is Revit's own check at Apply (the same type, level, place and size as the one kept).
+      if (!member) throw err(400, `${at}: a delete removes an element — only a signed-in lead files one (clash triage on the web); nothing was saved`);
+      const copy = el.target?.ifc_guid, keep = el.target?.keeper_ifc_guid;
+      if (typeof copy !== "string" || !IFC_GUID.test(copy) || typeof keep !== "string" || !IFC_GUID.test(keep))
+        throw err(400, `${at}: delete needs target.ifc_guid (the copy) and target.keeper_ifc_guid (the element that stays) — IFC GlobalIds, 22 characters of their alphabet`);
+      if (copy === keep) throw err(400, `${at}: a delete's copy and the element it keeps are one element`);
+      if (["unique_id", "type_before", "placed", "at"].some((f) => el.target[f] !== undefined)) throw err(400, `${at}: delete names its copy by target.ifc_guid only — no unique_id, type_before, placed or at`);
+      if (Object.keys(isBlock(el.place) ? el.place : {}).length) throw err(400, `${at}: delete takes no place — it removes the copy as it stands`);
+      if (seen.has(`delete:${copy}`)) throw err(400, `${at}: a second delete of the copy ${copy}`);
+      seen.add(`delete:${copy}`);
+      target = { ifc_guid: copy, keeper_ifc_guid: keep };
     } else {
       const uid = el.target?.unique_id;
       if (typeof uid !== "string" || !UNIQUE_ID.test(uid)) throw err(400, `${at}: ${op} needs target.unique_id, a Revit UniqueId`);
@@ -736,6 +752,15 @@ export function validateChangeset(body, { member = false, type = null, cite = nu
       accuracy: fromJob ? fromJob.accuracy : { status: "not_measured" },
     };
   });
+
+  // Human-error guards §3: deletes travel alone — a changeset of deletes only — and a copy is never another row's original (deleting both
+  // would leave nothing that proves either a copy).
+  if (elements.some((e) => e.op === "delete")) {
+    if (!elements.every((e) => e.op === "delete")) throw err(400, "a delete is filed in a changeset of deletes only — file the other changes on their own; nothing was saved");
+    const keepers = new Set(elements.map((e) => e.target.keeper_ifc_guid));
+    const both = elements.find((e) => keepers.has(e.target.ifc_guid));
+    if (both) throw err(400, `${both.target.ifc_guid} is deleted as a copy and kept as another's original — one of the two stays; nothing was saved`);
+  }
 
   // MA-8-10: a stair is built in Revit's own stair edit scope - it is the only element of its changeset
   if (elements.some((e) => e.kind === "stair") && elements.length !== 1)
@@ -1185,6 +1210,44 @@ export function resultConflicts(cs, appliedGuids, rejectedGuids, seen) {
  *  rejects; each value is one line (reasonOf, the web desk's rule). A blank one is dropped; none left is null (nothing is stored). A
  *  reason for a ghost the web also declined is kept beside the web's (declined_on_web): refusing it would refuse a result Revit has
  *  already applied, over a decline that landed while its report was on the way. */
+// ── Human-error guards §1 (spec 2026-10-21): the review's risk tiers as the bridge can judge them ──
+
+/** The creates that change the model's geometry or its datums — the Revit window's ChangesetTrust.GeometryCreates, name for name. */
+export const GEOMETRY_CREATES = ["wall", "floor", "roof", "column", "beam", "stair", "terrain", "level", "grid", "mass", "opening"];
+/** The rows risky by what they do, whatever the model holds (ChangesetTrust.RiskyByOp). The bridge cannot see "near a protected element" — Revit
+ *  reads that when its window opens — so a row of this list applied with no typed reason is listed as unreasoned, never refused (the model
+ *  already holds it). */
+export const riskyByOp = (el) => ["reshape", "rehost", "delete"].includes(el?.op) || !!el?.replaces || ((el?.op ?? "create") === "create" && GEOMETRY_CREATES.includes(el?.kind));
+
+/** A result's tick reasons — {proposal_guid: one line} for ticked rows of the "Needs a reason" tier — validated as a decline's reasons are: each
+ *  names an applied ghost; null when none. */
+export function resultTickReasons(appliedGuids, tick) {
+  if (tick == null) return null;
+  if (typeof tick !== "object" || Array.isArray(tick)) throw err(400, "tick_reasons must be {proposal_guid: reason} — one line for each ghost applied with a reason");
+  const applied = new Set(appliedGuids);
+  const out = Object.create(null);
+  for (const [g, r] of Object.entries(tick)) {
+    if (!applied.has(g)) throw err(400, `tick_reasons names "${g}", which this result does not apply — a tick reason is for an applied ghost`);
+    const why = reasonOf(r, false, "a tick");
+    if (why != null) out[g] = why;
+  }
+  return Object.keys(out).length ? { ...out } : null;
+}
+
+/** The batch reason (over the 200 a person reviews at once), one line, or null. */
+export const batchReasonOf = (b) => reasonOf(b ?? null, false, "a batch");
+
+const STORAGES = ["String", "Integer", "Double", "ElementId"];
+/** Human-error guards §3: what Revit read of a copy before it deleted it — the element kept and its writable values — field by field (anything
+ *  else is dropped); what Revert re-creates it from. Null when it does not read. */
+export const keepDeleted = (b) => {
+  if (!b || typeof b !== "object" || typeof b.keeper_unique_id !== "string" || !b.keeper_unique_id || b.keeper_unique_id.length > 256) return null;
+  const values = (Array.isArray(b.values) ? b.values : []).slice(0, 300)
+    .filter((v) => v && Number.isInteger(v.id) && typeof v.name === "string" && v.name.length <= 256 && STORAGES.includes(v.storage) && typeof v.value === "string" && v.value.length <= 4000)
+    .map((v) => ({ id: v.id, name: v.name, storage: v.storage, value: v.value }));
+  return { keeper_unique_id: b.keeper_unique_id, values };
+};
+
 export function resultReasons(rejectedGuids, reasons) {
   if (reasons == null) return null;
   if (typeof reasons !== "object" || Array.isArray(reasons)) throw err(400, "reasons must be {proposal_guid: reason} — one line for each ghost this result rejects");

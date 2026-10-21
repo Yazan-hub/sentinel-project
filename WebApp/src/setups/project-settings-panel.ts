@@ -29,6 +29,7 @@ interface ProjectRow {
     archived?: boolean; platform_project_id?: string | null } | null;
   kind?: "project" | "office";
   office_key?: string | null;
+  version?: number | null; // 0048: sent back as If-Match on a save
 }
 
 export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () => void; onOpen?: (place: "docs" | "standards" | "carbon") => void } = {}): HTMLElement {
@@ -457,12 +458,10 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
           try {
             if (key !== pid()) throw new Error(`The project in view is no longer ${key} — open the form again`);
             const body = form.toBody(m, prev, { projectKey: key });
-            // Saved on what the form was filled from, never over a version installed since (an import, another lead, another tab).
-            const now = await artefactInForce(base, key, kind);
-            if ((now?.ref ?? "") !== (a?.ref ?? "") || (now?.source ?? "") !== (a?.source ?? "") || (now?.sha256 ?? "") !== (a?.sha256 ?? ""))
-              throw new Error(`Not saved — the ${kind} standard changed since this form opened (now ${now ? refLabel(now) : "none"}); open the form again to start from it`);
+            // Saved on what the form was filled from, never over a version installed since (an import, another lead, another tab, Revit):
+            // the bridge checks the sha it was filled from (If-Match) in the same request and names who changed it (412).
             let p: { version: number; sha256: string };
-            try { p = await installArtefact(base, key, kind, { ...body, source: { form: "project-settings", edited_at: new Date().toISOString() } }, await who()); }
+            try { p = await installArtefact(base, key, kind, { ...body, source: { form: "project-settings", edited_at: new Date().toISOString() } }, await who(), a?.sha256 ?? "none"); }
             catch (e) { throw new Error(`Not saved — ${(e as Error)?.message ?? String(e)}`); }
             const mirror = await mirrorWords(kind, key, body, `${kind}@${p.version}`, String(p.sha256));
             if (formEl.isConnected) box.replaceChildren(); // another Edit… opened meanwhile keeps its form
@@ -598,8 +597,9 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
 
   async function patch(body: Record<string, unknown>, okMsg: string) {
     try {
+      // Human-error guards §2 (0048): the version these fields were read at — a save over another lead's since is a 412 naming them.
       const r = await bfetch(`${base}/cde/projects/${encodeURIComponent(pid())}`, {
-        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+        method: "PATCH", headers: { "Content-Type": "application/json", ...(current?.version != null ? { "If-Match": `"${current.version}"` } : {}) }, body: JSON.stringify(body),
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error((j as { message?: string })?.message || `HTTP ${r.status}`);

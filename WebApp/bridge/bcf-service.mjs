@@ -286,7 +286,7 @@ const send = (res, code, body, extra) => {
   const headers = {
     "Content-Type": "application/json",
     "Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type,Authorization",
+    "Access-Control-Allow-Headers": "Content-Type,Authorization,If-Match",
     ...corsHeaders(res),
     // An answer given before the whole body arrived (a 401, a 413, a 408, a refusal of a raw upload before its first
     // byte) closes the connection: Node would otherwise drain the rest on the caller's behalf, for up to the 30 min
@@ -1032,7 +1032,7 @@ async function handleRequest(req, res) {
       if (req.method === "GET" && ppid) return send(res, 200, useCde ? await cde.getProjectMeta(ppid, currentUserToken() ? undefined : localSeed(ppid)) : getProject(ppid));
       if (req.method === "PUT" && ppid) {
         const b = await readBody(req);
-        if (useCde) return send(res, 200, await cde.patchProjectMeta(ppid, b));
+        if (useCde) return send(res, 200, await cde.patchProjectMeta(ppid, b, { ifMatch: req.headers["if-match"] }));
         const p = getProject(ppid); // local fallback (original behaviour)
         for (const k of ["name", "standards_pack"]) if (b[k] !== undefined) p[k] = b[k];
         if (b.dimensions) p.dimensions = { ...p.dimensions, ...b.dimensions };
@@ -1357,7 +1357,7 @@ async function handleRequest(req, res) {
         if (req.method === "PATCH") {
           const b = await readBody(req);
           if (b?.kind !== undefined) { const m = await import("./members-store.mjs"); await m.requireMinRole(key, "owner"); }
-          return send(res, 200, await cde.updateProject(key, b, b?.actor));
+          return send(res, 200, await cde.updateProject(key, b, b?.actor, { ifMatch: req.headers["if-match"] }));
         }
         if (req.method === "DELETE") return send(res, 200, await cde.deleteProject(key, "web"));
       }
@@ -1667,7 +1667,7 @@ async function handleRequest(req, res) {
           const actor = url.searchParams.get("actor") || body?.installed_by || "web";
           const source = body?.source && typeof body.source === "object" ? body.source : undefined;
           const { source: _s, installed_by: _i, ...artefact } = body || {};
-          const pointer = await art.putArtefact(p1, p3, artefact, { actor, source });
+          const pointer = await art.putArtefact(p1, p3, artefact, { actor, source, ifMatch: req.headers["if-match"] });
           // F51: a new IDS marks the open IDS topics it supersedes. Best-effort — the install already stands.
           if (p3 === "ids") {
             try {

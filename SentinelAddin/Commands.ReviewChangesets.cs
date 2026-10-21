@@ -179,11 +179,12 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
 
     // MA-3b2: reasons — the reviewer's reason per rejected ghost of this changeset (StoreyBatch.Own); null when none was typed.
     internal static UnreportedResults.Record ResultOf(string key, ChangesetDto cs, List<AppliedEntry> applied, List<string> rejected, string note, int? reviewRev, string doc, List<string> undo,
-                                                     Dictionary<string, string> reasons) =>
+                                                     Dictionary<string, string> reasons, Dictionary<string, string> tickReasons = null, string batchReason = null) =>
         new UnreportedResults.Record
         {
             Key = key, ChangesetId = cs.Id, Name = cs.Name, Doc = doc, Applied = applied, Rejected = rejected, Note = note, ReviewRev = reviewRev,
             Undo = undo ?? new List<string>(), At = ProvenanceStamp.Now(), Reasons = reasons, AttemptKey = Guid.NewGuid().ToString(),
+            TickReasons = tickReasons, BatchReason = batchReason, // human-error guards §1
         };
 
     /// <summary>MA-3b (AI-2): what a round of reports did — one paragraph per result, the ones the bridge took (with its reply) and the ones
@@ -264,7 +265,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                 foreach (var r in records)
                 {
                     if (stalled) { rep.Left.Add(r); rep.Words.Add($"\"{r.Name}\": {UnreportedResults.NotSent(r.Applied.Count)}"); continue; }
-                    var landed = ChangesetClient.ReportResult(cfg, r.Key, r.ChangesetId, r.Applied, r.Rejected, r.Note, r.ReviewRev, out var reply, out var err, r.Reasons, r.AttemptKey);
+                    var landed = ChangesetClient.ReportResult(cfg, r.Key, r.ChangesetId, r.Applied, r.Rejected, r.Note, r.ReviewRev, out var reply, out var err, r.Reasons, r.AttemptKey, r.TickReasons, r.BatchReason);
                     // Review C1: the bridge writes the doc before its audit row, and a reply can be lost — a 409 whose stored result applied
                     // exactly these ghosts is this result, landed earlier (re-read here, on this pool thread; FetchOne is an existing request).
                     // MA-3b2b: a decline too (it applied nothing) — one the bridge holds with the same rejected ghosts and note is taken.
@@ -386,7 +387,12 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
         // MA-6 fix-b1 (F-3): the rows whose type this model does not hold — the executor's own lookup, read here on the API thread before the
         // window shows, so a person sees it before Apply (which refuses a ticked one and keeps the changeset proposed: F-2).
         var notLoaded = ChangesetExecutor.NotLoaded(doc, cs.Elements);
-        var window = new ChangesetReviewWindow(cs, reach, notLoaded);
+        // Human-error guards §1: what protection touches — the rows to lock and the rows near a protected element. Read here on the API thread from
+        // this PC's cached protection@n (no bridge call on Revit's thread), else the built-in default; Apply re-reads the policy in force (PromoteContext).
+        var cachedProt = ArtefactCache.Read(key, "protection");
+        var guards = ChangesetExecutor.Guarded(doc, cs.Elements, cachedProt != null ? ProtectionRules.From(cachedProt.BodyJson, $"{cachedProt.Ref} ({cachedProt.Source}, as cached on this PC)")
+                                                                               : ProtectionRules.Default("none cached on this PC yet — Apply reads the one in force"));
+        var window = new ChangesetReviewWindow(cs, reach, notLoaded, guards);
         DialogOwner.Attach(window, ui); // house helper: owned by Revit's main window
         Hold();
         window.Closed += (_, _) => Release();
@@ -739,7 +745,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
             catch (Exception ex) { App.Events.Enqueue(_ => TaskDialog.Show(Title, $"The report's result could not be shown — {ex.GetType().Name}: {ex.Message}\nRun Review AI Proposals to see what the bridge holds.")); }
         }, TaskScheduler.Default);
 
-        async Task Decide(List<string> ticked, List<string> unticked, string note, Dictionary<string, string> reasons)
+        async Task Decide(List<string> ticked, List<string> unticked, string note, Dictionary<string, string> reasons, Dictionary<string, string> tickReasons, string batchReason)
         {
             try
             {
@@ -779,9 +785,9 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
 
                 // MA-5b-5 (R11): a rehost removes an element — its Apply is a signed-in member's, never the machine credential's (the bridge
                 // refuses that result too; asked here, before anything changes, so no model edit goes unreported)
-                if (role == "service" && fresh.SelectMany(f => f.Elements ?? new List<ChangesetElementDto>()).Any(e => (e.Op == "rehost" || e.Replaces != null) && ticked.Contains(e.ProposalGuid))) // MA-8-7 review: a re-creation removes an element too
+                if (role == "service" && fresh.SelectMany(f => f.Elements ?? new List<ChangesetElementDto>()).Any(e => (e.Op == "rehost" || e.Op == "delete" || e.Replaces != null) && ticked.Contains(e.ProposalGuid))) // MA-8-7 review: a re-creation removes an element too; human-error guards §3: a delete too
                 {
-                    window.Refused("A rehost or a re-creation removes an element — sign in (Standards ▸ Sign in) as a contributor to apply it.\n\nNothing was changed.");
+                    window.Refused("A rehost, a delete or a re-creation removes an element — sign in (Standards ▸ Sign in) as a contributor to apply it.\n\nNothing was changed.");
                     return;
                 }
 
@@ -908,7 +914,8 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                         if (result.Ids != null) said = result.Ids + (string.IsNullOrEmpty(said) ? "" : " | " + said);     // MA-2b
                         if (res.MassAs != null) said = res.MassAs + (string.IsNullOrEmpty(said) ? "" : " | " + said);     // MA-6-6 (D13): on its own row
                         // MA-3a: the revision Apply re-checked. Remembered for the undo watcher under the Undo entry's name and the changeset's own.
-                        records.Add(ResultOf(key, one, res.Applied, rejected, said, one.ReviewRev, here, new List<string> { undo, UndoWatcher.TxName(one.Name, one.Id) }, whys));
+                        records.Add(ResultOf(key, one, res.Applied, rejected, said, one.ReviewRev, here, new List<string> { undo, UndoWatcher.TxName(one.Name, one.Id) }, whys,
+                                             StoreyBatch.Own(one, tickReasons), batchReason)); // human-error guards §1
                     }
                     foreach (var r in records) r.Path = doc.PathName ?? ""; // MA-3b2 review C16: the file itself, beside Doc (a local's central)
                     // AI-2: the record first — on this PC before the report is sent, so a result the bridge never hears of is never forgotten
@@ -980,7 +987,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
             catch (Exception ex) { window.Refused($"Review AI Proposals failed — {ex.GetType().Name}: {ex.Message}\n\nNothing was created."); }
         }
 
-        window.DecideRequested += (ticked, unticked, note, reasons) => Task.Run(() => Decide(ticked, unticked, note, reasons));
+        window.DecideRequested += (ticked, unticked, note, reasons, tickReasons, batchReason) => Task.Run(() => Decide(ticked, unticked, note, reasons, tickReasons, batchReason));
         window.RetryRequested += () =>
         {
             var again = left;
@@ -999,6 +1006,18 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
         window.ShowRequested += el =>
         {
             var name = ChangesetTrust.GhostName(el);
+            // Human-error guards §3: a delete names its copy by IFC GlobalId — found in this model on Revit's thread, then shown as any element.
+            if (el.Op == "delete")
+            {
+                App.Events.Enqueue(doc, "find the copy", (_, d) =>
+                {
+                    var g = el.Target?.IfcGuid ?? "";
+                    var map = BcfApplyEvent.MapByIfcGuid(d, new HashSet<string>(new[] { g }, StringComparer.Ordinal));
+                    if (!map.TryGetValue(g, out var id) || d.GetElement(id) is not Element copy) { window.Shown($"{name}: its copy {g} is not in this model."); return; }
+                    App.Events.SelectAndShow(d, copy.UniqueId, gone => window.Shown(gone == null ? $"Showing the copy {name} would delete." : $"{name}: {gone}"));
+                }, refusal => window.Shown(refusal));
+                return;
+            }
             if (!string.IsNullOrWhiteSpace(el.Target?.UniqueId))
             {
                 App.Events.SelectAndShow(doc, el.Target.UniqueId, gone => window.Shown(gone == null ? $"Showing {name}." : $"{name}: {gone}"));

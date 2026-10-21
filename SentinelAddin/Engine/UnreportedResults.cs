@@ -43,6 +43,10 @@ namespace Sentinel.Engine
             /// <summary>Apply claim (2026-10-20): one key per result, made when it is recorded and kept with it, so every retry — after a lost
             /// reply or a restart — sends the same one and the bridge answers the stored result; null on a record written before this field.</summary>
             [JsonPropertyName("attempt_key")] public string AttemptKey { get; set; }
+            /// <summary>Human-error guards §1: the person's reason per ticked row of the "Needs a reason" tier, and the batch's over the 200; null
+            /// when none, and on a record written before them.</summary>
+            [JsonPropertyName("tick_reasons")] public Dictionary<string, string> TickReasons { get; set; }
+            [JsonPropertyName("batch_reason")] public string BatchReason { get; set; }
         }
 
         /// <summary>The root. The check points it at a temp folder; nothing else sets it.</summary>

@@ -16,28 +16,28 @@ static partial class Check
         // Review C17: the refusal tests the rows the reason is assigned to (unticked, may be ticked here, with a proposal_guid).
         int noRow = At(window, "if (!g.Rows.Any(x => x.Box.IsChecked != true && x.Box.IsEnabled && x.El.ProposalGuid != null)) { Say($\"The reason for \\\"{g.What}\\\" has no unticked row to go with — untick the rows it is for, or clear it. Nothing was sent.\"); return; }");
         int press = At(window, "_go.IsEnabled = false; Reasons(true);");
-        Ok(window.Contains("public event Action<List<string>, List<string>, string, Dictionary<string, string>> DecideRequested;")
+        Ok(window.Contains("public event Action<List<string>, List<string>, string, Dictionary<string, string>, Dictionary<string, string>, string> DecideRequested;")
            // Review C4: the box is on its own row under the buttons, filling it — no fixed width to clip.
            && window.Contains("var why = new TextBox { MaxLength = ChangesetTrust.MaxReason,") && !window.Contains("Width = 220") && window.Contains("_groups.Add((group.Key, why, mine));")
-           && window.Contains("whyRow.Children.Add(whyLabel); whyRow.Children.Add(why);") && window.Contains("body.Children.Add(bar); body.Children.Add(whyRow); body.Children.Add(groupRows);")
+           && window.Contains("whyRow.Children.Add(whyLabel); whyRow.Children.Add(why);") && window.Contains("if (tierOf != ChangesetTrust.Tier.Protected) body.Children.Add(whyRow);")
            && window.Contains("var reason = ChangesetTrust.DeclineReason(g.Reason.Text, out var problem);") && refuse > 0 && refuse < noRow && noRow < press
            // Review C2: the reasons are taken at the press — the boxes are read-only from then on, and editable again only when nothing was applied.
-           && window.Contains("private void Reasons(bool taken) { foreach (var g in _groups) g.Reason.IsReadOnly = taken; }")
+           && window.Contains("private void Reasons(bool taken) { foreach (var g in _groups) g.Reason.IsReadOnly = taken; _tickWhy.IsReadOnly = taken; _batchWhy.IsReadOnly = taken; }")
            && window.Contains("public void Refused(string words) => Ui(() => { Say(words); _go.IsEnabled = !_applied; if (!_applied) Reasons(false); });")
            && window.Contains("public void Applying(string words) => Ui(() => { _applied = true; Ticks(); _go.IsEnabled = false; Reasons(true); Say(words); });")
            && window.Contains("public void Reopen(string words) => Ui(() => { _applied = false; _go.IsEnabled = true; Reasons(false); Say(words); Ticks(); });")
            && window.Contains("foreach (var r in g.Rows.Where(x => x.Box.IsChecked != true && x.Box.IsEnabled && x.El.ProposalGuid != null)) reasons[r.El.ProposalGuid] = reason;")
-           && window.Contains("DecideRequested?.Invoke(ticked, unticked, _note.Text?.Trim() ?? \"\", reasons);"),
+           && window.Contains("DecideRequested?.Invoke(ticked, unticked, _note.Text?.Trim() ?? \"\", reasons, tickReasons, batchReason);"),
            "each group has one reason box on its own row: its reason goes to that group's unticked rows that may be ticked here (never a row the web declined); one the bridge would refuse, or one with no such row, is refused by the window before anything is sent; the boxes are read-only once their reasons were taken");
-        Ok(review.Contains("window.DecideRequested += (ticked, unticked, note, reasons) => Task.Run(() => Decide(ticked, unticked, note, reasons));")
+        Ok(review.Contains("window.DecideRequested += (ticked, unticked, note, reasons, tickReasons, batchReason) => Task.Run(() => Decide(ticked, unticked, note, reasons, tickReasons, batchReason));")
            && review.Contains("ResultOf(key, f, new List<AppliedEntry>(), StoreyBatch.Own(f, unticked), note, null, here, null, StoreyBatch.Own(f, reasons))")
-           && review.Contains("records.Add(ResultOf(key, one, res.Applied, rejected, said, one.ReviewRev, here, new List<string> { undo, UndoWatcher.TxName(one.Name, one.Id) }, whys));") && review.Contains("var whys = StoreyBatch.Own(one, reasons);") // MA-5b-4: the kept reshapes' reasons join the reviewer's
+           && review.Contains("records.Add(ResultOf(key, one, res.Applied, rejected, said, one.ReviewRev, here, new List<string> { undo, UndoWatcher.TxName(one.Name, one.Id) }, whys,") && review.Contains("var whys = StoreyBatch.Own(one, reasons);") // MA-5b-4: the kept reshapes' reasons join the reviewer's
            // Review C14 (overrides S6): a rolled-back storey carries the reasons of the rows the reviewer unticked — never dropped without a word.
            && review.Contains("(string.IsNullOrEmpty(note) ? \"\" : $\" | reviewer: {note}\"), null, here, null, StoreyBatch.Own(f, reasons))).ToList()), rep =>")
            && !review.Contains("null, here, null, null)")
            && review.Contains("Undo = undo ?? new List<string>(), At = ProvenanceStamp.Now(), Reasons = reasons,"),
            "a partial Apply, a Decline all and a rolled-back storey carry each changeset's own reasons (the unticked rows') on its result and its record");
-        Ok(review.Contains("var landed = ChangesetClient.ReportResult(cfg, r.Key, r.ChangesetId, r.Applied, r.Rejected, r.Note, r.ReviewRev, out var reply, out var err, r.Reasons, r.AttemptKey);")
+        Ok(review.Contains("var landed = ChangesetClient.ReportResult(cfg, r.Key, r.ChangesetId, r.Applied, r.Rejected, r.Note, r.ReviewRev, out var reply, out var err, r.Reasons, r.AttemptKey, r.TickReasons, r.BatchReason);")
            && review.Contains("+ ChangesetTrust.ReasonsLine(reply, r.Reasons?.Count ?? 0) +")
            // Review C15: a result the bridge had already taken says it too — the words are parenthesised (+ binds tighter than ??).
            && review.Contains("if (taken != null) reply = UnreportedResults.StoredReply(stored);")

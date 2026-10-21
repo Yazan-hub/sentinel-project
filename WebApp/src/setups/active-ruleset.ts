@@ -60,10 +60,12 @@ export function relayStandardEvent(data: string): boolean {
 }
 
 /** PUT /cde/:key/artefacts/:kind — installs `kind@n+1` (lead/owner; the bridge refuses anyone else and
- *  validates the body). Returns the new pointer and fires STANDARD_INSTALLED; throws with the bridge's message. */
-export async function installArtefact(baseUrl: string, key: string, kind: string, body: object, actor: string): Promise<{ kind: string; version: number; sha256: string }> {
+ *  validates the body). Returns the new pointer and fires STANDARD_INSTALLED; throws with the bridge's message.
+ *  `ifMatch` (human-error guards §2): the sha of the standard in force the form was filled from, or "none" — the bridge refuses (412,
+ *  naming who and when) a save over one installed since. Undefined sends none (an import of a picked file installs what it holds). */
+export async function installArtefact(baseUrl: string, key: string, kind: string, body: object, actor: string, ifMatch?: string): Promise<{ kind: string; version: number; sha256: string }> {
   const r = await bfetch(`${baseUrl.replace(/\/$/, "")}/cde/${encodeURIComponent(key)}/artefacts/${kind}?actor=${encodeURIComponent(actor)}`, {
-    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    method: "PUT", headers: { "Content-Type": "application/json", ...(ifMatch ? { "If-Match": `"${ifMatch}"` } : {}) }, body: JSON.stringify(body),
   });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j?.message || `HTTP ${r.status}`);

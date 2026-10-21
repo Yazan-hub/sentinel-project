@@ -80,6 +80,10 @@ public sealed class TargetDto
     /// <summary>MA-5b-5: a rehost's stale guard — where the instance stood (its LocationPoint, mm) when Promote read it; one moved since
     /// is kept as it stands.</summary>
     [JsonPropertyName("at")] public double[] At { get; set; }
+    /// <summary>Human-error guards §3: a delete names its copy and the element that stays by IFC GlobalId — clash triage on the web knows those,
+    /// not UniqueIds; the executor finds both in the open model (BcfApplyEvent.MapByIfcGuid). Null on every other op.</summary>
+    [JsonPropertyName("ifc_guid")] [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string IfcGuid { get; set; }
+    [JsonPropertyName("keeper_ifc_guid")] [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string KeeperIfcGuid { get; set; }
 }
 
 /// <summary>A wall a planner sent to a person instead of proposing a change (the changeset's exceptions).</summary>
@@ -381,6 +385,44 @@ public static class ChangesetTrust
 
     /// <summary>MA-3b: the review window's group for a ghost — what it does, in the web desk's words (review-desk.ts whatOf): "retype wall".</summary>
     public static string GroupOf(ChangesetElementDto el) => $"{el.Op ?? "create"} {el.Kind}";
+
+    // ── Human-error guards §1 (spec 2026-10-21-human-error-guards-design.md): the review's risk tiers ──
+
+    /// <summary>The creates that change the model's geometry or its datums — ticked one by one, with a reason.</summary>
+    public static readonly HashSet<string> GeometryCreates = new HashSet<string>(StringComparer.Ordinal)
+        { "wall", "floor", "roof", "column", "beam", "stair", "terrain", "level", "grid", "mass", "opening" };
+
+    /// <summary>§4A3's 200: more rows ticked at once are applied in parts, or a person says why they go as one.</summary>
+    public const int BatchLimit = 200;
+
+    public enum Tier { Safe, Reason, Protected }
+
+    /// <summary>A row's tier. <paramref name="guard"/> is what the command read on Revit's thread (ChangesetExecutor.Guarded): Own = the row's
+    /// own element is protected (a non-create: the executor would keep it as it stands — shown locked), else near one. Reason: a reshape,
+    /// rehost or delete, a create that replaces, a geometry create, or any row near a protected element. Safe: the rest (grouped).</summary>
+    public static Tier TierOf(ChangesetElementDto el, (bool Own, string Why)? guard)
+    {
+        if (guard is { Own: true } && !(el.Op is null or "create")) return Tier.Protected;
+        return guard != null || RiskyByOp(el) ? Tier.Reason : Tier.Safe;
+    }
+
+    /// <summary>The rows risky by what they do, whatever the model holds — the bridge's list too (changesets-logic riskyByOp), which marks
+    /// one applied without a typed reason as unreasoned.</summary>
+    public static bool RiskyByOp(ChangesetElementDto el) =>
+        el.Op is "reshape" or "rehost" or "delete" || el.Replaces != null || ((el.Op is null or "create") && GeometryCreates.Contains(el.Kind ?? ""));
+
+    public const string ReasonGroup = "Needs a reason — tick each row by hand";
+    public const string ProtectedGroup = "Protected — kept as they stand";
+    public const string TickReasonNeeded = "Rows under \"Needs a reason\" are ticked — type why you apply them in that group's box (one line, recorded on the ledger with your name), then press Apply.";
+
+    /// <summary>Over the limit with no batch reason: the words; null otherwise.</summary>
+    public static string BatchRefusal(int ticked, string batchReason) => ticked > BatchLimit && Blank(batchReason)
+        ? $"{ticked} rows are ticked — more than the {BatchLimit} a person reviews at once. Untick some and apply in parts, or type why they go as one in the batch reason. Nothing was sent."
+        : null;
+
+    /// <summary>Human-error guards §3: a delete's row — the copy, the one kept, and that Revit removes it only when they are the same.</summary>
+    public static string DeleteWords(ChangesetElementDto el) =>
+        $"the copy {el.Target?.IfcGuid ?? "?"} of {el.Target?.KeeperIfcGuid ?? "?"} (clash triage: the same element modelled twice) — removed only if Revit finds it the same type, level, place and size as the one kept, and it takes nothing else with it";
 
     /// <summary>MA-3b (AI-5): the ledger row the bridge named for a result — "ledger #1731" — or the web desk's words when it named none
     /// (a bridge before MA-3b, a row with no id, or a reply that is not JSON).</summary>
@@ -749,6 +791,26 @@ public sealed class AppliedEntry
     /// <summary>Revert (2026-10-20): an attach's wall top as it stood before the attach - what Revert puts back. Null, and left out of the body,
     /// for every other entry; an attach applied before this field has none, and Revert keeps it ("the old top was not recorded").</summary>
     [JsonPropertyName("before")] [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public AttachBeforeDto Before { get; set; }
+    /// <summary>Human-error guards §3: a delete's — the element kept and the copy's own writable values, read before the delete; what Revert
+    /// re-creates the copy from. Null, and left out of the body, for every other entry.</summary>
+    [JsonPropertyName("deleted")] [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public DeletedDto Deleted { get; set; }
+}
+
+/// <summary>Human-error guards §3: what a delete removed — the copy of <see cref="KeeperUniqueId"/>, and its writable instance values.</summary>
+public sealed class DeletedDto
+{
+    [JsonPropertyName("keeper_unique_id")] public string KeeperUniqueId { get; set; }
+    [JsonPropertyName("values")] public List<ParamValueDto> Values { get; set; } = new List<ParamValueDto>();
+}
+
+/// <summary>One instance value: the parameter's id (a built-in's negative number, or the shared/project parameter's element id), its name
+/// for words, its storage (String, Integer, Double, ElementId) and its value as text (a double in Revit's internal units, "R" format).</summary>
+public sealed class ParamValueDto
+{
+    [JsonPropertyName("id")] public long Id { get; set; }
+    [JsonPropertyName("name")] public string Name { get; set; }
+    [JsonPropertyName("storage")] public string Storage { get; set; }
+    [JsonPropertyName("value")] public string Value { get; set; }
 }
 
 /// <summary>Revert (2026-10-20): a row Revert left as it stands, and why (the executor's Kept pattern).</summary>
@@ -937,15 +999,20 @@ internal static class ChangesetClient
     /// <paramref name="reply"/> is the bridge's answer, the stored changeset (ChangesetTrust.LateDeclines reads it). MA-3b2:
     /// <paramref name="reasons"/> is the reviewer's reason per rejected ghost ({proposal_guid: one line}); null sends none.</summary>
     public static bool ReportResult(BcfConfig cfg, string projectKey, string id,
-        List<AppliedEntry> applied, List<string> rejected, string note, int? reviewRev, out string reply, out string error, Dictionary<string, string> reasons = null, string attemptKey = null) =>
+        List<AppliedEntry> applied, List<string> rejected, string note, int? reviewRev, out string reply, out string error, Dictionary<string, string> reasons = null, string attemptKey = null,
+        Dictionary<string, string> tickReasons = null, string batchReason = null) =>
         Post(cfg, $"/changesets/{Uri.EscapeDataString(projectKey)}/{Uri.EscapeDataString(id)}/result",
-             ResultBody(applied, rejected, note, reviewRev, reasons, attemptKey), 200, out reply, out error);
+             ResultBody(applied, rejected, note, reviewRev, reasons, attemptKey, tickReasons, batchReason), 200, out reply, out error);
 
     /// <summary>The result's body (tools/promote-check reads it). `reasons` is written as null when there is none: the bridge reads
     /// null as none, and a bridge before MA-3b2 ignores the field. Apply claim (2026-10-20): `session` is this Revit's, and `attempt_key`
-    /// the record's own (a retry of one result sends the same key, so the bridge answers the stored result — never a second record).</summary>
-    internal static string ResultBody(List<AppliedEntry> applied, List<string> rejected, string note, int? reviewRev, Dictionary<string, string> reasons, string attemptKey = null) =>
-        JsonSerializer.Serialize(new { applied, rejected, note, actor = UserSession.Actor, review_rev = reviewRev, reasons, session = Session, attempt_key = attemptKey });
+    /// the record's own (a retry of one result sends the same key, so the bridge answers the stored result — never a second record).
+    /// Human-error guards §1: `tick_reasons` — the person's reason per ticked row of the "Needs a reason" tier — and `batch_reason` (over
+    /// the 200), null when none; a bridge before them ignores both.</summary>
+    internal static string ResultBody(List<AppliedEntry> applied, List<string> rejected, string note, int? reviewRev, Dictionary<string, string> reasons, string attemptKey = null,
+                                      Dictionary<string, string> tickReasons = null, string batchReason = null) =>
+        JsonSerializer.Serialize(new { applied, rejected, note, actor = UserSession.Actor, review_rev = reviewRev, reasons, session = Session, attempt_key = attemptKey,
+                                       tick_reasons = tickReasons, batch_reason = batchReason });
 
     /// <summary>Apply claim (2026-10-20, spec 2026-10-20-apply-claim-isolation-revert-saved-design.md §1): this Revit's session — one per process.</summary>
     public static readonly string Session = Guid.NewGuid().ToString();

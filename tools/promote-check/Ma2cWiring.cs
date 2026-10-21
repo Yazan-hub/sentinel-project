@@ -21,7 +21,7 @@ static partial class Check
            && fix.Contains("entry.Candidates.Where(c => !c.InstanceOnly && (c.Kind == ParamKind.Lookup || c.Kind == ParamKind.BuiltIn))")
            && fix.Contains("p.StorageType != StorageType.String ?"),
            "the write is the stale guard (the value read now is empty, whatever the plan's from says: C1), then the set, then a read-back as the IDS reads it — on the type's own text parameter only");
-        Ok(place.Contains(".Where(e => e.Op != \"set_parameter\").ToDictionary(e => e.ProposalGuid, e => e.Kind ?? \"wall\")"),
+        Ok(place.Contains(".Where(e => e.Op != \"set_parameter\" && e.Op != \"delete\").ToDictionary(e => e.ProposalGuid, e => e.Kind ?? \"wall\")"),
            "the DD IDS before commit judges the elements, never a set_parameter's type");
         Ok(ctx.Contains("var clauseTask = Task.Run(() => ArtefactClient.Resolve(key, \"ids\"));")
            && ctx.Contains("pc.Clauses = ids.Origin == \"none\" ? Clauses.None(ids.Label) : Clauses.FromIds(ids.BodyJson, ids.Label, out _);"),
@@ -39,7 +39,7 @@ static partial class Check
            // MA-2d C11: a storey's window (StoreyBatch.Merge's name) counts "this storey's" retypes.
            && window.Contains("(ChangesetTrust.RetypedOnto(_cs, el) is int more && more > 0 ? $\" + {more} if this {((_cs.Name ?? \"\").EndsWith(\", one Undo)\", StringComparison.Ordinal) ? \"storey\" : \"changeset\")}'s retypes onto it are applied\" : \"\")")
            && review.Contains("reach[sp.ProposalGuid] = new FilteredElementCollector(doc).WhereElementIsNotElementType().Count(x => x.GetTypeId() == spType.Id);")
-           && review.Contains("new ChangesetReviewWindow(cs, reach, notLoaded)"),
+           && review.Contains("new ChangesetReviewWindow(cs, reach, notLoaded, guards)"),
            "the review window shows a set_parameter as a type edit: its reach counted by the add-in in the model now (C3), the parameter, from, to and the source");
         Ok(promote.Contains("var run = PropertyPlanner.FileAll(toFile, PropertyPlanner.Stalling((body, retry) =>") // MA-3b5 (F4): under the stall rule
            && promote.Contains("type edit(s) not filed — see Sent to a person")

@@ -13,6 +13,10 @@
 // MA-3b2: each group has one reason box — its reason is recorded for that group's unticked rows (result.reasons, beside the note); it is
 // taken at the press (read-only from then on), and one with no unticked row to go with is refused in words — and each row has Show:
 // select and zoom to its element, or to where a create would be placed.
+// Human-error guards §1 (spec 2026-10-21): rows come in three tiers (ChangesetTrust.TierOf). Safe rows are grouped as before. "Needs a reason"
+// (geometry, removals, anything near a protected element) is one group with no Tick group: each row is ticked by hand, never pre-ticked, and
+// ticking any needs that group's typed reason — recorded per row with the result and on the ledger. A row whose own element is protected is
+// shown locked, with the policy's words. Over ChangesetTrust.BatchLimit ticked, Apply asks for a batch reason (or apply in parts).
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -28,9 +32,10 @@ namespace Sentinel.UI;
 
 public sealed class ChangesetReviewWindow : Window
 {
-    /// <summary>The ticked, the unticked, the note, and (MA-3b2) a reason per unticked ghost — {proposal_guid: one line}, from each group's
-    /// reason box; empty when none was typed.</summary>
-    public event Action<List<string>, List<string>, string, Dictionary<string, string>> DecideRequested;
+    /// <summary>The ticked, the unticked, the note, (MA-3b2) a reason per unticked ghost — {proposal_guid: one line}, from each group's
+    /// reason box; empty when none was typed — and (human-error guards §1) the reason per ticked row of the "Needs a reason" tier (empty when
+    /// none is ticked) and the batch reason over the 200 (null under it).</summary>
+    public event Action<List<string>, List<string>, string, Dictionary<string, string>, Dictionary<string, string>, string> DecideRequested;
     /// <summary>MA-3b2: a row's Show — the command selects and zooms to its element, or to where a create would be placed.</summary>
     public event Action<ChangesetElementDto> ShowRequested;
     /// <summary>MA-3b: "Retry report" — the results the bridge has not taken yet.</summary>
@@ -70,6 +75,14 @@ public sealed class ChangesetReviewWindow : Window
     private readonly List<(string What, TextBox Reason, List<(CheckBox Box, ChangesetElementDto El)> Rows)> _groups = new();
     private readonly TextBlock _shown = new() { Foreground = Brushes.Gray, TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed, Margin = new Thickness(0, 0, 0, 4) };
     private readonly ChangesetDto _cs;
+    // Human-error guards §1: each row's tier and what the command read of protection (guid → own/near, why); the tier's tick reason and the batch's.
+    private readonly Dictionary<ChangesetElementDto, ChangesetTrust.Tier> _tier = new();
+    private readonly IReadOnlyDictionary<string, (bool Own, string Why)> _guards;
+    private readonly TextBox _tickWhy = new() { MaxLength = ChangesetTrust.MaxReason, VerticalContentAlignment = VerticalAlignment.Center,
+        ToolTip = "Required when a row here is ticked: one line, why you apply these rows — recorded for each ticked row with the result and on the ledger, with your name." };
+    private readonly TextBox _batchWhy = new() { MaxLength = ChangesetTrust.MaxReason, VerticalContentAlignment = VerticalAlignment.Center };
+    private readonly DockPanel _batchRow = new() { Visibility = Visibility.Collapsed, Margin = new Thickness(0, 4, 0, 4) };
+    private ChangesetTrust.Tier TierOf(ChangesetElementDto el) => _tier.TryGetValue(el, out var t) ? t : ChangesetTrust.Tier.Safe;
     // MA-8-9: the "Sent to a person" list is kept so a flag filed from this window joins it; the slice toggles and the scan box untick each other.
     private readonly StackPanel _heldList = new();
     private readonly Expander _heldExp = new() { IsExpanded = true, Margin = new Thickness(0, 0, 0, 8) };
@@ -86,10 +99,16 @@ public sealed class ChangesetReviewWindow : Window
     /// now — counted by the caller on the API thread; shown on the row, never read from the reason.</param>
     /// <param name="notLoaded">MA-6 fix-b1 (F-3): the proposal_guids whose type this model does not hold (ChangesetExecutor.NotLoaded, read by the
     /// caller on the API thread) — each such row says so after its label and opens unticked; the footer counts them.</param>
-    public ChangesetReviewWindow(ChangesetDto changeset, IReadOnlyDictionary<string, int> reach = null, ISet<string> notLoaded = null)
+    /// <param name="guards">Human-error guards §1: what protection touches, per proposal_guid (ChangesetExecutor.Guarded, read by the caller on the
+    /// API thread) — Own: the row's own element is protected (shown locked); else near one (the "Needs a reason" tier).</param>
+    public ChangesetReviewWindow(ChangesetDto changeset, IReadOnlyDictionary<string, int> reach = null, ISet<string> notLoaded = null,
+                                 IReadOnlyDictionary<string, (bool Own, string Why)> guards = null)
     {
         _cs = changeset;
         _notLoaded = notLoaded ?? new HashSet<string>();
+        _guards = guards ?? new Dictionary<string, (bool Own, string Why)>();
+        foreach (var e in _cs.Elements ?? new List<ChangesetElementDto>())
+            _tier[e] = ChangesetTrust.TierOf(e, e.ProposalGuid != null && _guards.TryGetValue(e.ProposalGuid, out var g) ? g : null);
         Closed += (_, _) => _gone = true;
         Title = $"Sentinel — Review AI proposal: {_cs.Name}";
         Width = 640; Height = 560; WindowStartupLocation = WindowStartupLocation.CenterScreen;
@@ -138,6 +157,11 @@ public sealed class ChangesetReviewWindow : Window
         foot.Children.Add(_shown);
         if (ChangesetTrust.NotLoadedLine(_notLoaded.Count) is string notLoadedLine) // MA-6 fix-b1 (F-3)
             foot.Children.Add(new TextBlock { Text = notLoadedLine, Foreground = Brushes.Orange, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 4) });
+        // Human-error guards §1: over the limit, a batch reason (or apply in parts) — shown only then.
+        var batchLabel = new TextBlock { Text = $"Over {ChangesetTrust.BatchLimit} ticked — why they go as one (or untick some and apply in parts):", Foreground = Brushes.Orange, Margin = new Thickness(0, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center };
+        DockPanel.SetDock(batchLabel, Dock.Left);
+        _batchRow.Children.Add(batchLabel); _batchRow.Children.Add(_batchWhy);
+        foot.Children.Add(_batchRow);
         foot.Children.Add(new TextBlock { Text = "Reviewer note (recorded with the result; Decline all needs one):", Foreground = Brushes.Gray });
         foot.Children.Add(_note);
         foot.Children.Add(_status);
@@ -145,7 +169,7 @@ public sealed class ChangesetReviewWindow : Window
         var all = new Button { Content = "Tick suggested", Padding = new Thickness(10, 4, 10, 4), Margin = new Thickness(0, 0, 6, 0) };
         var none = new Button { Content = "Untick all", Padding = new Thickness(10, 4, 10, 4), Margin = new Thickness(0, 0, 6, 0) };
         // Review C3: a row locked here (a late web decline) is never re-ticked.
-        all.Click += (_, _) => { foreach (var r in _rows.Where(x => x.Box.IsEnabled)) r.Box.IsChecked = ChangesetTrust.PreTick(_cs, r.El, _notLoaded); };
+        all.Click += (_, _) => { foreach (var r in _rows.Where(x => x.Box.IsEnabled)) r.Box.IsChecked = TierOf(r.El) == ChangesetTrust.Tier.Safe && ChangesetTrust.PreTick(_cs, r.El, _notLoaded); };
         none.Click += (_, _) => { foreach (var r in _rows) r.Box.IsChecked = false; };
         // Re-entrancy guard: Decide disables Apply at once; it comes back only when nothing ran (Refused).
         _go.Click += (_, _) => Decide();
@@ -180,8 +204,12 @@ public sealed class ChangesetReviewWindow : Window
 
         // Rows. MA-3b: one group per what the ghosts do, in the order they come (the web desk's groupDesk; the storey is the picker's).
         var list = new StackPanel();
-        foreach (var group in (_cs.Elements ?? new List<ChangesetElementDto>()).GroupBy(ChangesetTrust.GroupOf))
+        // Human-error guards §1: the safe rows by what they do, then "Needs a reason", then the protected rows.
+        string KeyOf(ChangesetElementDto e) => TierOf(e) switch { ChangesetTrust.Tier.Reason => ChangesetTrust.ReasonGroup, ChangesetTrust.Tier.Protected => ChangesetTrust.ProtectedGroup, _ => ChangesetTrust.GroupOf(e) };
+        foreach (var group in (_cs.Elements ?? new List<ChangesetElementDto>()).GroupBy(KeyOf)
+                     .OrderBy(g => g.Key == ChangesetTrust.ReasonGroup ? 1 : g.Key == ChangesetTrust.ProtectedGroup ? 2 : 0))
         {
+            var tierOf = group.Key == ChangesetTrust.ReasonGroup ? ChangesetTrust.Tier.Reason : group.Key == ChangesetTrust.ProtectedGroup ? ChangesetTrust.Tier.Protected : ChangesetTrust.Tier.Safe;
             var boxes = new List<CheckBox>();
             var mine = new List<(CheckBox Box, ChangesetElementDto El)>(); // MA-3b2: this group's rows, for its reason
             var groupRows = new StackPanel();
@@ -191,11 +219,12 @@ public sealed class ChangesetReviewWindow : Window
                 var box = new CheckBox
                 {
                     VerticalAlignment = VerticalAlignment.Center,
-                    IsChecked = ChangesetTrust.PreTick(_cs, el, _notLoaded), // MA-1a item 8, MA-4f: the bridge's pre-tick — a create only when a survey job measured it and the IDS did not reject it
+                    // MA-1a item 8, MA-4f: the bridge's pre-tick — a create only when a survey job measured it and the IDS did not reject it; human-error guards §1: a safe row only
+                    IsChecked = tierOf == ChangesetTrust.Tier.Safe && ChangesetTrust.PreTick(_cs, el, _notLoaded),
                 };
                 // MA-3a (design §6.6, D17): a web decline binds — the row opens unticked (PreTick) and cannot be ticked here; a lead re-opens it
                 // on the web desk. Apply re-checks the fresh copy (ReviewChangesetsCommand).
-                box.IsEnabled = !ChangesetTrust.DeclinedOnWeb(el);
+                box.IsEnabled = !ChangesetTrust.DeclinedOnWeb(el) && tierOf != ChangesetTrust.Tier.Protected; // §1: a protected row is kept as it stands
                 _rows.Add((box, el));
                 boxes.Add(box);
                 mine.Add((box, el));
@@ -240,6 +269,8 @@ public sealed class ChangesetReviewWindow : Window
                     "reshape" => $"reshape wall: {name}  ·  {ChangesetTrust.ReshapeWords(el)}",
                     // MA-5b-5: a door or window no wall hosts, replaced in its wall — the old instance removed in the same Undo step
                     "rehost" => $"rehost {el.Kind}: {name}  ·  {ChangesetTrust.RehostWords(el)}",
+                    // human-error guards §3: a copy clash triage found modelled twice — removed only when Revit finds it the same as the one kept
+                    "delete" => $"delete {el.Kind}: {ChangesetTrust.DeleteWords(el)}",
                     // MA-2c: a TYPE edit — never pre-ticked. Review amendment C3: its reach is the add-in's own count (Open, API thread),
                     // before the parameter so the ellipsis never trims it; the reason (the tooltip) is the poster's words.
                     "set_parameter" => $"type edit {el.Kind}: {(el.Place?.FamilyName != null ? el.Place.FamilyName + " : " : "")}{type}  ·  " +
@@ -251,6 +282,12 @@ public sealed class ChangesetReviewWindow : Window
                 if (ChangesetTrust.Accuracy(el) is string accuracy) label.Text += "  ·  " + accuracy; // MA-1a item 8: "not measured"
                 if (ChangesetTrust.Typing(el) is string typing) label.Text += "  ·  " + typing; // MA-2a: the bridge typed it from posted facts
                 if (!string.IsNullOrWhiteSpace(el.Reason)) label.ToolTip = el.Reason;
+                // Human-error guards §1: why a row is here — protected (kept as it stands) or near a protected element — after the label.
+                if (el.ProposalGuid != null && _guards.TryGetValue(el.ProposalGuid, out var guard))
+                {
+                    label.Text += (guard.Own ? "  ·  protected: " : "  ·  near protected: ") + guard.Why;
+                    if (guard.Own) label.Foreground = Brushes.Gray;
+                }
                 // MA-3a: the web desk's decision leads the row (the ellipsis never trims it) and is the tooltip's first line.
                 if (ChangesetTrust.ReviewLine(el) is string reviewLine)
                 {
@@ -267,7 +304,9 @@ public sealed class ChangesetReviewWindow : Window
             tick.Click += (_, _) => { foreach (var b in boxes.Where(x => x.IsEnabled)) b.IsChecked = true; };
             untick.Click += (_, _) => { foreach (var b in boxes) b.IsChecked = false; };
             var bar = new StackPanel { Orientation = Orientation.Horizontal };
-            bar.Children.Add(tick); bar.Children.Add(untick);
+            // Human-error guards §1: "Needs a reason" has no Tick group — each row is ticked by hand; the protected rows have no buttons.
+            if (tierOf == ChangesetTrust.Tier.Safe) bar.Children.Add(tick);
+            if (tierOf != ChangesetTrust.Tier.Protected) bar.Children.Add(untick);
             // MA-3b2: one reason for this group's unticked rows — recorded per ghost with the result (result.reasons) and on its ledger row.
             // Review C4: on its own row under the buttons, the box filling it (no fixed width: the bar clips, it does not wrap).
             var why = new TextBox { MaxLength = ChangesetTrust.MaxReason, VerticalContentAlignment = VerticalAlignment.Center,
@@ -276,9 +315,19 @@ public sealed class ChangesetReviewWindow : Window
             var whyRow = new DockPanel { Margin = new Thickness(0, 0, 0, 4) };
             DockPanel.SetDock(whyLabel, Dock.Left);
             whyRow.Children.Add(whyLabel); whyRow.Children.Add(why);
-            _groups.Add((group.Key, why, mine));
+            if (tierOf != ChangesetTrust.Tier.Protected) _groups.Add((group.Key, why, mine));
             var body = new StackPanel();
-            body.Children.Add(bar); body.Children.Add(whyRow); body.Children.Add(groupRows);
+            body.Children.Add(bar);
+            if (tierOf == ChangesetTrust.Tier.Reason)
+            {
+                var tickLabel = new TextBlock { Text = "Why you apply the rows ticked here (required):", Foreground = Brushes.Orange, Margin = new Thickness(0, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center };
+                var tickRow = new DockPanel { Margin = new Thickness(0, 0, 0, 4) };
+                DockPanel.SetDock(tickLabel, Dock.Left);
+                tickRow.Children.Add(tickLabel); tickRow.Children.Add(_tickWhy);
+                body.Children.Add(tickRow);
+            }
+            if (tierOf != ChangesetTrust.Tier.Protected) body.Children.Add(whyRow);
+            body.Children.Add(groupRows);
             var groupBox = new Expander { IsExpanded = true, Content = body, Margin = new Thickness(0, 0, 0, 6) };
             string what = group.Key;
             string declinedHere = ChangesetTrust.DeclinedCount(group); // MA-3b3: "(n carried)" when the bridge carried some
@@ -296,6 +345,7 @@ public sealed class ChangesetReviewWindow : Window
         foreach (var h in _headers) h();
         int n = _rows.Count(r => r.Box.IsChecked == true);
         _go.Content = n == 0 ? DeclineLabel() : $"Apply {n} ticked in Revit";
+        _batchRow.Visibility = n > ChangesetTrust.BatchLimit ? Visibility.Visible : Visibility.Collapsed; // human-error guards §1
         Ticks(); // MA-3c: the ghost overlay recolours
     }
 
@@ -391,14 +441,31 @@ public sealed class ChangesetReviewWindow : Window
             if (!g.Rows.Any(x => x.Box.IsChecked != true && x.Box.IsEnabled && x.El.ProposalGuid != null)) { Say($"The reason for \"{g.What}\" has no unticked row to go with — untick the rows it is for, or clear it. Nothing was sent."); return; }
             foreach (var r in g.Rows.Where(x => x.Box.IsChecked != true && x.Box.IsEnabled && x.El.ProposalGuid != null)) reasons[r.El.ProposalGuid] = reason;
         }
+        // Human-error guards §1: a ticked row of "Needs a reason" goes only with that group's typed reason; over the limit, with the batch's.
+        var tickReasons = new Dictionary<string, string>(StringComparer.Ordinal);
+        var risky = _rows.Where(r => r.Box.IsChecked == true && TierOf(r.El) == ChangesetTrust.Tier.Reason && r.El.ProposalGuid != null).ToList();
+        if (risky.Count > 0)
+        {
+            var why = ChangesetTrust.DeclineReason(_tickWhy.Text, out var tickProblem);
+            if (tickProblem != null) { Say($"The reason for the rows under \"{ChangesetTrust.ReasonGroup}\" was not taken — {tickProblem}. Nothing was sent."); return; }
+            if (why == null) { Say(ChangesetTrust.TickReasonNeeded); return; }
+            foreach (var r in risky) tickReasons[r.El.ProposalGuid] = why;
+        }
+        if (ChangesetTrust.BatchRefusal(ticked.Count, _batchWhy.Text) is string over) { Say(over); return; }
+        string batchReason = null;
+        if (ticked.Count > ChangesetTrust.BatchLimit)
+        {
+            batchReason = ChangesetTrust.DeclineReason(_batchWhy.Text, out var batchProblem);
+            if (batchProblem != null) { Say($"The batch reason was not taken — {batchProblem}. Nothing was sent."); return; }
+        }
         _go.IsEnabled = false; Reasons(true); // review C2: the reasons are taken here — a box typed in afterwards would look recorded and not be
         Say("Re-checking with the bridge…");
-        DecideRequested?.Invoke(ticked, unticked, _note.Text?.Trim() ?? "", reasons);
+        DecideRequested?.Invoke(ticked, unticked, _note.Text?.Trim() ?? "", reasons, tickReasons, batchReason);
     }
 
     /// <summary>Review C2: the reason boxes are read-only once their reasons were taken (the press), and editable again only when nothing
     /// was applied (Refused, Reopen) — the next press takes them afresh.</summary>
-    private void Reasons(bool taken) { foreach (var g in _groups) g.Reason.IsReadOnly = taken; }
+    private void Reasons(bool taken) { foreach (var g in _groups) g.Reason.IsReadOnly = taken; _tickWhy.IsReadOnly = taken; _batchWhy.IsReadOnly = taken; }
 
     private void HeldHeader()
     {

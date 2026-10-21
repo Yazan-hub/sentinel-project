@@ -8,7 +8,7 @@ import * as FRAGS from "@thatopen/fragments";
 import { runClash, confirmOnSolids } from "../sentinel-core/adapter/model-clash";
 import { confirm, runSentence, type ClashMode, type ConfirmResult } from "../sentinel-core/clash-confirm";
 import { clashSignature, type Clash } from "../sentinel-core/clash";
-import { groupHits, groupTitle, groupInstruction, plainCategory, disciplinesOf, type TriageHit, type TriageGroup, type TriageSide } from "../sentinel-core/clash-triage";
+import { groupHits, groupTitle, groupInstruction, plainCategory, disciplinesOf, deleteProposal, type TriageHit, type TriageGroup, type TriageSide } from "../sentinel-core/clash-triage";
 import { getAppManager } from "../app";
 import { escapeHtml as esc } from "./escape-html";
 
@@ -471,7 +471,9 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
         const vol = g.volume ? (g.volume < 0.01 ? g.volume.toExponential(1) : g.volume.toFixed(2)) + " m³" : "";
         const act = g.kind === "touching"
           ? `<button class="cl-g-nac" data-i="${i}" style="${btn};padding:.15rem .4rem;font-size:11px" title="Record these as not a clash, with the reason, on the register and the ledger">Mark not a clash</button>`
-          : `<button class="cl-g-raise" data-i="${i}" style="${btn};padding:.15rem .4rem;font-size:11px;background:#3a1f1f;border-color:#7f1d1d;color:#fca5a5" title="One Issue for the whole group, assigned to its owner">⚑ Raise group</button>`;
+          : `<button class="cl-g-raise" data-i="${i}" style="${btn};padding:.15rem .4rem;font-size:11px;background:#3a1f1f;border-color:#7f1d1d;color:#fca5a5" title="One Issue for the whole group, assigned to its owner">⚑ Raise group</button>` +
+            // Human-error guards §3: a lead's — a changeset that deletes the copies in Revit, each ticked by a person with a reason
+            (g.kind === "duplicate" ? `<button class="cl-g-del" data-i="${i}" style="${btn};padding:.15rem .4rem;font-size:11px" title="A lead's: propose deleting the copies as a changeset. Nothing is deleted now — in Revit (Review AI Proposals) each copy needs a person's tick and a reason, and Revit removes it only when it is the same type, level, place and size as the one kept">Propose deleting the copies…</button>` : "");
         return `<div style="border:1px solid #2a2a30;background:#1b1b20;border-radius:.35rem;margin-bottom:.3rem;padding:.4rem .5rem;font-size:12px">` +
           `<div style="display:flex;gap:.5rem;align-items:center"><span style="width:.5rem;height:.5rem;border-radius:50%;background:${col};flex:none"></span>` +
           `<span style="flex:1;color:#e5e7eb">${esc(groupTitle(g))}</span><span style="color:#e5e7eb;font-weight:600">${esc(String(g.hits.length))}</span>` +
@@ -492,6 +494,7 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
     host.querySelectorAll<HTMLElement>(".cl-g-show").forEach((b) => b.addEventListener("click", () => showGroup(groups[Number(b.dataset.i)])));
     host.querySelectorAll<HTMLElement>(".cl-g-raise").forEach((b) => b.addEventListener("click", () => raiseGroup(groups[Number(b.dataset.i)])));
     host.querySelectorAll<HTMLElement>(".cl-g-nac").forEach((b) => b.addEventListener("click", () => markNotAClash(groups[Number(b.dataset.i)])));
+    host.querySelectorAll<HTMLElement>(".cl-g-del").forEach((b) => b.addEventListener("click", () => proposeDeletes(groups[Number(b.dataset.i)])));
   }
 
   // Setting who owns a discipline is a lead's (the bridge refuses below lead and says so); the whole map is sent.
@@ -549,6 +552,30 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
     dropHits(new Set(g.hits.map((h) => h.id)));
     renderGroups(); void loadKnownFromServer();
     status(`Raised ${groupTitle(g)} as one Issue${owner ? ` assigned to ${owner}` : " (no owner yet)"}; ${g.hits.length} clash(es) on the register and the ledger.`);
+  }
+
+  // Human-error guards §3 (spec 2026-10-21): a duplicate group as a changeset of deletes — a lead's (the bridge refuses anyone else in words, and
+  // checks each pair against the register written just before). Nothing is deleted here: the copies wait in Revit's Review AI Proposals, each
+  // ticked by a person with a reason; a pair across two models, or of a kind Sentinel does not delete, is held and said.
+  async function proposeDeletes(g: TriageGroup) {
+    const key = pid();
+    const p = deleteProposal(g);
+    if (!p.body) { status(`Nothing to propose — ${p.held[0]?.why ?? "no pair"}${p.held.length > 1 ? ` (and ${p.held.length - 1} more)` : ""}. Raise the group as an Issue instead.`); return; }
+    if (!window.confirm(`Propose deleting ${p.body.elements.length} copy(ies) in "${groupTitle(g)}"${p.held.length ? ` (${p.held.length} held: ${p.held[0].why})` : ""}?\n\n` +
+      "Nothing is deleted now: each copy waits in Revit (Review AI Proposals) for a person to tick it with a reason, and Revit removes it only if it is the same type, level, place and size as the one kept.")) return;
+    const gate = await gateAllowsRaise();
+    if (!gate.ok) { status(`Not proposed — ${gate.why}. Nothing was sent.`); void loadFederation(); return; }
+    const overlapOf = new Map(clashes.map((c) => [c.id, c.overlap]));
+    try { await recordHits(key, p.hits.map((h) => ({ signature: h.id, status: "raised", volume: h.volume, label: hitLabel(h), elements: elementsOf(h), overlap: overlapOf.get(h.id), group: g.key }))); }
+    catch (e) { status(`Not proposed — the clash register did not record the pairs (${(e as Error).message}); nothing was sent.`); return; }
+    let cs: { name?: string } | null;
+    try { cs = await bwrite<{ name?: string } | null>(`${base}/changesets/${encodeURIComponent(key)}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(p.body) }); }
+    catch (e) { status(`The pairs are on the clash register, but the deletes were not proposed — ${(e as Error).message}`); void loadKnownFromServer(); return; }
+    if (pid() !== key) return;
+    dropHits(new Set(p.hits.map((h) => h.id)));
+    renderGroups(); void loadKnownFromServer();
+    status(`Proposed deleting ${p.body.elements.length} copy(ies) as "${cs?.name ?? p.body.name}" — review it in Revit (Review AI Proposals): each needs a tick and a reason.` +
+      (p.held.length ? ` ${p.held.length} held (${p.held[0].why}) — raise those as an Issue.` : ""));
   }
 
   async function markNotAClash(g: TriageGroup) {

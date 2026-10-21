@@ -66,6 +66,14 @@ describe("installArtefact", () => {
     expect(bfetch).toHaveBeenCalledWith("http://b/cde/aster-villa/artefacts/naming?actor=lead%40x", expect.objectContaining({ method: "PUT", body: JSON.stringify({ title: "t" }) }));
   });
 
+  it("human-error guards §2: sends the sha the form was filled from as If-Match, and none when not asked", async () => {
+    bfetch.mockResolvedValue(res(201, { kind: "protection", version: 2, sha256: "ef" }));
+    await installArtefact("http://b", "p", "protection", {}, "lead@x", "ab12");
+    await installArtefact("http://b", "p", "protection", {}, "lead@x");
+    expect(bfetch.mock.calls.map((c) => (c[1] as RequestInit).headers)).toEqual([
+      { "Content-Type": "application/json", "If-Match": '"ab12"' }, { "Content-Type": "application/json" }]);
+  });
+
   it("throws the bridge's refusal (validation or role)", async () => {
     bfetch.mockResolvedValue(res(400, { message: "rules[3].mode must be warn | request | monitor | reject" }));
     await expect(installArtefact("http://b", "k", "ruleset", {}, "web")).rejects.toThrow("rules[3].mode");

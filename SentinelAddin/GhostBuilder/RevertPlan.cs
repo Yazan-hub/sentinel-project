@@ -23,6 +23,8 @@ namespace Sentinel.GhostBuilder
             [JsonPropertyName("proposal_guid")] public string ProposalGuid { get; set; }
             [JsonPropertyName("revit_unique_id")] public string RevitUniqueId { get; set; }
             [JsonPropertyName("before")] public AttachBeforeDto Before { get; set; }
+            /// <summary>Human-error guards §3: a delete's — the element kept and the copy's values (what the copy is re-created from).</summary>
+            [JsonPropertyName("deleted")] public DeletedDto Deleted { get; set; }
         }
 
         /// <summary>The changeset's applied rows, from its stored result; none when it holds no result or one that does not read.</summary>
@@ -44,9 +46,13 @@ namespace Sentinel.GhostBuilder
             if (el.Op == "rehost") return "a rehost removed the original door or window; Sentinel cannot bring it back — a person decides";
             if (el.Replaces != null) return "it replaced a DirectShape or Generic Model that Sentinel removed; Sentinel cannot bring that back — a person decides";
             if (el.Op == "attach" && a.Before == null) return "the wall's top before the attach was not recorded (applied before 2026-10-20) — a person resets it by hand";
-            if (el.Op is not (null or "create" or "retype" or "attach" or "reshape" or "set_parameter")) return $"Revert does not know the op \"{el.Op}\" — a person decides";
+            if (el.Op == "delete" && string.IsNullOrEmpty(a.Deleted?.KeeperUniqueId)) return "the copy's record (the element it duplicated, its values) was not kept — Sentinel cannot re-create it; a person decides";
+            if (el.Op is not (null or "create" or "retype" or "attach" or "reshape" or "set_parameter" or "delete")) return $"Revert does not know the op \"{el.Op}\" — a person decides";
             return null;
         }
+
+        /// <summary>Human-error guards §3: what Revert says it did with a delete — the copy is back, as a copy of the element kept.</summary>
+        public const string Recreated = "re-created as a copy of the element kept — same type, level, place and values; its Revit id is new, and its IFC GlobalId is its own again only where the model keeps it in IfcGUID";
 
         /// <summary>The person's reason, trimmed to one line — or null with the problem said (required, at most 500 characters).</summary>
         public static string Reason(string text, out string problem)

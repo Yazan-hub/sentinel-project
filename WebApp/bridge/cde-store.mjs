@@ -182,7 +182,28 @@ export const mergeMetaForTest = mergeMeta;
 // Always present the core governance fields (dimensions/snapshot) even if a migrated row's metadata was partial — so
 // consumers never see a null where the local store used to default them. stage and gates come LAST, from the ledger's
 // stage_gate rows (gateRows), so a stale metadata.stage can never outrank a gate:pass row.
-const toProjectShape = (row, gates = []) => ({ project_id: row.key, name: row.name, ...defaultMeta(), ...(row.metadata || {}), stage: stageOf(gates), gates: gatesOf(gates) });
+const toProjectShape = (row, gates = []) => ({ project_id: row.key, name: row.name, ...defaultMeta(), ...(row.metadata || {}), stage: stageOf(gates), gates: gatesOf(gates),
+  version: row.version ?? null, updated_by: row.updated_by ?? null }); // 0048: what a form sends back as If-Match
+
+/** Human-error guards §2 (migration 0048): the project's row PATCHed on the version the client read (`ifMatch`, "12"), so a write that
+ *  lands after another one changes nothing and is a 412 naming who and when (staleChange); no If-Match writes as before. → the row, or
+ *  null when the database refused it (RLS: the caller's 403). ponytail: before 0048 is applied the row has no version — the write goes
+ *  unchecked, as it did. */
+async function patchProject(proj, body, ifMatch, what) {
+  const { ifMatchValue, staleChange } = await import("./artefact-store.mjs");
+  const raw = ifMatchValue(ifMatch);
+  if (raw != null && !/^\d{1,15}$/.test(raw)) throw Object.assign(new Error(`If-Match must be the project's version as it was read (e.g. "12") — nothing was saved`), { status: 400 });
+  const want = raw != null && proj.version != null ? Number(raw) : null;
+  const stale = (cur) => staleChange(what, cur.updated_by, cur.updated_at);
+  if (want != null && Number(proj.version) !== want) throw stale(proj);
+  const rows = await sb(`projects?id=eq.${proj.id}${want != null ? `&version=eq.${want}` : ""}`, { method: "PATCH", body, prefer: "return=representation" });
+  const row = Array.isArray(rows) ? rows[0] ?? null : null;
+  if (!row && want != null) {
+    const cur = (await sb(`projects?id=eq.${proj.id}&select=version,updated_by,updated_at`, { service: true }))?.[0];
+    if (cur && Number(cur.version) !== want) throw stale(cur);
+  }
+  return row;
+}
 
 /** A project's stage_gate rows, newest first: what runStageGate wrote (audit_log, entity_type stage_gate). */
 async function gateRows(projectId) {
@@ -240,15 +261,14 @@ export async function listProjectMeta() {
 
 /** Patch a project's metadata (dims/snapshot/rate_pack/boq_baseline/carbon_baseline/name). A `stage` in the patch is
  *  ignored: the stage is the ledger's (POST /cde/:key/gate). */
-export async function patchProjectMeta(key, patch = {}) {
+export async function patchProjectMeta(key, patch = {}, { ifMatch } = {}) {
   // Refuse rather than silently drop: a stale client that still "installs" a pack this way must see it failed.
   if (patch.active_ruleset !== undefined) throw Object.assign(new Error("active_ruleset is retired — install the scan ruleset with PUT /cde/:key/artefacts/ruleset and the naming pack with PUT /cde/:key/artefacts/naming"), { status: 400 });
   const proj = await ensureProject(key);
   const metadata = mergeMeta((proj.metadata && Object.keys(proj.metadata).length) ? proj.metadata : defaultMeta(), patch);
   const body = { metadata };
   if (patch.name !== undefined) body.name = patch.name;
-  const rows = await sb(`projects?id=eq.${proj.id}`, { method: "PATCH", body, prefer: "return=representation" });
-  const row = Array.isArray(rows) ? rows[0] : null;
+  const row = await patchProject(proj, body, ifMatch, "the project's details were");
   // Under a forwarded session the database's projects_update policy lets only a lead or owner write: a refused write
   // updates nothing and comes back with no row — say so, never read a missing row (it was a 500).
   if (!row) throw Object.assign(new Error("the project's details are changed by a lead or owner — nothing was saved"), { status: 403 });
@@ -304,16 +324,16 @@ export { officeKeyOf, listOfficeProjects, projectScope } from "./office-scope.mj
 /** List every CDE project (newest first) with a container count — the hub's card data. */
 export async function listProjects() {
   // PostgREST embeds an aggregate as information_containers:[{count}].
+  // Each select falls back to the one before its migration: 0048's version, then 0029's kind and office_key.
+  const selects = [
+    `projects?select=id,key,name,appointing_party,status_scheme,created_at,metadata,kind,office_key,version,updated_by,updated_at,information_containers(count)&information_containers.deleted_at=is.null&order=created_at.desc`,
+    `projects?select=id,key,name,appointing_party,status_scheme,created_at,metadata,kind,office_key,information_containers(count)&information_containers.deleted_at=is.null&order=created_at.desc`,
+    `projects?select=id,key,name,appointing_party,status_scheme,created_at,metadata,information_containers(count)&order=created_at.desc`,
+  ];
   let rows;
-  try {
-    rows = await sb(
-      `projects?select=id,key,name,appointing_party,status_scheme,created_at,metadata,kind,office_key,information_containers(count)&information_containers.deleted_at=is.null&order=created_at.desc`,
-    );
-  } catch (e) {
-    if (!/column .* does not exist|42703/.test(String(e?.message || e))) throw e;
-    rows = await sb(
-      `projects?select=id,key,name,appointing_party,status_scheme,created_at,metadata,information_containers(count)&order=created_at.desc`,
-    );
+  for (const [i, s] of selects.entries()) {
+    try { rows = await sb(s); break; }
+    catch (e) { if (i === selects.length - 1 || !/column .* does not exist|42703/.test(String(e?.message || e))) throw e; }
   }
   const byKey = new Map(rows.map((p) => [p.key, p.name]));
   return (rows || []).map((p) => ({
@@ -328,6 +348,7 @@ export async function listProjects() {
     kind: p.kind ?? "project",
     office_key: p.office_key ?? null,
     office_name: p.office_key ? byKey.get(p.office_key) ?? null : null,
+    version: p.version ?? null, updated_by: p.updated_by ?? null, updated_at: p.updated_at ?? null, // 0048: Project Settings sends version back as If-Match
   }));
 }
 
@@ -400,7 +421,7 @@ const SETTINGS_FIELDS = [
 /** Update a project's identity + Forma-style settings (rename, owner, address, dates, archive…).
  *  The key is never changed — it's the stable identifier every store hangs off. RLS (when a JWT is
  *  forwarded) requires the 'lead' role via projects_update. */
-export async function updateProject(key, patch = {}, actor) {
+export async function updateProject(key, patch = {}, actor, { ifMatch } = {}) {
   if (patch.platform_project_id !== undefined && patch.platform_project_id !== null
       && !(typeof patch.platform_project_id === "string" && /^[A-Za-z0-9_-]{1,100}$/.test(patch.platform_project_id))) {
     throw Object.assign(new Error("platform_project_id must be a platform project id (letters, digits, - or _) or null to unlink"), { status: 400 });
@@ -443,9 +464,9 @@ export async function updateProject(key, patch = {}, actor) {
   if (proj.office_key && body.office_key !== undefined && body.office_key !== proj.office_key)
     await members.requireOfficeLead(proj.office_key, undefined, `a project leaves its office (${proj.office_key}) only through a lead of that office — nothing was saved`);
 
-  let rows;
+  let row;
   try {
-    rows = await sb(`projects?id=eq.${proj.id}`, { method: "PATCH", body, prefer: "return=representation" });
+    row = await patchProject(proj, body, ifMatch, "the project's settings were");
   } catch (e) {
     // 0041's projects_one_live_platform_link: a link another live project took meanwhile — the same words as the read above.
     if (e?.body?.code === "23505" && /projects_one_live_platform_link/.test(String(e.body.message || ""))) throw linkHeld();
@@ -455,7 +476,6 @@ export async function updateProject(key, patch = {}, actor) {
     if (e?.body?.code === "P0001") throw Object.assign(new Error(String(e.body.message || "office_key must name a project of kind office")), { status: 400 });
     throw e;
   }
-  const row = Array.isArray(rows) ? rows[0] : null;
   // As in patchProjectMeta: a write the projects_update policy refused comes back with no row — a 403, never a 200.
   if (!row) throw Object.assign(new Error("the project's settings are changed by a lead or owner — nothing was saved"), { status: 403 });
   await audit(proj.id, "project", proj.id, "updated", actor || "web", null,

@@ -61,7 +61,7 @@ static partial class Check
            && ex.Contains("var s = e == null ? null : ClashManager.GetMainSolid(e);") && ex.Contains("return PlacementGeometry.PackMesh(mm);"),
            "the executor re-reads each wall a survey changeset created after the commit and the recount, from its main solid; a read that throws leaves it null");
         string win = Src("UI", "ChangesetReviewWindow.cs");
-        Ok(win.Contains("IsChecked = ChangesetTrust.PreTick(_cs, el, _notLoaded), // MA-1a item 8, MA-4f:") && !win.Contains("A create is never pre-ticked"),
+        Ok(win.Contains("IsChecked = tierOf == ChangesetTrust.Tier.Safe && ChangesetTrust.PreTick(_cs, el, _notLoaded),") && !win.Contains("A create is never pre-ticked"),
            "the window still ticks by ChangesetTrust alone, and no comment there says a create is never pre-ticked");
     }
 

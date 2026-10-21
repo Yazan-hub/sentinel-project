@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { plainCategory, disciplineOf, yieldingSide, kindOf, groupHits, groupTitle, groupInstruction, type TriageHit } from "./clash-triage";
+import { plainCategory, disciplineOf, yieldingSide, kindOf, groupHits, groupTitle, groupInstruction, deleteProposal, type TriageHit } from "./clash-triage";
 
 const box = (x: number, s = 1) => ({ min: [x, 0, 0] as [number, number, number], max: [x + s, s, s] as [number, number, number] });
 const MEP = "AT-SEN-ZZ-ZZ-M3-M-0001@P01", STR = "AT-SEN-ZZ-ZZ-M3-S-0001@P01", ARC = "AT-SEN-ZZ-ZZ-M3-A-0001@P01";
@@ -73,5 +73,27 @@ describe("clash triage", () => {
     ]);
     expect(groupInstruction(g[0])).toMatch(/structure is never moved without the structural engineer/);
     expect(groupHits(hits).length).toBe(4); // the full view is unchanged
+  });
+});
+
+describe("deleteProposal — a duplicate group as a changeset of deletes (human-error guards §3)", () => {
+  const twice = (id: string, a: number, b: number, cat = "IFCWALL", ma = ARC, mb = ARC) =>
+    hit(id, { modelId: ma, localId: a, guid: `G${String(a).padStart(21, "0")}`, category: cat, name: "Basic Wall", box: box(0) },
+      { modelId: mb, localId: b, guid: `G${String(b).padStart(21, "0")}`, category: cat, name: "Basic Wall", box: box(0) });
+  it("deletes the copy drawn later and keeps the first, one changeset from clash triage; never the group's other kinds", () => {
+    const [g] = groupHits([twice("d1", 7, 3)]);
+    const p = deleteProposal(g);
+    expect(p.body).toEqual({ name: `Clash duplicates · ${g.pair} · ${g.level}`, source: "clash", elements: [{ op: "delete", kind: "wall",
+      validate: { identity: { Class: "IFCWALL", Name: "Basic Wall" } }, target: { ifc_guid: "G000000000000000000007", keeper_ifc_guid: "G000000000000000000003" },
+      reason: expect.stringContaining("modelled twice") }] });
+    expect(p.hits.map((h) => h.id)).toEqual(["d1"]);
+    expect(deleteProposal(groupHits([hit("c", { category: "IFCBEAM" }, { category: "IFCDUCTSEGMENT" })])[0]).body).toBeNull();
+  });
+  it("holds a pair across two models, a kind Sentinel does not delete, and a chain (a copy is never also an original)", () => {
+    const [base] = groupHits([twice("a", 9, 8)]);
+    const g = { ...base, hits: [twice("x", 2, 1, "IFCWALL", ARC, "AT-SEN-ZZ-ZZ-M3-A-0002@P01"), twice("p", 5, 4, "IFCPIPESEGMENT"), twice("a", 9, 8), twice("b", 10, 9)] };
+    const p = deleteProposal(g);
+    expect(p.body?.elements.map((e) => e.target.ifc_guid)).toEqual(["G000000000000000000009"]);
+    expect(p.held.map((h) => [h.hit.id, h.why.slice(0, 30)])).toEqual([["x", "the two are in different model"], ["p", "Sentinel deletes a copy of a w"], ["b", "one of the two is already in t"]]);
   });
 });

@@ -54,7 +54,7 @@ public sealed class AppliedChangesCommand : IExternalCommand
             var kept = RevertPlan.Write(r);
             SavedCheck.Forget(key, cs.Id); // no longer meant to be in the model: no saved check for it
             // a revert's own save (2026-10-20, spec §4): checked at this file's next save, sync or opening, as a changeset's is
-            var rows = RevertPlan.Applied(cs).Where(a => o.Reverted.Contains(a.ProposalGuid)).GroupBy(a => a.ProposalGuid).Select(g => new SavedCheck.Row { ProposalGuid = g.Key, RevitUniqueId = g.First().RevitUniqueId });
+            var rows = RevertPlan.Applied(cs).Where(a => o.Reverted.Contains(a.ProposalGuid)).GroupBy(a => a.ProposalGuid).Select(g => new SavedCheck.Row { ProposalGuid = g.Key, RevitUniqueId = o.Recreated.TryGetValue(g.Key, out var copy) ? copy : g.First().RevitUniqueId }); // §3: a delete's re-created copy
             SavedCheck.RememberRevert(key, cs.Id, cs.Name, d.PathName, rows);
             Task.Run(() =>
             {

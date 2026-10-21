@@ -30,6 +30,8 @@ namespace Sentinel.Engine
         {
             [JsonPropertyName("proposal_guid")] public string ProposalGuid { get; set; }
             [JsonPropertyName("revit_unique_id")] public string RevitUniqueId { get; set; }
+            /// <summary>Human-error guards §3: a delete's row — held when its element is gone (the copy it removed), missing when it is back.</summary>
+            [JsonPropertyName("deleted")] public bool Deleted { get; set; }
         }
 
         public sealed class Record
@@ -61,7 +63,7 @@ namespace Sentinel.Engine
             return Write(new Record
             {
                 Key = r.Key, ChangesetId = r.ChangesetId, Name = r.Name, Path = r.Path, At = ProvenanceStamp.Now(),
-                Applied = r.Applied.Select(a => new Row { ProposalGuid = a.ProposalGuid, RevitUniqueId = a.RevitUniqueId }).ToList(),
+                Applied = r.Applied.Select(a => new Row { ProposalGuid = a.ProposalGuid, RevitUniqueId = a.RevitUniqueId, Deleted = a.Deleted != null }).ToList(),
             });
         }
 
@@ -177,9 +179,10 @@ namespace Sentinel.Engine
                     var (how, drop) = Decide(ev, doc.IsWorkshared, r);
                     if (how == null) continue;
                     // A revert's row is held when its element is gone (a create the revert deleted) or carries the revert's mark (2026-10-20).
-                    var (held, missing) = Split(r, a => doc.GetElement(a.RevitUniqueId ?? "") is not Element e ? r.Revert
+                    // Human-error guards §3: a delete's row is held when its copy is gone, missing when it is back (Undo, or a file never saved).
+                    var (held, missing) = Split(r, a => doc.GetElement(a.RevitUniqueId ?? "") is not Element e ? r.Revert || a.Deleted
                                                         : r.Revert ? ProvenanceStamp.IsReverted(ProvenanceStamp.Read(e), r.ChangesetId, a.ProposalGuid)
-                                                        : ProvenanceStamp.Holds(ProvenanceStamp.Read(e), r.ChangesetId, a.ProposalGuid));
+                                                        : !a.Deleted && ProvenanceStamp.Holds(ProvenanceStamp.Read(e), r.ChangesetId, a.ProposalGuid));
                     Task.Run(() =>
                     {
                         var ok = ChangesetClient.ReportPersisted(BcfConfig.Load(), r.Key, r.ChangesetId, how, held, missing, out var reply, out var error, r.Revert ? "revert" : null);

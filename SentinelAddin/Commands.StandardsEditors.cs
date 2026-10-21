@@ -198,11 +198,8 @@ public abstract class StandardEditorWindow : Window
         var readSha = target == Key ? _readSha : _officeSha;
         Task.Run(() =>
         {
-            var now = ArtefactClient.Resolve(target, Kind);
-            string stale = now.Origin == "bridge" ? (now.Sha256 == readSha ? null : $"{now.Label} was saved since this window opened — close it and open it again to see it; nothing was saved")
-                         : now.NotInstalled || now.NoProject ? (readSha == null ? null : $"the {Kind} this window opened with is no longer in force — close it and open it again; nothing was saved")
-                         : "the bridge was not reached (" + now.Reason + "); nothing was saved";
-            var put = stale == null ? GovernedNotify.InstallArtefact(target, Kind, body, actor) : (0, null, stale);
+            // Human-error guards §2: the bridge checks what this window opened with in the same request (If-Match) and names who saved since.
+            var put = GovernedNotify.InstallArtefact(target, Kind, body, actor, readSha ?? "none");
             Dispatcher.BeginInvoke(new Action(() =>
             {
                 _save.IsEnabled = true;

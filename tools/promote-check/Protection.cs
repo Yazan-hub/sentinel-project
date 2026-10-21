@@ -47,7 +47,7 @@ static partial class Check
         Ok(app.Contains("Push(st, \"Sentinel_Protection\", \"Protection\", \"Sentinel.Commands.ProtectionCommand\"")
            && app.IndexOf("Sentinel_Protection") > app.IndexOf("Sentinel_Standards") && app.IndexOf("Sentinel_Protection") < app.IndexOf("Sentinel_Chain"),
            "Protection sits right after Standards on Standards & Build");
-        Ok(win.Contains("GovernedNotify.InstallArtefact(target, \"protection\", body, actor)") && win.Contains("try { Read(); }") && win.Contains("_save.IsEnabled = lead;")
+        Ok(win.Contains("GovernedNotify.InstallArtefact(target, \"protection\", body, actor, readSha ?? \"none\")") && win.Contains("try { Read(); }") && win.Contains("_save.IsEnabled = lead;")
            && win.Contains("foreach (var c in _otherCodes) r.Categories.Add(c);") && win.Contains("Task.Run("),
            "Save installs the next protection@n as the signed-in person, only a lead or owner can press it, a code the window does not show is kept, and no read blocks Revit");
         var exec = Src("GhostBuilder", "ChangesetExecutor.cs"); var evt = Src("GhostBuilder", "ChangesetPlacementEvent.cs"); var ctx = Src("GhostBuilder", "PromoteContext.cs");

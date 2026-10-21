@@ -293,6 +293,16 @@ namespace Sentinel.Engine
             e.SetEntity(entity);
         }
 
+        /// <summary>Human-error guards §3: the stamp of a copy Revert re-created for a delete — written afresh (the element it was copied from
+        /// carried its own stamp, which the copy must not inherit), naming this changeset's proposal and marked reverted, so the revert's saved
+        /// check finds it. The CALLER holds the revert's transaction. API thread.</summary>
+        public static void WriteRecreated(Element e, string changesetId, string source, string guid)
+        {
+            var entity = new Entity(GetSchema());
+            entity.Set(Field, MarkReverted(Json(changesetId, source, new[] { guid }, e.UniqueId, null, null, UserSession.Actor, Now()), changesetId, guid));
+            e.SetEntity(entity);
+        }
+
         /// <summary>The stamp JSON on <paramref name="e"/>, or null (none, or the schema is not in this session). Read-only:
         /// never creates the schema. API thread; never throws.</summary>
         public static string Read(Element e)
