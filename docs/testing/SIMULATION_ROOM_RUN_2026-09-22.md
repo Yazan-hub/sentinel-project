@@ -3842,8 +3842,16 @@ Restored:
 - layers@3 carries layers@1's content.
 - The shared active project is back on benchmark-hospital.
 
+GUARD-P addendum (2026-10-22 00:57–00:59 local, the published app through the Funnel). The founder ran `tailscale funnel reset` + `tailscale funnel --bg 4100`, and `/health` answered 200 from this PC. The 4100 bridge was the founder's restart at 00:10 (PID 6548, its own window; the 23:44 one was stopped by it), not restarted by me. Published app `apps/6a56513872a416a2841b0667` (web 1.0.109, the last publish) in my Chrome tab, no fetch rewrite. The founder signed in to Sentinel in that tab; Claude drove. The colleague stand-in ran as in GUARD-W (SQL with the JWT claim).
+
+| Row | What happened | Result |
+|---|---|---|
+| P-1 stale Project Settings, published | Settings open on ma4c-drill at version 4; the colleague's Location → version 5 (22:57 UTC); an Address typed, Save changes → `Save failed: the project's settings were changed by drill-colleague@ma4c.test at 2026-10-21 22:57 UTC — reload to see it; nothing was saved`; the row still at version 5 with no address | **pass** |
+| P-2 re-read, published | No page reload (the published sign-in lives in the tab): the project switched to MA-4a drill and back, the form re-read with the colleague's Location and the unsaved address dropped; Address typed, Save → version 6 by the founder, the colleague's Location kept | **pass** |
+
+Restored: Address and Location were cleared through the published form (version 7). The tab was closed.
+
 Still owed:
-- The same rows on the published app through the Funnel, once it answers from outside (same build line, different transport).
 - Coordination ▸ Clash "Propose deleting the copies…" (needs a loaded model with duplicate groups).
 - UX notes:
   - After a 412 nothing in the panel re-reads. The person reloads the page and retypes (by design, nothing merges blindly).
