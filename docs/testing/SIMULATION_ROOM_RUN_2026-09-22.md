@@ -3797,7 +3797,7 @@ The bridge's daily global timestamp now reads the kept tip (`audit_chain_tip`), 
 Owed — the founder's:
 1. A central under the ISO name, e.g. Save As `ASTR26-AST-ZZ-XX-M3-A-0001.rvt` from the central. Governed Publish names the container from the central.
 2. Fire ratings for the 42 doors, from the fire strategy (ids@3 requires them; Sentinel does not invent values).
-3. BCF-M1 in BCF Manager.
+3. ~~BCF-M1 in BCF Manager.~~ **Not needed: the founder chose a native tool (2026-10-21, "why are we working with BIMcollab? i want to replace it with a native tool in Sentinel") — see Session NIT. BCF files stay for interop with other firms.**
 4. The Funnel refresh after the 4100 restart.
 
 Holds #3067, #3207 and #3210 stay until a publish passes.
@@ -3834,3 +3834,20 @@ DTA addendum 2 (21:20–21:30, the founder's "do the fire ratings urself"): **As
   - The outbox linked the geometry (#3231) and ingested the snapshot (#3232). The That Open platform gate passed (#3233).
 - **Holding Area.** #3067 was superseded by v4 (no longer listed). The `AST_ASTR26_Aster Tower.ifc` naming holds (#3207, #3210) were dismissed with the reason (#3235). On hold now: 0.
 - Revit closed, elements relinquished. The issues stay Resolved; closing them is a person's call on the web.
+
+## Session NIT — Sentinel's native issue tool replaces BIMcollab's BCF Manager (2026-10-21 local; branch claude/gracious-swartz-d9f7a0; the founder: "why are we working with BIMcollab? i want to replace it with a native tool in Sentinel")
+
+Audit: BIMcollab BCF Manager 7.1 (installed, `Languages\en.txt` + the KUBUS help pages) against Sentinel ▸ Coordinate ▸ BCF Issues. Built the gaps a coordinator touches daily; skipped Paint markup, visible/hidden viewpoint modes, notify, offline/sync, delete, milestones/areas/approval (said in the session answer, with the reasons).
+
+| Row | What | Result |
+|---|---|---|
+| NIT-1 list | Columns Nr/Title/Status/Priority/Assigned/Due/Modified, header click sorts (second click reverses), search box, filters status ("Open issues" = not Closed, each status, All) / type / priority / Mine; every status fetched (`?status=all`) so Closed issues show on request | code: `UI/BcfIssuesWindow.cs`, `Coordination/IssueList.cs` (pure, pinned by tools/issue-check: 49/49) |
+| NIT-2 quick edit | Status, Priority, Assigned, Due + "Save changes" → one PUT with only the changed fields (case-insensitive compare; a cleared deadline is an explicit null); the bridge logs each to the history under the verified identity and keeps the lead-only close of a referee-raised issue (403 worded) | issue-check `Native()` |
+| NIT-3 quick comment | "Send comment" → POST comments; the box clears only when the bridge answered 2xx; buttons disabled until answered (no double send); a live refresh of the same issue keeps what is being typed | issue-check |
+| NIT-4 snapshot | A new issue from Revit attaches the active view as a PNG data URL on its viewpoint (Revit's own ExportImage, no model write, 4 MB cap, report-like views skipped and said); the window and the web detail show it | issue-check (body), web vitest |
+| NIT-5 section box | "Section box around issue": a BoundingBoxXYZ around the linked elements + 1 m, `SetSectionBox` on the Sentinel Coordination view in one Undo entry; zoom/isolate clear a stale box; a group Revit did not keep is said | reviewed (opus, high): 8 findings, all fixed before the drill |
+| NIT-6 web | Coordination ▸ Issues detail: snapshot image, quick edit row, quick comment (`topicChanges` pure + 3 vitest cases) | vitest 4283 passed, 1 failed (pre-existing? see below) |
+| NIT-7 selection lookup | "Issues for my Revit selection" searches every fetched issue (closed and filtered ones too) and widens the filters to show a hit | code |
+| NIT-R Revit 2024 live | Scratch copy `Documents\Sentinel drills\issues-drill.rvt` (from guards-drill.rvt, bound to ma4c-drill) prepared; the add-in built and deployed to 2024 | **owed — the desktop access request for Revit 2024 was denied at 22:19** |
+
+Not built (said to the founder): Paint markup, visible/hidden viewpoint modes, notify, offline mode, delete, milestones/areas/approval. The bridge did not change (no 4100 restart).

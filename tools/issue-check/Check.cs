@@ -62,7 +62,7 @@ static class Check
     {
         Console.WriteLine("Issues raised from Revit — IssueDraft + BcfSyncManager.CreateIssueAsync\n");
         StartBridge();
-        try { Refusals(); Bodies(); Created(); PerCall(); Refused(); Lost(); Silent(); Live(); Hub(); }
+        try { Refusals(); Bodies(); Created(); PerCall(); Refused(); Lost(); Silent(); Live(); Hub(); Native(); }
         finally { try { _bridge.Stop(); } catch { } }
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;
@@ -240,8 +240,70 @@ static class Check
            && cmd.Contains("App.Events.Enqueue(job, what);")
            && cmd.Contains("Apply(\"open the issue\", ua => { apply.RequestApply(vp); apply.Execute(ua); });")
            && cmd.Contains("window.IsolateAllRequested += () => Apply(\"isolate the issue elements\", ua => { apply.RequestIsolateAll(window.Topics); apply.Execute(ua); });")
-           && cmd.Contains("window.IssuesForSelectionRequested += () => Apply(\"match the selection to issues\", ua => { apply.RequestIssuesForSelection(window.Topics); apply.Execute(ua); });"),
+           && cmd.Contains("window.IssuesForSelectionRequested += () => Apply(\"match the selection to issues\", ua => { apply.RequestIssuesForSelection(window.AllTopics); apply.Execute(ua); });"),
            "jump-to-issue, Isolate ALL and Issues-for-selection go through the event hub: each request is staged and run on Revit's thread as one labelled job, a raise Revit does not take is said and raised again, a missing hub is said in the window");
+    }
+
+    // ── Native issue tool (2026-10-21, no BIMcollab): snapshot on the viewpoint, quick edit PUTs only what changed, the list's
+    // filters and sort, every status fetched for the window's own Closed filter ──
+    static void Native()
+    {
+        var d = Draft(); d.Snapshot = "data:image/png;base64,iVBORw0KGgo=";
+        using (var v = JsonDocument.Parse(JsonSerializer.Serialize(d.ViewpointBody())))
+            Ok(v.RootElement.GetProperty("snapshot").GetString() == "data:image/png;base64,iVBORw0KGgo=", "the active view's snapshot rides on the viewpoint as a data URL");
+        using (var v = JsonDocument.Parse(JsonSerializer.Serialize(Draft().ViewpointBody())))
+            Ok(v.RootElement.GetProperty("snapshot").ValueKind == JsonValueKind.Null, "no snapshot → null, never a blank image");
+
+        BcfTopic T(int nr, string title, string status, string prio, string who, string? due, string? modified = null) => new()
+        { Nr = nr, Guid = "g" + nr, Title = title, Status = status, Priority = prio, AssignedTo = who, DueDate = due, ModifiedDate = modified ?? "2026-10-0" + nr + "T10:00:00Z", Labels = new() { "revit" } };
+        var all = new[]
+        {
+            T(1, "Door clashes with duct", "Open", "High", "mep@office.example", "2026-11-01T00:00:00Z"),
+            T(2, "Missing fire rating", "Closed", "Normal", "arch@office.example", null),
+            T(3, "Wall type wrong", "Resolved", "Critical", "mep@office.example", "2026-10-20T00:00:00Z"),
+            T(4, "IDS: WALL — LoadBearing (3 failing)", "In Progress", "Low", "", null),
+        };
+        var open = IssueList.Filter(all, "", IssueList.OpenIssues, "All types", "All priorities", null, "Nr", false);
+        Ok(open.Select(t => t.Nr).SequenceEqual(new[] { 1, 3, 4 }), "'Open issues' = everything not Closed, Resolved included (the bridge's working set)");
+        Ok(IssueList.Filter(all, "", "Closed", "All types", "All priorities", null, "Nr", false).Single().Nr == 2, "the Closed filter shows closed issues (BCF Manager's 'Closed issues')");
+        Ok(IssueList.Filter(all, "duct", "All", "All types", "All priorities", null, "Nr", false).Single().Nr == 1, "search matches the title, case-insensitively");
+        Ok(IssueList.Filter(all, "", "All", "All types", "All priorities", "mep@", "Nr", false).Select(t => t.Nr).SequenceEqual(new[] { 1, 3 }), "'Mine' keeps the issues assigned to the signed-in person");
+        Ok(IssueList.Filter(all, "", "All", "All types", "Critical", null, "Nr", false).Single().Nr == 3, "a priority filter");
+        Ok(IssueList.Filter(all, "", "All", "All types", "All priorities", null, "Priority", false).Select(t => t.Nr).SequenceEqual(new[] { 4, 2, 1, 3 }), "sort by priority runs Low → Critical, not alphabetically");
+        Ok(IssueList.Filter(all, "", "All", "All types", "All priorities", null, "DueDay", false).Select(t => t.Nr).SequenceEqual(new[] { 3, 1, 2, 4 }), "sort by due date puts issues without a deadline last");
+        Ok(IssueList.Filter(all, "", "All", "All types", "All priorities", null, "Title", true).First().Nr == 3, "a second click on the header sorts the other way");
+
+        var t1 = all[0];
+        var same = IssueList.Changes(t1, "Open", "High", " mep@office.example ", new DateTime(2026, 11, 1));
+        Ok(same.Count == 0, "a quick edit that changes nothing sends nothing");
+        var ch = IssueList.Changes(t1, "Resolved", "High", "lead@office.example", null);
+        Ok(ch.Count == 3 && (string?)ch["topic_status"] == "Resolved" && (string?)ch["assigned_to"] == "lead@office.example" && ch.ContainsKey("due_date") && ch["due_date"] is null && !ch.ContainsKey("priority"),
+            "only the changed fields go, in BCF names; a cleared deadline is an explicit null");
+        var ch2 = IssueList.Changes(t1, "Open", "High", "mep@office.example", new DateTime(2026, 12, 24, 9, 0, 0));
+        Ok(ch2.Count == 1 && (string?)ch2["due_date"] == "2026-12-24T00:00:00Z", "a new deadline is an ISO day at midnight UTC, like the web's");
+
+        _topicStatus = 200; lock (_seen) _seen.Clear();
+        using (var sync = new BcfSyncManager(_url, "stale"))
+        {
+            var s = sync.UpdateAsync("aster-tower", "topic-1", ch, "lead@office.example", () => "tok-C").GetAwaiter().GetResult();
+            lock (_seen)
+            {
+                using var body = JsonDocument.Parse(_seen[0].Body);
+                Ok(s == 200 && _seen[0].Method == "PUT" && _seen[0].Path == "/bcf/3.0/projects/aster-tower/topics/topic-1" && _seen[0].Auth == "Bearer tok-C"
+                   && body.RootElement.GetProperty("topic_status").GetString() == "Resolved" && body.RootElement.GetProperty("author").GetString() == "lead@office.example"
+                   && body.RootElement.GetProperty("due_date").ValueKind == JsonValueKind.Null,
+                   "the quick edit is one PUT on the topic, the bearer read per call, the author named, the cleared deadline sent as null");
+            }
+            _topicStatus = 403;
+            Ok(sync.UpdateAsync("aster-tower", "topic-1", ch, "viewer@office.example", () => "tok-C").GetAwaiter().GetResult() == 403, "a refusal comes back as its status for the window to word");
+            _topicStatus = 201; lock (_seen) _seen.Clear();
+            try { sync.FetchActiveAsync("aster-tower", "model-7", () => "tok-C", status: "all").GetAwaiter().GetResult(); } catch (JsonException) { /* the stub answers a topic, not a list */ }
+            lock (_seen) Ok(_seen[0].Path == "/bcf/3.0/projects/aster-tower/topics" && _seen[0].Method == "GET", "the window fetches every status (?status=all) and filters closed ones itself");
+        }
+        string cmd = File.ReadAllText(Path.Combine(Root(), "SentinelAddin", "Commands.BcfIssues.cs"));
+        Ok(cmd.Contains("window.SectionBoxRequested += topic => Apply(\"section-box the issue\", ua => { apply.RequestSectionBox(topic); apply.Execute(ua); });")
+           && cmd.Contains("BcfExporter.ExportSnapshot(doc, png);") && cmd.Contains("status: \"all\""),
+           "the section box goes through the event hub; the snapshot is Revit's own image export (no model write); every status is fetched");
     }
 
     /// <summary>The repository root: the first folder up from this check that holds SentinelAddin.</summary>

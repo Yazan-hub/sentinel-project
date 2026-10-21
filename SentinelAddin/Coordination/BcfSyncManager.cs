@@ -108,20 +108,33 @@ public sealed class BcfSyncManager : IDisposable
         }
     }
 
-    /// <summary>Pure network — safe on a background thread. Returns the open (non-closed) topics.
+    /// <summary>Pure network — safe on a background thread. Returns the open (non-closed) topics, or every topic when
+    /// <paramref name="status"/> is "all" (the window filters closed ones itself, like BCF Manager's "Closed issues" filter).
     /// <paramref name="bearer"/> is read per call, as for <see cref="CreateIssueAsync"/>.</summary>
     public async Task<IReadOnlyList<BcfTopic>> FetchActiveAsync(
-        string projectId, string modelId, Func<string>? bearer = null, CancellationToken ct = default)
+        string projectId, string modelId, Func<string>? bearer = null, CancellationToken ct = default, string? status = null)
     {
         // No status filter → the service returns everything except Closed.
         string url = $"{_base}/bcf/3.0/projects/{Uri.EscapeDataString(projectId)}/topics" +
-                     $"?model={Uri.EscapeDataString(modelId)}";
+                     $"?model={Uri.EscapeDataString(modelId)}" + (status is null ? "" : $"&status={Uri.EscapeDataString(status)}");
         using var msg = new HttpRequestMessage(HttpMethod.Get, url);
         Authorize(msg, bearer);
         using HttpResponseMessage resp = await _http.SendAsync(msg, ct).ConfigureAwait(false);
         resp.EnsureSuccessStatusCode();
         string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
-        return JsonSerializer.Deserialize<List<BcfTopic>>(body) ?? new List<BcfTopic>();
+        var list = JsonSerializer.Deserialize<List<BcfTopic>>(body) ?? new List<BcfTopic>();
+        for (int i = 0; i < list.Count; i++) list[i].Nr = i + 1; // the bridge lists in creation order
+        return list;
+    }
+
+    /// <summary>PUT the fields a quick edit changed (topic_status, priority, assigned_to, due_date — the bridge logs each one to
+    /// the topic's history under <paramref name="author"/>, and asks a lead for a governed close). Returns the HTTP status (0 = transport failure).</summary>
+    public async Task<int> UpdateAsync(string projectId, string topicGuid, IDictionary<string, object?> fields, string author, Func<string>? bearer = null, CancellationToken ct = default)
+    {
+        var body = new Dictionary<string, object?>(fields) { ["author"] = author };
+        return (await SendForBodyAsync(HttpMethod.Put,
+            $"{_base}/bcf/3.0/projects/{Uri.EscapeDataString(projectId)}/topics/{Uri.EscapeDataString(topicGuid)}",
+            body, bearer, ct).ConfigureAwait(false)).Status;
     }
 
     /// <summary>POST a comment on a topic. Returns the HTTP status (0 = transport failure) — the caller

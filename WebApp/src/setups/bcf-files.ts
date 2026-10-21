@@ -28,3 +28,19 @@ export function exportSummary(filename: string | string[], info: ExportInfo | nu
   const lost = info.lost_total ? ` Not carried by BCF ${info.version}: ${info.lost.slice(0, 3).join("; ")}${info.lost_total > 3 ? ` (and ${info.lost_total - 3} more)` : ""}.` : "";
   return { text: `Saved ${filename1} — ${info.topics} issue${info.topics === 1 ? "" : "s"} as BCF ${info.version}.${lost}`, bad: info.lost_total > 0 };
 }
+
+/** The statuses the quick edit offers — the Revit window's IssueList.Statuses. */
+export const STATUSES = ["Open", "In Progress", "Resolved", "Closed"];
+
+/** A quick edit's changed fields against the topic, in BCF names — only what differs is PUT, so the bridge's history logs only real
+ *  changes. `due` is the date input's yyyy-mm-dd ("" = no deadline → an explicit null). The Revit window's IssueList.Changes, mirrored. */
+export function topicChanges(t: { topic_status: string; priority?: string; assigned_to?: string; due_date?: string | null },
+  f: { status: string; priority: string; assignee: string; due: string }): Record<string, string | null> {
+  const out: Record<string, string | null> = {};
+  if (f.status !== t.topic_status) out.topic_status = f.status;
+  if (f.priority !== (t.priority || "")) out.priority = f.priority;
+  if (f.assignee.trim() !== (t.assigned_to || "")) out.assigned_to = f.assignee.trim();
+  const had = t.due_date ? new Date(t.due_date).toISOString().slice(0, 10) : "";
+  if (f.due !== had) out.due_date = f.due ? `${f.due}T00:00:00Z` : null;
+  return out;
+}

@@ -146,7 +146,8 @@ public static class BcfExporter
     }
 
     // ---------------- helpers ----------------
-    private static void ExportSnapshot(Document doc, string pngPath)
+    /// <summary>The active view as a PNG at <paramref name="pngPath"/> (the Issues window attaches one to a new issue too).</summary>
+    internal static void ExportSnapshot(Document doc, string pngPath)
     {
         var opts = new ImageExportOptions
         {

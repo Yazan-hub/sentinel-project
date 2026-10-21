@@ -9,7 +9,7 @@ import * as OBC from "@thatopen/components";
 import * as OBF from "@thatopen/components-front";
 import { getAppManager } from "../app";
 import { escapeHtml as esc, fmtDate } from "./escape-html";
-import { importSummary, exportSummary, type ImportReply, type ExportInfo } from "./bcf-files";
+import { importSummary, exportSummary, topicChanges, STATUSES, type ImportReply, type ExportInfo } from "./bcf-files";
 import { saveAs } from "./audit-pack";
 
 /**
@@ -31,7 +31,7 @@ interface Topic {
   creation_author?: string; creation_date?: string; labels?: string[];
   comments?: { author: string; comment: string }[];
   history?: { date: string; author: string; action: string }[];
-  viewpoints?: { components?: { selection?: { ifc_guid: string }[] } }[];
+  viewpoints?: { components?: { selection?: { ifc_guid: string }[] }; snapshot?: string | null }[];
   ids_ref?: string | null; ids_source?: string | null; superseded_by?: string;   // IDS-raised topics (F51)
 }
 
@@ -236,9 +236,47 @@ export function issuePanel(components: OBC.Components, opts: { bcfBaseUrl?: stri
     if (t.comments?.length) { h += `<div style="margin-top:.4rem;color:#9ca3af">Comments (${t.comments.length}):</div>`; for (const c of t.comments) h += `<div>• ${esc(c.author)}: ${esc(c.comment)}</div>`; }
     if (t.history?.length) { h += `<div style="margin-top:.4rem;color:#9ca3af">History (${t.history.length}):</div>`; for (const e of t.history) h += `<div style="font-size:11px">${fmtDate(e.date)} · ${esc(e.author)} — ${esc(e.action)}</div>`; }
     h += "</div>";
+    // The snapshot Revit (or a BCF file) attached: a data URL the bridge stores on the viewpoint.
+    const snap = t.viewpoints?.find((v) => v.snapshot)?.snapshot;
+    if (snap && /^data:image\//.test(snap)) h += `<img src="${snap.replace(/"/g, "")}" alt="snapshot" style="max-width:100%;max-height:180px;border:1px solid #2a2a30;border-radius:.3rem;margin-top:.4rem"/>`;
+    // Quick edit + quick comment, the same two the Revit window has (BCF Manager's pencil and "Quick comment"); the bridge keeps the
+    // roles (a viewer writes nothing, a lead closes a referee-raised issue) and logs each change to the history.
+    const due = t.due_date ? new Date(t.due_date).toISOString().slice(0, 10) : "";
+    h += `<div style="display:flex;flex-wrap:wrap;gap:.3rem;margin-top:.5rem;align-items:center">` +
+      `<select id="ip-estatus" style="${inp}">${optH(STATUSES.includes(t.topic_status) ? STATUSES : [t.topic_status, ...STATUSES], t.topic_status)}</select>` +
+      `<select id="ip-eprio" style="${inp}">${optH(["Low", "Normal", "High", "Critical"], t.priority || "Normal")}</select>` +
+      `<input id="ip-eassignee" placeholder="Assignee" value="${esc(t.assigned_to || "")}" style="${inp};width:9rem"/>` +
+      `<input id="ip-edue" type="date" value="${due}" style="${inp}"/>` +
+      `<button id="ip-esave" style="${btn};background:#2a2a30;color:#eee">Save changes</button></div>` +
+      `<div style="display:flex;gap:.3rem;margin-top:.4rem"><input id="ip-ctext" placeholder="Quick comment" style="${inp};flex:1"/>` +
+      `<button id="ip-csend" style="${btn};background:#6528d7;color:#fff">Send</button></div>`;
     el("ip-detail").innerHTML = h;
     (el("ip-back")).addEventListener("click", () => { setMode("list"); });
+    el("ip-esave").addEventListener("click", () => void saveEdit(t));
+    el("ip-csend").addEventListener("click", () => void sendComment(t));
     setMode("detail");
+  };
+
+  const topicUrl = (guid: string) => `${base}/bcf/3.0/projects/${encodeURIComponent(projectId())}/topics/${encodeURIComponent(guid)}`;
+  const saveEdit = async (t: Topic) => {
+    const changes = topicChanges(t, { status: val("ip-estatus"), priority: val("ip-eprio"), assignee: val("ip-eassignee"), due: val("ip-edue") });
+    if (!Object.keys(changes).length) { msg("Nothing changed."); return; }
+    const b = el("ip-esave") as HTMLButtonElement; b.disabled = true; msg("Saving…");
+    try {
+      await bwrite(topicUrl(t.guid), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(changes) });
+      msg("✅ Saved.", "#22c55e"); await fetchAll(); showDetail(t.guid);
+    } catch (e) { msg("❌ Not saved — " + ((e as Error)?.message ?? String(e)), "#ef4444"); }
+    finally { b.disabled = false; }
+  };
+  const sendComment = async (t: Topic) => {
+    const text = val("ip-ctext").trim();
+    if (!text) { msg("Type the comment first."); return; }
+    const b = el("ip-csend") as HTMLButtonElement; b.disabled = true; msg("Sending…");
+    try {
+      await bwrite(topicUrl(t.guid) + "/comments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ comment: text }) });
+      msg("✅ Comment posted.", "#22c55e"); await fetchAll(); showDetail(t.guid);
+    } catch (e) { msg("❌ Not posted — " + ((e as Error)?.message ?? String(e)), "#ef4444"); }
+    finally { b.disabled = false; }
   };
 
   let seq = 0; // a slower answer for the previous project or person never overwrites the current one

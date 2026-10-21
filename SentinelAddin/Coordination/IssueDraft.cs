@@ -21,6 +21,7 @@ public sealed class IssueDraft
     public List<string> IfcGuids = new();
     public PerspectiveCamera? Camera;
     public string CameraNote = "";
+    public string? Snapshot; // the active view as a PNG data URL (BCF Manager adds one by default); null when none
     public string Author = ""; // UserSession.Actor, set by CaptureIssue: a label only (see TopicBody)
 
     /// <summary>The web Issues panel's vocabularies, so an issue reads the same wherever it was raised.</summary>
@@ -60,6 +61,7 @@ public sealed class IssueDraft
     {
         perspective_camera = Camera,
         components = new { selection = IfcGuids.Distinct(StringComparer.Ordinal).Select(g => new { ifc_guid = g }).ToArray() },
+        snapshot = Snapshot,
     };
 }
 

@@ -15,6 +15,7 @@
   <ItemGroup>
     <Compile Include="..\..\SentinelAddin\Coordination\IssueDraft.cs" />
     <Compile Include="..\..\SentinelAddin\Coordination\BcfModels.cs" />
+    <Compile Include="..\..\SentinelAddin\Coordination\IssueList.cs" />
     <Compile Include="..\..\SentinelAddin\Coordination\BcfSyncManager.cs" />
   </ItemGroup>
 </Project>

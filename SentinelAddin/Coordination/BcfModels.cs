@@ -22,10 +22,21 @@ public sealed class BcfTopic
     [JsonPropertyName("description")] public string Description { get; set; } = "";
     [JsonPropertyName("creation_author")] public string Author { get; set; } = "";
     [JsonPropertyName("creation_date")] public string CreationDate { get; set; } = "";
+    [JsonPropertyName("modified_date")] public string ModifiedDate { get; set; } = "";
     [JsonPropertyName("labels")] public List<string> Labels { get; set; } = new();
     [JsonPropertyName("comments")] public List<BcfComment> Comments { get; set; } = new();
     [JsonPropertyName("history")] public List<BcfHistory> History { get; set; } = new();
     [JsonPropertyName("viewpoints")] public List<BcfViewpoint> Viewpoints { get; set; } = new();
+
+    /// <summary>Position in the project's list (creation order), for the Nr column; not a BCF field.</summary>
+    [JsonIgnore] public int Nr { get; set; }
+    /// <summary>The first viewpoint snapshot (a data URL the bridge stores), or null.</summary>
+    [JsonIgnore] public string? Snapshot => Viewpoints?.Find(v => !string.IsNullOrEmpty(v.Snapshot))?.Snapshot;
+    /// <summary>Linked elements across every viewpoint.</summary>
+    [JsonIgnore] public int LinkedCount { get { int n = 0; foreach (var vp in Viewpoints ?? new List<BcfViewpoint>()) n += vp.Components?.Selection?.Count ?? 0; return n; } }
+    [JsonIgnore] public string DueDay => Day(DueDate);
+    [JsonIgnore] public string ModifiedDay => Day(ModifiedDate.Length > 0 ? ModifiedDate : CreationDate);
+    internal static string Day(string? iso) => string.IsNullOrWhiteSpace(iso) ? "" : DateTimeOffset.TryParse(iso, out var d) ? d.ToString("yyyy-MM-dd") : iso!;
 
     // Shown in the issue list; the details pane renders the rest.
     public override string ToString() => $"[{Status}] {Title}";
@@ -50,6 +61,7 @@ public sealed class BcfViewpoint
     [JsonPropertyName("guid")] public string Guid { get; set; } = "";
     [JsonPropertyName("perspective_camera")] public PerspectiveCamera? Camera { get; set; }
     [JsonPropertyName("components")] public BcfComponents? Components { get; set; }
+    [JsonPropertyName("snapshot")] public string? Snapshot { get; set; }
 }
 
 public sealed class BcfComponents

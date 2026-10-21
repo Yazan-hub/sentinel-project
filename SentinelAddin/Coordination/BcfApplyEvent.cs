@@ -10,7 +10,7 @@ namespace Sentinel.Coordination;
 // API-thread operations (ExternalEvent). Mirrors GhostBuilderPlacementEvent:
 // stage a request -> Raise() -> Revit calls Execute() on the API thread when idle.
 // ---------------------------------------------------------------------------
-public enum BcfOp { ApplyViewpoint, IsolateAll, IssuesForSelection }
+public enum BcfOp { ApplyViewpoint, IsolateAll, IssuesForSelection, SectionBox }
 
 public sealed class BcfApplyEvent : IExternalEventHandler
 {
@@ -32,6 +32,8 @@ public sealed class BcfApplyEvent : IExternalEventHandler
     public void RequestApply(BcfViewpoint vp) { _op = BcfOp.ApplyViewpoint; _viewpoint = vp; }
     public void RequestIsolateAll(IReadOnlyList<BcfTopic> topics) { _op = BcfOp.IsolateAll; _topics = topics; }
     public void RequestIssuesForSelection(IReadOnlyList<BcfTopic> topics) { _op = BcfOp.IssuesForSelection; _topics = topics; }
+    /// <summary>A section box around the issue's linked elements (BCF Manager's "Create section box for the selected elements").</summary>
+    public void RequestSectionBox(BcfTopic topic) { _op = BcfOp.SectionBox; _topics = new[] { topic }; }
 
     public void Execute(UIApplication app)
     {
@@ -39,6 +41,7 @@ public sealed class BcfApplyEvent : IExternalEventHandler
         {
             BcfOp.IsolateAll => "isolate the issue elements",
             BcfOp.IssuesForSelection => "match the selection to issues",
+            BcfOp.SectionBox => "section-box the issue",
             _ => "open the issue",
         };
         if (Sentinel.Engine.DocPin.Check(app, _doc, what) is { } refusal)
@@ -56,6 +59,7 @@ public sealed class BcfApplyEvent : IExternalEventHandler
                 case BcfOp.ApplyViewpoint: ApplyViewpoint(uidoc, doc); break;
                 case BcfOp.IsolateAll: IsolateAll(uidoc, doc); break;
                 case BcfOp.IssuesForSelection: IssuesForSelection(uidoc, doc); break;
+                case BcfOp.SectionBox: SectionBox(uidoc, doc); break;
             }
         }
         catch (Exception ex)
@@ -94,6 +98,7 @@ public sealed class BcfApplyEvent : IExternalEventHandler
                 view.DisableTemporaryViewMode(TemporaryViewMode.TemporaryHideIsolate);
                 view.IsolateElementsTemporary(ids);
             }
+            if (view.IsSectionBoxActive) view.IsSectionBoxActive = false; // an earlier issue's section box would cut this one away
             t.Commit();
             return true;
         });
@@ -124,6 +129,7 @@ public sealed class BcfApplyEvent : IExternalEventHandler
                 t.Start();
                 view.DisableTemporaryViewMode(TemporaryViewMode.TemporaryHideIsolate);
                 view.IsolateElementsTemporary(ids);
+                if (view.IsSectionBoxActive) view.IsSectionBoxActive = false;
                 t.Commit();
                 return true;
             });
@@ -136,6 +142,46 @@ public sealed class BcfApplyEvent : IExternalEventHandler
         Applied?.Invoke(ids.Count > 0
             ? $"Isolated {ids.Count} element(s) across {topics.Count} issue(s)."
             : "No issue elements found in this model.");
+    }
+
+    /// <summary>A section box around the topic's linked elements, 1 m of air around them, on the Sentinel Coordination view —
+    /// the temporary isolate is cleared so the surroundings show inside the box. One Undo entry; nothing but the view changes.</summary>
+    private void SectionBox(UIDocument uidoc, Document doc)
+    {
+        var topic = _topics?.Count > 0 ? _topics[0] : null;
+        if (topic is null) return;
+        IList<ElementId> ids = ResolveByIfcGuid(doc, new HashSet<string>(GuidsOf(topic), StringComparer.Ordinal));
+        if (ids.Count == 0) { Applied?.Invoke("No matching element in this model — no section box."); return; }
+        XYZ? min = null, max = null;
+        foreach (var id in ids)
+        {
+            var bb = doc.GetElement(id)?.get_BoundingBox(null);
+            if (bb is null) continue;
+            min = min is null ? bb.Min : new XYZ(Math.Min(min.X, bb.Min.X), Math.Min(min.Y, bb.Min.Y), Math.Min(min.Z, bb.Min.Z));
+            max = max is null ? bb.Max : new XYZ(Math.Max(max.X, bb.Max.X), Math.Max(max.Y, bb.Max.Y), Math.Max(max.Z, bb.Max.Z));
+        }
+        if (min is null || max is null) { Applied?.Invoke("The linked elements have no geometry to box."); return; }
+        const double margin = 1.0 * MetersToFeet;
+        var box = new BoundingBoxXYZ { Min = min - new XYZ(margin, margin, margin), Max = max + new XYZ(margin, margin, margin) };
+        View3D? view = null;
+        var kept = Sentinel.Engine.SentinelUndo.Run(doc, "section box around issue", () =>
+        {
+            view = GetOrCreateCoordinationView(doc);
+            if (view is null) return false;
+            using var t = new Transaction(doc, "Sentinel: section box around issue");
+            t.Start();
+            view.DisableTemporaryViewMode(TemporaryViewMode.TemporaryHideIsolate);
+            view.SetSectionBox(box);
+            view.IsSectionBoxActive = true;
+            t.Commit();
+            return true;
+        });
+        if (view is null) { Applied?.Invoke("No 3D view type in this model — no section box."); return; }
+        if (!kept || !view.IsValidObject) { Applied?.Invoke("Revit did not keep the section box — nothing changed."); return; }
+        uidoc.ActiveView = view;
+        uidoc.Selection.SetElementIds(ids);
+        uidoc.ShowElements(ids);
+        Applied?.Invoke($"Section box around {ids.Count} element(s) on '{view.Name}' (1 m margin). Undo removes it.");
     }
 
     private void IssuesForSelection(UIDocument uidoc, Document doc)

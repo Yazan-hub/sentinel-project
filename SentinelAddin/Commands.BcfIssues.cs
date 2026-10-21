@@ -64,6 +64,23 @@ public sealed class BcfIssuesCommand : IExternalCommand
             draft.CameraNote = v3.IsPerspective ? $"camera from '{v3.Name}'" : $"camera from '{v3.Name}' (isometric, sent as a 60° perspective)";
         }
         else draft.CameraNote = "no camera (the active view is not 3D)";
+        // The active view as the issue's snapshot (BCF Manager adds one by default). ExportImage renders the view to a file and
+        // changes nothing in the model; a view that cannot be rendered (a schedule) simply leaves the issue without one.
+        if (uidoc.ActiveView is { IsTemplate: false } view && view.ViewType is not (ViewType.Schedule or ViewType.PanelSchedule or ViewType.ColumnSchedule or ViewType.Report or ViewType.CostReport or ViewType.LoadsReport or ViewType.PresureLossReport or ViewType.Internal or ViewType.ProjectBrowser or ViewType.SystemBrowser))
+        {
+            var dir = Path.Combine(Path.GetTempPath(), "sentinel-issue-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                Directory.CreateDirectory(dir);
+                var png = Path.Combine(dir, "snapshot.png");
+                BcfExporter.ExportSnapshot(doc, png);
+                var bytes = File.Exists(png) ? File.ReadAllBytes(png) : null;
+                if (bytes is { Length: > 0 and <= 4 * 1024 * 1024 }) draft.Snapshot = "data:image/png;base64," + Convert.ToBase64String(bytes);
+            }
+            catch (Exception e) { draft.Snapshot = null; draft.CameraNote += $" (no snapshot: {e.Message})"; }
+            finally { try { Directory.Delete(dir, true); } catch { /* temp */ } }
+        }
+        if (draft.Snapshot != null) draft.CameraNote += " + snapshot";
         var what = string.Join(", ", cats.OrderByDescending(kv => kv.Value).Select(kv => $"{kv.Value} × {kv.Key}"));
         draft.Description = what.Length == 0 ? "" : $"Raised from Revit on {what} in '{doc.Title}'.";
         pointsAt = draft.IfcGuids.Count == 0
@@ -94,7 +111,7 @@ public sealed class BcfIssuesCommand : IExternalCommand
         catch (SessionException e) { TaskDialog.Show("Sentinel — BCF Issues", e.Message); return Result.Cancelled; }
         var sync = new BcfSyncManager(cfg.ServiceUrl, token);
 
-        var window = new BcfIssuesWindow();
+        var window = new BcfIssuesWindow(() => UserSession.Actor);
         new WindowInteropHelper(window) { Owner = uiapp.MainWindowHandle };
 
         // SEC-7: the window owns no ExternalEvent — each Revit action goes through the event hub (labelled, watched, said and
@@ -112,10 +129,12 @@ public sealed class BcfIssuesCommand : IExternalCommand
             if (vp is null) { window.SetStatus("This issue has no viewpoint."); return; }
             Apply("open the issue", ua => { apply.RequestApply(vp); apply.Execute(ua); });
         };
-        // Isolate every element linked to any open issue.
+        // A section box around the issue's elements (BCF Manager's "Create section box for the selected elements").
+        window.SectionBoxRequested += topic => Apply("section-box the issue", ua => { apply.RequestSectionBox(topic); apply.Execute(ua); });
+        // Isolate every element linked to any listed issue.
         window.IsolateAllRequested += () => Apply("isolate the issue elements", ua => { apply.RequestIsolateAll(window.Topics); apply.Execute(ua); });
         // Which issue(s) is the current Revit selection linked to?
-        window.IssuesForSelectionRequested += () => Apply("match the selection to issues", ua => { apply.RequestIssuesForSelection(window.Topics); apply.Execute(ua); });
+        window.IssuesForSelectionRequested += () => Apply("match the selection to issues", ua => { apply.RequestIssuesForSelection(window.AllTopics); apply.Execute(ua); });
 
         apply.Applied += summary => window.SetStatus(summary);
         apply.SelectionMatched += (matched, msg) => { window.HighlightTopics(matched); window.SetStatus(msg); };
@@ -127,11 +146,12 @@ public sealed class BcfIssuesCommand : IExternalCommand
             try
             {
                 // The bearer is read per fetch, off Revit's thread (a refresh may block): a sign-in or out since the window opened counts.
-                var topics = await Task.Run(() => sync.FetchActiveAsync(bcfKey, cfg.ModelId, () => BcfConfig.Load().ServiceToken)).ConfigureAwait(false);
+                // Every status: the window's own filter shows closed issues on request (BCF Manager's "Closed issues").
+                var topics = await Task.Run(() => sync.FetchActiveAsync(bcfKey, cfg.ModelId, () => BcfConfig.Load().ServiceToken, status: "all")).ConfigureAwait(false);
                 window.SetTopics(topics);
                 window.SetStatus(topics.Count == 0
-                    ? "No open issues. (Raise one from the web viewer.)"
-                    : $"{topics.Count} open issue(s). Double-click to zoom in Revit.");
+                    ? "No issues yet. Raise one from your Revit selection or from the web viewer."
+                    : $"{window.CountLine}. Double-click to zoom in Revit.");
             }
             catch (SessionException ex) { window.SetStatus(ex.Message); }
             catch (Exception ex)
@@ -140,6 +160,42 @@ public sealed class BcfIssuesCommand : IExternalCommand
             }
         }
         window.RefreshRequested += Refresh;
+
+        // Quick comment and quick edit: network only, under the signed-in person (the bridge stamps the verified identity and asks a
+        // lead for a governed close — HTTP 403 comes back in its words). The bearer is read before the send (SI-1).
+        static string Why(int status) => status switch { 0 => "the bridge did not answer", 401 => "signed out — Sentinel ▸ Sign in", 403 => "refused (a lead closes a referee-raised issue; a viewer writes nothing)", _ => $"HTTP {status}" };
+        window.CommentRequested += (topic, text) =>
+        {
+            window.SetStatus("Sending the comment…");
+            Task.Run(async () =>
+            {
+                try
+                {
+                    var bearer = BcfConfig.Load().ServiceToken;
+                    var s = await sync.AddCommentAsync(bcfKey, topic.Guid, text, UserSession.Actor, () => bearer).ConfigureAwait(false);
+                    if (s >= 200 && s < 300) { window.CommentSent(); window.SetOutcome($"Comment posted on #{topic.Nr} ‘{topic.Title}’."); }
+                    else window.SetOutcome($"Comment not posted — {Why(s)}.");
+                }
+                catch (Exception e) { window.SetOutcome($"Comment not posted — {e.Message}."); }
+                try { window.ActionDone(); window.Dispatcher.BeginInvoke(new Action(Refresh)); } catch { /* window closed */ }
+            });
+        };
+        window.EditRequested += (topic, changes) =>
+        {
+            window.SetStatus("Saving…");
+            Task.Run(async () =>
+            {
+                try
+                {
+                    var bearer = BcfConfig.Load().ServiceToken;
+                    var s = await sync.UpdateAsync(bcfKey, topic.Guid, changes, UserSession.Actor, () => bearer).ConfigureAwait(false);
+                    var what = string.Join(", ", changes.Select(kv => $"{kv.Key.Replace("topic_", "").Replace('_', ' ')} → {kv.Value ?? "—"}"));
+                    window.SetOutcome(s >= 200 && s < 300 ? $"Saved on #{topic.Nr}: {what}." : $"Not saved ({what}) — {Why(s)}.");
+                }
+                catch (Exception e) { window.SetOutcome($"Not saved — {e.Message}."); }
+                try { window.ActionDone(); window.Dispatcher.BeginInvoke(new Action(Refresh)); } catch { /* window closed */ }
+            });
+        };
 
         // BCF files (work alongside ACC/BIMcollab): the person picks the file in Windows' own dialogs; the bridge reads and writes it.
         window.ImportRequested += () =>
