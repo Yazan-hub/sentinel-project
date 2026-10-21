@@ -455,7 +455,8 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
     const groups = currentGroups();
     const top = `<div style="display:flex;gap:.4rem;align-items:center;padding:.2rem .4rem .45rem;font-size:11px;color:#9ca3af">` +
       `<span style="flex:1">${groups.length ? `${groups.length} group(s) · ${groups.reduce((n, g) => n + g.hits.length, 0)} clash(es)` : ""}</span>` +
-      (["full", "pair"] as const).map((b) => `<button class="cl-by" data-b="${b}" style="${btn};padding:.15rem .4rem;font-size:11px;background:${groupBy === b ? "#22303a" : "#1f1f27"}" title="${b === "pair" ? "One group per element pair — levels and disciplines folded in" : "Groups by element pair, level and the discipline that gives way"}">${b === "pair" ? "Pair only" : "Pair · level · discipline"}</button>`).join("") +
+      ([["full", "Pair · level · discipline", "Groups by element pair, level and the discipline that gives way"], ["pair", "Pair only", "One group per element pair — levels and disciplines folded in"]] as const)
+        .map(([b, label, tip]) => `<button class="cl-by" data-b="${esc(b)}" style="${btn};padding:.15rem .4rem;font-size:11px;background:${groupBy === b ? "#22303a" : "#1f1f27"}" title="${esc(tip)}">${esc(label)}</button>`).join("") +
       `<button id="cl-imp" style="${btn};padding:.15rem .4rem;font-size:11px" title="Add open Clash Issues that came in as BCF (Navisworks, ACC) to these groups">＋ Imported BCF</button></div>`;
     if (!groups.length) { host.innerHTML = top + '<div style="color:#9ca3af;font-size:12px;padding:.6rem">No new clashes to group. Run clash (or add imported BCF clashes).</div>'; wireGroups([]); return; }
     const disciplines = [...new Set(groups.flatMap(disciplinesOf))].sort();
