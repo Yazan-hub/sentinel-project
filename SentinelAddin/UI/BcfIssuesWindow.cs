@@ -85,9 +85,9 @@ public sealed class BcfIssuesWindow : Window
         _fStatus.SelectedIndex = 0;
         _fType.Items.Add("All types"); foreach (var t in IssueDraft.Types) _fType.Items.Add(t); _fType.SelectedIndex = 0;
         _fPriority.Items.Add("All priorities"); foreach (var p in IssueDraft.Priorities) _fPriority.Items.Add(p); _fPriority.SelectedIndex = 0;
-        _search.TextChanged += (_, __) => Render();
-        foreach (var c in new[] { _fStatus, _fType, _fPriority }) c.SelectionChanged += (_, __) => Render();
-        _fMine.Checked += (_, __) => Render(); _fMine.Unchecked += (_, __) => Render();
+        _search.TextChanged += (_, __) => Filtered();
+        foreach (var c in new[] { _fStatus, _fType, _fPriority }) c.SelectionChanged += (_, __) => Filtered();
+        _fMine.Checked += (_, __) => Filtered(); _fMine.Unchecked += (_, __) => Filtered();
         var filters = new WrapPanel { Margin = new Thickness(0, 0, 0, 4) };
         filters.Children.Add(new TextBlock { Text = "Search ", VerticalAlignment = VerticalAlignment.Center });
         filters.Children.Add(_search);
@@ -194,6 +194,9 @@ public sealed class BcfIssuesWindow : Window
     {
         if (_list.SelectedItem is BcfTopic t) TopicActivated?.Invoke(t);
     }
+
+    /// <summary>A filter or search change: re-list and say the new count (F-NIT-1: the line used to keep the old count).</summary>
+    private void Filtered() { Render(); if (_all.Count > 0) SetStatus(CountLine + ". Double-click to zoom in Revit."); }
 
     private void Render()
     {
