@@ -22,19 +22,26 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 22 # @supabase/*, camera-controls and unpdf require node >= 22
-      # The viewer runs on That Open's private beta engine (@thatopen-platform/*, since 2026-09-24): npm needs the
-      # founder's npm token, kept as the repository secret THATOPEN_NPM_TOKEN (never in the repo — WebApp/.npmrc is
-      # git-ignored). Without it the install is refused by name instead of a bare 404.
+      # The viewer runs on That Open's private beta engine (@thatopen-platform/*, since 2026-09-24). npm needs That Open's
+      # shared Founders npm token, which they rotate. CI asks That Open for the current one on every run, with the founder's
+      # That Open login (the repository secret THATOPEN_ACCESS_TOKEN, which does not expire), so a rotation needs nobody.
+      # THATOPEN_NPM_TOKEN (a fixed npm token) is the fallback while the login secret is not set. Never in the repo:
+      # WebApp/.npmrc is git-ignored and deleted after the install.
       - name: npm login for the private @thatopen-platform engine
         env:
+          THATOPEN_ACCESS_TOKEN: ${{ secrets.THATOPEN_ACCESS_TOKEN }}
           NPM_TOKEN: ${{ secrets.THATOPEN_NPM_TOKEN }}
         run: |
-          if [ -z "$NPM_TOKEN" ]; then
-            echo "::error::The repository secret THATOPEN_NPM_TOKEN is not set, so the private @thatopen-platform engine cannot be installed (Settings > Secrets and variables > Actions)."
+          if [ -n "$THATOPEN_ACCESS_TOKEN" ]; then
+            node scripts/refresh-beta-npmrc.mjs # writes .npmrc from That Open's reply; prints no token
+          elif [ -n "$NPM_TOKEN" ]; then
+            echo "::warning::THATOPEN_ACCESS_TOKEN is not set, so CI uses the fixed THATOPEN_NPM_TOKEN, which breaks when That Open rotates it."
+            echo '@thatopen-platform:registry=https://registry.npmjs.org/' > .npmrc
+            echo '//registry.npmjs.org/:_authToken=${NPM_TOKEN}' >> .npmrc # npm expands NPM_TOKEN itself; the value is never written or echoed
+          else
+            echo "::error::Neither THATOPEN_ACCESS_TOKEN nor THATOPEN_NPM_TOKEN is set, so the private @thatopen-platform engine cannot be installed (Settings > Secrets and variables > Actions)."
             exit 1
           fi
-          echo '@thatopen-platform:registry=https://registry.npmjs.org/' > .npmrc
-          echo '//registry.npmjs.org/:_authToken=${NPM_TOKEN}' >> .npmrc # npm expands NPM_TOKEN itself; the value is never written or echoed
       # SEC-5 (S33): no dependency's install script runs while the token is in the environment, and its .npmrc is gone before
       # anything else runs; the one build step the web app needs at install (the fragments worker) runs after, without it.
       - run: npm install --ignore-scripts

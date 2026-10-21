@@ -12,14 +12,18 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const login = [join(root, ".thatopen"), join(homedir(), ".thatopen", "config.json")]
-  .map((p) => { try { return JSON.parse(readFileSync(p, "utf8")); } catch { return null; } })
-  .find((c) => c?.accessToken);
+// CI passes the login as THATOPEN_ACCESS_TOKEN (a repository secret): it does not expire, so every CI run fetches That Open's
+// current npm token itself and their rotations need nobody (founder, 2026-10-21: "no extra tasks").
+const login = (process.env.THATOPEN_ACCESS_TOKEN ? { accessToken: process.env.THATOPEN_ACCESS_TOKEN } : null)
+  ?? [join(root, ".thatopen"), join(homedir(), ".thatopen", "config.json")]
+    .map((p) => { try { return JSON.parse(readFileSync(p, "utf8")); } catch { return null; } })
+    .find((c) => c?.accessToken);
 if (!login) throw new Error("No That Open login on this PC - run `npx thatopen login --token <token>` in WebApp first.");
 
 const apiUrl = (login.apiUrl || "https://platform.thatopen.com").replace(/\/$/, "");
 const res = await fetch(`${apiUrl}/api/npm-registry/credentials?${new URLSearchParams({ accessToken: login.accessToken })}`,
   { headers: { Accept: "application/json" } });
+if (res.status === 401) throw new Error("That Open refused the login (expired or revoked) - sign in again with `npx thatopen login` and update the THATOPEN_ACCESS_TOKEN secret.");
 if (res.status === 403) throw new Error("That Open refused: this account is not a Founding member, so it gets no beta token.");
 if (!res.ok) throw new Error(`That Open credentials request failed: HTTP ${res.status}`);
 const creds = await res.json();
