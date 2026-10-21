@@ -3824,6 +3824,31 @@ Stand-ins (CT-6's precedent): the drill changesets GUARD-A `dd1a73e2`, GUARD-B `
 
 Migration 0048 APPLIED ~21:15 on the founder's "apply 0048" (probe 7 of 7, rolled back clean); the 4100 bridge already reads projects.version (no restart). Not run live: the web rows (Project Settings 412 after 0048; the web standard form sends the same If-Match the Revit window did, unit-tested; Coordination ▸ Clash "Propose deleting the copies…" — the shared active project in Chrome was another session's); the over-200 batch reason (promote-check); a row near a protected element (none in this model's reach; promote-check covers the tier, ChangesetExecutor.Guarded is Revit-only). vitest 4256 passed (two load timeouts re-run green), promote-check 1392/1392, builds 2021/2024/2027.
 
+GUARD-W addendum (23:40–23:57, the web rows on the local app; the platform's local-app tab loading the :4000 build = web 1.0.109 from master dc4e6225; signed in as the founder in Chrome):
+- **The 4100 bridge was down** at 23:41: the ~20:05 bridge was gone and nothing listened on 4100 (only another session's 4101 test bridge ran). It was restarted on master dc4e6225 at ~23:44. The Funnel was not touched.
+- **The Funnel still refused TLS from this PC** after the founder's refresh and after the restart: curl exit 35, and Chrome showed an error page. `tailscale funnel status` says on, proxying to 127.0.0.1:4100.
+- **The local app is not loopback by itself.** The :4000 build has the Funnel address compiled in (`WebApp/.env` VITE_SENTINEL_SERVICE), so a test-only fetch rewrite in the local-app frame sent `https://4374ga…` to `http://localhost:4100`. The frame's origin `https://platform.thatopen.com` passes the bridge's origin gate, and Chrome did not block the call. The app code was unchanged.
+- **Colleague stand-ins via SQL.** The project update ran with the JWT claim `drill-colleague@ma4c.test` for its transaction, so 0048's trigger names that person. layers@2 was inserted as a doc plus pointer, its sha computed by the bridge's `canonicalSha256`; it has no ledger row.
+
+| Row | What happened | Result |
+|---|---|---|
+| W-1 stale Project Settings | Settings open on ma4c-drill at version 1; the colleague's Location change → version 2 (21:47 UTC); an Address typed, Save changes → `Save failed: the project's settings were changed by drill-colleague@ma4c.test at 2026-10-21 21:47 UTC — reload to see it; nothing was saved`; bridge `PATCH /cde/projects/ma4c-drill → 412`; the row still at version 2 with no address | **pass** |
+| W-2 reload | ↻ and the tabs do not re-read the form (it re-reads on a project switch or after its own save); a page reload (the project re-opened, since the rewrite goes in after the app's first read) → the colleague's Location shown; Address typed, Save → version 3 by the founder, the colleague's Location kept | **pass** |
+| W-3 stale standard form | Standards in force ▸ layers ▸ Edit… ("Starts from layers@1 · 51f606ea9ae3…"); the colleague's layers@2 lands; the name changed, Save as the project's standard → `Not saved — layers was changed by drill-colleague@ma4c.test at 2026-10-21 21:53 UTC — reload to see it; nothing was saved`; bridge `PUT /cde/ma4c-drill/artefacts/layers → 412`; no layers@3 | **pass** |
+| W-4 reload | Cancel, Edit… again → "Starts from layers@2 · 1f53411a81ef…" (the list row still said layers@1 until the panel re-read); the name set back, Save → layers@3 by the founder with layers@1's sha 51f606ea… — the form round-trips the body exactly | **pass** |
+
+Restored:
+- Address and Location were cleared through the form (version 4, empty strings where there were none).
+- layers@3 carries layers@1's content.
+- The shared active project is back on benchmark-hospital.
+
+Still owed:
+- The same rows on the published app through the Funnel, once it answers from outside (same build line, different transport).
+- Coordination ▸ Clash "Propose deleting the copies…" (needs a loaded model with duplicate groups).
+- UX notes:
+  - After a 412 nothing in the panel re-reads. The person reloads the page and retypes (by design, nothing merges blindly).
+  - The Standards list keeps the old version on its row until it re-reads.
+
 DTA addendum 2 (21:20–21:30, the founder's "do the fire ratings urself"): **Aster Tower published.**
 - **The value.** Aster is the fictional simulation kit; its README recipe seeds "40 doors whose type has no Fire Rating". The 42 unrated doors are one type, `AST_Door_Passage_Single_Flush : AST_EXT_1 PNL_MTL_914 x 2134 mm`. The project's own 22 Sep ⚡ Fix (issue bd320d2c, #643–645) gave these same doors **F30**, and the published v2 IFC carries F30 on them. The central lost it: that fix was made in an unsynced local. So F30 was restored, not invented.
 - **The fix.** A local of the ISO central, then BCF Issues ▸ open issue 04c3afb1 (DOOR FireRating, 4 failing) ▸ Fix in Revit. One type row: Fire Rating "" → F30, 4 on the issue + 38 others. Check: 1 would pass (#3222). Apply: "4/4 pass, the issue is now Resolved" (#3223 written, #3224).
