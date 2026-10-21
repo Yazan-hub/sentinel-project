@@ -3823,3 +3823,14 @@ Stand-ins (CT-6's precedent): the drill changesets GUARD-A `dd1a73e2`, GUARD-B `
 | V-2 reload | Reopened (protection@5 shown), the colleague's line removed, Save → `✓ Saved as protection@6`; Save again from the same window → `✓ Saved as protection@7` (no false 412); @6/@7 carry @4's sha 1ee0c6a2… — the drill project's policy is as before | **pass** |
 
 Migration 0048 APPLIED ~21:15 on the founder's "apply 0048" (probe 7 of 7, rolled back clean); the 4100 bridge already reads projects.version (no restart). Not run live: the web rows (Project Settings 412 after 0048; the web standard form sends the same If-Match the Revit window did, unit-tested; Coordination ▸ Clash "Propose deleting the copies…" — the shared active project in Chrome was another session's); the over-200 batch reason (promote-check); a row near a protected element (none in this model's reach; promote-check covers the tier, ChangesetExecutor.Guarded is Revit-only). vitest 4256 passed (two load timeouts re-run green), promote-check 1392/1392, builds 2021/2024/2027.
+
+DTA addendum 2 (21:20–21:30, the founder's "do the fire ratings urself"): **Aster Tower published.**
+- **The value.** Aster is the fictional simulation kit; its README recipe seeds "40 doors whose type has no Fire Rating". The 42 unrated doors are one type, `AST_Door_Passage_Single_Flush : AST_EXT_1 PNL_MTL_914 x 2134 mm`. The project's own 22 Sep ⚡ Fix (issue bd320d2c, #643–645) gave these same doors **F30**, and the published v2 IFC carries F30 on them. The central lost it: that fix was made in an unsynced local. So F30 was restored, not invented.
+- **The fix.** A local of the ISO central, then BCF Issues ▸ open issue 04c3afb1 (DOOR FireRating, 4 failing) ▸ Fix in Revit. One type row: Fire Rating "" → F30, 4 on the issue + 38 others. Check: 1 would pass (#3222). Apply: "4/4 pass, the issue is now Resolved" (#3223 written, #3224).
+- **The sync.** Synchronize with Central, with a comment naming the source. Central and local saved at 21:24:57.
+- **The publish.** Governed Publish → **ACCEPTED, published as v4 · wip**.
+  - ids@3: 364/364 in scope passed. naming@1 passed. Delivery gate PASS: contract@1, IFC2X3, ifc_export@2 (1 pset, 1 export-as row).
+  - Ledger: gate #3226, verdict #3227, set live #3228, uploaded #3229, version `ASTR26-AST-ZZ-XX-M3-A-0001.ifc` v4 #3230.
+  - The outbox linked the geometry (#3231) and ingested the snapshot (#3232). The That Open platform gate passed (#3233).
+- **Holding Area.** #3067 was superseded by v4 (no longer listed). The `AST_ASTR26_Aster Tower.ifc` naming holds (#3207, #3210) were dismissed with the reason (#3235). On hold now: 0.
+- Revit closed, elements relinquished. The issues stay Resolved; closing them is a person's call on the web.
