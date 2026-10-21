@@ -101,13 +101,15 @@ describe("reportResult — tick reasons, the batch reason, unreasoned rows and t
     expect(row.tick_reasons).toEqual({ [a]: "checked against the drawing" });
     expect(row.unreasoned).toEqual([b]);
   });
-  it("refuses a tick reason for a row the result does not apply, or one that is not one line — nothing is recorded", async () => {
+  it("keeps a tick reason for a ticked row Revit kept as it stands (review: never a refused result after Apply); refuses one for no ghost of the changeset, or not one line", async () => {
     const d = deps();
     const cs = await proposeChangeset("demo", { name: "A wall", source: "agent", elements: [wall()] }, "lead@x.test", d);
     const g = cs.elements[0].proposal_guid;
-    await expect(reportResult("demo", cs.id, { applied: [], rejected: [g], tick_reasons: { [g]: "x" } }, "lead@x.test", d)).rejects.toMatchObject({ status: 400 });
+    await expect(reportResult("demo", cs.id, { applied: [], rejected: [g], tick_reasons: { nope: "x" } }, "lead@x.test", d)).rejects.toMatchObject({ status: 400 });
     await expect(reportResult("demo", cs.id, { applied: [{ proposal_guid: g, revit_element_id: 1 }], rejected: [], batch_reason: "two\nlines" }, "lead@x.test", d)).rejects.toMatchObject({ status: 400 });
     expect(d.saved.get(cs.id).status).toBe("proposed");
+    const kept = await reportResult("demo", cs.id, { applied: [], rejected: [g], tick_reasons: { [g]: "checked" } }, "lead@x.test", d);
+    expect(kept.result.tick_reasons).toEqual({ [g]: "checked" });
   });
   it("an applied delete keeps what Revit read of the copy; the row names what was removed and what stays; the machine credential reports none", async () => {
     const d = deps({ register: [dup()] });

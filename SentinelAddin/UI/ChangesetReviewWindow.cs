@@ -443,13 +443,13 @@ public sealed class ChangesetReviewWindow : Window
         }
         // Human-error guards §1: a ticked row of "Needs a reason" goes only with that group's typed reason; over the limit, with the batch's.
         var tickReasons = new Dictionary<string, string>(StringComparer.Ordinal);
-        var risky = _rows.Where(r => r.Box.IsChecked == true && TierOf(r.El) == ChangesetTrust.Tier.Reason && r.El.ProposalGuid != null).ToList();
+        var risky = _rows.Where(r => r.Box.IsChecked == true && TierOf(r.El) == ChangesetTrust.Tier.Reason).ToList(); // review: a row with no guid still needs the reason
         if (risky.Count > 0)
         {
             var why = ChangesetTrust.DeclineReason(_tickWhy.Text, out var tickProblem);
             if (tickProblem != null) { Say($"The reason for the rows under \"{ChangesetTrust.ReasonGroup}\" was not taken — {tickProblem}. Nothing was sent."); return; }
             if (why == null) { Say(ChangesetTrust.TickReasonNeeded); return; }
-            foreach (var r in risky) tickReasons[r.El.ProposalGuid] = why;
+            foreach (var r in risky.Where(x => x.El.ProposalGuid != null)) tickReasons[r.El.ProposalGuid] = why;
         }
         if (ChangesetTrust.BatchRefusal(ticked.Count, _batchWhy.Text) is string over) { Say(over); return; }
         string batchReason = null;

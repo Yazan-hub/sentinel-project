@@ -1082,7 +1082,7 @@ export async function reportResult(key, id, { applied, rejected, note, review_re
     // MA-3b2: Revit's reason per declined ghost — validated before anything is written, stored beside the web's declines.
     const why = resultReasons(rejectedArr, reasons);
     // Human-error guards §1: the person's reason per ticked row of the "Needs a reason" tier, and the batch's — validated before anything is written.
-    const ticks = resultTickReasons(appliedArr.map((a) => a.proposal_guid), tick_reasons);
+    const ticks = resultTickReasons(cs.elements.map((e) => e.proposal_guid), tick_reasons);
     const batch = batchReasonOf(batch_reason);
     const status = deriveResultStatus(appliedArr.length, rejectedArr.length, cs.elements.length);
     const as_built = asBuiltOf(cs, appliedArr, role, judge); // MA-6-2

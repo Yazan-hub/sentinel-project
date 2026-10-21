@@ -1220,14 +1220,15 @@ export const GEOMETRY_CREATES = ["wall", "floor", "roof", "column", "beam", "sta
 export const riskyByOp = (el) => ["reshape", "rehost", "delete"].includes(el?.op) || !!el?.replaces || ((el?.op ?? "create") === "create" && GEOMETRY_CREATES.includes(el?.kind));
 
 /** A result's tick reasons — {proposal_guid: one line} for ticked rows of the "Needs a reason" tier — validated as a decline's reasons are: each
- *  names an applied ghost; null when none. */
-export function resultTickReasons(appliedGuids, tick) {
+ *  names a ghost of the changeset (review: a ticked row Revit kept as it stands or removed at commit keeps the reason the person typed — the
+ *  result is never refused for it after Revit changed the model); null when none. */
+export function resultTickReasons(knownGuids, tick) {
   if (tick == null) return null;
   if (typeof tick !== "object" || Array.isArray(tick)) throw err(400, "tick_reasons must be {proposal_guid: reason} — one line for each ghost applied with a reason");
-  const applied = new Set(appliedGuids);
+  const known = new Set(knownGuids);
   const out = Object.create(null);
   for (const [g, r] of Object.entries(tick)) {
-    if (!applied.has(g)) throw err(400, `tick_reasons names "${g}", which this result does not apply — a tick reason is for an applied ghost`);
+    if (!known.has(g)) throw err(400, `tick_reasons names "${g}", which this changeset does not hold — a tick reason is for one of its ghosts`);
     const why = reasonOf(r, false, "a tick");
     if (why != null) out[g] = why;
   }
