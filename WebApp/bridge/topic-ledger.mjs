@@ -33,10 +33,11 @@ export function topicLedgerEntry(before, after, { comment = null, via = null } =
 }
 
 const coverage = new Map(); // project id → the promise that its coverage row exists (looked for once per project per run)
-function ensureCoverage(cde, key, projectId, actor) {
+function ensureCoverage(cde, projectId, actor) {
   if (!coverage.has(projectId)) coverage.set(projectId, (async () => {
-    const had = await cde.listAudit(key, { entity_type: "bcf_topic", action_prefix: COVERAGE, limit: 1 });
-    if (!had.rows.length) await cde.audit(projectId, "bcf_topic", null, COVERAGE, actor, null, { note: COVERAGE_NOTE });
+    // Read with the service key: a caller whose row-level security hides the ledger must not make every restart write the marker again.
+    const had = await cde.sb(`audit_log?project_id=eq.${projectId}&entity_type=eq.bcf_topic&action=eq.${COVERAGE}&select=id&limit=1`, { service: true });
+    if (!had?.length) await cde.audit(projectId, "bcf_topic", null, COVERAGE, actor, null, { note: COVERAGE_NOTE });
   })().catch((e) => { coverage.delete(projectId); throw e; }));
   return coverage.get(projectId);
 }
@@ -50,7 +51,7 @@ export async function saveWithLedger(cde, { before, topic, lines = [], actor, co
   if (!entry) { await save(); return null; }
   cde.takeWriteBudget("issue changes", { perUser: 300, all: 1000 });
   const proj = await cde.ensureProject(topic.project_id);
-  await ensureCoverage(cde, topic.project_id, proj.id, actor);
+  await ensureCoverage(cde, proj.id, actor);
   const eid = cde.isUuid(topic.guid) ? topic.guid : null; // audit_log.entity_id is a uuid; a pre-0039 local guid rides in new_value
   const row = await cde.audit(proj.id, "bcf_topic", eid, entry.action, actor, entry.old_value, { ...entry.new_value, actor_verified: !!currentActor() });
   if (!row?.id) throw Object.assign(new Error("the ledger gave no row back — nothing was changed"), { status: 502 });

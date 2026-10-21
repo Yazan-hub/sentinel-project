@@ -45,7 +45,7 @@ describe("saveWithLedger", () => {
       takeWriteBudget: () => {},
       ensureProject: async (key) => ({ id: `id-${key}` }),
       isUuid: (v) => v === "6f1c0d2a-0000-4000-8000-000000000001",
-      listAudit: async () => ({ rows: coverage ? [{ id: 1 }] : [] }),
+      sb: async (path, { service }) => { calls.push(`read:${service ? "service" : "caller"}`); return coverage ? [{ id: 1 }] : []; },
       audit: async (project_id, entity_type, entity_id, action, actor, old_value, new_value) => {
         calls.push(`audit:${action}`);
         if (noRow && action !== COVERAGE) return null;
@@ -61,7 +61,7 @@ describe("saveWithLedger", () => {
     const cde = fakeCde(), lines = [{ action: "Status: Open → Closed" }];
     const id = await saveWithLedger(cde, { before: T, topic: topic("p1"), lines, actor: "a@x", save: async () => cde.calls.push("save") });
     await saveWithLedger(cde, { before: T, topic: topic("p1"), actor: "a@x", save: async () => cde.calls.push("save") });
-    expect(cde.calls).toEqual([`audit:${COVERAGE}`, "audit:issue_closed", "save", "audit:issue_closed", "save"]);
+    expect(cde.calls).toEqual(["read:service", `audit:${COVERAGE}`, "audit:issue_closed", "save", "audit:issue_closed", "save"]);
     expect(cde.rows[0]).toMatchObject({ project_id: "id-p1", entity_id: null, action: COVERAGE, new_value: { note: COVERAGE_NOTE } });
     expect(cde.rows[1]).toMatchObject({ entity_type: "bcf_topic", entity_id: "6f1c0d2a-0000-4000-8000-000000000001", new_value: { actor_verified: false } });
     expect([id, lines[0].ledger_id]).toEqual([2, 2]);
@@ -70,7 +70,7 @@ describe("saveWithLedger", () => {
   it("an existing coverage marker is not written again", async () => {
     const cde = fakeCde({ coverage: true });
     await saveWithLedger(cde, { before: T, topic: topic("p2"), actor: "a@x", save: async () => {} });
-    expect(cde.calls).toEqual(["audit:issue_closed"]);
+    expect(cde.calls).toEqual(["read:service", "audit:issue_closed"]);
   });
 
   it("no row back: a 502 and nothing saved", async () => {
