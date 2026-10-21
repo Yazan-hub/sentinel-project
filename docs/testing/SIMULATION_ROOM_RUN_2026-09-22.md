@@ -3851,8 +3851,19 @@ GUARD-P addendum (2026-10-22 00:57–00:59 local, the published app through the 
 
 Restored: Address and Location were cleared through the published form (version 7). The tab was closed.
 
+GUARD-D addendum (2026-10-22 ~01:14–01:20 local, the clash panel's "Propose deleting the copies…" on the local app through the Funnel; signed in as the founder; Claude drove).
+- **Why a new scratch project.** ma4c-drill's Federation Gate fails FG-01 (ARC and STR share 373 GlobalIds), and the panel locks raising until the gate passes. So a new project `guard-d-drill-delete-duplicate-scratch` was made ("+ New project", founder as owner) and attached to ma2e-office: a no-office project refuses uploads ("belongs to no office — uploads and cloud AI are for office projects").
+- **The model.** `GDD_ARC_ZZ_XX_M3_A_0001.ifc` = the Revit 2024 CV2 fixture (`WebApp/bridge/fixtures/ifc-geometry/revit2024-concept-cv2.ifc`) with wall #84 copied as #9001 (new GlobalId `0GuardDupDrillCopy0001`, same placement and shape, added to the L00 containment). The IFC4 build was held first ("Schema mismatch: contract requires IFC2X3"). The IFC2X3 file was accepted (`ids@1: 5/16 passed`, ledger #3258). It went in through Upload version; the file was handed to the panel's own input from a throwaway loopback server, because the picker inside the app frame is out of the browser tools' reach.
+- **Clash.** Open 3D → Run gate → `Federation Gate: PASS · 1 model(s)` (#3268) → Run clash (one model against itself, 23 clashes; #84 ↔ #9001 20.41 m³) → Groups: "Duplicate Wall × Wall · CN L00 · Architecture" with "Propose deleting the copies…". The native confirm was stubbed in the frame to record its words and accept: "Propose deleting 1 copy(ies) … Nothing is deleted now: each copy waits in Revit (Review AI Proposals) for a person to tick it with a reason…".
+
+| Row | What happened | Result |
+|---|---|---|
+| CD-1 propose | → `Proposed deleting 1 copy(ies) as "Clash duplicates · Wall × Wall · CN L00" — review it in Revit (Review AI Proposals): each needs a tick and a reason.`; the group left the list; ledger #3269 "Clash raised" in group `duplicate\|Wall × Wall\|CN L00\|Architecture` (the register's proof), #3270 proposal accepted, #3271 `changeset_proposed` (source clash, 1 element) | **pass** |
+| CD-2 the filing | Changeset `e7704f23`: source `clash`, actor the founder, status proposed, adjudication accepted; one element: op `delete`, kind `wall`, `pretick: false`, target `{ifc_guid: 0GuardDupDrillCopy0001, keeper_ifc_guid: 2VExwC6xrF6u4NaChOdioP}` (the copy = the higher id, #9001; the keeper = #84). Its tier: `ChangesetTrust.TierOf` → `RiskyByOp` (op delete) → "Needs a reason — tick each row by hand" (the tier the GUARD-B rows showed live in Revit) | **pass** |
+
+Left as it is: the proposal waits in the scratch project (no Revit model is bound to it); the frame's confirm was restored; the loopback server was stopped.
+
 Still owed:
-- Coordination ▸ Clash "Propose deleting the copies…" (needs a loaded model with duplicate groups).
 - UX notes:
   - After a 412 nothing in the panel re-reads. The person reloads the page and retypes (by design, nothing merges blindly).
   - The Standards list keeps the old version on its row until it re-reads.
