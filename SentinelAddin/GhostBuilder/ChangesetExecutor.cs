@@ -239,7 +239,8 @@ public sealed class ChangesetExecutor
     };
 
     /// <summary>Human-error guards §3 (review): what goes with an element when it is deleted and is part of it — its own sketch, its sketch plane and lines,
-    /// its analytical model, its family's shared nested parts. Anything else a delete would take (a hosted door, a dimension) is another element.</summary>
+    /// its analytical model, its family's shared nested parts, and (drill GUARD-B) Revit's own uncategorised bookkeeping for it (a wall's joins: every element a
+    /// person sees — a door, a dimension, a room, a tag — has a category). Anything else a delete would take is another element.</summary>
     internal static bool OwnPart(Document doc, Element owner, ElementId id)
     {
         if (owner is FamilyInstance fi && fi.GetSubComponentIds().Contains(id)) return true;
@@ -247,7 +248,7 @@ public sealed class ChangesetExecutor
         if (x == null) return false;
         if (x is Sketch || x is SketchPlane) return true;
         var cat = x.Category;
-        return cat != null && (cat.Id.IdValue() == (long)BuiltInCategory.OST_SketchLines || cat.CategoryType == CategoryType.AnalyticalModel);
+        return cat == null || cat.Id.IdValue() == (long)BuiltInCategory.OST_SketchLines || cat.CategoryType == CategoryType.AnalyticalModel;
     }
 
     /// <summary>Human-error guards §3: an element's writable instance values, as Revert writes them back on the copy it re-creates (at most 300).</summary>
@@ -1686,7 +1687,7 @@ public sealed class ChangesetExecutor
                     if (others.Count > 0)
                     {
                         Keep($"cannot be removed alone — removing it would also remove {others.Count} other element(s) (" +
-                             string.Join(", ", others.Take(3).Select(id => doc.GetElement(id)?.Category?.Name ?? "an element with no category")) + (others.Count > 3 ? ", …" : "") + ")");
+                             string.Join(", ", others.Take(3).Select(id => doc.GetElement(id)?.Category?.Name ?? doc.GetElement(id)?.GetType().Name ?? "an element")) + (others.Count > 3 ? ", …" : "") + ")");
                         continue;
                     }
                     var snapshot = new DeletedDto { KeeperUniqueId = keeper.UniqueId, Values = Writable(copy) };
