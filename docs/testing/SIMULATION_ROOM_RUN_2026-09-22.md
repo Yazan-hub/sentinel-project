@@ -3910,3 +3910,11 @@ Test bridge 127.0.0.1:4101 on the branch against the live database (daily timest
 
 Every machine-credential row says `actor_verified: false` and the label it sent ("Revit"; the BCF-API delete, which sends no author, "web"). A signed-in caller's verified identity outranks the body's claim (route test: a contributor's close with `author: "Someone else"` is recorded as contributor@example.test, `actor_verified: true`).
 Not covered (said): topics raised by Sentinel itself (the AI's raise_issue, a changeset rejection, IDS/Federation raises) get no `issue_opened` row — the IDS and Federation raises keep their own ledger rows; every later change to them is recorded.
+
+### Session ILG, part 2 — after the merge (2026-10-22 ~00:10; master 5f7a3bca; 4100 restarted on master by Claude at ~00:09, plain `node bridge/bcf-service.mjs`, Funnel not touched; add-in deployed 2021–2027 from master; the local app in Chrome (the platform's local-app tab, :4000 served from the main checkout) signed in as the founder, with the test-only fetch rewrite Funnel → http://localhost:4100 since the Funnel still refuses TLS from this PC)
+
+| Row | What happened | Result |
+|---|---|---|
+| W-1 history | ma4c-drill ▸ Coordination ▸ Issues ▸ "ILG drill: door D-12 fire rating": History (11) shows "· recorded in the ledger #3240" … "#3247" in green on every recorded line; the due-date line has none | **pass** |
+| W-2 signed-in close + comment | Status Closed, "ILG drill W-2: closed from the web, signed in" typed in the quick comment, Save changes → "✅ Saved — recorded in the ledger #3248."; ledger #3248 `issue_closed` actor yazanhijazeen32@hotmail.com, `actor_verified: true`, old {Resolved} new {Closed, the comment}; the comment is on the issue under the founder's name; both history lines carry #3248 | **pass** |
+| R-* Revit | The Revit 2024 desktop-access request was **denied** at ~00:11 → the Revit rows are owed: the Issues window's history lines with "· recorded in the ledger #N", and a quick edit with the comment box filled (the comment goes with Save changes; the box clears). The add-in builds for 2021–2027 (0 errors), and the window's PUT is the same route W-2 and D-2 drove | **owed** |
