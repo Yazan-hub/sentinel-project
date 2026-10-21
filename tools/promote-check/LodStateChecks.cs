@@ -16,7 +16,7 @@ static partial class Check
         var fx = JsonNode.Parse(File.ReadAllText(Repo("WebApp", "bridge", "fixtures", "lod-matrix", "ids-cases.json")));
         var ids = StageIds.FromIds(JsonDocument.Parse(fx["ids"].ToJsonString()).RootElement);
         Ok(ids.Specs.Select(s => s.Name).SequenceEqual(new[] { "Walls · DD", "Ceilings · DD", "Doors · DD" }) && ids.For("Walls").Entity == "IFCWALL"
-           && ids.For("Walls").Required.SequenceEqual(new[] { "Pset_WallCommon.FireRating", "Pset_WallCommon.IsExternal", "Pset_WallCommon.LoadBearing" }),
+           && ids.For("Walls").Required.SequenceEqual(new[] { "Pset_WallCommon.FireRating", "Pset_WallCommon.IsExternal", "Pset_WallCommon.AcousticRating" }),
            "the IDS reads as matrixToIds wrote it: one specification per class, its entity, its required properties");
         StageIds.Verdict V(string name)
         {
@@ -34,10 +34,10 @@ static partial class Check
             else Console.WriteLine($"        {(string)c["name"]}: C# [{string.Join(", ", v.Failed)}] in scope {v.InScope}");
         }
         Ok(fx["cases"].AsArray().Count == 8 && same == 8, $"every shared element ({same}/8): the same requirements fail as in validateElement, and the same elements are in scope");
-        Ok(V("wall rated").Missing.Count == 0 && V("wall rated").NotRead.SequenceEqual(new[] { "Pset_WallCommon.LoadBearing" })
+        Ok(V("wall rated").Missing.Count == 0 && V("wall rated").NotRead.SequenceEqual(new[] { "Pset_WallCommon.AcousticRating" })
            && V("wall unrated").Missing.SequenceEqual(new[] { "Pset_WallCommon.FireRating" }) && V("door unrated").Missing.SequenceEqual(new[] { "Pset_DoorCommon.FireRating" })
            && V("ceiling").NotRead.SequenceEqual(new[] { "Pset_CoveringCommon.AcousticRating" }),
-           "a property Revit reads and finds empty is MISSING; one Sentinel has no reader for (LoadBearing, a ceiling's AcousticRating) is NOT READ — never passed, never failed");
+           "a property Revit reads and finds empty is MISSING; one Sentinel has no reader for (a wall's or a ceiling's AcousticRating) is NOT READ — never passed, never failed");
         var reply = StageIds.FromReply("{\"matrix\":\"lod_matrix@1 · office · abababababab…\",\"ids\":" + fx["ids"].ToJsonString() + ",\"unmatched\":" + fx["unmatched"].ToJsonString() + "}", out var re);
         Ok(re == null && reply.Matrix == "lod_matrix@1 · office · abababababab…"
            && reply.Unmatched.SequenceEqual(new[] { "Floors: Combustible — no standard property set holds Combustible for IFCSLAB — name it as Pset_X.Combustible" })
@@ -62,7 +62,7 @@ static partial class Check
         Ok(StageIds.Tally(many).SequenceEqual(new[] { "Walls · DD: missing Pset_WallCommon.FireRating — 26 element(s)", "Doors · DD: missing Pset_DoorCommon.FireRating — 1 element(s)",
                                                        "Walls · DD: missing Pset_WallCommon.FireRating, Pset_WallCommon.IsExternal — 1 element(s)" }),
            "drill MA2b F-MA2b-2: the DD IDS dialog counts every failing element by specification and missing properties — the 27th is in a line as the first is");
-        Ok(StageIds.NotChecked(unrated.NotRead.Concat(V("wall rated").NotRead)) == "DD IDS: not checked for Pset_WallCommon.LoadBearing — Sentinel has no Revit reader for them, so they are neither passed nor failed"
+        Ok(StageIds.NotChecked(unrated.NotRead.Concat(V("wall rated").NotRead)) == "DD IDS: not checked for Pset_WallCommon.AcousticRating — Sentinel has no Revit reader for them, so they are neither passed nor failed"
            && StageIds.NotChecked(new string[0]) == null,
            "a property Revit cannot read is said beside the answer — never dropped, never passed");
         Ok(StageIds.NotJudged(new[] { "not in the DD IDS: Floors: Combustible — no standard property set holds Combustible for IFCSLAB — name it as Pset_X.Combustible",
@@ -73,8 +73,8 @@ static partial class Check
            "what the check did not judge — a property the IDS could not place, an element exported as another class — is said; \"every element passed\" is said only when nothing was left out");
         Ok(StageIds.Summary(3, new string[0], new string[0], new string[0], "lod_matrix@1") == "DD IDS: 3 element(s) judged, all passed (lod_matrix@1)"
            && StageIds.Summary(0, new string[0], new string[0], new string[0], "lod_matrix@1") == "DD IDS: nothing this changeset applied is asked anything by the DD IDS (lod_matrix@1)"
-           && StageIds.Summary(1, fails, new[] { "Pset_WallCommon.LoadBearing" }, new string[0], "lod_matrix@1")
-              == StageIds.PlacedAnyway(fails, "lod_matrix@1") + " " + StageIds.NotChecked(new[] { "Pset_WallCommon.LoadBearing" }),
+           && StageIds.Summary(1, fails, new[] { "Pset_WallCommon.AcousticRating" }, new string[0], "lod_matrix@1")
+              == StageIds.PlacedAnyway(fails, "lod_matrix@1") + " " + StageIds.NotChecked(new[] { "Pset_WallCommon.AcousticRating" }),
            "the check before commit says how many elements it judged — never that every element passed when it judged none (review)");
         // MA-6-2: every source's changeset is checked — the kinds no DD class asks anything of are counted on a line of their own.
         var levels = new[] { "level", "opening", "level", "room" };
@@ -134,10 +134,10 @@ static partial class Check
         Ok(r.LevelLines()[0].StartsWith("Level 1 · Walls: 1 at DD, 2 below, 2 blocked, 0 not measured (") && r.LevelLines()[0].EndsWith("; …)"),
            "per level and class: the counts and the two commonest reasons");
 
-        var twoProps = Ids("Pset_WallCommon.FireRating", "Pset_WallCommon.LoadBearing");
-        mx.Properties["Walls"] = new List<string> { "Pset_WallCommon.FireRating", "Pset_WallCommon.LoadBearing" };
+        var twoProps = Ids("Pset_WallCommon.FireRating", "Pset_WallCommon.AcousticRating");
+        mx.Properties["Walls"] = new List<string> { "Pset_WallCommon.FireRating", "Pset_WallCommon.AcousticRating" };
         var nr = LodState.Read(plans, mx, twoProps, null, Props(twoProps, rated, rated), null).Rows.Single();
-        Ok(nr.At == 0 && nr.NotMeasured == 2 && nr.Reasons.Any(kv => kv.Key == "no Revit reader for Pset_WallCommon.LoadBearing" && kv.Value == 2),
+        Ok(nr.At == 0 && nr.NotMeasured == 2 && nr.Reasons.Any(kv => kv.Key == "no Revit reader for Pset_WallCommon.AcousticRating" && kv.Value == 2),
            "a property Revit cannot read makes the wall NOT MEASURED, named — never at DD");
         var none = LodState.Read(plans, mx, null, "bridge unreachable (timed out after 4 s)", new Dictionary<string, StageIds.Verdict>(), null).Rows.Single();
         Ok(none.At == 0 && none.NotMeasured == 2 && none.Reasons.Any(kv => kv.Key == "the DD IDS was not read: bridge unreachable (timed out after 4 s)"),

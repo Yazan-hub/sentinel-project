@@ -13,7 +13,7 @@ const OUT = new URL("./fixtures/lod-matrix/ids-cases.json", import.meta.url);
 const MATRIX = {
   standard_key: "MA2B-LOD-001", semver: "0.1.0", status: "draft", stage_map: { CD: "coord" },
   rows: [
-    { category: "Walls", DD: { type: "guideline_rule", level: "story_level", top: "next_story_level", properties: ["Pset_WallCommon.FireRating", "IsExternal", "Pset_WallCommon.LoadBearing"] } },
+    { category: "Walls", DD: { type: "guideline_rule", level: "story_level", top: "next_story_level", properties: ["Pset_WallCommon.FireRating", "IsExternal", "Pset_WallCommon.AcousticRating"] } },
     { category: "Floors", DD: { type: "guideline_rule", level: "story_level", properties: ["Combustible"] } },
     { category: "Ceilings", DD: { type: "guideline_rule", level: "story_level", properties: ["AcousticRating"] } },
     { category: "Doors", DD: { type: "guideline_rule", level: "story_level", host: "wall", properties: ["Pset_DoorCommon.FireRating"] } },
@@ -42,7 +42,7 @@ describe("matrixToIds (MA-2b)", () => {
     expect(out.specifications[0].requirements).toEqual({ attributes: [], properties: [
       { pset: "Pset_WallCommon", name: "FireRating", cardinality: "required" },
       { pset: "Pset_WallCommon", name: "IsExternal", cardinality: "required" },
-      { pset: "Pset_WallCommon", name: "LoadBearing", cardinality: "required" }] });
+      { pset: "Pset_WallCommon", name: "AcousticRating", cardinality: "required" }] });
     expect(out.specifications[1].requirements.properties).toEqual([{ pset: "Pset_CoveringCommon", name: "AcousticRating", cardinality: "required" }]);
   });
   it("a bare name no standard pset holds for the class is said in unmatched, never dropped; Floors keep no specification", () => {
@@ -54,9 +54,9 @@ describe("matrixToIds (MA-2b)", () => {
     const ids = { title: out.title, enforce: out.enforce, specifications: out.specifications };
     const cases = ELEMENTS.map((e) => { const r = validateElement(ids, e); return { ...e, in_scope: r.inScope, failures: r.failures.map((f) => f.requirement) }; });
     expect(cases.map((c) => [c.name, c.failures])).toEqual([
-      ["wall rated", ["Pset_WallCommon.LoadBearing"]],
-      ["wall unrated", ["Pset_WallCommon.FireRating", "Pset_WallCommon.LoadBearing"]],
-      ["wall blank rating", ["Pset_WallCommon.FireRating", "Pset_WallCommon.LoadBearing"]],
+      ["wall rated", ["Pset_WallCommon.AcousticRating"]],
+      ["wall unrated", ["Pset_WallCommon.FireRating", "Pset_WallCommon.AcousticRating"]],
+      ["wall blank rating", ["Pset_WallCommon.FireRating", "Pset_WallCommon.AcousticRating"]],
       ["door rated", []], ["door unrated", ["Pset_DoorCommon.FireRating"]],
       ["ceiling", ["Pset_CoveringCommon.AcousticRating"]], ["window", []], ["column", []]]);
     const tmp = new URL("./fixtures/lod-matrix/ids-cases.json.tmp", import.meta.url);
