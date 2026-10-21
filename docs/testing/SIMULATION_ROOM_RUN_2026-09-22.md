@@ -3777,3 +3777,27 @@ Migration 0046_office_leave_guard (a project leaves its office only through that
 | G-6 two sessions, live | S1 took the chain lock and slept 6 s, S2 inserted "at the same time", then C: the database tool ran the two sessions **one after the other** (S1 committed 13:14:19, #3056; S2 13:14:27, #3057), so the race itself did not occur live. The three rows (project ledger-drill-2026-10-20, seq 7–9) form one line, 0 forks, tip #3058. The lock-wait path is proven by the PGlite replay and the probe, not by a live race | **pass (no race reproduced)** |
 
 The bridge's daily global timestamp now reads the kept tip (`audit_chain_tip`), falling back to the highest id without 0047; the 4100 bridge was not restarted for it (the change takes effect at its next restart — until then it stamps the highest id, which is also a real row). vitest on the rebased branch: 208 files, 4,229 passed, 2 skipped.
+
+## Session DTA — "do them all": BCF Manager, clash Pair only, Aster Tower publishable (2026-10-21 local; branch claude/silly-kirch-0f8a9e, merged 7c290323 and 5dc2e82f, pushed eb1b418a; the add-in deployed 2021–2027 at 19:33 and 19:50; the 4100 bridge restarted on master at 19:34 (the Funnel refresh is the founder's); Revit 2024 on the founder's Aster local `AST_ASTR26_Aster Tower_yazan.hKNTHU.rvt`, opened and closed three times, nothing saved; the review-safety session held off Revit until it was handed over; Claude driving on the founder's "do them all urself")
+
+| Row | What happened | Result |
+|---|---|---|
+| BCF-M1 BCF Manager | BIMcollab ▸ BCF Manager opens in **Offline** mode with no sign-in, so no BIMcollab account is needed (new). Open and its drop-down did nothing on automated clicks. Keyboard focus inside the panel was refused by the desktop tool ("focus anomaly"), and working around that is not allowed. Same result as BCF-RV | **not run — the founder's** (steps in the session notes) |
+| BCF-M2 fresh exports | aster-tower from the live 4100, BCF 2.1 and 3.0: 11 topics each. The 3.0 header lists the camera-less viewpoints it cannot carry. Files in `Documents\Sentinel drills\bcf\2026-10-21\` | **pass** (inputs for BCF-M1) |
+| CT-P Pair only | `groupHits(hits, "pair")`: one group per kind × pair, e.g. "Beam × Duct · 2 levels · Mechanical / Structure". The instruction names structure when any hit yields it. The full view is unchanged. Discipline owners are listed per discipline. The html-sinks guard passes. Live UI not driven | **pass (tests)**; live look owed |
+| AP-1 what the proxies are | the 26 Sep export: all 224 of 224 proxies are `Muntin Pattern_2x2`, now `AST_Muntin Pattern_2x2` (Revit category Generic Models). They are 457 × 435 × 44 mm muntin grids in the window glazing, 2 per window × 112 windows. Generic Models exports as IfcBuildingElementProxy | **found** |
+| AP-2 governed path | none existed: ifc_export held property sets only, and changeset set_parameter covers six host kinds. Built ifc_export `export_as` (7f55c0f8): Revit's own "Export Type to IFC As" (+ "Type IFC Predefined Type") is written inside the export's rolled-back transaction | built |
+| AP-3 install | Standards ▸ IFC Export Mapping ▸ Export as: `AST_Muntin Pattern_2x2` → IfcMember, MULLION, This project → "Saved as ifc_export@2 on aster-tower, recorded in the ledger" (P-1's COBie set kept) | **pass** |
+| AP-4 IFC Delivery Gate | export + certify: **contract PASS** (contract@1 · project, 28 544 entities, Pset_WallCommon 196/196), ledger #3204. The file: IfcBuildingElementProxy **0** (was 224), IfcMember 224 with IfcMemberType `.MULLION.`, the same GlobalIds (`2g7hEgAuvEG8Tt5lC2ABHp`). publish.log: "export_as (ifc_export@2): 1 type(s) set — AST_Muntin Pattern_2x2 : Muntin Pattern_2x2 → IfcMember.MULLION". Undo and Redo greyed after: the model was not changed | **pass** |
+| AP-5 Governed Publish 1 | REJECTED: the name `AST_ASTR26_Aster Tower.ifc` (1 field of naming@1's 7, B10/P-1), and the IDS 238 failing of 364. Delivery gate PASS #3205, verdict #3206, hold #3207. The 238 were `Pset_WallCommon.LoadBearing` "missing" while the IFC says FALSE on all 196 walls: Sentinel had no Revit reader (F-DTA-1) | **found** |
+| F-DTA-1 fix | PsetMap LoadBearing: a `LoadBearing` parameter, else the wall's Structural flag (`WALL_STRUCTURAL_SIGNIFICANT`), read as TRUE/FALSE (1bc99bbd). The tests' "no reader" example is now AcousticRating | fixed |
+| AP-6 Governed Publish 2 | REJECTED for the name only, plus real data. Gate PASS #3208, verdict #3209: 42 failing, 322 passing, 364 in scope — all `Pset_DoorCommon.FireRating`. The IFC agrees: 14 doors "60 MIN", 42 none. Hold #3210. No issue was auto-raised | **pass** (fix proven live); publish blocked |
+| COBie | `AST_COBie_SAMPLE` is absent from the export: the model's `AST_*` parameters are empty. v3's sample COBie was added by `scripts/cobie-sample.mjs` after its export | noted |
+
+Owed — the founder's:
+1. A central under the ISO name, e.g. Save As `ASTR26-AST-ZZ-XX-M3-A-0001.rvt` from the central. Governed Publish names the container from the central.
+2. Fire ratings for the 42 doors, from the fire strategy (ids@3 requires them; Sentinel does not invent values).
+3. BCF-M1 in BCF Manager.
+4. The Funnel refresh after the 4100 restart.
+
+Holds #3067, #3207 and #3210 stay until a publish passes.
