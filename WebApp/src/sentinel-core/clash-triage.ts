@@ -123,7 +123,7 @@ export function deleteProposal(g: TriageGroup): DeleteProposal {
   const copies = new Set<string>(), keepers = new Set<string>(), elements: DeleteElement[] = [];
   for (const hit of g.hits) {
     const hold = (why: string) => out.held.push({ hit, why });
-    if (hit.a.modelId !== hit.b.modelId) { hold("the two are in different models — remove the copy in its own model (raise the group as an Issue)"); continue; }
+    if (!hit.a.modelId || hit.a.modelId !== hit.b.modelId) { hold("the two are in different models — remove the copy in its own model (raise the group as an Issue)"); continue; }
     if (!hit.a.guid || !hit.b.guid) { hold("an element has no IFC GlobalId — Revit could not find it"); continue; }
     const [copy, keep] = (hit.a.localId ?? 0) > (hit.b.localId ?? 0) ? [hit.a, hit.b] : [hit.b, hit.a];
     const [kind, cls] = DELETE_KIND[plainCategory(copy.category, copy.name)] ?? [];

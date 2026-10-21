@@ -66,6 +66,16 @@ describe("a standard's install with If-Match", () => {
     expect((await putArtefact("p", "protection", policy({ worksets: ["X"] }), { actor: "b" }, d)).version).toBe(2);
   });
 
+  it("review: an install that lands between the check and the write is a 409 race, never a silent kind@n+2", async () => {
+    const d = deps();
+    const p1 = await putArtefact("p", "protection", policy(), { actor: "ana@x.test" }, d);
+    const get = d.docGet;
+    let reads = 0;
+    d.docGet = async (s, pid, id) => { if (id === "protection" && ++reads === 2) await putArtefact("p", "protection", policy({ worksets: ["B"] }), { actor: "ben@x.test" }, { ...d, docGet: get }); return get(s, pid, id); };
+    await expect(putArtefact("p", "protection", policy({ structural_hosts: false }), { actor: "ana@x.test", ifMatch: p1.sha256 }, d)).rejects.toMatchObject({ status: 409 });
+    expect(d.docs.has("artefact|uuid-p|protection@3")).toBe(false);
+  });
+
   it("the sha is the body's canonical sha — what the web form and Revit hold from their read", async () => {
     const d = deps();
     const body = policy();
@@ -91,7 +101,7 @@ describe("a project's write with If-Match (0048)", () => {
         const want = u.searchParams.get("version");
         return json(!want || want === `eq.${current.version}` ? [{ ...current, ...JSON.parse(init.body), version: current.version + 1 }] : []);
       }
-      if (table === "projects" && u.searchParams.get("select") === "version,updated_by,updated_at") return json([current]);
+      if (table === "projects" && u.searchParams.has("id")) return json([current]); // the re-read after a write that changed nothing
       if (table === "projects") return json([project]);
       return json([]);
     });
@@ -116,11 +126,18 @@ describe("a project's write with If-Match (0048)", () => {
       .rejects.toMatchObject({ status: 412, message: "the project's details were changed by ben@x.test at 2026-10-21 14:05 UTC — reload to see it; nothing was saved" });
   });
 
-  it("an If-Match that is not a version is a 400 before any write; none sent writes unfiltered", async () => {
+  it("an If-Match that is not a version is a 400 before any write; none sent is filtered on the version the bridge read (review)", async () => {
     await expect(updateProject("p48", { address: "x" }, "web", { ifMatch: '"abc"' })).rejects.toMatchObject({ status: 400 });
     await updateProject("p48", { address: "x" }, "web");
     expect(patches).toHaveLength(1);
-    expect(patches[0]).not.toContain("version=");
+    expect(patches[0]).toContain("version=eq.3");
+  });
+
+  it("review: a write with no If-Match that loses the race is merged again onto the row read after it, never the old settings written back", async () => {
+    current = { ...project, version: 4, metadata: { settings: { owner: "Ben" } } };
+    const row = await updateProject("p48", { address: "1 Way" }, "web");
+    expect(patches.map((u) => new URL(u).searchParams.get("version"))).toEqual(["eq.3", "eq.4"]);
+    expect(row.metadata.settings).toEqual({ owner: "Ben", address: "1 Way" });
   });
 
   it("before 0048 is applied (no version on the row) the write goes as it did", async () => {

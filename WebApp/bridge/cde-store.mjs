@@ -185,24 +185,29 @@ export const mergeMetaForTest = mergeMeta;
 const toProjectShape = (row, gates = []) => ({ project_id: row.key, name: row.name, ...defaultMeta(), ...(row.metadata || {}), stage: stageOf(gates), gates: gatesOf(gates),
   version: row.version ?? null, updated_by: row.updated_by ?? null }); // 0048: what a form sends back as If-Match
 
-/** Human-error guards §2 (migration 0048): the project's row PATCHed on the version the client read (`ifMatch`, "12"), so a write that
- *  lands after another one changes nothing and is a 412 naming who and when (staleChange); no If-Match writes as before. → the row, or
- *  null when the database refused it (RLS: the caller's 403). ponytail: before 0048 is applied the row has no version — the write goes
- *  unchecked, as it did. */
-async function patchProject(proj, body, ifMatch, what) {
+/** Human-error guards §2 (migration 0048): the project's row PATCHed on the version it was read at, so a write that lands after another one
+ *  changes nothing. With the client's If-Match ("12") that is a 412 naming who and when (staleChange); with none (a panel's auto-save, a
+ *  script) the row is read again and `build` merges onto it once more (review: the bridge's own read-merge-write never writes old settings
+ *  back). `build(proj)` → the PATCH body. → the row, or null when the database refused it (RLS: the caller's 403). ponytail: before 0048 is
+ *  applied the row has no version — the write goes unchecked, as it did; a snapshot-only save keeps the version (0048), so a settings save
+ *  landing during one can still carry the snapshot it read — the panels recompute it. */
+async function patchProject(proj, build, ifMatch, what) {
   const { ifMatchValue, staleChange } = await import("./artefact-store.mjs");
   const raw = ifMatchValue(ifMatch);
   if (raw != null && !/^\d{1,15}$/.test(raw)) throw Object.assign(new Error(`If-Match must be the project's version as it was read (e.g. "12") — nothing was saved`), { status: 400 });
-  const want = raw != null && proj.version != null ? Number(raw) : null;
   const stale = (cur) => staleChange(what, cur.updated_by, cur.updated_at);
-  if (want != null && Number(proj.version) !== want) throw stale(proj);
-  const rows = await sb(`projects?id=eq.${proj.id}${want != null ? `&version=eq.${want}` : ""}`, { method: "PATCH", body, prefer: "return=representation" });
-  const row = Array.isArray(rows) ? rows[0] ?? null : null;
-  if (!row && want != null) {
-    const cur = (await sb(`projects?id=eq.${proj.id}&select=version,updated_by,updated_at`, { service: true }))?.[0];
-    if (cur && Number(cur.version) !== want) throw stale(cur);
+  if (raw != null && proj.version != null && Number(proj.version) !== Number(raw)) throw stale(proj);
+  for (let tries = 0; ; tries++) {
+    const at = proj.version != null ? Number(proj.version) : null;
+    const rows = await sb(`projects?id=eq.${proj.id}${at != null ? `&version=eq.${at}` : ""}`, { method: "PATCH", body: build(proj), prefer: "return=representation" });
+    const row = Array.isArray(rows) ? rows[0] ?? null : null;
+    if (row || at == null) return row;
+    const cur = (await sb(`projects?id=eq.${proj.id}&select=*`, { service: true }))?.[0];
+    if (!cur || Number(cur.version) === at) return null; // the version did not move: the database refused the write (the caller's 403)
+    if (raw != null) throw stale(cur);
+    if (tries >= 1) throw Object.assign(new Error(`${what} changed twice while this save was merged — send it again; nothing was saved`), { status: 409 });
+    proj = cur;
   }
-  return row;
 }
 
 /** A project's stage_gate rows, newest first: what runStageGate wrote (audit_log, entity_type stage_gate). */
@@ -265,10 +270,9 @@ export async function patchProjectMeta(key, patch = {}, { ifMatch } = {}) {
   // Refuse rather than silently drop: a stale client that still "installs" a pack this way must see it failed.
   if (patch.active_ruleset !== undefined) throw Object.assign(new Error("active_ruleset is retired — install the scan ruleset with PUT /cde/:key/artefacts/ruleset and the naming pack with PUT /cde/:key/artefacts/naming"), { status: 400 });
   const proj = await ensureProject(key);
-  const metadata = mergeMeta((proj.metadata && Object.keys(proj.metadata).length) ? proj.metadata : defaultMeta(), patch);
-  const body = { metadata };
-  if (patch.name !== undefined) body.name = patch.name;
-  const row = await patchProject(proj, body, ifMatch, "the project's details were");
+  mergeMeta((proj.metadata && Object.keys(proj.metadata).length) ? proj.metadata : defaultMeta(), patch); // a refusal (a snapshot that does not fit) before any write
+  const row = await patchProject(proj, (p) => ({ metadata: mergeMeta((p.metadata && Object.keys(p.metadata).length) ? p.metadata : defaultMeta(), patch),
+    ...(patch.name !== undefined ? { name: patch.name } : {}) }), ifMatch, "the project's details were");
   // Under a forwarded session the database's projects_update policy lets only a lead or owner write: a refused write
   // updates nothing and comes back with no row — say so, never read a missing row (it was a 500).
   if (!row) throw Object.assign(new Error("the project's details are changed by a lead or owner — nothing was saved"), { status: 403 });
@@ -447,12 +451,15 @@ export async function updateProject(key, patch = {}, actor, { ifMatch } = {}) {
   }
 
   const hasSettings = SETTINGS_FIELDS.some((f) => patch[f] !== undefined);
-  if (hasSettings) {
-    const meta = (proj.metadata && Object.keys(proj.metadata).length) ? proj.metadata : defaultMeta();
+  // The settings merged onto the row as read; patchProject merges again onto a row re-read after another write (review).
+  const withSettings = (p) => {
+    if (!hasSettings) return body;
+    const meta = (p.metadata && Object.keys(p.metadata).length) ? p.metadata : defaultMeta();
     const settings = { ...(meta.settings || {}) };
     for (const f of SETTINGS_FIELDS) if (patch[f] !== undefined) settings[f] = patch[f];
-    body.metadata = { ...meta, settings, updated_at: new Date().toISOString() };
-  }
+    return { ...body, metadata: { ...meta, settings, updated_at: new Date().toISOString() } };
+  };
+  if (hasSettings) body.metadata = withSettings(proj).metadata;
   if (!Object.keys(body).length) return proj;
   // D3 (H0), as in createProject. Only a change is asked about: re-sending the office a project already has is no
   // attach, and detaching (null) stays the project's own lead's write (projects_update).
@@ -466,7 +473,7 @@ export async function updateProject(key, patch = {}, actor, { ifMatch } = {}) {
 
   let row;
   try {
-    row = await patchProject(proj, body, ifMatch, "the project's settings were");
+    row = await patchProject(proj, withSettings, ifMatch, "the project's settings were");
   } catch (e) {
     // 0041's projects_one_live_platform_link: a link another live project took meanwhile — the same words as the read above.
     if (e?.body?.code === "23505" && /projects_one_live_platform_link/.test(String(e.body.message || ""))) throw linkHeld();

@@ -161,7 +161,9 @@ async function deleteRefusal(v, key, role, d) {
   const pairs = new Set();
   for (const r of register || []) {
     const els = Array.isArray(r?.elements) ? r.elements : [];
-    if (!String(r?.group ?? "").startsWith("duplicate|") || els.length !== 2 || !els[0]?.guid || !els[1]?.guid || els[0].model_id !== els[1].model_id) continue;
+    // review: a pair a person marked not a clash or resolved proves nothing; both sides name one model (an imported BCF hit names none)
+    if (!String(r?.group ?? "").startsWith("duplicate|") || ["not_a_clash", "resolved"].includes(r?.status) || els.length !== 2 || !els[0]?.guid || !els[1]?.guid
+        || !els[0].model_id || els[0].model_id !== els[1].model_id) continue;
     pairs.add(`${els[0].guid}|${els[1].guid}`); pairs.add(`${els[1].guid}|${els[0].guid}`);
   }
   const unproved = v.elements.filter((e) => !pairs.has(`${e.target.ifc_guid}|${e.target.keeper_ifc_guid}`));

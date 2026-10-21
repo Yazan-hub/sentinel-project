@@ -198,6 +198,11 @@ public sealed class ChangesetExecutor
         if (!copy.GetTypeId().Equals(keeper.GetTypeId()))
             return $"is \"{TypeLabel(doc.GetElement(copy.GetTypeId()) as ElementType)}\", the element kept \"{TypeLabel(doc.GetElement(keeper.GetTypeId()) as ElementType)}\" — not the same type";
         if (!copy.LevelId.Equals(keeper.LevelId)) return "is on another level than the element kept";
+        // review: an existing element demolished in a phase and its new replacement share type, line and box — they are two elements, not one twice
+        if (!copy.CreatedPhaseId.Equals(keeper.CreatedPhaseId) || !copy.DemolishedPhaseId.Equals(keeper.DemolishedPhaseId))
+            return "is created or demolished in another phase than the element kept — not the same element twice";
+        // review: a kept element in a design option would leave the main model without either
+        if (keeper.DesignOption != null) return "the element kept is in a design option — removing the copy would leave the main model without it";
         if (copy.Location is LocationCurve ca && keeper.Location is LocationCurve kb)
         {
             XYZ a0 = ca.Curve.GetEndPoint(0), a1 = ca.Curve.GetEndPoint(1), b0 = kb.Curve.GetEndPoint(0), b1 = kb.Curve.GetEndPoint(1);
@@ -221,6 +226,28 @@ public sealed class ChangesetExecutor
                 return $"is not the same {(bip == BuiltInParameter.HOST_AREA_COMPUTED ? "area" : "volume")} as the element kept";
         }
         return null;
+    }
+
+    /// <summary>Human-error guards §3 (review): the categories a delete's kind may remove — the IFC class clash triage saw (an IfcColumn is an architectural
+    /// or a structural column). A copy of any other category is never deleted, whatever its row says.</summary>
+    internal static readonly IReadOnlyDictionary<string, BuiltInCategory[]> DeleteCategories = new Dictionary<string, BuiltInCategory[]>(StringComparer.Ordinal)
+    {
+        ["wall"] = new[] { BuiltInCategory.OST_Walls }, ["floor"] = new[] { BuiltInCategory.OST_Floors }, ["roof"] = new[] { BuiltInCategory.OST_Roofs },
+        ["ceiling"] = new[] { BuiltInCategory.OST_Ceilings }, ["door"] = new[] { BuiltInCategory.OST_Doors }, ["window"] = new[] { BuiltInCategory.OST_Windows },
+        ["column"] = new[] { BuiltInCategory.OST_Columns, BuiltInCategory.OST_StructuralColumns }, ["beam"] = new[] { BuiltInCategory.OST_StructuralFraming },
+        ["furniture"] = new[] { BuiltInCategory.OST_Furniture },
+    };
+
+    /// <summary>Human-error guards §3 (review): what goes with an element when it is deleted and is part of it — its own sketch, its sketch plane and lines,
+    /// its analytical model, its family's shared nested parts. Anything else a delete would take (a hosted door, a dimension) is another element.</summary>
+    internal static bool OwnPart(Document doc, Element owner, ElementId id)
+    {
+        if (owner is FamilyInstance fi && fi.GetSubComponentIds().Contains(id)) return true;
+        var x = doc.GetElement(id);
+        if (x == null) return false;
+        if (x is Sketch || x is SketchPlane) return true;
+        var cat = x.Category;
+        return cat != null && (cat.Id.IdValue() == (long)BuiltInCategory.OST_SketchLines || cat.CategoryType == CategoryType.AnalyticalModel);
     }
 
     /// <summary>Human-error guards §3: an element's writable instance values, as Revert writes them back on the copy it re-creates (at most 300).</summary>
@@ -1646,13 +1673,16 @@ public sealed class ChangesetExecutor
                     if (copy == null || removed.Contains(copy.Id.IdValue())) { Keep($"(the copy {el.Target?.IfcGuid}) is not in this model"); continue; }
                     if (keeper == null || removed.Contains(keeper.Id.IdValue())) { Keep($"— the element it copies ({el.Target?.KeeperIfcGuid}) is not in this model, so nothing proves it a copy"); continue; }
                     if (copy.Id.Equals(keeper.Id)) { Keep("— the copy and the element kept are one element"); continue; }
+                    // review: the row's kind names what clash triage saw; a copy of any other category is never deleted, whatever the row says
+                    if (!DeleteCategories.TryGetValue(el.Kind ?? "", out var cats) || copy.Category == null || !cats.Any(c => copy.Category.Id.IdValue() == (long)c))
+                    { Keep($"is {copy.Category?.Name ?? "no category"} in this model, not a {el.Kind}"); continue; }
                     if (DuplicateWhyNot(doc, copy, keeper) is string notTwice) { Keep(notTwice); continue; }
                     if (HeldBy(doc, copy) is string held) { Keep(held); continue; }
                     if (ProtectionWhy(doc, copy, Protection ?? ProtectionRules.Default("not read")) is string prot) { Keep(prot + " — a protected element is never deleted"); continue; }
                     ICollection<ElementId> probe;
                     try { using (var st = new SubTransaction(doc)) { st.Start(); probe = doc.Delete(copy.Id); st.RollBack(); } }
                     catch (Exception ex) when (!(ex is PlacementRefused)) { Keep($"cannot be removed — Revit refused: {ex.Message}"); continue; }
-                    var others = probe.Where(id => !id.Equals(copy.Id) && !(doc.GetElement(id) is IndependentTag)).ToList();
+                    var others = probe.Where(id => !id.Equals(copy.Id) && !(doc.GetElement(id) is IndependentTag) && !OwnPart(doc, copy, id)).ToList(); // review: its sketch is its own
                     if (others.Count > 0)
                     {
                         Keep($"cannot be removed alone — removing it would also remove {others.Count} other element(s) (" +
@@ -1665,7 +1695,8 @@ public sealed class ChangesetExecutor
                     if (deleted.Count != probe.Count || deleted.Any(id => !probe.Contains(id)))
                         throw new PlacementRefused($"{at}: Revit's delete took {deleted.Count} element(s), its probe {probe.Count} — nothing was applied; untick it and Apply again");
                     removed.Add(eid.IdValue());
-                    result.Applied.Add(new AppliedEntry { ProposalGuid = el.ProposalGuid, RevitElementId = eid.IdValue(), RevitUniqueId = uid, RemovedTags = probe.Count - 1, Deleted = snapshot });
+                    result.Applied.Add(new AppliedEntry { ProposalGuid = el.ProposalGuid, RevitElementId = eid.IdValue(), RevitUniqueId = uid,
+                                                         RemovedTags = probe.Count(id => !id.Equals(eid) && doc.GetElement(id) is IndependentTag), Deleted = snapshot });
                 }
             }
 

@@ -128,12 +128,14 @@ public static class ChangesetReverter
         ICollection<ElementId> made;
         try { made = ElementTransformUtils.CopyElement(doc, keeper.Id, XYZ.Zero); }
         catch (Exception ex) { return $"Revit refused to copy the element it duplicated ({ex.Message}) — a person decides"; }
-        if (made.Count != 1)
+        // the copy Revit makes may bring its own sketch or nested parts (ChangesetExecutor.OwnPart): the one element of the kept element's type and category is the copy
+        var mains = made.Select(doc.GetElement).Where(x => x != null && x.GetTypeId().Equals(keeper.GetTypeId()) && x.Category?.Id.IdValue() == keeper.Category?.Id.IdValue()).ToList();
+        if (mains.Count != 1 || made.Any(id => !id.Equals(mains[0].Id) && !ChangesetExecutor.OwnPart(doc, mains[0], id)))
         {
             if (made.Count > 0) doc.Delete(made);
-            return $"copying the element it duplicated makes {made.Count} elements, not one — a person decides";
+            return $"copying the element it duplicated makes {made.Count} elements, not one with its own parts — a person decides";
         }
-        var e = doc.GetElement(made.First());
+        var e = mains[0];
         doc.Regenerate();
         if (ChangesetExecutor.DuplicateWhyNot(doc, e, keeper) is string notSame) { doc.Delete(e.Id); return $"the copy Revit made {notSame} — a person decides"; }
         foreach (var v in a.Deleted.Values ?? new List<ParamValueDto>())

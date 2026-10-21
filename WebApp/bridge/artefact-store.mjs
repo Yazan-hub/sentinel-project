@@ -530,6 +530,7 @@ export async function putArtefact(key, kind, body, { actor, source, ifMatch } = 
   // Human-error guards §2: If-Match is the sha of the artefact in force for `key` as the client read it, or "none" — another install
   // since (here or on its office) is a 412 naming who and when. None sent is written as before (scripts, the MCP server, older add-ins).
   const want = ifMatchValue(ifMatch);
+  let checked = null; // the project's own version the check passed on (0: none of its own)
   if (want != null) {
     const now = await resolveArtefact(key, kind, deps);
     if (want !== (now.sha256 ?? "none")) {
@@ -537,8 +538,11 @@ export async function putArtefact(key, kind, body, { actor, source, ifMatch } = 
       const doc = now.source === "project" ? await getArtefact(key, kind, deps) : await d.officeArtefact(await d.officeKeyOf(key), kind);
       throw staleChange(`${kind} was`, doc?.installed_by, doc?.installed_at);
     }
+    checked = now.source === "project" ? Number(String(now.ref).split("@")[1]) : 0;
   }
   const prev = await d.docGet(STORE, proj.id, kind);
+  // review: an install that landed between the check and this read is a race, never a silent kind@n+2 over it
+  if (checked != null && (prev?.version || 0) !== checked) throw err(409, RACE(kind));
   return installVersion(d, proj, kind, body, prev, { actor, source });
 }
 

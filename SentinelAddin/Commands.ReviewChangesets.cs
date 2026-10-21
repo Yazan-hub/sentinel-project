@@ -211,8 +211,9 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
         var gone = new List<UnreportedResults.Record>();
         foreach (var r in records)
         {
-            var found = r.Applied.Count(a => !string.IsNullOrEmpty(a.RevitUniqueId) && doc.GetElement(a.RevitUniqueId) is { } e
-                                             && ProvenanceStamp.Holds(ProvenanceStamp.Read(e), r.ChangesetId, a.ProposalGuid));
+            // human-error guards §3 (review): a delete's row is in the model when its copy is gone — it carries no stamp to find
+            var found = r.Applied.Count(a => !string.IsNullOrEmpty(a.RevitUniqueId) && (a.Deleted != null ? doc.GetElement(a.RevitUniqueId) == null
+                                             : doc.GetElement(a.RevitUniqueId) is { } e && ProvenanceStamp.Holds(ProvenanceStamp.Read(e), r.ChangesetId, a.ProposalGuid)));
             var (report, ask, words) = UnreportedResults.Verified(r, found);
             if (report) send.Add(r);
             // MA-3b2 review C16: none here, and this is not the file it was applied in (another local of the central, or a never-saved
