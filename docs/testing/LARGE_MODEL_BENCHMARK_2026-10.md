@@ -4,9 +4,9 @@
 for two of them side by side: 14 models, 126,364 elements, ~30 M triangles.** Each model opens in 0.5–2.4 s; the
 126k federation draws at 33 fps while orbiting (p95 46 ms) on a laptop's *integrated* graphics, with the same
 ~2,000 draw calls per frame as the single hospital; a hard clash over all 14 models takes ~17–20 s
-(was 31–36 s before the fix in §8). What we have **not** proven: a dedicated graphics card (set up and confirmed,
-not yet measured — §7), one single building above 100k elements (the 126k set is the same hospital twice — §9),
-and models streamed in parts (still blocked upstream).
+(was 31–36 s before the fix in §8). On a dedicated RTX 4060 the 63k hospital runs at 76 fps standing still and
+65 fps orbiting (§7). What we have **not** proven: the 126k set on the dedicated GPU (§7), one single building above
+100k elements (the 126k set is the same hospital twice — §9), and models streamed in parts (still blocked upstream).
 
 ## Test set
 
@@ -129,15 +129,32 @@ not in what is drawn; whether that is the integrated GPU or the CPU is what the 
 zooming. Measured in the founder's own Chrome while the test driver took screenshots between moves (same for both
 sets).
 
-### 7. A dedicated GPU: set up, not yet measured
+### 7. A dedicated GPU (RTX 4060 Laptop): 63k measured, 126k view owed
 
 Chrome picks the integrated GPU on this laptop, and changing that is a Windows graphics setting we do not touch.
 Instead, a **separate Chrome instance with its own temporary profile and the command-line switch
 `--force_high_performance_gpu`** renders on the RTX 4060: its chrome://gpu lists `GPU1 … NVIDIA GeForce RTX 4060
 Laptop GPU … *ACTIVE*` and `GL_RENDERER: ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 Laptop GPU … Direct3D11 …)`
-(`--use-angle=d3d11` was not needed). The run itself is still owed: the app opens inside That Open Platform, and a
-fresh profile needs one sign-in, which is the founder's to type. Until then, every viewer number here is the
-low-end-GPU case.
+(`--use-angle=d3d11` was not needed). The founder signed in once in that window; the run was driven over the
+DevTools protocol, same window size (1707 CSS px wide at 150 %), on mains power, Revit idle:
+
+| 63k (7 models) | Integrated (Intel UHD) | **RTX 4060** |
+|---|---:|---:|
+| Standing still | 41 fps · p95 29.2 ms (2026-10-19) | **76 fps · p50 12.5 ms · p95 20.7 ms** (2,295 draw calls, 1.97 M triangles) |
+| Orbiting | 47 fps · p95 41.6 ms (a few hand drags) | **65 fps · p95 29.1 ms** (continuous scripted orbit, a harder test) |
+| GPU load while standing still | — | 29 % (P0, 19 W) |
+| Hard clash, 126k (14 models) | 17–20 s | 15.6 s, the same 14,715 clashes |
+
+**On a dedicated GPU the hospital runs above 60 fps, about 1.8× the integrated GPU while drawing more.** The RTX was
+at 29 % load, so the frame is no longer limited by the graphics card. Not measured: the 126k set with both
+hospitals in view on the RTX. The viewer's camera stopped answering scripted zoom after the scripted orbit, and a
+close-up of one wall would not have been a fair 126k number. Loading in this fresh profile: 0.9–2.2 s per model,
+one cold outlier of 9.8 s (the first Architecture, the profile's first load).
+
+Two lessons for the next run. A minimized or hidden Chrome window draws almost nothing (6 frames in 5 s), so it gives
+false numbers: the window must stay on screen. The switches `--disable-backgrounding-occluded-windows
+--disable-renderer-backgrounding --disable-background-timer-throttling` keep a covered window drawing, but not a
+minimized one.
 
 ### 8. Clash at scale: found and fixed
 
@@ -197,7 +214,7 @@ Also: Open 3D now says how long a model took (download / open), and when the pla
    frame at both 63k and 126k (culling and level of detail), but the integrated GPU went from ~41–47 to ~33 fps.
    Usable; not 60. Not changed now: no engine setting was shown to be the cause, and coarser level of detail would
    cut what is drawn, which is already flat. The levers today are hiding disciplines not being reviewed (each model
-   has a Hide/Show toggle) and a dedicated GPU, whose run is set up but owed (§7).
+   has a Hide/Show toggle) and a dedicated GPU: on the RTX 4060 the 63k hospital runs at 65–76 fps (§7).
 3. **No streaming yet.** Every model is loaded whole. That Open's `fragments-beta` 3.5.9 already contains
    streamed models (`settings.streaming`, an importer "streamed mode"), but its components-world mount draws
    streamed models in the renderer's **WebGPU** mode only, and Sentinel runs WebGL — still blocked. Checked again
