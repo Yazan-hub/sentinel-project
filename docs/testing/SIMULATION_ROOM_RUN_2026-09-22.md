@@ -3848,6 +3848,18 @@ Audit: BIMcollab BCF Manager 7.1 (installed, `Languages\en.txt` + the KUBUS help
 | NIT-5 section box | "Section box around issue": a BoundingBoxXYZ around the linked elements + 1 m, `SetSectionBox` on the Sentinel Coordination view in one Undo entry; zoom/isolate clear a stale box; a group Revit did not keep is said | reviewed (opus, high): 8 findings, all fixed before the drill |
 | NIT-6 web | Coordination ▸ Issues detail: snapshot image, quick edit row, quick comment (`topicChanges` pure + 3 vitest cases) | vitest 4283 passed, 1 failed (pre-existing? see below) |
 | NIT-7 selection lookup | "Issues for my Revit selection" searches every fetched issue (closed and filtered ones too) and widens the filters to show a hit | code |
-| NIT-R Revit 2024 live | Scratch copy `Documents\Sentinel drills\issues-drill.rvt` (from guards-drill.rvt, bound to ma4c-drill) prepared; the add-in built and deployed to 2024 | **owed — the desktop access request for Revit 2024 was denied at 22:19** |
+| NIT-R Revit 2024 live | Scratch copy `DocumentsSentinel drillsissues-drill.rvt` (from guards-drill.rvt, bound to ma4c-drill); the add-in deployed to 2024; access granted on the founder's "Allow Revit, drill" (22:39) after two denials | run 22:45–22:50, rows below |
+| R-1 list | 9 issues of ma4c-drill in columns; status filter All / each status; Priority header sort (Normal → High → blanks last; Critical sorted after High once set); search "fire" → the one issue | **pass** (F-NIT-1: the count line kept "9 of 9" on a filter change — fixed: `Filtered()` says the new count) |
+| R-2 quick comment | Issue 3 (IDS walls FireRating) ▸ "Drill NIT: quick comment from Revit" ▸ Send → `Comment posted on #3 'IDS: Walls carry fire rating — …'`, the box cleared, list refreshed | **pass** |
+| R-3 quick edit | Assigned `mep@drill.test`, Priority Critical ▸ Save changes → `Saved on #3: priority → Critical, assigned to → mep@drill.test.`; the list re-sorted (Critical after High), the selection and details followed | **pass** |
+| R-4 zoom | Double-click issue 3 → `Isolated + selected 96 element(s).` on the Sentinel Coordination 3D view (96 of the 115 walls are in this copy) | **pass** |
+| R-5 new issue + snapshot | ＋ New issue on the 96 selected walls: the dialog says `96 × Walls · camera from 'Sentinel Coordination' (isometric, sent as a 60° perspective) + snapshot`; Create → `Issue created: 'Drill NIT: 96 walls with snapshot' · 96 element(s) linked · … + snapshot — on the web board now.`; listed as #10 within a second; its details show the snapshot image | **pass** |
+| R-6 section box | Issue 10 ▸ Section box around issue → `Section box around 96 element(s) on 'Sentinel Coordination' (1 m margin). Undo removes it.` | **pass** |
+| R-7 selection lookup | Issues for my Revit selection (the 96 walls) → `Selection is linked to 2 issue(s) (highlighted).` — #3 and #10 | **pass** |
+| R-8 isolate all | Isolate ALL listed issue elements → `Isolated 132 element(s) across 10 issue(s).` (the stale section box cleared first) | **pass** |
+| R-9 close | Revit closed with No to save: the scratch copy unchanged | **pass** |
+
+Driving: the Chrome Remote Desktop host overlay (`remoting_desktop`, "Unidentified app") blocks input for stretches of ~10–60 s while the founder is connected remotely; waiting and retrying works. Ribbon tabs: Tuuli, then one wheel tick per scroll action.
+Not run live: the web rows (Coordination ▸ Issues detail: snapshot, quick edit, quick comment) — `topicChanges` is unit-tested and the PUT/POST routes are the Revit window's.
 
 Not built (said to the founder): Paint markup, visible/hidden viewpoint modes, notify, offline mode, delete, milestones/areas/approval. The bridge did not change (no 4100 restart).
