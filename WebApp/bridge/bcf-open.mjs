@@ -9,6 +9,7 @@
 // bridge already accepts. The pure parts take plain values; answerOpen does the IO.
 import { Buffer } from "node:buffer";
 import { randomBytes } from "node:crypto";
+import { saveWithLedger } from "./topic-ledger.mjs";
 
 export const BCF_VERSIONS = { versions: [{ version_id: "3.0", detailed_version: "https://github.com/buildingSMART/BCF-API" }] };
 
@@ -298,7 +299,12 @@ export async function answerOpen(route, ctx) {
         if (method === "GET") return send(res, 200, bcfTopic(topic));
         // DELETE = the governed close: a governed topic (IDS:, Federation:) closes by a lead's hand only, as the PUT does; the ledger keeps it.
         if (ctx.governedEditNeedsLead(topic, { topic_status: "Closed" })) await ctx.requireMinRole(route.pid, "lead");
-        if (!ctx.isClosed(topic.topic_status)) { topic.history.push({ date: now(), author: actor(), action: `Status: ${topic.topic_status || "—"} → Closed (BCF delete)` }); topic.topic_status = "Closed"; topic.modified_date = now(); await saveTopic(topic); ctx.broadcast(route.pid, { type: "topic", action: "updated", guid: topic.guid, status: "Closed" }); }
+        if (!ctx.isClosed(topic.topic_status)) {
+          const before = { ...topic }, line = { date: now(), author: actor(), action: `Status: ${topic.topic_status || "—"} → Closed (BCF delete)` };
+          topic.history.push(line); topic.topic_status = "Closed"; topic.modified_date = now();
+          await saveWithLedger(cde, { before, topic, lines: [line], actor: line.author, via: "BCF-API delete", save: () => saveTopic(topic) });
+          ctx.broadcast(route.pid, { type: "topic", action: "updated", guid: topic.guid, status: "Closed" });
+        }
         return send(res, 200, { message: "closed, not erased — a Sentinel topic stays on the ledger", guid: topic.guid, topic_status: topic.topic_status });
       }
       if (route.kind === "comments") return send(res, 200, page((topic.comments ?? []).map((c) => bcfComment(c, topic)), url.searchParams));

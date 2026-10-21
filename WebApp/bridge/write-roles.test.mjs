@@ -414,8 +414,10 @@ describe("BCF topics (topics-1): a contributor's work; closing or renaming a gov
   it("a contributor's IDS raise is on the ledger by their identity (the row the web used to write through POST /cde/:key/audit)", async () => {
     const r = await call("POST", T, "contributor", { title: "IDS: Doors — FireRating (3 failing)", creation_author: "IDS", description: "IDS “Aster IDS” — 3 element(s) fail: Doors — FireRating." });
     expect(r.status).toBe(201);
-    expect(db.audit_log.map((a) => [a.entity_type, a.action, a.actor])).toEqual([["ids_validation", "Issue raised: Doors — FireRating", "contributor@example.test"]]);
-    expect(db.audit_log[0].new_value).toEqual({ spec: "Aster IDS", requirement: "Doors — FireRating", failing: 3, bcf_guid: r.body.guid });
+    // ...after the raise's own issue_opened row (issue sign-offs on the ledger, 2026-10-21)
+    const rows = db.audit_log.filter((a) => a.action !== "issue_ledger_coverage_started");
+    expect(rows.map((a) => [a.entity_type, a.action, a.actor])).toEqual([["bcf_topic", "issue_opened", "contributor@example.test"], ["ids_validation", "Issue raised: Doors — FireRating", "contributor@example.test"]]);
+    expect(rows[1].new_value).toEqual({ spec: "Aster IDS", requirement: "Doors — FireRating", failing: 3, bcf_guid: r.body.guid });
   });
 
   it("a title over 600 characters, or not text, is a 400 in well under a second on POST and PUT — no topic, no ledger row", async () => {
@@ -443,11 +445,12 @@ describe("BCF topics (topics-1): a contributor's work; closing or renaming a gov
   it("a user's IDS raises are budgeted as notes are: the 61st in a minute is a 429 and writes no topic and no ledger row", async () => {
     const raise = (i, description = "") => call("POST", T, "lead", { title: `IDS: Doors — P${i} (1 failing)`, description });
     expect((await raise(0, `IDS “${"x".repeat(10_000)}” — 1 element(s) fail`)).status).toBe(201);
-    expect(db.audit_log[0].new_value.spec).toBeNull(); // the spec is read from the description's first 600 characters only
+    expect(db.audit_log.find((a) => a.entity_type === "ids_validation").new_value.spec).toBeNull(); // the spec is read from the description's first 600 characters only
     for (let i = 1; i < 60; i++) expect((await raise(i)).status).toBe(201);
     expect(await raise(60)).toEqual({ status: 429, body: { message: "too many IDS raises in a minute — nothing was saved; try again shortly" } });
     expect(writes("bcf_topics")).toHaveLength(60);
-    expect(writes("audit_log")).toHaveLength(60);
+    expect(writes("audit_log").filter((c) => c.body.entity_type === "ids_validation")).toHaveLength(60);
+    expect(writes("audit_log").filter((c) => c.body.action === "issue_opened")).toHaveLength(60);
   }, 60_000);
 
   it("W-2 G5: a contributor renaming a plain topic INTO a governed title, or raising one already Closed or Resolved, is a 403; an Open raise and plain renames go through", async () => {
@@ -538,6 +541,76 @@ describe("the data feed (0044): a feed key over Basic, never the machine credent
     const id = db.feed_keys[0].id;
     expect((await call("DELETE", `/feed/keys/${id}`, "viewer")).status).toBe(200);
     expect(writes("feed_keys").at(-1)).toMatchObject({ method: "PATCH", service: false });
+  });
+});
+
+describe("issue sign-offs on the ledger (2026-10-21): a status, assignee or priority change is one bcf_topic row, by the verified identity", () => {
+  const G = "0c3afb10-0000-4000-8000-0000000004c3";
+  const T = "/bcf/3.0/projects/demo/topics";
+  const seedTopic = (over = {}) => {
+    const t = { guid: G, project_id: "demo", title: "Door D-12 fire rating", topic_type: "Issue", topic_status: "Open", priority: "Normal", assigned_to: "",
+      creation_author: "x", modified_date: "2026-10-01T00:00:00Z", comments: [], viewpoints: [], history: [], ...over };
+    db.bcf_topics.push({ guid: t.guid, project_id: "demo", topic_status: t.topic_status, model: "", data: t });
+  };
+  const rows = () => db.audit_log.filter((a) => a.entity_type === "bcf_topic" && a.action !== "issue_ledger_coverage_started");
+  const stored = () => db.bcf_topics.find((r) => r.guid === G).data;
+
+  it("a close with a comment is one row: issue_closed, old → new, the comment, the verified actor (not the body's claim); its history lines name the row", async () => {
+    seedTopic();
+    const r = await call("PUT", `${T}/${G}`, "contributor", { topic_status: "Closed", comment: "Fire rating set to FD30 on site", author: "Someone else" });
+    expect(r.status).toBe(200);
+    expect(rows()).toHaveLength(1);
+    const [row] = rows();
+    expect(row).toMatchObject({ project_id: PID, entity_id: G, action: "issue_closed", actor: "contributor@example.test", old_value: { topic_status: "Open" } });
+    expect(row.new_value).toEqual({ guid: G, title: "Door D-12 fire rating", topic_status: "Closed", comment: "Fire rating set to FD30 on site", via: null, actor_verified: true });
+    expect(stored().comments).toEqual([expect.objectContaining({ author: "contributor@example.test", comment: "Fire rating set to FD30 on site" })]);
+    expect(stored().history.map((h) => [h.action, h.ledger_id])).toEqual([["Status: Open → Closed", row.id], ["Comment added", row.id]]);
+    // the row is written before the topic is saved: a refused save would leave no topic change behind a row claiming one
+    expect(log.findIndex((c) => c.table === "audit_log" && c.method === "POST" && c.body.action === "issue_closed"))
+      .toBeLessThan(log.findIndex((c) => c.table === "bcf_topics" && c.method === "PATCH"));
+  });
+
+  it("reopen, assign, unassign and priority each name their action; a due date, title or comment alone writes no row", async () => {
+    seedTopic({ topic_status: "Resolved" });
+    for (const [body, action] of [[{ topic_status: "Open" }, "issue_reopened"], [{ topic_status: "In Progress" }, "issue_status_changed"], [{ assigned_to: "lead@example.test" }, "issue_assigned"],
+      [{ assigned_to: "" }, "issue_unassigned"], [{ priority: "High" }, "issue_priority_changed"], [{ topic_status: "Resolved", priority: "Low" }, "issue_resolved"]])
+      expect((await call("PUT", `${T}/${G}`, "contributor", body)).status).toBe(200);
+    for (const body of [{ due_date: "2026-11-01T00:00:00Z" }, { title: "Door D-12" }, { comment: "just a note" }, { topic_status: "Resolved" }])
+      expect((await call("PUT", `${T}/${G}`, "contributor", body)).status).toBe(200);
+    expect(rows().map((a) => a.action)).toEqual(["issue_reopened", "issue_status_changed", "issue_assigned", "issue_unassigned", "issue_priority_changed", "issue_resolved"]);
+    expect(rows().at(-1)).toMatchObject({ old_value: { topic_status: "In Progress", priority: "High" }, new_value: { topic_status: "Resolved", priority: "Low", comment: null } });
+    expect(stored().comments.map((c) => c.comment)).toEqual(["just a note"]); // kept as a comment, but no change → no ledger row
+  });
+
+  it("a comment over 5000 characters is a 400 and nothing changes; the machine credential keeps its label, marked not verified", async () => {
+    seedTopic();
+    expect(await call("PUT", `${T}/${G}`, "contributor", { topic_status: "Closed", comment: "x".repeat(5001) }))
+      .toEqual({ status: 400, body: { message: "a comment is text of at most 5000 characters — nothing changed" } });
+    expect(writes("bcf_topics")).toEqual([]);
+    expect(rows()).toEqual([]);
+    expect((await call("PUT", `${T}/${G}`, "machine", { topic_status: "Closed", author: "Revit" })).status).toBe(200);
+    expect(rows()[0]).toMatchObject({ action: "issue_closed", actor: "Revit", new_value: { actor_verified: false } });
+  });
+
+  it("a raise is issue_opened; the BCF-API delete is issue_closed; a file that closes the topic is issue_closed by the importer", async () => {
+    const raised = await call("POST", T, "contributor", { title: "Door clash", assigned_to: "lead@example.test" });
+    expect(rows()[0]).toMatchObject({ action: "issue_opened", entity_id: raised.body.guid, old_value: null, new_value: { topic_status: "Open", priority: "Normal", assigned_to: "lead@example.test" } });
+    expect(raised.body.history[0].ledger_id).toBe(rows()[0].id);
+    expect((await call("DELETE", `${T}/${raised.body.guid}`, "contributor")).status).toBe(200);
+    expect(rows()[1]).toMatchObject({ action: "issue_closed", new_value: { via: "BCF-API delete" } });
+    seedTopic();
+    const { writeBcfZip } = await import("./bcf-xml.mjs");
+    const { bytes } = writeBcfZip([{ ...stored(), topic_status: "Closed", modified_date: "2026-10-20T00:00:00Z" }], { version: "3.0", project: { project_id: "demo", name: "demo" } });
+    const r = await fetch(`http://127.0.0.1:${port}/bcf/3.0/projects/demo/import`, { method: "POST", headers: { Authorization: `Bearer ${jwtFor("contributor")}` }, body: Buffer.from(bytes) });
+    expect(await r.json()).toMatchObject({ updated: 1, skipped: [] });
+    expect(rows()[2]).toMatchObject({ entity_id: G, action: "issue_closed", actor: "contributor@example.test", old_value: { topic_status: "Open" }, new_value: { topic_status: "Closed", via: "BCF file import" } });
+    expect(stored().history.at(-1).ledger_id).toBe(rows()[2].id);
+  });
+
+  it("a bcf_topic row cannot be posted through the open audit route, not even by the machine credential", async () => {
+    expect(await call("POST", "/cde/demo/audit", "machine", { entity_type: "bcf_topic", action: "issue_closed" }))
+      .toEqual({ status: 400, body: { message: "bcf_topic rows are written by Sentinel, not through this route" } });
+    expect(writes("audit_log")).toEqual([]);
   });
 });
 

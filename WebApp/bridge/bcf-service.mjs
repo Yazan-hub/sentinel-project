@@ -24,6 +24,7 @@ import { verifyJwt, initJwks } from "./verify-jwt.mjs";
 import { corsOrigin } from "./cors-origin.mjs";
 import { isPublicRoute, parsePublicVerify, comparePublic, createLimiter, createKeyedLimiter, clientAddress, callerKey, readCapped } from "./public-verify.mjs";
 import { readBody, readRaw, holdUpload, SMALL_JSON, startRefusal, SERVER_LIMITS, uploadCap, fromThisPc } from "./request-limits.mjs";
+import * as TL from "./topic-ledger.mjs";
 
 // config/.env is NOT loaded into process.env by Node — merge it here (before any process.env
 // read below) so the documented activation procedure (set BCF_TOKEN in config/.env) actually
@@ -439,10 +440,11 @@ async function closeSupersededIdsTopics(cde, pid, actor) {
   const now = new Date().toISOString();
   for (const t of hits) {
     t.history = t.history || [];
-    t.history.push({ date: now, author: actor, action: `Status: ${t.topic_status || "—"} → Closed (superseded by ${t.superseded_by})` });
+    const before = { ...t }, line = { date: now, author: actor, action: `Status: ${t.topic_status || "—"} → Closed (superseded by ${t.superseded_by})` };
+    t.history.push(line);
     t.topic_status = "Closed";
     t.modified_date = now;
-    await cde.bcfSaveTopic(t);
+    await TL.saveWithLedger(cde, { before, topic: t, lines: [line], actor, via: `closed as superseded by ${t.superseded_by}`, save: () => cde.bcfSaveTopic(t) });
     broadcast(pid, { type: "topic", action: "updated", guid: t.guid, status: t.topic_status });
   }
   const closed = hits.map((t) => ({ guid: t.guid, superseded_by: t.superseded_by }));
@@ -2395,8 +2397,11 @@ async function handleRequest(req, res) {
             if (!r.changed) { out.unchanged++; continue; }
             // The governed-topic rules hold for a file as for the Issues panel: closing or renaming an IDS/Federation topic is a lead's.
             if (existing ? governedEditNeedsLead(existing, r.fieldChanges) : (isGovernedTitle(inc.title) && isClosed(inc.topic_status))) await requireMinRole(pid, "lead");
-            if (useCde) await (existing ? cde.bcfSaveTopic(r.topic) : cde.bcfCreateTopic(r.topic));
-            else if (existing) db.topics[db.topics.indexOf(existing)] = r.topic; else db.topics.push(r.topic); // the merged topic in its place: a cleared field stays cleared
+            // The importer is the actor on the ledger (the file says what another tool's people did; Sentinel records who brought it in).
+            await TL.saveWithLedger(cde, { before: existing ?? null, topic: r.topic, lines: [r.topic.history.at(-1)], actor, via: "BCF file import", save: async () => {
+              if (useCde) await (existing ? cde.bcfSaveTopic(r.topic) : cde.bcfCreateTopic(r.topic));
+              else if (existing) db.topics[db.topics.indexOf(existing)] = r.topic; else db.topics.push(r.topic); // the merged topic in its place: a cleared field stays cleared
+            } });
             out[existing ? "updated" : "created"]++;
             out.topics.push(inc.guid);
           } catch (e) {
@@ -2484,7 +2489,8 @@ async function handleRequest(req, res) {
       // 429 before the topic is written. The row stays bounded: the title is capped above, the spec read from the
       // description's first 600 characters.
       if (ids) cde.takeWriteBudget("IDS raises", { perUser: 60, all: 200 });
-      if (useCde) await cde.bcfCreateTopic(topic); else { db.topics.push(topic); persist(); }
+      await TL.saveWithLedger(cde, { before: null, topic, lines: [topic.history[0]], actor: topic.creation_author,
+        save: async () => { if (useCde) await cde.bcfCreateTopic(topic); else { db.topics.push(topic); persist(); } } });
       broadcast(pid, { type: "topic", action: "created", guid: topic.guid, title: topic.title });
       if (ids) {
         const spec = /^IDS “(.+?)”/.exec(String(topic.description || "").slice(0, 600))?.[1] ?? null;
@@ -2505,11 +2511,18 @@ async function handleRequest(req, res) {
       // — including one Sentinel built past 600 characters (a rejection note) — edits status/priority/etc. undisturbed.
       if (b?.title !== undefined && b.title !== topic.title) cde.checkTopicTitle(b.title);
       if (governedEditNeedsLead(topic, b)) await requireMinRole(pid, "lead");
+      // A comment may ride with the change (the quick edit's "Save changes" with the comment box filled): one act, so the ledger
+      // row that records the sign-off carries its words too.
+      const note = typeof b.comment === "string" ? b.comment.trim() : "";
+      if (note.length > TL.COMMENT_MAX) return send(res, 400, { message: `a comment is text of at most ${TL.COMMENT_MAX} characters — nothing changed` });
       const who = resolveActor(b.author, "web");
       const now = new Date().toISOString();
+      const before = { ...topic }, lines = [];
       for (const [k, label] of [["topic_status", "Status"], ["priority", "Priority"], ["assigned_to", "Assignee"], ["due_date", "Due date"], ["title", "Title"], ["description", "Description"]]) {
         if (b[k] !== undefined && b[k] !== topic[k]) {
-          topic.history.push({ date: now, author: who, action: `${label}: ${topic[k] || "—"} → ${b[k] || "—"}` });
+          const line = { date: now, author: who, action: `${label}: ${topic[k] || "—"} → ${b[k] || "—"}` };
+          topic.history.push(line);
+          if (["topic_status", "priority", "assigned_to"].includes(k)) lines.push(line); // the ledger row records these three
           topic[k] = b[k];
         }
       }
@@ -2517,8 +2530,14 @@ async function handleRequest(req, res) {
         topic.history.push({ date: now, author: who, action: `Resolved by version: ${b.resolved_by_version}` });
         topic.resolved_by_version = b.resolved_by_version;
       }
+      if (note) {
+        topic.comments.push({ guid: randomUUID(), date: now, author: who, comment: note, viewpoint_guid: null });
+        const line = { date: now, author: who, action: "Comment added" };
+        topic.history.push(line);
+        if (lines.length) lines.push(line);
+      }
       topic.modified_date = now;
-      await saveTopic();
+      await TL.saveWithLedger(cde, { before, topic, lines, actor: who, comment: lines.length ? note : null, save: saveTopic });
       broadcast(pid, { type: "topic", action: "updated", guid: topic.guid, status: topic.topic_status });
       return send(res, 200, topic);
     }

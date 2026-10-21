@@ -30,7 +30,7 @@ interface Topic {
   priority?: string; assigned_to?: string; due_date?: string; description?: string;
   creation_author?: string; creation_date?: string; labels?: string[];
   comments?: { author: string; comment: string }[];
-  history?: { date: string; author: string; action: string }[];
+  history?: { date: string; author: string; action: string; ledger_id?: number }[];   // ledger_id: the audit_log row that records it
   viewpoints?: { components?: { selection?: { ifc_guid: string }[] }; snapshot?: string | null }[];
   ids_ref?: string | null; ids_source?: string | null; superseded_by?: string;   // IDS-raised topics (F51)
 }
@@ -234,7 +234,7 @@ export function issuePanel(components: OBC.Components, opts: { bcfBaseUrl?: stri
     h += row("Author", `${t.creation_author || "—"}  ${fmtDate(t.creation_date)}`);
     if (t.description) h += `<div style="margin-top:.3rem"><span style="color:#9ca3af">Description:</span><br>${esc(t.description)}</div>`;
     if (t.comments?.length) { h += `<div style="margin-top:.4rem;color:#9ca3af">Comments (${t.comments.length}):</div>`; for (const c of t.comments) h += `<div>• ${esc(c.author)}: ${esc(c.comment)}</div>`; }
-    if (t.history?.length) { h += `<div style="margin-top:.4rem;color:#9ca3af">History (${t.history.length}):</div>`; for (const e of t.history) h += `<div style="font-size:11px">${fmtDate(e.date)} · ${esc(e.author)} — ${esc(e.action)}</div>`; }
+    if (t.history?.length) { h += `<div style="margin-top:.4rem;color:#9ca3af">History (${t.history.length}):</div>`; for (const e of t.history) h += `<div style="font-size:11px">${fmtDate(e.date)} · ${esc(e.author)} — ${esc(e.action)}${e.ledger_id ? ` <span style="color:#22c55e">· recorded in the ledger #${esc(String(e.ledger_id))}</span>` : ""}</div>`; }
     h += "</div>";
     // The snapshot Revit (or a BCF file) attached: a data URL the bridge stores on the viewpoint.
     const snap = t.viewpoints?.find((v) => v.snapshot)?.snapshot;
@@ -248,7 +248,7 @@ export function issuePanel(components: OBC.Components, opts: { bcfBaseUrl?: stri
       `<input id="ip-eassignee" placeholder="Assignee" value="${esc(t.assigned_to || "")}" style="${inp};width:9rem"/>` +
       `<input id="ip-edue" type="date" value="${esc(due)}" style="${inp}"/>` +
       `<button id="ip-esave" style="${btn};background:#2a2a30;color:#eee">Save changes</button></div>` +
-      `<div style="display:flex;gap:.3rem;margin-top:.4rem"><input id="ip-ctext" placeholder="Quick comment" style="${inp};flex:1"/>` +
+      `<div style="display:flex;gap:.3rem;margin-top:.4rem"><input id="ip-ctext" placeholder="Quick comment (Send, or it goes with Save changes)" style="${inp};flex:1"/>` +
       `<button id="ip-csend" style="${btn};background:#6528d7;color:#fff">Send</button></div>`;
     el("ip-detail").innerHTML = h;
     (el("ip-back")).addEventListener("click", () => { setMode("list"); });
@@ -261,10 +261,14 @@ export function issuePanel(components: OBC.Components, opts: { bcfBaseUrl?: stri
   const saveEdit = async (t: Topic) => {
     const changes = topicChanges(t, { status: val("ip-estatus"), priority: val("ip-eprio"), assignee: val("ip-eassignee"), due: val("ip-edue") });
     if (!Object.keys(changes).length) { msg("Nothing changed."); return; }
+    // A comment typed beside the edit goes with it: one act, and the ledger row that records a status, assignee or priority change carries it.
+    const note = val("ip-ctext").trim();
+    if (note) changes.comment = note;
     const b = el("ip-esave") as HTMLButtonElement; b.disabled = true; msg("Saving…");
     try {
-      await bwrite(topicUrl(t.guid), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(changes) });
-      msg("✅ Saved.", "#22c55e"); await fetchAll(); showDetail(t.guid);
+      const saved = await bwrite<Topic | null>(topicUrl(t.guid), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(changes) });
+      const n = saved?.history?.at(-1)?.ledger_id;
+      msg(n ? `✅ Saved — recorded in the ledger #${n}.` : "✅ Saved.", "#22c55e"); await fetchAll(); showDetail(t.guid);
     } catch (e) { msg("❌ Not saved — " + ((e as Error)?.message ?? String(e)), "#ef4444"); }
     finally { b.disabled = false; }
   };

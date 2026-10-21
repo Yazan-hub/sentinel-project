@@ -189,8 +189,11 @@ public sealed class BcfIssuesCommand : IExternalCommand
                 {
                     var bearer = BcfConfig.Load().ServiceToken;
                     var s = await sync.UpdateAsync(bcfKey, topic.Guid, changes, UserSession.Actor, () => bearer).ConfigureAwait(false);
-                    var what = string.Join(", ", changes.Select(kv => $"{kv.Key.Replace("topic_", "").Replace('_', ' ')} → {kv.Value ?? "—"}"));
-                    window.SetOutcome(s >= 200 && s < 300 ? $"Saved on #{topic.Nr}: {what}." : $"Not saved ({what}) — {Why(s)}.");
+                    var what = string.Join(", ", changes.Where(kv => kv.Key != "comment").Select(kv => $"{kv.Key.Replace("topic_", "").Replace('_', ' ')} → {kv.Value ?? "—"}"))
+                        + (changes.ContainsKey("comment") ? ", with the comment" : "");
+                    var ok = s >= 200 && s < 300;
+                    if (ok && changes.ContainsKey("comment")) window.CommentSent();
+                    window.SetOutcome(ok ? $"Saved on #{topic.Nr}: {what}." : $"Not saved ({what}) — {Why(s)}.");
                 }
                 catch (Exception e) { window.SetOutcome($"Not saved — {e.Message}."); }
                 try { window.ActionDone(); window.Dispatcher.BeginInvoke(new Action(Refresh)); } catch { /* window closed */ }

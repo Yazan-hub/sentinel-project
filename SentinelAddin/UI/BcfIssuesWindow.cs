@@ -143,7 +143,7 @@ public sealed class BcfIssuesWindow : Window
         _send.Click += (_, __) => SendComment();
         var commentRow = new DockPanel { Margin = new Thickness(0, 4, 0, 0) };
         DockPanel.SetDock(_send, Dock.Right); commentRow.Children.Add(_send); commentRow.Children.Add(_comment);
-        _comment.ToolTip = "A comment on the selected issue, under your name; everyone sees it on the web board too.";
+        _comment.ToolTip = "A comment on the selected issue, under your name; everyone sees it on the web board too. Send posts it alone; Save changes sends it with the edit, into the same ledger row.";
 
         // ── actions ──
         var act = new UniformGrid { Columns = 2, Margin = new Thickness(0, 4, 0, 0) };
@@ -292,7 +292,11 @@ public sealed class BcfIssuesWindow : Window
         {
             sb.AppendLine().Append("History (").Append(t.History.Count).AppendLine("):");
             foreach (var h in t.History)
-                sb.Append("  ").Append(BcfTopic.Day(h.Date)).Append("  ").Append(Or(h.Author)).Append(" — ").AppendLine(h.Action);
+            {
+                sb.Append("  ").Append(BcfTopic.Day(h.Date)).Append("  ").Append(Or(h.Author)).Append(" — ").Append(h.Action);
+                if (h.LedgerId is long n) sb.Append("  · recorded in the ledger #").Append(n);
+                sb.AppendLine();
+            }
         }
         _details.Text = sb.ToString();
     }
@@ -319,6 +323,9 @@ public sealed class BcfIssuesWindow : Window
         if (_list.SelectedItem is not BcfTopic t) return;
         var changes = IssueList.Changes(t, _eStatus.SelectedItem as string, _ePriority.SelectedItem as string, _eAssigned.Text, _eDue.SelectedDate);
         if (changes.Count == 0) { SetStatus("Nothing changed."); return; }
+        // A comment typed in the box goes with the edit: one act, and the ledger row that records the change carries it.
+        var note = _comment.Text.Trim();
+        if (note.Length > 0) changes["comment"] = note;
         _eSave.IsEnabled = false; // until ActionDone: a second click must not send twice
         EditRequested?.Invoke(t, changes);
     }

@@ -54,6 +54,8 @@ public sealed class BcfHistory
     [JsonPropertyName("date")] public string Date { get; set; } = "";
     [JsonPropertyName("author")] public string Author { get; set; } = "";
     [JsonPropertyName("action")] public string Action { get; set; } = "";
+    /// <summary>The ledger (audit_log) row that records this line — a status, assignee or priority change (2026-10-21); null before.</summary>
+    [JsonPropertyName("ledger_id")] public long? LedgerId { get; set; }
 }
 
 public sealed class BcfViewpoint
