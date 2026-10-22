@@ -127,7 +127,7 @@ export async function ensureProject(key) {
   // caller meets an absent "default" as any absent key.
   if (key !== "default" || currentUserToken()) throw projectNotFound(key);
   // "default" self-heals, with the service key (auth.uid() null: no owner). return=minimal, then re-fetch.
-  await sb(`projects`, { method: "POST", body: { key, name: key }, prefer: "return=minimal", service: true });
+  await sb(`projects`, { method: "POST", body: { key, name: key, metadata: defaultMeta() }, prefer: "return=minimal", service: true });
   const created = await sb(`projects?key=eq.${encodeURIComponent(key)}&select=*`, { service: true });
   return created[0];
 }
@@ -391,7 +391,7 @@ export async function createProject(b = {}) {
   try {
     await sb(`projects`, {
       method: "POST",
-      body: { key, name: (b.name || key).trim(), appointing_party: b.appointing_party || null, kind, office_key: officeKey },
+      body: { key, name: (b.name || key).trim(), appointing_party: b.appointing_party || null, kind, office_key: officeKey, metadata: defaultMeta() }, // F-SNW-1: seeded here so the first read never PATCHes (version bump)
       prefer: "return=minimal",
     });
   } catch (e) {

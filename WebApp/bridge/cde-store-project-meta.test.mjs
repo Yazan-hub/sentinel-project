@@ -11,7 +11,7 @@ vi.hoisted(() => {
 });
 
 import { runWithAuth } from "./bridge-auth.mjs";
-import { patchProjectMeta, updateProject, createProject } from "./cde-store.mjs";
+import { patchProjectMeta, updateProject, createProject, getProjectMeta } from "./cde-store.mjs";
 
 const P = "11111111-1111-4111-8111-111111111111";
 const jwt = "eyJhbGciOiJIUzI1NiJ9." + Buffer.from(JSON.stringify({ sub: "22222222-0000-4000-8000-00000000000b", email: "c@example.test", role: "authenticated" })).toString("base64url") + ".sig";
@@ -121,5 +121,27 @@ describe("updateProject — settings (PATCH /cde/projects/:key)", () => {
         .rejects.toMatchObject({ status: 400, message: "platform_project_id must be a platform project id (letters, digits, - or _) or null to unlink" });
     }
     expect(patchBodies).toEqual([]);
+  });
+});
+
+describe("createProject — F-SNW-1: metadata is seeded at insert, so the first read does not bump the version", () => {
+  it("inserts complete metadata, and the following getProjectMeta issues no PATCH", async () => {
+    let posted = null;
+    const patches = [];
+    globalThis.fetch = vi.fn(async (url, init = {}) => {
+      const table = new URL(String(url)).pathname.replace(/^\/rest\/v1\//, "");
+      const method = init.method || "GET";
+      const json = (b) => new Response(JSON.stringify(b), { status: 200, headers: { "content-range": "0-0/0" } });
+      if (table === "folders" && method === "POST") return json([{ id: "44444444-4444-4444-8444-444444444444" }]);
+      if (table === "projects" && method === "POST") { posted = JSON.parse(init.body); return json([]); }
+      if (table === "projects" && method === "PATCH") { patches.push(init.body); return json([]); }
+      if (table === "projects") return json(posted ? [{ id: P, key: "fresh", name: "fresh", kind: "project", metadata: posted.metadata, created_at: "2026-10-22T09:00:00+00:00" }] : []);
+      return json([]);
+    });
+    await runWithAuth(jwt, () => createProject({ name: "fresh" }));
+    expect(posted.metadata).toMatchObject({ standards_pack: "", dimensions: { "2d": true, "3d": true, "4d": false }, snapshot: {} });
+    expect(typeof posted.metadata.updated_at).toBe("string");
+    await runWithAuth(jwt, () => getProjectMeta("fresh"));
+    expect(patches).toEqual([]);
   });
 });
