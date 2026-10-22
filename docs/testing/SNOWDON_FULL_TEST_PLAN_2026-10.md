@@ -1,7 +1,7 @@
 # Snowdon Towers full test plan (2026-10-22)
 
 One pass over every Sentinel tool and workflow on a real multi-discipline project: Autodesk's Snowdon Towers sample
-(Revit 2025, seven models + 46 DWG sheets). Also the rehearsal for an outside office's first run.
+(Revit 2025, seven models + 41 DWG sheets). Also the rehearsal for an outside office's first run.
 
 **Inputs.** Originals stay untouched in `Desktop\Sentinel Test Folder\Snowdon Tower`. Scratch copies in
 `Documents\Sentinel drills\snowdon\` (7 × .rvt, `DWG\*.dwg`). Models: Architectural (98 MB), Structural, HVAC, Plumbing,

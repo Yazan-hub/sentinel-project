@@ -4,7 +4,7 @@ Written while you slept. Row by row evidence is in `SIMULATION_ROOM_RUN_2026-09-
 
 ## What was tested
 
-- The sample: Autodesk's Snowdon Towers (Revit 2025.4), the architectural model (98 MB, 55 sheets, 297 views) plus six sister models, and 46 DWG sheets. Scratch copies only, in `Documents\Sentinel drills\snowdon`. Your originals on the Desktop were not touched.
+- The sample: Autodesk's Snowdon Towers (Revit 2025.4), the architectural model (98 MB, 55 sheets, 297 views) plus six sister models, and 41 DWG sheets. Scratch copies only, in `Documents\Sentinel drills\snowdon`. Your originals on the Desktop were not touched.
 - A brand-new office (`snowdon-office`) and project (`snowdon-towers`), created the way an outside office would, from the web forms, with no JSON.
 - Seats: the local web app on :4000 in Chrome, signed in as you; Revit 2025.4 with the add-in; bridge 4100 on master (530243e2); Ollama for the local AI; the Sentinel MCP server (17 tools).
 - Run from about 02:00 to 04:15 local time. You were asleep from about 02:30, so every row that needs a password, a download or the Funnel refresh was left for you.
