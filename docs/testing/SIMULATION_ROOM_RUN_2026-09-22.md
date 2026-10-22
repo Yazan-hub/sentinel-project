@@ -3940,3 +3940,126 @@ Not covered (said): topics raised by Sentinel itself (the AI's raise_issue, a ch
 | R-2 Revit close-reopen + comment | Status Open, "ILG drill R-2: reopened from Revit, signed in" typed in the comment box, Save changes → `Saved on #11: status → Open, with the comment.`; the comment box cleared; ledger #3249 `issue_reopened` actor yazanhijazeen32@hotmail.com (Revit's sign-in), `actor_verified: true`, old {Closed} new {Open, the comment} | **pass** |
 | R-3 history after | Filter Open, search "ILG" → History (15) ends "yazanhijazeen32@hotmail.com — Status: Closed → Open · recorded in the ledger #3249" and "Comment added · recorded in the ledger #3249" | **pass** |
 | R-4 close | Issues window closed, Revit closed — no save prompt (the drill wrote nothing to the model) | **pass** |
+
+## Session SNOWDON — full end-to-end on Autodesk's Snowdon Towers sample (2026-10-22 local 02:00–04:15; Revit 2025.4; master 530243e2 + fix branch fix/snw-1-seed-metadata; local app :4000 in Chrome signed in as the founder; bridge 4100 on master; scratch copies in Documents\Sentinel drills\snowdon; Claude driving, the founder asleep from ~02:30)
+
+Plan: SNOWDON_FULL_TEST_PLAN_2026-10.md (71 rows). Result: 51 PASS · 1 FAIL · 4 N/A · 15 NOT RUN. Web project `snowdon-towers` (office `snowdon-office`), Revit 2025.4 on `Snowdon Towers Sample Architectural.rvt` (98 MB) plus scratch copies renamed SNW_<disc>_ZZ_XX_M3_<role>_0001.rvt. Summary: SNOWDON_FULL_TEST_REPORT_2026-10.md. "PASS (part)" rows are counted as PASS; what was not driven is said in the evidence.
+
+| Row | What | Result | Evidence |
+|---|---|---|---|
+| A1 | New office + project from the hub form | PASS | office snowdon-office, project snowdon-towers; Journey 0 of 9; Next = "Team in place — Members". Tiles "—", gate "GATE NOT CHECKABLE". First Save changes refused: F-SNW-1; saved after a browser reload (SNW, Mixed-use tower, Sample, US) |
+| A2 | Members owner / lead / viewer | PASS | owner yazanhijazeen32@hotmail.com, lead yazanhijazeen32@gmail.com, viewer user3@gmail.com; Journey 1 of 9, Next = "Standards in force" |
+| A3 | Install base pack on the office | PASS | base-standard@1.0.0 → "in force: ruleset@1 · office · cc944310e731…"; project shows ids/ruleset/naming/contract/layers "office" (inherited); Journey 2 of 9 |
+| A4 | Standards forms, no JSON | PASS | naming@1 project 4161cc4c0429…; contract@1 project 9c21d0cc6dfa… (snowdon-dd, IFC2X3, IFCWALL ≥1, proxy ≤25 %); lod_matrix@1 project 088d7279d2bc…; ai_policy@1 (Mask names; ledger #3285 redact true, local_only false). guideline / ifc_export / protection / type_catalog are "Edit in Revit" (B8–B10, B31) |
+| A5 | Generate IDS from standards | PASS | honest: "Nothing in these standards can be checked by an IDS" + 5 reasons in words; installed as ids@1 · project · fcb3140696a7… |
+| A6 | EIR → Compile to IDS | PASS | "3 of 5 requirement sentence(s) read"; WALL FireRating held back (already checked), DOOR FireRating + WALL IsExternal green, "Every space shall carry a Name" and the IFC 2x3 sentence red with reasons; installed ids@2 · project · 3d6e499d2c31…, keeps the 3 standards checks |
+| A7 | Deliverables paste schedule | PASS | 7 rows → "7 pending"; stage "DD" accepted by Preview, refused by Import: F-SNW-2. Declare team not driven (teams came from the rows) |
+| A8 | PC Settings tests | PASS | bridge 127.0.0.1:4100 answers; signed in as yazanhijazeen32@hotmail.com; Ollama answers, qwen2.5:7b-instruct and llava installed; shared token None |
+| A9 | Revit sign-in | PASS | PC already held the founder's valid sign-in (H4); no password dialog driven — the password row stays un-exercised |
+| A10 | Project Setup bind | PASS | code SNW, project snowdon-towers, ghost folder = scratch DWG copy (field defaulted to the last folder used on this PC), Doctor off; pane "Journey · snowdon-towers (project)… 2 of 9 done; Judged by ruleset@1 · office" |
+| A11 | Show Panel | PASS | "Rule pass rate 0.0% — 55 elements in 8 ms"; SN-01 REQUEST on every sheet with ⚡Fix (the base pack's sheet rule does not fit Autodesk's A101 numbering) |
+| B1 | Scan Now | PASS | base pack: 0.0 %, 55 elements, 9 ms; after the Aster standard AST-STD-001 installed (ledger #3291): 32.2 %, 952 elements, 195 ms, VN-01 per view |
+| B2 | Health Scorecard | PASS | "Judged by ruleset@1 · office · cc944310e731… — weighted 0.0% (F) · 55 open issue(s) across 1 domain(s); weights BLOCK 8 · REQUEST 4 · WARN 2 · MONITOR 0.5; SN 55 issue(s) penalty 220.0" |
+| B3 | Rule Set | PASS | ruleset@1 · office · base-standard v1.0.0 · 1 rule; SN-01 ISO 19650-2 §5.1.7 REQUEST, English + Arabic message |
+| B4 | Naming Manager | PASS | base pack: honest refusal (no family/type naming rule) → installed AST-STD-001; 312 shown · conforming 0 · proposed 95 · needs human 217 · blocked 0; renamed 2/2, ledger #3292 receipt fd98732d6d782693… (Counter Top → AST_Counter_Top, Counter Top w Sink Hole → AST_Counter_Top_w_Sink_Hole) |
+| B5 | Heal Loaded Families | PASS | ~6 min background job; "222 families scanned · Clean 0 · Auto-healed 222 · Requires human 0 · Failed 0 · ledger #3293 · receipt 2715c0900c990f68…"; no preview before the rewrite: F-SNW-3 |
+| B6 | Sanitize .rfa | NOT RUN | needs an .rfa through the file dialog (candidate Documents\Sentinel drills\damaged\Junk CAD Planter.rfa); the typing guard refuses the File name box |
+| B7 | Review Flag | PASS | "'ZZZ_ReviewStatus' created and bound to Views, Sheets, Levels and Grids"; second run "already exists in this project" |
+| B8 | Protection window | PASS | "✓ Saved as protection@1 on snowdon-towers, recorded in the ledger" (model not workshared) |
+| B9 | Modelling Guideline | PASS | "✓ Saved as guideline@1 …"; later guideline@2 (default wall Basic Wall : Generic - 8") |
+| B10 | IFC Export Mapping | PASS | Pset_SNW_Common on IfcWall, Comments ← Comments → "✓ Saved as ifc_export@1 …" |
+| B11 | IFC Pre-Flight | PASS | "4184 issue(s) found across 4184 elements (190 ms)", readiness 93.4 % (two numbers read oddly side by side); IFC-01 MONITOR rows |
+| B12 | IFC Delivery Gate | PASS | ~4 min export; "✓ contract PASS … Schema IFC2X3 · Entities 2766017 (147.2 MB) · SHA-256 68c1cbf42764d155… · ledger #3297 · receipt 1551b6199daa7d0e…" |
+| B13 | Datum from Drawings | PASS | 46 DWGs listed; A301.dwg → "Levels — 19 read", all pre-ticked → "Created 18 level(s) and 9 grid(s)"; Level at 0 mm already exists ('L1') kept; ~10 rows to untick by hand |
+| B14 | Review AI Proposals | PASS | grid CREATE applied (risk tier "Needs a reason", reason required): design finding F-SNW-13. Wall create: referee "✗ rejected (2)" shown, DD IDS dialog "Go back / Place anyway" → Place anyway → "Applied 1 element(s) … W 1236782 (Walls · DD): missing Pset_WallCommon.FireRating" |
+| B15 | Applied AI Changes | PASS | both changesets "1 applied · filed 2026-10-22 01:52 · not yet seen saved". Grid: Check revert → "Nothing would go back … Grids are protected by protection@1" (Revert disabled). Wall: "1 row(s) go back" → reason → Revert. "applied-then-saved" not driven (Project1 unsaved) |
+| B16 | Ghost Builder (A102.dwg) | FAIL | review window "21 layer(s), 2,846 element(s) proposed", 5 layers pre-ticked. Run 1 "Nothing was built" (Generic_Wall absent ×138, gap Block 37 Pilaster ×127, floors not closed ×53/×42, Generic_Door/Window not loaded ×18/×10, type_catalog none). Run 2 (A-WALL only, Generic - 8"): rolled back, "Can't keep elements joined — A-WALL #35, #36, #37": F-SNW-9 |
+| B17 | Annotate Views | N/A | honest: "guideline@2 · project … has no views section. Nothing to plan"; the Revit guideline editor has no views list: F-SNW-10a. DWG import stayed in L1 after the rollback: F-SNW-9b |
+| B18 | Promote (DD) | N/A | honest: "Nothing to promote in this model" (Walls DD level=story_level vs Promote v1 checks level + top + type; other categories have no DD row): F-SNW-10b |
+| B19 | Provenance | NOT RUN | no Sentinel-made element survived the rolled-back build; skipped for time |
+| B20 | Photo Massing / Shell a Mass | N/A | no project photos, no mass in ARC |
+| B21 | Change Requests | NOT RUN | window opened: "0 pending"; raising one from the web and approving it not driven |
+| B22 | BCF Issues (native) | PASS | 3 IDS issues; lead gmail assigned; "Comment posted on #3". Fix in Revit: 6 door types / 15 elements, FireRating 60 → "6 would pass, 0 would fail · ledger #3432 · receipt ea804e9e421cb187…" → "✓ 15/15 pass … Resolved (ledger #3434 · receipt 246b8a9259cdd63…)"; #3433 six values written; #3435 coverage marker; #3436 issue_resolved. Assignee still "" afterwards — not verified |
+| B23 | Clash Manager | PASS | 6 links resolved; "4075 clash(es) — 368 hard, 2459 medium, 1248 soft · Federation Gate: NOT RUN"; 3D view 'CO_MEP-CLASH_20261022_0343'; BCF …\MEP_clashes_(4075)_20261022_034413.bcf |
+| B24 | Clash Register | NOT RUN | not driven |
+| B25 | MEP Openings | PASS | "1831 new void candidate(s) after 150 mm merge"; "1831 tracked void(s) placed"; Ctrl+Z undone; BCF export not pressed |
+| B26 | MEP Type Check | N/A | honest: "No type catalogue installed … nothing was sent" |
+| B27 | Governed Publish (7 runs) | PASS (part) | ARC run 1 REJECTED on the model name (E1). ARC run 2 ACCEPTED v1 · wip (ledger #3304–#3311, ~50 s to a snapshot of 4841 elements). STR ACCEPTED (#3454, #3455, #3459). HVAC REJECTED on the contract (ledger #3445, #3446): F-SNW-12. PLB, ELE, FAC, SITE not run |
+| B28 | Publish Sheets | PASS | ~20 min, "55 of 55 sheet(s) exported · 0 registered in the CDE"; all 55 PDFs refused by the container naming rule, held on the web. F-SNW-6, F-SNW-7 |
+| B29 | Publish Views | PASS | 297 views, 0 pre-checked; L1 - Block 35, L2, L3 published |
+| B30 | Auto-publish on save | NOT RUN | no publish standard installed ("Auto-publish off — publish none") |
+| B31 | Build Office System / Apply Standard | PASS (part) | Apply Standard: 171 items (109 shared parameters ticked); Send office snapshot → "Office snapshot received by Sentinel — project snowdon-towers, ruleset ruleset@1 · project · 9fbf771aea3b…". Build ticked items and Build Office System not pressed |
+| B32 | Ingest Docs | NOT RUN | not driven |
+| B33 | ROI Dashboard | PASS | "Delivery gate runs: 3 · Naming renames: 2 · Family heals: 222 · Money: not shown (roi: none) · 6 fix-in-place value(s) written" |
+| B34 | Sign out + publish | NOT RUN | sign-out is the founder's (password to sign in again) |
+| C1 | Project Files | PASS | SNW_ARC_ZZ_XX_M3_A_0001.ifc · v1 Live · 147.2 MB; "On hold (1)", "Evidence (0)"; list stale until ↻ |
+| C2 | Open 3D / Browser / Performance | PASS | ARC "Loaded v1 … in 2.3 s (download 1.0 s · 9.7 MB, open 1.3 s)"; STR "in 1.1 s (0.3 s · 0.8 MB)". Browser 26 categories · 6,388 elements. Performance 10.5 s, 14 frames, p50 1003.9 ms, 1,130 draw calls, 864,834 triangles — measured with Chrome behind Revit: NOT a valid number |
+| C3 | Federation Gate | PASS | Run gate → "FAIL · FG-02, FG-04"; Issues gained FG-02 (483) and FG-04 (1); Raise locked (gate FAIL, as it should) |
+| C4 | Clash | PASS | "2 models · 6,836 elements · 11,938 box overlap(s) → 4335 clash(es) (2389 overlapping, 1946 touching), 7,603 boxes dropped"; 275 groups; Raise locked by the failed gate. Pair only / not a clash / Propose deleting copies not pressed (drilled 2026-10-21) |
+| C5 | Issues round trip | NOT RUN | panel showed the 3 ARC IDS issues (ledger #3301–#3303); Export BCF = a download, Import needs a file picker |
+| C6 | RFIs | PASS | RFI-001 raised → answered → Approve & close, History (3), all by the founder (no two-person rule) |
+| C7 | CDE | PASS | WIP → Shared → Published by the owner alone: F-SNW-14; platform card rate-limited: F-SNW-15. Second-account review, Rotate key, Unlock not driven |
+| C8 | Holding Area | PASS | On hold (56); SD106.pdf dismissed with a reason → "✓ Dismissed SD106.pdf from On hold · ledger #3425 · receipt 77cb1b7f23003c08…" (hold ledger #3424); On hold (55) |
+| C9 | Documents | PASS | Check integrity (qwen2.5:7b): "AI analysis — suggestions, not compliance facts … grounded in 30 fact(s)", one MEDIUM item on IsExternal that the text does cover |
+| C10 | Deliverables / MIDP | NOT RUN | all 7 rows still "pending" including the published ARC: F-SNW-16; slip, weekly report, CSV not driven |
+| C11 | Lifecycle | PASS | Cost 5D "SAR 14,082,334 · 1,745 element(s) priced across 9 line(s)" (negative quantities: F-SNW-5); Carbon "3,465.3 tCO₂e · 157 kgCO₂e/m² · GFA 22,112 m²"; 4D "6-trade sequence over 2,642 element(s)"; COBie "0 % handover-ready · 0/807 assets"; Tender issued at SAR 14,082,334 across 9 lines; Owner 807 assets; Data feed addresses shown (key test not run) |
+| C12 | Settings | PASS (part) | standards in force all "project"; Timestamp now "Last external timestamp: 2026-10-22 02:10 UTC, verified (DigiCert SHA256 RSA4096 Timestamp Responder 2026 1)"; 412 exercised by F-SNW-1; audit pack / verifier downloads and AI privacy lock not done |
+| C13 | Deleted items | PASS (part) | SNW_STR delete → "✓ Moved SNW_STR_ZZ_XX_M3_S_0001.ifc to Deleted items"; hub ▸ Deleted models lists it with Open project / Restore. Restore not pressed |
+| C14 | Viewer account | NOT RUN | needs the viewer's sign-in (password) |
+| C15 | Published app via Funnel | NOT RUN | the Funnel refresh is the founder's |
+| C16 | Sheets / Views tabs | PASS (part) | Views "AREA PLANS · 3" after ↻; Sheets tab not read; MIDP on sheet rows not shown (nothing registered) |
+| D1 | MCP read-only | PASS | 17 tools, server sentinel 1.3; project name masked (PROJECT_7RDECNYD); compliance_report and standards needed `document` / `kind`, then passed |
+| D2 | sentinel_propose | PASS | verdict accepted, 3 in scope · 0 passing · 3 failing; ledger row written |
+| D3 | sentinel_propose_changeset | PASS (part) | wall create staged 92639fee-6ef1-4d69-886e-8ad9ac9075c3; grid move refused (allowed: create, retype, attach, set_parameter, reshape, rehost, delete); grid reshape and delete refused; grid CREATE staged 782a9f86-f551-4c20-90bb-56c25781235c |
+| D4 | sentinel_ask_app | NOT RUN | takes {type}, answered sentinel.status (app 1.0.110, signed_in true, bridge reachable); the lock refusal needs the on-network lock on, not switched |
+| D5 | sentinel_doc_integrity | PASS | answered, suggestions only |
+| D6 | Ask Sentinel (Copilot) | PASS (part) | "1819 element(s) fail the standard. Top rules: VP-01 (1744), FN-01 (70), WS-01 (5). source: scan · ast-std-001 · ruleset@1 · project · 9fbf771aea3b…" + "Isolate 1819 in viewer"; answered the scan question, not the open-issues / IDS one. One of three questions asked |
+| E1 | Name breaks the ISO rule | PASS | "✕ REJECTED — model name does not follow the ISO 19650 convention (not published) … expected 7 '_'-separated fields … got 1". Gate row #3298, verdict #3299, hold #3300, 3 BCF issues opened (#3301–#3303) |
+| E2 | Bridge stopped mid-action | NOT RUN | not driven (would have broken the rest of the run) |
+| E3 | Ollama stopped | NOT RUN | not driven |
+| E4 | Two seats, same element | NOT RUN | two seats not available |
+
+### Findings F-SNW-1 … F-SNW-16
+
+The log carries no F-SNW-8 and no F-SNW-11; none is invented here. F-SNW-1 was handed to a Sonnet agent on branch fix/snw-1-seed-metadata (worktree ../sentinel-wt-snw1); merged to master as b34baedd and pushed after the drill (bridge not restarted).
+
+- **F-SNW-1 (bug, small):** the FIRST "Save changes" on a brand-new project is refused: "Save failed: the project's settings were changed by yazanhijazeen32@hotmail.com at 2026-10-22 00:10 UTC — reload to see it; nothing was saved". Root cause: Create & open loads Project Settings (projects.version 1) while the Dashboard's first read runs getProjectMeta, which seeds default metadata with an unversioned PATCH (cde-store.mjs:254) → version 2, no audit row; the panel's If-Match "1" then trips 0048's guard. An outside office hits this on its first minute. Fix: seed metadata in the INSERT (createProject + ensureProject) so no hidden write follows creation. Workaround: ↻ then save again.
+- **F-SNW-1b:** after the 412 the panel's ↻ and tab switches do NOT reload it (onActiveProjectChange keeps unsaved edits: project-settings-panel.ts:667) — "reload to see it" has no button that works; only a browser reload (edits lost). Second save also refused. DB: version 2, settings null.
+- **F-SNW-2 (usability, small):** Preview accepts stage "DD" and only Import refuses it ("row 1: stage "DD" must be one of: tender, design, coord, constr, hand, oper"); the hint above the box never lists the allowed stages.
+- **F-SNW-3 (behaviour, judgement call):** the first heal on a real model rewrote and reloaded all 222 families with no preview or "N families will be changed — continue?" — an outside office would want a dry run first (the tool's help calls it an auto-fix, so this is as designed, but flagged).
+- **F-SNW-4 (words/scoping):** a fresh project's CDE tab shows "PLATFORM DELIVERIES 47 IFC · 19 passed (unverified) · 28 refused" with Aster Tower cards ("not on this project's ledger yet") because the project is not linked to a platform project — confusing for an outside office.
+- **F-SNW-5 (bug):** every geometry-measured quantity shows NEGATIVE (Slabs −4,034.6 m³ @1450 = 5,850,102; Walls −11,093.4 m² and −5,505.8 m²; Roofs −3,035.7; Columns −263; Finishes −3,432.5) while the amounts are positive — the signed volume/area from this IFC's winding is shown unsigned in the amount but signed in the Qty column. Same in Carbon 6D.
+- **F-SNW-6:** Revit's status bar shows "Exporting … Sheet: G000 - Cover" for the whole 20 min (no per-sheet progress or ETA from Sentinel; my Cancel clicks did nothing).
+- **F-SNW-7:** sheet PDFs are named by sheet number (A100.pdf) so they can never pass a 7-field container rule — Sentinel should compose the ISO container name for sheets (project_originator_…_DR_A_A100) or say up front that sheets will be held.
+- **F-SNW-9 (bug, add-in):** Ghost Builder run 2: "Nothing was built — Revit rolled the build back … Revit error at commit: Can't keep elements joined — Revit named wall A-WALL #35, #36, #37; Ledger: reporting 1 changeset(s) as declined, with the reason". The build's FailuresPreprocessor does not resolve Revit's "Can't keep elements joined" (it should unjoin/delete the warning instead of letting the transaction roll back). Also: the per-layer type dropdown lists the document's wall types so the "Generic_Wall does not exist" warning is avoidable by the user, but the mapping defaults to a name that is never loaded.
+- **F-SNW-9b:** after the rolled-back ghost build the A102 DWG import stayed in the L1 view.
+- **F-SNW-10a (form gap):** the Revit guideline editor has a Sheets block but no views list, so a guideline made from the screen can never feed Annotate.
+- **F-SNW-10b (form wording):** the web LOD-matrix form let me save a wall DD that Promote v1 cannot check (top attached unticked) without saying so.
+- **F-SNW-12 (design):** the delivery contract is one per project, so an MEP model can never pass a contract written for the architectural model (walls required); a multi-discipline project needs a contract per discipline/role or class rules scoped by the container's role field. Also 37/37 proxies = Revit's IFC2x3 export of HVAC families without Export-As mappings (IFC Pre-Flight would have said so — not run on HVAC).
+- **F-SNW-13 (design):** protection@1 ticks Grids, yet a changeset that CREATES a new grid applies (protection guards edits of existing ticked elements only; the help text says so). A new office reading "Grids protected" would expect new grids from AI to be refused too — founder decision. With B15: protection let the AI create the grid but refuses to revert it; the asymmetry is the real bug.
+- **F-SNW-14 (design):** the owner alone took the container WIP → Shared → Published with no second-person review step (no `review` standard installed = no gate); ISO 19650 expects a check/review/authorise before Published — the default should at least say so.
+- **F-SNW-15 (minor):** the PLATFORM DELIVERIES card went "not read — Rate limit exceeded: max 100 requests per 60s for this endpoint. Retry after 46s" after a few minutes on the tab — the CDE panel polls the platform too often.
+- **F-SNW-16 (check):** Deliverables still shows all 7 rows "pending" (incl. SNW_ARC_ZZ_XX_M3_A_0001, whose container is published and whose verdict row said midp.planned true) — either the status needs a refresh/recompute or delivery is not matched to the MIDP row; re-check after ↻.
+
+Smaller observations (not numbered in the log): the same account raised, answered and approved its own RFI (no two-person rule); IFC Pre-Flight flags 4184/4184 elements yet readiness reads 93.4 %; Project Files and Views do not refresh by themselves after a publish (↻ needed); Federation Gate says "0 live model(s)" before the run while two are live; Settings footer says "0 file container(s)" while the project has 2; Datum from Drawings pre-ticks all 19 level lines; Ask Sentinel answered a different question than asked.
+
+### Owed to the founder
+
+- Password-dependent rows: B34 (sign out, publish refused, sign in again), C14 (viewer account: every write refused), C7 second-account review, A9 (the Sign in dialog itself).
+- Downloads (per-item OK): C12 audit pack + verifier, C5 Export BCF 2.1 / 3.0 and Import back.
+- Funnel refresh, then C15 (published app: sign in, open 3D, one issue edit).
+- Decisions: F-SNW-12 (contract per discipline/role), F-SNW-13 (new grids from AI vs protection), F-SNW-14 (default review step before Published); also F-SNW-3 (dry run for Heal) and the RFI two-person rule.
+- Re-measure Performance (C2) with Chrome in front (the 10.5 s / 1003.9 ms figure is invalid).
+- Re-run Publish Sheets once sheet-container naming is settled (F-SNW-7); re-check C10 / F-SNW-16 after ↻.
+- Not run, still open: B6 Sanitize .rfa, B19 Provenance, B21 Change Requests round trip, B24 Clash Register, B27 PLB / ELE / FAC / SITE, B30 Auto-publish (needs a publish standard), B32 Ingest Docs, D4 lock refusal, E2 bridge stopped, E3 Ollama stopped, E4 two seats; "applied-then-saved" (B15) and the B22 assignee re-test.
+- Restart the 4100 bridge + Funnel refresh so the F-SNW-1 fix (b34baedd) is live.
+
+### Driving lessons
+
+- The file-dialog typing guard refuses Revit's own Open / Save As File name box: navigate by double-clicking folders; this blocks B6 and Save As.
+- WPF lists ignore most wheel scrolling (about 1 row per 10 ticks): click a row and use the arrow keys. WPF text boxes: triple-click does not select all; use ctrl+a.
+- An Explorer window on the founder's Desktop\Sentinel Test Folder\Snowdon Tower keeps coming to the front when Revit modals close; two clicks landed on it (nothing changed). Minimise it; Explorer is click-only.
+- A stray Escape during Heal raised Revit's "Stop Operation?" — answer No.
+- During Publish Sheets the status bar shows only "Exporting … Sheet: G000 - Cover" and Cancel clicks do nothing; expect ~20 min for 55 sheets and wait.
+- Ribbon tab click worked at (941,32). Never open Revit twice; Revit 2024 was closed first.
+- Web panels (Project Files, Views) need ↻ after a publish.
