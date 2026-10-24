@@ -1,5 +1,6 @@
 // Documents panel — ISO 19650 project documents (BEP/EIR): create from template, edit sections,
 // manage states, publish immutable versions, print/PDF via a print stylesheet. Plain-DOM like files-panel.
+import { askText, askYesNo } from "./ask";
 import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
@@ -703,7 +704,8 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
         b.onclick = async () => {
           try {
             if (to === "published") {
-              const label = prompt("Version label (e.g. 'P01 — issued for review')") || "";
+              const label = await askText("Version label for this publish", { placeholder: "e.g. P01 — issued for review (empty = the version number)", ok: "Publish" });
+              if (label === null) return;
               const { version_no } = await api(`/${encodeURIComponent(pid())}/${doc.id}/publish`, { method: "POST", body: JSON.stringify({ label, actor: await actor() }) });
               msg(`Published v${version_no}`);
             } else {
@@ -764,7 +766,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
           });
         try { await doSave(); showEditor(doc.id); }
         catch (e: any) {
-          if (e.status === 409 && confirm(`${e.message}\n\nOverwrite with your version?`)) { await doSave(true).catch((e2) => msg(e2.message, true)); showEditor(doc.id); }
+          if (e.status === 409 && (await askYesNo(`${e.message}\n\nOverwrite with your version?`, { ok: "Overwrite" }))) { await doSave(true).catch((e2) => msg(e2.message, true)); showEditor(doc.id); }
           else msg(e.message, true);
         }
       };
@@ -863,7 +865,8 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
         b.onclick = async () => {
           try {
             if (to === "published") {
-              const label = prompt("Version label (e.g. 'Assessment 1 — September')") || "";
+              const label = await askText("Version label for this publish", { placeholder: "e.g. Assessment 1 — September (empty = the version number)", ok: "Publish" });
+              if (label === null) return;
               const { version_no } = await api(`/${encodeURIComponent(pid())}/${doc.id}/publish`, { method: "POST", body: JSON.stringify({ label, actor: await actor() }) });
               msg(`Published v${version_no}`);
             } else {

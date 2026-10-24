@@ -1,3 +1,4 @@
+import { askYesNo } from "./ask";
 import { SERVICE_URL } from "../config";
 import { bfetch, bwrite } from "./bridge-fetch";
 import { activePid, onActiveProjectChange } from "./active-project";
@@ -114,7 +115,7 @@ export function dataFeedPanel(opts: { baseUrl?: string } = {}): HTMLElement {
   };
 
   const revoke = async (id: string, b: HTMLButtonElement) => {
-    if (!confirm("Revoke this feed key? Every report that uses it stops refreshing until you give it a new key.")) return;
+    if (!(await askYesNo("Revoke this feed key? Every report that uses it stops refreshing until you give it a new key.", { ok: "Revoke" }))) return;
     b.disabled = true;
     try { await bwrite(`${base}/feed/keys/${encodeURIComponent(id)}`, { method: "DELETE" }); msg("✅ Key revoked — it reads nothing from now on.", "#22c55e"); if (id === shownId) { el("df-new").innerHTML = ""; shownId = null; } await loadKeys(); }
     catch (e) { msg("❌ " + ((e as Error)?.message ?? String(e)), "#ef4444"); b.disabled = false; }

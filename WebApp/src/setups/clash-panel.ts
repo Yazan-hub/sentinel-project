@@ -1,3 +1,4 @@
+import { askYesNo } from "./ask";
 import * as THREE from "three";
 import { SERVICE_URL } from "../config";
 import { bfetch, bwrite } from "./bridge-fetch";
@@ -561,8 +562,8 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
     const key = pid();
     const p = deleteProposal(g);
     if (!p.body) { status(`Nothing to propose — ${p.held[0]?.why ?? "no pair"}${p.held.length > 1 ? ` (and ${p.held.length - 1} more)` : ""}. Raise the group as an Issue instead.`); return; }
-    if (!window.confirm(`Propose deleting ${p.body.elements.length} copy(ies) in "${groupTitle(g)}"${p.held.length ? ` (${p.held.length} held: ${p.held[0].why})` : ""}?\n\n` +
-      "Nothing is deleted now: each copy waits in Revit (Review AI Proposals) for a person to tick it with a reason, and Revit removes it only if it is the same type, level, place and size as the one kept.")) return;
+    if (!(await askYesNo(`Propose deleting ${p.body.elements.length} copy(ies) in "${groupTitle(g)}"${p.held.length ? ` (${p.held.length} held: ${p.held[0].why})` : ""}?\n\n` +
+      "Nothing is deleted now: each copy waits in Revit (Review AI Proposals) for a person to tick it with a reason, and Revit removes it only if it is the same type, level, place and size as the one kept.", { ok: "Propose" }))) return;
     const gate = await gateAllowsRaise();
     if (!gate.ok) { status(`Not proposed — ${gate.why}. Nothing was sent.`); void loadFederation(); return; }
     const overlapOf = new Map(clashes.map((c) => [c.id, c.overlap]));

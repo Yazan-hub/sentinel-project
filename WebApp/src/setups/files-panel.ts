@@ -1,3 +1,4 @@
+import { askYesNo } from "./ask";
 import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
@@ -452,8 +453,8 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       const r = await setDeleteBy(base, pid(), id, date);
       return `✓ ${id} delete by ${date} · ${r.ledger.map(ledgerLine).join(" · ")}`;
     })));
-    root.querySelectorAll<HTMLElement>("[data-evretire]").forEach((n) => n.addEventListener("click", () => {
-      if (!confirm(`Retire ${n.dataset.evpath} now? No job reads it again; its record and sha256 stay on the pack and the ledger. The office's own file is not deleted. This cannot be undone.`)) return;
+    root.querySelectorAll<HTMLElement>("[data-evretire]").forEach((n) => n.addEventListener("click", async () => {
+      if (!(await askYesNo(`Retire ${n.dataset.evpath} now? No job reads it again; its record and sha256 stay on the pack and the ledger. The office's own file is not deleted. This cannot be undone.`, { ok: "Retire" }))) return;
       void evAct(async () => {
         const r = await setDeleteBy(base, pid(), n.dataset.evretire!, new Date().toISOString().slice(0, 10));
         // review: "Retired" only when the item is expired; a bridge clock behind ours, or a busy sweep, leaves the date set
