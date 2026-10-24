@@ -108,11 +108,14 @@ describe("kinds named like Object properties", () => {
 });
 
 describe("an empty block derives no body (spec section 4: the executability empty count keeps working)", () => {
-  it("every kind, empty, derives nothing, with or without a title", () => {
-    for (const kind of BLOCK_KINDS) {
+  it("every kind but a live view, empty, derives nothing, with or without a title", () => {
+    for (const kind of BLOCK_KINDS.filter((k) => k !== "live_view")) {
       expect(deriveBody([validateBlock({ kind, data: emptyData(kind) })])).toBe("");
       expect(deriveBody([validateBlock({ kind, title: "Only a title", data: emptyData(kind) })])).toBe("");
     }
+  });
+  it("a live view with no filter is content: an unfiltered live MIDP list derives its line", () => {
+    expect(deriveBody([validateBlock({ kind: "live_view", data: emptyData("live_view") })])).toBe("Live list: midp");
   });
   it("a titled table with columns and no rows derives nothing; one row keeps the plan's format", () => {
     const columns = [{ key: "e", label: "Event", type: "text" }];

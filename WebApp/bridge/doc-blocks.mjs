@@ -237,7 +237,8 @@ const own = (o, k) => (Object.hasOwn(o, k) ? o[k] : null);
 const row = (...cells) => cells.join(" | ");
 
 /** The lines a (valid) block contributes below its title; an empty block contributes none, so it adds nothing to the body,
- *  title included (spec section 4: the executability "empty" count keeps working). A live view with no filter is the empty one. */
+ *  title included (spec section 4: the executability "empty" count keeps working). A live view always contributes its line: an
+ *  unfiltered live list (the MIDP appendix) is content. */
 const LINES = {
   text: (d) => (d.markdown === "" ? [] : [d.markdown]),
   table: (d) => (d.columns.length && d.rows.length ? [row(...d.columns.map((c) => c.label)), ...d.rows.map((r) => row(...d.columns.map((c) => cellText(own(r.cells, c.key)))))] : []),
@@ -246,7 +247,7 @@ const LINES = {
     return marks.length ? `${r.label}: ${marks.join("; ")}` : r.label;
   }),
   facts: (d) => (d.labels.length ? [`Project facts: ${d.labels.join(", ")}`] : []),
-  live_view: (d) => (Object.values(d.filter).some((v) => v != null) ? [`Live list: ${d.source}${d.filter.team ? ` (team ${d.filter.team})` : ""}`] : []),
+  live_view: (d) => [`Live list: ${d.source}${d.filter.team ? ` (team ${d.filter.team})` : ""}`],
   proposed_changes: (d) => d.changes.map((c) => `${c.field_key}: ${c.change} — ${c.detail} (${c.reason})`),
   eir_link: (d) => (d.clauses.length ? [`Answers EIR clauses: ${d.clauses.map((c) => c.clause_id).join(", ")}`] : []),
   loin: (d) => (d.rows.length ? [row("Element", "Milestone", "Property", "Value", "Used by", "Why"), ...d.rows.map((r) => row(r.element, r.milestone, r.property, r.value, r.used_by, r.why))] : []),
