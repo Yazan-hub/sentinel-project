@@ -278,6 +278,34 @@ describe("final review: the ledger row never throws after a write; over-long tex
   });
 });
 
+describe("ingest and create check what the workspace checks", () => {
+  const sections = [{ heading: "Scope", body: "b" }];
+  const ok = () => sb.mockImplementation(async (p, o) => (o?.method === "POST" ? [{ id: doc.id, doc_type: "BEP", title: "B" }] : [doc]));
+  const posted = () => sb.mock.calls.find(([p, o]) => p === "bim_documents" && o?.method === "POST")[1].body;
+  it("ingest refuses a READINESS document before any call", async () => {
+    await expect(createDocFromIngest("k", { doc_type: "READINESS", sections })).rejects.toMatchObject({ status: 422,
+      message: "A readiness assessment is made from its template, not imported. Nothing was saved." });
+    expect(sb).not.toHaveBeenCalled();
+  });
+  it("a title or source file name over 200 characters is refused before any call; 200 is created", async () => {
+    await expect(createDocFromIngest("k", { doc_type: "BEP", title: "x".repeat(201), sections })).rejects.toMatchObject({ status: 400, message: "a document title must be text of at most 200 characters" });
+    await expect(createDocFromIngest("k", { doc_type: "BEP", sections, source: { name: "x".repeat(201) } })).rejects.toMatchObject({ status: 400, message: "the source file name must be text of at most 200 characters" });
+    await expect(createDocFromIngest("k", { doc_type: "BEP", title: 7, sections })).rejects.toMatchObject({ status: 400 });
+    await expect(createDoc("k", { doc_type: "BEP", title: "x".repeat(201) })).rejects.toMatchObject({ status: 400, message: "a document title must be text of at most 200 characters" });
+    expect(sb).not.toHaveBeenCalled();
+    ok();
+    await createDocFromIngest("k", { doc_type: "BEP", title: "x".repeat(200), sections, source: { name: "y".repeat(200) } });
+    expect(posted().title).toHaveLength(200);
+    await createDoc("k", { doc_type: "BEP", title: "x".repeat(200) });
+  });
+  it("an ingested heading is checked as addSection checks it, and stored trimmed", async () => {
+    for (const heading of [{}, 7, ["h"], "  ", "x".repeat(201)])
+      await expect(createDocFromIngest("k", { doc_type: "BEP", sections: [{ heading, body: "b" }] })).rejects.toMatchObject({ status: 400, message: "sections[0]: a section needs a heading" });
+    expect(sb).not.toHaveBeenCalled();
+    expect(validateSections([{ heading: "  Risks  " }])[0].heading).toBe("Risks");
+  });
+});
+
 describe("final review: structure, readiness and size", () => {
   it("a block op on one of two sections sharing an id changes the first only", async () => {
     const t = (m) => ({ ...doc.sections[0], body: m, blocks: [{ id: "sec1.t0", kind: "text", title: "", data: { markdown: m } }] });

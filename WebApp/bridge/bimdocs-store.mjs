@@ -67,7 +67,13 @@ export async function listDocs(key) {
   return docs.map((d) => ({ ...d, version_count: d.bim_document_versions?.[0]?.count ?? 0, bim_document_versions: undefined }));
 }
 
+/** A caller's title or file name, when given: text of at most LIMITS.titleChars characters, before any call. */
+const checkText = (v, what) => {
+  if (v != null && (typeof v !== "string" || v.length > LIMITS.titleChars)) throw err(400, `${what} must be text of at most ${LIMITS.titleChars} characters`);
+};
+
 export async function createDoc(key, { doc_type, title, actor } = {}) {
+  checkText(title, "a document title");
   const proj = await ensureProject(key);
   await requireDocAccess(key, null, "edit");
   const tpl = loadTemplates().find((t) => t.doc_type === doc_type);
@@ -165,14 +171,15 @@ export function validateSections(sections) {
   if (!Array.isArray(sections) || !sections.length) throw err(400, "sections are required");
   return sections.map((s, i) => {
     if (typeof s !== "object" || s === null || Array.isArray(s)) throw err(400, `sections[${i}] must be an object`);
-    if (!s.heading) throw err(400, `sections[${i}].heading is required`);
+    let heading;
+    try { heading = cleanHeading(s.heading); } catch (e) { throw err(400, `sections[${i}]: ${e.message}`); } // names the bad index
     const body = s.body || "";
     if (typeof body !== "string") throw err(400, `sections[${i}].body must be text`); // the ingest ledger row reads it after the insert
-    if (body.length > LIMITS.markdownChars) throw err(422, `The section "${s.heading}" is longer than 100,000 characters; split it before importing. Nothing was saved.`);
+    if (body.length > LIMITS.markdownChars) throw err(422, `The section "${heading}" is longer than 100,000 characters; split it before importing. Nothing was saved.`);
     const id = randomUUID();
     return {
       id,
-      heading: s.heading,
+      heading,
       guidance: s.guidance || "",
       body,
       blocks: [textBlock(body, `${id}.t0`)],
@@ -188,12 +195,15 @@ export function normalizeSource(source) {
   if (source === undefined || source === null) return null;
   if (typeof source !== "object" || Array.isArray(source)) throw err(400, "source must be an object");
   const out = {};
+  checkText(source.name, "the source file name");
   for (const key of SOURCE_KEYS) if (source[key] !== undefined) out[key] = source[key];
   return out;
 }
 
 export async function createDocFromIngest(key, { doc_type, title, sections, source, actor } = {}) {
   if (!doc_type) throw err(400, "doc_type is required");
+  if (doc_type === "READINESS") throw err(422, "A readiness assessment is made from its template, not imported. Nothing was saved.");
+  checkText(title, "a document title");
   const tpl = loadTemplates().find((t) => t.doc_type === doc_type);
   if (!tpl) throw err(400, `unknown doc_type '${doc_type}'`);
   const normalizedSections = validateSections(sections);
