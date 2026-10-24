@@ -3,7 +3,7 @@
 import { randomUUID } from "node:crypto";
 
 export const BLOCK_KINDS = Object.freeze(["text", "table", "matrix", "facts", "live_view", "proposed_changes", "eir_link", "loin", "naming", "references"]);
-export const LIMITS = Object.freeze({ sectionsPerDoc: 120, blocksPerSection: 60, rows: 500, columns: 24, cellChars: 4000, markdownChars: 100000, titleChars: 200, labels: 64, namingFields: 64, patternChars: 512 });
+export const LIMITS = Object.freeze({ docChars: 8_000_000, sectionsPerDoc: 120, blocksPerSection: 60, rows: 500, columns: 24, cellChars: 4000, markdownChars: 100000, titleChars: 200, labels: 64, namingFields: 64, patternChars: 512 });
 export const ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$/;
 export const KEY_RE = /^[a-z][a-z0-9_]{0,39}$/;
 const LABEL_RE = /^[a-z][a-z0-9_.]{0,63}$/;
@@ -236,20 +236,21 @@ const cellText = (v) => (v == null ? "" : String(v));
 const own = (o, k) => (Object.hasOwn(o, k) ? o[k] : null);
 const row = (...cells) => cells.join(" | ");
 
-/** The lines a (valid) block contributes below its title. */
+/** The lines a (valid) block contributes below its title; an empty block contributes none, so it adds nothing to the body,
+ *  title included (spec section 4: the executability "empty" count keeps working). A live view with no filter is the empty one. */
 const LINES = {
   text: (d) => (d.markdown === "" ? [] : [d.markdown]),
-  table: (d) => (d.columns.length ? [row(...d.columns.map((c) => c.label)), ...d.rows.map((r) => row(...d.columns.map((c) => cellText(own(r.cells, c.key)))))] : []),
+  table: (d) => (d.columns.length && d.rows.length ? [row(...d.columns.map((c) => c.label)), ...d.rows.map((r) => row(...d.columns.map((c) => cellText(own(r.cells, c.key)))))] : []),
   matrix: (d) => d.rows.map((r) => {
     const marks = d.columns.filter((c) => own(r.marks, c.key)).map((c) => `${c.label} ${MARK_WORDS[r.marks[c.key]]}`);
     return marks.length ? `${r.label}: ${marks.join("; ")}` : r.label;
   }),
-  facts: (d) => [`Project facts: ${d.labels.join(", ")}`],
-  live_view: (d) => [`Live list: ${d.source}${d.filter.team ? ` (team ${d.filter.team})` : ""}`],
-  proposed_changes: (d) => (d.changes.length ? d.changes.map((c) => `${c.field_key}: ${c.change} — ${c.detail} (${c.reason})`) : ["No proposed changes"]),
-  eir_link: (d) => [`Answers EIR clauses: ${d.clauses.map((c) => c.clause_id).join(", ")}`],
-  loin: (d) => [row("Element", "Milestone", "Property", "Value", "Used by", "Why"), ...d.rows.map((r) => row(r.element, r.milestone, r.property, r.value, r.used_by, r.why))],
-  naming: (d) => [`Naming rule: ${d.fields.map((f) => f.key).join(d.separator)} (${d.enforce})`, ...d.fields.map((f) => `${f.label}: ${f.pattern ?? f.enum.join(", ")}`)],
+  facts: (d) => (d.labels.length ? [`Project facts: ${d.labels.join(", ")}`] : []),
+  live_view: (d) => (Object.values(d.filter).some((v) => v != null) ? [`Live list: ${d.source}${d.filter.team ? ` (team ${d.filter.team})` : ""}`] : []),
+  proposed_changes: (d) => d.changes.map((c) => `${c.field_key}: ${c.change} — ${c.detail} (${c.reason})`),
+  eir_link: (d) => (d.clauses.length ? [`Answers EIR clauses: ${d.clauses.map((c) => c.clause_id).join(", ")}`] : []),
+  loin: (d) => (d.rows.length ? [row("Element", "Milestone", "Property", "Value", "Used by", "Why"), ...d.rows.map((r) => row(r.element, r.milestone, r.property, r.value, r.used_by, r.why))] : []),
+  naming: (d) => (d.fields.length ? [`Naming rule: ${d.fields.map((f) => f.key).join(d.separator)} (${d.enforce})`, ...d.fields.map((f) => `${f.label}: ${f.pattern ?? f.enum.join(", ")}`)] : []),
   references: (d) => d.rows.map((r) => `${r.title} ${r.version} — ${r.issuer}${r.received ? `, received ${r.received}` : ""}`),
 };
 
@@ -265,7 +266,8 @@ export function deriveBody(blocks) {
       if (raw?.kind !== "text" || typeof raw.data?.markdown !== "string") continue; // not a valid block: nothing to say about it
       b = { kind: "text", title: typeof raw.title === "string" ? raw.title : "", data: { markdown: raw.data.markdown } };
     }
-    parts.push([...(b.title ? [b.title] : []), ...LINES[b.kind](b.data)].join("\n"));
+    const lines = LINES[b.kind](b.data);
+    if (lines.length) parts.push([...(b.title ? [b.title] : []), ...lines].join("\n"));
   }
   return parts.join("\n\n");
 }

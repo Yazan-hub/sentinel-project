@@ -33,8 +33,13 @@ async function writeDoc(doc, body, where) {
   if (!Array.isArray(rows) || !rows.length) throw err(409, "the document changed or was issued meanwhile — nothing was saved");
   return rows[0];
 }
-/** A section write: the document still wip or shared and unchanged since it was read — always, whether or not the caller sent an updated_at. */
-const patchSections = (doc, sections) => writeDoc(doc, { sections }, `&status=in.(wip,shared)&updated_at=eq.${enc(doc.updated_at)}`);
+/** A section write: the document still wip or shared and unchanged since it was read — always, whether or not the caller sent an updated_at.
+ *  A document over LIMITS.docChars characters is refused before the write. */
+function patchSections(doc, sections) {
+  if (JSON.stringify(sections).length > LIMITS.docChars)
+    throw err(422, "This document is too large to save (over 8 million characters); move some content to another document. Nothing was saved.");
+  return writeDoc(doc, { sections }, `&status=in.(wip,shared)&updated_at=eq.${enc(doc.updated_at)}`);
+}
 /** A status write: the document in the status and at the updated_at it was read with. */
 const writeStatus = (doc, status) => writeDoc(doc, { status }, `&status=eq.${enc(doc.status)}&updated_at=eq.${enc(doc.updated_at)}`);
 
@@ -325,6 +330,12 @@ const cleanHeading = (h) => {
 const auditStructure = (doc, sections, extra, actor) =>
   audit(doc.project_id, "bim_document", doc.id, "document_structure_changed", actor || "web",
     { outline: outline(doc.sections) }, { ...extra, outline: outline(sections) });
+/** The document, unless it is a readiness assessment: it keeps its fixed questions (spec section 16), so the eight section and
+ *  block ops refuse it after openForWrite and before any write. */
+const keepsQuestions = (doc) => {
+  if (doc.doc_type === "READINESS") throw err(422, "A readiness assessment keeps its fixed questions; answer them in the Documents tab. Nothing was saved.");
+  return doc;
+};
 const findSection = (doc, id) => {
   const i = doc.sections.findIndex((s) => s.id === id);
   if (i < 0) throw err(404, "section not found");
@@ -333,7 +344,9 @@ const findSection = (doc, id) => {
 
 export async function addSection(key, docId, { heading, guidance, after, updated_at, actor } = {}) {
   const h = cleanHeading(heading);
-  const doc = await openForWrite(key, docId, "govern", updated_at);
+  if (guidance != null && (typeof guidance !== "string" || guidance.length > LIMITS.markdownChars))
+    throw err(400, "a section's guidance must be text of at most 100,000 characters");
+  const doc = keepsQuestions(await openForWrite(key, docId, "govern", updated_at));
   if (doc.sections.length >= LIMITS.sectionsPerDoc) throw err(422, `A document holds at most ${LIMITS.sectionsPerDoc} sections. Nothing was saved.`);
   const at = after === undefined ? doc.sections.length : after === null ? 0 : findSection(doc, after) + 1;
   const id = randomUUID();
@@ -345,7 +358,7 @@ export async function addSection(key, docId, { heading, guidance, after, updated
 }
 
 export async function removeSection(key, docId, sectionId, { confirm_bound, updated_at, actor } = {}) {
-  const doc = await openForWrite(key, docId, "govern", updated_at);
+  const doc = keepsQuestions(await openForWrite(key, docId, "govern", updated_at));
   const i = findSection(doc, sectionId);
   if (doc.sections.length <= 1) throw err(422, "A document keeps at least one section. Nothing was saved.");
   const ids = (doc.sections[i].bindings?.checks || []).map((c) => c.id);
@@ -358,7 +371,7 @@ export async function removeSection(key, docId, sectionId, { confirm_bound, upda
 
 export async function renameSection(key, docId, sectionId, { heading, updated_at, actor } = {}) {
   const h = cleanHeading(heading);
-  const doc = await openForWrite(key, docId, "govern", updated_at);
+  const doc = keepsQuestions(await openForWrite(key, docId, "govern", updated_at));
   const i = findSection(doc, sectionId);
   const sections = doc.sections.map((s, j) => (j === i ? { ...s, heading: h } : s));
   const row = await patchSections(doc, sections);
@@ -367,7 +380,7 @@ export async function renameSection(key, docId, sectionId, { heading, updated_at
 }
 
 export async function reorderSections(key, docId, { order, updated_at, actor } = {}) {
-  const doc = await openForWrite(key, docId, "govern", updated_at);
+  const doc = keepsQuestions(await openForWrite(key, docId, "govern", updated_at));
   const have = new Set(doc.sections.map((s) => s.id));
   if (!Array.isArray(order) || order.length !== have.size || new Set(order).size !== have.size || !order.every((id) => have.has(id)))
     throw err(400, "the new order must name every section once");
@@ -385,57 +398,62 @@ const findBlock = (blocks, id) => {
   if (i < 0) throw err(404, "block not found");
   return i;
 };
-const swap = (doc, next) => doc.sections.map((s) => (s.id === next.id ? next : s));
+/** The sections with the one at index `si` replaced (by position: two sections stored with one id stay apart). */
+const swap = (doc, si, next) => doc.sections.map((s, j) => (j === si ? next : s));
 const auditBlock = (doc, old, next, op, block, created, actor) =>
   audit(doc.project_id, "bim_document", doc.id, "block_changed", actor || "web",
     created ? null : blockFacts(old, { block_id: block?.id ?? null, kind: block?.kind ?? null }),
     blockFacts(next, { op, block_id: block?.id ?? null, kind: block?.kind ?? null }));
 
 export async function addBlock(key, docId, sectionId, { kind, title, data, after, updated_at, actor } = {}) {
-  const doc = await openForWrite(key, docId, "edit", updated_at);
-  const old = doc.sections[findSection(doc, sectionId)];
+  const doc = keepsQuestions(await openForWrite(key, docId, "edit", updated_at));
+  const si = findSection(doc, sectionId);
+  const old = doc.sections[si];
   const blocks = blocksOf(old);
   if (blocks.length >= LIMITS.blocksPerSection) throw err(422, `A section holds at most ${LIMITS.blocksPerSection} blocks. Nothing was saved.`);
   const at = after === undefined ? blocks.length : after === null ? 0 : findBlock(blocks, after) + 1;
   const block = validateBlock({ id: randomUUID(), kind, title, data: data ?? emptyData(kind) });
   const next = withBlocks(old, [...blocks.slice(0, at), block, ...blocks.slice(at)]);
-  const row = await patchSections(doc, swap(doc, next));
+  const row = await patchSections(doc, swap(doc, si, next));
   await auditBlock(doc, old, next, "add", block, true, actor);
   return row;
 }
 
 export async function editBlock(key, docId, sectionId, blockId, { title, data, updated_at, actor } = {}) {
-  const doc = await openForWrite(key, docId, "edit", updated_at);
-  const old = doc.sections[findSection(doc, sectionId)];
+  const doc = keepsQuestions(await openForWrite(key, docId, "edit", updated_at));
+  const si = findSection(doc, sectionId);
+  const old = doc.sections[si];
   const blocks = blocksOf(old);
   const i = findBlock(blocks, blockId);
   const block = validateBlock({ ...blocks[i], ...(title !== undefined && { title }), ...(data !== undefined && { data }) });
   const next = withBlocks(old, blocks.map((b, j) => (j === i ? block : b)));
-  const row = await patchSections(doc, swap(doc, next));
+  const row = await patchSections(doc, swap(doc, si, next));
   await auditBlock(doc, old, next, "edit", block, false, actor);
   return row;
 }
 
 export async function removeBlock(key, docId, sectionId, blockId, { updated_at, actor } = {}) {
-  const doc = await openForWrite(key, docId, "edit", updated_at);
-  const old = doc.sections[findSection(doc, sectionId)];
+  const doc = keepsQuestions(await openForWrite(key, docId, "edit", updated_at));
+  const si = findSection(doc, sectionId);
+  const old = doc.sections[si];
   const blocks = blocksOf(old);
   const i = findBlock(blocks, blockId);
   const next = withBlocks(old, blocks.filter((_, j) => j !== i));
-  const row = await patchSections(doc, swap(doc, next));
+  const row = await patchSections(doc, swap(doc, si, next));
   await auditBlock(doc, old, next, "remove", blocks[i], false, actor);
   return row;
 }
 
 export async function reorderBlocks(key, docId, sectionId, { order, updated_at, actor } = {}) {
-  const doc = await openForWrite(key, docId, "edit", updated_at);
-  const old = doc.sections[findSection(doc, sectionId)];
+  const doc = keepsQuestions(await openForWrite(key, docId, "edit", updated_at));
+  const si = findSection(doc, sectionId);
+  const old = doc.sections[si];
   const blocks = blocksOf(old);
   const have = new Set(blocks.map((b) => b.id));
   if (!Array.isArray(order) || order.length !== have.size || new Set(order).size !== have.size || !order.every((id) => have.has(id)))
     throw err(400, "the new order must name every block once");
   const next = withBlocks(old, order.map((id) => blocks.find((b) => b.id === id)));
-  const row = await patchSections(doc, swap(doc, next));
+  const row = await patchSections(doc, swap(doc, si, next));
   await auditBlock(doc, old, next, "reorder", null, false, actor);
   return row;
 }

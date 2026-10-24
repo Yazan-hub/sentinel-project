@@ -106,3 +106,30 @@ describe("kinds named like Object properties", () => {
     expect(bad({ id: "a", kind: "__proto__", title: "", data: {} })).toMatchObject({ status: 400 });
   });
 });
+
+describe("an empty block derives no body (spec section 4: the executability empty count keeps working)", () => {
+  it("every kind, empty, derives nothing, with or without a title", () => {
+    for (const kind of BLOCK_KINDS) {
+      expect(deriveBody([validateBlock({ kind, data: emptyData(kind) })])).toBe("");
+      expect(deriveBody([validateBlock({ kind, title: "Only a title", data: emptyData(kind) })])).toBe("");
+    }
+  });
+  it("a titled table with columns and no rows derives nothing; one row keeps the plan's format", () => {
+    const columns = [{ key: "e", label: "Event", type: "text" }];
+    expect(deriveBody([validateBlock({ kind: "table", title: "Dates", data: { columns, rows: [] } })])).toBe("");
+    expect(deriveBody([validateBlock({ kind: "table", title: "Dates", data: { columns, rows: [{ cells: { e: "Award" } }] } })])).toBe("Dates\nEvent\nAward");
+  });
+  it("a non-empty block keeps the plan's format", () => {
+    const one = (kind, data) => deriveBody([validateBlock({ kind, data })]);
+    expect(one("facts", { labels: ["project.name"] })).toBe("Project facts: project.name");
+    expect(one("live_view", { source: "tidp", filter: { team: "ARC" } })).toBe("Live list: tidp (team ARC)");
+    expect(one("proposed_changes", { changes: [{ field_key: "f", change: "added", detail: "d", reason: "r" }] })).toBe("f: added — d (r)");
+    expect(one("eir_link", { clauses: [{ clause_id: "c1" }] })).toBe("Answers EIR clauses: c1");
+    expect(one("loin", { rows: [{ element: "Wall" }] })).toBe("Element | Milestone | Property | Value | Used by | Why\nWall |  |  |  |  | ");
+    expect(one("naming", { fields: [{ key: "p", label: "P", enum: ["SNW"] }] })).toBe("Naming rule: p (reject)\nP: SNW");
+  });
+  it("a section whose blocks are all empty has an empty body; an empty block adds no blank lines", () => {
+    expect(deriveBody([textBlock("", "a"), validateBlock({ kind: "facts", data: emptyData("facts") })])).toBe("");
+    expect(deriveBody([textBlock("a", "x"), validateBlock({ kind: "matrix", title: "M", data: emptyData("matrix") }), textBlock("", "z"), textBlock("b", "y")])).toBe("a\n\nb");
+  });
+});

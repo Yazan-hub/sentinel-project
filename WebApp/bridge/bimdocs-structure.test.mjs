@@ -282,3 +282,40 @@ describe("final review: the ledger row never throws after a write; over-long tex
     expect(validateSections([{ heading: "Scope", body: "x".repeat(100000) }])[0].body).toHaveLength(100000);
   });
 });
+
+describe("final review: structure, readiness and size", () => {
+  it("a block op on one of two sections sharing an id changes the first only", async () => {
+    const t = (m) => ({ ...doc.sections[0], body: m, blocks: [{ id: "sec1.t0", kind: "text", title: "", data: { markdown: m } }] });
+    doc.sections = [t("first"), t("second")];
+    await editBlock("k", doc.id, "sec1", "sec1.t0", { data: { markdown: "changed" } });
+    expect(sentSections().map((s) => s.body)).toEqual(["changed", "second"]);
+  });
+  it("a section's guidance is text of at most 100,000 characters", async () => {
+    const message = "a section's guidance must be text of at most 100,000 characters";
+    await expect(addSection("k", doc.id, { heading: "X", guidance: 5 })).rejects.toMatchObject({ status: 400, message });
+    await expect(addSection("k", doc.id, { heading: "X", guidance: "g".repeat(100001) })).rejects.toMatchObject({ status: 400, message });
+    expect(patched()).toBe(false);
+    await addSection("k", doc.id, { heading: "X", guidance: "g".repeat(100000) });
+    expect(sentSections()[1].guidance).toHaveLength(100000);
+  });
+  it("a readiness assessment keeps its fixed questions: section and block ops are refused before any write", async () => {
+    doc.doc_type = "READINESS";
+    doc.sections[0].blocks = [{ id: "sec1.t0", kind: "text", title: "", data: { markdown: "" } }];
+    const message = "A readiness assessment keeps its fixed questions; answer them in the Documents tab. Nothing was saved.";
+    await expect(addSection("k", doc.id, { heading: "X" })).rejects.toMatchObject({ status: 422, message });
+    await expect(editBlock("k", doc.id, "sec1", "sec1.t0", { data: { markdown: "x" } })).rejects.toMatchObject({ status: 422, message });
+    expect(patched()).toBe(false);
+    expect(audit).not.toHaveBeenCalled();
+  });
+  it("a document over 8,000,000 characters is refused before the write", async () => {
+    doc.sections.push({ id: "sec2", heading: "H2", body: "", state: "wip", owner: null, bindings: {} });
+    const pad = 8_000_001 - JSON.stringify(doc.sections).length;
+    doc.sections[1].body = "x".repeat(pad);
+    await expect(reorderSections("k", doc.id, { order: ["sec1", "sec2"] })).rejects.toMatchObject({ status: 422,
+      message: "This document is too large to save (over 8 million characters); move some content to another document. Nothing was saved." });
+    expect(patched()).toBe(false);
+    doc.sections[1].body = "x".repeat(pad - 1);
+    await reorderSections("k", doc.id, { order: ["sec1", "sec2"] });
+    expect(patched()).toBe(true);
+  });
+});

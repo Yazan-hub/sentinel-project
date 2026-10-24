@@ -96,7 +96,8 @@ describe("migration 0038 — the database holds the bridge's write rules (SEC-1)
     expect(DOCS).toContain('const issued = await writeStatus(doc, "published");');
     expect(DOCS.indexOf('const issued = await writeStatus(doc, "published");')).toBeLessThan(DOCS.indexOf('await sb("bim_document_versions", { method: "POST"'));
     // every section writer lands only on the document as it was read, always (R1a: CAS even without updated_at)
-    expect(DOCS).toContain("const patchSections = (doc, sections) => writeDoc(doc, { sections }, `&status=in.(wip,shared)&updated_at=eq.${enc(doc.updated_at)}`);");
+    expect(DOCS).toContain("function patchSections(doc, sections) {");
+    expect(DOCS).toContain("  return writeDoc(doc, { sections }, `&status=in.(wip,shared)&updated_at=eq.${enc(doc.updated_at)}`);\n}");
     expect(DOCS).not.toContain("patchSections(doc, sections, updated_at)");
     expect(DOCS).toContain('prefer: "return=representation", service: true });\n  if (!Array.isArray(rows) || !rows.length) throw err(409, "the document changed or was issued meanwhile — nothing was saved");');
     expect(DOCS).toContain('await requireDocAccess(key, doc, "comment"); // 0038');
