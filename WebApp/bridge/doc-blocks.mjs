@@ -50,6 +50,8 @@ const refId = (v, at) => (typeof v === "string" && ID_RE.test(v) ? v : fail(at, 
 /** An id the block or row already has, or a fresh one. */
 const idOf = (v, at) => (v == null ? randomUUID() : refId(v, at));
 const keyOf = (v, at) => (typeof v === "string" && KEY_RE.test(v) ? v : fail(at, "must be lowercase letters, digits and underscores, starting with a letter"));
+/** A free-text name that is not blank (the same test the artefact store applies to naming field keys). */
+const nameOf = (v, at) => (typeof v === "string" && /[^\s\u0085]/.test(v) ? str(v, at, LIMITS.titleChars) : fail(at, "must be a non-empty text"));
 const isDate = (s) => {
   const t = DATE_RE.test(s) ? Date.parse(`${s}T00:00:00Z`) : NaN;
   return Number.isFinite(t) && new Date(t).toISOString().slice(0, 10) === s;
@@ -174,7 +176,7 @@ function naming(d, at) {
     separator,
     enforce: oneOf(d.enforce, `${at}.enforce`, ["reject", "warn", "off"], "reject"),
     fields: each(d.fields, `${at}.fields`, LIMITS.namingFields, "fields", (f, a) => ({
-      key: keyOf(f.key, `${a}.key`),
+      key: nameOf(f.key, `${a}.key`),
       label: str(f.label, `${a}.label`, LIMITS.titleChars),
       pattern: strOrNull(f.pattern, `${a}.pattern`, LIMITS.patternChars),
       enum: texts(f.enum, `${a}.enum`, LIMITS.titleChars),
@@ -230,14 +232,16 @@ export const blocksOf = (section) => (Array.isArray(section.blocks) ? section.bl
 
 const MARK_WORDS = { produces: "produces", contributes: "contributes", signs_off: "signs off" };
 const cellText = (v) => (v == null ? "" : String(v));
+/** An own property only: a column key such as "constructor" must not read the object's prototype. */
+const own = (o, k) => (Object.hasOwn(o, k) ? o[k] : null);
 const row = (...cells) => cells.join(" | ");
 
 /** The lines a (valid) block contributes below its title. */
 const LINES = {
   text: (d) => (d.markdown === "" ? [] : [d.markdown]),
-  table: (d) => (d.columns.length ? [row(...d.columns.map((c) => c.label)), ...d.rows.map((r) => row(...d.columns.map((c) => cellText(r.cells[c.key]))))] : []),
+  table: (d) => (d.columns.length ? [row(...d.columns.map((c) => c.label)), ...d.rows.map((r) => row(...d.columns.map((c) => cellText(own(r.cells, c.key)))))] : []),
   matrix: (d) => d.rows.map((r) => {
-    const marks = d.columns.filter((c) => r.marks[c.key]).map((c) => `${c.label} ${MARK_WORDS[r.marks[c.key]]}`);
+    const marks = d.columns.filter((c) => own(r.marks, c.key)).map((c) => `${c.label} ${MARK_WORDS[r.marks[c.key]]}`);
     return marks.length ? `${r.label}: ${marks.join("; ")}` : r.label;
   }),
   facts: (d) => [`Project facts: ${d.labels.join(", ")}`],

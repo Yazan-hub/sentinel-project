@@ -83,3 +83,19 @@ describe("derived body", () => {
     expect(() => applyOldPanelBody(titled, "x")).toThrow("This section has tables or other parts");
   });
 });
+
+describe("review fixes", () => {
+  it("naming field keys are free text, as the ruleset accepts them", () => {
+    const fields = [{ key: "docType", label: "Doc type", enum: ["DR"] }, { key: "subType", label: "Sub type", pattern: "^[A-Z]+$" }];
+    expect(validateBlock({ kind: "naming", data: { fields } }).data.fields.map((f) => f.key)).toEqual(["docType", "subType"]);
+    expect(bad({ kind: "naming", data: { fields: [{ key: "  ", label: "x" }] } })).toMatchObject({ status: 400 });
+    expect(bad({ kind: "naming", data: { fields: [{ label: "x" }] } })).toMatchObject({ status: 400 });
+    expect(bad({ kind: "naming", data: { fields: [{ key: "k".repeat(201), label: "x" }] } })).toMatchObject({ status: 400 });
+  });
+  it("a column named constructor reads as empty in the derived body, never as a prototype property", () => {
+    const t = validateBlock({ kind: "table", title: "T", data: { columns: [{ key: "constructor", label: "C", type: "text" }, { key: "n", label: "N", type: "text" }], rows: [{ cells: { n: "x" } }, { cells: { constructor: "y" } }] } });
+    expect(deriveBody([t])).toBe("T\nC | N\n | x\ny | ");
+    const m = validateBlock({ kind: "matrix", data: { columns: [{ key: "constructor", label: "C" }, { key: "arc", label: "ARC" }], rows: [{ label: "Walls", marks: { arc: "produces" } }] } });
+    expect(deriveBody([m])).toBe("Walls: ARC produces");
+  });
+});
