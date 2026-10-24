@@ -98,4 +98,13 @@ create or replace function public.bim_sections_ok(s jsonb) returns boolean
          end;
 $$;
 revoke execute on function public.bim_documents_insert_guard(), public.bim_documents_same_project() from public, anon, authenticated;
+
+-- 5 · backfill: every section without blocks gets one text block holding its body; updated_at is left as it was
+update public.bim_documents d
+   set sections = (select jsonb_agg(case when e.s ? 'blocks' then e.s
+                     else e.s || jsonb_build_object('blocks', jsonb_build_array(jsonb_build_object(
+                       'id', (e.s->>'id') || '.t0', 'kind', 'text', 'title', '',
+                       'data', jsonb_build_object('markdown', coalesce(e.s->>'body', ''))))) end order by e.o)
+                   from jsonb_array_elements(d.sections) with ordinality e(s, o))
+ where exists (select 1 from jsonb_array_elements(d.sections) x(s) where not x.s ? 'blocks');
 commit;

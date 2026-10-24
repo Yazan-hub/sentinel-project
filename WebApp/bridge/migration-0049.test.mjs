@@ -1,7 +1,9 @@
 // migration 0049 (BIM documents workspace R1a): dry-run on PGlite with every migration. Applying it live is the founder's.
 import { describe, it, expect, beforeAll } from "vitest";
 import { randomUUID as uuid } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { buildDb, as } from "./pglite-harness.mjs";
+import { instantiateTemplate, loadTemplates } from "./bimdocs-logic.mjs";
 let db, P, Q;
 const lead = { sub: uuid(), email: "lead@0049.test" }, contrib = { sub: uuid(), email: "c@0049.test" }, viewer = { sub: uuid(), email: "v@0049.test" }, owner = { sub: uuid(), email: "o@0049.test" };
 const insertDoc = (tx, extra = {}) => tx.query(
@@ -50,5 +52,52 @@ describe("0049 SQL parts 1-4 — columns and insert rules", () => {
     await expect(as(db, contrib, (tx) => insertDoc(tx, { sections: s([{ id: "b", kind: "script", data: {} }]) }))).rejects.toThrow(/bim_documents_sections_ok/);
     await expect(as(db, contrib, (tx) => insertDoc(tx, { sections: s([{ id: "b", kind: "text", data: "x" }]) }))).rejects.toThrow(/bim_documents_sections_ok/);
     await expect(as(db, contrib, (tx) => insertDoc(tx, { sections: s([{ id: "b", kind: "text", data: { markdown: "" } }]) }))).resolves.toBeTruthy();
+  });
+});
+
+const P0_02 = readFileSync(new URL("../../docs/testing/snowdon-lifecycle/P0/P0-02_Pre-appointment_BEP.md", import.meta.url), "utf8");
+// The ten bodies as pasted in the P0 run: the text under each "## N. " heading.
+const snowdonSections = () => P0_02.split(/^## \d+\. .*$/m).slice(1).map((body, i) => ({ id: uuid(), heading: `${i + 1}.`, guidance: "", body, state: "wip", owner: "lead@0049.test", bindings: {} }));
+const strip = (sections) => sections.map(({ blocks, ...s }) => s);
+
+describe("0049 SQL part 5 — existing documents migrate unchanged", () => {
+  let old, ids;
+  beforeAll(async () => {
+    old = await buildDb({ before: "0049_bim_document_blocks.sql" });
+    const p = (await old.query("insert into public.projects(key, name) values ('snw', 'S') returning id")).rows[0].id;
+    const readiness = instantiateTemplate(loadTemplates().find((t) => t.doc_type === "READINESS"));
+    const declared = readiness.sections.find((s) => s.kind === "declared");
+    Object.assign(declared, { answer: { value: "partial", note: "n", by: "a@b", at: "2026-10-23T00:00:00Z" }, due: "2026-11-01" });
+    ids = {};
+    for (const [name, sections] of [["bep", snowdonSections()], ["readiness", strip(readiness.sections)]])
+      ids[name] = (await old.query("insert into public.bim_documents(project_id, doc_type, title, status, sections, updated_at) values ($1, $2, $2, 'published', $3, '2026-10-23T12:00:04Z') returning id",
+        [p, name.toUpperCase(), JSON.stringify(sections)])).rows[0].id;
+    ids.before = Object.fromEntries((await old.query("select id, sections, updated_at from public.bim_documents")).rows.map((r) => [r.id, r]));
+    await old.exec(readFileSync(new URL("../db/migrations/0049_bim_document_blocks.sql", import.meta.url), "utf8"));
+  }, 60_000);
+  it("every section keeps every field and gains one text block holding its body", async () => {
+    for (const r of (await old.query("select id, sections, updated_at from public.bim_documents")).rows) {
+      const before = ids.before[r.id];
+      expect(strip(r.sections)).toEqual(before.sections);
+      for (const s of r.sections) expect(s.blocks).toEqual([{ id: `${s.id}.t0`, kind: "text", title: "", data: { markdown: s.body } }]);
+      expect(r.updated_at).toEqual(before.updated_at);
+    }
+  });
+  it("Snowdon's ten bodies, pipe tables included, are byte for byte the same", async () => {
+    const r = (await old.query("select sections from public.bim_documents where id = $1", [ids.bep])).rows[0];
+    expect(r.sections).toHaveLength(10);
+    expect(r.sections.map((s) => s.body)).toEqual(snowdonSections().map((s) => s.body));
+    expect(r.sections.some((s) => s.body.includes("|---|"))).toBe(true);
+  });
+  it("READINESS keeps its answers, due dates and bindings", async () => {
+    const s = (await old.query("select sections from public.bim_documents where id = $1", [ids.readiness])).rows[0].sections;
+    expect(s.find((x) => x.answer)).toMatchObject({ answer: { value: "partial" }, due: "2026-11-01", kind: "declared" });
+    expect(s.filter((x) => x.bindings?.checks?.length).length).toBeGreaterThan(0);
+  });
+  it("running the backfill twice changes nothing", async () => {
+    const once = (await old.query("select sections from public.bim_documents order by id")).rows;
+    const sql = readFileSync(new URL("../db/migrations/0049_bim_document_blocks.sql", import.meta.url), "utf8").replace(/\r/g, ""); // CRLF-safe, as 0045/0047
+    await old.exec(/-- 5 ·[\s\S]*?;\n/.exec(sql)[0]);
+    expect((await old.query("select sections from public.bim_documents order by id")).rows).toEqual(once);
   });
 });
