@@ -253,16 +253,19 @@ const LINES = {
   references: (d) => d.rows.map((r) => `${r.title} ${r.version} — ${r.issuer}${r.received ? `, received ${r.received}` : ""}`),
 };
 
-/** The plain-text body of a list of blocks. Never throws: a block that does not validate is left out. */
+/** The plain-text body of a list of blocks. Never throws: a block that does not validate is left out — except a text block,
+ *  which keeps its stored text even over a limit (the body derives from what is stored). */
 export function deriveBody(blocks) {
   const parts = [];
   for (const raw of Array.isArray(blocks) ? blocks : []) {
+    let b;
     try {
-      const b = validateBlock(raw);
-      parts.push([...(b.title ? [b.title] : []), ...LINES[b.kind](b.data)].join("\n"));
+      b = validateBlock(raw);
     } catch {
-      // not a valid block: nothing to say about it in the body
+      if (raw?.kind !== "text" || typeof raw.data?.markdown !== "string") continue; // not a valid block: nothing to say about it
+      b = { kind: "text", title: typeof raw.title === "string" ? raw.title : "", data: { markdown: raw.data.markdown } };
     }
+    parts.push([...(b.title ? [b.title] : []), ...LINES[b.kind](b.data)].join("\n"));
   }
   return parts.join("\n\n");
 }
@@ -275,6 +278,9 @@ export function applyOldPanelBody(section, body) {
   const blocks = blocksOf(section);
   if (blocks.length > 1 || (blocks.length === 1 && (blocks[0]?.kind !== "text" || blocks[0].title))) {
     throw Object.assign(new Error("This section has tables or other parts; edit it in the workspace. Nothing was saved."), { status: 422 });
+  }
+  if (typeof body === "string" && body.length > LIMITS.markdownChars) {
+    throw Object.assign(new Error("This section's text is longer than 100,000 characters. Nothing was saved."), { status: 422 });
   }
   const block = validateBlock(textBlock(body, blocks[0]?.id ?? `${section.id}.t0`));
   return { blocks: [block], body };

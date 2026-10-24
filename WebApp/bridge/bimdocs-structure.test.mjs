@@ -247,3 +247,38 @@ describe("versions go through the bridge (0049: no signed-in insert, direct read
     } finally { globalThis.__testRole = undefined; }
   });
 });
+
+const patched = () => sb.mock.calls.some(([, o]) => o?.method === "PATCH");
+describe("final review: the ledger row never throws after a write; over-long text is refused in words", () => {
+  it("a section stored with no body still saves a block edit and its ledger row", async () => {
+    doc.sections[0] = { id: "sec1", heading: "H1", state: "wip", owner: null, bindings: {}, blocks: [{ id: "sec1.t0", kind: "text", title: "", data: { markdown: "" } }] };
+    await editBlock("k", doc.id, "sec1", "sec1.t0", { data: { markdown: "now" } });
+    expect(sentSections()[0].body).toBe("now");
+    expect(audit).toHaveBeenCalledWith("proj1", "bim_document", doc.id, "block_changed", "web",
+      expect.objectContaining({ body_chars: 0 }), expect.objectContaining({ op: "edit", body_chars: 3 }));
+  });
+  it("a section stored with no body still saves a state change and its ledger row", async () => {
+    delete doc.sections[0].body;
+    await patchSection("k", doc.id, "sec1", { state: "shared" });
+    expect(audit).toHaveBeenCalledWith("proj1", "bim_document", doc.id, "section_updated", "web",
+      expect.objectContaining({ body_chars: 0 }), expect.objectContaining({ state: "shared", body_chars: 0 }));
+  });
+  it("a text block stored over 100,000 characters keeps its text in the body after a block op", async () => {
+    const long = "x".repeat(100001);
+    doc.sections[0] = { ...doc.sections[0], body: long, blocks: [{ id: "sec1.t0", kind: "text", title: "", data: { markdown: long } }] };
+    await addBlock("k", doc.id, "sec1", { kind: "text", data: { markdown: "more" } });
+    expect(sentSections()[0].body).toBe(`${long}\n\nmore`);
+  });
+  it("the old panel refuses a body over 100,000 characters in words", async () => {
+    await expect(patchSection("k", doc.id, "sec1", { body: "x".repeat(100001) })).rejects.toMatchObject({ status: 422, message: "This section's text is longer than 100,000 characters. Nothing was saved." });
+    expect(patched()).toBe(false);
+  });
+  it("ingest refuses a section over 100,000 characters before any write", async () => {
+    const sections = [{ heading: "Scope", body: "ok" }, { heading: "Appendix A", body: "x".repeat(100001) }];
+    const message = 'The section "Appendix A" is longer than 100,000 characters; split it before importing. Nothing was saved.';
+    expect(() => validateSections(sections)).toThrow(expect.objectContaining({ status: 422, message }));
+    await expect(createDocFromIngest("k", { doc_type: "EIR", sections })).rejects.toMatchObject({ status: 422, message });
+    expect(sb).not.toHaveBeenCalled();
+    expect(validateSections([{ heading: "Scope", body: "x".repeat(100000) }])[0].body).toHaveLength(100000);
+  });
+});

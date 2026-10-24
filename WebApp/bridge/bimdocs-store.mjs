@@ -16,6 +16,11 @@ const one = (rows) => (Array.isArray(rows) ? rows[0] : rows);
 const err = (status, message) => Object.assign(new Error(message), { status });
 const enc = encodeURIComponent;
 const h8 = (text) => createHash("sha256").update(text).digest("hex").slice(0, 8);
+/** A section body's size and short hash for its ledger row. It runs after the write, so it never throws, whatever was stored. */
+const bodyFacts = (body) => {
+  const text = String(body ?? "");
+  return { body_chars: text.length, body_sha8: h8(text) };
+};
 // bim_documents has no signed-in UPDATE (0038): every document write below runs after this file's own role check and goes with
 // the service key, filtered on the document as it was read. A write that came back with no row is a 409 in words, BEFORE its
 // ledger row (H0 D5).
@@ -88,8 +93,8 @@ export async function patchSection(key, docId, sectionId, { body, owner, state, 
   const sections = doc.sections.map((s, j) => (j === i ? next : s));
   const row = await patchSections(doc, sections);
   await audit(doc.project_id, "bim_document", docId, "section_updated", actor || "web",
-    { section: old.heading, state: old.state, owner: old.owner, body_chars: old.body.length, body_sha8: h8(old.body) },
-    { section: next.heading, state: next.state, owner: next.owner, body_chars: next.body.length, body_sha8: h8(next.body) });
+    { section: old.heading, state: old.state, owner: old.owner, ...bodyFacts(old.body) },
+    { section: next.heading, state: next.state, owner: next.owner, ...bodyFacts(next.body) });
   return row;
 }
 
@@ -150,13 +155,16 @@ export function validateSections(sections) {
   return sections.map((s, i) => {
     if (typeof s !== "object" || s === null || Array.isArray(s)) throw err(400, `sections[${i}] must be an object`);
     if (!s.heading) throw err(400, `sections[${i}].heading is required`);
+    const body = s.body || "";
+    if (typeof body !== "string") throw err(400, `sections[${i}].body must be text`); // the ingest ledger row reads it after the insert
+    if (body.length > LIMITS.markdownChars) throw err(422, `The section "${s.heading}" is longer than 100,000 characters; split it before importing. Nothing was saved.`);
     const id = randomUUID();
     return {
       id,
       heading: s.heading,
       guidance: s.guidance || "",
-      body: s.body || "",
-      blocks: [textBlock(s.body || "", `${id}.t0`)],
+      body,
+      blocks: [textBlock(body, `${id}.t0`)],
       state: "wip",
       owner: null,
       bindings: {}, // reserved for sub-project 3 — never populated by ingestion
@@ -371,7 +379,7 @@ export async function reorderSections(key, docId, { order, updated_at, actor } =
 
 // ── Block operations — a contributor's; each re-derives the section's plain-text body and ledgers block_changed.
 const withBlocks = (section, blocks) => ({ ...section, blocks, body: deriveBody(blocks) });
-const blockFacts = (s, extra) => ({ section: s.heading, ...extra, body_chars: s.body.length, body_sha8: h8(s.body) });
+const blockFacts = (s, extra) => ({ section: s.heading, ...extra, ...bodyFacts(s.body) });
 const findBlock = (blocks, id) => {
   const i = blocks.findIndex((b) => b.id === id);
   if (i < 0) throw err(404, "block not found");
