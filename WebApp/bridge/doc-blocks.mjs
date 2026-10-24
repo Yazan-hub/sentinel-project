@@ -219,3 +219,59 @@ export function validateBlock(raw, path = "block") {
   const data = NORMALISE[kind](obj(b.data, `${path}: data`), `${path}: data`);
   return { id, kind, title, data };
 }
+
+// ---- the plain-text body derived from blocks, and how the old (text-only) panel reads and writes it ----
+
+/** A text block holding `markdown`. */
+export const textBlock = (markdown, id) => ({ id, kind: "text", title: "", data: { markdown } });
+
+/** A section's blocks: the stored list, or — for a section stored before blocks — its body as one text block with a stable id. */
+export const blocksOf = (section) => (Array.isArray(section.blocks) ? section.blocks : [textBlock(section.body ?? "", `${section.id}.t0`)]);
+
+const MARK_WORDS = { produces: "produces", contributes: "contributes", signs_off: "signs off" };
+const cellText = (v) => (v == null ? "" : String(v));
+const row = (...cells) => cells.join(" | ");
+
+/** The lines a (valid) block contributes below its title. */
+const LINES = {
+  text: (d) => (d.markdown === "" ? [] : [d.markdown]),
+  table: (d) => (d.columns.length ? [row(...d.columns.map((c) => c.label)), ...d.rows.map((r) => row(...d.columns.map((c) => cellText(r.cells[c.key]))))] : []),
+  matrix: (d) => d.rows.map((r) => {
+    const marks = d.columns.filter((c) => r.marks[c.key]).map((c) => `${c.label} ${MARK_WORDS[r.marks[c.key]]}`);
+    return marks.length ? `${r.label}: ${marks.join("; ")}` : r.label;
+  }),
+  facts: (d) => [`Project facts: ${d.labels.join(", ")}`],
+  live_view: (d) => [`Live list: ${d.source}${d.filter.team ? ` (team ${d.filter.team})` : ""}`],
+  proposed_changes: (d) => (d.changes.length ? d.changes.map((c) => `${c.field_key}: ${c.change} — ${c.detail} (${c.reason})`) : ["No proposed changes"]),
+  eir_link: (d) => [`Answers EIR clauses: ${d.clauses.map((c) => c.clause_id).join(", ")}`],
+  loin: (d) => [row("Element", "Milestone", "Property", "Value", "Used by", "Why"), ...d.rows.map((r) => row(r.element, r.milestone, r.property, r.value, r.used_by, r.why))],
+  naming: (d) => [`Naming rule: ${d.fields.map((f) => f.key).join(d.separator)} (${d.enforce})`, ...d.fields.map((f) => `${f.label}: ${f.pattern ?? f.enum.join(", ")}`)],
+  references: (d) => d.rows.map((r) => `${r.title} ${r.version} — ${r.issuer}${r.received ? `, received ${r.received}` : ""}`),
+};
+
+/** The plain-text body of a list of blocks. Never throws: a block that does not validate is left out. */
+export function deriveBody(blocks) {
+  const parts = [];
+  for (const raw of Array.isArray(blocks) ? blocks : []) {
+    try {
+      const b = validateBlock(raw);
+      parts.push([...(b.title ? [b.title] : []), ...LINES[b.kind](b.data)].join("\n"));
+    } catch {
+      // not a valid block: nothing to say about it in the body
+    }
+  }
+  return parts.join("\n\n");
+}
+
+/**
+ * What the old panel's body save does to a text-only section (no blocks, or one text block with no title):
+ * the body becomes that one text block. Any other section is refused, since a body save would flatten its parts.
+ */
+export function applyOldPanelBody(section, body) {
+  const blocks = blocksOf(section);
+  if (blocks.length > 1 || (blocks.length === 1 && (blocks[0]?.kind !== "text" || blocks[0].title))) {
+    throw Object.assign(new Error("This section has tables or other parts; edit it in the workspace. Nothing was saved."), { status: 422 });
+  }
+  const block = validateBlock(textBlock(body, blocks[0]?.id ?? `${section.id}.t0`));
+  return { blocks: [block], body };
+}

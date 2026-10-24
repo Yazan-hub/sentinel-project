@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { BLOCK_KINDS, emptyData, validateBlock } from "./doc-blocks.mjs";
+import { textBlock, blocksOf, deriveBody, applyOldPanelBody } from "./doc-blocks.mjs";
 const bad = (b) => { try { validateBlock(b); } catch (e) { return e; } throw new Error("accepted"); };
 
 describe("validateBlock — text, table, matrix, facts, live view", () => {
@@ -57,5 +58,28 @@ describe("validateBlock — the other five kinds and the limits", () => {
     expect(bad({ kind: "loin", data: { rows: Array.from({ length: 501 }, () => ({})) } }).message).toMatch(/at most 500 rows/);
     expect(bad({ kind: "text", data: { markdown: "x".repeat(100001) } })).toMatchObject({ status: 400 });
     expect(bad({ kind: "text", title: "t".repeat(201), data: { markdown: "" } })).toMatchObject({ status: 400 });
+  });
+});
+
+describe("derived body", () => {
+  const bodies = ["", "plain", "| Event | Date |\n|---|---|\n| Award | 2026-11-13 |", "line\r\nwindows\r\n", "naïve – 🏗️ ✓"];
+  it("one text block derives exactly its markdown", () => { for (const b of bodies) expect(deriveBody([textBlock(b, "s.t0")])).toBe(b); });
+  it("a table flattens to lines", () => expect(deriveBody([validateBlock({ kind: "table", title: "Dates", data: {
+    columns: [{ key: "e", label: "Event", type: "text" }, { key: "d", label: "Date", type: "date" }], rows: [{ cells: { e: "Award", d: "2026-11-13" } }, { cells: { e: "Start" } }] } })]))
+    .toBe("Dates\nEvent | Date\nAward | 2026-11-13\nStart | "));
+  it("blocks join with a blank line and a bad block is skipped, never thrown", () =>
+    expect(deriveBody([textBlock("a", "x"), { kind: "table", data: null }, 5, null, textBlock("b", "y")])).toBe("a\n\nb"));
+  it("a section with no blocks reads as one text block with a stable id", () =>
+    expect(blocksOf({ id: "s1", body: "x" })).toEqual([{ id: "s1.t0", kind: "text", title: "", data: { markdown: "x" } }]));
+  it("old panel: replaces the one text block, or adds one", () => {
+    expect(applyOldPanelBody({ id: "s1", blocks: [textBlock("old", "s1.t0")] }, "new")).toEqual({ blocks: [textBlock("new", "s1.t0")], body: "new" });
+    expect(applyOldPanelBody({ id: "s1", blocks: [] }, "new").blocks).toEqual([textBlock("new", "s1.t0")]);
+  });
+  it("old panel: refuses a section with any other block, in words", () => {
+    const s = { id: "s1", blocks: [textBlock("a", "s1.t0"), textBlock("b", "b2")] };
+    let e; try { applyOldPanelBody(s, "x"); } catch (x) { e = x; }
+    expect(e).toMatchObject({ status: 422, message: "This section has tables or other parts; edit it in the workspace. Nothing was saved." });
+    const titled = { id: "s1", blocks: [{ ...textBlock("a", "s1.t0"), title: "Intro" }] };
+    expect(() => applyOldPanelBody(titled, "x")).toThrow("This section has tables or other parts");
   });
 });
