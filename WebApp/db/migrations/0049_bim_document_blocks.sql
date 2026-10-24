@@ -29,6 +29,13 @@
 --                   or coalesce(x->>'id', '') !~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$')
 --           end;
 --   $$;
+--   -- part 6: drop trigger trg_bimdoc_versions_insert_guard on public.bim_document_versions; drop function public.bim_document_versions_insert_guard();
+--   alter table public.bim_document_versions drop column sha, drop column stage, drop column suitability, drop column revision, drop column round_id;
+--   drop policy bim_document_versions_sel on public.bim_document_versions; drop policy bim_document_versions_ins on public.bim_document_versions;
+--   create policy bim_document_versions_sel on public.bim_document_versions for select to authenticated
+--     using (auth.uid() is null or public.is_member((select d.project_id from public.bim_documents d where d.id = document_id)));   -- 0027
+--   create policy bim_document_versions_ins on public.bim_document_versions for insert to authenticated
+--     with check (auth.uid() is null or public.has_min_role((select d.project_id from public.bim_documents d where d.id = document_id), 'lead'));   -- 0033
 
 begin;
 -- 1 · document columns (design §4, §10)
@@ -107,4 +114,30 @@ update public.bim_documents d
                        'data', jsonb_build_object('markdown', coalesce(e.s->>'body', ''))))) end order by e.o)
                    from jsonb_array_elements(d.sections) with ordinality e(s, o))
  where exists (select 1 from jsonb_array_elements(d.sections) x(s) where not x.s ? 'blocks');
+
+-- 6 � versions: service-only insert, sha computed here, snapshot tied to the document and its current sections; direct read contributor and above
+alter table public.bim_document_versions
+  add column if not exists sha text, add column if not exists stage text, add column if not exists suitability text,
+  add column if not exists revision text, add column if not exists round_id uuid;
+create or replace function public.bim_document_versions_insert_guard() returns trigger
+  language plpgsql security definer set search_path = public as $$
+declare d public.bim_documents;
+begin
+  if auth.uid() is not null then raise exception 'a document version is recorded by Sentinel only: publish from the document'; end if;
+  select * into d from public.bim_documents where id = new.document_id;
+  if not found then raise exception 'no such document'; end if;
+  if new.snapshot->>'id' is distinct from new.document_id::text then raise exception 'the snapshot is of another document'; end if;
+  if new.snapshot->'sections' is distinct from d.sections then raise exception 'the snapshot''s sections are not the document''s current sections'; end if;
+  new.sha := encode(sha256(convert_to(new.snapshot::text, 'UTF8')), 'hex');
+  new.stage := d.stage;
+  new.suitability := d.suitability;
+  return new;
+end $$;
+drop trigger if exists trg_bimdoc_versions_insert_guard on public.bim_document_versions;
+create trigger trg_bimdoc_versions_insert_guard before insert on public.bim_document_versions for each row execute function public.bim_document_versions_insert_guard();
+drop policy if exists bim_document_versions_ins on public.bim_document_versions;
+drop policy if exists bim_document_versions_sel on public.bim_document_versions;
+create policy bim_document_versions_sel on public.bim_document_versions for select to authenticated
+  using (public.has_min_role((select d.project_id from public.bim_documents d where d.id = document_id), 'contributor'));
+revoke execute on function public.bim_document_versions_insert_guard() from public, anon, authenticated;
 commit;

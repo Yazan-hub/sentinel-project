@@ -101,3 +101,34 @@ describe("0049 SQL part 5 — existing documents migrate unchanged", () => {
     expect((await old.query("select sections from public.bim_documents order by id")).rows).toEqual(once);
   });
 });
+
+const version = (tx, docId, snapshot, n = 1) => tx.query(
+  "insert into public.bim_document_versions(document_id, version_no, snapshot, label, published_by) values ($1, $2, $3, 'v', 'x') returning sha, stage, suitability", [docId, n, JSON.stringify(snapshot)]).then((r) => r.rows[0]);
+const docRow = (tx, id) => tx.query("select to_jsonb(d) as j from public.bim_documents d where id = $1", [id]).then((r) => r.rows[0].j);
+describe("0049 SQL part 6 — versions", () => {
+  it("the service key records a version whose sha the database computes", () => as(db, "service", async (tx) => {
+    const id = await insertDoc(tx, { sections: [{ id: "s1", state: "wip", body: "a", blocks: [] }] });
+    const snap = await docRow(tx, id);
+    const v = await version(tx, id, snap);
+    expect(v).toEqual({ sha: (await tx.query("select encode(sha256(convert_to($1::jsonb::text, 'UTF8')), 'hex') as h", [JSON.stringify(snap)])).rows[0].h, stage: "pre_appointment", suitability: "S0" });
+  }));
+  it("a lead's forged insert through PostgREST is refused", async () => {
+    await expect(as(db, lead, async (tx) => { const d = await insertDoc(tx); return version(tx, d, await docRow(tx, d)); })).rejects.toThrow(/recorded by Sentinel only|row-level security/);
+  });
+  it("a snapshot of another document, or of other sections, is refused", () => as(db, "service", async (tx) => {
+    const a = await insertDoc(tx, { sections: [{ id: "s1", state: "wip", body: "a" }] }), b = await insertDoc(tx);
+    const other = await docRow(tx, b), snap = await docRow(tx, a); snap.sections[0].body = "edited";
+    await tx.query("savepoint sp1"); // a refused insert aborts the transaction: roll back to the savepoint between the two
+    await expect(version(tx, a, other)).rejects.toThrow(/another document/);
+    await tx.query("rollback to savepoint sp1");
+    await expect(version(tx, a, snap)).rejects.toThrow(/current sections/);
+  }));
+  it("a viewer reads no version directly; a contributor does", async () => {
+    const seedVersion = async (tx) => { const d = await insertDoc(tx); await version(tx, d, await docRow(tx, d)); return d; };
+    const count = (who) => as(db, "service", async (tx) => { await seedVersion(tx); await tx.query(`set local role authenticated`);
+      await tx.query(`select set_config('request.jwt.claims', $1, true)`, [JSON.stringify({ sub: who.sub, role: "authenticated" })]);
+      return Number((await tx.query("select count(*) from public.bim_document_versions")).rows[0].count); });
+    expect(await count(viewer)).toBe(0);
+    expect(await count(contrib)).toBeGreaterThan(0);
+  });
+});

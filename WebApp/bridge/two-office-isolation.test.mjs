@@ -56,7 +56,7 @@ async function seedTenant(tag, user) {
   await db.query(`insert into public.deliverables(project_id, container_name, title) values ($1, $2, 'd')`, [t.proj, `PROJ-${tag}.ifc`]);
   await db.query(`insert into public.task_teams(project_id, code, name) values ($1, 'ARC', 'Architecture')`, [t.proj]);
   t.doc = (await q(`insert into public.bim_documents(project_id, doc_type, title) values ($1, 'BEP', $2) returning id`, [t.proj, `BEP ${tag}`])).id;
-  await db.query(`insert into public.bim_document_versions(document_id, version_no, snapshot) values ($1, 1, '{}')`, [t.doc]);
+  await db.query(`insert into public.bim_document_versions(document_id, version_no, snapshot) values ($1, 1, (select to_jsonb(d) from public.bim_documents d where d.id = $1))`, [t.doc]);
   await db.query(`insert into public.audit_log(project_id, entity_type, entity_id, action, actor) values ($1, 'file', $2, 'seed', 'test')`, [t.proj, t.container]);
   t.topic = uuid();
   await db.query(`insert into public.bcf_topics(guid, project_id, data) values ($1, $2, $3)`, [t.topic, t.projKey, JSON.stringify({ guid: t.topic })]);
