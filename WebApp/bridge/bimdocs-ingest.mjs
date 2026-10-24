@@ -69,7 +69,10 @@ export async function ingestDocument(buffer, { filename, doc_type, project_id } 
   // Store the original BEFORE the AI work: a 503 from an unreachable model must not cost the upload.
   const file_id = `${randomUUID()}${extname(String(filename || "")).toLowerCase()}`;
   writeFileSync(join(dir, file_id), Buffer.from(buffer));
-  const source = { file_id, name: basename(String(filename || "document")), kind, pages: pages.length, ingested_at: new Date().toISOString() };
+  // The commit refuses a name or title over 200 characters (titleChars): a long file name is shortened here, extension kept.
+  const full = basename(String(filename || "document")), ext = extname(full);
+  const name = full.length > 200 ? full.slice(0, Math.max(0, 200 - ext.length)) + ext.slice(0, 200) : full;
+  const source = { file_id, name, kind, pages: pages.length, ingested_at: new Date().toISOString() };
   const results = [];
   for (const chunk of chunks) {
     const { system, user } = buildMappingPrompt(tpl.sections, chunk);

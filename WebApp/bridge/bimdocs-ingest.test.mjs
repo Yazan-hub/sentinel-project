@@ -74,6 +74,14 @@ describe("ingestDocument chunk-count cap", () => {
     expect(readdirSync(dir, { recursive: true }).map(String).filter((f) => /\.[a-z0-9]+$/i.test(f))).toEqual([]);
   });
 
+  it("a file name over 200 characters is shortened, extension kept, so the commit never refuses ingest's own title", async () => {
+    chat.mockResolvedValue({ text: '{"assignments":[]}' });
+    const { source, title } = await ingestDocument(buf, { ...opts, filename: `${"n".repeat(300)}.docx` });
+    expect(source.name).toBe(`${"n".repeat(195)}.docx`);
+    expect(title).toBe("n".repeat(195));
+    expect((await ingestDocument(buf, opts)).source.name).toBe("doc.txt");
+  });
+
   it("a small document (well under the cap) still succeeds", async () => {
     chat.mockResolvedValue({ text: '{"assignments":[]}' });
     const result = await ingestDocument(buf, opts);
