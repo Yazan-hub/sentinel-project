@@ -36,6 +36,15 @@ describe("0049 SQL parts 1-4 — columns and insert rules", () => {
     const other = await insertDoc(tx, { project: Q });
     await expect(insertDoc(tx, { responds_to: other })).rejects.toThrow(/its own project only/);
   }));
+  it("a document cannot answer itself, a version must exist, a version needs responds_to", async () => {
+    await expect(as(db, "service", async (tx) => { const a = await insertDoc(tx); await tx.query("update public.bim_documents set responds_to = id where id = $1", [a]); })).rejects.toThrow(/cannot answer itself/);
+    await expect(as(db, "service", async (tx) => { const a = await insertDoc(tx), b = await insertDoc(tx); await tx.query("update public.bim_documents set responds_to = $2, responds_to_version = 3 where id = $1", [b, a]); })).rejects.toThrow(/has no version/);
+    await expect(as(db, "service", async (tx) => { const a = await insertDoc(tx); await tx.query("update public.bim_documents set responds_to_version = 1 where id = $1", [a]); })).rejects.toThrow(/bim_documents_responds_pair/);
+  });
+  it("moving a responding or an answered document to another project is refused", async () => {
+    await expect(as(db, "service", async (tx) => { const a = await insertDoc(tx), b = await insertDoc(tx, { responds_to: a }); await tx.query("update public.bim_documents set project_id = $2 where id = $1", [b, Q]); })).rejects.toThrow(/its own project only/);
+    await expect(as(db, "service", async (tx) => { const a = await insertDoc(tx); await insertDoc(tx, { responds_to: a }); await tx.query("update public.bim_documents set project_id = $2 where id = $1", [a, Q]); })).rejects.toThrow(/stays in its project/);
+  });
   it("a block that is not an object with an id, a known kind and object data is refused", async () => {
     const s = (blocks) => [{ id: "s1", state: "wip", heading: "H", body: "", blocks }];
     await expect(as(db, contrib, (tx) => insertDoc(tx, { sections: s([{ id: "b", kind: "script", data: {} }]) }))).rejects.toThrow(/bim_documents_sections_ok/);
