@@ -5,6 +5,7 @@ describe("oldPanelEditable", () => {
     expect(oldPanelEditable({})).toBe(true);
     expect(oldPanelEditable({ blocks: [] })).toBe(true);
     expect(oldPanelEditable({ blocks: [{ kind: "text" }] })).toBe(true);
+    expect(oldPanelEditable({ blocks: [{ kind: "text", title: "" }] })).toBe(true);
   });
   it("any other block makes it read-only there, with the bridge's words", () => {
     expect(oldPanelEditable({ blocks: [{ kind: "text" }, { kind: "table" }] })).toBe(false);

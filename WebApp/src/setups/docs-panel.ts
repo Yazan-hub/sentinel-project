@@ -741,6 +741,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
       ta.value = s.body;
       ta.defaultValue = ta.value; // the loaded value — dirty() compares against it
       ta.disabled = !editable || !oldPanelEditable(s);
+      if (!oldPanelEditable(s)) ta.title = OLD_PANEL_NOTE; // the note below, also on the disabled field itself
       ta.style.cssText = "min-height:110px;background:#1f1f27;border:1px solid #2c2c34;color:#e5e7eb;border-radius:.35rem;padding:.45rem;font:12px/1.5 ui-monospace,monospace;resize:vertical";
       const noteEl = document.createElement("div");
       noteEl.textContent = OLD_PANEL_NOTE;
@@ -752,6 +753,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
       ownerIn.value = s.owner || "";
       ownerIn.defaultValue = ownerIn.value;
       ownerIn.disabled = !editable || !canGovern();
+      if (editable && !canGovern()) ownerIn.title = "A lead or the owner names the section lead.";
       ownerIn.style.cssText = "background:#1f1f27;border:1px solid #2c2c34;color:#c9cfda;border-radius:.35rem;padding:.3rem .4rem;width:180px";
       const stateSel = document.createElement("select");
       stateSel.disabled = !editable;
