@@ -66,6 +66,7 @@ describe("POST /cde/:key/audit (recordAudit) — Sentinel's own rows are refused
     // The Holding Area (phase 6a): a hold is the bridge's own row, and Revit's gate row goes through the machine-only route.
     [{ entity_type: "event", action: "hold:ids Tower.ifc" }, "hold: rows are written by Sentinel, not through this route"],
     [{ entity_type: "event", action: " HOLD:dismissed Tower.ifc" }, "hold: rows are written by Sentinel, not through this route"],
+    [{ entity_type: "bim_document", action: "document_structure_changed" }, "document_structure_changed rows are written by Sentinel, not through this route"],
     [{ entity_type: "hold", action: "recorded" }, "hold rows are written by Sentinel, not through this route"],
     [{ entity_type: " Hold ", action: "recorded" }, "hold rows are written by Sentinel, not through this route"],
     [{ entity_type: "delivery_gate", action: "IFC delivery gate PASS: tower.ifc" }, "delivery_gate rows are written by Sentinel, not through this route"],

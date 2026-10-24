@@ -125,3 +125,52 @@ describe("old panel save rule", () => {
     expect(posted()).toMatchObject({ template_id: "eir", template_version: 1 });
   });
 });
+
+const { addSection, removeSection, renameSection, reorderSections, transitionDoc } = await import("./bimdocs-store.mjs");
+const sentSections = () => sb.mock.calls.find(([, o]) => o?.method === "PATCH")[1].body.sections;
+describe("section operations (lead and above, ledgered with the outline)", () => {
+  beforeEach(() => { doc.sections.push({ id: "sec2", heading: "H2", body: "", state: "wip", owner: null, bindings: { checks: [{ id: "naming.containers", params: {} }] }, blocks: [] }); });
+  it("adds after a section, with one empty text block", async () => {
+    await addSection("k", doc.id, { heading: " Risks ", after: "sec1" });
+    const s = sentSections();
+    expect(s.map((x) => x.heading)).toEqual(["H1", "Risks", "H2"]);
+    expect(s[1].blocks).toEqual([{ id: `${s[1].id}.t0`, kind: "text", title: "", data: { markdown: "" } }]);
+    expect(audit).toHaveBeenCalledWith("proj1", "bim_document", doc.id, "document_structure_changed", "web",
+      { outline: [{ id: "sec1", heading: "H1" }, { id: "sec2", heading: "H2" }] },
+      expect.objectContaining({ op: "add", section_id: s[1].id, outline: expect.arrayContaining([{ id: s[1].id, heading: "Risks" }]) }));
+  });
+  it("renames and reorders", async () => {
+    await renameSection("k", doc.id, "sec1", { heading: "Project information" });
+    expect(sentSections()[0].heading).toBe("Project information");
+    sb.mockClear();
+    await reorderSections("k", doc.id, { order: ["sec2", "sec1"] });
+    expect(sentSections().map((x) => x.id)).toEqual(["sec2", "sec1"]);
+    await expect(reorderSections("k", doc.id, { order: ["sec2"] })).rejects.toMatchObject({ status: 400, message: "the new order must name every section once" });
+  });
+  it("removing a bound section asks first and names the check that left", async () => {
+    await expect(removeSection("k", doc.id, "sec2", {})).rejects.toMatchObject({ status: 422, message: "This section is bound to checks (naming.containers); confirm to remove it. Nothing was saved." });
+    await removeSection("k", doc.id, "sec2", { confirm_bound: true });
+    expect(audit).toHaveBeenLastCalledWith("proj1", "bim_document", doc.id, "document_structure_changed", "web", expect.anything(),
+      expect.objectContaining({ op: "remove", section_id: "sec2", checks_removed: ["naming.containers"] }));
+  });
+  it("refuses an empty heading, the last section, and a contributor", async () => {
+    await expect(addSection("k", doc.id, { heading: "  " })).rejects.toMatchObject({ status: 400, message: "a section needs a heading" });
+    doc.sections = doc.sections.slice(0, 1);
+    await expect(removeSection("k", doc.id, "sec1", {})).rejects.toMatchObject({ status: 422, message: "A document keeps at least one section. Nothing was saved." });
+    globalThis.__testRole = "contributor";
+    try {
+      await expect(renameSection("k", doc.id, "sec1", { heading: "X" })).rejects.toMatchObject({ status: 403 });
+    } finally {
+      globalThis.__testRole = undefined;
+    }
+  });
+  it("refuses a published document", async () => { doc.status = "published"; await expect(addSection("k", doc.id, { heading: "X" })).rejects.toMatchObject({ status: 409 }); });
+});
+
+describe("a shared document cannot be moved to published by a transition", () => {
+  it("is a 400 and nothing is written", async () => {
+    doc.status = "shared";
+    await expect(transitionDoc("k", doc.id, { to: "published" })).rejects.toMatchObject({ status: 400 });
+    expect(sb.mock.calls.some(([, o]) => o?.method === "PATCH")).toBe(false);
+  });
+});

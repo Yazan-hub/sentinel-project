@@ -6,7 +6,7 @@ import { sb, ensureProject, audit, isUuid, docGet, docInsert, docReplaceIfField 
 import { loadTemplates, instantiateTemplate, validateTransition, validateDocTransition, buildSnapshot } from "./bimdocs-logic.mjs";
 import { CHECKS, getCheck, runCheck, PLANNED_CHECKS } from "./check-registry.mjs";
 import { requireDocAccess } from "./doc-access.mjs";
-import { blocksOf, applyOldPanelBody, textBlock } from "./doc-blocks.mjs";
+import { blocksOf, applyOldPanelBody, textBlock, LIMITS } from "./doc-blocks.mjs";
 import { resolveActor } from "./bridge-auth.mjs";
 import { executability } from "./executability.mjs";
 import { readiness, readinessPlan, ANSWERS } from "./readiness-logic.mjs";
@@ -304,6 +304,68 @@ export async function setSectionPlan(key, docId, sectionId, { owner, due, update
   await audit(doc.project_id, "bim_document", docId, "plan_set", actor || "web",
     { section: old.heading, owner: old.owner ?? null, due: old.due ?? null },
     { section: old.heading, owner: next.owner ?? null, due: next.due ?? null });
+  return row;
+}
+
+// ── Section structure — add, remove, rename, reorder: a lead's, each ledgered as a reserved document_structure_changed row.
+const outline = (sections) => sections.map((s) => ({ id: s.id, heading: s.heading }));
+const cleanHeading = (h) => {
+  const t = String(h ?? "").trim();
+  if (!t || t.length > 200) throw err(400, "a section needs a heading");
+  return t;
+};
+const auditStructure = (doc, sections, extra, actor) =>
+  audit(doc.project_id, "bim_document", doc.id, "document_structure_changed", actor || "web",
+    { outline: outline(doc.sections) }, { ...extra, outline: outline(sections) });
+const findSection = (doc, id) => {
+  const i = doc.sections.findIndex((s) => s.id === id);
+  if (i < 0) throw err(404, "section not found");
+  return i;
+};
+
+export async function addSection(key, docId, { heading, guidance, after, updated_at, actor } = {}) {
+  const h = cleanHeading(heading);
+  const doc = await openForWrite(key, docId, "govern", updated_at);
+  if (doc.sections.length >= LIMITS.sectionsPerDoc) throw err(422, `A document holds at most ${LIMITS.sectionsPerDoc} sections. Nothing was saved.`);
+  const at = after === undefined ? doc.sections.length : after === null ? 0 : findSection(doc, after) + 1;
+  const id = randomUUID();
+  const fresh = { id, heading: h, guidance: guidance || "", body: "", state: "wip", owner: null, bindings: {}, blocks: [textBlock("", `${id}.t0`)] };
+  const sections = [...doc.sections.slice(0, at), fresh, ...doc.sections.slice(at)];
+  const row = await patchSections(doc, sections);
+  await auditStructure(doc, sections, { op: "add", section_id: id }, actor);
+  return row;
+}
+
+export async function removeSection(key, docId, sectionId, { confirm_bound, updated_at, actor } = {}) {
+  const doc = await openForWrite(key, docId, "govern", updated_at);
+  const i = findSection(doc, sectionId);
+  if (doc.sections.length <= 1) throw err(422, "A document keeps at least one section. Nothing was saved.");
+  const ids = (doc.sections[i].bindings?.checks || []).map((c) => c.id);
+  if (ids.length && confirm_bound !== true) throw err(422, `This section is bound to checks (${ids.join(", ")}); confirm to remove it. Nothing was saved.`);
+  const sections = doc.sections.filter((_, j) => j !== i);
+  const row = await patchSections(doc, sections);
+  await auditStructure(doc, sections, { op: "remove", section_id: sectionId, ...(ids.length && { checks_removed: ids }) }, actor);
+  return row;
+}
+
+export async function renameSection(key, docId, sectionId, { heading, updated_at, actor } = {}) {
+  const h = cleanHeading(heading);
+  const doc = await openForWrite(key, docId, "govern", updated_at);
+  const i = findSection(doc, sectionId);
+  const sections = doc.sections.map((s, j) => (j === i ? { ...s, heading: h } : s));
+  const row = await patchSections(doc, sections);
+  await auditStructure(doc, sections, { op: "rename", section_id: sectionId }, actor);
+  return row;
+}
+
+export async function reorderSections(key, docId, { order, updated_at, actor } = {}) {
+  const doc = await openForWrite(key, docId, "govern", updated_at);
+  const have = new Set(doc.sections.map((s) => s.id));
+  if (!Array.isArray(order) || order.length !== have.size || new Set(order).size !== have.size || !order.every((id) => have.has(id)))
+    throw err(400, "the new order must name every section once");
+  const sections = order.map((id) => doc.sections.find((s) => s.id === id));
+  const row = await patchSections(doc, sections);
+  await auditStructure(doc, sections, { op: "reorder" }, actor);
   return row;
 }
 
