@@ -6,7 +6,7 @@ const fns = (text) => Object.fromEntries([...text.matchAll(/^export async functi
 const WRITE = /patchSections\(|writeDoc\(|writeStatus\(|method: "POST"|docInsert\(|docReplaceIfField\(/;
 const ACCESS = /requireDocAccess\(|openForWrite\(/;
 // Every document writer. A new writer must be added here AND call requireDocAccess (directly or through openForWrite).
-const WRITERS = ["createDoc", "patchSection", "transitionDoc", "publishDoc", "createDocFromIngest", "setSectionBindings", "setSectionAnswer", "setSectionPlan", "addComment", "addSection", "removeSection", "renameSection", "reorderSections"];
+const WRITERS = ["createDoc", "patchSection", "transitionDoc", "publishDoc", "createDocFromIngest", "setSectionBindings", "setSectionAnswer", "setSectionPlan", "addComment", "addSection", "removeSection", "renameSection", "reorderSections", "addBlock", "editBlock", "removeBlock", "reorderBlocks"];
 describe("every document writer calls requireDocAccess (design §6)", () => {
   const all = fns(src("bimdocs-store.mjs"));
   it("the list names exactly the store functions that write", () =>

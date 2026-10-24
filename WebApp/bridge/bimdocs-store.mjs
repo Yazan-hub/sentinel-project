@@ -6,7 +6,7 @@ import { sb, ensureProject, audit, isUuid, docGet, docInsert, docReplaceIfField 
 import { loadTemplates, instantiateTemplate, validateTransition, validateDocTransition, buildSnapshot } from "./bimdocs-logic.mjs";
 import { CHECKS, getCheck, runCheck, PLANNED_CHECKS } from "./check-registry.mjs";
 import { requireDocAccess } from "./doc-access.mjs";
-import { blocksOf, applyOldPanelBody, textBlock, LIMITS } from "./doc-blocks.mjs";
+import { blocksOf, applyOldPanelBody, textBlock, validateBlock, emptyData, deriveBody, LIMITS } from "./doc-blocks.mjs";
 import { resolveActor } from "./bridge-auth.mjs";
 import { executability } from "./executability.mjs";
 import { readiness, readinessPlan, ANSWERS } from "./readiness-logic.mjs";
@@ -310,7 +310,7 @@ export async function setSectionPlan(key, docId, sectionId, { owner, due, update
 // ── Section structure — add, remove, rename, reorder: a lead's, each ledgered as a reserved document_structure_changed row.
 const outline = (sections) => sections.map((s) => ({ id: s.id, heading: s.heading }));
 const cleanHeading = (h) => {
-  const t = String(h ?? "").trim();
+  const t = typeof h === "string" ? h.trim() : "";
   if (!t || t.length > 200) throw err(400, "a section needs a heading");
   return t;
 };
@@ -366,6 +366,69 @@ export async function reorderSections(key, docId, { order, updated_at, actor } =
   const sections = order.map((id) => doc.sections.find((s) => s.id === id));
   const row = await patchSections(doc, sections);
   await auditStructure(doc, sections, { op: "reorder" }, actor);
+  return row;
+}
+
+// ── Block operations — a contributor's; each re-derives the section's plain-text body and ledgers block_changed.
+const withBlocks = (section, blocks) => ({ ...section, blocks, body: deriveBody(blocks) });
+const blockFacts = (s, extra) => ({ section: s.heading, ...extra, body_chars: s.body.length, body_sha8: h8(s.body) });
+const findBlock = (blocks, id) => {
+  const i = blocks.findIndex((b) => b.id === id);
+  if (i < 0) throw err(404, "block not found");
+  return i;
+};
+const swap = (doc, next) => doc.sections.map((s) => (s.id === next.id ? next : s));
+const auditBlock = (doc, old, next, op, block, created, actor) =>
+  audit(doc.project_id, "bim_document", doc.id, "block_changed", actor || "web",
+    created ? null : blockFacts(old, { block_id: block?.id ?? null, kind: block?.kind ?? null }),
+    blockFacts(next, { op, block_id: block?.id ?? null, kind: block?.kind ?? null }));
+
+export async function addBlock(key, docId, sectionId, { kind, title, data, after, updated_at, actor } = {}) {
+  const doc = await openForWrite(key, docId, "edit", updated_at);
+  const old = doc.sections[findSection(doc, sectionId)];
+  const blocks = blocksOf(old);
+  if (blocks.length >= LIMITS.blocksPerSection) throw err(422, `A section holds at most ${LIMITS.blocksPerSection} blocks. Nothing was saved.`);
+  const at = after === undefined ? blocks.length : after === null ? 0 : findBlock(blocks, after) + 1;
+  const block = validateBlock({ id: randomUUID(), kind, title, data: data ?? emptyData(kind) });
+  const next = withBlocks(old, [...blocks.slice(0, at), block, ...blocks.slice(at)]);
+  const row = await patchSections(doc, swap(doc, next));
+  await auditBlock(doc, old, next, "add", block, true, actor);
+  return row;
+}
+
+export async function editBlock(key, docId, sectionId, blockId, { title, data, updated_at, actor } = {}) {
+  const doc = await openForWrite(key, docId, "edit", updated_at);
+  const old = doc.sections[findSection(doc, sectionId)];
+  const blocks = blocksOf(old);
+  const i = findBlock(blocks, blockId);
+  const block = validateBlock({ ...blocks[i], ...(title !== undefined && { title }), ...(data !== undefined && { data }) });
+  const next = withBlocks(old, blocks.map((b, j) => (j === i ? block : b)));
+  const row = await patchSections(doc, swap(doc, next));
+  await auditBlock(doc, old, next, "edit", block, false, actor);
+  return row;
+}
+
+export async function removeBlock(key, docId, sectionId, blockId, { updated_at, actor } = {}) {
+  const doc = await openForWrite(key, docId, "edit", updated_at);
+  const old = doc.sections[findSection(doc, sectionId)];
+  const blocks = blocksOf(old);
+  const i = findBlock(blocks, blockId);
+  const next = withBlocks(old, blocks.filter((_, j) => j !== i));
+  const row = await patchSections(doc, swap(doc, next));
+  await auditBlock(doc, old, next, "remove", blocks[i], false, actor);
+  return row;
+}
+
+export async function reorderBlocks(key, docId, sectionId, { order, updated_at, actor } = {}) {
+  const doc = await openForWrite(key, docId, "edit", updated_at);
+  const old = doc.sections[findSection(doc, sectionId)];
+  const blocks = blocksOf(old);
+  const have = new Set(blocks.map((b) => b.id));
+  if (!Array.isArray(order) || order.length !== have.size || new Set(order).size !== have.size || !order.every((id) => have.has(id)))
+    throw err(400, "the new order must name every block once");
+  const next = withBlocks(old, order.map((id) => blocks.find((b) => b.id === id)));
+  const row = await patchSections(doc, swap(doc, next));
+  await auditBlock(doc, old, next, "reorder", null, false, actor);
   return row;
 }
 

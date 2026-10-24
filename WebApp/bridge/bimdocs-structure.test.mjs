@@ -155,6 +155,7 @@ describe("section operations (lead and above, ledgered with the outline)", () =>
   });
   it("refuses an empty heading, the last section, and a contributor", async () => {
     await expect(addSection("k", doc.id, { heading: "  " })).rejects.toMatchObject({ status: 400, message: "a section needs a heading" });
+    await expect(addSection("k", doc.id, { heading: 123 })).rejects.toMatchObject({ status: 400 });
     doc.sections = doc.sections.slice(0, 1);
     await expect(removeSection("k", doc.id, "sec1", {})).rejects.toMatchObject({ status: 422, message: "A document keeps at least one section. Nothing was saved." });
     globalThis.__testRole = "contributor";
@@ -164,6 +165,15 @@ describe("section operations (lead and above, ledgered with the outline)", () =>
       globalThis.__testRole = undefined;
     }
   });
+  it("holds at most 120 sections", async () => {
+    const mk = (n) => Array.from({ length: n }, (_, i) => ({ id: `s${i}`, heading: `H${i}`, body: "", state: "wip", owner: null, bindings: {} }));
+    doc.sections = mk(120);
+    await expect(addSection("k", doc.id, { heading: "X" })).rejects.toMatchObject({ status: 422, message: "A document holds at most 120 sections. Nothing was saved." });
+    expect(sb.mock.calls.some(([, o]) => o?.method === "PATCH")).toBe(false);
+    doc.sections = mk(119);
+    await addSection("k", doc.id, { heading: "X" });
+    expect(sentSections()).toHaveLength(120);
+  });
   it("refuses a published document", async () => { doc.status = "published"; await expect(addSection("k", doc.id, { heading: "X" })).rejects.toMatchObject({ status: 409 }); });
 });
 
@@ -172,5 +182,48 @@ describe("a shared document cannot be moved to published by a transition", () =>
     doc.status = "shared";
     await expect(transitionDoc("k", doc.id, { to: "published" })).rejects.toMatchObject({ status: 400 });
     expect(sb.mock.calls.some(([, o]) => o?.method === "PATCH")).toBe(false);
+  });
+});
+
+const { addBlock, editBlock, removeBlock, reorderBlocks } = await import("./bimdocs-store.mjs");
+describe("block operations (contributor and above)", () => {
+  beforeEach(() => { doc.sections[0] = { ...doc.sections[0], body: "intro", blocks: [{ id: "sec1.t0", kind: "text", title: "", data: { markdown: "intro" } }] }; });
+  it("adds a table after the text and rewrites the body", async () => {
+    await addBlock("k", doc.id, "sec1", { kind: "table", title: "Dates", data: { columns: [{ key: "e", label: "Event", type: "text" }], rows: [{ cells: { e: "Award" } }] } });
+    const s = sentSections()[0];
+    expect(s.blocks.map((b) => b.kind)).toEqual(["text", "table"]);
+    expect(s.body).toBe("intro\n\nDates\nEvent\nAward");
+    expect(audit).toHaveBeenCalledWith("proj1", "bim_document", doc.id, "block_changed", "web", null,
+      expect.objectContaining({ op: "add", section: "H1", kind: "table", block_id: s.blocks[1].id, body_chars: s.body.length }));
+  });
+  it("edits, reorders and removes", async () => {
+    await editBlock("k", doc.id, "sec1", "sec1.t0", { data: { markdown: "changed" } });
+    expect(sentSections()[0]).toMatchObject({ body: "changed", blocks: [{ id: "sec1.t0", kind: "text", data: { markdown: "changed" } }] });
+    doc.sections[0].blocks.push({ id: "b2", kind: "text", title: "", data: { markdown: "two" } });
+    sb.mockClear(); await reorderBlocks("k", doc.id, "sec1", { order: ["b2", "sec1.t0"] });
+    expect(sentSections()[0].blocks.map((b) => b.id)).toEqual(["b2", "sec1.t0"]);
+    sb.mockClear(); await removeBlock("k", doc.id, "sec1", "b2");
+    expect(sentSections()[0]).toMatchObject({ body: "intro", blocks: [{ id: "sec1.t0" }] });
+  });
+  it("refuses invalid data, an unknown block, and a viewer", async () => {
+    await expect(editBlock("k", doc.id, "sec1", "sec1.t0", { data: { markdown: 5 } })).rejects.toMatchObject({ status: 400 });
+    await expect(removeBlock("k", doc.id, "sec1", "nope")).rejects.toMatchObject({ status: 404, message: "block not found" });
+    await expect(reorderBlocks("k", doc.id, "sec1", { order: [] })).rejects.toMatchObject({ status: 400, message: "the new order must name every block once" });
+    globalThis.__testRole = "viewer";
+    try {
+      await expect(addBlock("k", doc.id, "sec1", { kind: "text" })).rejects.toMatchObject({ status: 403 });
+    } finally {
+      globalThis.__testRole = undefined;
+    }
+    expect(audit).not.toHaveBeenCalled();
+  });
+  it("holds at most 60 blocks", async () => {
+    const mk = (n) => Array.from({ length: n }, (_, i) => ({ id: `b${i}`, kind: "text", title: "", data: { markdown: "x" } }));
+    doc.sections[0].blocks = mk(60);
+    await expect(addBlock("k", doc.id, "sec1", { kind: "text" })).rejects.toMatchObject({ status: 422, message: "A section holds at most 60 blocks. Nothing was saved." });
+    expect(sb.mock.calls.some(([, o]) => o?.method === "PATCH")).toBe(false);
+    doc.sections[0].blocks = mk(59);
+    await addBlock("k", doc.id, "sec1", { kind: "text" });
+    expect(sentSections()[0].blocks).toHaveLength(60);
   });
 });
