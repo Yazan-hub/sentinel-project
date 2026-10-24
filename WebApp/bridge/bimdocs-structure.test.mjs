@@ -293,24 +293,29 @@ describe("final review: structure, readiness and size", () => {
     await addSection("k", doc.id, { heading: "X", guidance: "g".repeat(100000) });
     expect(sentSections()[1].guidance).toHaveLength(100000);
   });
-  it("a readiness assessment keeps its fixed questions: section and block ops are refused before any write", async () => {
+  it("a readiness assessment keeps its fixed questions: all eight section and block ops are refused before any write", async () => {
     doc.doc_type = "READINESS";
     doc.sections[0].blocks = [{ id: "sec1.t0", kind: "text", title: "", data: { markdown: "" } }];
+    doc.sections.push({ id: "sec2", heading: "H2", body: "", state: "wip", owner: null, bindings: {} });
     const message = "A readiness assessment keeps its fixed questions; answer them in the Documents tab. Nothing was saved.";
-    await expect(addSection("k", doc.id, { heading: "X" })).rejects.toMatchObject({ status: 422, message });
-    await expect(editBlock("k", doc.id, "sec1", "sec1.t0", { data: { markdown: "x" } })).rejects.toMatchObject({ status: 422, message });
+    const ops = [
+      () => addSection("k", doc.id, { heading: "X" }), () => removeSection("k", doc.id, "sec2", {}),
+      () => renameSection("k", doc.id, "sec1", { heading: "Y" }), () => reorderSections("k", doc.id, { order: ["sec2", "sec1"] }),
+      () => addBlock("k", doc.id, "sec1", { kind: "text" }), () => editBlock("k", doc.id, "sec1", "sec1.t0", { data: { markdown: "x" } }),
+      () => removeBlock("k", doc.id, "sec1", "sec1.t0", {}), () => reorderBlocks("k", doc.id, "sec1", { order: ["sec1.t0"] }),
+    ];
+    for (const op of ops) await expect(op()).rejects.toMatchObject({ status: 422, message });
     expect(patched()).toBe(false);
     expect(audit).not.toHaveBeenCalled();
   });
   it("a document over 8,000,000 characters is refused before the write", async () => {
     doc.sections.push({ id: "sec2", heading: "H2", body: "", state: "wip", owner: null, bindings: {} });
     const pad = 8_000_001 - JSON.stringify(doc.sections).length;
-    doc.sections[1].body = "x".repeat(pad);
-    await expect(reorderSections("k", doc.id, { order: ["sec1", "sec2"] })).rejects.toMatchObject({ status: 422,
+    doc.sections[1].body = "x".repeat(pad - 1); // stored at exactly 8,000,000
+    await expect(renameSection("k", doc.id, "sec1", { heading: "H1x" })).rejects.toMatchObject({ status: 422,
       message: "This document is too large to save (over 8 million characters); move some content to another document. Nothing was saved." });
     expect(patched()).toBe(false);
-    doc.sections[1].body = "x".repeat(pad - 1);
-    await reorderSections("k", doc.id, { order: ["sec1", "sec2"] });
+    await renameSection("k", doc.id, "sec1", { heading: "H9" });
     expect(patched()).toBe(true);
   });
 });
@@ -433,5 +438,59 @@ describe("R1a edge cases: version reads", () => {
     sb.mockImplementation(async () => []);
     await expect(listVersions("k", doc.id)).rejects.toMatchObject({ status: 404 });
     expect(sb.mock.calls.some(([p]) => p.startsWith("bim_document_versions"))).toBe(false);
+  });
+});
+
+const TOO_LARGE = "This document is too large to save (over 8 million characters); move some content to another document. Nothing was saved.";
+const patches = () => sb.mock.calls.filter(([, o]) => o?.method === "PATCH");
+describe("R1a round 2: stored shapes, repeated ids and size", () => {
+  it("a body stored as an object with its own toString still saves a state change and a block edit, each with its ledger row", async () => {
+    doc.sections[0] = { ...doc.sections[0], body: JSON.parse('{"toString":"x"}'), blocks: [{ id: "b2", kind: "text", title: "", data: { markdown: "x" } }] };
+    await patchSection("k", doc.id, "sec1", { state: "shared" });
+    await editBlock("k", doc.id, "sec1", "b2", { data: { markdown: "y" } });
+    expect(patches()).toHaveLength(2);
+    expect(audit).toHaveBeenCalledTimes(2);
+    expect(audit.mock.calls[0][5]).toMatchObject({ body_chars: 16, body_sha8: h8('{"toString":"x"}') });
+  });
+  it("a section stored as null does not stop addSection's ledger row", async () => {
+    doc.sections.push(null);
+    await addSection("k", doc.id, { heading: "X" });
+    expect(patches()).toHaveLength(1);
+    expect(audit).toHaveBeenCalledWith("proj1", "bim_document", doc.id, "document_structure_changed", "web",
+      { outline: [{ id: "sec1", heading: "H1" }, null] }, expect.objectContaining({ op: "add" }));
+  });
+  it("two stored sections, or two parts of one section, sharing an id are refused in words, nothing saved", async () => {
+    const s = (o) => ({ ...doc.sections[0], ...o });
+    doc.sections = [s({ body: "first" }), s({ body: "second" }), s({ id: "sec2", body: "third" })];
+    for (const order of [["sec2", "sec1"], ["sec2", "sec1", "sec1"]])
+      await expect(reorderSections("k", doc.id, { order })).rejects.toMatchObject({ status: 422,
+        message: "Two sections in this document share one id, so they cannot be reordered safely. Nothing was saved." });
+    const tb = (id, m) => ({ id, kind: "text", title: "", data: { markdown: m } });
+    doc.sections = [s({ body: "a\n\nb\n\nc", blocks: [tb("b1", "a"), tb("b1", "b"), tb("b2", "c")] })];
+    await expect(reorderBlocks("k", doc.id, "sec1", { order: ["b2", "b1"] })).rejects.toMatchObject({ status: 422,
+      message: "Two parts of this section share one id, so they cannot be reordered safely. Nothing was saved." });
+    expect(patched()).toBe(false);
+    expect(audit).not.toHaveBeenCalled();
+  });
+  it("ingest refuses a document over 8,000,000 characters or more than 120 sections, before any call", async () => {
+    const big = "x".repeat(100000);
+    await expect(createDocFromIngest("k", { doc_type: "BEP", sections: Array.from({ length: 50 }, (_, i) => ({ heading: `S${i}`, body: big })) }))
+      .rejects.toMatchObject({ status: 422, message: TOO_LARGE });
+    await expect(createDocFromIngest("k", { doc_type: "BEP", sections: Array.from({ length: 121 }, (_, i) => ({ heading: `S${i}` })) }))
+      .rejects.toMatchObject({ status: 422, message: "A document holds at most 120 sections. Nothing was saved." });
+    expect(sb).not.toHaveBeenCalled();
+  });
+  it("a document stored over the cap can still shrink: removing a section or a block saves, a growing add is refused", async () => {
+    const long = "x".repeat(8_000_001);
+    doc.sections = [
+      { id: "sec1", heading: "H1", body: long, state: "wip", owner: null, bindings: {}, blocks: [{ id: "big", kind: "text", title: "", data: { markdown: long } }, { id: "y", kind: "text", title: "", data: { markdown: "y" } }] },
+      { id: "sec2", heading: "H2", body: "", state: "wip", owner: null, bindings: {} },
+    ];
+    await removeBlock("k", doc.id, "sec1", "y", {});
+    await removeSection("k", doc.id, "sec2", {});
+    expect(patches()).toHaveLength(2);
+    expect(audit).toHaveBeenCalledTimes(2);
+    await expect(addBlock("k", doc.id, "sec2", { kind: "text", data: { markdown: "z" } })).rejects.toMatchObject({ status: 422, message: TOO_LARGE });
+    expect(patches()).toHaveLength(2);
   });
 });

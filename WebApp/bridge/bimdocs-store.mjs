@@ -16,11 +16,15 @@ const one = (rows) => (Array.isArray(rows) ? rows[0] : rows);
 const err = (status, message) => Object.assign(new Error(message), { status });
 const enc = encodeURIComponent;
 const h8 = (text) => createHash("sha256").update(text).digest("hex").slice(0, 8);
-/** A section body's size and short hash for its ledger row. It runs after the write, so it never throws, whatever was stored. */
+/** A section body's size and short hash for its ledger row. It never throws, whatever was stored. */
 const bodyFacts = (body) => {
-  const text = String(body ?? "");
+  const text = typeof body === "string" ? body : body == null ? "" : (JSON.stringify(body) ?? "");
   return { body_chars: text.length, body_sha8: h8(text) };
 };
+/** The check ids of stored bindings, for a ledger row or a question: never throws, whatever was stored. */
+const checkIds = (bindings) => (Array.isArray(bindings?.checks) ? bindings.checks.map((c) => (c && typeof c === "object" ? c.id ?? null : null)) : []);
+const TOO_LARGE = "This document is too large to save (over 8 million characters); move some content to another document. Nothing was saved.";
+const tooLarge = (sections) => JSON.stringify(sections).length > LIMITS.docChars;
 // bim_documents has no signed-in UPDATE (0038): every document write below runs after this file's own role check and goes with
 // the service key, filtered on the document as it was read. A write that came back with no row is a 409 in words, BEFORE its
 // ledger row (H0 D5).
@@ -34,10 +38,11 @@ async function writeDoc(doc, body, where) {
   return rows[0];
 }
 /** A section write: the document still wip or shared and unchanged since it was read — always, whether or not the caller sent an updated_at.
- *  A document over LIMITS.docChars characters is refused before the write. */
+ *  A write that takes the document over LIMITS.docChars characters AND grows it is refused before the write; one that keeps or
+ *  shrinks its size always saves, so a document stored over the cap can still be reduced. */
 function patchSections(doc, sections) {
-  if (JSON.stringify(sections).length > LIMITS.docChars)
-    throw err(422, "This document is too large to save (over 8 million characters); move some content to another document. Nothing was saved.");
+  const size = JSON.stringify(sections).length;
+  if (size > LIMITS.docChars && size > JSON.stringify(doc.sections).length) throw err(422, TOO_LARGE);
   return writeDoc(doc, { sections }, `&status=in.(wip,shared)&updated_at=eq.${enc(doc.updated_at)}`);
 }
 /** A status write: the document in the status and at the updated_at it was read with. */
@@ -69,6 +74,7 @@ export async function createDoc(key, { doc_type, title, actor } = {}) {
   if (!tpl) throw err(400, `unknown doc_type '${doc_type}'`);
   // created_by is the signed-in caller's verified identity, never the body's name (bimdocs-3); the machine credential keeps its label.
   const body = { ...instantiateTemplate(tpl, { title, actor: resolveActor(actor, "web") }), project_id: proj.id };
+  if (tooLarge(body.sections)) throw err(422, TOO_LARGE);
   const row = one(await sb("bim_documents", { method: "POST", body, prefer: "return=representation" }));
   await audit(proj.id, "bim_document", row.id, "created", actor || "web", null, { doc_type: row.doc_type, title: row.title });
   return row;
@@ -96,10 +102,10 @@ export async function patchSection(key, docId, sectionId, { body, owner, state, 
   const text = body !== undefined && body !== old.body ? applyOldPanelBody({ ...old, blocks: blocksOf(old) }, body) : {};
   const next = { ...old, ...text, ...(owner !== undefined && { owner }), ...(state !== undefined && { state }) };
   const sections = doc.sections.map((s, j) => (j === i ? next : s));
+  const facts = [{ section: old.heading, state: old.state, owner: old.owner, ...bodyFacts(old.body) },
+    { section: next.heading, state: next.state, owner: next.owner, ...bodyFacts(next.body) }];
   const row = await patchSections(doc, sections);
-  await audit(doc.project_id, "bim_document", docId, "section_updated", actor || "web",
-    { section: old.heading, state: old.state, owner: old.owner, ...bodyFacts(old.body) },
-    { section: next.heading, state: next.state, owner: next.owner, ...bodyFacts(next.body) });
+  await audit(doc.project_id, "bim_document", docId, "section_updated", actor || "web", ...facts);
   return row;
 }
 
@@ -191,6 +197,8 @@ export async function createDocFromIngest(key, { doc_type, title, sections, sour
   const tpl = loadTemplates().find((t) => t.doc_type === doc_type);
   if (!tpl) throw err(400, `unknown doc_type '${doc_type}'`);
   const normalizedSections = validateSections(sections);
+  if (normalizedSections.length > LIMITS.sectionsPerDoc) throw err(422, `A document holds at most ${LIMITS.sectionsPerDoc} sections. Nothing was saved.`);
+  if (tooLarge(normalizedSections)) throw err(422, TOO_LARGE);
   const normalizedSource = normalizeSource(source);
   const proj = await ensureProject(key);
   await requireDocAccess(key, null, "edit");
@@ -271,10 +279,10 @@ export async function setSectionBindings(key, docId, sectionId, payload = {}) {
   if (i < 0) throw err(404, "section not found");
   const old = doc.sections[i];
   const sections = doc.sections.map((s, j) => (j === i ? { ...s, bindings: next } : s));
+  const before = { section: old.heading, checks: checkIds(old.bindings) };
   const row = await patchSections(doc, sections);
   await audit(doc.project_id, "bim_document", docId, "section_bindings_set", actor || "web",
-    { section: old.heading, checks: (old.bindings?.checks || []).map((c) => c.id) },
-    { section: old.heading, checks: next.checks.map((c) => c.id) });
+    before, { section: old.heading, checks: next.checks.map((c) => c.id) });
   return row;
 }
 
@@ -321,7 +329,7 @@ export async function setSectionPlan(key, docId, sectionId, { owner, due, update
 }
 
 // ── Section structure — add, remove, rename, reorder: a lead's, each ledgered as a reserved document_structure_changed row.
-const outline = (sections) => sections.map((s) => ({ id: s.id, heading: s.heading }));
+const outline = (sections) => sections.map((s) => (s && typeof s === "object" ? { id: s.id ?? null, heading: s.heading ?? null } : null));
 const cleanHeading = (h) => {
   const t = typeof h === "string" ? h.trim() : "";
   if (!t || t.length > 200) throw err(400, "a section needs a heading");
@@ -361,7 +369,7 @@ export async function removeSection(key, docId, sectionId, { confirm_bound, upda
   const doc = keepsQuestions(await openForWrite(key, docId, "govern", updated_at));
   const i = findSection(doc, sectionId);
   if (doc.sections.length <= 1) throw err(422, "A document keeps at least one section. Nothing was saved.");
-  const ids = (doc.sections[i].bindings?.checks || []).map((c) => c.id);
+  const ids = checkIds(doc.sections[i].bindings).filter((id) => id != null);
   if (ids.length && confirm_bound !== true) throw err(422, `This section is bound to checks (${ids.join(", ")}); confirm to remove it. Nothing was saved.`);
   const sections = doc.sections.filter((_, j) => j !== i);
   const row = await patchSections(doc, sections);
@@ -382,7 +390,8 @@ export async function renameSection(key, docId, sectionId, { heading, updated_at
 export async function reorderSections(key, docId, { order, updated_at, actor } = {}) {
   const doc = keepsQuestions(await openForWrite(key, docId, "govern", updated_at));
   const have = new Set(doc.sections.map((s) => s.id));
-  if (!Array.isArray(order) || order.length !== have.size || new Set(order).size !== have.size || !order.every((id) => have.has(id)))
+  if (have.size !== doc.sections.length) throw err(422, "Two sections in this document share one id, so they cannot be reordered safely. Nothing was saved.");
+  if (!Array.isArray(order) || order.length !== doc.sections.length || new Set(order).size !== order.length || !order.every((id) => have.has(id)))
     throw err(400, "the new order must name every section once");
   const sections = order.map((id) => doc.sections.find((s) => s.id === id));
   const row = await patchSections(doc, sections);
@@ -450,7 +459,8 @@ export async function reorderBlocks(key, docId, sectionId, { order, updated_at, 
   const old = doc.sections[si];
   const blocks = blocksOf(old);
   const have = new Set(blocks.map((b) => b.id));
-  if (!Array.isArray(order) || order.length !== have.size || new Set(order).size !== have.size || !order.every((id) => have.has(id)))
+  if (have.size !== blocks.length) throw err(422, "Two parts of this section share one id, so they cannot be reordered safely. Nothing was saved.");
+  if (!Array.isArray(order) || order.length !== blocks.length || new Set(order).size !== order.length || !order.every((id) => have.has(id)))
     throw err(400, "the new order must name every block once");
   const next = withBlocks(old, order.map((id) => blocks.find((b) => b.id === id)));
   const row = await patchSections(doc, swap(doc, si, next));

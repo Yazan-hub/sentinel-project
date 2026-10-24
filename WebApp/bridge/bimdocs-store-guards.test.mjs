@@ -164,17 +164,19 @@ describe("setSectionBindings — missing-wrapper guard", () => {
 describe("lead-gates on governing actions", () => {
   it("a contributor may NOT transition, publish, or set bindings (403 naming lead)", async () => {
     globalThis.__testRole = "contributor";
-    await expect(transitionDoc("demo", "11111111-1111-4111-8111-111111111111", { to: "shared" })).rejects.toMatchObject({ status: 403, message: expect.stringMatching(/lead/) });
-    await expect(publishDoc("demo", "11111111-1111-4111-8111-111111111111", {})).rejects.toMatchObject({ status: 403 });
-    await expect(setSectionBindings("demo", "11111111-1111-4111-8111-111111111111", "sec1", { bindings: { checks: [] } })).rejects.toMatchObject({ status: 403 });
-    globalThis.__testRole = undefined;
+    try {
+      await expect(transitionDoc("demo", "11111111-1111-4111-8111-111111111111", { to: "shared" })).rejects.toMatchObject({ status: 403, message: expect.stringMatching(/lead/) });
+      await expect(publishDoc("demo", "11111111-1111-4111-8111-111111111111", {})).rejects.toMatchObject({ status: 403 });
+      await expect(setSectionBindings("demo", "11111111-1111-4111-8111-111111111111", "sec1", { bindings: { checks: [] } })).rejects.toMatchObject({ status: 403 });
+    } finally { globalThis.__testRole = undefined; }
   });
 
   it("machine callers (service) pass the gates untouched", async () => {
     globalThis.__testRole = "service";
-    const result = await setSectionBindings("demo", "11111111-1111-4111-8111-111111111111", "sec1", { bindings: { checks: [] }, updated_at: doc.updated_at, actor: "t" });
-    expect(result).toBeTruthy();
-    globalThis.__testRole = undefined;
+    try {
+      const result = await setSectionBindings("demo", "11111111-1111-4111-8111-111111111111", "sec1", { bindings: { checks: [] }, updated_at: doc.updated_at, actor: "t" });
+      expect(result).toBeTruthy();
+    } finally { globalThis.__testRole = undefined; }
   });
 });
 
@@ -255,8 +257,9 @@ describe("setSectionAnswer — a declared item's answer, by the verified identit
     await expect(setSectionAnswer("k", doc.id, "sec1", { value: "yes" })).rejects.toMatchObject({ status: 409 });
     doc = readinessDoc(); sb.mockResolvedValue([doc]);
     globalThis.__testRole = "viewer";
-    await expect(setSectionAnswer("k", doc.id, "d1", { value: "yes" })).rejects.toMatchObject({ status: 403 });
-    globalThis.__testRole = undefined;
+    try {
+      await expect(setSectionAnswer("k", doc.id, "d1", { value: "yes" })).rejects.toMatchObject({ status: 403 });
+    } finally { globalThis.__testRole = undefined; }
   });
 });
 
@@ -272,8 +275,9 @@ describe("setSectionPlan — owner + due on the item itself, lead and above", ()
     const row = await setSectionPlan("k", doc.id, "m1", { owner: null, due: null, actor: "lead@x" });
     expect(row.sections.find((x) => x.id === "m1")).toMatchObject({ owner: null, due: null });
     globalThis.__testRole = "contributor";
-    await expect(setSectionPlan("k", doc.id, "m1", { due: "2026-10-01" })).rejects.toMatchObject({ status: 403 });
-    globalThis.__testRole = undefined;
+    try {
+      await expect(setSectionPlan("k", doc.id, "m1", { due: "2026-10-01" })).rejects.toMatchObject({ status: 403 });
+    } finally { globalThis.__testRole = undefined; }
   });
 });
 
@@ -455,5 +459,15 @@ describe("R1a: every section write is guarded on the row as read", () => {
       await expect(createDoc("k", { doc_type: "BEP" })).rejects.toMatchObject({ status: 403 });
       expect(sb.mock.calls.some(([, o]) => o?.method === "POST")).toBe(false);
     } finally { globalThis.__testRole = undefined; }
+  });
+});
+
+describe("setSectionBindings: stored checks of any shape still save with their ledger row", () => {
+  it.each([[{}], ["abc"], [[null]], [5]])("stored bindings.checks %j", async (checks) => {
+    doc.sections[0].bindings = { checks };
+    await setSectionBindings("k", doc.id, "sec1", { bindings: { checks: [] } });
+    expect(sb.mock.calls.filter(([, o]) => o?.method === "PATCH")).toHaveLength(1);
+    expect(audit).toHaveBeenCalledWith("proj1", "bim_document", doc.id, "section_bindings_set", "web",
+      { section: "H1", checks: Array.isArray(checks) ? [null] : [] }, { section: "H1", checks: [] });
   });
 });
