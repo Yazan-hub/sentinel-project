@@ -1,6 +1,6 @@
 // Documents panel — ISO 19650 project documents (BEP/EIR): create from template, edit sections,
 // manage states, publish immutable versions, print/PDF via a print stylesheet. Plain-DOM like files-panel.
-import { type Block, oldPanelEditable, OLD_PANEL_NOTE } from "../sentinel-core/doc-blocks";
+import { type Block, oldPanelEditable, oldPanelSaveBody, OLD_PANEL_NOTE } from "../sentinel-core/doc-blocks";
 import { askText, askYesNo } from "./ask";
 import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
@@ -768,7 +768,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
         const doSave = async (force = false) =>
           api(`/${encodeURIComponent(pid())}/${doc.id}/section/${pathSegment(s.id)}`, {
             method: "PATCH",
-            body: JSON.stringify({ body: oldPanelEditable(s) ? ta.value : undefined, owner: ownerIn.value || null, state: stateSel.value, updated_at: force ? undefined : doc.updated_at, actor: await actor() }),
+            body: JSON.stringify({ body: oldPanelSaveBody(s, ta.value), owner: ownerIn.value || null, state: stateSel.value, updated_at: force ? undefined : doc.updated_at, actor: await actor() }),
           });
         try { await doSave(); showEditor(doc.id); }
         catch (e: any) {
