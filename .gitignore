@@ -46,3 +46,6 @@ __pycache__/
 *.las
 *.laz
 *.e57
+
+# brainstorming mockups (superpowers visual companion)
+.superpowers/
