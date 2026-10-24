@@ -76,9 +76,9 @@ describe("ingestDocument chunk-count cap", () => {
 
   it("a file name over 200 characters is shortened, extension kept, so the commit never refuses ingest's own title", async () => {
     chat.mockResolvedValue({ text: '{"assignments":[]}' });
-    const { source, title } = await ingestDocument(buf, { ...opts, filename: `${"n".repeat(300)}.docx` });
-    expect(source.name).toBe(`${"n".repeat(195)}.docx`);
-    expect(title).toBe("n".repeat(195));
+    const { source, title } = await ingestDocument(buf, { ...opts, filename: `${"n".repeat(300)}.txt` });
+    expect(source.name).toBe(`${"n".repeat(196)}.txt`);
+    expect(title).toBe("n".repeat(196));
     expect((await ingestDocument(buf, opts)).source.name).toBe("doc.txt");
   });
 
