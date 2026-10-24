@@ -768,7 +768,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
         const doSave = async (force = false) =>
           api(`/${encodeURIComponent(pid())}/${doc.id}/section/${pathSegment(s.id)}`, {
             method: "PATCH",
-            body: JSON.stringify({ body: ta.value, owner: ownerIn.value || null, state: stateSel.value, updated_at: force ? undefined : doc.updated_at, actor: await actor() }),
+            body: JSON.stringify({ body: oldPanelEditable(s) ? ta.value : undefined, owner: ownerIn.value || null, state: stateSel.value, updated_at: force ? undefined : doc.updated_at, actor: await actor() }),
           });
         try { await doSave(); showEditor(doc.id); }
         catch (e: any) {
