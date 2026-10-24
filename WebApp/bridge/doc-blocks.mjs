@@ -46,7 +46,9 @@ const strOrNull = (v, at, max) => (v == null ? null : str(v, at, max));
 /** One of `options`; a missing value takes `dflt` when one is given (null counts), otherwise it is refused. */
 const oneOf = (v, at, options, dflt) =>
   (v === undefined || v === null) && dflt !== undefined ? dflt : options.includes(v) ? v : fail(at, `must be one of ${options.join(", ")}`);
-const idOf = (v, at) => (v == null ? randomUUID() : typeof v === "string" && ID_RE.test(v) ? v : fail(at, "is not a valid id (letters, digits, dot, dash, underscore)"));
+const refId = (v, at) => (typeof v === "string" && ID_RE.test(v) ? v : fail(at, "is not a valid id (letters, digits, dot, dash, underscore)"));
+/** An id the block or row already has, or a fresh one. */
+const idOf = (v, at) => (v == null ? randomUUID() : refId(v, at));
 const keyOf = (v, at) => (typeof v === "string" && KEY_RE.test(v) ? v : fail(at, "must be lowercase letters, digits and underscores, starting with a letter"));
 const isDate = (s) => {
   const t = DATE_RE.test(s) ? Date.parse(`${s}T00:00:00Z`) : NaN;
@@ -88,7 +90,7 @@ function cellOf(v, at, col) {
 function table(d, at) {
   const columns = columnsOf(d.columns, at, (c, a) => ({
     type: oneOf(c.type, `${a}.type`, COLUMN_TYPES, "text"),
-    choices: texts(c.choices, `${a}.choices`, LIMITS.cellChars),
+    choices: texts(c.choices, `${a}.choices`, LIMITS.titleChars),
     choices_from: strOrNull(c.choices_from, `${a}.choices_from`, LIMITS.titleChars),
   }));
   const rows = each(d.rows, `${at}.rows`, LIMITS.rows, "rows", (r, a) => {
@@ -141,8 +143,59 @@ function liveView(d, at) {
   return { source: oneOf(d.source, `${at}.source`, LIVE_SOURCES, "midp"), filter: { team: part("team"), stage: part("stage"), register_part: part("register_part") } };
 }
 
-// These five kinds arrive with the next task; until then they are refused rather than stored unchecked.
-const notYet = (d, at, path) => fail(`${path}: kind`, "is not supported yet");
+const proposedChanges = (d, at) => ({
+  changes: each(d.changes, `${at}.changes`, LIMITS.rows, "changes", (c, a) => ({
+    field_key: str(c.field_key, `${a}.field_key`, LIMITS.titleChars),
+    change: oneOf(c.change, `${a}.change`, ["added", "removed", "changed"]),
+    detail: str(c.detail, `${a}.detail`, LIMITS.cellChars),
+    reason: str(c.reason, `${a}.reason`, LIMITS.cellChars),
+  })),
+});
+
+const eirLink = (d, at) => ({
+  clauses: each(d.clauses, `${at}.clauses`, LIMITS.rows, "clauses", (c, a) => ({
+    clause_id: refId(c.clause_id, `${a}.clause_id`),
+    note: str(c.note, `${a}.note`, LIMITS.cellChars),
+  })),
+});
+
+const loin = (d, at) => ({
+  rows: each(d.rows, `${at}.rows`, LIMITS.rows, "rows", (r, a) => ({
+    id: idOf(r.id, `${a}.id`),
+    ...Object.fromEntries(["element", "milestone", "property", "value", "used_by", "why"].map((k) => [k, str(r[k], `${a}.${k}`, LIMITS.cellChars)])),
+  })),
+});
+
+// Shape only; the full naming-rule check (validateArtefact) runs when the rule is installed.
+function naming(d, at) {
+  const separator = d.separator ?? "-";
+  if (typeof separator !== "string" || [...separator].length !== 1) fail(`${at}.separator`, "must be exactly one character");
+  return {
+    separator,
+    enforce: oneOf(d.enforce, `${at}.enforce`, ["reject", "warn", "off"], "reject"),
+    fields: each(d.fields, `${at}.fields`, LIMITS.namingFields, "fields", (f, a) => ({
+      key: keyOf(f.key, `${a}.key`),
+      label: str(f.label, `${a}.label`, LIMITS.titleChars),
+      pattern: strOrNull(f.pattern, `${a}.pattern`, LIMITS.patternChars),
+      enum: texts(f.enum, `${a}.enum`, LIMITS.titleChars),
+      placeholders: texts(f.placeholders, `${a}.placeholders`, LIMITS.titleChars),
+      description: str(f.description, `${a}.description`, LIMITS.cellChars),
+    })),
+  };
+}
+
+const references = (d, at) => ({
+  rows: each(d.rows, `${at}.rows`, LIMITS.rows, "rows", (r, a) => ({
+    id: idOf(r.id, `${a}.id`),
+    role: oneOf(r.role, `${a}.role`, ["protocol", "information_standard", "production_methods", "eir", "other"]),
+    title: str(r.title, `${a}.title`, LIMITS.titleChars),
+    version: str(r.version, `${a}.version`, LIMITS.titleChars),
+    sha: strOrNull(r.sha, `${a}.sha`, 128),
+    issuer: str(r.issuer, `${a}.issuer`, LIMITS.titleChars),
+    received: dateOrNull(r.received, `${a}.received`),
+    incorporated_in: texts(r.incorporated_in, `${a}.incorporated_in`, LIMITS.titleChars),
+  })),
+});
 
 const NORMALISE = {
   text: (d, at) => ({ markdown: str(d.markdown, `${at}.markdown`, LIMITS.markdownChars) }),
@@ -150,11 +203,11 @@ const NORMALISE = {
   matrix,
   facts,
   live_view: liveView,
-  proposed_changes: notYet,
-  eir_link: notYet,
-  loin: notYet,
-  naming: notYet,
-  references: notYet,
+  proposed_changes: proposedChanges,
+  eir_link: eirLink,
+  loin,
+  naming,
+  references,
 };
 
 /** Check one block and return it clean: `{ id, kind, title, data }`. Throws status 400 with a message that starts with `path`. */
@@ -163,6 +216,6 @@ export function validateBlock(raw, path = "block") {
   const kind = oneOf(b.kind, `${path}: kind`, BLOCK_KINDS);
   const id = idOf(b.id, `${path}: id`);
   const title = str(b.title, `${path}: title`, LIMITS.titleChars);
-  const data = NORMALISE[kind](obj(b.data, `${path}: data`), `${path}: data`, path);
+  const data = NORMALISE[kind](obj(b.data, `${path}: data`), `${path}: data`);
   return { id, kind, title, data };
 }

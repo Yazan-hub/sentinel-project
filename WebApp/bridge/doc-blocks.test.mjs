@@ -33,3 +33,29 @@ describe("validateBlock — text, table, matrix, facts, live view", () => {
     expect(validateBlock({ kind: "live_view", data: { source: "tidp", filter: { team: "ARC" } } }).data.filter).toEqual({ team: "ARC", stage: null, register_part: null });
   });
 });
+
+describe("validateBlock — the other five kinds and the limits", () => {
+  it("an empty block of every kind validates", () => { for (const kind of BLOCK_KINDS) expect(validateBlock({ kind, data: emptyData(kind) }).kind).toBe(kind); });
+  it("naming: one-character separator, defaults, pattern cap", () => {
+    expect(validateBlock({ kind: "naming", data: { fields: [{ key: "project", label: "Project", enum: ["SNW"] }] } }).data)
+      .toEqual({ separator: "-", enforce: "reject", fields: [{ key: "project", label: "Project", pattern: null, enum: ["SNW"], placeholders: [], description: "" }] });
+    expect(bad({ kind: "naming", data: { separator: "--", fields: [] } })).toMatchObject({ status: 400 });
+    expect(bad({ kind: "naming", data: { fields: [{ key: "p", label: "P", pattern: "x".repeat(513) }] } })).toMatchObject({ status: 400 });
+    expect(bad({ kind: "naming", data: { enforce: "block", fields: [] } })).toMatchObject({ status: 400 });
+  });
+  it("eir link names clauses by one-segment ids; references take ISO dates", () => {
+    expect(bad({ kind: "eir_link", data: { clauses: [{ clause_id: "../x" }] } })).toMatchObject({ status: 400 });
+    expect(bad({ kind: "references", data: { rows: [{ role: "eir", title: "EIR", received: "last week" }] } })).toMatchObject({ status: 400 });
+    expect(validateBlock({ kind: "references", data: { rows: [{ role: "protocol", title: "Protocol" }] } }).data.rows[0])
+      .toMatchObject({ role: "protocol", version: "", sha: null, issuer: "", received: null, incorporated_in: [] });
+  });
+  it("proposed changes and LOIN rows are typed", () => {
+    expect(bad({ kind: "proposed_changes", data: { changes: [{ field_key: "x", change: "moved" }] } })).toMatchObject({ status: 400 });
+    expect(validateBlock({ kind: "loin", data: { rows: [{ element: "Wall" }] } }).data.rows[0]).toMatchObject({ element: "Wall", milestone: "", used_by: "" });
+  });
+  it("refuses over the limits", () => {
+    expect(bad({ kind: "loin", data: { rows: Array.from({ length: 501 }, () => ({})) } }).message).toMatch(/at most 500 rows/);
+    expect(bad({ kind: "text", data: { markdown: "x".repeat(100001) } })).toMatchObject({ status: 400 });
+    expect(bad({ kind: "text", title: "t".repeat(201), data: { markdown: "" } })).toMatchObject({ status: 400 });
+  });
+});
