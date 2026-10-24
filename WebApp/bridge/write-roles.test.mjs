@@ -25,6 +25,7 @@ const TOKEN = "write-roles-machine-token";             // the machine credential
 const SERVICE = "fake-service-key";                    // the service key the bridge copy is given — test-only
 const PID = "11111111-1111-4111-8111-111111111111";    // demo's id
 const USERS = { owner: "u-owner", lead: "u-lead", contributor: "u-contrib", viewer: "u-view", stranger: "u-stranger" };
+const DOC = { id: "22222222-2222-4222-8222-222222222222", project_id: PID, doc_type: "BEP", title: "BEP", status: "wip", updated_at: "2026-10-24T00:00:00Z", sections: [{ id: "s1", heading: "H1", guidance: "", body: "", state: "wip", owner: null, bindings: {}, blocks: [{ id: "s1.t0", kind: "text", title: "", data: { markdown: "" } }] }] };
 
 const b64u = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
 // exp is stamped to the second: two calls straddling a second boundary give two DIFFERENT tokens — compare a token only with the one
@@ -41,7 +42,7 @@ const seed = () => {
   db = {
     projects: [{ id: PID, key: "demo", name: "Demo", kind: "project", office_key: null, metadata: {} }],
     memberships: ["owner", "lead", "contributor", "viewer"].map((role) => ({ project_id: PID, user_id: USERS[role], role })),
-    bridge_docs: [], bcf_topics: [], audit_log: [],
+    bridge_docs: [], bcf_topics: [], audit_log: [], bim_documents: [structuredClone(DOC)],
   };
   log = [];
   fake = { refuseDelete: false, published: false };
@@ -1785,4 +1786,27 @@ describe("an artefact install reaches the live feed — Settings and the Next st
       expect(await standard(f)).toEqual({ type: "standard", action: "installed", key: "office", kind: "publish", version: 1 });
     } finally { f.close(); }
   });
+});
+
+describe("bimdocs structure routes (R1a)", () => {
+  const D = `/bimdocs/demo/${DOC.id}`;
+  it("a lead adds, renames and reorders sections; a contributor is refused in words", async () => {
+    expect((await call("POST", `${D}/section`, "lead", { heading: "Risks" })).status).toBe(201);
+    const id = db.bim_documents[0].sections[1].id;
+    expect((await call("PUT", `${D}/section/${id}/heading`, "lead", { heading: "Risk register" })).status).toBe(200);
+    expect((await call("PUT", `${D}/outline`, "lead", { order: [id, "s1"] })).body.sections.map((s) => s.id)).toEqual([id, "s1"]);
+    expect(await call("POST", `${D}/section/s1/remove`, "contributor", {})).toEqual(refused("lead", "contributor"));
+    expect(writes("audit_log").filter((w) => w.body.action === "document_structure_changed")).toHaveLength(3);
+  });
+  it("a contributor adds, edits, reorders and removes blocks; a viewer is refused", async () => {
+    const r = await call("POST", `${D}/section/s1/blocks`, "contributor", { kind: "table" });
+    expect(r.status).toBe(201);
+    const bid = r.body.sections[0].blocks[1].id;
+    expect((await call("PUT", `${D}/section/s1/blocks/${bid}`, "contributor", { title: "Dates" })).status).toBe(200);
+    expect((await call("PUT", `${D}/section/s1/blocks`, "contributor", { order: [bid, "s1.t0"] })).status).toBe(200);
+    expect((await call("POST", `${D}/section/s1/blocks/${bid}/remove`, "contributor", {})).status).toBe(200);
+    expect(await call("POST", `${D}/section/s1/blocks`, "viewer", { kind: "text" })).toEqual(refused("contributor", "viewer"));
+  });
+  it("the old PATCH still edits a text-only section", async () =>
+    expect((await call("PATCH", `${D}/section/s1`, "contributor", { body: "x" })).body.sections[0].body).toBe("x"));
 });

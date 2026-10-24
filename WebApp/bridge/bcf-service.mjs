@@ -2150,6 +2150,10 @@ async function handleRequest(req, res) {
   //   POST /bimdocs/:key/:docId/transition { to } · POST /bimdocs/:key/:docId/publish { label }
   //   GET  /bimdocs/:key/:docId/executability  (the strip test — how much of the doc controls anything)
   //   GET  /bimdocs/:key/:docId/versions · GET /bimdocs/:key/:docId/versions/:n
+  //   POST /bimdocs/:key/:docId/section { heading, guidance?, after? } · PUT .../section/:sid/heading { heading } · POST .../section/:sid/remove { confirm_bound? }
+  //   PUT  /bimdocs/:key/:docId/outline { order: [sectionId] }
+  //   POST /bimdocs/:key/:docId/section/:sid/blocks { kind, title?, data?, after? } · PUT .../blocks { order: [blockId] }
+  //   PUT  /bimdocs/:key/:docId/section/:sid/blocks/:bid { title?, data? } · POST .../blocks/:bid/remove   (all take updated_at?)
   if (top === "bimdocs") {
     const bimdocs = await import("./bimdocs-store.mjs");
     try {
@@ -2218,6 +2222,21 @@ async function handleRequest(req, res) {
         return send(res, 200, await bimdocs.setSectionAnswer(p1, p2, p4, { ...body, actor }));
       if (p3 === "section" && p4 && seg[5] === "plan" && req.method === "PUT")
         return send(res, 200, await bimdocs.setSectionPlan(p1, p2, p4, { ...body, actor }));
+      // Section and block structure: exact method + segment shapes, so `blocks/:bid/remove` is never read as `blocks/:bid`.
+      if (p3 === "section" && !p4 && req.method === "POST") return send(res, 201, await bimdocs.addSection(p1, p2, { ...body, actor }));
+      if (p3 === "section" && p4 && seg[5] === "heading" && !seg[6] && req.method === "PUT")
+        return send(res, 200, await bimdocs.renameSection(p1, p2, p4, { ...body, actor }));
+      if (p3 === "section" && p4 && seg[5] === "remove" && !seg[6] && req.method === "POST")
+        return send(res, 200, await bimdocs.removeSection(p1, p2, p4, { ...body, actor }));
+      if (p3 === "outline" && !p4 && req.method === "PUT") return send(res, 200, await bimdocs.reorderSections(p1, p2, { ...body, actor }));
+      if (p3 === "section" && p4 && seg[5] === "blocks" && !seg[6] && req.method === "POST")
+        return send(res, 201, await bimdocs.addBlock(p1, p2, p4, { ...body, actor }));
+      if (p3 === "section" && p4 && seg[5] === "blocks" && !seg[6] && req.method === "PUT")
+        return send(res, 200, await bimdocs.reorderBlocks(p1, p2, p4, { ...body, actor }));
+      if (p3 === "section" && p4 && seg[5] === "blocks" && seg[6] && !seg[7] && req.method === "PUT")
+        return send(res, 200, await bimdocs.editBlock(p1, p2, p4, seg[6], { ...body, actor }));
+      if (p3 === "section" && p4 && seg[5] === "blocks" && seg[6] && seg[7] === "remove" && !seg[8] && req.method === "POST")
+        return send(res, 200, await bimdocs.removeBlock(p1, p2, p4, seg[6], { ...body, actor }));
       if (p3 === "compliance" && !p4 && req.method === "GET")
         return send(res, 200, await bimdocs.complianceReport(p1, p2));
       if (p3 === "executability" && req.method === "GET")
