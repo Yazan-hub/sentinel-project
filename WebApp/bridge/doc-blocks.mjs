@@ -29,7 +29,7 @@ const EMPTY = {
 
 /** A fresh, valid `data` object for a new block of this kind. */
 export function emptyData(kind) {
-  return (EMPTY[kind] ?? (() => fail("block: kind", `must be one of ${BLOCK_KINDS.join(", ")}`)))();
+  return (Object.hasOwn(EMPTY, kind) ? EMPTY[kind] : () => fail("block: kind", `must be one of ${BLOCK_KINDS.join(", ")}`))();
 }
 
 // ---- small checkers. `at` is the place in plain words ("block: data.rows[0]"); every message is `${at} ${what}`. ----

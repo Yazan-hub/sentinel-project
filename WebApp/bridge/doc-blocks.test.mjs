@@ -99,3 +99,10 @@ describe("review fixes", () => {
     expect(deriveBody([m])).toBe("Walls: ARC produces");
   });
 });
+
+describe("kinds named like Object properties", () => {
+  it("are a 400, not a TypeError", () => {
+    expect(() => emptyData("__proto__")).toThrow(expect.objectContaining({ status: 400 }));
+    expect(bad({ id: "a", kind: "__proto__", title: "", data: {} })).toMatchObject({ status: 400 });
+  });
+});
