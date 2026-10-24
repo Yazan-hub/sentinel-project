@@ -6,6 +6,7 @@ import { sb, ensureProject, audit, isUuid, docGet, docInsert, docReplaceIfField 
 import { loadTemplates, instantiateTemplate, validateTransition, validateDocTransition, buildSnapshot } from "./bimdocs-logic.mjs";
 import { CHECKS, getCheck, runCheck, PLANNED_CHECKS } from "./check-registry.mjs";
 import { requireDocAccess } from "./doc-access.mjs";
+import { blocksOf, applyOldPanelBody, textBlock } from "./doc-blocks.mjs";
 import { resolveActor } from "./bridge-auth.mjs";
 import { executability } from "./executability.mjs";
 import { readiness, readinessPlan, ANSWERS } from "./readiness-logic.mjs";
@@ -79,7 +80,11 @@ export async function patchSection(key, docId, sectionId, { body, owner, state, 
   if (i < 0) throw err(404, "section not found");
   const old = doc.sections[i];
   if (state !== undefined && state !== old.state && !validateTransition(old.state, state)) throw err(400, `invalid section transition ${old.state} → ${state}`);
-  const next = { ...old, ...(body !== undefined && { body }), ...(owner !== undefined && { owner }), ...(state !== undefined && { state }) };
+  // A section lead change is a lead's; an unchanged owner (the old panel sends it on every save) asks nothing more.
+  if (owner !== undefined && owner !== (old.owner ?? null)) await requireDocAccess(key, doc, "govern");
+  // The old panel only saves text-only sections: the body goes into the one text block, else a 422 and nothing is written.
+  const text = body !== undefined && body !== old.body ? applyOldPanelBody({ ...old, blocks: blocksOf(old) }, body) : {};
+  const next = { ...old, ...text, ...(owner !== undefined && { owner }), ...(state !== undefined && { state }) };
   const sections = doc.sections.map((s, j) => (j === i ? next : s));
   const row = await patchSections(doc, sections);
   await audit(doc.project_id, "bim_document", docId, "section_updated", actor || "web",
@@ -145,11 +150,13 @@ export function validateSections(sections) {
   return sections.map((s, i) => {
     if (typeof s !== "object" || s === null || Array.isArray(s)) throw err(400, `sections[${i}] must be an object`);
     if (!s.heading) throw err(400, `sections[${i}].heading is required`);
+    const id = randomUUID();
     return {
-      id: randomUUID(),
+      id,
       heading: s.heading,
       guidance: s.guidance || "",
       body: s.body || "",
+      blocks: [textBlock(s.body || "", `${id}.t0`)],
       state: "wip",
       owner: null,
       bindings: {}, // reserved for sub-project 3 — never populated by ingestion
@@ -185,6 +192,8 @@ export async function createDocFromIngest(key, { doc_type, title, sections, sour
     project_id: proj.id,
     doc_type,
     title: title || `Ingested ${doc_type}`,
+    template_id: tpl.template_id,
+    template_version: tpl.version,
     status: "wip",
     created_by: resolveActor(actor, "web"), // the verified identity, as createDoc (bimdocs-3)
     source: normalizedSource,
