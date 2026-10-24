@@ -1,0 +1,35 @@
+import { describe, it, expect } from "vitest";
+import { BLOCK_KINDS, emptyData, validateBlock } from "./doc-blocks.mjs";
+const bad = (b) => { try { validateBlock(b); } catch (e) { return e; } throw new Error("accepted"); };
+
+describe("validateBlock — text, table, matrix, facts, live view", () => {
+  it("knows exactly the ten kinds", () => expect(BLOCK_KINDS).toEqual(["text", "table", "matrix", "facts", "live_view", "proposed_changes", "eir_link", "loin", "naming", "references"]));
+  it("an empty block of the first five kinds validates, with a fresh id", () => {
+    for (const kind of BLOCK_KINDS.slice(0, 5)) expect(validateBlock({ kind, data: emptyData(kind) })).toMatchObject({ id: expect.stringMatching(/^[0-9a-f-]{36}$/), kind, title: "" });
+  });
+  it("keeps a valid id and drops unknown keys", () =>
+    expect(validateBlock({ id: "b1", kind: "text", title: "T", data: { markdown: "x", html: "<b>" }, extra: 1 })).toEqual({ id: "b1", kind: "text", title: "T", data: { markdown: "x" } }));
+  it("refuses an unknown kind and a bad id", () => {
+    expect(bad({ kind: "html", data: {} })).toMatchObject({ status: 400, message: expect.stringMatching(/^block: kind/) });
+    expect(bad({ id: "../x", kind: "text", data: { markdown: "" } })).toMatchObject({ status: 400 });
+  });
+  it("table: cells must be columns of the right type", () => {
+    const cols = [{ key: "who", label: "Who", type: "person" }, { key: "n", label: "N", type: "number" }, { key: "d", label: "Due", type: "date" }];
+    expect(validateBlock({ kind: "table", data: { columns: cols, rows: [{ cells: { who: "a@b", n: 2, d: "2026-11-06" } }] } }).data.rows[0]).toMatchObject({ id: expect.any(String), group: null });
+    expect(bad({ kind: "table", data: { columns: cols, rows: [{ cells: { x: "1" } }] } }).message).toMatch(/rows\[0\]\.cells\.x is not a column/);
+    expect(bad({ kind: "table", data: { columns: cols, rows: [{ cells: { n: "abc" } }] } })).toMatchObject({ status: 400 });
+    expect(bad({ kind: "table", data: { columns: cols, rows: [{ cells: { d: "2026-13" } }] } })).toMatchObject({ status: 400 });
+    expect(bad({ kind: "table", data: { columns: [{ key: "Bad Key", label: "x", type: "text" }], rows: [] } })).toMatchObject({ status: 400 });
+  });
+  it("matrix: one 'produces' per row, marks on known columns only", () => {
+    const columns = [{ key: "arc", label: "ARC" }, { key: "str", label: "STR" }];
+    expect(bad({ kind: "matrix", data: { columns, rows: [{ label: "Walls", marks: { arc: "produces", str: "produces" } }] } }).message).toMatch(/one task team is responsible/);
+    expect(bad({ kind: "matrix", data: { columns, rows: [{ label: "Walls", marks: { mep: "contributes" } }] } })).toMatchObject({ status: 400 });
+    expect(validateBlock({ kind: "matrix", data: { columns, rows: [{ label: "Walls", marks: {} }] } }).data).toMatchObject({ preset: null, show_milestone: false, show_recipient: false });
+  });
+  it("facts and live view hold labels and a stored filter only", () => {
+    expect(bad({ kind: "facts", data: { labels: ["Appointing party name"] } })).toMatchObject({ status: 400 });
+    expect(bad({ kind: "live_view", data: { source: "sql", filter: {} } })).toMatchObject({ status: 400 });
+    expect(validateBlock({ kind: "live_view", data: { source: "tidp", filter: { team: "ARC" } } }).data.filter).toEqual({ team: "ARC", stage: null, register_part: null });
+  });
+});
