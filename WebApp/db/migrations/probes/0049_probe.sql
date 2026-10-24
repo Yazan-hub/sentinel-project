@@ -1,5 +1,5 @@
 -- probes/0049_probe.sql — the drill for 0049_bim_document_blocks.sql. Part 0 runs BEFORE the apply (read-only). Parts 1 and 2 run AFTER.
--- Part 0: counts, and one ready-to-paste line per Snowdon document holding the md5 of its section bodies.
+-- Part 0: counts (the two body rows must read 0), and one ready-to-paste line per Snowdon document holding the md5 of its section bodies.
 -- Part 1: paste those lines into the `before` list of the first row, then every row must read true: the backfill left every
 --   body as it was (0049 keeps `body` and only adds `blocks`), every section has blocks, and the new triggers, policies and grants are there.
 -- Part 2: one DO block with seven refusals (claims set with set_config, no role switch, so only the trigger and check rules are probed).
@@ -11,6 +11,8 @@
 select 'documents' as what, count(*)::text as n from public.bim_documents
 union all select 'sections without blocks (0049 gives each one a text block)', count(*)::text from public.bim_documents d, jsonb_array_elements(d.sections) x(s) where not x.s ? 'blocks'
 union all select 'document versions', count(*)::text from public.bim_document_versions
+union all select 'sections whose body is longer than 100,000 characters (must be 0)', count(*)::text from public.bim_documents d, jsonb_array_elements(d.sections) x(s) where jsonb_typeof(x.s->'body') = 'string' and length(x.s->>'body') > 100000
+union all select 'sections whose body is not text (must be 0)', count(*)::text from public.bim_documents d, jsonb_array_elements(d.sections) x(s) where x.s ? 'body' and jsonb_typeof(x.s->'body') <> 'string'
 union all select 'paste into part 1 (' || d.title || ')', format('(%L, %L),', d.id, md5(coalesce((select string_agg(e.s->>'body', '|' order by e.o) from jsonb_array_elements(d.sections) with ordinality e(s, o)), '')))
   from public.bim_documents d join public.projects p on p.id = d.project_id where p.key = 'snowdon-lifecycle';
 
@@ -41,7 +43,9 @@ begin
   select user_id, project_id into lead_uid, lead_pid from public.memberships where role = 'lead' and user_id is not null order by created_at limit 1;
   select user_id, project_id into low_uid, low_pid from public.memberships where role in ('contributor', 'viewer') and user_id is not null order by created_at limit 1;
   select id into other_pid from public.projects where id <> lead_pid order by created_at limit 1;
-  if lead_uid is null or low_uid is null or other_pid is null then raise exception 'PROBE 0049: needs a lead, a contributor or viewer, and a second project'; end if;
+  if lead_uid is null or low_uid is null or other_pid is null then
+    raise exception 'PROBE 0049: cannot run, missing: %', concat_ws(', ', case when lead_uid is null then 'a lead' end, case when low_uid is null then 'a contributor or viewer' end, case when other_pid is null then 'a second project' end);
+  end if;
 
   -- 1 · a signed-in lead cannot record a version
   begin

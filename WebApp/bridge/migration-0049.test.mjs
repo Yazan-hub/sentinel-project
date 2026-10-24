@@ -168,3 +168,62 @@ describe("probe 0049 runs on PGlite", () => {
     await expect(db.exec(part2)).rejects.toThrow("PROBE 0049: 7 of 7 as expected.");
   });
 });
+
+describe("probe 0049 parts 0 and 1 run on PGlite, the way the founder runs them", () => {
+  const probe = readFileSync(new URL("../db/migrations/probes/0049_probe.sql", import.meta.url), "utf8").replace(/\r/g, "");
+  const part0 = probe.slice(probe.indexOf("-- Part 0 (before"), probe.indexOf("-- Part 1 (after"));
+  const part1 = probe.slice(probe.indexOf("-- Part 1 (after"), probe.indexOf("-- Part 2 (after"));
+  const lastRows = async (d, sql) => (await d.exec(sql)).at(-1).rows;
+  const pasteLines = (rows) => rows.filter((r) => r.what.startsWith("paste into part 1")).map((r) => r.n).join("\n");
+  const withPasted = (lines) => part1.replace("(values\n\n", `(values\n${lines}\n`); // the blank line the probe header tells the founder to paste into
+  let old, project, pasted;
+  beforeAll(async () => {
+    old = await buildDb({ before: "0049_bim_document_blocks.sql" });
+    project = (await old.query("insert into public.projects(key, name) values ('snowdon-lifecycle', 'S') returning id")).rows[0].id;
+    for (const title of ["BEP", "EIR"])
+      await old.query("insert into public.bim_documents(project_id, doc_type, title, sections) values ($1, 'BEP', $2, $3)",
+        [project, title, JSON.stringify([{ id: "s1", state: "wip", heading: "A", body: "first | a" }, { id: "s2", state: "wip", heading: "B", body: "second" }])]);
+  }, 60_000);
+  it("part 0 counts the documents and sections and reads 0 for over-long and non-text bodies", async () => {
+    const rows = await lastRows(old, part0);
+    const n = (prefix) => rows.find((r) => r.what.startsWith(prefix)).n;
+    expect(n("documents")).toBe("2");
+    expect(n("sections without blocks")).toBe("4");
+    expect(n("document versions")).toBe("0");
+    expect(n("sections whose body is longer than 100,000 characters")).toBe("0");
+    expect(n("sections whose body is not text")).toBe("0");
+    pasted = pasteLines(rows);
+    expect(pasted.split("\n")).toHaveLength(2);
+  });
+  it("part 0 counts a body of 100,001 characters and a body that is not text", async () => {
+    await old.exec("begin");
+    try {
+      await old.query("insert into public.bim_documents(project_id, doc_type, title, sections) values ($1, 'BEP', 'bad', $2)",
+        [project, JSON.stringify([{ id: "s1", state: "wip", body: "x".repeat(100_001) }, { id: "s2", state: "wip", body: "x".repeat(100_000) }, { id: "s3", state: "wip", body: 7 }])]);
+      const rows = await lastRows(old, part0);
+      const n = (prefix) => rows.find((r) => r.what.startsWith(prefix)).n;
+      expect(n("sections whose body is longer than 100,000 characters")).toBe("1");
+      expect(n("sections whose body is not text")).toBe("1");
+    } finally { await old.exec("rollback"); }
+  });
+  it("part 2 names exactly which piece it is missing", async () => {
+    const part2 = probe.slice(probe.indexOf("-- Part 2 (after"));
+    await expect(old.exec(part2)).rejects.toThrow("PROBE 0049: cannot run, missing: a lead, a contributor or viewer, a second project");
+    await old.exec("begin");
+    try {
+      const u = uuid();
+      await old.query("insert into auth.users(id, email) values ($1, 'l@probe.test')", [u]);
+      await old.query("insert into public.projects(key, name) values ('probe-second', 'P2')");
+      await old.query("insert into public.memberships(project_id, user_id, role) values ($1, $2, 'lead')", [project, u]);
+      await expect(old.exec(part2)).rejects.toThrow("PROBE 0049: cannot run, missing: a contributor or viewer");
+    } finally { await old.exec("rollback"); }
+  });
+  it("part 1 reads false on the md5 row when nothing is pasted, then every row is true after pasting part 0's lines", async () => {
+    await old.exec(readFileSync(new URL("../db/migrations/0049_bim_document_blocks.sql", import.meta.url), "utf8"));
+    const none = await lastRows(old, part1);
+    expect(none.find((r) => r.what.includes("section-body md5")).ok).toBe(false);
+    const rows = await lastRows(old, withPasted(pasted));
+    expect(rows.length).toBeGreaterThanOrEqual(10);
+    expect(rows.filter((r) => r.ok !== true).map((r) => r.what)).toEqual([]);
+  });
+});

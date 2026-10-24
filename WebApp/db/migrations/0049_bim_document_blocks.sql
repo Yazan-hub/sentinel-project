@@ -13,6 +13,13 @@
 --   part 7: delete is the project owner's and never while a version exists.
 --
 -- NOT APPLIED — applying it live is the founder's.
+-- DEPLOY ORDER (the founder's, in this order, with nothing published in between):
+--   1. probes/0049_probe.sql part 0 (read-only; keep its md5 lines for part 1).
+--   2. Apply 0049.
+--   3. At once, restart the 4100 bridge on this branch (feat/documents-r1a) and refresh the Funnel.
+--   4. Publish nothing between 2 and 3: the old bridge's publish is refused by part 6,
+--      and the new bridge's creates need part 1's columns, so each bridge fails against the other's database.
+--   5. Probe part 1 (every row true) and part 2 (PROBE 0049: 7 of 7 as expected.).
 -- Dry-run: on PGlite with every migration (bridge/migration-0049.test.mjs).
 -- Probe: probes/0049_probe.sql. Part 0 before the apply (read-only); then apply; then part 1 (every row true, after pasting part 0's md5 lines) and part 2 (one DO block that
 --   always raises 'PROBE 0049: 7 of 7 as expected.' so it leaves nothing behind). Do not re-run probes/0033_probe.sql afterwards (its P40 expects a lead's version insert).
