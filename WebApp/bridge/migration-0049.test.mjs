@@ -138,3 +138,24 @@ describe("0049 files are valid UTF-8", () => {
     expect(() => new TextDecoder("utf-8", { fatal: true }).decode(readFileSync(new URL("../db/migrations/0049_bim_document_blocks.sql", import.meta.url)))).not.toThrow();
   });
 });
+
+describe("0049 SQL part 7 — delete", () => {
+  const withVersion = async (tx, project = P) => { const d = await insertDoc(tx, { project }); await version(tx, d, await docRow(tx, d)); return d; };
+  it("a document with a version cannot be deleted, even by the service key", () => as(db, "service", async (tx) => {
+    const d = await withVersion(tx);
+    await expect(tx.query("delete from public.bim_documents where id = $1", [d])).rejects.toThrow(/archive it instead/);
+  }));
+  it("a lead cannot delete a draft; the owner can", async () => {
+    const del = (who) => as(db, "service", async (tx) => { const d = await insertDoc(tx); await tx.query("set local role authenticated");
+      await tx.query(`select set_config('request.jwt.claims', $1, true)`, [JSON.stringify({ sub: who.sub, role: "authenticated" })]);
+      return (await tx.query("delete from public.bim_documents where id = $1", [d])).affectedRows; });
+    expect(await del(lead)).toBe(0);
+    expect(await del(owner)).toBe(1);
+  });
+  it("deleting a project still deletes its published documents and their versions", () => as(db, "service", async (tx) => {
+    const R = (await tx.query("insert into public.projects(key, name) values ('r49', 'R') returning id")).rows[0].id;
+    const d = await withVersion(tx, R);
+    await tx.query("delete from public.projects where id = $1", [R]);
+    expect((await tx.query("select count(*) from public.bim_document_versions where document_id = $1", [d])).rows[0].count).toBe(0);
+  }));
+});

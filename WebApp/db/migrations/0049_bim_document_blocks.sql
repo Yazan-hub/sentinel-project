@@ -36,6 +36,10 @@
 --     using (auth.uid() is null or public.is_member((select d.project_id from public.bim_documents d where d.id = document_id)));   -- 0027
 --   create policy bim_document_versions_ins on public.bim_document_versions for insert to authenticated
 --     with check (auth.uid() is null or public.has_min_role((select d.project_id from public.bim_documents d where d.id = document_id), 'lead'));   -- 0033
+--   -- part 7: drop trigger trg_bim_documents_delete_guard on public.bim_documents; drop function public.bim_documents_delete_guard();
+--   drop policy bim_documents_delete on public.bim_documents;
+--   create policy bim_documents_delete on public.bim_documents for delete to authenticated
+--     using (auth.uid() is null or public.has_min_role(project_id, 'lead'));   -- 0024
 
 begin;
 -- 1 · document columns (design §4, §10)
@@ -140,4 +144,19 @@ drop policy if exists bim_document_versions_sel on public.bim_document_versions;
 create policy bim_document_versions_sel on public.bim_document_versions for select to authenticated
   using (public.has_min_role((select d.project_id from public.bim_documents d where d.id = document_id), 'contributor'));
 revoke execute on function public.bim_document_versions_insert_guard() from public, anon, authenticated;
+-- 7 · delete: the project owner's, and never while a version exists (a project delete still cascades)
+drop policy if exists bim_documents_delete on public.bim_documents;
+create policy bim_documents_delete on public.bim_documents for delete to authenticated using (public.has_min_role(project_id, 'owner'));
+create or replace function public.bim_documents_delete_guard() returns trigger
+  language plpgsql security definer set search_path = public as $$
+begin
+  if exists (select 1 from public.projects p where p.id = old.project_id)
+     and exists (select 1 from public.bim_document_versions v where v.document_id = old.id) then
+    raise exception 'a document with published versions is kept; archive it instead';
+  end if;
+  return old;
+end $$;
+drop trigger if exists trg_bim_documents_delete_guard on public.bim_documents;
+create trigger trg_bim_documents_delete_guard before delete on public.bim_documents for each row execute function public.bim_documents_delete_guard();
+revoke execute on function public.bim_documents_delete_guard() from public, anon, authenticated;
 commit;
