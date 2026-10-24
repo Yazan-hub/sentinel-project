@@ -12,7 +12,8 @@
 --           direct read for contributor and above.
 --   part 7: delete is the project owner's and never while a version exists.
 --
--- NOT APPLIED — applying it live is the founder's.
+-- APPLIED 2026-10-24 on the founder's "apply" (Supabase migration 0049_bim_document_blocks). Probe: part 0 before (226 sections, 0 over-long, 0 non-text),
+--   part 1 after 10 of 10 true, part 2 "PROBE 0049: 7 of 7 as expected." (drill docs/testing/snowdon-lifecycle/R1a/R1a-RUN_2026-10-24.md).
 -- DEPLOY ORDER (the founder's, in this order, with nothing published in between):
 --   1. probes/0049_probe.sql part 0 (read-only; keep its md5 lines for part 1).
 --   2. Apply 0049.
