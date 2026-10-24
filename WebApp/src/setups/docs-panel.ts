@@ -1,5 +1,6 @@
 // Documents panel — ISO 19650 project documents (BEP/EIR): create from template, edit sections,
 // manage states, publish immutable versions, print/PDF via a print stylesheet. Plain-DOM like files-panel.
+import { type Block, oldPanelEditable, OLD_PANEL_NOTE } from "../sentinel-core/doc-blocks";
 import { askText, askYesNo } from "./ask";
 import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
@@ -16,7 +17,7 @@ import { escapeHtml as esc, pathSegment } from "./escape-html";
 const STATE_COLOR: Record<string, string> = { wip: "#a1a1aa", shared: "#3b82f6", published: "#22c55e", archived: "#71717a" };
 type Answer = { value: "yes" | "partial" | "no"; note: string; by: string; at: string };
 type Section = {
-  id: string; heading: string; guidance: string; body: string; state: string; owner: string | null; bindings: Record<string, unknown>;
+  id: string; heading: string; guidance: string; body: string; state: string; owner: string | null; bindings: Record<string, unknown>; blocks?: Block[];
   // READINESS documents only (readiness-template.json)
   pillar?: "standards" | "people" | "process"; kind?: "measured" | "declared"; question?: string; answer_hint?: string;
   answer?: Answer | null; due?: string | null;
@@ -739,15 +740,18 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
       const ta = document.createElement("textarea");
       ta.value = s.body;
       ta.defaultValue = ta.value; // the loaded value — dirty() compares against it
-      ta.disabled = !editable;
+      ta.disabled = !editable || !oldPanelEditable(s);
       ta.style.cssText = "min-height:110px;background:#1f1f27;border:1px solid #2c2c34;color:#e5e7eb;border-radius:.35rem;padding:.45rem;font:12px/1.5 ui-monospace,monospace;resize:vertical";
+      const noteEl = document.createElement("div");
+      noteEl.textContent = OLD_PANEL_NOTE;
+      noteEl.style.cssText = "color:#8b93a3;font-size:11px";
       const rowEl = document.createElement("div");
       rowEl.style.cssText = "display:flex;gap:.4rem;align-items:center";
       const ownerIn = document.createElement("input");
       ownerIn.placeholder = "owner (email)";
       ownerIn.value = s.owner || "";
       ownerIn.defaultValue = ownerIn.value;
-      ownerIn.disabled = !editable;
+      ownerIn.disabled = !editable || !canGovern();
       ownerIn.style.cssText = "background:#1f1f27;border:1px solid #2c2c34;color:#c9cfda;border-radius:.35rem;padding:.3rem .4rem;width:180px";
       const stateSel = document.createElement("select");
       stateSel.disabled = !editable;
@@ -777,7 +781,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
       } else {
         rowEl.append(ownerIn, stateSel, save);
       }
-      if (editable) {
+      if (editable && oldPanelEditable(s)) {
         // AI draft — proposal only: fills the editor; nothing is saved until the normal Save.
         const draftBtn = btn("Draft with AI");
         draftBtn.onclick = async () => {
@@ -798,7 +802,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
         };
         rowEl.append(draftBtn);
       }
-      inner.append(guide, ta, complianceStrip(resultsFor(s.id)), rowEl, commentThreadEl(doc, s.id, comments));
+      inner.append(guide, ta, ...(oldPanelEditable(s) ? [] : [noteEl]), complianceStrip(resultsFor(s.id)), rowEl, commentThreadEl(doc, s.id, comments));
       sec.append(sum, inner);
       body.append(sec);
     }
