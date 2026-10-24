@@ -95,11 +95,11 @@ describe("migration 0038 — the database holds the bridge's write rules (SEC-1)
     expect(DOCS).toContain("const row = await writeStatus(doc, to);");
     expect(DOCS).toContain('const issued = await writeStatus(doc, "published");');
     expect(DOCS.indexOf('const issued = await writeStatus(doc, "published");')).toBeLessThan(DOCS.indexOf('await sb("bim_document_versions", { method: "POST"'));
-    // the four section writers land only on the document as it was read (C7)
-    expect(count(DOCS, "const row = await patchSections(doc, sections, updated_at);")).toBe(4);
-    expect(DOCS).toContain("writeDoc(doc, { sections }, `&status=in.(wip,shared)${updated_at ? `&updated_at=eq.${enc(doc.updated_at)}` : \"\"}`);");
+    // every section writer lands only on the document as it was read, always (R1a: CAS even without updated_at)
+    expect(DOCS).toContain("const patchSections = (doc, sections) => writeDoc(doc, { sections }, `&status=in.(wip,shared)&updated_at=eq.${enc(doc.updated_at)}`);");
+    expect(DOCS).not.toContain("patchSections(doc, sections, updated_at)");
     expect(DOCS).toContain('prefer: "return=representation", service: true });\n  if (!Array.isArray(rows) || !rows.length) throw err(409, "the document changed or was issued meanwhile — nothing was saved");');
-    expect(DOCS).toContain('await requireMinRole(key, "viewer"); // 0038');
+    expect(DOCS).toContain('await requireDocAccess(key, doc, "comment"); // 0038');
     expect(DOCS).toContain("{ comments: [comment], rev: 1 }, { service: true });");
     expect(DOCS).toContain("bag.rev === undefined ? null : String(bag.rev), { service: true });");
     expect(OFFICE).toContain("await docUpsert(SNAPSHOT_STORE, proj.id, LATEST, stored, { service: true });");

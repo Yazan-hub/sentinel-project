@@ -3,9 +3,9 @@
 // enforced here + in the DB (0020); every write audited into the project's hash-chained trail.
 import { createHash, randomUUID } from "node:crypto";
 import { sb, ensureProject, audit, isUuid, docGet, docInsert, docReplaceIfField } from "./cde-store.mjs";
-import { loadTemplates, instantiateTemplate, validateTransition, buildSnapshot } from "./bimdocs-logic.mjs";
+import { loadTemplates, instantiateTemplate, validateTransition, validateDocTransition, buildSnapshot } from "./bimdocs-logic.mjs";
 import { CHECKS, getCheck, runCheck, PLANNED_CHECKS } from "./check-registry.mjs";
-import { requireMinRole } from "./members-store.mjs";
+import { requireDocAccess } from "./doc-access.mjs";
 import { resolveActor } from "./bridge-auth.mjs";
 import { executability } from "./executability.mjs";
 import { readiness, readinessPlan, ANSWERS } from "./readiness-logic.mjs";
@@ -27,14 +27,23 @@ async function writeDoc(doc, body, where) {
   if (!Array.isArray(rows) || !rows.length) throw err(409, "the document changed or was issued meanwhile — nothing was saved");
   return rows[0];
 }
-/** A section write: the document still wip or shared, and (when the caller sent the updated_at it loaded) unchanged since. */
-const patchSections = (doc, sections, updated_at) =>
-  writeDoc(doc, { sections }, `&status=in.(wip,shared)${updated_at ? `&updated_at=eq.${enc(doc.updated_at)}` : ""}`);
+/** A section write: the document still wip or shared and unchanged since it was read — always, whether or not the caller sent an updated_at. */
+const patchSections = (doc, sections) => writeDoc(doc, { sections }, `&status=in.(wip,shared)&updated_at=eq.${enc(doc.updated_at)}`);
 /** A status write: the document in the status and at the updated_at it was read with. */
 const writeStatus = (doc, status) => writeDoc(doc, { status }, `&status=eq.${enc(doc.status)}&updated_at=eq.${enc(doc.updated_at)}`);
 
 export const listTemplates = () =>
   loadTemplates().map((t) => ({ doc_type: t.doc_type, title: t.title, sections: t.sections.length }));
+
+/** The start of every section write: read the document (a non-member gets the 404 here), ask for `level` on it, refuse a
+ *  published or archived one, and refuse a write based on a stale copy (when the caller sent the updated_at it loaded). */
+async function openForWrite(key, docId, level, updated_at) {
+  const doc = await getDoc(key, docId);
+  await requireDocAccess(key, doc, level);
+  if (doc.status === "published" || doc.status === "archived") throw err(409, `document is ${doc.status}; revert to wip to edit`);
+  if (updated_at && doc.updated_at !== updated_at) throw err(409, "stale write: document changed since you loaded it");
+  return doc;
+}
 
 export async function listDocs(key) {
   const proj = await ensureProject(key);
@@ -44,6 +53,7 @@ export async function listDocs(key) {
 
 export async function createDoc(key, { doc_type, title, actor } = {}) {
   const proj = await ensureProject(key);
+  await requireDocAccess(key, null, "edit");
   const tpl = loadTemplates().find((t) => t.doc_type === doc_type);
   if (!tpl) throw err(400, `unknown doc_type '${doc_type}'`);
   // created_by is the signed-in caller's verified identity, never the body's name (bimdocs-3); the machine credential keeps its label.
@@ -64,17 +74,14 @@ export async function getDoc(key, docId) {
 }
 
 export async function patchSection(key, docId, sectionId, { body, owner, state, updated_at, actor } = {}) {
-  await requireMinRole(key, "contributor"); // H0 (D4, ledger-1): editing a section is a contributor's, asked before the document is read
-  const doc = await getDoc(key, docId);
-  if (doc.status === "published" || doc.status === "archived") throw err(409, `document is ${doc.status}; revert to wip to edit`);
-  if (updated_at && doc.updated_at !== updated_at) throw err(409, "stale write: document changed since you loaded it");
+  const doc = await openForWrite(key, docId, "edit", updated_at); // H0 (D4, ledger-1): editing a section is a contributor's
   const i = doc.sections.findIndex((s) => s.id === sectionId);
   if (i < 0) throw err(404, "section not found");
   const old = doc.sections[i];
   if (state !== undefined && state !== old.state && !validateTransition(old.state, state)) throw err(400, `invalid section transition ${old.state} → ${state}`);
   const next = { ...old, ...(body !== undefined && { body }), ...(owner !== undefined && { owner }), ...(state !== undefined && { state }) };
   const sections = doc.sections.map((s, j) => (j === i ? next : s));
-  const row = await patchSections(doc, sections, updated_at);
+  const row = await patchSections(doc, sections);
   await audit(doc.project_id, "bim_document", docId, "section_updated", actor || "web",
     { section: old.heading, state: old.state, owner: old.owner, body_chars: old.body.length, body_sha8: h8(old.body) },
     { section: next.heading, state: next.state, owner: next.owner, body_chars: next.body.length, body_sha8: h8(next.body) });
@@ -82,17 +89,17 @@ export async function patchSection(key, docId, sectionId, { body, owner, state, 
 }
 
 export async function transitionDoc(key, docId, { to, actor } = {}) {
-  await requireMinRole(key, "lead"); // publish/transition/bindings govern the record — lead and above
   const doc = await getDoc(key, docId);
-  if (!validateTransition(doc.status, to)) throw err(400, `invalid transition ${doc.status} → ${to}`);
+  await requireDocAccess(key, doc, "govern"); // publish/transition/bindings govern the record — lead and above
+  if (!validateDocTransition(doc.status, to)) throw err(400, `invalid transition ${doc.status} → ${to}`);
   const row = await writeStatus(doc, to);
   await audit(doc.project_id, "bim_document", docId, "transitioned", actor || "web", { status: doc.status }, { status: to });
   return row;
 }
 
 export async function publishDoc(key, docId, { label, actor } = {}) {
-  await requireMinRole(key, "lead"); // publish/transition/bindings govern the record — lead and above
   const doc = await getDoc(key, docId);
+  await requireDocAccess(key, doc, "govern"); // publish/transition/bindings govern the record — lead and above
   if (doc.status !== "shared") throw err(400, `only shared documents can be published (current: ${doc.status})`);
   const versions = await sb(`bim_document_versions?document_id=eq.${enc(docId)}&select=version_no&order=version_no.desc&limit=1`);
   const version_no = (one(versions)?.version_no || 0) + 1;
@@ -166,6 +173,7 @@ export async function createDocFromIngest(key, { doc_type, title, sections, sour
   const normalizedSections = validateSections(sections);
   const normalizedSource = normalizeSource(source);
   const proj = await ensureProject(key);
+  await requireDocAccess(key, null, "edit");
   // H0 (bimdocs-4): the original must have been uploaded to THIS project — it lives in the project's own folder, so a
   // file_id copied from another project, or one from before H0, names nothing here.
   if (normalizedSource?.file_id !== undefined) {
@@ -227,7 +235,6 @@ export function validateBindings(bindings) {
 
 /** Persist one section's bindings. Same guards as patchSection: no editing a published/archived doc. */
 export async function setSectionBindings(key, docId, sectionId, payload = {}) {
-  await requireMinRole(key, "lead"); // publish/transition/bindings govern the record — lead and above
   const { bindings, updated_at, actor } = payload;
   // A missing `bindings` key used to fall through validateBindings' undefined-default and silently
   // WIPE the section's bindings to empty with a 200. A PUT to this route must say what it means:
@@ -237,14 +244,12 @@ export async function setSectionBindings(key, docId, sectionId, payload = {}) {
       ? "missing the 'bindings' wrapper — send {bindings:{checks:[...]}}, not {checks:[...]}"
       : "bindings is required — {bindings:{checks:[{id, params?}]}}; send {bindings:{checks:[]}} to clear");
   const next = validateBindings(bindings); // validate BEFORE any network call
-  const doc = await getDoc(key, docId);
-  if (doc.status === "published" || doc.status === "archived") throw err(409, `document is ${doc.status}; revert to wip to edit`);
-  if (updated_at && doc.updated_at !== updated_at) throw err(409, "stale write: document changed since you loaded it");
+  const doc = await openForWrite(key, docId, "govern", updated_at); // publish/transition/bindings govern the record — lead and above
   const i = doc.sections.findIndex((s) => s.id === sectionId);
   if (i < 0) throw err(404, "section not found");
   const old = doc.sections[i];
   const sections = doc.sections.map((s, j) => (j === i ? { ...s, bindings: next } : s));
-  const row = await patchSections(doc, sections, updated_at);
+  const row = await patchSections(doc, sections);
   await audit(doc.project_id, "bim_document", docId, "section_bindings_set", actor || "web",
     { section: old.heading, checks: (old.bindings?.checks || []).map((c) => c.id) },
     { section: old.heading, checks: next.checks.map((c) => c.id) });
@@ -257,21 +262,18 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** A declared item's answer: yes | partial | no + note. Contributor and above; the author is the verified identity. */
 export async function setSectionAnswer(key, docId, sectionId, { value, note, updated_at, actor } = {}) {
-  await requireMinRole(key, "contributor");
   if (!ANSWERS.includes(value)) throw err(400, `answer value must be one of ${ANSWERS.join(", ")}`);
   const text = typeof note === "string" ? note.trim() : "";
   if (text.length > MAX_ANSWER_NOTE_CHARS) throw err(400, `note too long (${text.length}; limit ${MAX_ANSWER_NOTE_CHARS})`);
-  const doc = await getDoc(key, docId);
+  const doc = await openForWrite(key, docId, "edit", updated_at);
   if (doc.doc_type !== "READINESS") throw err(409, "answers belong to READINESS documents only");
-  if (doc.status === "published" || doc.status === "archived") throw err(409, `document is ${doc.status}; revert to wip to edit`);
-  if (updated_at && doc.updated_at !== updated_at) throw err(409, "stale write: document changed since you loaded it");
   const i = doc.sections.findIndex((s) => s.id === sectionId);
   if (i < 0) throw err(404, "section not found");
   const old = doc.sections[i];
   if (old.kind !== "declared") throw err(409, "this item is measured by a check — it takes no declared answer");
   const answer = { value, note: text, by: resolveActor(actor, "web"), at: new Date().toISOString() };
   const sections = doc.sections.map((s, j) => (j === i ? { ...s, answer } : s));
-  const row = await patchSections(doc, sections, updated_at);
+  const row = await patchSections(doc, sections);
   await audit(doc.project_id, "bim_document", docId, "declared", actor || "web",
     { section: old.heading, value: old.answer?.value ?? null },
     { section: old.heading, value, note_chars: text.length });
@@ -280,19 +282,16 @@ export async function setSectionAnswer(key, docId, sectionId, { value, note, upd
 
 /** Plan fields for a readiness item: owner + due (ISO date) — the implementation plan, in place. Lead and above. */
 export async function setSectionPlan(key, docId, sectionId, { owner, due, updated_at, actor } = {}) {
-  await requireMinRole(key, "lead");
   if (due !== undefined && due !== null && !ISO_DATE.test(String(due))) throw err(400, "due must be an ISO date (YYYY-MM-DD) or null");
   if (owner !== undefined && owner !== null && typeof owner !== "string") throw err(400, "owner must be a string or null");
-  const doc = await getDoc(key, docId);
+  const doc = await openForWrite(key, docId, "govern", updated_at);
   if (doc.doc_type !== "READINESS") throw err(409, "plan fields belong to READINESS documents only");
-  if (doc.status === "published" || doc.status === "archived") throw err(409, `document is ${doc.status}; revert to wip to edit`);
-  if (updated_at && doc.updated_at !== updated_at) throw err(409, "stale write: document changed since you loaded it");
   const i = doc.sections.findIndex((s) => s.id === sectionId);
   if (i < 0) throw err(404, "section not found");
   const old = doc.sections[i];
   const next = { ...old, ...(owner !== undefined && { owner: owner === null ? null : owner.trim() || null }), ...(due !== undefined && { due }) };
   const sections = doc.sections.map((s, j) => (j === i ? next : s));
-  const row = await patchSections(doc, sections, updated_at);
+  const row = await patchSections(doc, sections);
   await audit(doc.project_id, "bim_document", docId, "plan_set", actor || "web",
     { section: old.heading, owner: old.owner ?? null, due: old.due ?? null },
     { section: old.heading, owner: next.owner ?? null, due: next.due ?? null });
@@ -311,8 +310,8 @@ export async function listComments(key, docId) {
 }
 
 export async function addComment(key, docId, sectionId, text, actor) {
-  await requireMinRole(key, "viewer"); // 0038: doc_comments is the bridge's alone — any member comments, checked here
   const doc = await getDoc(key, docId); // published/archived are FINE — we never write the doc row
+  await requireDocAccess(key, doc, "comment"); // 0038: doc_comments is the bridge's alone — any member comments, checked here
   const section = doc.sections.find((s) => s.id === sectionId);
   if (!section) throw err(404, `section not found — available: ${doc.sections.map((s) => s.id).join(", ")}`);
   const body = typeof text === "string" ? text.trim() : "";

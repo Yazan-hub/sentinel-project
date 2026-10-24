@@ -341,14 +341,15 @@ describe("a document write that lands on no row is answered in words — never a
 });
 
 describe("a section edit is a contributor's (H0 D4, ledger-1)", () => {
-  it("a viewer's section edit is a 403 before the document is read, and nothing reaches the ledger", async () => {
+  it("a viewer's section edit is a 403, nothing is written and nothing reaches the ledger", async () => {
     globalThis.__testRole = "viewer";
-    sb.mockClear();
+    sb.mockReset();
+    sb.mockImplementation(async () => [makeDoc()]);
     audit.mockClear();
     try {
       await expect(patchSection("k", "11111111-1111-4111-8111-111111111111", "d1", { body: "x" }))
         .rejects.toMatchObject({ status: 403, message: "this action requires the contributor role" });
-      expect(sb).not.toHaveBeenCalled();
+      expect(sb.mock.calls.some(([, o]) => o?.method === "PATCH")).toBe(false);
       expect(audit).not.toHaveBeenCalled();
     } finally { globalThis.__testRole = undefined; }
   });
@@ -436,5 +437,22 @@ describe("a section's state is a known one before the write (0039's sections che
     await expect(patchSection("k", doc.id, "d1", { state })).rejects.toMatchObject({ status: 400, message: expect.stringContaining("invalid section transition") });
     expect(sb.mock.calls.some(([, o]) => o?.method === "PATCH")).toBe(false);
     expect(audit).not.toHaveBeenCalled();
+  });
+});
+
+describe("R1a: every section write is guarded on the row as read", () => {
+  it("a write without updated_at still filters on the document's updated_at, so a concurrent edit is a 409, not a lost update", async () => {
+    sb.mockImplementation(async (path, opts) => (opts?.method === "PATCH" ? [] : [doc]));
+    await expect(patchSection("k", doc.id, "sec1", { owner: "a@b" })).rejects.toMatchObject({ status: 409 });
+    const patch = sb.mock.calls.find(([, o]) => o?.method === "PATCH");
+    expect(patch[0]).toContain(`&updated_at=eq.${encodeURIComponent(doc.updated_at)}`);
+  });
+  it("transition to published is refused; publish is the way", async () =>
+    expect(transitionDoc("k", doc.id, { to: "published" })).rejects.toMatchObject({ status: 400 }));
+  it("a viewer cannot create a document; nothing is inserted", async () => {
+    globalThis.__testRole = "viewer";
+    await expect(createDoc("k", { doc_type: "BEP" })).rejects.toMatchObject({ status: 403 });
+    expect(sb.mock.calls.some(([, o]) => o?.method === "POST")).toBe(false);
+    globalThis.__testRole = undefined;
   });
 });
