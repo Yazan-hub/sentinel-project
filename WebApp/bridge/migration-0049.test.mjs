@@ -113,7 +113,7 @@ describe("0049 SQL part 6 — versions", () => {
     expect(v).toEqual({ sha: (await tx.query("select encode(sha256(convert_to($1::jsonb::text, 'UTF8')), 'hex') as h", [JSON.stringify(snap)])).rows[0].h, stage: "pre_appointment", suitability: "S0" });
   }));
   it("a lead's forged insert through PostgREST is refused", async () => {
-    await expect(as(db, lead, async (tx) => { const d = await insertDoc(tx); return version(tx, d, await docRow(tx, d)); })).rejects.toThrow(/recorded by Sentinel only|row-level security/);
+    await expect(as(db, lead, async (tx) => { const d = await insertDoc(tx); return version(tx, d, await docRow(tx, d)); })).rejects.toThrow(/recorded by Sentinel only/);
   });
   it("a snapshot of another document, or of other sections, is refused", () => as(db, "service", async (tx) => {
     const a = await insertDoc(tx, { sections: [{ id: "s1", state: "wip", body: "a" }] }), b = await insertDoc(tx);
@@ -130,5 +130,11 @@ describe("0049 SQL part 6 — versions", () => {
       return Number((await tx.query("select count(*) from public.bim_document_versions")).rows[0].count); });
     expect(await count(viewer)).toBe(0);
     expect(await count(contrib)).toBeGreaterThan(0);
+  });
+});
+
+describe("0049 files are valid UTF-8", () => {
+  it("the migration decodes strictly", () => {
+    expect(() => new TextDecoder("utf-8", { fatal: true }).decode(readFileSync(new URL("../db/migrations/0049_bim_document_blocks.sql", import.meta.url)))).not.toThrow();
   });
 });

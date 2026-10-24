@@ -115,7 +115,7 @@ update public.bim_documents d
                    from jsonb_array_elements(d.sections) with ordinality e(s, o))
  where exists (select 1 from jsonb_array_elements(d.sections) x(s) where not x.s ? 'blocks');
 
--- 6 · versions: service-only insert, sha computed here, snapshot tied to the document and its current sections; direct read contributor and above
+-- 6 Â· versions: service-only insert, sha computed here, snapshot tied to the document and its current sections; direct read contributor and above
 alter table public.bim_document_versions
   add column if not exists sha text, add column if not exists stage text, add column if not exists suitability text,
   add column if not exists revision text, add column if not exists round_id uuid;
