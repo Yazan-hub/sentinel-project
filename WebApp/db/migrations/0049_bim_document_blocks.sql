@@ -14,6 +14,8 @@
 --
 -- NOT APPLIED — applying it live is the founder's.
 -- Dry-run: on PGlite with every migration (bridge/migration-0049.test.mjs).
+-- Probe: probes/0049_probe.sql. Part 0 before the apply (read-only); then apply; then part 1 (every row true, after pasting part 0's md5 lines) and part 2 (one DO block that
+--   always raises 'PROBE 0049: 7 of 7 as expected.' so it leaves nothing behind). Do not re-run probes/0033_probe.sql afterwards (its P40 expects a lead's version insert).
 --
 -- ROLLBACK (if needed; later parts extend it):
 --   drop trigger trg_bim_documents_same_project on public.bim_documents; drop trigger trg_bim_documents_insert_guard on public.bim_documents;

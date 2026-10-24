@@ -134,9 +134,10 @@ describe("0049 SQL part 6 — versions", () => {
 });
 
 describe("0049 files are valid UTF-8", () => {
-  it("the migration decodes strictly", () => {
-    expect(() => new TextDecoder("utf-8", { fatal: true }).decode(readFileSync(new URL("../db/migrations/0049_bim_document_blocks.sql", import.meta.url)))).not.toThrow();
-  });
+  for (const f of ["0049_bim_document_blocks.sql", "probes/0049_probe.sql"])
+    it(`${f} decodes strictly`, () => {
+      expect(() => new TextDecoder("utf-8", { fatal: true }).decode(readFileSync(new URL(`../db/migrations/${f}`, import.meta.url)))).not.toThrow();
+    });
 });
 
 describe("0049 SQL part 7 — delete", () => {
@@ -158,4 +159,12 @@ describe("0049 SQL part 7 — delete", () => {
     await tx.query("delete from public.projects where id = $1", [R]);
     expect((await tx.query("select count(*) from public.bim_document_versions where document_id = $1", [d])).rows[0].count).toBe(0);
   }));
+});
+
+describe("probe 0049 runs on PGlite", () => {
+  it("part 2 reports 7 of 7", async () => {
+    const probe = readFileSync(new URL("../db/migrations/probes/0049_probe.sql", import.meta.url), "utf8").replace(/\r/g, "");
+    const part2 = probe.slice(probe.indexOf("-- Part 2 (after"));
+    await expect(db.exec(part2)).rejects.toThrow("PROBE 0049: 7 of 7 as expected.");
+  });
 });
