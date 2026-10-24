@@ -227,3 +227,23 @@ describe("block operations (contributor and above)", () => {
     expect(sentSections()[0].blocks).toHaveLength(60);
   });
 });
+
+const { publishDoc, listVersions, getVersion, listDocs } = await import("./bimdocs-store.mjs");
+const callTo = (re) => sb.mock.calls.find(([p, o]) => re.test(p) && (o?.method ?? "GET") !== "PATCH");
+describe("versions go through the bridge (0049: no signed-in insert, direct read contributor and above)", () => {
+  it("publish records the version with the service key", async () => {
+    doc.status = "shared";
+    sb.mockImplementation(async (p, o) => (o?.method === "PATCH" ? [{ ...doc, status: "published" }] : p.startsWith("bim_document_versions?") ? [] : [doc]));
+    await publishDoc("k", doc.id, { label: "Pre-appointment (tender)" });
+    expect(sb.mock.calls.find(([p, o]) => p === "bim_document_versions" && o?.method === "POST")[1].service).toBe(true);
+  });
+  it("a viewer's version list, version and document list are read by the bridge after the membership check", async () => {
+    globalThis.__testRole = "viewer";
+    try {
+      sb.mockImplementation(async (p) => (p.startsWith("bim_document_versions") ? [{ version_no: 2, snapshot: doc }] : [{ ...doc, bim_document_versions: [{ count: 2 }] }]));
+      await listVersions("k", doc.id); expect(callTo(/^bim_document_versions\?.*select=id,version_no/)[1]).toMatchObject({ service: true });
+      sb.mockClear(); await getVersion("k", doc.id, "2"); expect(callTo(/^bim_document_versions\?.*version_no=eq\.2/)[1]).toMatchObject({ service: true });
+      sb.mockClear(); expect((await listDocs("k"))[0].version_count).toBe(2); expect(callTo(/^bim_documents\?project_id=eq\.proj1/)[1]).toMatchObject({ service: true });
+    } finally { globalThis.__testRole = undefined; }
+  });
+});

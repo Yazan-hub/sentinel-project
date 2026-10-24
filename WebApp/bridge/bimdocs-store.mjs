@@ -48,7 +48,7 @@ async function openForWrite(key, docId, level, updated_at) {
 
 export async function listDocs(key) {
   const proj = await ensureProject(key);
-  const docs = await sb(`bim_documents?project_id=eq.${enc(proj.id)}&order=updated_at.desc&select=id,doc_type,title,status,updated_at,bim_document_versions(count)`);
+  const docs = await sb(`bim_documents?project_id=eq.${enc(proj.id)}&order=updated_at.desc&select=id,doc_type,title,status,updated_at,bim_document_versions(count)`, { service: true }); // ensureProject refused a non-member; 0049 limits direct version reads
   return docs.map((d) => ({ ...d, version_count: d.bim_document_versions?.[0]?.count ?? 0, bim_document_versions: undefined }));
 }
 
@@ -106,7 +106,7 @@ export async function publishDoc(key, docId, { label, actor } = {}) {
   const doc = await getDoc(key, docId);
   await requireDocAccess(key, doc, "govern"); // publish/transition/bindings govern the record — lead and above
   if (doc.status !== "shared") throw err(400, `only shared documents can be published (current: ${doc.status})`);
-  const versions = await sb(`bim_document_versions?document_id=eq.${enc(docId)}&select=version_no&order=version_no.desc&limit=1`);
+  const versions = await sb(`bim_document_versions?document_id=eq.${enc(docId)}&select=version_no&order=version_no.desc&limit=1`, { service: true });
   const version_no = (one(versions)?.version_no || 0) + 1;
   // The status first, on the document as it was read: a write that landed meanwhile leaves no row (a 409) and no version
   // is recorded. The append-only version is then the snapshot of exactly what was published; if it cannot be recorded,
@@ -115,7 +115,7 @@ export async function publishDoc(key, docId, { label, actor } = {}) {
   // published_by is the append-only, contractual record of who issued this version: the signed-in lead's verified
   // identity, never the body's name (bimdocs-3). The machine credential keeps its label.
   try {
-    await sb("bim_document_versions", { method: "POST", body: buildSnapshot(doc, label || `v${version_no}`, resolveActor(actor, "web"), version_no) });
+    await sb("bim_document_versions", { method: "POST", body: buildSnapshot(doc, label || `v${version_no}`, resolveActor(actor, "web"), version_no), service: true });
   } catch (e) {
     await writeStatus(issued, "shared").catch(() => {});
     throw e;
@@ -126,12 +126,12 @@ export async function publishDoc(key, docId, { label, actor } = {}) {
 
 export async function listVersions(key, docId) {
   await getDoc(key, docId); // membership/existence gate
-  return sb(`bim_document_versions?document_id=eq.${enc(docId)}&select=id,version_no,label,published_by,published_at&order=version_no.desc`);
+  return sb(`bim_document_versions?document_id=eq.${enc(docId)}&select=id,version_no,label,published_by,published_at&order=version_no.desc`, { service: true });
 }
 
 export async function getVersion(key, docId, n) {
   await getDoc(key, docId);
-  const row = one(await sb(`bim_document_versions?document_id=eq.${enc(docId)}&version_no=eq.${enc(n)}`));
+  const row = one(await sb(`bim_document_versions?document_id=eq.${enc(docId)}&version_no=eq.${enc(n)}`, { service: true }));
   if (!row) throw err(404, "version not found");
   return row;
 }
