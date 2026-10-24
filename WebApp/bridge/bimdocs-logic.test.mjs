@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { loadTemplates, instantiateTemplate, validateTransition, ALLOWED_TRANSITIONS, buildSnapshot } from "./bimdocs-logic.mjs";
+import { loadTemplates, instantiateTemplate, validateTransition, validateDocTransition, ALLOWED_TRANSITIONS, buildSnapshot } from "./bimdocs-logic.mjs";
 
 describe("loadTemplates", () => {
   it("loads BEP and EIR templates with sections", () => {
@@ -53,5 +53,23 @@ describe("buildSnapshot", () => {
     const row = { id: "d1", project_id: "p1", doc_type: "BEP", title: "T", status: "shared", sections: [{ id: "s1" }] };
     const v = buildSnapshot(row, "P01 — first issue", "yazan", 1);
     expect(v).toEqual({ document_id: "d1", version_no: 1, snapshot: row, label: "P01 — first issue", published_by: "yazan" });
+  });
+});
+
+describe("R1a: templates carry blocks and their id", () => {
+  it("every template is named by its file", () => expect(loadTemplates().map((t) => t.template_id).sort()).toEqual(["bep", "eir", "readiness", "tidp"]));
+  it("each new section holds one text block whose markdown is the body", () => {
+    const d = instantiateTemplate(loadTemplates().find((t) => t.template_id === "bep"));
+    expect(d).toMatchObject({ template_id: "bep", template_version: 1 });
+    for (const s of d.sections) expect(s.blocks).toEqual([{ id: `${s.id}.t0`, kind: "text", title: "", data: { markdown: "" } }]);
+  });
+  it("READINESS keeps its fields beside the blocks", () => {
+    const s = instantiateTemplate(loadTemplates().find((t) => t.template_id === "readiness")).sections.find((x) => x.kind === "declared");
+    expect(s).toMatchObject({ kind: "declared", answer: null, due: null, question: expect.any(String), blocks: [expect.objectContaining({ kind: "text" })] });
+  });
+  it("a document reaches published only by publish; sections keep their table", () => {
+    expect(validateDocTransition("shared", "published")).toBe(false);
+    expect(validateDocTransition("published", "wip")).toBe(true);
+    expect(validateTransition("shared", "published")).toBe(true);
   });
 });

@@ -4,39 +4,54 @@ import { readFileSync, readdirSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
+import { textBlock, validateBlock, deriveBody } from "./doc-blocks.mjs";
 
 const TPL_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "templates");
 
-/** All document templates ({doc_type, title, sections:[{heading, guidance, body?}]}). */
+/** All document templates ({template_id, version, doc_type, title, sections:[{heading, guidance, body?, blocks?}]}); the id is the file name without "-template.json". */
 export function loadTemplates() {
   return readdirSync(TPL_DIR)
     .filter((f) => f.endsWith("-template.json"))
-    .map((f) => JSON.parse(readFileSync(resolve(TPL_DIR, f), "utf8")));
+    .map((f) => {
+      const json = JSON.parse(readFileSync(resolve(TPL_DIR, f), "utf8"));
+      return { ...json, template_id: f.replace(/-template\.json$/, ""), version: json.version ?? 1 };
+    });
 }
 
-/** Deep-copy a template into a new document row body: fresh section ids, everything wip, bindings reserved. */
+/** Deep-copy a template into a new document row body: fresh section and block ids, everything wip, bindings reserved. */
 export function instantiateTemplate(template, { title, actor } = {}) {
   return {
     doc_type: template.doc_type,
     title: title || template.title,
     status: "wip",
     created_by: actor || "web",
-    sections: template.sections.map((s) => ({
-      id: randomUUID(),
-      heading: s.heading,
-      guidance: s.guidance || "",
-      body: s.body || "",
-      state: "wip",
-      owner: null,
-      // Template bindings are carried (READINESS pre-binds measured items); BEP/EIR templates have none.
-      bindings: s.bindings?.checks?.length
-        ? { checks: s.bindings.checks.map((c) => ({ id: c.id, params: c.params || {} })) }
-        : {},
-      // Readiness-only fields, present only when the template declares them — BEP/EIR sections stay as they were.
-      ...(s.pillar ? { pillar: s.pillar } : {}),
-      ...(s.kind ? { kind: s.kind, answer: null, due: null } : {}),
-      ...(s.question ? { question: s.question, answer_hint: s.answer_hint || "" } : {}),
-    })),
+    template_id: template.template_id,
+    template_version: template.version ?? 1,
+    sections: template.sections.map((s) => {
+      const id = randomUUID();
+      // A template's own blocks get fresh ids (two documents never share one); a section without blocks holds its body as one text block.
+      const blocks = Array.isArray(s.blocks)
+        ? s.blocks.map((b, i) => validateBlock({ ...b, id: null }, `${template.template_id}: sections[${s.heading ?? ""}].blocks[${i}]`))
+        : [textBlock(s.body || "", `${id}.t0`)];
+      return {
+        id,
+        heading: s.heading,
+        guidance: s.guidance || "",
+        body: deriveBody(blocks),
+        blocks,
+        state: "wip",
+        owner: null,
+        // Template bindings are carried (READINESS pre-binds measured items); BEP/EIR templates have none.
+        bindings: s.bindings?.checks?.length
+          ? { checks: s.bindings.checks.map((c) => ({ id: c.id, params: c.params || {} })) }
+          : {},
+        // Readiness-only fields, present only when the template declares them — BEP/EIR sections stay as they were.
+        ...(s.pillar ? { pillar: s.pillar } : {}),
+        ...(s.kind ? { kind: s.kind, answer: null, due: null } : {}),
+        ...(s.question ? { question: s.question, answer_hint: s.answer_hint || "" } : {}),
+        ...(s.key ? { template_key: s.key } : {}),
+      };
+    }),
   };
 }
 
@@ -52,6 +67,16 @@ export const ALLOWED_TRANSITIONS = {
 };
 
 export const validateTransition = (from, to) => (ALLOWED_TRANSITIONS[from] || []).includes(to);
+
+// The DOCUMENT's status: published is not a target here — a document reaches it only through publishDoc.
+export const DOC_TRANSITIONS = {
+  wip: ["shared", "archived"],
+  shared: ["wip", "archived"],
+  published: ["wip", "archived"],
+  archived: ["wip"],
+};
+
+export const validateDocTransition = (from, to) => (DOC_TRANSITIONS[from] || []).includes(to);
 
 /** The append-only bim_document_versions row for a publish. */
 export const buildSnapshot = (docRow, label, actor, version_no) => ({
