@@ -27,6 +27,7 @@ const PROJECTS = [
   { id: P_OFF, key: "p-office", name: "Office project", kind: "project", office_key: "office-a" },
   { id: P_LONE, key: "p-lone", name: "Self-made", kind: "project", office_key: null },
 ];
+const AI_DOC = { id: "33333333-3333-4333-8333-333333333333", project_id: P_OFF, doc_type: "BEP", title: "B", status: "wip", updated_at: "t", sections: [] };
 const MEMBERS = [
   { project_id: P_OFF, user_id: "u-contrib", role: "contributor" },
   { project_id: P_OFF, user_id: "u-view", role: "viewer" },
@@ -72,6 +73,7 @@ function fakePostgrest(req, res) {
       const p = PROJECTS.find((x) => x.id === m.project_id);
       return { role: m.role, projects: { kind: p.kind, office_key: p.office_key } };
     }));
+  if (path === "bim_documents" && eq("id") === AI_DOC.id) return json(200, [AI_DOC]);
   return json(200, []);
 }
 
@@ -451,12 +453,12 @@ describe("POST /bimdocs/:key/ingest — an original on the founder's disk (D2)",
   });
 });
 
-describe("POST /bimdocs/:key/:doc/integrity — the production requireMinRole default, end to end (H0 minor N24)", () => {
-  it("a viewer is refused before the document is read — no bim_documents read reaches PostgREST", async () => {
+describe("POST /bimdocs/:key/:doc/integrity — the production requireDocAccess default, end to end", () => {
+  it("a viewer is refused before any AI call — nothing is written", async () => {
     const from = seen.length;
-    const { status, json } = await call("POST", "/bimdocs/p-office/doc-1/integrity", { as: "u-view" });
+    const { status, json } = await call("POST", `/bimdocs/p-office/${AI_DOC.id}/integrity`, { as: "u-view" });
     expect(status).toBe(403);
     expect(json.message).toMatch(/contributor role/);
-    expect(seen.slice(from).filter((s) => s.includes("bim_documents"))).toEqual([]);
+    expect(seen.slice(from).filter((s) => !s.startsWith("GET "))).toEqual([]);
   });
 });

@@ -18,7 +18,7 @@ const baseDeps = (chat) => ({
   deliverableStatus: vi.fn(async () => ({ summary: { total: 0 } })),
   ensureProject: vi.fn(async () => ({ id: "p1", key: "demo", name: "Demo" })),
   projectNamingRuleset: vi.fn(async () => ({ ruleset: null, source: "unknown" })),
-  requireMinRole: vi.fn(async () => {}),
+  requireDocAccess: vi.fn(async () => "lead"),
   requireSpend: vi.fn(async () => ({ id: "p1", key: "demo" })),
 });
 
@@ -158,13 +158,12 @@ describe("prompt-size cap measures the ASSEMBLED prompt", () => {
 describe("who may run the AI on a document (H0, bimdocs-1)", () => {
   const refuse = (words) => vi.fn(async () => { throw Object.assign(new Error(words), { status: 403 }); });
 
-  it("a viewer is refused before the document is read or any AI call — the panel's canEdit, server-side", async () => {
+  it("a viewer is refused before any AI call — the panel's canEdit, server-side", async () => {
     const deps = baseDeps(vi.fn());
-    deps.requireMinRole = refuse("this action requires the contributor role (you are viewer)");
+    deps.requireDocAccess = refuse("this action requires the contributor role (you are viewer)");
     await expect(draftSection("demo", "d1", "s2", {}, deps)).rejects.toMatchObject({ status: 403 });
     await expect(integrityReport("demo", "d1", {}, deps)).rejects.toMatchObject({ status: 403 });
-    expect(deps.requireMinRole).toHaveBeenCalledWith("demo", "contributor");
-    expect(deps.getDoc).not.toHaveBeenCalled();
+    expect(deps.requireDocAccess).toHaveBeenCalledWith("demo", expect.objectContaining({ id: "d1" }), "edit");
     expect(deps.chat).not.toHaveBeenCalled();
   });
 
@@ -177,11 +176,10 @@ describe("who may run the AI on a document (H0, bimdocs-1)", () => {
     expect(deps.requireSpend).not.toHaveBeenCalled();
   });
 
-  it("requireSpend's refusal stops a cloud integrity run: 403, the document unread, no AI", async () => {
+  it("requireSpend's refusal stops a cloud integrity run: 403, no AI", async () => {
     const deps = baseDeps(vi.fn());
     deps.requireSpend = refuse("demo belongs to no office — nothing was sent");
     await expect(integrityReport("demo", "d1", { provider: "nemotron" }, deps)).rejects.toMatchObject({ status: 403, message: expect.stringMatching(/no office/) });
-    expect(deps.getDoc).not.toHaveBeenCalled();
     expect(deps.chat).not.toHaveBeenCalled();
   });
 });

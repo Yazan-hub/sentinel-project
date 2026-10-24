@@ -4,6 +4,7 @@
 // existing patchSection route, which audits it as a normal section edit.
 import { chat as realChat, PROVIDERS } from "./ai-gateway.mjs";
 import * as members from "./members-store.mjs";
+import * as access from "./doc-access.mjs";
 import * as store from "./bimdocs-store.mjs";
 import * as registry from "./check-registry.mjs";
 import * as deliverables from "./deliverables-store.mjs";
@@ -25,15 +26,15 @@ const wire = (deps) => ({
   deliverableStatus: deps.deliverableStatus || deliverables.deliverableStatus,
   ensureProject: deps.ensureProject || cde.ensureProject,
   projectNamingRuleset: deps.projectNamingRuleset || cde.projectNamingRuleset,
-  requireMinRole: deps.requireMinRole || members.requireMinRole,
+  requireDocAccess: deps.requireDocAccess || access.requireDocAccess,
   requireSpend: deps.requireSpend || members.requireSpend,
 });
 
-/** H0 (bimdocs-1): running the AI on a document is editing work — contributor or above, as the panel's canEdit — and
- *  a cloud provider spends the founder's key, so it also needs a trusted caller for this project (members-store
- *  requireSpend). Both before the document is read. */
-async function mayRunAi(key, provider, d) {
-  await d.requireMinRole(key, "contributor");
+/** Running the AI on a document is editing work — whoever may edit this document (requireDocAccess) — and a cloud
+ *  provider spends the founder's key, so it also needs a trusted caller for this project (members-store
+ *  requireSpend). Both after the document is read, before any AI call. */
+async function mayRunAi(key, doc, provider, d) {
+  await d.requireDocAccess(key, doc, "edit");
   if (PROVIDERS[provider || "local"]?.cloud) await d.requireSpend(key);
 }
 
@@ -66,8 +67,8 @@ const assertPromptWithinCap = (system, user, what) => {
 
 export async function draftSection(key, docId, sectionId, { provider, model } = {}, deps = {}) {
   const d = wire(deps);
-  await mayRunAi(key, provider, d);
   const doc = await d.getDoc(key, docId);
+  await mayRunAi(key, doc, provider, d);
   if (doc.status === "published" || doc.status === "archived")
     throw err(409, `document is ${doc.status}; drafting requires an editable document`);
   const section = doc.sections.find((s) => s.id === sectionId);
@@ -86,8 +87,8 @@ export async function draftSection(key, docId, sectionId, { provider, model } = 
 
 export async function integrityReport(key, docId, { provider, model } = {}, deps = {}) {
   const d = wire(deps);
-  await mayRunAi(key, provider, d);
   const doc = await d.getDoc(key, docId);
+  await mayRunAi(key, doc, provider, d);
 
   const contentChars = doc.sections.reduce((n, s) => n + (s.body || "").trim().length, 0);
   if (!contentChars)

@@ -16,3 +16,12 @@ describe("every document writer calls requireDocAccess (design §6)", () => {
     expect(src("bimdocs-store.mjs")).not.toMatch(/requireMinRole\(/);
   });
 });
+
+describe("the AI runs only for those who may edit the document", () => {
+  const ai = fns(src("bimdocs-ai.mjs"));
+  it("draftSection and integrityReport ask requireDocAccess on the document read", () => {
+    for (const n of ["draftSection", "integrityReport"]) expect(ai[n], n).toMatch(/mayRunAi\(key, doc,/);
+    expect(src("bimdocs-ai.mjs")).toMatch(/requireDocAccess\(key, doc, "edit"\)/);
+    expect(src("bimdocs-ai.mjs")).not.toMatch(/requireMinRole\(/);
+  });
+});
