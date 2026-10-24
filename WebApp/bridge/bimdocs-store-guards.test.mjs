@@ -451,8 +451,9 @@ describe("R1a: every section write is guarded on the row as read", () => {
     expect(transitionDoc("k", doc.id, { to: "published" })).rejects.toMatchObject({ status: 400 }));
   it("a viewer cannot create a document; nothing is inserted", async () => {
     globalThis.__testRole = "viewer";
-    await expect(createDoc("k", { doc_type: "BEP" })).rejects.toMatchObject({ status: 403 });
-    expect(sb.mock.calls.some(([, o]) => o?.method === "POST")).toBe(false);
-    globalThis.__testRole = undefined;
+    try {
+      await expect(createDoc("k", { doc_type: "BEP" })).rejects.toMatchObject({ status: 403 });
+      expect(sb.mock.calls.some(([, o]) => o?.method === "POST")).toBe(false);
+    } finally { globalThis.__testRole = undefined; }
   });
 });

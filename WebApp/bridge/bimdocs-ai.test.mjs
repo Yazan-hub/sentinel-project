@@ -183,3 +183,21 @@ describe("who may run the AI on a document (H0, bimdocs-1)", () => {
     expect(deps.chat).not.toHaveBeenCalled();
   });
 });
+
+describe("R1a: the document is read before access is asked", () => {
+  const calls = { draft: (deps) => draftSection("demo", "d1", "s2", {}, deps), integrity: (deps) => integrityReport("demo", "d1", {}, deps) };
+  it.each(Object.keys(calls))("%s reads the document (getDoc) before requireDocAccess", async (name) => {
+    const deps = baseDeps(vi.fn(async () => ({ text: '{"body":"x","findings":[]}', provider: "local", model: "m" })));
+    await calls[name](deps);
+    expect(deps.getDoc).toHaveBeenCalled();
+    expect(deps.requireDocAccess).toHaveBeenCalled();
+    expect(deps.getDoc.mock.invocationCallOrder[0]).toBeLessThan(deps.requireDocAccess.mock.invocationCallOrder[0]);
+  });
+  it.each(Object.keys(calls))("%s on a missing document is a 404 and access is never asked", async (name) => {
+    const deps = baseDeps(vi.fn());
+    deps.getDoc = vi.fn(async () => { throw Object.assign(new Error("document not found"), { status: 404 }); });
+    await expect(calls[name](deps)).rejects.toMatchObject({ status: 404 });
+    expect(deps.requireDocAccess).not.toHaveBeenCalled();
+    expect(deps.chat).not.toHaveBeenCalled();
+  });
+});

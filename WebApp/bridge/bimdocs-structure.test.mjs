@@ -1,14 +1,9 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { randomUUID } from "node:crypto";
-import { runWithAuth } from "./bridge-auth.mjs";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { createHash } from "node:crypto";
 
-// setSectionBindings/complianceReport guard tests need a mocked cde-store.mjs (Supabase network layer)
-// so we can assert on the 409/404 guard paths and prove complianceReport never writes. This mirrors
-// bimdocs-ingest.test.mjs's vi.mock("./ai-gateway.mjs", ...) pattern, kept in its own file so it never
-// interferes with bimdocs-store.test.mjs's unmocked network-rejection tests.
+// Section, block and version tests for bimdocs-store.mjs need a mocked cde-store.mjs (Supabase network layer) so we can assert
+// on what is PATCHed and which ledger rows are written. Kept in its own file so it never interferes with
+// bimdocs-store.test.mjs's unmocked network-rejection tests.
 const sb = vi.fn();
 const ensureProject = vi.fn();
 const audit = vi.fn();
@@ -317,5 +312,126 @@ describe("final review: structure, readiness and size", () => {
     doc.sections[1].body = "x".repeat(pad - 1);
     await reorderSections("k", doc.id, { order: ["sec1", "sec2"] });
     expect(patched()).toBe(true);
+  });
+});
+
+const h8 = (t) => createHash("sha256").update(t).digest("hex").slice(0, 8);
+describe("R1a edge cases: lost races", () => {
+  const lost = () => sb.mockImplementation(async (p, o) => (o?.method === "PATCH" ? [] : [doc]));
+  const meanwhile = "the document changed or was issued meanwhile — nothing was saved";
+  it("a block op whose write lands on no row is a 409 and leaves no ledger row", async () => {
+    doc.sections[0].blocks = [{ id: "sec1.t0", kind: "text", title: "", data: { markdown: "" } }];
+    lost();
+    await expect(editBlock("k", doc.id, "sec1", "sec1.t0", { data: { markdown: "x" } })).rejects.toMatchObject({ status: 409, message: meanwhile });
+    expect(audit).not.toHaveBeenCalled();
+  });
+  it("a structure op whose write lands on no row is a 409 and leaves no ledger row", async () => {
+    lost();
+    await expect(addSection("k", doc.id, { heading: "X" })).rejects.toMatchObject({ status: 409, message: meanwhile });
+    expect(audit).not.toHaveBeenCalled();
+  });
+  it("a block op and a structure op sent with an old updated_at are a 409 in the stale-write words, with no write", async () => {
+    const message = "stale write: document changed since you loaded it";
+    await expect(editBlock("k", doc.id, "sec1", "sec1.t0", { data: { markdown: "x" }, updated_at: "2025-01-01T00:00:00Z" })).rejects.toMatchObject({ status: 409, message });
+    await expect(addSection("k", doc.id, { heading: "X", updated_at: "2025-01-01T00:00:00Z" })).rejects.toMatchObject({ status: 409, message });
+    expect(patched()).toBe(false);
+    expect(audit).not.toHaveBeenCalled();
+  });
+});
+
+describe("R1a edge cases: placement and unknown ids", () => {
+  beforeEach(() => {
+    doc.sections.push({ id: "sec2", heading: "H2", body: "", state: "wip", owner: null, bindings: {}, blocks: [] });
+    doc.sections[0].blocks = [{ id: "b1", kind: "text", title: "", data: { markdown: "one" } }, { id: "b2", kind: "text", title: "", data: { markdown: "two" } }];
+  });
+  it("addSection puts the section first for after null, after the named one for an id, and 404s an unknown id", async () => {
+    await addSection("k", doc.id, { heading: "New", after: null });
+    expect(sentSections().map((x) => x.heading)).toEqual(["New", "H1", "H2"]);
+    sb.mockClear();
+    await addSection("k", doc.id, { heading: "New", after: "sec1" });
+    expect(sentSections().map((x) => x.heading)).toEqual(["H1", "New", "H2"]);
+    sb.mockClear();
+    await expect(addSection("k", doc.id, { heading: "New", after: "nope" })).rejects.toMatchObject({ status: 404, message: "section not found" });
+    expect(patched()).toBe(false);
+  });
+  it("addBlock puts the block first for after null, after the named one for an id, and 404s an unknown id", async () => {
+    const ids = () => sentSections()[0].blocks.map((b) => b.id);
+    await addBlock("k", doc.id, "sec1", { kind: "text", after: null });
+    expect(ids().slice(1)).toEqual(["b1", "b2"]);
+    sb.mockClear();
+    await addBlock("k", doc.id, "sec1", { kind: "text", after: "b1" });
+    expect([ids()[0], ids()[2]]).toEqual(["b1", "b2"]);
+    sb.mockClear();
+    await expect(addBlock("k", doc.id, "sec1", { kind: "text", after: "nope" })).rejects.toMatchObject({ status: 404, message: "block not found" });
+    expect(patched()).toBe(false);
+  });
+  it("an unknown section id is a 404 for remove, rename and addBlock", async () => {
+    await expect(removeSection("k", doc.id, "nope", {})).rejects.toMatchObject({ status: 404, message: "section not found" });
+    await expect(renameSection("k", doc.id, "nope", { heading: "X" })).rejects.toMatchObject({ status: 404, message: "section not found" });
+    await expect(addBlock("k", doc.id, "nope", { kind: "text" })).rejects.toMatchObject({ status: 404, message: "section not found" });
+    expect(patched()).toBe(false);
+  });
+  it("reorderSections refuses a duplicate id and an unknown id of the right length", async () => {
+    const message = "the new order must name every section once";
+    await expect(reorderSections("k", doc.id, { order: ["sec1", "sec1"] })).rejects.toMatchObject({ status: 400, message });
+    await expect(reorderSections("k", doc.id, { order: ["sec1", "nope"] })).rejects.toMatchObject({ status: 400, message });
+    expect(patched()).toBe(false);
+  });
+});
+
+describe("R1a edge cases: a pre-migration section (no blocks key) through every block op", () => {
+  beforeEach(() => { doc.sections[0] = { id: "sec1", heading: "H1", body: "legacy", state: "wip", owner: null, bindings: {} }; });
+  it("addBlock saves the legacy text as a block and derives the body", async () => {
+    await addBlock("k", doc.id, "sec1", { kind: "text", data: { markdown: "more" } });
+    const s = sentSections()[0];
+    expect(s.blocks.map((b) => b.data.markdown)).toEqual(["legacy", "more"]);
+    expect(s.body).toBe("legacy\n\nmore");
+  });
+  it("editBlock edits sec1.t0", async () => {
+    await editBlock("k", doc.id, "sec1", "sec1.t0", { data: { markdown: "edited" } });
+    expect(sentSections()[0]).toMatchObject({ body: "edited", blocks: [{ id: "sec1.t0", kind: "text", data: { markdown: "edited" } }] });
+  });
+  it("removeBlock removes sec1.t0 and the body is empty", async () => {
+    await removeBlock("k", doc.id, "sec1", "sec1.t0");
+    expect(sentSections()[0]).toMatchObject({ body: "", blocks: [] });
+  });
+  it("reorderBlocks keeps the one block and the body", async () => {
+    await reorderBlocks("k", doc.id, "sec1", { order: ["sec1.t0"] });
+    expect(sentSections()[0]).toMatchObject({ body: "legacy", blocks: [{ id: "sec1.t0", kind: "text" }] });
+  });
+});
+
+describe("R1a edge cases: block_changed audit shapes", () => {
+  const before = { section: "H1", block_id: "sec1.t0", kind: "text", body_chars: 5, body_sha8: h8("intro") };
+  beforeEach(() => { doc.sections[0] = { ...doc.sections[0], body: "intro", blocks: [{ id: "sec1.t0", kind: "text", title: "", data: { markdown: "intro" } }] }; });
+  it("edit: old is the section's facts before; new has the op and the facts after", async () => {
+    await editBlock("k", doc.id, "sec1", "sec1.t0", { data: { markdown: "changed" } });
+    expect(audit).toHaveBeenCalledWith("proj1", "bim_document", doc.id, "block_changed", "web", before,
+      { section: "H1", op: "edit", block_id: "sec1.t0", kind: "text", body_chars: 7, body_sha8: h8("changed") });
+  });
+  it("remove: old names the removed block; new has the op and the empty body", async () => {
+    await removeBlock("k", doc.id, "sec1", "sec1.t0");
+    expect(audit).toHaveBeenCalledWith("proj1", "bim_document", doc.id, "block_changed", "web", before,
+      { section: "H1", op: "remove", block_id: "sec1.t0", kind: "text", body_chars: 0, body_sha8: h8("") });
+  });
+  it("reorder: the block id and kind are null on both sides", async () => {
+    await reorderBlocks("k", doc.id, "sec1", { order: ["sec1.t0"] });
+    expect(audit).toHaveBeenCalledWith("proj1", "bim_document", doc.id, "block_changed", "web",
+      { section: "H1", block_id: null, kind: null, body_chars: 5, body_sha8: h8("intro") },
+      { section: "H1", op: "reorder", block_id: null, kind: null, body_chars: 5, body_sha8: h8("intro") });
+  });
+});
+
+describe("R1a edge cases: version reads", () => {
+  it("publish reads the last version_no with the service key", async () => {
+    doc.status = "shared";
+    sb.mockImplementation(async (p, o) => (o?.method === "PATCH" ? [{ ...doc, status: "published" }] : p.startsWith("bim_document_versions?") ? [{ version_no: 3 }] : [doc]));
+    expect(await publishDoc("k", doc.id, {})).toEqual({ version_no: 4 });
+    expect(callTo(/^bim_document_versions\?.*select=version_no/)[1]).toMatchObject({ service: true });
+  });
+  it("a version list for a document the caller cannot see is a 404 and reads no versions", async () => {
+    sb.mockImplementation(async () => []);
+    await expect(listVersions("k", doc.id)).rejects.toMatchObject({ status: 404 });
+    expect(sb.mock.calls.some(([p]) => p.startsWith("bim_document_versions"))).toBe(false);
   });
 });
