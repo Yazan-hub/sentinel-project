@@ -115,3 +115,69 @@ describe("block operations", () => {
     expect(guidanceOpen({ doc: { status: "shared" }, versions: [] } as any)).toBe(false);
   });
 });
+
+describe("fix round 1", () => {
+  const two = () => row([sec("s1", [text("a1", "one"), text("a2", "two")])]);
+  it("Cancel discards a carried-over draft: reopening starts from the stored block", async () => {
+    const saved = row([sec("s1", [text("a1", "ONE"), text("a2", "two")])]);
+    const ctx = ctxWith(two(), { write: vi.fn(async () => saved) });
+    const root = editPane(ctx);
+    click(button(shell(root, "a1"), "Edit")!); click(button(shell(root, "a2"), "Edit")!);
+    area(root, "a2").value = "typed once";
+    click(button(shell(root, "a1"), "Save")!); await flush();
+    expect(area(root, "a2").value).toBe("typed once"); // rebuilt open from its draft
+    area(root, "a2").value = "typed more";
+    click(button(shell(root, "a2"), "Cancel")!);
+    click(button(shell(root, "a2"), "Edit")!);
+    expect(area(root, "a2").value).toBe("two");
+  });
+  it("Draft with AI in a rebuilt editor and in another section posts to its own section", async () => {
+    const saved = row([sec("s1", [text("a1", "ONE"), text("a2", "two")]), sec("s2", [text("b1", "x")])]);
+    const ctx = ctxWith(row([sec("s1", [text("a1", "one"), text("a2", "two")]), sec("s2", [text("b1", "x")])]),
+      { write: vi.fn(async () => saved), post: vi.fn(async () => ({ proposal: "P", provider: "local", model: "m", grounding_used: 0 })) });
+    const root = editPane(ctx);
+    for (const id of ["a1", "a2", "b1"]) click(button(shell(root, id), "Edit")!);
+    click(button(shell(root, "a1"), "Save")!); await flush();
+    click(button(shell(root, "a2"), "Draft with AI")!); await flush();
+    click(button(shell(root, "b1"), "Draft with AI")!); await flush();
+    expect((ctx.ws.post as any).mock.calls.map((c: any[]) => c[0])).toEqual(["/bimdocs/snowdon-lifecycle/d1/section/s1/draft", "/bimdocs/snowdon-lifecycle/d1/section/s2/draft"]);
+  });
+  it("a failed Add shows one message, not one per try", async () => {
+    const ctx = ctxWith(two(), { write: vi.fn(async () => null) });
+    ctx.ws.state.mockReturnValue({ ...ctx.st, message: "No." });
+    const root = editPane(ctx);
+    click(button(section(root, "s1"), "+ Add block")!);
+    for (let i = 0; i < 3; i++) { click(button(section(root, "s1"), "Add")!); await flush(); }
+    expect(textOf(section(root, "s1")).split("No.").length - 1).toBe(1);
+  });
+  it("a stale answer (project switched) shows no old message", async () => {
+    const ctx = ctxWith(two(), { post: vi.fn(async () => null), write: vi.fn(async () => null) });
+    ctx.ws.state.mockReturnValue({ ...ctx.st, key: "other", doc: null, message: "old unrelated" });
+    const root = editPane(ctx);
+    click(button(shell(root, "a1"), "Edit")!); click(button(shell(root, "a1"), "Draft with AI")!); await flush();
+    click(button(shell(root, "a1"), "Save")!); await flush();
+    expect(textOf(shell(root, "a1"))).not.toContain("old unrelated");
+    expect(textOf(shell(root, "a1"))).not.toContain("could not be made");
+    expect(textOf(shell(root, "a1"))).not.toContain("Nothing was saved");
+  });
+  it("a non-2xx draft shows the bridge's words, or the fallback when there are none", async () => {
+    const ctx = ctxWith(two(), { post: vi.fn(async () => null) });
+    const root = editPane(ctx);
+    click(button(shell(root, "a1"), "Edit")!); click(button(shell(root, "a1"), "Draft with AI")!); await flush();
+    expect(textOf(shell(root, "a1"))).toContain("The AI draft could not be made.");
+  });
+  it("edges: Cancel of the Remove question, ↑ on the first and ↓ on the last send nothing", async () => {
+    vi.mocked(askYesNo).mockResolvedValueOnce(false);
+    const ctx = ctxWith(two());
+    const root = editPane(ctx);
+    click(button(shell(root, "a1"), "Remove")!); await flush();
+    click(button(shell(root, "a1"), "↑")!); click(button(shell(root, "a2"), "↓")!); await flush();
+    expect(ctx.ws.write).not.toHaveBeenCalled();
+  });
+  it("a section with no blocks array shows its one text block and an Add control", () => {
+    const legacy = { id: "s1", heading: "S1", guidance: "", body: "legacy words", state: "wip", owner: null, bindings: {} };
+    const root = editPane(ctxWith(row([legacy])));
+    expect(textOf(shell(root, "s1.t0"))).toContain("legacy words");
+    expect(button(section(root, "s1"), "+ Add block")).toBeDefined();
+  });
+});

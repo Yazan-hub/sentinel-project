@@ -19,7 +19,7 @@ export const ADDABLE_KINDS = ["text", "table", "matrix", "naming", "references"]
 export const blockPath = (sectionId: string, blockId?: string): string =>
   `/section/${pathSegment(sectionId)}/blocks${blockId === undefined ? "" : `/${pathSegment(blockId)}`}`;
 
-export type BlockEditor = (block: Block, ctx: PaneCtx) => { el: HTMLElement; value(): { title: string; data: unknown } };
+export type BlockEditor = (block: Block, ctx: PaneCtx, sectionId: string) => { el: HTMLElement; value(): { title: string; data: unknown } };
 export const EDITORS: Partial<Record<BlockKind, BlockEditor>> = {};
 
 /** An extra control under a text block's text area (Task 12 adds "Make this a naming rule"); null shows nothing. */
@@ -34,11 +34,14 @@ const has = (o: object, k: string): boolean => Object.prototype.hasOwnProperty.c
 const editorOf = (b: Block): BlockEditor | undefined => (typeof b.kind === "string" && has(EDITORS, b.kind) ? EDITORS[b.kind] : undefined);
 const nameOf = (b: Block): string => (typeof b.kind === "string" && has(BLOCK_NAMES, b.kind) ? BLOCK_NAMES[b.kind] : "part");
 
-// The section the editor being built belongs to. An editor is built synchronously by the shell, which sets this first.
-let editingIn = "";
+/** The text a refused or stale call leaves to show: "" when the project or document changed meanwhile (the answer is no longer this page's), else the bridge's words or the fallback. */
+function refusal(ctx: PaneCtx, fallback: string): string {
+  const now = ctx.ws.state();
+  return now.key !== ctx.st.key || !now.doc || now.doc.id !== ctx.st.doc?.id ? "" : now.message || fallback;
+}
 
-EDITORS.text = (block, ctx) => {
-  const d = ctx.doc, sid = editingIn;
+EDITORS.text = (block, ctx, sid) => {
+  const d = ctx.doc;
   const b = block as Block<"text">;
   const wrap = h(d, "div");
   const area = h(d, "textarea", `width:100%;box-sizing:border-box;min-height:9rem;background:${C.bg};color:${C.text};border:1px solid ${C.btnBorder};border-radius:.35rem;padding:.5rem;font:13px/1.5 system-ui;resize:vertical`);
@@ -65,7 +68,7 @@ EDITORS.text = (block, ctx) => {
     const r = await ctx.ws.post<{ proposal?: unknown; provider?: string; model?: string; grounding_used?: number }>(
       `/bimdocs/${encodeURIComponent(ctx.st.key)}/${pathSegment(doc.id)}/section/${pathSegment(sid)}/draft`, aiBody());
     draft.disabled = false; draft.textContent = "Draft with AI";
-    if (!r || typeof r.proposal !== "string") { note.textContent = ctx.ws.state().message || "The AI draft could not be made."; return; }
+    if (!r || typeof r.proposal !== "string") { note.textContent = refusal(ctx, "The AI draft could not be made."); return; }
     area.value = r.proposal; // a proposal only: nothing is written until Save
     note.textContent = `AI draft (${r.provider}/${r.model}, grounded in ${r.grounding_used} fact(s)): review it, then Save.`;
   });
@@ -77,6 +80,7 @@ EDITORS.text = (block, ctx) => {
 };
 
 export function editPane(ctx: PaneCtx): HTMLElement {
+  // ctx.st is the snapshot of the last centre render. Only doc.id, key, versions and respondsTo are read from it, and a block save changes none of them.
   const d = ctx.doc, rc = { respondsTo: ctx.st.respondsTo };
   const root = h(d, "div", "max-width:52rem;margin:0 auto");
   const doc: DocRow | null = ctx.st.doc;
@@ -116,7 +120,9 @@ export function editPane(ctx: PaneCtx): HTMLElement {
 
   function addControl(sid: string, after: string | null): HTMLElement {
     const wrap = h(d, "div", "margin:.3rem 0");
+    const note = h(d, "div", `color:${C.warn};font:12px system-ui`);
     const show = () => {
+      note.textContent = "";
       const more = btn(d, "+ Add block");
       more.addEventListener("click", () => {
         const sel = h(d, "select", `background:${C.bg};color:${C.soft};border:1px solid ${C.btnBorder};border-radius:.3rem;font:11px system-ui;padding:.2rem`);
@@ -125,10 +131,10 @@ export function editPane(ctx: PaneCtx): HTMLElement {
         add.addEventListener("click", async () => {
           const fresh = await ctx.ws.write("POST", blockPath(sid), { kind: sel.value, after });
           if (fresh) await applied(sid, fresh);
-          else wrap.append(h(d, "div", `color:${C.warn};font:12px system-ui`, ctx.ws.state().message || "Nothing was saved."));
+          else note.textContent = refusal(ctx, "Nothing was saved.");
         });
         cancel.addEventListener("click", show);
-        wrap.replaceChildren(sel, add, cancel);
+        wrap.replaceChildren(sel, add, cancel, note);
       });
       wrap.replaceChildren(more);
     };
@@ -145,6 +151,7 @@ export function editPane(ctx: PaneCtx): HTMLElement {
     shell.append(bar, body, note);
     const editor = editorOf(b);
     let current: ReturnType<BlockEditor> | null = null;
+    let seed = draft; // the carried-over text opens the editor once; any Cancel drops it
 
     const act = (label: string, fn: () => void | Promise<void>): HTMLButtonElement => {
       const x = btn(d, label);
@@ -153,7 +160,7 @@ export function editPane(ctx: PaneCtx): HTMLElement {
     };
     const done = async (fresh: DocRow | null, savedId?: string) => {
       if (fresh) await applied(s.id, fresh, savedId);
-      else note.textContent = ctx.ws.state().message || "Nothing was saved.";
+      else note.textContent = refusal(ctx, "Nothing was saved.");
     };
     const ids = () => blocksOf(rows.get(s.id) ?? s).map((x) => x.id);
     const move = (dir: -1 | 1) => async () => {
@@ -167,14 +174,13 @@ export function editPane(ctx: PaneCtx): HTMLElement {
     const tail = () => [act("↑", move(-1)), act("↓", move(1)), act("Remove", remove)];
 
     const closed = () => {
-      open.delete(b.id); current = null;
+      open.delete(b.id); current = null; seed = undefined;
       body.replaceChildren(renderBlock(b, rc, ctx.doc), ...(editor ? [] : [h(d, "div", `color:${C.muted};font:italic 12px system-ui`, NO_EDITOR)]));
       bar.replaceChildren(...(editor ? [act("Edit", () => opened())] : []), ...tail());
     };
     const opened = () => {
       if (!editor) return;
-      editingIn = s.id;
-      current = editor(draft ? { ...b, title: draft.title, data: draft.data } as Block : b, ctx);
+      current = editor(seed ? { ...b, title: seed.title, data: seed.data } as Block : b, ctx, s.id);
       open.set(b.id, { sid: s.id, value: () => current!.value() });
       body.replaceChildren(current.el);
       bar.replaceChildren(
