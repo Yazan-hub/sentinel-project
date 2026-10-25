@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { oldPanelEditable, oldPanelSaveBody, OLD_PANEL_NOTE } from "./doc-blocks";
+import { oldPanelEditable, oldPanelSaveBody, OLD_PANEL_NOTE, statusLine } from "./doc-blocks";
 describe("oldPanelEditable", () => {
   it("text-only sections stay editable in the old panel", () => {
     expect(oldPanelEditable({})).toBe(true);
@@ -19,5 +19,13 @@ describe("oldPanelSaveBody", () => {
     expect(oldPanelSaveBody({ blocks: [{ kind: "text" }] }, "v")).toBe("v");
     expect(oldPanelSaveBody({}, "v")).toBe("v");
     expect(oldPanelSaveBody({ blocks: [{ kind: "text" }, { kind: "table" }] }, "v")).toBeUndefined();
+  });
+});
+describe("statusLine", () => {
+  it("plain status words with the suitability after a comma", () => {
+    expect(statusLine({ status: "wip", suitability: "S0" })).toBe("Draft, S0");
+    expect(statusLine({ status: "published", suitability: "A1" })).toBe("Published, A1");
+    expect(statusLine({ status: "shared" })).toBe("Shared");
+    expect(statusLine({ status: "odd" })).toBe("odd");
   });
 });

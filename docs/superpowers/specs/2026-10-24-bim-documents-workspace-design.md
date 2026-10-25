@@ -97,7 +97,7 @@ Two tensions are recorded, not resolved against the founder: the comprehensive B
 
 ## 5. The workspace (layout A)
 
-A full-width page inside the app, reached from the Documents tab ("Open workspace"), from the Next strip and the Journey (both by tab label, as they work today), and from Deliverables ("Open in BEP") [F26]. **Layout spike first (R1b) [F27]:** a "Workspace" layout (`"workspace" 1fr / 1fr`) with its own header (project name, document title, a Back button), kept off the activity bar, and a check that returning to Projects re-attaches the 3D viewer with its camera and models. **Call:** the layout name is not a setting the founder sees; the only entry points are the buttons above.
+A full-width page inside the app, reached from the Documents tab ("Open workspace"), from the Next strip and the Journey (both by tab label, as they work today), and from Deliverables ("Open in BEP") [F26]. **Layout spike first (R1b) [F27]:** a "Workspace" layout (`"workspace" 1fr / 1fr`) with its own header (project name, document title, a Back button), keeps its activity-bar icon (founder 2026-10-25; the platform gives every layout one, and the icon reopens the last document), and a check that returning to Projects re-attaches the 3D viewer with its camera and models. **Call:** the layout name is not a setting the founder sees; the only entry points are the buttons above.
 
 - **Left: outline.** Document title, status in plain words, stage, suitability code, version label and what it responds to. One row per section with the section lead's initials and four chips by default: open comments, unbound, empty, needs a review; the rest (committed lines, installed) behind "More" [F43]. Filters: mine, open comments, unbound, changed since version N. Add, remove and reorder sections here (lead and above).
 - **Centre: the document.** One section at a time or continuous scroll (builder's choice), each block with its plain kind name, edit in place, "Add block" between blocks. The guidance for the section is one click away. Saving a block keeps the scroll position and open state (G14). Draft with AI works per text block, with the existing cite-a-fact gate; team-only comments never feed a draft of a section the client can read [F1].
@@ -267,7 +267,7 @@ The component structure of the workspace page; whether sections render one at a 
 32. The section owner stays an e-mail string resolved at read time and is called "section lead"; an invited member shows as "invited", and only an e-mail that matches nobody as "not a member" [v2.1].
 33. Naming is its own block kind; migrated sections stay text until converted.
 34. Goal 10 is in-app entry only; the Revit pane keeps its text hint; a boot parameter is later.
-35. The workspace is a layout kept off the activity bar and is not a user setting.
+35. The workspace is a layout that keeps its activity-bar icon (founder 2026-10-25) and is not a user setting.
 36. The score shows "x % controlling, y of z sections written"; an empty section is not controlling.
 37. The Journey's TIDP step becomes a measured rule on the deliverables table.
 38. Markdown is rendered by a small hand-rolled DOM builder; print uses the popup route.

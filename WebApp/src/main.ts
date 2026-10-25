@@ -36,6 +36,7 @@ import { issuePanel } from "./setups/issue-panel";
 import { cdePanel } from "./setups/cde-panel";
 import { filesPanel } from "./setups/files-panel";
 import { docsPanel } from "./setups/docs-panel";
+import { workspacePage } from "./workspace/workspace-page";
 import { deliverablesPanel } from "./setups/deliverables-panel";
 import { propertiesPanel } from "./setups/properties-panel";
 import { projectBrowserPanel } from "./setups/project-browser-panel";
@@ -291,6 +292,8 @@ async function main() {
   // CDE panel — ISO 19650 information-container board (WIP/Shared/Published/Archived) on Supabase.
   const cdeEl = cdePanel(components, { baseUrl: SERVICE_URL });
   const filesEl = filesPanel(components, { baseUrl: SERVICE_URL });
+  // The BIM documents workspace — a full page (layout "Workspace"); the 3D viewer stays hidden, not destroyed, while it is open.
+  const workspaceEl = workspacePage({ baseUrl: SERVICE_URL, onBack: () => { app.layout = "Projects"; showSpace(); } });
   // Documents panel — ISO 19650 project documents (BEP/EIR) with states, versions, print/PDF.
   const docsEl = docsPanel(components, { baseUrl: SERVICE_URL });
   // Deliverables — the MIDP/TIDP plan vs what actually arrived (status derived, never stored).
@@ -430,6 +433,7 @@ async function main() {
     bimtools: () => BUI.html`${bimToolsEl}`,
     coordination: () => BUI.html`${coordEl}`,
     lifecycle: () => BUI.html`${lifecycleEl}`,
+    workspace: () => BUI.html`${workspaceEl}`,
   };
   // No `label` → the sidebar renders icon-only activity-bar buttons (matching
   // the pre-A2 look), background only on the active one.
@@ -481,6 +485,8 @@ async function main() {
       icon: "mdi:cog",
       template: `"settings viewer" 1fr / 22rem 1fr`,
     },
+    // The BIM documents workspace, full page (founder 2026-10-25, layout A); its icon reopens the last document.
+    Workspace: { icon: "mdi:file-document-edit-outline", template: `"workspace" 1fr / 1fr` },
   };
   app.layout = "Projects";
   app.sidebar = true;
