@@ -12,6 +12,7 @@ import { becameVisible, createWorkspace, reopenTarget, resolveSection, reviewLin
 import { C, btn, h } from "./dom";
 import { editPane } from "./block-editors";
 import { commentsTab, outlinePane } from "./outline";
+import { qualityTab } from "./quality-tab";
 import { readView } from "./read-view";
 import { compareView, versionsView } from "./versions-view";
 
@@ -28,7 +29,7 @@ export const VIEWS: Record<View, (ctx: PaneCtx) => HTMLElement> = { edit: editPa
 
 const SIDE_TEXT = `color:${C.soft};font:12px system-ui;line-height:1.5;margin:0 0 .5rem`;
 export const SIDE_TABS: Record<"quality" | "review" | "comments", (ctx: PaneCtx) => HTMLElement> = {
-  quality: (ctx) => h(ctx.doc, "p", SIDE_TEXT, ctx.st.ex?.headline ?? "Not scored yet."),
+  quality: qualityTab,
   review: (ctx) => {
     const box = h(ctx.doc, "div");
     if (ctx.st.doc) box.append(...reviewLines(ctx.st.doc, ctx.st.versions).map((line) => h(ctx.doc, "p", SIDE_TEXT, line)));
