@@ -1,6 +1,6 @@
 // The left-hand outline: the document's head, filters, one row per section (chips, section lead) and, for a lead,
 // the section operations. Plus the read-only Comments side tab. A viewer sees the same outline and no action.
-import type { CommentRow, DocRow, Executability, SectionRow } from "../sentinel-core/doc-blocks";
+import type { CommentRow, DocRow, Executability, SectionRow, Snapshot } from "../sentinel-core/doc-blocks";
 import { STAGE_WORDS, statusLine } from "../sentinel-core/doc-blocks";
 import { askText, askYesNo } from "../setups/ask";
 import { pathSegment } from "../setups/escape-html";
@@ -18,8 +18,8 @@ const FILTERS: [SectionFilter, string][] = [["all", "All"], ["mine", "Mine"], ["
 
 /** The section lead's e-mail as one or two letters: "anna.lee@x.com" → "AL". No lead → "—". */
 export function initials(owner: string | null): string {
-  const parts = String(owner ?? "").split("@")[0].split(/[^A-Za-z0-9]+/).filter(Boolean);
-  return parts.length ? parts.slice(0, 2).map((p) => p[0].toUpperCase()).join("") : "—";
+  const parts = String(owner ?? "").split("@")[0].split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  return parts.length ? parts.slice(0, 2).map((p) => [...p][0].toUpperCase()).join("") : "—";
 }
 
 const boundChecks = (s: SectionRow): { id: string }[] => (Array.isArray(s?.bindings?.checks) ? s.bindings.checks : []);
@@ -66,7 +66,8 @@ export function answersLine(doc: DocRow, respondsTo: WorkspaceState["respondsTo"
 }
 
 // The filter outlives the pane's rebuilds (every click on a row rebuilds it); it resets for another document.
-let kept: { doc: string; f: SectionFilter; changed: Set<string>; since: number | null } = { doc: "", f: "all", changed: new Set(), since: null };
+// "Changed" keeps the picked version's snapshot and compares it with the live document at every draw.
+let kept: { doc: string; f: SectionFilter; snap: Snapshot | null; since: number | null } = { doc: "", f: "all", snap: null, since: null };
 // Check labels are read once per workspace (they only change with a bridge release).
 const labelsKept = new WeakMap<object, Record<string, string>>();
 
@@ -74,7 +75,7 @@ export function outlinePane(ctx: PaneCtx): HTMLElement {
   const d = ctx.doc, st = ctx.st, doc = st.doc;
   const root = h(d, "div");
   if (!doc) return root;
-  if (kept.doc !== doc.id) kept = { doc: doc.id, f: "all", changed: new Set(), since: null };
+  if (kept.doc !== doc.id) kept = { doc: doc.id, f: "all", snap: null, since: null };
   const note = h(d, "div", `color:${C.warn};font:11px system-ui;margin:.4rem 0 0;line-height:1.4`);
   const say = (t: string): void => { note.textContent = t; };
   const latest = st.versions.reduce<(typeof st.versions)[number] | null>((a, v) => (!a || v.version_no > a.version_no ? v : a), null);
@@ -100,7 +101,7 @@ export function outlinePane(ctx: PaneCtx): HTMLElement {
     if (!st.versions.some((v) => v.version_no === n)) { say("There is no such version. Type the number of one in the Versions view."); return; }
     const v = await readVersion(ctx, n);
     if (!v?.snapshot) { say(ctx.ws.state().message || "That version could not be read."); return; }
-    kept = { ...kept, f: "changed", changed: changedSince(doc, v.snapshot), since: n };
+    kept = { ...kept, f: "changed", snap: v.snapshot, since: n };
     say(""); draw();
   };
 
@@ -116,7 +117,8 @@ export function outlinePane(ctx: PaneCtx): HTMLElement {
 
   const list = (): HTMLElement => {
     const box = h(d, "div");
-    const shown = filterSections(doc.sections, kept.f, { me: st.me, comments: st.comments, ex: st.ex, changed: kept.changed });
+    const changed = kept.f === "changed" && kept.snap ? changedSince(doc, kept.snap) : new Set<string>();
+    const shown = filterSections(doc.sections, kept.f, { me: st.me, comments: st.comments, ex: st.ex, changed });
     if (!shown.length) box.append(h(d, "div", `color:${C.muted};font:12px system-ui;padding:.3rem .4rem`, "No section matches."));
     for (const s of shown) {
       const row = h(d, "button", `display:block;width:100%;text-align:left;background:${s.id === ctx.focused ? C.btn : "transparent"};border:0;border-radius:.3rem;padding:.3rem .4rem;color:${C.soft};font:12px system-ui;cursor:pointer`);
@@ -159,8 +161,8 @@ export function outlinePane(ctx: PaneCtx): HTMLElement {
     return out;
   };
   const move = (dir: -1 | 1) => onSection(async (s) => {
-    const ids = doc.sections.map((x) => x.id), order = moveId(ids, s.id, dir);
-    if (order !== ids) await done(ctx.ws.write("PUT", "/outline", { order }));
+    const ids = doc.sections.filter(Boolean).map((x) => x.id), order = moveId(ids, s.id, dir);
+    if (order.some((id, i) => id !== ids[i])) await done(ctx.ws.write("PUT", "/outline", { order }));
   });
 
   const actions = (): HTMLElement => {

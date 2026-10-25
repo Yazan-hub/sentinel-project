@@ -5,10 +5,11 @@ vi.mock("../setups/ask", () => ({ askText: vi.fn(async () => "New heading"), ask
 // the one fetched-version cache is read-view's (tested there); here a version is read through the controller's get
 vi.mock("./read-view", () => ({
   startPrint: vi.fn(),
-  readVersion: async (ctx: any, n: number) => ctx.ws.get(`/bimdocs/k/d1/versions/${n}`),
+  readVersion: vi.fn(async (ctx: any, n: number) => ctx.ws.get(`/bimdocs/k/${ctx.ws.state().doc.id}/versions/${n}`)),
 }));
 
 import { askText, askYesNo } from "../setups/ask";
+import { readVersion } from "./read-view";
 import { answersLine, commentsTab, filterSections, initials, isComprehensive, outlinePane, removeQuestion, sectionChips } from "./outline";
 import { emptyState } from "./workspace-state";
 import { fakeDocument, findAll, textOf, click } from "./fake-dom";
@@ -23,6 +24,7 @@ describe("outline helpers", () => {
   it("initials: the e-mail's local part, at most two letters", () => {
     expect(initials("anna.lee@x.com")).toBe("AL"); expect(initials("bob_smith-jr@x")).toBe("BS"); expect(initials("yazan@x")).toBe("Y");
     expect(initials(null)).toBe("—"); expect(initials("")).toBe("—");
+    expect(initials("émile.dupont@x")).toBe("ÉD"); expect(initials("émile@x")).toBe("É");
   });
   it("chips: comments, Unbound, Empty", () => {
     expect(sectionChips(sec("s1", { bindings: bound }), ex({ s1: true }), [comment("s1"), comment("s1")])).toEqual(["2 comments"]);
@@ -35,6 +37,11 @@ describe("outline helpers", () => {
     expect(filterSections(s, "mine", o).map((x) => x.id)).toEqual(["s1"]);
     for (const f of ["comments", "unbound", "changed"] as const) expect(filterSections(s, f, o).map((x) => x.id), f).toEqual(["s2"]);
   });
+  it("a section whose bindings.checks is not a list is unbound and has nothing to name on removal", () => {
+    const odd = sec("s9", { heading: "9. Odd", bindings: { checks: "x" } as never });
+    expect(removeQuestion(odd, {})).toBe('Remove "9. Odd"? Its text and parts go with it.');
+    expect(filterSections([odd, sec("s1", { bindings: bound })], "unbound", { me: "", comments: [], ex: null, changed: new Set() }).map((x) => x.id)).toEqual(["s9"]);
+  });
   it("Mine with nobody signed in matches nothing", () =>
     expect(filterSections([sec("s1")], "mine", { me: "", comments: [], ex: null, changed: new Set() })).toEqual([]));
   it("removeQuestion names the checks that stop", () => {
@@ -45,6 +52,7 @@ describe("outline helpers", () => {
   it("answersLine", () => {
     expect(answersLine(doc({ responds_to: "e1", responds_to_version: 2 }), { title: "SNW EIR", version_no: 2 })).toBe("Answers: SNW EIR v2");
     expect(answersLine(doc({ responds_to: "e1" }), { title: "SNW EIR", version_no: null })).toBe("Answers: SNW EIR");
+    expect(answersLine(doc({ responds_to: "e1" }), null)).toBe("Answers: an EIR of this project"); // the EIR's title is not loaded
     expect(answersLine(doc({ sections: [sec("s1", { blocks: [{ id: "s1.part-e", kind: "text", title: "", data: { markdown: "x" } }] })] }), null)).toBe("Answers: no EIR received");
     const fresh = doc({ template_id: "bep-comprehensive", sections: [sec("s1"), sec("s2", { template_key: "eir-response" })] });
     expect(answersLine(fresh, null)).toBe("Answers: start not picked yet");
@@ -57,8 +65,9 @@ describe("outline helpers", () => {
 
 const ACTIONS = ["Add section", "Rename", "Move up", "Move down", "Remove", "Section lead…"];
 const version = (n: number): VersionListRow => ({ id: `v${n}`, version_no: n, label: `Label ${n}`, published_by: "a@x", published_at: "2026-10-22T10:00:00Z", revision: null, stage: null, suitability: null, sha: null });
+let seq = 0; // the pane keeps its filter per document id, so each test gets its own
 function ctx(canGovern: boolean, o: { focused?: string | null; versions?: VersionListRow[]; comments?: CommentRow[]; get?: unknown; d?: DocRow } = {}) {
-  const st = { ...emptyState("k"), doc: o.d ?? doc(), role: canGovern ? "lead" : "viewer", me: "lead@x.com", versions: o.versions ?? [], comments: o.comments ?? [], message: "" };
+  const st = { ...emptyState("k"), doc: { ...(o.d ?? doc()), id: `d${++seq}` }, role: canGovern ? "lead" : "viewer", me: "lead@x.com", versions: o.versions ?? [], comments: o.comments ?? [], message: "" };
   const write = vi.fn(async () => doc());
   const refresh = vi.fn();
   const ws = { write, get: vi.fn((o.get as any) ?? (async () => ({ checks: [], planned: [] }))), state: () => st };
@@ -95,6 +104,10 @@ describe("outlinePane", () => {
     vi.mocked(askText).mockResolvedValueOnce("");
     expect(await press(live("s1"), "Section lead…")).toHaveBeenCalledWith("PATCH", "/section/s1", { owner: null });
   });
+  it("a stored null section does not stop Move; the order leaves it out", async () => {
+    const c = ctx(true, { focused: "s2", d: doc({ sections: [null as never, sec("s1"), sec("s2")] }) });
+    expect(await press(c, "Move up")).toHaveBeenCalledWith("PUT", "/outline", { order: ["s2", "s1"] });
+  });
   it("a section id in a path is encoded", async () => {
     const d = doc({ sections: [sec("a/b?c")] });
     const c = ctx(true, { focused: "a/b?c", d });
@@ -110,6 +123,7 @@ describe("outlinePane", () => {
     vi.mocked(askYesNo).mockResolvedValueOnce(false);
     expect(await press(live("s1"), "Remove")).not.toHaveBeenCalled();
     expect(await press(live("s1"), "Move up")).not.toHaveBeenCalled();
+    expect(await press(live("s2"), "Move down")).not.toHaveBeenCalled();
   });
   it("an action that needs a section says so when none is picked", async () => {
     const c = live(null);
@@ -139,11 +153,22 @@ describe("outlinePane", () => {
     const c = ctx(true, { versions: [version(1)], get: async () => ({ version_no: 1, snapshot: snap }), d: doc({ sections: [snap.sections[0], sec("s2", { body: "new" })] }) });
     vi.mocked(askText).mockResolvedValueOnce("1");
     const el = outlinePane(c); click(labelled(el, "Changed")); await tick(); await tick();
-    expect(c.ws.get).toHaveBeenCalledWith("/bimdocs/k/d1/versions/1");
+    expect(readVersion).toHaveBeenLastCalledWith(c, 1);
+    expect(c.ws.get).toHaveBeenCalledWith(`/bimdocs/k/${c.st.doc.id}/versions/1`);
     const rows = findAll(el, "button").map(textOf).filter((t) => t.includes("H s"));
     expect(rows).toHaveLength(1); expect(rows[0]).toContain("H s2");
     expect(textOf(el)).toContain("Changed since v1");
-    click(labelled(el, "All")); // the filter outlives the pane (module state), so put it back
+  });
+  it("Changed is worked out at every draw: a section edited after the pick appears, one edited back disappears", async () => {
+    const v1 = [sec("s1", { body: "a" }), sec("s2", { body: "b" })];
+    const c = ctx(true, { versions: [version(1)], get: async () => ({ version_no: 1, snapshot: doc({ sections: v1 }) }), d: doc({ sections: [sec("s1", { body: "a" }), sec("s2", { body: "edited" })] }) });
+    vi.mocked(askText).mockResolvedValueOnce("1");
+    click(labelled(outlinePane(c), "Changed")); await tick(); await tick();
+    const ids = () => findAll(outlinePane(c), "button").map(textOf).filter((t) => t.includes("H s")).map((t) => t.match(/H (s\d)/)![1]);
+    expect(ids()).toEqual(["s2"]);
+    c.st.doc = { ...c.st.doc, sections: [sec("s1", { body: "edited later" }), sec("s2", { body: "b" })] }; // s1 edited, s2 edited back
+    expect(ids()).toEqual(["s1"]);
+    expect(textOf(outlinePane(c))).toContain("Changed since v1");
   });
   it("Changed with no version says so and asks nothing; an unknown number says so", async () => {
     vi.mocked(askText).mockClear();
@@ -161,11 +186,10 @@ describe("outlinePane", () => {
     click(labelled(el, "Unbound"));
     const rows = findAll(el, "button").map(textOf).filter((t) => t.includes("H s"));
     expect(rows).toHaveLength(1); expect(rows[0]).toContain("H s2");
-    click(labelled(el, "All"));
   });
   it("the document with no sections matching a filter says so", () => {
     const el = outlinePane(ctx(true, { d: doc({ sections: [sec("s1", { bindings: bound })] }) })); click(labelled(el, "Unbound"));
-    expect(textOf(el)).toContain("No section matches."); click(labelled(el, "All"));
+    expect(textOf(el)).toContain("No section matches.");
   });
 });
 
