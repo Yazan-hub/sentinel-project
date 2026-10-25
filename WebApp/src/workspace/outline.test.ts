@@ -89,6 +89,12 @@ describe("outlinePane", () => {
     const labels = findAll(outlinePane(ctx(true)), "button").map(textOf);
     for (const a of ACTIONS) expect(labels, a).toContain(a);
   });
+  it("the head offers Link an EIR… to a lead on a BEP with a start still to pick", () => {
+    const d = doc({ template_id: "bep-comprehensive", sections: [sec("s1"), sec("s2", { template_key: "eir-response" })] });
+    expect(findAll(outlinePane(ctx(true, { d })), "button").map(textOf)).toContain("Link an EIR…");
+    expect(findAll(outlinePane(ctx(false, { d })), "button").map(textOf)).not.toContain("Link an EIR…");
+    expect(findAll(outlinePane(ctx(true)), "button").map(textOf)).not.toContain("Link an EIR…");
+  });
   it("the head names the stage, the latest version and what the BEP answers", () => {
     const t = textOf(outlinePane(ctx(true, { versions: [version(1), version(2)] })));
     expect(t).toContain("Pre-appointment (tender)"); expect(t).toContain("v2, Label 2"); expect(t).toContain("Answers: no EIR linked");

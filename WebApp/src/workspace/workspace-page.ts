@@ -14,6 +14,7 @@ import { editPane } from "./block-editors";
 import { commentsTab, outlinePane } from "./outline";
 import { qualityTab } from "./quality-tab";
 import { readView } from "./read-view";
+import { startStrip } from "./start-strip";
 import { compareView, versionsView } from "./versions-view";
 
 export type View = "edit" | "read" | "compare" | "versions";
@@ -113,7 +114,9 @@ export function workspacePage(opts: { baseUrl: string; onBack: () => void; doc?:
     outlineCol.replaceChildren(...(c.st.doc ? [OUTLINE.pane(c)] : []));
   }
   function renderCentre(c: PaneCtx): void {
-    centre.replaceChildren(c.st.doc ? VIEWS[view](c) : h(d, "div", `color:${C.muted}`, c.st.message || "Open a document from the project's Documents tab."));
+    if (!c.st.doc) { centre.replaceChildren(h(d, "div", `color:${C.muted}`, c.st.message || "Open a document from the project's Documents tab.")); return; }
+    const strip = view === "edit" ? startStrip(c) : null; // above the editing pane, never on the read views
+    centre.replaceChildren(...(strip ? [strip] : []), VIEWS[view](c));
   }
   function renderSide(c: PaneCtx): void {
     if (!c.st.doc) { sideCol.replaceChildren(); return; }

@@ -7,6 +7,7 @@ import { pathSegment } from "../setups/escape-html";
 import { C, btn, h } from "./dom";
 import { hasStart, isComprehensive } from "./bep-start";
 import { readVersion } from "./read-view";
+import { linkEirButton } from "./start-strip";
 import { changedSince } from "./versions-view";
 import { moveId, type WorkspaceState } from "./workspace-state";
 import type { PaneCtx } from "./workspace-page";
@@ -90,6 +91,8 @@ export function outlinePane(ctx: PaneCtx): HTMLElement {
     );
     const answers = answersLine(doc, st.respondsTo);
     if (answers) box.append(h(d, "div", `color:${C.soft};font:11px system-ui`, answers));
+    const link = linkEirButton(ctx);
+    if (link) box.append(link);
     return box;
   };
 
