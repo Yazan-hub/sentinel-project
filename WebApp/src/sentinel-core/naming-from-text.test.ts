@@ -25,4 +25,9 @@ describe("namingFromText", () => {
       { key: "project", label: "Project", pattern: null, enum: ["AB"], placeholders: [], description: "" },
       { key: "zone", label: "Zone", pattern: null, enum: [], placeholders: [], description: "" }]);
   });
+  it("an empty part has no values; a second literal is Part N; repeated tokens count once", () => {
+    expect(namingFromText("`AB--<x>`")!.fields.map((f) => [f.key, f.label, f.enum])).toEqual([["project", "Project", ["AB"]], ["part_2", "Part 2", []], ["x", "X", []]]);
+    expect(namingFromText("`AB-CD-<x>`")!.fields.map((f) => [f.key, f.label, f.enum])).toEqual([["project", "Project", ["AB"]], ["part_2", "Part 2", ["CD"]], ["x", "X", []]]);
+    expect(namingFromText("`<x>_<y>`\n\n| F | V |\n|---|---|\n| x | ARC, ARC and STR, ARC |")!.fields[0].enum).toEqual(["ARC", "STR"]);
+  });
 });

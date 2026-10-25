@@ -32,7 +32,7 @@ export function namingProblems(data: Naming): string[] {
     if (!pattern && !(Array.isArray(f?.enum) && f.enum.length)) out.push(`Field ${n} has no allowed values and no pattern; add one.`);
     if (pattern) { try { new RegExp(pattern); } catch (e) { out.push(`Field ${n}'s pattern is not valid: ${String((e as Error).message).replace(/\.$/, "")}.`); } }
     const key = typeof f?.key === "string" ? f.key : "";
-    if (seen.has(key) && !twice.includes(key)) twice.push(key);
+    if (key.trim() && seen.has(key) && !twice.includes(key)) twice.push(key); // a blank key is its own problem, not a repeat
     seen.add(key);
   });
   for (const k of twice) out.push(`Two fields use the key '${k}'.`);
@@ -59,6 +59,13 @@ export function bumpMinor(v: string | null | undefined): string {
   const m = /^(\d+)\.(\d+)\.(\d+)$/.exec(v ?? "");
   return m ? `${m[1]}.${Number(m[2]) + 1}.0` : "1.0.0";
 }
+
+/** The rule in force's own settings the block does not model (e.g. strip_extensions): a whole-rule install keeps them. */
+const MODELLED = ["title", "standard_key", "semver", "separator", "enforce", "fields", "source", "installed_by"]; // source and installed_by are lifted out by the install route
+const extrasOf = (body: Rule | undefined): Record<string, unknown> =>
+  body && typeof body === "object" ? Object.fromEntries(Object.entries(body).filter(([k]) => !MODELLED.includes(k))) : {};
+const keepLine = ([k, v]: [string, unknown]): string =>
+  `Keeps ${k}${Array.isArray(v) && v.every((x) => typeof x === "string") ? ` (${v.join(", ")})` : ""} from the rule in force.`;
 
 const isSame = (d: NamingDiff): boolean => !d.added.length && !d.removed.length && !d.changed.length && !d.header.length;
 
@@ -96,6 +103,7 @@ export const namingEditor: BlockEditor = (block, ctx): EditorHandle => {
     i.addEventListener("input", on); i.addEventListener("change", on);
     return i;
   };
+  // Gates only what the bridge's naming validator refuses; its size limits (64 fields, 512-char pattern, 200-char label) come back as its message on Save.
   const blocking = (): string[] => [...badSeparator(data), ...noKey(data)];
   const changed = () => {
     list.replaceChildren(...[...namingProblems(data), ...noKey(data)].map((p) => h(d, "div", "", p)));
@@ -181,14 +189,17 @@ export const installNamingRule: ClosedAction = (block, ctx, sectionId) => {
   wrap.append(start);
   if (problems.length) { start.disabled = true; wrap.append(...problems.map((p) => warn(d, p))); return wrap; }
 
+  const readFailed = warn(d, "");
+  wrap.append(readFailed);
   start.addEventListener("click", async () => {
     const key = ctx.st.key, stale = () => ctx.ws.state().key !== key; // plain fetches: the project may switch while they run
     start.disabled = true;
     let inForce: InForce<Rule> | null;
     try { inForce = await artefactInForce<Rule>(ctx.base, key, "naming"); } catch (e) {
-      if (!stale()) { start.disabled = false; wrap.append(warn(d, (e as Error).message)); }
+      if (!stale()) { start.disabled = false; readFailed.textContent = (e as Error).message; }
       return;
     }
+    readFailed.textContent = "";
     if (stale()) return;
 
     const field = (name: string, label: string, value: string): HTMLInputElement => {
@@ -208,7 +219,7 @@ export const installNamingRule: ClosedAction = (block, ctx, sectionId) => {
     const diff = (): void => {
       const dd = diffNaming(inForce?.body ?? null, toNamingArtefact(data, { title: title.value, standard_key: standard.value, semver: version.value })), same = isSame(dd);
       shown.replaceChildren(h(d, "div", `color:${C.muted};font:12px system-ui;margin:.3rem 0`, `Compared with: ${inForce ? refLabel(inForce) : "no naming rule in force"}`),
-        ...diffLines(dd, same).map((t) => h(d, "div", `color:${C.soft};font:13px system-ui`, t)));
+        ...[...diffLines(dd, same), ...Object.entries(extrasOf(inForce?.body)).map(keepLine)].map((t) => h(d, "div", `color:${C.soft};font:13px system-ui`, t)));
       go.disabled = same;
     };
     diff();
@@ -217,7 +228,7 @@ export const installNamingRule: ClosedAction = (block, ctx, sectionId) => {
       go.disabled = true; say.textContent = "";
       const art = toNamingArtefact(data, { title: title.value, standard_key: standard.value, semver: version.value });
       try {
-        const r = await installArtefact(ctx.base, key, "naming", { ...art, source: { document_id: ctx.st.doc?.id, section: sectionId, block: block.id } }, ctx.st.me, inForce?.sha256 ?? "none");
+        const r = await installArtefact(ctx.base, key, "naming", { ...extrasOf(inForce?.body), ...art, source: { document_id: ctx.st.doc?.id, section: sectionId, block: block.id } }, ctx.st.me, inForce?.sha256 ?? "none");
         if (stale()) return;
         wrap.replaceChildren(h(d, "div", `color:${C.soft};font:600 13px system-ui`, `Installed naming@${r.version} on ${key}.`));
       } catch (e) {
@@ -231,7 +242,7 @@ export const installNamingRule: ClosedAction = (block, ctx, sectionId) => {
         say.textContent = "The naming rule in force changed while you looked; here is the new difference. Nothing was installed.";
       }
     });
-    cancel.addEventListener("click", () => wrap.replaceChildren(start)); // start is enabled again below
+    cancel.addEventListener("click", () => wrap.replaceChildren(start, readFailed)); // start is enabled again below
     start.disabled = false;
     wrap.replaceChildren(h(d, "div", `font:600 12px system-ui;color:${C.soft}`, "Install as the project's naming rule"), form, shown, say, go, cancel);
   });

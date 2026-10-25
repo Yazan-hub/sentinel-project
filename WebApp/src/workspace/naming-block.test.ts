@@ -21,6 +21,11 @@ describe("namingProblems", () => {
       .toEqual(["Field 2 has no label.", "Field 3 has no allowed values and no pattern; add one.", expect.stringMatching(/^Field 4's pattern is not valid: .+\.$/), "Two fields use the key 'role'."]);
   });
 });
+describe("namingProblems edge", () => {
+  it("two blank keys are not 'the same key'", () => {
+    expect(namingProblems({ separator: "_", enforce: "reject", fields: [f("", "A", { enum: ["x"] }), f("", "B", { enum: ["y"] })] })).toEqual([]);
+  });
+});
 describe("toNamingArtefact", () => {
   it("passes the bridge's naming artefact rules for Snowdon's rule", () => {
     const data = namingFromText("`SNW_<role>_<number>`\n\n| Field | Values |\n|---|---|\n| Role | A, S |\n| Number | 0001 upwards |")!;
@@ -197,6 +202,36 @@ describe("installNamingRule", () => {
     click(button(el, "Install on this project")!); await flush();
     expect(((bfetch.mock.calls[1] as any)[1].headers as any)["If-Match"]).toBe('"none"');
     expect(textOf(el)).toContain("Installed naming@1 on snowdon-lifecycle.");
+  });
+  it("keeps the settings of the rule in force that the block does not model, and says so", async () => {
+    const body = { ...inForceBody, strip_extensions: [".ifc", ".rvt"], note: "x" };
+    bfetch.mockResolvedValueOnce(getRule(body)).mockResolvedValueOnce(res(201, { kind: "naming", version: 4, sha256: "n" }));
+    const { el } = mount();
+    click(button(el, "Install as the project's naming rule")!); await flush();
+    expect(textOf(el)).toContain("Keeps strip_extensions (.ifc, .rvt) from the rule in force.");
+    expect(textOf(el)).toContain("Keeps note from the rule in force.");
+    click(button(el, "Install on this project")!); await flush();
+    const sent = JSON.parse(((bfetch.mock.calls[1] as any)[1] as RequestInit).body as string);
+    expect(sent).toMatchObject({ strip_extensions: [".ifc", ".rvt"], note: "x", separator: "_", source: { block: "n1" } });
+    expect(sent.fields.map((x: any) => x.key)).toEqual(["project", "role", "number"]); // modelled keys come from the block
+  });
+  it("after a 412 the extras come from the rule re-read", async () => {
+    bfetch.mockResolvedValueOnce(getRule({ ...inForceBody, strip_extensions: [".ifc"] }))
+      .mockResolvedValueOnce(res(412, { message: "changed" }))
+      .mockResolvedValueOnce(getRule({ ...inForceBody, strip_extensions: [".rvt"] }, "sha-2"))
+      .mockResolvedValueOnce(res(201, { kind: "naming", version: 4, sha256: "n" }));
+    const { el } = mount();
+    click(button(el, "Install as the project's naming rule")!); await flush();
+    click(button(el, "Install on this project")!); await flush();
+    expect(textOf(el)).toContain("Keeps strip_extensions (.rvt) from the rule in force.");
+    click(button(el, "Install on this project")!); await flush();
+    expect(JSON.parse(((bfetch.mock.calls[3] as any)[1] as RequestInit).body as string).strip_extensions).toEqual([".rvt"]);
+  });
+  it("a failed read shows one message, however often it is retried", async () => {
+    bfetch.mockResolvedValue(res(500, { message: "boom" }));
+    const { el } = mount();
+    for (let i = 0; i < 3; i++) { click(button(el, "Install as the project's naming rule")!); await flush(); }
+    expect(textOf(el).split("boom")).toHaveLength(2);
   });
   it("an identical rule has nothing to install", async () => {
     const same = toNamingArtefact(dataOf(), { title: "t", standard_key: "k", semver: "1.0.0" });

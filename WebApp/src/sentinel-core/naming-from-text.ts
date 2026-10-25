@@ -35,7 +35,7 @@ function fromTable(md: string, key: string): Field {
     if (!row) continue;
     const tokens = (row[1] ?? "").split("(")[0].match(/\b[A-Z0-9]{1,4}\b/g) ?? [];
     const digits = tokens.length === 1 && /^[0-9]+$/.test(tokens[0]);
-    return field(key, row[0], digits ? { pattern: `^[0-9]{${tokens[0].length}}$` } : { enum: tokens });
+    return field(key, row[0], digits ? { pattern: `^[0-9]{${tokens[0].length}}$` } : { enum: [...new Set(tokens)] });
   }
   return field(key, key.charAt(0).toUpperCase() + key.slice(1));
 }
@@ -63,7 +63,8 @@ function fromPattern(md: string): Naming | null {
     const fields = parts.map((p, i) => {
       const k = p.match(/^<([a-z][a-z0-9_]*)>$/)?.[1];
       if (k) return fromTable(md, k);
-      return literals++ === 0 ? field("project", "Project", { enum: [p] }) : field(`part_${i + 1}`, `Part ${i + 1}`, { enum: [p] });
+      const values = p === "" ? [] : [p]; // an empty part (a longer separator) has no values: the problem list flags it
+      return literals++ === 0 ? field("project", "Project", { enum: values }) : field(`part_${i + 1}`, `Part ${i + 1}`, { enum: values });
     });
     return { separator: sep, enforce: "reject", fields };
   }
