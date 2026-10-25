@@ -49,6 +49,34 @@ describe("renderMarkdown (F-LC-1)", () => {
     expect(attrNames(md(`${SNOWDON_6}\n\n# h\n- [x](https://a.b "t" onclick=x)\n- [ok](https://a.b)\n\n<a href="javascript:x" style="x">y</a>`))).toEqual(["href", "rel", "target"]));
   it("non-string input is empty", () => { for (const v of [null, undefined, 42, {}, ["# x"]]) expect(md(v).childNodes).toHaveLength(0); });
 });
+describe("renderMarkdown edge cases (Task 3 review)", () => {
+  it("a link URL may hold one level of balanced parentheses", () => {
+    const h = md("see [a](https://x/y_(z)) now"), a = findAll(h, "a");
+    expect(a.map((x) => [textOf(x), x.getAttribute("href")])).toEqual([["a", "https://x/y_(z)"]]);
+    expect(textOf(h)).toBe("see a now");
+  });
+  it("[x](javascript:alert(1)) stays text, with no stray parenthesis", () => {
+    const h = md("[x](javascript:alert(1))");
+    expect(findAll(h, "a")).toHaveLength(0); expect(textOf(h)).toBe("x (javascript:alert(1))");
+  });
+  it("a one-line ```x``` is paragraph text and swallows nothing", () => {
+    const h = md("```x```\nafter\n- item");
+    expect(findAll(h, "pre")).toHaveLength(0); expect(textOf(findAll(h, "p")[0])).toContain("after");
+    expect(findAll(findAll(h, "ul")[0], "li").map(textOf)).toEqual(["item"]);
+    expect(findAll(md("``` js extra\ncode\n```"), "pre").map(textOf)).toEqual(["code"]);
+  });
+  it("an unclosed fence runs to the end; nothing after it is lost", () =>
+    expect(textOf(findAll(md("```\na\n# b\n- c"), "pre")[0])).toBe("a\n# b\n- c"));
+  it("CRLF input renders like LF", () => {
+    const src = "# H\n\npara one\nline two\n\n- a\n- b\n\n| x | y |\n|---|---|\n| 1 | 2 |";
+    const crlf = md(src.replace(/\n/g, "\r\n"));
+    expect(textOf(crlf)).toBe(textOf(md(src))); expect(findAll(crlf, "td").map(textOf)).toEqual(["1", "2"]);
+  });
+  it("a table directly followed by a paragraph ends at the paragraph", () => {
+    const h = md("| a | b |\n|---|---|\n| 1 | 2 |\nafter the table");
+    expect(findAll(h, "tr")).toHaveLength(2); expect(findAll(h, "p").map(textOf)).toEqual(["after the table"]);
+  });
+});
 describe("safeHref", () => {
   it("http and https only", () => {
     expect(safeHref("https://a.b/x?y=1")).toBe("https://a.b/x?y=1"); expect(safeHref("HTTP://a.b")).toBe("HTTP://a.b");

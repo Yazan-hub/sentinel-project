@@ -4,8 +4,10 @@ import { isPipeRow, isSeparatorRow, splitPipeRow } from "../sentinel-core/pipe-t
 
 const TABLE = "border-collapse:collapse;margin:.3rem 0";
 const CELL = "border:1px solid #3f3f46;padding:.2rem .45rem;text-align:left";
-const INLINE = /(`[^`]+`)|(\*\*[^*]+\*\*)|(\[[^\]]*\]\([^)\s]*\))/g;
-const FENCE = /^\s*```/, HEAD = /^(#{1,6})\s+(.*)$/, UL = /^\s*[-*]\s+(.*)$/, OL = /^\s*\d+\.\s+(.*)$/;
+// A link URL may hold one level of balanced parentheses.
+const INLINE = /(`[^`]+`)|(\*\*[^*]+\*\*)|\[([^\]]*)\]\(((?:[^()\s]|\([^()\s]*\))*)\)/g;
+// A fence opens on three backticks plus an info string without backticks, and closes on three backticks alone.
+const FENCE = /^\s*```[^`]*$/, FENCE_END = /^\s*```\s*$/, HEAD = /^(#{1,6})\s+(.*)$/, UL = /^\s*[-*]\s+(.*)$/, OL = /^\s*\d+\.\s+(.*)$/;
 
 export function safeHref(url: string): string | null { return /^https?:\/\/[^\s]+$/i.test(url) ? url : null; }
 
@@ -18,7 +20,7 @@ export function renderInline(text: string, doc: Document): DocumentFragment {
     if (m[1]) { const c = doc.createElement("code"); c.textContent = m[1].slice(1, -1); frag.append(c); }
     else if (m[2]) { const s = doc.createElement("strong"); s.textContent = m[2].slice(2, -2); frag.append(s); }
     else {
-      const close = m[3].indexOf("]("), label = m[3].slice(1, close), url = m[3].slice(close + 2, -1), href = safeHref(url);
+      const label = m[3], url = m[4], href = safeHref(url);
       if (!href) { frag.append(doc.createTextNode(`${label} (${url})`)); continue; }
       const a = doc.createElement("a"); a.textContent = label;
       a.setAttribute("href", href); a.setAttribute("target", "_blank"); a.setAttribute("rel", "noopener noreferrer");
@@ -45,7 +47,7 @@ export function renderMarkdown(md: unknown, doc: Document): DocumentFragment {
     if (line.trim() === "") { i++; continue; }
     if (FENCE.test(line)) {
       const body: string[] = []; i++;
-      while (i < lines.length && !FENCE.test(lines[i])) body.push(lines[i++]);
+      while (i < lines.length && !FENCE_END.test(lines[i])) body.push(lines[i++]);
       i++; // the closing fence (or past EOF when unclosed)
       const pre = doc.createElement("pre"), code = doc.createElement("code");
       code.textContent = body.join("\n"); pre.append(code); out.append(pre); continue;

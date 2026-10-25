@@ -1,7 +1,8 @@
 // Pipe tables in Markdown text: shared by the workspace renderer and the Part E reader. Pure, no DOM.
 export interface PipeTable { header: string[]; rows: string[][] }
 
-const SEP = /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$/;
+// Tested against the trimmed line: a leading whitespace-then-optional-pipe-then-whitespace prefix backtracks quadratically on a long run of spaces.
+const SEP = /^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?$/;
 
 /** Cells of one row: outer pipes optional, "\|" stays a pipe, cells trimmed. */
 export function splitPipeRow(line: string): string[] {
@@ -18,7 +19,7 @@ export function splitPipeRow(line: string): string[] {
   return t;
 }
 
-export function isSeparatorRow(line: string): boolean { return SEP.test(line); }
+export function isSeparatorRow(line: string): boolean { return SEP.test(line.trim()); }
 
 /** A pipe row: a non-blank line with a pipe in it. */
 export const isPipeRow = (line: string): boolean => line.trim() !== "" && line.includes("|");

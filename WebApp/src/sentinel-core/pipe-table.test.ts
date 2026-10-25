@@ -19,4 +19,14 @@ describe("pipe tables", () => {
   it("a pipe row without a separator under it is not a table; non-text reads nothing", () => {
     expect(readPipeTables("a | b\nc | d")).toEqual([]); expect(readPipeTables(5 as unknown as string)).toEqual([]);
   });
+  it("isSeparatorRow does not stall on a long run of spaces", () => {
+    const t = Date.now();
+    expect(isSeparatorRow(" ".repeat(40000))).toBe(false);
+    expect(isSeparatorRow(" ".repeat(40000) + "x")).toBe(false);
+    expect(Date.now() - t).toBeLessThan(50);
+  });
+  it("readPipeTables keeps a ragged row as written and ends at the first non-pipe line", () => {
+    const [t, ...more] = readPipeTables("| a | b |\n|---|---|\n| 1 |\n| 1 | 2 | 3 |\n\nafter | x\nplain");
+    expect(more).toEqual([]); expect(t.rows).toEqual([["1"], ["1", "2", "3"]]);
+  });
 });
