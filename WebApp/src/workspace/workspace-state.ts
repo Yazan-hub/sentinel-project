@@ -60,7 +60,7 @@ export function createWorkspace(deps: WorkspaceDeps, render: (s: WorkspaceState)
   });
 
   /** Reads the document and everything shown beside it; false when stale or not read. */
-  async function load(docId: string, keep: { viewing: VersionRow | null; message: string }): Promise<boolean> {
+  async function load(docId: string, keep: { viewing?: VersionRow | null; message: string }): Promise<boolean> { // viewing omitted (reload): the version view as it is when the answers arrive
     const mine = ++readTok, sc = tok;
     const stale = () => mine !== readTok || sc !== tok;
     const key = deps.activePid();
@@ -88,7 +88,7 @@ export function createWorkspace(deps: WorkspaceDeps, render: (s: WorkspaceState)
       deps.me().catch(() => ""),
     ]);
     if (stale()) return false;
-    state = { key, doc, versions, comments, ex, role, me, problems: docProblems(doc), message: keep.message, viewing: keep.viewing, respondsTo };
+    state = { key, doc, versions, comments, ex, role, me, problems: docProblems(doc), message: keep.message, viewing: keep.viewing === undefined ? state.viewing : keep.viewing, respondsTo };
     render(state);
     return true;
   }
@@ -99,7 +99,7 @@ export function createWorkspace(deps: WorkspaceDeps, render: (s: WorkspaceState)
     await load(docId, { viewing: null, message: "" });
   }
 
-  const reload = async (): Promise<boolean> => (state.doc ? load(state.doc.id, { viewing: state.viewing, message: "" }) : false);
+  const reload = async (): Promise<boolean> => (state.doc ? load(state.doc.id, { message: "" }) : false);
 
   async function viewVersion(n: number | null): Promise<void> {
     const mine = ++viewTok, sc = tok;

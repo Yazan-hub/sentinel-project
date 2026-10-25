@@ -20,6 +20,21 @@ let lastContainerId = ""; // remembered for this tab
 const fetched = new Map<string, VersionRow>();
 const FETCHED_MAX = 20;
 
+/** One version of the open document: the one being viewed, one already fetched (this module's only cache), or read through the bridge.
+ *  Without an identity (the lookup failed) nothing is cached, so two people in one tab never share an entry. Null: unreadable (ws.message says why). */
+export async function readVersion(ctx: PaneCtx, n: number): Promise<VersionRow | null> {
+  const st = ctx.ws.state();
+  if (!st.doc) return null;
+  if (st.viewing?.version_no === n) return st.viewing;
+  const at = [st.key, st.me, st.role, st.doc.id, n].join("|");
+  const kept = st.me ? fetched.get(at) : undefined;
+  if (kept) return kept;
+  const full = await ctx.ws.get<VersionRow>(`/bimdocs/${pathSegment(st.key)}/${pathSegment(st.doc.id)}/versions/${n}`);
+  if (!full?.snapshot) return null;
+  if (st.me) { if (fetched.size >= FETCHED_MAX) fetched.clear(); fetched.set(at, full); }
+  return full;
+}
+
 /** What to print or show: the live row of a draft, or the stored snapshot of one version (never live text, never a published document's live row).
  *  Null: unreadable, and the message says why. */
 async function loadInput(ctx: PaneCtx, containerId: string | null): Promise<PrintInput | null> {
@@ -27,12 +42,7 @@ async function loadInput(ctx: PaneCtx, containerId: string | null): Promise<Prin
   if (!st.doc) return null;
   const base = { projectKey: st.key, versions: st.versions, containerId, ctx: { respondsTo: st.respondsTo } };
   if (src.kind === "live") return st.doc.status === "published" ? null : { ...base, row: st.doc as Snapshot, version: null }; // published without a readable version: not a draft
-  const path = `/bimdocs/${pathSegment(st.key)}/${pathSegment(st.doc.id)}/versions/${src.n}`, at = [st.key, st.me, st.role, st.doc.id, src.n].join("|");
-  let full: VersionRow | null | undefined = st.viewing?.version_no === src.n ? st.viewing : fetched.get(at);
-  if (!full) {
-    full = await ctx.ws.get<VersionRow>(path);
-    if (full?.snapshot) { if (fetched.size >= FETCHED_MAX) fetched.clear(); fetched.set(at, full); }
-  }
+  const full = await readVersion(ctx, src.n);
   if (!full?.snapshot) return null;
   const version: VersionListRow = st.versions.find((x) => x.version_no === src.n) ?? full;
   return { ...base, row: full.snapshot, version };
@@ -66,7 +76,7 @@ export function readView(ctx: PaneCtx): HTMLElement {
   paper.append(h(d, "div", `color:${C.muted}`, LOADING));
   const show = (text: string): void => paper.replaceChildren(h(d, "div", `color:${C.warn}`, text));
   loadInput(ctx, null).then(
-    (input) => { try { if (input) paper.replaceChildren(renderPrintable(input, d)); else show(ctx.ws.state().message || UNREADABLE_VERSION); } catch (e) { show(`The document could not be shown: ${errText(e)}`); } },
+    (input) => { try { if (input) paper.replaceChildren(renderPrintable(input, d)); else show(UNREADABLE_VERSION); } catch (e) { show(`The document could not be shown: ${errText(e)}`); } },
     (e) => show(`The document could not be shown: ${errText(e)}`));
   return root;
 }

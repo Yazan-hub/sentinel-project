@@ -156,6 +156,17 @@ describe("Task 1 follow-ups: tokens, nulls, returned rows", () => {
     await t.ws.reload(); w.resolve(ok(doc({ updated_at: "t2" })));
     expect((await saving)?.updated_at).toBe("t2");
   });
+  it("a reload that started before a version view landed does not overwrite that view", async () => {
+    const t = setup((m, p) => (p === "/bimdocs/a/d1/versions/2" ? ok({ snapshot: doc(), version_no: 2 }) : docRoute()(m, p)));
+    await t.ws.open("d1");
+    const late = deferred<unknown>(); let first = true;
+    const slow = t.json.getMockImplementation()!;
+    t.json.mockImplementation(async (m: string, p: string, b?: object) => (p === "/bimdocs/a/d1" && first ? ((first = false), late.p) : slow(m, p, b)));
+    const reloading = t.ws.reload(); await new Promise((r) => setTimeout(r, 0));
+    await t.ws.viewVersion(2); expect(t.ws.state().viewing?.version_no).toBe(2);
+    late.resolve(ok(doc())); await reloading;
+    expect(t.ws.state().viewing?.version_no).toBe(2);
+  });
   it("reload clears the old message before it renders", async () => {
     const t = setup((m, p) => (m === "PUT" ? { status: 422, body: { message: "No." } } : docRoute()(m, p)));
     await t.ws.open("d1"); await t.ws.write("PUT", "/x", {}); expect(t.ws.state().message).toBe("No.");

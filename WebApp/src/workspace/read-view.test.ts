@@ -10,7 +10,7 @@ vi.mock("../setups/active-ruleset", () => ({ artefactInForce: async () => {
 
 import { emptyState } from "./workspace-state";
 import { fakeDocument, fakeWindow, findAll, textOf, click } from "./fake-dom";
-import { readView, startPrint } from "./read-view";
+import { readView, readVersion, startPrint } from "./read-view";
 
 const doc = (o: Partial<DocRow> = {}): DocRow => ({ id: "d1", doc_type: "BEP", title: "SNW BEP", status: "wip", stage: "pre_appointment", suitability: "S0", responds_to: null, responds_to_version: null,
   template_id: null, template_version: null, updated_at: "t", sections: [{ id: "s1", heading: "Aim", guidance: "", body: "live text", state: "wip", owner: null, bindings: {} }], ...o });
@@ -42,10 +42,10 @@ describe("readView", () => {
     const el = readView(ctx); await flush();
     click(findAll(el, "button")[0]); expect(back).toEqual([null]);
   });
-  it("an unreadable version says why", async () => {
+  it("an unreadable version says so, never an unrelated stale message", async () => {
     const { ctx } = ctxOf({ ...emptyState("k"), doc: doc({ status: "published" }), versions: [ver(1)], message: "Not allowed." });
     expect(textOf(readView(ctx))).toContain("Loading the published version…");
-    const el = readView(ctx); await flush(); expect(textOf(el)).toContain("Not allowed.");
+    const el = readView(ctx); await flush(); expect(textOf(el)).toContain("The published version could not be read."); expect(textOf(el)).not.toContain("Not allowed.");
   });
 });
 
@@ -69,7 +69,7 @@ describe("startPrint", () => {
 
 describe("startPrint: what is printed (Review Focus 5)", () => {
   beforeEach(() => { asks.answer = ""; asks.enforce = "reject"; asks.failRead = false; asks.asked = 0; });
-  const published = (key: string, extra: object = {}) => ({ ...emptyState(key), doc: doc({ status: "published" }), versions: [ver(2), ver(1)], ...extra });
+  const published = (key: string, extra: object = {}) => ({ ...emptyState(key), me: "lead@x", doc: doc({ status: "published" }), versions: [ver(2), ver(1)], ...extra });
   const noDraft = (popup: { document: Document }) => {
     const body = popup.document.body;
     expect(textOf(body)).not.toContain("live text"); expect(textOf(body)).not.toContain("Draft, live data");
@@ -121,6 +121,16 @@ describe("startPrint: what is printed (Review Focus 5)", () => {
     const { ctx, calls } = ctxOf(published("p5"), () => ({ ...ver(2), document_id: "d1", snapshot: frozen }));
     readView(ctx); await flush(); readView(ctx); await flush();
     expect(calls.length).toBe(1);
+  });
+  it("with no identity (the lookup failed) nothing is cached, so two people never share an entry", async () => {
+    const { ctx, calls } = ctxOf(published("p7", { me: "" }), () => ({ ...ver(2), document_id: "d1", snapshot: frozen }));
+    readView(ctx); await flush(); readView(ctx); await flush();
+    expect(calls.length).toBe(2);
+  });
+  it("readVersion is the one cache: a number already fetched is not fetched again, a viewed one is not fetched at all", async () => {
+    const { ctx, calls } = ctxOf(published("p8", { viewing: { ...ver(1), document_id: "d1", snapshot: frozen } }), () => ({ ...ver(2), document_id: "d1", snapshot: frozen }));
+    await readVersion(ctx, 1); await readVersion(ctx, 2); await readVersion(ctx, 2);
+    expect(calls).toEqual(["/bimdocs/p8/d1/versions/2"]);
   });
   it("a load that throws does not leave the page on Loading", async () => {
     const { ctx } = ctxOf(published("p6"), () => { throw new Error("boom"); });
