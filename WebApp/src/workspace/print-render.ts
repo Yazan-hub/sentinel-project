@@ -48,10 +48,15 @@ export function pickPrintSource(st: WorkspaceState): { kind: "live" } | { kind: 
   return { kind: "live" };
 }
 
-export function containerIdProblem(id: string, rs: NamingRuleset | null): string | null {
-  if (!rs) return null;
+/** Why a container ID fails the naming rule: one sentence of reasons, or null when it passes. */
+export function containerIdReasons(id: string, rs: NamingRuleset): string | null {
   const r = validateContainerName(id, rs);
-  return r.ok ? null : `This container ID does not follow the naming rule in force: ${r.failures.map((f) => f.reason).join("; ")}. Nothing was printed.`;
+  return r.ok ? null : `This container ID does not follow the naming rule in force: ${r.failures.map((f) => f.reason).join("; ")}`;
+}
+
+export function containerIdProblem(id: string, rs: NamingRuleset | null): string | null {
+  const why = rs ? containerIdReasons(id, rs) : null;
+  return why && `${why}. Nothing was printed.`;
 }
 
 export function renderPrintable(input: PrintInput, doc: Document, today = new Date().toISOString().slice(0, 10)): HTMLElement {
@@ -100,7 +105,8 @@ export function renderPrintable(input: PrintInput, doc: Document, today = new Da
 export function printDocument(input: PrintInput, opener: Window = window): "printed" | "blocked" {
   const popup = opener.open("", "_blank");
   if (!popup) return "blocked";
-  const d = popup.document;
+  let d: Document;
+  try { d = popup.document; } catch { return "blocked"; } // a popup the browser gave us but will not let us write to
   const title = d.createElement("title");
   title.textContent = input.row.title;
   const style = d.createElement("style");

@@ -1,9 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { DocRow, VersionListRow } from "../sentinel-core/doc-blocks";
 
-const asks = vi.hoisted(() => ({ answer: "" as string | null }));
-vi.mock("../setups/ask", () => ({ askText: async () => asks.answer, askYesNo: async () => false }));
-vi.mock("../setups/active-ruleset", () => ({ artefactInForce: async () => ({ body: { title: "SNW", separator: "_", enforce: "reject", fields: [{ key: "p", label: "Project", enum: ["SNW"] }, { key: "n", label: "Number", pattern: "^[0-9]{4}$" }] } }) }));
+const asks = vi.hoisted(() => ({ answer: "" as string | null, enforce: "reject" as string, failRead: false, asked: 0 }));
+vi.mock("../setups/ask", () => ({ askText: async () => { asks.asked++; return asks.answer; }, askYesNo: async () => false }));
+vi.mock("../setups/active-ruleset", () => ({ artefactInForce: async () => {
+  if (asks.failRead) throw new Error("HTTP 500");
+  return { body: { title: "SNW", separator: "_", enforce: asks.enforce, fields: [{ key: "p", label: "Project", enum: ["SNW"] }, { key: "n", label: "Number", pattern: "^[0-9]{4}$" }] } };
+} }));
 
 import { emptyState } from "./workspace-state";
 import { fakeDocument, fakeWindow, findAll, textOf, click } from "./fake-dom";
@@ -47,7 +50,7 @@ describe("readView", () => {
 });
 
 describe("startPrint", () => {
-  beforeEach(() => { asks.answer = ""; });
+  beforeEach(() => { asks.answer = ""; asks.enforce = "reject"; asks.failRead = false; asks.asked = 0; });
   it("an empty container ID prints; Cancel stops; a failing ID is refused with its reasons", async () => {
     const { win, popup } = fakeWindow(); vi.stubGlobal("window", win);
     const { ctx } = ctxOf({ ...emptyState("k"), doc: doc() }), said: string[] = [];
@@ -60,5 +63,90 @@ describe("startPrint", () => {
     vi.stubGlobal("window", fakeWindow({ blocked: true }).win);
     const { ctx } = ctxOf({ ...emptyState("k"), doc: doc() }), said: string[] = [];
     await startPrint(ctx, (t) => said.push(t)); expect(said[said.length - 1]).toBe("Popup blocked — allow popups for this page to print.");
+  });
+
+});
+
+describe("startPrint: what is printed (Review Focus 5)", () => {
+  beforeEach(() => { asks.answer = ""; asks.enforce = "reject"; asks.failRead = false; asks.asked = 0; });
+  const published = (key: string, extra: object = {}) => ({ ...emptyState(key), doc: doc({ status: "published" }), versions: [ver(2), ver(1)], ...extra });
+  const noDraft = (popup: { document: Document }) => {
+    const body = popup.document.body;
+    expect(textOf(body)).not.toContain("live text"); expect(textOf(body)).not.toContain("Draft, live data");
+    expect(findAll(body, "div").some((x) => x.dataset.runningHeader !== undefined)).toBe(false);
+  };
+  it("a published document prints its latest version's snapshot, never the live row", async () => {
+    const { win, popup } = fakeWindow(); vi.stubGlobal("window", win);
+    const { ctx } = ctxOf(published("p1"), () => ({ ...ver(2), document_id: "d1", snapshot: frozen }));
+    await startPrint(ctx, () => {});
+    expect(popup!.printed).toBe(true); expect(textOf(popup!.document.body)).toContain("frozen text"); expect(textOf(popup!.document.body)).toContain("Version: v2"); noDraft(popup!);
+  });
+  it("a version being viewed prints that version, not the latest", async () => {
+    const { win, popup } = fakeWindow(); vi.stubGlobal("window", win);
+    const old = doc({ status: "published", sections: [{ id: "s1", heading: "Aim", guidance: "", body: "older text", state: "wip", owner: null, bindings: {} }] });
+    const { ctx, calls } = ctxOf(published("p2", { viewing: { ...ver(1), document_id: "d1", snapshot: old } }));
+    await startPrint(ctx, () => {});
+    expect(calls).toEqual([]); expect(textOf(popup!.document.body)).toContain("older text"); expect(textOf(popup!.document.body)).toContain("Version: v1"); noDraft(popup!);
+  });
+  it("a published document whose version cannot be read is never printed or shown as a draft", async () => {
+    const { win, popup } = fakeWindow(); vi.stubGlobal("window", win);
+    for (const st of [published("p3", { versions: [] }), published("p4")]) {
+      const { ctx } = ctxOf(st), said: string[] = [];
+      await startPrint(ctx, (t) => said.push(t));
+      expect(popup!.printed).toBe(false); expect(said[said.length - 1]).toMatch(/^The published version could not be read. Nothing was printed.$/); expect(asks.asked).toBe(0);
+      const el = readView(ctx); await flush();
+      expect(textOf(el)).toContain("The published version could not be read."); expect(textOf(el)).not.toContain("Draft, live data"); expect(textOf(el)).not.toContain("live text");
+    }
+  });
+  it("a version already fetched is not fetched again on the next render", async () => {
+    const { ctx, calls } = ctxOf(published("p5"), () => ({ ...ver(2), document_id: "d1", snapshot: frozen }));
+    readView(ctx); await flush(); readView(ctx); await flush();
+    expect(calls.length).toBe(1);
+  });
+  it("a load that throws does not leave the page on Loading", async () => {
+    const { ctx } = ctxOf(published("p6"), () => { throw new Error("boom"); });
+    const el = readView(ctx); await flush();
+    expect(textOf(el)).not.toContain("Loading the published version…"); expect(textOf(el)).toContain("could not be shown");
+  });
+});
+
+describe("startPrint: the naming rule in force", () => {
+  beforeEach(() => { asks.answer = "BAD"; asks.enforce = "reject"; asks.failRead = false; asks.asked = 0; });
+  const run = async () => {
+    const { win, popup } = fakeWindow(); vi.stubGlobal("window", win);
+    const { ctx } = ctxOf({ ...emptyState("n1"), doc: doc() }), said: string[] = [];
+    await startPrint(ctx, (t) => said.push(t));
+    return { popup: popup!, said };
+  };
+  it("a rule that cannot be read refuses in words, before the question", async () => {
+    asks.failRead = true; const { popup, said } = await run();
+    expect(popup.printed).toBe(false); expect(asks.asked).toBe(0);
+    expect(said[said.length - 1]).toBe("The naming rule could not be read, so the container ID was not checked. Nothing was printed.");
+  });
+  it("reject refuses with the reasons", async () => {
+    const { popup, said } = await run();
+    expect(popup.printed).toBe(false); expect(said[said.length - 1]).toMatch(/does not follow the naming rule in force.*Nothing was printed.$/);
+  });
+  it("an unknown enforce value refuses like reject", async () => {
+    asks.enforce = "strict"; const { popup } = await run(); expect(popup.printed).toBe(false);
+  });
+  it("off prints without a check", async () => {
+    asks.enforce = "off"; const { popup } = await run();
+    expect(popup.printed).toBe(true); expect(textOf(popup.document.body)).toContain("Container ID: BAD");
+  });
+  it("warn prints and shows the problems as a note", async () => {
+    asks.enforce = "warn"; const { popup, said } = await run();
+    expect(popup.printed).toBe(true);
+    expect(said[said.length - 1]).toMatch(/does not follow the naming rule in force/); expect(said[said.length - 1]).not.toContain("Nothing was printed");
+  });
+});
+
+describe("startPrint: failures after the question", () => {
+  beforeEach(() => { asks.answer = ""; asks.enforce = "reject"; asks.failRead = false; });
+  it("a throw while printing is said in words", async () => {
+    vi.stubGlobal("window", { open: () => { throw new Error("boom"); } });
+    const { ctx } = ctxOf({ ...emptyState("f1"), doc: doc() }), said: string[] = [];
+    await startPrint(ctx, (t) => said.push(t));
+    expect(said[said.length - 1]).toBe("Could not print: boom");
   });
 });

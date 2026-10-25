@@ -55,3 +55,10 @@ describe("export (spec section 9)", () => {
     expect(containerIdProblem("SNW", rs)).toMatch(/^This container ID does not follow the naming rule in force: .+\. Nothing was printed\.$/);
   });
 });
+
+describe("a popup whose document cannot be reached", () => {
+  it("counts as blocked", () => {
+    const popup = { focus() {}, print() {}, get document(): Document { throw new Error("denied"); } };
+    expect(printDocument(input({}), { open: () => popup } as unknown as Window)).toBe("blocked");
+  });
+});
