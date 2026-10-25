@@ -6,7 +6,7 @@ vi.mock("../setups/ask", () => ({ askText: vi.fn(async () => null), askYesNo: vi
 
 import { askYesNo } from "../setups/ask";
 import { ADDABLE_KINDS, blockPath, editPane, guidanceOpen } from "./block-editors";
-import { fakeDocument, findAll, textOf, click } from "./fake-dom";
+import { fakeDocument, findAll, textOf, click, fire } from "./fake-dom";
 
 const text = (id: string, md: string) => ({ id, kind: "text", title: "", data: { markdown: md } });
 const sec = (id: string, blocks: unknown[]) => ({ id, heading: id.toUpperCase(), guidance: "g", body: "", state: "wip", owner: null, bindings: {}, blocks });
@@ -179,5 +179,31 @@ describe("fix round 1", () => {
     const root = editPane(ctxWith(row([legacy])));
     expect(textOf(shell(root, "s1.t0"))).toContain("legacy words");
     expect(button(section(root, "s1"), "+ Add block")).toBeDefined();
+  });
+});
+
+describe("grid editors in the shell", () => {
+  const tableBlock = { id: "t1", kind: "table", title: "", data: { group_by_team: false, columns: [{ key: "due", label: "Due", type: "date", choices: [], choices_from: null }], rows: [{ id: "r1", group: null, cells: { due: "2026-11-01" } }] } };
+  const dateInput = (root: HTMLElement) => findAll(shell(root, "t1"), "input").find((i) => (i as any).dataset.field === "due") as any;
+  it("Save is disabled while the table has problems, with no write, and enabled again when fixed", async () => {
+    const ctx = ctxWith(row([sec("s1", [tableBlock])]), { write: vi.fn(async () => null) });
+    const root = editPane(ctx);
+    click(button(shell(root, "t1"), "Edit")!);
+    const save = button(shell(root, "t1"), "Save") as any;
+    expect(save.disabled).toBe(false);
+    dateInput(root).value = "soon"; fire(dateInput(root), "input");
+    expect(save.disabled).toBe(true);
+    expect(textOf(shell(root, "t1"))).toContain("Row 1, Due: not a date.");
+    click(save); await flush();
+    expect(ctx.ws.write).not.toHaveBeenCalled();
+    dateInput(root).value = ""; fire(dateInput(root), "input");
+    expect(save.disabled).toBe(false);
+    click(save); await flush();
+    expect(ctx.ws.write).toHaveBeenCalledWith("PUT", "/section/s1/blocks/t1", { title: "", data: expect.objectContaining({ rows: [{ id: "r1", group: null, cells: { due: null } }] }) });
+  });
+  it("the three grid kinds have an Edit button", () => {
+    const root = editPane(ctxWith(row([sec("s1", [tableBlock, { id: "m1", kind: "matrix", title: "", data: { preset: null, columns: [], show_milestone: false, show_recipient: false, rows: [] } },
+      { id: "p1", kind: "references", title: "", data: { rows: [] } }])])));
+    for (const id of ["t1", "m1", "p1"]) expect(button(shell(root, id), "Edit")).toBeDefined();
   });
 });

@@ -102,6 +102,12 @@ export function click(el: HTMLElement): void {
   e.onclick?.(ev); (e.listeners.get("click") ?? []).forEach((fn) => fn(ev));
 }
 
+/** Runs every listener of this event type (input, change ...). */
+export function fire(el: HTMLElement, type: string): void {
+  const e = el as unknown as FElement, ev = { type, target: e, preventDefault() {}, stopPropagation() {} };
+  (e.listeners.get(type) ?? []).forEach((fn) => fn(ev));
+}
+
 /** A stand-in window for the print popup: `open` returns one popup with its own fresh document (null when blocked).
  *  `focus` and `print` record that they were called. */
 export function fakeWindow(opts: { blocked?: boolean } = {}): { win: Window; popup: { document: Document; focused: boolean; printed: boolean } | null } {

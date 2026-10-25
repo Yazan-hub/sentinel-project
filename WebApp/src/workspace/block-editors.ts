@@ -10,6 +10,7 @@ import { aiBody } from "../setups/ai-picker";
 import { renderBlock, renderSectionBody } from "./block-render";
 import { renderMarkdown } from "./markdown";
 import { C, btn, h } from "./dom";
+import { matrixEditor, referencesEditor, tableEditor } from "./grid-editors";
 import { moveId, type WorkspaceState } from "./workspace-state";
 import type { PaneCtx } from "./workspace-page"; // type-only: no import cycle
 
@@ -19,8 +20,10 @@ export const ADDABLE_KINDS = ["text", "table", "matrix", "naming", "references"]
 export const blockPath = (sectionId: string, blockId?: string): string =>
   `/section/${pathSegment(sectionId)}/blocks${blockId === undefined ? "" : `/${pathSegment(blockId)}`}`;
 
-export type BlockEditor = (block: Block, ctx: PaneCtx, sectionId: string) => { el: HTMLElement; value(): { title: string; data: unknown } };
-export const EDITORS: Partial<Record<BlockKind, BlockEditor>> = {};
+/** `problems` (optional) lists what stops a save; the shell keeps Save disabled while it is not empty and re-checks when `onChange`'s callback is run. */
+export interface EditorHandle { el: HTMLElement; value(): { title: string; data: unknown }; problems?(): string[]; onChange?(cb: () => void): void }
+export type BlockEditor = (block: Block, ctx: PaneCtx, sectionId: string) => EditorHandle;
+export const EDITORS: Partial<Record<BlockKind, BlockEditor>> = { table: tableEditor, matrix: matrixEditor, references: referencesEditor };
 
 /** An extra control under a text block's text area (Task 12 adds "Make this a naming rule"); null shows nothing. */
 export type TextAction = (block: Block<"text">, sectionId: string, ctx: PaneCtx, area: HTMLTextAreaElement) => HTMLElement | null;
@@ -150,7 +153,7 @@ export function editPane(ctx: PaneCtx): HTMLElement {
     const note = h(d, "div", `color:${C.warn};font:12px system-ui;margin:.2rem 0`);
     shell.append(bar, body, note);
     const editor = editorOf(b);
-    let current: ReturnType<BlockEditor> | null = null;
+    let current: EditorHandle | null = null;
     let seed = draft; // the carried-over text opens the editor once; any Cancel drops it
 
     const act = (label: string, fn: () => void | Promise<void>): HTMLButtonElement => {
@@ -183,10 +186,10 @@ export function editPane(ctx: PaneCtx): HTMLElement {
       current = editor(seed ? { ...b, title: seed.title, data: seed.data } as Block : b, ctx, s.id);
       open.set(b.id, { sid: s.id, value: () => current!.value() });
       body.replaceChildren(current.el);
-      bar.replaceChildren(
-        act("Save", async () => { if (current) await done(await ctx.ws.write("PUT", blockPath(s.id, b.id), current.value()), b.id); }),
-        act("Cancel", closed),
-      );
+      const save = act("Save", async () => { if (current && !current.problems?.().length) await done(await ctx.ws.write("PUT", blockPath(s.id, b.id), current.value()), b.id); });
+      const sync = () => { save.disabled = !!current?.problems?.().length; };
+      current.onChange?.(sync); sync();
+      bar.replaceChildren(save, act("Cancel", closed));
     };
     if (draft) opened(); else closed();
     return shell;
