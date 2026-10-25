@@ -94,7 +94,7 @@ describe("qualityTab", () => {
     expect(button(root, "Bindings…")).toBeUndefined();
     expect(button(root, "Integrity check")).toBeUndefined();
   });
-  it("Apply selected writes each section keeping stored params, then reloads and says how many", async () => {
+  it("Apply selected writes only sections that change, keeping stored params, then reloads and says how many", async () => {
     const sugg = [{ section_id: "s1", heading: "3. Roles", suggested: [{ id: "roles.responsibility", label: "Roles", params: {}, confidence: 1, why: "w", planned: false },
       { id: "federation.breakdown", label: "Federation", params: {}, confidence: 1, why: "w", planned: true }] },
       { section_id: "s4", heading: "10. Software", suggested: [{ id: "cde.states", label: "CDE", params: { expect: ["published"] }, confidence: 1, why: "w", planned: false },
@@ -110,10 +110,105 @@ describe("qualityTab", () => {
     expect(textOf(root)).toContain("(planned, not checkable yet)");
     click(button(root, "Apply selected")!);
     await flush();
-    expect(write).toHaveBeenNthCalledWith(1, "PUT", "/section/s1/bindings", { bindings: { checks: [{ id: "roles.responsibility", params: { a: 1 } }] } });
-    expect(write).toHaveBeenNthCalledWith(2, "PUT", "/section/s4/bindings", { bindings: { checks: [{ id: "cde.states", params: { expect: ["published"] } }] } });
+    expect(write).toHaveBeenCalledTimes(1); // 3. Roles already has what is ticked: no write
+    expect(write).toHaveBeenCalledWith("PUT", "/section/s4/bindings", { bindings: { checks: [{ id: "cde.states", params: { expect: ["published"] } }] } });
     expect(c.ws.reload).toHaveBeenCalled();
-    expect(textOf(root)).toContain("Applied 2 of 2.");
+    expect(textOf(root)).toContain("Applied 1 of 1.");
+  });
+  it("adding a new check to a section that has bindings keeps the old ones with their params", async () => {
+    const sugg = [{ section_id: "s1", heading: "3. Roles", suggested: [{ id: "cde.states", label: "CDE", params: { expect: ["published"] }, confidence: 1, why: "w", planned: false }] }];
+    const write = vi.fn(async () => docRow);
+    const c = ctxWith({ post: vi.fn(async () => sugg), write });
+    const root = qualityTab(c);
+    await flush();
+    click(button(root, "Suggest bindings…")!);
+    await flush();
+    click(button(root, "Apply selected")!);
+    await flush();
+    expect(write).toHaveBeenCalledWith("PUT", "/section/s1/bindings", { bindings: { checks: [{ id: "roles.responsibility", params: { a: 1 } }, { id: "cde.states", params: { expect: ["published"] } }] } });
+  });
+  it("a section holding a check Sentinel does not know is skipped with a line, and the next section is still written", async () => {
+    const odd = { ...docRow, sections: [{ id: "s1", heading: "3. Roles", bindings: { checks: [{ id: "qa.old" }] } }, docRow.sections[1]] };
+    const sugg = [{ section_id: "s1", heading: "3. Roles", suggested: [{ id: "cde.states", label: "CDE", params: {}, confidence: 1, why: "w", planned: false }] },
+      { section_id: "s4", heading: "10. Software", suggested: [{ id: "cde.states", label: "CDE", params: {}, confidence: 1, why: "w", planned: false }] }];
+    const write = vi.fn(async () => odd);
+    const c = ctxWith({ post: vi.fn(async () => sugg), write });
+    c.ws.state = vi.fn(() => ({ ...c.st, doc: odd }));
+    const root = qualityTab(c);
+    await flush();
+    click(button(root, "Suggest bindings…")!);
+    await flush();
+    click(button(root, "Apply selected")!);
+    await flush();
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(write).toHaveBeenCalledWith("PUT", "/section/s4/bindings", { bindings: { checks: [{ id: "cde.states" }] } });
+    expect(textOf(root)).toContain("Applied 1 of 2.");
+    expect(textOf(root)).toContain("3. Roles: holds a check Sentinel does not know (qa.old); remove it in Bindings… first.");
+  });
+  it("a refusal on one section does not stop the next; a partial apply still reloads and says both", async () => {
+    const sugg = [{ section_id: "s1", heading: "3. Roles", suggested: [{ id: "cde.states", label: "CDE", params: {}, confidence: 1, why: "w", planned: false }] },
+      { section_id: "s4", heading: "10. Software", suggested: [{ id: "cde.states", label: "CDE", params: {}, confidence: 1, why: "w", planned: false }] }];
+    const write = vi.fn().mockResolvedValueOnce(null).mockResolvedValueOnce(docRow);
+    const c = ctxWith({ post: vi.fn(async () => sugg), write, message: "unknown check id x. Nothing was saved." });
+    const root = qualityTab(c);
+    await flush();
+    click(button(root, "Suggest bindings…")!);
+    await flush();
+    click(button(root, "Apply selected")!);
+    await flush();
+    expect(write).toHaveBeenCalledTimes(2);
+    expect(c.ws.reload).toHaveBeenCalled();
+    expect(textOf(root)).toContain("Applied 1 of 2.");
+    expect(textOf(root)).toContain("3. Roles: unknown check id x. Nothing was saved.");
+  });
+  it("the Applied note survives a real rebuild once, and only for its own document", async () => {
+    const sugg = [{ section_id: "s4", heading: "10. Software", suggested: [{ id: "cde.states", label: "CDE", params: {}, confidence: 1, why: "w", planned: false }] }];
+    const c = ctxWith({ post: vi.fn(async () => sugg), write: vi.fn(async () => docRow) });
+    const other = ctxWith();
+    other.st.doc = { ...docRow, id: "d2" };
+    const rebuilt: HTMLElement[] = [];
+    c.ws.reload = vi.fn(async () => { rebuilt.push(qualityTab(other), qualityTab(c), qualityTab(c)); }); // another document's tab, then this one's, then a later one
+    const root = qualityTab(c);
+    await flush();
+    click(button(root, "Suggest bindings…")!);
+    await flush();
+    click(button(root, "Apply selected")!);
+    await flush();
+    expect(textOf(rebuilt[0])).not.toContain("Applied");
+    expect(textOf(rebuilt[1])).toContain("Applied 1 of 1.");
+    expect(textOf(rebuilt[2])).not.toContain("Applied");
+  });
+  it("a failed check-list read is not an empty list: the lists say so once, Bindings… offers no Save, Suggest refuses", async () => {
+    const get = vi.fn(async (p: string) => (p.endsWith("/compliance") ? compliance : null));
+    const post = vi.fn(async () => []);
+    const c = ctxWith({ get, post });
+    const root = qualityTab(c);
+    await flush();
+    expect(textOf(root).split("The check list could not be read.").length - 1).toBe(1);
+    click(button(root, "Bindings…")!);
+    await flush();
+    expect(button(root, "Save bindings")).toBeUndefined();
+    expect(ticks(root)).toHaveLength(0);
+    click(button(root, "Suggest bindings…")!);
+    await flush();
+    expect(post).not.toHaveBeenCalled();
+    expect(button(root, "Apply selected")).toBeUndefined();
+  });
+  it("Bindings… shows an unknown stored check ticked with its caption, and unticking removes it from the save", async () => {
+    const odd = { ...docRow, sections: [{ id: "s1", heading: "3. Roles", bindings: { checks: [{ id: "roles.responsibility", params: { a: 1 } }, { id: "qa.old" }] } }, docRow.sections[1]] };
+    const write = vi.fn(async () => odd);
+    const c = ctxWith({ write });
+    c.ws.state = vi.fn(() => ({ ...c.st, doc: odd }));
+    const root = qualityTab(c);
+    await flush();
+    click(button(root, "Bindings…")!);
+    await flush();
+    expect(ticks(root).map((b) => b.checked)).toEqual([true, false, false, true]);
+    expect(textOf(root)).toContain("Untick it to remove it; saving is refused while it stays.");
+    ticks(root)[3].checked = false;
+    click(button(root, "Save bindings")!);
+    await flush();
+    expect(write).toHaveBeenCalledWith("PUT", "/section/s1/bindings", { bindings: { checks: [{ id: "roles.responsibility", params: { a: 1 } }] } });
   });
   it("a refused write stops, says the bridge's words and still reports the count", async () => {
     const sugg = [{ section_id: "s4", heading: "10. Software", suggested: [{ id: "cde.states", label: "CDE", params: {}, confidence: 1, why: "w", planned: false }] }];

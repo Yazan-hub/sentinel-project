@@ -66,7 +66,7 @@ export function bindingsBody(current: unknown, picked: string[]): { checks: Chec
 }
 
 // A note that must outlive the rebuild a reload causes (the page rebuilds this tab from fresh state); shown once by the next build of this document's tab.
-let pending: { key: string; doc: string; text: string } | null = null;
+let pending: { key: string; doc: string; lines: string[] } | null = null;
 
 type Suggestion = { section_id: string; heading: string; suggested: { id: string; label: string; params: Record<string, unknown>; confidence: number; why: string; planned: boolean }[] };
 type Finding = { section_id: string; claim: string; reality: string; severity: string };
@@ -90,10 +90,12 @@ export function qualityTab(ctx: PaneCtx): HTMLElement {
   const work = h(d, "div");
   root.append(top, lists, actions, note, work);
 
-  const say = (text: string) => { note.textContent = text; };
-  if (pending && pending.key === ctx.st.key && pending.doc === doc.id) { say(pending.text); pending = null; }
+  const say = (text: string | string[]) => note.replaceChildren(...(Array.isArray(text) ? text : [text]).filter(Boolean).map((t) => h(d, "div", "", t)));
+  if (pending && pending.key === ctx.st.key && pending.doc === doc.id) { say(pending.lines); pending = null; }
 
-  const registry = ctx.ws.get<Registry>("/bimdocs/checks").then(registryOf);
+  const NO_LIST = "The check list could not be read.";
+  // null = the read failed; kept apart from an empty list so a failed read never reads as "every stored check is unknown".
+  const registry = ctx.ws.get<Registry>("/bimdocs/checks").then((r) => (obj(r) && Array.isArray(obj(r)?.checks) ? registryOf(r) : null));
   const group = (title: string, rows: string[], caption?: string): void => {
     if (!rows.length) return;
     lists.append(h(d, "div", `font:600 11px system-ui;color:${C.muted};margin:.6rem 0 .2rem`, title));
@@ -102,7 +104,8 @@ export function qualityTab(ctx: PaneCtx): HTMLElement {
   };
   if (ex) {
     void Promise.all([registry, ctx.ws.get<unknown>(`${base}/compliance`)]).then(([reg, compliance]) => {
-      const m = qualityModel(ex, compliance, reg);
+      const m = qualityModel(ex, compliance, reg ?? { checks: [], planned: [] });
+      if (!reg) lists.append(h(d, "div", `color:${C.warn};margin:.3rem 0`, NO_LIST));
       for (const b of m.bound) {
         lists.append(h(d, "div", "font:600 12px system-ui;color:#e5e7eb;margin:.5rem 0 .1rem", b.heading));
         for (const l of b.lines) lists.append(h(d, "div", "margin:.1rem 0 .1rem .6rem", l));
@@ -128,9 +131,9 @@ export function qualityTab(ctx: PaneCtx): HTMLElement {
   const currentOf = (sid: string): unknown => (ctx.ws.state().doc?.sections.find((s) => s.id === sid)?.bindings as { checks?: unknown } | undefined)?.checks;
   const saveBindings = async (sid: string, body: { checks: Check[] }): Promise<boolean> =>
     !!(await ctx.ws.write("PUT", `/section/${pathSegment(sid)}/bindings`, { bindings: body }));
-  const finish = async (text: string): Promise<void> => {
-    pending = { key: ctx.st.key, doc: doc.id, text };
-    say(text);
+  const finish = async (lines: string[]): Promise<void> => {
+    pending = { key: ctx.st.key, doc: doc.id, lines };
+    say(lines);
     await ctx.ws.reload();
     pending = null;
   };
@@ -138,6 +141,8 @@ export function qualityTab(ctx: PaneCtx): HTMLElement {
   // ---- Suggest bindings (lead) ----
   async function suggest(): Promise<void> {
     work.replaceChildren();
+    const reg = await registry;
+    if (!reg) { say(`${NO_LIST} Nothing was applied.`); return; }
     const r = await ctx.ws.post<Suggestion[]>(`${base}/bindings/suggest`, {});
     if (!Array.isArray(r)) { say(refusal(ctx, "Suggestions could not be made.")); return; }
     say("");
@@ -158,21 +163,31 @@ export function qualityTab(ctx: PaneCtx): HTMLElement {
       apply.disabled = true;
       const bySection = new Map<string, typeof picks>();
       for (const p of picks) if (p.box.checked) bySection.set(p.section_id, [...(bySection.get(p.section_id) ?? []), p]);
-      let applied = 0, failed = "";
+      const known = new Set([...reg.checks, ...reg.planned].map((c) => c.id));
+      const headingOf = new Map(matched.map((m) => [m.section_id, m.heading]));
+      let applied = 0, total = 0;
+      const lines: string[] = [];
       for (const [sid, ps] of bySection) {
         // Existing bindings stay (an applied suggestion adds to them); a new check starts with the suggestion's default params.
         const have = list(currentOf(sid)).map(obj).filter((c): c is Record<string, unknown> => !!c && typeof c.id === "string").map((c) => c.id as string);
+        const heading = headingOf.get(sid) ?? sid;
+        const odd = have.filter((id) => !known.has(id));
+        if (odd.length) { total += 1; lines.push(`${heading}: holds a check Sentinel does not know (${odd.join(", ")}); remove it in Bindings… first.`); continue; }
         const ids = [...have, ...ps.map((p) => p.id).filter((id) => !have.includes(id))];
+        if (ids.length === have.length) continue; // nothing new for this section: no write
+        total += 1;
         const body = bindingsBody(currentOf(sid), ids);
         for (const c of body.checks) {
           const p = ps.find((x) => x.id === c.id);
           if (!c.params && p && Object.keys(p.params).length) c.params = p.params;
         }
-        if (!(await saveBindings(sid, body))) { failed = refusal(ctx, "Nothing was saved."); break; }
-        applied += 1;
+        if (await saveBindings(sid, body)) { applied += 1; continue; }
+        const why = refusal(ctx, "Nothing was saved.");
+        if (!why) break; // the project or document changed meanwhile: stop, say nothing
+        lines.push(`${heading}: ${why}`);
       }
-      const text = `Applied ${applied} of ${bySection.size}.${failed ? ` ${failed}` : ""}`;
-      if (applied) await finish(text); else say(text);
+      const out = total ? [`Applied ${applied} of ${total}.`, ...lines] : ["Nothing new to apply."];
+      if (applied) await finish(out); else say(out);
       apply.disabled = false;
     });
     const row = h(d, "div", "display:flex;gap:.4rem;margin-top:.5rem");
@@ -184,6 +199,7 @@ export function qualityTab(ctx: PaneCtx): HTMLElement {
   async function bindingsFor(sid: string, heading: string): Promise<void> {
     work.replaceChildren();
     const reg = await registry;
+    if (!reg) { work.append(h(d, "div", `color:${C.warn};margin:.4rem 0`, NO_LIST)); return; }
     const current = currentOf(sid);
     const have = new Set(list(current).map(obj).filter((c): c is Record<string, unknown> => !!c).map((c) => String(c.id)));
     work.append(h(d, "div", "font:600 12px system-ui;color:#e5e7eb;margin:.5rem 0 .1rem", `Bindings: ${heading}`));
@@ -192,13 +208,13 @@ export function qualityTab(ctx: PaneCtx): HTMLElement {
     for (const c of reg.checks) add(c.id, c.label, c.description ?? "", false);
     for (const p of reg.planned) add(p.id, `${p.label} (not checkable yet)`, p.reason, true);
     const known = new Set([...reg.checks, ...reg.planned].map((c) => c.id));
-    for (const id of have) if (!known.has(id)) add(id, id, "Not a check Sentinel knows; it is not counted. Untick it to remove it.", true);
+    for (const id of have) if (!known.has(id)) add(id, id, "Not a check Sentinel knows; it is not counted. Untick it to remove it; saving is refused while it stays.", true);
     const save = btn(d, "Save bindings", true), cancel = btn(d, "Cancel");
     cancel.addEventListener("click", () => work.replaceChildren());
     save.addEventListener("click", async () => {
       save.disabled = true;
       const picked = boxes.filter((b) => b.box.checked).map((b) => b.id);
-      if (await saveBindings(sid, bindingsBody(currentOf(sid), picked))) await finish("Bindings saved.");
+      if (await saveBindings(sid, bindingsBody(currentOf(sid), picked))) await finish(["Bindings saved."]);
       else say(refusal(ctx, "Nothing was saved."));
       save.disabled = false;
     });
