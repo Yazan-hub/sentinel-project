@@ -5,7 +5,7 @@ vi.mock("../setups/ask", () => ({ askYesNo: vi.fn(async () => true), askText: vi
 
 import { askYesNo } from "../setups/ask";
 import { eirChoices, hasStart, linkEirButton, nextSteps, showStrip, startStrip } from "./start-strip";
-import { emptyState } from "./workspace-state";
+import { createWorkspace, emptyState } from "./workspace-state";
 import { click, fakeDocument, findAll, textOf } from "./fake-dom";
 
 const t0 = (id: string) => ({ id: `${id}.t0`, kind: "text", title: "", data: { markdown: "" } });
@@ -113,5 +113,80 @@ describe("linkEirButton", () => {
     expect(linkEirButton(live({ doc: bep({ template_id: "bep" }) }))).toBeNull();
     const c = live(), el = linkEirButton(c)!; await press(el, "Link an EIR…"); await press(el, "Link");
     expect(c.write).toHaveBeenCalledWith("POST", "/start", { start: "eir_received", eir_id: "e1" });
+  });
+});
+
+function deferred<T>() { let resolve!: (v: T) => void; const p = new Promise<T>((r) => { resolve = r; }); return { p, resolve }; }
+
+describe("double clicks", () => {
+  it("two clicks on EIR received before the list answers leave one select and one Link", async () => {
+    const c = live(), d = deferred<any>(); c.get.mockReturnValue(d.p);
+    const root = startStrip(c)!; click(labelled(root, "EIR received…")); click(labelled(root, "EIR received…"));
+    d.resolve(list); await tick(); await tick();
+    expect(findAll(root, "select")).toHaveLength(1); expect(findAll(root, "button").filter((b) => textOf(b) === "Link")).toHaveLength(1);
+  });
+  it("two Link presses send one start, and Link is disabled meanwhile", async () => {
+    const c = live(), d = deferred<any>(); c.write.mockReturnValue(d.p);
+    const root = startStrip(c)!; await press(root, "EIR received…");
+    const link = labelled(root, "Link"); click(link); click(link); await tick();
+    expect(c.write).toHaveBeenCalledTimes(1); expect((link as any).disabled).toBe(true);
+    d.resolve(bep()); await tick(); await tick(); expect(c.refresh).toHaveBeenCalledTimes(1);
+  });
+  it("Link works again after a refusal", async () => {
+    const c = live(); c.write.mockResolvedValueOnce(null);
+    const root = startStrip(c)!; await press(root, "EIR received…");
+    const link = labelled(root, "Link"); await press(root, "Link");
+    expect((link as any).disabled).toBe(false);
+    await press(root, "Link"); expect(c.write).toHaveBeenCalledTimes(2);
+  });
+  it("two presses on No EIR received send one start", async () => {
+    const c = live(), d = deferred<any>(); c.write.mockReturnValue(d.p);
+    const root = startStrip(c)!; click(labelled(root, "No EIR received")); click(labelled(root, "No EIR received")); await tick(); await tick();
+    expect(c.write).toHaveBeenCalledTimes(1);
+    d.resolve(bep()); await tick();
+  });
+  it("a question that fails becomes a line, not an unhandled rejection", async () => {
+    vi.mocked(askYesNo).mockRejectedValueOnce(new Error("no window"));
+    const c = live(); c.st.message = "";
+    const root = startStrip(c)!; await press(root, "No EIR received");
+    expect(c.write).not.toHaveBeenCalled(); expect(textOf(root)).toContain("The start was not saved.");
+    expect(textOf(root)).not.toContain("Nothing was saved.");
+  });
+});
+
+describe("a stale answer shows nothing", () => {
+  it("the project switched while the list was read", async () => {
+    const c = live({ list: null }); c.get.mockImplementation(async () => { c.ws.state = () => ({ ...c.st, key: "other" }); return null; });
+    const root = startStrip(c)!; await press(root, "EIR received…");
+    expect(textOf(root)).not.toContain("could not be read");
+  });
+  it("the project switched while the start was written", async () => {
+    const c = live(); c.write.mockImplementation(async () => { c.ws.state = () => ({ ...c.st, key: "other" }); return null; });
+    const root = startStrip(c)!; await press(root, "No EIR received");
+    expect(textOf(root)).not.toContain("not saved"); expect(c.refresh).not.toHaveBeenCalled();
+  });
+});
+
+describe("a section that is null in the list", () => {
+  it("nextSteps and hasStart ignore it", () => {
+    const d = bep({ sections: [null, { id: "s2", owner: "a@x", template_key: "eir-response", blocks: [] }] });
+    expect(nextSteps(d, ex(1, 1)).map((s) => s.done)).toEqual([false, true, true]);
+    expect(hasStart(d)).toBe(false);
+  });
+});
+
+describe("a refusal through the real controller", () => {
+  it("the 422 words from the bridge reach the strip", async () => {
+    const words = "This BEP already has its start. Nothing was saved.";
+    const json = vi.fn(async (m: string, p: string) => {
+      if (m === "POST" && p.endsWith("/start")) return { status: 422, body: { message: words } };
+      if (p === "/bimdocs/k/d1") return { status: 200, body: bep() };
+      return { status: 200, body: p.endsWith("/executability") ? null : [] };
+    });
+    const ws = createWorkspace({ json: json as any, activePid: () => "k", scope: () => "k", onProjectChange: () => () => {}, askYesNo: async () => true, role: async () => "lead", me: async () => "lead@x" }, () => {});
+    await ws.open("d1");
+    const refresh = vi.fn(), c = { ws, st: ws.state(), doc: fakeDocument(), base: "", canEdit: true, canGovern: true, focused: null, focus: vi.fn(), show: vi.fn(), refresh, openDoc: vi.fn() } as any;
+    const root = startStrip(c)!; await press(root, "No EIR received");
+    expect(textOf(root)).toContain(words); expect(refresh).not.toHaveBeenCalled();
   });
 });

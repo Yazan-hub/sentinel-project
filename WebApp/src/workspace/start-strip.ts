@@ -29,17 +29,26 @@ export const eirChoices = (rows: { id: string; doc_type: string; title: string; 
 const NOTE = `color:${C.warn};font:12px system-ui;margin:.3rem 0 0`;
 
 /** A host element for the inline EIR choice and the words under it. */
-function eirLinker(ctx: PaneCtx): { el: HTMLElement; open(): Promise<void>; start(body: object): Promise<void> } {
+function eirLinker(ctx: PaneCtx): { el: HTMLElement; open(): Promise<void>; start(body: object, lock?: HTMLButtonElement[]): Promise<void>; say(t: string): void } {
   const d = ctx.doc, el = h(d, "div"), note = h(d, "div", NOTE), slot = h(d, "div", "display:flex;gap:.4rem;align-items:center;margin:.3rem 0 0");
   el.append(slot, note);
   const say = (t: string): void => { note.textContent = t; };
-  const start = async (body: object): Promise<void> => {
-    if (await ctx.ws.write("POST", "/start", body)) ctx.refresh("all");
-    else say(refusal(ctx, "The start was not saved. Nothing was saved."));
+  let seq = 0, busy = false;
+  // One start at a time: the pressed buttons stay disabled until the write settles (a refusal enables them again).
+  const start = async (body: object, lock: HTMLButtonElement[] = []): Promise<void> => {
+    if (busy) return;
+    busy = true; for (const b of lock) b.disabled = true;
+    try {
+      if (await ctx.ws.write("POST", "/start", body)) ctx.refresh("all");
+      else say(refusal(ctx, "The start was not saved."));
+    } finally { busy = false; for (const b of lock) b.disabled = false; }
   };
   const open = async (): Promise<void> => {
-    say(""); slot.replaceChildren();
+    const my = ++seq; // a second press while the list is read replaces the first, it does not add to it
+    say("");
     const rows = await ctx.ws.get<{ id: string; doc_type: string; title: string; status: string }[]>(`/bimdocs/${encodeURIComponent(ctx.st.key)}`);
+    if (my !== seq) return;
+    slot.replaceChildren();
     if (!rows) { say(refusal(ctx, "The document list could not be read.")); return; }
     const choices = eirChoices(rows);
     if (!choices.length) { say("No EIR in this project yet: ingest it from the Documents tab first."); return; }
@@ -47,10 +56,10 @@ function eirLinker(ctx: PaneCtx): { el: HTMLElement; open(): Promise<void>; star
     for (const c of choices) { const o = h(d, "option", "", c.title); o.value = c.id; sel.append(o); }
     sel.value = choices[0].id;
     const link = btn(d, "Link", true);
-    link.addEventListener("click", () => { void start({ start: "eir_received", eir_id: sel.value }); });
-    slot.append(sel, link);
+    link.addEventListener("click", () => { void start({ start: "eir_received", eir_id: sel.value }, [link]); });
+    slot.replaceChildren(sel, link);
   };
-  return { el, open, start };
+  return { el, open, start, say };
 }
 
 /** "Link an EIR…" for a lead on a comprehensive BEP that answers no EIR; null otherwise. */
@@ -75,11 +84,14 @@ export function startStrip(ctx: PaneCtx): HTMLElement | null {
     const linker = eirLinker(ctx), row = h(d, "div", "display:flex;gap:.4rem;margin:.4rem 0 0");
     const eir = btn(d, "EIR received…"), none = btn(d, "No EIR received");
     eir.addEventListener("click", () => { void linker.open(); });
+    let pending = false; // the question and the write together: a second press while either is open does nothing
     none.addEventListener("click", () => {
-      void askYesNo("Insert the statement that the project is not yet following ISO 19650, and the clause 5.3.2 checklist?", { doc: d }).then(async (yes) => {
-        if (!yes) return;
-        await linker.start({ start: "no_eir" });
-      });
+      if (pending) return;
+      pending = true; none.disabled = true;
+      void askYesNo("Insert the statement that the project is not yet following ISO 19650, and the clause 5.3.2 checklist?", { doc: d })
+        .then((yes) => (yes ? linker.start({ start: "no_eir" }) : undefined))
+        .catch(() => linker.say(refusal(ctx, "The start was not saved.")))
+        .finally(() => { pending = false; none.disabled = false; });
     });
     row.append(eir, none);
     box.append(row, linker.el);
