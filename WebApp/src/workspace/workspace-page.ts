@@ -9,6 +9,7 @@ import { askYesNo } from "../setups/ask";
 import { statusLine } from "../sentinel-core/doc-blocks";
 import { becameVisible, createWorkspace, reopenTarget, resolveSection, reviewLines, rightsOf, type Workspace, type WorkspaceState } from "./workspace-state";
 import { C, btn, h } from "./dom";
+import { commentsTab, outlinePane } from "./outline";
 import { readView } from "./read-view";
 import { compareView, versionsView } from "./versions-view";
 
@@ -45,24 +46,11 @@ export const SIDE_TABS: Record<"quality" | "review" | "comments", (ctx: PaneCtx)
     if (ctx.st.doc) box.append(...reviewLines(ctx.st.doc, ctx.st.versions).map((line) => h(ctx.doc, "p", SIDE_TEXT, line)));
     return box;
   },
-  comments: (ctx) => h(ctx.doc, "p", SIDE_TEXT, "Add comments in the Documents tab for now."),
+  comments: commentsTab,
 };
 const TAB_NAMES: [keyof typeof SIDE_TABS, string][] = [["quality", "Quality"], ["review", "Review"], ["comments", "Comments"]];
 
-export const OUTLINE: { pane: (ctx: PaneCtx) => HTMLElement } = {
-  pane: (ctx) => {
-    const list = h(ctx.doc, "div");
-    for (const s of ctx.st.doc?.sections ?? []) {
-      const row = h(ctx.doc, "button",
-        `display:block;width:100%;text-align:left;background:${s.id === ctx.focused ? C.btn : "transparent"};border:0;border-radius:.3rem;padding:.3rem .4rem;color:${C.soft};font:12px system-ui;cursor:pointer`,
-        String(s.heading ?? ""));
-      row.setAttribute("type", "button");
-      row.addEventListener("click", () => ctx.focus(s.id));
-      list.append(row);
-    }
-    return list;
-  },
-};
+export const OUTLINE: { pane: (ctx: PaneCtx) => HTMLElement } = { pane: outlinePane };
 
 const VIEW_NAMES: [View, string][] = [["edit", "Edit"], ["read", "Read"], ["compare", "Compare"], ["versions", "Versions"]];
 
