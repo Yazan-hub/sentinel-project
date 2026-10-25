@@ -7,7 +7,7 @@ import { myRoleRead } from "../setups/my-role";
 import { currentUser } from "../setups/auth";
 import { askYesNo } from "../setups/ask";
 import { statusLine } from "../sentinel-core/doc-blocks";
-import { createWorkspace, reopenTarget, resolveSection, reviewLines, rightsOf, type Workspace, type WorkspaceState } from "./workspace-state";
+import { becameVisible, createWorkspace, reopenTarget, resolveSection, reviewLines, rightsOf, type Workspace, type WorkspaceState } from "./workspace-state";
 import { C, btn, h } from "./dom";
 
 export type View = "edit" | "read" | "compare" | "versions";
@@ -185,11 +185,15 @@ export function workspacePage(opts: { baseUrl: string; onBack: () => void; doc?:
   };
 
   // The activity-bar icon shows the page with no document: reopen this project's last one.
+  let shown = false;
   if (typeof ResizeObserver !== "undefined")
     new ResizeObserver(() => {
-      if (!root.clientWidth) return; // hidden behind another layout
-      const id = reopenTarget(last, activePid(), ws.state().doc, opening > 0);
-      if (id) void root.open(id);
+      const now = root.clientWidth > 0 && root.clientHeight > 0; // 0 = hidden behind another layout
+      const edge = becameVisible(shown, now);
+      shown = now;
+      if (!edge) return; // a resize while shown never reopens
+      const key = activePid(), id = reopenTarget(last, key, ws.state().doc, opening > 0);
+      if (id) void root.open(id).then(() => { const st = ws.state(); if (st.key === key && !st.doc) last.delete(key); }); // unreadable: forget it
     }).observe(root);
 
   renderAll();

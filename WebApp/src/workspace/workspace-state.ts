@@ -40,7 +40,9 @@ const words = (r: Reply, tail: string) => String(r.body?.message || "") || `The 
 
 export function createWorkspace(deps: WorkspaceDeps, render: (s: WorkspaceState) => void): Workspace {
   let state = emptyState(deps.activePid());
-  let tok = 0;
+  let tok = 0; // project / scope: bumped only by a switch; a write checks this alone
+  let readTok = 0; // the latest document read (open, reload)
+  let viewTok = 0; // the latest version view
   let scopeAt = deps.scope();
   let queue: Promise<unknown> = Promise.resolve();
   const call = (m: "GET" | "POST" | "PUT" | "PATCH", p: string, b?: object): Promise<Reply | null> =>
@@ -50,7 +52,7 @@ export function createWorkspace(deps: WorkspaceDeps, render: (s: WorkspaceState)
   deps.onProjectChange(() => {
     if (deps.scope() === scopeAt) return; // a plain refresh: open editors keep their text, CAS catches any change
     const was = state;
-    ++tok;
+    ++tok; ++readTok; ++viewTok;
     scopeAt = deps.scope();
     state = emptyState(deps.activePid());
     render(state);
@@ -59,11 +61,12 @@ export function createWorkspace(deps: WorkspaceDeps, render: (s: WorkspaceState)
 
   /** Reads the document and everything shown beside it; false when stale or not read. */
   async function load(docId: string, keep: { viewing: VersionRow | null; message: string }): Promise<boolean> {
-    const mine = ++tok;
+    const mine = ++readTok, sc = tok;
+    const stale = () => mine !== readTok || sc !== tok;
     const key = deps.activePid();
     const base = `/bimdocs/${pathSegment(key)}/${pathSegment(docId)}`;
     const r = await call("GET", base);
-    if (mine !== tok) return false;
+    if (stale()) return false;
     if (!r || !is2xx(r) || !r.body?.id || !Array.isArray(r.body.sections)) {
       state = { ...emptyState(key), message: `The document could not be read: ${r?.body?.message || "the bridge did not answer"}.` };
       render(state);
@@ -84,7 +87,7 @@ export function createWorkspace(deps: WorkspaceDeps, render: (s: WorkspaceState)
       deps.role(key).catch(() => "viewer"),
       deps.me().catch(() => ""),
     ]);
-    if (mine !== tok) return false;
+    if (stale()) return false;
     state = { key, doc, versions, comments, ex, role, me, problems: docProblems(doc), message: keep.message, viewing: keep.viewing, respondsTo };
     render(state);
     return true;
@@ -92,16 +95,17 @@ export function createWorkspace(deps: WorkspaceDeps, render: (s: WorkspaceState)
 
   async function open(docId: string): Promise<void> {
     scopeAt = deps.scope();
+    ++viewTok; // a version view of the previous document is dropped
     await load(docId, { viewing: null, message: "" });
   }
 
-  const reload = async (): Promise<boolean> => (state.doc ? load(state.doc.id, { viewing: state.viewing, message: state.message }) : false);
+  const reload = async (): Promise<boolean> => (state.doc ? load(state.doc.id, { viewing: state.viewing, message: "" }) : false);
 
   async function viewVersion(n: number | null): Promise<void> {
-    const mine = ++tok;
+    const mine = ++viewTok, sc = tok;
     if (n === null || !state.doc) { state = { ...state, viewing: null }; render(state); return; }
     const r = await call("GET", `/bimdocs/${pathSegment(state.key)}/${pathSegment(state.doc.id)}/versions/${n}`);
-    if (mine !== tok) return;
+    if (mine !== viewTok || sc !== tok) return;
     if (r && is2xx(r) && r.body?.snapshot) state = { ...state, viewing: r.body as VersionRow, message: "" };
     else say(r ? words(r, "") : "The bridge did not answer.");
     render(state);
@@ -142,7 +146,7 @@ export function createWorkspace(deps: WorkspaceDeps, render: (s: WorkspaceState)
     if (!is2xx(r)) { say(words(r, " Nothing was saved.")); return null; }
     const row = r.body as DocRow | null;
     const cur = state.doc;
-    if (cur && row?.id === cur.id && Array.isArray(row.sections) && !(row.updated_at < cur.updated_at)) state = { ...state, doc: row };
+    if (cur && row?.id === cur.id && Array.isArray(row.sections) && typeof row.updated_at === "string" && !(row.updated_at < cur.updated_at)) state = { ...state, doc: row };
     return row; // no render: the caller replaces its own node
   }
 
@@ -158,16 +162,23 @@ export function createWorkspace(deps: WorkspaceDeps, render: (s: WorkspaceState)
 
 export function docProblems(doc: DocRow): string[] {
   const seen = new Set<string>(), twice = new Set<string>();
-  for (const s of doc.sections ?? []) (seen.has(s?.id) ? twice : seen).add(s?.id);
+  for (const s of doc.sections ?? []) { if (s) (seen.has(s.id) ? twice : seen).add(s.id); }
   return [...twice].map((id) => `Two sections share the id ${id}. This document can be read here, not edited, until it is repaired.`);
 }
 
 export const reopenTarget = (last: Map<string, string>, key: string, current: DocRow | null, pending: boolean): string | null =>
   pending || current ? null : last.get(key) ?? null;
 
+/** The page reopens its remembered document only when it goes from hidden to shown, not on every resize. */
+export const becameVisible = (prev: boolean, now: boolean): boolean => !prev && now;
+
+/** The newest BEP that is not archived (listDocs is newest first). */
+export const pickBep = (list: { id: string; doc_type: string; status: string }[]): string | null =>
+  list.find((d) => d.doc_type === "BEP" && d.status !== "archived")?.id ?? null;
+
 export function resolveSection(doc: DocRow, at: string | undefined): string | null {
   if (!at) return null;
-  return (doc.sections.find((s) => s.id === at) ?? doc.sections.find((s) => s.template_key === at))?.id ?? null;
+  return (doc.sections.find((s) => s?.id === at) ?? doc.sections.find((s) => s?.template_key === at))?.id ?? null;
 }
 
 export function rightsOf(st: WorkspaceState): { canEdit: boolean; canGovern: boolean } {

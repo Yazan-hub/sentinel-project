@@ -21,7 +21,7 @@ export const OFFICE_STEPS = [
 export const PROJECT_STEPS = [
   TEAM,
   { id: "standards", label: "Standards in force", how: { web: web("Settings", "Standards in force — inherited from the office, or install here: Standards sidebar ▸ Install a pack; Documents ▸ EIR ▸ Compile to IDS ▸ Install on this project"), revit: null, who: "lead" } },
-  { id: "bep", label: "BEP drafted", how: { web: web("Documents", "+ New document ▸ Create BEP"), revit: null, who: "lead" } },
+  { id: "bep", label: "BEP drafted", how: { web: web("Workspace", "the project's BEP; none yet? Documents ▸ + New document ▸ Create BEP"), revit: null, who: "lead" } },
   // Paperwork slice 4 (ISO 19650-2 §5.4): each task team's delivery plan is a governed document too.
   { id: "tidp", label: "TIDP drafted", how: { web: web("Documents", "+ New document ▸ Create TIDP"), revit: null, who: "lead" } },
   { id: "model", label: "Model connected", how: { web: null, revit: "Sentinel ▸ Standards ▸ Project Setup (bind this project), then Synchronize with Central — the scan report is sent after each sync", who: "member" } },

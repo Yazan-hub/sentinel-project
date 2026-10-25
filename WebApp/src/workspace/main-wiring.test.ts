@@ -12,3 +12,15 @@ describe("main.ts mounts the workspace (founder decision 2026-10-25, layout A)",
   it("Back returns to the project space, not the hub", () => expect(main).toContain('onBack: () => { app.layout = "Projects"; showSpace(); }'));
   it("the workspace exists before the panels that open it", () => expect(main.indexOf("const workspaceEl =")).toBeLessThan(main.indexOf("const docsEl =")));
 });
+
+describe("entry points (spec section 5)", () => {
+  it("Documents, Deliverables and the Next strip open the workspace", () => {
+    expect(main).toContain('const openWorkspace = (docId: string, at?: { section?: string; view?: View }) => { app.layout = "Workspace"; void workspaceEl.open(docId, at); };');
+    expect(main).toContain("onOpenWorkspace: (id) => openWorkspace(id)"); // Task 17 adds onIngested to the same docsPanel options
+    expect(main).toContain("deliverablesPanel(components, { baseUrl: SERVICE_URL, onOpenBep: () => void openBep() })");
+    expect(main).toContain('if (label === "Workspace") return void openBep();');
+    expect(main).toContain('openWorkspace(id, { section: "delivery-plans" })');
+  });
+  it("Deliverables offers Open in BEP", () =>
+    expect(readFileSync(new URL("../setups/deliverables-panel.ts", import.meta.url), "utf8")).toContain('btn("Open in BEP")'));
+});

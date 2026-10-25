@@ -34,7 +34,7 @@ const STATUS_STYLE: Record<string, { color: string; icon: string; label: string 
   unscheduled: { color: "#71717a", icon: "—", label: "no date" },
 };
 
-export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?: string } = {}): HTMLElement {
+export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?: string; onOpenBep?: () => void } = {}): HTMLElement {
   const base = (opts.baseUrl || SERVICE_URL).replace(/\/$/, "");
   const pid = () => activePid();
   const actor = async () => { try { return (await currentUser())?.email || "web"; } catch { return "web"; } };
@@ -123,6 +123,7 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
       importBtn.onclick = () => showImport();
       bar.append(addBtn, importBtn);
     }
+    if (opts.onOpenBep) { const ob = btn("Open in BEP"); ob.onclick = () => opts.onOpenBep!(); bar.append(ob); }
     bar.append(refresh);
 
     body.replaceChildren();

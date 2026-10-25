@@ -50,9 +50,16 @@ describe("the step lists", () => {
     expect(tabs.length).toBeGreaterThan(0);
     for (const s of [...OFFICE_STEPS, ...PROJECT_STEPS]) {
       expect(s.label).toBeTruthy();
-      if (s.how.web) expect(tabs).toContain(s.how.web.tab);
+      if (s.how.web) expect([...tabs, "Workspace"]).toContain(s.how.web.tab);
       expect(["owner", "lead", "member"]).toContain(s.how.who);
     }
+  });
+});
+
+describe("R1b journey", () => {
+  it("the BEP step opens the workspace, and main.ts has the Workspace layout", () => {
+    expect(PROJECT_STEPS.find((s) => s.id === "bep").how.web).toEqual({ tab: "Workspace", hint: "the project's BEP; none yet? Documents ▸ + New document ▸ Create BEP" });
+    expect(readFileSync(fileURLToPath(new URL("../src/main.ts", import.meta.url)), "utf8")).toContain('Workspace: { icon: "mdi:file-document-edit-outline"');
   });
 });
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import {
-  createWorkspace, emptyState, docProblems, reopenTarget, resolveSection, rightsOf, reviewLines, moveId,
+  createWorkspace, emptyState, docProblems, reopenTarget, becameVisible, pickBep, resolveSection, rightsOf, reviewLines, moveId,
   CONFLICT_QUESTION, STATUS_CHANGED, type WorkspaceState,
 } from "./workspace-state";
 import type { DocRow } from "../sentinel-core/doc-blocks";
@@ -141,6 +141,44 @@ describe("the workspace controller", () => {
   });
 });
 
+describe("Task 1 follow-ups: tokens, nulls, returned rows", () => {
+  it("a version view started while a write is in flight does not drop the write's answer", async () => {
+    const w = deferred<unknown>();
+    const t = setup((m, p) => (m === "PUT" ? w.p : p === "/bimdocs/a/d1/versions/1" ? ok({ snapshot: doc(), version_no: 1 }) : docRoute()(m, p)));
+    await t.ws.open("d1"); const saving = t.ws.write("PUT", "/x", {}); await new Promise((r) => setTimeout(r, 0));
+    await t.ws.viewVersion(1); expect(t.ws.state().viewing).not.toBeNull();
+    w.resolve(ok(doc({ updated_at: "t2" })));
+    expect((await saving)?.updated_at).toBe("t2"); expect(t.ws.state().doc?.updated_at).toBe("t2");
+  });
+  it("a reload while a write is in flight does not drop the write's answer", async () => {
+    const w = deferred<unknown>(); const t = setup((m, p) => (m === "PUT" ? w.p : docRoute()(m, p)));
+    await t.ws.open("d1"); const saving = t.ws.write("PUT", "/x", {}); await new Promise((r) => setTimeout(r, 0));
+    await t.ws.reload(); w.resolve(ok(doc({ updated_at: "t2" })));
+    expect((await saving)?.updated_at).toBe("t2");
+  });
+  it("reload clears the old message before it renders", async () => {
+    const t = setup((m, p) => (m === "PUT" ? { status: 422, body: { message: "No." } } : docRoute()(m, p)));
+    await t.ws.open("d1"); await t.ws.write("PUT", "/x", {}); expect(t.ws.state().message).toBe("No.");
+    await t.ws.reload(); expect(t.renders.at(-1)?.message).toBe(""); expect(t.ws.state().message).toBe("");
+  });
+  it("a null section is ignored, never a duplicate id", () => {
+    const d = doc({ sections: [null as any, { ...S1, id: "a" }, null as any, { ...S1, id: "b", template_key: "k" }] });
+    expect(docProblems(d)).toEqual([]);
+    expect([resolveSection(d, "a"), resolveSection(d, "k"), resolveSection(d, "zz")]).toEqual(["a", "b", null]);
+  });
+  it("a returned row is kept only when it is this document, has sections and a newer string updated_at", async () => {
+    const keeps = async (row: unknown) => { const t = setup((m, p) => (m === "PUT" ? ok(row) : docRoute(doc({ updated_at: "t5" }))(m, p))); await t.ws.open("d1"); await t.ws.write("PUT", "/x", {}); return t.ws.state().doc?.updated_at; };
+    expect(await keeps(doc({ updated_at: "t9" }))).toBe("t9");
+    expect(await keeps(doc({ updated_at: "t2" }))).toBe("t5"); // older
+    expect(await keeps(doc({ id: "other", updated_at: "t9" }))).toBe("t5");
+    expect(await keeps({ ...doc(), updated_at: undefined })).toBe("t5");
+    expect(await keeps({ ...doc(), updated_at: 9 })).toBe("t5");
+  });
+  it("becameVisible is true only on the hidden to shown edge", () => {
+    expect([becameVisible(false, true), becameVisible(true, true), becameVisible(true, false), becameVisible(false, false)]).toEqual([true, false, false, false]);
+  });
+});
+
 describe("rights, reopen, review lines, moves", () => {
   const st = (o: Partial<WorkspaceState>): WorkspaceState => ({ ...emptyState("a"), doc: doc(), role: "lead", ...o });
   it("rightsOf follows the role and the document", () => {
@@ -169,4 +207,9 @@ describe("rights, reopen, review lines, moves", () => {
     expect(moveId(["a", "b", "c"], "b", -1)).toEqual(["b", "a", "c"]); expect(moveId(["a", "b", "c"], "b", 1)).toEqual(["a", "c", "b"]);
     expect(moveId(["a", "b"], "a", -1)).toEqual(["a", "b"]); expect(moveId(["a", "b"], "b", 1)).toEqual(["a", "b"]);
   });
+});
+
+it("pickBep: the newest BEP that is not archived", () => {
+  expect(pickBep([{ id: "e", doc_type: "EIR", status: "wip" }, { id: "old", doc_type: "BEP", status: "archived" }, { id: "b", doc_type: "BEP", status: "shared" }, { id: "b0", doc_type: "BEP", status: "wip" }])).toBe("b");
+  expect(pickBep([{ id: "e", doc_type: "EIR", status: "wip" }])).toBeNull();
 });

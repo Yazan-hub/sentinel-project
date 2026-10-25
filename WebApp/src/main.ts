@@ -36,7 +36,9 @@ import { issuePanel } from "./setups/issue-panel";
 import { cdePanel } from "./setups/cde-panel";
 import { filesPanel } from "./setups/files-panel";
 import { docsPanel } from "./setups/docs-panel";
-import { workspacePage } from "./workspace/workspace-page";
+import { workspacePage, type View } from "./workspace/workspace-page";
+import { pickBep } from "./workspace/workspace-state";
+import { bfetch } from "./setups/bridge-fetch";
 import { deliverablesPanel } from "./setups/deliverables-panel";
 import { propertiesPanel } from "./setups/properties-panel";
 import { projectBrowserPanel } from "./setups/project-browser-panel";
@@ -295,9 +297,18 @@ async function main() {
   // The BIM documents workspace — a full page (layout "Workspace"); the 3D viewer stays hidden, not destroyed, while it is open.
   const workspaceEl = workspacePage({ baseUrl: SERVICE_URL, onBack: () => { app.layout = "Projects"; showSpace(); } });
   // Documents panel — ISO 19650 project documents (BEP/EIR) with states, versions, print/PDF.
-  const docsEl = docsPanel(components, { baseUrl: SERVICE_URL });
+  const openWorkspace = (docId: string, at?: { section?: string; view?: View }) => { app.layout = "Workspace"; void workspaceEl.open(docId, at); };
+  // The project's BEP (newest first from the bridge); none yet: the Documents tab, where "+ New document" makes one.
+  const openBep = async (): Promise<void> => {
+    const r = await bfetch(`${SERVICE_URL}/bimdocs/${encodeURIComponent(activePid())}`).catch(() => null);
+    const list = r && r.ok ? await r.json().catch(() => []) : [];
+    const id = pickBep(Array.isArray(list) ? list : []);
+    if (id) openWorkspace(id, { section: "delivery-plans" });
+    else (spaceTabsEl as unknown as { showTab: (i: number) => void }).showTab(tabIndex(spaceTabs.map((t) => t.label), "Documents"));
+  };
+  const docsEl = docsPanel(components, { baseUrl: SERVICE_URL, onOpenWorkspace: (id) => openWorkspace(id) });
   // Deliverables — the MIDP/TIDP plan vs what actually arrived (status derived, never stored).
-  const deliverablesEl = deliverablesPanel(components, { baseUrl: SERVICE_URL });
+  const deliverablesEl = deliverablesPanel(components, { baseUrl: SERVICE_URL, onOpenBep: () => void openBep() });
 
   // ── The project space (Forma-style): hub grid ⇄ per-project Dashboard | Project Files | Settings ──
   // Standards in force names where a standard with no Settings form is edited (spec 2026-10-19 standards-forms): the
@@ -323,6 +334,7 @@ async function main() {
   const nextStripEl = nextStrip({
     baseUrl: SERVICE_URL,
     onOpenTab: (label) => {
+      if (label === "Workspace") return void openBep();
       const i = tabIndex(spaceTabs.map((t) => t.label), label);
       if (i >= 0) (spaceTabsEl as unknown as { showTab: (i: number) => void }).showTab(i);
     },

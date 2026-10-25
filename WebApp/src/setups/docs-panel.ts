@@ -164,7 +164,7 @@ const STATUS_STYLE: Record<string, { color: string; icon: string }> = {
   error: { color: "#eab308", icon: "!" },
 };
 
-export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string } = {}): HTMLElement {
+export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string; onOpenWorkspace?: (docId: string) => void } = {}): HTMLElement {
   const base = (opts.baseUrl || SERVICE_URL).replace(/\/$/, "");
   const pid = () => activePid();
   const api = async (path: string, init: RequestInit = {}) => {
@@ -404,6 +404,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
   async function showList() {
     const mine = ++seq, key = pid();
     loadedScope = loadScope(key);
+    bar.replaceChildren(); body.replaceChildren(); // F-R1a-1: the previous project's document never stays on screen while the role is asked
     // Fail CLOSED (my-role.ts): an unanswered role question renders read-only; a non-member is said as one (W-2 G7).
     const me = await myRoleRead(base, key);
     if (mine !== seq) return;
@@ -449,6 +450,11 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
           <span style="flex:1;font:600 12px system-ui;color:#eee">${esc(d.title)}</span>
           ${chip(d.status)}<span style="color:#71717a">v${d.version_count}</span>`;
         row.onclick = () => showEditor(d.id);
+        if (opts.onOpenWorkspace) {
+          const ow = btn("Open workspace");
+          ow.onclick = (e) => { e.stopPropagation(); opts.onOpenWorkspace!(d.id); };
+          row.append(ow);
+        }
         body.append(row);
       }
     } catch (e: any) {
@@ -472,7 +478,8 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
       b.onclick = async () => {
         try {
           const doc = await api(`/${encodeURIComponent(pid())}`, { method: "POST", body: JSON.stringify({ doc_type: t.doc_type, title: input.value || t.title, actor: await actor() }) });
-          showEditor(doc.id);
+          if ((t.doc_type === "BEP" || t.doc_type === "EIR") && opts.onOpenWorkspace) { void showList(); opts.onOpenWorkspace(doc.id); }
+          else showEditor(doc.id);
         } catch (e: any) { msg(e.message, true); }
       };
       wrap.append(b);
@@ -681,8 +688,10 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
 
   // ── Editor view ───────────────────────────────────────────────────────────
   async function showEditor(docId: string) {
+    const mine = seq; // a project switch (showList) while a read is in flight drops its answer
     let doc: Doc;
-    try { doc = await api(`/${encodeURIComponent(pid())}/${docId}`); } catch (e: any) { msg(e.message, true); return showList(); }
+    try { doc = await api(`/${encodeURIComponent(pid())}/${docId}`); } catch (e: any) { if (mine !== seq) return; msg(e.message, true); return showList(); }
+    if (mine !== seq) return;
     if (doc.doc_type === "READINESS") return showReadinessEditor(doc);
     bar.replaceChildren();
     const back = btn("← Documents"); back.onclick = showList;
@@ -692,6 +701,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
     const viewBtn = btn("Document view"); viewBtn.onclick = () => showDocView(doc);
     const versBtn = btn("Versions"); versBtn.onclick = () => showVersions(doc);
     bar.append(back, title, viewBtn, versBtn);
+    if (opts.onOpenWorkspace) { const ow = btn("Open workspace"); ow.onclick = () => opts.onOpenWorkspace!(doc.id); bar.append(ow); }
     if (canGovern()) {
       const suggestBtn = btn("Suggest bindings"); suggestBtn.onclick = () => showSuggestBindings(doc, () => showEditor(doc.id));
       bar.append(suggestBtn);
@@ -723,9 +733,11 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
     const editable = (doc.status === "wip" || doc.status === "shared") && canEdit();
     let compliance: Compliance | null = null;
     try { compliance = await api(`/${encodeURIComponent(pid())}/${doc.id}/compliance`); } catch { /* compliance is optional; the editor must still open */ }
+    if (mine !== seq) return;
     const resultsFor = (sid: string) => compliance?.sections.find((s) => s.section_id === sid)?.results ?? [];
     let comments: Comment[] = [];
     try { comments = await api(`/${encodeURIComponent(pid())}/${doc.id}/comments`); } catch { /* comments are optional; the editor must still open */ }
+    if (mine !== seq) return;
     for (const s of doc.sections) {
       const sec = document.createElement("details");
       sec.style.cssText = "border:1px solid #2a2a30;border-radius:.4rem;margin-bottom:.4rem;background:#191920";
@@ -844,6 +856,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
   }
 
   async function showReadinessEditor(doc: Doc) {
+    const mine = seq;
     bar.replaceChildren();
     const back = btn("← Documents"); back.onclick = showList;
     const title = document.createElement("span");
@@ -864,6 +877,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
     const planBtn = btn("Plan");
     planBtn.onclick = () => { showPlan = !showPlan; renderPlan(); };
     bar.append(back, title, versBtn, reportBtn, planBtn);
+    if (opts.onOpenWorkspace) { const ow = btn("Open workspace"); ow.onclick = () => opts.onOpenWorkspace!(doc.id); bar.append(ow); }
     if (canGovern()) {
       const next: Record<string, string[]> = { wip: ["shared"], shared: ["wip", "published"], published: ["wip", "archived"], archived: ["wip"] };
       for (const to of next[doc.status] || []) {
@@ -889,14 +903,17 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
     const editable = (doc.status === "wip" || doc.status === "shared") && canEdit();
     let rep: Readiness | null = null;
     try { rep = await api(`/${encodeURIComponent(pid())}/${doc.id}/readiness`); } catch (e: any) { msg(`Readiness could not be computed: ${e.message}`, true); }
+    if (mine !== seq) return;
     let comments: Comment[] = [];
     try { comments = await api(`/${encodeURIComponent(pid())}/${doc.id}/comments`); } catch { /* optional */ }
+    if (mine !== seq) return;
     let members: { email: string; role: string }[] = [];
     if (canGovern()) {
       try {
         const r = await bfetch(`${base}/cde/${encodeURIComponent(pid())}/members`);
         if (r.ok) members = ((await r.json()) as { email: string; role: string }[]).filter((m) => String(m.email || "").includes("@"));
       } catch { /* the owner picker then offers the current value only */ }
+      if (mine !== seq) return;
     }
     const resultsFor = (sid: string) => rep?.sections.find((s) => s.section_id === sid)?.results ?? [];
     const itemFor = (sid: string) => rep ? [...rep.score.overall.measured.items, ...rep.score.overall.declared.items].find((i) => i.section_id === sid) : undefined;
@@ -1138,11 +1155,13 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
 
   // ── Versions view ─────────────────────────────────────────────────────────
   async function showVersions(doc: Doc) {
+    const mine = seq;
     body.replaceChildren();
     const back = btn("← Editor"); back.onclick = () => showEditor(doc.id); body.append(back);
     try {
       const vs: { version_no: number; label: string; published_by: string; published_at: string }[] =
         await api(`/${encodeURIComponent(pid())}/${doc.id}/versions`);
+      if (mine !== seq) return;
       if (!vs.length) { body.append(Object.assign(document.createElement("div"), { textContent: "No published versions yet." })); return; }
       for (const v of vs) {
         const row = document.createElement("div");
@@ -1150,15 +1169,17 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
         row.innerHTML = `<b style="color:#eee">v${v.version_no}</b><span style="flex:1">${esc(v.label || "")}</span><span style="color:#71717a">${esc(v.published_by)} · ${new Date(v.published_at).toLocaleString()}</span>`;
         row.onclick = async () => {
           const full = await api(`/${encodeURIComponent(pid())}/${doc.id}/versions/${v.version_no}`);
+          if (mine !== seq) return;
           showDocView(full.snapshot as Doc, `v${v.version_no} — ${esc(v.label || "")}`);
         };
         body.append(row);
       }
-    } catch (e: any) { msg(e.message, true); }
+    } catch (e: any) { if (mine !== seq) return; msg(e.message, true); }
   }
 
   // ── Document view (read + print) ──────────────────────────────────────────
   async function showDocView(doc: Doc, versionLabel?: string) {
+    const mine = seq;
     bar.replaceChildren();
     const back = btn("← Editor"); back.onclick = () => showEditor(doc.id); bar.append(back);
     const printBtn = btn("Print / PDF", true);
@@ -1353,6 +1374,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string 
     if (!versionLabel) {
       let comments: Comment[] = [];
       try { comments = await api(`/${encodeURIComponent(pid())}/${doc.id}/comments`); } catch { /* optional */ }
+      if (mine !== seq) return;
       for (const s of doc.sections) {
         const holder = document.createElement("div");
         holder.style.cssText = "max-width:760px;margin:.3rem auto 0";
