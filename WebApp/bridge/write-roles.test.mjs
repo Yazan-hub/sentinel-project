@@ -1810,3 +1810,16 @@ describe("bimdocs structure routes (R1a)", () => {
   it("the old PATCH still edits a text-only section", async () =>
     expect((await call("PATCH", `${D}/section/s1`, "contributor", { body: "x" })).body.sections[0].body).toBe("x"));
 });
+
+describe("R1b: a viewer reads a version through the bridge's mask (spec section 10)", () => {
+  const D = `/bimdocs/demo/${DOC.id}`;
+  it("GET …/versions/1: no access, source or bindings for a viewer; the whole row for a lead", async () => {
+    db.bim_document_versions = [{ id: "33333333-3333-4333-8333-333333333333", document_id: DOC.id, version_no: 1, label: "v1", published_by: "lead@x", published_at: "2026-10-22T10:00:00Z", stage: "pre_appointment", suitability: "S0", revision: null, sha: "ab", round_id: null,
+      snapshot: { ...DOC, access: { x: "editor" }, source: { file_id: "f" }, created_by: "lead@x", sections: DOC.sections.map((s) => ({ ...s, bindings: { checks: [{ id: "cde.states", params: {} }] } })) } }];
+    const v = await call("GET", `${D}/versions/1`, "viewer");
+    expect(v.status).toBe(200);
+    for (const k of ["access", "source", "created_by"]) expect(v.body.snapshot).not.toHaveProperty(k);
+    expect(v.body.snapshot.sections[0]).not.toHaveProperty("bindings");
+    expect((await call("GET", `${D}/versions/1`, "lead")).body.snapshot.access).toEqual({ x: "editor" });
+  });
+});

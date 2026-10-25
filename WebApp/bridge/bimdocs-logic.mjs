@@ -86,3 +86,29 @@ export const buildSnapshot = (docRow, label, actor, version_no) => ({
   label,
   published_by: actor,
 });
+/** What a viewer (the client) may read of a stored version: keep-lists, so a future column is hidden until it is listed here. */
+export const VERSION_KEEP = ["id", "document_id", "version_no", "label", "published_by", "published_at", "stage", "suitability", "revision", "sha", "snapshot"];
+export const SNAPSHOT_KEEP = ["id", "doc_type", "title", "status", "stage", "suitability", "responds_to", "responds_to_version", "template_id", "template_version", "sections"];
+export const SECTION_KEEP = ["id", "heading", "guidance", "body", "state", "owner", "blocks", "pillar", "kind", "question", "answer", "due"];
+
+const isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+const pick = (o, keys) => Object.fromEntries(keys.filter((k) => Object.hasOwn(o, k)).map((k) => [k, o[k]]));
+
+/** A copy of a version row with only the listed fields; the stored row is not touched. Never throws. */
+export function maskVersion(row) {
+  if (!isObj(row)) return {};
+  const out = pick(row, VERSION_KEEP);
+  if (Object.hasOwn(row, "snapshot")) {
+    const snap = isObj(row.snapshot) ? row.snapshot : {};
+    const sections = (Array.isArray(snap.sections) ? snap.sections : []).filter(isObj).map((s) => {
+      const m = pick(s, SECTION_KEEP);
+      if (Object.hasOwn(m, "answer")) {
+        if (isObj(m.answer)) m.answer = { value: m.answer.value, note: m.answer.note };
+        else if (m.answer !== null) delete m.answer;
+      }
+      return m;
+    });
+    out.snapshot = { ...pick(snap, SNAPSHOT_KEEP), sections };
+  }
+  return out;
+}

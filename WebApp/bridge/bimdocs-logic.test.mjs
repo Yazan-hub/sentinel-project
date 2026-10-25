@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { loadTemplates, instantiateTemplate, validateTransition, validateDocTransition, ALLOWED_TRANSITIONS, buildSnapshot } from "./bimdocs-logic.mjs";
+import { loadTemplates, instantiateTemplate, validateTransition, validateDocTransition, ALLOWED_TRANSITIONS, buildSnapshot, maskVersion, VERSION_KEEP, SNAPSHOT_KEEP } from "./bimdocs-logic.mjs";
 
 describe("loadTemplates", () => {
   it("loads BEP and EIR templates with sections", () => {
@@ -71,5 +71,25 @@ describe("R1a: templates carry blocks and their id", () => {
     expect(validateDocTransition("shared", "published")).toBe(false);
     expect(validateDocTransition("published", "wip")).toBe(true);
     expect(validateTransition("shared", "published")).toBe(true);
+  });
+});
+
+describe("maskVersion — the viewer's version (spec section 4, Review Focus 4)", () => {
+  const blocks = [{ id: "s1.t0", kind: "text", title: "", data: { markdown: "b" } }];
+  const full = { id: "v", document_id: "d", version_no: 1, label: "v1", published_by: "lead@x", published_at: "2026-10-22T10:00:00Z", stage: "pre_appointment", suitability: "S0", revision: null, sha: "ab", round_id: null,
+    snapshot: { id: "d", project_id: "p", doc_type: "BEP", title: "T", status: "published", stage: "pre_appointment", suitability: "S0", responds_to: null, responds_to_version: null, template_id: "bep", template_version: 1,
+      issuer: "x", access: { u: "editor" }, source: { file_id: "f" }, created_by: "lead@x", created_at: "c", updated_at: "u", future_column: 1,
+      sections: [{ id: "s1", heading: "H", guidance: "g", body: "b", state: "wip", owner: "a@x", bindings: { checks: [{ id: "cde.states", params: {} }] }, template_key: "k", answer_hint: "h", blocks, answer: { value: "yes", note: "n", by: "a@x", at: "t" } }] } };
+  it("keeps only the listed fields; internal and future ones are dropped", () => {
+    const m = maskVersion(full);
+    expect(Object.keys(m).sort()).toEqual([...VERSION_KEEP].sort());
+    expect(Object.keys(m.snapshot).sort()).toEqual([...SNAPSHOT_KEEP].sort());
+    expect(m.snapshot.sections).toEqual([{ id: "s1", heading: "H", guidance: "g", body: "b", state: "wip", owner: "a@x", blocks, answer: { value: "yes", note: "n" } }]);
+    expect(full.snapshot.access).toEqual({ u: "editor" }); // the stored row is not touched
+  });
+  it("odd rows do not throw", () => {
+    expect(maskVersion(null)).toEqual({}); expect(maskVersion("x")).toEqual({});
+    expect(maskVersion({ version_no: 1, snapshot: 5 })).toEqual({ version_no: 1, snapshot: { sections: [] } });
+    expect(maskVersion({ snapshot: { sections: [null, 3, { id: "s", answer: "x" }, { id: "r", answer: null }] } }).snapshot.sections).toEqual([{ id: "s" }, { id: "r", answer: null }]);
   });
 });

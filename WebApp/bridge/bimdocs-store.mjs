@@ -3,7 +3,7 @@
 // enforced here + in the DB (0020); every write audited into the project's hash-chained trail.
 import { createHash, randomUUID } from "node:crypto";
 import { sb, ensureProject, audit, isUuid, docGet, docInsert, docReplaceIfField } from "./cde-store.mjs";
-import { loadTemplates, instantiateTemplate, validateTransition, validateDocTransition, buildSnapshot } from "./bimdocs-logic.mjs";
+import { loadTemplates, instantiateTemplate, validateTransition, validateDocTransition, buildSnapshot, maskVersion } from "./bimdocs-logic.mjs";
 import { CHECKS, getCheck, runCheck, PLANNED_CHECKS } from "./check-registry.mjs";
 import { requireDocAccess } from "./doc-access.mjs";
 import { blocksOf, applyOldPanelBody, textBlock, validateBlock, emptyData, deriveBody, LIMITS } from "./doc-blocks.mjs";
@@ -124,6 +124,9 @@ export async function transitionDoc(key, docId, { to, actor } = {}) {
   return row;
 }
 
+/** Shown when the database refuses the version copy (a value the jsonb copy cannot hold exactly). */
+export const PUBLISH_COPY_REFUSED = "This document holds a value that cannot be copied exactly into a version (for example a number too large to store). Save the section that holds it once, then publish again. Nothing was saved.";
+
 export async function publishDoc(key, docId, { label, actor } = {}) {
   const doc = await getDoc(key, docId);
   await requireDocAccess(key, doc, "govern"); // publish/transition/bindings govern the record — lead and above
@@ -140,6 +143,7 @@ export async function publishDoc(key, docId, { label, actor } = {}) {
     await sb("bim_document_versions", { method: "POST", body: buildSnapshot(doc, label || `v${version_no}`, resolveActor(actor, "web"), version_no), service: true });
   } catch (e) {
     await writeStatus(issued, "shared").catch(() => {});
+    if (/sections are not the document's current sections/.test(e?.message ?? "")) throw err(422, PUBLISH_COPY_REFUSED);
     throw e;
   }
   await audit(doc.project_id, "bim_document", docId, "published", actor || "web", null, { version_no, label: label || `v${version_no}` });
@@ -148,14 +152,14 @@ export async function publishDoc(key, docId, { label, actor } = {}) {
 
 export async function listVersions(key, docId) {
   await getDoc(key, docId); // membership/existence gate
-  return sb(`bim_document_versions?document_id=eq.${enc(docId)}&select=id,version_no,label,published_by,published_at&order=version_no.desc`, { service: true });
+  return sb(`bim_document_versions?document_id=eq.${enc(docId)}&select=id,version_no,label,published_by,published_at,revision,stage,suitability,sha&order=version_no.desc`, { service: true });
 }
 
 export async function getVersion(key, docId, n) {
-  await getDoc(key, docId);
+  const role = await requireDocAccess(key, await getDoc(key, docId), "read");
   const row = one(await sb(`bim_document_versions?document_id=eq.${enc(docId)}&version_no=eq.${enc(n)}`, { service: true }));
   if (!row) throw err(404, "version not found");
-  return row;
+  return role === "viewer" ? maskVersion(row) : row;
 }
 
 /**

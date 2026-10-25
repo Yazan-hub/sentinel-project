@@ -41,6 +41,7 @@ vi.mock("./members-store.mjs", () => ({
       if ((rank[globalThis.__testRole] || 0) < rank[min])
         throw Object.assign(new Error(`this action requires the ${min} role`), { status: 403 });
     }
+    return globalThis.__testRole || "service";
   }),
   listMembers: vi.fn(async () => []),
 }));
@@ -223,7 +224,7 @@ describe("block operations (contributor and above)", () => {
   });
 });
 
-const { publishDoc, listVersions, getVersion, listDocs } = await import("./bimdocs-store.mjs");
+const { publishDoc, listVersions, getVersion, listDocs, PUBLISH_COPY_REFUSED } = await import("./bimdocs-store.mjs");
 const callTo = (re) => sb.mock.calls.find(([p, o]) => re.test(p) && (o?.method ?? "GET") !== "PATCH");
 describe("versions go through the bridge (0049: no signed-in insert, direct read contributor and above)", () => {
   it("publish records the version with the service key", async () => {
@@ -520,5 +521,40 @@ describe("R1a round 2: stored shapes, repeated ids and size", () => {
     expect(audit).toHaveBeenCalledTimes(2);
     await expect(addBlock("k", doc.id, "sec2", { kind: "text", data: { markdown: "z" } })).rejects.toMatchObject({ status: 422, message: TOO_LARGE });
     expect(patches()).toHaveLength(2);
+  });
+});
+
+const as = async (role, f) => { globalThis.__testRole = role; try { return await f(); } finally { globalThis.__testRole = undefined; } };
+describe("R1b: versions for the revision table and the viewer mask", () => {
+  const stored = () => ({ id: "v1", document_id: doc.id, version_no: 1, label: "v1", published_by: "lead@x", published_at: "2026-10-22T10:00:00Z", stage: "pre_appointment", suitability: "S0", revision: null, sha: "ab", round_id: null,
+    snapshot: { ...doc, access: { x: 1 }, source: { file_id: "f" }, sections: [{ ...doc.sections[0], bindings: { checks: [{ id: "cde.states", params: {} }] } }] } });
+  const route = () => sb.mockImplementation(async (p) => (p.startsWith("bim_document_versions") ? [stored()] : [doc]));
+  it("a viewer gets the masked version; a lead gets the whole row", async () => {
+    route();
+    const v = await as("viewer", () => getVersion("k", doc.id, "1"));
+    expect(v).not.toHaveProperty("round_id"); expect(v.snapshot).not.toHaveProperty("access"); expect(v.snapshot).not.toHaveProperty("source");
+    expect(v.snapshot.sections[0]).not.toHaveProperty("bindings"); expect(v.snapshot.sections[0].heading).toBe("H1");
+    expect(await as("lead", () => getVersion("k", doc.id, "1"))).toEqual(stored());
+  });
+  it("the list carries revision, stage, suitability and sha", async () => {
+    route(); await listVersions("k", doc.id);
+    expect(callTo(/^bim_document_versions\?/)[0]).toBe(`bim_document_versions?document_id=eq.${doc.id}&select=id,version_no,label,published_by,published_at,revision,stage,suitability,sha&order=version_no.desc`);
+  });
+  it("a copy the database refuses is a 422 in words, the document is shared again and nothing is ledgered", async () => {
+    doc.status = "shared";
+    sb.mockImplementation(async (p, o) => {
+      if (o?.method === "PATCH") return [{ ...doc, status: o.body.status }];
+      if (p === "bim_document_versions" && o?.method === "POST") throw Object.assign(new Error(`Supabase 400: {"code":"P0001","message":"the snapshot's sections are not the document's current sections"}`), { body: { code: "P0001" } });
+      return p.startsWith("bim_document_versions?") ? [] : [doc];
+    });
+    await expect(publishDoc("k", doc.id, { label: "R1b drill" })).rejects.toMatchObject({ status: 422, message: PUBLISH_COPY_REFUSED });
+    expect(sb.mock.calls.filter(([, o]) => o?.method === "PATCH").map(([, o]) => o.body.status)).toEqual(["published", "shared"]);
+    expect(audit).not.toHaveBeenCalled();
+    expect(PUBLISH_COPY_REFUSED).toBe("This document holds a value that cannot be copied exactly into a version (for example a number too large to store). Save the section that holds it once, then publish again. Nothing was saved.");
+  });
+  it("any other failure of the version insert stands as it was", async () => {
+    doc.status = "shared";
+    sb.mockImplementation(async (p, o) => { if (o?.method === "PATCH") return [{ ...doc, status: o.body.status }]; if (o?.method === "POST") throw new Error("Supabase 500: boom"); return p.startsWith("bim_document_versions?") ? [] : [doc]; });
+    await expect(publishDoc("k", doc.id, {})).rejects.toThrow("Supabase 500: boom");
   });
 });
