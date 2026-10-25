@@ -11,8 +11,10 @@ import { statusLine, type DocRow } from "../sentinel-core/doc-blocks";
 import { becameVisible, createWorkspace, reopenTarget, resolveSection, reviewLines, rightsOf, type Workspace, type WorkspaceState } from "./workspace-state";
 import { C, btn, h } from "./dom";
 import { editPane } from "./block-editors";
+import { ingestView, type IngestProposal } from "./ingest-view";
 import { commentsTab, outlinePane } from "./outline";
 import { qualityTab } from "./quality-tab";
+import { readinessView, READ_ONLY_NOTE } from "./readiness-view";
 import { readView } from "./read-view";
 import { startStrip } from "./start-strip";
 import { compareView, versionsView } from "./versions-view";
@@ -23,7 +25,7 @@ export interface PaneCtx { ws: Workspace; st: WorkspaceState; doc: Document; bas
   openDoc(docId: string): Promise<void> /* the page's own open: view reset, remembered as this project's last document */;
   /** Set by the edit view for the editors it opens: show this fresh row's version of one section without closing its open editors. */
   sectionApplied?(sectionId: string, fresh: DocRow): Promise<void> }
-export type WorkspaceEl = HTMLElement & { open(docId: string, at?: { section?: string; view?: View }): Promise<void> };
+export type WorkspaceEl = HTMLElement & { open(docId: string, at?: { section?: string; view?: View }): Promise<void>; openIngest(p: IngestProposal): void };
 
 // Every view marks each section node with dataset.section = its id (PaneCtx.focus scrolls to it).
 export const VIEWS: Record<View, (ctx: PaneCtx) => HTMLElement> = { edit: editPane, read: readView, compare: compareView, versions: versionsView };
@@ -73,7 +75,8 @@ export function workspacePage(opts: { baseUrl: string; onBack: () => void; doc?:
   const viewBar = h(d, "div", "display:flex;gap:.3rem;justify-content:flex-end");
   header.append(left, h(d, "div"), viewBar);
   const msgEl = h(d, "div", `padding:.4rem .9rem;color:${C.warn};font:12px system-ui;border-bottom:1px solid ${C.line};flex:0 0 auto`);
-  const grid = h(d, "div", "flex:1;min-height:0;display:grid;grid-template-columns:15rem minmax(0,1fr) 20rem");
+  const GRID = "15rem minmax(0,1fr) 20rem";
+  const grid = h(d, "div", `flex:1;min-height:0;display:grid;grid-template-columns:${GRID}`);
   const outlineCol = h(d, "div", `border-right:1px solid ${C.line};overflow:auto;padding:.6rem .5rem;background:${C.side}`);
   const centre = h(d, "div", "overflow:auto;padding:1.2rem 1.6rem");
   const sideCol = h(d, "div", `border-left:1px solid ${C.line};overflow:auto;padding:.6rem .7rem;background:${C.side}`);
@@ -83,6 +86,9 @@ export function workspacePage(opts: { baseUrl: string; onBack: () => void; doc?:
   let view: View = "read";
   let tab: keyof typeof SIDE_TABS = "quality";
   let focused: string | null = null;
+  // The ingest review, full width (outline and side hidden). The element is kept so a re-render never loses the edits;
+  // a render for another project drops it, and so does opening a document.
+  let ingest: { key: string; el: HTMLElement } | null = null;
   let opening = 0; // explicit opens in flight: the reopen on show never overrides one
   const last = new Map<string, string>(); // project key → the document last opened there
 
@@ -114,9 +120,12 @@ export function workspacePage(opts: { baseUrl: string; onBack: () => void; doc?:
     outlineCol.replaceChildren(...(c.st.doc ? [OUTLINE.pane(c)] : []));
   }
   function renderCentre(c: PaneCtx): void {
+    if (ingest) { centre.replaceChildren(ingest.el); return; }
     if (!c.st.doc) { centre.replaceChildren(h(d, "div", `color:${C.muted}`, c.st.message || "Open a document from the project's Documents tab.")); return; }
     const strip = view === "edit" ? startStrip(c) : null; // above the editing pane, never on the read views
-    centre.replaceChildren(...(strip ? [strip] : []), VIEWS[view](c));
+    const kind = c.st.doc.doc_type;
+    const note = view === "read" && kind === "TIDP" ? h(d, "div", `color:${C.muted};font:12px system-ui;margin:0 0 .8rem`, READ_ONLY_NOTE.TIDP) : null; // read-only types: old plans are read here
+    centre.replaceChildren(...(strip ? [strip] : []), ...(note ? [note] : []), view === "read" && kind === "READINESS" ? readinessView(c) : VIEWS[view](c));
   }
   function renderSide(c: PaneCtx): void {
     if (!c.st.doc) { sideCol.replaceChildren(); return; }
@@ -130,6 +139,9 @@ export function workspacePage(opts: { baseUrl: string; onBack: () => void; doc?:
   }
   function renderAll(): void {
     const c = ctx();
+    if (ingest && ingest.key !== c.st.key) ingest = null;
+    grid.style.gridTemplateColumns = ingest ? "minmax(0,1fr)" : GRID;
+    outlineCol.style.display = sideCol.style.display = ingest ? "none" : "";
     if (view === "edit" && !c.canEdit) view = "read";
     renderHeader(c); renderMessage(c); renderOutline(c); renderCentre(c); renderSide(c);
   }
@@ -157,6 +169,7 @@ export function workspacePage(opts: { baseUrl: string; onBack: () => void; doc?:
       const st = ws.state();
       if (!st.doc || st.doc.id !== docId) return; // stale, or not read (the centre says why)
       last.set(st.key, docId);
+      ingest = null;
       view = at.view ?? (rightsOf(st).canEdit ? "edit" : "read");
       focused = null;
       renderAll();
@@ -165,6 +178,12 @@ export function workspacePage(opts: { baseUrl: string; onBack: () => void; doc?:
     } finally {
       opening--;
     }
+  };
+
+  root.openIngest = (p) => {
+    const key = ws.state().key;
+    ingest = { key, el: ingestView(ctx(), p, () => { ingest = null; renderAll(); }) };
+    renderAll();
   };
 
   // The activity-bar icon shows the page with no document: reopen this project's last one.

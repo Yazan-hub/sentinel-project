@@ -81,6 +81,13 @@ describe("qualityTab", () => {
     expect(t).toContain("Bound but not written");
     expect(t).toContain("11. QA: qa.old is not a check Sentinel knows; it is not counted.");
   });
+  it("puts Compile to IDS at the top of an EIR's tab, and of no other document's", () => {
+    const eir = ctxWith();
+    eir.st.doc = { ...docRow, doc_type: "EIR" };
+    const root = qualityTab(eir);
+    expect(textOf(root.childNodes[0] as any)).toContain("Compile to IDS");
+    expect(button(qualityTab(ctxWith()), "Compile to IDS")).toBeUndefined();
+  });
   it("reads the headline from the state each time it is built", () => {
     const c = ctxWith();
     expect(textOf(qualityTab(c))).toContain("20 %");
