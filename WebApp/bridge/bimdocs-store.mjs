@@ -581,6 +581,7 @@ export async function executabilityReport(key, docId) {
   return {
     ...executability(doc, CHECKS.map((c) => c.id), PLANNED_CHECKS.map((p) => p.id)),
     generated_at: new Date().toISOString(),
+    variant: loadTemplates().find((t) => t.template_id === doc.template_id)?.variant ?? null,
   };
 }
 

@@ -273,6 +273,9 @@ export function deriveBody(blocks) {
   return parts.join("\n\n");
 }
 
+/** Did the author write something here? A live view or project facts alone is not the author's content (R1b honest score). */
+export const isWritten = (section) => deriveBody(blocksOf(section ?? {}).filter((b) => b?.kind !== "live_view" && b?.kind !== "facts")).trim() !== "";
+
 /**
  * What the old panel's body save does to a text-only section (no blocks, or one text block with no title):
  * the body becomes that one text block. Any other section is refused, since a body save would flatten its parts.

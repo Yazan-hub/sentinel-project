@@ -7,24 +7,29 @@
 //
 // Pure: no I/O, no DB. bimdocs-store.mjs composes it with getDoc().
 
+import { isWritten } from "./doc-blocks.mjs";
+
 export const SECTION_KINDS = ["controlling", "declared", "narrative"];
 
 /** Classify one section by what it is wired to. `implemented`/`planned` are Sets of check ids. */
 export function classifySection(section, implemented, planned) {
-  const checks = (section?.bindings?.checks || []).map((c) => c?.id).filter(Boolean);
+  const checks = (Array.isArray(section?.bindings?.checks) ? section.bindings.checks : []).map((c) => c?.id).filter(Boolean);
   const controlling_checks = checks.filter((id) => implemented.has(id));
   const declared_checks = checks.filter((id) => !implemented.has(id) && planned.has(id));
   const unknown_checks = checks.filter((id) => !implemented.has(id) && !planned.has(id));
-  const kind = controlling_checks.length ? "controlling" : declared_checks.length ? "declared" : "narrative";
+  // R1b: controlling needs the text too. A bound but unwritten section is declared, never controlling.
+  const written = isWritten(section);
+  const kind = controlling_checks.length && written ? "controlling" : controlling_checks.length || declared_checks.length ? "declared" : "narrative";
   return {
-    section_id: section.id,
-    heading: section.heading,
+    section_id: section?.id,
+    heading: section?.heading,
     kind,
     controlling_checks,
     declared_checks,
     unknown_checks,
-    owner: section.owner ?? null,
-    has_body: !!String(section.body || "").trim(),
+    owner: section?.owner ?? null,
+    has_body: !!String(section?.body || "").trim(),
+    written,
   };
 }
 
@@ -45,12 +50,15 @@ export function executability(doc, implementedIds, plannedIds) {
     narrative: sections.filter((s) => s.kind === "narrative").length,
     unowned: sections.filter((s) => !s.owner).length,
     empty: sections.filter((s) => !s.has_body).length,
+    written: sections.filter((s) => s.written).length,
   };
 
   const score = summary.sections ? Math.round((summary.controlling / summary.sections) * 100) : null;
   const reason = summary.sections
     ? undefined
     : "This document has no sections yet, so there is nothing to score.";
+
+  const headline = score === null ? reason : `${score} % controlling, ${summary.written} of ${summary.sections} sections written`;
 
   return {
     document_id: doc.id,
@@ -59,6 +67,7 @@ export function executability(doc, implementedIds, plannedIds) {
     generated_at: new Date().toISOString(),
     score,
     ...(reason ? { reason } : {}),
+    headline,
     summary,
     // What the strip test removes: clauses that control nothing that Sentinel can observe.
     strip: sections.filter((s) => s.kind === "narrative").map((s) => s.heading),

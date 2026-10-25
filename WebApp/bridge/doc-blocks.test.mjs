@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { BLOCK_KINDS, emptyData, validateBlock } from "./doc-blocks.mjs";
-import { textBlock, blocksOf, deriveBody, applyOldPanelBody } from "./doc-blocks.mjs";
+import { textBlock, blocksOf, deriveBody, applyOldPanelBody, isWritten } from "./doc-blocks.mjs";
 const bad = (b) => { try { validateBlock(b); } catch (e) { return e; } throw new Error("accepted"); };
 
 describe("validateBlock — text, table, matrix, facts, live view", () => {
@@ -134,5 +134,20 @@ describe("an empty block derives no body (spec section 4: the executability empt
   it("a section whose blocks are all empty has an empty body; an empty block adds no blank lines", () => {
     expect(deriveBody([textBlock("", "a"), validateBlock({ kind: "facts", data: emptyData("facts") })])).toBe("");
     expect(deriveBody([textBlock("a", "x"), validateBlock({ kind: "matrix", title: "M", data: emptyData("matrix") }), textBlock("", "z"), textBlock("b", "y")])).toBe("a\n\nb");
+  });
+});
+
+describe("isWritten (R1b honest score)", () => {
+  const table = { id: "t", kind: "table", title: "", data: { columns: [{ key: "e", label: "Event", type: "text", choices: [], choices_from: null }], rows: [{ id: "r1", group: null, cells: { e: "x" } }], group_by_team: false } };
+  it("text the author wrote counts; blank does not", () => {
+    expect(isWritten({ id: "s", body: "x" })).toBe(true); expect(isWritten({ id: "s", body: "  \n" })).toBe(false); expect(isWritten({ id: "s", blocks: [] })).toBe(false);
+    expect(isWritten({ id: "s", blocks: [table] })).toBe(true);
+  });
+  it("a live list or project facts alone is not written", () => {
+    expect(isWritten({ id: "s", blocks: [{ id: "l", kind: "live_view", title: "MIDP", data: { source: "midp", filter: { team: null, stage: null, register_part: null } } }] })).toBe(false);
+    expect(isWritten({ id: "s", blocks: [{ id: "f", kind: "facts", title: "", data: { labels: ["Project name"], layout: "text" } }] })).toBe(false);
+  });
+  it("odd blocks and a null section do not throw", () => {
+    expect(isWritten({ id: "s", blocks: [null, 3, { kind: "text", data: { markdown: 5 } }] })).toBe(false); expect(isWritten(null)).toBe(false);
   });
 });

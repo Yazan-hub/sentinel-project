@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createHash } from "node:crypto";
+import { loadTemplates } from "./bimdocs-logic.mjs";
 
 // Section, block and version tests for bimdocs-store.mjs need a mocked cde-store.mjs (Supabase network layer) so we can assert
 // on what is PATCHed and which ledger rows are written. Kept in its own file so it never interferes with
@@ -224,7 +225,7 @@ describe("block operations (contributor and above)", () => {
   });
 });
 
-const { publishDoc, listVersions, getVersion, listDocs, PUBLISH_COPY_REFUSED } = await import("./bimdocs-store.mjs");
+const { publishDoc, listVersions, getVersion, listDocs, PUBLISH_COPY_REFUSED, executabilityReport } = await import("./bimdocs-store.mjs");
 const callTo = (re) => sb.mock.calls.find(([p, o]) => re.test(p) && (o?.method ?? "GET") !== "PATCH");
 describe("versions go through the bridge (0049: no signed-in insert, direct read contributor and above)", () => {
   it("publish records the version with the service key", async () => {
@@ -556,5 +557,14 @@ describe("R1b: versions for the revision table and the viewer mask", () => {
     doc.status = "shared";
     sb.mockImplementation(async (p, o) => { if (o?.method === "PATCH") return [{ ...doc, status: o.body.status }]; if (o?.method === "POST") throw new Error("Supabase 500: boom"); return p.startsWith("bim_document_versions?") ? [] : [doc]; });
     await expect(publishDoc("k", doc.id, {})).rejects.toThrow("Supabase 500: boom");
+  });
+});
+
+describe("R1b: the variant comes from the template", () => {
+  it("each shipped template gives its own variant; an unknown or missing template_id gives none", async () => {
+    for (const t of loadTemplates()) { doc.template_id = t.template_id; expect((await executabilityReport("k", doc.id)).variant, t.template_id).toBe(t.variant ?? null); }
+    doc.template_id = "no-such-template"; expect((await executabilityReport("k", doc.id)).variant).toBeNull();
+    delete doc.template_id; const r = await executabilityReport("k", doc.id);
+    expect(r.variant).toBeNull(); expect(r.headline).toBe("0 % controlling, 0 of 1 sections written");
   });
 });
