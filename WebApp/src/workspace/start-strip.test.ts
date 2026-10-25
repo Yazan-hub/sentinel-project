@@ -50,9 +50,9 @@ function live(o: { canGovern?: boolean; doc?: any; list?: any } = {}) {
   const st = { ...emptyState("snowdon-lifecycle"), doc: o.doc ?? bep(), role: "lead", message: "", ex: ex(0, 2) };
   const write = vi.fn(async () => bep());
   const get = vi.fn(async () => (o.list === undefined ? list : o.list));
-  const refresh = vi.fn();
-  return { ws: { write, get, state: () => st }, st, doc: fakeDocument(), base: "", canEdit: true, canGovern: o.canGovern ?? true, focused: null,
-    focus: vi.fn(), show: vi.fn(), refresh, openDoc: vi.fn(), write, get } as any;
+  const refresh = vi.fn(), reload = vi.fn(async () => {});
+  return { ws: { write, get, reload, state: () => st }, st, doc: fakeDocument(), base: "", canEdit: true, canGovern: o.canGovern ?? true, focused: null,
+    focus: vi.fn(), show: vi.fn(), refresh, openDoc: vi.fn(), write, get, reload } as any;
 }
 const labelled = (el: HTMLElement, label: string) => findAll(el, "button").find((b) => textOf(b) === label)!;
 async function press(root: HTMLElement, label: string) { click(labelled(root, label)); await tick(); await tick(); }
@@ -61,7 +61,7 @@ describe("startStrip sends the start route's body", () => {
   it("No EIR received, answered yes", async () => {
     const c = live(), root = startStrip(c)!; await press(root, "No EIR received");
     expect(askYesNo).toHaveBeenCalledWith("Insert the statement that the project is not yet following ISO 19650, and the clause 5.3.2 checklist?", { doc: c.doc });
-    expect(c.write).toHaveBeenCalledWith("POST", "/start", { start: "no_eir" }); expect(c.refresh).toHaveBeenCalledWith("all");
+    expect(c.write).toHaveBeenCalledWith("POST", "/start", { start: "no_eir" }); expect(c.reload).toHaveBeenCalledTimes(1); expect(c.refresh).not.toHaveBeenCalled();
   });
   it("No EIR received, answered no, sends nothing", async () => {
     vi.mocked(askYesNo).mockResolvedValueOnce(false);
@@ -72,7 +72,7 @@ describe("startStrip sends the start route's body", () => {
     const c = live(), root = startStrip(c)!; await press(root, "EIR received…"); await press(root, "Link");
     expect(c.get).toHaveBeenCalledWith("/bimdocs/snowdon-lifecycle");
     expect(c.write).toHaveBeenCalledWith("POST", "/start", { start: "eir_received", eir_id: "e1" });
-    expect(c.refresh).toHaveBeenCalledWith("all");
+    expect(c.reload).toHaveBeenCalledTimes(1); expect(c.refresh).not.toHaveBeenCalled(); // F14: the linked EIR's name and the score are read again
   });
   it("the select labels an unpublished EIR and Link sends the picked one", async () => {
     const c = live(), root = startStrip(c)!; await press(root, "EIR received…");
@@ -130,7 +130,7 @@ describe("double clicks", () => {
     const root = startStrip(c)!; await press(root, "EIR received…");
     const link = labelled(root, "Link"); click(link); click(link); await tick();
     expect(c.write).toHaveBeenCalledTimes(1); expect((link as any).disabled).toBe(true);
-    d.resolve(bep()); await tick(); await tick(); expect(c.refresh).toHaveBeenCalledTimes(1);
+    d.resolve(bep()); await tick(); await tick(); expect(c.reload).toHaveBeenCalledTimes(1);
   });
   it("Link works again after a refusal", async () => {
     const c = live(); c.write.mockResolvedValueOnce(null);
@@ -163,7 +163,7 @@ describe("a stale answer shows nothing", () => {
   it("the project switched while the start was written", async () => {
     const c = live(); c.write.mockImplementation(async () => { c.ws.state = () => ({ ...c.st, key: "other" }); return null; });
     const root = startStrip(c)!; await press(root, "No EIR received");
-    expect(textOf(root)).not.toContain("not saved"); expect(c.refresh).not.toHaveBeenCalled();
+    expect(textOf(root)).not.toContain("not saved"); expect(c.refresh).not.toHaveBeenCalled(); expect(c.reload).not.toHaveBeenCalled();
   });
 });
 

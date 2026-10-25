@@ -25,6 +25,7 @@ export interface Workspace {
 
 export const CONFLICT_QUESTION = "Someone changed this document since you opened it. Save yours anyway? If they changed this same part, their change is replaced.";
 export const STATUS_CHANGED = "This document was published or archived meanwhile, so it cannot be edited here. Nothing was saved.";
+export const REFRESHED = "Saved. Other parts were refreshed with their latest text.";
 const NOT_SAVED_RELOADED = "Nothing was saved. The document was reloaded.";
 const NO_ANSWER = "The bridge did not answer. Nothing was saved.";
 
@@ -142,12 +143,12 @@ export function createWorkspace(deps: WorkspaceDeps, render: (s: WorkspaceState)
     if (ex && typeof ex === "object" && state.doc?.id === doc.id) state = { ...state, ex };
   }
 
-  async function writeNow(method: "POST" | "PUT" | "PATCH", rest: string, body: object): Promise<DocRow | null> {
+  async function writeNow(method: "POST" | "PUT" | "PATCH", rest: string, body: object, docId: string | undefined): Promise<DocRow | null> {
     const mine = tok;
     const doc = state.doc;
-    if (!doc || state.key !== deps.activePid()) return null;
+    if (!doc || doc.id !== docId || state.key !== deps.activePid()) return null; // another document opened while this write waited: not sent
     const path = `/bimdocs/${pathSegment(state.key)}/${pathSegment(doc.id)}${rest}`;
-    let r = await call(method, path, { ...body, updated_at: doc.updated_at, actor: state.me });
+    let r = await call(method, path, { ...body, updated_at: doc.updated_at, actor: state.me }), forced = false;
     if (mine !== tok) return null;
     if (r?.status === 409) {
       if (!isStaleConflict(r.body?.message)) {
@@ -162,17 +163,20 @@ export function createWorkspace(deps: WorkspaceDeps, render: (s: WorkspaceState)
       }
       r = await call(method, path, { ...body, actor: state.me }); // asked once: a second 409 keeps the bridge's words below
       if (mine !== tok) return null;
+      forced = true;
     }
     if (!r) { say(NO_ANSWER); return null; }
     if (!is2xx(r)) { say(words(r, " Nothing was saved.")); return null; }
     const row = r.body as DocRow | null;
     const cur = state.doc;
     if (cur && row?.id === cur.id && Array.isArray(row.sections) && typeof row.updated_at === "string" && !(row.updated_at < cur.updated_at)) state = { ...state, doc: row };
+    say(forced ? REFRESHED : ""); // a write that lands clears the words an earlier refusal left (the page redraws what the resend brought)
     return row; // no render: the caller replaces its own node
   }
 
   function write(method: "POST" | "PUT" | "PATCH", rest: string, body: object = {}): Promise<DocRow | null> {
-    const run = () => writeNow(method, rest, body); // updated_at and the project are read when this write's turn comes
+    const docId = state.doc?.id; // the document this write was made for; updated_at and the project are read when its turn comes
+    const run = () => writeNow(method, rest, body, docId);
     const p = queue.then(run, run);
     queue = p.catch(() => undefined);
     return p;

@@ -64,6 +64,14 @@ class FElement extends FNode {
   hasAttribute(k: string): boolean { return this.attrs.has(k); }
   removeAttribute(k: string): void { this.attrs.delete(k); }
   addEventListener(type: string, fn: Listener): void { this.listeners.set(type, [...(this.listeners.get(type) ?? []), fn]); }
+  /** Only `[data-name]` (any element below with that dataset key), the one selector the workspace uses. */
+  querySelectorAll(sel: string): FElement[] {
+    const m = /^\[data-([a-z-]+)\]$/.exec(sel);
+    if (!m) throw new Error(`fake-dom: selector not supported: ${sel}`);
+    const key = m[1].replace(/-([a-z])/g, (_, c: string) => c.toUpperCase()), out: FElement[] = [];
+    for (const c of this.childNodes) walk(c, (n) => { if (n instanceof FElement && key in n.dataset) out.push(n); });
+    return out;
+  }
   scrollIntoView(): void { /* nothing to scroll */ }
   focus(): void { /* nothing to focus */ }
 }

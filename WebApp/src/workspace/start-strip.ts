@@ -39,7 +39,7 @@ function eirLinker(ctx: PaneCtx): { el: HTMLElement; open(): Promise<void>; star
     if (busy) return;
     busy = true; for (const b of lock) b.disabled = true;
     try {
-      if (await ctx.ws.write("POST", "/start", body)) ctx.refresh("all");
+      if (await ctx.ws.write("POST", "/start", body)) await ctx.ws.reload(); // re-scored, the linked EIR's name read again; open editors are carried
       else say(refusal(ctx, "The start was not saved."));
     } finally { busy = false; for (const b of lock) b.disabled = false; }
   };

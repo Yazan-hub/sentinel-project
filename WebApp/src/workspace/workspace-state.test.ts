@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import {
   createWorkspace, emptyState, docProblems, reopenTarget, becameVisible, pickBep, resolveSection, rightsOf, reviewLines, moveId,
-  CONFLICT_QUESTION, STATUS_CHANGED, type WorkspaceState,
+  CONFLICT_QUESTION, STATUS_CHANGED, REFRESHED, type WorkspaceState,
 } from "./workspace-state";
 import type { DocRow } from "../sentinel-core/doc-blocks";
 
@@ -255,5 +255,35 @@ describe("post (a POST that is not a document write)", () => {
     await t.ws.open("d1");
     await t.ws.rescore();
     expect(t.ws.state().ex).toMatchObject({ headline: "40 % controlling, 1 of 2 sections written" });
+  });
+});
+
+describe("final review: write messages and the document a write was made for", () => {
+  it("F2: a resend after yes says the other parts were refreshed", async () => {
+    let n = 0; const t = setup((m, p) => (m === "PUT" ? (++n === 1 ? { status: 409, body: { message: "stale write: changed" } } : ok(doc({ updated_at: "t3" }))) : docRoute()(m, p)));
+    await t.ws.open("d1"); t.say(true);
+    await t.ws.write("PUT", "/x", {});
+    expect(t.ws.state().message).toBe(REFRESHED);
+  });
+  it("F14: a write that lands clears the words a refused call left", async () => {
+    const t = setup((m, p) => (m === "PUT" ? ok(doc({ updated_at: "t2" })) : m === "POST" ? { status: 422, body: { message: "Refused in the background." } } : docRoute()(m, p)));
+    await t.ws.open("d1");
+    await t.ws.post("/somewhere"); expect(t.ws.state().message).toBe("Refused in the background.");
+    await t.ws.write("PUT", "/x", {});
+    expect(t.ws.state().message).toBe("");
+  });
+  it("F7: a queued write is sent only to the document open when it was made", async () => {
+    const first = deferred<unknown>(); let n = 0;
+    const d2 = doc({ id: "d2" });
+    const t = setup((m, p) => (m === "PUT" ? (++n === 1 ? first.p : ok(d2)) : p === "/bimdocs/a/d2" ? ok(d2) : docRoute()(m, p)));
+    await t.ws.open("d1");
+    const a = t.ws.write("PUT", "/a", {}), b = t.ws.write("PUT", "/b", {});
+    await new Promise((r) => setTimeout(r, 0));
+    await t.ws.open("d2");
+    first.resolve(ok(doc({ updated_at: "t2" })));
+    await a;
+    expect(await b).toBeNull();
+    expect(puts(t.json)).toHaveLength(1);
+    expect(t.json.mock.calls.some((c) => c[0] === "PUT" && String(c[1]).includes("/d2"))).toBe(false);
   });
 });
