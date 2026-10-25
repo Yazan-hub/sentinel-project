@@ -6,7 +6,8 @@ import { sb, ensureProject, audit, isUuid, docGet, docInsert, docReplaceIfField 
 import { loadTemplates, pickTemplate, instantiateTemplate, validateTransition, validateDocTransition, buildSnapshot, maskVersion } from "./bimdocs-logic.mjs";
 import { CHECKS, getCheck, runCheck, PLANNED_CHECKS } from "./check-registry.mjs";
 import { requireDocAccess } from "./doc-access.mjs";
-import { blocksOf, applyOldPanelBody, textBlock, validateBlock, emptyData, deriveBody, LIMITS } from "./doc-blocks.mjs";
+import { ROLE_RANK } from "./members-store.mjs";
+import { blocksOf, applyOldPanelBody, textBlock, validateBlock, emptyData, deriveBody, LIMITS, ASSUMPTIONS } from "./doc-blocks.mjs";
 import { resolveActor } from "./bridge-auth.mjs";
 import { executability } from "./executability.mjs";
 import { readiness, readinessPlan, ANSWERS } from "./readiness-logic.mjs";
@@ -158,7 +159,8 @@ export async function getVersion(key, docId, n) {
   const role = await requireDocAccess(key, await getDoc(key, docId), "read");
   const row = one(await sb(`bim_document_versions?document_id=eq.${enc(docId)}&version_no=eq.${enc(n)}`, { service: true }));
   if (!row) throw err(404, "version not found");
-  return role === "viewer" ? maskVersion(row) : row;
+  // Masked unless the caller ranks contributor or above, or is the service: a role Sentinel does not know never sees the whole row.
+  return role === "service" || (ROLE_RANK[role] || 0) >= ROLE_RANK.contributor ? row : maskVersion(row);
 }
 
 /**
@@ -413,7 +415,6 @@ export async function reorderSections(key, docId, { order, updated_at, actor } =
 
 // ── The start of a comprehensive BEP — a lead's; the only writer of responds_to.
 const START_REFUSED = (why) => err(422, `${why} Nothing was saved.`);
-const ASSUMPTIONS = "EIR assumptions and clarifications";
 export async function pickStart(key, docId, { start, eir_id, updated_at, actor } = {}) {
   if (start !== "eir_received" && start !== "no_eir") throw err(400, "start must be eir_received or no_eir");
   const doc = await openForWrite(key, docId, "govern", updated_at);

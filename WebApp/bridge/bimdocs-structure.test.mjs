@@ -46,6 +46,7 @@ vi.mock("./members-store.mjs", () => ({
     return globalThis.__testRole || "service";
   }),
   listMembers: vi.fn(async () => []),
+  ROLE_RANK: { owner: 4, lead: 3, contributor: 2, viewer: 1 },
 }));
 vi.mock("./office-store.mjs", () => ({
   getSnapshot: vi.fn(async () => ({ source: { kind: "template", title: "T.rte" }, at: "2026-09-10T08:00:00Z", received_at: "2026-09-10T08:00:01Z", pack: { worksets: [] }, catalog: { count: 0, types: [] }, ruleset: null })),
@@ -538,6 +539,15 @@ describe("R1b: versions for the revision table and the viewer mask", () => {
     expect(v.snapshot.sections[0]).not.toHaveProperty("bindings"); expect(v.snapshot.sections[0].heading).toBe("H1");
     expect(await as("lead", () => getVersion("k", doc.id, "1"))).toEqual(stored());
   });
+  it("F8: a role Sentinel does not know gets the masked row; a contributor and the service get the whole row", async () => {
+    route();
+    const { requireMinRole } = await import("./members-store.mjs");
+    requireMinRole.mockResolvedValueOnce("auditor");
+    const v = await getVersion("k", doc.id, "1");
+    expect(v.snapshot).not.toHaveProperty("access"); expect(v).not.toHaveProperty("round_id");
+    expect(await as("contributor", () => getVersion("k", doc.id, "1"))).toEqual(stored());
+    expect(await as("service", () => getVersion("k", doc.id, "1"))).toEqual(stored());
+  });
   it("the list carries revision, stage, suitability and sha", async () => {
     route(); await listVersions("k", doc.id);
     expect(callTo(/^bim_document_versions\?/)[0]).toBe(`bim_document_versions?document_id=eq.${doc.id}&select=id,version_no,label,published_by,published_at,revision,stage,suitability,sha&order=version_no.desc`);
@@ -613,6 +623,27 @@ describe("R1b: the start route (a lead's; the only writer of responds_to)", () =
     doc = startDoc({ responds_to: EIR_ID, sections: body.sections }); sb.mockClear(); audit.mockClear();
     await pickStart("k", doc.id, { start: "eir_received", eir_id: EIR_ID });
     expect(audit.mock.calls.at(-1)[6].rows_filled).toBe(0);
+  });
+  it("F10: on the comprehensive template, what a start inserts is not written; the EIR response is written once the lead types", async () => {
+    const { isWritten } = await import("./doc-blocks.mjs");
+    const real = () => instantiateTemplate(loadTemplates().find((t) => t.template_id === "bep-comprehensive"), { title: "BEP", actor: "a" }).sections;
+    const response = (body) => body.sections.find((x) => x.template_key === "eir-response");
+    doc = startDoc({ sections: real() });
+    await pickStart("k", doc.id, { start: "no_eir" });
+    const none = response(patches().at(-1)[1].body);
+    expect(none.blocks.map((b) => b.id.split(".").pop()).slice(0, 2)).toEqual(["part-e", "checklist"]);
+    expect(isWritten(none)).toBe(false);
+    const ticked = { ...none, blocks: none.blocks.map((b) => (b.id.endsWith(".checklist") ? { ...b, data: { ...b.data, rows: b.data.rows.map((r, i) => (i ? r : { ...r, cells: { ...r.cells, covered: "yes" } })) } } : b)) };
+    expect(isWritten(ticked)).toBe(true);
+    const typed = { ...none, blocks: none.blocks.map((b) => (b.kind === "text" && !b.id.endsWith(".part-e") ? { ...b, data: { markdown: "We answer it as follows." } } : b)) };
+    expect(isWritten(typed)).toBe(true);
+    doc = startDoc({ sections: real() }); sb.mockClear();
+    await pickStart("k", doc.id, { start: "eir_received", eir_id: EIR_ID });
+    const linked = response(patches().at(-1)[1].body);
+    expect(linked.blocks.find((b) => b.kind === "table").data.rows).toHaveLength(2);
+    expect(isWritten(linked)).toBe(false);
+    const noted = { ...linked, blocks: linked.blocks.map((b) => (b.kind === "table" ? { ...b, data: { ...b.data, rows: b.data.rows.map((r, i) => (i ? r : { ...r, cells: { ...r.cells, note: "Agreed by e-mail." } })) } } : b)) };
+    expect(isWritten(noted)).toBe(true);
   });
   it.each([
     [{ start: "maybe" }, {}, 400, "start must be eir_received or no_eir"],

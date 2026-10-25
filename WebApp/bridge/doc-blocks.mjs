@@ -273,8 +273,21 @@ export function deriveBody(blocks) {
   return parts.join("\n\n");
 }
 
-/** Did the author write something here? A live view or project facts alone is not the author's content (R1b honest score). */
-export const isWritten = (section) => deriveBody(blocksOf(section ?? {}).filter((b) => b?.kind !== "live_view" && b?.kind !== "facts")).trim() !== "";
+/** The comprehensive BEP's assumptions table, which an "EIR received" start fills with the EIR's clauses. */
+export const ASSUMPTIONS = "EIR assumptions and clarifications";
+const blank = (v) => v === null || v === undefined || String(v).trim() === "";
+/** A block a BEP start inserts, as the start left it: the part-e statement, and the clause 5.3.2 checklist or the EIR assumptions
+ *  table while no row holds anything beyond its first column (the item or clause the start wrote). */
+const startFill = (b) => {
+  const id = String(b?.id ?? "");
+  if (id.endsWith(".part-e")) return true;
+  if (b?.kind !== "table" || !(id.endsWith(".checklist") || b.title === ASSUMPTIONS)) return false;
+  const first = Array.isArray(b.data?.columns) ? b.data.columns[0]?.key : undefined, rows = Array.isArray(b.data?.rows) ? b.data.rows : [];
+  return rows.every((r) => Object.entries(r?.cells ?? {}).every(([k, v]) => k === first || blank(v)));
+};
+
+/** Did the author write something here? A live view, project facts, or what a start inserted is not the author's content (R1b honest score). */
+export const isWritten = (section) => deriveBody(blocksOf(section ?? {}).filter((b) => b?.kind !== "live_view" && b?.kind !== "facts" && !startFill(b))).trim() !== "";
 
 /**
  * What the old panel's body save does to a text-only section (no blocks, or one text block with no title):
