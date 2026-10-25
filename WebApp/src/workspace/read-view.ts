@@ -9,7 +9,7 @@ import { askText } from "../setups/ask";
 import type { WorkspaceState } from "./workspace-state";
 import { C, btn, h } from "./dom";
 import type { PaneCtx } from "./workspace-page";
-import { containerIdReasons, pickPrintSource, POPUP_BLOCKED, printDocument, PAPER_CSS, renderPrintable, type PrintInput } from "./print-render";
+import { containerIdReasons, pickPrintSource, POPUP_BLOCKED, printDocument, PAPER_CSS, liveWord, renderPrintable, type PrintInput } from "./print-render";
 
 const LOADING = "Loading the published version…";
 const UNREADABLE_VERSION = "The published version could not be read.";
@@ -41,7 +41,7 @@ async function loadInput(ctx: PaneCtx, containerId: string | null): Promise<Prin
 const sourceLine = (st: WorkspaceState): string => {
   const src = pickPrintSource(st);
   if (src.kind === "version") { const v = st.viewing?.version_no === src.n ? st.viewing : st.versions.find((x) => x.version_no === src.n); return `Version v${src.n}${v ? `, ${v.label}` : ""}: printed exactly as published.`; }
-  return st.doc?.status === "published" ? UNREADABLE_VERSION : "Draft, live data: this is the document as it is now.";
+  return st.doc?.status === "published" ? UNREADABLE_VERSION : `${liveWord(st.doc?.status)}, live data: this is the document as it is now.`;
 };
 
 export function readView(ctx: PaneCtx): HTMLElement {

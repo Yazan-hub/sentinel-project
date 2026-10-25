@@ -98,6 +98,25 @@ describe("startPrint: what is printed (Review Focus 5)", () => {
       expect(textOf(el)).toContain("The published version could not be read."); expect(textOf(el)).not.toContain("Draft, live data"); expect(textOf(el)).not.toContain("live text");
     }
   });
+  it("an archived document with versions reads and prints its latest version like a published one", async () => {
+    const { win, popup } = fakeWindow(); vi.stubGlobal("window", win);
+    const { ctx } = ctxOf({ ...published("a1"), doc: doc({ status: "archived" }) }, () => ({ ...ver(2), document_id: "d1", snapshot: frozen }));
+    const el = readView(ctx); await flush();
+    expect(textOf(el)).toContain("printed exactly as published."); expect(textOf(el)).not.toContain("Draft"); expect(textOf(el)).toContain("frozen text");
+    await startPrint(ctx, () => {});
+    expect(textOf(popup!.document.body)).toContain("frozen text"); expect(textOf(popup!.document.body)).toContain("Version: v2"); noDraft(popup!);
+    expect(textOf(popup!.document.body)).not.toContain("Draft");
+  });
+  it("an archived document with no versions reads and prints the live row as Archived, never Draft", async () => {
+    const { win, popup } = fakeWindow(); vi.stubGlobal("window", win);
+    const { ctx } = ctxOf({ ...emptyState("a2"), doc: doc({ status: "archived" }) });
+    const el = readView(ctx); await flush();
+    expect(textOf(el)).toContain("Archived, live data"); expect(textOf(el)).not.toContain("Draft"); expect(textOf(el)).toContain("live text");
+    await startPrint(ctx, () => {});
+    const body = textOf(popup!.document.body);
+    expect(body).toContain("Version: Archived"); expect(body).toContain("Archived, live data"); expect(body).not.toContain("Draft");
+    expect(findAll(popup!.document.body, "div").filter((x) => x.dataset.runningHeader !== undefined).map(textOf)).toEqual(["Archived, live data"]);
+  });
   it("a version already fetched is not fetched again on the next render", async () => {
     const { ctx, calls } = ctxOf(published("p5"), () => ({ ...ver(2), document_id: "d1", snapshot: frozen }));
     readView(ctx); await flush(); readView(ctx); await flush();

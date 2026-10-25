@@ -12,7 +12,8 @@ import { h } from "./dom";
 export interface PrintInput { row: Snapshot; projectKey: string; version: VersionListRow | null; versions: VersionListRow[]; containerId: string | null; ctx: RenderCtx }
 
 export const POPUP_BLOCKED = "Popup blocked — allow popups for this page to print.";
-export const DRAFT_LINE = "Draft, live data";
+/** What a live print calls itself: only an archived document is "Archived"; wip and shared are drafts. */
+export const liveWord = (status: unknown): string => (status === "archived" ? "Archived" : "Draft");
 const DASH = "—";
 const PAPER = "background:#fff;color:#111;font:13px/1.6 Georgia,serif;padding:1.5rem";
 const OWN_NUMBER = /^\d+(\.\d+)*\.?\s/;
@@ -37,14 +38,14 @@ export function coverLines(input: PrintInput, today: string): string[] {
   return [
     row.title, `Project: ${input.projectKey}`, `Container ID: ${input.containerId || "not assigned"}`, `Stage: ${stage}`,
     `Revision: ${version?.revision ?? DASH}`, `Suitability: ${version?.suitability ?? row.suitability ?? DASH}`,
-    `Version: ${version ? `v${version.version_no}, ${version.label}` : "Draft"}`, `Date: ${version ? String(version.published_at).slice(0, 10) : today}`,
-    ...(version ? [] : [DRAFT_LINE]),
+    `Version: ${version ? `v${version.version_no}, ${version.label}` : liveWord(row.status)}`, `Date: ${version ? String(version.published_at).slice(0, 10) : today}`,
+    ...(version ? [] : [`${liveWord(row.status)}, live data`]),
   ];
 }
 
 export function pickPrintSource(st: WorkspaceState): { kind: "live" } | { kind: "version"; n: number } {
   if (st.viewing) return { kind: "version", n: st.viewing.version_no };
-  if (st.doc?.status === "published" && st.versions.length) return { kind: "version", n: Math.max(...st.versions.map((v) => v.version_no)) };
+  if ((st.doc?.status === "published" || st.doc?.status === "archived") && st.versions.length) return { kind: "version", n: Math.max(...st.versions.map((v) => v.version_no)) };
   return { kind: "live" };
 }
 
@@ -68,7 +69,7 @@ export function renderPrintable(input: PrintInput, doc: Document, today = new Da
     return s;
   };
   if (!input.version) {
-    const run = h(doc, "div", "", DRAFT_LINE);
+    const run = h(doc, "div", "", `${liveWord(input.row.status)}, live data`);
     run.dataset.runningHeader = "";
     paper.append(run);
   }

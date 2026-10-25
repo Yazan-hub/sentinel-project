@@ -31,6 +31,13 @@ describe("export (spec section 9)", () => {
   });
   it("a live print carries the running header", () =>
     expect(findAll(renderPrintable(input({}), fakeDocument(), "2026-10-25"), "div").filter((x) => x.dataset.runningHeader !== undefined).map(textOf)).toEqual(["Draft, live data"]));
+  it("an archived document with versions prints its latest version; without versions the live row as Archived", () => {
+    const st = { ...emptyState("k"), doc: row("x", { status: "archived" }), versions: [v(3), v(1)] };
+    expect(pickPrintSource(st)).toEqual({ kind: "version", n: 3 });
+    expect(pickPrintSource({ ...st, versions: [] })).toEqual({ kind: "live" });
+    const lines = coverLines(input({ row: row("x", { status: "archived" }) }), "2026-10-25");
+    expect(lines).toContain("Version: Archived"); expect(lines[lines.length - 1]).toBe("Archived, live data"); expect(lines.join(" ")).not.toContain("Draft");
+  });
   it("the print source: the version viewed, else the latest version of a published document, else live", () => {
     const st = { ...emptyState("k"), doc: row("x", { status: "published" }), versions: [v(3), v(1)] };
     expect(pickPrintSource(st)).toEqual({ kind: "version", n: 3 });
