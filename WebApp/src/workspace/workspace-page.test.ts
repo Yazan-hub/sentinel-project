@@ -229,6 +229,20 @@ describe("follow-up A: a failed re-read keeps every open editor", () => {
   });
 });
 
+describe("ruling: a re-read that says the access went keeps nothing", () => {
+  it.each([[401, true], [403, false], [404, false]])("shown again, the re-read answers %s: editor kept %s", async (status, kept) => {
+    const ro: { cb?: () => void } = {};
+    vi.stubGlobal("ResizeObserver", class { constructor(cb: () => void) { ro.cb = cb; } observe() {} });
+    try {
+      const p = await openTyped();
+      answers["GET /bimdocs/k/d1"] = () => ({ status, body: { message: `answer ${status}` } });
+      p.el.clientWidth = 0; p.el.clientHeight = 0; ro.cb!(); p.el.clientWidth = 800; p.el.clientHeight = 600; ro.cb!(); await tick();
+      expect(findAll(p.centre, "textarea").map((t: any) => t.value)).toEqual(kept ? ["typed, not saved"] : []);
+      if (!kept) expect(textOf(p.centre)).toContain(`The document could not be read: answer ${status}.`);
+    } finally { vi.unstubAllGlobals(); }
+  });
+});
+
 describe("follow-up B: a carried draft over a part someone else changed", () => {
   const Q = "Someone else changed this part while you were typing. Replace their version with yours?";
   const asked = () => vi.mocked(askYesNo).mock.calls.filter((c) => c[0] === Q);

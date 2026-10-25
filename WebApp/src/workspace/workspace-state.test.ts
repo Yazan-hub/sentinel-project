@@ -313,3 +313,21 @@ describe("follow-up A, C: a re-read keeps what it should", () => {
     expect(t.ws.state().doc?.updated_at).toBe("t3");
   });
 });
+
+describe("ruling: a failed re-read keeps the document only when it says nothing about access", () => {
+  const reread = async (status: number | null) => {
+    let fail = false;
+    const t = setup((m, p) => (fail && p === "/bimdocs/a/d1" ? (status === null ? Promise.reject(new TypeError("fetch failed")) : { status, body: { message: `answer ${status}` } }) : docRoute()(m, p)));
+    await t.ws.open("d1"); fail = true;
+    await t.ws.reload();
+    return t.ws.state();
+  };
+  it.each([[null], [503], [401]])("%s keeps the document held", async (status) => {
+    const st = await reread(status as number | null);
+    expect(st.doc?.id).toBe("d1"); expect(st.message).toMatch(/^The document could not be re-read: /);
+  });
+  it.each([[403], [404], [410]])("%s empties the page with that answer's words", async (status) => {
+    const st = await reread(status);
+    expect(st.doc).toBeNull(); expect(st.message).toBe(`The document could not be read: answer ${status}.`);
+  });
+});

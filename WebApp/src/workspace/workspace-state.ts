@@ -72,8 +72,10 @@ export function createWorkspace(deps: WorkspaceDeps, render: (s: WorkspaceState)
     if (stale()) return false;
     if (!r || !is2xx(r) || !r.body?.id || !Array.isArray(r.body.sections)) {
       const why = r?.body?.message || "the bridge did not answer";
-      // A re-read of the document held keeps it (and the open editors on it); only a document that cannot be opened empties the page.
-      state = state.doc?.id === docId && state.key === key
+      // A re-read of the document held keeps it (and the open editors on it) when the failure says nothing about access: no answer,
+      // a 5xx, or a 401 (sign in again, then save). A 403, 404 or 410 means the access or the document is gone: the page empties.
+      const passing = !r || r.status >= 500 || r.status === 401;
+      state = passing && state.doc?.id === docId && state.key === key
         ? { ...state, message: `The document could not be re-read: ${why}. What you see may not be the latest.` }
         : { ...emptyState(key), message: `The document could not be read: ${why}.` };
       render(state);
