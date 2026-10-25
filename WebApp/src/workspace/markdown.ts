@@ -2,8 +2,8 @@
 // passed in, text goes in as text nodes, and the only attributes ever set are href, target and rel on a safe link.
 import { isPipeRow, isSeparatorRow, splitPipeRow } from "../sentinel-core/pipe-table";
 
-const TABLE = "border-collapse:collapse;margin:.3rem 0";
-const CELL = "border:1px solid #3f3f46;padding:.2rem .45rem;text-align:left";
+export const TABLE = "border-collapse:collapse;margin:.3rem 0";
+export const CELL = "border:1px solid #3f3f46;padding:.2rem .45rem;text-align:left";
 // A link URL may hold one level of balanced parentheses.
 const INLINE = /(`[^`]+`)|(\*\*[^*]+\*\*)|\[([^\]]*)\]\(((?:[^()\s]|\([^()\s]*\))*)\)/g;
 // A fence opens on three backticks plus an info string without backticks, and closes on three backticks alone.

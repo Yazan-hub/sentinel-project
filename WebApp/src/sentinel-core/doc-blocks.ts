@@ -52,3 +52,17 @@ export const STAGE_WORDS: Record<string, string> = { pre_appointment: "Pre-appoi
 /** "Draft, S0": the status in plain words, the suitability after a comma; an unknown status shown as stored. */
 export const statusLine = (d: { status: string; suitability?: string | null }): string =>
   [STATUS_WORDS[d.status] ?? d.status, d.suitability].filter(Boolean).join(", ");
+
+export const BLOCK_NAMES: Record<BlockKind, string> = {
+  text: "Text", table: "Table", matrix: "Responsibility matrix", facts: "Project facts", live_view: "Live list",
+  proposed_changes: "Changes to the client's naming", eir_link: "Answers EIR clauses", loin: "Information needed, LOIN",
+  naming: "Naming rule", references: "Project documents",
+};
+
+/** A section's blocks, the bridge's rule (bridge/doc-blocks.mjs blocksOf): the stored list, or the body as one text block `<id>.t0`.
+ *  Stored data is untrusted: a non-array list reads as the body (a non-string body as ""), and entries that are not objects are dropped. */
+export function blocksOf(s: { id: string; body?: unknown; blocks?: unknown }): Block[] {
+  const sec = (typeof s === "object" && s !== null ? s : {}) as { id?: unknown; body?: unknown; blocks?: unknown };
+  if (Array.isArray(sec.blocks)) return sec.blocks.filter((b) => typeof b === "object" && b !== null && !Array.isArray(b)) as Block[];
+  return [{ id: `${typeof sec.id === "string" ? sec.id : ""}.t0`, kind: "text", title: "", data: { markdown: typeof sec.body === "string" ? sec.body : "" } }];
+}
